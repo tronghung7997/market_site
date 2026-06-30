@@ -9,5 +9,5 @@ COPY src/ ./src/
 
 # debug tool
 RUN apt update && apt install -y curl nano vim
-EXPOSE 8000
-CMD ["uvicorn", "src.main:app", "--host", "0.0.0.0", "--port", "8000"]
+EXPOSE 8001
+CMD ["uvicorn", "src.main:app", "--host", "0.0.0.0", "--port", "8001"]

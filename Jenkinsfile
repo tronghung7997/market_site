@@ -17,7 +17,7 @@ docker push $DOCKER_IMAGE_01
       steps {
         sh '''
         ssh -tt root@172.16.89.2 << EOF
-        cd /srv/market_site && git pull && docker-compose pull marketplace-svc frontend && docker-compose up -d --force-recreate marketplace-svc frontend
+        cd /srv/market_site && git pull && docker-compose pull marketplace-svc frontend && docker-compose up -d --force-recreate
         exit
         EOF
 '''

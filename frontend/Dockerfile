@@ -1,5 +1,5 @@
 # FROM node:22-alpine AS deps
-FROM registry.k7:5000/node:22-alpine
+FROM registry.k7:5000/node:22-alpine AS deps
 WORKDIR /app
 COPY package.json ./
 RUN npm install

@@ -26,7 +26,7 @@ docker push $DOCKER_IMAGE_01
 
   }
   environment {
-    DOCKER_IMAGE = 'registry.k7:5000/market-site/marketplace-svc:latest'
-    DOCKER_IMAGE_01 = 'registry.k7:5000/market-site/frontend:latest'
+    DOCKER_IMAGE = 'registry.k7:5000/market-site/frontend:latest'
+    DOCKER_IMAGE_01 = 'registry.k7:5000/market-site/marketplace-svc:latest'
   }
 }

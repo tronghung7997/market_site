@@ -7,4 +7,7 @@ RUN pip install --no-cache-dir -e .
 
 COPY src/ ./src/
 
+# debug tool
+RUN apt update && apt install -y curl nano vim
+
 CMD ["uvicorn", "src.main:app", "--host", "0.0.0.0", "--port", "8000"]

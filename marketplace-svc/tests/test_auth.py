@@ -1,4 +1,8 @@
 import pytest
+from sqlalchemy import select
+
+from src.database import SessionLocal
+from src.models.account import Account
 
 
 @pytest.mark.asyncio
@@ -13,6 +17,65 @@ async def test_register_success(client):
     assert "id" in data
     assert "buyer" in data["roles"]
     assert "password" not in data
+
+
+@pytest.mark.asyncio
+async def test_register_sets_unique_affiliate_code(client):
+    """Every account created via register() has a non-null, unique affiliate_code."""
+    await client.post("/auth/register", json={
+        "email": "aff1@example.com",
+        "password": "StrongPass123!",
+    })
+    await client.post("/auth/register", json={
+        "email": "aff2@example.com",
+        "password": "StrongPass123!",
+    })
+    async with SessionLocal() as db:
+        a1 = await db.scalar(select(Account).where(Account.email == "aff1@example.com"))
+        a2 = await db.scalar(select(Account).where(Account.email == "aff2@example.com"))
+    assert a1.affiliate_code is not None
+    assert a2.affiliate_code is not None
+    assert len(a1.affiliate_code) == 8
+    assert len(a2.affiliate_code) == 8
+    assert a1.affiliate_code != a2.affiliate_code
+
+
+@pytest.mark.asyncio
+async def test_register_affiliate_code_collision_retry(client, monkeypatch):
+    """On a unique-constraint collision, generation retries and produces a working code."""
+    from src.auth import utils
+
+    real_gen = utils.generate_affiliate_code
+    pre_existing = real_gen()
+    calls = {"n": 0}
+
+    def colliding_then_real():
+        calls["n"] += 1
+        if calls["n"] == 1:
+            return pre_existing
+        return real_gen()
+
+    monkeypatch.setattr(utils, "generate_affiliate_code", colliding_then_real)
+
+    await client.post("/auth/register", json={
+        "email": "seed@example.com",
+        "password": "StrongPass123!",
+    })
+    async with SessionLocal() as db:
+        seed = await db.scalar(select(Account).where(Account.email == "seed@example.com"))
+    monkeypatch.setattr(utils, "generate_affiliate_code", colliding_then_real)
+    calls["n"] = 0
+
+    response = await client.post("/auth/register", json={
+        "email": "retry@example.com",
+        "password": "StrongPass123!",
+    })
+    assert response.status_code == 201
+    async with SessionLocal() as db:
+        retry = await db.scalar(select(Account).where(Account.email == "retry@example.com"))
+    assert retry.affiliate_code is not None
+    assert retry.affiliate_code != seed.affiliate_code
+    assert calls["n"] >= 2
 
 
 @pytest.mark.asyncio

@@ -10,6 +10,7 @@ from src.config import settings
 from src.exceptions import DuplicateEmail
 from src.models.account import Account
 from src.models.wallet import Wallet
+from src.auth.utils import generate_unique_affiliate_code
 
 
 def hash_password(password: str) -> str:
@@ -37,7 +38,12 @@ async def register_account(email: str, password: str, db: AsyncSession) -> Accou
     existing = await db.scalar(select(Account).where(Account.email == email))
     if existing:
         raise DuplicateEmail()
-    account = Account(email=email, password_hash=hash_password(password))
+    affiliate_code = await generate_unique_affiliate_code(db)
+    account = Account(
+        email=email,
+        password_hash=hash_password(password),
+        affiliate_code=affiliate_code,
+    )
     db.add(account)
     await db.flush()
     wallet = Wallet(account_id=account.id)

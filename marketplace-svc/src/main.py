@@ -23,6 +23,14 @@ from src.scheduler import escrow_release_job, health_check_job, provider_scoring
 from src.seller.router import router as seller_router
 from src.wallet.router import router as wallet_router
 
+# offline
+from fastapi.openapi.docs import (
+    get_redoc_html,
+    get_swagger_ui_html,
+    get_swagger_ui_oauth2_redirect_html,
+)
+from fastapi.staticfiles import StaticFiles
+
 setup_logging()
 
 scheduler = AsyncIOScheduler()
@@ -41,6 +49,33 @@ async def lifespan(app):
 
 
 app = FastAPI(title=settings.service_name, lifespan=lifespan)
+
+# Static UI
+app.mount("/static", StaticFiles(directory="static"), name="static")
+
+@app.get("/docs", include_in_schema=False)
+async def custom_swagger_ui_html():
+    return get_swagger_ui_html(
+        openapi_url=app.openapi_url,
+        title="This is my town now !!!",
+        oauth2_redirect_url=app.swagger_ui_oauth2_redirect_url,
+        swagger_js_url="/static/swagger-ui-bundle.js",
+        swagger_css_url="/static/swagger-ui.css",
+    )
+
+@app.get(app.swagger_ui_oauth2_redirect_url, include_in_schema=False)
+async def swagger_ui_redirect():
+    return get_swagger_ui_oauth2_redirect_html()
+
+
+@app.get("/redoc", include_in_schema=False)
+async def redoc_html():
+    return get_redoc_html(
+        openapi_url=app.openapi_url,
+        title=app.title + " - ReDoc",
+        redoc_js_url="/static/redoc.standalone.js",
+    )
+#
 
 app.add_middleware(RequestIdMiddleware)
 app.add_middleware(

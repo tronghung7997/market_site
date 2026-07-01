@@ -1,7 +1,7 @@
 from datetime import datetime
 from enum import Enum as PyEnum
 
-from sqlalchemy import DateTime, Enum, String, func
+from sqlalchemy import DateTime, Enum, ForeignKey, String, func, text
 from sqlalchemy.dialects.postgresql import ARRAY
 from sqlalchemy.orm import Mapped, mapped_column
 
@@ -22,6 +22,14 @@ class Account(Base):
     password_hash: Mapped[str] = mapped_column(String(255), nullable=False)
     roles: Mapped[list[str]] = mapped_column(ARRAY(String), default=["buyer"])
     is_active: Mapped[bool] = mapped_column(default=True)
+    affiliate_code: Mapped[str] = mapped_column(
+        String(8),
+        unique=True,
+        index=True,
+        nullable=False,
+        server_default=text("upper(substr(md5(random()::text || clock_timestamp()::text), 1, 8))"),
+    )
+    referred_by_id: Mapped[int | None] = mapped_column(ForeignKey("accounts.id"), nullable=True)
     created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), server_default=func.now())
     updated_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), server_default=func.now(), onupdate=func.now())
 

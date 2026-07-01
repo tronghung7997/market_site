@@ -14,6 +14,7 @@ class TransactionType(str, PyEnum):
     platform_fee = "platform_fee"
     withdraw = "withdraw"
     refund = "refund"
+    affiliate_commission = "affiliate_commission"
 
 
 class WithdrawStatus(str, PyEnum):

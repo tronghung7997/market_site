@@ -1,4 +1,5 @@
 from src.models.account import Account, AccountRole, ApplicationStatus, SellerApplication
+from src.models.affiliate import AffiliateClick, AffiliateCommission
 from src.models.alert import Alert
 from src.models.category import Category
 from src.models.log_entry import LogEntry
@@ -12,6 +13,7 @@ from src.models.wallet import Transaction, TransactionType, Wallet, WithdrawRequ
 
 __all__ = [
     "Account", "AccountRole", "ApplicationStatus", "SellerApplication",
+    "AffiliateClick", "AffiliateCommission",
     "Alert",
     "Category",
     "LogEntry",

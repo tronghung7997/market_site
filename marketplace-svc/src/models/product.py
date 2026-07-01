@@ -54,6 +54,7 @@ class Product(Base):
     provider_id: Mapped[int | None] = mapped_column(ForeignKey("providers.id"), nullable=True)
     pricing_strategy: Mapped[str | None] = mapped_column(String(50), nullable=True, default=None)
     pricing_params: Mapped[dict | None] = mapped_column(JSON, nullable=True, default=None)
+    commission_rate: Mapped[float | None] = mapped_column(Float, nullable=True)
 
     created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), server_default=func.now())
     updated_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), server_default=func.now(), onupdate=func.now())

@@ -1,4 +1,4 @@
-from sqlalchemy import ForeignKey, Integer, String
+from sqlalchemy import Float, ForeignKey, Integer, String
 from sqlalchemy.orm import Mapped, mapped_column
 
 from src.database import Base
@@ -14,3 +14,4 @@ class Category(Base):
     parent_id: Mapped[int | None] = mapped_column(ForeignKey("categories.id"), nullable=True)
     sort_order: Mapped[int] = mapped_column(Integer, default=0)
     is_active: Mapped[bool] = mapped_column(default=True)
+    commission_rate: Mapped[float | None] = mapped_column(Float, nullable=True)

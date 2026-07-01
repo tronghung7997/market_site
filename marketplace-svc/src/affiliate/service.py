@@ -228,10 +228,13 @@ async def get_affiliate_stats(
         order = await db.get(Order, c.order_id)
         product_title = None
         if order and order.product_id:
-            from src.models.product import Product
-
             product = await db.get(Product, order.product_id)
             product_title = product.title if product else None
+        elif order and order.variant_id:
+            variant = await db.get(ProductVariant, order.variant_id)
+            if variant:
+                product = await db.get(Product, variant.product_id)
+                product_title = product.title if product else None
         commissions.append({
             "id": c.id,
             "order_id": c.order_id,

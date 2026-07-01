@@ -4,7 +4,8 @@ from sqlalchemy import select
 
 from src.database import SessionLocal
 from src.models.account import Account
-from src.models.affiliate import AffiliateClick
+from src.models.affiliate import AffiliateClick, AffiliateCommission
+from src.models.order import Order, OrderStatus
 from tests.conftest import make_admin, register_and_login
 
 
@@ -226,4 +227,140 @@ async def test_admin_affiliate_detail_matches_me(client):
     assert me_data["code"] == detail_data["code"]
     assert me_data["link"] == detail_data["link"]
     assert me_data["totals"] == detail_data["totals"]
+
+
+@pytest.mark.asyncio
+async def test_affiliate_me_shows_commission_after_order_completion(client):
+    """After a referred buyer completes an order, /affiliate/me reflects the commission."""
+    from tests.conftest import make_admin, make_seller, register_and_login
+
+    admin_token = await register_and_login(client, "aff_me2_admin@example.com")
+    await make_admin("aff_me2_admin@example.com")
+    admin_token = await register_and_login(client, "aff_me2_admin@example.com")
+    await client.post("/admin/categories", json={"name": "MeCat2", "slug": "mecat2"},
+                      headers={"Authorization": f"Bearer {admin_token}"})
+    cats = await client.get("/categories")
+    cat_id = cats.json()[-1]["id"]
+
+    seller_token = await register_and_login(client, "aff_me2_seller@example.com")
+    await make_seller("aff_me2_seller@example.com")
+    seller_token = await register_and_login(client, "aff_me2_seller@example.com")
+    product = await client.post("/seller/products", json={
+        "category_id": cat_id, "title": "MeProd2", "status": "active",
+    }, headers={"Authorization": f"Bearer {seller_token}"})
+    variant = await client.post(f"/seller/products/{product.json()['id']}/variants", json={
+        "name": "MeVar2", "price": 10000, "delivery_mode": "instant",
+    }, headers={"Authorization": f"Bearer {seller_token}"})
+    await client.post(f"/seller/variants/{variant.json()['id']}/resources", json={
+        "items": ["m1|p1", "m2|p2"],
+    }, headers={"Authorization": f"Bearer {seller_token}"})
+
+    reg = await client.post("/auth/register", json={
+        "email": "aff_me2_holder@example.com", "password": "StrongPass123!",
+    })
+    affiliate_id = reg.json()["id"]
+    login = await client.post("/auth/login", json={
+        "email": "aff_me2_holder@example.com", "password": "StrongPass123!",
+    })
+    aff_token = login.json()["access_token"]
+    async with SessionLocal() as db:
+        aff = await db.scalar(select(Account).where(Account.id == affiliate_id))
+        code = aff.affiliate_code
+
+    await client.post("/auth/register", json={
+        "email": "aff_me2_buyer@example.com", "password": "StrongPass123!", "referral_code": code,
+    })
+    buyer_login = await client.post("/auth/login", json={
+        "email": "aff_me2_buyer@example.com", "password": "StrongPass123!",
+    })
+    buyer_token = buyer_login.json()["access_token"]
+    buyer_me = await client.get("/me", headers={"Authorization": f"Bearer {buyer_token}"})
+    await client.post("/wallet/topup", json={"account_id": buyer_me.json()["id"], "amount": 100000},
+                      headers={"Authorization": f"Bearer {admin_token}"})
+
+    order = await client.post("/orders", json={"variant_id": variant.json()["id"], "quantity": 1},
+                              headers={"Authorization": f"Bearer {buyer_token}"})
+    await client.post(f"/orders/{order.json()['id']}/confirm",
+                      headers={"Authorization": f"Bearer {buyer_token}"})
+
+    resp = await client.get("/affiliate/me", headers={"Authorization": f"Bearer {aff_token}"})
+    assert resp.status_code == 200
+    data = resp.json()
+    assert data["totals"]["orders"] == 1
+    assert data["totals"]["commission"] == 500
+    assert data["totals"]["revenue"] == 10000
+    assert len(data["commissions"]) == 1
+    assert data["commissions"][0]["amount"] == 500
+    assert data["commissions"][0]["product_title"] == "MeProd2"
+
+
+@pytest.mark.asyncio
+async def test_commission_via_dispute_reject(client):
+    """Commission is credited when an admin rejects a dispute, completing the order."""
+    from tests.conftest import make_admin, make_seller, register_and_login
+
+    admin_token = await register_and_login(client, "disp_admin@example.com")
+    await make_admin("disp_admin@example.com")
+    admin_token = await register_and_login(client, "disp_admin@example.com")
+    await client.post("/admin/categories", json={"name": "DispCat", "slug": "dispcat"},
+                      headers={"Authorization": f"Bearer {admin_token}"})
+    cats = await client.get("/categories")
+    cat_id = cats.json()[-1]["id"]
+
+    seller_token = await register_and_login(client, "disp_seller@example.com")
+    await make_seller("disp_seller@example.com")
+    seller_token = await register_and_login(client, "disp_seller@example.com")
+    product = await client.post("/seller/products", json={
+        "category_id": cat_id, "title": "DispProd", "status": "active",
+    }, headers={"Authorization": f"Bearer {seller_token}"})
+    variant = await client.post(f"/seller/products/{product.json()['id']}/variants", json={
+        "name": "DispVar", "price": 10000, "delivery_mode": "instant",
+    }, headers={"Authorization": f"Bearer {seller_token}"})
+    await client.post(f"/seller/variants/{variant.json()['id']}/resources", json={
+        "items": ["d1|p1", "d2|p2"],
+    }, headers={"Authorization": f"Bearer {seller_token}"})
+
+    reg = await client.post("/auth/register", json={
+        "email": "disp_aff@example.com", "password": "StrongPass123!",
+    })
+    affiliate_id = reg.json()["id"]
+    async with SessionLocal() as db:
+        aff = await db.scalar(select(Account).where(Account.id == affiliate_id))
+        code = aff.affiliate_code
+
+    await client.post("/auth/register", json={
+        "email": "disp_buyer@example.com", "password": "StrongPass123!", "referral_code": code,
+    })
+    buyer_login = await client.post("/auth/login", json={
+        "email": "disp_buyer@example.com", "password": "StrongPass123!",
+    })
+    buyer_token = buyer_login.json()["access_token"]
+    buyer_me = await client.get("/me", headers={"Authorization": f"Bearer {buyer_token}"})
+    await client.post("/wallet/topup", json={"account_id": buyer_me.json()["id"], "amount": 100000},
+                      headers={"Authorization": f"Bearer {admin_token}"})
+
+    order = await client.post("/orders", json={"variant_id": variant.json()["id"], "quantity": 1},
+                              headers={"Authorization": f"Bearer {buyer_token}"})
+    order_id = order.json()["id"]
+
+    await client.post(f"/orders/{order_id}/dispute", json={"reason": "bad"},
+                      headers={"Authorization": f"Bearer {buyer_token}"})
+
+    async with SessionLocal() as db:
+        ord_obj = await db.get(Order, order_id)
+        ord_obj.status = OrderStatus.delivered
+        await db.commit()
+
+    disputes = await client.get("/admin/disputes",
+                                headers={"Authorization": f"Bearer {admin_token}"})
+    dispute_id = disputes.json()[0]["id"]
+
+    await client.post(f"/admin/disputes/{dispute_id}/reject", json={"admin_note": "rejected"},
+                      headers={"Authorization": f"Bearer {admin_token}"})
+
+    async with SessionLocal() as db:
+        comm = await db.scalar(select(AffiliateCommission).where(AffiliateCommission.order_id == order_id))
+        assert comm is not None
+        assert comm.affiliate_account_id == affiliate_id
+        assert comm.amount == 500
 

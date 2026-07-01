@@ -80,7 +80,7 @@ async def health():
     return {"status": "ok", "service": settings.service_name}
 
 # Static UI
-app.mount("static", StaticFiles(directory="static"), name="static")
+app.mount("/static", StaticFiles(directory="static"), name="static")
 
 @app.get("/docs", include_in_schema=False)
 async def custom_swagger_ui_html():

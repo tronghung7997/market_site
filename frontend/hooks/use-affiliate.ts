@@ -8,3 +8,18 @@ export function useAffiliateMe(params?: { date_from?: string; date_to?: string }
     queryFn: () => api.affiliateMe(params),
   });
 }
+
+export function useAdminAffiliates(params?: { search?: string; page?: number; per_page?: number }) {
+  return useQuery({
+    queryKey: queryKeys.adminAffiliates(params),
+    queryFn: () => api.adminAffiliates(params),
+  });
+}
+
+export function useAdminAffiliateDetail(id: number, params?: { date_from?: string; date_to?: string }) {
+  return useQuery({
+    queryKey: queryKeys.adminAffiliateDetail(id, params),
+    queryFn: () => api.adminAffiliateDetail(id, params),
+    enabled: !!id,
+  });
+}

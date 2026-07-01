@@ -80,6 +80,83 @@ async def apply_affiliate_commission(order: Order, db: AsyncSession) -> None:
     await credit_affiliate_commission(buyer.referred_by_id, amount, order.id, db)
 
 
+async def list_affiliates_admin(
+    db: AsyncSession,
+    search: str | None = None,
+    page: int = 1,
+    per_page: int = 20,
+) -> dict:
+    """Paginated list of accounts with aggregated affiliate stats.
+
+    Uses subqueries per aggregate to avoid cartesian-product sum inflation.
+    """
+    clicks_subq = (
+        select(
+            AffiliateClick.affiliate_account_id.label("aid"),
+            func.count(AffiliateClick.id).label("clicks"),
+        )
+        .group_by(AffiliateClick.affiliate_account_id)
+        .subquery()
+    )
+    signups_subq = (
+        select(
+            Account.referred_by_id.label("rid"),
+            func.count(Account.id).label("signups"),
+        )
+        .where(Account.referred_by_id.isnot(None))
+        .group_by(Account.referred_by_id)
+        .subquery()
+    )
+    comm_subq = (
+        select(
+            AffiliateCommission.affiliate_account_id.label("aid"),
+            func.count(AffiliateCommission.id).label("orders"),
+            func.coalesce(func.sum(AffiliateCommission.amount), 0).label("commission"),
+        )
+        .group_by(AffiliateCommission.affiliate_account_id)
+        .subquery()
+    )
+
+    query = (
+        select(
+            Account.id,
+            Account.email,
+            Account.affiliate_code,
+            func.coalesce(clicks_subq.c.clicks, 0).label("clicks"),
+            func.coalesce(signups_subq.c.signups, 0).label("signups"),
+            func.coalesce(comm_subq.c.orders, 0).label("orders"),
+            func.coalesce(comm_subq.c.commission, 0).label("commission"),
+        )
+        .outerjoin(clicks_subq, clicks_subq.c.aid == Account.id)
+        .outerjoin(signups_subq, signups_subq.c.rid == Account.id)
+        .outerjoin(comm_subq, comm_subq.c.aid == Account.id)
+    )
+    if search:
+        query = query.where(Account.email.ilike(f"%{search}%"))
+
+    count_q = select(func.count(Account.id))
+    if search:
+        count_q = count_q.where(Account.email.ilike(f"%{search}%"))
+    total = await db.scalar(count_q) or 0
+
+    rows = await db.execute(
+        query.order_by(Account.id).offset((page - 1) * per_page).limit(per_page)
+    )
+    items = [
+        {
+            "id": r.id,
+            "email": r.email,
+            "affiliate_code": r.affiliate_code,
+            "clicks": int(r.clicks or 0),
+            "signups": int(r.signups or 0),
+            "orders": int(r.orders or 0),
+            "commission": int(r.commission or 0),
+        }
+        for r in rows.all()
+    ]
+    return {"items": items, "total": int(total), "page": page, "per_page": per_page}
+
+
 def _parse_range(date_from: str | None, date_to: str | None) -> tuple[datetime | None, datetime | None]:
     start = datetime.fromisoformat(date_from) if date_from else None
     end = datetime.fromisoformat(date_to) + timedelta(days=1) if date_to else None

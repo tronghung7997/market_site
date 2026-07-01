@@ -5,6 +5,7 @@ from sqlalchemy import select
 from src.database import SessionLocal
 from src.models.account import Account
 from src.models.affiliate import AffiliateClick
+from tests.conftest import make_admin, register_and_login
 
 
 @pytest.mark.asyncio
@@ -142,4 +143,87 @@ async def test_affiliate_me_timeseries_has_no_gaps(client):
     for p in ts:
         assert p["date"] == cur.isoformat()
         cur += timedelta(days=1)
+
+
+# ---------------------------------------------------------------------------
+# Admin endpoints
+# ---------------------------------------------------------------------------
+
+
+@pytest.mark.asyncio
+async def test_admin_affiliates_requires_admin(client):
+    token = await register_and_login(client, "aff_nonadmin@example.com")
+    resp = await client.get("/admin/affiliates", headers={"Authorization": f"Bearer {token}"})
+    assert resp.status_code == 403
+
+
+@pytest.mark.asyncio
+async def test_admin_affiliate_detail_requires_admin(client):
+    token = await register_and_login(client, "aff_nonadmin2@example.com")
+    resp = await client.get("/admin/affiliates/1", headers={"Authorization": f"Bearer {token}"})
+    assert resp.status_code == 403
+
+
+@pytest.mark.asyncio
+async def test_admin_affiliates_list_paginates_and_searches(client):
+    admin_token = await register_and_login(client, "aff_list_admin@example.com")
+    await make_admin("aff_list_admin@example.com")
+    admin_token = await register_and_login(client, "aff_list_admin@example.com")
+
+    await client.post("/auth/register", json={"email": "searchable@example.com", "password": "StrongPass123!"})
+    await client.post("/auth/register", json={"email": "other@example.com", "password": "StrongPass123!"})
+
+    resp = await client.get("/admin/affiliates", headers={"Authorization": f"Bearer {admin_token}"})
+    assert resp.status_code == 200
+    data = resp.json()
+    assert data["total"] >= 3
+    assert len(data["items"]) <= data["per_page"]
+    assert all("affiliate_code" in item for item in data["items"])
+
+    resp = await client.get("/admin/affiliates", params={"search": "searchable"},
+                            headers={"Authorization": f"Bearer {admin_token}"})
+    assert resp.status_code == 200
+    results = resp.json()["items"]
+    assert all("searchable" in item["email"] for item in results)
+    assert len(results) >= 1
+
+
+@pytest.mark.asyncio
+async def test_admin_affiliate_detail_404_for_nonexistent(client):
+    admin_token = await register_and_login(client, "aff_detail_admin@example.com")
+    await make_admin("aff_detail_admin@example.com")
+    admin_token = await register_and_login(client, "aff_detail_admin@example.com")
+
+    resp = await client.get("/admin/affiliates/999999", headers={"Authorization": f"Bearer {admin_token}"})
+    assert resp.status_code == 404
+
+
+@pytest.mark.asyncio
+async def test_admin_affiliate_detail_matches_me(client):
+    """Detail response for a given account matches what /affiliate/me would return."""
+    admin_token = await register_and_login(client, "aff_match_admin@example.com")
+    await make_admin("aff_match_admin@example.com")
+    admin_token = await register_and_login(client, "aff_match_admin@example.com")
+
+    reg = await client.post("/auth/register", json={
+        "email": "aff_match_user@example.com",
+        "password": "StrongPass123!",
+    })
+    user_id = reg.json()["id"]
+    login = await client.post("/auth/login", json={
+        "email": "aff_match_user@example.com",
+        "password": "StrongPass123!",
+    })
+    user_token = login.json()["access_token"]
+
+    me_resp = await client.get("/affiliate/me", headers={"Authorization": f"Bearer {user_token}"})
+    detail_resp = await client.get(f"/admin/affiliates/{user_id}",
+                                   headers={"Authorization": f"Bearer {admin_token}"})
+    assert me_resp.status_code == 200
+    assert detail_resp.status_code == 200
+    me_data = me_resp.json()
+    detail_data = detail_resp.json()
+    assert me_data["code"] == detail_data["code"]
+    assert me_data["link"] == detail_data["link"]
+    assert me_data["totals"] == detail_data["totals"]
 

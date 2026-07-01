@@ -43,3 +43,22 @@ class AffiliateStatsResponse(BaseModel):
     totals: AffiliateTotals
     timeseries: list[TimeseriesPoint]
     commissions: list[CommissionRow]
+
+
+class AffiliateSummaryRow(BaseModel):
+    id: int
+    email: str
+    affiliate_code: str
+    clicks: int
+    signups: int
+    orders: int
+    commission: int
+
+    model_config = {"from_attributes": True}
+
+
+class PaginatedAffiliateSummary(BaseModel):
+    items: list[AffiliateSummaryRow]
+    total: int
+    page: int
+    per_page: int

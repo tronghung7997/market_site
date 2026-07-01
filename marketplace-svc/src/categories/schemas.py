@@ -7,6 +7,7 @@ class CategoryCreate(BaseModel):
     icon: str | None = None
     parent_id: int | None = None
     sort_order: int = 0
+    commission_rate: float | None = None
 
 
 class CategoryUpdate(BaseModel):
@@ -15,6 +16,7 @@ class CategoryUpdate(BaseModel):
     icon: str | None = None
     sort_order: int | None = None
     is_active: bool | None = None
+    commission_rate: float | None = None
 
 
 class CategoryResponse(BaseModel):
@@ -25,6 +27,7 @@ class CategoryResponse(BaseModel):
     parent_id: int | None
     sort_order: int
     is_active: bool
+    commission_rate: float | None = None
 
     model_config = {"from_attributes": True}
 

@@ -5,7 +5,7 @@ from sqlalchemy.ext.asyncio import AsyncSession
 from src.models.category import Category
 
 
-async def create_category(name: str, slug: str, icon: str | None, parent_id: int | None, sort_order: int, db: AsyncSession) -> Category:
+async def create_category(name: str, slug: str, icon: str | None, parent_id: int | None, sort_order: int, db: AsyncSession, commission_rate: float | None = None) -> Category:
     existing = await db.scalar(select(Category).where(Category.slug == slug))
     if existing:
         raise HTTPException(status_code=409, detail="Slug already exists")
@@ -13,7 +13,7 @@ async def create_category(name: str, slug: str, icon: str | None, parent_id: int
         parent = await db.get(Category, parent_id)
         if not parent:
             raise HTTPException(status_code=404, detail="Parent category not found")
-    cat = Category(name=name, slug=slug, icon=icon, parent_id=parent_id, sort_order=sort_order)
+    cat = Category(name=name, slug=slug, icon=icon, parent_id=parent_id, sort_order=sort_order, commission_rate=commission_rate)
     db.add(cat)
     await db.commit()
     await db.refresh(cat)
@@ -57,6 +57,7 @@ async def list_categories_tree(db: AsyncSession) -> list[dict]:
             {
                 "id": c.id, "name": c.name, "slug": c.slug, "icon": c.icon,
                 "parent_id": c.parent_id, "sort_order": c.sort_order, "is_active": c.is_active,
+                "commission_rate": c.commission_rate,
                 "children": build_tree(c.id),
             }
             for c in children

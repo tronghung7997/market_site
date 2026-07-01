@@ -17,7 +17,7 @@ async def list_categories(db: AsyncSession = Depends(get_session)):
 
 @router.post("/admin/categories", response_model=schemas.CategoryResponse, status_code=status.HTTP_201_CREATED)
 async def create_category(body: schemas.CategoryCreate, _: Account = Depends(require_role("admin")), db: AsyncSession = Depends(get_session)):
-    return await service.create_category(body.name, body.slug, body.icon, body.parent_id, body.sort_order, db)
+    return await service.create_category(body.name, body.slug, body.icon, body.parent_id, body.sort_order, db, commission_rate=body.commission_rate)
 
 
 @router.patch("/admin/categories/{cat_id}", response_model=schemas.CategoryResponse)

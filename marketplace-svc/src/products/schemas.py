@@ -15,6 +15,7 @@ class ProductCreate(BaseModel):
     specs: dict | None = None
     warranty_text: str | None = None
     highlight_text: str | None = None
+    commission_rate: float | None = None
 
 
 class ProductUpdate(BaseModel):
@@ -28,6 +29,7 @@ class ProductUpdate(BaseModel):
     specs: dict | None = None
     warranty_text: str | None = None
     highlight_text: str | None = None
+    commission_rate: float | None = None
 
 
 class ProductResponse(BaseModel):
@@ -49,6 +51,7 @@ class ProductResponse(BaseModel):
     rating_count: int
     pricing_strategy: str | None = None
     pricing_params: dict | None = None
+    commission_rate: float | None = None
     created_at: datetime
 
     model_config = {"from_attributes": True}

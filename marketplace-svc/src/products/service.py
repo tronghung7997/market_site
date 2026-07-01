@@ -256,5 +256,6 @@ def _product_dict(product: Product) -> dict:
         "rating_avg": product.rating_avg, "rating_count": product.rating_count,
         "pricing_strategy": product.pricing_strategy,
         "pricing_params": product.pricing_params,
+        "commission_rate": product.commission_rate,
         "created_at": product.created_at, "updated_at": product.updated_at,
     }

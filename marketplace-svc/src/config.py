@@ -14,6 +14,7 @@ class Settings(BaseSettings):
     internal_api_key: str = "dev-internal-key"
     platform_fee_percent: int = 0
     encryption_key: str = "dev-encryption-key-change-in-production"
+    frontend_base_url: str = "http://localhost:3000"
 
 
 settings = Settings()

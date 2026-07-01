@@ -34,4 +34,10 @@ export const queryKeys = {
 
   // Logs
   logs: (params?: Record<string, unknown>) => ["logs", params] as const,
+
+  // Affiliate
+  affiliateMe: (params?: Record<string, unknown>) => ["affiliate-me", params ?? null] as const,
+  adminAffiliates: (params?: Record<string, unknown>) => ["admin-affiliates", params ?? null] as const,
+  adminAffiliateDetail: (id: number, params?: Record<string, unknown>) =>
+    ["admin-affiliate", id, params ?? null] as const,
 } as const;

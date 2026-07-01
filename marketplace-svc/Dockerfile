@@ -1,14 +1,12 @@
 # FROM python:3.13-slim
 FROM registry.k7:5000/python:3.13-slim
 WORKDIR /app
-#
-COPY static .
+# static page
+COPY static /app/static/
 #
 COPY pyproject.toml .
 RUN pip install --no-cache-dir -e .
-
 COPY src/ ./src/
-
 # debug tool
 RUN apt update && apt install -y curl nano vim
 EXPOSE 8001

@@ -34,15 +34,25 @@ def decode_access_token(token: str) -> dict:
         raise HTTPException(status_code=status.HTTP_401_UNAUTHORIZED, detail="Invalid token")
 
 
-async def register_account(email: str, password: str, db: AsyncSession) -> Account:
+async def register_account(
+    email: str, password: str, db: AsyncSession, referral_code: str | None = None
+) -> Account:
     existing = await db.scalar(select(Account).where(Account.email == email))
     if existing:
         raise DuplicateEmail()
     affiliate_code = await generate_unique_affiliate_code(db)
+    referred_by_id: int | None = None
+    if referral_code:
+        referrer = await db.scalar(
+            select(Account).where(Account.affiliate_code == referral_code)
+        )
+        if referrer:
+            referred_by_id = referrer.id
     account = Account(
         email=email,
         password_hash=hash_password(password),
         affiliate_code=affiliate_code,
+        referred_by_id=referred_by_id,
     )
     db.add(account)
     await db.flush()

@@ -11,7 +11,7 @@ router = APIRouter(tags=["auth"])
 
 @router.post("/auth/register", response_model=schemas.AccountResponse, status_code=status.HTTP_201_CREATED)
 async def register(body: schemas.RegisterRequest, db: AsyncSession = Depends(get_session)):
-    account = await service.register_account(body.email, body.password, db)
+    account = await service.register_account(body.email, body.password, db, referral_code=body.referral_code)
     return account
 
 

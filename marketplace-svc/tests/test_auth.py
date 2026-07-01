@@ -87,6 +87,51 @@ async def test_register_duplicate_email(client):
 
 
 @pytest.mark.asyncio
+async def test_register_with_valid_referral_code_sets_referred_by(client):
+    seed = await client.post("/auth/register", json={
+        "email": "referrer@example.com",
+        "password": "StrongPass123!",
+    })
+    seed_id = seed.json()["id"]
+    async with SessionLocal() as db:
+        referrer = await db.scalar(select(Account).where(Account.email == "referrer@example.com"))
+    response = await client.post("/auth/register", json={
+        "email": "referred@example.com",
+        "password": "StrongPass123!",
+        "referral_code": referrer.affiliate_code,
+    })
+    assert response.status_code == 201
+    async with SessionLocal() as db:
+        referred = await db.scalar(select(Account).where(Account.email == "referred@example.com"))
+    assert referred.referred_by_id == seed_id
+
+
+@pytest.mark.asyncio
+async def test_register_with_unknown_referral_code_leaves_referred_by_null(client):
+    response = await client.post("/auth/register", json={
+        "email": "norefer@example.com",
+        "password": "StrongPass123!",
+        "referral_code": "NOPECODE",
+    })
+    assert response.status_code == 201
+    async with SessionLocal() as db:
+        account = await db.scalar(select(Account).where(Account.email == "norefer@example.com"))
+    assert account.referred_by_id is None
+
+
+@pytest.mark.asyncio
+async def test_register_without_referral_code_leaves_referred_by_null(client):
+    response = await client.post("/auth/register", json={
+        "email": "plain@example.com",
+        "password": "StrongPass123!",
+    })
+    assert response.status_code == 201
+    async with SessionLocal() as db:
+        account = await db.scalar(select(Account).where(Account.email == "plain@example.com"))
+    assert account.referred_by_id is None
+
+
+@pytest.mark.asyncio
 async def test_login_success(client):
     await client.post("/auth/register", json={"email": "login@example.com", "password": "StrongPass123!"})
     response = await client.post("/auth/login", json={"email": "login@example.com", "password": "StrongPass123!"})

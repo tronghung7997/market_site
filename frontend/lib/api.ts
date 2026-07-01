@@ -1,5 +1,5 @@
 import type {
-  Account, AdminDisputeDetail, AdminOrderDetail, AdminProduct, AdminResourceListResponse, CalculateResult, Category, DashboardData, Dispute, LogEntry, Order, OrderStats, PaginatedOrderResponse, PricingField, PricingOptions, ProductDetail, Product, ProductOperations, Review, SellerProduct, SellerStats, ServiceTask, Transaction, Variant, Wallet, Provider, ProviderHealth, Alert, Resource, ResourceSummary,
+  Account, AdminDisputeDetail, AdminOrderDetail, AdminProduct, AdminResourceListResponse, AffiliateStats, AffiliateSummary, CalculateResult, Category, DashboardData, Dispute, LogEntry, Order, OrderStats, PaginatedAffiliateSummary, PaginatedOrderResponse, PricingField, PricingOptions, ProductDetail, Product, ProductOperations, Review, SellerProduct, SellerStats, ServiceTask, Transaction, Variant, Wallet, Provider, ProviderHealth, Alert, Resource, ResourceSummary,
 } from "./types";
 
 const BASE = process.env.NEXT_PUBLIC_API_URL
@@ -46,8 +46,11 @@ async function request<T>(path: string, init: RequestInit = {}, auth = false): P
 }
 
 export const api = {
-  register: (email: string, password: string) =>
-    request<Account>("/auth/register", { method: "POST", body: JSON.stringify({ email, password }) }),
+  register: (email: string, password: string, referralCode?: string) => {
+    const body: Record<string, string> = { email, password };
+    if (referralCode) body.referral_code = referralCode;
+    return request<Account>("/auth/register", { method: "POST", body: JSON.stringify(body) });
+  },
   login: (email: string, password: string) =>
     request<{ access_token: string; token_type: string }>("/auth/login", { method: "POST", body: JSON.stringify({ email, password }) }),
   me: () => request<Account>("/me", {}, true),
@@ -175,9 +178,34 @@ export const api = {
     const qs = q.toString();
     return request<LogEntry[]>(`/admin/logs${qs ? `?${qs}` : ""}`, {}, true);
   },
+
+  affiliateClick: (code: string) =>
+    request<void>("/affiliate/click", { method: "POST", body: JSON.stringify({ code }) }),
+  affiliateMe: (params?: { date_from?: string; date_to?: string }) => {
+    const q = new URLSearchParams();
+    if (params?.date_from) q.set("date_from", params.date_from);
+    if (params?.date_to) q.set("date_to", params.date_to);
+    const qs = q.toString();
+    return request<AffiliateStats>(`/affiliate/me${qs ? `?${qs}` : ""}`, {}, true);
+  },
+  adminAffiliates: (params?: { search?: string; page?: number; per_page?: number }) => {
+    const q = new URLSearchParams();
+    if (params?.search) q.set("search", params.search);
+    if (params?.page) q.set("page", String(params.page));
+    if (params?.per_page) q.set("per_page", String(params.per_page));
+    const qs = q.toString();
+    return request<PaginatedAffiliateSummary>(`/admin/affiliates${qs ? `?${qs}` : ""}`, {}, true);
+  },
+  adminAffiliateDetail: (id: number, params?: { date_from?: string; date_to?: string }) => {
+    const q = new URLSearchParams();
+    if (params?.date_from) q.set("date_from", params.date_from);
+    if (params?.date_to) q.set("date_to", params.date_to);
+    const qs = q.toString();
+    return request<AffiliateStats>(`/admin/affiliates/${id}${qs ? `?${qs}` : ""}`, {}, true);
+  },
 };
 
-export type { Account, AdminDisputeDetail, AdminOrderDetail, AdminProduct, AdminResourceListResponse, CalculateResult, Category, DashboardData, Dispute, LogEntry, Order, OrderStats, PaginatedOrderResponse, PricingField, PricingOptions, Product, ProductDetail, ProductOperations, Review, SellerProduct, SellerStats, ServiceTask, Transaction, Variant, Wallet, Provider, ProviderHealth, Alert, Resource, ResourceSummary };
+export type { Account, AdminDisputeDetail, AdminOrderDetail, AdminProduct, AdminResourceListResponse, AffiliateStats, AffiliateSummary, CalculateResult, Category, DashboardData, Dispute, LogEntry, Order, OrderStats, PaginatedAffiliateSummary, PaginatedOrderResponse, PricingField, PricingOptions, Product, ProductDetail, ProductOperations, Review, SellerProduct, SellerStats, ServiceTask, Transaction, Variant, Wallet, Provider, ProviderHealth, Alert, Resource, ResourceSummary };
 
 /** Money helpers. Backend stores an integer amount; for this Vietnamese
  * marketplace we render it as đồng (no sub-unit), e.g. 7000 → "7.000 ₫". */

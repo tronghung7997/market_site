@@ -2,6 +2,8 @@ export interface Account {
   id: number;
   email: string;
   roles: string[];
+  affiliate_code?: string;
+  referred_by_id?: number | null;
 }
 
 export interface Category {
@@ -12,6 +14,7 @@ export interface Category {
   parent_id: number | null;
   sort_order: number;
   is_active: boolean;
+  commission_rate?: number | null;
   children: Category[];
 }
 
@@ -34,6 +37,7 @@ export interface Product {
   rating_count: number;
   pricing_strategy?: string | null;
   pricing_params?: Record<string, unknown> | null;
+  commission_rate?: number | null;
   created_at: string;
 }
 
@@ -372,4 +376,57 @@ export interface DashboardData {
   usage?: DashboardUsage[];
   tasks?: DashboardTask[];
   delivered_data?: string;
+}
+
+export interface AffiliateTotals {
+  clicks: number;
+  signups: number;
+  orders: number;
+  revenue: number;
+  commission: number;
+}
+
+export interface AffiliateTimeseriesPoint {
+  date: string;
+  clicks: number;
+  signups: number;
+  orders: number;
+  revenue: number;
+  commission: number;
+}
+
+export interface AffiliateCommissionRow {
+  id: number;
+  order_id: number;
+  buyer_account_id: number;
+  rate_percent: number;
+  amount: number;
+  created_at: string;
+  product_title: string | null;
+  order_total: number | null;
+}
+
+export interface AffiliateStats {
+  code: string;
+  link: string;
+  totals: AffiliateTotals;
+  timeseries: AffiliateTimeseriesPoint[];
+  commissions: AffiliateCommissionRow[];
+}
+
+export interface AffiliateSummary {
+  id: number;
+  email: string;
+  affiliate_code: string;
+  clicks: number;
+  signups: number;
+  orders: number;
+  commission: number;
+}
+
+export interface PaginatedAffiliateSummary {
+  items: AffiliateSummary[];
+  total: number;
+  page: number;
+  per_page: number;
 }

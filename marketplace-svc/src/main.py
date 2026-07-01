@@ -48,34 +48,7 @@ async def lifespan(app):
     scheduler.shutdown()
 
 
-app = FastAPI(title=settings.service_name, lifespan=lifespan)
-
-# Static UI
-app.mount("/static", StaticFiles(directory="static"), name="static")
-
-@app.get("/docs", include_in_schema=False)
-async def custom_swagger_ui_html():
-    return get_swagger_ui_html(
-        openapi_url=app.openapi_url,
-        title="This is my town now !!!",
-        oauth2_redirect_url=app.swagger_ui_oauth2_redirect_url,
-        swagger_js_url="/app/src/static/swagger-ui-bundle.js",
-        swagger_css_url="/app/src/static/swagger-ui.css",
-    )
-
-@app.get(app.swagger_ui_oauth2_redirect_url, include_in_schema=False)
-async def swagger_ui_redirect():
-    return get_swagger_ui_oauth2_redirect_html()
-
-
-@app.get("/redoc", include_in_schema=False)
-async def redoc_html():
-    return get_redoc_html(
-        openapi_url=app.openapi_url,
-        title=app.title + " - ReDoc",
-        redoc_js_url="/app/src/static/redoc.standalone.js",
-    )
-#
+app = FastAPI(title=settings.service_name, lifespan=lifespan, docs_url=None, redoc_url=None)
 
 app.add_middleware(RequestIdMiddleware)
 app.add_middleware(
@@ -105,3 +78,30 @@ app.include_router(audit_router)
 @app.get("/health")
 async def health():
     return {"status": "ok", "service": settings.service_name}
+
+# Static UI
+app.mount("static", StaticFiles(directory="static"), name="static")
+
+@app.get("/docs", include_in_schema=False)
+async def custom_swagger_ui_html():
+    return get_swagger_ui_html(
+        openapi_url=app.openapi_url,
+        title="This is my town now !!!",
+        oauth2_redirect_url=app.swagger_ui_oauth2_redirect_url,
+        swagger_js_url="/static/swagger-ui-bundle.js",
+        swagger_css_url="/static/swagger-ui.css",
+    )
+
+@app.get(app.swagger_ui_oauth2_redirect_url, include_in_schema=False)
+async def swagger_ui_redirect():
+    return get_swagger_ui_oauth2_redirect_html()
+
+
+@app.get("/redoc", include_in_schema=False)
+async def redoc_html():
+    return get_redoc_html(
+        openapi_url=app.openapi_url,
+        title=app.title + " - ReDoc",
+        redoc_js_url="/static/redoc.standalone.js",
+    )
+#

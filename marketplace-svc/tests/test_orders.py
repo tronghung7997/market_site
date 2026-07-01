@@ -1,11 +1,73 @@
 import pytest
-from sqlalchemy import update
+from sqlalchemy import select, update
 
 from src.database import SessionLocal
+from src.models.account import Account
+from src.models.affiliate import AffiliateCommission
+from src.models.order import Order, OrderStatus
 from src.models.pricing_config import PricingConfig
 from src.models.product import Product
 from src.models.provider import Provider
+from src.models.wallet import Wallet
 from tests.conftest import make_admin, make_seller, register_and_login
+
+
+async def setup_affiliate_order(client, product_rate=None, category_rate=None, use_referral=True):
+    """Create admin/seller/product+variant+resources, an affiliate, a referred buyer with credit.
+
+    Returns (admin_token, seller_token, buyer_token, variant_id, affiliate_id, code).
+    """
+    admin_token = await register_and_login(client, "aff_admin@example.com")
+    await make_admin("aff_admin@example.com")
+    admin_token = await register_and_login(client, "aff_admin@example.com")
+
+    cat_payload = {"name": "AffCat", "slug": "affcat"}
+    if category_rate is not None:
+        cat_payload["commission_rate"] = category_rate
+    await client.post("/admin/categories", json=cat_payload,
+                      headers={"Authorization": f"Bearer {admin_token}"})
+    cats = await client.get("/categories")
+    cat_id = cats.json()[-1]["id"]
+
+    seller_token = await register_and_login(client, "aff_seller@example.com")
+    await make_seller("aff_seller@example.com")
+    seller_token = await register_and_login(client, "aff_seller@example.com")
+
+    prod_payload = {"category_id": cat_id, "title": "Aff Product", "status": "active", "escrow_days": 2}
+    if product_rate is not None:
+        prod_payload["commission_rate"] = product_rate
+    product = await client.post("/seller/products", json=prod_payload,
+                                headers={"Authorization": f"Bearer {seller_token}"})
+    variant = await client.post(f"/seller/products/{product.json()['id']}/variants", json={
+        "name": "Aff Var", "price": 10000, "delivery_mode": "instant",
+    }, headers={"Authorization": f"Bearer {seller_token}"})
+    variant_id = variant.json()["id"]
+    await client.post(f"/seller/variants/{variant_id}/resources", json={
+        "items": ["uid1|pass1", "uid2|pass2", "uid3|pass3"],
+    }, headers={"Authorization": f"Bearer {seller_token}"})
+
+    affiliate_reg = await client.post("/auth/register", json={
+        "email": "aff_holder@example.com", "password": "StrongPass123!",
+    })
+    affiliate_id = affiliate_reg.json()["id"]
+    async with SessionLocal() as db:
+        affiliate = await db.scalar(select(Account).where(Account.id == affiliate_id))
+        code = affiliate.affiliate_code
+
+    buyer_payload = {"email": "aff_buyer@example.com", "password": "StrongPass123!"}
+    if use_referral:
+        buyer_payload["referral_code"] = code
+    await client.post("/auth/register", json=buyer_payload)
+    buyer_login = await client.post("/auth/login", json={
+        "email": "aff_buyer@example.com", "password": "StrongPass123!",
+    })
+    buyer_token = buyer_login.json()["access_token"]
+    buyer_me = await client.get("/me", headers={"Authorization": f"Bearer {buyer_token}"})
+    buyer_id = buyer_me.json()["id"]
+    await client.post("/wallet/topup", json={"account_id": buyer_id, "amount": 100000},
+                      headers={"Authorization": f"Bearer {admin_token}"})
+
+    return admin_token, seller_token, buyer_token, variant_id, affiliate_id, code
 
 
 async def setup_buyable_product(client):
@@ -305,3 +367,187 @@ async def test_old_flow_still_works_after_refactor(client):
     assert data["total_amount"] == 1000
     assert data["delivered_data"] is not None
     assert data["variant_id"] == instant_vid
+
+
+# ---------------------------------------------------------------------------
+# Affiliate commission on order completion
+# ---------------------------------------------------------------------------
+
+
+@pytest.mark.asyncio
+async def test_commission_default_rate_on_completion(client):
+    """Referred buyer completes order with no product/category override → default rate."""
+    _, _, buyer_token, vid, affiliate_id, _ = await setup_affiliate_order(client)
+
+    order = await client.post("/orders", json={"variant_id": vid, "quantity": 1},
+                              headers={"Authorization": f"Bearer {buyer_token}"})
+    order_id = order.json()["id"]
+
+    confirm = await client.post(f"/orders/{order_id}/confirm",
+                                headers={"Authorization": f"Bearer {buyer_token}"})
+    assert confirm.status_code == 200
+    assert confirm.json()["status"] == "completed"
+
+    async with SessionLocal() as db:
+        comm = await db.scalar(
+            select(AffiliateCommission).where(AffiliateCommission.order_id == order_id)
+        )
+        assert comm is not None
+        assert comm.affiliate_account_id == affiliate_id
+        # default 5% of 10000 = 500
+        assert comm.rate_percent == 5.0
+        assert comm.amount == 500
+
+        affiliate_wallet = await db.scalar(select(Wallet).where(Wallet.account_id == affiliate_id))
+        assert affiliate_wallet.balance == 500
+
+
+@pytest.mark.asyncio
+async def test_commission_uses_category_rate(client):
+    _, _, buyer_token, vid, affiliate_id, _ = await setup_affiliate_order(client, category_rate=10.0)
+
+    order = await client.post("/orders", json={"variant_id": vid, "quantity": 1},
+                              headers={"Authorization": f"Bearer {buyer_token}"})
+    order_id = order.json()["id"]
+    await client.post(f"/orders/{order_id}/confirm",
+                      headers={"Authorization": f"Bearer {buyer_token}"})
+
+    async with SessionLocal() as db:
+        comm = await db.scalar(
+            select(AffiliateCommission).where(AffiliateCommission.order_id == order_id)
+        )
+        assert comm is not None
+        assert comm.rate_percent == 10.0
+        assert comm.amount == 1000
+
+
+@pytest.mark.asyncio
+async def test_commission_product_rate_wins_over_category(client):
+    _, _, buyer_token, vid, affiliate_id, _ = await setup_affiliate_order(
+        client, product_rate=7.0, category_rate=10.0
+    )
+
+    order = await client.post("/orders", json={"variant_id": vid, "quantity": 1},
+                              headers={"Authorization": f"Bearer {buyer_token}"})
+    order_id = order.json()["id"]
+    await client.post(f"/orders/{order_id}/confirm",
+                      headers={"Authorization": f"Bearer {buyer_token}"})
+
+    async with SessionLocal() as db:
+        comm = await db.scalar(
+            select(AffiliateCommission).where(AffiliateCommission.order_id == order_id)
+        )
+        assert comm is not None
+        assert comm.rate_percent == 7.0
+        assert comm.amount == 700
+
+
+@pytest.mark.asyncio
+async def test_no_commission_when_buyer_not_referred(client):
+    _, _, buyer_token, vid, affiliate_id, _ = await setup_affiliate_order(client, use_referral=False)
+
+    order = await client.post("/orders", json={"variant_id": vid, "quantity": 1},
+                              headers={"Authorization": f"Bearer {buyer_token}"})
+    order_id = order.json()["id"]
+    await client.post(f"/orders/{order_id}/confirm",
+                      headers={"Authorization": f"Bearer {buyer_token}"})
+
+    async with SessionLocal() as db:
+        comm = await db.scalar(
+            select(AffiliateCommission).where(AffiliateCommission.order_id == order_id)
+        )
+        assert comm is None
+        affiliate_wallet = await db.scalar(select(Wallet).where(Wallet.account_id == affiliate_id))
+        assert affiliate_wallet.balance == 0
+
+
+@pytest.mark.asyncio
+async def test_no_commission_on_self_referral(client):
+    """If buyer.referred_by_id == order.buyer_id, no commission (self-referral guard)."""
+    _, _, buyer_token, vid, _, _ = await setup_affiliate_order(client, use_referral=True)
+
+    async with SessionLocal() as db:
+        buyer = await db.scalar(select(Account).where(Account.email == "aff_buyer@example.com"))
+        buyer.referred_by_id = buyer.id
+        await db.commit()
+
+    order = await client.post("/orders", json={"variant_id": vid, "quantity": 1},
+                              headers={"Authorization": f"Bearer {buyer_token}"})
+    order_id = order.json()["id"]
+    await client.post(f"/orders/{order_id}/confirm",
+                      headers={"Authorization": f"Bearer {buyer_token}"})
+
+    async with SessionLocal() as db:
+        comm = await db.scalar(
+            select(AffiliateCommission).where(AffiliateCommission.order_id == order_id)
+        )
+        assert comm is None
+
+
+@pytest.mark.asyncio
+async def test_commission_atomic_with_order_status(client):
+    """Commission and order status change are in the same transaction: if the
+    commission insert fails, the order status change also rolls back."""
+    _, _, buyer_token, vid, affiliate_id, _ = await setup_affiliate_order(client)
+
+    order = await client.post("/orders", json={"variant_id": vid, "quantity": 1},
+                              headers={"Authorization": f"Bearer {buyer_token}"})
+    order_id = order.json()["id"]
+
+    from src.affiliate import service as aff_service
+
+    original_apply = aff_service.apply_affiliate_commission
+    call_count = {"n": 0}
+
+    async def failing_apply(order, db):
+        call_count["n"] += 1
+        raise RuntimeError("commission failure")
+
+    # Patch at the import site in orders.service
+    import src.orders.service as orders_service_mod
+    original_ref = orders_service_mod.apply_affiliate_commission if hasattr(orders_service_mod, "apply_affiliate_commission") else None
+
+    # The import is local inside confirm_order, so patch the source module
+    monkeypatch_target = aff_service
+    original_func = monkeypatch_target.apply_affiliate_commission
+    monkeypatch_target.apply_affiliate_commission = failing_apply
+
+    try:
+        with pytest.raises(RuntimeError):
+            await client.post(f"/orders/{order_id}/confirm",
+                              headers={"Authorization": f"Bearer {buyer_token}"})
+    finally:
+        monkeypatch_target.apply_affiliate_commission = original_func
+
+    async with SessionLocal() as db:
+        order = await db.get(Order, order_id)
+        assert order.status != OrderStatus.completed
+        comm = await db.scalar(
+            select(AffiliateCommission).where(AffiliateCommission.order_id == order_id)
+        )
+        assert comm is None
+
+
+@pytest.mark.asyncio
+async def test_no_double_credit_on_reentry(client):
+    """Re-entering the completion path for an already-completed order does not double-credit."""
+    _, _, buyer_token, vid, affiliate_id, _ = await setup_affiliate_order(client)
+
+    order = await client.post("/orders", json={"variant_id": vid, "quantity": 1},
+                              headers={"Authorization": f"Bearer {buyer_token}"})
+    order_id = order.json()["id"]
+    await client.post(f"/orders/{order_id}/confirm",
+                      headers={"Authorization": f"Bearer {buyer_token}"})
+
+    async with SessionLocal() as db:
+        order = await db.get(Order, order_id)
+        from src.affiliate.service import apply_affiliate_commission
+        await apply_affiliate_commission(order, db)
+        await db.commit()
+
+        comms = list((await db.execute(
+            select(AffiliateCommission).where(AffiliateCommission.order_id == order_id)
+        )).scalars().all())
+        assert len(comms) == 1
+        affiliate_wallet = await db.scalar(select(Wallet).where(Wallet.account_id == affiliate_id))
+        assert affiliate_wallet.balance == 500

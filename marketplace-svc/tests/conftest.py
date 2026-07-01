@@ -8,6 +8,7 @@ os.environ["DATABASE_URL"] = os.environ.get(
 )
 os.environ.setdefault("JWT_SECRET", "test-secret-key-at-least-32-bytes-long-000")
 os.environ.setdefault("INTERNAL_API_KEY", "test-internal-key")
+os.environ.setdefault("DEFAULT_AFFILIATE_COMMISSION_PERCENT", "5.0")
 
 import pytest
 from httpx import ASGITransport, AsyncClient

@@ -64,6 +64,17 @@ async def refund_escrow(order_id: int, buyer_id: int, amount: int, db: AsyncSess
     ))
 
 
+async def credit_affiliate_commission(
+    affiliate_account_id: int, amount: int, order_id: int, db: AsyncSession
+) -> None:
+    wallet = await get_wallet_by_account(affiliate_account_id, db)
+    wallet.balance += amount
+    db.add(Transaction(
+        wallet_id=wallet.id, type=TransactionType.affiliate_commission,
+        amount=amount, description="Affiliate commission", reference_id=str(order_id),
+    ))
+
+
 async def get_transactions(account_id: int, db: AsyncSession) -> list[Transaction]:
     wallet = await get_wallet_by_account(account_id, db)
     result = await db.execute(

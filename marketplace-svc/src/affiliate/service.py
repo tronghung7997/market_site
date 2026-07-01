@@ -6,7 +6,10 @@ from sqlalchemy.ext.asyncio import AsyncSession
 from src.config import settings
 from src.models.account import Account
 from src.models.affiliate import AffiliateClick, AffiliateCommission
+from src.models.category import Category
 from src.models.order import Order
+from src.models.product import Product, ProductVariant
+from src.wallet.service import credit_affiliate_commission
 
 
 async def record_click(code: str, db: AsyncSession, path: str | None = None, referrer: str | None = None) -> None:
@@ -21,6 +24,60 @@ async def record_click(code: str, db: AsyncSession, path: str | None = None, ref
         )
     )
     await db.commit()
+
+
+async def apply_affiliate_commission(order: Order, db: AsyncSession) -> None:
+    """Credit affiliate commission for a completed order, in the caller's transaction.
+
+    Called at every point Order.status transitions to `completed`. Must run
+    BEFORE the caller's `db.commit()` so the commission + wallet credit share
+    the same transaction as the status change.
+    """
+    buyer = await db.get(Account, order.buyer_id)
+    if not buyer or buyer.referred_by_id is None:
+        return
+    if buyer.referred_by_id == order.buyer_id:
+        return
+
+    existing = await db.scalar(
+        select(AffiliateCommission.id).where(AffiliateCommission.order_id == order.id)
+    )
+    if existing:
+        return
+
+    product = None
+    if order.product_id:
+        product = await db.get(Product, order.product_id)
+    elif order.variant_id:
+        variant = await db.get(ProductVariant, order.variant_id)
+        if variant:
+            product = await db.get(Product, variant.product_id)
+
+    rate: float | None = None
+    if product:
+        if product.commission_rate is not None:
+            rate = product.commission_rate
+        else:
+            category = await db.get(Category, product.category_id)
+            if category and category.commission_rate is not None:
+                rate = category.commission_rate
+    if rate is None:
+        rate = settings.default_affiliate_commission_percent
+
+    amount = round(order.total_amount * rate / 100)
+    if amount <= 0:
+        return
+
+    db.add(
+        AffiliateCommission(
+            order_id=order.id,
+            affiliate_account_id=buyer.referred_by_id,
+            buyer_account_id=buyer.id,
+            rate_percent=rate,
+            amount=amount,
+        )
+    )
+    await credit_affiliate_commission(buyer.referred_by_id, amount, order.id, db)
 
 
 def _parse_range(date_from: str | None, date_to: str | None) -> tuple[datetime | None, datetime | None]:

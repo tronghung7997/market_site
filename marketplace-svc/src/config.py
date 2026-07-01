@@ -15,6 +15,7 @@ class Settings(BaseSettings):
     platform_fee_percent: int = 0
     encryption_key: str = "dev-encryption-key-change-in-production"
     frontend_base_url: str = "http://localhost:3000"
+    default_affiliate_commission_percent: float = 0.0
 
 
 settings = Settings()

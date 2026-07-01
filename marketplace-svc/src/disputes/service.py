@@ -181,6 +181,8 @@ async def reject_dispute(dispute_id: int, admin_note: str, db: AsyncSession) -> 
 
     platform_fee = int(order.total_amount * settings.platform_fee_percent / 100)
     await release_escrow(order.id, order.seller_id, order.total_amount, platform_fee, db)
+    from src.affiliate.service import apply_affiliate_commission
+    await apply_affiliate_commission(order, db)
     await log_event(db, "info", f"Dispute {dispute_id} rejected", request_id=current_request_id(),
                     metadata={"event": "dispute_rejected", "order_id": order.id, "amount": order.total_amount})
     await db.commit()

@@ -187,6 +187,8 @@ async def confirm_order(order_id: int, buyer_id: int, db: AsyncSession) -> Order
         raise HTTPException(status_code=400, detail="Order not delivered")
     order.status = OrderStatus.completed
     await release_escrow(order.id, order.seller_id, order.total_amount, platform_fee=0, db=db)
+    from src.affiliate.service import apply_affiliate_commission
+    await apply_affiliate_commission(order, db)
     await log_event(db, "info", f"Order {order.id} confirmed by buyer", request_id=current_request_id(),
                     metadata={"event": "order_confirmed", "order_id": order.id, "amount": order.total_amount})
     await db.commit()

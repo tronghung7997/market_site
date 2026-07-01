@@ -6,6 +6,7 @@ from starlette.middleware.cors import CORSMiddleware
 
 from src.alerts.router import router as alerts_router
 from src.audit.router import router as audit_router
+from src.affiliate.router import router as affiliate_router
 from src.auth.router import router as auth_router
 from src.categories.router import router as categories_router
 from src.config import settings
@@ -73,6 +74,7 @@ app.include_router(tasks_router)
 app.include_router(alerts_router)
 app.include_router(reviews_router)
 app.include_router(audit_router)
+app.include_router(affiliate_router)
 
 
 @app.get("/health")

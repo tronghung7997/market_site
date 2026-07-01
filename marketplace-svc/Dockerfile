@@ -5,7 +5,7 @@ WORKDIR /app
 COPY pyproject.toml .
 RUN pip install --no-cache-dir -e .
 
-COPY src/ .
+COPY src/ ./src/
 
 # debug tool
 RUN apt update && apt install -y curl nano vim

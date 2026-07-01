@@ -13,6 +13,7 @@ const LINKS: { href: string; label: string; auth?: boolean; role?: string }[] = 
   { href: "/", label: "Chợ" },
   { href: "/orders", label: "Đơn hàng", auth: true },
   { href: "/wallet", label: "Ví", auth: true },
+  { href: "/affiliate", label: "Affiliate", auth: true },
   { href: "/seller", label: "Gian hàng", role: "seller" },
   { href: "/admin", label: "Admin", role: "admin" },
 ];
@@ -84,6 +85,7 @@ export default function TopNav() {
                       <div className="py-1">
                         <Link href="/orders" className="block px-4 py-2 text-[13px] text-muted hover:text-fg hover:bg-raised transition-colors">Đơn hàng</Link>
                         <Link href="/wallet" className="block px-4 py-2 text-[13px] text-muted hover:text-fg hover:bg-raised transition-colors">Ví</Link>
+                        <Link href="/affiliate" className="block px-4 py-2 text-[13px] text-muted hover:text-fg hover:bg-raised transition-colors">Affiliate</Link>
                         {account.roles.includes("seller") && (
                           <Link href="/seller" className="block px-4 py-2 text-[13px] text-muted hover:text-fg hover:bg-raised transition-colors">Gian hàng</Link>
                         )}

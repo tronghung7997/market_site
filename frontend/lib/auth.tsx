@@ -9,7 +9,7 @@ interface AuthState {
   account: Account | null;
   loading: boolean;
   login: (email: string, password: string) => Promise<void>;
-  register: (email: string, password: string) => Promise<void>;
+  register: (email: string, password: string, referralCode?: string) => Promise<void>;
   logout: () => void;
   refresh: () => Promise<void>;
 }
@@ -47,8 +47,8 @@ export function AuthProvider({ children }: { children: ReactNode }) {
     await refresh();
   };
 
-  const register = async (email: string, password: string) => {
-    await api.register(email, password);
+  const register = async (email: string, password: string, referralCode?: string) => {
+    await api.register(email, password, referralCode);
     await login(email, password);
   };
 

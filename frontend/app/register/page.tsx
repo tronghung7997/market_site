@@ -4,6 +4,7 @@ import Link from "next/link";
 import { useRouter } from "next/navigation";
 import { useState } from "react";
 import { useAuth } from "@/lib/auth";
+import { getCookie } from "@/lib/utils";
 import { Button, Card, Field, Input } from "@/components/ui";
 import { Logo } from "@/components/Icons";
 
@@ -19,7 +20,8 @@ export default function RegisterPage() {
     e.preventDefault();
     setBusy(true); setError(null);
     try {
-      await register(email, password);
+      const ref = getCookie("aff_ref");
+      await register(email, password, ref ?? undefined);
       router.push("/");
     } catch (err) {
       setError(err instanceof Error ? err.message : "Đăng ký thất bại");

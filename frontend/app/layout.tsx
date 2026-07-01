@@ -1,6 +1,7 @@
 import "./globals.css";
 import type { Metadata } from "next";
 import type { ReactNode } from "react";
+import { Suspense } from "react";
 import { Newsreader, Be_Vietnam_Pro, JetBrains_Mono } from "next/font/google";
 import { AuthProvider } from "@/lib/auth";
 import { QueryProvider } from "@/lib/query-provider";
@@ -8,6 +9,7 @@ import TopNav from "@/components/TopNav";
 import SiteFooter from "@/components/SiteFooter";
 import ChromeGate from "@/components/ChromeGate";
 import RouteProgress from "@/components/RouteProgress";
+import ReferralCapture from "@/components/ReferralCapture";
 
 const newsreader = Newsreader({
   subsets: ["latin", "vietnamese"], style: ["normal", "italic"], variable: "--font-newsreader", display: "swap",
@@ -31,6 +33,7 @@ export default function RootLayout({ children }: { children: ReactNode }) {
         <AuthProvider>
           <QueryProvider>
             <RouteProgress />
+            <Suspense fallback={null}><ReferralCapture /></Suspense>
             <ChromeGate><TopNav /></ChromeGate>
             <main className="flex-1 flex flex-col">{children}</main>
             <ChromeGate><SiteFooter /></ChromeGate>

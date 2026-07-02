@@ -200,8 +200,11 @@ export const api = {
     return request<LogEntry[]>(`/admin/logs${qs ? `?${qs}` : ""}`, {}, true);
   },
 
-  affiliateClick: (code: string) =>
-    request<void>("/affiliate/click", { method: "POST", body: JSON.stringify({ code }) }),
+  affiliateClick: (code: string, visitorId?: string) =>
+    request<void>("/affiliate/click", {
+      method: "POST",
+      body: JSON.stringify({ code, visitor_id: visitorId ?? null }),
+    }),
   affiliateMe: (params?: { date_from?: string; date_to?: string }) => {
     const q = new URLSearchParams();
     if (params?.date_from) q.set("date_from", params.date_from);

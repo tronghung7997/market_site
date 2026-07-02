@@ -13,15 +13,53 @@ from src.models.product import Product, ProductVariant
 from src.wallet.service import credit_affiliate_commission
 
 
-async def record_click(code: str, db: AsyncSession, path: str | None = None, referrer: str | None = None) -> None:
+CLICK_DEDUP_WINDOW = timedelta(hours=24)
+
+
+async def record_click(
+    code: str,
+    db: AsyncSession,
+    path: str | None = None,
+    referrer: str | None = None,
+    visitor_id: str | None = None,
+    ip: str | None = None,
+) -> None:
+    """Record a referral-link click, deduplicated per visitor per 24h.
+
+    Identity is the client-persisted visitor_id when present, else the client
+    IP — refreshes and repeat visits inside the window don't add clicks.
+    A request with neither identity is dropped rather than counted, since it
+    could be replayed indefinitely.
+    """
     affiliate = await db.scalar(select(Account).where(Account.affiliate_code == code))
     if not affiliate:
         return
+
+    if visitor_id:
+        identity_filter = AffiliateClick.visitor_id == visitor_id
+    elif ip:
+        identity_filter = AffiliateClick.ip == ip
+    else:
+        return
+
+    window_start = datetime.now(timezone.utc) - CLICK_DEDUP_WINDOW
+    duplicate = await db.scalar(
+        select(AffiliateClick.id).where(
+            AffiliateClick.affiliate_account_id == affiliate.id,
+            AffiliateClick.created_at >= window_start,
+            identity_filter,
+        ).limit(1)
+    )
+    if duplicate:
+        return
+
     db.add(
         AffiliateClick(
             affiliate_account_id=affiliate.id,
             path=path,
             referrer=referrer,
+            visitor_id=visitor_id,
+            ip=ip,
         )
     )
     await db.commit()

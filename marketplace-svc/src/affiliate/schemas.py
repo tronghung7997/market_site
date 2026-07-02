@@ -1,12 +1,13 @@
 from datetime import datetime
 
-from pydantic import BaseModel
+from pydantic import BaseModel, Field
 
 
 class ClickRequest(BaseModel):
     code: str
     path: str | None = None
     referrer: str | None = None
+    visitor_id: str | None = Field(None, max_length=64)
 
 
 class CommissionRow(BaseModel):

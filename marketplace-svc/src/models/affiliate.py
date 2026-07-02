@@ -13,6 +13,8 @@ class AffiliateClick(Base):
     affiliate_account_id: Mapped[int] = mapped_column(ForeignKey("accounts.id"), nullable=False, index=True)
     path: Mapped[str | None] = mapped_column(String(500), nullable=True)
     referrer: Mapped[str | None] = mapped_column(String(500), nullable=True)
+    visitor_id: Mapped[str | None] = mapped_column(String(64), nullable=True, index=True)
+    ip: Mapped[str | None] = mapped_column(String(45), nullable=True)
     created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), server_default=func.now())
 
 

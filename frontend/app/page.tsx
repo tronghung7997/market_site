@@ -1,7 +1,8 @@
 "use client";
 
 import Link from "next/link";
-import { useEffect, useMemo, useState } from "react";
+import { useSearchParams } from "next/navigation";
+import { Suspense, useEffect, useMemo, useState } from "react";
 import { api, vnd } from "@/lib/api";
 import { cn } from "@/lib/cn";
 import type { Category, ProductDetail } from "@/lib/types";
@@ -19,6 +20,15 @@ function subtreeIds(cat: Category): number[] {
 }
 
 export default function Home() {
+  return (
+    <Suspense fallback={<Spinner label="Đang tải…" />}>
+      <HomeInner />
+    </Suspense>
+  );
+}
+
+function HomeInner() {
+  const searchParams = useSearchParams();
   const [cats, setCats] = useState<Category[]>([]);
   const [products, setProducts] = useState<ProductDetail[]>([]);
   const [loading, setLoading] = useState(true);
@@ -42,6 +52,11 @@ export default function Home() {
     })();
   }, []);
 
+  useEffect(() => {
+    const catParam = searchParams.get("category");
+    if (catParam) setActive(Number(catParam));
+  }, [searchParams]);
+
   const flatCats = useMemo(() => flatten(cats), [cats]);
   const catName = (id: number) => flatCats.find((c) => c.id === id)?.name ?? "—";
   const stock = (p: ProductDetail) => p.variants.reduce((s, v) => s + (v.stock_count ?? 0), 0);
@@ -55,8 +70,13 @@ export default function Home() {
   const totalStock = products.reduce((s, p) => s + stock(p), 0);
 
   const COLLAPSED_LIMIT = 8;
+  const activeIds = useMemo(() => {
+    if (active == null) return null;
+    const cat = flatCats.find((c) => c.id === active);
+    return cat ? new Set(subtreeIds(cat)) : new Set([active]);
+  }, [active, flatCats]);
   const filtered = products.filter((p) =>
-    (active == null || p.category_id === active) &&
+    (activeIds == null || activeIds.has(p.category_id)) &&
     (q === "" || p.title.toLowerCase().includes(q.toLowerCase())) &&
     (!inStockOnly || stock(p) > 0));
   const hasMore = filtered.length > COLLAPSED_LIMIT;

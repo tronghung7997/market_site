@@ -87,7 +87,7 @@ const columns: ColumnDef<Order>[] = [
           .join("\n") || `#${row.original.variant_id}`}
         side="bottom"
       >
-        <div className="flex flex-col gap-0.5 cursor-default max-w-[220px]">
+        <div className="flex flex-col gap-0.5 max-w-[220px] cursor-pointer">
           <span className="font-medium truncate">
             {row.original.product_title ?? `Variant #${row.original.variant_id}`}
           </span>

@@ -46,6 +46,67 @@ async def test_click_requires_no_auth(client):
     assert resp.status_code == 204
 
 
+async def _register_get_code(client, email="aff_dedup@example.com"):
+    reg = await client.post("/auth/register", json={
+        "email": email,
+        "password": "StrongPass123!",
+    })
+    affiliate_id = reg.json()["id"]
+    async with SessionLocal() as db:
+        affiliate = await db.scalar(select(Account).where(Account.id == affiliate_id))
+        return affiliate_id, affiliate.affiliate_code
+
+
+async def _click_count(affiliate_id):
+    async with SessionLocal() as db:
+        result = await db.execute(
+            select(AffiliateClick).where(AffiliateClick.affiliate_account_id == affiliate_id)
+        )
+        return len(result.scalars().all())
+
+
+@pytest.mark.asyncio
+async def test_click_same_visitor_deduped_within_window(client):
+    affiliate_id, code = await _register_get_code(client)
+    for _ in range(3):
+        resp = await client.post(
+            "/affiliate/click", json={"code": code, "visitor_id": "vis-abc"}
+        )
+        assert resp.status_code == 204
+    assert await _click_count(affiliate_id) == 1
+
+
+@pytest.mark.asyncio
+async def test_click_distinct_visitors_all_counted(client):
+    affiliate_id, code = await _register_get_code(client)
+    for vid in ("vis-1", "vis-2", "vis-3"):
+        await client.post("/affiliate/click", json={"code": code, "visitor_id": vid})
+    assert await _click_count(affiliate_id) == 3
+
+
+@pytest.mark.asyncio
+async def test_click_without_visitor_id_deduped_by_ip(client):
+    affiliate_id, code = await _register_get_code(client)
+    for _ in range(3):
+        await client.post("/affiliate/click", json={"code": code})
+    assert await _click_count(affiliate_id) == 1
+
+
+@pytest.mark.asyncio
+async def test_click_same_visitor_counted_again_after_window(client):
+    affiliate_id, code = await _register_get_code(client)
+    await client.post("/affiliate/click", json={"code": code, "visitor_id": "vis-old"})
+    # Backdate the first click past the 24h dedup window
+    async with SessionLocal() as db:
+        click = await db.scalar(
+            select(AffiliateClick).where(AffiliateClick.affiliate_account_id == affiliate_id)
+        )
+        click.created_at = datetime.now(click.created_at.tzinfo) - timedelta(hours=25)
+        await db.commit()
+    await client.post("/affiliate/click", json={"code": code, "visitor_id": "vis-old"})
+    assert await _click_count(affiliate_id) == 2
+
+
 @pytest.mark.asyncio
 async def test_affiliate_me_requires_auth(client):
     resp = await client.get("/affiliate/me")
@@ -98,8 +159,8 @@ async def test_affiliate_me_totals_match_db(client):
         affiliate = await db.scalar(select(Account).where(Account.id == affiliate_id))
         code = affiliate.affiliate_code
 
-    await client.post("/affiliate/click", json={"code": code})
-    await client.post("/affiliate/click", json={"code": code})
+    await client.post("/affiliate/click", json={"code": code, "visitor_id": "vis-a"})
+    await client.post("/affiliate/click", json={"code": code, "visitor_id": "vis-b"})
 
     await client.post("/auth/register", json={
         "email": "referred1@example.com",

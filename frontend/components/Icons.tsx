@@ -110,6 +110,9 @@ export const ChevronLeft = (p: IconProps) => (
 export const Menu = (p: IconProps) => (
   <svg {...s(p)}><path d="M4 6h16" /><path d="M4 12h16" /><path d="M4 18h16" /></svg>
 );
+export const X = (p: IconProps) => (
+  <svg {...s(p)}><path d="M18 6 6 18" /><path d="m6 6 12 12" /></svg>
+);
 export const Users = (p: IconProps) => (
   <svg {...s(p)}><path d="M16 21v-2a4 4 0 0 0-4-4H6a4 4 0 0 0-4 4v2" /><circle cx="9" cy="7" r="4" /><path d="M22 21v-2a4 4 0 0 0-3-3.87" /><path d="M16 3.13a4 4 0 0 1 0 7.75" /></svg>
 );

@@ -6,11 +6,15 @@ import { useEffect, useState } from "react";
 import { useAuth } from "@/lib/auth";
 import { api, vnd } from "@/lib/api";
 import { cn } from "@/lib/cn";
-import { Bolt, Logo, Plus, Wallet } from "./Icons";
+import { Bolt, Logo, Menu, Plus, Wallet, X } from "./Icons";
 import { Button } from "./ui";
 
-const LINKS: { href: string; label: string; auth?: boolean; role?: string }[] = [
+const NAV_LINKS: { href: string; label: string }[] = [
   { href: "/", label: "Chợ" },
+  { href: "/categories", label: "Danh mục" },
+];
+
+const ACCOUNT_LINKS: { href: string; label: string; auth?: boolean; role?: string }[] = [
   { href: "/orders", label: "Đơn hàng", auth: true },
   { href: "/wallet", label: "Ví", auth: true },
   { href: "/affiliate", label: "Affiliate", auth: true },
@@ -23,8 +27,9 @@ export default function TopNav() {
   const pathname = usePathname();
   const [balance, setBalance] = useState<number | null>(null);
   const [menuOpen, setMenuOpen] = useState(false);
+  const [mobileNavOpen, setMobileNavOpen] = useState(false);
 
-  useEffect(() => { setMenuOpen(false); }, [pathname]);
+  useEffect(() => { setMenuOpen(false); setMobileNavOpen(false); }, [pathname]);
 
   useEffect(() => {
     let active = true;
@@ -48,7 +53,7 @@ export default function TopNav() {
         <div className="mx-auto max-w-[1200px] px-6 h-16 flex items-center gap-6">
           <Link href="/" aria-label="Proxora"><Logo /></Link>
           <nav className="hidden md:flex items-center gap-0.5 shrink-0">
-            {LINKS.filter((l) => (!l.auth || account) && (!l.role || account?.roles.includes(l.role))).map((l) => {
+            {NAV_LINKS.map((l) => {
               const active = l.href === "/" ? pathname === "/" : pathname.startsWith(l.href);
               return (
                 <Link key={l.href} href={l.href}
@@ -61,6 +66,10 @@ export default function TopNav() {
             <Link href="/solutions" className="px-2.5 py-1.5 rounded-lg text-[13px] font-medium text-muted hover:text-fg hover:bg-raised transition-colors whitespace-nowrap">Giải pháp</Link>
           </nav>
           <div className="flex-1" />
+          <button onClick={() => setMobileNavOpen((v) => !v)} title="Menu" aria-label="Menu" aria-expanded={mobileNavOpen}
+            className="md:hidden grid place-items-center h-9 w-9 rounded-lg border border-line bg-surface text-muted hover:text-fg hover:border-line-2 transition-colors shrink-0">
+            {mobileNavOpen ? <X size={17} /> : <Menu size={17} />}
+          </button>
           {account ? (
             <div className="flex items-center gap-2.5">
               <Link href="/wallet" title="Số dư ví"
@@ -70,31 +79,33 @@ export default function TopNav() {
               </Link>
               <Link href="/wallet"><Button size="md"><Plus size={15} /> Nạp tiền</Button></Link>
               <div className="relative">
-                <button onClick={() => setMenuOpen((v) => !v)} title="Tài khoản" aria-haspopup="menu" aria-expanded={menuOpen}
-                  className="grid place-items-center h-9 w-9 rounded-lg border border-line bg-surface text-muted hover:text-fg hover:border-line-2 transition-colors text-[12px] font-semibold uppercase">
+                <button onClick={() => setMenuOpen((v) => !v)} title="Hồ sơ tài khoản" aria-haspopup="menu" aria-expanded={menuOpen}
+                  className="grid place-items-center h-9 w-9 rounded-full border-2 border-iris/30 bg-iris-soft text-iris hover:border-iris/60 transition-colors text-[12px] font-bold uppercase">
                   {account.email.slice(0, 2)}
                 </button>
                 {menuOpen && (
                   <>
                     <div className="fixed inset-0 z-40" onClick={() => setMenuOpen(false)} />
-                    <div className="absolute right-0 mt-2 w-56 z-50 rounded-xl border border-line bg-surface shadow-card-lg overflow-hidden">
-                      <div className="px-4 py-3 border-b border-line">
-                        <div className="text-[11px] text-faint">Đăng nhập với</div>
-                        <div className="text-[13px] font-medium truncate">{account.email}</div>
+                    <div className="absolute right-0 mt-2 w-64 z-50 rounded-xl border border-line bg-surface shadow-card-lg overflow-hidden">
+                      <div className="flex items-center gap-3 px-4 py-3.5 border-b border-line bg-raised/50">
+                        <span className="grid place-items-center h-10 w-10 shrink-0 rounded-full border-2 border-iris/30 bg-iris-soft text-iris text-[13px] font-bold uppercase">
+                          {account.email.slice(0, 2)}
+                        </span>
+                        <div className="min-w-0">
+                          <div className="text-[11.5px] font-semibold text-iris uppercase tracking-wide">Hồ sơ của bạn</div>
+                          <div className="text-[13.5px] font-medium text-fg truncate">{account.email}</div>
+                        </div>
                       </div>
-                      <div className="py-1">
-                        <Link href="/orders" className="block px-4 py-2 text-[13px] text-muted hover:text-fg hover:bg-raised transition-colors">Đơn hàng</Link>
-                        <Link href="/wallet" className="block px-4 py-2 text-[13px] text-muted hover:text-fg hover:bg-raised transition-colors">Ví</Link>
-                        <Link href="/affiliate" className="block px-4 py-2 text-[13px] text-muted hover:text-fg hover:bg-raised transition-colors">Affiliate</Link>
-                        {account.roles.includes("seller") && (
-                          <Link href="/seller" className="block px-4 py-2 text-[13px] text-muted hover:text-fg hover:bg-raised transition-colors">Gian hàng</Link>
-                        )}
-                        {account.roles.includes("admin") && (
-                          <Link href="/admin" className="block px-4 py-2 text-[13px] text-muted hover:text-fg hover:bg-raised transition-colors">Quản trị</Link>
-                        )}
+                      <div className="py-1 border-b border-line">
+                        {ACCOUNT_LINKS.filter((l) => (!l.auth || account) && (!l.role || account?.roles.includes(l.role))).map((l) => (
+                          <Link key={l.href} href={l.href}
+                            className="block px-4 py-2 text-[13px] text-muted hover:text-fg hover:bg-raised transition-colors">
+                            {l.label}
+                          </Link>
+                        ))}
                       </div>
                       <button onClick={() => { setMenuOpen(false); logout(); }}
-                        className="w-full text-left px-4 py-2.5 text-[13px] font-medium text-bad hover:bg-bad-soft border-t border-line transition-colors">
+                        className="w-full text-left px-4 py-2.5 text-[13px] font-medium text-bad hover:bg-bad-soft transition-colors">
                         Đăng xuất
                       </button>
                     </div>
@@ -109,6 +120,21 @@ export default function TopNav() {
             </div>
           )}
         </div>
+        {mobileNavOpen && (
+          <nav className="md:hidden border-t border-line bg-surface px-4 py-2">
+            {NAV_LINKS.map((l) => {
+              const active = l.href === "/" ? pathname === "/" : pathname.startsWith(l.href);
+              return (
+                <Link key={l.href} href={l.href}
+                  className={cn("block px-2.5 py-2.5 rounded-lg text-[14px] font-medium transition-colors",
+                    active ? "text-fg bg-raised" : "text-muted hover:text-fg hover:bg-raised")}>
+                  {l.label}
+                </Link>
+              );
+            })}
+            <Link href="/solutions" className="block px-2.5 py-2.5 rounded-lg text-[14px] font-medium text-muted hover:text-fg hover:bg-raised transition-colors">Giải pháp</Link>
+          </nav>
+        )}
       </header>
     </>
   );

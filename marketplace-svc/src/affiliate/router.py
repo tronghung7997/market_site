@@ -1,4 +1,4 @@
-from fastapi import APIRouter, Depends, HTTPException, Query, status
+from fastapi import APIRouter, Depends, HTTPException, Query, Request, status
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from src.auth.dependencies import get_current_account, require_role
@@ -11,8 +11,16 @@ router = APIRouter(tags=["affiliate"])
 
 
 @router.post("/affiliate/click", status_code=status.HTTP_204_NO_CONTENT)
-async def click(body: schemas.ClickRequest, db: AsyncSession = Depends(get_session)):
-    await service.record_click(body.code, db, path=body.path, referrer=body.referrer)
+async def click(
+    body: schemas.ClickRequest,
+    request: Request,
+    db: AsyncSession = Depends(get_session),
+):
+    ip = request.client.host if request.client else None
+    await service.record_click(
+        body.code, db, path=body.path, referrer=body.referrer,
+        visitor_id=body.visitor_id, ip=ip,
+    )
     return None
 
 

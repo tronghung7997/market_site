@@ -40,6 +40,7 @@ class OrderResponse(BaseModel):
     variant_name: str | None = None
     buyer_email: str | None = None
     seller_email: str | None = None
+    has_review: bool = False
 
     model_config = {"from_attributes": True}
 

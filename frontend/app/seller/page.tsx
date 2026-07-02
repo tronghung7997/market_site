@@ -73,6 +73,19 @@ export default function SellerDashboard() {
 
   return (
     <div className="space-y-6">
+      {/* Quick actions */}
+      <div className="flex flex-wrap justify-end gap-3">
+        <Link href="/seller/products/new">
+          <Button><Plus size={15} /> Tạo sản phẩm mới</Button>
+        </Link>
+        <Link href="/seller/orders">
+          <Button variant="secondary"><Inbox size={15} /> Xem đơn hàng</Button>
+        </Link>
+        <Link href="/seller/products">
+          <Button variant="secondary"><Package size={15} /> Quản lý sản phẩm</Button>
+        </Link>
+      </div>
+
       {/* Stats grid */}
       <div className="grid gap-4 sm:grid-cols-2 lg:grid-cols-4">
         <StatCard icon={Package} label="Tổng sản phẩm" value={String(stats?.product_count ?? 0)} sub={`${stats?.active_count ?? 0} đang bán`} />
@@ -130,19 +143,6 @@ export default function SellerDashboard() {
           </h3>
           <OrderBreakdown {...breakdown} total={orders.length} />
         </Card>
-      </div>
-
-      {/* Quick actions */}
-      <div className="flex flex-wrap gap-3">
-        <Link href="/seller/products/new">
-          <Button><Plus size={15} /> Tạo sản phẩm mới</Button>
-        </Link>
-        <Link href="/seller/orders">
-          <Button variant="secondary"><Inbox size={15} /> Xem đơn hàng</Button>
-        </Link>
-        <Link href="/seller/products">
-          <Button variant="secondary"><Package size={15} /> Quản lý sản phẩm</Button>
-        </Link>
       </div>
     </div>
   );

@@ -12,6 +12,7 @@ from src.models.order import Dispute, Order, OrderStatus
 from src.models.pricing_config import PricingConfig
 from src.models.resource import Resource
 from src.models.product import DeliveryMode, Product, ProductStatus, ProductVariant
+from src.models.review import Review
 from src.pricing.factory import get_pricing_strategy
 from src.resources.service import claim_resources
 from src.audit.service import log_event, query_logs
@@ -206,6 +207,9 @@ async def _enrich_order(order: Order, db: AsyncSession) -> dict:
         product = await db.get(Product, variant.product_id)
     buyer = await db.get(Account, order.buyer_id)
     seller = await db.get(Account, order.seller_id)
+    has_review = (
+        await db.scalar(select(Review.id).where(Review.order_id == order.id).limit(1))
+    ) is not None
     return {
         "id": order.id, "buyer_id": order.buyer_id, "seller_id": order.seller_id,
         "variant_id": order.variant_id, "product_id": order.product_id,
@@ -217,6 +221,7 @@ async def _enrich_order(order: Order, db: AsyncSession) -> dict:
         "variant_name": variant.name if variant else None,
         "buyer_email": buyer.email if buyer else None,
         "seller_email": seller.email if seller else None,
+        "has_review": has_review,
     }
 
 

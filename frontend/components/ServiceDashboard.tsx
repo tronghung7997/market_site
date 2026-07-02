@@ -44,7 +44,7 @@ function CopyButton({ text, label }: { text: string; label?: string }) {
       onClick={handleCopy}
       className="inline-flex items-center gap-1.5 px-2.5 py-1 text-[12px] font-medium rounded-md bg-raised border border-line hover:border-line-2 transition-colors"
     >
-      {copied ? "Da sao chep!" : label ?? "Sao chep"}
+      {copied ? "Đã sao chép!" : label ?? "Sao chép"}
     </button>
   );
 }
@@ -59,7 +59,7 @@ function MaskedValue({ value }: { value: string }) {
         onClick={() => setVisible((v) => !v)}
         className="text-[11px] text-iris-hi hover:underline"
       >
-        {visible ? "An" : "Hien"}
+        {visible ? "Ẩn" : "Hiện"}
       </button>
       <CopyButton text={value} />
     </span>
@@ -80,15 +80,15 @@ function ProxyDashboard({ data }: { data: DashboardData }) {
   return (
     <div className="space-y-4">
       <div className="grid grid-cols-2 sm:grid-cols-4 gap-3">
-        <StatCard label="Trang thai" value={data.status === "delivered" ? "Hoat dong" : data.status} />
-        <StatCard label="Con lai" value={daysRemaining(expiringResource?.expires_at ?? null)} />
-        <StatCard label="So IP" value={resources.length} sub={`${activeCount} hoat dong`} />
-        <StatCard label="Uptime" value="99.9%" sub="30 ngay qua" />
+        <StatCard label="Trạng thái" value={data.status === "delivered" ? "Hoạt động" : data.status} />
+        <StatCard label="Còn lại" value={daysRemaining(expiringResource?.expires_at ?? null)} />
+        <StatCard label="Số IP" value={resources.length} sub={`${activeCount} hoạt động`} />
+        <StatCard label="Uptime" value="99.9%" sub="30 ngày qua" />
       </div>
 
       {resources.length > 0 && (
         <div>
-          <h4 className="text-[12.5px] font-medium text-muted mb-2">Danh sach IP / Proxy</h4>
+          <h4 className="text-[12.5px] font-medium text-muted mb-2">Danh sách IP / Proxy</h4>
           <div className="space-y-1.5">
             {resources.map((r) => (
               <ResourceRow key={r.id} resource={r} />
@@ -101,7 +101,7 @@ function ProxyDashboard({ data }: { data: DashboardData }) {
         <div className="flex gap-2">
           <CopyButton
             text={resources.map((r) => r.data).join("\n")}
-            label="Sao chep tat ca"
+            label="Sao chép tất cả"
           />
         </div>
       )}
@@ -114,7 +114,7 @@ function ResourceRow({ resource }: { resource: DashboardResource }) {
     : resource.status === "expired" ? "warn" as const
     : resource.status === "error" ? "bad" as const
     : "neutral" as const;
-  const label = { assigned: "Hoat dong", expired: "Het han", error: "Loi", available: "San sang" }[resource.status] ?? resource.status;
+  const label = { assigned: "Hoạt động", expired: "Hết hạn", error: "Lỗi", available: "Sẵn sàng" }[resource.status] ?? resource.status;
 
   return (
     <div className="flex items-center gap-3 text-[12.5px] px-3 py-2 rounded-lg bg-surface border border-line">
@@ -137,18 +137,18 @@ function EndpointDashboard({ data }: { data: DashboardData }) {
     <div className="space-y-4">
       <div className="grid grid-cols-2 sm:grid-cols-4 gap-3">
         <StatCard
-          label="Credit con lai"
+          label="Credit còn lại"
           value={usage?.credits_remaining ?? "N/A"}
         />
         <StatCard
-          label="Credit da dung"
+          label="Credit đã dùng"
           value={usage?.credits_used ?? 0}
         />
         <StatCard
-          label="Request hom nay"
+          label="Request hôm nay"
           value={usage?.requests_today ?? 0}
         />
-        <StatCard label="Latency" value="~120ms" sub="Trung binh" />
+        <StatCard label="Latency" value="~120ms" sub="Trung bình" />
       </div>
 
       {apiKey && (
@@ -160,7 +160,7 @@ function EndpointDashboard({ data }: { data: DashboardData }) {
 
       {resources.length > 1 && (
         <div>
-          <h4 className="text-[12.5px] font-medium text-muted mb-2">Tai nguyen</h4>
+          <h4 className="text-[12.5px] font-medium text-muted mb-2">Tài nguyên</h4>
           <div className="space-y-1.5">
             {resources.map((r) => (
               <ResourceRow key={r.id} resource={r} />
@@ -175,11 +175,11 @@ function EndpointDashboard({ data }: { data: DashboardData }) {
 /* ── Takedown Dashboard ── */
 
 const TASK_STATUS_MAP: Record<string, { label: string; tone: "good" | "bad" | "warn" | "iris" | "neutral" }> = {
-  pending: { label: "Cho xu ly", tone: "warn" },
-  assigned: { label: "Da nhan", tone: "iris" },
-  processing: { label: "Dang xu ly", tone: "iris" },
-  completed: { label: "Hoan tat", tone: "good" },
-  failed: { label: "That bai", tone: "bad" },
+  pending: { label: "Chờ xử lý", tone: "warn" },
+  assigned: { label: "Đã nhận", tone: "iris" },
+  processing: { label: "Đang xử lý", tone: "iris" },
+  completed: { label: "Hoàn tất", tone: "good" },
+  failed: { label: "Thất bại", tone: "bad" },
 };
 
 function TakedownDashboard({ data }: { data: DashboardData }) {
@@ -190,24 +190,24 @@ function TakedownDashboard({ data }: { data: DashboardData }) {
   return (
     <div className="space-y-4">
       <div className="grid grid-cols-3 gap-3">
-        <StatCard label="Tong task" value={tasks.length} />
-        <StatCard label="Hoan tat" value={completed} />
-        <StatCard label="Dang xu ly" value={processing} />
+        <StatCard label="Tổng task" value={tasks.length} />
+        <StatCard label="Hoàn tất" value={completed} />
+        <StatCard label="Đang xử lý" value={processing} />
       </div>
 
       {tasks.length > 0 && (
         <div>
-          <h4 className="text-[12.5px] font-medium text-muted mb-2">Chi tiet task</h4>
+          <h4 className="text-[12.5px] font-medium text-muted mb-2">Chi tiết task</h4>
           <div className="overflow-x-auto">
             <table className="w-full text-[12.5px]">
               <thead>
                 <tr className="border-b border-line text-left">
                   <th className="py-2 pr-3 font-medium text-faint">ID</th>
-                  <th className="py-2 pr-3 font-medium text-faint">Nen tang</th>
+                  <th className="py-2 pr-3 font-medium text-faint">Nền tảng</th>
                   <th className="py-2 pr-3 font-medium text-faint">URL</th>
-                  <th className="py-2 pr-3 font-medium text-faint">Trang thai</th>
-                  <th className="py-2 pr-3 font-medium text-faint">Nguoi xu ly</th>
-                  <th className="py-2 font-medium text-faint">Tao luc</th>
+                  <th className="py-2 pr-3 font-medium text-faint">Trạng thái</th>
+                  <th className="py-2 pr-3 font-medium text-faint">Người xử lý</th>
+                  <th className="py-2 font-medium text-faint">Tạo lúc</th>
                 </tr>
               </thead>
               <tbody>
@@ -233,7 +233,7 @@ function TaskRow({ task }: { task: DashboardTask }) {
         <span className="font-mono text-[11px]">{task.target_url}</span>
       </td>
       <td className="py-2 pr-3"><Tag tone={st.tone}>{st.label}</Tag></td>
-      <td className="py-2 pr-3 text-muted">{task.assignee ?? "Chua co"}</td>
+      <td className="py-2 pr-3 text-muted">{task.assignee ?? "Chưa có"}</td>
       <td className="py-2 text-muted">{fmtDate(task.created_at)}</td>
     </tr>
   );
@@ -249,7 +249,7 @@ function DefaultDashboard({ data }: { data: DashboardData }) {
           {data.delivered_data}
         </pre>
       ) : (
-        <p className="text-[12.5px] text-muted">Khong co du lieu dashboard cho dich vu nay.</p>
+        <p className="text-[12.5px] text-muted">Không có dữ liệu dashboard cho dịch vụ này.</p>
       )}
     </div>
   );
@@ -268,12 +268,12 @@ export default function ServiceDashboard({ orderId }: { orderId: number }) {
     setError("");
     api.orderDashboard(orderId)
       .then((d) => { if (!cancelled) setData(d); })
-      .catch((e) => { if (!cancelled) setError(e instanceof Error ? e.message : "Khong the tai dashboard"); })
+      .catch((e) => { if (!cancelled) setError(e instanceof Error ? e.message : "Không thể tải dashboard"); })
       .finally(() => { if (!cancelled) setLoading(false); });
     return () => { cancelled = true; };
   }, [orderId]);
 
-  if (loading) return <Spinner label="Dang tai dashboard..." />;
+  if (loading) return <Spinner label="Đang tải dashboard..." />;
   if (error) return <p className="text-[12px] text-bad py-2">{error}</p>;
   if (!data) return null;
 
@@ -283,10 +283,10 @@ export default function ServiceDashboard({ orderId }: { orderId: number }) {
     : DefaultDashboard;
 
   return (
-    <Card className="p-4 mt-3">
+    <Card className="p-4 mt-3 bg-raised/40">
       <div className="flex items-center justify-between mb-3">
         <h3 className="text-[13px] font-semibold">
-          Dashboard — {data.product_title}
+          Dashboard{data.product_title ? ` — ${data.product_title}` : ""}
         </h3>
         <Tag tone={data.status === "delivered" ? "iris" : data.status === "completed" ? "good" : "neutral"}>
           {data.service_type}

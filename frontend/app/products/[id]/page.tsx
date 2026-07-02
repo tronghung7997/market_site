@@ -6,6 +6,7 @@ import { useEffect, useState } from "react";
 import { api, vnd, ApiError } from "@/lib/api";
 import { useAuth } from "@/lib/auth";
 import { cn } from "@/lib/cn";
+import { formatDate } from "@/lib/utils";
 import type { Order, PricingOptions, Product, ProductDetail, Review, Variant } from "@/lib/types";
 import { Button, Card, Spinner, Tag } from "@/components/ui";
 import {
@@ -463,52 +464,77 @@ function ReviewTab({ product }: { product: ProductDetail }) {
   if (loadingReviews) return <div className="py-4"><Spinner /></div>;
 
   if (reviews.length === 0) {
-    return <p className="text-[13px] text-muted py-4">Chưa có đánh giá</p>;
+    return (
+      <div className="py-10 text-center">
+        <span className="inline-grid place-items-center h-11 w-11 rounded-full bg-raised border border-line text-faint mb-3">
+          <Star size={18} />
+        </span>
+        <p className="text-[13px] text-muted">Chưa có đánh giá nào — hãy là người mua đầu tiên chia sẻ trải nghiệm.</p>
+      </div>
+    );
   }
 
   const avg = reviews.reduce((s, r) => s + r.rating, 0) / reviews.length;
+  const dist = [5, 4, 3, 2, 1].map((star) => ({
+    star,
+    count: reviews.filter((r) => r.rating === star).length,
+  }));
 
   return (
-    <div className="space-y-5">
+    <div className="space-y-6">
       {/* Rating summary */}
-      <div className="flex items-center gap-4 py-2">
-        <div className="text-center">
-          <div className="font-mono text-[28px] font-bold">{avg.toFixed(1)}</div>
-          <div className="flex gap-0.5 mt-1">
+      <div className="flex flex-col sm:flex-row sm:items-center gap-5 sm:gap-10 py-1">
+        <div className="text-center shrink-0">
+          <div className="font-serif text-[42px] leading-none font-semibold">{avg.toFixed(1)}</div>
+          <div className="flex justify-center gap-0.5 mt-2">
             {[1, 2, 3, 4, 5].map((s) => (
               <Star key={s} size={14} className={s <= Math.round(avg) ? "text-warn fill-warn" : "text-line-2"} />
             ))}
           </div>
+          <div className="text-[12px] text-faint mt-1.5 whitespace-nowrap">{reviews.length} đánh giá</div>
         </div>
-        <div className="text-[13px] text-muted">{reviews.length} đánh giá từ người mua</div>
+        <div className="flex-1 space-y-1.5 max-w-xs">
+          {dist.map(({ star, count }) => {
+            const pct = Math.round((count / reviews.length) * 100);
+            return (
+              <div key={star} className="flex items-center gap-2 text-[11.5px]">
+                <span className="w-3 text-faint tabular-nums">{star}</span>
+                <div className="flex-1 h-1.5 rounded-full bg-raised overflow-hidden">
+                  <div className="h-full rounded-full bg-warn transition-all" style={{ width: `${pct}%` }} />
+                </div>
+                <span className="w-5 text-right text-faint tabular-nums">{count}</span>
+              </div>
+            );
+          })}
+        </div>
       </div>
 
       {/* Individual reviews */}
       <div className="space-y-0 divide-y divide-line">
-        {reviews.map((r) => {
-          const initials = `U${r.buyer_id}`;
-          return (
-            <div key={r.id} className="py-3.5 first:pt-0">
-              <div className="flex items-center gap-2.5">
-                <span className="grid place-items-center h-7 w-7 rounded-full bg-raised border border-line text-[10px] font-bold text-muted">
-                  {initials}
-                </span>
-                <div className="flex-1 min-w-0">
+        {reviews.map((r) => (
+          <div key={r.id} className="py-4 first:pt-0">
+            <div className="flex items-start gap-3">
+              <span className="grid place-items-center h-9 w-9 shrink-0 rounded-full bg-iris-soft text-iris text-[12px] font-semibold border border-iris/15">
+                U{r.buyer_id}
+              </span>
+              <div className="flex-1 min-w-0">
+                <div className="flex items-center justify-between gap-2 flex-wrap">
                   <div className="flex items-center gap-2">
                     <span className="text-[13px] font-medium">Người mua #{r.buyer_id}</span>
-                    <span className="text-[11px] text-faint">{new Date(r.created_at).toLocaleDateString("vi-VN")}</span>
+                    <Tag tone="good"><Verified size={10} /> Đã mua hàng</Tag>
                   </div>
-                  <div className="flex gap-0.5 mt-0.5">
-                    {[1, 2, 3, 4, 5].map((s) => (
-                      <Star key={s} size={11} className={s <= r.rating ? "text-warn fill-warn" : "text-line-2"} />
-                    ))}
-                  </div>
+                  <span className="text-[11px] text-faint">{formatDate(r.created_at)}</span>
                 </div>
+                <div className="flex gap-0.5 mt-1.5">
+                  {[1, 2, 3, 4, 5].map((s) => (
+                    <Star key={s} size={11} className={s <= r.rating ? "text-warn fill-warn" : "text-line-2"} />
+                  ))}
+                </div>
+                {r.comment && <p className="text-[13px] text-muted leading-relaxed mt-2">{r.comment}</p>}
               </div>
-              {r.comment && <p className="text-[13px] text-muted leading-relaxed mt-2 ml-[36px]">{r.comment}</p>}
             </div>
-          );
-        })}
+          </div>
+        ))}
       </div>
     </div>
   );

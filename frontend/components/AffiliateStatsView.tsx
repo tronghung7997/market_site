@@ -2,7 +2,7 @@
 
 import { useState } from "react";
 import { motion } from "motion/react";
-import { Area, AreaChart, ResponsiveContainer, Tooltip, XAxis, YAxis } from "recharts";
+import { CartesianGrid, Line, LineChart, ResponsiveContainer, Tooltip, XAxis, YAxis } from "recharts";
 import { Check, Coins, Copy, MousePointerClick, ShoppingBag, UserPlus } from "lucide-react";
 import type { AffiliateStats } from "@/lib/types";
 import { vnd, formatDate } from "@/lib/utils";
@@ -15,8 +15,19 @@ const container = {
 };
 const item = { hidden: { opacity: 0, y: 12 }, show: { opacity: 1, y: 0 } };
 
+const METRICS = [
+  { key: "clicks", label: "Nhấp", color: "#4f46e5" },
+  { key: "signups", label: "Đăng ký", color: "#0ea5e9" },
+  { key: "orders", label: "Đơn", color: "#16a34a" },
+  { key: "commission", label: "Hoa hồng", color: "#d97706" },
+] as const;
+type MetricKey = (typeof METRICS)[number]["key"];
+
 export function AffiliateStatsView({ data }: { data: AffiliateStats }) {
-  const { totals, timeseries, commissions, code, link } = data;
+  const { totals, timeseries, commissions, referred_users, code, link } = data;
+  const showSpend = referred_users.length === 0 || referred_users[0].total_spent != null;
+  const [metric, setMetric] = useState<MetricKey>("clicks");
+  const activeMetric = METRICS.find((m) => m.key === metric)!;
   const [copied, setCopied] = useState(false);
 
   const copyLink = () => {
@@ -101,24 +112,71 @@ export function AffiliateStatsView({ data }: { data: AffiliateStats }) {
         </motion.div>
       </motion.div>
 
+      {/* ─── Referred users ─── */}
+      <Card className="p-0 overflow-hidden">
+        <div className="px-5 py-3.5 border-b border-default">
+          <h2 className="text-[14px] font-semibold text-slate-900">Người dùng đã đăng ký qua link</h2>
+        </div>
+        {referred_users.length === 0 ? (
+          <div className="px-5 py-12 text-center">
+            <p className="text-[13px] text-muted">Chưa có ai đăng ký qua liên kết này.</p>
+          </div>
+        ) : (
+          <div className="overflow-x-auto">
+            <table className="w-full text-[13px]">
+              <thead>
+                <tr className="text-left text-muted border-b border-default">
+                  <th className="px-5 py-2.5 font-medium">Email</th>
+                  <th className="px-5 py-2.5 font-medium">Ngày đăng ký</th>
+                  <th className="px-5 py-2.5 font-medium text-right">Số đơn</th>
+                  {showSpend && <th className="px-5 py-2.5 font-medium text-right">Tổng chi tiêu</th>}
+                </tr>
+              </thead>
+              <tbody>
+                {referred_users.map((u) => (
+                  <tr key={u.id} className="border-b border-slate-100 last:border-0 hover:bg-slate-50 transition-colors">
+                    <td className="px-5 py-2.5">{u.email}</td>
+                    <td className="px-5 py-2.5 text-muted">{formatDate(u.created_at)}</td>
+                    <td className="px-5 py-2.5 text-right tabular-nums">{u.order_count}</td>
+                    {showSpend && (
+                      <td className="px-5 py-2.5 text-right tabular-nums font-semibold">
+                        {u.total_spent && u.total_spent > 0 ? vnd(u.total_spent) : "—"}
+                      </td>
+                    )}
+                  </tr>
+                ))}
+              </tbody>
+            </table>
+          </div>
+        )}
+      </Card>
+
       {/* ─── Activity chart ─── */}
       <Card className="p-0 overflow-hidden">
-        <CardHeader className="flex-row items-center justify-between">
+        <CardHeader className="flex-row items-center justify-between flex-wrap gap-3">
           <div>
             <CardTitle>Hoạt động theo ngày</CardTitle>
-            <p className="text-[12px] text-muted mt-0.5">Hoa hồng phát sinh mỗi ngày</p>
+            <p className="text-[12px] text-muted mt-0.5">{activeMetric.label} phát sinh mỗi ngày</p>
+          </div>
+          <div className="flex items-center gap-1 rounded-lg border border-default bg-slate-50 p-0.5">
+            {METRICS.map((m) => (
+              <button
+                key={m.key}
+                onClick={() => setMetric(m.key)}
+                className={`px-2.5 py-1 rounded-md text-[12px] font-medium transition-colors ${
+                  metric === m.key ? "bg-white text-slate-900 shadow-sm" : "text-muted hover:text-slate-700"
+                }`}
+              >
+                {m.label}
+              </button>
+            ))}
           </div>
         </CardHeader>
         <CardContent className="pt-0">
-          <div className="h-56">
+          <div className="h-96">
             <ResponsiveContainer width="100%" height="100%">
-              <AreaChart data={timeseries}>
-                <defs>
-                  <linearGradient id="commGrad" x1="0" y1="0" x2="0" y2="1">
-                    <stop offset="5%" stopColor="#4f46e5" stopOpacity={0.28} />
-                    <stop offset="95%" stopColor="#4f46e5" stopOpacity={0} />
-                  </linearGradient>
-                </defs>
+              <LineChart data={timeseries} margin={{ top: 8, right: 12, left: 0, bottom: 0 }}>
+                <CartesianGrid strokeDasharray="3 3" vertical={false} stroke="#e2e8f0" />
                 <XAxis
                   dataKey="date"
                   axisLine={false}
@@ -127,7 +185,7 @@ export function AffiliateStatsView({ data }: { data: AffiliateStats }) {
                   tickFormatter={(v: string) => v.slice(5)}
                   minTickGap={24}
                 />
-                <YAxis hide />
+                <YAxis axisLine={false} tickLine={false} tick={{ fontSize: 11, fill: "#94a3b8" }} width={40} allowDecimals={false} />
                 <Tooltip
                   content={({ active, payload }) => {
                     if (active && payload && payload.length) {
@@ -143,8 +201,8 @@ export function AffiliateStatsView({ data }: { data: AffiliateStats }) {
                     return null;
                   }}
                 />
-                <Area type="monotone" dataKey="commission" stroke="#4f46e5" strokeWidth={2} fill="url(#commGrad)" />
-              </AreaChart>
+                <Line type="monotone" dataKey={metric} stroke={activeMetric.color} strokeWidth={2.5} dot={false} activeDot={{ r: 4 }} />
+              </LineChart>
             </ResponsiveContainer>
           </div>
         </CardContent>

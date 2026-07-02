@@ -38,12 +38,21 @@ class AffiliateTotals(BaseModel):
     commission: int
 
 
+class ReferredUserRow(BaseModel):
+    id: int
+    email: str
+    created_at: datetime
+    order_count: int
+    total_spent: int | None = None  # None on the self-service view — only admins see other users' spend
+
+
 class AffiliateStatsResponse(BaseModel):
     code: str
     link: str
     totals: AffiliateTotals
     timeseries: list[TimeseriesPoint]
     commissions: list[CommissionRow]
+    referred_users: list[ReferredUserRow]
 
 
 class AffiliateSummaryRow(BaseModel):

@@ -7,7 +7,7 @@ import { api, vnd } from "@/lib/api";
 import { useAuth } from "@/lib/auth";
 import { cn } from "@/lib/cn";
 import type { Order, OrderStats, Resource } from "@/lib/types";
-import { Shield, Star } from "@/components/Icons";
+import { Shield, Star, Package, Clock, Info, Wallet, Copy, ChevronRight } from "@/components/Icons";
 import ServiceDashboard from "@/components/ServiceDashboard";
 import { Button, Card, Input, Select, Spinner, Tag, Textarea } from "@/components/ui";
 
@@ -39,24 +39,50 @@ function StatusTimeline({ status }: { status: string }) {
   if (isBad) return null;
 
   return (
-    <div className="flex items-center mt-3 mb-1 gap-0">
+    <div className="flex items-center mt-4 mb-1 gap-0 px-1">
       {TIMELINE_STEPS.map((step, i) => {
         const done = current >= i;
         return (
           <div key={step.key} className={cn("flex items-center", i > 0 && "flex-1")}>
-            {i > 0 && <div className={cn("h-[2px] flex-1", done ? "bg-iris" : "bg-line")} />}
-            <div className="flex flex-col items-center gap-1">
+            {i > 0 && <div className={cn("h-[2px] flex-1 rounded-full transition-colors", done ? "bg-iris" : "bg-line")} />}
+            <div className="flex flex-col items-center gap-1.5">
               <div className={cn(
-                "w-5 h-5 rounded-full grid place-items-center text-[10px] font-bold shrink-0",
-                done ? "bg-iris text-white" : "bg-surface border-2 border-line text-faint",
+                "w-6 h-6 rounded-full grid place-items-center text-[10px] font-bold shrink-0 transition-colors",
+                done ? "bg-iris text-white shadow-[0_0_0_3px_var(--color-iris-soft)]" : "bg-surface border-2 border-line text-faint",
               )}>
                 {done ? "✓" : i + 1}
               </div>
-              <span className={cn("text-[10px] whitespace-nowrap", done ? "text-fg font-medium" : "text-faint")}>{step.label}</span>
+              <span className={cn("text-[10.5px] whitespace-nowrap", done ? "text-fg font-medium" : "text-faint")}>{step.label}</span>
             </div>
           </div>
         );
       })}
+    </div>
+  );
+}
+
+function CopyIconButton({ text }: { text: string }) {
+  const [copied, setCopied] = useState(false);
+  return (
+    <button
+      onClick={() => { navigator.clipboard?.writeText(text).catch(() => {}); setCopied(true); setTimeout(() => setCopied(false), 1600); }}
+      className="inline-flex items-center gap-1 text-[11px] font-medium text-muted hover:text-iris-hi transition-colors"
+    >
+      <Copy size={11} /> {copied ? "Đã sao chép" : "Sao chép"}
+    </button>
+  );
+}
+
+function Disclosure({ label, labelOpen, open, onToggle, children }: {
+  label: string; labelOpen: string; open: boolean; onToggle: () => void; children?: React.ReactNode;
+}) {
+  return (
+    <div className="mt-3 pt-3 border-t border-line">
+      <button onClick={onToggle} className="inline-flex items-center gap-1 text-[12.5px] font-medium text-iris-hi hover:text-iris transition-colors">
+        <ChevronRight size={13} className={cn("transition-transform", open && "rotate-90")} />
+        {open ? labelOpen : label}
+      </button>
+      {open && children}
     </div>
   );
 }
@@ -119,23 +145,18 @@ function OrderResources({ orderId }: { orderId: number }) {
   const label = (s: string) => ({ assigned: "Đang dùng", expired: "Hết hạn", error: "Lỗi", available: "Sẵn sàng" }[s] ?? s);
 
   return (
-    <div className="mt-3 pt-3 border-t border-line">
-      <button onClick={toggle} className="text-[12.5px] font-medium text-iris-hi hover:underline">
-        {open ? "Ẩn tài nguyên" : "Xem trạng thái tài nguyên"}
-      </button>
-      {open && (
-        <div className="mt-2 space-y-1.5">
-          {loaded && resources.length === 0 && <p className="text-[12px] text-faint">Không có tài nguyên gắn với đơn này.</p>}
-          {resources.map((r) => (
-            <div key={r.id} className="flex items-center gap-3 text-[12.5px] px-3 py-2 rounded-lg bg-surface border border-line">
-              <span className="font-mono text-faint">#{r.id}</span>
-              <Tag tone={tone(r.status)}>{label(r.status)}</Tag>
-              <span className="ml-auto text-muted">{fmtExpiry(r.expires_at)}</span>
-            </div>
-          ))}
-        </div>
-      )}
-    </div>
+    <Disclosure label="Xem trạng thái tài nguyên" labelOpen="Ẩn tài nguyên" open={open} onToggle={toggle}>
+      <div className="mt-2.5 space-y-1.5">
+        {loaded && resources.length === 0 && <p className="text-[12px] text-faint">Không có tài nguyên gắn với đơn này.</p>}
+        {resources.map((r) => (
+          <div key={r.id} className="flex items-center gap-3 text-[12.5px] px-3 py-2 rounded-lg bg-raised border border-line">
+            <span className="font-mono text-faint">#{r.id}</span>
+            <Tag tone={tone(r.status)}>{label(r.status)}</Tag>
+            <span className="ml-auto text-muted">{fmtExpiry(r.expires_at)}</span>
+          </div>
+        ))}
+      </div>
+    </Disclosure>
   );
 }
 
@@ -296,30 +317,38 @@ export default function OrdersPage() {
         <DisputeModal orderId={disputeOrderId} onClose={() => setDisputeOrderId(null)} onSuccess={handleDisputeSuccess} />
       )}
 
-      <div className="grid lg:grid-cols-[280px_1fr] gap-6">
+      <div className="grid lg:grid-cols-[280px_1fr] gap-6 min-w-0">
         {/* ─── Left sidebar: stats + filters ─── */}
-        <aside className="lg:sticky lg:top-24 lg:self-start space-y-4">
-          <h2 className="font-serif text-[22px] tracking-tight">Đơn hàng</h2>
+        <aside className="min-w-0 lg:sticky lg:top-24 lg:self-start space-y-4">
+          <div>
+            <h2 className="font-serif text-[24px] tracking-tight">Đơn hàng</h2>
+            <p className="text-[12.5px] text-muted mt-0.5">Theo dõi và quản lý các đơn đã đặt</p>
+          </div>
 
           {stats && (
-            <Card className="p-4 space-y-3">
+            <Card className="p-4">
               <div className="grid grid-cols-2 gap-3">
                 {[
-                  { label: "Tổng đơn", value: stats.total, tone: "text-fg" },
-                  { label: "Hoạt động", value: stats.active, tone: "text-iris" },
-                  { label: "Khiếu nại", value: stats.disputed, tone: "text-bad" },
-                  { label: "Chi tiêu", value: vnd(stats.total_spend), tone: "text-fg" },
+                  { label: "Tổng đơn", value: stats.total, tone: "text-fg", icon: Package, chip: "bg-raised text-muted border-line" },
+                  { label: "Hoạt động", value: stats.active, tone: "text-iris-hi", icon: Clock, chip: "bg-iris-soft text-iris border-iris/15" },
+                  { label: "Khiếu nại", value: stats.disputed, tone: "text-bad", icon: Info, chip: "bg-bad-soft text-bad border-bad/15" },
+                  { label: "Chi tiêu", value: vnd(stats.total_spend), tone: "text-fg", icon: Wallet, chip: "bg-good-soft text-good border-good/15" },
                 ].map((c) => (
-                  <div key={c.label}>
-                    <div className="text-[11px] text-faint">{c.label}</div>
-                    <div className={cn("text-[16px] font-semibold tabular", c.tone)}>{c.value}</div>
+                  <div key={c.label} className="flex items-start gap-2.5">
+                    <span className={cn("grid place-items-center h-7 w-7 shrink-0 rounded-md border", c.chip)}>
+                      <c.icon size={14} />
+                    </span>
+                    <div className="min-w-0">
+                      <div className="text-[10.5px] text-faint uppercase tracking-wider truncate">{c.label}</div>
+                      <div className={cn("text-[15px] font-semibold tabular leading-tight mt-0.5", c.tone)}>{c.value}</div>
+                    </div>
                   </div>
                 ))}
               </div>
             </Card>
           )}
 
-          <Card className="p-4 space-y-3">
+          <Card className="p-4 space-y-3.5">
             <div className="flex flex-wrap gap-1">
               {TABS.map((t) => (
                 <button
@@ -338,7 +367,7 @@ export default function OrdersPage() {
             </div>
 
             <div>
-              <label className="text-[11px] text-faint block mb-1">Mã đơn</label>
+              <label className="text-[11px] text-faint uppercase tracking-wider block mb-1.5">Mã đơn</label>
               <Input
                 placeholder="Tìm theo mã đơn…"
                 value={search}
@@ -346,18 +375,18 @@ export default function OrdersPage() {
                 onKeyDown={(e) => e.key === "Enter" && applyFilters()}
               />
             </div>
-            <div className="grid grid-cols-2 gap-2">
-              <div>
-                <label className="text-[11px] text-faint block mb-1">Từ ngày</label>
-                <Input type="date" value={dateFrom} onChange={(e) => setDateFrom(e.target.value)} />
+            <div className="grid grid-cols-2 gap-2 min-w-0">
+              <div className="min-w-0">
+                <label className="text-[11px] text-faint uppercase tracking-wider block mb-1.5">Từ ngày</label>
+                <Input type="date" value={dateFrom} onChange={(e) => setDateFrom(e.target.value)} className="min-w-0" />
               </div>
-              <div>
-                <label className="text-[11px] text-faint block mb-1">Đến ngày</label>
-                <Input type="date" value={dateTo} onChange={(e) => setDateTo(e.target.value)} />
+              <div className="min-w-0">
+                <label className="text-[11px] text-faint uppercase tracking-wider block mb-1.5">Đến ngày</label>
+                <Input type="date" value={dateTo} onChange={(e) => setDateTo(e.target.value)} className="min-w-0" />
               </div>
             </div>
             <div>
-              <label className="text-[11px] text-faint block mb-1">Sắp xếp</label>
+              <label className="text-[11px] text-faint uppercase tracking-wider block mb-1.5">Sắp xếp</label>
               <Select value={sort} onChange={(e) => setSort(e.target.value)}>
                 {SORT_OPTIONS.map((o) => <option key={o.value} value={o.value}>{o.label}</option>)}
               </Select>
@@ -370,7 +399,7 @@ export default function OrdersPage() {
         </aside>
 
         {/* ─── Right: order list ─── */}
-        <div>
+        <div className="min-w-0">
           <div className="flex items-center justify-between mb-4">
             <span className="text-[12.5px] text-muted">
               {total} đơn hàng
@@ -396,103 +425,112 @@ export default function OrdersPage() {
           <Link href="/"><Button>Khám phá chợ</Button></Link>
         </Card>
       ) : (
-        <div className="flex flex-col gap-3">
+        <div className="flex flex-col gap-3.5">
           {orders.map((o) => {
             const st = STATUS[o.status] ?? { label: o.status, tone: "neutral" as const, hint: "" };
             return (
-              <Card key={o.id} className="p-4">
+              <Card key={o.id} className="p-5">
+                {/* Header row: only this row splits left/right — everything below spans full card width */}
                 <div className="flex items-start justify-between gap-4">
-                  <div className="min-w-0 flex-1">
-                    {/* Product + variant — what was bought */}
-                    <div className="flex items-start gap-3">
-                      <span className="grid place-items-center h-10 w-10 shrink-0 rounded-lg bg-raised border border-line font-serif text-[13px] font-semibold text-iris">
-                        {(o.product_title ?? "??").slice(0, 2).toUpperCase()}
-                      </span>
-                      <div className="min-w-0">
-                        <div className="font-medium text-[14px] truncate">{o.product_title ?? `Đơn #${o.id}`}</div>
-                        {o.variant_name && <div className="text-[12.5px] text-muted truncate">{o.variant_name}</div>}
-                        <div className="text-[11.5px] text-faint mt-0.5">
-                          Đơn #{o.id} · SL {o.quantity} · {new Date(o.created_at).toLocaleString("vi-VN")}
-                        </div>
+                  <div className="flex items-start gap-3 min-w-0">
+                    <span className="grid place-items-center h-11 w-11 shrink-0 rounded-lg bg-raised border border-line font-serif text-[14px] font-semibold text-iris">
+                      {(o.product_title ?? "??").slice(0, 2).toUpperCase()}
+                    </span>
+                    <div className="min-w-0">
+                      <div className="font-medium text-[14.5px] truncate">{o.product_title ?? `Đơn #${o.id}`}</div>
+                      {o.variant_name && <div className="text-[12.5px] text-muted truncate">{o.variant_name}</div>}
+                      <div className="text-[11.5px] text-faint mt-0.5">
+                        Đơn #{o.id} · SL {o.quantity} · {new Date(o.created_at).toLocaleString("vi-VN")}
                       </div>
                     </div>
-
-                    <div className="flex items-center gap-2 mt-2.5">
-                      <Tag tone={st.tone}>{st.label}</Tag>
-                      <span className="text-[12px] text-muted">{st.hint}</span>
-                    </div>
-
-                    <StatusTimeline status={o.status} />
-
-                    {o.delivered_data && (
-                      <pre className="font-mono text-[12px] bg-raised border border-line rounded-lg p-2.5 mt-2.5 whitespace-pre-wrap break-all">{o.delivered_data}</pre>
-                    )}
-
-                    {o.status === "delivered" && (
-                      <div className="flex gap-2 mt-3">
-                        <Button size="sm" onClick={() => handleConfirm(o.id)} disabled={confirmingId === o.id}>
-                          {confirmingId === o.id ? "Đang xác nhận…" : "Xác nhận đã nhận"}
-                        </Button>
-                        <Button size="sm" variant="danger" onClick={() => setDisputeOrderId(o.id)}>Mở khiếu nại</Button>
-                      </div>
-                    )}
-
-                    {o.status === "completed" && !reviewedOrders.has(o.id) && reviewOrderId !== o.id && (
-                      <div className="mt-3">
-                        <Button size="sm" variant="secondary" onClick={() => { setReviewOrderId(o.id); setReviewRating(5); setReviewComment(""); }}>
-                          <Star size={13} /> Đánh giá
-                        </Button>
-                      </div>
-                    )}
-                    {o.status === "completed" && reviewedOrders.has(o.id) && (
-                      <p className="text-[12px] mt-2 text-good">Đã đánh giá</p>
-                    )}
-                    {reviewOrderId === o.id && (
-                      <div className="mt-3 p-3 rounded-lg border border-line bg-raised">
-                        <div className="flex gap-1 mb-2">
-                          {[1, 2, 3, 4, 5].map((s) => (
-                            <button key={s} onClick={() => setReviewRating(s)} className="p-0.5">
-                              <Star size={18} className={s <= reviewRating ? "text-warn fill-warn" : "text-line-2"} />
-                            </button>
-                          ))}
-                        </div>
-                        <Textarea rows={3} placeholder="Nhận xét (tuỳ chọn)…" value={reviewComment} onChange={(e) => setReviewComment(e.target.value)} />
-                        <div className="flex gap-2 mt-2">
-                          <Button size="sm" onClick={() => handleReviewSubmit(o.id)} disabled={reviewSubmitting}>
-                            {reviewSubmitting ? "Đang gửi…" : "Gửi đánh giá"}
-                          </Button>
-                          <Button size="sm" variant="ghost" onClick={() => setReviewOrderId(null)}>Huỷ</Button>
-                        </div>
-                      </div>
-                    )}
-
-                    {(o.status === "delivered" || o.status === "completed") && (
-                      <div className="mt-3 pt-3 border-t border-line">
-                        <button
-                          onClick={() => setDashboardOpen((prev) => {
-                            const next = new Set(prev);
-                            if (next.has(o.id)) next.delete(o.id); else next.add(o.id);
-                            return next;
-                          })}
-                          className="text-[12.5px] font-medium text-iris-hi hover:underline"
-                        >
-                          {dashboardOpen.has(o.id) ? "An dashboard" : "Xem dashboard"}
-                        </button>
-                        {dashboardOpen.has(o.id) && <ServiceDashboard orderId={o.id} />}
-                      </div>
-                    )}
-                    {(o.status === "delivered" || o.status === "completed") && <OrderResources orderId={o.id} />}
                   </div>
 
                   <div className="text-right shrink-0">
-                    <div className="font-mono text-[15px] font-semibold tabular">{vnd(o.total_amount)}</div>
+                    <div className="text-[10px] text-faint uppercase tracking-wider mb-0.5">Tổng tiền</div>
+                    <div className="font-mono text-[15.5px] font-semibold tabular">{vnd(o.total_amount)}</div>
                     {o.escrow_expires_at && o.status === "delivered" && (
-                      <div className="text-[11px] text-faint mt-1 flex items-center gap-1 justify-end">
+                      <div className="text-[11px] text-faint mt-1.5 flex items-center gap-1 justify-end">
                         <Shield size={11} className="text-good" /> Ký quỹ đến {new Date(o.escrow_expires_at).toLocaleDateString("vi-VN")}
                       </div>
                     )}
                   </div>
                 </div>
+
+                <div className="flex items-center gap-2 mt-3">
+                  <Tag tone={st.tone}>{st.label}</Tag>
+                  <span className="text-[12px] text-muted">{st.hint}</span>
+                </div>
+
+                {!["disputed", "refunded", "cancelled"].includes(o.status) && (
+                  <div className="mt-3 rounded-lg bg-raised/60 border border-line/70">
+                    <StatusTimeline status={o.status} />
+                  </div>
+                )}
+
+                {o.delivered_data && (
+                  <div className="mt-3">
+                    <div className="flex items-center justify-between mb-1">
+                      <span className="text-[10.5px] text-faint uppercase tracking-wider">Dữ liệu bàn giao</span>
+                      <CopyIconButton text={o.delivered_data} />
+                    </div>
+                    <pre className="font-mono text-[12px] bg-raised border border-line rounded-lg p-2.5 whitespace-pre-wrap break-all">{o.delivered_data}</pre>
+                  </div>
+                )}
+
+                {o.status === "delivered" && (
+                  <div className="flex gap-2 mt-3.5">
+                    <Button size="sm" onClick={() => handleConfirm(o.id)} disabled={confirmingId === o.id}>
+                      {confirmingId === o.id ? "Đang xác nhận…" : "Xác nhận đã nhận"}
+                    </Button>
+                    <Button size="sm" variant="danger" onClick={() => setDisputeOrderId(o.id)}>Mở khiếu nại</Button>
+                  </div>
+                )}
+
+                {o.status === "completed" && !o.has_review && !reviewedOrders.has(o.id) && reviewOrderId !== o.id && (
+                  <div className="mt-3.5">
+                    <Button size="sm" variant="secondary" onClick={() => { setReviewOrderId(o.id); setReviewRating(5); setReviewComment(""); }}>
+                      <Star size={13} /> Đánh giá
+                    </Button>
+                  </div>
+                )}
+                {o.status === "completed" && (o.has_review || reviewedOrders.has(o.id)) && (
+                  <p className="flex items-center gap-1.5 text-[12px] mt-2.5 text-good font-medium">
+                    <Star size={12} className="fill-good" /> Đã đánh giá
+                  </p>
+                )}
+                {reviewOrderId === o.id && (
+                  <div className="mt-3 p-3.5 rounded-lg border border-line bg-raised">
+                    <div className="flex gap-1 mb-2">
+                      {[1, 2, 3, 4, 5].map((s) => (
+                        <button key={s} onClick={() => setReviewRating(s)} className="p-0.5">
+                          <Star size={18} className={s <= reviewRating ? "text-warn fill-warn" : "text-line-2"} />
+                        </button>
+                      ))}
+                    </div>
+                    <Textarea rows={3} placeholder="Nhận xét (tuỳ chọn)…" value={reviewComment} onChange={(e) => setReviewComment(e.target.value)} />
+                    <div className="flex gap-2 mt-2">
+                      <Button size="sm" onClick={() => handleReviewSubmit(o.id)} disabled={reviewSubmitting}>
+                        {reviewSubmitting ? "Đang gửi…" : "Gửi đánh giá"}
+                      </Button>
+                      <Button size="sm" variant="ghost" onClick={() => setReviewOrderId(null)}>Huỷ</Button>
+                    </div>
+                  </div>
+                )}
+
+                {(o.status === "delivered" || o.status === "completed") && (
+                  <Disclosure
+                    label="Xem dashboard" labelOpen="Ẩn dashboard"
+                    open={dashboardOpen.has(o.id)}
+                    onToggle={() => setDashboardOpen((prev) => {
+                      const next = new Set(prev);
+                      if (next.has(o.id)) next.delete(o.id); else next.add(o.id);
+                      return next;
+                    })}
+                  >
+                    <ServiceDashboard orderId={o.id} />
+                  </Disclosure>
+                )}
+                {(o.status === "delivered" || o.status === "completed") && <OrderResources orderId={o.id} />}
               </Card>
             );
           })}

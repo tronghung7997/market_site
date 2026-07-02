@@ -297,6 +297,7 @@ async def get_affiliate_stats(
     db: AsyncSession,
     date_from: str | None = None,
     date_to: str | None = None,
+    reveal_spend: bool = False,
 ) -> dict:
     start, end = _parse_range(date_from, date_to)
 
@@ -346,6 +347,8 @@ async def get_affiliate_stats(
 
     timeseries = await _build_timeseries(account_id, db, start, end, date_from, date_to)
 
+    referred_users = await _get_referred_users(account_id, db, start, end, reveal_spend=reveal_spend)
+
     recent = await db.execute(
         select(AffiliateCommission)
         .where(AffiliateCommission.affiliate_account_id == account_id)
@@ -381,7 +384,60 @@ async def get_affiliate_stats(
         "totals": totals,
         "timeseries": timeseries,
         "commissions": commissions,
+        "referred_users": referred_users,
     }
+
+
+async def _get_referred_users(
+    account_id: int,
+    db: AsyncSession,
+    start: datetime | None,
+    end: datetime | None,
+    reveal_spend: bool = False,
+) -> list[dict]:
+    """Accounts signed up under this affiliate's link, most recent first.
+
+    total_spent is only populated when reveal_spend=True (admin view) — the
+    self-service affiliate page must not leak other users' spending.
+    """
+    orders_subq = (
+        select(
+            Order.buyer_id.label("bid"),
+            func.count(Order.id).label("order_count"),
+            func.coalesce(func.sum(Order.total_amount), 0).label("total_spent"),
+        )
+        .group_by(Order.buyer_id)
+        .subquery()
+    )
+    query = (
+        select(
+            Account.id,
+            Account.email,
+            Account.created_at,
+            func.coalesce(orders_subq.c.order_count, 0).label("order_count"),
+            func.coalesce(orders_subq.c.total_spent, 0).label("total_spent"),
+        )
+        .outerjoin(orders_subq, orders_subq.c.bid == Account.id)
+        .where(Account.referred_by_id == account_id)
+        .order_by(Account.created_at.desc())
+        .limit(100)
+    )
+    if start:
+        query = query.where(Account.created_at >= start)
+    if end:
+        query = query.where(Account.created_at < end)
+
+    rows = await db.execute(query)
+    return [
+        {
+            "id": r.id,
+            "email": r.email,
+            "created_at": r.created_at,
+            "order_count": int(r.order_count or 0),
+            "total_spent": int(r.total_spent or 0) if reveal_spend else None,
+        }
+        for r in rows.all()
+    ]
 
 
 async def _build_timeseries(

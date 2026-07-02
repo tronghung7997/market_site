@@ -91,6 +91,7 @@ export interface Order {
   variant_name?: string | null;
   buyer_email?: string | null;
   seller_email?: string | null;
+  has_review?: boolean;
 }
 
 export interface TimelineEvent {
@@ -406,12 +407,21 @@ export interface AffiliateCommissionRow {
   order_total: number | null;
 }
 
+export interface ReferredUserRow {
+  id: number;
+  email: string;
+  created_at: string;
+  order_count: number;
+  total_spent: number | null;
+}
+
 export interface AffiliateStats {
   code: string;
   link: string;
   totals: AffiliateTotals;
   timeseries: AffiliateTimeseriesPoint[];
   commissions: AffiliateCommissionRow[];
+  referred_users: ReferredUserRow[];
 }
 
 export interface AffiliateSummary {

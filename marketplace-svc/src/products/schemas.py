@@ -15,7 +15,8 @@ class ProductCreate(BaseModel):
     specs: dict | None = None
     warranty_text: str | None = None
     highlight_text: str | None = None
-    commission_rate: float | None = None
+    # commission_rate is admin-controlled (set via /admin/products/{id}/operations),
+    # not settable by sellers.
 
 
 class ProductUpdate(BaseModel):
@@ -29,7 +30,6 @@ class ProductUpdate(BaseModel):
     specs: dict | None = None
     warranty_text: str | None = None
     highlight_text: str | None = None
-    commission_rate: float | None = None
 
 
 class ProductResponse(BaseModel):
@@ -106,3 +106,4 @@ class ProductOperationsUpdate(BaseModel):
     provider_id: int | None = None
     pricing_strategy: str | None = None
     pricing_params: dict | None = None
+    commission_rate: float | None = None

@@ -62,3 +62,35 @@ class PaginatedAffiliateSummary(BaseModel):
     total: int
     page: int
     per_page: int
+
+
+class FundEntryRow(BaseModel):
+    id: int
+    amount: int
+    kind: str
+    reference_id: str | None = None
+    note: str | None = None
+    created_at: datetime
+
+
+class FundOverview(BaseModel):
+    balance: int
+    total_topped_up: int
+    total_paid_out: int
+    entries: list[FundEntryRow]
+
+
+class FundTopupRequest(BaseModel):
+    amount: int
+    note: str | None = None
+
+
+class UpdateCodeRequest(BaseModel):
+    code: str
+
+
+class AffiliateCodeResponse(BaseModel):
+    id: int
+    affiliate_code: str
+
+    model_config = {"from_attributes": True}

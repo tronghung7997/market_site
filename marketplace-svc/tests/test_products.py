@@ -80,43 +80,59 @@ async def test_buyer_cannot_create_product(client):
 
 
 @pytest.mark.asyncio
-async def test_product_commission_rate_persisted_on_create(client):
+async def test_seller_cannot_set_commission_rate(client):
+    """commission_rate is admin-controlled; seller create/update must ignore it."""
     seller_token, _, cat_id = await setup_seller_with_category(client)
-    resp = await client.post("/seller/products", json={
+    created = await client.post("/seller/products", json={
         "category_id": cat_id, "title": "Commission Product",
         "commission_rate": 7.5,
     }, headers={"Authorization": f"Bearer {seller_token}"})
-    assert resp.status_code == 201
-    assert resp.json()["commission_rate"] == 7.5
+    assert created.status_code == 201
+    assert created.json()["commission_rate"] is None
+
+    product_id = created.json()["id"]
+    updated = await client.patch(f"/seller/products/{product_id}", json={
+        "commission_rate": 12.0,
+    }, headers={"Authorization": f"Bearer {seller_token}"})
+    assert updated.status_code == 200
+    assert updated.json()["commission_rate"] is None
 
 
 @pytest.mark.asyncio
-async def test_product_commission_rate_update_persists(client):
-    seller_token, _, cat_id = await setup_seller_with_category(client)
+async def test_admin_sets_product_commission_via_operations(client):
+    seller_token, admin_token, cat_id = await setup_seller_with_category(client)
     product = await client.post("/seller/products", json={
         "category_id": cat_id, "title": "Commission Update",
     }, headers={"Authorization": f"Bearer {seller_token}"})
     product_id = product.json()["id"]
     assert product.json()["commission_rate"] is None
 
-    resp = await client.patch(f"/seller/products/{product_id}", json={
+    resp = await client.put(f"/admin/products/{product_id}/operations", json={
         "commission_rate": 12.0,
-    }, headers={"Authorization": f"Bearer {seller_token}"})
+    }, headers={"Authorization": f"Bearer {admin_token}"})
     assert resp.status_code == 200
-    assert resp.json()["commission_rate"] == 12.0
+
+    detail = await client.get(f"/products/{product_id}")
+    assert detail.json()["commission_rate"] == 12.0
 
 
 @pytest.mark.asyncio
-async def test_product_commission_rate_left_untouched_when_omitted(client):
-    seller_token, _, cat_id = await setup_seller_with_category(client)
+async def test_admin_commission_left_untouched_when_omitted(client):
+    seller_token, admin_token, cat_id = await setup_seller_with_category(client)
     product = await client.post("/seller/products", json={
-        "category_id": cat_id, "title": "Commission Keep", "commission_rate": 9.0,
+        "category_id": cat_id, "title": "Commission Keep",
     }, headers={"Authorization": f"Bearer {seller_token}"})
     product_id = product.json()["id"]
-    assert product.json()["commission_rate"] == 9.0
 
-    resp = await client.patch(f"/seller/products/{product_id}", json={
-        "title": "Commission Keep Renamed",
-    }, headers={"Authorization": f"Bearer {seller_token}"})
+    await client.put(f"/admin/products/{product_id}/operations", json={
+        "commission_rate": 9.0,
+    }, headers={"Authorization": f"Bearer {admin_token}"})
+
+    # An operations update that omits commission_rate must not wipe it.
+    resp = await client.put(f"/admin/products/{product_id}/operations", json={
+        "pricing_strategy": "fixed",
+    }, headers={"Authorization": f"Bearer {admin_token}"})
     assert resp.status_code == 200
-    assert resp.json()["commission_rate"] == 9.0
+
+    detail = await client.get(f"/products/{product_id}")
+    assert detail.json()["commission_rate"] == 9.0

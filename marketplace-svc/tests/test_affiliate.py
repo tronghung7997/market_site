@@ -293,6 +293,84 @@ async def test_affiliate_me_shows_commission_after_order_completion(client):
     assert data["commissions"][0]["amount"] == 500
     assert data["commissions"][0]["product_title"] == "MeProd2"
 
+    # The payout drew down the global affiliate fund. With no top-up it goes
+    # negative, signalling admin to fund it.
+    fund = await client.get("/admin/affiliate-fund", headers={"Authorization": f"Bearer {admin_token}"})
+    assert fund.status_code == 200
+    assert fund.json()["balance"] == -500
+    assert fund.json()["total_paid_out"] == 500
+
+
+@pytest.mark.asyncio
+async def test_fund_topup_and_overview(client):
+    admin_token = await register_and_login(client, "fund_admin@example.com")
+    await make_admin("fund_admin@example.com")
+    admin_token = await register_and_login(client, "fund_admin@example.com")
+
+    resp = await client.post("/admin/affiliate-fund/topup", json={"amount": 1_000_000, "note": "Q3 budget"},
+                             headers={"Authorization": f"Bearer {admin_token}"})
+    assert resp.status_code == 200
+    body = resp.json()
+    assert body["balance"] == 1_000_000
+    assert body["total_topped_up"] == 1_000_000
+    assert body["total_paid_out"] == 0
+    assert body["entries"][0]["kind"] == "topup"
+
+
+@pytest.mark.asyncio
+async def test_fund_topup_requires_admin(client):
+    token = await register_and_login(client, "fund_buyer@example.com")
+    resp = await client.post("/admin/affiliate-fund/topup", json={"amount": 100},
+                             headers={"Authorization": f"Bearer {token}"})
+    assert resp.status_code == 403
+
+
+@pytest.mark.asyncio
+async def test_admin_update_affiliate_code(client):
+    admin_token = await register_and_login(client, "code_admin@example.com")
+    await make_admin("code_admin@example.com")
+    admin_token = await register_and_login(client, "code_admin@example.com")
+
+    reg = await client.post("/auth/register", json={
+        "email": "code_holder@example.com", "password": "StrongPass123!",
+    })
+    account_id = reg.json()["id"]
+
+    resp = await client.patch(f"/admin/affiliates/{account_id}/code", json={"code": "promo01"},
+                              headers={"Authorization": f"Bearer {admin_token}"})
+    assert resp.status_code == 200
+    assert resp.json()["affiliate_code"] == "PROMO01"
+
+    # New code resolves for click tracking; old attribution untouched.
+    click = await client.post("/affiliate/click", json={"code": "PROMO01"})
+    assert click.status_code == 204
+
+
+@pytest.mark.asyncio
+async def test_admin_update_affiliate_code_rejects_duplicate(client):
+    admin_token = await register_and_login(client, "code_admin2@example.com")
+    await make_admin("code_admin2@example.com")
+    admin_token = await register_and_login(client, "code_admin2@example.com")
+
+    a = await client.post("/auth/register", json={"email": "code_a@example.com", "password": "StrongPass123!"})
+    b = await client.post("/auth/register", json={"email": "code_b@example.com", "password": "StrongPass123!"})
+    async with SessionLocal() as db:
+        acc_a = await db.get(Account, a.json()["id"])
+        code_a = acc_a.affiliate_code
+
+    resp = await client.patch(f"/admin/affiliates/{b.json()['id']}/code", json={"code": code_a},
+                              headers={"Authorization": f"Bearer {admin_token}"})
+    assert resp.status_code == 409
+
+
+@pytest.mark.asyncio
+async def test_update_affiliate_code_requires_admin(client):
+    token = await register_and_login(client, "code_buyer@example.com")
+    me = await client.get("/me", headers={"Authorization": f"Bearer {token}"})
+    resp = await client.patch(f"/admin/affiliates/{me.json()['id']}/code", json={"code": "HACKED1"},
+                              headers={"Authorization": f"Bearer {token}"})
+    assert resp.status_code == 403
+
 
 @pytest.mark.asyncio
 async def test_commission_via_dispute_reject(client):

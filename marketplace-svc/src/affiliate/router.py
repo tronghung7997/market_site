@@ -49,3 +49,30 @@ async def admin_affiliate_detail(
     if not account:
         raise HTTPException(status_code=404, detail="Account not found")
     return await service.get_affiliate_stats(account_id, db, date_from=date_from, date_to=date_to)
+
+
+@router.patch("/admin/affiliates/{account_id}/code", response_model=schemas.AffiliateCodeResponse)
+async def admin_update_affiliate_code(
+    account_id: int,
+    body: schemas.UpdateCodeRequest,
+    _: Account = Depends(require_role("admin")),
+    db: AsyncSession = Depends(get_session),
+):
+    return await service.update_affiliate_code(account_id, body.code, db)
+
+
+@router.get("/admin/affiliate-fund", response_model=schemas.FundOverview)
+async def admin_fund_overview(
+    _: Account = Depends(require_role("admin")),
+    db: AsyncSession = Depends(get_session),
+):
+    return await service.get_fund_overview(db)
+
+
+@router.post("/admin/affiliate-fund/topup", response_model=schemas.FundOverview)
+async def admin_fund_topup(
+    body: schemas.FundTopupRequest,
+    admin: Account = Depends(require_role("admin")),
+    db: AsyncSession = Depends(get_session),
+):
+    return await service.topup_fund(body.amount, admin.id, db, note=body.note)

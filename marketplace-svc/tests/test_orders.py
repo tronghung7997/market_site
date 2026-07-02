@@ -34,10 +34,13 @@ async def setup_affiliate_order(client, product_rate=None, category_rate=None, u
     seller_token = await register_and_login(client, "aff_seller@example.com")
 
     prod_payload = {"category_id": cat_id, "title": "Aff Product", "status": "active", "escrow_days": 2}
-    if product_rate is not None:
-        prod_payload["commission_rate"] = product_rate
     product = await client.post("/seller/products", json=prod_payload,
                                 headers={"Authorization": f"Bearer {seller_token}"})
+    if product_rate is not None:
+        # commission_rate is admin-controlled, set via the operations endpoint
+        await client.put(f"/admin/products/{product.json()['id']}/operations",
+                         json={"commission_rate": product_rate},
+                         headers={"Authorization": f"Bearer {admin_token}"})
     variant = await client.post(f"/seller/products/{product.json()['id']}/variants", json={
         "name": "Aff Var", "price": 10000, "delivery_mode": "instant",
     }, headers={"Authorization": f"Bearer {seller_token}"})

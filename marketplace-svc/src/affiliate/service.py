@@ -6,7 +6,7 @@ from sqlalchemy.ext.asyncio import AsyncSession
 
 from src.config import settings
 from src.models.account import Account
-from src.models.affiliate import AffiliateClick, AffiliateCommission
+from src.models.affiliate import AffiliateClick, AffiliateCommission, AffiliateFundEntry
 from src.models.category import Category
 from src.models.order import Order
 from src.models.product import Product, ProductVariant
@@ -78,7 +78,91 @@ async def apply_affiliate_commission(order: Order, db: AsyncSession) -> None:
             amount=amount,
         )
     )
+    # Draw the payout down from the global affiliate fund. The balance is
+    # allowed to go negative (commission is always paid); a negative balance
+    # tells admin to top up.
+    db.add(
+        AffiliateFundEntry(
+            amount=-amount,
+            kind="commission",
+            reference_id=str(order.id),
+        )
+    )
     await credit_affiliate_commission(buyer.referred_by_id, amount, order.id, db)
+
+
+async def get_fund_balance(db: AsyncSession) -> int:
+    return int(await db.scalar(select(func.coalesce(func.sum(AffiliateFundEntry.amount), 0))) or 0)
+
+
+async def get_fund_overview(db: AsyncSession, limit: int = 30) -> dict:
+    balance = await get_fund_balance(db)
+    spent = int(
+        await db.scalar(
+            select(func.coalesce(func.sum(AffiliateFundEntry.amount), 0)).where(
+                AffiliateFundEntry.kind == "commission"
+            )
+        )
+        or 0
+    )
+    topped = int(
+        await db.scalar(
+            select(func.coalesce(func.sum(AffiliateFundEntry.amount), 0)).where(
+                AffiliateFundEntry.kind == "topup"
+            )
+        )
+        or 0
+    )
+    rows = await db.execute(
+        select(AffiliateFundEntry).order_by(AffiliateFundEntry.created_at.desc()).limit(limit)
+    )
+    entries = [
+        {
+            "id": e.id,
+            "amount": e.amount,
+            "kind": e.kind,
+            "reference_id": e.reference_id,
+            "note": e.note,
+            "created_at": e.created_at,
+        }
+        for e in rows.scalars().all()
+    ]
+    # spent is stored negative; report as positive "paid out"
+    return {"balance": balance, "total_topped_up": topped, "total_paid_out": -spent, "entries": entries}
+
+
+async def topup_fund(amount: int, admin_id: int, db: AsyncSession, note: str | None = None) -> dict:
+    if amount <= 0:
+        raise HTTPException(status_code=400, detail="Amount must be positive")
+    db.add(
+        AffiliateFundEntry(amount=amount, kind="topup", note=note, created_by=admin_id)
+    )
+    await db.commit()
+    return await get_fund_overview(db)
+
+
+async def update_affiliate_code(account_id: int, new_code: str, db: AsyncSession) -> Account:
+    """Admin-set an affiliate's referral code.
+
+    referred_by_id and affiliate_clicks link by account id, so existing
+    attributions and click history are unaffected; only external links that
+    still carry the old code stop resolving.
+    """
+    code = new_code.strip().upper()
+    if not (4 <= len(code) <= 8) or not code.isalnum():
+        raise HTTPException(status_code=422, detail="Mã phải dài 4–8 ký tự chữ/số")
+    account = await db.get(Account, account_id)
+    if not account:
+        raise HTTPException(status_code=404, detail="Account not found")
+    clash = await db.scalar(
+        select(Account.id).where(Account.affiliate_code == code, Account.id != account_id)
+    )
+    if clash:
+        raise HTTPException(status_code=409, detail="Mã này đã được dùng")
+    account.affiliate_code = code
+    await db.commit()
+    await db.refresh(account)
+    return account
 
 
 async def list_affiliates_admin(

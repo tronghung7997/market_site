@@ -372,7 +372,7 @@ function OperationsTab({ productId }: { productId: number }) {
   );
 
   return (
-    <div className="space-y-6 max-w-[800px]">
+    <div className="space-y-6">
       {/* Section 1: Pipeline */}
       <Card className="p-5 space-y-3">
         <h3 className="text-[14px] font-semibold flex items-center gap-2">

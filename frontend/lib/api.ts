@@ -10,6 +10,8 @@ export function getToken(): string | null {
   if (typeof window === "undefined") return null;
   return window.localStorage.getItem(TOKEN_KEY);
 }
+
+console.log('[env] NEXT_PUBLIC_API_URL =', process.env.NEXT_PUBLIC_API_URL, '| API_URL =', process.env.API_URL, '| runtime =', typeof window !== "undefined" ? "client" : "server", '| BASE =', BASE);
 export function setToken(t: string | null) {
   if (typeof window === "undefined") return;
   if (t) window.localStorage.setItem(TOKEN_KEY, t);

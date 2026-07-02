@@ -1,0 +1,75 @@
+networks:
+  market_site:
+    name: market_site
+    driver: bridge
+
+services:
+  postgres:
+    image: postgres:17-alpine
+    environment:
+      POSTGRES_USER: marketplace
+      POSTGRES_PASSWORD: 3ivYYwOP27U2vF9Z
+      POSTGRES_DB: marketplace
+    # ports:
+    #   - "5432:5432"
+    volumes:
+      - ./pgdata:/var/lib/postgresql/data
+      - ./init-db.sql:/docker-entrypoint-initdb.d/01-init.sql
+      - ./db/marketplace-seed.sql:/docker-entrypoint-initdb.d/02-seed.sql
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U marketplace"]
+      interval: 5s
+      retries: 5
+    networks:
+      - market_site
+
+  redis:
+    image: redis:7-alpine
+    # ports:
+    #   - "6379:6379"
+    networks:
+      - market_site
+
+  marketplace-svc:
+    image: registry.k7:5000/market-site/marketplace-svc:latest
+    #build: ./marketplace-svc
+    ports:
+      - "8001:8001"
+    environment:
+      DATABASE_URL: postgresql+asyncpg://marketplace:3ivYYwOP27U2vF9Z@postgres:5432/marketplace
+      REDIS_URL: redis://redis:6379
+      JWT_SECRET: 567fbb317c8d42956c452f353045c8baddeca9b4736040261c715f0e87a04a57
+      INTERNAL_API_KEY: 7w8EAM76idmctHxtg1820VIzk7N85nDU
+      PLATFORM_FEE_PERCENT: "0"
+#    depends_on:
+#      postgres:
+#        condition: service_healthy
+    networks:
+      - market_site
+
+  frontend:
+    #image: registry.k7:5000/market-site/frontend:latest
+    build: 
+      context: ./frontend
+      args:
+        API_URL: https://api-market.taskforces.info
+    ports:
+      - "3001:3000"
+    environment:
+      API_URL: https://api-market.taskforces.info
+        #NEXT_PUBLIC_API_URL: https://api-market.taskforces.info
+#    depends_on:
+#      - marketplace-svc
+    networks:
+      - market_site
+
+###
+  # cloudflared:
+  #   image: cloudflare/cloudflared:latest
+  #   container_name: tunnel
+  #   restart: unless-stopped
+  #   command: tunnel run
+  #   environment:
+  #     - TUNNEL_TOKEN=eyJhIjoiM2I3ZDFhZDFhYWJlMzliZGJiYmU3YzgzMjJjZTI1ZjUiLCJ0IjoiOTQ3YTE0NDktMGNjNi00N2NmLWI3Y2EtMWU1ODRiNWEyOGYwIiwicyI6Ik5HVm1OR1EyTldNdFpEbG1aaTAwTldObUxXSXlabVV0Tm1Ga01XTXpZelUzWWpNeCJ9
+  #   networks:
+  #     - market_site

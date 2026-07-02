@@ -1,6 +1,7 @@
 from datetime import datetime, timedelta, timezone
 
-from sqlalchemy import func, select
+from fastapi import HTTPException
+from sqlalchemy import func, literal_column, select
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from src.config import settings
@@ -158,8 +159,14 @@ async def list_affiliates_admin(
 
 
 def _parse_range(date_from: str | None, date_to: str | None) -> tuple[datetime | None, datetime | None]:
-    start = datetime.fromisoformat(date_from) if date_from else None
-    end = datetime.fromisoformat(date_to) + timedelta(days=1) if date_to else None
+    try:
+        start = datetime.fromisoformat(date_from) if date_from else None
+        end = datetime.fromisoformat(date_to) + timedelta(days=1) if date_to else None
+    except ValueError:
+        raise HTTPException(
+            status_code=422,
+            detail="date_from/date_to must be ISO dates (YYYY-MM-DD)",
+        )
     return start, end
 
 
@@ -297,10 +304,24 @@ async def _build_timeseries(
 
     day_index = {datetime.fromisoformat(pt["date"]).date(): pt for pt in days}
 
+    # Bucket by UTC calendar day to match `today`/range which are computed in UTC,
+    # and bound each aggregate to the visible window so we never scan full history.
+    win_start = datetime(cur.year, cur.month, cur.day, tzinfo=timezone.utc)
+    win_end = datetime(last.year, last.month, last.day, tzinfo=timezone.utc) + timedelta(days=1)
+
+    # literal_column keeps 'UTC' out of a bind param so the SELECT and GROUP BY
+    # expressions render identically (Postgres rejects grouping otherwise).
+    def _utc_day(col):
+        return func.date(func.timezone(literal_column("'UTC'"), col))
+
     clicks_by_day = await db.execute(
-        select(func.date(AffiliateClick.created_at), func.count(AffiliateClick.id))
-        .where(AffiliateClick.affiliate_account_id == account_id)
-        .group_by(func.date(AffiliateClick.created_at))
+        select(_utc_day(AffiliateClick.created_at), func.count(AffiliateClick.id))
+        .where(
+            AffiliateClick.affiliate_account_id == account_id,
+            AffiliateClick.created_at >= win_start,
+            AffiliateClick.created_at < win_end,
+        )
+        .group_by(_utc_day(AffiliateClick.created_at))
     )
     for d_str, cnt in clicks_by_day.all():
         d = datetime.fromisoformat(str(d_str)).date()
@@ -308,9 +329,13 @@ async def _build_timeseries(
             day_index[d]["clicks"] = int(cnt)
 
     signups_by_day = await db.execute(
-        select(func.date(Account.created_at), func.count(Account.id))
-        .where(Account.referred_by_id == account_id)
-        .group_by(func.date(Account.created_at))
+        select(_utc_day(Account.created_at), func.count(Account.id))
+        .where(
+            Account.referred_by_id == account_id,
+            Account.created_at >= win_start,
+            Account.created_at < win_end,
+        )
+        .group_by(_utc_day(Account.created_at))
     )
     for d_str, cnt in signups_by_day.all():
         d = datetime.fromisoformat(str(d_str)).date()
@@ -319,12 +344,16 @@ async def _build_timeseries(
 
     comm_by_day = await db.execute(
         select(
-            func.date(AffiliateCommission.created_at),
+            _utc_day(AffiliateCommission.created_at),
             func.count(AffiliateCommission.id),
             func.coalesce(func.sum(AffiliateCommission.amount), 0),
         )
-        .where(AffiliateCommission.affiliate_account_id == account_id)
-        .group_by(func.date(AffiliateCommission.created_at))
+        .where(
+            AffiliateCommission.affiliate_account_id == account_id,
+            AffiliateCommission.created_at >= win_start,
+            AffiliateCommission.created_at < win_end,
+        )
+        .group_by(_utc_day(AffiliateCommission.created_at))
     )
     for d_str, cnt, amt in comm_by_day.all():
         d = datetime.fromisoformat(str(d_str)).date()
@@ -334,12 +363,16 @@ async def _build_timeseries(
 
     rev_by_day = await db.execute(
         select(
-            func.date(AffiliateCommission.created_at),
+            _utc_day(AffiliateCommission.created_at),
             func.coalesce(func.sum(Order.total_amount), 0),
         )
         .join(AffiliateCommission, AffiliateCommission.order_id == Order.id)
-        .where(AffiliateCommission.affiliate_account_id == account_id)
-        .group_by(func.date(AffiliateCommission.created_at))
+        .where(
+            AffiliateCommission.affiliate_account_id == account_id,
+            AffiliateCommission.created_at >= win_start,
+            AffiliateCommission.created_at < win_end,
+        )
+        .group_by(_utc_day(AffiliateCommission.created_at))
     )
     for d_str, amt in rev_by_day.all():
         d = datetime.fromisoformat(str(d_str)).date()

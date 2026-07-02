@@ -2,21 +2,35 @@
 
 import Link from "next/link";
 import { useEffect, useMemo, useState } from "react";
+import { Bar, BarChart, Cell, ResponsiveContainer, Tooltip, XAxis, YAxis } from "recharts";
 import { api, vnd } from "@/lib/api";
-import type { SellerStats } from "@/lib/types";
+import type { Order, SellerStats } from "@/lib/types";
 import { Button, Card, Spinner } from "@/components/ui";
-import { ArrowRight, BarChart, Check, Clock, Inbox, Package, Plus } from "@/components/Icons";
+import { BarChart as BarIcon, Check, Clock, Inbox, Package, Plus } from "@/components/Icons";
 
-/* Generate fake revenue for last 7 days */
-function fakeRevenue() {
-  const days: { label: string; value: number }[] = [];
+const DONE = new Set(["delivered", "completed", "confirmed"]);
+
+/* Real revenue for the last 7 days, from delivered/completed orders */
+function build7DayRevenue(orders: Order[]) {
+  const days: { label: string; full: string; value: number }[] = [];
   const now = new Date();
+  now.setHours(0, 0, 0, 0);
   for (let i = 6; i >= 0; i--) {
     const d = new Date(now);
     d.setDate(d.getDate() - i);
+    const next = new Date(d);
+    next.setDate(d.getDate() + 1);
+    const value = orders
+      .filter((o) => {
+        if (!DONE.has(o.status)) return false;
+        const t = new Date(o.created_at).getTime();
+        return t >= d.getTime() && t < next.getTime();
+      })
+      .reduce((s, o) => s + o.total_amount, 0);
     days.push({
       label: d.toLocaleDateString("vi-VN", { weekday: "short" }),
-      value: Math.floor(Math.random() * 800_000 + 50_000),
+      full: d.toLocaleDateString("vi-VN", { day: "numeric", month: "short" }),
+      value,
     });
   }
   return days;
@@ -24,26 +38,38 @@ function fakeRevenue() {
 
 export default function SellerDashboard() {
   const [stats, setStats] = useState<SellerStats | null>(null);
+  const [orders, setOrders] = useState<Order[]>([]);
   const [loading, setLoading] = useState(true);
-  const revenue = useMemo(fakeRevenue, []);
 
   useEffect(() => {
-    api.sellerStats().then(setStats).catch(() => {}).finally(() => setLoading(false));
+    Promise.allSettled([api.sellerStats(), api.sellerOrders()])
+      .then(([s, o]) => {
+        if (s.status === "fulfilled") setStats(s.value);
+        if (o.status === "fulfilled") setOrders(o.value);
+      })
+      .finally(() => setLoading(false));
   }, []);
+
+  const revenue = useMemo(() => build7DayRevenue(orders), [orders]);
+  const peak = useMemo(() => Math.max(1, ...revenue.map((d) => d.value)), [revenue]);
+
+  // Real order-status breakdown from the orders list
+  const breakdown = useMemo(() => {
+    const count = (s: string) => orders.filter((o) => o.status === s).length;
+    return {
+      pending: count("pending"),
+      processing: count("processing"),
+      delivered: count("delivered"),
+      completed: count("completed"),
+    };
+  }, [orders]);
 
   if (loading) return <Spinner />;
 
   const total = stats?.total_orders ?? 0;
   const pending = stats?.pending_orders ?? 0;
-  // Derive some numbers from what we have
   const completed = Math.max(0, total - pending);
   const completionRate = total > 0 ? Math.round((completed / total) * 100) : 0;
-
-  // Fake breakdown (since API only gives pending/total)
-  const processing = Math.min(pending, Math.floor(pending * 0.4));
-  const pendingOnly = pending - processing;
-  const delivered = Math.floor(completed * 0.3);
-  const completedOnly = completed - delivered;
 
   return (
     <div className="space-y-6">
@@ -51,18 +77,50 @@ export default function SellerDashboard() {
       <div className="grid gap-4 sm:grid-cols-2 lg:grid-cols-4">
         <StatCard icon={Package} label="Tổng sản phẩm" value={String(stats?.product_count ?? 0)} sub={`${stats?.active_count ?? 0} đang bán`} />
         <StatCard icon={Inbox} label="Tổng đơn hàng" value={String(total)} sub={pending ? `${pending} chờ xử lý` : "Không có đơn chờ"} tone={pending ? "warn" : undefined} />
-        <StatCard icon={BarChart} label="Doanh thu" value={vnd(stats?.total_revenue ?? 0)} sub="Tổng doanh thu đã giao" />
+        <StatCard icon={BarIcon} label="Doanh thu" value={vnd(stats?.total_revenue ?? 0)} sub="Tổng doanh thu đã giao" />
         <StatCard icon={Check} label="Tỷ lệ hoàn thành" value={`${completionRate}%`} sub={`${completed}/${total} đơn`} tone={completionRate < 50 && total > 0 ? "warn" : undefined} />
       </div>
 
       {/* Revenue chart + Order breakdown */}
       <div className="grid gap-4 lg:grid-cols-2">
-        {/* Revenue bar chart */}
         <Card className="p-5">
           <h3 className="text-[13px] font-semibold mb-4 flex items-center gap-2">
-            <BarChart size={14} className="text-faint" /> Doanh thu gần đây
+            <BarIcon size={14} className="text-faint" /> Doanh thu 7 ngày
           </h3>
-          <MiniBarChart data={revenue} />
+          <div className="h-[180px]">
+            {revenue.every((d) => d.value === 0) ? (
+              <div className="h-full grid place-items-center text-[13px] text-muted">
+                Chưa có doanh thu trong 7 ngày qua.
+              </div>
+            ) : (
+              <ResponsiveContainer width="100%" height="100%">
+                <BarChart data={revenue} barCategoryGap="28%">
+                  <XAxis dataKey="label" axisLine={false} tickLine={false} tick={{ fontSize: 11, fill: "#94a3b8" }} />
+                  <YAxis hide />
+                  <Tooltip
+                    cursor={{ fill: "rgba(79,70,229,0.06)" }}
+                    content={({ active, payload }) => {
+                      if (active && payload && payload.length) {
+                        const d = payload[0].payload;
+                        return (
+                          <div className="bg-slate-900 text-white px-3 py-2 rounded-lg text-[12px] shadow-lg">
+                            <p className="font-medium">{d.full}</p>
+                            <p className="text-slate-300">{vnd(d.value)}</p>
+                          </div>
+                        );
+                      }
+                      return null;
+                    }}
+                  />
+                  <Bar dataKey="value" radius={[4, 4, 0, 0]}>
+                    {revenue.map((entry, i) => (
+                      <Cell key={i} fill={entry.value === peak ? "#4f46e5" : "#c7d2fe"} />
+                    ))}
+                  </Bar>
+                </BarChart>
+              </ResponsiveContainer>
+            )}
+          </div>
         </Card>
 
         {/* Order status breakdown */}
@@ -70,13 +128,7 @@ export default function SellerDashboard() {
           <h3 className="text-[13px] font-semibold mb-4 flex items-center gap-2">
             <Clock size={14} className="text-faint" /> Đơn hàng theo trạng thái
           </h3>
-          <OrderBreakdown
-            pending={pendingOnly}
-            processing={processing}
-            delivered={delivered}
-            completed={completedOnly}
-            total={total}
-          />
+          <OrderBreakdown {...breakdown} total={orders.length} />
         </Card>
       </div>
 
@@ -110,34 +162,7 @@ function StatCard({ icon: Icon, label, value, sub, tone }: {
   );
 }
 
-/* CSS-only bar chart */
-function MiniBarChart({ data }: { data: { label: string; value: number }[] }) {
-  const max = Math.max(...data.map((d) => d.value), 1);
-  return (
-    <div className="flex items-end gap-2 h-[120px]">
-      {data.map((d, i) => {
-        const pct = (d.value / max) * 100;
-        return (
-          <div key={i} className="flex-1 flex flex-col items-center gap-1">
-            <span className="text-[10px] font-mono text-muted tabular">{vnd(d.value)}</span>
-            <div
-              className="w-full rounded-t-[3px] transition-all"
-              style={{
-                height: `${pct}%`,
-                background: "var(--color-iris-hi)",
-                opacity: 0.7 + (pct / 100) * 0.3,
-                minHeight: 4,
-              }}
-            />
-            <span className="text-[10px] text-faint">{d.label}</span>
-          </div>
-        );
-      })}
-    </div>
-  );
-}
-
-/* Order status breakdown */
+/* Order status breakdown — real counts */
 function OrderBreakdown({ pending, processing, delivered, completed, total }: {
   pending: number; processing: number; delivered: number; completed: number; total: number;
 }) {
@@ -147,24 +172,21 @@ function OrderBreakdown({ pending, processing, delivered, completed, total }: {
     { label: "Đã giao", count: delivered, color: "var(--color-good)" },
     { label: "Hoàn thành", count: completed, color: "var(--color-good)" },
   ];
+  const shown = total > 0 ? total : items.reduce((s, it) => s + it.count, 0);
 
   return (
     <div className="space-y-4">
-      {/* Stacked bar */}
-      {total > 0 && (
+      {shown > 0 ? (
         <div className="flex h-[10px] rounded-full overflow-hidden bg-raised">
           {items.map((it, i) =>
             it.count > 0 ? (
-              <div
-                key={i}
-                style={{ width: `${(it.count / total) * 100}%`, background: it.color }}
-                className="transition-all"
-              />
-            ) : null
+              <div key={i} style={{ width: `${(it.count / shown) * 100}%`, background: it.color }} className="transition-all" />
+            ) : null,
           )}
         </div>
+      ) : (
+        <div className="text-[13px] text-muted">Chưa có đơn hàng nào.</div>
       )}
-      {/* Legend */}
       <div className="grid grid-cols-2 gap-3">
         {items.map((it, i) => (
           <div key={i} className="flex items-center gap-2">

@@ -6,6 +6,10 @@ export function useAffiliateMe(params?: { date_from?: string; date_to?: string }
   return useQuery({
     queryKey: queryKeys.affiliateMe(params),
     queryFn: () => api.affiliateMe(params),
+    // Clicks/orders arrive from other visitors' browsers; refresh when the
+    // affiliate returns to this tab instead of serving a stale 60s cache.
+    refetchOnWindowFocus: true,
+    staleTime: 0,
   });
 }
 

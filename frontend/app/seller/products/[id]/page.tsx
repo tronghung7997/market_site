@@ -101,7 +101,6 @@ export default function EditProduct() {
   const [warrantyText, setWarrantyText] = useState("");
   const [specs, setSpecs] = useState("");
   const [status, setStatus] = useState("active");
-  const [commissionRate, setCommissionRate] = useState("");
 
   const loadProduct = async () => {
     try {
@@ -118,7 +117,6 @@ export default function EditProduct() {
       setWarrantyText(p.warranty_text ?? "");
       setSpecs(p.specs ? Object.entries(p.specs).map(([k, v]) => `${k}: ${v}`).join("\n") : "");
       setStatus(p.status);
-      setCommissionRate(p.commission_rate != null ? String(p.commission_rate) : "");
     } catch {
       setError("Không tải được sản phẩm");
     } finally {
@@ -151,7 +149,6 @@ export default function EditProduct() {
         warranty_text: warrantyText.trim() || null,
         specs: specsObj ?? null,
         status,
-        ...(commissionRate.trim() !== "" ? { commission_rate: Number(commissionRate) } : {}),
       });
       setSuccess("Đã lưu thành công!");
       await loadProduct();
@@ -219,24 +216,6 @@ export default function EditProduct() {
                 </Select>
               </Field>
             </div>
-
-            <Field label="Hoa hồng affiliate (%)" hint="Để trống để kế thừa từ danh mục">
-              <Input
-                type="number"
-                min={0}
-                max={100}
-                step="0.1"
-                value={commissionRate}
-                onChange={(e) => {
-                  const v = e.target.value;
-                  if (v === "" || (Number(v) >= 0 && Number(v) <= 100)) setCommissionRate(v);
-                }}
-                placeholder="VD: 5"
-              />
-              {commissionRate.trim() !== "" && (Number(commissionRate) < 0 || Number(commissionRate) > 100) && (
-                <p className="text-bad text-[12px] mt-1">Giá trị phải từ 0 đến 100</p>
-              )}
-            </Field>
 
             <Field label="Dòng nổi bật">
               <Input value={highlightText} onChange={(e) => setHighlightText(e.target.value)} />

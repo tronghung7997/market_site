@@ -77,6 +77,7 @@ export default function AdminProductDetail() {
   const [editProviderId, setEditProviderId] = useState<number | null>(null);
   const [editStrategy, setEditStrategy] = useState<string>("fixed");
   const [editParams, setEditParams] = useState<Record<string, unknown>>({});
+  const [editCommission, setEditCommission] = useState("");
   const [dirty, setDirty] = useState(false);
   const [saving, setSaving] = useState(false);
   const [saveMsg, setSaveMsg] = useState<{ type: "ok" | "err"; text: string } | null>(null);
@@ -95,6 +96,7 @@ export default function AdminProductDetail() {
       setEditProviderId(o.provider?.id ?? null);
       setEditStrategy(o.pricing.strategy || "fixed");
       setEditParams(structuredClone(o.pricing.params ?? {}));
+      setEditCommission(p.commission_rate != null ? String(p.commission_rate) : "");
     } catch {
       setError("Không tải được sản phẩm");
     } finally {
@@ -113,6 +115,7 @@ export default function AdminProductDetail() {
         provider_id: editProviderId,
         pricing_strategy: editStrategy,
         pricing_params: editStrategy === "fixed" ? null : editParams,
+        commission_rate: editCommission.trim() === "" ? null : Number(editCommission),
       });
       setSaveMsg({ type: "ok", text: "Đã lưu cấu hình vận hành!" });
       setDirty(false);
@@ -309,6 +312,30 @@ export default function AdminProductDetail() {
             Sản phẩm đang dùng dữ liệu demo. Khi kết nối API thật, dữ liệu sẽ tự chuyển sang nguồn thật.
           </div>
         )}
+      </Card>
+
+      {/* Hoa hong affiliate */}
+      <Card className="p-5 space-y-3">
+        <h3 className="text-[14px] font-semibold flex items-center gap-2">
+          <Sliders size={14} /> Hoa hồng affiliate
+        </h3>
+        <Field label="Tỷ lệ hoa hồng (%)" hint="Để trống để kế thừa từ danh mục / mặc định hệ thống">
+          <Input
+            type="number"
+            min={0}
+            max={100}
+            step="0.1"
+            value={editCommission}
+            onChange={(e) => {
+              const v = e.target.value;
+              if (v === "" || (Number(v) >= 0 && Number(v) <= 100)) { setEditCommission(v); markDirty(); }
+            }}
+            placeholder="VD: 5"
+          />
+        </Field>
+        <p className="text-[12px] text-muted">
+          Hoa hồng chi cho affiliate khi đơn của sản phẩm này hoàn tất, trừ vào quỹ affiliate.
+        </p>
       </Card>
 
       {/* Save button */}

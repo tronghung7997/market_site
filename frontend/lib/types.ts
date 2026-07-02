@@ -430,3 +430,19 @@ export interface PaginatedAffiliateSummary {
   page: number;
   per_page: number;
 }
+
+export interface FundEntry {
+  id: number;
+  amount: number;
+  kind: string;
+  reference_id: string | null;
+  note: string | null;
+  created_at: string;
+}
+
+export interface FundOverview {
+  balance: number;
+  total_topped_up: number;
+  total_paid_out: number;
+  entries: FundEntry[];
+}

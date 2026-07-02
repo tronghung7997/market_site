@@ -3,11 +3,76 @@
 import * as React from "react";
 import { useRouter } from "next/navigation";
 import { motion } from "motion/react";
-import { ArrowRight } from "lucide-react";
+import { ArrowRight, Wallet as WalletIcon } from "lucide-react";
+import { api, vnd } from "@/lib/api";
+import type { FundOverview } from "@/lib/types";
 import { useAdminAffiliates } from "@/hooks/use-affiliate";
-import { Card, Spinner } from "@/components/ui";
+import { Button, Card, Input, Spinner } from "@/components/ui";
 import { SearchInput, Pagination } from "@/components/admin";
-import { vnd } from "@/lib/utils";
+
+function FundPanel() {
+  const [fund, setFund] = React.useState<FundOverview | null>(null);
+  const [amount, setAmount] = React.useState("");
+  const [note, setNote] = React.useState("");
+  const [busy, setBusy] = React.useState(false);
+  const [msg, setMsg] = React.useState<string | null>(null);
+
+  const load = React.useCallback(() => {
+    api.adminFund().then(setFund).catch(() => {});
+  }, []);
+  React.useEffect(() => { load(); }, [load]);
+
+  const topup = async () => {
+    const n = Number(amount);
+    if (!n || n <= 0) return;
+    setBusy(true); setMsg(null);
+    try {
+      const next = await api.adminFundTopup(n, note.trim() || undefined);
+      setFund(next);
+      setAmount(""); setNote("");
+      setMsg(`Đã nạp ${vnd(n)} vào quỹ`);
+      setTimeout(() => setMsg(null), 2500);
+    } catch (e) {
+      setMsg(e instanceof Error ? e.message : "Nạp quỹ thất bại");
+    } finally {
+      setBusy(false);
+    }
+  };
+
+  const balance = fund?.balance ?? 0;
+  const negative = balance < 0;
+
+  return (
+    <Card className="p-5">
+      <div className="grid gap-5 lg:grid-cols-[1fr_1.2fr] items-center">
+        <div>
+          <div className="flex items-center gap-2 text-[12px] text-slate-500 mb-1">
+            <WalletIcon size={14} /> Quỹ affiliate
+          </div>
+          <div className={`font-mono text-[30px] font-semibold tabular-nums leading-none ${negative ? "text-red-600" : "text-slate-900"}`}>
+            {vnd(balance)}
+          </div>
+          <div className="flex gap-4 mt-2 text-[12px] text-slate-500">
+            <span>Đã nạp: <span className="font-medium text-slate-700">{vnd(fund?.total_topped_up ?? 0)}</span></span>
+            <span>Đã chi: <span className="font-medium text-slate-700">{vnd(fund?.total_paid_out ?? 0)}</span></span>
+          </div>
+          {negative && (
+            <p className="mt-2 text-[12px] text-red-600">Quỹ đang âm — hoa hồng vẫn được trả nhưng bạn nên nạp thêm.</p>
+          )}
+        </div>
+
+        <div className="flex flex-col gap-2">
+          <div className="flex gap-2">
+            <Input type="number" min={1} placeholder="Số tiền nạp" value={amount} onChange={(e) => setAmount(e.target.value)} />
+            <Button disabled={busy || !amount} onClick={topup}>{busy ? "…" : "Nạp quỹ"}</Button>
+          </div>
+          <Input placeholder="Ghi chú (tuỳ chọn), vd: Ngân sách Q3" value={note} onChange={(e) => setNote(e.target.value)} />
+          {msg && <p className="text-[12px] text-emerald-600">{msg}</p>}
+        </div>
+      </div>
+    </Card>
+  );
+}
 
 export default function AdminAffiliatesPage() {
   const router = useRouter();
@@ -30,22 +95,22 @@ export default function AdminAffiliatesPage() {
 
   return (
     <div className="space-y-6">
+      <div>
+        <h1 className="text-[18px] font-semibold text-slate-900">Affiliate</h1>
+        <p className="text-[13px] text-slate-500 mt-0.5">Quỹ hoa hồng & hiệu suất giới thiệu theo tài khoản</p>
+      </div>
+
+      <FundPanel />
+
       <div className="flex items-center justify-between flex-wrap gap-4">
-        <div>
-          <h1 className="text-[18px] font-semibold text-slate-900">Affiliate</h1>
-          <p className="text-[13px] text-slate-500 mt-0.5">Hiệu suất giới thiệu theo từng tài khoản</p>
-        </div>
+        <h2 className="text-[14px] font-semibold text-slate-900">Danh sách affiliate</h2>
         <SearchInput value={search} onChange={onSearch} placeholder="Tìm theo email…" />
       </div>
 
       {isLoading || !data ? (
         <div className="grid place-items-center py-20"><Spinner /></div>
       ) : (
-        <motion.div
-          initial={{ opacity: 0, y: 12 }}
-          animate={{ opacity: 1, y: 0 }}
-          className="space-y-4"
-        >
+        <motion.div initial={{ opacity: 0, y: 12 }} animate={{ opacity: 1, y: 0 }} className="space-y-4">
           <Card className="p-0 overflow-hidden">
             <div className="overflow-x-auto">
               <table className="w-full text-[13px]">

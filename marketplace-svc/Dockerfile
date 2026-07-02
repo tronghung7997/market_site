@@ -7,6 +7,9 @@ COPY static /app/static/
 COPY pyproject.toml .
 RUN pip install --no-cache-dir -e .
 COPY src/ ./src/
+# alembic config + migrations — required so `alembic upgrade head` in CMD works
+COPY alembic.ini ./
+COPY alembic/ ./alembic/
 # debug tool
 RUN apt update && apt install -y curl nano vim
 EXPOSE 8001

@@ -2,8 +2,9 @@ import type {
   Account, AdminDisputeDetail, AdminOrderDetail, AdminProduct, AdminResourceListResponse, CalculateResult, Category, DashboardData, Dispute, LogEntry, Order, OrderStats, PaginatedOrderResponse, PricingField, PricingOptions, ProductDetail, Product, ProductOperations, Review, SellerProduct, SellerStats, ServiceTask, Transaction, Variant, Wallet, Provider, ProviderHealth, Alert, Resource, ResourceSummary,
 } from "./types";
 
-const BASE = process.env.NEXT_PUBLIC_API_URL
-  ?? (typeof window !== "undefined" ? "/api" : (process.env.API_URL ?? "http://localhost:8001"));
+const BASE = process.env.API_URL
+  ?? process.env.NEXT_PUBLIC_API_URL
+  ?? (typeof window !== "undefined" ? "/api" : "http://localhost:8001");
 const TOKEN_KEY = "dx_token";
 
 export function getToken(): string | null {

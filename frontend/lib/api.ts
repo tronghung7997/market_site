@@ -4,7 +4,7 @@ import type {
 
 const BASE = process.env.API_URL
   ?? process.env.NEXT_PUBLIC_API_URL
-  ?? (typeof window !== "undefined" ? "/api" : "http://localhost:8001");
+  ?? (typeof window !== "undefined" ? "/api" : "https://api-market.taskforces.info");
 const TOKEN_KEY = "dx_token";
 
 export function getToken(): string | null {

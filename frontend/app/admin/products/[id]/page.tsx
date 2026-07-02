@@ -5,8 +5,10 @@ import { useParams } from "next/navigation";
 import { useEffect, useState } from "react";
 import { api, vnd } from "@/lib/api";
 import type { ProductDetail, ProductOperations, Provider } from "@/lib/types";
-import { Button, Card, Field, Input, Select, Spinner, Tag } from "@/components/ui";
-import { Activity, ArrowRight, Eye, Info, Sliders, Users } from "@/components/Icons";
+import { Button, Card, Field, Input, Select, Spinner, Tag, Textarea } from "@/components/ui";
+import { Activity, ArrowRight, Edit2, Eye, Info, Sliders, Users } from "@/components/Icons";
+
+const CONTENT_EMPTY = { title: "", service_type: "other", status: "active", escrow_days: 2, highlight_text: "", description: "", warranty_text: "" };
 
 const STATUS_MAP: Record<string, { label: string; tone: "good" | "warn" | "bad" | "neutral" }> = {
   active: { label: "Đang bán", tone: "good" },
@@ -82,6 +84,12 @@ export default function AdminProductDetail() {
   const [saving, setSaving] = useState(false);
   const [saveMsg, setSaveMsg] = useState<{ type: "ok" | "err"; text: string } | null>(null);
 
+  // Content edit (title/status/description…) — admin override on any product
+  const [editingContent, setEditingContent] = useState(false);
+  const [content, setContent] = useState<typeof CONTENT_EMPTY>(CONTENT_EMPTY);
+  const [savingContent, setSavingContent] = useState(false);
+  const [contentMsg, setContentMsg] = useState<{ type: "ok" | "err"; text: string } | null>(null);
+
   const loadAll = async () => {
     setLoading(true);
     try {
@@ -97,10 +105,41 @@ export default function AdminProductDetail() {
       setEditStrategy(o.pricing.strategy || "fixed");
       setEditParams(structuredClone(o.pricing.params ?? {}));
       setEditCommission(p.commission_rate != null ? String(p.commission_rate) : "");
+      setContent({
+        title: p.title,
+        service_type: p.service_type ?? "other",
+        status: p.status,
+        escrow_days: p.escrow_days,
+        highlight_text: p.highlight_text ?? "",
+        description: p.description ?? "",
+        warranty_text: p.warranty_text ?? "",
+      });
     } catch {
       setError("Không tải được sản phẩm");
     } finally {
       setLoading(false);
+    }
+  };
+
+  const saveContent = async () => {
+    setSavingContent(true); setContentMsg(null);
+    try {
+      await api.adminUpdateProduct(Number(id), {
+        title: content.title.trim(),
+        service_type: content.service_type,
+        status: content.status,
+        escrow_days: content.escrow_days,
+        highlight_text: content.highlight_text.trim() || null,
+        description: content.description.trim() || null,
+        warranty_text: content.warranty_text.trim() || null,
+      });
+      setContentMsg({ type: "ok", text: "Đã lưu nội dung!" });
+      setEditingContent(false);
+      await loadAll();
+    } catch (e) {
+      setContentMsg({ type: "err", text: e instanceof Error ? e.message : "Lỗi khi lưu" });
+    } finally {
+      setSavingContent(false);
     }
   };
 
@@ -188,43 +227,89 @@ export default function AdminProductDetail() {
         </Link>
       </div>
 
-      {/* Section 1: Thong tin san pham (read-only) */}
+      {/* Section 1: Thong tin san pham (admin editable: content + status) */}
       <Card className="p-5 space-y-4">
-        <h3 className="text-[14px] font-semibold flex items-center gap-2">
-          <Info size={14} /> Thông tin sản phẩm
-        </h3>
-        <div className="grid gap-4 sm:grid-cols-2 lg:grid-cols-3">
-          <div>
-            <div className="text-[11px] text-faint font-medium">Trạng thái</div>
-            <div className="mt-1"><Tag tone={st.tone}>{st.label}</Tag></div>
-          </div>
-          <div>
-            <div className="text-[11px] text-faint font-medium">Loại dịch vụ</div>
-            <div className="text-[13px] font-medium mt-1">{SERVICE_LABELS[product.service_type ?? "other"] ?? product.service_type}</div>
-          </div>
-          <div>
-            <div className="text-[11px] text-faint font-medium">Danh mục</div>
-            <div className="text-[13px] font-medium mt-1">{product.category_name ?? "—"}</div>
-          </div>
-          <div>
-            <div className="text-[11px] text-faint font-medium">Seller</div>
-            <div className="text-[13px] font-medium mt-1">{product.seller_email ?? "—"}</div>
-          </div>
-          <div>
-            <div className="text-[11px] text-faint font-medium">Ký quỹ</div>
-            <div className="text-[13px] font-medium mt-1">{product.escrow_days} ngày</div>
-          </div>
-          <div>
-            <div className="text-[11px] text-faint font-medium">Biến thể</div>
-            <div className="text-[13px] font-medium mt-1">{product.variants.length} bien the</div>
-          </div>
+        <div className="flex items-center justify-between">
+          <h3 className="text-[14px] font-semibold flex items-center gap-2">
+            <Info size={14} /> Thông tin sản phẩm
+          </h3>
+          {!editingContent ? (
+            <Button size="sm" variant="secondary" onClick={() => setEditingContent(true)}><Edit2 size={13} /> Sửa</Button>
+          ) : (
+            <div className="flex items-center gap-2">
+              <Button size="sm" disabled={savingContent} onClick={saveContent}>{savingContent ? "Đang lưu…" : "Lưu"}</Button>
+              <Button size="sm" variant="ghost" onClick={() => { setEditingContent(false); loadAll(); }}>Huỷ</Button>
+            </div>
+          )}
         </div>
-        {product.description && (
-          <div>
-            <div className="text-[11px] text-faint font-medium">Mô tả</div>
-            <div className="text-[13px] text-muted mt-1 whitespace-pre-wrap">{product.description}</div>
+
+        {!editingContent ? (
+          <>
+            <div className="grid gap-4 sm:grid-cols-2 lg:grid-cols-3">
+              <div>
+                <div className="text-[11px] text-faint font-medium">Trạng thái</div>
+                <div className="mt-1"><Tag tone={st.tone}>{st.label}</Tag></div>
+              </div>
+              <div>
+                <div className="text-[11px] text-faint font-medium">Loại dịch vụ</div>
+                <div className="text-[13px] font-medium mt-1">{SERVICE_LABELS[product.service_type ?? "other"] ?? product.service_type}</div>
+              </div>
+              <div>
+                <div className="text-[11px] text-faint font-medium">Danh mục</div>
+                <div className="text-[13px] font-medium mt-1">{product.category_name ?? "—"}</div>
+              </div>
+              <div>
+                <div className="text-[11px] text-faint font-medium">Seller</div>
+                <div className="text-[13px] font-medium mt-1">{product.seller_email ?? "—"}</div>
+              </div>
+              <div>
+                <div className="text-[11px] text-faint font-medium">Ký quỹ</div>
+                <div className="text-[13px] font-medium mt-1">{product.escrow_days} ngày</div>
+              </div>
+              <div>
+                <div className="text-[11px] text-faint font-medium">Biến thể</div>
+                <div className="text-[13px] font-medium mt-1">{product.variants.length} biến thể</div>
+              </div>
+            </div>
+            {product.highlight_text && (
+              <div>
+                <div className="text-[11px] text-faint font-medium">Dòng nổi bật</div>
+                <div className="text-[13px] text-muted mt-1">{product.highlight_text}</div>
+              </div>
+            )}
+            {product.description && (
+              <div>
+                <div className="text-[11px] text-faint font-medium">Mô tả</div>
+                <div className="text-[13px] text-muted mt-1 whitespace-pre-wrap">{product.description}</div>
+              </div>
+            )}
+          </>
+        ) : (
+          <div className="space-y-4">
+            <div className="grid gap-4 sm:grid-cols-2">
+              <Field label="Tên sản phẩm"><Input value={content.title} onChange={(e) => setContent({ ...content, title: e.target.value })} /></Field>
+              <Field label="Loại dịch vụ">
+                <Select value={content.service_type} onChange={(e) => setContent({ ...content, service_type: e.target.value })}>
+                  {Object.entries(SERVICE_LABELS).map(([v, l]) => <option key={v} value={v}>{l}</option>)}
+                </Select>
+              </Field>
+              <Field label="Trạng thái">
+                <Select value={content.status} onChange={(e) => setContent({ ...content, status: e.target.value })}>
+                  <option value="active">Đang bán</option>
+                  <option value="draft">Nháp</option>
+                  <option value="paused">Tạm dừng</option>
+                  <option value="suspended">Bị khoá</option>
+                </Select>
+              </Field>
+              <Field label="Ký quỹ (ngày)"><Input type="number" min={1} value={content.escrow_days} onChange={(e) => setContent({ ...content, escrow_days: Number(e.target.value) || 1 })} /></Field>
+            </div>
+            <Field label="Dòng nổi bật"><Input value={content.highlight_text} onChange={(e) => setContent({ ...content, highlight_text: e.target.value })} /></Field>
+            <Field label="Mô tả"><Textarea rows={4} value={content.description} onChange={(e) => setContent({ ...content, description: e.target.value })} /></Field>
+            <Field label="Chính sách bảo hành"><Textarea rows={3} value={content.warranty_text} onChange={(e) => setContent({ ...content, warranty_text: e.target.value })} /></Field>
+            <p className="text-[12px] text-muted">Admin sửa nội dung/trạng thái trên sản phẩm của bất kỳ seller. Biến thể & kho vẫn do seller quản lý.</p>
           </div>
         )}
+        {contentMsg && <p className={`text-[13px] ${contentMsg.type === "ok" ? "text-good" : "text-bad"}`}>{contentMsg.text}</p>}
       </Card>
 
       {/* Section 2: Van hanh (editable) */}

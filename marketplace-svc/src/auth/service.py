@@ -68,3 +68,40 @@ async def authenticate(email: str, password: str, db: AsyncSession) -> Account:
     if not account or not verify_password(password, account.password_hash):
         raise HTTPException(status_code=status.HTTP_401_UNAUTHORIZED, detail="Invalid credentials")
     return account
+
+
+_VALID_ROLES = {"buyer", "seller", "admin"}
+
+
+async def list_accounts(db: AsyncSession, search: str | None = None, page: int = 1, per_page: int = 20) -> dict:
+    from sqlalchemy import func
+
+    base = select(Account)
+    count_q = select(func.count(Account.id))
+    if search:
+        base = base.where(Account.email.ilike(f"%{search}%"))
+        count_q = count_q.where(Account.email.ilike(f"%{search}%"))
+    total = await db.scalar(count_q) or 0
+    rows = await db.execute(
+        base.order_by(Account.id).offset((page - 1) * per_page).limit(per_page)
+    )
+    return {"items": list(rows.scalars().all()), "total": int(total), "page": page, "per_page": per_page}
+
+
+async def update_roles(account_id: int, roles: list[str], requester_id: int, db: AsyncSession) -> Account:
+    cleaned = sorted({r for r in roles})
+    invalid = [r for r in cleaned if r not in _VALID_ROLES]
+    if invalid:
+        raise HTTPException(status_code=422, detail=f"Vai trò không hợp lệ: {', '.join(invalid)}")
+    if not cleaned:
+        raise HTTPException(status_code=422, detail="Tài khoản phải có ít nhất một vai trò")
+    account = await db.get(Account, account_id)
+    if not account:
+        raise HTTPException(status_code=404, detail="Account not found")
+    # An admin cannot strip their own admin role (prevents self-lockout).
+    if account_id == requester_id and "admin" not in cleaned:
+        raise HTTPException(status_code=400, detail="Không thể tự gỡ quyền admin của chính mình")
+    account.roles = cleaned
+    await db.commit()
+    await db.refresh(account)
+    return account

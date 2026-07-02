@@ -68,6 +68,16 @@ async def list_all_products(
     return await service.list_all_products_admin(db)
 
 
+@router.patch("/admin/products/{product_id}", response_model=schemas.ProductResponse)
+async def admin_update_product(
+    product_id: int,
+    body: schemas.ProductUpdate,
+    _: Account = Depends(require_role("admin")),
+    db: AsyncSession = Depends(get_session),
+):
+    return await service.admin_update_product(product_id, body.model_dump(exclude_unset=True), db)
+
+
 @router.put("/admin/products/{product_id}/operations")
 async def update_product_operations(
     product_id: int,

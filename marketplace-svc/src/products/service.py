@@ -33,6 +33,24 @@ async def update_product(product_id: int, seller_id: int, data: dict, db: AsyncS
     return product
 
 
+async def admin_update_product(product_id: int, data: dict, db: AsyncSession) -> Product:
+    """Admin edit of a product's content/status on ANY seller's product.
+
+    Ownership is not checked (admin override). Scope is content + status only;
+    commission_rate stays on the operations endpoint and variants/stock remain
+    seller-managed.
+    """
+    product = await db.get(Product, product_id)
+    if not product:
+        raise HTTPException(status_code=404, detail="Product not found")
+    for key, value in data.items():
+        if value is not None:
+            setattr(product, key, value)
+    await db.commit()
+    await db.refresh(product)
+    return product
+
+
 async def delete_product(product_id: int, seller_id: int, db: AsyncSession) -> None:
     product = await db.get(Product, product_id)
     if not product:

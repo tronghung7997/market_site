@@ -446,3 +446,18 @@ export interface FundOverview {
   total_paid_out: number;
   entries: FundEntry[];
 }
+
+export interface AccountAdminRow {
+  id: number;
+  email: string;
+  roles: string[];
+  is_active: boolean;
+  created_at: string;
+}
+
+export interface PaginatedAccounts {
+  items: AccountAdminRow[];
+  total: number;
+  page: number;
+  per_page: number;
+}

@@ -1,3 +1,5 @@
+from datetime import datetime
+
 from pydantic import BaseModel, EmailStr
 
 
@@ -23,3 +25,24 @@ class AccountResponse(BaseModel):
     roles: list[str]
 
     model_config = {"from_attributes": True}
+
+
+class AccountAdminRow(BaseModel):
+    id: int
+    email: str
+    roles: list[str]
+    is_active: bool
+    created_at: datetime
+
+    model_config = {"from_attributes": True}
+
+
+class PaginatedAccounts(BaseModel):
+    items: list[AccountAdminRow]
+    total: int
+    page: int
+    per_page: int
+
+
+class UpdateRolesRequest(BaseModel):
+    roles: list[str]

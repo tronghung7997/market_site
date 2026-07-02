@@ -2,6 +2,7 @@
 
 import { useState } from "react";
 import { useRouter, useParams } from "next/navigation";
+import { ArrowLeft } from "lucide-react";
 import { useAdminAffiliateDetail } from "@/hooks/use-affiliate";
 import { Button, Input, Spinner } from "@/components/ui";
 import { AffiliateStatsView } from "@/components/AffiliateStatsView";
@@ -19,20 +20,22 @@ export default function AdminAffiliateDetailPage() {
   });
 
   return (
-    <div className="w-full mx-auto max-w-[1000px] px-6 py-8">
-      <div className="flex items-center justify-between mb-6 flex-wrap gap-4">
-        <div className="flex items-center gap-3">
+    <div className="space-y-6">
+      <div className="flex items-center justify-between flex-wrap gap-4">
+        <div className="flex items-center gap-3 min-w-0">
           <Button variant="ghost" size="sm" onClick={() => router.push("/admin/affiliates")}>
-            <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
-              <path d="M19 12H5M12 19l-7-7 7-7" />
-            </svg>
-            Quay lại
+            <ArrowLeft size={16} /> Quay lại
           </Button>
-          <h1 className="font-serif text-[24px] tracking-tight">Chi tiết affiliate</h1>
+          <div className="min-w-0">
+            <h1 className="text-[18px] font-semibold text-slate-900 truncate">
+              {data ? data.code : "Chi tiết affiliate"}
+            </h1>
+            <p className="text-[13px] text-slate-500 mt-0.5">Thống kê giới thiệu của tài khoản</p>
+          </div>
         </div>
         <div className="flex items-center gap-2">
           <Input type="date" value={dateFrom} onChange={(e) => setDateFrom(e.target.value)} className="w-auto" />
-          <span className="text-muted text-sm">—</span>
+          <span className="text-slate-400 text-sm">—</span>
           <Input type="date" value={dateTo} onChange={(e) => setDateTo(e.target.value)} className="w-auto" />
         </div>
       </div>

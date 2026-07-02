@@ -56,6 +56,12 @@ export const api = {
   me: () => request<Account>("/me", {}, true),
 
   categories: () => request<Category[]>("/categories"),
+  createCategory: (data: Record<string, unknown>) =>
+    request<Category>("/admin/categories", { method: "POST", body: JSON.stringify(data) }, true),
+  updateCategory: (id: number, data: Record<string, unknown>) =>
+    request<Category>(`/admin/categories/${id}`, { method: "PATCH", body: JSON.stringify(data) }, true),
+  deleteCategory: (id: number) =>
+    request<void>(`/admin/categories/${id}`, { method: "DELETE" }, true),
   products: (categoryId?: number) =>
     request<Product[]>(`/products${categoryId ? `?category_id=${categoryId}` : ""}`),
   product: (id: number) => request<ProductDetail>(`/products/${id}`),

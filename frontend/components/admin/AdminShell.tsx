@@ -7,7 +7,7 @@ import { useAuth } from "@/lib/auth";
 import { cn } from "@/lib/cn";
 import {
   Activity, ArrowRight, BarChart, Bell, ChevronLeft, ClipboardList, FileText,
-  Inbox, LogOut, Menu, Package, Receipt, Shield,
+  Grid, Inbox, LogOut, Menu, Package, Receipt, Shield, Users,
 } from "@/components/Icons";
 
 type NavItem = { href: string; label: string; icon: (p: { size?: number }) => ReactNode };
@@ -19,7 +19,9 @@ const NAV_GROUPS: { label: string; items: NavItem[] }[] = [
       { href: "/admin", label: "Tổng quan", icon: BarChart },
       { href: "/admin/orders", label: "Đơn hàng & Giao dịch", icon: Inbox },
       { href: "/admin/products", label: "Sản phẩm", icon: Package },
+      { href: "/admin/categories", label: "Danh mục", icon: Grid },
       { href: "/admin/disputes", label: "Khiếu nại", icon: Shield },
+      { href: "/admin/affiliates", label: "Affiliate", icon: Users },
     ],
   },
   {

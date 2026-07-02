@@ -2,15 +2,16 @@ import type {
   Account, AdminDisputeDetail, AdminOrderDetail, AdminProduct, AdminResourceListResponse, CalculateResult, Category, DashboardData, Dispute, LogEntry, Order, OrderStats, PaginatedOrderResponse, PricingField, PricingOptions, ProductDetail, Product, ProductOperations, Review, SellerProduct, SellerStats, ServiceTask, Transaction, Variant, Wallet, Provider, ProviderHealth, Alert, Resource, ResourceSummary,
 } from "./types";
 
-const BASE = process.env.API_URL
-  ?? process.env.NEXT_PUBLIC_API_URL
-  ?? (typeof window !== "undefined" ? "/api" : "https://api-market.taskforces.info");
+const BASE = process.env.NEXT_PUBLIC_API_URL
+  ?? (typeof window !== "undefined" ? "/api" : (process.env.API_URL ?? "http://localhost:8001"));
 const TOKEN_KEY = "dx_token";
 
 export function getToken(): string | null {
   if (typeof window === "undefined") return null;
   return window.localStorage.getItem(TOKEN_KEY);
 }
+
+console.log('base', BASE);
 export function setToken(t: string | null) {
   if (typeof window === "undefined") return;
   if (t) window.localStorage.setItem(TOKEN_KEY, t);

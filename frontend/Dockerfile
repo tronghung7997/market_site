@@ -9,7 +9,7 @@ FROM registry.k7:5000/node:22-alpine AS builder
 WORKDIR /app
 COPY --from=deps /app/node_modules ./node_modules
 COPY . .
-ARG API_URL=http://marketplace-svc:8000
+ARG API_URL=http://marketplace-svc:8001
 ENV API_URL=$API_URL
 RUN mkdir -p public && npm run build
 

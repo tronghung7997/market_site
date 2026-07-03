@@ -12,7 +12,6 @@ class ProviderCreate(BaseModel):
 
 class ProviderUpdateRequest(BaseModel):
     adapter_type: str | None = None
-    pricing_strategy: str | None = None
     config: dict | None = None
     fallback_provider_id: int | None = None
     is_active: bool | None = None
@@ -26,7 +25,6 @@ class ProviderResponse(BaseModel):
     priority: int
     is_active: bool
     adapter_type: str = "mock"
-    pricing_strategy: str = "fixed"
     fallback_provider_id: int | None = None
     quality_score: float | None = None
 

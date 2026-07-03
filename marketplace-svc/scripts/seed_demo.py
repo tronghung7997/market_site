@@ -19,12 +19,12 @@ ADMIN, SELLER, BUYER = "admin@dxtrade.example.com", "seller@dxtrade.example.com"
 # ---------------------------------------------------------------------------
 
 PROVIDERS = [
-    # (name, type, adapter_type, pricing_strategy, config, priority, fallback_index_or_none)
-    ("Mock Provider", "mock", "mock", "fixed", {}, 1, None),
-    ("Seller Pool", "seller_pool", "seller_pool", "fixed", {}, 2, 0),  # fallback → #0 (Mock Provider)
-    ("TopProxy (mock)", "proxy", "mock", "config", {"api_key": "tp_demo_key"}, 3, 0),
-    ("ScrapCreators (mock)", "endpoint", "mock", "credit", {"api_key": "sc_demo_key"}, 4, 0),
-    ("Proxora Team", "manual", "manual", "task", {"channel": "#takedown"}, 5, None),
+    # (name, type, adapter_type, config, priority, fallback_index_or_none)
+    ("Mock Provider", "mock", "mock", {}, 1, None),
+    ("Seller Pool", "seller_pool", "seller_pool", {}, 2, 0),  # fallback → #0 (Mock Provider)
+    ("TopProxy (mock)", "proxy", "mock", {"api_key": "tp_demo_key"}, 3, 0),
+    ("ScrapCreators (mock)", "endpoint", "mock", {"api_key": "sc_demo_key"}, 4, 0),
+    ("Proxora Team", "manual", "manual", {"channel": "#takedown"}, 5, None),
 ]
 
 PRICING_CONFIGS = [
@@ -308,20 +308,20 @@ async def login(c, email):
 async def seed_providers(conn) -> dict[str, int]:
     """Insert providers and return {name: id} mapping."""
     provider_ids: dict[str, int] = {}
-    for name, ptype, adapter, pricing, config, priority, _fb in PROVIDERS:
+    for name, ptype, adapter, config, priority, _fb in PROVIDERS:
         # Check if already exists (no unique constraint on name)
         pid = await conn.fetchval("SELECT id FROM providers WHERE name=$1", name)
         if pid is None:
             pid = await conn.fetchval(
-                """INSERT INTO providers (name, type, adapter_type, pricing_strategy, config, priority, is_active)
-                   VALUES ($1, $2, $3, $4, $5::jsonb, $6, true)
+                """INSERT INTO providers (name, type, adapter_type, config, priority, is_active)
+                   VALUES ($1, $2, $3, $4::jsonb, $5, true)
                    RETURNING id""",
-                name, ptype, adapter, pricing, json.dumps(config), priority,
+                name, ptype, adapter, json.dumps(config), priority,
             )
         provider_ids[name] = pid
 
     # Set fallback_provider_id
-    for name, _t, _a, _p, _c, _pr, fb_idx in PROVIDERS:
+    for name, _t, _a, _c, _pr, fb_idx in PROVIDERS:
         if fb_idx is not None:
             fb_name = PROVIDERS[fb_idx][0]
             await conn.execute(

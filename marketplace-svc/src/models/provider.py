@@ -18,7 +18,6 @@ class Provider(Base):
     is_active: Mapped[bool] = mapped_column(default=True)
     quality_score: Mapped[float | None] = mapped_column(Float, nullable=True)
     adapter_type: Mapped[str] = mapped_column(String(50), default="mock")
-    pricing_strategy: Mapped[str] = mapped_column(String(50), default="fixed")
     fallback_provider_id: Mapped[int | None] = mapped_column(
         ForeignKey("providers.id"), nullable=True
     )

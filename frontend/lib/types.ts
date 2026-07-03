@@ -200,7 +200,6 @@ export interface Provider {
   priority: number;
   is_active: boolean;
   adapter_type: string;
-  pricing_strategy: string;
   fallback_provider_id: number | null;
   quality_score: number | null;
 }

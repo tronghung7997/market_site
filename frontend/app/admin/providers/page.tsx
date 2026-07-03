@@ -454,8 +454,6 @@ function ProviderCard({
   const adapterInfo = ADAPTER_DESCRIPTIONS[provider.adapter_type];
   const adapterCls = ADAPTER_COLORS[provider.adapter_type] ?? "bg-surface text-muted border-line-2";
 
-  const strategyLabel = STRATEGY_LABELS[provider.pricing_strategy] ?? provider.pricing_strategy;
-
   return (
     <Card interactive className="p-4 flex flex-col gap-3">
       {/* Top row: icon + name + status */}
@@ -492,7 +490,6 @@ function ProviderCard({
         <span className={`inline-flex items-center rounded-md border px-1.5 py-0.5 text-[11px] font-medium leading-none ${adapterCls}`}>
           {adapterInfo?.label ?? provider.adapter_type}
         </span>
-        <Tag tone="iris">{strategyLabel}</Tag>
         {provider.quality_score != null && (
           <Tag tone="neutral">
             Điểm: {provider.quality_score.toFixed(1)}

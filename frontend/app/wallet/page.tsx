@@ -136,7 +136,7 @@ export default function WalletPage() {
         </div>
 
         {/* ─── Right: transaction history ─── */}
-        <div>
+        <div className="min-w-0">
           <div className="flex items-center justify-between mb-3">
             <h3 className="text-[13px] font-semibold">Lịch sử giao dịch</h3>
             <span className="text-[12px] text-muted">{txs.length} giao dịch</span>

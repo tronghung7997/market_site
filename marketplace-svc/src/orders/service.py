@@ -4,16 +4,13 @@ from fastapi import HTTPException
 from sqlalchemy import func, select
 from sqlalchemy.ext.asyncio import AsyncSession
 
-from sqlalchemy import select as sa_select
-
 from src.adapters.factory import get_adapter
 from src.models.account import Account
 from src.models.order import Dispute, Order, OrderStatus
-from src.models.pricing_config import PricingConfig
 from src.models.resource import Resource
 from src.models.product import DeliveryMode, Product, ProductStatus, ProductVariant
 from src.models.review import Review
-from src.pricing.factory import get_pricing_strategy
+from src.pricing.engine import quote_product
 from src.resources.service import claim_resources
 from src.audit.service import log_event, query_logs
 from src.logging import current_request_id
@@ -70,9 +67,12 @@ async def create_order(buyer_id: int, variant_id: int, quantity: int, db: AsyncS
 
 
 async def create_order_with_adapter(
-    buyer_id: int, product_id: int, user_config: dict, quantity: int, db: AsyncSession
+    buyer_id: int, product_id: int, user_config: dict, db: AsyncSession
 ) -> Order:
-    """New flow: pricing engine + provider adapter."""
+    """New flow: pricing engine + provider adapter.
+
+    Giá và quantity hiệu dụng lấy từ engine quote — không nhân thêm lần nào.
+    """
     product = await db.get(Product, product_id)
     if not product or product.status != ProductStatus.active:
         raise HTTPException(status_code=400, detail="Product not available")
@@ -81,51 +81,19 @@ async def create_order_with_adapter(
     if product.seller_id == buyer_id:
         raise HTTPException(status_code=400, detail="Cannot buy your own product")
 
-    # Load pricing: product-level → pricing_configs fallback → FixedPricing
-    strategy_name: str | None = None
-    pricing_params: dict = {}
-
-    if product.pricing_strategy and product.pricing_params:
-        strategy_name = product.pricing_strategy
-        pricing_params = product.pricing_params
-    else:
-        result = await db.execute(
-            sa_select(PricingConfig).where(
-                PricingConfig.service_type == product.service_type,
-                PricingConfig.is_active == True,  # noqa: E712
-            )
-        )
-        pricing_config = result.scalars().first()
-        if pricing_config:
-            strategy_name = pricing_config.strategy
-            pricing_params = pricing_config.params
-        else:
-            strategy_name = "fixed"
-            pricing_params = {}
-
-    strategy = get_pricing_strategy(strategy_name)
-
-    if not strategy.validate(pricing_params, user_config):
-        raise HTTPException(status_code=400, detail="Invalid configuration options")
-
-    unit_amount = strategy.calculate(pricing_params, user_config)
-    total_amount = unit_amount * quantity
-
-    # Apply volume discount if tiers exist
-    volume_tiers = pricing_params.get("volume_tiers", [])
-    if volume_tiers:
-        total_amount, _ = strategy.apply_volume_discount(total_amount, quantity, volume_tiers)
+    q = await quote_product(product, user_config, db)
+    total_amount = q.amount
 
     await deduct_credit(
         buyer_id, total_amount,
-        f"Mua {product.title} (x{quantity})", "order-pending", db,
+        f"Mua {product.title} (x{q.quantity})", "order-pending", db,
     )
 
     order = Order(
         buyer_id=buyer_id,
         seller_id=product.seller_id,
         product_id=product_id,
-        quantity=quantity,
+        quantity=q.quantity,
         total_amount=total_amount,
         status=OrderStatus.pending,
     )

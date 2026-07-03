@@ -318,6 +318,27 @@ async def test_adapter_order_invalid_config(client):
 
 
 @pytest.mark.asyncio
+async def test_order_total_matches_preview_quote(client):
+    """Regression: order total must equal /calculate preview — no double quantity."""
+    buyer_token, _, _, product_id = await setup_adapter_product(client)
+    user_config = {"type": "residential", "network": "shared", "days": 30, "quantity": 2}
+
+    preview = await client.post(f"/products/{product_id}/calculate",
+                                json={"user_config": user_config})
+    assert preview.status_code == 200
+
+    resp = await client.post("/orders", json={
+        "product_id": product_id, "user_config": user_config, "quantity": 2,
+    }, headers={"Authorization": f"Bearer {buyer_token}"})
+    assert resp.status_code == 201, resp.text
+    data = resp.json()
+    # 10000 * 1.5 * 1.0 * (30/30) * 2 = 30000 — KHÔNG phải 60000 (bug nhân đôi cũ)
+    assert data["total_amount"] == 30000
+    assert data["total_amount"] == preview.json()["amount"]
+    assert data["quantity"] == 2
+
+
+@pytest.mark.asyncio
 async def test_schema_rejects_both_variant_and_product(client):
     """Cannot provide both variant_id and product_id."""
     buyer_token = await register_and_login(client, "adp_both@example.com")

@@ -22,7 +22,7 @@ async def create_order(body: schemas.OrderCreate, account: Account = Depends(get
         return await service.create_order(account.id, body.variant_id, body.quantity, db)
     else:
         return await service.create_order_with_adapter(
-            account.id, body.product_id, body.user_config, body.quantity, db,
+            account.id, body.product_id, body.user_config, db,
         )
 
 

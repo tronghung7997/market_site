@@ -3,8 +3,8 @@
 import { useEffect, useState, useCallback, useMemo } from "react";
 import { createPortal } from "react-dom";
 import { api } from "@/lib/api";
-import { Card, Spinner, Tag, Button, Field, Input, Select } from "@/components/ui";
-import type { Provider, ProviderHealth } from "@/lib/types";
+import { Card, Spinner, Tag, Button, Field, Input, Select, Textarea } from "@/components/ui";
+import type { AdminProduct, Provider, ProviderHealth } from "@/lib/types";
 
 /* ================================================================
    Constants & helpers
@@ -47,7 +47,9 @@ interface ProviderProduct {
   id: number;
   title: string;
   service_type: string;
+  status: string;
   pricing_strategy: string | null;
+  pricing_params: Record<string, unknown> | null;
   order_count: number;
   revenue: number;
 }
@@ -59,65 +61,290 @@ const STRATEGY_LABELS: Record<string, string> = {
   task: "Tác vụ",
 };
 
+const STRATEGY_OPTIONS = ["fixed", "config", "credit", "task"];
+
+const SAMPLE_CONFIGS: Record<string, string> = {
+  fixed: '{"variant_id": "basic", "quantity": 1}',
+  config: '{"type": "datacenter", "network": "viettel", "days": 30, "quantity": 1}',
+  credit: '{"package_size": 1000}',
+  task: '{"platform": "facebook", "target_urls": "https://fb.com/post/1\\nhttps://fb.com/post/2"}',
+};
+
+function PricingEditor({
+  product,
+  onSaved,
+  onClose,
+}: {
+  product: ProviderProduct;
+  onSaved: () => void;
+  onClose: () => void;
+}) {
+  const [strategy, setStrategy] = useState(product.pricing_strategy ?? "fixed");
+  const [paramsText, setParamsText] = useState(
+    JSON.stringify(product.pricing_params ?? {}, null, 2),
+  );
+  const [sampleText, setSampleText] = useState(SAMPLE_CONFIGS[product.pricing_strategy ?? "fixed"]);
+  const [testResult, setTestResult] = useState<string | null>(null);
+  const [error, setError] = useState<string | null>(null);
+  const [saving, setSaving] = useState(false);
+
+  const parseParams = (): Record<string, unknown> | null => {
+    try {
+      return JSON.parse(paramsText);
+    } catch {
+      setError("pricing_params không phải JSON hợp lệ");
+      return null;
+    }
+  };
+
+  const handleTest = async () => {
+    setError(null);
+    setTestResult(null);
+    const params = parseParams();
+    if (!params) return;
+    let sample: Record<string, unknown>;
+    try {
+      sample = JSON.parse(sampleText);
+    } catch {
+      setError("Config mẫu không phải JSON hợp lệ");
+      return;
+    }
+    try {
+      // Lưu tạm strategy+params rồi tính thử — endpoint calculate đọc từ product
+      await api.updateProductOperations(product.id, {
+        pricing_strategy: strategy,
+        pricing_params: params,
+      });
+      const r = await api.calculatePrice(product.id, sample);
+      setTestResult(
+        `${r.amount.toLocaleString("vi-VN")}đ` +
+        (r.discount_pct ? ` (gốc ${r.original_amount?.toLocaleString("vi-VN")}đ, -${Math.round(r.discount_pct * 100)}%)` : ""),
+      );
+    } catch (e: unknown) {
+      setError(e instanceof Error ? e.message : "Tính thử thất bại");
+    }
+  };
+
+  const handleSave = async () => {
+    setError(null);
+    const params = parseParams();
+    if (!params) return;
+    setSaving(true);
+    try {
+      await api.updateProductOperations(product.id, {
+        pricing_strategy: strategy,
+        pricing_params: params,
+      });
+      onSaved();
+    } catch (e: unknown) {
+      setError(e instanceof Error ? e.message : "Lỗi khi lưu");
+    } finally {
+      setSaving(false);
+    }
+  };
+
+  return (
+    <div className="rounded-lg border border-iris/30 bg-iris-soft/20 p-3 space-y-3">
+      <div className="flex items-center justify-between">
+        <span className="text-[12px] font-semibold">Chiến lược giá — {product.title}</span>
+        <button onClick={onClose} className="text-muted hover:text-fg px-1 cursor-pointer">&times;</button>
+      </div>
+
+      <Field label="Strategy">
+        <Select
+          value={strategy}
+          onChange={(e) => {
+            setStrategy(e.target.value);
+            setSampleText(SAMPLE_CONFIGS[e.target.value] ?? "{}");
+          }}
+        >
+          {STRATEGY_OPTIONS.map((s) => (
+            <option key={s} value={s}>{STRATEGY_LABELS[s] ?? s}</option>
+          ))}
+        </Select>
+      </Field>
+
+      <Field label="pricing_params (JSON)">
+        <Textarea
+          rows={6}
+          value={paramsText}
+          onChange={(e) => setParamsText(e.target.value)}
+          className="font-mono text-[12px]"
+        />
+      </Field>
+
+      <Field label="Config mẫu để tính thử (JSON)">
+        <Textarea
+          rows={3}
+          value={sampleText}
+          onChange={(e) => setSampleText(e.target.value)}
+          className="font-mono text-[12px]"
+        />
+      </Field>
+
+      {testResult && (
+        <p className="text-[13px] text-good font-medium">Giá tính thử: {testResult}</p>
+      )}
+      {error && <p className="text-[12px] text-bad">{error}</p>}
+
+      <div className="flex gap-2">
+        <Button size="sm" variant="secondary" onClick={handleTest}>Tính thử</Button>
+        <Button size="sm" onClick={handleSave} disabled={saving}>
+          {saving ? "Đang lưu..." : "Lưu giá"}
+        </Button>
+      </div>
+    </div>
+  );
+}
+
 function ProviderProductsTab({ providerId }: { providerId: number }) {
   const [products, setProducts] = useState<ProviderProduct[]>([]);
+  const [allProducts, setAllProducts] = useState<AdminProduct[]>([]);
   const [loading, setLoading] = useState(true);
+  const [attachId, setAttachId] = useState<string>("");
+  const [editingId, setEditingId] = useState<number | null>(null);
+  const [actionError, setActionError] = useState<string | null>(null);
 
-  useEffect(() => {
-    api.providerProducts(providerId)
-      .then(setProducts)
-      .catch(() => setProducts([]))
+  const load = useCallback(() => {
+    setLoading(true);
+    Promise.all([
+      api.providerProducts(providerId).catch(() => []),
+      api.adminProducts().catch(() => []),
+    ])
+      .then(([linked, all]) => {
+        setProducts(linked ?? []);
+        setAllProducts(all ?? []);
+      })
       .finally(() => setLoading(false));
   }, [providerId]);
 
-  if (loading) return <Spinner />;
+  useEffect(() => {
+    load();
+  }, [load]);
 
-  if (products.length === 0) {
-    return (
-      <div className="rounded-lg bg-surface border border-line p-4 text-center">
-        <svg className="h-8 w-8 mx-auto mb-2 text-muted" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={1.5}>
-          <path strokeLinecap="round" strokeLinejoin="round" d="M19 11H5m14 0a2 2 0 012 2v6a2 2 0 01-2 2H5a2 2 0 01-2-2v-6a2 2 0 012-2m14 0V9a2 2 0 00-2-2M5 11V9a2 2 0 012-2m0 0V5a2 2 0 012-2h6a2 2 0 012 2v2M7 7h10" />
-        </svg>
-        <p className="text-[13px] text-muted">Chưa có sản phẩm liên kết với provider này.</p>
-      </div>
-    );
-  }
+  const linkedIds = useMemo(() => new Set(products.map((p) => p.id)), [products]);
+  const attachable = useMemo(
+    () => allProducts.filter((p) => !linkedIds.has(p.id)),
+    [allProducts, linkedIds],
+  );
+
+  const handleAttach = async () => {
+    if (!attachId) return;
+    setActionError(null);
+    try {
+      await api.updateProductOperations(Number(attachId), { provider_id: providerId });
+      setAttachId("");
+      load();
+    } catch (e: unknown) {
+      setActionError(e instanceof Error ? e.message : "Gắn sản phẩm thất bại");
+    }
+  };
+
+  const handleDetach = async (productId: number) => {
+    setActionError(null);
+    try {
+      await api.updateProductOperations(productId, { provider_id: null });
+      load();
+    } catch (e: unknown) {
+      setActionError(e instanceof Error ? e.message : "Tháo liên kết thất bại");
+    }
+  };
+
+  if (loading) return <Spinner />;
 
   return (
     <div className="space-y-3">
-      <p className="text-[12px] text-muted">{products.length} sản phẩm sử dụng provider này</p>
-      <div className="rounded-lg border border-line overflow-hidden">
-        <table className="w-full text-[13px]">
-          <thead>
-            <tr className="bg-surface border-b border-line">
-              <th className="text-left px-3 py-2 font-medium text-muted">Sản phẩm</th>
-              <th className="text-left px-3 py-2 font-medium text-muted">Loại</th>
-              <th className="text-left px-3 py-2 font-medium text-muted">Giá</th>
-              <th className="text-right px-3 py-2 font-medium text-muted">Đơn hàng</th>
-              <th className="text-right px-3 py-2 font-medium text-muted">Doanh thu</th>
-            </tr>
-          </thead>
-          <tbody>
-            {products.map((p) => (
-              <tr key={p.id} className="border-b border-line last:border-0 hover:bg-surface/50">
-                <td className="px-3 py-2 text-fg font-medium">{p.title}</td>
-                <td className="px-3 py-2 text-muted">{p.service_type}</td>
-                <td className="px-3 py-2">
-                  {p.pricing_strategy ? (
-                    <Tag tone="iris">{STRATEGY_LABELS[p.pricing_strategy] ?? p.pricing_strategy}</Tag>
-                  ) : (
-                    <Tag tone="neutral">Mặc định</Tag>
-                  )}
-                </td>
-                <td className="px-3 py-2 text-right text-muted">{p.order_count}</td>
-                <td className="px-3 py-2 text-right text-fg font-medium">
-                  {p.revenue.toLocaleString("vi-VN")}đ
-                </td>
-              </tr>
-            ))}
-          </tbody>
-        </table>
+      {/* Attach row */}
+      <div className="flex items-end gap-2">
+        <div className="flex-1">
+          <Field label="Gắn sản phẩm vào provider">
+            <Select value={attachId} onChange={(e) => setAttachId(e.target.value)}>
+              <option value="">Chọn sản phẩm...</option>
+              {attachable.map((p) => (
+                <option key={p.id} value={p.id}>
+                  #{p.id} {p.title}{p.provider_name ? ` (đang: ${p.provider_name})` : ""}
+                </option>
+              ))}
+            </Select>
+          </Field>
+        </div>
+        <Button size="sm" onClick={handleAttach} disabled={!attachId}>Gắn</Button>
       </div>
+
+      {actionError && <p className="text-[12px] text-bad">{actionError}</p>}
+
+      {products.length === 0 ? (
+        <div className="rounded-lg bg-surface border border-line p-4 text-center">
+          <p className="text-[13px] text-muted">Chưa có sản phẩm liên kết với provider này.</p>
+        </div>
+      ) : (
+        <>
+          <p className="text-[12px] text-muted">{products.length} sản phẩm sử dụng provider này</p>
+          <div className="rounded-lg border border-line overflow-hidden">
+            <table className="w-full text-[13px]">
+              <thead>
+                <tr className="bg-surface border-b border-line">
+                  <th className="text-left px-3 py-2 font-medium text-muted">Sản phẩm</th>
+                  <th className="text-left px-3 py-2 font-medium text-muted">Loại</th>
+                  <th className="text-left px-3 py-2 font-medium text-muted">Giá</th>
+                  <th className="text-right px-3 py-2 font-medium text-muted">Đơn hàng</th>
+                  <th className="text-right px-3 py-2 font-medium text-muted">Doanh thu</th>
+                  <th className="text-right px-3 py-2 font-medium text-muted"></th>
+                </tr>
+              </thead>
+              <tbody>
+                {products.map((p) => (
+                  <>
+                    <tr key={p.id} className="border-b border-line last:border-0 hover:bg-surface/50">
+                      <td className="px-3 py-2 text-fg font-medium">{p.title}</td>
+                      <td className="px-3 py-2 text-muted">{p.service_type}</td>
+                      <td className="px-3 py-2">
+                        {p.pricing_strategy ? (
+                          <Tag tone="iris">{STRATEGY_LABELS[p.pricing_strategy] ?? p.pricing_strategy}</Tag>
+                        ) : (
+                          <Tag tone="neutral">Mặc định</Tag>
+                        )}
+                      </td>
+                      <td className="px-3 py-2 text-right text-muted">{p.order_count}</td>
+                      <td className="px-3 py-2 text-right text-fg font-medium">
+                        {p.revenue.toLocaleString("vi-VN")}đ
+                      </td>
+                      <td className="px-3 py-2 text-right whitespace-nowrap">
+                        <button
+                          onClick={() => setEditingId(editingId === p.id ? null : p.id)}
+                          className="text-[12px] text-iris hover:underline cursor-pointer mr-2"
+                        >
+                          Sửa giá
+                        </button>
+                        <button
+                          onClick={() => handleDetach(p.id)}
+                          className="text-[12px] text-bad hover:underline cursor-pointer"
+                        >
+                          Tháo
+                        </button>
+                      </td>
+                    </tr>
+                    {editingId === p.id && (
+                      <tr key={`${p.id}-editor`} className="border-b border-line last:border-0">
+                        <td colSpan={6} className="px-3 py-3">
+                          <PricingEditor
+                            product={p}
+                            onSaved={() => {
+                              setEditingId(null);
+                              load();
+                            }}
+                            onClose={() => setEditingId(null)}
+                          />
+                        </td>
+                      </tr>
+                    )}
+                  </>
+                ))}
+              </tbody>
+            </table>
+          </div>
+        </>
+      )}
     </div>
   );
 }
@@ -520,12 +747,16 @@ export default function AdminProvidersPage() {
   const [editProvider, setEditProvider] = useState<ExpandedProvider | null>(null);
   const [testingId, setTestingId] = useState<number | null>(null);
   const [testResult, setTestResult] = useState<{ id: number; data: Record<string, unknown> } | null>(null);
+  const [linkedCount, setLinkedCount] = useState<number | null>(null);
 
   useEffect(() => {
     api.providers()
       .catch(() => [])
       .then((p) => setProviders(p ?? []))
       .finally(() => setLoading(false));
+    api.adminProducts()
+      .then((all) => setLinkedCount((all ?? []).filter((p) => p.provider_name != null).length))
+      .catch(() => setLinkedCount(null));
   }, []);
 
   const getLatestHealth = useCallback(async (providerId: number): Promise<ProviderHealth | null> => {
@@ -604,8 +835,8 @@ export default function AdminProvidersPage() {
             />
             <StatCard
               label="Sản phẩm liên kết"
-              value="--"
-              sub="Sẽ bổ sung"
+              value={linkedCount ?? "--"}
+              sub="đang gắn provider"
             />
             <StatCard
               label="Adapter"

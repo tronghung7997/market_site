@@ -176,7 +176,7 @@ export const api = {
     request<Order>("/orders", { method: "POST", body: JSON.stringify({ product_id: productId, user_config: userConfig, quantity }) }, true),
 
   providerProducts: (id: number) =>
-    request<{ id: number; title: string; service_type: string; pricing_strategy: string | null; order_count: number; revenue: number }[]>(`/admin/providers/${id}/products`, {}, true),
+    request<{ id: number; title: string; service_type: string; status: string; pricing_strategy: string | null; pricing_params: Record<string, unknown> | null; order_count: number; revenue: number }[]>(`/admin/providers/${id}/products`, {}, true),
   updateProvider: (id: number, data: Record<string, unknown>) =>
     request<Provider>(`/admin/providers/${id}`, { method: "PUT", body: JSON.stringify(data) }, true),
   testProvider: (id: number) =>

@@ -132,7 +132,8 @@ export default function DynamicOrderForm({ productId, product, onOrderCreated }:
             <DynamicField key={f.field} field={f} value={config[f.field]} onChange={(v) => updateField(f.field, v)} />
           ))}
 
-          {/* Quantity — always present */}
+          {/* Quantity — ẩn với strategy "task": số lượng tự đếm theo URL */}
+          {options.strategy !== "task" && (
           <div>
             <div className="text-[11px] text-faint uppercase tracking-wider mb-1.5">Số lượng</div>
             <div className="flex items-center border border-line rounded-lg overflow-hidden w-fit">
@@ -157,6 +158,7 @@ export default function DynamicOrderForm({ productId, product, onOrderCreated }:
               </button>
             </div>
           </div>
+          )}
 
           {/* Price display */}
           <div className="border-t border-line pt-4 flex items-end justify-between">
@@ -224,10 +226,12 @@ export default function DynamicOrderForm({ productId, product, onOrderCreated }:
                   </div>
                 );
               })}
-              <div className="flex justify-between">
-                <span className="text-muted">Số lượng</span>
-                <span className="font-medium">{qty}</span>
-              </div>
+              {options.strategy !== "task" && (
+                <div className="flex justify-between">
+                  <span className="text-muted">Số lượng</span>
+                  <span className="font-medium">{qty}</span>
+                </div>
+              )}
               {hasDiscount && calc.original_amount != null && (
                 <div className="flex justify-between">
                   <span className="text-muted">Giá gốc</span>

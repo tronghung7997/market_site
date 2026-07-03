@@ -119,18 +119,28 @@ async def create_order_with_adapter(
         return order
 
     if provision_result.success:
-        order.status = OrderStatus.delivered
-        order.delivered_data = provision_result.data
-        order.escrow_expires_at = datetime.now(timezone.utc) + timedelta(days=product.escrow_days)
+        if (provision_result.metadata or {}).get("async_fulfillment"):
+            # Xử lý thủ công: order chờ task hoàn thành, chưa bắt đầu escrow
+            order.status = OrderStatus.processing
+            order.delivered_data = provision_result.data
+            await log_event(
+                db, "info", f"Order {order.id} awaiting manual fulfillment", request_id=rid,
+                metadata={"event": "order_processing", "order_id": order.id,
+                           "resource_id": provision_result.resource_id},
+            )
+        else:
+            order.status = OrderStatus.delivered
+            order.delivered_data = provision_result.data
+            order.escrow_expires_at = datetime.now(timezone.utc) + timedelta(days=product.escrow_days)
+            await log_event(
+                db, "info", f"Order {order.id} provisioned via adapter", request_id=rid,
+                metadata={"event": "order_provisioned", "order_id": order.id,
+                           "resource_id": provision_result.resource_id},
+            )
         await log_event(
             db, "info", f"Order {order.id} placed (adapter)", request_id=rid,
             metadata={"event": "order_placed", "order_id": order.id, "buyer_id": buyer_id,
                        "seller_id": product.seller_id, "amount": total_amount},
-        )
-        await log_event(
-            db, "info", f"Order {order.id} provisioned via adapter", request_id=rid,
-            metadata={"event": "order_provisioned", "order_id": order.id,
-                       "resource_id": provision_result.resource_id},
         )
     else:
         await refund_escrow(order.id, buyer_id, total_amount, db)

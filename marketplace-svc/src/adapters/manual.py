@@ -40,6 +40,8 @@ class ManualAdapter(ProviderAdapter):
                 "provider": "manual",
                 "platform": platform,
                 "task_count": len(task_ids),
+                # Fulfillment là async: order chỉ delivered khi task cuối hoàn thành
+                "async_fulfillment": True,
             },
         )
 

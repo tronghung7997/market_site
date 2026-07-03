@@ -32,6 +32,26 @@ const STATUS_FILTER = [
 
 const STATUS_OPTIONS = ["pending", "assigned", "processing", "completed", "failed"];
 
+const ORDER_STATUS_LABELS: Record<string, string> = {
+  pending: "Chờ",
+  processing: "Đang xử lý",
+  delivered: "Đã giao",
+  completed: "Hoàn tất",
+  disputed: "Khiếu nại",
+  refunded: "Đã hoàn tiền",
+  cancelled: "Đã huỷ",
+};
+
+const ORDER_STATUS_TONE: Record<string, "good" | "warn" | "bad" | "neutral" | "iris"> = {
+  pending: "warn",
+  processing: "iris",
+  delivered: "good",
+  completed: "good",
+  disputed: "warn",
+  refunded: "neutral",
+  cancelled: "bad",
+};
+
 /* ---------- Inline Edit Row ---------- */
 
 function TaskEditRow({
@@ -133,6 +153,7 @@ export default function AdminTasksPage() {
   const [loading, setLoading] = useState(true);
   const [selectedFilter, setSelectedFilter] = useState("all");
   const [editingId, setEditingId] = useState<number | null>(null);
+  const [orderNotice, setOrderNotice] = useState<string | null>(null);
 
   const loadTasks = useCallback(() => {
     setLoading(true);
@@ -161,8 +182,21 @@ export default function AdminTasksPage() {
   }, [tasks]);
 
   const handleSaved = (updated: ServiceTask) => {
-    setTasks((prev) => prev.map((t) => (t.id === updated.id ? updated : t)));
+    const before = tasks.find((t) => t.id === updated.id);
+    setTasks((prev) =>
+      prev.map((t) => {
+        if (t.id === updated.id) return updated;
+        // order status thay đổi ảnh hưởng mọi task cùng đơn
+        if (t.order_id === updated.order_id) return { ...t, order_status: updated.order_status };
+        return t;
+      }),
+    );
     setEditingId(null);
+    if (updated.order_status && before?.order_status !== updated.order_status) {
+      const label = ORDER_STATUS_LABELS[updated.order_status] ?? updated.order_status;
+      setOrderNotice(`Đơn #${updated.order_id} chuyển sang "${label}"`);
+      setTimeout(() => setOrderNotice(null), 5000);
+    }
   };
 
   return (
@@ -186,6 +220,13 @@ export default function AdminTasksPage() {
           </button>
         ))}
       </div>
+
+      {/* Order status change notice */}
+      {orderNotice && (
+        <div className="rounded-lg bg-good-soft border border-good/25 px-3 py-2">
+          <p className="text-[12px] text-good">{orderNotice}</p>
+        </div>
+      )}
 
       {/* Table */}
       <Card className="p-0">
@@ -225,7 +266,16 @@ export default function AdminTasksPage() {
                       className="border-b border-line last:border-0 hover:bg-raised/50 cursor-pointer"
                     >
                       <td className="px-4 py-2.5 font-mono text-muted">#{t.id}</td>
-                      <td className="px-4 py-2.5 font-mono">#{t.order_id}</td>
+                      <td className="px-4 py-2.5">
+                        <span className="font-mono">#{t.order_id}</span>
+                        {t.order_status && (
+                          <span className="ml-1.5 inline-block align-middle">
+                            <Tag tone={ORDER_STATUS_TONE[t.order_status] ?? "neutral"}>
+                              {ORDER_STATUS_LABELS[t.order_status] ?? t.order_status}
+                            </Tag>
+                          </span>
+                        )}
+                      </td>
                       <td className="px-4 py-2.5">
                         <Tag tone="neutral">{t.platform}</Tag>
                       </td>

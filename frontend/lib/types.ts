@@ -210,6 +210,7 @@ export interface ServiceTask {
   platform: string;
   target_url: string;
   status: string; // pending | assigned | processing | completed | failed
+  order_status?: string | null;
   assignee: string | null;
   result_data: string | null;
   created_at: string;

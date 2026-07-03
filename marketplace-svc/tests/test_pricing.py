@@ -1,8 +1,12 @@
-"""Tests for pricing strategy layer — pure Python, no DB required."""
+"""Tests for pricing strategy layer — pure Python, no DB required.
+
+Contract: subclasses implement _subtotal(); quote() is the ONLY money API
+and applies volume discount exactly once.
+"""
 
 import pytest
 
-from src.pricing.base import PricingStrategy
+from src.pricing.base import PricingStrategy, Quote
 from src.pricing.fixed import FixedPricing
 from src.pricing.config_pricing import ConfigPricing
 from src.pricing.credit import CreditPricing
@@ -75,6 +79,10 @@ TASK_PARAMS = {
 }
 
 
+def urls(n: int) -> str:
+    return "\n".join(f"https://fb.com/post/{i}" for i in range(n))
+
+
 # ---------------------------------------------------------------------------
 # Volume discount (base class helper)
 # ---------------------------------------------------------------------------
@@ -120,38 +128,36 @@ class TestFixedPricing:
     def setup_method(self):
         self.strategy = FixedPricing()
 
-    def test_calculate_basic(self):
-        config = {"variant_id": "premium", "quantity": 3}
-        assert self.strategy.calculate(FIXED_PARAMS, config) == 75000  # 25000 * 3
+    def test_quote_basic(self):
+        q = self.strategy.quote(FIXED_PARAMS, {"variant_id": "premium", "quantity": 3})
+        assert isinstance(q, Quote)
+        assert (q.amount, q.quantity, q.discount_pct) == (75000, 3, None)
+        assert q.original_amount is None
+        assert q.strategy == "fixed"
 
-    def test_calculate_with_volume_discount(self):
-        config = {"variant_id": "premium", "quantity": 10}
-        # 25000 * 10 = 250000, 5% off = 237500
-        assert self.strategy.calculate(FIXED_PARAMS, config) == 237500
+    def test_quote_volume_discount_applied_once(self):
+        q = self.strategy.quote(FIXED_PARAMS, {"variant_id": "premium", "quantity": 10})
+        # 25000*10 = 250000, 5% off MỘT lần = 237500 (không phải 225625)
+        assert (q.amount, q.original_amount, q.discount_pct) == (237500, 250000, 0.05)
 
-    def test_calculate_no_discount_below_tier(self):
-        config = {"variant_id": "basic", "quantity": 5}
-        assert self.strategy.calculate(FIXED_PARAMS, config) == 75000  # 15000 * 5
+    def test_quote_no_discount_below_tier(self):
+        q = self.strategy.quote(FIXED_PARAMS, {"variant_id": "basic", "quantity": 5})
+        assert (q.amount, q.original_amount) == (75000, None)
 
     def test_validate_valid(self):
-        config = {"variant_id": "basic", "quantity": 1}
-        assert self.strategy.validate(FIXED_PARAMS, config) is True
+        assert self.strategy.validate(FIXED_PARAMS, {"variant_id": "basic", "quantity": 1}) is True
 
     def test_validate_missing_variant(self):
-        config = {"quantity": 1}
-        assert self.strategy.validate(FIXED_PARAMS, config) is False
+        assert self.strategy.validate(FIXED_PARAMS, {"quantity": 1}) is False
 
     def test_validate_invalid_variant_id(self):
-        config = {"variant_id": "nonexistent", "quantity": 1}
-        assert self.strategy.validate(FIXED_PARAMS, config) is False
+        assert self.strategy.validate(FIXED_PARAMS, {"variant_id": "nonexistent", "quantity": 1}) is False
 
     def test_validate_zero_quantity(self):
-        config = {"variant_id": "basic", "quantity": 0}
-        assert self.strategy.validate(FIXED_PARAMS, config) is False
+        assert self.strategy.validate(FIXED_PARAMS, {"variant_id": "basic", "quantity": 0}) is False
 
     def test_validate_negative_quantity(self):
-        config = {"variant_id": "basic", "quantity": -1}
-        assert self.strategy.validate(FIXED_PARAMS, config) is False
+        assert self.strategy.validate(FIXED_PARAMS, {"variant_id": "basic", "quantity": -1}) is False
 
     def test_get_options_returns_fields(self):
         fields = self.strategy.get_options(FIXED_PARAMS)
@@ -170,43 +176,25 @@ class TestConfigPricing:
     def setup_method(self):
         self.strategy = ConfigPricing()
 
-    def test_calculate_basic(self):
-        config = {
-            "type": "residential_static",
-            "network": "viettel",
-            "days": 30,
-            "quantity": 1,
-        }
+    def test_quote_basic(self):
+        config = {"type": "residential_static", "network": "viettel", "days": 30, "quantity": 1}
         # 75000 * 1.6 * 1.0 * (30/30) * 1 = 120000
-        assert self.strategy.calculate(CONFIG_PARAMS, config) == 120000
+        q = self.strategy.quote(CONFIG_PARAMS, config)
+        assert (q.amount, q.quantity, q.strategy) == (120000, 1, "config")
 
-    def test_calculate_partial_month(self):
-        config = {
-            "type": "datacenter",
-            "network": "fpt",
-            "days": 7,
-            "quantity": 2,
-        }
+    def test_quote_partial_month(self):
+        config = {"type": "datacenter", "network": "fpt", "days": 7, "quantity": 2}
         # 75000 * 1.0 * 0.9 * (7/30) * 2 = 31500
-        assert self.strategy.calculate(CONFIG_PARAMS, config) == 31500
+        assert self.strategy.quote(CONFIG_PARAMS, config).amount == 31500
 
-    def test_calculate_with_volume_discount(self):
-        config = {
-            "type": "datacenter",
-            "network": "viettel",
-            "days": 30,
-            "quantity": 5,
-        }
-        # 75000 * 1.0 * 1.0 * 1.0 * 5 = 375000, 5% off = 356250
-        assert self.strategy.calculate(CONFIG_PARAMS, config) == 356250
+    def test_quote_with_volume_discount(self):
+        config = {"type": "datacenter", "network": "viettel", "days": 30, "quantity": 5}
+        # 75000 * 5 = 375000, 5% off = 356250
+        q = self.strategy.quote(CONFIG_PARAMS, config)
+        assert (q.amount, q.original_amount, q.discount_pct) == (356250, 375000, 0.05)
 
     def test_validate_valid(self):
-        config = {
-            "type": "residential_static",
-            "network": "viettel",
-            "days": 30,
-            "quantity": 1,
-        }
+        config = {"type": "residential_static", "network": "viettel", "days": 30, "quantity": 1}
         assert self.strategy.validate(CONFIG_PARAMS, config) is True
 
     def test_validate_missing_field(self):
@@ -214,39 +202,20 @@ class TestConfigPricing:
         assert self.strategy.validate(CONFIG_PARAMS, config) is False
 
     def test_validate_invalid_type(self):
-        config = {
-            "type": "nonexistent",
-            "network": "viettel",
-            "days": 30,
-            "quantity": 1,
-        }
+        config = {"type": "nonexistent", "network": "viettel", "days": 30, "quantity": 1}
         assert self.strategy.validate(CONFIG_PARAMS, config) is False
 
     def test_validate_invalid_network(self):
-        config = {
-            "type": "datacenter",
-            "network": "nonexistent",
-            "days": 30,
-            "quantity": 1,
-        }
+        config = {"type": "datacenter", "network": "nonexistent", "days": 30, "quantity": 1}
         assert self.strategy.validate(CONFIG_PARAMS, config) is False
 
     def test_validate_zero_days(self):
-        config = {
-            "type": "datacenter",
-            "network": "viettel",
-            "days": 0,
-            "quantity": 1,
-        }
+        config = {"type": "datacenter", "network": "viettel", "days": 0, "quantity": 1}
         assert self.strategy.validate(CONFIG_PARAMS, config) is False
 
     def test_get_options_returns_fields(self):
-        fields = self.strategy.get_options(CONFIG_PARAMS)
-        field_names = [f["field"] for f in fields]
-        assert "type" in field_names
-        assert "network" in field_names
-        assert "days" in field_names
-        assert "quantity" in field_names
+        field_names = [f["field"] for f in self.strategy.get_options(CONFIG_PARAMS)]
+        assert {"type", "network", "days", "quantity"} <= set(field_names)
 
 
 # ---------------------------------------------------------------------------
@@ -257,41 +226,35 @@ class TestCreditPricing:
     def setup_method(self):
         self.strategy = CreditPricing()
 
-    def test_calculate_basic(self):
-        config = {"package_size": 1000}
-        # 10 * 1000 = 10000 (below 5000 min_qty, no discount)
-        assert self.strategy.calculate(CREDIT_PARAMS, config) == 10000
+    def test_quote_basic(self):
+        q = self.strategy.quote(CREDIT_PARAMS, {"package_size": 1000})
+        # 10 * 1000 = 10000 (dưới min_qty 5000, không discount)
+        assert (q.amount, q.quantity, q.strategy) == (10000, 1000, "credit")
 
-    def test_calculate_with_volume_discount(self):
-        config = {"package_size": 5000}
+    def test_quote_with_volume_discount(self):
+        q = self.strategy.quote(CREDIT_PARAMS, {"package_size": 5000})
         # 10 * 5000 = 50000, 5% off = 47500
-        assert self.strategy.calculate(CREDIT_PARAMS, config) == 47500
+        assert (q.amount, q.original_amount, q.discount_pct) == (47500, 50000, 0.05)
 
-    def test_calculate_high_tier_discount(self):
-        config = {"package_size": 10000}
-        # 10 * 10000 = 100000, 10% off = 90000
-        assert self.strategy.calculate(CREDIT_PARAMS, config) == 90000
+    def test_quote_high_tier_discount(self):
+        q = self.strategy.quote(CREDIT_PARAMS, {"package_size": 10000})
+        assert (q.amount, q.discount_pct) == (90000, 0.10)
 
-    def test_calculate_no_discount(self):
-        params_no_tiers = {"credit_price": 10}
-        config = {"package_size": 1000}
-        assert self.strategy.calculate(params_no_tiers, config) == 10000
+    def test_quote_no_tiers(self):
+        q = self.strategy.quote({"credit_price": 10}, {"package_size": 1000})
+        assert (q.amount, q.original_amount, q.discount_pct) == (10000, None, None)
 
     def test_validate_valid(self):
-        config = {"package_size": 1000}
-        assert self.strategy.validate(CREDIT_PARAMS, config) is True
+        assert self.strategy.validate(CREDIT_PARAMS, {"package_size": 1000}) is True
 
     def test_validate_missing_package_size(self):
-        config = {}
-        assert self.strategy.validate(CREDIT_PARAMS, config) is False
+        assert self.strategy.validate(CREDIT_PARAMS, {}) is False
 
     def test_validate_zero_package(self):
-        config = {"package_size": 0}
-        assert self.strategy.validate(CREDIT_PARAMS, config) is False
+        assert self.strategy.validate(CREDIT_PARAMS, {"package_size": 0}) is False
 
     def test_validate_float_package(self):
-        config = {"package_size": 1.5}
-        assert self.strategy.validate(CREDIT_PARAMS, config) is False
+        assert self.strategy.validate(CREDIT_PARAMS, {"package_size": 1.5}) is False
 
     def test_get_options_with_packages(self):
         fields = self.strategy.get_options(CREDIT_PARAMS)
@@ -308,55 +271,64 @@ class TestCreditPricing:
 
 
 # ---------------------------------------------------------------------------
-# TaskPricing
+# TaskPricing — quantity tự đếm từ target_urls
 # ---------------------------------------------------------------------------
 
 class TestTaskPricing:
     def setup_method(self):
         self.strategy = TaskPricing()
 
-    def test_calculate_basic(self):
-        config = {"platform": "facebook", "quantity": 3}
-        # 500000 * 1.0 * 3 = 1500000
-        assert self.strategy.calculate(TASK_PARAMS, config) == 1500000
+    def test_parse_target_urls_trims_and_skips_blanks(self):
+        raw = "https://fb.com/a\nhttps://fb.com/b\n\n  https://fb.com/c  \n"
+        assert TaskPricing.parse_target_urls(raw) == [
+            "https://fb.com/a", "https://fb.com/b", "https://fb.com/c",
+        ]
 
-    def test_calculate_with_multiplier(self):
-        config = {"platform": "youtube", "quantity": 2}
+    def test_parse_target_urls_empty(self):
+        assert TaskPricing.parse_target_urls("") == []
+        assert TaskPricing.parse_target_urls("  \n \n") == []
+
+    def test_quote_counts_urls(self):
+        q = self.strategy.quote(TASK_PARAMS, {"platform": "facebook", "target_urls": urls(3)})
+        # 500000 * 1.0 * 3
+        assert (q.amount, q.quantity, q.strategy) == (1500000, 3, "task")
+
+    def test_quote_with_multiplier(self):
+        q = self.strategy.quote(TASK_PARAMS, {"platform": "youtube", "target_urls": urls(2)})
         # 500000 * 1.5 * 2 = 1500000
-        assert self.strategy.calculate(TASK_PARAMS, config) == 1500000
+        assert (q.amount, q.quantity) == (1500000, 2)
 
-    def test_calculate_tiktok(self):
-        config = {"platform": "tiktok", "quantity": 1}
-        # 500000 * 1.2 * 1 = 600000
-        assert self.strategy.calculate(TASK_PARAMS, config) == 600000
+    def test_quote_tiktok_single(self):
+        q = self.strategy.quote(TASK_PARAMS, {"platform": "tiktok", "target_urls": urls(1)})
+        assert (q.amount, q.quantity) == (600000, 1)
 
-    def test_calculate_with_volume_discount(self):
-        config = {"platform": "facebook", "quantity": 5}
-        # 500000 * 1.0 * 5 = 2500000, 5% off = 2375000
-        assert self.strategy.calculate(TASK_PARAMS, config) == 2375000
+    def test_quote_url_discount_applied_once(self):
+        q = self.strategy.quote(TASK_PARAMS, {"platform": "facebook", "target_urls": urls(5)})
+        # 500000*5 = 2500000, 5% off MỘT lần = 2375000
+        assert (q.amount, q.original_amount, q.discount_pct) == (2375000, 2500000, 0.05)
 
     def test_validate_valid(self):
-        config = {"platform": "facebook", "quantity": 1}
-        assert self.strategy.validate(TASK_PARAMS, config) is True
+        assert self.strategy.validate(
+            TASK_PARAMS, {"platform": "facebook", "target_urls": urls(1)}
+        ) is True
 
     def test_validate_missing_platform(self):
-        config = {"quantity": 1}
-        assert self.strategy.validate(TASK_PARAMS, config) is False
+        assert self.strategy.validate(TASK_PARAMS, {"target_urls": urls(1)}) is False
 
     def test_validate_invalid_platform(self):
-        config = {"platform": "nonexistent", "quantity": 1}
-        assert self.strategy.validate(TASK_PARAMS, config) is False
+        assert self.strategy.validate(
+            TASK_PARAMS, {"platform": "nonexistent", "target_urls": urls(1)}
+        ) is False
 
-    def test_validate_zero_quantity(self):
-        config = {"platform": "facebook", "quantity": 0}
-        assert self.strategy.validate(TASK_PARAMS, config) is False
+    def test_validate_requires_urls(self):
+        assert self.strategy.validate(TASK_PARAMS, {"platform": "facebook", "target_urls": ""}) is False
+        assert self.strategy.validate(TASK_PARAMS, {"platform": "facebook"}) is False
 
-    def test_get_options_returns_fields(self):
-        fields = self.strategy.get_options(TASK_PARAMS)
-        field_names = [f["field"] for f in fields]
-        assert "platform" in field_names
-        assert "target_urls" in field_names
-        assert "quantity" in field_names
+    def test_get_options_has_no_quantity_field(self):
+        names = [f["field"] for f in self.strategy.get_options(TASK_PARAMS)]
+        assert "quantity" not in names
+        assert "platform" in names
+        assert "target_urls" in names
 
 
 # ---------------------------------------------------------------------------
@@ -365,21 +337,21 @@ class TestTaskPricing:
 
 class TestFactory:
     def test_get_fixed(self):
-        s = get_pricing_strategy("fixed")
-        assert isinstance(s, FixedPricing)
+        assert isinstance(get_pricing_strategy("fixed"), FixedPricing)
 
     def test_get_config(self):
-        s = get_pricing_strategy("config")
-        assert isinstance(s, ConfigPricing)
+        assert isinstance(get_pricing_strategy("config"), ConfigPricing)
 
     def test_get_credit(self):
-        s = get_pricing_strategy("credit")
-        assert isinstance(s, CreditPricing)
+        assert isinstance(get_pricing_strategy("credit"), CreditPricing)
 
     def test_get_task(self):
-        s = get_pricing_strategy("task")
-        assert isinstance(s, TaskPricing)
+        assert isinstance(get_pricing_strategy("task"), TaskPricing)
 
     def test_unknown_raises(self):
         with pytest.raises(ValueError, match="Unknown pricing strategy"):
             get_pricing_strategy("nonexistent")
+
+    def test_no_public_calculate(self):
+        """calculate() đã bị xoá — quote() là API duy nhất."""
+        assert not hasattr(PricingStrategy, "calculate")

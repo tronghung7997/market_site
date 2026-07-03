@@ -2,7 +2,9 @@ from .base import PricingStrategy
 
 
 class CreditPricing(PricingStrategy):
-    """Credit-based pricing: credit_price x package_size, with optional volume discount."""
+    """Credit-based pricing: credit_price x package_size (quantity hiệu dụng = package_size)."""
+
+    name = "credit"
 
     def get_options(self, params: dict) -> list[dict]:
         fields: list[dict] = []
@@ -30,19 +32,9 @@ class CreditPricing(PricingStrategy):
 
         return fields
 
-    def calculate(self, params: dict, user_config: dict) -> int:
-        credit_price = params["credit_price"]
+    def _subtotal(self, params: dict, user_config: dict) -> tuple[int, int]:
         package_size = user_config["package_size"]
-
-        subtotal = round(credit_price * package_size)
-
-        volume_tiers = params.get("volume_tiers", [])
-        if volume_tiers:
-            subtotal, _ = self.apply_volume_discount(
-                subtotal, package_size, volume_tiers
-            )
-
-        return subtotal
+        return round(params["credit_price"] * package_size), package_size
 
     def validate(self, params: dict, user_config: dict) -> bool:
         if "package_size" not in user_config:

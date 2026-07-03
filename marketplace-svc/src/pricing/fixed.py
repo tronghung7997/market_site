@@ -2,7 +2,9 @@ from .base import PricingStrategy
 
 
 class FixedPricing(PricingStrategy):
-    """Fixed pricing: variant_price x quantity, with optional volume discount."""
+    """Fixed pricing: variant_price x quantity."""
+
+    name = "fixed"
 
     def get_options(self, params: dict) -> list[dict]:
         variants = params.get("variants", [])
@@ -26,19 +28,11 @@ class FixedPricing(PricingStrategy):
             },
         ]
 
-    def calculate(self, params: dict, user_config: dict) -> int:
-        variant_id = user_config["variant_id"]
+    def _subtotal(self, params: dict, user_config: dict) -> tuple[int, int]:
         quantity = user_config["quantity"]
-
         variants = {v["id"]: v for v in params.get("variants", [])}
-        variant = variants[variant_id]
-        subtotal = round(variant["price"] * quantity)
-
-        volume_tiers = params.get("volume_tiers", [])
-        if volume_tiers:
-            subtotal, _ = self.apply_volume_discount(subtotal, quantity, volume_tiers)
-
-        return subtotal
+        variant = variants[user_config["variant_id"]]
+        return round(variant["price"] * quantity), quantity
 
     def validate(self, params: dict, user_config: dict) -> bool:
         if "variant_id" not in user_config or "quantity" not in user_config:

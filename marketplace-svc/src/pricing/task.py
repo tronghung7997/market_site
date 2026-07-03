@@ -2,7 +2,17 @@ from .base import PricingStrategy
 
 
 class TaskPricing(PricingStrategy):
-    """Task-based pricing: base_price x platform_mult x quantity (number of URLs)."""
+    """Task-based pricing: base_price x platform_mult x số URL trong target_urls.
+
+    Quantity luôn được đếm từ target_urls — không nhận từ user để giá và
+    số task tạo ra không bao giờ lệch nhau.
+    """
+
+    name = "task"
+
+    @staticmethod
+    def parse_target_urls(raw: str) -> list[str]:
+        return [u.strip() for u in (raw or "").strip().split("\n") if u.strip()]
 
     def get_options(self, params: dict) -> list[dict]:
         fields: list[dict] = []
@@ -23,46 +33,18 @@ class TaskPricing(PricingStrategy):
             "type": "textarea",
             "label": "Target URLs",
             "required": True,
-        })
-
-        fields.append({
-            "field": "quantity",
-            "type": "number",
-            "label": "Number of URLs",
-            "required": True,
-            "min": 1,
+            "help": "Mỗi dòng một URL — giá tính theo số URL",
         })
 
         return fields
 
-    def calculate(self, params: dict, user_config: dict) -> int:
-        base_price = params["base_price"]
-        platform_key = user_config["platform"]
-        quantity = user_config["quantity"]
-
-        platform_mult = params["platform_mult"][platform_key]
-
-        subtotal = round(base_price * platform_mult * quantity)
-
-        volume_tiers = params.get("volume_tiers", [])
-        if volume_tiers:
-            subtotal, _ = self.apply_volume_discount(subtotal, quantity, volume_tiers)
-
-        return subtotal
+    def _subtotal(self, params: dict, user_config: dict) -> tuple[int, int]:
+        urls = self.parse_target_urls(user_config.get("target_urls", ""))
+        quantity = len(urls)
+        platform_mult = params["platform_mult"][user_config["platform"]]
+        return round(params["base_price"] * platform_mult * quantity), quantity
 
     def validate(self, params: dict, user_config: dict) -> bool:
-        required = ["platform", "quantity", "target_urls"]
-        if not all(k in user_config for k in required):
+        if user_config.get("platform") not in params.get("platform_mult", {}):
             return False
-
-        if not user_config.get("target_urls"):
-            return False
-
-        quantity = user_config["quantity"]
-        if not isinstance(quantity, int) or quantity < 1:
-            return False
-
-        if user_config["platform"] not in params.get("platform_mult", {}):
-            return False
-
-        return True
+        return len(self.parse_target_urls(user_config.get("target_urls", ""))) >= 1

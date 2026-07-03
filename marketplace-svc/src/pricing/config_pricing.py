@@ -4,6 +4,8 @@ from .base import PricingStrategy
 class ConfigPricing(PricingStrategy):
     """Config-based pricing: base_price x type_mult x network_mult x (days/30) x quantity."""
 
+    name = "config"
+
     def get_options(self, params: dict) -> list[dict]:
         fields: list[dict] = []
 
@@ -51,23 +53,15 @@ class ConfigPricing(PricingStrategy):
 
         return fields
 
-    def calculate(self, params: dict, user_config: dict) -> int:
-        base_price = params["base_price"]
-        type_key = user_config["type"]
-        network_key = user_config["network"]
-        days = user_config["days"]
+    def _subtotal(self, params: dict, user_config: dict) -> tuple[int, int]:
         quantity = user_config["quantity"]
-
-        type_mult = params["type_mult"][type_key]
-        network_mult = params["network_mult"][network_key]
-
-        subtotal = round(base_price * type_mult * network_mult * (days / 30) * quantity)
-
-        volume_tiers = params.get("volume_tiers", [])
-        if volume_tiers:
-            subtotal, _ = self.apply_volume_discount(subtotal, quantity, volume_tiers)
-
-        return subtotal
+        type_mult = params["type_mult"][user_config["type"]]
+        network_mult = params["network_mult"][user_config["network"]]
+        days = user_config["days"]
+        subtotal = round(
+            params["base_price"] * type_mult * network_mult * (days / 30) * quantity
+        )
+        return subtotal, quantity
 
     def validate(self, params: dict, user_config: dict) -> bool:
         required = ["type", "network", "days", "quantity"]

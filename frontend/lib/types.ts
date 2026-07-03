@@ -471,3 +471,14 @@ export interface PaginatedAccounts {
   page: number;
   per_page: number;
 }
+
+export interface SellerApplication {
+  id: number;
+  account_id: number;
+  business_name: string;
+  description: string | null;
+  contact: string | null;
+  status: "pending" | "approved" | "rejected";
+  reject_reason: string | null;
+  created_at: string;
+}

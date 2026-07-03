@@ -21,8 +21,11 @@ export default function SellerLayout({ children }: { children: ReactNode }) {
   const router = useRouter();
 
   useEffect(() => {
-    if (!loading && (!account || !account.roles.includes("seller"))) {
-      router.push("/login");
+    if (loading) return;
+    if (!account) {
+      router.push("/login?next=/seller");
+    } else if (!account.roles.includes("seller")) {
+      router.push("/seller/apply");
     }
   }, [account, loading, router]);
 

@@ -1,6 +1,7 @@
 "use client";
 
 import { createContext, useCallback, useContext, useEffect, useState } from "react";
+import { usePathname, useRouter } from "next/navigation";
 import type { ReactNode } from "react";
 import { api, getToken, setToken } from "./api";
 import type { Account } from "./types";
@@ -19,6 +20,8 @@ const AuthContext = createContext<AuthState | null>(null);
 export function AuthProvider({ children }: { children: ReactNode }) {
   const [account, setAccount] = useState<Account | null>(null);
   const [loading, setLoading] = useState(true);
+  const router = useRouter();
+  const pathname = usePathname();
 
   const refresh = async () => {
     if (!getToken()) {
@@ -40,6 +43,15 @@ export function AuthProvider({ children }: { children: ReactNode }) {
     refresh();
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, []);
+
+  useEffect(() => {
+    function handleExpired() {
+      setAccount(null);
+      if (pathname !== "/login") router.push("/login?expired=1");
+    }
+    window.addEventListener("auth:session-expired", handleExpired);
+    return () => window.removeEventListener("auth:session-expired", handleExpired);
+  }, [pathname, router]);
 
   const login = async (email: string, password: string) => {
     const { access_token } = await api.login(email, password);

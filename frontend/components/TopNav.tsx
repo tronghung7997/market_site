@@ -14,11 +14,12 @@ const NAV_LINKS: { href: string; label: string }[] = [
   { href: "/categories", label: "Danh mục" },
 ];
 
-const ACCOUNT_LINKS: { href: string; label: string; auth?: boolean; role?: string }[] = [
+const ACCOUNT_LINKS: { href: string; label: string; auth?: boolean; role?: string; hideIfRole?: string }[] = [
   { href: "/orders", label: "Đơn hàng", auth: true },
   { href: "/wallet", label: "Ví", auth: true },
   { href: "/affiliate", label: "Affiliate", auth: true },
   { href: "/seller", label: "Gian hàng", role: "seller" },
+  { href: "/seller/apply", label: "Đăng ký làm người bán", auth: true, hideIfRole: "seller" },
   { href: "/admin", label: "Admin", role: "admin" },
 ];
 
@@ -97,7 +98,7 @@ export default function TopNav() {
                         </div>
                       </div>
                       <div className="py-1 border-b border-line">
-                        {ACCOUNT_LINKS.filter((l) => (!l.auth || account) && (!l.role || account?.roles.includes(l.role))).map((l) => (
+                        {ACCOUNT_LINKS.filter((l) => (!l.auth || account) && (!l.role || account?.roles.includes(l.role)) && (!l.hideIfRole || !account?.roles.includes(l.hideIfRole))).map((l) => (
                           <Link key={l.href} href={l.href}
                             className="block px-4 py-2 text-[13px] text-muted hover:text-fg hover:bg-raised transition-colors">
                             {l.label}

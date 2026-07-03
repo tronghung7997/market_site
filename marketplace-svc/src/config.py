@@ -10,7 +10,7 @@ class Settings(BaseSettings):
     rabbitmq_url: str = "amqp://guest:guest@localhost:5672/"
     jwt_secret: str = "dev-secret-change-in-production"
     jwt_algorithm: str = "HS256"
-    jwt_expire_minutes: int = 60
+    jwt_expire_minutes: int = 1440
     internal_api_key: str = "dev-internal-key"
     platform_fee_percent: int = 0
     encryption_key: str = "dev-encryption-key-change-in-production"

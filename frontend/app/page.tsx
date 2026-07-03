@@ -449,7 +449,7 @@ function HomeInner() {
             Đăng ký tài khoản nhà bán, đăng sản phẩm và bắt đầu kiếm thu nhập từ hàng hoá số của bạn.
           </p>
           <div className="mt-7 flex flex-wrap justify-center gap-3">
-            <Link href="/register"><Button size="lg">Đăng ký bán hàng <ArrowRight size={16} /></Button></Link>
+            <Link href="/seller/apply"><Button size="lg">Đăng ký bán hàng <ArrowRight size={16} /></Button></Link>
             <Link href="#market"><Button size="lg" variant="secondary">Xem chợ</Button></Link>
           </div>
         </div>
@@ -481,7 +481,7 @@ const FAQ_ITEMS = [
   { q: "Ký quỹ (escrow) hoạt động như thế nào?", a: "Khi bạn thanh toán, tiền được giữ trong tài khoản ký quỹ. Nhà bán giao hàng, bạn kiểm tra và xác nhận — lúc đó tiền mới chuyển cho nhà bán. Nếu có vấn đề, bạn mở tranh chấp trong thời gian ký quỹ." },
   { q: "Tôi có thể yêu cầu hoàn tiền không?", a: "Có. Trong thời gian ký quỹ (thường 3 ngày), nếu sản phẩm không đúng mô tả, bạn có thể mở tranh chấp. Đội ngũ hỗ trợ sẽ xem xét và hoàn tiền nếu nhà bán vi phạm." },
   { q: "Sản phẩm giao ngay tự động là gì?", a: "Một số sản phẩm được cấu hình giao tự động — ngay sau khi thanh toán thành công, bạn nhận được thông tin tài khoản hoặc dữ liệu mà không cần chờ nhà bán xử lý thủ công." },
-  { q: "Làm sao để trở thành nhà bán?", a: "Đăng ký tài khoản, hoàn tất xác minh danh tính (KYC), sau đó bạn có thể đăng sản phẩm và bắt đầu bán. Quy trình xác minh thường mất 1-2 ngày làm việc." },
+  { q: "Làm sao để trở thành nhà bán?", a: "Đăng ký tài khoản, sau đó gửi đơn đăng ký gian hàng (tên gian hàng, mô tả, thông tin liên hệ). Quản trị viên xét duyệt đơn — khi được chấp thuận, bạn có thể đăng sản phẩm và bắt đầu bán ngay." },
   { q: "Phương thức thanh toán nào được hỗ trợ?", a: "Chúng tôi hỗ trợ chuyển khoản ngân hàng nội địa, ví điện tử (Momo, ZaloPay), và USDT. Số dư ví trên nền tảng có thể dùng để mua hàng trực tiếp." },
   { q: "Dữ liệu cá nhân của tôi có an toàn không?", a: "Mọi dữ liệu được mã hoá và lưu trữ theo tiêu chuẩn bảo mật. Chúng tôi không chia sẻ thông tin cá nhân với bên thứ ba ngoài mục đích vận hành nền tảng." },
   { q: "Thời gian giao hàng trung bình là bao lâu?", a: "Sản phẩm tự động giao ngay sau khi thanh toán. Với sản phẩm thủ công, nhà bán thường xử lý trong vòng 1–12 giờ tuỳ loại sản phẩm và múi giờ." },

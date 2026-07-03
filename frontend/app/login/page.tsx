@@ -1,19 +1,29 @@
 "use client";
 
 import Link from "next/link";
-import { useRouter } from "next/navigation";
-import { useState } from "react";
+import { useRouter, useSearchParams } from "next/navigation";
+import { Suspense, useState } from "react";
 import { useAuth } from "@/lib/auth";
 import { api } from "@/lib/api";
-import { Button, Card, Field, Input } from "@/components/ui";
+import { Button, Card, Field, Input, Spinner } from "@/components/ui";
 import { Logo } from "@/components/Icons";
 
 export default function LoginPage() {
+  return (
+    <Suspense fallback={<div className="py-20"><Spinner /></div>}>
+      <LoginForm />
+    </Suspense>
+  );
+}
+
+function LoginForm() {
   const { login } = useAuth();
   const router = useRouter();
+  const searchParams = useSearchParams();
+  const next = searchParams.get("next");
   const [email, setEmail] = useState("");
   const [password, setPassword] = useState("");
-  const [error, setError] = useState<string | null>(null);
+  const [error, setError] = useState<string | null>(searchParams.get("expired") ? "Phiên đăng nhập đã hết hạn, vui lòng đăng nhập lại." : null);
   const [busy, setBusy] = useState(false);
 
   const submit = async (e: React.FormEvent) => {
@@ -22,7 +32,7 @@ export default function LoginPage() {
     try {
       await login(email, password);
       const me = await api.me();
-      router.push(me.roles.includes("admin") ? "/admin" : me.roles.includes("seller") ? "/seller" : "/");
+      router.push(next || (me.roles.includes("admin") ? "/admin" : me.roles.includes("seller") ? "/seller" : "/"));
     } catch (err) {
       setError(err instanceof Error ? err.message : "Đăng nhập thất bại");
     } finally {
@@ -45,7 +55,7 @@ export default function LoginPage() {
           <Button type="submit" block size="lg" disabled={busy}>{busy ? "Đang đăng nhập…" : "Đăng nhập"}</Button>
         </form>
         <p className="text-center text-[13px] text-muted mt-6">
-          Chưa có tài khoản? <Link href="/register" className="text-iris-hi hover:underline">Đăng ký</Link>
+          Chưa có tài khoản? <Link href={next ? `/register?next=${encodeURIComponent(next)}` : "/register"} className="text-iris-hi hover:underline">Đăng ký</Link>
         </p>
       </Card>
     </div>

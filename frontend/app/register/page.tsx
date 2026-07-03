@@ -1,16 +1,26 @@
 "use client";
 
 import Link from "next/link";
-import { useRouter } from "next/navigation";
-import { useState } from "react";
+import { useRouter, useSearchParams } from "next/navigation";
+import { Suspense, useState } from "react";
 import { useAuth } from "@/lib/auth";
 import { getCookie } from "@/lib/utils";
-import { Button, Card, Field, Input } from "@/components/ui";
+import { Button, Card, Field, Input, Spinner } from "@/components/ui";
 import { Logo } from "@/components/Icons";
 
 export default function RegisterPage() {
+  return (
+    <Suspense fallback={<div className="py-20"><Spinner /></div>}>
+      <RegisterForm />
+    </Suspense>
+  );
+}
+
+function RegisterForm() {
   const { register } = useAuth();
   const router = useRouter();
+  const searchParams = useSearchParams();
+  const next = searchParams.get("next");
   const [email, setEmail] = useState("");
   const [password, setPassword] = useState("");
   const [error, setError] = useState<string | null>(null);
@@ -22,7 +32,7 @@ export default function RegisterPage() {
     try {
       const ref = getCookie("aff_ref");
       await register(email, password, ref ?? undefined);
-      router.push("/");
+      router.push(next || "/");
     } catch (err) {
       setError(err instanceof Error ? err.message : "Đăng ký thất bại");
     } finally {
@@ -45,7 +55,7 @@ export default function RegisterPage() {
           <Button type="submit" block size="lg" disabled={busy}>{busy ? "Đang tạo…" : "Tạo tài khoản"}</Button>
         </form>
         <p className="text-center text-[13px] text-muted mt-6">
-          Đã có tài khoản? <Link href="/login" className="text-iris-hi hover:underline">Đăng nhập</Link>
+          Đã có tài khoản? <Link href={next ? `/login?next=${encodeURIComponent(next)}` : "/login"} className="text-iris-hi hover:underline">Đăng nhập</Link>
         </p>
       </Card>
     </div>

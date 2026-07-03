@@ -1,3 +1,5 @@
+from datetime import datetime
+
 from pydantic import BaseModel
 
 
@@ -14,6 +16,8 @@ class SellerApplicationResponse(BaseModel):
     description: str | None
     contact: str | None
     status: str
+    reject_reason: str | None
+    created_at: datetime
 
     model_config = {"from_attributes": True}
 

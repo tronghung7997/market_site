@@ -12,7 +12,12 @@ router = APIRouter(tags=["seller"])
 
 @router.post("/seller/apply", response_model=schemas.SellerApplicationResponse, status_code=status.HTTP_201_CREATED)
 async def apply(body: schemas.SellerApplyRequest, account: Account = Depends(get_current_account), db: AsyncSession = Depends(get_session)):
-    return await service.apply_for_seller(account.id, body.business_name, body.description, body.contact, db)
+    return await service.apply_for_seller(account, body.business_name, body.description, body.contact, db)
+
+
+@router.get("/seller/applications/me", response_model=schemas.SellerApplicationResponse | None)
+async def my_application(account: Account = Depends(get_current_account), db: AsyncSession = Depends(get_session)):
+    return await service.get_latest_application(account.id, db)
 
 
 @router.get("/admin/seller-applications", response_model=list[schemas.SellerApplicationResponse])

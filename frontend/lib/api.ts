@@ -1,5 +1,5 @@
 import type {
-  Account, AdminDisputeDetail, AdminOrderDetail, AdminProduct, AdminResourceListResponse, AffiliateStats, AffiliateSummary, CalculateResult, Category, DashboardData, Dispute, FundOverview, AccountAdminRow, PaginatedAccounts, LogEntry, Order, OrderStats, PaginatedAffiliateSummary, PaginatedOrderResponse, PricingField, PricingOptions, ProductDetail, Product, ProductOperations, Review, SellerProduct, SellerStats, ServiceTask, Transaction, Variant, Wallet, Provider, ProviderHealth, Alert, Resource, ResourceSummary,
+  Account, AdminDisputeDetail, AdminOrderDetail, AdminProduct, AdminResourceListResponse, AffiliateStats, AffiliateSummary, CalculateResult, Category, DashboardData, Dispute, FundOverview, AccountAdminRow, PaginatedAccounts, LogEntry, Order, OrderStats, PaginatedAffiliateSummary, PaginatedOrderResponse, PricingField, PricingOptions, ProductDetail, Product, ProductOperations, Review, SellerApplication, SellerProduct, SellerStats, ServiceTask, Transaction, Variant, Wallet, Provider, ProviderHealth, Alert, Resource, ResourceSummary,
 } from "./types";
 
 const BASE = process.env.NEXT_PUBLIC_API_URL
@@ -42,6 +42,11 @@ async function request<T>(path: string, init: RequestInit = {}, auth = false): P
   if (res.status === 204) return undefined as T;
   const body = await res.json().catch(() => null);
   if (!res.ok) {
+    if (res.status === 401 && auth) {
+      setToken(null);
+      if (typeof window !== "undefined") window.dispatchEvent(new Event("auth:session-expired"));
+      throw new ApiError(401, "Phiên đăng nhập đã hết hạn, vui lòng đăng nhập lại.");
+    }
     const detail = (body && (body.detail || body.message)) || res.statusText;
     throw new ApiError(res.status, typeof detail === "string" ? detail : "Request failed");
   }
@@ -93,6 +98,15 @@ export const api = {
     request<Order>(`/orders/${orderId}/confirm`, { method: "POST" }, true),
   openDispute: (orderId: number, reason: string) =>
     request<Dispute>(`/orders/${orderId}/dispute`, { method: "POST", body: JSON.stringify({ reason }) }, true),
+
+  sellerApply: (data: { business_name: string; description?: string; contact?: string }) =>
+    request<SellerApplication>("/seller/apply", { method: "POST", body: JSON.stringify(data) }, true),
+  mySellerApplication: () => request<SellerApplication | null>("/seller/applications/me", {}, true),
+  adminSellerApplications: () => request<SellerApplication[]>("/admin/seller-applications", {}, true),
+  adminApproveSellerApplication: (id: number) =>
+    request<SellerApplication>(`/admin/seller-applications/${id}/approve`, { method: "POST" }, true),
+  adminRejectSellerApplication: (id: number, reason: string) =>
+    request<SellerApplication>(`/admin/seller-applications/${id}/reject`, { method: "POST", body: JSON.stringify({ reason }) }, true),
 
   sellerProducts: () => request<SellerProduct[]>("/seller/products", {}, true),
   sellerStats: () => request<SellerStats>("/seller/stats", {}, true),
@@ -234,7 +248,7 @@ export const api = {
     request<FundOverview>("/admin/affiliate-fund/topup", { method: "POST", body: JSON.stringify({ amount, note }) }, true),
 };
 
-export type { Account, AdminDisputeDetail, AdminOrderDetail, AdminProduct, AdminResourceListResponse, AffiliateStats, AffiliateSummary, CalculateResult, Category, DashboardData, Dispute, FundOverview, AccountAdminRow, PaginatedAccounts, LogEntry, Order, OrderStats, PaginatedAffiliateSummary, PaginatedOrderResponse, PricingField, PricingOptions, Product, ProductDetail, ProductOperations, Review, SellerProduct, SellerStats, ServiceTask, Transaction, Variant, Wallet, Provider, ProviderHealth, Alert, Resource, ResourceSummary };
+export type { Account, AdminDisputeDetail, AdminOrderDetail, AdminProduct, AdminResourceListResponse, AffiliateStats, AffiliateSummary, CalculateResult, Category, DashboardData, Dispute, FundOverview, AccountAdminRow, PaginatedAccounts, LogEntry, Order, OrderStats, PaginatedAffiliateSummary, PaginatedOrderResponse, PricingField, PricingOptions, Product, ProductDetail, ProductOperations, Review, SellerApplication, SellerProduct, SellerStats, ServiceTask, Transaction, Variant, Wallet, Provider, ProviderHealth, Alert, Resource, ResourceSummary };
 
 /** Money helpers. Backend stores an integer amount; for this Vietnamese
  * marketplace we render it as đồng (no sub-unit), e.g. 7000 → "7.000 ₫". */

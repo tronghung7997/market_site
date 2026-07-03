@@ -148,7 +148,9 @@ async def provider_products(
             "id": p.id,
             "title": p.title,
             "service_type": p.service_type,
+            "status": p.status.value,
             "pricing_strategy": p.pricing_strategy,
+            "pricing_params": p.pricing_params,
             "order_count": order_count,
             "revenue": revenue,
         })

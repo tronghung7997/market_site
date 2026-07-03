@@ -120,6 +120,33 @@ async def test_fallback_to_fixed_when_nothing_configured(client):
 
 
 @pytest.mark.asyncio
+async def test_provider_products_includes_pricing_fields(client):
+    from src.models.provider import Provider
+
+    admin_token = await register_and_login(client, "eng_admin@example.com")
+    await make_admin("eng_admin@example.com")
+    admin_token = await register_and_login(client, "eng_admin@example.com")
+
+    async with SessionLocal() as db:
+        provider = Provider(name="PP Provider", type="takedown", config={}, adapter_type="manual")
+        db.add(provider)
+        await db.commit()
+        provider_id = provider.id
+
+    pid = await make_product(seller_email="eng_seller7@example.com", provider_id=provider_id)
+
+    resp = await client.get(f"/admin/providers/{provider_id}/products",
+                            headers={"Authorization": f"Bearer {admin_token}"})
+    assert resp.status_code == 200
+    items = resp.json()
+    assert len(items) == 1
+    assert items[0]["id"] == pid
+    assert items[0]["pricing_strategy"] == "task"
+    assert items[0]["pricing_params"] == TASK_PARAMS
+    assert items[0]["status"] == "active"
+
+
+@pytest.mark.asyncio
 async def test_calculate_invalid_config_400(client):
     pid = await make_product(seller_email="eng_seller6@example.com")
     resp = await client.post(f"/products/{pid}/calculate", json={"user_config": {

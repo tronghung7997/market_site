@@ -18,12 +18,25 @@ depends_on = None
 
 
 def upgrade() -> None:
-    op.add_column("orders", sa.Column("product_id", sa.Integer(), nullable=True))
-    op.create_foreign_key(
-        "orders_product_id_fkey", "orders", "products", ["product_id"], ["id"]
-    )
-    op.alter_column("orders", "variant_id", existing_type=sa.Integer(), nullable=True)
-    op.add_column("disputes", sa.Column("seller_note", sa.Text(), nullable=True))
+    bind = op.get_bind()
+    inspector = sa.inspect(bind)
+
+    orders_columns = {c["name"]: c for c in inspector.get_columns("orders")}
+    if "product_id" not in orders_columns:
+        op.add_column("orders", sa.Column("product_id", sa.Integer(), nullable=True))
+
+    orders_fks = {fk["name"] for fk in inspector.get_foreign_keys("orders")}
+    if "orders_product_id_fkey" not in orders_fks:
+        op.create_foreign_key(
+            "orders_product_id_fkey", "orders", "products", ["product_id"], ["id"]
+        )
+
+    if not orders_columns["variant_id"]["nullable"]:
+        op.alter_column("orders", "variant_id", existing_type=sa.Integer(), nullable=True)
+
+    disputes_columns = {c["name"] for c in inspector.get_columns("disputes")}
+    if "seller_note" not in disputes_columns:
+        op.add_column("disputes", sa.Column("seller_note", sa.Text(), nullable=True))
 
 
 def downgrade() -> None:

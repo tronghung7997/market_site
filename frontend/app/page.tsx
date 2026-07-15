@@ -5,9 +5,20 @@ import { useSearchParams } from "next/navigation";
 import { Suspense, useEffect, useMemo, useState } from "react";
 import { api, vnd } from "@/lib/api";
 import { cn } from "@/lib/cn";
-import type { Category, ProductDetail } from "@/lib/types";
+import { useAuth } from "@/lib/auth";
+import type { Category, Order, ProductDetail, SellerSummary } from "@/lib/types";
 import { Button, Card, Spinner, Tag } from "@/components/ui";
 import { ArrowRight, Bolt, Check, Clock, Grid, Rows, Search, Shield, Star, Store, Verified } from "@/components/Icons";
+
+const RECENT_ORDER_STATUS: Record<string, { label: string; tone: "good" | "bad" | "warn" | "iris" | "neutral" }> = {
+  pending: { label: "Chờ xử lý", tone: "warn" },
+  processing: { label: "Đang xử lý", tone: "iris" },
+  delivered: { label: "Đã giao", tone: "iris" },
+  completed: { label: "Hoàn thành", tone: "good" },
+  disputed: { label: "Khiếu nại", tone: "bad" },
+  refunded: { label: "Hoàn tiền", tone: "bad" },
+  cancelled: { label: "Đã huỷ", tone: "neutral" },
+};
 
 function flatten(cats: Category[]): Category[] {
   const out: Category[] = [];
@@ -29,6 +40,7 @@ export default function Home() {
 
 function HomeInner() {
   const searchParams = useSearchParams();
+  const { account } = useAuth();
   const [cats, setCats] = useState<Category[]>([]);
   const [products, setProducts] = useState<ProductDetail[]>([]);
   const [loading, setLoading] = useState(true);
@@ -38,6 +50,8 @@ function HomeInner() {
   const [inStockOnly, setInStockOnly] = useState(false);
   const [view, setView] = useState<"table" | "grid">("table");
   const [showAll, setShowAll] = useState(false);
+  const [topSellers, setTopSellers] = useState<SellerSummary[]>([]);
+  const [recentOrders, setRecentOrders] = useState<Order[]>([]);
 
   useEffect(() => {
     (async () => {
@@ -51,6 +65,15 @@ function HomeInner() {
       } finally { setLoading(false); }
     })();
   }, []);
+
+  useEffect(() => {
+    api.topSellers(6).then(setTopSellers).catch(() => {});
+  }, []);
+
+  useEffect(() => {
+    if (!account) { setRecentOrders([]); return; }
+    api.orders({ per_page: 5 }).then((res) => setRecentOrders(res.items)).catch(() => {});
+  }, [account]);
 
   useEffect(() => {
     const catParam = searchParams.get("category");
@@ -224,6 +247,74 @@ function HomeInner() {
                   </Link>
                 );
               })}
+            </div>
+          </div>
+        </section>
+      )}
+
+      {/* ============ TRUSTED SELLERS ============ */}
+      {topSellers.length > 0 && (
+        <section className="w-full mx-auto max-w-[1200px] px-6 py-12">
+          <SectionHead title="Người bán uy tín" sub="Xếp hạng theo đơn hàng hoàn tất và đánh giá" />
+          <div className="grid gap-4 grid-cols-2 sm:grid-cols-3 lg:grid-cols-6">
+            {topSellers.map((s) => (
+              <Link key={s.account_id} href={`/sellers/${s.account_id}`}>
+                <Card interactive className="p-4 h-full text-center">
+                  <span className="mx-auto grid place-items-center h-11 w-11 rounded-full bg-iris-soft text-iris border border-iris/15">
+                    <Store size={18} />
+                  </span>
+                  <div className="mt-3 font-medium text-[13.5px] truncate">
+                    {s.business_name ?? s.email.split("@")[0]}
+                  </div>
+                  <div className="mt-1 flex items-center justify-center gap-1 text-[12px] text-muted">
+                    {s.rating_avg != null ? (
+                      <>
+                        <Star size={11} className="text-warn fill-warn" /> {s.rating_avg.toFixed(1)}
+                      </>
+                    ) : (
+                      <span className="text-faint">Chưa có đánh giá</span>
+                    )}
+                  </div>
+                  <div className="text-[11.5px] text-faint mt-0.5">
+                    {s.completed_order_count} đơn hoàn tất
+                  </div>
+                </Card>
+              </Link>
+            ))}
+          </div>
+        </section>
+      )}
+
+      {/* ============ RECENT ORDERS (logged-in buyers) ============ */}
+      {account && recentOrders.length > 0 && (
+        <section className="border-y border-line bg-surface">
+          <div className="w-full mx-auto max-w-[1200px] px-6 py-12">
+            <SectionHead title="Đơn hàng gần đây" sub="Tiếp tục theo dõi đơn của bạn" />
+            <div className="grid gap-3 md:grid-cols-2 lg:grid-cols-5">
+              {recentOrders.map((o) => {
+                const st = RECENT_ORDER_STATUS[o.status] ?? { label: o.status, tone: "neutral" as const };
+                return (
+                  <Link key={o.id} href="/orders">
+                    <Card interactive className="p-4 h-full">
+                      <div className="flex items-center justify-between gap-2">
+                        <span className="font-mono text-[11.5px] text-faint">#{o.id}</span>
+                        <Tag tone={st.tone}>{st.label}</Tag>
+                      </div>
+                      <div className="mt-2 text-[13.5px] font-medium truncate">
+                        {o.product_title ?? o.variant_name ?? `Đơn #${o.id}`}
+                      </div>
+                      <div className="mt-2 font-mono text-[14px] font-semibold tabular">
+                        {vnd(o.total_amount)}
+                      </div>
+                    </Card>
+                  </Link>
+                );
+              })}
+            </div>
+            <div className="mt-5">
+              <Link href="/orders" className="inline-flex items-center gap-1.5 text-[13px] font-medium text-iris hover:text-iris-hi transition-colors">
+                Xem tất cả đơn hàng <ArrowRight size={14} />
+              </Link>
             </div>
           </div>
         </section>

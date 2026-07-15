@@ -22,7 +22,7 @@ async def create_product(seller_id: int, data: dict, db: AsyncSession) -> Produc
 async def update_product(product_id: int, seller_id: int, data: dict, db: AsyncSession) -> Product:
     product = await db.get(Product, product_id)
     if not product:
-        raise HTTPException(status_code=404, detail="Product not found")
+        raise HTTPException(status_code=404, detail="Không tìm thấy sản phẩm")
     if product.seller_id != seller_id:
         raise NotOwner()
     for key, value in data.items():
@@ -42,7 +42,7 @@ async def admin_update_product(product_id: int, data: dict, db: AsyncSession) ->
     """
     product = await db.get(Product, product_id)
     if not product:
-        raise HTTPException(status_code=404, detail="Product not found")
+        raise HTTPException(status_code=404, detail="Không tìm thấy sản phẩm")
     for key, value in data.items():
         if value is not None:
             setattr(product, key, value)
@@ -54,7 +54,7 @@ async def admin_update_product(product_id: int, data: dict, db: AsyncSession) ->
 async def delete_product(product_id: int, seller_id: int, db: AsyncSession) -> None:
     product = await db.get(Product, product_id)
     if not product:
-        raise HTTPException(status_code=404, detail="Product not found")
+        raise HTTPException(status_code=404, detail="Không tìm thấy sản phẩm")
     if product.seller_id != seller_id:
         raise NotOwner()
     product.status = ProductStatus.paused
@@ -64,7 +64,7 @@ async def delete_product(product_id: int, seller_id: int, db: AsyncSession) -> N
 async def suspend_product(product_id: int, db: AsyncSession) -> Product:
     product = await db.get(Product, product_id)
     if not product:
-        raise HTTPException(status_code=404, detail="Product not found")
+        raise HTTPException(status_code=404, detail="Không tìm thấy sản phẩm")
     product.status = ProductStatus.suspended
     await db.commit()
     await db.refresh(product)
@@ -74,7 +74,7 @@ async def suspend_product(product_id: int, db: AsyncSession) -> Product:
 async def create_variant(product_id: int, seller_id: int, data: dict, db: AsyncSession) -> ProductVariant:
     product = await db.get(Product, product_id)
     if not product:
-        raise HTTPException(status_code=404, detail="Product not found")
+        raise HTTPException(status_code=404, detail="Không tìm thấy sản phẩm")
     if product.seller_id != seller_id:
         raise NotOwner()
     variant = ProductVariant(product_id=product_id, **data)
@@ -87,7 +87,7 @@ async def create_variant(product_id: int, seller_id: int, data: dict, db: AsyncS
 async def update_variant(variant_id: int, seller_id: int, data: dict, db: AsyncSession) -> ProductVariant:
     variant = await db.get(ProductVariant, variant_id)
     if not variant:
-        raise HTTPException(status_code=404, detail="Variant not found")
+        raise HTTPException(status_code=404, detail="Không tìm thấy gói sản phẩm")
     product = await db.get(Product, variant.product_id)
     if product.seller_id != seller_id:
         raise NotOwner()
@@ -102,7 +102,7 @@ async def update_variant(variant_id: int, seller_id: int, data: dict, db: AsyncS
 async def delete_variant(variant_id: int, seller_id: int, db: AsyncSession) -> None:
     variant = await db.get(ProductVariant, variant_id)
     if not variant:
-        raise HTTPException(status_code=404, detail="Variant not found")
+        raise HTTPException(status_code=404, detail="Không tìm thấy gói sản phẩm")
     product = await db.get(Product, variant.product_id)
     if product.seller_id != seller_id:
         raise NotOwner()
@@ -110,10 +110,12 @@ async def delete_variant(variant_id: int, seller_id: int, db: AsyncSession) -> N
     await db.commit()
 
 
-async def list_products(db: AsyncSession, category_id: int | None = None) -> list[Product]:
+async def list_products(db: AsyncSession, category_id: int | None = None, seller_id: int | None = None) -> list[Product]:
     query = select(Product).where(Product.status == ProductStatus.active)
     if category_id:
         query = query.where(Product.category_id == category_id)
+    if seller_id:
+        query = query.where(Product.seller_id == seller_id)
     query = query.order_by(Product.created_at.desc())
     result = await db.execute(query)
     return list(result.scalars().all())
@@ -184,7 +186,7 @@ async def get_seller_stats(seller_id: int, db: AsyncSession) -> dict:
 async def get_product_detail(product_id: int, db: AsyncSession) -> dict:
     product = await db.get(Product, product_id)
     if not product:
-        raise HTTPException(status_code=404, detail="Product not found")
+        raise HTTPException(status_code=404, detail="Không tìm thấy sản phẩm")
 
     seller = await db.get(Account, product.seller_id)
     category = await db.get(Category, product.category_id)
@@ -220,7 +222,7 @@ async def get_product_detail(product_id: int, db: AsyncSession) -> dict:
 async def update_product_operations(product_id: int, data: dict, db: AsyncSession) -> Product:
     product = await db.get(Product, product_id)
     if not product:
-        raise HTTPException(status_code=404, detail="Product not found")
+        raise HTTPException(status_code=404, detail="Không tìm thấy sản phẩm")
     for key, value in data.items():
         setattr(product, key, value)
     await db.commit()

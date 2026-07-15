@@ -11,7 +11,7 @@ import { motion } from "motion/react";
 import Link from "next/link";
 
 import { api, vnd } from "@/lib/api";
-import { Card, Spinner, Button, Textarea } from "@/components/ui";
+import { Card, Spinner, Button, Textarea, Input } from "@/components/ui";
 import {
   FilterPills,
   SearchInput,
@@ -28,6 +28,9 @@ const STATUS_FILTER = [
   { key: "open", label: "Đang mở" },
   { key: "resolved_refund", label: "Đã hoàn tiền" },
   { key: "resolved_reject", label: "Đã từ chối" },
+  { key: "resolved_partial_refund", label: "Hoàn một phần" },
+  { key: "resolved_replace", label: "Đã đổi sản phẩm" },
+  { key: "resolved_extend_warranty", label: "Đã gia hạn" },
 ];
 
 // Event labels for timeline
@@ -39,7 +42,12 @@ const EVENT_LABELS: Record<string, string> = {
   dispute_opened: "Mở khiếu nại",
   dispute_refunded: "Hoàn tiền khiếu nại",
   dispute_rejected: "Từ chối khiếu nại",
+  dispute_partial_refunded: "Hoàn tiền một phần",
+  dispute_replaced: "Đổi sản phẩm",
+  dispute_warranty_extended: "Gia hạn bảo hành",
 };
+
+type DisputeAction = "refund" | "reject" | "partial_refund" | "replace" | "extend_warranty";
 
 // Table columns
 const columns: ColumnDef<Dispute>[] = [
@@ -126,7 +134,13 @@ const columns: ColumnDef<Dispute>[] = [
 ];
 
 // Detail Panel Content
-function DisputeDetailContent({ disputeId }: { disputeId: number }) {
+function DisputeDetailContent({
+  disputeId,
+  onAction,
+}: {
+  disputeId: number;
+  onAction: (action: DisputeAction) => void;
+}) {
   const [detail, setDetail] = React.useState<AdminDisputeDetail | null>(null);
   const [loading, setLoading] = React.useState(true);
 
@@ -339,6 +353,28 @@ function DisputeDetailContent({ disputeId }: { disputeId: number }) {
           </div>
         </section>
       )}
+
+      {/* Additional resolution actions */}
+      {detail.status === "open" && (
+        <section>
+          <h3 className="text-[12px] font-semibold text-slate-500 uppercase tracking-wide mb-3">
+            Xử lý khác
+          </h3>
+          <div className="flex flex-wrap gap-2">
+            <Button size="sm" variant="secondary" onClick={() => onAction("partial_refund")}>
+              Hoàn tiền một phần
+            </Button>
+            {detail.resources.length > 0 && (
+              <Button size="sm" variant="secondary" onClick={() => onAction("replace")}>
+                Đổi sản phẩm
+              </Button>
+            )}
+            <Button size="sm" variant="secondary" onClick={() => onAction("extend_warranty")}>
+              Gia hạn bảo hành
+            </Button>
+          </div>
+        </section>
+      )}
     </div>
   );
 }
@@ -353,9 +389,11 @@ export default function AdminDisputesPage() {
   // Action modal state
   const [actionModal, setActionModal] = React.useState<{
     id: number;
-    action: "refund" | "reject";
+    action: DisputeAction;
   } | null>(null);
   const [note, setNote] = React.useState("");
+  const [amountInput, setAmountInput] = React.useState("");
+  const [daysInput, setDaysInput] = React.useState("");
   const [busy, setBusy] = React.useState(false);
 
   // Fetch disputes
@@ -375,21 +413,50 @@ export default function AdminDisputesPage() {
   // Handle action
   const handleAction = async () => {
     if (!actionModal) return;
+    const adminNote = note.trim() || "—";
     setBusy(true);
     try {
-      if (actionModal.action === "refund") {
-        await api.refundDispute(actionModal.id, note.trim() || "—");
-      } else {
-        await api.rejectDispute(actionModal.id, note.trim() || "—");
+      switch (actionModal.action) {
+        case "refund":
+          await api.refundDispute(actionModal.id, adminNote);
+          break;
+        case "reject":
+          await api.rejectDispute(actionModal.id, adminNote);
+          break;
+        case "partial_refund": {
+          const amount = parseInt(amountInput) || 0;
+          if (amount <= 0) { alert("Vui lòng nhập số tiền hoàn hợp lệ"); setBusy(false); return; }
+          await api.partialRefundDispute(actionModal.id, adminNote, amount);
+          break;
+        }
+        case "replace":
+          await api.replaceDispute(actionModal.id, adminNote);
+          break;
+        case "extend_warranty": {
+          const days = parseInt(daysInput) || 0;
+          if (days <= 0) { alert("Vui lòng nhập số ngày gia hạn hợp lệ"); setBusy(false); return; }
+          await api.extendWarrantyDispute(actionModal.id, adminNote, days);
+          break;
+        }
       }
       setActionModal(null);
       setNote("");
+      setAmountInput("");
+      setDaysInput("");
       load();
-    } catch {
-      // Keep modal open on error
+    } catch (err) {
+      alert(err instanceof Error ? err.message : "Xử lý thất bại");
     } finally {
       setBusy(false);
     }
+  };
+
+  const ACTION_LABELS: Record<DisputeAction, { title: string; description: string; confirmText: string; variant: "danger" | "primary" }> = {
+    refund: { title: "Hoàn tiền cho người mua", description: "Tiền ký quỹ sẽ được hoàn về ví người mua.", confirmText: "Hoàn tiền", variant: "danger" },
+    reject: { title: "Từ chối khiếu nại", description: "Đơn sẽ hoàn tất và tiền chuyển cho người bán.", confirmText: "Từ chối", variant: "primary" },
+    partial_refund: { title: "Hoàn tiền một phần", description: "Một phần tiền hoàn về người mua, phần còn lại chuyển cho người bán.", confirmText: "Hoàn tiền một phần", variant: "danger" },
+    replace: { title: "Đổi sản phẩm", description: "Tài nguyên hiện tại được thu hồi, cấp phát tài nguyên mới cho người mua và mở lại thời gian ký quỹ.", confirmText: "Đổi sản phẩm", variant: "primary" },
+    extend_warranty: { title: "Gia hạn bảo hành", description: "Thời gian ký quỹ của đơn được kéo dài thêm, người mua có thêm thời gian kiểm tra.", confirmText: "Gia hạn", variant: "primary" },
   };
 
   // Filter disputes
@@ -558,7 +625,10 @@ export default function AdminDisputesPage() {
         width="lg"
       >
         {selectedDisputeId !== null && (
-          <DisputeDetailContent disputeId={selectedDisputeId} />
+          <DisputeDetailContent
+            disputeId={selectedDisputeId}
+            onAction={(action) => setActionModal({ id: selectedDisputeId, action })}
+          />
         )}
       </SlidePanel>
 
@@ -568,28 +638,42 @@ export default function AdminDisputesPage() {
         onClose={() => {
           setActionModal(null);
           setNote("");
+          setAmountInput("");
+          setDaysInput("");
         }}
         onConfirm={handleAction}
-        title={
-          actionModal?.action === "refund"
-            ? "Hoàn tiền cho người mua"
-            : "Từ chối khiếu nại"
-        }
-        description={
-          actionModal?.action === "refund"
-            ? "Tiền ký quỹ sẽ được hoàn về ví người mua."
-            : "Đơn sẽ hoàn tất và tiền chuyển cho người bán."
-        }
-        confirmText={actionModal?.action === "refund" ? "Hoàn tiền" : "Từ chối"}
-        variant={actionModal?.action === "refund" ? "danger" : "primary"}
+        title={actionModal ? ACTION_LABELS[actionModal.action].title : ""}
+        description={actionModal ? ACTION_LABELS[actionModal.action].description : ""}
+        confirmText={actionModal ? ACTION_LABELS[actionModal.action].confirmText : "Xác nhận"}
+        variant={actionModal ? ACTION_LABELS[actionModal.action].variant : "primary"}
         isLoading={busy}
       >
-        <Textarea
-          placeholder="Ghi chú (không bắt buộc)"
-          value={note}
-          onChange={(e) => setNote(e.target.value)}
-          className="min-h-[60px]"
-        />
+        <div className="space-y-2">
+          {actionModal?.action === "partial_refund" && (
+            <Input
+              type="number"
+              placeholder="Số tiền hoàn cho người mua (VNĐ)"
+              value={amountInput}
+              onChange={(e) => setAmountInput(e.target.value)}
+              min="1"
+            />
+          )}
+          {actionModal?.action === "extend_warranty" && (
+            <Input
+              type="number"
+              placeholder="Số ngày gia hạn"
+              value={daysInput}
+              onChange={(e) => setDaysInput(e.target.value)}
+              min="1"
+            />
+          )}
+          <Textarea
+            placeholder="Ghi chú (không bắt buộc)"
+            value={note}
+            onChange={(e) => setNote(e.target.value)}
+            className="min-h-[60px]"
+          />
+        </div>
       </ConfirmModal>
     </div>
   );

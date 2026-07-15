@@ -20,12 +20,12 @@ from src.wallet.service import deduct_credit, refund_escrow, release_escrow
 async def create_order(buyer_id: int, variant_id: int, quantity: int, db: AsyncSession) -> Order:
     variant = await db.get(ProductVariant, variant_id)
     if not variant or not variant.is_active:
-        raise HTTPException(status_code=404, detail="Variant not found")
+        raise HTTPException(status_code=404, detail="Không tìm thấy gói sản phẩm")
     product = await db.get(Product, variant.product_id)
     if not product or product.status != ProductStatus.active:
-        raise HTTPException(status_code=400, detail="Product not available")
+        raise HTTPException(status_code=400, detail="Sản phẩm hiện không khả dụng")
     if product.seller_id == buyer_id:
-        raise HTTPException(status_code=400, detail="Cannot buy your own product")
+        raise HTTPException(status_code=400, detail="Không thể mua sản phẩm của chính mình")
 
     total = variant.price * quantity
 
@@ -75,11 +75,11 @@ async def create_order_with_adapter(
     """
     product = await db.get(Product, product_id)
     if not product or product.status != ProductStatus.active:
-        raise HTTPException(status_code=400, detail="Product not available")
+        raise HTTPException(status_code=400, detail="Sản phẩm hiện không khả dụng")
     if not product.provider_id:
-        raise HTTPException(status_code=400, detail="Product has no provider configured")
+        raise HTTPException(status_code=400, detail="Sản phẩm chưa được cấu hình nhà cung cấp")
     if product.seller_id == buyer_id:
-        raise HTTPException(status_code=400, detail="Cannot buy your own product")
+        raise HTTPException(status_code=400, detail="Không thể mua sản phẩm của chính mình")
 
     q = await quote_product(product, user_config, db)
     total_amount = q.amount
@@ -159,11 +159,11 @@ async def create_order_with_adapter(
 async def confirm_order(order_id: int, buyer_id: int, db: AsyncSession) -> Order:
     order = await db.get(Order, order_id)
     if not order:
-        raise HTTPException(status_code=404, detail="Order not found")
+        raise HTTPException(status_code=404, detail="Không tìm thấy đơn hàng")
     if order.buyer_id != buyer_id:
-        raise HTTPException(status_code=403, detail="Not your order")
+        raise HTTPException(status_code=403, detail="Đây không phải đơn hàng của bạn")
     if order.status != OrderStatus.delivered:
-        raise HTTPException(status_code=400, detail="Order not delivered")
+        raise HTTPException(status_code=400, detail="Đơn hàng chưa được giao")
     order.status = OrderStatus.completed
     await release_escrow(order.id, order.seller_id, order.total_amount, platform_fee=0, db=db)
     from src.affiliate.service import apply_affiliate_commission
@@ -292,20 +292,20 @@ async def list_all_orders(db: AsyncSession) -> list[dict]:
 async def get_order(order_id: int, account_id: int, db: AsyncSession) -> dict:
     order = await db.get(Order, order_id)
     if not order:
-        raise HTTPException(status_code=404, detail="Order not found")
+        raise HTTPException(status_code=404, detail="Không tìm thấy đơn hàng")
     if order.buyer_id != account_id and order.seller_id != account_id:
-        raise HTTPException(status_code=403, detail="Not authorized to view this order")
+        raise HTTPException(status_code=403, detail="Bạn không có quyền xem đơn hàng này")
     return await _enrich_order(order, db)
 
 
 async def accept_order(order_id: int, seller_id: int, db: AsyncSession) -> Order:
     order = await db.get(Order, order_id)
     if not order:
-        raise HTTPException(status_code=404, detail="Order not found")
+        raise HTTPException(status_code=404, detail="Không tìm thấy đơn hàng")
     if order.seller_id != seller_id:
-        raise HTTPException(status_code=403, detail="Not your order")
+        raise HTTPException(status_code=403, detail="Đây không phải đơn hàng của bạn")
     if order.status != OrderStatus.pending:
-        raise HTTPException(status_code=400, detail="Order not pending")
+        raise HTTPException(status_code=400, detail="Đơn hàng không ở trạng thái chờ xử lý")
     order.status = OrderStatus.processing
     await db.commit()
     await db.refresh(order)
@@ -315,7 +315,7 @@ async def accept_order(order_id: int, seller_id: int, db: AsyncSession) -> Order
 async def get_admin_order_detail(order_id: int, db: AsyncSession) -> dict:
     order = await db.get(Order, order_id)
     if not order:
-        raise HTTPException(status_code=404, detail="Order not found")
+        raise HTTPException(status_code=404, detail="Không tìm thấy đơn hàng")
     enriched = await _enrich_order(order, db)
 
     resources_result = await db.execute(
@@ -353,11 +353,11 @@ async def get_admin_order_detail(order_id: int, db: AsyncSession) -> dict:
 async def deliver_order(order_id: int, seller_id: int, data: str, db: AsyncSession) -> Order:
     order = await db.get(Order, order_id)
     if not order:
-        raise HTTPException(status_code=404, detail="Order not found")
+        raise HTTPException(status_code=404, detail="Không tìm thấy đơn hàng")
     if order.seller_id != seller_id:
-        raise HTTPException(status_code=403, detail="Not your order")
+        raise HTTPException(status_code=403, detail="Đây không phải đơn hàng của bạn")
     if order.status != OrderStatus.processing:
-        raise HTTPException(status_code=400, detail="Order not in processing")
+        raise HTTPException(status_code=400, detail="Đơn hàng không ở trạng thái đang xử lý")
     product = None
     if order.product_id:
         product = await db.get(Product, order.product_id)

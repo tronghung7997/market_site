@@ -43,7 +43,8 @@ export default function ProductPage() {
       try {
         const p = await api.product(Number(id));
         setProduct(p);
-        setSelected(p.variants[0] ?? null);
+        const firstInStock = p.variants.find((v) => v.delivery_mode !== "instant" || v.stock_count > 0);
+        setSelected(firstInStock ?? p.variants[0] ?? null);
         // Fetch pricing strategy to decide which order form to show
         try {
           const opts = await api.pricingOptions(Number(id));
@@ -99,6 +100,7 @@ export default function ProductPage() {
 
   const total = selected ? selected.price * qty : 0;
   const instant = selected?.delivery_mode === "instant";
+  const selectedOutOfStock = !!selected && instant && selected.stock_count <= 0;
   const useDynamicForm = pricingStrategy != null && pricingStrategy !== "fixed";
   const pricedVariants = product.variants.filter((v) => v.price > 0);
   const variantMinPrice = pricedVariants.length ? Math.min(...pricedVariants.map((v) => v.price)) : 0;
@@ -172,10 +174,12 @@ export default function ProductPage() {
 
               {/* Seller row */}
               <div className="flex items-center gap-2.5 mt-3 pt-3 border-t border-line text-[12.5px]">
-                <span className="grid place-items-center h-6 w-6 rounded-full bg-raised border border-line text-[9px] font-bold text-muted">
-                  {sellerName.slice(0, 2).toUpperCase()}
-                </span>
-                <span className="font-medium">{sellerName}</span>
+                <Link href={`/sellers/${product.seller_id}`} className="flex items-center gap-2.5 hover:underline">
+                  <span className="grid place-items-center h-6 w-6 rounded-full bg-raised border border-line text-[9px] font-bold text-muted">
+                    {sellerName.slice(0, 2).toUpperCase()}
+                  </span>
+                  <span className="font-medium">{sellerName}</span>
+                </Link>
                 <Tag tone="good"><Verified size={10} /> Xác minh</Tag>
                 <button className="ml-auto flex items-center gap-1 text-iris-hi hover:underline">
                   <MessageCircle size={11} /> Nhắn tin
@@ -216,6 +220,7 @@ export default function ProductPage() {
               <div className="space-y-1.5">
                 {product.variants.map((v) => {
                   const on = selected?.id === v.id;
+                  const outOfStock = v.delivery_mode === "instant" && v.stock_count <= 0;
                   return (
                     <button key={v.id} onClick={() => setSelected(v)}
                       className={cn(
@@ -229,7 +234,9 @@ export default function ProductPage() {
                           {v.delivery_mode === "instant"
                             ? <Tag tone="good"><Bolt size={10} /> Giao ngay</Tag>
                             : <Tag tone="warn"><Clock size={10} /> {v.sla_hours}h</Tag>}
-                          {v.delivery_mode === "instant" && v.stock_count > 0 && (
+                          {outOfStock ? (
+                            <Tag tone="bad">Hết hàng</Tag>
+                          ) : v.delivery_mode === "instant" && (
                             <span className="text-[11px] text-faint">Kho: {v.stock_count}</span>
                           )}
                         </div>
@@ -356,12 +363,13 @@ export default function ProductPage() {
 
                     {placeError && <p className="text-bad text-[12.5px]">{placeError}</p>}
 
-                    <Button size="lg" block disabled={!selected || placing || (selected?.price === 0)} onClick={() => {
+                    <Button size="lg" block disabled={!selected || placing || selectedOutOfStock || (selected?.price === 0)} onClick={() => {
                       if (!account) { router.push("/login"); return; }
                       setShowConfirm(true);
                     }}>
                       {placing ? "Đang xử lý…"
                         : !account ? "Đăng nhập để mua"
+                        : selectedOutOfStock ? "Hết hàng"
                         : selected?.price === 0 ? "Liên hệ báo giá"
                         : instant ? "Mua ngay" : "Đặt hàng"}
                     </Button>

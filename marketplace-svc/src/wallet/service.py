@@ -3,19 +3,20 @@ from sqlalchemy import select
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from src.exceptions import InsufficientCredit
+from src.models.account import Account
 from src.models.wallet import Transaction, TransactionType, Wallet, WithdrawRequest, WithdrawStatus
 
 
 async def get_wallet_by_account(account_id: int, db: AsyncSession) -> Wallet:
     wallet = await db.scalar(select(Wallet).where(Wallet.account_id == account_id))
     if not wallet:
-        raise HTTPException(status_code=404, detail="Wallet not found")
+        raise HTTPException(status_code=404, detail="Không tìm thấy ví")
     return wallet
 
 
 async def topup(account_id: int, amount: int, db: AsyncSession) -> Wallet:
     if amount <= 0:
-        raise HTTPException(status_code=400, detail="Amount must be positive")
+        raise HTTPException(status_code=400, detail="Số tiền phải lớn hơn 0")
     wallet = await get_wallet_by_account(account_id, db)
     wallet.balance += amount
     tx = Transaction(wallet_id=wallet.id, type=TransactionType.topup, amount=amount, description="Admin topup")
@@ -88,7 +89,7 @@ async def request_withdraw(account_id: int, amount: int, db: AsyncSession) -> Wi
     if wallet.balance < amount:
         raise InsufficientCredit()
     if amount <= 0:
-        raise HTTPException(status_code=400, detail="Amount must be positive")
+        raise HTTPException(status_code=400, detail="Số tiền phải lớn hơn 0")
     req = WithdrawRequest(account_id=account_id, amount=amount)
     db.add(req)
     await db.commit()
@@ -96,17 +97,27 @@ async def request_withdraw(account_id: int, amount: int, db: AsyncSession) -> Wi
     return req
 
 
-async def list_withdrawals(db: AsyncSession) -> list[WithdrawRequest]:
-    result = await db.execute(select(WithdrawRequest).order_by(WithdrawRequest.created_at.desc()))
-    return list(result.scalars().all())
+async def list_withdrawals(db: AsyncSession) -> list[dict]:
+    result = await db.execute(
+        select(WithdrawRequest, Account.email)
+        .join(Account, WithdrawRequest.account_id == Account.id)
+        .order_by(WithdrawRequest.created_at.desc())
+    )
+    return [
+        {
+            "id": req.id, "account_id": req.account_id, "account_email": email,
+            "amount": req.amount, "status": req.status, "created_at": req.created_at,
+        }
+        for req, email in result.all()
+    ]
 
 
 async def approve_withdrawal(req_id: int, db: AsyncSession) -> WithdrawRequest:
     req = await db.get(WithdrawRequest, req_id)
     if not req:
-        raise HTTPException(status_code=404, detail="Withdrawal not found")
+        raise HTTPException(status_code=404, detail="Không tìm thấy yêu cầu rút tiền")
     if req.status != WithdrawStatus.pending:
-        raise HTTPException(status_code=400, detail="Already processed")
+        raise HTTPException(status_code=400, detail="Yêu cầu đã được xử lý")
     wallet = await get_wallet_by_account(req.account_id, db)
     if wallet.balance < req.amount:
         raise InsufficientCredit()

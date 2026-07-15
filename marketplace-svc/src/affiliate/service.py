@@ -171,7 +171,7 @@ async def get_fund_overview(db: AsyncSession, limit: int = 30) -> dict:
 
 async def topup_fund(amount: int, admin_id: int, db: AsyncSession, note: str | None = None) -> dict:
     if amount <= 0:
-        raise HTTPException(status_code=400, detail="Amount must be positive")
+        raise HTTPException(status_code=400, detail="Số tiền phải lớn hơn 0")
     db.add(
         AffiliateFundEntry(amount=amount, kind="topup", note=note, created_by=admin_id)
     )
@@ -191,7 +191,7 @@ async def update_affiliate_code(account_id: int, new_code: str, db: AsyncSession
         raise HTTPException(status_code=422, detail="Mã phải dài 4–8 ký tự chữ/số")
     account = await db.get(Account, account_id)
     if not account:
-        raise HTTPException(status_code=404, detail="Account not found")
+        raise HTTPException(status_code=404, detail="Không tìm thấy tài khoản")
     clash = await db.scalar(
         select(Account.id).where(Account.affiliate_code == code, Account.id != account_id)
     )
@@ -287,7 +287,7 @@ def _parse_range(date_from: str | None, date_to: str | None) -> tuple[datetime |
     except ValueError:
         raise HTTPException(
             status_code=422,
-            detail="date_from/date_to must be ISO dates (YYYY-MM-DD)",
+            detail="date_from/date_to phải theo định dạng YYYY-MM-DD",
         )
     return start, end
 

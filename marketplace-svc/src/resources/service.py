@@ -10,7 +10,7 @@ from src.models.resource import Resource, ResourceStatus
 async def bulk_add_resources(variant_id: int, seller_id: int, items: list[str], db: AsyncSession) -> int:
     variant = await db.get(ProductVariant, variant_id)
     if not variant:
-        raise HTTPException(status_code=404, detail="Variant not found")
+        raise HTTPException(status_code=404, detail="Không tìm thấy gói sản phẩm")
     from src.models.product import Product
     product = await db.get(Product, variant.product_id)
     if product.seller_id != seller_id:
@@ -24,7 +24,7 @@ async def bulk_add_resources(variant_id: int, seller_id: int, items: list[str], 
 async def list_resources(variant_id: int, seller_id: int, db: AsyncSession) -> list[Resource]:
     variant = await db.get(ProductVariant, variant_id)
     if not variant:
-        raise HTTPException(status_code=404, detail="Variant not found")
+        raise HTTPException(status_code=404, detail="Không tìm thấy gói sản phẩm")
     from src.models.product import Product
     product = await db.get(Product, variant.product_id)
     if product.seller_id != seller_id:
@@ -38,11 +38,11 @@ async def list_resources(variant_id: int, seller_id: int, db: AsyncSession) -> l
 async def delete_resource(resource_id: int, seller_id: int, db: AsyncSession) -> None:
     resource = await db.get(Resource, resource_id)
     if not resource:
-        raise HTTPException(status_code=404, detail="Resource not found")
+        raise HTTPException(status_code=404, detail="Không tìm thấy tài nguyên")
     if resource.seller_id != seller_id:
         raise NotOwner()
     if resource.status != ResourceStatus.available:
-        raise HTTPException(status_code=400, detail="Can only delete available resources")
+        raise HTTPException(status_code=400, detail="Chỉ có thể xoá tài nguyên đang ở trạng thái sẵn sàng")
     await db.delete(resource)
     await db.commit()
 
@@ -81,9 +81,9 @@ async def order_resources(order_id: int, account_id: int, db: AsyncSession) -> l
     from src.models.order import Order
     order = await db.get(Order, order_id)
     if not order:
-        raise HTTPException(status_code=404, detail="Order not found")
+        raise HTTPException(status_code=404, detail="Không tìm thấy đơn hàng")
     if order.buyer_id != account_id and order.seller_id != account_id:
-        raise HTTPException(status_code=403, detail="Not authorized")
+        raise HTTPException(status_code=403, detail="Bạn không có quyền thực hiện thao tác này")
     result = await db.execute(
         select(Resource).where(Resource.order_id == order_id).order_by(Resource.id)
     )
@@ -94,7 +94,7 @@ async def mark_resource_error(resource_id: int, seller_id: int, db: AsyncSession
     from src.alerts.service import create_alert
     resource = await db.get(Resource, resource_id)
     if not resource:
-        raise HTTPException(status_code=404, detail="Resource not found")
+        raise HTTPException(status_code=404, detail="Không tìm thấy tài nguyên")
     if resource.seller_id != seller_id:
         raise NotOwner()
     resource.status = ResourceStatus.error

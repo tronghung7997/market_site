@@ -9,6 +9,7 @@ import {
   RESOURCE_STATUS,
   ALERT_SEVERITY,
   STRATEGY_LABELS,
+  WITHDRAW_STATUS,
   type StatusTone,
 } from "./status-config";
 
@@ -18,7 +19,8 @@ type StatusType =
   | { type: "product"; status: string }
   | { type: "resource"; status: string }
   | { type: "alert"; severity: string }
-  | { type: "strategy"; strategy: string };
+  | { type: "strategy"; strategy: string }
+  | { type: "withdraw"; status: string };
 
 function getStatusConfig(item: StatusType): { label: string; tone: StatusTone } {
   switch (item.type) {
@@ -34,6 +36,8 @@ function getStatusConfig(item: StatusType): { label: string; tone: StatusTone } 
       return ALERT_SEVERITY[item.severity] ?? { label: item.severity, tone: "neutral" as StatusTone };
     case "strategy":
       return STRATEGY_LABELS[item.strategy] ?? { label: item.strategy, tone: "neutral" as StatusTone };
+    case "withdraw":
+      return WITHDRAW_STATUS[item.status] ?? { label: item.status, tone: "neutral" as StatusTone };
     default:
       return { label: "Unknown", tone: "neutral" as StatusTone };
   }
@@ -77,5 +81,10 @@ export function ResourceStatusBadge({ status, ...props }: { status: string } & O
 
 export function AlertSeverityBadge({ severity, ...props }: { severity: string } & Omit<BadgeProps, "children">) {
   const config = ALERT_SEVERITY[severity] ?? { label: severity, tone: "neutral" as StatusTone };
+  return <Badge tone={config.tone} {...props}>{config.label}</Badge>;
+}
+
+export function WithdrawStatusBadge({ status, ...props }: { status: string } & Omit<BadgeProps, "children">) {
+  const config = WITHDRAW_STATUS[status] ?? { label: status, tone: "neutral" as StatusTone };
   return <Badge tone={config.tone} {...props}>{config.label}</Badge>;
 }

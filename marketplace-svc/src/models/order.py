@@ -21,6 +21,9 @@ class DisputeStatus(str, PyEnum):
     open = "open"
     resolved_refund = "resolved_refund"
     resolved_reject = "resolved_reject"
+    resolved_partial_refund = "resolved_partial_refund"
+    resolved_replace = "resolved_replace"
+    resolved_extend_warranty = "resolved_extend_warranty"
 
 
 class Order(Base):

@@ -84,9 +84,9 @@ async def order_dashboard(
 ):
     order = await db.get(Order, order_id)
     if not order:
-        raise HTTPException(status_code=404, detail="Order not found")
+        raise HTTPException(status_code=404, detail="Không tìm thấy đơn hàng")
     if order.buyer_id != account.id and order.seller_id != account.id:
-        raise HTTPException(status_code=403, detail="Not authorized")
+        raise HTTPException(status_code=403, detail="Bạn không có quyền thực hiện thao tác này")
 
     product = None
     if order.product_id:

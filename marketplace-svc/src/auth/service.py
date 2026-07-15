@@ -31,7 +31,7 @@ def decode_access_token(token: str) -> dict:
     try:
         return jwt.decode(token, settings.jwt_secret, algorithms=[settings.jwt_algorithm])
     except jwt.PyJWTError:
-        raise HTTPException(status_code=status.HTTP_401_UNAUTHORIZED, detail="Invalid token")
+        raise HTTPException(status_code=status.HTTP_401_UNAUTHORIZED, detail="Token không hợp lệ")
 
 
 async def register_account(
@@ -66,7 +66,7 @@ async def register_account(
 async def authenticate(email: str, password: str, db: AsyncSession) -> Account:
     account = await db.scalar(select(Account).where(Account.email == email))
     if not account or not verify_password(password, account.password_hash):
-        raise HTTPException(status_code=status.HTTP_401_UNAUTHORIZED, detail="Invalid credentials")
+        raise HTTPException(status_code=status.HTTP_401_UNAUTHORIZED, detail="Email hoặc mật khẩu không đúng")
     return account
 
 
@@ -97,7 +97,7 @@ async def update_roles(account_id: int, roles: list[str], requester_id: int, db:
         raise HTTPException(status_code=422, detail="Tài khoản phải có ít nhất một vai trò")
     account = await db.get(Account, account_id)
     if not account:
-        raise HTTPException(status_code=404, detail="Account not found")
+        raise HTTPException(status_code=404, detail="Không tìm thấy tài khoản")
     # An admin cannot strip their own admin role (prevents self-lockout).
     if account_id == requester_id and "admin" not in cleaned:
         raise HTTPException(status_code=400, detail="Không thể tự gỡ quyền admin của chính mình")

@@ -8,11 +8,11 @@ from src.models.category import Category
 async def create_category(name: str, slug: str, icon: str | None, parent_id: int | None, sort_order: int, db: AsyncSession, commission_rate: float | None = None) -> Category:
     existing = await db.scalar(select(Category).where(Category.slug == slug))
     if existing:
-        raise HTTPException(status_code=409, detail="Slug already exists")
+        raise HTTPException(status_code=409, detail="Slug này đã tồn tại")
     if parent_id:
         parent = await db.get(Category, parent_id)
         if not parent:
-            raise HTTPException(status_code=404, detail="Parent category not found")
+            raise HTTPException(status_code=404, detail="Không tìm thấy danh mục cha")
     cat = Category(name=name, slug=slug, icon=icon, parent_id=parent_id, sort_order=sort_order, commission_rate=commission_rate)
     db.add(cat)
     await db.commit()
@@ -23,7 +23,7 @@ async def create_category(name: str, slug: str, icon: str | None, parent_id: int
 async def update_category(cat_id: int, data: dict, db: AsyncSession) -> Category:
     cat = await db.get(Category, cat_id)
     if not cat:
-        raise HTTPException(status_code=404, detail="Category not found")
+        raise HTTPException(status_code=404, detail="Không tìm thấy danh mục")
     for key, value in data.items():
         if value is not None:
             setattr(cat, key, value)
@@ -35,11 +35,11 @@ async def update_category(cat_id: int, data: dict, db: AsyncSession) -> Category
 async def delete_category(cat_id: int, db: AsyncSession) -> None:
     cat = await db.get(Category, cat_id)
     if not cat:
-        raise HTTPException(status_code=404, detail="Category not found")
+        raise HTTPException(status_code=404, detail="Không tìm thấy danh mục")
     from src.models.product import Product
     has_products = await db.scalar(select(Product).where(Product.category_id == cat_id).limit(1))
     if has_products:
-        raise HTTPException(status_code=400, detail="Category has products, cannot delete")
+        raise HTTPException(status_code=400, detail="Danh mục đang có sản phẩm, không thể xoá")
     await db.delete(cat)
     await db.commit()
 

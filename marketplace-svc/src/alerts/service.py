@@ -21,7 +21,7 @@ async def list_active_alerts(db: AsyncSession) -> list[Alert]:
 async def dismiss_alert(alert_id: int, db: AsyncSession) -> Alert:
     alert = await db.get(Alert, alert_id)
     if not alert:
-        raise HTTPException(status_code=404, detail="Alert not found")
+        raise HTTPException(status_code=404, detail="Không tìm thấy cảnh báo")
     alert.is_active = False
     await db.commit()
     await db.refresh(alert)

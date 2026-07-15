@@ -7,7 +7,7 @@ from src.models.account import Account, ApplicationStatus, SellerApplication
 
 async def apply_for_seller(account: Account, business_name: str, description: str | None, contact: str | None, db: AsyncSession) -> SellerApplication:
     if "seller" in account.roles:
-        raise HTTPException(status_code=400, detail="Already a seller")
+        raise HTTPException(status_code=400, detail="Bạn đã là người bán")
     existing = await db.scalar(
         select(SellerApplication).where(
             SellerApplication.account_id == account.id,
@@ -15,7 +15,7 @@ async def apply_for_seller(account: Account, business_name: str, description: st
         )
     )
     if existing:
-        raise HTTPException(status_code=400, detail="Already have a pending application")
+        raise HTTPException(status_code=400, detail="Bạn đã có đơn đăng ký đang chờ duyệt")
     app = SellerApplication(account_id=account.id, business_name=business_name, description=description, contact=contact)
     db.add(app)
     await db.commit()
@@ -40,9 +40,9 @@ async def get_latest_application(account_id: int, db: AsyncSession) -> SellerApp
 async def approve_application(app_id: int, db: AsyncSession) -> SellerApplication:
     app = await db.get(SellerApplication, app_id)
     if not app:
-        raise HTTPException(status_code=404, detail="Application not found")
+        raise HTTPException(status_code=404, detail="Không tìm thấy đơn đăng ký")
     if app.status != ApplicationStatus.pending:
-        raise HTTPException(status_code=400, detail="Application already processed")
+        raise HTTPException(status_code=400, detail="Đơn đăng ký đã được xử lý")
     app.status = ApplicationStatus.approved
     account = await db.get(Account, app.account_id)
     if "seller" not in account.roles:
@@ -55,9 +55,9 @@ async def approve_application(app_id: int, db: AsyncSession) -> SellerApplicatio
 async def reject_application(app_id: int, reason: str, db: AsyncSession) -> SellerApplication:
     app = await db.get(SellerApplication, app_id)
     if not app:
-        raise HTTPException(status_code=404, detail="Application not found")
+        raise HTTPException(status_code=404, detail="Không tìm thấy đơn đăng ký")
     if app.status != ApplicationStatus.pending:
-        raise HTTPException(status_code=400, detail="Application already processed")
+        raise HTTPException(status_code=400, detail="Đơn đăng ký đã được xử lý")
     app.status = ApplicationStatus.rejected
     app.reject_reason = reason
     await db.commit()

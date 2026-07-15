@@ -11,6 +11,16 @@ class AdminDisputeAction(BaseModel):
     admin_note: str
 
 
+class AdminDisputePartialRefund(BaseModel):
+    admin_note: str
+    refund_amount: int
+
+
+class AdminDisputeExtendWarranty(BaseModel):
+    admin_note: str
+    extra_days: int
+
+
 class SellerDisputeRespond(BaseModel):
     seller_note: str
 

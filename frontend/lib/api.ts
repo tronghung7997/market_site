@@ -1,5 +1,5 @@
 import type {
-  Account, AdminDisputeDetail, AdminOrderDetail, AdminProduct, AdminResourceListResponse, AffiliateStats, AffiliateSummary, CalculateResult, Category, DashboardData, Dispute, FundOverview, AccountAdminRow, PaginatedAccounts, LogEntry, Order, OrderStats, PaginatedAffiliateSummary, PaginatedOrderResponse, PricingField, PricingOptions, ProductDetail, Product, ProductOperations, Review, SellerApplication, SellerProduct, SellerStats, ServiceTask, Transaction, Variant, Wallet, Provider, ProviderHealth, Alert, Resource, ResourceSummary,
+  Account, AdminDisputeDetail, AdminOrderDetail, AdminProduct, AdminResourceListResponse, AffiliateStats, AffiliateSummary, CalculateResult, Category, DashboardData, Dispute, FundOverview, AccountAdminRow, PaginatedAccounts, LogEntry, Order, OrderStats, PaginatedAffiliateSummary, PaginatedOrderResponse, PricingField, PricingOptions, ProductDetail, Product, ProductOperations, Review, SellerApplication, SellerProduct, SellerStats, ServiceTask, Transaction, Variant, Wallet, WithdrawRequest, Provider, ProviderHealth, Alert, Resource, ResourceSummary, SellerSummary, SellerProfile,
 } from "./types";
 
 const BASE = process.env.NEXT_PUBLIC_API_URL
@@ -37,7 +37,7 @@ async function request<T>(path: string, init: RequestInit = {}, auth = false): P
   try {
     res = await fetch(`${BASE}${path}`, { ...init, headers });
   } catch {
-    throw new ApiError(0, "Cannot reach the API. Is marketplace-svc running on :8001?");
+    throw new ApiError(0, "Không thể kết nối tới máy chủ, vui lòng kiểm tra kết nối mạng và thử lại.");
   }
   if (res.status === 204) return undefined as T;
   const body = await res.json().catch(() => null);
@@ -47,8 +47,8 @@ async function request<T>(path: string, init: RequestInit = {}, auth = false): P
       if (typeof window !== "undefined") window.dispatchEvent(new Event("auth:session-expired"));
       throw new ApiError(401, "Phiên đăng nhập đã hết hạn, vui lòng đăng nhập lại.");
     }
-    const detail = (body && (body.detail || body.message)) || res.statusText;
-    throw new ApiError(res.status, typeof detail === "string" ? detail : "Request failed");
+    const detail = body && (body.detail || body.message);
+    throw new ApiError(res.status, typeof detail === "string" ? detail : "Có lỗi xảy ra, vui lòng thử lại.");
   }
   return body as T;
 }
@@ -72,6 +72,8 @@ export const api = {
     request<void>(`/admin/categories/${id}`, { method: "DELETE" }, true),
   products: (categoryId?: number) =>
     request<Product[]>(`/products${categoryId ? `?category_id=${categoryId}` : ""}`),
+  productsBySeller: (sellerId: number) =>
+    request<Product[]>(`/products?seller_id=${sellerId}`),
   product: (id: number) => request<ProductDetail>(`/products/${id}`),
 
   wallet: () => request<Wallet>("/wallet", {}, true),
@@ -157,6 +159,18 @@ export const api = {
     request<Dispute>(`/admin/disputes/${id}/refund`, { method: "POST", body: JSON.stringify({ admin_note: adminNote }) }, true),
   rejectDispute: (id: number, adminNote: string) =>
     request<Dispute>(`/admin/disputes/${id}/reject`, { method: "POST", body: JSON.stringify({ admin_note: adminNote }) }, true),
+  partialRefundDispute: (id: number, adminNote: string, refundAmount: number) =>
+    request<Dispute>(`/admin/disputes/${id}/partial-refund`, { method: "POST", body: JSON.stringify({ admin_note: adminNote, refund_amount: refundAmount }) }, true),
+  replaceDispute: (id: number, adminNote: string) =>
+    request<Dispute>(`/admin/disputes/${id}/replace`, { method: "POST", body: JSON.stringify({ admin_note: adminNote }) }, true),
+  extendWarrantyDispute: (id: number, adminNote: string, extraDays: number) =>
+    request<Dispute>(`/admin/disputes/${id}/extend-warranty`, { method: "POST", body: JSON.stringify({ admin_note: adminNote, extra_days: extraDays }) }, true),
+  adminWithdrawals: () => request<WithdrawRequest[]>("/admin/withdrawals", {}, true),
+  approveWithdrawal: (id: number) => request<WithdrawRequest>(`/admin/withdrawals/${id}/approve`, { method: "POST" }, true),
+  requestWithdraw: (amount: number) =>
+    request<WithdrawRequest>("/wallet/withdraw", { method: "POST", body: JSON.stringify({ amount }) }, true),
+  topSellers: (limit = 6) => request<SellerSummary[]>(`/sellers/top?limit=${limit}`),
+  sellerProfile: (id: number) => request<SellerProfile>(`/sellers/${id}`),
   sellerDispute: (orderId: number) => request<Dispute>(`/seller/orders/${orderId}/dispute`, {}, true),
   sellerRespondDispute: (disputeId: number, sellerNote: string) =>
     request<Dispute>(`/seller/disputes/${disputeId}/respond`, { method: "POST", body: JSON.stringify({ seller_note: sellerNote }) }, true),
@@ -248,7 +262,7 @@ export const api = {
     request<FundOverview>("/admin/affiliate-fund/topup", { method: "POST", body: JSON.stringify({ amount, note }) }, true),
 };
 
-export type { Account, AdminDisputeDetail, AdminOrderDetail, AdminProduct, AdminResourceListResponse, AffiliateStats, AffiliateSummary, CalculateResult, Category, DashboardData, Dispute, FundOverview, AccountAdminRow, PaginatedAccounts, LogEntry, Order, OrderStats, PaginatedAffiliateSummary, PaginatedOrderResponse, PricingField, PricingOptions, Product, ProductDetail, ProductOperations, Review, SellerApplication, SellerProduct, SellerStats, ServiceTask, Transaction, Variant, Wallet, Provider, ProviderHealth, Alert, Resource, ResourceSummary };
+export type { Account, AdminDisputeDetail, AdminOrderDetail, AdminProduct, AdminResourceListResponse, AffiliateStats, AffiliateSummary, CalculateResult, Category, DashboardData, Dispute, FundOverview, AccountAdminRow, PaginatedAccounts, LogEntry, Order, OrderStats, PaginatedAffiliateSummary, PaginatedOrderResponse, PricingField, PricingOptions, Product, ProductDetail, ProductOperations, Review, SellerApplication, SellerProduct, SellerStats, SellerSummary, SellerProfile, ServiceTask, Transaction, Variant, Wallet, WithdrawRequest, Provider, ProviderHealth, Alert, Resource, ResourceSummary };
 
 /** Money helpers. Backend stores an integer amount; for this Vietnamese
  * marketplace we render it as đồng (no sub-unit), e.g. 7000 → "7.000 ₫". */

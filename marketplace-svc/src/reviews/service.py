@@ -12,20 +12,20 @@ async def create_review(
 ) -> Review:
     order = await db.get(Order, order_id)
     if not order:
-        raise HTTPException(status_code=404, detail="Order not found")
+        raise HTTPException(status_code=404, detail="Không tìm thấy đơn hàng")
     if order.buyer_id != buyer_id:
-        raise HTTPException(status_code=403, detail="Not your order")
+        raise HTTPException(status_code=403, detail="Đây không phải đơn hàng của bạn")
     if order.status != OrderStatus.completed:
-        raise HTTPException(status_code=400, detail="Order not completed")
+        raise HTTPException(status_code=400, detail="Đơn hàng chưa hoàn tất")
 
     existing = await db.execute(select(Review).where(Review.order_id == order_id))
     if existing.scalar_one_or_none():
-        raise HTTPException(status_code=400, detail="Already reviewed")
+        raise HTTPException(status_code=400, detail="Bạn đã đánh giá đơn hàng này rồi")
 
     # Resolve product_id from order's variant
     variant = await db.get(ProductVariant, order.variant_id)
     if not variant:
-        raise HTTPException(status_code=400, detail="Variant not found")
+        raise HTTPException(status_code=400, detail="Không tìm thấy gói sản phẩm")
 
     review = Review(
         order_id=order_id,

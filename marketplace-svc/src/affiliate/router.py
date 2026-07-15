@@ -55,7 +55,7 @@ async def admin_affiliate_detail(
 ):
     account = await db.get(Account, account_id)
     if not account:
-        raise HTTPException(status_code=404, detail="Account not found")
+        raise HTTPException(status_code=404, detail="Không tìm thấy tài khoản")
     return await service.get_affiliate_stats(account_id, db, date_from=date_from, date_to=date_to, reveal_spend=True)
 
 

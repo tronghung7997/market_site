@@ -38,5 +38,5 @@ async def quote_product(product: Product, user_config: dict, db: AsyncSession) -
     strategy_name, params = await resolve_pricing(product, db)
     strategy = get_pricing_strategy(strategy_name)
     if not strategy.validate(params, user_config):
-        raise HTTPException(status_code=400, detail="Invalid configuration")
+        raise HTTPException(status_code=400, detail="Cấu hình không hợp lệ")
     return strategy.quote(params, user_config)

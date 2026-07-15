@@ -30,6 +30,11 @@ export default function WalletPage() {
   const [customAmount, setCustomAmount] = useState("");
   const [topupLoading, setTopupLoading] = useState(false);
   const [successMsg, setSuccessMsg] = useState("");
+  const [withdrawAmount, setWithdrawAmount] = useState("");
+  const [withdrawLoading, setWithdrawLoading] = useState(false);
+  const [withdrawMsg, setWithdrawMsg] = useState("");
+
+  const isSeller = account?.roles.includes("seller");
 
   const refreshWallet = async () => {
     try {
@@ -67,6 +72,31 @@ export default function WalletPage() {
       alert(`Nạp tiền thất bại: ${err instanceof Error ? err.message : "Unknown error"}`);
     } finally {
       setTopupLoading(false);
+    }
+  };
+
+  const handleWithdraw = async () => {
+    const amount = parseInt(withdrawAmount) || 0;
+    if (amount <= 0) {
+      alert("Vui lòng nhập số tiền hợp lệ");
+      return;
+    }
+    if (amount > (wallet?.balance ?? 0)) {
+      alert("Số dư không đủ để rút số tiền này");
+      return;
+    }
+    setWithdrawLoading(true);
+    setWithdrawMsg("");
+    try {
+      await api.requestWithdraw(amount);
+      setWithdrawAmount("");
+      setWithdrawMsg("Đã gửi yêu cầu rút tiền, chờ admin duyệt.");
+      await refreshWallet();
+      setTimeout(() => setWithdrawMsg(""), 4000);
+    } catch (err) {
+      alert(`Gửi yêu cầu rút tiền thất bại: ${err instanceof Error ? err.message : "Unknown error"}`);
+    } finally {
+      setWithdrawLoading(false);
     }
   };
 
@@ -133,6 +163,40 @@ export default function WalletPage() {
               </p>
             </div>
           </Card>
+
+          {isSeller && (
+            <Card className="p-5">
+              <h3 className="text-[13px] font-semibold mb-3">Rút tiền</h3>
+              <div className="space-y-3">
+                {withdrawMsg && (
+                  <div className="p-2.5 rounded-lg bg-good-soft text-good text-[12px]">
+                    ✓ {withdrawMsg}
+                  </div>
+                )}
+                <div className="flex gap-2">
+                  <Input
+                    type="number"
+                    placeholder="Số tiền muốn rút"
+                    value={withdrawAmount}
+                    onChange={(e) => setWithdrawAmount(e.target.value)}
+                    disabled={withdrawLoading}
+                    min="1"
+                  />
+                  <Button
+                    variant="secondary"
+                    size="md"
+                    onClick={handleWithdraw}
+                    disabled={withdrawLoading || !withdrawAmount}
+                  >
+                    {withdrawLoading ? "…" : "Rút"}
+                  </Button>
+                </div>
+                <p className="text-[11px] text-faint">
+                  Yêu cầu sẽ chờ admin duyệt trước khi tiền được trừ khỏi ví.
+                </p>
+              </div>
+            </Card>
+          )}
         </div>
 
         {/* ─── Right: transaction history ─── */}

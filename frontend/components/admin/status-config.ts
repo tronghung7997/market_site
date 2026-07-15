@@ -28,6 +28,16 @@ export const DISPUTE_STATUS: Record<string, StatusConfig> = {
   open: { label: "Đang mở", tone: "warn" },
   resolved_refund: { label: "Đã hoàn tiền", tone: "bad" },
   resolved_reject: { label: "Đã từ chối", tone: "good" },
+  resolved_partial_refund: { label: "Hoàn tiền một phần", tone: "bad" },
+  resolved_replace: { label: "Đã đổi sản phẩm", tone: "iris" },
+  resolved_extend_warranty: { label: "Đã gia hạn bảo hành", tone: "iris" },
+};
+
+// Withdrawal request statuses
+export const WITHDRAW_STATUS: Record<string, StatusConfig> = {
+  pending: { label: "Chờ duyệt", tone: "warn" },
+  approved: { label: "Đã duyệt", tone: "good" },
+  rejected: { label: "Bị từ chối", tone: "bad" },
 };
 
 // Product statuses

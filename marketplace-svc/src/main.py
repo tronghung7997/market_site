@@ -23,6 +23,7 @@ from src.resources.router import router as resources_router
 from src.reviews.router import router as reviews_router
 from src.scheduler import escrow_release_job, health_check_job, provider_scoring_job, resource_expire_job, sla_check_job
 from src.seller.router import router as seller_router
+from src.sellers.router import router as sellers_router
 from src.wallet.router import router as wallet_router
 
 # offline
@@ -63,6 +64,7 @@ app.add_middleware(
 
 app.include_router(auth_router)
 app.include_router(seller_router)
+app.include_router(sellers_router)
 app.include_router(wallet_router)
 app.include_router(categories_router)
 app.include_router(products_router)

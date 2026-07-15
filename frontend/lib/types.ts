@@ -114,6 +114,26 @@ export interface DisputeInfo {
   resolved_at: string | null;
 }
 
+export interface SellerSummary {
+  account_id: number;
+  email: string;
+  business_name: string | null;
+  completed_order_count: number;
+  rating_avg: number | null;
+  review_count: number;
+}
+
+export type SellerProfile = SellerSummary;
+
+export interface WithdrawRequest {
+  id: number;
+  account_id: number;
+  account_email?: string | null;
+  amount: number;
+  status: string;
+  created_at: string;
+}
+
 export interface AdminOrderDetail extends Order {
   resources: ResourceInfo[];
   dispute: DisputeInfo | null;

@@ -35,6 +35,7 @@ class WithdrawRequestCreate(BaseModel):
 class WithdrawRequestResponse(BaseModel):
     id: int
     account_id: int
+    account_email: str | None = None
     amount: int
     status: str
     created_at: datetime

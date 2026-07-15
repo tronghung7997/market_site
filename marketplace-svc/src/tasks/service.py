@@ -42,7 +42,7 @@ async def update_task(
     """
     task = await db.get(ServiceTask, task_id)
     if not task:
-        raise HTTPException(status_code=404, detail="Task not found")
+        raise HTTPException(status_code=404, detail="Không tìm thấy tác vụ")
 
     for key, value in updates.items():
         setattr(task, key, value)  # cho phép set None (vd xoá assignee)

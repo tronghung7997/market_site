@@ -20,7 +20,7 @@ async def seller_get_dispute(order_id: int, account: Account = Depends(require_r
     result = await service.get_seller_dispute(order_id, account.id, db)
     if not result:
         from fastapi import HTTPException
-        raise HTTPException(status_code=404, detail="Dispute not found")
+        raise HTTPException(status_code=404, detail="Không tìm thấy khiếu nại")
     return result
 
 
@@ -47,3 +47,18 @@ async def refund(dispute_id: int, body: schemas.AdminDisputeAction, _: Account =
 @router.post("/admin/disputes/{dispute_id}/reject", response_model=schemas.DisputeResponse)
 async def reject(dispute_id: int, body: schemas.AdminDisputeAction, _: Account = Depends(require_role("admin")), db: AsyncSession = Depends(get_session)):
     return await service.reject_dispute(dispute_id, body.admin_note, db)
+
+
+@router.post("/admin/disputes/{dispute_id}/partial-refund", response_model=schemas.DisputeResponse)
+async def partial_refund(dispute_id: int, body: schemas.AdminDisputePartialRefund, _: Account = Depends(require_role("admin")), db: AsyncSession = Depends(get_session)):
+    return await service.partial_refund_dispute(dispute_id, body.admin_note, body.refund_amount, db)
+
+
+@router.post("/admin/disputes/{dispute_id}/replace", response_model=schemas.DisputeResponse)
+async def replace(dispute_id: int, body: schemas.AdminDisputeAction, _: Account = Depends(require_role("admin")), db: AsyncSession = Depends(get_session)):
+    return await service.replace_dispute(dispute_id, body.admin_note, db)
+
+
+@router.post("/admin/disputes/{dispute_id}/extend-warranty", response_model=schemas.DisputeResponse)
+async def extend_warranty(dispute_id: int, body: schemas.AdminDisputeExtendWarranty, _: Account = Depends(require_role("admin")), db: AsyncSession = Depends(get_session)):
+    return await service.extend_warranty_dispute(dispute_id, body.admin_note, body.extra_days, db)

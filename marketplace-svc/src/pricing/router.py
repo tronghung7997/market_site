@@ -19,7 +19,7 @@ router = APIRouter(tags=["pricing"])
 async def _get_product(product_id: int, db: AsyncSession) -> Product:
     product = await db.get(Product, product_id)
     if not product:
-        raise HTTPException(status_code=404, detail="Product not found")
+        raise HTTPException(status_code=404, detail="Không tìm thấy sản phẩm")
     return product
 
 
@@ -52,7 +52,7 @@ async def product_operations(product_id: int, db: AsyncSession = Depends(get_ses
     """Product operations info: provider, pricing, stats."""
     product = await db.get(Product, product_id)
     if not product:
-        raise HTTPException(status_code=404, detail="Product not found")
+        raise HTTPException(status_code=404, detail="Không tìm thấy sản phẩm")
 
     # Provider info
     provider_info = None
@@ -125,7 +125,7 @@ async def provider_products(
     """List products linked to a provider, with order stats."""
     provider = await db.get(Provider, provider_id)
     if not provider:
-        raise HTTPException(status_code=404, detail="Provider not found")
+        raise HTTPException(status_code=404, detail="Không tìm thấy nhà cung cấp")
 
     result = await db.execute(
         select(Product).where(Product.provider_id == provider_id)

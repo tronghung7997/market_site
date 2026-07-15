@@ -41,7 +41,7 @@ async def update_provider(
 ):
     provider = await db.get(Provider, provider_id)
     if not provider:
-        raise HTTPException(status_code=404, detail="Provider not found")
+        raise HTTPException(status_code=404, detail="Không tìm thấy nhà cung cấp")
 
     updates = body.model_dump(exclude_unset=True)
     for key, value in updates.items():

@@ -7,7 +7,7 @@ import { useAuth } from "@/lib/auth";
 import { cn } from "@/lib/cn";
 import {
   Activity, ArrowRight, BarChart, Bell, ChevronLeft, ClipboardList, FileText,
-  Grid, Inbox, LogOut, Menu, Package, Receipt, Shield, TrendingUp, Users, Verified,
+  Grid, Inbox, LogOut, Menu, Package, Receipt, Shield, TrendingUp, Users, Verified, Wallet,
 } from "@/components/Icons";
 
 type NavItem = { href: string; label: string; icon: (p: { size?: number }) => ReactNode };
@@ -29,6 +29,7 @@ const NAV_GROUPS: { label: string; items: NavItem[] }[] = [
     items: [
       { href: "/admin/accounts", label: "Tài khoản", icon: Users },
       { href: "/admin/seller-applications", label: "Đơn đăng ký bán", icon: Verified },
+      { href: "/admin/withdrawals", label: "Rút tiền", icon: Wallet },
       { href: "/admin/providers", label: "Nhà cung cấp", icon: Activity },
       { href: "/admin/tasks", label: "Tác vụ", icon: ClipboardList },
       { href: "/admin/alerts", label: "Cảnh báo", icon: Bell },
@@ -59,11 +60,16 @@ export default function AdminShell({ children }: { children: ReactNode }) {
   const { account, logout } = useAuth();
   const [collapsed, setCollapsed] = useState(false);
   const [ready, setReady] = useState(false);
+  const [mobileOpen, setMobileOpen] = useState(false);
 
   useEffect(() => {
     setCollapsed(localStorage.getItem(STORAGE_KEY) === "1");
     setReady(true);
   }, []);
+
+  useEffect(() => {
+    setMobileOpen(false);
+  }, [pathname]);
 
   const toggle = () => {
     setCollapsed((c) => {
@@ -78,12 +84,22 @@ export default function AdminShell({ children }: { children: ReactNode }) {
 
   return (
     <div className="flex min-h-screen admin-canvas">
+      {/* Mobile backdrop */}
+      {mobileOpen && (
+        <div
+          className="fixed inset-0 z-40 bg-black/40 lg:hidden"
+          onClick={() => setMobileOpen(false)}
+        />
+      )}
+
       {/* ============ SIDEBAR ============ */}
       <aside
         className={cn(
-          "admin-sidebar sticky top-0 h-screen shrink-0 flex flex-col overflow-y-auto overflow-x-hidden",
-          "border-r border-[var(--side-line)] transition-[width] duration-300 ease-out",
-          collapsed ? "w-[72px]" : "w-[248px]",
+          "admin-sidebar fixed lg:sticky top-0 z-50 lg:z-auto h-screen shrink-0 flex flex-col overflow-y-auto overflow-x-hidden",
+          "border-r border-[var(--side-line)] transition-transform lg:transition-[width] duration-300 ease-out",
+          "w-[248px]",
+          collapsed ? "lg:w-[72px]" : "lg:w-[248px]",
+          mobileOpen ? "translate-x-0" : "-translate-x-full lg:translate-x-0",
         )}
         style={{ color: "var(--side-fg)" }}
       >
@@ -192,9 +208,16 @@ export default function AdminShell({ children }: { children: ReactNode }) {
         <header className="sticky top-0 z-30 h-16 shrink-0 bg-surface/85 backdrop-blur-md border-b border-line">
           <div className="h-full px-6 flex items-center gap-4">
             <button
+              onClick={() => setMobileOpen(true)}
+              aria-label="Mở menu"
+              className="lg:hidden grid place-items-center h-9 w-9 rounded-lg border border-line bg-surface text-muted hover:text-fg hover:border-line-2 transition-colors cursor-pointer"
+            >
+              <Menu size={17} />
+            </button>
+            <button
               onClick={toggle}
               aria-label="Thu gọn menu"
-              className="grid place-items-center h-9 w-9 rounded-lg border border-line bg-surface text-muted hover:text-fg hover:border-line-2 transition-colors cursor-pointer"
+              className="hidden lg:grid place-items-center h-9 w-9 rounded-lg border border-line bg-surface text-muted hover:text-fg hover:border-line-2 transition-colors cursor-pointer"
             >
               {ready && collapsed ? <Menu size={17} /> : <ChevronLeft size={17} />}
             </button>

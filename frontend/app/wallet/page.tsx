@@ -14,10 +14,32 @@ const LABEL: Record<string, string> = {
   topup: "Nạp tiền", purchase_release: "Nhận thanh toán", refund: "Hoàn tiền",
   purchase_hold: "Tạm giữ mua hàng", withdraw: "Rút tiền", platform_fee: "Phí nền tảng",
 };
-const TONE: Record<string, "good" | "bad" | "neutral"> = {
+type Tone = "good" | "bad" | "warn" | "iris" | "neutral";
+const TONE: Record<string, Tone> = {
   topup: "good", purchase_release: "good", refund: "good",
   purchase_hold: "bad", withdraw: "bad", platform_fee: "neutral",
 };
+
+// purchase_hold không bao giờ đổi type sau khi tạo — vì đây là bản ghi lịch sử
+// bất biến — nên hiển thị dựa trên trạng thái ĐƠN HÀNG hiện tại (order_status,
+// backend tra ngược qua reference_id) thay vì tên type tĩnh, tránh nhãn
+// "tạm giữ" gây hiểu nhầm mãi mãi kể cả khi đơn đã hoàn tất hoặc bị huỷ.
+const HOLD_BY_ORDER_STATUS: Record<string, { label: string; tone: Tone }> = {
+  pending: { label: "Đang xử lý đơn hàng", tone: "warn" },
+  processing: { label: "Đang xử lý đơn hàng", tone: "warn" },
+  delivered: { label: "Tạm giữ — chờ bạn xác nhận", tone: "warn" },
+  completed: { label: "Đã thanh toán cho người bán", tone: "good" },
+  disputed: { label: "Tạm giữ — đang khiếu nại", tone: "warn" },
+  refunded: { label: "Đã hoàn tiền", tone: "neutral" },
+  cancelled: { label: "Đã hoàn tiền", tone: "neutral" },
+};
+
+function describeTransaction(t: Transaction): { label: string; tone: Tone } {
+  if (t.type === "purchase_hold" && t.order_status && HOLD_BY_ORDER_STATUS[t.order_status]) {
+    return HOLD_BY_ORDER_STATUS[t.order_status];
+  }
+  return { label: LABEL[t.type] ?? t.type, tone: TONE[t.type] ?? "neutral" };
+}
 
 const PRESET_AMOUNTS = [100000, 500000, 1000000, 5000000];
 
@@ -241,7 +263,7 @@ export default function WalletPage() {
                       <div className="min-w-0 flex-1">
                         <div className="flex items-center gap-2">
                           <span className="text-[13px] font-medium truncate">{t.description ?? LABEL[t.type] ?? t.type}</span>
-                          <Tag tone={TONE[t.type] ?? "neutral"}>{LABEL[t.type] ?? t.type}</Tag>
+                          <Tag tone={describeTransaction(t).tone}>{describeTransaction(t).label}</Tag>
                         </div>
                         <div className="flex items-center gap-3 mt-1 text-[11.5px] text-faint">
                           <span>{date.toLocaleDateString("vi-VN", { day: "2-digit", month: "2-digit", year: "numeric" })}</span>

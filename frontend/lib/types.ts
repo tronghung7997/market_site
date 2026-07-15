@@ -74,6 +74,7 @@ export interface Transaction {
   description: string | null;
   reference_id: string | null;
   created_at: string;
+  order_status?: string | null;
 }
 
 export interface Order {
@@ -92,6 +93,7 @@ export interface Order {
   buyer_email?: string | null;
   seller_email?: string | null;
   has_review?: boolean;
+  has_dispute?: boolean;
 }
 
 export interface TimelineEvent {

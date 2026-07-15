@@ -29,8 +29,6 @@ async def create_order(buyer_id: int, variant_id: int, quantity: int, db: AsyncS
 
     total = variant.price * quantity
 
-    await deduct_credit(buyer_id, total, f"Mua {product.title} — {variant.name} (x{quantity})", "order-pending", db)
-
     if variant.delivery_mode == DeliveryMode.instant:
         order = Order(
             buyer_id=buyer_id, seller_id=product.seller_id, variant_id=variant_id,
@@ -39,6 +37,7 @@ async def create_order(buyer_id: int, variant_id: int, quantity: int, db: AsyncS
         )
         db.add(order)
         await db.flush()  # assigns order.id without committing
+        await deduct_credit(buyer_id, total, f"Mua {product.title} — {variant.name} (x{quantity})", f"order-{order.id}", db)
         resources = await claim_resources(
             variant_id, quantity, db, order_id=order.id, duration_days=variant.duration_days,
         )
@@ -57,6 +56,7 @@ async def create_order(buyer_id: int, variant_id: int, quantity: int, db: AsyncS
         )
         db.add(order)
         await db.flush()
+        await deduct_credit(buyer_id, total, f"Mua {product.title} — {variant.name} (x{quantity})", f"order-{order.id}", db)
         await log_event(db, "info", f"Order {order.id} placed (manual)", request_id=current_request_id(),
                         metadata={"event": "order_placed", "order_id": order.id, "buyer_id": buyer_id,
                                   "seller_id": product.seller_id, "amount": total})
@@ -84,11 +84,6 @@ async def create_order_with_adapter(
     q = await quote_product(product, user_config, db)
     total_amount = q.amount
 
-    await deduct_credit(
-        buyer_id, total_amount,
-        f"Mua {product.title} (x{q.quantity})", "order-pending", db,
-    )
-
     order = Order(
         buyer_id=buyer_id,
         seller_id=product.seller_id,
@@ -99,6 +94,11 @@ async def create_order_with_adapter(
     )
     db.add(order)
     await db.flush()
+
+    await deduct_credit(
+        buyer_id, total_amount,
+        f"Mua {product.title} (x{q.quantity})", f"order-{order.id}", db,
+    )
 
     rid = current_request_id()
 
@@ -188,6 +188,9 @@ async def _enrich_order(order: Order, db: AsyncSession) -> dict:
     has_review = (
         await db.scalar(select(Review.id).where(Review.order_id == order.id).limit(1))
     ) is not None
+    has_dispute = (
+        await db.scalar(select(Dispute.id).where(Dispute.order_id == order.id).limit(1))
+    ) is not None
     return {
         "id": order.id, "buyer_id": order.buyer_id, "seller_id": order.seller_id,
         "variant_id": order.variant_id, "product_id": order.product_id,
@@ -200,6 +203,7 @@ async def _enrich_order(order: Order, db: AsyncSession) -> dict:
         "buyer_email": buyer.email if buyer else None,
         "seller_email": seller.email if seller else None,
         "has_review": has_review,
+        "has_dispute": has_dispute,
     }
 
 

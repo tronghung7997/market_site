@@ -24,6 +24,7 @@ class TransactionResponse(BaseModel):
     description: str | None
     reference_id: str | None
     created_at: datetime
+    order_status: str | None = None
 
     model_config = {"from_attributes": True}
 

@@ -76,12 +76,42 @@ async def credit_affiliate_commission(
     ))
 
 
-async def get_transactions(account_id: int, db: AsyncSession) -> list[Transaction]:
+async def get_transactions(account_id: int, db: AsyncSession) -> list[dict]:
     wallet = await get_wallet_by_account(account_id, db)
     result = await db.execute(
         select(Transaction).where(Transaction.wallet_id == wallet.id).order_by(Transaction.created_at.desc())
     )
-    return list(result.scalars().all())
+    txs = list(result.scalars().all())
+
+    # purchase_hold rows point at their order via reference_id="order-{id}" — resolve the
+    # order's current status so the UI can show something more accurate than "held" forever.
+    order_ids: set[int] = set()
+    for t in txs:
+        if t.type == TransactionType.purchase_hold and t.reference_id and t.reference_id.startswith("order-"):
+            try:
+                order_ids.add(int(t.reference_id.removeprefix("order-")))
+            except ValueError:
+                pass
+
+    order_status: dict[int, str] = {}
+    if order_ids:
+        from src.models.order import Order
+        rows = await db.execute(select(Order.id, Order.status).where(Order.id.in_(order_ids)))
+        order_status = {oid: st.value for oid, st in rows.all()}
+
+    out = []
+    for t in txs:
+        status = None
+        if t.type == TransactionType.purchase_hold and t.reference_id and t.reference_id.startswith("order-"):
+            try:
+                status = order_status.get(int(t.reference_id.removeprefix("order-")))
+            except ValueError:
+                pass
+        out.append({
+            "id": t.id, "type": t.type, "amount": t.amount, "description": t.description,
+            "reference_id": t.reference_id, "created_at": t.created_at, "order_status": status,
+        })
+    return out
 
 
 async def request_withdraw(account_id: int, amount: int, db: AsyncSession) -> WithdrawRequest:

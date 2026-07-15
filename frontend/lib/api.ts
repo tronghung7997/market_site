@@ -100,6 +100,7 @@ export const api = {
     request<Order>(`/orders/${orderId}/confirm`, { method: "POST" }, true),
   openDispute: (orderId: number, reason: string) =>
     request<Dispute>(`/orders/${orderId}/dispute`, { method: "POST", body: JSON.stringify({ reason }) }, true),
+  orderDispute: (orderId: number) => request<Dispute>(`/orders/${orderId}/dispute`, {}, true),
 
   sellerApply: (data: { business_name: string; description?: string; contact?: string }) =>
     request<SellerApplication>("/seller/apply", { method: "POST", body: JSON.stringify(data) }, true),

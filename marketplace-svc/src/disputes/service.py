@@ -146,6 +146,16 @@ async def get_seller_dispute(order_id: int, seller_id: int, db: AsyncSession) ->
     return await _enrich_dispute(dispute, db)
 
 
+async def get_buyer_dispute(order_id: int, buyer_id: int, db: AsyncSession) -> dict | None:
+    order = await db.get(Order, order_id)
+    if not order or order.buyer_id != buyer_id:
+        return None
+    dispute = await db.scalar(select(Dispute).where(Dispute.order_id == order_id))
+    if not dispute:
+        return None
+    return await _enrich_dispute(dispute, db)
+
+
 async def refund_dispute(dispute_id: int, admin_note: str, db: AsyncSession) -> Dispute:
     dispute = await db.get(Dispute, dispute_id)
     if not dispute:

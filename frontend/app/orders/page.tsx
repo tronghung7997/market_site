@@ -6,7 +6,7 @@ import { useCallback, useEffect, useState } from "react";
 import { api, vnd } from "@/lib/api";
 import { useAuth } from "@/lib/auth";
 import { cn } from "@/lib/cn";
-import type { Order, OrderStats, Resource } from "@/lib/types";
+import type { Dispute, Order, OrderStats, Resource } from "@/lib/types";
 import { Shield, Star, Package, Clock, Info, Wallet, Copy, ChevronRight } from "@/components/Icons";
 import ServiceDashboard from "@/components/ServiceDashboard";
 import { Button, Card, Input, Select, Spinner, Tag, Textarea } from "@/components/ui";
@@ -155,6 +155,65 @@ function OrderResources({ orderId }: { orderId: number }) {
             <span className="ml-auto text-muted">{fmtExpiry(r.expires_at)}</span>
           </div>
         ))}
+      </div>
+    </Disclosure>
+  );
+}
+
+const DISPUTE_STATUS_INFO: Record<string, { label: string; tone: "good" | "bad" | "warn" | "iris" | "neutral" }> = {
+  open: { label: "Đang chờ quản trị viên xử lý", tone: "warn" },
+  resolved_refund: { label: "Đã hoàn tiền toàn bộ", tone: "bad" },
+  resolved_reject: { label: "Đã từ chối — giữ nguyên đơn", tone: "neutral" },
+  resolved_partial_refund: { label: "Đã hoàn tiền một phần", tone: "bad" },
+  resolved_replace: { label: "Đã đổi sản phẩm mới", tone: "iris" },
+  resolved_extend_warranty: { label: "Đã gia hạn bảo hành", tone: "iris" },
+};
+
+function OrderDispute({ orderId }: { orderId: number }) {
+  const [dispute, setDispute] = useState<Dispute | null>(null);
+  const [open, setOpen] = useState(false);
+  const [loaded, setLoaded] = useState(false);
+
+  const toggle = async () => {
+    setOpen((v) => !v);
+    if (!loaded) {
+      try { setDispute(await api.orderDispute(orderId)); } catch { /* ignore */ }
+      setLoaded(true);
+    }
+  };
+
+  const info = dispute ? (DISPUTE_STATUS_INFO[dispute.status] ?? { label: dispute.status, tone: "neutral" as const }) : null;
+
+  return (
+    <Disclosure label="Xem khiếu nại" labelOpen="Ẩn khiếu nại" open={open} onToggle={toggle}>
+      <div className="mt-2.5 space-y-2 text-[12.5px]">
+        {loaded && !dispute && <p className="text-faint">Không tải được thông tin khiếu nại.</p>}
+        {dispute && info && (
+          <>
+            <div className="flex items-center gap-2 flex-wrap">
+              <Tag tone={info.tone}>{info.label}</Tag>
+              {dispute.resolved_at && (
+                <span className="text-faint">Xử lý lúc {new Date(dispute.resolved_at).toLocaleString("vi-VN")}</span>
+              )}
+            </div>
+            <div className="px-3 py-2 rounded-lg bg-raised border border-line">
+              <p className="text-faint text-[11px] uppercase tracking-wider mb-0.5">Lý do bạn đã gửi</p>
+              <p>{dispute.reason}</p>
+            </div>
+            {dispute.seller_note && (
+              <div className="px-3 py-2 rounded-lg bg-iris/5 border border-iris/15">
+                <p className="text-faint text-[11px] uppercase tracking-wider mb-0.5">Phản hồi từ người bán</p>
+                <p>{dispute.seller_note}</p>
+              </div>
+            )}
+            {dispute.admin_note && (
+              <div className="px-3 py-2 rounded-lg bg-raised border border-line">
+                <p className="text-faint text-[11px] uppercase tracking-wider mb-0.5">Ghi chú từ quản trị viên</p>
+                <p>{dispute.admin_note}</p>
+              </div>
+            )}
+          </>
+        )}
       </div>
     </Disclosure>
   );
@@ -460,6 +519,8 @@ export default function OrdersPage() {
                   <Tag tone={st.tone}>{st.label}</Tag>
                   <span className="text-[12px] text-muted">{st.hint}</span>
                 </div>
+
+                {o.has_dispute && <OrderDispute orderId={o.id} />}
 
                 {!["disputed", "refunded", "cancelled"].includes(o.status) && (
                   <div className="mt-3 rounded-lg bg-raised/60 border border-line/70">

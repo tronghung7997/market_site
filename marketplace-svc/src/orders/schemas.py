@@ -41,6 +41,7 @@ class OrderResponse(BaseModel):
     buyer_email: str | None = None
     seller_email: str | None = None
     has_review: bool = False
+    has_dispute: bool = False
 
     model_config = {"from_attributes": True}
 

@@ -15,6 +15,15 @@ async def create_dispute(order_id: int, body: schemas.DisputeCreate, account: Ac
     return await service.create_dispute(order_id, account.id, body.reason, db)
 
 
+@router.get("/orders/{order_id}/dispute", response_model=schemas.DisputeResponse)
+async def buyer_get_dispute(order_id: int, account: Account = Depends(get_current_account), db: AsyncSession = Depends(get_session)):
+    result = await service.get_buyer_dispute(order_id, account.id, db)
+    if not result:
+        from fastapi import HTTPException
+        raise HTTPException(status_code=404, detail="Không tìm thấy khiếu nại")
+    return result
+
+
 @router.get("/seller/orders/{order_id}/dispute", response_model=schemas.DisputeResponse)
 async def seller_get_dispute(order_id: int, account: Account = Depends(require_role("seller")), db: AsyncSession = Depends(get_session)):
     result = await service.get_seller_dispute(order_id, account.id, db)

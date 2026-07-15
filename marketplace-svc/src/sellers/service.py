@@ -80,4 +80,15 @@ async def get_seller_profile(seller_id: int, db: AsyncSession) -> dict | None:
     if not account or "seller" not in account.roles:
         return None
     summaries = await _build_seller_summaries([seller_id], db)
-    return summaries[0] if summaries else None
+    if not summaries:
+        return None
+
+    bio_result = await db.execute(
+        select(SellerApplication.description)
+        .where(SellerApplication.account_id == seller_id, SellerApplication.status == ApplicationStatus.approved)
+        .order_by(SellerApplication.created_at.desc())
+        .limit(1)
+    )
+    bio = bio_result.scalar_one_or_none()
+
+    return {**summaries[0], "bio": bio, "member_since": account.created_at}

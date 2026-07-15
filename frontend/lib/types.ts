@@ -125,7 +125,10 @@ export interface SellerSummary {
   review_count: number;
 }
 
-export type SellerProfile = SellerSummary;
+export interface SellerProfile extends SellerSummary {
+  bio: string | null;
+  member_since: string | null;
+}
 
 export interface WithdrawRequest {
   id: number;

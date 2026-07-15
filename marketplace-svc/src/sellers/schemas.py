@@ -1,3 +1,5 @@
+from datetime import datetime
+
 from pydantic import BaseModel
 
 
@@ -11,4 +13,5 @@ class SellerSummary(BaseModel):
 
 
 class SellerProfile(SellerSummary):
-    pass
+    bio: str | None = None
+    member_since: datetime | None = None

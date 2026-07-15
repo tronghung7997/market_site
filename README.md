@@ -95,17 +95,26 @@ marketplace/
 
 - Docker Desktop
 - Node.js 20+
+- Python 3.13+ (khuyến nghị dùng [uv](https://docs.astral.sh/uv/))
 - Git
 
 ### Development
 
 ```bash
-# 1. Backend (với hot reload)
-docker compose -f docker-compose.yml -f docker-compose.dev.yml up --build
+# 1. Hạ tầng (Postgres + Redis) — chạy trong Docker
+docker compose -f docker-compose.dev.yml up -d
 
-# 2. Frontend
+# 2. Backend — chạy native (hot reload nhanh hơn qua bind-mount)
+cd marketplace-svc
+uv sync                       # hoặc: python -m venv .venv && .venv/bin/pip install -e ".[dev]"
+uv run alembic upgrade head
+uv run uvicorn src.main:app --reload --port 8001
+
+# 3. Frontend — chạy native
 cd frontend && npm install && npm run dev
 ```
+
+`docker-compose.dev.yml` chỉ chứa Postgres + Redis, expose port ra host (`5432`/`6379`) để backend native connect vào và để bạn debug trực tiếp bằng psql/DBeaver. Config mặc định trong `marketplace-svc/src/config.py` đã trỏ sẵn `localhost:5432`/`localhost:6379` với user/pass `marketplace`/`marketplace` — không cần set biến môi trường gì thêm khi chạy native.
 
 ### Production
 

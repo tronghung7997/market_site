@@ -1,5 +1,6 @@
-# FROM python:3.13-slim
-FROM registry.k7:5000/python:3.13-slim
+# Override with --build-arg PYTHON_IMAGE=python:3.13-slim when registry.k7 isn't reachable (e.g. local dev)
+ARG PYTHON_IMAGE=registry.k7:5000/python:3.13-slim
+FROM ${PYTHON_IMAGE}
 WORKDIR /app
 # static page
 COPY static /app/static/

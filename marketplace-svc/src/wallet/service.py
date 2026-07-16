@@ -5,6 +5,7 @@ from sqlalchemy.ext.asyncio import AsyncSession
 from src.exceptions import InsufficientCredit
 from src.models.account import Account
 from src.models.wallet import Transaction, TransactionType, Wallet, WithdrawRequest, WithdrawStatus
+from src.sellers.tiers import withdraw_limit
 
 
 async def get_wallet_by_account(account_id: int, db: AsyncSession) -> Wallet:
@@ -18,7 +19,7 @@ async def topup(account_id: int, amount: int, db: AsyncSession) -> Wallet:
     if amount <= 0:
         raise HTTPException(status_code=400, detail="Số tiền phải lớn hơn 0")
     wallet = await get_wallet_by_account(account_id, db)
-    wallet.balance += amount
+    wallet.available_balance += amount
     tx = Transaction(wallet_id=wallet.id, type=TransactionType.topup, amount=amount, description="Admin topup")
     db.add(tx)
     await db.commit()
@@ -28,9 +29,9 @@ async def topup(account_id: int, amount: int, db: AsyncSession) -> Wallet:
 
 async def deduct_credit(account_id: int, amount: int, description: str, reference_id: str, db: AsyncSession) -> Transaction:
     wallet = await get_wallet_by_account(account_id, db)
-    if wallet.balance < amount:
+    if wallet.available_balance < amount:
         raise InsufficientCredit()
-    wallet.balance -= amount
+    wallet.available_balance -= amount
     tx = Transaction(
         wallet_id=wallet.id, type=TransactionType.purchase_hold,
         amount=amount, description=description, reference_id=reference_id,
@@ -42,14 +43,14 @@ async def deduct_credit(account_id: int, amount: int, description: str, referenc
 async def release_escrow(order_id: int, seller_id: int, amount: int, platform_fee: int, db: AsyncSession) -> None:
     seller_wallet = await get_wallet_by_account(seller_id, db)
     seller_amount = amount - platform_fee
-    seller_wallet.balance += seller_amount
+    seller_wallet.available_balance += seller_amount
     db.add(Transaction(
         wallet_id=seller_wallet.id, type=TransactionType.purchase_release,
         amount=seller_amount, description="Order payment", reference_id=f"order-{order_id}",
     ))
     if platform_fee > 0:
         platform_wallet = await get_wallet_by_account(1, db)  # account_id=1 is platform
-        platform_wallet.balance += platform_fee
+        platform_wallet.available_balance += platform_fee
         db.add(Transaction(
             wallet_id=platform_wallet.id, type=TransactionType.platform_fee,
             amount=platform_fee, description="Platform fee", reference_id=f"order-{order_id}",
@@ -58,7 +59,7 @@ async def release_escrow(order_id: int, seller_id: int, amount: int, platform_fe
 
 async def refund_escrow(order_id: int, buyer_id: int, amount: int, db: AsyncSession) -> None:
     buyer_wallet = await get_wallet_by_account(buyer_id, db)
-    buyer_wallet.balance += amount
+    buyer_wallet.available_balance += amount
     db.add(Transaction(
         wallet_id=buyer_wallet.id, type=TransactionType.refund,
         amount=amount, description="Order refund", reference_id=f"order-{order_id}",
@@ -69,7 +70,7 @@ async def credit_affiliate_commission(
     affiliate_account_id: int, amount: int, order_id: int, db: AsyncSession
 ) -> None:
     wallet = await get_wallet_by_account(affiliate_account_id, db)
-    wallet.balance += amount
+    wallet.available_balance += amount
     db.add(Transaction(
         wallet_id=wallet.id, type=TransactionType.affiliate_commission,
         amount=amount, description="Affiliate commission", reference_id=str(order_id),
@@ -115,11 +116,26 @@ async def get_transactions(account_id: int, db: AsyncSession) -> list[dict]:
 
 
 async def request_withdraw(account_id: int, amount: int, db: AsyncSession) -> WithdrawRequest:
-    wallet = await get_wallet_by_account(account_id, db)
-    if wallet.balance < amount:
-        raise InsufficientCredit()
     if amount <= 0:
         raise HTTPException(status_code=400, detail="Số tiền phải lớn hơn 0")
+    wallet = await get_wallet_by_account(account_id, db)
+    if wallet.available_balance < amount:
+        raise InsufficientCredit()
+    account = await db.get(Account, account_id)
+    limit = withdraw_limit(account.seller_tier if account else "new")
+    if limit is not None and amount > limit:
+        raise HTTPException(
+            status_code=400,
+            detail=f"Vượt hạn mức rút tiền theo cấp độ người bán (tối đa {limit:,}đ/lần)".replace(",", "."),
+        )
+    # Khoá tiền ngay lúc gửi yêu cầu — tránh bug seller gửi nhiều yêu cầu rút
+    # vượt quá số dư thực trước khi admin duyệt request nào.
+    wallet.available_balance -= amount
+    wallet.locked_balance += amount
+    db.add(Transaction(
+        wallet_id=wallet.id, type=TransactionType.withdraw_lock,
+        amount=amount, description="Khoá tiền chờ duyệt rút",
+    ))
     req = WithdrawRequest(account_id=account_id, amount=amount)
     db.add(req)
     await db.commit()
@@ -149,9 +165,9 @@ async def approve_withdrawal(req_id: int, db: AsyncSession) -> WithdrawRequest:
     if req.status != WithdrawStatus.pending:
         raise HTTPException(status_code=400, detail="Yêu cầu đã được xử lý")
     wallet = await get_wallet_by_account(req.account_id, db)
-    if wallet.balance < req.amount:
-        raise InsufficientCredit()
-    wallet.balance -= req.amount
+    # Tiền đã bị khoá (locked_balance) từ lúc request_withdraw — chỉ cần xoá khỏi
+    # locked, KHÔNG đụng available_balance nữa.
+    wallet.locked_balance -= req.amount
     req.status = WithdrawStatus.approved
     db.add(Transaction(
         wallet_id=wallet.id, type=TransactionType.withdraw,
@@ -160,3 +176,39 @@ async def approve_withdrawal(req_id: int, db: AsyncSession) -> WithdrawRequest:
     await db.commit()
     await db.refresh(req)
     return req
+
+
+async def reject_withdrawal(req_id: int, db: AsyncSession) -> WithdrawRequest:
+    req = await db.get(WithdrawRequest, req_id)
+    if not req:
+        raise HTTPException(status_code=404, detail="Không tìm thấy yêu cầu rút tiền")
+    if req.status != WithdrawStatus.pending:
+        raise HTTPException(status_code=400, detail="Yêu cầu đã được xử lý")
+    wallet = await get_wallet_by_account(req.account_id, db)
+    # Trả tiền đã khoá về lại available_balance.
+    wallet.locked_balance -= req.amount
+    wallet.available_balance += req.amount
+    db.add(Transaction(
+        wallet_id=wallet.id, type=TransactionType.withdraw_unlock,
+        amount=req.amount, description="Huỷ khoá — yêu cầu rút tiền bị từ chối",
+    ))
+    req.status = WithdrawStatus.rejected
+    await db.commit()
+    await db.refresh(req)
+    return req
+
+
+async def list_withdrawals_for_account(account_id: int, db: AsyncSession) -> list[dict]:
+    result = await db.execute(
+        select(WithdrawRequest, Account.email)
+        .join(Account, WithdrawRequest.account_id == Account.id)
+        .where(WithdrawRequest.account_id == account_id)
+        .order_by(WithdrawRequest.created_at.desc())
+    )
+    return [
+        {
+            "id": req.id, "account_id": req.account_id, "account_email": email,
+            "amount": req.amount, "status": req.status, "created_at": req.created_at,
+        }
+        for req, email in result.all()
+    ]

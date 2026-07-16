@@ -8,6 +8,7 @@ import { useAuth } from "@/lib/auth";
 import { Button, Card, Spinner } from "@/components/ui";
 import { SearchInput, Pagination } from "@/components/admin";
 import { cn } from "@/lib/cn";
+import { SELLER_TIERS, sellerTierLabel } from "@/lib/seller-tier";
 
 const ROLES: { key: string; label: string }[] = [
   { key: "buyer", label: "Người mua" },
@@ -32,6 +33,7 @@ export default function AdminAccountsPage() {
   const [loading, setLoading] = React.useState(true);
   const [draft, setDraft] = React.useState<Record<number, string[]>>({});
   const [savingId, setSavingId] = React.useState<number | null>(null);
+  const [tierSavingId, setTierSavingId] = React.useState<number | null>(null);
   const [err, setErr] = React.useState<string | null>(null);
 
   const load = React.useCallback(async () => {
@@ -72,6 +74,18 @@ export default function AdminAccountsPage() {
     }
   };
 
+  const changeTier = async (row: AccountAdminRow, tier: string) => {
+    setTierSavingId(row.id); setErr(null);
+    try {
+      const updated = await api.adminUpdateSellerTier(row.id, tier);
+      setData((d) => d ? { ...d, items: d.items.map((u) => u.id === row.id ? updated : u) } : d);
+    } catch (e) {
+      setErr(e instanceof Error ? e.message : "Cập nhật cấp độ thất bại");
+    } finally {
+      setTierSavingId(null);
+    }
+  };
+
   return (
     <div className="space-y-6">
       <div className="flex items-center justify-between flex-wrap gap-4">
@@ -95,6 +109,7 @@ export default function AdminAccountsPage() {
                   <tr className="text-left text-slate-500 border-b border-slate-200">
                     <th className="px-5 py-2.5 font-medium">Email</th>
                     <th className="px-5 py-2.5 font-medium">Vai trò</th>
+                    <th className="px-5 py-2.5 font-medium">Cấp độ người bán</th>
                     <th className="px-5 py-2.5 font-medium w-24" />
                   </tr>
                 </thead>
@@ -130,6 +145,22 @@ export default function AdminAccountsPage() {
                             })}
                           </div>
                         </td>
+                        <td className="px-5 py-3">
+                          {roles.includes("seller") ? (
+                            <select
+                              value={row.seller_tier}
+                              disabled={tierSavingId === row.id}
+                              onChange={(e) => changeTier(row, e.target.value)}
+                              className="h-8 rounded-lg bg-white border border-slate-200 px-2 text-[12px] text-slate-700 disabled:opacity-50"
+                            >
+                              {SELLER_TIERS.map((t) => (
+                                <option key={t} value={t}>{sellerTierLabel(t)}</option>
+                              ))}
+                            </select>
+                          ) : (
+                            <span className="text-slate-300">—</span>
+                          )}
+                        </td>
                         <td className="px-5 py-3 text-right">
                           {dirty && (
                             <Button size="sm" disabled={savingId === row.id} onClick={() => save(row)}>
@@ -141,7 +172,7 @@ export default function AdminAccountsPage() {
                     );
                   })}
                   {data.items.length === 0 && (
-                    <tr><td colSpan={3} className="px-5 py-12 text-center text-slate-500">Không tìm thấy tài khoản nào.</td></tr>
+                    <tr><td colSpan={4} className="px-5 py-12 text-center text-slate-500">Không tìm thấy tài khoản nào.</td></tr>
                   )}
                 </tbody>
               </table>

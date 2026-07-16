@@ -8,7 +8,6 @@ from src.adapters.factory import get_adapter
 from src.auth.dependencies import require_role
 from src.database import get_session
 from src.models.account import Account
-from src.models.provider import Provider
 
 from . import schemas, service
 
@@ -39,17 +38,8 @@ async def update_provider(
     _: Account = Depends(require_role("admin")),
     db: AsyncSession = Depends(get_session),
 ):
-    provider = await db.get(Provider, provider_id)
-    if not provider:
-        raise HTTPException(status_code=404, detail="Không tìm thấy nhà cung cấp")
-
     updates = body.model_dump(exclude_unset=True)
-    for key, value in updates.items():
-        setattr(provider, key, value)
-
-    await db.commit()
-    await db.refresh(provider)
-    return provider
+    return await service.update_provider(provider_id, updates, db)
 
 
 @router.post("/admin/providers/{provider_id}/test", response_model=schemas.ProviderTestResponse)
@@ -77,8 +67,8 @@ async def test_provider(
                 "error": result.error,
             }
         except Exception as e:
-            logger.warning("Test provision failed for provider %s: %s", provider_id, e)
-            provision_test = {"success": False, "error": str(e)}
+            logger.warning("Test provision failed for provider %s: %s", provider_id, e, exc_info=True)
+            provision_test = {"success": False, "error": "Kết nối nhà cung cấp thất bại"}
 
     return schemas.ProviderTestResponse(
         health=health_result,

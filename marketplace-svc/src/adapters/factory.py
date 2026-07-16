@@ -3,6 +3,7 @@ from sqlalchemy.ext.asyncio import AsyncSession
 from src.adapters.base import ProviderAdapter
 from src.adapters.manual import ManualAdapter
 from src.adapters.mock import MockAdapter
+from src.adapters.real_api import RealApiAdapter
 from src.adapters.seller_pool import SellerPoolAdapter
 from src.models.provider import Provider
 
@@ -10,6 +11,8 @@ ADAPTER_MAP: dict[str, type[ProviderAdapter]] = {
     "mock": MockAdapter,
     "seller_pool": SellerPoolAdapter,
     "manual": ManualAdapter,
+    "topproxy": RealApiAdapter,
+    "scrapecreators": RealApiAdapter,
 }
 
 MAX_FALLBACK_DEPTH = 3

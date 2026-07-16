@@ -3,7 +3,7 @@ from sqlalchemy import select
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from src.adapters.factory import get_adapter
-from src.auth.dependencies import get_current_account, require_role
+from src.auth.dependencies import get_current_account, get_seller_account_jwt_or_api_key, require_role
 from src.database import get_session
 from src.models.account import Account
 from src.models.order import Order
@@ -62,17 +62,17 @@ async def confirm_order(order_id: int, account: Account = Depends(get_current_ac
 
 
 @router.get("/seller/orders", response_model=list[schemas.OrderResponse])
-async def seller_orders(account: Account = Depends(require_role("seller")), db: AsyncSession = Depends(get_session)):
+async def seller_orders(account: Account = Depends(get_seller_account_jwt_or_api_key), db: AsyncSession = Depends(get_session)):
     return await service.list_seller_orders(account.id, db)
 
 
 @router.post("/seller/orders/{order_id}/accept", response_model=schemas.OrderResponse)
-async def accept(order_id: int, account: Account = Depends(require_role("seller")), db: AsyncSession = Depends(get_session)):
+async def accept(order_id: int, account: Account = Depends(get_seller_account_jwt_or_api_key), db: AsyncSession = Depends(get_session)):
     return await service.accept_order(order_id, account.id, db)
 
 
 @router.post("/seller/orders/{order_id}/deliver", response_model=schemas.OrderResponse)
-async def deliver(order_id: int, body: schemas.ManualDeliverRequest, account: Account = Depends(require_role("seller")), db: AsyncSession = Depends(get_session)):
+async def deliver(order_id: int, body: schemas.ManualDeliverRequest, account: Account = Depends(get_seller_account_jwt_or_api_key), db: AsyncSession = Depends(get_session)):
     return await service.deliver_order(order_id, account.id, body.data, db)
 
 

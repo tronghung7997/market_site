@@ -10,6 +10,7 @@ class SellerSummary(BaseModel):
     completed_order_count: int
     rating_avg: float | None
     review_count: int
+    seller_tier: str = "new"
 
 
 class SellerProfile(SellerSummary):

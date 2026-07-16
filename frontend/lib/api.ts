@@ -1,5 +1,5 @@
 import type {
-  Account, AdminDisputeDetail, AdminOrderDetail, AdminProduct, AdminResourceListResponse, AffiliateStats, AffiliateSummary, CalculateResult, Category, DashboardData, Dispute, FundOverview, AccountAdminRow, PaginatedAccounts, LogEntry, Order, OrderStats, PaginatedAffiliateSummary, PaginatedOrderResponse, PricingField, PricingOptions, ProductDetail, Product, ProductOperations, Review, SellerApplication, SellerProduct, SellerStats, ServiceTask, Transaction, Variant, Wallet, WithdrawRequest, Provider, ProviderHealth, Alert, Resource, ResourceSummary, SellerSummary, SellerProfile,
+  Account, AdminDisputeDetail, AdminOrderDetail, AdminProduct, AdminResourceListResponse, AffiliateStats, AffiliateSummary, CalculateResult, Category, DashboardData, Dispute, FundOverview, AccountAdminRow, PaginatedAccounts, LogEntry, Order, OrderStats, PaginatedAffiliateSummary, PaginatedOrderResponse, PricingField, PricingOptions, ProductDetail, Product, ProductOperations, Review, SellerApplication, SellerProduct, SellerStats, ServiceTask, Transaction, Variant, Wallet, WithdrawRequest, Provider, ProviderHealth, Alert, Resource, ResourceSummary, SellerSummary, SellerProfile, SellerApiKey, SellerApiKeyCreated,
 } from "./types";
 
 const BASE = process.env.NEXT_PUBLIC_API_URL
@@ -98,8 +98,11 @@ export const api = {
 
   confirmOrder: (orderId: number) =>
     request<Order>(`/orders/${orderId}/confirm`, { method: "POST" }, true),
-  openDispute: (orderId: number, reason: string) =>
-    request<Dispute>(`/orders/${orderId}/dispute`, { method: "POST", body: JSON.stringify({ reason }) }, true),
+  openDispute: (orderId: number, reason: string, evidenceType?: string, evidence?: Record<string, string>) =>
+    request<Dispute>(`/orders/${orderId}/dispute`, {
+      method: "POST",
+      body: JSON.stringify({ reason, evidence_type: evidenceType ?? null, evidence: evidence ?? null }),
+    }, true),
   orderDispute: (orderId: number) => request<Dispute>(`/orders/${orderId}/dispute`, {}, true),
 
   sellerApply: (data: { business_name: string; description?: string; contact?: string }) =>
@@ -114,6 +117,9 @@ export const api = {
   sellerProducts: () => request<SellerProduct[]>("/seller/products", {}, true),
   sellerStats: () => request<SellerStats>("/seller/stats", {}, true),
   sellerOrders: () => request<Order[]>("/seller/orders", {}, true),
+  createSellerApiKey: () => request<SellerApiKeyCreated>("/seller/api-keys", { method: "POST" }, true),
+  listSellerApiKeys: () => request<SellerApiKey[]>("/seller/api-keys", {}, true),
+  revokeSellerApiKey: (id: number) => request<SellerApiKey>(`/seller/api-keys/${id}`, { method: "DELETE" }, true),
   createProduct: (data: Record<string, unknown>) =>
     request<Product>("/seller/products", { method: "POST", body: JSON.stringify(data) }, true),
   updateProduct: (id: number, data: Record<string, unknown>) =>
@@ -150,6 +156,8 @@ export const api = {
   },
   adminUpdateRoles: (id: number, roles: string[]) =>
     request<AccountAdminRow>(`/admin/accounts/${id}/roles`, { method: "PATCH", body: JSON.stringify({ roles }) }, true),
+  adminUpdateSellerTier: (id: number, sellerTier: string) =>
+    request<AccountAdminRow>(`/admin/accounts/${id}/tier`, { method: "PATCH", body: JSON.stringify({ seller_tier: sellerTier }) }, true),
   adminOrders: () => request<Order[]>("/admin/orders", {}, true),
   adminOrderDetail: (orderId: number) => request<AdminOrderDetail>(`/admin/orders/${orderId}`, {}, true),
   adminAlerts: () => request<Alert[]>("/admin/alerts", {}, true),
@@ -168,8 +176,10 @@ export const api = {
     request<Dispute>(`/admin/disputes/${id}/extend-warranty`, { method: "POST", body: JSON.stringify({ admin_note: adminNote, extra_days: extraDays }) }, true),
   adminWithdrawals: () => request<WithdrawRequest[]>("/admin/withdrawals", {}, true),
   approveWithdrawal: (id: number) => request<WithdrawRequest>(`/admin/withdrawals/${id}/approve`, { method: "POST" }, true),
+  rejectWithdrawal: (id: number) => request<WithdrawRequest>(`/admin/withdrawals/${id}/reject`, { method: "POST" }, true),
   requestWithdraw: (amount: number) =>
     request<WithdrawRequest>("/wallet/withdraw", { method: "POST", body: JSON.stringify({ amount }) }, true),
+  myWithdrawals: () => request<WithdrawRequest[]>("/wallet/withdrawals", {}, true),
   topSellers: (limit = 6) => request<SellerSummary[]>(`/sellers/top?limit=${limit}`),
   sellerProfile: (id: number) => request<SellerProfile>(`/sellers/${id}`),
   sellerDispute: (orderId: number) => request<Dispute>(`/seller/orders/${orderId}/dispute`, {}, true),
@@ -263,7 +273,7 @@ export const api = {
     request<FundOverview>("/admin/affiliate-fund/topup", { method: "POST", body: JSON.stringify({ amount, note }) }, true),
 };
 
-export type { Account, AdminDisputeDetail, AdminOrderDetail, AdminProduct, AdminResourceListResponse, AffiliateStats, AffiliateSummary, CalculateResult, Category, DashboardData, Dispute, FundOverview, AccountAdminRow, PaginatedAccounts, LogEntry, Order, OrderStats, PaginatedAffiliateSummary, PaginatedOrderResponse, PricingField, PricingOptions, Product, ProductDetail, ProductOperations, Review, SellerApplication, SellerProduct, SellerStats, SellerSummary, SellerProfile, ServiceTask, Transaction, Variant, Wallet, WithdrawRequest, Provider, ProviderHealth, Alert, Resource, ResourceSummary };
+export type { Account, AdminDisputeDetail, AdminOrderDetail, AdminProduct, AdminResourceListResponse, AffiliateStats, AffiliateSummary, CalculateResult, Category, DashboardData, Dispute, FundOverview, AccountAdminRow, PaginatedAccounts, LogEntry, Order, OrderStats, PaginatedAffiliateSummary, PaginatedOrderResponse, PricingField, PricingOptions, Product, ProductDetail, ProductOperations, Review, SellerApplication, SellerProduct, SellerStats, SellerSummary, SellerProfile, ServiceTask, Transaction, Variant, Wallet, WithdrawRequest, Provider, ProviderHealth, Alert, Resource, ResourceSummary, SellerApiKey, SellerApiKeyCreated };
 
 /** Money helpers. Backend stores an integer amount; for this Vietnamese
  * marketplace we render it as đồng (no sub-unit), e.g. 7000 → "7.000 ₫". */

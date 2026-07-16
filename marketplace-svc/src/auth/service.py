@@ -71,6 +71,7 @@ async def authenticate(email: str, password: str, db: AsyncSession) -> Account:
 
 
 _VALID_ROLES = {"buyer", "seller", "admin"}
+_VALID_TIERS = {"new", "verified", "trusted", "enterprise"}
 
 
 async def list_accounts(db: AsyncSession, search: str | None = None, page: int = 1, per_page: int = 20) -> dict:
@@ -102,6 +103,20 @@ async def update_roles(account_id: int, roles: list[str], requester_id: int, db:
     if account_id == requester_id and "admin" not in cleaned:
         raise HTTPException(status_code=400, detail="Không thể tự gỡ quyền admin của chính mình")
     account.roles = cleaned
+    await db.commit()
+    await db.refresh(account)
+    return account
+
+
+async def update_seller_tier(account_id: int, tier: str, db: AsyncSession) -> Account:
+    if tier not in _VALID_TIERS:
+        raise HTTPException(status_code=422, detail=f"Cấp độ người bán không hợp lệ: {tier}")
+    account = await db.get(Account, account_id)
+    if not account:
+        raise HTTPException(status_code=404, detail="Không tìm thấy tài khoản")
+    if "seller" not in account.roles:
+        raise HTTPException(status_code=400, detail="Chỉ có thể gán cấp độ cho tài khoản người bán")
+    account.seller_tier = tier
     await db.commit()
     await db.refresh(account)
     return account

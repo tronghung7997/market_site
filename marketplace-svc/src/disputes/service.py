@@ -5,17 +5,21 @@ from sqlalchemy import select
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from src.audit.service import log_event, query_logs
-from src.config import settings
 from src.logging import current_request_id
 from src.models.account import Account
 from src.models.order import Dispute, DisputeStatus, Order, OrderStatus
 from src.models.product import DeliveryMode, Product, ProductVariant
 from src.models.resource import Resource
 from src.resources.service import claim_resources, release_resources
+from src.sellers.tiers import escrow_days as tier_escrow_days
+from src.sellers.tiers import platform_fee_percent
 from src.wallet.service import refund_escrow, release_escrow
 
 
-async def create_dispute(order_id: int, buyer_id: int, reason: str, db: AsyncSession) -> Dispute:
+async def create_dispute(
+    order_id: int, buyer_id: int, reason: str, db: AsyncSession,
+    evidence_type: str | None = None, evidence: dict[str, str] | None = None,
+) -> Dispute:
     order = await db.get(Order, order_id)
     if not order:
         raise HTTPException(status_code=404, detail="Không tìm thấy đơn hàng")
@@ -31,7 +35,10 @@ async def create_dispute(order_id: int, buyer_id: int, reason: str, db: AsyncSes
         raise HTTPException(status_code=400, detail="Đơn hàng này đã có khiếu nại")
 
     order.status = OrderStatus.disputed
-    dispute = Dispute(order_id=order_id, buyer_id=buyer_id, reason=reason)
+    dispute = Dispute(
+        order_id=order_id, buyer_id=buyer_id, reason=reason,
+        evidence_type=evidence_type, evidence=evidence,
+    )
     db.add(dispute)
     await log_event(db, "warning", f"Dispute opened on order {order_id}", request_id=current_request_id(),
                     metadata={"event": "dispute_opened", "order_id": order_id, "buyer_id": buyer_id})
@@ -51,7 +58,8 @@ async def _enrich_dispute(dispute: Dispute, db: AsyncSession) -> dict:
     buyer = await db.get(Account, dispute.buyer_id)
     return {
         "id": dispute.id, "order_id": dispute.order_id, "buyer_id": dispute.buyer_id,
-        "reason": dispute.reason, "status": dispute.status,
+        "reason": dispute.reason, "evidence_type": dispute.evidence_type, "evidence": dispute.evidence,
+        "status": dispute.status,
         "admin_note": dispute.admin_note, "seller_note": dispute.seller_note,
         "created_at": dispute.created_at, "resolved_at": dispute.resolved_at,
         "product_title": product.title if product else None,
@@ -110,7 +118,8 @@ async def get_dispute_detail(dispute_id: int, db: AsyncSession) -> dict:
 
     return {
         "id": dispute.id, "order_id": dispute.order_id, "buyer_id": dispute.buyer_id,
-        "reason": dispute.reason, "status": dispute.status,
+        "reason": dispute.reason, "evidence_type": dispute.evidence_type, "evidence": dispute.evidence,
+        "status": dispute.status,
         "admin_note": dispute.admin_note, "created_at": dispute.created_at,
         "resolved_at": dispute.resolved_at,
         "order": order_info,
@@ -190,7 +199,9 @@ async def reject_dispute(dispute_id: int, admin_note: str, db: AsyncSession) -> 
     dispute.resolved_at = datetime.now(timezone.utc)
     order.status = OrderStatus.completed
 
-    platform_fee = int(order.total_amount * settings.platform_fee_percent / 100)
+    seller = await db.get(Account, order.seller_id)
+    fee_percent = platform_fee_percent(seller.seller_tier if seller else "new")
+    platform_fee = int(order.total_amount * fee_percent / 100)
     await release_escrow(order.id, order.seller_id, order.total_amount, platform_fee, db)
     from src.affiliate.service import apply_affiliate_commission
     await apply_affiliate_commission(order, db)
@@ -220,7 +231,9 @@ async def partial_refund_dispute(dispute_id: int, admin_note: str, refund_amount
     await refund_escrow(order.id, order.buyer_id, refund_amount, db)
     order.total_amount -= refund_amount
 
-    platform_fee = int(order.total_amount * settings.platform_fee_percent / 100)
+    seller = await db.get(Account, order.seller_id)
+    fee_percent = platform_fee_percent(seller.seller_tier if seller else "new")
+    platform_fee = int(order.total_amount * fee_percent / 100)
     await release_escrow(order.id, order.seller_id, order.total_amount, platform_fee, db)
     from src.affiliate.service import apply_affiliate_commission
     await apply_affiliate_commission(order, db)
@@ -255,9 +268,12 @@ async def replace_dispute(dispute_id: int, admin_note: str, db: AsyncSession) ->
     )
     order.delivered_data = "\n".join(r.data for r in new_resources)
 
-    product = await db.get(Product, order.product_id) if order.product_id else None
-    escrow_days = product.escrow_days if product else 2
-    order.escrow_expires_at = datetime.now(timezone.utc) + timedelta(days=escrow_days)
+    product = await db.get(Product, order.product_id) if order.product_id else await db.get(Product, variant.product_id)
+    base_escrow_days = product.escrow_days if product else 2
+    seller = await db.get(Account, order.seller_id)
+    order.escrow_expires_at = datetime.now(timezone.utc) + timedelta(
+        days=tier_escrow_days(seller.seller_tier if seller else "new", base_escrow_days)
+    )
     order.status = OrderStatus.delivered
 
     dispute.status = DisputeStatus.resolved_replace

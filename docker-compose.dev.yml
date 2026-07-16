@@ -1,16 +1,31 @@
-services:
-  marketplace-svc:
-    volumes:
-      - ./marketplace-svc/src:/app/src
-    command: uvicorn src.main:app --host 0.0.0.0 --port 8000 --reload
+networks:
+  market_site_dev:
+    name: market_site_dev
+    driver: bridge
 
-  frontend:
-    build:
-      context: ./frontend
-      target: deps
-    volumes:
-      - ./frontend:/app
-      - /app/node_modules
-    command: npm run dev
+services:
+  postgres:
+    image: postgres:17-alpine
     environment:
-      API_URL: http://marketplace-svc:8000
+      POSTGRES_USER: marketplace
+      POSTGRES_PASSWORD: marketplace
+      POSTGRES_DB: marketplace
+    ports:
+      - "5432:5432"
+    volumes:
+      - ./pgdata:/var/lib/postgresql/data
+      - ./init-db.sql:/docker-entrypoint-initdb.d/01-init.sql
+      - ./db/marketplace-seed.sql:/docker-entrypoint-initdb.d/02-seed.sql
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U marketplace"]
+      interval: 5s
+      retries: 5
+    networks:
+      - market_site_dev
+
+  redis:
+    image: redis:7-alpine
+    ports:
+      - "6379:6379"
+    networks:
+      - market_site_dev

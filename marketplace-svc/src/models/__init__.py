@@ -8,6 +8,7 @@ from src.models.product import DeliveryMode, Product, ProductStatus, ProductVari
 from src.models.pricing_config import PricingConfig
 from src.models.provider import Provider, ProviderHealth
 from src.models.resource import Resource, ResourceStatus
+from src.models.seller_api_key import SellerApiKey
 from src.models.service_task import ServiceTask, ServiceTaskStatus
 from src.models.wallet import Transaction, TransactionType, Wallet, WithdrawRequest, WithdrawStatus
 

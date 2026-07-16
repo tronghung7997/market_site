@@ -1,7 +1,7 @@
 from fastapi import APIRouter, Depends, status
 from sqlalchemy.ext.asyncio import AsyncSession
 
-from src.auth.dependencies import get_current_account, require_role, verify_internal_key
+from src.auth.dependencies import get_current_account, get_seller_account_jwt_or_api_key, require_role, verify_internal_key
 from src.database import get_session
 from src.models.account import Account
 
@@ -11,7 +11,7 @@ router = APIRouter(tags=["resources"])
 
 
 @router.post("/seller/variants/{variant_id}/resources", response_model=schemas.BulkResourceResponse, status_code=status.HTTP_201_CREATED)
-async def bulk_add(variant_id: int, body: schemas.BulkResourceCreate, account: Account = Depends(require_role("seller")), db: AsyncSession = Depends(get_session)):
+async def bulk_add(variant_id: int, body: schemas.BulkResourceCreate, account: Account = Depends(get_seller_account_jwt_or_api_key), db: AsyncSession = Depends(get_session)):
     count = await service.bulk_add_resources(variant_id, account.id, body.items, db)
     return schemas.BulkResourceResponse(count=count)
 

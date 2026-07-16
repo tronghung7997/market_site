@@ -5,8 +5,9 @@ import { useEffect, useState } from "react";
 import { api, vnd } from "@/lib/api";
 import { useAuth } from "@/lib/auth";
 import { cn } from "@/lib/cn";
-import type { Transaction, Wallet } from "@/lib/types";
+import type { Transaction, Wallet, WithdrawRequest } from "@/lib/types";
 import { Button, Card, Input, Spinner, Tag } from "@/components/ui";
+import { Tooltip } from "@/components/ui/tooltip";
 import { Wallet as WalletIcon } from "@/components/Icons";
 
 const CREDIT = new Set(["topup", "purchase_release", "refund"]);
@@ -18,6 +19,12 @@ type Tone = "good" | "bad" | "warn" | "iris" | "neutral";
 const TONE: Record<string, Tone> = {
   topup: "good", purchase_release: "good", refund: "good",
   purchase_hold: "bad", withdraw: "bad", platform_fee: "neutral",
+};
+
+const WITHDRAW_LABEL: Record<string, { label: string; tone: Tone }> = {
+  pending: { label: "Chờ duyệt", tone: "warn" },
+  approved: { label: "Đã duyệt", tone: "good" },
+  rejected: { label: "Bị từ chối", tone: "bad" },
 };
 
 // purchase_hold không bao giờ đổi type sau khi tạo — vì đây là bản ghi lịch sử
@@ -48,6 +55,7 @@ export default function WalletPage() {
   const router = useRouter();
   const [wallet, setWallet] = useState<Wallet | null>(null);
   const [txs, setTxs] = useState<Transaction[]>([]);
+  const [withdrawals, setWithdrawals] = useState<WithdrawRequest[]>([]);
   const [loading, setLoading] = useState(true);
   const [customAmount, setCustomAmount] = useState("");
   const [topupLoading, setTopupLoading] = useState(false);
@@ -62,6 +70,9 @@ export default function WalletPage() {
     try {
       const [w, t] = await Promise.all([api.wallet(), api.transactions()]);
       setWallet(w); setTxs(t);
+      if (account?.roles.includes("seller")) {
+        setWithdrawals(await api.myWithdrawals());
+      }
     } catch (err) {
       console.error("Failed to refresh wallet:", err);
     }
@@ -103,7 +114,7 @@ export default function WalletPage() {
       alert("Vui lòng nhập số tiền hợp lệ");
       return;
     }
-    if (amount > (wallet?.balance ?? 0)) {
+    if (amount > (wallet?.available_balance ?? 0)) {
       alert("Số dư không đủ để rút số tiền này");
       return;
     }
@@ -136,7 +147,12 @@ export default function WalletPage() {
               </div>
               <Tag tone="good">● Hoạt động</Tag>
             </div>
-            <div className="font-mono text-[36px] font-semibold tabular leading-none">{vnd(wallet?.balance ?? 0)}</div>
+            <div className="font-mono text-[36px] font-semibold tabular leading-none">{vnd(wallet?.available_balance ?? 0)}</div>
+            {(wallet?.locked_balance ?? 0) > 0 && (
+              <p className="mt-2 text-[12px] text-faint">
+                Đang khoá (chờ duyệt rút tiền): <span className="font-mono">{vnd(wallet!.locked_balance)}</span>
+              </p>
+            )}
           </Card>
 
           <Card className="p-5">
@@ -219,6 +235,27 @@ export default function WalletPage() {
               </div>
             </Card>
           )}
+
+          {isSeller && withdrawals.length > 0 && (
+            <Card className="p-5">
+              <h3 className="text-[13px] font-semibold mb-3">Lịch sử yêu cầu rút tiền</h3>
+              <div className="space-y-2.5">
+                {withdrawals.map((w) => (
+                  <div key={w.id} className="flex items-center justify-between text-[13px]">
+                    <div>
+                      <div className="font-mono font-medium tabular">{vnd(w.amount)}</div>
+                      <div className="text-[11px] text-faint">
+                        {new Date(w.created_at).toLocaleDateString("vi-VN")}
+                      </div>
+                    </div>
+                    <Tag tone={WITHDRAW_LABEL[w.status]?.tone ?? "neutral"}>
+                      {WITHDRAW_LABEL[w.status]?.label ?? w.status}
+                    </Tag>
+                  </div>
+                ))}
+              </div>
+            </Card>
+          )}
         </div>
 
         {/* ─── Right: transaction history ─── */}
@@ -252,6 +289,8 @@ export default function WalletPage() {
                 {txs.map((t) => {
                   const isCredit = CREDIT.has(t.type);
                   const date = new Date(t.created_at);
+                  const description = t.description ?? LABEL[t.type] ?? t.type;
+                  const status = describeTransaction(t);
                   return (
                     <div key={t.id} className="flex items-center gap-4 px-5 py-3.5">
                       <div className={cn(
@@ -262,8 +301,12 @@ export default function WalletPage() {
                       </div>
                       <div className="min-w-0 flex-1">
                         <div className="flex items-center gap-2">
-                          <span className="text-[13px] font-medium truncate">{t.description ?? LABEL[t.type] ?? t.type}</span>
-                          <Tag tone={describeTransaction(t).tone}>{describeTransaction(t).label}</Tag>
+                          <Tooltip text={description}>
+                            <span className="min-w-0 text-[13px] font-medium truncate cursor-default">
+                              {description}
+                            </span>
+                          </Tooltip>
+                          <Tag tone={status.tone} className="shrink-0">{status.label}</Tag>
                         </div>
                         <div className="flex items-center gap-3 mt-1 text-[11.5px] text-faint">
                           <span>{date.toLocaleDateString("vi-VN", { day: "2-digit", month: "2-digit", year: "numeric" })}</span>
@@ -271,7 +314,7 @@ export default function WalletPage() {
                           {t.reference_id && <span className="font-mono">Ref: {t.reference_id}</span>}
                         </div>
                       </div>
-                      <span className={cn("font-mono text-[14px] font-semibold tabular shrink-0", isCredit ? "text-good" : "text-bad")}>
+                      <span className={cn("font-mono text-[14px] font-semibold tabular shrink-0 w-[112px] text-right", isCredit ? "text-good" : "text-bad")}>
                         {isCredit ? "+" : "−"}{vnd(t.amount)}
                       </span>
                     </div>

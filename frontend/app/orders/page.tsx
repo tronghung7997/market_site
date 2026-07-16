@@ -7,6 +7,7 @@ import { api, vnd } from "@/lib/api";
 import { useAuth } from "@/lib/auth";
 import { cn } from "@/lib/cn";
 import type { Dispute, Order, OrderStats, Resource } from "@/lib/types";
+import { EVIDENCE_TYPES, evidenceFieldLabel, evidenceTypeLabel } from "@/lib/dispute-evidence";
 import { Shield, Star, Package, Clock, Info, Wallet, Copy, ChevronRight } from "@/components/Icons";
 import ServiceDashboard from "@/components/ServiceDashboard";
 import { Button, Card, Input, Select, Spinner, Tag, Textarea } from "@/components/ui";
@@ -89,14 +90,26 @@ function Disclosure({ label, labelOpen, open, onToggle, children }: {
 
 function DisputeModal({ orderId, onClose, onSuccess }: { orderId: number; onClose: () => void; onSuccess: () => void }) {
   const [reason, setReason] = useState("");
+  const [evidenceType, setEvidenceType] = useState("");
+  const [evidenceValues, setEvidenceValues] = useState<Record<string, string>>({});
   const [submitting, setSubmitting] = useState(false);
   const [error, setError] = useState("");
+
+  const fields = evidenceType ? EVIDENCE_TYPES[evidenceType]?.fields ?? [] : [];
 
   async function handleSubmit() {
     if (!reason.trim()) return;
     setSubmitting(true); setError("");
     try {
-      await api.openDispute(orderId, reason.trim());
+      const evidence = Object.fromEntries(
+        Object.entries(evidenceValues).filter(([, v]) => v.trim() !== ""),
+      );
+      await api.openDispute(
+        orderId,
+        reason.trim(),
+        evidenceType || undefined,
+        Object.keys(evidence).length > 0 ? evidence : undefined,
+      );
       onSuccess();
     } catch (e: unknown) {
       setError(e instanceof Error ? e.message : "Có lỗi xảy ra");
@@ -107,9 +120,34 @@ function DisputeModal({ orderId, onClose, onSuccess }: { orderId: number; onClos
 
   return (
     <div className="fixed inset-0 z-50 grid place-items-center bg-black/45 p-4" onClick={onClose}>
-      <Card className="w-full max-w-[420px] p-6 flex flex-col gap-4" onClick={(e: React.MouseEvent) => e.stopPropagation()}>
+      <Card className="w-full max-w-[420px] p-6 flex flex-col gap-4 max-h-[90vh] overflow-y-auto" onClick={(e: React.MouseEvent) => e.stopPropagation()}>
         <h3 className="text-[16px] font-semibold">Mở khiếu nại — Đơn #{orderId}</h3>
         <Textarea rows={4} placeholder="Mô tả lý do khiếu nại…" value={reason} onChange={(e) => setReason(e.target.value)} />
+
+        <div className="space-y-1">
+          <label className="text-[12px] text-faint">Loại bằng chứng (tuỳ chọn)</label>
+          <Select
+            value={evidenceType}
+            onChange={(e) => { setEvidenceType(e.target.value); setEvidenceValues({}); }}
+          >
+            <option value="">Không có bằng chứng cụ thể</option>
+            {Object.entries(EVIDENCE_TYPES).map(([key, cfg]) => (
+              <option key={key} value={key}>{cfg.label}</option>
+            ))}
+          </Select>
+        </div>
+
+        {fields.map((f) => (
+          <div key={f.key} className="space-y-1">
+            <label className="text-[12px] text-faint">{f.label}</label>
+            <Input
+              placeholder={f.placeholder}
+              value={evidenceValues[f.key] ?? ""}
+              onChange={(e) => setEvidenceValues((prev) => ({ ...prev, [f.key]: e.target.value }))}
+            />
+          </div>
+        ))}
+
         {error && <p className="text-[12px] text-bad">{error}</p>}
         <div className="flex justify-end gap-2">
           <Button variant="ghost" onClick={onClose}>Huỷ</Button>
@@ -200,6 +238,21 @@ function OrderDispute({ orderId }: { orderId: number }) {
               <p className="text-faint text-[11px] uppercase tracking-wider mb-0.5">Lý do bạn đã gửi</p>
               <p>{dispute.reason}</p>
             </div>
+            {dispute.evidence && Object.keys(dispute.evidence).length > 0 && (
+              <div className="px-3 py-2 rounded-lg bg-raised border border-line">
+                <p className="text-faint text-[11px] uppercase tracking-wider mb-1">
+                  Bằng chứng — {evidenceTypeLabel(dispute.evidence_type)}
+                </p>
+                <div className="space-y-0.5">
+                  {Object.entries(dispute.evidence).map(([key, value]) => (
+                    <p key={key}>
+                      <span className="text-faint">{evidenceFieldLabel(dispute.evidence_type, key)}: </span>
+                      {value}
+                    </p>
+                  ))}
+                </div>
+              </div>
+            )}
             {dispute.seller_note && (
               <div className="px-3 py-2 rounded-lg bg-iris/5 border border-iris/15">
                 <p className="text-faint text-[11px] uppercase tracking-wider mb-0.5">Phản hồi từ người bán</p>

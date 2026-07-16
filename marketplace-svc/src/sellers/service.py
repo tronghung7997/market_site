@@ -17,8 +17,12 @@ async def _build_seller_summaries(seller_ids: list[int], db: AsyncSession) -> li
     if not seller_ids:
         return []
 
-    accounts_result = await db.execute(select(Account.id, Account.email).where(Account.id.in_(seller_ids)))
-    emails = {row.id: row.email for row in accounts_result.all()}
+    accounts_result = await db.execute(
+        select(Account.id, Account.email, Account.seller_tier).where(Account.id.in_(seller_ids))
+    )
+    accounts_rows = accounts_result.all()
+    emails = {row.id: row.email for row in accounts_rows}
+    tiers = {row.id: row.seller_tier.value for row in accounts_rows}
 
     completed_result = await db.execute(
         select(Order.seller_id, func.count(Order.id))
@@ -62,6 +66,7 @@ async def _build_seller_summaries(seller_ids: list[int], db: AsyncSession) -> li
             "completed_order_count": completed_counts.get(seller_id, 0),
             "rating_avg": ratings.get(seller_id),
             "review_count": review_counts.get(seller_id, 0),
+            "seller_tier": tiers.get(seller_id, "new"),
         }
         for seller_id in seller_ids
         if seller_id in emails

@@ -2,6 +2,7 @@ from datetime import datetime
 from enum import Enum as PyEnum
 
 from sqlalchemy import DateTime, Enum, ForeignKey, Integer, Text, func
+from sqlalchemy.dialects.postgresql import JSONB
 from sqlalchemy.orm import Mapped, mapped_column
 
 from src.database import Base
@@ -50,6 +51,8 @@ class Dispute(Base):
     order_id: Mapped[int] = mapped_column(ForeignKey("orders.id"), unique=True, nullable=False)
     buyer_id: Mapped[int] = mapped_column(ForeignKey("accounts.id"), nullable=False)
     reason: Mapped[str] = mapped_column(Text, nullable=False)
+    evidence_type: Mapped[str | None] = mapped_column(Text, nullable=True)
+    evidence: Mapped[dict | None] = mapped_column(JSONB, nullable=True)
     status: Mapped[DisputeStatus] = mapped_column(Enum(DisputeStatus), default=DisputeStatus.open)
     admin_note: Mapped[str | None] = mapped_column(Text, nullable=True)
     seller_note: Mapped[str | None] = mapped_column(Text, nullable=True)

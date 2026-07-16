@@ -10,6 +10,7 @@ import SiteFooter from "@/components/SiteFooter";
 import ChromeGate from "@/components/ChromeGate";
 import RouteProgress from "@/components/RouteProgress";
 import ReferralCapture from "@/components/ReferralCapture";
+import { TooltipProvider } from "@/components/ui/tooltip";
 
 const newsreader = Newsreader({
   subsets: ["latin", "vietnamese"], style: ["normal", "italic"], variable: "--font-newsreader", display: "swap",
@@ -32,11 +33,13 @@ export default function RootLayout({ children }: { children: ReactNode }) {
       <body className="min-h-screen flex flex-col">
         <AuthProvider>
           <QueryProvider>
-            <RouteProgress />
-            <Suspense fallback={null}><ReferralCapture /></Suspense>
-            <ChromeGate><TopNav /></ChromeGate>
-            <main className="flex-1 flex flex-col">{children}</main>
-            <ChromeGate><SiteFooter /></ChromeGate>
+            <TooltipProvider>
+              <RouteProgress />
+              <Suspense fallback={null}><ReferralCapture /></Suspense>
+              <ChromeGate><TopNav /></ChromeGate>
+              <main className="flex-1 flex flex-col">{children}</main>
+              <ChromeGate><SiteFooter /></ChromeGate>
+            </TooltipProvider>
           </QueryProvider>
         </AuthProvider>
       </body>

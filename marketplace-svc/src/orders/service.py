@@ -14,6 +14,7 @@ from src.pricing.engine import quote_product
 from src.resources.service import claim_resources
 from src.audit.service import log_event, query_logs
 from src.logging import current_request_id
+from src.sellers.tiers import escrow_days as tier_escrow_days
 from src.wallet.service import deduct_credit, refund_escrow, release_escrow
 
 
@@ -30,10 +31,13 @@ async def create_order(buyer_id: int, variant_id: int, quantity: int, db: AsyncS
     total = variant.price * quantity
 
     if variant.delivery_mode == DeliveryMode.instant:
+        seller = await db.get(Account, product.seller_id)
         order = Order(
             buyer_id=buyer_id, seller_id=product.seller_id, variant_id=variant_id,
             quantity=quantity, total_amount=total, status=OrderStatus.delivered,
-            escrow_expires_at=datetime.now(timezone.utc) + timedelta(days=product.escrow_days),
+            escrow_expires_at=datetime.now(timezone.utc) + timedelta(
+                days=tier_escrow_days(seller.seller_tier if seller else "new", product.escrow_days)
+            ),
         )
         db.add(order)
         await db.flush()  # assigns order.id without committing
@@ -131,7 +135,10 @@ async def create_order_with_adapter(
         else:
             order.status = OrderStatus.delivered
             order.delivered_data = provision_result.data
-            order.escrow_expires_at = datetime.now(timezone.utc) + timedelta(days=product.escrow_days)
+            seller = await db.get(Account, product.seller_id)
+            order.escrow_expires_at = datetime.now(timezone.utc) + timedelta(
+                days=tier_escrow_days(seller.seller_tier if seller else "new", product.escrow_days)
+            )
             await log_event(
                 db, "info", f"Order {order.id} provisioned via adapter", request_id=rid,
                 metadata={"event": "order_provisioned", "order_id": order.id,
@@ -368,10 +375,13 @@ async def deliver_order(order_id: int, seller_id: int, data: str, db: AsyncSessi
     elif order.variant_id:
         variant = await db.get(ProductVariant, order.variant_id)
         product = await db.get(Product, variant.product_id) if variant else None
-    escrow_days = product.escrow_days if product else 2
+    base_escrow_days = product.escrow_days if product else 2
+    seller = await db.get(Account, seller_id)
     order.status = OrderStatus.delivered
     order.delivered_data = data
-    order.escrow_expires_at = datetime.now(timezone.utc) + timedelta(days=escrow_days)
+    order.escrow_expires_at = datetime.now(timezone.utc) + timedelta(
+        days=tier_escrow_days(seller.seller_tier if seller else "new", base_escrow_days)
+    )
     await log_event(db, "info", f"Order {order.id} delivered manually", request_id=current_request_id(),
                     metadata={"event": "order_delivered_manual", "order_id": order.id})
     await db.commit()

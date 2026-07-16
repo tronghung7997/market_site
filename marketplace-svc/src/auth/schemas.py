@@ -23,6 +23,7 @@ class AccountResponse(BaseModel):
     id: int
     email: str
     roles: list[str]
+    seller_tier: str
 
     model_config = {"from_attributes": True}
 
@@ -32,6 +33,7 @@ class AccountAdminRow(BaseModel):
     email: str
     roles: list[str]
     is_active: bool
+    seller_tier: str
     created_at: datetime
 
     model_config = {"from_attributes": True}
@@ -46,3 +48,7 @@ class PaginatedAccounts(BaseModel):
 
 class UpdateRolesRequest(BaseModel):
     roles: list[str]
+
+
+class UpdateSellerTierRequest(BaseModel):
+    seller_tier: str

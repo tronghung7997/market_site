@@ -1,12 +1,32 @@
+from fastapi import HTTPException
 from sqlalchemy import select
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from src.models.provider import Provider, ProviderHealth
+from src.security.crypto import encrypt_config
 
 
 async def create_provider(data: dict, db: AsyncSession) -> Provider:
+    if "config" in data and data["config"]:
+        data["config"] = encrypt_config(data["config"])
     provider = Provider(**data)
     db.add(provider)
+    await db.commit()
+    await db.refresh(provider)
+    return provider
+
+
+async def update_provider(provider_id: int, updates: dict, db: AsyncSession) -> Provider:
+    provider = await db.get(Provider, provider_id)
+    if not provider:
+        raise HTTPException(status_code=404, detail="Không tìm thấy nhà cung cấp")
+
+    if "config" in updates and updates["config"]:
+        updates["config"] = encrypt_config(updates["config"])
+
+    for key, value in updates.items():
+        setattr(provider, key, value)
+
     await db.commit()
     await db.refresh(provider)
     return provider

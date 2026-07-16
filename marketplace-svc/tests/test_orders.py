@@ -314,7 +314,7 @@ async def test_adapter_order_invalid_config(client):
     }, headers={"Authorization": f"Bearer {buyer_token}"})
 
     assert resp.status_code == 400
-    assert "Invalid" in resp.json()["detail"]
+    assert "không hợp lệ" in resp.json()["detail"]
 
 
 @pytest.mark.asyncio
@@ -423,7 +423,7 @@ async def test_commission_default_rate_on_completion(client):
         assert comm.amount == 500
 
         affiliate_wallet = await db.scalar(select(Wallet).where(Wallet.account_id == affiliate_id))
-        assert affiliate_wallet.balance == 500
+        assert affiliate_wallet.available_balance == 500
 
 
 @pytest.mark.asyncio
@@ -482,7 +482,7 @@ async def test_no_commission_when_buyer_not_referred(client):
         )
         assert comm is None
         affiliate_wallet = await db.scalar(select(Wallet).where(Wallet.account_id == affiliate_id))
-        assert affiliate_wallet.balance == 0
+        assert affiliate_wallet.available_balance == 0
 
 
 @pytest.mark.asyncio
@@ -574,4 +574,4 @@ async def test_no_double_credit_on_reentry(client):
         )).scalars().all())
         assert len(comms) == 1
         affiliate_wallet = await db.scalar(select(Wallet).where(Wallet.account_id == affiliate_id))
-        assert affiliate_wallet.balance == 500
+        assert affiliate_wallet.available_balance == 500

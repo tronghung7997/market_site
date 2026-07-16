@@ -37,6 +37,12 @@ async def make_seller(email):
         await db.commit()
 
 
+async def set_seller_tier(email, tier):
+    async with SessionLocal() as db:
+        await db.execute(update(Account).where(Account.email == email).values(seller_tier=tier))
+        await db.commit()
+
+
 @pytest.fixture(autouse=True)
 async def clean_db():
     """Truncate all tables before each test so the suite is isolated and re-runnable."""

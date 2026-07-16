@@ -2,8 +2,24 @@ export interface Account {
   id: number;
   email: string;
   roles: string[];
+  seller_tier?: string;
   affiliate_code?: string;
   referred_by_id?: number | null;
+}
+
+export interface SellerApiKeyCreated {
+  id: number;
+  key: string;
+  key_prefix: string;
+  created_at: string;
+}
+
+export interface SellerApiKey {
+  id: number;
+  key_prefix: string;
+  created_at: string;
+  last_used_at: string | null;
+  revoked_at: string | null;
 }
 
 export interface Category {
@@ -63,6 +79,9 @@ export interface ProductDetail extends Product {
 export interface Wallet {
   id: number;
   account_id: number;
+  pending_balance: number;
+  available_balance: number;
+  locked_balance: number;
   balance: number;
   updated_at: string;
 }
@@ -123,6 +142,7 @@ export interface SellerSummary {
   completed_order_count: number;
   rating_avg: number | null;
   review_count: number;
+  seller_tier: string;
 }
 
 export interface SellerProfile extends SellerSummary {
@@ -150,6 +170,8 @@ export interface Dispute {
   order_id: number;
   buyer_id: number;
   reason: string;
+  evidence_type?: string | null;
+  evidence?: Record<string, string> | null;
   status: string;
   admin_note: string | null;
   seller_note: string | null;
@@ -183,6 +205,8 @@ export interface AdminDisputeDetail {
   order_id: number;
   buyer_id: number;
   reason: string;
+  evidence_type?: string | null;
+  evidence?: Record<string, string> | null;
   status: string;
   admin_note: string | null;
   seller_note: string | null;
@@ -487,6 +511,7 @@ export interface AccountAdminRow {
   email: string;
   roles: string[];
   is_active: boolean;
+  seller_tier: string;
   created_at: string;
 }
 

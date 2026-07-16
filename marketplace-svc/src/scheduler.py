@@ -8,13 +8,14 @@ from sqlalchemy import select
 
 from src.alerts.service import create_alert
 from src.audit.service import log_event
-from src.config import settings
 from src.database import SessionLocal
+from src.models.account import Account
 from src.models.order import Order, OrderStatus
 from src.models.product import ProductVariant
 from src.models.provider import Provider, ProviderHealth
 from src.models.resource import Resource, ResourceStatus
 from src.providers.service import apply_scores
+from src.sellers.tiers import platform_fee_percent
 from src.wallet.service import refund_escrow, release_escrow
 
 logger = structlog.get_logger()
@@ -32,7 +33,9 @@ async def escrow_release_job() -> None:
         )
         orders = list(result.scalars().all())
         for order in orders:
-            platform_fee = int(order.total_amount * settings.platform_fee_percent / 100)
+            seller = await db.get(Account, order.seller_id)
+            fee_percent = platform_fee_percent(seller.seller_tier if seller else "new")
+            platform_fee = int(order.total_amount * fee_percent / 100)
             await release_escrow(order.id, order.seller_id, order.total_amount, platform_fee, db)
             order.status = OrderStatus.completed
             from src.affiliate.service import apply_affiliate_commission

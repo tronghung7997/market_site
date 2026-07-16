@@ -53,3 +53,13 @@ async def admin_update_roles(
     db: AsyncSession = Depends(get_session),
 ):
     return await service.update_roles(account_id, body.roles, admin.id, db)
+
+
+@router.patch("/admin/accounts/{account_id}/tier", response_model=schemas.AccountAdminRow)
+async def admin_update_seller_tier(
+    account_id: int,
+    body: schemas.UpdateSellerTierRequest,
+    _: Account = Depends(require_role("admin")),
+    db: AsyncSession = Depends(get_session),
+):
+    return await service.update_seller_tier(account_id, body.seller_tier, db)

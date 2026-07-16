@@ -34,7 +34,7 @@ export default function TopNav() {
 
   useEffect(() => {
     let active = true;
-    if (account) api.wallet().then((w) => active && setBalance(w.balance)).catch(() => {});
+    if (account) api.wallet().then((w) => active && setBalance(w.available_balance)).catch(() => {});
     else setBalance(null);
     return () => { active = false; };
   }, [account, pathname]);

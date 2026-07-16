@@ -12,6 +12,7 @@ export default function AdminWithdrawalsPage() {
   const [requests, setRequests] = React.useState<WithdrawRequest[]>([]);
   const [loading, setLoading] = React.useState(true);
   const [confirmId, setConfirmId] = React.useState<number | null>(null);
+  const [rejectId, setRejectId] = React.useState<number | null>(null);
   const [busy, setBusy] = React.useState(false);
 
   const load = React.useCallback(() => {
@@ -36,6 +37,20 @@ export default function AdminWithdrawalsPage() {
       load();
     } catch (err) {
       alert(`Duyệt thất bại: ${err instanceof Error ? err.message : "Unknown error"}`);
+    } finally {
+      setBusy(false);
+    }
+  };
+
+  const handleReject = async () => {
+    if (rejectId === null) return;
+    setBusy(true);
+    try {
+      await api.rejectWithdrawal(rejectId);
+      setRejectId(null);
+      load();
+    } catch (err) {
+      alert(`Từ chối thất bại: ${err instanceof Error ? err.message : "Unknown error"}`);
     } finally {
       setBusy(false);
     }
@@ -96,9 +111,14 @@ export default function AdminWithdrawalsPage() {
                         {vnd(r.amount)}
                       </span>
                       {r.status === "pending" ? (
-                        <Button size="sm" variant="primary" onClick={() => setConfirmId(r.id)}>
-                          Duyệt
-                        </Button>
+                        <div className="flex gap-2">
+                          <Button size="sm" variant="secondary" onClick={() => setRejectId(r.id)}>
+                            Từ chối
+                          </Button>
+                          <Button size="sm" variant="primary" onClick={() => setConfirmId(r.id)}>
+                            Duyệt
+                          </Button>
+                        </div>
                       ) : (
                         <span className="text-slate-400 text-[12px]">Đã xử lý</span>
                       )}
@@ -141,9 +161,14 @@ export default function AdminWithdrawalsPage() {
                         </td>
                         <td className="px-5 py-3 text-right">
                           {r.status === "pending" ? (
-                            <Button size="sm" variant="primary" onClick={() => setConfirmId(r.id)}>
-                              Duyệt
-                            </Button>
+                            <div className="flex gap-2 justify-end">
+                              <Button size="sm" variant="secondary" onClick={() => setRejectId(r.id)}>
+                                Từ chối
+                              </Button>
+                              <Button size="sm" variant="primary" onClick={() => setConfirmId(r.id)}>
+                                Duyệt
+                              </Button>
+                            </div>
                           ) : (
                             <span className="text-slate-400 text-[12px]">Đã xử lý</span>
                           )}
@@ -166,6 +191,17 @@ export default function AdminWithdrawalsPage() {
         description="Số tiền sẽ được trừ khỏi ví người bán ngay lập tức. Hành động này không thể hoàn tác."
         confirmText="Duyệt"
         variant="primary"
+        isLoading={busy}
+      />
+
+      <ConfirmModal
+        isOpen={rejectId !== null}
+        onClose={() => setRejectId(null)}
+        onConfirm={handleReject}
+        title="Từ chối yêu cầu rút tiền"
+        description="Yêu cầu sẽ bị đánh dấu từ chối, số dư trong ví người bán không thay đổi."
+        confirmText="Từ chối"
+        variant="danger"
         isLoading={busy}
       />
 

@@ -214,3 +214,115 @@ class TestAdapterFactory:
 
         adapter = await get_adapter(1, db)
         assert adapter.config == config
+
+    @pytest.mark.asyncio
+    async def test_returns_real_api_adapter_for_topproxy_and_scrapecreators(self):
+        from src.adapters.real_api import RealApiAdapter
+
+        for adapter_type in ("topproxy", "scrapecreators"):
+            provider = _make_provider(10, adapter_type=adapter_type)
+            db = AsyncMock()
+            db.get = AsyncMock(return_value=provider)
+            adapter = await get_adapter(10, db)
+            assert isinstance(adapter, RealApiAdapter)
+
+
+# ---------------------------------------------------------------------------
+# RealApiAdapter tests
+# ---------------------------------------------------------------------------
+
+
+class TestRealApiAdapter:
+    @pytest.fixture(autouse=True)
+    def _no_sleep(self, monkeypatch):
+        # Retry backoff would otherwise add real wall-clock delay to the suite.
+        monkeypatch.setattr("src.adapters.real_api.asyncio.sleep", AsyncMock())
+
+    @pytest.mark.asyncio
+    async def test_provision_success_sends_auth_and_idempotency_headers(self, monkeypatch):
+        import httpx
+        from src.adapters.real_api import RealApiAdapter
+        from src.security.crypto import encrypt_str
+
+        ok_response = httpx.Response(
+            200, json={"success": True, "data": "res-data", "resource_id": "res-1"},
+            request=httpx.Request("POST", "https://api.example.com/provision"),
+        )
+        mock_request = AsyncMock(return_value=ok_response)
+        monkeypatch.setattr(httpx.AsyncClient, "request", mock_request)
+
+        adapter = RealApiAdapter({
+            "base_url": "https://api.example.com",
+            "api_key": encrypt_str("secret123"),
+        })
+        result = await adapter.provision(order_id=42, user_config={"foo": "bar"})
+
+        assert result.success is True
+        assert result.data == "res-data"
+        assert result.resource_id == "res-1"
+        mock_request.assert_awaited_once()
+        _, kwargs = mock_request.call_args
+        assert kwargs["headers"]["Idempotency-Key"] == "order-42-provision"
+        assert kwargs["headers"]["Authorization"] == "Bearer secret123"
+
+    @pytest.mark.asyncio
+    async def test_provision_retries_on_5xx_then_succeeds(self, monkeypatch):
+        import httpx
+        from src.adapters.real_api import RealApiAdapter
+
+        fail = httpx.Response(500, request=httpx.Request("POST", "https://api.example.com/provision"))
+        ok = httpx.Response(
+            200, json={"success": True, "data": "d", "resource_id": "r"},
+            request=httpx.Request("POST", "https://api.example.com/provision"),
+        )
+        mock_request = AsyncMock(side_effect=[fail, fail, ok])
+        monkeypatch.setattr(httpx.AsyncClient, "request", mock_request)
+
+        adapter = RealApiAdapter({"base_url": "https://api.example.com"})
+        result = await adapter.provision(order_id=1, user_config={})
+
+        assert result.success is True
+        assert mock_request.await_count == 3
+        keys = {c.kwargs["headers"]["Idempotency-Key"] for c in mock_request.call_args_list}
+        assert keys == {"order-1-provision"}
+
+    @pytest.mark.asyncio
+    async def test_provision_gives_up_after_max_attempts(self, monkeypatch):
+        import httpx
+        from src.adapters.real_api import RealApiAdapter
+
+        fail = httpx.Response(500, request=httpx.Request("POST", "https://api.example.com/provision"))
+        mock_request = AsyncMock(return_value=fail)
+        monkeypatch.setattr(httpx.AsyncClient, "request", mock_request)
+
+        adapter = RealApiAdapter({"base_url": "https://api.example.com"})
+        result = await adapter.provision(order_id=2, user_config={})
+
+        assert result.success is False
+        assert mock_request.await_count == 3
+
+    @pytest.mark.asyncio
+    async def test_provision_does_not_retry_on_4xx(self, monkeypatch):
+        import httpx
+        from src.adapters.real_api import RealApiAdapter
+
+        bad_request = httpx.Response(
+            400, json={"success": False, "error": "invalid config"},
+            request=httpx.Request("POST", "https://api.example.com/provision"),
+        )
+        mock_request = AsyncMock(return_value=bad_request)
+        monkeypatch.setattr(httpx.AsyncClient, "request", mock_request)
+
+        adapter = RealApiAdapter({"base_url": "https://api.example.com"})
+        result = await adapter.provision(order_id=3, user_config={})
+
+        assert result.success is False
+        assert mock_request.await_count == 1
+
+    @pytest.mark.asyncio
+    async def test_constructor_decrypts_api_key(self):
+        from src.adapters.real_api import RealApiAdapter
+        from src.security.crypto import encrypt_str
+
+        adapter = RealApiAdapter({"base_url": "https://api.example.com", "api_key": encrypt_str("plain-key")})
+        assert adapter.api_key == "plain-key"

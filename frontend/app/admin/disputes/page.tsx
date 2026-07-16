@@ -21,6 +21,7 @@ import {
 } from "@/components/admin";
 import { DisputeStatusBadge, OrderStatusBadge } from "@/components/admin/status-badge";
 import type { Dispute, AdminDisputeDetail } from "@/lib/types";
+import { evidenceFieldLabel, evidenceTypeLabel } from "@/lib/dispute-evidence";
 
 // Status filter options
 const STATUS_FILTER = [
@@ -181,6 +182,21 @@ function DisputeDetailContent({
             <p className="text-slate-500 text-[11.5px]">Trạng thái</p>
             <DisputeStatusBadge status={detail.status} />
           </div>
+          {detail.evidence && Object.keys(detail.evidence).length > 0 && (
+            <div className="col-span-2">
+              <p className="text-slate-500 text-[11.5px]">
+                Bằng chứng — {evidenceTypeLabel(detail.evidence_type)}
+              </p>
+              <div className="mt-1 rounded-lg bg-slate-50 border border-slate-200 px-3 py-2 text-[12px] space-y-0.5">
+                {Object.entries(detail.evidence).map(([key, value]) => (
+                  <p key={key}>
+                    <span className="text-slate-500">{evidenceFieldLabel(detail.evidence_type, key)}: </span>
+                    <span className="font-medium">{value}</span>
+                  </p>
+                ))}
+              </div>
+            </div>
+          )}
           <div>
             <p className="text-slate-500 text-[11.5px]">Người mua</p>
             <p>{detail.order?.buyer_email ?? `#${detail.buyer_id}`}</p>

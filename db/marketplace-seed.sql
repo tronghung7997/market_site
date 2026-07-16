@@ -1012,7 +1012,7 @@ COPY public.accounts (id, email, password_hash, roles, is_active, created_at, up
 --
 
 COPY public.alembic_version (version_num) FROM stdin;
-g1b2c3d4e5f6
+h1c2d3e4f5g6
 \.
 
 

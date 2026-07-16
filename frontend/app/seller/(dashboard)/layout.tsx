@@ -5,7 +5,7 @@ import { usePathname, useRouter } from "next/navigation";
 import { useEffect } from "react";
 import { useAuth } from "@/lib/auth";
 import { cn } from "@/lib/cn";
-import { BarChart, Edit2, Inbox, Package, Store } from "@/components/Icons";
+import { BarChart, Edit2, Inbox, Package, Plug, Store } from "@/components/Icons";
 import { Spinner } from "@/components/ui";
 import type { ReactNode } from "react";
 
@@ -13,6 +13,7 @@ const NAV = [
   { href: "/seller", label: "Tổng quan", icon: BarChart },
   { href: "/seller/products", label: "Sản phẩm", icon: Package },
   { href: "/seller/orders", label: "Đơn hàng", icon: Inbox },
+  { href: "/seller/api-settings", label: "API", icon: Plug },
 ];
 
 export default function SellerLayout({ children }: { children: ReactNode }) {

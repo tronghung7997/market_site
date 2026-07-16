@@ -5,6 +5,8 @@ from pydantic import BaseModel
 
 class DisputeCreate(BaseModel):
     reason: str
+    evidence_type: str | None = None
+    evidence: dict[str, str] | None = None
 
 
 class AdminDisputeAction(BaseModel):
@@ -30,6 +32,8 @@ class DisputeResponse(BaseModel):
     order_id: int
     buyer_id: int
     reason: str
+    evidence_type: str | None = None
+    evidence: dict[str, str] | None = None
     status: str
     admin_note: str | None
     seller_note: str | None = None
@@ -76,6 +80,8 @@ class DisputeResponseFull(BaseModel):
     order_id: int
     buyer_id: int
     reason: str
+    evidence_type: str | None = None
+    evidence: dict[str, str] | None = None
     status: str
     admin_note: str | None
     seller_note: str | None = None

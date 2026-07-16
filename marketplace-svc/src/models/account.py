@@ -14,6 +14,13 @@ class AccountRole(str, PyEnum):
     admin = "admin"
 
 
+class SellerTier(str, PyEnum):
+    new = "new"
+    verified = "verified"
+    trusted = "trusted"
+    enterprise = "enterprise"
+
+
 class Account(Base):
     __tablename__ = "accounts"
 
@@ -22,6 +29,7 @@ class Account(Base):
     password_hash: Mapped[str] = mapped_column(String(255), nullable=False)
     roles: Mapped[list[str]] = mapped_column(ARRAY(String), default=["buyer"])
     is_active: Mapped[bool] = mapped_column(default=True)
+    seller_tier: Mapped[SellerTier] = mapped_column(Enum(SellerTier), default=SellerTier.new, nullable=False)
     affiliate_code: Mapped[str] = mapped_column(
         String(8),
         unique=True,

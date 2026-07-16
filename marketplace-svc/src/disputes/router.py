@@ -12,7 +12,10 @@ router = APIRouter(tags=["disputes"])
 
 @router.post("/orders/{order_id}/dispute", response_model=schemas.DisputeResponse, status_code=status.HTTP_201_CREATED)
 async def create_dispute(order_id: int, body: schemas.DisputeCreate, account: Account = Depends(get_current_account), db: AsyncSession = Depends(get_session)):
-    return await service.create_dispute(order_id, account.id, body.reason, db)
+    return await service.create_dispute(
+        order_id, account.id, body.reason, db,
+        evidence_type=body.evidence_type, evidence=body.evidence,
+    )
 
 
 @router.get("/orders/{order_id}/dispute", response_model=schemas.DisputeResponse)

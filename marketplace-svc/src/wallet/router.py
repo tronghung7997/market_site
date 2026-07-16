@@ -35,6 +35,11 @@ async def withdraw(body: schemas.WithdrawRequestCreate, account: Account = Depen
     return await service.request_withdraw(account.id, body.amount, db)
 
 
+@router.get("/wallet/withdrawals", response_model=list[schemas.WithdrawRequestResponse])
+async def my_withdrawals(account: Account = Depends(require_role("seller")), db: AsyncSession = Depends(get_session)):
+    return await service.list_withdrawals_for_account(account.id, db)
+
+
 @router.get("/admin/withdrawals", response_model=list[schemas.WithdrawRequestResponse])
 async def list_withdrawals(_: Account = Depends(require_role("admin")), db: AsyncSession = Depends(get_session)):
     return await service.list_withdrawals(db)
@@ -43,3 +48,8 @@ async def list_withdrawals(_: Account = Depends(require_role("admin")), db: Asyn
 @router.post("/admin/withdrawals/{req_id}/approve", response_model=schemas.WithdrawRequestResponse)
 async def approve_withdrawal(req_id: int, _: Account = Depends(require_role("admin")), db: AsyncSession = Depends(get_session)):
     return await service.approve_withdrawal(req_id, db)
+
+
+@router.post("/admin/withdrawals/{req_id}/reject", response_model=schemas.WithdrawRequestResponse)
+async def reject_withdrawal(req_id: int, _: Account = Depends(require_role("admin")), db: AsyncSession = Depends(get_session)):
+    return await service.reject_withdrawal(req_id, db)

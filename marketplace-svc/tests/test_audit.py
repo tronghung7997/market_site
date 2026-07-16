@@ -92,7 +92,7 @@ async def test_escrow_release_job_logs_with_job_id(client):
         db.add(o); await db.flush()
         oid = o.id
         # seller + platform wallets must exist for release_escrow
-        db.add_all([Wallet(account_id=a1.id, balance=0), Wallet(account_id=a2.id, balance=0)])
+        db.add_all([Wallet(account_id=a1.id, available_balance=0), Wallet(account_id=a2.id, available_balance=0)])
         await db.commit()
 
     await escrow_release_job()

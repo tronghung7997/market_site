@@ -13,6 +13,8 @@ class TransactionType(str, PyEnum):
     purchase_release = "purchase_release"
     platform_fee = "platform_fee"
     withdraw = "withdraw"
+    withdraw_lock = "withdraw_lock"
+    withdraw_unlock = "withdraw_unlock"
     refund = "refund"
     affiliate_commission = "affiliate_commission"
 
@@ -28,7 +30,14 @@ class Wallet(Base):
 
     id: Mapped[int] = mapped_column(primary_key=True)
     account_id: Mapped[int] = mapped_column(ForeignKey("accounts.id"), unique=True, nullable=False)
-    balance: Mapped[int] = mapped_column(Integer, default=0, nullable=False)
+    # pending_balance: tiền escrow chờ giao dịch hoàn tất — không track riêng ở
+    # đợt này, escrow vẫn theo Order.status như trước; luôn = 0 cho tới khi có
+    # nhu cầu mở rộng.
+    pending_balance: Mapped[int] = mapped_column(Integer, default=0, nullable=False)
+    # available_balance: tương đương "balance" cũ — tiền tự do dùng/rút.
+    available_balance: Mapped[int] = mapped_column(Integer, default=0, nullable=False)
+    # locked_balance: tiền bị khoá vì một withdraw request đang chờ admin duyệt.
+    locked_balance: Mapped[int] = mapped_column(Integer, default=0, nullable=False)
     updated_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), server_default=func.now(), onupdate=func.now())
 
 

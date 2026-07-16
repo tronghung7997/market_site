@@ -1,15 +1,23 @@
 from datetime import datetime
 
-from pydantic import BaseModel
+from pydantic import BaseModel, computed_field
 
 
 class WalletResponse(BaseModel):
     id: int
     account_id: int
-    balance: int
+    pending_balance: int
+    available_balance: int
+    locked_balance: int
     updated_at: datetime
 
     model_config = {"from_attributes": True}
+
+    @computed_field  # type: ignore[prop-decorator]
+    @property
+    def balance(self) -> int:
+        """Alias tương thích ngược — "balance" cũ tương đương available_balance."""
+        return self.available_balance
 
 
 class TopupRequest(BaseModel):

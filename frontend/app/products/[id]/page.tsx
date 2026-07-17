@@ -11,7 +11,7 @@ import type { Order, PricingOptions, Product, ProductDetail, Review, Variant } f
 import { Button, Card, Spinner, Tag } from "@/components/ui";
 import {
   ArrowRight, Bolt, Check, ChevronRight, Clock, Copy, Info,
-  MessageCircle, Package, Shield, Star, Verified,
+  MessageCircle, Package, Shield, Star, Verified, X,
 } from "@/components/Icons";
 import DynamicOrderForm from "@/components/DynamicOrderForm";
 
@@ -317,7 +317,7 @@ export default function ProductPage() {
                   <span className="text-[13px] font-semibold">Đặt hàng</span>
                 </div>
                 <div className="p-5">
-                  <Delivered order={order} instant={false} onRebuy={() => { setOrder(null); setQty(1); }} />
+                  <OrderResult order={order} onRebuy={() => { setOrder(null); setQty(1); }} />
                 </div>
               </Card>
             ) : (
@@ -333,7 +333,7 @@ export default function ProductPage() {
               </div>
 
               <div className="p-5">
-                {order ? <Delivered order={order} instant={instant} onRebuy={() => { setOrder(null); setQty(1); }} /> : (
+                {order ? <OrderResult order={order} onRebuy={() => { setOrder(null); setQty(1); }} /> : (
                   <div className="space-y-4">
                     {/* Selected variant */}
                     <div>
@@ -577,7 +577,68 @@ function PolicyTab({ product }: { product: ProductDetail }) {
    Post-purchase
    ================================================================ */
 
-function Delivered({ order, instant, onRebuy }: { order: Order; instant: boolean; onRebuy: () => void }) {
+const ORDER_POLL_MS = 3000;
+// Backend refunds and cancels an order it cannot provision within 15 minutes,
+// so there is nothing left to watch for after that.
+const ORDER_POLL_TIMEOUT_MS = 15 * 60 * 1000;
+
+const STATUS_LABEL: Record<string, string> = {
+  pending: "Đang xử lý",
+  processing: "Đang xử lý",
+  delivered: "Đã giao",
+  completed: "Hoàn tất",
+  disputed: "Đang khiếu nại",
+  refunded: "Đã hoàn tiền",
+  cancelled: "Đã huỷ",
+};
+
+const STATUS_TONE: Record<string, "good" | "warn" | "bad"> = {
+  pending: "warn",
+  processing: "warn",
+  delivered: "good",
+  completed: "good",
+  disputed: "bad",
+  refunded: "bad",
+  cancelled: "bad",
+};
+
+/** Orders provisioned through an external provider come back `pending` — the
+ *  provider call runs after the request returns — so watch until it settles.
+ *  Only those: a manual variant order is also `pending`, but it waits on the
+ *  seller for up to their SLA in hours, so polling it would spin for nothing. */
+function useOrderPolling(initial: Order, enabled: boolean) {
+  const [order, setOrder] = useState(initial);
+
+  useEffect(() => setOrder(initial), [initial]);
+
+  const settled = order.status !== "pending";
+  useEffect(() => {
+    if (settled || !enabled) return;
+    const startedAt = Date.now();
+    const timer = setInterval(async () => {
+      if (Date.now() - startedAt > ORDER_POLL_TIMEOUT_MS) {
+        clearInterval(timer);
+        return;
+      }
+      try {
+        const fresh = await api.getOrder(order.id);
+        if (fresh.status !== "pending") clearInterval(timer);
+        setOrder(fresh);
+      } catch {
+        // A failed poll is not worth surfacing — the next tick retries, and the
+        // sweeper settles the order server-side regardless.
+      }
+    }, ORDER_POLL_MS);
+    return () => clearInterval(timer);
+  }, [order.id, settled, enabled]);
+
+  return order;
+}
+
+function OrderResult({ order: initial, onRebuy }: { order: Order; onRebuy: () => void }) {
+  // product_id (rather than variant_id) means a provider adapter fulfils this one.
+  const viaProvider = initial.product_id != null;
+  const order = useOrderPolling(initial, viaProvider);
   const [copied, setCopied] = useState(false);
   const copyData = () => {
     if (order.delivered_data) {
@@ -587,20 +648,42 @@ function Delivered({ order, instant, onRebuy }: { order: Order; instant: boolean
     }
   };
 
+  const pending = order.status === "pending";
+  const failed = order.status === "cancelled" || order.status === "refunded";
+
   return (
     <div className="space-y-4">
       <div className="flex items-center gap-3">
-        <span className="grid place-items-center h-9 w-9 rounded-full bg-good-soft text-good border border-good/25">
-          <Check size={16} />
+        <span
+          className={`grid place-items-center h-9 w-9 rounded-full border ${
+            pending
+              ? "bg-warn-soft text-warn border-warn/25"
+              : failed
+              ? "bg-bad-soft text-bad border-bad/25"
+              : "bg-good-soft text-good border-good/25"
+          }`}
+        >
+          {pending ? <Clock size={16} /> : failed ? <X size={16} /> : <Check size={16} />}
         </span>
         <div>
           <div className="text-[13.5px] font-medium">Đơn #{order.id}</div>
-          <Tag tone={order.status === "delivered" ? "good" : "warn"}>
-            {order.status === "delivered" ? "Đã giao" : order.status}
-          </Tag>
+          <Tag tone={STATUS_TONE[order.status] ?? "warn"}>{STATUS_LABEL[order.status] ?? order.status}</Tag>
         </div>
       </div>
-      {instant && order.delivered_data ? (
+
+      {pending ? (
+        viaProvider ? (
+          <p className="text-[12.5px] text-muted">
+            Đang lấy sản phẩm từ nhà cung cấp. Trang sẽ tự cập nhật khi xong — bạn không cần tải lại.
+          </p>
+        ) : (
+          <p className="text-[12.5px] text-muted">Người bán sẽ giao trong thời hạn SLA.</p>
+        )
+      ) : failed ? (
+        <p className="text-[12.5px] text-muted">
+          Không lấy được sản phẩm từ nhà cung cấp. Tiền đã được hoàn lại vào ví của bạn.
+        </p>
+      ) : order.delivered_data ? (
         <div>
           <div className="flex items-center justify-between mb-1">
             <span className="text-[11px] text-faint uppercase tracking-wider">Thông tin bàn giao</span>
@@ -613,6 +696,7 @@ function Delivered({ order, instant, onRebuy }: { order: Order; instant: boolean
       ) : (
         <p className="text-[12.5px] text-muted">Người bán sẽ giao trong thời hạn SLA.</p>
       )}
+
       <div className="flex gap-2">
         <Link href="/orders" className="flex-1"><Button variant="secondary" block size="sm">Xem đơn hàng</Button></Link>
         <Button variant="secondary" size="sm" onClick={onRebuy} className="flex-1">Mua thêm</Button>

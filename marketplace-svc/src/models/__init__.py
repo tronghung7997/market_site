@@ -6,7 +6,7 @@ from src.models.log_entry import LogEntry
 from src.models.order import Dispute, DisputeStatus, Order, OrderStatus
 from src.models.product import DeliveryMode, Product, ProductStatus, ProductVariant, ServiceType
 from src.models.pricing_config import PricingConfig
-from src.models.provider import Provider, ProviderHealth
+from src.models.provider import Provider, ProviderCallLog, ProviderHealth
 from src.models.resource import Resource, ResourceStatus
 from src.models.seller_api_key import SellerApiKey
 from src.models.service_task import ServiceTask, ServiceTaskStatus
@@ -21,7 +21,7 @@ __all__ = [
     "Dispute", "DisputeStatus", "Order", "OrderStatus",
     "DeliveryMode", "Product", "ProductStatus", "ProductVariant", "ServiceType",
     "PricingConfig",
-    "Provider", "ProviderHealth",
+    "Provider", "ProviderCallLog", "ProviderHealth",
     "Resource", "ResourceStatus",
     "ServiceTask", "ServiceTaskStatus",
     "Transaction", "TransactionType", "Wallet", "WithdrawRequest", "WithdrawStatus",

@@ -5,14 +5,16 @@ import { usePathname, useRouter } from "next/navigation";
 import { useEffect } from "react";
 import { useAuth } from "@/lib/auth";
 import { cn } from "@/lib/cn";
-import { BarChart, Edit2, Inbox, Package, Plug, Store } from "@/components/Icons";
+import { BarChart, Edit2, Inbox, Package, Plug, Store, Rows, Wallet } from "@/components/Icons";
 import { Spinner } from "@/components/ui";
 import type { ReactNode } from "react";
 
 const NAV = [
   { href: "/seller", label: "Tổng quan", icon: BarChart },
   { href: "/seller/products", label: "Sản phẩm", icon: Package },
+  { href: "/seller/inventory", label: "Kho hàng", icon: Rows },
   { href: "/seller/orders", label: "Đơn hàng", icon: Inbox },
+  { href: "/seller/withdrawals", label: "Rút tiền", icon: Wallet },
   { href: "/seller/api-settings", label: "API", icon: Plug },
 ];
 
@@ -45,20 +47,24 @@ export default function SellerLayout({ children }: { children: ReactNode }) {
         </div>
       </div>
 
-      <div className="flex gap-1 mb-6 border-b border-line pb-px">
-        {NAV.map((n) => {
-          const active = n.href === "/seller" ? pathname === "/seller" : pathname.startsWith(n.href);
-          return (
-            <Link key={n.href} href={n.href}
-              className={cn(
-                "flex items-center gap-2 px-4 py-2.5 text-[13.5px] font-medium -mb-px border-b-2 transition-colors",
-                active ? "border-iris text-fg" : "border-transparent text-muted hover:text-fg",
-              )}>
-              <n.icon size={15} />
-              {n.label}
-            </Link>
-          );
-        })}
+      {/* Thanh tab tự cuộn ngang khi hẹp: 6 mục không vừa màn hình điện thoại, và
+          nếu để nó đẩy rộng ra thì cả trang trôi ngang theo. */}
+      <div className="mb-6 border-b border-line pb-px overflow-x-auto">
+        <div className="flex gap-1 w-max min-w-full">
+          {NAV.map((n) => {
+            const active = n.href === "/seller" ? pathname === "/seller" : pathname.startsWith(n.href);
+            return (
+              <Link key={n.href} href={n.href}
+                className={cn(
+                  "flex shrink-0 items-center gap-2 px-4 py-2.5 text-[13.5px] font-medium -mb-px border-b-2 transition-colors",
+                  active ? "border-iris text-fg" : "border-transparent text-muted hover:text-fg",
+                )}>
+                <n.icon size={15} />
+                {n.label}
+              </Link>
+            );
+          })}
+        </div>
       </div>
 
       {children}

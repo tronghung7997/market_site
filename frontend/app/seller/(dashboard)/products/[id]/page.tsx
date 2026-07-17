@@ -3,8 +3,9 @@
 import Link from "next/link";
 import { useParams, useRouter } from "next/navigation";
 import { useEffect, useState } from "react";
-import { api, vnd } from "@/lib/api";
+import { api, vnd, ApiError } from "@/lib/api";
 import { useAuth } from "@/lib/auth";
+import { cn } from "@/lib/cn";
 import type { Category, ProductDetail, ProductOperations, Provider, Resource, Variant } from "@/lib/types";
 import { Button, Card, Field, Input, Select, Spinner, Tag, Textarea } from "@/components/ui";
 import { Activity, ArrowRight, Bolt, Check, Clock, Edit2, Eye, Info, Package, Plus, Sliders, Trash, Users } from "@/components/Icons";
@@ -104,7 +105,7 @@ export default function EditProduct() {
 
   const loadProduct = async () => {
     try {
-      const [p, c] = await Promise.all([api.product(Number(id)), api.categories()]);
+      const [p, c] = await Promise.all([api.sellerProduct(Number(id)), api.categories()]);
       setProduct(p);
       setCats(c);
       setTitle(p.title);
@@ -706,12 +707,7 @@ function VariantManager({ productId, variants, onRefresh }: {
   const [sla, setSla] = useState("24");
   const [duration, setDuration] = useState("");
   const [saving, setSaving] = useState(false);
-
-  const [resourceVariant, setResourceVariant] = useState<number | null>(null);
-  const [resourceText, setResourceText] = useState("");
-  const [addingRes, setAddingRes] = useState(false);
-  const [resources, setResources] = useState<Resource[]>([]);
-  const [loadingRes, setLoadingRes] = useState(false);
+  const [editing, setEditing] = useState<number | null>(null);
 
   const addVariant = async () => {
     if (!name.trim() || !price) return;
@@ -727,51 +723,6 @@ function VariantManager({ productId, variants, onRefresh }: {
       setName(""); setPrice(""); setDuration(""); setAdding(false);
       onRefresh();
     } catch { } finally { setSaving(false); }
-  };
-
-  const removeVariant = async (vid: number) => {
-    if (!confirm("Xoá biến thể này?")) return;
-    await api.deleteVariant(vid);
-    onRefresh();
-  };
-
-  const loadResources = async (variantId: number) => {
-    setLoadingRes(true);
-    try {
-      const list = await api.sellerVariantResources(variantId);
-      setResources(list);
-    } catch { setResources([]); }
-    finally { setLoadingRes(false); }
-  };
-
-  const toggleResourcePanel = (variantId: number) => {
-    if (resourceVariant === variantId) {
-      setResourceVariant(null);
-      setResources([]);
-    } else {
-      setResourceVariant(variantId);
-      loadResources(variantId);
-    }
-  };
-
-  const markError = async (resourceId: number) => {
-    if (!confirm(`Xác nhận báo lỗi tài nguyên #${resourceId}?\n\nTài nguyên sẽ bị đánh dấu lỗi và không thể cấp phát cho khách hàng.`)) return;
-    try {
-      await api.markResourceError(resourceId);
-      if (resourceVariant) await loadResources(resourceVariant);
-    } catch { /* ignore */ }
-  };
-
-  const addResources = async () => {
-    if (!resourceVariant || !resourceText.trim()) return;
-    setAddingRes(true);
-    try {
-      const items = resourceText.split("\n").map((l) => l.trim()).filter(Boolean);
-      await api.addResources(resourceVariant, items);
-      setResourceText("");
-      await loadResources(resourceVariant);
-      onRefresh();
-    } catch { } finally { setAddingRes(false); }
   };
 
   return (
@@ -815,71 +766,250 @@ function VariantManager({ productId, variants, onRefresh }: {
       )}
 
       {variants.map((v) => (
-        <Card key={v.id} className="p-4">
-          <div className="flex items-start justify-between gap-2">
-            <div className="min-w-0 flex-1">
-              <div className="text-[13px] font-medium truncate">{v.name}</div>
-              <div className="flex items-center gap-2 mt-1">
-                {v.delivery_mode === "instant"
-                  ? <Tag tone="good"><Bolt size={10} /> Giao ngay</Tag>
-                  : <Tag tone="warn"><Clock size={10} /> {v.sla_hours}h</Tag>}
-                <Tag tone="iris">{v.duration_days ? `${v.duration_days} ngày` : "Vĩnh viễn"}</Tag>
-                <span className="font-mono text-[13px] font-semibold tabular">{vnd(v.price)}</span>
-              </div>
-              {v.delivery_mode === "instant" && (
-                <div className="text-[12px] text-muted mt-1">
-                  <Package size={12} className="inline -mt-0.5 mr-1" />{v.stock_count} trong kho
-                </div>
-              )}
-            </div>
-            <div className="flex items-center gap-1">
-              {v.delivery_mode === "instant" && (
-                <Button size="sm" variant="ghost" onClick={() => toggleResourcePanel(v.id)}>
-                  <Plus size={13} /> Kho
-                </Button>
-              )}
-              <Button size="sm" variant="ghost" className="text-bad hover:text-bad" onClick={() => removeVariant(v.id)}>
-                <Trash size={13} />
-              </Button>
-            </div>
-          </div>
-          {resourceVariant === v.id && (
-            <div className="mt-3 pt-3 border-t border-line space-y-3">
-              <Field label="Thêm tài nguyên vào kho" hint="Mỗi dòng là một item (credential/key/data)">
-                <Textarea rows={4} value={resourceText} onChange={(e) => setResourceText(e.target.value)}
-                  placeholder="tw1|pass|mail@ex.com|cookie&#10;tw2|pass|mail@ex.com|cookie" />
-              </Field>
-              <div className="flex gap-2">
-                <Button size="sm" disabled={addingRes} onClick={addResources}>
-                  {addingRes ? "Đang thêm…" : "Thêm vào kho"}
-                </Button>
-                <Button size="sm" variant="ghost" onClick={() => { setResourceVariant(null); setResourceText(""); setResources([]); }}>Huỷ</Button>
-              </div>
-              {loadingRes ? (
-                <Spinner />
-              ) : resources.length > 0 && (
-                <div className="space-y-1">
-                  <div className="text-[12px] font-medium text-muted">Tài nguyên ({resources.length})</div>
-                  {resources.map((r) => (
-                    <div key={r.id} className="flex items-center justify-between gap-2 py-1 text-[12px]">
-                      <div className="flex items-center gap-2 min-w-0">
-                        <span className="font-mono text-faint">#{r.id}</span>
-                        {r.status === "available" && <Tag tone="good">Sẵn sàng</Tag>}
-                        {r.status === "assigned" && <Tag tone="iris">Đang dùng</Tag>}
-                        {r.status === "expired" && <Tag tone="warn">Hết hạn</Tag>}
-                        {r.status === "error" && <Tag tone="bad">Lỗi</Tag>}
-                      </div>
-                      {(r.status === "available" || r.status === "assigned") && (
-                        <Button size="sm" variant="ghost" onClick={() => markError(r.id)}>Báo lỗi</Button>
-                      )}
-                    </div>
-                  ))}
-                </div>
-              )}
-            </div>
-          )}
-        </Card>
+        <VariantCard
+          key={v.id}
+          variant={v}
+          editing={editing === v.id}
+          onEdit={() => setEditing(v.id)}
+          onDone={() => setEditing(null)}
+          onRefresh={onRefresh}
+        />
       ))}
     </div>
+  );
+}
+
+/* Một biến thể là điều khoản bán: giao thế nào, dùng được bao lâu, giá bao nhiêu.
+   Sửa ngay tại chỗ — giá trị biến thành ô nhập đúng vị trí nó đang đứng, card
+   không nhảy và không mở hộp thoại. */
+function VariantCard({ variant: v, editing, onEdit, onDone, onRefresh }: {
+  variant: Variant; editing: boolean; onEdit: () => void; onDone: () => void; onRefresh: () => void;
+}) {
+  const [name, setName] = useState(v.name);
+  const [price, setPrice] = useState(String(v.price));
+  const [mode, setMode] = useState(v.delivery_mode);
+  const [sla, setSla] = useState(String(v.sla_hours));
+  const [duration, setDuration] = useState(v.duration_days ? String(v.duration_days) : "");
+  const [busy, setBusy] = useState(false);
+  const [err, setErr] = useState("");
+  const [stocking, setStocking] = useState(false);
+  const [paste, setPaste] = useState("");
+  const [stockMsg, setStockMsg] = useState("");
+
+  useEffect(() => {
+    if (!editing) {
+      setName(v.name); setPrice(String(v.price)); setMode(v.delivery_mode);
+      setSla(String(v.sla_hours)); setDuration(v.duration_days ? String(v.duration_days) : "");
+      setErr("");
+    }
+  }, [editing, v]);
+
+  const priceChanged = Number(price) !== v.price;
+
+  const save = async () => {
+    if (!name.trim() || !Number(price)) return;
+    setBusy(true);
+    setErr("");
+    try {
+      await api.updateVariant(v.id, {
+        name: name.trim(),
+        price: Number(price),
+        delivery_mode: mode,
+        sla_hours: Number(sla) || 24,
+        // null = vĩnh viễn; gửi hẳn null chứ không bỏ field, nếu không backend
+        // sẽ giữ nguyên thời hạn cũ và seller không xoá được nó.
+        duration_days: duration ? Number(duration) : null,
+      });
+      onDone();
+      onRefresh();
+    } catch (e) {
+      setErr(e instanceof ApiError ? e.message : "Không lưu được, thử lại.");
+    } finally { setBusy(false); }
+  };
+
+  const toggleActive = async () => {
+    setBusy(true);
+    setErr("");
+    try {
+      await api.updateVariant(v.id, { is_active: !v.is_active });
+      onRefresh();
+    } catch (e) {
+      setErr(e instanceof ApiError ? e.message : "Không đổi được trạng thái.");
+    } finally { setBusy(false); }
+  };
+
+  const addStock = async () => {
+    const lines = paste.split("\n").map((l) => l.trim()).filter(Boolean);
+    if (lines.length === 0) return;
+    setBusy(true);
+    setErr("");
+    try {
+      await api.addResources(v.id, lines);
+      setPaste("");
+      setStockMsg(`Đã nạp ${lines.length} dòng vào kho.`);
+      onRefresh();
+    } catch (e) {
+      setErr(e instanceof ApiError ? e.message : "Không nạp được hàng, thử lại.");
+    } finally { setBusy(false); }
+  };
+
+  const remove = async () => {
+    setBusy(true);
+    setErr("");
+    try {
+      await api.deleteVariant(v.id);
+      onRefresh();
+    } catch (e) {
+      // Backend chặn xoá khi gói còn kho hoặc đã có đơn, và nói rõ lý do — hiện
+      // nguyên văn thay vì im lặng như trước.
+      setErr(e instanceof ApiError ? e.message : "Không xoá được gói này.");
+      setBusy(false);
+    }
+  };
+
+  if (editing) {
+    return (
+      /* Giữ đúng cấu trúc 2 dòng của trạng thái đọc: tên ở dòng trên, điều khoản ở
+         dòng dưới, nút ở góc phải. Mỗi ô nhập đứng đúng chỗ giá trị nó thay thế,
+         nên card không phình ra và không đẩy các gói khác xuống. */
+      <Card className="p-4 border-iris/40">
+        <div className="flex items-start justify-between gap-2">
+          <div className="min-w-0 flex-1 space-y-2">
+            {/* Chiều rộng đặt ở div bọc ngoài, không phải className của Input/Select:
+                `cn` chỉ nối chuỗi (không dùng tailwind-merge), nên `w-…` truyền vào
+                sẽ đụng `w-full` sẵn có của component và thắng thua theo thứ tự CSS. */}
+            <Input
+              autoFocus
+              value={name}
+              onChange={(e) => setName(e.target.value)}
+              aria-label="Tên biến thể"
+              placeholder="Tên biến thể"
+              className="text-[13px] font-medium"
+            />
+            <div className="flex items-center gap-2 flex-wrap">
+              <div className="w-[130px]">
+                <Select value={mode} onChange={(e) => setMode(e.target.value)} aria-label="Cách giao hàng">
+                  <option value="instant">Giao ngay</option>
+                  <option value="manual">Thủ công</option>
+                </Select>
+              </div>
+              {mode === "manual" && (
+                <div className="flex items-center gap-1">
+                  <div className="w-[72px]">
+                    <Input type="number" min={1} value={sla} onChange={(e) => setSla(e.target.value)}
+                      aria-label="SLA, số giờ" className="tabular" />
+                  </div>
+                  <span className="text-[12px] text-faint">giờ</span>
+                </div>
+              )}
+              <div className="flex items-center gap-1">
+                <div className="w-[104px]">
+                  <Input type="number" min={1} value={duration} onChange={(e) => setDuration(e.target.value)}
+                    aria-label="Thời hạn sử dụng, số ngày. Để trống là vĩnh viễn"
+                    placeholder="Vĩnh viễn" className="tabular" />
+                </div>
+                <span className="text-[12px] text-faint">ngày</span>
+              </div>
+              <div className="flex items-center gap-1">
+                <div className="w-[124px]">
+                  <Input type="number" min={0} value={price} onChange={(e) => setPrice(e.target.value)}
+                    aria-label="Giá, đồng" className="font-mono tabular" />
+                </div>
+                <span className="text-[12px] text-faint">₫</span>
+              </div>
+            </div>
+          </div>
+          <div className="flex items-center gap-1 shrink-0">
+            <Button size="sm" disabled={busy || !name.trim() || !Number(price)} onClick={save}>
+              {busy ? "Đang lưu…" : "Lưu"}
+            </Button>
+            <Button size="sm" variant="ghost" onClick={onDone}>Huỷ</Button>
+          </div>
+        </div>
+
+        {priceChanged && (
+          <p className="text-[12px] text-muted mt-2">
+            Giá mới chỉ áp dụng cho đơn đặt sau khi lưu. Đơn đã mua giữ nguyên giá cũ.
+          </p>
+        )}
+        {err && <p className="text-[12px] text-bad mt-2">{err}</p>}
+      </Card>
+    );
+  }
+
+  return (
+    <Card className={cn("p-4", !v.is_active && "opacity-60")}>
+      <div className="flex items-start justify-between gap-2">
+        <div className="min-w-0 flex-1">
+          <div className="flex items-center gap-2">
+            <span className="text-[13px] font-medium truncate">{v.name}</span>
+            {!v.is_active && <Tag tone="neutral">Đang tắt</Tag>}
+          </div>
+          <div className="flex items-center gap-2 mt-1 flex-wrap">
+            {v.delivery_mode === "instant"
+              ? <Tag tone="good"><Bolt size={10} /> Giao ngay</Tag>
+              : <Tag tone="warn"><Clock size={10} /> {v.sla_hours}h</Tag>}
+            <Tag tone="iris">{v.duration_days ? `${v.duration_days} ngày` : "Vĩnh viễn"}</Tag>
+            <span className="font-mono text-[13px] font-semibold tabular">{vnd(v.price)}</span>
+          </div>
+          {v.delivery_mode === "instant" && (
+            <div className="flex items-center gap-2 mt-1.5 text-[12px]">
+              <span className={cn("inline-flex items-center gap-1", v.stock_count === 0 ? "text-bad" : "text-muted")}>
+                <Package size={12} />
+                {v.stock_count > 0 ? `${v.stock_count} trong kho` : "Chưa có hàng"}
+              </span>
+              <span className="text-line-2">·</span>
+              <button onClick={() => setStocking((s) => !s)}
+                className="text-iris-hi hover:underline cursor-pointer">
+                Nạp hàng
+              </button>
+              {/* Trỏ thẳng tới đúng gói này chứ không phải đầu danh sách — seller
+                  có thể có hàng chục gói. */}
+              <Link href={`/seller/inventory?variant=${v.id}`} className="text-faint hover:text-iris-hi transition-colors">
+                Xem kho
+              </Link>
+            </div>
+          )}
+        </div>
+        <div className="flex items-center gap-1 shrink-0">
+          <Button size="sm" variant="ghost" onClick={onEdit}><Edit2 size={13} /> Sửa</Button>
+          <Button size="sm" variant="ghost" disabled={busy} onClick={toggleActive}>
+            {v.is_active ? "Tắt bán" : "Bật bán"}
+          </Button>
+          <Button size="sm" variant="ghost" disabled={busy} className="text-bad hover:text-bad"
+            aria-label="Xoá gói" onClick={remove}>
+            <Trash size={13} />
+          </Button>
+        </div>
+      </div>
+
+      {/* Chỉ NẠP hàng, cố ý không liệt kê/sửa từng dòng ở đây: vừa tạo gói xong thì
+          việc cần làm ngay là bỏ hàng vào, còn truy dòng hỏng là việc của trang Kho
+          hàng. Dựng thêm một trình sửa dòng thứ hai ở đây chỉ tạo ra hai bản, bản
+          này dở hơn. */}
+      {stocking && (
+        <div className="mt-3 pt-3 border-t border-line space-y-2">
+          <textarea
+            autoFocus
+            rows={4}
+            value={paste}
+            onChange={(e) => setPaste(e.target.value)}
+            placeholder={"Mỗi dòng một sản phẩm\nuid1|pass1|mail1@vd.com\nuid2|pass2|mail2@vd.com"}
+            className="w-full font-mono text-[12px] rounded-lg border border-line bg-surface px-3 py-2 focus:border-iris focus:bg-panel focus:outline-none"
+          />
+          {stockMsg && <p className="text-[12px] text-good">{stockMsg}</p>}
+          <div className="flex items-center gap-2">
+            <Button size="sm" disabled={busy || !paste.trim()} onClick={addStock}>
+              {busy ? "Đang nạp…" : `Nạp ${paste.split("\n").filter((l) => l.trim()).length} dòng`}
+            </Button>
+            <Button size="sm" variant="ghost" onClick={() => { setStocking(false); setPaste(""); setStockMsg(""); }}>
+              Xong
+            </Button>
+          </div>
+        </div>
+      )}
+
+      {err && <p className="text-[12px] text-bad mt-2">{err}</p>}
+    </Card>
   );
 }

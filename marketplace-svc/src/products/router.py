@@ -20,6 +20,13 @@ async def get_product(product_id: int, db: AsyncSession = Depends(get_session)):
     return await service.get_product_detail(product_id, db)
 
 
+@router.get("/seller/products/{product_id}/detail", response_model=schemas.ProductDetailResponse)
+async def get_own_product(product_id: int, account: Account = Depends(require_role("seller")), db: AsyncSession = Depends(get_session)):
+    """Như /products/{id} nhưng kèm cả gói đã tắt — trang quản lý cần thấy chúng
+    để bật lại được."""
+    return await service.get_own_product_detail(product_id, account.id, db)
+
+
 @router.get("/seller/products")
 async def seller_products(account: Account = Depends(require_role("seller")), db: AsyncSession = Depends(get_session)):
     return await service.list_seller_products(account.id, db)

@@ -21,6 +21,16 @@ async def list_res(variant_id: int, account: Account = Depends(require_role("sel
     return await service.list_resources(variant_id, account.id, db)
 
 
+@router.get("/seller/inventory/summary", response_model=list[schemas.InventoryVariantSummary])
+async def inventory_summary(account: Account = Depends(require_role("seller")), db: AsyncSession = Depends(get_session)):
+    return await service.seller_inventory_summary(account.id, db)
+
+
+@router.patch("/seller/resources/{resource_id}", response_model=schemas.ResourceResponse)
+async def update_res(resource_id: int, body: schemas.ResourceUpdate, account: Account = Depends(require_role("seller")), db: AsyncSession = Depends(get_session)):
+    return await service.update_resource_data(resource_id, account.id, body.data, db)
+
+
 @router.delete("/seller/resources/{resource_id}", status_code=status.HTTP_204_NO_CONTENT)
 async def delete_res(resource_id: int, account: Account = Depends(require_role("seller")), db: AsyncSession = Depends(get_session)):
     await service.delete_resource(resource_id, account.id, db)

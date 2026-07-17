@@ -51,7 +51,16 @@ export default function TopNav() {
 
       {/* Nav */}
       <header className="sticky top-0 z-40 bg-surface/85 backdrop-blur-md border-b border-line">
-        <div className="mx-auto max-w-[1200px] px-6 h-16 flex items-center gap-6">
+        {/* px/gap hẹp lại ở màn nhỏ: logo + nút Nạp tiền + avatar vốn đã sát mép,
+            giữ nguyên px-6/gap-6 thì tràn vài px và kéo cả trang trôi ngang. */}
+        <div className="mx-auto max-w-[1200px] px-4 sm:px-6 h-16 flex items-center gap-3 sm:gap-6">
+          {/* Nút menu đứng ngoài cùng bên trái, trước logo: bên phải đã có ví +
+              Nạp tiền + avatar, nhét thêm vào đó thì chật và nút menu nằm lọt giữa
+              hai thứ không liên quan. */}
+          <button onClick={() => setMobileNavOpen((v) => !v)} title="Menu" aria-label="Menu" aria-expanded={mobileNavOpen}
+            className="md:hidden grid place-items-center h-9 w-9 -ml-1 rounded-lg text-muted hover:text-fg hover:bg-raised transition-colors shrink-0">
+            {mobileNavOpen ? <X size={18} /> : <Menu size={18} />}
+          </button>
           <Link href="/" aria-label="Proxora"><Logo /></Link>
           <nav className="hidden md:flex items-center gap-0.5 shrink-0">
             {NAV_LINKS.map((l) => {
@@ -67,10 +76,6 @@ export default function TopNav() {
             <Link href="/solutions" className="px-2.5 py-1.5 rounded-lg text-[13px] font-medium text-muted hover:text-fg hover:bg-raised transition-colors whitespace-nowrap">Giải pháp</Link>
           </nav>
           <div className="flex-1" />
-          <button onClick={() => setMobileNavOpen((v) => !v)} title="Menu" aria-label="Menu" aria-expanded={mobileNavOpen}
-            className="md:hidden grid place-items-center h-9 w-9 rounded-lg border border-line bg-surface text-muted hover:text-fg hover:border-line-2 transition-colors shrink-0">
-            {mobileNavOpen ? <X size={17} /> : <Menu size={17} />}
-          </button>
           {account ? (
             <div className="flex items-center gap-2.5">
               <Link href="/wallet" title="Số dư ví"

@@ -53,6 +53,10 @@ export default function SellerProducts() {
         </Card>
       ) : (
         <Card className="overflow-hidden">
+          {/* Bảng cuộn ngang trong chính nó: các cột đã ẩn bớt ở màn nhỏ nhưng phần
+              còn lại vẫn rộng hơn màn điện thoại, và Card overflow-hidden thì cắt
+              mất thay vì cho cuộn. */}
+          <div className="overflow-x-auto">
           <table className="w-full text-left border-collapse">
             <thead>
               <tr className="text-[12px] text-faint border-b border-line">
@@ -104,6 +108,7 @@ export default function SellerProducts() {
               })}
             </tbody>
           </table>
+          </div>
         </Card>
       )}
     </div>

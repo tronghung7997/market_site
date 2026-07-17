@@ -76,6 +76,13 @@ export interface ProductDetail extends Product {
   category_name: string | null;
 }
 
+export interface WithdrawPolicy {
+  tier: string;
+  /** null = không giới hạn (cấp enterprise). Khác với `withdraw_policy: null`,
+   *  nghĩa là tài khoản không phải seller nên không rút được. */
+  limit_per_request: number | null;
+}
+
 export interface Wallet {
   id: number;
   account_id: number;
@@ -84,12 +91,16 @@ export interface Wallet {
   locked_balance: number;
   balance: number;
   updated_at: string;
+  withdraw_policy?: WithdrawPolicy | null;
 }
 
 export interface Transaction {
   id: number;
   type: string;
   amount: number;
+  /** Tác động lên số dư khả dụng. Backend quyết định (models/wallet.py::
+   *  TRANSACTION_DIRECTION) — đừng suy diễn lại từ `type` ở phía client. */
+  direction: "in" | "out" | "neutral";
   description: string | null;
   reference_id: string | null;
   created_at: string;
@@ -100,7 +111,10 @@ export interface Order {
   id: number;
   buyer_id: number;
   seller_id: number;
-  variant_id: number;
+  // Exactly one of these is set: variant_id for stock/manual orders, product_id
+  // for orders fulfilled through a provider adapter.
+  variant_id: number | null;
+  product_id: number | null;
   quantity: number;
   total_amount: number;
   status: string;
@@ -295,6 +309,19 @@ export interface Resource {
   assigned_at: string | null;
   expires_at: string | null;
   created_at: string;
+}
+
+export interface InventoryVariant {
+  product_id: number;
+  product_title: string;
+  variant_id: number;
+  variant_name: string;
+  delivery_mode: string | null;
+  is_active: boolean;
+  available: number;
+  assigned: number;
+  expired: number;
+  error: number;
 }
 
 export interface AdminResource {

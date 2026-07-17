@@ -1,5 +1,6 @@
 from contextlib import asynccontextmanager
 
+import structlog
 from apscheduler.schedulers.asyncio import AsyncIOScheduler
 from fastapi import FastAPI
 from starlette.middleware.cors import CORSMiddleware
@@ -21,7 +22,8 @@ from src.providers.router import router as providers_router
 from src.tasks.router import router as tasks_router
 from src.resources.router import router as resources_router
 from src.reviews.router import router as reviews_router
-from src.scheduler import escrow_release_job, health_check_job, provider_scoring_job, resource_expire_job, sla_check_job
+from src.scheduler import escrow_release_job, health_check_job, provider_scoring_job, provision_sweep_job, resource_expire_job, sla_check_job
+from src.security.crypto import using_default_encryption_key
 from src.seller.router import router as seller_router
 from src.seller_api_keys.router import router as seller_api_keys_router
 from src.sellers.router import router as sellers_router
@@ -43,10 +45,21 @@ scheduler.add_job(sla_check_job, "interval", minutes=10, id="sla_check")
 scheduler.add_job(health_check_job, "interval", minutes=15, id="health_check")
 scheduler.add_job(resource_expire_job, "interval", minutes=15, id="resource_expire")
 scheduler.add_job(provider_scoring_job, "interval", minutes=15, id="provider_scoring")
+scheduler.add_job(provision_sweep_job, "interval", minutes=2, id="provision_sweep")
 
 
 @asynccontextmanager
 async def lifespan(app):
+    if using_default_encryption_key():
+        # Provider credentials are encrypted with a key derived from this value,
+        # so switching it later strands every api_key already stored — there is
+        # no recovery beyond re-entering each provider by hand.
+        structlog.get_logger().warning(
+            "insecure_default_encryption_key",
+            detail="ENCRYPTION_KEY chưa được set — provider credential đang mã hoá bằng "
+                   "khoá mặc định. Set trước khi thêm provider thật: đổi khoá về sau sẽ "
+                   "làm hỏng toàn bộ credential đã lưu.",
+        )
     scheduler.start()
     yield
     scheduler.shutdown()

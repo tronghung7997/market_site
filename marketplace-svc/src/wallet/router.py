@@ -4,6 +4,7 @@ from sqlalchemy.ext.asyncio import AsyncSession
 from src.auth.dependencies import get_current_account, require_role
 from src.database import get_session
 from src.models.account import Account
+from src.sellers.tiers import withdraw_limit
 
 from . import schemas, service
 
@@ -12,7 +13,14 @@ router = APIRouter(tags=["wallet"])
 
 @router.get("/wallet", response_model=schemas.WalletResponse)
 async def get_wallet(account: Account = Depends(get_current_account), db: AsyncSession = Depends(get_session)):
-    return await service.get_wallet_by_account(account.id, db)
+    wallet = await service.get_wallet_by_account(account.id, db)
+    resp = schemas.WalletResponse.model_validate(wallet)
+    if "seller" in (account.roles or []):
+        tier = account.seller_tier or "new"
+        resp.withdraw_policy = schemas.WithdrawPolicy(
+            tier=tier, limit_per_request=withdraw_limit(tier),
+        )
+    return resp
 
 
 @router.post("/wallet/topup", response_model=schemas.WalletResponse)

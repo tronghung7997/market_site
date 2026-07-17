@@ -4,7 +4,9 @@ from sqlalchemy.ext.asyncio import AsyncSession
 
 from src.exceptions import InsufficientCredit
 from src.models.account import Account
-from src.models.wallet import Transaction, TransactionType, Wallet, WithdrawRequest, WithdrawStatus
+from src.models.wallet import (
+    TRANSACTION_DIRECTION, Transaction, TransactionType, Wallet, WithdrawRequest, WithdrawStatus,
+)
 from src.sellers.tiers import withdraw_limit
 
 
@@ -109,7 +111,9 @@ async def get_transactions(account_id: int, db: AsyncSession) -> list[dict]:
             except ValueError:
                 pass
         out.append({
-            "id": t.id, "type": t.type, "amount": t.amount, "description": t.description,
+            "id": t.id, "type": t.type, "amount": t.amount,
+            "direction": TRANSACTION_DIRECTION[t.type].value,
+            "description": t.description,
             "reference_id": t.reference_id, "created_at": t.created_at, "order_status": status,
         })
     return out

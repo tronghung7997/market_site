@@ -10,6 +10,9 @@ from src.models.order import Order, OrderStatus
 from src.models.provider import Provider
 from src.models.resource import Resource, ResourceStatus
 
+# Cột duy nhất của ProductVariant cho phép null — xem update_variant.
+NULLABLE_VARIANT_FIELDS = {"duration_days"}
+
 
 async def create_product(seller_id: int, data: dict, db: AsyncSession) -> Product:
     product = Product(seller_id=seller_id, **data)
@@ -92,20 +95,52 @@ async def update_variant(variant_id: int, seller_id: int, data: dict, db: AsyncS
     if product.seller_id != seller_id:
         raise NotOwner()
     for key, value in data.items():
-        if value is not None:
-            setattr(variant, key, value)
+        # Router đã lọc field không gửi (exclude_unset), nên None ở đây là seller
+        # CHỦ Ý xoá giá trị. Chỉ chấp nhận với cột cho phép null — nếu không thì
+        # duration_days đặt rồi sẽ không bao giờ trả về "vĩnh viễn" được nữa.
+        if value is None and key not in NULLABLE_VARIANT_FIELDS:
+            continue
+        setattr(variant, key, value)
     await db.commit()
     await db.refresh(variant)
     return variant
 
 
 async def delete_variant(variant_id: int, seller_id: int, db: AsyncSession) -> None:
+    """Xoá một gói sản phẩm.
+
+    Chặn khi gói còn tài nguyên hoặc đã có đơn: cả hai đều là FK trỏ tới đây, nên
+    trước đây lệnh xoá ném ForeignKeyViolationError thành 500 và seller bấm nút
+    thì không thấy gì xảy ra. Với gói đã bán thì xoá cũng là sai — lịch sử đơn cần
+    giữ lại; muốn dừng bán thì tắt gói (`is_active = false`).
+    """
     variant = await db.get(ProductVariant, variant_id)
     if not variant:
         raise HTTPException(status_code=404, detail="Không tìm thấy gói sản phẩm")
     product = await db.get(Product, variant.product_id)
     if product.seller_id != seller_id:
         raise NotOwner()
+
+    order_count = await db.scalar(
+        select(func.count()).select_from(Order).where(Order.variant_id == variant_id)
+    )
+    if order_count:
+        raise HTTPException(
+            status_code=400,
+            detail=f"Gói này đã có {order_count} đơn hàng nên không xoá được — lịch sử "
+                   f"đơn phải giữ lại. Hãy tắt bán gói này thay vì xoá.",
+        )
+
+    resource_count = await db.scalar(
+        select(func.count()).select_from(Resource).where(Resource.variant_id == variant_id)
+    )
+    if resource_count:
+        raise HTTPException(
+            status_code=400,
+            detail=f"Gói này còn {resource_count} tài nguyên trong kho. Xoá hết tài nguyên "
+                   f"ở trang Kho hàng trước, hoặc tắt bán gói này thay vì xoá.",
+        )
+
     await db.delete(variant)
     await db.commit()
 
@@ -183,7 +218,24 @@ async def get_seller_stats(seller_id: int, db: AsyncSession) -> dict:
     }
 
 
-async def get_product_detail(product_id: int, db: AsyncSession) -> dict:
+async def get_own_product_detail(product_id: int, seller_id: int, db: AsyncSession) -> dict:
+    product = await db.get(Product, product_id)
+    if not product:
+        raise HTTPException(status_code=404, detail="Không tìm thấy sản phẩm")
+    if product.seller_id != seller_id:
+        raise NotOwner()
+    return await get_product_detail(product_id, db, include_inactive_variants=True)
+
+
+async def get_product_detail(
+    product_id: int, db: AsyncSession, *, include_inactive_variants: bool = False
+) -> dict:
+    """Chi tiết sản phẩm.
+
+    Trang mua chỉ thấy gói đang bật. Trang quản lý của seller phải thấy cả gói đã
+    tắt — nếu không, tắt bán xong là gói biến mất khỏi chính trang sửa và seller
+    không còn đường bật lại.
+    """
     product = await db.get(Product, product_id)
     if not product:
         raise HTTPException(status_code=404, detail="Không tìm thấy sản phẩm")
@@ -191,8 +243,11 @@ async def get_product_detail(product_id: int, db: AsyncSession) -> dict:
     seller = await db.get(Account, product.seller_id)
     category = await db.get(Category, product.category_id)
 
+    variant_filter = [ProductVariant.product_id == product_id]
+    if not include_inactive_variants:
+        variant_filter.append(ProductVariant.is_active)
     variants_result = await db.execute(
-        select(ProductVariant).where(ProductVariant.product_id == product_id, ProductVariant.is_active).order_by(ProductVariant.sort_order)
+        select(ProductVariant).where(*variant_filter).order_by(ProductVariant.sort_order)
     )
     variants = list(variants_result.scalars().all())
 

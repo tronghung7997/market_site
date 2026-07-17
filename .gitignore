@@ -4,3 +4,6 @@ docker-compose.yml
 pgdata/
 .idea
 .playwright-mcp
+docker-compose.dev.yml
+./marketplace-svc/Dockerfile
+./frontend/Dockerfile

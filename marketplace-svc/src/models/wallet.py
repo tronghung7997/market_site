@@ -17,6 +17,41 @@ class TransactionType(str, PyEnum):
     withdraw_unlock = "withdraw_unlock"
     refund = "refund"
     affiliate_commission = "affiliate_commission"
+    # Bút toán đối soát: sổ giao dịch và available_balance lệch nhau vì migration
+    # q1a2b3c4d5e6 chuyển tiền giữa các lớp số dư bằng SQL thô, không ghi sổ.
+    # Không sửa quá khứ — ghi nhận chênh lệch để sổ cộng ra đúng số dư từ đây.
+    adjustment_credit = "adjustment_credit"
+    adjustment_debit = "adjustment_debit"
+
+
+class TransactionDirection(str, PyEnum):
+    in_ = "in"
+    out = "out"
+    neutral = "neutral"
+
+
+# Nguồn sự thật duy nhất về việc mỗi loại giao dịch tác động available_balance ra
+# sao. Trước đây frontend tự suy diễn bằng một set 3 phần tử và mặc định phủ định
+# ("không nằm trong set thì là tiền ra"), nên mọi loại quên liệt kê đều âm thầm bị
+# tính là tiền ra — đó chính là bug làm tổng vào/ra không cộng ra được số dư.
+# Mọi thay đổi available_balance đều ghi kèm một Transaction đúng số tiền, nên:
+#   Σ(in) − Σ(out) == available_balance
+# Mọi amount đều dương; dấu suy ra từ đây, không bao giờ từ giá trị.
+TRANSACTION_DIRECTION: dict[str, TransactionDirection] = {
+    TransactionType.topup: TransactionDirection.in_,
+    TransactionType.purchase_release: TransactionDirection.in_,
+    TransactionType.refund: TransactionDirection.in_,
+    TransactionType.affiliate_commission: TransactionDirection.in_,
+    TransactionType.withdraw_unlock: TransactionDirection.in_,
+    TransactionType.platform_fee: TransactionDirection.in_,
+    TransactionType.adjustment_credit: TransactionDirection.in_,
+    TransactionType.purchase_hold: TransactionDirection.out,
+    TransactionType.withdraw_lock: TransactionDirection.out,
+    TransactionType.adjustment_debit: TransactionDirection.out,
+    # Tiền đã rời available từ lúc withdraw_lock; dòng này chỉ rút khỏi
+    # locked_balance. Tính nó là tiền ra nữa là đếm hai lần.
+    TransactionType.withdraw: TransactionDirection.neutral,
+}
 
 
 class WithdrawStatus(str, PyEnum):

@@ -26,7 +26,16 @@ def run_migrations_offline() -> None:
 
 
 def do_run_migrations(connection) -> None:
-    context.configure(connection=connection, target_metadata=target_metadata)
+    # transaction_per_migration: each revision commits on its own instead of the
+    # whole chain sharing one transaction. Required by v1a2b3c4d5e6 -> w1a2b3c4d5e6,
+    # since Postgres refuses to use an enum value that was added but not yet
+    # committed. Trade-off: a failure part-way through leaves earlier revisions
+    # applied, which is also what `alembic upgrade` one-at-a-time would do.
+    context.configure(
+        connection=connection,
+        target_metadata=target_metadata,
+        transaction_per_migration=True,
+    )
     with context.begin_transaction():
         context.run_migrations()
 

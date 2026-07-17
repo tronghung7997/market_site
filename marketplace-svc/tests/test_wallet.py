@@ -119,3 +119,66 @@ async def test_reject_withdrawal_returns_to_available(client):
     wallet = (await client.get("/wallet", headers={"Authorization": f"Bearer {seller_token}"})).json()
     assert wallet["available_balance"] == 1_000_000
     assert wallet["locked_balance"] == 0
+
+
+# ---------------------------------------------------------------------------
+# Ledger direction — Σ(in) − Σ(out) must equal available_balance
+# ---------------------------------------------------------------------------
+
+
+def test_every_transaction_type_has_a_direction():
+    """The bug this guards: the wallet UI used to classify by negation — anything
+    not in a hand-written credit set counted as money out. A type added without a
+    direction here would silently break the totals again."""
+    from src.models.wallet import TRANSACTION_DIRECTION, TransactionType
+
+    missing = [t.value for t in TransactionType if t not in TRANSACTION_DIRECTION]
+    assert missing == [], f"TransactionType thiếu direction: {missing}"
+
+
+@pytest.mark.asyncio
+async def test_transactions_expose_direction(client):
+    token = await register_and_login(client, "wallet_dir@example.com")
+    admin_token = await register_and_login(client, "wallet_dir_admin@example.com")
+    await make_admin("wallet_dir_admin@example.com")
+    admin_token = await register_and_login(client, "wallet_dir_admin@example.com")
+
+    me = (await client.get("/me", headers={"Authorization": f"Bearer {token}"})).json()
+    await client.post("/wallet/topup", json={"account_id": me["id"], "amount": 50_000},
+                      headers={"Authorization": f"Bearer {admin_token}"})
+
+    txs = (await client.get("/wallet/transactions",
+                            headers={"Authorization": f"Bearer {token}"})).json()
+    assert [t["direction"] for t in txs] == ["in"]
+
+
+@pytest.mark.asyncio
+async def test_ledger_sums_to_available_balance_across_a_full_lifecycle(client):
+    """Walks a wallet through every mutation that touches available_balance and
+    asserts the ledger still adds up — the property the wallet page reports."""
+    from src.models.wallet import TransactionDirection
+
+    seller_token, admin_token = await _seller_with_balance(client, "wallet_recon@example.com", 1_000_000)
+
+    # Approved withdrawal: locks, then draws down locked only.
+    approved = (await client.post("/wallet/withdraw", json={"amount": 300_000},
+                                  headers={"Authorization": f"Bearer {seller_token}"})).json()
+    await client.post(f"/admin/withdrawals/{approved['id']}/approve",
+                      headers={"Authorization": f"Bearer {admin_token}"})
+
+    # Rejected withdrawal: locks, then returns the money.
+    rejected = (await client.post("/wallet/withdraw", json={"amount": 200_000},
+                                  headers={"Authorization": f"Bearer {seller_token}"})).json()
+    await client.post(f"/admin/withdrawals/{rejected['id']}/reject",
+                      headers={"Authorization": f"Bearer {admin_token}"})
+
+    txs = (await client.get("/wallet/transactions",
+                            headers={"Authorization": f"Bearer {seller_token}"})).json()
+    wallet = (await client.get("/wallet", headers={"Authorization": f"Bearer {seller_token}"})).json()
+
+    total_in = sum(t["amount"] for t in txs if t["direction"] == TransactionDirection.in_.value)
+    total_out = sum(t["amount"] for t in txs if t["direction"] == TransactionDirection.out.value)
+    assert total_in - total_out == wallet["available_balance"]
+
+    # And the `withdraw` row is what would double-count if it were an outflow.
+    assert [t["direction"] for t in txs if t["type"] == "withdraw"] == ["neutral"]

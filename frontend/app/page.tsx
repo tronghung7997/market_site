@@ -188,7 +188,10 @@ function HomeInner() {
         <section className="border-y border-line bg-surface">
           <div className="w-full mx-auto max-w-[1200px] px-6 py-12">
             <SectionHead title="Nổi bật tuần này" sub="Hàng sẵn kho, giao ngay" />
-            <div className="grid gap-5 md:grid-cols-3">
+            {/* [&>*]:min-w-0 — grid item mặc định min-width:auto, nên phần text
+                `truncate` (nowrap) bên trong đẩy cả cột rộng ra thay vì bị cắt,
+                kéo trang trôi ngang trên điện thoại. */}
+            <div className="grid gap-5 md:grid-cols-3 [&>*]:min-w-0">
               {featured.map((p) => {
                 const mp = minPrice(p);
                 return (
@@ -361,6 +364,9 @@ function HomeInner() {
 
         {!loading && visible.length > 0 && (view === "table" ? (
           <Card className="overflow-hidden">
+            {/* Bảng rộng hơn màn điện thoại; Card overflow-hidden thì cắt mất phần
+                thừa và không cuộn tới được. Cho nó cuộn ngang trong chính nó. */}
+            <div className="overflow-x-auto">
             <table className="w-full text-left border-collapse">
               <thead>
                 <tr className="text-[12px] text-faint border-b border-line">
@@ -402,6 +408,7 @@ function HomeInner() {
                 })}
               </tbody>
             </table>
+            </div>
           </Card>
         ) : (
           <div className="grid gap-4 [grid-template-columns:repeat(auto-fill,minmax(280px,1fr))]">

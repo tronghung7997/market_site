@@ -7,6 +7,23 @@ class BulkResourceCreate(BaseModel):
     items: list[str]
 
 
+class ResourceUpdate(BaseModel):
+    data: str
+
+
+class InventoryVariantSummary(BaseModel):
+    product_id: int
+    product_title: str
+    variant_id: int
+    variant_name: str
+    delivery_mode: str | None = None
+    is_active: bool
+    available: int
+    assigned: int
+    expired: int
+    error: int
+
+
 class BulkResourceResponse(BaseModel):
     count: int
 

@@ -1,3 +1,4 @@
+import asyncio
 from datetime import datetime, timedelta, timezone
 
 from fastapi import HTTPException
@@ -5,6 +6,8 @@ from sqlalchemy import func, select
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from src.adapters.factory import get_adapter
+from src.adapters.real_api import RealApiAdapter
+from src.database import SessionLocal
 from src.models.account import Account
 from src.models.order import Dispute, Order, OrderStatus
 from src.models.resource import Resource
@@ -16,6 +19,8 @@ from src.audit.service import log_event, query_logs
 from src.logging import current_request_id
 from src.sellers.tiers import escrow_days as tier_escrow_days
 from src.wallet.service import deduct_credit, refund_escrow, release_escrow
+
+_background_tasks: set[asyncio.Task] = set()
 
 
 async def create_order(buyer_id: int, variant_id: int, quantity: int, db: AsyncSession) -> Order:
@@ -70,58 +75,11 @@ async def create_order(buyer_id: int, variant_id: int, quantity: int, db: AsyncS
     return order
 
 
-async def create_order_with_adapter(
-    buyer_id: int, product_id: int, user_config: dict, db: AsyncSession
-) -> Order:
-    """New flow: pricing engine + provider adapter.
-
-    Giá và quantity hiệu dụng lấy từ engine quote — không nhân thêm lần nào.
-    """
-    product = await db.get(Product, product_id)
-    if not product or product.status != ProductStatus.active:
-        raise HTTPException(status_code=400, detail="Sản phẩm hiện không khả dụng")
-    if not product.provider_id:
-        raise HTTPException(status_code=400, detail="Sản phẩm chưa được cấu hình nhà cung cấp")
-    if product.seller_id == buyer_id:
-        raise HTTPException(status_code=400, detail="Không thể mua sản phẩm của chính mình")
-
-    q = await quote_product(product, user_config, db)
-    total_amount = q.amount
-
-    order = Order(
-        buyer_id=buyer_id,
-        seller_id=product.seller_id,
-        product_id=product_id,
-        quantity=q.quantity,
-        total_amount=total_amount,
-        status=OrderStatus.pending,
-    )
-    db.add(order)
-    await db.flush()
-
-    await deduct_credit(
-        buyer_id, total_amount,
-        f"Mua {product.title} (x{q.quantity})", f"order-{order.id}", db,
-    )
-
-    rid = current_request_id()
-
-    try:
-        adapter = await get_adapter(product.provider_id, db)
-        provision_config = {**user_config, "service_type": product.service_type}
-        provision_result = await adapter.provision(order.id, provision_config)
-    except Exception as e:
-        # Adapter load or provision failed — refund and cancel
-        await refund_escrow(order.id, buyer_id, total_amount, db)
-        order.status = OrderStatus.cancelled
-        await log_event(
-            db, "error", f"Order {order.id} adapter error: {e}", request_id=rid,
-            metadata={"event": "order_adapter_error", "order_id": order.id, "error": str(e)},
-        )
-        await db.commit()
-        await db.refresh(order)
-        return order
-
+async def _apply_provision_result(
+    order: Order, product: Product, provision_result, db: AsyncSession, rid: str | None
+) -> None:
+    """Move an order to its post-provision state. Shared by all three callers:
+    the inline path, the background task, and the stuck-order sweeper."""
     if provision_result.success:
         if (provision_result.metadata or {}).get("async_fulfillment"):
             # Xử lý thủ công: order chờ task hoàn thành, chưa bắt đầu escrow
@@ -144,13 +102,8 @@ async def create_order_with_adapter(
                 metadata={"event": "order_provisioned", "order_id": order.id,
                            "resource_id": provision_result.resource_id},
             )
-        await log_event(
-            db, "info", f"Order {order.id} placed (adapter)", request_id=rid,
-            metadata={"event": "order_placed", "order_id": order.id, "buyer_id": buyer_id,
-                       "seller_id": product.seller_id, "amount": total_amount},
-        )
     else:
-        await refund_escrow(order.id, buyer_id, total_amount, db)
+        await refund_escrow(order.id, order.buyer_id, order.total_amount, db)
         order.status = OrderStatus.cancelled
         await log_event(
             db, "error", f"Order {order.id} provision failed: {provision_result.error}", request_id=rid,
@@ -158,9 +111,150 @@ async def create_order_with_adapter(
                        "error": provision_result.error},
         )
 
+
+async def create_order_with_adapter(
+    buyer_id: int, product_id: int, user_config: dict, db: AsyncSession
+) -> Order:
+    """New flow: pricing engine + provider adapter.
+
+    Giá và quantity hiệu dụng lấy từ engine quote — không nhân thêm lần nào.
+
+    Adapter gọi mạng (RealApiAdapter) được hoãn sang background: đơn commit ở
+    `pending` rồi provision sau, nên request không giữ transaction mở suốt thời
+    gian gọi HTTP (worst case ~16.5s). Các adapter thuần DB chạy inline như cũ —
+    chúng nhanh, và SellerPoolAdapter phải claim tồn kho ngay trong transaction,
+    nếu hoãn thì hai buyer có thể cùng đặt món cuối cùng.
+    """
+    product = await db.get(Product, product_id)
+    if not product or product.status != ProductStatus.active:
+        raise HTTPException(status_code=400, detail="Sản phẩm hiện không khả dụng")
+    if not product.provider_id:
+        raise HTTPException(status_code=400, detail="Sản phẩm chưa được cấu hình nhà cung cấp")
+    if product.seller_id == buyer_id:
+        raise HTTPException(status_code=400, detail="Không thể mua sản phẩm của chính mình")
+
+    q = await quote_product(product, user_config, db)
+    total_amount = q.amount
+
+    order = Order(
+        buyer_id=buyer_id,
+        seller_id=product.seller_id,
+        product_id=product_id,
+        quantity=q.quantity,
+        total_amount=total_amount,
+        status=OrderStatus.pending,
+        user_config=user_config,
+    )
+    db.add(order)
+    await db.flush()
+
+    await deduct_credit(
+        buyer_id, total_amount,
+        f"Mua {product.title} (x{q.quantity})", f"order-{order.id}", db,
+    )
+
+    rid = current_request_id()
+
+    try:
+        adapter = await get_adapter(product.provider_id, db)
+    except Exception as e:
+        await refund_escrow(order.id, buyer_id, total_amount, db)
+        order.status = OrderStatus.cancelled
+        await log_event(
+            db, "error", f"Order {order.id} adapter error: {e}", request_id=rid,
+            metadata={"event": "order_adapter_error", "order_id": order.id, "error": str(e)},
+        )
+        await db.commit()
+        await db.refresh(order)
+        return order
+
+    await log_event(
+        db, "info", f"Order {order.id} placed (adapter)", request_id=rid,
+        metadata={"event": "order_placed", "order_id": order.id, "buyer_id": buyer_id,
+                   "seller_id": product.seller_id, "amount": total_amount},
+    )
+
+    if isinstance(adapter, RealApiAdapter):
+        # Commit first so the order survives on its own, then provision outside
+        # this transaction. If the task never runs (process dies), the order sits
+        # at `pending` and provision_sweep_job picks it up — retrying is safe
+        # because the Idempotency-Key is deterministic per order id.
+        await db.commit()
+        await db.refresh(order)
+        spawn_provision(order.id)
+        return order
+
+    try:
+        provision_config = {**user_config, "service_type": product.service_type}
+        provision_result = await adapter.provision(order.id, provision_config)
+    except Exception as e:
+        await refund_escrow(order.id, buyer_id, total_amount, db)
+        order.status = OrderStatus.cancelled
+        await log_event(
+            db, "error", f"Order {order.id} adapter error: {e}", request_id=rid,
+            metadata={"event": "order_adapter_error", "order_id": order.id, "error": str(e)},
+        )
+        await db.commit()
+        await db.refresh(order)
+        return order
+
+    await _apply_provision_result(order, product, provision_result, db, rid)
+
     await db.commit()
     await db.refresh(order)
     return order
+
+
+async def provision_pending_order(order_id: int) -> None:
+    """Provision an order that was committed at `pending`, on a fresh session.
+
+    Runs both as the background task spawned by create_order_with_adapter and as
+    the retry body of provision_sweep_job, which can collide on the same order.
+
+    The row is locked FOR UPDATE for the duration: without it both callers read
+    `pending`, both call the provider, and on a rejection both call refund_escrow
+    — paying the buyer back twice. The Idempotency-Key protects the provider side
+    of a duplicate, not the wallet. The lock costs holding one connection across
+    the provider call, which is acceptable here (background task, one order row)
+    but is why the request path must never call this inline.
+    """
+    async with SessionLocal() as db:
+        order = await db.get(Order, order_id, with_for_update=True)
+        if order is None or order.status != OrderStatus.pending:
+            return
+        product = await db.get(Product, order.product_id) if order.product_id else None
+        if product is None or not product.provider_id:
+            return
+
+        try:
+            adapter = await get_adapter(product.provider_id, db)
+            provision_config = {**(order.user_config or {}), "service_type": product.service_type}
+            provision_result = await adapter.provision(order.id, provision_config)
+        except Exception as e:
+            # Leave the order at `pending` — the sweeper retries, and only gives up
+            # (refund + cancel) once the order is past its deadline.
+            await log_event(
+                db, "error", f"Order {order.id} background provision error: {e}",
+                metadata={"event": "order_provision_error", "order_id": order.id, "error": str(e)},
+            )
+            await db.commit()
+            return
+
+        await _apply_provision_result(order, product, provision_result, db, None)
+        await db.commit()
+
+
+def spawn_provision(order_id: int) -> None:
+    """Fire provisioning off the request path.
+
+    Kept as a module-level indirection so tests can drive provisioning
+    deterministically instead of racing an orphan task.
+    """
+    task = asyncio.create_task(provision_pending_order(order_id))
+    # asyncio only holds a weak reference to running tasks; without this the task
+    # can be garbage-collected mid-flight.
+    _background_tasks.add(task)
+    task.add_done_callback(_background_tasks.discard)
 
 
 async def confirm_order(order_id: int, buyer_id: int, db: AsyncSession) -> Order:

@@ -1,5 +1,5 @@
 from fastapi import HTTPException
-from sqlalchemy import select
+from sqlalchemy import func, select
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from src.exceptions import NotOwner, ResourceUnavailable
@@ -33,6 +33,73 @@ async def list_resources(variant_id: int, seller_id: int, db: AsyncSession) -> l
         select(Resource).where(Resource.variant_id == variant_id).order_by(Resource.created_at.desc())
     )
     return list(result.scalars().all())
+
+
+async def update_resource_data(resource_id: int, seller_id: int, data: str, db: AsyncSession) -> Resource:
+    """Sửa nội dung một tài nguyên còn trong kho.
+
+    Chỉ cho sửa khi `available`. Tài nguyên đã giao thì `Order.delivered_data` là
+    bản sao chụp lúc giao — sửa ở đây không đổi được thứ buyer đang cầm, nên cho
+    sửa sẽ khiến seller tưởng đã vá cho khách trong khi không.
+    """
+    resource = await db.get(Resource, resource_id)
+    if not resource:
+        raise HTTPException(status_code=404, detail="Không tìm thấy tài nguyên")
+    if resource.seller_id != seller_id:
+        raise NotOwner()
+    if resource.status != ResourceStatus.available:
+        raise HTTPException(
+            status_code=400,
+            detail="Chỉ sửa được tài nguyên còn trong kho. Tài nguyên đã giao thì "
+                   "người mua đã nhận bản cũ — hãy xử lý qua khiếu nại của đơn.",
+        )
+    if not data.strip():
+        raise HTTPException(status_code=400, detail="Nội dung không được để trống")
+    resource.data = data.strip()
+    await db.commit()
+    await db.refresh(resource)
+    return resource
+
+
+async def seller_inventory_summary(seller_id: int, db: AsyncSession) -> list[dict]:
+    """Đếm tồn kho theo từng gói sản phẩm của seller.
+
+    Trả cả gói chưa có tài nguyên nào (outer join) — gói hết sạch hàng chính là
+    thứ seller cần thấy nhất, mà inner join sẽ giấu đi.
+    """
+    from src.models.product import Product
+
+    rows = await db.execute(
+        select(
+            Product.id, Product.title, ProductVariant.id, ProductVariant.name,
+            ProductVariant.delivery_mode, ProductVariant.is_active,
+            Resource.status, func.count(Resource.id),
+        )
+        .select_from(Product)
+        .join(ProductVariant, ProductVariant.product_id == Product.id)
+        .outerjoin(Resource, Resource.variant_id == ProductVariant.id)
+        .where(Product.seller_id == seller_id)
+        .group_by(
+            Product.id, Product.title, ProductVariant.id, ProductVariant.name,
+            ProductVariant.delivery_mode, ProductVariant.is_active, Resource.status,
+        )
+        # Product.id nằm trong khoá sắp xếp vì tên sản phẩm KHÔNG duy nhất — thiếu
+        # nó thì variant của hai sản phẩm trùng tên sẽ xen kẽ nhau.
+        .order_by(Product.title, Product.id, ProductVariant.sort_order)
+    )
+
+    by_variant: dict[int, dict] = {}
+    for product_id, title, variant_id, variant_name, delivery_mode, is_active, res_status, count in rows.all():
+        entry = by_variant.setdefault(variant_id, {
+            "product_id": product_id, "product_title": title,
+            "variant_id": variant_id, "variant_name": variant_name,
+            "delivery_mode": delivery_mode.value if delivery_mode else None,
+            "is_active": is_active,
+            "available": 0, "assigned": 0, "expired": 0, "error": 0,
+        })
+        if res_status is not None:
+            entry[res_status.value] = count
+    return list(by_variant.values())
 
 
 async def delete_resource(resource_id: int, seller_id: int, db: AsyncSession) -> None:

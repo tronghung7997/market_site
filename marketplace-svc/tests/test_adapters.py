@@ -326,3 +326,250 @@ class TestRealApiAdapter:
 
         adapter = RealApiAdapter({"base_url": "https://api.example.com", "api_key": encrypt_str("plain-key")})
         assert adapter.api_key == "plain-key"
+
+    @pytest.mark.asyncio
+    async def test_test_provision_uses_a_fresh_key_each_call(self, monkeypatch):
+        """order_id=0 is the admin "test provider" button. A fixed key there would
+        let the provider replay the first test's cached response forever."""
+        import httpx
+        from src.adapters.real_api import RealApiAdapter
+
+        ok = httpx.Response(
+            200, json={"success": True, "data": "d", "resource_id": "r"},
+            request=httpx.Request("POST", "https://api.example.com/provision"),
+        )
+        mock_request = AsyncMock(return_value=ok)
+        monkeypatch.setattr(httpx.AsyncClient, "request", mock_request)
+
+        adapter = RealApiAdapter({"base_url": "https://api.example.com"})
+        await adapter.provision(order_id=0, user_config={"test": True})
+        await adapter.provision(order_id=0, user_config={"test": True})
+
+        keys = [c.kwargs["headers"]["Idempotency-Key"] for c in mock_request.call_args_list]
+        assert keys[0] != keys[1]
+        assert all(k.startswith("test-") for k in keys)
+
+    @pytest.mark.asyncio
+    async def test_real_order_key_stays_deterministic(self, monkeypatch):
+        import httpx
+        from src.adapters.real_api import RealApiAdapter
+
+        ok = httpx.Response(
+            200, json={"success": True, "data": "d", "resource_id": "r"},
+            request=httpx.Request("POST", "https://api.example.com/provision"),
+        )
+        mock_request = AsyncMock(return_value=ok)
+        monkeypatch.setattr(httpx.AsyncClient, "request", mock_request)
+
+        adapter = RealApiAdapter({"base_url": "https://api.example.com"})
+        await adapter.provision(order_id=7, user_config={})
+        await adapter.provision(order_id=7, user_config={})
+
+        keys = [c.kwargs["headers"]["Idempotency-Key"] for c in mock_request.call_args_list]
+        assert keys == ["order-7-provision", "order-7-provision"]
+
+
+# ---------------------------------------------------------------------------
+# ProviderCallLog tests — these need a real provider row (provider_id is an FK)
+# ---------------------------------------------------------------------------
+
+
+async def _make_real_provider(adapter_type: str = "topproxy") -> int:
+    from src.database import SessionLocal
+    from src.models.provider import Provider
+
+    async with SessionLocal() as db:
+        p = Provider(
+            name="LogTest", type="proxy", adapter_type=adapter_type,
+            config={"base_url": "https://api.example.com"}, is_active=True,
+        )
+        db.add(p)
+        await db.commit()
+        return p.id
+
+
+async def _fetch_logs(provider_id: int):
+    from sqlalchemy import select
+
+    from src.database import SessionLocal
+    from src.models.provider import ProviderCallLog
+
+    async with SessionLocal() as db:
+        rows = await db.execute(
+            select(ProviderCallLog)
+            .where(ProviderCallLog.provider_id == provider_id)
+            .order_by(ProviderCallLog.attempt)
+        )
+        return list(rows.scalars().all())
+
+
+class TestProviderCallLog:
+    @pytest.fixture(autouse=True)
+    def _no_sleep(self, monkeypatch):
+        monkeypatch.setattr("src.adapters.real_api.asyncio.sleep", AsyncMock())
+
+    @pytest.mark.asyncio
+    async def test_successful_provision_records_one_row(self, monkeypatch):
+        import httpx
+        from src.adapters.real_api import RealApiAdapter
+
+        provider_id = await _make_real_provider()
+        ok = httpx.Response(
+            200, json={"success": True, "data": "d", "resource_id": "r"},
+            request=httpx.Request("POST", "https://api.example.com/provision"),
+        )
+        monkeypatch.setattr(httpx.AsyncClient, "request", AsyncMock(return_value=ok))
+
+        adapter = RealApiAdapter({"base_url": "https://api.example.com"}, provider_id=provider_id)
+        await adapter.provision(order_id=99, user_config={})
+
+        logs = await _fetch_logs(provider_id)
+        assert len(logs) == 1
+        assert logs[0].operation == "provision"
+        assert logs[0].method == "POST"
+        assert logs[0].path == "/provision"
+        assert logs[0].status_code == 200
+        assert logs[0].success is True
+        assert logs[0].attempt == 1
+        assert logs[0].order_id == 99
+        assert logs[0].idempotency_key == "order-99-provision"
+        assert logs[0].latency_ms >= 0
+        assert logs[0].error is None
+
+    @pytest.mark.asyncio
+    async def test_retries_record_one_row_per_attempt(self, monkeypatch):
+        import httpx
+        from src.adapters.real_api import RealApiAdapter
+
+        provider_id = await _make_real_provider()
+        fail = httpx.Response(500, request=httpx.Request("POST", "https://api.example.com/provision"))
+        ok = httpx.Response(
+            200, json={"success": True, "data": "d", "resource_id": "r"},
+            request=httpx.Request("POST", "https://api.example.com/provision"),
+        )
+        monkeypatch.setattr(httpx.AsyncClient, "request", AsyncMock(side_effect=[fail, fail, ok]))
+
+        adapter = RealApiAdapter({"base_url": "https://api.example.com"}, provider_id=provider_id)
+        await adapter.provision(order_id=100, user_config={})
+
+        logs = await _fetch_logs(provider_id)
+        assert [log.attempt for log in logs] == [1, 2, 3]
+        assert [log.status_code for log in logs] == [500, 500, 200]
+        assert [log.success for log in logs] == [False, False, True]
+        # Same key across retries — that is what stops a double-provision.
+        assert {log.idempotency_key for log in logs} == {"order-100-provision"}
+
+    @pytest.mark.asyncio
+    async def test_network_error_records_row_with_no_status_code(self, monkeypatch):
+        import httpx
+        from src.adapters.real_api import RealApiAdapter
+
+        provider_id = await _make_real_provider()
+        monkeypatch.setattr(
+            httpx.AsyncClient, "request",
+            AsyncMock(side_effect=httpx.ConnectTimeout("timed out")),
+        )
+
+        adapter = RealApiAdapter({"base_url": "https://api.example.com"}, provider_id=provider_id)
+        result = await adapter.provision(order_id=101, user_config={})
+
+        assert result.success is False
+        logs = await _fetch_logs(provider_id)
+        assert len(logs) == 3
+        assert all(log.status_code is None for log in logs)
+        assert all(log.success is False for log in logs)
+        assert all("timed out" in (log.error or "") for log in logs)
+
+    @pytest.mark.asyncio
+    async def test_4xx_records_failed_row_without_retrying(self, monkeypatch):
+        import httpx
+        from src.adapters.real_api import RealApiAdapter
+
+        provider_id = await _make_real_provider()
+        bad = httpx.Response(
+            400, json={"success": False, "error": "bad request"},
+            request=httpx.Request("POST", "https://api.example.com/provision"),
+        )
+        monkeypatch.setattr(httpx.AsyncClient, "request", AsyncMock(return_value=bad))
+
+        adapter = RealApiAdapter({"base_url": "https://api.example.com"}, provider_id=provider_id)
+        await adapter.provision(order_id=102, user_config={})
+
+        logs = await _fetch_logs(provider_id)
+        assert len(logs) == 1
+        assert logs[0].status_code == 400
+        assert logs[0].success is False
+
+    @pytest.mark.asyncio
+    async def test_log_survives_caller_transaction_rollback(self, monkeypatch):
+        """The reason the log writes on its own session: a provision failure rolls
+        the order back, and that is exactly the case worth keeping a trace of."""
+        import httpx
+        from src.database import SessionLocal
+        from src.adapters.real_api import RealApiAdapter
+        from src.models.provider import Provider
+
+        provider_id = await _make_real_provider()
+        ok = httpx.Response(
+            200, json={"success": True, "data": "d", "resource_id": "r"},
+            request=httpx.Request("POST", "https://api.example.com/provision"),
+        )
+        monkeypatch.setattr(httpx.AsyncClient, "request", AsyncMock(return_value=ok))
+
+        adapter = RealApiAdapter({"base_url": "https://api.example.com"}, provider_id=provider_id)
+
+        async with SessionLocal() as caller_db:
+            caller_db.add(Provider(name="Doomed", type="x", adapter_type="mock", config={}))
+            await caller_db.flush()
+            await adapter.provision(order_id=103, user_config={})
+            await caller_db.rollback()
+
+        logs = await _fetch_logs(provider_id)
+        assert len(logs) == 1, "log row must outlive the caller's rollback"
+
+    @pytest.mark.asyncio
+    async def test_no_credential_is_persisted(self, monkeypatch):
+        """The provision response carries the credential handed to the buyer, and
+        the api_key rides in the request headers. Neither may land in the log."""
+        import httpx
+        from src.adapters.real_api import RealApiAdapter
+        from src.security.crypto import encrypt_str
+
+        provider_id = await _make_real_provider()
+        ok = httpx.Response(
+            200,
+            json={"success": True, "data": "SECRET-CREDENTIAL-XYZ", "resource_id": "r"},
+            request=httpx.Request("POST", "https://api.example.com/provision"),
+        )
+        monkeypatch.setattr(httpx.AsyncClient, "request", AsyncMock(return_value=ok))
+
+        adapter = RealApiAdapter(
+            {"base_url": "https://api.example.com", "api_key": encrypt_str("SUPER-SECRET-KEY")},
+            provider_id=provider_id,
+        )
+        await adapter.provision(order_id=104, user_config={"password": "hunter2"})
+
+        logs = await _fetch_logs(provider_id)
+        blob = " ".join(
+            str(v) for log in logs for v in
+            (log.operation, log.method, log.path, log.error, log.idempotency_key)
+        )
+        assert "SECRET-CREDENTIAL-XYZ" not in blob
+        assert "SUPER-SECRET-KEY" not in blob
+        assert "hunter2" not in blob
+
+    @pytest.mark.asyncio
+    async def test_logging_failure_never_breaks_the_provider_call(self, monkeypatch):
+        import httpx
+        from src.adapters.real_api import RealApiAdapter
+
+        ok = httpx.Response(
+            200, json={"success": True, "data": "d", "resource_id": "r"},
+            request=httpx.Request("POST", "https://api.example.com/provision"),
+        )
+        monkeypatch.setattr(httpx.AsyncClient, "request", AsyncMock(return_value=ok))
+        # provider_id points at a row that does not exist -> FK violation on insert
+        adapter = RealApiAdapter({"base_url": "https://api.example.com"}, provider_id=999999)
+
+        result = await adapter.provision(order_id=105, user_config={})
+        assert result.success is True

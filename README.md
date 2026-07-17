@@ -106,7 +106,7 @@ docker compose -f docker-compose.dev.yml up -d
 
 # 2. Backend — chạy native (hot reload nhanh hơn qua bind-mount)
 cd marketplace-svc
-uv sync                       # hoặc: python -m venv .venv && .venv/bin/pip install -e ".[dev]"
+uv sync --extra dev           # hoặc: python -m venv .venv && .venv/bin/pip install -e ".[dev]"
 uv run alembic upgrade head
 uv run uvicorn src.main:app --reload --port 8001
 
@@ -174,6 +174,31 @@ GET  /me               # Thông tin tài khoản
 # Header: Authorization: Bearer <token>
 ```
 
+## Test
+
+```bash
+cd marketplace-svc
+uv sync --extra dev           # pytest nằm trong extra `dev`, `uv sync` trần KHÔNG cài
+.venv/bin/pytest -q           # ~8 phút, 240+ test
+```
+
+> **Dùng `.venv/bin/pytest`, đừng dùng `uv run pytest`.** `uv run` đồng bộ lại môi
+> trường theo dependency mặc định và sẽ **gỡ pytest khỏi venv** (vì nó là extra),
+> rồi rơi xuống pytest hệ thống → `ModuleNotFoundError: No module named 'sqlalchemy'`.
+
+> **Đừng chạy hai tiến trình pytest song song.** Suite dùng chung DB
+> `marketplace_test` và TRUNCATE mọi bảng trước mỗi test, nên hai lần chạy sẽ giẫm
+> lên nhau và sinh lỗi giả trông y như bug thật (`InvalidRequestError: Could not
+> refresh instance`, register trả 409, request trả 401).
+
+DB test tách riêng khỏi DB dev (`marketplace_test` vs `marketplace`), tạo trước khi
+chạy lần đầu và migrate:
+
+```bash
+DATABASE_URL="postgresql+asyncpg://marketplace:marketplace@localhost:5432/marketplace_test" \
+  uv run alembic upgrade head
+```
+
 ## Environment Variables
 
 ### Backend (`marketplace-svc`)
@@ -182,8 +207,16 @@ GET  /me               # Thông tin tài khoản
 |---|---|---|
 | `DATABASE_URL` | `postgresql+asyncpg://marketplace:marketplace@localhost:5432/marketplace` | Connection string |
 | `JWT_SECRET` | `dev-secret-change-in-production` | JWT signing key |
+| `ENCRYPTION_KEY` | `dev-encryption-key-change-in-production` | Khoá mã hoá credential nhà cung cấp (`Provider.config`) |
 | `REDIS_URL` | `redis://localhost:6379` | Redis connection |
 | `PLATFORM_FEE_PERCENT` | `0` | Phí nền tảng (%) |
+
+> **`ENCRYPTION_KEY` — bắt buộc set trước khi có provider thật, và không đổi được về sau.**
+> `api_key`/`api_secret` trong `Provider.config` được mã hoá bằng khoá derive từ biến này.
+> Đổi khoá = **toàn bộ credential đã lưu không giải mã được nữa**, và không có đường khôi
+> phục ngoài nhập tay lại từng provider. Nếu deploy production mà vẫn để mặc định, backend
+> log cảnh báo `insecure_default_encryption_key` lúc khởi động — coi đó là lỗi chặn phát hành,
+> đừng chạy tiếp rồi mới đổi.
 
 ### Frontend
 

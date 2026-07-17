@@ -40,6 +40,10 @@ class Order(Base):
     status: Mapped[OrderStatus] = mapped_column(Enum(OrderStatus), default=OrderStatus.pending)
     escrow_expires_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True), nullable=True)
     delivered_data: Mapped[str | None] = mapped_column(Text, nullable=True)
+    # Product options the buyer picked (type/network/days/platform/...). Persisted
+    # because provisioning now runs after the request returns: both the background
+    # task and the stuck-order sweeper need to replay it. Never holds credentials.
+    user_config: Mapped[dict | None] = mapped_column(JSONB, nullable=True)
     created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), server_default=func.now())
     updated_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), server_default=func.now(), onupdate=func.now())
 

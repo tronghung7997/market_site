@@ -136,3 +136,110 @@ async def test_admin_commission_left_untouched_when_omitted(client):
 
     detail = await client.get(f"/products/{product_id}")
     assert detail.json()["commission_rate"] == 9.0
+
+
+# ---------------------------------------------------------------------------
+# Sửa / xoá biến thể
+# ---------------------------------------------------------------------------
+
+
+async def _variant_for_edit(client, email: str):
+    from tests.test_resources import _seller_with_variant
+    return await _seller_with_variant(client, email)
+
+
+@pytest.mark.asyncio
+async def test_update_variant_fields(client):
+    token, _, vid = await _variant_for_edit(client, "var1@example.com")
+    resp = await client.patch(f"/seller/variants/{vid}", json={
+        "name": "Gói mới", "price": 99000, "delivery_mode": "manual", "sla_hours": 48,
+    }, headers={"Authorization": f"Bearer {token}"})
+    assert resp.status_code == 200, resp.text
+    body = resp.json()
+    assert body["name"] == "Gói mới"
+    assert body["price"] == 99000
+    assert body["delivery_mode"] == "manual"
+    assert body["sla_hours"] == 48
+
+
+@pytest.mark.asyncio
+async def test_duration_days_can_be_cleared_back_to_forever(client):
+    """Từng không làm được: service bỏ qua mọi giá trị None, nên đặt thời hạn rồi
+    thì không bao giờ quay lại 'vĩnh viễn'."""
+    token, _, vid = await _variant_for_edit(client, "var2@example.com")
+
+    await client.patch(f"/seller/variants/{vid}", json={"duration_days": 30},
+                       headers={"Authorization": f"Bearer {token}"})
+    resp = await client.patch(f"/seller/variants/{vid}", json={"duration_days": None},
+                              headers={"Authorization": f"Bearer {token}"})
+    assert resp.status_code == 200, resp.text
+    assert resp.json()["duration_days"] is None
+
+
+@pytest.mark.asyncio
+async def test_update_does_not_blank_out_fields_left_unsent(client):
+    token, _, vid = await _variant_for_edit(client, "var3@example.com")
+    await client.patch(f"/seller/variants/{vid}", json={"name": "Giữ tên"},
+                       headers={"Authorization": f"Bearer {token}"})
+    resp = await client.patch(f"/seller/variants/{vid}", json={"price": 5000},
+                              headers={"Authorization": f"Bearer {token}"})
+    assert resp.json()["name"] == "Giữ tên"
+    assert resp.json()["price"] == 5000
+
+
+@pytest.mark.asyncio
+async def test_variant_can_be_turned_off(client):
+    token, _, vid = await _variant_for_edit(client, "var4@example.com")
+    resp = await client.patch(f"/seller/variants/{vid}", json={"is_active": False},
+                              headers={"Authorization": f"Bearer {token}"})
+    assert resp.status_code == 200
+    assert resp.json()["is_active"] is False
+
+
+@pytest.mark.asyncio
+async def test_cannot_delete_variant_that_still_has_stock(client):
+    """Trước đây FK violation lọt thành 500 và nút Xoá im lặng không làm gì."""
+    token, _, vid = await _variant_for_edit(client, "var5@example.com")
+    await client.post(f"/seller/variants/{vid}/resources", json={"items": ["a|1", "b|2"]},
+                      headers={"Authorization": f"Bearer {token}"})
+
+    resp = await client.delete(f"/seller/variants/{vid}",
+                               headers={"Authorization": f"Bearer {token}"})
+    assert resp.status_code == 400
+    assert "2 tài nguyên" in resp.json()["detail"]
+
+
+@pytest.mark.asyncio
+async def test_empty_variant_can_still_be_deleted(client):
+    token, _, vid = await _variant_for_edit(client, "var6@example.com")
+    resp = await client.delete(f"/seller/variants/{vid}",
+                               headers={"Authorization": f"Bearer {token}"})
+    assert resp.status_code == 204
+
+
+@pytest.mark.asyncio
+async def test_seller_detail_still_shows_a_variant_after_turning_it_off(client):
+    """Tắt bán rồi thì gói biến mất khỏi /products/{id} (đúng, trang mua không nên
+    thấy) — nhưng trang quản lý dùng chung endpoint đó thì seller mất luôn gói và
+    không còn đường bật lại."""
+    token, product_id, vid = await _variant_for_edit(client, "var7@example.com")
+    await client.patch(f"/seller/variants/{vid}", json={"is_active": False},
+                       headers={"Authorization": f"Bearer {token}"})
+
+    public = await client.get(f"/products/{product_id}")
+    assert all(v["id"] != vid for v in public.json()["variants"]), "trang mua không nên thấy gói đã tắt"
+
+    own = await client.get(f"/seller/products/{product_id}/detail",
+                           headers={"Authorization": f"Bearer {token}"})
+    assert own.status_code == 200, own.text
+    turned_off = next(v for v in own.json()["variants"] if v["id"] == vid)
+    assert turned_off["is_active"] is False
+
+
+@pytest.mark.asyncio
+async def test_seller_detail_rejects_someone_elses_product(client):
+    token, product_id, _ = await _variant_for_edit(client, "var8@example.com")
+    other, _, _ = await _variant_for_edit(client, "var9@example.com")
+    resp = await client.get(f"/seller/products/{product_id}/detail",
+                            headers={"Authorization": f"Bearer {other}"})
+    assert resp.status_code in (403, 404)

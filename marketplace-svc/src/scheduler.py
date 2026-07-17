@@ -1,6 +1,6 @@
 import time
 import uuid
-from datetime import datetime, timezone
+from datetime import datetime, timedelta, timezone
 
 import httpx
 import structlog
@@ -69,6 +69,62 @@ async def sla_check_job() -> None:
                                    f"Đơn #{order.id} đã huỷ do nhà bán không giao đúng hạn", db)
                 logger.warning("sla_breach", order_id=order.id, seller_id=order.seller_id)
         await db.commit()
+
+
+PROVISION_RETRY_AFTER_SECONDS = 120
+PROVISION_DEADLINE_SECONDS = 15 * 60
+
+
+async def provision_sweep_job() -> None:
+    """Rescue adapter orders stuck at `pending`.
+
+    Provisioning through RealApiAdapter runs off the request path, so a process
+    restart (or a provider outage) can leave an order committed and charged with
+    nothing driving it. sla_check_job cannot cover these: it looks up
+    order.variant_id, and adapter orders carry product_id instead, so it skips
+    them and the buyer's money would sit charged forever.
+
+    Retrying is safe — provision carries a deterministic Idempotency-Key per order
+    id, so a duplicate reaching a provider that already fulfilled it cannot
+    double-provision. Past the deadline we stop retrying and refund.
+    """
+    from src.orders.service import provision_pending_order
+
+    async with SessionLocal() as db:
+        job_id = str(uuid.uuid4())
+        now = datetime.now(timezone.utc)
+        retry_before = now - timedelta(seconds=PROVISION_RETRY_AFTER_SECONDS)
+        deadline_before = now - timedelta(seconds=PROVISION_DEADLINE_SECONDS)
+
+        result = await db.execute(
+            select(Order).where(
+                Order.status == OrderStatus.pending,
+                Order.product_id.isnot(None),
+                Order.created_at <= retry_before,
+            )
+        )
+        orders = list(result.scalars().all())
+
+        expired = [o for o in orders if o.created_at <= deadline_before]
+        # Ids, not ORM objects: the retries run after this session closes.
+        retryable_ids = [o.id for o in orders if o.created_at > deadline_before]
+
+        for order in expired:
+            await refund_escrow(order.id, order.buyer_id, order.total_amount, db)
+            order.status = OrderStatus.cancelled
+            await log_event(
+                db, "warning", f"Order {order.id} auto-refunded (provision deadline)", job_id=job_id,
+                metadata={"event": "provision_deadline_refund", "order_id": order.id},
+            )
+            await create_alert("provision_stuck", "warning", "order", order.id,
+                               f"Đơn #{order.id} huỷ do không provision được trong 15 phút", db)
+            logger.warning("provision_deadline_refund", order_id=order.id)
+        await db.commit()
+
+    # Retries open their own sessions, so they run after the sweep's own commit.
+    for order_id in retryable_ids:
+        logger.info("provision_retry", order_id=order_id)
+        await provision_pending_order(order_id)
 
 
 async def health_check_job() -> None:

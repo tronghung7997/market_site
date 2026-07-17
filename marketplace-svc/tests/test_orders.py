@@ -1,3 +1,5 @@
+from unittest.mock import AsyncMock
+
 import pytest
 from sqlalchemy import select, update
 
@@ -575,3 +577,371 @@ async def test_no_double_credit_on_reentry(client):
         assert len(comms) == 1
         affiliate_wallet = await db.scalar(select(Wallet).where(Wallet.account_id == affiliate_id))
         assert affiliate_wallet.available_balance == 500
+
+
+# ---------------------------------------------------------------------------
+# Deferred provisioning (RealApiAdapter runs off the request path)
+# ---------------------------------------------------------------------------
+
+
+async def _use_real_api_provider(product_id: int) -> int:
+    """Point the product's provider at RealApiAdapter, which is the only adapter
+    whose provisioning is deferred."""
+    async with SessionLocal() as db:
+        product = await db.get(Product, product_id)
+        await db.execute(
+            update(Provider).where(Provider.id == product.provider_id).values(
+                adapter_type="topproxy",
+                config={"base_url": "https://api.example.com"},
+            )
+        )
+        await db.commit()
+        return product.provider_id
+
+
+def _ok_provision_response():
+    import httpx
+
+    return httpx.Response(
+        200, json={"success": True, "data": "proxy-credential", "resource_id": "res-9"},
+        request=httpx.Request("POST", "https://api.example.com/provision"),
+    )
+
+
+@pytest.mark.asyncio
+async def test_real_api_order_returns_pending_and_defers_provisioning(client, monkeypatch):
+    buyer_token, _, _, product_id = await setup_adapter_product(client)
+    await _use_real_api_provider(product_id)
+
+    spawned: list[int] = []
+    monkeypatch.setattr("src.orders.service.spawn_provision", spawned.append)
+
+    resp = await client.post("/orders", json={
+        "product_id": product_id,
+        "user_config": {"type": "residential", "network": "shared", "days": 30, "quantity": 1},
+        "quantity": 1,
+    }, headers={"Authorization": f"Bearer {buyer_token}"})
+
+    assert resp.status_code == 201, resp.text
+    data = resp.json()
+    # Buyer is charged and the order exists, but the credential is not there yet.
+    assert data["status"] == "pending"
+    assert data["delivered_data"] is None
+    assert spawned == [data["id"]], "provisioning must be handed off, not run inline"
+
+    # The order is committed on its own — a rollback of the request would have lost it.
+    async with SessionLocal() as db:
+        order = await db.get(Order, data["id"])
+        assert order is not None
+        assert order.status == OrderStatus.pending
+        assert order.user_config == {
+            "type": "residential", "network": "shared", "days": 30, "quantity": 1,
+        }
+
+
+@pytest.mark.asyncio
+async def test_background_provision_delivers_the_order(client, monkeypatch):
+    import httpx
+    from src.orders.service import provision_pending_order
+
+    buyer_token, _, _, product_id = await setup_adapter_product(client)
+    await _use_real_api_provider(product_id)
+    monkeypatch.setattr("src.orders.service.spawn_provision", lambda _id: None)
+
+    resp = await client.post("/orders", json={
+        "product_id": product_id,
+        "user_config": {"type": "residential", "network": "shared", "days": 30, "quantity": 1},
+        "quantity": 1,
+    }, headers={"Authorization": f"Bearer {buyer_token}"})
+    order_id = resp.json()["id"]
+
+    monkeypatch.setattr(
+        httpx.AsyncClient, "request", AsyncMock(return_value=_ok_provision_response()),
+    )
+    await provision_pending_order(order_id)
+
+    async with SessionLocal() as db:
+        order = await db.get(Order, order_id)
+        assert order.status == OrderStatus.delivered
+        assert order.delivered_data == "proxy-credential"
+        assert order.escrow_expires_at is not None
+
+
+@pytest.mark.asyncio
+async def test_background_provision_refunds_when_provider_rejects(client, monkeypatch):
+    import httpx
+    from src.orders.service import provision_pending_order
+
+    buyer_token, _, _, product_id = await setup_adapter_product(client)
+    await _use_real_api_provider(product_id)
+    monkeypatch.setattr("src.orders.service.spawn_provision", lambda _id: None)
+
+    resp = await client.post("/orders", json={
+        "product_id": product_id,
+        "user_config": {"type": "residential", "network": "shared", "days": 30, "quantity": 1},
+        "quantity": 1,
+    }, headers={"Authorization": f"Bearer {buyer_token}"})
+    order_id = resp.json()["id"]
+    buyer_id = resp.json()["buyer_id"]
+
+    async with SessionLocal() as db:
+        wallet = await db.scalar(select(Wallet).where(Wallet.account_id == buyer_id))
+        balance_after_charge = wallet.available_balance
+
+    rejected = httpx.Response(
+        200, json={"success": False, "error": "out of stock"},
+        request=httpx.Request("POST", "https://api.example.com/provision"),
+    )
+    monkeypatch.setattr(httpx.AsyncClient, "request", AsyncMock(return_value=rejected))
+    await provision_pending_order(order_id)
+
+    async with SessionLocal() as db:
+        order = await db.get(Order, order_id)
+        assert order.status == OrderStatus.cancelled
+        wallet = await db.scalar(select(Wallet).where(Wallet.account_id == buyer_id))
+        assert wallet.available_balance == balance_after_charge + order.total_amount
+
+
+@pytest.mark.asyncio
+async def test_background_provision_is_idempotent_on_a_delivered_order(client, monkeypatch):
+    """Both the spawned task and the sweeper can reach the same order; the second
+    run must not re-provision or touch money."""
+    import httpx
+    from src.orders.service import provision_pending_order
+
+    buyer_token, _, _, product_id = await setup_adapter_product(client)
+    await _use_real_api_provider(product_id)
+    monkeypatch.setattr("src.orders.service.spawn_provision", lambda _id: None)
+
+    resp = await client.post("/orders", json={
+        "product_id": product_id,
+        "user_config": {"type": "residential", "network": "shared", "days": 30, "quantity": 1},
+        "quantity": 1,
+    }, headers={"Authorization": f"Bearer {buyer_token}"})
+    order_id = resp.json()["id"]
+
+    mock_request = AsyncMock(return_value=_ok_provision_response())
+    monkeypatch.setattr(httpx.AsyncClient, "request", mock_request)
+
+    await provision_pending_order(order_id)
+    calls_after_first = mock_request.await_count
+    await provision_pending_order(order_id)
+
+    assert mock_request.await_count == calls_after_first, "second run must be a no-op"
+    async with SessionLocal() as db:
+        order = await db.get(Order, order_id)
+        assert order.status == OrderStatus.delivered
+
+
+# ---------------------------------------------------------------------------
+# provision_sweep_job — the safety net for orders committed but never provisioned
+# ---------------------------------------------------------------------------
+
+
+async def _age_order(order_id: int, seconds: int) -> None:
+    from datetime import datetime, timedelta, timezone
+
+    async with SessionLocal() as db:
+        await db.execute(
+            update(Order).where(Order.id == order_id).values(
+                created_at=datetime.now(timezone.utc) - timedelta(seconds=seconds)
+            )
+        )
+        await db.commit()
+
+
+async def _make_stuck_order(client, monkeypatch, age_seconds: int):
+    """An order committed at `pending` whose provisioning never ran — what a
+    process restart mid-provision leaves behind."""
+    buyer_token, _, _, product_id = await setup_adapter_product(client)
+    await _use_real_api_provider(product_id)
+    monkeypatch.setattr("src.orders.service.spawn_provision", lambda _id: None)
+
+    resp = await client.post("/orders", json={
+        "product_id": product_id,
+        "user_config": {"type": "residential", "network": "shared", "days": 30, "quantity": 1},
+        "quantity": 1,
+    }, headers={"Authorization": f"Bearer {buyer_token}"})
+    order_id = resp.json()["id"]
+    await _age_order(order_id, age_seconds)
+    return order_id, resp.json()["buyer_id"]
+
+
+@pytest.mark.asyncio
+async def test_sweep_retries_a_stuck_order(client, monkeypatch):
+    import httpx
+    from src.scheduler import provision_sweep_job
+
+    order_id, _ = await _make_stuck_order(client, monkeypatch, age_seconds=300)
+    monkeypatch.setattr(
+        httpx.AsyncClient, "request", AsyncMock(return_value=_ok_provision_response()),
+    )
+
+    await provision_sweep_job()
+
+    async with SessionLocal() as db:
+        order = await db.get(Order, order_id)
+        assert order.status == OrderStatus.delivered
+        assert order.delivered_data == "proxy-credential"
+
+
+@pytest.mark.asyncio
+async def test_sweep_leaves_fresh_orders_alone(client, monkeypatch):
+    import httpx
+    from src.scheduler import provision_sweep_job
+
+    # Younger than PROVISION_RETRY_AFTER_SECONDS: the spawned task may still be
+    # in flight, so the sweeper must not race it.
+    order_id, _ = await _make_stuck_order(client, monkeypatch, age_seconds=10)
+    mock_request = AsyncMock(return_value=_ok_provision_response())
+    monkeypatch.setattr(httpx.AsyncClient, "request", mock_request)
+
+    await provision_sweep_job()
+
+    assert mock_request.await_count == 0
+    async with SessionLocal() as db:
+        order = await db.get(Order, order_id)
+        assert order.status == OrderStatus.pending
+
+
+@pytest.mark.asyncio
+async def test_sweep_refunds_past_the_deadline(client, monkeypatch):
+    import httpx
+    from src.scheduler import provision_sweep_job
+
+    order_id, buyer_id = await _make_stuck_order(client, monkeypatch, age_seconds=20 * 60)
+
+    async with SessionLocal() as db:
+        wallet = await db.scalar(select(Wallet).where(Wallet.account_id == buyer_id))
+        balance_after_charge = wallet.available_balance
+        order = await db.get(Order, order_id)
+        amount = order.total_amount
+
+    mock_request = AsyncMock(return_value=_ok_provision_response())
+    monkeypatch.setattr(httpx.AsyncClient, "request", mock_request)
+
+    await provision_sweep_job()
+
+    async with SessionLocal() as db:
+        order = await db.get(Order, order_id)
+        assert order.status == OrderStatus.cancelled
+        wallet = await db.scalar(select(Wallet).where(Wallet.account_id == buyer_id))
+        assert wallet.available_balance == balance_after_charge + amount
+    assert mock_request.await_count == 0, "past the deadline we refund, not retry"
+
+
+@pytest.mark.asyncio
+async def test_sweep_ignores_variant_orders(client, monkeypatch):
+    """Variant orders have no provider to call — sla_check_job owns those."""
+    import httpx
+    from src.scheduler import provision_sweep_job
+
+    buyer_token, _, _, _, manual_vid = await setup_buyable_product(client)
+
+    resp = await client.post("/orders", json={"variant_id": manual_vid, "quantity": 1},
+                             headers={"Authorization": f"Bearer {buyer_token}"})
+    order_id = resp.json()["id"]
+    assert resp.json()["status"] == "pending"
+    await _age_order(order_id, 20 * 60)
+
+    mock_request = AsyncMock()
+    monkeypatch.setattr(httpx.AsyncClient, "request", mock_request)
+
+    await provision_sweep_job()
+
+    async with SessionLocal() as db:
+        order = await db.get(Order, order_id)
+        assert order.status == OrderStatus.pending, "sweeper must not touch variant orders"
+    assert mock_request.await_count == 0
+
+
+@pytest.mark.asyncio
+async def test_concurrent_provision_refunds_the_buyer_only_once(client, monkeypatch):
+    """The spawned task and the sweeper can land on the same order. Without the
+    FOR UPDATE lock both read `pending`, both call the provider, and on rejection
+    both refund — paying the buyer back twice."""
+    import asyncio
+
+    import httpx
+    from src.orders.service import provision_pending_order
+
+    buyer_token, _, _, product_id = await setup_adapter_product(client)
+    await _use_real_api_provider(product_id)
+    monkeypatch.setattr("src.orders.service.spawn_provision", lambda _id: None)
+
+    resp = await client.post("/orders", json={
+        "product_id": product_id,
+        "user_config": {"type": "residential", "network": "shared", "days": 30, "quantity": 1},
+        "quantity": 1,
+    }, headers={"Authorization": f"Bearer {buyer_token}"})
+    order_id = resp.json()["id"]
+    buyer_id = resp.json()["buyer_id"]
+    amount = resp.json()["total_amount"]
+
+    async with SessionLocal() as db:
+        wallet = await db.scalar(select(Wallet).where(Wallet.account_id == buyer_id))
+        balance_after_charge = wallet.available_balance
+
+    rejected = httpx.Response(
+        200, json={"success": False, "error": "out of stock"},
+        request=httpx.Request("POST", "https://api.example.com/provision"),
+    )
+
+    async def slow_reject(*_a, **_kw):
+        # Widen the window both callers race through.
+        await asyncio.sleep(0.2)
+        return rejected
+
+    monkeypatch.setattr(httpx.AsyncClient, "request", slow_reject)
+
+    await asyncio.gather(
+        provision_pending_order(order_id),
+        provision_pending_order(order_id),
+    )
+
+    async with SessionLocal() as db:
+        order = await db.get(Order, order_id)
+        assert order.status == OrderStatus.cancelled
+        wallet = await db.scalar(select(Wallet).where(Wallet.account_id == buyer_id))
+        assert wallet.available_balance == balance_after_charge + amount, (
+            "buyer must be refunded exactly once"
+        )
+
+
+@pytest.mark.asyncio
+async def test_spawn_provision_actually_runs_the_real_task(client, monkeypatch):
+    """The other tests patch spawn_provision to stay deterministic, which leaves
+    the real asyncio.create_task hand-off uncovered. This one exercises it."""
+    import asyncio
+
+    from src.adapters.base import ProvisionResult
+    from src.adapters.real_api import RealApiAdapter
+    from src.orders import service as order_service
+
+    buyer_token, _, _, product_id = await setup_adapter_product(client)
+    await _use_real_api_provider(product_id)
+    # Patch the adapter method, not httpx.AsyncClient.request: the test client is
+    # itself an httpx.AsyncClient, so patching that swallows the POST below.
+    monkeypatch.setattr(
+        RealApiAdapter, "provision",
+        AsyncMock(return_value=ProvisionResult(
+            success=True, data="proxy-credential", resource_id="res-9", metadata={},
+        )),
+    )
+
+    resp = await client.post("/orders", json={
+        "product_id": product_id,
+        "user_config": {"type": "residential", "network": "shared", "days": 30, "quantity": 1},
+        "quantity": 1,
+    }, headers={"Authorization": f"Bearer {buyer_token}"})
+    order_id = resp.json()["id"]
+    assert resp.json()["status"] == "pending"
+
+    # Drain whatever create_order_with_adapter handed off, rather than sleeping.
+    assert order_service._background_tasks, "spawn_provision must have created a task"
+    await asyncio.gather(*list(order_service._background_tasks))
+
+    async with SessionLocal() as db:
+        order = await db.get(Order, order_id)
+        assert order.status == OrderStatus.delivered
+        assert order.delivered_data == "proxy-credential"

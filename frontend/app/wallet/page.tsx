@@ -10,15 +10,19 @@ import { Button, Card, Input, Spinner, Tag } from "@/components/ui";
 import { Tooltip } from "@/components/ui/tooltip";
 import { Wallet as WalletIcon } from "@/components/Icons";
 
-const CREDIT = new Set(["topup", "purchase_release", "refund"]);
 const LABEL: Record<string, string> = {
   topup: "Nạp tiền", purchase_release: "Nhận thanh toán", refund: "Hoàn tiền",
   purchase_hold: "Tạm giữ mua hàng", withdraw: "Rút tiền", platform_fee: "Phí nền tảng",
+  withdraw_lock: "Khoá tiền chờ duyệt rút", withdraw_unlock: "Huỷ khoá rút tiền",
+  affiliate_commission: "Hoa hồng giới thiệu",
+  adjustment_credit: "Đối soát số dư", adjustment_debit: "Đối soát số dư",
 };
 type Tone = "good" | "bad" | "warn" | "iris" | "neutral";
 const TONE: Record<string, Tone> = {
   topup: "good", purchase_release: "good", refund: "good",
-  purchase_hold: "bad", withdraw: "bad", platform_fee: "neutral",
+  affiliate_commission: "good", withdraw_unlock: "good",
+  purchase_hold: "bad", withdraw: "bad", withdraw_lock: "warn",
+  platform_fee: "neutral", adjustment_credit: "neutral", adjustment_debit: "neutral",
 };
 
 const WITHDRAW_LABEL: Record<string, { label: string; tone: Tone }> = {
@@ -270,13 +274,13 @@ export default function WalletPage() {
               <Card className="p-3.5">
                 <div className="text-[11px] text-faint">Tổng tiền vào</div>
                 <div className="font-mono text-[16px] font-semibold text-good tabular mt-0.5">
-                  +{vnd(txs.filter((t) => CREDIT.has(t.type)).reduce((s, t) => s + t.amount, 0))}
+                  +{vnd(txs.filter((t) => t.direction === "in").reduce((s, t) => s + t.amount, 0))}
                 </div>
               </Card>
               <Card className="p-3.5">
                 <div className="text-[11px] text-faint">Tổng tiền ra</div>
                 <div className="font-mono text-[16px] font-semibold text-bad tabular mt-0.5">
-                  −{vnd(txs.filter((t) => !CREDIT.has(t.type)).reduce((s, t) => s + t.amount, 0))}
+                  −{vnd(txs.filter((t) => t.direction === "out").reduce((s, t) => s + t.amount, 0))}
                 </div>
               </Card>
             </div>
@@ -287,7 +291,9 @@ export default function WalletPage() {
             ) : (
               <div className="divide-y divide-line">
                 {txs.map((t) => {
-                  const isCredit = CREDIT.has(t.type);
+                  // `neutral` (rút tiền đã duyệt) không đổi số dư khả dụng — tiền
+                  // đã rời ví từ lúc khoá. Vẽ dấu − cho nó là đếm hai lần bằng mắt.
+                  const sign = t.direction === "in" ? "+" : t.direction === "out" ? "−" : "•";
                   const date = new Date(t.created_at);
                   const description = t.description ?? LABEL[t.type] ?? t.type;
                   const status = describeTransaction(t);
@@ -295,9 +301,11 @@ export default function WalletPage() {
                     <div key={t.id} className="flex items-center gap-4 px-5 py-3.5">
                       <div className={cn(
                         "grid place-items-center h-9 w-9 shrink-0 rounded-lg text-[13px] font-bold",
-                        isCredit ? "bg-good-soft text-good" : "bg-bad-soft text-bad",
+                        t.direction === "in" ? "bg-good-soft text-good"
+                          : t.direction === "out" ? "bg-bad-soft text-bad"
+                          : "bg-raised text-faint",
                       )}>
-                        {isCredit ? "+" : "−"}
+                        {sign}
                       </div>
                       <div className="min-w-0 flex-1">
                         <div className="flex items-center gap-2">
@@ -314,8 +322,11 @@ export default function WalletPage() {
                           {t.reference_id && <span className="font-mono">Ref: {t.reference_id}</span>}
                         </div>
                       </div>
-                      <span className={cn("font-mono text-[14px] font-semibold tabular shrink-0 w-[112px] text-right", isCredit ? "text-good" : "text-bad")}>
-                        {isCredit ? "+" : "−"}{vnd(t.amount)}
+                      <span className={cn(
+                        "font-mono text-[14px] font-semibold tabular shrink-0 w-[112px] text-right",
+                        t.direction === "in" ? "text-good" : t.direction === "out" ? "text-bad" : "text-faint",
+                      )}>
+                        {t.direction === "neutral" ? "" : sign}{vnd(t.amount)}
                       </span>
                     </div>
                   );

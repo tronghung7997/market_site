@@ -1,5 +1,5 @@
 import type {
-  Account, AdminDisputeDetail, AdminOrderDetail, AdminProduct, AdminResourceListResponse, AffiliateStats, AffiliateSummary, CalculateResult, Category, DashboardData, Dispute, FundOverview, AccountAdminRow, PaginatedAccounts, LogEntry, Order, OrderStats, PaginatedAffiliateSummary, PaginatedOrderResponse, PricingField, PricingOptions, ProductDetail, Product, ProductOperations, Review, SellerApplication, SellerProduct, SellerStats, ServiceTask, Transaction, Variant, Wallet, WithdrawRequest, Provider, ProviderHealth, Alert, Resource, ResourceSummary, SellerSummary, SellerProfile, SellerApiKey, SellerApiKeyCreated,
+  Account, AdminDisputeDetail, AdminOrderDetail, AdminProduct, AdminResourceListResponse, AffiliateStats, AffiliateSummary, CalculateResult, Category, DashboardData, Dispute, FundOverview, AccountAdminRow, PaginatedAccounts, LogEntry, Order, OrderStats, PaginatedAffiliateSummary, PaginatedOrderResponse, PricingField, PricingOptions, ProductDetail, Product, ProductOperations, Review, SellerApplication, SellerProduct, SellerStats, ServiceTask, Transaction, Variant, Wallet, WithdrawRequest, Provider, ProviderHealth, Alert, Resource, ResourceSummary, InventoryVariant, SellerSummary, SellerProfile, SellerApiKey, SellerApiKeyCreated,
 } from "./types";
 
 const BASE = process.env.NEXT_PUBLIC_API_URL
@@ -93,6 +93,7 @@ export const api = {
     return request<PaginatedOrderResponse>(`/orders${qs ? `?${qs}` : ""}`, {}, true);
   },
   orderStats: () => request<OrderStats>("/orders/stats", {}, true),
+  getOrder: (orderId: number) => request<Order>(`/orders/${orderId}`, {}, true),
   createOrder: (variantId: number, quantity: number) =>
     request<Order>("/orders", { method: "POST", body: JSON.stringify({ variant_id: variantId, quantity }) }, true),
 
@@ -115,6 +116,8 @@ export const api = {
     request<SellerApplication>(`/admin/seller-applications/${id}/reject`, { method: "POST", body: JSON.stringify({ reason }) }, true),
 
   sellerProducts: () => request<SellerProduct[]>("/seller/products", {}, true),
+  // Như api.product() nhưng kèm cả biến thể đã tắt — trang quản lý cần thấy chúng để bật lại.
+  sellerProduct: (id: number) => request<ProductDetail>(`/seller/products/${id}/detail`, {}, true),
   sellerStats: () => request<SellerStats>("/seller/stats", {}, true),
   sellerOrders: () => request<Order[]>("/seller/orders", {}, true),
   createSellerApiKey: () => request<SellerApiKeyCreated>("/seller/api-keys", { method: "POST" }, true),
@@ -136,6 +139,11 @@ export const api = {
     request<void>(`/seller/variants/${variantId}/resources`, { method: "POST", body: JSON.stringify({ items }) }, true),
   sellerVariantResources: (variantId: number) =>
     request<Resource[]>(`/seller/variants/${variantId}/resources`, {}, true),
+  inventorySummary: () => request<InventoryVariant[]>("/seller/inventory/summary", {}, true),
+  updateResource: (resourceId: number, data: string) =>
+    request<Resource>(`/seller/resources/${resourceId}`, { method: "PATCH", body: JSON.stringify({ data }) }, true),
+  deleteResource: (resourceId: number) =>
+    request<void>(`/seller/resources/${resourceId}`, { method: "DELETE" }, true),
   sellerAcceptOrder: (orderId: number) =>
     request<Order>(`/seller/orders/${orderId}/accept`, { method: "POST" }, true),
   sellerDeliverOrder: (orderId: number, data: string) =>
@@ -273,7 +281,7 @@ export const api = {
     request<FundOverview>("/admin/affiliate-fund/topup", { method: "POST", body: JSON.stringify({ amount, note }) }, true),
 };
 
-export type { Account, AdminDisputeDetail, AdminOrderDetail, AdminProduct, AdminResourceListResponse, AffiliateStats, AffiliateSummary, CalculateResult, Category, DashboardData, Dispute, FundOverview, AccountAdminRow, PaginatedAccounts, LogEntry, Order, OrderStats, PaginatedAffiliateSummary, PaginatedOrderResponse, PricingField, PricingOptions, Product, ProductDetail, ProductOperations, Review, SellerApplication, SellerProduct, SellerStats, SellerSummary, SellerProfile, ServiceTask, Transaction, Variant, Wallet, WithdrawRequest, Provider, ProviderHealth, Alert, Resource, ResourceSummary, SellerApiKey, SellerApiKeyCreated };
+export type { Account, AdminDisputeDetail, AdminOrderDetail, AdminProduct, AdminResourceListResponse, AffiliateStats, AffiliateSummary, CalculateResult, Category, DashboardData, Dispute, FundOverview, AccountAdminRow, PaginatedAccounts, LogEntry, Order, OrderStats, PaginatedAffiliateSummary, PaginatedOrderResponse, PricingField, PricingOptions, Product, ProductDetail, ProductOperations, Review, SellerApplication, SellerProduct, SellerStats, SellerSummary, SellerProfile, ServiceTask, Transaction, Variant, Wallet, WithdrawRequest, Provider, ProviderHealth, Alert, Resource, ResourceSummary, InventoryVariant, SellerApiKey, SellerApiKeyCreated };
 
 /** Money helpers. Backend stores an integer amount; for this Vietnamese
  * marketplace we render it as đồng (no sub-unit), e.g. 7000 → "7.000 ₫". */

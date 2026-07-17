@@ -59,4 +59,7 @@ def _instantiate(provider: Provider, db: AsyncSession) -> ProviderAdapter:
     if adapter_cls in (SellerPoolAdapter, ManualAdapter):
         return adapter_cls(config, db=db)
 
+    if adapter_cls is RealApiAdapter:
+        return adapter_cls(config, provider_id=provider.id)
+
     return adapter_cls(config)

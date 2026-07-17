@@ -126,11 +126,19 @@ export default function ProductPage() {
         <span className="text-faint truncate max-w-[600px]">{product.title}</span>
       </nav>
 
-      {/* === MAIN 2-COL: content left, sticky order right === */}
-      <div className="grid gap-6 lg:grid-cols-[1fr_340px] items-start">
+      {/* === MAIN 2-COL: content left, sticky order right ===
+           Trên mobile grid xếp chồng nên panel đặt hàng rơi xuống tận cuối, sau cả
+           tab chi tiết và sản phẩm liên quan: khách chọn gói xong phải cuộn rất xa
+           mới mua được, và lúc mua thì không còn thấy mình chọn gói nào. Vì "Chọn
+           gói" nằm lồng trong cột trái nên không đảo bằng `order` trực tiếp được —
+           tách cột trái làm hai khối, rồi chèn panel vào giữa ở mobile. Desktop giữ
+           nguyên bố cục cũ bằng col-start/row-start tường minh.
+           items-start chỉ bật từ lg: ở flex-col nó là trục ngang, sẽ làm các khối
+           co lại theo nội dung thay vì rộng hết màn. */}
+      <div className="flex flex-col gap-6 lg:grid lg:grid-cols-[1fr_340px] lg:items-start">
 
-        {/* ---- LEFT COLUMN: all product info ---- */}
-        <div className="min-w-0">
+        {/* ---- LEFT, PHẦN TRÊN: thông tin + chọn gói ---- */}
+        <div className="min-w-0 order-1 lg:col-start-1 lg:row-start-1">
 
           {/* Product header card — contains title, seller, price, highlight */}
           <Card className="overflow-hidden">
@@ -250,9 +258,13 @@ export default function ProductPage() {
               </div>
             </div>
           )}
+        </div>
+
+        {/* ---- LEFT, PHẦN DƯỚI: đọc thêm sau khi đã quyết ---- */}
+        <div className="min-w-0 order-3 lg:order-none lg:col-start-1 lg:row-start-2">
 
           {/* Tabs: detail / review / warranty */}
-          <div className="mt-5">
+          <div className="lg:mt-5">
             <div className="flex gap-0.5 border-b border-line">
               {([
                 { key: "detail" as const, label: "Chi tiết" },
@@ -308,8 +320,11 @@ export default function ProductPage() {
           )}
         </div>
 
-        {/* ---- RIGHT COLUMN: sticky order panel ---- */}
-        <div className="lg:sticky lg:top-20">
+        {/* ---- RIGHT COLUMN: sticky order panel ----
+             order-2: ở mobile nằm ngay dưới "Chọn gói". row-span-2 để ô grid của nó
+             cao bằng cả hai khối trái, nếu không sticky chỉ dính được trong phạm vi
+             hàng 1 rồi trôi mất. */}
+        <div className="order-2 lg:order-none lg:col-start-2 lg:row-start-1 lg:row-span-2 lg:sticky lg:top-20">
           {useDynamicForm ? (
             order ? (
               <Card className="overflow-hidden">

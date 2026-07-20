@@ -177,6 +177,7 @@ export interface AdminOrderDetail extends Order {
   resources: ResourceInfo[];
   dispute: DisputeInfo | null;
   timeline: TimelineEvent[];
+  usage: UsageBalance | null;
 }
 
 export interface Dispute {
@@ -201,7 +202,7 @@ export interface AdminDisputeOrder {
   id: number;
   buyer_id: number;
   seller_id: number;
-  variant_id: number;
+  variant_id: number | null;
   quantity: number;
   total_amount: number;
   status: string;
@@ -300,6 +301,16 @@ export interface Alert {
   created_at: string;
 }
 
+export interface ActionItem {
+  key: string;
+  severity: "info" | "warning" | "critical";
+  label: string;
+  count: number;
+  href: string;
+  dismissible: boolean;
+  alert_id: number | null;
+}
+
 export interface Resource {
   id: number;
   variant_id: number;
@@ -364,6 +375,9 @@ export interface AdminProduct {
   pricing_strategy: string | null;
   order_count: number;
   revenue: number;
+  needs_setup: boolean;
+  needs_setup_reason: string | null;
+  demo_mode: boolean;
 }
 
 export interface PaginatedOrderResponse {
@@ -396,7 +410,9 @@ export interface PricingField {
   type: "select" | "number" | "radio" | "textarea" | "slider";
   label: string;
   required?: boolean;
-  choices?: { value: string; label: string }[];
+  // credit's package_size choices thật sự là number (khớp isinstance(x, int) backend
+  // đòi hỏi) — không phải lúc nào cũng string như tên field gợi ý.
+  choices?: { value: string | number; label: string }[];
   min?: number;
   max?: number;
   default?: string | number;
@@ -406,6 +422,8 @@ export interface PricingOptions {
   strategy: string;
   fields: PricingField[];
   base_info: { product_title: string; service_type: string } | null;
+  ready: boolean;
+  not_ready_reason: string | null;
 }
 
 export interface CalculateResult {
@@ -417,6 +435,9 @@ export interface CalculateResult {
 export interface ProductOperations {
   provider: { id: number; name: string; adapter_type: string; health: string } | null;
   pricing: { strategy: string; params: Record<string, unknown> };
+  needs_setup: boolean;
+  needs_setup_reason: string | null;
+  demo_mode: boolean;
   stats: { total_orders: number; revenue: number; success_rate: number; disputes: number };
 }
 
@@ -431,6 +452,28 @@ export interface DashboardUsage {
   requests_today: number;
   credits_used: number;
   credits_remaining: number;
+}
+
+export interface UsageRecordItem {
+  id: number;
+  endpoint: string;
+  units: number;
+  status: "ok" | "rejected_quota" | "rejected_expired";
+  created_at: string;
+}
+
+export interface UsageBalance {
+  units_total: number;
+  units_used: number;
+  units_remaining: number;
+  expires_at: string | null;
+  records: UsageRecordItem[];
+}
+
+export interface ChargeUsageResult {
+  units_total: number;
+  units_used: number;
+  units_remaining: number;
 }
 
 export interface DashboardTask {
@@ -449,10 +492,14 @@ export interface DashboardData {
   status: string;
   service_type: string;
   product_title: string;
+  product_id?: number | null;
   resources?: DashboardResource[];
+  /** @deprecated Legacy proxy-only field — luôn rỗng cho service_type=endpoint, dùng `balance` thay thế. */
   usage?: DashboardUsage[];
   tasks?: DashboardTask[];
   delivered_data?: string;
+  /** Chỉ có khi service_type=endpoint và order đã strategy=credit + delivered. */
+  balance?: UsageBalance | null;
 }
 
 export interface AffiliateTotals {

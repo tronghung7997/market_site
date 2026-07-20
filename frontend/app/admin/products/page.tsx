@@ -12,7 +12,7 @@ import { motion } from "motion/react";
 import { Package } from "lucide-react";
 
 import { api, vnd } from "@/lib/api";
-import { Card, Spinner } from "@/components/ui";
+import { Card, Spinner, Tag } from "@/components/ui";
 import {
   FilterPills,
   SearchInput,
@@ -33,13 +33,15 @@ const SERVICE_LABELS: Record<string, string> = {
   other: "Khác",
 };
 
-// Status filter options
+// Status filter options — "needs_setup" lọc theo cấu hình (provider/pricing),
+// không phải ProductStatus, nên xử lý riêng trong useMemo bên dưới.
 const STATUS_FILTER = [
   { key: "all", label: "Tất cả" },
   { key: "active", label: "Đang bán" },
   { key: "draft", label: "Nháp" },
   { key: "paused", label: "Tạm dừng" },
   { key: "suspended", label: "Bị khoá" },
+  { key: "needs_setup", label: "Cần thiết lập" },
 ];
 
 // Table columns
@@ -62,8 +64,10 @@ const columns: ColumnDef<AdminProduct>[] = [
           {row.original.title.slice(0, 2).toUpperCase()}
         </div>
         <div className="min-w-0">
-          <div className="font-medium text-[13.5px] truncate max-w-[240px]">
-            {row.original.title}
+          <div className="font-medium text-[13.5px] truncate max-w-[240px] flex items-center gap-1.5">
+            <span className="truncate">{row.original.title}</span>
+            {row.original.needs_setup && <Tag tone="bad">Cần thiết lập</Tag>}
+            {!row.original.needs_setup && row.original.demo_mode && <Tag tone="iris">Demo</Tag>}
           </div>
           <div className="text-[11px] text-slate-400">
             {SERVICE_LABELS[row.original.service_type] ?? row.original.service_type}
@@ -152,7 +156,11 @@ export default function AdminProductsPage() {
   // Filter products
   const filtered = React.useMemo(() => {
     return products.filter((p) => {
-      if (filter !== "all" && p.status !== filter) return false;
+      if (filter === "needs_setup") {
+        if (!p.needs_setup) return false;
+      } else if (filter !== "all" && p.status !== filter) {
+        return false;
+      }
       if (search && !p.title.toLowerCase().includes(search.toLowerCase())) return false;
       return true;
     });
@@ -161,6 +169,7 @@ export default function AdminProductsPage() {
   // Stats
   const totalRevenue = products.reduce((s, p) => s + p.revenue, 0);
   const activeCount = products.filter((p) => p.status === "active").length;
+  const needsSetupCount = products.filter((p) => p.needs_setup).length;
   const serviceGroups = products.reduce<Record<string, number>>((acc, p) => {
     const t = p.service_type || "other";
     acc[t] = (acc[t] || 0) + 1;
@@ -184,7 +193,7 @@ export default function AdminProductsPage() {
       <motion.div
         initial={{ opacity: 0, y: 12 }}
         animate={{ opacity: 1, y: 0 }}
-        className="grid gap-4 sm:grid-cols-4"
+        className="grid gap-4 sm:grid-cols-5"
       >
         <StatsCard label="Tổng sản phẩm" value={products.length} tone="iris" />
         <StatsCard
@@ -192,6 +201,19 @@ export default function AdminProductsPage() {
           value={activeCount}
           tone="good"
         />
+        <button
+          type="button"
+          onClick={() => setFilter("needs_setup")}
+          className="text-left cursor-pointer"
+          aria-label="Lọc sản phẩm cần thiết lập"
+        >
+          <StatsCard
+            label="Cần thiết lập"
+            value={needsSetupCount}
+            tone={needsSetupCount > 0 ? "bad" : "neutral"}
+            sub={needsSetupCount > 0 ? "Chưa gắn provider hoặc sai cấu hình" : "Không có sản phẩm nào"}
+          />
+        </button>
         <Card className="p-4 text-center">
           <div className="text-[11px] text-slate-500 font-medium">Loại dịch vụ</div>
           <div className="text-[14px] font-medium mt-1.5 flex flex-wrap gap-1 justify-center">

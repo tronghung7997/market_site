@@ -145,6 +145,36 @@ export function Tooltip({ text, children, className, position = "top" }: { text:
   );
 }
 
+const BANNER_TONES = {
+  warn: "bg-warn-soft border-warn/25 text-warn",
+  bad: "bg-bad-soft border-bad/25 text-bad",
+  good: "bg-good-soft border-good/25 text-good",
+  iris: "bg-iris-soft border-iris/25 text-iris-hi",
+} as const;
+
+/** Bối cảnh/cảnh báo dùng chung — thay cho các div tự chế lặp lại tone tokens
+ *  (bg-warn/10, bg-bad-soft…) rải rác ở nhiều trang. */
+export function Banner({
+  tone = "warn", icon, title, children, action, className,
+}: {
+  tone?: keyof typeof BANNER_TONES; icon?: ReactNode; title?: string;
+  children?: ReactNode; action?: ReactNode; className?: string;
+}) {
+  return (
+    <div className={cn(
+      "flex items-start gap-2.5 rounded-lg border px-3.5 py-3 text-[12.5px] leading-relaxed",
+      BANNER_TONES[tone], className,
+    )}>
+      {icon && <span className="shrink-0 mt-0.5">{icon}</span>}
+      <div className="flex-1 min-w-0 space-y-1">
+        {title && <div className="font-semibold text-[13px]">{title}</div>}
+        {children}
+      </div>
+      {action && <div className="shrink-0">{action}</div>}
+    </div>
+  );
+}
+
 export function Spinner({ label }: { label?: string }) {
   return (
     <div className="flex items-center justify-center gap-2.5 py-14 text-muted">

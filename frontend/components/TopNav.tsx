@@ -7,6 +7,7 @@ import { useAuth } from "@/lib/auth";
 import { api, vnd } from "@/lib/api";
 import { cn } from "@/lib/cn";
 import { Bolt, Logo, Menu, Plus, Wallet, X } from "./Icons";
+import NotificationBell from "./NotificationBell";
 import { Button } from "./ui";
 
 const NAV_LINKS: { href: string; label: string }[] = [
@@ -83,6 +84,7 @@ export default function TopNav() {
                 <Wallet size={15} className="text-muted" />
                 <span className="font-mono text-[13px] font-medium tabular whitespace-nowrap">{balance === null ? "—" : vnd(balance)}</span>
               </Link>
+              <NotificationBell endpoint="buyer" />
               <Link href="/wallet"><Button size="md"><Plus size={15} /> Nạp tiền</Button></Link>
               <div className="relative">
                 <button onClick={() => setMenuOpen((v) => !v)} title="Hồ sơ tài khoản" aria-haspopup="menu" aria-expanded={menuOpen}

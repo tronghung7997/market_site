@@ -14,12 +14,12 @@ import {
 } from "@tanstack/react-table";
 import { motion } from "motion/react";
 import { ChevronDown, ChevronUp, ChevronsUpDown, Search, X } from "lucide-react";
-import { api, vnd } from "@/lib/api";
-import { Card, Spinner } from "@/components/ui";
+import { api, vnd, ApiError } from "@/lib/api";
+import { Banner, Card, Spinner } from "@/components/ui";
 import { FilterPills, SlidePanel } from "@/components/admin";
 import { OrderStatusBadge } from "@/components/admin/status-badge";
 import { Tooltip } from "@/components/ui/tooltip";
-import type { Order, AdminOrderDetail } from "@/lib/types";
+import type { Order, AdminOrderDetail, UsageBalance } from "@/lib/types";
 
 const DEFAULT_PAGE_SIZE = 20;
 
@@ -195,6 +195,112 @@ function SortHeader({
 }
 
 // Order Detail Panel Content
+const USAGE_STATUS_STYLES: Record<string, string> = {
+  ok: "bg-emerald-50 text-emerald-700 border-emerald-200",
+  rejected_quota: "bg-red-50 text-red-700 border-red-200",
+  rejected_expired: "bg-amber-50 text-amber-700 border-amber-200",
+};
+
+function UsageSection({ orderId, usage: initial }: { orderId: number; usage: UsageBalance }) {
+  const [usage, setUsage] = React.useState(initial);
+  const [simulating, setSimulating] = React.useState(false);
+  const [simError, setSimError] = React.useState<string | null>(null);
+
+  const refresh = async () => {
+    try {
+      const detail = await api.adminOrderDetail(orderId);
+      if (detail.usage) setUsage(detail.usage);
+    } catch { /* giữ nguyên dữ liệu cũ nếu refetch lỗi */ }
+  };
+
+  const simulate = async () => {
+    setSimulating(true);
+    setSimError(null);
+    try {
+      await api.chargeUsage(orderId, "profile", 1);
+      await refresh();
+    } catch (e) {
+      setSimError(e instanceof ApiError ? e.message : "Không giả lập được request");
+      await refresh();
+    } finally {
+      setSimulating(false);
+    }
+  };
+
+  const pct = usage.units_total > 0 ? Math.min(100, Math.round((usage.units_used / usage.units_total) * 100)) : 0;
+
+  return (
+    <section>
+      <h3 className="text-[12px] font-semibold text-slate-500 uppercase tracking-wide mb-3">
+        Số dư request
+      </h3>
+      <Card className="p-3 space-y-3 text-[13px]">
+        <div>
+          <div className="flex items-end justify-between mb-1.5">
+            <span className="text-slate-500 text-[11.5px]">Đã dùng / Tổng</span>
+            <span className="font-mono font-semibold tabular-nums">
+              {usage.units_used.toLocaleString("vi-VN")} / {usage.units_total.toLocaleString("vi-VN")}
+            </span>
+          </div>
+          <div className="h-2 rounded-full bg-slate-100 overflow-hidden">
+            <div
+              className={`h-full rounded-full transition-all ${pct >= 100 ? "bg-red-500" : pct >= 80 ? "bg-amber-500" : "bg-emerald-500"}`}
+              style={{ width: `${pct}%` }}
+            />
+          </div>
+        </div>
+
+        {usage.units_remaining <= 0 ? (
+          <Banner tone="bad">Đã hết số request trong gói này.</Banner>
+        ) : usage.units_used / usage.units_total >= 0.8 && (
+          <Banner tone="warn">Sắp hết — chỉ còn {usage.units_remaining.toLocaleString("vi-VN")} request.</Banner>
+        )}
+
+        <div className="flex items-center gap-2">
+          <button
+            onClick={simulate}
+            disabled={simulating}
+            className="inline-flex items-center gap-1.5 px-3 py-1.5 text-[12px] font-medium rounded-md bg-slate-100 border border-slate-200 hover:border-slate-300 transition-colors disabled:opacity-50"
+          >
+            {simulating ? "Đang gửi…" : "Giả lập 1 request"}
+          </button>
+          <span className="text-[11px] text-slate-400">Công cụ debug — chưa có nhà cung cấp thật gọi vào đây.</span>
+        </div>
+        {simError && <p className="text-[12px] text-red-600">{simError}</p>}
+
+        {usage.records.length > 0 && (
+          <div className="overflow-x-auto">
+            <table className="w-full text-[12px]">
+              <thead>
+                <tr className="text-left text-slate-500 border-b border-slate-200">
+                  <th className="px-3 py-2 font-medium">Lúc</th>
+                  <th className="px-3 py-2 font-medium">Endpoint</th>
+                  <th className="px-3 py-2 font-medium">Trừ</th>
+                  <th className="px-3 py-2 font-medium">Kết quả</th>
+                </tr>
+              </thead>
+              <tbody>
+                {usage.records.map((r) => (
+                  <tr key={r.id} className="border-b border-slate-100 last:border-0">
+                    <td className="px-3 py-2 text-slate-500">{new Date(r.created_at).toLocaleString("vi-VN")}</td>
+                    <td className="px-3 py-2 font-mono">{r.endpoint}</td>
+                    <td className="px-3 py-2 tabular-nums">−{r.units}</td>
+                    <td className="px-3 py-2">
+                      <span className={`inline-flex items-center rounded-md border px-1.5 py-0.5 text-[11px] font-medium ${USAGE_STATUS_STYLES[r.status] ?? "bg-slate-100 text-slate-600 border-slate-200"}`}>
+                        {r.status === "ok" ? "Thành công" : r.status === "rejected_quota" ? "Hết credit" : "Hết hạn"}
+                      </span>
+                    </td>
+                  </tr>
+                ))}
+              </tbody>
+            </table>
+          </div>
+        )}
+      </Card>
+    </section>
+  );
+}
+
 function OrderDetailContent({ orderId }: { orderId: number }) {
   const [detail, setDetail] = React.useState<AdminOrderDetail | null>(null);
   const [loading, setLoading] = React.useState(true);
@@ -311,6 +417,9 @@ function OrderDetailContent({ orderId }: { orderId: number }) {
           </div>
         </section>
       )}
+
+      {/* Usage / số dư request — chỉ có với sản phẩm dạng credit (endpoint) */}
+      {detail.usage && <UsageSection orderId={detail.id} usage={detail.usage} />}
 
       {/* Dispute */}
       {detail.dispute && (

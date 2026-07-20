@@ -1,7 +1,7 @@
 "use client";
 
 import Link from "next/link";
-import { useRouter } from "next/navigation";
+import { useRouter, useSearchParams } from "next/navigation";
 import { useCallback, useEffect, useState } from "react";
 import { api, vnd } from "@/lib/api";
 import { useAuth } from "@/lib/auth";
@@ -292,6 +292,7 @@ const PER_PAGE_OPTIONS = [10, 20, 50];
 export default function OrdersPage() {
   const { account, loading: authLoading } = useAuth();
   const router = useRouter();
+  const searchParams = useSearchParams();
   const [orders, setOrders] = useState<Order[]>([]);
   const [total, setTotal] = useState(0);
   const [loading, setLoading] = useState(true);
@@ -307,7 +308,7 @@ export default function OrdersPage() {
   const [dashboardOpen, setDashboardOpen] = useState<Set<number>>(new Set());
 
   // Filters
-  const [tab, setTab] = useState("");
+  const [tab, setTab] = useState(() => searchParams.get("status") ?? "");
   const [search, setSearch] = useState("");
   const [dateFrom, setDateFrom] = useState("");
   const [dateTo, setDateTo] = useState("");

@@ -9,6 +9,7 @@ import {
   Activity, ArrowRight, BarChart, Bell, ChevronLeft, ClipboardList, FileText,
   Grid, Inbox, LogOut, Menu, Package, Receipt, Shield, TrendingUp, Users, Verified, Wallet,
 } from "@/components/Icons";
+import NotificationBell from "@/components/NotificationBell";
 
 type NavItem = { href: string; label: string; icon: (p: { size?: number }) => ReactNode };
 
@@ -230,6 +231,8 @@ export default function AdminShell({ children }: { children: ReactNode }) {
             </nav>
 
             <div className="flex-1" />
+
+            <NotificationBell endpoint="admin" />
 
             {/* Live status */}
             <span className="hidden sm:flex items-center gap-2 h-8 px-3 rounded-full border border-good/25 bg-good-soft text-[12px] font-medium text-good">

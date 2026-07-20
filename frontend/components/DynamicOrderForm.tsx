@@ -5,8 +5,8 @@ import { useRouter } from "next/navigation";
 import { api, vnd, ApiError } from "@/lib/api";
 import { useAuth } from "@/lib/auth";
 import type { CalculateResult, Order, PricingField, PricingOptions, ProductDetail } from "@/lib/types";
-import { Button, Card, Input, Select, Spinner, Tag, Textarea } from "@/components/ui";
-import { Shield } from "@/components/Icons";
+import { Banner, Button, Card, Input, Select, Spinner, Tag, Textarea } from "@/components/ui";
+import { Info, Shield } from "@/components/Icons";
 
 interface Props {
   productId: number;
@@ -27,6 +27,7 @@ export default function DynamicOrderForm({ productId, product, onOrderCreated }:
 
   const [calc, setCalc] = useState<CalculateResult | null>(null);
   const [calculating, setCalculating] = useState(false);
+  const [calcError, setCalcError] = useState<string | null>(null);
 
   const [placing, setPlacing] = useState(false);
   const [placeError, setPlaceError] = useState<string | null>(null);
@@ -64,14 +65,29 @@ export default function DynamicOrderForm({ productId, product, onOrderCreated }:
   const debounceRef = useRef<ReturnType<typeof setTimeout> | null>(null);
 
   const doCalculate = useCallback(async (cfg: Record<string, unknown>, q: number) => {
-    if (!options || options.fields.length === 0) return;
+    if (!options || !options.ready || options.fields.length === 0) return;
+    // Field bắt buộc còn trống (vd target_urls rỗng lúc mới vào trang) không
+    // phải là lỗi — buyer chỉ đang chưa điền xong. Bỏ qua im lặng, đừng gọi
+    // API để rồi biến "chưa điền" thành một thông báo lỗi giả.
+    const missingRequired = options.fields.some(
+      (f) => f.required && (cfg[f.field] == null || cfg[f.field] === ""),
+    );
+    if (missingRequired) {
+      setCalc(null);
+      setCalcError(null);
+      return;
+    }
     setCalculating(true);
     try {
       const merged = { ...cfg, quantity: q };
       const result = await api.calculatePrice(productId, merged);
       setCalc(result);
-    } catch {
-      // Silently ignore calculate errors — user is still typing
+      setCalcError(null);
+    } catch (e) {
+      // Đây mới là lỗi thật (field đã điền nhưng backend từ chối) — trước đây
+      // bị nuốt hoàn toàn, giá cứ đứng ở "—" mãi mà buyer không hiểu vì sao.
+      setCalc(null);
+      setCalcError(e instanceof Error ? e.message : "Không tính được giá — thử lại.");
     } finally {
       setCalculating(false);
     }
@@ -127,6 +143,12 @@ export default function DynamicOrderForm({ productId, product, onOrderCreated }:
         </div>
 
         <div className="p-5 space-y-4">
+          {!options.ready && (
+            <Banner tone="warn" icon={<Info size={15} />} title="Sản phẩm chưa sẵn sàng bán">
+              {options.not_ready_reason ?? "Người bán chưa hoàn tất thiết lập sản phẩm này — vui lòng quay lại sau."}
+            </Banner>
+          )}
+
           {/* Dynamic fields */}
           {options.fields.map((f) => (
             <DynamicField key={f.field} field={f} value={config[f.field]} onChange={(v) => updateField(f.field, v)} />
@@ -171,7 +193,7 @@ export default function DynamicOrderForm({ productId, product, onOrderCreated }:
                   {hasDiscount && calc.original_amount != null && (
                     <div className="flex items-center gap-2 justify-end mb-0.5">
                       <span className="text-[13px] text-faint line-through">{vnd(calc.original_amount)}</span>
-                      <Tag tone="good">-{calc.discount_pct}%</Tag>
+                      <Tag tone="good">-{Math.round((calc.discount_pct ?? 0) * 100)}%</Tag>
                     </div>
                   )}
                   <span className="font-mono text-[22px] font-bold tabular text-iris-hi">{vnd(displayAmount)}</span>
@@ -182,10 +204,11 @@ export default function DynamicOrderForm({ productId, product, onOrderCreated }:
             </div>
           </div>
 
+          {calcError && <p className="text-bad text-[12.5px]">{calcError}</p>}
           {placeError && <p className="text-bad text-[12.5px]">{placeError}</p>}
 
-          <Button size="lg" block disabled={placing || !calc || calculating} onClick={handleSubmit}>
-            {placing ? "Đang xử lý…" : !account ? "Đăng nhập để mua" : "Đặt hàng"}
+          <Button size="lg" block disabled={!options.ready || placing || !calc || calculating} onClick={handleSubmit}>
+            {placing ? "Đang xử lý…" : !account ? "Đăng nhập để mua" : !options.ready ? "Chưa thể đặt hàng" : "Đặt hàng"}
           </Button>
 
           <p className="text-[11.5px] text-faint leading-relaxed text-center">
@@ -241,7 +264,7 @@ export default function DynamicOrderForm({ productId, product, onOrderCreated }:
               {hasDiscount && (
                 <div className="flex justify-between">
                   <span className="text-muted">Giảm giá</span>
-                  <Tag tone="good">-{calc.discount_pct}%</Tag>
+                  <Tag tone="good">-{Math.round((calc.discount_pct ?? 0) * 100)}%</Tag>
                 </div>
               )}
               <div className="border-t border-line pt-3 flex justify-between items-end">
@@ -294,7 +317,17 @@ function DynamicField({
       return (
         <div>
           {label}
-          <Select value={String(value ?? "")} onChange={(e) => onChange(e.target.value)}>
+          <Select
+            value={String(value ?? "")}
+            onChange={(e) => {
+              // <select> chỉ trả string qua e.target.value dù option.value gốc
+              // là số (vd package_size) — backend validate isinstance(x, int),
+              // gửi thẳng string xuống là "Cấu hình không hợp lệ" ngay khi đổi
+              // lựa chọn. Tra lại giá trị gốc trong choices để giữ đúng kiểu.
+              const choice = field.choices?.find((c) => String(c.value) === e.target.value);
+              onChange(choice ? choice.value : e.target.value);
+            }}
+          >
             {field.choices?.map((c) => (
               <option key={c.value} value={c.value}>
                 {c.label}

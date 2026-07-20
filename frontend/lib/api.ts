@@ -1,5 +1,5 @@
 import type {
-  Account, AdminDisputeDetail, AdminOrderDetail, AdminProduct, AdminResourceListResponse, AffiliateStats, AffiliateSummary, CalculateResult, Category, DashboardData, Dispute, FundOverview, AccountAdminRow, PaginatedAccounts, LogEntry, Order, OrderStats, PaginatedAffiliateSummary, PaginatedOrderResponse, PricingField, PricingOptions, ProductDetail, Product, ProductOperations, Review, SellerApplication, SellerProduct, SellerStats, ServiceTask, Transaction, Variant, Wallet, WithdrawRequest, Provider, ProviderHealth, Alert, Resource, ResourceSummary, InventoryVariant, SellerSummary, SellerProfile, SellerApiKey, SellerApiKeyCreated,
+  Account, ActionItem, AdminDisputeDetail, AdminOrderDetail, AdminProduct, AdminResourceListResponse, AffiliateStats, AffiliateSummary, CalculateResult, Category, ChargeUsageResult, DashboardData, Dispute, FundOverview, AccountAdminRow, PaginatedAccounts, LogEntry, Order, OrderStats, PaginatedAffiliateSummary, PaginatedOrderResponse, PricingField, PricingOptions, ProductDetail, Product, ProductOperations, Review, SellerApplication, SellerProduct, SellerStats, ServiceTask, Transaction, Variant, Wallet, WithdrawRequest, Provider, ProviderHealth, Alert, Resource, ResourceSummary, InventoryVariant, SellerSummary, SellerProfile, SellerApiKey, SellerApiKeyCreated,
 } from "./types";
 
 const BASE = process.env.NEXT_PUBLIC_API_URL
@@ -170,6 +170,10 @@ export const api = {
   adminOrderDetail: (orderId: number) => request<AdminOrderDetail>(`/admin/orders/${orderId}`, {}, true),
   adminAlerts: () => request<Alert[]>("/admin/alerts", {}, true),
   dismissAlert: (id: number) => request<Alert>(`/admin/alerts/${id}/dismiss`, { method: "POST" }, true),
+  dismissSellerAlert: (id: number) => request<Alert>(`/seller/alerts/${id}/dismiss`, { method: "POST" }, true),
+  buyerActionItems: () => request<ActionItem[]>("/orders/action-items", {}, true),
+  sellerActionItems: () => request<ActionItem[]>("/seller/action-items", {}, true),
+  adminActionItems: () => request<ActionItem[]>("/admin/action-items", {}, true),
   adminDisputes: () => request<Dispute[]>("/admin/disputes", {}, true),
   adminDisputeDetail: (id: number) => request<AdminDisputeDetail>(`/admin/disputes/${id}`, {}, true),
   refundDispute: (id: number, adminNote: string) =>
@@ -194,6 +198,8 @@ export const api = {
   sellerRespondDispute: (disputeId: number, sellerNote: string) =>
     request<Dispute>(`/seller/disputes/${disputeId}/respond`, { method: "POST", body: JSON.stringify({ seller_note: sellerNote }) }, true),
   providers: () => request<Provider[]>("/providers", {}, true),
+  createProvider: (data: Record<string, unknown>) =>
+    request<Provider>("/admin/providers", { method: "POST", body: JSON.stringify(data) }, true),
   providerHealth: (id: number) => request<ProviderHealth[]>(`/providers/${id}/health`, {}, true),
 
   submitReview: (orderId: number, rating: number, comment?: string) =>
@@ -202,6 +208,8 @@ export const api = {
     request<Review[]>(`/products/${productId}/reviews`),
 
   orderDashboard: (orderId: number) => request<DashboardData>(`/orders/${orderId}/dashboard`, {}, true),
+  chargeUsage: (orderId: number, endpoint: string, units = 1) =>
+    request<ChargeUsageResult>(`/orders/${orderId}/usage`, { method: "POST", body: JSON.stringify({ endpoint, units }) }, true),
   orderResources: (orderId: number) => request<Resource[]>(`/orders/${orderId}/resources`, {}, true),
   markResourceError: (resourceId: number) => request<Resource>(`/seller/resources/${resourceId}/error`, { method: "POST" }, true),
   adminResources: (params: { status?: string; search?: string; page?: number; per_page?: number } = {}) => {
@@ -223,11 +231,13 @@ export const api = {
     request<Order>("/orders", { method: "POST", body: JSON.stringify({ product_id: productId, user_config: userConfig, quantity }) }, true),
 
   providerProducts: (id: number) =>
-    request<{ id: number; title: string; service_type: string; status: string; pricing_strategy: string | null; pricing_params: Record<string, unknown> | null; order_count: number; revenue: number }[]>(`/admin/providers/${id}/products`, {}, true),
+    request<{ id: number; title: string; service_type: string; status: string; pricing_strategy: string | null; pricing_params: Record<string, unknown> | null; order_count: number; revenue: number; compat_level: "ok" | "warn" | "block"; compat_message: string | null }[]>(`/admin/providers/${id}/products`, {}, true),
   updateProvider: (id: number, data: Record<string, unknown>) =>
     request<Provider>(`/admin/providers/${id}`, { method: "PUT", body: JSON.stringify(data) }, true),
   testProvider: (id: number) =>
     request<{ health: Record<string, unknown>; provision: Record<string, unknown> }>(`/admin/providers/${id}/test`, { method: "POST" }, true),
+  adapterCompatibility: () =>
+    request<Record<string, string[] | "*">>("/admin/adapter-compatibility", {}, true),
   adminTasks: (status?: string) =>
     request<ServiceTask[]>(`/admin/tasks${status ? `?status=${status}` : ""}`, {}, true),
   updateTask: (id: number, data: Record<string, unknown>) =>

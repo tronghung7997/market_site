@@ -105,8 +105,14 @@ export default function ProductPage() {
   const pricedVariants = product.variants.filter((v) => v.price > 0);
   const variantMinPrice = pricedVariants.length ? Math.min(...pricedVariants.map((v) => v.price)) : 0;
   const basePrice = (product.pricing_params as Record<string, unknown> | null)?.base_price as number | undefined;
-  const creditPrice = (product.pricing_params as Record<string, unknown> | null)?.credit_price as number | undefined;
-  const minPrice = variantMinPrice || basePrice || creditPrice || 0;
+  // credit_price là đơn giá MỖI request — không phải giá một lần mua. Gói nhỏ
+  // nhất mới là số tiền thật rẻ nhất buyer có thể trả, nên phải nhân vào đây;
+  // trước đây hiện thẳng credit_price (vd 10đ) làm buyer tưởng mua được với 10đ.
+  const creditParams = product.pricing_params as { credit_price?: number; packages?: { size: number }[] } | null;
+  const minCreditPackagePrice = creditParams?.credit_price != null && creditParams.packages?.length
+    ? creditParams.credit_price * Math.min(...creditParams.packages.map((p) => p.size))
+    : undefined;
+  const minPrice = variantMinPrice || basePrice || minCreditPackagePrice || 0;
   const pricePrefix = useDynamicForm ? "Từ " : "";
   const totalStock = product.variants.reduce((s, v) => s + v.stock_count, 0);
   const sellerName = product.seller_email?.split("@")[0] ?? "seller";

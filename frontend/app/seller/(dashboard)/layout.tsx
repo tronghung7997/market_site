@@ -6,6 +6,7 @@ import { useEffect } from "react";
 import { useAuth } from "@/lib/auth";
 import { cn } from "@/lib/cn";
 import { BarChart, Edit2, Inbox, Package, Plug, Store, Rows, Wallet } from "@/components/Icons";
+import NotificationBell from "@/components/NotificationBell";
 import { Spinner } from "@/components/ui";
 import type { ReactNode } from "react";
 
@@ -37,13 +38,18 @@ export default function SellerLayout({ children }: { children: ReactNode }) {
 
   return (
     <div className="w-full mx-auto max-w-[1200px] px-6 py-6">
-      <div className="flex items-center gap-3 mb-6">
-        <span className="grid place-items-center h-9 w-9 rounded-lg bg-iris/10 border border-iris/20">
-          <Store size={18} className="text-iris-hi" />
-        </span>
-        <div>
-          <h1 className="text-[18px] font-serif font-semibold">Quản lý gian hàng</h1>
-          <p className="text-[12px] text-muted">{account.email}</p>
+      <div className="flex items-center justify-between mb-6">
+        <div className="flex items-center gap-3">
+          <span className="grid place-items-center h-9 w-9 rounded-lg bg-iris/10 border border-iris/20">
+            <Store size={18} className="text-iris-hi" />
+          </span>
+          <div>
+            <h1 className="text-[18px] font-serif font-semibold">Quản lý gian hàng</h1>
+            <p className="text-[12px] text-muted">{account.email}</p>
+          </div>
+        </div>
+        <div className="flex items-center gap-3">
+          <NotificationBell endpoint="seller" />
         </div>
       </div>
 

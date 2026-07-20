@@ -1,10 +1,12 @@
 "use client";
 
-import { useEffect, useState, useCallback, useMemo } from "react";
+import { Fragment, useEffect, useState, useCallback, useMemo } from "react";
 import { createPortal } from "react-dom";
 import { api } from "@/lib/api";
-import { Card, Spinner, Tag, Button, Field, Input, Select, Textarea } from "@/components/ui";
+import { Banner, Card, Spinner, Tag, Button, Field, Input, Select, Textarea } from "@/components/ui";
+import { Info } from "@/components/Icons";
 import type { AdminProduct, Provider, ProviderHealth } from "@/lib/types";
+import { isAdapterCompatible, type CompatMatrix } from "@/lib/compat";
 
 /* ================================================================
    Constants & helpers
@@ -52,6 +54,8 @@ interface ProviderProduct {
   pricing_params: Record<string, unknown> | null;
   order_count: number;
   revenue: number;
+  compat_level: "ok" | "warn" | "block";
+  compat_message: string | null;
 }
 
 const STRATEGY_LABELS: Record<string, string> = {
@@ -72,14 +76,19 @@ const SAMPLE_CONFIGS: Record<string, string> = {
 
 function PricingEditor({
   product,
+  adapterType,
+  compatMatrix,
   onSaved,
   onClose,
 }: {
   product: ProviderProduct;
+  adapterType: string;
+  compatMatrix: CompatMatrix | null;
   onSaved: () => void;
   onClose: () => void;
 }) {
   const [strategy, setStrategy] = useState(product.pricing_strategy ?? "fixed");
+  const strategyIncompatible = !isAdapterCompatible(adapterType, strategy, compatMatrix);
   const [paramsText, setParamsText] = useState(
     JSON.stringify(product.pricing_params ?? {}, null, 2),
   );
@@ -164,6 +173,13 @@ function PricingEditor({
         </Select>
       </Field>
 
+      {strategyIncompatible && (
+        <Banner tone="bad" icon={<Info size={14} />}>
+          Provider hiện tại (adapter &quot;{adapterType}&quot;) không tương thích với chiến lược &quot;{strategy}&quot;
+          — lưu sẽ bị từ chối. Đổi provider hoặc chọn chiến lược khác.
+        </Banner>
+      )}
+
       <Field label="pricing_params (JSON)">
         <Textarea
           rows={6}
@@ -197,9 +213,10 @@ function PricingEditor({
   );
 }
 
-function ProviderProductsTab({ providerId }: { providerId: number }) {
+function ProviderProductsTab({ providerId, adapterType }: { providerId: number; adapterType: string }) {
   const [products, setProducts] = useState<ProviderProduct[]>([]);
   const [allProducts, setAllProducts] = useState<AdminProduct[]>([]);
+  const [compatMatrix, setCompatMatrix] = useState<CompatMatrix | null>(null);
   const [loading, setLoading] = useState(true);
   const [attachId, setAttachId] = useState<string>("");
   const [editingId, setEditingId] = useState<number | null>(null);
@@ -210,10 +227,12 @@ function ProviderProductsTab({ providerId }: { providerId: number }) {
     Promise.all([
       api.providerProducts(providerId).catch(() => []),
       api.adminProducts().catch(() => []),
+      api.adapterCompatibility().catch(() => null),
     ])
-      .then(([linked, all]) => {
+      .then(([linked, all, matrix]) => {
         setProducts(linked ?? []);
         setAllProducts(all ?? []);
+        setCompatMatrix(matrix);
       })
       .finally(() => setLoading(false));
   }, [providerId]);
@@ -257,14 +276,17 @@ function ProviderProductsTab({ providerId }: { providerId: number }) {
       {/* Attach row */}
       <div className="flex items-end gap-2">
         <div className="flex-1">
-          <Field label="Gắn sản phẩm vào provider">
+          <Field label="Gắn sản phẩm vào provider" hint={`Sản phẩm có chiến lược giá không tương thích với adapter "${adapterType}" bị vô hiệu hoá.`}>
             <Select value={attachId} onChange={(e) => setAttachId(e.target.value)}>
               <option value="">Chọn sản phẩm...</option>
-              {attachable.map((p) => (
-                <option key={p.id} value={p.id}>
-                  #{p.id} {p.title}{p.provider_name ? ` (đang: ${p.provider_name})` : ""}
-                </option>
-              ))}
+              {attachable.map((p) => {
+                const compatible = isAdapterCompatible(adapterType, p.pricing_strategy ?? "fixed", compatMatrix);
+                return (
+                  <option key={p.id} value={p.id} disabled={!compatible}>
+                    #{p.id} {p.title}{p.provider_name ? ` (đang: ${p.provider_name})` : ""}{!compatible ? " — không tương thích" : ""}
+                  </option>
+                );
+              })}
             </Select>
           </Field>
         </div>
@@ -294,9 +316,17 @@ function ProviderProductsTab({ providerId }: { providerId: number }) {
               </thead>
               <tbody>
                 {products.map((p) => (
-                  <>
-                    <tr key={p.id} className="border-b border-line last:border-0 hover:bg-surface/50">
-                      <td className="px-3 py-2 text-fg font-medium">{p.title}</td>
+                  <Fragment key={p.id}>
+                    <tr className="border-b border-line last:border-0 hover:bg-surface/50">
+                      <td className="px-3 py-2 text-fg font-medium">
+                        {p.title}
+                        {p.compat_level === "block" && (
+                          <Tag tone="bad" className="ml-2">Sai cấu hình</Tag>
+                        )}
+                        {p.compat_level === "warn" && (
+                          <Tag tone="iris" className="ml-2">Demo</Tag>
+                        )}
+                      </td>
                       <td className="px-3 py-2 text-muted">{p.service_type}</td>
                       <td className="px-3 py-2">
                         {p.pricing_strategy ? (
@@ -324,11 +354,22 @@ function ProviderProductsTab({ providerId }: { providerId: number }) {
                         </button>
                       </td>
                     </tr>
+                    {p.compat_level === "block" && (
+                      <tr key={`${p.id}-warn`} className="border-b border-line last:border-0">
+                        <td colSpan={6} className="px-3 pb-3">
+                          <Banner tone="bad" icon={<Info size={14} />}>
+                            {p.compat_message ?? "Cấu hình sai — đơn hàng cho sản phẩm này sẽ bị huỷ tự động."}
+                          </Banner>
+                        </td>
+                      </tr>
+                    )}
                     {editingId === p.id && (
                       <tr key={`${p.id}-editor`} className="border-b border-line last:border-0">
                         <td colSpan={6} className="px-3 py-3">
                           <PricingEditor
                             product={p}
+                            adapterType={adapterType}
+                            compatMatrix={compatMatrix}
                             onSaved={() => {
                               setEditingId(null);
                               load();
@@ -338,7 +379,7 @@ function ProviderProductsTab({ providerId }: { providerId: number }) {
                         </td>
                       </tr>
                     )}
-                  </>
+                  </Fragment>
                 ))}
               </tbody>
             </table>
@@ -353,6 +394,120 @@ function ProviderProductsTab({ providerId }: { providerId: number }) {
    Edit Panel (slide-out with tabs)
    ================================================================ */
 
+/* Dùng chung cho cả panel Sửa provider và panel Tạo provider mới — tránh chép
+   lại 5 khối JSX theo adapter_type ở hai chỗ (trước đây chỉ tồn tại trong
+   ProviderEditPanel, panel tạo mới sẽ không có nếu không tách ra). */
+function AdapterConnectionFields({
+  adapterType,
+  config,
+  onChange,
+  providerId,
+  onTest,
+  testing,
+  testResult,
+}: {
+  adapterType: string;
+  config: Record<string, unknown>;
+  onChange: (config: Record<string, unknown>) => void;
+  providerId?: number;
+  onTest?: (type: "health" | "provision") => void;
+  testing?: boolean;
+  testResult?: Record<string, unknown> | null;
+}) {
+  if (adapterType === "mock") {
+    return (
+      <div className="rounded-lg bg-surface border border-line p-4 text-center">
+        <svg className="h-8 w-8 mx-auto mb-2 text-muted" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={1.5}>
+          <path strokeLinecap="round" strokeLinejoin="round" d="M9.75 17L9 20l-1 1h8l-1-1-.75-3M3 13h18M5 17h14a2 2 0 002-2V5a2 2 0 00-2-2H5a2 2 0 00-2 2v10a2 2 0 002 2z" />
+        </svg>
+        <p className="text-[13px] text-muted">Provider mock không cần kết nối API.</p>
+        <p className="text-[12px] text-faint mt-1">Dữ liệu giả được tạo tự động để test.</p>
+      </div>
+    );
+  }
+
+  if (adapterType === "seller_pool") {
+    return (
+      <div className="rounded-lg bg-surface border border-line p-4 text-center">
+        <svg className="h-8 w-8 mx-auto mb-2 text-muted" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={1.5}>
+          <path strokeLinecap="round" strokeLinejoin="round" d="M20 7l-8-4-8 4m16 0l-8 4m8-4v10l-8 4m0-10L4 7m8 4v10M4 7v10l8 4" />
+        </svg>
+        <p className="text-[13px] text-muted">Dữ liệu lấy từ resource pool. Không cần API.</p>
+        <p className="text-[12px] text-faint mt-1">Seller upload kho hàng, hệ thống tự phân phối.</p>
+      </div>
+    );
+  }
+
+  if (adapterType === "manual") {
+    return (
+      <div className="space-y-4">
+        <div className="rounded-lg bg-surface border border-line p-3">
+          <p className="text-[13px] text-muted">Team xử lý thủ công. Cấu hình kênh thông báo.</p>
+        </div>
+        <Field label="Kênh thông báo (notification channel)">
+          <Input
+            value={(config.notification_channel as string) ?? ""}
+            onChange={(e) => onChange({ ...config, notification_channel: e.target.value })}
+            placeholder="VD: #takedown-team"
+          />
+        </Field>
+      </div>
+    );
+  }
+
+  if (adapterType === "topproxy" || adapterType === "scrapecreators") {
+    return (
+      <div className="space-y-4">
+        <div className="rounded-lg bg-iris-soft/50 border border-iris/20 p-3">
+          <p className="text-[12px] text-iris-hi">
+            Nhập API key và base URL để kết nối với nhà cung cấp.{" "}
+            {providerId != null ? "Dùng nút Test để kiểm tra trước khi lưu." : "Lưu xong mới test kết nối được."}
+          </p>
+        </div>
+
+        <Field label="API Key">
+          <Input
+            type="password"
+            value={(config.api_key as string) ?? ""}
+            onChange={(e) => onChange({ ...config, api_key: e.target.value })}
+            placeholder="Nhập API key..."
+          />
+        </Field>
+
+        <Field label="Base URL">
+          <Input
+            value={(config.base_url as string) ?? ""}
+            onChange={(e) => onChange({ ...config, base_url: e.target.value })}
+            placeholder="https://api.example.com"
+          />
+        </Field>
+
+        {providerId != null && onTest && (
+          <div className="flex gap-2">
+            <Button variant="secondary" size="sm" onClick={() => onTest("health")} disabled={testing}>
+              {testing ? "Đang test..." : "Test kết nối"}
+            </Button>
+            <Button variant="secondary" size="sm" onClick={() => onTest("provision")} disabled={testing}>
+              {testing ? "Đang test..." : "Test cấp phát"}
+            </Button>
+          </div>
+        )}
+
+        {testResult && (
+          <Card className="p-3">
+            <h4 className="text-[11px] font-semibold text-muted uppercase tracking-wide mb-2">Kết quả test</h4>
+            <pre className="text-[11px] font-mono text-fg whitespace-pre-wrap overflow-x-auto">
+              {JSON.stringify(testResult, null, 2)}
+            </pre>
+          </Card>
+        )}
+      </div>
+    );
+  }
+
+  return null;
+}
+
 type TabKey = "general" | "api" | "products";
 
 const TABS: { key: TabKey; label: string }[] = [
@@ -364,15 +519,17 @@ const TABS: { key: TabKey; label: string }[] = [
 function ProviderEditPanel({
   provider,
   allProviders,
+  initialTab,
   onClose,
   onSaved,
 }: {
   provider: ExpandedProvider;
   allProviders: ExpandedProvider[];
+  initialTab?: TabKey;
   onClose: () => void;
   onSaved: (p: Provider) => void;
 }) {
-  const [tab, setTab] = useState<TabKey>("general");
+  const [tab, setTab] = useState<TabKey>(initialTab ?? "general");
   const [adapterType, setAdapterType] = useState(provider.adapter_type ?? "mock");
   const [config, setConfig] = useState<Record<string, unknown>>(provider.config ?? {});
   const [fallbackId, setFallbackId] = useState<number | null>(provider.fallback_provider_id);
@@ -522,102 +679,24 @@ function ProviderEditPanel({
 
           {/* Tab 2: API Connection */}
           {tab === "api" && (
-            <>
-              {(adapterType === "mock") && (
-                <div className="rounded-lg bg-surface border border-line p-4 text-center">
-                  <svg className="h-8 w-8 mx-auto mb-2 text-muted" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={1.5}>
-                    <path strokeLinecap="round" strokeLinejoin="round" d="M9.75 17L9 20l-1 1h8l-1-1-.75-3M3 13h18M5 17h14a2 2 0 002-2V5a2 2 0 00-2-2H5a2 2 0 00-2 2v10a2 2 0 002 2z" />
-                  </svg>
-                  <p className="text-[13px] text-muted">Provider mock không cần kết nối API.</p>
-                  <p className="text-[12px] text-faint mt-1">Dữ liệu giả được tạo tự động để test.</p>
-                </div>
-              )}
-
-              {adapterType === "seller_pool" && (
-                <div className="rounded-lg bg-surface border border-line p-4 text-center">
-                  <svg className="h-8 w-8 mx-auto mb-2 text-muted" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={1.5}>
-                    <path strokeLinecap="round" strokeLinejoin="round" d="M20 7l-8-4-8 4m16 0l-8 4m8-4v10l-8 4m0-10L4 7m8 4v10M4 7v10l8 4" />
-                  </svg>
-                  <p className="text-[13px] text-muted">Dữ liệu lấy từ resource pool. Không cần API.</p>
-                  <p className="text-[12px] text-faint mt-1">Seller upload kho hàng, hệ thống tự phân phối.</p>
-                </div>
-              )}
-
-              {adapterType === "manual" && (
-                <div className="space-y-4">
-                  <div className="rounded-lg bg-surface border border-line p-3">
-                    <p className="text-[13px] text-muted">Team xử lý thủ công. Cấu hình kênh thông báo.</p>
-                  </div>
-                  <Field label="Kênh thông báo (notification channel)">
-                    <Input
-                      value={(config.notification_channel as string) ?? ""}
-                      onChange={(e) => setConfig({ ...config, notification_channel: e.target.value })}
-                      placeholder="VD: #takedown-team"
-                    />
-                  </Field>
-                </div>
-              )}
-
-              {(adapterType === "topproxy" || adapterType === "scrapecreators") && (
-                <div className="space-y-4">
-                  <div className="rounded-lg bg-iris-soft/50 border border-iris/20 p-3">
-                    <p className="text-[12px] text-iris-hi">
-                      Nhap API key va base URL de ket noi voi nhà cung cấp. Dung nut Test de kiem tra truoc khi luu.
-                    </p>
-                  </div>
-
-                  <Field label="API Key">
-                    <Input
-                      type="password"
-                      value={(config.api_key as string) ?? ""}
-                      onChange={(e) => setConfig({ ...config, api_key: e.target.value })}
-                      placeholder="Nhap API key..."
-                    />
-                  </Field>
-
-                  <Field label="Base URL">
-                    <Input
-                      value={(config.base_url as string) ?? ""}
-                      onChange={(e) => setConfig({ ...config, base_url: e.target.value })}
-                      placeholder="https://api.example.com"
-                    />
-                  </Field>
-
-                  <div className="flex gap-2">
-                    <Button
-                      variant="secondary"
-                      size="sm"
-                      onClick={() => handleTest("health")}
-                      disabled={testing}
-                    >
-                      {testing ? "Dang test..." : "Test ket noi"}
-                    </Button>
-                    <Button
-                      variant="secondary"
-                      size="sm"
-                      onClick={() => handleTest("provision")}
-                      disabled={testing}
-                    >
-                      {testing ? "Dang test..." : "Test cap phat"}
-                    </Button>
-                  </div>
-
-                  {testResult && (
-                    <Card className="p-3">
-                      <h4 className="text-[11px] font-semibold text-muted uppercase tracking-wide mb-2">Kết quả test</h4>
-                      <pre className="text-[11px] font-mono text-fg whitespace-pre-wrap overflow-x-auto">
-                        {JSON.stringify(testResult, null, 2)}
-                      </pre>
-                    </Card>
-                  )}
-                </div>
-              )}
-            </>
+            <AdapterConnectionFields
+              adapterType={adapterType}
+              config={config}
+              onChange={setConfig}
+              providerId={provider.id}
+              onTest={handleTest}
+              testing={testing}
+              testResult={testResult}
+            />
           )}
 
           {/* Tab 3: Connected Products */}
           {tab === "products" && (
-            <ProviderProductsTab providerId={provider.id} />
+            // Truyền state adapterType đang sửa dở, không phải provider.adapter_type
+            // đã lưu — nếu không, đổi loại adapter ở tab "Thông tin chung" rồi
+            // sang thẳng tab này (chưa bấm Lưu) sẽ vẫn kiểm tra tương thích
+            // theo loại CŨ, gây hiểu nhầm sản phẩm nào gắn được.
+            <ProviderProductsTab providerId={provider.id} adapterType={adapterType} />
           )}
 
           {/* Bottom actions (visible on all tabs) */}
@@ -641,6 +720,138 @@ function ProviderEditPanel({
                 Đóng
               </Button>
             </div>
+          </div>
+        </div>
+      </div>
+    </>,
+    document.body,
+  );
+}
+
+/* ================================================================
+   Create Provider Panel — thứ tự đúng nhân quả: chọn LOẠI KẾT NỐI trước
+   (nó quyết định field kết nối nào hiện ra + tương thích chiến lược giá
+   nào), rồi mới tới tên. Không phải wizard nhiều bước có Back/Next — cả
+   trang cuộn 1 lần, đúng quy ước "1 form duy nhất" repo đang dùng ở mọi
+   chỗ tạo mới khác (tạo sản phẩm, tạo category).
+   ================================================================ */
+
+function CreateProviderPanel({
+  onClose,
+  onCreated,
+}: {
+  onClose: () => void;
+  onCreated: (p: Provider) => void;
+}) {
+  const [adapterType, setAdapterType] = useState("mock");
+  const [name, setName] = useState("");
+  const [config, setConfig] = useState<Record<string, unknown>>({});
+  const [compatMatrix, setCompatMatrix] = useState<CompatMatrix | null>(null);
+  const [saving, setSaving] = useState(false);
+  const [error, setError] = useState<string | null>(null);
+
+  useEffect(() => {
+    api.adapterCompatibility().then(setCompatMatrix).catch(() => {});
+  }, []);
+
+  const compatLabel = (adapter: string): string => {
+    const compat = compatMatrix?.[adapter];
+    if (compat == null) return "";
+    if (compat === "*") return "Tương thích mọi chiến lược giá — chỉ nên dùng để demo/test.";
+    return `Chỉ dùng được với chiến lược giá: ${compat.map((s) => STRATEGY_LABELS[s] ?? s).join(", ")}.`;
+  };
+
+  const handleCreate = async () => {
+    if (!name.trim()) return;
+    setError(null);
+    setSaving(true);
+    try {
+      const created = await api.createProvider({
+        name: name.trim(),
+        adapter_type: adapterType,
+        config,
+        priority: 1,
+        is_active: true,
+      });
+      onCreated(created);
+    } catch (e: unknown) {
+      setError(e instanceof Error ? e.message : "Không tạo được nhà cung cấp");
+    } finally {
+      setSaving(false);
+    }
+  };
+
+  return createPortal(
+    <>
+      <div className="fixed inset-0 bg-black/40 z-[60]" onClick={onClose} />
+      <div className="fixed right-0 top-0 h-full w-full max-w-[600px] bg-surface z-[70] shadow-2xl border-l border-line overflow-y-auto">
+        <div className="sticky top-0 bg-surface border-b border-line z-10">
+          <div className="px-5 py-3.5 flex items-center justify-between">
+            <h2 className="text-[15px] font-semibold">Thêm nhà cung cấp mới</h2>
+            <button onClick={onClose} className="text-muted hover:text-fg text-[18px] leading-none px-2 cursor-pointer">
+              &times;
+            </button>
+          </div>
+        </div>
+
+        <div className="p-5 space-y-6">
+          {/* Bước 1 */}
+          <div>
+            <div className="text-[12px] font-semibold text-muted uppercase tracking-wider mb-1">1. Loại kết nối</div>
+            <p className="text-[12px] text-faint mb-3">
+              Quyết định cách hệ thống giao hàng khi có đơn — chọn trước vì nó quyết định các bước sau.
+            </p>
+            <div className="grid gap-2 sm:grid-cols-2">
+              {ADAPTER_OPTIONS.map((a) => {
+                const info = ADAPTER_DESCRIPTIONS[a];
+                const active = adapterType === a;
+                return (
+                  <button
+                    key={a}
+                    type="button"
+                    onClick={() => { setAdapterType(a); setConfig({}); }}
+                    className={`text-left rounded-lg border p-3 transition-all cursor-pointer ${active ? "border-iris bg-iris/5 ring-1 ring-iris/30" : "border-line bg-surface-2 hover:border-muted"}`}
+                  >
+                    <div className="flex items-center gap-2">
+                      <div className={`w-3 h-3 rounded-full border-2 shrink-0 ${active ? "border-iris bg-iris" : "border-muted"}`} />
+                      <span className="text-[13px] font-semibold">{info?.label ?? a}</span>
+                    </div>
+                    <p className="text-[12px] text-muted mt-1 ml-5">{info?.desc}</p>
+                    {compatMatrix && <p className="text-[11px] text-iris-hi mt-1 ml-5">{compatLabel(a)}</p>}
+                  </button>
+                );
+              })}
+            </div>
+          </div>
+
+          {/* Bước 2 */}
+          <div>
+            <div className="text-[12px] font-semibold text-muted uppercase tracking-wider mb-2">2. Tên nhà cung cấp</div>
+            <Field
+              label="Tên"
+              hint="Chỉ để bạn dễ nhận diện — không ảnh hưởng cách hệ thống xử lý đơn hàng (cái đó do Loại kết nối ở bước 1 quyết định)."
+            >
+              <Input value={name} onChange={(e) => setName(e.target.value)} placeholder="VD: TopProxy — tài khoản chính" />
+            </Field>
+          </div>
+
+          {/* Bước 3 */}
+          <div>
+            <div className="text-[12px] font-semibold text-muted uppercase tracking-wider mb-2">3. Kết nối</div>
+            <AdapterConnectionFields adapterType={adapterType} config={config} onChange={setConfig} />
+          </div>
+
+          {error && (
+            <div className="rounded-lg bg-bad-soft border border-bad/25 px-3 py-2">
+              <p className="text-[12px] text-bad">{error}</p>
+            </div>
+          )}
+
+          <div className="flex gap-2 border-t border-line pt-4">
+            <Button onClick={handleCreate} disabled={!name.trim() || saving}>
+              {saving ? "Đang tạo..." : "Tạo nhà cung cấp"}
+            </Button>
+            <Button variant="secondary" onClick={onClose}>Huỷ</Button>
           </div>
         </div>
       </div>
@@ -680,6 +891,11 @@ function ProviderCard({
   const healthInfo = latest ? HEALTH_MAP[latest.status] : null;
   const adapterInfo = ADAPTER_DESCRIPTIONS[provider.adapter_type];
   const adapterCls = ADAPTER_COLORS[provider.adapter_type] ?? "bg-surface text-muted border-line-2";
+  // mock/seller_pool/manual không cần API thật — chỉ topproxy/scrapecreators
+  // mới cần api_key + base_url, thiếu 1 trong 2 là chưa dùng được dù đã tạo.
+  const needsApiSetup =
+    (provider.adapter_type === "topproxy" || provider.adapter_type === "scrapecreators")
+    && (!provider.config?.api_key || !provider.config?.base_url);
 
   return (
     <Card interactive className="p-4 flex flex-col gap-3">
@@ -722,6 +938,7 @@ function ProviderCard({
             Điểm: {provider.quality_score.toFixed(1)}
           </Tag>
         )}
+        {needsApiSetup && <Tag tone="bad">Chưa cấu hình API</Tag>}
       </div>
 
       {/* Actions */}
@@ -745,6 +962,8 @@ export default function AdminProvidersPage() {
   const [providers, setProviders] = useState<ExpandedProvider[]>([]);
   const [loading, setLoading] = useState(true);
   const [editProvider, setEditProvider] = useState<ExpandedProvider | null>(null);
+  const [editProviderInitialTab, setEditProviderInitialTab] = useState<TabKey | undefined>(undefined);
+  const [creatingProvider, setCreatingProvider] = useState(false);
   const [testingId, setTestingId] = useState<number | null>(null);
   const [testResult, setTestResult] = useState<{ id: number; data: Record<string, unknown> } | null>(null);
   const [linkedCount, setLinkedCount] = useState<number | null>(null);
@@ -788,6 +1007,20 @@ export default function AdminProvidersPage() {
       prev.map((p) => (p.id === updated.id ? { ...p, ...updated } : p)),
     );
     setEditProvider(null);
+    setEditProviderInitialTab(undefined);
+  };
+
+  const handleCreated = (created: Provider) => {
+    const expanded: ExpandedProvider = { ...created, health: [] };
+    setProviders((prev) => [...prev, expanded]);
+    setCreatingProvider(false);
+    // topproxy/scrapecreators cần api_key/base_url thật trước khi dùng được —
+    // đưa thẳng vào tab đó để test kết nối ngay, khỏi phải tự tìm nút Cấu hình
+    // lần nữa. Loại còn lại (mock/seller_pool/manual) không cần API nên việc
+    // tiếp theo có ích nhất là gắn sản phẩm luôn.
+    const needsApiSetup = created.adapter_type === "topproxy" || created.adapter_type === "scrapecreators";
+    setEditProviderInitialTab(needsApiSetup ? "api" : "products");
+    setEditProvider(expanded);
   };
 
   const handleQuickTest = async (provider: ExpandedProvider) => {
@@ -814,11 +1047,17 @@ export default function AdminProvidersPage() {
 
   return (
     <div className="space-y-5">
+      <div className="flex items-center justify-between">
+        <h1 className="text-[16px] font-semibold">Nhà cung cấp</h1>
+        <Button size="sm" onClick={() => setCreatingProvider(true)}>+ Thêm nhà cung cấp</Button>
+      </div>
+
       {loading ? (
         <Spinner />
       ) : providers.length === 0 ? (
-        <Card className="p-8 text-center">
+        <Card className="p-8 text-center space-y-3">
           <p className="text-[13px] text-muted">Chưa có nhà cung cấp nào</p>
+          <Button size="sm" onClick={() => setCreatingProvider(true)}>+ Thêm nhà cung cấp</Button>
         </Card>
       ) : (
         <>
@@ -893,8 +1132,17 @@ export default function AdminProvidersPage() {
         <ProviderEditPanel
           provider={editProvider}
           allProviders={providers}
-          onClose={() => setEditProvider(null)}
+          initialTab={editProviderInitialTab}
+          onClose={() => { setEditProvider(null); setEditProviderInitialTab(undefined); }}
           onSaved={handleSaved}
+        />
+      )}
+
+      {/* Create Panel */}
+      {creatingProvider && (
+        <CreateProviderPanel
+          onClose={() => setCreatingProvider(false)}
+          onCreated={handleCreated}
         />
       )}
     </div>

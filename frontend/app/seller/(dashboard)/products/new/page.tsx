@@ -17,6 +17,24 @@ const SERVICE_TYPES = [
   { value: "other", label: "Khác" },
 ];
 
+// Loại nào seller tự bán bằng biến thể (giá cố định), loại nào thường được vận
+// hành qua nhà cung cấp do admin cấu hình — nói trước để seller không mất công
+// tạo biến thể cho một sản phẩm sẽ không dùng tới nó.
+const SELF_SERVE_HINT = "Bạn tự thêm biến thể + giá + kho hàng ngay sau khi tạo.";
+const ADMIN_SETUP_HINT =
+  "Loại này thường được vận hành qua nhà cung cấp do quản trị viên cấu hình, không dùng Biến thể. " +
+  "Sau khi tạo, vào tab \"Vận hành\" để xem sản phẩm đã sẵn sàng bán chưa.";
+const SERVICE_TYPE_HINTS: Record<string, string> = {
+  account: SELF_SERVE_HINT,
+  proxy: ADMIN_SETUP_HINT,
+  token: ADMIN_SETUP_HINT,
+  endpoint: ADMIN_SETUP_HINT,
+  cloud: ADMIN_SETUP_HINT,
+  payment: ADMIN_SETUP_HINT,
+  takedown: ADMIN_SETUP_HINT,
+  other: SELF_SERVE_HINT,
+};
+
 function flatten(cats: Category[]): Category[] {
   const out: Category[] = [];
   const walk = (l: Category[]) => l.forEach((c) => { out.push(c); walk(c.children ?? []); });
@@ -100,7 +118,7 @@ export default function NewProduct() {
         </div>
 
         <div className="grid gap-5 sm:grid-cols-2">
-          <Field label="Loại dịch vụ">
+          <Field label="Loại dịch vụ" hint={SERVICE_TYPE_HINTS[serviceType]}>
             <Select value={serviceType} onChange={(e) => setServiceType(e.target.value)}>
               {SERVICE_TYPES.map((t) => <option key={t.value} value={t.value}>{t.label}</option>)}
             </Select>

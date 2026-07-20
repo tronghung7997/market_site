@@ -7,8 +7,9 @@ import { api, vnd, ApiError } from "@/lib/api";
 import { useAuth } from "@/lib/auth";
 import { cn } from "@/lib/cn";
 import type { Category, ProductDetail, ProductOperations, Provider, Resource, Variant } from "@/lib/types";
-import { Button, Card, Field, Input, Select, Spinner, Tag, Textarea } from "@/components/ui";
+import { Banner, Button, Card, Field, Input, Select, Spinner, Tag, Textarea } from "@/components/ui";
 import { Activity, ArrowRight, Bolt, Check, Clock, Edit2, Eye, Info, Package, Plus, Sliders, Trash, Users } from "@/components/Icons";
+import { isAdapterCompatible } from "@/lib/compat";
 
 const SERVICE_TYPES = [
   { value: "account", label: "Tài khoản" },
@@ -81,6 +82,106 @@ const PARAM_LABELS: Record<string, string> = {
   volume_tiers: "Giảm giá theo SL",
 };
 
+/* Seller không cần biết field nào tên gì — trước đây mảng object (packages,
+   volume_tiers) bị JSON.stringify thẳng ra màn hình. Tính sẵn giá thật từng
+   gói/từng nền tảng, giống cách RapidAPI hiện "plan" cho provider thay vì
+   tham số thô (nghiên cứu trước khi sửa — xem tóm tắt trong hội thoại). */
+function applyVolumeDiscount(
+  amount: number, qty: number, tiers?: { min_qty: number; discount: number }[],
+): { amount: number; discountPct: number | null } {
+  if (!tiers?.length) return { amount, discountPct: null };
+  const applicable = tiers.filter((t) => qty >= t.min_qty);
+  if (!applicable.length) return { amount, discountPct: null };
+  const best = applicable.reduce((a, b) => (b.min_qty > a.min_qty ? b : a));
+  return { amount: Math.round(amount * (1 - best.discount)), discountPct: best.discount };
+}
+
+function PlanSummary({ strategy, params }: { strategy: string; params: Record<string, unknown> }) {
+  if (strategy === "credit") {
+    const creditPrice = params.credit_price as number | undefined;
+    const packages = (params.packages as { size: number; label?: string }[] | undefined) ?? [];
+    const tiers = params.volume_tiers as { min_qty: number; discount: number }[] | undefined;
+    if (creditPrice == null || packages.length === 0) return null;
+    return (
+      <div className="space-y-2">
+        <div className="text-[12px] font-medium text-muted">Gói bán ra ({vnd(creditPrice)}/request)</div>
+        <div className="grid gap-2 sm:grid-cols-3">
+          {packages.map((p) => {
+            const base = creditPrice * p.size;
+            const { amount, discountPct } = applyVolumeDiscount(base, p.size, tiers);
+            return (
+              <div key={p.size} className="bg-surface-2 rounded-lg px-3 py-2.5">
+                <div className="text-[12.5px] font-medium">{p.label ?? `${p.size.toLocaleString("vi-VN")} requests`}</div>
+                <div className="flex items-center gap-1.5 mt-1">
+                  <span className="font-mono text-[15px] font-semibold">{vnd(amount)}</span>
+                  {discountPct != null && <Tag tone="good">-{Math.round(discountPct * 100)}%</Tag>}
+                </div>
+                <div className="text-[11px] text-faint mt-0.5">{vnd(Math.round(amount / p.size))}/request</div>
+              </div>
+            );
+          })}
+        </div>
+      </div>
+    );
+  }
+
+  if (strategy === "task") {
+    const basePrice = params.base_price as number | undefined;
+    const platformMult = params.platform_mult as Record<string, number> | undefined;
+    const tiers = params.volume_tiers as { min_qty: number; discount: number }[] | undefined;
+    if (basePrice == null || !platformMult) return null;
+    return (
+      <div className="space-y-2">
+        <div className="text-[12px] font-medium text-muted">Giá theo nền tảng (mỗi URL)</div>
+        <div className="grid gap-2 sm:grid-cols-3">
+          {Object.entries(platformMult).map(([platform, mult]) => (
+            <div key={platform} className="bg-surface-2 rounded-lg px-3 py-2.5">
+              <div className="text-[12.5px] font-medium capitalize">{platform}</div>
+              <span className="font-mono text-[15px] font-semibold">{vnd(Math.round(basePrice * mult))}</span>
+            </div>
+          ))}
+        </div>
+        {!!tiers?.length && (
+          <div className="text-[12px] text-muted">
+            Giảm giá khi 1 đơn có nhiều URL: {tiers.map((t) => `từ ${t.min_qty} URL -${Math.round(t.discount * 100)}%`).join(", ")}
+          </div>
+        )}
+      </div>
+    );
+  }
+
+  if (strategy === "config") {
+    const basePrice = params.base_price as number | undefined;
+    const typeMult = params.type_mult as Record<string, number> | undefined;
+    const networkMult = params.network_mult as Record<string, number> | undefined;
+    const durationOptions = params.duration_options as { days: number; label?: string }[] | undefined;
+    if (basePrice == null) return null;
+    const firstType = typeMult ? Object.keys(typeMult)[0] : null;
+    const firstNetwork = networkMult ? Object.keys(networkMult)[0] : null;
+    const refDays = durationOptions?.[0]?.days ?? 30;
+    const exampleAmount = Math.round(
+      basePrice
+      * (firstType && typeMult ? typeMult[firstType] : 1)
+      * (firstNetwork && networkMult ? networkMult[firstNetwork] : 1)
+      * (refDays / 30),
+    );
+    return (
+      <div className="space-y-2">
+        <div className="text-[12px] font-medium text-muted">Ví dụ giá thật</div>
+        <div className="bg-surface-2 rounded-lg px-3 py-2.5 text-[13px]">
+          {firstType && <>Loại <strong>{firstType}</strong></>}
+          {firstNetwork && <>, mạng <strong>{firstNetwork}</strong></>}
+          , thuê <strong>{refDays} ngày</strong>
+          <div className="font-mono text-[16px] font-semibold mt-1">{vnd(exampleAmount)}</div>
+        </div>
+        <div className="text-[11px] text-faint">Giá đổi theo loại/mạng/số ngày khách chọn — đây chỉ là 1 ví dụ để hình dung.</div>
+      </div>
+    );
+  }
+
+  return null;
+}
+
 export default function EditProduct() {
   const { id } = useParams<{ id: string }>();
   const router = useRouter();
@@ -91,6 +192,12 @@ export default function EditProduct() {
   const [error, setError] = useState<string | null>(null);
   const [success, setSuccess] = useState<string | null>(null);
   const [tab, setTab] = useState<TabKey>("info");
+  // Đọc riêng, độc lập với fetch của OperationsTab: chỉ cần biết strategy để
+  // quyết định có hiện tab/khối "Biến thể" hay không — biến thể không có ý
+  // nghĩa gì với strategy khác "fixed" (xem SetupSummaryCard bên dưới).
+  const [ops, setOps] = useState<ProductOperations | null>(null);
+  const isFixed = ops ? ops.pricing.strategy === "fixed" : true;
+  const visibleTabs = isFixed ? TABS : TABS.filter((t) => t.key !== "variants");
 
   const [title, setTitle] = useState("");
   const [categoryId, setCategoryId] = useState<number>(0);
@@ -105,9 +212,15 @@ export default function EditProduct() {
 
   const loadProduct = async () => {
     try {
-      const [p, c] = await Promise.all([api.sellerProduct(Number(id)), api.categories()]);
+      const [p, c, o] = await Promise.all([
+        api.sellerProduct(Number(id)), api.categories(), api.productOperations(Number(id)),
+      ]);
       setProduct(p);
       setCats(c);
+      setOps(o);
+      if (o.pricing.strategy !== "fixed") {
+        setTab((t) => (t === "variants" ? "info" : t));
+      }
       setTitle(p.title);
       setCategoryId(p.category_id);
       setServiceType(p.service_type ?? "other");
@@ -174,7 +287,7 @@ export default function EditProduct() {
 
       {/* Tab bar */}
       <div className="flex gap-1 border-b border-line">
-        {TABS.map((t) => {
+        {visibleTabs.map((t) => {
           const Icon = t.icon;
           return (
             <button key={t.key} onClick={() => setTab(t.key)}
@@ -247,13 +360,17 @@ export default function EditProduct() {
           </Card>
 
           <div>
-            <VariantManager productId={Number(id)} variants={product.variants} onRefresh={loadProduct} />
+            {isFixed ? (
+              <VariantManager productId={Number(id)} variants={product.variants} onRefresh={loadProduct} />
+            ) : (
+              <SetupSummaryCard ops={ops} onViewOperations={() => setTab("operations")} />
+            )}
           </div>
         </div>
       )}
 
-      {/* Tab: Bien the */}
-      {tab === "variants" && (
+      {/* Tab: Bien the — chỉ tồn tại khi strategy là "fixed" (visibleTabs đã lọc) */}
+      {tab === "variants" && isFixed && (
         <div className="max-w-[600px]">
           <VariantManager productId={Number(id)} variants={product.variants} onRefresh={loadProduct} />
         </div>
@@ -267,6 +384,58 @@ export default function EditProduct() {
   );
 }
 
+/* ── Setup summary (thay cho Biến thể khi strategy khác "fixed") ──── */
+
+function SetupSummaryCard({ ops, onViewOperations }: { ops: ProductOperations | null; onViewOperations: () => void }) {
+  if (!ops) return <Card className="p-4"><Spinner /></Card>;
+
+  const strategy = ops.pricing.strategy || "fixed";
+  const sInfo = STRATEGY_INFO[strategy] ?? STRATEGY_INFO.fixed;
+  const adapterType = ops.provider?.adapter_type ?? null;
+  const aInfo = adapterType ? (ADAPTER_INFO[adapterType] ?? { label: adapterType, description: "" }) : null;
+
+  return (
+    <Card className="p-4 space-y-3">
+      <h3 className="text-[14px] font-semibold flex items-center gap-2">
+        <Activity size={14} /> Cấu hình vận hành
+      </h3>
+      <p className="text-[12.5px] text-muted">
+        Sản phẩm này dùng chiến lược giá <strong className="text-primary">{sInfo.label}</strong> — không
+        bán qua Biến thể. Giá và nhà cung cấp do quản trị viên cấu hình.
+      </p>
+
+      <div className="flex items-center gap-2 flex-wrap text-[13px]">
+        <Tag tone="iris">{sInfo.label}</Tag>
+        {ops.provider ? (
+          <>
+            <span className="text-faint">·</span>
+            <span className="font-medium">{ops.provider.name}</span>
+            {aInfo && <Tag tone="neutral">{aInfo.label}</Tag>}
+          </>
+        ) : (
+          <Tag tone="neutral">Chưa gắn nhà cung cấp</Tag>
+        )}
+      </div>
+
+      {ops.needs_setup ? (
+        <Banner tone="warn" icon={<Info size={15} />} title="Chưa sẵn sàng bán">
+          {ops.needs_setup_reason ?? "Cấu hình chưa hoàn tất — liên hệ quản trị viên."}
+        </Banner>
+      ) : ops.demo_mode ? (
+        <Banner tone="iris" icon={<Info size={15} />} title="Đang ở chế độ demo">
+          Sản phẩm dùng dữ liệu giả (dev/demo) — đơn sẽ được giao ngay, không qua xử lý thật.
+        </Banner>
+      ) : (
+        <Banner tone="good" icon={<Check size={15} />} title="Sẵn sàng bán">
+          Nhà cung cấp và bảng giá đã được cấu hình đầy đủ.
+        </Banner>
+      )}
+
+      <Button size="sm" variant="secondary" onClick={onViewOperations}>Xem chi tiết ở tab Vận hành</Button>
+    </Card>
+  );
+}
+
 /* ── Operations Tab ─────────────────────────────────────────────── */
 
 function OperationsTab({ productId }: { productId: number }) {
@@ -275,6 +444,7 @@ function OperationsTab({ productId }: { productId: number }) {
 
   const [ops, setOps] = useState<ProductOperations | null>(null);
   const [providers, setProviders] = useState<Provider[]>([]);
+  const [compatMatrix, setCompatMatrix] = useState<Record<string, string[] | "*"> | null>(null);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
 
@@ -295,8 +465,9 @@ function OperationsTab({ productId }: { productId: number }) {
       setEditStrategy(o.pricing.strategy || "fixed");
       setEditParams(structuredClone(o.pricing.params ?? {}));
       if (isAdmin) {
-        const pList = await api.providers();
+        const [pList, matrix] = await Promise.all([api.providers(), api.adapterCompatibility()]);
         setProviders(pList);
+        setCompatMatrix(matrix);
       }
     } catch {
       setError("Không tải được thông tin vận hành");
@@ -371,9 +542,16 @@ function OperationsTab({ productId }: { productId: number }) {
   const displayParams = Object.entries(ops.pricing.params ?? {}).filter(
     ([k]) => k !== "strategy" && k !== "fields"
   );
+  const planSummary = PlanSummary({ strategy, params: ops.pricing.params ?? {} });
 
   return (
     <div className="space-y-6">
+      {ops.needs_setup && (
+        <Banner tone="bad" icon={<Info size={15} />} title="Sản phẩm chưa bán được">
+          {ops.needs_setup_reason}
+        </Banner>
+      )}
+
       {/* Section 1: Pipeline */}
       <Card className="p-5 space-y-3">
         <h3 className="text-[14px] font-semibold flex items-center gap-2">
@@ -417,6 +595,7 @@ function OperationsTab({ productId }: { productId: number }) {
             {/* Params editor */}
             {editStrategy !== "fixed" && (
               <div className="space-y-4 pt-2">
+                <PlanSummary strategy={editStrategy} params={editParams} />
                 <div className="text-[12px] font-medium text-muted">Tham số chiến lược</div>
                 <AdminPricingParamsEditor strategy={editStrategy} params={editParams} onChange={(p) => { setEditParams(p); markDirty(); }} />
               </div>
@@ -433,10 +612,8 @@ function OperationsTab({ productId }: { productId: number }) {
               <Tag tone="iris">{sInfo.label}</Tag>
               <span className="text-[13px] text-muted">{sInfo.description}</span>
             </div>
-            <div className="bg-surface-2 rounded-lg px-4 py-2.5 text-[12px] font-mono text-muted">
-              {STRATEGY_FORMULAS[strategy] ?? STRATEGY_FORMULAS.fixed}
-            </div>
-            {displayParams.length > 0 && (
+            {planSummary}
+            {displayParams.length > 0 && !planSummary && (
               <div className="space-y-2">
                 <div className="text-[12px] font-medium text-muted">Tham số hiện tại</div>
                 <div className="grid gap-2 sm:grid-cols-2">
@@ -461,14 +638,28 @@ function OperationsTab({ productId }: { productId: number }) {
 
         {isAdmin ? (
           <div className="space-y-3">
-            <Field label="Chọn nhà cung cấp">
+            <Field label="Chọn nhà cung cấp" hint="Lựa chọn không tương thích với chiến lược giá đã chọn ở trên bị vô hiệu hoá.">
               <Select value={editProviderId ?? ""} onChange={(e) => { setEditProviderId(e.target.value ? Number(e.target.value) : null); markDirty(); }}>
                 <option value="">— Không gán (Seller Pool) —</option>
-                {providers.map((p) => (
-                  <option key={p.id} value={p.id}>{p.name} ({p.adapter_type})</option>
-                ))}
+                {providers.map((p) => {
+                  const compatible = isAdapterCompatible(p.adapter_type, editStrategy, compatMatrix);
+                  return (
+                    <option key={p.id} value={p.id} disabled={!compatible}>
+                      {p.name} ({p.adapter_type}){!compatible ? " — không tương thích" : ""}
+                    </option>
+                  );
+                })}
               </Select>
             </Field>
+            {(() => {
+              const selected = providers.find((p) => p.id === editProviderId);
+              if (!selected || isAdapterCompatible(selected.adapter_type, editStrategy, compatMatrix)) return null;
+              return (
+                <Banner tone="bad" icon={<Info size={15} />}>
+                  Adapter &quot;{selected.adapter_type}&quot; không tương thích với chiến lược &quot;{editStrategy}&quot; — lưu sẽ bị từ chối.
+                </Banner>
+              );
+            })()}
             {ops.provider && (
               <div className="flex items-center gap-3">
                 <span className="text-[13px] text-muted">Hiện tại:</span>
@@ -495,10 +686,10 @@ function OperationsTab({ productId }: { productId: number }) {
           </>
         )}
 
-        {adapterType === "mock" && (
-          <div className="bg-warn/10 border border-warn/20 rounded-lg px-3 py-2 text-[12px] text-warn">
+        {ops.demo_mode && (
+          <Banner tone="iris" icon={<Info size={15} />}>
             Sản phẩm đang dùng dữ liệu demo. Khi kết nối API thật, dữ liệu sẽ tự chuyển sang nguồn thật.
-          </div>
+          </Banner>
         )}
       </Card>
 
@@ -538,9 +729,10 @@ function OperationsTab({ productId }: { productId: number }) {
             {strategy === "credit" && " Khi khách mua gói credit, hệ thống sẽ cấp API key. Mỗi request tự trừ credit."}
             {strategy === "task" && " Khi khách đặt tác vụ, hệ thống sẽ tạo task cho team xử lý thủ công."}
           </p>
-          {!isAdmin && (
-            <p className="text-warn">
-              Liên hệ quản trị viên để thay đổi chiến lược giá hoặc nhà cung cấp.
+          {!isAdmin && ops.needs_setup && (
+            <p className="text-bad">
+              {ops.needs_setup_reason ?? "Cấu hình chưa hoàn tất."} Liên hệ quản trị viên để xử lý — sản phẩm sẽ
+              không bán được cho tới khi được sửa.
             </p>
           )}
         </div>

@@ -57,7 +57,7 @@ class DisputeOrderInfo(BaseModel):
     id: int
     buyer_id: int
     seller_id: int
-    variant_id: int
+    variant_id: int | None
     quantity: int
     total_amount: int
     status: str

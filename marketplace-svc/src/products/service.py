@@ -2,6 +2,7 @@ from fastapi import HTTPException
 from sqlalchemy import func, select
 from sqlalchemy.ext.asyncio import AsyncSession
 
+from src.adapters.compatibility import check_compatibility, setup_status
 from src.exceptions import NotOwner
 from src.models.account import Account
 from src.models.category import Category
@@ -275,9 +276,30 @@ async def get_product_detail(
 
 
 async def update_product_operations(product_id: int, data: dict, db: AsyncSession) -> Product:
+    """Admin gắn provider + chiến lược giá cho một sản phẩm.
+
+    Validate TRƯỚC khi setattr: tính "effective" provider/strategy từ `data`
+    đè lên giá trị hiện có (không mutate product khi chưa biết hợp lệ hay
+    không) — làm ngược lại (setattr rồi mới validate) có rủi ro autoflush đẩy
+    cấu hình sai xuống DB trước khi HTTPException kịp raise, vì Provider/
+    resolve_pricing bên dưới cũng chạy SELECT trên cùng session.
+    """
     product = await db.get(Product, product_id)
     if not product:
         raise HTTPException(status_code=404, detail="Không tìm thấy sản phẩm")
+
+    effective_provider_id = data.get("provider_id", product.provider_id)
+    effective_strategy = data.get("pricing_strategy", product.pricing_strategy)
+
+    provider = await db.get(Provider, effective_provider_id) if effective_provider_id else None
+    if not effective_strategy:
+        from src.pricing.engine import resolve_pricing
+        effective_strategy, _ = await resolve_pricing(product, db)
+
+    compat = check_compatibility(provider.adapter_type if provider else None, effective_strategy)
+    if compat.level == "block":
+        raise HTTPException(status_code=400, detail=compat.message)
+
     for key, value in data.items():
         setattr(product, key, value)
     await db.commit()
@@ -305,6 +327,10 @@ async def list_all_products_admin(db: AsyncSession) -> list[dict]:
             )
         ) or 0
 
+        from src.pricing.engine import resolve_pricing
+        strategy_name, _ = await resolve_pricing(p, db)
+        setup = setup_status(provider.adapter_type if provider else None, strategy_name)
+
         out.append({
             "id": p.id,
             "title": p.title,
@@ -316,6 +342,9 @@ async def list_all_products_admin(db: AsyncSession) -> list[dict]:
             "pricing_strategy": p.pricing_strategy,
             "order_count": order_count,
             "revenue": revenue,
+            "needs_setup": setup["needs_setup"],
+            "needs_setup_reason": setup["needs_setup_reason"],
+            "demo_mode": setup["demo_mode"],
         })
     return out
 

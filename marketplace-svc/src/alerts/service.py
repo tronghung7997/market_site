@@ -28,6 +28,18 @@ async def dismiss_alert(alert_id: int, db: AsyncSession) -> Alert:
     return alert
 
 
+async def dismiss_seller_alert(alert_id: int, seller_id: int, db: AsyncSession) -> Alert:
+    alert = await db.get(Alert, alert_id)
+    if not alert:
+        raise HTTPException(status_code=404, detail="Không tìm thấy cảnh báo")
+    if alert.target_type != "seller" or alert.target_id != seller_id:
+        raise HTTPException(status_code=403, detail="Đây không phải cảnh báo của bạn")
+    alert.is_active = False
+    await db.commit()
+    await db.refresh(alert)
+    return alert
+
+
 async def list_seller_alerts(seller_id: int, db: AsyncSession) -> list[Alert]:
     result = await db.execute(
         select(Alert).where(Alert.is_active, Alert.target_type == "seller", Alert.target_id == seller_id)

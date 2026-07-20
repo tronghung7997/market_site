@@ -14,7 +14,17 @@ class SellerPoolAdapter(ProviderAdapter):
         self.db = db
 
     async def provision(self, order_id: int, user_config: dict) -> ProvisionResult:
-        variant_id: int = user_config["variant_id"]
+        variant_id: int | None = user_config.get("variant_id")
+        if variant_id is None:
+            # Chỉ FixedPricing.get_options() đưa variant_id vào user_config — nếu
+            # thiếu, nghĩa là sản phẩm đang gắn nhầm seller_pool cho một chiến lược
+            # giá khác (vd task/config). Trả lỗi rõ ràng thay vì raise KeyError,
+            # dù validation ở update_product_operations lẽ ra đã chặn trường hợp
+            # này từ lúc admin lưu cấu hình.
+            return ProvisionResult(
+                success=False,
+                error="Thiếu variant_id — provider seller_pool chỉ tương thích với chiến lược giá 'fixed'.",
+            )
         quantity: int = user_config.get("quantity", 1)
         duration_days: int | None = user_config.get("duration_days")
 

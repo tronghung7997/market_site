@@ -5,9 +5,17 @@ from pydantic import BaseModel
 
 class ProviderCreate(BaseModel):
     name: str
-    type: str
-    config: dict
+    # "type" từng là field bắt buộc riêng nhưng không nơi nào trong UI hiển thị
+    # hay dùng nó — chỉ gây nhầm với adapter_type (cái thật sự quyết định hành
+    # vi). Cho phép bỏ trống; router tự set = adapter_type nếu admin không điền.
+    type: str = ""
+    config: dict = {}
     priority: int = 1
+    # Trước đây phải tạo xong rồi PUT riêng mới set được adapter_type — nghĩa
+    # là provider mới luôn "mock" một cách âm thầm cho tới lần sửa thứ hai.
+    # Cho set ngay lúc tạo để đây là một bước duy nhất, không phải hai.
+    adapter_type: str = "mock"
+    is_active: bool = True
 
 
 class ProviderUpdateRequest(BaseModel):

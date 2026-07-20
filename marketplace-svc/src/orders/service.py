@@ -5,19 +5,22 @@ from fastapi import HTTPException
 from sqlalchemy import func, select
 from sqlalchemy.ext.asyncio import AsyncSession
 
+from src.adapters.compatibility import check_compatibility
 from src.adapters.factory import get_adapter
 from src.adapters.real_api import RealApiAdapter
 from src.database import SessionLocal
 from src.models.account import Account
 from src.models.order import Dispute, Order, OrderStatus
+from src.models.provider import Provider
 from src.models.resource import Resource
 from src.models.product import DeliveryMode, Product, ProductStatus, ProductVariant
 from src.models.review import Review
-from src.pricing.engine import quote_product
+from src.pricing.engine import quote_product, resolve_pricing
 from src.resources.service import claim_resources
 from src.audit.service import log_event, query_logs
 from src.logging import current_request_id
 from src.sellers.tiers import escrow_days as tier_escrow_days
+from src.usage.service import create_balance_for_order, get_usage_summary
 from src.wallet.service import deduct_credit, refund_escrow, release_escrow
 
 _background_tasks: set[asyncio.Task] = set()
@@ -97,6 +100,12 @@ async def _apply_provision_result(
             order.escrow_expires_at = datetime.now(timezone.utc) + timedelta(
                 days=tier_escrow_days(seller.seller_tier if seller else "new", product.escrow_days)
             )
+            strategy_name, _ = await resolve_pricing(product, db)
+            if strategy_name == "credit":
+                # order.quantity = package_size buyer đã trả tiền mua (xem
+                # CreditPricing._subtotal) — chốt số dư ngay lúc giao, không
+                # đọc lại cấu hình sản phẩm sau này.
+                await create_balance_for_order(order, db)
             await log_event(
                 db, "info", f"Order {order.id} provisioned via adapter", request_id=rid,
                 metadata={"event": "order_provisioned", "order_id": order.id,
@@ -163,6 +172,25 @@ async def create_order_with_adapter(
         await log_event(
             db, "error", f"Order {order.id} adapter error: {e}", request_id=rid,
             metadata={"event": "order_adapter_error", "order_id": order.id, "error": str(e)},
+        )
+        await db.commit()
+        await db.refresh(order)
+        return order
+
+    # Phòng thủ tuyến hai: update_product_operations đã chặn việc lưu một cặp
+    # provider/strategy không tương thích, nhưng pricing_configs (tier 2 của
+    # resolve_pricing) chưa có UI/API quản lý — vẫn có thể bị chỉnh tay ở DB
+    # mà không đi qua endpoint đó. Bắt ở đây trước khi gọi provider thật, thay
+    # vì để adapter tự raise một lỗi không rõ nguyên nhân.
+    provider_row = await db.get(Provider, product.provider_id)
+    strategy_name, _ = await resolve_pricing(product, db)
+    compat = check_compatibility(provider_row.adapter_type if provider_row else None, strategy_name)
+    if compat.level == "block":
+        await refund_escrow(order.id, buyer_id, total_amount, db)
+        order.status = OrderStatus.cancelled
+        await log_event(
+            db, "error", f"Order {order.id} provider/strategy mismatch: {compat.message}", request_id=rid,
+            metadata={"event": "order_provider_strategy_mismatch", "order_id": order.id, "error": compat.message},
         )
         await db.commit()
         await db.refresh(order)
@@ -452,7 +480,9 @@ async def get_admin_order_detail(order_id: int, db: AsyncSession) -> dict:
         key=lambda x: x["timestamp"],
     )
 
-    return {**enriched, "resources": resources, "dispute": dispute, "timeline": timeline}
+    usage = await get_usage_summary(order_id, db)
+
+    return {**enriched, "resources": resources, "dispute": dispute, "timeline": timeline, "usage": usage}
 
 
 async def deliver_order(order_id: int, seller_id: int, data: str, db: AsyncSession) -> Order:

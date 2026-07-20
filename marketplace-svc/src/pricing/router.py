@@ -2,6 +2,7 @@ from fastapi import APIRouter, Depends, HTTPException
 from sqlalchemy import func, select
 from sqlalchemy.ext.asyncio import AsyncSession
 
+from src.adapters.compatibility import ADAPTER_STRATEGY_COMPAT, check_compatibility, setup_status
 from src.auth.dependencies import require_role
 from src.database import get_session
 from src.models.account import Account
@@ -29,10 +30,16 @@ async def pricing_options(product_id: int, db: AsyncSession = Depends(get_sessio
     strategy_name, params = await resolve_pricing(product, db)
     strategy = get_pricing_strategy(strategy_name)
     fields = strategy.get_options(params)
+
+    provider = await db.get(Provider, product.provider_id) if product.provider_id else None
+    setup = setup_status(provider.adapter_type if provider else None, strategy_name)
+
     return schemas.PricingOptionsResponse(
         strategy=strategy_name,
         fields=fields,
         base_info=params,
+        ready=not setup["needs_setup"],
+        not_ready_reason=setup["needs_setup_reason"],
     )
 
 
@@ -77,6 +84,7 @@ async def product_operations(product_id: int, db: AsyncSession = Depends(get_ses
     # Pricing info (use same fallback logic)
     strategy_name, params = await resolve_pricing(product, db)
     pricing_info = {"strategy": strategy_name, "params": params}
+    setup = setup_status(provider_info["adapter_type"] if provider_info else None, strategy_name)
 
     # Stats from orders
     delivered_statuses = [OrderStatus.delivered, OrderStatus.completed]
@@ -107,6 +115,9 @@ async def product_operations(product_id: int, db: AsyncSession = Depends(get_ses
     return {
         "provider": provider_info,
         "pricing": pricing_info,
+        "needs_setup": setup["needs_setup"],
+        "needs_setup_reason": setup["needs_setup_reason"],
+        "demo_mode": setup["demo_mode"],
         "stats": {
             "total_orders": total_orders,
             "revenue": revenue,
@@ -144,6 +155,8 @@ async def provider_products(
                 Order.status.in_(delivered_statuses),
             )
         ) or 0
+        strategy_name, _ = await resolve_pricing(p, db)
+        compat = check_compatibility(provider.adapter_type, strategy_name)
         items.append({
             "id": p.id,
             "title": p.title,
@@ -153,6 +166,18 @@ async def provider_products(
             "pricing_params": p.pricing_params,
             "order_count": order_count,
             "revenue": revenue,
+            "compat_level": compat.level,
+            "compat_message": compat.message,
         })
 
     return items
+
+
+@router.get("/admin/adapter-compatibility")
+async def adapter_compatibility(_: Account = Depends(require_role("admin"))):
+    """Ma trận adapter_type ↔ pricing_strategy tương thích — nguồn dùng chung
+    cho mọi UI admin lọc/annotate lựa chọn provider thay vì mỗi nơi tự đoán."""
+    return {
+        adapter: sorted(strategies) if strategies is not None else "*"
+        for adapter, strategies in ADAPTER_STRATEGY_COMPAT.items()
+    }

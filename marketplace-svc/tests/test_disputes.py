@@ -1,5 +1,6 @@
 import pytest
 from tests.conftest import make_admin, make_seller, register_and_login
+from tests.test_orders import setup_adapter_product
 
 
 async def create_delivered_order(client):
@@ -75,3 +76,38 @@ async def test_admin_reject_dispute(client):
                              headers={"Authorization": f"Bearer {admin_token}"})
     assert resp.status_code == 200
     assert resp.json()["status"] == "resolved_reject"
+
+
+@pytest.mark.asyncio
+async def test_admin_can_open_dispute_detail_for_adapter_order(client):
+    """Regression: đơn tạo qua product_id (adapter flow) có variant_id NULL — trước
+    đây DisputeOrderInfo.variant_id khai báo bắt buộc là int nên response_model
+    validation crash 500 ngay khi admin mở chi tiết. Cũng xác nhận product_title
+    resolve được qua product_id (trước đây luôn None vì chỉ tra theo variant_id),
+    và seller_note có mặt trong response (trước đây bị thiếu key, luôn null)."""
+    buyer_token, seller_token, admin_token, product_id = await setup_adapter_product(client)
+
+    order = await client.post("/orders", json={
+        "product_id": product_id,
+        "user_config": {"type": "residential", "network": "shared", "days": 30, "quantity": 1},
+        "quantity": 1,
+    }, headers={"Authorization": f"Bearer {buyer_token}"})
+    assert order.status_code == 201, order.text
+    order_id = order.json()["id"]
+    assert order.json()["variant_id"] is None
+
+    dispute = await client.post(f"/orders/{order_id}/dispute", json={"reason": "Không dùng được"},
+                                headers={"Authorization": f"Bearer {buyer_token}"})
+    assert dispute.status_code == 201, dispute.text
+    dispute_id = dispute.json()["id"]
+
+    respond = await client.post(f"/seller/disputes/{dispute_id}/respond", json={"seller_note": "Đã kiểm tra lại"},
+                                headers={"Authorization": f"Bearer {seller_token}"})
+    assert respond.status_code == 200, respond.text
+
+    detail = await client.get(f"/admin/disputes/{dispute_id}", headers={"Authorization": f"Bearer {admin_token}"})
+    assert detail.status_code == 200, detail.text
+    data = detail.json()
+    assert data["order"]["variant_id"] is None
+    assert data["order"]["product_title"] == "Proxy Package"
+    assert data["seller_note"] == "Đã kiểm tra lại"

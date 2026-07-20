@@ -19,3 +19,13 @@ class NotOwner(HTTPException):
 class DuplicateEmail(HTTPException):
     def __init__(self) -> None:
         super().__init__(status_code=status.HTTP_409_CONFLICT, detail="Email này đã được đăng ký")
+
+
+class QuotaExceeded(HTTPException):
+    def __init__(self) -> None:
+        super().__init__(status_code=status.HTTP_402_PAYMENT_REQUIRED, detail="Đã hết số request trong gói — cần mua thêm gói mới")
+
+
+class QuotaExpired(HTTPException):
+    def __init__(self) -> None:
+        super().__init__(status_code=status.HTTP_410_GONE, detail="Gói request đã hết hạn sử dụng")

@@ -15,6 +15,7 @@ from src.debug.router import router as debug_router
 from src.disputes.router import router as disputes_router
 from src.logging import setup_logging
 from src.middleware import RequestIdMiddleware
+from src.notifications.router import router as notifications_router
 from src.orders.router import router as orders_router
 from src.pricing.router import router as pricing_router
 from src.products.router import router as products_router
@@ -27,6 +28,7 @@ from src.security.crypto import using_default_encryption_key
 from src.seller.router import router as seller_router
 from src.seller_api_keys.router import router as seller_api_keys_router
 from src.sellers.router import router as sellers_router
+from src.usage.router import router as usage_router
 from src.wallet.router import router as wallet_router
 
 # offline
@@ -84,6 +86,7 @@ app.include_router(wallet_router)
 app.include_router(categories_router)
 app.include_router(products_router)
 app.include_router(resources_router)
+app.include_router(notifications_router)
 app.include_router(orders_router)
 app.include_router(disputes_router)
 app.include_router(providers_router)
@@ -94,6 +97,7 @@ app.include_router(reviews_router)
 app.include_router(audit_router)
 app.include_router(affiliate_router)
 app.include_router(debug_router)
+app.include_router(usage_router)
 
 
 @app.get("/health")

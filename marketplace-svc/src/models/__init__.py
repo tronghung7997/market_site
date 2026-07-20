@@ -10,6 +10,7 @@ from src.models.provider import Provider, ProviderCallLog, ProviderHealth
 from src.models.resource import Resource, ResourceStatus
 from src.models.seller_api_key import SellerApiKey
 from src.models.service_task import ServiceTask, ServiceTaskStatus
+from src.models.usage import OrderBalance, UsageRecord, UsageRecordStatus
 from src.models.wallet import Transaction, TransactionType, Wallet, WithdrawRequest, WithdrawStatus
 
 __all__ = [
@@ -24,5 +25,6 @@ __all__ = [
     "Provider", "ProviderCallLog", "ProviderHealth",
     "Resource", "ResourceStatus",
     "ServiceTask", "ServiceTaskStatus",
+    "OrderBalance", "UsageRecord", "UsageRecordStatus",
     "Transaction", "TransactionType", "Wallet", "WithdrawRequest", "WithdrawStatus",
 ]

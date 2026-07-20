@@ -50,11 +50,25 @@ async def create_dispute(
     return dispute
 
 
+async def _resolve_order_product(order: Order | None, db: AsyncSession) -> tuple[Product | None, ProductVariant | None]:
+    """Đơn cũ (variant_id) và đơn qua adapter (product_id, variant_id rỗng) trỏ tới
+    sản phẩm theo 2 đường khác nhau — thiếu nhánh product_id khiến mọi đơn adapter
+    hiện "Sản phẩm: —" dù sản phẩm vẫn tồn tại."""
+    if not order:
+        return None, None
+    if order.variant_id:
+        variant = await db.get(ProductVariant, order.variant_id)
+        product = await db.get(Product, variant.product_id) if variant else None
+        return product, variant
+    if order.product_id:
+        return await db.get(Product, order.product_id), None
+    return None, None
+
+
 async def _enrich_dispute(dispute: Dispute, db: AsyncSession) -> dict:
     """Dispute ORM → dict with product/variant names + buyer email + order amount."""
     order = await db.get(Order, dispute.order_id)
-    variant = await db.get(ProductVariant, order.variant_id) if order else None
-    product = await db.get(Product, variant.product_id) if variant else None
+    product, variant = await _resolve_order_product(order, db)
     buyer = await db.get(Account, dispute.buyer_id)
     return {
         "id": dispute.id, "order_id": dispute.order_id, "buyer_id": dispute.buyer_id,
@@ -80,8 +94,7 @@ async def get_dispute_detail(dispute_id: int, db: AsyncSession) -> dict:
         raise HTTPException(status_code=404, detail="Không tìm thấy khiếu nại")
 
     order = await db.get(Order, dispute.order_id)
-    variant = await db.get(ProductVariant, order.variant_id) if order else None
-    product = await db.get(Product, variant.product_id) if variant else None
+    product, variant = await _resolve_order_product(order, db)
     buyer = await db.get(Account, dispute.buyer_id)
     seller = await db.get(Account, order.seller_id) if order else None
 
@@ -120,7 +133,8 @@ async def get_dispute_detail(dispute_id: int, db: AsyncSession) -> dict:
         "id": dispute.id, "order_id": dispute.order_id, "buyer_id": dispute.buyer_id,
         "reason": dispute.reason, "evidence_type": dispute.evidence_type, "evidence": dispute.evidence,
         "status": dispute.status,
-        "admin_note": dispute.admin_note, "created_at": dispute.created_at,
+        "admin_note": dispute.admin_note, "seller_note": dispute.seller_note,
+        "created_at": dispute.created_at,
         "resolved_at": dispute.resolved_at,
         "order": order_info,
         "resources": resources,
@@ -153,6 +167,21 @@ async def get_seller_dispute(order_id: int, seller_id: int, db: AsyncSession) ->
     if not dispute:
         return None
     return await _enrich_dispute(dispute, db)
+
+
+async def list_seller_open_disputes(seller_id: int, db: AsyncSession) -> list[dict]:
+    """Khiếu nại đang mở của seller mà seller CHƯA phản hồi (seller_note rỗng).
+
+    Dùng cho bell thông báo — khiếu nại tự động xử lý bất lợi cho seller nếu
+    seller im lặng, nên đây là action-item cần nhắc riêng, khác với khiếu nại
+    seller đã trả lời và đang chờ admin quyết định.
+    """
+    result = await db.execute(
+        select(Dispute).join(Order, Order.id == Dispute.order_id)
+        .where(Order.seller_id == seller_id, Dispute.status == DisputeStatus.open, Dispute.seller_note.is_(None))
+        .order_by(Dispute.created_at.desc())
+    )
+    return [await _enrich_dispute(d, db) for d in result.scalars().all()]
 
 
 async def get_buyer_dispute(order_id: int, buyer_id: int, db: AsyncSession) -> dict | None:

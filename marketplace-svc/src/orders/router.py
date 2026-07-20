@@ -10,6 +10,7 @@ from src.models.order import Order
 from src.models.product import Product, ProductVariant
 from src.models.resource import Resource
 from src.models.service_task import ServiceTask
+from src.usage.service import get_usage_summary
 
 from . import schemas, service
 
@@ -97,13 +98,18 @@ async def order_dashboard(
     service_type = product.service_type if product else "other"
 
     dashboard: dict = {
+        # "service_type" là field frontend thật sự đọc để chọn dashboard con
+        # (Proxy/Endpoint/Takedown/Default) — "type" tồn tại song song nhưng
+        # không nơi nào trong frontend đọc nó, khiến mọi dashboard trước đây
+        # luôn rơi vào nhánh mặc định bất kể service_type thật là gì.
         "type": service_type,
+        "service_type": service_type,
+        "product_id": product.id if product else None,
         "order_id": order.id,
         "status": order.status,
     }
 
-    if service_type in ("proxy", "endpoint"):
-        # Get resource usage from adapter
+    if service_type == "proxy":
         resources_result = await db.execute(
             select(Resource).where(Resource.order_id == order_id)
         )
@@ -128,6 +134,15 @@ async def order_dashboard(
                 dashboard["usage"] = []
         else:
             dashboard["usage"] = []
+
+    elif service_type == "endpoint":
+        # "endpoint" bán theo credit/request — không đi qua Resource (chỉ
+        # seller_pool/variant tạo Resource, mock/real_api thì không), nên
+        # trước đây usage luôn rỗng dù adapter có get_usage(). Số dư thật nằm
+        # ở order_balances/usage_records (xem src/usage), key giao cho buyer
+        # nằm thẳng trong delivered_data.
+        dashboard["delivered_data"] = order.delivered_data
+        dashboard["balance"] = await get_usage_summary(order_id, db)
 
     elif service_type == "takedown":
         # Get related tasks

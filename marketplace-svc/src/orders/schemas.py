@@ -70,10 +70,27 @@ class DisputeInfo(BaseModel):
     model_config = {"from_attributes": True}
 
 
+class UsageRecordInfo(BaseModel):
+    id: int
+    endpoint: str
+    units: int
+    status: str
+    created_at: datetime
+
+
+class UsageSummaryInfo(BaseModel):
+    units_total: int
+    units_used: int
+    units_remaining: int
+    expires_at: datetime | None
+    records: list[UsageRecordInfo] = []
+
+
 class AdminOrderDetailResponse(OrderResponse):
     resources: list[ResourceInfo] = []
     dispute: DisputeInfo | None = None
     timeline: list[TimelineEvent] = []
+    usage: UsageSummaryInfo | None = None
 
 
 class PaginatedOrderResponse(BaseModel):

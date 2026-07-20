@@ -7,6 +7,8 @@ from src.security.crypto import encrypt_config
 
 
 async def create_provider(data: dict, db: AsyncSession) -> Provider:
+    if not data.get("type"):
+        data["type"] = data.get("adapter_type", "mock")
     if "config" in data and data["config"]:
         data["config"] = encrypt_config(data["config"])
     provider = Provider(**data)

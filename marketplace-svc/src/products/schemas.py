@@ -107,3 +107,12 @@ class ProductOperationsUpdate(BaseModel):
     pricing_strategy: str | None = None
     pricing_params: dict | None = None
     commission_rate: float | None = None
+
+
+class SellerPricingUpdate(BaseModel):
+    """pricing_strategy/pricing_params do seller tự set trên sản phẩm của mình —
+    tương tự việc seller đã tự đặt variant.price ở strategy fixed. provider_id
+    và commission_rate KHÔNG có ở đây, vẫn admin-only qua /admin/products/{id}/operations."""
+
+    pricing_strategy: str | None = None
+    pricing_params: dict | None = None

@@ -307,6 +307,38 @@ async def update_product_operations(product_id: int, data: dict, db: AsyncSessio
     return product
 
 
+async def update_seller_pricing(product_id: int, seller_id: int, data: dict, db: AsyncSession) -> Product:
+    """Seller tự đặt chiến lược giá + tham số cho sản phẩm của mình.
+
+    provider_id và commission_rate vẫn admin-only (operations endpoint) — đây
+    chỉ là phần "giá tính sao", cùng mức rủi ro với việc seller đã tự đặt
+    variant.price ở strategy fixed. Vẫn chạy check_compatibility với provider
+    hiện có (nếu admin đã gán) để seller không tự đổi strategy sang thứ mà
+    provider đang gắn không hỗ trợ — cùng validate với update_product_operations.
+    """
+    product = await db.get(Product, product_id)
+    if not product:
+        raise HTTPException(status_code=404, detail="Không tìm thấy sản phẩm")
+    if product.seller_id != seller_id:
+        raise NotOwner()
+
+    effective_strategy = data.get("pricing_strategy", product.pricing_strategy)
+    provider = await db.get(Provider, product.provider_id) if product.provider_id else None
+    if not effective_strategy:
+        from src.pricing.engine import resolve_pricing
+        effective_strategy, _ = await resolve_pricing(product, db)
+
+    compat = check_compatibility(provider.adapter_type if provider else None, effective_strategy)
+    if compat.level == "block":
+        raise HTTPException(status_code=400, detail=compat.message)
+
+    for key, value in data.items():
+        setattr(product, key, value)
+    await db.commit()
+    await db.refresh(product)
+    return product
+
+
 async def list_all_products_admin(db: AsyncSession) -> list[dict]:
     """Return every product with seller email, provider name, order count, revenue."""
     result = await db.execute(select(Product).order_by(Product.created_at.desc()))

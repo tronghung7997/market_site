@@ -810,7 +810,7 @@ function CreateProviderPanel({
                     key={a}
                     type="button"
                     onClick={() => { setAdapterType(a); setConfig({}); }}
-                    className={`text-left rounded-lg border p-3 transition-all cursor-pointer ${active ? "border-iris bg-iris/5 ring-1 ring-iris/30" : "border-line bg-surface-2 hover:border-muted"}`}
+                    className={`text-left rounded-lg border p-3 transition-all cursor-pointer ${active ? "border-iris bg-iris/5 ring-1 ring-iris/30" : "border-line bg-raised hover:border-muted"}`}
                   >
                     <div className="flex items-center gap-2">
                       <div className={`w-3 h-3 rounded-full border-2 shrink-0 ${active ? "border-iris bg-iris" : "border-muted"}`} />

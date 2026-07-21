@@ -15,23 +15,28 @@ class TaskPricing(PricingStrategy):
         return [u.strip() for u in (raw or "").strip().split("\n") if u.strip()]
 
     def get_options(self, params: dict) -> list[dict]:
+        # Cùng cơ chế field_labels/platform_display với ConfigPricing — key máy
+        # gửi cho adapter không đổi, chỉ thêm lớp nhãn hiển thị tuỳ chọn.
+        field_labels = params.get("field_labels", {})
+        platform_display = params.get("platform_display", {})
+
         fields: list[dict] = []
 
         if "platform_mult" in params:
             fields.append({
                 "field": "platform",
                 "type": "select",
-                "label": "Platform",
+                "label": field_labels.get("platform", "Nền tảng"),
                 "required": True,
                 "choices": [
-                    {"value": k, "label": k} for k in params["platform_mult"]
+                    {"value": k, "label": platform_display.get(k, k)} for k in params["platform_mult"]
                 ],
             })
 
         fields.append({
             "field": "target_urls",
             "type": "textarea",
-            "label": "Target URLs",
+            "label": field_labels.get("target_urls", "Danh sách URL"),
             "required": True,
             "help": "Mỗi dòng một URL — giá tính theo số URL",
         })

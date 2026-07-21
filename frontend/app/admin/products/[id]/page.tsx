@@ -5,8 +5,11 @@ import { useParams } from "next/navigation";
 import { useEffect, useState } from "react";
 import { api, vnd } from "@/lib/api";
 import type { ProductDetail, ProductOperations, Provider } from "@/lib/types";
-import { Button, Card, Field, Input, Select, Spinner, Tag, Textarea } from "@/components/ui";
+import { Button, Banner, Card, Field, Input, Select, Spinner, Tag, Textarea } from "@/components/ui";
 import { Activity, ArrowRight, Edit2, Eye, Info, Sliders, Users } from "@/components/Icons";
+import { STRATEGY_INFO, STRATEGY_FORMULAS, ADAPTER_INFO, PARAM_LABELS, formatParamValue } from "@/lib/pricing-config";
+import { PricingParamsEditor } from "@/components/PricingParamsEditor";
+import { isAdapterCompatible, type CompatMatrix } from "@/lib/compat";
 
 const CONTENT_EMPTY = { title: "", service_type: "other", status: "active", escrow_days: 2, highlight_text: "", description: "", warranty_text: "" };
 
@@ -22,56 +25,12 @@ const SERVICE_LABELS: Record<string, string> = {
   cloud: "Cloud", payment: "Thanh toán", takedown: "Takedown", other: "Khác",
 };
 
-const STRATEGY_INFO: Record<string, { label: string; description: string; pipelineLabel: string }> = {
-  fixed: { label: "Cố định", description: "Giá set trên mỗi biến thể. Khách chọn biến thể + số lượng.", pipelineLabel: "Cố định" },
-  config: { label: "Cấu hình", description: "Giá tính dynamic theo tuỳ chọn khách chọn (loại, mạng, thời hạn).", pipelineLabel: "Dynamic" },
-  credit: { label: "Credit", description: "Khách mua gói credit (số request). Mỗi request trừ credit.", pipelineLabel: "Credit" },
-  task: { label: "Tác vụ", description: "Giá theo nền tảng và số URL. Team xử lý thủ công.", pipelineLabel: "Tác vụ" },
-};
-
-const ADAPTER_INFO: Record<string, { label: string; description: string }> = {
-  seller_pool: { label: "Seller Pool", description: "Lấy từ kho hàng seller upload" },
-  mock: { label: "Demo", description: "Dữ liệu giả, chưa kết nối API thật" },
-  manual: { label: "Thủ công", description: "Team xử lý và giao hàng thủ công" },
-  topproxy: { label: "TopProxy API", description: "Cấp phát tự động qua TopProxy" },
-  scrapecreators: { label: "ScrapCreators API", description: "Cấp phát tự động qua ScrapCreators" },
-};
-
-const STRATEGY_FORMULAS: Record<string, string> = {
-  fixed: "Giá = variant.price x quantity",
-  config: "Giá = base_price x type_mult x network_mult x (days / 30) x quantity",
-  credit: "Giá = credit_price x package_size",
-  task: "Giá = base_price x platform_mult x quantity (số URL)",
-};
-
-const PARAM_LABELS: Record<string, string> = {
-  base_price: "Giá cơ bản",
-  credit_price: "Giá mỗi credit",
-  type_mult: "Hệ số loại",
-  network_mult: "Hệ số mạng",
-  platform_mult: "Hệ số nền tảng",
-  duration_options: "Tuỳ chọn thời hạn",
-  packages: "Gói credit",
-  volume_tiers: "Giảm giá theo SL",
-};
-
-function formatParamValue(val: unknown): string {
-  if (typeof val === "number") return vnd(val);
-  if (typeof val === "string") return val;
-  if (Array.isArray(val)) return val.map((v) => typeof v === "object" && v !== null ? JSON.stringify(v) : String(v)).join(", ");
-  if (typeof val === "object" && val !== null) {
-    return Object.entries(val as Record<string, unknown>)
-      .map(([k, v]) => `${k}: ${typeof v === "number" ? (v < 10 ? `x${v}` : vnd(v)) : v}`)
-      .join(" | ");
-  }
-  return String(val);
-}
-
 export default function AdminProductDetail() {
   const { id } = useParams<{ id: string }>();
   const [product, setProduct] = useState<ProductDetail | null>(null);
   const [ops, setOps] = useState<ProductOperations | null>(null);
   const [providers, setProviders] = useState<Provider[]>([]);
+  const [compatMatrix, setCompatMatrix] = useState<CompatMatrix | null>(null);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
 
@@ -93,14 +52,16 @@ export default function AdminProductDetail() {
   const loadAll = async () => {
     setLoading(true);
     try {
-      const [p, o, provList] = await Promise.all([
+      const [p, o, provList, matrix] = await Promise.all([
         api.product(Number(id)),
         api.productOperations(Number(id)),
         api.providers(),
+        api.adapterCompatibility(),
       ]);
       setProduct(p);
       setOps(o);
       setProviders(provList);
+      setCompatMatrix(matrix);
       setEditProviderId(o.provider?.id ?? null);
       setEditStrategy(o.pricing.strategy || "fixed");
       setEditParams(structuredClone(o.pricing.params ?? {}));
@@ -179,30 +140,35 @@ export default function AdminProductDetail() {
   const healthDot = health === "healthy" ? "bg-good" : health === "degraded" ? "bg-warn" : "bg-bad";
   const healthLabel = health === "healthy" ? "Khoẻ" : health === "degraded" ? "Chậm" : "Lỗi";
 
+  // 2 bước đầu (khách nhập / tính giá) luôn chạy được — không phụ thuộc
+  // provider. 2 bước sau (cấp phát/giao hàng thật) chỉ chạy được khi
+  // needs_setup = false, nên phản ánh đúng trạng thái đó thay vì luôn hiện
+  // "hoạt động" dù sản phẩm đang bị chặn bán.
+  const fulfillmentReady = !ops.needs_setup;
   const pipelineMap: Record<string, { label: string; active: boolean }[]> = {
     fixed: [
       { label: "Khách chọn variant", active: true },
       { label: "Tính giá cố định", active: true },
-      { label: `Lấy từ kho (${aInfo.label})`, active: true },
-      { label: "Giao data", active: true },
+      { label: `Lấy từ kho (${aInfo.label})`, active: fulfillmentReady },
+      { label: "Giao data", active: fulfillmentReady },
     ],
     config: [
       { label: "Khách cấu hình", active: true },
       { label: "Tính giá dynamic", active: true },
-      { label: `${aInfo.label} tạo mới`, active: true },
-      { label: "Giao tài nguyên", active: true },
+      { label: `${aInfo.label} tạo mới`, active: fulfillmentReady },
+      { label: "Giao tài nguyên", active: fulfillmentReady },
     ],
     credit: [
       { label: "Khách mua gói credit", active: true },
       { label: "Trừ credit", active: true },
-      { label: `${aInfo.label} cấp API key`, active: true },
-      { label: "Dùng theo request", active: true },
+      { label: `${aInfo.label} cấp API key`, active: fulfillmentReady },
+      { label: "Dùng theo request", active: fulfillmentReady },
     ],
     task: [
       { label: "Khách đặt tác vụ", active: true },
       { label: "Tính giá theo nền tảng", active: true },
-      { label: `${aInfo.label} nhận task`, active: true },
-      { label: "Team xử lý → giao kết quả", active: true },
+      { label: `${aInfo.label} nhận task`, active: fulfillmentReady },
+      { label: "Team xử lý → giao kết quả", active: fulfillmentReady },
     ],
   };
   const pipelineSteps = pipelineMap[strategy] ?? pipelineMap.fixed;
@@ -314,6 +280,12 @@ export default function AdminProductDetail() {
 
       {/* Section 2: Van hanh (editable) */}
 
+      {ops.needs_setup && (
+        <Banner tone="bad" icon={<Info size={15} />} title="Sản phẩm chưa bán được">
+          {ops.needs_setup_reason}
+        </Banner>
+      )}
+
       {/* Pipeline */}
       <Card className="p-5 space-y-3">
         <h3 className="text-[14px] font-semibold flex items-center gap-2">
@@ -322,7 +294,7 @@ export default function AdminProductDetail() {
         <div className="flex items-center gap-2 flex-wrap">
           {pipelineSteps.map((step, i) => (
             <div key={i} className="flex items-center gap-2">
-              <div className={`px-3 py-2 rounded-lg text-[12px] font-medium border ${step.active ? "bg-iris/10 border-iris/30 text-iris" : "bg-surface-2 border-line text-muted"}`}>
+              <div className={`px-3 py-2 rounded-lg text-[12px] font-medium border ${step.active ? "bg-iris/10 border-iris/30 text-iris" : "bg-raised border-line text-muted"}`}>
                 {step.label}
               </div>
               {i < pipelineSteps.length - 1 && <ArrowRight size={12} className="text-faint" />}
@@ -341,7 +313,7 @@ export default function AdminProductDetail() {
         <div className="grid gap-3 sm:grid-cols-2">
           {Object.entries(STRATEGY_INFO).map(([key, info]) => (
             <button key={key} onClick={() => { setEditStrategy(key); if (key === "fixed") setEditParams({}); markDirty(); }}
-              className={`text-left rounded-lg border p-3 transition-all cursor-pointer ${editStrategy === key ? "border-iris bg-iris/5 ring-1 ring-iris/30" : "border-line bg-surface-2 hover:border-muted"}`}>
+              className={`text-left rounded-lg border p-3 transition-all cursor-pointer ${editStrategy === key ? "border-iris bg-iris/5 ring-1 ring-iris/30" : "border-line bg-raised hover:border-muted"}`}>
               <div className="flex items-center gap-2">
                 <div className={`w-3 h-3 rounded-full border-2 ${editStrategy === key ? "border-iris bg-iris" : "border-muted"}`} />
                 <span className="text-[13px] font-semibold">{info.label}</span>
@@ -360,7 +332,7 @@ export default function AdminProductDetail() {
           </div>
         )}
         {editStrategy === "fixed" && (
-          <div className="bg-surface-2 rounded-lg px-4 py-3 text-[13px] text-muted">
+          <div className="bg-raised rounded-lg px-4 py-3 text-[13px] text-muted">
             Giá cố định theo variant — không cần cấu hình thêm.
           </div>
         )}
@@ -372,14 +344,28 @@ export default function AdminProductDetail() {
           <Users size={14} /> Nhà cung cấp
         </h3>
         <div className="space-y-3">
-          <Field label="Chọn nhà cung cấp">
+          <Field label="Chọn nhà cung cấp" hint="Lựa chọn không tương thích với chiến lược giá đã chọn ở trên bị vô hiệu hoá.">
             <Select value={editProviderId ?? ""} onChange={(e) => { setEditProviderId(e.target.value ? Number(e.target.value) : null); markDirty(); }}>
               <option value="">— Không gán (Seller Pool) —</option>
-              {providers.map((p) => (
-                <option key={p.id} value={p.id}>{p.name} ({p.adapter_type})</option>
-              ))}
+              {providers.map((p) => {
+                const compatible = isAdapterCompatible(p.adapter_type, editStrategy, compatMatrix);
+                return (
+                  <option key={p.id} value={p.id} disabled={!compatible}>
+                    {ADAPTER_INFO[p.adapter_type]?.label ?? p.adapter_type} — {p.name}{!compatible ? " — không tương thích" : ""}
+                  </option>
+                );
+              })}
             </Select>
           </Field>
+          {(() => {
+            const selected = providers.find((p) => p.id === editProviderId);
+            if (!selected || isAdapterCompatible(selected.adapter_type, editStrategy, compatMatrix)) return null;
+            return (
+              <Banner tone="bad" icon={<Info size={15} />}>
+                Adapter &quot;{selected.adapter_type}&quot; không tương thích với chiến lược &quot;{editStrategy}&quot; — lưu sẽ bị từ chối.
+              </Banner>
+            );
+          })()}
           {ops.provider && (
             <div className="flex items-center gap-3">
               <span className="text-[13px] text-muted">Hiện tại:</span>
@@ -457,139 +443,4 @@ function StatCard({ label, value, tone }: { label: string; value: string; tone?:
       <div className={`text-[18px] font-bold mt-1 ${color}`}>{value}</div>
     </Card>
   );
-}
-
-/* ── Pricing Params Editor ──────────────────────────────────────── */
-
-function KVEditor({ label, value, onChange }: {
-  label: string;
-  value: Record<string, number>;
-  onChange: (v: Record<string, number>) => void;
-}) {
-  const entries = Object.entries(value);
-  const [newKey, setNewKey] = useState("");
-  const [newVal, setNewVal] = useState("");
-
-  const addEntry = () => {
-    if (!newKey.trim()) return;
-    onChange({ ...value, [newKey.trim()]: Number(newVal) || 0 });
-    setNewKey(""); setNewVal("");
-  };
-
-  const removeEntry = (key: string) => {
-    const next = { ...value };
-    delete next[key];
-    onChange(next);
-  };
-
-  const updateVal = (key: string, v: number) => {
-    onChange({ ...value, [key]: v });
-  };
-
-  return (
-    <div className="space-y-2">
-      <div className="text-[12px] font-medium text-muted">{label}</div>
-      {entries.map(([k, v]) => (
-        <div key={k} className="flex items-center gap-2">
-          <span className="text-[12px] font-mono bg-surface-2 rounded px-2 py-1 min-w-[80px]">{k}</span>
-          <Input type="number" className="w-[120px]" value={v} onChange={(e) => updateVal(k, Number(e.target.value))} />
-          <button onClick={() => removeEntry(k)} className="text-bad text-[12px] hover:underline">Xoá</button>
-        </div>
-      ))}
-      <div className="flex items-center gap-2">
-        <Input placeholder="Key" className="w-[120px]" value={newKey} onChange={(e) => setNewKey(e.target.value)} />
-        <Input type="number" placeholder="Giá trị" className="w-[120px]" value={newVal} onChange={(e) => setNewVal(e.target.value)} />
-        <Button size="sm" variant="secondary" onClick={addEntry}>Thêm</Button>
-      </div>
-    </div>
-  );
-}
-
-function ListEditor({ label, value, onChange, placeholder }: {
-  label: string;
-  value: unknown[];
-  onChange: (v: unknown[]) => void;
-  placeholder?: string;
-}) {
-  const [newItem, setNewItem] = useState("");
-
-  const addItem = () => {
-    if (!newItem.trim()) return;
-    let parsed: unknown;
-    try { parsed = JSON.parse(newItem); } catch { parsed = isNaN(Number(newItem)) ? newItem : Number(newItem); }
-    onChange([...value, parsed]);
-    setNewItem("");
-  };
-
-  const removeItem = (idx: number) => {
-    onChange(value.filter((_, i) => i !== idx));
-  };
-
-  return (
-    <div className="space-y-2">
-      <div className="text-[12px] font-medium text-muted">{label}</div>
-      {value.map((item, i) => (
-        <div key={i} className="flex items-center gap-2">
-          <span className="text-[12px] font-mono bg-surface-2 rounded px-2 py-1 flex-1 truncate">
-            {typeof item === "object" ? JSON.stringify(item) : String(item)}
-          </span>
-          <button onClick={() => removeItem(i)} className="text-bad text-[12px] hover:underline">Xoá</button>
-        </div>
-      ))}
-      <div className="flex items-center gap-2">
-        <Input placeholder={placeholder ?? "Giá trị moi"} className="flex-1" value={newItem} onChange={(e) => setNewItem(e.target.value)} />
-        <Button size="sm" variant="secondary" onClick={addItem}>Thêm</Button>
-      </div>
-    </div>
-  );
-}
-
-function PricingParamsEditor({ strategy, params, onChange }: {
-  strategy: string;
-  params: Record<string, unknown>;
-  onChange: (p: Record<string, unknown>) => void;
-}) {
-  const setParam = (key: string, value: unknown) => {
-    onChange({ ...params, [key]: value });
-  };
-
-  if (strategy === "config") {
-    return (
-      <div className="space-y-4">
-        <Field label="Giá cơ bản (VND)">
-          <Input type="number" value={params.base_price as number ?? ""} onChange={(e) => setParam("base_price", Number(e.target.value) || 0)} />
-        </Field>
-        <KVEditor label="Hệ số loại (type_mult)" value={(params.type_mult as Record<string, number>) ?? {}} onChange={(v) => setParam("type_mult", v)} />
-        <KVEditor label="Hệ số mạng (network_mult)" value={(params.network_mult as Record<string, number>) ?? {}} onChange={(v) => setParam("network_mult", v)} />
-        <ListEditor label="Tuỳ chọn thời hạn (ngày)" value={(params.duration_options as unknown[]) ?? []} onChange={(v) => setParam("duration_options", v)} placeholder="VD: 7, 30, 90" />
-        <ListEditor label="Giảm giá theo SL (volume_tiers)" value={(params.volume_tiers as unknown[]) ?? []} onChange={(v) => setParam("volume_tiers", v)} placeholder='VD: {"min_qty":5,"discount":0.05}' />
-      </div>
-    );
-  }
-
-  if (strategy === "credit") {
-    return (
-      <div className="space-y-4">
-        <Field label="Giá mỗi credit (VND)">
-          <Input type="number" value={params.credit_price as number ?? ""} onChange={(e) => setParam("credit_price", Number(e.target.value) || 0)} />
-        </Field>
-        <ListEditor label="Gói credit (packages)" value={(params.packages as unknown[]) ?? []} onChange={(v) => setParam("packages", v)} placeholder='VD: {"size":100,"label":"100 credits"}' />
-        <ListEditor label="Giảm giá theo SL (volume_tiers)" value={(params.volume_tiers as unknown[]) ?? []} onChange={(v) => setParam("volume_tiers", v)} placeholder='VD: {"min_qty":5,"discount":0.05}' />
-      </div>
-    );
-  }
-
-  if (strategy === "task") {
-    return (
-      <div className="space-y-4">
-        <Field label="Giá cơ bản (VND)">
-          <Input type="number" value={params.base_price as number ?? ""} onChange={(e) => setParam("base_price", Number(e.target.value) || 0)} />
-        </Field>
-        <KVEditor label="Hệ số nền tảng (platform_mult)" value={(params.platform_mult as Record<string, number>) ?? {}} onChange={(v) => setParam("platform_mult", v)} />
-        <ListEditor label="Giảm giá theo SL (volume_tiers)" value={(params.volume_tiers as unknown[]) ?? []} onChange={(v) => setParam("volume_tiers", v)} placeholder='VD: {"min_qty":5,"discount":0.05}' />
-      </div>
-    );
-  }
-
-  return null;
 }

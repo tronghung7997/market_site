@@ -245,6 +245,8 @@ export const api = {
 
   updateProductOperations: (productId: number, data: Record<string, unknown>) =>
     request<void>(`/admin/products/${productId}/operations`, { method: "PUT", body: JSON.stringify(data) }, true),
+  updateSellerPricing: (productId: number, data: Record<string, unknown>) =>
+    request<void>(`/seller/products/${productId}/pricing`, { method: "PUT", body: JSON.stringify(data) }, true),
 
   adminLogs: (params: { request_id?: string; job_id?: string; order_id?: number; level?: string; limit?: number } = {}) => {
     const q = new URLSearchParams();

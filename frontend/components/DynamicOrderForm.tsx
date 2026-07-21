@@ -134,6 +134,14 @@ export default function DynamicOrderForm({ productId, product, onOrderCreated }:
   const hasDiscount = calc && calc.discount_pct != null && calc.discount_pct > 0;
   const displayAmount = calc?.amount ?? 0;
 
+  // Một số strategy (vd "config") khai báo sẵn field "quantity" trong
+  // options.fields để giữ tương thích với các nơi khác dùng chung schema này
+  // — nhưng form này luôn tự vẽ riêng 1 ô "Số lượng" (stepper bên dưới) và
+  // đè giá trị đó lên trước mỗi lần tính giá/đặt hàng (xem doCalculate,
+  // confirmBuy). Lọc field trùng ra khỏi phần render để buyer không thấy 2 ô
+  // số lượng cùng lúc.
+  const visibleFields = options.fields.filter((f) => f.field !== "quantity");
+
   return (
     <>
       <Card className="overflow-hidden">
@@ -150,7 +158,7 @@ export default function DynamicOrderForm({ productId, product, onOrderCreated }:
           )}
 
           {/* Dynamic fields */}
-          {options.fields.map((f) => (
+          {visibleFields.map((f) => (
             <DynamicField key={f.field} field={f} value={config[f.field]} onChange={(v) => updateField(f.field, v)} />
           ))}
 
@@ -235,7 +243,7 @@ export default function DynamicOrderForm({ productId, product, onOrderCreated }:
                 <span className="font-medium text-right max-w-[220px] truncate">{product.title}</span>
               </div>
               {/* Show user config summary */}
-              {options.fields.map((f) => {
+              {visibleFields.map((f) => {
                 const val = config[f.field];
                 let display = String(val ?? "—");
                 if (f.choices) {

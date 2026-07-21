@@ -7,16 +7,24 @@ class ConfigPricing(PricingStrategy):
     name = "config"
 
     def get_options(self, params: dict) -> list[dict]:
+        # field_labels/type_display/network_display là lớp hiển thị tuỳ chọn —
+        # key máy (gửi cho adapter/nhà cung cấp thật, xem RealApiAdapter.provision)
+        # không đổi dù có hay không có các dict này. Thiếu thì fallback về đúng
+        # key máy như trước, không phá sản phẩm đã cấu hình từ trước.
+        field_labels = params.get("field_labels", {})
+        type_display = params.get("type_display", {})
+        network_display = params.get("network_display", {})
+
         fields: list[dict] = []
 
         if "type_mult" in params:
             fields.append({
                 "field": "type",
                 "type": "select",
-                "label": "Type",
+                "label": field_labels.get("type", "Loại proxy"),
                 "required": True,
                 "choices": [
-                    {"value": k, "label": k} for k in params["type_mult"]
+                    {"value": k, "label": type_display.get(k, k)} for k in params["type_mult"]
                 ],
             })
 
@@ -24,10 +32,10 @@ class ConfigPricing(PricingStrategy):
             fields.append({
                 "field": "network",
                 "type": "select",
-                "label": "Network",
+                "label": field_labels.get("network", "Nhà mạng"),
                 "required": True,
                 "choices": [
-                    {"value": k, "label": k} for k in params["network_mult"]
+                    {"value": k, "label": network_display.get(k, k)} for k in params["network_mult"]
                 ],
             })
 
@@ -35,7 +43,7 @@ class ConfigPricing(PricingStrategy):
             fields.append({
                 "field": "days",
                 "type": "select",
-                "label": "Duration",
+                "label": field_labels.get("days", "Thời hạn"),
                 "required": True,
                 "choices": [
                     {"value": d["days"], "label": d["label"]}
@@ -46,7 +54,7 @@ class ConfigPricing(PricingStrategy):
         fields.append({
             "field": "quantity",
             "type": "number",
-            "label": "Quantity",
+            "label": field_labels.get("quantity", "Số lượng"),
             "required": True,
             "min": 1,
         })

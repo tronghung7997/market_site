@@ -139,6 +139,103 @@ async def test_admin_commission_left_untouched_when_omitted(client):
 
 
 # ---------------------------------------------------------------------------
+# Seller tự đặt chiến lược giá (PUT /seller/products/{id}/pricing)
+# ---------------------------------------------------------------------------
+
+
+@pytest.mark.asyncio
+async def test_seller_sets_own_pricing_strategy(client):
+    seller_token, _, cat_id = await setup_seller_with_category(client)
+    product = await client.post("/seller/products", json={
+        "category_id": cat_id, "title": "Seller Pricing Test",
+    }, headers={"Authorization": f"Bearer {seller_token}"})
+    product_id = product.json()["id"]
+
+    resp = await client.put(f"/seller/products/{product_id}/pricing", json={
+        "pricing_strategy": "config",
+        "pricing_params": {"base_price": 75000, "type_mult": {"datacenter": 1.0}, "network_mult": {"viettel": 1.0}},
+    }, headers={"Authorization": f"Bearer {seller_token}"})
+    assert resp.status_code == 200
+    assert resp.json()["pricing_strategy"] == "config"
+
+    detail = await client.get(f"/products/{product_id}")
+    assert detail.json()["pricing_params"]["base_price"] == 75000
+
+
+@pytest.mark.asyncio
+async def test_seller_cannot_set_pricing_on_others_product(client):
+    seller_token, _, cat_id = await setup_seller_with_category(client)
+    product = await client.post("/seller/products", json={
+        "category_id": cat_id, "title": "Not Yours",
+    }, headers={"Authorization": f"Bearer {seller_token}"})
+    product_id = product.json()["id"]
+
+    other_token = await register_and_login(client, "prod_seller_other@example.com")
+    await make_seller("prod_seller_other@example.com")
+    other_token = await register_and_login(client, "prod_seller_other@example.com")
+
+    resp = await client.put(f"/seller/products/{product_id}/pricing", json={
+        "pricing_strategy": "config",
+    }, headers={"Authorization": f"Bearer {other_token}"})
+    assert resp.status_code == 403
+
+
+@pytest.mark.asyncio
+async def test_seller_cannot_set_provider_or_commission_via_pricing_endpoint(client):
+    """SellerPricingUpdate schema chỉ có pricing_strategy/pricing_params — gửi
+    kèm provider_id/commission_rate phải bị Pydantic bỏ qua âm thầm (không có
+    field đó trong schema), không được lén set qua endpoint này."""
+    seller_token, admin_token, cat_id = await setup_seller_with_category(client)
+    product = await client.post("/seller/products", json={
+        "category_id": cat_id, "title": "No Sneaky Fields",
+    }, headers={"Authorization": f"Bearer {seller_token}"})
+    product_id = product.json()["id"]
+
+    provider = await client.post("/admin/providers", json={
+        "name": "SneakyProvider", "type": "proxy", "config": {},
+    }, headers={"Authorization": f"Bearer {admin_token}"})
+    provider_id = provider.json()["id"]
+
+    resp = await client.put(f"/seller/products/{product_id}/pricing", json={
+        "pricing_strategy": "fixed",
+        "provider_id": provider_id,
+        "commission_rate": 50.0,
+    }, headers={"Authorization": f"Bearer {seller_token}"})
+    assert resp.status_code == 200
+
+    detail = await client.get(f"/products/{product_id}")
+    assert detail.json()["commission_rate"] is None
+
+
+@pytest.mark.asyncio
+async def test_seller_pricing_blocked_when_incompatible_with_assigned_provider(client):
+    seller_token, admin_token, cat_id = await setup_seller_with_category(client)
+    product = await client.post("/seller/products", json={
+        "category_id": cat_id, "title": "Incompatible Strategy Test",
+    }, headers={"Authorization": f"Bearer {seller_token}"})
+    product_id = product.json()["id"]
+
+    provider = await client.post("/admin/providers", json={
+        "name": "ManualOnlyProvider", "type": "proxy",
+        "config": {}, "adapter_type": "manual",
+    }, headers={"Authorization": f"Bearer {admin_token}"})
+    provider_id = provider.json()["id"]
+
+    # admin gán provider "manual" (chỉ tương thích strategy "task") cho sản phẩm
+    await client.put(f"/admin/products/{product_id}/operations", json={
+        "provider_id": provider_id, "pricing_strategy": "task",
+        "pricing_params": {"base_price": 1000, "platform_mult": {"youtube": 1.0}},
+    }, headers={"Authorization": f"Bearer {admin_token}"})
+
+    # seller cố đổi sang "config" — không tương thích với adapter "manual" đang gắn
+    resp = await client.put(f"/seller/products/{product_id}/pricing", json={
+        "pricing_strategy": "config",
+        "pricing_params": {"base_price": 1000, "type_mult": {"a": 1.0}, "network_mult": {"b": 1.0}},
+    }, headers={"Authorization": f"Bearer {seller_token}"})
+    assert resp.status_code == 400
+
+
+# ---------------------------------------------------------------------------
 # Sửa / xoá biến thể
 # ---------------------------------------------------------------------------
 

@@ -67,6 +67,16 @@ async def delete_variant(variant_id: int, account: Account = Depends(require_rol
     await service.delete_variant(variant_id, account.id, db)
 
 
+@router.put("/seller/products/{product_id}/pricing", response_model=schemas.ProductResponse)
+async def set_seller_pricing(
+    product_id: int,
+    body: schemas.SellerPricingUpdate,
+    account: Account = Depends(require_role("seller")),
+    db: AsyncSession = Depends(get_session),
+):
+    return await service.update_seller_pricing(product_id, account.id, body.model_dump(exclude_unset=True), db)
+
+
 @router.get("/admin/products")
 async def list_all_products(
     _: Account = Depends(require_role("admin")),

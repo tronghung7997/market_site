@@ -138,7 +138,7 @@ export interface TimelineEvent {
 // rotate_path, provider base_url/API key, or the internal allocation id
 // (see src/resources/proxy_router.py::get_proxy_state).
 export interface ProxyState {
-  status: "allocated" | "expired" | "released" | "error";
+  status: "allocated" | "offline" | "expired" | "released" | "error";
   public_ip: string | null;
   expires_at: string;
   rotation_available: boolean;

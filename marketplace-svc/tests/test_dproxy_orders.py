@@ -2,6 +2,7 @@
 docs/superpowers/specs/2026-07-22-dproxy-integration.md.
 """
 import asyncio
+import uuid as _uuid_module
 from datetime import datetime, timedelta, timezone
 from unittest.mock import AsyncMock
 
@@ -21,9 +22,21 @@ from .conftest import make_admin, make_seller, register_and_login
 FUTURE = (datetime.now(timezone.utc) + timedelta(days=5)).isoformat()
 
 
+def label_to_uuid(label: str) -> str:
+    """Deterministic UUID from a human-readable test label. DProxy's real
+    contract requires assignment ids to be canonical UUIDs (review fixes
+    Blocker 3, src/adapters/dproxy.py::expected_rotate_path) — a raw
+    "ext-retry"-style id is no longer accepted by _parse_assignment. Test
+    bodies still read better with names like that than a literal UUID, and
+    the same label always maps to the same UUID, so `label_to_uuid("ext-1")`
+    stays comparable across a test's setup and assertions."""
+    return str(_uuid_module.uuid5(_uuid_module.NAMESPACE_DNS, label))
+
+
 def _sample(external_id="ext-1", *, status="active", proxy_status="online") -> dict:
+    uid = label_to_uuid(external_id)
     return {
-        "id": external_id,
+        "id": uid,
         "assigned_at": "2026-07-20T12:35:46.296225+00:00",
         "expired_at": FUTURE,
         "status": status,
@@ -35,7 +48,7 @@ def _sample(external_id="ext-1", *, status="active", proxy_status="online") -> d
             "status": {"msg": proxy_status}, "proxy_id": "px-1", "ip_public": "1.2.3.4",
             "rotation": {
                 "available": True, "mode": "pppoe", "cooldown_seconds": 60, "last_rotated_at": None,
-                "rotate_endpoint": f"/api/v1/proxies/user/{external_id}/rotate",
+                "rotate_endpoint": f"/api/v1/proxies/user/{uid}/rotate",
             },
         },
     }
@@ -151,7 +164,7 @@ class TestDProxyProvisioning:
 
             allocation = await db.scalar(select(ProxyAllocation).where(ProxyAllocation.order_id == order_id))
             assert allocation is not None
-            assert allocation.external_id == "ext-1"
+            assert allocation.external_id == label_to_uuid("ext-1")
             assert allocation.status == ProxyAllocationStatus.allocated
             assert allocation.provider_id == provider_id
 
@@ -169,12 +182,18 @@ class TestDProxyProvisioning:
 
     @pytest.mark.asyncio
     async def test_all_inactive_or_offline_or_expired_treated_as_no_inventory(self, client, monkeypatch):
+        """These rows now parse successfully (review fixes Blocker 2 — a
+        two-stage parse keeps structurally-valid-but-unusable rows instead
+        of dropping them), but none is `is_usable()`, so provisioning must
+        still see zero usable candidates and fail exactly as before."""
         buyer_token, _, product_id, _ = await setup_dproxy_product(client, suffix="_dead")
         order_id = await _place_order(client, buyer_token, product_id, monkeypatch)
 
+        past = (datetime.now(timezone.utc) - timedelta(days=1)).isoformat()
         payload = [
             _sample("ext-inactive", status="inactive"),
             _sample("ext-offline", proxy_status="offline"),
+            {**_sample("ext-expired"), "expired_at": past},
         ]
         _patch_dproxy_http(monkeypatch, _resp(200, payload))
         await provision_pending_order(order_id)

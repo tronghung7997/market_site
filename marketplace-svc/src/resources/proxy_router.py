@@ -98,10 +98,13 @@ async def rotate_proxy(
         logger.error("dproxy_rotate_contract_error", order_id=order_id, allocation_id=allocation.id)
         raise HTTPException(status_code=502, detail="Nhà cung cấp proxy trả về dữ liệu không hợp lệ")
 
-    credentials_changed = apply_rotated_assignment(allocation, assignment)
+    apply_rotated_assignment(allocation, assignment)
     allocation.last_rotated_at = now
-    if credentials_changed:
-        order.delivered_data = assignment.delivered_text()
+    # Unconditional refresh — DProxy can rotate the password (or in
+    # principle other fields) without moving the IP or expiry, and nothing
+    # on ProxyAllocation tracks enough to detect that reliably. See review
+    # fixes Blocker 1.
+    order.delivered_data = assignment.delivered_text()
     await db.commit()
 
     logger.info("dproxy_rotated", order_id=order_id, allocation_id=allocation.id)

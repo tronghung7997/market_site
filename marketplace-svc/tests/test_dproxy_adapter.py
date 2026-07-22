@@ -121,22 +121,36 @@ class TestParseAssignment:
         del item["proxies"]["host"]
         assert _parse_assignment(item) is None
 
-    def test_inactive_entry_returns_none(self):
+    def test_inactive_entry_parses_as_offline(self):
+        """review fixes Blocker 2 — two-stage parsing: structurally-valid
+        but currently-unusable rows still parse (as `online=False`), they
+        just aren't `is_usable()`. Only a genuinely malformed row returns
+        None."""
         item = _sample(status="inactive")
-        assert _parse_assignment(item) is None
+        a = _parse_assignment(item)
+        assert a is not None
+        assert a.online is False
+        assert a.is_usable() is False
 
-    def test_is_active_false_returns_none(self):
+    def test_is_active_false_parses_as_offline(self):
         item = _sample(is_active=False)
-        assert _parse_assignment(item) is None
+        a = _parse_assignment(item)
+        assert a is not None
+        assert a.online is False
 
-    def test_offline_status_returns_none(self):
+    def test_offline_status_parses_as_offline(self):
         item = _sample()
         item["proxies"]["status"] = {"msg": "offline"}
-        assert _parse_assignment(item) is None
+        a = _parse_assignment(item)
+        assert a is not None
+        assert a.online is False
 
-    def test_expired_entry_returns_none(self):
+    def test_expired_entry_parses_but_is_not_usable(self):
         item = _sample(expired_at=PAST)
-        assert _parse_assignment(item) is None
+        a = _parse_assignment(item)
+        assert a is not None
+        assert a.online is True  # status/is_active/proxy status are all fine — only expiry is the issue
+        assert a.is_usable() is False
 
     def test_unexpected_rotate_endpoint_shape_is_dropped_not_trusted(self):
         item = _sample()
@@ -147,9 +161,18 @@ class TestParseAssignment:
         assert a.rotation_available is False
 
     def test_multiple_assignments_each_parse_independently(self):
-        items = [_sample(id="id-1"), _sample(id="id-2"), {"garbage": True}, _sample(id="id-3", status="rejected")]
+        id1, id2, id3 = (
+            "11111111-1111-4111-8111-111111111111",
+            "22222222-2222-4222-8222-222222222222",
+            "33333333-3333-4333-8333-333333333333",
+        )
+        items = [_sample(id=id1), _sample(id=id2), {"garbage": True}, _sample(id=id3, status="rejected")]
         parsed = [p for p in (_parse_assignment(i) for i in items) if p is not None]
-        assert {p.external_id for p in parsed} == {"id-1", "id-2"}
+        # The malformed dict is dropped; the "rejected" row still parses
+        # (structurally valid) but online=False.
+        assert {p.external_id for p in parsed} == {id1, id2, id3}
+        by_id = {p.external_id: p for p in parsed}
+        assert by_id[id3].online is False
 
     def test_empty_array_yields_nothing(self):
         assert [p for p in (_parse_assignment(i) for i in []) if p is not None] == []
@@ -157,6 +180,62 @@ class TestParseAssignment:
 
 def test_expected_rotate_path_matches_sample_contract():
     assert expected_rotate_path(EXT_ID) == f"/api/v1/proxies/user/{EXT_ID}/rotate"
+
+
+class TestExternalIdMustBeUuid:
+    """review fixes Blocker 3 — external_id comes from the supplier and must
+    never be allowed to influence an actionable request path unless it's a
+    canonical UUID. expected_rotate_path is the single enforcement point,
+    used both by _parse_assignment (so a hostile id can't even survive
+    parsing far enough to be delivered/bound) and by the rotate call itself."""
+
+    def test_expected_rotate_path_rejects_path_traversal(self):
+        with pytest.raises(ValueError):
+            expected_rotate_path("../../health")
+
+    def test_expected_rotate_path_rejects_extra_path_segment(self):
+        with pytest.raises(ValueError):
+            expected_rotate_path("abc/rotate")
+
+    def test_expected_rotate_path_rejects_query_string(self):
+        with pytest.raises(ValueError):
+            expected_rotate_path("abc?x=1")
+
+    def test_expected_rotate_path_rejects_fragment(self):
+        with pytest.raises(ValueError):
+            expected_rotate_path("abc#fragment")
+
+    def test_expected_rotate_path_rejects_excessive_length(self):
+        with pytest.raises(ValueError):
+            expected_rotate_path("a" * 300)
+
+    def test_expected_rotate_path_accepts_canonical_uuid(self):
+        assert expected_rotate_path(EXT_ID) == f"/api/v1/proxies/user/{EXT_ID}/rotate"
+
+    def test_parse_assignment_drops_row_with_path_traversal_id(self):
+        item = _sample(id="../../health")
+        assert _parse_assignment(item) is None
+
+    def test_parse_assignment_drops_row_with_slash_in_id(self):
+        item = _sample(id="abc/rotate")
+        assert _parse_assignment(item) is None
+
+    def test_parse_assignment_drops_row_with_query_string_id(self):
+        item = _sample(id="abc?x=1")
+        assert _parse_assignment(item) is None
+
+    def test_parse_assignment_accepts_canonical_uuid_id(self):
+        item = _sample(id=EXT_ID)
+        a = _parse_assignment(item)
+        assert a is not None
+        assert a.external_id == EXT_ID
+
+    def test_parse_assignment_normalizes_uuid_casing(self):
+        item = _sample(id=EXT_ID.upper())
+        item["proxies"]["rotation"]["rotate_endpoint"] = f"/api/v1/proxies/user/{EXT_ID}/rotate"
+        a = _parse_assignment(item)
+        assert a is not None
+        assert a.external_id == EXT_ID  # canonical (lowercase) form
 
 
 # ---------------------------------------------------------------------------
@@ -184,12 +263,19 @@ class TestListAssignments:
         monkeypatch.setattr("src.adapters.real_api.asyncio.sleep", AsyncMock())
 
     @pytest.mark.asyncio
-    async def test_list_assignments_filters_to_usable_only(self, monkeypatch):
+    async def test_list_assignments_returns_everything_parseable_online_or_not(self, monkeypatch):
+        """review fixes Blocker 2: list_assignments() itself no longer
+        filters to usable — that's ProxyAssignment.is_usable(), applied by
+        each caller (provisioning, reconciliation) as appropriate."""
+        id_a, id_b = "11111111-1111-4111-8111-111111111111", "22222222-2222-4222-8222-222222222222"
         adapter = _adapter()
-        payload = [_sample(id="a"), _sample(id="b", status="inactive")]
+        payload = [_sample(id=id_a), _sample(id=id_b, status="inactive")]
         monkeypatch.setattr(httpx.AsyncClient, "request", AsyncMock(return_value=_resp(200, payload)))
         result = await adapter.list_assignments()
-        assert [a.external_id for a in result] == ["a"]
+        by_id = {a.external_id: a for a in result}
+        assert set(by_id) == {id_a, id_b}
+        assert by_id[id_a].online is True
+        assert by_id[id_b].online is False
 
     @pytest.mark.asyncio
     async def test_non_list_top_level_raises_contract_error(self, monkeypatch):
@@ -250,6 +336,18 @@ class TestRotateAssignment:
         assert mock.call_args_list[0].args[1].endswith(expected_rotate_path(EXT_ID))
 
     @pytest.mark.asyncio
+    async def test_rotate_with_a_tampered_non_uuid_external_id_never_calls_out(self, monkeypatch):
+        """Defense in depth: even if something upstream of this call (a
+        corrupted DB row) skipped _parse_assignment's UUID check, rotate_assignment
+        must still refuse to build a request from it."""
+        adapter = _adapter()
+        mock = AsyncMock()
+        monkeypatch.setattr(httpx.AsyncClient, "request", mock)
+        with pytest.raises(DProxyContractError):
+            await adapter.rotate_assignment("../../health")
+        mock.assert_not_called()
+
+    @pytest.mark.asyncio
     async def test_redirect_response_is_treated_as_contract_error_not_followed(self, monkeypatch):
         adapter = _adapter()
         monkeypatch.setattr(httpx.AsyncClient, "request", AsyncMock(return_value=_resp(302)))
@@ -308,11 +406,6 @@ class TestValidateDproxyConfig:
     async def test_header_auth_type_requires_auth_header(self):
         with pytest.raises(Exception):
             await validate_dproxy_config({"base_url": "https://dproxy.example.com", "auth_type": "header"})
-
-    @pytest.mark.asyncio
-    async def test_rejects_non_relative_list_path(self):
-        with pytest.raises(Exception):
-            await validate_dproxy_config({"base_url": "https://dproxy.example.com", "list_path": "../etc/passwd"})
 
     @pytest.mark.asyncio
     async def test_rejects_bad_rotate_method(self):

@@ -128,6 +128,9 @@ function OrderProxyPanel({ orderId }: { orderId: number }) {
         <div>
           <p className="text-faint text-[11px] uppercase tracking-wider mb-0.5">Proxy hiện tại</p>
           <p className="font-mono text-[13px]">{state.public_ip ?? "—"}</p>
+          {state.status === "offline" && (
+            <p className="text-[11px] text-warn mt-0.5">Tạm ngoại tuyến — đang chờ khôi phục, chưa đổi IP được lúc này.</p>
+          )}
         </div>
         {state.rotation_available && (
           <Button size="sm" variant="secondary" onClick={handleRotate} disabled={rotating || cooldown > 0}>

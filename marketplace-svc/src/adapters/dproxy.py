@@ -15,9 +15,9 @@ config; DProxy's base_url is admin-authored and validated separately at
 config-write time (validate_dproxy_config below, wired into
 src/providers/service.py).
 """
-import re
 from datetime import datetime, timezone
 from urllib.parse import urlsplit
+from uuid import UUID
 
 import httpx
 import structlog
@@ -28,11 +28,16 @@ from src.adapters.real_api import RealApiAdapter
 
 logger = structlog.get_logger()
 
-_DEFAULT_LIST_PATH = "/api/v1/proxies/user"
+# Fixed supplier contract — NOT configurable. An earlier revision let admins
+# override `list_path` while rotate-path construction/validation stayed
+# hard-coded to this constant, so a custom list_path silently broke rotation
+# (list() would work, every parsed rotate_endpoint would fail the exact-match
+# check). Per docs/superpowers/plans/2026-07-22-dproxy-review-fixes.md Medium
+# A: one fixed contract used everywhere, not a config knob that can drift.
+_LIST_PATH = "/api/v1/proxies/user"
 _DEFAULT_ROTATE_METHOD = "POST"
 _ALLOWED_AUTH_TYPES = {"bearer", "header"}
 _ALLOWED_ROTATE_METHODS = {"GET", "POST", "PUT"}
-_RELATIVE_PATH_RE = re.compile(r"^/[A-Za-z0-9/_\-.]*$")
 
 
 class DProxyContractError(Exception):
@@ -55,12 +60,20 @@ class DProxyUnavailableError(Exception):
 def expected_rotate_path(external_id: str) -> str:
     """The only rotate path this adapter will ever call for a given
     assignment — reused both to validate the supplier-returned
-    `rotate_endpoint` in _parse_assignment and, in Task 5, to validate the
-    buyer-triggered rotate route against the bound external_id. `external_id`
-    is expected to already be an opaque supplier-issued token (UUID in the
-    sample contract); still built with urlsplit-safe string formatting only,
-    never interpolated into a path with separators trusted."""
-    return f"{_DEFAULT_LIST_PATH}/{external_id}/rotate"
+    `rotate_endpoint` in _parse_assignment and to validate the
+    buyer-triggered rotate route against the bound external_id.
+
+    Requires `external_id` to be a canonical UUID (the supplied DProxy
+    contract's `id` field) — raises ValueError otherwise. This is the
+    enforcement point, not just a convention: a slash, `..`, query string,
+    or fragment embedded in an unvalidated external_id could otherwise
+    redirect this call to a different path on the same provider origin
+    (see docs/superpowers/plans/2026-07-22-dproxy-review-fixes.md Blocker 3).
+    Every caller — parse-time validation here, and the rotate call itself,
+    whether the external_id came fresh off the wire or out of
+    ProxyAllocation.external_id in the DB — goes through this same check."""
+    canonical = str(UUID(str(external_id)))
+    return f"{_LIST_PATH}/{canonical}/rotate"
 
 
 def _parse_dt(value) -> datetime | None:
@@ -76,53 +89,65 @@ def _parse_dt(value) -> datetime | None:
 
 
 def _parse_assignment(item) -> ProxyAssignment | None:
-    """Defensively parse one item from GET /api/v1/proxies/user. Returns
-    None — never raises — for anything malformed, inactive, offline, or
-    expired: a single bad row must not break the whole inventory read
-    (that's what DProxyContractError, raised only for a bad top-level shape,
-    is for)."""
+    """Defensively parse one item from GET /api/v1/proxies/user into a
+    ProxyAssignment REGARDLESS of whether it's currently usable — status/
+    is_active/online/expiry become the `online` flag and `expires_at`
+    field, not a filter here. Returns None — never raises — only for
+    structurally invalid rows (missing/malformed identity, credentials,
+    host/port, or timestamp): a single bad row must not break the whole
+    inventory read (that's what DProxyContractError, raised only for a bad
+    top-level shape, is for). See review fixes Blocker 2 (two-stage
+    parsing: structural validity here, usability via
+    ProxyAssignment.is_usable() at each call site) and Blocker 3 (external
+    id must be a canonical UUID before it can ever reach a request path)."""
     if not isinstance(item, dict):
         return None
     proxies = item.get("proxies")
     if not isinstance(proxies, dict):
         return None
 
-    external_id = item.get("id")
+    raw_external_id = item.get("id")
     username = item.get("username")
     password = item.get("password")
     host = proxies.get("host")
     port_raw = proxies.get("port")
     expires_at = _parse_dt(item.get("expired_at"))
 
-    if not external_id or not username or not password or not host or port_raw is None or expires_at is None:
+    if not raw_external_id or not username or not password or not host or port_raw is None or expires_at is None:
         return None
     try:
         port = int(port_raw)
     except (TypeError, ValueError):
         return None
+    try:
+        # Canonicalizes AND rejects anything that isn't a valid UUID —
+        # slashes, "..", query strings, excessive length, control
+        # characters are all impossible in a value that survives this.
+        external_id = str(UUID(str(raw_external_id)))
+    except (ValueError, AttributeError, TypeError):
+        return None
 
     status_obj = proxies.get("status")
-    online = isinstance(status_obj, dict) and status_obj.get("msg") == "online"
-    if item.get("status") != "active" or item.get("is_active") is not True or not online:
-        return None
-    if expires_at <= datetime.now(timezone.utc):
-        return None
+    online = (
+        item.get("status") == "active"
+        and item.get("is_active") is True
+        and isinstance(status_obj, dict) and status_obj.get("msg") == "online"
+    )
 
     rotation = proxies.get("rotation")
     rotation = rotation if isinstance(rotation, dict) else {}
     rotate_path = rotation.get("rotate_endpoint")
     # Untrusted supplier data — only accept the EXACT path we'd construct
     # ourselves for this external_id, never propagate an unexpected shape
-    # (absolute URL, different id, query string, ...) toward the rotate
-    # endpoint in Task 5.
-    if rotate_path != expected_rotate_path(str(external_id)):
+    # (absolute URL, different id, query string, ...) toward the rotate call.
+    if rotate_path != expected_rotate_path(external_id):
         rotate_path = None
     cooldown = rotation.get("cooldown_seconds")
     if not isinstance(cooldown, int):
         cooldown = None
 
     return ProxyAssignment(
-        external_id=str(external_id),
+        external_id=external_id,
         proxy_id=proxies.get("proxy_id"),
         host=str(host),
         port=port,
@@ -131,6 +156,7 @@ def _parse_assignment(item) -> ProxyAssignment | None:
         public_ip=proxies.get("ip_public"),
         assigned_at=_parse_dt(item.get("assigned_at")),
         expires_at=expires_at,
+        online=online,
         rotation_available=bool(rotation.get("available")) and rotate_path is not None,
         rotation_mode=rotation.get("mode"),
         cooldown_seconds=cooldown,
@@ -156,8 +182,9 @@ async def validate_dproxy_config(config: dict) -> None:
 
     What IS validated: structural hygiene independent of that trust
     boundary — credentials/query/fragment embedded in the URL (never a
-    legitimate part of a base_url, just noise or a paste mistake),
-    allowed auth/HTTP methods, and a relative-only list_path."""
+    legitimate part of a base_url, just noise or a paste mistake) and
+    allowed auth/HTTP methods. `list_path` is intentionally not a config
+    option at all (see Medium A) — nothing to validate there."""
     base_url = config.get("base_url") or ""
     parts = urlsplit(base_url)
     if parts.scheme not in {"http", "https"}:
@@ -183,16 +210,11 @@ async def validate_dproxy_config(config: dict) -> None:
             status_code=400, detail=f"rotate_method phải là một trong: {', '.join(sorted(_ALLOWED_ROTATE_METHODS))}",
         )
 
-    list_path = config.get("list_path") or _DEFAULT_LIST_PATH
-    if not _RELATIVE_PATH_RE.match(list_path) or ".." in list_path:
-        raise HTTPException(status_code=400, detail="list_path phải là đường dẫn tương đối hợp lệ, không chứa '..'")
-
 
 class DProxyAdapter(RealApiAdapter, RotatableProxyAdapter):
     def __init__(self, config: dict, *, db, provider_id: int | None = None):
         super().__init__(config, provider_id=provider_id, seller_owned=False)
         self.db = db
-        self.list_path = config.get("list_path") or _DEFAULT_LIST_PATH
         self.rotate_method = (config.get("rotate_method") or _DEFAULT_ROTATE_METHOD).upper()
         self.auth_type = config.get("auth_type") or "bearer"
         self.auth_header = config.get("auth_header") or "X-API-Key"
@@ -209,9 +231,14 @@ class DProxyAdapter(RealApiAdapter, RotatableProxyAdapter):
         return headers
 
     async def list_assignments(self) -> list[ProxyAssignment]:
+        """Returns every structurally-valid assignment from the supplier's
+        inventory — online AND offline/inactive/expired alike. Callers that
+        only want deliverable ones must filter with
+        `ProxyAssignment.is_usable()`; reconciliation deliberately wants the
+        unfiltered list (see review fixes Blocker 2)."""
         try:
             resp = await self._request_with_retry(
-                "GET", self.list_path, operation="list_assignments", headers=self._headers(),
+                "GET", _LIST_PATH, operation="list_assignments", headers=self._headers(),
             )
         except httpx.HTTPError as e:
             raise DProxyUnavailableError(str(e)) from e
@@ -233,7 +260,14 @@ class DProxyAdapter(RealApiAdapter, RotatableProxyAdapter):
         return [a for item in body if (a := _parse_assignment(item)) is not None]
 
     async def rotate_assignment(self, external_id: str) -> ProxyAssignment:
-        path = expected_rotate_path(external_id)
+        try:
+            path = expected_rotate_path(external_id)
+        except ValueError as e:
+            # Only reachable if external_id came from somewhere that skipped
+            # _parse_assignment's UUID canonicalization (e.g. a tampered DB
+            # row) — never let a malformed id reach _request_with_retry.
+            raise DProxyContractError(f"external_id không hợp lệ: {external_id!r}") from e
+
         try:
             resp = await self._request_with_retry(
                 self.rotate_method, path, operation="rotate_assignment", headers=self._headers(),
@@ -275,6 +309,10 @@ class DProxyAdapter(RealApiAdapter, RotatableProxyAdapter):
             return ProvisionResult(success=False, error="Nhà cung cấp proxy trả về dữ liệu không hợp lệ")
         # DProxyUnavailableError intentionally propagates — see class docstring.
 
+        # bind_first_available_assignment gets the FULL (unfiltered) list —
+        # it applies is_usable() itself when picking a NEW candidate, and
+        # needs the unfiltered list to tell "temporarily offline" apart from
+        # "genuinely gone" on an idempotent retry (review fixes Blocker 2).
         allocation = await bind_first_available_assignment(self.provider_id, order_id, assignments, self.db)
         if allocation is None:
             return ProvisionResult(success=False, error="Hết proxy khả dụng — vui lòng thử lại sau")
@@ -282,10 +320,9 @@ class DProxyAdapter(RealApiAdapter, RotatableProxyAdapter):
         assignment = next((a for a in assignments if a.external_id == allocation.external_id), None)
         if assignment is None:
             # Idempotent retry matched an existing binding whose external_id
-            # is no longer in the fresh list (bind_first_available_assignment
-            # already flagged it `error`) — never silently substitute a
-            # different credential for an order that may already have
-            # received the first one.
+            # is no longer in the fresh list at all — never silently
+            # substitute a different credential for an order that may
+            # already have received the first one.
             return ProvisionResult(success=False, error="Proxy đã cấp không còn khả dụng")
 
         return ProvisionResult(
@@ -305,15 +342,16 @@ class DProxyAdapter(RealApiAdapter, RotatableProxyAdapter):
         except DProxyContractError:
             return {"status": "unhealthy", "message": "Dữ liệu trả về không hợp lệ"}
 
-        usable = len(assignments)
-        rotation_capable = sum(1 for a in assignments if a.rotation_available)
-        earliest_expiry = min((a.expires_at for a in assignments), default=None)
-        if usable == 0:
-            return {"status": "warning", "message": "Không còn proxy khả dụng", "usable": 0}
+        usable = [a for a in assignments if a.is_usable()]
+        rotation_capable = sum(1 for a in usable if a.rotation_available)
+        earliest_expiry = min((a.expires_at for a in usable), default=None)
+        if not usable:
+            return {"status": "warning", "message": "Không còn proxy khả dụng", "usable": 0, "total": len(assignments)}
         return {
             "status": "healthy",
-            "message": f"{usable} proxy khả dụng ({rotation_capable} hỗ trợ đổi IP)",
-            "usable": usable,
+            "message": f"{len(usable)}/{len(assignments)} proxy khả dụng ({rotation_capable} hỗ trợ đổi IP)",
+            "usable": len(usable),
+            "total": len(assignments),
             "rotation_capable": rotation_capable,
             "earliest_expiry": earliest_expiry.isoformat() if earliest_expiry else None,
         }

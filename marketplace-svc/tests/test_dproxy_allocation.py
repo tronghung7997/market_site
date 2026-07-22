@@ -50,7 +50,7 @@ def _assignment(external_id: str, **overrides) -> ProxyAssignment:
         external_id=external_id, proxy_id=None, host="s4.dproxy.info", port=20160,
         username="u", password="p", public_ip="1.2.3.4",
         assigned_at=None, expires_at=datetime.now(timezone.utc) + timedelta(days=5),
-        rotation_available=True, rotation_mode="pppoe", cooldown_seconds=None,
+        online=True, rotation_available=True, rotation_mode="pppoe", cooldown_seconds=None,
         last_rotated_at=None, rotate_path=f"/api/v1/proxies/user/{external_id}/rotate",
     )
     base.update(overrides)
@@ -200,3 +200,74 @@ async def test_release_allocation_marks_released_and_frees_nothing_else():
     async with SessionLocal() as db:
         refreshed = await db.get(ProxyAllocation, allocation_id)
         assert refreshed.status == ProxyAllocationStatus.released
+
+
+@pytest.mark.asyncio
+async def test_only_a_usable_candidate_is_picked_for_a_new_binding():
+    """review fixes Blocker 2: bind_first_available_assignment must itself
+    skip non-usable candidates when picking a NEW binding — not rely on the
+    caller to have pre-filtered."""
+    buyer = await _make_account("dpx_alloc_buyer8@example.com")
+    seller = await _make_account("dpx_alloc_seller8@example.com")
+    provider_id = await _make_provider()
+    order_id = await _make_order(buyer, seller)
+    assignments = [_assignment("ext-offline", online=False), _assignment("ext-online", online=True)]
+
+    async with SessionLocal() as db:
+        allocation = await bind_first_available_assignment(provider_id, order_id, assignments, db)
+        await db.commit()
+
+    assert allocation is not None
+    assert allocation.external_id == "ext-online"
+
+
+@pytest.mark.asyncio
+async def test_idempotent_retry_when_bound_assignment_is_offline_fails_but_preserves_binding():
+    buyer = await _make_account("dpx_alloc_buyer9@example.com")
+    seller = await _make_account("dpx_alloc_seller9@example.com")
+    provider_id = await _make_provider()
+    order_id = await _make_order(buyer, seller)
+
+    async with SessionLocal() as db:
+        first = await bind_first_available_assignment(provider_id, order_id, [_assignment("ext-flaky")], db)
+        await db.commit()
+        allocation_id = first.id
+
+    async with SessionLocal() as db:
+        result = await bind_first_available_assignment(
+            provider_id, order_id, [_assignment("ext-flaky", online=False)], db,
+        )
+        await db.commit()
+    assert result is None  # this provision attempt fails — nothing usable to deliver right now
+
+    async with SessionLocal() as db:
+        allocation = await db.get(ProxyAllocation, allocation_id)
+        # offline, not error — a later retry can still recover it, and the
+        # binding to this specific external_id is preserved either way.
+        assert allocation.status == ProxyAllocationStatus.offline
+        assert allocation.external_id == "ext-flaky"
+
+
+@pytest.mark.asyncio
+async def test_idempotent_retry_when_bound_assignment_expired_marks_expired():
+    buyer = await _make_account("dpx_alloc_buyer10@example.com")
+    seller = await _make_account("dpx_alloc_seller10@example.com")
+    provider_id = await _make_provider()
+    order_id = await _make_order(buyer, seller)
+
+    async with SessionLocal() as db:
+        first = await bind_first_available_assignment(provider_id, order_id, [_assignment("ext-timebomb")], db)
+        await db.commit()
+        allocation_id = first.id
+
+    past = datetime.now(timezone.utc) - timedelta(hours=1)
+    async with SessionLocal() as db:
+        result = await bind_first_available_assignment(
+            provider_id, order_id, [_assignment("ext-timebomb", expires_at=past)], db,
+        )
+        await db.commit()
+    assert result is None
+
+    async with SessionLocal() as db:
+        allocation = await db.get(ProxyAllocation, allocation_id)
+        assert allocation.status == ProxyAllocationStatus.expired

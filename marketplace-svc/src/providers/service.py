@@ -52,8 +52,13 @@ async def update_provider(provider_id: int, updates: dict, db: AsyncSession) -> 
     next_adapter_type = updates.get("adapter_type", provider.adapter_type)
     next_config = updates["config"] if "config" in updates else provider.config
     _check_webhook_secret(next_adapter_type, next_config)
-    if next_adapter_type == "dproxy" and "config" in updates:
-        await validate_dproxy_config(updates["config"] or {})
+    if next_adapter_type == "dproxy":
+        # Validate the EFFECTIVE config even when this request only changes
+        # adapter_type (e.g. switching an existing provider to dproxy) — not
+        # just when "config" is present in this update. Otherwise a request
+        # can flip adapter_type to dproxy while leaving a config that was
+        # never validated against dproxy's contract (review fixes Medium B).
+        await validate_dproxy_config(next_config or {})
 
     if "config" in updates and updates["config"]:
         updates["config"] = encrypt_config(updates["config"])

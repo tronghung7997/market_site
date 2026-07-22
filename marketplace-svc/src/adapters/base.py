@@ -1,6 +1,6 @@
 from abc import ABC, abstractmethod
 from dataclasses import dataclass, field
-from datetime import datetime
+from datetime import datetime, timezone
 
 
 @dataclass
@@ -35,10 +35,19 @@ class ProviderAdapter(ABC):
 
 @dataclass(frozen=True)
 class ProxyAssignment:
-    """One normalized, already-validated upstream proxy assignment — see
-    docs/superpowers/specs/2026-07-22-dproxy-integration.md. Adapter-agnostic
-    on purpose: a second rotatable-proxy supplier would produce the same
-    shape, so nothing above this needs to know DProxy's wire format."""
+    """One normalized upstream proxy assignment — see
+    docs/superpowers/specs/2026-07-22-dproxy-integration.md and
+    docs/superpowers/plans/2026-07-22-dproxy-review-fixes.md Blocker 2.
+    Adapter-agnostic on purpose: a second rotatable-proxy supplier would
+    produce the same shape, so nothing above this needs to know DProxy's
+    wire format.
+
+    Represents ANY structurally-valid row from the supplier's inventory,
+    not just usable ones — `online` carries the supplier's raw
+    active/is_active/proxy-status signal so callers (reconciliation in
+    particular) can distinguish "temporarily offline, binding still
+    recoverable" from "gone". Use `is_usable()` wherever the old
+    always-usable assumption applies (provisioning, buyer-facing summaries)."""
 
     external_id: str
     proxy_id: str | None
@@ -49,11 +58,18 @@ class ProxyAssignment:
     public_ip: str | None
     assigned_at: datetime | None
     expires_at: datetime
+    online: bool
     rotation_available: bool
     rotation_mode: str | None
     cooldown_seconds: int | None
     last_rotated_at: datetime | None
     rotate_path: str | None
+
+    def is_usable(self, *, now: datetime | None = None) -> bool:
+        """True only when this assignment can be freshly provisioned or
+        delivered right now — online AND not past its own expiry."""
+        now = now or datetime.now(timezone.utc)
+        return self.online and self.expires_at > now
 
     def delivered_text(self) -> str:
         """Buyer-safe credential snapshot for Order.delivered_data — never

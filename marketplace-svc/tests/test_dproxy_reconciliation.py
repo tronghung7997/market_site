@@ -13,7 +13,7 @@ from src.models.alert import Alert
 from src.models.order import Order
 from src.models.proxy_allocation import ProxyAllocation, ProxyAllocationStatus
 from src.orders.service import provision_pending_order
-from src.scheduler import dproxy_reconciliation_job
+from src.scheduler import DPROXY_MISSING_GRACE_ROUNDS, dproxy_reconciliation_job
 
 from .test_dproxy_orders import _patch_dproxy_http, _place_order, _resp, _sample, setup_dproxy_product
 
@@ -56,20 +56,92 @@ async def test_reconciliation_refreshes_metadata_for_still_present_allocation(cl
 
 
 @pytest.mark.asyncio
-async def test_missing_but_not_yet_expired_marked_error_and_alerted(client, monkeypatch):
-    order_id, provider_id = await _deliver(client, monkeypatch, "_missing", external_id="ext-missing")
+async def test_single_missing_response_does_not_immediately_error(client, monkeypatch):
+    """review fixes Blocker 2: one bad /list response (assignment absent)
+    must not immediately destroy a recoverable binding — only after
+    DPROXY_MISSING_GRACE_ROUNDS consecutive misses."""
+    order_id, provider_id = await _deliver(client, monkeypatch, "_onemiss", external_id="ext-onemiss")
 
-    _patch_dproxy_http(monkeypatch, _resp(200, []))  # disappeared upstream, well before our expiry
+    _patch_dproxy_http(monkeypatch, _resp(200, []))
     await dproxy_reconciliation_job()
 
     async with SessionLocal() as db:
         allocation = await db.scalar(select(ProxyAllocation).where(ProxyAllocation.order_id == order_id))
+        assert allocation.status == ProxyAllocationStatus.allocated
+        assert allocation.consecutive_misses == 1
+
+        alerts = (await db.execute(
+            select(Alert).where(Alert.type == "dproxy_allocation_disappeared")
+        )).scalars().all()
+        assert not any(a.target_id == order_id for a in alerts)
+
+
+@pytest.mark.asyncio
+async def test_missing_for_grace_rounds_in_a_row_marks_error_and_alerts(client, monkeypatch):
+    order_id, provider_id = await _deliver(client, monkeypatch, "_missing", external_id="ext-missing")
+
+    for _ in range(DPROXY_MISSING_GRACE_ROUNDS):
+        _patch_dproxy_http(monkeypatch, _resp(200, []))  # disappeared upstream, well before our expiry
+        await dproxy_reconciliation_job()
+
+    async with SessionLocal() as db:
+        allocation = await db.scalar(select(ProxyAllocation).where(ProxyAllocation.order_id == order_id))
         assert allocation.status == ProxyAllocationStatus.error
+        assert allocation.consecutive_misses == DPROXY_MISSING_GRACE_ROUNDS
 
         alerts = (await db.execute(
             select(Alert).where(Alert.type == "dproxy_allocation_disappeared")
         )).scalars().all()
         assert any(a.target_id == order_id for a in alerts)
+
+
+@pytest.mark.asyncio
+async def test_reappearing_after_a_miss_resets_the_grace_counter(client, monkeypatch):
+    order_id, provider_id = await _deliver(client, monkeypatch, "_flicker", external_id="ext-flicker")
+
+    _patch_dproxy_http(monkeypatch, _resp(200, []))
+    await dproxy_reconciliation_job()
+    async with SessionLocal() as db:
+        allocation = await db.scalar(select(ProxyAllocation).where(ProxyAllocation.order_id == order_id))
+        assert allocation.consecutive_misses == 1
+
+    _patch_dproxy_http(monkeypatch, _resp(200, [_sample("ext-flicker")]))
+    await dproxy_reconciliation_job()
+    async with SessionLocal() as db:
+        allocation = await db.scalar(select(ProxyAllocation).where(ProxyAllocation.order_id == order_id))
+        assert allocation.consecutive_misses == 0
+        assert allocation.status == ProxyAllocationStatus.allocated
+
+
+@pytest.mark.asyncio
+async def test_temporarily_offline_becomes_recoverable_not_permanent_error(client, monkeypatch):
+    order_id, provider_id = await _deliver(client, monkeypatch, "_offline1", external_id="ext-offline1")
+
+    _patch_dproxy_http(monkeypatch, _resp(200, [_sample("ext-offline1", proxy_status="offline")]))
+    await dproxy_reconciliation_job()
+
+    async with SessionLocal() as db:
+        allocation = await db.scalar(select(ProxyAllocation).where(ProxyAllocation.order_id == order_id))
+        assert allocation.status == ProxyAllocationStatus.offline
+        assert allocation.consecutive_misses == 0  # present, just not online — not a "miss"
+
+
+@pytest.mark.asyncio
+async def test_offline_then_online_again_restores_allocated_and_rotation(client, monkeypatch):
+    order_id, provider_id = await _deliver(client, monkeypatch, "_recover", external_id="ext-recover")
+
+    _patch_dproxy_http(monkeypatch, _resp(200, [_sample("ext-recover", proxy_status="offline")]))
+    await dproxy_reconciliation_job()
+    async with SessionLocal() as db:
+        allocation = await db.scalar(select(ProxyAllocation).where(ProxyAllocation.order_id == order_id))
+        assert allocation.status == ProxyAllocationStatus.offline
+
+    _patch_dproxy_http(monkeypatch, _resp(200, [_sample("ext-recover")]))  # back online
+    await dproxy_reconciliation_job()
+    async with SessionLocal() as db:
+        allocation = await db.scalar(select(ProxyAllocation).where(ProxyAllocation.order_id == order_id))
+        assert allocation.status == ProxyAllocationStatus.allocated
+        assert allocation.rotation_available is True
 
 
 @pytest.mark.asyncio
@@ -156,6 +228,20 @@ async def test_duplicate_external_id_in_inventory_raises_an_alert(client, monkey
             select(Alert).where(Alert.type == "dproxy_duplicate_external_id")
         )).scalars().all()
         assert any(a.target_id == provider_id for a in alerts)
+
+
+@pytest.mark.asyncio
+async def test_one_malformed_unrelated_row_does_not_damage_valid_bound_assignments(client, monkeypatch):
+    order_id, provider_id = await _deliver(client, monkeypatch, "_malformedrow", external_id="ext-fine")
+
+    payload = [_sample("ext-fine"), {"id": None, "garbage": True}, {"proxies": "not-a-dict"}]
+    _patch_dproxy_http(monkeypatch, _resp(200, payload))
+    await dproxy_reconciliation_job()
+
+    async with SessionLocal() as db:
+        allocation = await db.scalar(select(ProxyAllocation).where(ProxyAllocation.order_id == order_id))
+        assert allocation.status == ProxyAllocationStatus.allocated
+        assert allocation.consecutive_misses == 0
 
 
 @pytest.mark.asyncio

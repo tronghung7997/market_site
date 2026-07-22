@@ -14,7 +14,7 @@ from src.models.proxy_allocation import ProxyAllocation, ProxyAllocationStatus
 from src.orders.service import provision_pending_order
 
 from .conftest import register_and_login
-from .test_dproxy_orders import _patch_dproxy_http, _place_order, _resp, _sample, setup_dproxy_product
+from .test_dproxy_orders import _patch_dproxy_http, _place_order, _resp, _sample, label_to_uuid, setup_dproxy_product
 
 
 async def _deliver_dproxy_order(client, monkeypatch, suffix, external_id="ext-rot"):
@@ -85,6 +85,20 @@ class TestProxyRotate:
         assert resp.status_code == 400
 
     @pytest.mark.asyncio
+    async def test_rotate_blocked_while_allocation_is_offline(self, client, monkeypatch):
+        """review fixes Blocker 2: `offline` is a distinct, recoverable
+        status — but it must still gate rotation exactly like any other
+        non-`allocated` state until reconciliation restores it."""
+        buyer_token, _, order_id, _ = await _deliver_dproxy_order(client, monkeypatch, "_offlinegate")
+        async with SessionLocal() as db:
+            allocation = await db.scalar(select(ProxyAllocation).where(ProxyAllocation.order_id == order_id))
+            allocation.status = ProxyAllocationStatus.offline
+            await db.commit()
+
+        resp = await client.post(f"/orders/{order_id}/proxy/rotate", headers={"Authorization": f"Bearer {buyer_token}"})
+        assert resp.status_code == 400
+
+    @pytest.mark.asyncio
     async def test_first_rotate_succeeds_and_refreshes_public_ip(self, client, monkeypatch):
         buyer_token, _, order_id, _ = await _deliver_dproxy_order(client, monkeypatch, "_ok")
 
@@ -105,6 +119,30 @@ class TestProxyRotate:
             allocation = await db.scalar(select(ProxyAllocation).where(ProxyAllocation.order_id == order_id))
             assert allocation.last_public_ip == "9.9.9.9"
             assert allocation.last_rotated_at is not None
+
+    @pytest.mark.asyncio
+    async def test_password_only_rotate_still_refreshes_delivered_data(self, client, monkeypatch):
+        """review fixes Blocker 1: apply_rotated_assignment used to compare
+        only public_ip/expiry to decide whether to touch
+        Order.delivered_data. DProxy can rotate the password alone — must
+        still refresh the buyer-facing snapshot."""
+        buyer_token, _, order_id, _ = await _deliver_dproxy_order(client, monkeypatch, "_pwonly")
+
+        async with SessionLocal() as db:
+            order = await db.get(Order, order_id)
+            assert "p" in order.delivered_data  # original password from _sample()
+
+        rotated = _sample("ext-rot")  # same public_ip, same expiry as before...
+        rotated["password"] = "brand-new-password"  # ...only the password changes
+        _patch_dproxy_http(monkeypatch, [_resp(200, {"ok": True}), _resp(200, [rotated])])
+
+        resp = await client.post(f"/orders/{order_id}/proxy/rotate", headers={"Authorization": f"Bearer {buyer_token}"})
+        assert resp.status_code == 200, resp.text
+
+        async with SessionLocal() as db:
+            order = await db.get(Order, order_id)
+            assert "brand-new-password" in order.delivered_data
+            assert "Password: p\n" not in order.delivered_data
 
     @pytest.mark.asyncio
     async def test_immediate_second_rotate_is_cooldown_blocked(self, client, monkeypatch):
@@ -169,7 +207,7 @@ class TestProxyRotate:
         calls = _patch_dproxy_http(monkeypatch, [_resp(200, {"ok": True}), _resp(200, [_sample("ext-safe")])])
         resp = await client.post(f"/orders/{order_id}/proxy/rotate", headers={"Authorization": f"Bearer {buyer_token}"})
         assert resp.status_code == 200, resp.text
-        assert "ext-safe/rotate" in calls[0]["url"]
+        assert f"{label_to_uuid('ext-safe')}/rotate" in calls[0]["url"]
         assert "evil.example.com" not in calls[0]["url"]
 
     @pytest.mark.asyncio
@@ -245,3 +283,17 @@ class TestProxyState:
         other_token = await register_and_login(client, "dpx_state_other@example.com")
         resp = await client.get(f"/orders/{order_id}/proxy", headers={"Authorization": f"Bearer {other_token}"})
         assert resp.status_code == 404
+
+    @pytest.mark.asyncio
+    async def test_state_endpoint_surfaces_offline_and_disables_rotation(self, client, monkeypatch):
+        buyer_token, _, order_id, _ = await _deliver_dproxy_order(client, monkeypatch, "_state_offline")
+        async with SessionLocal() as db:
+            allocation = await db.scalar(select(ProxyAllocation).where(ProxyAllocation.order_id == order_id))
+            allocation.status = ProxyAllocationStatus.offline
+            await db.commit()
+
+        resp = await client.get(f"/orders/{order_id}/proxy", headers={"Authorization": f"Bearer {buyer_token}"})
+        assert resp.status_code == 200
+        body = resp.json()
+        assert body["status"] == "offline"
+        assert body["rotation_available"] is False

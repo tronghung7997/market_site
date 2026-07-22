@@ -9,6 +9,13 @@ from src.database import Base
 
 class ProxyAllocationStatus(str, PyEnum):
     allocated = "allocated"
+    # Present upstream but temporarily unusable (inactive/offline) — a
+    # RECOVERABLE state, distinct from `error`. Reconciliation
+    # (src/scheduler.py::dproxy_reconciliation_job) queries allocated+offline
+    # together so a proxy that comes back online returns to `allocated`
+    # instead of being stuck the moment it flickers. See review fixes
+    # docs/superpowers/plans/2026-07-22-dproxy-review-fixes.md Blocker 2.
+    offline = "offline"
     expired = "expired"
     released = "released"
     error = "error"
@@ -44,6 +51,13 @@ class ProxyAllocation(Base):
     cooldown_seconds: Mapped[int | None] = mapped_column(Integer, nullable=True)
     last_rotated_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True), nullable=True)
     last_public_ip: Mapped[str | None] = mapped_column(String(64), nullable=True)
+    # Consecutive reconciliation runs where this external_id was entirely
+    # absent from the supplier's list response — a grace counter so one bad
+    # /list response can't flip an allocation straight to `error` (see
+    # dproxy_reconciliation_job's MISSING_GRACE_ROUNDS). Reset to 0 the
+    # moment the assignment reappears in any state (online, offline, or
+    # expired — "present" is what matters here, not usability).
+    consecutive_misses: Mapped[int] = mapped_column(Integer, nullable=False, default=0, server_default="0")
     created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), server_default=func.now())
     updated_at: Mapped[datetime] = mapped_column(
         DateTime(timezone=True), server_default=func.now(), onupdate=func.now(),

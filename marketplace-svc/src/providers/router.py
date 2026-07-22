@@ -4,6 +4,7 @@ from fastapi import APIRouter, Depends, HTTPException, status
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from src.adapters.base import ProvisionResult
+from src.adapters.dproxy import DProxyAdapter
 from src.adapters.factory import get_adapter
 from src.auth.dependencies import require_min_seller_tier, require_role
 from src.database import get_session
@@ -28,7 +29,14 @@ async def _run_provider_test(provider_id: int, db: AsyncSession) -> schemas.Prov
     health_result = await adapter.check_health()
 
     provision_test = None
-    if health_result.get("status") == "healthy":
+    # DProxyAdapter.provision() has real side effects — it exclusively binds
+    # a live upstream assignment to whatever order_id it's given. Calling it
+    # with order_id=0 for a "test connection" click would create a real
+    # ProxyAllocation row tied to a nonexistent order, taking that assignment
+    # away from an actual future buyer. check_health() (a plain list call)
+    # already gives DProxy admins a sanitized inventory/rotation summary —
+    # that's the whole test for this adapter type (review fixes Medium C).
+    if health_result.get("status") == "healthy" and not isinstance(adapter, DProxyAdapter):
         try:
             result: ProvisionResult = await adapter.provision(
                 order_id=0, user_config={"test": True}

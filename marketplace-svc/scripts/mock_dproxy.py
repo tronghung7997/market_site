@@ -62,6 +62,9 @@ class ModeRequest(BaseModel):
     mode: FailureMode
 
 
+RotateBehavior = Literal["ip_and_password", "password_only"]
+
+
 class PatchAssignmentRequest(BaseModel):
     is_active: bool | None = None
     status: str | None = None
@@ -69,6 +72,16 @@ class PatchAssignmentRequest(BaseModel):
     expires_in_seconds: int | None = None
     rotation_available: bool | None = None
     cooldown_seconds: int | None = Field(default=None, ge=0)
+    # Independent credential overrides — review fixes
+    # (docs/superpowers/plans/2026-07-22-dproxy-review-fixes.md) need to
+    # exercise "password changed but IP/expiry didn't" over the real HTTP
+    # boundary, which the previous mock had no way to set up deterministically.
+    username: str | None = None
+    password: str | None = None
+    host: str | None = None
+    port: int | None = None
+    public_ip: str | None = None
+    rotate_behavior: RotateBehavior | None = None
 
 
 def _utcnow() -> datetime:
@@ -108,6 +121,7 @@ def _new_assignment(index: int) -> dict:
             },
         },
         "_rotation_count": 0,
+        "_rotate_behavior": "ip_and_password",
     }
 
 
@@ -130,6 +144,7 @@ reset_state()
 def _public_assignment(assignment: dict) -> dict:
     result = copy.deepcopy(assignment)
     result.pop("_rotation_count", None)
+    result.pop("_rotate_behavior", None)
     return result
 
 
@@ -259,11 +274,19 @@ async def rotate_user_proxy(assignment_id: str, request: Request):
             )
 
     assignment["_rotation_count"] += 1
-    # Give each assignment a separate deterministic range so rotating one mock
-    # proxy cannot accidentally produce the current IP of another assignment.
-    assignment_number = int(assignment_id[-12:])
-    suffix = assignment_number * 40 + assignment["_rotation_count"]
-    assignment["proxies"]["ip_public"] = f"203.0.113.{suffix % 254 or 1}"
+    behavior = assignment.get("_rotate_behavior", "ip_and_password")
+    if behavior == "password_only":
+        # Exercises review fixes Blocker 1: DProxy can rotate credentials
+        # without moving the IP or extending expiry — the old
+        # apply_rotated_assignment() only compared ip_public/expires_at and
+        # would miss this.
+        assignment["password"] = f"mock-rotated-pass-{assignment['_rotation_count']}"
+    else:
+        # Give each assignment a separate deterministic range so rotating one
+        # mock proxy cannot accidentally produce the current IP of another.
+        assignment_number = int(assignment_id[-12:])
+        suffix = assignment_number * 40 + assignment["_rotation_count"]
+        assignment["proxies"]["ip_public"] = f"203.0.113.{suffix % 254 or 1}"
     rotation["last_rotated_at"] = _iso(_utcnow())
     return {
         "ok": True,
@@ -323,6 +346,18 @@ async def mock_patch_assignment(
         assignment["proxies"]["rotation"]["available"] = changes["rotation_available"]
     if "cooldown_seconds" in changes:
         assignment["proxies"]["rotation"]["cooldown_seconds"] = changes["cooldown_seconds"]
+    if "username" in changes:
+        assignment["username"] = changes["username"]
+    if "password" in changes:
+        assignment["password"] = changes["password"]
+    if "host" in changes:
+        assignment["proxies"]["host"] = changes["host"]
+    if "port" in changes:
+        assignment["proxies"]["port"] = changes["port"]
+    if "public_ip" in changes:
+        assignment["proxies"]["ip_public"] = changes["public_ip"]
+    if "rotate_behavior" in changes:
+        assignment["_rotate_behavior"] = changes["rotate_behavior"]
     return _public_assignment(assignment)
 
 

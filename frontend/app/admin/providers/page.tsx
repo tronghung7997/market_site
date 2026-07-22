@@ -574,8 +574,9 @@ function AdapterConnectionFields({
       <div className="space-y-4">
         <div className="rounded-lg bg-iris-soft/50 border border-iris/20 p-3">
           <p className="text-[12px] text-iris-hi">
-            Nền tảng gọi <code>GET list_path</code> để lấy tồn kho proxy và cấp độc quyền cho từng đơn.
-            Buyer tự đổi IP qua nút &quot;Đổi IP&quot; — không bao giờ thấy base_url/api_key thật.{" "}
+            Nền tảng gọi <code>GET /api/v1/proxies/user</code> (cố định, không cấu hình được) để lấy tồn kho
+            proxy và cấp độc quyền cho từng đơn. Buyer tự đổi IP qua nút &quot;Đổi IP&quot; — không bao giờ
+            thấy base_url/api_key thật.{" "}
             {providerId != null ? "Dùng nút Test để kiểm tra trước khi lưu." : "Lưu xong mới test kết nối được."}
           </p>
         </div>
@@ -616,14 +617,6 @@ function AdapterConnectionFields({
             />
           </Field>
         )}
-
-        <Field label="List path" hint="Mặc định /api/v1/proxies/user nếu để trống.">
-          <Input
-            value={(config.list_path as string) ?? ""}
-            onChange={(e) => onChange({ ...config, list_path: e.target.value })}
-            placeholder="/api/v1/proxies/user"
-          />
-        </Field>
 
         <Field label="Rotate method">
           <Select

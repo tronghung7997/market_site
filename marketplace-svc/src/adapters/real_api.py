@@ -8,6 +8,7 @@ import structlog
 from src.adapters.base import ProviderAdapter, ProvisionResult
 from src.adapters.call_log import record_provider_call
 from src.security.crypto import decrypt_str
+from src.security.ssrf_guard import validate_seller_base_url
 
 logger = structlog.get_logger()
 
@@ -26,10 +27,15 @@ class RealApiAdapter(ProviderAdapter):
     provisioning calls so a retried request doesn't double-provision.
     """
 
-    def __init__(self, config: dict, provider_id: int | None = None):
+    def __init__(self, config: dict, provider_id: int | None = None, seller_owned: bool = False):
         super().__init__(config)
         self.provider_id = provider_id
         self.base_url: str = (config.get("base_url") or "").rstrip("/")
+        # seller_owned = provider.seller_id is not None (src/adapters/factory.py) —
+        # only seller-supplied base_url is untrusted input; admin-created providers
+        # (incl. http://localhost for scripts/mock_seller.py during local dev)
+        # intentionally skip this.
+        self._seller_owned = seller_owned
         raw_key = config.get("api_key")
         self.api_key: str | None = decrypt_str(raw_key) if raw_key else None
 
@@ -51,6 +57,13 @@ class RealApiAdapter(ProviderAdapter):
         idempotency_key: str | None = None,
         **kwargs,
     ) -> httpx.Response:
+        if self._seller_owned:
+            # Re-checked on every call, not just at config-save time: DNS for a
+            # seller's own domain is under the seller's own control, so a
+            # base_url that resolved to a public IP at signup can be repointed
+            # at an internal address later (see src/security/ssrf_guard.py).
+            await validate_seller_base_url(f"{self.base_url}/")
+
         last_error: Exception | None = None
         async with httpx.AsyncClient(timeout=_TIMEOUT) as client:
             for attempt in range(_MAX_ATTEMPTS):

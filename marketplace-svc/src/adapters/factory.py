@@ -67,9 +67,11 @@ def _instantiate(provider: Provider, db: AsyncSession) -> ProviderAdapter:
         return adapter_cls(config, db=db)
 
     if adapter_cls is SellerTaskWebhookAdapter:
-        return adapter_cls(config, db=db, provider_id=provider.id)
+        return adapter_cls(
+            config, db=db, provider_id=provider.id, seller_owned=provider.seller_id is not None,
+        )
 
     if adapter_cls is RealApiAdapter:
-        return adapter_cls(config, provider_id=provider.id)
+        return adapter_cls(config, provider_id=provider.id, seller_owned=provider.seller_id is not None)
 
     return adapter_cls(config)

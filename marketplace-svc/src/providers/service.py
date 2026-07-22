@@ -6,6 +6,7 @@ from src.exceptions import NotOwner
 from src.models.provider import Provider, ProviderHealth
 from src.providers.schemas import SELLER_ALLOWED_ADAPTER_TYPES
 from src.security.crypto import encrypt_config
+from src.security.ssrf_guard import validate_seller_base_url
 
 # seller_task_webhook's callback (POST /webhooks/providers/{id}/tasks/{external_task_id},
 # src/gateway/router.py) is only as trustworthy as this secret — no secret means
@@ -74,6 +75,7 @@ async def create_seller_provider(seller_id: int, data: dict, db: AsyncSession) -
         )
     config = data.get("config") or {}
     _check_webhook_secret(adapter_type, config)
+    await validate_seller_base_url(config.get("base_url", ""))
     provider = Provider(
         name=data["name"], type=adapter_type, adapter_type=adapter_type,
         config=encrypt_config(config), priority=1, is_active=True,
@@ -104,6 +106,8 @@ async def update_seller_provider(seller_id: int, provider_id: int, updates: dict
 
     next_config = updates["config"] if "config" in updates else provider.config
     _check_webhook_secret(provider.adapter_type, next_config)
+    if "config" in updates:
+        await validate_seller_base_url((updates["config"] or {}).get("base_url", ""))
 
     if "config" in updates and updates["config"]:
         updates["config"] = encrypt_config(updates["config"])

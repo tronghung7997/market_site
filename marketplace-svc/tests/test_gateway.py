@@ -22,7 +22,7 @@ from src.models.service_task import ServiceTask, ServiceTaskStatus
 from src.models.usage import OrderBalance, UsageRecord, UsageRecordStatus
 from src.orders.service import provision_pending_order
 
-from .conftest import make_admin, make_seller, register_and_login
+from .conftest import make_admin, make_seller, register_and_login, set_seller_tier
 
 
 def _ok(json_body: dict, status: int = 200) -> httpx.Response:
@@ -1128,3 +1128,112 @@ class TestTaskWebhookSlaSweep:
         async with SessionLocal() as db:
             db_order = await db.get(Order, order_id)
             assert db_order.status == OrderStatus.processing, "ManualAdapter orders are out of scope for this job"
+
+
+class TestSellerOwnedProviderSSRFGuardAtCallTime:
+    """src/security/ssrf_guard.py is re-checked on every outbound call, not
+    just when the seller's provider config is written — a seller's own
+    domain resolves under the seller's own DNS, so a base_url that was a
+    legitimate public host at signup/approval time can be repointed at the
+    platform's internal network afterwards. This simulates exactly that: the
+    config is tampered with directly in the DB (bypassing the write-time
+    check entirely, standing in for a DNS rebind an API-level check can't
+    see) and the gateway forward must still refuse to reach it."""
+
+    @pytest.fixture(autouse=True)
+    def _no_sleep(self, monkeypatch):
+        monkeypatch.setattr("src.adapters.real_api.asyncio.sleep", AsyncMock())
+
+    async def _setup_seller_owned_gateway_order(self, client, monkeypatch, suffix):
+        admin_email = f"gw_ssrf_admin{suffix}@example.com"
+        admin_token = await register_and_login(client, admin_email)
+        await make_admin(admin_email)
+        admin_token = await register_and_login(client, admin_email)
+
+        seller_email = f"gw_ssrf_seller{suffix}@example.com"
+        seller_token = await register_and_login(client, seller_email)
+        await make_seller(seller_email)
+        await set_seller_tier(seller_email, "trusted")
+        seller_token = await register_and_login(client, seller_email)
+
+        provider_resp = await client.post("/seller/providers", json={
+            "name": "Seller backend", "adapter_type": "seller_gateway",
+            "config": {"base_url": "https://seller.example.com", "api_key": "seller-secret"},
+        }, headers={"Authorization": f"Bearer {seller_token}"})
+        assert provider_resp.status_code == 201, provider_resp.text
+        provider_id = provider_resp.json()["id"]
+        approve_resp = await client.post(f"/admin/providers/{provider_id}/approve", json={},
+                                         headers={"Authorization": f"Bearer {admin_token}"})
+        assert approve_resp.status_code == 200
+
+        await client.post("/admin/categories", json={"name": f"GwSsrf{suffix}", "slug": f"gwssrf{suffix}"},
+                          headers={"Authorization": f"Bearer {admin_token}"})
+        cats = await client.get("/categories")
+        cat_id = cats.json()[-1]["id"]
+        product_resp = await client.post("/seller/products", json={
+            "category_id": cat_id, "title": "Search API", "status": "active",
+            "escrow_days": 2, "service_type": "endpoint",
+        }, headers={"Authorization": f"Bearer {seller_token}"})
+        product_id = product_resp.json()["id"]
+
+        pricing_resp = await client.put(f"/seller/products/{product_id}/pricing", json={
+            "pricing_strategy": "credit", "pricing_params": {"credit_price": 1000},
+            "provider_id": provider_id,
+        }, headers={"Authorization": f"Bearer {seller_token}"})
+        assert pricing_resp.status_code == 200, pricing_resp.text
+
+        buyer_email = f"gw_ssrf_buyer{suffix}@example.com"
+        buyer_token = await register_and_login(client, buyer_email)
+        buyer_me = await client.get("/me", headers={"Authorization": f"Bearer {buyer_token}"})
+        buyer_id = buyer_me.json()["id"]
+        await client.post("/wallet/topup", json={"account_id": buyer_id, "amount": 500000},
+                          headers={"Authorization": f"Bearer {admin_token}"})
+
+        order_id = await _buy_and_deliver(client, buyer_token, product_id, 3, monkeypatch)
+        return provider_id, order_id, buyer_token
+
+    @pytest.mark.asyncio
+    async def test_forward_is_blocked_after_base_url_is_repointed_at_an_internal_address(self, client, monkeypatch):
+        provider_id, order_id, buyer_token = await self._setup_seller_owned_gateway_order(
+            client, monkeypatch, "_rebind",
+        )
+
+        async with SessionLocal() as db:
+            provider = await db.get(Provider, provider_id)
+            provider.config = {**provider.config, "base_url": "https://169.254.169.254"}
+            await db.commit()
+
+            order = await db.get(Order, order_id)
+            gateway_key = _extract_gateway_key(order.delivered_data)
+            balance_before = await db.scalar(select(OrderBalance).where(OrderBalance.order_id == order_id))
+            units_used_before = balance_before.units_used
+
+        calls = _patch_seller_http(monkeypatch, _ok({"query": "hello"}))
+
+        resp = await client.get(f"/gw/{gateway_key}/search", params={"q": "hello"})
+
+        assert resp.status_code == 502, resp.text
+        assert len(calls) == 0, "must never reach the network for a blocked base_url"
+
+        async with SessionLocal() as db:
+            balance_after = await db.scalar(select(OrderBalance).where(OrderBalance.order_id == order_id))
+            # pre-charged then refunded on failure — buyer isn't billed for a blocked call
+            assert balance_after.units_used == units_used_before
+
+    @pytest.mark.asyncio
+    async def test_forward_still_works_when_base_url_stays_public(self, client, monkeypatch):
+        """Control case: the guard must not false-positive on the seller's
+        legitimate (unchanged) base_url."""
+        _provider_id, order_id, _buyer_token = await self._setup_seller_owned_gateway_order(
+            client, monkeypatch, "_control",
+        )
+
+        async with SessionLocal() as db:
+            order = await db.get(Order, order_id)
+            gateway_key = _extract_gateway_key(order.delivered_data)
+
+        calls = _patch_seller_http(monkeypatch, _ok({"query": "hello"}))
+        resp = await client.get(f"/gw/{gateway_key}/search", params={"q": "hello"})
+
+        assert resp.status_code == 200, resp.text
+        assert len(calls) == 1

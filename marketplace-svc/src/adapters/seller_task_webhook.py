@@ -30,8 +30,8 @@ class SellerTaskWebhookAdapter(RealApiAdapter):
     solved, just posting to /v1/tasks instead of /provision.
     """
 
-    def __init__(self, config: dict, *, db, provider_id: int | None = None):
-        super().__init__(config, provider_id=provider_id)
+    def __init__(self, config: dict, *, db, provider_id: int | None = None, seller_owned: bool = False):
+        super().__init__(config, provider_id=provider_id, seller_owned=seller_owned)
         self.db = db
 
     async def provision(self, order_id: int, user_config: dict) -> ProvisionResult:

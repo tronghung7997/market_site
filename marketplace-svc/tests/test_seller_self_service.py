@@ -257,3 +257,75 @@ class TestApprovalGatesProductAttachment:
         resp = await client.post(f"/admin/providers/{provider_id}/approve", json={},
                                  headers={"Authorization": f"Bearer {admin_token}"})
         assert resp.status_code == 400
+
+
+class TestSellerBaseUrlSSRFGuard:
+    """A seller's config.base_url is untrusted input the platform's own
+    server calls with a Bearer api_key attached (src/adapters/real_api.py) —
+    both at self-test time (before any admin has reviewed the provider) and
+    on every buyer gateway call afterwards. Must not be usable to make the
+    platform hit its own internal network. See src/security/ssrf_guard.py."""
+
+    @pytest.mark.asyncio
+    async def test_rejects_non_https_scheme(self, client):
+        seller_token = await _trusted_seller(client, "ss_ssrf_scheme@example.com")
+        resp = await client.post("/seller/providers", json={
+            "name": "x", "adapter_type": "seller_gateway",
+            "config": {"base_url": "http://x.example.com", "api_key": "k"},
+        }, headers={"Authorization": f"Bearer {seller_token}"})
+        assert resp.status_code == 400
+
+    @pytest.mark.asyncio
+    async def test_rejects_loopback_literal_ip_on_create(self, client):
+        seller_token = await _trusted_seller(client, "ss_ssrf_loopback@example.com")
+        resp = await client.post("/seller/providers", json={
+            "name": "x", "adapter_type": "seller_gateway",
+            "config": {"base_url": "https://127.0.0.1:8080", "api_key": "k"},
+        }, headers={"Authorization": f"Bearer {seller_token}"})
+        assert resp.status_code == 400
+
+    @pytest.mark.asyncio
+    async def test_rejects_cloud_metadata_literal_ip_on_create(self, client):
+        seller_token = await _trusted_seller(client, "ss_ssrf_metadata@example.com")
+        resp = await client.post("/seller/providers", json={
+            "name": "x", "adapter_type": "seller_gateway",
+            "config": {"base_url": "https://169.254.169.254", "api_key": "k"},
+        }, headers={"Authorization": f"Bearer {seller_token}"})
+        assert resp.status_code == 400
+
+    @pytest.mark.asyncio
+    async def test_rejects_private_ip_on_update_even_after_approval(self, client):
+        admin_token = await _admin(client, "ss_ssrf_update_admin@example.com")
+        seller_token = await _trusted_seller(client, "ss_ssrf_update@example.com")
+
+        provider_resp = await client.post("/seller/providers", json={
+            "name": "x", "adapter_type": "seller_gateway",
+            "config": {"base_url": "https://x.example.com", "api_key": "k"},
+        }, headers={"Authorization": f"Bearer {seller_token}"})
+        provider_id = provider_resp.json()["id"]
+        await client.post(f"/admin/providers/{provider_id}/approve", json={},
+                          headers={"Authorization": f"Bearer {admin_token}"})
+
+        resp = await client.put(f"/seller/providers/{provider_id}", json={
+            "config": {"base_url": "https://10.0.0.5", "api_key": "k"},
+        }, headers={"Authorization": f"Bearer {seller_token}"})
+        assert resp.status_code == 400
+
+        async with SessionLocal() as db:
+            provider = await db.get(Provider, provider_id)
+            # rejected update must not have partially applied
+            assert provider.review_status == "approved"
+
+    @pytest.mark.asyncio
+    async def test_admin_created_provider_may_target_localhost_for_local_dev(self, client):
+        """Admin-created providers (seller_id is None) are trusted input —
+        this is the documented workflow for scripts/mock_seller.py during
+        local dev/QA and must keep working."""
+        admin_token = await _admin(client, "ss_ssrf_admin_localhost@example.com")
+        resp = await client.post("/admin/providers", json={
+            "name": "Local mock seller", "type": "seller_gateway",
+            "adapter_type": "seller_gateway",
+            "config": {"base_url": "http://localhost:9100", "api_key": "mock-seller-secret"},
+            "priority": 1,
+        }, headers={"Authorization": f"Bearer {admin_token}"})
+        assert resp.status_code == 201, resp.text

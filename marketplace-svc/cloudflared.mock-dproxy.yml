@@ -3,5 +3,5 @@ credentials-file: /Users/logan/.cloudflared/a19995f3-0813-4d29-947f-fa0c12ed3338
 
 ingress:
   - hostname: mock-dproxy.fin4r.com
-    service: http://127.0.0.1:9200
+    service: http://127.0.0.1:9201
   - service: http_status:404

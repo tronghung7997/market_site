@@ -4,15 +4,17 @@ This process deliberately mocks DProxy at the HTTP boundary. Marketplace code
 must use its real DProxy adapter and cannot tell whether ``base_url`` points at
 this app or ``https://api.dproxy.info``.
 
-Run locally::
+Run locally (port/cooldown match docs/dproxy-mock-runbook.md and
+.env.mock-dproxy.example — keep all three in sync if you change either)::
 
     cd marketplace-svc
-    uv run uvicorn scripts.mock_dproxy:app --host 0.0.0.0 --port 9200 --reload
+    MOCK_DPROXY_PORT=9201 MOCK_DPROXY_COOLDOWN_SECONDS=15 \
+    uv run uvicorn scripts.mock_dproxy:app --host 0.0.0.0 --port 9201 --reload
 
 Provider config for local development::
 
     {
-      "base_url": "http://127.0.0.1:9200",
+      "base_url": "http://127.0.0.1:9201",
       "api_key": "mock-dproxy-token",
       "auth_type": "bearer"
     }
@@ -42,7 +44,7 @@ API_KEY = os.environ.get("MOCK_DPROXY_API_KEY", "mock-dproxy-token")
 CONTROL_KEY = os.environ.get("MOCK_DPROXY_CONTROL_KEY", "mock-dproxy-control")
 AUTH_TYPE = os.environ.get("MOCK_DPROXY_AUTH_TYPE", "bearer").lower()
 AUTH_HEADER = os.environ.get("MOCK_DPROXY_AUTH_HEADER", "X-API-Key")
-DEFAULT_COOLDOWN_SECONDS = int(os.environ.get("MOCK_DPROXY_COOLDOWN_SECONDS", "2"))
+DEFAULT_COOLDOWN_SECONDS = int(os.environ.get("MOCK_DPROXY_COOLDOWN_SECONDS", "15"))
 DASHBOARD_USER = os.environ.get("MOCK_DPROXY_DASHBOARD_USER", "admin")
 DASHBOARD_PASSWORD = os.environ.get("MOCK_DPROXY_DASHBOARD_PASSWORD", "mock-dashboard-password")
 
@@ -202,25 +204,45 @@ async def dashboard(request: Request) -> str:
     return """<!doctype html>
 <html lang="vi"><head><meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1">
 <title>Mock DProxy</title><style>
-body{font:14px system-ui;margin:0;background:#0b1020;color:#e8ecf4}main{max-width:1100px;margin:auto;padding:28px}
-h1{margin:0 0 6px}.muted{color:#98a2b8}.bar{display:flex;gap:8px;flex-wrap:wrap;margin:20px 0}
-button,select{background:#18213a;color:#fff;border:1px solid #34405f;border-radius:7px;padding:8px 11px;cursor:pointer}
-button:hover{border-color:#7c8cff}table{width:100%;border-collapse:collapse;background:#121a2d;border-radius:10px;overflow:hidden}
-th,td{text-align:left;padding:11px;border-bottom:1px solid #27314a}th{color:#9da8bf}.ok{color:#61d095}.bad{color:#ff7b86}
-code{color:#b9c5ff}#msg{min-height:22px;margin:10px 0}</style></head><body><main>
-<h1>Mock DProxy</h1><div class="muted">DProxy-compatible inventory & rotation service · API key: <code>mock-dproxy-token</code></div>
+body{font:14px system-ui;margin:0;background:#0b1020;color:#e8ecf4}main{max-width:1200px;margin:auto;padding:28px}
+h1{margin:0 0 6px}.muted{color:#98a2b8}.bar{display:flex;gap:8px;flex-wrap:wrap;margin:20px 0;align-items:center}
+button,select{background:#18213a;color:#fff;border:1px solid #34405f;border-radius:7px;padding:8px 11px;cursor:pointer;font:inherit}
+button:hover:not(:disabled){border-color:#7c8cff}button:disabled{opacity:.4;cursor:not-allowed}
+table{width:100%;border-collapse:collapse;background:#121a2d;border-radius:10px;overflow:hidden}
+th,td{text-align:left;padding:11px;border-bottom:1px solid #27314a;vertical-align:top}th{color:#9da8bf}
+.ok{color:#61d095}.bad{color:#ff7b86}.rowbtns{display:flex;gap:6px;flex-wrap:wrap;margin-bottom:4px}
+code{color:#b9c5ff}#msg{min-height:22px;margin:10px 0}#msg.err{color:#ff7b86}#msg.busy{color:#e3b341}</style></head><body><main>
+<h1>Mock DProxy</h1><div class="muted">DProxy-compatible inventory & rotation service · API key: <code>""" + json.dumps(API_KEY)[1:-1] + """</code></div>
 <div class="bar"><button onclick="resetState()">Reset</button><select id="mode" onchange="setMode(this.value)">
 <option>normal</option><option>list_empty</option><option>list_500</option><option>list_malformed</option><option>rotate_500</option><option>rotate_malformed</option>
 </select><button onclick="load()">Refresh</button></div><div id="msg"></div>
-<table><thead><tr><th>Assignment</th><th>Proxy</th><th>Public IP</th><th>Status</th><th>Expires</th><th>Rotation</th></tr></thead><tbody id="rows"></tbody></table>
+<table><thead><tr><th>Assignment</th><th>Proxy</th><th>Public IP</th><th>Status</th><th>Expires</th><th>Thao tác</th></tr></thead><tbody id="rows"></tbody></table>
 <script>
 const api={'Authorization':""" + authorization_js + """}, ctl={'X-Mock-Control-Key':""" + control_key_js + """,'Content-Type':'application/json'};
 const esc=s=>String(s??'').replace(/[&<>"']/g,c=>({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;',"'":'&#39;'}[c]));
-async function load(){try{let r=await fetch('/_mock/state',{headers:ctl}),d=await r.json();mode.value=d.mode;
-rows.innerHTML=d.assignments.map(x=>`<tr><td><code>${esc(x.id)}</code><br>${esc(x.username)} / ${esc(x.password)}</td><td>${esc(x.proxies.host)}:${esc(x.proxies.port)}</td><td>${esc(x.proxies.ip_public)}</td><td class="${x.is_active&&x.proxies.status.msg==='online'?'ok':'bad'}">${esc(x.status)} · ${esc(x.proxies.status.msg)}</td><td>${new Date(x.expired_at).toLocaleString()}</td><td><button onclick="rotate('${esc(x.id)}')">Đổi IP</button> ${esc(x.proxies.rotation.last_rotated_at||'chưa xoay')}</td></tr>`).join('');msg.textContent=`Mode: ${d.mode} · ${d.assignment_count} proxies`;}catch(e){msg.textContent=e}}
-async function rotate(id){let r=await fetch(`/api/v1/proxies/user/${id}/rotate`,{method:'POST',headers:api}),d=await r.json();msg.textContent=`Rotate ${r.status}: ${JSON.stringify(d)}`;await load()}
-async function resetState(){await fetch('/_mock/reset',{method:'POST',headers:ctl});await load()}
-async function setMode(v){await fetch('/_mock/mode',{method:'PUT',headers:ctl,body:JSON.stringify({mode:v})});await load()}
+function setMsg(text, cls){msg.textContent=text;msg.className=cls||'';}
+async function load(){setMsg('Đang tải...','busy');try{let r=await fetch('/_mock/state',{headers:ctl}),d=await r.json();mode.value=d.mode;
+rows.innerHTML=d.assignments.map(x=>{
+const online=x.is_active&&x.status==='active'&&x.proxies.status.msg==='online';
+return `<tr><td><code>${esc(x.id)}</code><br>${esc(x.username)} / ${esc(x.password)}</td>`+
+`<td>${esc(x.proxies.host)}:${esc(x.proxies.port)}</td><td>${esc(x.proxies.ip_public)}</td>`+
+`<td class="${online?'ok':'bad'}">${esc(x.status)} · ${esc(x.proxies.status.msg)}</td>`+
+`<td>${new Date(x.expired_at).toLocaleString()}</td>`+
+`<td><div class="rowbtns">`+
+`<button onclick="rotate('${esc(x.id)}')" ${online?'':'disabled title="Offline — không thể đổi IP"'}>Đổi IP</button>`+
+`<button onclick="setOnline('${esc(x.id)}', false)" ${online?'':'disabled'}>Đặt Offline</button>`+
+`<button onclick="setOnline('${esc(x.id)}', true)" ${online?'disabled':''}>Đặt Online</button>`+
+`</div><span class="muted">${esc(x.proxies.rotation.last_rotated_at||'chưa xoay')}</span></td></tr>`;
+}).join('');setMsg(`Mode: ${d.mode} · ${d.assignment_count} proxies`);}catch(e){setMsg(String(e),'err')}}
+async function rotate(id){setMsg(`Đang đổi IP ${id}...`,'busy');try{let r=await fetch(`/api/v1/proxies/user/${id}/rotate`,{method:'POST',headers:api}),d=await r.json();
+setMsg(r.ok?`Đổi IP ${id} thành công: ${JSON.stringify(d)}`:`Lỗi ${r.status}: ${JSON.stringify(d)}`,r.ok?'':'err');}catch(e){setMsg(String(e),'err')}await load()}
+async function setOnline(id, online){setMsg(`Đang đặt ${id} ${online?'online':'offline'}...`,'busy');
+try{let body=online?{proxy_status:'online',status:'active',is_active:true}:{proxy_status:'offline'};
+let r=await fetch(`/_mock/assignments/${id}`,{method:'PATCH',headers:ctl,body:JSON.stringify(body)});
+if(!r.ok){setMsg(`Lỗi ${r.status}: ${await r.text()}`,'err');await load();return;}
+setMsg(`${id} đã chuyển ${online?'online':'offline'}`);}catch(e){setMsg(String(e),'err')}await load()}
+async function resetState(){setMsg('Đang reset...','busy');await fetch('/_mock/reset',{method:'POST',headers:ctl});await load()}
+async function setMode(v){setMsg(`Đang đổi mode sang ${v}...`,'busy');await fetch('/_mock/mode',{method:'PUT',headers:ctl,body:JSON.stringify({mode:v})});await load()}
 load();</script></main></body></html>"""
 
 
@@ -362,7 +384,7 @@ async def mock_patch_assignment(
 
 
 if __name__ == "__main__":
-    port = int(os.environ.get("MOCK_DPROXY_PORT", "9200"))
+    port = int(os.environ.get("MOCK_DPROXY_PORT", "9201"))
     print(
         f"Mock DProxy listening on :{port}; auth_type={AUTH_TYPE!r}; "
         f"api_key={API_KEY!r}; control_key={CONTROL_KEY!r}",

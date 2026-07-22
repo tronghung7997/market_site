@@ -40,6 +40,7 @@ async def pricing_options(product_id: int, db: AsyncSession = Depends(get_sessio
         base_info=params,
         ready=not setup["needs_setup"],
         not_ready_reason=setup["needs_setup_reason"],
+        adapter_type=provider.adapter_type if provider else None,
     )
 
 

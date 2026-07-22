@@ -112,10 +112,17 @@ class TestProxyRotate:
         assert body["public_ip"] == "9.9.9.9"
         assert body["ok"] is True
         assert len(calls) == 2  # rotate call + re-list
+        # review fixes docs/superpowers/plans/2026-07-22-dproxy-consolidated-review.md
+        # P0 "Rotate cập nhật backend nhưng UI bàn giao bị stale" — the
+        # rotate response itself must carry the fresh delivered_data
+        # snapshot so the frontend doesn't need a second request.
+        assert body["delivered_data"] is not None
+        assert "9.9.9.9" in body["delivered_data"]
 
         async with SessionLocal() as db:
             order = await db.get(Order, order_id)
             assert "9.9.9.9" in order.delivered_data
+            assert order.delivered_data == body["delivered_data"]
             allocation = await db.scalar(select(ProxyAllocation).where(ProxyAllocation.order_id == order_id))
             assert allocation.last_public_ip == "9.9.9.9"
             assert allocation.last_rotated_at is not None

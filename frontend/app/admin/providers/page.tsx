@@ -640,9 +640,7 @@ function AdapterConnectionFields({
         {testResult && (
           <Card className="p-3">
             <h4 className="text-[11px] font-semibold text-muted uppercase tracking-wide mb-2">Kết quả test</h4>
-            <pre className="text-[11px] font-mono text-fg whitespace-pre-wrap overflow-x-auto">
-              {JSON.stringify(testResult, null, 2)}
-            </pre>
+            <TestResultBody testResult={testResult} />
           </Card>
         )}
       </div>
@@ -650,6 +648,55 @@ function AdapterConnectionFields({
   }
 
   return null;
+}
+
+/* health từ DProxyAdapter.check_health() (src/adapters/dproxy.py) luôn có
+   dạng {status, message, usable, total, rotation_capable, earliest_expiry}
+   khi thành công — hiện đúng các số này thay vì dump JSON thô, dễ đọc hơn
+   nhiều cho một admin không đọc code. Rơi về JSON thô nếu shape khác đi
+   (lỗi/status khác adapter, không có field này) thay vì cố đoán không có
+   thật. Không tự vẽ header/Card — hai chỗ dùng nó (panel cấu hình, toast
+   test nhanh) đã có khung + tiêu đề riêng của mình. */
+function TestResultBody({ testResult }: { testResult: Record<string, unknown> }) {
+  const health = testResult.health as Record<string, unknown> | undefined;
+  const hasSummary = health && typeof health.usable === "number" && typeof health.total === "number";
+
+  if (!hasSummary) {
+    return (
+      <pre className="text-[11px] font-mono text-fg whitespace-pre-wrap overflow-x-auto">
+        {JSON.stringify(testResult, null, 2)}
+      </pre>
+    );
+  }
+
+  const usable = health.usable as number;
+  const total = health.total as number;
+  const rotationCapable = (health.rotation_capable as number | undefined) ?? 0;
+  const earliestExpiry = health.earliest_expiry as string | null | undefined;
+  const healthy = health.status === "healthy";
+
+  return (
+    <div>
+      <div className="flex items-center gap-2 mb-2">
+        <Tag tone={healthy ? "good" : "warn"}>{healthy ? "Lành mạnh" : "Cảnh báo"}</Tag>
+        <span className="text-[12.5px] text-muted">{String(health.message ?? "")}</span>
+      </div>
+      <div className="grid grid-cols-3 gap-2 text-center">
+        <div className="rounded-md bg-surface border border-line py-2">
+          <div className="text-[16px] font-semibold tabular">{usable}/{total}</div>
+          <div className="text-[10.5px] text-faint uppercase tracking-wide">Khả dụng</div>
+        </div>
+        <div className="rounded-md bg-surface border border-line py-2">
+          <div className="text-[16px] font-semibold tabular">{rotationCapable}</div>
+          <div className="text-[10.5px] text-faint uppercase tracking-wide">Đổi IP được</div>
+        </div>
+        <div className="rounded-md bg-surface border border-line py-2">
+          <div className="text-[11px] font-medium pt-1">{earliestExpiry ? new Date(earliestExpiry).toLocaleDateString("vi-VN") : "—"}</div>
+          <div className="text-[10.5px] text-faint uppercase tracking-wide">Hết hạn sớm nhất</div>
+        </div>
+      </div>
+    </div>
+  );
 }
 
 type TabKey = "general" | "api" | "products";
@@ -712,7 +759,11 @@ function ProviderEditPanel({
     setTestResult(null);
     try {
       const result = await api.testProvider(provider.id);
-      setTestResult(type === "health" ? { health: result.health } : { provision: result.provision });
+      setTestResult(
+        type === "health"
+          ? { health: result.health }
+          : { provision_test: result.provision_test ?? { note: "Adapter này không hỗ trợ test cấp phát." } },
+      );
     } catch (e: unknown) {
       setTestResult({ error: e instanceof Error ? e.message : "Test thất bại" });
     } finally {
@@ -1311,9 +1362,11 @@ export default function AdminProvidersPage() {
                         &times;
                       </button>
                     </div>
-                    <pre className="text-[11px] font-mono text-fg whitespace-pre-wrap">
-                      {JSON.stringify(testResult.data, null, 2)}
-                    </pre>
+                    {"error" in testResult.data ? (
+                      <p className="text-[12.5px] text-bad">{String(testResult.data.error)}</p>
+                    ) : (
+                      <TestResultBody testResult={testResult.data} />
+                    )}
                   </div>
                 ) : null}
               </Card>

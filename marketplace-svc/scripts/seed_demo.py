@@ -4,6 +4,7 @@ Run:  marketplace-svc/.venv/bin/python marketplace-svc/scripts/seed_demo.py
 """
 import asyncio
 import json
+import os
 
 import asyncpg
 import httpx
@@ -12,6 +13,17 @@ BASE = "http://localhost:8001"
 DB = "postgresql://marketplace:marketplace@localhost:5432/marketplace"
 PW = "DemoPass123!"
 ADMIN, SELLER, BUYER = "admin@dxtrade.example.com", "seller@dxtrade.example.com", "buyer@dxtrade.example.com"
+
+# Must match scripts/mock_dproxy.py's own defaults (MOCK_DPROXY_PORT,
+# MOCK_DPROXY_API_KEY) and docs/dproxy-mock-runbook.md so a vanilla `uv run
+# scripts/mock_dproxy.py` + vanilla `uv run scripts/seed_demo.py` work
+# together with zero env vars set — see
+# docs/superpowers/plans/2026-07-22-dproxy-consolidated-review.md P0 "Chưa
+# có setup seed để chạy checklist".
+DPROXY_BASE_URL = os.environ.get("MOCK_DPROXY_BASE_URL", "http://127.0.0.1:9201")
+DPROXY_API_KEY = os.environ.get("MOCK_DPROXY_API_KEY", "mock-dproxy-token")
+DPROXY_PROVIDER_NAME = "DProxy Demo"
+DPROXY_PRODUCT_TITLE = "Proxy xoay IP - Demo"
 
 
 # ---------------------------------------------------------------------------
@@ -431,6 +443,82 @@ async def seed_provider_products(
     return created
 
 
+async def seed_dproxy(c: httpx.AsyncClient, conn, admin: dict, seller: dict, flat: dict) -> tuple[int | None, int | None]:
+    """Seed a real `adapter_type=dproxy` provider + a `credit`-strategy demo
+    product bound to it, via the real HTTP API (not raw SQL like
+    seed_providers() above) — DProxyAdapter/RealApiAdapter decrypts
+    config.api_key on load, so it MUST go through
+    src/providers/service.py::create_provider's encrypt_config step, not a
+    plaintext SQL insert (that's fine for the mock/seller_pool/manual
+    providers above, which never decrypt their config at all).
+
+    Idempotent by converging to the current env vars on every run — a
+    second run with a changed MOCK_DPROXY_PORT updates the existing
+    provider's base_url instead of leaving a stale one or creating a
+    duplicate. Returns (provider_id, product_id), used by main() to print
+    the actual seeded product URL — never assume product id 1.
+    """
+    config = {"base_url": DPROXY_BASE_URL, "api_key": DPROXY_API_KEY, "auth_type": "bearer"}
+
+    provider_id = await conn.fetchval("SELECT id FROM providers WHERE name=$1", DPROXY_PROVIDER_NAME)
+    if provider_id is None:
+        r = await c.post("/admin/providers", headers=admin, json={
+            "name": DPROXY_PROVIDER_NAME, "type": "dproxy", "adapter_type": "dproxy",
+            "config": config, "priority": 1,
+        })
+        if r.status_code != 201:
+            print(f"  WARN: could not create DProxy provider: {r.status_code} {r.text}")
+            return None, None
+        provider_id = r.json()["id"]
+        print(f"  DProxy      : provider #{provider_id} created ({DPROXY_BASE_URL})")
+    else:
+        r = await c.put(f"/admin/providers/{provider_id}", headers=admin, json={"config": config})
+        if r.status_code != 200:
+            print(f"  WARN: could not update DProxy provider #{provider_id}: {r.status_code} {r.text}")
+        else:
+            print(f"  DProxy      : provider #{provider_id} already existed, config synced to env ({DPROXY_BASE_URL})")
+
+    product_id = await conn.fetchval("SELECT id FROM products WHERE title=$1", DPROXY_PRODUCT_TITLE)
+    if product_id is None:
+        cat_id = flat.get("proxies")
+        if not cat_id:
+            print("  WARN: category 'proxies' not found, skipping DProxy demo product")
+            return provider_id, None
+        pr = await c.post("/seller/products", headers=seller, json={
+            "category_id": cat_id,
+            "title": DPROXY_PRODUCT_TITLE,
+            "description": (
+                "Bạn nhận được 1 proxy riêng gồm Host, Port, Username và Password. "
+                "Proxy được giao tự động trong vài giây và có thể dùng trên trình duyệt, "
+                "phần mềm hoặc thiết bị hỗ trợ HTTP proxy. Có thể tự đổi IP bất kỳ lúc nào."
+            ),
+            "status": "active",
+            "escrow_days": 2,
+            "service_type": "proxy",
+            "features": [
+                "1 proxy riêng, không chia sẻ với ai khác",
+                "Giao tự động trong vài giây",
+                "Tự đổi IP ngay trên trang Đơn hàng",
+            ],
+            "highlight_text": "Giao tự động — 1 proxy riêng — Có thể đổi IP",
+        })
+        if pr.status_code != 201:
+            print(f"  WARN: could not create DProxy demo product: {pr.status_code} {pr.text}")
+            return provider_id, None
+        product_id = pr.json()["id"]
+        print(f"  DProxy      : product #{product_id} created")
+    else:
+        print(f"  DProxy      : product #{product_id} already existed")
+
+    if provider_id and product_id:
+        await conn.execute(
+            "UPDATE products SET provider_id=$1, pricing_strategy=$2, pricing_params=$3::jsonb WHERE id=$4",
+            provider_id, "credit", json.dumps({"credit_price": 75000}), product_id,
+        )
+
+    return provider_id, product_id
+
+
 async def main():
     async with httpx.AsyncClient(base_url=BASE, timeout=10) as c:
         for e in (ADMIN, SELLER, BUYER):
@@ -645,6 +733,7 @@ async def main():
             await seed_pricing_configs(conn)
             await link_existing_products_to_seller_pool(conn, provider_ids)
             await seed_provider_products(c, conn, seller, flat, provider_ids)
+            dproxy_provider_id, dproxy_product_id = await seed_dproxy(c, conn, admin, seller, flat)
         finally:
             await conn.close()
 
@@ -653,6 +742,11 @@ async def main():
         print(f"  Seller login: {SELLER} / {PW}")
         print(f"  Admin login : {ADMIN} / {PW}")
         print(f"  Products    : {len((await c.get('/products')).json())} active listings")
+        if dproxy_product_id:
+            frontend_base = os.environ.get("FRONTEND_BASE_URL", "http://localhost:3000")
+            # Never hardcode /products/1 in a checklist — id depends on
+            # whatever else has been seeded before this script runs.
+            print(f"  DProxy demo : {frontend_base}/products/{dproxy_product_id} (provider #{dproxy_provider_id})")
 
 
 async def conn_update(pid, item):

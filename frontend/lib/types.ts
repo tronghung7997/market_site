@@ -152,6 +152,10 @@ export interface ProxyRotateResult {
   last_rotated_at: string;
   cooldown_seconds: number | null;
   expires_at: string;
+  // Fresh Host/Port/Username/Password snapshot — covers rotates that only
+  // change the password (IP/expiry unchanged), which the fields above can't
+  // capture. Use this to refresh "Dữ liệu bàn giao" in the same round trip.
+  delivered_data: string | null;
 }
 
 export interface ResourceInfo {
@@ -447,6 +451,9 @@ export interface PricingOptions {
   base_info: { product_title: string; service_type: string } | null;
   ready: boolean;
   not_ready_reason: string | null;
+  // Buyer-safe hint for adapter-specific purchase UX (e.g. "dproxy" always
+  // delivers exactly 1 proxy — see components/DynamicOrderForm.tsx).
+  adapter_type: string | null;
 }
 
 export interface CalculateResult {

@@ -299,3 +299,51 @@ class TestDProxyProvisioning:
         async with SessionLocal() as db:
             statuses = [(await db.get(Order, oid)).status.value for oid in order_ids]
         assert sorted(statuses) == ["cancelled", "delivered"]
+
+    @pytest.mark.asyncio
+    async def test_quantity_greater_than_one_is_rejected_before_any_charge(self, client, monkeypatch):
+        """review fixes docs/superpowers/plans/2026-07-22-dproxy-consolidated-review.md
+        P0#1 "Quantity có thể tính tiền nhiều proxy nhưng chỉ giao một" —
+        DProxy binds exactly one ProxyAllocation per order, so package_size
+        (== quantity for the "credit" strategy) must never be allowed above
+        1. Backend enforcement is the requirement — this bypasses the
+        frontend entirely."""
+        buyer_token, _, product_id, _ = await setup_dproxy_product(client, suffix="_qty")
+        monkeypatch.setattr("src.orders.service.spawn_provision", lambda _id: None)
+
+        async with SessionLocal() as db:
+            wallet_before = await db.scalar(select(func.count()).select_from(Order))
+
+        resp = await client.post(
+            "/orders", json={"product_id": product_id, "user_config": {"package_size": 5}},
+            headers={"Authorization": f"Bearer {buyer_token}"},
+        )
+        assert resp.status_code == 400, resp.text
+
+        async with SessionLocal() as db:
+            wallet_after = await db.scalar(select(func.count()).select_from(Order))
+        assert wallet_after == wallet_before  # rejected before any Order row was created
+
+
+class TestDProxyCompatibility:
+    """review fixes P0#1 — DProxy must not be usable with "config" pricing
+    at all: ConfigPricing.get_options() renders type/network/duration
+    selects DProxyAdapter.provision() never filters by, so a buyer would
+    pay for a configuration fulfillment silently ignores."""
+
+    def test_dproxy_only_compatible_with_credit_strategy(self):
+        from src.adapters.compatibility import ADAPTER_STRATEGY_COMPAT
+        assert ADAPTER_STRATEGY_COMPAT["dproxy"] == {"credit"}
+
+    @pytest.mark.asyncio
+    async def test_attaching_dproxy_provider_with_config_strategy_is_blocked(self, client, monkeypatch):
+        _, admin_token, product_id, provider_id = await setup_dproxy_product(client, suffix="_compat")
+        resp = await client.put(
+            f"/admin/products/{product_id}/operations",
+            json={
+                "provider_id": provider_id, "pricing_strategy": "config",
+                "pricing_params": {"base_price": 1000, "type_mult": {"a": 1.0}, "network_mult": {"b": 1.0}},
+            },
+            headers={"Authorization": f"Bearer {admin_token}"},
+        )
+        assert resp.status_code == 400

@@ -78,6 +78,17 @@ function CopyIconButton({ text }: { text: string }) {
 // tách hẳn khỏi "Đổi gateway key" (seller_gateway/credit forward) để buyer
 // không nhầm hai khái niệm khác nhau: đây là đổi IP của MỘT proxy độc quyền
 // đã cấp, không phải cấp lại key truy cập.
+// Poll while (and only while) the allocation is offline — a buyer who
+// already has /orders open shouldn't have to reload to see reconciliation
+// bring it back (review fixes
+// docs/superpowers/plans/2026-07-22-dproxy-consolidated-review.md P2).
+// Stops the moment status leaves "offline" (recovered, expired, or errored).
+const OFFLINE_POLL_MS = 20_000;
+
+const ROTATE_EXPLAINER =
+  "Đổi IP yêu cầu nhà cung cấp cấp IP public mới cho proxy hiện tại. Host và Port thường giữ " +
+  "nguyên; Username hoặc Password có thể được cập nhật. Giữa hai lần đổi có thể có thời gian chờ.";
+
 function OrderProxyPanel({ orderId, onDelivered }: { orderId: number; onDelivered?: (orderId: number, deliveredData: string) => void }) {
   const [state, setState] = useState<ProxyState | null>(null);
   const [applicable, setApplicable] = useState(true);
@@ -103,6 +114,12 @@ function OrderProxyPanel({ orderId, onDelivered }: { orderId: number; onDelivere
     return () => clearInterval(t);
   }, [cooldown]);
 
+  useEffect(() => {
+    if (state?.status !== "offline") return;
+    const t = setInterval(load, OFFLINE_POLL_MS);
+    return () => clearInterval(t);
+  }, [state?.status, load]);
+
   const handleRotate = async () => {
     setError(null);
     setRotating(true);
@@ -113,16 +130,13 @@ function OrderProxyPanel({ orderId, onDelivered }: { orderId: number; onDelivere
         cooldown_remaining_seconds: result.cooldown_seconds ?? 0,
       } : prev);
       setCooldown(result.cooldown_seconds ?? 0);
-      // Rotate can change more than IP (DProxy may rotate the password too —
-      // see docs/superpowers/plans/2026-07-22-dproxy-review-fixes.md Blocker
-      // 1), and this component only tracks sanitized proxy STATE, not the
-      // full delivered_data snapshot. Refetch the order so the "Dữ liệu bàn
-      // giao" block above stays in sync instead of showing a stale
-      // credential until the next full page load.
-      try {
-        const fresh = await api.getOrder(orderId);
-        if (fresh.delivered_data) onDelivered?.(orderId, fresh.delivered_data);
-      } catch { /* non-fatal — state panel above is already up to date */ }
+      // Rotate can change more than IP (DProxy may rotate the password too,
+      // IP/expiry unchanged) — the rotate response already carries the fresh
+      // delivered_data snapshot in the same round trip, so propagate it to
+      // the parent's order list instead of leaving "Dữ liệu bàn giao" stale
+      // until the next full page load (review fixes
+      // docs/superpowers/plans/2026-07-22-dproxy-consolidated-review.md P0).
+      if (result.delivered_data) onDelivered?.(orderId, result.delivered_data);
     } catch (e: unknown) {
       setError(e instanceof Error ? e.message : "Đổi IP thất bại, vui lòng thử lại.");
     } finally {
@@ -139,13 +153,20 @@ function OrderProxyPanel({ orderId, onDelivered }: { orderId: number; onDelivere
           <p className="text-faint text-[11px] uppercase tracking-wider mb-0.5">Proxy hiện tại</p>
           <p className="font-mono text-[13px]">{state.public_ip ?? "—"}</p>
           {state.status === "offline" && (
-            <p className="text-[11px] text-warn mt-0.5">Tạm ngoại tuyến — đang chờ khôi phục, chưa đổi IP được lúc này.</p>
+            <p className="text-[11px] text-warn mt-0.5 max-w-[260px]">
+              Proxy đang tạm ngoại tuyến. Hệ thống vẫn giữ nguyên proxy của bạn và đang chờ nhà cung cấp khôi phục.
+            </p>
           )}
         </div>
         {state.rotation_available && (
-          <Button size="sm" variant="secondary" onClick={handleRotate} disabled={rotating || cooldown > 0}>
-            {rotating ? "Đang đổi IP…" : cooldown > 0 ? `Đổi IP (${cooldown}s)` : "Đổi IP"}
-          </Button>
+          <div className="flex items-center gap-1">
+            <Button size="sm" variant="secondary" onClick={handleRotate} disabled={rotating || cooldown > 0}>
+              {rotating ? "Đang đổi IP…" : cooldown > 0 ? `Đổi IP (${cooldown}s)` : "Đổi IP"}
+            </Button>
+            <span title={ROTATE_EXPLAINER} className="text-faint cursor-help shrink-0">
+              <Info size={13} />
+            </span>
+          </div>
         )}
       </div>
       <p className="text-[11px] text-faint mt-1.5">

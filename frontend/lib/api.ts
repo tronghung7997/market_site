@@ -252,7 +252,9 @@ export const api = {
   updateProvider: (id: number, data: Record<string, unknown>) =>
     request<Provider>(`/admin/providers/${id}`, { method: "PUT", body: JSON.stringify(data) }, true),
   testProvider: (id: number) =>
-    request<{ health: Record<string, unknown>; provision: Record<string, unknown> }>(`/admin/providers/${id}/test`, { method: "POST" }, true),
+    // Backend key is `provision_test` (nullable — DProxy never returns one,
+    // see src/providers/router.py::_run_provider_test), not `provision`.
+    request<{ health: Record<string, unknown>; provision_test: Record<string, unknown> | null }>(`/admin/providers/${id}/test`, { method: "POST" }, true),
   adapterCompatibility: () =>
     request<Record<string, string[] | "*">>("/admin/adapter-compatibility", {}, true),
   adminTasks: (status?: string) =>

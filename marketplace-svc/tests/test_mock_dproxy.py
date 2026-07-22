@@ -169,3 +169,54 @@ async def test_password_only_rotate_behavior_leaves_ip_and_expiry_untouched(dpro
     assert updated["proxies"]["ip_public"] == old_ip
     assert updated["expired_at"] == old_expiry
     assert updated["password"] != old_password
+
+
+@pytest.mark.asyncio
+async def test_dashboard_html_has_online_offline_controls(dproxy_client: AsyncClient):
+    """review fixes docs/superpowers/plans/2026-07-22-dproxy-consolidated-review.md
+    P1 "Mock dashboard chưa đáp ứng checklist" — a manual tester needs
+    online/offline buttons wired to PATCH /_mock/assignments/{id}, not just
+    curl. Checks the served HTML/JS contains the controls and calls the
+    right endpoint/payload shape, not just that the page renders."""
+    dashboard = await dproxy_client.get("/", auth=DASHBOARD_AUTH)
+    assert dashboard.status_code == 200
+    html = dashboard.text
+
+    assert "setOnline" in html
+    assert "Đặt Offline" in html
+    assert "Đặt Online" in html
+    assert "/_mock/assignments/" in html
+    assert '"proxy_status":"offline"' in html or "proxy_status:'offline'" in html
+    assert '"proxy_status":"online"' in html or "proxy_status:'online'" in html
+    # Rotate must be disabled in the row markup when the assignment is
+    # offline — not just left clickable and erroring server-side.
+    assert "disabled" in html
+    assert "rotate(" in html
+
+
+@pytest.mark.asyncio
+async def test_online_offline_dashboard_endpoint_round_trips(dproxy_client: AsyncClient):
+    """The exact PATCH payloads the dashboard's setOnline() sends — confirms
+    the mock's own control API accepts them and the assignment's usability
+    flips accordingly (online -> is_active/status/proxy_status all "on";
+    offline -> proxy_status alone is enough, matching what reconciliation
+    treats as "not online")."""
+    assignments = (await dproxy_client.get("/api/v1/proxies/user", headers=API_HEADERS)).json()
+    assignment_id = assignments[0]["id"]
+
+    offline = await dproxy_client.patch(
+        f"/_mock/assignments/{assignment_id}", headers=CONTROL_HEADERS,
+        json={"proxy_status": "offline"},
+    )
+    assert offline.status_code == 200
+    assert offline.json()["proxies"]["status"]["msg"] == "offline"
+
+    online = await dproxy_client.patch(
+        f"/_mock/assignments/{assignment_id}", headers=CONTROL_HEADERS,
+        json={"proxy_status": "online", "status": "active", "is_active": True},
+    )
+    assert online.status_code == 200
+    body = online.json()
+    assert body["proxies"]["status"]["msg"] == "online"
+    assert body["status"] == "active"
+    assert body["is_active"] is True

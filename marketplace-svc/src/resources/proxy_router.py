@@ -114,6 +114,13 @@ async def rotate_proxy(
         "last_rotated_at": allocation.last_rotated_at.isoformat(),
         "cooldown_seconds": allocation.cooldown_seconds,
         "expires_at": assignment.expires_at.isoformat(),
+        # Buyer already owns these credentials (shown on /orders right after
+        # delivery) — returning the fresh snapshot here lets the frontend
+        # update in one round trip instead of a second GET, and covers
+        # password-only rotates the other fields above don't capture (review
+        # fixes docs/superpowers/plans/2026-07-22-dproxy-consolidated-review.md
+        # P0 "Rotate cập nhật backend nhưng UI bàn giao bị stale").
+        "delivered_data": order.delivered_data,
     }
 
 

@@ -167,6 +167,18 @@ async def create_order_with_adapter(
     q = await quote_product(product, user_config, db)
     total_amount = q.amount
 
+    # DProxy binds exactly one ProxyAllocation per order (UNIQUE(order_id) —
+    # see src/models/proxy_allocation.py) — package_size/quantity > 1 would
+    # charge for N proxies and deliver 1. Checked here, before any charge or
+    # order row exists, not just hidden on the frontend (review fixes
+    # docs/superpowers/plans/2026-07-22-dproxy-consolidated-review.md P0#1).
+    provider_for_quantity_check = await db.get(Provider, product.provider_id)
+    if provider_for_quantity_check and provider_for_quantity_check.adapter_type == "dproxy" and q.quantity != 1:
+        raise HTTPException(
+            status_code=400,
+            detail="Sản phẩm proxy xoay IP chỉ hỗ trợ mua 1 proxy mỗi đơn — số lượng phải bằng 1",
+        )
+
     order = Order(
         buyer_id=buyer_id,
         seller_id=product.seller_id,

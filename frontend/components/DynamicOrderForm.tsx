@@ -64,6 +64,14 @@ export default function DynamicOrderForm({ productId, product, onOrderCreated }:
   // Debounced calculate on config/qty change
   const debounceRef = useRef<ReturnType<typeof setTimeout> | null>(null);
 
+  // DProxy chỉ bind được đúng 1 ProxyAllocation/order (UNIQUE(order_id) ở
+  // backend) — package_size/quantity > 1 sẽ tính tiền nhiều proxy nhưng chỉ
+  // giao 1. Backend đã chặn (orders/service.py::create_order_with_adapter),
+  // đây là khoá phía frontend để buyer không bao giờ thấy lỗi đó — luôn ép
+  // package_size=1 bất kể field gốc cho phép gì. Xem
+  // docs/superpowers/plans/2026-07-22-dproxy-consolidated-review.md P0#1.
+  const isDproxy = options?.adapter_type === "dproxy";
+
   const doCalculate = useCallback(async (cfg: Record<string, unknown>, q: number) => {
     if (!options || !options.ready || options.fields.length === 0) return;
     // Field bắt buộc còn trống (vd target_urls rỗng lúc mới vào trang) không
@@ -79,7 +87,7 @@ export default function DynamicOrderForm({ productId, product, onOrderCreated }:
     }
     setCalculating(true);
     try {
-      const merged = { ...cfg, quantity: q };
+      const merged = { ...cfg, quantity: q, ...(isDproxy ? { package_size: 1 } : {}) };
       const result = await api.calculatePrice(productId, merged);
       setCalc(result);
       setCalcError(null);
@@ -91,7 +99,7 @@ export default function DynamicOrderForm({ productId, product, onOrderCreated }:
     } finally {
       setCalculating(false);
     }
-  }, [productId, options]);
+  }, [productId, options, isDproxy]);
 
   useEffect(() => {
     if (!options) return;
@@ -113,7 +121,8 @@ export default function DynamicOrderForm({ productId, product, onOrderCreated }:
     setPlacing(true);
     setPlaceError(null);
     try {
-      const order = await api.createOrderWithConfig(productId, { ...config, quantity: qty }, qty);
+      const finalConfig = { ...config, quantity: qty, ...(isDproxy ? { package_size: 1 } : {}) };
+      const order = await api.createOrderWithConfig(productId, finalConfig, isDproxy ? 1 : qty);
       setShowConfirm(false);
       onOrderCreated(order);
     } catch (e) {
@@ -139,15 +148,26 @@ export default function DynamicOrderForm({ productId, product, onOrderCreated }:
   // — nhưng form này luôn tự vẽ riêng 1 ô "Số lượng" (stepper bên dưới) và
   // đè giá trị đó lên trước mỗi lần tính giá/đặt hàng (xem doCalculate,
   // confirmBuy). Lọc field trùng ra khỏi phần render để buyer không thấy 2 ô
-  // số lượng cùng lúc.
-  const visibleFields = options.fields.filter((f) => f.field !== "quantity");
+  // số lượng cùng lúc. Với DProxy, "package_size" cũng là một ô số lượng
+  // trá hình (CreditPricing._subtotal đọc đúng field này) — ẩn luôn, số
+  // lượng luôn là 1 và không hiển thị cho buyer chỉnh.
+  const visibleFields = options.fields.filter(
+    (f) => f.field !== "quantity" && !(isDproxy && f.field === "package_size"),
+  );
 
   return (
     <>
       <Card className="overflow-hidden">
         <div className="px-5 py-3 border-b border-line flex items-center justify-between bg-raised/30">
-          <span className="text-[13px] font-semibold">Cấu hình đơn hàng</span>
-          <Tag tone="iris">{options.strategy}</Tag>
+          <span className="text-[13px] font-semibold">{isDproxy ? "Mua proxy" : "Cấu hình đơn hàng"}</span>
+          {isDproxy ? (
+            <div className="flex items-center gap-1.5">
+              <Tag tone="good">Giao tự động</Tag>
+              <Tag tone="iris">Có thể đổi IP</Tag>
+            </div>
+          ) : (
+            <Tag tone="iris">{options.strategy}</Tag>
+          )}
         </div>
 
         <div className="p-5 space-y-4">
@@ -157,13 +177,16 @@ export default function DynamicOrderForm({ productId, product, onOrderCreated }:
             </Banner>
           )}
 
+          {isDproxy && <DProxyPurchaseExplainer />}
+
           {/* Dynamic fields */}
           {visibleFields.map((f) => (
             <DynamicField key={f.field} field={f} value={config[f.field]} onChange={(v) => updateField(f.field, v)} />
           ))}
 
-          {/* Quantity — ẩn với strategy "task": số lượng tự đếm theo URL */}
-          {options.strategy !== "task" && (
+          {/* Quantity — ẩn với strategy "task" (tự đếm theo URL) và với
+              DProxy (luôn đúng 1 proxy/đơn, không cho chọn). */}
+          {options.strategy !== "task" && !isDproxy && (
           <div>
             <div className="text-[11px] text-faint uppercase tracking-wider mb-1.5">Số lượng</div>
             <div className="flex items-center border border-line rounded-lg overflow-hidden w-fit">
@@ -188,6 +211,9 @@ export default function DynamicOrderForm({ productId, product, onOrderCreated }:
               </button>
             </div>
           </div>
+          )}
+          {isDproxy && (
+            <p className="text-[12px] text-muted">Mỗi đơn nhận 1 proxy riêng.</p>
           )}
 
           {/* Price display */}
@@ -216,7 +242,11 @@ export default function DynamicOrderForm({ productId, product, onOrderCreated }:
           {placeError && <p className="text-bad text-[12.5px]">{placeError}</p>}
 
           <Button size="lg" block disabled={!options.ready || placing || !calc || calculating} onClick={handleSubmit}>
-            {placing ? "Đang xử lý…" : !account ? "Đăng nhập để mua" : !options.ready ? "Chưa thể đặt hàng" : "Đặt hàng"}
+            {placing ? "Đang xử lý…"
+              : !account ? "Đăng nhập để mua"
+              : !options.ready ? "Chưa thể đặt hàng"
+              : isDproxy && calc ? `Mua 1 proxy — ${vnd(displayAmount)}`
+              : "Đặt hàng"}
           </Button>
 
           <p className="text-[11.5px] text-faint leading-relaxed text-center">
@@ -242,26 +272,49 @@ export default function DynamicOrderForm({ productId, product, onOrderCreated }:
                 <span className="text-muted">Sản phẩm</span>
                 <span className="font-medium text-right max-w-[220px] truncate">{product.title}</span>
               </div>
-              {/* Show user config summary */}
-              {visibleFields.map((f) => {
-                const val = config[f.field];
-                let display = String(val ?? "—");
-                if (f.choices) {
-                  const choice = f.choices.find((c) => c.value === String(val));
-                  if (choice) display = choice.label;
-                }
-                return (
-                  <div key={f.field} className="flex justify-between">
-                    <span className="text-muted">{f.label}</span>
-                    <span className="font-medium">{display}</span>
+              {isDproxy ? (
+                <>
+                  <div className="flex justify-between">
+                    <span className="text-muted">Số lượng</span>
+                    <span className="font-medium">1 proxy riêng</span>
                   </div>
-                );
-              })}
-              {options.strategy !== "task" && (
-                <div className="flex justify-between">
-                  <span className="text-muted">Số lượng</span>
-                  <span className="font-medium">{qty}</span>
-                </div>
+                  <div className="flex justify-between">
+                    <span className="text-muted">Giao hàng</span>
+                    <span className="font-medium">Tự động, trong vài giây</span>
+                  </div>
+                  <div className="flex justify-between">
+                    <span className="text-muted">Đổi IP</span>
+                    <span className="font-medium">Có hỗ trợ</span>
+                  </div>
+                  <div className="flex justify-between">
+                    <span className="text-muted">Xem thông tin proxy</span>
+                    <span className="font-medium">Trang Đơn hàng, sau khi giao</span>
+                  </div>
+                </>
+              ) : (
+                <>
+                  {/* Show user config summary */}
+                  {visibleFields.map((f) => {
+                    const val = config[f.field];
+                    let display = String(val ?? "—");
+                    if (f.choices) {
+                      const choice = f.choices.find((c) => c.value === String(val));
+                      if (choice) display = choice.label;
+                    }
+                    return (
+                      <div key={f.field} className="flex justify-between">
+                        <span className="text-muted">{f.label}</span>
+                        <span className="font-medium">{display}</span>
+                      </div>
+                    );
+                  })}
+                  {options.strategy !== "task" && (
+                    <div className="flex justify-between">
+                      <span className="text-muted">Số lượng</span>
+                      <span className="font-medium">{qty}</span>
+                    </div>
+                  )}
+                </>
               )}
               {hasDiscount && calc.original_amount != null && (
                 <div className="flex justify-between">
@@ -283,6 +336,9 @@ export default function DynamicOrderForm({ productId, product, onOrderCreated }:
                 <Shield size={13} className="text-good mt-0.5 shrink-0" />
                 <span>Ký quỹ {product.escrow_days} ngày — tiền chỉ chuyển cho người bán khi bạn xác nhận hài lòng.</span>
               </div>
+              {isDproxy && (
+                <p className="text-[11.5px] text-faint">Nếu cấp phát thất bại, tiền được tự động hoàn lại vào ví của bạn.</p>
+              )}
               {placeError && <p className="text-bad text-[12.5px]">{placeError}</p>}
             </div>
             <div className="flex gap-2 px-5 py-3 border-t border-line">
@@ -297,6 +353,36 @@ export default function DynamicOrderForm({ productId, product, onOrderCreated }:
         </div>
       )}
     </>
+  );
+}
+
+/* ================================================================
+   DProxy purchase explainer — buyer không rành kỹ thuật cần biết ngay:
+   nhận được gì / dùng thế nào / giao bao lâu / đổi IP được không, trước
+   khi thấy bất kỳ form nào. Xem
+   docs/superpowers/plans/2026-07-22-dproxy-consolidated-review.md P1.
+   ================================================================ */
+
+function DProxyPurchaseExplainer() {
+  return (
+    <div className="rounded-lg bg-iris-soft/40 border border-iris/15 p-3.5 space-y-2.5">
+      <p className="text-[12.5px] text-fg leading-relaxed">
+        Bạn nhận được <strong>1 proxy riêng</strong> gồm Host, Port, Username và Password.
+        Proxy thường được giao tự động trong vài giây và có thể dùng trên trình duyệt, phần mềm
+        hoặc thiết bị hỗ trợ HTTP proxy. Nếu proxy gặp sự cố, bạn có thể tự đổi IP hoặc mở khiếu nại.
+      </p>
+      <div>
+        <p className="text-[10.5px] text-faint uppercase tracking-wider mb-1">Ví dụ dữ liệu bạn sẽ nhận</p>
+        <pre className="text-[11px] font-mono text-muted bg-surface/60 border border-line rounded-md p-2.5 whitespace-pre-wrap">
+{`Host: s4.dproxy.info
+Port: 20160
+Username: u_xxxxx
+Password: ••••••••
+IP hiện tại: 116.xxx.xxx.xxx`}
+        </pre>
+        <p className="text-[10.5px] text-faint mt-1">Đây chỉ là ví dụ minh hoạ — credential thật xuất hiện sau khi đơn được giao.</p>
+      </div>
+    </div>
   );
 }
 

@@ -78,7 +78,7 @@ function CopyIconButton({ text }: { text: string }) {
 // tách hẳn khỏi "Đổi gateway key" (seller_gateway/credit forward) để buyer
 // không nhầm hai khái niệm khác nhau: đây là đổi IP của MỘT proxy độc quyền
 // đã cấp, không phải cấp lại key truy cập.
-function OrderProxyPanel({ orderId }: { orderId: number }) {
+function OrderProxyPanel({ orderId, onDelivered }: { orderId: number; onDelivered?: (orderId: number, deliveredData: string) => void }) {
   const [state, setState] = useState<ProxyState | null>(null);
   const [applicable, setApplicable] = useState(true);
   const [rotating, setRotating] = useState(false);
@@ -113,6 +113,16 @@ function OrderProxyPanel({ orderId }: { orderId: number }) {
         cooldown_remaining_seconds: result.cooldown_seconds ?? 0,
       } : prev);
       setCooldown(result.cooldown_seconds ?? 0);
+      // Rotate can change more than IP (DProxy may rotate the password too —
+      // see docs/superpowers/plans/2026-07-22-dproxy-review-fixes.md Blocker
+      // 1), and this component only tracks sanitized proxy STATE, not the
+      // full delivered_data snapshot. Refetch the order so the "Dữ liệu bàn
+      // giao" block above stays in sync instead of showing a stale
+      // credential until the next full page load.
+      try {
+        const fresh = await api.getOrder(orderId);
+        if (fresh.delivered_data) onDelivered?.(orderId, fresh.delivered_data);
+      } catch { /* non-fatal — state panel above is already up to date */ }
     } catch (e: unknown) {
       setError(e instanceof Error ? e.message : "Đổi IP thất bại, vui lòng thử lại.");
     } finally {
@@ -665,7 +675,14 @@ export default function OrdersPage() {
                   </div>
                 )}
 
-                {(o.status === "delivered" || o.status === "completed") && <OrderProxyPanel orderId={o.id} />}
+                {(o.status === "delivered" || o.status === "completed") && (
+                  <OrderProxyPanel
+                    orderId={o.id}
+                    onDelivered={(id, deliveredData) =>
+                      setOrders((prev) => prev.map((ord) => (ord.id === id ? { ...ord, delivered_data: deliveredData } : ord)))
+                    }
+                  />
+                )}
 
                 {o.status === "delivered" && (
                   <div className="flex gap-2 mt-3.5">

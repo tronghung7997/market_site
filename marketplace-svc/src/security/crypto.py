@@ -8,7 +8,7 @@ from src.config import settings
 # Field names inside Provider.config considered sensitive enough to encrypt at
 # rest — everything else (base_url, health_endpoint, ...) stays plain so admin
 # UI can read it back without decrypting the whole blob.
-SENSITIVE_CONFIG_KEYS = {"api_key", "api_secret", "secret_key", "token"}
+SENSITIVE_CONFIG_KEYS = {"api_key", "api_secret", "secret_key", "token", "webhook_secret"}
 
 DEFAULT_ENCRYPTION_KEY = "dev-encryption-key-change-in-production"
 

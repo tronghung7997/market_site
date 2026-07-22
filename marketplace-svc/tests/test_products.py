@@ -1,4 +1,7 @@
 import pytest
+
+from src.database import SessionLocal
+from src.models.product import Product
 from tests.conftest import make_admin, make_seller, register_and_login
 
 
@@ -181,30 +184,52 @@ async def test_seller_cannot_set_pricing_on_others_product(client):
 
 
 @pytest.mark.asyncio
-async def test_seller_cannot_set_provider_or_commission_via_pricing_endpoint(client):
-    """SellerPricingUpdate schema chỉ có pricing_strategy/pricing_params — gửi
-    kèm provider_id/commission_rate phải bị Pydantic bỏ qua âm thầm (không có
-    field đó trong schema), không được lén set qua endpoint này."""
+async def test_seller_cannot_set_commission_via_pricing_endpoint(client):
+    """SellerPricingUpdate schema không có commission_rate — gửi kèm phải bị
+    Pydantic bỏ qua âm thầm, không được lén set qua endpoint này."""
     seller_token, admin_token, cat_id = await setup_seller_with_category(client)
     product = await client.post("/seller/products", json={
         "category_id": cat_id, "title": "No Sneaky Fields",
     }, headers={"Authorization": f"Bearer {seller_token}"})
     product_id = product.json()["id"]
 
-    provider = await client.post("/admin/providers", json={
-        "name": "SneakyProvider", "type": "proxy", "config": {},
-    }, headers={"Authorization": f"Bearer {admin_token}"})
-    provider_id = provider.json()["id"]
-
     resp = await client.put(f"/seller/products/{product_id}/pricing", json={
         "pricing_strategy": "fixed",
-        "provider_id": provider_id,
         "commission_rate": 50.0,
     }, headers={"Authorization": f"Bearer {seller_token}"})
     assert resp.status_code == 200
 
     detail = await client.get(f"/products/{product_id}")
     assert detail.json()["commission_rate"] is None
+
+
+@pytest.mark.asyncio
+async def test_seller_cannot_attach_a_provider_they_do_not_own_via_pricing_endpoint(client):
+    """provider_id GIỜ có trong SellerPricingUpdate (seller self-service —
+    spec 2026-07-21), nhưng chỉ nhận provider do CHÍNH seller đó tự đăng ký
+    và đã được duyệt. Một provider admin tạo (seller_id=None, "dùng chung")
+    không tự dưng gắn được qua đường này — đó vẫn là quyết định của admin
+    qua /admin/products/{id}/operations."""
+    seller_token, admin_token, cat_id = await setup_seller_with_category(client)
+    product = await client.post("/seller/products", json={
+        "category_id": cat_id, "title": "No Sneaky Provider",
+    }, headers={"Authorization": f"Bearer {seller_token}"})
+    product_id = product.json()["id"]
+
+    provider = await client.post("/admin/providers", json={
+        "name": "SharedProvider", "type": "proxy", "config": {},
+    }, headers={"Authorization": f"Bearer {admin_token}"})
+    provider_id = provider.json()["id"]
+
+    resp = await client.put(f"/seller/products/{product_id}/pricing", json={
+        "pricing_strategy": "fixed",
+        "provider_id": provider_id,
+    }, headers={"Authorization": f"Bearer {seller_token}"})
+    assert resp.status_code == 400
+
+    async with SessionLocal() as db:
+        product_row = await db.get(Product, product_id)
+        assert product_row.provider_id is None
 
 
 @pytest.mark.asyncio

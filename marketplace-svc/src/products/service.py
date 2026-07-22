@@ -275,6 +275,30 @@ async def get_product_detail(
     }
 
 
+def _validate_provider_assignment(provider: Provider | None, product: Product) -> None:
+    """Gắn provider vào product phải qua 2 cửa, bất kể ai gắn (admin hay seller):
+
+    - Chỉ provider `review_status == "approved"` mới được gắn — provider seller
+      tự đăng ký (Provider.seller_id != None) mặc định `pending_review`, admin
+      phải bấm duyệt trước (providers/service.py::review_provider).
+    - Provider có seller_id (do một seller cụ thể tự đăng ký) chỉ được gắn vào
+      SẢN PHẨM CỦA CHÍNH SELLER ĐÓ — admin duyệt xong không có nghĩa admin có
+      thể gắn backend riêng của seller B vào sản phẩm seller A.
+    """
+    if provider is None:
+        return
+    if provider.review_status != "approved":
+        raise HTTPException(
+            status_code=400,
+            detail="Provider này chưa được admin duyệt (review_status != approved)",
+        )
+    if provider.seller_id is not None and provider.seller_id != product.seller_id:
+        raise HTTPException(
+            status_code=400,
+            detail="Provider này do seller khác tự đăng ký — chỉ gắn được vào sản phẩm của chính seller đó",
+        )
+
+
 async def update_product_operations(product_id: int, data: dict, db: AsyncSession) -> Product:
     """Admin gắn provider + chiến lược giá cho một sản phẩm.
 
@@ -292,6 +316,7 @@ async def update_product_operations(product_id: int, data: dict, db: AsyncSessio
     effective_strategy = data.get("pricing_strategy", product.pricing_strategy)
 
     provider = await db.get(Provider, effective_provider_id) if effective_provider_id else None
+    _validate_provider_assignment(provider, product)
     if not effective_strategy:
         from src.pricing.engine import resolve_pricing
         effective_strategy, _ = await resolve_pricing(product, db)
@@ -308,13 +333,15 @@ async def update_product_operations(product_id: int, data: dict, db: AsyncSessio
 
 
 async def update_seller_pricing(product_id: int, seller_id: int, data: dict, db: AsyncSession) -> Product:
-    """Seller tự đặt chiến lược giá + tham số cho sản phẩm của mình.
+    """Seller tự đặt chiến lược giá + tham số cho sản phẩm của mình — và, từ
+    seller self-service (spec 2026-07-21 mục "Trạng thái triển khai"), tự gắn
+    một trong CÁC PROVIDER CỦA CHÍNH HỌ đã được admin duyệt.
 
-    provider_id và commission_rate vẫn admin-only (operations endpoint) — đây
-    chỉ là phần "giá tính sao", cùng mức rủi ro với việc seller đã tự đặt
-    variant.price ở strategy fixed. Vẫn chạy check_compatibility với provider
-    hiện có (nếu admin đã gán) để seller không tự đổi strategy sang thứ mà
-    provider đang gắn không hỗ trợ — cùng validate với update_product_operations.
+    commission_rate vẫn admin-only (operations endpoint). provider_id giờ có 2
+    đường: admin gắn bất kỳ provider nào (kể cả hạ tầng dùng chung) qua
+    /admin/products/{id}/operations, HOẶC seller tự gắn provider CỦA CHÍNH HỌ
+    (Provider.seller_id == seller_id) — không được gắn provider dùng chung
+    (seller_id=None) hay của seller khác, đó vẫn là quyết định của admin.
     """
     product = await db.get(Product, product_id)
     if not product:
@@ -323,7 +350,14 @@ async def update_seller_pricing(product_id: int, seller_id: int, data: dict, db:
         raise NotOwner()
 
     effective_strategy = data.get("pricing_strategy", product.pricing_strategy)
-    provider = await db.get(Provider, product.provider_id) if product.provider_id else None
+    effective_provider_id = data.get("provider_id", product.provider_id)
+    provider = await db.get(Provider, effective_provider_id) if effective_provider_id else None
+    if "provider_id" in data and provider is not None and provider.seller_id != seller_id:
+        raise HTTPException(
+            status_code=400,
+            detail="Seller chỉ tự gắn được provider do chính mình đăng ký — provider dùng chung hoặc của seller khác vẫn phải qua admin",
+        )
+    _validate_provider_assignment(provider, product)
     if not effective_strategy:
         from src.pricing.engine import resolve_pricing
         effective_strategy, _ = await resolve_pricing(product, db)

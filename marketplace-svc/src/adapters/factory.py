@@ -5,6 +5,7 @@ from src.adapters.manual import ManualAdapter
 from src.adapters.mock import MockAdapter
 from src.adapters.real_api import RealApiAdapter
 from src.adapters.seller_pool import SellerPoolAdapter
+from src.adapters.seller_task_webhook import SellerTaskWebhookAdapter
 from src.models.provider import Provider
 
 ADAPTER_MAP: dict[str, type[ProviderAdapter]] = {
@@ -13,6 +14,12 @@ ADAPTER_MAP: dict[str, type[ProviderAdapter]] = {
     "manual": ManualAdapter,
     "topproxy": RealApiAdapter,
     "scrapecreators": RealApiAdapter,
+    # Cùng cơ chế gọi HTTP thật với topproxy/scrapecreators (retry, idempotency,
+    # ProviderCallLog) — khác ở chỗ base_url trỏ vào backend do SELLER tự khai,
+    # không phải nhà cung cấp admin curate. Xem RealApiAdapter.call() (per-request
+    # forward, dùng bởi src/gateway/router.py) và spec 2026-07-21.
+    "seller_gateway": RealApiAdapter,
+    "seller_task_webhook": SellerTaskWebhookAdapter,
 }
 
 MAX_FALLBACK_DEPTH = 3
@@ -58,6 +65,9 @@ def _instantiate(provider: Provider, db: AsyncSession) -> ProviderAdapter:
 
     if adapter_cls in (SellerPoolAdapter, ManualAdapter):
         return adapter_cls(config, db=db)
+
+    if adapter_cls is SellerTaskWebhookAdapter:
+        return adapter_cls(config, db=db, provider_id=provider.id)
 
     if adapter_cls is RealApiAdapter:
         return adapter_cls(config, provider_id=provider.id)

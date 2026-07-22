@@ -13,6 +13,7 @@ from src.categories.router import router as categories_router
 from src.config import settings
 from src.debug.router import router as debug_router
 from src.disputes.router import router as disputes_router
+from src.gateway.router import router as gateway_router
 from src.logging import setup_logging
 from src.middleware import RequestIdMiddleware
 from src.notifications.router import router as notifications_router
@@ -23,7 +24,7 @@ from src.providers.router import router as providers_router
 from src.tasks.router import router as tasks_router
 from src.resources.router import router as resources_router
 from src.reviews.router import router as reviews_router
-from src.scheduler import escrow_release_job, health_check_job, provider_scoring_job, provision_sweep_job, resource_expire_job, sla_check_job
+from src.scheduler import escrow_release_job, health_check_job, provider_scoring_job, provision_sweep_job, resource_expire_job, sla_check_job, task_webhook_sla_job
 from src.security.crypto import using_default_encryption_key
 from src.seller.router import router as seller_router
 from src.seller_api_keys.router import router as seller_api_keys_router
@@ -48,6 +49,7 @@ scheduler.add_job(health_check_job, "interval", minutes=15, id="health_check")
 scheduler.add_job(resource_expire_job, "interval", minutes=15, id="resource_expire")
 scheduler.add_job(provider_scoring_job, "interval", minutes=15, id="provider_scoring")
 scheduler.add_job(provision_sweep_job, "interval", minutes=2, id="provision_sweep")
+scheduler.add_job(task_webhook_sla_job, "interval", minutes=30, id="task_webhook_sla")
 
 
 @asynccontextmanager
@@ -98,6 +100,7 @@ app.include_router(audit_router)
 app.include_router(affiliate_router)
 app.include_router(debug_router)
 app.include_router(usage_router)
+app.include_router(gateway_router)
 
 
 @app.get("/health")

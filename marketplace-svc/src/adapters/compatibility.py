@@ -20,6 +20,12 @@ ADAPTER_STRATEGY_COMPAT: dict[str, set[str] | None] = {
     "manual": {"task"},
     "topproxy": {"config", "credit"},
     "scrapecreators": {"config", "credit"},
+    # Per-request forward tới backend do seller tự khai (RealApiAdapter.call(),
+    # xem src/gateway/router.py) — chỉ hợp lý với credit vì buyer cần một gói
+    # quota/units_total để gateway trừ dần theo từng lần gọi.
+    "seller_gateway": {"credit"},
+    # POST task cho backend seller thay vì hàng đợi người xử lý tay (ManualAdapter).
+    "seller_task_webhook": {"task"},
 }
 
 

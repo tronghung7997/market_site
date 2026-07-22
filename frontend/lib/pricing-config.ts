@@ -25,6 +25,8 @@ export const ADAPTER_INFO: Record<string, { label: string; description: string }
   manual: { label: "Xử lý thủ công", description: "Đội vận hành nhận việc và xử lý tay, không tự động." },
   topproxy: { label: "TopProxy (API thật)", description: "Cấp phát tự động qua API của TopProxy." },
   scrapecreators: { label: "ScrapeCreators (API thật)", description: "Cấp phát tự động qua API của ScrapeCreators." },
+  seller_gateway: { label: "Gateway seller", description: "Mỗi lần buyer gọi, nền tảng forward qua API thật của seller và trừ credit — buyer không thấy base_url/api_key thật." },
+  seller_task_webhook: { label: "Webhook tác vụ seller", description: "Gửi tác vụ cho backend seller xử lý tự động, seller báo kết quả qua webhook thay vì admin xử lý tay." },
 };
 
 export const PARAM_LABELS: Record<string, string> = {

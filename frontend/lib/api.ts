@@ -201,6 +201,19 @@ export const api = {
   createProvider: (data: Record<string, unknown>) =>
     request<Provider>("/admin/providers", { method: "POST", body: JSON.stringify(data) }, true),
   providerHealth: (id: number) => request<ProviderHealth[]>(`/providers/${id}/health`, {}, true),
+  approveProvider: (id: number, note?: string) =>
+    request<Provider>(`/admin/providers/${id}/approve`, { method: "POST", body: JSON.stringify({ note: note ?? null }) }, true),
+  rejectProvider: (id: number, note?: string) =>
+    request<Provider>(`/admin/providers/${id}/reject`, { method: "POST", body: JSON.stringify({ note: note ?? null }) }, true),
+
+  // Seller self-service — seller đăng ký backend của chính họ (spec 2026-07-21).
+  sellerProviders: () => request<Provider[]>("/seller/providers", {}, true),
+  createSellerProvider: (data: { name: string; adapter_type: string; config: Record<string, unknown> }) =>
+    request<Provider>("/seller/providers", { method: "POST", body: JSON.stringify(data) }, true),
+  updateSellerProvider: (id: number, data: Record<string, unknown>) =>
+    request<Provider>(`/seller/providers/${id}`, { method: "PUT", body: JSON.stringify(data) }, true),
+  testSellerProvider: (id: number) =>
+    request<{ health: Record<string, unknown>; provision_test: Record<string, unknown> | null }>(`/seller/providers/${id}/test`, { method: "POST" }, true),
 
   submitReview: (orderId: number, rating: number, comment?: string) =>
     request<Review>(`/orders/${orderId}/review`, { method: "POST", body: JSON.stringify({ rating, comment: comment || null }) }, true),

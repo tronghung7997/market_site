@@ -266,6 +266,9 @@ export interface Provider {
   adapter_type: string;
   fallback_provider_id: number | null;
   quality_score: number | null;
+  seller_id: number | null;
+  review_status: "approved" | "pending_review" | "rejected" | "disabled";
+  review_note: string | null;
 }
 
 export interface ServiceTask {

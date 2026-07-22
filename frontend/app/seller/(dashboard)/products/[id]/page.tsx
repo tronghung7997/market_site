@@ -425,6 +425,17 @@ function OperationsTab({ productId }: { productId: number }) {
         const [pList, matrix] = await Promise.all([api.providers(), api.adapterCompatibility()]);
         setProviders(pList);
         setCompatMatrix(matrix);
+      } else {
+        // Seller thường chỉ được chọn trong CHÍNH provider của họ, và chỉ khi
+        // đã được admin duyệt — xem providers/service.py::_validate_provider_assignment.
+        try {
+          const [pList, matrix] = await Promise.all([api.sellerProviders(), api.adapterCompatibility()]);
+          setProviders(pList.filter((p) => p.review_status === "approved"));
+          setCompatMatrix(matrix);
+        } catch {
+          // Seller chưa đủ tier để tự đăng ký provider — bỏ qua, phần chọn
+          // provider tự phục vụ ẩn đi, seller vẫn xem được provider admin đã gán.
+        }
       }
     } catch {
       setError("Không tải được thông tin vận hành");
@@ -447,11 +458,13 @@ function OperationsTab({ productId }: { productId: number }) {
           pricing_params: editStrategy === "fixed" ? null : editParams,
         });
       } else {
-        // Seller thường: chỉ được sửa chiến lược giá + tham số cho sản phẩm của
-        // mình — provider_id vẫn admin-only, không gửi lên ở đây.
+        // Seller thường: sửa chiến lược giá + tham số CHO SẢN PHẨM CỦA MÌNH, và
+        // (mới) tự gắn được provider CỦA CHÍNH MÌNH đã được admin duyệt —
+        // provider dùng chung/của seller khác vẫn ngoài tầm, backend tự chặn.
         await api.updateSellerPricing(productId, {
           pricing_strategy: editStrategy,
           pricing_params: editStrategy === "fixed" ? null : editParams,
+          provider_id: editProviderId,
         });
       }
       setSaveMsg({ type: "ok", text: "Đã lưu cấu hình giá!" });
@@ -612,6 +625,45 @@ function OperationsTab({ productId }: { productId: number }) {
               </div>
             )}
           </div>
+        ) : providers.length > 0 ? (
+          <div className="space-y-3">
+            <Field label="Chọn backend của bạn" hint="Chỉ liệt kê backend do chính bạn đăng ký và đã được duyệt.">
+              <Select value={editProviderId ?? ""} onChange={(e) => { setEditProviderId(e.target.value ? Number(e.target.value) : null); markDirty(); }}>
+                <option value="">— Không gán —</option>
+                {providers.map((p) => {
+                  const compatible = isAdapterCompatible(p.adapter_type, editStrategy, compatMatrix);
+                  return (
+                    <option key={p.id} value={p.id} disabled={!compatible}>
+                      {p.name} ({p.adapter_type}){!compatible ? " — không tương thích" : ""}
+                    </option>
+                  );
+                })}
+              </Select>
+            </Field>
+            <p className="text-[12.5px] text-faint">
+              Quản lý ở <Link href="/seller/providers" className="text-iris-hi underline">Backend của tôi</Link> — muốn dùng hạ tầng dùng chung thì liên hệ admin.
+            </p>
+            {(() => {
+              const selected = providers.find((p) => p.id === editProviderId);
+              if (!selected || isAdapterCompatible(selected.adapter_type, editStrategy, compatMatrix)) return null;
+              return (
+                <Banner tone="bad" icon={<Info size={15} />}>
+                  Backend &quot;{selected.adapter_type}&quot; không tương thích với chiến lược &quot;{editStrategy}&quot; — lưu sẽ bị từ chối.
+                </Banner>
+              );
+            })()}
+            {ops.provider && (
+              <div className="flex items-center gap-3">
+                <span className="text-[13px] text-muted">Hiện tại:</span>
+                <span className="text-[13px] font-medium">{providerName}</span>
+                <Tag tone="iris">{aInfo.label}</Tag>
+                <div className="flex items-center gap-1.5">
+                  <span className={`w-2 h-2 rounded-full ${healthDot}`} />
+                  <span className="text-[12px] text-muted">{healthLabel}</span>
+                </div>
+              </div>
+            )}
+          </div>
         ) : (
           <>
             <div className="flex items-center gap-3">
@@ -623,6 +675,9 @@ function OperationsTab({ productId }: { productId: number }) {
               </div>
             </div>
             <p className="text-[13px] text-muted">{aInfo.description}</p>
+            <p className="text-[12.5px] text-faint">
+              Muốn tự đấu nối backend riêng? Đăng ký ở <Link href="/seller/providers" className="text-iris-hi underline">Backend của tôi</Link> (cần hạng trusted trở lên, chờ admin duyệt).
+            </p>
           </>
         )}
 

@@ -210,3 +210,70 @@ async def provider_scoring_job() -> None:
         updated = await apply_scores(db)
         await db.commit()
         logger.info("provider_scoring", updated=updated)
+
+
+TASK_WEBHOOK_SLA_SECONDS = 48 * 3600
+
+
+async def task_webhook_sla_job() -> None:
+    """Rescue `seller_task_webhook` orders whose seller never calls the
+    webhook back. sla_check_job (above) only covers the variant/manual-
+    delivery path (looks up variant.sla_hours); provision_sweep_job only
+    covers RealApiAdapter's one-shot provision. Neither watches an order that
+    went `processing` waiting on an external callback that may just never
+    arrive — this is that same class of "adapter fulfillment can go silent"
+    gap ManualAdapter has always had too (no timeout there either — an admin
+    is expected to notice a stale row in /admin/tasks), just newly reachable
+    by an outside party (the seller's own backend) instead of only by staff.
+
+    Timing out a task is done by feeding it back through the SAME
+    update_task()/_sync_order_status() path a real webhook would use — a
+    stuck task becomes `failed` with an explanatory result_data, and whatever
+    completed/partial-refund/full-refund logic already exists for "some tasks
+    failed" runs unchanged. No separate refund logic to keep in sync.
+    """
+    from src.models.product import Product
+    from src.models.service_task import ServiceTask, ServiceTaskStatus
+    from src.tasks.service import _TERMINAL, update_task
+
+    async with SessionLocal() as db:
+        job_id = str(uuid.uuid4())
+        deadline_before = datetime.now(timezone.utc) - timedelta(seconds=TASK_WEBHOOK_SLA_SECONDS)
+
+        result = await db.execute(
+            select(Order).where(
+                Order.status == OrderStatus.processing,
+                Order.product_id.isnot(None),
+                Order.created_at <= deadline_before,
+            )
+        )
+        stuck_orders = list(result.scalars().all())
+
+        for order in stuck_orders:
+            product = await db.get(Product, order.product_id)
+            if not product or not product.provider_id:
+                continue
+            provider = await db.get(Provider, product.provider_id)
+            if not provider or provider.adapter_type != "seller_task_webhook":
+                continue  # not this job's concern (e.g. ManualAdapter — see docstring)
+
+            tasks_result = await db.execute(select(ServiceTask).where(ServiceTask.order_id == order.id))
+            tasks = list(tasks_result.scalars().all())
+            pending = [t for t in tasks if t.status not in _TERMINAL]
+            if not pending:
+                continue  # already terminal, some other race is finishing it
+
+            for task in pending:
+                await update_task(
+                    task.id,
+                    {"status": ServiceTaskStatus.failed, "result_data": "Hết hạn chờ phản hồi từ seller (timeout)"},
+                    db,
+                )
+            await log_event(
+                db, "warning", f"Order {order.id}: {len(pending)} task(s) timed out waiting on seller webhook",
+                job_id=job_id,
+                metadata={"event": "task_webhook_sla_timeout", "order_id": order.id, "task_count": len(pending)},
+            )
+            await create_alert("task_webhook_timeout", "warning", "order", order.id,
+                               f"Đơn #{order.id}: seller không phản hồi webhook trong hạn, {len(pending)} tác vụ đã timeout", db)
+            logger.warning("task_webhook_sla_timeout", order_id=order.id, task_count=len(pending))

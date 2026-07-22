@@ -1,0 +1,259 @@
+"""Part A của docs/superpowers/specs/2026-07-21-seller-connect-gateway-design.md
+— seller tự đăng ký provider của họ (thay vì provider 100% do admin tạo),
+admin duyệt, chỉ provider approved mới gắn được vào product, và chỉ gắn được
+vào product của CHÍNH seller sở hữu provider đó.
+"""
+import pytest
+from sqlalchemy import update
+
+from src.database import SessionLocal
+from src.models.product import Product
+from src.models.provider import Provider
+
+from tests.conftest import make_admin, make_seller, register_and_login, set_seller_tier
+
+
+async def _trusted_seller(client, email):
+    token = await register_and_login(client, email)
+    await make_seller(email)
+    await set_seller_tier(email, "trusted")
+    return await register_and_login(client, email)
+
+
+async def _admin(client, email):
+    token = await register_and_login(client, email)
+    await make_admin(email)
+    return await register_and_login(client, email)
+
+
+async def _product_for_seller(client, admin_token, seller_token, suffix):
+    await client.post("/admin/categories", json={"name": f"SS{suffix}", "slug": f"ss{suffix}"},
+                      headers={"Authorization": f"Bearer {admin_token}"})
+    cats = await client.get("/categories")
+    cat_id = cats.json()[-1]["id"]
+    resp = await client.post("/seller/products", json={
+        "category_id": cat_id, "title": f"Product {suffix}", "status": "active", "escrow_days": 2,
+        "service_type": "endpoint",
+    }, headers={"Authorization": f"Bearer {seller_token}"})
+    assert resp.status_code == 201, resp.text
+    return resp.json()["id"]
+
+
+class TestSellerProviderCreation:
+    @pytest.mark.asyncio
+    async def test_requires_trusted_tier(self, client):
+        seller_token = await register_and_login(client, "ss_newbie@example.com")
+        await make_seller("ss_newbie@example.com")
+        seller_token = await register_and_login(client, "ss_newbie@example.com")
+
+        resp = await client.post("/seller/providers", json={
+            "name": "My Backend", "adapter_type": "seller_gateway",
+            "config": {"base_url": "https://x.example.com", "api_key": "k"},
+        }, headers={"Authorization": f"Bearer {seller_token}"})
+        assert resp.status_code == 403
+
+    @pytest.mark.asyncio
+    async def test_defaults_to_pending_review(self, client):
+        seller_token = await _trusted_seller(client, "ss_a1@example.com")
+        resp = await client.post("/seller/providers", json={
+            "name": "My Backend", "adapter_type": "seller_gateway",
+            "config": {"base_url": "https://x.example.com", "api_key": "k"},
+        }, headers={"Authorization": f"Bearer {seller_token}"})
+        assert resp.status_code == 201, resp.text
+        body = resp.json()
+        assert body["review_status"] == "pending_review"
+        assert body["seller_id"] is not None
+
+    @pytest.mark.asyncio
+    async def test_rejects_disallowed_adapter_types(self, client):
+        seller_token = await _trusted_seller(client, "ss_a2@example.com")
+        for bad_type in ("mock", "seller_pool", "manual", "topproxy", "scrapecreators"):
+            resp = await client.post("/seller/providers", json={
+                "name": "x", "adapter_type": bad_type, "config": {},
+            }, headers={"Authorization": f"Bearer {seller_token}"})
+            assert resp.status_code == 400, f"{bad_type} should be rejected"
+
+    @pytest.mark.asyncio
+    async def test_seller_task_webhook_still_requires_webhook_secret(self, client):
+        seller_token = await _trusted_seller(client, "ss_a3@example.com")
+        resp = await client.post("/seller/providers", json={
+            "name": "x", "adapter_type": "seller_task_webhook",
+            "config": {"base_url": "https://x.example.com"},  # no webhook_secret
+        }, headers={"Authorization": f"Bearer {seller_token}"})
+        assert resp.status_code == 400
+
+
+class TestSellerProviderOwnershipIsolation:
+    @pytest.mark.asyncio
+    async def test_seller_b_cannot_see_or_edit_seller_a_provider(self, client):
+        seller_a = await _trusted_seller(client, "ss_ownA@example.com")
+        seller_b = await _trusted_seller(client, "ss_ownB@example.com")
+
+        create_resp = await client.post("/seller/providers", json={
+            "name": "A's backend", "adapter_type": "seller_gateway",
+            "config": {"base_url": "https://a.example.com", "api_key": "k"},
+        }, headers={"Authorization": f"Bearer {seller_a}"})
+        provider_id = create_resp.json()["id"]
+
+        get_resp = await client.get(f"/seller/providers/{provider_id}", headers={"Authorization": f"Bearer {seller_b}"})
+        assert get_resp.status_code == 403  # NotOwner
+
+        put_resp = await client.put(f"/seller/providers/{provider_id}", json={
+            "config": {"base_url": "https://hijacked.example.com"},
+        }, headers={"Authorization": f"Bearer {seller_b}"})
+        assert put_resp.status_code == 403
+
+        test_resp = await client.post(f"/seller/providers/{provider_id}/test", headers={"Authorization": f"Bearer {seller_b}"})
+        assert test_resp.status_code == 403
+
+        list_resp = await client.get("/seller/providers", headers={"Authorization": f"Bearer {seller_b}"})
+        assert list_resp.json() == []
+
+
+class TestApprovalGatesProductAttachment:
+    @pytest.mark.asyncio
+    async def test_seller_cannot_attach_unapproved_provider(self, client):
+        admin_token = await _admin(client, "ss_gate_admin1@example.com")
+        seller_token = await _trusted_seller(client, "ss_gate_s1@example.com")
+        product_id = await _product_for_seller(client, admin_token, seller_token, "g1")
+
+        provider_resp = await client.post("/seller/providers", json={
+            "name": "Not yet approved", "adapter_type": "seller_gateway",
+            "config": {"base_url": "https://x.example.com", "api_key": "k"},
+        }, headers={"Authorization": f"Bearer {seller_token}"})
+        provider_id = provider_resp.json()["id"]
+
+        resp = await client.put(f"/seller/products/{product_id}/pricing", json={
+            "pricing_strategy": "credit", "pricing_params": {"credit_price": 100},
+            "provider_id": provider_id,
+        }, headers={"Authorization": f"Bearer {seller_token}"})
+        assert resp.status_code == 400
+        assert "duyệt" in resp.json()["detail"]
+
+    @pytest.mark.asyncio
+    async def test_seller_can_attach_own_provider_once_approved(self, client):
+        admin_token = await _admin(client, "ss_gate_admin2@example.com")
+        seller_token = await _trusted_seller(client, "ss_gate_s2@example.com")
+        product_id = await _product_for_seller(client, admin_token, seller_token, "g2")
+
+        provider_resp = await client.post("/seller/providers", json={
+            "name": "Will be approved", "adapter_type": "seller_gateway",
+            "config": {"base_url": "https://x.example.com", "api_key": "k"},
+        }, headers={"Authorization": f"Bearer {seller_token}"})
+        provider_id = provider_resp.json()["id"]
+
+        approve_resp = await client.post(f"/admin/providers/{provider_id}/approve", json={
+            "note": "looks fine",
+        }, headers={"Authorization": f"Bearer {admin_token}"})
+        assert approve_resp.status_code == 200
+        assert approve_resp.json()["review_status"] == "approved"
+
+        resp = await client.put(f"/seller/products/{product_id}/pricing", json={
+            "pricing_strategy": "credit", "pricing_params": {"credit_price": 100},
+            "provider_id": provider_id,
+        }, headers={"Authorization": f"Bearer {seller_token}"})
+        assert resp.status_code == 200, resp.text
+
+        async with SessionLocal() as db:
+            product = await db.get(Product, product_id)
+            assert product.provider_id == provider_id
+
+    @pytest.mark.asyncio
+    async def test_seller_cannot_attach_another_sellers_provider(self, client):
+        admin_token = await _admin(client, "ss_gate_admin3@example.com")
+        seller_a = await _trusted_seller(client, "ss_gate_s3a@example.com")
+        seller_b = await _trusted_seller(client, "ss_gate_s3b@example.com")
+        product_b = await _product_for_seller(client, admin_token, seller_b, "g3b")
+
+        provider_resp = await client.post("/seller/providers", json={
+            "name": "A's backend", "adapter_type": "seller_gateway",
+            "config": {"base_url": "https://a.example.com", "api_key": "k"},
+        }, headers={"Authorization": f"Bearer {seller_a}"})
+        provider_id = provider_resp.json()["id"]
+        await client.post(f"/admin/providers/{provider_id}/approve", json={},
+                          headers={"Authorization": f"Bearer {admin_token}"})
+
+        resp = await client.put(f"/seller/products/{product_b}/pricing", json={
+            "pricing_strategy": "credit", "pricing_params": {"credit_price": 100},
+            "provider_id": provider_id,
+        }, headers={"Authorization": f"Bearer {seller_b}"})
+        assert resp.status_code == 400
+        assert "seller khác" in resp.json()["detail"] or "chính mình" in resp.json()["detail"]
+
+    @pytest.mark.asyncio
+    async def test_admin_cannot_attach_seller_owned_provider_to_a_different_sellers_product(self, client):
+        """Even admin, who CAN attach any provider via the operations endpoint,
+        must not be able to point seller A's private backend at seller B's
+        product — that constraint exists regardless of who is doing the
+        attaching."""
+        admin_token = await _admin(client, "ss_gate_admin4@example.com")
+        seller_a = await _trusted_seller(client, "ss_gate_s4a@example.com")
+        seller_b = await _trusted_seller(client, "ss_gate_s4b@example.com")
+        product_b = await _product_for_seller(client, admin_token, seller_b, "g4b")
+
+        provider_resp = await client.post("/seller/providers", json={
+            "name": "A's backend", "adapter_type": "seller_gateway",
+            "config": {"base_url": "https://a.example.com", "api_key": "k"},
+        }, headers={"Authorization": f"Bearer {seller_a}"})
+        provider_id = provider_resp.json()["id"]
+        await client.post(f"/admin/providers/{provider_id}/approve", json={},
+                          headers={"Authorization": f"Bearer {admin_token}"})
+
+        resp = await client.put(f"/admin/products/{product_b}/operations", json={
+            "provider_id": provider_id, "pricing_strategy": "credit",
+            "pricing_params": {"credit_price": 100},
+        }, headers={"Authorization": f"Bearer {admin_token}"})
+        assert resp.status_code == 400
+
+    @pytest.mark.asyncio
+    async def test_editing_config_after_approval_resets_to_pending_review(self, client):
+        admin_token = await _admin(client, "ss_gate_admin5@example.com")
+        seller_token = await _trusted_seller(client, "ss_gate_s5@example.com")
+
+        provider_resp = await client.post("/seller/providers", json={
+            "name": "x", "adapter_type": "seller_gateway",
+            "config": {"base_url": "https://x.example.com", "api_key": "k"},
+        }, headers={"Authorization": f"Bearer {seller_token}"})
+        provider_id = provider_resp.json()["id"]
+        await client.post(f"/admin/providers/{provider_id}/approve", json={},
+                          headers={"Authorization": f"Bearer {admin_token}"})
+
+        update_resp = await client.put(f"/seller/providers/{provider_id}", json={
+            "config": {"base_url": "https://x.example.com", "api_key": "rotated-key"},
+        }, headers={"Authorization": f"Bearer {seller_token}"})
+        assert update_resp.status_code == 200
+        assert update_resp.json()["review_status"] == "pending_review", (
+            "editing credentials after approval must require re-review, not silently stay approved"
+        )
+
+    @pytest.mark.asyncio
+    async def test_admin_reject_records_note(self, client):
+        admin_token = await _admin(client, "ss_gate_admin6@example.com")
+        seller_token = await _trusted_seller(client, "ss_gate_s6@example.com")
+
+        provider_resp = await client.post("/seller/providers", json={
+            "name": "x", "adapter_type": "seller_gateway",
+            "config": {"base_url": "https://x.example.com", "api_key": "k"},
+        }, headers={"Authorization": f"Bearer {seller_token}"})
+        provider_id = provider_resp.json()["id"]
+
+        reject_resp = await client.post(f"/admin/providers/{provider_id}/reject", json={
+            "note": "base_url không phản hồi",
+        }, headers={"Authorization": f"Bearer {admin_token}"})
+        assert reject_resp.status_code == 200
+        assert reject_resp.json()["review_status"] == "rejected"
+        assert reject_resp.json()["review_note"] == "base_url không phản hồi"
+
+    @pytest.mark.asyncio
+    async def test_review_endpoint_rejects_admin_owned_providers(self, client):
+        """approve/reject only makes sense for a seller-submitted provider —
+        an admin-created one was never pending anything."""
+        admin_token = await _admin(client, "ss_gate_admin7@example.com")
+        provider_resp = await client.post("/admin/providers", json={
+            "name": "Admin infra", "type": "endpoint", "config": {}, "priority": 1, "adapter_type": "mock",
+        }, headers={"Authorization": f"Bearer {admin_token}"})
+        provider_id = provider_resp.json()["id"]
+
+        resp = await client.post(f"/admin/providers/{provider_id}/approve", json={},
+                                 headers={"Authorization": f"Bearer {admin_token}"})
+        assert resp.status_code == 400

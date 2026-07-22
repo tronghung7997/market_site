@@ -2,6 +2,7 @@ from datetime import datetime
 from enum import Enum as PyEnum
 
 from sqlalchemy import DateTime, Enum, ForeignKey, Integer, String, func
+from sqlalchemy.dialects.postgresql import JSONB
 from sqlalchemy.orm import Mapped, mapped_column
 
 from src.database import Base
@@ -11,6 +12,10 @@ class UsageRecordStatus(str, PyEnum):
     ok = "ok"
     rejected_quota = "rejected_quota"
     rejected_expired = "rejected_expired"
+    # Ghi bởi refund_usage() (usage/service.py) khi một forward qua gateway
+    # thất bại — không có dòng này, lịch sử vẫn còn một bản ghi `ok` dù
+    # units_used đã được trừ ngược, khiến tổng "ok" không khớp balance thật.
+    refunded = "refunded"
 
 
 class OrderBalance(Base):
@@ -31,6 +36,13 @@ class OrderBalance(Base):
     units_total: Mapped[int] = mapped_column(Integer, nullable=False)
     units_used: Mapped[int] = mapped_column(Integer, default=0, nullable=False)
     expires_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True), nullable=True)
+    # Frozen from product.pricing_params at delivery time — same reasoning as
+    # units_total: what the buyer bought shouldn't drift if the seller edits
+    # pricing_params afterward. NULL = every endpoint costs `default_rate`
+    # (itself NULL = 1) — the gateway's pre-existing flat-1-unit behavior,
+    # unchanged unless a seller actually configures per-endpoint pricing.
+    endpoint_rates: Mapped[dict | None] = mapped_column(JSONB, nullable=True)
+    default_rate: Mapped[int | None] = mapped_column(Integer, nullable=True)
     created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), server_default=func.now())
     updated_at: Mapped[datetime] = mapped_column(
         DateTime(timezone=True), server_default=func.now(), onupdate=func.now()

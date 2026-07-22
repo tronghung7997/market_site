@@ -35,6 +35,9 @@ class ProviderResponse(BaseModel):
     adapter_type: str = "mock"
     fallback_provider_id: int | None = None
     quality_score: float | None = None
+    seller_id: int | None = None
+    review_status: str = "approved"
+    review_note: str | None = None
 
     model_config = {"from_attributes": True}
 
@@ -53,3 +56,29 @@ class ProviderHealthResponse(BaseModel):
     status: str
 
     model_config = {"from_attributes": True}
+
+
+# ---------------------------------------------------------------------------
+# Seller self-service (Part A của spec 2026-07-21) — seller đăng ký backend
+# của chính họ, luôn pending_review cho tới khi admin duyệt.
+# ---------------------------------------------------------------------------
+
+# Chỉ 2 adapter_type này gọi ra một backend NGOÀI nền tảng do seller tự khai —
+# mock/seller_pool/manual là luồng nội bộ, topproxy/scrapecreators là hạ tầng
+# admin-curate dùng chung, không phải thứ một seller đơn lẻ được tự nhận.
+SELLER_ALLOWED_ADAPTER_TYPES = {"seller_gateway", "seller_task_webhook"}
+
+
+class SellerProviderCreate(BaseModel):
+    name: str
+    adapter_type: str
+    config: dict = {}
+
+
+class SellerProviderUpdate(BaseModel):
+    config: dict | None = None
+    is_active: bool | None = None
+
+
+class AdminProviderReview(BaseModel):
+    note: str | None = None

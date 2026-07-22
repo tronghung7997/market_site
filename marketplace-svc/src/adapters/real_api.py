@@ -120,6 +120,35 @@ class RealApiAdapter(ProviderAdapter):
             logger.error("real_api_provision_failed", order_id=order_id, error=str(e))
             return ProvisionResult(success=False, error="Không thể kết nối nhà cung cấp")
 
+    async def call(
+        self,
+        order_id: int,
+        path: str,
+        *,
+        method: str = "GET",
+        params: dict | None = None,
+        json_body: dict | None = None,
+    ) -> httpx.Response:
+        """Forward one buyer request to the seller's real backend — the
+        per-request counterpart to `provision()`. Used by the gateway router
+        (`src/gateway/router.py`) for strategy=credit orders on a
+        `seller_gateway` provider: retries/logging are the same machinery as
+        `provision()`. The idempotency key is fresh per call (not per order —
+        an order makes many calls over its lifetime) so internal retries of
+        *this* call collapse to one, without the seller's backend mistaking
+        two distinct buyer calls for a replay of the same one.
+        """
+        idempotency_key = f"order-{order_id}-{uuid4()}"
+        return await self._request_with_retry(
+            method, path,
+            operation="gateway_call",
+            order_id=order_id,
+            idempotency_key=idempotency_key,
+            headers=self._headers(idempotency_key),
+            params=params,
+            json=json_body,
+        )
+
     async def check_health(self) -> dict:
         try:
             resp = await self._request_with_retry(

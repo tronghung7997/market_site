@@ -63,8 +63,17 @@ async def _sync_order_status(task: ServiceTask, db: AsyncSession) -> str | None:
                            total_amount giảm đi phần refund để escrow release
                            sau này chỉ trả seller phần thực làm
     - fail toàn bộ      -> cancelled + refund đủ
+
+    `with_for_update=True` trên order: trước đây chỉ 1 admin bấm nút cập
+    nhật 1 task một lúc nên đường này chưa bao giờ chạy song song thật —
+    seller_task_webhook (2026-07-21) đổi điều đó, seller có thể gọi webhook
+    cho 2 task cuối gần như cùng lúc. Không khoá, cả 2 request đều đọc thấy
+    "chưa xong hết" (mỗi bên chưa thấy commit của bên kia) rồi cùng bỏ qua —
+    order kẹt `processing` vĩnh viễn dù trên thực tế mọi task đã xong. Khoá
+    dòng order buộc request thứ hai đợi request thứ nhất commit xong rồi mới
+    đọc lại — thấy đúng trạng thái mới nhất, tính đúng một lần duy nhất.
     """
-    order = await db.get(Order, task.order_id)
+    order = await db.get(Order, task.order_id, with_for_update=True)
     if not order:
         return None
     if order.status != OrderStatus.processing:

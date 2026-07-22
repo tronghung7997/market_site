@@ -5,7 +5,7 @@ import { usePathname, useRouter } from "next/navigation";
 import { useEffect } from "react";
 import { useAuth } from "@/lib/auth";
 import { cn } from "@/lib/cn";
-import { BarChart, Edit2, Inbox, Package, Plug, Store, Rows, Wallet } from "@/components/Icons";
+import { Activity, BarChart, Edit2, Inbox, Package, Plug, Store, Rows, Wallet } from "@/components/Icons";
 import NotificationBell from "@/components/NotificationBell";
 import { Spinner } from "@/components/ui";
 import type { ReactNode } from "react";
@@ -16,6 +16,7 @@ const NAV = [
   { href: "/seller/inventory", label: "Kho hàng", icon: Rows },
   { href: "/seller/orders", label: "Đơn hàng", icon: Inbox },
   { href: "/seller/withdrawals", label: "Rút tiền", icon: Wallet },
+  { href: "/seller/providers", label: "Backend của tôi", icon: Activity },
   { href: "/seller/api-settings", label: "API", icon: Plug },
 ];
 

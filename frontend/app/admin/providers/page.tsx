@@ -26,9 +26,11 @@ const ADAPTER_DESCRIPTIONS: Record<string, { label: string; desc: string; icon: 
   manual: { label: "Thủ công", desc: "Team nội bộ xử lý thủ công (takedown, custom)", icon: "M16 7a4 4 0 11-8 0 4 4 0 018 0zM12 14a7 7 0 00-7 7h14a7 7 0 00-7-7z" },
   topproxy: { label: "TopProxy", desc: "Kết nối API nhà cung cấp proxy thật", icon: "M13 10V3L4 14h7v7l9-11h-7z" },
   scrapecreators: { label: "ScrapCreators", desc: "Kết nối API nhà cung cấp scraping thật", icon: "M13 10V3L4 14h7v7l9-11h-7z" },
+  seller_gateway: { label: "Gateway seller", desc: "Forward từng request qua API thật của seller, buyer không thấy credential", icon: "M8 9l3 3-3 3m5 0h3M5 21h14a2 2 0 002-2V5a2 2 0 00-2-2H5a2 2 0 00-2 2v14a2 2 0 002 2z" },
+  seller_task_webhook: { label: "Webhook tác vụ seller", desc: "Gửi tác vụ cho backend seller, nhận kết quả qua webhook", icon: "M8 7h12m0 0l-4-4m4 4l-4 4M16 17H4m0 0l4 4m-4-4l4-4" },
 };
 
-const ADAPTER_OPTIONS = ["mock", "seller_pool", "manual", "topproxy", "scrapecreators"];
+const ADAPTER_OPTIONS = ["mock", "seller_pool", "manual", "topproxy", "scrapecreators", "seller_gateway", "seller_task_webhook"];
 
 const HEALTH_MAP: Record<string, { color: string; label: string }> = {
   healthy: { color: "var(--color-good)", label: "Lành mạnh" },
@@ -455,12 +457,14 @@ function AdapterConnectionFields({
     );
   }
 
-  if (adapterType === "topproxy" || adapterType === "scrapecreators") {
+  if (adapterType === "topproxy" || adapterType === "scrapecreators" || adapterType === "seller_gateway") {
     return (
       <div className="space-y-4">
         <div className="rounded-lg bg-iris-soft/50 border border-iris/20 p-3">
           <p className="text-[12px] text-iris-hi">
-            Nhập API key và base URL để kết nối với nhà cung cấp.{" "}
+            {adapterType === "seller_gateway"
+              ? "Base URL/API key của backend do SELLER tự cung cấp — buyer gọi qua platform (/gw/{key}/...), không bao giờ thấy 2 giá trị này."
+              : "Nhập API key và base URL để kết nối với nhà cung cấp."}{" "}
             {providerId != null ? "Dùng nút Test để kiểm tra trước khi lưu." : "Lưu xong mới test kết nối được."}
           </p>
         </div>
@@ -489,6 +493,63 @@ function AdapterConnectionFields({
             </Button>
             <Button variant="secondary" size="sm" onClick={() => onTest("provision")} disabled={testing}>
               {testing ? "Đang test..." : "Test cấp phát"}
+            </Button>
+          </div>
+        )}
+
+        {testResult && (
+          <Card className="p-3">
+            <h4 className="text-[11px] font-semibold text-muted uppercase tracking-wide mb-2">Kết quả test</h4>
+            <pre className="text-[11px] font-mono text-fg whitespace-pre-wrap overflow-x-auto">
+              {JSON.stringify(testResult, null, 2)}
+            </pre>
+          </Card>
+        )}
+      </div>
+    );
+  }
+
+  if (adapterType === "seller_task_webhook") {
+    return (
+      <div className="space-y-4">
+        <div className="rounded-lg bg-iris-soft/50 border border-iris/20 p-3">
+          <p className="text-[12px] text-iris-hi">
+            Mỗi tác vụ được POST tới base URL của seller (<code>/v1/tasks</code>); seller báo kết quả
+            qua webhook <code>/webhooks/providers/&#123;id&#125;/tasks/&#123;external_task_id&#125;</code>,
+            ký bằng webhook secret bên dưới.
+          </p>
+        </div>
+
+        <Field label="API Key">
+          <Input
+            type="password"
+            value={(config.api_key as string) ?? ""}
+            onChange={(e) => onChange({ ...config, api_key: e.target.value })}
+            placeholder="Nhập API key..."
+          />
+        </Field>
+
+        <Field label="Base URL">
+          <Input
+            value={(config.base_url as string) ?? ""}
+            onChange={(e) => onChange({ ...config, base_url: e.target.value })}
+            placeholder="https://api.example.com"
+          />
+        </Field>
+
+        <Field label="Webhook secret">
+          <Input
+            type="password"
+            value={(config.webhook_secret as string) ?? ""}
+            onChange={(e) => onChange({ ...config, webhook_secret: e.target.value })}
+            placeholder="Dùng để ký/xác thực callback từ seller"
+          />
+        </Field>
+
+        {providerId != null && onTest && (
+          <div className="flex gap-2">
+            <Button variant="secondary" size="sm" onClick={() => onTest("health")} disabled={testing}>
+              {testing ? "Đang test..." : "Test kết nối"}
             </Button>
           </div>
         )}
@@ -878,14 +939,32 @@ function StatCard({ label, value, sub }: { label: string; value: string | number
    Provider Card
    ================================================================ */
 
+const REVIEW_STATUS_TONE: Record<string, "good" | "warn" | "bad" | "neutral"> = {
+  approved: "good",
+  pending_review: "warn",
+  rejected: "bad",
+  disabled: "neutral",
+};
+
+const REVIEW_STATUS_LABEL: Record<string, string> = {
+  approved: "Đã duyệt",
+  pending_review: "Chờ duyệt",
+  rejected: "Đã từ chối",
+  disabled: "Đã tắt",
+};
+
 function ProviderCard({
   provider,
   onConfigure,
   onTest,
+  onApprove,
+  onReject,
 }: {
   provider: ExpandedProvider;
   onConfigure: () => void;
   onTest: () => void;
+  onApprove: () => void;
+  onReject: () => void;
 }) {
   const latest = provider.health && provider.health.length > 0 ? provider.health[0] : null;
   const healthInfo = latest ? HEALTH_MAP[latest.status] : null;
@@ -939,7 +1018,16 @@ function ProviderCard({
           </Tag>
         )}
         {needsApiSetup && <Tag tone="bad">Chưa cấu hình API</Tag>}
+        {provider.seller_id != null && (
+          <Tag tone={REVIEW_STATUS_TONE[provider.review_status] ?? "neutral"}>
+            Seller #{provider.seller_id} · {REVIEW_STATUS_LABEL[provider.review_status] ?? provider.review_status}
+          </Tag>
+        )}
       </div>
+
+      {provider.review_status === "rejected" && provider.review_note && (
+        <p className="text-[11.5px] text-bad">Lý do từ chối: {provider.review_note}</p>
+      )}
 
       {/* Actions */}
       <div className="flex gap-2 mt-auto pt-1">
@@ -950,6 +1038,16 @@ function ProviderCard({
           Cấu hình
         </Button>
       </div>
+      {provider.seller_id != null && provider.review_status === "pending_review" && (
+        <div className="flex gap-2 -mt-1">
+          <Button variant="secondary" size="sm" className="flex-1 border-good/40 text-good" onClick={onApprove}>
+            Duyệt
+          </Button>
+          <Button variant="secondary" size="sm" className="flex-1 border-bad/40 text-bad" onClick={onReject}>
+            Từ chối
+          </Button>
+        </div>
+      )}
     </Card>
   );
 }
@@ -1023,6 +1121,18 @@ export default function AdminProvidersPage() {
     setEditProvider(expanded);
   };
 
+  const handleApprove = async (provider: ExpandedProvider) => {
+    const note = window.prompt("Ghi chú (tuỳ chọn) khi duyệt:") ?? undefined;
+    const updated = await api.approveProvider(provider.id, note || undefined);
+    setProviders((prev) => prev.map((p) => (p.id === provider.id ? { ...p, ...updated } : p)));
+  };
+
+  const handleReject = async (provider: ExpandedProvider) => {
+    const note = window.prompt("Lý do từ chối:") ?? undefined;
+    const updated = await api.rejectProvider(provider.id, note || undefined);
+    setProviders((prev) => prev.map((p) => (p.id === provider.id ? { ...p, ...updated } : p)));
+  };
+
   const handleQuickTest = async (provider: ExpandedProvider) => {
     setTestingId(provider.id);
     setTestResult(null);
@@ -1092,6 +1202,8 @@ export default function AdminProvidersPage() {
                 provider={p}
                 onConfigure={() => setEditProvider(p)}
                 onTest={() => handleQuickTest(p)}
+                onApprove={() => handleApprove(p)}
+                onReject={() => handleReject(p)}
               />
             ))}
           </div>

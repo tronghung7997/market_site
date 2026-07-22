@@ -21,6 +21,13 @@ class Provider(Base):
     fallback_provider_id: Mapped[int | None] = mapped_column(
         ForeignKey("providers.id"), nullable=True
     )
+    # NULL = admin-owned platform infrastructure (topproxy/scrapecreators/mock/
+    # seller_pool/manual) — unchanged from before, shared across sellers.
+    # Set = a seller registered their own backend; only usable on THEIR OWN
+    # products, and only once approved.
+    seller_id: Mapped[int | None] = mapped_column(ForeignKey("accounts.id"), nullable=True, index=True)
+    review_status: Mapped[str] = mapped_column(String(20), default="approved")
+    review_note: Mapped[str | None] = mapped_column(Text, nullable=True)
 
 
 class ProviderHealth(Base):

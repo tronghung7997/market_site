@@ -15,6 +15,8 @@ class Settings(BaseSettings):
     platform_fee_percent: int = 0
     encryption_key: str = "dev-encryption-key-change-in-production"
     frontend_base_url: str = "http://localhost:3000"
+    # Used to build the callback_url a seller_task_webhook provider POSTs back to.
+    backend_base_url: str = "http://localhost:8001"
     default_affiliate_commission_percent: float = 0.0
 
 

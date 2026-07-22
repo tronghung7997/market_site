@@ -8,7 +8,9 @@ from sqlalchemy.ext.asyncio import AsyncSession
 from src.adapters.compatibility import check_compatibility
 from src.adapters.factory import get_adapter
 from src.adapters.real_api import RealApiAdapter
+from src.config import settings
 from src.database import SessionLocal
+from src.gateway.service import mint_gateway_key
 from src.models.account import Account
 from src.models.order import Dispute, Order, OrderStatus
 from src.models.provider import Provider
@@ -19,7 +21,7 @@ from src.pricing.engine import quote_product, resolve_pricing
 from src.resources.service import claim_resources
 from src.audit.service import log_event, query_logs
 from src.logging import current_request_id
-from src.sellers.tiers import escrow_days as tier_escrow_days
+from src.sellers.tiers import escrow_days as tier_escrow_days, platform_fee_percent
 from src.usage.service import create_balance_for_order, get_usage_summary
 from src.wallet.service import deduct_credit, refund_escrow, release_escrow
 
@@ -79,11 +81,21 @@ async def create_order(buyer_id: int, variant_id: int, quantity: int, db: AsyncS
 
 
 async def _apply_provision_result(
-    order: Order, product: Product, provision_result, db: AsyncSession, rid: str | None
+    order: Order, product: Product, provision_result, db: AsyncSession, rid: str | None,
+    *, resolved_provider_id: int | None = None,
 ) -> None:
     """Move an order to its post-provision state. Shared by all three callers:
-    the inline path, the background task, and the stuck-order sweeper."""
+    the inline path, the background task, and the stuck-order sweeper.
+
+    `resolved_provider_id` is the provider that ACTUALLY fulfilled this order
+    (post-fallback — `adapter.provider_id` when the adapter tracks one,
+    else `product.provider_id`), snapshotted onto the order. The gateway
+    router resolves through `order.provider_id`, not `product.provider_id`,
+    so re-linking the product to a different provider later can't silently
+    redirect a buyer's already-sold gateway key to a different seller.
+    """
     if provision_result.success:
+        order.provider_id = resolved_provider_id
         if (provision_result.metadata or {}).get("async_fulfillment"):
             # Xử lý thủ công: order chờ task hoàn thành, chưa bắt đầu escrow
             order.status = OrderStatus.processing
@@ -100,12 +112,22 @@ async def _apply_provision_result(
             order.escrow_expires_at = datetime.now(timezone.utc) + timedelta(
                 days=tier_escrow_days(seller.seller_tier if seller else "new", product.escrow_days)
             )
-            strategy_name, _ = await resolve_pricing(product, db)
+            strategy_name, strategy_params = await resolve_pricing(product, db)
             if strategy_name == "credit":
                 # order.quantity = package_size buyer đã trả tiền mua (xem
                 # CreditPricing._subtotal) — chốt số dư ngay lúc giao, không
-                # đọc lại cấu hình sản phẩm sau này.
-                await create_balance_for_order(order, db)
+                # đọc lại cấu hình sản phẩm sau này. endpoint_rates chốt cùng lúc.
+                await create_balance_for_order(order, db, pricing_params=strategy_params)
+                provider = await db.get(Provider, resolved_provider_id) if resolved_provider_id else None
+                if provider and provider.adapter_type == "seller_gateway":
+                    # seller_gateway: buyer không bao giờ thấy base_url/api_key
+                    # thật của seller — chỉ một key nền tảng tự cấp, gọi qua
+                    # POST/GET /gw/{key}/<endpoint> (src/gateway/router.py).
+                    gateway_key = await mint_gateway_key(order)
+                    order.delivered_data = (
+                        f"Gateway key: {gateway_key}\n"
+                        f"Gọi qua: {settings.backend_base_url}/gw/{gateway_key}/<endpoint>"
+                    )
             await log_event(
                 db, "info", f"Order {order.id} provisioned via adapter", request_id=rid,
                 metadata={"event": "order_provisioned", "order_id": order.id,
@@ -226,7 +248,10 @@ async def create_order_with_adapter(
         await db.refresh(order)
         return order
 
-    await _apply_provision_result(order, product, provision_result, db, rid)
+    resolved_provider_id = getattr(adapter, "provider_id", None) or product.provider_id
+    await _apply_provision_result(
+        order, product, provision_result, db, rid, resolved_provider_id=resolved_provider_id,
+    )
 
     await db.commit()
     await db.refresh(order)
@@ -268,7 +293,10 @@ async def provision_pending_order(order_id: int) -> None:
             await db.commit()
             return
 
-        await _apply_provision_result(order, product, provision_result, db, None)
+        resolved_provider_id = getattr(adapter, "provider_id", None) or product.provider_id
+        await _apply_provision_result(
+            order, product, provision_result, db, None, resolved_provider_id=resolved_provider_id,
+        )
         await db.commit()
 
 
@@ -294,7 +322,10 @@ async def confirm_order(order_id: int, buyer_id: int, db: AsyncSession) -> Order
     if order.status != OrderStatus.delivered:
         raise HTTPException(status_code=400, detail="Đơn hàng chưa được giao")
     order.status = OrderStatus.completed
-    await release_escrow(order.id, order.seller_id, order.total_amount, platform_fee=0, db=db)
+    seller = await db.get(Account, order.seller_id)
+    fee_percent = platform_fee_percent(seller.seller_tier if seller else "new")
+    platform_fee = int(order.total_amount * fee_percent / 100)
+    await release_escrow(order.id, order.seller_id, order.total_amount, platform_fee, db=db)
     from src.affiliate.service import apply_affiliate_commission
     await apply_affiliate_commission(order, db)
     await log_event(db, "info", f"Order {order.id} confirmed by buyer", request_id=current_request_id(),

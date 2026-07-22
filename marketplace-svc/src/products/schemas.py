@@ -111,8 +111,12 @@ class ProductOperationsUpdate(BaseModel):
 
 class SellerPricingUpdate(BaseModel):
     """pricing_strategy/pricing_params do seller tự set trên sản phẩm của mình —
-    tương tự việc seller đã tự đặt variant.price ở strategy fixed. provider_id
-    và commission_rate KHÔNG có ở đây, vẫn admin-only qua /admin/products/{id}/operations."""
+    tương tự việc seller đã tự đặt variant.price ở strategy fixed.
+    commission_rate KHÔNG có ở đây, vẫn admin-only qua /admin/products/{id}/operations.
+    provider_id GIỜ có — nhưng chỉ chấp nhận provider do chính seller đó tự
+    đăng ký và đã được duyệt (products/service.py::update_seller_pricing
+    validate lại, không tin schema layer)."""
 
     pricing_strategy: str | None = None
     pricing_params: dict | None = None
+    provider_id: int | None = None

@@ -134,6 +134,26 @@ export interface TimelineEvent {
   timestamp: string;
 }
 
+// Sanitized DProxy allocation state for the buyer dashboard — never carries
+// rotate_path, provider base_url/API key, or the internal allocation id
+// (see src/resources/proxy_router.py::get_proxy_state).
+export interface ProxyState {
+  status: "allocated" | "expired" | "released" | "error";
+  public_ip: string | null;
+  expires_at: string;
+  rotation_available: boolean;
+  cooldown_remaining_seconds: number;
+  last_rotated_at: string | null;
+}
+
+export interface ProxyRotateResult {
+  ok: boolean;
+  public_ip: string | null;
+  last_rotated_at: string;
+  cooldown_seconds: number | null;
+  expires_at: string;
+}
+
 export interface ResourceInfo {
   id: number;
   status: string;

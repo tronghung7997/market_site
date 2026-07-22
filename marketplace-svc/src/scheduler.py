@@ -277,3 +277,100 @@ async def task_webhook_sla_job() -> None:
             await create_alert("task_webhook_timeout", "warning", "order", order.id,
                                f"Đơn #{order.id}: seller không phản hồi webhook trong hạn, {len(pending)} tác vụ đã timeout", db)
             logger.warning("task_webhook_sla_timeout", order_id=order.id, task_count=len(pending))
+
+
+async def dproxy_reconciliation_job() -> None:
+    """Batched health/lifecycle sweep for DProxy allocations (plan Task 7,
+    docs/superpowers/specs/2026-07-22-dproxy-integration.md). One
+    list_assignments() call per provider, then every active binding for
+    that provider is reconciled in memory by external_id — never one list
+    request per order.
+
+    Marks bindings expired/missing/error without deleting audit history.
+    Never assigns a replacement credential to an already-delivered order —
+    a binding whose upstream assignment disappeared before the
+    marketplace-side expiry is flagged `error` + alerted, not silently
+    re-provisioned. Does not auto-refund; that is an explicit business
+    policy decision the plan defers (default: flag + alert only).
+    """
+    from src.adapters.dproxy import DProxyAdapter, DProxyAuthError, DProxyContractError, DProxyUnavailableError
+    from src.adapters.factory import get_adapter
+    from src.models.proxy_allocation import ProxyAllocation, ProxyAllocationStatus
+    from src.resources.proxy_service import apply_rotated_assignment
+
+    async with SessionLocal() as db:
+        now = datetime.now(timezone.utc)
+
+        providers = list((await db.execute(
+            select(Provider).where(Provider.adapter_type == "dproxy", Provider.is_active)
+        )).scalars().all())
+
+        for provider in providers:
+            try:
+                adapter = await get_adapter(provider.id, db)
+            except ValueError:
+                continue
+            if not isinstance(adapter, DProxyAdapter):
+                continue
+
+            try:
+                assignments = await adapter.list_assignments()
+            except DProxyAuthError:
+                await create_alert("dproxy_auth_error", "critical", "provider", provider.id,
+                                   f"Provider {provider.name}: sai thông tin xác thực DProxy", db)
+                continue
+            except DProxyUnavailableError:
+                await create_alert("dproxy_unavailable", "warning", "provider", provider.id,
+                                   f"Provider {provider.name}: không kết nối được DProxy", db)
+                continue
+            except DProxyContractError:
+                await create_alert("dproxy_contract_error", "critical", "provider", provider.id,
+                                   f"Provider {provider.name}: DProxy trả về dữ liệu không hợp lệ", db)
+                continue
+
+            by_external_id: dict[str, object] = {}
+            duplicate_count = 0
+            for a in assignments:
+                if a.external_id in by_external_id:
+                    duplicate_count += 1
+                by_external_id[a.external_id] = a
+            if duplicate_count:
+                await create_alert(
+                    "dproxy_duplicate_external_id", "warning", "provider", provider.id,
+                    f"Provider {provider.name}: {duplicate_count} external_id trùng lặp trong tồn kho", db,
+                )
+
+            bindings = list((await db.execute(
+                select(ProxyAllocation).where(
+                    ProxyAllocation.provider_id == provider.id,
+                    ProxyAllocation.status == ProxyAllocationStatus.allocated,
+                )
+            )).scalars().all())
+
+            for allocation in bindings:
+                match = by_external_id.get(allocation.external_id)
+                if match is not None:
+                    # Metadata refresh only — never touches Order.delivered_data;
+                    # only the buyer-triggered rotate endpoint does that.
+                    apply_rotated_assignment(allocation, match)
+                    continue
+                if allocation.expires_at <= now:
+                    allocation.status = ProxyAllocationStatus.expired
+                else:
+                    allocation.status = ProxyAllocationStatus.error
+                    order = await db.get(Order, allocation.order_id)
+                    order_status = order.status.value if order else "unknown"
+                    await create_alert(
+                        "dproxy_allocation_disappeared", "critical", "order", allocation.order_id,
+                        f"Đơn #{allocation.order_id} (proxy {allocation.external_id}): biến mất khỏi "
+                        f"DProxy trước hạn marketplace (order {order_status})", db,
+                    )
+                    logger.warning("dproxy_allocation_disappeared", order_id=allocation.order_id,
+                                   allocation_id=allocation.id, external_id=allocation.external_id)
+
+            logger.info(
+                "dproxy_reconciliation", provider_id=provider.id, usable=len(assignments),
+                bound=len(bindings), rotation_capable=sum(1 for a in assignments if a.rotation_available),
+            )
+
+        await db.commit()

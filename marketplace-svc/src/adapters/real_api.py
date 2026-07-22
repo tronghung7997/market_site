@@ -65,7 +65,12 @@ class RealApiAdapter(ProviderAdapter):
             await validate_seller_base_url(f"{self.base_url}/")
 
         last_error: Exception | None = None
-        async with httpx.AsyncClient(timeout=_TIMEOUT) as client:
+        # follow_redirects=False is httpx's default already; set explicitly —
+        # a redirect response from a provider we don't fully trust (seller-
+        # supplied, or DProxy's rotate call which must never silently follow
+        # a 3xx to an unvalidated location) must come back as a plain
+        # Response, not be transparently followed.
+        async with httpx.AsyncClient(timeout=_TIMEOUT, follow_redirects=False) as client:
             for attempt in range(_MAX_ATTEMPTS):
                 started = time.perf_counter()
                 status_code: int | None = None

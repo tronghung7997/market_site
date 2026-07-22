@@ -6,7 +6,7 @@ import { useCallback, useEffect, useState } from "react";
 import { api, vnd } from "@/lib/api";
 import { useAuth } from "@/lib/auth";
 import { cn } from "@/lib/cn";
-import type { Dispute, Order, OrderStats, Resource } from "@/lib/types";
+import type { Dispute, Order, OrderStats, ProxyState, Resource } from "@/lib/types";
 import { EVIDENCE_TYPES, evidenceFieldLabel, evidenceTypeLabel } from "@/lib/dispute-evidence";
 import { Shield, Star, Package, Clock, Info, Wallet, Copy, ChevronRight } from "@/components/Icons";
 import ServiceDashboard from "@/components/ServiceDashboard";
@@ -71,6 +71,76 @@ function CopyIconButton({ text }: { text: string }) {
     >
       <Copy size={11} /> {copied ? "Đã sao chép" : "Sao chép"}
     </button>
+  );
+}
+
+// Chỉ order dùng adapter dproxy có state này (backend 404 với order khác) —
+// tách hẳn khỏi "Đổi gateway key" (seller_gateway/credit forward) để buyer
+// không nhầm hai khái niệm khác nhau: đây là đổi IP của MỘT proxy độc quyền
+// đã cấp, không phải cấp lại key truy cập.
+function OrderProxyPanel({ orderId }: { orderId: number }) {
+  const [state, setState] = useState<ProxyState | null>(null);
+  const [applicable, setApplicable] = useState(true);
+  const [rotating, setRotating] = useState(false);
+  const [error, setError] = useState<string | null>(null);
+  const [cooldown, setCooldown] = useState(0);
+
+  const load = useCallback(async () => {
+    try {
+      const s = await api.orderProxyState(orderId);
+      setState(s);
+      setCooldown(s.cooldown_remaining_seconds);
+    } catch {
+      setApplicable(false);
+    }
+  }, [orderId]);
+
+  useEffect(() => { load(); }, [load]);
+
+  useEffect(() => {
+    if (cooldown <= 0) return;
+    const t = setInterval(() => setCooldown((c) => Math.max(0, c - 1)), 1000);
+    return () => clearInterval(t);
+  }, [cooldown]);
+
+  const handleRotate = async () => {
+    setError(null);
+    setRotating(true);
+    try {
+      const result = await api.rotateOrderProxy(orderId);
+      setState((prev) => prev ? {
+        ...prev, public_ip: result.public_ip, last_rotated_at: result.last_rotated_at,
+        cooldown_remaining_seconds: result.cooldown_seconds ?? 0,
+      } : prev);
+      setCooldown(result.cooldown_seconds ?? 0);
+    } catch (e: unknown) {
+      setError(e instanceof Error ? e.message : "Đổi IP thất bại, vui lòng thử lại.");
+    } finally {
+      setRotating(false);
+    }
+  };
+
+  if (!applicable || !state) return null;
+
+  return (
+    <div className="mt-3 px-3 py-2.5 rounded-lg bg-raised border border-line">
+      <div className="flex items-center justify-between flex-wrap gap-2">
+        <div>
+          <p className="text-faint text-[11px] uppercase tracking-wider mb-0.5">Proxy hiện tại</p>
+          <p className="font-mono text-[13px]">{state.public_ip ?? "—"}</p>
+        </div>
+        {state.rotation_available && (
+          <Button size="sm" variant="secondary" onClick={handleRotate} disabled={rotating || cooldown > 0}>
+            {rotating ? "Đang đổi IP…" : cooldown > 0 ? `Đổi IP (${cooldown}s)` : "Đổi IP"}
+          </Button>
+        )}
+      </div>
+      <p className="text-[11px] text-faint mt-1.5">
+        Hết hạn {new Date(state.expires_at).toLocaleString("vi-VN")}
+        {state.last_rotated_at && ` · Đổi IP lần cuối ${new Date(state.last_rotated_at).toLocaleString("vi-VN")}`}
+      </p>
+      {error && <p className="text-[12px] text-bad mt-1.5">{error}</p>}
+    </div>
   );
 }
 
@@ -591,6 +661,8 @@ export default function OrdersPage() {
                     <pre className="font-mono text-[12px] bg-raised border border-line rounded-lg p-2.5 whitespace-pre-wrap break-all">{o.delivered_data}</pre>
                   </div>
                 )}
+
+                {(o.status === "delivered" || o.status === "completed") && <OrderProxyPanel orderId={o.id} />}
 
                 {o.status === "delivered" && (
                   <div className="flex gap-2 mt-3.5">

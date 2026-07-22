@@ -44,8 +44,11 @@ async def set_seller_tier(email, tier):
 
 
 @pytest.fixture(autouse=True)
-async def clean_db():
+async def clean_db(request):
     """Truncate all tables before each test so the suite is isolated and re-runnable."""
+    if request.node.get_closest_marker("no_db"):
+        yield
+        return
     async with engine.begin() as conn:
         result = await conn.execute(
             text(

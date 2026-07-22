@@ -26,6 +26,10 @@ ADAPTER_STRATEGY_COMPAT: dict[str, set[str] | None] = {
     "seller_gateway": {"credit"},
     # POST task cho backend seller thay vì hàng đợi người xử lý tay (ManualAdapter).
     "seller_task_webhook": {"task"},
+    # Gói proxy — "config" cho sản phẩm tuỳ chọn (loại/mạng/thời hạn), "credit"
+    # cho gói theo số lượng cố định. Xem
+    # docs/superpowers/specs/2026-07-22-dproxy-integration.md.
+    "dproxy": {"config", "credit"},
 }
 
 

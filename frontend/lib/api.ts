@@ -1,5 +1,5 @@
 import type {
-  Account, ActionItem, AdminDisputeDetail, AdminOrderDetail, AdminProduct, AdminResourceListResponse, AffiliateStats, AffiliateSummary, CalculateResult, Category, ChargeUsageResult, DashboardData, Dispute, FundOverview, AccountAdminRow, PaginatedAccounts, LogEntry, Order, OrderStats, PaginatedAffiliateSummary, PaginatedOrderResponse, PricingField, PricingOptions, ProductDetail, Product, ProductOperations, Review, SellerApplication, SellerProduct, SellerStats, ServiceTask, Transaction, Variant, Wallet, WithdrawRequest, Provider, ProviderHealth, Alert, Resource, ResourceSummary, InventoryVariant, SellerSummary, SellerProfile, SellerApiKey, SellerApiKeyCreated,
+  Account, ActionItem, AdminDisputeDetail, AdminOrderDetail, AdminProduct, AdminResourceListResponse, AffiliateStats, AffiliateSummary, CalculateResult, Category, ChargeUsageResult, DashboardData, Dispute, FundOverview, AccountAdminRow, PaginatedAccounts, LogEntry, Order, OrderStats, PaginatedAffiliateSummary, PaginatedOrderResponse, PricingField, PricingOptions, ProductDetail, Product, ProductOperations, ProxyState, ProxyRotateResult, Review, SellerApplication, SellerProduct, SellerStats, ServiceTask, Transaction, Variant, Wallet, WithdrawRequest, Provider, ProviderHealth, Alert, Resource, ResourceSummary, InventoryVariant, SellerSummary, SellerProfile, SellerApiKey, SellerApiKeyCreated,
 } from "./types";
 
 const BASE = process.env.NEXT_PUBLIC_API_URL
@@ -105,6 +105,10 @@ export const api = {
       body: JSON.stringify({ reason, evidence_type: evidenceType ?? null, evidence: evidence ?? null }),
     }, true),
   orderDispute: (orderId: number) => request<Dispute>(`/orders/${orderId}/dispute`, {}, true),
+
+  orderProxyState: (orderId: number) => request<ProxyState>(`/orders/${orderId}/proxy`, {}, true),
+  rotateOrderProxy: (orderId: number) =>
+    request<ProxyRotateResult>(`/orders/${orderId}/proxy/rotate`, { method: "POST" }, true),
 
   sellerApply: (data: { business_name: string; description?: string; contact?: string }) =>
     request<SellerApplication>("/seller/apply", { method: "POST", body: JSON.stringify(data) }, true),

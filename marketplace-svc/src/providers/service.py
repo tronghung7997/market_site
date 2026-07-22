@@ -2,6 +2,7 @@ from fastapi import HTTPException
 from sqlalchemy import select
 from sqlalchemy.ext.asyncio import AsyncSession
 
+from src.adapters.dproxy import validate_dproxy_config
 from src.exceptions import NotOwner
 from src.models.provider import Provider, ProviderHealth
 from src.providers.schemas import SELLER_ALLOWED_ADAPTER_TYPES
@@ -29,6 +30,8 @@ async def create_provider(data: dict, db: AsyncSession) -> Provider:
     if not data.get("type"):
         data["type"] = data.get("adapter_type", "mock")
     _check_webhook_secret(data.get("adapter_type"), data.get("config"))
+    if data.get("adapter_type") == "dproxy":
+        await validate_dproxy_config(data.get("config") or {})
     if "config" in data and data["config"]:
         data["config"] = encrypt_config(data["config"])
     provider = Provider(**data)
@@ -49,6 +52,8 @@ async def update_provider(provider_id: int, updates: dict, db: AsyncSession) -> 
     next_adapter_type = updates.get("adapter_type", provider.adapter_type)
     next_config = updates["config"] if "config" in updates else provider.config
     _check_webhook_secret(next_adapter_type, next_config)
+    if next_adapter_type == "dproxy" and "config" in updates:
+        await validate_dproxy_config(updates["config"] or {})
 
     if "config" in updates and updates["config"]:
         updates["config"] = encrypt_config(updates["config"])

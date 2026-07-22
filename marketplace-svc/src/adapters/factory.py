@@ -1,6 +1,7 @@
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from src.adapters.base import ProviderAdapter
+from src.adapters.dproxy import DProxyAdapter
 from src.adapters.manual import ManualAdapter
 from src.adapters.mock import MockAdapter
 from src.adapters.real_api import RealApiAdapter
@@ -20,6 +21,10 @@ ADAPTER_MAP: dict[str, type[ProviderAdapter]] = {
     # forward, dùng bởi src/gateway/router.py) và spec 2026-07-21.
     "seller_gateway": RealApiAdapter,
     "seller_task_webhook": SellerTaskWebhookAdapter,
+    # Admin-curated rotatable proxy — xem
+    # docs/superpowers/specs/2026-07-22-dproxy-integration.md. Không thuộc
+    # SELLER_ALLOWED_ADAPTER_TYPES, seller không tự đăng ký được.
+    "dproxy": DProxyAdapter,
 }
 
 MAX_FALLBACK_DEPTH = 3
@@ -70,6 +75,9 @@ def _instantiate(provider: Provider, db: AsyncSession) -> ProviderAdapter:
         return adapter_cls(
             config, db=db, provider_id=provider.id, seller_owned=provider.seller_id is not None,
         )
+
+    if adapter_cls is DProxyAdapter:
+        return adapter_cls(config, db=db, provider_id=provider.id)
 
     if adapter_cls is RealApiAdapter:
         return adapter_cls(config, provider_id=provider.id, seller_owned=provider.seller_id is not None)

@@ -18,6 +18,7 @@ const ADAPTER_COLORS: Record<string, string> = {
   manual: "bg-warn-soft text-warn border-warn/25",
   topproxy: "bg-iris-soft text-iris-hi border-iris/25",
   scrapecreators: "bg-iris-soft text-iris-hi border-iris/25",
+  dproxy: "bg-iris-soft text-iris-hi border-iris/25",
 };
 
 const ADAPTER_DESCRIPTIONS: Record<string, { label: string; desc: string; icon: string }> = {
@@ -28,9 +29,10 @@ const ADAPTER_DESCRIPTIONS: Record<string, { label: string; desc: string; icon: 
   scrapecreators: { label: "ScrapCreators", desc: "Kết nối API nhà cung cấp scraping thật", icon: "M13 10V3L4 14h7v7l9-11h-7z" },
   seller_gateway: { label: "Gateway seller", desc: "Forward từng request qua API thật của seller, buyer không thấy credential", icon: "M8 9l3 3-3 3m5 0h3M5 21h14a2 2 0 002-2V5a2 2 0 00-2-2H5a2 2 0 00-2 2v14a2 2 0 002 2z" },
   seller_task_webhook: { label: "Webhook tác vụ seller", desc: "Gửi tác vụ cho backend seller, nhận kết quả qua webhook", icon: "M8 7h12m0 0l-4-4m4 4l-4 4M16 17H4m0 0l4 4m-4-4l4-4" },
+  dproxy: { label: "DProxy", desc: "Proxy xoay IP — mỗi đơn được cấp một proxy độc quyền, buyer tự đổi IP", icon: "M4 4v5h.582m15.356 2A8.001 8.001 0 004.582 9m0 0H9m11 11v-5h-.581m0 0a8.003 8.003 0 01-15.357-2m15.357 2H15" },
 };
 
-const ADAPTER_OPTIONS = ["mock", "seller_pool", "manual", "topproxy", "scrapecreators", "seller_gateway", "seller_task_webhook"];
+const ADAPTER_OPTIONS = ["mock", "seller_pool", "manual", "topproxy", "scrapecreators", "seller_gateway", "seller_task_webhook", "dproxy"];
 
 const HEALTH_MAP: Record<string, { color: string; label: string }> = {
   healthy: { color: "var(--color-good)", label: "Lành mạnh" },
@@ -566,6 +568,94 @@ function AdapterConnectionFields({
     );
   }
 
+  if (adapterType === "dproxy") {
+    const authType = (config.auth_type as string) ?? "bearer";
+    return (
+      <div className="space-y-4">
+        <div className="rounded-lg bg-iris-soft/50 border border-iris/20 p-3">
+          <p className="text-[12px] text-iris-hi">
+            Nền tảng gọi <code>GET list_path</code> để lấy tồn kho proxy và cấp độc quyền cho từng đơn.
+            Buyer tự đổi IP qua nút &quot;Đổi IP&quot; — không bao giờ thấy base_url/api_key thật.{" "}
+            {providerId != null ? "Dùng nút Test để kiểm tra trước khi lưu." : "Lưu xong mới test kết nối được."}
+          </p>
+        </div>
+
+        <Field label="Base URL">
+          <Input
+            value={(config.base_url as string) ?? ""}
+            onChange={(e) => onChange({ ...config, base_url: e.target.value })}
+            placeholder="https://api.dproxy.example"
+          />
+        </Field>
+
+        <Field label="API Key">
+          <Input
+            type="password"
+            value={(config.api_key as string) ?? ""}
+            onChange={(e) => onChange({ ...config, api_key: e.target.value })}
+            placeholder="Nhập API key..."
+          />
+        </Field>
+
+        <Field label="Kiểu xác thực">
+          <Select
+            value={authType}
+            onChange={(e) => onChange({ ...config, auth_type: e.target.value })}
+          >
+            <option value="bearer">Authorization: Bearer</option>
+            <option value="header">Header tuỳ chỉnh</option>
+          </Select>
+        </Field>
+
+        {authType === "header" && (
+          <Field label="Tên header xác thực">
+            <Input
+              value={(config.auth_header as string) ?? ""}
+              onChange={(e) => onChange({ ...config, auth_header: e.target.value })}
+              placeholder="X-API-Key"
+            />
+          </Field>
+        )}
+
+        <Field label="List path" hint="Mặc định /api/v1/proxies/user nếu để trống.">
+          <Input
+            value={(config.list_path as string) ?? ""}
+            onChange={(e) => onChange({ ...config, list_path: e.target.value })}
+            placeholder="/api/v1/proxies/user"
+          />
+        </Field>
+
+        <Field label="Rotate method">
+          <Select
+            value={(config.rotate_method as string) ?? "POST"}
+            onChange={(e) => onChange({ ...config, rotate_method: e.target.value })}
+          >
+            <option value="POST">POST</option>
+            <option value="GET">GET</option>
+            <option value="PUT">PUT</option>
+          </Select>
+        </Field>
+
+        {providerId != null && onTest && (
+          <div className="flex gap-2">
+            <Button variant="secondary" size="sm" onClick={() => onTest("health")} disabled={testing}>
+              {testing ? "Đang test..." : "Test kết nối"}
+            </Button>
+          </div>
+        )}
+
+        {testResult && (
+          <Card className="p-3">
+            <h4 className="text-[11px] font-semibold text-muted uppercase tracking-wide mb-2">Kết quả test</h4>
+            <pre className="text-[11px] font-mono text-fg whitespace-pre-wrap overflow-x-auto">
+              {JSON.stringify(testResult, null, 2)}
+            </pre>
+          </Card>
+        )}
+      </div>
+    );
+  }
+
   return null;
 }
 
@@ -970,10 +1060,10 @@ function ProviderCard({
   const healthInfo = latest ? HEALTH_MAP[latest.status] : null;
   const adapterInfo = ADAPTER_DESCRIPTIONS[provider.adapter_type];
   const adapterCls = ADAPTER_COLORS[provider.adapter_type] ?? "bg-surface text-muted border-line-2";
-  // mock/seller_pool/manual không cần API thật — chỉ topproxy/scrapecreators
+  // mock/seller_pool/manual không cần API thật — chỉ topproxy/scrapecreators/dproxy
   // mới cần api_key + base_url, thiếu 1 trong 2 là chưa dùng được dù đã tạo.
   const needsApiSetup =
-    (provider.adapter_type === "topproxy" || provider.adapter_type === "scrapecreators")
+    (provider.adapter_type === "topproxy" || provider.adapter_type === "scrapecreators" || provider.adapter_type === "dproxy")
     && (!provider.config?.api_key || !provider.config?.base_url);
 
   return (
@@ -1112,11 +1202,11 @@ export default function AdminProvidersPage() {
     const expanded: ExpandedProvider = { ...created, health: [] };
     setProviders((prev) => [...prev, expanded]);
     setCreatingProvider(false);
-    // topproxy/scrapecreators cần api_key/base_url thật trước khi dùng được —
+    // topproxy/scrapecreators/dproxy cần api_key/base_url thật trước khi dùng được —
     // đưa thẳng vào tab đó để test kết nối ngay, khỏi phải tự tìm nút Cấu hình
     // lần nữa. Loại còn lại (mock/seller_pool/manual) không cần API nên việc
     // tiếp theo có ích nhất là gắn sản phẩm luôn.
-    const needsApiSetup = created.adapter_type === "topproxy" || created.adapter_type === "scrapecreators";
+    const needsApiSetup = created.adapter_type === "topproxy" || created.adapter_type === "scrapecreators" || created.adapter_type === "dproxy";
     setEditProviderInitialTab(needsApiSetup ? "api" : "products");
     setEditProvider(expanded);
   };

@@ -5,6 +5,7 @@ from unittest.mock import AsyncMock, MagicMock
 import pytest
 
 from src.adapters.base import ProvisionResult
+from src.adapters.dproxy import DProxyAdapter
 from src.adapters.factory import get_adapter
 from src.adapters.manual import ManualAdapter
 from src.adapters.mock import MockAdapter
@@ -148,6 +149,15 @@ class TestAdapterFactory:
 
         adapter = await get_adapter(3, db)
         assert isinstance(adapter, ManualAdapter)
+
+    @pytest.mark.asyncio
+    async def test_returns_dproxy_adapter(self):
+        provider = _make_provider(4, adapter_type="dproxy", config={"base_url": "https://dproxy.example.com"})
+        db = AsyncMock()
+        db.get = AsyncMock(return_value=provider)
+
+        adapter = await get_adapter(4, db)
+        assert isinstance(adapter, DProxyAdapter)
 
     @pytest.mark.asyncio
     async def test_follows_fallback_chain(self):

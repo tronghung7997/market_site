@@ -58,6 +58,26 @@ curl -sS -X POST \
 
 An immediate second rotation returns `429` plus `Retry-After`.
 
+## Catalog and on-demand purchase
+
+`GET /api/v1/catalog` reports what the deployment currently supports
+selecting on — any key can be `null`, meaning that dimension isn't offered
+(the buyer-facing form should then not require/show it):
+
+```bash
+curl -sS http://127.0.0.1:9201/api/v1/catalog \
+  -H 'Authorization: Bearer mock-dproxy-token'
+```
+
+`POST /api/v1/proxies/order` buys ONE fresh assignment matching the given
+country/type/duration (`quantity` must be `1`):
+
+```bash
+curl -sS -X POST http://127.0.0.1:9201/api/v1/proxies/order \
+  -H 'Authorization: Bearer mock-dproxy-token' -H 'Content-Type: application/json' \
+  -d '{"country":"VN","type":"residential","duration_days":7,"quantity":1}'
+```
+
 ## Deterministic E2E controls
 
 Control calls use a different credential:
@@ -89,6 +109,15 @@ curl -sS -X PUT http://127.0.0.1:9201/_mock/mode \
   -d '{"mode":"list_empty"}'
 ```
 
+Reconfigure the catalog to simulate a deployment that doesn't support a given
+dimension (e.g. no country support — set it to `null`):
+
+```bash
+curl -sS -X PUT http://127.0.0.1:9201/_mock/catalog \
+  -H "$CONTROL" -H 'Content-Type: application/json' \
+  -d '{"countries":null,"types":["residential","datacenter"],"durations_days":[3,7,30]}'
+```
+
 Make one assignment offline, expired, or non-rotatable:
 
 ```bash
@@ -108,11 +137,14 @@ curl -sS http://127.0.0.1:9201/_mock/state -H "$CONTROL"
 
 1. Start Postgres/Redis, marketplace backend, frontend, and this mock.
 2. Admin creates and tests an `adapter_type=dproxy` provider using the config above.
-3. Admin links the approved provider to a proxy product using `credit` pricing
-   with `package_size` fixed at 1 — DProxy only supports `credit` (see
-   docs/superpowers/plans/2026-07-22-dproxy-consolidated-review.md P0#1);
-   `config` pricing would let a buyer pick type/network/duration options
-   fulfillment can't honor.
+3. Admin links the approved provider to a proxy product using either pricing
+   strategy: `credit` with `package_size` fixed at 1 for a no-selection
+   "quick buy" flow, or `config` (type/network/days) for a buyer-selectable
+   country/type/duration flow — the latter now actually purchases a fresh
+   assignment matching the buyer's choice via `POST /api/v1/proxies/order`
+   (see `GET /api/v1/catalog` below for the mock's configurable option
+   list). Both are DProxyAdapter-honored end to end; `quantity` stays fixed
+   at 1 either way — one order always binds exactly one `ProxyAllocation`.
 4. Buyer funds the wallet and purchases the product.
 5. Confirm the delivered order contains normalized proxy credentials and the
    admin allocation view shows the stable upstream assignment ID.

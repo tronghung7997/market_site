@@ -35,6 +35,8 @@ logger = structlog.get_logger()
 # check). Per docs/superpowers/plans/2026-07-22-dproxy-review-fixes.md Medium
 # A: one fixed contract used everywhere, not a config knob that can drift.
 _LIST_PATH = "/api/v1/proxies/user"
+_CATALOG_PATH = "/api/v1/catalog"
+_PURCHASE_PATH = "/api/v1/proxies/order"
 _DEFAULT_ROTATE_METHOD = "POST"
 _ALLOWED_AUTH_TYPES = {"bearer", "header"}
 _ALLOWED_ROTATE_METHODS = {"GET", "POST", "PUT"}
@@ -146,6 +148,16 @@ def _parse_assignment(item) -> ProxyAssignment | None:
     if not isinstance(cooldown, int):
         cooldown = None
 
+    # Descriptive-only metadata — DProxy's real contract has both as
+    # nullable (a fresh assignment can carry `"country": null` before the
+    # supplier tags it). Never required for a row to parse; absence just
+    # means the buyer-facing summary/filter can't use that dimension yet.
+    country = proxies.get("country")
+    country = country if isinstance(country, str) and country else None
+    proxies_type = proxies.get("proxies_type")
+    proxy_type = proxies_type.get("name") if isinstance(proxies_type, dict) else None
+    proxy_type = proxy_type if isinstance(proxy_type, str) and proxy_type else None
+
     return ProxyAssignment(
         external_id=external_id,
         proxy_id=proxies.get("proxy_id"),
@@ -162,6 +174,8 @@ def _parse_assignment(item) -> ProxyAssignment | None:
         cooldown_seconds=cooldown,
         last_rotated_at=_parse_dt(rotation.get("last_rotated_at")),
         rotate_path=rotate_path,
+        country=country,
+        proxy_type=proxy_type,
     )
 
 
@@ -259,6 +273,80 @@ class DProxyAdapter(RealApiAdapter, RotatableProxyAdapter):
 
         return [a for item in body if (a := _parse_assignment(item)) is not None]
 
+    async def list_catalog(self) -> dict:
+        """Advisory only — never raises, never blocks a purchase. A `None`
+        for any key means "this DProxy deployment's support for that
+        selection dimension is unknown/unsupported", not an error. Contract
+        for /api/v1/catalog is assumed (see docs/superpowers/plans/
+        2026-07-22-dproxy-integration.md 'Open contract questions'); this
+        method's only job is to survive whatever shape actually comes back
+        and degrade to "nothing supported" rather than crash the caller
+        (check_health, which merges this into the admin-facing health dict)."""
+        empty = {"countries": None, "types": None, "durations_days": None}
+        try:
+            resp = await self._request_with_retry(
+                "GET", _CATALOG_PATH, operation="list_catalog", headers=self._headers(),
+            )
+        except httpx.HTTPError:
+            return empty
+        if resp.status_code >= 400:
+            return empty
+        try:
+            body = resp.json()
+        except ValueError:
+            return empty
+        if not isinstance(body, dict):
+            return empty
+
+        def _str_list(value) -> list[str] | None:
+            if not isinstance(value, list) or not all(isinstance(v, str) for v in value):
+                return None
+            return value or None
+
+        def _int_list(value) -> list[int] | None:
+            if not isinstance(value, list) or not all(isinstance(v, int) for v in value):
+                return None
+            return value or None
+
+        return {
+            "countries": _str_list(body.get("countries")),
+            "types": _str_list(body.get("types")),
+            "durations_days": _int_list(body.get("durations_days")),
+        }
+
+    async def purchase_assignment(
+        self, *, country: str | None, proxy_type: str | None, duration_days: int, idempotency_key: str,
+    ) -> ProxyAssignment:
+        """Buys ONE fresh assignment matching the buyer's chosen
+        country/type/duration — used by the `config`-strategy path in
+        provision(), never by the `credit` (first-available) path. Unlike
+        list_assignments, a structurally invalid response here is fatal —
+        there's exactly one row and it must parse or the purchase failed."""
+        try:
+            resp = await self._request_with_retry(
+                "POST", _PURCHASE_PATH, operation="purchase_assignment",
+                idempotency_key=idempotency_key, headers=self._headers(idempotency_key),
+                json={"country": country, "type": proxy_type, "duration_days": duration_days, "quantity": 1},
+            )
+        except httpx.HTTPError as e:
+            raise DProxyUnavailableError(str(e)) from e
+
+        if resp.status_code in (401, 403):
+            raise DProxyAuthError(f"HTTP {resp.status_code}")
+        if resp.status_code >= 500:
+            raise DProxyUnavailableError(f"HTTP {resp.status_code}")
+        if resp.status_code >= 400:
+            raise DProxyContractError(f"HTTP {resp.status_code}")
+
+        try:
+            body = resp.json()
+        except ValueError as e:
+            raise DProxyContractError("Phản hồi mua proxy không phải JSON hợp lệ") from e
+        assignment = _parse_assignment(body)
+        if assignment is None:
+            raise DProxyContractError("Phản hồi mua proxy không đúng định dạng")
+        return assignment
+
     async def rotate_assignment(self, external_id: str) -> ProxyAssignment:
         try:
             path = expected_rotate_path(external_id)
@@ -299,6 +387,17 @@ class DProxyAdapter(RealApiAdapter, RotatableProxyAdapter):
     # --- ProviderAdapter (admin curation lifecycle) ---
 
     async def provision(self, order_id: int, user_config: dict) -> ProvisionResult:
+        # "type"/"network"/"days" are ConfigPricing's user_config keys (see
+        # src/pricing/config_pricing.py) — their presence means the admin
+        # configured this product with the `config` strategy and the buyer
+        # picked a country/type/duration, which only a fresh on-demand
+        # purchase can honor (an existing pool assignment's expiry is fixed
+        # at whatever it was when admin bought it). Otherwise this is the
+        # `credit` (no-selection) flow, unchanged: pick first-available from
+        # the existing pool.
+        if "type" in user_config and "network" in user_config and "days" in user_config:
+            return await self._provision_via_purchase(order_id, user_config)
+
         from src.resources.proxy_service import bind_first_available_assignment
 
         try:
@@ -332,6 +431,55 @@ class DProxyAdapter(RealApiAdapter, RotatableProxyAdapter):
             metadata={"provider": "dproxy", "proxy_allocation_id": allocation.id},
         )
 
+    async def _provision_via_purchase(self, order_id: int, user_config: dict) -> ProvisionResult:
+        """`config`-strategy path: buy a fresh assignment matching the
+        buyer's chosen country/type/duration and bind it exclusively to
+        this order. Never buys a second proxy on retry."""
+        from src.resources.proxy_service import bind_first_available_assignment, bind_purchased_assignment, get_order_proxy_allocation
+
+        existing = await get_order_proxy_allocation(order_id, self.db)
+        if existing is not None:
+            # Idempotent retry — bind_first_available_assignment's existing-
+            # allocation branch already does exactly the "refresh from a
+            # fresh list, never pick a different candidate" dance this needs
+            # too; how the original assignment was obtained (purchase vs
+            # pool-pick) doesn't matter to that refresh logic.
+            try:
+                assignments = await self.list_assignments()
+            except DProxyAuthError:
+                return ProvisionResult(success=False, error="Sai thông tin xác thực với nhà cung cấp proxy")
+            except DProxyContractError:
+                return ProvisionResult(success=False, error="Nhà cung cấp proxy trả về dữ liệu không hợp lệ")
+            allocation = await bind_first_available_assignment(self.provider_id, order_id, assignments, self.db)
+            if allocation is None:
+                return ProvisionResult(success=False, error="Proxy đã cấp không còn khả dụng")
+            assignment = next((a for a in assignments if a.external_id == allocation.external_id), None)
+            if assignment is None:
+                return ProvisionResult(success=False, error="Proxy đã cấp không còn khả dụng")
+            return ProvisionResult(
+                success=True, data=assignment.delivered_text(), resource_id=assignment.external_id,
+                metadata={"provider": "dproxy", "proxy_allocation_id": allocation.id},
+            )
+
+        try:
+            assignment = await self.purchase_assignment(
+                country=user_config.get("network"), proxy_type=user_config.get("type"),
+                duration_days=int(user_config["days"]), idempotency_key=f"order-{order_id}",
+            )
+        except DProxyAuthError:
+            return ProvisionResult(success=False, error="Sai thông tin xác thực với nhà cung cấp proxy")
+        except DProxyContractError:
+            return ProvisionResult(success=False, error="Nhà cung cấp proxy trả về dữ liệu không hợp lệ")
+        # DProxyUnavailableError intentionally propagates — see class docstring.
+
+        allocation = await bind_purchased_assignment(self.provider_id, order_id, assignment, self.db)
+        return ProvisionResult(
+            success=True,
+            data=assignment.delivered_text(),
+            resource_id=assignment.external_id,
+            metadata={"provider": "dproxy", "proxy_allocation_id": allocation.id},
+        )
+
     async def check_health(self) -> dict:
         try:
             assignments = await self.list_assignments()
@@ -345,8 +493,12 @@ class DProxyAdapter(RealApiAdapter, RotatableProxyAdapter):
         usable = [a for a in assignments if a.is_usable()]
         rotation_capable = sum(1 for a in usable if a.rotation_available)
         earliest_expiry = min((a.expires_at for a in usable), default=None)
+        catalog = await self.list_catalog()
         if not usable:
-            return {"status": "warning", "message": "Không còn proxy khả dụng", "usable": 0, "total": len(assignments)}
+            return {
+                "status": "warning", "message": "Không còn proxy khả dụng", "usable": 0,
+                "total": len(assignments), **catalog,
+            }
         return {
             "status": "healthy",
             "message": f"{len(usable)}/{len(assignments)} proxy khả dụng ({rotation_capable} hỗ trợ đổi IP)",
@@ -354,6 +506,7 @@ class DProxyAdapter(RealApiAdapter, RotatableProxyAdapter):
             "total": len(assignments),
             "rotation_capable": rotation_capable,
             "earliest_expiry": earliest_expiry.isoformat() if earliest_expiry else None,
+            **catalog,
         }
 
     async def get_usage(self, resource_id: str) -> dict | None:

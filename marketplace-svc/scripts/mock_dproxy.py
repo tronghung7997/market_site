@@ -64,6 +64,25 @@ class ModeRequest(BaseModel):
     mode: FailureMode
 
 
+class CatalogRequest(BaseModel):
+    """PUT /_mock/catalog body — any key set to null simulates a DProxy
+    deployment that doesn't support that selection dimension at all."""
+    countries: list[str] | None = None
+    types: list[str] | None = None
+    durations_days: list[int] | None = None
+
+
+class PurchaseRequest(BaseModel):
+    """POST /api/v1/proxies/order body — assumed contract shape, see plan
+    docs/superpowers/plans/2026-07-22-dproxy-integration.md 'Open contract
+    questions': the real DProxy purchase-with-duration endpoint isn't
+    confirmed yet, this is what the adapter/mock agree on for now."""
+    country: str | None = None
+    type: str | None = None
+    duration_days: int = Field(ge=1)
+    quantity: int = 1
+
+
 RotateBehavior = Literal["ip_and_password", "password_only"]
 
 
@@ -94,13 +113,17 @@ def _iso(value: datetime | None) -> str | None:
     return value.isoformat() if value else None
 
 
-def _new_assignment(index: int) -> dict:
+def _new_assignment(
+    index: int, *, country: str | None = "VN", proxy_type: str | None = "residential",
+    duration_days: int | None = None,
+) -> dict:
     now = _utcnow()
     assignment_id = f"00000000-0000-4000-8000-{index:012d}"
+    expires_in = timedelta(days=duration_days) if duration_days is not None else timedelta(days=7 + index)
     return {
         "id": assignment_id,
-        "assigned_at": _iso(now - timedelta(days=1)),
-        "expired_at": _iso(now + timedelta(days=7 + index)),
+        "assigned_at": _iso(now - timedelta(days=1) if duration_days is None else now),
+        "expired_at": _iso(now + expires_in),
         "status": "active",
         "username": f"u_mock_{index}",
         "password": f"mock-pass-{index}",
@@ -110,10 +133,10 @@ def _new_assignment(index: int) -> dict:
             "host": "127.0.0.1",
             "port": 20160 + index,
             "status": {"msg": "online"},
-            "country": "VN",
+            "country": country,
             "proxy_id": f"10000000-0000-4000-8000-{index:012d}",
             "ip_public": f"203.0.113.{10 + index}",
-            "proxies_type": {"name": "residential"},
+            "proxies_type": {"name": proxy_type} if proxy_type else None,
             "rotation": {
                 "available": True,
                 "mode": "pppoe",
@@ -127,13 +150,23 @@ def _new_assignment(index: int) -> dict:
     }
 
 
+_DEFAULT_CATALOG = {
+    "countries": ["VN", "US", "RU"],
+    "types": ["residential", "datacenter"],
+    "durations_days": [3, 7, 30],
+}
+
 _assignments: dict[str, dict] = {}
 _mode: FailureMode = "normal"
+_catalog: dict = dict(_DEFAULT_CATALOG)
+_next_index = 4  # 1-3 are the fixed reset_state() pool; purchases start after.
 
 
 def reset_state() -> None:
-    global _mode
+    global _mode, _catalog, _next_index
     _mode = "normal"
+    _catalog = dict(_DEFAULT_CATALOG)
+    _next_index = 4
     _assignments.clear()
     for index in range(1, 4):
         assignment = _new_assignment(index)
@@ -264,6 +297,31 @@ async def list_user_proxies(request: Request, response: Response):
     return [_public_assignment(item) for item in _assignments.values()]
 
 
+@app.get("/api/v1/catalog")
+async def get_catalog(request: Request) -> dict:
+    """Assumed contract — see PurchaseRequest docstring. A null key means
+    this deployment doesn't support that selection dimension."""
+    _check_api_auth(request)
+    return dict(_catalog)
+
+
+@app.post("/api/v1/proxies/order")
+async def purchase_proxy(body: PurchaseRequest, request: Request):
+    _check_api_auth(request)
+    if body.quantity != 1:
+        raise HTTPException(status_code=400, detail="quantity phải bằng 1 mỗi lần mua")
+    if _mode == "list_500":
+        raise HTTPException(status_code=503, detail="Simulated DProxy outage")
+    global _next_index
+    index = _next_index
+    _next_index += 1
+    assignment = _new_assignment(
+        index, country=body.country, proxy_type=body.type, duration_days=body.duration_days,
+    )
+    _assignments[assignment["id"]] = assignment
+    return _public_assignment(assignment)
+
+
 @app.post("/api/v1/proxies/user/{assignment_id}/rotate")
 async def rotate_user_proxy(assignment_id: str, request: Request):
     _check_api_auth(request)
@@ -327,9 +385,20 @@ async def mock_state(x_mock_control_key: str | None = Header(default=None)) -> d
     return {
         "mode": _mode,
         "auth_type": AUTH_TYPE,
+        "catalog": dict(_catalog),
         "assignment_count": len(_assignments),
         "assignments": [_public_assignment(item) for item in _assignments.values()],
     }
+
+
+@app.put("/_mock/catalog")
+async def mock_catalog(body: CatalogRequest, x_mock_control_key: str | None = Header(default=None)) -> dict:
+    """Reconfigure what /api/v1/catalog reports — set a key to null to
+    simulate a DProxy deployment that doesn't support that dimension."""
+    _check_control_auth(x_mock_control_key)
+    global _catalog
+    _catalog = body.model_dump()
+    return dict(_catalog)
 
 
 @app.post("/_mock/reset")

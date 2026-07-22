@@ -26,18 +26,19 @@ ADAPTER_STRATEGY_COMPAT: dict[str, set[str] | None] = {
     "seller_gateway": {"credit"},
     # POST task cho backend seller thay vì hàng đợi người xử lý tay (ManualAdapter).
     "seller_task_webhook": {"task"},
-    # CHỈ "credit" — không phải "config". DProxyAdapter.provision() bind
-    # assignment khả dụng đầu tiên, không lọc theo type/network/duration; nếu
-    # cho phép strategy "config" thì ConfigPricing.get_options() sẽ vẽ đúng
-    # những field đó (Loại proxy/Nhà mạng/Thời hạn) và buyer trả tiền cho một
-    # cấu hình fulfillment không hề tôn trọng — tính tiền theo Viettel/30
-    # ngày nhưng giao proxy bất kỳ, hết hạn bất kỳ. Xem
-    # docs/superpowers/plans/2026-07-22-dproxy-consolidated-review.md P0#1.
-    # "credit" (chỉ có package_size = số lượng) là strategy DUY NHẤT mà mọi
-    # field hiển thị đều được fulfillment tôn trọng thật — với ràng buộc
-    # package_size phải bằng 1 (xem orders/service.py::create_order_with_adapter),
-    # vì một order DProxy chỉ bind được đúng 1 ProxyAllocation.
-    "dproxy": {"credit"},
+    # "credit" (package_size, ép bằng 1 — xem
+    # orders/service.py::create_order_with_adapter) là flow "mua nhanh,
+    # không chọn gì" — DProxyAdapter.provision() bind assignment khả dụng
+    # đầu tiên từ pool admin đã mua sẵn.
+    # "config" (Loại proxy/Nhà mạng/Thời hạn) giờ CŨNG hợp lệ:
+    # DProxyAdapter._provision_via_purchase() thật sự gọi mua mới theo đúng
+    # type/network/days buyer chọn (POST /api/v1/proxies/order), nên field
+    # hiển thị được fulfillment tôn trọng thật, khác với trước đây (P0#1,
+    # docs/superpowers/plans/2026-07-22-dproxy-consolidated-review.md) khi
+    # provision() bỏ qua hoàn toàn lựa chọn của buyer. quantity vẫn bị chặn
+    # ở orders/service.py — mỗi order chỉ bind đúng 1 ProxyAllocation dù
+    # dùng strategy nào.
+    "dproxy": {"credit", "config"},
 }
 
 

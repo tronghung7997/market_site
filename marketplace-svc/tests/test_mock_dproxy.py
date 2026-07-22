@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+from datetime import datetime
 from uuid import UUID
 
 import pytest
@@ -220,3 +221,74 @@ async def test_online_offline_dashboard_endpoint_round_trips(dproxy_client: Asyn
     assert body["proxies"]["status"]["msg"] == "online"
     assert body["status"] == "active"
     assert body["is_active"] is True
+
+
+@pytest.mark.asyncio
+async def test_catalog_get_and_put_round_trip(dproxy_client: AsyncClient):
+    default = await dproxy_client.get("/api/v1/catalog", headers=API_HEADERS)
+    assert default.status_code == 200
+    body = default.json()
+    assert body["countries"] == ["VN", "US", "RU"]
+    assert body["types"] == ["residential", "datacenter"]
+    assert body["durations_days"] == [3, 7, 30]
+
+    assert (await dproxy_client.put(
+        "/_mock/catalog", json={"countries": None, "types": ["residential"], "durations_days": [7]},
+    )).status_code == 401  # no control key
+
+    updated = await dproxy_client.put(
+        "/_mock/catalog", headers=CONTROL_HEADERS,
+        json={"countries": None, "types": ["residential"], "durations_days": [7]},
+    )
+    assert updated.status_code == 200
+    assert updated.json() == {"countries": None, "types": ["residential"], "durations_days": [7]}
+
+    refreshed = await dproxy_client.get("/api/v1/catalog", headers=API_HEADERS)
+    assert refreshed.json()["countries"] is None
+
+
+@pytest.mark.asyncio
+async def test_purchase_endpoint_creates_matching_fresh_assignment(dproxy_client: AsyncClient):
+    before = (await dproxy_client.get("/api/v1/proxies/user", headers=API_HEADERS)).json()
+    assert len(before) == 3
+
+    purchased = await dproxy_client.post(
+        "/api/v1/proxies/order", headers=API_HEADERS,
+        json={"country": "US", "type": "datacenter", "duration_days": 14, "quantity": 1},
+    )
+    assert purchased.status_code == 200
+    body = purchased.json()
+    assert body["proxies"]["country"] == "US"
+    assert body["proxies"]["proxies_type"]["name"] == "datacenter"
+    expires_in = datetime.fromisoformat(body["expired_at"]) - datetime.fromisoformat(body["assigned_at"])
+    assert 13.9 <= expires_in.total_seconds() / 86400 <= 14.1
+
+    after = (await dproxy_client.get("/api/v1/proxies/user", headers=API_HEADERS)).json()
+    assert len(after) == 4
+    assert body["id"] not in {a["id"] for a in before}
+
+
+@pytest.mark.asyncio
+async def test_purchase_endpoint_rejects_quantity_other_than_one(dproxy_client: AsyncClient):
+    resp = await dproxy_client.post(
+        "/api/v1/proxies/order", headers=API_HEADERS,
+        json={"country": "VN", "type": "residential", "duration_days": 7, "quantity": 3},
+    )
+    assert resp.status_code == 400
+
+
+@pytest.mark.asyncio
+async def test_purchase_endpoint_accepts_null_country_when_catalog_omits_it(dproxy_client: AsyncClient):
+    """A deployment that doesn't support country selection (catalog reports
+    countries=null) must still accept a purchase with country=null — the
+    mock never requires a field its own catalog says is unsupported."""
+    await dproxy_client.put(
+        "/_mock/catalog", headers=CONTROL_HEADERS,
+        json={"countries": None, "types": ["residential"], "durations_days": [7]},
+    )
+    resp = await dproxy_client.post(
+        "/api/v1/proxies/order", headers=API_HEADERS,
+        json={"country": None, "type": "residential", "duration_days": 7, "quantity": 1},
+    )
+    assert resp.status_code == 200
+    assert resp.json()["proxies"]["country"] is None

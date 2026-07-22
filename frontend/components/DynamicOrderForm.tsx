@@ -274,6 +274,25 @@ export default function DynamicOrderForm({ productId, product, onOrderCreated }:
               </div>
               {isDproxy ? (
                 <>
+                  {/* strategy "config" (Loại proxy/Nhà mạng/Thời hạn) — buyer
+                      thật sự chọn được, khác với "credit" (không có field
+                      nào ngoài số lượng luôn = 1). Hiện đúng lựa chọn của họ
+                      trước khi hiện các dòng mô tả giao hàng cố định bên
+                      dưới. */}
+                  {options.strategy === "config" && visibleFields.map((f) => {
+                    const val = config[f.field];
+                    let display = String(val ?? "—");
+                    if (f.choices) {
+                      const choice = f.choices.find((c) => String(c.value) === String(val));
+                      if (choice) display = choice.label;
+                    }
+                    return (
+                      <div key={f.field} className="flex justify-between">
+                        <span className="text-muted">{f.label}</span>
+                        <span className="font-medium">{display}</span>
+                      </div>
+                    );
+                  })}
                   <div className="flex justify-between">
                     <span className="text-muted">Số lượng</span>
                     <span className="font-medium">1 proxy riêng</span>
@@ -298,7 +317,7 @@ export default function DynamicOrderForm({ productId, product, onOrderCreated }:
                     const val = config[f.field];
                     let display = String(val ?? "—");
                     if (f.choices) {
-                      const choice = f.choices.find((c) => c.value === String(val));
+                      const choice = f.choices.find((c) => String(c.value) === String(val));
                       if (choice) display = choice.label;
                     }
                     return (

@@ -675,6 +675,15 @@ function TestResultBody({ testResult }: { testResult: Record<string, unknown> })
   const earliestExpiry = health.earliest_expiry as string | null | undefined;
   const healthy = health.status === "healthy";
 
+  // DProxyAdapter.check_health() merges list_catalog() in — countries/types/
+  // durations_days, each null when this deployment doesn't support that
+  // selection dimension. Other adapters' health dicts never have these
+  // keys, so the section just doesn't render for them.
+  const countries = health.countries as string[] | null | undefined;
+  const types = health.types as string[] | null | undefined;
+  const durationsDays = health.durations_days as number[] | null | undefined;
+  const hasCatalog = countries || types || durationsDays;
+
   return (
     <div>
       <div className="flex items-center gap-2 mb-2">
@@ -695,6 +704,28 @@ function TestResultBody({ testResult }: { testResult: Record<string, unknown> })
           <div className="text-[10.5px] text-faint uppercase tracking-wide">Hết hạn sớm nhất</div>
         </div>
       </div>
+      {hasCatalog && (
+        <div className="mt-3 pt-3 border-t border-line space-y-1.5">
+          <div className="text-[10.5px] text-faint uppercase tracking-wide">
+            Mã hỗ trợ — dùng đúng các mã này khi cấu hình type_mult/network_mult/duration_options ở chiến lược &quot;Cấu hình&quot;
+          </div>
+          {countries ? (
+            <div className="text-[11.5px]"><span className="text-muted">Quốc gia:</span> <span className="font-mono">{countries.join(", ")}</span></div>
+          ) : (
+            <div className="text-[11.5px] text-faint">Không hỗ trợ chọn quốc gia</div>
+          )}
+          {types ? (
+            <div className="text-[11.5px]"><span className="text-muted">Loại proxy:</span> <span className="font-mono">{types.join(", ")}</span></div>
+          ) : (
+            <div className="text-[11.5px] text-faint">Không hỗ trợ chọn loại proxy</div>
+          )}
+          {durationsDays ? (
+            <div className="text-[11.5px]"><span className="text-muted">Thời hạn (ngày):</span> <span className="font-mono">{durationsDays.join(", ")}</span></div>
+          ) : (
+            <div className="text-[11.5px] text-faint">Không hỗ trợ chọn thời hạn</div>
+          )}
+        </div>
+      )}
     </div>
   );
 }

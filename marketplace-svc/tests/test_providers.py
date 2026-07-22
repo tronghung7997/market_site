@@ -288,7 +288,11 @@ async def test_dproxy_test_connection_never_creates_an_allocation(client, monkey
     body = resp.json()
     assert body["health"]["status"] == "healthy"
     assert body["provision_test"] is None  # never attempted for dproxy
-    assert calls["count"] == 1  # exactly one list call (health check), no second provision-test call
+    # Two calls: list_assignments (health computation) + list_catalog
+    # (merged into the health dict so admin sees supported country/type/
+    # duration codes — see DProxyAdapter.check_health). Still no
+    # provision-test / purchase call for dproxy.
+    assert calls["count"] == 2
 
     async with SessionLocal() as db:
         count = await db.scalar(select(func.count()).select_from(ProxyAllocation))

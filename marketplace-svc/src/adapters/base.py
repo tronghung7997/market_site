@@ -64,6 +64,8 @@ class ProxyAssignment:
     cooldown_seconds: int | None
     last_rotated_at: datetime | None
     rotate_path: str | None
+    country: str | None = None
+    proxy_type: str | None = None
 
     def is_usable(self, *, now: datetime | None = None) -> bool:
         """True only when this assignment can be freshly provisioned or
@@ -83,6 +85,10 @@ class ProxyAssignment:
         ]
         if self.public_ip:
             lines.append(f"IP hiện tại: {self.public_ip}")
+        if self.country:
+            lines.append(f"Quốc gia: {self.country}")
+        if self.proxy_type:
+            lines.append(f"Loại proxy: {self.proxy_type}")
         lines.append(f"Hết hạn: {self.expires_at.isoformat()}")
         return "\n".join(lines)
 

@@ -106,6 +106,31 @@ async def bind_first_available_assignment(
     return None
 
 
+async def bind_purchased_assignment(
+    provider_id: int, order_id: int, assignment: ProxyAssignment, db: AsyncSession,
+) -> ProxyAllocation:
+    """Bind a FRESHLY-PURCHASED assignment (config-strategy provision path,
+    see DProxyAdapter._provision_via_purchase) to `order_id`. Unlike
+    `bind_first_available_assignment`, there is no candidate list to search
+    — the assignment was just bought exclusively for this order, so this
+    only ever inserts once. Caller is responsible for the idempotency check
+    (never call this a second time for an order that already has a
+    binding — a second purchase would buy a proxy nobody gets billed for
+    delivery of). No IntegrityError handling: a duplicate external_id here
+    would mean the supplier's purchase endpoint returned an id we already
+    hold, which should never happen for a "buy me a new one" call — unlike
+    bind_first_available_assignment there's no fallback candidate to retry
+    with, so this just lets it propagate."""
+    allocation = ProxyAllocation(
+        provider_id=provider_id, order_id=order_id, external_id=assignment.external_id,
+    )
+    _apply_assignment(allocation, assignment)
+    allocation.status = ProxyAllocationStatus.allocated
+    db.add(allocation)
+    await db.flush()
+    return allocation
+
+
 async def mark_allocation_expired(allocation: ProxyAllocation, db: AsyncSession) -> None:
     allocation.status = ProxyAllocationStatus.expired
     await db.flush()

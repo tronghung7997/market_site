@@ -12,7 +12,7 @@ from src.models.account import Account
 from src.models.order import Order, OrderStatus
 from src.models.provider import Provider
 from src.models.proxy_allocation import ProxyAllocation, ProxyAllocationStatus
-from src.resources.proxy_service import bind_first_available_assignment, release_allocation
+from src.resources.proxy_service import bind_first_available_assignment, bind_purchased_assignment, release_allocation
 
 
 async def _make_account(email: str) -> int:
@@ -271,3 +271,44 @@ async def test_idempotent_retry_when_bound_assignment_expired_marks_expired():
     async with SessionLocal() as db:
         allocation = await db.get(ProxyAllocation, allocation_id)
         assert allocation.status == ProxyAllocationStatus.expired
+
+
+@pytest.mark.asyncio
+async def test_bind_purchased_assignment_inserts_a_fresh_allocation():
+    buyer = await _make_account("dpx_alloc_buyer11@example.com")
+    seller = await _make_account("dpx_alloc_seller11@example.com")
+    provider_id = await _make_provider()
+    order_id = await _make_order(buyer, seller)
+
+    async with SessionLocal() as db:
+        allocation = await bind_purchased_assignment(provider_id, order_id, _assignment("ext-bought"), db)
+        await db.commit()
+
+    assert allocation.external_id == "ext-bought"
+    assert allocation.status == ProxyAllocationStatus.allocated
+    assert allocation.order_id == order_id
+
+
+@pytest.mark.asyncio
+async def test_bind_purchased_assignment_called_twice_for_same_order_violates_uniqueness():
+    """Caller (DProxyAdapter._provision_via_purchase) is responsible for
+    checking get_order_proxy_allocation before ever calling this — it does
+    not itself do an idempotent-refresh dance like
+    bind_first_available_assignment does. Confirms the DB constraint still
+    backstops a caller bug: a second purchase-bind for the same order must
+    not silently succeed and orphan the first allocation."""
+    buyer = await _make_account("dpx_alloc_buyer12@example.com")
+    seller = await _make_account("dpx_alloc_seller12@example.com")
+    provider_id = await _make_provider()
+    order_id = await _make_order(buyer, seller)
+
+    async with SessionLocal() as db:
+        await bind_purchased_assignment(provider_id, order_id, _assignment("ext-bought-1"), db)
+        await db.commit()
+
+    from sqlalchemy.exc import IntegrityError
+
+    with pytest.raises(IntegrityError):
+        async with SessionLocal() as db:
+            await bind_purchased_assignment(provider_id, order_id, _assignment("ext-bought-2"), db)
+            await db.commit()

@@ -54,6 +54,30 @@ def _sample(external_id="ext-1", *, status="active", proxy_status="online") -> d
     }
 
 
+def _config_sample(external_id="ext-cfg", *, country="VN", proxy_type="residential", duration_days=7) -> dict:
+    """POST /api/v1/proxies/order response shape — a single object, not a
+    list (unlike _sample(), which mimics the GET list endpoint)."""
+    uid = label_to_uuid(external_id)
+    now = datetime.now(timezone.utc)
+    return {
+        "id": uid,
+        "assigned_at": now.isoformat(),
+        "expired_at": (now + timedelta(days=duration_days)).isoformat(),
+        "status": "active",
+        "username": "u", "password": "p", "is_active": True,
+        "proxies": {
+            "host": "s4.dproxy.info", "port": 20160,
+            "status": {"msg": "online"}, "proxy_id": "px-1", "ip_public": "1.2.3.4",
+            "country": country,
+            "proxies_type": {"name": proxy_type},
+            "rotation": {
+                "available": True, "mode": "pppoe", "cooldown_seconds": 60, "last_rotated_at": None,
+                "rotate_endpoint": f"/api/v1/proxies/user/{uid}/rotate",
+            },
+        },
+    }
+
+
 def _resp(status: int, json_body=None) -> httpx.Response:
     return httpx.Response(status, json=json_body, request=httpx.Request("GET", "https://dproxy.example.com/x"))
 
@@ -135,6 +159,78 @@ async def _place_order(client, buyer_token, product_id, monkeypatch) -> int:
     monkeypatch.setattr("src.orders.service.spawn_provision", lambda _id: None)
     resp = await client.post(
         "/orders", json={"product_id": product_id, "user_config": {"package_size": 1}},
+        headers={"Authorization": f"Bearer {buyer_token}"},
+    )
+    assert resp.status_code == 201, resp.text
+    return resp.json()["id"]
+
+
+async def setup_dproxy_config_product(client, *, suffix=""):
+    """Same shape as setup_dproxy_product but the product uses the `config`
+    pricing strategy (type/network/days) instead of `credit` — for testing
+    the buyer-selectable purchase-on-demand path."""
+    admin_email = f"dpxcfg_admin{suffix}@example.com"
+    admin_token = await register_and_login(client, admin_email)
+    await make_admin(admin_email)
+    admin_token = await register_and_login(client, admin_email)
+
+    await client.post("/admin/categories", json={"name": f"DpxCfgCat{suffix}", "slug": f"dpxcfgcat{suffix}"},
+                      headers={"Authorization": f"Bearer {admin_token}"})
+    cats = await client.get("/categories")
+    cat_id = cats.json()[-1]["id"]
+
+    provider_resp = await client.post("/admin/providers", json={
+        "name": "DProxy Config", "type": "dproxy", "adapter_type": "dproxy",
+        "config": {"base_url": "https://dproxy.example.com", "api_key": "dpx-secret"},
+        "priority": 1,
+    }, headers={"Authorization": f"Bearer {admin_token}"})
+    assert provider_resp.status_code == 201, provider_resp.text
+    provider_id = provider_resp.json()["id"]
+
+    seller_email = f"dpxcfg_seller{suffix}@example.com"
+    seller_token = await register_and_login(client, seller_email)
+    await make_seller(seller_email)
+    seller_token = await register_and_login(client, seller_email)
+
+    product_resp = await client.post("/seller/products", json={
+        "category_id": cat_id, "title": "Proxy Package Config", "status": "active",
+        "escrow_days": 2, "service_type": "endpoint",
+    }, headers={"Authorization": f"Bearer {seller_token}"})
+    product_id = product_resp.json()["id"]
+
+    async with SessionLocal() as db:
+        await db.execute(
+            update(Product).where(Product.id == product_id).values(
+                provider_id=provider_id, pricing_strategy="config",
+                pricing_params={
+                    "base_price": 10000,
+                    "type_mult": {"residential": 1.0, "datacenter": 0.6},
+                    "network_mult": {"VN": 1.0, "US": 1.2},
+                    "duration_options": [{"days": 7, "label": "7 ngày"}, {"days": 30, "label": "30 ngày"}],
+                },
+            )
+        )
+        await db.commit()
+
+    buyer_email = f"dpxcfg_buyer{suffix}@example.com"
+    buyer_token = await register_and_login(client, buyer_email)
+    buyer_me = await client.get("/me", headers={"Authorization": f"Bearer {buyer_token}"})
+    buyer_id = buyer_me.json()["id"]
+    await client.post("/wallet/topup", json={"account_id": buyer_id, "amount": 500000},
+                      headers={"Authorization": f"Bearer {admin_token}"})
+
+    return buyer_token, admin_token, product_id, provider_id
+
+
+async def _place_config_order(
+    client, buyer_token, product_id, monkeypatch, *, type_="residential", network="VN", days=7,
+) -> int:
+    monkeypatch.setattr("src.orders.service.spawn_provision", lambda _id: None)
+    resp = await client.post(
+        "/orders", json={
+            "product_id": product_id,
+            "user_config": {"type": type_, "network": network, "days": days, "quantity": 1},
+        },
         headers={"Authorization": f"Bearer {buyer_token}"},
     )
     assert resp.status_code == 201, resp.text
@@ -325,25 +421,144 @@ class TestDProxyProvisioning:
         assert wallet_after == wallet_before  # rejected before any Order row was created
 
 
-class TestDProxyCompatibility:
-    """review fixes P0#1 — DProxy must not be usable with "config" pricing
-    at all: ConfigPricing.get_options() renders type/network/duration
-    selects DProxyAdapter.provision() never filters by, so a buyer would
-    pay for a configuration fulfillment silently ignores."""
+class TestDProxyConfigStrategyProvisioning:
+    """provision() with type/network/days in user_config takes the
+    purchase-on-demand path (DProxyAdapter._provision_via_purchase) instead
+    of picking from the existing pool — this is what makes `config` a
+    fulfillment-honest strategy for DProxy (see TestDProxyCompatibility)."""
 
-    def test_dproxy_only_compatible_with_credit_strategy(self):
-        from src.adapters.compatibility import ADAPTER_STRATEGY_COMPAT
-        assert ADAPTER_STRATEGY_COMPAT["dproxy"] == {"credit"}
+    @pytest.fixture(autouse=True)
+    def _no_sleep(self, monkeypatch):
+        monkeypatch.setattr("src.adapters.real_api.asyncio.sleep", AsyncMock())
 
     @pytest.mark.asyncio
-    async def test_attaching_dproxy_provider_with_config_strategy_is_blocked(self, client, monkeypatch):
+    async def test_provision_purchases_fresh_assignment_matching_buyer_choice(self, client, monkeypatch):
+        buyer_token, _, product_id, provider_id = await setup_dproxy_config_product(client, suffix="_cfgok")
+        order_id = await _place_config_order(
+            client, buyer_token, product_id, monkeypatch, type_="datacenter", network="US", days=30,
+        )
+
+        _patch_dproxy_http(
+            monkeypatch, _resp(200, _config_sample("ext-cfg-ok", country="US", proxy_type="datacenter", duration_days=30)),
+        )
+        await provision_pending_order(order_id)
+
+        async with SessionLocal() as db:
+            order = await db.get(Order, order_id)
+            assert order.status == OrderStatus.delivered
+            assert "US" in order.delivered_data
+            assert "datacenter" in order.delivered_data
+
+            allocation = await db.scalar(select(ProxyAllocation).where(ProxyAllocation.order_id == order_id))
+            assert allocation is not None
+            assert allocation.external_id == label_to_uuid("ext-cfg-ok")
+            assert allocation.status == ProxyAllocationStatus.allocated
+            assert allocation.provider_id == provider_id
+
+    @pytest.mark.asyncio
+    async def test_idempotent_retry_does_not_purchase_a_second_proxy(self, client, monkeypatch):
+        buyer_token, _, product_id, _ = await setup_dproxy_config_product(client, suffix="_cfgretry")
+        order_id = await _place_config_order(client, buyer_token, product_id, monkeypatch)
+
+        _patch_dproxy_http(monkeypatch, _resp(200, _config_sample("ext-cfg-retry")))
+        await provision_pending_order(order_id)
+
+        async with SessionLocal() as db:
+            order = await db.get(Order, order_id)
+            assert order.status == OrderStatus.delivered
+            count = await db.scalar(
+                select(func.count()).select_from(ProxyAllocation).where(ProxyAllocation.order_id == order_id)
+            )
+            assert count == 1
+
+        # Simulate the sweeper retrying an order that already has a binding
+        # (the real trigger is a crash between purchase-commit and
+        # delivered-commit) — force it back to `pending` directly, since
+        # provision_pending_order only acts on that status.
+        async with SessionLocal() as db:
+            await db.execute(update(Order).where(Order.id == order_id).values(status=OrderStatus.pending))
+            await db.commit()
+
+        # Queue a LIST response (array) this time, not a purchase response
+        # (object) — the idempotent branch must call list_assignments, never
+        # purchase_assignment again. If it wrongly purchased again, this
+        # array would fail to parse as the single-object purchase response
+        # and the order would come back cancelled instead of delivered.
+        _patch_dproxy_http(monkeypatch, _resp(200, [_config_sample("ext-cfg-retry")]))
+        await provision_pending_order(order_id)
+
+        async with SessionLocal() as db:
+            order = await db.get(Order, order_id)
+            assert order.status == OrderStatus.delivered
+            count = await db.scalar(
+                select(func.count()).select_from(ProxyAllocation).where(ProxyAllocation.order_id == order_id)
+            )
+            assert count == 1  # still exactly one — no second purchase/binding
+
+    @pytest.mark.asyncio
+    async def test_purchase_auth_failure_is_terminal_not_retried(self, client, monkeypatch):
+        buyer_token, _, product_id, _ = await setup_dproxy_config_product(client, suffix="_cfgauth")
+        order_id = await _place_config_order(client, buyer_token, product_id, monkeypatch)
+
+        _patch_dproxy_http(monkeypatch, _resp(401))
+        await provision_pending_order(order_id)
+
+        async with SessionLocal() as db:
+            order = await db.get(Order, order_id)
+            assert order.status == OrderStatus.cancelled
+
+    @pytest.mark.asyncio
+    async def test_purchase_malformed_response_is_a_contract_failure(self, client, monkeypatch):
+        buyer_token, _, product_id, _ = await setup_dproxy_config_product(client, suffix="_cfgbad")
+        order_id = await _place_config_order(client, buyer_token, product_id, monkeypatch)
+
+        _patch_dproxy_http(monkeypatch, _resp(200, {"unexpected": "shape"}))
+        await provision_pending_order(order_id)
+
+        async with SessionLocal() as db:
+            order = await db.get(Order, order_id)
+            assert order.status == OrderStatus.cancelled
+
+
+class TestDProxyCompatibility:
+    """DProxy is compatible with BOTH pricing strategies:
+    - `credit` (package_size, forced to 1): no selection, first-available
+      pick from the admin-purchased pool.
+    - `config` (type/network/days): buyer picks country/type/duration and
+      DProxyAdapter._provision_via_purchase actually buys a matching fresh
+      assignment — this is what makes `config` fulfillment-honest for
+      DProxy now (it wasn't when this restriction was first written, see
+      docs/superpowers/plans/2026-07-22-dproxy-consolidated-review.md P0#1 —
+      that gap is what TestDProxyConfigStrategyProvisioning above covers)."""
+
+    def test_dproxy_compatible_with_credit_and_config_strategies(self):
+        from src.adapters.compatibility import ADAPTER_STRATEGY_COMPAT
+        assert ADAPTER_STRATEGY_COMPAT["dproxy"] == {"credit", "config"}
+
+    @pytest.mark.asyncio
+    async def test_attaching_dproxy_provider_with_config_strategy_is_allowed(self, client, monkeypatch):
         _, admin_token, product_id, provider_id = await setup_dproxy_product(client, suffix="_compat")
         resp = await client.put(
             f"/admin/products/{product_id}/operations",
             json={
                 "provider_id": provider_id, "pricing_strategy": "config",
-                "pricing_params": {"base_price": 1000, "type_mult": {"a": 1.0}, "network_mult": {"b": 1.0}},
+                "pricing_params": {
+                    "base_price": 1000, "type_mult": {"a": 1.0}, "network_mult": {"b": 1.0},
+                    "duration_options": [{"days": 7, "label": "7 ngày"}],
+                },
             },
+            headers={"Authorization": f"Bearer {admin_token}"},
+        )
+        assert resp.status_code == 200, resp.text
+
+    @pytest.mark.asyncio
+    async def test_attaching_dproxy_provider_with_task_strategy_is_still_blocked(self, client, monkeypatch):
+        """Sanity check the restriction didn't just disappear entirely —
+        DProxy is still blocked from strategies it genuinely can't serve."""
+        _, admin_token, product_id, provider_id = await setup_dproxy_product(client, suffix="_compattask")
+        resp = await client.put(
+            f"/admin/products/{product_id}/operations",
+            json={"provider_id": provider_id, "pricing_strategy": "task"},
             headers={"Authorization": f"Bearer {admin_token}"},
         )
         assert resp.status_code == 400

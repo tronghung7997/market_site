@@ -22,10 +22,14 @@
   --color-line: #e7e8ee;
   --color-line-2: #d6d9e1;
 
-  /* Text */
+  /* Text — muted/faint đậm hơn nhiều so với bản gốc (#545b68/#939aa7) và
+     hơn cả lần chỉnh trước (#3b3f4a/#6b7280) — vẫn quá mờ theo phản hồi thật.
+     muted giờ chỉ nhỉnh hơn fg một chút (gần như cùng độ đậm, chỉ để phân biệt
+     nhẹ với chữ chính); faint bằng đúng mức muted TRƯỚC lần sửa này, không còn
+     là màu "mờ" nữa mà chỉ là xám đậm vừa phải. */
   --color-fg: #14161d;
-  --color-muted: #545b68;
-  --color-faint: #939aa7;
+  --color-muted: #22242c;
+  --color-faint: #454954;
 
   /* Accent — refined indigo */
   --color-iris: #4f46e5;

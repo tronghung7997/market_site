@@ -177,8 +177,6 @@ export default function DynamicOrderForm({ productId, product, onOrderCreated }:
             </Banner>
           )}
 
-          {isDproxy && <DProxyPurchaseExplainer />}
-
           {/* Dynamic fields */}
           {visibleFields.map((f) => (
             <DynamicField key={f.field} field={f} value={config[f.field]} onChange={(v) => updateField(f.field, v)} />
@@ -372,36 +370,6 @@ export default function DynamicOrderForm({ productId, product, onOrderCreated }:
         </div>
       )}
     </>
-  );
-}
-
-/* ================================================================
-   DProxy purchase explainer — buyer không rành kỹ thuật cần biết ngay:
-   nhận được gì / dùng thế nào / giao bao lâu / đổi IP được không, trước
-   khi thấy bất kỳ form nào. Xem
-   docs/superpowers/plans/2026-07-22-dproxy-consolidated-review.md P1.
-   ================================================================ */
-
-function DProxyPurchaseExplainer() {
-  return (
-    <div className="rounded-lg bg-iris-soft/40 border border-iris/15 p-3.5 space-y-2.5">
-      <p className="text-[12.5px] text-fg leading-relaxed">
-        Bạn nhận được <strong>1 proxy riêng</strong> gồm Host, Port, Username và Password.
-        Proxy thường được giao tự động trong vài giây và có thể dùng trên trình duyệt, phần mềm
-        hoặc thiết bị hỗ trợ HTTP proxy. Nếu proxy gặp sự cố, bạn có thể tự đổi IP hoặc mở khiếu nại.
-      </p>
-      <div>
-        <p className="text-[10.5px] text-faint uppercase tracking-wider mb-1">Ví dụ dữ liệu bạn sẽ nhận</p>
-        <pre className="text-[11px] font-mono text-muted bg-surface/60 border border-line rounded-md p-2.5 whitespace-pre-wrap">
-{`Host: s4.dproxy.info
-Port: 20160
-Username: u_xxxxx
-Password: ••••••••
-IP hiện tại: 116.xxx.xxx.xxx`}
-        </pre>
-        <p className="text-[10.5px] text-faint mt-1">Đây chỉ là ví dụ minh hoạ — credential thật xuất hiện sau khi đơn được giao.</p>
-      </div>
-    </div>
   );
 }
 

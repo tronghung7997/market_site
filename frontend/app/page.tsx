@@ -112,7 +112,7 @@ function HomeInner() {
     <div>
       {/* ============ HERO ============ */}
       <section className="aura border-b border-line">
-        <div className="w-full mx-auto max-w-[1200px] px-6 pt-12 pb-14 grid lg:grid-cols-[1.05fr_0.95fr] gap-10 items-center">
+        <div className="w-full mx-auto max-w-[1200px] px-6 pt-8 pb-9 lg:pt-10 lg:pb-11 grid lg:grid-cols-[1.05fr_0.95fr] gap-8 items-center">
           <div>
             <div className="inline-flex items-center gap-2 rounded-full border border-line bg-surface px-3 py-1 text-[12.5px] text-muted shadow-card">
               <span className="text-warn">★★★★★</span> 4.9/5 từ 1.200+ doanh nghiệp
@@ -151,7 +151,7 @@ function HomeInner() {
             ["Hàng sẵn trong kho", `${totalStock}`],
             ["Thời gian ký quỹ", "3 ngày"],
           ].map(([label, val], i) => (
-            <div key={i} className="px-5 py-6">
+            <div key={i} className="px-5 py-4">
               <div className="font-mono text-[26px] font-semibold tabular">{val}</div>
               <div className="text-[12.5px] text-muted mt-1">{label}</div>
             </div>
@@ -161,21 +161,21 @@ function HomeInner() {
 
       {/* ============ CATEGORIES ============ */}
       {cats.length > 0 && (
-        <section className="w-full mx-auto max-w-[1200px] px-6 py-12">
+        <section className="w-full mx-auto max-w-[1200px] px-6 py-6 lg:py-8">
           <SectionHead title="Danh mục" sub="Chọn nhóm sản phẩm bạn cần" />
-          <div className="grid gap-4 [grid-template-columns:repeat(auto-fill,minmax(220px,1fr))]">
+          <div className="grid gap-2.5 sm:gap-4 grid-cols-2 sm:[grid-template-columns:repeat(auto-fill,minmax(220px,1fr))]">
             {flatCats
               .map((c) => ({ c, count: products.filter((p) => subtreeIds(c).includes(p.category_id)).length }))
               .filter((x) => x.count > 0)
               .map(({ c, count }) => (
                 <button key={c.id} onClick={() => { setActive(c.id); document.getElementById("market")?.scrollIntoView({ behavior: "smooth" }); }}
                   className="text-left">
-                  <Card interactive className="p-5 h-full">
-                    <span className="grid place-items-center h-10 w-10 rounded-lg bg-iris-soft text-iris border border-iris/15">
-                      <Store size={18} />
+                  <Card interactive className="p-3 sm:p-5 h-full">
+                    <span className="grid place-items-center h-8 w-8 sm:h-10 sm:w-10 rounded-lg bg-iris-soft text-iris border border-iris/15">
+                      <Store size={15} />
                     </span>
-                    <div className="mt-4 font-medium text-[15px]">{c.name}</div>
-                    <div className="text-[12.5px] text-muted mt-0.5">{count} sản phẩm</div>
+                    <div className="mt-2.5 sm:mt-4 font-medium text-[13.5px] sm:text-[15px]">{c.name}</div>
+                    <div className="text-[11.5px] sm:text-[12.5px] text-muted mt-0.5">{count} sản phẩm</div>
                   </Card>
                 </button>
               ))}
@@ -183,148 +183,8 @@ function HomeInner() {
         </section>
       )}
 
-      {/* ============ FEATURED (pricing cards) ============ */}
-      {featured.length > 0 && (
-        <section className="border-y border-line bg-surface">
-          <div className="w-full mx-auto max-w-[1200px] px-6 py-12">
-            <SectionHead title="Nổi bật tuần này" sub="Hàng sẵn kho, giao ngay" />
-            {/* [&>*]:min-w-0 — grid item mặc định min-width:auto, nên phần text
-                `truncate` (nowrap) bên trong đẩy cả cột rộng ra thay vì bị cắt,
-                kéo trang trôi ngang trên điện thoại. */}
-            <div className="grid gap-5 md:grid-cols-3 [&>*]:min-w-0">
-              {featured.map((p) => {
-                const mp = minPrice(p);
-                return (
-                  <Link key={p.id} href={`/products/${p.id}`} className="group">
-                    <Card className="p-0 flex flex-col h-full overflow-hidden transition-all duration-150 group-hover:shadow-card-lg group-hover:-translate-y-0.5">
-                      {/* Header */}
-                      <div className="px-5 pt-5 pb-4">
-                        <div className="flex items-center gap-3">
-                          <span className="grid place-items-center h-10 w-10 shrink-0 rounded-lg bg-iris-soft border border-iris/20 font-serif text-[14px] font-semibold text-iris">
-                            {p.title.slice(0, 2).toUpperCase()}
-                          </span>
-                          <div className="min-w-0">
-                            <div className="font-medium text-[15px] truncate">{p.title}</div>
-                            <div className="flex items-center gap-1.5 text-[12px] text-faint">
-                              {catName(p.category_id)}
-                              <Verified size={11} className="text-iris" />
-                              {p.sold_count > 0 && <span>· {p.sold_count} đã bán</span>}
-                            </div>
-                          </div>
-                        </div>
-                      </div>
-
-                      {/* Variant list */}
-                      <div className="px-5 flex-1">
-                        <div className="border-t border-line pt-3 space-y-0">
-                          {p.variants.slice(0, 3).map((v) => (
-                            <div key={v.id} className="flex items-center gap-2 py-2 text-[13px]">
-                              <span className="shrink-0 w-4 text-center">
-                                {v.delivery_mode === "instant" ? <Bolt size={12} className="text-good" /> : <Shield size={12} className="text-faint" />}
-                              </span>
-                              <span className="text-muted truncate flex-1">{v.name}</span>
-                              <span className="font-mono text-[12px] font-medium tabular shrink-0 text-fg">
-                                {v.price > 0 ? vnd(v.price) : "Báo giá"}
-                              </span>
-                            </div>
-                          ))}
-                          {p.variants.length > 3 && (
-                            <div className="text-[11.5px] text-faint pb-1">+{p.variants.length - 3} gói khác</div>
-                          )}
-                        </div>
-                      </div>
-
-                      {/* Footer */}
-                      <div className="px-5 py-4 bg-raised/50 border-t border-line flex items-center justify-between mt-auto">
-                        <div>
-                          <div className="text-[10.5px] uppercase tracking-wide text-faint font-medium">Chỉ từ</div>
-                          <div className="font-mono text-[20px] font-semibold tabular leading-tight text-iris-hi">
-                            {mp > 0 ? vnd(mp) : "Báo giá"}
-                          </div>
-                        </div>
-                        <span className="inline-flex items-center gap-1.5 text-[12.5px] font-medium text-iris group-hover:text-iris-hi transition-colors">
-                          Chọn gói <ArrowRight size={14} />
-                        </span>
-                      </div>
-                    </Card>
-                  </Link>
-                );
-              })}
-            </div>
-          </div>
-        </section>
-      )}
-
-      {/* ============ TRUSTED SELLERS ============ */}
-      {topSellers.length > 0 && (
-        <section className="w-full mx-auto max-w-[1200px] px-6 py-12">
-          <SectionHead title="Người bán uy tín" sub="Xếp hạng theo đơn hàng hoàn tất và đánh giá" />
-          <div className="grid gap-4 grid-cols-2 sm:grid-cols-3 lg:grid-cols-6">
-            {topSellers.map((s) => (
-              <Link key={s.account_id} href={`/sellers/${s.account_id}`}>
-                <Card interactive className="p-4 h-full text-center">
-                  <span className="mx-auto grid place-items-center h-11 w-11 rounded-full bg-iris-soft text-iris border border-iris/15">
-                    <Store size={18} />
-                  </span>
-                  <div className="mt-3 font-medium text-[13.5px] truncate">
-                    {s.business_name ?? s.email.split("@")[0]}
-                  </div>
-                  <div className="mt-1 flex items-center justify-center gap-1 text-[12px] text-muted">
-                    {s.rating_avg != null ? (
-                      <>
-                        <Star size={11} className="text-warn fill-warn" /> {s.rating_avg.toFixed(1)}
-                      </>
-                    ) : (
-                      <span className="text-faint">Chưa có đánh giá</span>
-                    )}
-                  </div>
-                  <div className="text-[11.5px] text-faint mt-0.5">
-                    {s.completed_order_count} đơn hoàn tất
-                  </div>
-                </Card>
-              </Link>
-            ))}
-          </div>
-        </section>
-      )}
-
-      {/* ============ RECENT ORDERS (logged-in buyers) ============ */}
-      {account && recentOrders.length > 0 && (
-        <section className="border-y border-line bg-surface">
-          <div className="w-full mx-auto max-w-[1200px] px-6 py-12">
-            <SectionHead title="Đơn hàng gần đây" sub="Tiếp tục theo dõi đơn của bạn" />
-            <div className="grid gap-3 md:grid-cols-2 lg:grid-cols-5">
-              {recentOrders.map((o) => {
-                const st = RECENT_ORDER_STATUS[o.status] ?? { label: o.status, tone: "neutral" as const };
-                return (
-                  <Link key={o.id} href="/orders">
-                    <Card interactive className="p-4 h-full">
-                      <div className="flex items-center justify-between gap-2">
-                        <span className="font-mono text-[11.5px] text-faint">#{o.id}</span>
-                        <Tag tone={st.tone}>{st.label}</Tag>
-                      </div>
-                      <div className="mt-2 text-[13.5px] font-medium truncate">
-                        {o.product_title ?? o.variant_name ?? `Đơn #${o.id}`}
-                      </div>
-                      <div className="mt-2 font-mono text-[14px] font-semibold tabular">
-                        {vnd(o.total_amount)}
-                      </div>
-                    </Card>
-                  </Link>
-                );
-              })}
-            </div>
-            <div className="mt-5">
-              <Link href="/orders" className="inline-flex items-center gap-1.5 text-[13px] font-medium text-iris hover:text-iris-hi transition-colors">
-                Xem tất cả đơn hàng <ArrowRight size={14} />
-              </Link>
-            </div>
-          </div>
-        </section>
-      )}
-
       {/* ============ MARKET (full listing) ============ */}
-      <section id="market" className="w-full mx-auto max-w-[1200px] px-6 py-12 scroll-mt-20">
+      <section id="market" className="w-full mx-auto max-w-[1200px] px-6 py-6 lg:py-8 scroll-mt-20">
         <SectionHead title="Toàn bộ sản phẩm" sub="Lọc, tìm kiếm và mua ngay" />
 
         {flatCats.length > 0 && (
@@ -411,21 +271,21 @@ function HomeInner() {
             </div>
           </Card>
         ) : (
-          <div className="grid gap-4 [grid-template-columns:repeat(auto-fill,minmax(280px,1fr))]">
+          <div className="grid gap-2.5 sm:gap-4 grid-cols-2 sm:[grid-template-columns:repeat(auto-fill,minmax(280px,1fr))]">
             {visible.map((p, i) => {
               const inStock = stock(p) > 0;
               return (
                 <Link key={p.id} href={`/products/${p.id}`} className="animate-rise" style={{ animationDelay: `${i * 40}ms` }}>
-                  <Card interactive className="p-4 h-full">
-                    <div className="flex items-start gap-3">
-                      <span className="grid place-items-center h-10 w-10 shrink-0 rounded-lg bg-raised border border-line font-serif text-[15px] font-semibold text-iris">{p.title.slice(0, 2).toUpperCase()}</span>
+                  <Card interactive className="p-3 sm:p-4 h-full">
+                    <div className="flex items-start gap-2 sm:gap-3">
+                      <span className="grid place-items-center h-8 w-8 sm:h-10 sm:w-10 shrink-0 rounded-lg bg-raised border border-line font-serif text-[12px] sm:text-[15px] font-semibold text-iris">{p.title.slice(0, 2).toUpperCase()}</span>
                       <div className="min-w-0 flex-1">
-                        <div className="flex items-start justify-between gap-2">
-                          <div className="font-medium text-[14px] truncate">{p.title}</div>
-                          <div className="font-mono text-[13.5px] font-semibold tabular shrink-0">{vnd(minPrice(p))}</div>
+                        <div className="flex items-start justify-between gap-1 sm:gap-2">
+                          <div className="font-medium text-[12.5px] sm:text-[14px] truncate">{p.title}</div>
                         </div>
-                        <div className="text-[12px] text-faint mt-0.5">{catName(p.category_id)}</div>
-                        <div className="mt-3 flex items-center gap-2">
+                        <div className="font-mono text-[12px] sm:text-[13.5px] font-semibold tabular">{vnd(minPrice(p))}</div>
+                        <div className="text-[11px] sm:text-[12px] text-faint mt-0.5 truncate">{catName(p.category_id)}</div>
+                        <div className="mt-2 sm:mt-3 flex items-center gap-1.5 sm:gap-2 flex-wrap">
                           {inStock ? <Tag tone="good">● Còn {stock(p)}</Tag> : <Tag tone="warn">Theo yêu cầu</Tag>}
                           <Tag tone="neutral"><Shield size={11} /> {p.escrow_days}d</Tag>
                         </div>
@@ -461,9 +321,150 @@ function HomeInner() {
         )}
       </section>
 
+      {/* ============ FEATURED (pricing cards) ============ */}
+      {featured.length > 0 && (
+        <section className="border-y border-line bg-surface">
+          <div className="w-full mx-auto max-w-[1200px] px-6 py-6 lg:py-8">
+            <SectionHead title="Nổi bật tuần này" sub="Hàng sẵn kho, giao ngay" />
+            {/* [&>*]:min-w-0 — grid item mặc định min-width:auto, nên phần text
+                `truncate` (nowrap) bên trong đẩy cả cột rộng ra thay vì bị cắt,
+                kéo trang trôi ngang trên điện thoại. */}
+            <div className="grid grid-cols-2 gap-2.5 sm:gap-5 lg:grid-cols-3 [&>*]:min-w-0">
+              {featured.map((p) => {
+                const mp = minPrice(p);
+                return (
+                  <Link key={p.id} href={`/products/${p.id}`} className="group">
+                    <Card className="p-0 flex flex-col h-full overflow-hidden transition-all duration-150 group-hover:shadow-card-lg group-hover:-translate-y-0.5">
+                      {/* Header */}
+                      <div className="px-3 pt-3 pb-2.5 sm:px-5 sm:pt-5 sm:pb-4">
+                        <div className="flex items-center gap-2 sm:gap-3">
+                          <span className="grid place-items-center h-8 w-8 sm:h-10 sm:w-10 shrink-0 rounded-lg bg-iris-soft border border-iris/20 font-serif text-[12px] sm:text-[14px] font-semibold text-iris">
+                            {p.title.slice(0, 2).toUpperCase()}
+                          </span>
+                          <div className="min-w-0">
+                            <div className="font-medium text-[13px] sm:text-[15px] truncate">{p.title}</div>
+                            <div className="flex items-center gap-1.5 text-[11px] sm:text-[12px] text-faint">
+                              {catName(p.category_id)}
+                              <Verified size={11} className="text-iris hidden sm:inline" />
+                              {p.sold_count > 0 && <span className="hidden sm:inline">· {p.sold_count} đã bán</span>}
+                            </div>
+                          </div>
+                        </div>
+                      </div>
+
+                      {/* Variant list — mobile chỉ hiện 2 gói đầu để card không quá cao,
+                          desktop giữ 3 như cũ. */}
+                      <div className="px-3 sm:px-5 flex-1">
+                        <div className="border-t border-line pt-2 sm:pt-3 space-y-0">
+                          {p.variants.slice(0, 3).map((v, vi) => (
+                            <div key={v.id} className={cn("flex items-center gap-1.5 sm:gap-2 py-1.5 sm:py-2 text-[12px] sm:text-[13px]", vi >= 2 && "hidden sm:flex")}>
+                              <span className="shrink-0 w-4 text-center">
+                                {v.delivery_mode === "instant" ? <Bolt size={12} className="text-good" /> : <Shield size={12} className="text-faint" />}
+                              </span>
+                              <span className="text-muted truncate flex-1">{v.name}</span>
+                              <span className="font-mono text-[11px] sm:text-[12px] font-medium tabular shrink-0 text-fg">
+                                {v.price > 0 ? vnd(v.price) : "Báo giá"}
+                              </span>
+                            </div>
+                          ))}
+                          {p.variants.length > 3 && (
+                            <div className="text-[11.5px] text-faint pb-1 hidden sm:block">+{p.variants.length - 3} gói khác</div>
+                          )}
+                        </div>
+                      </div>
+
+                      {/* Footer */}
+                      <div className="px-3 py-2.5 sm:px-5 sm:py-4 bg-raised/50 border-t border-line flex items-center justify-between mt-auto">
+                        <div>
+                          <div className="text-[9.5px] sm:text-[10.5px] uppercase tracking-wide text-faint font-medium">Chỉ từ</div>
+                          <div className="font-mono text-[15px] sm:text-[20px] font-semibold tabular leading-tight text-iris-hi">
+                            {mp > 0 ? vnd(mp) : "Báo giá"}
+                          </div>
+                        </div>
+                        <span className="inline-flex items-center gap-1 sm:gap-1.5 text-[11px] sm:text-[12.5px] font-medium text-iris group-hover:text-iris-hi transition-colors">
+                          <span className="hidden sm:inline">Chọn gói</span> <ArrowRight size={14} />
+                        </span>
+                      </div>
+                    </Card>
+                  </Link>
+                );
+              })}
+            </div>
+          </div>
+        </section>
+      )}
+
+      {/* ============ TRUSTED SELLERS ============ */}
+      {topSellers.length > 0 && (
+        <section className="w-full mx-auto max-w-[1200px] px-6 py-6 lg:py-8">
+          <SectionHead title="Người bán uy tín" sub="Xếp hạng theo đơn hàng hoàn tất và đánh giá" />
+          <div className="grid gap-2.5 sm:gap-4 grid-cols-2 sm:grid-cols-3 lg:grid-cols-6">
+            {topSellers.map((s) => (
+              <Link key={s.account_id} href={`/sellers/${s.account_id}`}>
+                <Card interactive className="p-3 sm:p-4 h-full text-center">
+                  <span className="mx-auto grid place-items-center h-9 w-9 sm:h-11 sm:w-11 rounded-full bg-iris-soft text-iris border border-iris/15">
+                    <Store size={15} />
+                  </span>
+                  <div className="mt-2 sm:mt-3 font-medium text-[12.5px] sm:text-[13.5px] truncate">
+                    {s.business_name ?? s.email.split("@")[0]}
+                  </div>
+                  <div className="mt-1 flex items-center justify-center gap-1 text-[11.5px] sm:text-[12px] text-muted">
+                    {s.rating_avg != null ? (
+                      <>
+                        <Star size={11} className="text-warn fill-warn" /> {s.rating_avg.toFixed(1)}
+                      </>
+                    ) : (
+                      <span className="text-faint">Chưa có đánh giá</span>
+                    )}
+                  </div>
+                  <div className="text-[11.5px] text-faint mt-0.5">
+                    {s.completed_order_count} đơn hoàn tất
+                  </div>
+                </Card>
+              </Link>
+            ))}
+          </div>
+        </section>
+      )}
+
+      {/* ============ RECENT ORDERS (logged-in buyers) ============ */}
+      {account && recentOrders.length > 0 && (
+        <section className="border-y border-line bg-surface">
+          <div className="w-full mx-auto max-w-[1200px] px-6 py-6 lg:py-8">
+            <SectionHead title="Đơn hàng gần đây" sub="Tiếp tục theo dõi đơn của bạn" />
+            <div className="grid grid-cols-2 gap-2.5 sm:gap-3 lg:grid-cols-5">
+              {recentOrders.map((o) => {
+                const st = RECENT_ORDER_STATUS[o.status] ?? { label: o.status, tone: "neutral" as const };
+                return (
+                  <Link key={o.id} href="/orders">
+                    <Card interactive className="p-3 sm:p-4 h-full">
+                      <div className="flex items-center justify-between gap-2">
+                        <span className="font-mono text-[11px] sm:text-[11.5px] text-faint">#{o.id}</span>
+                        <Tag tone={st.tone}>{st.label}</Tag>
+                      </div>
+                      <div className="mt-1.5 sm:mt-2 text-[12.5px] sm:text-[13.5px] font-medium truncate">
+                        {o.product_title ?? o.variant_name ?? `Đơn #${o.id}`}
+                      </div>
+                      <div className="mt-1.5 sm:mt-2 font-mono text-[13px] sm:text-[14px] font-semibold tabular">
+                        {vnd(o.total_amount)}
+                      </div>
+                    </Card>
+                  </Link>
+                );
+              })}
+            </div>
+            <div className="mt-5">
+              <Link href="/orders" className="inline-flex items-center gap-1.5 text-[13px] font-medium text-iris hover:text-iris-hi transition-colors">
+                Xem tất cả đơn hàng <ArrowRight size={14} />
+              </Link>
+            </div>
+          </div>
+        </section>
+      )}
+
       {/* ============ HOW IT WORKS ============ */}
       <section className="border-t border-line bg-surface">
-        <div className="w-full mx-auto max-w-[1200px] px-6 py-12">
+        <div className="w-full mx-auto max-w-[1200px] px-6 py-6 lg:py-8">
           <SectionHead title="Cách hoạt động" sub="Chỉ 3 bước để nhận hàng an toàn" />
           <div className="grid gap-5 md:grid-cols-3">
             {[
@@ -485,7 +486,7 @@ function HomeInner() {
       </section>
 
       {/* ============ WHY US ============ */}
-      <section className="w-full mx-auto max-w-[1200px] px-6 py-12">
+      <section className="w-full mx-auto max-w-[1200px] px-6 py-6 lg:py-8">
         <SectionHead title="Tại sao chọn chúng tôi" sub="Nền tảng được thiết kế cho sự tin cậy" />
         <div className="grid gap-5 sm:grid-cols-2 lg:grid-cols-4">
           {[
@@ -507,7 +508,7 @@ function HomeInner() {
 
       {/* ============ TESTIMONIALS ============ */}
       <section className="border-y border-line bg-surface">
-        <div className="w-full mx-auto max-w-[1200px] px-6 py-12">
+        <div className="w-full mx-auto max-w-[1200px] px-6 py-6 lg:py-8">
           <SectionHead title="Khách hàng nói gì" sub="Đánh giá từ người dùng thực tế" />
           <div className="grid gap-5 md:grid-cols-3">
             {[
@@ -558,9 +559,9 @@ function HomeInner() {
 
 function SectionHead({ title, sub }: { title: string; sub: string }) {
   return (
-    <div className="mb-6">
-      <h2 className="font-serif text-[24px] tracking-tight">{title}</h2>
-      <p className="text-[13.5px] text-muted mt-1">{sub}</p>
+    <div className="mb-3.5">
+      <h2 className="font-serif text-[19px] tracking-tight">{title}</h2>
+      <p className="text-[12.5px] text-muted mt-0.5">{sub}</p>
     </div>
   );
 }
@@ -621,7 +622,7 @@ function FaqSection() {
   );
 
   return (
-    <section className="w-full mx-auto max-w-[1200px] px-6 py-12">
+    <section className="w-full mx-auto max-w-[1200px] px-6 py-6 lg:py-8">
       <SectionHead title="Câu hỏi thường gặp" sub="Giải đáp nhanh các thắc mắc phổ biến" />
       <div className="grid gap-2 md:grid-cols-2 md:gap-x-5 md:gap-y-2 items-start">
         <div className="space-y-2">

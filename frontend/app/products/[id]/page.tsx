@@ -2,7 +2,7 @@
 
 import Link from "next/link";
 import { useParams, useRouter } from "next/navigation";
-import { useEffect, useState } from "react";
+import { useEffect, useRef, useState } from "react";
 import { api, vnd, ApiError } from "@/lib/api";
 import { useAuth } from "@/lib/auth";
 import { cn } from "@/lib/cn";
@@ -37,6 +37,29 @@ export default function ProductPage() {
   const [related, setRelated] = useState<Product[]>([]);
   const [showConfirm, setShowConfirm] = useState(false);
   const [pricingStrategy, setPricingStrategy] = useState<string | null>(null);
+
+  // Panel đặt hàng bị đưa ra khỏi flow (`lg:absolute`) ở desktop để tránh bug
+  // CSS Grid row-span (xem comment tại JSX bên dưới) — nhưng vì vậy container
+  // `relative` cha không còn "biết" chiều cao thật của panel, nên khi panel
+  // cao hơn cột trái (rất thường gặp — panel DProxy 3 field + total + button
+  // dễ cao hơn một header card ngắn không mô tả), panel sẽ tràn xuống ĐÈ LÊN
+  // footer thay vì chỉ để lại khoảng trắng. Đo chiều cao panel thật bằng
+  // ResizeObserver rồi ép container cha cao tối thiểu bằng đúng số đó —
+  // không còn tràn, không còn khoảng trắng giả, đúng cả hai chiều.
+  const panelRef = useRef<HTMLDivElement>(null);
+  const [panelHeight, setPanelHeight] = useState(0);
+  useEffect(() => {
+    // `panelRef` chỉ có giá trị SAU khi `loading` chuyển false (panel nằm
+    // trong nhánh render "đã tải xong") — thiếu `loading` trong dependency
+    // array thì effect chạy đúng một lần lúc panelRef.current còn null (lúc
+    // đang loading), rồi không bao giờ chạy lại nữa vì pricingStrategy/order
+    // sau đó không đổi thêm lần nào, nên observer không bao giờ được gắn.
+    const el = panelRef.current;
+    if (!el) return;
+    const ro = new ResizeObserver((entries) => setPanelHeight(entries[0].contentRect.height));
+    ro.observe(el);
+    return () => ro.disconnect();
+  }, [loading, pricingStrategy, order]);
 
   useEffect(() => {
     (async () => {
@@ -132,19 +155,46 @@ export default function ProductPage() {
         <span className="text-faint truncate max-w-[600px]">{product.title}</span>
       </nav>
 
-      {/* === MAIN 2-COL: content left, sticky order right ===
-           Trên mobile grid xếp chồng nên panel đặt hàng rơi xuống tận cuối, sau cả
-           tab chi tiết và sản phẩm liên quan: khách chọn gói xong phải cuộn rất xa
-           mới mua được, và lúc mua thì không còn thấy mình chọn gói nào. Vì "Chọn
-           gói" nằm lồng trong cột trái nên không đảo bằng `order` trực tiếp được —
-           tách cột trái làm hai khối, rồi chèn panel vào giữa ở mobile. Desktop giữ
-           nguyên bố cục cũ bằng col-start/row-start tường minh.
-           items-start chỉ bật từ lg: ở flex-col nó là trục ngang, sẽ làm các khối
-           co lại theo nội dung thay vì rộng hết màn. */}
-      <div className="flex flex-col gap-6 lg:grid lg:grid-cols-[1fr_340px] lg:items-start">
+      {/* === MAIN LAYOUT: content left, floating sticky order panel right ===
+           v2 — CSS Grid row-span (v1 fix) vẫn còn một khoảng trắng: panel ghép
+           chung row-1 với khối header, nên nếu panel cao hơn header (rất
+           thường gặp — panel DProxy có 3 field + total + button dễ cao hơn một
+           header card ngắn), row-1 bị Grid kéo giãn theo panel, để lại khoảng
+           trắng dưới header trước khi tab bắt đầu — về bản chất là cùng một họ
+           bug, chỉ nhỏ hơn. Gốc rễ: CSS Grid LUÔN buộc track chứa item row-span
+           cao bằng chính item đó, bất kể items-start — items-start chỉ ngăn nội
+           dung bị kéo giãn ra *nhìn thấy được*, không thu nhỏ track. Không có
+           cách nào dùng grid row-span cho sidebar mà tránh được việc này.
 
-        {/* ---- LEFT, PHẦN TRÊN: thông tin + chọn gói ---- */}
-        <div className="min-w-0 order-1 lg:col-start-1 lg:row-start-1">
+           Fix triệt để: đưa panel ra khỏi flow hoàn toàn bằng absolute, để
+           chiều cao cột trái (header + tab) không còn phụ thuộc panel chút
+           nào, và ngược lại:
+             - Container ngoài: `relative` — làm điểm neo cho absolute.
+             - Header & tab: 2 khối bình thường, xếp chồng tự nhiên, chừa chỗ
+               phải bằng `lg:pr-[364px]` (340px panel + 24px gap) để chữ không
+               chạy dưới panel.
+             - Panel: MỘT instance duy nhất (không render 2 lần — panel có
+               state/gọi API riêng, render 2 lần sẽ tạo 2 instance lệch nhau).
+               Mobile: không set position gì cả → nằm đúng vị trí trong DOM,
+               tức là ngay sau header, trước tab — đúng thứ tự buyer cần.
+               Desktop (`lg:`): `absolute inset-y-0 right-0 w-[340px]` — bung
+               ra khỏi flow, `sticky` bên trong — sticky-sidebar chuẩn.
+
+           Hệ quả của việc bung panel khỏi flow: container `relative` cha
+           không còn "biết" chiều cao thật của panel nữa — nếu panel cao hơn
+           cột trái (rất thường gặp với sản phẩm mô tả ngắn), panel sẽ TRÀN
+           XUỐNG ĐÈ LÊN footer thay vì chỉ để lại khoảng trắng như Grid. Sửa
+           bằng cách đo chiều cao panel thật qua ResizeObserver (xem
+           `panelHeight` state) rồi ép container cha cao tối thiểu bằng đúng
+           số đó (`--panel-h` + `lg:min-h-[var(--panel-h)]`) — hết tràn, hết
+           khoảng trắng giả, đúng trong mọi trường hợp nội dung dài/ngắn. */}
+      <div
+        className="relative lg:min-h-[var(--panel-h)]"
+        style={panelHeight ? ({ "--panel-h": `${panelHeight}px` } as React.CSSProperties) : undefined}
+      >
+
+        {/* ---- Header / specs / chọn gói ---- */}
+        <div className="min-w-0 lg:pr-[364px]">
 
           {/* Product header card — contains title, seller, price, highlight */}
           <Card className="overflow-hidden">
@@ -266,8 +316,92 @@ export default function ProductPage() {
           )}
         </div>
 
-        {/* ---- LEFT, PHẦN DƯỚI: đọc thêm sau khi đã quyết ---- */}
-        <div className="min-w-0 order-3 lg:order-none lg:col-start-1 lg:row-start-2">
+        {/* ---- Panel đặt hàng — MỘT instance duy nhất, xem giải thích ở
+             container phía trên. Mobile: nằm ngay đây trong flow bình thường.
+             Desktop: bung khỏi flow, dán bên phải. ---- */}
+        <div className="mt-6 lg:mt-0 lg:absolute lg:inset-y-0 lg:right-0 lg:w-[340px]">
+          {/* ref đo trên div KHÔNG bị stretch (chỉ sticky, không inset-y-0) —
+              đo trên div cha (có inset-y-0) sẽ ra chiều cao đã bị kéo giãn
+              theo min-h ở container ngoài, tạo vòng lặp phụ thuộc sai. */}
+          <div ref={panelRef} className="lg:sticky lg:top-20">
+            {useDynamicForm ? (
+              order ? (
+                <Card className="overflow-hidden">
+                  <div className="px-5 py-3 border-b border-line bg-raised/30">
+                    <span className="text-[13px] font-semibold">Đặt hàng</span>
+                  </div>
+                  <div className="p-5">
+                    <OrderResult order={order} onRebuy={() => { setOrder(null); setQty(1); }} />
+                  </div>
+                </Card>
+              ) : (
+                <DynamicOrderForm productId={Number(id)} product={product} onOrderCreated={setOrder} />
+              )
+            ) : (
+              <Card className="overflow-hidden">
+                <div className="px-5 py-3 border-b border-line flex items-center justify-between bg-raised/30">
+                  <span className="text-[13px] font-semibold">Đặt hàng</span>
+                  {selected && (
+                    <Tag tone={instant ? "good" : "warn"}>{instant ? "Giao ngay" : "Thủ công"}</Tag>
+                  )}
+                </div>
+
+                <div className="p-5">
+                  {order ? <OrderResult order={order} onRebuy={() => { setOrder(null); setQty(1); }} /> : (
+                    <div className="space-y-4">
+                      {/* Selected variant */}
+                      <div>
+                        <div className="text-[11px] text-faint uppercase tracking-wider mb-1">Gói đã chọn</div>
+                        <div className="text-[13.5px] font-medium line-clamp-2">{selected?.name ?? "—"}</div>
+                      </div>
+
+                      {/* Quantity */}
+                      <div>
+                        <div className="text-[11px] text-faint uppercase tracking-wider mb-1.5">Số lượng</div>
+                        <div className="flex items-center border border-line rounded-lg overflow-hidden w-fit">
+                          <button onClick={() => setQty(Math.max(1, qty - 1))}
+                            className="h-9 w-9 grid place-items-center text-muted hover:text-fg hover:bg-raised transition-colors">−</button>
+                          <input type="number" min={1} value={qty}
+                            onChange={(e) => setQty(Math.max(1, Number(e.target.value) || 1))}
+                            className="h-9 w-12 text-center font-mono text-[13px] font-medium border-x border-line bg-surface" />
+                          <button onClick={() => setQty(qty + 1)}
+                            className="h-9 w-9 grid place-items-center text-muted hover:text-fg hover:bg-raised transition-colors">+</button>
+                        </div>
+                      </div>
+
+                      {/* Total */}
+                      <div className="border-t border-line pt-4 flex items-end justify-between">
+                        <span className="text-[12px] text-muted">Tổng cộng</span>
+                        <span className="font-mono text-[22px] font-bold tabular">{vnd(total)}</span>
+                      </div>
+
+                      {placeError && <p className="text-bad text-[12.5px]">{placeError}</p>}
+
+                      <Button size="lg" block disabled={!selected || placing || selectedOutOfStock || (selected?.price === 0)} onClick={() => {
+                        if (!account) { router.push("/login"); return; }
+                        setShowConfirm(true);
+                      }}>
+                        {placing ? "Đang xử lý…"
+                          : !account ? "Đăng nhập để mua"
+                          : selectedOutOfStock ? "Hết hàng"
+                          : selected?.price === 0 ? "Liên hệ báo giá"
+                          : instant ? "Mua ngay" : "Đặt hàng"}
+                      </Button>
+
+                      <p className="text-[11.5px] text-faint leading-relaxed text-center">
+                        <Shield size={11} className="inline -mt-0.5 mr-0.5 text-good" />
+                        Ký quỹ {product.escrow_days} ngày · Tiền chỉ chuyển khi bạn xác nhận
+                      </p>
+                    </div>
+                  )}
+                </div>
+              </Card>
+            )}
+          </div>
+        </div>
+
+        {/* ---- Tab chi tiết + sản phẩm liên quan — đọc thêm sau khi đã quyết ---- */}
+        <div className="min-w-0 mt-6 lg:mt-0 lg:pr-[364px]">
 
           {/* Tabs: detail / review / warranty */}
           <div className="lg:mt-5">
@@ -323,86 +457,6 @@ export default function ProductPage() {
                 ))}
               </div>
             </div>
-          )}
-        </div>
-
-        {/* ---- RIGHT COLUMN: sticky order panel ----
-             order-2: ở mobile nằm ngay dưới "Chọn gói". row-span-2 để ô grid của nó
-             cao bằng cả hai khối trái, nếu không sticky chỉ dính được trong phạm vi
-             hàng 1 rồi trôi mất. */}
-        <div className="order-2 lg:order-none lg:col-start-2 lg:row-start-1 lg:row-span-2 lg:sticky lg:top-20">
-          {useDynamicForm ? (
-            order ? (
-              <Card className="overflow-hidden">
-                <div className="px-5 py-3 border-b border-line bg-raised/30">
-                  <span className="text-[13px] font-semibold">Đặt hàng</span>
-                </div>
-                <div className="p-5">
-                  <OrderResult order={order} onRebuy={() => { setOrder(null); setQty(1); }} />
-                </div>
-              </Card>
-            ) : (
-              <DynamicOrderForm productId={Number(id)} product={product} onOrderCreated={setOrder} />
-            )
-          ) : (
-            <Card className="overflow-hidden">
-              <div className="px-5 py-3 border-b border-line flex items-center justify-between bg-raised/30">
-                <span className="text-[13px] font-semibold">Đặt hàng</span>
-                {selected && (
-                  <Tag tone={instant ? "good" : "warn"}>{instant ? "Giao ngay" : "Thủ công"}</Tag>
-                )}
-              </div>
-
-              <div className="p-5">
-                {order ? <OrderResult order={order} onRebuy={() => { setOrder(null); setQty(1); }} /> : (
-                  <div className="space-y-4">
-                    {/* Selected variant */}
-                    <div>
-                      <div className="text-[11px] text-faint uppercase tracking-wider mb-1">Gói đã chọn</div>
-                      <div className="text-[13.5px] font-medium line-clamp-2">{selected?.name ?? "—"}</div>
-                    </div>
-
-                    {/* Quantity */}
-                    <div>
-                      <div className="text-[11px] text-faint uppercase tracking-wider mb-1.5">Số lượng</div>
-                      <div className="flex items-center border border-line rounded-lg overflow-hidden w-fit">
-                        <button onClick={() => setQty(Math.max(1, qty - 1))}
-                          className="h-9 w-9 grid place-items-center text-muted hover:text-fg hover:bg-raised transition-colors">−</button>
-                        <input type="number" min={1} value={qty}
-                          onChange={(e) => setQty(Math.max(1, Number(e.target.value) || 1))}
-                          className="h-9 w-12 text-center font-mono text-[13px] font-medium border-x border-line bg-surface" />
-                        <button onClick={() => setQty(qty + 1)}
-                          className="h-9 w-9 grid place-items-center text-muted hover:text-fg hover:bg-raised transition-colors">+</button>
-                      </div>
-                    </div>
-
-                    {/* Total */}
-                    <div className="border-t border-line pt-4 flex items-end justify-between">
-                      <span className="text-[12px] text-muted">Tổng cộng</span>
-                      <span className="font-mono text-[22px] font-bold tabular">{vnd(total)}</span>
-                    </div>
-
-                    {placeError && <p className="text-bad text-[12.5px]">{placeError}</p>}
-
-                    <Button size="lg" block disabled={!selected || placing || selectedOutOfStock || (selected?.price === 0)} onClick={() => {
-                      if (!account) { router.push("/login"); return; }
-                      setShowConfirm(true);
-                    }}>
-                      {placing ? "Đang xử lý…"
-                        : !account ? "Đăng nhập để mua"
-                        : selectedOutOfStock ? "Hết hàng"
-                        : selected?.price === 0 ? "Liên hệ báo giá"
-                        : instant ? "Mua ngay" : "Đặt hàng"}
-                    </Button>
-
-                    <p className="text-[11.5px] text-faint leading-relaxed text-center">
-                      <Shield size={11} className="inline -mt-0.5 mr-0.5 text-good" />
-                      Ký quỹ {product.escrow_days} ngày · Tiền chỉ chuyển khi bạn xác nhận
-                    </p>
-                  </div>
-                )}
-              </div>
-            </Card>
           )}
         </div>
       </div>

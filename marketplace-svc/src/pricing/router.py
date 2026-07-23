@@ -24,6 +24,13 @@ async def _get_product(product_id: int, db: AsyncSession) -> Product:
     return product
 
 
+# Che nguồn hàng ở API PUBLIC: buyer (và đối thủ) không được suy ra nhà cung
+# cấp thượng nguồn từ adapter_type — "topproxy" trả về nhãn trung tính.
+# Frontend chỉ cần biết hành vi (1 đơn = 1 proxy), không cần biết nguồn.
+# Endpoint admin/seller vẫn thấy adapter_type thật.
+_PUBLIC_ADAPTER_ALIASES = {"topproxy": "auto_proxy"}
+
+
 @router.get("/products/{product_id}/pricing-options", response_model=schemas.PricingOptionsResponse)
 async def pricing_options(product_id: int, db: AsyncSession = Depends(get_session)):
     product = await _get_product(product_id, db)
@@ -34,13 +41,14 @@ async def pricing_options(product_id: int, db: AsyncSession = Depends(get_sessio
     provider = await db.get(Provider, product.provider_id) if product.provider_id else None
     setup = setup_status(provider.adapter_type if provider else None, strategy_name)
 
+    raw_adapter_type = provider.adapter_type if provider else None
     return schemas.PricingOptionsResponse(
         strategy=strategy_name,
         fields=fields,
         base_info=params,
         ready=not setup["needs_setup"],
         not_ready_reason=setup["needs_setup_reason"],
-        adapter_type=provider.adapter_type if provider else None,
+        adapter_type=_PUBLIC_ADAPTER_ALIASES.get(raw_adapter_type, raw_adapter_type),
     )
 
 

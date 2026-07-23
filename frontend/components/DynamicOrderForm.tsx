@@ -71,9 +71,10 @@ export default function DynamicOrderForm({ productId, product, onOrderCreated }:
   // package_size=1 bất kể field gốc cho phép gì. Xem
   // docs/superpowers/plans/2026-07-22-dproxy-consolidated-review.md P0#1.
   const isDproxy = options?.adapter_type === "dproxy";
-  // TopProxy cùng ràng buộc 1 allocation/đơn (orders/service.py chặn
-  // quantity != 1 cho cả hai adapter) — dùng chung khoá số lượng với DProxy.
-  const isSingleUnit = isDproxy || options?.adapter_type === "topproxy";
+  // "auto_proxy" là nhãn public của adapter proxy mua-theo-đơn (backend che
+  // tên nguồn thật — xem _PUBLIC_ADAPTER_ALIASES, src/pricing/router.py).
+  // Cùng ràng buộc 1 allocation/đơn với DProxy nên dùng chung khoá số lượng.
+  const isSingleUnit = isDproxy || options?.adapter_type === "auto_proxy";
 
   const doCalculate = useCallback(async (cfg: Record<string, unknown>, q: number) => {
     if (!options || !options.ready || options.fields.length === 0) return;

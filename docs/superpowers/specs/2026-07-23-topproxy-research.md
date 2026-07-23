@@ -94,10 +94,22 @@ Bảng giá bậc thang thật (Xu/ngày, từ hàm `tinhGia*`; 4G và xoay đan
 | 4G Vinaphone (×0.5 hiện hành) | 2500 | 2000 | 1500 | — | 1300 | 1000 | 900 | 800 | 700 | 600 |
 | Key xoay (×0.5 hiện hành) | 5000 | 5000 | 5000 | — | — | 3000 (từ 7n: 4000) | — | — | — | — |
 
-Hệ quả đã áp vào seed: giá vốn KHÔNG tuyến tính theo ngày, còn ConfigPricing thì tuyến
-tính → sản phẩm tĩnh chỉ mở kỳ hạn 30/60/90 ngày (mở kỳ ngắn với giá tuyến tính là bán lỗ);
-key xoay tách 3 sản phẩm theo ĐƠN VỊ (ngày/tuần/tháng), adapter tự map `days` →
-endpoint + `thoigian=N` (mua N đơn vị — web cho phép, `_xoay_endpoint()`).
+Hệ quả đã áp vào seed (cập nhật theo yêu cầu 23/07 chiều — kỳ hạn ngắn 3/7/14/30):
+giá vốn KHÔNG tuyến tính theo ngày, còn ConfigPricing thì tuyến tính → đơn giá bán/ngày
+NEO THEO BẬC VỐN Ở KỲ NGẮN NHẤT (3 ngày) × margin ≥ 50%: dân cư share 1.200đ/ngày
+(base 36.000), Datacenter Share3/Share1/riêng 1.200/1.500/4.200đ/ngày (mult 1.0/1.25/3.5),
+US 800đ/ngày (base 24.000), 4G 1.900đ/ngày (base 57.000). Margin phình to ở kỳ dài —
+đó là giới hạn của công thức tuyến tính, muốn giá kỳ dài cạnh tranh cần pricing
+per-duration. Key xoay tách 3 sản phẩm theo ĐƠN VỊ (ngày/tuần/tháng: 4.000đ/ngày,
+21.000đ/tuần, 68.000đ/tháng), adapter tự map `days` → endpoint + `thoigian=N`
+(mua N đơn vị — web cho phép, `_xoay_endpoint()`).
+
+**White-label (yêu cầu 23/07)**: buyer không được thấy nguồn TopProxy ở bất kỳ đâu —
+title/description sản phẩm trung tính, seller riêng `pxstation-seller@dxtrade.example.com`,
+tên provider đặt trung tính "PX Station — ..." (vì `/products/{id}/operations` chưa có
+auth guard), và API public `pricing-options` trả `adapter_type` qua alias
+`topproxy → "auto_proxy"` (`_PUBLIC_ADAPTER_ALIASES`, src/pricing/router.py — frontend
+khoá số lượng theo alias này). adapter_type thật chỉ hiện trong admin.
 
 ## 6. Đã triển khai (2026-07-23)
 

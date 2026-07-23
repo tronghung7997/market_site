@@ -305,6 +305,12 @@ async def provision_pending_order(order_id: int) -> None:
         except Exception as e:
             # Leave the order at `pending` — the sweeper retries, and only gives up
             # (refund + cancel) once the order is past its deadline.
+            # Rollback TRƯỚC khi ghi log: nếu provision chết giữa một flush
+            # (vd IntegrityError khi bind allocation), session đang ở trạng
+            # thái hỏng — log_event/commit trên session đó nổ tiếp và lỗi
+            # biến mất không dấu vết (quan sát thấy 2026-07-23 với mock
+            # TopProxy cấp lại idproxy trùng sau restart).
+            await db.rollback()
             await log_event(
                 db, "error", f"Order {order.id} background provision error: {e}",
                 metadata={"event": "order_provision_error", "order_id": order.id, "error": str(e)},

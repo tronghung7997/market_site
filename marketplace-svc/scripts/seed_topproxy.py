@@ -1,39 +1,39 @@
 """Seed dữ liệu cửa hàng mapping catalog TopProxy → sản phẩm marketplace.
 
+WHITE-LABEL: mọi thứ buyer nhìn thấy (tên sản phẩm, seller, mô tả) KHÔNG
+được lộ nguồn TopProxy — nguồn chỉ tồn tại ở tầng admin (provider
+adapter_type="topproxy", tên provider cũng đặt trung tính vì
+/products/{id}/operations chưa có auth guard). API public pricing-options
+trả adapter_type qua alias "auto_proxy" (xem _PUBLIC_ADAPTER_ALIASES,
+src/pricing/router.py).
+
 Option/giá lấy từ CHÍNH trang topproxy.vn 2026-07-23 (dump <select> +
 hàm tinhGia* bằng Playwright — xem
-docs/superpowers/specs/2026-07-23-topproxy-research.md §7):
-- Dân cư share: nhà mạng Viettel/FPT/VNPT, giá bậc thang 800→320 Xu/ngày.
-- Datacenter VN: 3 mức chia sẻ (web value: Private/Share1/Share3 — apiv2
-  dùng DatacenterA/B/C; mapping A=riêng, B=Share1, C=Share3 CẦN VERIFY
-  với key thật trước khi bán thật). Bậc thang: riêng 2800→1360,
-  Share1 800→320, Share3 800→240 Xu/ngày.
-- US: 1 khu vực (San Jose), bậc thang 480→160 Xu/ngày.
-- 4G Vinaphone: không chọn nhà mạng, bậc thang 2500→600 Xu/ngày,
-  HIỆN GIẢM 50% — giá seed theo giá khuyến mãi, hết KM phải chỉnh.
-- Key xoay: mua theo N ngày/tuần/tháng (thoigian), 5000/4000/3000 Xu/ngày
-  theo bậc (hiện -50% → 2500/2000/1500).
-- "Proxy dân cư tĩnh Private" (chọn IP, web loai=PRIVATEA) KHÔNG có trong
-  apiv2 → không resell được, không seed.
+docs/superpowers/specs/2026-07-23-topproxy-research.md §5b):
+- Dân cư share: nhà mạng Viettel/FPT/VNPT, vốn bậc thang 800→320 Xu/ngày.
+- Datacenter VN: 3 mức chia sẻ (web: Private/Share1/Share3 — apiv2 dùng
+  DatacenterA/B/C; mapping A=riêng, B=Share1, C=Share3 CẦN VERIFY với key
+  thật trước khi bán thật). Vốn: riêng 2800→1360, Share1 800→320,
+  Share3 800→240 Xu/ngày.
+- US: 1 khu vực (San Jose), vốn 480→160 Xu/ngày.
+- 4G Vinaphone: vốn 2500→600 Xu/ngày, HIỆN -50% — hết KM phải chỉnh giá.
+- Key xoay: mua N ngày/tuần/tháng (thoigian), vốn hiện hành 2500/2000/1500
+  Xu/ngày theo đơn vị.
+- "Dân cư tĩnh Private" (web loai=PRIVATEA) không có trong apiv2 → không seed.
 
-Tạo (idempotent — chạy lại chỉ cập nhật, không nhân bản):
-- 1 seller riêng `topproxy-seller@dxtrade.example.com` (mật khẩu DemoPass123!)
-  đứng tên toàn bộ sản phẩm TopProxy.
-- 2 provider row `adapter_type=topproxy` (mode static/xoay) trỏ vào
-  scripts/mock_topproxy.py (:9300). Đổi sang TopProxy THẬT = sửa base_url +
-  api_key trong /admin/providers, không sửa code.
-- 8 sản phẩm strategy=config. QUY ƯỚC MAPPING (fulfillment đọc thẳng
-  user_config của ConfigPricing):
-    * network_mult keys  = giá trị `loaiproxy` NGUYÊN VĂN của apiv2.
-    * type_mult keys     = HTTP | SOCKS5 (nguyên văn tham số `type`).
-    * duration_options   = số ngày (`ngay`/`thoigian`).
-  Nhãn tiếng Việt để ở network_display/type_display, KHÔNG đổi key máy.
+CHÍNH SÁCH GIÁ (kỳ hạn ngắn 3/7/14/30 ngày theo yêu cầu 2026-07-23):
+công thức ConfigPricing tuyến tính (base × days/30) còn vốn là bậc thang
+giảm dần → đơn giá bán/ngày phải neo theo VỐN Ở KỲ NGẮN NHẤT (3 ngày)
+× margin ≥ 50%, chấp nhận margin phình to ở kỳ dài. Muốn giá kỳ dài cạnh
+tranh hơn thì cần pricing per-duration (chưa có) hoặc tách sản phẩm.
 
-LƯU Ý GIÁ: công thức ConfigPricing tuyến tính theo ngày (base × days/30)
-nhưng giá vốn TopProxy là bậc thang giảm dần — nên mỗi sản phẩm CHỈ mở các
-kỳ hạn mà giá tuyến tính không bao giờ bán dưới vốn (proxy tĩnh: từ 30 ngày
-trở lên). Muốn bán kỳ hạn ngắn phải chờ pricing per-duration hoặc tách
-sản phẩm riêng (như đã tách key xoay ngày/tuần/tháng).
+Tạo (idempotent, tự rename dữ liệu phiên bản cũ):
+- 1 seller riêng `pxstation-seller@dxtrade.example.com` (DemoPass123!).
+- 2 provider adapter_type=topproxy (mode static/xoay) trỏ vào
+  scripts/mock_topproxy.py (:9300); đổi sang thật = sửa base_url + api_key.
+- 8 sản phẩm strategy=config. QUY ƯỚC MAPPING: network_mult keys = giá trị
+  `loaiproxy` NGUYÊN VĂN của apiv2; type_mult keys = HTTP|SOCKS5;
+  duration_options = số ngày. Nhãn tiếng Việt ở *_display, KHÔNG đổi key máy.
 
 Run (backend không cần chạy, ghi thẳng DB):
     cd marketplace-svc
@@ -59,11 +59,17 @@ from src.security.crypto import encrypt_config  # noqa: E402
 MOCK_BASE_URL = "http://127.0.0.1:9300"
 MOCK_API_KEY = "mock-topproxy-key"  # trùng scripts/mock_topproxy.py
 
-SELLER_EMAIL = "topproxy-seller@dxtrade.example.com"
+SELLER_EMAIL = "pxstation-seller@dxtrade.example.com"
+LEGACY_SELLER_EMAIL = "topproxy-seller@dxtrade.example.com"
 SELLER_PASSWORD = "DemoPass123!"
 
-PROVIDER_STATIC = "TopProxy — Proxy tĩnh (mock)"
-PROVIDER_XOAY = "TopProxy — Key xoay (mock)"
+# Tên provider trung tính (admin nhận diện nguồn qua adapter_type="topproxy")
+PROVIDER_STATIC = "PX Station — proxy tĩnh (mock)"
+PROVIDER_XOAY = "PX Station — key xoay (mock)"
+LEGACY_PROVIDER_NAMES = {
+    PROVIDER_STATIC: "TopProxy — Proxy tĩnh (mock)",
+    PROVIDER_XOAY: "TopProxy — Key xoay (mock)",
+}
 
 PROVIDERS = [
     {
@@ -80,12 +86,11 @@ PROVIDERS = [
 ]
 
 _STATIC_TYPE = {"HTTP": 1, "SOCKS5": 1}
-# Chỉ từ 30 ngày trở lên: dưới 30 ngày giá vốn/ngày cao hơn (bậc thang),
-# công thức tuyến tính sẽ bán lỗ — xem LƯU Ý GIÁ trên đầu file.
-_D30_60_90 = [
+_D3_7_14_30 = [
+    {"days": 3, "label": "3 ngày"},
+    {"days": 7, "label": "7 ngày"},
+    {"days": 14, "label": "14 ngày"},
     {"days": 30, "label": "30 ngày"},
-    {"days": 60, "label": "60 ngày"},
-    {"days": 90, "label": "90 ngày"},
 ]
 _XOAY_TYPE = {
     "type_mult": {"HTTP": 1},
@@ -98,111 +103,119 @@ _XOAY_TYPE = {
 _XOAY_SPECS = {
     "Đổi IP": "Không giới hạn, tối thiểu 60s/lần", "IP sống": "15–30 phút",
     "Nhà mạng": "Viettel / VNPT / FPT (chọn mỗi lần lấy)", "Phủ sóng": "45 tỉnh thành",
-    "Giao hàng": "Key tự động qua API",
+    "Giao hàng": "Key tự động, kích hoạt ngay",
 }
 
 PRODUCTS = [
     {
-        "title": "Proxy dân cư tĩnh VN (share) — TopProxy",
+        "title": "Proxy dân cư tĩnh Việt Nam (share)",
+        "legacy_title": "Proxy dân cư tĩnh VN (share) — TopProxy",
         "provider": PROVIDER_STATIC,
         "description": (
             "IPv4 dân cư Việt Nam (hàng share 3 người dùng) — phù hợp MMO, nuôi tài khoản. "
             "Không giới hạn dung lượng. Giao tự động, IP riêng kèm user/pass."
         ),
         "pricing_params": {
-            # Vốn 480 Xu/ngày ở kỳ 30 ngày (bậc thang 800→320 cho 1→120 ngày)
-            "base_price": 18000,
+            # Vốn 3 ngày = 800 Xu/ngày → bán 1.200đ/ngày (+50% ở kỳ ngắn nhất)
+            "base_price": 36000,
             "type_mult": _STATIC_TYPE,
             "network_mult": {"Viettel": 1, "FPT": 1, "VNPT": 1},
             "network_display": {"Viettel": "Viettel", "FPT": "FPT", "VNPT": "VNPT"},
             "field_labels": {"network": "Nhà mạng"},
-            "duration_options": _D30_60_90,
+            "duration_options": _D3_7_14_30,
             "volume_tiers": [],
         },
         "specs": {
             "Loại IP": "Dân cư tĩnh (share 3)", "Băng thông": "Không giới hạn",
-            "Giao thức": "HTTP / SOCKS5", "Giao hàng": "Tự động qua API",
+            "Giao thức": "HTTP / SOCKS5", "Giao hàng": "Tự động, kích hoạt ngay",
         },
     },
     {
-        "title": "Proxy Datacenter Việt Nam — TopProxy",
+        "title": "Proxy Datacenter Việt Nam",
+        "legacy_title": "Proxy Datacenter Việt Nam — TopProxy",
         "provider": PROVIDER_STATIC,
         "description": (
             "IPv4 datacenter đặt tại Việt Nam, độ ổn định cao, phù hợp chơi game / tool. "
             "Chọn mức chia sẻ: dùng riêng, share 1 hoặc share 3."
         ),
         "pricing_params": {
-            # Vốn 30 ngày: riêng 48.000 / Share1 14.400 / Share3 9.600 Xu
-            # → mult 5.0 / 1.5 / 1.0 trên base Share3.
-            # apiv2 DatacenterA/B/C ↔ web Dùng riêng/Share1/Share3: CẦN VERIFY
+            # Vốn 3 ngày/ngày: riêng 2.800 / Share1 800 / Share3 800 Xu
+            # → Share3 bán 1.200đ/ngày (mult 1.0), Share1 1.500 (1.25),
+            #   riêng 4.200 (3.5, +50% trên 2.800).
+            # apiv2 DatacenterA/B/C ↔ web riêng/Share1/Share3: CẦN VERIFY
             # với key thật (mua thử 1 ngày) trước khi mở bán thật.
-            "base_price": 12000,
+            "base_price": 36000,
             "type_mult": _STATIC_TYPE,
-            "network_mult": {"DatacenterA": 5.0, "DatacenterB": 1.5, "DatacenterC": 1.0},
+            "network_mult": {"DatacenterA": 3.5, "DatacenterB": 1.25, "DatacenterC": 1.0},
             "network_display": {
                 "DatacenterA": "Dùng riêng", "DatacenterB": "Share 1", "DatacenterC": "Share 3",
             },
             "field_labels": {"network": "Mức chia sẻ"},
-            "duration_options": _D30_60_90,
+            "duration_options": _D3_7_14_30,
             "volume_tiers": [],
         },
         "specs": {
             "Loại IP": "Datacenter VN", "Băng thông": "Không giới hạn",
-            "Giao thức": "HTTP / SOCKS5", "Giao hàng": "Tự động qua API",
+            "Giao thức": "HTTP / SOCKS5", "Giao hàng": "Tự động, kích hoạt ngay",
         },
     },
     {
-        "title": "Proxy US Datacenter — TopProxy",
+        "title": "Proxy Datacenter US (San Jose)",
+        "legacy_title": "Proxy US Datacenter — TopProxy",
         "provider": PROVIDER_STATIC,
         "description": "IPv4 datacenter Mỹ (San Jose, California) — tiết kiệm chi phí, băng thông không giới hạn.",
         "pricing_params": {
-            # Vốn 160 Xu/ngày ở kỳ 30 ngày (bậc 480→160)
-            "base_price": 6000,
+            # Vốn 3 ngày = 480 Xu/ngày → bán 800đ/ngày (+67%)
+            "base_price": 24000,
             "type_mult": _STATIC_TYPE,
             "network_mult": {"US": 1},
             "network_display": {"US": "San Jose, California (US)"},
             "field_labels": {"network": "Khu vực"},
-            "duration_options": _D30_60_90,
+            "duration_options": _D3_7_14_30,
             "volume_tiers": [],
         },
         "specs": {
             "Loại IP": "Datacenter US", "Khu vực": "San Jose, CA",
-            "Giao thức": "HTTP / SOCKS5", "Giao hàng": "Tự động qua API",
+            "Giao thức": "HTTP / SOCKS5", "Giao hàng": "Tự động, kích hoạt ngay",
         },
     },
     {
-        "title": "Proxy 4G Vinaphone — TopProxy",
+        "title": "Proxy 4G di động Vinaphone",
+        "legacy_title": "Proxy 4G Vinaphone — TopProxy",
         "provider": PROVIDER_STATIC,
         "description": (
             "Proxy tạo từ SIM 4G Vinaphone thật — IP di động trust cao. "
             "Giới hạn 4GB/ngày, tự làm mới 00h00 hàng ngày."
         ),
         "pricing_params": {
-            # Vốn hiện hành (đang -50%): 500 Xu/ngày ở kỳ 30 ngày (bậc gốc
-            # 2500→600, nhân 0.5). HẾT KHUYẾN MÃI PHẢI TĂNG base_price ~2x.
-            "base_price": 19000,
+            # Vốn 3 ngày hiện hành (đang -50%) = 1.250 Xu/ngày → bán 1.900đ/ngày
+            # (+52%). HẾT KHUYẾN MÃI PHẢI TĂNG base_price ~2x.
+            "base_price": 57000,
             "type_mult": _STATIC_TYPE,
             "network_mult": {"4Gvinaphone": 1},
             "network_display": {"4Gvinaphone": "4G Vinaphone"},
             "field_labels": {"network": "Nhà mạng"},
-            "duration_options": _D30_60_90,
+            "duration_options": _D3_7_14_30,
             "volume_tiers": [],
         },
         "specs": {
             "Loại IP": "4G mobile (SIM thật)", "Dung lượng": "4GB/ngày, reset 00h00",
-            "Giao thức": "HTTP / SOCKS5", "Giao hàng": "Tự động qua API",
+            "Giao thức": "HTTP / SOCKS5", "Giao hàng": "Tự động, kích hoạt ngay",
         },
     },
     {
-        "title": "Gói proxy tĩnh 90–100 IP — TopProxy",
+        "title": "Gói proxy tĩnh 90–100 IP",
+        "legacy_title": "Gói proxy tĩnh 90–100 IP — TopProxy",
         "provider": PROVIDER_STATIC,
         "description": (
             "Gói số lượng lớn 90–100 proxy tĩnh cùng lúc (1 đơn = 1 gói). "
             "Không đổi được proxy trong gói, đổi được bảo mật từng con. Băng thông không giới hạn."
         ),
         "pricing_params": {
-            # Vốn 30 ngày: Goi Viettel/VNPT/FPT 675.000 Xu, GoiDATACENTER 480.000 Xu
-            "base_price": 845000,
+            # Vốn 30 ngày: gói nhà mạng 675.000 Xu, gói datacenter 480.000 Xu
+            # → bán 945.000 (+40%) / 671.000 (mult 0.71). Gói không bán kỳ ngắn
+            # (bảng giá nguồn không công bố bậc dưới 30 ngày).
+            "base_price": 945000,
             "type_mult": _STATIC_TYPE,
             "network_mult": {"GoiViettel": 1, "GoiVNPT": 1, "GoiFPT": 1, "GoiDATACENTER": 0.71},
             "network_display": {
@@ -215,14 +228,13 @@ PRODUCTS = [
         },
         "specs": {
             "Quy mô": "90–100 IP / gói", "Lưu ý": "Không đổi proxy trong gói",
-            "Giao thức": "HTTP / SOCKS5", "Giao hàng": "Tự động qua API",
+            "Giao thức": "HTTP / SOCKS5", "Giao hàng": "Tự động, kích hoạt ngay",
         },
     },
     # ------------------------------------------------------------------
-    # Key xoay: giá vốn theo bậc ĐƠN VỊ (ngày 2.500 / tuần 2.000/ngày /
-    # tháng 1.500/ngày — giá hiện hành đã -50%). Tách 3 sản phẩm theo đơn
-    # vị để giá tuyến tính trong từng sản phẩm khớp đúng bậc; adapter tự
-    # chọn endpoint + thoigian theo số ngày (xem _xoay_endpoint).
+    # Key xoay: vốn theo bậc ĐƠN VỊ (ngày 2.500 / tuần 2.000/ngày /
+    # tháng 1.500/ngày — hiện hành đã -50%). Tách 3 sản phẩm theo đơn vị
+    # để giá tuyến tính khớp bậc; adapter tự chọn endpoint + thoigian.
     # ------------------------------------------------------------------
     {
         "title": "Key proxy xoay IPv4 — theo ngày",
@@ -232,8 +244,8 @@ PRODUCTS = [
             "đủ 3 nhà mạng Viettel/VNPT/FPT, phủ 45 tỉnh thành. IP sống 15–30 phút, đổi tối thiểu 60 giây."
         ),
         "pricing_params": {
-            # Vốn 2.500 Xu/ngày (kỳ < 7 ngày) → bán 3.500/ngày. base×(1/30)=3.500
-            "base_price": 105000,
+            # Vốn 2.500 Xu/ngày → bán 4.000đ/ngày (+60%). base×(1/30)=4.000
+            "base_price": 120000,
             "duration_options": [
                 {"days": 1, "label": "24 giờ"},
                 {"days": 2, "label": "2 ngày"},
@@ -248,12 +260,12 @@ PRODUCTS = [
         "title": "Key proxy xoay IPv4 — theo tuần",
         "provider": PROVIDER_XOAY,
         "description": (
-            "Key xoay IP chủ động theo tuần (rẻ hơn mua ngày ~20%): không giới hạn số lần đổi IP "
+            "Key xoay IP chủ động theo tuần (rẻ hơn mua ngày): không giới hạn số lần đổi IP "
             "và băng thông, đủ 3 nhà mạng, phủ 45 tỉnh thành."
         ),
         "pricing_params": {
-            # Vốn 14.000 Xu/tuần (2.000/ngày) → bán 17.500/tuần. base×(7/30)=17.500
-            "base_price": 75000,
+            # Vốn 14.000 Xu/tuần → bán 21.000đ/tuần (+50%). base×(7/30)=21.000
+            "base_price": 90000,
             "duration_options": [
                 {"days": 7, "label": "1 tuần"},
                 {"days": 14, "label": "2 tuần"},
@@ -271,8 +283,8 @@ PRODUCTS = [
             "và băng thông, đủ 3 nhà mạng, phủ 45 tỉnh thành."
         ),
         "pricing_params": {
-            # Vốn 45.000 Xu/tháng (1.500/ngày) → bán 56.000/tháng. base×(30/30)=56.000
-            "base_price": 56000,
+            # Vốn 45.000 Xu/tháng → bán 68.000đ/tháng (+51%). base×(30/30)=68.000
+            "base_price": 68000,
             "duration_options": [
                 {"days": 30, "label": "1 tháng"},
                 {"days": 60, "label": "2 tháng"},
@@ -287,6 +299,12 @@ PRODUCTS = [
 
 async def _get_or_create_seller(db) -> int:
     account = await db.scalar(select(Account).where(Account.email == SELLER_EMAIL))
+    if account is None:
+        # White-label rename: tài khoản seed đợt trước mang email lộ nguồn
+        account = await db.scalar(select(Account).where(Account.email == LEGACY_SELLER_EMAIL))
+        if account is not None:
+            account.email = SELLER_EMAIL
+            print(f"~ seller #{account.id}: {LEGACY_SELLER_EMAIL} → {SELLER_EMAIL}")
     if account is None:
         account = Account(
             email=SELLER_EMAIL,
@@ -318,6 +336,13 @@ async def main() -> None:
         for spec in PROVIDERS:
             provider = await db.scalar(select(Provider).where(Provider.name == spec["name"]))
             if provider is None:
+                legacy_name = LEGACY_PROVIDER_NAMES.get(spec["name"])
+                if legacy_name:
+                    provider = await db.scalar(select(Provider).where(Provider.name == legacy_name))
+                    if provider is not None:
+                        provider.name = spec["name"]
+                        print(f"~ provider #{provider.id}: {legacy_name} → {spec['name']}")
+            if provider is None:
                 provider = Provider(
                     name=spec["name"], type="proxy", adapter_type="topproxy",
                     config=encrypt_config(spec["config"]), priority=1,
@@ -334,20 +359,23 @@ async def main() -> None:
                 print(f"= provider #{provider.id}: {provider.name} (cập nhật config)")
             provider_ids[spec["name"]] = provider.id
 
-        # Dọn 3 sản phẩm xoay phiên bản cũ (đặt tên theo kỳ hạn cố định)
-        legacy_titles = [
+        # Dọn 3 sản phẩm xoay phiên bản đầu (kỳ hạn cố định, đã thay từ 23/07)
+        for title in [
             "Key proxy xoay IPv4 — 24 giờ",
             "Key proxy xoay IPv4 — 7 ngày",
             "Key proxy xoay IPv4 — 30 ngày",
-        ]
-        for title in legacy_titles:
+        ]:
             legacy = await db.scalar(select(Product).where(Product.title == title))
-            if legacy is not None:
+            if legacy is not None and legacy.status != ProductStatus.paused:
                 legacy.status = ProductStatus.paused
-                print(f"~ product #{legacy.id}: {title} → paused (thay bằng bản theo đơn vị)")
+                print(f"~ product #{legacy.id}: {title} → paused")
 
         for spec in PRODUCTS:
             product = await db.scalar(select(Product).where(Product.title == spec["title"]))
+            if product is None and spec.get("legacy_title"):
+                product = await db.scalar(select(Product).where(Product.title == spec["legacy_title"]))
+                if product is not None:
+                    print(f"~ product #{product.id}: đổi tên white-label → {spec['title']}")
             values = dict(
                 seller_id=seller_id, category_id=category.id, title=spec["title"],
                 description=spec["description"], escrow_days=1,
@@ -363,10 +391,10 @@ async def main() -> None:
             else:
                 for k, v in values.items():
                     setattr(product, k, v)
-                print(f"= product #{product.id}: {product.title} (cập nhật, chuyển về seller mới)")
+                print(f"= product #{product.id}: {product.title} (cập nhật)")
 
         await db.commit()
-    print("Seed TopProxy xong. Chạy mock: uv run uvicorn scripts.mock_topproxy:app --port 9300")
+    print("Seed xong. Chạy mock: uv run uvicorn scripts.mock_topproxy:app --port 9300")
 
 
 if __name__ == "__main__":

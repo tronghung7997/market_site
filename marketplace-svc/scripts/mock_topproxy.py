@@ -49,7 +49,11 @@ app = FastAPI(title="Mock TopProxy")
 
 _state = {"xu": START_XU}
 _proxies: dict[int, dict] = {}
-_next_id = {"v": 1000}
+# idproxy phải KHÔNG lặp lại qua các lần restart mock: proxy_allocations bên
+# marketplace persist trong Postgres với UNIQUE(provider_id, external_id) —
+# counter reset về hằng số sẽ cấp lại id cũ và làm bind nổ IntegrityError
+# (TopProxy thật cấp id tăng dần, không có vấn đề này).
+_next_id = {"v": int(time.time())}
 _keys: dict[str, dict] = {}
 
 

@@ -3,6 +3,7 @@ from sqlalchemy import select
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from src.adapters.dproxy import validate_dproxy_config
+from src.adapters.topproxy import validate_topproxy_config
 from src.exceptions import NotOwner
 from src.models.provider import Provider, ProviderHealth
 from src.providers.schemas import SELLER_ALLOWED_ADAPTER_TYPES
@@ -32,6 +33,8 @@ async def create_provider(data: dict, db: AsyncSession) -> Provider:
     _check_webhook_secret(data.get("adapter_type"), data.get("config"))
     if data.get("adapter_type") == "dproxy":
         await validate_dproxy_config(data.get("config") or {})
+    if data.get("adapter_type") == "topproxy":
+        await validate_topproxy_config(data.get("config") or {})
     if "config" in data and data["config"]:
         data["config"] = encrypt_config(data["config"])
     provider = Provider(**data)
@@ -59,6 +62,10 @@ async def update_provider(provider_id: int, updates: dict, db: AsyncSession) -> 
         # can flip adapter_type to dproxy while leaving a config that was
         # never validated against dproxy's contract (review fixes Medium B).
         await validate_dproxy_config(next_config or {})
+    if next_adapter_type == "topproxy":
+        # Cùng lý do với dproxy ngay trên: validate config HIỆU DỤNG kể cả
+        # khi update chỉ đổi adapter_type.
+        await validate_topproxy_config(next_config or {})
 
     if "config" in updates and updates["config"]:
         updates["config"] = encrypt_config(updates["config"])

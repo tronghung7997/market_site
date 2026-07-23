@@ -7,13 +7,18 @@ from src.adapters.mock import MockAdapter
 from src.adapters.real_api import RealApiAdapter
 from src.adapters.seller_pool import SellerPoolAdapter
 from src.adapters.seller_task_webhook import SellerTaskWebhookAdapter
+from src.adapters.topproxy import TopProxyAdapter
 from src.models.provider import Provider
 
 ADAPTER_MAP: dict[str, type[ProviderAdapter]] = {
     "mock": MockAdapter,
     "seller_pool": SellerPoolAdapter,
     "manual": ManualAdapter,
-    "topproxy": RealApiAdapter,
+    # Adapter thật theo tài liệu topproxy.vn (query-param auth, envelope
+    # status số, không idempotency phía supplier) — xem
+    # docs/superpowers/specs/2026-07-23-topproxy-research.md. Trước 2026-07-23
+    # trỏ vào RealApiAdapter với convention giả định.
+    "topproxy": TopProxyAdapter,
     "scrapecreators": RealApiAdapter,
     # Cùng cơ chế gọi HTTP thật với topproxy/scrapecreators (retry, idempotency,
     # ProviderCallLog) — khác ở chỗ base_url trỏ vào backend do SELLER tự khai,
@@ -77,6 +82,9 @@ def _instantiate(provider: Provider, db: AsyncSession) -> ProviderAdapter:
         )
 
     if adapter_cls is DProxyAdapter:
+        return adapter_cls(config, db=db, provider_id=provider.id)
+
+    if adapter_cls is TopProxyAdapter:
         return adapter_cls(config, db=db, provider_id=provider.id)
 
     if adapter_cls is RealApiAdapter:

@@ -18,7 +18,10 @@ ADAPTER_STRATEGY_COMPAT: dict[str, set[str] | None] = {
     "mock": None,
     "seller_pool": {"fixed"},
     "manual": {"task"},
-    "topproxy": {"config", "credit"},
+    # Adapter TopProxy thật (2026-07-23): provision đọc type/network/days từ
+    # ConfigPricing — chỉ còn "config". Trước đây là RealApiAdapter giả định
+    # nên từng cho cả "credit".
+    "topproxy": {"config"},
     "scrapecreators": {"config", "credit"},
     # Per-request forward tới backend do seller tự khai (RealApiAdapter.call(),
     # xem src/gateway/router.py) — chỉ hợp lý với credit vì buyer cần một gói

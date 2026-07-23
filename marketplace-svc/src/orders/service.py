@@ -172,11 +172,18 @@ async def create_order_with_adapter(
     # charge for N proxies and deliver 1. Checked here, before any charge or
     # order row exists, not just hidden on the frontend (review fixes
     # docs/superpowers/plans/2026-07-22-dproxy-consolidated-review.md P0#1).
+    # topproxy cùng ràng buộc: một ProxyAllocation mỗi order, và lệnh mua
+    # TopProxy không có idempotency nên soluong>1 còn thêm rủi ro giao thiếu
+    # (status 201) không xử lý nổi giữa chừng.
     provider_for_quantity_check = await db.get(Provider, product.provider_id)
-    if provider_for_quantity_check and provider_for_quantity_check.adapter_type == "dproxy" and q.quantity != 1:
+    if (
+        provider_for_quantity_check
+        and provider_for_quantity_check.adapter_type in ("dproxy", "topproxy")
+        and q.quantity != 1
+    ):
         raise HTTPException(
             status_code=400,
-            detail="Sản phẩm proxy xoay IP chỉ hỗ trợ mua 1 proxy mỗi đơn — số lượng phải bằng 1",
+            detail="Sản phẩm proxy này chỉ hỗ trợ mua 1 đơn vị mỗi đơn — số lượng phải bằng 1",
         )
 
     order = Order(

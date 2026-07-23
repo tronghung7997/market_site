@@ -71,6 +71,9 @@ export default function DynamicOrderForm({ productId, product, onOrderCreated }:
   // package_size=1 bất kể field gốc cho phép gì. Xem
   // docs/superpowers/plans/2026-07-22-dproxy-consolidated-review.md P0#1.
   const isDproxy = options?.adapter_type === "dproxy";
+  // TopProxy cùng ràng buộc 1 allocation/đơn (orders/service.py chặn
+  // quantity != 1 cho cả hai adapter) — dùng chung khoá số lượng với DProxy.
+  const isSingleUnit = isDproxy || options?.adapter_type === "topproxy";
 
   const doCalculate = useCallback(async (cfg: Record<string, unknown>, q: number) => {
     if (!options || !options.ready || options.fields.length === 0) return;
@@ -87,7 +90,7 @@ export default function DynamicOrderForm({ productId, product, onOrderCreated }:
     }
     setCalculating(true);
     try {
-      const merged = { ...cfg, quantity: q, ...(isDproxy ? { package_size: 1 } : {}) };
+      const merged = { ...cfg, quantity: isSingleUnit ? 1 : q, ...(isDproxy ? { package_size: 1 } : {}) };
       const result = await api.calculatePrice(productId, merged);
       setCalc(result);
       setCalcError(null);
@@ -99,7 +102,7 @@ export default function DynamicOrderForm({ productId, product, onOrderCreated }:
     } finally {
       setCalculating(false);
     }
-  }, [productId, options, isDproxy]);
+  }, [productId, options, isDproxy, isSingleUnit]);
 
   useEffect(() => {
     if (!options) return;
@@ -121,8 +124,8 @@ export default function DynamicOrderForm({ productId, product, onOrderCreated }:
     setPlacing(true);
     setPlaceError(null);
     try {
-      const finalConfig = { ...config, quantity: qty, ...(isDproxy ? { package_size: 1 } : {}) };
-      const order = await api.createOrderWithConfig(productId, finalConfig, isDproxy ? 1 : qty);
+      const finalConfig = { ...config, quantity: isSingleUnit ? 1 : qty, ...(isDproxy ? { package_size: 1 } : {}) };
+      const order = await api.createOrderWithConfig(productId, finalConfig, isSingleUnit ? 1 : qty);
       setShowConfirm(false);
       onOrderCreated(order);
     } catch (e) {
@@ -184,7 +187,7 @@ export default function DynamicOrderForm({ productId, product, onOrderCreated }:
 
           {/* Quantity — ẩn với strategy "task" (tự đếm theo URL) và với
               DProxy (luôn đúng 1 proxy/đơn, không cho chọn). */}
-          {options.strategy !== "task" && !isDproxy && (
+          {options.strategy !== "task" && !isSingleUnit && (
           <div>
             <div className="text-[11px] text-faint uppercase tracking-wider mb-1.5">Số lượng</div>
             <div className="flex items-center border border-line rounded-lg overflow-hidden w-fit">
@@ -210,7 +213,7 @@ export default function DynamicOrderForm({ productId, product, onOrderCreated }:
             </div>
           </div>
           )}
-          {isDproxy && (
+          {isSingleUnit && (
             <p className="text-[12px] text-muted">Mỗi đơn nhận 1 proxy riêng.</p>
           )}
 

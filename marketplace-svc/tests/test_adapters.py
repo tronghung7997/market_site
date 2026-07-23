@@ -226,15 +226,28 @@ class TestAdapterFactory:
         assert adapter.config == config
 
     @pytest.mark.asyncio
-    async def test_returns_real_api_adapter_for_topproxy_and_scrapecreators(self):
+    async def test_returns_real_api_adapter_for_scrapecreators(self):
         from src.adapters.real_api import RealApiAdapter
 
-        for adapter_type in ("topproxy", "scrapecreators"):
-            provider = _make_provider(10, adapter_type=adapter_type)
-            db = AsyncMock()
-            db.get = AsyncMock(return_value=provider)
-            adapter = await get_adapter(10, db)
-            assert isinstance(adapter, RealApiAdapter)
+        provider = _make_provider(10, adapter_type="scrapecreators")
+        db = AsyncMock()
+        db.get = AsyncMock(return_value=provider)
+        adapter = await get_adapter(10, db)
+        assert isinstance(adapter, RealApiAdapter)
+
+    @pytest.mark.asyncio
+    async def test_returns_topproxy_adapter_for_topproxy(self):
+        # 2026-07-23: "topproxy" trỏ vào adapter thật theo tài liệu topproxy.vn
+        # (vẫn là RealApiAdapter subclass để giữ deferred provisioning).
+        from src.adapters.real_api import RealApiAdapter
+        from src.adapters.topproxy import TopProxyAdapter
+
+        provider = _make_provider(10, adapter_type="topproxy")
+        db = AsyncMock()
+        db.get = AsyncMock(return_value=provider)
+        adapter = await get_adapter(10, db)
+        assert isinstance(adapter, TopProxyAdapter)
+        assert isinstance(adapter, RealApiAdapter)
 
 
 # ---------------------------------------------------------------------------
@@ -384,7 +397,7 @@ class TestRealApiAdapter:
 # ---------------------------------------------------------------------------
 
 
-async def _make_real_provider(adapter_type: str = "topproxy") -> int:
+async def _make_real_provider(adapter_type: str = "scrapecreators") -> int:
     from src.database import SessionLocal
     from src.models.provider import Provider
 

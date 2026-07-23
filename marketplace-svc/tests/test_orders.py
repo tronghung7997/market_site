@@ -591,7 +591,10 @@ async def _use_real_api_provider(product_id: int) -> int:
         product = await db.get(Product, product_id)
         await db.execute(
             update(Provider).where(Provider.id == product.provider_id).values(
-                adapter_type="topproxy",
+                # scrapecreators: RealApiAdapter thuần — "topproxy" từ 2026-07-23
+                # là TopProxyAdapter với contract riêng, không hợp cho các test
+                # deferred-provisioning generic này.
+                adapter_type="scrapecreators",
                 config={"base_url": "https://api.example.com"},
             )
         )

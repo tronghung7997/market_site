@@ -675,7 +675,11 @@ export default function OrdersPage() {
 
                 <div className="flex items-center gap-2 mt-3">
                   <Tag tone={st.tone}>{st.label}</Tag>
-                  <span className="text-[12px] text-muted">{st.hint}</span>
+                  {/* Đơn huỷ có lý do cụ thể → không lặp hint chung, để banner
+                      bên dưới nói rõ (hết hàng / đã hoàn tiền…). */}
+                  {!(o.status === "cancelled" && o.cancel_reason) && (
+                    <span className="text-[12px] text-muted">{st.hint}</span>
+                  )}
                 </div>
 
                 {o.has_dispute && <OrderDispute orderId={o.id} />}
@@ -687,9 +691,12 @@ export default function OrdersPage() {
                 )}
 
                 {o.status === "cancelled" && o.cancel_reason && (
-                  <div className="mt-3 flex gap-2.5 rounded-lg border border-warn/30 bg-warn-soft/40 p-3">
-                    <Info size={15} className="text-warn shrink-0 mt-0.5" />
-                    <p className="text-[12.5px] text-fg leading-relaxed">{o.cancel_reason}</p>
+                  <div className="mt-3 flex gap-2.5 rounded-lg border border-warn/40 bg-warn-soft/50 px-3.5 py-3">
+                    <Info size={16} className="text-warn shrink-0 mt-0.5" />
+                    <div className="min-w-0">
+                      <p className="text-[12.5px] font-medium text-fg">Vì sao đơn bị huỷ?</p>
+                      <p className="text-[12.5px] text-muted leading-relaxed mt-0.5">{o.cancel_reason}</p>
+                    </div>
                   </div>
                 )}
 

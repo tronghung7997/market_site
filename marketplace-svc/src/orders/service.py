@@ -398,6 +398,7 @@ async def _enrich_order(order: Order, db: AsyncSession) -> dict:
         "quantity": order.quantity,
         "total_amount": order.total_amount, "status": order.status,
         "escrow_expires_at": order.escrow_expires_at, "delivered_data": order.delivered_data,
+        "cancel_reason": order.cancel_reason,
         "created_at": order.created_at,
         "product_title": product.title if product else None,
         "variant_name": variant.name if variant else None,

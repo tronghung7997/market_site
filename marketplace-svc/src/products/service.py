@@ -374,27 +374,76 @@ async def update_seller_pricing(product_id: int, seller_id: int, data: dict, db:
 
 
 async def list_all_products_admin(db: AsyncSession) -> list[dict]:
-    """Return every product with seller email, provider name, order count, revenue."""
+    """Return every product with seller email, provider name, order count, revenue.
+
+    Mọi lookup gom theo IN/GROUP BY — bản cũ query riêng từng product
+    (~6 query × N sản phẩm) làm /admin/products mất 1.5s.
+    """
     result = await db.execute(select(Product).order_by(Product.created_at.desc()))
     products = list(result.scalars().all())
+    if not products:
+        return []
+
+    seller_ids = {p.seller_id for p in products}
+    sellers = {
+        a.id: a for a in (
+            await db.execute(select(Account).where(Account.id.in_(seller_ids)))
+        ).scalars()
+    }
+
+    provider_ids = {p.provider_id for p in products if p.provider_id}
+    providers = {}
+    if provider_ids:
+        providers = {
+            pr.id: pr for pr in (
+                await db.execute(select(Provider).where(Provider.id.in_(provider_ids)))
+            ).scalars()
+        }
+
+    product_ids = [p.id for p in products]
+    order_counts = {
+        pid: cnt for pid, cnt in (
+            await db.execute(
+                select(Order.product_id, func.count(Order.id))
+                .where(Order.product_id.in_(product_ids))
+                .group_by(Order.product_id)
+            )
+        ).all()
+    }
+    revenues = {
+        pid: total for pid, total in (
+            await db.execute(
+                select(Order.product_id, func.sum(Order.total_amount))
+                .where(
+                    Order.product_id.in_(product_ids),
+                    Order.status.in_([OrderStatus.delivered, OrderStatus.completed]),
+                )
+                .group_by(Order.product_id)
+            )
+        ).all()
+    }
+
+    # resolve_pricing fallback tier 2 chỉ đọc PricingConfig active theo
+    # service_type — prefetch 1 lần rồi resolve tại chỗ.
+    from src.models.pricing_config import PricingConfig
+
+    configs: dict[str, str] = {}
+    for c in (
+        await db.execute(select(PricingConfig).where(PricingConfig.is_active == True))  # noqa: E712
+    ).scalars():
+        configs.setdefault(c.service_type, c.strategy)
 
     out = []
     for p in products:
-        seller = await db.get(Account, p.seller_id)
-        provider = await db.get(Provider, p.provider_id) if p.provider_id else None
+        seller = sellers.get(p.seller_id)
+        provider = providers.get(p.provider_id) if p.provider_id else None
+        order_count = order_counts.get(p.id, 0)
+        revenue = revenues.get(p.id) or 0
 
-        order_count = await db.scalar(
-            select(func.count(Order.id)).where(Order.product_id == p.id)
-        ) or 0
-        revenue = await db.scalar(
-            select(func.sum(Order.total_amount)).where(
-                Order.product_id == p.id,
-                Order.status.in_([OrderStatus.delivered, OrderStatus.completed]),
-            )
-        ) or 0
-
-        from src.pricing.engine import resolve_pricing
-        strategy_name, _ = await resolve_pricing(p, db)
+        if p.pricing_strategy and p.pricing_params:
+            strategy_name = p.pricing_strategy
+        else:
+            strategy_name = configs.get(p.service_type or "other", "fixed")
         setup = setup_status(provider.adapter_type if provider else None, strategy_name)
 
         out.append({

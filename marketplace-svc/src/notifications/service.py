@@ -5,20 +5,18 @@ from sqlalchemy.ext.asyncio import AsyncSession
 
 from src.adapters.compatibility import setup_status
 from src.alerts.service import list_active_alerts, list_seller_alerts
-from src.disputes.service import list_disputes, list_seller_open_disputes
-from src.models.account import ApplicationStatus
+from src.disputes.service import list_seller_open_disputes
+from src.models.account import ApplicationStatus, SellerApplication
 from src.models.alert import Alert
 from src.models.order import Dispute, DisputeStatus, Order, OrderStatus
 from src.models.product import Product
 from src.models.provider import Provider
-from src.models.service_task import ServiceTaskStatus
+from src.models.service_task import ServiceTask, ServiceTaskStatus
 from src.models.usage import OrderBalance
-from src.models.wallet import WithdrawStatus
+from src.models.wallet import WithdrawRequest, WithdrawStatus
 from src.pricing.engine import resolve_pricing
 from src.products.service import get_seller_stats
-from src.seller.service import list_applications
-from src.tasks.service import list_tasks
-from src.wallet.service import list_withdrawals, list_withdrawals_for_account
+from src.wallet.service import list_withdrawals_for_account
 
 from .schemas import ActionItem
 
@@ -144,41 +142,51 @@ async def seller_action_items(seller_id: int, db: AsyncSession) -> list[ActionIt
 
 
 async def admin_action_items(db: AsyncSession) -> list[ActionItem]:
+    # Chỉ cần ĐẾM — không đi qua các list_*() vì chúng enrich từng row
+    # (N+1) cho nhu cầu hiển thị chi tiết mà ở đây không dùng đến.
     items: list[ActionItem] = []
 
-    applications = await list_applications(db)
-    pending_apps = [a for a in applications if a.status == ApplicationStatus.pending]
+    pending_apps = await db.scalar(
+        select(func.count(SellerApplication.id))
+        .where(SellerApplication.status == ApplicationStatus.pending)
+    ) or 0
     if pending_apps:
         items.append(ActionItem(
             key="admin_pending_applications", severity="warning",
-            label=f"{len(pending_apps)} đơn đăng ký bán chờ duyệt",
-            count=len(pending_apps), href="/admin/seller-applications",
+            label=f"{pending_apps} đơn đăng ký bán chờ duyệt",
+            count=pending_apps, href="/admin/seller-applications",
         ))
 
-    disputes = await list_disputes(db)
-    open_disputes = [d for d in disputes if d["status"] == DisputeStatus.open]
+    open_disputes = await db.scalar(
+        select(func.count(Dispute.id)).where(Dispute.status == DisputeStatus.open)
+    ) or 0
     if open_disputes:
         items.append(ActionItem(
             key="admin_open_disputes", severity="critical",
-            label=f"{len(open_disputes)} khiếu nại đang mở",
-            count=len(open_disputes), href="/admin/disputes",
+            label=f"{open_disputes} khiếu nại đang mở",
+            count=open_disputes, href="/admin/disputes",
         ))
 
-    withdrawals = await list_withdrawals(db)
-    pending_withdrawals = [w for w in withdrawals if w["status"] == WithdrawStatus.pending]
+    pending_withdrawals = await db.scalar(
+        select(func.count(WithdrawRequest.id))
+        .where(WithdrawRequest.status == WithdrawStatus.pending)
+    ) or 0
     if pending_withdrawals:
         items.append(ActionItem(
             key="admin_pending_withdrawals", severity="warning",
-            label=f"{len(pending_withdrawals)} yêu cầu rút tiền chờ duyệt",
-            count=len(pending_withdrawals), href="/admin/withdrawals",
+            label=f"{pending_withdrawals} yêu cầu rút tiền chờ duyệt",
+            count=pending_withdrawals, href="/admin/withdrawals",
         ))
 
-    pending_tasks = await list_tasks(db, status=ServiceTaskStatus.pending)
+    pending_tasks = await db.scalar(
+        select(func.count(ServiceTask.id))
+        .where(ServiceTask.status == ServiceTaskStatus.pending)
+    ) or 0
     if pending_tasks:
         items.append(ActionItem(
             key="admin_pending_tasks", severity="warning",
-            label=f"{len(pending_tasks)} tác vụ chờ xử lý",
-            count=len(pending_tasks), href="/admin/tasks",
+            label=f"{pending_tasks} tác vụ chờ xử lý",
+            count=pending_tasks, href="/admin/tasks",
         ))
 
     for alert in await list_active_alerts(db):

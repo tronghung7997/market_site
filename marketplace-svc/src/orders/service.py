@@ -376,37 +376,73 @@ async def confirm_order(order_id: int, buyer_id: int, db: AsyncSession) -> Order
     return order
 
 
+async def _enrich_orders(orders: list[Order], db: AsyncSession) -> list[dict]:
+    """Orders ORM → dicts with product/variant names + buyer/seller emails for display.
+
+    Gom lookup theo IN thay vì query từng đơn — list admin/seller từng mất
+    ~6 query × N đơn (2.3s với 80 đơn), giờ cố định 5 query bất kể N.
+    """
+    if not orders:
+        return []
+
+    variants: dict[int, ProductVariant] = {}
+    variant_ids = {o.variant_id for o in orders if o.variant_id}
+    if variant_ids:
+        rows = await db.execute(select(ProductVariant).where(ProductVariant.id.in_(variant_ids)))
+        variants = {v.id: v for v in rows.scalars()}
+
+    products: dict[int, Product] = {}
+    product_ids = {o.product_id for o in orders if o.product_id}
+    product_ids |= {v.product_id for v in variants.values()}
+    if product_ids:
+        rows = await db.execute(select(Product).where(Product.id.in_(product_ids)))
+        products = {p.id: p for p in rows.scalars()}
+
+    accounts: dict[int, Account] = {}
+    account_ids = {o.buyer_id for o in orders} | {o.seller_id for o in orders}
+    if account_ids:
+        rows = await db.execute(select(Account).where(Account.id.in_(account_ids)))
+        accounts = {a.id: a for a in rows.scalars()}
+
+    order_ids = [o.id for o in orders]
+    reviewed = set(
+        (await db.execute(select(Review.order_id).where(Review.order_id.in_(order_ids)))).scalars()
+    )
+    disputed = set(
+        (await db.execute(select(Dispute.order_id).where(Dispute.order_id.in_(order_ids)))).scalars()
+    )
+
+    out = []
+    for order in orders:
+        variant = variants.get(order.variant_id) if order.variant_id else None
+        product = None
+        if order.product_id:
+            product = products.get(order.product_id)
+        elif variant:
+            product = products.get(variant.product_id)
+        buyer = accounts.get(order.buyer_id)
+        seller = accounts.get(order.seller_id)
+        out.append({
+            "id": order.id, "buyer_id": order.buyer_id, "seller_id": order.seller_id,
+            "variant_id": order.variant_id, "product_id": order.product_id,
+            "quantity": order.quantity,
+            "total_amount": order.total_amount, "status": order.status,
+            "escrow_expires_at": order.escrow_expires_at, "delivered_data": order.delivered_data,
+            "cancel_reason": order.cancel_reason,
+            "created_at": order.created_at,
+            "product_title": product.title if product else None,
+            "variant_name": variant.name if variant else None,
+            "buyer_email": buyer.email if buyer else None,
+            "seller_email": seller.email if seller else None,
+            "has_review": order.id in reviewed,
+            "has_dispute": order.id in disputed,
+        })
+    return out
+
+
 async def _enrich_order(order: Order, db: AsyncSession) -> dict:
     """Order ORM → dict with product/variant names + buyer/seller emails for display."""
-    variant = await db.get(ProductVariant, order.variant_id) if order.variant_id else None
-    product = None
-    if order.product_id:
-        product = await db.get(Product, order.product_id)
-    elif variant:
-        product = await db.get(Product, variant.product_id)
-    buyer = await db.get(Account, order.buyer_id)
-    seller = await db.get(Account, order.seller_id)
-    has_review = (
-        await db.scalar(select(Review.id).where(Review.order_id == order.id).limit(1))
-    ) is not None
-    has_dispute = (
-        await db.scalar(select(Dispute.id).where(Dispute.order_id == order.id).limit(1))
-    ) is not None
-    return {
-        "id": order.id, "buyer_id": order.buyer_id, "seller_id": order.seller_id,
-        "variant_id": order.variant_id, "product_id": order.product_id,
-        "quantity": order.quantity,
-        "total_amount": order.total_amount, "status": order.status,
-        "escrow_expires_at": order.escrow_expires_at, "delivered_data": order.delivered_data,
-        "cancel_reason": order.cancel_reason,
-        "created_at": order.created_at,
-        "product_title": product.title if product else None,
-        "variant_name": variant.name if variant else None,
-        "buyer_email": buyer.email if buyer else None,
-        "seller_email": seller.email if seller else None,
-        "has_review": has_review,
-        "has_dispute": has_dispute,
-    }
+    return (await _enrich_orders([order], db))[0]
 
 
 async def list_buyer_orders(
@@ -459,7 +495,7 @@ async def list_buyer_orders(
 
     q = q.offset((page - 1) * per_page).limit(per_page)
     result = await db.execute(q)
-    items = [await _enrich_order(o, db) for o in result.scalars().all()]
+    items = await _enrich_orders(list(result.scalars().all()), db)
 
     return {"items": items, "total": total, "page": page, "per_page": per_page}
 
@@ -487,12 +523,12 @@ async def list_seller_orders(seller_id: int, db: AsyncSession) -> list[dict]:
     result = await db.execute(
         select(Order).where(Order.seller_id == seller_id).order_by(Order.created_at.desc())
     )
-    return [await _enrich_order(o, db) for o in result.scalars().all()]
+    return await _enrich_orders(list(result.scalars().all()), db)
 
 
 async def list_all_orders(db: AsyncSession) -> list[dict]:
     result = await db.execute(select(Order).order_by(Order.created_at.desc()))
-    return [await _enrich_order(o, db) for o in result.scalars().all()]
+    return await _enrich_orders(list(result.scalars().all()), db)
 
 
 async def get_order(order_id: int, account_id: int, db: AsyncSession) -> dict:

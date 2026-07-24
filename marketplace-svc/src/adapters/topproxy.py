@@ -99,6 +99,30 @@ def _order_marker(order_id: int) -> str:
     return f"od{order_id}"
 
 
+def _extract_mua_row(body, marker: str) -> dict | None:
+    """Chuẩn hoá response của muaproxy.php về MỘT dict proxy.
+
+    Tài liệu ghi trả về object `{status:100,...}`, nhưng endpoint THẬT trả về
+    một MẢNG `[{...}]` (giống listproxy.php) — quan sát trực tiếp 2026-07-24,
+    đây là nguyên nhân "TopProxy trả về dữ liệu không hợp lệ" dù đã mua & trừ
+    Xu. Chấp nhận cả hai dạng. Nếu là mảng nhiều phần tử (soluong>1, dù mình
+    ép =1) ưu tiên đúng con mang marker username, không thì lấy con đầu status=100.
+    Trả None nếu không tìm được row hợp lệ (để caller báo lỗi rõ ràng)."""
+    rows = []
+    if isinstance(body, dict):
+        rows = [body]
+    elif isinstance(body, list):
+        rows = [r for r in body if isinstance(r, dict)]
+    if not rows:
+        return None
+    for r in rows:
+        parsed = _parse_proxy_string(r.get("proxy") or "")
+        if parsed and parsed[2] == marker:
+            return r
+    ok = [r for r in rows if r.get("status") == 100]
+    return ok[0] if ok else rows[0]
+
+
 def _parse_proxy_string(proxy_str: str) -> tuple[str, int, str, str] | None:
     """"ip:port:user:pass" → (ip, port, user, pass). None nếu không đúng dạng."""
     parts = (proxy_str or "").split(":")
@@ -233,15 +257,26 @@ class TopProxyAdapter(RealApiAdapter):
                 ),
                 operation="muaproxy", order_id=order_id,
             )
-            if not isinstance(body, dict):
-                return ProvisionResult(success=False, error="TopProxy trả về dữ liệu không hợp lệ")
-            status = body.get("status")
-            if status != 100:
+            # Lỗi nghiệp vụ (status != 100) trả về dạng object với chỉ field
+            # status; giao dịch thành công trả về MẢNG proxy. Bắt lỗi trước:
+            # một object có "status" != 100 nghĩa là chưa mua được.
+            if isinstance(body, dict) and body.get("status") not in (100, None):
+                status = body.get("status")
                 return ProvisionResult(
                     success=False,
                     error=_ERROR_MESSAGES.get(status, f"TopProxy trả mã lỗi {status}"),
                 )
-            row = body
+            row = _extract_mua_row(body, marker)
+            if row is None:
+                # KHÔNG parse được nhưng có thể ĐÃ MUA (trừ Xu) — đối soát lại
+                # bằng marker qua listproxy trước khi kết luận, tránh mất tiền
+                # vì một shape lạ (review sự cố 2026-07-24: order 79/81).
+                row = await self._find_static_by_marker(loaiproxy, marker, order_id)
+                if row is None:
+                    return ProvisionResult(
+                        success=False,
+                        error="TopProxy trả về dữ liệu không hợp lệ — chưa xác nhận mua được",
+                    )
 
         assignment = self._assignment_from_row(row, fallback_days=days, proxy_type=proxy_type, network=loaiproxy)
         if assignment is None:

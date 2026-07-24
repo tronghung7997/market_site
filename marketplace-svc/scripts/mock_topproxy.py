@@ -121,12 +121,15 @@ async def muaproxy(request: Request):
         "user": user, "password": password, "type": p.get("type", "HTTP"), "time": expires,
     }
     _log("muaproxy", loaiproxy=loaiproxy, idproxy=idproxy, user=user, cost=cost)
-    return {
-        "status": 100, "loaiproxy": loaiproxy, "idproxy": idproxy,
-        "ip": ip, "port": port, "user": user, "password": password,
-        "type": p.get("type", "HTTP"), "proxy": f"{ip}:{port}:{user}:{password}",
-        "time": expires,
-    }
+    # TopProxy THẬT trả về một MẢNG proxy (quan sát 2026-07-24), không phải
+    # object như tài liệu ghi — mock phải giống thật để test bắt được lỗi
+    # parse (sự cố order 79/81 mua thành công nhưng adapter báo lỗi).
+    proxy_type = "HTTPS" if p.get("type", "HTTP") == "HTTP" else p.get("type")
+    return [{
+        "status": 100, "idproxy": idproxy, "ip": ip,
+        "proxy": f"{ip}:{port}:{user}:{password}",
+        "type": proxy_type, "time": expires,
+    }]
 
 
 @app.api_route("/apiv2/listproxy.php", methods=["GET", "POST"])

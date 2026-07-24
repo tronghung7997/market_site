@@ -107,7 +107,63 @@ PURCHASE_OK = {
 }
 
 
+# Format THẬT của muaproxy.php — một MẢNG, chỉ có status/idproxy/ip/proxy/
+# type/time (KHÔNG có port/user/password/loaiproxy rời). Quan sát 2026-07-24,
+# khác tài liệu; là nguyên nhân sự cố order 79/81 (mua được nhưng báo lỗi).
+REAL_MUA_LIST = [{
+    "status": 100, "idproxy": 55569, "ip": "180.149.35.118",
+    "proxy": "180.149.35.118:20279:od9:5arbUmBqf4", "type": "HTTPS",
+    "time": 1785137629,
+}]
+
+
 class TestProvisionStatic:
+    @pytest.mark.asyncio
+    async def test_real_array_response_is_parsed_not_rejected(self, monkeypatch):
+        """Regression sự cố 24/07: muaproxy trả MẢNG → phải bind được, không
+        báo 'dữ liệu không hợp lệ' (khiến mất tiền đã mua)."""
+        adapter = _adapter()
+        _no_allocation(monkeypatch)
+        holder = _capture_bind(monkeypatch)
+
+        async def fake_call(path, params, *, operation, order_id=None):
+            if operation == "listproxy":
+                return []
+            return REAL_MUA_LIST
+
+        monkeypatch.setattr(adapter, "_call_once", fake_call)
+        result = await adapter.provision(9, {"type": "HTTP", "network": "US", "days": 3, "quantity": 1})
+
+        assert result.success, result.error
+        assert holder["assignment"].external_id == "55569"
+        assert "180.149.35.118" in result.data
+        assert "od9" in result.data  # username = marker parse từ proxy string
+
+    @pytest.mark.asyncio
+    async def test_unparseable_response_recovers_via_marker_before_failing(self, monkeypatch):
+        """Response lạ (không parse được) nhưng có thể ĐÃ MUA → đối soát lại
+        bằng marker qua listproxy trước khi kết luận thất bại."""
+        adapter = _adapter()
+        _no_allocation(monkeypatch)
+        holder = _capture_bind(monkeypatch)
+        list_calls = {"n": 0}
+
+        async def fake_call(path, params, *, operation, order_id=None):
+            if operation == "listproxy":
+                list_calls["n"] += 1
+                # lần 1 (trước mua): chưa có; lần 2 (đối soát sau mua): có rồi
+                if list_calls["n"] == 1:
+                    return []
+                return REAL_MUA_LIST
+            return "garbage-not-json-shape"  # muaproxy trả shape lạ
+
+        monkeypatch.setattr(adapter, "_call_once", fake_call)
+        result = await adapter.provision(9, {"type": "HTTP", "network": "US", "days": 3, "quantity": 1})
+
+        assert result.success, result.error
+        assert holder["assignment"].external_id == "55569"
+        assert list_calls["n"] == 2  # đã đối soát lại
+
     @pytest.mark.asyncio
     async def test_maps_config_pricing_keys_to_apiv2_params(self, monkeypatch):
         adapter = _adapter()

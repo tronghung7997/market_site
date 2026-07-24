@@ -413,3 +413,82 @@ async def dproxy_reconciliation_job() -> None:
             )
 
         await db.commit()
+
+
+async def deposit_reconcile_job() -> None:
+    """Bù miss-webhook cho lệnh nạp PayOS (thiết kế §3): intent còn `pending`
+    quá 10 phút được đối soát chủ động qua GET /v2/payment-requests — PAID thì
+    credit (cùng hàm apply_deposit_paid với webhook, khoá FOR UPDATE nên không
+    credit đôi), CANCELLED/EXPIRED thì chốt trạng thái.
+
+    Quan trọng: KHÔNG chỉ quét `pending`. Một intent đã bị expire job chốt
+    `expired` (hoặc buyer bấm huỷ) vẫn có thể ĐÃ ĐƯỢC TRẢ TIỀN mà mình chưa
+    biết — webhook bị nuốt trong lúc outage/chưa cấu hình chẳng hạn. Những
+    lệnh đó (chưa có paid_at) được đối soát lại trong cửa sổ retention
+    48h; PayOS bảo PAID thì vẫn credit (chính sách §6.6) — không có cửa sổ
+    này thì tiền thật của buyer chỉ được cứu bằng tay (review 24/07 #2)."""
+    from src.config import settings
+    from src.models.payment import DepositIntent, DepositIntentStatus
+    from src.payments import payos_client
+    from src.payments.service import reconcile_intent
+
+    if not payos_client.is_configured():
+        return
+
+    async with SessionLocal() as db:
+        now = datetime.now(timezone.utc)
+        pending_cutoff = now - timedelta(minutes=10)
+        retention_cutoff = now - timedelta(hours=settings.deposit_reconcile_retention_hours)
+        # Hai quota riêng — đống expired trong retention không được phép chèn
+        # chỗ của pending (pending là ca nóng: buyer đang đợi tiền vào ví).
+        pending_rows = await db.execute(
+            select(DepositIntent.id).where(
+                DepositIntent.status == DepositIntentStatus.pending,
+                DepositIntent.paid_at.is_(None),
+                DepositIntent.created_at <= pending_cutoff,
+            ).order_by(DepositIntent.created_at).limit(30)
+        )
+        retention_rows = await db.execute(
+            select(DepositIntent.id).where(
+                DepositIntent.status.in_([DepositIntentStatus.expired, DepositIntentStatus.cancelled]),
+                DepositIntent.paid_at.is_(None),
+                DepositIntent.created_at >= retention_cutoff,
+            ).order_by(DepositIntent.created_at.desc()).limit(20)
+        )
+        intent_ids = [r for (r,) in pending_rows.all()] + [r for (r,) in retention_rows.all()]
+
+    for intent_id in intent_ids:
+        async with SessionLocal() as db:
+            try:
+                await reconcile_intent(intent_id, db)
+            except Exception as e:  # một intent hỏng không được chặn các intent còn lại
+                logger.error("deposit_reconcile_error", intent_id=intent_id, error=str(e))
+
+
+async def deposit_expire_job() -> None:
+    """Chốt `expired` cho intent pending đã quá hạn (PayOS cũng tự expire theo
+    expiredAt đã gửi lúc tạo link). Buffer 5 phút sau expires_at để nhường
+    webhook/reconcile chạy trước; tiền về muộn sau khi expired vẫn được credit
+    (handle_webhook, chính sách §6.6)."""
+    from src.models.payment import DepositIntent, DepositIntentStatus
+
+    async with SessionLocal() as db:
+        cutoff = datetime.now(timezone.utc) - timedelta(minutes=5)
+        rows = await db.execute(
+            select(DepositIntent).where(
+                DepositIntent.status == DepositIntentStatus.pending,
+                DepositIntent.expires_at <= cutoff,
+            ).with_for_update(skip_locked=True)
+        )
+        intents = list(rows.scalars().all())
+        for intent in intents:
+            intent.status = DepositIntentStatus.expired
+        if intents:
+            await log_event(
+                db, "info",
+                f"{len(intents)} lệnh nạp quá hạn được chốt expired: {[i.id for i in intents]}",
+                job_id=str(uuid.uuid4()),
+                metadata={"event": "deposit_expired_sweep", "intent_ids": [i.id for i in intents]},
+            )
+            await db.commit()
+            logger.info("deposit_expire_swept", count=len(intents))

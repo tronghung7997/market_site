@@ -5,6 +5,7 @@ import { useSearchParams } from "next/navigation";
 import { Suspense, useEffect, useMemo, useState } from "react";
 import { api, vnd } from "@/lib/api";
 import { cn } from "@/lib/cn";
+import { effectiveMinPrice } from "@/lib/pricing-display";
 import { useAuth } from "@/lib/auth";
 import type { Category, Order, ProductDetail, SellerSummary } from "@/lib/types";
 import { Button, Card, Spinner, Tag } from "@/components/ui";
@@ -83,12 +84,10 @@ function HomeInner() {
   const flatCats = useMemo(() => flatten(cats), [cats]);
   const catName = (id: number) => flatCats.find((c) => c.id === id)?.name ?? "—";
   const stock = (p: ProductDetail) => p.variants.reduce((s, v) => s + (v.stock_count ?? 0), 0);
-  const minPrice = (p: ProductDetail) => {
-    const priced = p.variants.filter((v) => v.price > 0);
-    if (priced.length) return Math.min(...priced.map((v) => v.price));
-    const params = p.pricing_params as Record<string, unknown> | null;
-    return (params?.base_price as number) || (params?.credit_price as number) || 0;
-  };
+  // Giá "Chỉ từ" phải là số tiền thật rẻ nhất — với strategy config,
+  // base_price chỉ là mỏ neo công thức (key xoay 24h: base 120.000 nhưng giá
+  // thật 4.000đ). effectiveMinPrice quy đổi đúng theo mult + kỳ hạn ngắn nhất.
+  const minPrice = (p: ProductDetail) => effectiveMinPrice(p);
   const variantCount = products.reduce((s, p) => s + p.variants.length, 0);
   const totalStock = products.reduce((s, p) => s + stock(p), 0);
 

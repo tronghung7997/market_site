@@ -19,5 +19,26 @@ class Settings(BaseSettings):
     backend_base_url: str = "http://localhost:8001"
     default_affiliate_commission_percent: float = 0.0
 
+    # --- PayOS (docs/superpowers/specs/2026-07-23-bank-payment-design.md) ---
+    # Lấy 3 giá trị từ kênh thanh toán trên https://my.payos.vn. Để trống =
+    # chưa cấu hình: tạo lệnh nạp trả 503, job đối soát tự bỏ qua.
+    payos_client_id: str = ""
+    payos_api_key: str = ""
+    payos_checksum_key: str = ""
+    # Dev trỏ vào scripts/mock_payos.py (http://127.0.0.1:9400)
+    payos_base_url: str = "https://api-merchant.payos.vn"
+    deposit_min_amount: int = 10_000
+    # Trần một lệnh nạp — chặn gõ thừa số 0 (nạp 500 triệu thay vì 5 triệu là
+    # thảm hoạ hỗ trợ khách hàng, và bank/PayOS cũng có hạn mức riêng).
+    deposit_max_amount: int = 100_000_000
+    deposit_max_pending_per_account: int = 3
+    deposit_expire_minutes: int = 30
+    # Lệnh đã expired/cancelled nhưng CHƯA thấy tiền vẫn được đối soát lại
+    # trong cửa sổ này — webhook có thể bị nuốt trong lúc backend outage và
+    # expire job chạy trước khi PayOS kịp báo (review 24/07 #2).
+    deposit_reconcile_retention_hours: int = 48
+    # demo-topup là đường nạp giả cho dev/demo — PHẢI tắt ở production.
+    enable_demo_topup: bool = False
+
 
 settings = Settings()

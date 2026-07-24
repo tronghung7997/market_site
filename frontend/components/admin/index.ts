@@ -1,5 +1,5 @@
 // Admin-specific component exports
-export { StatusBadge, OrderStatusBadge, DisputeStatusBadge, ProductStatusBadge, ResourceStatusBadge, AlertSeverityBadge, WithdrawStatusBadge } from "./status-badge";
+export { StatusBadge, OrderStatusBadge, DisputeStatusBadge, ProductStatusBadge, ResourceStatusBadge, AlertSeverityBadge, WithdrawStatusBadge, DepositStatusBadge } from "./status-badge";
 export type { StatusBadgeProps } from "./status-badge";
 
 export { StatsCard } from "./stats-card";

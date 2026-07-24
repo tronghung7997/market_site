@@ -1,5 +1,5 @@
 import type {
-  Account, ActionItem, AdminDisputeDetail, AdminOrderDetail, AdminProduct, AdminResourceListResponse, AffiliateStats, AffiliateSummary, CalculateResult, Category, ChargeUsageResult, DashboardData, Dispute, FundOverview, AccountAdminRow, PaginatedAccounts, LogEntry, Order, OrderStats, PaginatedAffiliateSummary, PaginatedOrderResponse, PricingField, PricingOptions, ProductDetail, Product, ProductOperations, ProxyState, ProxyRotateResult, Review, SellerApplication, SellerProduct, SellerStats, ServiceTask, Transaction, Variant, Wallet, WithdrawRequest, Provider, ProviderHealth, Alert, Resource, ResourceSummary, InventoryVariant, SellerSummary, SellerProfile, SellerApiKey, SellerApiKeyCreated,
+  Account, ActionItem, AdminDepositIntent, AdminDisputeDetail, AdminOrderDetail, AdminProduct, AdminResourceListResponse, AffiliateStats, AffiliateSummary, CalculateResult, Category, ChargeUsageResult, DashboardData, DepositIntent, Dispute, PayosWebhookEventRow, AdminAccountWallet, FundOverview, AccountAdminRow, PaginatedAccounts, LogEntry, Order, OrderStats, PaginatedAffiliateSummary, PaginatedOrderResponse, PricingField, PricingOptions, ProductDetail, Product, ProductOperations, ProxyState, ProxyRotateResult, Review, SellerApplication, SellerProduct, SellerStats, ServiceTask, Transaction, Variant, Wallet, WithdrawRequest, Provider, ProviderHealth, Alert, Resource, ResourceSummary, InventoryVariant, SellerSummary, SellerProfile, SellerApiKey, SellerApiKeyCreated,
 } from "./types";
 
 const BASE = process.env.NEXT_PUBLIC_API_URL
@@ -193,9 +193,29 @@ export const api = {
   adminWithdrawals: () => request<WithdrawRequest[]>("/admin/withdrawals", {}, true),
   approveWithdrawal: (id: number) => request<WithdrawRequest>(`/admin/withdrawals/${id}/approve`, { method: "POST" }, true),
   rejectWithdrawal: (id: number) => request<WithdrawRequest>(`/admin/withdrawals/${id}/reject`, { method: "POST" }, true),
-  requestWithdraw: (amount: number) =>
-    request<WithdrawRequest>("/wallet/withdraw", { method: "POST", body: JSON.stringify({ amount }) }, true),
+  requestWithdraw: (amount: number, bank: { bank_name: string; bank_account_number: string; bank_account_holder: string; bank_bin?: string }) =>
+    request<WithdrawRequest>("/wallet/withdraw", { method: "POST", body: JSON.stringify({ amount, ...bank }) }, true),
+  markWithdrawalPaid: (id: number, payoutReference: string) =>
+    request<WithdrawRequest>(`/admin/withdrawals/${id}/paid`, { method: "POST", body: JSON.stringify({ payout_reference: payoutReference }) }, true),
   myWithdrawals: () => request<WithdrawRequest[]>("/wallet/withdrawals", {}, true),
+  // --- Nạp tiền thật qua PayOS (src/payments) ---
+  createDeposit: (amount: number) =>
+    request<DepositIntent>("/wallet/deposits", { method: "POST", body: JSON.stringify({ amount }) }, true),
+  myDeposits: () => request<DepositIntent[]>("/wallet/deposits/me", {}, true),
+  cancelDeposit: (id: number) =>
+    request<DepositIntent>(`/wallet/deposits/${id}/cancel`, { method: "POST" }, true),
+  adminDeposits: (status?: string) =>
+    request<AdminDepositIntent[]>(`/admin/deposits${status ? `?status=${status}` : ""}`, {}, true),
+  adminReconcileDeposit: (id: number) =>
+    request<{ id: number; status: string }>(`/admin/deposits/${id}/reconcile`, { method: "POST" }, true),
+  adminPayosEvents: (orderCode?: number) =>
+    request<PayosWebhookEventRow[]>(`/admin/payos-events${orderCode != null ? `?order_code=${orderCode}` : ""}`, {}, true),
+  adminAccountWallet: (accountId: number) =>
+    request<AdminAccountWallet>(`/admin/accounts/${accountId}/wallet`, {}, true),
+  adminAccountTransactions: (accountId: number) =>
+    request<Transaction[]>(`/admin/accounts/${accountId}/transactions`, {}, true),
+  adminTopup: (accountId: number, amount: number) =>
+    request<Wallet>("/wallet/topup", { method: "POST", body: JSON.stringify({ account_id: accountId, amount }) }, true),
   topSellers: (limit = 6) => request<SellerSummary[]>(`/sellers/top?limit=${limit}`),
   sellerProfile: (id: number) => request<SellerProfile>(`/sellers/${id}`),
   sellerDispute: (orderId: number) => request<Dispute>(`/seller/orders/${orderId}/dispute`, {}, true),

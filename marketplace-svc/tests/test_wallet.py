@@ -61,7 +61,7 @@ async def _seller_with_balance(client, email, amount):
 async def test_request_withdraw_locks_balance(client):
     seller_token, _ = await _seller_with_balance(client, "wallet5@example.com", 1_000_000)
 
-    resp = await client.post("/wallet/withdraw", json={"amount": 500_000},
+    resp = await client.post("/wallet/withdraw", json={"bank_name": "Vietcombank", "bank_account_number": "0123456789", "bank_account_holder": "TEST USER", "amount": 500_000},
                              headers={"Authorization": f"Bearer {seller_token}"})
     assert resp.status_code == 200
 
@@ -78,11 +78,11 @@ async def test_second_withdraw_request_fails_once_balance_is_locked(client):
     quá số dư thực. Sau khi khoá đúng lúc request, request thứ 2 phải fail."""
     seller_token, _ = await _seller_with_balance(client, "wallet6@example.com", 1_000_000)
 
-    first = await client.post("/wallet/withdraw", json={"amount": 700_000},
+    first = await client.post("/wallet/withdraw", json={"bank_name": "Vietcombank", "bank_account_number": "0123456789", "bank_account_holder": "TEST USER", "amount": 700_000},
                               headers={"Authorization": f"Bearer {seller_token}"})
     assert first.status_code == 200
 
-    second = await client.post("/wallet/withdraw", json={"amount": 700_000},
+    second = await client.post("/wallet/withdraw", json={"bank_name": "Vietcombank", "bank_account_number": "0123456789", "bank_account_holder": "TEST USER", "amount": 700_000},
                                headers={"Authorization": f"Bearer {seller_token}"})
     assert second.status_code == 402
 
@@ -94,7 +94,7 @@ async def test_second_withdraw_request_fails_once_balance_is_locked(client):
 @pytest.mark.asyncio
 async def test_approve_withdrawal_moves_from_locked_only(client):
     seller_token, admin_token = await _seller_with_balance(client, "wallet7@example.com", 1_000_000)
-    req = (await client.post("/wallet/withdraw", json={"amount": 500_000},
+    req = (await client.post("/wallet/withdraw", json={"bank_name": "Vietcombank", "bank_account_number": "0123456789", "bank_account_holder": "TEST USER", "amount": 500_000},
                              headers={"Authorization": f"Bearer {seller_token}"})).json()
 
     resp = await client.post(f"/admin/withdrawals/{req['id']}/approve",
@@ -109,7 +109,7 @@ async def test_approve_withdrawal_moves_from_locked_only(client):
 @pytest.mark.asyncio
 async def test_reject_withdrawal_returns_to_available(client):
     seller_token, admin_token = await _seller_with_balance(client, "wallet8@example.com", 1_000_000)
-    req = (await client.post("/wallet/withdraw", json={"amount": 500_000},
+    req = (await client.post("/wallet/withdraw", json={"bank_name": "Vietcombank", "bank_account_number": "0123456789", "bank_account_holder": "TEST USER", "amount": 500_000},
                              headers={"Authorization": f"Bearer {seller_token}"})).json()
 
     resp = await client.post(f"/admin/withdrawals/{req['id']}/reject",
@@ -161,13 +161,13 @@ async def test_ledger_sums_to_available_balance_across_a_full_lifecycle(client):
     seller_token, admin_token = await _seller_with_balance(client, "wallet_recon@example.com", 1_000_000)
 
     # Approved withdrawal: locks, then draws down locked only.
-    approved = (await client.post("/wallet/withdraw", json={"amount": 300_000},
+    approved = (await client.post("/wallet/withdraw", json={"bank_name": "Vietcombank", "bank_account_number": "0123456789", "bank_account_holder": "TEST USER", "amount": 300_000},
                                   headers={"Authorization": f"Bearer {seller_token}"})).json()
     await client.post(f"/admin/withdrawals/{approved['id']}/approve",
                       headers={"Authorization": f"Bearer {admin_token}"})
 
     # Rejected withdrawal: locks, then returns the money.
-    rejected = (await client.post("/wallet/withdraw", json={"amount": 200_000},
+    rejected = (await client.post("/wallet/withdraw", json={"bank_name": "Vietcombank", "bank_account_number": "0123456789", "bank_account_holder": "TEST USER", "amount": 200_000},
                                   headers={"Authorization": f"Bearer {seller_token}"})).json()
     await client.post(f"/admin/withdrawals/{rejected['id']}/reject",
                       headers={"Authorization": f"Bearer {admin_token}"})

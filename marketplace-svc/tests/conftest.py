@@ -9,6 +9,18 @@ os.environ["DATABASE_URL"] = os.environ.get(
 os.environ.setdefault("JWT_SECRET", "test-secret-key-at-least-32-bytes-long-000")
 os.environ.setdefault("INTERNAL_API_KEY", "test-internal-key")
 os.environ.setdefault("DEFAULT_AFFILIATE_COMMISSION_PERCENT", "5.0")
+# Nhiều test cũ nạp tiền qua demo-topup; flag này mặc định TẮT (prod-safe) nên
+# bật riêng cho suite. PayOS: khoá test cố định để test chữ ký deterministic.
+os.environ["ENABLE_DEMO_TOPUP"] = "true"
+os.environ["PAYOS_CLIENT_ID"] = "test-client"
+os.environ["PAYOS_API_KEY"] = "test-api-key"
+os.environ["PAYOS_CHECKSUM_KEY"] = "test-checksum-key"
+os.environ["PAYOS_BASE_URL"] = "http://payos.test"
+# Ghim cứng hạn mức nạp: dev hay hạ DEPOSIT_MIN_AMOUNT trong .env để test tiền
+# thật số nhỏ — pydantic-settings đọc .env theo CWD nên không ghim là suite
+# đổi hành vi theo máy.
+os.environ["DEPOSIT_MIN_AMOUNT"] = "10000"
+os.environ["DEPOSIT_MAX_AMOUNT"] = "100000000"
 
 import pytest
 from httpx import ASGITransport, AsyncClient

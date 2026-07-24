@@ -12,6 +12,7 @@ import Link from "next/link";
 
 import { api, vnd } from "@/lib/api";
 import { Card, Spinner, Button, Textarea, Input } from "@/components/ui";
+import { MoneyInput } from "@/components/MoneyInput";
 import {
   FilterPills,
   SearchInput,
@@ -666,12 +667,10 @@ export default function AdminDisputesPage() {
       >
         <div className="space-y-2">
           {actionModal?.action === "partial_refund" && (
-            <Input
-              type="number"
-              placeholder="Số tiền hoàn cho người mua (VNĐ)"
+            <MoneyInput
+              placeholder="Số tiền hoàn cho người mua"
               value={amountInput}
-              onChange={(e) => setAmountInput(e.target.value)}
-              min="1"
+              onValueChange={setAmountInput}
             />
           )}
           {actionModal?.action === "extend_warranty" && (

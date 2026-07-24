@@ -34,9 +34,17 @@ export const DISPUTE_STATUS: Record<string, StatusConfig> = {
 };
 
 // Withdrawal request statuses
+export const DEPOSIT_STATUS: Record<string, StatusConfig> = {
+  pending: { label: "Chờ thanh toán", tone: "warn" },
+  paid: { label: "Đã nhận tiền", tone: "good" },
+  cancelled: { label: "Đã huỷ", tone: "neutral" },
+  expired: { label: "Hết hạn", tone: "bad" },
+};
+
 export const WITHDRAW_STATUS: Record<string, StatusConfig> = {
   pending: { label: "Chờ duyệt", tone: "warn" },
-  approved: { label: "Đã duyệt", tone: "good" },
+  approved: { label: "Đã duyệt — chờ chi", tone: "good" },
+  paid: { label: "Đã chi tiền", tone: "good" },
   rejected: { label: "Bị từ chối", tone: "bad" },
 };
 

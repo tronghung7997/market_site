@@ -8,6 +8,7 @@ import { useAuth } from "@/lib/auth";
 import { cn } from "@/lib/cn";
 import type { Category, ProductDetail, ProductOperations, Provider, Resource, Variant } from "@/lib/types";
 import { Banner, Button, Card, Field, Input, Select, Spinner, Tag, Textarea } from "@/components/ui";
+import { MoneyInput } from "@/components/MoneyInput";
 import { Activity, ArrowRight, Bolt, Check, Clock, Edit2, Eye, Info, Package, Plus, Sliders, Trash, Users } from "@/components/Icons";
 import { isAdapterCompatible } from "@/lib/compat";
 import { STRATEGY_INFO, STRATEGY_FORMULAS, ADAPTER_INFO } from "@/lib/pricing-config";
@@ -794,8 +795,8 @@ function VariantManager({ productId, variants, onRefresh }: {
             <Input value={name} onChange={(e) => setName(e.target.value)} placeholder="VD: Email + cookies" />
           </Field>
           <div className="grid gap-3 grid-cols-2">
-            <Field label="Giá (VND)">
-              <Input type="number" value={price} onChange={(e) => setPrice(e.target.value)} placeholder="25000" />
+            <Field label="Giá bán">
+              <MoneyInput value={price.replace(/\D/g, "")} onValueChange={setPrice} placeholder="vd 25.000" />
             </Field>
             <Field label="Giao hàng">
               <Select value={mode} onChange={(e) => setMode(e.target.value)}>
@@ -964,12 +965,8 @@ function VariantCard({ variant: v, editing, onEdit, onDone, onRefresh }: {
                 </div>
                 <span className="text-[12px] text-faint">ngày</span>
               </div>
-              <div className="flex items-center gap-1">
-                <div className="w-[124px]">
-                  <Input type="number" min={0} value={price} onChange={(e) => setPrice(e.target.value)}
-                    aria-label="Giá, đồng" className="font-mono tabular" />
-                </div>
-                <span className="text-[12px] text-faint">₫</span>
+              <div className="w-[148px]">
+                <MoneyInput value={String(price).replace(/\D/g, "")} onValueChange={setPrice} placeholder="Giá" />
               </div>
             </div>
           </div>

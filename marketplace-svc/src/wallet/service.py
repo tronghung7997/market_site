@@ -1,8 +1,12 @@
+from datetime import datetime, timezone
+
 from fastapi import HTTPException
 from sqlalchemy import select
 from sqlalchemy.ext.asyncio import AsyncSession
 
+from src.audit.service import log_event
 from src.exceptions import InsufficientCredit
+from src.logging import current_request_id
 from src.models.account import Account
 from src.models.wallet import (
     TRANSACTION_DIRECTION, Transaction, TransactionType, Wallet, WithdrawRequest, WithdrawStatus,
@@ -24,6 +28,11 @@ async def topup(account_id: int, amount: int, db: AsyncSession) -> Wallet:
     wallet.available_balance += amount
     tx = Transaction(wallet_id=wallet.id, type=TransactionType.topup, amount=amount, description="Admin topup")
     db.add(tx)
+    await log_event(
+        db, "info", f"Topup tay {amount:,}đ vào account {account_id}".replace(",", "."),
+        request_id=current_request_id(),
+        metadata={"event": "manual_topup", "account_id": account_id, "amount": amount},
+    )
     await db.commit()
     await db.refresh(wallet)
     return wallet
@@ -119,7 +128,11 @@ async def get_transactions(account_id: int, db: AsyncSession) -> list[dict]:
     return out
 
 
-async def request_withdraw(account_id: int, amount: int, db: AsyncSession) -> WithdrawRequest:
+async def request_withdraw(
+    account_id: int, amount: int, db: AsyncSession,
+    *, bank_bin: str | None = None, bank_name: str | None = None,
+    bank_account_number: str | None = None, bank_account_holder: str | None = None,
+) -> WithdrawRequest:
     if amount <= 0:
         raise HTTPException(status_code=400, detail="Số tiền phải lớn hơn 0")
     wallet = await get_wallet_by_account(account_id, db)
@@ -140,11 +153,32 @@ async def request_withdraw(account_id: int, amount: int, db: AsyncSession) -> Wi
         wallet_id=wallet.id, type=TransactionType.withdraw_lock,
         amount=amount, description="Khoá tiền chờ duyệt rút",
     ))
-    req = WithdrawRequest(account_id=account_id, amount=amount)
+    req = WithdrawRequest(
+        account_id=account_id, amount=amount,
+        bank_bin=bank_bin, bank_name=bank_name,
+        bank_account_number=bank_account_number, bank_account_holder=bank_account_holder,
+    )
     db.add(req)
+    await db.flush()
+    await log_event(
+        db, "info", f"Yêu cầu rút #{req.id} — {amount:,}đ (account {account_id}, đã khoá tiền)".replace(",", "."),
+        request_id=current_request_id(),
+        metadata={"event": "withdraw_requested", "withdraw_id": req.id, "account_id": account_id, "amount": amount},
+    )
     await db.commit()
     await db.refresh(req)
     return req
+
+
+def _withdraw_dict(req: WithdrawRequest, email: str | None) -> dict:
+    return {
+        "id": req.id, "account_id": req.account_id, "account_email": email,
+        "amount": req.amount, "status": req.status, "created_at": req.created_at,
+        "bank_bin": req.bank_bin, "bank_name": req.bank_name,
+        "bank_account_number": req.bank_account_number,
+        "bank_account_holder": req.bank_account_holder,
+        "payout_reference": req.payout_reference, "paid_at": req.paid_at,
+    }
 
 
 async def list_withdrawals(db: AsyncSession) -> list[dict]:
@@ -153,13 +187,7 @@ async def list_withdrawals(db: AsyncSession) -> list[dict]:
         .join(Account, WithdrawRequest.account_id == Account.id)
         .order_by(WithdrawRequest.created_at.desc())
     )
-    return [
-        {
-            "id": req.id, "account_id": req.account_id, "account_email": email,
-            "amount": req.amount, "status": req.status, "created_at": req.created_at,
-        }
-        for req, email in result.all()
-    ]
+    return [_withdraw_dict(req, email) for req, email in result.all()]
 
 
 async def approve_withdrawal(req_id: int, db: AsyncSession) -> WithdrawRequest:
@@ -177,6 +205,11 @@ async def approve_withdrawal(req_id: int, db: AsyncSession) -> WithdrawRequest:
         wallet_id=wallet.id, type=TransactionType.withdraw,
         amount=req.amount, description="Withdrawal approved",
     ))
+    await log_event(
+        db, "info", f"Yêu cầu rút #{req.id} được DUYỆT ({req.amount:,}đ, account {req.account_id})".replace(",", "."),
+        request_id=current_request_id(),
+        metadata={"event": "withdraw_approved", "withdraw_id": req.id, "account_id": req.account_id, "amount": req.amount},
+    )
     await db.commit()
     await db.refresh(req)
     return req
@@ -197,6 +230,11 @@ async def reject_withdrawal(req_id: int, db: AsyncSession) -> WithdrawRequest:
         amount=req.amount, description="Huỷ khoá — yêu cầu rút tiền bị từ chối",
     ))
     req.status = WithdrawStatus.rejected
+    await log_event(
+        db, "info", f"Yêu cầu rút #{req.id} bị TỪ CHỐI ({req.amount:,}đ trả về ví account {req.account_id})".replace(",", "."),
+        request_id=current_request_id(),
+        metadata={"event": "withdraw_rejected", "withdraw_id": req.id, "account_id": req.account_id, "amount": req.amount},
+    )
     await db.commit()
     await db.refresh(req)
     return req
@@ -209,10 +247,26 @@ async def list_withdrawals_for_account(account_id: int, db: AsyncSession) -> lis
         .where(WithdrawRequest.account_id == account_id)
         .order_by(WithdrawRequest.created_at.desc())
     )
-    return [
-        {
-            "id": req.id, "account_id": req.account_id, "account_email": email,
-            "amount": req.amount, "status": req.status, "created_at": req.created_at,
-        }
-        for req, email in result.all()
-    ]
+    return [_withdraw_dict(req, email) for req, email in result.all()]
+
+
+async def mark_withdrawal_paid(req_id: int, payout_reference: str, db: AsyncSession) -> WithdrawRequest:
+    """approved → paid. Không đụng số dư: tiền đã rời locked_balance từ lúc
+    approve; bước này chỉ ghi nhận việc chi thật (đối soát với sao kê bank)."""
+    req = await db.get(WithdrawRequest, req_id)
+    if not req:
+        raise HTTPException(status_code=404, detail="Không tìm thấy yêu cầu rút tiền")
+    if req.status != WithdrawStatus.approved:
+        raise HTTPException(status_code=400, detail="Chỉ đánh dấu đã chi cho yêu cầu đã duyệt")
+    req.status = WithdrawStatus.paid
+    req.payout_reference = payout_reference
+    req.paid_at = datetime.now(timezone.utc)
+    await log_event(
+        db, "info", f"Yêu cầu rút #{req.id} ĐÃ CHI TIỀN ({req.amount:,}đ, ref {payout_reference})".replace(",", "."),
+        request_id=current_request_id(),
+        metadata={"event": "withdraw_paid", "withdraw_id": req.id, "account_id": req.account_id,
+                  "amount": req.amount, "payout_reference": payout_reference},
+    )
+    await db.commit()
+    await db.refresh(req)
+    return req

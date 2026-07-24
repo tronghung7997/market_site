@@ -7,7 +7,7 @@ import { useAuth } from "@/lib/auth";
 import { cn } from "@/lib/cn";
 import {
   Activity, ArrowRight, BarChart, Bell, ChevronLeft, ClipboardList, FileText,
-  Grid, Inbox, LogOut, Menu, Package, Receipt, Shield, TrendingUp, Users, Verified, Wallet,
+  Grid, Inbox, LogOut, Menu, Package, Plus, Receipt, Shield, TrendingUp, Users, Verified, Wallet,
 } from "@/components/Icons";
 import NotificationBell from "@/components/NotificationBell";
 
@@ -30,6 +30,7 @@ const NAV_GROUPS: { label: string; items: NavItem[] }[] = [
     items: [
       { href: "/admin/accounts", label: "Tài khoản", icon: Users },
       { href: "/admin/seller-applications", label: "Đơn đăng ký bán", icon: Verified },
+      { href: "/admin/deposits", label: "Nạp tiền", icon: Plus },
       { href: "/admin/withdrawals", label: "Rút tiền", icon: Wallet },
       { href: "/admin/providers", label: "Nhà cung cấp", icon: Activity },
       { href: "/admin/tasks", label: "Tác vụ", icon: ClipboardList },

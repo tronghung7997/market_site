@@ -1,6 +1,6 @@
 from datetime import datetime
 
-from pydantic import BaseModel, computed_field
+from pydantic import BaseModel, Field, computed_field
 
 
 class WithdrawPolicy(BaseModel):
@@ -55,6 +55,17 @@ class TransactionResponse(BaseModel):
 
 class WithdrawRequestCreate(BaseModel):
     amount: int
+    # Snapshot thông tin nhận tiền — bắt buộc từ 2026-07-24 (thiết kế PayOS §4).
+    # bank_bin (mã BIN ngân hàng) để phase 2 auto-payout qua PayOS; nhập tay
+    # thì FE gửi kèm theo tên ngân hàng đã chọn.
+    bank_name: str = Field(min_length=2, max_length=100)
+    bank_account_number: str = Field(min_length=4, max_length=50)
+    bank_account_holder: str = Field(min_length=2, max_length=100)
+    bank_bin: str | None = Field(default=None, max_length=20)
+
+
+class WithdrawMarkPaidRequest(BaseModel):
+    payout_reference: str = Field(min_length=2, max_length=100)
 
 
 class WithdrawRequestResponse(BaseModel):
@@ -63,6 +74,12 @@ class WithdrawRequestResponse(BaseModel):
     account_email: str | None = None
     amount: int
     status: str
+    bank_name: str | None = None
+    bank_account_number: str | None = None
+    bank_account_holder: str | None = None
+    bank_bin: str | None = None
+    payout_reference: str | None = None
+    paid_at: datetime | None = None
     created_at: datetime
 
     model_config = {"from_attributes": True}

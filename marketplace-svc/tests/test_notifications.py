@@ -113,7 +113,7 @@ async def test_admin_action_items_counts(client):
                       headers={"Authorization": f"Bearer {buyer_token}"})
 
     seller_token, _ = await _seller_with_balance(client, "notif_wallet_seller@example.com", 1_000_000)
-    await client.post("/wallet/withdraw", json={"amount": 500_000},
+    await client.post("/wallet/withdraw", json={"bank_name": "Vietcombank", "bank_account_number": "0123456789", "bank_account_holder": "TEST USER", "amount": 500_000},
                       headers={"Authorization": f"Bearer {seller_token}"})
 
     buyer_token2, _, _, instant_vid, _ = await setup_buyable_product(client)

@@ -9,6 +9,9 @@ from src.database import Base
 
 class TransactionType(str, PyEnum):
     topup = "topup"
+    # Nạp tiền thật qua cổng thanh toán (PayOS) — tách khỏi `topup` (admin gõ
+    # tay) để đối soát doanh thu nạp không lẫn thao tác vận hành.
+    deposit = "deposit"
     purchase_hold = "purchase_hold"
     purchase_release = "purchase_release"
     platform_fee = "platform_fee"
@@ -39,6 +42,7 @@ class TransactionDirection(str, PyEnum):
 # Mọi amount đều dương; dấu suy ra từ đây, không bao giờ từ giá trị.
 TRANSACTION_DIRECTION: dict[str, TransactionDirection] = {
     TransactionType.topup: TransactionDirection.in_,
+    TransactionType.deposit: TransactionDirection.in_,
     TransactionType.purchase_release: TransactionDirection.in_,
     TransactionType.refund: TransactionDirection.in_,
     TransactionType.affiliate_commission: TransactionDirection.in_,
@@ -58,6 +62,9 @@ class WithdrawStatus(str, PyEnum):
     pending = "pending"
     approved = "approved"
     rejected = "rejected"
+    # Admin đã chuyển khoản thật xong (kèm payout_reference) — approved chỉ là
+    # "đồng ý chi", paid mới là "tiền đã rời tài khoản".
+    paid = "paid"
 
 
 class Wallet(Base):
@@ -95,4 +102,14 @@ class WithdrawRequest(Base):
     account_id: Mapped[int] = mapped_column(ForeignKey("accounts.id"), nullable=False)
     amount: Mapped[int] = mapped_column(Integer, nullable=False)
     status: Mapped[WithdrawStatus] = mapped_column(Enum(WithdrawStatus), default=WithdrawStatus.pending)
+    # Snapshot thông tin nhận tiền TẠI THỜI ĐIỂM yêu cầu — seller đổi số tài
+    # khoản sau đó không được ảnh hưởng lệnh cũ. bank_bin để phase 2 gọi PayOS
+    # Payout API (`toBin`). Nullable vì lệnh cũ trước migration không có.
+    bank_bin: Mapped[str | None] = mapped_column(String(20), nullable=True)
+    bank_name: Mapped[str | None] = mapped_column(String(100), nullable=True)
+    bank_account_number: Mapped[str | None] = mapped_column(String(50), nullable=True)
+    bank_account_holder: Mapped[str | None] = mapped_column(String(100), nullable=True)
+    # Mã tham chiếu giao dịch admin điền khi bấm "Đã chi".
+    payout_reference: Mapped[str | None] = mapped_column(String(100), nullable=True)
+    paid_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True), nullable=True)
     created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), server_default=func.now())

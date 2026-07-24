@@ -25,7 +25,10 @@ from src.tasks.router import router as tasks_router
 from src.resources.router import router as resources_router
 from src.resources.proxy_router import router as proxy_router
 from src.reviews.router import router as reviews_router
+from src.payments.router import router as payments_router
 from src.scheduler import (
+    deposit_expire_job,
+    deposit_reconcile_job,
     dproxy_reconciliation_job,
     escrow_release_job,
     health_check_job,
@@ -61,6 +64,8 @@ scheduler.add_job(provider_scoring_job, "interval", minutes=15, id="provider_sco
 scheduler.add_job(provision_sweep_job, "interval", minutes=2, id="provision_sweep")
 scheduler.add_job(task_webhook_sla_job, "interval", minutes=30, id="task_webhook_sla")
 scheduler.add_job(dproxy_reconciliation_job, "interval", minutes=15, id="dproxy_reconciliation")
+scheduler.add_job(deposit_reconcile_job, "interval", minutes=5, id="deposit_reconcile")
+scheduler.add_job(deposit_expire_job, "interval", minutes=10, id="deposit_expire")
 
 
 @asynccontextmanager
@@ -96,6 +101,7 @@ app.include_router(seller_router)
 app.include_router(seller_api_keys_router)
 app.include_router(sellers_router)
 app.include_router(wallet_router)
+app.include_router(payments_router)
 app.include_router(categories_router)
 app.include_router(products_router)
 app.include_router(resources_router)

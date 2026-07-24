@@ -6,6 +6,7 @@ import { cn } from "@/lib/cn";
 import { formatDate } from "@/lib/utils";
 import type { Wallet, WithdrawRequest } from "@/lib/types";
 import { Button, Card, Input, Spinner, Tag } from "@/components/ui";
+import { MoneyInput } from "@/components/MoneyInput";
 import { Wallet as WalletIcon } from "@/components/Icons";
 
 const STATUS: Record<string, { label: string; tone: "good" | "warn" | "bad" }> = {
@@ -26,6 +27,9 @@ export default function SellerWithdrawalsPage() {
   const [reqs, setReqs] = useState<WithdrawRequest[]>([]);
   const [loading, setLoading] = useState(true);
   const [amount, setAmount] = useState("");
+  const [bankName, setBankName] = useState("");
+  const [bankAccountNumber, setBankAccountNumber] = useState("");
+  const [bankAccountHolder, setBankAccountHolder] = useState("");
   const [busy, setBusy] = useState(false);
   const [err, setErr] = useState("");
   const [ok, setOk] = useState("");
@@ -51,13 +55,19 @@ export default function SellerWithdrawalsPage() {
   /* Rút được nhiều nhất: chặn bởi số dư, và bởi hạn mức mỗi lần của cấp. */
   const maxOut = limit === null ? wallet.available_balance : Math.min(wallet.available_balance, limit);
 
+  const bankValid = bankName.trim().length >= 2 && bankAccountNumber.trim().length >= 4 && bankAccountHolder.trim().length >= 2;
+
   const submit = async () => {
-    if (!valid || overBalance || overLimit) return;
+    if (!valid || overBalance || overLimit || !bankValid) return;
     setBusy(true);
     setErr("");
     setOk("");
     try {
-      await api.requestWithdraw(parsed);
+      await api.requestWithdraw(parsed, {
+        bank_name: bankName.trim(),
+        bank_account_number: bankAccountNumber.trim(),
+        bank_account_holder: bankAccountHolder.trim(),
+      });
       setAmount("");
       setOk("Đã gửi yêu cầu. Tiền được khoá lại cho tới khi quản trị viên duyệt.");
       await load();
@@ -97,14 +107,29 @@ export default function SellerWithdrawalsPage() {
           <Card className="p-5 space-y-3">
             <h2 className="text-[13px] font-semibold">Gửi yêu cầu rút</h2>
 
+            <Input
+              value={bankName}
+              onChange={(e) => setBankName(e.target.value)}
+              placeholder="Ngân hàng nhận tiền (vd Vietcombank)"
+            />
+            <Input
+              value={bankAccountNumber}
+              onChange={(e) => setBankAccountNumber(e.target.value)}
+              placeholder="Số tài khoản"
+              className="font-mono tabular"
+            />
+            <Input
+              value={bankAccountHolder}
+              onChange={(e) => setBankAccountHolder(e.target.value)}
+              placeholder="Chủ tài khoản (đúng tên trên bank)"
+            />
+
             <div>
-              <Input
-                inputMode="numeric"
-                value={amount ? Number(amount.replace(/\D/g, "")).toLocaleString("vi-VN") : ""}
-                onChange={(e) => setAmount(e.target.value)}
+              <MoneyInput
+                value={amount.replace(/\D/g, "")}
+                onValueChange={setAmount}
                 placeholder="Số tiền muốn rút"
-                className="font-mono tabular"
-                aria-invalid={overBalance || overLimit}
+                invalid={overBalance || overLimit}
               />
               <div className="flex items-center justify-between gap-3 mt-1.5">
                 <p className="text-[11.5px] text-faint">
@@ -147,7 +172,7 @@ export default function SellerWithdrawalsPage() {
             <Button
               block
               onClick={submit}
-              disabled={busy || !valid || overBalance || overLimit}
+              disabled={busy || !valid || overBalance || overLimit || !bankValid}
             >
               {busy ? "Đang gửi…" : "Gửi yêu cầu rút"}
             </Button>

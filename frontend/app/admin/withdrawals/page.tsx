@@ -42,6 +42,22 @@ export default function AdminWithdrawalsPage() {
     }
   };
 
+  const handleMarkPaid = async (id: number) => {
+    // Mã tham chiếu = số bút toán trên app bank sau khi admin chuyển tay —
+    // bắt buộc để đối soát sao kê về sau.
+    const ref = window.prompt("Mã tham chiếu giao dịch chuyển khoản (bắt buộc):");
+    if (!ref || !ref.trim()) return;
+    setBusy(true);
+    try {
+      await api.markWithdrawalPaid(id, ref.trim());
+      load();
+    } catch (err) {
+      alert(`Đánh dấu đã chi thất bại: ${err instanceof Error ? err.message : "Unknown error"}`);
+    } finally {
+      setBusy(false);
+    }
+  };
+
   const handleReject = async () => {
     if (rejectId === null) return;
     setBusy(true);
@@ -119,6 +135,10 @@ export default function AdminWithdrawalsPage() {
                             Duyệt
                           </Button>
                         </div>
+                      ) : r.status === "approved" ? (
+                        <Button size="sm" variant="primary" disabled={busy} onClick={() => handleMarkPaid(r.id)}>
+                          Đã chi tiền
+                        </Button>
                       ) : (
                         <span className="text-slate-400 text-[12px]">Đã xử lý</span>
                       )}
@@ -147,8 +167,16 @@ export default function AdminWithdrawalsPage() {
                     {requests.map((r) => (
                       <tr key={r.id} className="border-b border-slate-100 last:border-0">
                         <td className="px-5 py-3 font-mono text-slate-400">#{r.id}</td>
-                        <td className="px-5 py-3 truncate max-w-[220px]">
-                          {r.account_email ?? `Tài khoản #${r.account_id}`}
+                        <td className="px-5 py-3 max-w-[260px]">
+                          <div className="truncate">{r.account_email ?? `Tài khoản #${r.account_id}`}</div>
+                          {r.bank_account_number && (
+                            <div className="text-[11px] text-slate-400 truncate">
+                              {r.bank_name} · {r.bank_account_number} · {r.bank_account_holder}
+                            </div>
+                          )}
+                          {r.payout_reference && (
+                            <div className="text-[11px] text-slate-400 font-mono truncate">Ref: {r.payout_reference}</div>
+                          )}
                         </td>
                         <td className="px-5 py-3 font-mono font-semibold tabular-nums">
                           {vnd(r.amount)}
@@ -169,6 +197,10 @@ export default function AdminWithdrawalsPage() {
                                 Duyệt
                               </Button>
                             </div>
+                          ) : r.status === "approved" ? (
+                            <Button size="sm" variant="primary" disabled={busy} onClick={() => handleMarkPaid(r.id)}>
+                              Đã chi tiền
+                            </Button>
                           ) : (
                             <span className="text-slate-400 text-[12px]">Đã xử lý</span>
                           )}

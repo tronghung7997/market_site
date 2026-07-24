@@ -4,6 +4,7 @@ import Link from "next/link";
 import { useParams } from "next/navigation";
 import { useEffect, useMemo, useState, type ReactNode } from "react";
 import { api, vnd } from "@/lib/api";
+import { effectiveMinPrice, isAdapterFulfilled } from "@/lib/pricing-display";
 import { formatDate } from "@/lib/utils";
 import { sellerTierLabel } from "@/lib/seller-tier";
 import type { Category, ProductDetail, SellerProfile } from "@/lib/types";
@@ -21,14 +22,12 @@ function stock(p: ProductDetail): number {
   return p.variants.reduce((s, v) => s + (v.stock_count ?? 0), 0);
 }
 
-function minPrice(p: ProductDetail): number {
-  const priced = p.variants.filter((v) => v.price > 0);
-  return priced.length ? Math.min(...priced.map((v) => v.price)) : 0;
-}
-
-type StockState = "in_stock" | "manual" | "out_of_stock";
+type StockState = "in_stock" | "manual" | "out_of_stock" | "auto";
 
 function stockState(p: ProductDetail): StockState {
+  // Sản phẩm fulfillment qua adapter không có tồn kho variant — đếm variant
+  // sẽ ra "Tạm hết hàng" oan cho mọi sản phẩm provider (bug 2026-07-24).
+  if (isAdapterFulfilled(p)) return "auto";
   const hasInstantStock = p.variants.some((v) => v.delivery_mode === "instant" && v.stock_count > 0);
   if (hasInstantStock) return "in_stock";
   const hasManual = p.variants.some((v) => v.delivery_mode === "manual" && v.is_active);
@@ -38,6 +37,7 @@ function stockState(p: ProductDetail): StockState {
 
 const STOCK_BADGE: Record<StockState, { label: string; className: string }> = {
   in_stock: { label: "Còn hàng — giao ngay", className: "bg-good text-white" },
+  auto: { label: "Giao tự động", className: "bg-good text-white" },
   manual: { label: "Giao sau", className: "bg-warn text-white" },
   out_of_stock: { label: "Tạm hết hàng", className: "bg-bad text-white" },
 };
@@ -229,7 +229,7 @@ export default function SellerProfilePage() {
                 {visibleProducts.map((p, i) => {
                   const state = stockState(p);
                   const badge = STOCK_BADGE[state];
-                  const price = minPrice(p);
+                  const price = effectiveMinPrice(p);
                   const units = stock(p);
                   return (
                     <Link

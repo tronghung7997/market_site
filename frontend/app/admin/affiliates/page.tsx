@@ -8,6 +8,7 @@ import { api, vnd } from "@/lib/api";
 import type { FundOverview } from "@/lib/types";
 import { useAdminAffiliates } from "@/hooks/use-affiliate";
 import { Button, Card, Input, Spinner } from "@/components/ui";
+import { MoneyInput } from "@/components/MoneyInput";
 import { SearchInput, Pagination } from "@/components/admin";
 
 function FundPanel() {
@@ -63,7 +64,7 @@ function FundPanel() {
 
         <div className="flex flex-col gap-2">
           <div className="flex gap-2">
-            <Input type="number" min={1} placeholder="Số tiền nạp" value={amount} onChange={(e) => setAmount(e.target.value)} />
+            <MoneyInput placeholder="Số tiền nạp quỹ" value={amount} onValueChange={setAmount} className="flex-1" />
             <Button disabled={busy || !amount} onClick={topup}>{busy ? "…" : "Nạp quỹ"}</Button>
           </div>
           <Input placeholder="Ghi chú (tuỳ chọn), vd: Ngân sách Q3" value={note} onChange={(e) => setNote(e.target.value)} />

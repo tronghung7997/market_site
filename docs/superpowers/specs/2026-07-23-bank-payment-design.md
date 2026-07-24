@@ -94,6 +94,25 @@ Check `GET /v1/payouts-account/balance` trước khi chi + alert khi quỹ thấ
 
 ## 6. Bảo mật & edge case (checklist test)
 
+### 6b. Hardening bổ sung 2026-07-24 (rà production, đã có test + verify sống)
+
+12. **Khoá rỗng không bao giờ verify**: chưa set `PAYOS_CHECKSUM_KEY` mà webhook
+    tới → nuốt lặng lẽ (200, không xử lý), tuyệt đối không HMAC bằng chuỗi rỗng
+    (ai cũng ký được). Tạo lệnh nạp khi chưa cấu hình → 503.
+13. **Chữ ký hợp lệ ≠ dữ liệu vô hại**: `amount ≤ 0` hoặc kiểu bool/string cho
+    orderCode/amount → bỏ qua, không credit (amount âm lọt vào là TRỪ ví).
+14. **Trần nạp** `DEPOSIT_MAX_AMOUNT` (mặc định 100 triệu/lệnh) — chặn gõ thừa số 0.
+15. **Alert vận hành** (`type=deposit_anomaly`, bảng alerts) cho 4 ca cần người xử lý:
+    webhook không khớp lệnh nào · khách chuyển LẦN 2 vào lệnh đã paid · lệch số
+    tiền · thanh toán muộn sau expired/cancelled. Alert best-effort, không bao
+    giờ làm hỏng phản hồi 2xx cho PayOS.
+16. **orderCode va chạm giữa các môi trường**: orderCode = id của `deposit_intents`
+    — nếu dev/staging DÙNG CHUNG kênh PayOS với production, hoặc reset DB
+    dev rồi tạo lệnh mới, PayOS trả "đơn đã tồn tại" (mã 231) → backend trả 502
+    sạch, không mồ côi intent. Quy tắc: MỖI MÔI TRƯỜNG MỘT KÊNH PAYOS RIÊNG.
+17. Suite test ghim cứng `DEPOSIT_MIN/MAX_AMOUNT` — không đổi hành vi theo
+    `.env` dev của từng máy (dev hay hạ min để test tiền thật số nhỏ).
+
 1. Webhook replay cùng (payment_link_id, reference) → credit đúng 1 lần.
 2. Chữ ký sai/thiếu → 401, không xử lý, không lộ chi tiết.
 3. Hai webhook song song cùng orderCode → FOR UPDATE, 1 thắng.
@@ -125,3 +144,48 @@ Check `GET /v1/payouts-account/balance` trước khi chi + alert khi quỹ thấ
 
 Điều kiện live: T01–T08 + T10 xong, `enable_demo_topup=false`, webhook đã confirm về
 `{backend}/webhooks/payos`. Phase 2 (auto-payout) tách đợt sau khi luồng nạp chạy ổn.
+
+## 8. Trạng thái triển khai (2026-07-24)
+
+ĐÃ XONG T01–T10 (trừ admin deposits UI — mới có API):
+- Migration `ae1a2b3c4d5e6`: `deposit_intents`, `payos_webhook_events`,
+  cột bank + trạng thái `paid` cho withdraw, enum transaction `deposit`.
+- `src/payments/`: payos_client (ký/verify HMAC 2 chiều), service
+  (create/cancel/apply_deposit_paid/handle_webhook/reconcile), router
+  (`POST /wallet/deposits`, `GET /wallet/deposits/me`, cancel, webhook,
+  `GET /admin/deposits`, reconcile). Scheduler: reconcile 5' + expire 10'.
+- demo-topup gate sau `ENABLE_DEMO_TOPUP` (mặc định TẮT — dev bật trong
+  marketplace-svc/.env, không commit).
+- Withdraw: bắt buộc bank_name/số TK/chủ TK (snapshot), admin có bước
+  "Đã chi tiền" + payout_reference; FE ví + seller dashboard + admin đã cập nhật.
+- `scripts/mock_payos.py` (:9400): mock đúng contract + AUTOPAY tự bắn webhook
+  ký đúng sau 6s → dev chạy trọn vòng nạp không cần PayOS thật.
+- Tests `tests/test_payments.py` (idempotency, chữ ký sai 401, lệch tiền,
+  trả muộn sau expired, cap pending, PayOS down không mồ côi intent,
+  reconcile bù miss webhook, demo-topup gate).
+
+### Lưu ý: PayOS KHÔNG có sandbox
+
+Docs chính thức (https://payos.vn/docs/moi-truong-test, kiểm tra 2026-07-24):
+"payOS không cung cấp môi trường test (sandbox/staging) riêng biệt" — test =
+giao dịch thật số tiền nhỏ trên tài khoản đã xác minh CCCD; tiền về chính
+tài khoản ngân hàng đã liên kết kênh nên không mất tiền. Vai trò sandbox
+trong dev/CI do `scripts/mock_payos.py` đảm nhận (đúng contract + autopay).
+
+### Runbook nối PayOS THẬT (tài khoản đã tạo trên my.payos.vn)
+
+1. Trên https://my.payos.vn: tạo Kênh thanh toán (liên kết tài khoản ngân
+   hàng nhận tiền) → vào kênh lấy 3 khoá: **Client ID, API Key, Checksum Key**.
+2. Backend cần URL public cho webhook (PayOS phải gọi vào được):
+   dev/staging dùng cloudflared tunnel (pattern có sẵn
+   `cloudflared.mock-dproxy.yml`): `cloudflared tunnel --url http://localhost:8001`.
+3. Đặt env production (KHÔNG ghi vào repo):
+   `PAYOS_BASE_URL=https://api-merchant.payos.vn`, `PAYOS_CLIENT_ID=...`,
+   `PAYOS_API_KEY=...`, `PAYOS_CHECKSUM_KEY=...`, bỏ `ENABLE_DEMO_TOPUP`.
+4. Đăng ký webhook MỘT lần (PayOS sẽ bắn request test — endpoint đã xử lý):
+   `curl -X POST https://api-merchant.payos.vn/confirm-webhook \
+      -H "x-client-id: $ID" -H "x-api-key: $KEY" -H 'Content-Type: application/json' \
+      -d '{"webhookUrl": "https://<domain-backend>/webhooks/payos"}'`
+5. Nạp thử 10.000đ thật → kiểm tra ví + `GET /admin/deposits` + bảng
+   `payos_webhook_events`; thử tắt backend 2 phút giữa chừng để thấy
+   reconcile job tự bù.

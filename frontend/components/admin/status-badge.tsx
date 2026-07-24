@@ -10,6 +10,7 @@ import {
   ALERT_SEVERITY,
   STRATEGY_LABELS,
   WITHDRAW_STATUS,
+  DEPOSIT_STATUS,
   type StatusTone,
 } from "./status-config";
 
@@ -86,5 +87,10 @@ export function AlertSeverityBadge({ severity, ...props }: { severity: string } 
 
 export function WithdrawStatusBadge({ status, ...props }: { status: string } & Omit<BadgeProps, "children">) {
   const config = WITHDRAW_STATUS[status] ?? { label: status, tone: "neutral" as StatusTone };
+  return <Badge tone={config.tone} {...props}>{config.label}</Badge>;
+}
+
+export function DepositStatusBadge({ status, ...props }: { status: string } & Omit<BadgeProps, "children">) {
+  const config = DEPOSIT_STATUS[status] ?? { label: status, tone: "neutral" as StatusTone };
   return <Badge tone={config.tone} {...props}>{config.label}</Badge>;
 }

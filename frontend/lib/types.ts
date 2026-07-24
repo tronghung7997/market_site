@@ -194,7 +194,51 @@ export interface WithdrawRequest {
   account_email?: string | null;
   amount: number;
   status: string;
+  bank_name?: string | null;
+  bank_account_number?: string | null;
+  bank_account_holder?: string | null;
+  bank_bin?: string | null;
+  payout_reference?: string | null;
+  paid_at?: string | null;
   created_at: string;
+}
+
+export interface DepositIntent {
+  id: number;
+  amount: number;
+  status: "pending" | "paid" | "cancelled" | "expired";
+  checkout_url?: string | null;
+  qr_code?: string | null;
+  paid_amount?: number | null;
+  created_at: string;
+  expires_at: string;
+  paid_at?: string | null;
+}
+
+export interface AdminDepositIntent extends DepositIntent {
+  account_id: number;
+  account_email?: string | null;
+  payment_link_id?: string | null;
+  payos_reference?: string | null;
+}
+
+export interface PayosWebhookEventRow {
+  id: number;
+  order_code: number;
+  payment_link_id: string;
+  reference: string;
+  amount: number;
+  signature_valid: boolean;
+  received_at: string;
+  raw: Record<string, unknown>;
+}
+
+export interface AdminAccountWallet {
+  account_id: number;
+  email: string;
+  available_balance: number;
+  locked_balance: number;
+  pending_balance: number;
 }
 
 export interface AdminOrderDetail extends Order {

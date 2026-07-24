@@ -4,6 +4,7 @@ import Link from "next/link";
 import { useParams, useRouter } from "next/navigation";
 import { useEffect, useRef, useState } from "react";
 import { api, vnd, ApiError } from "@/lib/api";
+import { effectiveMinPrice } from "@/lib/pricing-display";
 import { useAuth } from "@/lib/auth";
 import { cn } from "@/lib/cn";
 import { formatDate } from "@/lib/utils";
@@ -125,17 +126,10 @@ export default function ProductPage() {
   const instant = selected?.delivery_mode === "instant";
   const selectedOutOfStock = !!selected && instant && selected.stock_count <= 0;
   const useDynamicForm = pricingStrategy != null && pricingStrategy !== "fixed";
-  const pricedVariants = product.variants.filter((v) => v.price > 0);
-  const variantMinPrice = pricedVariants.length ? Math.min(...pricedVariants.map((v) => v.price)) : 0;
-  const basePrice = (product.pricing_params as Record<string, unknown> | null)?.base_price as number | undefined;
-  // credit_price là đơn giá MỖI request — không phải giá một lần mua. Gói nhỏ
-  // nhất mới là số tiền thật rẻ nhất buyer có thể trả, nên phải nhân vào đây;
-  // trước đây hiện thẳng credit_price (vd 10đ) làm buyer tưởng mua được với 10đ.
-  const creditParams = product.pricing_params as { credit_price?: number; packages?: { size: number }[] } | null;
-  const minCreditPackagePrice = creditParams?.credit_price != null && creditParams.packages?.length
-    ? creditParams.credit_price * Math.min(...creditParams.packages.map((p) => p.size))
-    : undefined;
-  const minPrice = variantMinPrice || basePrice || minCreditPackagePrice || 0;
+  // effectiveMinPrice xử lý cả 3 nguồn: variants → config (base × mult nhỏ
+  // nhất × kỳ hạn ngắn nhất/30 — hiện thẳng base_price từng làm key xoay 24h
+  // đề "Từ 120.000đ" trong khi giá thật 4.000đ) → credit (đơn giá × gói nhỏ nhất).
+  const minPrice = effectiveMinPrice(product);
   const pricePrefix = useDynamicForm ? "Từ " : "";
   const totalStock = product.variants.reduce((s, v) => s + v.stock_count, 0);
   const sellerName = product.seller_email?.split("@")[0] ?? "seller";
@@ -435,26 +429,36 @@ export default function ProductPage() {
           {related.length > 0 && (
             <div className="mt-6">
               <div className="text-[12px] font-semibold text-muted uppercase tracking-wider mb-3">Sản phẩm liên quan</div>
+              {/* h-full cả chuỗi Link→Card + giá đẩy xuống đáy bằng mt-auto:
+                  card bằng chiều cao nhau dù title 1 hay 2 dòng, và luôn có
+                  giá "Chỉ từ" nên không còn trống trải (feedback 24/07). */}
               <div className="grid gap-3 sm:grid-cols-3">
-                {related.map((r) => (
-                  <Link key={r.id} href={`/products/${r.id}`}>
-                    <Card interactive className="p-4">
-                      <div className="text-[13.5px] font-medium leading-snug line-clamp-2">{r.title}</div>
-                      <div className="flex items-center gap-2 mt-2">
-                        {r.rating_avg != null && r.rating_count > 0 && (
-                          <span className="flex items-center gap-0.5 text-[11px] text-muted">
-                            <Star size={11} className="text-warn fill-warn" />
-                            {r.rating_avg.toFixed(1)}
+                {related.map((r) => {
+                  const rPrice = effectiveMinPrice(r);
+                  return (
+                    <Link key={r.id} href={`/products/${r.id}`} className="h-full">
+                      <Card interactive className="p-4 h-full flex flex-col">
+                        <div className="text-[13.5px] font-medium leading-snug line-clamp-2">{r.title}</div>
+                        <div className="flex items-center gap-2 mt-1.5 text-[11px] text-faint">
+                          {r.rating_avg != null && r.rating_count > 0 && (
+                            <span className="flex items-center gap-0.5 text-[11px] text-muted">
+                              <Star size={11} className="text-warn fill-warn" />
+                              {r.rating_avg.toFixed(1)}
+                            </span>
+                          )}
+                          {r.sold_count > 0 && <span>Đã bán {r.sold_count}</span>}
+                          <Tag tone="iris">{SERVICE_LABELS[r.service_type ?? "other"] ?? "Khác"}</Tag>
+                        </div>
+                        <div className="mt-auto pt-3 flex items-baseline justify-between">
+                          <span className="text-[10px] uppercase tracking-wide text-faint font-medium">Chỉ từ</span>
+                          <span className="font-mono text-[14px] font-semibold tabular text-iris-hi">
+                            {rPrice > 0 ? vnd(rPrice) : "Báo giá"}
                           </span>
-                        )}
-                      </div>
-                      <div className="flex items-center gap-2 mt-1.5 text-[11px] text-faint">
-                        {r.sold_count > 0 && <span>Đã bán {r.sold_count}</span>}
-                        <Tag tone="iris">{SERVICE_LABELS[r.service_type ?? "other"] ?? "Khác"}</Tag>
-                      </div>
-                    </Card>
-                  </Link>
-                ))}
+                        </div>
+                      </Card>
+                    </Link>
+                  );
+                })}
               </div>
             </div>
           )}

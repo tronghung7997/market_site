@@ -12,4 +12,7 @@ export { ConfirmModal } from "./confirm-modal";
 
 export { SearchInput } from "./search-input";
 
+export { FacetSelect, buildFacetOptions } from "./facet-select";
+export type { FacetOption } from "./facet-select";
+
 export { Pagination } from "./pagination";

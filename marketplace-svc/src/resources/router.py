@@ -86,3 +86,8 @@ async def admin_resources(
 @router.get("/admin/resources/summary", response_model=schemas.ResourceStatusSummary)
 async def res_summary(_: Account = Depends(require_role("admin")), db: AsyncSession = Depends(get_session)):
     return await service.resource_status_summary(db)
+
+
+@router.get("/admin/resources/sellers", response_model=list[schemas.ResourceSellerFacet])
+async def res_seller_facet(_: Account = Depends(require_role("admin")), db: AsyncSession = Depends(get_session)):
+    return await service.resource_seller_facet(db)

@@ -8,7 +8,7 @@ import { useAuth } from "@/lib/auth";
 import { cn } from "@/lib/cn";
 import type { Dispute, Order, OrderStats, ProxyState, Resource } from "@/lib/types";
 import { EVIDENCE_TYPES, evidenceFieldLabel, evidenceTypeLabel } from "@/lib/dispute-evidence";
-import { Shield, Star, Package, Clock, Info, Wallet, Copy, ChevronRight } from "@/components/Icons";
+import { Shield, Star, Check, Info, Copy, ChevronRight, Search, X } from "@/components/Icons";
 import ServiceDashboard from "@/components/ServiceDashboard";
 import { Button, Card, Input, Select, Spinner, Tag, Textarea } from "@/components/ui";
 
@@ -332,43 +332,48 @@ function OrderDispute({ orderId }: { orderId: number }) {
         {loaded && !dispute && <p className="text-faint">Không tải được thông tin khiếu nại.</p>}
         {dispute && info && (
           <>
-            <div className="flex items-center gap-2 flex-wrap">
-              <Tag tone={info.tone}>{info.label}</Tag>
-              {dispute.resolved_at && (
-                <span className="text-faint">Xử lý lúc {new Date(dispute.resolved_at).toLocaleString("vi-VN")}</span>
+            <Tag tone={info.tone}>{info.label}</Tag>
+
+            {/* Khiếu nại là một cuộc hội thoại — hiển thị đúng như vậy:
+                mỗi bên một vạch màu, đọc từ trên xuống là hết chuyện. */}
+            <div className="mt-1 space-y-3">
+              <div className="border-l-2 border-iris/40 pl-3">
+                <p className="text-[11px] font-semibold text-iris-hi mb-0.5">
+                  Bạn <span className="font-normal text-faint">· {new Date(dispute.created_at).toLocaleString("vi-VN")}</span>
+                </p>
+                <p>{dispute.reason}</p>
+                {dispute.evidence && Object.keys(dispute.evidence).length > 0 && (
+                  <div className="mt-1.5 space-y-0.5 text-[11.5px]">
+                    <p className="text-faint">Bằng chứng — {evidenceTypeLabel(dispute.evidence_type)}</p>
+                    {Object.entries(dispute.evidence).map(([key, value]) => (
+                      <p key={key} className="text-muted">
+                        <span className="text-faint">{evidenceFieldLabel(dispute.evidence_type, key)}: </span>
+                        {value}
+                      </p>
+                    ))}
+                  </div>
+                )}
+              </div>
+
+              {dispute.seller_note && (
+                <div className="border-l-2 border-line-2 pl-3">
+                  <p className="text-[11px] font-semibold text-muted mb-0.5">Người bán</p>
+                  <p>{dispute.seller_note}</p>
+                </div>
+              )}
+
+              {(dispute.admin_note || dispute.resolved_at) && (
+                <div className="border-l-2 border-good/50 pl-3">
+                  <p className="text-[11px] font-semibold text-good mb-0.5">
+                    Quản trị viên
+                    {dispute.resolved_at && (
+                      <span className="font-normal text-faint"> · {new Date(dispute.resolved_at).toLocaleString("vi-VN")}</span>
+                    )}
+                  </p>
+                  <p>{dispute.admin_note ?? info.label}</p>
+                </div>
               )}
             </div>
-            <div className="px-3 py-2 rounded-lg bg-raised border border-line">
-              <p className="text-faint text-[11px] uppercase tracking-wider mb-0.5">Lý do bạn đã gửi</p>
-              <p>{dispute.reason}</p>
-            </div>
-            {dispute.evidence && Object.keys(dispute.evidence).length > 0 && (
-              <div className="px-3 py-2 rounded-lg bg-raised border border-line">
-                <p className="text-faint text-[11px] uppercase tracking-wider mb-1">
-                  Bằng chứng — {evidenceTypeLabel(dispute.evidence_type)}
-                </p>
-                <div className="space-y-0.5">
-                  {Object.entries(dispute.evidence).map(([key, value]) => (
-                    <p key={key}>
-                      <span className="text-faint">{evidenceFieldLabel(dispute.evidence_type, key)}: </span>
-                      {value}
-                    </p>
-                  ))}
-                </div>
-              </div>
-            )}
-            {dispute.seller_note && (
-              <div className="px-3 py-2 rounded-lg bg-iris/5 border border-iris/15">
-                <p className="text-faint text-[11px] uppercase tracking-wider mb-0.5">Phản hồi từ người bán</p>
-                <p>{dispute.seller_note}</p>
-              </div>
-            )}
-            {dispute.admin_note && (
-              <div className="px-3 py-2 rounded-lg bg-raised border border-line">
-                <p className="text-faint text-[11px] uppercase tracking-wider mb-0.5">Ghi chú từ quản trị viên</p>
-                <p>{dispute.admin_note}</p>
-              </div>
-            )}
           </>
         )}
       </div>
@@ -393,6 +398,49 @@ const SORT_OPTIONS = [
 
 const PER_PAGE_OPTIONS = [10, 20, 50];
 
+function useDebounce<T>(value: T, delay: number): T {
+  const [debounced, setDebounced] = useState(value);
+  useEffect(() => {
+    const t = setTimeout(() => setDebounced(value), delay);
+    return () => clearTimeout(t);
+  }, [value, delay]);
+  return debounced;
+}
+
+/** Đơn đã kết thúc (huỷ / hoàn tiền) — nén thành một dòng yên tĩnh: lý do +
+ *  xác nhận tiền đã về ví. Sân khấu nhường cho các đơn đang sống. */
+function TerminalOrderRow({ order: o }: { order: Order }) {
+  const st = STATUS[o.status] ?? { label: o.status, tone: "neutral" as const, hint: "" };
+  return (
+    <Card className="px-4 py-3">
+      <div className="flex items-start gap-3 min-w-0">
+        <span className="grid place-items-center h-8 w-8 shrink-0 rounded-lg bg-raised border border-line font-serif text-[12px] font-semibold text-faint">
+          {(o.product_title ?? "??").slice(0, 2).toUpperCase()}
+        </span>
+        <div className="min-w-0 flex-1">
+          <div className="flex items-center gap-2 min-w-0">
+            <span className="text-[13px] font-medium truncate">{o.product_title ?? `Đơn #${o.id}`}</span>
+            <Tag tone={st.tone}>{st.label}</Tag>
+          </div>
+          <p className="text-[11.5px] text-faint mt-0.5">
+            Đơn #{o.id} · {new Date(o.created_at).toLocaleDateString("vi-VN")}
+          </p>
+          {o.cancel_reason && (
+            <p className="text-[11.5px] text-muted mt-0.5 leading-relaxed">{o.cancel_reason}</p>
+          )}
+        </div>
+        <div className="text-right shrink-0">
+          <p className="font-mono text-[13px] tabular text-muted">{vnd(o.total_amount)}</p>
+          <p className="mt-0.5 inline-flex items-center gap-1 text-[11px] font-medium text-good">
+            <Check size={11} /> Đã hoàn về ví
+          </p>
+        </div>
+      </div>
+      {o.has_dispute && <OrderDispute orderId={o.id} />}
+    </Card>
+  );
+}
+
 export default function OrdersPage() {
   const { account, loading: authLoading } = useAuth();
   const router = useRouter();
@@ -411,7 +459,8 @@ export default function OrdersPage() {
   const [reviewedOrders, setReviewedOrders] = useState<Set<number>>(new Set());
   const [dashboardOpen, setDashboardOpen] = useState<Set<number>>(new Set());
 
-  // Filters
+  // Bộ lọc — áp tức thì, không có nút "Lọc": search debounce 350ms,
+  // ngày/sắp xếp áp ngay khi đổi.
   const [tab, setTab] = useState(() => searchParams.get("status") ?? "");
   const [search, setSearch] = useState("");
   const [dateFrom, setDateFrom] = useState("");
@@ -420,11 +469,11 @@ export default function OrdersPage() {
   const [page, setPage] = useState(1);
   const [perPage, setPerPage] = useState(20);
 
-  // Applied filters (only change on Lọc click or tab change)
-  const [appliedSearch, setAppliedSearch] = useState("");
-  const [appliedDateFrom, setAppliedDateFrom] = useState("");
-  const [appliedDateTo, setAppliedDateTo] = useState("");
-  const [appliedSort, setAppliedSort] = useState("newest");
+  const debouncedSearch = useDebounce(search, 350);
+
+  useEffect(() => {
+    setPage(1);
+  }, [tab, debouncedSearch, dateFrom, dateTo, sort, perPage]);
 
   const fetchOrders = useCallback(async (params: {
     status?: string; search?: string; date_from?: string; date_to?: string;
@@ -440,43 +489,32 @@ export default function OrdersPage() {
     }
   }, []);
 
+  const filterParams = useCallback(() => ({
+    status: tab || undefined,
+    search: debouncedSearch.trim() || undefined,
+    date_from: dateFrom || undefined,
+    date_to: dateTo || undefined,
+    sort,
+    page,
+    per_page: perPage,
+  }), [tab, debouncedSearch, dateFrom, dateTo, sort, page, perPage]);
+
   useEffect(() => {
     if (authLoading) return;
     if (!account) { router.push("/login"); return; }
     api.orderStats().then(setStats).catch(() => {});
-    fetchOrders({
-      status: tab || undefined,
-      search: appliedSearch || undefined,
-      date_from: appliedDateFrom || undefined,
-      date_to: appliedDateTo || undefined,
-      sort: appliedSort,
-      page,
-      per_page: perPage,
-    });
-  }, [account, authLoading, router, tab, appliedSearch, appliedDateFrom, appliedDateTo, appliedSort, page, perPage, fetchOrders]);
+    fetchOrders(filterParams());
+  }, [account, authLoading, router, fetchOrders, filterParams]);
 
   function showToast(msg: string) {
     setToast(msg);
     setTimeout(() => setToast(""), 3000);
   }
 
-  function applyFilters() {
-    setAppliedSearch(search);
-    setAppliedDateFrom(dateFrom);
-    setAppliedDateTo(dateTo);
-    setAppliedSort(sort);
-    setPage(1);
-  }
+  const hasFilters = search !== "" || dateFrom !== "" || dateTo !== "" || sort !== "newest";
 
-  function resetFilters() {
+  function clearFilters() {
     setSearch(""); setDateFrom(""); setDateTo(""); setSort("newest");
-    setAppliedSearch(""); setAppliedDateFrom(""); setAppliedDateTo(""); setAppliedSort("newest");
-    setPage(1);
-  }
-
-  function handleTabChange(t: string) {
-    setTab(t);
-    setPage(1);
   }
 
   async function handleConfirm(orderId: number) {
@@ -510,17 +548,20 @@ export default function OrdersPage() {
   function handleDisputeSuccess() {
     setDisputeOrderId(null);
     showToast("Đã gửi khiếu nại thành công!");
-    fetchOrders({
-      status: tab || undefined, search: appliedSearch || undefined,
-      date_from: appliedDateFrom || undefined, date_to: appliedDateTo || undefined,
-      sort: appliedSort, page, per_page: perPage,
-    });
+    fetchOrders(filterParams());
     api.orderStats().then(setStats).catch(() => {});
   }
 
   const totalPages = Math.max(1, Math.ceil(total / perPage));
 
-  if (authLoading) return <div className="w-full mx-auto max-w-[1200px] px-6 py-16"><Spinner /></div>;
+  const tabCounts: Record<string, number | undefined> = {
+    "": stats?.total,
+    active: stats?.active,
+    disputed: stats?.disputed,
+    deleted: undefined,
+  };
+
+  if (authLoading) return <div className="w-full mx-auto max-w-[920px] px-6 py-16"><Spinner /></div>;
 
   return (
     <div className="w-full mx-auto max-w-[1200px] px-6 py-10">
@@ -534,285 +575,329 @@ export default function OrdersPage() {
         <DisputeModal orderId={disputeOrderId} onClose={() => setDisputeOrderId(null)} onSuccess={handleDisputeSuccess} />
       )}
 
-      <div className="grid lg:grid-cols-[280px_1fr] gap-6 min-w-0">
-        {/* ─── Left sidebar: stats + filters ─── */}
+      <div className="grid lg:grid-cols-[260px_1fr] gap-6 min-w-0">
+        {/* ─── Cột trái: tiêu đề, biên lai tổng quan, thư mục trạng thái, bộ lọc ─── */}
         <aside className="min-w-0 lg:sticky lg:top-24 lg:self-start space-y-4">
           <div>
             <h2 className="font-serif text-[24px] tracking-tight">Đơn hàng</h2>
             <p className="text-[12.5px] text-muted mt-0.5">Theo dõi và quản lý các đơn đã đặt</p>
           </div>
 
+          {/* Tổng quan kiểu biên lai: nhãn trái, số phải, tổng chi chốt sổ */}
           {stats && (
-            <Card className="p-4">
-              <div className="grid grid-cols-2 gap-3">
-                {[
-                  { label: "Tổng đơn", value: stats.total, tone: "text-fg", icon: Package, chip: "bg-raised text-muted border-line" },
-                  { label: "Hoạt động", value: stats.active, tone: "text-iris-hi", icon: Clock, chip: "bg-iris-soft text-iris border-iris/15" },
-                  { label: "Khiếu nại", value: stats.disputed, tone: "text-bad", icon: Info, chip: "bg-bad-soft text-bad border-bad/15" },
-                  { label: "Chi tiêu", value: vnd(stats.total_spend), tone: "text-fg", icon: Wallet, chip: "bg-good-soft text-good border-good/15" },
-                ].map((c) => (
-                  <div key={c.label} className="flex items-start gap-2.5">
-                    <span className={cn("grid place-items-center h-7 w-7 shrink-0 rounded-md border", c.chip)}>
-                      <c.icon size={14} />
-                    </span>
-                    <div className="min-w-0">
-                      <div className="text-[10.5px] text-faint uppercase tracking-wider truncate">{c.label}</div>
-                      <div className={cn("text-[15px] font-semibold tabular leading-tight mt-0.5", c.tone)}>{c.value}</div>
-                    </div>
-                  </div>
-                ))}
-              </div>
+            <Card className="px-4 py-3.5">
+              <dl className="text-[12.5px] space-y-2">
+                <div className="flex items-baseline justify-between">
+                  <dt className="text-muted">Tổng đơn</dt>
+                  <dd className="font-semibold tabular">{stats.total}</dd>
+                </div>
+                <div className="flex items-baseline justify-between">
+                  <dt className="text-muted">Đang hoạt động</dt>
+                  <dd className={cn("font-semibold tabular", stats.active > 0 ? "text-iris-hi" : "")}>{stats.active}</dd>
+                </div>
+                <div className="flex items-baseline justify-between">
+                  <dt className="text-muted">Khiếu nại</dt>
+                  <dd className={cn("font-semibold tabular", stats.disputed > 0 ? "text-bad" : "")}>{stats.disputed}</dd>
+                </div>
+                <div className="flex items-baseline justify-between border-t border-dashed border-line-2 pt-2.5 mt-2.5">
+                  <dt className="text-muted">Đã chi</dt>
+                  <dd className="font-mono font-semibold tabular text-[13px]">{vnd(stats.total_spend)}</dd>
+                </div>
+              </dl>
             </Card>
           )}
 
-          <Card className="p-4 space-y-3.5">
-            <div className="flex flex-wrap gap-1">
-              {TABS.map((t) => (
+          {/* Thư mục trạng thái — kiểu hộp thư, số đếm bên phải */}
+          <Card className="p-1.5">
+            {TABS.map((t) => {
+              const active = tab === t.key;
+              const count = tabCounts[t.key];
+              return (
                 <button
                   key={t.key}
-                  onClick={() => handleTabChange(t.key)}
+                  onClick={() => setTab(t.key)}
+                  aria-pressed={active}
                   className={cn(
-                    "px-2.5 py-1 text-[12px] font-medium rounded-md transition-colors",
-                    tab === t.key
-                      ? "bg-iris text-white"
-                      : "bg-raised text-muted hover:text-fg",
+                    "flex w-full items-center justify-between rounded-lg px-3 py-2 text-[13px] transition-colors",
+                    active ? "bg-iris-soft font-medium text-iris-hi" : "text-muted hover:bg-raised hover:text-fg",
                   )}
                 >
                   {t.label}
+                  {count != null && (
+                    <span className={cn("tabular text-[11.5px]", active ? "font-semibold" : "text-faint")}>
+                      {count}
+                    </span>
+                  )}
                 </button>
-              ))}
-            </div>
+              );
+            })}
+          </Card>
 
-            <div>
-              <label className="text-[11px] text-faint uppercase tracking-wider block mb-1.5">Mã đơn</label>
-              <Input
+          {/* Bộ lọc — áp tức thì, không cần nút "Lọc" */}
+          <Card className="p-4 space-y-3">
+            <div className="relative">
+              <Search size={14} className="absolute left-2.5 top-1/2 -translate-y-1/2 text-faint pointer-events-none" />
+              <input
+                type="text"
                 placeholder="Tìm theo mã đơn…"
                 value={search}
                 onChange={(e) => setSearch(e.target.value)}
-                onKeyDown={(e) => e.key === "Enter" && applyFilters()}
+                className="h-9 w-full rounded-lg bg-surface border border-line pl-8 pr-7 text-[13px] placeholder:text-faint focus:border-iris focus:outline-none"
               />
+              {search && (
+                <button
+                  onClick={() => setSearch("")}
+                  aria-label="Xóa tìm kiếm"
+                  className="absolute right-2 top-1/2 -translate-y-1/2 text-faint hover:text-fg"
+                >
+                  <X size={13} />
+                </button>
+              )}
             </div>
             <div className="grid grid-cols-2 gap-2 min-w-0">
               <div className="min-w-0">
-                <label className="text-[11px] text-faint uppercase tracking-wider block mb-1.5">Từ ngày</label>
-                <Input type="date" value={dateFrom} onChange={(e) => setDateFrom(e.target.value)} className="min-w-0" />
+                <label className="text-[11px] text-faint block mb-1">Từ ngày</label>
+                <input
+                  type="date" value={dateFrom} onChange={(e) => setDateFrom(e.target.value)}
+                  className="h-9 w-full min-w-0 rounded-lg bg-surface border border-line px-2 text-[12px] text-muted focus:border-iris focus:outline-none"
+                />
               </div>
               <div className="min-w-0">
-                <label className="text-[11px] text-faint uppercase tracking-wider block mb-1.5">Đến ngày</label>
-                <Input type="date" value={dateTo} onChange={(e) => setDateTo(e.target.value)} className="min-w-0" />
+                <label className="text-[11px] text-faint block mb-1">Đến ngày</label>
+                <input
+                  type="date" value={dateTo} onChange={(e) => setDateTo(e.target.value)}
+                  className="h-9 w-full min-w-0 rounded-lg bg-surface border border-line px-2 text-[12px] text-muted focus:border-iris focus:outline-none"
+                />
               </div>
             </div>
-            <div>
-              <label className="text-[11px] text-faint uppercase tracking-wider block mb-1.5">Sắp xếp</label>
-              <Select value={sort} onChange={(e) => setSort(e.target.value)}>
-                {SORT_OPTIONS.map((o) => <option key={o.value} value={o.value}>{o.label}</option>)}
-              </Select>
-            </div>
-            <div className="flex gap-2">
-              <Button size="sm" onClick={applyFilters} className="flex-1">Lọc</Button>
-              <Button size="sm" variant="ghost" onClick={resetFilters}>Reset</Button>
-            </div>
+            <select
+              value={sort}
+              onChange={(e) => setSort(e.target.value)}
+              aria-label="Sắp xếp"
+              className="h-9 w-full rounded-lg bg-surface border border-line px-2.5 text-[12.5px] text-muted focus:border-iris focus:outline-none cursor-pointer"
+            >
+              {SORT_OPTIONS.map((o) => <option key={o.value} value={o.value}>{o.label}</option>)}
+            </select>
+            {hasFilters && (
+              <button
+                onClick={clearFilters}
+                className="flex w-full items-center justify-center gap-1 rounded-lg py-1.5 text-[12px] font-medium text-muted transition-colors hover:bg-raised hover:text-fg"
+              >
+                <X size={13} />
+                Xóa lọc
+              </button>
+            )}
           </Card>
         </aside>
 
-        {/* ─── Right: order list ─── */}
+        {/* ─── Cột phải: danh sách đơn ─── */}
         <div className="min-w-0">
-          <div className="flex items-center justify-between mb-4">
-            <span className="text-[12.5px] text-muted">
-              {total} đơn hàng
-            </span>
-            <div className="flex items-center gap-2">
-              <span className="text-[12px] text-muted">Hiển thị</span>
-              <select
-                value={perPage}
-                onChange={(e) => { setPerPage(Number(e.target.value)); setPage(1); }}
-                className="h-8 rounded-lg bg-surface border border-line px-2 text-[12px] text-fg"
-              >
-                {PER_PAGE_OPTIONS.map((n) => <option key={n} value={n}>{n}</option>)}
-              </select>
-            </div>
+        {loading ? (
+          <div className="flex flex-col gap-3.5">
+            {Array.from({ length: 3 }).map((_, i) => (
+              <Card key={i} className="p-5">
+                <div className="flex items-start gap-3">
+                  <div className="h-11 w-11 shrink-0 rounded-lg bg-raised animate-shimmer" />
+                  <div className="flex-1 space-y-2 pt-1">
+                    <div className="h-4 w-1/3 rounded bg-raised animate-shimmer" />
+                    <div className="h-3 w-1/2 rounded bg-raised animate-shimmer" />
+                  </div>
+                  <div className="h-5 w-24 rounded bg-raised animate-shimmer" />
+                </div>
+              </Card>
+            ))}
           </div>
-
-      {/* ─── Order List ─── */}
-      {loading ? (
-        <Spinner />
-      ) : orders.length === 0 ? (
-        <Card className="p-7 flex flex-col items-center gap-4 text-center">
-          <p className="text-[13px] text-muted">Không tìm thấy đơn hàng nào.</p>
-          <Link href="/"><Button>Khám phá chợ</Button></Link>
-        </Card>
-      ) : (
-        <div className="flex flex-col gap-3.5">
-          {orders.map((o) => {
-            const st = STATUS[o.status] ?? { label: o.status, tone: "neutral" as const, hint: "" };
-            return (
-              <Card key={o.id} className="p-5">
-                {/* Header row: only this row splits left/right — everything below spans full card width */}
-                <div className="flex items-start justify-between gap-4">
-                  <div className="flex items-start gap-3 min-w-0">
-                    <span className="grid place-items-center h-11 w-11 shrink-0 rounded-lg bg-raised border border-line font-serif text-[14px] font-semibold text-iris">
-                      {(o.product_title ?? "??").slice(0, 2).toUpperCase()}
-                    </span>
-                    <div className="min-w-0">
-                      <div className="font-medium text-[14.5px] truncate">{o.product_title ?? `Đơn #${o.id}`}</div>
-                      {o.variant_name && <div className="text-[12.5px] text-muted truncate">{o.variant_name}</div>}
-                      <div className="text-[11.5px] text-faint mt-0.5">
-                        Đơn #{o.id} · SL {o.quantity} · {new Date(o.created_at).toLocaleString("vi-VN")}
-                      </div>
+        ) : orders.length === 0 ? (
+          <Card className="p-8 flex flex-col items-center gap-3 text-center">
+            <p className="text-[13px] text-muted">
+              {hasFilters || tab !== "" ? "Không có đơn nào khớp bộ lọc hiện tại." : "Bạn chưa có đơn hàng nào."}
+            </p>
+            {hasFilters ? (
+              <Button variant="secondary" size="sm" onClick={clearFilters}>Xóa bộ lọc</Button>
+            ) : (
+              <Link href="/"><Button size="sm">Khám phá chợ</Button></Link>
+            )}
+          </Card>
+        ) : (
+          <div className="flex flex-col gap-3.5">
+            {orders.map((o) => {
+              // Đơn đã kết thúc thất bại → dòng nén, không banner
+              if (o.status === "cancelled" || o.status === "refunded") {
+                return <TerminalOrderRow key={o.id} order={o} />;
+              }
+              const st = STATUS[o.status] ?? { label: o.status, tone: "neutral" as const, hint: "" };
+              return (
+                <Card key={o.id} className="p-0 overflow-hidden">
+                  {/* Thanh định danh — "biển số" của đơn: mã + ngày trái, trạng thái + tiền phải.
+                      Đây là ranh giới thị giác giữa các đơn trong danh sách. */}
+                  <div className="flex flex-wrap items-center gap-x-3 gap-y-1 px-4 py-2 bg-raised/50 border-b border-line">
+                    <span className="font-mono text-[13px] font-semibold">#{o.id}</span>
+                    <span className="text-[11.5px] text-faint">{new Date(o.created_at).toLocaleString("vi-VN")}</span>
+                    <div className="ml-auto flex items-center gap-2.5">
+                      <Tag tone={st.tone}>{st.label}</Tag>
+                      <span className="font-mono text-[14px] font-semibold tabular">{vnd(o.total_amount)}</span>
                     </div>
                   </div>
 
-                  <div className="text-right shrink-0">
-                    <div className="text-[10px] text-faint uppercase tracking-wider mb-0.5">Tổng tiền</div>
-                    <div className="font-mono text-[15.5px] font-semibold tabular">{vnd(o.total_amount)}</div>
+                  <div className="px-4 pb-4 pt-3">
+                  <div className="flex items-center gap-3 min-w-0">
+                    <span className="grid place-items-center h-9 w-9 shrink-0 rounded-lg bg-raised border border-line font-serif text-[13px] font-semibold text-iris">
+                      {(o.product_title ?? "??").slice(0, 2).toUpperCase()}
+                    </span>
+                    <div className="min-w-0 flex-1">
+                      <div className="font-medium text-[14px] truncate">{o.product_title ?? `Đơn #${o.id}`}</div>
+                      <div className="text-[12px] text-muted truncate">
+                        {o.variant_name ? `${o.variant_name} · ` : ""}SL {o.quantity}
+                      </div>
+                    </div>
                     {o.escrow_expires_at && o.status === "delivered" && (
-                      <div className="text-[11px] text-faint mt-1.5 flex items-center gap-1 justify-end">
+                      <div className="text-[11px] text-faint flex items-center gap-1 shrink-0">
                         <Shield size={11} className="text-good" /> Ký quỹ đến {new Date(o.escrow_expires_at).toLocaleDateString("vi-VN")}
                       </div>
                     )}
                   </div>
-                </div>
 
-                <div className="flex items-center gap-2 mt-3">
-                  <Tag tone={st.tone}>{st.label}</Tag>
-                  {/* Đơn huỷ có lý do cụ thể → không lặp hint chung, để banner
-                      bên dưới nói rõ (hết hàng / đã hoàn tiền…). */}
-                  {!(o.status === "cancelled" && o.cancel_reason) && (
-                    <span className="text-[12px] text-muted">{st.hint}</span>
+                  {st.hint && <p className="text-[12px] text-muted mt-2.5">{st.hint}</p>}
+
+                  {o.has_dispute && <OrderDispute orderId={o.id} />}
+
+                  {!["disputed", "refunded", "cancelled"].includes(o.status) && (
+                    <div className="mt-3 rounded-lg bg-raised/60 border border-line/70">
+                      <StatusTimeline status={o.status} />
+                    </div>
                   )}
-                </div>
 
-                {o.has_dispute && <OrderDispute orderId={o.id} />}
-
-                {!["disputed", "refunded", "cancelled"].includes(o.status) && (
-                  <div className="mt-3 rounded-lg bg-raised/60 border border-line/70">
-                    <StatusTimeline status={o.status} />
-                  </div>
-                )}
-
-                {o.status === "cancelled" && o.cancel_reason && (
-                  <div className="mt-3 flex gap-2.5 rounded-lg border border-warn/40 bg-warn-soft/50 px-3.5 py-3">
-                    <Info size={16} className="text-warn shrink-0 mt-0.5" />
-                    <div className="min-w-0">
-                      <p className="text-[12.5px] font-medium text-fg">Vì sao đơn bị huỷ?</p>
-                      <p className="text-[12.5px] text-muted leading-relaxed mt-0.5">{o.cancel_reason}</p>
+                  {o.delivered_data && (
+                    <div className="mt-3">
+                      <div className="flex items-center justify-between mb-1">
+                        <span className="text-[10.5px] text-faint uppercase tracking-wider">Dữ liệu bàn giao</span>
+                        <CopyIconButton text={o.delivered_data} />
+                      </div>
+                      <pre className="font-mono text-[12px] bg-raised border border-line rounded-lg p-2.5 whitespace-pre-wrap break-all">{o.delivered_data}</pre>
                     </div>
-                  </div>
-                )}
+                  )}
 
-                {o.delivered_data && (
-                  <div className="mt-3">
-                    <div className="flex items-center justify-between mb-1">
-                      <span className="text-[10.5px] text-faint uppercase tracking-wider">Dữ liệu bàn giao</span>
-                      <CopyIconButton text={o.delivered_data} />
-                    </div>
-                    <pre className="font-mono text-[12px] bg-raised border border-line rounded-lg p-2.5 whitespace-pre-wrap break-all">{o.delivered_data}</pre>
-                  </div>
-                )}
+                  {(o.status === "delivered" || o.status === "completed") && (
+                    <OrderProxyPanel
+                      orderId={o.id}
+                      onDelivered={(id, deliveredData) =>
+                        setOrders((prev) => prev.map((ord) => (ord.id === id ? { ...ord, delivered_data: deliveredData } : ord)))
+                      }
+                    />
+                  )}
 
-                {(o.status === "delivered" || o.status === "completed") && (
-                  <OrderProxyPanel
-                    orderId={o.id}
-                    onDelivered={(id, deliveredData) =>
-                      setOrders((prev) => prev.map((ord) => (ord.id === id ? { ...ord, delivered_data: deliveredData } : ord)))
-                    }
-                  />
-                )}
-
-                {o.status === "delivered" && (
-                  <div className="flex gap-2 mt-3.5">
-                    <Button size="sm" onClick={() => handleConfirm(o.id)} disabled={confirmingId === o.id}>
-                      {confirmingId === o.id ? "Đang xác nhận…" : "Xác nhận đã nhận"}
-                    </Button>
-                    <Button size="sm" variant="danger" onClick={() => setDisputeOrderId(o.id)}>Mở khiếu nại</Button>
-                  </div>
-                )}
-
-                {o.status === "completed" && !o.has_review && !reviewedOrders.has(o.id) && reviewOrderId !== o.id && (
-                  <div className="mt-3.5">
-                    <Button size="sm" variant="secondary" onClick={() => { setReviewOrderId(o.id); setReviewRating(5); setReviewComment(""); }}>
-                      <Star size={13} /> Đánh giá
-                    </Button>
-                  </div>
-                )}
-                {o.status === "completed" && (o.has_review || reviewedOrders.has(o.id)) && (
-                  <p className="flex items-center gap-1.5 text-[12px] mt-2.5 text-good font-medium">
-                    <Star size={12} className="fill-good" /> Đã đánh giá
-                  </p>
-                )}
-                {reviewOrderId === o.id && (
-                  <div className="mt-3 p-3.5 rounded-lg border border-line bg-raised">
-                    <div className="flex gap-1 mb-2">
-                      {[1, 2, 3, 4, 5].map((s) => (
-                        <button key={s} onClick={() => setReviewRating(s)} className="p-0.5">
-                          <Star size={18} className={s <= reviewRating ? "text-warn fill-warn" : "text-line-2"} />
-                        </button>
-                      ))}
-                    </div>
-                    <Textarea rows={3} placeholder="Nhận xét (tuỳ chọn)…" value={reviewComment} onChange={(e) => setReviewComment(e.target.value)} />
-                    <div className="flex gap-2 mt-2">
-                      <Button size="sm" onClick={() => handleReviewSubmit(o.id)} disabled={reviewSubmitting}>
-                        {reviewSubmitting ? "Đang gửi…" : "Gửi đánh giá"}
+                  {o.status === "delivered" && (
+                    <div className="flex gap-2 mt-3.5">
+                      <Button size="sm" onClick={() => handleConfirm(o.id)} disabled={confirmingId === o.id}>
+                        {confirmingId === o.id ? "Đang xác nhận…" : "Xác nhận đã nhận"}
                       </Button>
-                      <Button size="sm" variant="ghost" onClick={() => setReviewOrderId(null)}>Huỷ</Button>
+                      <Button size="sm" variant="danger" onClick={() => setDisputeOrderId(o.id)}>Mở khiếu nại</Button>
                     </div>
-                  </div>
-                )}
+                  )}
 
-                {(o.status === "delivered" || o.status === "completed") && (
-                  <Disclosure
-                    label="Xem dashboard" labelOpen="Ẩn dashboard"
-                    open={dashboardOpen.has(o.id)}
-                    onToggle={() => setDashboardOpen((prev) => {
-                      const next = new Set(prev);
-                      if (next.has(o.id)) next.delete(o.id); else next.add(o.id);
-                      return next;
-                    })}
-                  >
-                    <ServiceDashboard orderId={o.id} />
-                  </Disclosure>
-                )}
-                {(o.status === "delivered" || o.status === "completed") && <OrderResources orderId={o.id} />}
-              </Card>
-            );
-          })}
-        </div>
-      )}
+                  {o.status === "completed" && !o.has_review && !reviewedOrders.has(o.id) && reviewOrderId !== o.id && (
+                    <div className="mt-3.5">
+                      <Button size="sm" variant="secondary" onClick={() => { setReviewOrderId(o.id); setReviewRating(5); setReviewComment(""); }}>
+                        <Star size={13} /> Đánh giá
+                      </Button>
+                    </div>
+                  )}
+                  {o.status === "completed" && (o.has_review || reviewedOrders.has(o.id)) && (
+                    <p className="flex items-center gap-1.5 text-[12px] mt-2.5 text-good font-medium">
+                      <Star size={12} className="fill-good" /> Đã đánh giá
+                    </p>
+                  )}
+                  {reviewOrderId === o.id && (
+                    <div className="mt-3 p-3.5 rounded-lg border border-line bg-raised">
+                      <div className="flex gap-1 mb-2">
+                        {[1, 2, 3, 4, 5].map((s) => (
+                          <button key={s} onClick={() => setReviewRating(s)} className="p-0.5">
+                            <Star size={18} className={s <= reviewRating ? "text-warn fill-warn" : "text-line-2"} />
+                          </button>
+                        ))}
+                      </div>
+                      <Textarea rows={3} placeholder="Nhận xét (tuỳ chọn)…" value={reviewComment} onChange={(e) => setReviewComment(e.target.value)} />
+                      <div className="flex gap-2 mt-2">
+                        <Button size="sm" onClick={() => handleReviewSubmit(o.id)} disabled={reviewSubmitting}>
+                          {reviewSubmitting ? "Đang gửi…" : "Gửi đánh giá"}
+                        </Button>
+                        <Button size="sm" variant="ghost" onClick={() => setReviewOrderId(null)}>Huỷ</Button>
+                      </div>
+                    </div>
+                  )}
 
-          {/* ─── Pagination ─── */}
-          {!loading && totalPages > 1 && (
-            <div className="flex items-center justify-center gap-2 mt-6">
-              <Button size="sm" variant="ghost" disabled={page <= 1} onClick={() => setPage(page - 1)}>
-                Trước
-              </Button>
-              {Array.from({ length: totalPages }, (_, i) => i + 1)
-                .filter((p) => p === 1 || p === totalPages || Math.abs(p - page) <= 2)
-                .reduce<(number | "...")[]>((acc, p, i, arr) => {
-                  if (i > 0 && p - (arr[i - 1] as number) > 1) acc.push("...");
-                  acc.push(p);
-                  return acc;
-                }, [])
-                .map((p, i) =>
-                  p === "..." ? (
-                    <span key={`ellipsis-${i}`} className="text-muted px-1">...</span>
-                  ) : (
-                    <button
-                      key={p}
-                      onClick={() => setPage(p as number)}
-                      className={cn(
-                        "w-8 h-8 rounded-lg text-[13px] font-medium",
-                        page === p ? "bg-iris text-white" : "text-muted hover:bg-raised",
-                      )}
+                  {(o.status === "delivered" || o.status === "completed") && (
+                    <Disclosure
+                      label="Xem dashboard" labelOpen="Ẩn dashboard"
+                      open={dashboardOpen.has(o.id)}
+                      onToggle={() => setDashboardOpen((prev) => {
+                        const next = new Set(prev);
+                        if (next.has(o.id)) next.delete(o.id); else next.add(o.id);
+                        return next;
+                      })}
                     >
-                      {p}
-                    </button>
-                  ),
-                )}
-              <Button size="sm" variant="ghost" disabled={page >= totalPages} onClick={() => setPage(page + 1)}>
-                Sau
-              </Button>
+                      <ServiceDashboard orderId={o.id} />
+                    </Disclosure>
+                  )}
+                  {(o.status === "delivered" || o.status === "completed") && <OrderResources orderId={o.id} />}
+                  </div>
+                </Card>
+              );
+            })}
+          </div>
+        )}
+
+        {/* ─── Chân trang: khoảng hiển thị + phân trang + cỡ trang ─── */}
+        {!loading && total > 0 && (
+          <div className="flex flex-wrap items-center justify-between gap-3 mt-6">
+            <span className="text-[12px] text-faint tabular">
+              Hiển thị {(page - 1) * perPage + 1}–{Math.min(page * perPage, total)} / {total} đơn
+            </span>
+            <div className="flex items-center gap-2">
+              {totalPages > 1 && (
+                <div className="flex items-center gap-1">
+                  <Button size="sm" variant="ghost" disabled={page <= 1} onClick={() => setPage(page - 1)}>
+                    Trước
+                  </Button>
+                  {Array.from({ length: totalPages }, (_, i) => i + 1)
+                    .filter((p) => p === 1 || p === totalPages || Math.abs(p - page) <= 2)
+                    .reduce<(number | "...")[]>((acc, p, i, arr) => {
+                      if (i > 0 && p - (arr[i - 1] as number) > 1) acc.push("...");
+                      acc.push(p);
+                      return acc;
+                    }, [])
+                    .map((p, i) =>
+                      p === "..." ? (
+                        <span key={`ellipsis-${i}`} className="text-muted px-1">...</span>
+                      ) : (
+                        <button
+                          key={p}
+                          onClick={() => setPage(p as number)}
+                          className={cn(
+                            "w-8 h-8 rounded-lg text-[13px] font-medium",
+                            page === p ? "bg-iris text-white" : "text-muted hover:bg-raised",
+                          )}
+                        >
+                          {p}
+                        </button>
+                      ),
+                    )}
+                  <Button size="sm" variant="ghost" disabled={page >= totalPages} onClick={() => setPage(page + 1)}>
+                    Sau
+                  </Button>
+                </div>
+              )}
+              <select
+                value={perPage}
+                onChange={(e) => setPerPage(Number(e.target.value))}
+                aria-label="Số đơn mỗi trang"
+                className="h-8 rounded-lg bg-surface border border-line px-2 text-[12px] text-muted cursor-pointer focus:outline-none focus:border-iris"
+              >
+                {PER_PAGE_OPTIONS.map((n) => <option key={n} value={n}>{n} / trang</option>)}
+              </select>
             </div>
-          )}
+          </div>
+        )}
         </div>
       </div>
     </div>

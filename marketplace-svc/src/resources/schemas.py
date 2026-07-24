@@ -48,6 +48,12 @@ class ResourceStatusSummary(BaseModel):
     error: int
 
 
+class ResourceSellerFacet(BaseModel):
+    seller_id: int
+    seller_email: str | None = None
+    count: int
+
+
 class InternalAcquireRequest(BaseModel):
     variant_id: int
     quantity: int = 1

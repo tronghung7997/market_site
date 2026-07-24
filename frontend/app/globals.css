@@ -94,6 +94,20 @@
   @keyframes rise { from { opacity: 0; transform: translateY(8px); } to { opacity: 1; transform: translateY(0); } }
   .animate-rise { animation: rise 0.45s cubic-bezier(0.22, 0.61, 0.36, 1) both; }
 
+  /* Trạng thái "tác vụ đang chạy" — vòng quay quanh badge + shimmer
+     trên skeleton chờ dữ liệu bàn giao. */
+  @keyframes spin-ring { to { transform: rotate(360deg); } }
+  .animate-spin-ring { animation: spin-ring 1.4s linear infinite; }
+  @keyframes shimmer-x { from { background-position: 200% 0; } to { background-position: -200% 0; } }
+  .animate-shimmer {
+    background-image: linear-gradient(90deg, transparent 0%, rgba(255, 255, 255, 0.65) 50%, transparent 100%);
+    background-size: 200% 100%;
+    animation: shimmer-x 1.8s linear infinite;
+  }
+  @media (prefers-reduced-motion: reduce) {
+    .animate-seal, .animate-rise, .animate-shimmer, .animate-spin-ring { animation: none; }
+  }
+
   /* ============================================================
      Admin console — dark control-room sidebar, light data canvas.
      Scoped so none of this leaks into the marketplace.

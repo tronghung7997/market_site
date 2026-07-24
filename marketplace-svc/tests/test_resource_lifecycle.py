@@ -90,3 +90,24 @@ async def test_admin_resource_summary(client):
     resp = await client.get("/admin/resources/summary", headers={"Authorization": f"Bearer {admin}"})
     assert resp.status_code == 200
     assert resp.json()["available"] == 2
+
+
+async def test_admin_resource_seller_facet(client):
+    from tests.conftest import make_admin, make_seller
+    admin = await register_and_login(client, "admin-facet@ex.com"); await make_admin("admin-facet@ex.com")
+    await client.post("/admin/categories", headers={"Authorization": f"Bearer {admin}"}, json={"name": "Proxy", "slug": "proxy"})
+    seller = await register_and_login(client, "seller-facet@ex.com"); await make_seller("seller-facet@ex.com")
+    var = await _seed_variant(client, seller, duration_days=None)
+    await client.post(f"/seller/variants/{var['id']}/resources", headers={"Authorization": f"Bearer {seller}"}, json={"items": ["a|b", "c|d", "e|f"]})
+
+    resp = await client.get("/admin/resources/sellers", headers={"Authorization": f"Bearer {admin}"})
+    assert resp.status_code == 200
+    rows = resp.json()
+    row = next(r for r in rows if r["seller_email"] == "seller-facet@ex.com")
+    assert row["count"] == 3
+    assert row["seller_id"] > 0
+
+    # Lọc danh sách theo seller_id phải khớp số đếm của facet
+    listed = await client.get(f"/admin/resources?seller_id={row['seller_id']}", headers={"Authorization": f"Bearer {admin}"})
+    assert listed.status_code == 200
+    assert listed.json()["total"] == 3

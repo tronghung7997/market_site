@@ -252,3 +252,21 @@ async def resource_status_summary(db: AsyncSession) -> dict[str, int]:
         key = status_val.value if hasattr(status_val, "value") else str(status_val)
         counts[key] = n
     return counts
+
+
+async def resource_seller_facet(db: AsyncSession) -> list[dict]:
+    """Đếm tài nguyên theo người bán — nguồn dữ liệu cho dropdown lọc admin."""
+    from sqlalchemy import func as safunc
+    from src.models.account import Account
+
+    rows = await db.execute(
+        select(
+            Resource.seller_id,
+            Account.email.label("seller_email"),
+            safunc.count().label("count"),
+        )
+        .join(Account, Resource.seller_id == Account.id)
+        .group_by(Resource.seller_id, Account.email)
+        .order_by(safunc.count().desc(), Account.email)
+    )
+    return [row._asdict() for row in rows.all()]

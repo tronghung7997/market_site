@@ -1,5 +1,5 @@
 import type {
-  Account, ActionItem, AdminDepositIntent, AdminDisputeDetail, AdminOrderDetail, AdminProduct, AdminResourceListResponse, AffiliateStats, AffiliateSummary, CalculateResult, Category, ChargeUsageResult, DashboardData, DepositIntent, Dispute, PayosWebhookEventRow, AdminAccountWallet, FundOverview, AccountAdminRow, PaginatedAccounts, LogEntry, Order, OrderStats, PaginatedAffiliateSummary, PaginatedOrderResponse, PricingField, PricingOptions, ProductDetail, Product, ProductOperations, ProxyState, ProxyRotateResult, Review, SellerApplication, SellerProduct, SellerStats, ServiceTask, Transaction, Variant, Wallet, WithdrawRequest, Provider, ProviderHealth, Alert, Resource, ResourceSummary, InventoryVariant, SellerSummary, SellerProfile, SellerApiKey, SellerApiKeyCreated,
+  Account, ActionItem, AdminDepositIntent, AdminDisputeDetail, AdminOrderDetail, AdminProduct, AdminResourceListResponse, AffiliateStats, AffiliateSummary, CalculateResult, Category, ChargeUsageResult, DashboardData, DepositIntent, Dispute, PayosWebhookEventRow, AdminAccountWallet, FundOverview, AccountAdminRow, PaginatedAccounts, LogEntry, Order, OrderStats, PaginatedAffiliateSummary, PaginatedOrderResponse, PricingField, PricingOptions, ProductDetail, Product, ProductOperations, ProxyState, ProxyRotateResult, Review, SellerApplication, SellerProduct, SellerStats, ServiceTask, Transaction, Variant, Wallet, WithdrawRequest, Provider, ProviderHealth, Alert, Resource, ResourceSummary, ResourceSellerFacet, InventoryVariant, SellerSummary, SellerProfile, SellerApiKey, SellerApiKeyCreated,
 } from "./types";
 
 const BASE = process.env.NEXT_PUBLIC_API_URL
@@ -249,9 +249,10 @@ export const api = {
     request<ChargeUsageResult>(`/orders/${orderId}/usage`, { method: "POST", body: JSON.stringify({ endpoint, units }) }, true),
   orderResources: (orderId: number) => request<Resource[]>(`/orders/${orderId}/resources`, {}, true),
   markResourceError: (resourceId: number) => request<Resource>(`/seller/resources/${resourceId}/error`, { method: "POST" }, true),
-  adminResources: (params: { status?: string; search?: string; page?: number; per_page?: number } = {}) => {
+  adminResources: (params: { status?: string; seller_id?: number; search?: string; page?: number; per_page?: number } = {}) => {
     const q = new URLSearchParams();
     if (params.status) q.set("status", params.status);
+    if (params.seller_id) q.set("seller_id", String(params.seller_id));
     if (params.search) q.set("search", params.search);
     if (params.page) q.set("page", String(params.page));
     if (params.per_page) q.set("per_page", String(params.per_page));
@@ -259,6 +260,7 @@ export const api = {
     return request<AdminResourceListResponse>(`/admin/resources${qs ? `?${qs}` : ""}`, {}, true);
   },
   adminResourceSummary: () => request<ResourceSummary>("/admin/resources/summary", {}, true),
+  adminResourceSellers: () => request<ResourceSellerFacet[]>("/admin/resources/sellers", {}, true),
 
   pricingOptions: (productId: number) =>
     request<PricingOptions>(`/products/${productId}/pricing-options`),

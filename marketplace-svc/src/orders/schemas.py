@@ -35,6 +35,7 @@ class OrderResponse(BaseModel):
     status: str
     escrow_expires_at: datetime | None
     delivered_data: str | None
+    cancel_reason: str | None = None
     created_at: datetime
     product_title: str | None = None
     variant_name: str | None = None

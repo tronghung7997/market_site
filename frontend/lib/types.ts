@@ -120,6 +120,7 @@ export interface Order {
   status: string;
   escrow_expires_at: string | null;
   delivered_data: string | null;
+  cancel_reason?: string | null;
   created_at: string;
   product_title?: string | null;
   variant_name?: string | null;
@@ -433,6 +434,12 @@ export interface ResourceSummary {
   assigned: number;
   expired: number;
   error: number;
+}
+
+export interface ResourceSellerFacet {
+  seller_id: number;
+  seller_email: string | null;
+  count: number;
 }
 
 export interface AdminProduct {

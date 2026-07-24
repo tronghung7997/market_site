@@ -46,6 +46,9 @@ class Order(Base):
     status: Mapped[OrderStatus] = mapped_column(Enum(OrderStatus), default=OrderStatus.pending)
     escrow_expires_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True), nullable=True)
     delivered_data: Mapped[str | None] = mapped_column(Text, nullable=True)
+    # Lý do huỷ WHITE-LABEL cho buyer đọc (hết hàng / không cấp phát được…),
+    # luôn kèm trấn an đã hoàn tiền. Chi tiết kỹ thuật vẫn ở log_entries (admin).
+    cancel_reason: Mapped[str | None] = mapped_column(Text, nullable=True)
     # Product options the buyer picked (type/network/days/platform/...). Persisted
     # because provisioning now runs after the request returns: both the background
     # task and the stuck-order sweeper need to replay it. Never holds credentials.

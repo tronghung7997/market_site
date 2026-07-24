@@ -216,6 +216,35 @@ class TestProvisionStatic:
         assert fragment in result.error
 
     @pytest.mark.asyncio
+    async def test_out_of_stock_gives_whitelabel_buyer_message(self, monkeypatch):
+        """103 hết hàng → buyer_message riêng, KHÔNG lộ tên nguồn 'TopProxy'."""
+        adapter = _adapter()
+        _no_allocation(monkeypatch)
+
+        async def fake_call(path, params, *, operation, order_id=None):
+            return [] if operation == "listproxy" else {"status": 103}
+
+        monkeypatch.setattr(adapter, "_call_once", fake_call)
+        result = await adapter.provision(9, {"type": "HTTP", "network": "US", "days": 3, "quantity": 1})
+        assert not result.success
+        assert result.buyer_message and "hết hàng" in result.buyer_message
+        assert "TopProxy" not in result.buyer_message  # white-label
+        # các lỗi vận hành khác (101/102) KHÔNG có buyer_message (dùng thông báo chung)
+
+    @pytest.mark.asyncio
+    async def test_auth_error_has_no_buyer_message(self, monkeypatch):
+        adapter = _adapter()
+        _no_allocation(monkeypatch)
+
+        async def fake_call(path, params, *, operation, order_id=None):
+            return [] if operation == "listproxy" else {"status": 101}
+
+        monkeypatch.setattr(adapter, "_call_once", fake_call)
+        result = await adapter.provision(9, {"type": "HTTP", "network": "US", "days": 3, "quantity": 1})
+        assert not result.success
+        assert result.buyer_message is None  # → dùng thông báo huỷ chung
+
+    @pytest.mark.asyncio
     async def test_invalid_loaiproxy_fails_without_purchase(self, monkeypatch):
         adapter = _adapter()
         _no_allocation(monkeypatch)

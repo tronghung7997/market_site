@@ -9,7 +9,12 @@ class ProvisionResult:
     data: str | None = None
     resource_id: str | None = None
     metadata: dict | None = field(default_factory=dict)
+    # `error`: chi tiết kỹ thuật cho admin log — ĐƯỢC PHÉP nhắc tên nhà cung
+    # cấp thượng nguồn, không hiển thị cho buyer.
     error: str | None = None
+    # `buyer_message`: lý do WHITE-LABEL cho buyer thấy khi đơn huỷ (không lộ
+    # nguồn hàng). None = dùng thông báo huỷ chung ở orders/service.py.
+    buyer_message: str | None = None
 
 
 class ProviderAdapter(ABC):

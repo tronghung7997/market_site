@@ -414,7 +414,10 @@ class DProxyAdapter(RealApiAdapter, RotatableProxyAdapter):
         # "genuinely gone" on an idempotent retry (review fixes Blocker 2).
         allocation = await bind_first_available_assignment(self.provider_id, order_id, assignments, self.db)
         if allocation is None:
-            return ProvisionResult(success=False, error="Hết proxy khả dụng — vui lòng thử lại sau")
+            return ProvisionResult(
+                success=False, error="Hết proxy khả dụng — vui lòng thử lại sau",
+                buyer_message="Sản phẩm tạm hết hàng, vui lòng thử lại sau ít phút.",
+            )
 
         assignment = next((a for a in assignments if a.external_id == allocation.external_id), None)
         if assignment is None:

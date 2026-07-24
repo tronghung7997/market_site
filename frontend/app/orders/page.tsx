@@ -686,6 +686,13 @@ export default function OrdersPage() {
                   </div>
                 )}
 
+                {o.status === "cancelled" && o.cancel_reason && (
+                  <div className="mt-3 flex gap-2.5 rounded-lg border border-warn/30 bg-warn-soft/40 p-3">
+                    <Info size={15} className="text-warn shrink-0 mt-0.5" />
+                    <p className="text-[12.5px] text-fg leading-relaxed">{o.cancel_reason}</p>
+                  </div>
+                )}
+
                 {o.delivered_data && (
                   <div className="mt-3">
                     <div className="flex items-center justify-between mb-1">

@@ -75,6 +75,7 @@ STATIC_LOAIPROXY = {
 }
 _STATIC_TYPES = {"HTTP", "SOCKS5"}
 
+# Nội bộ (admin log) — được nhắc TopProxy.
 _ERROR_MESSAGES = {
     101: "Sai API key TopProxy — kiểm tra cấu hình provider",
     102: "Tài khoản TopProxy hết Xu — admin cần nạp thêm",
@@ -82,6 +83,18 @@ _ERROR_MESSAGES = {
     104: "TopProxy trả về lỗi không xác định",
     201: "TopProxy giao thiếu số lượng",
 }
+
+# Buyer thấy (white-label) — không lộ nguồn hàng, không nhắc "admin"/"key".
+# None → dùng thông báo huỷ chung (orders/service.py). Chỉ ca hết hàng (103)
+# là thông tin buyer cần biết cụ thể để chọn lại; các lỗi vận hành khác đều
+# quy về "không cấp phát được, đã hoàn tiền".
+_BUYER_MESSAGES = {
+    103: "Sản phẩm tạm hết hàng, vui lòng thử loại/khu vực khác hoặc quay lại sau.",
+}
+
+
+def _buyer_message_for(status) -> str | None:
+    return _BUYER_MESSAGES.get(status)
 
 
 class TopProxyContractError(Exception):
@@ -265,6 +278,7 @@ class TopProxyAdapter(RealApiAdapter):
                 return ProvisionResult(
                     success=False,
                     error=_ERROR_MESSAGES.get(status, f"TopProxy trả mã lỗi {status}"),
+                    buyer_message=_buyer_message_for(status),
                 )
             row = _extract_mua_row(body, marker)
             if row is None:
@@ -325,6 +339,7 @@ class TopProxyAdapter(RealApiAdapter):
         if status != 100:
             return ProvisionResult(
                 success=False, error=_ERROR_MESSAGES.get(status, f"TopProxy trả mã lỗi {status}"),
+                buyer_message=_buyer_message_for(status),
             )
         keyxoay = body.get("keyxoay")
         if not keyxoay or not isinstance(keyxoay, str):

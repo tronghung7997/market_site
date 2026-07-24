@@ -63,6 +63,7 @@ async def sla_check_job() -> None:
             if now > deadline:
                 await refund_escrow(order.id, order.buyer_id, order.total_amount, db)
                 order.status = OrderStatus.cancelled
+                order.cancel_reason = "Người bán không giao hàng đúng hạn nên đơn đã được huỷ. Toàn bộ số tiền đã được hoàn về ví của bạn."
                 await log_event(db, "warning", f"Order {order.id} auto-refunded (SLA breach)", job_id=job_id,
                                 metadata={"event": "sla_refund", "order_id": order.id, "seller_id": order.seller_id})
                 await create_alert("sla_breach", "warning", "seller", order.seller_id,
@@ -112,6 +113,7 @@ async def provision_sweep_job() -> None:
         for order in expired:
             await refund_escrow(order.id, order.buyer_id, order.total_amount, db)
             order.status = OrderStatus.cancelled
+            order.cancel_reason = "Rất tiếc, đơn không thể cấp phát tự động nên đã được huỷ. Toàn bộ số tiền đã được hoàn về ví của bạn."
             await log_event(
                 db, "warning", f"Order {order.id} auto-refunded (provision deadline)", job_id=job_id,
                 metadata={"event": "provision_deadline_refund", "order_id": order.id},

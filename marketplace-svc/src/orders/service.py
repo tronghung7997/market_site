@@ -27,6 +27,18 @@ from src.wallet.service import deduct_credit, refund_escrow, release_escrow
 
 _background_tasks: set[asyncio.Task] = set()
 
+# Luôn kèm sau lý do cụ thể — buyer cần biết tiền an toàn, đây là điều quan
+# trọng nhất khi thấy đơn "Đã huỷ".
+_REFUND_NOTE = "Toàn bộ số tiền đã được hoàn về ví của bạn."
+
+
+def _buyer_cancel_reason(buyer_message: str | None) -> str:
+    """Lý do huỷ WHITE-LABEL hiển thị cho buyer. `buyer_message` là thông báo
+    cụ thể do adapter cấp (vd hết hàng); None → thông báo chung. Luôn thêm
+    trấn an đã hoàn tiền."""
+    specific = buyer_message or "Rất tiếc, đơn không thể cấp phát tự động nên đã được huỷ."
+    return f"{specific} {_REFUND_NOTE}"
+
 
 async def create_order(buyer_id: int, variant_id: int, quantity: int, db: AsyncSession) -> Order:
     variant = await db.get(ProductVariant, variant_id)
@@ -136,6 +148,7 @@ async def _apply_provision_result(
     else:
         await refund_escrow(order.id, order.buyer_id, order.total_amount, db)
         order.status = OrderStatus.cancelled
+        order.cancel_reason = _buyer_cancel_reason(provision_result.buyer_message)
         await log_event(
             db, "error", f"Order {order.id} provision failed: {provision_result.error}", request_id=rid,
             metadata={"event": "order_provision_failed", "order_id": order.id,
@@ -210,6 +223,7 @@ async def create_order_with_adapter(
     except Exception as e:
         await refund_escrow(order.id, buyer_id, total_amount, db)
         order.status = OrderStatus.cancelled
+        order.cancel_reason = _buyer_cancel_reason(None)
         await log_event(
             db, "error", f"Order {order.id} adapter error: {e}", request_id=rid,
             metadata={"event": "order_adapter_error", "order_id": order.id, "error": str(e)},
@@ -229,6 +243,7 @@ async def create_order_with_adapter(
     if compat.level == "block":
         await refund_escrow(order.id, buyer_id, total_amount, db)
         order.status = OrderStatus.cancelled
+        order.cancel_reason = _buyer_cancel_reason(None)
         await log_event(
             db, "error", f"Order {order.id} provider/strategy mismatch: {compat.message}", request_id=rid,
             metadata={"event": "order_provider_strategy_mismatch", "order_id": order.id, "error": compat.message},
@@ -259,6 +274,7 @@ async def create_order_with_adapter(
     except Exception as e:
         await refund_escrow(order.id, buyer_id, total_amount, db)
         order.status = OrderStatus.cancelled
+        order.cancel_reason = _buyer_cancel_reason(None)
         await log_event(
             db, "error", f"Order {order.id} adapter error: {e}", request_id=rid,
             metadata={"event": "order_adapter_error", "order_id": order.id, "error": str(e)},

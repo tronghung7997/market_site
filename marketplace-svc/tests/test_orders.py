@@ -948,3 +948,54 @@ async def test_spawn_provision_actually_runs_the_real_task(client, monkeypatch):
         order = await db.get(Order, order_id)
         assert order.status == OrderStatus.delivered
         assert order.delivered_data == "proxy-credential"
+
+
+# ---------------------------------------------------------------------------
+# Lý do huỷ đơn hiển thị cho buyer (2026-07-24) — hết hàng phải nói rõ + hoàn tiền
+# ---------------------------------------------------------------------------
+
+
+@pytest.mark.no_db
+class TestBuyerCancelReason:
+    def test_out_of_stock_message_kept_and_refund_appended(self):
+        from src.orders.service import _buyer_cancel_reason
+
+        msg = _buyer_cancel_reason("Sản phẩm tạm hết hàng, vui lòng thử loại khác.")
+        assert "hết hàng" in msg
+        assert "hoàn về ví" in msg  # luôn trấn an đã hoàn tiền
+
+    def test_generic_fallback_when_no_specific_message(self):
+        from src.orders.service import _buyer_cancel_reason
+
+        msg = _buyer_cancel_reason(None)
+        assert "hoàn về ví" in msg
+        assert "TopProxy" not in msg  # không lộ nguồn
+
+
+@pytest.mark.asyncio
+async def test_provision_failure_sets_cancel_reason_on_order(client, monkeypatch):
+    """Đơn provision fail vì hết hàng → status cancelled + cancel_reason có
+    thông báo hết hàng + đã hoàn tiền (buyer đọc được, không chỉ log admin)."""
+    from src.adapters.base import ProvisionResult
+    from src.adapters.mock import MockAdapter
+
+    buyer_token, _, _, product_id = await setup_adapter_product(client)
+
+    async def fake_provision(self, order_id, user_config):
+        return ProvisionResult(
+            success=False, error="TopProxy đang hết hàng loại này",
+            buyer_message="Sản phẩm tạm hết hàng, vui lòng thử lại sau.",
+        )
+
+    monkeypatch.setattr(MockAdapter, "provision", fake_provision)
+
+    resp = await client.post("/orders", json={
+        "product_id": product_id,
+        "user_config": {"type": "residential", "network": "shared", "days": 30, "quantity": 1},
+        "quantity": 1,
+    }, headers={"Authorization": f"Bearer {buyer_token}"})
+    assert resp.status_code == 201, resp.text
+    body = resp.json()
+    assert body["status"] == "cancelled"
+    assert body["cancel_reason"] and "hết hàng" in body["cancel_reason"]
+    assert "hoàn về ví" in body["cancel_reason"]

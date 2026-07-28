@@ -297,3 +297,120 @@ async def test_dproxy_test_connection_never_creates_an_allocation(client, monkey
     async with SessionLocal() as db:
         count = await db.scalar(select(func.count()).select_from(ProxyAllocation))
         assert count == 0
+
+
+class TestTopProxySeedEndpoint:
+    """POST /admin/providers/topproxy/seed — chạy seed script qua API thay ssh.
+
+    Success path chạy script THẬT dưới subprocess sẽ ghi vào DB test và mất
+    vài giây import — thay bằng fake subprocess: điều endpoint sở hữu là
+    validate + dựng env + xử lý exit code, còn nội dung seed đã có script tự
+    chịu trách nhiệm (idempotency của nó test bằng tay theo go-live plan).
+    """
+
+    async def _admin_token(self, client, email):
+        await register_and_login(client, email)
+        await make_admin(email)
+        return await register_and_login(client, email)
+
+    @pytest.mark.asyncio
+    async def test_requires_admin(self, client):
+        token = await register_and_login(client, "tpseed_buyer@example.com")
+        resp = await client.post(
+            "/admin/providers/topproxy/seed",
+            json={"api_key": "k", "seller_password": "password123"},
+            headers={"Authorization": f"Bearer {token}"},
+        )
+        assert resp.status_code == 403
+
+    @pytest.mark.asyncio
+    async def test_rejects_bad_base_url(self, client):
+        token = await self._admin_token(client, "tpseed_admin1@example.com")
+        resp = await client.post(
+            "/admin/providers/topproxy/seed",
+            json={"base_url": "ftp://x", "api_key": "k", "seller_password": "password123"},
+            headers={"Authorization": f"Bearer {token}"},
+        )
+        assert resp.status_code == 400
+
+    @pytest.mark.asyncio
+    async def test_rejects_short_seller_password(self, client):
+        token = await self._admin_token(client, "tpseed_admin2@example.com")
+        resp = await client.post(
+            "/admin/providers/topproxy/seed",
+            json={"api_key": "k", "seller_password": "short"},
+            headers={"Authorization": f"Bearer {token}"},
+        )
+        assert resp.status_code == 422
+
+    @pytest.mark.asyncio
+    async def test_success_passes_env_and_returns_output(self, client, monkeypatch):
+        import src.providers.router as providers_router
+
+        captured: dict = {}
+
+        class _FakeProc:
+            returncode = 0
+
+            async def communicate(self):
+                return (b"+ provider #1: PX Station\n", None)
+
+            def kill(self):  # pragma: no cover — chỉ gọi khi timeout
+                pass
+
+        async def fake_exec(*args, **kwargs):
+            captured["args"] = args
+            captured["env"] = kwargs.get("env") or {}
+            return _FakeProc()
+
+        monkeypatch.setattr(providers_router.asyncio, "create_subprocess_exec", fake_exec)
+
+        token = await self._admin_token(client, "tpseed_admin3@example.com")
+        resp = await client.post(
+            "/admin/providers/topproxy/seed",
+            json={
+                "base_url": "https://topproxy.vn",
+                "api_key": "real-key-abc",
+                "seller_password": "password123",
+                "xoay_get_url": "https://proxyxoay.shop/api/get.php",
+            },
+            headers={"Authorization": f"Bearer {token}"},
+        )
+        assert resp.status_code == 200
+        body = resp.json()
+        assert body["ok"] is True
+        assert "PX Station" in body["output"]
+        # Ba biến một-lần phải tới subprocess đúng như request — sai một biến là
+        # seed âm thầm rơi về mock (LIVE=False) hoặc sai key.
+        assert captured["env"]["TOPPROXY_BASE_URL"] == "https://topproxy.vn"
+        assert captured["env"]["TOPPROXY_API_KEY"] == "real-key-abc"
+        assert captured["env"]["TOPPROXY_SELLER_PASSWORD"] == "password123"
+        assert captured["env"]["TOPPROXY_XOAY_GET_URL"] == "https://proxyxoay.shop/api/get.php"
+        assert str(providers_router._SEED_SCRIPT) in " ".join(str(a) for a in captured["args"])
+
+    @pytest.mark.asyncio
+    async def test_failed_script_returns_400_with_tail(self, client, monkeypatch):
+        import src.providers.router as providers_router
+
+        class _FakeProc:
+            returncode = 1
+
+            async def communicate(self):
+                return ("TOPPROXY_BASE_URL và TOPPROXY_API_KEY phải cùng có hoặc cùng không.".encode(), None)
+
+            def kill(self):  # pragma: no cover
+                pass
+
+        async def fake_exec(*args, **kwargs):
+            return _FakeProc()
+
+        monkeypatch.setattr(providers_router.asyncio, "create_subprocess_exec", fake_exec)
+
+        token = await self._admin_token(client, "tpseed_admin4@example.com")
+        resp = await client.post(
+            "/admin/providers/topproxy/seed",
+            json={"api_key": "k", "seller_password": "password123"},
+            headers={"Authorization": f"Bearer {token}"},
+        )
+        assert resp.status_code == 400
+        assert "Seed thất bại" in resp.json()["detail"]

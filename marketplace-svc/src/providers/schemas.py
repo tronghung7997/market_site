@@ -99,3 +99,24 @@ class SellerProviderUpdate(BaseModel):
 
 class AdminProviderReview(BaseModel):
     note: str | None = None
+
+
+class TopProxySeedRequest(BaseModel):
+    """Tham số MỘT LẦN cho POST /admin/providers/topproxy/seed — thay cho việc
+    ssh vào server chạy tay scripts/seed_topproxy.py. Secrets chỉ sống trong
+    request này: api_key được seed ghi vào DB (mã hoá bằng ENCRYPTION_KEY),
+    seller_password chỉ dùng nếu phải tạo mới tài khoản seller."""
+
+    base_url: str = "https://topproxy.vn"
+    api_key: str = Field(min_length=1)
+    # Script từ chối mật khẩu demo khi seed hàng thật — bắt tối thiểu 8 ký tự
+    # từ tầng schema luôn cho đỡ một vòng thất bại.
+    seller_password: str = Field(min_length=8)
+    xoay_get_url: str | None = None
+
+
+class TopProxySeedResponse(BaseModel):
+    ok: bool
+    # stdout của script (danh sách provider/sản phẩm đã tạo/cập nhật) — script
+    # không bao giờ in api_key, mật khẩu thật in dạng "(theo TOPPROXY_SELLER_PASSWORD)".
+    output: str

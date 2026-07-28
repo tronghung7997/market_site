@@ -35,8 +35,6 @@ services:
     #build: ./marketplace-svc
     ports:
       - "8001:8001"
-    env_file:
-      - ./.backend.env
     environment:
       DATABASE_URL: postgresql+asyncpg://marketplace:3ivYYwOP27U2vF9Z@postgres:5432/marketplace
       REDIS_URL: redis://redis:6379

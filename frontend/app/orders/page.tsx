@@ -8,7 +8,7 @@ import { useAuth } from "@/lib/auth";
 import { cn } from "@/lib/cn";
 import type { Dispute, Order, OrderStats, ProxyState, Resource } from "@/lib/types";
 import { EVIDENCE_TYPES, evidenceFieldLabel, evidenceTypeLabel } from "@/lib/dispute-evidence";
-import { Shield, Star, Check, Info, Copy, ChevronRight, Search, X } from "@/components/Icons";
+import { Shield, Star, Check, Info, Copy, ChevronRight, Plug, Search, X } from "@/components/Icons";
 import ServiceDashboard from "@/components/ServiceDashboard";
 import { Button, Card, Input, Select, Spinner, Tag, Textarea } from "@/components/ui";
 
@@ -85,20 +85,41 @@ function CopyIconButton({ text }: { text: string }) {
 // Stops the moment status leaves "offline" (recovered, expired, or errored).
 const OFFLINE_POLL_MS = 20_000;
 
-// Hai loại proxy đổi IP theo hai cách khác nhau, và bản cũ chỉ mô tả loại
-// thứ nhất: proxy tĩnh giữ nguyên host/port (chỉ IP public đổi), còn key xoay
-// nhận hẳn một proxy mới nên host/port cũng đổi theo. Nói chung cho cả hai và
-// nhắc buyer đọc lại "Dữ liệu bàn giao" sau mỗi lần đổi.
+// Tooltip này chỉ dành cho proxy KHÔNG có cổng vào cố định (DProxy, proxy
+// tĩnh): đổi IP có thể kéo theo Host/Port/Username/Password mới nên buyer cần
+// đọc lại "Dữ liệu bàn giao". Key xoay có tấm địa chỉ cố định với dòng giải
+// thích riêng ngay trên tấm — không cần tooltip.
 const ROTATE_EXPLAINER =
   "Đổi IP yêu cầu nhà cung cấp cấp một IP mới. Tuỳ loại proxy, Host/Port/Username/Password có thể " +
   "thay đổi theo — xem lại phần “Dữ liệu bàn giao” sau khi đổi. Giữa hai lần đổi có thời gian chờ.";
 
-function OrderProxyPanel({ orderId, onDelivered }: { orderId: number; onDelivered?: (orderId: number, deliveredData: string) => void }) {
+/** "còn 23 giờ" — hạn dùng nói theo lịch người đọc. Chuỗi ISO chỉ còn nằm
+ *  trong bản bàn giao gốc (biên nhận), không bắt buyer tự dịch UTC nữa. */
+function timeLeftLabel(expiresAt: string): string | null {
+  const ms = new Date(expiresAt).getTime() - Date.now();
+  if (ms <= 0) return null;
+  const minutes = Math.floor(ms / 60_000);
+  if (minutes < 60) return `còn ${Math.max(1, minutes)} phút`;
+  if (minutes < 48 * 60) return `còn ${Math.floor(minutes / 60)} giờ`;
+  return `còn ${Math.floor(minutes / (24 * 60))} ngày`;
+}
+
+function OrderProxyPanel({ orderId, deliveredData, onDelivered, onPlate }: {
+  orderId: number;
+  /** Bản bàn giao gốc — khi có tấm địa chỉ (key xoay), panel tự trình bày nó
+   *  dưới dạng biên nhận thu gọn thay cho khối <pre> to ở ngoài. */
+  deliveredData?: string | null;
+  onDelivered?: (orderId: number, deliveredData: string) => void;
+  /** Báo cho danh sách cha: đơn này có tấm địa chỉ, đừng vẽ khối "Dữ liệu bàn
+   *  giao" thô nữa — mọi thứ buyer cần đã nằm trong panel này. */
+  onPlate?: (orderId: number) => void;
+}) {
   const [state, setState] = useState<ProxyState | null>(null);
   const [applicable, setApplicable] = useState(true);
   const [rotating, setRotating] = useState(false);
   const [error, setError] = useState<string | null>(null);
   const [cooldown, setCooldown] = useState(0);
+  const [showRaw, setShowRaw] = useState(false);
 
   const load = useCallback(async () => {
     try {
@@ -148,49 +169,90 @@ function OrderProxyPanel({ orderId, onDelivered }: { orderId: number; onDelivere
     }
   };
 
+  const hasPlate = Boolean(state?.gateway_host && state?.gateway_port);
+  useEffect(() => { if (hasPlate) onPlate?.(orderId); }, [hasPlate, orderId, onPlate]);
+
   if (!applicable || !state) return null;
 
+  const left = timeLeftLabel(state.expires_at);
+  const expiresLabel = new Date(state.expires_at).toLocaleString("vi-VN", {
+    hour: "2-digit", minute: "2-digit", day: "numeric", month: "numeric",
+  });
+
   return (
-    <div className="mt-3 px-3 py-2.5 rounded-lg bg-raised border border-line">
-      <div className="flex items-center justify-between flex-wrap gap-2">
-        <div>
-          {/* Key xoay (TopProxy mode=xoay) không có IP cố định: allocation lưu
-              last_public_ip = null vì IP đổi mỗi lần buyer gọi link get. Hiện
-              "Proxy hiện tại —" ở đó chỉ làm buyer tưởng đơn hỏng — thông tin
-              thật (key + link đổi IP) đã nằm nguyên trong "Dữ liệu bàn giao"
-              ngay bên trên. Chỉ vẽ khối IP khi thực sự có IP. */}
+    <div className="mt-3 rounded-lg border border-line overflow-hidden">
+      {/* Tấm địa chỉ — thứ duy nhất buyer cấu hình, nên nó đứng đầu, to nhất,
+          và nút sao chép cho ra đúng chuỗi "host:port" dán được vào tool. */}
+      {hasPlate && (
+        <div className="px-3.5 py-3 bg-raised">
+          <div className="flex items-center justify-between gap-2">
+            <span className="inline-flex items-center gap-1.5 text-[10.5px] text-faint uppercase tracking-wider">
+              <Plug size={12} /> Địa chỉ proxy · cố định
+            </span>
+            <CopyIconButton text={`${state.gateway_host}:${state.gateway_port}`} />
+          </div>
+          <p className="font-mono text-[17px] leading-snug mt-1.5 break-all">
+            {state.gateway_host}
+            <span className="text-faint">:</span>
+            <span className="text-iris-hi font-semibold">{state.gateway_port}</span>
+          </p>
+          <p className="text-[11.5px] text-muted mt-1">
+            Cắm vào tool của bạn một lần — không đổi khi đổi IP, không cần user/pass.
+          </p>
+        </div>
+      )}
+
+      <div className={cn("px-3.5 py-2.5 flex items-start justify-between gap-2 flex-wrap", hasPlate && "border-t border-line")}>
+        <div className="min-w-0">
+          {/* Key xoay không có IP cố định — chỉ vẽ khối IP khi thực sự có. */}
           {state.public_ip ? (
-            <>
-              <p className="text-faint text-[11px] uppercase tracking-wider mb-0.5">Proxy hiện tại</p>
-              <p className="font-mono text-[13px]">{state.public_ip}</p>
-            </>
+            <p className="flex items-baseline gap-2">
+              <span className="text-[10.5px] text-faint uppercase tracking-wider">IP đang ra</span>
+              <span className="font-mono text-[13px]">{state.public_ip}</span>
+            </p>
           ) : (
-            <p className="text-faint text-[11px] uppercase tracking-wider mb-0.5">Trạng thái proxy</p>
+            <p className="text-[10.5px] text-faint uppercase tracking-wider">Trạng thái proxy</p>
           )}
+          <p className="text-[11px] text-faint mt-0.5">
+            {left ? `${left} · hết hạn ${expiresLabel}` : `Đã hết hạn ${expiresLabel}`}
+            {hasPlate && " · mỗi IP sống 15–30 phút"}
+          </p>
           {state.status === "offline" && (
             <p className="text-[11px] text-warn mt-0.5 max-w-[260px]">
               Proxy đang tạm ngoại tuyến. Hệ thống vẫn giữ nguyên proxy của bạn và đang chờ nhà cung cấp khôi phục.
             </p>
           )}
+          {error && <p className="text-[12px] text-bad mt-1">{error}</p>}
         </div>
         {state.rotation_available && (
-          <div className="flex items-center gap-1">
+          <div className="flex items-center gap-1 shrink-0">
             <Button size="sm" variant="secondary" onClick={handleRotate} disabled={rotating || cooldown > 0}>
               {rotating ? "Đang đổi IP…" : cooldown > 0 ? `Đổi IP (${cooldown}s)` : "Đổi IP"}
             </Button>
-            <span title={ROTATE_EXPLAINER} className="text-faint cursor-help shrink-0">
-              <Info size={13} />
-            </span>
+            {!hasPlate && (
+              <span title={ROTATE_EXPLAINER} className="text-faint cursor-help shrink-0">
+                <Info size={13} />
+              </span>
+            )}
           </div>
         )}
       </div>
-      <p className="text-[11px] text-faint mt-1.5">
-        Hết hạn {new Date(state.expires_at).toLocaleString("vi-VN")}
-        {state.last_rotated_at && ` · Đổi IP lần cuối ${new Date(state.last_rotated_at).toLocaleString("vi-VN")}`}
-      </p>
-      {error && <p className="text-[12px] text-bad mt-1.5">{error}</p>}
+
       {state.whitelist_supported && (
         <ProxyWhitelistBox orderId={orderId} state={state} onSaved={(s) => setState(s)} onDelivered={onDelivered} />
+      )}
+
+      {/* Biên nhận: bản bàn giao nguyên văn của backend — nguồn sự thật khi
+          cần đối chiếu, nhưng không còn là giao diện chính. */}
+      {hasPlate && deliveredData && (
+        <div className="px-3.5 pb-3">
+          <Disclosure label="Bản bàn giao gốc" labelOpen="Thu gọn bản bàn giao gốc" open={showRaw} onToggle={() => setShowRaw((v) => !v)}>
+            <div className="mt-2">
+              <div className="flex justify-end mb-1"><CopyIconButton text={deliveredData} /></div>
+              <pre className="font-mono text-[12px] bg-raised border border-line rounded-lg p-2.5 whitespace-pre-wrap break-all">{deliveredData}</pre>
+            </div>
+          </Disclosure>
+        </div>
       )}
     </div>
   );
@@ -229,10 +291,10 @@ function ProxyWhitelistBox({
       onSaved({ ...state, whitelist_ips: res.whitelist_ips, public_ip: res.public_ip });
       if (res.delivered_data) onDelivered?.(orderId, res.delivered_data);
       setMsg(res.applied
-        ? { text: "Đã lưu và áp dụng — proxy dùng được ngay.", tone: "good" }
+        ? { text: "Đã kích hoạt — proxy dùng được ngay từ IP này.", tone: "good" }
         // Lưu rồi nhưng chưa kịp có hiệu lực: nói thẳng bước tiếp theo, đừng
         // để buyer tưởng xong rồi ngồi thắc mắc sao proxy vẫn câm.
-        : { text: "Đã lưu, nhưng chưa áp dụng được lúc này — bấm “Đổi IP” sau ít phút.", tone: "warn" });
+        : { text: "Đã lưu IP, nhưng chưa áp dụng được lúc này — bấm “Đổi IP” sau ít phút.", tone: "warn" });
     } catch (e) {
       setMsg({ text: e instanceof Error ? e.message : "Lưu thất bại", tone: "bad" });
     } finally {
@@ -240,17 +302,22 @@ function ProxyWhitelistBox({
     }
   };
 
+  const activated = Boolean(saved);
+
   return (
-    <div className="mt-2.5 pt-2.5 border-t border-line">
-      <div className="flex items-baseline justify-between gap-2 mb-1">
-        <span className="text-faint text-[11px] uppercase tracking-wider">IP được phép dùng</span>
-        <span className="text-[11px] text-faint">tối đa 2, cách nhau dấu phẩy</span>
-      </div>
-      {!saved && (
-        <p className="text-[11.5px] text-warn mb-1.5 leading-relaxed">
-          Chưa khai báo — proxy sẽ không phản hồi. Nhập IP mạng của bạn (tra tại
-          <span className="font-mono"> api.ipify.org</span>) rồi bấm Lưu.
+    <div className={cn("px-3.5 py-2.5 border-t border-line", !activated && "bg-warn-soft/60")}>
+      {activated ? (
+        <p className="flex items-center gap-1.5 text-[12px] font-medium text-good mb-1.5">
+          <Check size={12} /> Proxy đang mở cho IP <span className="font-mono">{saved}</span>
         </p>
+      ) : (
+        <>
+          <p className="text-[10.5px] uppercase tracking-wider font-semibold text-warn mb-1">Chưa kích hoạt</p>
+          <p className="text-[12px] text-warn mb-1.5 leading-relaxed">
+            Proxy chỉ trả lời IP bạn khai báo. Nhập IP mạng của thiết bị sẽ dùng proxy
+            (xem tại <span className="font-mono">api.ipify.org</span>) rồi bấm Kích hoạt.
+          </p>
+        </>
       )}
       <div className="flex items-center gap-2">
         <Input
@@ -260,8 +327,8 @@ function ProxyWhitelistBox({
           disabled={saving}
           className="flex-1 font-mono text-[12.5px]"
         />
-        <Button size="sm" variant="secondary" onClick={handleSave} disabled={saving || value.trim() === saved.trim()}>
-          {saving ? "Đang lưu…" : "Lưu"}
+        <Button size="sm" variant={activated ? "secondary" : "primary"} onClick={handleSave} disabled={saving || value.trim() === saved.trim()}>
+          {saving ? "Đang lưu…" : activated ? "Cập nhật" : "Kích hoạt"}
         </Button>
       </div>
       {msg && (
@@ -552,6 +619,12 @@ export default function OrdersPage() {
   const [reviewComment, setReviewComment] = useState("");
   const [reviewSubmitting, setReviewSubmitting] = useState(false);
   const [reviewedOrders, setReviewedOrders] = useState<Set<number>>(new Set());
+  // Đơn có tấm địa chỉ proxy cố định (key xoay): panel proxy tự trình bày cả
+  // bản bàn giao, khối <pre> thô ở ngoài chỉ còn gây trùng lặp nên ẩn đi.
+  const [plateOrders, setPlateOrders] = useState<Set<number>>(new Set());
+  const handlePlate = useCallback((id: number) => {
+    setPlateOrders((prev) => (prev.has(id) ? prev : new Set(prev).add(id)));
+  }, []);
   const [dashboardOpen, setDashboardOpen] = useState<Set<number>>(new Set());
 
   // Bộ lọc — áp tức thì, không có nút "Lọc": search debounce 350ms,
@@ -862,7 +935,7 @@ export default function OrdersPage() {
                     </div>
                   )}
 
-                  {o.delivered_data && (
+                  {o.delivered_data && !plateOrders.has(o.id) && (
                     <div className="mt-3">
                       <div className="flex items-center justify-between mb-1">
                         <span className="text-[10.5px] text-faint uppercase tracking-wider">Dữ liệu bàn giao</span>
@@ -875,6 +948,8 @@ export default function OrdersPage() {
                   {(o.status === "delivered" || o.status === "completed") && (
                     <OrderProxyPanel
                       orderId={o.id}
+                      deliveredData={o.delivered_data}
+                      onPlate={handlePlate}
                       onDelivered={(id, deliveredData) =>
                         setOrders((prev) => prev.map((ord) => (ord.id === id ? { ...ord, delivered_data: deliveredData } : ord)))
                       }

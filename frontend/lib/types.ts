@@ -141,6 +141,10 @@ export interface TimelineEvent {
 export interface ProxyState {
   status: "allocated" | "offline" | "expired" | "released" | "error";
   public_ip: string | null;
+  /** Cổng vào CỐ ĐỊNH của key xoay (buyer cắm vào tool, không đổi khi đổi IP).
+   *  null với nhà cung cấp không có khái niệm này (DProxy, proxy tĩnh). */
+  gateway_host?: string | null;
+  gateway_port?: number | null;
   expires_at: string;
   rotation_available: boolean;
   cooldown_remaining_seconds: number;

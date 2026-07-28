@@ -11,7 +11,7 @@ from src.audit.service import log_event
 from src.database import SessionLocal
 from src.models.account import Account
 from src.models.order import Order, OrderStatus
-from src.models.product import ProductVariant
+from src.models.product import Product, ProductVariant
 from src.models.provider import Provider, ProviderHealth
 from src.models.resource import Resource, ResourceStatus
 from src.providers.service import apply_scores
@@ -97,12 +97,20 @@ async def provision_sweep_job() -> None:
         retry_before = now - timedelta(seconds=PROVISION_RETRY_AFTER_SECONDS)
         deadline_before = now - timedelta(seconds=PROVISION_DEADLINE_SECONDS)
 
+        # skip_locked: một provision đang in-flight (background task của
+        # create_order_with_adapter, hoặc sweep của WORKER KHÁC — mỗi uvicorn
+        # worker chạy một APScheduler riêng) đang giữ FOR UPDATE trên order.
+        # Không có skip_locked thì UPDATE của nhánh refund bên dưới sẽ đứng
+        # chờ lock, rồi ghi đè `cancelled` + refund lên một đơn vừa được
+        # provision xong — buyer vừa được hoàn tiền vừa cầm proxy, Xu đã tiêu.
+        # Postgres re-check WHERE sau khi có lock nên đơn đã rời `pending`
+        # cũng không lọt vào đây.
         result = await db.execute(
             select(Order).where(
                 Order.status == OrderStatus.pending,
                 Order.product_id.isnot(None),
                 Order.created_at <= retry_before,
-            )
+            ).with_for_update(skip_locked=True)
         )
         orders = list(result.scalars().all())
 
@@ -118,8 +126,21 @@ async def provision_sweep_job() -> None:
                 db, "warning", f"Order {order.id} auto-refunded (provision deadline)", job_id=job_id,
                 metadata={"event": "provision_deadline_refund", "order_id": order.id},
             )
-            await create_alert("provision_stuck", "warning", "order", order.id,
-                               f"Đơn #{order.id} huỷ do không provision được trong 15 phút", db)
+            alert_message = f"Đơn #{order.id} huỷ do không provision được trong 15 phút"
+            # Đơn TopProxy tĩnh: lệnh mua mang marker ở username có thể ĐÃ
+            # thành công (Xu đã trừ, proxy nằm trong tài khoản) dù mọi retry
+            # đều chết trước khi bind — chỉ hướng dẫn đối soát thì admin mới
+            # biết đường cứu bằng scripts/recover_topproxy_orders.py.
+            product = await db.get(Product, order.product_id) if order.product_id else None
+            provider = await db.get(Provider, product.provider_id) if product and product.provider_id else None
+            if provider is not None and provider.adapter_type == "topproxy":
+                from src.config import settings
+                alert_message += (
+                    f" — kiểm tra listproxy TopProxy xem có proxy mang marker "
+                    f"{settings.topproxy_marker_prefix}{order.id} không (nếu có: Xu đã trừ, "
+                    f"cứu bằng scripts/recover_topproxy_orders.py)"
+                )
+            await create_alert("provision_stuck", "warning", "order", order.id, alert_message, db)
             logger.warning("provision_deadline_refund", order_id=order.id)
         await db.commit()
 
@@ -274,7 +295,6 @@ async def task_webhook_sla_job() -> None:
     completed/partial-refund/full-refund logic already exists for "some tasks
     failed" runs unchanged. No separate refund logic to keep in sync.
     """
-    from src.models.product import Product
     from src.models.service_task import ServiceTask, ServiceTaskStatus
     from src.tasks.service import _TERMINAL, update_task
 

@@ -29,6 +29,7 @@ format là của TopProxy:
 import json
 import secrets
 import time
+from dataclasses import replace
 from datetime import datetime, timedelta, timezone
 from urllib.parse import urlsplit
 
@@ -509,10 +510,14 @@ class TopProxyAdapter(RealApiAdapter, RotatableProxyAdapter):
             body = await self._call_once(
                 path, self._q(thoigian=thoigian, soluong=1), operation="mua_keyxoay", order_id=order_id,
             )
-        except TopProxyUnavailableError as e:
+        except (TopProxyUnavailableError, TopProxyContractError) as e:
             # KHÔNG propagate: không có marker để đối soát key xoay, để
             # sweeper retry là rủi ro mua trùng. Fail → refund buyer, admin
             # đối soát với TopProxy bằng apigetkeyxoay/lịch sử tiêu Xu.
+            # ContractError tính cùng ca với Unavailable: body rác sau một
+            # lệnh mua nghĩa là KHÔNG BIẾT đã trừ Xu hay chưa — trước đây nó
+            # propagate, đơn treo pending thêm một vòng sweep rồi mới bị chặn
+            # bởi _xoay_purchase_attempted, buyer chờ thêm 2 phút vô ích.
             logger.error("topproxy_xoay_purchase_unclear", order_id=order_id, error=str(e))
             return ProvisionResult(
                 success=False,
@@ -544,6 +549,14 @@ class TopProxyAdapter(RealApiAdapter, RotatableProxyAdapter):
             logger.warning("topproxy_xoay_first_fetch_failed", order_id=order_id, error=str(e))
             fetched = None
 
+        if fetched is not None:
+            # Lượt fetch này ĐÃ tiêu một lần cấp proxy của nhà cung cấp — ghi
+            # last_rotated_at để cooldown gate (proxy_router) chạy ngay từ lần
+            # đổi IP đầu tiên. Trước đây để None: buyer bấm "Lấy proxy mới"
+            # trong 60 giây đầu sau giao hàng lọt qua gate, nhà cung cấp từ
+            # chối, và lỗi bị dịch thành "proxy không còn hiệu lực" — sai bản
+            # chất, đúng ra chỉ là "chờ thêm chút".
+            fetched = replace(fetched, last_rotated_at=datetime.now(timezone.utc))
         assignment = fetched or self._xoay_assignment(keyxoay, expires_at)
         allocation = await bind_purchased_assignment(self.provider_id, order_id, assignment, self.db)
         await debit_estimated_cost(
@@ -611,7 +624,7 @@ class TopProxyAdapter(RealApiAdapter, RotatableProxyAdapter):
         """
         if not assignment.host:
             return "\n".join([
-                "Proxy đang được cấp — bấm “Lấy proxy mới” ở trang Đơn hàng để nhận.",
+                "Proxy đang được cấp — bấm “Đổi IP” ở trang Đơn hàng để nhận.",
                 f"Hết hạn: {assignment.expires_at.isoformat()}",
             ])
         lines = [
@@ -633,11 +646,11 @@ class TopProxyAdapter(RealApiAdapter, RotatableProxyAdapter):
             lines.append(f"IP của bạn được phép dùng: {whitelist}")
         else:
             lines.append(
-                "⚠ CHƯA khai báo IP — proxy sẽ KHÔNG phản hồi. Vào trang Đơn hàng, "
-                "nhập IP của bạn ở ô “IP được phép dùng”."
+                "⚠ CHƯA kích hoạt — proxy sẽ KHÔNG phản hồi. Vào trang Đơn hàng, "
+                "nhập IP của bạn rồi bấm “Kích hoạt”."
             )
         lines += [
-            "Mỗi IP sống 15–30 phút — bấm “Lấy proxy mới” để đổi sang IP khác (tối thiểu 60 giây/lần).",
+            "Mỗi IP sống 15–30 phút — bấm “Đổi IP” để đổi sang IP khác (tối thiểu 60 giây/lần).",
             f"Hết hạn: {assignment.expires_at.isoformat()}",
         ]
         return "\n".join(lines)

@@ -283,8 +283,11 @@ class TestProxyState:
         # whitelist_*: khai báo IP được phép dùng proxy, chỉ có nghĩa với nhà
         # cung cấp khoá theo IP (TopProxy key xoay). Không nhạy cảm — là dữ
         # liệu chính buyer nhập vào. Với DProxy thì supported=False, ips=None.
+        # gateway_*: cổng vào cố định của key xoay (frontend vẽ tấm "Địa chỉ
+        # proxy") — DProxy không có khái niệm này nên phải là None.
         assert set(body.keys()) == {
-            "status", "public_ip", "expires_at", "rotation_available",
+            "status", "public_ip", "gateway_host", "gateway_port",
+            "expires_at", "rotation_available",
             "cooldown_remaining_seconds", "last_rotated_at",
             "whitelist_supported", "whitelist_ips",
         }
@@ -293,6 +296,8 @@ class TestProxyState:
         # DProxy không có cơ chế whitelist — frontend ẩn hoàn toàn ô nhập.
         assert body["whitelist_supported"] is False
         assert body["whitelist_ips"] is None
+        assert body["gateway_host"] is None
+        assert body["gateway_port"] is None
 
     @pytest.mark.asyncio
     async def test_state_endpoint_requires_ownership(self, client, monkeypatch):

@@ -18,8 +18,9 @@ cảnh báo, không trôi mất mọi thứ khác trong /admin/alerts.
 from datetime import datetime, timezone
 
 import structlog
-from sqlalchemy import select
+from sqlalchemy import select, update
 from sqlalchemy.ext.asyncio import AsyncSession
+from sqlalchemy.orm.attributes import set_committed_value
 
 from src.models.alert import Alert
 from src.models.provider import Provider
@@ -103,16 +104,37 @@ async def debit_estimated_cost(provider_id: int, cost_xu: int | None, db: AsyncS
     """
     if cost_xu is None or cost_xu <= 0 or provider_id is None:
         return
-    provider = await db.get(Provider, provider_id)
-    if provider is None or provider.credit_balance_xu is None:
-        return
+    now = datetime.now(timezone.utc)
+    # Trừ NGAY TRONG câu UPDATE (không đọc ra Python rồi gán lại): hai provision
+    # chạy song song trên hai session cùng đọc 100k rồi mỗi bên trừ 45k sẽ chốt
+    # 55k thay vì 10k — sổ trôi có hệ thống theo hướng LẠC QUAN, tức cảnh báo
+    # sắp hết Xu đến muộn, đúng cái cơ chế này sinh ra để tránh.
     # Cho phép âm: số dư ước tính âm là tín hiệu rõ ràng rằng sổ đã trôi xa so
     # với thực tế, hữu ích hơn là kẹp về 0 rồi tưởng vẫn còn tiền.
-    provider.credit_balance_xu -= cost_xu
-    provider.credit_updated_at = datetime.now(timezone.utc)
+    result = await db.execute(
+        update(Provider)
+        .where(Provider.id == provider_id, Provider.credit_balance_xu.isnot(None))
+        .values(
+            credit_balance_xu=Provider.credit_balance_xu - cost_xu,
+            credit_updated_at=now,
+        )
+        .returning(Provider.credit_balance_xu)
+        .execution_options(synchronize_session=False)
+    )
+    row = result.first()
+    if row is None:
+        return  # provider không tồn tại hoặc chưa bật theo dõi (NULL)
+    remaining_xu = row[0]
+    # Đồng bộ bản sao trong identity map (get_adapter thường đã load Provider
+    # trên cùng session) mà KHÔNG mark dirty — mark dirty là flush lại con số
+    # vừa đọc và tái tạo đúng lost update vừa loại bỏ.
+    provider = await db.get(Provider, provider_id)
+    if provider is not None:
+        set_committed_value(provider, "credit_balance_xu", remaining_xu)
+        set_committed_value(provider, "credit_updated_at", now)
     logger.info(
         "provider_credit_debited",
-        provider_id=provider_id, cost_xu=cost_xu, remaining_xu=provider.credit_balance_xu,
+        provider_id=provider_id, cost_xu=cost_xu, remaining_xu=remaining_xu,
     )
 
 

@@ -21,7 +21,7 @@ from sqlalchemy.ext.asyncio import AsyncSession
 
 from src.adapters.base import RotatableProxyAdapter
 from src.adapters.dproxy import DProxyAuthError, DProxyContractError, DProxyUnavailableError
-from src.adapters.factory import get_adapter
+from src.adapters.factory import get_binding_adapter
 from src.adapters.topproxy import TopProxyContractError, TopProxyKeyError, TopProxyUnavailableError
 from src.auth.dependencies import get_current_account
 from src.database import get_session
@@ -83,7 +83,10 @@ async def rotate_proxy(
                 headers={"Retry-After": str(retry_after)},
             )
 
-    adapter = await get_adapter(order.provider_id, db)
+    # get_binding_adapter chứ KHÔNG phải get_adapter: provider bị tắt (hết Xu,
+    # health fail) vẫn phải phục vụ binding đã bán — đổi IP không tốn Xu — và
+    # tuyệt đối không đi fallback sang provider khác với keyxoay của đơn này.
+    adapter = await get_binding_adapter(order.provider_id, db)
     # Kiểm tra theo NĂNG LỰC, không theo tên nhà cung cấp: TopProxy mode=xoay
     # cũng đổi IP được (lấy proxy mới bằng keyxoay), và mọi nhà cung cấp
     # rotatable sau này chỉ cần implement RotatableProxyAdapter là dùng chung
@@ -179,14 +182,28 @@ async def get_proxy_state(
     if order.provider_id:
         try:
             whitelist_supported = getattr(
-                await get_adapter(order.provider_id, db), "supports_ip_whitelist", False,
+                await get_binding_adapter(order.provider_id, db), "supports_ip_whitelist", False,
             )
         except Exception:  # noqa: BLE001 — không dựng được adapter thì coi như không hỗ trợ
             whitelist_supported = False
 
+    # Cổng vào cố định của key xoay (TopProxy lưu "host:port" vào
+    # external_proxy_id — xem _xoay_assignment). Trả structured để frontend vẽ
+    # tấm "Địa chỉ proxy" copy được, thay vì bắt buyer mò trong text bàn giao.
+    # DProxy/proxy tĩnh không có khái niệm này → None, frontend không vẽ tấm.
+    gateway_host: str | None = None
+    gateway_port: int | None = None
+    raw_gateway = allocation.external_proxy_id or ""
+    if ":" in raw_gateway:
+        host_part, _, port_part = raw_gateway.rpartition(":")
+        if host_part and port_part.isdigit():
+            gateway_host, gateway_port = host_part, int(port_part)
+
     return {
         "status": allocation.status.value,
         "public_ip": allocation.last_public_ip,
+        "gateway_host": gateway_host,
+        "gateway_port": gateway_port,
         "whitelist_supported": whitelist_supported,
         "whitelist_ips": allocation.whitelist_ips,
         "expires_at": allocation.expires_at.isoformat(),
@@ -196,13 +213,24 @@ async def get_proxy_state(
     }
 
 
-MAX_WHITELIST_IPS = 2  # đúng số ô nhà cung cấp cho (dashboard ?home=donhangxoay)
+# MỘT IP duy nhất — dashboard nhà cung cấp có 2 ô, nhưng API get.php nhận
+# đúng một IP mỗi lượt: gửi "ip1,ip2" nối dấu phẩy thì proxy im lặng nuốt
+# request từ CẢ HAI IP (quan sát thực địa 2026-07-28 trên đơn #93 với nguồn
+# thật — 2 IP không vào được, thu về 1 IP là chạy ngay). Muốn nâng lại 2 phải
+# xác nhận được format danh sách mà get.php thật sự hiểu.
+MAX_WHITELIST_IPS = 1
 
 
 class ProxyWhitelistRequest(BaseModel):
-    """IPv4 của buyer được phép kết nối tới proxy."""
+    """IPv4 của buyer được phép kết nối tới proxy.
 
-    ips: list[str] = Field(default_factory=list, max_length=MAX_WHITELIST_IPS)
+    Bound Pydantic cố tình RỘNG hơn MAX_WHITELIST_IPS: vượt giới hạn nghiệp vụ
+    phải rơi xuống check trong handler để buyer nhận message chuỗi tử tế —
+    Field(max_length=1) làm Pydantic chặn trước với detail dạng list, và
+    frontend (src/lib/api.ts chỉ hiểu detail chuỗi) đành hiện "Có lỗi xảy ra".
+    """
+
+    ips: list[str] = Field(default_factory=list, max_length=8)
 
 
 @router.put("/orders/{order_id}/proxy/whitelist")
@@ -245,7 +273,10 @@ async def set_proxy_whitelist(
         if str(parsed) not in cleaned:
             cleaned.append(str(parsed))
     if len(cleaned) > MAX_WHITELIST_IPS:
-        raise HTTPException(status_code=422, detail=f"Tối đa {MAX_WHITELIST_IPS} địa chỉ IP")
+        raise HTTPException(
+            status_code=422,
+            detail="Chỉ khai báo được MỘT địa chỉ IP — nhập đúng IP của thiết bị sẽ dùng proxy",
+        )
 
     allocation = await db.scalar(
         select(ProxyAllocation).where(ProxyAllocation.order_id == order_id).with_for_update()
@@ -253,7 +284,7 @@ async def set_proxy_whitelist(
     if allocation is None:
         raise HTTPException(status_code=404, detail="Đơn hàng này không có proxy")
 
-    adapter = await get_adapter(order.provider_id, db)
+    adapter = await get_binding_adapter(order.provider_id, db)
     if not getattr(adapter, "supports_ip_whitelist", False):
         raise HTTPException(status_code=400, detail="Sản phẩm này không cần khai báo IP")
 
@@ -261,8 +292,19 @@ async def set_proxy_whitelist(
 
     # Áp dụng ngay bằng một lượt cấp proxy mới. Hỏng thì VẪN lưu khai báo —
     # lần "Lấy proxy mới" kế tiếp sẽ dùng, không bắt buyer nhập lại.
+    #
+    # Tôn trọng cùng cooldown 60s với nút rotate (ràng buộc nhà cung cấp,
+    # catalog §4.4): không có gate này thì PUT whitelist là đường vòng để spam
+    # lệnh lấy proxy mới. Còn cooldown → chỉ lưu, applied=False, frontend đã
+    # nhắc buyer bấm "Lấy proxy mới" sau.
+    now = datetime.now(timezone.utc)
+    in_cooldown = bool(
+        allocation.cooldown_seconds
+        and allocation.last_rotated_at
+        and (now - allocation.last_rotated_at).total_seconds() < allocation.cooldown_seconds
+    )
     applied = False
-    if cleaned and isinstance(adapter, RotatableProxyAdapter):
+    if cleaned and not in_cooldown and isinstance(adapter, RotatableProxyAdapter):
         try:
             assignment = await adapter.rotate_assignment(
                 allocation.external_id, whitelist=allocation.whitelist_ips,

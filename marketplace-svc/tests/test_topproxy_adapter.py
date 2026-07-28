@@ -179,8 +179,8 @@ class TestXoayWhitelist:
         adapter = _adapter(mode="xoay")
         a = adapter._xoay_assignment("K", datetime.now(timezone.utc) + timedelta(days=1),
                                      host="1.2.3.4", port=9999, public_ip="5.6.7.8")
-        assert "CHƯA khai báo IP" in adapter.delivered_text_for(a)
-        assert "CHƯA khai báo IP" not in adapter.delivered_text_for(a, "9.9.9.9")
+        assert "CHƯA kích hoạt" in adapter.delivered_text_for(a)
+        assert "CHƯA kích hoạt" not in adapter.delivered_text_for(a, "9.9.9.9")
         assert "9.9.9.9" in adapter.delivered_text_for(a, "9.9.9.9")
 
 

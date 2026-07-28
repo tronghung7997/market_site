@@ -66,6 +66,24 @@ async def get_adapter(provider_id: int, db: AsyncSession) -> ProviderAdapter:
     raise ValueError(f"Fallback chain exceeded max depth ({MAX_FALLBACK_DEPTH})")
 
 
+async def get_binding_adapter(provider_id: int, db: AsyncSession) -> ProviderAdapter:
+    """Adapter cho một BINDING đã bán (rotate/whitelist/tra cứu proxy của đơn
+    đã giao) — khác get_adapter ở hai điểm cố ý:
+
+    - KHÔNG check `is_active`: provider bị tắt (hết Xu, health check fail) chỉ
+      có nghĩa là ngừng nhận ĐƠN MỚI. Buyer đã trả tiền vẫn có quyền đổi IP /
+      khai báo whitelist trên key còn hạn — các lệnh đó không tốn Xu.
+    - KHÔNG đi fallback chain: fallback chỉ có nghĩa cho provision đơn mới.
+      Đưa keyxoay của provider này sang adapter của provider khác là chắc chắn
+      "key không tồn tại" — buyer thấy "proxy hết hiệu lực" trong khi key vẫn
+      sống nguyên bên nhà cung cấp gốc.
+    """
+    provider = await db.get(Provider, provider_id)
+    if provider is None:
+        raise ValueError(f"Provider {provider_id} not found")
+    return _instantiate(provider, db)
+
+
 def _instantiate(provider: Provider, db: AsyncSession) -> ProviderAdapter:
     adapter_cls = ADAPTER_MAP.get(provider.adapter_type)
     if adapter_cls is None:

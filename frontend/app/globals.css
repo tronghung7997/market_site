@@ -61,7 +61,6 @@
     -webkit-font-smoothing: antialiased;
     text-rendering: optimizeLegibility;
   }
-  ::selection { background: var(--color-iris-soft); }
   :focus-visible { outline: 2px solid var(--color-iris); outline-offset: 1px; border-radius: 4px; }
   button:not(:disabled) { cursor: pointer; }
   button:disabled { cursor: not-allowed; }

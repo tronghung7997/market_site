@@ -11,6 +11,9 @@ COPY src/ ./src/
 # alembic config + migrations — required so `alembic upgrade head` in CMD works
 COPY alembic.ini ./
 COPY alembic/ ./alembic/
+# ops scripts (seed_topproxy, recover_topproxy_orders, ...) — chạy trong
+# container prod qua `docker-compose exec marketplace-svc python scripts/...`
+COPY scripts/ ./scripts/
 # debug tool
 RUN apt update && apt install -y curl nano vim
 EXPOSE 8001

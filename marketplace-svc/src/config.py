@@ -6,8 +6,9 @@ class Settings(BaseSettings):
 
     service_name: str = "marketplace-svc"
     database_url: str = "postgresql+asyncpg://marketplace:marketplace@localhost:5432/marketplace"
+    # Chỉ dùng cho rate-limit gateway (src/rate_limit.py) — best-effort,
+    # Redis chết thì gateway vẫn chạy, chỉ mất chặn abuse.
     redis_url: str = "redis://localhost:6379"
-    rabbitmq_url: str = "amqp://guest:guest@localhost:5672/"
     jwt_secret: str = "dev-secret-change-in-production"
     jwt_algorithm: str = "HS256"
     jwt_expire_minutes: int = 1440

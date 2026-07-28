@@ -6,3 +6,7 @@ __pycache__/
 .env
 .env.mock-dproxy
 Dockerfile
+.env.dev
+.env.production
+.env.production.bk
+backend.env

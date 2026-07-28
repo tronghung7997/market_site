@@ -15,6 +15,17 @@ class ProvisionResult:
     # `buyer_message`: lý do WHITE-LABEL cho buyer thấy khi đơn huỷ (không lộ
     # nguồn hàng). None = dùng thông báo huỷ chung ở orders/service.py.
     buyer_message: str | None = None
+    # `operational_error`: lỗi VẬN HÀNH — không phải "đơn này xui", mà là thứ
+    # sẽ làm MỌI đơn tiếp theo cùng fail (hết Xu, sai API key), hoặc thứ có
+    # thể đã tiêu tiền thượng nguồn mà không giao được hàng. orders/service.py
+    # bắn alert admin cho các ca này; None = fail thường, chỉ ghi log.
+    # Giá trị = severity cho create_alert: "critical" | "warning".
+    operational_error: str | None = None
+    operational_severity: str = "critical"
+    # Nhà cung cấp báo HẾT TIỀN (TopProxy mã 102). Khác mọi lỗi khác ở chỗ:
+    # không đơn nào sau đó có thể thành công, nên orders/service tắt provider
+    # và bắn cảnh báo cấp provider thay vì cấp đơn (src/providers/credit.py).
+    provider_out_of_credit: bool = False
 
 
 class ProviderAdapter(ABC):

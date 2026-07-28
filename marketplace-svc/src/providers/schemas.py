@@ -1,6 +1,6 @@
 from datetime import datetime
 
-from pydantic import BaseModel
+from pydantic import BaseModel, Field
 
 
 class ProviderCreate(BaseModel):
@@ -38,8 +38,25 @@ class ProviderResponse(BaseModel):
     seller_id: int | None = None
     review_status: str = "approved"
     review_note: str | None = None
+    # Sổ Xu ước tính — chỉ có ý nghĩa với adapter_type="topproxy" (trả trước
+    # bằng Xu, không có API xem số dư). NULL = chưa bật theo dõi.
+    credit_balance_xu: int | None = None
+    credit_low_threshold_xu: int | None = None
+    credit_updated_at: datetime | None = None
 
     model_config = {"from_attributes": True}
+
+
+class ProviderCreditUpdate(BaseModel):
+    """Admin nhập lại số dư Xu sau khi nạp trên topproxy.vn.
+
+    Cũng đóng vai trò nút "đã nạp, bán lại đi": bật lại provider và gỡ cảnh báo
+    hết tiền (src/providers/credit.py::set_credit_balance)."""
+
+    balance_xu: int = Field(ge=0, description="Số Xu hiện có, đọc từ topproxy.vn")
+    low_threshold_xu: int | None = Field(
+        default=None, ge=0, description="Dưới mức này thì cảnh báo. Bỏ trống = giữ nguyên/mặc định.",
+    )
 
 
 class ProviderTestResponse(BaseModel):

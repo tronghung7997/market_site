@@ -130,6 +130,21 @@ async def provision_sweep_job() -> None:
 
 
 async def health_check_job() -> None:
+    """Chấm sức khoẻ mọi provider đang bật, và tắt provider hỏng 3 lần liên tiếp.
+
+    Ưu tiên `adapter.check_health()` — với nhà cung cấp thật (TopProxy, DProxy)
+    đó là lệnh list read-only mang đúng API key, nên nó phát hiện được "sai API
+    key" và "hết Xu", những thứ một GET vào `health_endpoint` không bao giờ
+    thấy. Trước đây job chỉ biết `config["health_endpoint"]`; provider thật
+    không khai field đó nên rơi vào nhánh `else: latency_ms = 0` và LUÔN được
+    ghi `healthy` — cơ chế tự tắt provider hỏng chưa từng chạy cho TopProxy,
+    và `check_health()` chỉ được gọi khi admin bấm tay ở /admin/providers.
+
+    `health_endpoint` vẫn là đường dự phòng cho provider không có adapter thật
+    (hoặc adapter dựng lỗi).
+    """
+    from src.adapters.factory import get_adapter
+
     async with SessionLocal() as db:
         job_id = str(uuid.uuid4())
         result = await db.execute(select(Provider).where(Provider.is_active))
@@ -138,17 +153,37 @@ async def health_check_job() -> None:
             endpoint = provider.config.get("health_endpoint", "")
             status_str = "healthy"
             latency_ms = None
+            checked_via_adapter = False
             try:
-                if endpoint:
-                    start = time.monotonic()
-                    async with httpx.AsyncClient(timeout=5.0) as client:
-                        resp = await client.get(endpoint)
-                        latency_ms = int((time.monotonic() - start) * 1000)
-                        status_str = "healthy" if resp.status_code < 400 else "unhealthy"
-                else:
-                    latency_ms = 0
+                start = time.monotonic()
+                adapter = await get_adapter(provider.id, db)
+                health_result = await adapter.check_health()
+                latency_ms = int((time.monotonic() - start) * 1000)
+                # "warning" KHÔNG phải hỏng: ManualAdapter dùng nó cho backlog
+                # cao, SellerPoolAdapter cho tồn kho thấp — cả hai vẫn bán được
+                # bình thường. Gộp chúng vào "unhealthy" là tự tắt provider của
+                # một seller chỉ vì kho còn dưới 5 món. Ghi nguyên trạng thái
+                # để admin thấy, và chỉ "unhealthy" mới tính vào ngưỡng tắt.
+                raw = (health_result or {}).get("status", "healthy")
+                status_str = raw if raw in ("healthy", "warning") else "unhealthy"
+                checked_via_adapter = True
             except Exception:
-                status_str = "error"
+                # Adapter không dựng được / chưa hỗ trợ → thử health_endpoint.
+                checked_via_adapter = False
+
+            if not checked_via_adapter:
+                try:
+                    if endpoint:
+                        start = time.monotonic()
+                        async with httpx.AsyncClient(timeout=5.0) as client:
+                            resp = await client.get(endpoint)
+                            latency_ms = int((time.monotonic() - start) * 1000)
+                            status_str = "healthy" if resp.status_code < 400 else "unhealthy"
+                    else:
+                        latency_ms = 0
+                        status_str = "healthy"
+                except Exception:
+                    status_str = "error"
 
             health = ProviderHealth(
                 provider_id=provider.id, latency_ms=latency_ms,
@@ -157,14 +192,19 @@ async def health_check_job() -> None:
             )
             db.add(health)
 
-            if status_str == "error":
+            # Điều kiện tự tắt tính trên "không healthy", không chỉ "error":
+            # với adapter thật, sai API key trả về `unhealthy` chứ không phải
+            # `error`, mà đó đúng là ca cần tắt nhất — mỗi đơn đi qua provider
+            # hỏng là một vòng trừ tiền → cấp phát fail → hoàn tiền cho buyer.
+            # Vẫn giữ ngưỡng 3 lần liên tiếp nên một cú mạng chập không đủ tắt.
+            if status_str != "healthy":
                 recent = await db.execute(
                     select(ProviderHealth)
                     .where(ProviderHealth.provider_id == provider.id)
                     .order_by(ProviderHealth.checked_at.desc()).limit(3)
                 )
                 recent_list = list(recent.scalars().all())
-                if len(recent_list) >= 3 and all(h.status == "error" for h in recent_list):
+                if len(recent_list) >= 3 and all(h.status != "healthy" for h in recent_list):
                     provider.is_active = False
                     await log_event(db, "critical", f"Provider {provider.name} marked down", job_id=job_id,
                                     metadata={"event": "provider_down", "provider_id": provider.id})
@@ -415,6 +455,41 @@ async def dproxy_reconciliation_job() -> None:
             )
 
         await db.commit()
+
+
+async def provider_credit_low_job() -> None:
+    """Cảnh báo TRƯỚC khi tài khoản nhà cung cấp trả trước cạn tiền.
+
+    Đây là nửa "dự báo" của cơ chế; nửa "phản ứng" nằm ở
+    src/providers/credit.py::report_out_of_credit (gặp mã 102 thì đã muộn —
+    một đơn của khách đã hỏng rồi).
+
+    Chỉ xét provider đã BẬT theo dõi (`credit_balance_xu` khác NULL). Alert đi
+    qua `create_alert_once` nên chạy mỗi 15 phút cũng chỉ ra đúng một dòng cho
+    tới khi admin nạp thêm.
+    """
+    from src.providers.credit import ALERT_LOW_CREDIT, DEFAULT_LOW_THRESHOLD_XU, create_alert_once
+
+    async with SessionLocal() as db:
+        providers = list((await db.execute(
+            select(Provider).where(Provider.credit_balance_xu.isnot(None))
+        )).scalars().all())
+
+        for provider in providers:
+            threshold = provider.credit_low_threshold_xu or DEFAULT_LOW_THRESHOLD_XU
+            if provider.credit_balance_xu > threshold:
+                continue
+            await create_alert_once(
+                ALERT_LOW_CREDIT, "warning", "provider", provider.id,
+                f"Nhà cung cấp {provider.name} sắp hết tiền: còn khoảng "
+                f"{provider.credit_balance_xu:,} Xu (ngưỡng {threshold:,}). "
+                f"Nạp thêm rồi cập nhật số dư ở /admin/providers.".replace(",", "."),
+                db,
+            )
+            logger.warning(
+                "provider_credit_low",
+                provider_id=provider.id, balance_xu=provider.credit_balance_xu, threshold=threshold,
+            )
 
 
 async def deposit_reconcile_job() -> None:

@@ -1,5 +1,5 @@
 import type {
-  Account, ActionItem, AdminDepositIntent, AdminDisputeDetail, AdminOrderDetail, AdminProduct, AdminResourceListResponse, AffiliateStats, AffiliateSummary, CalculateResult, Category, ChargeUsageResult, DashboardData, DepositIntent, Dispute, PayosWebhookEventRow, AdminAccountWallet, FundOverview, AccountAdminRow, PaginatedAccounts, LogEntry, Order, OrderStats, PaginatedAffiliateSummary, PaginatedOrderResponse, PricingField, PricingOptions, ProductDetail, Product, ProductOperations, ProxyState, ProxyRotateResult, Review, SellerApplication, SellerProduct, SellerStats, ServiceTask, Transaction, Variant, Wallet, WithdrawRequest, Provider, ProviderHealth, Alert, Resource, ResourceSummary, ResourceSellerFacet, InventoryVariant, SellerSummary, SellerProfile, SellerApiKey, SellerApiKeyCreated,
+  Account, ActionItem, AdminDepositIntent, AdminDisputeDetail, AdminOrderDetail, AdminProduct, AdminResourceListResponse, AffiliateStats, AffiliateSummary, CalculateResult, Category, ChargeUsageResult, DashboardData, DepositIntent, Dispute, PayosWebhookEventRow, AdminAccountWallet, FundOverview, AccountAdminRow, PaginatedAccounts, LogEntry, Order, OrderStats, PaginatedAffiliateSummary, PaginatedOrderResponse, PricingField, PricingOptions, ProductDetail, Product, ProductOperations, ProxyState, ProxyRotateResult, ProxyWhitelistResult, Review, SellerApplication, SellerProduct, SellerStats, ServiceTask, Transaction, Variant, Wallet, WithdrawRequest, Provider, ProviderHealth, Alert, Resource, ResourceSummary, ResourceSellerFacet, InventoryVariant, SellerSummary, SellerProfile, SellerApiKey, SellerApiKeyCreated,
 } from "./types";
 
 const BASE = process.env.NEXT_PUBLIC_API_URL
@@ -109,6 +109,12 @@ export const api = {
   orderProxyState: (orderId: number) => request<ProxyState>(`/orders/${orderId}/proxy`, {}, true),
   rotateOrderProxy: (orderId: number) =>
     request<ProxyRotateResult>(`/orders/${orderId}/proxy/rotate`, { method: "POST" }, true),
+  setOrderProxyWhitelist: (orderId: number, ips: string[]) =>
+    request<ProxyWhitelistResult>(
+      `/orders/${orderId}/proxy/whitelist`,
+      { method: "PUT", body: JSON.stringify({ ips }) },
+      true,
+    ),
 
   sellerApply: (data: { business_name: string; description?: string; contact?: string }) =>
     request<SellerApplication>("/seller/apply", { method: "POST", body: JSON.stringify(data) }, true),

@@ -29,6 +29,19 @@ class Provider(Base):
     review_status: Mapped[str] = mapped_column(String(20), default="approved")
     review_note: Mapped[str | None] = mapped_column(Text, nullable=True)
 
+    # --- Sổ Xu ước tính (chỉ dùng cho adapter_type="topproxy") ---------------
+    # TopProxy trả trước bằng "Xu" và KHÔNG có API xem số dư (catalog §1), nên
+    # cách duy nhất biết sắp hết tiền là tự trừ dần: admin nhập số dư sau mỗi
+    # lần nạp, mỗi lệnh mua thành công trừ đi giá vốn ước tính
+    # (src/adapters/topproxy_costs.py).
+    #
+    # NULL = chưa bật theo dõi → không trừ, không cảnh báo. Provider khác để
+    # NULL vĩnh viễn.
+    credit_balance_xu: Mapped[int | None] = mapped_column(Integer, nullable=True)
+    # Xuống dưới mức này thì cảnh báo admin nạp thêm.
+    credit_low_threshold_xu: Mapped[int | None] = mapped_column(Integer, nullable=True)
+    credit_updated_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True), nullable=True)
+
 
 class ProviderHealth(Base):
     __tablename__ = "provider_health"

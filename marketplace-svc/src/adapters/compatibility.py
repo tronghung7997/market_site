@@ -71,7 +71,9 @@ def check_compatibility(adapter_type: str | None, pricing_strategy: str | None) 
     )
 
 
-def setup_status(adapter_type: str | None, pricing_strategy: str | None) -> dict:
+def setup_status(
+    adapter_type: str | None, pricing_strategy: str | None, *, provider_active: bool = True,
+) -> dict:
     """Tổng hợp trạng thái sẵn sàng bán của một sản phẩm.
 
     `needs_setup` tách riêng khỏi `demo_mode`: sản phẩm dùng mock là một
@@ -88,6 +90,17 @@ def setup_status(adapter_type: str | None, pricing_strategy: str | None) -> dict
         return {
             "needs_setup": True,
             "needs_setup_reason": "Chưa gắn nhà cung cấp (provider) nào cho sản phẩm này.",
+            "demo_mode": False,
+        }
+
+    # Provider bị tắt (thủ công, hoặc tự tắt vì hết tiền / hỏng 3 lần liên
+    # tiếp) thì sản phẩm KHÔNG bán được: get_adapter sẽ raise, đơn bị huỷ +
+    # hoàn tiền ngay sau khi đã trừ ví buyer. Chặn ở đây để FE khoá nút mua,
+    # thay vì để khách đặt rồi nhận một đơn huỷ khó hiểu.
+    if not provider_active:
+        return {
+            "needs_setup": True,
+            "needs_setup_reason": "Nhà cung cấp của sản phẩm này đang tạm ngừng — vui lòng quay lại sau.",
             "demo_mode": False,
         }
 

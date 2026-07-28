@@ -58,6 +58,17 @@ class ProxyAllocation(Base):
     # moment the assignment reappears in any state (online, offline, or
     # expired — "present" is what matters here, not usability).
     consecutive_misses: Mapped[int] = mapped_column(Integer, nullable=False, default=0, server_default="0")
+    # IPv4 của BUYER được nhà cung cấp cho phép kết nối tới proxy, phân tách
+    # bằng dấu phẩy (tối đa 2 — đúng số ô nhà cung cấp cho, xem dashboard
+    # topproxy.vn ?home=donhangxoay).
+    #
+    # Chỉ dùng cho key xoay TopProxy. Nhà cung cấp khoá proxy theo IP gọi API:
+    # với phương án B1 thì lệnh mua/lấy proxy do SERVER mình gọi, nên mặc định
+    # whitelist là IP server và buyer không dùng được proxy họ vừa mua — mà
+    # triệu chứng là proxy "im lặng", không có thông báo lỗi nào.
+    #
+    # NULL = buyer chưa khai báo. Mọi adapter khác để NULL vĩnh viễn.
+    whitelist_ips: Mapped[str | None] = mapped_column(String(64), nullable=True)
     created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), server_default=func.now())
     updated_at: Mapped[datetime] = mapped_column(
         DateTime(timezone=True), server_default=func.now(), onupdate=func.now(),

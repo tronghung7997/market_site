@@ -28,18 +28,38 @@ giảm dần → đơn giá bán/ngày phải neo theo VỐN Ở KỲ NGẮN NH�
 tranh hơn thì cần pricing per-duration (chưa có) hoặc tách sản phẩm.
 
 Tạo (idempotent, tự rename dữ liệu phiên bản cũ):
-- 1 seller riêng `pxstation-seller@dxtrade.example.com` (DemoPass123!).
-- 2 provider adapter_type=topproxy (mode static/xoay) trỏ vào
-  scripts/mock_topproxy.py (:9300); đổi sang thật = sửa base_url + api_key.
+- 1 seller riêng `pxstation-seller@dxtrade.example.com`.
+- 2 provider adapter_type=topproxy (mode static/xoay).
 - 8 sản phẩm strategy=config. QUY ƯỚC MAPPING: network_mult keys = giá trị
   `loaiproxy` NGUYÊN VĂN của apiv2; type_mult keys = HTTP|SOCKS5;
   duration_options = số ngày. Nhãn tiếng Việt ở *_display, KHÔNG đổi key máy.
 
 Run (backend không cần chạy, ghi thẳng DB):
+
+    # Dev/mock — provider ĐÃ TỒN TẠI thì GIỮ NGUYÊN config, chỉ cập nhật sản phẩm
     cd marketplace-svc
     uv run python scripts/seed_topproxy.py
+
+    # Production / bán hàng thật — ghi credential thật lên provider
+    TOPPROXY_BASE_URL=https://topproxy.vn \
+    TOPPROXY_API_KEY=<key thật> \
+    TOPPROXY_SELLER_PASSWORD=<mật khẩu seller> \
+    uv run python scripts/seed_topproxy.py
+
+    # Rollback về mock (go-live plan §6)
+    TOPPROXY_RESET_CONFIG=1 uv run python scripts/seed_topproxy.py
+
+Biến môi trường:
+    TOPPROXY_BASE_URL, TOPPROXY_API_KEY   credential thật (phải đi cùng nhau)
+    TOPPROXY_XOAY_GET_URL                 mặc định https://proxyxoay.shop/api/get.php khi chạy thật
+    TOPPROXY_SELLER_PASSWORD              bắt buộc khi chạy thật (không dùng mật khẩu demo)
+    TOPPROXY_RESET_CONFIG=1               ghi đè config provider dù không có credential
+
+Sản phẩm LUÔN được cập nhật (giá, mô tả, kỳ hạn) ở mọi chế độ — chỉ config
+provider mới được bảo vệ, vì đó là chỗ chứa credential.
 """
 import asyncio
+import os
 import sys
 from pathlib import Path
 
@@ -58,29 +78,58 @@ from src.security.crypto import encrypt_config  # noqa: E402
 
 MOCK_BASE_URL = "http://127.0.0.1:9300"
 MOCK_API_KEY = "mock-topproxy-key"  # trùng scripts/mock_topproxy.py
+REAL_XOAY_GET_URL = "https://proxyxoay.shop/api/get.php"
+
+# --- Nguồn hàng: mock (mặc định) hay thật (qua env) -------------------------
+# Không hardcode credential thật vào repo. Seed production:
+#   TOPPROXY_BASE_URL=https://topproxy.vn TOPPROXY_API_KEY=... \
+#   TOPPROXY_SELLER_PASSWORD=... uv run python scripts/seed_topproxy.py
+_ENV_BASE_URL = os.environ.get("TOPPROXY_BASE_URL", "").strip()
+_ENV_API_KEY = os.environ.get("TOPPROXY_API_KEY", "").strip()
+# Có credential thật = đang seed hàng thật; thiếu một trong hai là cấu hình dở
+# dang, dừng ngay chứ không âm thầm rơi về mock.
+LIVE = bool(_ENV_BASE_URL or _ENV_API_KEY)
+
+BASE_URL = _ENV_BASE_URL or MOCK_BASE_URL
+API_KEY = _ENV_API_KEY or MOCK_API_KEY
+XOAY_GET_URL = os.environ.get("TOPPROXY_XOAY_GET_URL", "").strip() or (
+    REAL_XOAY_GET_URL if LIVE else f"{MOCK_BASE_URL}/api/get.php"
+)
+
+# Ghi đè config provider đã tồn tại mà KHÔNG đưa credential (vd cố tình đá về
+# mock để rollback — go-live plan §6).
+RESET_CONFIG = os.environ.get("TOPPROXY_RESET_CONFIG", "").strip().lower() in ("1", "true", "yes")
 
 SELLER_EMAIL = "pxstation-seller@dxtrade.example.com"
 LEGACY_SELLER_EMAIL = "topproxy-seller@dxtrade.example.com"
-SELLER_PASSWORD = "DemoPass123!"
+# Mật khẩu demo CHỈ dùng cho seed mock. Tạo seller thật bằng mật khẩu này là
+# để hở một tài khoản seller ai cũng đoán được mật khẩu.
+SELLER_PASSWORD = os.environ.get("TOPPROXY_SELLER_PASSWORD", "").strip() or (
+    None if LIVE else "DemoPass123!"
+)
 
-# Tên provider trung tính (admin nhận diện nguồn qua adapter_type="topproxy")
-PROVIDER_STATIC = "PX Station — proxy tĩnh (mock)"
-PROVIDER_XOAY = "PX Station — key xoay (mock)"
+# Tên provider trung tính (admin nhận diện nguồn qua adapter_type="topproxy").
+# Hậu tố "(mock)" đã bỏ: 2 provider này trỏ vào nguồn thật từ khi làm
+# docs/topproxy-go-live-plan.md §1, tên cũ gây hiểu nhầm là hàng giả lập.
+PROVIDER_STATIC = "PX Station — proxy tĩnh"
+PROVIDER_XOAY = "PX Station — key xoay"
+# Mới nhất → cũ nhất; rename tại chỗ để không tạo provider trùng (order và
+# proxy_allocation đang trỏ vào provider_id cũ).
 LEGACY_PROVIDER_NAMES = {
-    PROVIDER_STATIC: "TopProxy — Proxy tĩnh (mock)",
-    PROVIDER_XOAY: "TopProxy — Key xoay (mock)",
+    PROVIDER_STATIC: ("PX Station — proxy tĩnh (mock)", "TopProxy — Proxy tĩnh (mock)"),
+    PROVIDER_XOAY: ("PX Station — key xoay (mock)", "TopProxy — Key xoay (mock)"),
 }
 
 PROVIDERS = [
     {
         "name": PROVIDER_STATIC,
-        "config": {"base_url": MOCK_BASE_URL, "api_key": MOCK_API_KEY, "mode": "static"},
+        "config": {"base_url": BASE_URL, "api_key": API_KEY, "mode": "static"},
     },
     {
         "name": PROVIDER_XOAY,
         "config": {
-            "base_url": MOCK_BASE_URL, "api_key": MOCK_API_KEY, "mode": "xoay",
-            "xoay_get_url": f"{MOCK_BASE_URL}/api/get.php",
+            "base_url": BASE_URL, "api_key": API_KEY, "mode": "xoay",
+            "xoay_get_url": XOAY_GET_URL,
         },
     },
 ]
@@ -92,6 +141,19 @@ _D3_7_14_30 = [
     {"days": 14, "label": "14 ngày"},
     {"days": 30, "label": "30 ngày"},
 ]
+
+# Kỳ hạn 1 ngày cho Datacenter VN — CHỈ mở ở seed dev/mock, không đẩy ra
+# production. Đây là kỳ hạn rẻ nhất để nghiệm thu vòng mua thật: nó cũng chính
+# là phép thử mà catalog §2B đòi ("mua thử 1 ngày DatacenterA bằng key thật")
+# để chốt mapping DatacenterA/B/C ↔ riêng/Share1/Share3.
+#
+# Biên vẫn dương ở kỳ này — vốn 1 ngày (catalog §2G) là 800 Xu cho Share1/Share3
+# và 2.800 Xu cho dùng riêng, giá bán 36.000×mult/30 = 1.200 / 1.500 / 4.200đ.
+# ConfigPricing tính tuyến tính theo ngày còn vốn là bậc thang, nên MỌI kỳ hạn
+# thêm vào đây phải đối chiếu bảng vốn trước — đó là lý do days phải nằm trong
+# duration_options mới mua được (src/pricing/config_pricing.py).
+_D1_3_7_14_30 = [{"days": 1, "label": "1 ngày"}, *_D3_7_14_30]
+_DATACENTER_VN_DURATIONS = _D3_7_14_30 if LIVE else _D1_3_7_14_30
 _XOAY_TYPE = {
     "type_mult": {"HTTP": 1},
     "type_display": {"HTTP": "HTTP + SOCKS5 (key trả cả hai)"},
@@ -151,7 +213,8 @@ PRODUCTS = [
                 "DatacenterA": "Dùng riêng", "DatacenterB": "Share 1", "DatacenterC": "Share 3",
             },
             "field_labels": {"network": "Mức chia sẻ"},
-            "duration_options": _D3_7_14_30,
+            # Dev/mock có thêm kỳ 1 ngày để test rẻ; production giữ 3 ngày trở lên.
+            "duration_options": _DATACENTER_VN_DURATIONS,
             "volume_tiers": [],
         },
         "specs": {
@@ -314,7 +377,10 @@ async def _get_or_create_seller(db) -> int:
         )
         db.add(account)
         await db.flush()
-        print(f"+ seller #{account.id}: {SELLER_EMAIL} (mật khẩu {SELLER_PASSWORD})")
+        # Chỉ in mật khẩu khi nó là hằng số demo ai cũng biết; mật khẩu thật
+        # truyền qua env thì không đẩy vào stdout/CI log.
+        shown = SELLER_PASSWORD if not LIVE else "(theo TOPPROXY_SELLER_PASSWORD)"
+        print(f"+ seller #{account.id}: {SELLER_EMAIL} (mật khẩu {shown})")
     else:
         if "seller" not in (account.roles or []):
             account.roles = [*(account.roles or []), "seller"]
@@ -322,7 +388,28 @@ async def _get_or_create_seller(db) -> int:
     return account.id
 
 
+def _preflight() -> None:
+    """Chặn các cấu hình dở dang TRƯỚC khi ghi bất cứ thứ gì vào DB."""
+    if bool(_ENV_BASE_URL) != bool(_ENV_API_KEY):
+        sys.exit(
+            "TOPPROXY_BASE_URL và TOPPROXY_API_KEY phải cùng có hoặc cùng không.\n"
+            "Đặt một cái thôi nghĩa là seed sẽ ghi credential nửa vời lên provider."
+        )
+    if LIVE and not SELLER_PASSWORD:
+        sys.exit(
+            "Seed hàng THẬT cần TOPPROXY_SELLER_PASSWORD (mật khẩu cho seller "
+            f"{SELLER_EMAIL}).\nKhông dùng mật khẩu demo cho tài khoản seller trên production.\n"
+            "Nếu seller đã tồn tại và chỉ muốn cập nhật sản phẩm, đặt biến này bằng "
+            "bất kỳ giá trị nào — nó chỉ được dùng khi PHẢI tạo tài khoản mới."
+        )
+    print(
+        f"Nguồn hàng: {'THẬT — ' + BASE_URL if LIVE else 'MOCK — ' + MOCK_BASE_URL}"
+        + (" (ghi đè config provider)" if LIVE or RESET_CONFIG else " (giữ config provider hiện có)")
+    )
+
+
 async def main() -> None:
+    _preflight()
     async with SessionLocal() as db:
         category = await db.scalar(select(Category).where(Category.slug == "proxies"))
         if category is None:
@@ -336,12 +423,12 @@ async def main() -> None:
         for spec in PROVIDERS:
             provider = await db.scalar(select(Provider).where(Provider.name == spec["name"]))
             if provider is None:
-                legacy_name = LEGACY_PROVIDER_NAMES.get(spec["name"])
-                if legacy_name:
+                for legacy_name in LEGACY_PROVIDER_NAMES.get(spec["name"], ()):
                     provider = await db.scalar(select(Provider).where(Provider.name == legacy_name))
                     if provider is not None:
                         provider.name = spec["name"]
                         print(f"~ provider #{provider.id}: {legacy_name} → {spec['name']}")
+                        break
             if provider is None:
                 provider = Provider(
                     name=spec["name"], type="proxy", adapter_type="topproxy",
@@ -353,10 +440,20 @@ async def main() -> None:
                 print(f"+ provider #{provider.id}: {provider.name}")
             else:
                 provider.adapter_type = "topproxy"
-                provider.config = encrypt_config(spec["config"])
                 provider.is_active = True
                 provider.review_status = "approved"
-                print(f"= provider #{provider.id}: {provider.name} (cập nhật config)")
+                # KHÔNG ghi đè config của provider đã tồn tại trừ khi người chạy
+                # đưa credential tường minh qua env. Trước đây dòng này ghi đè vô
+                # điều kiện: chạy lại seed sau khi đã trỏ provider sang TopProxy
+                # thật (go-live plan §1) là âm thầm đá ngược về mock:9300 —
+                # provider vẫn "healthy" (mock trả 200) nên không ai nhận ra cho
+                # tới khi có đơn thật không giao được. Chiều ngược lại còn tệ hơn:
+                # seed chạy nhầm trên production xoá luôn API key thật.
+                if LIVE or RESET_CONFIG:
+                    provider.config = encrypt_config(spec["config"])
+                    print(f"= provider #{provider.id}: {provider.name} (GHI ĐÈ config → {BASE_URL})")
+                else:
+                    print(f"= provider #{provider.id}: {provider.name} (giữ nguyên config hiện có)")
             provider_ids[spec["name"]] = provider.id
 
         # Dọn 3 sản phẩm xoay phiên bản đầu (kỳ hạn cố định, đã thay từ 23/07)
@@ -394,7 +491,16 @@ async def main() -> None:
                 print(f"= product #{product.id}: {product.title} (cập nhật)")
 
         await db.commit()
-    print("Seed xong. Chạy mock: uv run uvicorn scripts.mock_topproxy:app --port 9300")
+    if LIVE:
+        print(
+            "Seed xong (nguồn THẬT). Trước khi mở bán, theo docs/topproxy-go-live-plan.md:\n"
+            "  1. Test kết nối (không tốn Xu): POST /admin/providers/{id}/test → phải 'healthy'\n"
+            "  2. Mua 1 đơn nhỏ nhất nghiệm thu trọn vòng (US 3 ngày, vốn ~1.440 Xu)\n"
+            "  3. Chốt mapping DatacenterA/B/C bằng một đơn thật trước khi bán #31\n"
+            "  4. Đặt TOPPROXY_MARKER_PREFIX khác nhau giữa các môi trường dùng chung key này"
+        )
+    else:
+        print("Seed xong (mock). Chạy mock: uv run uvicorn scripts.mock_topproxy:app --port 9300")
 
 
 if __name__ == "__main__":

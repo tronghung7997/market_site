@@ -32,6 +32,7 @@ from src.scheduler import (
     dproxy_reconciliation_job,
     escrow_release_job,
     health_check_job,
+    provider_credit_low_job,
     provider_scoring_job,
     provision_sweep_job,
     resource_expire_job,
@@ -66,6 +67,7 @@ scheduler.add_job(task_webhook_sla_job, "interval", minutes=30, id="task_webhook
 scheduler.add_job(dproxy_reconciliation_job, "interval", minutes=15, id="dproxy_reconciliation")
 scheduler.add_job(deposit_reconcile_job, "interval", minutes=5, id="deposit_reconcile")
 scheduler.add_job(deposit_expire_job, "interval", minutes=10, id="deposit_expire")
+scheduler.add_job(provider_credit_low_job, "interval", minutes=15, id="provider_credit_low")
 
 
 @asynccontextmanager

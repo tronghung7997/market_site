@@ -1,6 +1,7 @@
 import asyncio
 from datetime import datetime, timedelta, timezone
 
+import structlog
 from fastapi import HTTPException
 from sqlalchemy import func, select
 from sqlalchemy.ext.asyncio import AsyncSession
@@ -24,6 +25,8 @@ from src.logging import current_request_id
 from src.sellers.tiers import escrow_days as tier_escrow_days, platform_fee_percent
 from src.usage.service import create_balance_for_order, get_usage_summary
 from src.wallet.service import deduct_credit, refund_escrow, release_escrow
+
+logger = structlog.get_logger()
 
 _background_tasks: set[asyncio.Task] = set()
 
@@ -92,12 +95,39 @@ async def create_order(buyer_id: int, variant_id: int, quantity: int, db: AsyncS
     return order
 
 
+async def _raise_operational_alert(
+    order_id: int, severity: str, message: str, db: AsyncSession,
+) -> None:
+    """Alert vận hành cho một provision thất bại — GỌI SAU db.commit() của
+    caller: create_alert tự commit, chen vào giữa transaction refund sẽ commit
+    nửa chừng trạng thái đơn. Best-effort, không bao giờ được làm hỏng luồng
+    đơn hàng đã hoàn tất."""
+    from src.alerts.service import create_alert
+    from src.providers.credit import report_out_of_credit
+
+    try:
+        if severity == "out_of_credit":
+            # `message` mang provider_id (xem _apply_provision_result).
+            await report_out_of_credit(int(message), db)
+            return
+        await create_alert("provision_operational", severity, "order", order_id, message, db)
+    except Exception as e:  # noqa: BLE001 — alert hỏng không được kéo theo đơn
+        logger.error("provision_alert_failed", order_id=order_id, error=str(e))
+
+
 async def _apply_provision_result(
     order: Order, product: Product, provision_result, db: AsyncSession, rid: str | None,
     *, resolved_provider_id: int | None = None,
-) -> None:
+) -> tuple[str, str] | None:
     """Move an order to its post-provision state. Shared by all three callers:
     the inline path, the background task, and the stuck-order sweeper.
+
+    Trả về `(severity, message)` khi provision hỏng vì một lý do VẬN HÀNH
+    (hết Xu / sai API key / có thể đã tiêu tiền thượng nguồn mà không giao
+    được) — caller có trách nhiệm gọi `_raise_operational_alert` SAU commit.
+    Không tự bắn alert ở đây vì `create_alert` commit ngay, sẽ cắt đôi
+    transaction refund + đổi trạng thái đơn đang dở dang. `None` = thất bại
+    thường (buyer đã được hoàn tiền, chỉ cần log).
 
     `resolved_provider_id` is the provider that ACTUALLY fulfilled this order
     (post-fallback — `adapter.provider_id` when the adapter tracks one,
@@ -154,6 +184,16 @@ async def _apply_provision_result(
             metadata={"event": "order_provision_failed", "order_id": order.id,
                        "error": provision_result.error},
         )
+        if getattr(provision_result, "provider_out_of_credit", False) and resolved_provider_id:
+            # Hết tiền là chuyện của NHÀ CUNG CẤP, không phải của đơn này: cảnh
+            # báo gắn vào provider (gộp một dòng dù 50 đơn cùng fail) và tạm
+            # dừng bán. Trả về marker để caller gọi sau commit — xem
+            # src/providers/credit.py::report_out_of_credit.
+            return ("out_of_credit", str(resolved_provider_id))
+        operational = getattr(provision_result, "operational_error", None)
+        if operational:
+            return (getattr(provision_result, "operational_severity", "critical"), operational)
+    return None
 
 
 async def create_order_with_adapter(
@@ -284,11 +324,13 @@ async def create_order_with_adapter(
         return order
 
     resolved_provider_id = getattr(adapter, "provider_id", None) or product.provider_id
-    await _apply_provision_result(
+    pending_alert = await _apply_provision_result(
         order, product, provision_result, db, rid, resolved_provider_id=resolved_provider_id,
     )
 
     await db.commit()
+    if pending_alert:
+        await _raise_operational_alert(order.id, pending_alert[0], pending_alert[1], db)
     await db.refresh(order)
     return order
 
@@ -326,19 +368,29 @@ async def provision_pending_order(order_id: int) -> None:
             # thái hỏng — log_event/commit trên session đó nổ tiếp và lỗi
             # biến mất không dấu vết (quan sát thấy 2026-07-23 với mock
             # TopProxy cấp lại idproxy trùng sau restart).
+            #
+            # Dùng `order_id` (tham số) chứ KHÔNG dùng `order.id`: rollback
+            # expire mọi object trong session, đọc lại attribute là một
+            # lazy-load trong ngữ cảnh async → MissingGreenlet ném ngược ra
+            # khỏi hàm. Trong task nền thì lỗi thật bị nuốt và thay bằng lỗi
+            # giả; trong provision_sweep_job thì nó thoát khỏi vòng lặp và
+            # chặn luôn việc retry các đơn còn lại của lượt quét đó.
             await db.rollback()
             await log_event(
-                db, "error", f"Order {order.id} background provision error: {e}",
-                metadata={"event": "order_provision_error", "order_id": order.id, "error": str(e)},
+                db, "error", f"Order {order_id} background provision error: {e}",
+                metadata={"event": "order_provision_error", "order_id": order_id, "error": str(e)},
             )
             await db.commit()
             return
 
         resolved_provider_id = getattr(adapter, "provider_id", None) or product.provider_id
-        await _apply_provision_result(
+        order_id_for_alert = order.id
+        pending_alert = await _apply_provision_result(
             order, product, provision_result, db, None, resolved_provider_id=resolved_provider_id,
         )
         await db.commit()
+        if pending_alert:
+            await _raise_operational_alert(order_id_for_alert, pending_alert[0], pending_alert[1], db)
 
 
 def spawn_provision(order_id: int) -> None:

@@ -93,6 +93,28 @@ async def test_provider(
     return await _run_provider_test(provider_id, db)
 
 
+@router.put("/admin/providers/{provider_id}/credit", response_model=schemas.ProviderResponse)
+async def update_provider_credit(
+    provider_id: int,
+    body: schemas.ProviderCreditUpdate,
+    _: Account = Depends(require_role("admin")),
+    db: AsyncSession = Depends(get_session),
+):
+    """Nhập lại số dư Xu của tài khoản nhà cung cấp trả trước (TopProxy).
+
+    TopProxy không có API xem số dư nên con số này phải do người nhập — hệ
+    thống chỉ trừ dần theo giá vốn mỗi lệnh mua để cảnh báo trước khi cạn.
+    Gọi endpoint này sau mỗi lần nạp Xu: nó bật lại provider và gỡ cảnh báo
+    hết tiền luôn.
+    """
+    from src.providers.credit import set_credit_balance
+
+    try:
+        return await set_credit_balance(provider_id, body.balance_xu, body.low_threshold_xu, db)
+    except ValueError as e:
+        raise HTTPException(status_code=404, detail=str(e)) from e
+
+
 @router.post("/admin/providers/{provider_id}/approve", response_model=schemas.ProviderResponse)
 async def approve_provider(
     provider_id: int,

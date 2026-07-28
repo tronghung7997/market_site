@@ -85,9 +85,13 @@ function CopyIconButton({ text }: { text: string }) {
 // Stops the moment status leaves "offline" (recovered, expired, or errored).
 const OFFLINE_POLL_MS = 20_000;
 
+// Hai loại proxy đổi IP theo hai cách khác nhau, và bản cũ chỉ mô tả loại
+// thứ nhất: proxy tĩnh giữ nguyên host/port (chỉ IP public đổi), còn key xoay
+// nhận hẳn một proxy mới nên host/port cũng đổi theo. Nói chung cho cả hai và
+// nhắc buyer đọc lại "Dữ liệu bàn giao" sau mỗi lần đổi.
 const ROTATE_EXPLAINER =
-  "Đổi IP yêu cầu nhà cung cấp cấp IP public mới cho proxy hiện tại. Host và Port thường giữ " +
-  "nguyên; Username hoặc Password có thể được cập nhật. Giữa hai lần đổi có thể có thời gian chờ.";
+  "Đổi IP yêu cầu nhà cung cấp cấp một IP mới. Tuỳ loại proxy, Host/Port/Username/Password có thể " +
+  "thay đổi theo — xem lại phần “Dữ liệu bàn giao” sau khi đổi. Giữa hai lần đổi có thời gian chờ.";
 
 function OrderProxyPanel({ orderId, onDelivered }: { orderId: number; onDelivered?: (orderId: number, deliveredData: string) => void }) {
   const [state, setState] = useState<ProxyState | null>(null);
@@ -150,8 +154,19 @@ function OrderProxyPanel({ orderId, onDelivered }: { orderId: number; onDelivere
     <div className="mt-3 px-3 py-2.5 rounded-lg bg-raised border border-line">
       <div className="flex items-center justify-between flex-wrap gap-2">
         <div>
-          <p className="text-faint text-[11px] uppercase tracking-wider mb-0.5">Proxy hiện tại</p>
-          <p className="font-mono text-[13px]">{state.public_ip ?? "—"}</p>
+          {/* Key xoay (TopProxy mode=xoay) không có IP cố định: allocation lưu
+              last_public_ip = null vì IP đổi mỗi lần buyer gọi link get. Hiện
+              "Proxy hiện tại —" ở đó chỉ làm buyer tưởng đơn hỏng — thông tin
+              thật (key + link đổi IP) đã nằm nguyên trong "Dữ liệu bàn giao"
+              ngay bên trên. Chỉ vẽ khối IP khi thực sự có IP. */}
+          {state.public_ip ? (
+            <>
+              <p className="text-faint text-[11px] uppercase tracking-wider mb-0.5">Proxy hiện tại</p>
+              <p className="font-mono text-[13px]">{state.public_ip}</p>
+            </>
+          ) : (
+            <p className="text-faint text-[11px] uppercase tracking-wider mb-0.5">Trạng thái proxy</p>
+          )}
           {state.status === "offline" && (
             <p className="text-[11px] text-warn mt-0.5 max-w-[260px]">
               Proxy đang tạm ngoại tuyến. Hệ thống vẫn giữ nguyên proxy của bạn và đang chờ nhà cung cấp khôi phục.
@@ -174,6 +189,86 @@ function OrderProxyPanel({ orderId, onDelivered }: { orderId: number; onDelivere
         {state.last_rotated_at && ` · Đổi IP lần cuối ${new Date(state.last_rotated_at).toLocaleString("vi-VN")}`}
       </p>
       {error && <p className="text-[12px] text-bad mt-1.5">{error}</p>}
+      {state.whitelist_supported && (
+        <ProxyWhitelistBox orderId={orderId} state={state} onSaved={(s) => setState(s)} onDelivered={onDelivered} />
+      )}
+    </div>
+  );
+}
+
+/** Khai báo IP được phép dùng proxy.
+ *
+ *  Nhà cung cấp key xoay khoá proxy theo IP: proxy chấp nhận kết nối TCP rồi
+ *  IM LẶNG nuốt request nếu IP người dùng không được đăng ký — không một thông
+ *  báo lỗi nào, nhìn hệt như "proxy chết". Đây là nguyên nhân hỗ trợ số một
+ *  của loại hàng này, nên ô nhập phải nằm ngay cạnh thông tin proxy chứ không
+ *  giấu trong trang cài đặt nào đó.
+ *
+ *  Chỉ render khi backend báo `whitelist_supported` — đơn DProxy không thấy gì. */
+function ProxyWhitelistBox({
+  orderId, state, onSaved, onDelivered,
+}: {
+  orderId: number;
+  state: ProxyState;
+  onSaved: (s: ProxyState) => void;
+  onDelivered?: (orderId: number, deliveredData: string) => void;
+}) {
+  const saved = state.whitelist_ips ?? "";
+  const [value, setValue] = useState(saved);
+  const [saving, setSaving] = useState(false);
+  const [msg, setMsg] = useState<{ text: string; tone: "good" | "warn" | "bad" } | null>(null);
+
+  useEffect(() => { setValue(state.whitelist_ips ?? ""); }, [state.whitelist_ips]);
+
+  const handleSave = async () => {
+    setSaving(true);
+    setMsg(null);
+    try {
+      const ips = value.split(",").map((s) => s.trim()).filter(Boolean);
+      const res = await api.setOrderProxyWhitelist(orderId, ips);
+      onSaved({ ...state, whitelist_ips: res.whitelist_ips, public_ip: res.public_ip });
+      if (res.delivered_data) onDelivered?.(orderId, res.delivered_data);
+      setMsg(res.applied
+        ? { text: "Đã lưu và áp dụng — proxy dùng được ngay.", tone: "good" }
+        // Lưu rồi nhưng chưa kịp có hiệu lực: nói thẳng bước tiếp theo, đừng
+        // để buyer tưởng xong rồi ngồi thắc mắc sao proxy vẫn câm.
+        : { text: "Đã lưu, nhưng chưa áp dụng được lúc này — bấm “Đổi IP” sau ít phút.", tone: "warn" });
+    } catch (e) {
+      setMsg({ text: e instanceof Error ? e.message : "Lưu thất bại", tone: "bad" });
+    } finally {
+      setSaving(false);
+    }
+  };
+
+  return (
+    <div className="mt-2.5 pt-2.5 border-t border-line">
+      <div className="flex items-baseline justify-between gap-2 mb-1">
+        <span className="text-faint text-[11px] uppercase tracking-wider">IP được phép dùng</span>
+        <span className="text-[11px] text-faint">tối đa 2, cách nhau dấu phẩy</span>
+      </div>
+      {!saved && (
+        <p className="text-[11.5px] text-warn mb-1.5 leading-relaxed">
+          Chưa khai báo — proxy sẽ không phản hồi. Nhập IP mạng của bạn (tra tại
+          <span className="font-mono"> api.ipify.org</span>) rồi bấm Lưu.
+        </p>
+      )}
+      <div className="flex items-center gap-2">
+        <Input
+          value={value}
+          onChange={(e) => setValue(e.target.value)}
+          placeholder="vd 113.161.20.5"
+          disabled={saving}
+          className="flex-1 font-mono text-[12.5px]"
+        />
+        <Button size="sm" variant="secondary" onClick={handleSave} disabled={saving || value.trim() === saved.trim()}>
+          {saving ? "Đang lưu…" : "Lưu"}
+        </Button>
+      </div>
+      {msg && (
+        <p className={cn("text-[11.5px] mt-1.5", msg.tone === "good" ? "text-good" : msg.tone === "warn" ? "text-warn" : "text-bad")}>
+          {msg.text}
+        </p>
+      )}
     </div>
   );
 }

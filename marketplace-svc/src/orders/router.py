@@ -110,14 +110,42 @@ async def order_dashboard(
     }
 
     if service_type == "proxy":
+        from src.models.proxy_allocation import ProxyAllocation
+
         resources_result = await db.execute(
             select(Resource).where(Resource.order_id == order_id)
         )
         resources = resources_result.scalars().all()
-        dashboard["resources"] = [
-            {"id": r.id, "status": r.status, "expires_at": str(r.expires_at) if r.expires_at else None}
+        # `data` trước đây bị bỏ sót dù frontend luôn đọc (ServiceDashboard
+        # ::ResourceRow) — với đơn kiểu cũ có Resource thì đó là `undefined`
+        # rơi vào MaskedValue.
+        rows: list[dict] = [
+            {
+                "id": f"res-{r.id}", "status": r.status, "data": r.data or "",
+                "expires_at": str(r.expires_at) if r.expires_at else None,
+            }
             for r in resources
         ]
+
+        # Đơn mua qua adapter (TopProxy/DProxy) KHÔNG tạo Resource — chúng bind
+        # vào proxy_allocations. Thiếu nhánh này thì dashboard báo "Số IP: 0" và
+        # "Còn lại: Vĩnh viễn" cho MỌI đơn proxy tự động, trong khi đơn có đúng
+        # một proxy và hết hạn theo kỳ đã mua (quan sát trên đơn #91, 27/07).
+        allocations = (await db.execute(
+            select(ProxyAllocation).where(ProxyAllocation.order_id == order_id)
+        )).scalars().all()
+        rows += [
+            {
+                "id": f"alloc-{a.id}", "status": a.status.value,
+                # CỐ TÌNH không gửi external_id: với key xoay đó chính là
+                # keyxoay — credential của nhà cung cấp mà buyer không được
+                # thấy (phương án B1). IP hiện hành là đủ để hiển thị.
+                "data": a.last_public_ip or "",
+                "expires_at": a.expires_at.isoformat() if a.expires_at else None,
+            }
+            for a in allocations
+        ]
+        dashboard["resources"] = rows
 
         # Try to get usage from adapter if provider is set
         if product and product.provider_id:

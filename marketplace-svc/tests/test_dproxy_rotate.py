@@ -277,12 +277,22 @@ class TestProxyState:
         resp = await client.get(f"/orders/{order_id}/proxy", headers={"Authorization": f"Bearer {buyer_token}"})
         assert resp.status_code == 200
         body = resp.json()
+        # Giữ nguyên kiểu so khớp TẬP KEY CHÍNH XÁC — đây là chốt chặn rò rỉ
+        # (rotate_path, base_url/api_key nhà cung cấp, id allocation nội bộ),
+        # nên mọi field mới phải được khai báo tường minh ở đây.
+        # whitelist_*: khai báo IP được phép dùng proxy, chỉ có nghĩa với nhà
+        # cung cấp khoá theo IP (TopProxy key xoay). Không nhạy cảm — là dữ
+        # liệu chính buyer nhập vào. Với DProxy thì supported=False, ips=None.
         assert set(body.keys()) == {
             "status", "public_ip", "expires_at", "rotation_available",
             "cooldown_remaining_seconds", "last_rotated_at",
+            "whitelist_supported", "whitelist_ips",
         }
         assert body["public_ip"] == "1.2.3.4"
         assert body["rotation_available"] is True
+        # DProxy không có cơ chế whitelist — frontend ẩn hoàn toàn ô nhập.
+        assert body["whitelist_supported"] is False
+        assert body["whitelist_ips"] is None
 
     @pytest.mark.asyncio
     async def test_state_endpoint_requires_ownership(self, client, monkeypatch):

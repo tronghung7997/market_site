@@ -86,7 +86,20 @@ class ConfigPricing(PricingStrategy):
             return False
 
         days = user_config["days"]
-        if not isinstance(days, (int, float)) or days <= 0:
+        if not isinstance(days, int) or isinstance(days, bool) or days <= 0:
             return False
+
+        # `days` PHẢI là một trong các kỳ hạn đã niêm yết, không phải số bất kỳ.
+        # Giá ở đây tuyến tính theo ngày (base_price * days/30) còn giá nhập của
+        # nhà cung cấp là BẬC THANG (rẻ dần theo kỳ hạn dài). Cho phép days tự
+        # do nghĩa là ai gọi thẳng API với days=1 sẽ trả 1/30 giá tháng trong
+        # khi mình phải mua ở đơn giá ngày đắt nhất — lỗ đều mỗi đơn, và không
+        # có gì trên UI để lộ ra là đang bị khai thác. Kỳ hạn nào muốn bán thì
+        # niêm yết trong duration_options với base_price đã tính đúng biên.
+        duration_options = params.get("duration_options")
+        if duration_options:
+            allowed = {d.get("days") for d in duration_options if isinstance(d, dict)}
+            if days not in allowed:
+                return False
 
         return True

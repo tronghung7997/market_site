@@ -39,7 +39,10 @@ async def pricing_options(product_id: int, db: AsyncSession = Depends(get_sessio
     fields = strategy.get_options(params)
 
     provider = await db.get(Provider, product.provider_id) if product.provider_id else None
-    setup = setup_status(provider.adapter_type if provider else None, strategy_name)
+    setup = setup_status(
+        provider.adapter_type if provider else None, strategy_name,
+        provider_active=provider.is_active if provider else True,
+    )
 
     raw_adapter_type = provider.adapter_type if provider else None
     return schemas.PricingOptionsResponse(
@@ -87,13 +90,17 @@ async def product_operations(product_id: int, db: AsyncSession = Depends(get_ses
                 "id": provider.id,
                 "name": provider.name,
                 "adapter_type": provider.adapter_type,
+                "is_active": provider.is_active,
                 "health": latest_health.status if latest_health else None,
             }
 
     # Pricing info (use same fallback logic)
     strategy_name, params = await resolve_pricing(product, db)
     pricing_info = {"strategy": strategy_name, "params": params}
-    setup = setup_status(provider_info["adapter_type"] if provider_info else None, strategy_name)
+    setup = setup_status(
+        provider_info["adapter_type"] if provider_info else None, strategy_name,
+        provider_active=provider_info["is_active"] if provider_info else True,
+    )
 
     # Stats from orders
     delivered_statuses = [OrderStatus.delivered, OrderStatus.completed]

@@ -313,9 +313,16 @@ async def reconcile_intent(intent_id: int, db: AsyncSession) -> str:
     try:
         info = await payos_client.get_payment_info(intent.id)
     except (payos_client.PayOSError, payos_client.PayOSUnavailableError) as e:
-        logger.warning("deposit_reconcile_failed", intent_id=intent.id, error=str(e))
+        # Chốt các giá trị cần dùng TRƯỚC rollback: `rollback()` expire TOÀN BỘ
+        # object trong session (khác `commit()` — expire_on_commit=False không
+        # cứu được ca này), nên đọc `intent.status` sau đó là một lazy-load
+        # trong ngữ cảnh async → MissingGreenlet. Hệ quả trước khi sửa:
+        # POST /admin/deposits/{id}/reconcile trả 500 mỗi lần PayOS lỗi mạng,
+        # còn trong job thì bị `except Exception` nuốt mất.
+        current_status = intent.status.value
+        logger.warning("deposit_reconcile_failed", intent_id=intent_id, error=str(e))
         await db.rollback()
-        return intent.status.value
+        return current_status
 
     status = info.get("status")
     if status == "PAID":

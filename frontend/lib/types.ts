@@ -145,6 +145,21 @@ export interface ProxyState {
   rotation_available: boolean;
   cooldown_remaining_seconds: number;
   last_rotated_at: string | null;
+  /** Nhà cung cấp có khoá proxy theo IP hay không. False (vd DProxy) thì ẩn
+   *  hoàn toàn phần khai báo IP. */
+  whitelist_supported?: boolean;
+  /** IPv4 buyer đã khai báo, phân tách bằng dấu phẩy. null = chưa khai. */
+  whitelist_ips?: string | null;
+}
+
+export interface ProxyWhitelistResult {
+  ok: boolean;
+  whitelist_ips: string | null;
+  /** false = đã lưu nhưng chưa kịp có hiệu lực (nhà cung cấp lỗi/cooldown) —
+   *  buyer cần bấm "Lấy proxy mới". */
+  applied: boolean;
+  public_ip: string | null;
+  delivered_data: string | null;
 }
 
 export interface ProxyRotateResult {
@@ -523,8 +538,12 @@ export interface ProductOperations {
 }
 
 export interface DashboardResource {
-  id: number;
+  /** "res-<id>" (Resource kiểu cũ) hoặc "alloc-<id>" (proxy mua qua adapter).
+   *  Có tiền tố vì hai bảng đánh id độc lập, gộp lại dễ trùng. */
+  id: string;
   status: string;
+  /** Rỗng khi không có credential để hiện — vd binding key xoay chỉ có IP hiện
+   *  hành, và keyxoay thì không bao giờ gửi xuống buyer. */
   data: string;
   expires_at: string | null;
 }

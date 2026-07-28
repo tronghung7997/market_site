@@ -40,5 +40,14 @@ class Settings(BaseSettings):
     # demo-topup là đường nạp giả cho dev/demo — PHẢI tắt ở production.
     enable_demo_topup: bool = False
 
+    # --- TopProxy ---
+    # Tiền tố marker nhét vào username proxy tĩnh (`{prefix}{order_id}`) để
+    # nhận lại đúng con proxy của một đơn khi retry. Marker được tra bằng
+    # listproxy trên TOÀN BỘ tài khoản TopProxy, nên hai môi trường dùng chung
+    # một API key mà cùng prefix sẽ đá nhau: order #12 ở staging khớp marker
+    # `od12` của proxy prod còn hạn và được "nhận lại" mà không mua gì. Đặt
+    # khác nhau cho mỗi môi trường (vd TOPPROXY_MARKER_PREFIX=stg).
+    topproxy_marker_prefix: str = "od"
+
 
 settings = Settings()

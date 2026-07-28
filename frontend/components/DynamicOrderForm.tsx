@@ -75,6 +75,12 @@ export default function DynamicOrderForm({ productId, product, onOrderCreated }:
   // tên nguồn thật — xem _PUBLIC_ADAPTER_ALIASES, src/pricing/router.py).
   // Cùng ràng buộc 1 allocation/đơn với DProxy nên dùng chung khoá số lượng.
   const isSingleUnit = isDproxy || options?.adapter_type === "auto_proxy";
+  // Toàn bộ phần TRẤN AN + nhãn thân thiện dưới đây trước kia gắn vào
+  // `isDproxy`, nên sản phẩm auto_proxy (TopProxy) tuy cũng giao tự động và
+  // cũng tự hoàn tiền khi cấp phát hỏng lại rơi vào nhánh "chung": tiêu đề
+  // "Cấu hình đơn hàng" và một Tag in ra tên strategy máy. Điều kiện đúng là
+  // "đơn này có được giao tự động không", tức `isSingleUnit`.
+  const isAutoDelivered = isSingleUnit;
 
   const doCalculate = useCallback(async (cfg: Record<string, unknown>, q: number) => {
     if (!options || !options.ready || options.fields.length === 0) return;
@@ -163,15 +169,15 @@ export default function DynamicOrderForm({ productId, product, onOrderCreated }:
     <>
       <Card className="overflow-hidden">
         <div className="px-5 py-3 border-b border-line flex items-center justify-between bg-raised/30">
-          <span className="text-[13px] font-semibold">{isDproxy ? "Mua proxy" : "Cấu hình đơn hàng"}</span>
-          {isDproxy ? (
+          <span className="text-[13px] font-semibold">{isAutoDelivered ? "Mua proxy" : "Cấu hình đơn hàng"}</span>
+          {isAutoDelivered ? (
             <div className="flex items-center gap-1.5">
               <Tag tone="good">Giao tự động</Tag>
-              <Tag tone="iris">Có thể đổi IP</Tag>
+              {/* "Đổi IP" CHỈ đúng với DProxy — proxy tĩnh TopProxy không có
+                  rotate, hứa ở đây là hứa suông ngay trên nút mua. */}
+              {isDproxy && <Tag tone="iris">Có thể đổi IP</Tag>}
             </div>
-          ) : (
-            <Tag tone="iris">{options.strategy}</Tag>
-          )}
+          ) : null}
         </div>
 
         <div className="p-5 space-y-4">
@@ -247,7 +253,7 @@ export default function DynamicOrderForm({ productId, product, onOrderCreated }:
             {placing ? "Đang xử lý…"
               : !account ? "Đăng nhập để mua"
               : !options.ready ? "Chưa thể đặt hàng"
-              : isDproxy && calc ? `Mua 1 proxy — ${vnd(displayAmount)}`
+              : isAutoDelivered && calc ? `Mua 1 proxy — ${vnd(displayAmount)}`
               : "Đặt hàng"}
           </Button>
 
@@ -274,7 +280,7 @@ export default function DynamicOrderForm({ productId, product, onOrderCreated }:
                 <span className="text-muted">Sản phẩm</span>
                 <span className="font-medium text-right max-w-[220px] truncate">{product.title}</span>
               </div>
-              {isDproxy ? (
+              {isAutoDelivered ? (
                 <>
                   {/* strategy "config" (Loại proxy/Nhà mạng/Thời hạn) — buyer
                       thật sự chọn được, khác với "credit" (không có field
@@ -303,10 +309,12 @@ export default function DynamicOrderForm({ productId, product, onOrderCreated }:
                     <span className="text-muted">Giao hàng</span>
                     <span className="font-medium">Tự động, trong vài giây</span>
                   </div>
-                  <div className="flex justify-between">
-                    <span className="text-muted">Đổi IP</span>
-                    <span className="font-medium">Có hỗ trợ</span>
-                  </div>
+                  {isDproxy && (
+                    <div className="flex justify-between">
+                      <span className="text-muted">Đổi IP</span>
+                      <span className="font-medium">Có hỗ trợ</span>
+                    </div>
+                  )}
                   <div className="flex justify-between">
                     <span className="text-muted">Xem thông tin proxy</span>
                     <span className="font-medium">Trang Đơn hàng, sau khi giao</span>
@@ -357,7 +365,7 @@ export default function DynamicOrderForm({ productId, product, onOrderCreated }:
                 <Shield size={13} className="text-good mt-0.5 shrink-0" />
                 <span>Ký quỹ {product.escrow_days} ngày — tiền chỉ chuyển cho người bán khi bạn xác nhận hài lòng.</span>
               </div>
-              {isDproxy && (
+              {isAutoDelivered && (
                 <p className="text-[11.5px] text-faint">Nếu cấp phát thất bại, tiền được tự động hoàn lại vào ví của bạn.</p>
               )}
               {placeError && <p className="text-bad text-[12.5px]">{placeError}</p>}

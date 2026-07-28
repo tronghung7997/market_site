@@ -74,9 +74,23 @@ function MaskedValue({ value }: { value: string }) {
 
 /* ── Proxy Dashboard ── */
 
+// Trạng thái đến từ HAI nguồn: bảng `resources` (đơn kiểu cũ) và
+// `proxy_allocations` (đơn mua qua adapter). Gộp nhãn về một chỗ để dashboard
+// không hiện ra mã máy như "allocated"/"offline".
+const PROXY_STATUS: Record<string, { label: string; tone: "good" | "warn" | "bad" | "neutral" }> = {
+  assigned: { label: "Hoạt động", tone: "good" },
+  available: { label: "Sẵn sàng", tone: "neutral" },
+  allocated: { label: "Hoạt động", tone: "good" },
+  offline: { label: "Tạm ngoại tuyến", tone: "warn" },
+  expired: { label: "Hết hạn", tone: "warn" },
+  released: { label: "Đã thu hồi", tone: "neutral" },
+  error: { label: "Lỗi", tone: "bad" },
+};
+const PROXY_ACTIVE_STATUSES = new Set(["assigned", "available", "allocated"]);
+
 function ProxyDashboard({ data }: { data: DashboardData }) {
   const resources = data.resources ?? [];
-  const activeCount = resources.filter((r) => r.status === "assigned" || r.status === "available").length;
+  const activeCount = resources.filter((r) => PROXY_ACTIVE_STATUSES.has(r.status)).length;
 
   // Find earliest expiry for days remaining
   const expiringResource = resources
@@ -85,11 +99,13 @@ function ProxyDashboard({ data }: { data: DashboardData }) {
 
   return (
     <div className="space-y-4">
-      <div className="grid grid-cols-2 sm:grid-cols-4 gap-3">
+      <div className="grid grid-cols-2 sm:grid-cols-3 gap-3">
         <StatCard label="Trạng thái" value={data.status === "delivered" ? "Hoạt động" : data.status} />
         <StatCard label="Còn lại" value={daysRemaining(expiringResource?.expires_at ?? null)} />
         <StatCard label="Số IP" value={resources.length} sub={`${activeCount} hoạt động`} />
-        <StatCard label="Uptime" value="99.9%" sub="30 ngày qua" />
+        {/* Ô "Uptime 99.9% / 30 ngày qua" đã bị bỏ: đó là chuỗi hardcode, không
+            hề đo đạc gì — một con số bịa đặt hiển thị như dữ liệu thật. Không
+            có nguồn uptime nào ở backend thì đừng hứa với buyer. */}
       </div>
 
       {resources.length > 0 && (
@@ -103,10 +119,12 @@ function ProxyDashboard({ data }: { data: DashboardData }) {
         </div>
       )}
 
-      {resources.length > 0 && (
+      {/* Chỉ hiện khi thật sự có gì để chép — lọc bỏ binding chưa có IP, không
+          thì nút chép ra một chuỗi toàn dòng trống. */}
+      {resources.some((r) => r.data) && (
         <div className="flex gap-2">
           <CopyButton
-            text={resources.map((r) => r.data).join("\n")}
+            text={resources.filter((r) => r.data).map((r) => r.data).join("\n")}
             label="Sao chép tất cả"
           />
         </div>
@@ -116,16 +134,28 @@ function ProxyDashboard({ data }: { data: DashboardData }) {
 }
 
 function ResourceRow({ resource }: { resource: DashboardResource }) {
-  const tone = resource.status === "assigned" ? "good" as const
-    : resource.status === "expired" ? "warn" as const
-    : resource.status === "error" ? "bad" as const
-    : "neutral" as const;
-  const label = { assigned: "Hoạt động", expired: "Hết hạn", error: "Lỗi", available: "Sẵn sàng" }[resource.status] ?? resource.status;
+  const { label, tone } = PROXY_STATUS[resource.status] ?? { label: resource.status, tone: "neutral" as const };
+  // `data` có thể rỗng: binding key xoay chỉ mang IP hiện hành (và chưa có IP
+  // nào trước lần lấy proxy đầu tiên). MaskedValue giả định chuỗi khác rỗng —
+  // đưa undefined/"" vào là nổ ngay khi render.
+  // Chỉ che thứ thật sự là bí mật. Resource kiểu cũ mang nguyên chuỗi
+  // "ip:port:user:pass" — che là đúng. Binding proxy mua qua adapter chỉ mang
+  // IP hiện hành, mà IP đó đã hiện nguyên văn ở panel proxy và "Dữ liệu bàn
+  // giao" ngay phía trên — che ở đây chỉ tạo ra "160.****6.34" vô nghĩa.
+  const isCredential = resource.data.includes(":");
 
   return (
     <div className="flex items-center gap-3 text-[12.5px] px-3 py-2 rounded-lg bg-surface border border-line">
-      <span className="font-mono text-faint">#{resource.id}</span>
-      <MaskedValue value={resource.data} />
+      {!resource.data ? (
+        <span className="font-mono text-faint">Chưa có IP — bấm “Lấy proxy mới”</span>
+      ) : isCredential ? (
+        <MaskedValue value={resource.data} />
+      ) : (
+        <span className="inline-flex items-center gap-2 font-mono text-[12.5px]">
+          <span>{resource.data}</span>
+          <CopyButton text={resource.data} />
+        </span>
+      )}
       <Tag tone={tone}>{label}</Tag>
       <span className="ml-auto text-muted text-[11px]">{daysRemaining(resource.expires_at)}</span>
     </div>

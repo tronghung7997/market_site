@@ -444,7 +444,10 @@ async def list_all_products_admin(db: AsyncSession) -> list[dict]:
             strategy_name = p.pricing_strategy
         else:
             strategy_name = configs.get(p.service_type or "other", "fixed")
-        setup = setup_status(provider.adapter_type if provider else None, strategy_name)
+        setup = setup_status(
+            provider.adapter_type if provider else None, strategy_name,
+            provider_active=provider.is_active if provider else True,
+        )
 
         out.append({
             "id": p.id,

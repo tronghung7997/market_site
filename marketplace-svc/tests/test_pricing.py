@@ -213,6 +213,33 @@ class TestConfigPricing:
         config = {"type": "datacenter", "network": "viettel", "days": 0, "quantity": 1}
         assert self.strategy.validate(CONFIG_PARAMS, config) is False
 
+    @pytest.mark.parametrize("days", [1, 3, 45, 365])
+    def test_validate_rejects_days_not_in_duration_options(self, days):
+        """Giá ở đây tuyến tính theo ngày còn giá nhập của nhà cung cấp là bậc
+        thang (kỳ hạn càng ngắn đơn giá càng đắt). Cho phép days tự do nghĩa là
+        gọi thẳng API với days=1 sẽ trả 1/30 giá tháng trong khi mình mua ở đơn
+        giá ngày đắt nhất — lỗ đều mỗi đơn. Chỉ bán đúng kỳ hạn đã niêm yết."""
+        config = {"type": "datacenter", "network": "viettel", "days": days, "quantity": 1}
+        assert self.strategy.validate(CONFIG_PARAMS, config) is False
+
+    def test_validate_accepts_listed_durations(self):
+        for days in (7, 30):
+            config = {"type": "datacenter", "network": "viettel", "days": days, "quantity": 1}
+            assert self.strategy.validate(CONFIG_PARAMS, config) is True
+
+    def test_validate_rejects_float_days(self):
+        # 1.9 ngày: FE không gửi được, nhưng gọi thẳng API thì trả tiền theo
+        # 1.9/30 tháng trong khi adapter int() xuống 1 ngày và mua nguyên ngày.
+        config = {"type": "datacenter", "network": "viettel", "days": 7.0, "quantity": 1}
+        assert self.strategy.validate(CONFIG_PARAMS, config) is False
+
+    def test_validate_without_duration_options_keeps_positive_int_rule(self):
+        # Sản phẩm chưa niêm yết kỳ hạn nào thì giữ luật cũ (dương, nguyên) —
+        # không phá cấu hình sẵn có.
+        params = {k: v for k, v in CONFIG_PARAMS.items() if k != "duration_options"}
+        config = {"type": "datacenter", "network": "viettel", "days": 45, "quantity": 1}
+        assert self.strategy.validate(params, config) is True
+
     def test_get_options_returns_fields(self):
         field_names = [f["field"] for f in self.strategy.get_options(CONFIG_PARAMS)]
         assert {"type", "network", "days", "quantity"} <= set(field_names)

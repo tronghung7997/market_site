@@ -93,7 +93,10 @@ async def _seller_needs_setup_count(seller_id: int, db: AsyncSession) -> int:
     for product in products:
         provider = await db.get(Provider, product.provider_id) if product.provider_id else None
         strategy_name, _ = await resolve_pricing(product, db)
-        setup = setup_status(provider.adapter_type if provider else None, strategy_name)
+        setup = setup_status(
+            provider.adapter_type if provider else None, strategy_name,
+            provider_active=provider.is_active if provider else True,
+        )
         if setup["needs_setup"]:
             count += 1
     return count

@@ -342,8 +342,7 @@ export const api = {
 
 export type { Account, AdminDisputeDetail, AdminOrderDetail, AdminProduct, AdminResourceListResponse, AffiliateStats, AffiliateSummary, CalculateResult, Category, DashboardData, Dispute, FundOverview, AccountAdminRow, PaginatedAccounts, LogEntry, Order, OrderStats, PaginatedAffiliateSummary, PaginatedOrderResponse, PricingField, PricingOptions, Product, ProductDetail, ProductOperations, Review, SellerApplication, SellerProduct, SellerStats, SellerSummary, SellerProfile, ServiceTask, Transaction, Variant, Wallet, WithdrawRequest, Provider, ProviderHealth, Alert, Resource, ResourceSummary, InventoryVariant, SellerApiKey, SellerApiKeyCreated };
 
-/** Money helpers. Backend stores an integer amount; for this Vietnamese
- * marketplace we render it as đồng (no sub-unit), e.g. 7000 → "7.000 ₫". */
-export function vnd(amount: number): string {
-  return amount.toLocaleString("vi-VN") + " ₫";
-}
+/** Money formatter sống ở lib/utils/format — re-export để 22 chỗ đang
+ * `import { vnd } from "@/lib/api"` không phải sửa cùng lúc; import mới
+ * nên lấy thẳng từ "@/lib/utils". */
+export { vnd } from "./utils/format";

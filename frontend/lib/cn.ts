@@ -1,5 +1,5 @@
-/** Tiny classNames joiner — dependency-free. Later args win nothing special,
- * it just filters falsy values and joins. Keeps component class lists readable. */
-export function cn(...parts: Array<string | false | null | undefined>): string {
-  return parts.filter(Boolean).join(" ");
-}
+/** Một nguồn cn() duy nhất: bản clsx + tailwind-merge ở lib/utils/cn.
+ * Khác bản nối-chuỗi cũ ở chỗ: hai class Tailwind xung đột (vd "p-4 p-5")
+ * thì class sau thắng thay vì phụ thuộc thứ tự CSS — đúng ý người viết hơn.
+ * File này chỉ còn là re-export cho các chỗ import đường cũ. */
+export { cn } from "./utils/cn";

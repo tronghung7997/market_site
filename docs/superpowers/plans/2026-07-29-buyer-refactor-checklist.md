@@ -35,7 +35,9 @@ Sau mỗi đợt: `npx tsc --noEmit` + mở trang bấm thử các trạng thái
       `title.slice(0,2).toUpperCase()`), `CopyButton` (2 bản chép).
 - [ ] `lib/categories.ts` — `flattenCategories()` + `subtreeIds()` (đang chép ×3:
       home, categories, sellers/[id]).
-- [ ] Xoá `lib/query-keys.ts` (không ai import).
+- [x] ~~Xoá `lib/query-keys.ts`~~ — SAI: nó được `frontend/hooks/use-*.ts`
+      (lớp react-query có sẵn, admin + trang affiliate dùng) import. Giữ nguyên;
+      đây chính là lớp mà Đợt 5 sẽ cho buyer dùng chung.
 
 ## Đợt 1 — `app/products/[id]` (plan chi tiết đã chốt)
 

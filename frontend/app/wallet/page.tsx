@@ -139,7 +139,7 @@ export default function WalletPage() {
     try {
       const intent = await api.createDeposit(amount);
       setDepositAmount("");
-      setDepositMsg("Đã tạo lệnh nạp — quét mã QR bên dưới, hoặc mở trang thanh toán ở tab vừa bật.");
+      setDepositMsg("Đã tạo lệnh nạp — quét QR ở tab trang thanh toán vừa mở.");
       if (intent.checkout_url && payTab) payTab.location.href = intent.checkout_url;
       await refreshWallet();
     } catch (err) {
@@ -342,26 +342,6 @@ export default function WalletPage() {
                         <span className="relative inline-flex rounded-full h-2.5 w-2.5 bg-iris" />
                       </span>
                     </div>
-                    {/* QR ngay tại chỗ — nguồn ảnh là data URI backend dựng,
-                        không phải link ngoài, nên máy không ra được internet
-                        vẫn quét được bằng app ngân hàng trên điện thoại. */}
-                    {d.qr_svg && (
-                      <div className="px-4 pb-3 flex flex-col items-center gap-2">
-                        <img
-                          src={d.qr_svg}
-                          alt={`Mã QR chuyển khoản ${vnd(d.amount)}`}
-                          width={168}
-                          height={168}
-                          className="rounded-lg bg-white p-2 border border-line"
-                        />
-                        <p className="text-[12px] text-muted text-center leading-relaxed">
-                          Mở app ngân hàng, quét mã này và chuyển đúng{" "}
-                          <span className="font-medium text-ink">{vnd(d.amount)}</span>.
-                          <br />
-                          Giữ nguyên nội dung chuyển khoản.
-                        </p>
-                      </div>
-                    )}
                     <div className="px-4 pb-3 flex items-center gap-2">
                       {/* Link CỐ ĐỊNH theo lệnh nạp: tab mở lúc tạo lệnh có
                           thể lỗi mạng (trang thanh toán nằm ngoài internet),

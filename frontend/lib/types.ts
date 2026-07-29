@@ -229,9 +229,6 @@ export interface DepositIntent {
   status: "pending" | "paid" | "cancelled" | "expired";
   checkout_url?: string | null;
   qr_code?: string | null;
-  /** Ảnh QR (data URI SVG) do backend dựng sẵn — hiện thẳng trên trang ví,
-   *  không cần trình duyệt gọi ra domain nào khác. Chỉ có với lệnh `pending`. */
-  qr_svg?: string | null;
   paid_amount?: number | null;
   created_at: string;
   expires_at: string;

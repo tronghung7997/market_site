@@ -91,10 +91,16 @@ Cấu trúc đích — colocate trong thư mục route:
       doanh nghiệp" — GIỮ NGUYÊN chờ chủ sản phẩm chốt gỡ hay thay số thật
       (đã đánh dấu ⚠️ trong StaticSections.tsx).
 
-## Đợt 5 — Chiến lược (bàn riêng, chưa làm)
+## Đợt 5 — Chiến lược
 
-- [ ] react-query cho buyer (số dư/đơn tự invalidate sau khi mua; admin đã dùng).
-- [ ] Server components / SSR cho SEO (đụng cách auth — việc riêng, cần thiết kế).
+- [x] react-query cho buyer — ví (TopNav + trang Ví chung cache) và đơn hàng
+      (list + stats) chạy query; mua/nạp/rút/hoàn → invalidate ["wallet"] /
+      ["orders"] nên số dư tự nhảy tại chỗ (verify: mua đơn #96, nav
+      182k → 164k không cần chuyển trang). Bonus: hết bug "??" sau xác nhận.
+      Home/product-detail vẫn useEffect (không có nhu cầu invalidate — để
+      nguyên, tránh churn).
+- [ ] Server components / SSR cho SEO (đụng cách auth — việc riêng, cần thiết
+      kế; chưa đụng).
 
 ## Ghi chú phát hiện (bằng chứng chính)
 

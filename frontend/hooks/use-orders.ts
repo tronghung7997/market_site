@@ -13,10 +13,11 @@ export interface OrderFilters {
   per_page?: number;
 }
 
-export function useOrders(filters: OrderFilters = {}) {
+export function useOrders(filters: OrderFilters = {}, enabled = true) {
   return useQuery({
     queryKey: queryKeys.orders(filters as Record<string, unknown>),
     queryFn: () => api.orders(filters),
+    enabled,
   });
 }
 
@@ -28,10 +29,11 @@ export function useOrderDetail(id: number | null) {
   });
 }
 
-export function useOrderStats() {
+export function useOrderStats(enabled = true) {
   return useQuery({
     queryKey: queryKeys.orderStats(),
     queryFn: () => api.orderStats(),
+    enabled,
   });
 }
 

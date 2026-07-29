@@ -1,6 +1,6 @@
 "use client";
 
-/** Trang Ví — MỤC LỤC + nguồn dữ liệu duy nhất (refreshWallet):
+/** Trang Ví — MỤC LỤC; dữ liệu chạy trên react-query (cache chung với TopNav):
  *
  *  - Số dư:      card đầu cột trái (kèm trạng thái lỗi riêng, không sập cả trang)
  *  - Nạp QR:     DepositCard (tạo/huỷ lệnh, đếm ngược, mở lại trang thanh toán)
@@ -12,9 +12,11 @@
 
 import { useRouter } from "next/navigation";
 import { useEffect, useState } from "react";
+import { useQueryClient } from "@tanstack/react-query";
 import { api, vnd } from "@/lib/api";
 import { useAuth } from "@/lib/auth";
-import type { DepositIntent, Transaction, Wallet, WithdrawRequest } from "@/lib/types";
+import { queryKeys } from "@/lib/query-keys";
+import { useWalletBalance, useWalletDeposits, useWalletTransactions, useWalletWithdrawals } from "@/hooks/use-wallet";
 import { Button, Card, Spinner, Tag } from "@/components/ui";
 import { MoneyInput } from "@/components/MoneyInput";
 import { Wallet as WalletIcon } from "@/components/Icons";
@@ -25,55 +27,45 @@ import { WithdrawCard, WithdrawHistory } from "./WithdrawCard";
 export default function WalletPage() {
   const { account, loading: authLoading } = useAuth();
   const router = useRouter();
-  const [wallet, setWallet] = useState<Wallet | null>(null);
-  const [txs, setTxs] = useState<Transaction[]>([]);
-  const [withdrawals, setWithdrawals] = useState<WithdrawRequest[]>([]);
-  const [deposits, setDeposits] = useState<DepositIntent[]>([]);
-  const [loading, setLoading] = useState(true);
-  const [walletError, setWalletError] = useState(false);
+  const queryClient = useQueryClient();
+  const isSeller = !!account?.roles.includes("seller");
+  const ready = !authLoading && !!account;
 
-  const isSeller = account?.roles.includes("seller");
+  // Bốn nguồn = bốn query độc lập — một endpoint phụ lỗi không kéo sập số dư
+  // (đúng tinh thần Promise.allSettled cũ, react-query còn tự GIỮ data cũ khi
+  // refetch lỗi). Cache dùng chung với TopNav: nơi nào invalidate ["wallet"]
+  // là số dư ở đây lẫn trên nav cùng nhảy.
+  const balanceQ = useWalletBalance(ready);
+  const txQ = useWalletTransactions(ready);
+  const depositsQ = useWalletDeposits(ready);
+  const withdrawalsQ = useWalletWithdrawals(ready && isSeller);
 
-  const refreshWallet = async () => {
-    // allSettled từng nguồn: một endpoint phụ lỗi không được kéo sập số dư —
-    // Promise.all cũ làm trang hiện "0đ" dù ví có tiền (review 24/07 #5).
-    // Nguồn nào lỗi thì GIỮ dữ liệu cũ, chỉ số dư lỗi mới hiện banner.
-    const [w, t, d] = await Promise.allSettled([api.wallet(), api.transactions(), api.myDeposits()]);
-    if (w.status === "fulfilled") { setWallet(w.value); setWalletError(false); }
-    else { setWalletError(true); console.error("Failed to load wallet:", w.reason); }
-    if (t.status === "fulfilled") setTxs(t.value);
-    if (d.status === "fulfilled") setDeposits(d.value);
-    if (account?.roles.includes("seller")) {
-      try {
-        setWithdrawals(await api.myWithdrawals());
-      } catch (err) {
-        console.error("Failed to load withdrawals:", err);
-      }
-    }
+  const wallet = balanceQ.data ?? null;
+  const txs = txQ.data ?? [];
+  const deposits = depositsQ.data ?? [];
+  const withdrawals = withdrawalsQ.data ?? [];
+  const walletError = balanceQ.isError;
+
+  // Con cái (nạp/rút/demo) chỉ cần hô "tiền vừa đổi" — làm mới cả cụm ví.
+  const onChanged = async () => {
+    await queryClient.invalidateQueries({ queryKey: queryKeys.wallet() });
   };
 
-  // Đang có lệnh nạp chờ thanh toán → poll để số dư tự nhảy khi webhook về,
-  // buyer không phải bấm refresh sau khi quét QR.
+  // Đang có lệnh nạp chờ thanh toán → poll cả cụm ví mỗi 5s để số dư tự nhảy
+  // khi webhook về, buyer không phải bấm refresh sau khi quét QR.
   const hasPendingDeposit = deposits.some((d) => d.status === "pending");
   useEffect(() => {
     if (!hasPendingDeposit) return;
-    const timer = setInterval(() => { refreshWallet(); }, 5000);
+    const timer = setInterval(() => { queryClient.invalidateQueries({ queryKey: queryKeys.wallet() }); }, 5000);
     return () => clearInterval(timer);
-    // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [hasPendingDeposit]);
+  }, [hasPendingDeposit, queryClient]);
 
   useEffect(() => {
     if (authLoading) return;
-    if (!account) { router.push("/login"); return; }
-    (async () => {
-      try {
-        await refreshWallet();
-      } finally { setLoading(false); }
-    })();
-    // eslint-disable-next-line react-hooks/exhaustive-deps
+    if (!account) router.push("/login");
   }, [account, authLoading, router]);
 
-  if (authLoading || loading) return <div className="w-full mx-auto max-w-[1200px] px-6 py-16"><Spinner /></div>;
+  if (authLoading || balanceQ.isPending || txQ.isPending) return <div className="w-full mx-auto max-w-[1200px] px-6 py-16"><Spinner /></div>;
 
   return (
     <div className="w-full mx-auto max-w-[1200px] px-6 py-10">
@@ -104,11 +96,11 @@ export default function WalletPage() {
             )}
           </Card>
 
-          <DepositCard deposits={deposits} onChanged={refreshWallet} />
+          <DepositCard deposits={deposits} onChanged={onChanged} />
 
-          <DemoTopup onChanged={refreshWallet} />
+          <DemoTopup onChanged={onChanged} />
 
-          {isSeller && <WithdrawCard wallet={wallet} onChanged={refreshWallet} />}
+          {isSeller && <WithdrawCard wallet={wallet} onChanged={onChanged} />}
           {isSeller && <WithdrawHistory withdrawals={withdrawals} />}
         </div>
 

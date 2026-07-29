@@ -4,8 +4,9 @@ import Link from "next/link";
 import { usePathname } from "next/navigation";
 import { useEffect, useState } from "react";
 import { useAuth } from "@/lib/auth";
-import { api, vnd } from "@/lib/api";
+import { vnd } from "@/lib/api";
 import { cn } from "@/lib/cn";
+import { useWalletBalance } from "@/hooks/use-wallet";
 import { Bolt, Logo, Menu, Plus, Wallet, X } from "./Icons";
 import NotificationBell from "./NotificationBell";
 import { Button } from "./ui";
@@ -27,18 +28,15 @@ const ACCOUNT_LINKS: { href: string; label: string; auth?: boolean; role?: strin
 export default function TopNav() {
   const { account, logout } = useAuth();
   const pathname = usePathname();
-  const [balance, setBalance] = useState<number | null>(null);
+  // Số dư đọc từ query cache dùng chung với trang Ví — mua hàng/nạp/rút ở
+  // bất kỳ đâu invalidate ["wallet"] là con số này tự nhảy, không cần đổi
+  // trang như bản cũ (trước đây refetch theo pathname để chữa stale).
+  const { data: wallet } = useWalletBalance(!!account);
+  const balance = account ? wallet?.available_balance ?? null : null;
   const [menuOpen, setMenuOpen] = useState(false);
   const [mobileNavOpen, setMobileNavOpen] = useState(false);
 
   useEffect(() => { setMenuOpen(false); setMobileNavOpen(false); }, [pathname]);
-
-  useEffect(() => {
-    let active = true;
-    if (account) api.wallet().then((w) => active && setBalance(w.available_balance)).catch(() => {});
-    else setBalance(null);
-    return () => { active = false; };
-  }, [account, pathname]);
 
   return (
     <>

@@ -7,7 +7,9 @@
 
 import Link from "next/link";
 import { useEffect, useState } from "react";
+import { useQueryClient } from "@tanstack/react-query";
 import { api, vnd } from "@/lib/api";
+import { queryKeys } from "@/lib/query-keys";
 import { orderStatus } from "@/lib/order-status";
 import type { Order } from "@/lib/types";
 import { Button, CopyButton, Tag } from "@/components/ui";
@@ -23,6 +25,7 @@ const ORDER_POLL_TIMEOUT_MS = 15 * 60 * 1000;
  *  Only those: a manual variant order is also `pending`, but it waits on the
  *  seller for up to their SLA in hours, so polling it would spin for nothing. */
 function useOrderPolling(initial: Order, enabled: boolean) {
+  const queryClient = useQueryClient();
   const [order, setOrder] = useState(initial);
 
   useEffect(() => setOrder(initial), [initial]);
@@ -38,7 +41,14 @@ function useOrderPolling(initial: Order, enabled: boolean) {
       }
       try {
         const fresh = await api.getOrder(order.id);
-        if (fresh.status !== "pending") clearInterval(timer);
+        if (fresh.status !== "pending") {
+          clearInterval(timer);
+          // Đơn chốt hỏng = tiền vừa quay về ví — làm mới cache ví để số dư
+          // trên TopNav khớp với dòng "Đã hoàn ... về ví" đang hiện ở đây.
+          if (fresh.status === "cancelled" || fresh.status === "refunded") {
+            queryClient.invalidateQueries({ queryKey: queryKeys.wallet() });
+          }
+        }
         setOrder(fresh);
       } catch {
         // A failed poll is not worth surfacing — the next tick retries, and the
@@ -46,7 +56,7 @@ function useOrderPolling(initial: Order, enabled: boolean) {
       }
     }, ORDER_POLL_MS);
     return () => clearInterval(timer);
-  }, [order.id, settled, enabled]);
+  }, [order.id, settled, enabled, queryClient]);
 
   return order;
 }

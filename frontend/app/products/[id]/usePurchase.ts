@@ -7,7 +7,9 @@
  *  bộ khi product tải xong, không có frame nào panel trống. */
 
 import { useState } from "react";
+import { useQueryClient } from "@tanstack/react-query";
 import { api, ApiError } from "@/lib/api";
+import { queryKeys } from "@/lib/query-keys";
 import type { Order, ProductDetail, Variant } from "@/lib/types";
 import { clampQty, pickDefaultVariant } from "./purchase";
 
@@ -32,6 +34,7 @@ export interface PurchaseState {
 }
 
 export function usePurchase(product: ProductDetail | null): PurchaseState {
+  const queryClient = useQueryClient();
   const [chosen, setChosen] = useState<Variant | null>(null);
   const [qty, setQtyRaw] = useState(1);
   const [order, setOrder] = useState<Order | null>(null);
@@ -41,6 +44,16 @@ export function usePurchase(product: ProductDetail | null): PurchaseState {
 
   const selected = chosen ?? (product ? pickDefaultVariant(product.variants) : null);
   const total = selected ? selected.price * qty : 0;
+
+  /** Đơn vừa tồn tại (mua fixed lẫn DynamicOrderForm đều đi qua đây):
+   *  tiền đã rời ví — báo các cache liên quan tự làm mới, số dư trên TopNav
+   *  nhảy ngay tại chỗ, danh sách đơn/thống kê cũng tươi khi mở. */
+  const orderPlaced = (o: Order) => {
+    setOrder(o);
+    queryClient.invalidateQueries({ queryKey: queryKeys.wallet() });
+    queryClient.invalidateQueries({ queryKey: ["orders"] });
+    queryClient.invalidateQueries({ queryKey: queryKeys.orderStats() });
+  };
 
   const pickVariant = (v: Variant) => {
     setChosen(v);
@@ -54,7 +67,7 @@ export function usePurchase(product: ProductDetail | null): PurchaseState {
     if (!selected) return;
     setPlacing(true); setPlaceError(null);
     try {
-      setOrder(await api.createOrder(selected.id, qty));
+      orderPlaced(await api.createOrder(selected.id, qty));
       setShowConfirm(false);
     } catch (e) {
       if (e instanceof ApiError && e.status === 402) setPlaceError("Số dư không đủ — vui lòng nạp tiền vào ví.");
@@ -71,6 +84,6 @@ export function usePurchase(product: ProductDetail | null): PurchaseState {
     closeConfirm: () => { setShowConfirm(false); setPlaceError(null); },
     buy,
     rebuy: () => { setOrder(null); setQtyRaw(1); },
-    onOrderCreated: setOrder,
+    onOrderCreated: orderPlaced,
   };
 }

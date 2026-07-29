@@ -35,6 +35,15 @@ export const queryKeys = {
   // Logs
   logs: (params?: Record<string, unknown>) => ["logs", params] as const,
 
+  // Wallet (buyer) — cả cụm chung prefix ["wallet"]: invalidate một phát
+  // ({ queryKey: ["wallet"] }) là số dư + giao dịch + lệnh nạp + lệnh rút
+  // cùng làm mới. Đây là chìa khoá cho "mua xong số dư tự nhảy".
+  wallet: () => ["wallet"] as const,
+  walletBalance: () => ["wallet", "balance"] as const,
+  walletTransactions: () => ["wallet", "transactions"] as const,
+  walletDeposits: () => ["wallet", "deposits"] as const,
+  walletWithdrawals: () => ["wallet", "withdrawals"] as const,
+
   // Affiliate
   affiliateMe: (params?: Record<string, unknown>) => ["affiliate-me", params ?? null] as const,
   adminAffiliates: (params?: Record<string, unknown>) => ["admin-affiliates", params ?? null] as const,

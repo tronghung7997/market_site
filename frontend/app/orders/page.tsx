@@ -13,10 +13,13 @@
 import Link from "next/link";
 import { useRouter, useSearchParams } from "next/navigation";
 import { useCallback, useEffect, useState } from "react";
+import { useQueryClient } from "@tanstack/react-query";
 import { api, vnd } from "@/lib/api";
 import { useAuth } from "@/lib/auth";
 import { cn } from "@/lib/cn";
-import type { Order, OrderStats } from "@/lib/types";
+import { queryKeys } from "@/lib/query-keys";
+import { useOrders, useOrderStats } from "@/hooks/use-orders";
+import type { Order, PaginatedOrderResponse } from "@/lib/types";
 import { Button, Card, Pagination, Spinner } from "@/components/ui";
 import OrderCard, { TerminalOrderRow } from "./OrderCard";
 import DisputeModal from "./DisputeModal";
@@ -28,10 +31,15 @@ export default function OrdersPage() {
   const searchParams = useSearchParams();
   const filters = useOrderFilters(searchParams.get("status") ?? "");
 
-  const [orders, setOrders] = useState<Order[]>([]);
-  const [total, setTotal] = useState(0);
-  const [loading, setLoading] = useState(true);
-  const [stats, setStats] = useState<OrderStats | null>(null);
+  const queryClient = useQueryClient();
+  // Danh sách + thống kê chạy trên react-query: đổi bộ lọc = key mới tự fetch;
+  // mua hàng/xác nhận/khiếu nại chỉ cần invalidate ["orders"] là danh sách tươi.
+  const ordersQuery = useOrders(filters.params, !authLoading && !!account);
+  const statsQuery = useOrderStats(!authLoading && !!account);
+  const orders = ordersQuery.data?.items ?? [];
+  const total = ordersQuery.data?.total ?? 0;
+  const loading = ordersQuery.isPending;
+  const stats = statsQuery.data ?? null;
   const [disputeOrderId, setDisputeOrderId] = useState<number | null>(null);
   const [confirmingId, setConfirmingId] = useState<number | null>(null);
   const [toast, setToast] = useState("");
@@ -43,27 +51,21 @@ export default function OrdersPage() {
   const handlePlate = useCallback((id: number) => {
     setPlateOrders((prev) => (prev.has(id) ? prev : new Set(prev).add(id)));
   }, []);
+  // Đổi IP có thể kèm delivered_data mới — vá thẳng vào cache trang lọc hiện
+  // tại thay vì refetch cả danh sách chỉ vì một trường đổi.
   const handleDelivered = useCallback((id: number, deliveredData: string) => {
-    setOrders((prev) => prev.map((ord) => (ord.id === id ? { ...ord, delivered_data: deliveredData } : ord)));
-  }, []);
-
-  const fetchOrders = useCallback(async (params: Parameters<typeof api.orders>[0]) => {
-    setLoading(true);
-    try {
-      const res = await api.orders(params);
-      setOrders(res.items);
-      setTotal(res.total);
-    } finally {
-      setLoading(false);
-    }
-  }, []);
+    queryClient.setQueryData<PaginatedOrderResponse>(
+      queryKeys.orders(filters.params as Record<string, unknown>),
+      (prev) => prev
+        ? { ...prev, items: prev.items.map((ord) => (ord.id === id ? { ...ord, delivered_data: deliveredData } : ord)) }
+        : prev,
+    );
+  }, [queryClient, filters.params]);
 
   useEffect(() => {
     if (authLoading) return;
-    if (!account) { router.push("/login"); return; }
-    api.orderStats().then(setStats).catch(() => {});
-    fetchOrders(filters.params);
-  }, [account, authLoading, router, fetchOrders, filters.params]);
+    if (!account) router.push("/login");
+  }, [account, authLoading, router]);
 
   function showToast(msg: string) {
     setToast(msg);
@@ -73,10 +75,12 @@ export default function OrdersPage() {
   async function handleConfirm(orderId: number) {
     setConfirmingId(orderId);
     try {
-      const updated = await api.confirmOrder(orderId);
-      setOrders((prev) => prev.map((o) => (o.id === updated.id ? { ...o, ...updated } : o)));
+      await api.confirmOrder(orderId);
       showToast("Đã xác nhận nhận hàng thành công!");
-      api.orderStats().then(setStats).catch(() => {});
+      // Refetch thay vì vá tay response vào state: response confirm thiếu
+      // product_title từng làm card hiện "??" — refetch mang về bản ghi đủ.
+      queryClient.invalidateQueries({ queryKey: ["orders"] });
+      queryClient.invalidateQueries({ queryKey: queryKeys.orderStats() });
     } catch (e: unknown) {
       showToast(e instanceof Error ? e.message : "Có lỗi xảy ra");
     } finally {
@@ -95,8 +99,8 @@ export default function OrdersPage() {
   function handleDisputeSuccess() {
     setDisputeOrderId(null);
     showToast("Đã gửi khiếu nại thành công!");
-    fetchOrders(filters.params);
-    api.orderStats().then(setStats).catch(() => {});
+    queryClient.invalidateQueries({ queryKey: ["orders"] });
+    queryClient.invalidateQueries({ queryKey: queryKeys.orderStats() });
   }
 
   const totalPages = Math.max(1, Math.ceil(total / filters.perPage));

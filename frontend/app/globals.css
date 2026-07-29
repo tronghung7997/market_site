@@ -1,4 +1,5 @@
 @import "tailwindcss";
+@plugin "@tailwindcss/typography";
 
 /* ============================================================
    Proxora — light & premium B2B marketplace.
@@ -105,6 +106,44 @@
   }
   @media (prefers-reduced-motion: reduce) {
     .animate-seal, .animate-rise, .animate-shimmer, .animate-spin-ring { animation: none; }
+  }
+
+  /* ============================================================
+     @uiw/react-md-editor (mô tả sản phẩm, trang seller) — map biến
+     CSS kiểu GitHub Primer mà thư viện dùng sang token Proxora sẵn
+     có. Scoped dưới .proxora-md-editor để không ảnh hưởng nơi khác.
+     ============================================================ */
+  .proxora-md-editor .w-md-editor {
+    --color-accent-fg: var(--color-iris);
+    --color-border-default: var(--color-line);
+    --color-canvas-default: var(--color-surface);
+    --color-fg-default: var(--color-fg);
+    --color-neutral-muted: var(--color-raised);
+    font-family: var(--font-sans);
+    border: 1px solid var(--color-line);
+    border-radius: var(--radius-card);
+    box-shadow: none;
+    background: var(--color-surface);
+  }
+  .proxora-md-editor .w-md-editor-toolbar {
+    background: var(--color-raised);
+    border-bottom: 1px solid var(--color-line);
+  }
+  .proxora-md-editor .w-md-editor-text-input,
+  .proxora-md-editor .w-md-editor-text-pre,
+  .proxora-md-editor .w-md-editor-text > textarea {
+    font-size: 13px !important;
+    line-height: 1.6 !important;
+    color: var(--color-fg) !important;
+  }
+  /* .w-md-editor-text-pre > code tự set lại font-size/line-height riêng
+     (CSS gốc của lib, !important) — nếu không khớp với override ở trên,
+     textarea thật (vô hình, nhận click/selection) và lớp code hiển thị
+     (visible) lệch line-wrap với nhau, càng về cuối dòng dài càng lệch
+     nhiều → click/kéo chọn chữ ở cuối dòng bị sai vị trí. */
+  .proxora-md-editor .w-md-editor-text-pre > code {
+    font-size: 13px !important;
+    line-height: 1.6 !important;
   }
 
   /* ============================================================

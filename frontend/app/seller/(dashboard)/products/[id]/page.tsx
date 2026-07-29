@@ -2,14 +2,17 @@
 
 import Link from "next/link";
 import { useParams, useRouter } from "next/navigation";
-import { useEffect, useState } from "react";
+import { useDeferredValue, useEffect, useState, type ElementType, type ReactNode } from "react";
 import { api, vnd, ApiError } from "@/lib/api";
 import { useAuth } from "@/lib/auth";
 import { cn } from "@/lib/cn";
+import { formatSpecKey } from "@/lib/utils";
 import type { Category, ProductDetail, ProductOperations, Provider, Resource, Variant } from "@/lib/types";
 import { Banner, Button, Card, Field, Input, Select, Spinner, Tag, Textarea } from "@/components/ui";
 import { MoneyInput } from "@/components/MoneyInput";
-import { Activity, ArrowRight, Bolt, Check, Clock, Edit2, Eye, Info, Package, Plus, Sliders, Trash, Users } from "@/components/Icons";
+import { MarkdownEditor } from "@/components/MarkdownEditor";
+import { MarkdownContent } from "@/components/MarkdownContent";
+import { Activity, ArrowRight, Bolt, Check, ClipboardList, Clock, Edit2, Eye, FileText, Info, Package, Plus, Shield, Sliders, Trash, Users, X } from "@/components/Icons";
 import { isAdapterCompatible } from "@/lib/compat";
 import { STRATEGY_INFO, STRATEGY_FORMULAS, ADAPTER_INFO } from "@/lib/pricing-config";
 import { PricingParamsEditor } from "@/components/PricingParamsEditor";
@@ -24,6 +27,167 @@ const SERVICE_TYPES = [
   { value: "takedown", label: "Takedown" },
   { value: "other", label: "Khác" },
 ];
+
+const STATUS_TAG: Record<string, { label: string; tone: "good" | "warn" | "bad" | "neutral" }> = {
+  active: { label: "Đang bán", tone: "good" },
+  draft: { label: "Nháp", tone: "neutral" },
+  paused: { label: "Tạm dừng", tone: "warn" },
+  suspended: { label: "Bị khoá", tone: "bad" },
+};
+
+/* Tiêu đề khối, giống hệt mẫu icon+heading đang dùng ở tab Vận hành cùng file
+   và trang chi tiết admin — tách 1 danh sách field phẳng thành các khối có
+   phân cấp thay vì lặp lại JSX 3 lần. */
+function SectionHead({ icon: Icon, title, hint }: { icon: ElementType; title: string; hint?: string }) {
+  return (
+    <div className="flex items-start justify-between gap-3 flex-wrap">
+      <h3 className="text-[14px] font-semibold flex items-center gap-2">
+        <Icon size={14} /> {title}
+      </h3>
+      {hint && <p className="text-[12px] text-faint">{hint}</p>}
+    </div>
+  );
+}
+
+/* Danh sách có thể thêm/xoá từng dòng — thay cho textarea gõ tay theo cú
+   pháp (mỗi dòng 1 tính năng, hoặc "key: value"). Trước đây 1 dòng gõ sai cú
+   pháp (thiếu dấu ":") bị ÂM THẦM bỏ qua lúc lưu, seller không biết. */
+function ListEditor<T>({
+  label, hint, items, onAdd, onRemove, addLabel, emptyText, renderRow,
+}: {
+  label: string; hint?: string; items: T[];
+  onAdd: () => void; onRemove: (index: number) => void;
+  addLabel: string; emptyText: string;
+  renderRow: (item: T, index: number) => ReactNode;
+}) {
+  return (
+    <div className="flex flex-col gap-1.5">
+      <div className="flex items-baseline justify-between gap-2 flex-wrap">
+        <span className="text-[13px] font-medium text-muted">{label}</span>
+        {hint && <span className="text-[12px] text-faint">{hint}</span>}
+      </div>
+      <div className="space-y-2">
+        {items.length === 0 && <p className="text-[12.5px] text-faint italic py-1">{emptyText}</p>}
+        {items.map((item, i) => (
+          <div key={i} className="flex items-center gap-2">
+            <div className="flex-1 min-w-0">{renderRow(item, i)}</div>
+            <button type="button" aria-label="Xoá dòng này" onClick={() => onRemove(i)}
+              className="shrink-0 grid place-items-center h-9 w-9 rounded-lg text-faint hover:text-bad hover:bg-bad-soft transition-colors cursor-pointer">
+              <X size={14} />
+            </button>
+          </div>
+        ))}
+      </div>
+      <Button type="button" size="sm" variant="secondary" className="self-start" onClick={onAdd}>
+        <Plus size={13} /> {addLabel}
+      </Button>
+    </div>
+  );
+}
+
+/* Xem trước — render lại đúng khuôn trang mua (app/products/[id]/page.tsx:
+   header + highlight + specs + mô tả + tính năng + bảo hành) để seller hình
+   dung ngay khách sẽ thấy gì, không phải rời trang bấm "Xem trang mua".
+   Dùng chung formatSpecKey với trang mua — sai khác 1 ly là preview nói dối. */
+function PreviewCard({
+  title, categoryName, serviceType, status, escrowDays,
+  highlightText, description, features, specs, warrantyText, variants,
+}: {
+  title: string; categoryName?: string; serviceType: string; status: string; escrowDays: number;
+  highlightText: string; description: string; features: string[];
+  specs: { key: string; value: string }[]; warrantyText: string; variants: Variant[];
+}) {
+  const cleanFeatures = features.filter((f) => f.trim());
+  const cleanSpecs = specs.filter((s) => s.key.trim());
+  const minPrice = variants.length > 0 ? Math.min(...variants.map((v) => v.price)) : null;
+  const serviceLabel = SERVICE_TYPES.find((t) => t.value === serviceType)?.label ?? serviceType;
+
+  return (
+    <Card className="overflow-hidden">
+      <div className="px-4 py-2.5 border-b border-line bg-raised/40 flex items-center gap-2">
+        <Eye size={13} className="text-faint" />
+        <span className="text-[12px] font-semibold text-muted uppercase tracking-wider">Xem trước</span>
+      </div>
+
+      {status !== "active" && (
+        <div className="px-4 pt-3">
+          <Banner tone="warn" icon={<Info size={14} />}>
+            Đang ở trạng thái <strong>{STATUS_TAG[status]?.label ?? status}</strong> — khách chưa thấy trang này cho tới khi bạn chuyển về &quot;Đang bán&quot;.
+          </Banner>
+        </div>
+      )}
+
+      <div className="p-4 space-y-3.5">
+        <div className="flex items-start gap-2.5">
+          <span className="grid place-items-center h-9 w-9 shrink-0 rounded-lg bg-iris/8 border border-iris/15 font-serif text-[13px] font-bold text-iris-hi">
+            {(title.trim() || "SP").slice(0, 2).toUpperCase()}
+          </span>
+          <div className="min-w-0 flex-1">
+            <h4 className="font-serif text-[15px] leading-tight tracking-tight font-semibold break-words">
+              {title.trim() || <span className="text-faint italic font-sans font-normal text-[13px]">Chưa đặt tên sản phẩm</span>}
+            </h4>
+            <div className="flex flex-wrap items-center gap-1 mt-1.5">
+              {categoryName && <Tag tone="iris">{categoryName}</Tag>}
+              <Tag tone="neutral">{serviceLabel}</Tag>
+            </div>
+          </div>
+        </div>
+
+        {minPrice != null && (
+          <div className="pt-3 border-t border-line">
+            <span className="font-mono text-[18px] font-bold tabular text-iris-hi">
+              {variants.length > 1 ? "Từ " : ""}{vnd(minPrice)}
+            </span>
+          </div>
+        )}
+
+        {highlightText.trim() && (
+          <div className="flex items-center gap-2 px-3 py-2 rounded-md bg-iris/4 border border-iris/10 text-[12.5px]">
+            <Bolt size={12} className="text-iris-hi shrink-0" />
+            <span>{highlightText}</span>
+          </div>
+        )}
+
+        {description.trim() && <MarkdownContent>{description}</MarkdownContent>}
+
+        {cleanFeatures.length > 0 && (
+          <ul className="space-y-1">
+            {cleanFeatures.map((f, i) => (
+              <li key={i} className="flex items-start gap-1.5 text-[12.5px] text-muted">
+                <Check size={12} className="text-good mt-0.5 shrink-0" />
+                <span>{f}</span>
+              </li>
+            ))}
+          </ul>
+        )}
+
+        {cleanSpecs.length > 0 && (
+          <div className="rounded-lg border border-line overflow-hidden">
+            <div className="divide-y divide-line">
+              {cleanSpecs.map((s, i) => (
+                <div key={i} className="flex text-[12px]">
+                  <span className="w-[92px] shrink-0 px-2.5 py-1.5 text-muted bg-raised/40">{formatSpecKey(s.key.trim())}</span>
+                  <span className="px-2.5 py-1.5 flex-1 break-words">{s.value}</span>
+                </div>
+              ))}
+            </div>
+          </div>
+        )}
+
+        {warrantyText.trim() && (
+          <div className="pt-3 border-t border-line">
+            <div className="text-[11px] font-semibold text-muted uppercase tracking-wider mb-1">Bảo hành</div>
+            <p className="text-[12px] text-muted leading-relaxed whitespace-pre-line">{warrantyText}</p>
+          </div>
+        )}
+
+        <div className="pt-3 border-t border-line flex items-center gap-1.5 text-[11.5px] text-faint">
+          <Shield size={11} /> Ký quỹ bảo vệ người mua {escrowDays} ngày
+        </div>
+      </div>
+    </Card>
+  );
+}
 
 function flatten(cats: Category[]): Category[] {
   const out: Category[] = [];
@@ -161,12 +325,21 @@ export default function EditProduct() {
   const [categoryId, setCategoryId] = useState<number>(0);
   const [serviceType, setServiceType] = useState("other");
   const [description, setDescription] = useState("");
+  // Preview bên phải parse lại toàn bộ markdown mỗi lần description đổi —
+  // tốn hơn hẳn 1 state input thường. Gõ trong MDXEditor cập nhật state này
+  // ở MỌI keystroke; dùng useDeferredValue để React ưu tiên phần gõ (mượt
+  // ngay), còn khối Preview được phép "theo sau" vài khung hình khi gõ
+  // nhanh — không mất dữ liệu (state description vẫn luôn đúng, save() đọc
+  // thẳng state gốc chứ không qua giá trị deferred này).
+  const deferredDescription = useDeferredValue(description);
   const [highlightText, setHighlightText] = useState("");
   const [escrowDays, setEscrowDays] = useState(3);
-  const [features, setFeatures] = useState("");
+  const [features, setFeatures] = useState<string[]>([]);
   const [warrantyText, setWarrantyText] = useState("");
-  const [specs, setSpecs] = useState("");
+  const [specs, setSpecs] = useState<{ key: string; value: string }[]>([]);
   const [status, setStatus] = useState("active");
+  const [dirty, setDirty] = useState(false);
+  const markDirty = () => setDirty(true);
 
   const loadProduct = async () => {
     try {
@@ -185,10 +358,11 @@ export default function EditProduct() {
       setDescription(p.description ?? "");
       setHighlightText(p.highlight_text ?? "");
       setEscrowDays(p.escrow_days);
-      setFeatures((p.features ?? []).join("\n"));
+      setFeatures(p.features ?? []);
       setWarrantyText(p.warranty_text ?? "");
-      setSpecs(p.specs ? Object.entries(p.specs).map(([k, v]) => `${k}: ${v}`).join("\n") : "");
+      setSpecs(p.specs ? Object.entries(p.specs).map(([k, v]) => ({ key: k, value: String(v) })) : []);
       setStatus(p.status);
+      setDirty(false);
     } catch {
       setError("Không tải được sản phẩm");
     } finally {
@@ -201,15 +375,11 @@ export default function EditProduct() {
   const save = async () => {
     setSaving(true); setError(null); setSuccess(null);
     try {
-      const featureList = features.split("\n").map((f) => f.trim()).filter(Boolean);
-      let specsObj: Record<string, string> | undefined;
-      if (specs.trim()) {
-        specsObj = {};
-        for (const line of specs.split("\n")) {
-          const idx = line.indexOf(":");
-          if (idx > 0) specsObj[line.slice(0, idx).trim()] = line.slice(idx + 1).trim();
-        }
-      }
+      const featureList = features.map((f) => f.trim()).filter(Boolean);
+      const specsEntries = specs.filter((s) => s.key.trim());
+      const specsObj = specsEntries.length > 0
+        ? Object.fromEntries(specsEntries.map((s) => [s.key.trim(), s.value.trim()]))
+        : undefined;
       await api.updateProduct(Number(id), {
         title: title.trim(),
         category_id: categoryId,
@@ -238,18 +408,31 @@ export default function EditProduct() {
 
   return (
     <div className="space-y-5">
-      <div className="flex items-center justify-between">
-        <h2 className="text-[16px] font-semibold">Chỉnh sửa sản phẩm</h2>
-        <Link href={`/products/${id}`}><Button size="sm" variant="secondary"><Eye size={14} /> Xem trang mua</Button></Link>
+      <div className="flex items-start justify-between gap-4">
+        <div className="flex items-start gap-3 min-w-0">
+          <span className="grid place-items-center h-11 w-11 shrink-0 rounded-lg bg-iris/8 border border-iris/15 font-serif text-[16px] font-bold text-iris-hi">
+            {product.title.slice(0, 2).toUpperCase()}
+          </span>
+          <div className="min-w-0">
+            <p className="text-[11px] font-medium text-faint uppercase tracking-wide">Chỉnh sửa sản phẩm</p>
+            <h1 className="font-serif text-[19px] leading-tight tracking-tight font-semibold truncate">{product.title}</h1>
+            <div className="flex flex-wrap items-center gap-1.5 mt-1.5">
+              <Tag tone="iris">{product.category_name ?? "Chưa phân loại"}</Tag>
+              <Tag tone={STATUS_TAG[product.status]?.tone ?? "neutral"}>{STATUS_TAG[product.status]?.label ?? product.status}</Tag>
+              <Tag tone="neutral"><Package size={11} /> {product.variants.length} biến thể</Tag>
+            </div>
+          </div>
+        </div>
+        <Link href={`/products/${id}`} className="shrink-0"><Button size="sm" variant="secondary"><Eye size={14} /> Xem trang mua</Button></Link>
       </div>
 
-      {/* Tab bar */}
-      <div className="flex gap-1 border-b border-line">
+      {/* Tab bar — cuộn ngang trên mobile thay vì vỡ chữ 2 dòng, giống thanh nav ở layout cha */}
+      <div className="flex gap-1 border-b border-line overflow-x-auto">
         {visibleTabs.map((t) => {
           const Icon = t.icon;
           return (
             <button key={t.key} onClick={() => setTab(t.key)}
-              className={`flex items-center gap-1.5 px-4 py-2.5 text-[13px] font-medium border-b-2 transition-colors ${tab === t.key ? "border-iris text-iris" : "border-transparent text-muted hover:text-primary"}`}>
+              className={`flex shrink-0 items-center gap-1.5 px-4 py-2.5 text-[13px] font-medium border-b-2 transition-colors whitespace-nowrap ${tab === t.key ? "border-iris text-iris" : "border-transparent text-muted hover:text-primary"}`}>
               <Icon size={14} /> {t.label}
             </button>
           );
@@ -258,71 +441,153 @@ export default function EditProduct() {
 
       {/* Tab: Thong tin */}
       {tab === "info" && (
-        <div className="grid gap-6 lg:grid-cols-[1fr_380px] items-start">
-          <Card className="p-6 space-y-5">
-            <div className="grid gap-5 sm:grid-cols-2">
-              <Field label="Tên sản phẩm">
-                <Input value={title} onChange={(e) => setTitle(e.target.value)} />
+        <div className="grid grid-cols-1 gap-6 lg:grid-cols-[1fr_380px] items-start">
+          <div className="min-w-0 space-y-5">
+            <Card className="p-6 space-y-5">
+              <SectionHead icon={ClipboardList} title="Thông tin cơ bản" />
+              <div className="grid gap-5 sm:grid-cols-2">
+                <Field label="Tên sản phẩm">
+                  <Input value={title} onChange={(e) => { setTitle(e.target.value); markDirty(); }} />
+                </Field>
+                <Field label="Danh mục">
+                  <Select value={categoryId} onChange={(e) => { setCategoryId(Number(e.target.value)); markDirty(); }}>
+                    {flatCats.map((c) => <option key={c.id} value={c.id}>{c.name}</option>)}
+                  </Select>
+                </Field>
+              </div>
+
+              <div className="grid gap-5 sm:grid-cols-3">
+                <Field label="Loại dịch vụ">
+                  <Select value={serviceType} onChange={(e) => { setServiceType(e.target.value); markDirty(); }}>
+                    {SERVICE_TYPES.map((t) => <option key={t.value} value={t.value}>{t.label}</option>)}
+                  </Select>
+                </Field>
+                <Field label="Ký quỹ (ngày)">
+                  <Input type="number" min={1} value={escrowDays} onChange={(e) => { setEscrowDays(Number(e.target.value) || 3); markDirty(); }} />
+                </Field>
+                <Field label="Trạng thái">
+                  <Select value={status} onChange={(e) => { setStatus(e.target.value); markDirty(); }}>
+                    <option value="active">Đang bán</option>
+                    <option value="draft">Nháp</option>
+                    <option value="paused">Tạm dừng</option>
+                  </Select>
+                </Field>
+              </div>
+            </Card>
+
+            <Card className="p-6 space-y-5">
+              <SectionHead icon={FileText} title="Nội dung hiển thị cho khách" hint="Khách mua thấy phần này trên trang sản phẩm" />
+              <Field label="Dòng nổi bật">
+                <Input value={highlightText} onChange={(e) => { setHighlightText(e.target.value); markDirty(); }} />
               </Field>
-              <Field label="Danh mục">
-                <Select value={categoryId} onChange={(e) => setCategoryId(Number(e.target.value))}>
-                  {flatCats.map((c) => <option key={c.id} value={c.id}>{c.name}</option>)}
-                </Select>
+              <Field label="Mô tả">
+                <MarkdownEditor
+                  value={description}
+                  onChange={(v) => { setDescription(v); markDirty(); }}
+                  placeholder="VD: **Tài khoản Facebook uy tín**, tạo hơn 2 tháng tuổi. Đã xác minh email, không dính báo cáo vi phạm."
+                />
               </Field>
-            </div>
+              <ListEditor
+                label="Tính năng"
+                items={features}
+                addLabel="Thêm tính năng"
+                emptyText="Chưa có tính năng nào."
+                onAdd={() => { setFeatures([...features, ""]); markDirty(); }}
+                onRemove={(i) => { setFeatures(features.filter((_, idx) => idx !== i)); markDirty(); }}
+                renderRow={(f, i) => (
+                  <Input
+                    aria-label={`Tính năng ${i + 1}`}
+                    value={f}
+                    placeholder="VD: Bảo hành 24h nếu login lỗi"
+                    onChange={(e) => {
+                      const next = [...features]; next[i] = e.target.value;
+                      setFeatures(next); markDirty();
+                    }}
+                  />
+                )}
+              />
+              <ListEditor
+                label="Thông số kỹ thuật"
+                items={specs}
+                addLabel="Thêm thông số"
+                emptyText="Chưa có thông số nào."
+                onAdd={() => { setSpecs([...specs, { key: "", value: "" }]); markDirty(); }}
+                onRemove={(i) => { setSpecs(specs.filter((_, idx) => idx !== i)); markDirty(); }}
+                renderRow={(s, i) => (
+                  <div className="flex items-center gap-2">
+                    <Input
+                      aria-label={`Tên thông số ${i + 1}`}
+                      value={s.key}
+                      placeholder="Tên (VD: Xuất xứ)"
+                      onChange={(e) => {
+                        const next = [...specs]; next[i] = { ...next[i], key: e.target.value };
+                        setSpecs(next); markDirty();
+                      }}
+                    />
+                    <Input
+                      aria-label={`Giá trị thông số ${i + 1}`}
+                      value={s.value}
+                      placeholder="Giá trị (VD: Việt Nam)"
+                      onChange={(e) => {
+                        const next = [...specs]; next[i] = { ...next[i], value: e.target.value };
+                        setSpecs(next); markDirty();
+                      }}
+                    />
+                  </div>
+                )}
+              />
+            </Card>
 
-            <div className="grid gap-5 sm:grid-cols-3">
-              <Field label="Loại dịch vụ">
-                <Select value={serviceType} onChange={(e) => setServiceType(e.target.value)}>
-                  {SERVICE_TYPES.map((t) => <option key={t.value} value={t.value}>{t.label}</option>)}
-                </Select>
+            <Card className="p-6 space-y-5">
+              <SectionHead icon={Shield} title="Chính sách bảo hành" />
+              <Field label="Điều khoản bảo hành">
+                <Textarea rows={3} value={warrantyText} onChange={(e) => { setWarrantyText(e.target.value); markDirty(); }} />
               </Field>
-              <Field label="Ký quỹ (ngày)">
-                <Input type="number" min={1} value={escrowDays} onChange={(e) => setEscrowDays(Number(e.target.value) || 3)} />
-              </Field>
-              <Field label="Trạng thái">
-                <Select value={status} onChange={(e) => setStatus(e.target.value)}>
-                  <option value="active">Đang bán</option>
-                  <option value="draft">Nháp</option>
-                  <option value="paused">Tạm dừng</option>
-                </Select>
-              </Field>
-            </div>
+            </Card>
 
-            <Field label="Dòng nổi bật">
-              <Input value={highlightText} onChange={(e) => setHighlightText(e.target.value)} />
-            </Field>
+            {/* Thanh lưu — cùng khuôn với tab Vận hành bên dưới (dirty mới hiện
+                nút, card iris khi có thay đổi chưa lưu, card xanh khi vừa lưu
+                xong) để hai tab của cùng trang nhất quán với nhau. */}
+            {dirty && (
+              <Card className="p-4 flex items-center gap-3 border-iris/30 bg-iris/5">
+                <Button size="lg" disabled={saving} onClick={save}>
+                  {saving ? "Đang lưu…" : "Lưu thay đổi"}
+                </Button>
+                <span className="text-[13px] text-muted">Có thay đổi chưa lưu</span>
+                {error && <span className="text-[13px] text-bad">{error}</span>}
+              </Card>
+            )}
+            {!dirty && success && (
+              <Card className="p-4 border-good/30 bg-good/5">
+                <span className="text-[13px] text-good">{success}</span>
+              </Card>
+            )}
+          </div>
 
-            <Field label="Mô tả">
-              <Textarea rows={4} value={description} onChange={(e) => setDescription(e.target.value)} />
-            </Field>
-
-            <Field label="Tính năng" hint="Mỗi dòng một tính năng">
-              <Textarea rows={4} value={features} onChange={(e) => setFeatures(e.target.value)} />
-            </Field>
-
-            <Field label="Thông số kỹ thuật" hint="key: value">
-              <Textarea rows={4} value={specs} onChange={(e) => setSpecs(e.target.value)} />
-            </Field>
-
-            <Field label="Chính sách bảo hành">
-              <Textarea rows={3} value={warrantyText} onChange={(e) => setWarrantyText(e.target.value)} />
-            </Field>
-
-            {error && <p className="text-bad text-[13px]">{error}</p>}
-            {success && <p className="text-good text-[13px]">{success}</p>}
-
-            <Button size="lg" disabled={saving} onClick={save}>
-              {saving ? "Đang lưu…" : "Lưu thay đổi"}
-            </Button>
-          </Card>
-
-          <div>
+          <div className="min-w-0 space-y-5">
+            {/* Biến thể lên trước — đây là việc seller cần thao tác thường
+                xuyên (nạp hàng, đổi giá); khối Xem trước để sau vì chỉ để
+                tham khảo, không nên đẩy Biến thể xuống dưới màn hình. */}
             {isFixed ? (
               <VariantManager productId={Number(id)} variants={product.variants} onRefresh={loadProduct} />
             ) : (
               <SetupSummaryCard ops={ops} onViewOperations={() => setTab("operations")} />
             )}
+            <div className="lg:sticky lg:top-6">
+              <PreviewCard
+                title={title}
+                categoryName={flatCats.find((c) => c.id === categoryId)?.name}
+                serviceType={serviceType}
+                status={status}
+                escrowDays={escrowDays}
+                highlightText={highlightText}
+                description={deferredDescription}
+                features={features}
+                specs={specs}
+                warrantyText={warrantyText}
+                variants={product.variants}
+              />
+            </div>
           </div>
         </div>
       )}

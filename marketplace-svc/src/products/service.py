@@ -23,12 +23,20 @@ async def create_product(seller_id: int, data: dict, db: AsyncSession) -> Produc
     return product
 
 
+async def _validate_category_exists(category_id: int, db: AsyncSession) -> None:
+    category = await db.get(Category, category_id)
+    if not category:
+        raise HTTPException(status_code=404, detail="Không tìm thấy danh mục")
+
+
 async def update_product(product_id: int, seller_id: int, data: dict, db: AsyncSession) -> Product:
     product = await db.get(Product, product_id)
     if not product:
         raise HTTPException(status_code=404, detail="Không tìm thấy sản phẩm")
     if product.seller_id != seller_id:
         raise NotOwner()
+    if data.get("category_id") is not None:
+        await _validate_category_exists(data["category_id"], db)
     for key, value in data.items():
         if value is not None:
             setattr(product, key, value)
@@ -47,6 +55,8 @@ async def admin_update_product(product_id: int, data: dict, db: AsyncSession) ->
     product = await db.get(Product, product_id)
     if not product:
         raise HTTPException(status_code=404, detail="Không tìm thấy sản phẩm")
+    if data.get("category_id") is not None:
+        await _validate_category_exists(data["category_id"], db)
     for key, value in data.items():
         if value is not None:
             setattr(product, key, value)

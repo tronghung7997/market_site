@@ -21,6 +21,7 @@ class ProductCreate(BaseModel):
 
 class ProductUpdate(BaseModel):
     title: str | None = None
+    category_id: int | None = None
     description: str | None = None
     images: list[str] | None = None
     escrow_days: int | None = None

@@ -91,6 +91,7 @@ export default function WalletPage() {
   const [depositAmount, setDepositAmount] = useState("");
   const [depositLoading, setDepositLoading] = useState(false);
   const [depositMsg, setDepositMsg] = useState("");
+  const [depositErr, setDepositErr] = useState("");
   const [walletError, setWalletError] = useState(false);
 
   const isSeller = account?.roles.includes("seller");
@@ -131,17 +132,28 @@ export default function WalletPage() {
     }
     setDepositLoading(true);
     setDepositMsg("");
-    // KHÔNG tự mở tab sang trang thanh toán của nhà cung cấp nữa: mã QR do
-    // backend dựng sẵn (qr_svg) và hiện ngay bên dưới, nên buyer quét được cả
-    // khi máy không ra được internet. Tab tự mở còn hay bị popup blocker chặn
-    // và làm một lệnh nạp ĐÃ TẠO THÀNH CÔNG trông như thất bại.
+    setDepositErr("");
+    // Mở tab TRƯỚC await, ngay trong user gesture — window.open sau await bị
+    // popup blocker chặn nếu PayOS phản hồi chậm (review 24/07 #5).
+    const payTab = window.open("about:blank", "_blank");
     try {
-      await api.createDeposit(amount);
+      const intent = await api.createDeposit(amount);
       setDepositAmount("");
-      setDepositMsg("Đã tạo lệnh nạp — quét mã QR bên dưới để chuyển khoản.");
+      setDepositMsg("Đã tạo lệnh nạp — quét mã QR bên dưới, hoặc mở trang thanh toán ở tab vừa bật.");
+      if (intent.checkout_url && payTab) payTab.location.href = intent.checkout_url;
       await refreshWallet();
     } catch (err) {
-      alert(`Tạo lệnh nạp thất bại: ${err instanceof Error ? err.message : "Unknown error"}`);
+      // KHÔNG đóng tab và KHÔNG bật hộp thoại alert.
+      //
+      // Trang thanh toán nằm ở domain nhà cung cấp nên máy trong mạng nội bộ
+      // mở ra là lỗi mạng — nhưng đó là tab người dùng cần GIỮ LẠI: chỉ việc
+      // đổi sang mạng có internet rồi F5 chính tab đó là vào được. Đóng hộ
+      // (hoặc chặn màn hình bằng alert) là cướp mất thao tác đó.
+      //
+      // Lưu ý: JS không đọc được kết quả tải của tab khác origin, nên nhánh
+      // này CHỈ chạy khi API tạo lệnh nạp hỏng — báo bằng dòng chữ tại chỗ,
+      // để người dùng vẫn thấy và thao tác được với phần còn lại của trang.
+      setDepositErr(err instanceof Error ? err.message : "Tạo lệnh nạp thất bại, thử lại sau.");
     } finally {
       setDepositLoading(false);
     }
@@ -309,6 +321,9 @@ export default function WalletPage() {
               {depositMsg && (
                 <div className="p-2.5 rounded-lg bg-good-soft text-good text-[12px]">✓ {depositMsg}</div>
               )}
+              {depositErr && (
+                <div className="p-2.5 rounded-lg bg-bad-soft text-bad text-[12px]">{depositErr}</div>
+              )}
 
               {/* Bước 3 — lệnh đang chờ: phần tử sống của cả flow */}
               {deposits.filter((d) => d.status === "pending").map((d) => {
@@ -348,6 +363,10 @@ export default function WalletPage() {
                       </div>
                     )}
                     <div className="px-4 pb-3 flex items-center gap-2">
+                      {/* Link CỐ ĐỊNH theo lệnh nạp: tab mở lúc tạo lệnh có
+                          thể lỗi mạng (trang thanh toán nằm ngoài internet),
+                          nên luôn để sẵn đường mở lại — không phải tạo lệnh
+                          mới chỉ vì lỡ đóng tab. */}
                       {d.checkout_url && (
                         <a href={d.checkout_url} target="_blank" rel="noopener noreferrer" className="flex-1">
                           <Button variant="secondary" size="sm" block>Mở trang thanh toán ↗</Button>

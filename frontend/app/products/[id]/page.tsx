@@ -72,7 +72,7 @@ export default function ProductPage() {
         <ChevronRight size={12} className="text-faint shrink-0" />
         {product.category_name && (
           <>
-            <Link href="/categories" className="hover:text-fg transition-colors shrink-0">{product.category_name}</Link>
+            <Link href={`/categories/${product.category_id}`} className="hover:text-fg transition-colors shrink-0">{product.category_name}</Link>
             <ChevronRight size={12} className="text-faint shrink-0" />
           </>
         )}

@@ -83,7 +83,9 @@ export default function TopNav() {
                 <span className="font-mono text-[13px] font-medium tabular whitespace-nowrap">{balance === null ? "—" : vnd(balance)}</span>
               </Link>
               <NotificationBell endpoint="buyer" />
-              <Link href="/wallet"><Button size="md"><Plus size={15} /> Nạp tiền</Button></Link>
+              {/* Dưới 400px cụm chuông + nút + avatar tràn khỏi màn (đo được
+                  tràn 28px ở 375) → thu nút về icon-only, chữ hiện lại từ 400px. */}
+              <Link href="/wallet"><Button size="md"><Plus size={15} /><span className="hidden min-[400px]:inline">Nạp tiền</span></Button></Link>
               <div className="relative">
                 <button onClick={() => setMenuOpen((v) => !v)} title="Hồ sơ tài khoản" aria-haspopup="menu" aria-expanded={menuOpen}
                   className="grid place-items-center h-9 w-9 rounded-full border-2 border-iris/30 bg-iris-soft text-iris hover:border-iris/60 transition-colors text-[12px] font-bold uppercase">

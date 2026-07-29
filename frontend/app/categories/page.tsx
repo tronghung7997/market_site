@@ -1,20 +1,21 @@
 "use client";
 
+/** Hub danh mục — dãy "NGĂN KỆ": mỗi danh mục một shelf, trái là định danh
+ *  (icon ổn định + tên + meta + chip danh mục con), phải là 3 sản phẩm thật
+ *  + ô "Xem tất cả →" trỏ sang /categories/[id]. Buyer thấy hàng ngay từ
+ *  cấp danh mục thay vì phải click mù từng card như bản landing cũ.
+ *  Danh mục chưa có hàng gom xuống một dòng cuối, không chiếm kệ. */
+
 import Link from "next/link";
 import { useEffect, useMemo, useState } from "react";
-import { api } from "@/lib/api";
-import { cn } from "@/lib/cn";
+import { api, vnd } from "@/lib/api";
 import { flattenCategories, subtreeIds } from "@/lib/categories";
+import { effectiveMinPrice } from "@/lib/pricing-display";
 import type { Category, Product } from "@/lib/types";
-import { Card, Spinner, Button } from "@/components/ui";
-import {
-  ArrowRight, Bolt, Check, Grid, Package, Search, Shield, Star, Store, Users, Verified, Wallet,
-} from "@/components/Icons";
-
-const ICONS = [Store, Package, Wallet, Shield, Bolt, Users, Star, Grid, Verified, Check];
-function iconFor(index: number) {
-  return ICONS[index % ICONS.length];
-}
+import { Card, Spinner, Tag } from "@/components/ui";
+import { ArrowRight, ChevronRight, Search } from "@/components/Icons";
+import { categoryIcon } from "@/components/CategoryIcon";
+import ProductTile from "@/components/ProductTile";
 
 export default function CategoriesPage() {
   const [cats, setCats] = useState<Category[]>([]);
@@ -37,150 +38,119 @@ export default function CategoriesPage() {
 
   const flatCats = useMemo(() => flattenCategories(cats), [cats]);
   const topCats = cats.length > 0 ? cats : flatCats.filter((c) => c.parent_id == null);
-  const countFor = (c: Category) => products.filter((p) => subtreeIds(c).includes(p.category_id)).length;
 
-  const filtered = topCats.filter((c) => q === "" || c.name.toLowerCase().includes(q.toLowerCase()));
-  const totalProducts = products.length;
-  const sortedByCount = [...topCats].map((c) => ({ c, count: countFor(c) })).sort((a, b) => b.count - a.count);
-  const busiest = sortedByCount.slice(0, 3);
+  const productsOf = (c: Category) => {
+    const ids = new Set(subtreeIds(c));
+    return products.filter((p) => ids.has(p.category_id));
+  };
+
+  // Lọc theo cả tên danh mục CON — gõ "Telegram" phải ra kệ "Mạng xã hội".
+  const matches = (c: Category) =>
+    q === "" ||
+    c.name.toLowerCase().includes(q.toLowerCase()) ||
+    (c.children ?? []).some((s) => s.name.toLowerCase().includes(q.toLowerCase()));
+
+  const shelves = topCats
+    .map((c) => ({ c, items: productsOf(c) }))
+    .filter(({ c, items }) => items.length > 0 && matches(c))
+    .sort((a, b) => b.items.length - a.items.length);
+  const empty = topCats.filter((c) => productsOf(c).length === 0);
 
   return (
-    <div>
-      {/* ============ HERO ============ */}
-      <section className="aura border-b border-line">
-        <div className="w-full mx-auto max-w-[1200px] px-6 pt-14 pb-12 text-center">
-          <div className="inline-flex items-center gap-2 rounded-full border border-line bg-surface px-3 py-1 text-[12.5px] text-muted shadow-card">
-            <Grid size={13} className="text-iris" /> {topCats.length} danh mục · {totalProducts} sản phẩm đang bán
-          </div>
-          <h1 className="font-serif text-[clamp(2rem,4.2vw,3.2rem)] leading-[1.08] tracking-tight mt-5">
-            Khám phá mọi <span className="italic text-iris">danh mục sản phẩm</span>
-          </h1>
-          <p className="mt-4 max-w-xl mx-auto text-[15px] text-muted leading-relaxed">
-            Từ tài khoản mạng xã hội đến proxy và dữ liệu số — mọi danh mục đều có nhà bán đã xác minh, giao ngay và được bảo vệ bằng ký quỹ.
+    <div className="w-full mx-auto max-w-[1200px] px-4 sm:px-6 py-5 sm:py-6">
+      {/* Đầu trang gọn: đây là trang MUA SẮM, không phải landing */}
+      <div className="flex flex-wrap items-end justify-between gap-x-6 gap-y-3 mb-5">
+        <div>
+          <h1 className="font-serif text-[26px] sm:text-[28px] leading-tight tracking-tight font-semibold">Danh mục</h1>
+          <p className="text-[13px] text-muted mt-1">
+            {topCats.length} danh mục · {products.length} sản phẩm đang bán — chọn kệ hàng bạn cần.
           </p>
-          <div className="mt-7 relative max-w-md mx-auto">
-            <Search size={16} className="absolute left-3.5 top-1/2 -translate-y-1/2 text-faint" />
-            <input value={q} onChange={(e) => setQ(e.target.value)} placeholder="Tìm danh mục…"
-              className="h-11 w-full rounded-full bg-surface border border-line pl-10 pr-4 text-[14px] placeholder:text-faint focus:border-iris transition-colors shadow-card" />
-          </div>
         </div>
-      </section>
+        <div className="relative w-full sm:w-[280px]">
+          <Search size={15} className="absolute left-3 top-1/2 -translate-y-1/2 text-faint" />
+          <input
+            value={q}
+            onChange={(e) => setQ(e.target.value)}
+            placeholder="Lọc danh mục, vd Telegram…"
+            className="h-9 w-full rounded-lg bg-surface border border-line pl-9 pr-3 text-[13px] placeholder:text-faint focus:border-iris transition-colors"
+          />
+        </div>
+      </div>
 
       {loading && <Spinner label="Đang tải danh mục…" />}
-      {error && !loading && <Card className="mx-6 my-8 max-w-[1200px] md:mx-auto p-5 text-bad text-sm">{error}</Card>}
+      {error && !loading && <Card className="p-5 text-bad text-sm">{error}</Card>}
+      {!loading && !error && shelves.length === 0 && (
+        <Card className="p-8 text-center text-muted text-sm">Không có danh mục nào khớp &ldquo;{q}&rdquo;.</Card>
+      )}
 
-      {!loading && !error && (
-        <>
-          {/* ============ BUSIEST CATEGORIES ============ */}
-          {busiest.some((b) => b.count > 0) && (
-            <section className="border-b border-line bg-surface">
-              <div className="w-full mx-auto max-w-[1200px] px-6 py-10">
-                <SectionHead title="Được tìm nhiều nhất" sub="Danh mục có nhiều sản phẩm và giao dịch nhất" />
-                <div className="grid gap-5 md:grid-cols-3">
-                  {busiest.map(({ c, count }, i) => {
-                    const Icon = iconFor(i);
-                    return (
-                      <Link key={c.id} href={`/?category=${c.id}#market`} className="group">
-                        <Card interactive className="p-6 h-full relative overflow-hidden">
-                          <span className="absolute -right-4 -top-4 h-24 w-24 rounded-full bg-iris-soft opacity-40 group-hover:opacity-70 transition-opacity" />
-                          <span className="relative grid place-items-center h-12 w-12 rounded-xl bg-iris-soft text-iris border border-iris/15">
-                            <Icon size={22} />
-                          </span>
-                          <div className="relative mt-4 font-serif text-[19px] tracking-tight">{c.name}</div>
-                          <div className="relative text-[13px] text-muted mt-1">{count} sản phẩm đang bán</div>
-                          <span className="relative mt-4 inline-flex items-center gap-1.5 text-[13px] font-medium text-iris group-hover:text-iris-hi transition-colors">
-                            Xem sản phẩm <ArrowRight size={14} />
-                          </span>
-                        </Card>
-                      </Link>
-                    );
-                  })}
+      {/* ============ CÁC NGĂN KỆ ============ */}
+      <div className="space-y-4">
+        {shelves.map(({ c, items }) => {
+          const Icon = categoryIcon(c.name);
+          const children = c.children ?? [];
+          const minPrices = items.map((p) => effectiveMinPrice(p)).filter((v) => v > 0);
+          const fromPrice = minPrices.length ? Math.min(...minPrices) : 0;
+          const preview = items.slice(0, 3);
+          return (
+            <Card key={c.id} className="overflow-hidden">
+              <div className="grid lg:grid-cols-[260px_minmax(0,1fr)]">
+                {/* Định danh kệ */}
+                <div className="p-5 lg:border-r border-b lg:border-b-0 border-line bg-raised/30 flex flex-col">
+                  <Link href={`/categories/${c.id}`} className="group flex items-center gap-3">
+                    <span className="grid place-items-center h-10 w-10 shrink-0 rounded-xl bg-iris-soft text-iris border border-iris/15">
+                      <Icon size={18} />
+                    </span>
+                    <div className="min-w-0">
+                      <div className="font-serif text-[17px] leading-tight tracking-tight font-semibold group-hover:text-iris-hi transition-colors">
+                        {c.name}
+                      </div>
+                      <div className="text-[12px] text-muted mt-0.5">
+                        {items.length} sản phẩm{fromPrice > 0 && <> · từ <span className="font-mono tabular">{vnd(fromPrice)}</span></>}
+                      </div>
+                    </div>
+                  </Link>
+
+                  {children.length > 0 && (
+                    <div className="flex flex-wrap gap-1.5 mt-3.5">
+                      {children.map((s) => (
+                        <Link key={s.id} href={`/categories/${c.id}`}>
+                          <Tag tone="neutral" className="hover:border-iris/40 hover:text-iris-hi transition-colors">{s.name}</Tag>
+                        </Link>
+                      ))}
+                    </div>
+                  )}
+
+                  <Link
+                    href={`/categories/${c.id}`}
+                    className="mt-auto pt-4 inline-flex items-center gap-1.5 text-[13px] font-medium text-iris-hi hover:underline"
+                  >
+                    Vào danh mục <ArrowRight size={13} />
+                  </Link>
+                </div>
+
+                {/* 3 sản phẩm đầu kệ + ô xem tất cả */}
+                <div className="p-4 grid gap-3 grid-cols-2 lg:grid-cols-4 items-stretch">
+                  {preview.map((p) => <ProductTile key={p.id} product={p} />)}
+                  <Link href={`/categories/${c.id}`} className="h-full min-h-[120px]">
+                    <div className="h-full rounded-card border border-dashed border-line-2 grid place-items-center text-center px-3 hover:border-iris/40 hover:bg-iris/4 transition-colors">
+                      <span className="text-[13px] font-medium text-muted hover:text-iris-hi inline-flex items-center gap-1">
+                        Xem tất cả {items.length} <ChevronRight size={14} />
+                      </span>
+                    </div>
+                  </Link>
                 </div>
               </div>
-            </section>
-          )}
+            </Card>
+          );
+        })}
+      </div>
 
-          {/* ============ ALL CATEGORIES ============ */}
-          <section className="w-full mx-auto max-w-[1200px] px-6 py-12">
-            <SectionHead title="Tất cả danh mục" sub="Chọn danh mục để xem toàn bộ sản phẩm liên quan" />
-            {filtered.length === 0 ? (
-              <Card className="p-8 text-center text-muted text-sm">Không tìm thấy danh mục phù hợp với &ldquo;{q}&rdquo;.</Card>
-            ) : (
-              <div className="grid gap-4 [grid-template-columns:repeat(auto-fill,minmax(240px,1fr))]">
-                {filtered.map((c, i) => {
-                  const Icon = iconFor(i + 3);
-                  const count = countFor(c);
-                  const subCount = (c.children ?? []).length;
-                  return (
-                    <Link key={c.id} href={`/?category=${c.id}#market`} className="group animate-rise" style={{ animationDelay: `${i * 30}ms` }}>
-                      <Card interactive className="p-5 h-full flex flex-col">
-                        <span className="grid place-items-center h-11 w-11 rounded-lg bg-raised border border-line text-iris group-hover:bg-iris-soft group-hover:border-iris/20 transition-colors">
-                          <Icon size={19} />
-                        </span>
-                        <div className="mt-4 font-medium text-[15px]">{c.name}</div>
-                        <div className="text-[12.5px] text-muted mt-0.5 flex-1">
-                          {count} sản phẩm{subCount > 0 && ` · ${subCount} danh mục con`}
-                        </div>
-                        <span className={cn("mt-3 inline-flex items-center gap-1 text-[12.5px] font-medium transition-colors",
-                          count > 0 ? "text-iris group-hover:text-iris-hi" : "text-faint")}>
-                          {count > 0 ? "Khám phá" : "Sắp có hàng"} <ArrowRight size={13} />
-                        </span>
-                      </Card>
-                    </Link>
-                  );
-                })}
-              </div>
-            )}
-          </section>
-
-          {/* ============ WHY BROWSE BY CATEGORY ============ */}
-          <section className="border-y border-line bg-surface">
-            <div className="w-full mx-auto max-w-[1200px] px-6 py-12">
-              <SectionHead title="Vì sao nên duyệt theo danh mục" sub="Tìm đúng thứ bạn cần nhanh hơn" />
-              <div className="grid gap-5 sm:grid-cols-3">
-                {[
-                  { icon: <Search size={20} />, title: "Lọc chính xác", desc: "Mỗi danh mục gom đúng nhóm sản phẩm, giúp bạn so sánh giá và gói dễ dàng hơn." },
-                  { icon: <Shield size={20} />, title: "Ký quỹ mọi giao dịch", desc: "Dù chọn danh mục nào, mọi đơn hàng đều được bảo vệ bằng ký quỹ minh bạch." },
-                  { icon: <Bolt size={20} />, title: "Giao ngay tự động", desc: "Nhiều sản phẩm trong từng danh mục hỗ trợ giao hàng tức thì sau thanh toán." },
-                ].map((item) => (
-                  <Card key={item.title} className="p-5">
-                    <span className="grid place-items-center h-10 w-10 rounded-lg bg-iris-soft text-iris border border-iris/15">
-                      {item.icon}
-                    </span>
-                    <div className="mt-4 font-medium text-[15px]">{item.title}</div>
-                    <p className="mt-1 text-[13px] text-muted leading-relaxed">{item.desc}</p>
-                  </Card>
-                ))}
-              </div>
-            </div>
-          </section>
-
-          {/* ============ CTA ============ */}
-          <section className="border-t border-line aura">
-            <div className="w-full mx-auto max-w-[1200px] px-6 py-16 text-center">
-              <h2 className="font-serif text-[clamp(1.5rem,2.8vw,2.2rem)] tracking-tight">
-                Không tìm thấy danh mục bạn cần?
-              </h2>
-              <p className="mt-3 text-[14px] text-muted max-w-md mx-auto leading-relaxed">
-                Xem toàn bộ chợ hoặc trở thành nhà bán và mở danh mục mới cho sản phẩm của riêng bạn.
-              </p>
-              <div className="mt-7 flex flex-wrap justify-center gap-3">
-                <Link href="/#market"><Button size="lg">Xem toàn bộ chợ <ArrowRight size={16} /></Button></Link>
-                <Link href="/register"><Button size="lg" variant="secondary">Trở thành nhà bán</Button></Link>
-              </div>
-            </div>
-          </section>
-        </>
+      {/* Danh mục chưa có hàng — một dòng, không chiếm kệ */}
+      {!loading && !error && empty.length > 0 && (
+        <p className="mt-5 text-[12.5px] text-faint">
+          Sắp có hàng: {empty.map((c) => c.name).join(" · ")}
+        </p>
       )}
-    </div>
-  );
-}
-
-function SectionHead({ title, sub }: { title: string; sub: string }) {
-  return (
-    <div className="mb-6">
-      <h2 className="font-serif text-[24px] tracking-tight">{title}</h2>
-      <p className="text-[13.5px] text-muted mt-1">{sub}</p>
     </div>
   );
 }

@@ -1,6 +1,13 @@
 [
   {
     "date": "2026-07-29",
+    "macrostructure": "Aisle shelves (hub) + Category listing page (browse grid)",
+    "theme": "preserved project system (Proxora light — giữ nguyên token/type)",
+    "enrichment": "none",
+    "brief": "Redesign luồng danh mục: /categories thành dãy kệ có sản phẩm thật, route mới /categories/[id] (URL bền, chip con, sort/lọc), ProductTile giàu thông tin dùng chung, breadcrumb khứ hồi"
+  },
+  {
+    "date": "2026-07-29",
     "macrostructure": "Workbench (commerce two-column: document left, order-slip right)",
     "theme": "preserved project system (Proxora light — Newsreader/Be Vietnam Pro/JetBrains Mono, iris accent, ink-panel cap)",
     "enrichment": "none",

@@ -14,7 +14,8 @@ import { flattenCategories, subtreeIds } from "@/lib/categories";
 import { useAuth } from "@/lib/auth";
 import type { Category, Order, Product, SellerSummary } from "@/lib/types";
 import { Button, Card, Spinner } from "@/components/ui";
-import { ArrowRight, Check, Store } from "@/components/Icons";
+import { ArrowRight, Check } from "@/components/Icons";
+import { categoryIcon } from "@/components/CategoryIcon";
 import { PriceBoard } from "@/components/home/PriceBoard";
 import { MarketSection } from "@/components/home/MarketSection";
 import { FeaturedSection } from "@/components/home/FeaturedSection";
@@ -146,18 +147,23 @@ function HomeInner() {
             {flatCats
               .map((c) => ({ c, count: products.filter((p) => subtreeIds(c).includes(p.category_id)).length }))
               .filter((x) => x.count > 0)
-              .map(({ c, count }) => (
-                <button key={c.id} onClick={() => { setActive(c.id); document.getElementById("market")?.scrollIntoView({ behavior: "smooth" }); }}
-                  className="text-left">
-                  <Card interactive className="p-3 sm:p-5 h-full">
-                    <span className="grid place-items-center h-8 w-8 sm:h-10 sm:w-10 rounded-lg bg-iris-soft text-iris border border-iris/15">
-                      <Store size={15} />
-                    </span>
-                    <div className="mt-2.5 sm:mt-4 font-medium text-[13.5px] sm:text-[15px]">{c.name}</div>
-                    <div className="text-[11.5px] sm:text-[12.5px] text-muted mt-0.5">{count} sản phẩm</div>
-                  </Card>
-                </button>
-              ))}
+              .map(({ c, count }) => {
+                const Icon = categoryIcon(c.name);
+                return (
+                  // Vào danh mục = sang TRANG danh mục (URL bền) — nhất quán với
+                  // hub /categories; pills ở section Market bên dưới vẫn là filter
+                  // tại chỗ cho ai muốn lọc nhanh.
+                  <Link key={c.id} href={`/categories/${c.id}`} className="block">
+                    <Card interactive className="p-3 sm:p-5 h-full">
+                      <span className="grid place-items-center h-8 w-8 sm:h-10 sm:w-10 rounded-lg bg-iris-soft text-iris border border-iris/15">
+                        <Icon size={15} />
+                      </span>
+                      <div className="mt-2.5 sm:mt-4 font-medium text-[13.5px] sm:text-[15px]">{c.name}</div>
+                      <div className="text-[11.5px] sm:text-[12.5px] text-muted mt-0.5">{count} sản phẩm</div>
+                    </Card>
+                  </Link>
+                );
+              })}
           </div>
         </section>
       )}

@@ -10,6 +10,7 @@ import { Activity, ArrowRight, Edit2, Eye, Info, Sliders, Users } from "@/compon
 import { STRATEGY_INFO, STRATEGY_FORMULAS, ADAPTER_INFO, PARAM_LABELS, formatParamValue } from "@/lib/pricing-config";
 import { PricingParamsEditor } from "@/components/PricingParamsEditor";
 import { isAdapterCompatible, type CompatMatrix } from "@/lib/compat";
+import { SERVICE_LABELS } from "@/lib/labels";
 
 const CONTENT_EMPTY = { title: "", service_type: "other", status: "active", escrow_days: 2, highlight_text: "", description: "", warranty_text: "" };
 
@@ -18,11 +19,6 @@ const STATUS_MAP: Record<string, { label: string; tone: "good" | "warn" | "bad" 
   draft: { label: "Nháp", tone: "neutral" },
   paused: { label: "Tạm dừng", tone: "warn" },
   suspended: { label: "Bị khoá", tone: "bad" },
-};
-
-const SERVICE_LABELS: Record<string, string> = {
-  account: "Tài khoản", proxy: "Proxy", token: "Token", endpoint: "Endpoint",
-  cloud: "Cloud", payment: "Thanh toán", takedown: "Takedown", other: "Khác",
 };
 
 export default function AdminProductDetail() {

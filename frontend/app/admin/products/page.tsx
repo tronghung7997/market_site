@@ -28,21 +28,10 @@ import { Banner, Card, Tag } from "@/components/ui";
 import { useDebounce } from "@/lib/hooks/useDebounce";
 import { FacetSelect, buildFacetOptions } from "@/components/admin";
 import { ProductStatusBadge, StatusBadge } from "@/components/admin/status-badge";
+import { SERVICE_LABELS } from "@/lib/labels";
 import type { AdminProduct } from "@/lib/types";
 
 const DEFAULT_PAGE_SIZE = 20;
-
-// Service type labels
-const SERVICE_LABELS: Record<string, string> = {
-  account: "Tài khoản",
-  proxy: "Proxy",
-  token: "Token",
-  endpoint: "Endpoint",
-  cloud: "Cloud",
-  payment: "Thanh toán",
-  takedown: "Takedown",
-  other: "Khác",
-};
 
 // Tab trạng thái — "needs_setup" lọc theo cấu hình (provider/pricing),
 // không phải ProductStatus, nên không nằm trong thanh phân bố.

@@ -57,35 +57,39 @@ Cấu trúc đích — colocate trong thư mục route:
 - [x] `page.tsx` còn ~140 dòng — đọc như mục lục trang.
 - [x] Doc-comment 1 đoạn đầu mỗi file: làm gì, interface, invariant.
 
-## Đợt 2 — `app/orders` (1.075 dòng → ~5 file)
+## Đợt 2 — `app/orders` (1.075 dòng → page 239 dòng + 5 module) ✅
 
-- [ ] Tách `OrderCard.tsx` (khối render ~120 dòng, 8 nhánh tính năng) +
-      `ReviewForm.tsx` (state form rời khỏi cấp page).
-- [ ] Tách `OrderProxyPanel.tsx` (+ `ProxyWhitelistBox`) — giữ nguyên ruột.
-- [ ] Tách `OrderFilters.tsx` (search/date/sort/tab) + dùng `useDebounce` chung.
-- [ ] `DisputeModal` dùng `components/ui/dialog` (radix có sẵn) thay modal tay.
-- [ ] Pagination inline (dòng ~1032) → `components/ui/pagination`.
-- [ ] Status maps → `lib/order-status`.
+- [x] Tách `OrderCard.tsx` + `ReviewForm.tsx` (state form nội bộ, mount mới = form sạch).
+- [x] Tách `OrderProxyPanel.tsx` (+ `ProxyWhitelistBox`) — giữ nguyên ruột.
+- [x] Tách `OrderFilters.tsx` — useOrderFilters (params memo) + StatusTabs + FilterCard.
+- [x] `DisputeModal` dùng radix dialog — được focus-trap/ESC/nút đóng.
+- [x] Pagination inline → `Pagination` trong ui.tsx (bản buyer).
+- [x] Status maps → `lib/order-status`. Verify bằng flow mua thật (đơn #95:
+      đặt → giao → xác nhận → đánh giá). Bug CÓ SẴN ghi nhận: response confirm
+      thiếu product_title → card hiện "??" tới khi reload.
 
-## Đợt 3 — `app/wallet`
+## Đợt 3 — `app/wallet` ✅
 
-- [ ] ⚠️ Bỏ toàn bộ 8 `alert()` → lỗi/validation inline tại field (pattern
-      `depositErr` đã có sẵn trong chính file này).
-- [ ] Tách `DepositCard.tsx` / `WithdrawCard.tsx` (khối seller) /
+- [x] ⚠️ Bỏ toàn bộ 8 `alert()` → lỗi/validation inline tại field.
+- [x] Tách `DepositCard.tsx` / `WithdrawCard.tsx` + `WithdrawHistory` /
       `TransactionList.tsx`; giữ `describeTransaction()` + `Promise.allSettled`.
-- [ ] Gộp 2 formatter đếm ngược ("còn X phút") wallet + orders → `lib/time.ts`.
+- [x] Gộp 2 formatter đếm ngược → `lib/time.ts` (timeLeftLabel thô + timeLeftFine mịn).
 
 ## Đợt 4 — `app/page.tsx` (home)
 
-- [ ] ⚠️ Fix N+1 (hiện `api.products()` rồi `api.product(id)` cho TỪNG sản phẩm):
-      bước tạm FE-only — chỉ fetch detail cho sản phẩm hiển thị (priceboard +
-      featured); bước đúng — backend thêm `min_price`/`stock` vào list response
-      (marketplace-svc, đề xuất riêng).
-- [ ] Một `ProductTile` dùng chung (hiện 4 bản: bảng, lưới, featured, related).
-- [ ] Tách section: Hero/PriceBoard, Market, Featured, Sellers, RecentOrders,
-      HowItWorks/WhyUs, Faq.
-- [ ] ⚠️ Quyết định nội dung bịa: 3 testimonial hardcode + badge "4.9/5 từ
-      1.200+ doanh nghiệp" — gỡ hoặc thay số thật (chờ chủ sản phẩm chốt).
+- [x] ⚠️ Fix N+1 — làm bản ĐÚNG luôn thay vì bản vá FE: backend GET /products
+      trả kèm variants (serializer dùng chung với detail), FE 1 request thay
+      cho ~35; đo thực tế /products ×1, /products/:id ×0. Hiển thị y hệt cũ.
+- [x] ~~Một ProductTile dùng chung~~ — xem xét lại: 4 chỗ là 3 thiết kế thông
+      tin khác nhau (bảng ≠ tile lưới ≠ card featured), ép 1 component thành
+      prop soup. Monogram (phần logic trùng thật) đã dùng chung. Để mở tới khi
+      chốt lại thiết kế card.
+- [x] Tách section → components/home/*: PriceBoard · MarketSection ·
+      FeaturedSection · CommunitySections · StaticSections · SectionHead;
+      page.tsx 679 → ~200 dòng.
+- [ ] ⚠️ Quyết định nội dung dựng sẵn: 3 testimonial + badge "4.9/5 từ 1.200+
+      doanh nghiệp" — GIỮ NGUYÊN chờ chủ sản phẩm chốt gỡ hay thay số thật
+      (đã đánh dấu ⚠️ trong StaticSections.tsx).
 
 ## Đợt 5 — Chiến lược (bàn riêng, chưa làm)
 

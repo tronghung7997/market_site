@@ -1,5 +1,11 @@
 "use client";
 
+/* Hallmark · genre: modern-minimal · macrostructure: Workbench (commerce two-column:
+ * document left, order-slip right) · theme: preserved project system (Proxora light —
+ * Newsreader / Be Vietnam Pro / JetBrains Mono, iris accent) · enrichment: none —
+ * function carries the page · pre-emit critique: P4 H5 E4 S4 R5 V4
+ */
+
 import Link from "next/link";
 import { useParams, useRouter } from "next/navigation";
 import { useEffect, useRef, useState } from "react";
@@ -7,20 +13,23 @@ import { api, vnd, ApiError } from "@/lib/api";
 import { effectiveMinPrice } from "@/lib/pricing-display";
 import { useAuth } from "@/lib/auth";
 import { cn } from "@/lib/cn";
-import { formatDate } from "@/lib/utils";
-import type { Order, PricingOptions, Product, ProductDetail, Review, Variant } from "@/lib/types";
+import { formatDate, formatSpecKey as fmtKey } from "@/lib/utils";
+import type { Order, Product, ProductDetail, Review, Variant } from "@/lib/types";
 import { Button, Card, Spinner, Tag } from "@/components/ui";
 import {
-  ArrowRight, Bolt, Check, ChevronRight, Clock, Copy, Info,
-  MessageCircle, Package, Shield, Star, Verified, X,
+  Bolt, Check, ChevronRight, Clock, Copy, MessageCircle, Shield, Star, Verified, X,
 } from "@/components/Icons";
 import DynamicOrderForm from "@/components/DynamicOrderForm";
+import { MarkdownContent } from "@/components/MarkdownContent";
 
 const SERVICE_LABELS: Record<string, string> = {
   proxy: "Proxy", account: "Tài khoản", token: "Token",
   endpoint: "Endpoint", takedown: "Takedown", cloud: "Cloud",
   payment: "Thanh toán", other: "Khác",
 };
+
+/** Gói mua được ngay: có giá thật và (giao tay hoặc còn kho). */
+const purchasable = (v: Variant) => v.price > 0 && (v.delivery_mode !== "instant" || v.stock_count > 0);
 
 export default function ProductPage() {
   const { id } = useParams<{ id: string }>();
@@ -34,32 +43,21 @@ export default function ProductPage() {
   const [placing, setPlacing] = useState(false);
   const [placeError, setPlaceError] = useState<string | null>(null);
   const [order, setOrder] = useState<Order | null>(null);
-  const [tab, setTab] = useState<"detail" | "review" | "policy">("detail");
   const [related, setRelated] = useState<Product[]>([]);
   const [showConfirm, setShowConfirm] = useState(false);
   const [pricingStrategy, setPricingStrategy] = useState<string | null>(null);
 
-  // Panel đặt hàng bị đưa ra khỏi flow (`lg:absolute`) ở desktop để tránh bug
-  // CSS Grid row-span (xem comment tại JSX bên dưới) — nhưng vì vậy container
-  // `relative` cha không còn "biết" chiều cao thật của panel, nên khi panel
-  // cao hơn cột trái (rất thường gặp — panel DProxy 3 field + total + button
-  // dễ cao hơn một header card ngắn không mô tả), panel sẽ tràn xuống ĐÈ LÊN
-  // footer thay vì chỉ để lại khoảng trắng. Đo chiều cao panel thật bằng
-  // ResizeObserver rồi ép container cha cao tối thiểu bằng đúng số đó —
-  // không còn tràn, không còn khoảng trắng giả, đúng cả hai chiều.
+  // Thanh CTA dính đáy trên mobile: chỉ hiện khi phiếu đặt hàng đã cuộn khuất.
   const panelRef = useRef<HTMLDivElement>(null);
-  const [panelHeight, setPanelHeight] = useState(0);
+  const [panelInView, setPanelInView] = useState(true);
   useEffect(() => {
-    // `panelRef` chỉ có giá trị SAU khi `loading` chuyển false (panel nằm
-    // trong nhánh render "đã tải xong") — thiếu `loading` trong dependency
-    // array thì effect chạy đúng một lần lúc panelRef.current còn null (lúc
-    // đang loading), rồi không bao giờ chạy lại nữa vì pricingStrategy/order
-    // sau đó không đổi thêm lần nào, nên observer không bao giờ được gắn.
+    // panelRef chỉ tồn tại sau khi loading chuyển false — thiếu `loading`
+    // trong deps thì effect chạy một lần lúc ref còn null rồi thôi.
     const el = panelRef.current;
     if (!el) return;
-    const ro = new ResizeObserver((entries) => setPanelHeight(entries[0].contentRect.height));
-    ro.observe(el);
-    return () => ro.disconnect();
+    const io = new IntersectionObserver(([e]) => setPanelInView(e.isIntersecting));
+    io.observe(el);
+    return () => io.disconnect();
   }, [loading, pricingStrategy, order]);
 
   useEffect(() => {
@@ -67,8 +65,15 @@ export default function ProductPage() {
       try {
         const p = await api.product(Number(id));
         setProduct(p);
-        const firstInStock = p.variants.find((v) => v.delivery_mode !== "instant" || v.stock_count > 0);
-        setSelected(firstInStock ?? p.variants[0] ?? null);
+        // Mặc định chọn gói mua được ngay — không bao giờ mở trang bằng một
+        // CTA chết (gói "Liên hệ" 0đ hoặc gói hết hàng chỉ được chọn khi
+        // không còn lựa chọn nào khác).
+        setSelected(
+          p.variants.find(purchasable)
+            ?? p.variants.find((v) => v.price > 0)
+            ?? p.variants[0]
+            ?? null,
+        );
         // Fetch pricing strategy to decide which order form to show
         try {
           const opts = await api.pricingOptions(Number(id));
@@ -83,6 +88,8 @@ export default function ProductPage() {
             const seen = new Set<string>();
             setRelated(all.filter((r) => {
               if (r.id === p.id) return false;
+              // Trùng tên với sản phẩm đang xem → buyer tưởng trang tự lặp lại chính nó.
+              if (r.title === p.title) return false;
               if (r.title.length < 3) return false;
               if (seen.has(r.title)) return false;
               seen.add(r.title);
@@ -126,203 +133,106 @@ export default function ProductPage() {
   const instant = selected?.delivery_mode === "instant";
   const selectedOutOfStock = !!selected && instant && selected.stock_count <= 0;
   const useDynamicForm = pricingStrategy != null && pricingStrategy !== "fixed";
-  // effectiveMinPrice xử lý cả 3 nguồn: variants → config (base × mult nhỏ
-  // nhất × kỳ hạn ngắn nhất/30 — hiện thẳng base_price từng làm key xoay 24h
-  // đề "Từ 120.000đ" trong khi giá thật 4.000đ) → credit (đơn giá × gói nhỏ nhất).
-  const minPrice = effectiveMinPrice(product);
-  const pricePrefix = useDynamicForm ? "Từ " : "";
   const totalStock = product.variants.reduce((s, v) => s + v.stock_count, 0);
   const sellerName = product.seller_email?.split("@")[0] ?? "seller";
+  const contactOnly = !!selected && selected.price === 0;
+
+  const maxQty = selected && instant ? Math.max(1, selected.stock_count) : 999;
+  const setQtyClamped = (n: number) => setQty(Math.min(Math.max(1, n), maxQty));
+  const pickVariant = (v: Variant) => {
+    setSelected(v);
+    setPlaceError(null);
+    setQty((q) => Math.min(q, v.delivery_mode === "instant" ? Math.max(1, v.stock_count) : 999));
+  };
+
+  const specEntries = product.specs ? Object.entries(product.specs) : [];
 
   return (
-    <div className="w-full mx-auto max-w-[1200px] px-6 py-6">
+    <div className="w-full mx-auto max-w-[1200px] px-4 sm:px-6 py-5 sm:py-6">
       {/* Breadcrumb */}
-      <nav className="flex items-center gap-1.5 text-[12.5px] text-muted mb-3">
-        <Link href="/" className="hover:text-fg transition-colors">Chợ</Link>
-        <ChevronRight size={12} className="text-faint" />
+      <nav aria-label="Breadcrumb" className="flex items-center gap-1.5 text-[12.5px] text-muted mb-4">
+        <Link href="/" className="hover:text-fg transition-colors shrink-0">Chợ</Link>
+        <ChevronRight size={12} className="text-faint shrink-0" />
         {product.category_name && (
           <>
-            <span className="text-fg">{product.category_name}</span>
-            <ChevronRight size={12} className="text-faint" />
+            <Link href="/categories" className="hover:text-fg transition-colors shrink-0">{product.category_name}</Link>
+            <ChevronRight size={12} className="text-faint shrink-0" />
           </>
         )}
-        <span className="text-faint truncate max-w-[600px]">{product.title}</span>
+        <span className="text-faint truncate">{product.title}</span>
       </nav>
 
-      {/* === MAIN LAYOUT: content left, floating sticky order panel right ===
-           v2 — CSS Grid row-span (v1 fix) vẫn còn một khoảng trắng: panel ghép
-           chung row-1 với khối header, nên nếu panel cao hơn header (rất
-           thường gặp — panel DProxy có 3 field + total + button dễ cao hơn một
-           header card ngắn), row-1 bị Grid kéo giãn theo panel, để lại khoảng
-           trắng dưới header trước khi tab bắt đầu — về bản chất là cùng một họ
-           bug, chỉ nhỏ hơn. Gốc rễ: CSS Grid LUÔN buộc track chứa item row-span
-           cao bằng chính item đó, bất kể items-start — items-start chỉ ngăn nội
-           dung bị kéo giãn ra *nhìn thấy được*, không thu nhỏ track. Không có
-           cách nào dùng grid row-span cho sidebar mà tránh được việc này.
+      {/* Workbench: tài liệu sản phẩm bên trái, phiếu đặt hàng bên phải.
+          Hàng 1 (auto) = khối định danh, hàng 2 (1fr) = phần đọc thêm; panel
+          span cả hai hàng nên phần cao dư của nó rơi vào track 1fr — không còn
+          khoảng trắng chen giữa header và nội dung, không cần đo đạc JS.
+          Mobile giữ nguyên thứ tự DOM: định danh → phiếu đặt → đọc thêm. */}
+      <div className="lg:grid lg:grid-cols-[minmax(0,1fr)_380px] lg:grid-rows-[auto_1fr] lg:gap-7">
 
-           Fix triệt để: đưa panel ra khỏi flow hoàn toàn bằng absolute, để
-           chiều cao cột trái (header + tab) không còn phụ thuộc panel chút
-           nào, và ngược lại:
-             - Container ngoài: `relative` — làm điểm neo cho absolute.
-             - Header & tab: 2 khối bình thường, xếp chồng tự nhiên, chừa chỗ
-               phải bằng `lg:pr-[364px]` (340px panel + 24px gap) để chữ không
-               chạy dưới panel.
-             - Panel: MỘT instance duy nhất (không render 2 lần — panel có
-               state/gọi API riêng, render 2 lần sẽ tạo 2 instance lệch nhau).
-               Mobile: không set position gì cả → nằm đúng vị trí trong DOM,
-               tức là ngay sau header, trước tab — đúng thứ tự buyer cần.
-               Desktop (`lg:`): `absolute inset-y-0 right-0 w-[340px]` — bung
-               ra khỏi flow, `sticky` bên trong — sticky-sidebar chuẩn.
-
-           Hệ quả của việc bung panel khỏi flow: container `relative` cha
-           không còn "biết" chiều cao thật của panel nữa — nếu panel cao hơn
-           cột trái (rất thường gặp với sản phẩm mô tả ngắn), panel sẽ TRÀN
-           XUỐNG ĐÈ LÊN footer thay vì chỉ để lại khoảng trắng như Grid. Sửa
-           bằng cách đo chiều cao panel thật qua ResizeObserver (xem
-           `panelHeight` state) rồi ép container cha cao tối thiểu bằng đúng
-           số đó (`--panel-h` + `lg:min-h-[var(--panel-h)]`) — hết tràn, hết
-           khoảng trắng giả, đúng trong mọi trường hợp nội dung dài/ngắn. */}
-      <div
-        className="relative lg:min-h-[var(--panel-h)]"
-        style={panelHeight ? ({ "--panel-h": `${panelHeight}px` } as React.CSSProperties) : undefined}
-      >
-
-        {/* ---- Header / specs / chọn gói ---- */}
-        <div className="min-w-0 lg:pr-[364px]">
-
-          {/* Product header card — contains title, seller, price, highlight */}
-          <Card className="overflow-hidden">
-            <div className="h-0.5 flex">
-              <span className="flex-1 bg-good/60" />
-              <span className="flex-1 bg-iris/60" />
-              <span className="flex-1 bg-warn/60" />
+        {/* ---- Định danh sản phẩm ---- */}
+        <section className="min-w-0">
+          <Card className="p-5 sm:p-6">
+            <div className="flex flex-wrap items-center gap-1.5">
+              <Tag tone="iris">{SERVICE_LABELS[product.service_type ?? "other"] ?? "Khác"}</Tag>
+              <Tag tone="good">Đang bán</Tag>
+              <Tag tone="neutral"><Shield size={11} /> Ký quỹ {product.escrow_days} ngày</Tag>
             </div>
 
-            <div className="p-5">
-              {/* Title + badges */}
-              <div className="flex items-start gap-3">
-                <span className="grid place-items-center h-10 w-10 shrink-0 rounded-lg bg-iris/8 border border-iris/15 font-serif text-[15px] font-bold text-iris-hi">
-                  {product.title.slice(0, 2).toUpperCase()}
-                </span>
-                <div className="min-w-0 flex-1">
-                  <h1 className="font-serif text-[20px] leading-tight tracking-tight font-semibold">{product.title}</h1>
-                  <div className="flex flex-wrap items-center gap-1.5 mt-1.5">
-                    <Tag tone="iris">{SERVICE_LABELS[product.service_type ?? "other"] ?? "Khác"}</Tag>
-                    <Tag tone="good">Đang bán</Tag>
-                    <Tag tone="neutral"><Shield size={11} /> Ký quỹ {product.escrow_days}d</Tag>
-                  </div>
-                </div>
-              </div>
+            <h1 className="mt-3 font-serif text-[24px] sm:text-[28px] leading-[1.18] tracking-tight font-semibold">
+              {product.title}
+            </h1>
 
-              {/* Price + stats */}
-              <div className="flex flex-wrap items-end gap-x-5 gap-y-1 mt-4 pt-3 border-t border-line">
-                <span className="font-mono text-[24px] font-bold tabular text-iris-hi">{minPrice > 0 ? `${pricePrefix}${vnd(minPrice)}` : "Tuỳ cấu hình"}</span>
-                <div className="flex items-center gap-3 text-[12.5px] text-muted pb-0.5">
-                  {product.rating_avg != null && product.rating_count > 0 && (
-                    <span className="flex items-center gap-1">
-                      <Star size={12} className="text-warn fill-warn" />
-                      <span className="font-medium text-fg">{product.rating_avg.toFixed(1)}</span>
-                      <span>({product.rating_count})</span>
-                    </span>
-                  )}
-                  {product.sold_count > 0 && <span>Đã bán {product.sold_count.toLocaleString("vi-VN")}</span>}
-                  {totalStock > 0 && <span className="text-good font-medium">{totalStock} có sẵn</span>}
-                </div>
-              </div>
-
-              {/* Seller row */}
-              <div className="flex items-center gap-2.5 mt-3 pt-3 border-t border-line text-[12.5px]">
-                <Link href={`/sellers/${product.seller_id}`} className="flex items-center gap-2.5 hover:underline">
-                  <span className="grid place-items-center h-6 w-6 rounded-full bg-raised border border-line text-[9px] font-bold text-muted">
-                    {sellerName.slice(0, 2).toUpperCase()}
-                  </span>
-                  <span className="font-medium">{sellerName}</span>
-                </Link>
-                <Tag tone="good"><Verified size={10} /> Xác minh</Tag>
-                <button className="ml-auto flex items-center gap-1 text-iris-hi hover:underline">
-                  <MessageCircle size={11} /> Nhắn tin
-                </button>
-              </div>
-
-              {/* Highlight */}
-              {product.highlight_text && (
-                <div className="flex items-center gap-2 mt-3 px-3 py-2 rounded-md bg-iris/4 border border-iris/10 text-[12.5px]">
-                  <Bolt size={13} className="text-iris-hi shrink-0" />
-                  <span>{product.highlight_text}</span>
-                </div>
+            <div className="flex flex-wrap items-center gap-x-4 gap-y-1 mt-2.5 text-[13px] text-muted">
+              {product.rating_avg != null && product.rating_count > 0 && (
+                <a href="#reviews" className="flex items-center gap-1 hover:text-fg transition-colors">
+                  <Star size={13} className="text-warn fill-warn" />
+                  <span className="font-semibold text-fg">{product.rating_avg.toFixed(1)}</span>
+                  <span className="underline decoration-line-2 underline-offset-2">{product.rating_count} đánh giá</span>
+                </a>
               )}
+              {product.sold_count > 0 && <span>Đã bán {product.sold_count.toLocaleString("vi-VN")}</span>}
+              {totalStock > 0 && <span className="text-good font-medium">{totalStock} sẵn hàng</span>}
             </div>
+
+            {/* Seller */}
+            <div className="flex items-center gap-3 mt-4 pt-4 border-t border-line">
+              <span className="grid place-items-center h-8 w-8 shrink-0 rounded-full bg-raised border border-line text-[10px] font-bold text-muted">
+                {sellerName.slice(0, 2).toUpperCase()}
+              </span>
+              <div className="min-w-0 flex-1">
+                <div className="flex items-center gap-1.5 flex-wrap">
+                  <Link href={`/sellers/${product.seller_id}`} className="text-[13px] font-medium hover:underline truncate">
+                    {sellerName}
+                  </Link>
+                  <Tag tone="good"><Verified size={10} /> Xác minh</Tag>
+                </div>
+                <div className="text-[11.5px] text-faint mt-0.5">Gian hàng trên Proxora</div>
+              </div>
+              <Link
+                href={`/sellers/${product.seller_id}`}
+                className="shrink-0 flex items-center gap-1.5 text-[12.5px] font-medium text-iris-hi hover:underline"
+              >
+                <MessageCircle size={12} /> Nhắn tin
+              </Link>
+            </div>
+
+            {product.highlight_text && (
+              <div className="flex items-start gap-2 mt-4 px-3.5 py-2.5 rounded-lg bg-iris/4 border border-iris/12 text-[12.5px] leading-relaxed">
+                <Bolt size={13} className="text-iris-hi shrink-0 mt-0.5" />
+                <span>{product.highlight_text}</span>
+              </div>
+            )}
           </Card>
+        </section>
 
-          {/* Specs table */}
-          {product.specs && Object.keys(product.specs).length > 0 && (
-            <Card className="overflow-hidden mt-4">
-              <div className="px-4 py-2 border-b border-line">
-                <span className="text-[12px] font-semibold text-muted uppercase tracking-wider">Thông số</span>
-              </div>
-              <div className="divide-y divide-line">
-                {Object.entries(product.specs).map(([key, val]) => (
-                  <div key={key} className="flex text-[13px]">
-                    <span className="w-[120px] shrink-0 px-4 py-2 text-muted bg-raised/40">{fmtKey(key)}</span>
-                    <span className="px-4 py-2 whitespace-pre-wrap flex-1">{val}</span>
-                  </div>
-                ))}
-              </div>
-            </Card>
-          )}
-
-          {/* Variant selection — only for fixed pricing */}
-          {!useDynamicForm && (
-            <div className="mt-4">
-              <div className="text-[12px] font-semibold text-muted uppercase tracking-wider mb-2">Chọn gói ({product.variants.length})</div>
-              <div className="space-y-1.5">
-                {product.variants.map((v) => {
-                  const on = selected?.id === v.id;
-                  const outOfStock = v.delivery_mode === "instant" && v.stock_count <= 0;
-                  return (
-                    <button key={v.id} onClick={() => setSelected(v)}
-                      className={cn(
-                        "w-full flex items-center gap-3 px-4 py-3 rounded-lg border text-left transition-all",
-                        on ? "border-iris bg-iris/4 shadow-[inset_3px_0_0_var(--color-iris)]"
-                          : "border-line bg-surface hover:border-line-2",
-                      )}>
-                      <div className="flex-1 min-w-0">
-                        <div className="text-[13px] font-medium leading-snug">{v.name}</div>
-                        <div className="flex items-center gap-2 mt-0.5">
-                          {v.delivery_mode === "instant"
-                            ? <Tag tone="good"><Bolt size={10} /> Giao ngay</Tag>
-                            : <Tag tone="warn"><Clock size={10} /> {v.sla_hours}h</Tag>}
-                          {outOfStock ? (
-                            <Tag tone="bad">Hết hàng</Tag>
-                          ) : v.delivery_mode === "instant" && (
-                            <span className="text-[11px] text-faint">Kho: {v.stock_count}</span>
-                          )}
-                        </div>
-                      </div>
-                      <span className="font-mono text-[14px] font-semibold tabular shrink-0">
-                        {v.price > 0 ? vnd(v.price) : "Liên hệ"}
-                      </span>
-                    </button>
-                  );
-                })}
-              </div>
-            </div>
-          )}
-        </div>
-
-        {/* ---- Panel đặt hàng — MỘT instance duy nhất, xem giải thích ở
-             container phía trên. Mobile: nằm ngay đây trong flow bình thường.
-             Desktop: bung khỏi flow, dán bên phải. ---- */}
-        <div className="mt-6 lg:mt-0 lg:absolute lg:inset-y-0 lg:right-0 lg:w-[340px]">
-          {/* ref đo trên div KHÔNG bị stretch (chỉ sticky, không inset-y-0) —
-              đo trên div cha (có inset-y-0) sẽ ra chiều cao đã bị kéo giãn
-              theo min-h ở container ngoài, tạo vòng lặp phụ thuộc sai. */}
-          <div ref={panelRef} className="lg:sticky lg:top-20">
+        {/* ---- Phiếu đặt hàng — toàn bộ luồng mua nằm ở một chỗ ---- */}
+        <aside className="mt-5 lg:mt-0 lg:col-start-2 lg:row-start-1 lg:row-span-2 min-w-0">
+          <div ref={panelRef} className="lg:sticky lg:top-20 scroll-mt-20">
             {useDynamicForm ? (
               order ? (
-                <Card className="overflow-hidden">
-                  <div className="px-5 py-3 border-b border-line bg-raised/30">
-                    <span className="text-[13px] font-semibold">Đặt hàng</span>
+                <Card className="overflow-hidden shadow-card-lg">
+                  <div className="flex items-center justify-between px-5 h-11 bg-ink-panel dotgrid-dark">
+                    <span className="text-[12.5px] font-semibold tracking-wide text-white/95">Đặt hàng</span>
                   </div>
                   <div className="p-5">
                     <OrderResult order={order} onRebuy={() => { setOrder(null); setQty(1); }} />
@@ -332,55 +242,132 @@ export default function ProductPage() {
                 <DynamicOrderForm productId={Number(id)} product={product} onOrderCreated={setOrder} />
               )
             ) : (
-              <Card className="overflow-hidden">
-                <div className="px-5 py-3 border-b border-line flex items-center justify-between bg-raised/30">
-                  <span className="text-[13px] font-semibold">Đặt hàng</span>
-                  {selected && (
-                    <Tag tone={instant ? "good" : "warn"}>{instant ? "Giao ngay" : "Thủ công"}</Tag>
+              <Card className="overflow-hidden shadow-card-lg">
+                <div className="flex items-center justify-between px-5 h-11 bg-ink-panel dotgrid-dark">
+                  <span className="text-[12.5px] font-semibold tracking-wide text-white/95">Đặt hàng</span>
+                  {selected && !order && (
+                    <Tag tone={instant ? "good" : "warn"}>
+                      {instant ? <><Bolt size={10} /> Giao ngay</> : <><Clock size={10} /> Giao trong {selected.sla_hours}h</>}
+                    </Tag>
                   )}
                 </div>
 
                 <div className="p-5">
                   {order ? <OrderResult order={order} onRebuy={() => { setOrder(null); setQty(1); }} /> : (
                     <div className="space-y-4">
-                      {/* Selected variant */}
-                      <div>
-                        <div className="text-[11px] text-faint uppercase tracking-wider mb-1">Gói đã chọn</div>
-                        <div className="text-[13.5px] font-medium line-clamp-2">{selected?.name ?? "—"}</div>
-                      </div>
-
-                      {/* Quantity */}
-                      <div>
-                        <div className="text-[11px] text-faint uppercase tracking-wider mb-1.5">Số lượng</div>
-                        <div className="flex items-center border border-line rounded-lg overflow-hidden w-fit">
-                          <button onClick={() => setQty(Math.max(1, qty - 1))}
-                            className="h-9 w-9 grid place-items-center text-muted hover:text-fg hover:bg-raised transition-colors">−</button>
-                          <input type="number" min={1} value={qty}
-                            onChange={(e) => setQty(Math.max(1, Number(e.target.value) || 1))}
-                            className="h-9 w-12 text-center font-mono text-[13px] font-medium border-x border-line bg-surface" />
-                          <button onClick={() => setQty(qty + 1)}
-                            className="h-9 w-9 grid place-items-center text-muted hover:text-fg hover:bg-raised transition-colors">+</button>
+                      {/* Chọn gói — ngay trong phiếu, giá và tổng cùng một cột nhìn */}
+                      <fieldset>
+                        <legend className="text-[11px] font-semibold text-faint uppercase tracking-wider mb-2">
+                          Chọn gói · {product.variants.length}
+                        </legend>
+                        <div role="radiogroup" className="space-y-1.5 max-h-[304px] overflow-y-auto overscroll-contain pr-0.5">
+                          {product.variants.map((v) => {
+                            const on = selected?.id === v.id;
+                            const oos = v.delivery_mode === "instant" && v.stock_count <= 0;
+                            return (
+                              <button
+                                key={v.id}
+                                role="radio"
+                                aria-checked={on}
+                                disabled={oos}
+                                onClick={() => pickVariant(v)}
+                                className={cn(
+                                  "w-full flex items-center justify-between gap-3 rounded-lg border px-3.5 py-2.5 text-left transition-colors",
+                                  on
+                                    ? "border-iris ring-1 ring-iris bg-iris/4"
+                                    : "border-line bg-surface hover:border-line-2",
+                                  oos && "opacity-55",
+                                )}
+                              >
+                                <span className="min-w-0">
+                                  <span className="block text-[13px] font-medium leading-snug">{v.name}</span>
+                                  <span className="mt-1 flex items-center gap-2 text-[11px] leading-none">
+                                    {v.delivery_mode === "instant" ? (
+                                      oos
+                                        ? <span className="text-bad font-medium">Hết hàng</span>
+                                        : <span className="flex items-center gap-1 text-good"><Bolt size={10} /> Giao ngay · Kho {v.stock_count}</span>
+                                    ) : (
+                                      <span className="flex items-center gap-1 text-warn"><Clock size={10} /> Giao trong {v.sla_hours}h</span>
+                                    )}
+                                  </span>
+                                </span>
+                                <span className="font-mono text-[13px] font-semibold tabular shrink-0">
+                                  {v.price > 0 ? vnd(v.price) : "Liên hệ"}
+                                </span>
+                              </button>
+                            );
+                          })}
                         </div>
-                      </div>
+                      </fieldset>
 
-                      {/* Total */}
-                      <div className="border-t border-line pt-4 flex items-end justify-between">
-                        <span className="text-[12px] text-muted">Tổng cộng</span>
-                        <span className="font-mono text-[22px] font-bold tabular">{vnd(total)}</span>
-                      </div>
+                      {contactOnly ? (
+                        <>
+                          <p className="border-t border-line pt-3.5 text-[12.5px] text-muted leading-relaxed">
+                            Gói theo yêu cầu — thoả thuận cấu hình và giá trực tiếp với người bán trước khi đặt.
+                          </p>
+                          <Link href={`/sellers/${product.seller_id}`} className="block">
+                            <Button size="lg" block>
+                              <MessageCircle size={14} /> Liên hệ người bán
+                            </Button>
+                          </Link>
+                        </>
+                      ) : (
+                        <>
+                          {/* Số lượng */}
+                          <div className="flex items-center justify-between border-t border-line pt-3.5">
+                            <span className="text-[12.5px] text-muted">Số lượng</span>
+                            <div className="flex items-center border border-line rounded-lg overflow-hidden">
+                              <button
+                                aria-label="Giảm số lượng"
+                                onClick={() => setQtyClamped(qty - 1)}
+                                className="h-9 w-9 grid place-items-center text-muted hover:text-fg hover:bg-raised transition-colors"
+                              >−</button>
+                              <input
+                                type="number" min={1} max={maxQty} value={qty} aria-label="Số lượng"
+                                onChange={(e) => setQtyClamped(Number(e.target.value) || 1)}
+                                className="h-9 w-12 text-center font-mono text-[13px] font-medium border-x border-line bg-surface [appearance:textfield] [&::-webkit-inner-spin-button]:appearance-none [&::-webkit-outer-spin-button]:appearance-none"
+                              />
+                              <button
+                                aria-label="Tăng số lượng"
+                                onClick={() => setQtyClamped(qty + 1)}
+                                className="h-9 w-9 grid place-items-center text-muted hover:text-fg hover:bg-raised transition-colors"
+                              >+</button>
+                            </div>
+                          </div>
 
-                      {placeError && <p className="text-bad text-[12.5px]">{placeError}</p>}
+                          {/* Tổng — vùng giá duy nhất của trang */}
+                          <div className="flex items-end justify-between border-t border-line pt-3.5">
+                            <div>
+                              <div className="text-[12.5px] text-muted">Tổng cộng</div>
+                              {qty > 1 && selected && (
+                                <div className="font-mono tabular text-[11px] text-faint mt-1">{qty} × {vnd(selected.price)}</div>
+                              )}
+                            </div>
+                            <span className="font-mono text-[24px] leading-none font-bold tabular text-iris-hi">{vnd(total)}</span>
+                          </div>
 
-                      <Button size="lg" block disabled={!selected || placing || selectedOutOfStock || (selected?.price === 0)} onClick={() => {
-                        if (!account) { router.push("/login"); return; }
-                        setShowConfirm(true);
-                      }}>
-                        {placing ? "Đang xử lý…"
-                          : !account ? "Đăng nhập để mua"
-                          : selectedOutOfStock ? "Hết hàng"
-                          : selected?.price === 0 ? "Liên hệ báo giá"
-                          : instant ? "Mua ngay" : "Đặt hàng"}
-                      </Button>
+                          {placeError && <p className="text-bad text-[12.5px]">{placeError}</p>}
+
+                          <Button
+                            size="lg" block
+                            disabled={!selected || placing || (!!account && selectedOutOfStock)}
+                            onClick={() => {
+                              if (!account) { router.push(`/login?next=/products/${id}`); return; }
+                              setShowConfirm(true);
+                            }}
+                          >
+                            {placing ? "Đang xử lý…"
+                              : !account ? "Đăng nhập để mua"
+                              : selectedOutOfStock ? "Hết hàng"
+                              : instant ? "Mua ngay" : "Đặt hàng"}
+                          </Button>
+                          {!!account && selectedOutOfStock && (
+                            <p className="text-[11.5px] text-faint text-center -mt-1.5">
+                              Gói này tạm hết hàng — chọn gói khác hoặc liên hệ người bán.
+                            </p>
+                          )}
+                        </>
+                      )}
 
                       <p className="text-[11.5px] text-faint leading-relaxed text-center">
                         <Shield size={11} className="inline -mt-0.5 mr-0.5 text-good" />
@@ -392,46 +379,86 @@ export default function ProductPage() {
               </Card>
             )}
           </div>
-        </div>
+        </aside>
 
-        {/* ---- Tab chi tiết + sản phẩm liên quan — đọc thêm sau khi đã quyết ---- */}
-        <div className="min-w-0 mt-6 lg:mt-0 lg:pr-[364px]">
+        {/* ---- Đọc thêm: thông số → mô tả → bảo hành → đánh giá → liên quan ---- */}
+        <div className="min-w-0 mt-7 lg:mt-0 lg:col-start-1 lg:row-start-2 space-y-5">
 
-          {/* Tabs: detail / review / warranty */}
-          <div className="lg:mt-5">
-            <div className="flex gap-0.5 border-b border-line">
-              {([
-                { key: "detail" as const, label: "Chi tiết" },
-                { key: "review" as const, label: "Đánh giá", count: product.rating_count },
-                { key: "policy" as const, label: "Bảo hành" },
-              ]).map((t) => (
-                <button key={t.key} onClick={() => setTab(t.key)}
-                  className={cn(
-                    "px-4 py-2 text-[13px] font-medium -mb-px border-b-2 transition-colors",
-                    tab === t.key ? "border-iris text-fg" : "border-transparent text-muted hover:text-fg",
-                  )}>
-                  {t.label}
-                  {"count" in t && t.count != null && t.count > 0 && (
-                    <span className="ml-1.5 text-[11px] text-faint">{t.count}</span>
-                  )}
-                </button>
-              ))}
+          {specEntries.length > 0 && (
+            <Card className="overflow-hidden">
+              <SectionHead title="Thông số kỹ thuật" />
+              <dl className="grid sm:grid-cols-2 gap-px bg-line">
+                {specEntries.map(([key, val]) => (
+                  <div key={key} className="bg-surface px-5 py-3">
+                    <dt className="text-[10.5px] uppercase tracking-wider text-faint font-semibold">{fmtKey(key)}</dt>
+                    <dd className="mt-1 font-mono text-[12.5px] leading-relaxed whitespace-pre-wrap break-words">{val}</dd>
+                  </div>
+                ))}
+                {specEntries.length % 2 === 1 && <div className="bg-surface hidden sm:block" aria-hidden />}
+              </dl>
+            </Card>
+          )}
+
+          {(product.description || (product.features && product.features.length > 0)) && (
+            <Card className="overflow-hidden">
+              <SectionHead title="Mô tả sản phẩm" />
+              <div className="p-5 space-y-4 text-[13.5px]">
+                {product.description && <MarkdownContent>{product.description}</MarkdownContent>}
+                {product.features && product.features.length > 0 && (
+                  <ul className="grid sm:grid-cols-2 gap-x-6 gap-y-2">
+                    {product.features.map((f, i) => (
+                      <li key={i} className="flex items-start gap-2 text-muted">
+                        <Check size={14} className="text-good mt-0.5 shrink-0" />
+                        <span>{f}</span>
+                      </li>
+                    ))}
+                  </ul>
+                )}
+              </div>
+            </Card>
+          )}
+
+          <Card className="overflow-hidden">
+            <SectionHead
+              title="Bảo hành & ký quỹ"
+              aside={<Tag tone="neutral"><Shield size={11} /> {product.escrow_days} ngày</Tag>}
+            />
+            <div className="p-5 space-y-4 text-[13px]">
+              {product.warranty_text ? (
+                <div className="text-muted leading-relaxed whitespace-pre-line">{product.warranty_text}</div>
+              ) : (
+                <p className="text-muted">Áp dụng chính sách ký quỹ {product.escrow_days} ngày theo quy định Proxora.</p>
+              )}
+              <div className="grid sm:grid-cols-2 gap-x-6 gap-y-2 border-t border-line pt-4 text-muted">
+                {[
+                  `Tiền giữ bởi Proxora trong ${product.escrow_days} ngày`,
+                  "Chỉ chuyển cho người bán khi bạn xác nhận",
+                  "Hoàn tiền 100% nếu không đúng mô tả",
+                  "Mở tranh chấp bất kỳ lúc nào trong thời hạn ký quỹ",
+                ].map((t, i) => (
+                  <div key={i} className="flex items-start gap-2">
+                    <Check size={13} className="text-good mt-0.5 shrink-0" />{t}
+                  </div>
+                ))}
+              </div>
             </div>
+          </Card>
 
-            <div className="py-4">
-              {tab === "detail" && <DetailTab product={product} />}
-              {tab === "review" && <ReviewTab product={product} />}
-              {tab === "policy" && <PolicyTab product={product} />}
+          <Card id="reviews" className="overflow-hidden scroll-mt-24">
+            <SectionHead
+              title="Đánh giá"
+              aside={product.rating_count > 0
+                ? <span className="text-[12px] text-faint">{product.rating_count} lượt</span>
+                : undefined}
+            />
+            <div className="p-5">
+              <ReviewsSection product={product} />
             </div>
-          </div>
+          </Card>
 
-          {/* Related products */}
           {related.length > 0 && (
-            <div className="mt-6">
-              <div className="text-[12px] font-semibold text-muted uppercase tracking-wider mb-3">Sản phẩm liên quan</div>
-              {/* h-full cả chuỗi Link→Card + giá đẩy xuống đáy bằng mt-auto:
-                  card bằng chiều cao nhau dù title 1 hay 2 dòng, và luôn có
-                  giá "Chỉ từ" nên không còn trống trải (feedback 24/07). */}
+            <section>
+              <h2 className="font-serif text-[16px] font-semibold tracking-tight mb-3">Sản phẩm liên quan</h2>
               <div className="grid gap-3 sm:grid-cols-3">
                 {related.map((r) => {
                   const rPrice = effectiveMinPrice(r);
@@ -460,16 +487,51 @@ export default function ProductPage() {
                   );
                 })}
               </div>
-            </div>
+            </section>
           )}
         </div>
       </div>
+
+      {/* Thanh CTA dính đáy — mobile, khi phiếu đặt hàng đã cuộn khuất */}
+      {!order && (
+        <div
+          aria-hidden={panelInView}
+          className={cn(
+            "fixed inset-x-0 bottom-0 z-40 lg:hidden flex items-center gap-3",
+            "border-t border-line bg-surface/95 backdrop-blur-md",
+            "px-4 pt-2.5 pb-[max(0.625rem,env(safe-area-inset-bottom))]",
+            "transition-transform duration-200",
+            panelInView ? "translate-y-full pointer-events-none" : "translate-y-0",
+          )}
+        >
+          <div className="min-w-0 flex-1">
+            {!useDynamicForm && selected && selected.price > 0 ? (
+              <>
+                <div className="text-[10.5px] uppercase tracking-wider text-faint">Tổng cộng</div>
+                <div className="font-mono text-[16px] font-bold tabular leading-tight">{vnd(total)}</div>
+              </>
+            ) : (
+              <div className="text-[12.5px] text-muted truncate">{product.title}</div>
+            )}
+          </div>
+          <Button
+            tabIndex={panelInView ? -1 : 0}
+            onClick={() => panelRef.current?.scrollIntoView({ behavior: "smooth", block: "start" })}
+          >
+            Đặt hàng
+          </Button>
+        </div>
+      )}
 
       {/* Confirmation Modal */}
       {showConfirm && selected && (
         <div className="fixed inset-0 z-50 flex items-center justify-center" onClick={() => setShowConfirm(false)}>
           <div className="absolute inset-0 bg-black/40" />
-          <div className="relative w-full max-w-[400px] mx-4 bg-surface border border-line rounded-xl shadow-xl" onClick={(e) => e.stopPropagation()}>
+          <div
+            role="dialog" aria-modal="true" aria-label="Xác nhận đơn hàng"
+            className="relative w-full max-w-[400px] mx-4 bg-surface border border-line rounded-xl shadow-xl"
+            onClick={(e) => e.stopPropagation()}
+          >
             <div className="px-5 py-3 border-b border-line">
               <span className="text-[14px] font-semibold">Xác nhận đơn hàng</span>
             </div>
@@ -516,31 +578,23 @@ export default function ProductPage() {
 }
 
 /* ================================================================
-   Tab content
+   Section chrome
    ================================================================ */
 
-function DetailTab({ product }: { product: ProductDetail }) {
+function SectionHead({ title, aside }: { title: string; aside?: React.ReactNode }) {
   return (
-    <div className="space-y-5 text-[13.5px]">
-      {product.description && (
-        <p className="text-muted leading-relaxed whitespace-pre-line">{product.description}</p>
-      )}
-
-      {product.features && product.features.length > 0 && (
-        <ul className="space-y-1.5">
-          {product.features.map((f, i) => (
-            <li key={i} className="flex items-start gap-2 text-muted">
-              <Check size={14} className="text-good mt-0.5 shrink-0" />
-              <span>{f}</span>
-            </li>
-          ))}
-        </ul>
-      )}
+    <div className="flex items-center justify-between gap-3 px-5 py-3.5 border-b border-line">
+      <h2 className="font-serif text-[16px] font-semibold tracking-tight">{title}</h2>
+      {aside}
     </div>
   );
 }
 
-function ReviewTab({ product }: { product: ProductDetail }) {
+/* ================================================================
+   Reviews
+   ================================================================ */
+
+function ReviewsSection({ product }: { product: ProductDetail }) {
   const [reviews, setReviews] = useState<Review[]>([]);
   const [loadingReviews, setLoadingReviews] = useState(true);
 
@@ -620,31 +674,6 @@ function ReviewTab({ product }: { product: ProductDetail }) {
                 {r.comment && <p className="text-[13px] text-muted leading-relaxed mt-2">{r.comment}</p>}
               </div>
             </div>
-          </div>
-        ))}
-      </div>
-    </div>
-  );
-}
-
-function PolicyTab({ product }: { product: ProductDetail }) {
-  return (
-    <div className="space-y-4 text-[13.5px]">
-      {product.warranty_text ? (
-        <div className="text-muted leading-relaxed whitespace-pre-line">{product.warranty_text}</div>
-      ) : (
-        <p className="text-muted">Áp dụng chính sách ký quỹ {product.escrow_days} ngày theo quy định Proxora.</p>
-      )}
-      <div className="border-t border-line pt-4 space-y-1.5 text-[13px] text-muted">
-        <div className="text-[12px] font-semibold text-fg uppercase tracking-wider mb-2">Cơ chế ký quỹ</div>
-        {[
-          `Tiền giữ bởi Proxora trong ${product.escrow_days} ngày`,
-          "Chỉ chuyển cho người bán khi bạn xác nhận",
-          "Hoàn tiền 100% nếu không đúng mô tả",
-          "Mở tranh chấp bất kỳ lúc nào trong thời hạn ký quỹ",
-        ].map((t, i) => (
-          <div key={i} className="flex items-start gap-2">
-            <Check size={13} className="text-good mt-0.5 shrink-0" />{t}
           </div>
         ))}
       </div>
@@ -908,22 +937,4 @@ function OrderResult({ order: initial, onRebuy }: { order: Order; onRebuy: () =>
       </div>
     </div>
   );
-}
-
-/* ================================================================
-   Helpers
-   ================================================================ */
-
-function fmtKey(key: string): string {
-  const map: Record<string, string> = {
-    format: "Định dạng", platform: "Nền tảng", age: "Tuổi TK",
-    verified: "Xác minh", country: "Quốc gia", type: "Loại",
-    friends: "Bạn bè", posts: "Bài viết", compatibility: "Tương thích",
-    protocol: "Giao thức", provider: "Nhà mạng", bandwidth: "Băng thông",
-    countries: "Quốc gia", uptime: "Uptime", cpu: "CPU", ram: "RAM",
-    storage: "Lưu trữ", location: "Vị trí", os: "Hệ điều hành",
-    network: "Mạng", currency: "Tiền tệ", min_load: "Nạp min",
-    max_load: "Nạp max", kyc: "KYC",
-  };
-  return map[key] ?? key.replace(/_/g, " ");
 }

@@ -123,7 +123,7 @@ export default function DynamicOrderForm({ productId, product, onOrderCreated }:
   };
 
   const handleSubmit = async () => {
-    if (!account) { router.push("/login"); return; }
+    if (!account) { router.push(`/login?next=/products/${productId}`); return; }
     setShowConfirm(true);
   };
 
@@ -167,9 +167,9 @@ export default function DynamicOrderForm({ productId, product, onOrderCreated }:
 
   return (
     <>
-      <Card className="overflow-hidden">
-        <div className="px-5 py-3 border-b border-line flex items-center justify-between bg-raised/30">
-          <span className="text-[13px] font-semibold">{isAutoDelivered ? "Mua proxy" : "Cấu hình đơn hàng"}</span>
+      <Card className="overflow-hidden shadow-card-lg">
+        <div className="px-5 h-11 flex items-center justify-between bg-ink-panel dotgrid-dark">
+          <span className="text-[12.5px] font-semibold tracking-wide text-white/95">{isAutoDelivered ? "Mua proxy" : "Cấu hình đơn hàng"}</span>
           {isAutoDelivered ? (
             <div className="flex items-center gap-1.5">
               <Tag tone="good">Giao tự động</Tag>

@@ -1,0 +1,9 @@
+[
+  {
+    "date": "2026-07-29",
+    "macrostructure": "Workbench (commerce two-column: document left, order-slip right)",
+    "theme": "preserved project system (Proxora light — Newsreader/Be Vietnam Pro/JetBrains Mono, iris accent, ink-panel cap)",
+    "enrichment": "none",
+    "brief": "Redesign buyer product detail page frontend/app/products/[id] — kill dead CTA, single price zone, variant picker inside order slip, stacked sections instead of tabs, mobile sticky buy bar"
+  }
+]

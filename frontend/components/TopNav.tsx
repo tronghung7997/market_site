@@ -44,7 +44,7 @@ export default function TopNav() {
     <>
       {/* Promo strip */}
       <div className="bg-ink-panel text-white/85 text-[12.5px]">
-        <div className="mx-auto max-w-[1200px] px-6 h-9 flex items-center gap-2 justify-center sm:justify-start">
+        <div className="mx-auto max-w-[1200px] px-6 min-h-9 py-1.5 flex items-center gap-2 justify-center sm:justify-start">
           <Bolt size={13} className="text-iris-hi" />
           <span>Nguồn tài khoản &amp; proxy đã xác minh · 195+ quốc gia · giao ngay, ký quỹ bảo vệ người mua</span>
         </div>
@@ -122,9 +122,13 @@ export default function TopNav() {
               </div>
             </div>
           ) : (
-            <div className="flex items-center gap-2">
-              <Link href="/login" className="text-[13px] font-medium text-muted hover:text-fg px-2 transition-colors">Đăng nhập</Link>
-              <Link href="/register"><Button size="md">Mở tài khoản</Button></Link>
+            /* Dưới 375px không đủ chỗ cho cả hai hành động (cụm này cần ~190px,
+               màn 320 chỉ còn ~115px) → gộp về một nút Đăng nhập; trang login
+               đã có link "Đăng ký" nên không mất đường vào. */
+            <div className="flex items-center gap-2 shrink-0">
+              <Link href="/login" className="hidden min-[375px]:block text-[13px] font-medium text-muted hover:text-fg px-2 transition-colors">Đăng nhập</Link>
+              <Link href="/register" className="hidden min-[375px]:block"><Button size="md">Mở tài khoản</Button></Link>
+              <Link href="/login" className="min-[375px]:hidden"><Button size="md">Đăng nhập</Button></Link>
             </div>
           )}
         </div>

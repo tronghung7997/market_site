@@ -3,7 +3,7 @@
 import { useState } from "react";
 import type { ButtonHTMLAttributes, InputHTMLAttributes, ReactNode, TextareaHTMLAttributes, SelectHTMLAttributes } from "react";
 import { cn } from "@/lib/cn";
-import { Copy } from "@/components/Icons";
+import { ChevronRight, Copy } from "@/components/Icons";
 
 /* ----------------------------------------------------------------
    Refined primitives — hairline borders, restrained motion.
@@ -247,6 +247,22 @@ export function Pagination({
         ),
       )}
       <Button size="sm" variant="ghost" disabled={page >= totalPages} onClick={() => onChange(page + 1)}>Sau</Button>
+    </div>
+  );
+}
+
+/** Mục thu gọn "Xem thêm ▸" — label đổi khi mở, nội dung chỉ render khi mở
+ *  (caller có thể lazy-fetch trong onToggle). */
+export function Disclosure({ label, labelOpen, open, onToggle, children }: {
+  label: string; labelOpen: string; open: boolean; onToggle: () => void; children?: ReactNode;
+}) {
+  return (
+    <div className="mt-3 pt-3 border-t border-line">
+      <button onClick={onToggle} className="inline-flex items-center gap-1 text-[12.5px] font-medium text-iris-hi hover:text-iris transition-colors">
+        <ChevronRight size={13} className={cn("transition-transform", open && "rotate-90")} />
+        {open ? labelOpen : label}
+      </button>
+      {open && children}
     </div>
   );
 }

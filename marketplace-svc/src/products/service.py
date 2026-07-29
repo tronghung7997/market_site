@@ -156,7 +156,7 @@ async def delete_variant(variant_id: int, seller_id: int, db: AsyncSession) -> N
     await db.commit()
 
 
-async def list_products(db: AsyncSession, category_id: int | None = None, seller_id: int | None = None) -> list[Product]:
+async def list_products(db: AsyncSession, category_id: int | None = None, seller_id: int | None = None) -> list[dict]:
     query = select(Product).where(Product.status == ProductStatus.active)
     if category_id:
         query = query.where(Product.category_id == category_id)
@@ -164,7 +164,15 @@ async def list_products(db: AsyncSession, category_id: int | None = None, seller
         query = query.where(Product.seller_id == seller_id)
     query = query.order_by(Product.created_at.desc())
     result = await db.execute(query)
-    return list(result.scalars().all())
+    products = list(result.scalars().all())
+    # Trả kèm variants (gói + tồn kho) ngay trong list: trước đây frontend phải
+    # gọi chi tiết TỪNG sản phẩm chỉ để lấy giá thấp nhất và tồn kho — trang chủ
+    # thành ~35 request cho một lần tải (N+1). Một round trip, dữ liệu y hệt
+    # trang chi tiết nên số hiển thị không lệch nhau giữa list và detail.
+    return [
+        {**_product_dict(p), "variants": await _variant_dicts(p.id, db)}
+        for p in products
+    ]
 
 
 async def list_seller_products(seller_id: int, db: AsyncSession) -> list[dict]:
@@ -254,8 +262,19 @@ async def get_product_detail(
     seller = await db.get(Account, product.seller_id)
     category = await db.get(Category, product.category_id)
 
+    return {
+        **_product_dict(product),
+        "variants": await _variant_dicts(product_id, db, include_inactive=include_inactive_variants),
+        "seller_email": seller.email if seller else None,
+        "category_name": category.name if category else None,
+    }
+
+
+async def _variant_dicts(product_id: int, db: AsyncSession, *, include_inactive: bool = False) -> list[dict]:
+    """Serialize gói của một sản phẩm kèm tồn kho thật (đếm Resource available
+    cho gói giao ngay). Dùng chung cho list lẫn detail để hai nơi không lệch số."""
     variant_filter = [ProductVariant.product_id == product_id]
-    if not include_inactive_variants:
+    if not include_inactive:
         variant_filter.append(ProductVariant.is_active)
     variants_result = await db.execute(
         select(ProductVariant).where(*variant_filter).order_by(ProductVariant.sort_order)
@@ -276,13 +295,7 @@ async def get_product_detail(
             "duration_days": v.duration_days,
             "sort_order": v.sort_order, "is_active": v.is_active, "stock_count": stock,
         })
-
-    return {
-        **_product_dict(product),
-        "variants": variant_dicts,
-        "seller_email": seller.email if seller else None,
-        "category_name": category.name if category else None,
-    }
+    return variant_dicts
 
 
 def _validate_provider_assignment(provider: Provider | None, product: Product) -> None:

@@ -55,6 +55,9 @@ export interface Product {
   pricing_params?: Record<string, unknown> | null;
   commission_rate?: number | null;
   created_at: string;
+  /** GET /products trả kèm gói + tồn kho (fix N+1 trang chủ) — optional vì
+   *  một số response cũ (đơn hàng, admin) vẫn là Product trần. */
+  variants?: Variant[];
 }
 
 export interface Variant {

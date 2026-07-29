@@ -10,7 +10,7 @@ from . import schemas, service
 router = APIRouter(tags=["products"])
 
 
-@router.get("/products", response_model=list[schemas.ProductResponse])
+@router.get("/products", response_model=list[schemas.ProductWithVariantsResponse])
 async def list_products(category_id: int | None = Query(None), seller_id: int | None = Query(None), db: AsyncSession = Depends(get_session)):
     return await service.list_products(db, category_id=category_id, seller_id=seller_id)
 

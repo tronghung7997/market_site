@@ -92,8 +92,13 @@ class VariantResponse(BaseModel):
     model_config = {"from_attributes": True}
 
 
-class ProductDetailResponse(ProductResponse):
+class ProductWithVariantsResponse(ProductResponse):
+    """Item của GET /products — kèm gói + tồn kho để list không cần gọi chi
+    tiết từng sản phẩm (fix N+1 trang chủ)."""
     variants: list[VariantResponse] = []
+
+
+class ProductDetailResponse(ProductWithVariantsResponse):
     seller_email: str | None = None
     category_name: str | None = None
 

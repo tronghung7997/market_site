@@ -131,22 +131,16 @@ export default function WalletPage() {
     }
     setDepositLoading(true);
     setDepositMsg("");
-    // Mở tab TRƯỚC await, ngay trong user gesture — window.open sau await bị
-    // popup blocker chặn nếu PayOS phản hồi chậm (review 24/07 #5).
-    const payTab = window.open("about:blank", "_blank");
+    // KHÔNG tự mở tab sang trang thanh toán của nhà cung cấp nữa: mã QR do
+    // backend dựng sẵn (qr_svg) và hiện ngay bên dưới, nên buyer quét được cả
+    // khi máy không ra được internet. Tab tự mở còn hay bị popup blocker chặn
+    // và làm một lệnh nạp ĐÃ TẠO THÀNH CÔNG trông như thất bại.
     try {
-      const intent = await api.createDeposit(amount);
+      await api.createDeposit(amount);
       setDepositAmount("");
-      setDepositMsg("Đã tạo lệnh nạp — quét QR trên trang thanh toán vừa mở.");
-      if (intent.checkout_url) {
-        if (payTab) payTab.location.href = intent.checkout_url;
-        else window.open(intent.checkout_url, "_blank", "noopener");
-      } else {
-        payTab?.close();
-      }
+      setDepositMsg("Đã tạo lệnh nạp — quét mã QR bên dưới để chuyển khoản.");
       await refreshWallet();
     } catch (err) {
-      payTab?.close();
       alert(`Tạo lệnh nạp thất bại: ${err instanceof Error ? err.message : "Unknown error"}`);
     } finally {
       setDepositLoading(false);
@@ -333,10 +327,30 @@ export default function WalletPage() {
                         <span className="relative inline-flex rounded-full h-2.5 w-2.5 bg-iris" />
                       </span>
                     </div>
+                    {/* QR ngay tại chỗ — nguồn ảnh là data URI backend dựng,
+                        không phải link ngoài, nên máy không ra được internet
+                        vẫn quét được bằng app ngân hàng trên điện thoại. */}
+                    {d.qr_svg && (
+                      <div className="px-4 pb-3 flex flex-col items-center gap-2">
+                        <img
+                          src={d.qr_svg}
+                          alt={`Mã QR chuyển khoản ${vnd(d.amount)}`}
+                          width={168}
+                          height={168}
+                          className="rounded-lg bg-white p-2 border border-line"
+                        />
+                        <p className="text-[12px] text-muted text-center leading-relaxed">
+                          Mở app ngân hàng, quét mã này và chuyển đúng{" "}
+                          <span className="font-medium text-ink">{vnd(d.amount)}</span>.
+                          <br />
+                          Giữ nguyên nội dung chuyển khoản.
+                        </p>
+                      </div>
+                    )}
                     <div className="px-4 pb-3 flex items-center gap-2">
                       {d.checkout_url && (
                         <a href={d.checkout_url} target="_blank" rel="noopener noreferrer" className="flex-1">
-                          <Button variant="secondary" size="sm" block>Mở trang quét QR ↗</Button>
+                          <Button variant="secondary" size="sm" block>Mở trang thanh toán ↗</Button>
                         </a>
                       )}
                       <button

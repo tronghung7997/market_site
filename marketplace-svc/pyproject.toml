@@ -17,6 +17,10 @@ dependencies = [
     "redis[hiredis]>=5.0.0",
     "email-validator>=2.0.0",
     "cryptography>=42.0.0",
+    # Vẽ mã QR VietQR ngay tại server (src/payments/qr.py): trình duyệt buyer
+    # không phải tải ảnh QR từ domain ngoài, nên trang nạp tiền dùng được cả
+    # khi máy không ra được internet. Pure Python, không kéo theo dependency.
+    "segno>=1.6.0",
 ]
 
 [project.optional-dependencies]

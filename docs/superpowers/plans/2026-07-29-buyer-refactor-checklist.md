@@ -19,21 +19,22 @@ Sau mỗi đợt: `npx tsc --noEmit` + mở trang bấm thử các trạng thái
 
 ## Đợt 0 — Nền móng dùng chung
 
-- [ ] `lib/utils/format.ts` là nguồn duy nhất của `vnd()` — `lib/api.ts` re-export
+- [x] `lib/utils/format.ts` là nguồn duy nhất của `vnd()` — `lib/api.ts` re-export
       để 22 file import cũ không phải sửa ngay (xoá bản định nghĩa trùng).
-- [ ] ⚠️ Hợp nhất `cn()`: chuẩn hoá về bản clsx+twMerge (`lib/utils/cn.ts`),
+- [x] ⚠️ Hợp nhất `cn()`: chuẩn hoá về bản clsx+twMerge (`lib/utils/cn.ts`),
       `lib/cn.ts` re-export. twMerge khác bản nối-chuỗi khi có class xung đột —
       soát mắt các trang chính sau khi đổi.
-- [ ] ⚠️ Tạo `lib/order-status.ts` — MỘT map trạng thái đơn (label + tone + hint),
+- [x] ⚠️ Tạo `lib/order-status.ts` — MỘT map trạng thái đơn (label + tone + hint),
       từ vựng lấy theo `app/orders/page.tsx` (bản đầy đủ nhất). Thay cho các bản
       chép ở: orders, products/[id] (OrderResult), home (RECENT_ORDER_STATUS).
       Chữ hiển thị đổi nhẹ ở product page ("Đang xử lý" → "Chờ xử lý"…) — chấp nhận.
-- [ ] `lib/hooks/useDebounce.ts` — một bản, thay 7 bản chép (6 admin + orders).
-- [ ] Chuyển `components/admin/pagination.tsx` → `components/ui/pagination.tsx`
-      (admin import đường mới); orders sẽ dùng ở Đợt 2.
-- [ ] `components/ui.tsx` bổ sung: `Monogram` (14 chỗ đang tự chế
+- [x] `lib/hooks/useDebounce.ts` — một bản, thay 7 bản chép (6 admin + orders).
+- [x] ~~Chuyển pagination admin ra chung~~ — đổi hướng: bản admin styled slate
+      (design system admin riêng), GIỮ NGUYÊN; tạo `Pagination` buyer trong
+      `ui.tsx` từ thuật toán cửa sổ của orders, orders dùng luôn.
+- [x] `components/ui.tsx` bổ sung: `Monogram` (14 chỗ đang tự chế
       `title.slice(0,2).toUpperCase()`), `CopyButton` (2 bản chép).
-- [ ] `lib/categories.ts` — `flattenCategories()` + `subtreeIds()` (đang chép ×3:
+- [x] `lib/categories.ts` — `flattenCategories()` + `subtreeIds()` (đang chép ×3:
       home, categories, sellers/[id]).
 - [x] ~~Xoá `lib/query-keys.ts`~~ — SAI: nó được `frontend/hooks/use-*.ts`
       (lớp react-query có sẵn, admin + trang affiliate dùng) import. Giữ nguyên;
@@ -43,18 +44,18 @@ Sau mỗi đợt: `npx tsc --noEmit` + mở trang bấm thử các trạng thái
 
 Cấu trúc đích — colocate trong thư mục route:
 
-- [ ] `OrderResult.tsx` — thế giới hậu-mua: `useOrderPolling`, `useElapsed`,
+- [x] `OrderResult.tsx` — thế giới hậu-mua: `useOrderPolling`, `useElapsed`,
       `ProvisionSteps`, status map (→ dùng `lib/order-status`).
-- [ ] `purchase.ts` — luật mua dạng hàm thuần: `purchasable()`,
+- [x] `purchase.ts` — luật mua dạng hàm thuần: `purchasable()`,
       `pickDefaultVariant()`, `clampQty()`, `panelMode()`, `ctaState()`.
-- [ ] `useProductDetail.ts` — fetch product + pricing strategy + related.
-- [ ] `usePurchase.ts` — state machine: selected/qty/order/placing/placeError.
-- [ ] `sections.tsx` — ProductIdentity, SpecsPlate, DescriptionCard,
+- [x] `useProductDetail.ts` — fetch product + pricing strategy + related.
+- [x] `usePurchase.ts` — state machine: selected/qty/order/placing/placeError.
+- [x] `sections.tsx` — ProductIdentity, SpecsPlate, DescriptionCard,
       WarrantyCard, RelatedProducts, SectionHead (thuần hiển thị).
-- [ ] `ReviewsCard.tsx` — tự fetch review theo productId.
-- [ ] `OrderPanel.tsx` — phiếu đặt hàng + modal xác nhận; `MobileBuyBar.tsx`.
-- [ ] `page.tsx` còn ~140 dòng — đọc như mục lục trang.
-- [ ] Doc-comment 1 đoạn đầu mỗi file: làm gì, interface, invariant.
+- [x] `ReviewsCard.tsx` — tự fetch review theo productId.
+- [x] `OrderPanel.tsx` — phiếu đặt hàng + modal xác nhận; `MobileBuyBar.tsx`.
+- [x] `page.tsx` còn ~140 dòng — đọc như mục lục trang.
+- [x] Doc-comment 1 đoạn đầu mỗi file: làm gì, interface, invariant.
 
 ## Đợt 2 — `app/orders` (1.075 dòng → ~5 file)
 

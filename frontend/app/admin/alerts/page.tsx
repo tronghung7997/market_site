@@ -7,6 +7,7 @@ import { useQuery, useQueryClient } from "@tanstack/react-query";
 import { Check, RotateCw, Search, X } from "lucide-react";
 
 import { api } from "@/lib/api";
+import { useDebounce } from "@/lib/hooks/useDebounce";
 import { Banner, Card } from "@/components/ui";
 import { ConfirmModal, FacetSelect, buildFacetOptions } from "@/components/admin";
 import type { Alert } from "@/lib/types";
@@ -51,15 +52,6 @@ const SEVERITY_TABS = [
   { key: "all", label: "Tất cả" },
   ...SEVERITY_ORDER.map((s) => ({ key: s, label: SEVERITY_META[s].label })),
 ];
-
-function useDebounce<T>(value: T, delay: number): T {
-  const [debouncedValue, setDebouncedValue] = React.useState(value);
-  React.useEffect(() => {
-    const t = setTimeout(() => setDebouncedValue(value), delay);
-    return () => clearTimeout(t);
-  }, [value, delay]);
-  return debouncedValue;
-}
 
 export default function AdminAlertsPage() {
   const queryClient = useQueryClient();

@@ -4,6 +4,7 @@
 import * as React from "react";
 import { useSearchParams } from "next/navigation";
 import { useQuery } from "@tanstack/react-query";
+import { useDebounce } from "@/lib/hooks/useDebounce";
 import {
   ColumnDef,
   flexRender,
@@ -504,16 +505,6 @@ function OrderDetailContent({ orderId }: { orderId: number }) {
       )}
     </div>
   );
-}
-
-// Debounce hook
-function useDebounce<T>(value: T, delay: number): T {
-  const [debouncedValue, setDebouncedValue] = React.useState(value);
-  React.useEffect(() => {
-    const handler = setTimeout(() => setDebouncedValue(value), delay);
-    return () => clearTimeout(handler);
-  }, [value, delay]);
-  return debouncedValue;
 }
 
 export default function AdminOrdersPage() {

@@ -14,6 +14,7 @@ import {
 } from "@tanstack/react-table";
 import { ChevronDown, ChevronUp, ChevronsUpDown, ListFilter, Search, X } from "lucide-react";
 import { api } from "@/lib/api";
+import { useDebounce } from "@/lib/hooks/useDebounce";
 import { Banner, Card, Tag } from "@/components/ui";
 import { FacetSelect, type FacetOption } from "@/components/admin";
 import type { ResourceSummary, AdminResource } from "@/lib/types";
@@ -180,15 +181,6 @@ const columns: ColumnDef<AdminResource>[] = [
     enableSorting: true,
   },
 ];
-
-function useDebounce<T>(value: T, delay: number): T {
-  const [debouncedValue, setDebouncedValue] = React.useState(value);
-  React.useEffect(() => {
-    const t = setTimeout(() => setDebouncedValue(value), delay);
-    return () => clearTimeout(t);
-  }, [value, delay]);
-  return debouncedValue;
-}
 
 export default function AdminResourcesPage() {
   const [status, setStatus] = React.useState("all");

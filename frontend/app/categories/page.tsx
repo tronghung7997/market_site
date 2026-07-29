@@ -4,6 +4,7 @@ import Link from "next/link";
 import { useEffect, useMemo, useState } from "react";
 import { api } from "@/lib/api";
 import { cn } from "@/lib/cn";
+import { flattenCategories, subtreeIds } from "@/lib/categories";
 import type { Category, Product } from "@/lib/types";
 import { Card, Spinner, Button } from "@/components/ui";
 import {
@@ -13,16 +14,6 @@ import {
 const ICONS = [Store, Package, Wallet, Shield, Bolt, Users, Star, Grid, Verified, Check];
 function iconFor(index: number) {
   return ICONS[index % ICONS.length];
-}
-
-function flatten(cats: Category[]): Category[] {
-  const out: Category[] = [];
-  const walk = (l: Category[]) => l.forEach((c) => { out.push(c); walk(c.children ?? []); });
-  walk(cats);
-  return out;
-}
-function subtreeIds(cat: Category): number[] {
-  return [cat.id, ...(cat.children ?? []).flatMap(subtreeIds)];
 }
 
 export default function CategoriesPage() {
@@ -44,7 +35,7 @@ export default function CategoriesPage() {
     })();
   }, []);
 
-  const flatCats = useMemo(() => flatten(cats), [cats]);
+  const flatCats = useMemo(() => flattenCategories(cats), [cats]);
   const topCats = cats.length > 0 ? cats : flatCats.filter((c) => c.parent_id == null);
   const countFor = (c: Category) => products.filter((p) => subtreeIds(c).includes(p.category_id)).length;
 

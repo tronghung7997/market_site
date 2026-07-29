@@ -8,19 +8,11 @@ import { useAuth } from "@/lib/auth";
 import { cn } from "@/lib/cn";
 import type { Dispute, Order, OrderStats, ProxyState, Resource } from "@/lib/types";
 import { EVIDENCE_TYPES, evidenceFieldLabel, evidenceTypeLabel } from "@/lib/dispute-evidence";
-import { Shield, Star, Check, Info, Copy, ChevronRight, Plug, Search, X } from "@/components/Icons";
+import { useDebounce } from "@/lib/hooks/useDebounce";
+import { orderStatus } from "@/lib/order-status";
+import { Shield, Star, Check, Info, ChevronRight, Plug, Search, X } from "@/components/Icons";
 import ServiceDashboard from "@/components/ServiceDashboard";
-import { Button, Card, Input, Select, Spinner, Tag, Textarea } from "@/components/ui";
-
-const STATUS: Record<string, { label: string; tone: "good" | "bad" | "warn" | "iris" | "neutral"; hint: string }> = {
-  pending: { label: "Chờ xử lý", tone: "warn", hint: "Người bán đang chuẩn bị đơn của bạn." },
-  processing: { label: "Đang xử lý", tone: "warn", hint: "Người bán đã nhận đơn và đang giao." },
-  delivered: { label: "Đã giao", tone: "iris", hint: "Hàng đã giao — kiểm tra rồi bấm xác nhận để hoàn tất." },
-  completed: { label: "Hoàn tất", tone: "good", hint: "Đơn đã hoàn tất, tiền đã chuyển cho người bán." },
-  disputed: { label: "Khiếu nại", tone: "bad", hint: "Khiếu nại đang được quản trị viên xử lý." },
-  refunded: { label: "Đã hoàn tiền", tone: "bad", hint: "Tiền đã được hoàn về ví của bạn." },
-  cancelled: { label: "Đã huỷ", tone: "neutral", hint: "Đơn đã bị huỷ." },
-};
+import { Button, Card, CopyButton, Input, Monogram, Pagination, Select, Spinner, Tag, Textarea } from "@/components/ui";
 
 const TIMELINE_STEPS = [
   { key: "pending", label: "Đặt hàng" },
@@ -59,18 +51,6 @@ function StatusTimeline({ status }: { status: string }) {
         );
       })}
     </div>
-  );
-}
-
-function CopyIconButton({ text }: { text: string }) {
-  const [copied, setCopied] = useState(false);
-  return (
-    <button
-      onClick={() => { navigator.clipboard?.writeText(text).catch(() => {}); setCopied(true); setTimeout(() => setCopied(false), 1600); }}
-      className="inline-flex items-center gap-1 text-[11px] font-medium text-muted hover:text-iris-hi transition-colors"
-    >
-      <Copy size={11} /> {copied ? "Đã sao chép" : "Sao chép"}
-    </button>
   );
 }
 
@@ -189,7 +169,7 @@ function OrderProxyPanel({ orderId, deliveredData, onDelivered, onPlate }: {
             <span className="inline-flex items-center gap-1.5 text-[10.5px] text-faint uppercase tracking-wider">
               <Plug size={12} /> Địa chỉ proxy · cố định
             </span>
-            <CopyIconButton text={`${state.gateway_host}:${state.gateway_port}`} />
+            <CopyButton text={`${state.gateway_host}:${state.gateway_port}`} />
           </div>
           <p className="font-mono text-[17px] leading-snug mt-1.5 break-all">
             {state.gateway_host}
@@ -248,7 +228,7 @@ function OrderProxyPanel({ orderId, deliveredData, onDelivered, onPlate }: {
         <div className="px-3.5 pb-3">
           <Disclosure label="Bản bàn giao gốc" labelOpen="Thu gọn bản bàn giao gốc" open={showRaw} onToggle={() => setShowRaw((v) => !v)}>
             <div className="mt-2">
-              <div className="flex justify-end mb-1"><CopyIconButton text={deliveredData} /></div>
+              <div className="flex justify-end mb-1"><CopyButton text={deliveredData} /></div>
               <pre className="font-mono text-[12px] bg-raised border border-line rounded-lg p-2.5 whitespace-pre-wrap break-all">{deliveredData}</pre>
             </div>
           </Disclosure>
@@ -560,25 +540,14 @@ const SORT_OPTIONS = [
 
 const PER_PAGE_OPTIONS = [10, 20, 50];
 
-function useDebounce<T>(value: T, delay: number): T {
-  const [debounced, setDebounced] = useState(value);
-  useEffect(() => {
-    const t = setTimeout(() => setDebounced(value), delay);
-    return () => clearTimeout(t);
-  }, [value, delay]);
-  return debounced;
-}
-
 /** Đơn đã kết thúc (huỷ / hoàn tiền) — nén thành một dòng yên tĩnh: lý do +
  *  xác nhận tiền đã về ví. Sân khấu nhường cho các đơn đang sống. */
 function TerminalOrderRow({ order: o }: { order: Order }) {
-  const st = STATUS[o.status] ?? { label: o.status, tone: "neutral" as const, hint: "" };
+  const st = orderStatus(o.status);
   return (
     <Card className="px-4 py-3">
       <div className="flex items-start gap-3 min-w-0">
-        <span className="grid place-items-center h-8 w-8 shrink-0 rounded-lg bg-raised border border-line font-serif text-[12px] font-semibold text-faint">
-          {(o.product_title ?? "??").slice(0, 2).toUpperCase()}
-        </span>
+        <Monogram text={o.product_title ?? "??"} className="h-8 w-8 text-[12px] text-faint" />
         <div className="min-w-0 flex-1">
           <div className="flex items-center gap-2 min-w-0">
             <span className="text-[13px] font-medium truncate">{o.product_title ?? `Đơn #${o.id}`}</span>
@@ -893,7 +862,7 @@ export default function OrdersPage() {
               if (o.status === "cancelled" || o.status === "refunded") {
                 return <TerminalOrderRow key={o.id} order={o} />;
               }
-              const st = STATUS[o.status] ?? { label: o.status, tone: "neutral" as const, hint: "" };
+              const st = orderStatus(o.status);
               return (
                 <Card key={o.id} className="p-0 overflow-hidden">
                   {/* Thanh định danh — "biển số" của đơn: mã + ngày trái, trạng thái + tiền phải.
@@ -909,9 +878,7 @@ export default function OrdersPage() {
 
                   <div className="px-4 pb-4 pt-3">
                   <div className="flex items-center gap-3 min-w-0">
-                    <span className="grid place-items-center h-9 w-9 shrink-0 rounded-lg bg-raised border border-line font-serif text-[13px] font-semibold text-iris">
-                      {(o.product_title ?? "??").slice(0, 2).toUpperCase()}
-                    </span>
+                    <Monogram text={o.product_title ?? "??"} />
                     <div className="min-w-0 flex-1">
                       <div className="font-medium text-[14px] truncate">{o.product_title ?? `Đơn #${o.id}`}</div>
                       <div className="text-[12px] text-muted truncate">
@@ -939,7 +906,7 @@ export default function OrdersPage() {
                     <div className="mt-3">
                       <div className="flex items-center justify-between mb-1">
                         <span className="text-[10.5px] text-faint uppercase tracking-wider">Dữ liệu bàn giao</span>
-                        <CopyIconButton text={o.delivered_data} />
+                        <CopyButton text={o.delivered_data} />
                       </div>
                       <pre className="font-mono text-[12px] bg-raised border border-line rounded-lg p-2.5 whitespace-pre-wrap break-all">{o.delivered_data}</pre>
                     </div>
@@ -1024,39 +991,7 @@ export default function OrdersPage() {
               Hiển thị {(page - 1) * perPage + 1}–{Math.min(page * perPage, total)} / {total} đơn
             </span>
             <div className="flex items-center gap-2">
-              {totalPages > 1 && (
-                <div className="flex items-center gap-1">
-                  <Button size="sm" variant="ghost" disabled={page <= 1} onClick={() => setPage(page - 1)}>
-                    Trước
-                  </Button>
-                  {Array.from({ length: totalPages }, (_, i) => i + 1)
-                    .filter((p) => p === 1 || p === totalPages || Math.abs(p - page) <= 2)
-                    .reduce<(number | "...")[]>((acc, p, i, arr) => {
-                      if (i > 0 && p - (arr[i - 1] as number) > 1) acc.push("...");
-                      acc.push(p);
-                      return acc;
-                    }, [])
-                    .map((p, i) =>
-                      p === "..." ? (
-                        <span key={`ellipsis-${i}`} className="text-muted px-1">...</span>
-                      ) : (
-                        <button
-                          key={p}
-                          onClick={() => setPage(p as number)}
-                          className={cn(
-                            "w-8 h-8 rounded-lg text-[13px] font-medium",
-                            page === p ? "bg-iris text-white" : "text-muted hover:bg-raised",
-                          )}
-                        >
-                          {p}
-                        </button>
-                      ),
-                    )}
-                  <Button size="sm" variant="ghost" disabled={page >= totalPages} onClick={() => setPage(page + 1)}>
-                    Sau
-                  </Button>
-                </div>
-              )}
+              <Pagination page={page} totalPages={totalPages} onChange={setPage} />
               <select
                 value={perPage}
                 onChange={(e) => setPerPage(Number(e.target.value))}

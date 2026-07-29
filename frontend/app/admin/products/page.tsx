@@ -25,6 +25,7 @@ import {
 
 import { api, vnd } from "@/lib/api";
 import { Banner, Card, Tag } from "@/components/ui";
+import { useDebounce } from "@/lib/hooks/useDebounce";
 import { FacetSelect, buildFacetOptions } from "@/components/admin";
 import { ProductStatusBadge, StatusBadge } from "@/components/admin/status-badge";
 import type { AdminProduct } from "@/lib/types";
@@ -221,16 +222,6 @@ const columns: ColumnDef<AdminProduct>[] = [
     enableSorting: true,
   },
 ];
-
-// Debounce hook
-function useDebounce<T>(value: T, delay: number): T {
-  const [debouncedValue, setDebouncedValue] = React.useState(value);
-  React.useEffect(() => {
-    const handler = setTimeout(() => setDebouncedValue(value), delay);
-    return () => clearTimeout(handler);
-  }, [value, delay]);
-  return debouncedValue;
-}
 
 export default function AdminProductsPage() {
   const router = useRouter();

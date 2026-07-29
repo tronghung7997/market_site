@@ -1,5 +1,9 @@
+"use client";
+
+import { useState } from "react";
 import type { ButtonHTMLAttributes, InputHTMLAttributes, ReactNode, TextareaHTMLAttributes, SelectHTMLAttributes } from "react";
 import { cn } from "@/lib/cn";
+import { Copy } from "@/components/Icons";
 
 /* ----------------------------------------------------------------
    Refined primitives — hairline borders, restrained motion.
@@ -171,6 +175,78 @@ export function Banner({
         {children}
       </div>
       {action && <div className="shrink-0">{action}</div>}
+    </div>
+  );
+}
+
+/** Ô chữ lồng 2 ký tự đầu của tên — "ảnh đại diện" cho hàng hoá số không có
+ *  ảnh. Mặc định 36px nền raised chữ iris; chỗ khác cỡ/tông thì override qua
+ *  className. Một bản thay cho 14 chỗ từng tự chế `slice(0,2).toUpperCase()`. */
+export function Monogram({ text, className }: { text: string; className?: string }) {
+  return (
+    <span
+      className={cn(
+        "grid place-items-center h-9 w-9 shrink-0 rounded-lg bg-raised border border-line font-serif text-[13px] font-semibold text-iris",
+        className,
+      )}
+    >
+      {(text || "??").slice(0, 2).toUpperCase()}
+    </span>
+  );
+}
+
+/** Nút sao chép chữ nhỏ, tự đổi nhãn 1.6s sau khi chép. */
+export function CopyButton({
+  text, label = "Sao chép", copiedLabel = "Đã sao chép", className,
+}: { text: string; label?: string; copiedLabel?: string; className?: string }) {
+  const [copied, setCopied] = useState(false);
+  return (
+    <button
+      onClick={() => {
+        navigator.clipboard?.writeText(text).catch(() => {});
+        setCopied(true);
+        setTimeout(() => setCopied(false), 1600);
+      }}
+      className={cn("inline-flex items-center gap-1 text-[11px] font-medium text-muted hover:text-iris-hi transition-colors", className)}
+    >
+      <Copy size={11} /> {copied ? copiedLabel : label}
+    </button>
+  );
+}
+
+/** Phân trang cửa sổ: 1 … trang±2 … cuối (trích từ trang Đơn hàng).
+ *  Tự ẩn khi chỉ có 1 trang. Bản buyer — admin console có bản slate riêng. */
+export function Pagination({
+  page, totalPages, onChange,
+}: { page: number; totalPages: number; onChange: (page: number) => void }) {
+  if (totalPages <= 1) return null;
+  const pages = Array.from({ length: totalPages }, (_, i) => i + 1)
+    .filter((p) => p === 1 || p === totalPages || Math.abs(p - page) <= 2)
+    .reduce<(number | "…")[]>((acc, p, i, arr) => {
+      if (i > 0 && p - (arr[i - 1] as number) > 1) acc.push("…");
+      acc.push(p);
+      return acc;
+    }, []);
+  return (
+    <div className="flex items-center gap-1">
+      <Button size="sm" variant="ghost" disabled={page <= 1} onClick={() => onChange(page - 1)}>Trước</Button>
+      {pages.map((p, i) =>
+        p === "…" ? (
+          <span key={`gap-${i}`} className="text-muted px-1">…</span>
+        ) : (
+          <button
+            key={p}
+            onClick={() => onChange(p)}
+            className={cn(
+              "w-8 h-8 rounded-lg text-[13px] font-medium",
+              page === p ? "bg-iris text-white" : "text-muted hover:bg-raised",
+            )}
+          >
+            {p}
+          </button>
+        ),
+      )}
+      <Button size="sm" variant="ghost" disabled={page >= totalPages} onClick={() => onChange(page + 1)}>Sau</Button>
     </div>
   );
 }

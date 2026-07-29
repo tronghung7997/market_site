@@ -5,18 +5,12 @@ import { useParams } from "next/navigation";
 import { useEffect, useMemo, useState, type ReactNode } from "react";
 import { api, vnd } from "@/lib/api";
 import { effectiveMinPrice, isAdapterFulfilled } from "@/lib/pricing-display";
+import { flattenCategories } from "@/lib/categories";
 import { formatDate } from "@/lib/utils";
 import { sellerTierLabel } from "@/lib/seller-tier";
 import type { Category, ProductDetail, SellerProfile } from "@/lib/types";
 import { Card, Spinner, Tag } from "@/components/ui";
 import { Check, ChevronRight, Package, Shield, Star, Verified, X } from "@/components/Icons";
-
-function flattenCategories(cats: Category[]): Category[] {
-  const out: Category[] = [];
-  const walk = (list: Category[]) => list.forEach((c) => { out.push(c); walk(c.children ?? []); });
-  walk(cats);
-  return out;
-}
 
 function stock(p: ProductDetail): number {
   return p.variants.reduce((s, v) => s + (v.stock_count ?? 0), 0);

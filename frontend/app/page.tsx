@@ -6,30 +6,12 @@ import { Suspense, useEffect, useMemo, useState } from "react";
 import { api, vnd } from "@/lib/api";
 import { cn } from "@/lib/cn";
 import { effectiveMinPrice } from "@/lib/pricing-display";
+import { flattenCategories, subtreeIds } from "@/lib/categories";
 import { useAuth } from "@/lib/auth";
 import type { Category, Order, ProductDetail, SellerSummary } from "@/lib/types";
+import { orderStatus } from "@/lib/order-status";
 import { Button, Card, Spinner, Tag } from "@/components/ui";
 import { ArrowRight, Bolt, Check, Clock, Grid, Rows, Search, Shield, Star, Store, Verified } from "@/components/Icons";
-
-const RECENT_ORDER_STATUS: Record<string, { label: string; tone: "good" | "bad" | "warn" | "iris" | "neutral" }> = {
-  pending: { label: "Chờ xử lý", tone: "warn" },
-  processing: { label: "Đang xử lý", tone: "iris" },
-  delivered: { label: "Đã giao", tone: "iris" },
-  completed: { label: "Hoàn thành", tone: "good" },
-  disputed: { label: "Khiếu nại", tone: "bad" },
-  refunded: { label: "Hoàn tiền", tone: "bad" },
-  cancelled: { label: "Đã huỷ", tone: "neutral" },
-};
-
-function flatten(cats: Category[]): Category[] {
-  const out: Category[] = [];
-  const walk = (l: Category[]) => l.forEach((c) => { out.push(c); walk(c.children ?? []); });
-  walk(cats);
-  return out;
-}
-function subtreeIds(cat: Category): number[] {
-  return [cat.id, ...(cat.children ?? []).flatMap(subtreeIds)];
-}
 
 export default function Home() {
   return (
@@ -81,7 +63,7 @@ function HomeInner() {
     if (catParam) setActive(Number(catParam));
   }, [searchParams]);
 
-  const flatCats = useMemo(() => flatten(cats), [cats]);
+  const flatCats = useMemo(() => flattenCategories(cats), [cats]);
   const catName = (id: number) => flatCats.find((c) => c.id === id)?.name ?? "—";
   const stock = (p: ProductDetail) => p.variants.reduce((s, v) => s + (v.stock_count ?? 0), 0);
   // Giá "Chỉ từ" phải là số tiền thật rẻ nhất — với strategy config,
@@ -433,7 +415,7 @@ function HomeInner() {
             <SectionHead title="Đơn hàng gần đây" sub="Tiếp tục theo dõi đơn của bạn" />
             <div className="grid grid-cols-2 gap-2.5 sm:gap-3 lg:grid-cols-5">
               {recentOrders.map((o) => {
-                const st = RECENT_ORDER_STATUS[o.status] ?? { label: o.status, tone: "neutral" as const };
+                const st = orderStatus(o.status);
                 return (
                   <Link key={o.id} href="/orders">
                     <Card interactive className="p-3 sm:p-4 h-full">

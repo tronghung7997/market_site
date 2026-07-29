@@ -11,6 +11,7 @@ import {
 } from "@tanstack/react-table";
 import Link from "next/link";
 import { ListFilter, Search, X } from "lucide-react";
+import { useDebounce } from "@/lib/hooks/useDebounce";
 
 import { api, vnd } from "@/lib/api";
 import { Banner, Card, Spinner, Button, Textarea, Input } from "@/components/ui";
@@ -47,16 +48,6 @@ const SKELETON_WIDTHS = ["30%", "40%", "75%", "60%", "50%", "85%", "55%", "45%"]
 interface DisputesTableMeta {
   filterBuyer: (key: string) => void;
   openAction: (id: number, action: DisputeAction) => void;
-}
-
-// Debounce hook
-function useDebounce<T>(value: T, delay: number): T {
-  const [debouncedValue, setDebouncedValue] = React.useState(value);
-  React.useEffect(() => {
-    const handler = setTimeout(() => setDebouncedValue(value), delay);
-    return () => clearTimeout(handler);
-  }, [value, delay]);
-  return debouncedValue;
 }
 
 // Event labels for timeline

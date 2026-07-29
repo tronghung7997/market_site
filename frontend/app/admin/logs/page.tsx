@@ -6,6 +6,7 @@ import Link from "next/link";
 import { useQuery } from "@tanstack/react-query";
 import { ChevronDown, RotateCw, Search, X } from "lucide-react";
 import { api, vnd } from "@/lib/api";
+import { useDebounce } from "@/lib/hooks/useDebounce";
 import { Banner, Card } from "@/components/ui";
 import type { LogEntry } from "@/lib/types";
 
@@ -257,15 +258,6 @@ function dayLabel(dateKey: string): string {
   if (dateKey === today.toDateString()) return `Hôm nay · ${dateStr}`;
   if (dateKey === yesterday.toDateString()) return `Hôm qua · ${dateStr}`;
   return dateStr;
-}
-
-function useDebounce<T>(value: T, delay: number): T {
-  const [debouncedValue, setDebouncedValue] = React.useState(value);
-  React.useEffect(() => {
-    const t = setTimeout(() => setDebouncedValue(value), delay);
-    return () => clearTimeout(t);
-  }, [value, delay]);
-  return debouncedValue;
 }
 
 export default function AdminLogsPage() {

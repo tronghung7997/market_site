@@ -6,12 +6,11 @@ import { useDeferredValue, useEffect, useState, type ElementType, type ReactNode
 import { api, vnd, ApiError } from "@/lib/api";
 import { useAuth } from "@/lib/auth";
 import { cn } from "@/lib/cn";
-import { formatSpecKey } from "@/lib/utils";
 import type { Category, ProductDetail, ProductOperations, Provider, Resource, Variant } from "@/lib/types";
 import { Banner, Button, Card, Field, Input, Select, Spinner, Tag, Textarea } from "@/components/ui";
 import { MoneyInput } from "@/components/MoneyInput";
 import { MarkdownEditor } from "@/components/MarkdownEditor";
-import { MarkdownContent } from "@/components/MarkdownContent";
+import { ProductPreviewCard, STATUS_TAG } from "@/components/seller/ProductPreviewCard";
 import { Activity, ArrowRight, Bolt, Check, ClipboardList, Clock, Edit2, Eye, FileText, Info, Package, Plus, Shield, Sliders, Trash, Users, X } from "@/components/Icons";
 import { isAdapterCompatible } from "@/lib/compat";
 import { STRATEGY_INFO, STRATEGY_FORMULAS, ADAPTER_INFO } from "@/lib/pricing-config";
@@ -27,13 +26,6 @@ const SERVICE_TYPES = [
   { value: "takedown", label: "Takedown" },
   { value: "other", label: "Khác" },
 ];
-
-const STATUS_TAG: Record<string, { label: string; tone: "good" | "warn" | "bad" | "neutral" }> = {
-  active: { label: "Đang bán", tone: "good" },
-  draft: { label: "Nháp", tone: "neutral" },
-  paused: { label: "Tạm dừng", tone: "warn" },
-  suspended: { label: "Bị khoá", tone: "bad" },
-};
 
 /* Tiêu đề khối, giống hệt mẫu icon+heading đang dùng ở tab Vận hành cùng file
    và trang chi tiết admin — tách 1 danh sách field phẳng thành các khối có
@@ -82,110 +74,6 @@ function ListEditor<T>({
         <Plus size={13} /> {addLabel}
       </Button>
     </div>
-  );
-}
-
-/* Xem trước — render lại đúng khuôn trang mua (app/products/[id]/page.tsx:
-   header + highlight + specs + mô tả + tính năng + bảo hành) để seller hình
-   dung ngay khách sẽ thấy gì, không phải rời trang bấm "Xem trang mua".
-   Dùng chung formatSpecKey với trang mua — sai khác 1 ly là preview nói dối. */
-function PreviewCard({
-  title, categoryName, serviceType, status, escrowDays,
-  highlightText, description, features, specs, warrantyText, variants,
-}: {
-  title: string; categoryName?: string; serviceType: string; status: string; escrowDays: number;
-  highlightText: string; description: string; features: string[];
-  specs: { key: string; value: string }[]; warrantyText: string; variants: Variant[];
-}) {
-  const cleanFeatures = features.filter((f) => f.trim());
-  const cleanSpecs = specs.filter((s) => s.key.trim());
-  const minPrice = variants.length > 0 ? Math.min(...variants.map((v) => v.price)) : null;
-  const serviceLabel = SERVICE_TYPES.find((t) => t.value === serviceType)?.label ?? serviceType;
-
-  return (
-    <Card className="overflow-hidden">
-      <div className="px-4 py-2.5 border-b border-line bg-raised/40 flex items-center gap-2">
-        <Eye size={13} className="text-faint" />
-        <span className="text-[12px] font-semibold text-muted uppercase tracking-wider">Xem trước</span>
-      </div>
-
-      {status !== "active" && (
-        <div className="px-4 pt-3">
-          <Banner tone="warn" icon={<Info size={14} />}>
-            Đang ở trạng thái <strong>{STATUS_TAG[status]?.label ?? status}</strong> — khách chưa thấy trang này cho tới khi bạn chuyển về &quot;Đang bán&quot;.
-          </Banner>
-        </div>
-      )}
-
-      <div className="p-4 space-y-3.5">
-        <div className="flex items-start gap-2.5">
-          <span className="grid place-items-center h-9 w-9 shrink-0 rounded-lg bg-iris/8 border border-iris/15 font-serif text-[13px] font-bold text-iris-hi">
-            {(title.trim() || "SP").slice(0, 2).toUpperCase()}
-          </span>
-          <div className="min-w-0 flex-1">
-            <h4 className="font-serif text-[15px] leading-tight tracking-tight font-semibold break-words">
-              {title.trim() || <span className="text-faint italic font-sans font-normal text-[13px]">Chưa đặt tên sản phẩm</span>}
-            </h4>
-            <div className="flex flex-wrap items-center gap-1 mt-1.5">
-              {categoryName && <Tag tone="iris">{categoryName}</Tag>}
-              <Tag tone="neutral">{serviceLabel}</Tag>
-            </div>
-          </div>
-        </div>
-
-        {minPrice != null && (
-          <div className="pt-3 border-t border-line">
-            <span className="font-mono text-[18px] font-bold tabular text-iris-hi">
-              {variants.length > 1 ? "Từ " : ""}{vnd(minPrice)}
-            </span>
-          </div>
-        )}
-
-        {highlightText.trim() && (
-          <div className="flex items-center gap-2 px-3 py-2 rounded-md bg-iris/4 border border-iris/10 text-[12.5px]">
-            <Bolt size={12} className="text-iris-hi shrink-0" />
-            <span>{highlightText}</span>
-          </div>
-        )}
-
-        {description.trim() && <MarkdownContent>{description}</MarkdownContent>}
-
-        {cleanFeatures.length > 0 && (
-          <ul className="space-y-1">
-            {cleanFeatures.map((f, i) => (
-              <li key={i} className="flex items-start gap-1.5 text-[12.5px] text-muted">
-                <Check size={12} className="text-good mt-0.5 shrink-0" />
-                <span>{f}</span>
-              </li>
-            ))}
-          </ul>
-        )}
-
-        {cleanSpecs.length > 0 && (
-          <div className="rounded-lg border border-line overflow-hidden">
-            <div className="divide-y divide-line">
-              {cleanSpecs.map((s, i) => (
-                <div key={i} className="flex text-[12px]">
-                  <span className="w-[92px] shrink-0 px-2.5 py-1.5 text-muted bg-raised/40">{formatSpecKey(s.key.trim())}</span>
-                  <span className="px-2.5 py-1.5 flex-1 break-words">{s.value}</span>
-                </div>
-              ))}
-            </div>
-          </div>
-        )}
-
-        {warrantyText.trim() && (
-          <div className="pt-3 border-t border-line">
-            <div className="text-[11px] font-semibold text-muted uppercase tracking-wider mb-1">Bảo hành</div>
-            <p className="text-[12px] text-muted leading-relaxed whitespace-pre-line">{warrantyText}</p>
-          </div>
-        )}
-
-        <div className="pt-3 border-t border-line flex items-center gap-1.5 text-[11.5px] text-faint">
-          <Shield size={11} /> Ký quỹ bảo vệ người mua {escrowDays} ngày
-        </div>
-      </div>
-    </Card>
   );
 }
 
@@ -574,7 +462,7 @@ export default function EditProduct() {
               <SetupSummaryCard ops={ops} onViewOperations={() => setTab("operations")} />
             )}
             <div className="lg:sticky lg:top-6">
-              <PreviewCard
+              <ProductPreviewCard
                 title={title}
                 categoryName={flatCats.find((c) => c.id === categoryId)?.name}
                 serviceType={serviceType}

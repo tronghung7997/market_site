@@ -3,6 +3,29 @@
 import Markdown from "markdown-to-jsx";
 import { cn } from "@/lib/cn";
 
+/* Seller gõ Enter là muốn xuống dòng, nhưng chuẩn markdown coi 1 newline là
+   soft break — "dòng 1\ndòng 2" bị nối thành một dòng. markdown-to-jsx không
+   có option breaks kiểu GFM, nên chèn hard break (2 dấu cách cuối dòng) trước
+   khi parse. Bỏ qua bên trong code fence — thêm trailing space vào đó là sửa
+   nội dung code seller viết. */
+function withHardBreaks(md: string): string {
+  let fence: "`" | "~" | null = null;
+  return md
+    .split("\n")
+    .map((line) => {
+      const open = line.match(/^\s*(`{3,}|~{3,})/)?.[1];
+      if (open) {
+        const ch = open[0] as "`" | "~";
+        if (!fence) fence = ch;
+        else if (ch === fence) fence = null;
+        return line;
+      }
+      if (fence || line.trim() === "") return line;
+      return line.replace(/\s*$/, "  ");
+    })
+    .join("\n");
+}
+
 /* Render markdown (mô tả sản phẩm do seller viết) đồng nhất ở mọi nơi hiển
    thị — preview lúc soạn (trang seller) và trang mua thật (trang buyer) phải
    ra cùng một kết quả, nếu không preview coi như nói dối.
@@ -25,7 +48,7 @@ export function MarkdownContent({ children, className }: { children: string; cla
         className,
       )}
     >
-      <Markdown options={{ disableParsingRawHTML: true, forceBlock: true }}>{children}</Markdown>
+      <Markdown options={{ disableParsingRawHTML: true, forceBlock: true }}>{withHardBreaks(children)}</Markdown>
     </div>
   );
 }

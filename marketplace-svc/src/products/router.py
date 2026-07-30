@@ -10,9 +10,17 @@ from . import schemas, service
 router = APIRouter(tags=["products"])
 
 
-@router.get("/products", response_model=list[schemas.ProductWithVariantsResponse])
-async def list_products(category_id: int | None = Query(None), seller_id: int | None = Query(None), db: AsyncSession = Depends(get_session)):
-    return await service.list_products(db, category_id=category_id, seller_id=seller_id)
+@router.get("/products", response_model=schemas.ProductListPageResponse)
+async def list_products(
+    category_id: int | None = Query(None, description="Lọc theo danh mục VÀ toàn bộ danh mục con"),
+    seller_id: int | None = Query(None),
+    page: int | None = Query(None, ge=1, description="Bỏ trống = trả toàn bộ (không phân trang)"),
+    per_page: int = Query(100, ge=1, le=500),
+    db: AsyncSession = Depends(get_session),
+):
+    return await service.list_products(
+        db, category_id=category_id, seller_id=seller_id, page=page, per_page=per_page,
+    )
 
 
 @router.get("/products/{product_id}", response_model=schemas.ProductDetailResponse)
@@ -27,7 +35,7 @@ async def get_own_product(product_id: int, account: Account = Depends(require_ro
     return await service.get_own_product_detail(product_id, account.id, db)
 
 
-@router.get("/seller/products")
+@router.get("/seller/products", response_model=list[schemas.SellerProductResponse])
 async def seller_products(account: Account = Depends(require_role("seller")), db: AsyncSession = Depends(get_session)):
     return await service.list_seller_products(account.id, db)
 
@@ -83,6 +91,18 @@ async def list_all_products(
     db: AsyncSession = Depends(get_session),
 ):
     return await service.list_all_products_admin(db)
+
+
+@router.get("/admin/products/{product_id}", response_model=schemas.AdminProductDetailResponse)
+async def admin_get_product(
+    product_id: int,
+    _: Account = Depends(require_role("admin")),
+    db: AsyncSession = Depends(get_session),
+):
+    """Như GET /products/{id} nhưng kèm commission_rate — trường này đã rút
+    khỏi response public (hoa hồng là thoả thuận admin↔seller, buyer/đối thủ
+    không cần thấy), trang admin sửa sản phẩm đọc từ đây."""
+    return await service.get_product_detail(product_id, db)
 
 
 @router.patch("/admin/products/{product_id}", response_model=schemas.ProductResponse)

@@ -3,8 +3,9 @@
 /** Trang MỘT danh mục — URL bền để duyệt/share/quay lại từ breadcrumb:
  *  breadcrumb → tên + meta (N sản phẩm · từ Xđ) → chip danh mục con (bấm =
  *  lọc theo nhánh con) → toolbar (còn hàng · sắp xếp) → lưới ProductTile.
- *  Dữ liệu: /categories + /products (đã kèm variants) rồi lọc subtree ở
- *  client — cùng nguồn với hub nên hai trang không bao giờ lệch số. */
+ *  Dữ liệu: /categories + /products?category_id=... — server lọc theo cả
+ *  nhánh (cùng ngữ nghĩa subtreeIds), client chỉ còn lọc con/sắp xếp trên
+ *  tập đã đúng; cùng bảng nguồn với hub nên hai trang không lệch số. */
 
 import Link from "next/link";
 import { useParams } from "next/navigation";
@@ -39,15 +40,19 @@ export default function CategoryPage() {
 
   useEffect(() => {
     (async () => {
+      setLoading(true);
       try {
-        const [c, p] = await Promise.all([api.categories(), api.products()]);
+        // Lọc theo danh mục ngay tại server (đúng ngữ nghĩa subtree như client
+        // từng lọc tay) — khỏi tải cả chợ về chỉ để xem một danh mục. Đổi
+        // categoryId (điều hướng giữa các trang con) thì tải lại đúng nhánh đó.
+        const [c, p] = await Promise.all([api.categories(), api.products({ categoryId })]);
         setCats(c);
-        setProducts(p);
+        setProducts(p.items);
       } catch (e) {
         setError(e instanceof Error ? e.message : "Không tải được danh mục");
       } finally { setLoading(false); }
     })();
-  }, []);
+  }, [categoryId]);
 
   // Đổi danh mục (điều hướng giữa các trang con) → bỏ bộ lọc con đang chọn.
   useEffect(() => { setSubFilter(null); }, [categoryId]);

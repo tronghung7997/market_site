@@ -8,23 +8,24 @@ import { effectiveMinPrice, isAdapterFulfilled } from "@/lib/pricing-display";
 import { flattenCategories } from "@/lib/categories";
 import { formatDate } from "@/lib/utils";
 import { sellerTierLabel } from "@/lib/seller-tier";
-import type { Category, ProductDetail, SellerProfile } from "@/lib/types";
+import type { Category, Product, SellerProfile } from "@/lib/types";
 import { Card, Spinner, Tag } from "@/components/ui";
 import { Check, ChevronRight, Package, Shield, Star, Verified, X } from "@/components/Icons";
 
-function stock(p: ProductDetail): number {
-  return p.variants.reduce((s, v) => s + (v.stock_count ?? 0), 0);
+function stock(p: Product): number {
+  return (p.variants ?? []).reduce((s, v) => s + (v.stock_count ?? 0), 0);
 }
 
 type StockState = "in_stock" | "manual" | "out_of_stock" | "auto";
 
-function stockState(p: ProductDetail): StockState {
+function stockState(p: Product): StockState {
   // Sản phẩm fulfillment qua adapter không có tồn kho variant — đếm variant
   // sẽ ra "Tạm hết hàng" oan cho mọi sản phẩm provider (bug 2026-07-24).
   if (isAdapterFulfilled(p)) return "auto";
-  const hasInstantStock = p.variants.some((v) => v.delivery_mode === "instant" && v.stock_count > 0);
+  const variants = p.variants ?? [];
+  const hasInstantStock = variants.some((v) => v.delivery_mode === "instant" && v.stock_count > 0);
   if (hasInstantStock) return "in_stock";
-  const hasManual = p.variants.some((v) => v.delivery_mode === "manual" && v.is_active);
+  const hasManual = variants.some((v) => v.delivery_mode === "manual" && v.is_active);
   if (hasManual) return "manual";
   return "out_of_stock";
 }
@@ -51,7 +52,7 @@ function tileAccent(id: number): string {
 export default function SellerProfilePage() {
   const { id } = useParams<{ id: string }>();
   const [seller, setSeller] = useState<SellerProfile | null>(null);
-  const [products, setProducts] = useState<ProductDetail[]>([]);
+  const [products, setProducts] = useState<Product[]>([]);
   const [categories, setCategories] = useState<Category[]>([]);
   const [activeCategory, setActiveCategory] = useState<number | null>(null);
   const [loading, setLoading] = useState(true);
@@ -68,8 +69,10 @@ export default function SellerProfilePage() {
         ]);
         setSeller(s);
         setCategories(c);
-        const detailed = await Promise.all(list.map((p) => api.product(p.id).catch(() => null)));
-        setProducts(detailed.filter(Boolean) as ProductDetail[]);
+        // Item list đã kèm variants + tồn kho — card ở đây không cần gì hơn,
+        // đừng gọi api.product(id) cho TỪNG sản phẩm (N+1 HTTP: seller 1000
+        // sản phẩm là 1000 request chỉ để render lưới này).
+        setProducts(list.items);
       } catch (e) {
         setError(e instanceof Error ? e.message : "Không tìm thấy nhà bán");
       } finally {

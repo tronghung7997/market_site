@@ -35,9 +35,11 @@ export function useProductDetail(id: number): ProductDetailState {
         }
         if (p.category_id) {
           try {
-            const all = await api.products(p.category_id);
+            // Chỉ cần 3 tile gợi ý — lấy 1 trang nhỏ nhất đủ lọc trùng, đừng
+            // kéo cả danh mục về (1000 sản phẩm chung danh mục = payload phí).
+            const page1 = await api.products({ categoryId: p.category_id, page: 1, perPage: 24 });
             const seen = new Set<string>();
-            setRelated(all.filter((r) => {
+            setRelated(page1.items.filter((r) => {
               if (r.id === p.id) return false;
               // Trùng tên với sản phẩm đang xem → buyer tưởng trang tự lặp lại chính nó.
               if (r.title === p.title) return false;

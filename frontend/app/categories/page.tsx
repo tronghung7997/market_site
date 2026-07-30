@@ -27,9 +27,10 @@ export default function CategoriesPage() {
   useEffect(() => {
     (async () => {
       try {
+        // Không truyền page: hub cần đủ danh sách để chia kệ + đếm số mỗi kệ.
         const [c, p] = await Promise.all([api.categories(), api.products()]);
         setCats(c);
-        setProducts(p);
+        setProducts(p.items);
       } catch (e) {
         setError(e instanceof Error ? e.message : "Không tải được danh mục");
       } finally { setLoading(false); }

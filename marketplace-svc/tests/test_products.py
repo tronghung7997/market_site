@@ -53,7 +53,98 @@ async def test_add_variant(client):
 async def test_list_products_public(client):
     resp = await client.get("/products")
     assert resp.status_code == 200
-    assert isinstance(resp.json(), list)
+    body = resp.json()
+    assert isinstance(body["items"], list)
+    assert isinstance(body["total"], int)
+
+
+@pytest.mark.asyncio
+async def test_list_items_are_slim_but_detail_is_full(client):
+    """Item list không mang mô tả/specs/hoa hồng (payload + leak), nhưng vẫn
+    kèm variants + tồn kho; trang chi tiết mới trả bản đầy đủ."""
+    seller_token, _, cat_id = await setup_seller_with_category(client)
+    product = await client.post("/seller/products", json={
+        "category_id": cat_id, "title": "Slim Test", "status": "active",
+        "description": "Mô tả rất dài " * 100, "specs": {"format": "ID|PASS"},
+    }, headers={"Authorization": f"Bearer {seller_token}"})
+    product_id = product.json()["id"]
+    await client.post(f"/seller/products/{product_id}/variants", json={
+        "name": "Gói A", "price": 1000,
+    }, headers={"Authorization": f"Bearer {seller_token}"})
+
+    item = next(p for p in (await client.get("/products")).json()["items"] if p["id"] == product_id)
+    for heavy in ("description", "specs", "features", "warranty_text", "commission_rate"):
+        assert heavy not in item
+    assert item["variants"][0]["price"] == 1000
+
+    detail = (await client.get(f"/products/{product_id}")).json()
+    assert detail["description"].startswith("Mô tả rất dài")
+    assert detail["specs"] == {"format": "ID|PASS"}
+    assert "commission_rate" not in detail
+
+
+@pytest.mark.asyncio
+async def test_list_products_pagination(client):
+    seller_token, _, cat_id = await setup_seller_with_category(client)
+    for i in range(3):
+        await client.post("/seller/products", json={
+            "category_id": cat_id, "title": f"Page Test {i}", "status": "active",
+        }, headers={"Authorization": f"Bearer {seller_token}"})
+
+    resp = await client.get("/products", params={"page": 1, "per_page": 2})
+    body = resp.json()
+    assert len(body["items"]) == 2
+    assert body["total"] == 3
+    assert body["page"] == 1 and body["per_page"] == 2
+
+    page2 = (await client.get("/products", params={"page": 2, "per_page": 2})).json()
+    assert len(page2["items"]) == 1
+    assert {p["id"] for p in body["items"]}.isdisjoint({p["id"] for p in page2["items"]})
+
+
+@pytest.mark.asyncio
+async def test_list_products_filters_whole_category_subtree(client):
+    """?category_id=cha phải ra cả sản phẩm nằm ở danh mục CON — cùng ngữ
+    nghĩa subtreeIds() client dùng để lọc tay trước đây."""
+    seller_token, admin_token, parent_id = await setup_seller_with_category(client)
+    child = await client.post("/admin/categories", json={
+        "name": "ChildCat", "slug": "childcat", "parent_id": parent_id,
+    }, headers={"Authorization": f"Bearer {admin_token}"})
+    child_id = child.json()["id"]
+    other = await client.post("/admin/categories", json={
+        "name": "OtherCat", "slug": "othercat",
+    }, headers={"Authorization": f"Bearer {admin_token}"})
+    other_id = other.json()["id"]
+
+    product = await client.post("/seller/products", json={
+        "category_id": child_id, "title": "In Child", "status": "active",
+    }, headers={"Authorization": f"Bearer {seller_token}"})
+    product_id = product.json()["id"]
+
+    by_parent = (await client.get("/products", params={"category_id": parent_id})).json()
+    assert any(p["id"] == product_id for p in by_parent["items"])
+    by_child = (await client.get("/products", params={"category_id": child_id})).json()
+    assert any(p["id"] == product_id for p in by_child["items"])
+    by_other = (await client.get("/products", params={"category_id": other_id})).json()
+    assert all(p["id"] != product_id for p in by_other["items"])
+
+
+@pytest.mark.asyncio
+async def test_admin_product_detail_requires_admin(client):
+    seller_token, admin_token, cat_id = await setup_seller_with_category(client)
+    product = await client.post("/seller/products", json={
+        "category_id": cat_id, "title": "Admin Only",
+    }, headers={"Authorization": f"Bearer {seller_token}"})
+    product_id = product.json()["id"]
+
+    denied = await client.get(f"/admin/products/{product_id}",
+                              headers={"Authorization": f"Bearer {seller_token}"})
+    assert denied.status_code == 403
+
+    ok = await client.get(f"/admin/products/{product_id}",
+                          headers={"Authorization": f"Bearer {admin_token}"})
+    assert ok.status_code == 200
+    assert "commission_rate" in ok.json()
 
 
 @pytest.mark.asyncio
@@ -115,8 +206,11 @@ async def test_admin_sets_product_commission_via_operations(client):
     }, headers={"Authorization": f"Bearer {admin_token}"})
     assert resp.status_code == 200
 
-    detail = await client.get(f"/products/{product_id}")
-    assert detail.json()["commission_rate"] == 12.0
+    # Hoa hồng chỉ còn ở endpoint admin — detail public không phát trường này.
+    admin_detail = await client.get(f"/admin/products/{product_id}",
+                                    headers={"Authorization": f"Bearer {admin_token}"})
+    assert admin_detail.json()["commission_rate"] == 12.0
+    assert "commission_rate" not in (await client.get(f"/products/{product_id}")).json()
 
 
 @pytest.mark.asyncio
@@ -137,7 +231,8 @@ async def test_admin_commission_left_untouched_when_omitted(client):
     }, headers={"Authorization": f"Bearer {admin_token}"})
     assert resp.status_code == 200
 
-    detail = await client.get(f"/products/{product_id}")
+    detail = await client.get(f"/admin/products/{product_id}",
+                              headers={"Authorization": f"Bearer {admin_token}"})
     assert detail.json()["commission_rate"] == 9.0
 
 
@@ -199,7 +294,8 @@ async def test_seller_cannot_set_commission_via_pricing_endpoint(client):
     }, headers={"Authorization": f"Bearer {seller_token}"})
     assert resp.status_code == 200
 
-    detail = await client.get(f"/products/{product_id}")
+    detail = await client.get(f"/admin/products/{product_id}",
+                              headers={"Authorization": f"Bearer {admin_token}"})
     assert detail.json()["commission_rate"] is None
 
 

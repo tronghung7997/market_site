@@ -4,7 +4,7 @@ import Link from "next/link";
 import { useParams } from "next/navigation";
 import { useEffect, useState } from "react";
 import { api, vnd } from "@/lib/api";
-import type { ProductDetail, ProductOperations, Provider } from "@/lib/types";
+import type { AdminProductDetail as AdminProductDetailData, ProductOperations, Provider } from "@/lib/types";
 import { Button, Banner, Card, Field, Input, Select, Spinner, Tag, Textarea } from "@/components/ui";
 import { Activity, ArrowRight, Edit2, Eye, Info, Sliders, Users } from "@/components/Icons";
 import { STRATEGY_INFO, STRATEGY_FORMULAS, ADAPTER_INFO, PARAM_LABELS, formatParamValue } from "@/lib/pricing-config";
@@ -23,7 +23,7 @@ const STATUS_MAP: Record<string, { label: string; tone: "good" | "warn" | "bad" 
 
 export default function AdminProductDetail() {
   const { id } = useParams<{ id: string }>();
-  const [product, setProduct] = useState<ProductDetail | null>(null);
+  const [product, setProduct] = useState<AdminProductDetailData | null>(null);
   const [ops, setOps] = useState<ProductOperations | null>(null);
   const [providers, setProviders] = useState<Provider[]>([]);
   const [compatMatrix, setCompatMatrix] = useState<CompatMatrix | null>(null);
@@ -49,7 +49,8 @@ export default function AdminProductDetail() {
     setLoading(true);
     try {
       const [p, o, provList, matrix] = await Promise.all([
-        api.product(Number(id)),
+        // Endpoint admin — GET /products/{id} public không còn commission_rate.
+        api.adminProduct(Number(id)),
         api.productOperations(Number(id)),
         api.providers(),
         api.adapterCompatibility(),

@@ -1,5 +1,5 @@
 import type {
-  Account, ActionItem, AdminDepositIntent, AdminDisputeDetail, AdminOrderDetail, AdminProduct, AdminResourceListResponse, AffiliateStats, AffiliateSummary, CalculateResult, Category, ChargeUsageResult, DashboardData, DepositIntent, Dispute, PayosWebhookEventRow, AdminAccountWallet, FundOverview, AccountAdminRow, PaginatedAccounts, LogEntry, Order, OrderStats, PaginatedAffiliateSummary, PaginatedOrderResponse, PricingField, PricingOptions, ProductDetail, Product, ProductOperations, ProxyState, ProxyRotateResult, ProxyWhitelistResult, Review, SellerApplication, SellerProduct, SellerStats, ServiceTask, Transaction, Variant, Wallet, WithdrawRequest, Provider, ProviderHealth, Alert, Resource, ResourceSummary, ResourceSellerFacet, InventoryVariant, SellerSummary, SellerProfile, SellerApiKey, SellerApiKeyCreated,
+  Account, ActionItem, AdminDepositIntent, AdminDisputeDetail, AdminOrderDetail, AdminProduct, AdminResourceListResponse, AffiliateStats, AffiliateSummary, CalculateResult, Category, ChargeUsageResult, DashboardData, DepositIntent, Dispute, PayosWebhookEventRow, AdminAccountWallet, FundOverview, AccountAdminRow, PaginatedAccounts, LogEntry, Order, OrderStats, PaginatedAffiliateSummary, PaginatedOrderResponse, PaginatedProducts, PricingField, PricingOptions, ProductDetail, AdminProductDetail, Product, ProductOperations, ProxyState, ProxyRotateResult, ProxyWhitelistResult, Review, SellerApplication, SellerProduct, SellerStats, ServiceTask, Transaction, Variant, Wallet, WithdrawRequest, Provider, ProviderHealth, Alert, Resource, ResourceSummary, ResourceSellerFacet, InventoryVariant, SellerSummary, SellerProfile, SellerApiKey, SellerApiKeyCreated,
 } from "./types";
 
 const BASE = process.env.NEXT_PUBLIC_API_URL
@@ -70,10 +70,19 @@ export const api = {
     request<Category>(`/admin/categories/${id}`, { method: "PATCH", body: JSON.stringify(data) }, true),
   deleteCategory: (id: number) =>
     request<void>(`/admin/categories/${id}`, { method: "DELETE" }, true),
-  products: (categoryId?: number) =>
-    request<Product[]>(`/products${categoryId ? `?category_id=${categoryId}` : ""}`),
+  // Không truyền page = backend trả TOÀN BỘ trong 1 lượt (trang chủ/hub cần đủ
+  // dữ liệu để đếm tổng); categoryId lọc theo CẢ NHÁNH danh mục ngay tại server.
+  products: (opts: { categoryId?: number; sellerId?: number; page?: number; perPage?: number } = {}) => {
+    const q = new URLSearchParams();
+    if (opts.categoryId) q.set("category_id", String(opts.categoryId));
+    if (opts.sellerId) q.set("seller_id", String(opts.sellerId));
+    if (opts.page) q.set("page", String(opts.page));
+    if (opts.perPage) q.set("per_page", String(opts.perPage));
+    const qs = q.toString();
+    return request<PaginatedProducts>(`/products${qs ? `?${qs}` : ""}`);
+  },
   productsBySeller: (sellerId: number) =>
-    request<Product[]>(`/products?seller_id=${sellerId}`),
+    request<PaginatedProducts>(`/products?seller_id=${sellerId}`),
   product: (id: number) => request<ProductDetail>(`/products/${id}`),
 
   wallet: () => request<Wallet>("/wallet", {}, true),
@@ -162,6 +171,8 @@ export const api = {
   productOperations: (id: number) => request<ProductOperations>(`/products/${id}/operations`, {}, true),
 
   adminProducts: () => request<AdminProduct[]>("/admin/products", {}, true),
+  // Bản duy nhất còn commission_rate — trường này đã rút khỏi GET /products{,/{id}}.
+  adminProduct: (id: number) => request<AdminProductDetail>(`/admin/products/${id}`, {}, true),
   adminUpdateProduct: (id: number, data: Record<string, unknown>) =>
     request<Product>(`/admin/products/${id}`, { method: "PATCH", body: JSON.stringify(data) }, true),
   adminAccounts: (params?: { search?: string; page?: number; per_page?: number }) => {

@@ -1,3 +1,5 @@
+from collections import defaultdict
+
 from fastapi import HTTPException
 from sqlalchemy import func, select
 from sqlalchemy.ext.asyncio import AsyncSession
@@ -156,51 +158,97 @@ async def delete_variant(variant_id: int, seller_id: int, db: AsyncSession) -> N
     await db.commit()
 
 
-async def list_products(db: AsyncSession, category_id: int | None = None, seller_id: int | None = None) -> list[dict]:
-    query = select(Product).where(Product.status == ProductStatus.active)
+async def _category_subtree_ids(category_id: int, db: AsyncSession) -> list[int]:
+    """category_id + toàn bộ hậu duệ đang ACTIVE.
+
+    Cùng ngữ nghĩa với subtreeIds() phía frontend (lib/categories.ts) — client
+    vốn chỉ nhìn thấy cây active từ /categories, nên lọc server cũng phải giới
+    hạn trong nhánh active để trả đúng tập sản phẩm client từng lọc tay."""
+    rows = (await db.execute(select(Category.id, Category.parent_id).where(Category.is_active))).all()
+    if category_id not in {cid for cid, _ in rows}:
+        return []
+    children: dict[int | None, list[int]] = defaultdict(list)
+    for cid, pid in rows:
+        children[pid].append(cid)
+    out: list[int] = []
+    stack = [category_id]
+    while stack:
+        current = stack.pop()
+        out.append(current)
+        stack.extend(children.get(current, []))
+    return out
+
+
+async def list_products(
+    db: AsyncSession,
+    category_id: int | None = None,
+    seller_id: int | None = None,
+    page: int | None = None,
+    per_page: int = 100,
+) -> dict:
+    """Danh sách sản phẩm đang bán — item bản GỌN kèm gói + tồn kho.
+
+    - Số query CỐ ĐỊNH (đếm + trang sản phẩm + gói IN + tồn kho GROUP BY) bất
+      kể bao nhiêu sản phẩm/gói — bản cũ 1 + N + N×gói query, 1000 sản phẩm là
+      ~3.000 query một request.
+    - category_id lọc theo CẢ NHÁNH (danh mục + con cháu) ngay tại DB — đúng
+      ngữ nghĩa subtreeIds() client dùng để lọc tay trước đây.
+    - page=None trả toàn bộ (trang chủ/hub cần đủ dữ liệu để đếm tổng); truyền
+      page thì phân trang chuẩn — hai chế độ chung một phong bì {items, total,
+      page, per_page}.
+    """
+    filters = [Product.status == ProductStatus.active]
     if category_id:
-        query = query.where(Product.category_id == category_id)
+        filters.append(Product.category_id.in_(await _category_subtree_ids(category_id, db)))
     if seller_id:
-        query = query.where(Product.seller_id == seller_id)
-    query = query.order_by(Product.created_at.desc())
-    result = await db.execute(query)
-    products = list(result.scalars().all())
-    # Trả kèm variants (gói + tồn kho) ngay trong list: trước đây frontend phải
-    # gọi chi tiết TỪNG sản phẩm chỉ để lấy giá thấp nhất và tồn kho — trang chủ
-    # thành ~35 request cho một lần tải (N+1). Một round trip, dữ liệu y hệt
-    # trang chi tiết nên số hiển thị không lệch nhau giữa list và detail.
-    return [
-        {**_product_dict(p), "variants": await _variant_dicts(p.id, db)}
-        for p in products
-    ]
+        filters.append(Product.seller_id == seller_id)
+
+    total = await db.scalar(select(func.count(Product.id)).where(*filters)) or 0
+
+    query = select(Product).where(*filters).order_by(Product.created_at.desc())
+    if page is not None:
+        query = query.offset((page - 1) * per_page).limit(per_page)
+    products = list((await db.execute(query)).scalars())
+
+    variants_by_product = await _variants_by_product([p.id for p in products], db)
+    return {
+        "items": [
+            {**_product_list_dict(p), "variants": variants_by_product.get(p.id, [])}
+            for p in products
+        ],
+        "total": total,
+        "page": page or 1,
+        "per_page": per_page if page is not None else total,
+    }
 
 
 async def list_seller_products(seller_id: int, db: AsyncSession) -> list[dict]:
-    result = await db.execute(
+    """Bảng quản lý của seller — mọi lookup gom IN/GROUP BY như bản admin.
+
+    Bản cũ mỗi sản phẩm 2 query (danh mục + gói) cộng 1 query đếm kho MỖI gói
+    giao ngay; seller 1000 sản phẩm là ~4.000 query một lần mở trang."""
+    products = list((await db.execute(
         select(Product).where(Product.seller_id == seller_id).order_by(Product.created_at.desc())
-    )
-    products = list(result.scalars().all())
+    )).scalars())
+    if not products:
+        return []
+
+    category_names = {
+        c.id: c.name
+        for c in (await db.execute(
+            select(Category).where(Category.id.in_({p.category_id for p in products}))
+        )).scalars()
+    }
+    variants_by_product = await _variants_by_product([p.id for p in products], db)
+
     out = []
     for p in products:
-        category = await db.get(Category, p.category_id)
-        total_stock = 0
-        variants_result = await db.execute(
-            select(ProductVariant).where(ProductVariant.product_id == p.id, ProductVariant.is_active)
-        )
-        variants = list(variants_result.scalars().all())
-        for v in variants:
-            if v.delivery_mode == DeliveryMode.instant:
-                count = await db.scalar(
-                    select(func.count(Resource.id)).where(
-                        Resource.variant_id == v.id, Resource.status == ResourceStatus.available
-                    )
-                )
-                total_stock += count or 0
+        variants = variants_by_product.get(p.id, [])
         out.append({
-            **_product_dict(p),
-            "category_name": category.name if category else None,
+            **_product_list_dict(p),
+            "category_name": category_names.get(p.category_id),
             "variant_count": len(variants),
-            "total_stock": total_stock,
+            "total_stock": sum(v["stock_count"] for v in variants),
         })
     return out
 
@@ -270,32 +318,48 @@ async def get_product_detail(
     }
 
 
-async def _variant_dicts(product_id: int, db: AsyncSession, *, include_inactive: bool = False) -> list[dict]:
-    """Serialize gói của một sản phẩm kèm tồn kho thật (đếm Resource available
-    cho gói giao ngay). Dùng chung cho list lẫn detail để hai nơi không lệch số."""
-    variant_filter = [ProductVariant.product_id == product_id]
+async def _variants_by_product(
+    product_ids: list[int], db: AsyncSession, *, include_inactive: bool = False
+) -> dict[int, list[dict]]:
+    """Serialize gói kèm tồn kho thật cho NHIỀU sản phẩm bằng đúng 2 query:
+    gói (IN product_ids) + đếm Resource available GROUP BY variant_id. Dùng
+    chung cho list lẫn detail để hai nơi không lệch số."""
+    if not product_ids:
+        return {}
+    variant_filter = [ProductVariant.product_id.in_(product_ids)]
     if not include_inactive:
         variant_filter.append(ProductVariant.is_active)
-    variants_result = await db.execute(
+    variants = list((await db.execute(
         select(ProductVariant).where(*variant_filter).order_by(ProductVariant.sort_order)
-    )
-    variants = list(variants_result.scalars().all())
+    )).scalars())
 
-    variant_dicts = []
+    # Chỉ gói giao ngay mới có khái niệm tồn kho — gói manual/adapter giữ 0
+    # như bản cũ, đừng đếm Resource cho chúng.
+    instant_ids = [v.id for v in variants if v.delivery_mode == DeliveryMode.instant]
+    stock_by_variant: dict[int, int] = {}
+    if instant_ids:
+        rows = await db.execute(
+            select(Resource.variant_id, func.count(Resource.id))
+            .where(Resource.variant_id.in_(instant_ids), Resource.status == ResourceStatus.available)
+            .group_by(Resource.variant_id)
+        )
+        stock_by_variant = dict(rows.all())
+
+    out: dict[int, list[dict]] = defaultdict(list)
     for v in variants:
-        stock = 0
-        if v.delivery_mode == DeliveryMode.instant:
-            count = await db.scalar(
-                select(func.count(Resource.id)).where(Resource.variant_id == v.id, Resource.status == ResourceStatus.available)
-            )
-            stock = count or 0
-        variant_dicts.append({
+        out[v.product_id].append({
             "id": v.id, "product_id": v.product_id, "name": v.name, "price": v.price,
             "delivery_mode": v.delivery_mode.value, "sla_hours": v.sla_hours,
             "duration_days": v.duration_days,
-            "sort_order": v.sort_order, "is_active": v.is_active, "stock_count": stock,
+            "sort_order": v.sort_order, "is_active": v.is_active,
+            "stock_count": stock_by_variant.get(v.id, 0),
         })
-    return variant_dicts
+    return out
+
+
+async def _variant_dicts(product_id: int, db: AsyncSession, *, include_inactive: bool = False) -> list[dict]:
+    by_product = await _variants_by_product([product_id], db, include_inactive=include_inactive)
+    return by_product.get(product_id, [])
 
 
 def _validate_provider_assignment(provider: Provider | None, product: Product) -> None:
@@ -488,6 +552,23 @@ async def list_all_products_admin(db: AsyncSession) -> list[dict]:
             "demo_mode": setup["demo_mode"],
         })
     return out
+
+
+def _product_list_dict(product: Product) -> dict:
+    """Bản GỌN cho item danh sách — không description/specs/features/warranty
+    (nặng, chỉ trang chi tiết cần), không commission_rate (không phát ra API
+    public). Thêm trường ở đây thì thêm cả ProductListItemBase bên schemas."""
+    return {
+        "id": product.id, "seller_id": product.seller_id, "category_id": product.category_id,
+        "title": product.title, "images": product.images,
+        "escrow_days": product.escrow_days, "status": product.status.value,
+        "service_type": product.service_type,
+        "highlight_text": product.highlight_text, "sold_count": product.sold_count,
+        "rating_avg": product.rating_avg, "rating_count": product.rating_count,
+        "pricing_strategy": product.pricing_strategy,
+        "pricing_params": product.pricing_params,
+        "created_at": product.created_at,
+    }
 
 
 def _product_dict(product: Product) -> dict:

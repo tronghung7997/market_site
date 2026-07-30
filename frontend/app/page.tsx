@@ -47,10 +47,11 @@ function HomeInner() {
       try {
         // /products đã trả kèm variants (gói + tồn kho) — trước đây chỗ này
         // gọi thêm api.product(id) cho TỪNG sản phẩm (~35 request mỗi lần mở
-        // trang chủ) chỉ để lấy đúng hai con số đó.
+        // trang chủ) chỉ để lấy đúng hai con số đó. Không truyền page: trang
+        // chủ đếm tổng (stats, số sản phẩm mỗi danh mục) nên cần đủ danh sách.
         const [c, list] = await Promise.all([api.categories(), api.products()]);
         setCats(c);
-        setProducts(list);
+        setProducts(list.items);
       } catch (e) {
         setError(e instanceof Error ? e.message : "Không tải được dữ liệu");
       } finally { setLoading(false); }

@@ -92,20 +92,69 @@ class VariantResponse(BaseModel):
     model_config = {"from_attributes": True}
 
 
-class ProductWithVariantsResponse(ProductResponse):
+class ProductListItemBase(BaseModel):
+    """Bản GỌN của một sản phẩm cho mọi danh sách.
+
+    Không mang description/specs/features/warranty_text — chỉ trang chi tiết
+    cần, còn mô tả markdown dài hàng KB nhân N sản phẩm là payload phình vô
+    ích. Không mang commission_rate — mức hoa hồng là thoả thuận admin↔seller,
+    không phát ra API public. pricing_strategy/params phải giữ: frontend tính
+    giá "Chỉ từ" thật từ chúng (lib/pricing-display.ts)."""
+    id: int
+    seller_id: int
+    category_id: int
+    title: str
+    images: dict | None
+    escrow_days: int
+    status: str
+    service_type: str | None
+    highlight_text: str | None
+    sold_count: int
+    rating_avg: float | None
+    rating_count: int
+    pricing_strategy: str | None = None
+    pricing_params: dict | None = None
+    created_at: datetime
+
+
+class ProductListItemResponse(ProductListItemBase):
     """Item của GET /products — kèm gói + tồn kho để list không cần gọi chi
     tiết từng sản phẩm (fix N+1 trang chủ)."""
     variants: list[VariantResponse] = []
 
 
-class ProductDetailResponse(ProductWithVariantsResponse):
+class ProductListPageResponse(BaseModel):
+    """Phong bì GET /products — cùng khuôn PaginatedOrderResponse bên orders.
+    Không truyền page thì items là toàn bộ và per_page == total."""
+    items: list[ProductListItemResponse]
+    total: int
+    page: int
+    per_page: int
+
+
+class SellerProductResponse(ProductListItemBase):
+    """Item của GET /seller/products — bảng quản lý cần số đếm, không cần
+    danh sách gói đầy đủ."""
+    category_name: str | None = None
+    variant_count: int
+    total_stock: int
+
+
+class ProductDetailResponse(ProductListItemResponse):
+    """GET /products/{id} và /seller/products/{id}/detail — bản đầy đủ.
+    Vẫn KHÔNG có commission_rate; admin lấy qua GET /admin/products/{id}."""
+    description: str | None
+    features: list | None
+    specs: dict | None
+    warranty_text: str | None
     seller_email: str | None = None
     category_name: str | None = None
 
 
-class ProductListResponse(ProductResponse):
-    seller_email: str | None = None
-    category_name: str | None = None
+class AdminProductDetailResponse(ProductDetailResponse):
+    """Chi tiết cho trang admin — thêm commission_rate (form hoa hồng đọc từ
+    đây sau khi trường này rút khỏi response public)."""
+    commission_rate: float | None = None
 
 
 class ProductOperationsUpdate(BaseModel):

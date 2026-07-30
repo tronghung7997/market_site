@@ -34,30 +34,36 @@ export interface Category {
   children: Category[];
 }
 
+/** Item danh sách sản phẩm (GET /products, /seller/products) — bản GỌN.
+ *  description/specs/features/warranty_text chỉ có ở ProductDetail (trang chi
+ *  tiết mới cần, mô tả markdown dài nhân N sản phẩm là payload phình vô ích);
+ *  commission_rate chỉ có ở AdminProductDetail (không phát ra API public). */
 export interface Product {
   id: number;
   seller_id: number;
   category_id: number;
   title: string;
-  description: string | null;
   images: Record<string, unknown> | null;
   escrow_days: number;
   status: string;
   service_type: string | null;
-  features: string[] | null;
-  specs: Record<string, string> | null;
-  warranty_text: string | null;
   highlight_text: string | null;
   sold_count: number;
   rating_avg: number | null;
   rating_count: number;
   pricing_strategy?: string | null;
   pricing_params?: Record<string, unknown> | null;
-  commission_rate?: number | null;
   created_at: string;
   /** GET /products trả kèm gói + tồn kho (fix N+1 trang chủ) — optional vì
    *  một số response cũ (đơn hàng, admin) vẫn là Product trần. */
   variants?: Variant[];
+}
+
+export interface PaginatedProducts {
+  items: Product[];
+  total: number;
+  page: number;
+  per_page: number;
 }
 
 export interface Variant {
@@ -74,9 +80,19 @@ export interface Variant {
 }
 
 export interface ProductDetail extends Product {
+  description: string | null;
+  features: string[] | null;
+  specs: Record<string, string> | null;
+  warranty_text: string | null;
   variants: Variant[];
   seller_email: string | null;
   category_name: string | null;
+}
+
+/** GET /admin/products/{id} — như ProductDetail nhưng kèm commission_rate
+ *  (đã rút khỏi response public, trang admin sửa sản phẩm đọc từ đây). */
+export interface AdminProductDetail extends ProductDetail {
+  commission_rate: number | null;
 }
 
 export interface WithdrawPolicy {

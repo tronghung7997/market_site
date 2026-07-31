@@ -287,7 +287,7 @@ function parseGatewayDelivery(raw: string | null | undefined): { key: string | n
   return { key, callUrl };
 }
 
-function EndpointDashboard({ data, onRefresh }: { data: DashboardData; onRefresh: () => void }) {
+function EndpointDashboard({ data, onRefresh, viewerRole }: { data: DashboardData; onRefresh: () => void; viewerRole: "buyer" | "seller" }) {
   const balance = data.balance;
   const { key: apiKey, callUrl } = parseGatewayDelivery(data.delivered_data);
   const [simulating, setSimulating] = useState(false);
@@ -384,18 +384,24 @@ function EndpointDashboard({ data, onRefresh }: { data: DashboardData; onRefresh
             </Banner>
           )}
 
-          <div className="flex items-center gap-2">
-            <button
-              onClick={simulate}
-              disabled={simulating}
-              className="inline-flex items-center gap-1.5 px-3 py-1.5 text-[12px] font-medium rounded-md bg-raised border border-line hover:border-line-2 transition-colors disabled:opacity-50"
-            >
-              {simulating ? "Đang gửi…" : "Trừ thử 1 request"}
-            </button>
-            <span className="text-[11px] text-faint">
-              Kiểm tra cách đếm số dư — trừ 1 request thật khỏi gói, không gọi ra nhà cung cấp.
-            </span>
-          </div>
+          {/* Chỉ chủ đơn (buyer) mới gọi được POST /orders/{id}/usage — seller xem
+              cùng dashboard này nhưng bấm nút sẽ luôn nhận 403 (usage/service.py::
+              charge_usage_as chỉ cho buyer_id hoặc admin). Ẩn hẳn thay vì hiện một
+              nút luôn báo lỗi. */}
+          {viewerRole === "buyer" && (
+            <div className="flex items-center gap-2">
+              <button
+                onClick={simulate}
+                disabled={simulating}
+                className="inline-flex items-center gap-1.5 px-3 py-1.5 text-[12px] font-medium rounded-md bg-raised border border-line hover:border-line-2 transition-colors disabled:opacity-50"
+              >
+                {simulating ? "Đang gửi…" : "Trừ thử 1 request"}
+              </button>
+              <span className="text-[11px] text-faint">
+                Kiểm tra cách đếm số dư — trừ 1 request thật khỏi gói, không gọi ra nhà cung cấp.
+              </span>
+            </div>
+          )}
           {simError && <p className="text-[12px] text-bad">{simError}</p>}
 
           {balance.records.length > 0 && (
@@ -518,7 +524,7 @@ function DefaultDashboard({ data }: { data: DashboardData }) {
 
 /* ── Main ServiceDashboard ── */
 
-export default function ServiceDashboard({ orderId }: { orderId: number }) {
+export default function ServiceDashboard({ orderId, viewerRole = "buyer" }: { orderId: number; viewerRole?: "buyer" | "seller" }) {
   const [data, setData] = useState<DashboardData | null>(null);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState("");
@@ -556,7 +562,7 @@ export default function ServiceDashboard({ orderId }: { orderId: number }) {
         </Tag>
       </div>
       {data.service_type === "proxy" ? <ProxyDashboard data={data} />
-        : data.service_type === "endpoint" ? <EndpointDashboard data={data} onRefresh={load} />
+        : data.service_type === "endpoint" ? <EndpointDashboard data={data} onRefresh={load} viewerRole={viewerRole} />
         : data.service_type === "takedown" ? <TakedownDashboard data={data} />
         : <DefaultDashboard data={data} />}
     </Card>

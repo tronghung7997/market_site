@@ -48,6 +48,12 @@ class RealApiAdapter(ProviderAdapter):
         self.base_url: str = (config.get("base_url") or "").rstrip("/")
         raw_key = config.get("api_key")
         self.api_key: str | None = decrypt_str(raw_key) if raw_key else None
+        # Some real suppliers are just slower than the 5s default (ScrapeCreators'
+        # Facebook endpoints live-scrape and routinely take ~5-6s — TikTok/YouTube
+        # on the same account stay well under it). A hard-coded 5s here would
+        # time out, retry, and eventually refund a request that was going to
+        # succeed anyway. config.timeout_seconds overrides per provider.
+        self.timeout: float = float(config.get("timeout_seconds") or _TIMEOUT)
 
     def _headers(self, idempotency_key: str | None = None) -> dict:
         headers = {"Content-Type": "application/json"}
@@ -83,7 +89,7 @@ class RealApiAdapter(ProviderAdapter):
         # supplied, or DProxy's rotate call which must never silently follow
         # a 3xx to an unvalidated location) must come back as a plain
         # Response, not be transparently followed.
-        async with httpx.AsyncClient(timeout=_TIMEOUT, follow_redirects=False) as client:
+        async with httpx.AsyncClient(timeout=self.timeout, follow_redirects=False) as client:
             for attempt in range(_MAX_ATTEMPTS):
                 started = time.perf_counter()
                 status_code: int | None = None

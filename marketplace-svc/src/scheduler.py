@@ -9,6 +9,7 @@ from sqlalchemy import select
 from src.alerts.service import create_alert
 from src.audit.service import log_event
 from src.database import SessionLocal
+from src.gateway.call_history import purge_old_gateway_call_logs
 from src.models.account import Account
 from src.models.order import Order, OrderStatus
 from src.models.product import Product, ProductVariant
@@ -627,3 +628,14 @@ async def deposit_expire_job() -> None:
             )
             await db.commit()
             logger.info("deposit_expire_swept", count=len(intents))
+
+
+async def gateway_call_log_cleanup_job() -> None:
+    """Xoá gateway_call_logs quá hạn (settings.gateway_call_log_retention_days,
+    mặc định 7 ngày) — bảng lịch sử tiện lợi cho buyer xem gần đây, KHÔNG phải
+    sổ cái billing (usage_records không bao giờ đụng tới ở đây, xem docstring
+    GatewayCallLog). Xoá thẳng, không cần khoá dòng hay soft-delete vì không
+    ai khác phụ thuộc bảng này."""
+    deleted = await purge_old_gateway_call_logs()
+    if deleted:
+        logger.info("gateway_call_log_cleanup", deleted=deleted)

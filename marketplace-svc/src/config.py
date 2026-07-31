@@ -50,5 +50,12 @@ class Settings(BaseSettings):
     # khác nhau cho mỗi môi trường (vd TOPPROXY_MARKER_PREFIX=stg).
     topproxy_marker_prefix: str = "od"
 
+    # --- Gateway call history (buyer-facing, src/models/usage.py::GatewayCallLog) ---
+    # Recent-request convenience log, NOT the billing ledger (usage_records —
+    # never pruned). Bounded on purpose so it can't grow unbounded on a busy
+    # gateway product; raise it if buyers need to look back further, or drop
+    # it if disk isn't a concern.
+    gateway_call_log_retention_days: int = 7
+
 
 settings = Settings()

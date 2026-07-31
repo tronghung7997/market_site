@@ -2,6 +2,7 @@ import hashlib
 import hmac
 import json
 import re
+import time
 
 import structlog
 from fastapi import APIRouter, Depends, HTTPException, Request, Response
@@ -11,6 +12,7 @@ from src.adapters.real_api import RealApiAdapter
 from src.adapters.registry import get_spec
 from src.auth.dependencies import get_current_account, require_role
 from src.database import get_session
+from src.gateway.call_history import record_gateway_call_log
 from src.gateway.service import mint_gateway_key, resolve_order_by_gateway_key
 from src.logging import current_request_id
 from src.models.account import Account
@@ -152,6 +154,13 @@ async def gateway_forward(
     charge_result = await charge_usage(order.id, endpoint, None, db, request_id=request_id)
     units = charge_result["units_charged"]
 
+    # Buyer-facing history (src/gateway/call_history.py) — separate call, own
+    # session, best-effort. request_payload is what THIS buyer sent for THIS
+    # call, safe to show back to them (see GatewayCallLog docstring for why
+    # this differs from ProviderCallLog's no-bodies policy).
+    request_payload = {"query": dict(request.query_params)} if not body else {"query": dict(request.query_params), "body": body}
+    started = time.perf_counter()
+
     try:
         resp = await adapter.call(
             order.id, seller_path,
@@ -160,14 +169,30 @@ async def gateway_forward(
             json_body=body,
         )
     except Exception as e:
+        latency_ms = int((time.perf_counter() - started) * 1000)
         await refund_usage(order.id, units, db, request_id=request_id, endpoint=endpoint)
         logger.error("gateway_forward_failed", order_id=order.id, endpoint=endpoint, error=str(e))
+        await record_gateway_call_log(
+            order_id=order.id, endpoint=endpoint, latency_ms=latency_ms,
+            request_payload=request_payload, error=str(e),
+        )
         raise HTTPException(status_code=502, detail="Không thể kết nối nhà cung cấp") from e
+
+    latency_ms = int((time.perf_counter() - started) * 1000)
 
     if len(resp.content) > _MAX_RESPONSE_BYTES:
         await refund_usage(order.id, units, db, request_id=request_id, endpoint=endpoint)
         logger.error("gateway_response_too_large", order_id=order.id, endpoint=endpoint, size=len(resp.content))
+        await record_gateway_call_log(
+            order_id=order.id, endpoint=endpoint, latency_ms=latency_ms, status_code=resp.status_code,
+            request_payload=request_payload, error="Phản hồi từ nhà cung cấp quá lớn",
+        )
         raise HTTPException(status_code=502, detail="Phản hồi từ nhà cung cấp quá lớn")
+
+    await record_gateway_call_log(
+        order_id=order.id, endpoint=endpoint, latency_ms=latency_ms, status_code=resp.status_code,
+        request_payload=request_payload, response_body=resp.content,
+    )
 
     # Whitelist header pass-through — không forward Set-Cookie hay header nội
     # bộ của seller ra cho buyer.

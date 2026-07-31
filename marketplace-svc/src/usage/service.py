@@ -5,6 +5,7 @@ from sqlalchemy import select
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from src.exceptions import QuotaExceeded, QuotaExpired
+from src.gateway.call_history import list_gateway_call_logs
 from src.models.account import Account
 from src.models.order import Order
 from src.models.usage import OrderBalance, UsageRecord, UsageRecordStatus
@@ -161,6 +162,13 @@ async def get_usage_summary(order_id: int, db: AsyncSession) -> dict | None:
     )
     records = list(records_result.scalars().all())
 
+    # Chi tiết TỪNG lần gọi qua gateway (status code thật, payload, trích
+    # response) — bảng riêng GatewayCallLog, KHÔNG phải billing ledger (đó là
+    # UsageRecord/"records" ở trên, không đổi gì). Sản phẩm strategy=credit
+    # không đi qua gateway (vd đơn cũ trước khi có seller_gateway) sẽ đơn giản
+    # có gateway_calls rỗng — vẫn None-safe, không phải lỗi.
+    gateway_calls = await list_gateway_call_logs(order_id, db, limit=20)
+
     return {
         "units_total": balance.units_total,
         "units_used": balance.units_used,
@@ -172,5 +180,14 @@ async def get_usage_summary(order_id: int, db: AsyncSession) -> dict | None:
                 "status": r.status.value, "created_at": r.created_at,
             }
             for r in records
+        ],
+        "gateway_calls": [
+            {
+                "id": c.id, "endpoint": c.endpoint, "status_code": c.status_code,
+                "latency_ms": c.latency_ms, "request_payload": c.request_payload,
+                "response_snippet": c.response_snippet, "error": c.error,
+                "created_at": c.created_at,
+            }
+            for c in gateway_calls
         ],
     }

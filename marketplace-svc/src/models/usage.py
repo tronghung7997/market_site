@@ -1,7 +1,7 @@
 from datetime import datetime
 from enum import Enum as PyEnum
 
-from sqlalchemy import DateTime, Enum, ForeignKey, Integer, String, func
+from sqlalchemy import DateTime, Enum, ForeignKey, Integer, String, Text, func
 from sqlalchemy.dialects.postgresql import JSONB
 from sqlalchemy.orm import Mapped, mapped_column
 
@@ -62,3 +62,41 @@ class UsageRecord(Base):
     units: Mapped[int] = mapped_column(Integer, nullable=False)
     status: Mapped[UsageRecordStatus] = mapped_column(Enum(UsageRecordStatus), nullable=False)
     created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), server_default=func.now())
+
+
+class GatewayCallLog(Base):
+    """Buyer-facing "request history" for one /gw/{key}/<endpoint> call —
+    separate from UsageRecord on purpose: UsageRecord is the permanent
+    billing/dispute ledger (buyer/seller tranh chấp vượt hạn mức tra lại đó,
+    never pruned). This table is a bounded, recent-only convenience log for
+    buyers to review what they sent/got — safe to prune on a schedule
+    (see GATEWAY_CALL_LOG_RETENTION_DAYS, scheduler.py gateway_call_log_cleanup_job)
+    without touching anything billing depends on.
+
+    Unlike ProviderCallLog (admin-facing, deliberately metadata-only — a
+    provision response can carry a credential), this DOES store the request
+    payload and a capped response snippet: the payload here is buyer-supplied
+    (a url/handle/query, not a secret), and the response is data the buyer
+    already received live over HTTP — storing it isn't a new exposure, just a
+    copy of what they already saw.
+
+    Written on its own session (see gateway/call_history.py), same pattern as
+    record_provider_call — logging must never be what breaks a real gateway
+    call.
+    """
+
+    __tablename__ = "gateway_call_logs"
+
+    id: Mapped[int] = mapped_column(primary_key=True)
+    order_id: Mapped[int] = mapped_column(ForeignKey("orders.id"), nullable=False, index=True)
+    endpoint: Mapped[str] = mapped_column(String(100), nullable=False, index=True)
+    status_code: Mapped[int | None] = mapped_column(Integer, nullable=True, index=True)
+    latency_ms: Mapped[int] = mapped_column(Integer, nullable=False)
+    request_payload: Mapped[dict | None] = mapped_column(JSONB, nullable=True)
+    # Capped, not the full response — see _RESPONSE_SNIPPET_MAX_LEN in
+    # gateway/call_history.py. Full response was already sent to the buyer
+    # over HTTP; this is a truncated copy for the history view, not a durable
+    # record of it.
+    response_snippet: Mapped[str | None] = mapped_column(Text, nullable=True)
+    error: Mapped[str | None] = mapped_column(Text, nullable=True)
+    created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), server_default=func.now(), index=True)

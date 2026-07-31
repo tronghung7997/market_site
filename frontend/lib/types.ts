@@ -585,12 +585,27 @@ export interface UsageRecordItem {
   created_at: string;
 }
 
+export interface GatewayCallLogItem {
+  id: number;
+  endpoint: string;
+  status_code: number | null;
+  latency_ms: number;
+  request_payload: Record<string, unknown> | null;
+  response_snippet: string | null;
+  error: string | null;
+  created_at: string;
+}
+
 export interface UsageBalance {
   units_total: number;
   units_used: number;
   units_remaining: number;
   expires_at: string | null;
   records: UsageRecordItem[];
+  /** Chi tiết từng lần gọi qua gateway thật (status code, payload, trích response) —
+   *  chỉ lưu ~7 ngày gần nhất (xem GATEWAY_CALL_LOG_RETENTION_DAYS backend), không
+   *  phải sổ billing (đó là `records` ở trên). */
+  gateway_calls?: GatewayCallLogItem[];
 }
 
 export interface ChargeUsageResult {

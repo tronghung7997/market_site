@@ -31,6 +31,7 @@ from src.scheduler import (
     deposit_reconcile_job,
     dproxy_reconciliation_job,
     escrow_release_job,
+    gateway_call_log_cleanup_job,
     health_check_job,
     provider_credit_low_job,
     provider_scoring_job,
@@ -68,6 +69,9 @@ scheduler.add_job(dproxy_reconciliation_job, "interval", minutes=15, id="dproxy_
 scheduler.add_job(deposit_reconcile_job, "interval", minutes=5, id="deposit_reconcile")
 scheduler.add_job(deposit_expire_job, "interval", minutes=10, id="deposit_expire")
 scheduler.add_job(provider_credit_low_job, "interval", minutes=15, id="provider_credit_low")
+# Bảng lịch sử tiện lợi, không phải billing ledger — dọn thưa (6h/lần) là đủ,
+# không cần sát sao như các job trên (xem settings.gateway_call_log_retention_days).
+scheduler.add_job(gateway_call_log_cleanup_job, "interval", hours=6, id="gateway_call_log_cleanup")
 
 
 @asynccontextmanager

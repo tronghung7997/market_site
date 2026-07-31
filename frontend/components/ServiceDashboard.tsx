@@ -3,7 +3,7 @@
 import Link from "next/link";
 import { useEffect, useState } from "react";
 import { api, ApiError } from "@/lib/api";
-import type { DashboardData, DashboardResource, DashboardTask, UsageRecordItem } from "@/lib/types";
+import type { DashboardData, DashboardResource, DashboardTask, GatewayCallLogItem, UsageRecordItem } from "@/lib/types";
 import { Banner, Button, Card, Spinner, Tag } from "@/components/ui";
 import { Info } from "@/components/Icons";
 
@@ -200,6 +200,70 @@ function UsageRecordRow({ record }: { record: UsageRecordItem }) {
   );
 }
 
+function statusCodeTone(code: number | null): "good" | "bad" | "warn" | "neutral" {
+  if (code === null) return "neutral";
+  if (code >= 200 && code < 300) return "good";
+  if (code === 429 || code === 402) return "warn";
+  return "bad";
+}
+
+/** Chi tiết 1 lần gọi thật qua gateway — có payload/response nên xổ ra khi
+ *  bấm, không hiện sẵn để danh sách không bị dài vô ích. `open`/`onToggle` do
+ *  cha điều khiển (accordion — chỉ 1 dòng mở cùng lúc): mở dòng mới tự thu
+ *  gọn dòng cũ, tránh nhiều khối JSON dài chồng nhau khó hình dung. */
+function GatewayCallRow({
+  call, open, onToggle,
+}: { call: GatewayCallLogItem; open: boolean; onToggle: () => void }) {
+  return (
+    <div className="rounded-lg bg-surface border border-line overflow-hidden">
+      <button
+        onClick={onToggle}
+        className="w-full flex items-center gap-3 text-[12px] px-3 py-1.5 text-left hover:bg-raised transition-colors"
+      >
+        <span className="font-mono text-faint">{fmtDate(call.created_at)}</span>
+        <span className="font-medium">{call.endpoint}</span>
+        <span className="text-faint">{call.latency_ms}ms</span>
+        <Tag tone={statusCodeTone(call.status_code)} className="ml-auto">
+          {call.status_code ?? "Lỗi kết nối"}
+        </Tag>
+        <span className="text-faint text-[11px]">{open ? "Thu gọn" : "Chi tiết"}</span>
+      </button>
+      {open && (
+        <div className="px-3 pb-2.5 space-y-2 border-t border-line pt-2">
+          {call.request_payload && (
+            <div>
+              <div className="flex items-center justify-between mb-1">
+                <span className="text-[11px] text-faint">Request</span>
+                <CopyButton text={JSON.stringify(call.request_payload, null, 2)} />
+              </div>
+              <pre className="font-mono text-[11px] bg-base border border-line rounded-md p-2 overflow-x-auto whitespace-pre-wrap break-all">
+                {JSON.stringify(call.request_payload, null, 2)}
+              </pre>
+            </div>
+          )}
+          {call.response_snippet && (
+            <div>
+              <div className="flex items-center justify-between mb-1">
+                <span className="text-[11px] text-faint">Response</span>
+                <CopyButton text={call.response_snippet} />
+              </div>
+              <pre className="font-mono text-[11px] bg-base border border-line rounded-md p-2 overflow-x-auto whitespace-pre-wrap break-all max-h-48 overflow-y-auto">
+                {call.response_snippet}
+              </pre>
+            </div>
+          )}
+          {call.error && (
+            <div>
+              <div className="text-[11px] text-faint mb-1">Lỗi</div>
+              <p className="text-[11px] text-bad">{call.error}</p>
+            </div>
+          )}
+        </div>
+      )}
+    </div>
+  );
+}
+
 /** Tách bản bàn giao gateway thành (key, URL gọi).
  *
  *  `delivered_data` của đơn gateway là 2 dòng ("Gateway key: gwk_…" +
@@ -228,6 +292,7 @@ function EndpointDashboard({ data, onRefresh }: { data: DashboardData; onRefresh
   const { key: apiKey, callUrl } = parseGatewayDelivery(data.delivered_data);
   const [simulating, setSimulating] = useState(false);
   const [simError, setSimError] = useState<string | null>(null);
+  const [openCallId, setOpenCallId] = useState<number | null>(null);
 
   const simulate = async () => {
     setSimulating(true);
@@ -339,6 +404,25 @@ function EndpointDashboard({ data, onRefresh }: { data: DashboardData; onRefresh
               <div className="space-y-1.5">
                 {balance.records.map((r) => (
                   <UsageRecordRow key={r.id} record={r} />
+                ))}
+              </div>
+            </div>
+          )}
+
+          {balance.gateway_calls && balance.gateway_calls.length > 0 && (
+            <div>
+              <h4 className="text-[12.5px] font-medium text-muted mb-2">
+                Chi tiết request thật gần đây
+                <span className="font-normal text-faint ml-1.5">(lưu 7 ngày)</span>
+              </h4>
+              <div className="space-y-1.5">
+                {balance.gateway_calls.map((c) => (
+                  <GatewayCallRow
+                    key={c.id}
+                    call={c}
+                    open={openCallId === c.id}
+                    onToggle={() => setOpenCallId((id) => (id === c.id ? null : c.id))}
+                  />
                 ))}
               </div>
             </div>

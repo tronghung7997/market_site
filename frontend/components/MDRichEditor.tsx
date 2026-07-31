@@ -35,8 +35,9 @@ export default function MDRichEditor({
         commands={TOOLBAR_COMMANDS}
         extraCommands={EXTRA_COMMANDS}
         textareaProps={{ placeholder }}
-        height={220}
-        visibleDragbar={false}
+        height={340}
+        minHeight={220}
+        visibleDragbar
       />
     </div>
   );

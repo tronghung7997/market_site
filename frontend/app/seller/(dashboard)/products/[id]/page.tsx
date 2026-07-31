@@ -2,7 +2,7 @@
 
 import Link from "next/link";
 import { useParams, useRouter } from "next/navigation";
-import { useDeferredValue, useEffect, useState, type ElementType, type ReactNode } from "react";
+import { useDeferredValue, useEffect, useState, type ElementType } from "react";
 import { api, vnd, ApiError } from "@/lib/api";
 import { useAuth } from "@/lib/auth";
 import { cn } from "@/lib/cn";
@@ -10,8 +10,9 @@ import type { Category, ProductDetail, ProductOperations, Provider, Resource, Va
 import { Banner, Button, Card, Field, Input, Select, Spinner, Tag, Textarea } from "@/components/ui";
 import { MoneyInput } from "@/components/MoneyInput";
 import { MarkdownEditor } from "@/components/MarkdownEditor";
+import { ListEditor } from "@/components/ListEditor";
 import { ProductPreviewCard, STATUS_TAG } from "@/components/seller/ProductPreviewCard";
-import { Activity, ArrowRight, Bolt, Check, ClipboardList, Clock, Edit2, Eye, FileText, Info, Package, Plus, Shield, Sliders, Trash, Users, X } from "@/components/Icons";
+import { Activity, ArrowRight, Bolt, Check, ClipboardList, Clock, Edit2, Eye, FileText, Info, Package, Plus, Shield, Sliders, Trash, Users } from "@/components/Icons";
 import { isAdapterCompatible } from "@/lib/compat";
 import { STRATEGY_INFO, STRATEGY_FORMULAS, ADAPTER_INFO } from "@/lib/pricing-config";
 import { PricingParamsEditor } from "@/components/PricingParamsEditor";
@@ -37,42 +38,6 @@ function SectionHead({ icon: Icon, title, hint }: { icon: ElementType; title: st
         <Icon size={14} /> {title}
       </h3>
       {hint && <p className="text-[12px] text-faint">{hint}</p>}
-    </div>
-  );
-}
-
-/* Danh sách có thể thêm/xoá từng dòng — thay cho textarea gõ tay theo cú
-   pháp (mỗi dòng 1 tính năng, hoặc "key: value"). Trước đây 1 dòng gõ sai cú
-   pháp (thiếu dấu ":") bị ÂM THẦM bỏ qua lúc lưu, seller không biết. */
-function ListEditor<T>({
-  label, hint, items, onAdd, onRemove, addLabel, emptyText, renderRow,
-}: {
-  label: string; hint?: string; items: T[];
-  onAdd: () => void; onRemove: (index: number) => void;
-  addLabel: string; emptyText: string;
-  renderRow: (item: T, index: number) => ReactNode;
-}) {
-  return (
-    <div className="flex flex-col gap-1.5">
-      <div className="flex items-baseline justify-between gap-2 flex-wrap">
-        <span className="text-[13px] font-medium text-muted">{label}</span>
-        {hint && <span className="text-[12px] text-faint">{hint}</span>}
-      </div>
-      <div className="space-y-2">
-        {items.length === 0 && <p className="text-[12.5px] text-faint italic py-1">{emptyText}</p>}
-        {items.map((item, i) => (
-          <div key={i} className="flex items-center gap-2">
-            <div className="flex-1 min-w-0">{renderRow(item, i)}</div>
-            <button type="button" aria-label="Xoá dòng này" onClick={() => onRemove(i)}
-              className="shrink-0 grid place-items-center h-9 w-9 rounded-lg text-faint hover:text-bad hover:bg-bad-soft transition-colors cursor-pointer">
-              <X size={14} />
-            </button>
-          </div>
-        ))}
-      </div>
-      <Button type="button" size="sm" variant="secondary" className="self-start" onClick={onAdd}>
-        <Plus size={13} /> {addLabel}
-      </Button>
     </div>
   );
 }

@@ -4,15 +4,30 @@ import Link from "next/link";
 import { useParams } from "next/navigation";
 import { useEffect, useState } from "react";
 import { api, vnd } from "@/lib/api";
-import type { AdminProductDetail as AdminProductDetailData, ProductOperations, Provider } from "@/lib/types";
+import type { AdminProductDetail as AdminProductDetailData, Category, ProductOperations, Provider } from "@/lib/types";
 import { Button, Banner, Card, Field, Input, Select, Spinner, Tag, Textarea } from "@/components/ui";
-import { Activity, ArrowRight, Edit2, Eye, Info, Sliders, Users } from "@/components/Icons";
+import { Activity, ArrowRight, Check, Edit2, Eye, Info, Sliders, Users } from "@/components/Icons";
 import { STRATEGY_INFO, STRATEGY_FORMULAS, ADAPTER_INFO, PARAM_LABELS, formatParamValue } from "@/lib/pricing-config";
 import { PricingParamsEditor } from "@/components/PricingParamsEditor";
+import { MarkdownEditor } from "@/components/MarkdownEditor";
+import { MarkdownContent } from "@/components/MarkdownContent";
+import { ListEditor } from "@/components/ListEditor";
+import { ProductPreviewCard } from "@/components/seller/ProductPreviewCard";
+import { formatSpecKey } from "@/lib/utils";
 import { isAdapterCompatible, type CompatMatrix } from "@/lib/compat";
 import { SERVICE_LABELS } from "@/lib/labels";
 
-const CONTENT_EMPTY = { title: "", service_type: "other", status: "active", escrow_days: 2, highlight_text: "", description: "", warranty_text: "" };
+const CONTENT_EMPTY = {
+  title: "", category_id: 0, service_type: "other", status: "active", escrow_days: 2,
+  highlight_text: "", description: "", warranty_text: "",
+};
+
+function flatten(cats: Category[]): Category[] {
+  const out: Category[] = [];
+  const walk = (l: Category[]) => l.forEach((c) => { out.push(c); walk(c.children ?? []); });
+  walk(cats);
+  return out;
+}
 
 const STATUS_MAP: Record<string, { label: string; tone: "good" | "warn" | "bad" | "neutral" }> = {
   active: { label: "Đang bán", tone: "good" },
@@ -27,6 +42,7 @@ export default function AdminProductDetail() {
   const [ops, setOps] = useState<ProductOperations | null>(null);
   const [providers, setProviders] = useState<Provider[]>([]);
   const [compatMatrix, setCompatMatrix] = useState<CompatMatrix | null>(null);
+  const [cats, setCats] = useState<Category[]>([]);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
 
@@ -42,29 +58,34 @@ export default function AdminProductDetail() {
   // Content edit (title/status/description…) — admin override on any product
   const [editingContent, setEditingContent] = useState(false);
   const [content, setContent] = useState<typeof CONTENT_EMPTY>(CONTENT_EMPTY);
+  const [features, setFeatures] = useState<string[]>([]);
+  const [specs, setSpecs] = useState<{ key: string; value: string }[]>([]);
   const [savingContent, setSavingContent] = useState(false);
   const [contentMsg, setContentMsg] = useState<{ type: "ok" | "err"; text: string } | null>(null);
 
   const loadAll = async () => {
     setLoading(true);
     try {
-      const [p, o, provList, matrix] = await Promise.all([
+      const [p, o, provList, matrix, c] = await Promise.all([
         // Endpoint admin — GET /products/{id} public không còn commission_rate.
         api.adminProduct(Number(id)),
         api.productOperations(Number(id)),
         api.providers(),
         api.adapterCompatibility(),
+        api.categories(),
       ]);
       setProduct(p);
       setOps(o);
       setProviders(provList);
       setCompatMatrix(matrix);
+      setCats(c);
       setEditProviderId(o.provider?.id ?? null);
       setEditStrategy(o.pricing.strategy || "fixed");
       setEditParams(structuredClone(o.pricing.params ?? {}));
       setEditCommission(p.commission_rate != null ? String(p.commission_rate) : "");
       setContent({
         title: p.title,
+        category_id: p.category_id,
         service_type: p.service_type ?? "other",
         status: p.status,
         escrow_days: p.escrow_days,
@@ -72,6 +93,8 @@ export default function AdminProductDetail() {
         description: p.description ?? "",
         warranty_text: p.warranty_text ?? "",
       });
+      setFeatures(p.features ?? []);
+      setSpecs(p.specs ? Object.entries(p.specs).map(([k, v]) => ({ key: k, value: String(v) })) : []);
     } catch {
       setError("Không tải được sản phẩm");
     } finally {
@@ -82,13 +105,21 @@ export default function AdminProductDetail() {
   const saveContent = async () => {
     setSavingContent(true); setContentMsg(null);
     try {
+      const featureList = features.map((f) => f.trim()).filter(Boolean);
+      const specsEntries = specs.filter((s) => s.key.trim());
+      const specsObj = specsEntries.length > 0
+        ? Object.fromEntries(specsEntries.map((s) => [s.key.trim(), s.value.trim()]))
+        : undefined;
       await api.adminUpdateProduct(Number(id), {
         title: content.title.trim(),
+        category_id: content.category_id,
         service_type: content.service_type,
         status: content.status,
         escrow_days: content.escrow_days,
         highlight_text: content.highlight_text.trim() || null,
         description: content.description.trim() || null,
+        features: featureList.length > 0 ? featureList : null,
+        specs: specsObj ?? null,
         warranty_text: content.warranty_text.trim() || null,
       });
       setContentMsg({ type: "ok", text: "Đã lưu nội dung!" });
@@ -173,6 +204,9 @@ export default function AdminProductDetail() {
   const displayParams = Object.entries(ops.pricing.params ?? {}).filter(
     ([k]) => k !== "strategy" && k !== "fields"
   );
+  const flatCats = flatten(cats);
+  const cleanFeatures = (product.features ?? []).filter((f) => f.trim());
+  const cleanSpecs = product.specs ? Object.entries(product.specs).filter(([k]) => k.trim()) : [];
 
   return (
     <div className="space-y-6">
@@ -191,7 +225,7 @@ export default function AdminProductDetail() {
       </div>
 
       {/* Section 1: Thong tin san pham (admin editable: content + status) */}
-      <Card className="p-5 space-y-4">
+      <div className="space-y-4">
         <div className="flex items-center justify-between">
           <h3 className="text-[14px] font-semibold flex items-center gap-2">
             <Info size={14} /> Thông tin sản phẩm
@@ -207,7 +241,7 @@ export default function AdminProductDetail() {
         </div>
 
         {!editingContent ? (
-          <>
+          <Card className="p-5 space-y-4">
             <div className="grid gap-4 sm:grid-cols-2 lg:grid-cols-3">
               <div>
                 <div className="text-[11px] text-faint font-medium">Trạng thái</div>
@@ -242,38 +276,151 @@ export default function AdminProductDetail() {
             )}
             {product.description && (
               <div>
-                <div className="text-[11px] text-faint font-medium">Mô tả</div>
-                <div className="text-[13px] text-muted mt-1 whitespace-pre-wrap">{product.description}</div>
+                <div className="text-[11px] text-faint font-medium mb-1">Mô tả</div>
+                <MarkdownContent>{product.description}</MarkdownContent>
               </div>
             )}
-          </>
+            {cleanFeatures.length > 0 && (
+              <div>
+                <div className="text-[11px] text-faint font-medium mb-1.5">Tính năng</div>
+                <ul className="space-y-1">
+                  {cleanFeatures.map((f, i) => (
+                    <li key={i} className="flex items-start gap-1.5 text-[13px] text-muted">
+                      <Check size={12} className="text-good mt-0.5 shrink-0" />
+                      <span>{f}</span>
+                    </li>
+                  ))}
+                </ul>
+              </div>
+            )}
+            {cleanSpecs.length > 0 && (
+              <div>
+                <div className="text-[11px] text-faint font-medium mb-1.5">Thông số kỹ thuật</div>
+                <div className="rounded-lg border border-line overflow-hidden">
+                  <div className="divide-y divide-line">
+                    {cleanSpecs.map(([k, v]) => (
+                      <div key={k} className="flex text-[12.5px]">
+                        <span className="w-[140px] shrink-0 px-2.5 py-1.5 text-muted bg-raised/40">{formatSpecKey(k)}</span>
+                        <span className="px-2.5 py-1.5 flex-1 break-words">{String(v)}</span>
+                      </div>
+                    ))}
+                  </div>
+                </div>
+              </div>
+            )}
+            {product.warranty_text && (
+              <div>
+                <div className="text-[11px] text-faint font-medium mb-1">Bảo hành</div>
+                <p className="text-[13px] text-muted whitespace-pre-wrap">{product.warranty_text}</p>
+              </div>
+            )}
+          </Card>
         ) : (
-          <div className="space-y-4">
-            <div className="grid gap-4 sm:grid-cols-2">
-              <Field label="Tên sản phẩm"><Input value={content.title} onChange={(e) => setContent({ ...content, title: e.target.value })} /></Field>
-              <Field label="Loại dịch vụ">
-                <Select value={content.service_type} onChange={(e) => setContent({ ...content, service_type: e.target.value })}>
-                  {Object.entries(SERVICE_LABELS).map(([v, l]) => <option key={v} value={v}>{l}</option>)}
-                </Select>
+          <div className="grid grid-cols-1 gap-5 lg:grid-cols-[1fr_360px] items-start">
+            <Card className="p-5 space-y-4">
+              <div className="grid gap-4 sm:grid-cols-2">
+                <Field label="Tên sản phẩm"><Input value={content.title} onChange={(e) => setContent({ ...content, title: e.target.value })} /></Field>
+                <Field label="Danh mục">
+                  <Select value={content.category_id} onChange={(e) => setContent({ ...content, category_id: Number(e.target.value) })}>
+                    {flatCats.map((c) => <option key={c.id} value={c.id}>{c.name}</option>)}
+                  </Select>
+                </Field>
+              </div>
+              <div className="grid gap-4 sm:grid-cols-3">
+                <Field label="Loại dịch vụ">
+                  <Select value={content.service_type} onChange={(e) => setContent({ ...content, service_type: e.target.value })}>
+                    {Object.entries(SERVICE_LABELS).map(([v, l]) => <option key={v} value={v}>{l}</option>)}
+                  </Select>
+                </Field>
+                <Field label="Ký quỹ (ngày)"><Input type="number" min={1} value={content.escrow_days} onChange={(e) => setContent({ ...content, escrow_days: Number(e.target.value) || 1 })} /></Field>
+                <Field label="Trạng thái">
+                  <Select value={content.status} onChange={(e) => setContent({ ...content, status: e.target.value })}>
+                    <option value="active">Đang bán</option>
+                    <option value="draft">Nháp</option>
+                    <option value="paused">Tạm dừng</option>
+                    <option value="suspended">Bị khoá</option>
+                  </Select>
+                </Field>
+              </div>
+              <Field label="Dòng nổi bật"><Input value={content.highlight_text} onChange={(e) => setContent({ ...content, highlight_text: e.target.value })} /></Field>
+              <Field label="Mô tả">
+                <MarkdownEditor
+                  value={content.description}
+                  onChange={(v) => setContent({ ...content, description: v })}
+                  placeholder="VD: **Tài khoản Facebook uy tín**, tạo hơn 2 tháng tuổi."
+                />
               </Field>
-              <Field label="Trạng thái">
-                <Select value={content.status} onChange={(e) => setContent({ ...content, status: e.target.value })}>
-                  <option value="active">Đang bán</option>
-                  <option value="draft">Nháp</option>
-                  <option value="paused">Tạm dừng</option>
-                  <option value="suspended">Bị khoá</option>
-                </Select>
-              </Field>
-              <Field label="Ký quỹ (ngày)"><Input type="number" min={1} value={content.escrow_days} onChange={(e) => setContent({ ...content, escrow_days: Number(e.target.value) || 1 })} /></Field>
+              <ListEditor
+                label="Tính năng"
+                items={features}
+                addLabel="Thêm tính năng"
+                emptyText="Chưa có tính năng nào."
+                onAdd={() => setFeatures([...features, ""])}
+                onRemove={(i) => setFeatures(features.filter((_, idx) => idx !== i))}
+                renderRow={(f, i) => (
+                  <Input
+                    aria-label={`Tính năng ${i + 1}`}
+                    value={f}
+                    placeholder="VD: Bảo hành 24h nếu login lỗi"
+                    onChange={(e) => {
+                      const next = [...features]; next[i] = e.target.value;
+                      setFeatures(next);
+                    }}
+                  />
+                )}
+              />
+              <ListEditor
+                label="Thông số kỹ thuật"
+                items={specs}
+                addLabel="Thêm thông số"
+                emptyText="Chưa có thông số nào."
+                onAdd={() => setSpecs([...specs, { key: "", value: "" }])}
+                onRemove={(i) => setSpecs(specs.filter((_, idx) => idx !== i))}
+                renderRow={(s, i) => (
+                  <div className="flex items-center gap-2">
+                    <Input
+                      aria-label={`Tên thông số ${i + 1}`}
+                      value={s.key}
+                      placeholder="Tên (VD: Xuất xứ)"
+                      onChange={(e) => {
+                        const next = [...specs]; next[i] = { ...next[i], key: e.target.value };
+                        setSpecs(next);
+                      }}
+                    />
+                    <Input
+                      aria-label={`Giá trị thông số ${i + 1}`}
+                      value={s.value}
+                      placeholder="Giá trị (VD: Việt Nam)"
+                      onChange={(e) => {
+                        const next = [...specs]; next[i] = { ...next[i], value: e.target.value };
+                        setSpecs(next);
+                      }}
+                    />
+                  </div>
+                )}
+              />
+              <Field label="Chính sách bảo hành"><Textarea rows={3} value={content.warranty_text} onChange={(e) => setContent({ ...content, warranty_text: e.target.value })} /></Field>
+              <p className="text-[12px] text-muted">Admin sửa nội dung/trạng thái trên sản phẩm của bất kỳ seller. Biến thể & kho vẫn do seller quản lý.</p>
+            </Card>
+            <div className="lg:sticky lg:top-6">
+              <ProductPreviewCard
+                title={content.title}
+                categoryName={flatCats.find((c) => c.id === content.category_id)?.name}
+                serviceType={content.service_type}
+                status={content.status}
+                escrowDays={content.escrow_days}
+                highlightText={content.highlight_text}
+                description={content.description}
+                features={features}
+                specs={specs}
+                warrantyText={content.warranty_text}
+                variants={product.variants}
+              />
             </div>
-            <Field label="Dòng nổi bật"><Input value={content.highlight_text} onChange={(e) => setContent({ ...content, highlight_text: e.target.value })} /></Field>
-            <Field label="Mô tả"><Textarea rows={4} value={content.description} onChange={(e) => setContent({ ...content, description: e.target.value })} /></Field>
-            <Field label="Chính sách bảo hành"><Textarea rows={3} value={content.warranty_text} onChange={(e) => setContent({ ...content, warranty_text: e.target.value })} /></Field>
-            <p className="text-[12px] text-muted">Admin sửa nội dung/trạng thái trên sản phẩm của bất kỳ seller. Biến thể & kho vẫn do seller quản lý.</p>
           </div>
         )}
         {contentMsg && <p className={`text-[13px] ${contentMsg.type === "ok" ? "text-good" : "text-bad"}`}>{contentMsg.text}</p>}
-      </Card>
+      </div>
 
       {/* Section 2: Van hanh (editable) */}
 

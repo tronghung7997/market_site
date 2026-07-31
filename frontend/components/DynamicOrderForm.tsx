@@ -89,6 +89,15 @@ export default function DynamicOrderForm({ productId, product, onOrderCreated }:
   // tên nguồn thật — xem _PUBLIC_ADAPTER_ALIASES, src/pricing/router.py).
   // Cùng ràng buộc 1 allocation/đơn với DProxy nên dùng chung khoá số lượng.
   const isSingleUnit = isDproxy || options?.adapter_type === "auto_proxy";
+  // Với strategy "credit" (mua gói request), "package_size" TỰ NÓ đã là số
+  // lượng thật (đã chọn trong DynamicField ở trên) — backend chỉ cấp phát
+  // đúng bằng package_size và bỏ qua hoàn toàn quantity riêng
+  // (pricing/credit.py::CreditPricing chỉ khai field "package_size", không có
+  // "quantity"). Stepper "Số lượng" bên dưới trước đây vẫn hiện cho strategy
+  // này dù không ảnh hưởng giá lẫn số request nhận được — thuần cosmetic,
+  // gây hiểu lầm buyer mua được "2 x gói". Ẩn nó đi, giống cách đã ẩn với
+  // task/isSingleUnit.
+  const isCredit = options?.strategy === "credit";
   // Toàn bộ phần TRẤN AN + nhãn thân thiện dưới đây trước kia gắn vào
   // `isDproxy`, nên sản phẩm auto_proxy (TopProxy) tuy cũng giao tự động và
   // cũng tự hoàn tiền khi cấp phát hỏng lại rơi vào nhánh "chung": tiêu đề
@@ -230,9 +239,10 @@ export default function DynamicOrderForm({ productId, product, onOrderCreated }:
             <DynamicField key={f.field} field={f} value={config[f.field]} onChange={(v) => updateField(f.field, v)} />
           ))}
 
-          {/* Quantity — ẩn với strategy "task" (tự đếm theo URL) và với
-              DProxy (luôn đúng 1 proxy/đơn, không cho chọn). */}
-          {options.strategy !== "task" && !isSingleUnit && (
+          {/* Quantity — ẩn với strategy "task" (tự đếm theo URL), "credit"
+              (package_size ở trên đã là số lượng thật) và với DProxy/auto_proxy
+              (luôn đúng 1 proxy/đơn, không cho chọn). */}
+          {options.strategy !== "task" && !isSingleUnit && !isCredit && (
           <div>
             <div className="text-[11px] text-faint uppercase tracking-wider mb-1.5">Số lượng</div>
             <div className="flex items-center border border-line rounded-lg overflow-hidden w-fit">
@@ -375,7 +385,7 @@ export default function DynamicOrderForm({ productId, product, onOrderCreated }:
                       </div>
                     );
                   })}
-                  {options.strategy !== "task" && (
+                  {options.strategy !== "task" && !isCredit && (
                     <div className="flex justify-between">
                       <span className="text-muted">Số lượng</span>
                       <span className="font-medium">{qty}</span>

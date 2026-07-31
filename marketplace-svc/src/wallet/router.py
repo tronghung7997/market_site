@@ -98,6 +98,15 @@ async def admin_account_wallet(
     }
 
 
+@router.post("/admin/wallets/backfill-missing")
+async def backfill_missing_wallets(_: Account = Depends(require_role("admin")), db: AsyncSession = Depends(get_session)):
+    """Tạo ví 0đ cho mọi account bị thiếu — dọn account mồ côi do script seed
+    tạo Account thẳng mà bỏ sót Wallet (xem docstring service.backfill_missing_wallets).
+    Idempotent: gọi lại khi không còn account thiếu ví trả về danh sách rỗng."""
+    account_ids = await service.backfill_missing_wallets(db)
+    return {"backfilled_account_ids": account_ids}
+
+
 @router.get("/admin/accounts/{account_id}/transactions", response_model=list[schemas.TransactionResponse])
 async def admin_account_transactions(
     account_id: int,

@@ -21,6 +21,37 @@ async def get_wallet_by_account(account_id: int, db: AsyncSession) -> Wallet:
     return wallet
 
 
+async def backfill_missing_wallets(db: AsyncSession) -> list[int]:
+    """Tạo Wallet(available_balance=0) cho mọi Account chưa có ví.
+
+    register_account() (auth/service.py) luôn tạo Wallet song song với Account,
+    nhưng vài script seed (vd scripts/seed_topproxy.py trước bản vá này) từng
+    insert Account thẳng vào DB mà bỏ sót Wallet. Hậu quả: escrow_release_job/
+    sla_check_job/provision_sweep_job gọi get_wallet_by_account() cho account đó
+    sẽ 404, và nếu không được cô lập per-order thì exception đó chặn luôn việc
+    release/refund của MỌI đơn khác đang chờ trong cùng lượt chạy job — không
+    chỉ đơn của account thiếu ví (xem sự cố đơn #52 kẹt theo đơn #55).
+
+    Endpoint gọi hàm này (POST /admin/wallets/backfill-missing) là lối thoát
+    một lệnh curl để dọn account mồ côi kiểu này, không cần truy cập DB trực
+    tiếp.
+    """
+    result = await db.execute(
+        select(Account.id).where(~Account.id.in_(select(Wallet.account_id)))
+    )
+    missing_ids = [row for (row,) in result.all()]
+    for account_id in missing_ids:
+        db.add(Wallet(account_id=account_id))
+    if missing_ids:
+        await log_event(
+            db, "warning", f"Backfill ví thiếu cho {len(missing_ids)} account: {missing_ids}",
+            request_id=current_request_id(),
+            metadata={"event": "wallet_backfill", "account_ids": missing_ids},
+        )
+        await db.commit()
+    return missing_ids
+
+
 async def topup(account_id: int, amount: int, db: AsyncSession) -> Wallet:
     if amount <= 0:
         raise HTTPException(status_code=400, detail="Số tiền phải lớn hơn 0")

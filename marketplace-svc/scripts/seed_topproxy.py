@@ -74,6 +74,7 @@ from src.models.account import Account  # noqa: E402
 from src.models.category import Category  # noqa: E402
 from src.models.product import Product, ProductStatus  # noqa: E402
 from src.models.provider import Provider  # noqa: E402
+from src.models.wallet import Wallet  # noqa: E402
 from src.security.crypto import encrypt_config  # noqa: E402
 
 MOCK_BASE_URL = "http://127.0.0.1:9300"
@@ -385,6 +386,20 @@ async def _get_or_create_seller(db) -> int:
         if "seller" not in (account.roles or []):
             account.roles = [*(account.roles or []), "seller"]
         print(f"= seller #{account.id}: {SELLER_EMAIL}")
+
+    # register_account() (src/auth/service.py) luôn tạo Wallet song song với
+    # Account, nhưng account seed ở đây được insert thẳng nên có thể thiếu.
+    # Thiếu ví thì escrow_release_job/refund_escrow sẽ 404 và làm kẹt CẢ BATCH
+    # đơn hàng khác đang chờ release/refund cùng lượt chạy job — không chỉ
+    # đơn của seller này (sự cố đơn #52 kẹt theo đơn #55 của seller seed
+    # thiếu ví). Check-and-backfill ở đây để lần chạy seed kế tiếp tự vá luôn
+    # account cũ đã lỡ tạo thiếu ví, không cần sửa tay qua psql.
+    await db.flush()
+    wallet = await db.scalar(select(Wallet).where(Wallet.account_id == account.id))
+    if wallet is None:
+        db.add(Wallet(account_id=account.id))
+        print(f"+ wallet cho seller #{account.id} (trước đó thiếu ví)")
+
     return account.id
 
 

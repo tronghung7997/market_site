@@ -33,17 +33,32 @@ async def escrow_release_job() -> None:
         )
         orders = list(result.scalars().all())
         for order in orders:
-            seller = await db.get(Account, order.seller_id)
-            fee_percent = platform_fee_percent(seller.seller_tier if seller else "new")
-            platform_fee = int(order.total_amount * fee_percent / 100)
-            await release_escrow(order.id, order.seller_id, order.total_amount, platform_fee, db)
-            order.status = OrderStatus.completed
-            from src.affiliate.service import apply_affiliate_commission
-            await apply_affiliate_commission(order, db)
-            await log_event(db, "info", f"Escrow released for order {order.id}", job_id=job_id,
-                            metadata={"event": "escrow_released", "order_id": order.id, "amount": order.total_amount})
-            logger.info("escrow_released", order_id=order.id)
-        await db.commit()
+            try:
+                seller = await db.get(Account, order.seller_id)
+                fee_percent = platform_fee_percent(seller.seller_tier if seller else "new")
+                platform_fee = int(order.total_amount * fee_percent / 100)
+                await release_escrow(order.id, order.seller_id, order.total_amount, platform_fee, db)
+                order.status = OrderStatus.completed
+                from src.affiliate.service import apply_affiliate_commission
+                await apply_affiliate_commission(order, db)
+                await log_event(db, "info", f"Escrow released for order {order.id}", job_id=job_id,
+                                metadata={"event": "escrow_released", "order_id": order.id, "amount": order.total_amount})
+                await db.commit()
+                logger.info("escrow_released", order_id=order.id)
+            except Exception as e:
+                # Một đơn lỗi (vd seller chưa có ví — Account seed thẳng vào DB
+                # không qua register_account() thì thiếu Wallet đi kèm) KHÔNG
+                # được chặn release của các đơn khác trong batch. Trước đây
+                # exception ở đây văng thẳng ra ngoài job, commit() cuối hàm
+                # không bao giờ chạy tới nên MỌI đơn tới hạn (kể cả đơn đã xử
+                # lý xong trong vòng lặp) bị rollback và kẹt vĩnh viễn mỗi 30
+                # phút — đây chính là nguyên nhân đơn #52 kẹt theo đơn #55.
+                await db.rollback()
+                logger.error("escrow_release_failed", order_id=order.id, error=str(e))
+                await log_event(db, "error", f"Escrow release failed for order {order.id}: {e}", job_id=job_id,
+                                metadata={"event": "escrow_release_failed", "order_id": order.id, "seller_id": order.seller_id})
+                await create_alert("escrow_release_failed", "error", "order", order.id,
+                                   f"Đơn #{order.id} không tự release được escrow — cần admin kiểm tra ví seller #{order.seller_id}", db)
 
 
 async def sla_check_job() -> None:
@@ -60,7 +75,9 @@ async def sla_check_job() -> None:
                 continue
             from datetime import timedelta
             deadline = order.created_at + timedelta(hours=variant.sla_hours)
-            if now > deadline:
+            if now <= deadline:
+                continue
+            try:
                 await refund_escrow(order.id, order.buyer_id, order.total_amount, db)
                 order.status = OrderStatus.cancelled
                 order.cancel_reason = "Người bán không giao hàng đúng hạn nên đơn đã được huỷ. Toàn bộ số tiền đã được hoàn về ví của bạn."
@@ -68,8 +85,18 @@ async def sla_check_job() -> None:
                                 metadata={"event": "sla_refund", "order_id": order.id, "seller_id": order.seller_id})
                 await create_alert("sla_breach", "warning", "seller", order.seller_id,
                                    f"Đơn #{order.id} đã huỷ do nhà bán không giao đúng hạn", db)
+                await db.commit()
                 logger.warning("sla_breach", order_id=order.id, seller_id=order.seller_id)
-        await db.commit()
+            except Exception as e:
+                # Cùng lỗi thiết kế như escrow_release_job: 1 đơn refund lỗi
+                # (buyer chưa có ví) không được chặn refund/huỷ của các đơn
+                # SLA-breach khác trong batch.
+                await db.rollback()
+                logger.error("sla_refund_failed", order_id=order.id, error=str(e))
+                await log_event(db, "error", f"SLA auto-refund failed for order {order.id}: {e}", job_id=job_id,
+                                metadata={"event": "sla_refund_failed", "order_id": order.id})
+                await create_alert("sla_refund_failed", "error", "order", order.id,
+                                   f"Đơn #{order.id} quá hạn SLA nhưng không tự hoàn tiền được — cần admin kiểm tra", db)
 
 
 PROVISION_RETRY_AFTER_SECONDS = 120
@@ -119,30 +146,41 @@ async def provision_sweep_job() -> None:
         retryable_ids = [o.id for o in orders if o.created_at > deadline_before]
 
         for order in expired:
-            await refund_escrow(order.id, order.buyer_id, order.total_amount, db)
-            order.status = OrderStatus.cancelled
-            order.cancel_reason = "Rất tiếc, đơn không thể cấp phát tự động nên đã được huỷ. Toàn bộ số tiền đã được hoàn về ví của bạn."
-            await log_event(
-                db, "warning", f"Order {order.id} auto-refunded (provision deadline)", job_id=job_id,
-                metadata={"event": "provision_deadline_refund", "order_id": order.id},
-            )
-            alert_message = f"Đơn #{order.id} huỷ do không provision được trong 15 phút"
-            # Đơn TopProxy tĩnh: lệnh mua mang marker ở username có thể ĐÃ
-            # thành công (Xu đã trừ, proxy nằm trong tài khoản) dù mọi retry
-            # đều chết trước khi bind — chỉ hướng dẫn đối soát thì admin mới
-            # biết đường cứu bằng scripts/recover_topproxy_orders.py.
-            product = await db.get(Product, order.product_id) if order.product_id else None
-            provider = await db.get(Provider, product.provider_id) if product and product.provider_id else None
-            if provider is not None and provider.adapter_type == "topproxy":
-                from src.config import settings
-                alert_message += (
-                    f" — kiểm tra listproxy TopProxy xem có proxy mang marker "
-                    f"{settings.topproxy_marker_prefix}{order.id} không (nếu có: Xu đã trừ, "
-                    f"cứu bằng scripts/recover_topproxy_orders.py)"
+            try:
+                await refund_escrow(order.id, order.buyer_id, order.total_amount, db)
+                order.status = OrderStatus.cancelled
+                order.cancel_reason = "Rất tiếc, đơn không thể cấp phát tự động nên đã được huỷ. Toàn bộ số tiền đã được hoàn về ví của bạn."
+                await log_event(
+                    db, "warning", f"Order {order.id} auto-refunded (provision deadline)", job_id=job_id,
+                    metadata={"event": "provision_deadline_refund", "order_id": order.id},
                 )
-            await create_alert("provision_stuck", "warning", "order", order.id, alert_message, db)
-            logger.warning("provision_deadline_refund", order_id=order.id)
-        await db.commit()
+                alert_message = f"Đơn #{order.id} huỷ do không provision được trong 15 phút"
+                # Đơn TopProxy tĩnh: lệnh mua mang marker ở username có thể ĐÃ
+                # thành công (Xu đã trừ, proxy nằm trong tài khoản) dù mọi retry
+                # đều chết trước khi bind — chỉ hướng dẫn đối soát thì admin mới
+                # biết đường cứu bằng scripts/recover_topproxy_orders.py.
+                product = await db.get(Product, order.product_id) if order.product_id else None
+                provider = await db.get(Provider, product.provider_id) if product and product.provider_id else None
+                if provider is not None and provider.adapter_type == "topproxy":
+                    from src.config import settings
+                    alert_message += (
+                        f" — kiểm tra listproxy TopProxy xem có proxy mang marker "
+                        f"{settings.topproxy_marker_prefix}{order.id} không (nếu có: Xu đã trừ, "
+                        f"cứu bằng scripts/recover_topproxy_orders.py)"
+                    )
+                await create_alert("provision_stuck", "warning", "order", order.id, alert_message, db)
+                await db.commit()
+                logger.warning("provision_deadline_refund", order_id=order.id)
+            except Exception as e:
+                # Cùng lỗi thiết kế như escrow_release_job/sla_check_job: 1 đơn
+                # refund lỗi (buyer chưa có ví) không được chặn refund của các
+                # đơn expired khác trong batch.
+                await db.rollback()
+                logger.error("provision_deadline_refund_failed", order_id=order.id, error=str(e))
+                await log_event(db, "error", f"Provision deadline refund failed for order {order.id}: {e}", job_id=job_id,
+                                metadata={"event": "provision_deadline_refund_failed", "order_id": order.id})
+                await create_alert("provision_stuck", "error", "order", order.id,
+                                   f"Đơn #{order.id} quá hạn provision nhưng không tự hoàn tiền được — cần admin kiểm tra", db)
 
     # Retries open their own sessions, so they run after the sweep's own commit.
     for order_id in retryable_ids:

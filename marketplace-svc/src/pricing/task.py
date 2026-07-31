@@ -1,4 +1,5 @@
 from .base import PricingStrategy
+from .config_pricing import humanize_code
 
 
 class TaskPricing(PricingStrategy):
@@ -29,7 +30,7 @@ class TaskPricing(PricingStrategy):
                 "label": field_labels.get("platform", "Nền tảng"),
                 "required": True,
                 "choices": [
-                    {"value": k, "label": platform_display.get(k, k)} for k in params["platform_mult"]
+                    {"value": k, "label": platform_display.get(k) or humanize_code(k)} for k in params["platform_mult"]
                 ],
             })
 

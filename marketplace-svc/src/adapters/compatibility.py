@@ -1,11 +1,14 @@
-"""Nguồn sự thật duy nhất cho việc adapter_type nào tương thích với
-pricing_strategy nào.
+"""Kiểm tra adapter_type nào tương thích với pricing_strategy nào.
 
 Tồn tại vì trước đây không có gì kiểm tra hai giá trị này — admin gắn
 `seller_pool` (yêu cầu `variant_id` trong user_config, xem SellerPoolAdapter)
 vào một sản phẩm strategy `task` (không hề có variant, chỉ có target_urls)
 là hợp lệ về mặt schema nhưng vỡ ngay khi buyer đặt hàng, với KeyError không
 liên quan gì tới nguyên nhân thật (đơn giản là bị refund + cancelled).
+
+Ma trận KHÔNG khai tay ở đây nữa — nó sinh từ AdapterSpec.strategies trong
+adapters/registry.py, nơi mỗi adapter tự khai strategy nó hỗ trợ (kèm lý do).
+Thêm adapter mới không cần đụng file này.
 
 `None` = tương thích với mọi strategy nhưng chỉ ở mức cảnh báo (`mock` là
 adapter dev/demo theo đúng tinh thần docs/huong-dan-van-hanh.md — không chặn,
@@ -14,34 +17,10 @@ chỉ nhắc admin biết họ đang dùng dữ liệu giả).
 
 from dataclasses import dataclass
 
-ADAPTER_STRATEGY_COMPAT: dict[str, set[str] | None] = {
-    "mock": None,
-    "seller_pool": {"fixed"},
-    "manual": {"task"},
-    # Adapter TopProxy thật (2026-07-23): provision đọc type/network/days từ
-    # ConfigPricing — chỉ còn "config". Trước đây là RealApiAdapter giả định
-    # nên từng cho cả "credit".
-    "topproxy": {"config"},
-    "scrapecreators": {"config", "credit"},
-    # Per-request forward tới backend do seller tự khai (RealApiAdapter.call(),
-    # xem src/gateway/router.py) — chỉ hợp lý với credit vì buyer cần một gói
-    # quota/units_total để gateway trừ dần theo từng lần gọi.
-    "seller_gateway": {"credit"},
-    # POST task cho backend seller thay vì hàng đợi người xử lý tay (ManualAdapter).
-    "seller_task_webhook": {"task"},
-    # "credit" (package_size, ép bằng 1 — xem
-    # orders/service.py::create_order_with_adapter) là flow "mua nhanh,
-    # không chọn gì" — DProxyAdapter.provision() bind assignment khả dụng
-    # đầu tiên từ pool admin đã mua sẵn.
-    # "config" (Loại proxy/Nhà mạng/Thời hạn) giờ CŨNG hợp lệ:
-    # DProxyAdapter._provision_via_purchase() thật sự gọi mua mới theo đúng
-    # type/network/days buyer chọn (POST /api/v1/proxies/order), nên field
-    # hiển thị được fulfillment tôn trọng thật, khác với trước đây (P0#1,
-    # docs/superpowers/plans/2026-07-22-dproxy-consolidated-review.md) khi
-    # provision() bỏ qua hoàn toàn lựa chọn của buyer. quantity vẫn bị chặn
-    # ở orders/service.py — mỗi order chỉ bind đúng 1 ProxyAllocation dù
-    # dùng strategy nào.
-    "dproxy": {"credit", "config"},
+from src.adapters.registry import ADAPTERS
+
+ADAPTER_STRATEGY_COMPAT: dict[str, frozenset[str] | None] = {
+    name: spec.strategies for name, spec in ADAPTERS.items()
 }
 
 

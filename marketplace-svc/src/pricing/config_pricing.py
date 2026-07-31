@@ -1,6 +1,26 @@
 from .base import PricingStrategy
 
 
+def humanize_code(code) -> str:
+    """Mã máy → nhãn đọc được, dùng khi admin chưa đặt tên hiển thị.
+
+    Mã máy là thứ gửi thẳng cho nhà cung cấp (`residential_static`,
+    `GoiViettel`) nên buyer không nên phải đọc nó; trước 30/07 fallback là
+    chính mã đó, nên trang mua hiện ra "residential_static" giữa giao diện
+    tiếng Việt. Chỉ làm sạch dấu gạch dưới và viết hoa chữ đầu — KHÔNG dịch
+    hay đoán nghĩa: đặt tên đúng theo sản phẩm vẫn là việc của admin qua
+    type_display/network_display.
+
+    Chỉ chữ CÁI ĐẦU mỗi từ được viết hoa, phần còn lại giữ nguyên: "FPT" ở
+    yên là "FPT", "GoiViettel" không bị bẻ thành "Goiviettel".
+    """
+    text = str(code)
+    words = [w for w in text.replace("_", " ").replace("-", " ").split(" ") if w]
+    if not words:
+        return text
+    return " ".join(w[:1].upper() + w[1:] for w in words)
+
+
 class ConfigPricing(PricingStrategy):
     """Config-based pricing: base_price x type_mult x network_mult x (days/30) x quantity."""
 
@@ -24,7 +44,7 @@ class ConfigPricing(PricingStrategy):
                 "label": field_labels.get("type", "Loại proxy"),
                 "required": True,
                 "choices": [
-                    {"value": k, "label": type_display.get(k, k)} for k in params["type_mult"]
+                    {"value": k, "label": type_display.get(k) or humanize_code(k)} for k in params["type_mult"]
                 ],
             })
 
@@ -35,7 +55,7 @@ class ConfigPricing(PricingStrategy):
                 "label": field_labels.get("network", "Nhà mạng"),
                 "required": True,
                 "choices": [
-                    {"value": k, "label": network_display.get(k, k)} for k in params["network_mult"]
+                    {"value": k, "label": network_display.get(k) or humanize_code(k)} for k in params["network_mult"]
                 ],
             })
 

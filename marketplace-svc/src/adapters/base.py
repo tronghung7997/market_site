@@ -29,8 +29,36 @@ class ProvisionResult:
 
 
 class ProviderAdapter(ABC):
-    def __init__(self, config: dict):
+    """Mọi adapter dùng CHUNG một chữ ký khởi tạo — factory (adapters/factory.py)
+    nhờ đó instantiate mọi adapter bằng đúng một dòng, không cần if/elif theo
+    class. Adapter không dùng tham số nào thì đơn giản là bỏ qua nó.
+
+    Hai class-attr dưới là capability GẮN VỚI IMPLEMENTATION (khác các
+    capability gắn với adapter_type, khai ở adapters/registry.py::AdapterSpec):
+
+    - `provisions_over_network`: provision() có gọi HTTP ra ngoài — orders
+      service sẽ commit đơn ở `pending` rồi provision ở background task thay vì
+      giữ transaction mở suốt thời gian gọi mạng.
+    - `provision_has_purchase_side_effect`: provision() TIÊU TIỀN THẬT ở thượng
+      nguồn (mua proxy, trừ Xu) — nút "Test provider" ở admin chỉ được
+      check_health(), không bao giờ được gọi provision() thử.
+    """
+
+    provisions_over_network: bool = False
+    provision_has_purchase_side_effect: bool = False
+
+    def __init__(
+        self,
+        config: dict,
+        *,
+        db=None,
+        provider_id: int | None = None,
+        seller_owned: bool = False,
+    ):
         self.config = config
+        self.db = db
+        self.provider_id = provider_id
+        self.seller_owned = seller_owned
 
     @abstractmethod
     async def provision(self, order_id: int, user_config: dict) -> ProvisionResult:
@@ -81,6 +109,12 @@ class ProxyAssignment:
     last_rotated_at: datetime | None
     rotate_path: str | None
     country: str | None = None
+    # Nhà mạng / loại IP (Viettel, FPT, VNPT…). Tách khỏi `country` vì hai thứ
+    # KHÁC NHAU và buyer đọc được sự khác biệt: trước 30/07 các adapter nhét
+    # nhà mạng vào `country`, nên bản bàn giao ghi "Quốc gia: FPT" — sai hiển
+    # nhiên với người mua. `country` giờ chỉ mang quốc gia thật (DProxy trả về
+    # trong inventory), `network` mang nhà mạng.
+    network: str | None = None
     proxy_type: str | None = None
 
     def is_usable(self, *, now: datetime | None = None) -> bool:
@@ -101,6 +135,8 @@ class ProxyAssignment:
         ]
         if self.public_ip:
             lines.append(f"IP hiện tại: {self.public_ip}")
+        if self.network:
+            lines.append(f"Nhà mạng: {self.network}")
         if self.country:
             lines.append(f"Quốc gia: {self.country}")
         if self.proxy_type:

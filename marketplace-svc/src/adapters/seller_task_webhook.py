@@ -5,6 +5,7 @@ from src.adapters.base import ProvisionResult
 from src.adapters.real_api import RealApiAdapter
 from src.config import settings
 from src.models.service_task import ServiceTask, ServiceTaskStatus
+from src.tasks.service import format_task_delivery
 
 logger = structlog.get_logger()
 
@@ -30,10 +31,6 @@ class SellerTaskWebhookAdapter(RealApiAdapter):
     solved, just posting to /v1/tasks instead of /provision.
     """
 
-    def __init__(self, config: dict, *, db, provider_id: int | None = None, seller_owned: bool = False):
-        super().__init__(config, provider_id=provider_id, seller_owned=seller_owned)
-        self.db = db
-
     async def provision(self, order_id: int, user_config: dict) -> ProvisionResult:
         platform = user_config.get("platform", "unknown")
         target_urls_raw = user_config.get("target_urls", "")
@@ -43,6 +40,7 @@ class SellerTaskWebhookAdapter(RealApiAdapter):
 
         callback_url = f"{settings.backend_base_url}/webhooks/providers/{self.provider_id}/tasks"
         task_ids: list[int] = []
+        tasks: list[ServiceTask] = []
         submitted = 0
         for url in urls:
             external_id = await self._submit(order_id, platform, url, callback_url)
@@ -54,6 +52,7 @@ class SellerTaskWebhookAdapter(RealApiAdapter):
             self.db.add(task)
             await self.db.flush()
             task_ids.append(task.id)
+            tasks.append(task)
             submitted += 1 if external_id else 0
 
         if submitted == 0:
@@ -74,9 +73,11 @@ class SellerTaskWebhookAdapter(RealApiAdapter):
                 metadata={"provider": "seller_task_webhook", "task_count": len(task_ids)},
             )
 
+        # `data` cho buyer đọc, `resource_id` là id nội bộ — xem
+        # ManualAdapter.provision và tasks/service.py::format_task_delivery.
         return ProvisionResult(
             success=True,
-            data=",".join(str(tid) for tid in task_ids),
+            data=format_task_delivery(tasks),
             resource_id=",".join(str(tid) for tid in task_ids),
             metadata={
                 "provider": "seller_task_webhook",

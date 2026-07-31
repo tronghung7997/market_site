@@ -2,6 +2,8 @@ from datetime import datetime
 
 from pydantic import BaseModel, Field
 
+from src.adapters.registry import ADAPTERS
+
 
 class ProviderCreate(BaseModel):
     name: str
@@ -62,6 +64,10 @@ class ProviderCreditUpdate(BaseModel):
 class ProviderTestResponse(BaseModel):
     health: dict
     provision_test: dict | None = None
+    # Vì sao KHÔNG có provision_test — `provision_test: null` một mình là mơ hồ
+    # (không chạy? chạy rồi hỏng?), admin nhìn nút Test không đoán được. Câu
+    # này hiển thị thẳng trên UI thay cho một ô trống.
+    provision_test_skipped_reason: str | None = None
 
 
 class ProviderHealthResponse(BaseModel):
@@ -80,10 +86,13 @@ class ProviderHealthResponse(BaseModel):
 # của chính họ, luôn pending_review cho tới khi admin duyệt.
 # ---------------------------------------------------------------------------
 
-# Chỉ 2 adapter_type này gọi ra một backend NGOÀI nền tảng do seller tự khai —
-# mock/seller_pool/manual là luồng nội bộ, topproxy/scrapecreators là hạ tầng
-# admin-curate dùng chung, không phải thứ một seller đơn lẻ được tự nhận.
-SELLER_ALLOWED_ADAPTER_TYPES = {"seller_gateway", "seller_task_webhook"}
+# Sinh từ AdapterSpec.seller_registrable (adapters/registry.py) — chỉ các
+# adapter gọi ra backend NGOÀI nền tảng do seller tự khai. mock/seller_pool/
+# manual là luồng nội bộ, topproxy/scrapecreators/dproxy là hạ tầng admin-curate
+# dùng chung, không phải thứ một seller đơn lẻ được tự nhận.
+SELLER_ALLOWED_ADAPTER_TYPES = {
+    name for name, spec in ADAPTERS.items() if spec.seller_registrable
+}
 
 
 class SellerProviderCreate(BaseModel):

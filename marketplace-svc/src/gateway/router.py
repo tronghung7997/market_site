@@ -8,6 +8,7 @@ from fastapi import APIRouter, Depends, HTTPException, Request, Response
 
 from src.adapters.factory import get_adapter
 from src.adapters.real_api import RealApiAdapter
+from src.adapters.registry import get_spec
 from src.auth.dependencies import get_current_account, require_role
 from src.database import get_session
 from src.gateway.service import mint_gateway_key, resolve_order_by_gateway_key
@@ -111,10 +112,14 @@ async def gateway_forward(
         raise HTTPException(status_code=400, detail="Đơn hàng này chưa được cấp phát qua gateway")
 
     provider = await db.get(Provider, order.provider_id)
-    if not provider or provider.adapter_type not in ("seller_gateway", "topproxy", "scrapecreators"):
+    provider_spec = get_spec(provider.adapter_type) if provider else None
+    if provider_spec is None or not provider_spec.gateway_forward:
         raise HTTPException(status_code=400, detail="Sản phẩm này không hỗ trợ gọi qua gateway")
 
     adapter = await get_adapter(order.provider_id, db)
+    # Phòng thủ cấu trúc (không phải so tên): forward cần adapter.call() —
+    # một spec khai gateway_forward=True cho class không có call() là lỗi
+    # đăng ký, chặn ở đây thay vì AttributeError giữa chừng.
     if not isinstance(adapter, RealApiAdapter):
         raise HTTPException(status_code=400, detail="Sản phẩm này không hỗ trợ gọi qua gateway")
 

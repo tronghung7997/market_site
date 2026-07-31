@@ -196,3 +196,46 @@ async def test_admin_tasks_list_includes_order_status(client):
 
     tasks = await admin_tasks_for_order(client, admin_token, order["id"])
     assert tasks[0]["order_status"] == "processing"
+
+
+@pytest.mark.asyncio
+async def test_delivered_data_is_readable_and_carries_task_results(client):
+    """Bản bàn giao của đơn tác vụ phải là thứ BUYER đọc được.
+
+    Trước 30/07 `delivered_data` là chuỗi id nội bộ ("24,25"): buyer trả tiền
+    triệu rồi nhận về hai con số, còn `result_data` admin nhập lúc hoàn thành
+    thì không có đường nào tới buyer. Id vẫn được giữ ở resource_id cho
+    get_usage/revoke — chỉ phần hiển thị đổi.
+    """
+    buyer_token, admin_token, product_id, _ = await setup_takedown_product(client, suffix="rd")
+
+    order = await buy_takedown(client, buyer_token, product_id, 2)
+    target_urls = urls(2).split("\n")
+
+    # Ngay khi đặt: đã thấy từng URL kèm trạng thái, không phải id.
+    initial = (await client.get(f"/orders/{order['id']}",
+                                headers={"Authorization": f"Bearer {buyer_token}"})).json()
+    assert target_urls[0] in initial["delivered_data"]
+    assert "Đang chờ xử lý" in initial["delivered_data"]
+
+    tasks = await admin_tasks_for_order(client, admin_token, order["id"])
+    for i, t in enumerate(tasks):
+        resp = await client.put(
+            f"/admin/tasks/{t['id']}",
+            json={"status": "completed", "result_data": f"Đã xử lý xong mục {i}"},
+            headers={"Authorization": f"Bearer {admin_token}"},
+        )
+        assert resp.status_code == 200
+
+    final = (await client.get(f"/orders/{order['id']}",
+                              headers={"Authorization": f"Bearer {buyer_token}"})).json()
+    assert final["status"] == "delivered"
+    delivered = final["delivered_data"]
+    # Kết quả admin nhập đến được buyer — đây là điều bị mất hoàn toàn trước đây.
+    assert "Đã xử lý xong mục 0" in delivered
+    assert "Đã xử lý xong mục 1" in delivered
+    assert "Hoàn thành" in delivered
+    for u in target_urls:
+        assert u in delivered
+    # Không còn chuỗi id trần kiểu "24,25".
+    assert delivered.strip() != ",".join(str(t["id"]) for t in tasks)

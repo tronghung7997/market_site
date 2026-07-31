@@ -226,9 +226,13 @@ async def validate_dproxy_config(config: dict) -> None:
 
 
 class DProxyAdapter(RealApiAdapter, RotatableProxyAdapter):
-    def __init__(self, config: dict, *, db, provider_id: int | None = None):
-        super().__init__(config, provider_id=provider_id, seller_owned=False)
-        self.db = db
+    # provision() mua/bind một proxy thật ở thượng nguồn — nút Test không được gọi.
+    provision_has_purchase_side_effect = True
+
+    def __init__(
+        self, config: dict, *, db=None, provider_id: int | None = None, seller_owned: bool = False,
+    ):
+        super().__init__(config, db=db, provider_id=provider_id, seller_owned=seller_owned)
         self.rotate_method = (config.get("rotate_method") or _DEFAULT_ROTATE_METHOD).upper()
         self.auth_type = config.get("auth_type") or "bearer"
         self.auth_header = config.get("auth_header") or "X-API-Key"
@@ -466,6 +470,10 @@ class DProxyAdapter(RealApiAdapter, RotatableProxyAdapter):
 
         try:
             assignment = await self.purchase_assignment(
+                # DProxy bán theo QUỐC GIA thật (payload nhà cung cấp là
+                # "country") — field `network` của ConfigPricing chỉ là tên ô
+                # chọn phía buyer. Khác TopProxy, nơi `network` là nhà mạng
+                # (loaiproxy) và được mang bằng ProxyAssignment.network.
                 country=user_config.get("network"), proxy_type=user_config.get("type"),
                 duration_days=int(user_config["days"]), idempotency_key=f"order-{order_id}",
             )

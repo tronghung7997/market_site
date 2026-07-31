@@ -17,32 +17,45 @@ _TIMEOUT = 5.0
 
 
 class RealApiAdapter(ProviderAdapter):
-    """Calls a real external supplier API (topproxy/scrapecreators — the actual
-    provider is picked per Provider row via base_url; both adapter_type values
-    map to this same class since the request shape is identical, only the
-    endpoint differs).
+    """Calls a real external supplier API (seller_gateway/scrapecreators — the
+    actual provider is picked per Provider row via base_url; adapter_type
+    values sharing this class only differ in endpoint/config, not request
+    shape).
 
-    Convention assumed until a real API doc is available: Bearer auth,
-    JSON body/response {success, data, error}, Idempotency-Key header on
-    provisioning calls so a retried request doesn't double-provision.
+    Convention: JSON body/response {success, data, error}, Idempotency-Key
+    header on provisioning calls so a retried request doesn't double-provision.
+
+    Auth defaults to `Authorization: Bearer <api_key>` — override per-provider
+    via config.auth_header/config.auth_scheme for suppliers with a different
+    convention (e.g. ScrapeCreators wants `x-api-key: <key>`, no prefix).
     """
 
-    def __init__(self, config: dict, provider_id: int | None = None, seller_owned: bool = False):
-        super().__init__(config)
-        self.provider_id = provider_id
-        self.base_url: str = (config.get("base_url") or "").rstrip("/")
+    provisions_over_network = True
+
+    def __init__(
+        self,
+        config: dict,
+        *,
+        db=None,
+        provider_id: int | None = None,
+        seller_owned: bool = False,
+    ):
         # seller_owned = provider.seller_id is not None (src/adapters/factory.py) —
         # only seller-supplied base_url is untrusted input; admin-created providers
         # (incl. http://localhost for scripts/mock_seller.py during local dev)
-        # intentionally skip this.
-        self._seller_owned = seller_owned
+        # intentionally skip the SSRF re-check in _request_with_retry.
+        super().__init__(config, db=db, provider_id=provider_id, seller_owned=seller_owned)
+        self.base_url: str = (config.get("base_url") or "").rstrip("/")
         raw_key = config.get("api_key")
         self.api_key: str | None = decrypt_str(raw_key) if raw_key else None
 
     def _headers(self, idempotency_key: str | None = None) -> dict:
         headers = {"Content-Type": "application/json"}
         if self.api_key:
-            headers["Authorization"] = f"Bearer {self.api_key}"
+            header_name = self.config.get("auth_header") or "Authorization"
+            scheme = self.config.get("auth_scheme")
+            scheme = "Bearer " if scheme is None else scheme
+            headers[header_name] = f"{scheme}{self.api_key}"
         if idempotency_key:
             headers["Idempotency-Key"] = idempotency_key
         return headers
@@ -57,7 +70,7 @@ class RealApiAdapter(ProviderAdapter):
         idempotency_key: str | None = None,
         **kwargs,
     ) -> httpx.Response:
-        if self._seller_owned:
+        if self.seller_owned:
             # Re-checked on every call, not just at config-save time: DNS for a
             # seller's own domain is under the seller's own control, so a
             # base_url that resolved to a public IP at signup can be repointed
@@ -110,6 +123,17 @@ class RealApiAdapter(ProviderAdapter):
         raise last_error
 
     async def provision(self, order_id: int, user_config: dict) -> ProvisionResult:
+        # Some suppliers (ScrapeCreators) have no /provision concept at all —
+        # every call is a metered per-request GET, nothing to initialize
+        # up front. For those, config.skip_provision_handshake=True short-
+        # circuits this into a local no-op success: the "product" IS the
+        # gateway key minted right after (see orders/service.py
+        # mints_gateway_key), not a resource this call would return.
+        # Calling a real /provision on a supplier that doesn't have one
+        # would 404 every single order into cancelled+refunded.
+        if self.config.get("skip_provision_handshake"):
+            return ProvisionResult(success=True, data="", metadata={"provider": "real_api"})
+
         # A real order keys off order_id so the in-call retries don't double-provision.
         # The admin "test provider" button passes order_id=0 and means the opposite:
         # every press is meant to hit the provider fresh, so a fixed key would let the
@@ -168,13 +192,34 @@ class RealApiAdapter(ProviderAdapter):
         )
 
     async def check_health(self) -> dict:
+        # Some suppliers (ScrapeCreators) have no /health route at all — every
+        # endpoint they DO have is a real, billed request. health_check_job
+        # (scheduler.py) polls every active provider every 15 minutes; pointed
+        # at a real billed endpoint that's ~96 real charges/day just for
+        # background polling, and pointed at a nonexistent /health it 404s
+        # every time and auto-disables a perfectly working provider after 3
+        # checks (see real_api.py check_health's "healthy" vs upstream-status
+        # note above — same failure class, different cause here: no free
+        # endpoint to ask at all). config.skip_health_probe=True opts out of
+        # the network call entirely; the admin Test button loses its real
+        # diagnostic value for this provider, connectivity is verified by hand
+        # instead (see docs/superpowers/plans — ScrapeCreators adapter plan).
+        if self.config.get("skip_health_probe"):
+            return {"status": "healthy"}
         try:
             resp = await self._request_with_retry(
                 "GET", "/health", operation="check_health", headers=self._headers(),
             )
             if resp.status_code >= 400:
                 return {"status": "unhealthy", "message": f"HTTP {resp.status_code}"}
-            return {"status": "healthy", **resp.json()}
+            # Literal "healthy" must win over anything the seller's own /health
+            # body happens to call its status (e.g. {"status": "ok"}) — spread
+            # first, then set status, or a same-named field from the seller's
+            # payload silently downgrades a genuinely healthy check to
+            # whatever that field said (scripts/mock_seller.py returns "ok",
+            # which used to read as "unhealthy" downstream and auto-disable a
+            # perfectly working provider — see scheduler.py health_check_job).
+            return {**resp.json(), "status": "healthy"}
         except httpx.HTTPError as e:
             logger.error("real_api_health_check_failed", error=str(e))
             return {"status": "unhealthy", "message": "Không thể kết nối nhà cung cấp"}

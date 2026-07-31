@@ -1,16 +1,12 @@
 from sqlalchemy import func, select
-from sqlalchemy.ext.asyncio import AsyncSession
 
 from src.adapters.base import ProviderAdapter, ProvisionResult
 from src.models.service_task import ServiceTask, ServiceTaskStatus
+from src.tasks.service import format_task_delivery
 
 
 class ManualAdapter(ProviderAdapter):
     """Creates ServiceTask records for human-operated fulfillment (e.g. takedown)."""
-
-    def __init__(self, config: dict, *, db: AsyncSession):
-        super().__init__(config)
-        self.db = db
 
     async def provision(self, order_id: int, user_config: dict) -> ProvisionResult:
         platform = user_config.get("platform", "unknown")
@@ -21,6 +17,7 @@ class ManualAdapter(ProviderAdapter):
             urls = [user_config.get("target_url", "N/A")]
 
         task_ids: list[int] = []
+        tasks: list[ServiceTask] = []
         for url in urls:
             task = ServiceTask(
                 order_id=order_id,
@@ -31,10 +28,15 @@ class ManualAdapter(ProviderAdapter):
             self.db.add(task)
             await self.db.flush()
             task_ids.append(task.id)
+            tasks.append(task)
 
+        # `data` là thứ BUYER đọc, `resource_id` là id nội bộ cho
+        # get_usage/revoke — hai thứ khác nhau, xem tasks/service.py::
+        # format_task_delivery. _sync_order_status ghi đè `data` bằng bản có
+        # kết quả khi mọi task xong.
         return ProvisionResult(
             success=True,
-            data=",".join(str(tid) for tid in task_ids),
+            data=format_task_delivery(tasks),
             resource_id=",".join(str(tid) for tid in task_ids),
             metadata={
                 "provider": "manual",

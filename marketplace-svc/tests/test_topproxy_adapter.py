@@ -21,6 +21,7 @@ from src.adapters.topproxy import (
     _parse_proxy_string,
     _parse_xoay_expiry,
     validate_topproxy_config,
+    validate_topproxy_pricing_params,
 )
 from src.security.crypto import encrypt_str
 
@@ -755,3 +756,54 @@ class TestRedeliver:
         result = await adapter.provision(9, {"type": "HTTP", "network": "Viettel", "days": 30, "quantity": 1})
         assert result.success, result.error
         assert "27.73.88.211" in result.data
+
+
+class TestValidateTopProxyPricingParams:
+    """Cấu hình giá mà provision() chắc chắn từ chối phải bị chặn NGAY LÚC LƯU
+    sản phẩm, không phải để buyer phát hiện bằng một đơn bị huỷ.
+
+    Sự cố 30/07: sản phẩm gắn TopProxy giữ preset mặc định của form admin
+    (network_mult viết thường: fpt/vnpt/viettel) → mọi đơn bị huỷ + hoàn tiền,
+    trong khi admin vẫn thấy sản phẩm "sẵn sàng bán".
+    """
+
+    def test_rejects_lowercase_network_codes(self):
+        with pytest.raises(HTTPException) as exc:
+            validate_topproxy_pricing_params("config", {
+                "base_price": 1000,
+                "network_mult": {"fpt": 0.9, "viettel": 1},
+            })
+        assert exc.value.status_code == 400
+        assert "fpt" in exc.value.detail
+        # Nêu luôn mã đúng để admin sửa được ngay, không phải đi tra tài liệu.
+        assert "Viettel" in exc.value.detail
+
+    def test_rejects_type_codes_topproxy_does_not_accept(self):
+        with pytest.raises(HTTPException) as exc:
+            validate_topproxy_pricing_params("config", {
+                "type_mult": {"datacenter": 1, "residential_static": 1.6},
+            })
+        assert "datacenter" in exc.value.detail
+        assert "HTTP" in exc.value.detail
+
+    def test_rejects_non_positive_duration(self):
+        with pytest.raises(HTTPException) as exc:
+            validate_topproxy_pricing_params("config", {
+                "network_mult": {"Viettel": 1},
+                "duration_options": [{"days": 0, "label": "0 ngày"}],
+            })
+        assert "thời hạn" in exc.value.detail.lower()
+
+    def test_accepts_canonical_codes(self):
+        validate_topproxy_pricing_params("config", {
+            "base_price": 75000,
+            "type_mult": {"HTTP": 1, "SOCKS5": 1.2},
+            "network_mult": {"Viettel": 1, "FPT": 0.9, "VNPT": 0.85},
+            "duration_options": [{"days": 7, "label": "7 ngày"}, {"days": 30, "label": "30 ngày"}],
+        })
+
+    def test_ignores_other_strategies(self):
+        # Chỉ "config" đưa type/network xuống provision; strategy khác không có
+        # các key này nên validator không được phép chặn oan.
+        validate_topproxy_pricing_params("credit", {"packages": [{"size": 1000}]})
+        validate_topproxy_pricing_params(None, {"network_mult": {"fpt": 1}})

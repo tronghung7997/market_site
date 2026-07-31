@@ -5,6 +5,7 @@ from sqlalchemy import func, select
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from src.adapters.compatibility import check_compatibility, setup_status
+from src.adapters.registry import get_spec
 from src.exceptions import NotOwner
 from src.models.account import Account
 from src.models.category import Category
@@ -386,6 +387,22 @@ def _validate_provider_assignment(provider: Provider | None, product: Product) -
         )
 
 
+def _validate_pricing_params_for_provider(
+    provider: Provider | None, strategy: str | None, params: dict | None,
+) -> None:
+    """Cửa thứ hai sau check_compatibility: các GIÁ TRỊ option trong tham số giá
+    có phải thứ adapter thật sự nhận không (AdapterSpec.validate_pricing_params).
+
+    Chạy trên tham số HIỆU DỤNG ở cả hai đường lưu (admin operations + seller
+    pricing) nên không có lối nào ghi được một sản phẩm mà mọi đơn chắc chắn
+    fail — xem docstring validate_topproxy_pricing_params.
+    """
+    spec = get_spec(provider.adapter_type) if provider else None
+    if spec is None or spec.validate_pricing_params is None:
+        return
+    spec.validate_pricing_params(strategy, params or {})
+
+
 async def update_product_operations(product_id: int, data: dict, db: AsyncSession) -> Product:
     """Admin gắn provider + chiến lược giá cho một sản phẩm.
 
@@ -401,6 +418,7 @@ async def update_product_operations(product_id: int, data: dict, db: AsyncSessio
 
     effective_provider_id = data.get("provider_id", product.provider_id)
     effective_strategy = data.get("pricing_strategy", product.pricing_strategy)
+    effective_params = data.get("pricing_params", product.pricing_params)
 
     provider = await db.get(Provider, effective_provider_id) if effective_provider_id else None
     _validate_provider_assignment(provider, product)
@@ -411,6 +429,7 @@ async def update_product_operations(product_id: int, data: dict, db: AsyncSessio
     compat = check_compatibility(provider.adapter_type if provider else None, effective_strategy)
     if compat.level == "block":
         raise HTTPException(status_code=400, detail=compat.message)
+    _validate_pricing_params_for_provider(provider, effective_strategy, effective_params)
 
     for key, value in data.items():
         setattr(product, key, value)
@@ -438,6 +457,7 @@ async def update_seller_pricing(product_id: int, seller_id: int, data: dict, db:
 
     effective_strategy = data.get("pricing_strategy", product.pricing_strategy)
     effective_provider_id = data.get("provider_id", product.provider_id)
+    effective_params = data.get("pricing_params", product.pricing_params)
     provider = await db.get(Provider, effective_provider_id) if effective_provider_id else None
     if "provider_id" in data and provider is not None and provider.seller_id != seller_id:
         raise HTTPException(
@@ -452,6 +472,7 @@ async def update_seller_pricing(product_id: int, seller_id: int, data: dict, db:
     compat = check_compatibility(provider.adapter_type if provider else None, effective_strategy)
     if compat.level == "block":
         raise HTTPException(status_code=400, detail=compat.message)
+    _validate_pricing_params_for_provider(provider, effective_strategy, effective_params)
 
     for key, value in data.items():
         setattr(product, key, value)

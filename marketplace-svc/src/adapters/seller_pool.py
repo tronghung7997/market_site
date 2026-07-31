@@ -1,5 +1,4 @@
 from sqlalchemy import func, select
-from sqlalchemy.ext.asyncio import AsyncSession
 
 from src.adapters.base import ProviderAdapter, ProvisionResult
 from src.models.resource import Resource, ResourceStatus
@@ -8,10 +7,6 @@ from src.resources.service import claim_resources, release_resources
 
 class SellerPoolAdapter(ProviderAdapter):
     """Wraps the existing seller resource pool (claim_resources)."""
-
-    def __init__(self, config: dict, *, db: AsyncSession):
-        super().__init__(config)
-        self.db = db
 
     async def provision(self, order_id: int, user_config: dict) -> ProvisionResult:
         variant_id: int | None = user_config.get("variant_id")

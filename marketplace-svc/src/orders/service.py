@@ -8,7 +8,7 @@ from sqlalchemy.ext.asyncio import AsyncSession
 
 from src.adapters.compatibility import check_compatibility
 from src.adapters.factory import get_adapter
-from src.adapters.real_api import RealApiAdapter
+from src.adapters.registry import get_spec
 from src.config import settings
 from src.database import SessionLocal
 from src.gateway.service import mint_gateway_key
@@ -161,10 +161,11 @@ async def _apply_provision_result(
                 # đọc lại cấu hình sản phẩm sau này. endpoint_rates chốt cùng lúc.
                 await create_balance_for_order(order, db, pricing_params=strategy_params)
                 provider = await db.get(Provider, resolved_provider_id) if resolved_provider_id else None
-                if provider and provider.adapter_type == "seller_gateway":
-                    # seller_gateway: buyer không bao giờ thấy base_url/api_key
-                    # thật của seller — chỉ một key nền tảng tự cấp, gọi qua
-                    # POST/GET /gw/{key}/<endpoint> (src/gateway/router.py).
+                provider_spec = get_spec(provider.adapter_type) if provider else None
+                if provider_spec and provider_spec.mints_gateway_key:
+                    # buyer không bao giờ thấy base_url/api_key thật của seller
+                    # — chỉ một key nền tảng tự cấp, gọi qua POST/GET
+                    # /gw/{key}/<endpoint> (src/gateway/router.py).
                     gateway_key = await mint_gateway_key(order)
                     order.delivered_data = (
                         f"Gateway key: {gateway_key}\n"
@@ -203,9 +204,10 @@ async def create_order_with_adapter(
 
     Giá và quantity hiệu dụng lấy từ engine quote — không nhân thêm lần nào.
 
-    Adapter gọi mạng (RealApiAdapter) được hoãn sang background: đơn commit ở
-    `pending` rồi provision sau, nên request không giữ transaction mở suốt thời
-    gian gọi HTTP (worst case ~16.5s). Các adapter thuần DB chạy inline như cũ —
+    Adapter gọi mạng (provisions_over_network=True, xem adapters/base.py) được
+    hoãn sang background: đơn commit ở `pending` rồi provision sau, nên request
+    không giữ transaction mở suốt thời gian gọi HTTP (worst case ~16.5s). Các
+    adapter thuần DB chạy inline như cũ —
     chúng nhanh, và SellerPoolAdapter phải claim tồn kho ngay trong transaction,
     nếu hoãn thì hai buyer có thể cùng đặt món cuối cùng.
     """
@@ -220,23 +222,27 @@ async def create_order_with_adapter(
     q = await quote_product(product, user_config, db)
     total_amount = q.amount
 
-    # DProxy binds exactly one ProxyAllocation per order (UNIQUE(order_id) —
-    # see src/models/proxy_allocation.py) — package_size/quantity > 1 would
-    # charge for N proxies and deliver 1. Checked here, before any charge or
-    # order row exists, not just hidden on the frontend (review fixes
+    # Giới hạn quantity do adapter tự khai (AdapterSpec.max_quantity_per_order,
+    # adapters/registry.py) — vd dproxy/topproxy bind đúng MỘT ProxyAllocation
+    # mỗi order (UNIQUE(order_id), src/models/proxy_allocation.py): quantity > 1
+    # sẽ thu tiền N mà giao 1. Chặn ở đây, trước khi trừ ví hay tạo order row,
+    # không chỉ giấu trên frontend (review fixes
     # docs/superpowers/plans/2026-07-22-dproxy-consolidated-review.md P0#1).
-    # topproxy cùng ràng buộc: một ProxyAllocation mỗi order, và lệnh mua
-    # TopProxy không có idempotency nên soluong>1 còn thêm rủi ro giao thiếu
-    # (status 201) không xử lý nổi giữa chừng.
     provider_for_quantity_check = await db.get(Provider, product.provider_id)
+    quantity_spec = get_spec(
+        provider_for_quantity_check.adapter_type if provider_for_quantity_check else None
+    )
     if (
-        provider_for_quantity_check
-        and provider_for_quantity_check.adapter_type in ("dproxy", "topproxy")
-        and q.quantity != 1
+        quantity_spec
+        and quantity_spec.max_quantity_per_order is not None
+        and q.quantity > quantity_spec.max_quantity_per_order
     ):
         raise HTTPException(
             status_code=400,
-            detail="Sản phẩm proxy này chỉ hỗ trợ mua 1 đơn vị mỗi đơn — số lượng phải bằng 1",
+            detail=(
+                f"Sản phẩm này chỉ hỗ trợ tối đa {quantity_spec.max_quantity_per_order} "
+                f"đơn vị mỗi đơn — vui lòng giảm số lượng"
+            ),
         )
 
     order = Order(
@@ -298,7 +304,7 @@ async def create_order_with_adapter(
                    "seller_id": product.seller_id, "amount": total_amount},
     )
 
-    if isinstance(adapter, RealApiAdapter):
+    if adapter.provisions_over_network:
         # Commit first so the order survives on its own, then provision outside
         # this transaction. If the task never runs (process dies), the order sits
         # at `pending` and provision_sweep_job picks it up — retrying is safe

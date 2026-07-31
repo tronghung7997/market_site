@@ -2,39 +2,46 @@ from fastapi import HTTPException
 from sqlalchemy import select
 from sqlalchemy.ext.asyncio import AsyncSession
 
-from src.adapters.dproxy import validate_dproxy_config
-from src.adapters.topproxy import validate_topproxy_config
+from src.adapters.registry import get_spec
 from src.exceptions import NotOwner
 from src.models.provider import Provider, ProviderHealth
 from src.providers.schemas import SELLER_ALLOWED_ADAPTER_TYPES
 from src.security.crypto import encrypt_config
 from src.security.ssrf_guard import validate_seller_base_url
 
-# seller_task_webhook's callback (POST /webhooks/providers/{id}/tasks/{external_task_id},
-# src/gateway/router.py) is only as trustworthy as this secret — no secret means
-# anyone who can guess a provider_id + external_task_id can complete/fail a
-# buyer's task and trigger delivery/refund. Enforced at the one place both
-# create and update funnel through, so there is no path to a provider row of
-# this adapter_type without one.
-_REQUIRES_WEBHOOK_SECRET = {"seller_task_webhook"}
 
+async def _validate_adapter_config(adapter_type: str | None, config: dict | None) -> None:
+    """Kiểm tra config HIỆU DỤNG theo khai báo của adapter (AdapterSpec,
+    adapters/registry.py) — gọi ở mọi đường create/update, admin lẫn seller,
+    nên không có lối nào ghi được một provider row vi phạm contract của
+    adapter_type nó mang.
 
-def _check_webhook_secret(adapter_type: str | None, config: dict | None) -> None:
-    if adapter_type in _REQUIRES_WEBHOOK_SECRET and not (config or {}).get("webhook_secret"):
+    - webhook secret: callback HMAC (POST /webhooks/providers/{id}/tasks/...,
+      src/gateway/router.py) chỉ đáng tin bằng secret này — thiếu nó thì ai
+      đoán được provider_id + external_task_id là giả mạo được kết quả task.
+    - validate_config: hook riêng của adapter (vd dproxy/topproxy kiểm tra
+      base_url, key, mode) — chạy trên config hiệu dụng kể cả khi request chỉ
+      đổi adapter_type mà giữ config cũ (review fixes Medium B).
+
+    adapter_type lạ thì bỏ qua — không khoá dữ liệu cũ; luồng bán đã chặn ở
+    get_adapter.
+    """
+    spec = get_spec(adapter_type)
+    if spec is None:
+        return
+    if spec.requires_webhook_secret and not (config or {}).get("webhook_secret"):
         raise HTTPException(
             status_code=400,
             detail=f"adapter_type '{adapter_type}' bắt buộc phải có config.webhook_secret",
         )
+    if spec.validate_config is not None:
+        await spec.validate_config(config or {})
 
 
 async def create_provider(data: dict, db: AsyncSession) -> Provider:
     if not data.get("type"):
         data["type"] = data.get("adapter_type", "mock")
-    _check_webhook_secret(data.get("adapter_type"), data.get("config"))
-    if data.get("adapter_type") == "dproxy":
-        await validate_dproxy_config(data.get("config") or {})
-    if data.get("adapter_type") == "topproxy":
-        await validate_topproxy_config(data.get("config") or {})
+    await _validate_adapter_config(data.get("adapter_type"), data.get("config"))
     if "config" in data and data["config"]:
         data["config"] = encrypt_config(data["config"])
     provider = Provider(**data)
@@ -49,23 +56,12 @@ async def update_provider(provider_id: int, updates: dict, db: AsyncSession) -> 
     if not provider:
         raise HTTPException(status_code=404, detail="Không tìm thấy nhà cung cấp")
 
-    # Xét theo trạng thái SAU khi áp updates — đổi adapter_type sang
-    # seller_task_webhook mà không kèm secret, hoặc xoá secret khỏi config
-    # trong khi vẫn giữ adapter_type này, đều phải bị chặn như nhau.
+    # Xét theo trạng thái SAU khi áp updates — đổi adapter_type mà không kèm
+    # config hợp lệ cho loại mới, hoặc xoá field bắt buộc khỏi config trong
+    # khi vẫn giữ adapter_type cũ, đều phải bị chặn như nhau.
     next_adapter_type = updates.get("adapter_type", provider.adapter_type)
     next_config = updates["config"] if "config" in updates else provider.config
-    _check_webhook_secret(next_adapter_type, next_config)
-    if next_adapter_type == "dproxy":
-        # Validate the EFFECTIVE config even when this request only changes
-        # adapter_type (e.g. switching an existing provider to dproxy) — not
-        # just when "config" is present in this update. Otherwise a request
-        # can flip adapter_type to dproxy while leaving a config that was
-        # never validated against dproxy's contract (review fixes Medium B).
-        await validate_dproxy_config(next_config or {})
-    if next_adapter_type == "topproxy":
-        # Cùng lý do với dproxy ngay trên: validate config HIỆU DỤNG kể cả
-        # khi update chỉ đổi adapter_type.
-        await validate_topproxy_config(next_config or {})
+    await _validate_adapter_config(next_adapter_type, next_config)
 
     if "config" in updates and updates["config"]:
         updates["config"] = encrypt_config(updates["config"])
@@ -91,7 +87,7 @@ async def create_seller_provider(seller_id: int, data: dict, db: AsyncSession) -
             detail=f"Seller chỉ tự đăng ký được adapter_type: {', '.join(sorted(SELLER_ALLOWED_ADAPTER_TYPES))}",
         )
     config = data.get("config") or {}
-    _check_webhook_secret(adapter_type, config)
+    await _validate_adapter_config(adapter_type, config)
     await validate_seller_base_url(config.get("base_url", ""))
     provider = Provider(
         name=data["name"], type=adapter_type, adapter_type=adapter_type,
@@ -122,7 +118,7 @@ async def update_seller_provider(seller_id: int, provider_id: int, updates: dict
     provider = await get_seller_provider(seller_id, provider_id, db)
 
     next_config = updates["config"] if "config" in updates else provider.config
-    _check_webhook_secret(provider.adapter_type, next_config)
+    await _validate_adapter_config(provider.adapter_type, next_config)
     if "config" in updates:
         await validate_seller_base_url((updates["config"] or {}).get("base_url", ""))
 

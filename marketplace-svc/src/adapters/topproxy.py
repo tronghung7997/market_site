@@ -271,6 +271,59 @@ def _is_local_host(url: str) -> bool:
     return (urlsplit(url).hostname or "").lower() in _LOCAL_HOSTS
 
 
+def validate_topproxy_pricing_params(strategy: str | None, params: dict) -> None:
+    """Chặn cấu hình giá mà provision() chắc chắn từ chối — NGAY LÚC ADMIN LƯU,
+    thay vì để buyer là người phát hiện.
+
+    Sự cố 30/07: sản phẩm gắn TopProxy giữ nguyên preset mặc định của form
+    (`network_mult = {fpt, vnpt, viettel}`, `type_mult = {datacenter,
+    residential_static, ...}`). Cả hai đều là mã máy được gửi THẲNG cho
+    TopProxy: `network` → `loaiproxy`, `type` → `type`. Preset viết thường
+    không nằm trong STATIC_LOAIPROXY/_STATIC_TYPES nên MỌI đơn đều bị huỷ +
+    hoàn tiền với lý do trắng — sản phẩm nhìn vẫn "sẵn sàng bán" ở admin.
+
+    check_compatibility() chỉ khớp được tới mức adapter ↔ strategy; đây là
+    tầng dưới nó: các GIÁ TRỊ option mà chính adapter này chấp nhận.
+    """
+    if strategy != "config":
+        return
+
+    networks = set((params.get("network_mult") or {}).keys())
+    unknown_networks = sorted(networks - STATIC_LOAIPROXY)
+    if unknown_networks:
+        raise HTTPException(
+            status_code=400,
+            detail=(
+                f"TopProxy không nhận nhà mạng: {', '.join(unknown_networks)}. "
+                f"Mã hợp lệ (phân biệt hoa/thường): {', '.join(sorted(STATIC_LOAIPROXY))}."
+            ),
+        )
+
+    types = set((params.get("type_mult") or {}).keys())
+    unknown_types = sorted(types - _STATIC_TYPES)
+    if unknown_types:
+        raise HTTPException(
+            status_code=400,
+            detail=(
+                f"TopProxy không nhận loại proxy: {', '.join(unknown_types)}. "
+                f"Mã hợp lệ: {', '.join(sorted(_STATIC_TYPES))}."
+            ),
+        )
+
+    # Kỳ hạn: mode "xoay" mua theo ngày/tuần/tháng nên days nào >= 1 cũng map
+    # được; chỉ chặn days <= 0 — provision() trả "Số ngày sử dụng không hợp lệ".
+    for option in params.get("duration_options") or []:
+        try:
+            days = int(option.get("days", 0))
+        except (TypeError, ValueError):
+            days = 0
+        if days < 1:
+            raise HTTPException(
+                status_code=400,
+                detail=f"TopProxy: tuỳ chọn thời hạn phải >= 1 ngày (nhận {option.get('days')!r})",
+            )
+
+
 async def validate_topproxy_config(config: dict) -> None:
     """Chặn config hỏng ngay lúc admin lưu provider (wired vào
     src/providers/service.py, cùng chỗ với validate_dproxy_config)."""
@@ -303,9 +356,13 @@ async def validate_topproxy_config(config: dict) -> None:
 
 
 class TopProxyAdapter(RealApiAdapter, RotatableProxyAdapter):
-    def __init__(self, config: dict, *, db, provider_id: int | None = None):
-        super().__init__(config, provider_id=provider_id, seller_owned=False)
-        self.db = db
+    # provision() gọi muaproxy.php/apimua*.php — TRỪ XU THẬT. Nút Test không được gọi.
+    provision_has_purchase_side_effect = True
+
+    def __init__(
+        self, config: dict, *, db=None, provider_id: int | None = None, seller_owned: bool = False,
+    ):
+        super().__init__(config, db=db, provider_id=provider_id, seller_owned=seller_owned)
         self.mode = (config.get("mode") or "static").lower()
         self.xoay_get_url = config.get("xoay_get_url") or _DEFAULT_XOAY_GET_URL
 
@@ -602,7 +659,7 @@ class TopProxyAdapter(RealApiAdapter, RotatableProxyAdapter):
             assigned_at=datetime.now(timezone.utc), expires_at=expires_at,
             online=True, rotation_available=True, rotation_mode="fetch",
             cooldown_seconds=_XOAY_ROTATE_COOLDOWN_SECONDS, last_rotated_at=None, rotate_path=None,
-            country=network, proxy_type=location or "xoay",
+            network=network, proxy_type=location or "xoay",
         )
 
     def delivered_text_for(self, assignment: ProxyAssignment, whitelist: str | None = None) -> str:
@@ -634,8 +691,8 @@ class TopProxyAdapter(RealApiAdapter, RotatableProxyAdapter):
         ]
         if assignment.public_ip:
             lines.append(f"IP đang dùng: {assignment.public_ip}")
-        if assignment.country:
-            lines.append(f"Nhà mạng: {assignment.country}")
+        if assignment.network:
+            lines.append(f"Nhà mạng: {assignment.network}")
         if assignment.proxy_type and assignment.proxy_type != "xoay":
             lines.append(f"Vị trí: {assignment.proxy_type}")
         # Cảnh báo whitelist đặt NGAY sau thông tin kết nối vì đây là nguyên
@@ -884,7 +941,7 @@ class TopProxyAdapter(RealApiAdapter, RotatableProxyAdapter):
             assigned_at=datetime.now(timezone.utc), expires_at=expires_at,
             online=True, rotation_available=False, rotation_mode=None,
             cooldown_seconds=None, last_rotated_at=None, rotate_path=None,
-            country=network, proxy_type=proxy_type or row.get("type"),
+            network=network, proxy_type=proxy_type or row.get("type"),
         )
 
     # ------------------------------------------------------------------

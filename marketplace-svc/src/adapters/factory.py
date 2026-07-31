@@ -1,36 +1,8 @@
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from src.adapters.base import ProviderAdapter
-from src.adapters.dproxy import DProxyAdapter
-from src.adapters.manual import ManualAdapter
-from src.adapters.mock import MockAdapter
-from src.adapters.real_api import RealApiAdapter
-from src.adapters.seller_pool import SellerPoolAdapter
-from src.adapters.seller_task_webhook import SellerTaskWebhookAdapter
-from src.adapters.topproxy import TopProxyAdapter
+from src.adapters.registry import get_spec
 from src.models.provider import Provider
-
-ADAPTER_MAP: dict[str, type[ProviderAdapter]] = {
-    "mock": MockAdapter,
-    "seller_pool": SellerPoolAdapter,
-    "manual": ManualAdapter,
-    # Adapter thật theo tài liệu topproxy.vn (query-param auth, envelope
-    # status số, không idempotency phía supplier) — xem
-    # docs/superpowers/specs/2026-07-23-topproxy-research.md. Trước 2026-07-23
-    # trỏ vào RealApiAdapter với convention giả định.
-    "topproxy": TopProxyAdapter,
-    "scrapecreators": RealApiAdapter,
-    # Cùng cơ chế gọi HTTP thật với topproxy/scrapecreators (retry, idempotency,
-    # ProviderCallLog) — khác ở chỗ base_url trỏ vào backend do SELLER tự khai,
-    # không phải nhà cung cấp admin curate. Xem RealApiAdapter.call() (per-request
-    # forward, dùng bởi src/gateway/router.py) và spec 2026-07-21.
-    "seller_gateway": RealApiAdapter,
-    "seller_task_webhook": SellerTaskWebhookAdapter,
-    # Admin-curated rotatable proxy — xem
-    # docs/superpowers/specs/2026-07-22-dproxy-integration.md. Không thuộc
-    # SELLER_ALLOWED_ADAPTER_TYPES, seller không tự đăng ký được.
-    "dproxy": DProxyAdapter,
-}
 
 MAX_FALLBACK_DEPTH = 3
 
@@ -84,28 +56,31 @@ async def get_binding_adapter(provider_id: int, db: AsyncSession) -> ProviderAda
     return _instantiate(provider, db)
 
 
+async def get_adapter_for_test(provider_id: int, db: AsyncSession) -> ProviderAdapter:
+    """Adapter cho nút Test (admin + seller self-service) — cố tình KHÔNG check
+    `is_active` và KHÔNG đi fallback chain, khác `get_adapter`.
+
+    Test dùng để CHẨN ĐOÁN một provider, kể cả provider đang bị tắt (health
+    check job tự tắt sau 3 lần liên tiếp unhealthy — xem scheduler.py). Nếu
+    dùng get_adapter() ở đây, provider vừa bị tắt sẽ không thể tự test lại để
+    xác nhận đã sửa xong chưa — phải bật mù rồi mới test được, ngược quy trình.
+    """
+    provider = await db.get(Provider, provider_id)
+    if provider is None:
+        raise ValueError(f"Provider {provider_id} not found")
+    return _instantiate(provider, db)
+
+
 def _instantiate(provider: Provider, db: AsyncSession) -> ProviderAdapter:
-    adapter_cls = ADAPTER_MAP.get(provider.adapter_type)
-    if adapter_cls is None:
+    spec = get_spec(provider.adapter_type)
+    if spec is None:
         raise ValueError(f"Unknown adapter_type: {provider.adapter_type!r}")
 
-    config = provider.config or {}
-
-    if adapter_cls in (SellerPoolAdapter, ManualAdapter):
-        return adapter_cls(config, db=db)
-
-    if adapter_cls is SellerTaskWebhookAdapter:
-        return adapter_cls(
-            config, db=db, provider_id=provider.id, seller_owned=provider.seller_id is not None,
-        )
-
-    if adapter_cls is DProxyAdapter:
-        return adapter_cls(config, db=db, provider_id=provider.id)
-
-    if adapter_cls is TopProxyAdapter:
-        return adapter_cls(config, db=db, provider_id=provider.id)
-
-    if adapter_cls is RealApiAdapter:
-        return adapter_cls(config, provider_id=provider.id, seller_owned=provider.seller_id is not None)
-
-    return adapter_cls(config)
+    # Chữ ký chung cho MỌI adapter (adapters/base.py) — thêm adapter mới không
+    # cần dạy factory cách khởi tạo nó.
+    return spec.cls(
+        provider.config or {},
+        db=db,
+        provider_id=provider.id,
+        seller_owned=provider.seller_id is not None,
+    )

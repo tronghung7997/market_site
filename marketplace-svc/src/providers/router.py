@@ -9,9 +9,7 @@ from fastapi import APIRouter, Depends, HTTPException, status
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from src.adapters.base import ProvisionResult
-from src.adapters.dproxy import DProxyAdapter
-from src.adapters.factory import get_adapter
-from src.adapters.topproxy import TopProxyAdapter
+from src.adapters.factory import get_adapter_for_test
 from src.auth.dependencies import require_min_seller_tier, require_role
 from src.database import get_session
 from src.models.account import Account
@@ -28,22 +26,28 @@ async def _run_provider_test(provider_id: int, db: AsyncSession) -> schemas.Prov
     (spec 2026-07-21: "seller tự chạy contract test trước khi nộp admin
     duyệt") — same check, same result shape, whoever is looking at it."""
     try:
-        adapter = await get_adapter(provider_id, db)
+        adapter = await get_adapter_for_test(provider_id, db)
     except ValueError as e:
         raise HTTPException(status_code=400, detail=str(e))
 
     health_result = await adapter.check_health()
 
     provision_test = None
-    # provision() có SIDE EFFECT THẬT với proxy-adapter mua-theo-đơn:
-    # - DProxy: bind một assignment sống vào order_id (chiếm mất của buyer sau).
-    # - TopProxy: gọi muaproxy.php / apimua*.php — TRỪ XU THẬT của tài khoản
-    #   reseller để mua một proxy/key cho một order không tồn tại (order_id=0).
-    # Với cả hai, check_health() (một lệnh list read-only) đã là bài test đúng —
-    # xác nhận base_url + api_key hoạt động mà không tiêu tiền. Không bao giờ
-    # gọi provision() ở nút test cho các adapter này.
-    _has_purchase_side_effect = isinstance(adapter, (DProxyAdapter, TopProxyAdapter))
-    if health_result.get("status") == "healthy" and not _has_purchase_side_effect:
+    # provision() có SIDE EFFECT THẬT với các adapter mua-theo-đơn (dproxy bind
+    # assignment sống vào order_id, topproxy TRỪ XU THẬT cho một order không
+    # tồn tại) — adapter tự khai qua provision_has_purchase_side_effect
+    # (adapters/base.py). Với các adapter đó, check_health() (read-only) đã là
+    # bài test đúng: xác nhận base_url + api_key hoạt động mà không tiêu tiền.
+    skipped_reason: str | None = None
+    if adapter.provision_has_purchase_side_effect:
+        skipped_reason = (
+            "Nhà cung cấp này tính tiền thật cho mỗi lệnh cấp phát, nên nút Test chỉ "
+            "kiểm tra kết nối (đọc danh sách hàng) — không đặt mua thử. Kết nối OK ở "
+            "trên nghĩa là base URL và API key đã đúng."
+        )
+    elif health_result.get("status") != "healthy":
+        skipped_reason = "Chưa thử cấp phát vì kết nối tới nhà cung cấp đang lỗi — sửa kết nối rồi test lại."
+    else:
         try:
             result: ProvisionResult = await adapter.provision(
                 order_id=0, user_config={"test": True}
@@ -60,6 +64,7 @@ async def _run_provider_test(provider_id: int, db: AsyncSession) -> schemas.Prov
     return schemas.ProviderTestResponse(
         health=health_result,
         provision_test=provision_test,
+        provision_test_skipped_reason=skipped_reason,
     )
 
 

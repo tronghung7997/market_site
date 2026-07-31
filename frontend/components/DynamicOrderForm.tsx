@@ -5,13 +5,27 @@ import { useRouter } from "next/navigation";
 import { api, vnd, ApiError } from "@/lib/api";
 import { useAuth } from "@/lib/auth";
 import type { CalculateResult, Order, PricingField, PricingOptions, ProductDetail } from "@/lib/types";
-import { Banner, Button, Card, Input, Select, Spinner, Tag, Textarea } from "@/components/ui";
+import { Banner, Button, Card, Input, Select, Tag, Textarea } from "@/components/ui";
 import { Info, Shield } from "@/components/Icons";
 
 interface Props {
   productId: number;
   product: ProductDetail;
   onOrderCreated: (order: Order) => void;
+}
+
+/** Vỏ phiếu đặt hàng — dùng chung cho các trạng thái CHƯA có form (đang tải,
+ *  lỗi tải tuỳ chọn) để khung phiếu không biến mất giữa chừng. Trạng thái đủ
+ *  dữ liệu vẫn tự dựng vỏ riêng vì nó cần thêm Tag "Giao tự động" ở nắp. */
+function FormShell({ title, children }: { title: string; children: React.ReactNode }) {
+  return (
+    <Card className="overflow-hidden shadow-card-lg">
+      <div className="px-5 h-11 flex items-center bg-ink-panel dotgrid-dark">
+        <span className="text-[12.5px] font-semibold tracking-wide text-white/95">{title}</span>
+      </div>
+      <div className="p-5">{children}</div>
+    </Card>
+  );
 }
 
 export default function DynamicOrderForm({ productId, product, onOrderCreated }: Props) {
@@ -146,8 +160,32 @@ export default function DynamicOrderForm({ productId, product, onOrderCreated }:
     }
   };
 
-  if (loadingOptions) return <Spinner label="Đang tải tùy chọn..." />;
-  if (optionsError) return <p className="text-bad text-[13px] py-4">{optionsError}</p>;
+  // Khung phiếu dựng ngay từ frame đầu, chỉ RUỘT là skeleton: trước 30/07 hai
+  // nhánh này trả về Spinner/đoạn text trần, nên cột phải trống trơn vài giây
+  // rồi phiếu bung ra — nội dung bên cạnh nhảy theo. Giữ nguyên vỏ thì trang
+  // đứng yên, buyer thấy ngay "đây là chỗ đặt hàng, đang tải".
+  if (loadingOptions) {
+    return (
+      <FormShell title="Cấu hình đơn hàng">
+        <div className="space-y-3.5" aria-busy="true" aria-label="Đang tải tuỳ chọn">
+          <div className="h-3 w-24 rounded bg-line/70 animate-shimmer" />
+          <div className="h-9 w-full rounded-lg bg-line/60 animate-shimmer" />
+          <div className="h-3 w-20 rounded bg-line/70 animate-shimmer" />
+          <div className="h-9 w-full rounded-lg bg-line/60 animate-shimmer" />
+          <div className="h-10 w-full rounded-lg bg-line/60 animate-shimmer" />
+        </div>
+      </FormShell>
+    );
+  }
+  if (optionsError) {
+    return (
+      <FormShell title="Cấu hình đơn hàng">
+        <Banner tone="bad" icon={<Info size={15} />} title="Chưa tải được tuỳ chọn">
+          {optionsError}
+        </Banner>
+      </FormShell>
+    );
+  }
   if (!options) return null;
 
   const hasDiscount = calc && calc.discount_pct != null && calc.discount_pct > 0;

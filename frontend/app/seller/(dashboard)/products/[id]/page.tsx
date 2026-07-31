@@ -1204,7 +1204,7 @@ function VariantCard({ variant: v, editing, onEdit, onDone, onRefresh }: {
           {stockMsg && <p className="text-[12px] text-good">{stockMsg}</p>}
           <div className="flex items-center gap-2">
             <Button size="sm" disabled={busy || !paste.trim()} onClick={addStock}>
-              {busy ? "Đang nạp…" : `Nạp ${paste.split("\n").filter((l) => l.trim()).length} dòng`}
+              {busy ? "Đang thêm…" : `Thêm ${paste.split("\n").filter((l) => l.trim()).length} dòng vào kho`}
             </Button>
             <Button size="sm" variant="ghost" onClick={() => { setStocking(false); setPaste(""); setStockMsg(""); }}>
               Xong

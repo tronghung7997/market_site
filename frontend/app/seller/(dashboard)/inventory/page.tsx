@@ -334,7 +334,7 @@ function VariantLines({ variantId, onChanged }: { variantId: number; onChanged: 
           {err && <p className="text-[12px] text-bad">{err}</p>}
           <div className="flex items-center gap-2">
             <Button size="sm" onClick={addLines} disabled={busy || !paste.trim()}>
-              {busy ? "Đang nạp…" : `Nạp ${paste.split("\n").filter((l) => l.trim()).length} dòng`}
+              {busy ? "Đang thêm…" : `Thêm ${paste.split("\n").filter((l) => l.trim()).length} dòng vào kho`}
             </Button>
             <Button size="sm" variant="secondary" onClick={() => { setAdding(false); setPaste(""); setErr(""); }}>
               Huỷ

@@ -55,19 +55,27 @@ function CopyButton({ text, label }: { text: string; label?: string }) {
   );
 }
 
-function MaskedValue({ value }: { value: string }) {
+function maskSecret(value: string): string {
+  return value.length > 8 ? value.slice(0, 4) + "****" + value.slice(-4) : "****";
+}
+
+/** `value` là thứ hiển thị/che; `copyValue` là thứ thực sự cần dán đi.
+ *  Hai thứ tách nhau vì địa chỉ gọi CHỨA key: che key ở dòng trên rồi in
+ *  nguyên nó trong URL dòng dưới thì việc che chỉ là hình thức. Nút Sao chép
+ *  vẫn đưa bản đầy đủ nên buyer không mất gì. */
+function MaskedValue({ value, display, copyValue }: { value: string; display?: string; copyValue?: string }) {
   const [visible, setVisible] = useState(false);
-  const masked = value.length > 8 ? value.slice(0, 4) + "****" + value.slice(-4) : "****";
+  const masked = display ?? maskSecret(value);
   return (
-    <span className="inline-flex items-center gap-2 font-mono text-[12.5px]">
-      <span>{visible ? value : masked}</span>
+    <span className="inline-flex items-center gap-2 font-mono text-[12.5px] break-all">
+      <span>{visible ? (copyValue ?? value) : masked}</span>
       <button
         onClick={() => setVisible((v) => !v)}
         className="text-[11px] text-iris-hi hover:underline"
       >
         {visible ? "Ẩn" : "Hiện"}
       </button>
-      <CopyButton text={value} />
+      <CopyButton text={copyValue ?? value} />
     </span>
   );
 }
@@ -192,9 +200,32 @@ function UsageRecordRow({ record }: { record: UsageRecordItem }) {
   );
 }
 
+/** Tách bản bàn giao gateway thành (key, URL gọi).
+ *
+ *  `delivered_data` của đơn gateway là 2 dòng ("Gateway key: gwk_…" +
+ *  "Gọi qua: …/<endpoint>"), không phải một chuỗi key trần. Đưa nguyên khối
+ *  đó vào MaskedValue cho ra "Gate****int>" — che nhầm cả nhãn lẫn URL và
+ *  giấu mất đúng phần buyer cần đọc. Chỉ KEY là bí mật; URL gọi thì không,
+ *  nên hiện đầy đủ. */
+function parseGatewayDelivery(raw: string | null | undefined): { key: string | null; callUrl: string | null } {
+  if (!raw) return { key: null, callUrl: null };
+  let key: string | null = null;
+  let callUrl: string | null = null;
+  for (const line of raw.split("\n")) {
+    const keyMatch = line.match(/^\s*Gateway key:\s*(\S+)\s*$/);
+    if (keyMatch) key = keyMatch[1];
+    const urlMatch = line.match(/^\s*Gọi qua:\s*(\S+)\s*$/);
+    if (urlMatch) callUrl = urlMatch[1];
+  }
+  // Bàn giao không theo khuôn (đơn cũ, provider khác): coi cả khối là key —
+  // giữ nguyên hành vi trước đây thay vì hiện trống.
+  if (!key && !callUrl) return { key: raw.trim(), callUrl: null };
+  return { key, callUrl };
+}
+
 function EndpointDashboard({ data, onRefresh }: { data: DashboardData; onRefresh: () => void }) {
   const balance = data.balance;
-  const apiKey = data.delivered_data;
+  const { key: apiKey, callUrl } = parseGatewayDelivery(data.delivered_data);
   const [simulating, setSimulating] = useState(false);
   const [simError, setSimError] = useState<string | null>(null);
 
@@ -214,10 +245,24 @@ function EndpointDashboard({ data, onRefresh }: { data: DashboardData; onRefresh
 
   return (
     <div className="space-y-4">
-      {apiKey && (
-        <div className="bg-raised border border-line rounded-lg p-3">
-          <div className="text-[11px] text-faint mb-1">API Key</div>
-          <MaskedValue value={apiKey} />
+      {(apiKey || callUrl) && (
+        <div className="bg-raised border border-line rounded-lg p-3 space-y-2.5">
+          {apiKey && (
+            <div>
+              <div className="text-[11px] text-faint mb-1">API Key</div>
+              <MaskedValue value={apiKey} />
+            </div>
+          )}
+          {callUrl && (
+            <div>
+              <div className="text-[11px] text-faint mb-1">Địa chỉ gọi</div>
+              <MaskedValue
+                value={callUrl}
+                display={apiKey ? callUrl.replace(apiKey, maskSecret(apiKey)) : callUrl}
+                copyValue={callUrl}
+              />
+            </div>
+          )}
         </div>
       )}
 
@@ -280,9 +325,11 @@ function EndpointDashboard({ data, onRefresh }: { data: DashboardData; onRefresh
               disabled={simulating}
               className="inline-flex items-center gap-1.5 px-3 py-1.5 text-[12px] font-medium rounded-md bg-raised border border-line hover:border-line-2 transition-colors disabled:opacity-50"
             >
-              {simulating ? "Đang gửi…" : "Giả lập 1 request"}
+              {simulating ? "Đang gửi…" : "Trừ thử 1 request"}
             </button>
-            <span className="text-[11px] text-faint">Dùng để test key — chưa có nhà cung cấp thật gọi vào đây.</span>
+            <span className="text-[11px] text-faint">
+              Kiểm tra cách đếm số dư — trừ 1 request thật khỏi gói, không gọi ra nhà cung cấp.
+            </span>
           </div>
           {simError && <p className="text-[12px] text-bad">{simError}</p>}
 

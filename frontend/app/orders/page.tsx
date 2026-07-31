@@ -29,7 +29,7 @@ export default function OrdersPage() {
   const { account, loading: authLoading } = useAuth();
   const router = useRouter();
   const searchParams = useSearchParams();
-  const filters = useOrderFilters(searchParams.get("status") ?? "");
+  const filters = useOrderFilters(searchParams.get("status") ?? "", searchParams.get("search") ?? "");
 
   const queryClient = useQueryClient();
   // Danh sách + thống kê chạy trên react-query: đổi bộ lọc = key mới tự fetch;

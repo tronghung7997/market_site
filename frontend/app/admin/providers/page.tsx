@@ -502,9 +502,7 @@ function AdapterConnectionFields({
         {testResult && (
           <Card className="p-3">
             <h4 className="text-[11px] font-semibold text-muted uppercase tracking-wide mb-2">Kết quả test</h4>
-            <pre className="text-[11px] font-mono text-fg whitespace-pre-wrap overflow-x-auto">
-              {JSON.stringify(testResult, null, 2)}
-            </pre>
+            <TestResultBody testResult={testResult} />
           </Card>
         )}
       </div>
@@ -559,9 +557,7 @@ function AdapterConnectionFields({
         {testResult && (
           <Card className="p-3">
             <h4 className="text-[11px] font-semibold text-muted uppercase tracking-wide mb-2">Kết quả test</h4>
-            <pre className="text-[11px] font-mono text-fg whitespace-pre-wrap overflow-x-auto">
-              {JSON.stringify(testResult, null, 2)}
-            </pre>
+            <TestResultBody testResult={testResult} />
           </Card>
         )}
       </div>
@@ -660,12 +656,27 @@ function AdapterConnectionFields({
 function TestResultBody({ testResult }: { testResult: Record<string, unknown> }) {
   const health = testResult.health as Record<string, unknown> | undefined;
   const hasSummary = health && typeof health.usable === "number" && typeof health.total === "number";
+  const skippedReason = testResult.provision_test_skipped_reason as string | null | undefined;
+
+  // Vì sao không có phần "thử cấp phát" — trước đây admin chỉ thấy
+  // `"provision_test": null` trong khối JSON và không đoán được là chưa chạy
+  // hay chạy hỏng. Backend nói thẳng lý do (providers/router.py).
+  const skippedNote = skippedReason ? (
+    <p className="mt-2 text-[11.5px] text-muted leading-relaxed border-t border-line pt-2">{skippedReason}</p>
+  ) : null;
 
   if (!hasSummary) {
     return (
-      <pre className="text-[11px] font-mono text-fg whitespace-pre-wrap overflow-x-auto">
-        {JSON.stringify(testResult, null, 2)}
-      </pre>
+      <div>
+        <pre className="text-[11px] font-mono text-fg whitespace-pre-wrap overflow-x-auto">
+          {JSON.stringify(
+            { health: testResult.health, provision_test: testResult.provision_test },
+            null,
+            2,
+          )}
+        </pre>
+        {skippedNote}
+      </div>
     );
   }
 
@@ -726,6 +737,7 @@ function TestResultBody({ testResult }: { testResult: Record<string, unknown> })
           )}
         </div>
       )}
+      {skippedNote}
     </div>
   );
 }
@@ -792,8 +804,11 @@ function ProviderEditPanel({
       const result = await api.testProvider(provider.id);
       setTestResult(
         type === "health"
-          ? { health: result.health }
-          : { provision_test: result.provision_test ?? { note: "Adapter này không hỗ trợ test cấp phát." } },
+          ? { health: result.health, provision_test_skipped_reason: result.provision_test_skipped_reason }
+          : {
+              provision_test: result.provision_test,
+              provision_test_skipped_reason: result.provision_test_skipped_reason,
+            },
       );
     } catch (e: unknown) {
       setTestResult({ error: e instanceof Error ? e.message : "Test thất bại" });
@@ -1303,7 +1318,10 @@ export default function AdminProvidersPage() {
     setTestResult(null);
     try {
       const result = await api.testProvider(provider.id);
-      setTestResult({ id: provider.id, data: { health: result.health } });
+      setTestResult({
+        id: provider.id,
+        data: { health: result.health, provision_test_skipped_reason: result.provision_test_skipped_reason },
+      });
     } catch (e: unknown) {
       setTestResult({ id: provider.id, data: { error: e instanceof Error ? e.message : "Test thất bại" } });
     } finally {

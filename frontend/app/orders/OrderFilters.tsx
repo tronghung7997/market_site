@@ -31,9 +31,13 @@ export interface OrderFilterParams {
   sort?: string; page?: number; per_page?: number;
 }
 
-export function useOrderFilters(initialTab: string) {
+export function useOrderFilters(initialTab: string, initialSearch = "") {
   const [tab, setTab] = useState(initialTab);
-  const [search, setSearch] = useState("");
+  // `initialSearch` cho phép deep-link tới đúng một đơn (/orders/123 →
+  // /orders?search=123, xem app/orders/[id]/page.tsx): backend lọc theo id khi
+  // search là số, nên trang mở ra đã đứng sẵn ở đơn cần xem thay vì bắt buyer
+  // tự cuộn tìm trong danh sách.
+  const [search, setSearch] = useState(initialSearch);
   const [dateFrom, setDateFrom] = useState("");
   const [dateTo, setDateTo] = useState("");
   const [sort, setSort] = useState("newest");

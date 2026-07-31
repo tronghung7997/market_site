@@ -47,7 +47,11 @@ export function AuthProvider({ children }: { children: ReactNode }) {
   useEffect(() => {
     function handleExpired() {
       setAccount(null);
-      if (pathname !== "/login") router.push("/login?expired=1");
+      if (pathname === "/login") return;
+      // Kèm `next` để đăng nhập lại đưa buyer về ĐÚNG chỗ đang dở (trang sản
+      // phẩm, trang đơn…), thay vì thả về trang chủ và bắt tìm lại từ đầu —
+      // form login đã đọc sẵn tham số này.
+      router.push(`/login?expired=1&next=${encodeURIComponent(pathname)}`);
     }
     window.addEventListener("auth:session-expired", handleExpired);
     return () => window.removeEventListener("auth:session-expired", handleExpired);

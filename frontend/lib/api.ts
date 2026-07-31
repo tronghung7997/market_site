@@ -293,7 +293,13 @@ export const api = {
   testProvider: (id: number) =>
     // Backend key is `provision_test` (nullable — DProxy never returns one,
     // see src/providers/router.py::_run_provider_test), not `provision`.
-    request<{ health: Record<string, unknown>; provision_test: Record<string, unknown> | null }>(`/admin/providers/${id}/test`, { method: "POST" }, true),
+    request<{
+      health: Record<string, unknown>;
+      provision_test: Record<string, unknown> | null;
+      // Câu giải thích vì sao KHÔNG thử cấp phát (adapter tiêu tiền thật, hoặc
+      // kết nối đang lỗi) — hiện thay cho một ô trống khó hiểu ở /admin/providers.
+      provision_test_skipped_reason: string | null;
+    }>(`/admin/providers/${id}/test`, { method: "POST" }, true),
   adapterCompatibility: () =>
     request<Record<string, string[] | "*">>("/admin/adapter-compatibility", {}, true),
   adminTasks: (status?: string) =>

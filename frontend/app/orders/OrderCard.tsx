@@ -231,6 +231,7 @@ export default function OrderCard({
 }) {
   const st = orderStatus(o.status);
   const [dashboardOpen, setDashboardOpen] = useState(false);
+  const [askConfirm, setAskConfirm] = useState(false);
   const delivered = o.status === "delivered" || o.status === "completed";
 
   return (
@@ -292,12 +293,32 @@ export default function OrderCard({
         )}
 
         {o.status === "delivered" && (
-          <div className="flex gap-2 mt-3.5">
-            <Button size="sm" onClick={() => onConfirm(o.id)} disabled={confirming}>
-              {confirming ? "Đang xác nhận…" : "Xác nhận đã nhận"}
-            </Button>
-            <Button size="sm" variant="danger" onClick={() => onOpenDispute(o.id)}>Mở khiếu nại</Button>
-          </div>
+          askConfirm ? (
+            /* Bước xác nhận thứ hai: nhả ký quỹ là KHÔNG ĐẢO NGƯỢC ĐƯỢC — tiền
+               sang người bán, và sau đó không mở khiếu nại được nữa. Một cú
+               nhấp cho một hành động như vậy là quá ít, nhất là khi nút nằm
+               ngay cạnh "Mở khiếu nại". */
+            <div className="mt-3.5 rounded-lg border border-warn/30 bg-warn-soft p-3">
+              <p className="text-[13px] font-semibold">Chuyển {vnd(o.total_amount)} cho người bán?</p>
+              <p className="mt-0.5 text-[11.5px] text-muted">
+                Hãy kiểm tra hàng trước — xác nhận xong, tiền rời khỏi ký quỹ và bạn không mở
+                khiếu nại cho đơn này được nữa.
+              </p>
+              <div className="flex gap-2 mt-2.5">
+                <Button size="sm" onClick={() => onConfirm(o.id)} disabled={confirming}>
+                  {confirming ? "Đang xác nhận…" : "Đồng ý, chuyển tiền"}
+                </Button>
+                <Button size="sm" variant="secondary" onClick={() => setAskConfirm(false)} disabled={confirming}>
+                  Để kiểm tra thêm
+                </Button>
+              </div>
+            </div>
+          ) : (
+            <div className="flex gap-2 mt-3.5">
+              <Button size="sm" onClick={() => setAskConfirm(true)}>Xác nhận đã nhận</Button>
+              <Button size="sm" variant="danger" onClick={() => onOpenDispute(o.id)}>Mở khiếu nại</Button>
+            </div>
+          )
         )}
 
         {o.status === "completed" && !reviewDone && !reviewOpen && (

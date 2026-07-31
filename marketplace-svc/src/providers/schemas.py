@@ -129,3 +129,24 @@ class TopProxySeedResponse(BaseModel):
     # stdout của script (danh sách provider/sản phẩm đã tạo/cập nhật) — script
     # không bao giờ in api_key, mật khẩu thật in dạng "(theo TOPPROXY_SELLER_PASSWORD)".
     output: str
+
+
+class ScrapeCreatorsSeedRequest(BaseModel):
+    """Tham số MỘT LẦN cho POST /admin/providers/scrapecreators/seed — seed 1
+    provider + 3 sản phẩm (Facebook/TikTok/YouTube) qua scripts/seed_scrapecreators.py.
+    Secrets chỉ sống trong request này. seller_email PHẢI khác seller demo/test
+    khác trong DB — 3 sản phẩm này cần gian hàng riêng để không lộ nguồn hàng
+    qua việc lẫn với các sản phẩm test khác của cùng seller."""
+
+    base_url: str = "https://api.scrapecreators.com"
+    api_key: str = Field(min_length=1)
+    seller_email: str = Field(min_length=3)
+    # Chỉ dùng khi PHẢI tạo mới tài khoản seller — nếu seller_email đã tồn
+    # tại, giá trị này bị bỏ qua (script tự phát hiện).
+    seller_password: str = Field(min_length=8)
+    reset_config: bool = False
+
+
+class ScrapeCreatorsSeedResponse(BaseModel):
+    ok: bool
+    output: str

@@ -163,6 +163,67 @@ async def seed_topproxy(
     return schemas.TopProxySeedResponse(ok=True, output=output)
 
 
+# --- Seed ScrapeCreators qua API (một lần lúc go-live) ----------------------
+# Cùng lý do dùng subprocess như seed_topproxy ở trên: scripts/seed_scrapecreators.py
+# idempotent, là nguồn sự thật duy nhất về 3 sản phẩm + provider — không nhân
+# bản logic vào đây.
+_SCRAPECREATORS_SEED_SCRIPT = _PROJECT_ROOT / "scripts" / "seed_scrapecreators.py"
+_scrapecreators_seed_lock = asyncio.Lock()
+
+
+@router.post("/admin/providers/scrapecreators/seed", response_model=schemas.ScrapeCreatorsSeedResponse)
+async def seed_scrapecreators(
+    body: schemas.ScrapeCreatorsSeedRequest,
+    _: Account = Depends(require_role("admin")),
+):
+    """Seed provider ScrapeCreators + 3 sản phẩm (Facebook/TikTok/YouTube) vào
+    DB — thay cho việc ssh vào server chạy tay. Idempotent: chạy lại chỉ cập
+    nhật, không tạo trùng. seller_email PHẢI là seller mới/riêng cho 3 sản
+    phẩm này (xem docstring ScrapeCreatorsSeedRequest)."""
+    if urlsplit(body.base_url).scheme not in ("http", "https"):
+        raise HTTPException(status_code=400, detail="base_url phải là http(s) URL")
+    if not _SCRAPECREATORS_SEED_SCRIPT.exists():
+        raise HTTPException(
+            status_code=500,
+            detail="Không tìm thấy scripts/seed_scrapecreators.py trong image — build lại image với Dockerfile mới",
+        )
+    if _scrapecreators_seed_lock.locked():
+        raise HTTPException(status_code=409, detail="Một lượt seed khác đang chạy — chờ nó xong")
+
+    env = {
+        **os.environ,
+        "SCRAPECREATORS_BASE_URL": body.base_url,
+        "SCRAPECREATORS_API_KEY": body.api_key,
+        "SCRAPECREATORS_SELLER_EMAIL": body.seller_email,
+        "SCRAPECREATORS_SELLER_PASSWORD": body.seller_password,
+    }
+    if body.reset_config:
+        env["SCRAPECREATORS_RESET_CONFIG"] = "1"
+
+    async with _scrapecreators_seed_lock:
+        proc = await asyncio.create_subprocess_exec(
+            sys.executable, str(_SCRAPECREATORS_SEED_SCRIPT),
+            cwd=str(_PROJECT_ROOT), env=env,
+            stdout=asyncio.subprocess.PIPE, stderr=asyncio.subprocess.STDOUT,
+        )
+        try:
+            out, _stderr = await asyncio.wait_for(proc.communicate(), timeout=_SEED_TIMEOUT_SECONDS)
+        except asyncio.TimeoutError:
+            proc.kill()
+            raise HTTPException(status_code=504, detail="Seed chạy quá lâu và đã bị dừng — kiểm tra kết nối DB")
+
+    output = out.decode(errors="replace")
+    if proc.returncode != 0:
+        # api_key/seller_password không bao giờ được in ra trong output của script.
+        logger.error("scrapecreators_seed_failed rc=%s", proc.returncode)
+        raise HTTPException(
+            status_code=400,
+            detail=f"Seed thất bại (exit {proc.returncode}): {output[-600:]}",
+        )
+    logger.info("scrapecreators_seed_ok seller_email=%s", body.seller_email)
+    return schemas.ScrapeCreatorsSeedResponse(ok=True, output=output)
+
+
 @router.post("/admin/providers/{provider_id}/test", response_model=schemas.ProviderTestResponse)
 async def test_provider(
     provider_id: int,

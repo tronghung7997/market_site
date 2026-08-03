@@ -245,6 +245,23 @@ class TestApprovalGatesProductAttachment:
         assert reject_resp.json()["review_note"] == "base_url không phản hồi"
 
     @pytest.mark.asyncio
+    async def test_admin_reject_requires_an_actionable_note(self, client):
+        admin_token = await _admin(client, "ss_gate_admin_note@example.com")
+        seller_token = await _trusted_seller(client, "ss_gate_s_note@example.com")
+
+        provider_resp = await client.post("/seller/providers", json={
+            "name": "x", "adapter_type": "seller_gateway",
+            "config": {"base_url": "https://x.example.com", "api_key": "k"},
+        }, headers={"Authorization": f"Bearer {seller_token}"})
+
+        reject_resp = await client.post(
+            f"/admin/providers/{provider_resp.json()['id']}/reject", json={},
+            headers={"Authorization": f"Bearer {admin_token}"},
+        )
+        assert reject_resp.status_code == 400
+        assert "phải kèm lý do" in reject_resp.json()["detail"]
+
+    @pytest.mark.asyncio
     async def test_review_endpoint_rejects_admin_owned_providers(self, client):
         """approve/reject only makes sense for a seller-submitted provider —
         an admin-created one was never pending anything."""

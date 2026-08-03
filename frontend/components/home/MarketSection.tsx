@@ -120,6 +120,7 @@ export function MarketSection({ products, flatCats, active, activeIds, setActive
             <tbody>
               {visible.map((p) => {
                 const inStock = stock(p) > 0;
+                const hasPackages = (p.variants?.length ?? 0) > 0;
                 return (
                   <tr key={p.id} className="border-b border-line last:border-0 hover:bg-raised transition-colors">
                     <td className="px-5 py-3">
@@ -128,7 +129,7 @@ export function MarketSection({ products, flatCats, active, activeIds, setActive
                         <span className="min-w-0">
                           <span className="block font-medium text-[13.5px] truncate">{p.title}</span>
                           <span className="flex items-center gap-1.5 text-[12px] text-faint">
-                            {(p.variants ?? []).length} gói <Verified size={11} className="text-iris" />
+                            {hasPackages ? `${p.variants?.length} gói` : "Cấu hình theo yêu cầu"} <Verified size={11} className="text-iris" />
                             {p.rating_avg != null && p.rating_avg > 0 && <><Star size={11} className="text-warn fill-warn" /> {p.rating_avg.toFixed(1)}</>}
                             {p.sold_count > 0 && <span>· {p.sold_count} đã bán</span>}
                           </span>
@@ -153,6 +154,7 @@ export function MarketSection({ products, flatCats, active, activeIds, setActive
         <div className="grid gap-2.5 sm:gap-4 grid-cols-2 sm:[grid-template-columns:repeat(auto-fill,minmax(280px,1fr))]">
           {visible.map((p, i) => {
             const inStock = stock(p) > 0;
+            const hasPackages = (p.variants?.length ?? 0) > 0;
             return (
               <Link key={p.id} href={`/products/${p.id}`} className="animate-rise" style={{ animationDelay: `${i * 40}ms` }}>
                 <Card interactive className="p-3 sm:p-4 h-full">
@@ -165,7 +167,7 @@ export function MarketSection({ products, flatCats, active, activeIds, setActive
                       <div className="font-mono text-[12px] sm:text-[13.5px] font-semibold tabular">{vnd(minPrice(p))}</div>
                       <div className="text-[11px] sm:text-[12px] text-faint mt-0.5 truncate">{catName(p.category_id)}</div>
                       <div className="mt-2 sm:mt-3 flex items-center gap-1.5 sm:gap-2 flex-wrap">
-                        {inStock ? <Tag tone="good">● Còn {stock(p)}</Tag> : <Tag tone="warn">Theo yêu cầu</Tag>}
+                        {inStock ? <Tag tone="good">● Còn {stock(p)}</Tag> : <Tag tone="warn">{hasPackages ? "Hết hàng" : "Theo yêu cầu"}</Tag>}
                         <Tag tone="neutral"><Shield size={11} /> {p.escrow_days}d</Tag>
                       </div>
                     </div>

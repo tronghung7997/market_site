@@ -262,6 +262,18 @@ class TestRealApiAdapter:
         monkeypatch.setattr("src.adapters.real_api.asyncio.sleep", AsyncMock())
 
     @pytest.mark.asyncio
+    async def test_skipped_health_probe_is_not_reported_as_verified_connection(self):
+        from src.adapters.real_api import RealApiAdapter
+
+        adapter = RealApiAdapter({"skip_health_probe": True})
+
+        assert await adapter.check_health() == {
+            "status": "healthy",
+            "probe": "skipped",
+            "message": "Không gọi upstream vì nhà cung cấp không có health check miễn phí.",
+        }
+
+    @pytest.mark.asyncio
     async def test_provision_success_sends_auth_and_idempotency_headers(self, monkeypatch):
         import httpx
         from src.adapters.real_api import RealApiAdapter

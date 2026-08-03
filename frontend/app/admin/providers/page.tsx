@@ -657,6 +657,7 @@ function TestResultBody({ testResult }: { testResult: Record<string, unknown> })
   const health = testResult.health as Record<string, unknown> | undefined;
   const hasSummary = health && typeof health.usable === "number" && typeof health.total === "number";
   const skippedReason = testResult.provision_test_skipped_reason as string | null | undefined;
+  const healthProbeSkipped = health?.probe === "skipped";
 
   // Vì sao không có phần "thử cấp phát" — trước đây admin chỉ thấy
   // `"provision_test": null` trong khối JSON và không đoán được là chưa chạy
@@ -668,6 +669,11 @@ function TestResultBody({ testResult }: { testResult: Record<string, unknown> })
   if (!hasSummary) {
     return (
       <div>
+        {healthProbeSkipped && (
+          <p className="mb-2 rounded-md bg-warn-soft border border-warn/25 px-2.5 py-2 text-[11.5px] text-warn">
+            Chưa xác minh kết nối upstream: provider này không có health check miễn phí nên hệ thống không gửi request tính phí.
+          </p>
+        )}
         <pre className="text-[11px] font-mono text-fg whitespace-pre-wrap overflow-x-auto">
           {JSON.stringify(
             { health: testResult.health, provision_test: testResult.provision_test },
@@ -1137,14 +1143,12 @@ function ProviderCard({
   provider,
   onConfigure,
   onTest,
-  onApprove,
-  onReject,
+  onReview,
 }: {
   provider: ExpandedProvider;
   onConfigure: () => void;
   onTest: () => void;
-  onApprove: () => void;
-  onReject: () => void;
+  onReview: () => void;
 }) {
   const latest = provider.health && provider.health.length > 0 ? provider.health[0] : null;
   const healthInfo = latest ? HEALTH_MAP[latest.status] : null;
@@ -1219,16 +1223,117 @@ function ProviderCard({
         </Button>
       </div>
       {provider.seller_id != null && provider.review_status === "pending_review" && (
-        <div className="flex gap-2 -mt-1">
-          <Button variant="secondary" size="sm" className="flex-1 border-good/40 text-good" onClick={onApprove}>
-            Duyệt
-          </Button>
-          <Button variant="secondary" size="sm" className="flex-1 border-bad/40 text-bad" onClick={onReject}>
-            Từ chối
-          </Button>
-        </div>
+        <Button variant="secondary" size="sm" className="-mt-1 border-warn/40 text-warn" onClick={onReview}>
+          Xem và quyết định duyệt
+        </Button>
       )}
     </Card>
+  );
+}
+
+function ProviderReviewModal({
+  provider,
+  onClose,
+  onReviewed,
+}: {
+  provider: ExpandedProvider;
+  onClose: () => void;
+  onReviewed: (provider: Provider) => void;
+}) {
+  const [note, setNote] = useState("");
+  const [testResult, setTestResult] = useState<Record<string, unknown> | null>(null);
+  const [testing, setTesting] = useState(false);
+  const [saving, setSaving] = useState(false);
+  const [error, setError] = useState<string | null>(null);
+  const [acknowledged, setAcknowledged] = useState(false);
+  const health = testResult?.health as Record<string, unknown> | undefined;
+  const probeSkipped = health?.probe === "skipped";
+  const testFailed = testResult != null && health?.status !== "healthy";
+  const endpointCount = Object.keys((provider.config.endpoint_map as Record<string, unknown> | undefined) ?? {}).length;
+
+  const runTest = async () => {
+    setTesting(true); setError(null);
+    try {
+      setTestResult(await api.testProvider(provider.id));
+    } catch (e) {
+      setError(e instanceof Error ? e.message : "Không chạy được test provider");
+    } finally {
+      setTesting(false);
+    }
+  };
+
+  const decide = async (decision: "approved" | "rejected") => {
+    if (decision === "rejected" && !note.trim()) {
+      setError("Hãy ghi rõ lý do để seller biết cần sửa gì.");
+      return;
+    }
+    if (decision === "approved" && probeSkipped && !acknowledged) {
+      setError("Xác nhận rằng bạn đã kiểm tra credential theo cách thủ công trước khi duyệt.");
+      return;
+    }
+    if (decision === "approved" && testFailed) {
+      setError("Test kết nối đang lỗi; sửa cấu hình hoặc từ chối kèm hướng dẫn trước khi duyệt.");
+      return;
+    }
+    setSaving(true); setError(null);
+    try {
+      const updated = decision === "approved"
+        ? await api.approveProvider(provider.id, note.trim() || undefined)
+        : await api.rejectProvider(provider.id, note.trim());
+      onReviewed(updated);
+      onClose();
+    } catch (e) {
+      setError(e instanceof Error ? e.message : "Không cập nhật được trạng thái duyệt");
+    } finally {
+      setSaving(false);
+    }
+  };
+
+  return createPortal(
+    <>
+      <div className="fixed inset-0 bg-black/40 z-[80]" onClick={onClose} />
+      <div role="dialog" aria-modal="true" aria-label={`Duyệt ${provider.name}`} className="fixed inset-x-4 top-1/2 z-[90] mx-auto w-auto max-w-xl -translate-y-1/2 rounded-xl border border-line bg-surface shadow-2xl">
+        <div className="flex items-start justify-between gap-4 border-b border-line px-5 py-4">
+          <div>
+            <p className="text-[11px] font-semibold uppercase tracking-wide text-warn">Provider seller chờ duyệt</p>
+            <h2 className="mt-1 text-[16px] font-semibold">{provider.name}</h2>
+            <p className="mt-1 text-[12px] text-muted">Seller #{provider.seller_id} · {ADAPTER_DESCRIPTIONS[provider.adapter_type]?.label ?? provider.adapter_type}</p>
+          </div>
+          <button type="button" onClick={onClose} className="px-2 text-[18px] text-muted hover:text-fg" aria-label="Đóng">×</button>
+        </div>
+        <div className="space-y-4 p-5">
+          <div className="grid gap-2 rounded-lg border border-line bg-raised p-3 text-[12px] sm:grid-cols-2">
+            <p><span className="text-muted">Base URL:</span> {String(provider.config.base_url ?? "Chưa khai báo")}</p>
+            <p><span className="text-muted">Credential:</span> {provider.config.api_key ? "Đã khai báo" : "Chưa khai báo"}</p>
+            <p><span className="text-muted">Endpoint map:</span> {endpointCount > 0 ? `${endpointCount} endpoint` : "Dùng chuẩn /v1/{endpoint}"}</p>
+            <p><span className="text-muted">Webhook secret:</span> {provider.config.webhook_secret ? "Đã khai báo" : "Không áp dụng/chưa khai báo"}</p>
+          </div>
+
+          <div className="flex flex-wrap items-center gap-2">
+            <Button variant="secondary" size="sm" onClick={runTest} disabled={testing}>{testing ? "Đang test..." : "Chạy test trước khi duyệt"}</Button>
+            {!testResult && <span className="text-[12px] text-muted">Nên test trong phiên review này trước khi duyệt.</span>}
+          </div>
+          {testResult && <Card className="p-3"><TestResultBody testResult={testResult} /></Card>}
+          {probeSkipped && (
+            <label className="flex cursor-pointer items-start gap-2 rounded-lg border border-warn/25 bg-warn-soft px-3 py-2 text-[12px] text-warn">
+              <input type="checkbox" checked={acknowledged} onChange={(e) => setAcknowledged(e.target.checked)} className="mt-0.5" />
+              Tôi hiểu hệ thống chưa gọi upstream có tính phí và đã xác minh credential theo cách thủ công.
+            </label>
+          )}
+
+          <Field label="Ghi chú gửi seller" hint="Bắt buộc khi từ chối; khi duyệt có thể ghi điều kiện vận hành hoặc hướng dẫn gắn sản phẩm.">
+            <Textarea rows={3} value={note} onChange={(e) => setNote(e.target.value)} placeholder="VD: Vui lòng đổi endpoint /v1/search thành path thật rồi nộp lại." />
+          </Field>
+          {error && <p className="text-[12.5px] text-bad">{error}</p>}
+          <div className="flex flex-wrap justify-end gap-2 border-t border-line pt-4">
+            <Button variant="secondary" onClick={onClose}>Đóng</Button>
+            <Button variant="secondary" className="border-bad/40 text-bad" disabled={saving} onClick={() => decide("rejected")}>Từ chối và gửi lý do</Button>
+            <Button className="bg-good hover:bg-good/90" disabled={saving || testFailed} onClick={() => decide("approved")}>{saving ? "Đang lưu..." : "Duyệt provider"}</Button>
+          </div>
+        </div>
+      </div>
+    </>,
+    document.body,
   );
 }
 
@@ -1245,6 +1350,7 @@ export default function AdminProvidersPage() {
   const [testingId, setTestingId] = useState<number | null>(null);
   const [testResult, setTestResult] = useState<{ id: number; data: Record<string, unknown> } | null>(null);
   const [linkedCount, setLinkedCount] = useState<number | null>(null);
+  const [reviewProvider, setReviewProvider] = useState<ExpandedProvider | null>(null);
 
   useEffect(() => {
     api.providers()
@@ -1301,16 +1407,8 @@ export default function AdminProvidersPage() {
     setEditProvider(expanded);
   };
 
-  const handleApprove = async (provider: ExpandedProvider) => {
-    const note = window.prompt("Ghi chú (tuỳ chọn) khi duyệt:") ?? undefined;
-    const updated = await api.approveProvider(provider.id, note || undefined);
-    setProviders((prev) => prev.map((p) => (p.id === provider.id ? { ...p, ...updated } : p)));
-  };
-
-  const handleReject = async (provider: ExpandedProvider) => {
-    const note = window.prompt("Lý do từ chối:") ?? undefined;
-    const updated = await api.rejectProvider(provider.id, note || undefined);
-    setProviders((prev) => prev.map((p) => (p.id === provider.id ? { ...p, ...updated } : p)));
+  const handleReviewed = (updated: Provider) => {
+    setProviders((prev) => prev.map((p) => (p.id === updated.id ? { ...p, ...updated } : p)));
   };
 
   const handleQuickTest = async (provider: ExpandedProvider) => {
@@ -1337,6 +1435,7 @@ export default function AdminProvidersPage() {
       active,
     };
   }, [providers]);
+  const pendingReview = providers.filter((p) => p.seller_id != null && p.review_status === "pending_review");
 
   return (
     <div className="space-y-5">
@@ -1354,6 +1453,25 @@ export default function AdminProvidersPage() {
         </Card>
       ) : (
         <>
+          <Card className={pendingReview.length > 0 ? "border-warn/30 bg-warn-soft p-4" : "border-line bg-surface p-4"}>
+            {pendingReview.length > 0 ? (
+              <div className="flex flex-wrap items-center justify-between gap-3">
+                <div>
+                  <p className="text-[13px] font-semibold text-warn">{pendingReview.length} backend seller đang chờ duyệt</p>
+                  <p className="mt-0.5 text-[12px] text-muted">Review từng backend cùng cấu hình, test và ghi chú phản hồi; không duyệt/từ chối trực tiếp từ card nữa.</p>
+                </div>
+                <Button variant="secondary" size="sm" className="border-warn/40 text-warn" onClick={() => setReviewProvider(pendingReview[0])}>Mở review đầu tiên</Button>
+              </div>
+            ) : (
+              <div className="flex flex-wrap items-center justify-between gap-3">
+                <div>
+                  <p className="text-[13px] font-semibold">Hàng đợi duyệt backend seller đang trống</p>
+                  <p className="mt-0.5 text-[12px] text-muted">Khi seller gửi kết nối mới hoặc sửa cấu hình, backend sẽ xuất hiện ở đây để review theo quy trình test và ghi chú.</p>
+                </div>
+                <span className="rounded-full bg-raised px-2.5 py-1 text-[12px] text-muted">0 chờ duyệt</span>
+              </div>
+            )}
+          </Card>
           {/* Summary stats */}
           <div className="grid grid-cols-2 lg:grid-cols-4 gap-3">
             <StatCard
@@ -1385,8 +1503,7 @@ export default function AdminProvidersPage() {
                 provider={p}
                 onConfigure={() => setEditProvider(p)}
                 onTest={() => handleQuickTest(p)}
-                onApprove={() => handleApprove(p)}
-                onReject={() => handleReject(p)}
+                onReview={() => setReviewProvider(p)}
               />
             ))}
           </div>
@@ -1440,6 +1557,14 @@ export default function AdminProvidersPage() {
         <CreateProviderPanel
           onClose={() => setCreatingProvider(false)}
           onCreated={handleCreated}
+        />
+      )}
+
+      {reviewProvider && (
+        <ProviderReviewModal
+          provider={reviewProvider}
+          onClose={() => setReviewProvider(null)}
+          onReviewed={handleReviewed}
         />
       )}
     </div>

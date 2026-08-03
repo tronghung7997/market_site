@@ -520,6 +520,7 @@ function OperationsTab({ productId }: { productId: number }) {
 
   const [ops, setOps] = useState<ProductOperations | null>(null);
   const [providers, setProviders] = useState<Provider[]>([]);
+  const [pendingProviders, setPendingProviders] = useState<Provider[]>([]);
   const [compatMatrix, setCompatMatrix] = useState<Record<string, string[] | "*"> | null>(null);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
@@ -550,10 +551,12 @@ function OperationsTab({ productId }: { productId: number }) {
         try {
           const [pList, matrix] = await Promise.all([api.sellerProviders(), api.adapterCompatibility()]);
           setProviders(pList.filter((p) => p.review_status === "approved"));
+          setPendingProviders(pList.filter((p) => p.review_status === "pending_review"));
           setCompatMatrix(matrix);
         } catch {
           // Seller chưa đủ tier để tự đăng ký provider — bỏ qua, phần chọn
           // provider tự phục vụ ẩn đi, seller vẫn xem được provider admin đã gán.
+          setPendingProviders([]);
         }
       }
     } catch {
@@ -640,6 +643,10 @@ function OperationsTab({ productId }: { productId: number }) {
     ],
   };
   const pipelineSteps = pipelineMap[strategy] ?? pipelineMap.fixed;
+  const selectedProvider = providers.find((p) => p.id === editProviderId);
+  const selectedProviderCompatible = selectedProvider
+    ? isAdapterCompatible(selectedProvider.adapter_type, editStrategy, compatMatrix)
+    : editProviderId == null;
 
   return (
     <div className="space-y-6">
@@ -647,6 +654,29 @@ function OperationsTab({ productId }: { productId: number }) {
         <Banner tone="bad" icon={<Info size={15} />} title="Sản phẩm chưa bán được">
           {ops.needs_setup_reason}
         </Banner>
+      )}
+
+      {!isAdmin && (
+        <Card className="p-5 space-y-3 border-iris/25">
+          <h3 className="text-[14px] font-semibold">Trạng thái để sản phẩm bán được</h3>
+          <div className="grid gap-2 sm:grid-cols-3 text-[12.5px]">
+            <div className={`rounded-lg border px-3 py-2 ${providers.length > 0 ? "border-good/30 bg-good-soft text-good" : "border-line bg-raised text-muted"}`}>
+              {providers.length > 0 ? "✓ Có backend đã duyệt" : "1. Đăng ký backend"}
+            </div>
+            <div className={`rounded-lg border px-3 py-2 ${selectedProvider && selectedProviderCompatible ? "border-good/30 bg-good-soft text-good" : "border-line bg-raised text-muted"}`}>
+              {selectedProvider && selectedProviderCompatible ? "✓ Backend khớp chiến lược giá" : "2. Gắn backend phù hợp"}
+            </div>
+            <div className={`rounded-lg border px-3 py-2 ${!ops.needs_setup ? "border-good/30 bg-good-soft text-good" : "border-line bg-raised text-muted"}`}>
+              {!ops.needs_setup ? "✓ Sẵn sàng bán" : "3. Lưu cấu hình để hoàn tất"}
+            </div>
+          </div>
+          {pendingProviders.length > 0 && (
+            <p className="text-[12px] text-warn">{pendingProviders.length} backend của bạn đang chờ admin duyệt nên chưa xuất hiện trong danh sách chọn. <Link href="/seller/providers" className="underline">Xem trạng thái backend</Link></p>
+          )}
+          {providers.length === 0 && pendingProviders.length === 0 && (
+            <p className="text-[12px] text-muted">Chưa có backend nào được duyệt. <Link href="/seller/providers" className="text-iris-hi underline">Đăng ký backend</Link> trước, hoặc liên hệ admin để dùng hạ tầng chung.</p>
+          )}
+        </Card>
       )}
 
       {/* Section 1: Pipeline */}
@@ -797,6 +827,9 @@ function OperationsTab({ productId }: { productId: number }) {
             <p className="text-[12.5px] text-faint">
               Muốn tự đấu nối backend riêng? Đăng ký ở <Link href="/seller/providers" className="text-iris-hi underline">Backend của tôi</Link> (cần hạng trusted trở lên, chờ admin duyệt).
             </p>
+            {pendingProviders.length > 0 && (
+              <p className="text-[12.5px] text-warn">Backend đã nộp đang chờ duyệt nên chưa thể gắn vào sản phẩm.</p>
+            )}
           </>
         )}
 

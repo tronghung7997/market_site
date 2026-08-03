@@ -211,7 +211,15 @@ class RealApiAdapter(ProviderAdapter):
         # diagnostic value for this provider, connectivity is verified by hand
         # instead (see docs/superpowers/plans — ScrapeCreators adapter plan).
         if self.config.get("skip_health_probe"):
-            return {"status": "healthy"}
+            # Do not let an intentionally skipped, billable probe look like a
+            # verified network connection in the admin/seller UI.  It is safe
+            # for the scheduler to treat this provider as enabled, but an
+            # operator still needs to know that no upstream request was made.
+            return {
+                "status": "healthy",
+                "probe": "skipped",
+                "message": "Không gọi upstream vì nhà cung cấp không có health check miễn phí.",
+            }
         try:
             resp = await self._request_with_retry(
                 "GET", "/health", operation="check_health", headers=self._headers(),

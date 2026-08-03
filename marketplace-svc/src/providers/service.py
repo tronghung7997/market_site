@@ -153,6 +153,11 @@ async def review_provider(provider_id: int, decision: str, note: str | None, db:
         )
     if decision not in ("approved", "rejected", "disabled"):
         raise HTTPException(status_code=400, detail="decision phải là approved/rejected/disabled")
+    if decision == "rejected" and not (note or "").strip():
+        # A rejection that gives the seller no actionable reason just creates
+        # another support loop.  The UI enforces this too; keep the rule at
+        # the service seam so API clients cannot bypass it.
+        raise HTTPException(status_code=400, detail="Từ chối provider phải kèm lý do để seller sửa cấu hình")
     provider.review_status = decision
     provider.review_note = note
     await db.commit()

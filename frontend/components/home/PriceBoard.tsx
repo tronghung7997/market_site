@@ -31,7 +31,11 @@ export function PriceBoard({ products, catName, stock, minPrice, loading }: {
               <span className="block text-[13px] font-medium truncate">{p.title}</span>
               <span className="block text-[11.5px] text-faint">{catName(p.category_id)}</span>
             </span>
-            {stock(p) > 0 ? <span className="text-[11px] text-good font-medium">● {stock(p)}</span> : <span className="text-[11px] text-faint">đặt</span>}
+            {stock(p) > 0 ? (
+              <span className="text-[11px] text-good font-medium">● {stock(p)}</span>
+            ) : (
+              <span className="text-[11px] text-warn">Theo yêu cầu</span>
+            )}
             <span className="font-mono text-[13px] font-semibold tabular w-[92px] text-right">{vnd(minPrice(p))}</span>
           </Link>
         ))}

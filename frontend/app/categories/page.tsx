@@ -114,7 +114,7 @@ export default function CategoriesPage() {
                   {children.length > 0 && (
                     <div className="flex flex-wrap gap-1.5 mt-3.5">
                       {children.map((s) => (
-                        <Link key={s.id} href={`/categories/${c.id}`}>
+                        <Link key={s.id} href={`/categories/${s.id}`}>
                           <Tag tone="neutral" className="hover:border-iris/40 hover:text-iris-hi transition-colors">{s.name}</Tag>
                         </Link>
                       ))}

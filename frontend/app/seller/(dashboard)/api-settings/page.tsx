@@ -10,7 +10,7 @@ import { Check, Copy, Plug, Shield, Trash } from "@/components/Icons";
 
 const MIN_TIER_FOR_API = "trusted";
 const MIN_TIER_LABEL = sellerTierLabel(MIN_TIER_FOR_API);
-const API_BASE_PLACEHOLDER = "https://api.proxora.vn";
+const API_BASE_PLACEHOLDER = "https://api-market.taskforces.info";
 
 const API_OPERATIONS: {
   method: "GET" | "POST";

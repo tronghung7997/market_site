@@ -32,9 +32,7 @@ from src.scheduler import (
     dproxy_reconciliation_job,
     escrow_release_job,
     gateway_call_log_cleanup_job,
-    health_check_job,
     provider_credit_low_job,
-    provider_scoring_job,
     provision_sweep_job,
     resource_expire_job,
     sla_check_job,
@@ -60,9 +58,11 @@ setup_logging()
 scheduler = AsyncIOScheduler()
 scheduler.add_job(escrow_release_job, "interval", minutes=30, id="escrow_release")
 scheduler.add_job(sla_check_job, "interval", minutes=10, id="sla_check")
-scheduler.add_job(health_check_job, "interval", minutes=15, id="health_check")
+# Provider-health polling is deliberately paused: its current probes can
+# report an untested/billable provider as healthy, while persisting 96 rows per
+# provider per day without retention. Keep manual provider tests available;
+# re-enable this only with a trustworthy signal model and bounded retention.
 scheduler.add_job(resource_expire_job, "interval", minutes=15, id="resource_expire")
-scheduler.add_job(provider_scoring_job, "interval", minutes=15, id="provider_scoring")
 scheduler.add_job(provision_sweep_job, "interval", minutes=2, id="provision_sweep")
 scheduler.add_job(task_webhook_sla_job, "interval", minutes=30, id="task_webhook_sla")
 scheduler.add_job(dproxy_reconciliation_job, "interval", minutes=15, id="dproxy_reconciliation")

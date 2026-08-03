@@ -22,6 +22,9 @@ Run:
     cd marketplace-svc
     uv run uvicorn scripts.mock_seller:app --port 9100 --reload
 
+Mock responses are deterministic by default.  To exercise transient failure
+handling, start it with `MOCK_SELLER_FAILURE_RATE=0.05`.
+
 Then in /admin/providers, create a provider:
     adapter_type = seller_gateway   (or seller_task_webhook, for tasks)
     config = {
@@ -51,7 +54,9 @@ from fastapi import FastAPI, Header, HTTPException, Request
 MOCK_SELLER_API_KEY = os.environ.get("MOCK_SELLER_API_KEY", "mock-seller-secret")
 WEBHOOK_SECRET = os.environ.get("MOCK_SELLER_WEBHOOK_SECRET", "mock-webhook-secret")
 TASK_PROCESSING_SECONDS = (2.0, 5.0)
-FAILURE_RATE = 0.05  # simulate occasional real-world flakiness, exercises retry/refund paths
+# Keep local QA deterministic by default.  Set this explicitly (for example
+# `MOCK_SELLER_FAILURE_RATE=0.05`) when exercising retry/refund behaviour.
+FAILURE_RATE = float(os.environ.get("MOCK_SELLER_FAILURE_RATE", "0"))
 
 app = FastAPI(title="Mock Seller Backend")
 

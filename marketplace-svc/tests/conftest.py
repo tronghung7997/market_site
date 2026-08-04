@@ -6,8 +6,11 @@ os.environ["DATABASE_URL"] = os.environ.get(
     "TEST_DATABASE_URL",
     "postgresql+asyncpg://marketplace:marketplace@localhost:5432/marketplace_test",
 )
+os.environ["DEPLOYMENT_ENVIRONMENT"] = "test"
+os.environ["AUTH_RATE_LIMIT_ENABLED"] = "false"
 os.environ.setdefault("JWT_SECRET", "test-secret-key-at-least-32-bytes-long-000")
-os.environ.setdefault("INTERNAL_API_KEY", "test-internal-key")
+os.environ.setdefault("INTERNAL_API_KEY", "test-internal-key-at-least-32-bytes-long")
+os.environ.setdefault("ENCRYPTION_KEY", "test-encryption-key-at-least-32-bytes-long")
 os.environ.setdefault("DEFAULT_AFFILIATE_COMMISSION_PERCENT", "5.0")
 # Nhiều test cũ nạp tiền qua demo-topup; flag này mặc định TẮT (prod-safe) nên
 # bật riêng cho suite. PayOS: khoá test cố định để test chữ ký deterministic.

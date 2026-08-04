@@ -124,8 +124,7 @@ class ProductListItemResponse(ProductListItemBase):
 
 
 class ProductListPageResponse(BaseModel):
-    """Phong bì GET /products — cùng khuôn PaginatedOrderResponse bên orders.
-    Không truyền page thì items là toàn bộ và per_page == total."""
+    """Phong bì phân trang GET /products, cùng khuôn orders."""
     items: list[ProductListItemResponse]
     total: int
     page: int
@@ -147,7 +146,7 @@ class ProductDetailResponse(ProductListItemResponse):
     features: list | None
     specs: dict | None
     warranty_text: str | None
-    seller_email: str | None = None
+    seller_name: str | None = None
     category_name: str | None = None
 
 
@@ -155,6 +154,7 @@ class AdminProductDetailResponse(ProductDetailResponse):
     """Chi tiết cho trang admin — thêm commission_rate (form hoa hồng đọc từ
     đây sau khi trường này rút khỏi response public)."""
     commission_rate: float | None = None
+    seller_email: str | None = None
 
 
 class ProductOperationsUpdate(BaseModel):

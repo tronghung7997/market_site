@@ -24,6 +24,17 @@ async def get_adapter(provider_id: int, db: AsyncSession) -> ProviderAdapter:
         if provider is None:
             raise ValueError(f"Provider {current_id} not found")
 
+        # A seller-owned provider can be moved back to pending_review after
+        # its credentials/config change.  It must not keep receiving new
+        # orders just because the product still points at the same provider;
+        # the product attachment is intentionally not cleared during review.
+        # Admin-owned providers retain the model default of "approved".
+        if provider.review_status != "approved":
+            raise ValueError(
+                f"Provider {provider.name} (id={provider.id}) is not approved "
+                f"for new orders (review_status={provider.review_status!r})"
+            )
+
         if provider.is_active:
             return _instantiate(provider, db)
 

@@ -27,6 +27,7 @@ _ALERT_HREF = {
     "sla_breach": "/seller/orders",
     "resource_low": "/seller/inventory",
     "resource_error": "/seller/inventory",
+    "provider_out_of_credit": "/seller/providers",
     "provider_down": "/admin/providers",
     "provision_stuck": "/admin/orders",
     "dispute_opened": "/admin/disputes",

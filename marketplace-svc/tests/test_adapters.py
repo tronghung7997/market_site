@@ -110,6 +110,7 @@ def _make_provider(
     fallback_provider_id: int | None = None,
     config: dict | None = None,
     name: str = "Test",
+    review_status: str = "approved",
 ):
     """Create a mock Provider object without needing the real ORM."""
     p = MagicMock()
@@ -119,10 +120,20 @@ def _make_provider(
     p.is_active = is_active
     p.fallback_provider_id = fallback_provider_id
     p.config = config or {}
+    p.review_status = review_status
     return p
 
 
 class TestAdapterFactory:
+    @pytest.mark.asyncio
+    async def test_pending_review_provider_is_rejected(self):
+        provider = _make_provider(1, review_status="pending_review")
+        db = AsyncMock()
+        db.get = AsyncMock(return_value=provider)
+
+        with pytest.raises(ValueError, match="is not approved"):
+            await get_adapter(1, db)
+
     @pytest.mark.asyncio
     async def test_returns_mock_adapter(self):
         provider = _make_provider(1, adapter_type="mock")

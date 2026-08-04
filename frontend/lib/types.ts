@@ -85,7 +85,7 @@ export interface ProductDetail extends Product {
   specs: Record<string, string> | null;
   warranty_text: string | null;
   variants: Variant[];
-  seller_email: string | null;
+  seller_name: string | null;
   category_name: string | null;
 }
 
@@ -93,6 +93,7 @@ export interface ProductDetail extends Product {
  *  (đã rút khỏi response public, trang admin sửa sản phẩm đọc từ đây). */
 export interface AdminProductDetail extends ProductDetail {
   commission_rate: number | null;
+  seller_email: string | null;
 }
 
 export interface WithdrawPolicy {
@@ -214,7 +215,7 @@ export interface DisputeInfo {
 
 export interface SellerSummary {
   account_id: number;
-  email: string;
+  display_name: string;
   business_name: string | null;
   completed_order_count: number;
   rating_avg: number | null;

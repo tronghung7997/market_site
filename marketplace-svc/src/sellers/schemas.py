@@ -5,7 +5,7 @@ from pydantic import BaseModel
 
 class SellerSummary(BaseModel):
     account_id: int
-    email: str
+    display_name: str
     business_name: str | None
     completed_order_count: int
     rating_avg: float | None

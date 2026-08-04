@@ -29,7 +29,7 @@ export function SectionHead({ title, aside }: { title: string; aside?: ReactNode
  *  nhất của trang nằm trong phiếu đặt hàng. */
 export function ProductIdentity({ product }: { product: ProductDetail }) {
   const totalStock = product.variants.reduce((s, v) => s + v.stock_count, 0);
-  const sellerName = product.seller_email?.split("@")[0] ?? "seller";
+  const sellerName = product.seller_name ?? "seller";
 
   return (
     <Card className="p-5 sm:p-6">

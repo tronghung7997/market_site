@@ -3,7 +3,7 @@
 import { createContext, useCallback, useContext, useEffect, useState } from "react";
 import { usePathname, useRouter } from "next/navigation";
 import type { ReactNode } from "react";
-import { api, getToken, setToken } from "./api";
+import { api } from "./api";
 import type { Account } from "./types";
 
 interface AuthState {
@@ -24,15 +24,9 @@ export function AuthProvider({ children }: { children: ReactNode }) {
   const pathname = usePathname();
 
   const refresh = async () => {
-    if (!getToken()) {
-      setAccount(null);
-      setLoading(false);
-      return;
-    }
     try {
       setAccount(await api.me());
     } catch {
-      setToken(null);
       setAccount(null);
     } finally {
       setLoading(false);
@@ -58,8 +52,7 @@ export function AuthProvider({ children }: { children: ReactNode }) {
   }, [pathname, router]);
 
   const login = async (email: string, password: string) => {
-    const { access_token } = await api.login(email, password);
-    setToken(access_token);
+    await api.login(email, password);
     await refresh();
   };
 
@@ -69,7 +62,7 @@ export function AuthProvider({ children }: { children: ReactNode }) {
   };
 
   const logout = () => {
-    setToken(null);
+    void api.logout();
     setAccount(null);
   };
 

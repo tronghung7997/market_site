@@ -48,7 +48,7 @@ async def _route_outbound_to_mock(monkeypatch):
     monkeypatch.setattr(httpx.AsyncClient, "request", request)
 
 
-async def _setup_product(client, admin_token, seller_token, provider_id, strategy, suffix):
+async def _setup_product(client, admin_token, seller_token, provider_id, strategy, suffix, service_type="endpoint"):
     category = await client.post(
         "/admin/categories", json={"name": f"E2E {suffix}", "slug": f"e2e-{suffix}"},
         headers={"Authorization": f"Bearer {admin_token}"},
@@ -56,7 +56,7 @@ async def _setup_product(client, admin_token, seller_token, provider_id, strateg
     assert category.status_code == 201, category.text
     product = await client.post(
         "/seller/products",
-        json={"category_id": category.json()["id"], "title": f"Mock {suffix}", "status": "active", "escrow_days": 2, "service_type": "endpoint"},
+        json={"category_id": category.json()["id"], "title": f"Mock {suffix}", "status": "active", "escrow_days": 2, "service_type": service_type},
         headers={"Authorization": f"Bearer {seller_token}"},
     )
     assert product.status_code == 201, product.text
@@ -104,6 +104,37 @@ async def test_seller_to_admin_to_buyer_with_mock_gateway_and_task(client, monke
     assert approved.json()["review_status"] == "approved"
     gateway_product = await _setup_product(client, admin_token, seller_token, provider_id, "credit", "gateway")
 
+    # Editing an approved provider sends it back through review.  Existing
+    # product attachments remain visible, but must not accept new orders until
+    # an admin approves the updated credentials again.
+    pending = await client.put(
+        f"/seller/providers/{provider_id}",
+        json={"config": {"base_url": "https://seller.example.com", "api_key": "changed-secret"}},
+        headers={"Authorization": f"Bearer {seller_token}"},
+    )
+    assert pending.status_code == 200, pending.text
+    assert pending.json()["review_status"] == "pending_review"
+    blocked = await client.post(
+        "/orders",
+        json={"product_id": gateway_product, "user_config": {"package_size": 2}},
+        headers={"Authorization": f"Bearer {buyer_token}"},
+    )
+    assert blocked.status_code == 201, blocked.text
+    assert blocked.json()["status"] == "cancelled"
+
+    restored = await client.put(
+        f"/seller/providers/{provider_id}",
+        json={"config": {"base_url": "https://seller.example.com", "api_key": "mock-seller-secret"}},
+        headers={"Authorization": f"Bearer {seller_token}"},
+    )
+    assert restored.status_code == 200, restored.text
+    assert restored.json()["review_status"] == "pending_review"
+    reapproved = await client.post(
+        f"/admin/providers/{provider_id}/approve", json={"note": "Updated credentials verified"},
+        headers={"Authorization": f"Bearer {admin_token}"},
+    )
+    assert reapproved.status_code == 200, reapproved.text
+
     placed = await client.post("/orders", json={"product_id": gateway_product, "user_config": {"package_size": 2}}, headers={"Authorization": f"Bearer {buyer_token}"})
     assert placed.status_code == 201, placed.text
     await provision_pending_order(placed.json()["id"])
@@ -124,7 +155,9 @@ async def test_seller_to_admin_to_buyer_with_mock_gateway_and_task(client, monke
     assert task.status_code == 201, task.text
     task_provider_id = task.json()["id"]
     await client.post(f"/admin/providers/{task_provider_id}/approve", json={"note": "Callback contract verified"}, headers={"Authorization": f"Bearer {admin_token}"})
-    task_product = await _setup_product(client, admin_token, seller_token, task_provider_id, "task", "task")
+    task_product = await _setup_product(
+        client, admin_token, seller_token, task_provider_id, "task", "task", service_type="takedown",
+    )
     placed_task = await client.post(
         "/orders",
         json={"product_id": task_product, "user_config": {"platform": "web", "target_urls": "https://example.com"}},
@@ -132,6 +165,13 @@ async def test_seller_to_admin_to_buyer_with_mock_gateway_and_task(client, monke
     )
     assert placed_task.status_code == 201, placed_task.text
     await provision_pending_order(placed_task.json()["id"])
+    dashboard = await client.get(
+        f"/orders/{placed_task.json()['id']}/dashboard",
+        headers={"Authorization": f"Bearer {buyer_token}"},
+    )
+    assert dashboard.status_code == 200, dashboard.text
+    assert dashboard.json()["service_type"] == "takedown"
+    assert len(dashboard.json()["tasks"]) == 1
     # The mock has returned the actual external task id at this point.  In an
     # in-process ASGI test its background callback would re-enter the same
     # event loop, so drive the identical signed callback explicitly here.

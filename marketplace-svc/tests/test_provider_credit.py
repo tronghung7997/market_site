@@ -124,6 +124,7 @@ class TestOutOfCredit:
             alerts = (await db.execute(
                 select(Alert).where(
                     Alert.type == ALERT_OUT_OF_CREDIT,
+                    Alert.target_type == "provider",
                     Alert.target_id == pid,
                     Alert.is_active.is_(True),
                 )
@@ -132,6 +133,56 @@ class TestOutOfCredit:
             assert alerts[0].severity == "critical"
             assert alerts[0].occurrence_count == 3
             assert alerts[0].fingerprint == fp_provider(pid, ALERT_OUT_OF_CREDIT)
+            await db.rollback()
+
+    @pytest.mark.asyncio
+    async def test_order_fail_also_alerts_seller(self):
+        """Đơn fail 102 → seller của đơn có bell (gộp theo seller+provider)."""
+        from src.models.account import Account
+        from src.models.order import Order, OrderStatus
+        from src.orders.service import _raise_operational_alert
+
+        async with SessionLocal() as db:
+            buyer = Account(email="buyer-ooc@ex.com", password_hash="x", roles=["buyer"])
+            seller = Account(email="seller-ooc@ex.com", password_hash="x", roles=["buyer", "seller"])
+            db.add_all([buyer, seller])
+            await db.flush()
+            p = await _provider(db, credit_balance_xu=100)
+            order = Order(
+                buyer_id=buyer.id, seller_id=seller.id, quantity=1,
+                total_amount=10_000, status=OrderStatus.cancelled,
+            )
+            db.add(order)
+            await db.commit()
+            await db.refresh(order)
+            seller_id, order_id, pid = seller.id, order.id, p.id
+
+            for _ in range(2):
+                await _raise_operational_alert(order_id, "out_of_credit", str(pid), db)
+
+            admin_alerts = (await db.execute(
+                select(Alert).where(
+                    Alert.type == ALERT_OUT_OF_CREDIT,
+                    Alert.target_type == "provider",
+                    Alert.target_id == pid,
+                    Alert.is_active.is_(True),
+                )
+            )).scalars().all()
+            seller_alerts = (await db.execute(
+                select(Alert).where(
+                    Alert.type == ALERT_OUT_OF_CREDIT,
+                    Alert.target_type == "seller",
+                    Alert.target_id == seller_id,
+                    Alert.is_active.is_(True),
+                )
+            )).scalars().all()
+            assert len(admin_alerts) == 1
+            assert len(seller_alerts) == 1
+            assert seller_alerts[0].occurrence_count == 2
+            assert seller_alerts[0].fingerprint == (
+                f"seller:{seller_id}:{ALERT_OUT_OF_CREDIT}:{pid}"
+            )
+            assert "hết tiền" in seller_alerts[0].message
             await db.rollback()
 
     @pytest.mark.asyncio
@@ -148,6 +199,15 @@ class TestOutOfCredit:
                 target_id=pid,
                 message="sắp hết",
             )
+            # Seller alert từ đơn fail — cũng phải gỡ khi nạp lại.
+            await emit_incident(
+                fingerprint=f"seller:99:{ALERT_OUT_OF_CREDIT}:{pid}",
+                type_=ALERT_OUT_OF_CREDIT,
+                severity="critical",
+                target_type="seller",
+                target_id=99,
+                message="đơn fail hết tiền",
+            )
 
             await set_credit_balance(pid, 500_000, 30_000, db)
 
@@ -156,7 +216,7 @@ class TestOutOfCredit:
             assert p.credit_balance_xu == 500_000
             assert p.credit_low_threshold_xu == 30_000
             active = (await db.execute(
-                select(Alert).where(Alert.target_id == pid, Alert.is_active.is_(True))
+                select(Alert).where(Alert.is_active.is_(True))
             )).scalars().all()
             assert active == []
             await db.rollback()

@@ -2,22 +2,11 @@ import type {
   Account, ActionItem, AdminDepositIntent, AdminDisputeDetail, AdminOrderDetail, AdminProduct, AdminResourceListResponse, AffiliateStats, AffiliateSummary, CalculateResult, Category, ChargeUsageResult, DashboardData, DepositIntent, Dispute, PayosWebhookEventRow, AdminAccountWallet, FundOverview, AccountAdminRow, PaginatedAccounts, LogEntry, Order, OrderStats, PaginatedAffiliateSummary, PaginatedOrderResponse, PaginatedProducts, PricingField, PricingOptions, ProductDetail, AdminProductDetail, Product, ProductOperations, ProxyState, ProxyRotateResult, ProxyWhitelistResult, Review, SellerApplication, SellerProduct, SellerStats, ServiceTask, Transaction, Variant, Wallet, WithdrawRequest, Provider, ProviderHealth, Alert, Resource, ResourceSummary, ResourceSellerFacet, InventoryVariant, SellerSummary, SellerProfile, SellerApiKey, SellerApiKeyCreated,
 } from "./types";
 
-const BASE = process.env.NEXT_PUBLIC_API_URL
-  ?? (typeof window !== "undefined" ? "/api" : (process.env.API_URL ?? "http://localhost:8001"));
-const TOKEN_KEY = "dx_token";
-
-export function getToken(): string | null {
-  if (typeof window === "undefined") return null;
-  return window.localStorage.getItem(TOKEN_KEY);
-}
-
-console.log('[env] NEXT_PUBLIC_API_URL =', process.env.NEXT_PUBLIC_API_URL, '| API_URL =', process.env.API_URL, '| runtime =', typeof window !== "undefined" ? "client" : "server", '| BASE =', BASE);
-console.log('4');
-export function setToken(t: string | null) {
-  if (typeof window === "undefined") return;
-  if (t) window.localStorage.setItem(TOKEN_KEY, t);
-  else window.localStorage.removeItem(TOKEN_KEY);
-}
+// Browser requests are always same-origin. This prevents a production bundle
+// from calling the visitor's localhost or bypassing the controlled Next proxy.
+const BASE = typeof window !== "undefined"
+  ? "/api"
+  : (process.env.API_URL ?? "http://localhost:8001");
 
 export class ApiError extends Error {
   status: number;
@@ -27,15 +16,11 @@ export class ApiError extends Error {
   }
 }
 
-async function request<T>(path: string, init: RequestInit = {}, auth = false): Promise<T> {
+async function request<T>(path: string, init: RequestInit = {}, auth: boolean | "silent" = false): Promise<T> {
   const headers: Record<string, string> = { "Content-Type": "application/json", ...(init.headers as Record<string, string>) };
-  if (auth) {
-    const tok = getToken();
-    if (tok) headers["Authorization"] = `Bearer ${tok}`;
-  }
   let res: Response;
   try {
-    res = await fetch(`${BASE}${path}`, { ...init, headers });
+    res = await fetch(`${BASE}${path}`, { ...init, headers, credentials: "same-origin" });
   } catch {
     throw new ApiError(0, "Không thể kết nối tới máy chủ, vui lòng kiểm tra kết nối mạng và thử lại.");
   }
@@ -43,8 +28,9 @@ async function request<T>(path: string, init: RequestInit = {}, auth = false): P
   const body = await res.json().catch(() => null);
   if (!res.ok) {
     if (res.status === 401 && auth) {
-      setToken(null);
-      if (typeof window !== "undefined") window.dispatchEvent(new Event("auth:session-expired"));
+      if (auth === true && typeof window !== "undefined") {
+        window.dispatchEvent(new Event("auth:session-expired"));
+      }
       throw new ApiError(401, "Phiên đăng nhập đã hết hạn, vui lòng đăng nhập lại.");
     }
     const detail = body && (body.detail || body.message);
@@ -60,8 +46,9 @@ export const api = {
     return request<Account>("/auth/register", { method: "POST", body: JSON.stringify(body) });
   },
   login: (email: string, password: string) =>
-    request<{ access_token: string; token_type: string }>("/auth/login", { method: "POST", body: JSON.stringify({ email, password }) }),
-  me: () => request<Account>("/me", {}, true),
+    request<{ token_type: string }>("/auth/login", { method: "POST", body: JSON.stringify({ email, password }) }),
+  logout: () => request<void>("/auth/session", { method: "DELETE" }),
+  me: () => request<Account>("/me", {}, "silent"),
 
   categories: () => request<Category[]>("/categories"),
   createCategory: (data: Record<string, unknown>) =>
@@ -70,8 +57,7 @@ export const api = {
     request<Category>(`/admin/categories/${id}`, { method: "PATCH", body: JSON.stringify(data) }, true),
   deleteCategory: (id: number) =>
     request<void>(`/admin/categories/${id}`, { method: "DELETE" }, true),
-  // Không truyền page = backend trả TOÀN BỘ trong 1 lượt (trang chủ/hub cần đủ
-  // dữ liệu để đếm tổng); categoryId lọc theo CẢ NHÁNH danh mục ngay tại server.
+  // Backend luôn phân trang; categoryId lọc theo cả nhánh danh mục.
   products: (opts: { categoryId?: number; sellerId?: number; page?: number; perPage?: number } = {}) => {
     const q = new URLSearchParams();
     if (opts.categoryId) q.set("category_id", String(opts.categoryId));
@@ -312,13 +298,25 @@ export const api = {
   updateSellerPricing: (productId: number, data: Record<string, unknown>) =>
     request<void>(`/seller/products/${productId}/pricing`, { method: "PUT", body: JSON.stringify(data) }, true),
 
-  adminLogs: (params: { request_id?: string; job_id?: string; order_id?: number; level?: string; limit?: number } = {}) => {
+  adminLogs: (params: {
+    request_id?: string;
+    job_id?: string;
+    order_id?: number;
+    level?: string;
+    limit?: number;
+    before_id?: number;
+    since?: string;
+    until?: string;
+  } = {}) => {
     const q = new URLSearchParams();
     if (params.request_id) q.set("request_id", params.request_id);
     if (params.job_id) q.set("job_id", params.job_id);
     if (params.order_id != null) q.set("order_id", String(params.order_id));
     if (params.level) q.set("level", params.level);
     if (params.limit) q.set("limit", String(params.limit));
+    if (params.before_id != null) q.set("before_id", String(params.before_id));
+    if (params.since) q.set("since", params.since);
+    if (params.until) q.set("until", params.until);
     const qs = q.toString();
     return request<LogEntry[]>(`/admin/logs${qs ? `?${qs}` : ""}`, {}, true);
   },

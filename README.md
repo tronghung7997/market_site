@@ -178,13 +178,9 @@ GET  /me               # Thông tin tài khoản
 
 ```bash
 cd marketplace-svc
-uv sync --extra dev           # pytest nằm trong extra `dev`, `uv sync` trần KHÔNG cài
-.venv/bin/pytest -q           # ~8 phút, 240+ test
+uv sync --extra dev
+uv run pytest -q
 ```
-
-> **Dùng `.venv/bin/pytest`, đừng dùng `uv run pytest`.** `uv run` đồng bộ lại môi
-> trường theo dependency mặc định và sẽ **gỡ pytest khỏi venv** (vì nó là extra),
-> rồi rơi xuống pytest hệ thống → `ModuleNotFoundError: No module named 'sqlalchemy'`.
 
 > **Đừng chạy hai tiến trình pytest song song.** Suite dùng chung DB
 > `marketplace_test` và TRUNCATE mọi bảng trước mỗi test, nên hai lần chạy sẽ giẫm
@@ -206,20 +202,23 @@ DATABASE_URL="postgresql+asyncpg://marketplace:marketplace@localhost:5432/market
 | Biến | Mặc định | Mô tả |
 |---|---|---|
 | `DATABASE_URL` | `postgresql+asyncpg://marketplace:marketplace@localhost:5432/marketplace` | Connection string |
-| `JWT_SECRET` | `dev-secret-change-in-production` | JWT signing key |
-| `ENCRYPTION_KEY` | `dev-encryption-key-change-in-production` | Khoá mã hoá credential nhà cung cấp (`Provider.config`) |
+| `JWT_SECRET` | **bắt buộc** | JWT signing key unique, tối thiểu 32 byte |
+| `INTERNAL_API_KEY` | **bắt buộc** | Key riêng cho `/internal/*`, tối thiểu 32 byte |
+| `ENCRYPTION_KEY` | **bắt buộc** | Khoá mã hoá credential nhà cung cấp, tối thiểu 32 byte |
 | `REDIS_URL` | `redis://localhost:6379` | Redis connection |
 | `PLATFORM_FEE_PERCENT` | `0` | Phí nền tảng (%) |
 
-> **`ENCRYPTION_KEY` — bắt buộc set trước khi có provider thật, và không đổi được về sau.**
+> **`ENCRYPTION_KEY` — bắt buộc set trước khi serve traffic.**
 > `api_key`/`api_secret` trong `Provider.config` được mã hoá bằng khoá derive từ biến này.
-> Đổi khoá = **toàn bộ credential đã lưu không giải mã được nữa**, và không có đường khôi
-> phục ngoài nhập tay lại từng provider. Nếu deploy production mà vẫn để mặc định, backend
-> log cảnh báo `insecure_default_encryption_key` lúc khởi động — coi đó là lỗi chặn phát hành,
-> đừng chạy tiếp rồi mới đổi.
+> Khi rotate, backup DB rồi chạy dry-run và apply bằng
+> `scripts/rotate_encryption_key.py`; không đổi key trực tiếp vì credential cũ sẽ không giải mã được.
+> Backend fail startup nếu secret thiếu, quá ngắn hoặc trùng default cũ.
 
 ### Frontend
 
 | Biến | Mặc định | Mô tả |
 |---|---|---|
-| `NEXT_PUBLIC_API_URL` | — | API URL (nếu không set, dùng `/api` proxy) |
+| `NEXT_PUBLIC_API_URL` | `/api` | Browser chỉ gọi same-origin BFF; không đặt secret ở `NEXT_PUBLIC_*` |
+| `API_URL` | `http://localhost:8001` | Upstream backend server-side; production bắt buộc không phải localhost |
+
+Frontend dùng `NODE_ENV` chuẩn của Next.js để bật validation production, Secure cookie và security headers; không cần thêm biến môi trường tùy chỉnh.

@@ -184,8 +184,8 @@ async def list_products(
     db: AsyncSession,
     category_id: int | None = None,
     seller_id: int | None = None,
-    page: int | None = None,
-    per_page: int = 100,
+    page: int = 1,
+    per_page: int = 50,
 ) -> dict:
     """Danh sách sản phẩm đang bán — item bản GỌN kèm gói + tồn kho.
 
@@ -194,9 +194,8 @@ async def list_products(
       ~3.000 query một request.
     - category_id lọc theo CẢ NHÁNH (danh mục + con cháu) ngay tại DB — đúng
       ngữ nghĩa subtreeIds() client dùng để lọc tay trước đây.
-    - page=None trả toàn bộ (trang chủ/hub cần đủ dữ liệu để đếm tổng); truyền
-      page thì phân trang chuẩn — hai chế độ chung một phong bì {items, total,
-      page, per_page}.
+    - Luôn phân trang server-side để một request public không thể kéo toàn bộ
+      catalog và tồn kho. Envelope giữ khuôn {items, total, page, per_page}.
     """
     filters = [Product.status == ProductStatus.active]
     if category_id:
@@ -207,8 +206,7 @@ async def list_products(
     total = await db.scalar(select(func.count(Product.id)).where(*filters)) or 0
 
     query = select(Product).where(*filters).order_by(Product.created_at.desc())
-    if page is not None:
-        query = query.offset((page - 1) * per_page).limit(per_page)
+    query = query.offset((page - 1) * per_page).limit(per_page)
     products = list((await db.execute(query)).scalars())
 
     variants_by_product = await _variants_by_product([p.id for p in products], db)
@@ -218,8 +216,8 @@ async def list_products(
             for p in products
         ],
         "total": total,
-        "page": page or 1,
-        "per_page": per_page if page is not None else total,
+        "page": page,
+        "per_page": per_page,
     }
 
 
@@ -314,6 +312,7 @@ async def get_product_detail(
     return {
         **_product_dict(product),
         "variants": await _variant_dicts(product_id, db, include_inactive=include_inactive_variants),
+        "seller_name": seller.email.split("@", 1)[0] if seller else None,
         "seller_email": seller.email if seller else None,
         "category_name": category.name if category else None,
     }

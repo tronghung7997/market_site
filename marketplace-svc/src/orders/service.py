@@ -102,12 +102,32 @@ async def _raise_operational_alert(
     caller. Best-effort via emit_incident (own session); never breaks the
     order flow that already completed."""
     from src.alerts.service import emit_incident, fp_order
-    from src.providers.credit import report_out_of_credit
+    from src.providers.credit import ALERT_OUT_OF_CREDIT, report_out_of_credit
 
     try:
         if severity == "out_of_credit":
             # `message` mang provider_id (xem _apply_provision_result).
-            await report_out_of_credit(int(message), db)
+            provider_id = int(message)
+            await report_out_of_credit(provider_id, db)
+            # Admin đã có incident target=provider. Seller của đơn cũng cần
+            # biết — hàng của họ vừa fail + provider bị tắt. Gộp theo
+            # (seller, provider) để 50 đơn 102 chỉ một dòng active.
+            order = await db.get(Order, order_id)
+            if order is not None:
+                await emit_incident(
+                    fingerprint=(
+                        f"seller:{order.seller_id}:{ALERT_OUT_OF_CREDIT}:{provider_id}"
+                    ),
+                    type_=ALERT_OUT_OF_CREDIT,
+                    severity="critical",
+                    target_type="seller",
+                    target_id=order.seller_id,
+                    message=(
+                        f"Đơn #{order_id} giao thất bại: nhà cung cấp đã hết tiền "
+                        f"và đã tạm dừng bán. Khách đã được hoàn tiền — nạp lại rồi "
+                        f"cập nhật số dư để tiếp tục bán."
+                    ),
+                )
             return
         await emit_incident(
             fingerprint=fp_order(order_id, "provision_operational"),

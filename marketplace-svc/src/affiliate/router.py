@@ -1,9 +1,13 @@
+import hashlib
+
 from fastapi import APIRouter, Depends, HTTPException, Query, Request, status
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from src.auth.dependencies import get_current_account, require_role
+from src.config import settings
 from src.database import get_session
 from src.models.account import Account
+from src.rate_limit import check_rate_limit
 
 from . import schemas, service
 
@@ -17,6 +21,19 @@ async def click(
     db: AsyncSession = Depends(get_session),
 ):
     ip = request.client.host if request.client else None
+    ip_bucket = ip or "unknown"
+    code_bucket = hashlib.sha256(body.code.strip().lower().encode()).hexdigest()
+    if not await check_rate_limit(
+        f"affiliate-click:{ip_bucket}:{code_bucket}",
+        limit=settings.affiliate_click_ip_limit,
+        window_seconds=60,
+        fail_open=False,
+    ):
+        raise HTTPException(
+            status_code=429,
+            detail="Quá nhiều lượt click",
+            headers={"Retry-After": "60"},
+        )
     await service.record_click(
         body.code, db, path=body.path, referrer=body.referrer,
         visitor_id=body.visitor_id, ip=ip,

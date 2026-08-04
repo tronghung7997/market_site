@@ -106,7 +106,7 @@ export default function SellerProfilePage() {
   if (loading) return <div className="w-full mx-auto max-w-[1200px] px-6 py-16"><Spinner /></div>;
   if (error || !seller) return <div className="w-full mx-auto max-w-[1200px] px-6 py-16"><Card className="p-6 text-bad text-sm">{error ?? "Không tìm thấy nhà bán"}</Card></div>;
 
-  const displayName = seller.business_name ?? seller.email.split("@")[0];
+  const displayName = seller.display_name;
   const hasLeftCol = !!seller.bio || sellerCategories.length > 0;
 
   const stats: { label: string; value: string; icon: ReactNode }[] = [

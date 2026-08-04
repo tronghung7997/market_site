@@ -3,7 +3,7 @@ from sqlalchemy import func, select
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from src.adapters.compatibility import ADAPTER_STRATEGY_COMPAT, check_compatibility, setup_status
-from src.auth.dependencies import require_role
+from src.auth.dependencies import get_current_account, require_role
 from src.database import get_session
 from src.models.account import Account
 from src.models.order import Order, OrderStatus
@@ -67,10 +67,17 @@ async def calculate(product_id: int, body: schemas.CalculateRequest, db: AsyncSe
 
 
 @router.get("/products/{product_id}/operations")
-async def product_operations(product_id: int, db: AsyncSession = Depends(get_session)):
+async def product_operations(
+    product_id: int,
+    account: Account = Depends(get_current_account),
+    db: AsyncSession = Depends(get_session),
+):
     """Product operations info: provider, pricing, stats."""
     product = await db.get(Product, product_id)
     if not product:
+        raise HTTPException(status_code=404, detail="Không tìm thấy sản phẩm")
+    if "admin" not in account.roles and product.seller_id != account.id:
+        # Do not disclose whether another seller's product exists.
         raise HTTPException(status_code=404, detail="Không tìm thấy sản phẩm")
 
     # Provider info

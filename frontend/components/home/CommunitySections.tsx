@@ -24,7 +24,7 @@ export function TrustedSellers({ sellers }: { sellers: SellerSummary[] }) {
                 <Store size={15} />
               </span>
               <div className="mt-2 sm:mt-3 font-medium text-[12.5px] sm:text-[13.5px] truncate">
-                {s.business_name ?? s.email.split("@")[0]}
+                {s.display_name}
               </div>
               <div className="mt-1 flex items-center justify-center gap-1 text-[11.5px] sm:text-[12px] text-muted">
                 {s.rating_avg != null ? (

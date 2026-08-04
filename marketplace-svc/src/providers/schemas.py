@@ -1,8 +1,11 @@
 from datetime import datetime
 
-from pydantic import BaseModel, Field
+from pydantic import BaseModel, Field, field_serializer
 
 from src.adapters.registry import ADAPTERS
+from src.security.crypto import SENSITIVE_CONFIG_KEYS
+
+MASKED_SECRET = "********"
 
 
 class ProviderCreate(BaseModel):
@@ -47,6 +50,13 @@ class ProviderResponse(BaseModel):
     credit_updated_at: datetime | None = None
 
     model_config = {"from_attributes": True}
+
+    @field_serializer("config")
+    def serialize_config(self, config: dict) -> dict:
+        return {
+            key: MASKED_SECRET if key in SENSITIVE_CONFIG_KEYS and value else value
+            for key, value in (config or {}).items()
+        }
 
 
 class ProviderCreditUpdate(BaseModel):

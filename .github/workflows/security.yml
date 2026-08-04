@@ -1,0 +1,77 @@
+name: security-gates
+
+on:
+  pull_request:
+  push:
+    branches: [main]
+  schedule:
+    - cron: "17 2 * * 1"
+
+permissions:
+  contents: read
+
+jobs:
+  frontend:
+    runs-on: ubuntu-latest
+    defaults:
+      run:
+        working-directory: frontend
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 22
+          cache: npm
+          cache-dependency-path: frontend/package-lock.json
+      - run: npm ci
+      - run: npm audit --omit=dev --audit-level=high
+      - run: npm run lint
+      - run: npm run build
+        env:
+          API_URL: https://api.invalid
+
+  backend:
+    runs-on: ubuntu-latest
+    services:
+      postgres:
+        image: postgres:17-alpine
+        env:
+          POSTGRES_USER: marketplace
+          POSTGRES_PASSWORD: marketplace
+          POSTGRES_DB: marketplace
+        ports:
+          - 5432:5432
+        options: >-
+          --health-cmd "pg_isready -U marketplace"
+          --health-interval 5s
+          --health-timeout 5s
+          --health-retries 10
+      redis:
+        image: redis:7-alpine
+        ports:
+          - 6379:6379
+    defaults:
+      run:
+        working-directory: marketplace-svc
+    steps:
+      - uses: actions/checkout@v4
+      - uses: astral-sh/setup-uv@v6
+        with:
+          version: "0.11.21"
+          enable-cache: true
+      - run: uv sync --frozen --all-extras
+      - name: Export locked production dependencies
+        run: uv export --frozen --no-dev --format requirements-txt --no-hashes --output-file /tmp/marketplace-requirements.txt
+      - name: Audit locked production dependencies
+        run: uv tool run pip-audit --strict -r /tmp/marketplace-requirements.txt
+      - name: Create isolated test database
+        run: PGPASSWORD=marketplace psql -h localhost -U marketplace -d marketplace -c 'CREATE DATABASE marketplace_test'
+      - run: uv run alembic upgrade head
+        env:
+          DATABASE_URL: postgresql+asyncpg://marketplace:marketplace@localhost:5432/marketplace_test
+          JWT_SECRET: ci-jwt-secret-at-least-thirty-two-bytes
+          INTERNAL_API_KEY: ci-internal-key-at-least-thirty-two-bytes
+          ENCRYPTION_KEY: ci-encryption-key-at-least-thirty-two-bytes
+      - run: uv run pytest -q
+        env:
+          TEST_DATABASE_URL: postgresql+asyncpg://marketplace:marketplace@localhost:5432/marketplace_test

@@ -14,8 +14,8 @@ router = APIRouter(tags=["products"])
 async def list_products(
     category_id: int | None = Query(None, description="Lọc theo danh mục VÀ toàn bộ danh mục con"),
     seller_id: int | None = Query(None),
-    page: int | None = Query(None, ge=1, description="Bỏ trống = trả toàn bộ (không phân trang)"),
-    per_page: int = Query(100, ge=1, le=500),
+    page: int = Query(1, ge=1),
+    per_page: int = Query(50, ge=1, le=100),
     db: AsyncSession = Depends(get_session),
 ):
     return await service.list_products(

@@ -1,17 +1,35 @@
 from datetime import datetime
 
-from pydantic import BaseModel, EmailStr
+from pydantic import BaseModel, EmailStr, Field, field_validator
+
+
+_COMMON_PASSWORDS = {
+    "123456789012",
+    "adminadmin12",
+    "letmein12345",
+    "password1234",
+    "qwerty123456",
+}
 
 
 class RegisterRequest(BaseModel):
     email: EmailStr
-    password: str
+    password: str = Field(min_length=12, max_length=128)
     referral_code: str | None = None
+
+    @field_validator("password")
+    @classmethod
+    def password_fits_bcrypt(cls, value: str) -> str:
+        if len(value.encode("utf-8")) > 72:
+            raise ValueError("Mật khẩu không được vượt quá 72 byte")
+        if value.casefold() in _COMMON_PASSWORDS:
+            raise ValueError("Mật khẩu này quá phổ biến")
+        return value
 
 
 class LoginRequest(BaseModel):
     email: EmailStr
-    password: str
+    password: str = Field(max_length=128)
 
 
 class TokenResponse(BaseModel):

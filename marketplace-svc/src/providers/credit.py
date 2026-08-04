@@ -145,12 +145,20 @@ async def set_credit_balance(
     await db.commit()
 
     # Gỡ cả hai loại cảnh báo tiền nong — nạp xong thì chúng hết ý nghĩa.
+    # Admin: target=provider. Seller: fingerprint seller:{sid}:provider_out_of_credit:{pid}
+    # (bắn từ orders/service._raise_operational_alert khi đơn fail 102).
     stale = (await db.execute(
         select(Alert).where(
             Alert.type.in_([ALERT_OUT_OF_CREDIT, ALERT_LOW_CREDIT]),
-            Alert.target_type == "provider",
-            Alert.target_id == provider_id,
             Alert.is_active.is_(True),
+            (
+                ((Alert.target_type == "provider") & (Alert.target_id == provider_id))
+                | (
+                    (Alert.target_type == "seller")
+                    & (Alert.type == ALERT_OUT_OF_CREDIT)
+                    & Alert.fingerprint.like(f"%:{ALERT_OUT_OF_CREDIT}:{provider_id}")
+                )
+            ),
         )
     )).scalars().all()
     for alert in stale:

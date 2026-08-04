@@ -5,3 +5,4 @@ pgdata/
 .playwright-mcp
 docker-compose.dev.yml
 .backend.env
+pyproject.toml

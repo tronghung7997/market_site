@@ -221,12 +221,12 @@ function ProviderCard({ provider, onChanged }: { provider: Provider; onChanged: 
           <Field label="Địa chỉ API (Base URL)">
             <Input autoComplete="url" value={form.base_url} onChange={(e) => setForm({ ...form, base_url: e.target.value })} placeholder="https://api.your-backend.com" />
           </Field>
-          <Field label="API key để marketplace xác thực" hint="Để trống nếu không muốn đổi key hiện tại">
-            <Input type="password" autoComplete="new-password" value={form.api_key} onChange={(e) => setForm({ ...form, api_key: e.target.value })} placeholder="••••••••" />
+          <Field label="API key của backend — marketplace dùng để gọi vào" hint="Lấy từ backend của bạn. Để trống nếu giữ key hiện tại; không phải xoá key.">
+            <Input type="password" autoComplete="new-password" value={form.api_key} onChange={(e) => setForm({ ...form, api_key: e.target.value })} placeholder="Nhập key mới nếu cần thay đổi" />
           </Field>
           {provider.adapter_type === "seller_task_webhook" && (
-            <Field label="Secret để xác thực kết quả trả về" hint="Để trống nếu không muốn đổi secret hiện tại">
-              <Input type="password" autoComplete="new-password" value={form.webhook_secret} onChange={(e) => setForm({ ...form, webhook_secret: e.target.value })} placeholder="••••••••" />
+            <Field label="Webhook secret — backend dùng để báo kết quả" hint="Backend dùng secret này để ký callback. Để trống nếu giữ secret hiện tại.">
+              <Input type="password" autoComplete="new-password" value={form.webhook_secret} onChange={(e) => setForm({ ...form, webhook_secret: e.target.value })} placeholder="Nhập secret mới nếu cần thay đổi" />
             </Field>
           )}
           <Field label="Endpoint khác chuẩn (tuỳ chọn)">
@@ -275,7 +275,7 @@ function CreateProviderForm({ onCreated, onCancel }: { onCreated: () => void; on
             <p className="text-[11px] font-semibold tracking-[0.12em] uppercase text-iris-hi">Kết nối mới</p>
             <h3 className="mt-1 text-[19px] font-semibold tracking-tight">Kết nối backend của bạn</h3>
             <p className="mt-1.5 text-[13px] leading-5 text-muted max-w-xl">
-              Chỉ cần địa chỉ API và key để marketplace gọi được backend. Thông tin này không hiển thị cho buyer.
+              Bạn khai báo cách marketplace gọi vào backend và cách backend báo kết quả ngược lại. Buyer không nhìn thấy các thông tin này.
             </p>
           </div>
 
@@ -321,17 +321,27 @@ function CreateProviderForm({ onCreated, onCancel }: { onCreated: () => void; on
           <section className="space-y-3 border-t border-line pt-5" aria-labelledby="connection-access">
             <div>
               <p className="text-[11px] font-semibold tracking-[0.1em] uppercase text-faint">Bước 3</p>
-              <h4 id="connection-access" className="text-[14px] font-semibold">Cho phép marketplace gọi vào backend</h4>
-              <p className="mt-0.5 text-[12px] text-muted">Dùng môi trường production có thể truy cập từ internet; không dùng localhost.</p>
+              <h4 id="connection-access" className="text-[14px] font-semibold">Khai báo kết nối hai chiều</h4>
+              <p className="mt-0.5 text-[12px] text-muted">Marketplace gọi vào backend của bạn bằng API key. Nếu xử lý nền, backend dùng webhook secret để báo kết quả trở lại.</p>
+            </div>
+            <div className="grid gap-2 sm:grid-cols-2">
+              <div className="rounded-lg border border-line bg-raised px-3 py-2.5">
+                <p className="text-[11px] font-semibold uppercase tracking-[0.08em] text-iris-hi">Marketplace → backend</p>
+                <p className="mt-1 text-[12px] leading-5 text-muted">Marketplace dùng <strong className="font-medium text-foreground">API key</strong> để gọi API của bạn.</p>
+              </div>
+              <div className="rounded-lg border border-line bg-raised px-3 py-2.5">
+                <p className="text-[11px] font-semibold uppercase tracking-[0.08em] text-iris-hi">Backend → marketplace</p>
+                <p className="mt-1 text-[12px] leading-5 text-muted">Backend dùng <strong className="font-medium text-foreground">webhook secret</strong> để ký kết quả task.</p>
+              </div>
             </div>
             <Field label="Địa chỉ API (Base URL)" hint="Ví dụ: https://api.congty-ban.com">
               <Input autoComplete="url" value={form.base_url} onChange={(e) => setForm({ ...form, base_url: e.target.value })} placeholder="https://api.congty-ban.com" />
             </Field>
-            <Field label="API key để marketplace xác thực" hint="Key do backend của bạn cấp. Key được mã hoá khi lưu.">
+            <Field label="API key của backend — marketplace dùng để gọi vào" hint="Lấy key từ backend của bạn rồi dán vào đây. Key được mã hoá khi lưu.">
               <Input type="password" autoComplete="new-password" value={form.api_key} onChange={(e) => setForm({ ...form, api_key: e.target.value })} placeholder="Dán API key của backend vào đây" />
             </Field>
             {form.adapter_type === "seller_task_webhook" && (
-              <Field label="Secret để xác thực kết quả trả về" hint="Backend dùng secret này khi gọi webhook báo đơn hoàn thành.">
+              <Field label="Webhook secret — backend dùng để báo kết quả" hint="Tự tạo một secret riêng và cấu hình cùng giá trị trong backend. Marketplace dùng nó để kiểm tra chữ ký callback.">
                 <Input type="password" autoComplete="new-password" value={form.webhook_secret} onChange={(e) => setForm({ ...form, webhook_secret: e.target.value })} placeholder="Tự tạo một chuỗi bí mật riêng" />
               </Field>
             )}
@@ -348,7 +358,7 @@ function CreateProviderForm({ onCreated, onCancel }: { onCreated: () => void; on
           {error && <p role="alert" className="rounded-lg border border-bad/25 bg-bad-soft px-3 py-2.5 text-[12.5px] text-bad">{error}</p>}
 
           <div className="flex flex-wrap items-center justify-between gap-3 border-t border-line pt-5">
-            <p className="text-[12px] leading-5 text-muted max-w-md">Gửi xong, bạn có thể chạy kiểm tra kết nối. Admin chỉ duyệt sau khi có cấu hình và kết quả kiểm tra rõ ràng.</p>
+            <p className="text-[12px] leading-5 text-muted max-w-md">Gửi xong, hãy bấm “Test kết nối”. Admin chỉ duyệt sau khi cấu hình và contract kết nối đạt yêu cầu.</p>
             <div className="flex items-center gap-2">
               <Button variant="ghost" size="sm" onClick={onCancel}>Huỷ</Button>
               <Button size="sm" onClick={handleSubmit} disabled={saving || !form.name || !form.base_url}>
@@ -364,11 +374,11 @@ function CreateProviderForm({ onCreated, onCancel }: { onCreated: () => void; on
           <ol className="mt-5 space-y-5">
             <li className="relative flex gap-3">
               <span className="flex h-6 w-6 shrink-0 items-center justify-center rounded-full bg-iris text-[11px] font-semibold text-white">1</span>
-              <div><p className="text-[12.5px] font-medium">Gửi thông tin kết nối</p><p className="mt-0.5 text-[12px] leading-5 text-muted">URL, key và cách hoàn thành đơn.</p></div>
+              <div><p className="text-[12.5px] font-medium">Gửi thông tin kết nối</p><p className="mt-0.5 text-[12px] leading-5 text-muted">URL, API key và webhook secret nếu xử lý nền.</p></div>
             </li>
             <li className="relative flex gap-3">
               <span className="flex h-6 w-6 shrink-0 items-center justify-center rounded-full border border-line-2 bg-surface text-[11px] font-semibold">2</span>
-              <div><p className="text-[12.5px] font-medium">Tự kiểm tra kết nối</p><p className="mt-0.5 text-[12px] leading-5 text-muted">Bấm test ngay trên card vừa tạo và sửa nếu có lỗi.</p></div>
+              <div><p className="text-[12.5px] font-medium">Tự kiểm tra kết nối</p><p className="mt-0.5 text-[12px] leading-5 text-muted">Marketplace thử gọi backend theo đúng cách buyer sẽ dùng.</p></div>
             </li>
             <li className="relative flex gap-3">
               <span className="flex h-6 w-6 shrink-0 items-center justify-center rounded-full border border-line-2 bg-surface text-[11px] font-semibold">3</span>

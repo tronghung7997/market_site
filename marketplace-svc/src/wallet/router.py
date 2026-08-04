@@ -25,8 +25,15 @@ async def get_wallet(account: Account = Depends(get_current_account), db: AsyncS
 
 
 @router.post("/wallet/topup", response_model=schemas.WalletResponse)
-async def topup(body: schemas.TopupRequest, _: Account = Depends(require_role("admin")), db: AsyncSession = Depends(get_session)):
-    return await service.topup(body.account_id, body.amount, db)
+async def topup(
+    body: schemas.TopupRequest,
+    admin: Account = Depends(require_role("admin")),
+    db: AsyncSession = Depends(get_session),
+):
+    return await service.topup(
+        body.account_id, body.amount, db,
+        actor_id=admin.id, source="admin", event="manual_topup",
+    )
 
 
 @router.post("/wallet/demo-topup", response_model=schemas.WalletResponse)
@@ -35,7 +42,10 @@ async def demo_topup(body: schemas.DemoTopupRequest, account: Account = Depends(
     # nạp thật đi qua PayOS (POST /wallet/deposits, src/payments/router.py).
     if not settings.enable_demo_topup:
         raise HTTPException(status_code=403, detail="Demo topup đã tắt — dùng nạp tiền qua cổng thanh toán")
-    return await service.topup(account.id, body.amount, db)
+    return await service.topup(
+        account.id, body.amount, db,
+        actor_id=account.id, source="demo", event="demo_topup",
+    )
 
 
 @router.get("/wallet/transactions", response_model=list[schemas.TransactionResponse])

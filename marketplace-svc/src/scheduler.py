@@ -6,9 +6,10 @@ import httpx
 import structlog
 from sqlalchemy import select
 
-from src.alerts.service import create_alert
+from src.alerts.service import emit_incident, fp_order, fp_provider, fp_variant, upsert_incident
 from src.audit.service import log_event
 from src.database import SessionLocal
+from src.audit.service import purge_operational_logs
 from src.gateway.call_history import purge_old_gateway_call_logs
 from src.models.account import Account
 from src.models.order import Order, OrderStatus
@@ -58,8 +59,19 @@ async def escrow_release_job() -> None:
                 logger.error("escrow_release_failed", order_id=order.id, error=str(e))
                 await log_event(db, "error", f"Escrow release failed for order {order.id}: {e}", job_id=job_id,
                                 metadata={"event": "escrow_release_failed", "order_id": order.id, "seller_id": order.seller_id})
-                await create_alert("escrow_release_failed", "error", "order", order.id,
-                                   f"Đơn #{order.id} không tự release được escrow — cần admin kiểm tra ví seller #{order.seller_id}", db)
+                await upsert_incident(
+                    db,
+                    fingerprint=fp_order(order.id, "escrow_release_failed"),
+                    type_="escrow_release_failed",
+                    severity="error",
+                    target_type="order",
+                    target_id=order.id,
+                    message=(
+                        f"Đơn #{order.id} không tự release được escrow — "
+                        f"cần admin kiểm tra ví seller #{order.seller_id}"
+                    ),
+                )
+                await db.commit()
 
 
 async def sla_check_job() -> None:
@@ -84,8 +96,15 @@ async def sla_check_job() -> None:
                 order.cancel_reason = "Người bán không giao hàng đúng hạn nên đơn đã được huỷ. Toàn bộ số tiền đã được hoàn về ví của bạn."
                 await log_event(db, "warning", f"Order {order.id} auto-refunded (SLA breach)", job_id=job_id,
                                 metadata={"event": "sla_refund", "order_id": order.id, "seller_id": order.seller_id})
-                await create_alert("sla_breach", "warning", "seller", order.seller_id,
-                                   f"Đơn #{order.id} đã huỷ do nhà bán không giao đúng hạn", db)
+                await upsert_incident(
+                    db,
+                    fingerprint=fp_order(order.id, "sla_breach"),
+                    type_="sla_breach",
+                    severity="warning",
+                    target_type="seller",
+                    target_id=order.seller_id,
+                    message=f"Đơn #{order.id} đã huỷ do nhà bán không giao đúng hạn",
+                )
                 await db.commit()
                 logger.warning("sla_breach", order_id=order.id, seller_id=order.seller_id)
             except Exception as e:
@@ -96,8 +115,16 @@ async def sla_check_job() -> None:
                 logger.error("sla_refund_failed", order_id=order.id, error=str(e))
                 await log_event(db, "error", f"SLA auto-refund failed for order {order.id}: {e}", job_id=job_id,
                                 metadata={"event": "sla_refund_failed", "order_id": order.id})
-                await create_alert("sla_refund_failed", "error", "order", order.id,
-                                   f"Đơn #{order.id} quá hạn SLA nhưng không tự hoàn tiền được — cần admin kiểm tra", db)
+                await upsert_incident(
+                    db,
+                    fingerprint=fp_order(order.id, "sla_refund_failed"),
+                    type_="sla_refund_failed",
+                    severity="error",
+                    target_type="order",
+                    target_id=order.id,
+                    message=f"Đơn #{order.id} quá hạn SLA nhưng không tự hoàn tiền được — cần admin kiểm tra",
+                )
+                await db.commit()
 
 
 PROVISION_RETRY_AFTER_SECONDS = 120
@@ -169,7 +196,15 @@ async def provision_sweep_job() -> None:
                         f"{settings.topproxy_marker_prefix}{order.id} không (nếu có: Xu đã trừ, "
                         f"cứu bằng scripts/recover_topproxy_orders.py)"
                     )
-                await create_alert("provision_stuck", "warning", "order", order.id, alert_message, db)
+                await upsert_incident(
+                    db,
+                    fingerprint=fp_order(order.id, "provision_stuck"),
+                    type_="provision_stuck",
+                    severity="warning",
+                    target_type="order",
+                    target_id=order.id,
+                    message=alert_message,
+                )
                 await db.commit()
                 logger.warning("provision_deadline_refund", order_id=order.id)
             except Exception as e:
@@ -180,8 +215,16 @@ async def provision_sweep_job() -> None:
                 logger.error("provision_deadline_refund_failed", order_id=order.id, error=str(e))
                 await log_event(db, "error", f"Provision deadline refund failed for order {order.id}: {e}", job_id=job_id,
                                 metadata={"event": "provision_deadline_refund_failed", "order_id": order.id})
-                await create_alert("provision_stuck", "error", "order", order.id,
-                                   f"Đơn #{order.id} quá hạn provision nhưng không tự hoàn tiền được — cần admin kiểm tra", db)
+                await upsert_incident(
+                    db,
+                    fingerprint=fp_order(order.id, "provision_stuck"),
+                    type_="provision_stuck",
+                    severity="error",
+                    target_type="order",
+                    target_id=order.id,
+                    message=f"Đơn #{order.id} quá hạn provision nhưng không tự hoàn tiền được — cần admin kiểm tra",
+                )
+                await db.commit()
 
     # Retries open their own sessions, so they run after the sweep's own commit.
     for order_id in retryable_ids:
@@ -268,8 +311,18 @@ async def health_check_job() -> None:
                     provider.is_active = False
                     await log_event(db, "critical", f"Provider {provider.name} marked down", job_id=job_id,
                                     metadata={"event": "provider_down", "provider_id": provider.id})
-                    await create_alert("provider_down", "critical", "provider", provider.id,
-                                       f"Nhà cung cấp {provider.name} ngừng hoạt động (3 lần kiểm tra liên tiếp thất bại)", db)
+                    await upsert_incident(
+                        db,
+                        fingerprint=fp_provider(provider.id, "provider_down"),
+                        type_="provider_down",
+                        severity="critical",
+                        target_type="provider",
+                        target_id=provider.id,
+                        message=(
+                            f"Nhà cung cấp {provider.name} ngừng hoạt động "
+                            f"(3 lần kiểm tra liên tiếp thất bại)"
+                        ),
+                    )
         await db.commit()
 
 
@@ -300,9 +353,19 @@ async def resource_expire_job() -> None:
             count = len(list(available.scalars().all()))
             if count <= 3:
                 variant = await db.get(ProductVariant, vid)
-                seller_id = variant.product.seller_id if variant and hasattr(variant, "product") else 0
-                await create_alert("resource_low", "warning", "seller", seller_id or vid,
-                                   f"Gói #{vid} chỉ còn {count} tài nguyên sẵn sàng", db)
+                seller_id = 0
+                if variant is not None:
+                    product = await db.get(Product, variant.product_id) if variant.product_id else None
+                    seller_id = product.seller_id if product else 0
+                await upsert_incident(
+                    db,
+                    fingerprint=fp_variant(vid, "resource_low"),
+                    type_="resource_low",
+                    severity="warning",
+                    target_type="seller",
+                    target_id=seller_id or vid,
+                    message=f"Gói #{vid} chỉ còn {count} tài nguyên sẵn sàng",
+                )
 
         await db.commit()
 
@@ -375,8 +438,20 @@ async def task_webhook_sla_job() -> None:
                 job_id=job_id,
                 metadata={"event": "task_webhook_sla_timeout", "order_id": order.id, "task_count": len(pending)},
             )
-            await create_alert("task_webhook_timeout", "warning", "order", order.id,
-                               f"Đơn #{order.id}: seller không phản hồi webhook trong hạn, {len(pending)} tác vụ đã timeout", db)
+            await upsert_incident(
+                db,
+                fingerprint=fp_order(order.id, "task_webhook_timeout"),
+                type_="task_webhook_timeout",
+                severity="warning",
+                target_type="order",
+                target_id=order.id,
+                message=(
+                    f"Đơn #{order.id}: seller không phản hồi webhook trong hạn, "
+                    f"{len(pending)} tác vụ đã timeout"
+                ),
+            )
+            # update_task already committed domain state; persist audit + incident.
+            await db.commit()
             logger.warning("task_webhook_sla_timeout", order_id=order.id, task_count=len(pending))
 
 
@@ -437,16 +512,37 @@ async def dproxy_reconciliation_job() -> None:
             try:
                 assignments = await adapter.list_assignments()
             except DProxyAuthError:
-                await create_alert("dproxy_auth_error", "critical", "provider", provider.id,
-                                   f"Provider {provider.name}: sai thông tin xác thực DProxy", db)
+                await upsert_incident(
+                    db,
+                    fingerprint=fp_provider(provider.id, "dproxy_auth_error"),
+                    type_="dproxy_auth_error",
+                    severity="critical",
+                    target_type="provider",
+                    target_id=provider.id,
+                    message=f"Provider {provider.name}: sai thông tin xác thực DProxy",
+                )
                 continue
             except DProxyUnavailableError:
-                await create_alert("dproxy_unavailable", "warning", "provider", provider.id,
-                                   f"Provider {provider.name}: không kết nối được DProxy", db)
+                await upsert_incident(
+                    db,
+                    fingerprint=fp_provider(provider.id, "dproxy_unavailable"),
+                    type_="dproxy_unavailable",
+                    severity="warning",
+                    target_type="provider",
+                    target_id=provider.id,
+                    message=f"Provider {provider.name}: không kết nối được DProxy",
+                )
                 continue
             except DProxyContractError:
-                await create_alert("dproxy_contract_error", "critical", "provider", provider.id,
-                                   f"Provider {provider.name}: DProxy trả về dữ liệu không hợp lệ", db)
+                await upsert_incident(
+                    db,
+                    fingerprint=fp_provider(provider.id, "dproxy_contract_error"),
+                    type_="dproxy_contract_error",
+                    severity="critical",
+                    target_type="provider",
+                    target_id=provider.id,
+                    message=f"Provider {provider.name}: DProxy trả về dữ liệu không hợp lệ",
+                )
                 continue
 
             by_external_id: dict[str, object] = {}
@@ -456,9 +552,17 @@ async def dproxy_reconciliation_job() -> None:
                     duplicate_count += 1
                 by_external_id[a.external_id] = a
             if duplicate_count:
-                await create_alert(
-                    "dproxy_duplicate_external_id", "warning", "provider", provider.id,
-                    f"Provider {provider.name}: {duplicate_count} external_id trùng lặp trong tồn kho", db,
+                await upsert_incident(
+                    db,
+                    fingerprint=fp_provider(provider.id, "dproxy_duplicate_external_id"),
+                    type_="dproxy_duplicate_external_id",
+                    severity="warning",
+                    target_type="provider",
+                    target_id=provider.id,
+                    message=(
+                        f"Provider {provider.name}: {duplicate_count} external_id "
+                        f"trùng lặp trong tồn kho"
+                    ),
                 )
 
             bindings = list((await db.execute(
@@ -481,11 +585,18 @@ async def dproxy_reconciliation_job() -> None:
                         allocation.status = ProxyAllocationStatus.error
                         order = await db.get(Order, allocation.order_id)
                         order_status = order.status.value if order else "unknown"
-                        await create_alert(
-                            "dproxy_allocation_disappeared", "critical", "order", allocation.order_id,
-                            f"Đơn #{allocation.order_id} (proxy {allocation.external_id}): biến mất khỏi "
-                            f"DProxy {allocation.consecutive_misses} lần liên tiếp, trước hạn marketplace "
-                            f"(order {order_status})", db,
+                        await upsert_incident(
+                            db,
+                            fingerprint=fp_order(allocation.order_id, "dproxy_allocation_disappeared"),
+                            type_="dproxy_allocation_disappeared",
+                            severity="critical",
+                            target_type="order",
+                            target_id=allocation.order_id,
+                            message=(
+                                f"Đơn #{allocation.order_id} (proxy {allocation.external_id}): "
+                                f"biến mất khỏi DProxy {allocation.consecutive_misses} lần liên tiếp, "
+                                f"trước hạn marketplace (order {order_status})"
+                            ),
                         )
                         logger.warning("dproxy_allocation_disappeared", order_id=allocation.order_id,
                                        allocation_id=allocation.id, external_id=allocation.external_id)
@@ -523,11 +634,10 @@ async def provider_credit_low_job() -> None:
     src/providers/credit.py::report_out_of_credit (gặp mã 102 thì đã muộn —
     một đơn của khách đã hỏng rồi).
 
-    Chỉ xét provider đã BẬT theo dõi (`credit_balance_xu` khác NULL). Alert đi
-    qua `create_alert_once` nên chạy mỗi 15 phút cũng chỉ ra đúng một dòng cho
-    tới khi admin nạp thêm.
+    Chỉ xét provider đã BẬT theo dõi (`credit_balance_xu` khác NULL). Incident
+    fingerprint per provider so a 15-minute poll only bumps occurrence_count.
     """
-    from src.providers.credit import ALERT_LOW_CREDIT, DEFAULT_LOW_THRESHOLD_XU, create_alert_once
+    from src.providers.credit import ALERT_LOW_CREDIT, DEFAULT_LOW_THRESHOLD_XU
 
     async with SessionLocal() as db:
         providers = list((await db.execute(
@@ -538,17 +648,24 @@ async def provider_credit_low_job() -> None:
             threshold = provider.credit_low_threshold_xu or DEFAULT_LOW_THRESHOLD_XU
             if provider.credit_balance_xu > threshold:
                 continue
-            await create_alert_once(
-                ALERT_LOW_CREDIT, "warning", "provider", provider.id,
-                f"Nhà cung cấp {provider.name} sắp hết tiền: còn khoảng "
-                f"{provider.credit_balance_xu:,} Xu (ngưỡng {threshold:,}). "
-                f"Nạp thêm rồi cập nhật số dư ở /admin/providers.".replace(",", "."),
+            await upsert_incident(
                 db,
+                fingerprint=fp_provider(provider.id, ALERT_LOW_CREDIT),
+                type_=ALERT_LOW_CREDIT,
+                severity="warning",
+                target_type="provider",
+                target_id=provider.id,
+                message=(
+                    f"Nhà cung cấp {provider.name} sắp hết tiền: còn khoảng "
+                    f"{provider.credit_balance_xu:,} Xu (ngưỡng {threshold:,}). "
+                    f"Nạp thêm rồi cập nhật số dư ở /admin/providers.".replace(",", ".")
+                ),
             )
             logger.warning(
                 "provider_credit_low",
                 provider_id=provider.id, balance_xu=provider.credit_balance_xu, threshold=threshold,
             )
+        await db.commit()
 
 
 async def deposit_reconcile_job() -> None:
@@ -630,12 +747,18 @@ async def deposit_expire_job() -> None:
             logger.info("deposit_expire_swept", count=len(intents))
 
 
+async def operational_log_cleanup_job() -> None:
+    """Purge gateway/provider call logs, aged log_entries, and resolved alerts.
+
+    Replaces the gateway-only cleanup: one job, bounded batches, ledger-safe.
+    """
+    try:
+        counts = await purge_operational_logs()
+        logger.info("operational_log_cleanup_done", **counts)
+    except Exception as e:
+        logger.error("operational_log_cleanup_failed", error=str(e))
+
+
 async def gateway_call_log_cleanup_job() -> None:
-    """Xoá gateway_call_logs quá hạn (settings.gateway_call_log_retention_days,
-    mặc định 7 ngày) — bảng lịch sử tiện lợi cho buyer xem gần đây, KHÔNG phải
-    sổ cái billing (usage_records không bao giờ đụng tới ở đây, xem docstring
-    GatewayCallLog). Xoá thẳng, không cần khoá dòng hay soft-delete vì không
-    ai khác phụ thuộc bảng này."""
-    deleted = await purge_old_gateway_call_logs()
-    if deleted:
-        logger.info("gateway_call_log_cleanup", deleted=deleted)
+    """Backward-compatible name — delegates to operational_log_cleanup_job."""
+    await operational_log_cleanup_job()

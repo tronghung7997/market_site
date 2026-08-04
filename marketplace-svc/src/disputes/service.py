@@ -42,9 +42,15 @@ async def create_dispute(
     db.add(dispute)
     await log_event(db, "warning", f"Dispute opened on order {order_id}", request_id=current_request_id(),
                     metadata={"event": "dispute_opened", "order_id": order_id, "buyer_id": buyer_id})
-    from src.alerts.service import create_alert
-    await create_alert("dispute_opened", "warning", "order", order_id,
-                       f"Đơn #{order_id} bị khiếu nại: {reason[:100]}", db)
+    from src.alerts.service import add_alert
+    await add_alert(
+        db,
+        type_="dispute_opened",
+        severity="warning",
+        target_type="order",
+        target_id=order_id,
+        message=f"Đơn #{order_id} bị khiếu nại: {reason[:100]}",
+    )
     await db.commit()
     await db.refresh(dispute)
     return dispute

@@ -13,7 +13,7 @@ import type { LogEntry } from "@/lib/types";
 const LIMIT = 200;
 
 type Md = Record<string, unknown>;
-type Cat = "order" | "dispute" | "money" | "system";
+type Cat = "order" | "dispute" | "money" | "system" | "security";
 
 // ============================================================
 // Danh mục sự kiện — dịch mọi event backend ghi ra câu tiếng Việt
@@ -82,13 +82,25 @@ const EVENT_META: Record<string, EventMeta> = {
     cat: "order",
     describe: (m) => `Giải ngân ký quỹ đơn #${num(m, "order_id")}${money(m) ? ` — ${money(m)}` : ""} cho người bán`,
   },
+  escrow_release_failed: {
+    cat: "order",
+    describe: (m) => `Giải ngân ký quỹ đơn #${num(m, "order_id")} THẤT BẠI — cần admin kiểm tra`,
+  },
   sla_refund: {
     cat: "order",
     describe: (m) => `Đơn #${num(m, "order_id")} tự hoàn tiền — người bán trễ hạn giao (SLA)`,
   },
+  sla_refund_failed: {
+    cat: "order",
+    describe: (m) => `Đơn #${num(m, "order_id")} quá hạn SLA nhưng không tự hoàn tiền được`,
+  },
   provision_deadline_refund: {
     cat: "order",
     describe: (m) => `Đơn #${num(m, "order_id")} tự hoàn tiền — nguồn hàng không cấp được trong 15 phút`,
+  },
+  provision_deadline_refund_failed: {
+    cat: "order",
+    describe: (m) => `Đơn #${num(m, "order_id")} quá hạn provision nhưng không tự hoàn tiền được`,
   },
   resource_expired: {
     cat: "order",
@@ -155,7 +167,16 @@ const EVENT_META: Record<string, EventMeta> = {
   },
   manual_topup: {
     cat: "money",
-    describe: (m) => `Admin nạp tay ${money(m)} vào tài khoản #${num(m, "account_id")}`,
+    describe: (m) =>
+      `Admin nạp tay ${money(m)} vào tài khoản #${num(m, "subject_id") ?? num(m, "account_id")}${num(m, "actor_id") != null ? ` (bởi admin #${num(m, "actor_id")})` : ""}`,
+  },
+  demo_topup: {
+    cat: "money",
+    describe: (m) => `Demo nạp ${money(m)} vào tài khoản #${num(m, "subject_id") ?? num(m, "account_id")}`,
+  },
+  wallet_backfill: {
+    cat: "money",
+    describe: (m) => `Backfill ví / điều chỉnh sổ — tài khoản #${num(m, "account_id") ?? num(m, "subject_id")}`,
   },
   withdraw_requested: {
     cat: "money",
@@ -179,6 +200,80 @@ const EVENT_META: Record<string, EventMeta> = {
     cat: "system",
     describe: (m) => `Nguồn hàng #${num(m, "provider_id")} bị TẮT — lỗi 3 lần kiểm tra liên tiếp`,
   },
+  internal_resources_acquired: {
+    cat: "system",
+    describe: (m) =>
+      `Dịch vụ nội bộ lấy ${num(m, "quantity") ?? arrLen(m, "resource_ids") ?? ""} tài nguyên (gói #${num(m, "variant_id")})`,
+  },
+  internal_resources_released: {
+    cat: "system",
+    describe: (m) => `Dịch vụ nội bộ trả ${arrLen(m, "resource_ids") ?? ""} tài nguyên`,
+  },
+  task_updated: {
+    cat: "system",
+    describe: (m) =>
+      `Tác vụ #${num(m, "task_id")} đổi trạng thái${typeof m.old_status === "string" ? ` ${m.old_status}` : ""}${typeof m.new_status === "string" ? ` → ${m.new_status}` : ""}`,
+  },
+  affiliate_fund_topup: {
+    cat: "money",
+    describe: (m) => `Admin nạp quỹ affiliate ${money(m)}`,
+  },
+
+  // ---- Bảo mật / đặc quyền ----
+  auth_register: {
+    cat: "security",
+    describe: (m) => `Tài khoản #${num(m, "subject_id") ?? num(m, "actor_id")} đăng ký`,
+  },
+  auth_role_changed: {
+    cat: "security",
+    describe: (m) =>
+      `Admin #${num(m, "actor_id")} đổi vai trò tài khoản #${num(m, "subject_id")}`,
+  },
+  auth_tier_changed: {
+    cat: "security",
+    describe: (m) =>
+      `Admin #${num(m, "actor_id")} đổi cấp seller tài khoản #${num(m, "subject_id")}${typeof m.old_tier === "string" ? ` (${m.old_tier}` : ""}${typeof m.new_tier === "string" ? ` → ${m.new_tier})` : ""}`,
+  },
+  gateway_key_rotated: {
+    cat: "security",
+    describe: (m) => `Buyer xoay gateway key đơn #${num(m, "order_id") ?? num(m, "subject_id")}`,
+  },
+  gateway_key_revoked: {
+    cat: "security",
+    describe: (m) => `Admin thu hồi gateway key đơn #${num(m, "order_id") ?? num(m, "subject_id")}`,
+  },
+  seller_api_key_created: {
+    cat: "security",
+    describe: (m) => `Seller #${num(m, "actor_id")} tạo API key ${typeof m.prefix === "string" ? m.prefix : ""}`,
+  },
+  seller_api_key_revoked: {
+    cat: "security",
+    describe: (m) => `Seller #${num(m, "actor_id")} thu hồi API key #${num(m, "key_id") ?? num(m, "subject_id")}`,
+  },
+  seller_application_submitted: {
+    cat: "security",
+    describe: (m) => `Tài khoản #${num(m, "actor_id")} nộp đơn đăng ký seller #${num(m, "application_id")}`,
+  },
+  seller_application_approved: {
+    cat: "security",
+    describe: (m) => `Admin #${num(m, "actor_id")} duyệt đơn seller #${num(m, "application_id")}`,
+  },
+  seller_application_rejected: {
+    cat: "security",
+    describe: (m) => `Admin #${num(m, "actor_id")} từ chối đơn seller #${num(m, "application_id")}`,
+  },
+  provider_created: {
+    cat: "system",
+    describe: (m) => `Tạo nguồn hàng #${num(m, "provider_id") ?? num(m, "subject_id")}`,
+  },
+  provider_updated: {
+    cat: "system",
+    describe: (m) => `Cập nhật nguồn hàng #${num(m, "provider_id") ?? num(m, "subject_id")}`,
+  },
+  provider_reviewed: {
+    cat: "system",
+    describe: (m) => `Duyệt nguồn hàng #${num(m, "provider_id") ?? num(m, "subject_id")}`,
+  },
 };
 
 const CAT_TABS: { key: string; label: string }[] = [
@@ -186,6 +281,7 @@ const CAT_TABS: { key: string; label: string }[] = [
   { key: "order", label: "Đơn hàng" },
   { key: "dispute", label: "Khiếu nại" },
   { key: "money", label: "Dòng tiền" },
+  { key: "security", label: "Bảo mật" },
   { key: "system", label: "Hệ thống" },
 ];
 
@@ -220,6 +316,14 @@ const META_KEY_LABELS: Record<string, string> = {
   task_count: "Số tác vụ",
   extra_days: "Ngày bảo hành cộng thêm",
   error: "Chi tiết lỗi",
+  actor_id: "Người thực hiện",
+  subject_id: "Đối tượng",
+  old_roles: "Vai trò cũ",
+  new_roles: "Vai trò mới",
+  old_tier: "Cấp cũ",
+  new_tier: "Cấp mới",
+  prefix: "Tiền tố key",
+  application_id: "Đơn đăng ký",
 };
 const MONEY_KEYS = new Set(["amount", "refund_amount"]);
 
@@ -277,6 +381,9 @@ export default function AdminLogsPage() {
     return m ? Number(m[1]) : undefined;
   }, [debouncedSearch]);
 
+  const [extraLogs, setExtraLogs] = React.useState<LogEntry[]>([]);
+  const [loadingMore, setLoadingMore] = React.useState(false);
+
   const apiParams = React.useMemo(
     () => ({
       order_id: trace ? undefined : orderIdSearch,
@@ -293,7 +400,33 @@ export default function AdminLogsPage() {
     staleTime: 15_000,
   });
 
-  const allRows = React.useMemo(() => (data ?? []).map(toRow), [data]);
+  React.useEffect(() => {
+    // Reset cursor pages when the primary filter set changes.
+    setExtraLogs([]);
+  }, [apiParams]);
+
+  const mergedLogs = React.useMemo(() => {
+    const head = data ?? [];
+    if (!extraLogs.length) return head;
+    const seen = new Set(head.map((l) => l.id));
+    return [...head, ...extraLogs.filter((l) => !seen.has(l.id))];
+  }, [data, extraLogs]);
+
+  const allRows = React.useMemo(() => mergedLogs.map(toRow), [mergedLogs]);
+
+  const canLoadMore = (data?.length ?? 0) >= LIMIT || extraLogs.length > 0;
+  const oldestId = mergedLogs.length ? mergedLogs[mergedLogs.length - 1]?.id : undefined;
+
+  const loadMore = React.useCallback(async () => {
+    if (!oldestId || loadingMore) return;
+    setLoadingMore(true);
+    try {
+      const page = await api.adminLogs({ ...apiParams, before_id: oldestId, limit: LIMIT });
+      if (page.length) setExtraLogs((prev) => [...prev, ...page]);
+    } finally {
+      setLoadingMore(false);
+    }
+  }, [oldestId, loadingMore, apiParams]);
 
   // Lọc nội dung tại chỗ (khi search không phải mã đơn)
   const scope = React.useMemo(() => {
@@ -379,7 +512,7 @@ export default function AdminLogsPage() {
                 {scope.length.toLocaleString("vi-VN")}
               </p>
               <p className="mt-0.5 text-[11px] text-slate-400">
-                {LIMIT} sự kiện gần nhất · cập nhật{" "}
+                {mergedLogs.length.toLocaleString("vi-VN")} đã tải · cập nhật{" "}
                 {dataUpdatedAt ? new Date(dataUpdatedAt).toLocaleTimeString("vi-VN") : "—"}
               </p>
             </div>
@@ -701,12 +834,22 @@ export default function AdminLogsPage() {
           )}
         </div>
 
-        {/* Chân trang */}
-        {!isLoading && rows.length > 0 && (
-          <div className="border-t border-slate-200 px-4 py-3">
+        {/* Chân trang + tải thêm (cursor before_id) */}
+        {!isLoading && allRows.length > 0 && (
+          <div className="flex flex-wrap items-center justify-between gap-2 border-t border-slate-200 px-4 py-3">
             <span className="text-[12px] text-slate-500 tabular-nums">
-              Hiển thị {rows.length.toLocaleString("vi-VN")} / {allRows.length.toLocaleString("vi-VN")} sự kiện trong cửa sổ {LIMIT} bản ghi gần nhất
+              Hiển thị {rows.length.toLocaleString("vi-VN")} / {allRows.length.toLocaleString("vi-VN")} sự kiện đã tải
             </span>
+            {canLoadMore && oldestId != null && (
+              <button
+                type="button"
+                onClick={() => void loadMore()}
+                disabled={loadingMore}
+                className="inline-flex h-8 items-center gap-1.5 rounded-lg border border-slate-300 bg-white px-3 text-[12.5px] font-medium text-slate-600 transition-colors hover:border-slate-400 disabled:opacity-50"
+              >
+                {loadingMore ? "Đang tải…" : "Tải thêm sự kiện cũ hơn"}
+              </button>
+            )}
           </div>
         )}
       </Card>

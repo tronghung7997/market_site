@@ -31,9 +31,9 @@ async def list_tasks(
 async def update_task(
     task_id: int,
     body: schemas.TaskUpdateRequest,
-    _: Account = Depends(require_role("admin")),
+    admin: Account = Depends(require_role("admin")),
     db: AsyncSession = Depends(get_session),
 ):
     updates = body.model_dump(exclude_unset=True)
-    task, order_status = await service.update_task(task_id, updates, db)
+    task, order_status = await service.update_task(task_id, updates, db, actor_id=admin.id)
     return _to_response(task, order_status)

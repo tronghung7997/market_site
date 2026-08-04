@@ -69,8 +69,12 @@ async def _run_provider_test(provider_id: int, db: AsyncSession) -> schemas.Prov
 
 
 @router.post("/admin/providers", response_model=schemas.ProviderResponse, status_code=status.HTTP_201_CREATED)
-async def create(_body: schemas.ProviderCreate, _: Account = Depends(require_role("admin")), db: AsyncSession = Depends(get_session)):
-    return await service.create_provider(_body.model_dump(), db)
+async def create(
+    _body: schemas.ProviderCreate,
+    admin: Account = Depends(require_role("admin")),
+    db: AsyncSession = Depends(get_session),
+):
+    return await service.create_provider(_body.model_dump(), db, actor_id=admin.id)
 
 
 @router.get("/providers", response_model=list[schemas.ProviderResponse])
@@ -87,11 +91,11 @@ async def health(provider_id: int, _: Account = Depends(require_role("admin")), 
 async def update_provider(
     provider_id: int,
     body: schemas.ProviderUpdateRequest,
-    _: Account = Depends(require_role("admin")),
+    admin: Account = Depends(require_role("admin")),
     db: AsyncSession = Depends(get_session),
 ):
     updates = body.model_dump(exclude_unset=True)
-    return await service.update_provider(provider_id, updates, db)
+    return await service.update_provider(provider_id, updates, db, actor_id=admin.id)
 
 
 # --- Seed TopProxy qua API (một lần lúc go-live) ---------------------------

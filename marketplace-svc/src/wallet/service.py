@@ -52,17 +52,36 @@ async def backfill_missing_wallets(db: AsyncSession) -> list[int]:
     return missing_ids
 
 
-async def topup(account_id: int, amount: int, db: AsyncSession) -> Wallet:
+async def topup(
+    account_id: int,
+    amount: int,
+    db: AsyncSession,
+    *,
+    actor_id: int | None = None,
+    source: str = "admin",
+    event: str = "manual_topup",
+) -> Wallet:
+    """Credit a wallet. `source`/`event` distinguish admin manual vs demo funding."""
     if amount <= 0:
         raise HTTPException(status_code=400, detail="Số tiền phải lớn hơn 0")
     wallet = await get_wallet_by_account(account_id, db)
     wallet.available_balance += amount
-    tx = Transaction(wallet_id=wallet.id, type=TransactionType.topup, amount=amount, description="Admin topup")
+    description = "Demo topup" if event == "demo_topup" else "Admin topup"
+    tx = Transaction(wallet_id=wallet.id, type=TransactionType.topup, amount=amount, description=description)
     db.add(tx)
     await log_event(
-        db, "info", f"Topup tay {amount:,}đ vào account {account_id}".replace(",", "."),
+        db, "info", f"Topup {amount:,}đ vào account {account_id}".replace(",", "."),
         request_id=current_request_id(),
-        metadata={"event": "manual_topup", "account_id": account_id, "amount": amount},
+        metadata={
+            "event": event,
+            "actor_id": actor_id if actor_id is not None else account_id,
+            "actor_type": "admin" if source == "admin" else "buyer",
+            "subject_type": "account",
+            "subject_id": account_id,
+            "outcome": "success",
+            "source": source,
+            "amount": amount,
+        },
     )
     await db.commit()
     await db.refresh(wallet)

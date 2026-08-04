@@ -5,7 +5,8 @@ from sqlalchemy.ext.asyncio import AsyncSession
 from src.adapters.registry import get_spec
 from src.exceptions import NotOwner
 from src.models.provider import Provider, ProviderHealth
-from src.providers.schemas import SELLER_ALLOWED_ADAPTER_TYPES
+from src.providers.schemas import MASKED_SECRET, SELLER_ALLOWED_ADAPTER_TYPES
+from src.security.crypto import SENSITIVE_CONFIG_KEYS
 from src.security.crypto import encrypt_config
 from src.security.ssrf_guard import validate_seller_base_url
 
@@ -38,20 +39,74 @@ async def _validate_adapter_config(adapter_type: str | None, config: dict | None
         await spec.validate_config(config or {})
 
 
-async def create_provider(data: dict, db: AsyncSession) -> Provider:
+def _merge_masked_secrets(config: dict, existing: dict | None = None) -> dict:
+    """Treat the response mask as "keep current", never as a credential.
+
+    Only the explicit MASKED_SECRET sentinel preserves the previous value.
+    Omitting a sensitive key from a config update is a deliberate clear (so
+    required secrets fail validation rather than silently surviving).
+    """
+    merged = dict(config)
+    for key in SENSITIVE_CONFIG_KEYS:
+        if key not in merged:
+            # Key omitted → leave omitted (full/partial config replacement).
+            continue
+        submitted = merged.get(key)
+        previous = (existing or {}).get(key)
+        if existing is not None and previous and submitted == MASKED_SECRET:
+            merged[key] = previous
+            continue
+        if submitted == MASKED_SECRET and not previous:
+            raise HTTPException(status_code=400, detail=f"config.{key} phải được nhập lại")
+        if submitted in (None, ""):
+            # Explicit empty clear — drop the key so requires_* validation can fire.
+            merged.pop(key, None)
+    return merged
+
+
+async def create_provider(
+    data: dict, db: AsyncSession, *, actor_id: int | None = None,
+) -> Provider:
+    from src.audit.service import log_event
+    from src.logging import current_request_id
+
     if not data.get("type"):
         data["type"] = data.get("adapter_type", "mock")
+    if data.get("config"):
+        data["config"] = _merge_masked_secrets(data["config"])
     await _validate_adapter_config(data.get("adapter_type"), data.get("config"))
     if "config" in data and data["config"]:
         data["config"] = encrypt_config(data["config"])
     provider = Provider(**data)
     db.add(provider)
+    await db.flush()
+    await log_event(
+        db, "info", f"Provider {provider.id} created",
+        request_id=current_request_id(),
+        metadata={
+            "event": "provider_created",
+            "actor_id": actor_id,
+            "actor_type": "admin",
+            "subject_type": "provider",
+            "subject_id": provider.id,
+            "outcome": "success",
+            "source": "admin",
+            "provider_id": provider.id,
+            "changed_fields": sorted(k for k in data.keys() if k != "config")
+            + (["config"] if "config" in data else []),
+        },
+    )
     await db.commit()
     await db.refresh(provider)
     return provider
 
 
-async def update_provider(provider_id: int, updates: dict, db: AsyncSession) -> Provider:
+async def update_provider(
+    provider_id: int, updates: dict, db: AsyncSession, *, actor_id: int | None = None,
+) -> Provider:
+    from src.audit.service import log_event
+    from src.logging import current_request_id
+
     provider = await db.get(Provider, provider_id)
     if not provider:
         raise HTTPException(status_code=404, detail="Không tìm thấy nhà cung cấp")
@@ -60,15 +115,34 @@ async def update_provider(provider_id: int, updates: dict, db: AsyncSession) -> 
     # config hợp lệ cho loại mới, hoặc xoá field bắt buộc khỏi config trong
     # khi vẫn giữ adapter_type cũ, đều phải bị chặn như nhau.
     next_adapter_type = updates.get("adapter_type", provider.adapter_type)
+    if "config" in updates:
+        updates["config"] = _merge_masked_secrets(updates["config"] or {}, provider.config)
     next_config = updates["config"] if "config" in updates else provider.config
     await _validate_adapter_config(next_adapter_type, next_config)
 
     if "config" in updates and updates["config"]:
         updates["config"] = encrypt_config(updates["config"])
 
+    changed = sorted(updates.keys())
     for key, value in updates.items():
         setattr(provider, key, value)
 
+    await log_event(
+        db, "info", f"Provider {provider_id} updated",
+        request_id=current_request_id(),
+        metadata={
+            "event": "provider_updated",
+            "actor_id": actor_id,
+            "actor_type": "admin",
+            "subject_type": "provider",
+            "subject_id": provider_id,
+            "outcome": "success" if changed else "no_change",
+            "source": "admin",
+            "provider_id": provider_id,
+            # Field names only — never credential values.
+            "changed_fields": changed,
+        },
+    )
     await db.commit()
     await db.refresh(provider)
     return provider
@@ -86,7 +160,7 @@ async def create_seller_provider(seller_id: int, data: dict, db: AsyncSession) -
             status_code=400,
             detail=f"Seller chỉ tự đăng ký được adapter_type: {', '.join(sorted(SELLER_ALLOWED_ADAPTER_TYPES))}",
         )
-    config = data.get("config") or {}
+    config = _merge_masked_secrets(data.get("config") or {})
     await _validate_adapter_config(adapter_type, config)
     await validate_seller_base_url(config.get("base_url", ""))
     provider = Provider(
@@ -117,6 +191,8 @@ async def get_seller_provider(seller_id: int, provider_id: int, db: AsyncSession
 async def update_seller_provider(seller_id: int, provider_id: int, updates: dict, db: AsyncSession) -> Provider:
     provider = await get_seller_provider(seller_id, provider_id, db)
 
+    if "config" in updates:
+        updates["config"] = _merge_masked_secrets(updates["config"] or {}, provider.config)
     next_config = updates["config"] if "config" in updates else provider.config
     await _validate_adapter_config(provider.adapter_type, next_config)
     if "config" in updates:

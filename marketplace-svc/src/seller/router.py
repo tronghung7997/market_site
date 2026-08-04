@@ -26,10 +26,19 @@ async def list_apps(_: Account = Depends(require_role("admin")), db: AsyncSessio
 
 
 @router.post("/admin/seller-applications/{app_id}/approve", response_model=schemas.SellerApplicationResponse)
-async def approve(app_id: int, _: Account = Depends(require_role("admin")), db: AsyncSession = Depends(get_session)):
-    return await service.approve_application(app_id, db)
+async def approve(
+    app_id: int,
+    admin: Account = Depends(require_role("admin")),
+    db: AsyncSession = Depends(get_session),
+):
+    return await service.approve_application(app_id, db, actor_id=admin.id)
 
 
 @router.post("/admin/seller-applications/{app_id}/reject", response_model=schemas.SellerApplicationResponse)
-async def reject(app_id: int, body: schemas.RejectRequest, _: Account = Depends(require_role("admin")), db: AsyncSession = Depends(get_session)):
-    return await service.reject_application(app_id, body.reason, db)
+async def reject(
+    app_id: int,
+    body: schemas.RejectRequest,
+    admin: Account = Depends(require_role("admin")),
+    db: AsyncSession = Depends(get_session),
+):
+    return await service.reject_application(app_id, body.reason, db, actor_id=admin.id)

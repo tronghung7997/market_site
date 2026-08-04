@@ -35,6 +35,9 @@ async def record_click(
     if not affiliate:
         return
 
+    # Prefer visitor_id when present; only fall back to IP for anonymous
+    # clients. Combining both with OR would collapse distinct visitors
+    # sharing a NAT/IP (or the single test client IP) into one click.
     if visitor_id:
         identity_filter = AffiliateClick.visitor_id == visitor_id
     elif ip:
@@ -170,10 +173,27 @@ async def get_fund_overview(db: AsyncSession, limit: int = 30) -> dict:
 
 
 async def topup_fund(amount: int, admin_id: int, db: AsyncSession, note: str | None = None) -> dict:
+    from src.audit.service import log_event
+    from src.logging import current_request_id
+
     if amount <= 0:
         raise HTTPException(status_code=400, detail="Số tiền phải lớn hơn 0")
     db.add(
         AffiliateFundEntry(amount=amount, kind="topup", note=note, created_by=admin_id)
+    )
+    await log_event(
+        db, "info", f"Affiliate fund topped up by {amount}",
+        request_id=current_request_id(),
+        metadata={
+            "event": "affiliate_fund_topup",
+            "actor_id": admin_id,
+            "actor_type": "admin",
+            "subject_type": "affiliate_fund",
+            "subject_id": admin_id,
+            "outcome": "success",
+            "source": "admin",
+            "amount": amount,
+        },
     )
     await db.commit()
     return await get_fund_overview(db)

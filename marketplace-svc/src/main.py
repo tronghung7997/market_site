@@ -2,7 +2,7 @@ from contextlib import asynccontextmanager
 
 import structlog
 from apscheduler.schedulers.asyncio import AsyncIOScheduler
-from fastapi import FastAPI
+from fastapi import FastAPI, Header
 from starlette.middleware.cors import CORSMiddleware
 
 from src.alerts.router import router as alerts_router
@@ -15,7 +15,8 @@ from src.debug.router import router as debug_router
 from src.disputes.router import router as disputes_router
 from src.gateway.router import router as gateway_router
 from src.logging import setup_logging
-from src.middleware import RequestIdMiddleware
+from src.middleware import RequestIdMiddleware, SecurityHeadersMiddleware
+from src.observability.sentry import init_sentry
 from src.notifications.router import router as notifications_router
 from src.orders.router import router as orders_router
 from src.pricing.router import router as pricing_router
@@ -54,6 +55,7 @@ from fastapi.openapi.docs import (
 from fastapi.staticfiles import StaticFiles
 
 setup_logging()
+init_sentry()
 
 scheduler = AsyncIOScheduler()
 scheduler.add_job(escrow_release_job, "interval", minutes=30, id="escrow_release")
@@ -69,8 +71,7 @@ scheduler.add_job(dproxy_reconciliation_job, "interval", minutes=15, id="dproxy_
 scheduler.add_job(deposit_reconcile_job, "interval", minutes=5, id="deposit_reconcile")
 scheduler.add_job(deposit_expire_job, "interval", minutes=10, id="deposit_expire")
 scheduler.add_job(provider_credit_low_job, "interval", minutes=15, id="provider_credit_low")
-# Bảng lịch sử tiện lợi, không phải billing ledger — dọn thưa (6h/lần) là đủ,
-# không cần sát sao như các job trên (xem settings.gateway_call_log_retention_days).
+# Operational log retention (gateway/provider call logs, log_entries, resolved alerts).
 scheduler.add_job(gateway_call_log_cleanup_job, "interval", hours=6, id="gateway_call_log_cleanup")
 
 
@@ -91,16 +92,26 @@ async def lifespan(app):
     scheduler.shutdown()
 
 
-app = FastAPI(title=settings.service_name, lifespan=lifespan, docs_url=None, redoc_url=None)
+app = FastAPI(
+    title=settings.service_name,
+    lifespan=lifespan,
+    docs_url=None,
+    redoc_url=None,
+    openapi_url="/openapi.json" if settings.api_docs_enabled else None,
+)
 
-app.add_middleware(RequestIdMiddleware)
 app.add_middleware(
     CORSMiddleware,
-    allow_origins=["*"],
-    allow_credentials=True,
-    allow_methods=["*"],
-    allow_headers=["*"],
+    allow_origins=settings.cors_origins,
+    allow_credentials=False,
+    allow_methods=["GET", "POST", "PUT", "PATCH", "DELETE", "OPTIONS"],
+    allow_headers=["Authorization", "Content-Type", "X-Request-ID", "X-Seller-Api-Key"],
 )
+app.add_middleware(
+    SecurityHeadersMiddleware,
+    enable_hsts=settings.deployment_environment == "production",
+)
+app.add_middleware(RequestIdMiddleware)
 
 app.include_router(auth_router)
 app.include_router(seller_router)
@@ -121,7 +132,8 @@ app.include_router(alerts_router)
 app.include_router(reviews_router)
 app.include_router(audit_router)
 app.include_router(affiliate_router)
-app.include_router(debug_router)
+if settings.debug_routes_enabled:
+    app.include_router(debug_router)
 app.include_router(usage_router)
 app.include_router(gateway_router)
 app.include_router(proxy_router)
@@ -131,29 +143,47 @@ app.include_router(proxy_router)
 async def health():
     return {"status": "ok", "service": settings.service_name}
 
-# Static UI
-app.mount("/static", StaticFiles(directory="static"), name="static")
 
-@app.get("/docs", include_in_schema=False)
-async def custom_swagger_ui_html():
-    return get_swagger_ui_html(
-        openapi_url=app.openapi_url,
-        title="This is my town now !!!",
-        oauth2_redirect_url=app.swagger_ui_oauth2_redirect_url,
-        swagger_js_url="/static/swagger-ui-bundle.js",
-        swagger_css_url="/static/swagger-ui.css",
-    )
+@app.get("/internal/metrics", include_in_schema=False)
+async def internal_metrics(x_internal_key: str = Header(...)):
+    """Prometheus text metrics — requires X-Internal-Key.
 
-@app.get(app.swagger_ui_oauth2_redirect_url, include_in_schema=False)
-async def swagger_ui_redirect():
-    return get_swagger_ui_oauth2_redirect_html()
+    Not published anonymously; scrape from private network only.
+    """
+    import hmac as _hmac
 
+    from fastapi import Response
+    from src.observability.metrics import render_prometheus
 
-@app.get("/redoc", include_in_schema=False)
-async def redoc_html():
-    return get_redoc_html(
-        openapi_url=app.openapi_url,
-        title=app.title + " - ReDoc",
-        redoc_js_url="/static/redoc.standalone.js",
-    )
+    if not _hmac.compare_digest(x_internal_key, settings.internal_api_key):
+        from fastapi import HTTPException
+        raise HTTPException(status_code=403, detail="Khoá nội bộ không hợp lệ")
+    return Response(content=render_prometheus(), media_type="text/plain; version=0.0.4")
+
+if settings.api_docs_enabled:
+    # Bundled assets keep optional development docs offline. Production and
+    # staging default to no OpenAPI route at all.
+    app.mount("/static", StaticFiles(directory="static"), name="static")
+
+    @app.get("/docs", include_in_schema=False)
+    async def custom_swagger_ui_html():
+        return get_swagger_ui_html(
+            openapi_url=app.openapi_url,
+            title=f"{app.title} API docs",
+            oauth2_redirect_url=app.swagger_ui_oauth2_redirect_url,
+            swagger_js_url="/static/swagger-ui-bundle.js",
+            swagger_css_url="/static/swagger-ui.css",
+        )
+
+    @app.get(app.swagger_ui_oauth2_redirect_url, include_in_schema=False)
+    async def swagger_ui_redirect():
+        return get_swagger_ui_oauth2_redirect_html()
+
+    @app.get("/redoc", include_in_schema=False)
+    async def redoc_html():
+        return get_redoc_html(
+            openapi_url=app.openapi_url,
+            title=app.title + " - ReDoc",
+            redoc_js_url="/static/redoc.standalone.js",
+        )
 #

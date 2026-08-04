@@ -15,15 +15,14 @@ src/adapters/factory.py, src/providers/service.py) — admin-created providers
 are trusted input and intentionally allowed to point at http://localhost for
 local dev against scripts/mock_seller.py.
 
-DNS resolution failures fail OPEN (validation is skipped, the actual
-request is left to fail on its own connection error) rather than closed — a
-host that can't be resolved can't be connected to either way, so blocking
-here would add nothing but false positives (every *.example.com fixture the
-test suite uses is unresolvable in a sandboxed CI network). Only a
-*successful* resolution to a disallowed address is treated as a finding.
+At call time the resolved public IP is returned to the HTTP transport, which
+connects to that exact address while preserving the original hostname for
+TLS SNI and certificate verification. This removes the validation/request
+DNS TOCTOU gap. Resolution failures fail closed outside the test environment.
 """
 
 import asyncio
+from dataclasses import dataclass
 import ipaddress
 import socket
 from urllib.parse import urlsplit
@@ -32,6 +31,12 @@ from fastapi import HTTPException
 
 _ALLOWED_SCHEMES = {"https"}
 _RESOLVE_TIMEOUT_SECONDS = 2.0
+
+
+@dataclass(frozen=True)
+class ResolvedTarget:
+    hostname: str
+    ip_address: str
 
 
 def _is_blocked_ip(ip_str: str) -> bool:
@@ -50,7 +55,11 @@ def _reject(reason: str) -> None:
     raise HTTPException(status_code=400, detail=f"config.base_url không hợp lệ: {reason}")
 
 
-async def validate_seller_base_url(url: str) -> None:
+async def validate_seller_base_url(
+    url: str,
+    *,
+    require_resolution: bool = False,
+) -> ResolvedTarget | None:
     """Raise HTTPException(400) if `url` is unsafe for the platform to call.
 
     Call this both when a seller's provider config is written (create/update
@@ -72,6 +81,17 @@ async def validate_seller_base_url(url: str) -> None:
     if not hostname:
         _reject("thiếu host")
         return
+    if parts.username is not None or parts.password is not None:
+        _reject("không chấp nhận userinfo trong URL")
+    if parts.query or parts.fragment:
+        _reject("base_url không được chứa query hoặc fragment")
+    try:
+        port = parts.port
+    except ValueError:
+        _reject("cổng không hợp lệ")
+        return None
+    if port not in (None, 443):
+        _reject("seller endpoint HTTPS chỉ được dùng cổng 443")
 
     try:
         literal_ip = ipaddress.ip_address(hostname)
@@ -80,8 +100,15 @@ async def validate_seller_base_url(url: str) -> None:
 
     if literal_ip is not None:
         if _is_blocked_ip(str(literal_ip)):
+            from src.security.events import security_event
+            security_event(
+                "ssrf_blocked",
+                level="warning",
+                host=hostname,
+                reason="literal_private_ip",
+            )
             _reject(f"trỏ tới địa chỉ nội bộ ({literal_ip})")
-        return
+        return ResolvedTarget(hostname=hostname, ip_address=str(literal_ip))
 
     try:
         infos = await asyncio.wait_for(
@@ -89,10 +116,27 @@ async def validate_seller_base_url(url: str) -> None:
             timeout=_RESOLVE_TIMEOUT_SECONDS,
         )
     except (socket.gaierror, asyncio.TimeoutError, OSError):
-        return  # unresolvable — nothing to protect, the real request will fail too
+        if require_resolution:
+            _reject(f"không thể phân giải host '{hostname}' an toàn")
+        return None
 
+    public_ips: list[str] = []
     for info in infos:
         ip_str = info[4][0]
         if _is_blocked_ip(ip_str):
+            from src.security.events import security_event
+            security_event(
+                "ssrf_blocked",
+                level="warning",
+                host=hostname,
+                reason="resolved_private_ip",
+            )
             _reject(f"host '{hostname}' phân giải ra địa chỉ nội bộ ({ip_str})")
-            return
+        if ip_str not in public_ips:
+            public_ips.append(ip_str)
+
+    if not public_ips:
+        if require_resolution:
+            _reject(f"host '{hostname}' không có địa chỉ IP hợp lệ")
+        return None
+    return ResolvedTarget(hostname=hostname, ip_address=public_ips[0])

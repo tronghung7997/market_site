@@ -12,8 +12,8 @@ Hai lớp bảo vệ, cố tình tách rời:
 2. DỰ BÁO (`debit_estimated_cost` + `credit_low_check_job`) — tự trừ dần từ số
    dư admin nhập, cảnh báo trước khi chạm đáy. Sớm nhưng chỉ là ước tính.
 
-Alert đi qua `create_alert_once` nên 50 đơn fail liên tiếp vẫn chỉ một dòng
-cảnh báo, không trôi mất mọi thứ khác trong /admin/alerts.
+Incident hết/sắp hết Xu đi qua fingerprint `provider:{id}:provider_out_of_credit`
+(và low credit) nên 50 đơn fail liên tiếp vẫn chỉ một dòng active, count tăng.
 """
 from datetime import datetime, timezone
 
@@ -22,6 +22,7 @@ from sqlalchemy import select, update
 from sqlalchemy.ext.asyncio import AsyncSession
 from sqlalchemy.orm.attributes import set_committed_value
 
+from src.alerts.service import emit_incident, fp_provider
 from src.models.alert import Alert
 from src.models.provider import Provider
 
@@ -35,29 +36,6 @@ ALERT_LOW_CREDIT = "provider_low_credit"
 DEFAULT_LOW_THRESHOLD_XU = 20_000
 
 
-async def create_alert_once(
-    type_: str, severity: str, target_type: str, target_id: int, message: str, db: AsyncSession,
-) -> Alert | None:
-    """Như `create_alert` nhưng KHÔNG tạo trùng: đã có một alert cùng
-    (type, target_type, target_id) đang active thì bỏ qua, trả None.
-
-    Cần thiết vì các sự cố ở đây lặp lại theo từng đơn — hết Xu mà 50 khách
-    cùng đặt là 50 lần gặp `102`, admin chỉ cần biết MỘT lần."""
-    from src.alerts.service import create_alert
-
-    existing = await db.scalar(
-        select(Alert.id).where(
-            Alert.type == type_,
-            Alert.target_type == target_type,
-            Alert.target_id == target_id,
-            Alert.is_active.is_(True),
-        ).limit(1)
-    )
-    if existing is not None:
-        return None
-    return await create_alert(type_, severity, target_type, target_id, message, db)
-
-
 async def report_out_of_credit(provider_id: int, db: AsyncSession) -> None:
     """Gọi khi nhà cung cấp trả mã "hết tiền" (TopProxy `102`).
 
@@ -65,8 +43,8 @@ async def report_out_of_credit(provider_id: int, db: AsyncSession) -> None:
     phát hỏng → hoàn tiền cho buyer. Dừng bán sớm hơn thì đỡ hơn cho cả hai
     phía. Admin nạp Xu xong dùng `set_credit_balance` để bật lại.
 
-    Tự commit (giống `create_alert`) nên PHẢI gọi SAU khi caller commit xong
-    transaction đơn hàng.
+    Commits provider state, then emits the incident on its own session so a
+    prior domain rollback cannot swallow the outage signal.
     """
     provider = await db.get(Provider, provider_id)
     if provider is None:
@@ -83,11 +61,16 @@ async def report_out_of_credit(provider_id: int, db: AsyncSession) -> None:
         provider.credit_updated_at = datetime.now(timezone.utc)
     await db.commit()
 
-    await create_alert_once(
-        ALERT_OUT_OF_CREDIT, "critical", "provider", provider_id,
-        f"Nhà cung cấp {name} đã HẾT TIỀN — đã tạm dừng bán. "
-        f"Nạp Xu trên topproxy.vn rồi cập nhật số dư ở /admin/providers để bán lại.",
-        db,
+    await emit_incident(
+        fingerprint=fp_provider(provider_id, ALERT_OUT_OF_CREDIT),
+        type_=ALERT_OUT_OF_CREDIT,
+        severity="critical",
+        target_type="provider",
+        target_id=provider_id,
+        message=(
+            f"Nhà cung cấp {name} đã HẾT TIỀN — đã tạm dừng bán. "
+            f"Nạp Xu trên topproxy.vn rồi cập nhật số dư ở /admin/providers để bán lại."
+        ),
     )
     logger.error("provider_out_of_credit", provider_id=provider_id, was_active=was_active)
 

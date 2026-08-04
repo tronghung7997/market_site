@@ -64,19 +64,44 @@ async def update_task(
     task_id: int,
     updates: dict,
     db: AsyncSession,
+    *,
+    actor_id: int | None = None,
 ) -> tuple[ServiceTask, str | None]:
     """Apply updates rồi đồng bộ trạng thái order nếu mọi task đã kết thúc.
 
     Returns (task, order_status_sau_khi_sync).
     """
+    from src.audit.service import log_event
+    from src.logging import current_request_id
+
     task = await db.get(ServiceTask, task_id)
     if not task:
         raise HTTPException(status_code=404, detail="Không tìm thấy tác vụ")
 
+    old_status = task.status.value if hasattr(task.status, "value") else str(task.status)
     for key, value in updates.items():
         setattr(task, key, value)  # cho phép set None (vd xoá assignee)
 
     order_status = await _sync_order_status(task, db)
+    new_status = task.status.value if hasattr(task.status, "value") else str(task.status)
+
+    if "status" in updates or old_status != new_status:
+        await log_event(
+            db, "info", f"Task {task_id} updated",
+            request_id=current_request_id(),
+            metadata={
+                "event": "task_updated",
+                "actor_id": actor_id,
+                "subject_type": "task",
+                "subject_id": task_id,
+                "outcome": "success",
+                "source": "admin" if actor_id else "system",
+                "task_id": task_id,
+                "order_id": task.order_id,
+                "old_status": old_status,
+                "new_status": new_status,
+            },
+        )
 
     await db.commit()
     await db.refresh(task)

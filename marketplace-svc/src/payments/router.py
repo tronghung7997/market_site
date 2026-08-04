@@ -65,6 +65,15 @@ async def payos_webhook(request: Request, db: AsyncSession = Depends(get_session
         return {"ok": True, "note": "PayOS chưa được cấu hình — bỏ qua"}
 
     if not payos_client.verify_webhook_signature(payload):
+        from src.security.events import security_event
+        data = payload.get("data") if isinstance(payload.get("data"), dict) else {}
+        order_code = data.get("orderCode")
+        security_event(
+            "webhook_signature_failed",
+            level="warning",
+            provider="payos",
+            deposit_id=order_code if isinstance(order_code, int) else None,
+        )
         logger.error("payos_webhook_bad_signature")
         raise HTTPException(status_code=401, detail="Chữ ký webhook không hợp lệ")
 

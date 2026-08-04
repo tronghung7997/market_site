@@ -1002,9 +1002,18 @@ class TestGatewayRateLimit:
 
     @pytest.mark.asyncio
     async def test_exceeding_the_rate_limit_returns_429_without_reaching_the_seller(self, client, monkeypatch):
-        from src.gateway import router as gateway_router_module
+        # Isolate from Redis/shared IP counters left by earlier gateway tests:
+        # count only gw-* buckets for this test (router checks ip then key).
+        allowed = {"n": 0}
 
-        monkeypatch.setattr(gateway_router_module, "_GATEWAY_RATE_LIMIT", 3)
+        async def fake_rate_limit(key, *, limit, window_seconds, fail_open=True):
+            if not str(key).startswith("gw-"):
+                return True
+            allowed["n"] += 1
+            # 3 successful requests × 2 buckets (ip + key) = 6 allows, then deny.
+            return allowed["n"] <= 6
+
+        monkeypatch.setattr("src.gateway.router.check_rate_limit", fake_rate_limit)
         buyer_token, _, product_id = await setup_credit_gateway_product(client, suffix="_rl1")
         order_id = await _buy_and_deliver(client, buyer_token, product_id, 50, monkeypatch)
         async with SessionLocal() as db:
@@ -1014,7 +1023,7 @@ class TestGatewayRateLimit:
         calls = _patch_seller_http(monkeypatch, [_ok({"ok": True})] * 3)
         for _ in range(3):
             resp = await client.get(f"/gw/{gateway_key}/search", params={"q": "x"})
-            assert resp.status_code == 200
+            assert resp.status_code == 200, resp.text
         assert len(calls) == 3
 
         resp = await client.get(f"/gw/{gateway_key}/search", params={"q": "x"})

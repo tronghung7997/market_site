@@ -4,7 +4,7 @@ from tests.test_disputes import create_delivered_order
 from tests.test_orders import setup_buyable_product
 from tests.test_wallet import _seller_with_balance
 
-from src.alerts.service import create_alert
+from src.alerts.service import add_alert
 from src.database import SessionLocal
 from src.models.service_task import ServiceTask, ServiceTaskStatus
 
@@ -66,7 +66,15 @@ async def test_seller_action_items_pending_order_and_alert(client):
     seller_me = await client.get("/me", headers={"Authorization": f"Bearer {seller_token}"})
     seller_id = seller_me.json()["id"]
     async with SessionLocal() as db:
-        alert = await create_alert("resource_low", "warning", "seller", seller_id, "Sắp hết hàng", db)
+        alert = await add_alert(
+            db,
+            type_="resource_low",
+            severity="warning",
+            target_type="seller",
+            target_id=seller_id,
+            message="Sắp hết hàng",
+        )
+        await db.commit()
         alert_id = alert.id
 
     resp = await client.get("/seller/action-items", headers={"Authorization": f"Bearer {seller_token}"})
@@ -143,7 +151,15 @@ async def test_seller_dismiss_own_alert_but_not_others(client):
     seller_id = seller_me.json()["id"]
 
     async with SessionLocal() as db:
-        alert = await create_alert("resource_low", "warning", "seller", seller_id, "Sắp hết hàng", db)
+        alert = await add_alert(
+            db,
+            type_="resource_low",
+            severity="warning",
+            target_type="seller",
+            target_id=seller_id,
+            message="Sắp hết hàng",
+        )
+        await db.commit()
         alert_id = alert.id
 
     other_token = await register_and_login(client, "notif_other_seller@example.com")

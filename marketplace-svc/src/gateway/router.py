@@ -11,6 +11,7 @@ from src.adapters.factory import get_adapter
 from src.adapters.real_api import RealApiAdapter
 from src.adapters.registry import get_spec
 from src.auth.dependencies import get_current_account, require_role
+from src.config import settings
 from src.database import get_session
 from src.gateway.call_history import record_gateway_call_log
 from src.gateway.service import mint_gateway_key, resolve_order_by_gateway_key
@@ -46,8 +47,15 @@ _MAX_RESPONSE_BYTES = 2 * 1024 * 1024
 # Best-effort abuse guard (src/rate_limit.py — Redis fixed-window, fails
 # open). Not configurable per-provider yet; a flat default here beats no
 # limit at all until a real per-provider throttle is worth building.
-_GATEWAY_RATE_LIMIT = 60
 _GATEWAY_RATE_WINDOW_SECONDS = 60
+
+
+def _peer_ip(request: Request) -> str:
+    return request.client.host if request.client else "unknown"
+
+
+def _opaque_bucket(value: str) -> str:
+    return hashlib.sha256(value.encode()).hexdigest()
 
 
 def _resolve_seller_path(provider: Provider, endpoint: str) -> str:
@@ -90,10 +98,23 @@ async def gateway_forward(
     if not _ENDPOINT_RE.match(endpoint):
         raise HTTPException(status_code=400, detail="Endpoint không hợp lệ")
 
-    if not await check_rate_limit(
-        f"gw:{gateway_key}", limit=_GATEWAY_RATE_LIMIT, window_seconds=_GATEWAY_RATE_WINDOW_SECONDS,
-    ):
-        raise HTTPException(status_code=429, detail="Gọi quá nhanh — thử lại sau ít phút")
+    peer_ip = _peer_ip(request)
+    rate_buckets = (
+        (f"gw-ip:{peer_ip}", settings.gateway_ip_rate_limit),
+        (f"gw-key:{_opaque_bucket(gateway_key)}", settings.gateway_key_rate_limit),
+    )
+    for bucket, limit in rate_buckets:
+        if not await check_rate_limit(
+            bucket,
+            limit=limit,
+            window_seconds=_GATEWAY_RATE_WINDOW_SECONDS,
+            fail_open=False,
+        ):
+            raise HTTPException(
+                status_code=429,
+                detail="Gọi quá nhanh — thử lại sau ít phút",
+                headers={"Retry-After": str(_GATEWAY_RATE_WINDOW_SECONDS)},
+            )
 
     order = await resolve_order_by_gateway_key(gateway_key, db)
     # A gateway key outlives its order's status — OrderBalance only tracks
@@ -154,11 +175,13 @@ async def gateway_forward(
     charge_result = await charge_usage(order.id, endpoint, None, db, request_id=request_id)
     units = charge_result["units_charged"]
 
-    # Buyer-facing history (src/gateway/call_history.py) — separate call, own
-    # session, best-effort. request_payload is what THIS buyer sent for THIS
-    # call, safe to show back to them (see GatewayCallLog docstring for why
-    # this differs from ProviderCallLog's no-bodies policy).
-    request_payload = {"query": dict(request.query_params)} if not body else {"query": dict(request.query_params), "body": body}
+    # Buyer-facing history — separate call, own session, best-effort.
+    # Query/body are sanitized + bounded inside record_gateway_call_log;
+    # never assume buyer-supplied payloads are safe to store raw.
+    request_payload = {
+        "query": dict(request.query_params),
+        **({"body": body} if body is not None else {}),
+    }
     started = time.perf_counter()
 
     try:
@@ -171,7 +194,13 @@ async def gateway_forward(
     except Exception as e:
         latency_ms = int((time.perf_counter() - started) * 1000)
         await refund_usage(order.id, units, db, request_id=request_id, endpoint=endpoint)
-        logger.error("gateway_forward_failed", order_id=order.id, endpoint=endpoint, error=str(e))
+        # Do not log raw exception text to structlog — may contain host secrets.
+        logger.error(
+            "gateway_forward_failed",
+            order_id=order.id,
+            endpoint=endpoint,
+            error_type=type(e).__name__,
+        )
         await record_gateway_call_log(
             order_id=order.id, endpoint=endpoint, latency_ms=latency_ms,
             request_payload=request_payload, error=str(e),
@@ -222,20 +251,28 @@ async def provider_task_webhook(
     not trust that invariant blindly — a provider with no secret configured
     (e.g. pre-existing row, or config edited outside the normal path) gets
     every callback rejected rather than silently accepted unsigned."""
+    peer_ip = _peer_ip(request)
+    if not await check_rate_limit(
+        f"provider-webhook-ip:{peer_ip}",
+        limit=settings.provider_webhook_ip_limit,
+        window_seconds=60,
+        fail_open=False,
+    ):
+        raise HTTPException(
+            status_code=429,
+            detail="Quá nhiều yêu cầu webhook",
+            headers={"Retry-After": "60"},
+        )
+
     raw = await request.body()
     provider = await db.get(Provider, provider_id)
-    if not provider:
-        raise HTTPException(status_code=404, detail="Không tìm thấy nhà cung cấp")
-
-    secret_enc = (provider.config or {}).get("webhook_secret")
+    secret_enc = (provider.config or {}).get("webhook_secret") if provider else None
     if not secret_enc:
         logger.error("webhook_no_secret_configured", provider_id=provider_id)
-        raise HTTPException(status_code=401, detail="Provider chưa cấu hình webhook secret")
-
-    secret = decrypt_str(secret_enc)
+    secret = decrypt_str(secret_enc) if secret_enc else settings.internal_api_key
     signature = request.headers.get("x-signature", "")
     expected = hmac.new(secret.encode(), raw, hashlib.sha256).hexdigest()
-    if not hmac.compare_digest(signature, expected):
+    if not secret_enc or not hmac.compare_digest(signature, expected):
         raise HTTPException(status_code=401, detail="Chữ ký webhook không hợp lệ")
 
     try:
@@ -285,12 +322,32 @@ async def rotate_gateway_key(
     """Buyer-initiated: mint a fresh key, the old one stops matching
     immediately (lookup is by hash — overwriting it is enough, no separate
     revocation list needed)."""
+    from src.audit.service import log_event
+
     order = await db.get(Order, order_id)
     if not order or order.buyer_id != account.id:
         raise HTTPException(status_code=404, detail="Không tìm thấy đơn hàng")
     if order.gateway_key_hash is None:
         raise HTTPException(status_code=400, detail="Đơn hàng này chưa có gateway key")
+    old_prefix = order.gateway_key_prefix
     new_key = await mint_gateway_key(order)
+    new_prefix = order.gateway_key_prefix
+    await log_event(
+        db, "info", f"Gateway key rotated for order {order_id}",
+        request_id=current_request_id(),
+        metadata={
+            "event": "gateway_key_rotated",
+            "actor_id": account.id,
+            "actor_type": "buyer",
+            "subject_type": "order",
+            "subject_id": order_id,
+            "outcome": "success",
+            "source": "buyer",
+            "order_id": order_id,
+            "old_prefix": old_prefix,
+            "new_prefix": new_prefix,
+        },
+    )
     await db.commit()
     return {"gateway_key": new_key, "gateway_key_prefix": order.gateway_key_prefix}
 
@@ -298,16 +355,34 @@ async def rotate_gateway_key(
 @router.post("/admin/orders/{order_id}/gateway-key/revoke")
 async def revoke_gateway_key(
     order_id: int,
-    _: Account = Depends(require_role("admin")),
+    admin: Account = Depends(require_role("admin")),
     db: AsyncSession = Depends(get_session),
 ):
     """Admin-initiated, no replacement — for abuse response, not routine
     rotation (that's the buyer's own endpoint above). Buyer can always ask
     support to sort it out; there is deliberately no self-service "un-revoke"."""
+    from src.audit.service import log_event
+
     order = await db.get(Order, order_id)
     if not order:
         raise HTTPException(status_code=404, detail="Không tìm thấy đơn hàng")
+    old_prefix = order.gateway_key_prefix
     order.gateway_key_hash = None
     order.gateway_key_prefix = None
+    await log_event(
+        db, "warning", f"Gateway key revoked for order {order_id}",
+        request_id=current_request_id(),
+        metadata={
+            "event": "gateway_key_revoked",
+            "actor_id": admin.id,
+            "actor_type": "admin",
+            "subject_type": "order",
+            "subject_id": order_id,
+            "outcome": "success",
+            "source": "admin",
+            "order_id": order_id,
+            "old_prefix": old_prefix,
+        },
+    )
     await db.commit()
     return {"ok": True}

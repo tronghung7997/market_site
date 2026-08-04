@@ -12,11 +12,11 @@ from src.models.provider import Provider
 from src.providers.credit import (
     ALERT_LOW_CREDIT,
     ALERT_OUT_OF_CREDIT,
-    create_alert_once,
     debit_estimated_cost,
     report_out_of_credit,
     set_credit_balance,
 )
+from src.alerts.service import emit_incident, fp_provider, upsert_incident
 from sqlalchemy import select
 
 from src.database import SessionLocal
@@ -113,7 +113,7 @@ class TestOutOfCredit:
             p = await _provider(db, credit_balance_xu=500)
             pid = p.id
 
-            # Ba đơn liên tiếp cùng gặp 102 — admin chỉ cần biết MỘT lần.
+            # Ba đơn liên tiếp cùng gặp 102 — một active incident, count tăng.
             for _ in range(3):
                 await report_out_of_credit(pid, db)
 
@@ -122,10 +122,16 @@ class TestOutOfCredit:
             assert p.credit_balance_xu == 0  # sổ rõ ràng đã sai, chốt về 0
 
             alerts = (await db.execute(
-                select(Alert).where(Alert.type == ALERT_OUT_OF_CREDIT, Alert.target_id == pid)
+                select(Alert).where(
+                    Alert.type == ALERT_OUT_OF_CREDIT,
+                    Alert.target_id == pid,
+                    Alert.is_active.is_(True),
+                )
             )).scalars().all()
             assert len(alerts) == 1
             assert alerts[0].severity == "critical"
+            assert alerts[0].occurrence_count == 3
+            assert alerts[0].fingerprint == fp_provider(pid, ALERT_OUT_OF_CREDIT)
             await db.rollback()
 
     @pytest.mark.asyncio
@@ -134,7 +140,14 @@ class TestOutOfCredit:
             p = await _provider(db, credit_balance_xu=0)
             pid = p.id
             await report_out_of_credit(pid, db)
-            await create_alert_once(ALERT_LOW_CREDIT, "warning", "provider", pid, "sắp hết", db)
+            await emit_incident(
+                fingerprint=fp_provider(pid, ALERT_LOW_CREDIT),
+                type_=ALERT_LOW_CREDIT,
+                severity="warning",
+                target_type="provider",
+                target_id=pid,
+                message="sắp hết",
+            )
 
             await set_credit_balance(pid, 500_000, 30_000, db)
 
@@ -149,22 +162,42 @@ class TestOutOfCredit:
             await db.rollback()
 
 
-class TestAlertOnce:
+class TestIncidentUpsert:
     @pytest.mark.asyncio
-    async def test_second_call_is_a_noop_while_first_is_active(self):
+    async def test_second_upsert_increments_count(self):
         async with SessionLocal() as db:
             p = await _provider(db)
-            first = await create_alert_once("x_alert", "warning", "provider", p.id, "một", db)
-            second = await create_alert_once("x_alert", "warning", "provider", p.id, "hai", db)
-            assert first is not None
-            assert second is None
+            fp = fp_provider(p.id, "x_alert")
+            first = await upsert_incident(
+                db, fingerprint=fp, type_="x_alert", severity="warning",
+                target_type="provider", target_id=p.id, message="một",
+            )
+            second = await upsert_incident(
+                db, fingerprint=fp, type_="x_alert", severity="warning",
+                target_type="provider", target_id=p.id, message="hai",
+            )
+            await db.commit()
+            assert first.id == second.id
+            assert second.occurrence_count == 2
+            assert second.message == "hai"
             await db.rollback()
 
     @pytest.mark.asyncio
-    async def test_alerts_for_different_targets_are_independent(self):
+    async def test_incidents_for_different_targets_are_independent(self):
         async with SessionLocal() as db:
             a = await _provider(db, name="A")
             b = await _provider(db, name="B")
-            assert await create_alert_once("x_alert2", "warning", "provider", a.id, "m", db)
-            assert await create_alert_once("x_alert2", "warning", "provider", b.id, "m", db)
+            await upsert_incident(
+                db, fingerprint=fp_provider(a.id, "x_alert2"), type_="x_alert2",
+                severity="warning", target_type="provider", target_id=a.id, message="m",
+            )
+            await upsert_incident(
+                db, fingerprint=fp_provider(b.id, "x_alert2"), type_="x_alert2",
+                severity="warning", target_type="provider", target_id=b.id, message="m",
+            )
+            await db.commit()
+            active = (await db.execute(
+                select(Alert).where(Alert.type == "x_alert2", Alert.is_active.is_(True))
+            )).scalars().all()
+            assert len(active) == 2
             await db.rollback()

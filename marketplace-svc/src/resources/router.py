@@ -2,7 +2,9 @@ from fastapi import APIRouter, Depends, status
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from src.auth.dependencies import get_current_account, get_seller_account_jwt_or_api_key, require_role, verify_internal_key
+from src.audit.service import log_event
 from src.database import get_session
+from src.logging import current_request_id
 from src.models.account import Account
 
 from . import schemas, service
@@ -39,6 +41,25 @@ async def delete_res(resource_id: int, account: Account = Depends(require_role("
 @router.post("/internal/resources/acquire", response_model=schemas.InternalAcquireResponse)
 async def internal_acquire(body: schemas.InternalAcquireRequest, db: AsyncSession = Depends(get_session), _=Depends(verify_internal_key)):
     resources = await service.claim_resources(body.variant_id, body.quantity, db, order_id=None, duration_days=None)
+    resource_ids = [r.id for r in resources]
+    await log_event(
+        db,
+        "info",
+        f"Internal acquire variant={body.variant_id} qty={body.quantity}",
+        request_id=current_request_id(),
+        metadata={
+            "event": "internal_resources_acquired",
+            "actor_type": "internal_service",
+            "subject_type": "variant",
+            "subject_id": body.variant_id,
+            "outcome": "success",
+            "source": "internal",
+            "variant_id": body.variant_id,
+            "quantity": body.quantity,
+            "resource_ids": resource_ids,
+            # Never include resource plaintext `data`.
+        },
+    )
     await db.commit()
     return schemas.InternalAcquireResponse(resources=[{"resource_id": r.id, "data": r.data} for r in resources])
 
@@ -46,6 +67,22 @@ async def internal_acquire(body: schemas.InternalAcquireRequest, db: AsyncSessio
 @router.post("/internal/resources/release")
 async def internal_release(body: schemas.InternalReleaseRequest, db: AsyncSession = Depends(get_session), _=Depends(verify_internal_key)):
     await service.release_resources(body.resource_ids, db)
+    await log_event(
+        db,
+        "info",
+        f"Internal release {len(body.resource_ids)} resources",
+        request_id=current_request_id(),
+        metadata={
+            "event": "internal_resources_released",
+            "actor_type": "internal_service",
+            "subject_type": "resource",
+            "subject_id": body.resource_ids[0] if body.resource_ids else None,
+            "outcome": "success",
+            "source": "internal",
+            "resource_ids": list(body.resource_ids),
+        },
+    )
+    await db.commit()
     return {"status": "released"}
 
 

@@ -1,7 +1,9 @@
 import pytest
 from tests.conftest import make_admin, make_seller, register_and_login
 
-INTERNAL_HEADERS = {"X-Internal-Key": "test-internal-key"}
+from src.config import settings
+
+INTERNAL_HEADERS = {"X-Internal-Key": settings.internal_api_key}
 
 
 async def setup_variant(client):

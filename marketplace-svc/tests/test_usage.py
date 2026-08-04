@@ -7,7 +7,9 @@ from src.models.usage import OrderBalance, UsageRecord, UsageRecordStatus
 
 from .conftest import make_admin, make_seller, register_and_login
 
-INTERNAL_HEADERS = {"X-Internal-Key": "test-internal-key"}
+from src.config import settings
+
+INTERNAL_HEADERS = {"X-Internal-Key": settings.internal_api_key}
 
 
 async def setup_credit_product(client, package_size=5, credit_price=100):

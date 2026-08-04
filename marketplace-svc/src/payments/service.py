@@ -214,13 +214,13 @@ async def handle_webhook(payload: dict, db: AsyncSession) -> dict:
         )
         await db.commit()
         logger.error("payos_webhook_unknown_order_code", order_code=order_code)
-        # create_alert tự commit — gọi SAU commit của luồng chính, không chen
-        # vào giữa transaction credit.
+        # emit_incident owns its session — call after the main flow commits.
         await _alert(
             db, "error",
             f"Webhook PayOS cho orderCode {order_code} không khớp lệnh nạp nào "
             f"(ref {reference}, {amount}đ) — tiền có thể đã nhận, cần đối soát tay",
             target_id=order_code,
+            reason_code="unknown_order",
         )
         return {"ok": True, "note": "không tìm thấy lệnh nạp — đã ghi sổ, cần admin xem"}
 
@@ -239,6 +239,7 @@ async def handle_webhook(payload: dict, db: AsyncSession) -> dict:
             f"Webhook cho lệnh nạp #{intent_id} mang paymentLinkId lạ ({payment_link_id}) "
             f"— không credit, cần đối soát tay",
             target_id=intent_id,
+            reason_code="link_mismatch",
         )
         return {"ok": True, "note": "paymentLinkId không khớp lệnh nạp — đã ghi sổ, không credit"}
 
@@ -259,6 +260,7 @@ async def handle_webhook(payload: dict, db: AsyncSession) -> dict:
             f"Lệnh nạp #{intent_id} nhận THÊM giao dịch {amount}đ (ref {reference}) sau khi đã paid "
             f"(ref cũ {already_reference}) — khách có thể chuyển 2 lần, cần hoàn tay",
             target_id=intent_id,
+            reason_code="double_payment",
         )
         return {"ok": True, "note": "lệnh đã paid trước đó — giao dịch thừa cần admin đối soát"}
 
@@ -280,23 +282,38 @@ async def handle_webhook(payload: dict, db: AsyncSession) -> dict:
             db, "warning",
             f"Lệnh nạp #{intent_id} được thanh toán MUỘN (trạng thái trước đó: {late_status}) — đã credit {amount}đ",
             target_id=intent_id,
+            reason_code="late_payment",
         )
     if amount != expected_amount:
         await _alert(
             db, "warning",
             f"Lệnh nạp #{intent_id} lệch tiền: dự kiến {expected_amount}đ, thực nhận {amount}đ (đã credit theo thực nhận)",
             target_id=intent_id,
+            reason_code="amount_mismatch",
         )
     return {"ok": True}
 
 
-async def _alert(db: AsyncSession, severity: str, message: str, *, target_id: int) -> None:
+async def _alert(
+    db: AsyncSession, severity: str, message: str, *, target_id: int, reason_code: str = "anomaly",
+) -> None:
     """Alert vận hành cho các ca bất thường của luồng nạp — best-effort,
-    không bao giờ được làm hỏng phản hồi webhook (PayOS cần 2xx)."""
-    from src.alerts.service import create_alert
+    không bao giờ được làm hỏng phản hồi webhook (PayOS cần 2xx).
+
+    Uses emit_incident (own session) so webhook response path never depends
+    on the caller's transaction state.
+    """
+    from src.alerts.service import emit_incident, fp_deposit
 
     try:
-        await create_alert("deposit_anomaly", severity, "deposit", target_id, message, db)
+        await emit_incident(
+            fingerprint=fp_deposit(target_id, reason_code),
+            type_="deposit_anomaly",
+            severity=severity,
+            target_type="deposit",
+            target_id=target_id,
+            message=message,
+        )
     except Exception as e:
         logger.error("deposit_alert_failed", error=str(e))
 

@@ -99,10 +99,9 @@ async def _raise_operational_alert(
     order_id: int, severity: str, message: str, db: AsyncSession,
 ) -> None:
     """Alert vận hành cho một provision thất bại — GỌI SAU db.commit() của
-    caller: create_alert tự commit, chen vào giữa transaction refund sẽ commit
-    nửa chừng trạng thái đơn. Best-effort, không bao giờ được làm hỏng luồng
-    đơn hàng đã hoàn tất."""
-    from src.alerts.service import create_alert
+    caller. Best-effort via emit_incident (own session); never breaks the
+    order flow that already completed."""
+    from src.alerts.service import emit_incident, fp_order
     from src.providers.credit import report_out_of_credit
 
     try:
@@ -110,7 +109,14 @@ async def _raise_operational_alert(
             # `message` mang provider_id (xem _apply_provision_result).
             await report_out_of_credit(int(message), db)
             return
-        await create_alert("provision_operational", severity, "order", order_id, message, db)
+        await emit_incident(
+            fingerprint=fp_order(order_id, "provision_operational"),
+            type_="provision_operational",
+            severity=severity,
+            target_type="order",
+            target_id=order_id,
+            message=message,
+        )
     except Exception as e:  # noqa: BLE001 — alert hỏng không được kéo theo đơn
         logger.error("provision_alert_failed", order_id=order_id, error=str(e))
 
@@ -125,9 +131,9 @@ async def _apply_provision_result(
     Trả về `(severity, message)` khi provision hỏng vì một lý do VẬN HÀNH
     (hết Xu / sai API key / có thể đã tiêu tiền thượng nguồn mà không giao
     được) — caller có trách nhiệm gọi `_raise_operational_alert` SAU commit.
-    Không tự bắn alert ở đây vì `create_alert` commit ngay, sẽ cắt đôi
-    transaction refund + đổi trạng thái đơn đang dở dang. `None` = thất bại
-    thường (buyer đã được hoàn tiền, chỉ cần log).
+    Không tự bắn alert ở đây — alert được emit SAU commit qua
+    `_raise_operational_alert`. `None` = thất bại thường (buyer đã được hoàn
+    tiền, chỉ cần log).
 
     `resolved_provider_id` is the provider that ACTUALLY fulfilled this order
     (post-fallback — `adapter.provider_id` when the adapter tracks one,

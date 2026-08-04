@@ -19,12 +19,36 @@ function sessionCookieOptions() {
   };
 }
 
+function firstForwardedValue(value: string | null): string | null {
+  return value?.split(",", 1)[0]?.trim() || null;
+}
+
+function externalRequestOrigin(request: NextRequest): string {
+  const host = firstForwardedValue(request.headers.get("x-forwarded-host"))
+    ?? request.headers.get("host");
+  const protocol = firstForwardedValue(request.headers.get("x-forwarded-proto"))
+    ?? request.nextUrl.protocol.replace(/:$/, "");
+
+  if (host && (protocol === "http" || protocol === "https")) {
+    try {
+      return new URL(`${protocol}://${host}`).origin;
+    } catch {
+      // Fall back to Next's parsed origin for malformed proxy headers.
+    }
+  }
+  return request.nextUrl.origin;
+}
+
 function csrfAllowed(request: NextRequest): boolean {
   if (!UNSAFE_METHODS.has(request.method)) return true;
   const fetchSite = request.headers.get("sec-fetch-site");
   if (fetchSite === "cross-site") return false;
+  // Fetch Metadata is set by the browser and cannot be changed by page JS.
+  // Trust its same-origin verdict so an internal Next URL behind Nginx does
+  // not reject legitimate POSTs from the public HTTPS origin.
+  if (fetchSite === "same-origin") return true;
   const origin = request.headers.get("origin");
-  return origin === null || origin === request.nextUrl.origin;
+  return origin === null || origin === externalRequestOrigin(request);
 }
 
 async function proxy(request: NextRequest, segments: string[]) {

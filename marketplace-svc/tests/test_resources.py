@@ -1,4 +1,5 @@
 import pytest
+from unittest.mock import AsyncMock
 from tests.conftest import make_admin, make_seller, register_and_login
 
 from src.config import settings
@@ -85,6 +86,64 @@ async def test_internal_acquire(client):
     data = resp.json()
     assert len(data["resources"]) == 2
     assert all("resource_id" in r and "data" in r for r in data["resources"])
+
+
+@pytest.mark.asyncio
+@pytest.mark.no_db
+async def test_release_resources_never_commits_caller_transaction():
+    from src.models.resource import ResourceStatus
+    from src.resources.service import release_resources
+
+    resource = type("ResourceStub", (), {"status": ResourceStatus.assigned})()
+    db = AsyncMock()
+    db.get.return_value = resource
+
+    await release_resources([1], db)
+
+    assert resource.status == ResourceStatus.available
+    db.commit.assert_not_awaited()
+
+
+@pytest.mark.asyncio
+async def test_mark_resource_error_is_idempotent(client):
+    from sqlalchemy import select
+
+    from src.database import SessionLocal
+    from src.models.alert import Alert
+
+    seller_token, variant_id = await setup_variant(client)
+    await client.post(
+        f"/seller/variants/{variant_id}/resources",
+        json={"items": ["retryable-error"]},
+        headers={"Authorization": f"Bearer {seller_token}"},
+    )
+    resource = (
+        await client.get(
+            f"/seller/variants/{variant_id}/resources",
+            headers={"Authorization": f"Bearer {seller_token}"},
+        )
+    ).json()[0]
+
+    first = await client.post(
+        f"/seller/resources/{resource['id']}/error",
+        headers={"Authorization": f"Bearer {seller_token}"},
+    )
+    second = await client.post(
+        f"/seller/resources/{resource['id']}/error",
+        headers={"Authorization": f"Bearer {seller_token}"},
+    )
+
+    assert first.status_code == 200, first.text
+    assert second.status_code == 200, second.text
+    async with SessionLocal() as db:
+        incidents = list((await db.execute(
+            select(Alert).where(
+                Alert.fingerprint == f"resource:{resource['id']}:resource_error",
+                Alert.is_active.is_(True),
+            )
+        )).scalars().all())
+    assert len(incidents) == 1
+    assert incidents[0].occurrence_count == 2
 
 
 # ---------------------------------------------------------------------------

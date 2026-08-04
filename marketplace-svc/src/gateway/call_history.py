@@ -35,6 +35,12 @@ _SENSITIVE_KEY_RE = re.compile(
     r"delivered[_-]?data)",
     re.IGNORECASE,
 )
+_AUTHORIZATION_VALUE_RE = re.compile(
+    r"(?i)\b(authorization)\s*[:=]\s*(?:(?:bearer|basic)\s+)?[^\s,;]+"
+)
+_SECRET_ASSIGNMENT_RE = re.compile(
+    r"(?i)\b(api[_-]?key|token|password|secret|checksum)\s*[:=]\s*[^\s,;]+"
+)
 
 
 def _normalize_key(key: Any) -> str:
@@ -121,11 +127,8 @@ def sanitize_error_text(error: str | None) -> str | None:
     if error is None:
         return None
     # Avoid persisting accidental secret material from exception strings.
-    text = re.sub(
-        r"(?i)(authorization|api[_-]?key|token|password|secret|checksum)\s*[:=]\s*\S+",
-        r"\1=[REDACTED]",
-        error,
-    )
+    text = _AUTHORIZATION_VALUE_RE.sub(r"\1=[REDACTED]", error)
+    text = _SECRET_ASSIGNMENT_RE.sub(r"\1=[REDACTED]", text)
     if len(text) > _ERROR_MAX_LEN:
         text = text[:_ERROR_MAX_LEN] + _TRUNCATED_MARKER
     return text
@@ -194,7 +197,10 @@ async def record_gateway_call_log(
             await session.commit()
     except Exception as e:
         logger.warning(
-            "gateway_call_log_failed", order_id=order_id, endpoint=endpoint, error=str(e),
+            "gateway_call_log_failed",
+            order_id=order_id,
+            endpoint=endpoint,
+            error_type=type(e).__name__,
         )
 
 

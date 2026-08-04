@@ -1,6 +1,6 @@
 """Unit tests for gateway call-history sanitization (WP3)."""
 import json
-from unittest.mock import AsyncMock, patch
+from unittest.mock import MagicMock
 
 import pytest
 
@@ -100,6 +100,7 @@ def test_error_text_redacts_and_bounds():
     out = sanitize_error_text(err)
     assert out is not None
     assert "Bearer abc" not in out
+    assert "abc.def" not in out
     assert "[REDACTED]" in out
     assert len(out) <= 520
 
@@ -124,7 +125,9 @@ async def test_record_is_best_effort_on_db_failure(monkeypatch):
         async def __aexit__(self, *args):
             return False
 
+    warning_logger = MagicMock()
     monkeypatch.setattr("src.gateway.call_history.SessionLocal", lambda: Boom())
+    monkeypatch.setattr("src.gateway.call_history.logger", warning_logger)
     # Must not raise.
     await record_gateway_call_log(
         order_id=1,
@@ -132,4 +135,10 @@ async def test_record_is_best_effort_on_db_failure(monkeypatch):
         latency_ms=10,
         request_payload={"token": "secret"},
         error="password=hunter2",
+    )
+    warning_logger.warning.assert_called_once_with(
+        "gateway_call_log_failed",
+        order_id=1,
+        endpoint="search",
+        error_type="RuntimeError",
     )

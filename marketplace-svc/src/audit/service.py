@@ -79,13 +79,16 @@ async def query_logs(
 
 
 async def _delete_in_batches(session, stmt_factory) -> int:
-    """Run DELETE ... LIMIT batches until nothing remains. Returns total deleted."""
+    """Delete and commit one bounded batch at a time. Returns total deleted."""
     total = 0
     while True:
         # PostgreSQL supports DELETE ... WHERE id IN (SELECT ... LIMIT n)
         result = await session.execute(stmt_factory())
-        deleted = result.rowcount or 0
+        deleted = max(result.rowcount or 0, 0)
         total += deleted
+        # Release row locks and bound WAL/transaction size before the next
+        # batch. Partial cleanup is safe and the next scheduled run resumes it.
+        await session.commit()
         if deleted < _CLEANUP_BATCH_SIZE:
             break
     return total
@@ -162,9 +165,6 @@ async def purge_operational_logs() -> dict[str, int]:
                 )
             ),
         )
-
-        await db.commit()
-
     elapsed_ms = int((time.monotonic() - started) * 1000)
     logger.info(
         "operational_log_cleanup",

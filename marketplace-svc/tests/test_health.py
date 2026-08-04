@@ -4,7 +4,7 @@ from unittest.mock import AsyncMock
 
 import pytest
 
-from src.middleware import normalize_request_id
+from src.middleware import _route_template, normalize_request_id
 
 
 @pytest.mark.asyncio
@@ -35,6 +35,11 @@ def test_normalize_request_id_rejects_invalid():
         result = normalize_request_id(raw)
         assert result != (raw or "").strip()
         assert len(result) == 36  # generated UUID
+
+
+@pytest.mark.no_db
+def test_unmatched_route_never_uses_client_path_as_metric_label():
+    assert _route_template({"type": "http", "path": "/random/customer-controlled-id"}) == "__unmatched__"
 
 
 @pytest.mark.asyncio

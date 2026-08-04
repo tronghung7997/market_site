@@ -23,6 +23,12 @@ _http_latency_sum: dict[tuple[str, str], float] = defaultdict(float)
 _http_latency_count: dict[tuple[str, str], int] = defaultdict(int)
 _LATENCY_BUCKETS_MS = (50, 100, 250, 500, 1000, 2500, 5000, 10000)
 _http_latency_buckets: dict[tuple[str, str, int], int] = defaultdict(int)
+_KNOWN_HTTP_METHODS = {"GET", "HEAD", "POST", "PUT", "PATCH", "DELETE", "OPTIONS"}
+
+
+def _escape_label_value(value: object) -> str:
+    """Escape a value for Prometheus' quoted label-string grammar."""
+    return str(value).replace("\\", "\\\\").replace("\n", "\\n").replace('"', '\\"')
 
 
 def _status_class(status: int) -> str:
@@ -39,7 +45,8 @@ def _status_class(status: int) -> str:
 
 def observe_http_request(*, method: str, route: str, status: int, duration_ms: float) -> None:
     route = route or "unknown"
-    method = (method or "GET").upper()
+    candidate_method = (method or "GET").upper()
+    method = candidate_method if candidate_method in _KNOWN_HTTP_METHODS else "OTHER"
     sc = _status_class(int(status))
     key = (method, route, sc)
     lat_key = (method, route)
@@ -82,7 +89,11 @@ def render_prometheus() -> str:
     with _lock:
         for (method, route, sc), count in sorted(_http_requests.items()):
             lines.append(
-                f'http_requests_total{{method="{method}",route="{route}",status_class="{sc}"}} {count}'
+                "http_requests_total{"
+                f'method="{_escape_label_value(method)}",'
+                f'route="{_escape_label_value(route)}",'
+                f'status_class="{_escape_label_value(sc)}"'
+                f"}} {count}"
             )
         lines.append("# HELP http_unhandled_exceptions_total Unhandled application exceptions")
         lines.append("# TYPE http_unhandled_exceptions_total counter")
@@ -92,27 +103,39 @@ def render_prometheus() -> str:
         lines.append("# TYPE http_request_duration_ms_sum counter")
         for (method, route), total in sorted(_http_latency_sum.items()):
             lines.append(
-                f'http_request_duration_ms_sum{{method="{method}",route="{route}"}} {total:.3f}'
+                "http_request_duration_ms_sum{"
+                f'method="{_escape_label_value(method)}",'
+                f'route="{_escape_label_value(route)}"'
+                f"}} {total:.3f}"
             )
         lines.append("# HELP http_request_duration_ms_count Request latency sample count")
         lines.append("# TYPE http_request_duration_ms_count counter")
         for (method, route), count in sorted(_http_latency_count.items()):
             lines.append(
-                f'http_request_duration_ms_count{{method="{method}",route="{route}"}} {count}'
+                "http_request_duration_ms_count{"
+                f'method="{_escape_label_value(method)}",'
+                f'route="{_escape_label_value(route)}"'
+                f"}} {count}"
             )
 
         lines.append("# HELP scheduler_job_runs_total Scheduler job outcomes")
         lines.append("# TYPE scheduler_job_runs_total counter")
         for (name, outcome), count in sorted(_scheduler_runs.items()):
             lines.append(
-                f'scheduler_job_runs_total{{job="{name}",outcome="{outcome}"}} {count}'
+                "scheduler_job_runs_total{"
+                f'job="{_escape_label_value(name)}",'
+                f'outcome="{_escape_label_value(outcome)}"'
+                f"}} {count}"
             )
 
         lines.append("# HELP outbound_calls_total Outbound provider/gateway attempts")
         lines.append("# TYPE outbound_calls_total counter")
         for (kind, outcome), count in sorted(_outbound.items()):
             lines.append(
-                f'outbound_calls_total{{kind="{kind}",outcome="{outcome}"}} {count}'
+                "outbound_calls_total{"
+                f'kind="{_escape_label_value(kind)}",'
+                f'outcome="{_escape_label_value(outcome)}"'
+                f"}} {count}"
             )
 
     lines.append("")

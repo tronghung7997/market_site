@@ -137,11 +137,11 @@ async def claim_resources(variant_id: int, quantity: int, db: AsyncSession, *, o
 
 
 async def release_resources(resource_ids: list[int], db: AsyncSession) -> None:
+    """Release resources in the caller-owned transaction. Never commits."""
     for rid in resource_ids:
         resource = await db.get(Resource, rid)
         if resource and resource.status == ResourceStatus.assigned:
             resource.status = ResourceStatus.available
-    await db.commit()
 
 
 async def order_resources(order_id: int, account_id: int, db: AsyncSession) -> list[Resource]:
@@ -158,21 +158,21 @@ async def order_resources(order_id: int, account_id: int, db: AsyncSession) -> l
 
 
 async def mark_resource_error(resource_id: int, seller_id: int, db: AsyncSession) -> Resource:
-    from src.alerts.service import add_alert, fp_resource
+    from src.alerts.service import fp_resource, upsert_incident
     resource = await db.get(Resource, resource_id)
     if not resource:
         raise HTTPException(status_code=404, detail="Không tìm thấy tài nguyên")
     if resource.seller_id != seller_id:
         raise NotOwner()
     resource.status = ResourceStatus.error
-    await add_alert(
+    await upsert_incident(
         db,
+        fingerprint=fp_resource(resource_id, "resource_error"),
         type_="resource_error",
         severity="warning",
         target_type="seller",
         target_id=seller_id,
         message=f"Tài nguyên #{resource_id} được báo lỗi bởi nhà bán",
-        fingerprint=fp_resource(resource_id, "resource_error"),
     )
     await db.commit()
     await db.refresh(resource)

@@ -29,13 +29,16 @@ def normalize_request_id(raw: str | None) -> str:
 
 
 def _route_template(scope: Scope) -> str:
-    """Prefer the low-cardinality route template over a concrete path."""
+    """Return a low-cardinality route label, never a client-controlled path."""
     route = scope.get("route")
     if route is not None:
         path = getattr(route, "path", None)
         if isinstance(path, str) and path:
             return path
-    return scope.get("path") or ""
+    # Unmatched routes and failures before routing have no template. Using the
+    # raw path here lets a remote scanner allocate one metric key per random
+    # URL until the process restarts.
+    return "__unmatched__"
 
 
 def _account_id_from_scope(scope: Scope) -> int | None:

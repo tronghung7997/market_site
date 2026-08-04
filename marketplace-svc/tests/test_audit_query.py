@@ -1,14 +1,32 @@
 """Admin log query bounds and retention cleanup (WP6)."""
 from datetime import datetime, timedelta, timezone
+from types import SimpleNamespace
+from unittest.mock import AsyncMock
 
 import pytest
 from sqlalchemy import select
 
-from src.audit.service import log_event, purge_operational_logs, query_logs
+from src.audit.service import _delete_in_batches, log_event, purge_operational_logs, query_logs
 from src.database import SessionLocal
 from src.models.alert import Alert
 from src.models.log_entry import LogEntry
 from tests.conftest import make_admin, register_and_login
+
+
+@pytest.mark.asyncio
+@pytest.mark.no_db
+async def test_cleanup_commits_each_bounded_batch():
+    session = AsyncMock()
+    session.execute.side_effect = [
+        SimpleNamespace(rowcount=1000),
+        SimpleNamespace(rowcount=7),
+    ]
+
+    deleted = await _delete_in_batches(session, lambda: object())
+
+    assert deleted == 1007
+    assert session.execute.await_count == 2
+    assert session.commit.await_count == 2
 
 
 @pytest.mark.asyncio

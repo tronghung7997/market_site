@@ -1,7 +1,11 @@
 import { NextRequest, NextResponse } from "next/server";
 
 const SESSION_COOKIE = "dx_session";
-const API_TARGET = (process.env.API_URL ?? "http://localhost:8001").replace(/\/$/, "");
+const API_TARGET = (
+  process.env.BUILT_API_URL
+  ?? process.env.API_URL
+  ?? "http://localhost:8001"
+).replace(/\/$/, "");
 const IS_PRODUCTION = process.env.NODE_ENV === "production";
 const UNSAFE_METHODS = new Set(["POST", "PUT", "PATCH", "DELETE"]);
 

@@ -30,6 +30,13 @@ const nextConfig = {
   output: "standalone",
   reactStrictMode: true,
   poweredByHeader: false,
+  // The Docker image historically receives API_URL only in the builder
+  // stage. Preserve that deployment contract for the server-side API route.
+  // This must remain distinct from API_URL because standalone also copies the
+  // local .env file, which may contain a development-only localhost target.
+  env: {
+    BUILT_API_URL: apiTarget,
+  },
   async headers() {
     const headers = [
       { key: "Content-Security-Policy", value: contentSecurityPolicy },

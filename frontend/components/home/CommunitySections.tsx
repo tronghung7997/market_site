@@ -3,7 +3,8 @@
 /** Hai section "cộng đồng" của trang chủ: người bán uy tín (public) và đơn
  *  hàng gần đây (chỉ buyer đã đăng nhập). */
 
-import Link from "next/link";
+import { Link } from "@/i18n/navigation";
+import { useTranslations } from "next-intl";
 import { vnd } from "@/lib/api";
 import { orderStatus } from "@/lib/order-status";
 import type { Order, SellerSummary } from "@/lib/types";
@@ -12,10 +13,11 @@ import { ArrowRight, Star, Store } from "@/components/Icons";
 import { SectionHead } from "./SectionHead";
 
 export function TrustedSellers({ sellers }: { sellers: SellerSummary[] }) {
+  const t = useTranslations("home");
   if (sellers.length === 0) return null;
   return (
     <section className="w-full mx-auto max-w-[1200px] px-6 py-6 lg:py-8">
-      <SectionHead title="Người bán uy tín" sub="Xếp hạng theo đơn hàng hoàn tất và đánh giá" />
+      <SectionHead title={t("trustedSellersTitle")} sub={t("trustedSellersSubtitle")} />
       <div className="grid gap-2.5 sm:gap-4 grid-cols-2 sm:grid-cols-3 lg:grid-cols-6">
         {sellers.map((s) => (
           <Link key={s.account_id} href={`/sellers/${s.account_id}`}>
@@ -32,11 +34,11 @@ export function TrustedSellers({ sellers }: { sellers: SellerSummary[] }) {
                     <Star size={11} className="text-warn fill-warn" /> {s.rating_avg.toFixed(1)}
                   </>
                 ) : (
-                  <span className="text-faint">Chưa có đánh giá</span>
+                  <span className="text-faint">{t("noRating")}</span>
                 )}
               </div>
               <div className="text-[11.5px] text-faint mt-0.5">
-                {s.completed_order_count} đơn hoàn tất
+                {t("completedOrders", { count: s.completed_order_count })}
               </div>
             </Card>
           </Link>
@@ -47,11 +49,12 @@ export function TrustedSellers({ sellers }: { sellers: SellerSummary[] }) {
 }
 
 export function RecentOrders({ orders }: { orders: Order[] }) {
+  const t = useTranslations("home");
   if (orders.length === 0) return null;
   return (
     <section className="border-y border-line bg-surface">
       <div className="w-full mx-auto max-w-[1200px] px-6 py-6 lg:py-8">
-        <SectionHead title="Đơn hàng gần đây" sub="Tiếp tục theo dõi đơn của bạn" />
+        <SectionHead title={t("recentOrdersTitle")} sub={t("recentOrdersSubtitle")} />
         <div className="grid grid-cols-2 gap-2.5 sm:gap-3 lg:grid-cols-5">
           {orders.map((o) => {
             const st = orderStatus(o.status);
@@ -63,7 +66,7 @@ export function RecentOrders({ orders }: { orders: Order[] }) {
                     <Tag tone={st.tone}>{st.label}</Tag>
                   </div>
                   <div className="mt-1.5 sm:mt-2 text-[12.5px] sm:text-[13.5px] font-medium truncate">
-                    {o.product_title ?? o.variant_name ?? `Đơn #${o.id}`}
+                    {o.product_title ?? o.variant_name ?? t("orderFallback", { id: o.id })}
                   </div>
                   <div className="mt-1.5 sm:mt-2 font-mono text-[13px] sm:text-[14px] font-semibold tabular">
                     {vnd(o.total_amount)}
@@ -75,7 +78,7 @@ export function RecentOrders({ orders }: { orders: Order[] }) {
         </div>
         <div className="mt-5">
           <Link href="/orders" className="inline-flex items-center gap-1.5 text-[13px] font-medium text-iris hover:text-iris-hi transition-colors">
-            Xem tất cả đơn hàng <ArrowRight size={14} />
+            {t("viewAllOrders")} <ArrowRight size={14} />
           </Link>
         </div>
       </div>

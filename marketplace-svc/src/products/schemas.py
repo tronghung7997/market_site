@@ -99,7 +99,10 @@ class ProductListItemBase(BaseModel):
     cần, còn mô tả markdown dài hàng KB nhân N sản phẩm là payload phình vô
     ích. Không mang commission_rate — mức hoa hồng là thoả thuận admin↔seller,
     không phát ra API public. pricing_strategy/params phải giữ: frontend tính
-    giá "Chỉ từ" thật từ chúng (lib/pricing-display.ts)."""
+    giá "Chỉ từ" thật từ chúng (lib/pricing-display.ts).
+
+    Public list/detail also expose additive ``locale`` / ``available_locales``
+    after server-side i18n resolve (Agent B catalog contract)."""
     id: int
     seller_id: int
     category_id: int
@@ -115,6 +118,8 @@ class ProductListItemBase(BaseModel):
     pricing_strategy: str | None = None
     pricing_params: dict | None = None
     created_at: datetime
+    locale: str | None = None
+    available_locales: list[str] | None = None
 
 
 class ProductListItemResponse(ProductListItemBase):

@@ -19,6 +19,7 @@ from src.middleware import RequestIdMiddleware, SecurityHeadersMiddleware
 from src.observability.sentry import init_sentry
 from src.notifications.router import router as notifications_router
 from src.orders.router import router as orders_router
+from src.ops.router import router as ops_router
 from src.pricing.router import router as pricing_router
 from src.products.router import router as products_router
 from src.providers.router import router as providers_router
@@ -39,6 +40,7 @@ from src.scheduler import (
     sla_check_job,
     task_webhook_sla_job,
 )
+from src.errors.handlers import register_error_handlers
 from src.security.crypto import using_default_encryption_key
 from src.seller.router import router as seller_router
 from src.seller_api_keys.router import router as seller_api_keys_router
@@ -113,6 +115,8 @@ app.add_middleware(
 )
 app.add_middleware(RequestIdMiddleware)
 
+register_error_handlers(app)
+
 app.include_router(auth_router)
 app.include_router(seller_router)
 app.include_router(seller_api_keys_router)
@@ -137,6 +141,7 @@ if settings.debug_routes_enabled:
 app.include_router(usage_router)
 app.include_router(gateway_router)
 app.include_router(proxy_router)
+app.include_router(ops_router)
 
 
 @app.get("/health")

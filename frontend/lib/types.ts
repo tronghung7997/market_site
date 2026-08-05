@@ -566,6 +566,7 @@ export interface PricingField {
   min?: number;
   max?: number;
   default?: string | number;
+  placeholder?: string;
 }
 
 export interface PricingOptions {

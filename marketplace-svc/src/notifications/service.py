@@ -110,7 +110,7 @@ async def seller_action_items(seller_id: int, db: AsyncSession) -> list[ActionIt
     if stats["pending_orders"]:
         items.append(ActionItem(
             key="seller_pending_orders", severity="warning",
-            label=f"{stats['pending_orders']} đơn hàng mới cần xác nhận",
+            label=f"{stats['pending_orders']} orders need confirmation",
             count=stats["pending_orders"], href="/seller/orders",
         ))
 
@@ -118,7 +118,7 @@ async def seller_action_items(seller_id: int, db: AsyncSession) -> list[ActionIt
     if open_disputes:
         items.append(ActionItem(
             key="seller_open_disputes", severity="critical",
-            label=f"{len(open_disputes)} khiếu nại cần bạn phản hồi",
+            label=f"{len(open_disputes)} disputes need your response",
             count=len(open_disputes), href="/seller/orders",
         ))
 
@@ -129,7 +129,7 @@ async def seller_action_items(seller_id: int, db: AsyncSession) -> list[ActionIt
     if needs_setup:
         items.append(ActionItem(
             key="seller_needs_setup", severity="warning",
-            label=f"{needs_setup} sản phẩm chưa cấu hình xong",
+            label=f"{needs_setup} products are not fully configured",
             count=needs_setup, href="/seller/products",
         ))
 
@@ -138,7 +138,7 @@ async def seller_action_items(seller_id: int, db: AsyncSession) -> list[ActionIt
     if rejected:
         items.append(ActionItem(
             key="seller_withdrawals_rejected", severity="warning",
-            label=f"{len(rejected)} yêu cầu rút tiền bị từ chối — cần sửa và gửi lại",
+            label=f"{len(rejected)} withdrawal requests were rejected — fix and resubmit",
             count=len(rejected), href="/seller/withdrawals",
         ))
 
@@ -157,7 +157,7 @@ async def admin_action_items(db: AsyncSession) -> list[ActionItem]:
     if pending_apps:
         items.append(ActionItem(
             key="admin_pending_applications", severity="warning",
-            label=f"{pending_apps} đơn đăng ký bán chờ duyệt",
+            label=f"{pending_apps} seller applications awaiting review",
             count=pending_apps, href="/admin/seller-applications",
         ))
 
@@ -167,7 +167,7 @@ async def admin_action_items(db: AsyncSession) -> list[ActionItem]:
     if open_disputes:
         items.append(ActionItem(
             key="admin_open_disputes", severity="critical",
-            label=f"{open_disputes} khiếu nại đang mở",
+            label=f"{open_disputes} open disputes",
             count=open_disputes, href="/admin/disputes",
         ))
 
@@ -178,7 +178,7 @@ async def admin_action_items(db: AsyncSession) -> list[ActionItem]:
     if pending_withdrawals:
         items.append(ActionItem(
             key="admin_pending_withdrawals", severity="warning",
-            label=f"{pending_withdrawals} yêu cầu rút tiền chờ duyệt",
+            label=f"{pending_withdrawals} withdrawal requests awaiting approval",
             count=pending_withdrawals, href="/admin/withdrawals",
         ))
 
@@ -189,7 +189,7 @@ async def admin_action_items(db: AsyncSession) -> list[ActionItem]:
     if pending_tasks:
         items.append(ActionItem(
             key="admin_pending_tasks", severity="warning",
-            label=f"{pending_tasks} tác vụ chờ xử lý",
+            label=f"{pending_tasks} tasks awaiting processing",
             count=pending_tasks, href="/admin/tasks",
         ))
 

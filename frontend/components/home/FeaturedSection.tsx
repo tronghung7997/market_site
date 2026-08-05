@@ -3,7 +3,8 @@
 /** "Nổi bật tuần này" — 3 card kiểu bảng giá: header sản phẩm, 2–3 gói đầu
  *  kèm giá, footer "Chỉ từ". Page quyết định 3 sản phẩm nào (sort theo kho). */
 
-import Link from "next/link";
+import { Link } from "@/i18n/navigation";
+import { useLocale, useTranslations } from "next-intl";
 import { vnd } from "@/lib/api";
 import { cn } from "@/lib/cn";
 import type { Product } from "@/lib/types";
@@ -16,11 +17,13 @@ export function FeaturedSection({ featured, catName, minPrice }: {
   catName: (id: number) => string;
   minPrice: (p: Product) => number;
 }) {
+  const t = useTranslations("home");
+  const locale = useLocale();
   if (featured.length === 0) return null;
   return (
     <section className="border-y border-line bg-surface">
       <div className="w-full mx-auto max-w-[1200px] px-6 py-6 lg:py-8">
-        <SectionHead title="Nổi bật tuần này" sub="Hàng sẵn kho, giao ngay" />
+        <SectionHead title={t("featuredTitle")} sub={t("featuredSubtitle")} />
         {/* [&>*]:min-w-0 — grid item mặc định min-width:auto, nên phần text
             `truncate` (nowrap) bên trong đẩy cả cột rộng ra thay vì bị cắt,
             kéo trang trôi ngang trên điện thoại. */}
@@ -43,7 +46,7 @@ export function FeaturedSection({ featured, catName, minPrice }: {
                         <div className="flex items-center gap-1.5 text-[11px] sm:text-[12px] text-faint">
                           {catName(p.category_id)}
                           <Verified size={11} className="text-iris hidden sm:inline" />
-                          {p.sold_count > 0 && <span className="hidden sm:inline">· {p.sold_count} đã bán</span>}
+                          {p.sold_count > 0 && <span className="hidden sm:inline">· {p.sold_count} {t("soldSuffix")}</span>}
                         </div>
                       </div>
                     </div>
@@ -60,12 +63,12 @@ export function FeaturedSection({ featured, catName, minPrice }: {
                           </span>
                           <span className="text-muted truncate flex-1">{v.name}</span>
                           <span className="font-mono text-[11px] sm:text-[12px] font-medium tabular shrink-0 text-fg">
-                            {v.price > 0 ? vnd(v.price) : "Báo giá"}
+                            {v.price > 0 ? vnd(v.price, locale) : t("quote")}
                           </span>
                         </div>
                       ))}
                       {variants.length > 3 && (
-                        <div className="text-[11.5px] text-faint pb-1 hidden sm:block">+{variants.length - 3} gói khác</div>
+                        <div className="text-[11.5px] text-faint pb-1 hidden sm:block">{t("morePackages", { count: variants.length - 3 })}</div>
                       )}
                     </div>
                   </div>
@@ -73,13 +76,13 @@ export function FeaturedSection({ featured, catName, minPrice }: {
                   {/* Footer */}
                   <div className="px-3 py-2.5 sm:px-5 sm:py-4 bg-raised/50 border-t border-line flex items-center justify-between mt-auto">
                     <div>
-                      <div className="text-[9.5px] sm:text-[10.5px] uppercase tracking-wide text-faint font-medium">Chỉ từ</div>
+                      <div className="text-[9.5px] sm:text-[10.5px] uppercase tracking-wide text-faint font-medium">{t("onlyFrom")}</div>
                       <div className="font-mono text-[15px] sm:text-[20px] font-semibold tabular leading-tight text-iris-hi">
-                        {mp > 0 ? vnd(mp) : "Báo giá"}
+                        {mp > 0 ? vnd(mp, locale) : t("quote")}
                       </div>
                     </div>
                     <span className="inline-flex items-center gap-1 sm:gap-1.5 text-[11px] sm:text-[12.5px] font-medium text-iris group-hover:text-iris-hi transition-colors">
-                      <span className="hidden sm:inline">Chọn gói</span> <ArrowRight size={14} />
+                      <span className="hidden sm:inline">{t("choosePackage")}</span> <ArrowRight size={14} />
                     </span>
                   </div>
                 </Card>

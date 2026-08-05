@@ -3,6 +3,7 @@ from sqlalchemy.ext.asyncio import AsyncSession
 
 from src.auth.dependencies import require_role
 from src.database import get_session
+from src.i18n.deps import get_request_locale
 from src.models.account import Account
 
 from . import schemas, service
@@ -11,8 +12,11 @@ router = APIRouter(tags=["categories"])
 
 
 @router.get("/categories", response_model=list[schemas.CategoryTreeResponse])
-async def list_categories(db: AsyncSession = Depends(get_session)):
-    return await service.list_categories_tree(db)
+async def list_categories(
+    locale: str = Depends(get_request_locale),
+    db: AsyncSession = Depends(get_session),
+):
+    return await service.list_categories_tree(db, locale=locale)
 
 
 @router.post("/admin/categories", response_model=schemas.CategoryResponse, status_code=status.HTTP_201_CREATED)

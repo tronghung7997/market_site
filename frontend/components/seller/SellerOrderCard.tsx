@@ -7,6 +7,7 @@
  * thay vì xác nhận/mở khiếu nại/đánh giá). */
 
 import { useState } from "react";
+import { useLocale, useTranslations } from "next-intl";
 import { api, vnd } from "@/lib/api";
 import { orderStatus } from "@/lib/order-status";
 import type { Dispute, Order } from "@/lib/types";
@@ -17,19 +18,6 @@ import { Check } from "@/components/Icons";
 
 /** Gợi ý hành động — khác `orderStatus().hint` (viết cho buyer, "Người bán
  *  đang chuẩn bị đơn của bạn" vô nghĩa khi seller đọc chính đơn của mình). */
-const SELLER_HINT: Record<string, string> = {
-  pending: "Đơn mới — bấm Chấp nhận để bắt đầu chuẩn bị hàng cho khách.",
-  processing: "Đã nhận đơn — chuẩn bị xong thì bấm Giao hàng.",
-};
-
-function elapsedLabel(iso: string): string {
-  const ms = Date.now() - new Date(iso).getTime();
-  const hours = Math.floor(ms / 3_600_000);
-  if (hours < 1) return "Vừa đặt";
-  if (hours < 24) return `${hours} giờ trước`;
-  return `${Math.floor(hours / 24)} ngày trước`;
-}
-
 export default function SellerOrderCard({
   order: o, dispute, onAccept, onDeliver, onDisputeResponded, acting,
 }: {
@@ -42,7 +30,18 @@ export default function SellerOrderCard({
   onDisputeResponded: () => void;
   acting: boolean;
 }) {
-  const st = orderStatus(o.status);
+  const t = useTranslations("seller");
+  const locale = useLocale();
+  const st = orderStatus(o.status, locale);
+  const elapsedLabel = (iso: string) => {
+    const hours = Math.floor((Date.now() - new Date(iso).getTime()) / 3_600_000);
+    if (hours < 1) return t("orderJustNow");
+    if (hours < 24) return t("orderHoursAgo", { count: hours });
+    return t("orderDaysAgo", { count: Math.floor(hours / 24) });
+  };
+  const sellerHint = o.status === "pending"
+    ? t("orderHintPending")
+    : o.status === "processing" ? t("orderHintProcessing") : null;
   const [delivering, setDelivering] = useState(false);
   const [deliverData, setDeliverData] = useState("");
   const [responding, setResponding] = useState(false);
@@ -70,7 +69,7 @@ export default function SellerOrderCard({
         <span className="text-[11.5px] text-faint">{elapsedLabel(o.created_at)}</span>
         <div className="ml-auto flex items-center gap-2.5">
           <Tag tone={st.tone}>{st.label}</Tag>
-          <span className="font-mono text-[14px] font-semibold tabular">{vnd(o.total_amount)}</span>
+          <span className="font-mono text-[14px] font-semibold tabular">{vnd(o.total_amount, locale)}</span>
         </div>
       </div>
 
@@ -78,15 +77,15 @@ export default function SellerOrderCard({
         <div className="flex items-center gap-3 min-w-0">
           <Monogram text={o.product_title ?? "??"} />
           <div className="min-w-0 flex-1">
-            <div className="font-medium text-[14px] truncate">{o.product_title ?? `Đơn #${o.id}`}</div>
+            <div className="font-medium text-[14px] truncate">{o.product_title ?? t("orderNumber", { id: o.id })}</div>
             <div className="text-[12px] text-muted truncate">
-              {o.variant_name ? `${o.variant_name} · ` : ""}SL {o.quantity}
+              {o.variant_name ? `${o.variant_name} · ` : ""}{t("quantity", { count: o.quantity })}
               {o.buyer_email && <> · {o.buyer_email}</>}
             </div>
           </div>
         </div>
 
-        {SELLER_HINT[o.status] && <p className="text-[12px] text-muted mt-2.5">{SELLER_HINT[o.status]}</p>}
+        {sellerHint && <p className="text-[12px] text-muted mt-2.5">{sellerHint}</p>}
 
         {o.status === "disputed" && <OrderDispute orderId={o.id} initialDispute={dispute} />}
 
@@ -97,53 +96,53 @@ export default function SellerOrderCard({
         <div className="flex gap-2 mt-3.5">
           {o.status === "pending" && (
             <Button size="sm" disabled={acting} onClick={() => onAccept(o.id)}>
-              <Check size={13} /> Chấp nhận
+              <Check size={13} /> {t("acceptOrder")}
             </Button>
           )}
           {o.status === "processing" && !delivering && (
             <Button size="sm" disabled={acting} onClick={() => setDelivering(true)}>
-              Giao hàng
+              {t("deliverOrder")}
             </Button>
           )}
           {o.status === "disputed" && !dispute?.seller_note && !responding && (
             <Button size="sm" variant="secondary" onClick={() => setResponding(true)}>
-              Phản hồi khiếu nại
+              {t("respondToDispute")}
             </Button>
           )}
         </div>
 
         {delivering && o.status === "processing" && (
           <div className="mt-3.5 pt-3.5 border-t border-line space-y-3">
-            <Field label="Dữ liệu bàn giao" hint="Nhập thông tin giao cho người mua">
+            <Field label={t("deliveryData")} hint={t("deliveryDataHint")}>
               <Textarea rows={4} value={deliverData} onChange={(e) => setDeliverData(e.target.value)}
-                placeholder={"username|password|email\nhoặc nội dung bàn giao..."} />
+                placeholder={t("deliveryDataPlaceholder")} />
             </Field>
             <div className="flex gap-2">
               <Button size="sm" disabled={acting || !deliverData.trim()} onClick={() => onDeliver(o.id, deliverData.trim())}>
-                {acting ? "Đang giao…" : "Xác nhận giao hàng"}
+                {acting ? t("delivering") : t("confirmDelivery")}
               </Button>
-              <Button size="sm" variant="ghost" onClick={() => { setDelivering(false); setDeliverData(""); }}>Huỷ</Button>
+              <Button size="sm" variant="ghost" onClick={() => { setDelivering(false); setDeliverData(""); }}>{t("cancel")}</Button>
             </div>
           </div>
         )}
 
         {responding && o.status === "disputed" && (
           <div className="mt-3.5 pt-3.5 border-t border-line space-y-3">
-            <Field label="Phản hồi khiếu nại" hint="Giải thích hoặc cung cấp bằng chứng cho admin xem xét">
+            <Field label={t("disputeResponse")} hint={t("disputeResponseHint")}>
               <Textarea rows={3} value={sellerNote} onChange={(e) => setSellerNote(e.target.value)}
-                placeholder="Nhập phản hồi của bạn..." />
+                placeholder={t("disputeResponsePlaceholder")} />
             </Field>
             <div className="flex gap-2">
               <Button size="sm" disabled={submitting || !sellerNote.trim()} onClick={submitResponse}>
-                {submitting ? "Đang gửi…" : "Gửi phản hồi"}
+                {submitting ? t("sending") : t("sendResponse")}
               </Button>
-              <Button size="sm" variant="ghost" onClick={() => { setResponding(false); setSellerNote(""); }}>Huỷ</Button>
+              <Button size="sm" variant="ghost" onClick={() => { setResponding(false); setSellerNote(""); }}>{t("cancel")}</Button>
             </div>
           </div>
         )}
 
         {hasContent && (
-          <Disclosure label="Xem dashboard" labelOpen="Ẩn dashboard" open={dashboardOpen} onToggle={() => setDashboardOpen((v) => !v)}>
+          <Disclosure label={t("viewDashboard")} labelOpen={t("hideDashboard")} open={dashboardOpen} onToggle={() => setDashboardOpen((v) => !v)}>
             <ServiceDashboard orderId={o.id} viewerRole="seller" />
           </Disclosure>
         )}

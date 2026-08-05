@@ -2,6 +2,7 @@
 
 import { useState } from "react";
 import type { ButtonHTMLAttributes, InputHTMLAttributes, ReactNode, TextareaHTMLAttributes, SelectHTMLAttributes } from "react";
+import { useTranslations } from "next-intl";
 import { cn } from "@/lib/cn";
 import { ChevronRight, Copy } from "@/components/Icons";
 
@@ -195,11 +196,14 @@ export function Monogram({ text, className }: { text: string; className?: string
   );
 }
 
-/** Nút sao chép chữ nhỏ, tự đổi nhãn 1.6s sau khi chép. */
+/** Small copy button; label flips for 1.6s after copy. Defaults come from common i18n. */
 export function CopyButton({
-  text, label = "Sao chép", copiedLabel = "Đã sao chép", className,
+  text, label, copiedLabel, className,
 }: { text: string; label?: string; copiedLabel?: string; className?: string }) {
+  const t = useTranslations("common");
   const [copied, setCopied] = useState(false);
+  const idle = label ?? t("copy");
+  const done = copiedLabel ?? t("copied");
   return (
     <button
       onClick={() => {
@@ -209,16 +213,16 @@ export function CopyButton({
       }}
       className={cn("inline-flex items-center gap-1 text-[11px] font-medium text-muted hover:text-iris-hi transition-colors", className)}
     >
-      <Copy size={11} /> {copied ? copiedLabel : label}
+      <Copy size={11} /> {copied ? done : idle}
     </button>
   );
 }
 
-/** Phân trang cửa sổ: 1 … trang±2 … cuối (trích từ trang Đơn hàng).
- *  Tự ẩn khi chỉ có 1 trang. Bản buyer — admin console có bản slate riêng. */
+/** Windowed pagination: 1 … page±2 … last. Hidden when only one page. */
 export function Pagination({
   page, totalPages, onChange,
 }: { page: number; totalPages: number; onChange: (page: number) => void }) {
+  const t = useTranslations("common");
   if (totalPages <= 1) return null;
   const pages = Array.from({ length: totalPages }, (_, i) => i + 1)
     .filter((p) => p === 1 || p === totalPages || Math.abs(p - page) <= 2)
@@ -229,7 +233,7 @@ export function Pagination({
     }, []);
   return (
     <div className="flex items-center gap-1">
-      <Button size="sm" variant="ghost" disabled={page <= 1} onClick={() => onChange(page - 1)}>Trước</Button>
+      <Button size="sm" variant="ghost" disabled={page <= 1} onClick={() => onChange(page - 1)}>{t("previous")}</Button>
       {pages.map((p, i) =>
         p === "…" ? (
           <span key={`gap-${i}`} className="text-muted px-1">…</span>
@@ -246,7 +250,7 @@ export function Pagination({
           </button>
         ),
       )}
-      <Button size="sm" variant="ghost" disabled={page >= totalPages} onClick={() => onChange(page + 1)}>Sau</Button>
+      <Button size="sm" variant="ghost" disabled={page >= totalPages} onClick={() => onChange(page + 1)}>{t("next")}</Button>
     </div>
   );
 }
@@ -268,10 +272,11 @@ export function Disclosure({ label, labelOpen, open, onToggle, children }: {
 }
 
 export function Spinner({ label }: { label?: string }) {
+  const t = useTranslations("common");
   return (
     <div className="flex items-center justify-center gap-2.5 py-14 text-muted">
       <span className="h-3.5 w-3.5 rounded-full border-2 border-line-2 border-t-iris animate-spin" />
-      <span className="text-[13px]">{label ?? "Đang tải…"}</span>
+      <span className="text-[13px]">{label ?? t("loading")}</span>
     </div>
   );
 }

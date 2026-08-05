@@ -1,6 +1,7 @@
 "use client";
 
 import { useState } from "react";
+import { useLocale, useTranslations } from "next-intl";
 import { motion } from "motion/react";
 import { CartesianGrid, Line, LineChart, ResponsiveContainer, Tooltip, XAxis, YAxis } from "recharts";
 import { Check, Coins, Copy, MousePointerClick, ShoppingBag, UserPlus } from "lucide-react";
@@ -15,20 +16,33 @@ const container = {
 };
 const item = { hidden: { opacity: 0, y: 12 }, show: { opacity: 1, y: 0 } };
 
-const METRICS = [
-  { key: "clicks", label: "Nhấp", color: "#4f46e5" },
-  { key: "signups", label: "Đăng ký", color: "#0ea5e9" },
-  { key: "orders", label: "Đơn", color: "#16a34a" },
-  { key: "commission", label: "Hoa hồng", color: "#d97706" },
-] as const;
-type MetricKey = (typeof METRICS)[number]["key"];
+const METRIC_KEYS = ["clicks", "signups", "orders", "commission"] as const;
+type MetricKey = (typeof METRIC_KEYS)[number];
+
+const METRIC_COLORS: Record<MetricKey, string> = {
+  clicks: "#4f46e5",
+  signups: "#0ea5e9",
+  orders: "#16a34a",
+  commission: "#d97706",
+};
 
 export function AffiliateStatsView({ data }: { data: AffiliateStats }) {
+  const t = useTranslations("affiliate");
+  const locale = useLocale();
+  const numberLocale = locale === "vi" ? "vi-VN" : "en-US";
   const { totals, timeseries, commissions, referred_users, code, link } = data;
   const showSpend = referred_users.length === 0 || referred_users[0].total_spent != null;
   const [metric, setMetric] = useState<MetricKey>("clicks");
-  const activeMetric = METRICS.find((m) => m.key === metric)!;
   const [copied, setCopied] = useState(false);
+
+  const metricLabels: Record<MetricKey, string> = {
+    clicks: t("metricClicks"),
+    signups: t("metricSignups"),
+    orders: t("metricOrders"),
+    commission: t("metricCommission"),
+  };
+  const activeLabel = metricLabels[metric];
+  const activeColor = METRIC_COLORS[metric];
 
   const copyLink = () => {
     if (typeof navigator === "undefined" || !navigator.clipboard) return;
@@ -43,13 +57,10 @@ export function AffiliateStatsView({ data }: { data: AffiliateStats }) {
 
   return (
     <div className="space-y-6">
-      {/* ─── Hero: referral link ─── */}
       <Card className="aura p-6">
         <div className="flex items-end justify-between gap-6 flex-wrap">
           <div className="min-w-0">
-            <p className="text-[11px] font-medium tracking-wide uppercase text-muted mb-2">
-              Liên kết giới thiệu của bạn
-            </p>
+            <p className="text-[11px] font-medium tracking-wide uppercase text-muted mb-2">{t("yourLink")}</p>
             <div className="flex items-center gap-2.5 flex-wrap">
               <p className="font-mono text-[15px] text-iris-hi break-all">{link}</p>
               <span className="inline-flex items-center rounded-md bg-iris-soft px-2 py-0.5 font-mono text-[12px] font-semibold text-iris-hi">
@@ -62,74 +73,67 @@ export function AffiliateStatsView({ data }: { data: AffiliateStats }) {
             className="shrink-0 inline-flex items-center gap-1.5 rounded-lg border border-default bg-white px-3.5 py-2 text-[13px] font-medium hover:bg-raised transition-colors"
           >
             {copied ? <Check size={15} className="text-good" /> : <Copy size={15} />}
-            {copied ? "Đã sao chép" : "Sao chép liên kết"}
+            {copied ? t("copied") : t("copyLink")}
           </button>
         </div>
       </Card>
 
-      {/* ─── KPI cards ─── */}
-      <motion.div
-        variants={container}
-        initial="hidden"
-        animate="show"
-        className="grid grid-cols-2 lg:grid-cols-4 gap-4"
-      >
+      <motion.div variants={container} initial="hidden" animate="show" className="grid grid-cols-2 lg:grid-cols-4 gap-4">
         <motion.div variants={item}>
           <StatsCard
-            label="Lượt nhấp"
-            value={totals.clicks.toLocaleString("vi-VN")}
+            label={t("clicks")}
+            value={totals.clicks.toLocaleString(numberLocale)}
             tone="neutral"
             icon={<MousePointerClick size={18} />}
-            sub="lượt vào qua link"
+            sub={t("clicksSub")}
           />
         </motion.div>
         <motion.div variants={item}>
           <StatsCard
-            label="Đăng ký"
-            value={totals.signups.toLocaleString("vi-VN")}
+            label={t("signups")}
+            value={totals.signups.toLocaleString(numberLocale)}
             tone="iris"
             icon={<UserPlus size={18} />}
-            sub="tài khoản giới thiệu"
+            sub={t("signupsSub")}
           />
         </motion.div>
         <motion.div variants={item}>
           <StatsCard
-            label="Đơn hàng"
-            value={totals.orders.toLocaleString("vi-VN")}
+            label={t("orders")}
+            value={totals.orders.toLocaleString(numberLocale)}
             tone="good"
             icon={<ShoppingBag size={18} />}
-            sub="đơn tính hoa hồng"
+            sub={t("ordersSub")}
           />
         </motion.div>
         <motion.div variants={item}>
           <StatsCard
-            label="Hoa hồng"
+            label={t("commission")}
             value={vnd(totals.commission)}
             tone="good"
             icon={<Coins size={18} />}
-            sub="đã cộng vào ví"
+            sub={t("commissionSub")}
           />
         </motion.div>
       </motion.div>
 
-      {/* ─── Referred users ─── */}
       <Card className="p-0 overflow-hidden">
         <div className="px-5 py-3.5 border-b border-default">
-          <h2 className="text-[14px] font-semibold text-slate-900">Người dùng đã đăng ký qua link</h2>
+          <h2 className="text-[14px] font-semibold text-slate-900">{t("referredUsersTitle")}</h2>
         </div>
         {referred_users.length === 0 ? (
           <div className="px-5 py-12 text-center">
-            <p className="text-[13px] text-muted">Chưa có ai đăng ký qua liên kết này.</p>
+            <p className="text-[13px] text-muted">{t("referredEmpty")}</p>
           </div>
         ) : (
           <div className="overflow-x-auto">
             <table className="w-full text-[13px]">
               <thead>
                 <tr className="text-left text-muted border-b border-default">
-                  <th className="px-5 py-2.5 font-medium">Email</th>
-                  <th className="px-5 py-2.5 font-medium">Ngày đăng ký</th>
-                  <th className="px-5 py-2.5 font-medium text-right">Số đơn</th>
-                  {showSpend && <th className="px-5 py-2.5 font-medium text-right">Tổng chi tiêu</th>}
+                  <th className="px-5 py-2.5 font-medium">{t("colEmail")}</th>
+                  <th className="px-5 py-2.5 font-medium">{t("colSignedUp")}</th>
+                  <th className="px-5 py-2.5 font-medium text-right">{t("colOrderCount")}</th>
+                  {showSpend && <th className="px-5 py-2.5 font-medium text-right">{t("colTotalSpend")}</th>}
                 </tr>
               </thead>
               <tbody>
@@ -151,23 +155,22 @@ export function AffiliateStatsView({ data }: { data: AffiliateStats }) {
         )}
       </Card>
 
-      {/* ─── Activity chart ─── */}
       <Card className="p-0 overflow-hidden">
         <CardHeader className="flex-row items-center justify-between flex-wrap gap-3">
           <div>
-            <CardTitle>Hoạt động theo ngày</CardTitle>
-            <p className="text-[12px] text-muted mt-0.5">{activeMetric.label} phát sinh mỗi ngày</p>
+            <CardTitle>{t("activityTitle")}</CardTitle>
+            <p className="text-[12px] text-muted mt-0.5">{t("activitySub", { metric: activeLabel })}</p>
           </div>
           <div className="flex items-center gap-1 rounded-lg border border-default bg-slate-50 p-0.5">
-            {METRICS.map((m) => (
+            {METRIC_KEYS.map((key) => (
               <button
-                key={m.key}
-                onClick={() => setMetric(m.key)}
+                key={key}
+                onClick={() => setMetric(key)}
                 className={`px-2.5 py-1 rounded-md text-[12px] font-medium transition-colors ${
-                  metric === m.key ? "bg-white text-slate-900 shadow-sm" : "text-muted hover:text-slate-700"
+                  metric === key ? "bg-white text-slate-900 shadow-sm" : "text-muted hover:text-slate-700"
                 }`}
               >
-                {m.label}
+                {metricLabels[key]}
               </button>
             ))}
           </div>
@@ -193,41 +196,44 @@ export function AffiliateStatsView({ data }: { data: AffiliateStats }) {
                       return (
                         <div className="bg-slate-900 text-white px-3 py-2 rounded-lg text-[12px] shadow-lg">
                           <p className="font-medium">{d.date}</p>
-                          <p className="text-slate-300">Nhấp: {d.clicks} · Đăng ký: {d.signups}</p>
-                          <p className="text-slate-300">Đơn: {d.orders} · Hoa hồng: {vnd(d.commission)}</p>
+                          <p className="text-slate-300">
+                            {t("tooltipClicks", { clicks: d.clicks })} · {t("tooltipSignups", { signups: d.signups })}
+                          </p>
+                          <p className="text-slate-300">
+                            {t("tooltipOrders", { orders: d.orders })} · {t("tooltipCommission", { amount: vnd(d.commission) })}
+                          </p>
                         </div>
                       );
                     }
                     return null;
                   }}
                 />
-                <Line type="monotone" dataKey={metric} stroke={activeMetric.color} strokeWidth={2.5} dot={false} activeDot={{ r: 4 }} />
+                <Line type="monotone" dataKey={metric} stroke={activeColor} strokeWidth={2.5} dot={false} activeDot={{ r: 4 }} />
               </LineChart>
             </ResponsiveContainer>
           </div>
         </CardContent>
       </Card>
 
-      {/* ─── Recent commissions ─── */}
       <Card className="p-0 overflow-hidden">
         <div className="px-5 py-3.5 border-b border-default">
-          <h2 className="text-[14px] font-semibold text-slate-900">Hoa hồng gần đây</h2>
+          <h2 className="text-[14px] font-semibold text-slate-900">{t("recentCommissions")}</h2>
         </div>
         {commissions.length === 0 ? (
           <div className="px-5 py-12 text-center">
-            <p className="text-[13px] text-muted">Chưa có hoa hồng nào — chia sẻ liên kết để bắt đầu.</p>
+            <p className="text-[13px] text-muted">{t("commissionsEmpty")}</p>
           </div>
         ) : (
           <div className="overflow-x-auto">
             <table className="w-full text-[13px]">
               <thead>
                 <tr className="text-left text-muted border-b border-default">
-                  <th className="px-5 py-2.5 font-medium">Đơn</th>
-                  <th className="px-5 py-2.5 font-medium">Sản phẩm</th>
-                  <th className="px-5 py-2.5 font-medium text-right">Tỷ lệ</th>
-                  <th className="px-5 py-2.5 font-medium text-right">Giá trị đơn</th>
-                  <th className="px-5 py-2.5 font-medium text-right">Hoa hồng</th>
-                  <th className="px-5 py-2.5 font-medium">Ngày</th>
+                  <th className="px-5 py-2.5 font-medium">{t("colOrder")}</th>
+                  <th className="px-5 py-2.5 font-medium">{t("colProduct")}</th>
+                  <th className="px-5 py-2.5 font-medium text-right">{t("colRate")}</th>
+                  <th className="px-5 py-2.5 font-medium text-right">{t("colOrderValue")}</th>
+                  <th className="px-5 py-2.5 font-medium text-right">{t("colCommission")}</th>
+                  <th className="px-5 py-2.5 font-medium">{t("colDate")}</th>
                 </tr>
               </thead>
               <tbody>

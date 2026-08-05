@@ -10,19 +10,36 @@ const BASE = typeof window !== "undefined"
 
 export class ApiError extends Error {
   status: number;
-  constructor(status: number, message: string) {
+  errorCode?: string;
+  params: Record<string, unknown>;
+  constructor(status: number, message: string, errorCode?: string, params: Record<string, unknown> = {}) {
     super(message);
     this.status = status;
+    this.errorCode = errorCode;
+    this.params = params;
   }
 }
 
+function browserLocale(): string {
+  if (typeof document === "undefined") return "en";
+  const fromCookie = document.cookie.match(/(?:^|; )NEXT_LOCALE=(en|vi)(?:;|$)/)?.[1];
+  if (fromCookie) return fromCookie;
+  // First visit to /vi may not have the cookie yet — derive from the path.
+  const fromPath = window.location.pathname.match(/^\/(en|vi)(?:\/|$)/)?.[1];
+  return fromPath ?? "en";
+}
+
 async function request<T>(path: string, init: RequestInit = {}, auth: boolean | "silent" = false): Promise<T> {
-  const headers: Record<string, string> = { "Content-Type": "application/json", ...(init.headers as Record<string, string>) };
+  const headers: Record<string, string> = {
+    "Content-Type": "application/json",
+    "Accept-Language": browserLocale(),
+    ...(init.headers as Record<string, string>),
+  };
   let res: Response;
   try {
     res = await fetch(`${BASE}${path}`, { ...init, headers, credentials: "same-origin" });
   } catch {
-    throw new ApiError(0, "Không thể kết nối tới máy chủ, vui lòng kiểm tra kết nối mạng và thử lại.");
+    throw new ApiError(0, "Unable to reach the server. Check your connection and try again.", "NETWORK");
   }
   if (res.status === 204) return undefined as T;
   const body = await res.json().catch(() => null);
@@ -31,10 +48,15 @@ async function request<T>(path: string, init: RequestInit = {}, auth: boolean | 
       if (auth === true && typeof window !== "undefined") {
         window.dispatchEvent(new Event("auth:session-expired"));
       }
-      throw new ApiError(401, "Phiên đăng nhập đã hết hạn, vui lòng đăng nhập lại.");
+      throw new ApiError(401, "Your session has expired. Please sign in again.", "SESSION_EXPIRED");
     }
     const detail = body && (body.detail || body.message);
-    throw new ApiError(res.status, typeof detail === "string" ? detail : "Có lỗi xảy ra, vui lòng thử lại.");
+    throw new ApiError(
+      res.status,
+      typeof detail === "string" ? detail : "Something went wrong. Please try again.",
+      typeof body?.error_code === "string" ? body.error_code : undefined,
+      body && typeof body.params === "object" && body.params !== null ? body.params : {},
+    );
   }
   return body as T;
 }

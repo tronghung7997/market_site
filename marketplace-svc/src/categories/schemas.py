@@ -28,6 +28,9 @@ class CategoryResponse(BaseModel):
     sort_order: int
     is_active: bool
     commission_rate: float | None = None
+    # Additive after locale-aware public catalog resolve (optional on admin CRUD).
+    locale: str | None = None
+    available_locales: list[str] | None = None
 
     model_config = {"from_attributes": True}
 

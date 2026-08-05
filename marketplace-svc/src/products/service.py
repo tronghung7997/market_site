@@ -7,6 +7,13 @@ from sqlalchemy.ext.asyncio import AsyncSession
 from src.adapters.compatibility import check_compatibility, setup_status
 from src.adapters.registry import get_spec
 from src.exceptions import NotOwner
+from src.i18n.catalog import (
+    DEFAULT_LOCALE,
+    merge_i18n_locale,
+    resolve_category_fields,
+    resolve_product_fields,
+    resolve_variant_fields,
+)
 from src.models.account import Account
 from src.models.category import Category
 from src.models.product import DeliveryMode, Product, ProductStatus, ProductVariant
@@ -18,8 +25,27 @@ from src.models.resource import Resource, ResourceStatus
 NULLABLE_VARIANT_FIELDS = {"duration_days"}
 
 
+def _product_i18n_from_scalars(data: dict, *, existing: dict | None = None, locale: str = "vi") -> dict:
+    """Mirror writable text scalars into i18n[locale] when sellers save content.
+
+    Dual-language form UI lands in a later phase; until then new/updated seller
+    content is stored under ``vi`` (current market language) so the VI catalog
+    stays consistent while EN comes from backfill / explicit i18n.en.
+    """
+    fields = {
+        k: data[k]
+        for k in ("title", "description", "warranty_text", "highlight_text", "features")
+        if k in data and data[k] is not None
+    }
+    if not fields:
+        return existing or {}
+    return merge_i18n_locale(existing, locale, fields)
+
+
 async def create_product(seller_id: int, data: dict, db: AsyncSession) -> Product:
-    product = Product(seller_id=seller_id, **data)
+    payload = dict(data)
+    payload["i18n"] = _product_i18n_from_scalars(payload)
+    product = Product(seller_id=seller_id, **payload)
     db.add(product)
     await db.commit()
     await db.refresh(product)
@@ -43,6 +69,9 @@ async def update_product(product_id: int, seller_id: int, data: dict, db: AsyncS
     for key, value in data.items():
         if value is not None:
             setattr(product, key, value)
+    text_keys = {"title", "description", "warranty_text", "highlight_text", "features"}
+    if text_keys & data.keys():
+        product.i18n = _product_i18n_from_scalars(data, existing=product.i18n)
     await db.commit()
     await db.refresh(product)
     return product
@@ -63,6 +92,9 @@ async def admin_update_product(product_id: int, data: dict, db: AsyncSession) ->
     for key, value in data.items():
         if value is not None:
             setattr(product, key, value)
+    text_keys = {"title", "description", "warranty_text", "highlight_text", "features"}
+    if text_keys & data.keys():
+        product.i18n = _product_i18n_from_scalars(data, existing=product.i18n)
     await db.commit()
     await db.refresh(product)
     return product
@@ -94,7 +126,10 @@ async def create_variant(product_id: int, seller_id: int, data: dict, db: AsyncS
         raise HTTPException(status_code=404, detail="Không tìm thấy sản phẩm")
     if product.seller_id != seller_id:
         raise NotOwner()
-    variant = ProductVariant(product_id=product_id, **data)
+    payload = dict(data)
+    if "name" in payload and payload["name"] is not None:
+        payload["i18n"] = merge_i18n_locale({}, "vi", {"name": payload["name"]})
+    variant = ProductVariant(product_id=product_id, **payload)
     db.add(variant)
     await db.commit()
     await db.refresh(variant)
@@ -115,6 +150,8 @@ async def update_variant(variant_id: int, seller_id: int, data: dict, db: AsyncS
         if value is None and key not in NULLABLE_VARIANT_FIELDS:
             continue
         setattr(variant, key, value)
+    if "name" in data and data["name"] is not None:
+        variant.i18n = merge_i18n_locale(variant.i18n, "vi", {"name": data["name"]})
     await db.commit()
     await db.refresh(variant)
     return variant
@@ -186,6 +223,7 @@ async def list_products(
     seller_id: int | None = None,
     page: int = 1,
     per_page: int = 50,
+    locale: str = DEFAULT_LOCALE,
 ) -> dict:
     """Danh sách sản phẩm đang bán — item bản GỌN kèm gói + tồn kho.
 
@@ -196,6 +234,7 @@ async def list_products(
       ngữ nghĩa subtreeIds() client dùng để lọc tay trước đây.
     - Luôn phân trang server-side để một request public không thể kéo toàn bộ
       catalog và tồn kho. Envelope giữ khuôn {items, total, page, per_page}.
+    - ``locale`` resolves title/highlight/variant names server-side (EN default).
     """
     filters = [Product.status == ProductStatus.active]
     if category_id:
@@ -209,10 +248,15 @@ async def list_products(
     query = query.offset((page - 1) * per_page).limit(per_page)
     products = list((await db.execute(query)).scalars())
 
-    variants_by_product = await _variants_by_product([p.id for p in products], db)
+    variants_by_product = await _variants_by_product(
+        [p.id for p in products], db, locale=locale,
+    )
     return {
         "items": [
-            {**_product_list_dict(p), "variants": variants_by_product.get(p.id, [])}
+            {
+                **_product_list_dict(p, locale=locale),
+                "variants": variants_by_product.get(p.id, []),
+            }
             for p in products
         ],
         "total": total,
@@ -238,13 +282,16 @@ async def list_seller_products(seller_id: int, db: AsyncSession) -> list[dict]:
             select(Category).where(Category.id.in_({p.category_id for p in products}))
         )).scalars()
     }
-    variants_by_product = await _variants_by_product([p.id for p in products], db)
+    # Seller portal: raw scalars (edit forms), not storefront-localized copy.
+    variants_by_product = await _variants_by_product(
+        [p.id for p in products], db, locale=None,
+    )
 
     out = []
     for p in products:
         variants = variants_by_product.get(p.id, [])
         out.append({
-            **_product_list_dict(p),
+            **_product_list_dict(p, locale=None),
             "category_name": category_names.get(p.category_id),
             "variant_count": len(variants),
             "total_stock": sum(v["stock_count"] for v in variants),
@@ -290,17 +337,28 @@ async def get_own_product_detail(product_id: int, seller_id: int, db: AsyncSessi
         raise HTTPException(status_code=404, detail="Không tìm thấy sản phẩm")
     if product.seller_id != seller_id:
         raise NotOwner()
-    return await get_product_detail(product_id, db, include_inactive_variants=True)
+    # Seller portal sees stored scalars (what they edit), not EN-resolved storefront copy.
+    return await get_product_detail(
+        product_id, db, include_inactive_variants=True, localize=False,
+    )
 
 
 async def get_product_detail(
-    product_id: int, db: AsyncSession, *, include_inactive_variants: bool = False
+    product_id: int,
+    db: AsyncSession,
+    *,
+    include_inactive_variants: bool = False,
+    locale: str = DEFAULT_LOCALE,
+    localize: bool = True,
 ) -> dict:
     """Chi tiết sản phẩm.
 
     Trang mua chỉ thấy gói đang bật. Trang quản lý của seller phải thấy cả gói đã
     tắt — nếu không, tắt bán xong là gói biến mất khỏi chính trang sửa và seller
     không còn đường bật lại.
+
+    Public storefront passes ``locale`` and gets resolved text fields. Seller
+    detail uses ``localize=False`` so the edit form shows stored scalars.
     """
     product = await db.get(Product, product_id)
     if not product:
@@ -309,17 +367,36 @@ async def get_product_detail(
     seller = await db.get(Account, product.seller_id)
     category = await db.get(Category, product.category_id)
 
+    if localize:
+        base = _product_dict(product, locale=locale)
+        category_name = (
+            resolve_category_fields(category, locale)["name"] if category else None
+        )
+        variants = await _variant_dicts(
+            product_id, db, include_inactive=include_inactive_variants, locale=locale,
+        )
+    else:
+        base = _product_dict(product, locale=None)
+        category_name = category.name if category else None
+        variants = await _variant_dicts(
+            product_id, db, include_inactive=include_inactive_variants, locale=None,
+        )
+
     return {
-        **_product_dict(product),
-        "variants": await _variant_dicts(product_id, db, include_inactive=include_inactive_variants),
+        **base,
+        "variants": variants,
         "seller_name": seller.email.split("@", 1)[0] if seller else None,
         "seller_email": seller.email if seller else None,
-        "category_name": category.name if category else None,
+        "category_name": category_name,
     }
 
 
 async def _variants_by_product(
-    product_ids: list[int], db: AsyncSession, *, include_inactive: bool = False
+    product_ids: list[int],
+    db: AsyncSession,
+    *,
+    include_inactive: bool = False,
+    locale: str | None = DEFAULT_LOCALE,
 ) -> dict[int, list[dict]]:
     """Serialize gói kèm tồn kho thật cho NHIỀU sản phẩm bằng đúng 2 query:
     gói (IN product_ids) + đếm Resource available GROUP BY variant_id. Dùng
@@ -347,8 +424,11 @@ async def _variants_by_product(
 
     out: dict[int, list[dict]] = defaultdict(list)
     for v in variants:
+        name = v.name
+        if locale is not None:
+            name = resolve_variant_fields(v, locale)["name"]
         out[v.product_id].append({
-            "id": v.id, "product_id": v.product_id, "name": v.name, "price": v.price,
+            "id": v.id, "product_id": v.product_id, "name": name, "price": v.price,
             "delivery_mode": v.delivery_mode.value, "sla_hours": v.sla_hours,
             "duration_days": v.duration_days,
             "sort_order": v.sort_order, "is_active": v.is_active,
@@ -357,8 +437,16 @@ async def _variants_by_product(
     return out
 
 
-async def _variant_dicts(product_id: int, db: AsyncSession, *, include_inactive: bool = False) -> list[dict]:
-    by_product = await _variants_by_product([product_id], db, include_inactive=include_inactive)
+async def _variant_dicts(
+    product_id: int,
+    db: AsyncSession,
+    *,
+    include_inactive: bool = False,
+    locale: str | None = DEFAULT_LOCALE,
+) -> list[dict]:
+    by_product = await _variants_by_product(
+        [product_id], db, include_inactive=include_inactive, locale=locale,
+    )
     return by_product.get(product_id, [])
 
 
@@ -574,31 +662,68 @@ async def list_all_products_admin(db: AsyncSession) -> list[dict]:
     return out
 
 
-def _product_list_dict(product: Product) -> dict:
+def _product_list_dict(product: Product, *, locale: str | None = DEFAULT_LOCALE) -> dict:
     """Bản GỌN cho item danh sách — không description/specs/features/warranty
     (nặng, chỉ trang chi tiết cần), không commission_rate (không phát ra API
-    public). Thêm trường ở đây thì thêm cả ProductListItemBase bên schemas."""
+    public). Thêm trường ở đây thì thêm cả ProductListItemBase bên schemas.
+
+    When ``locale`` is set, title/highlight_text are resolved via i18n.
+    Pass ``locale=None`` for raw scalars (seller tables).
+    """
+    if locale is not None:
+        localized = resolve_product_fields(product, locale)
+        title = localized["title"]
+        highlight_text = localized["highlight_text"]
+        meta = {
+            "locale": localized["locale"],
+            "available_locales": localized["available_locales"],
+        }
+    else:
+        title = product.title
+        highlight_text = product.highlight_text
+        meta = {}
     return {
         "id": product.id, "seller_id": product.seller_id, "category_id": product.category_id,
-        "title": product.title, "images": product.images,
+        "title": title, "images": product.images,
         "escrow_days": product.escrow_days, "status": product.status.value,
         "service_type": product.service_type,
-        "highlight_text": product.highlight_text, "sold_count": product.sold_count,
+        "highlight_text": highlight_text, "sold_count": product.sold_count,
         "rating_avg": product.rating_avg, "rating_count": product.rating_count,
         "pricing_strategy": product.pricing_strategy,
         "pricing_params": product.pricing_params,
         "created_at": product.created_at,
+        **meta,
     }
 
 
-def _product_dict(product: Product) -> dict:
+def _product_dict(product: Product, *, locale: str | None = DEFAULT_LOCALE) -> dict:
+    if locale is not None:
+        localized = resolve_product_fields(product, locale)
+        text = {
+            "title": localized["title"],
+            "description": localized["description"],
+            "features": localized["features"],
+            "warranty_text": localized["warranty_text"],
+            "highlight_text": localized["highlight_text"],
+            "locale": localized["locale"],
+            "available_locales": localized["available_locales"],
+        }
+    else:
+        text = {
+            "title": product.title,
+            "description": product.description,
+            "features": product.features,
+            "warranty_text": product.warranty_text,
+            "highlight_text": product.highlight_text,
+        }
     return {
         "id": product.id, "seller_id": product.seller_id, "category_id": product.category_id,
-        "title": product.title, "description": product.description, "images": product.images,
+        **text,
+        "images": product.images,
         "escrow_days": product.escrow_days, "status": product.status.value,
-        "service_type": product.service_type, "features": product.features,
-        "specs": product.specs, "warranty_text": product.warranty_text,
-        "highlight_text": product.highlight_text, "sold_count": product.sold_count,
+        "service_type": product.service_type,
+        "specs": product.specs,
+        "sold_count": product.sold_count,
         "rating_avg": product.rating_avg, "rating_count": product.rating_count,
         "pricing_strategy": product.pricing_strategy,
         "pricing_params": product.pricing_params,

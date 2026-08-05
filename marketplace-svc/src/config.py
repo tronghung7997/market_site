@@ -95,6 +95,9 @@ class Settings(BaseSettings):
     resolved_alert_retention_days: int = 90
     # Optional Sentry DSN (WP7). Empty = disabled.
     sentry_dsn: str = ""
+    # One-shot curl: POST /internal/ops/purge-demo-accounts. Empty = endpoint 404.
+    # Set ≥32 random chars chỉ trong 1 deploy, curl apply, rồi GỠ env + redeploy.
+    purge_demo_one_shot_token: str = ""
 
     @property
     def cors_origins(self) -> list[str]:
@@ -126,6 +129,10 @@ class Settings(BaseSettings):
             raise ValueError("ENABLE_DEMO_TOPUP must be false outside development/test")
         if self.deployment_environment in {"staging", "production"} and not self.auth_rate_limit_enabled:
             raise ValueError("AUTH_RATE_LIMIT_ENABLED must be true outside development/test")
+        if self.purge_demo_one_shot_token and len(self.purge_demo_one_shot_token.encode()) < _MIN_SECRET_LENGTH:
+            raise ValueError(
+                f"PURGE_DEMO_ONE_SHOT_TOKEN must be empty or ≥{_MIN_SECRET_LENGTH} bytes"
+            )
         if any(origin == "*" for origin in self.cors_origins):
             raise ValueError("CORS_ALLOWED_ORIGINS must not contain '*'")
         if self.deployment_environment == "production":

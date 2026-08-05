@@ -3,6 +3,7 @@ from sqlalchemy.ext.asyncio import AsyncSession
 
 from src.auth.dependencies import require_role
 from src.database import get_session
+from src.i18n.deps import get_request_locale
 from src.models.account import Account
 
 from . import schemas, service
@@ -16,16 +17,26 @@ async def list_products(
     seller_id: int | None = Query(None),
     page: int = Query(1, ge=1),
     per_page: int = Query(50, ge=1, le=100),
+    locale: str = Depends(get_request_locale),
     db: AsyncSession = Depends(get_session),
 ):
     return await service.list_products(
-        db, category_id=category_id, seller_id=seller_id, page=page, per_page=per_page,
+        db,
+        category_id=category_id,
+        seller_id=seller_id,
+        page=page,
+        per_page=per_page,
+        locale=locale,
     )
 
 
 @router.get("/products/{product_id}", response_model=schemas.ProductDetailResponse)
-async def get_product(product_id: int, db: AsyncSession = Depends(get_session)):
-    return await service.get_product_detail(product_id, db)
+async def get_product(
+    product_id: int,
+    locale: str = Depends(get_request_locale),
+    db: AsyncSession = Depends(get_session),
+):
+    return await service.get_product_detail(product_id, db, locale=locale)
 
 
 @router.get("/seller/products/{product_id}/detail", response_model=schemas.ProductDetailResponse)
@@ -101,8 +112,11 @@ async def admin_get_product(
 ):
     """Như GET /products/{id} nhưng kèm commission_rate — trường này đã rút
     khỏi response public (hoa hồng là thoả thuận admin↔seller, buyer/đối thủ
-    không cần thấy), trang admin sửa sản phẩm đọc từ đây."""
-    return await service.get_product_detail(product_id, db)
+    không cần thấy), trang admin sửa sản phẩm đọc từ đây.
+
+    ``localize=False`` so the edit form sees stored scalars, not storefront EN.
+    """
+    return await service.get_product_detail(product_id, db, localize=False)
 
 
 @router.patch("/admin/products/{product_id}", response_model=schemas.ProductResponse)

@@ -2,7 +2,8 @@
 
 /** Bảng giá trực tiếp trong hero — 5 sản phẩm đầu, mỗi dòng là link. */
 
-import Link from "next/link";
+import { Link } from "@/i18n/navigation";
+import { useLocale, useTranslations } from "next-intl";
 import { vnd } from "@/lib/api";
 import type { Product } from "@/lib/types";
 import { Card, Monogram, Spinner } from "@/components/ui";
@@ -11,6 +12,8 @@ export function PriceBoard({ products, catName, stock, minPrice, loading }: {
   products: Product[]; catName: (id: number) => string;
   stock: (p: Product) => number; minPrice: (p: Product) => number; loading: boolean;
 }) {
+  const t = useTranslations("home");
+  const locale = useLocale();
   return (
     <Card className="overflow-hidden">
       <div className="flex items-center gap-2 px-4 py-3 border-b border-line bg-raised/60">
@@ -19,8 +22,8 @@ export function PriceBoard({ products, catName, stock, minPrice, loading }: {
           <span className="h-2.5 w-2.5 rounded-full bg-warn/60" />
           <span className="h-2.5 w-2.5 rounded-full bg-good/60" />
         </span>
-        <span className="text-[12.5px] font-medium text-muted ml-1">Bảng giá trực tiếp</span>
-        <span className="ml-auto flex items-center gap-1.5 text-[12px] text-good"><span className="h-1.5 w-1.5 rounded-full bg-good animate-pulse" /> trực tuyến</span>
+        <span className="text-[12.5px] font-medium text-muted ml-1">{t("livePriceBoard")}</span>
+        <span className="ml-auto flex items-center gap-1.5 text-[12px] text-good"><span className="h-1.5 w-1.5 rounded-full bg-good animate-pulse" /> {t("online")}</span>
       </div>
       <div className="divide-y divide-line">
         {loading && <div className="px-4 py-10"><Spinner /></div>}
@@ -34,9 +37,9 @@ export function PriceBoard({ products, catName, stock, minPrice, loading }: {
             {stock(p) > 0 ? (
               <span className="text-[11px] text-good font-medium">● {stock(p)}</span>
             ) : (
-              <span className="text-[11px] text-warn">Theo yêu cầu</span>
+              <span className="text-[11px] text-warn">{t("onRequest")}</span>
             )}
-            <span className="font-mono text-[13px] font-semibold tabular w-[92px] text-right">{vnd(minPrice(p))}</span>
+            <span className="font-mono text-[13px] font-semibold tabular w-[92px] text-right">{vnd(minPrice(p), locale)}</span>
           </Link>
         ))}
       </div>

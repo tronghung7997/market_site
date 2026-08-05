@@ -1,31 +1,52 @@
-from fastapi import HTTPException, status
+"""Domain HTTP exceptions — now coded (EN detail + stable error_code).
+
+Existing call sites keep raising these classes; the global handler emits
+``{"detail", "error_code", "params"}`` for CodedHTTPException subclasses.
+"""
+
+from fastapi import status
+
+from src.errors.codes import ErrorCode
+from src.errors.exceptions import CodedHTTPException, api_error
+
+__all__ = [
+    "CodedHTTPException",
+    "ErrorCode",
+    "InsufficientCredit",
+    "ResourceUnavailable",
+    "NotOwner",
+    "DuplicateEmail",
+    "QuotaExceeded",
+    "QuotaExpired",
+    "api_error",
+]
 
 
-class InsufficientCredit(HTTPException):
+class InsufficientCredit(CodedHTTPException):
     def __init__(self) -> None:
-        super().__init__(status_code=status.HTTP_402_PAYMENT_REQUIRED, detail="Số dư ví không đủ để thực hiện giao dịch này")
+        super().__init__(ErrorCode.INSUFFICIENT_CREDIT, status.HTTP_402_PAYMENT_REQUIRED)
 
 
-class ResourceUnavailable(HTTPException):
+class ResourceUnavailable(CodedHTTPException):
     def __init__(self) -> None:
-        super().__init__(status_code=status.HTTP_409_CONFLICT, detail="Sản phẩm này tạm hết hàng, vui lòng chọn gói khác hoặc quay lại sau")
+        super().__init__(ErrorCode.RESOURCE_UNAVAILABLE, status.HTTP_409_CONFLICT)
 
 
-class NotOwner(HTTPException):
+class NotOwner(CodedHTTPException):
     def __init__(self) -> None:
-        super().__init__(status_code=status.HTTP_403_FORBIDDEN, detail="Bạn không có quyền thao tác trên tài nguyên này")
+        super().__init__(ErrorCode.NOT_OWNER, status.HTTP_403_FORBIDDEN)
 
 
-class DuplicateEmail(HTTPException):
+class DuplicateEmail(CodedHTTPException):
     def __init__(self) -> None:
-        super().__init__(status_code=status.HTTP_409_CONFLICT, detail="Email này đã được đăng ký")
+        super().__init__(ErrorCode.DUPLICATE_EMAIL, status.HTTP_409_CONFLICT)
 
 
-class QuotaExceeded(HTTPException):
+class QuotaExceeded(CodedHTTPException):
     def __init__(self) -> None:
-        super().__init__(status_code=status.HTTP_402_PAYMENT_REQUIRED, detail="Đã hết số request trong gói — cần mua thêm gói mới")
+        super().__init__(ErrorCode.QUOTA_EXCEEDED, status.HTTP_402_PAYMENT_REQUIRED)
 
 
-class QuotaExpired(HTTPException):
+class QuotaExpired(CodedHTTPException):
     def __init__(self) -> None:
-        super().__init__(status_code=status.HTTP_410_GONE, detail="Gói request đã hết hạn sử dụng")
+        super().__init__(ErrorCode.QUOTA_EXPIRED, status.HTTP_410_GONE)

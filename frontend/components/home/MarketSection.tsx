@@ -5,8 +5,9 @@
  *  tất cả) sống ở đây; danh mục đang chọn (active) dùng chung với section
  *  Danh mục nên nhận từ page. */
 
-import Link from "next/link";
+import { Link } from "@/i18n/navigation";
 import { useState } from "react";
+import { useLocale, useTranslations } from "next-intl";
 import { vnd } from "@/lib/api";
 import { cn } from "@/lib/cn";
 import type { Category, Product } from "@/lib/types";
@@ -49,6 +50,8 @@ export function MarketSection({ products, flatCats, active, activeIds, setActive
   loading: boolean;
   error: string | null;
 }) {
+  const t = useTranslations("home");
+  const locale = useLocale();
   const [q, setQ] = useState("");
   const [inStockOnly, setInStockOnly] = useState(false);
   const [view, setView] = useState<"table" | "grid">("table");
@@ -64,11 +67,11 @@ export function MarketSection({ products, flatCats, active, activeIds, setActive
 
   return (
     <section id="market" className="w-full mx-auto max-w-[1200px] px-6 py-6 lg:py-8 scroll-mt-20">
-      <SectionHead title="Toàn bộ sản phẩm" sub="Lọc, tìm kiếm và mua ngay" />
+      <SectionHead title={t("allProducts")} sub={t("marketSubtitle")} />
 
       {flatCats.length > 0 && (
         <div className="flex flex-wrap gap-2 mb-4">
-          <Pill active={active == null} onClick={() => setActive(null)}>Tất cả</Pill>
+          <Pill active={active == null} onClick={() => setActive(null)}>{t("all")}</Pill>
           {flatCats.map((c) => <Pill key={c.id} active={active === c.id} onClick={() => setActive(c.id)}>{c.name}</Pill>)}
         </div>
       )}
@@ -76,7 +79,7 @@ export function MarketSection({ products, flatCats, active, activeIds, setActive
       <div className="flex flex-wrap items-center gap-3 mb-5">
         <div className="relative flex-1 min-w-[200px] max-w-sm">
           <Search size={16} className="absolute left-3 top-1/2 -translate-y-1/2 text-faint" />
-          <input value={q} onChange={(e) => setQ(e.target.value)} placeholder="Tìm sản phẩm…"
+          <input value={q} onChange={(e) => setQ(e.target.value)} placeholder={t("searchProducts")}
             className="h-9 w-full rounded-lg bg-surface border border-line pl-9 pr-3 text-[13px] placeholder:text-faint focus:border-iris transition-colors" />
         </div>
         <button onClick={() => setInStockOnly((v) => !v)}
@@ -85,7 +88,7 @@ export function MarketSection({ products, flatCats, active, activeIds, setActive
           <span className={cn("h-3.5 w-6 rounded-full relative transition-colors", inStockOnly ? "bg-good" : "bg-line-2")}>
             <span className={cn("absolute top-0.5 h-2.5 w-2.5 rounded-full bg-surface transition-all", inStockOnly ? "left-3" : "left-0.5")} />
           </span>
-          Chỉ còn hàng
+          {t("inStockOnly")}
         </button>
         <div className="flex items-center rounded-lg border border-line bg-surface p-0.5">
           {([["table", Rows], ["grid", Grid]] as const).map(([v, Icon]) => (
@@ -97,9 +100,9 @@ export function MarketSection({ products, flatCats, active, activeIds, setActive
         </div>
       </div>
 
-      {loading && <Spinner label="Đang tải chợ…" />}
+      {loading && <Spinner label={t("loadingMarket")} />}
       {error && !loading && <Card className="p-5 text-bad text-sm">{error}</Card>}
-      {!loading && !error && filtered.length === 0 && <Card className="p-6 text-muted text-sm">Không có sản phẩm phù hợp.</Card>}
+      {!loading && !error && filtered.length === 0 && <Card className="p-6 text-muted text-sm">{t("noProducts")}</Card>}
 
       {!loading && visible.length > 0 && (view === "table" ? (
         <Card className="overflow-hidden">
@@ -109,11 +112,11 @@ export function MarketSection({ products, flatCats, active, activeIds, setActive
           <table className="w-full text-left border-collapse">
             <thead>
               <tr className="text-[12px] text-faint border-b border-line">
-                <th className="font-medium px-5 py-3">Sản phẩm</th>
-                <th className="font-medium px-3 py-3 hidden sm:table-cell">Danh mục</th>
-                <th className="font-medium px-3 py-3">Tồn kho</th>
-                <th className="font-medium px-3 py-3 hidden md:table-cell">Ký quỹ</th>
-                <th className="font-medium px-3 py-3 text-right">Giá từ</th>
+                <th className="font-medium px-5 py-3">{t("product")}</th>
+                <th className="font-medium px-3 py-3 hidden sm:table-cell">{t("category")}</th>
+                <th className="font-medium px-3 py-3">{t("stock")}</th>
+                <th className="font-medium px-3 py-3 hidden md:table-cell">{t("escrowLabel")}</th>
+                <th className="font-medium px-3 py-3 text-right">{t("fromPrice")}</th>
                 <th className="px-5 py-3"></th>
               </tr>
             </thead>
@@ -129,19 +132,19 @@ export function MarketSection({ products, flatCats, active, activeIds, setActive
                         <span className="min-w-0">
                           <span className="block font-medium text-[13.5px] truncate">{p.title}</span>
                           <span className="flex items-center gap-1.5 text-[12px] text-faint">
-                            {hasPackages ? `${p.variants?.length} gói` : "Cấu hình theo yêu cầu"} <Verified size={11} className="text-iris" />
+                            {hasPackages ? t("packageCount", { count: p.variants?.length ?? 0 }) : t("configuredToOrder")} <Verified size={11} className="text-iris" />
                             {p.rating_avg != null && p.rating_avg > 0 && <><Star size={11} className="text-warn fill-warn" /> {p.rating_avg.toFixed(1)}</>}
-                            {p.sold_count > 0 && <span>· {p.sold_count} đã bán</span>}
+                            {p.sold_count > 0 && <span>· {t("sold", { count: p.sold_count })}</span>}
                           </span>
                         </span>
                       </Link>
                     </td>
                     <td className="px-3 py-3 text-[13px] text-muted hidden sm:table-cell">{catName(p.category_id)}</td>
-                    <td className="px-3 py-3">{inStock ? <Tag tone="good">● {stock(p)}</Tag> : <Tag tone="warn">Theo yêu cầu</Tag>}</td>
-                    <td className="px-3 py-3 text-[13px] text-muted hidden md:table-cell">{p.escrow_days} ngày</td>
-                    <td className="px-3 py-3 text-right font-mono text-[13.5px] font-semibold tabular">{vnd(minPrice(p))}</td>
+                    <td className="px-3 py-3">{inStock ? <Tag tone="good">● {stock(p)}</Tag> : <Tag tone="warn">{t("onRequest")}</Tag>}</td>
+                    <td className="px-3 py-3 text-[13px] text-muted hidden md:table-cell">{t("days", { count: p.escrow_days })}</td>
+                    <td className="px-3 py-3 text-right font-mono text-[13.5px] font-semibold tabular">{vnd(minPrice(p), locale)}</td>
                     <td className="px-5 py-3 text-right">
-                      <Link href={`/products/${p.id}`}><Button size="sm" variant="secondary">Xem</Button></Link>
+                      <Link href={`/products/${p.id}`}><Button size="sm" variant="secondary">{t("view")}</Button></Link>
                     </td>
                   </tr>
                 );
@@ -164,10 +167,10 @@ export function MarketSection({ products, flatCats, active, activeIds, setActive
                       <div className="flex items-start justify-between gap-1 sm:gap-2">
                         <div className="font-medium text-[12.5px] sm:text-[14px] truncate">{p.title}</div>
                       </div>
-                      <div className="font-mono text-[12px] sm:text-[13.5px] font-semibold tabular">{vnd(minPrice(p))}</div>
+                      <div className="font-mono text-[12px] sm:text-[13.5px] font-semibold tabular">{vnd(minPrice(p), locale)}</div>
                       <div className="text-[11px] sm:text-[12px] text-faint mt-0.5 truncate">{catName(p.category_id)}</div>
                       <div className="mt-2 sm:mt-3 flex items-center gap-1.5 sm:gap-2 flex-wrap">
-                        {inStock ? <Tag tone="good">● Còn {stock(p)}</Tag> : <Tag tone="warn">{hasPackages ? "Hết hàng" : "Theo yêu cầu"}</Tag>}
+                        {inStock ? <Tag tone="good">● {t("inStock", { count: stock(p) })}</Tag> : <Tag tone="warn">{hasPackages ? t("outOfStock") : t("onRequest")}</Tag>}
                         <Tag tone="neutral"><Shield size={11} /> {p.escrow_days}d</Tag>
                       </div>
                     </div>
@@ -185,7 +188,7 @@ export function MarketSection({ products, flatCats, active, activeIds, setActive
             onClick={() => setShowAll((v) => !v)}
             className="inline-flex items-center gap-1.5 text-[13px] font-medium text-iris hover:text-iris-hi transition-colors"
           >
-            {showAll ? "Thu gọn" : `Xem tất cả ${filtered.length} sản phẩm`}
+            {showAll ? t("collapse") : t("viewAllProducts", { count: filtered.length })}
             <ChevronIcon open={showAll} />
           </button>
         </div>

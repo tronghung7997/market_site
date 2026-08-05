@@ -1,23 +1,32 @@
-/** Đếm ngược "còn bao lâu" nói theo lịch người đọc — hai thang đo, hai hàm:
- *  hạn dài (proxy, ký quỹ) tính phút/giờ/ngày; hạn ngắn (lệnh nạp QR) tính
- *  giây/phút. Trước đây mỗi trang tự viết một bản. */
+/** Countdown labels — locale-aware (en default, vi secondary). */
 
-/** "còn 23 giờ" / "còn 3 ngày" — null khi đã quá hạn. Thang: phút → giờ (dưới
- *  48h) → ngày. Dùng cho hạn proxy/tài nguyên. */
-export function timeLeftLabel(expiresAt: string): string | null {
+/** "23 hours left" / "3 days left" — null when expired. */
+export function timeLeftLabel(expiresAt: string, locale: string = "en"): string | null {
   const ms = new Date(expiresAt).getTime() - Date.now();
   if (ms <= 0) return null;
   const minutes = Math.floor(ms / 60_000);
-  if (minutes < 60) return `còn ${Math.max(1, minutes)} phút`;
-  if (minutes < 48 * 60) return `còn ${Math.floor(minutes / 60)} giờ`;
-  return `còn ${Math.floor(minutes / (24 * 60))} ngày`;
+  const vi = locale === "vi";
+  if (minutes < 60) {
+    const n = Math.max(1, minutes);
+    return vi ? `còn ${n} phút` : `${n} min left`;
+  }
+  if (minutes < 48 * 60) {
+    const n = Math.floor(minutes / 60);
+    return vi ? `còn ${n} giờ` : `${n}h left`;
+  }
+  const n = Math.floor(minutes / (24 * 60));
+  return vi ? `còn ${n} ngày` : `${n}d left`;
 }
 
-/** "còn 45 giây" / "còn 12 phút" — null khi đã quá hạn. Thang mịn cho deadline
- *  tính bằng phút (lệnh nạp chờ quét QR, poll lại mỗi nhịp). */
-export function timeLeftFine(expiresAt: string): string | null {
+/** "45 seconds left" / "12 min left" — null when expired. Fine grain for QR deposits. */
+export function timeLeftFine(expiresAt: string, locale: string = "en"): string | null {
   const ms = new Date(expiresAt).getTime() - Date.now();
   if (ms <= 0) return null;
-  if (ms < 60_000) return `còn ${Math.ceil(ms / 1000)} giây`;
-  return `còn ${Math.ceil(ms / 60_000)} phút`;
+  const vi = locale === "vi";
+  if (ms < 60_000) {
+    const n = Math.ceil(ms / 1000);
+    return vi ? `còn ${n} giây` : `${n}s left`;
+  }
+  const n = Math.ceil(ms / 60_000);
+  return vi ? `còn ${n} phút` : `${n} min left`;
 }

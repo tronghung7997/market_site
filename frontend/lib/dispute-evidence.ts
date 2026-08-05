@@ -1,3 +1,14 @@
+/** Evidence type field keys — labels live in messages/orders.evidence*. */
+
+export const EVIDENCE_TYPE_KEYS: Record<string, string[]> = {
+  account: ["username", "issue"],
+  proxy: ["ip", "error"],
+  server: ["server_ip", "error"],
+  payment: ["transaction_id", "error"],
+  other: [],
+};
+
+/** Legacy shape kept for seller/admin call sites that still read labels here. */
 export interface EvidenceField {
   key: string;
   label: string;
@@ -6,34 +17,34 @@ export interface EvidenceField {
 
 export const EVIDENCE_TYPES: Record<string, { label: string; fields: EvidenceField[] }> = {
   account: {
-    label: "Tài khoản (mạng xã hội / email)",
+    label: "Account (social / email)",
     fields: [
-      { key: "username", label: "Tên đăng nhập / handle", placeholder: "@username hoặc email" },
-      { key: "issue", label: "Vấn đề gặp phải", placeholder: "Ví dụ: bị khoá, sai mật khẩu, không khôi phục được" },
+      { key: "username", label: "Username / handle", placeholder: "@username or email" },
+      { key: "issue", label: "Issue encountered", placeholder: "e.g. locked, wrong password" },
     ],
   },
   proxy: {
     label: "Proxy / VPN",
     fields: [
-      { key: "ip", label: "Địa chỉ IP được cấp", placeholder: "1.2.3.4:8080" },
-      { key: "error", label: "Lỗi khi kết nối", placeholder: "Ví dụ: timeout, sai xác thực" },
+      { key: "ip", label: "Issued IP address", placeholder: "1.2.3.4:8080" },
+      { key: "error", label: "Connection error", placeholder: "e.g. timeout, auth failed" },
     ],
   },
   server: {
     label: "Server / Cloud",
     fields: [
-      { key: "server_ip", label: "IP / host server", placeholder: "vd: 203.0.113.5" },
-      { key: "error", label: "Lỗi khi truy cập / SSH", placeholder: "Mô tả lỗi cụ thể" },
+      { key: "server_ip", label: "Server IP / host", placeholder: "e.g. 203.0.113.5" },
+      { key: "error", label: "Access / SSH error", placeholder: "Describe the error" },
     ],
   },
   payment: {
-    label: "Thanh toán / Credit",
+    label: "Payment / Credit",
     fields: [
-      { key: "transaction_id", label: "Mã giao dịch", placeholder: "vd: TXN123456" },
-      { key: "error", label: "Lỗi / sai lệch", placeholder: "Ví dụ: sai số tiền, không nhận được credit" },
+      { key: "transaction_id", label: "Transaction ID", placeholder: "e.g. TXN123456" },
+      { key: "error", label: "Error / mismatch", placeholder: "e.g. wrong amount" },
     ],
   },
-  other: { label: "Khác", fields: [] },
+  other: { label: "Other", fields: [] },
 };
 
 export function evidenceFieldLabel(evidenceType: string | null | undefined, key: string): string {

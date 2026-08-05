@@ -2,7 +2,7 @@ from datetime import datetime
 from enum import Enum as PyEnum
 
 from sqlalchemy import DateTime, Enum, Float, ForeignKey, Integer, String, Text, func
-from sqlalchemy.dialects.postgresql import JSON
+from sqlalchemy.dialects.postgresql import JSON, JSONB
 from sqlalchemy.orm import Mapped, mapped_column
 
 from src.database import Base
@@ -55,6 +55,8 @@ class Product(Base):
     pricing_strategy: Mapped[str | None] = mapped_column(String(50), nullable=True, default=None)
     pricing_params: Mapped[dict | None] = mapped_column(JSON, nullable=True, default=None)
     commission_rate: Mapped[float | None] = mapped_column(Float, nullable=True)
+    # { "en"|"vi": {title, description, warranty_text, highlight_text, features} }
+    i18n: Mapped[dict] = mapped_column(JSONB, nullable=False, server_default="{}", default=dict)
 
     created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), server_default=func.now())
     updated_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), server_default=func.now(), onupdate=func.now())
@@ -72,3 +74,5 @@ class ProductVariant(Base):
     sort_order: Mapped[int] = mapped_column(Integer, default=0)
     is_active: Mapped[bool] = mapped_column(default=True)
     duration_days: Mapped[int | None] = mapped_column(Integer, nullable=True)
+    # { "en": {"name": "..."}, "vi": {"name": "..."} }
+    i18n: Mapped[dict] = mapped_column(JSONB, nullable=False, server_default="{}", default=dict)

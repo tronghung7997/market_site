@@ -504,6 +504,39 @@ export interface PaginatedOrderResponse {
   per_page: number;
 }
 
+export interface TikTokProfile {
+  id: string;
+  username: string;
+  nickname: string | null;
+  avatar: string | null;
+  verified: boolean;
+  private: boolean;
+  bio: string | null;
+  bio_link: string | null;
+  url: string;
+  follower_count: number;
+  following_count: number;
+  heart_count: number;
+  video_count: number;
+  friend_count: number;
+  digg_count: number;
+  language: string | null;
+  created_at: string | null;
+  commerce_user: boolean;
+  tt_seller: boolean;
+}
+
+export interface TikTokLookupResponse {
+  success: true;
+  platform: "tiktok";
+  username: string;
+  profile: TikTokProfile;
+  meta: {
+    source: string | null;
+    fetched_at: string | null;
+  };
+}
+
 export interface OrderStats {
   total: number;
   active: number;

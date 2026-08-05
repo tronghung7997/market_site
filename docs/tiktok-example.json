@@ -1,0 +1,39 @@
+{
+  "success": true,
+  "username": "katyperry",
+  "data": {
+    "data": {
+      "id": "131256363632148480",
+      "unique_id": "katyperry",
+      "nickname": "Katy Perry",
+      "sec_uid": "MS4wLjABAAAAXKcc0ZOWSRhYfHortFBHuut2vshhgh7tHXHM7cOA7I93HmzCEcHoMIzLqz2xr_ep",
+      "signature": "Watch It Burn \nOut Now 🦂",
+      "verified": true,
+      "private": false,
+      "secret": false,
+      "language": "en",
+      "create_time": 1471665471,
+      "bio_link": "http://katy.to/WatchItBurn",
+      "commerce_user": false,
+      "tt_seller": false,
+      "following_visibility": 1,
+      "comment_setting": 0,
+      "duet_setting": 0,
+      "stitch_setting": 0,
+      "download_setting": 0,
+      "open_favorite": false,
+      "avatar": "https://p16-common-sign.tiktokcdn-eu.com/tos-maliva-avt-0068/dd4671555cf54f3d6191dcac6b0fa691~tplv-tiktokx-cropcenter:1080:1080.jpeg?dr=10399&refresh_token=86e838a7&x-expires=1786075200&x-signature=W76QpLnBTe5vCiIkE%2BlWOhudtcI%3D&t=4d5b0474&ps=13740610&shp=a5d48078&shcp=81f88b70&idc=no1a",
+      "follower_count": 10000000,
+      "following_count": 1,
+      "heart_count": 90100000,
+      "video_count": 289,
+      "friend_count": 1,
+      "digg_count": 0,
+      "url": "https://www.tiktok.com/@katyperry"
+    },
+    "meta": {
+      "source": "cache",
+      "fetched_at": 1785907908
+    }
+  }
+}

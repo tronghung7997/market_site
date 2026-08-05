@@ -2,6 +2,7 @@
 
 import { useCallback, useEffect, useRef, useState } from "react";
 import { useRouter } from "next/navigation";
+import { useLocale, useTranslations } from "next-intl";
 import { api, vnd, ApiError } from "@/lib/api";
 import { useAuth } from "@/lib/auth";
 import type { CalculateResult, Order, PricingField, PricingOptions, ProductDetail } from "@/lib/types";
@@ -31,6 +32,8 @@ function FormShell({ title, children }: { title: string; children: React.ReactNo
 export default function DynamicOrderForm({ productId, product, onOrderCreated }: Props) {
   const router = useRouter();
   const { account } = useAuth();
+  const locale = useLocale();
+  const t = useTranslations("products");
 
   const [options, setOptions] = useState<PricingOptions | null>(null);
   const [loadingOptions, setLoadingOptions] = useState(true);
@@ -68,12 +71,12 @@ export default function DynamicOrderForm({ productId, product, onOrderCreated }:
         }
         setConfig(defaults);
       } catch (e) {
-        setOptionsError(e instanceof Error ? e.message : "Không tải được tùy chọn giá");
+        setOptionsError(e instanceof Error ? e.message : t("optionsLoadFailed"));
       } finally {
         setLoadingOptions(false);
       }
     })();
-  }, [productId]);
+  }, [productId, t]);
 
   // Debounced calculate on config/qty change
   const debounceRef = useRef<ReturnType<typeof setTimeout> | null>(null);
@@ -128,11 +131,11 @@ export default function DynamicOrderForm({ productId, product, onOrderCreated }:
       // Đây mới là lỗi thật (field đã điền nhưng backend từ chối) — trước đây
       // bị nuốt hoàn toàn, giá cứ đứng ở "—" mãi mà buyer không hiểu vì sao.
       setCalc(null);
-      setCalcError(e instanceof Error ? e.message : "Không tính được giá — thử lại.");
+      setCalcError(e instanceof Error ? e.message : (locale === "en" ? "Could not calculate the price. Please try again." : "Không tính được giá — thử lại."));
     } finally {
       setCalculating(false);
     }
-  }, [productId, options, isDproxy, isSingleUnit]);
+  }, [productId, options, isDproxy, isSingleUnit, t, locale]);
 
   useEffect(() => {
     if (!options) return;
@@ -160,9 +163,9 @@ export default function DynamicOrderForm({ productId, product, onOrderCreated }:
       onOrderCreated(order);
     } catch (e) {
       if (e instanceof ApiError && e.status === 402) {
-        setPlaceError("Số dư không đủ — vui lòng nạp tiền vào ví.");
+        setPlaceError(t("insufficientBalance"));
       } else {
-        setPlaceError(e instanceof Error ? e.message : "Đặt hàng thất bại");
+        setPlaceError(e instanceof Error ? e.message : t("placeFailed"));
       }
     } finally {
       setPlacing(false);
@@ -175,8 +178,8 @@ export default function DynamicOrderForm({ productId, product, onOrderCreated }:
   // đứng yên, buyer thấy ngay "đây là chỗ đặt hàng, đang tải".
   if (loadingOptions) {
     return (
-      <FormShell title="Cấu hình đơn hàng">
-        <div className="space-y-3.5" aria-busy="true" aria-label="Đang tải tuỳ chọn">
+      <FormShell title={t("configureOrder")}>
+        <div className="space-y-3.5" aria-busy="true" aria-label={t("loadingOptionsAria")}>
           <div className="h-3 w-24 rounded bg-line/70 animate-shimmer" />
           <div className="h-9 w-full rounded-lg bg-line/60 animate-shimmer" />
           <div className="h-3 w-20 rounded bg-line/70 animate-shimmer" />
@@ -188,8 +191,8 @@ export default function DynamicOrderForm({ productId, product, onOrderCreated }:
   }
   if (optionsError) {
     return (
-      <FormShell title="Cấu hình đơn hàng">
-        <Banner tone="bad" icon={<Info size={15} />} title="Chưa tải được tuỳ chọn">
+      <FormShell title={t("configureOrder")}>
+        <Banner tone="bad" icon={<Info size={15} />} title={t("optionsLoadFailed")}>
           {optionsError}
         </Banner>
       </FormShell>
@@ -216,27 +219,27 @@ export default function DynamicOrderForm({ productId, product, onOrderCreated }:
     <>
       <Card className="overflow-hidden shadow-card-lg">
         <div className="px-5 h-11 flex items-center justify-between bg-ink-panel dotgrid-dark">
-          <span className="text-[12.5px] font-semibold tracking-wide text-white/95">{isAutoDelivered ? "Mua proxy" : "Cấu hình đơn hàng"}</span>
+          <span className="text-[12.5px] font-semibold tracking-wide text-white/95">{isAutoDelivered ? t("buyProxy") : t("configureOrder")}</span>
           {isAutoDelivered ? (
             <div className="flex items-center gap-1.5">
-              <Tag tone="good">Giao tự động</Tag>
+              <Tag tone="good">{t("autoDelivered")}</Tag>
               {/* "Đổi IP" CHỈ đúng với DProxy — proxy tĩnh TopProxy không có
                   rotate, hứa ở đây là hứa suông ngay trên nút mua. */}
-              {isDproxy && <Tag tone="iris">Có thể đổi IP</Tag>}
+              {isDproxy && <Tag tone="iris">{t("ipRotatable")}</Tag>}
             </div>
           ) : null}
         </div>
 
         <div className="p-5 space-y-4">
           {!options.ready && (
-            <Banner tone="warn" icon={<Info size={15} />} title="Sản phẩm chưa sẵn sàng bán">
-              {options.not_ready_reason ?? "Người bán chưa hoàn tất thiết lập sản phẩm này — vui lòng quay lại sau."}
+            <Banner tone="warn" icon={<Info size={15} />} title={t("notReadyTitle")}>
+              {options.not_ready_reason ?? t("notReadyDefault")}
             </Banner>
           )}
 
           {/* Dynamic fields */}
           {visibleFields.map((f) => (
-            <DynamicField key={f.field} field={f} value={config[f.field]} onChange={(v) => updateField(f.field, v)} />
+            <DynamicField key={f.field} field={f} value={config[f.field]} locale={locale} onChange={(v) => updateField(f.field, v)} />
           ))}
 
           {/* Quantity — ẩn với strategy "task" (tự đếm theo URL), "credit"
@@ -244,7 +247,7 @@ export default function DynamicOrderForm({ productId, product, onOrderCreated }:
               (luôn đúng 1 proxy/đơn, không cho chọn). */}
           {options.strategy !== "task" && !isSingleUnit && !isCredit && (
           <div>
-            <div className="text-[11px] text-faint uppercase tracking-wider mb-1.5">Số lượng</div>
+            <div className="text-[11px] text-faint uppercase tracking-wider mb-1.5">{t("quantity")}</div>
             <div className="flex items-center border border-line rounded-lg overflow-hidden w-fit">
               <button
                 onClick={() => setQty(Math.max(1, qty - 1))}
@@ -269,15 +272,15 @@ export default function DynamicOrderForm({ productId, product, onOrderCreated }:
           </div>
           )}
           {isSingleUnit && (
-            <p className="text-[12px] text-muted">Mỗi đơn nhận 1 proxy riêng.</p>
+            <p className="text-[12px] text-muted">{t("oneProxyPerOrder")}</p>
           )}
 
           {/* Price display */}
           <div className="border-t border-line pt-4 flex items-end justify-between">
-            <span className="text-[12px] text-muted">Tổng cộng</span>
+            <span className="text-[12px] text-muted">{t("total")}</span>
             <div className="text-right">
               {calculating ? (
-                <span className="text-[13px] text-muted">Đang tính...</span>
+                <span className="text-[13px] text-muted">{t("calculating")}</span>
               ) : calc ? (
                 <div>
                   {hasDiscount && calc.original_amount != null && (
@@ -298,16 +301,16 @@ export default function DynamicOrderForm({ productId, product, onOrderCreated }:
           {placeError && <p className="text-bad text-[12.5px]">{placeError}</p>}
 
           <Button size="lg" block disabled={!options.ready || placing || !calc || calculating} onClick={handleSubmit}>
-            {placing ? "Đang xử lý…"
-              : !account ? "Đăng nhập để mua"
-              : !options.ready ? "Chưa thể đặt hàng"
-              : isAutoDelivered && calc ? `Mua 1 proxy — ${vnd(displayAmount)}`
-              : "Đặt hàng"}
+            {placing ? t("processing")
+              : !account ? t("loginToBuy")
+              : !options.ready ? t("cannotOrder")
+              : isAutoDelivered && calc ? t("buyOneProxy", { amount: vnd(displayAmount) })
+              : t("placeOrder")}
           </Button>
 
           <p className="text-[11.5px] text-faint leading-relaxed text-center">
             <Shield size={11} className="inline -mt-0.5 mr-0.5 text-good" />
-            Ký quỹ {product.escrow_days} ngày · Tiền chỉ chuyển khi bạn xác nhận
+            {t("escrowNote", { days: product.escrow_days })}
           </p>
         </div>
       </Card>
@@ -321,11 +324,11 @@ export default function DynamicOrderForm({ productId, product, onOrderCreated }:
             onClick={(e) => e.stopPropagation()}
           >
             <div className="px-5 py-3 border-b border-line">
-              <span className="text-[14px] font-semibold">Xác nhận đơn hàng</span>
+              <span className="text-[14px] font-semibold">{t("confirmTitle")}</span>
             </div>
             <div className="p-5 space-y-3 text-[13px]">
               <div className="flex justify-between">
-                <span className="text-muted">Sản phẩm</span>
+                <span className="text-muted">{t("confirmProduct")}</span>
                 <span className="font-medium text-right max-w-[220px] truncate">{product.title}</span>
               </div>
               {isAutoDelivered ? (
@@ -344,28 +347,28 @@ export default function DynamicOrderForm({ productId, product, onOrderCreated }:
                     }
                     return (
                       <div key={f.field} className="flex justify-between">
-                        <span className="text-muted">{f.label}</span>
+                        <span className="text-muted">{locale === "en" ? ({ package_size: "Requests per package", quantity: "Quantity", platform: "Platform", target_urls: "Target URLs", type: "Protocol", network: "Network", duration: "Duration", country: "Country", region: "Region" }[f.field] ?? f.label) : f.label}</span>
                         <span className="font-medium">{display}</span>
                       </div>
                     );
                   })}
                   <div className="flex justify-between">
-                    <span className="text-muted">Số lượng</span>
-                    <span className="font-medium">1 proxy riêng</span>
+                    <span className="text-muted">{t("confirmQty")}</span>
+                    <span className="font-medium">{t("oneDedicatedProxy")}</span>
                   </div>
                   <div className="flex justify-between">
-                    <span className="text-muted">Giao hàng</span>
-                    <span className="font-medium">Tự động, trong vài giây</span>
+                    <span className="text-muted">{t("confirmDelivery")}</span>
+                    <span className="font-medium">{t("deliveryAutoSeconds")}</span>
                   </div>
                   {isDproxy && (
                     <div className="flex justify-between">
-                      <span className="text-muted">Đổi IP</span>
-                      <span className="font-medium">Có hỗ trợ</span>
+                      <span className="text-muted">{locale === "en" ? "IP rotation" : "Đổi IP"}</span>
+                      <span className="font-medium">{locale === "en" ? "Supported" : "Có hỗ trợ"}</span>
                     </div>
                   )}
                   <div className="flex justify-between">
-                    <span className="text-muted">Xem thông tin proxy</span>
-                    <span className="font-medium">Trang Đơn hàng, sau khi giao</span>
+                    <span className="text-muted">{locale === "en" ? "View proxy details" : "Xem thông tin proxy"}</span>
+                    <span className="font-medium">{locale === "en" ? "Orders page, after delivery" : "Trang Đơn hàng, sau khi giao"}</span>
                   </div>
                 </>
               ) : (
@@ -380,14 +383,14 @@ export default function DynamicOrderForm({ productId, product, onOrderCreated }:
                     }
                     return (
                       <div key={f.field} className="flex justify-between">
-                        <span className="text-muted">{f.label}</span>
+                        <span className="text-muted">{locale === "en" ? ({ package_size: "Requests per package", quantity: "Quantity", platform: "Platform", target_urls: "Target URLs", type: "Protocol", network: "Network", duration: "Duration", country: "Country", region: "Region" }[f.field] ?? f.label) : f.label}</span>
                         <span className="font-medium">{display}</span>
                       </div>
                     );
                   })}
                   {options.strategy !== "task" && !isCredit && (
                     <div className="flex justify-between">
-                      <span className="text-muted">Số lượng</span>
+                      <span className="text-muted">{t("confirmQty")}</span>
                       <span className="font-medium">{qty}</span>
                     </div>
                   )}
@@ -395,35 +398,35 @@ export default function DynamicOrderForm({ productId, product, onOrderCreated }:
               )}
               {hasDiscount && calc.original_amount != null && (
                 <div className="flex justify-between">
-                  <span className="text-muted">Giá gốc</span>
+                  <span className="text-muted">{locale === "en" ? "Original price" : "Giá gốc"}</span>
                   <span className="text-faint line-through">{vnd(calc.original_amount)}</span>
                 </div>
               )}
               {hasDiscount && (
                 <div className="flex justify-between">
-                  <span className="text-muted">Giảm giá</span>
+                  <span className="text-muted">{locale === "en" ? "Discount" : "Giảm giá"}</span>
                   <Tag tone="good">-{Math.round((calc.discount_pct ?? 0) * 100)}%</Tag>
                 </div>
               )}
               <div className="border-t border-line pt-3 flex justify-between items-end">
-                <span className="text-muted">Tổng cộng</span>
+                <span className="text-muted">{t("total")}</span>
                 <span className="font-mono text-[18px] font-bold tabular text-iris-hi">{vnd(displayAmount)}</span>
               </div>
               <div className="flex items-start gap-2 px-3 py-2 rounded-md bg-good/5 border border-good/15 text-[12px] text-muted">
                 <Shield size={13} className="text-good mt-0.5 shrink-0" />
-                <span>Ký quỹ {product.escrow_days} ngày — tiền chỉ chuyển cho người bán khi bạn xác nhận hài lòng.</span>
+                <span>{t("confirmEscrow", { days: product.escrow_days })}</span>
               </div>
               {isAutoDelivered && (
-                <p className="text-[11.5px] text-faint">Nếu cấp phát thất bại, tiền được tự động hoàn lại vào ví của bạn.</p>
+                <p className="text-[11.5px] text-faint">{locale === "en" ? "If allocation fails, funds are automatically refunded to your wallet." : "Nếu cấp phát thất bại, tiền được tự động hoàn lại vào ví của bạn."}</p>
               )}
               {placeError && <p className="text-bad text-[12.5px]">{placeError}</p>}
             </div>
             <div className="flex gap-2 px-5 py-3 border-t border-line">
               <Button variant="secondary" block onClick={() => { setShowConfirm(false); setPlaceError(null); }} disabled={placing}>
-                Huỷ
+                {locale === "en" ? "Cancel" : "Huỷ"}
               </Button>
               <Button block disabled={placing} onClick={confirmBuy}>
-                {placing ? "Đang xử lý…" : "Xác nhận mua"}
+                {placing ? t("processing") : t("confirmBuy")}
               </Button>
             </div>
           </div>
@@ -440,15 +443,23 @@ export default function DynamicOrderForm({ productId, product, onOrderCreated }:
 function DynamicField({
   field,
   value,
+  locale,
   onChange,
 }: {
   field: PricingField;
   value: unknown;
+  locale: string;
   onChange: (v: unknown) => void;
 }) {
+  const englishLabels: Record<string, string> = {
+    package_size: "Requests per package", quantity: "Quantity", platform: "Platform",
+    target_urls: "Target URLs", type: "Protocol", network: "Network", duration: "Duration",
+    country: "Country", region: "Region",
+  };
+  const fieldLabel = locale === "en" ? englishLabels[field.field] ?? field.label : field.label;
   const label = (
     <div className="text-[11px] text-faint uppercase tracking-wider mb-1.5">
-      {field.label}
+      {fieldLabel}
       {field.required && <span className="text-bad ml-0.5">*</span>}
     </div>
   );

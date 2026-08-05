@@ -1,6 +1,7 @@
 "use client";
 
 import Link from "next/link";
+import { useLocale } from "next-intl";
 import { useEffect, useState } from "react";
 import { api, ApiError } from "@/lib/api";
 import type { DashboardData, DashboardResource, DashboardTask, GatewayCallLogItem, UsageRecordItem } from "@/lib/types";
@@ -17,8 +18,8 @@ function copyToClipboard(text: string) {
   navigator.clipboard.writeText(text).catch(() => {});
 }
 
-function fmtDate(iso: string) {
-  return new Date(iso).toLocaleString("vi-VN");
+function fmtDate(iso: string, locale = "vi") {
+  return new Date(iso).toLocaleString(locale === "en" ? "en-US" : "vi-VN");
 }
 
 function daysRemaining(expiresAt: string | null): string {
@@ -39,6 +40,7 @@ function StatCard({ label, value, sub }: { label: string; value: string | number
 }
 
 function CopyButton({ text, label }: { text: string; label?: string }) {
+  const locale = useLocale();
   const [copied, setCopied] = useState(false);
   const handleCopy = () => {
     copyToClipboard(text);
@@ -50,7 +52,7 @@ function CopyButton({ text, label }: { text: string; label?: string }) {
       onClick={handleCopy}
       className="inline-flex items-center gap-1.5 px-2.5 py-1 text-[12px] font-medium rounded-md bg-raised border border-line hover:border-line-2 transition-colors"
     >
-      {copied ? "Đã sao chép!" : label ?? "Sao chép"}
+      {copied ? (locale === "en" ? "Copied!" : "Đã sao chép!") : label ?? (locale === "en" ? "Copy" : "Sao chép")}
     </button>
   );
 }
@@ -64,6 +66,7 @@ function maskSecret(value: string): string {
  *  nguyên nó trong URL dòng dưới thì việc che chỉ là hình thức. Nút Sao chép
  *  vẫn đưa bản đầy đủ nên buyer không mất gì. */
 function MaskedValue({ value, display, copyValue }: { value: string; display?: string; copyValue?: string }) {
+  const locale = useLocale();
   const [visible, setVisible] = useState(false);
   const masked = display ?? maskSecret(value);
   return (
@@ -73,7 +76,7 @@ function MaskedValue({ value, display, copyValue }: { value: string; display?: s
         onClick={() => setVisible((v) => !v)}
         className="text-[11px] text-iris-hi hover:underline"
       >
-        {visible ? "Ẩn" : "Hiện"}
+        {visible ? (locale === "en" ? "Hide" : "Ẩn") : (locale === "en" ? "Show" : "Hiện")}
       </button>
       <CopyButton text={copyValue ?? value} />
     </span>
@@ -288,6 +291,8 @@ function parseGatewayDelivery(raw: string | null | undefined): { key: string | n
 }
 
 function EndpointDashboard({ data, onRefresh, viewerRole }: { data: DashboardData; onRefresh: () => void; viewerRole: "buyer" | "seller" }) {
+  const locale = useLocale();
+  const isEnglish = locale === "en";
   const balance = data.balance;
   const { key: apiKey, callUrl } = parseGatewayDelivery(data.delivered_data);
   const [simulating, setSimulating] = useState(false);
@@ -301,7 +306,7 @@ function EndpointDashboard({ data, onRefresh, viewerRole }: { data: DashboardDat
       await api.chargeUsage(data.order_id, "profile", 1);
       onRefresh();
     } catch (e) {
-      setSimError(e instanceof ApiError ? e.message : "Không giả lập được request");
+      setSimError(e instanceof ApiError ? e.message : isEnglish ? "Could not simulate the request" : "Không giả lập được request");
       onRefresh(); // vẫn refresh để thấy bản ghi bị từ chối trong lịch sử
     } finally {
       setSimulating(false);
@@ -320,7 +325,7 @@ function EndpointDashboard({ data, onRefresh, viewerRole }: { data: DashboardDat
           )}
           {callUrl && (
             <div>
-              <div className="text-[11px] text-faint mb-1">Địa chỉ gọi</div>
+              <div className="text-[11px] text-faint mb-1">{isEnglish ? "Call URL" : "Địa chỉ gọi"}</div>
               <MaskedValue
                 value={callUrl}
                 display={apiKey ? callUrl.replace(apiKey, maskSecret(apiKey)) : callUrl}
@@ -332,26 +337,25 @@ function EndpointDashboard({ data, onRefresh, viewerRole }: { data: DashboardDat
       )}
 
       {!balance ? (
-        <Banner tone="warn" icon={<Info size={15} />} title="Chưa có số dư request">
-          Đơn này chưa có số dư theo dõi request — hoặc chưa giao xong, hoặc được mua trước khi
-          tính năng này có (không ảnh hưởng key đã nhận ở trên).
+        <Banner tone="warn" icon={<Info size={15} />} title={isEnglish ? "No request balance yet" : "Chưa có số dư request"}>
+          {isEnglish ? "This order has no request balance yet — it may not be delivered, or was purchased before this feature existed." : "Đơn này chưa có số dư theo dõi request — hoặc chưa giao xong, hoặc được mua trước khi tính năng này có (không ảnh hưởng key đã nhận ở trên)."}
         </Banner>
       ) : (
         <>
           <div>
             <div className="flex items-end justify-between mb-1.5">
-              <span className="text-[12px] text-muted">Số dư request</span>
+              <span className="text-[12px] text-muted">{isEnglish ? "Request balance" : "Số dư request"}</span>
               <span className="font-mono text-[13px] font-semibold tabular">
-                {balance.units_used.toLocaleString("vi-VN")} / {balance.units_total.toLocaleString("vi-VN")}
+                {balance.units_used.toLocaleString(isEnglish ? "en-US" : "vi-VN")} / {balance.units_total.toLocaleString(isEnglish ? "en-US" : "vi-VN")}
               </span>
             </div>
             <UsageProgressBar used={balance.units_used} total={balance.units_total} />
             <div className="flex items-center justify-between mt-1">
               <span className="text-[11px] text-faint">
-                Còn lại {balance.units_remaining.toLocaleString("vi-VN")} request
+                {isEnglish ? `${balance.units_remaining.toLocaleString("en-US")} requests remaining` : `Còn lại ${balance.units_remaining.toLocaleString("vi-VN")} request`}
               </span>
               {balance.expires_at && (
-                <span className="text-[11px] text-faint">Hết hạn {fmtDate(balance.expires_at)}</span>
+                <span className="text-[11px] text-faint">{isEnglish ? "Expires" : "Hết hạn"} {fmtDate(balance.expires_at, locale)}</span>
               )}
             </div>
           </div>
@@ -395,10 +399,10 @@ function EndpointDashboard({ data, onRefresh, viewerRole }: { data: DashboardDat
                 disabled={simulating}
                 className="inline-flex items-center gap-1.5 px-3 py-1.5 text-[12px] font-medium rounded-md bg-raised border border-line hover:border-line-2 transition-colors disabled:opacity-50"
               >
-                {simulating ? "Đang gửi…" : "Trừ thử 1 request"}
+                {simulating ? (isEnglish ? "Sending…" : "Đang gửi…") : (isEnglish ? "Simulate 1 request" : "Trừ thử 1 request")}
               </button>
               <span className="text-[11px] text-faint">
-                Kiểm tra cách đếm số dư — trừ 1 request thật khỏi gói, không gọi ra nhà cung cấp.
+                {isEnglish ? "Checks balance accounting by deducting one real request without calling the provider." : "Kiểm tra cách đếm số dư — trừ 1 request thật khỏi gói, không gọi ra nhà cung cấp."}
               </span>
             </div>
           )}

@@ -103,7 +103,10 @@ async function proxy(request: NextRequest, segments: string[]) {
   }
 
   const responseHeaders = new Headers(upstream.headers);
-  for (const name of ["set-cookie", "content-length", "connection", "transfer-encoding", "server"]) {
+  // `fetch` transparently decompresses upstream responses. Forwarding the
+  // original Content-Encoding would make browsers try to decompress the
+  // already-decoded body a second time (ERR_CONTENT_DECODING_FAILED).
+  for (const name of ["set-cookie", "content-length", "connection", "content-encoding", "transfer-encoding", "server"]) {
     responseHeaders.delete(name);
   }
   responseHeaders.set("Cache-Control", "no-store");

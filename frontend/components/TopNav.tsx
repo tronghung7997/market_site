@@ -11,7 +11,8 @@ import { Bolt, Globe, Logo, Menu, Plus, Wallet, X } from "./Icons";
 import NotificationBell from "./NotificationBell";
 import { Button } from "./ui";
 
-const localeSwitcherEnabled = process.env.NEXT_PUBLIC_ENABLE_VI === "true";
+// Show the language switcher by default; deployments can explicitly hide it.
+const localeSwitcherEnabled = process.env.NEXT_PUBLIC_ENABLE_VI !== "false";
 
 function LocaleSwitcher({
   locale,

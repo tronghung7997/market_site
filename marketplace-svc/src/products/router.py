@@ -36,7 +36,7 @@ async def get_product(
     locale: str = Depends(get_request_locale),
     db: AsyncSession = Depends(get_session),
 ):
-    return await service.get_product_detail(product_id, db, locale=locale)
+    return await service.get_product_detail(product_id, db, locale=locale, public=True)
 
 
 @router.get("/seller/products/{product_id}/detail", response_model=schemas.ProductDetailResponse)

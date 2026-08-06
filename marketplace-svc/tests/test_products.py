@@ -165,6 +165,35 @@ async def test_product_detail_includes_variants(client):
 
 
 @pytest.mark.asyncio
+async def test_suspended_product_is_hidden_from_public_storefront(client):
+    seller_token, admin_token, cat_id = await setup_seller_with_category(client)
+    product = await client.post("/seller/products", json={
+        "category_id": cat_id, "title": "Hidden Product", "status": "active",
+    }, headers={"Authorization": f"Bearer {seller_token}"})
+    product_id = product.json()["id"]
+
+    suspended = await client.post(
+        f"/admin/products/{product_id}/suspend",
+        headers={"Authorization": f"Bearer {admin_token}"},
+    )
+    assert suspended.status_code == 200
+    assert suspended.json()["status"] == "suspended"
+
+    listing = await client.get("/products")
+    assert all(item["id"] != product_id for item in listing.json()["items"])
+
+    detail = await client.get(f"/products/{product_id}")
+    assert detail.status_code == 404
+
+    # Management endpoints remain available so the product can be restored.
+    seller_detail = await client.get(
+        f"/seller/products/{product_id}/detail",
+        headers={"Authorization": f"Bearer {seller_token}"},
+    )
+    assert seller_detail.status_code == 200
+
+
+@pytest.mark.asyncio
 async def test_buyer_cannot_create_product(client):
     buyer_token = await register_and_login(client, "prod_buyer@example.com")
     resp = await client.post("/seller/products", json={

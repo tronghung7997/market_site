@@ -350,6 +350,7 @@ async def get_product_detail(
     include_inactive_variants: bool = False,
     locale: str = DEFAULT_LOCALE,
     localize: bool = True,
+    public: bool = False,
 ) -> dict:
     """Chi tiết sản phẩm.
 
@@ -357,11 +358,16 @@ async def get_product_detail(
     tắt — nếu không, tắt bán xong là gói biến mất khỏi chính trang sửa và seller
     không còn đường bật lại.
 
-    Public storefront passes ``locale`` and gets resolved text fields. Seller
-    detail uses ``localize=False`` so the edit form shows stored scalars.
+    Public storefront only exposes active products; seller/admin detail remains
+    available for managing paused or suspended products. Seller detail uses
+    ``localize=False`` so the edit form shows stored scalars.
     """
     product = await db.get(Product, product_id)
     if not product:
+        raise HTTPException(status_code=404, detail="Không tìm thấy sản phẩm")
+    if public and product.status != ProductStatus.active:
+        # Use 404 so public callers cannot distinguish a hidden product from a
+        # nonexistent one or access it directly by its ID.
         raise HTTPException(status_code=404, detail="Không tìm thấy sản phẩm")
 
     seller = await db.get(Account, product.seller_id)

@@ -2,7 +2,7 @@ import { NextRequest, NextResponse } from "next/server";
 
 export const runtime = "nodejs";
 
-const PROVIDER_URL = process.env.TIKTOK_LOOKUP_API_URL ?? "https://lookup.ghlab.info/api/v1/tiktok";
+const PROVIDER_URL = process.env.TIKTOK_LOOKUP_API_URL;
 const REQUEST_TIMEOUT_MS = 10_000;
 
 type ProviderProfile = {
@@ -71,10 +71,16 @@ export async function GET(request: NextRequest) {
   const normalizedUrl = normalizeTikTokProfile(request.nextUrl.searchParams.get("url") ?? "");
   if (!normalizedUrl) return NextResponse.json({ detail: "Nhập username hoặc link profile TikTok hợp lệ." }, { status: 400 });
 
-  const apiKey = process.env.TIKTOK_LOOKUP_API_KEY;
+  const apiKey = process.env.LOOKUP_API_KEY;
   if (!apiKey) return NextResponse.json({ detail: "Dịch vụ tìm TikTok ID chưa được cấu hình." }, { status: 503 });
+  if (!PROVIDER_URL) return NextResponse.json({ detail: "Dịch vụ tìm TikTok ID chưa được cấu hình." }, { status: 503 });
 
-  const providerUrl = new URL(PROVIDER_URL);
+  let providerUrl: URL;
+  try {
+    providerUrl = new URL(PROVIDER_URL);
+  } catch {
+    return NextResponse.json({ detail: "Dịch vụ tìm TikTok ID chưa được cấu hình." }, { status: 503 });
+  }
   providerUrl.searchParams.set("url", normalizedUrl);
   providerUrl.searchParams.set("api_key", apiKey);
 

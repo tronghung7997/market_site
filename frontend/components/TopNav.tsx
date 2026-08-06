@@ -12,7 +12,7 @@ import NotificationBell from "./NotificationBell";
 import { Button } from "./ui";
 
 // Show the language switcher by default; deployments can explicitly hide it.
-const localeSwitcherEnabled = process.env.NEXT_PUBLIC_ENABLE_VI !== "false";
+const localeSwitcherEnabled = process.env.NEXT_PUBLIC_ENABLE_VI !== "true";
 
 function LocaleSwitcher({
   locale,

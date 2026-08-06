@@ -54,7 +54,7 @@ export default function TikTokIdPage() {
     [t("stats.diggs"), formatCount(profile.digg_count, locale)],
   ] : [];
 
-  return <div className="min-h-[calc(100dvh-6.25rem)] bg-surface">
+  return <div className="bg-surface">
     <section className="mx-auto grid max-w-[1120px] gap-5 px-6 py-5 lg:grid-cols-[minmax(0,0.72fr)_minmax(480px,1.28fr)] lg:items-start lg:py-6">
       <div>
         <Link href="/solutions" className="mb-3 inline-flex items-center gap-1.5 text-[13px] font-medium text-muted transition-colors hover:text-iris-hi">{t("back")} <ArrowRight size={14} /></Link>

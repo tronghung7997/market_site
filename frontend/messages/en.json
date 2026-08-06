@@ -1,6 +1,6 @@
 {
   "metadata": {
-    "title": "Proxora — Digital accounts and data marketplace for business",
+    "title": "Marketplace — Digital accounts and data marketplace for business",
     "description": "A marketplace for verified digital accounts, proxies, and data for business. Secure escrow and instant delivery."
   },
   "nav": {
@@ -161,7 +161,7 @@
     "faq": "Frequently asked questions",
     "policy": "Escrow policy",
     "contact": "Contact",
-    "copyright": "© {year} Proxora. Demo marketplace.",
+    "copyright": "© {year} Marketplace. Demo marketplace.",
     "legal": "Prices include platform fees · Complies with applicable law",
     "linksUnavailableHint": "More pages coming soon"
   },
@@ -529,7 +529,7 @@
   },
   "auth": {
     "loginTitle": "Sign in",
-    "loginSubtitle": "Welcome back to Proxora.",
+    "loginSubtitle": "Welcome back to Marketplace.",
     "registerTitle": "Create an account",
     "registerSubtitle": "Open your business account in a few minutes.",
     "email": "Email",
@@ -665,13 +665,13 @@
     "reviewsCountShort": "{count} reviews",
     "inStock": "{count} in stock",
     "verified": "Verified",
-    "shopOnProxora": "Shop on Proxora",
+    "shopOnProxora": "Shop on Marketplace",
     "messageSeller": "Message",
     "specs": "Specifications",
     "description": "Product description",
     "warranty": "Warranty & escrow",
-    "warrantyDefault": "Proxora escrow policy applies for {days} days.",
-    "warrantyPoint1": "Funds held by Proxora for {days} days",
+    "warrantyDefault": "Marketplace escrow policy applies for {days} days.",
+    "warrantyPoint1": "Funds held by Marketplace for {days} days",
     "warrantyPoint2": "Released to the seller only when you confirm",
     "warrantyPoint3": "100% refund if the item does not match the description",
     "warrantyPoint4": "Open a dispute any time during the escrow window",
@@ -965,7 +965,7 @@
     "priceFrom": "From",
     "trustTitle": "Built for peace of mind",
     "ctaTitle": "Need a custom solution?",
-    "ctaSubtitle": "Proxora’s team can help your business find the right fit.",
+    "ctaSubtitle": "Marketplace’s team can help your business find the right fit.",
     "ctaRegister": "Open an account",
     "ctaExplore": "Browse marketplace",
     "lookup": {

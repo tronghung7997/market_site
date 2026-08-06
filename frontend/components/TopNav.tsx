@@ -7,11 +7,59 @@ import { useAuth } from "@/lib/auth";
 import { vnd } from "@/lib/api";
 import { cn } from "@/lib/cn";
 import { useWalletBalance } from "@/hooks/use-wallet";
-import { Bolt, Logo, Menu, Plus, Wallet, X } from "./Icons";
+import { Bolt, Globe, Logo, Menu, Plus, Wallet, X } from "./Icons";
 import NotificationBell from "./NotificationBell";
 import { Button } from "./ui";
 
 const localeSwitcherEnabled = process.env.NEXT_PUBLIC_ENABLE_VI === "true";
+
+function LocaleSwitcher({
+  locale,
+  onChange,
+  label,
+  className,
+}: {
+  locale: string;
+  onChange: (locale: "en" | "vi") => void;
+  label: string;
+  className?: string;
+}) {
+  const languages = [
+    { code: "en" as const, shortLabel: "EN", label: "English" },
+    { code: "vi" as const, shortLabel: "VI", label: "Tiếng Việt" },
+  ];
+
+  return (
+    <div className={cn("inline-flex items-center gap-1.5", className)} role="group" aria-label={label}>
+      <span className="grid h-7 w-7 place-items-center rounded-md text-iris-hi" aria-hidden>
+        <Globe size={15} />
+      </span>
+      <span className="inline-flex items-center rounded-lg border border-line bg-raised/75 p-0.5 shadow-[inset_0_1px_0_rgba(255,255,255,0.65)]">
+        {languages.map((language) => {
+          const active = locale === language.code;
+          return (
+            <button
+              key={language.code}
+              type="button"
+              onClick={() => onChange(language.code)}
+              aria-pressed={active}
+              aria-label={language.label}
+              title={language.label}
+              className={cn(
+                "min-w-9 rounded-md px-2 py-1.5 text-[11px] font-bold tracking-[0.12em] transition-all duration-200",
+                active
+                  ? "bg-iris text-white shadow-[0_1px_2px_rgba(67,56,202,0.32)]"
+                  : "text-faint hover:bg-surface hover:text-fg"
+              )}
+            >
+              {language.shortLabel}
+            </button>
+          );
+        })}
+      </span>
+    </div>
+  );
+}
 
 export default function TopNav() {
   const { account, logout } = useAuth();
@@ -19,6 +67,7 @@ export default function TopNav() {
   const router = useRouter();
   const locale = useLocale();
   const t = useTranslations("nav");
+  const languageLabel = locale === "vi" ? "Ngôn ngữ" : "Language";
   const navLinks = [{ href: "/", label: t("marketplace") }, { href: "/categories", label: t("categories") }];
   const accountLinks = [
     { href: "/orders", label: t("orders"), auth: true }, { href: "/wallet", label: t("wallet"), auth: true },
@@ -62,7 +111,7 @@ export default function TopNav() {
             className="md:hidden grid place-items-center h-9 w-9 -ml-1 rounded-lg text-muted hover:text-fg hover:bg-raised transition-colors shrink-0">
             {mobileNavOpen ? <X size={18} /> : <Menu size={18} />}
           </button>
-          <Link href="/" aria-label="Proxora"><Logo /></Link>
+          <Link href="/" aria-label="Marketplace"><Logo /></Link>
           <nav className="hidden md:flex items-center gap-0.5 shrink-0">
             {navLinks.map((l) => {
               const active = l.href === "/" ? pathname === "/" : pathname.startsWith(l.href);
@@ -77,11 +126,12 @@ export default function TopNav() {
             <Link href="/solutions" className="px-2.5 py-1.5 rounded-lg text-[13px] font-medium text-muted hover:text-fg hover:bg-raised transition-colors whitespace-nowrap">{t("solutions")}</Link>
           </nav>
           <div className="flex-1" />
-          {localeSwitcherEnabled && <div className="hidden sm:flex items-center gap-1 text-[12px] font-semibold text-muted">
-            <button type="button" onClick={() => changeLocale("en")} aria-pressed={locale === "en"} className={cn("px-1 hover:text-fg", locale === "en" && "text-fg")}>EN</button>
-            <span className="text-faint">/</span>
-            <button type="button" onClick={() => changeLocale("vi")} aria-pressed={locale === "vi"} className={cn("px-1 hover:text-fg", locale === "vi" && "text-fg")}>VI</button>
-          </div>}
+          {localeSwitcherEnabled && <LocaleSwitcher
+            locale={locale}
+            onChange={changeLocale}
+            label={languageLabel}
+            className="hidden sm:inline-flex"
+          />}
           {account ? (
             <div className="flex items-center gap-2.5">
               <Link href="/wallet" title={t("walletBalance")}
@@ -152,10 +202,9 @@ export default function TopNav() {
               );
             })}
             <Link href="/solutions" className="block px-2.5 py-2.5 rounded-lg text-[14px] font-medium text-muted hover:text-fg hover:bg-raised transition-colors">{t("solutions")}</Link>
-            {localeSwitcherEnabled && <div className="mt-1 flex items-center gap-1 border-t border-line pt-2 px-2.5">
-              <button type="button" onClick={() => changeLocale("en")} aria-pressed={locale === "en"} className={cn("text-xs font-medium", locale === "en" ? "text-fg" : "text-muted")}>EN</button>
-              <span className="text-faint">/</span>
-              <button type="button" onClick={() => changeLocale("vi")} aria-pressed={locale === "vi"} className={cn("text-xs font-medium", locale === "vi" ? "text-fg" : "text-muted")}>VI</button>
+            {localeSwitcherEnabled && <div className="mt-1 flex items-center justify-between border-t border-line pt-3 px-2.5">
+              <span className="text-[11px] font-semibold uppercase tracking-[0.12em] text-faint">{languageLabel}</span>
+              <LocaleSwitcher locale={locale} onChange={changeLocale} label={languageLabel} />
             </div>}
           </nav>
         )}

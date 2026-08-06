@@ -40,6 +40,9 @@ export const Verified = (p: IconProps) => (
 export const Bolt = (p: IconProps) => (
   <svg {...s(p)}><path d="M13 2 4 14h7l-1 8 9-12h-7l1-8Z" /></svg>
 );
+export const Globe = (p: IconProps) => (
+  <svg {...s(p)}><circle cx="12" cy="12" r="9" /><path d="M3 12h18" /><path d="M12 3a14.5 14.5 0 0 1 0 18" /><path d="M12 3a14.5 14.5 0 0 0 0 18" /></svg>
+);
 export const Clock = (p: IconProps) => (
   <svg {...s(p)}><circle cx="12" cy="12" r="9" /><path d="M12 7v5l3 2" /></svg>
 );
@@ -133,7 +136,7 @@ export function Logo({ withName = true }: { withName?: boolean }) {
           <path d="M12 8 16 10.2v3.6L12 16l-4-2.2v-3.6Z" fill="var(--color-iris-hi)" opacity="0.9" />
         </svg>
       </span>
-      {withName && <span className="font-serif text-[19px] font-semibold tracking-tight">Proxora</span>}
+      {withName && <span className="font-serif text-[19px] font-semibold tracking-tight">Marketplace</span>}
     </span>
   );
 }

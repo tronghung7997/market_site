@@ -1,6 +1,6 @@
 {
   "metadata": {
-    "title": "Proxora — Chợ tài khoản & dữ liệu số cho doanh nghiệp",
+    "title": "Marketplace — Chợ tài khoản & dữ liệu số cho doanh nghiệp",
     "description": "Nền tảng cung cấp tài khoản, proxy và dữ liệu số cho doanh nghiệp. Ký quỹ an toàn, giao ngay."
   },
   "nav": {
@@ -161,7 +161,7 @@
     "faq": "Câu hỏi thường gặp",
     "policy": "Chính sách ký quỹ",
     "contact": "Liên hệ",
-    "copyright": "© {year} Proxora. Demo marketplace.",
+    "copyright": "© {year} Marketplace. Demo marketplace.",
     "legal": "Giá đã gồm phí nền tảng · Tuân thủ pháp luật Việt Nam",
     "linksUnavailableHint": "Các trang này sẽ sớm được bổ sung"
   },
@@ -529,7 +529,7 @@
   },
   "auth": {
     "loginTitle": "Đăng nhập",
-    "loginSubtitle": "Chào mừng quay lại Proxora.",
+    "loginSubtitle": "Chào mừng quay lại Marketplace.",
     "registerTitle": "Tạo tài khoản",
     "registerSubtitle": "Mở tài khoản doanh nghiệp trong vài phút.",
     "email": "Email",
@@ -665,13 +665,13 @@
     "reviewsCountShort": "{count} lượt",
     "inStock": "{count} sẵn hàng",
     "verified": "Xác minh",
-    "shopOnProxora": "Gian hàng trên Proxora",
+    "shopOnProxora": "Gian hàng trên Marketplace",
     "messageSeller": "Nhắn tin",
     "specs": "Thông số kỹ thuật",
     "description": "Mô tả sản phẩm",
     "warranty": "Bảo hành & ký quỹ",
-    "warrantyDefault": "Áp dụng chính sách ký quỹ {days} ngày theo quy định Proxora.",
-    "warrantyPoint1": "Tiền giữ bởi Proxora trong {days} ngày",
+    "warrantyDefault": "Áp dụng chính sách ký quỹ {days} ngày theo quy định Marketplace.",
+    "warrantyPoint1": "Tiền giữ bởi Marketplace trong {days} ngày",
     "warrantyPoint2": "Chỉ chuyển cho người bán khi bạn xác nhận",
     "warrantyPoint3": "Hoàn tiền 100% nếu không đúng mô tả",
     "warrantyPoint4": "Mở tranh chấp bất kỳ lúc nào trong thời hạn ký quỹ",
@@ -965,7 +965,7 @@
     "priceFrom": "Giá từ",
     "trustTitle": "An tâm sử dụng",
     "ctaTitle": "Cần tư vấn giải pháp riêng?",
-    "ctaSubtitle": "Đội ngũ Proxora sẵn sàng hỗ trợ doanh nghiệp của bạn tìm giải pháp phù hợp nhất.",
+    "ctaSubtitle": "Đội ngũ Marketplace sẵn sàng hỗ trợ doanh nghiệp của bạn tìm giải pháp phù hợp nhất.",
     "ctaRegister": "Mở tài khoản",
     "ctaExplore": "Khám phá chợ",
     "lookup": {

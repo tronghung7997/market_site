@@ -47,6 +47,16 @@ class Settings(BaseSettings):
     auth_refresh_account_limit: int = 30
     gateway_ip_rate_limit: int = 120
     gateway_key_rate_limit: int = 60
+    # Seller API request signing (X-API-Key + HMAC).
+    api_signing_timestamp_tolerance_seconds: int = 300
+    api_signing_ip_limit: int = 120
+    api_signing_key_limit: int = 60
+    # allow = X-Seller-Api-Key still accepted (migration); deny = signed/JWT only.
+    legacy_seller_api_key_mode: Literal["allow", "deny"] = "allow"
+    # Comma-separated IPs/CIDRs of reverse proxies allowed to set X-Forwarded-For.
+    # Empty = never trust XFF (rate limits use the direct TCP peer only).
+    # Behind nginx, set the proxy's address/CIDR so per-client IP buckets work.
+    trusted_proxy_cidrs: str = ""
     affiliate_click_ip_limit: int = 30
     provider_webhook_ip_limit: int = 120
     # Used to build the callback_url a seller_task_webhook provider POSTs back to.
@@ -145,6 +155,9 @@ class Settings(BaseSettings):
             "auth_refresh_account_limit",
             "gateway_ip_rate_limit",
             "gateway_key_rate_limit",
+            "api_signing_timestamp_tolerance_seconds",
+            "api_signing_ip_limit",
+            "api_signing_key_limit",
             "affiliate_click_ip_limit",
             "provider_webhook_ip_limit",
             "gateway_call_log_retention_days",
@@ -154,6 +167,11 @@ class Settings(BaseSettings):
         ):
             if getattr(self, field_name) <= 0:
                 raise ValueError(f"{field_name.upper()} must be greater than zero")
+
+        # Fail at boot on bad CIDRs — not on the first rate-limited request.
+        from src.security.client_ip import parse_trusted_proxy_cidrs
+        parse_trusted_proxy_cidrs(self.trusted_proxy_cidrs)
+
         return self
 
 

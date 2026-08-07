@@ -17,6 +17,10 @@ _http_requests: dict[tuple[str, str, str], int] = defaultdict(int)
 _http_exceptions: int = 0
 _scheduler_runs: dict[tuple[str, str], int] = defaultdict(int)
 _outbound: dict[tuple[str, str], int] = defaultdict(int)
+# Seller auth path: jwt | signed_v1 | legacy
+_auth_method: dict[str, int] = defaultdict(int)
+# Low-cardinality rejection reasons (missing_header, bad_signature, …)
+_auth_rejection: dict[str, int] = defaultdict(int)
 
 # Latency samples kept as sum + count for mean, plus coarse buckets
 _http_latency_sum: dict[tuple[str, str], float] = defaultdict(float)
@@ -80,6 +84,42 @@ def observe_outbound(*, kind: str, outcome: str) -> None:
         _outbound[(kind, outcome)] += 1
 
 
+_KNOWN_AUTH_METHODS = frozenset({"jwt", "signed_v1", "legacy"})
+_KNOWN_AUTH_REJECTIONS = frozenset({
+    "missing_signing_header",
+    "header_too_long",
+    "bad_key_format",
+    "bad_timestamp",
+    "bad_signature_format",
+    "timestamp_out_of_window",
+    "unsupported_signing_version",
+    "decrypt_failed",
+    "bad_signature",
+    "unknown_key",
+    "inactive_account",
+    "not_seller",
+    "rate_limited",
+    "credential_confusion",
+    "legacy_denied",
+    "missing_auth",
+    "non_ascii_path",
+})
+
+
+def observe_auth_method(method: str) -> None:
+    """Record successful seller auth by method (jwt / signed_v1 / legacy)."""
+    label = method if method in _KNOWN_AUTH_METHODS else "other"
+    with _lock:
+        _auth_method[label] += 1
+
+
+def observe_auth_rejection(reason: str) -> None:
+    """Record auth rejection by low-cardinality reason."""
+    label = reason if reason in _KNOWN_AUTH_REJECTIONS else "other"
+    with _lock:
+        _auth_rejection[label] += 1
+
+
 def render_prometheus() -> str:
     """Render a Prometheus text exposition of current counters."""
     lines: list[str] = [
@@ -138,6 +178,24 @@ def render_prometheus() -> str:
                 f"}} {count}"
             )
 
+        lines.append("# HELP seller_auth_total Successful seller authentication by method")
+        lines.append("# TYPE seller_auth_total counter")
+        for method, count in sorted(_auth_method.items()):
+            lines.append(
+                "seller_auth_total{"
+                f'method="{_escape_label_value(method)}"'
+                f"}} {count}"
+            )
+
+        lines.append("# HELP seller_auth_rejected_total Seller authentication rejections")
+        lines.append("# TYPE seller_auth_rejected_total counter")
+        for reason, count in sorted(_auth_rejection.items()):
+            lines.append(
+                "seller_auth_rejected_total{"
+                f'reason="{_escape_label_value(reason)}"'
+                f"}} {count}"
+            )
+
     lines.append("")
     return "\n".join(lines)
 
@@ -149,4 +207,6 @@ def snapshot() -> dict[str, Any]:
             "http_exceptions": _http_exceptions,
             "scheduler_runs": dict(_scheduler_runs),
             "outbound": dict(_outbound),
+            "auth_method": dict(_auth_method),
+            "auth_rejection": dict(_auth_rejection),
         }

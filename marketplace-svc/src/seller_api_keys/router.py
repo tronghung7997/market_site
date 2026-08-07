@@ -15,9 +15,14 @@ async def create_key(
     account: Account = Depends(require_min_seller_tier("trusted")),
     db: AsyncSession = Depends(get_session),
 ):
-    row, plaintext = await service.create_api_key(account.id, db)
+    row, key_id, api_secret = await service.create_api_key(account.id, db)
     return schemas.SellerApiKeyCreated(
-        id=row.id, key=plaintext, key_prefix=row.key_prefix, created_at=row.created_at,
+        id=row.id,
+        api_key=key_id,
+        api_secret=api_secret,
+        signing_version=row.signing_version or "v1",
+        key_prefix=row.key_prefix,
+        created_at=row.created_at,
     )
 
 
@@ -26,7 +31,19 @@ async def list_keys(
     account: Account = Depends(require_role("seller")),
     db: AsyncSession = Depends(get_session),
 ):
-    return await service.list_api_keys(account.id, db)
+    rows = await service.list_api_keys(account.id, db)
+    return [
+        schemas.SellerApiKeyResponse(
+            id=row.id,
+            key_prefix=row.key_prefix,
+            signing_version=row.signing_version or "v1",
+            key_id_masked=row.key_prefix if row.key_id else None,
+            created_at=row.created_at,
+            last_used_at=row.last_used_at,
+            revoked_at=row.revoked_at,
+        )
+        for row in rows
+    ]
 
 
 @router.delete("/seller/api-keys/{key_id}", response_model=schemas.SellerApiKeyResponse)
@@ -35,4 +52,13 @@ async def revoke_key(
     account: Account = Depends(require_role("seller")),
     db: AsyncSession = Depends(get_session),
 ):
-    return await service.revoke_api_key(account.id, key_id, db)
+    row = await service.revoke_api_key(account.id, key_id, db)
+    return schemas.SellerApiKeyResponse(
+        id=row.id,
+        key_prefix=row.key_prefix,
+        signing_version=row.signing_version or "v1",
+        key_id_masked=row.key_prefix if row.key_id else None,
+        created_at=row.created_at,
+        last_used_at=row.last_used_at,
+        revoked_at=row.revoked_at,
+    )

@@ -9,7 +9,11 @@ export interface Account {
 
 export interface SellerApiKeyCreated {
   id: number;
-  key: string;
+  /** Public key id sent as X-API-Key (ak_live_…). */
+  api_key: string;
+  /** HMAC secret — shown once at creation; never stored in the browser. */
+  api_secret: string;
+  signing_version: string;
   key_prefix: string;
   created_at: string;
 }
@@ -17,6 +21,8 @@ export interface SellerApiKeyCreated {
 export interface SellerApiKey {
   id: number;
   key_prefix: string;
+  signing_version?: string;
+  key_id_masked?: string | null;
   created_at: string;
   last_used_at: string | null;
   revoked_at: string | null;

@@ -6,23 +6,63 @@ from sqlalchemy import select
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from src.models.seller_api_key import SellerApiKey
+from src.security.crypto import encrypt_str
+
+# Public key_id: ak_live_ + 128 bits entropy (token_urlsafe(16)).
+_KEY_ID_BYTES = 16
+# Signing secret: sk_live_ + 256 bits entropy (token_urlsafe(32)).
+_SECRET_BYTES = 32
+
+
+def _mask_credential(value: str) -> str:
+    if len(value) <= 16:
+        return f"{value[:4]}…{value[-2:]}"
+    return f"{value[:12]}...{value[-4:]}"
+
+
+def generate_signed_credentials() -> tuple[str, str, str, str]:
+    """Return (key_id, api_secret, key_prefix, signing_secret_encrypted).
+
+    Plaintext api_secret is returned only so the create handler can show it
+    once — callers must not persist it.
+    """
+    key_id = f"ak_live_{secrets.token_urlsafe(_KEY_ID_BYTES)}"
+    api_secret = f"sk_live_{secrets.token_urlsafe(_SECRET_BYTES)}"
+    key_prefix = _mask_credential(key_id)
+    encrypted = encrypt_str(api_secret)
+    return key_id, api_secret, key_prefix, encrypted
 
 
 def generate_api_key() -> tuple[str, str, str]:
-    """Returns (plaintext, key_hash, key_prefix)."""
+    """Legacy helper kept for tests that mint bearer keys directly.
+
+    Production create path uses generate_signed_credentials only.
+    """
     raw = secrets.token_urlsafe(32)
     plaintext = f"sk_live_{raw}"
     key_hash = hashlib.sha256(plaintext.encode()).hexdigest()
-    key_prefix = f"{plaintext[:12]}...{plaintext[-4:]}"
+    key_prefix = _mask_credential(plaintext)
     return plaintext, key_hash, key_prefix
 
 
-async def create_api_key(account_id: int, db: AsyncSession) -> tuple[SellerApiKey, str]:
+async def create_api_key(account_id: int, db: AsyncSession) -> tuple[SellerApiKey, str, str]:
+    """Create a signed credential. Returns (row, key_id, api_secret).
+
+    api_secret is plaintext and appears only in this return value / create
+    response — never in audit logs or subsequent list/get endpoints.
+    """
     from src.audit.service import log_event
     from src.logging import current_request_id
 
-    plaintext, key_hash, key_prefix = generate_api_key()
-    row = SellerApiKey(account_id=account_id, key_hash=key_hash, key_prefix=key_prefix)
+    key_id, api_secret, key_prefix, encrypted = generate_signed_credentials()
+    row = SellerApiKey(
+        account_id=account_id,
+        key_hash=None,
+        key_prefix=key_prefix,
+        key_id=key_id,
+        signing_secret_encrypted=encrypted,
+        signing_version="v1",
+    )
     db.add(row)
     await db.flush()
     await log_event(
@@ -38,11 +78,13 @@ async def create_api_key(account_id: int, db: AsyncSession) -> tuple[SellerApiKe
             "source": "seller",
             "key_id": row.id,
             "prefix": key_prefix,
+            "signing_version": "v1",
+            # Never include api_secret or full key_id material beyond prefix.
         },
     )
     await db.commit()
     await db.refresh(row)
-    return row, plaintext
+    return row, key_id, api_secret
 
 
 async def list_api_keys(account_id: int, db: AsyncSession) -> list[SellerApiKey]:

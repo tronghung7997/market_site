@@ -107,7 +107,15 @@ app.add_middleware(
     allow_origins=settings.cors_origins,
     allow_credentials=False,
     allow_methods=["GET", "POST", "PUT", "PATCH", "DELETE", "OPTIONS"],
-    allow_headers=["Authorization", "Content-Type", "X-Request-ID", "X-Seller-Api-Key"],
+    allow_headers=[
+        "Authorization",
+        "Content-Type",
+        "X-Request-ID",
+        "X-Seller-Api-Key",  # legacy — remove after LEGACY_SELLER_API_KEY_MODE=deny rollout
+        "X-API-Key",
+        "X-Timestamp",
+        "X-Signature",
+    ],
 )
 app.add_middleware(
     SecurityHeadersMiddleware,

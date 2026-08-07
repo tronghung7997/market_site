@@ -229,6 +229,27 @@ async def test_docs_debug_and_evil_cors_are_closed_by_default(client):
 
 
 @pytest.mark.asyncio
+async def test_cors_preflight_allows_signing_headers(client):
+    """Positive preflight: allowed origin may request the three signing headers."""
+    origin = settings.cors_origins[0]
+    preflight = await client.options(
+        "/seller/orders",
+        headers={
+            "Origin": origin,
+            "Access-Control-Request-Method": "GET",
+            "Access-Control-Request-Headers": "X-API-Key, X-Timestamp, X-Signature, Authorization",
+        },
+    )
+    assert preflight.status_code == 200
+    assert preflight.headers.get("access-control-allow-origin") == origin
+    allow = preflight.headers.get("access-control-allow-headers", "").lower()
+    assert "x-api-key" in allow
+    assert "x-timestamp" in allow
+    assert "x-signature" in allow
+    assert "authorization" in allow
+
+
+@pytest.mark.asyncio
 async def test_api_security_headers_are_present(client):
     response = await client.get("/health")
     assert response.headers["x-content-type-options"] == "nosniff"

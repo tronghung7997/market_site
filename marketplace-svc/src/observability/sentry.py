@@ -16,6 +16,8 @@ _SENSITIVE_HEADERS = {
     "authorization",
     "cookie",
     "x-seller-api-key",
+    "x-api-key",
+    "x-signature",
     "x-internal-key",
 }
 _GATEWAY_KEY_PATH_RE = re.compile(r"(/gw/)[^/]+(/)", re.IGNORECASE)

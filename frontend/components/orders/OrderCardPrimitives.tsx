@@ -4,7 +4,8 @@
 
 import { useLocale, useTranslations } from "next-intl";
 import { useState } from "react";
-import { api, vnd } from "@/lib/api";
+import { api } from "@/lib/api";
+import { useMoney } from "@/lib/money";
 import { cn } from "@/lib/cn";
 import { orderStatus } from "@/lib/order-status";
 import { formatDate, formatDateTime } from "@/lib/utils";
@@ -182,7 +183,13 @@ export function TerminalOrderRow({ order: o, viewerRole = "buyer" }: { order: Or
   const t = useTranslations("orders");
   const tc = useTranslations("common");
   const locale = useLocale();
+  const { formatOrderHistoryMoney, formatLedgerMoney } = useMoney();
   const st = orderStatus(o.status, locale);
+  // Seller/admin surfaces stay VND; buyer history uses snapshot/legacy rate.
+  const amountText =
+    viewerRole === "buyer"
+      ? formatOrderHistoryMoney(o.total_amount, o.display_fx_rate_snapshot, { locale }).text
+      : formatLedgerMoney(o.total_amount, locale);
   return (
     <Card className="px-4 py-3">
       <div className="flex items-start gap-3 min-w-0">
@@ -201,7 +208,7 @@ export function TerminalOrderRow({ order: o, viewerRole = "buyer" }: { order: Or
           )}
         </div>
         <div className="text-right shrink-0">
-          <p className="font-mono text-[13px] tabular text-muted">{vnd(o.total_amount, locale)}</p>
+          <p className="font-mono text-[13px] tabular text-muted">{amountText}</p>
           <p className="mt-0.5 inline-flex items-center gap-1 text-[11px] font-medium text-good">
             <Check size={11} /> {viewerRole === "seller" ? t("refundedToBuyer") : t("refundedToWallet")}
           </p>

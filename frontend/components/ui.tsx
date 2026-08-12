@@ -218,7 +218,8 @@ export function CopyButton({
   );
 }
 
-/** Windowed pagination: 1 … page±2 … last. Hidden when only one page. */
+/** Windowed pagination: 1 … page±2 … last. Hidden when only one page.
+ *  Narrow screens drop intermediate page buttons so Prev/Next fit at 320px. */
 export function Pagination({
   page, totalPages, onChange,
 }: { page: number; totalPages: number; onChange: (page: number) => void }) {
@@ -232,25 +233,59 @@ export function Pagination({
       return acc;
     }, []);
   return (
-    <div className="flex items-center gap-1">
-      <Button size="sm" variant="ghost" disabled={page <= 1} onClick={() => onChange(page - 1)}>{t("previous")}</Button>
-      {pages.map((p, i) =>
-        p === "…" ? (
-          <span key={`gap-${i}`} className="text-muted px-1">…</span>
-        ) : (
-          <button
-            key={p}
-            onClick={() => onChange(p)}
-            className={cn(
-              "w-8 h-8 rounded-lg text-[13px] font-medium",
-              page === p ? "bg-iris text-white" : "text-muted hover:bg-raised",
-            )}
-          >
-            {p}
-          </button>
-        ),
-      )}
-      <Button size="sm" variant="ghost" disabled={page >= totalPages} onClick={() => onChange(page + 1)}>{t("next")}</Button>
+    <div className="flex flex-wrap items-center justify-end gap-0.5 sm:gap-1 max-w-full min-w-0">
+      {/* Compact: Prev · page/total · Next — no intermediate numbers (320px-safe) */}
+      <div className="flex items-center gap-0.5 sm:hidden">
+        <Button
+          size="sm"
+          variant="ghost"
+          disabled={page <= 1}
+          onClick={() => onChange(page - 1)}
+          aria-label={t("previous")}
+          className="!px-2"
+        >
+          ‹
+        </Button>
+        <span className="px-1.5 text-[12px] font-medium tabular text-muted whitespace-nowrap">
+          {page}/{totalPages}
+        </span>
+        <Button
+          size="sm"
+          variant="ghost"
+          disabled={page >= totalPages}
+          onClick={() => onChange(page + 1)}
+          aria-label={t("next")}
+          className="!px-2"
+        >
+          ›
+        </Button>
+      </div>
+      {/* Full windowed controls from sm up */}
+      <div className="hidden sm:flex items-center gap-1">
+        <Button size="sm" variant="ghost" disabled={page <= 1} onClick={() => onChange(page - 1)}>
+          {t("previous")}
+        </Button>
+        {pages.map((p, i) =>
+          p === "…" ? (
+            <span key={`gap-${i}`} className="text-muted px-1">…</span>
+          ) : (
+            <button
+              key={p}
+              type="button"
+              onClick={() => onChange(p)}
+              className={cn(
+                "w-8 h-8 rounded-lg text-[13px] font-medium",
+                page === p ? "bg-iris text-white" : "text-muted hover:bg-raised",
+              )}
+            >
+              {p}
+            </button>
+          ),
+        )}
+        <Button size="sm" variant="ghost" disabled={page >= totalPages} onClick={() => onChange(page + 1)}>
+          {t("next")}
+        </Button>
+      </div>
     </div>
   );
 }

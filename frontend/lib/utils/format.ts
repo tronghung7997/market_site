@@ -1,11 +1,12 @@
 /**
- * Format money for Vietnamese dong
- * 7000 → "7.000 ₫"
+ * Always-VND ledger formatter.
+ * Alias of formatLedgerMoney — keep for existing call sites (admin, forms).
+ * Buyer-facing surfaces should use useMoney().formatBrowseMoney / formatCheckoutMoney.
  */
+import { formatLedgerMoney } from "@/lib/money/format";
+
 export function vnd(amount: number, locale = "en"): string {
-  return new Intl.NumberFormat(locale === "vi" ? "vi-VN" : "en-US", {
-    style: "currency", currency: "VND", maximumFractionDigits: 0,
-  }).format(amount);
+  return formatLedgerMoney(amount, locale);
 }
 
 /**

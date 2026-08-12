@@ -5,8 +5,9 @@ import { useSearchParams } from "next/navigation";
 import { useLocale, useTranslations } from "next-intl";
 import { useCallback, useEffect, useState } from "react";
 import { useQueryClient } from "@tanstack/react-query";
-import { api, vnd } from "@/lib/api";
+import { api } from "@/lib/api";
 import { useAuth } from "@/lib/auth";
+import { useMoney } from "@/lib/money";
 import { cn } from "@/lib/cn";
 import { queryKeys } from "@/lib/query-keys";
 import { useOrders, useOrderStats } from "@/hooks/use-orders";
@@ -21,6 +22,7 @@ export default function OrdersPage() {
   const tc = useTranslations("common");
   const te = useTranslations("errors");
   const locale = useLocale();
+  const { formatBrowseMoney } = useMoney();
   const { account, loading: authLoading } = useAuth();
   const router = useRouter();
   const searchParams = useSearchParams();
@@ -137,7 +139,7 @@ export default function OrdersPage() {
                 </div>
                 <div className="flex items-baseline justify-between border-t border-dashed border-line-2 pt-2.5 mt-2.5">
                   <dt className="text-muted">{t("spent")}</dt>
-                  <dd className="font-mono font-semibold tabular text-[13px]">{vnd(stats.total_spend, locale)}</dd>
+                  <dd className="font-mono font-semibold tabular text-[13px]">{formatBrowseMoney(stats.total_spend, { locale })}</dd>
                 </div>
               </dl>
             </Card>
@@ -201,23 +203,28 @@ export default function OrdersPage() {
           )}
 
           {!loading && total > 0 && (
-            <div className="flex flex-wrap items-center justify-between gap-3 mt-6">
-              <span className="text-[12px] text-faint tabular">
-                {t("showing", {
-                  from: (filters.page - 1) * filters.perPage + 1,
-                  to: Math.min(filters.page * filters.perPage, total),
-                  total,
-                })}
-              </span>
-              <div className="flex items-center gap-2">
+            <div className="mt-6 space-y-3">
+              <div className="flex flex-wrap items-center justify-between gap-3 min-w-0">
+                <span className="text-[12px] text-faint tabular min-w-0">
+                  {t("showing", {
+                    from: (filters.page - 1) * filters.perPage + 1,
+                    to: Math.min(filters.page * filters.perPage, total),
+                    total,
+                  })}
+                </span>
                 <Pagination page={filters.page} totalPages={totalPages} onChange={filters.setPage} />
+              </div>
+              {/* Per-page control under pagination so narrow screens don't overflow */}
+              <div className="flex justify-end">
                 <select
                   value={filters.perPage}
                   onChange={(e) => filters.setPerPage(Number(e.target.value))}
                   aria-label={t("perPageAria")}
-                  className="h-8 rounded-lg bg-surface border border-line px-2 text-[12px] text-muted cursor-pointer focus:outline-none focus:border-iris"
+                  className="h-8 max-w-full rounded-lg bg-surface border border-line px-2 text-[12px] text-muted cursor-pointer focus:outline-none focus:border-iris"
                 >
-                  {PER_PAGE_OPTIONS.map((n) => <option key={n} value={n}>{tc("perPage", { n })}</option>)}
+                  {PER_PAGE_OPTIONS.map((n) => (
+                    <option key={n} value={n}>{tc("perPage", { n })}</option>
+                  ))}
                 </select>
               </div>
             </div>

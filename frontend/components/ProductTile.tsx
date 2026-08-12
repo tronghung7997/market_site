@@ -4,7 +4,7 @@
 
 import { Link } from "@/i18n/navigation";
 import { useLocale, useTranslations } from "next-intl";
-import { vnd } from "@/lib/api";
+import { useMoney } from "@/lib/money";
 import { effectiveMinPrice, isAdapterFulfilled } from "@/lib/pricing-display";
 import type { Product } from "@/lib/types";
 import { Card, Monogram, Tag } from "@/components/ui";
@@ -24,6 +24,7 @@ function DeliveryTag({ p }: { p: Product }) {
 export default function ProductTile({ product: p }: { product: Product }) {
   const t = useTranslations("common");
   const locale = useLocale();
+  const { formatBrowseMoney } = useMoney();
   const mp = effectiveMinPrice(p);
   const variantCount = (p.variants ?? []).length;
 
@@ -49,7 +50,7 @@ export default function ProductTile({ product: p }: { product: Product }) {
           <div className="min-w-0">
             <div className="text-[9.5px] uppercase tracking-wide text-faint font-medium">{t("from")}</div>
             <div className="font-mono text-[14.5px] font-semibold tabular text-iris-hi leading-tight">
-              {mp > 0 ? vnd(mp, locale) : t("quote")}
+              {mp > 0 ? formatBrowseMoney(mp, { locale }) : t("quote")}
             </div>
           </div>
           <span className="shrink-0"><DeliveryTag p={p} /></span>

@@ -4,7 +4,8 @@ import { Link } from "@/i18n/navigation";
 import { useLocale, useTranslations } from "next-intl";
 import { useEffect, useState } from "react";
 import { useQueryClient } from "@tanstack/react-query";
-import { api, vnd } from "@/lib/api";
+import { api } from "@/lib/api";
+import { useMoney } from "@/lib/money";
 import { queryKeys } from "@/lib/query-keys";
 import { orderStatus } from "@/lib/order-status";
 import type { Order } from "@/lib/types";
@@ -89,8 +90,14 @@ export default function OrderResult({ order: initial, onRebuy }: { order: Order;
   const t = useTranslations("products");
   const tc = useTranslations("common");
   const locale = useLocale();
+  const { formatOrderHistoryMoney } = useMoney();
   const viaProvider = initial.product_id != null;
   const order = useOrderPolling(initial, viaProvider);
+  const amountText = formatOrderHistoryMoney(
+    order.total_amount,
+    order.display_fx_rate_snapshot,
+    { locale },
+  ).text;
 
   const pending = order.status === "pending";
   const failed = order.status === "cancelled" || order.status === "refunded";
@@ -181,7 +188,7 @@ export default function OrderResult({ order: initial, onRebuy }: { order: Order;
             </span>
             <div>
               <p className="text-[13px] font-semibold text-good">
-                {t("refundedAmount", { amount: vnd(order.total_amount, locale) })}
+                {t("refundedAmount", { amount: amountText })}
               </p>
               <p className="mt-0.5 text-[11.5px] text-muted">{t("refundedHint")}</p>
             </div>

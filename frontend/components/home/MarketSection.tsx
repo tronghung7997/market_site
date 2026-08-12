@@ -8,7 +8,7 @@
 import { Link } from "@/i18n/navigation";
 import { useState } from "react";
 import { useLocale, useTranslations } from "next-intl";
-import { vnd } from "@/lib/api";
+import { useMoney } from "@/lib/money";
 import { cn } from "@/lib/cn";
 import type { Category, Product } from "@/lib/types";
 import { Button, Card, Monogram, Spinner, Tag } from "@/components/ui";
@@ -52,6 +52,7 @@ export function MarketSection({ products, flatCats, active, activeIds, setActive
 }) {
   const t = useTranslations("home");
   const locale = useLocale();
+  const { formatBrowseMoney } = useMoney();
   const [q, setQ] = useState("");
   const [inStockOnly, setInStockOnly] = useState(false);
   const [view, setView] = useState<"table" | "grid">("table");
@@ -142,7 +143,7 @@ export function MarketSection({ products, flatCats, active, activeIds, setActive
                     <td className="px-3 py-3 text-[13px] text-muted hidden sm:table-cell">{catName(p.category_id)}</td>
                     <td className="px-3 py-3">{inStock ? <Tag tone="good">● {stock(p)}</Tag> : <Tag tone="warn">{t("onRequest")}</Tag>}</td>
                     <td className="px-3 py-3 text-[13px] text-muted hidden md:table-cell">{t("days", { count: p.escrow_days })}</td>
-                    <td className="px-3 py-3 text-right font-mono text-[13.5px] font-semibold tabular">{vnd(minPrice(p), locale)}</td>
+                    <td className="px-3 py-3 text-right font-mono text-[13.5px] font-semibold tabular">{formatBrowseMoney(minPrice(p), { locale })}</td>
                     <td className="px-5 py-3 text-right">
                       <Link href={`/products/${p.id}`}><Button size="sm" variant="secondary">{t("view")}</Button></Link>
                     </td>
@@ -167,7 +168,7 @@ export function MarketSection({ products, flatCats, active, activeIds, setActive
                       <div className="flex items-start justify-between gap-1 sm:gap-2">
                         <div className="font-medium text-[12.5px] sm:text-[14px] truncate">{p.title}</div>
                       </div>
-                      <div className="font-mono text-[12px] sm:text-[13.5px] font-semibold tabular">{vnd(minPrice(p), locale)}</div>
+                      <div className="font-mono text-[12px] sm:text-[13.5px] font-semibold tabular">{formatBrowseMoney(minPrice(p), { locale })}</div>
                       <div className="text-[11px] sm:text-[12px] text-faint mt-0.5 truncate">{catName(p.category_id)}</div>
                       <div className="mt-2 sm:mt-3 flex items-center gap-1.5 sm:gap-2 flex-wrap">
                         {inStock ? <Tag tone="good">● {t("inStock", { count: stock(p) })}</Tag> : <Tag tone="warn">{hasPackages ? t("outOfStock") : t("onRequest")}</Tag>}

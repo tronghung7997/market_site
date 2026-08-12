@@ -5,7 +5,7 @@
 
 import { Link } from "@/i18n/navigation";
 import { useLocale, useTranslations } from "next-intl";
-import { vnd } from "@/lib/api";
+import { useMoney } from "@/lib/money";
 import { cn } from "@/lib/cn";
 import type { Product } from "@/lib/types";
 import { Card, Monogram } from "@/components/ui";
@@ -19,6 +19,7 @@ export function FeaturedSection({ featured, catName, minPrice }: {
 }) {
   const t = useTranslations("home");
   const locale = useLocale();
+  const { formatBrowseMoney } = useMoney();
   if (featured.length === 0) return null;
   return (
     <section className="border-y border-line bg-surface">
@@ -63,7 +64,7 @@ export function FeaturedSection({ featured, catName, minPrice }: {
                           </span>
                           <span className="text-muted truncate flex-1">{v.name}</span>
                           <span className="font-mono text-[11px] sm:text-[12px] font-medium tabular shrink-0 text-fg">
-                            {v.price > 0 ? vnd(v.price, locale) : t("quote")}
+                            {v.price > 0 ? formatBrowseMoney(v.price, { locale }) : t("quote")}
                           </span>
                         </div>
                       ))}
@@ -78,7 +79,7 @@ export function FeaturedSection({ featured, catName, minPrice }: {
                     <div>
                       <div className="text-[9.5px] sm:text-[10.5px] uppercase tracking-wide text-faint font-medium">{t("onlyFrom")}</div>
                       <div className="font-mono text-[15px] sm:text-[20px] font-semibold tabular leading-tight text-iris-hi">
-                        {mp > 0 ? vnd(mp, locale) : t("quote")}
+                        {mp > 0 ? formatBrowseMoney(mp, { locale }) : t("quote")}
                       </div>
                     </div>
                     <span className="inline-flex items-center gap-1 sm:gap-1.5 text-[11px] sm:text-[12.5px] font-medium text-iris group-hover:text-iris-hi transition-colors">

@@ -3,8 +3,9 @@
 import { useCallback, useEffect, useRef, useState } from "react";
 import { useRouter } from "next/navigation";
 import { useLocale, useTranslations } from "next-intl";
-import { api, vnd, ApiError } from "@/lib/api";
+import { api, ApiError } from "@/lib/api";
 import { useAuth } from "@/lib/auth";
+import { useMoney } from "@/lib/money";
 import type { CalculateResult, Order, PricingField, PricingOptions, ProductDetail } from "@/lib/types";
 import { Banner, Button, Card, Input, Select, Tag, Textarea } from "@/components/ui";
 import { Info, Shield } from "@/components/Icons";
@@ -34,6 +35,7 @@ export default function DynamicOrderForm({ productId, product, onOrderCreated }:
   const { account } = useAuth();
   const locale = useLocale();
   const t = useTranslations("products");
+  const { formatCheckoutMoney } = useMoney();
 
   const [options, setOptions] = useState<PricingOptions | null>(null);
   const [loadingOptions, setLoadingOptions] = useState(true);
@@ -285,11 +287,11 @@ export default function DynamicOrderForm({ productId, product, onOrderCreated }:
                 <div>
                   {hasDiscount && calc.original_amount != null && (
                     <div className="flex items-center gap-2 justify-end mb-0.5">
-                      <span className="text-[13px] text-faint line-through">{vnd(calc.original_amount)}</span>
+                      <span className="text-[13px] text-faint line-through">{formatCheckoutMoney(calc.original_amount, { locale })}</span>
                       <Tag tone="good">-{Math.round((calc.discount_pct ?? 0) * 100)}%</Tag>
                     </div>
                   )}
-                  <span className="font-mono text-[22px] font-bold tabular text-iris-hi">{vnd(displayAmount)}</span>
+                  <span className="font-mono text-[22px] font-bold tabular text-iris-hi">{formatCheckoutMoney(displayAmount, { locale })}</span>
                 </div>
               ) : (
                 <span className="text-[13px] text-faint">—</span>
@@ -304,7 +306,7 @@ export default function DynamicOrderForm({ productId, product, onOrderCreated }:
             {placing ? t("processing")
               : !account ? t("loginToBuy")
               : !options.ready ? t("cannotOrder")
-              : isAutoDelivered && calc ? t("buyOneProxy", { amount: vnd(displayAmount) })
+              : isAutoDelivered && calc ? t("buyOneProxy", { amount: formatCheckoutMoney(displayAmount, { locale }) })
               : t("placeOrder")}
           </Button>
 
@@ -399,7 +401,7 @@ export default function DynamicOrderForm({ productId, product, onOrderCreated }:
               {hasDiscount && calc.original_amount != null && (
                 <div className="flex justify-between">
                   <span className="text-muted">{locale === "en" ? "Original price" : "Giá gốc"}</span>
-                  <span className="text-faint line-through">{vnd(calc.original_amount)}</span>
+                  <span className="text-faint line-through">{formatCheckoutMoney(calc.original_amount, { locale })}</span>
                 </div>
               )}
               {hasDiscount && (
@@ -410,7 +412,7 @@ export default function DynamicOrderForm({ productId, product, onOrderCreated }:
               )}
               <div className="border-t border-line pt-3 flex justify-between items-end">
                 <span className="text-muted">{t("total")}</span>
-                <span className="font-mono text-[18px] font-bold tabular text-iris-hi">{vnd(displayAmount)}</span>
+                <span className="font-mono text-[18px] font-bold tabular text-iris-hi">{formatCheckoutMoney(displayAmount, { locale })}</span>
               </div>
               <div className="flex items-start gap-2 px-3 py-2 rounded-md bg-good/5 border border-good/15 text-[12px] text-muted">
                 <Shield size={13} className="text-good mt-0.5 shrink-0" />

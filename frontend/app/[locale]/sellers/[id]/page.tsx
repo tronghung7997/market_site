@@ -4,7 +4,8 @@ import { Link } from "@/i18n/navigation";
 import { useParams } from "next/navigation";
 import { useEffect, useMemo, useState, type ReactNode } from "react";
 import { useLocale, useTranslations } from "next-intl";
-import { api, vnd } from "@/lib/api";
+import { api } from "@/lib/api";
+import { useMoney } from "@/lib/money";
 import { effectiveMinPrice, isAdapterFulfilled } from "@/lib/pricing-display";
 import { flattenCategories } from "@/lib/categories";
 import { formatDate } from "@/lib/utils";
@@ -52,6 +53,7 @@ const TIER_KEYS = ["new", "verified", "trusted", "enterprise"] as const;
 export default function SellerProfilePage() {
   const t = useTranslations("sellers");
   const locale = useLocale();
+  const { formatBrowseMoney } = useMoney();
   const numberLocale = locale === "vi" ? "vi-VN" : "en-US";
   const { id } = useParams<{ id: string }>();
   const [seller, setSeller] = useState<SellerProfile | null>(null);
@@ -307,7 +309,7 @@ export default function SellerProfilePage() {
                           <div>
                             <div className="text-[10px] uppercase tracking-wide text-faint font-medium">{t("fromPrice")}</div>
                             <div className="font-mono text-[17px] font-semibold tabular leading-tight text-iris-hi">
-                              {price > 0 ? vnd(price) : t("quote")}
+                              {price > 0 ? formatBrowseMoney(price, { locale }) : t("quote")}
                             </div>
                           </div>
                           <Tag tone="neutral">

@@ -1,7 +1,7 @@
 "use client";
 
 import { useLocale, useTranslations } from "next-intl";
-import { vnd } from "@/lib/api";
+import { useMoney } from "@/lib/money";
 import { cn } from "@/lib/cn";
 import type { Transaction } from "@/lib/types";
 import { Card, Tag } from "@/components/ui";
@@ -23,6 +23,7 @@ const HOLD_TONE: Record<string, Tone> = {
 export default function TransactionList({ txs }: { txs: Transaction[] }) {
   const t = useTranslations("wallet");
   const locale = useLocale();
+  const { formatBrowseMoney } = useMoney();
   const loc = locale === "vi" ? "vi-VN" : "en-US";
 
   function describeTransaction(tx: Transaction): { label: string; tone: Tone } {
@@ -51,13 +52,13 @@ export default function TransactionList({ txs }: { txs: Transaction[] }) {
           <Card className="p-3.5">
             <div className="text-[11px] text-faint">{t("txIn")}</div>
             <div className="font-mono text-[16px] font-semibold text-good tabular mt-0.5">
-              +{vnd(txs.filter((x) => x.direction === "in").reduce((s, x) => s + x.amount, 0), locale)}
+              +{formatBrowseMoney(txs.filter((x) => x.direction === "in").reduce((s, x) => s + x.amount, 0), { locale })}
             </div>
           </Card>
           <Card className="p-3.5">
             <div className="text-[11px] text-faint">{t("txOut")}</div>
             <div className="font-mono text-[16px] font-semibold text-bad tabular mt-0.5">
-              −{vnd(txs.filter((x) => x.direction === "out").reduce((s, x) => s + x.amount, 0), locale)}
+              −{formatBrowseMoney(txs.filter((x) => x.direction === "out").reduce((s, x) => s + x.amount, 0), { locale })}
             </div>
           </Card>
         </div>
@@ -102,7 +103,7 @@ export default function TransactionList({ txs }: { txs: Transaction[] }) {
                     "font-mono text-[14px] font-semibold tabular shrink-0 w-[112px] text-right",
                     tx.direction === "in" ? "text-good" : tx.direction === "out" ? "text-bad" : "text-faint",
                   )}>
-                    {tx.direction === "neutral" ? "" : sign}{vnd(tx.amount, locale)}
+                    {tx.direction === "neutral" ? "" : sign}{formatBrowseMoney(tx.amount, { locale })}
                   </span>
                 </div>
               );

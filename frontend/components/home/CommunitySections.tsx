@@ -4,8 +4,8 @@
  *  hàng gần đây (chỉ buyer đã đăng nhập). */
 
 import { Link } from "@/i18n/navigation";
-import { useTranslations } from "next-intl";
-import { vnd } from "@/lib/api";
+import { useLocale, useTranslations } from "next-intl";
+import { useMoney } from "@/lib/money";
 import { orderStatus } from "@/lib/order-status";
 import type { Order, SellerSummary } from "@/lib/types";
 import { Card, Tag } from "@/components/ui";
@@ -50,6 +50,8 @@ export function TrustedSellers({ sellers }: { sellers: SellerSummary[] }) {
 
 export function RecentOrders({ orders }: { orders: Order[] }) {
   const t = useTranslations("home");
+  const locale = useLocale();
+  const { formatOrderHistoryMoney } = useMoney();
   if (orders.length === 0) return null;
   return (
     <section className="border-y border-line bg-surface">
@@ -58,6 +60,11 @@ export function RecentOrders({ orders }: { orders: Order[] }) {
         <div className="grid grid-cols-2 gap-2.5 sm:gap-3 lg:grid-cols-5">
           {orders.map((o) => {
             const st = orderStatus(o.status);
+            const money = formatOrderHistoryMoney(
+              o.total_amount,
+              o.display_fx_rate_snapshot,
+              { locale },
+            );
             return (
               <Link key={o.id} href="/orders">
                 <Card interactive className="p-3 sm:p-4 h-full">
@@ -69,7 +76,7 @@ export function RecentOrders({ orders }: { orders: Order[] }) {
                     {o.product_title ?? o.variant_name ?? t("orderFallback", { id: o.id })}
                   </div>
                   <div className="mt-1.5 sm:mt-2 font-mono text-[13px] sm:text-[14px] font-semibold tabular">
-                    {vnd(o.total_amount)}
+                    {money.text}
                   </div>
                 </Card>
               </Link>

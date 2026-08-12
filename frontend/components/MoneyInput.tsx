@@ -10,10 +10,15 @@
  *   - số mono tabular, thẳng cột với mọi số tiền khác trên site
  * API giữ nguyên thói quen cũ (state string + parseInt) để chuyển đổi rẻ:
  * `value` là CHUỖI SỐ THÔ ("100000"), onValueChange trả về chuỗi số thô.
+ *
+ * Display currency: input luôn là VND (ledger / payment rail). Khi user chọn
+ * USD chỉ thêm hint quy đổi — không cho nhập decimal/USD (D6).
  */
 
 import { useId } from "react";
+import { useLocale, useTranslations } from "next-intl";
 import { cn } from "@/lib/cn";
+import { useMoney } from "@/lib/money";
 
 interface MoneyInputProps {
   value: string;
@@ -37,6 +42,12 @@ export function MoneyInput({
   value, onValueChange, placeholder, disabled, label, hint, invalid, className, autoFocus,
 }: MoneyInputProps) {
   const id = useId();
+  const locale = useLocale();
+  const t = useTranslations("currency");
+  const { currency, formatBrowseMoney, fxRate } = useMoney();
+  const amount = parseInt(value || "0", 10) || 0;
+  const showUsdHint = currency === "USD" && amount > 0 && fxRate != null;
+
   return (
     <div className={cn("min-w-0", className)}>
       {label && (
@@ -55,6 +66,7 @@ export function MoneyInput({
           placeholder={placeholder ?? "0"}
           disabled={disabled}
           aria-invalid={invalid || undefined}
+          aria-describedby={showUsdHint ? `${id}-usd-hint` : undefined}
           className={cn(
             "h-10 w-full rounded-lg bg-surface border border-line pl-3 pr-9 text-sm text-fg",
             "font-mono tabular-nums text-right",
@@ -68,6 +80,12 @@ export function MoneyInput({
           ₫
         </span>
       </div>
+      {showUsdHint && (
+        <p id={`${id}-usd-hint`} className="mt-1 text-[11px] text-muted tabular-nums">
+          {formatBrowseMoney(amount, { locale })}
+          <span className="text-faint"> · {t("inputHint")}</span>
+        </p>
+      )}
       {hint && <p className="mt-1 text-[11px] text-faint">{hint}</p>}
     </div>
   );

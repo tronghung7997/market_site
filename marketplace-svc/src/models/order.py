@@ -43,6 +43,9 @@ class Order(Base):
     provider_id: Mapped[int | None] = mapped_column(ForeignKey("providers.id"), nullable=True)
     quantity: Mapped[int] = mapped_column(Integer, nullable=False)
     total_amount: Mapped[int] = mapped_column(Integer, nullable=False)
+    # Display-only: VND per 1 USD at order creation. NULL for pre-rollout
+    # orders → FE uses immutable legacy rate 26_000 (not current rate).
+    display_fx_rate_snapshot: Mapped[int | None] = mapped_column(Integer, nullable=True)
     status: Mapped[OrderStatus] = mapped_column(Enum(OrderStatus), default=OrderStatus.pending)
     escrow_expires_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True), nullable=True)
     delivered_data: Mapped[str | None] = mapped_column(Text, nullable=True)

@@ -41,6 +41,17 @@ const nextConfig = {
   env: {
     BUILT_API_URL: apiTarget,
   },
+  // Edge redirect so old bookmarks keep working even if a page route is stale
+  // in the dev server (App Router page redirect alone was returning 200 empty).
+  async redirects() {
+    return [
+      {
+        source: "/:locale(en|vi)/admin/money",
+        destination: "/:locale/admin/display-settings",
+        permanent: false,
+      },
+    ];
+  },
   async headers() {
     const headers = [
       { key: "Content-Security-Policy", value: contentSecurityPolicy },

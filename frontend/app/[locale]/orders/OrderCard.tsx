@@ -2,7 +2,7 @@
 
 import { useLocale, useTranslations } from "next-intl";
 import { useState } from "react";
-import { vnd } from "@/lib/api";
+import { useMoney } from "@/lib/money";
 import { orderStatus } from "@/lib/order-status";
 import { formatDate, formatDateTime } from "@/lib/utils";
 import type { Order } from "@/lib/types";
@@ -34,12 +34,22 @@ export default function OrderCard({
 }) {
   const t = useTranslations("orders");
   const tc = useTranslations("common");
+  const tcur = useTranslations("currency");
   const locale = useLocale();
+  const { formatOrderHistoryMoney, currency } = useMoney();
   const st = orderStatus(o.status, locale);
   const [dashboardOpen, setDashboardOpen] = useState(false);
+  const [paymentOpen, setPaymentOpen] = useState(false);
+  const [proxyOpen, setProxyOpen] = useState(false);
   const [askConfirm, setAskConfirm] = useState(false);
   const delivered = o.status === "delivered" || o.status === "completed";
   const deliveredData = locale === "en" ? o.delivered_data?.replace(/^Gọi qua:/gm, "Call URL:") : o.delivered_data;
+  const money = formatOrderHistoryMoney(o.total_amount, o.display_fx_rate_snapshot, { locale });
+  // Adapter-fulfilled orders only (stock/manual use variant_id). Proxy panel
+  // mounts lazily so non-proxy adapters never 404 on list load.
+  const mayHaveProxy = delivered && o.product_id != null;
+  const rateForDetails = money.rateUsed;
+  const showUsdRateDetail = currency === "USD" && rateForDetails != null;
 
   return (
     <Card className="p-0 overflow-hidden">
@@ -48,7 +58,7 @@ export default function OrderCard({
         <span className="text-[11.5px] text-faint">{formatDateTime(o.created_at, locale)}</span>
         <div className="ml-auto flex items-center gap-2.5">
           <Tag tone={st.tone}>{st.label}</Tag>
-          <span className="font-mono text-[14px] font-semibold tabular">{vnd(o.total_amount, locale)}</span>
+          <span className="font-mono text-[14px] font-semibold tabular">{money.text}</span>
         </div>
       </div>
 
@@ -88,19 +98,47 @@ export default function OrderCard({
           </div>
         )}
 
-        {delivered && (
-          <OrderProxyPanel
-            orderId={o.id}
-            deliveredData={o.delivered_data}
-            onPlate={onPlate}
-            onDelivered={onDelivered}
-          />
+        {showUsdRateDetail && (
+          <Disclosure
+            label={t("paymentDetails")}
+            labelOpen={t("paymentDetailsHide")}
+            open={paymentOpen}
+            onToggle={() => setPaymentOpen((v) => !v)}
+          >
+            <p className="mt-2 text-[12.5px] text-muted leading-snug">
+              {money.usedLegacyRate
+                ? tcur("paymentDetailsLegacyRate", {
+                    rate: rateForDetails!.toLocaleString(locale === "vi" ? "vi-VN" : "en-US"),
+                  })
+                : tcur("paymentDetailsPurchaseRate", {
+                    rate: rateForDetails!.toLocaleString(locale === "vi" ? "vi-VN" : "en-US"),
+                  })}
+            </p>
+          </Disclosure>
+        )}
+
+        {mayHaveProxy && (
+          <Disclosure
+            label={t("showProxy")}
+            labelOpen={t("hideProxy")}
+            open={proxyOpen}
+            onToggle={() => setProxyOpen((v) => !v)}
+          >
+            {proxyOpen && (
+              <OrderProxyPanel
+                orderId={o.id}
+                deliveredData={o.delivered_data}
+                onPlate={onPlate}
+                onDelivered={onDelivered}
+              />
+            )}
+          </Disclosure>
         )}
 
         {o.status === "delivered" && (
           askConfirm ? (
             <div className="mt-3.5 rounded-lg border border-warn/30 bg-warn-soft p-3">
-              <p className="text-[13px] font-semibold">{t("confirmReleaseTitle", { amount: vnd(o.total_amount, locale) })}</p>
+              <p className="text-[13px] font-semibold">{t("confirmReleaseTitle", { amount: money.text })}</p>
               <p className="mt-0.5 text-[11.5px] text-muted">{t("confirmReleaseBody")}</p>
               <div className="flex gap-2 mt-2.5">
                 <Button size="sm" onClick={() => onConfirm(o.id)} disabled={confirming}>

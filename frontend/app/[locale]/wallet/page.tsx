@@ -4,8 +4,9 @@ import { useRouter } from "@/i18n/navigation";
 import { useLocale, useTranslations } from "next-intl";
 import { useEffect, useState } from "react";
 import { useQueryClient } from "@tanstack/react-query";
-import { api, vnd } from "@/lib/api";
+import { api } from "@/lib/api";
 import { useAuth } from "@/lib/auth";
+import { useMoney } from "@/lib/money";
 import { queryKeys } from "@/lib/query-keys";
 import { useWalletBalance, useWalletDeposits, useWalletTransactions, useWalletWithdrawals } from "@/hooks/use-wallet";
 import { Button, Card, Spinner, Tag } from "@/components/ui";
@@ -18,6 +19,7 @@ import { WithdrawCard, WithdrawHistory } from "./WithdrawCard";
 export default function WalletPage() {
   const t = useTranslations("wallet");
   const locale = useLocale();
+  const { formatBrowseMoney } = useMoney();
   const { account, loading: authLoading } = useAuth();
   const router = useRouter();
   const queryClient = useQueryClient();
@@ -70,11 +72,13 @@ export default function WalletPage() {
                 <p className="mt-2 text-[12px] text-bad">{t("balanceLoadError")}</p>
               </div>
             ) : (
-              <div className="font-mono text-[36px] font-semibold tabular leading-none">{vnd(wallet?.available_balance ?? 0, locale)}</div>
+              <div className="font-mono text-[36px] font-semibold tabular leading-none">
+                {formatBrowseMoney(wallet?.available_balance ?? 0, { locale })}
+              </div>
             )}
             {(wallet?.locked_balance ?? 0) > 0 && (
               <p className="mt-2 text-[12px] text-faint">
-                {t("locked", { amount: vnd(wallet!.locked_balance, locale) })}
+                {t("locked", { amount: formatBrowseMoney(wallet!.locked_balance, { locale }) })}
               </p>
             )}
           </Card>
@@ -94,6 +98,7 @@ export default function WalletPage() {
 function DemoTopup({ onChanged }: { onChanged: () => Promise<void> }) {
   const t = useTranslations("wallet");
   const locale = useLocale();
+  const { formatLedgerMoney } = useMoney();
   const [amount, setAmount] = useState("");
   const [loading, setLoading] = useState(false);
   const [msg, setMsg] = useState("");
@@ -108,7 +113,7 @@ function DemoTopup({ onChanged }: { onChanged: () => Promise<void> }) {
     try {
       await api.demoTopup(value);
       setAmount("");
-      setMsg(t("demoSuccess", { amount: vnd(value, locale) }));
+      setMsg(t("demoSuccess", { amount: formatLedgerMoney(value, locale) }));
       await onChanged();
       setTimeout(() => setMsg(""), 3000);
     } catch (e) {

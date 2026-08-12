@@ -143,6 +143,8 @@ export interface Order {
   product_id: number | null;
   quantity: number;
   total_amount: number;
+  /** VND per 1 USD at purchase. null = pre-rollout → FE uses legacy 26_000. */
+  display_fx_rate_snapshot?: number | null;
   status: string;
   escrow_expires_at: string | null;
   delivered_data: string | null;
@@ -155,6 +157,33 @@ export interface Order {
   has_review?: boolean;
   has_dispute?: boolean;
 }
+
+export interface MoneyConfigPublic {
+  ledger_currency: "VND";
+  display_fx_rate: number | null;
+  display_currency_default: "VND" | "USD";
+  allow_user_toggle: boolean;
+  allow_locale_toggle: boolean;
+}
+
+export interface MoneyConfigAdmin extends MoneyConfigPublic {
+  rate_min: number;
+  rate_max: number;
+  env_rate: number | null;
+  env_currency_default: "VND" | "USD";
+  env_allow_user_toggle: boolean;
+  env_allow_locale_toggle: boolean;
+  updated_at: string | null;
+  updated_by_id: number | null;
+  source: "db" | "env" | "none";
+}
+
+export type MoneyConfigUpdate = {
+  display_fx_rate?: number;
+  display_currency_default?: "VND" | "USD";
+  allow_user_toggle?: boolean;
+  allow_locale_toggle?: boolean;
+};
 
 export interface TimelineEvent {
   event: string;

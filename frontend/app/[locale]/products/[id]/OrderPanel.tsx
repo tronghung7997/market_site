@@ -3,13 +3,13 @@
 import { Link, useRouter } from "@/i18n/navigation";
 import { useLocale, useTranslations } from "next-intl";
 import type { ReactNode } from "react";
-import { vnd } from "@/lib/api";
+import { useMoney } from "@/lib/money";
 import { useAuth } from "@/lib/auth";
 import { cn } from "@/lib/cn";
 import type { ProductDetail } from "@/lib/types";
 import { Button, Card, Tag } from "@/components/ui";
 import { Bolt, Clock, MessageCircle, Shield } from "@/components/Icons";
-import { ctaState, outOfStock, panelMode } from "./purchase";
+import { ctaState, maxQtyFor, outOfStock, panelMode } from "./purchase";
 import type { PurchaseState } from "./usePurchase";
 import OrderResult from "./OrderResult";
 
@@ -34,12 +34,14 @@ export default function OrderPanel({ product, purchase }: {
   const t = useTranslations("products");
   const tc = useTranslations("common");
   const locale = useLocale();
+  const { formatCheckoutMoney } = useMoney();
   const router = useRouter();
   const { account } = useAuth();
   const { selected, qty, total, order, placing, placeError, showConfirm } = purchase;
 
   const instant = selected?.delivery_mode === "instant";
   const contact = panelMode(selected) === "contact";
+  const maxQty = maxQtyFor(selected);
   const cta = ctaState({ loggedIn: !!account, placing, selected });
   const showOosHint = !!account && !!selected && outOfStock(selected);
 
@@ -98,7 +100,7 @@ export default function OrderPanel({ product, purchase }: {
                         </span>
                       </span>
                       <span className="font-mono text-[13px] font-semibold tabular shrink-0">
-                        {v.price > 0 ? vnd(v.price, locale) : t("contact")}
+                        {v.price > 0 ? formatCheckoutMoney(v.price, { locale }) : t("contact")}
                       </span>
                     </button>
                   );
@@ -125,17 +127,19 @@ export default function OrderPanel({ product, purchase }: {
                     <button
                       aria-label={t("decreaseQty")}
                       onClick={() => purchase.setQty(qty - 1)}
-                      className="h-9 w-9 grid place-items-center text-muted hover:text-fg hover:bg-raised transition-colors"
+                      disabled={qty <= 1}
+                      className="h-9 w-9 grid place-items-center text-muted hover:text-fg hover:bg-raised transition-colors disabled:cursor-not-allowed disabled:opacity-40"
                     >−</button>
                     <input
-                      type="number" min={1} value={qty} aria-label={t("quantity")}
+                      type="number" min={1} max={maxQty} value={qty} aria-label={t("quantity")}
                       onChange={(e) => purchase.setQty(Number(e.target.value) || 1)}
                       className="h-9 w-12 text-center font-mono text-[13px] font-medium border-x border-line bg-surface [appearance:textfield] [&::-webkit-inner-spin-button]:appearance-none [&::-webkit-outer-spin-button]:appearance-none"
                     />
                     <button
                       aria-label={t("increaseQty")}
                       onClick={() => purchase.setQty(qty + 1)}
-                      className="h-9 w-9 grid place-items-center text-muted hover:text-fg hover:bg-raised transition-colors"
+                      disabled={qty >= maxQty}
+                      className="h-9 w-9 grid place-items-center text-muted hover:text-fg hover:bg-raised transition-colors disabled:cursor-not-allowed disabled:opacity-40"
                     >+</button>
                   </div>
                 </div>
@@ -144,10 +148,14 @@ export default function OrderPanel({ product, purchase }: {
                   <div>
                     <div className="text-[12.5px] text-muted">{t("total")}</div>
                     {qty > 1 && selected && (
-                      <div className="font-mono tabular text-[11px] text-faint mt-1">{qty} × {vnd(selected.price, locale)}</div>
+                      <div className="text-[11px] text-faint mt-1">
+                        {t("checkoutUnitsHint", { count: qty })}
+                      </div>
                     )}
                   </div>
-                  <span className="font-mono text-[24px] leading-none font-bold tabular text-iris-hi">{vnd(total, locale)}</span>
+                  <span className="font-mono text-[24px] leading-none font-bold tabular text-iris-hi">
+                    {formatCheckoutMoney(total, { locale })}
+                  </span>
                 </div>
 
                 {placeError && <p className="text-bad text-[12.5px]">{placeError}</p>}
@@ -197,7 +205,7 @@ export default function OrderPanel({ product, purchase }: {
               </div>
               <div className="flex justify-between">
                 <span className="text-muted">{t("confirmUnitPrice")}</span>
-                <span className="font-medium">{vnd(selected.price, locale)}</span>
+                <span className="font-medium">{formatCheckoutMoney(selected.price, { locale })}</span>
               </div>
               <div className="flex justify-between">
                 <span className="text-muted">{t("confirmDelivery")}</span>
@@ -207,7 +215,9 @@ export default function OrderPanel({ product, purchase }: {
               </div>
               <div className="border-t border-line pt-3 flex justify-between items-end">
                 <span className="text-muted">{t("total")}</span>
-                <span className="font-mono text-[18px] font-bold tabular text-iris-hi">{vnd(total, locale)}</span>
+                <span className="font-mono text-[18px] font-bold tabular text-iris-hi">
+                  {formatCheckoutMoney(total, { locale })}
+                </span>
               </div>
               <div className="flex items-start gap-2 px-3 py-2 rounded-md bg-good/5 border border-good/15 text-[12px] text-muted">
                 <Shield size={13} className="text-good mt-0.5 shrink-0" />

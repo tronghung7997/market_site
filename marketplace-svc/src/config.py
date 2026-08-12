@@ -105,6 +105,18 @@ class Settings(BaseSettings):
     resolved_alert_retention_days: int = 90
     # Optional Sentry DSN (WP7). Empty = disabled.
     sentry_dsn: str = ""
+
+    # --- Display FX (USD show / VND ledger) ---
+    # VND per 1 USD. Seeds display_money_config on first boot only; never
+    # overwrites a DB rate on restart. Admin PATCH is the production source.
+    display_fx_rate: int = 25_500
+    display_fx_rate_min: int = 10_000
+    display_fx_rate_max: int = 50_000
+    display_currency_default: str = "USD"
+    display_allow_user_toggle: bool = True
+    # Language switcher (EN|VI) in TopNav — off by default until product enables it.
+    display_allow_locale_toggle: bool = False
+
     @property
     def cors_origins(self) -> list[str]:
         configured = [origin.strip().rstrip("/") for origin in self.cors_allowed_origins.split(",")]

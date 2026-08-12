@@ -25,6 +25,7 @@ from src.logging import current_request_id
 from src.sellers.tiers import escrow_days as tier_escrow_days, platform_fee_percent
 from src.usage.service import create_balance_for_order, get_usage_summary
 from src.wallet.service import deduct_credit, refund_escrow, release_escrow
+from src.money.service import get_effective_rate
 
 logger = structlog.get_logger()
 
@@ -54,12 +55,14 @@ async def create_order(buyer_id: int, variant_id: int, quantity: int, db: AsyncS
         raise HTTPException(status_code=400, detail="Không thể mua sản phẩm của chính mình")
 
     total = variant.price * quantity
+    fx_snapshot = await get_effective_rate(db)
 
     if variant.delivery_mode == DeliveryMode.instant:
         seller = await db.get(Account, product.seller_id)
         order = Order(
             buyer_id=buyer_id, seller_id=product.seller_id, variant_id=variant_id,
             quantity=quantity, total_amount=total, status=OrderStatus.delivered,
+            display_fx_rate_snapshot=fx_snapshot,
             escrow_expires_at=datetime.now(timezone.utc) + timedelta(
                 days=tier_escrow_days(seller.seller_tier if seller else "new", product.escrow_days)
             ),
@@ -82,6 +85,7 @@ async def create_order(buyer_id: int, variant_id: int, quantity: int, db: AsyncS
         order = Order(
             buyer_id=buyer_id, seller_id=product.seller_id, variant_id=variant_id,
             quantity=quantity, total_amount=total, status=OrderStatus.pending,
+            display_fx_rate_snapshot=fx_snapshot,
         )
         db.add(order)
         await db.flush()
@@ -247,6 +251,7 @@ async def create_order_with_adapter(
 
     q = await quote_product(product, user_config, db)
     total_amount = q.amount
+    fx_snapshot = await get_effective_rate(db)
 
     # Giới hạn quantity do adapter tự khai (AdapterSpec.max_quantity_per_order,
     # adapters/registry.py) — vd dproxy/topproxy bind đúng MỘT ProxyAllocation
@@ -279,6 +284,7 @@ async def create_order_with_adapter(
         total_amount=total_amount,
         status=OrderStatus.pending,
         user_config=user_config,
+        display_fx_rate_snapshot=fx_snapshot,
     )
     db.add(order)
     await db.flush()
@@ -511,6 +517,7 @@ async def _enrich_orders(orders: list[Order], db: AsyncSession) -> list[dict]:
             "variant_id": order.variant_id, "product_id": order.product_id,
             "quantity": order.quantity,
             "total_amount": order.total_amount, "status": order.status,
+            "display_fx_rate_snapshot": order.display_fx_rate_snapshot,
             "escrow_expires_at": order.escrow_expires_at, "delivered_data": order.delivered_data,
             "cancel_reason": order.cancel_reason,
             "created_at": order.created_at,

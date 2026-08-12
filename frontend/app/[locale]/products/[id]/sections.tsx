@@ -5,7 +5,7 @@
 import { Link } from "@/i18n/navigation";
 import { useLocale, useTranslations } from "next-intl";
 import type { ReactNode } from "react";
-import { vnd } from "@/lib/api";
+import { useMoney } from "@/lib/money";
 import { effectiveMinPrice } from "@/lib/pricing-display";
 import { serviceLabel } from "@/lib/labels";
 import { formatSpecKey as fmtKey } from "@/lib/utils";
@@ -164,6 +164,7 @@ export function RelatedProducts({ items }: { items: Product[] }) {
   const t = useTranslations("products");
   const tc = useTranslations("common");
   const locale = useLocale();
+  const { formatBrowseMoney } = useMoney();
   if (items.length === 0) return null;
   return (
     <section>
@@ -188,7 +189,7 @@ export function RelatedProducts({ items }: { items: Product[] }) {
                 <div className="mt-auto pt-3 flex items-baseline justify-between">
                   <span className="text-[10px] uppercase tracking-wide text-faint font-medium">{tc("from")}</span>
                   <span className="font-mono text-[14px] font-semibold tabular text-iris-hi">
-                    {rPrice > 0 ? vnd(rPrice, locale) : tc("quote")}
+                    {rPrice > 0 ? formatBrowseMoney(rPrice, { locale }) : tc("quote")}
                   </span>
                 </div>
               </Card>

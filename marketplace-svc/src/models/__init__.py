@@ -14,6 +14,7 @@ from src.models.service_task import ServiceTask, ServiceTaskStatus
 from src.models.usage import GatewayCallLog, OrderBalance, UsageRecord, UsageRecordStatus
 from src.models.payment import DepositIntent, DepositIntentStatus, PayosWebhookEvent
 from src.models.wallet import Transaction, TransactionType, Wallet, WithdrawRequest, WithdrawStatus
+from src.models.display_money_config import DisplayMoneyConfig
 
 __all__ = [
     "Account", "AccountRole", "ApplicationStatus", "SellerApplication",
@@ -31,4 +32,5 @@ __all__ = [
     "OrderBalance", "UsageRecord", "UsageRecordStatus", "GatewayCallLog",
     "Transaction", "TransactionType", "Wallet", "WithdrawRequest", "WithdrawStatus",
     "DepositIntent", "DepositIntentStatus", "PayosWebhookEvent",
+    "DisplayMoneyConfig",
 ]

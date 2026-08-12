@@ -91,7 +91,14 @@ export default function OrderProxyPanel({ orderId, deliveredData, onDelivered, o
   const hasPlate = Boolean(state?.gateway_host && state?.gateway_port);
   useEffect(() => { if (hasPlate) onPlate?.(orderId); }, [hasPlate, orderId, onPlate]);
 
-  if (!applicable || !state) return null;
+  // Not a proxy order — parent disclosure can stay open empty once; we avoid
+  // list-load 404 fan-out by only mounting this panel after user expand.
+  if (!applicable) return null;
+  if (!state) {
+    return (
+      <p className="mt-2 text-[12px] text-faint">{t("opening")}</p>
+    );
+  }
 
   const left = timeLeftLabel(state.expires_at, locale);
   const expiresLabel = new Date(state.expires_at).toLocaleString(locale === "vi" ? "vi-VN" : "en-US", {

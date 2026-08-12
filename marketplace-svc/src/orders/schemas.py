@@ -32,6 +32,8 @@ class OrderResponse(BaseModel):
     product_id: int | None = None
     quantity: int
     total_amount: int
+    # Display-only FX (VND per 1 USD) at purchase. null = pre-rollout order.
+    display_fx_rate_snapshot: int | None = None
     status: str
     escrow_expires_at: datetime | None
     delivered_data: str | None

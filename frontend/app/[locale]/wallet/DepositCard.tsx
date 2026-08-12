@@ -2,8 +2,9 @@
 
 import { useLocale, useTranslations } from "next-intl";
 import { useState } from "react";
-import { api, vnd } from "@/lib/api";
+import { api } from "@/lib/api";
 import { cn } from "@/lib/cn";
+import { useMoney } from "@/lib/money";
 import { timeLeftFine } from "@/lib/time";
 import type { DepositIntent } from "@/lib/types";
 import { Button, Card, Tag } from "@/components/ui";
@@ -19,15 +20,18 @@ export default function DepositCard({ deposits, onChanged }: {
   const t = useTranslations("wallet");
   const td = useTranslations("status.deposit");
   const locale = useLocale();
+  const { formatLedgerMoney } = useMoney();
   const [amount, setAmount] = useState("");
   const [loading, setLoading] = useState(false);
   const [msg, setMsg] = useState("");
   const [err, setErr] = useState("");
 
+  const amountVnd = parseInt(amount, 10) || 0;
+  const canCreate = amountVnd >= MIN_DEPOSIT;
+
   const handleCreate = async () => {
-    const value = parseInt(amount) || 0;
-    if (value < MIN_DEPOSIT) {
-      setErr(t("depositMinError", { amount: vnd(MIN_DEPOSIT, locale) }));
+    if (amountVnd < MIN_DEPOSIT) {
+      setErr(t("depositMinError", { amount: formatLedgerMoney(MIN_DEPOSIT, locale) }));
       return;
     }
     setLoading(true);
@@ -35,7 +39,7 @@ export default function DepositCard({ deposits, onChanged }: {
     setErr("");
     const payTab = window.open("about:blank", "_blank");
     try {
-      const intent = await api.createDeposit(value);
+      const intent = await api.createDeposit(amountVnd);
       setAmount("");
       setMsg(t("depositCreated"));
       if (intent.checkout_url && payTab) payTab.location.href = intent.checkout_url;
@@ -64,13 +68,28 @@ export default function DepositCard({ deposits, onChanged }: {
     <Card className="overflow-hidden">
       <div className="px-5 py-3 border-b border-line bg-raised/30 flex items-center justify-between">
         <h3 className="text-[13px] font-semibold">{t("depositTitle")}</h3>
-        <Tag tone="iris">{t("depositQr")}</Tag>
+        <Tag tone="iris">{t("depositRailTag")}</Tag>
       </div>
       <div className="p-5 space-y-4">
+        <div className="rounded-lg border border-line bg-raised/40 px-3.5 py-3 space-y-1.5">
+          <div className="flex items-baseline justify-between gap-3 text-[12.5px]">
+            <span className="text-muted">{t("depositPaymentMethod")}</span>
+            <span className="font-medium text-right">{t("depositPaymentMethodValue")}</span>
+          </div>
+          {canCreate && (
+            <div className="flex items-baseline justify-between gap-3 text-[12.5px] pt-1.5 border-t border-line/70">
+              <span className="text-muted">{t("depositYouWillTransfer")}</span>
+              <span className="font-mono font-semibold tabular text-fg">
+                {formatLedgerMoney(amountVnd, locale)}
+              </span>
+            </div>
+          )}
+        </div>
+
         <div>
           <div className="flex items-baseline justify-between mb-1.5">
             <span className="text-[11px] uppercase tracking-wider text-faint font-medium">{t("depositAmount")}</span>
-            <span className="text-[11px] text-faint">{t("depositMin", { amount: vnd(MIN_DEPOSIT, locale) })}</span>
+            <span className="text-[11px] text-faint">{t("depositMin", { amount: formatLedgerMoney(MIN_DEPOSIT, locale) })}</span>
           </div>
           <MoneyInput
             value={amount}
@@ -82,6 +101,7 @@ export default function DepositCard({ deposits, onChanged }: {
             {PRESET_AMOUNTS.map((preset) => (
               <button
                 key={preset}
+                type="button"
                 onClick={() => setAmount(String(preset))}
                 disabled={loading}
                 className={cn(
@@ -104,12 +124,12 @@ export default function DepositCard({ deposits, onChanged }: {
           size="md"
           block
           onClick={handleCreate}
-          disabled={loading || !amount || Number(amount) < MIN_DEPOSIT}
+          disabled={loading || !canCreate}
         >
           {loading
             ? t("depositCreating")
-            : amount
-              ? t("depositCreateAmount", { amount: vnd(Number(amount), locale) })
+            : canCreate
+              ? t("depositCreateAmount", { amount: formatLedgerMoney(amountVnd, locale) })
               : t("depositCreate")}
         </Button>
         <p className="text-[11.5px] text-faint leading-relaxed">{t("depositHint")}</p>
@@ -127,10 +147,13 @@ export default function DepositCard({ deposits, onChanged }: {
             <div key={d.id} className="rounded-lg border border-iris/30 bg-iris-soft/40 overflow-hidden">
               <div className="px-4 py-3 flex items-center justify-between">
                 <div>
-                  <div className="font-mono text-[17px] font-semibold tabular leading-tight">{vnd(d.amount, locale)}</div>
+                  <div className="font-mono text-[17px] font-semibold tabular leading-tight">
+                    {formatLedgerMoney(d.amount, locale)}
+                  </div>
                   <div className="text-[11px] text-muted mt-0.5">
                     {remaining ? t("depositWaiting", { time: remaining }) : t("depositExpiring")}
                   </div>
+                  <div className="text-[11px] text-faint mt-0.5">{t("depositPaymentMethodValue")}</div>
                 </div>
                 <span className="relative flex h-2.5 w-2.5">
                   <span className="animate-ping absolute inline-flex h-full w-full rounded-full bg-iris opacity-60" />
@@ -144,6 +167,7 @@ export default function DepositCard({ deposits, onChanged }: {
                   </a>
                 )}
                 <button
+                  type="button"
                   onClick={() => handleCancel(d.id)}
                   className="text-[12px] text-faint hover:text-bad transition-colors cursor-pointer px-2 h-8"
                 >
@@ -159,7 +183,7 @@ export default function DepositCard({ deposits, onChanged }: {
             <div className="text-[11px] uppercase tracking-wider text-faint font-medium">{t("depositRecent")}</div>
             {recent.map((d) => (
               <div key={d.id} className="flex items-center justify-between text-[12.5px]">
-                <span className="font-mono tabular">{vnd(d.paid_amount ?? d.amount, locale)}</span>
+                <span className="font-mono tabular">{formatLedgerMoney(d.paid_amount ?? d.amount, locale)}</span>
                 <Tag tone={d.status === "paid" ? "good" : d.status === "expired" ? "bad" : "neutral"}>
                   {td.has(d.status) ? td(d.status as "pending") : d.status}
                 </Tag>

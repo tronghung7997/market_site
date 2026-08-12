@@ -1,7 +1,7 @@
 "use client";
 
 import { useLocale, useTranslations } from "next-intl";
-import { vnd } from "@/lib/api";
+import { useMoney } from "@/lib/money";
 import { cn } from "@/lib/cn";
 import { Button } from "@/components/ui";
 
@@ -13,6 +13,7 @@ export default function MobileBuyBar({ visible, total, fallbackText, onGoToPanel
 }) {
   const t = useTranslations("products");
   const locale = useLocale();
+  const { formatCheckoutMoney } = useMoney();
   return (
     <div
       aria-hidden={!visible}
@@ -28,7 +29,7 @@ export default function MobileBuyBar({ visible, total, fallbackText, onGoToPanel
         {total != null ? (
           <>
             <div className="text-[10.5px] uppercase tracking-wider text-faint">{t("mobileTotal")}</div>
-            <div className="font-mono text-[16px] font-bold tabular leading-tight">{vnd(total, locale)}</div>
+            <div className="font-mono text-[16px] font-bold tabular leading-tight">{formatCheckoutMoney(total, { locale })}</div>
           </>
         ) : (
           <div className="text-[12.5px] text-muted truncate">{fallbackText}</div>

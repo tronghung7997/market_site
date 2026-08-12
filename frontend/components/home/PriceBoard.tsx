@@ -4,7 +4,7 @@
 
 import { Link } from "@/i18n/navigation";
 import { useLocale, useTranslations } from "next-intl";
-import { vnd } from "@/lib/api";
+import { useMoney } from "@/lib/money";
 import type { Product } from "@/lib/types";
 import { Card, Monogram, Spinner } from "@/components/ui";
 
@@ -14,6 +14,7 @@ export function PriceBoard({ products, catName, stock, minPrice, loading }: {
 }) {
   const t = useTranslations("home");
   const locale = useLocale();
+  const { formatBrowseMoney } = useMoney();
   return (
     <Card className="overflow-hidden">
       <div className="flex items-center gap-2 px-4 py-3 border-b border-line bg-raised/60">
@@ -39,7 +40,7 @@ export function PriceBoard({ products, catName, stock, minPrice, loading }: {
             ) : (
               <span className="text-[11px] text-warn">{t("onRequest")}</span>
             )}
-            <span className="font-mono text-[13px] font-semibold tabular w-[92px] text-right">{vnd(minPrice(p), locale)}</span>
+            <span className="font-mono text-[13px] font-semibold tabular w-[92px] text-right">{formatBrowseMoney(minPrice(p), { locale })}</span>
           </Link>
         ))}
       </div>

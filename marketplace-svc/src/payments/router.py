@@ -4,7 +4,7 @@ from sqlalchemy.ext.asyncio import AsyncSession
 from src.auth.dependencies import get_current_account, require_role
 from src.database import get_session
 from src.models.account import Account
-from src.payments import payos_client, schemas, service
+from src.payments import nowpayments_client, payos_client, schemas, service
 
 import structlog
 
@@ -13,13 +13,25 @@ logger = structlog.get_logger()
 router = APIRouter(tags=["payments"])
 
 
+@router.get("/wallet/deposit-methods", response_model=schemas.DepositMethodsResponse)
+async def deposit_methods(db: AsyncSession = Depends(get_session)):
+    """Discovery of enabled deposit rails (admin flags ∩ secrets; no secrets leaked)."""
+    return await service.deposit_methods_public(db)
+
+
 @router.post("/wallet/deposits", response_model=schemas.DepositResponse, status_code=201)
 async def create_deposit(
     body: schemas.DepositCreateRequest,
     account: Account = Depends(get_current_account),
     db: AsyncSession = Depends(get_session),
 ):
-    return await service.create_deposit(account.id, body.amount, db)
+    return await service.create_deposit(
+        account.id,
+        body.amount,
+        db,
+        method=body.method,
+        pay_currency=body.pay_currency,
+    )
 
 
 @router.get("/wallet/deposits/me", response_model=list[schemas.DepositResponse])
@@ -53,13 +65,9 @@ async def payos_webhook(request: Request, db: AsyncSession = Depends(get_session
     if not isinstance(payload, dict):
         return {"ok": True, "note": "payload không phải object"}
 
-    # PayOS bắn một request "test" khi bấm confirm-webhook trên my.payos.vn —
-    # không có data/signature thật. Nhận diện và trả 200 để đăng ký URL thành công.
     if "data" not in payload and "signature" not in payload:
         return {"ok": True, "note": "ping"}
 
-    # Chưa cấu hình PayOS = không có khoá để verify → nuốt lặng lẽ (200, không
-    # xử lý). Trả 401 ở đây sẽ khiến PayOS retry-bão vào một hệ chưa sẵn sàng.
     if not payos_client.is_configured():
         logger.error("payos_webhook_received_but_not_configured")
         return {"ok": True, "note": "PayOS chưa được cấu hình — bỏ qua"}
@@ -80,13 +88,49 @@ async def payos_webhook(request: Request, db: AsyncSession = Depends(get_session
     return await service.handle_webhook(payload, db)
 
 
+@router.post("/webhooks/nowpayments")
+async def nowpayments_webhook(request: Request, db: AsyncSession = Depends(get_session)):
+    """NOWPayments IPN. Bad signature → 401. Everything else → 200."""
+    try:
+        payload = await request.json()
+    except ValueError:
+        logger.warning("nowpayments_ipn_not_json")
+        return {"ok": True, "note": "body không phải JSON"}
+
+    if not isinstance(payload, dict):
+        return {"ok": True, "note": "payload không phải object"}
+
+    if not nowpayments_client.is_configured():
+        logger.error("nowpayments_ipn_received_but_not_configured")
+        return {"ok": True, "note": "NOWPayments chưa cấu hình — bỏ qua"}
+
+    sig = request.headers.get("x-nowpayments-sig") or request.headers.get("x-nowpayments-sig".title())
+    # httpx / starlette headers are case-insensitive
+    if not sig:
+        sig = request.headers.get("X-Nowpayments-Sig")
+
+    if not nowpayments_client.verify_ipn_signature(payload, sig):
+        from src.security.events import security_event
+        security_event(
+            "webhook_signature_failed",
+            level="warning",
+            provider="nowpayments",
+            deposit_id=None,
+        )
+        logger.error("nowpayments_ipn_bad_signature")
+        raise HTTPException(status_code=401, detail="Chữ ký IPN không hợp lệ")
+
+    return await service.handle_nowpayments_ipn(payload, db)
+
+
 @router.get("/admin/deposits", response_model=list[schemas.AdminDepositResponse])
 async def admin_deposits(
     status: str | None = Query(default=None),
+    provider: str | None = Query(default=None),
     _: Account = Depends(require_role("admin")),
     db: AsyncSession = Depends(get_session),
 ):
-    return await service.list_admin_deposits(db, status)
+    return await service.list_admin_deposits(db, status, provider=provider)
 
 
 @router.get("/admin/payos-events")
@@ -95,9 +139,16 @@ async def admin_payos_events(
     _: Account = Depends(require_role("admin")),
     db: AsyncSession = Depends(get_session),
 ):
-    """Sổ webhook thô — bằng chứng đối soát (đã dùng để phân biệt giao dịch
-    mock/thật hôm 24/07)."""
     return await service.list_payos_events(db, order_code)
+
+
+@router.get("/admin/nowpayments-events")
+async def admin_nowpayments_events(
+    payment_id: str | None = Query(default=None),
+    _: Account = Depends(require_role("admin")),
+    db: AsyncSession = Depends(get_session),
+):
+    return await service.list_nowpayments_events(db, payment_id)
 
 
 @router.post("/admin/deposits/{intent_id}/reconcile")
@@ -108,3 +159,35 @@ async def admin_reconcile_deposit(
 ):
     status = await service.reconcile_intent(intent_id, db)
     return {"id": intent_id, "status": status}
+
+
+@router.get("/admin/deposit-rail-config", response_model=schemas.DepositRailConfigAdmin)
+async def admin_deposit_rail_config(
+    _: Account = Depends(require_role("admin")),
+    db: AsyncSession = Depends(get_session),
+):
+    from src.payments import rail_config
+    return await rail_config.admin_config(db)
+
+
+@router.patch("/admin/deposit-rail-config", response_model=schemas.DepositRailConfigAdmin)
+async def update_deposit_rail_config(
+    body: schemas.DepositRailConfigUpdate,
+    admin: Account = Depends(require_role("admin")),
+    db: AsyncSession = Depends(get_session),
+):
+    from src.payments import rail_config
+    return await rail_config.update_config(
+        db,
+        actor_id=admin.id,
+        **body.model_dump(exclude_unset=True),
+    )
+
+
+@router.post("/admin/deposit-rail-config/reset-to-env", response_model=schemas.DepositRailConfigAdmin)
+async def reset_deposit_rail_config(
+    admin: Account = Depends(require_role("admin")),
+    db: AsyncSession = Depends(get_session),
+):
+    from src.payments import rail_config
+    return await rail_config.reset_to_env(db, actor_id=admin.id)

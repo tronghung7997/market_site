@@ -12,9 +12,16 @@ from src.models.resource import Resource, ResourceStatus
 from src.models.seller_api_key import SellerApiKey
 from src.models.service_task import ServiceTask, ServiceTaskStatus
 from src.models.usage import GatewayCallLog, OrderBalance, UsageRecord, UsageRecordStatus
-from src.models.payment import DepositIntent, DepositIntentStatus, PayosWebhookEvent
+from src.models.payment import (
+    DepositIntent,
+    DepositIntentStatus,
+    DepositProvider,
+    NowpaymentsIpnEvent,
+    PayosWebhookEvent,
+)
 from src.models.wallet import Transaction, TransactionType, Wallet, WithdrawRequest, WithdrawStatus
 from src.models.display_money_config import DisplayMoneyConfig
+from src.models.deposit_rail_config import DepositRailConfig
 
 __all__ = [
     "Account", "AccountRole", "ApplicationStatus", "SellerApplication",
@@ -31,6 +38,8 @@ __all__ = [
     "ServiceTask", "ServiceTaskStatus",
     "OrderBalance", "UsageRecord", "UsageRecordStatus", "GatewayCallLog",
     "Transaction", "TransactionType", "Wallet", "WithdrawRequest", "WithdrawStatus",
-    "DepositIntent", "DepositIntentStatus", "PayosWebhookEvent",
+    "DepositIntent", "DepositIntentStatus", "DepositProvider",
+    "NowpaymentsIpnEvent", "PayosWebhookEvent",
     "DisplayMoneyConfig",
+    "DepositRailConfig",
 ]

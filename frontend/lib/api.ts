@@ -1,5 +1,5 @@
 import type {
-  Account, ActionItem, AdminDepositIntent, AdminDisputeDetail, AdminOrderDetail, AdminProduct, AdminResourceListResponse, AffiliateStats, AffiliateSummary, CalculateResult, Category, ChargeUsageResult, DashboardData, DepositIntent, Dispute, PayosWebhookEventRow, AdminAccountWallet, FundOverview, AccountAdminRow, PaginatedAccounts, LogEntry, MoneyConfigAdmin, MoneyConfigPublic, MoneyConfigUpdate, Order, OrderStats, PaginatedAffiliateSummary, PaginatedOrderResponse, PaginatedProducts, PricingField, PricingOptions, ProductDetail, AdminProductDetail, Product, ProductOperations, ProxyState, ProxyRotateResult, ProxyWhitelistResult, Review, SellerApplication, SellerProduct, SellerStats, ServiceTask, TikTokLookupResponse, Transaction, Variant, Wallet, WithdrawRequest, Provider, ProviderHealth, Alert, Resource, ResourceSummary, ResourceSellerFacet, InventoryVariant, SellerSummary, SellerProfile, SellerApiKey, SellerApiKeyCreated,
+  Account, ActionItem, AdminDepositIntent, AdminDisputeDetail, AdminOrderDetail, AdminProduct, AdminResourceListResponse, AffiliateStats, AffiliateSummary, CalculateResult, Category, ChargeUsageResult, DashboardData, DepositIntent, DepositMethods, DepositRailConfigAdmin, DepositRailConfigUpdate, Dispute, PayosWebhookEventRow, AdminAccountWallet, FundOverview, AccountAdminRow, PaginatedAccounts, LogEntry, MoneyConfigAdmin, MoneyConfigPublic, MoneyConfigUpdate, Order, OrderStats, PaginatedAffiliateSummary, PaginatedOrderResponse, PaginatedProducts, PricingField, PricingOptions, ProductDetail, AdminProductDetail, Product, ProductOperations, ProxyState, ProxyRotateResult, ProxyWhitelistResult, Review, SellerApplication, SellerProduct, SellerStats, ServiceTask, TikTokLookupResponse, Transaction, Variant, Wallet, WithdrawRequest, Provider, ProviderHealth, Alert, Resource, ResourceSummary, ResourceSellerFacet, InventoryVariant, SellerSummary, SellerProfile, SellerApiKey, SellerApiKeyCreated,
 } from "./types";
 
 // Browser requests are always same-origin. This prevents a production bundle
@@ -226,13 +226,51 @@ export const api = {
     request<WithdrawRequest>(`/admin/withdrawals/${id}/paid`, { method: "POST", body: JSON.stringify({ payout_reference: payoutReference }) }, true),
   myWithdrawals: () => request<WithdrawRequest[]>("/wallet/withdrawals", {}, true),
   // --- Nạp tiền thật qua PayOS (src/payments) ---
-  createDeposit: (amount: number) =>
-    request<DepositIntent>("/wallet/deposits", { method: "POST", body: JSON.stringify({ amount }) }, true),
+  depositMethods: () =>
+    request<DepositMethods>("/wallet/deposit-methods", {}, false),
+  createDeposit: (
+    amount: number,
+    opts?: { method?: "payos" | "nowpayments"; pay_currency?: string },
+  ) =>
+    request<DepositIntent>(
+      "/wallet/deposits",
+      {
+        method: "POST",
+        body: JSON.stringify({
+          amount,
+          method: opts?.method ?? "payos",
+          ...(opts?.pay_currency ? { pay_currency: opts.pay_currency } : {}),
+        }),
+      },
+      true,
+    ),
   myDeposits: () => request<DepositIntent[]>("/wallet/deposits/me", {}, true),
   cancelDeposit: (id: number) =>
     request<DepositIntent>(`/wallet/deposits/${id}/cancel`, { method: "POST" }, true),
-  adminDeposits: (status?: string) =>
-    request<AdminDepositIntent[]>(`/admin/deposits${status ? `?status=${status}` : ""}`, {}, true),
+  adminDeposits: (status?: string, provider?: string) => {
+    const q = new URLSearchParams();
+    if (status) q.set("status", status);
+    if (provider) q.set("provider", provider);
+    const qs = q.toString();
+    return request<AdminDepositIntent[]>(`/admin/deposits${qs ? `?${qs}` : ""}`, {}, true);
+  },
+  adminNowpaymentsEvents: (paymentId?: string) =>
+    request<Array<Record<string, unknown>>>(
+      `/admin/nowpayments-events${paymentId ? `?payment_id=${encodeURIComponent(paymentId)}` : ""}`,
+      {},
+      true,
+    ),
+  adminDepositRailConfig: () =>
+    request<DepositRailConfigAdmin>("/admin/deposit-rail-config", {}, true),
+  updateDepositRailConfig: (body: DepositRailConfigUpdate) =>
+    request<DepositRailConfigAdmin>("/admin/deposit-rail-config", {
+      method: "PATCH",
+      body: JSON.stringify(body),
+    }, true),
+  resetDepositRailConfig: () =>
+    request<DepositRailConfigAdmin>("/admin/deposit-rail-config/reset-to-env", {
+      method: "POST",
+    }, true),
   adminReconcileDeposit: (id: number) =>
     request<{ id: number; status: string }>(`/admin/deposits/${id}/reconcile`, { method: "POST" }, true),
   adminPayosEvents: (orderCode?: number) =>

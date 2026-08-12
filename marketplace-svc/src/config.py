@@ -84,6 +84,30 @@ class Settings(BaseSettings):
     # demo-topup là đường nạp giả cho dev/demo — PHẢI tắt ở production.
     enable_demo_topup: bool = False
 
+    # --- NOWPayments USDT (docs/superpowers/plans/2026-08-11-nowpayments-usdt-deposit-plan.md) ---
+    # Outcome wallet merchant phải khớp NOWPAYMENTS_OUTCOME_CURRENCY (phase 1: usdtbsc).
+    # Flag off → method=nowpayments trả 503; FE ẩn rail USDT.
+    nowpayments_enabled: bool = False
+    nowpayments_api_key: str = ""
+    nowpayments_ipn_secret: str = ""
+    # Used only to obtain a short-lived NOW JWT for automatic invoice reconciliation.
+    # Keep these deployment secrets server-side; never expose them through the admin API.
+    nowpayments_auth_email: str = ""
+    nowpayments_auth_password: str = ""
+    nowpayments_base_url: str = "https://api.nowpayments.io/v1"
+    # Optional full IPN URL override; empty → {backend_base_url}/webhooks/nowpayments
+    nowpayments_ipn_url: str = ""
+    nowpayments_default_pay_currency: str = "usdtbsc"
+    # Comma-separated allowlist; phase 1: usdtbsc only
+    nowpayments_allowed_pay_currencies: str = "usdtbsc"
+    nowpayments_outcome_currency: str = "usdtbsc"
+    deposit_usdt_min_vnd: int = 50_000
+    deposit_usdt_max_vnd: int = 50_000_000
+    # Local UI window only — NOT provider payment TTL (see contract verification).
+    deposit_usdt_local_window_minutes: int = 60
+    # Reconcile unfinished NOW intents (pending/expired/cancelled unpaid) within this window.
+    deposit_usdt_reconcile_retention_hours: int = 192
+
     # --- TopProxy ---
     # Tiền tố marker nhét vào username proxy tĩnh (`{prefix}{order_id}`) để
     # nhận lại đúng con proxy của một đơn khi retry. Marker được tra bằng
@@ -122,6 +146,14 @@ class Settings(BaseSettings):
         configured = [origin.strip().rstrip("/") for origin in self.cors_allowed_origins.split(",")]
         origins = [origin for origin in configured if origin]
         return origins or [self.frontend_base_url.rstrip("/")]
+
+    @property
+    def nowpayments_allowed_currencies_set(self) -> set[str]:
+        return {
+            c.strip().lower()
+            for c in self.nowpayments_allowed_pay_currencies.split(",")
+            if c.strip()
+        }
 
     @model_validator(mode="after")
     def validate_security_settings(self) -> "Settings":

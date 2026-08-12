@@ -278,23 +278,91 @@ export interface WithdrawRequest {
   created_at: string;
 }
 
+export type DepositMethod = "payos" | "nowpayments";
+
 export interface DepositIntent {
   id: number;
   amount: number;
   status: "pending" | "paid" | "cancelled" | "expired";
+  provider?: DepositMethod | string;
+  // PayOS
   checkout_url?: string | null;
   qr_code?: string | null;
+  payment_link_id?: string | null;
+  // NOWPayments
+  now_invoice_id?: string | null;
+  pay_currency?: string | null;
+  pay_address?: string | null;
+  pay_amount?: number | string | null;
+  now_payment_id?: string | null;
+  quoted_usd_amount?: number | string | null;
+  vnd_per_usd_snapshot?: number | null;
+  price_currency?: string | null;
+  paid_crypto_amount?: number | string | null;
   paid_amount?: number | null;
   created_at: string;
   expires_at: string;
   paid_at?: string | null;
 }
 
+export interface DepositMethods {
+  payos_enabled: boolean;
+  nowpayments_enabled: boolean;
+  nowpayments_default_pay_currency: string;
+  nowpayments_allowed_pay_currencies: string[];
+  deposit_min_amount: number;
+  deposit_max_amount: number;
+  deposit_usdt_min_vnd: number;
+  deposit_usdt_max_vnd: number;
+}
+
+export interface DepositRailConfigAdmin {
+  payos_enabled: boolean;
+  nowpayments_enabled: boolean;
+  deposit_min_amount: number;
+  deposit_max_amount: number;
+  deposit_expire_minutes: number;
+  deposit_reconcile_retention_hours: number;
+  deposit_usdt_min_vnd: number;
+  deposit_usdt_max_vnd: number;
+  deposit_usdt_local_window_minutes: number;
+  deposit_usdt_reconcile_retention_hours: number;
+  nowpayments_default_pay_currency: string;
+  nowpayments_allowed_pay_currencies: string;
+  payos_secrets_configured: boolean;
+  nowpayments_secrets_configured: boolean;
+  nowpayments_reconciliation_configured: boolean;
+  effective_payos_enabled: boolean;
+  effective_nowpayments_enabled: boolean;
+  env_seed: Record<string, unknown>;
+  updated_at?: string | null;
+  updated_by_id?: number | null;
+  source: string;
+}
+
+export type DepositRailConfigUpdate = Partial<{
+  payos_enabled: boolean;
+  nowpayments_enabled: boolean;
+  deposit_min_amount: number;
+  deposit_max_amount: number;
+  deposit_expire_minutes: number;
+  deposit_reconcile_retention_hours: number;
+  deposit_usdt_min_vnd: number;
+  deposit_usdt_max_vnd: number;
+  deposit_usdt_local_window_minutes: number;
+  deposit_usdt_reconcile_retention_hours: number;
+  nowpayments_default_pay_currency: string;
+  nowpayments_allowed_pay_currencies: string;
+}>;
+
 export interface AdminDepositIntent extends DepositIntent {
   account_id: number;
   account_email?: string | null;
   payment_link_id?: string | null;
   payos_reference?: string | null;
+  external_reference?: string | null;
+  outcome_amount?: number | string | null;
+  outcome_currency?: string | null;
 }
 
 export interface PayosWebhookEventRow {

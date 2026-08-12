@@ -1,10 +1,7 @@
 "use client";
 
-/* Trang rà soát nạp tiền PayOS. Vì PayOS KHÔNG có API liệt kê giao dịch hàng
- * loạt (docs: chỉ GET /v2/payment-requests/{orderCode} từng lệnh), nguồn sự
- * thật để rà soát là dữ liệu mình tự giữ: deposit_intents + sổ webhook thô
- * payos_webhook_events, và nút "Đối soát" gọi PayOS từng orderCode khi nghi
- * ngờ. Trang này biến quy trình curl/psql của admin thành các cú click. */
+/* Trang rà soát nạp tiền multi-provider. PayOS được tra từng order; hosted
+ * NOWPayments được tra theo invoice ID đã lưu, nên admin không phải dò payment ID. */
 
 import * as React from "react";
 import { motion } from "motion/react";
@@ -54,22 +51,22 @@ export default function AdminDepositsPage() {
   }, [statusFilter]);
   React.useEffect(() => { load(); }, [load]);
 
-  const reconcile = async (id: number) => {
-    setReconcilingId(id);
+  const reconcile = async (deposit: AdminDepositIntent) => {
+    setReconcilingId(deposit.id);
     setMsg(null); setErr(null);
     try {
-      const r = await api.adminReconcileDeposit(id);
-      setMsg(`Lệnh #${id}: PayOS xác nhận trạng thái "${r.status}".`);
+      const r = await api.adminReconcileDeposit(deposit.id);
+      const provider = (deposit.provider || "payos") === "nowpayments" ? "NOWPayments" : "PayOS";
+      setMsg(`Lệnh #${deposit.id}: ${provider} xác nhận trạng thái "${r.status}".`);
       await load();
     } catch (e) {
-      setErr(e instanceof Error ? e.message : `Đối soát lệnh #${id} thất bại`);
+      setErr(e instanceof Error ? e.message : `Đối soát lệnh #${deposit.id} thất bại`);
     } finally {
       setReconcilingId(null);
     }
   };
 
-  // Quét mọi lệnh chưa chốt tiền đang hiển thị — thay cho việc PayOS không có
-  // API bulk: mình chủ động hỏi từng orderCode.
+  // Hosted NOW invoices lacking IPN are reconciled through payment history by invoice ID.
   const reconcileAll = async () => {
     const targets = deposits.filter((d) => d.status !== "paid");
     if (targets.length === 0) return;
@@ -84,7 +81,7 @@ export default function AdminDepositsPage() {
         // lệnh lỗi bỏ qua — kết quả tổng hợp báo bên dưới, chi tiết xem /admin/logs
       }
     }
-    setMsg(`Đã đối soát ${targets.length} lệnh với PayOS — ${changed} lệnh đổi trạng thái.`);
+    setMsg(`Đã đối soát ${targets.length} lệnh — ${changed} lệnh đổi trạng thái.`);
     setBulkBusy(false);
     await load();
   };
@@ -93,7 +90,22 @@ export default function AdminDepositsPage() {
     setEventsFor(d);
     setEvents(null);
     try {
-      setEvents(await api.adminPayosEvents(d.id));
+      if ((d.provider || "payos") === "nowpayments") {
+        const rows = await api.adminNowpaymentsEvents(d.now_payment_id || undefined);
+        // Normalize shape for the existing panel (amount/reference optional).
+        setEvents(rows.map((r) => ({
+          id: Number(r.id),
+          order_code: d.id,
+          payment_link_id: String(r.payment_id ?? ""),
+          reference: String(r.payment_status ?? ""),
+          amount: d.amount,
+          signature_valid: Boolean(r.signature_valid),
+          received_at: String(r.received_at ?? ""),
+          raw: (r.raw as Record<string, unknown>) ?? r,
+        })));
+      } else {
+        setEvents(await api.adminPayosEvents(d.id));
+      }
     } catch {
       setEvents([]);
     }
@@ -110,9 +122,9 @@ export default function AdminDepositsPage() {
     <div className="space-y-6">
       <div className="flex items-center justify-between flex-wrap gap-4">
         <div>
-          <h1 className="text-[18px] font-semibold text-slate-900">Nạp tiền (PayOS)</h1>
+          <h1 className="text-[18px] font-semibold text-slate-900">Nạp tiền (PayOS / USDT)</h1>
           <p className="text-[13px] text-slate-500 mt-0.5">
-            Rà soát lệnh nạp và sổ webhook. Nghi ngờ lệch — bấm Đối soát để hỏi thẳng PayOS.
+            Rà soát lệnh nạp multi-provider. NOWPayments tự tìm payment bằng hosted invoice đã lưu.
           </p>
         </div>
         <Button variant="secondary" onClick={reconcileAll} disabled={bulkBusy || loading}>
@@ -145,6 +157,7 @@ export default function AdminDepositsPage() {
                     <tr className="text-left text-slate-500 border-b border-slate-200">
                       <th className="px-5 py-2.5 font-medium">#</th>
                       <th className="px-5 py-2.5 font-medium">Tài khoản</th>
+                      <th className="px-5 py-2.5 font-medium">Provider</th>
                       <th className="px-5 py-2.5 font-medium text-right">Số tiền</th>
                       <th className="px-5 py-2.5 font-medium">Trạng thái</th>
                       <th className="px-5 py-2.5 font-medium">Tạo lúc</th>
@@ -157,6 +170,16 @@ export default function AdminDepositsPage() {
                       <tr key={d.id} className="border-b border-slate-100 last:border-0">
                         <td className="px-5 py-3 font-mono text-slate-400">#{d.id}</td>
                         <td className="px-5 py-3 truncate max-w-[200px]">{d.account_email ?? `Tài khoản #${d.account_id}`}</td>
+                        <td className="px-5 py-3">
+                          <span className="font-mono text-[11px] uppercase text-slate-600">
+                            {d.provider || "payos"}
+                          </span>
+                          {d.now_payment_id && (
+                            <div className="font-mono text-[10px] text-slate-400 truncate max-w-[120px]">
+                              {d.now_payment_id}
+                            </div>
+                          )}
+                        </td>
                         <td className="px-5 py-3 text-right">
                           <span className="font-mono font-semibold tabular-nums">{vnd(d.paid_amount ?? d.amount)}</span>
                           {d.paid_amount != null && d.paid_amount !== d.amount && (
@@ -169,9 +192,9 @@ export default function AdminDepositsPage() {
                           {d.paid_at ? (
                             <div>
                               {fmtTime(d.paid_at)}
-                              {d.payos_reference && (
+                              {(d.payos_reference || d.external_reference) && (
                                 <div className="font-mono text-[11px] text-slate-400 truncate max-w-[160px]">
-                                  ref {d.payos_reference}
+                                  ref {d.payos_reference || d.external_reference}
                                 </div>
                               )}
                             </div>
@@ -187,7 +210,7 @@ export default function AdminDepositsPage() {
                                 size="sm"
                                 variant="primary"
                                 disabled={reconcilingId === d.id || bulkBusy}
-                                onClick={() => reconcile(d.id)}
+                                onClick={() => void reconcile(d)}
                               >
                                 {reconcilingId === d.id ? "…" : "Đối soát"}
                               </Button>
@@ -244,6 +267,7 @@ export default function AdminDepositsPage() {
           </div>
         )}
       </SlidePanel>
+
     </div>
   );
 }

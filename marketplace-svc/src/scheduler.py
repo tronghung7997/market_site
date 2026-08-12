@@ -669,52 +669,92 @@ async def provider_credit_low_job() -> None:
 
 
 async def deposit_reconcile_job() -> None:
-    """Bù miss-webhook cho lệnh nạp PayOS (thiết kế §3): intent còn `pending`
-    quá 10 phút được đối soát chủ động qua GET /v2/payment-requests — PAID thì
-    credit (cùng hàm apply_deposit_paid với webhook, khoá FOR UPDATE nên không
-    credit đôi), CANCELLED/EXPIRED thì chốt trạng thái.
+    """Bù miss-webhook cho lệnh nạp multi-provider.
 
-    Quan trọng: KHÔNG chỉ quét `pending`. Một intent đã bị expire job chốt
-    `expired` (hoặc buyer bấm huỷ) vẫn có thể ĐÃ ĐƯỢC TRẢ TIỀN mà mình chưa
-    biết — webhook bị nuốt trong lúc outage/chưa cấu hình chẳng hạn. Những
-    lệnh đó (chưa có paid_at) được đối soát lại trong cửa sổ retention
-    48h; PayOS bảo PAID thì vẫn credit (chính sách §6.6) — không có cửa sổ
-    này thì tiền thật của buyer chỉ được cứu bằng tay (review 24/07 #2)."""
-    from src.config import settings
-    from src.models.payment import DepositIntent, DepositIntentStatus
-    from src.payments import payos_client
+    PayOS: GET payment-request; NOW: GET /v1/payment/{id}.
+    Cùng apply_deposit_paid + FOR UPDATE — không credit đôi.
+
+    Retention: PayOS dùng deposit_reconcile_retention_hours; NOW dùng
+    deposit_usdt_reconcile_retention_hours (dài hơn — provider TTL ≠ local UI window).
+    """
+    from src.models.payment import DepositIntent, DepositIntentStatus, DepositProvider
+    from src.payments import nowpayments_client, payos_client, rail_config
     from src.payments.service import reconcile_intent
 
-    if not payos_client.is_configured():
+    secrets_payos = payos_client.is_configured()
+    secrets_now = nowpayments_client.is_configured()
+    if not secrets_payos and not secrets_now:
         return
 
     async with SessionLocal() as db:
+        rail = await rail_config.ensure_seeded(db)
+        payos_on = bool(rail.payos_enabled) and secrets_payos
+        now_on = bool(rail.nowpayments_enabled) and secrets_now
+        if not payos_on and not now_on:
+            return
+
         now = datetime.now(timezone.utc)
         pending_cutoff = now - timedelta(minutes=10)
-        retention_cutoff = now - timedelta(hours=settings.deposit_reconcile_retention_hours)
-        # Hai quota riêng — đống expired trong retention không được phép chèn
-        # chỗ của pending (pending là ca nóng: buyer đang đợi tiền vào ví).
-        pending_rows = await db.execute(
-            select(DepositIntent.id).where(
-                DepositIntent.status == DepositIntentStatus.pending,
-                DepositIntent.paid_at.is_(None),
-                DepositIntent.created_at <= pending_cutoff,
-            ).order_by(DepositIntent.created_at).limit(30)
-        )
-        retention_rows = await db.execute(
-            select(DepositIntent.id).where(
-                DepositIntent.status.in_([DepositIntentStatus.expired, DepositIntentStatus.cancelled]),
-                DepositIntent.paid_at.is_(None),
-                DepositIntent.created_at >= retention_cutoff,
-            ).order_by(DepositIntent.created_at.desc()).limit(20)
-        )
-        intent_ids = [r for (r,) in pending_rows.all()] + [r for (r,) in retention_rows.all()]
+        payos_retention = now - timedelta(hours=rail.deposit_reconcile_retention_hours)
+        now_retention = now - timedelta(hours=rail.deposit_usdt_reconcile_retention_hours)
+
+        intent_ids: list[int] = []
+
+        if payos_on:
+            pending_rows = await db.execute(
+                select(DepositIntent.id).where(
+                    DepositIntent.provider == DepositProvider.payos.value,
+                    DepositIntent.status == DepositIntentStatus.pending,
+                    DepositIntent.paid_at.is_(None),
+                    DepositIntent.created_at <= pending_cutoff,
+                ).order_by(DepositIntent.created_at).limit(30)
+            )
+            retention_rows = await db.execute(
+                select(DepositIntent.id).where(
+                    DepositIntent.provider == DepositProvider.payos.value,
+                    DepositIntent.status.in_([DepositIntentStatus.expired, DepositIntentStatus.cancelled]),
+                    DepositIntent.paid_at.is_(None),
+                    DepositIntent.created_at >= payos_retention,
+                ).order_by(DepositIntent.created_at.desc()).limit(20)
+            )
+            intent_ids.extend(r for (r,) in pending_rows.all())
+            intent_ids.extend(r for (r,) in retention_rows.all())
+
+        if now_on:
+            # NOW: pending + local expired/cancelled unpaid within longer retention.
+            now_pending = await db.execute(
+                select(DepositIntent.id).where(
+                    DepositIntent.provider == DepositProvider.nowpayments.value,
+                    DepositIntent.status == DepositIntentStatus.pending,
+                    DepositIntent.paid_at.is_(None),
+                    DepositIntent.created_at <= pending_cutoff,
+                ).order_by(DepositIntent.created_at).limit(30)
+            )
+            now_retention_rows = await db.execute(
+                select(DepositIntent.id).where(
+                    DepositIntent.provider == DepositProvider.nowpayments.value,
+                    DepositIntent.status.in_([DepositIntentStatus.expired, DepositIntentStatus.cancelled]),
+                    DepositIntent.paid_at.is_(None),
+                    DepositIntent.created_at >= now_retention,
+                ).order_by(DepositIntent.created_at.desc()).limit(20)
+            )
+            intent_ids.extend(r for (r,) in now_pending.all())
+            intent_ids.extend(r for (r,) in now_retention_rows.all())
+
+        # Dedupe while preserving order
+        seen: set[int] = set()
+        unique_ids: list[int] = []
+        for i in intent_ids:
+            if i not in seen:
+                seen.add(i)
+                unique_ids.append(i)
+        intent_ids = unique_ids
 
     for intent_id in intent_ids:
         async with SessionLocal() as db:
             try:
                 await reconcile_intent(intent_id, db)
-            except Exception as e:  # một intent hỏng không được chặn các intent còn lại
+            except Exception as e:
                 logger.error("deposit_reconcile_error", intent_id=intent_id, error=str(e))
 
 

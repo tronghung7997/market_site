@@ -27,6 +27,7 @@ function formatUsd(amountVnd, locale, fxRate) {
   return new Intl.NumberFormat(locale === "vi" ? "vi-VN" : "en-US", {
     style: "currency",
     currency: "USD",
+    currencyDisplay: "narrowSymbol",
     minimumFractionDigits: 2,
     maximumFractionDigits: 2,
   }).format(usd);
@@ -71,6 +72,10 @@ function assert(name, cond) {
 // 50000 VND @ 25500 → $1.96 (no ≈)
 const s = formatBrowseMoney(50_000, { currency: "USD", fxRate: 25_500 });
 assert("50000/25500 is $1.96", s.includes("1.96") && !s.startsWith("≈"));
+
+// vi-VN must use narrow $ not CLDR "US$"
+const sVi = formatBrowseMoney(50_000, { locale: "vi", currency: "USD", fxRate: 25_500 });
+assert("vi USD uses $ not US$", sVi.includes("1,96") && sVi.includes("$") && !sVi.includes("US$"));
 
 // invalid rate → VND
 const v = formatBrowseMoney(50_000, { currency: "USD", fxRate: null });

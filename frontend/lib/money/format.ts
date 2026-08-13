@@ -66,6 +66,8 @@ function formatUsd(
   return new Intl.NumberFormat(intlLocale(locale), {
     style: "currency",
     currency: "USD",
+    // vi-VN defaults to "US$" (CLDR); narrowSymbol keeps a plain "$".
+    currencyDisplay: "narrowSymbol",
     minimumFractionDigits: 2,
     maximumFractionDigits: 2,
   }).format(usd);

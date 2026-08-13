@@ -601,12 +601,11 @@ async def _try_credit_nowpayments_finished(
     pay_currency = str(payload.get("pay_currency") or "").lower().strip()
     expected_currency = (intent.pay_currency or "").lower().strip()
     is_hosted_usdt = bool(intent.now_invoice_id)
-    hosted_allowed = set()
-    if is_hosted_usdt:
-        rail = await rail_config.ensure_seeded(db)
-        hosted_allowed = rail_config.allowed_currencies_set(rail)
+    # Hosted checkout: buyer picks network on NOW. Trust merchant coin settings
+    # there; here only require a USDT family code (usdtbsc, usdttrc20, usdtsol…).
+    # Non-hosted (legacy pinned payment) still requires exact match to intent.
     currency_matches = (
-        pay_currency.startswith("usdt") and pay_currency in hosted_allowed if is_hosted_usdt
+        pay_currency.startswith("usdt") if is_hosted_usdt
         else bool(expected_currency) and pay_currency == expected_currency
     )
     if not pay_currency or not currency_matches:
@@ -617,7 +616,7 @@ async def _try_credit_nowpayments_finished(
         await _alert(
             db, "error",
             f"NOW pay_currency thiếu/lạ cho lệnh #{intent_id}: {pay_currency or '(empty)'} "
-            f"(expected {'allowed USDT network' if is_hosted_usdt else (expected_currency or '(unset on intent)')})",
+            f"(expected {'USDT network' if is_hosted_usdt else (expected_currency or '(unset on intent)')})",
             target_id=intent_id,
             reason_code="currency_mismatch",
         )

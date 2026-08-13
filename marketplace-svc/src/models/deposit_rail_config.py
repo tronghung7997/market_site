@@ -37,7 +37,7 @@ class DepositRailConfig(Base):
     deposit_usdt_local_window_minutes: Mapped[int] = mapped_column(Integer, nullable=False)
     deposit_usdt_reconcile_retention_hours: Mapped[int] = mapped_column(Integer, nullable=False)
 
-    # Network allowlist (comma-separated lowercase NOW currency codes)
+    # Legacy columns: hosted checkout trusts NOW coin settings; not exposed/admin-edited.
     nowpayments_default_pay_currency: Mapped[str] = mapped_column(String(32), nullable=False)
     nowpayments_allowed_pay_currencies: Mapped[str] = mapped_column(String(256), nullable=False)
 

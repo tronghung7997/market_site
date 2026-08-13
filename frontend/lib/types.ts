@@ -308,8 +308,6 @@ export interface DepositIntent {
 export interface DepositMethods {
   payos_enabled: boolean;
   nowpayments_enabled: boolean;
-  nowpayments_default_pay_currency: string;
-  nowpayments_allowed_pay_currencies: string[];
   deposit_min_amount: number;
   deposit_max_amount: number;
   deposit_usdt_min_vnd: number;
@@ -327,8 +325,6 @@ export interface DepositRailConfigAdmin {
   deposit_usdt_max_vnd: number;
   deposit_usdt_local_window_minutes: number;
   deposit_usdt_reconcile_retention_hours: number;
-  nowpayments_default_pay_currency: string;
-  nowpayments_allowed_pay_currencies: string;
   payos_secrets_configured: boolean;
   nowpayments_secrets_configured: boolean;
   nowpayments_reconciliation_configured: boolean;
@@ -351,8 +347,6 @@ export type DepositRailConfigUpdate = Partial<{
   deposit_usdt_max_vnd: number;
   deposit_usdt_local_window_minutes: number;
   deposit_usdt_reconcile_retention_hours: number;
-  nowpayments_default_pay_currency: string;
-  nowpayments_allowed_pay_currencies: string;
 }>;
 
 export interface AdminDepositIntent extends DepositIntent {

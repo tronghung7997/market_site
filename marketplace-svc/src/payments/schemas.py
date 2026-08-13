@@ -55,8 +55,6 @@ class DepositMethodsResponse(BaseModel):
 
     payos_enabled: bool
     nowpayments_enabled: bool
-    nowpayments_default_pay_currency: str = "usdtbsc"
-    nowpayments_allowed_pay_currencies: list[str] = Field(default_factory=lambda: ["usdtbsc"])
     deposit_min_amount: int
     deposit_max_amount: int
     deposit_usdt_min_vnd: int
@@ -74,8 +72,6 @@ class DepositRailConfigAdmin(BaseModel):
     deposit_usdt_max_vnd: int
     deposit_usdt_local_window_minutes: int
     deposit_usdt_reconcile_retention_hours: int
-    nowpayments_default_pay_currency: str
-    nowpayments_allowed_pay_currencies: str
     payos_secrets_configured: bool
     nowpayments_secrets_configured: bool
     nowpayments_reconciliation_configured: bool
@@ -100,5 +96,3 @@ class DepositRailConfigUpdate(BaseModel):
     deposit_usdt_max_vnd: int | None = None
     deposit_usdt_local_window_minutes: int | None = None
     deposit_usdt_reconcile_retention_hours: int | None = None
-    nowpayments_default_pay_currency: str | None = None
-    nowpayments_allowed_pay_currencies: str | None = None

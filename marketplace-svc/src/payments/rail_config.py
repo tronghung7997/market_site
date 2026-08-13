@@ -37,10 +37,9 @@ def env_seed_values() -> dict:
         "deposit_usdt_max_vnd": settings.deposit_usdt_max_vnd,
         "deposit_usdt_local_window_minutes": settings.deposit_usdt_local_window_minutes,
         "deposit_usdt_reconcile_retention_hours": settings.deposit_usdt_reconcile_retention_hours,
-        "nowpayments_default_pay_currency": (settings.nowpayments_default_pay_currency or "usdtbsc").lower(),
-        "nowpayments_allowed_pay_currencies": (
-            settings.nowpayments_allowed_pay_currencies or "usdtbsc"
-        ).lower(),
+        # Kept for DB seed/compat only; hosted checkout trusts NOW coin settings.
+        "nowpayments_default_pay_currency": "usdtbsc",
+        "nowpayments_allowed_pay_currencies": "usdtbsc",
     }
 
 
@@ -67,21 +66,11 @@ async def ensure_seeded(db: AsyncSession) -> DepositRailConfig:
     return row
 
 
-def allowed_currencies_set(row: DepositRailConfig) -> set[str]:
-    return {
-        c.strip().lower()
-        for c in (row.nowpayments_allowed_pay_currencies or "").split(",")
-        if c.strip()
-    }
-
-
 def row_to_public(row: DepositRailConfig) -> dict:
     """Buyer-facing methods: admin flag AND secrets present."""
     return {
         "payos_enabled": bool(row.payos_enabled) and payos_client.is_configured(),
         "nowpayments_enabled": bool(row.nowpayments_enabled) and nowpayments_client.is_configured(),
-        "nowpayments_default_pay_currency": row.nowpayments_default_pay_currency,
-        "nowpayments_allowed_pay_currencies": sorted(allowed_currencies_set(row)),
         "deposit_min_amount": row.deposit_min_amount,
         "deposit_max_amount": row.deposit_max_amount,
         "deposit_usdt_min_vnd": row.deposit_usdt_min_vnd,
@@ -103,8 +92,6 @@ def row_to_admin(row: DepositRailConfig) -> dict:
             "deposit_usdt_max_vnd": row.deposit_usdt_max_vnd,
             "deposit_usdt_local_window_minutes": row.deposit_usdt_local_window_minutes,
             "deposit_usdt_reconcile_retention_hours": row.deposit_usdt_reconcile_retention_hours,
-            "nowpayments_default_pay_currency": row.nowpayments_default_pay_currency,
-            "nowpayments_allowed_pay_currencies": row.nowpayments_allowed_pay_currencies,
         },
         "payos_secrets_configured": payos_client.is_configured(),
         "nowpayments_secrets_configured": nowpayments_client.is_configured(),
@@ -113,7 +100,10 @@ def row_to_admin(row: DepositRailConfig) -> dict:
         "effective_nowpayments_enabled": (
             bool(row.nowpayments_enabled) and nowpayments_client.is_configured()
         ),
-        "env_seed": seed,
+        "env_seed": {
+            k: v for k, v in seed.items()
+            if k not in ("nowpayments_default_pay_currency", "nowpayments_allowed_pay_currencies")
+        },
         "updated_at": row.updated_at,
         "updated_by_id": row.updated_by_id,
         "source": "db",
@@ -143,17 +133,6 @@ def _validate_positive_int(name: str, value: int, lo: int, hi: int) -> int:
     return value
 
 
-def _validate_currency_list(raw: str) -> str:
-    parts = [p.strip().lower() for p in raw.split(",") if p.strip()]
-    if not parts:
-        raise HTTPException(status_code=422, detail="nowpayments_allowed_pay_currencies cannot be empty")
-    for p in parts:
-        if not p.isalnum() or len(p) > 32:
-            raise HTTPException(status_code=422, detail=f"invalid pay currency code: {p}")
-    # stable order
-    return ",".join(sorted(set(parts)))
-
-
 async def update_config(db: AsyncSession, *, actor_id: int, **fields) -> dict:
     row = await ensure_seeded(db)
     old = {
@@ -167,9 +146,12 @@ async def update_config(db: AsyncSession, *, actor_id: int, **fields) -> dict:
         "deposit_usdt_max_vnd": row.deposit_usdt_max_vnd,
         "deposit_usdt_local_window_minutes": row.deposit_usdt_local_window_minutes,
         "deposit_usdt_reconcile_retention_hours": row.deposit_usdt_reconcile_retention_hours,
-        "nowpayments_default_pay_currency": row.nowpayments_default_pay_currency,
-        "nowpayments_allowed_pay_currencies": row.nowpayments_allowed_pay_currencies,
     }
+
+    # Hosted checkout network selection lives in NOWPayments coin settings.
+    # Ignore legacy allowlist fields if a client still sends them.
+    fields.pop("nowpayments_allowed_pay_currencies", None)
+    fields.pop("nowpayments_default_pay_currency", None)
 
     provided = {k: v for k, v in fields.items() if v is not None}
     if not provided:
@@ -229,25 +211,6 @@ async def update_config(db: AsyncSession, *, actor_id: int, **fields) -> dict:
             _MAX_RETENTION_H,
         )
 
-    if "nowpayments_allowed_pay_currencies" in provided:
-        row.nowpayments_allowed_pay_currencies = _validate_currency_list(
-            str(provided["nowpayments_allowed_pay_currencies"]),
-        )
-    if "nowpayments_default_pay_currency" in provided:
-        default = str(provided["nowpayments_default_pay_currency"]).strip().lower()
-        allowed = allowed_currencies_set(row)
-        if default not in allowed:
-            raise HTTPException(
-                status_code=422,
-                detail=f"nowpayments_default_pay_currency must be in allowlist: {sorted(allowed)}",
-            )
-        row.nowpayments_default_pay_currency = default
-    else:
-        # Keep default inside allowlist after allowlist edit
-        allowed = allowed_currencies_set(row)
-        if row.nowpayments_default_pay_currency not in allowed:
-            row.nowpayments_default_pay_currency = next(iter(sorted(allowed)))
-
     row.updated_by_id = actor_id
     await db.flush()
     await log_event(
@@ -266,8 +229,6 @@ async def update_config(db: AsyncSession, *, actor_id: int, **fields) -> dict:
                 "deposit_max_amount": row.deposit_max_amount,
                 "deposit_usdt_min_vnd": row.deposit_usdt_min_vnd,
                 "deposit_usdt_max_vnd": row.deposit_usdt_max_vnd,
-                "nowpayments_default_pay_currency": row.nowpayments_default_pay_currency,
-                "nowpayments_allowed_pay_currencies": row.nowpayments_allowed_pay_currencies,
             },
             "outcome": "success",
             "source": "admin",

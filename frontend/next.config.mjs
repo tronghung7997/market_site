@@ -50,6 +50,11 @@ const nextConfig = {
         destination: "/:locale/admin/display-settings",
         permanent: false,
       },
+      {
+        source: "/:locale(en|vi)/admin/deposit-rails",
+        destination: "/:locale/admin/display-settings",
+        permanent: false,
+      },
     ];
   },
   async headers() {

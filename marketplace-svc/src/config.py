@@ -97,9 +97,8 @@ class Settings(BaseSettings):
     nowpayments_base_url: str = "https://api.nowpayments.io/v1"
     # Optional full IPN URL override; empty → {backend_base_url}/webhooks/nowpayments
     nowpayments_ipn_url: str = ""
-    nowpayments_default_pay_currency: str = "usdtbsc"
-    # Comma-separated allowlist; phase 1: usdtbsc only
-    nowpayments_allowed_pay_currencies: str = "usdtbsc"
+    # Outcome wallet merchant must match this NOW currency code (e.g. usdtbsc).
+    # Buyer network selection is controlled in NOWPayments coin settings, not here.
     nowpayments_outcome_currency: str = "usdtbsc"
     deposit_usdt_min_vnd: int = 50_000
     deposit_usdt_max_vnd: int = 50_000_000
@@ -146,14 +145,6 @@ class Settings(BaseSettings):
         configured = [origin.strip().rstrip("/") for origin in self.cors_allowed_origins.split(",")]
         origins = [origin for origin in configured if origin]
         return origins or [self.frontend_base_url.rstrip("/")]
-
-    @property
-    def nowpayments_allowed_currencies_set(self) -> set[str]:
-        return {
-            c.strip().lower()
-            for c in self.nowpayments_allowed_pay_currencies.split(",")
-            if c.strip()
-        }
 
     @model_validator(mode="after")
     def validate_security_settings(self) -> "Settings":

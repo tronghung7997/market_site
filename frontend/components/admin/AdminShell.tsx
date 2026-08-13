@@ -30,7 +30,6 @@ const NAV_GROUPS: { label: string; items: NavItem[] }[] = [
       { href: "/admin/accounts", label: "Tài khoản", icon: Users },
       { href: "/admin/seller-applications", label: "Đơn đăng ký bán", icon: Verified },
       { href: "/admin/deposits", label: "Nạp tiền", icon: Plus },
-      { href: "/admin/deposit-rails", label: "Cấu hình nạp", icon: Wallet },
       { href: "/admin/withdrawals", label: "Rút tiền", icon: Wallet },
       { href: "/admin/providers", label: "Nhà cung cấp", icon: Activity },
       { href: "/admin/tasks", label: "Tác vụ", icon: ClipboardList },
@@ -38,7 +37,7 @@ const NAV_GROUPS: { label: string; items: NavItem[] }[] = [
       { href: "/admin/reports", label: "Báo cáo", icon: FileText },
       { href: "/admin/resources", label: "Tài nguyên", icon: Package },
       { href: "/admin/logs", label: "Nhật ký", icon: Receipt },
-      { href: "/admin/display-settings", label: "Tiền tệ - Ngôn ngữ", icon: TrendingUp },
+      { href: "/admin/display-settings", label: "Tiền & nạp", icon: Wallet },
     ],
   },
 ];

@@ -132,3 +132,19 @@ Buyer nạp ví ──> Mua hàng: trừ ví, tiền vào ký quỹ (escrow)
 3. Admin: `/admin/tasks` xử lý từng URL → hoàn thành/thất bại.
 4. Hệ thống: tự chuyển đơn `Đã giao` / hoàn tiền tỉ lệ / huỷ.
 5. Buyer: xác nhận (hoặc chờ hết ký quỹ) → tiền về seller.
+
+---
+
+## Nạp ví — PayOS & USDT (NOWPayments)
+
+- **PayOS (CKNH VND):** mặc định khi hiển thị tiền VND. Webhook
+  `/webhooks/payos`; đối soát admin `/admin/deposits`.
+- **USDT BEP20 (NOWPayments):** mặc định khi hiển thị USD (nếu
+  `NOWPAYMENTS_ENABLED=true`). Buyer gửi đúng `pay_amount` trên mạng
+  **BEP20** — không gửi ERC20/TRC20. IPN `/webhooks/nowpayments`.
+- Ledger ví luôn **VND integer**; credit USDT = số VND đã chốt lúc tạo
+  lệnh (sau khi payment `finished` + `actually_paid` hợp lệ).
+- Outcome wallet merchant trên dashboard NOW: **USDT BEP20**.
+- Rollback crypto: `NOWPAYMENTS_ENABLED=false` → chỉ còn PayOS.
+- Runbook chi tiết:
+  `docs/superpowers/plans/2026-08-12-nowpayments-sandbox-runbook.md`.

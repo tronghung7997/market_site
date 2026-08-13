@@ -100,8 +100,6 @@ def _enable_now(monkeypatch):
     monkeypatch.setattr(settings, "nowpayments_ipn_secret", "test-now-ipn-secret")
     monkeypatch.setattr(settings, "nowpayments_auth_email", "now@example.com")
     monkeypatch.setattr(settings, "nowpayments_auth_password", "test-now-password")
-    monkeypatch.setattr(settings, "nowpayments_default_pay_currency", "usdtbsc")
-    monkeypatch.setattr(settings, "nowpayments_allowed_pay_currencies", "usdtbsc")
     monkeypatch.setattr(settings, "nowpayments_outcome_currency", "usdtbsc")
     monkeypatch.setattr(settings, "deposit_usdt_min_vnd", 50_000)
     monkeypatch.setattr(settings, "deposit_usdt_max_vnd", 50_000_000)
@@ -290,13 +288,9 @@ class TestNowPaymentsCreate:
 class TestNowPaymentsIpn:
     @pytest.mark.asyncio
     async def test_hosted_invoice_binds_selected_usdt_network(self, client, monkeypatch):
+        """Any USDT network chosen on NOW checkout can credit (no admin allowlist)."""
         _enable_now(monkeypatch)
         await _seed_rail_now_enabled()
-        from src.payments import rail_config
-        async with SessionLocal() as db:
-            rail = await rail_config.ensure_seeded(db)
-            rail.nowpayments_allowed_pay_currencies = "usdtbsc,usdttrc20"
-            await db.commit()
         await register_and_login(client, "hostedipn@example.com")
         intent_id = await _make_now_intent(
             "hostedipn@example.com",
@@ -643,7 +637,8 @@ class TestDepositMethods:
         assert resp.status_code == 200
         body = resp.json()
         assert body["nowpayments_enabled"] is True
-        assert "usdtbsc" in body["nowpayments_allowed_pay_currencies"]
+        assert "nowpayments_allowed_pay_currencies" not in body
+        assert "deposit_usdt_min_vnd" in body
 
     @pytest.mark.asyncio
     async def test_admin_rail_config_get_patch(self, client, monkeypatch):

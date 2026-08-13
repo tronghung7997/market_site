@@ -1,5 +1,12 @@
 [
   {
+    "date": "2026-08-13",
+    "macrostructure": "Split Studio",
+    "theme": "preserved project system (Proxora light — Newsreader/Be Vietnam Pro/JetBrains Mono, iris)",
+    "enrichment": "none",
+    "brief": "Gộp /admin/display-settings + /admin/deposit-rails thành một trang Tiền & nạp: tỷ giá stat-led trái, tuỳ chọn khách phải, hai thẻ cổng nạp dưới"
+  },
+  {
     "date": "2026-07-29",
     "macrostructure": "Aisle shelves (hub) + Category listing page (browse grid)",
     "theme": "preserved project system (Proxora light — giữ nguyên token/type)",

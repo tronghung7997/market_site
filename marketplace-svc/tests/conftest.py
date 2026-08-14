@@ -64,6 +64,11 @@ async def clean_db(request):
     if request.node.get_closest_marker("no_db"):
         yield
         return
+    # Process-local config caches survive TRUNCATE; wipe them so tests never
+    # observe a previous case's display_money / deposit_rail public payload.
+    from src.runtime_config import clear_all_process_config_caches
+
+    clear_all_process_config_caches()
     async with engine.begin() as conn:
         result = await conn.execute(
             text(

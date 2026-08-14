@@ -936,6 +936,7 @@
     "depositCancel": "Huỷ",
     "depositRecent": "Lệnh gần đây",
     "depositMinError": "Số tiền nạp tối thiểu {amount}.",
+    "depositMaxError": "Số tiền nạp tối đa {amount} mỗi lệnh.",
     "depositNetworkBadge": "Chọn mạng USDT của bạn",
     "depositNetworkWarn": "Chọn mạng trên NOWPayments, sau đó chỉ gửi đúng asset và mạng hiển thị tại đó.",
     "depositPayAmount": "Gửi đúng {amount} USDT",

@@ -2,6 +2,9 @@
 
 Secrets stay in env (NOW API key / IPN secret / PayOS keys).
 Operational flags + limits seed from env once, then live in deposit_rail_config.
+
+Public methods payload is process-cached (soft TTL + hard invalidate on write)
+so wallet deposit method lists avoid a DB round-trip every request.
 """
 from __future__ import annotations
 
@@ -13,8 +16,11 @@ from src.audit.service import log_event
 from src.config import settings
 from src.models.deposit_rail_config import DepositRailConfig
 from src.payments import nowpayments_client, payos_client
+from src.runtime_config import ProcessConfigCache
 
 _CONFIG_ID = 1
+
+_public_cache: ProcessConfigCache[dict] = ProcessConfigCache("deposit_rail_public")
 
 # Sanity bounds for admin edits
 _MIN_AMOUNT_FLOOR = 1_000
@@ -111,10 +117,16 @@ def row_to_admin(row: DepositRailConfig) -> dict:
 
 
 async def public_methods(db: AsyncSession) -> dict:
+    cached = _public_cache.get()
+    if cached is not None:
+        return cached
+
     row = await ensure_seeded(db)
     # Don't force-commit here if caller is mid-transaction; flush is enough.
     # Commit only when this is a standalone public GET.
-    return row_to_public(row)
+    payload = row_to_public(row)
+    _public_cache.set(payload)
+    return payload
 
 
 async def admin_config(db: AsyncSession) -> dict:
@@ -236,6 +248,8 @@ async def update_config(db: AsyncSession, *, actor_id: int, **fields) -> dict:
     )
     await db.commit()
     await db.refresh(row)
+    _public_cache.invalidate()
+    _public_cache.set(row_to_public(row))
     return row_to_admin(row)
 
 

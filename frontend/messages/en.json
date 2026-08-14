@@ -936,6 +936,7 @@
     "depositCancel": "Cancel",
     "depositRecent": "Recent deposits",
     "depositMinError": "Minimum deposit is {amount}.",
+    "depositMaxError": "Maximum deposit is {amount} per payment.",
     "depositNetworkBadge": "Choose your USDT network",
     "depositNetworkWarn": "Choose the network on NOWPayments, then send only the exact asset and network shown there.",
     "depositPayAmount": "Send exactly {amount} USDT",

@@ -121,6 +121,35 @@ async def test_admin_ui_prefs_default_currency_and_switchers(client):
     assert "env_show_fx_hints" in admin_view
 
 
+@pytest.mark.asyncio
+async def test_public_config_cache_invalidates_on_admin_patch(client):
+    """Same-worker public reads must reflect admin writes immediately (hard invalidate)."""
+    admin_token = await register_and_login(client, "fx-cache-admin@test.com")
+    await make_admin("fx-cache-admin@test.com")
+    admin_token = await register_and_login(client, "fx-cache-admin@test.com")
+    headers = {"Authorization": f"Bearer {admin_token}"}
+
+    first = (await client.get("/public/money-config")).json()
+    assert first["show_fx_hints"] is True
+
+    # Warm path — second GET should still match (cache hit or same DB value).
+    warm = (await client.get("/public/money-config")).json()
+    assert warm["show_fx_hints"] is True
+    assert warm["display_fx_rate"] == first["display_fx_rate"]
+
+    patch = await client.patch(
+        "/admin/money-config",
+        json={"show_fx_hints": False, "display_fx_rate": 28_000},
+        headers=headers,
+    )
+    assert patch.status_code == 200, patch.text
+
+    # Immediate — no soft-TTL wait. Hard invalidate + warm on write.
+    after = (await client.get("/public/money-config")).json()
+    assert after["show_fx_hints"] is False
+    assert after["display_fx_rate"] == 28_000
+
+
 
 @pytest.mark.asyncio
 async def test_order_captures_fx_snapshot(client):

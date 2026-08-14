@@ -7,6 +7,9 @@ Precedence (effective rate):
 
 UI prefs (default currency, currency toggle, locale toggle) prefer DB row
 when present; ENV is seed/fallback only. ENV never overwrites DB on restart.
+
+Hot public reads (public_config / get_effective_rate) use a process-local
+TTL cache; writers hard-invalidate so this worker sees the next read fresh.
 """
 from __future__ import annotations
 
@@ -17,8 +20,12 @@ from sqlalchemy.ext.asyncio import AsyncSession
 from src.audit.service import log_event
 from src.config import settings
 from src.models.display_money_config import DisplayMoneyConfig
+from src.runtime_config import ProcessConfigCache
 
 _CONFIG_ID = 1
+
+# Public payload cache (dict). Admin views always hit DB for env_* + metadata.
+_public_cache: ProcessConfigCache[dict] = ProcessConfigCache("display_money_public")
 
 
 def _rate_in_range(rate: int | None) -> bool:
@@ -97,14 +104,6 @@ async def ensure_seeded(db: AsyncSession) -> DisplayMoneyConfig:
     return row
 
 
-async def get_effective_rate(db: AsyncSession) -> int | None:
-    """Rate for live display and new-order snapshots."""
-    row = await ensure_seeded(db)
-    if _rate_in_range(row.display_fx_rate):
-        return row.display_fx_rate
-    return env_rate()
-
-
 def _ui_from_row(row: DisplayMoneyConfig | None) -> dict:
     if row is None:
         return {
@@ -124,16 +123,40 @@ def _ui_from_row(row: DisplayMoneyConfig | None) -> dict:
     }
 
 
-async def public_config(db: AsyncSession) -> dict:
-    row = await ensure_seeded(db)
+def _public_payload(row: DisplayMoneyConfig) -> dict:
     rate = row.display_fx_rate if _rate_in_range(row.display_fx_rate) else env_rate()
-    await db.commit()
-    ui = _ui_from_row(row)
     return {
         "ledger_currency": "VND",
         "display_fx_rate": rate,
-        **ui,
+        **_ui_from_row(row),
     }
+
+
+async def get_effective_rate(db: AsyncSession) -> int | None:
+    """Rate for live display and new-order snapshots (process-cached)."""
+    cached = _public_cache.get()
+    if cached is not None:
+        rate = cached.get("display_fx_rate")
+        return rate if isinstance(rate, int) else None
+
+    row = await ensure_seeded(db)
+    payload = _public_payload(row)
+    _public_cache.set(payload)
+    rate = payload.get("display_fx_rate")
+    return rate if isinstance(rate, int) else None
+
+
+async def public_config(db: AsyncSession) -> dict:
+    cached = _public_cache.get()
+    if cached is not None:
+        return cached
+
+    row = await ensure_seeded(db)
+    # Persist first-time seed (INSERT was flushed, not committed).
+    await db.commit()
+    payload = _public_payload(row)
+    _public_cache.set(payload)
+    return payload
 
 
 async def admin_config(db: AsyncSession) -> dict:
@@ -239,6 +262,10 @@ async def update_config(
     )
     await db.commit()
     await db.refresh(row)
+    # Hard invalidate so this worker's next public/rate read reloads from DB.
+    _public_cache.invalidate()
+    # Warm cache with post-write public view (same worker, zero lag).
+    _public_cache.set(_public_payload(row))
     return {
         "display_fx_rate": row.display_fx_rate,
         "display_currency_default": row.display_currency_default,

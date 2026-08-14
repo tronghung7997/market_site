@@ -33,6 +33,19 @@ function minPayableUsd(minVnd: number, fxRate: number): number {
   return cents / 100;
 }
 
+/**
+ * Largest USD (2dp) that still passes Math.round(usd * fxRate) <= maxVnd.
+ * Mirrors minPayableUsd so max labels stay payable under the same rounding.
+ */
+function maxPayableUsd(maxVnd: number, fxRate: number): number {
+  if (!(fxRate > 0) || maxVnd <= 0) return 0;
+  let cents = Math.floor((maxVnd / fxRate) * 100);
+  while (cents > 0 && Math.round((cents / 100) * fxRate) > maxVnd) {
+    cents -= 1;
+  }
+  return cents / 100;
+}
+
 function formatUsdAmount(usd: number, locale: string): string {
   const loc = locale === "vi" || locale.startsWith("vi") ? "vi-VN" : "en-US";
   return new Intl.NumberFormat(loc, {
@@ -43,6 +56,9 @@ function formatUsdAmount(usd: number, locale: string): string {
     maximumFractionDigits: 2,
   }).format(usd);
 }
+
+/** Keep USD typing bounded so JS number + FX math stay sane. */
+const USD_INPUT_MAX_INT_DIGITS = 9;
 
 export default function DepositCard({ deposits, onChanged }: {
   deposits: DepositIntent[];
@@ -103,6 +119,9 @@ export default function DepositCard({ deposits, onChanged }: {
   const minVnd = isUsdt
     ? (methods?.deposit_usdt_min_vnd ?? 50_000)
     : (methods?.deposit_min_amount ?? 10_000);
+  const maxVnd = isUsdt
+    ? (methods?.deposit_usdt_max_vnd ?? 50_000_000)
+    : (methods?.deposit_max_amount ?? 100_000_000);
 
   const minUsd = useMemo(() => {
     if (currency === "USD" && fxRate && fxRate > 0) {
@@ -110,6 +129,13 @@ export default function DepositCard({ deposits, onChanged }: {
     }
     return null;
   }, [currency, fxRate, minVnd]);
+
+  const maxUsd = useMemo(() => {
+    if (currency === "USD" && fxRate && fxRate > 0) {
+      return maxPayableUsd(maxVnd, fxRate);
+    }
+    return null;
+  }, [currency, fxRate, maxVnd]);
 
   const amountVnd = useMemo(() => {
     if (currency === "USD" && fxRate && fxRate > 0) {
@@ -129,21 +155,39 @@ export default function DepositCard({ deposits, onChanged }: {
     return Math.round(usd * 100) / 100;
   }, [amount, currency]);
 
+  const hasAmount = amountVnd > 0;
   const meetsMin =
+    hasAmount &&
     amountVnd >= minVnd &&
     (minUsd == null || (amountUsd != null && amountUsd >= minUsd));
+  const meetsMax =
+    !hasAmount ||
+    (amountVnd <= maxVnd &&
+      (maxUsd == null || (amountUsd != null && amountUsd <= maxUsd)));
+  const amountInRange = meetsMin && meetsMax;
 
-  const canCreate = anyRail && meetsMin && !loading && methodsState.status === "ready";
+  const canCreate =
+    anyRail && amountInRange && !loading && methodsState.status === "ready";
 
   const formatMinLabel = useMemo(() => {
     if (minUsd != null) return formatUsdAmount(minUsd, locale);
     return formatLedgerMoney(minVnd, locale);
   }, [minUsd, minVnd, locale, formatLedgerMoney]);
 
+  const formatMaxLabel = useMemo(() => {
+    if (maxUsd != null) return formatUsdAmount(maxUsd, locale);
+    return formatLedgerMoney(maxVnd, locale);
+  }, [maxUsd, maxVnd, locale, formatLedgerMoney]);
+
   const handleCreate = async () => {
     if (methodsState.status !== "ready" || !anyRail) return;
     if (!meetsMin) {
       setErr(t("depositMinError", { amount: formatMinLabel }));
+      return;
+    }
+    if (!meetsMax) {
+      // Prefer display-currency max — never surface ledger-VND API copy in USD mode.
+      setErr(t("depositMaxError", { amount: formatMaxLabel }));
       return;
     }
     if (isUsdt && !nowOn) {
@@ -175,7 +219,16 @@ export default function DepositCard({ deposits, onChanged }: {
       await onChanged();
     } catch (e) {
       if (payTab) payTab.close();
-      setErr(e instanceof Error ? e.message : t("depositCreateFail"));
+      // Backend still speaks ledger VND; remap known max/min failures to the
+      // same display-currency copy the client uses for local validation.
+      const raw = e instanceof Error ? e.message : "";
+      if (/tối đa|maximum|max/i.test(raw)) {
+        setErr(t("depositMaxError", { amount: formatMaxLabel }));
+      } else if (/tối thiểu|minimum|min/i.test(raw)) {
+        setErr(t("depositMinError", { amount: formatMinLabel }));
+      } else {
+        setErr(raw || t("depositCreateFail"));
+      }
     } finally {
       setLoading(false);
     }
@@ -292,7 +345,7 @@ export default function DepositCard({ deposits, onChanged }: {
                   {isUsdt ? t("depositPaymentMethodUsdt") : t("depositPaymentMethodValue")}
                 </span>
               </div>
-              {meetsMin && (
+              {amountInRange && (
                 <div className="flex items-baseline justify-between gap-3 text-[12.5px] pt-1.5 border-t border-line/70">
                   <span className="text-muted">{t("depositYouWillTransfer")}</span>
                   <span className="font-mono font-semibold tabular text-fg">
@@ -306,9 +359,11 @@ export default function DepositCard({ deposits, onChanged }: {
             </div>
 
             <div>
-              <div className="flex items-baseline justify-between mb-1.5">
+              <div className="flex items-baseline justify-between gap-2 mb-1.5">
                 <span className="text-[11px] uppercase tracking-wider text-faint font-medium">{t("depositAmount")}</span>
-                <span className="text-[11px] text-faint">{t("depositMin", { amount: formatMinLabel })}</span>
+                <span className="text-[11px] text-faint text-right">
+                  {t("depositMin", { amount: formatMinLabel })}
+                </span>
               </div>
               {currency === "USD" && fxRate ? (
                 <div className="relative">
@@ -321,7 +376,11 @@ export default function DepositCard({ deposits, onChanged }: {
                       let v = e.target.value.replace(/[^\d.]/g, "");
                       const dot = v.indexOf(".");
                       if (dot !== -1) {
-                        v = v.slice(0, dot + 1) + v.slice(dot + 1).replace(/\./g, "").slice(0, 2);
+                        const intPart = v.slice(0, dot).slice(0, USD_INPUT_MAX_INT_DIGITS);
+                        const frac = v.slice(dot + 1).replace(/\./g, "").slice(0, 2);
+                        v = frac.length > 0 || v.endsWith(".") ? `${intPart}.${frac}` : intPart;
+                      } else {
+                        v = v.slice(0, USD_INPUT_MAX_INT_DIGITS);
                       }
                       setAmount(v);
                       setErr("");
@@ -334,30 +393,46 @@ export default function DepositCard({ deposits, onChanged }: {
                     }}
                     placeholder="e.g. 20.00"
                     disabled={loading}
+                    aria-invalid={hasAmount && !meetsMax}
                     className={cn(
-                      "h-10 w-full rounded-lg bg-surface border border-line pl-3 pr-9 text-sm text-fg",
+                      "h-10 w-full rounded-lg bg-surface border pl-3 pr-9 text-sm text-fg",
                       "font-mono tabular-nums text-right",
                       "placeholder:text-faint placeholder:font-sans placeholder:text-left",
-                      "transition-colors focus:border-iris focus:bg-panel",
+                      "transition-colors focus:bg-panel",
                       "disabled:opacity-60 disabled:cursor-not-allowed",
+                      hasAmount && !meetsMax
+                        ? "border-bad focus:border-bad"
+                        : "border-line focus:border-iris",
                     )}
                   />
                   <span aria-hidden className="absolute right-3 top-1/2 -translate-y-1/2 text-[13px] text-faint font-medium select-none">
                     $
                   </span>
-                  {showFxHints && amountVnd > 0 && (
+                  {hasAmount && !meetsMax && (
+                    <p className="mt-1 text-[11px] text-bad">
+                      {t("depositMaxError", { amount: formatMaxLabel })}
+                    </p>
+                  )}
+                  {showFxHints && amountInRange && amountVnd > 0 && (
                     <p className="mt-1 text-[11px] text-muted tabular-nums">
                       ≈ {formatLedgerMoney(amountVnd, locale)}
                     </p>
                   )}
                 </div>
               ) : (
-                <MoneyInput
-                  value={amount}
-                  onValueChange={(v) => { setAmount(v); setErr(""); }}
-                  placeholder={t("depositPlaceholder")}
-                  disabled={loading}
-                />
+                <div>
+                  <MoneyInput
+                    value={amount}
+                    onValueChange={(v) => { setAmount(v); setErr(""); }}
+                    placeholder={t("depositPlaceholder")}
+                    disabled={loading}
+                  />
+                  {hasAmount && !meetsMax && (
+                    <p className="mt-1 text-[11px] text-bad">
+                      {t("depositMaxError", { amount: formatMaxLabel })}
+                    </p>
+                  )}
+                </div>
               )}
               <div className="flex gap-1.5 mt-2">
                 {presets.map((preset) => {
@@ -396,7 +471,7 @@ export default function DepositCard({ deposits, onChanged }: {
             >
               {loading
                 ? t("depositCreating")
-                : meetsMin
+                : amountInRange
                   ? t("depositCreateAmount", { amount: formatAmountLabel(amountVnd) })
                   : t("depositCreate")}
             </Button>

@@ -36,7 +36,7 @@ export default function OrderCard({
   const tc = useTranslations("common");
   const tcur = useTranslations("currency");
   const locale = useLocale();
-  const { formatOrderHistoryMoney, currency } = useMoney();
+  const { formatOrderHistoryMoney, currency, showFxHints } = useMoney();
   const st = orderStatus(o.status, locale);
   const [dashboardOpen, setDashboardOpen] = useState(false);
   const [paymentOpen, setPaymentOpen] = useState(false);
@@ -49,7 +49,8 @@ export default function OrderCard({
   // mounts lazily so non-proxy adapters never 404 on list load.
   const mayHaveProxy = delivered && o.product_id != null;
   const rateForDetails = money.rateUsed;
-  const showUsdRateDetail = currency === "USD" && rateForDetails != null;
+  const showUsdRateDetail =
+    showFxHints && currency === "USD" && rateForDetails != null;
 
   return (
     <Card className="p-0 overflow-hidden">

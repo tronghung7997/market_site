@@ -925,6 +925,7 @@
     "depositCreate": "Tạo link thanh toán",
     "depositHint": "PayOS mở trang chuyển khoản. Tiền vào ví tự động sau khi giao dịch thành công.",
     "depositHintUsdt": "Trang thanh toán an toàn của NOWPayments sẽ mở ở tab mới. Chọn mạng USDT và ví tại đó. Ví sẽ cộng đúng VND đã chốt sau khi giao dịch xác nhận.",
+    "depositHintUsdtClean": "Trang thanh toán an toàn của NOWPayments sẽ mở ở tab mới. Chọn mạng USDT và ví tại đó. Số dư cập nhật sau khi giao dịch xác nhận.",
     "depositCreated": "Đã tạo lệnh nạp — quét QR ở tab trang thanh toán vừa mở.",
     "depositCreatedUsdt": "Đã tạo lệnh nạp. Trang thanh toán NOWPayments đã mở ở tab mới.",
     "depositCreateFail": "Tạo lệnh nạp thất bại, thử lại sau.",
@@ -956,7 +957,9 @@
     "txEmpty": "Chưa có giao dịch nào.",
     "txTypes": {
       "topup": "Nạp tiền",
-      "deposit": "Nạp tiền (chuyển khoản)",
+      "deposit": "Nạp tiền",
+      "deposit_usdt": "Nạp USDT",
+      "deposit_bank": "Nạp chuyển khoản",
       "purchase_release": "Nhận thanh toán",
       "refund": "Hoàn tiền",
       "purchase_hold": "Tạm giữ mua hàng",
@@ -1339,6 +1342,8 @@
     "adminShowCurrencyToggleHint": "Tắt thì mọi người chỉ thấy tiền tệ mặc định, không đổi được.",
     "adminShowLocaleToggle": "Hiện bộ chọn ngôn ngữ",
     "adminShowLocaleToggleHint": "Tắt thì ngôn ngữ theo đường dẫn URL — không có bộ chọn trên thanh điều hướng.",
+    "adminShowFxHints": "Hiện gợi ý tỷ giá / quy đổi VND",
+    "adminShowFxHintsHint": "Tắt thì khách xem USD không thấy tỷ giá, số ≈ VND hay ghi chú sổ cái — giao diện thuần USD.",
     "adminSavedAll": "Đã lưu cài đặt hiển thị.",
     "adminResetDoneAll": "Đã khôi phục tỷ giá từ giá trị môi trường."
   }

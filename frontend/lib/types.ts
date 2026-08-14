@@ -164,6 +164,7 @@ export interface MoneyConfigPublic {
   display_currency_default: "VND" | "USD";
   allow_user_toggle: boolean;
   allow_locale_toggle: boolean;
+  show_fx_hints: boolean;
 }
 
 export interface MoneyConfigAdmin extends MoneyConfigPublic {
@@ -173,6 +174,7 @@ export interface MoneyConfigAdmin extends MoneyConfigPublic {
   env_currency_default: "VND" | "USD";
   env_allow_user_toggle: boolean;
   env_allow_locale_toggle: boolean;
+  env_show_fx_hints: boolean;
   updated_at: string | null;
   updated_by_id: number | null;
   source: "db" | "env" | "none";
@@ -183,6 +185,7 @@ export type MoneyConfigUpdate = {
   display_currency_default?: "VND" | "USD";
   allow_user_toggle?: boolean;
   allow_locale_toggle?: boolean;
+  show_fx_hints?: boolean;
 };
 
 export interface TimelineEvent {

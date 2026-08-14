@@ -33,6 +33,38 @@ export default function TransactionList({ txs }: { txs: Transaction[] }) {
         return { label: t(key), tone: HOLD_TONE[tx.order_status] ?? "warn" };
       }
     }
+    // Ledger type is still "deposit" for both rails; pick badge from backend note.
+    if (tx.type === "deposit") {
+      const blob = `${tx.description ?? ""} ${tx.reference_id ?? ""}`.toLowerCase();
+      const usdtKey = "txTypes.deposit_usdt" as const;
+      const bankKey = "txTypes.deposit_bank" as const;
+      if (blob.includes("usdt") || blob.includes("nowpayments")) {
+        return {
+          label: t.has(usdtKey)
+            ? t(usdtKey)
+            : locale.startsWith("vi")
+              ? "Nạp USDT"
+              : "USDT deposit",
+          tone: "good",
+        };
+      }
+      if (
+        blob.includes("payos")
+        || blob.includes("chuyển khoản")
+        || blob.includes("bank")
+        || blob.includes("cknh")
+      ) {
+        return {
+          label: t.has(bankKey)
+            ? t(bankKey)
+            : locale.startsWith("vi")
+              ? "Nạp chuyển khoản"
+              : "Bank deposit",
+          tone: "good",
+        };
+      }
+      return { label: t("txTypes.deposit"), tone: "good" };
+    }
     const typeKey = `txTypes.${tx.type}` as const;
     return {
       label: t.has(typeKey) ? t(typeKey) : tx.type,

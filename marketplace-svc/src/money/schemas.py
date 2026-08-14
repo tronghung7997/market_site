@@ -10,6 +10,7 @@ class MoneyConfigPublic(BaseModel):
     display_currency_default: str
     allow_user_toggle: bool
     allow_locale_toggle: bool
+    show_fx_hints: bool
 
 
 class MoneyConfigAdmin(MoneyConfigPublic):
@@ -19,6 +20,7 @@ class MoneyConfigAdmin(MoneyConfigPublic):
     env_currency_default: str
     env_allow_user_toggle: bool
     env_allow_locale_toggle: bool
+    env_show_fx_hints: bool
     updated_at: datetime | None = None
     updated_by_id: int | None = None
     source: str  # "db" | "env" | "none"
@@ -30,6 +32,7 @@ class MoneyConfigUpdate(BaseModel):
     display_currency_default: Literal["VND", "USD"] | None = None
     allow_user_toggle: bool | None = None
     allow_locale_toggle: bool | None = None
+    show_fx_hints: bool | None = None
 
     @model_validator(mode="after")
     def at_least_one(self):
@@ -38,6 +41,7 @@ class MoneyConfigUpdate(BaseModel):
             and self.display_currency_default is None
             and self.allow_user_toggle is None
             and self.allow_locale_toggle is None
+            and self.show_fx_hints is None
         ):
             raise ValueError("At least one field is required")
         return self
@@ -48,6 +52,7 @@ class MoneyConfigUpdateResponse(BaseModel):
     display_currency_default: str
     allow_user_toggle: bool
     allow_locale_toggle: bool
+    show_fx_hints: bool
     old_rate: int | None = None
     updated_at: datetime
     updated_by_id: int

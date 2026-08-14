@@ -37,6 +37,7 @@ async def update_money_config(
         display_currency_default=body.display_currency_default,
         allow_user_toggle=body.allow_user_toggle,
         allow_locale_toggle=body.allow_locale_toggle,
+        show_fx_hints=body.show_fx_hints,
     )
 
 

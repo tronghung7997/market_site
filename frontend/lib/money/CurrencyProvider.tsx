@@ -54,6 +54,8 @@ type MoneyContextValue = {
   allowToggle: boolean;
   /** Show EN|VI language switcher. */
   allowLocaleToggle: boolean;
+  /** Buyer-facing FX / VND conversion hints (rate tooltip, ≈ ledger). */
+  showFxHints: boolean;
   formatLedgerMoney: (amountVnd: number, locale?: string) => string;
   formatBrowseMoney: (amountVnd: number, opts?: LocaleOpts) => string;
   formatCheckoutMoney: (amountVnd: number, opts?: LocaleOpts) => string;
@@ -123,6 +125,8 @@ function normalizeConfig(body: Partial<MoneyConfig>): MoneyConfig {
     display_currency_default: def,
     allow_user_toggle: !!body.allow_user_toggle,
     allow_locale_toggle: !!body.allow_locale_toggle,
+    // Missing field → true (legacy API / partial body keeps hints visible).
+    show_fx_hints: body.show_fx_hints !== false,
   };
 }
 
@@ -256,6 +260,7 @@ export function CurrencyProvider({
       fxRate,
       allowToggle: config.allow_user_toggle,
       allowLocaleToggle: config.allow_locale_toggle,
+      showFxHints: config.show_fx_hints,
       formatLedgerMoney: (amountVnd, locale = "en") =>
         formatLedgerMoney(amountVnd, locale),
       formatBrowseMoney: (amountVnd, opts) =>
@@ -297,6 +302,7 @@ export function useMoney(): MoneyContextValue {
       fxRate: null,
       allowToggle: false,
       allowLocaleToggle: false,
+      showFxHints: false,
       formatLedgerMoney: (a, l) => formatLedgerMoney(a, l),
       formatBrowseMoney: (a, opts) =>
         formatLedgerMoney(a, opts?.locale ?? "en"),

@@ -32,6 +32,10 @@ class DisplayMoneyConfig(Base):
     allow_locale_toggle: Mapped[bool] = mapped_column(
         Boolean, nullable=False, default=False, server_default="false",
     )
+    # Buyer-facing FX / VND conversion hints (≈ rate, ledger notes). Off = pure USD chrome.
+    show_fx_hints: Mapped[bool] = mapped_column(
+        Boolean, nullable=False, default=True, server_default="true",
+    )
     updated_at: Mapped[datetime] = mapped_column(
         DateTime(timezone=True), server_default=func.now(), onupdate=func.now(),
     )

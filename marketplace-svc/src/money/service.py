@@ -47,6 +47,10 @@ def env_allow_locale_toggle() -> bool:
     return bool(settings.display_allow_locale_toggle)
 
 
+def env_show_fx_hints() -> bool:
+    return bool(settings.display_show_fx_hints)
+
+
 async def get_config_row(db: AsyncSession) -> DisplayMoneyConfig | None:
     return await db.get(DisplayMoneyConfig, _CONFIG_ID)
 
@@ -78,6 +82,7 @@ async def ensure_seeded(db: AsyncSession) -> DisplayMoneyConfig:
             display_currency_default=env_currency_default(),
             allow_user_toggle=env_allow_user_toggle(),
             allow_locale_toggle=env_allow_locale_toggle(),
+            show_fx_hints=env_show_fx_hints(),
             updated_by_id=None,
         )
         .on_conflict_do_nothing(index_elements=["id"])
@@ -106,6 +111,7 @@ def _ui_from_row(row: DisplayMoneyConfig | None) -> dict:
             "display_currency_default": env_currency_default(),
             "allow_user_toggle": env_allow_user_toggle(),
             "allow_locale_toggle": env_allow_locale_toggle(),
+            "show_fx_hints": env_show_fx_hints(),
         }
     default = (row.display_currency_default or "USD").upper()
     if default not in ("VND", "USD"):
@@ -114,6 +120,7 @@ def _ui_from_row(row: DisplayMoneyConfig | None) -> dict:
         "display_currency_default": default,
         "allow_user_toggle": bool(row.allow_user_toggle),
         "allow_locale_toggle": bool(row.allow_locale_toggle),
+        "show_fx_hints": bool(getattr(row, "show_fx_hints", True)),
     }
 
 
@@ -152,6 +159,7 @@ async def admin_config(db: AsyncSession) -> dict:
         "env_currency_default": env_currency_default(),
         "env_allow_user_toggle": env_allow_user_toggle(),
         "env_allow_locale_toggle": env_allow_locale_toggle(),
+        "env_show_fx_hints": env_show_fx_hints(),
         "updated_at": row.updated_at if row else None,
         "updated_by_id": row.updated_by_id if row else None,
         "source": source,
@@ -182,6 +190,7 @@ async def update_config(
     display_currency_default: str | None = None,
     allow_user_toggle: bool | None = None,
     allow_locale_toggle: bool | None = None,
+    show_fx_hints: bool | None = None,
 ) -> dict:
     row = await ensure_seeded(db)
     old = {
@@ -189,6 +198,7 @@ async def update_config(
         "display_currency_default": row.display_currency_default,
         "allow_user_toggle": row.allow_user_toggle,
         "allow_locale_toggle": row.allow_locale_toggle,
+        "show_fx_hints": bool(getattr(row, "show_fx_hints", True)),
     }
 
     if display_fx_rate is not None:
@@ -202,6 +212,8 @@ async def update_config(
         row.allow_user_toggle = bool(allow_user_toggle)
     if allow_locale_toggle is not None:
         row.allow_locale_toggle = bool(allow_locale_toggle)
+    if show_fx_hints is not None:
+        row.show_fx_hints = bool(show_fx_hints)
 
     row.updated_by_id = actor_id
     await db.flush()
@@ -219,6 +231,7 @@ async def update_config(
                 "display_currency_default": row.display_currency_default,
                 "allow_user_toggle": row.allow_user_toggle,
                 "allow_locale_toggle": row.allow_locale_toggle,
+                "show_fx_hints": bool(row.show_fx_hints),
             },
             "outcome": "success",
             "source": "admin",
@@ -231,6 +244,7 @@ async def update_config(
         "display_currency_default": row.display_currency_default,
         "allow_user_toggle": row.allow_user_toggle,
         "allow_locale_toggle": row.allow_locale_toggle,
+        "show_fx_hints": bool(row.show_fx_hints),
         "old_rate": old["display_fx_rate"] if display_fx_rate is not None else None,
         "updated_at": row.updated_at,
         "updated_by_id": actor_id,

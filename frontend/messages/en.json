@@ -925,6 +925,7 @@
     "depositCreate": "Create payment link",
     "depositHint": "PayOS opens a bank-transfer page. Funds credit automatically after the transfer clears.",
     "depositHintUsdt": "Secure NOWPayments checkout opens next. Choose a USDT network and wallet there. Your wallet credits the locked VND amount after confirmation.",
+    "depositHintUsdtClean": "Secure NOWPayments checkout opens next. Choose a USDT network and wallet there. Your balance updates after confirmation.",
     "depositCreated": "Deposit created — scan the QR in the payment tab that just opened.",
     "depositCreatedUsdt": "Deposit created. NOWPayments checkout is open in a new tab.",
     "depositCreateFail": "Could not create deposit. Try again later.",
@@ -956,7 +957,9 @@
     "txEmpty": "No transactions yet.",
     "txTypes": {
       "topup": "Top-up",
-      "deposit": "Top-up (bank transfer)",
+      "deposit": "Deposit",
+      "deposit_usdt": "USDT deposit",
+      "deposit_bank": "Bank deposit",
       "purchase_release": "Payment received",
       "refund": "Refund",
       "purchase_hold": "Purchase hold",
@@ -1339,6 +1342,8 @@
     "adminShowCurrencyToggleHint": "When off, everyone sees the default currency and cannot switch.",
     "adminShowLocaleToggle": "Show language switcher",
     "adminShowLocaleToggleHint": "When off, language follows the URL only — no language control in the nav.",
+    "adminShowFxHints": "Show FX / VND conversion hints",
+    "adminShowFxHintsHint": "When off, buyers on USD never see the rate, ≈ VND amounts, or ledger notes — pure USD chrome.",
     "adminSavedAll": "Display settings saved.",
     "adminResetDoneAll": "Rate restored to the environment value."
   }

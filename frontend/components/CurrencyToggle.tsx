@@ -29,16 +29,19 @@ export default function CurrencyToggle({
 }) {
   const t = useTranslations("currency");
   const locale = useLocale();
-  const { currency, setCurrency, allowToggle, fxRate, configReady } = useMoney();
+  const { currency, setCurrency, allowToggle, fxRate, configReady, showFxHints } = useMoney();
 
   if (!allowToggle) return null;
 
   const rateHint =
-    fxRate != null
-      ? t("rateHint", {
-          rate: new Intl.NumberFormat(locale === "vi" ? "vi-VN" : "en-US").format(fxRate),
-        })
-      : t("rateUnavailable");
+    showFxHints
+      ? fxRate != null
+        ? t("rateHint", {
+            rate: new Intl.NumberFormat(locale === "vi" ? "vi-VN" : "en-US").format(fxRate),
+          })
+        : t("rateUnavailable")
+      : null;
+  const title = rateHint ? `${t("tooltip")}\n${rateHint}` : t("tooltip");
 
   return (
     <div
@@ -57,7 +60,7 @@ export default function CurrencyToggle({
           "shadow-[inset_0_1px_0_rgba(255,255,255,0.65)]",
           !configReady && "opacity-70",
         )}
-        title={`${t("tooltip")}\n${rateHint}`}
+        title={title}
       >
         {OPTIONS.map((opt) => {
           const active = currency === opt.code;

@@ -144,6 +144,7 @@ export default function AdminMoneyAndDepositPage() {
   const [currencyDefault, setCurrencyDefault] = useState<DisplayCurrency>("USD");
   const [allowCurrencyToggle, setAllowCurrencyToggle] = useState(true);
   const [allowLocaleToggle, setAllowLocaleToggle] = useState(false);
+  const [showFxHints, setShowFxHints] = useState(true);
 
   const [rail, setRail] = useState<DepositRailConfigAdmin | null>(null);
   const [railDraft, setRailDraft] = useState<DepositRailConfigUpdate>({});
@@ -162,6 +163,7 @@ export default function AdminMoneyAndDepositPage() {
     setCurrencyDefault(data.display_currency_default);
     setAllowCurrencyToggle(data.allow_user_toggle);
     setAllowLocaleToggle(data.allow_locale_toggle);
+    setShowFxHints(data.show_fx_hints !== false);
   };
 
   const load = async () => {
@@ -215,8 +217,9 @@ export default function AdminMoneyAndDepositPage() {
       || currencyDefault !== money.display_currency_default
       || allowCurrencyToggle !== money.allow_user_toggle
       || allowLocaleToggle !== money.allow_locale_toggle
+      || showFxHints !== (money.show_fx_hints !== false)
     );
-  }, [money, rateInput, currencyDefault, allowCurrencyToggle, allowLocaleToggle]);
+  }, [money, rateInput, currencyDefault, allowCurrencyToggle, allowLocaleToggle, showFxHints]);
 
   const railsDirty = Object.keys(railDraft).length > 0;
 
@@ -249,6 +252,7 @@ export default function AdminMoneyAndDepositPage() {
         display_currency_default: currencyDefault,
         allow_user_toggle: allowCurrencyToggle,
         allow_locale_toggle: allowLocaleToggle,
+        show_fx_hints: showFxHints,
       });
       setDisplayMsg(t("adminSavedAll"));
       const next = await api.adminMoneyConfig();
@@ -476,6 +480,19 @@ export default function AdminMoneyAndDepositPage() {
                   onChange={setAllowLocaleToggle}
                   disabled={savingDisplay}
                   label={t("adminShowLocaleToggle")}
+                />
+              </div>
+
+              <div className="flex items-center justify-between gap-3 border-t border-line py-2.5">
+                <div className="min-w-0">
+                  <div className="text-[13px] font-medium text-fg">{t("adminShowFxHints")}</div>
+                  <p className="mt-0.5 text-[11px] leading-snug text-muted">{t("adminShowFxHintsHint")}</p>
+                </div>
+                <Switch
+                  checked={showFxHints}
+                  onChange={setShowFxHints}
+                  disabled={savingDisplay}
+                  label={t("adminShowFxHints")}
                 />
               </div>
             </div>

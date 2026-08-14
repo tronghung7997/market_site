@@ -19,6 +19,31 @@ type MethodsState =
   | { status: "error"; message: string }
   | { status: "ready"; methods: DepositMethods };
 
+/**
+ * Smallest USD (2dp) that still passes Math.round(usd * fxRate) >= minVnd.
+ * Plain formatBrowseMoney(minVnd) rounds half-down (e.g. 10_000/26_000 → 0.38$)
+ * so typing that amount yields 9_999 VND and the create button stays disabled.
+ */
+function minPayableUsd(minVnd: number, fxRate: number): number {
+  if (!(fxRate > 0) || minVnd <= 0) return 0;
+  let cents = Math.ceil((minVnd / fxRate) * 100);
+  while (Math.round((cents / 100) * fxRate) < minVnd) {
+    cents += 1;
+  }
+  return cents / 100;
+}
+
+function formatUsdAmount(usd: number, locale: string): string {
+  const loc = locale === "vi" || locale.startsWith("vi") ? "vi-VN" : "en-US";
+  return new Intl.NumberFormat(loc, {
+    style: "currency",
+    currency: "USD",
+    currencyDisplay: "narrowSymbol",
+    minimumFractionDigits: 2,
+    maximumFractionDigits: 2,
+  }).format(usd);
+}
+
 export default function DepositCard({ deposits, onChanged }: {
   deposits: DepositIntent[];
   onChanged: () => Promise<void>;
@@ -26,7 +51,7 @@ export default function DepositCard({ deposits, onChanged }: {
   const t = useTranslations("wallet");
   const td = useTranslations("status.deposit");
   const locale = useLocale();
-  const { currency, formatBrowseMoney, formatLedgerMoney, fxRate } = useMoney();
+  const { currency, formatBrowseMoney, formatLedgerMoney, fxRate, showFxHints } = useMoney();
 
   const [methodsState, setMethodsState] = useState<MethodsState>({ status: "loading" });
   const [method, setMethod] = useState<DepositMethod>("payos");
@@ -79,25 +104,46 @@ export default function DepositCard({ deposits, onChanged }: {
     ? (methods?.deposit_usdt_min_vnd ?? 50_000)
     : (methods?.deposit_min_amount ?? 10_000);
 
+  const minUsd = useMemo(() => {
+    if (currency === "USD" && fxRate && fxRate > 0) {
+      return minPayableUsd(minVnd, fxRate);
+    }
+    return null;
+  }, [currency, fxRate, minVnd]);
+
   const amountVnd = useMemo(() => {
     if (currency === "USD" && fxRate && fxRate > 0) {
       const usd = parseFloat(amount) || 0;
       if (usd <= 0) return 0;
-      return Math.round(usd * fxRate);
+      // Match the 2-decimal USD input so 0.3899 cannot sneak past the min label.
+      const cents = Math.round(usd * 100) / 100;
+      return Math.round(cents * fxRate);
     }
     return parseInt(amount, 10) || 0;
   }, [amount, currency, fxRate]);
 
-  const canCreate = anyRail && amountVnd >= minVnd && !loading && methodsState.status === "ready";
+  const amountUsd = useMemo(() => {
+    if (currency !== "USD") return null;
+    const usd = parseFloat(amount);
+    if (!Number.isFinite(usd) || usd <= 0) return 0;
+    return Math.round(usd * 100) / 100;
+  }, [amount, currency]);
+
+  const meetsMin =
+    amountVnd >= minVnd &&
+    (minUsd == null || (amountUsd != null && amountUsd >= minUsd));
+
+  const canCreate = anyRail && meetsMin && !loading && methodsState.status === "ready";
+
+  const formatMinLabel = useMemo(() => {
+    if (minUsd != null) return formatUsdAmount(minUsd, locale);
+    return formatLedgerMoney(minVnd, locale);
+  }, [minUsd, minVnd, locale, formatLedgerMoney]);
 
   const handleCreate = async () => {
     if (methodsState.status !== "ready" || !anyRail) return;
-    if (amountVnd < minVnd) {
-      setErr(t("depositMinError", {
-        amount: currency === "USD" && fxRate
-          ? formatBrowseMoney(minVnd, { locale })
-          : formatLedgerMoney(minVnd, locale),
-      }));
+    if (!meetsMin) {
+      setErr(t("depositMinError", { amount: formatMinLabel }));
       return;
     }
     if (isUsdt && !nowOn) {
@@ -157,11 +203,6 @@ export default function DepositCard({ deposits, onChanged }: {
 
   const pending = deposits.filter((d) => d.status === "pending");
   const recent = deposits.filter((d) => d.status !== "pending").slice(0, 3);
-
-  const formatMin = () =>
-    currency === "USD" && fxRate
-      ? formatBrowseMoney(minVnd, { locale })
-      : formatLedgerMoney(minVnd, locale);
 
   const formatAmountLabel = (vnd: number) =>
     currency === "USD" && fxRate
@@ -251,7 +292,7 @@ export default function DepositCard({ deposits, onChanged }: {
                   {isUsdt ? t("depositPaymentMethodUsdt") : t("depositPaymentMethodValue")}
                 </span>
               </div>
-              {amountVnd >= minVnd && (
+              {meetsMin && (
                 <div className="flex items-baseline justify-between gap-3 text-[12.5px] pt-1.5 border-t border-line/70">
                   <span className="text-muted">{t("depositYouWillTransfer")}</span>
                   <span className="font-mono font-semibold tabular text-fg">
@@ -259,7 +300,7 @@ export default function DepositCard({ deposits, onChanged }: {
                   </span>
                 </div>
               )}
-              {currency === "USD" && (
+              {showFxHints && currency === "USD" && (
                 <p className="text-[11px] text-faint pt-1">{t("depositLedgerNote", { currency: "USD" })}</p>
               )}
             </div>
@@ -267,7 +308,7 @@ export default function DepositCard({ deposits, onChanged }: {
             <div>
               <div className="flex items-baseline justify-between mb-1.5">
                 <span className="text-[11px] uppercase tracking-wider text-faint font-medium">{t("depositAmount")}</span>
-                <span className="text-[11px] text-faint">{t("depositMin", { amount: formatMin() })}</span>
+                <span className="text-[11px] text-faint">{t("depositMin", { amount: formatMinLabel })}</span>
               </div>
               {currency === "USD" && fxRate ? (
                 <div className="relative">
@@ -276,11 +317,22 @@ export default function DepositCard({ deposits, onChanged }: {
                     autoComplete="off"
                     value={amount}
                     onChange={(e) => {
-                      const v = e.target.value.replace(/[^\d.]/g, "");
+                      // USD cents only — strips extra fraction digits so min $0.39 is unambiguous.
+                      let v = e.target.value.replace(/[^\d.]/g, "");
+                      const dot = v.indexOf(".");
+                      if (dot !== -1) {
+                        v = v.slice(0, dot + 1) + v.slice(dot + 1).replace(/\./g, "").slice(0, 2);
+                      }
                       setAmount(v);
                       setErr("");
                     }}
-                    placeholder="e.g. 20"
+                    onBlur={() => {
+                      if (!amount) return;
+                      const usd = parseFloat(amount);
+                      if (!Number.isFinite(usd) || usd <= 0) return;
+                      setAmount((Math.round(usd * 100) / 100).toFixed(2));
+                    }}
+                    placeholder="e.g. 20.00"
                     disabled={loading}
                     className={cn(
                       "h-10 w-full rounded-lg bg-surface border border-line pl-3 pr-9 text-sm text-fg",
@@ -293,7 +345,7 @@ export default function DepositCard({ deposits, onChanged }: {
                   <span aria-hidden className="absolute right-3 top-1/2 -translate-y-1/2 text-[13px] text-faint font-medium select-none">
                     $
                   </span>
-                  {amountVnd > 0 && (
+                  {showFxHints && amountVnd > 0 && (
                     <p className="mt-1 text-[11px] text-muted tabular-nums">
                       ≈ {formatLedgerMoney(amountVnd, locale)}
                     </p>
@@ -344,12 +396,14 @@ export default function DepositCard({ deposits, onChanged }: {
             >
               {loading
                 ? t("depositCreating")
-                : amountVnd >= minVnd
+                : meetsMin
                   ? t("depositCreateAmount", { amount: formatAmountLabel(amountVnd) })
                   : t("depositCreate")}
             </Button>
             <p className="text-[11.5px] text-faint leading-relaxed">
-              {isUsdt ? t("depositHintUsdt") : t("depositHint")}
+              {isUsdt
+                ? (showFxHints ? t("depositHintUsdt") : t("depositHintUsdtClean"))
+                : t("depositHint")}
             </p>
           </>
         )}

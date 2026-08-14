@@ -50,6 +50,8 @@ async function loadMoneyConfig(): Promise<MoneyConfig | null> {
       display_currency_default: def,
       allow_user_toggle: !!body.allow_user_toggle,
       allow_locale_toggle: !!body.allow_locale_toggle,
+      // Default true when API is older / missing the field — safer (hints stay on).
+      show_fx_hints: body.show_fx_hints !== false,
     };
   } catch {
     return null;

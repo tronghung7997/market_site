@@ -20,6 +20,8 @@ export const MONEY_CONFIG_FALLBACK = {
   display_currency_default: "USD" as DisplayCurrency,
   allow_user_toggle: false,
   allow_locale_toggle: false,
+  /** Off → hide rate / VND conversion hints for pure-USD chrome. */
+  show_fx_hints: true,
 };
 
 export type MoneyConfig = {
@@ -28,4 +30,5 @@ export type MoneyConfig = {
   display_currency_default: DisplayCurrency;
   allow_user_toggle: boolean;
   allow_locale_toggle: boolean;
+  show_fx_hints: boolean;
 };

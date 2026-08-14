@@ -44,9 +44,9 @@ export function MoneyInput({
   const id = useId();
   const locale = useLocale();
   const t = useTranslations("currency");
-  const { currency, formatBrowseMoney, fxRate } = useMoney();
+  const { currency, formatBrowseMoney, fxRate, showFxHints } = useMoney();
   const amount = parseInt(value || "0", 10) || 0;
-  const showUsdHint = currency === "USD" && amount > 0 && fxRate != null;
+  const showUsdHint = showFxHints && currency === "USD" && amount > 0 && fxRate != null;
 
   return (
     <div className={cn("min-w-0", className)}>

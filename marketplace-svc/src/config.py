@@ -139,6 +139,9 @@ class Settings(BaseSettings):
     display_allow_user_toggle: bool = True
     # Language switcher (EN|VI) in TopNav — off by default until product enables it.
     display_allow_locale_toggle: bool = False
+    # Buyer UI FX/VND conversion hints (rate tooltip, ≈ VND under USD inputs).
+    # False = pure USD chrome — visitors never see VND/rate copy.
+    display_show_fx_hints: bool = True
 
     @property
     def cors_origins(self) -> list[str]:

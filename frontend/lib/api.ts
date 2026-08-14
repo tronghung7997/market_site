@@ -425,6 +425,7 @@ export const api = {
       display_currency_default: string;
       allow_user_toggle: boolean;
       allow_locale_toggle: boolean;
+      show_fx_hints: boolean;
       old_rate: number | null;
       updated_at: string;
       updated_by_id: number;
@@ -439,6 +440,7 @@ export const api = {
       display_currency_default: string;
       allow_user_toggle: boolean;
       allow_locale_toggle: boolean;
+      show_fx_hints: boolean;
       old_rate: number | null;
       updated_at: string;
       updated_by_id: number;

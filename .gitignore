@@ -6,3 +6,4 @@ pgdata/
 docker-compose.dev.yml
 .backend.env
 pyproject.toml
+.agents

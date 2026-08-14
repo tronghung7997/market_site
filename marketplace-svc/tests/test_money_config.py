@@ -18,11 +18,13 @@ async def test_public_money_config_seeds_from_env(client):
     assert body["display_currency_default"] in ("USD", "VND")
     assert "allow_user_toggle" in body
     assert "allow_locale_toggle" in body
+    assert body["show_fx_hints"] is True
 
     async with SessionLocal() as db:
         row = await db.get(DisplayMoneyConfig, 1)
         assert row is not None
         assert row.display_fx_rate == 25_500
+        assert row.show_fx_hints is True
 
 
 @pytest.mark.asyncio
@@ -58,6 +60,7 @@ async def test_admin_patch_rate_and_reset_to_env(client):
             "display_currency_default": "VND",
             "allow_user_toggle": False,
             "allow_locale_toggle": True,
+            "show_fx_hints": False,
         },
         headers=headers,
     )
@@ -68,11 +71,13 @@ async def test_admin_patch_rate_and_reset_to_env(client):
     assert reset.json()["display_currency_default"] == "VND"
     assert reset.json()["allow_user_toggle"] is False
     assert reset.json()["allow_locale_toggle"] is True
+    assert reset.json()["show_fx_hints"] is False
 
     admin_view = (await client.get("/admin/money-config", headers=headers)).json()
     assert admin_view["source"] == "db"
     assert admin_view["display_fx_rate"] == 25_500
     assert admin_view["display_currency_default"] == "VND"
+    assert admin_view["show_fx_hints"] is False
 
 
 
@@ -91,6 +96,7 @@ async def test_admin_ui_prefs_default_currency_and_switchers(client):
             "display_currency_default": "VND",
             "allow_user_toggle": False,
             "allow_locale_toggle": True,
+            "show_fx_hints": False,
         },
         headers=headers,
     )
@@ -99,16 +105,20 @@ async def test_admin_ui_prefs_default_currency_and_switchers(client):
     assert body["display_currency_default"] == "VND"
     assert body["allow_user_toggle"] is False
     assert body["allow_locale_toggle"] is True
+    assert body["show_fx_hints"] is False
 
     pub = (await client.get("/public/money-config")).json()
     assert pub["display_currency_default"] == "VND"
     assert pub["allow_user_toggle"] is False
     assert pub["allow_locale_toggle"] is True
+    assert pub["show_fx_hints"] is False
 
     admin_view = (await client.get("/admin/money-config", headers=headers)).json()
     assert admin_view["display_currency_default"] == "VND"
     assert admin_view["allow_locale_toggle"] is True
+    assert admin_view["show_fx_hints"] is False
     assert "env_currency_default" in admin_view
+    assert "env_show_fx_hints" in admin_view
 
 
 

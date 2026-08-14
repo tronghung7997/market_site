@@ -5,8 +5,9 @@
 import { Link } from "@/i18n/navigation";
 import { useLocale, useTranslations } from "next-intl";
 import { useEffect, useMemo, useState } from "react";
-import { api, vnd } from "@/lib/api";
+import { api } from "@/lib/api";
 import { flattenCategories, subtreeIds } from "@/lib/categories";
+import { useMoney } from "@/lib/money";
 import { effectiveMinPrice } from "@/lib/pricing-display";
 import type { Category, Product } from "@/lib/types";
 import { Card, Spinner, Tag } from "@/components/ui";
@@ -17,6 +18,7 @@ import ProductTile from "@/components/ProductTile";
 export default function CategoriesPage() {
   const t = useTranslations("categories");
   const locale = useLocale();
+  const { formatBrowseMoney } = useMoney();
   const [cats, setCats] = useState<Category[]>([]);
   const [products, setProducts] = useState<Product[]>([]);
   const [loading, setLoading] = useState(true);
@@ -103,7 +105,7 @@ export default function CategoriesPage() {
                       </div>
                       <div className="text-[12px] text-muted mt-0.5">
                         {fromPrice > 0
-                          ? t("productCountFrom", { count: items.length, price: vnd(fromPrice, locale) })
+                          ? t("productCountFrom", { count: items.length, price: formatBrowseMoney(fromPrice, { locale }) })
                           : t("productCount", { count: items.length })}
                       </div>
                     </div>

@@ -6,9 +6,10 @@ import { Link } from "@/i18n/navigation";
 import { useParams } from "next/navigation";
 import { useLocale, useTranslations } from "next-intl";
 import { useEffect, useMemo, useState } from "react";
-import { api, vnd } from "@/lib/api";
+import { api } from "@/lib/api";
 import { cn } from "@/lib/cn";
 import { flattenCategories, subtreeIds } from "@/lib/categories";
+import { useMoney } from "@/lib/money";
 import { effectiveMinPrice } from "@/lib/pricing-display";
 import type { Category, Product } from "@/lib/types";
 import { Card, Spinner } from "@/components/ui";
@@ -20,6 +21,7 @@ export default function CategoryPage() {
   const t = useTranslations("categories");
   const tc = useTranslations("common");
   const locale = useLocale();
+  const { formatBrowseMoney } = useMoney();
   const { id } = useParams<{ id: string }>();
   const categoryId = Number(id);
   const [cats, setCats] = useState<Category[]>([]);
@@ -128,7 +130,7 @@ export default function CategoryPage() {
           <h1 className="font-serif text-[24px] sm:text-[26px] leading-tight tracking-tight font-semibold">{category.name}</h1>
           <p className="text-[12.5px] text-muted mt-0.5">
             {fromPrice > 0
-              ? t("sellingCountFrom", { count: inCategory.length, price: vnd(fromPrice, locale) })
+              ? t("sellingCountFrom", { count: inCategory.length, price: formatBrowseMoney(fromPrice, { locale }) })
               : t("sellingCount", { count: inCategory.length })}
           </p>
         </div>

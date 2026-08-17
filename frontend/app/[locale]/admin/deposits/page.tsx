@@ -25,6 +25,30 @@ function fmtTime(s: string | null | undefined): string {
   return `${d.toLocaleDateString("vi-VN")} ${d.toLocaleTimeString("vi-VN", { hour: "2-digit", minute: "2-digit" })}`;
 }
 
+function reconcileMessage(
+  deposit: AdminDepositIntent,
+  result: Awaited<ReturnType<typeof api.adminReconcileDeposit>>,
+): string {
+  const provider = (deposit.provider || "payos") === "nowpayments" ? "NOWPayments" : "PayOS";
+  const prefix = `Lệnh #${deposit.id}`;
+  if (result.reconcile_result === "not_configured") {
+    return `${prefix}: chưa gọi được ${provider} vì thiếu cấu hình đối soát; trạng thái nội bộ vẫn là "${result.status}".`;
+  }
+  if (result.reconcile_result === "provider_error") {
+    return `${prefix}: gọi ${provider} thất bại; trạng thái nội bộ vẫn là "${result.status}".`;
+  }
+  if (result.reconcile_result === "not_found") {
+    return `${prefix}: ${provider} chưa trả về payment tương ứng; trạng thái nội bộ là "${result.status}".`;
+  }
+  if (result.provider_status) {
+    const validation = result.reconcile_result === "validation_failed"
+      ? " Payload finished chưa qua kiểm tra an toàn nên chưa credit."
+      : "";
+    return `${prefix}: ${provider} trả trạng thái "${result.provider_status}"; trạng thái nội bộ là "${result.status}".${validation}`;
+  }
+  return `${prefix}: trạng thái nội bộ là "${result.status}".`;
+}
+
 export default function AdminDepositsPage() {
   const [deposits, setDeposits] = React.useState<AdminDepositIntent[]>([]);
   const [loading, setLoading] = React.useState(true);
@@ -56,8 +80,7 @@ export default function AdminDepositsPage() {
     setMsg(null); setErr(null);
     try {
       const r = await api.adminReconcileDeposit(deposit.id);
-      const provider = (deposit.provider || "payos") === "nowpayments" ? "NOWPayments" : "PayOS";
-      setMsg(`Lệnh #${deposit.id}: ${provider} xác nhận trạng thái "${r.status}".`);
+      setMsg(reconcileMessage(deposit, r));
       await load();
     } catch (e) {
       setErr(e instanceof Error ? e.message : `Đối soát lệnh #${deposit.id} thất bại`);
@@ -73,15 +96,20 @@ export default function AdminDepositsPage() {
     setBulkBusy(true);
     setMsg(null); setErr(null);
     let changed = 0;
+    let needsAttention = 0;
     for (const d of targets) {
       try {
         const r = await api.adminReconcileDeposit(d.id);
         if (r.status !== d.status) changed++;
+        if (["not_configured", "provider_error", "validation_failed"].includes(r.reconcile_result)) {
+          needsAttention++;
+        }
       } catch {
-        // lệnh lỗi bỏ qua — kết quả tổng hợp báo bên dưới, chi tiết xem /admin/logs
+        needsAttention++;
       }
     }
-    setMsg(`Đã đối soát ${targets.length} lệnh — ${changed} lệnh đổi trạng thái.`);
+    const attention = needsAttention > 0 ? `; ${needsAttention} lệnh cần kiểm tra` : "";
+    setMsg(`Đã đối soát ${targets.length} lệnh — ${changed} lệnh đổi trạng thái${attention}.`);
     setBulkBusy(false);
     await load();
   };

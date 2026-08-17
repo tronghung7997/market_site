@@ -755,12 +755,29 @@ async def _alert(
 # ---------------------------------------------------------------------------
 
 
-async def reconcile_intent(intent_id: int, db: AsyncSession) -> str:
+def _reconcile_outcome(
+    status: str,
+    *,
+    provider_status: str | None,
+    reconcile_result: str,
+) -> dict:
+    return {
+        "status": status,
+        "provider_status": provider_status,
+        "reconcile_result": reconcile_result,
+    }
+
+
+async def reconcile_intent(intent_id: int, db: AsyncSession) -> dict:
     intent = await db.get(DepositIntent, intent_id, with_for_update=True)
     if intent is None:
         raise HTTPException(status_code=404, detail="Không tìm thấy lệnh nạp")
     if intent.status == DepositIntentStatus.paid:
-        return intent.status.value
+        return _reconcile_outcome(
+            intent.status.value,
+            provider_status=None,
+            reconcile_result="already_paid",
+        )
 
     provider = intent.provider or DepositProvider.payos.value
     if provider == DepositProvider.nowpayments.value:
@@ -768,15 +785,20 @@ async def reconcile_intent(intent_id: int, db: AsyncSession) -> str:
     return await _reconcile_payos(intent, db)
 
 
-async def _reconcile_payos(intent: DepositIntent, db: AsyncSession) -> str:
+async def _reconcile_payos(intent: DepositIntent, db: AsyncSession) -> dict:
     intent_id = intent.id
     try:
         info = await payos_client.get_payment_info(intent.id)
     except (payos_client.PayOSError, payos_client.PayOSUnavailableError) as e:
         current_status = intent.status.value
+        outcome = _reconcile_outcome(
+            current_status,
+            provider_status=None,
+            reconcile_result="provider_error",
+        )
         logger.warning("deposit_reconcile_failed", intent_id=intent_id, error=str(e), provider="payos")
         await db.rollback()
-        return current_status
+        return outcome
 
     status = info.get("status")
     if status == "PAID":
@@ -791,24 +813,41 @@ async def _reconcile_payos(intent: DepositIntent, db: AsyncSession) -> str:
     elif status == "EXPIRED":
         intent.status = DepositIntentStatus.expired
     await db.commit()
-    return intent.status.value
+    return _reconcile_outcome(
+        intent.status.value,
+        provider_status=str(status).lower() if status is not None else None,
+        reconcile_result="credited" if intent.status == DepositIntentStatus.paid else "checked",
+    )
 
 
-async def _reconcile_nowpayments(intent: DepositIntent, db: AsyncSession) -> str:
+async def _reconcile_nowpayments(intent: DepositIntent, db: AsyncSession) -> dict:
     intent_id = intent.id
     requested_payment_id = str(intent.now_payment_id or "").strip()
     if not requested_payment_id and intent.now_invoice_id:
         if not nowpayments_client.is_reconciliation_configured():
+            outcome = _reconcile_outcome(
+                intent.status.value,
+                provider_status=None,
+                reconcile_result="not_configured",
+            )
             await db.rollback()
-            return intent.status.value
+            return outcome
         try:
             candidates = await nowpayments_client.list_payments_by_invoice(intent.now_invoice_id)
         except (nowpayments_client.NowPaymentsError, nowpayments_client.NowPaymentsUnavailableError) as e:
             current_status = intent.status.value
+            outcome = _reconcile_outcome(
+                current_status,
+                provider_status=None,
+                reconcile_result="provider_error",
+            )
             logger.warning("nowpayments_invoice_reconcile_failed", intent_id=intent_id, error=str(e))
             await db.rollback()
-            return current_status
+            return outcome
 
+        provider_status: str | None = None
+        provider_error = False
+        validation_failed = False
         for candidate in candidates:
             payment_id = str(candidate.get("payment_id") or candidate.get("id") or "").strip()
             if not payment_id:
@@ -817,40 +856,81 @@ async def _reconcile_nowpayments(intent: DepositIntent, db: AsyncSession) -> str
                 info = await nowpayments_client.get_payment(payment_id)
             except (nowpayments_client.NowPaymentsError, nowpayments_client.NowPaymentsUnavailableError) as e:
                 logger.warning("nowpayments_payment_reconcile_failed", intent_id=intent_id, error=str(e))
+                provider_error = True
                 continue
-            if str(info.get("payment_status") or "").lower() == "finished":
-                await _try_credit_nowpayments_finished(intent, info, db, source="reconcile_invoice")
+            candidate_status = str(info.get("payment_status") or "").lower() or None
+            if candidate_status and (provider_status != "finished" or candidate_status == "finished"):
+                provider_status = candidate_status
+            if candidate_status == "finished":
+                credited = await _try_credit_nowpayments_finished(
+                    intent, info, db, source="reconcile_invoice",
+                )
+                validation_failed = validation_failed or not credited
                 if intent.status == DepositIntentStatus.paid:
                     break
         await db.commit()
         await db.refresh(intent)
-        return intent.status.value
+        if intent.status == DepositIntentStatus.paid:
+            result = "credited"
+        elif validation_failed:
+            result = "validation_failed"
+        elif provider_status is not None:
+            result = "checked"
+        elif provider_error:
+            result = "provider_error"
+        else:
+            result = "not_found"
+        return _reconcile_outcome(
+            intent.status.value,
+            provider_status=provider_status,
+            reconcile_result=result,
+        )
 
     if not requested_payment_id:
+        outcome = _reconcile_outcome(
+            intent.status.value,
+            provider_status=None,
+            reconcile_result="not_found",
+        )
         await db.rollback()
-        return intent.status.value
+        return outcome
     if not nowpayments_client.is_configured():
-        current = intent.status.value
+        outcome = _reconcile_outcome(
+            intent.status.value,
+            provider_status=None,
+            reconcile_result="not_configured",
+        )
         await db.rollback()
-        return current
+        return outcome
 
     try:
         info = await nowpayments_client.get_payment(requested_payment_id)
     except (nowpayments_client.NowPaymentsError, nowpayments_client.NowPaymentsUnavailableError) as e:
         current_status = intent.status.value
+        outcome = _reconcile_outcome(
+            current_status,
+            provider_status=None,
+            reconcile_result="provider_error",
+        )
         logger.warning("deposit_reconcile_failed", intent_id=intent_id, error=str(e), provider="nowpayments")
         await db.rollback()
-        return current_status
+        return outcome
 
-    status = str(info.get("payment_status") or "").lower()
-    if status == "finished":
+    provider_status = str(info.get("payment_status") or "").lower() or None
+    reconcile_result = "checked"
+    if provider_status == "finished":
         # Re-lock path: intent may be expired after refresh — get again after remote call.
         # We still hold the same session object; if rollback happened we'd need re-fetch.
-        await _try_credit_nowpayments_finished(intent, info, db, source="reconcile")
+        credited = await _try_credit_nowpayments_finished(intent, info, db, source="reconcile")
+        reconcile_result = "credited" if credited else "validation_failed"
     await db.commit()
     # Refresh status after possible credit
     await db.refresh(intent)
-    return intent.status.value
+    return _reconcile_outcome(
+        intent.status.value,
+        provider_status=provider_status,
+        reconcile_result=reconcile_result,
+    )
 
 
 async def list_payos_events(db: AsyncSession, order_code: int | None = None, limit: int = 50) -> list[dict]:

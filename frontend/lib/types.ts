@@ -317,6 +317,20 @@ export interface DepositMethods {
   deposit_usdt_max_vnd: number;
 }
 
+export interface DepositReconcileResult {
+  id: number;
+  status: DepositIntent["status"];
+  provider_status: string | null;
+  reconcile_result:
+    | "already_paid"
+    | "checked"
+    | "credited"
+    | "not_configured"
+    | "not_found"
+    | "provider_error"
+    | "validation_failed";
+}
+
 export interface DepositRailConfigAdmin {
   payos_enabled: boolean;
   nowpayments_enabled: boolean;

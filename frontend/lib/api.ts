@@ -1,5 +1,5 @@
 import type {
-  Account, ActionItem, AdminDepositIntent, AdminDisputeDetail, AdminOrderDetail, AdminProduct, AdminResourceListResponse, AffiliateStats, AffiliateSummary, CalculateResult, Category, ChargeUsageResult, DashboardData, DepositIntent, DepositMethods, DepositRailConfigAdmin, DepositRailConfigUpdate, Dispute, PayosWebhookEventRow, AdminAccountWallet, FundOverview, AccountAdminRow, PaginatedAccounts, LogEntry, MoneyConfigAdmin, MoneyConfigPublic, MoneyConfigUpdate, Order, OrderStats, PaginatedAffiliateSummary, PaginatedOrderResponse, PaginatedProducts, PricingField, PricingOptions, ProductDetail, AdminProductDetail, Product, ProductOperations, ProxyState, ProxyRotateResult, ProxyWhitelistResult, Review, SellerApplication, SellerProduct, SellerStats, ServiceTask, TikTokLookupResponse, Transaction, Variant, Wallet, WithdrawRequest, Provider, ProviderHealth, Alert, Resource, ResourceSummary, ResourceSellerFacet, InventoryVariant, SellerSummary, SellerProfile, SellerApiKey, SellerApiKeyCreated,
+  Account, ActionItem, AdminDepositIntent, AdminDisputeDetail, AdminOrderDetail, AdminProduct, AdminResourceListResponse, AffiliateStats, AffiliateSummary, CalculateResult, Category, ChargeUsageResult, DashboardData, DepositIntent, DepositMethods, DepositReconcileResult, DepositRailConfigAdmin, DepositRailConfigUpdate, Dispute, PayosWebhookEventRow, AdminAccountWallet, FundOverview, AccountAdminRow, PaginatedAccounts, LogEntry, MoneyConfigAdmin, MoneyConfigPublic, MoneyConfigUpdate, Order, OrderStats, PaginatedAffiliateSummary, PaginatedOrderResponse, PaginatedProducts, PricingField, PricingOptions, ProductDetail, AdminProductDetail, Product, ProductOperations, ProxyState, ProxyRotateResult, ProxyWhitelistResult, Review, SellerApplication, SellerProduct, SellerStats, ServiceTask, TikTokLookupResponse, Transaction, Variant, Wallet, WithdrawRequest, Provider, ProviderHealth, Alert, Resource, ResourceSummary, ResourceSellerFacet, InventoryVariant, SellerSummary, SellerProfile, SellerApiKey, SellerApiKeyCreated,
 } from "./types";
 
 // Browser requests are always same-origin. This prevents a production bundle
@@ -272,7 +272,7 @@ export const api = {
       method: "POST",
     }, true),
   adminReconcileDeposit: (id: number) =>
-    request<{ id: number; status: string }>(`/admin/deposits/${id}/reconcile`, { method: "POST" }, true),
+    request<DepositReconcileResult>(`/admin/deposits/${id}/reconcile`, { method: "POST" }, true),
   adminPayosEvents: (orderCode?: number) =>
     request<PayosWebhookEventRow[]>(`/admin/payos-events${orderCode != null ? `?order_code=${orderCode}` : ""}`, {}, true),
   adminAccountWallet: (accountId: number) =>

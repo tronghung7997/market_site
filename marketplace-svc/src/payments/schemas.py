@@ -49,6 +49,27 @@ class AdminDepositResponse(DepositResponse):
     outcome_currency: str | None = None
 
 
+class DepositReconcileResponse(BaseModel):
+    """Admin reconciliation result.
+
+    ``status`` is the local deposit state. ``provider_status`` is the status
+    returned by the payment provider, when a provider request was made.
+    """
+
+    id: int
+    status: str
+    provider_status: str | None = None
+    reconcile_result: Literal[
+        "already_paid",
+        "checked",
+        "credited",
+        "not_configured",
+        "not_found",
+        "provider_error",
+        "validation_failed",
+    ]
+
+
 class DepositMethodsResponse(BaseModel):
     """FE uses this to show/hide rails without guessing env.
     Flags are effective (admin toggle AND secrets present)."""

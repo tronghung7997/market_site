@@ -518,6 +518,60 @@ class TestNowPaymentsIpn:
         assert await _balance("ipn11@example.com") == 0
 
     @pytest.mark.asyncio
+    async def test_reconcile_reports_provider_status_separately_from_local_status(self, client, monkeypatch):
+        _enable_now(monkeypatch)
+        token = await register_and_login(client, "reconcile-status@example.com")
+        await make_admin("reconcile-status@example.com")
+        intent_id = await _make_now_intent(
+            "reconcile-status@example.com", 255_000, payment_id="payment-confirming",
+        )
+
+        async def fake_get(payment_id):
+            assert payment_id == "payment-confirming"
+            return {"payment_id": payment_id, "payment_status": "confirming"}
+
+        monkeypatch.setattr(nowpayments_client, "get_payment", fake_get)
+        resp = await client.post(
+            f"/admin/deposits/{intent_id}/reconcile",
+            headers=_auth(token),
+        )
+
+        assert resp.status_code == 200, resp.text
+        assert resp.json() == {
+            "id": intent_id,
+            "status": "pending",
+            "provider_status": "confirming",
+            "reconcile_result": "checked",
+        }
+
+    @pytest.mark.asyncio
+    async def test_reconcile_reports_missing_hosted_invoice_credentials(self, client, monkeypatch):
+        _enable_now(monkeypatch)
+        monkeypatch.setattr(settings, "nowpayments_auth_email", "")
+        monkeypatch.setattr(settings, "nowpayments_auth_password", "")
+        token = await register_and_login(client, "reconcile-config@example.com")
+        await make_admin("reconcile-config@example.com")
+        intent_id = await _make_now_intent(
+            "reconcile-config@example.com",
+            255_000,
+            payment_id=None,
+            invoice_id="invoice-missing-auth",
+        )
+
+        resp = await client.post(
+            f"/admin/deposits/{intent_id}/reconcile",
+            headers=_auth(token),
+        )
+
+        assert resp.status_code == 200, resp.text
+        assert resp.json() == {
+            "id": intent_id,
+            "status": "pending",
+            "provider_status": None,
+            "reconcile_result": "not_configured",
+        }
+
+    @pytest.mark.asyncio
     async def test_reconcile_missed_ipn(self, client, monkeypatch):
         _enable_now(monkeypatch)
         token = await register_and_login(client, "ipn7@example.com")

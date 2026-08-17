@@ -151,14 +151,17 @@ async def admin_nowpayments_events(
     return await service.list_nowpayments_events(db, payment_id)
 
 
-@router.post("/admin/deposits/{intent_id}/reconcile")
+@router.post(
+    "/admin/deposits/{intent_id}/reconcile",
+    response_model=schemas.DepositReconcileResponse,
+)
 async def admin_reconcile_deposit(
     intent_id: int,
     _: Account = Depends(require_role("admin")),
     db: AsyncSession = Depends(get_session),
 ):
-    status = await service.reconcile_intent(intent_id, db)
-    return {"id": intent_id, "status": status}
+    result = await service.reconcile_intent(intent_id, db)
+    return {"id": intent_id, **result}
 
 
 @router.get("/admin/deposit-rail-config", response_model=schemas.DepositRailConfigAdmin)

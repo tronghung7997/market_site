@@ -596,7 +596,7 @@ class TestNowPaymentsIpn:
         }
 
     @pytest.mark.asyncio
-    async def test_reconcile_provider_error_is_written_to_admin_logs_without_secrets(self, client, monkeypatch):
+    async def test_reconcile_provider_error_debug_admin_log_is_disabled(self, client, monkeypatch):
         _enable_now(monkeypatch)
         token = await register_and_login(client, "reconcile-debug@example.com")
         await make_admin("reconcile-debug@example.com")
@@ -625,18 +625,11 @@ class TestNowPaymentsIpn:
             headers=_auth(token),
         )
         assert logs_resp.status_code == 200, logs_resp.text
-        debug_log = next(
+        debug_logs = [
             row for row in logs_resp.json()
             if row["metadata"].get("event") == "nowpayments_reconcile_debug"
-        )
-        assert "[DEBUG-NOW-RECONCILE]" in debug_log["message"]
-        assert debug_log["metadata"]["branch"] == "direct_payment_fetch"
-        assert debug_log["metadata"]["error_type"] == "NowPaymentsError"
-        assert "HTTP 401" in debug_log["metadata"]["error"]
-        assert "[REDACTED]" in debug_log["metadata"]["error"]
-        serialized_log = str(debug_log)
-        assert settings.nowpayments_api_key not in serialized_log
-        assert settings.nowpayments_auth_password not in serialized_log
+        ]
+        assert debug_logs == []
 
     @pytest.mark.asyncio
     async def test_reconcile_reports_missing_hosted_invoice_credentials(self, client, monkeypatch):

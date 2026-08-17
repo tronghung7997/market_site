@@ -39,6 +39,7 @@ logger = structlog.get_logger()
 
 QUOTE_DRIFT_ALERT_PCT = Decimal("2")
 _NOW_RECONCILE_DEBUG_TAG = "[DEBUG-NOW-RECONCILE]"
+_NOW_RECONCILE_DEBUG_ENABLED = False
 
 
 def _redact_nowpayments_error(error: Exception) -> str:
@@ -66,6 +67,8 @@ async def _log_nowpayments_reconcile_debug(
     config: dict[str, object] | None = None,
 ) -> None:
     """Persist temporary diagnostics independently from the rolled-back reconcile transaction."""
+    if not _NOW_RECONCILE_DEBUG_ENABLED:
+        return
     safe_error = _redact_nowpayments_error(error) if error is not None else None
     error_type = type(error).__name__ if error is not None else None
     message = f"{_NOW_RECONCILE_DEBUG_TAG} Lệnh nạp #{intent_id}: branch={branch}"

@@ -63,7 +63,7 @@ async def _log_nowpayments_reconcile_debug(
     error: Exception | None = None,
     invoice_id: str | None = None,
     payment_id: str | None = None,
-    config: dict[str, bool] | None = None,
+    config: dict[str, object] | None = None,
 ) -> None:
     """Persist temporary diagnostics independently from the rolled-back reconcile transaction."""
     safe_error = _redact_nowpayments_error(error) if error is not None else None
@@ -923,6 +923,7 @@ async def _reconcile_nowpayments(intent: DepositIntent, db: AsyncSession) -> dic
                 branch="invoice_history_list",
                 error=e,
                 invoice_id=requested_invoice_id,
+                config=nowpayments_client.reconciliation_debug_config(),
             )
             return outcome
 

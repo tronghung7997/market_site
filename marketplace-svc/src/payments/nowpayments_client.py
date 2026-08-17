@@ -65,6 +65,24 @@ def _base() -> str:
     return settings.nowpayments_base_url.rstrip("/") + "/"
 
 
+def reconciliation_debug_config() -> dict[str, object]:
+    """Temporary, non-secret config fingerprints for production diagnostics."""
+    def fingerprint(value: str) -> dict[str, object]:
+        normalized = str(value or "").strip()
+        return {
+            "present": bool(normalized),
+            "length": len(normalized),
+            "sha256_12": hashlib.sha256(normalized.encode()).hexdigest()[:12] if normalized else None,
+        }
+
+    return {
+        "base_url": _base(),
+        "api_key": fingerprint(settings.nowpayments_api_key),
+        "auth_email": fingerprint(settings.nowpayments_auth_email),
+        "auth_password": fingerprint(settings.nowpayments_auth_password),
+    }
+
+
 async def _request(
     method: str,
     path: str,
@@ -74,23 +92,46 @@ async def _request(
     headers: dict[str, str] | None = None,
 ) -> dict:
     url = urljoin(_base(), path.lstrip("/"))
+    normalized_path = path.strip("/")
+    if normalized_path == "auth":
+        stage = "auth"
+    elif normalized_path == "payment":
+        stage = "payment_list"
+    else:
+        stage = normalized_path
     try:
         async with httpx.AsyncClient(timeout=_TIMEOUT) as client:
             resp = await client.request(
                 method, url, headers=headers or _headers(), json=json_body, params=params,
             )
     except httpx.HTTPError as e:
-        raise NowPaymentsUnavailableError(str(e)) from e
+        raise NowPaymentsUnavailableError(
+            f"stage={stage}; {method} {url}; network_error={e}"
+        ) from e
 
+    trace_headers = {
+        key: value
+        for key in ("x-request-id", "cf-ray", "server")
+        if (value := resp.headers.get(key))
+    }
+    trace_suffix = f"; trace={trace_headers}" if trace_headers else ""
     if resp.status_code >= 500:
-        raise NowPaymentsUnavailableError(f"HTTP {resp.status_code}")
+        raise NowPaymentsUnavailableError(
+            f"stage={stage}; {method} {url}; HTTP {resp.status_code}{trace_suffix}"
+        )
     try:
         body = resp.json()
     except ValueError as e:
-        raise NowPaymentsError(f"Response not JSON (HTTP {resp.status_code})") from e
+        raise NowPaymentsError(
+            f"stage={stage}; {method} {url}; Response not JSON "
+            f"(HTTP {resp.status_code}){trace_suffix}"
+        ) from e
     if resp.status_code >= 400:
-        msg = body.get("message") if isinstance(body, dict) else body
-        raise NowPaymentsError(f"HTTP {resp.status_code}: {msg}")
+        safe_body = json.dumps(body, ensure_ascii=False, default=str)[:1000]
+        raise NowPaymentsError(
+            f"stage={stage}; {method} {url}; HTTP {resp.status_code}; "
+            f"response={safe_body}{trace_suffix}"
+        )
     if not isinstance(body, dict):
         raise NowPaymentsError("Response is not an object")
     return body

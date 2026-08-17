@@ -8,6 +8,7 @@ from datetime import datetime, timedelta, timezone
 from decimal import Decimal
 from unittest.mock import AsyncMock
 
+import httpx
 import pytest
 from sqlalchemy import select
 
@@ -25,6 +26,56 @@ from tests.conftest import make_admin, register_and_login
 
 
 class TestNowPaymentsUnit:
+    @pytest.mark.asyncio
+    async def test_request_error_identifies_auth_stage_without_exposing_credentials(self, monkeypatch):
+        real_client = httpx.AsyncClient
+
+        async def handler(request: httpx.Request) -> httpx.Response:
+            assert request.url.path == "/v1/auth"
+            return httpx.Response(
+                403,
+                json={"message": "credentials rejected"},
+                headers={"cf-ray": "debug-ray"},
+            )
+
+        monkeypatch.setattr(
+            nowpayments_client.httpx,
+            "AsyncClient",
+            lambda **kwargs: real_client(transport=httpx.MockTransport(handler), **kwargs),
+        )
+
+        with pytest.raises(nowpayments_client.NowPaymentsError) as exc_info:
+            await nowpayments_client._request(
+                "POST",
+                "auth",
+                json_body={"email": "secret@example.com", "password": "secret-password"},
+                headers={"Content-Type": "application/json"},
+            )
+
+        error = str(exc_info.value)
+        assert "stage=auth" in error
+        assert "HTTP 403" in error
+        assert 'response={"message": "credentials rejected"}' in error
+        assert "debug-ray" in error
+        assert "secret@example.com" not in error
+        assert "secret-password" not in error
+
+    def test_reconciliation_debug_config_only_contains_secret_fingerprints(self, monkeypatch):
+        _enable_now(monkeypatch)
+
+        debug = nowpayments_client.reconciliation_debug_config()
+        serialized = str(debug)
+        api_key = debug["api_key"]
+
+        assert debug["base_url"].endswith("/")
+        assert isinstance(api_key, dict)
+        assert api_key["present"] is True
+        assert api_key["length"] == len("test-now-key")
+        assert len(api_key["sha256_12"]) == 12
+        assert "test-now-key" not in serialized
+        assert "now@example.com" not in serialized
+        assert "test-now-password" not in serialized
+
     def test_ipn_signature_vector_stable(self, monkeypatch):
         monkeypatch.setattr(settings, "nowpayments_ipn_secret", "test-ipn-secret")
         payload = {"payment_id": 1, "payment_status": "finished", "b": 2, "a": 1}

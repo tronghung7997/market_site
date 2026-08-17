@@ -545,6 +545,49 @@ class TestNowPaymentsIpn:
         }
 
     @pytest.mark.asyncio
+    async def test_reconcile_provider_error_is_written_to_admin_logs_without_secrets(self, client, monkeypatch):
+        _enable_now(monkeypatch)
+        token = await register_and_login(client, "reconcile-debug@example.com")
+        await make_admin("reconcile-debug@example.com")
+        intent_id = await _make_now_intent(
+            "reconcile-debug@example.com", 255_000, payment_id="payment-debug",
+        )
+
+        async def fake_get(payment_id):
+            assert payment_id == "payment-debug"
+            raise nowpayments_client.NowPaymentsError(
+                f"HTTP 401: rejected {settings.nowpayments_api_key} "
+                f"{settings.nowpayments_auth_password}"
+            )
+
+        monkeypatch.setattr(nowpayments_client, "get_payment", fake_get)
+        resp = await client.post(
+            f"/admin/deposits/{intent_id}/reconcile",
+            headers=_auth(token),
+        )
+
+        assert resp.status_code == 200, resp.text
+        assert resp.json()["reconcile_result"] == "provider_error"
+
+        logs_resp = await client.get(
+            f"/admin/logs?order_id={intent_id}",
+            headers=_auth(token),
+        )
+        assert logs_resp.status_code == 200, logs_resp.text
+        debug_log = next(
+            row for row in logs_resp.json()
+            if row["metadata"].get("event") == "nowpayments_reconcile_debug"
+        )
+        assert "[DEBUG-NOW-RECONCILE]" in debug_log["message"]
+        assert debug_log["metadata"]["branch"] == "direct_payment_fetch"
+        assert debug_log["metadata"]["error_type"] == "NowPaymentsError"
+        assert "HTTP 401" in debug_log["metadata"]["error"]
+        assert "[REDACTED]" in debug_log["metadata"]["error"]
+        serialized_log = str(debug_log)
+        assert settings.nowpayments_api_key not in serialized_log
+        assert settings.nowpayments_auth_password not in serialized_log
+
+    @pytest.mark.asyncio
     async def test_reconcile_reports_missing_hosted_invoice_credentials(self, client, monkeypatch):
         _enable_now(monkeypatch)
         monkeypatch.setattr(settings, "nowpayments_auth_email", "")

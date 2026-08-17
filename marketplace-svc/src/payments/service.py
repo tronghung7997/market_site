@@ -22,6 +22,7 @@ from sqlalchemy.ext.asyncio import AsyncSession
 
 from src.audit.service import log_event
 from src.config import settings
+from src.database import SessionLocal
 from src.logging import current_request_id
 from src.models.account import Account
 from src.models.payment import (
@@ -37,6 +38,68 @@ from src.payments import fx, nowpayments_client, payos_client, rail_config
 logger = structlog.get_logger()
 
 QUOTE_DRIFT_ALERT_PCT = Decimal("2")
+_NOW_RECONCILE_DEBUG_TAG = "[DEBUG-NOW-RECONCILE]"
+
+
+def _redact_nowpayments_error(error: Exception) -> str:
+    """Temporary reconcile diagnostics must never persist provider credentials."""
+    safe_error = str(error)
+    for secret in (
+        settings.nowpayments_api_key,
+        settings.nowpayments_ipn_secret,
+        settings.nowpayments_auth_email,
+        settings.nowpayments_auth_password,
+    ):
+        secret = str(secret or "").strip()
+        if secret:
+            safe_error = safe_error.replace(secret, "[REDACTED]")
+    return safe_error[:1000]
+
+
+async def _log_nowpayments_reconcile_debug(
+    *,
+    intent_id: int,
+    branch: str,
+    error: Exception | None = None,
+    invoice_id: str | None = None,
+    payment_id: str | None = None,
+    config: dict[str, bool] | None = None,
+) -> None:
+    """Persist temporary diagnostics independently from the rolled-back reconcile transaction."""
+    safe_error = _redact_nowpayments_error(error) if error is not None else None
+    error_type = type(error).__name__ if error is not None else None
+    message = f"{_NOW_RECONCILE_DEBUG_TAG} Lệnh nạp #{intent_id}: branch={branch}"
+    if error_type and safe_error:
+        message = f"{message}; {error_type}: {safe_error}"
+    try:
+        async with SessionLocal() as log_db:
+            await log_event(
+                log_db,
+                "error" if error is not None else "warning",
+                message,
+                request_id=current_request_id(),
+                metadata={
+                    "event": "nowpayments_reconcile_debug",
+                    "order_id": intent_id,
+                    "intent_id": intent_id,
+                    "provider": "nowpayments",
+                    "branch": branch,
+                    "error_type": error_type,
+                    "error": safe_error,
+                    "now_invoice_id": invoice_id,
+                    "now_payment_id": payment_id,
+                    "config": config,
+                    "temporary": True,
+                },
+            )
+            await log_db.commit()
+    except Exception as log_error:  # Diagnostics must never break reconciliation.
+        logger.warning(
+            "nowpayments_reconcile_debug_log_failed",
+            intent_id=intent_id,
+            branch=branch,
+            error=_redact_nowpayments_error(log_error),
+        )
 
 
 async def deposit_methods_public(db: AsyncSession) -> dict:
@@ -823,7 +886,8 @@ async def _reconcile_payos(intent: DepositIntent, db: AsyncSession) -> dict:
 async def _reconcile_nowpayments(intent: DepositIntent, db: AsyncSession) -> dict:
     intent_id = intent.id
     requested_payment_id = str(intent.now_payment_id or "").strip()
-    if not requested_payment_id and intent.now_invoice_id:
+    requested_invoice_id = str(intent.now_invoice_id or "").strip() or None
+    if not requested_payment_id and requested_invoice_id:
         if not nowpayments_client.is_reconciliation_configured():
             outcome = _reconcile_outcome(
                 intent.status.value,
@@ -831,9 +895,19 @@ async def _reconcile_nowpayments(intent: DepositIntent, db: AsyncSession) -> dic
                 reconcile_result="not_configured",
             )
             await db.rollback()
+            await _log_nowpayments_reconcile_debug(
+                intent_id=intent_id,
+                branch="invoice_history_not_configured",
+                invoice_id=requested_invoice_id,
+                config={
+                    "api_key": bool(settings.nowpayments_api_key),
+                    "auth_email": bool(settings.nowpayments_auth_email),
+                    "auth_password": bool(settings.nowpayments_auth_password),
+                },
+            )
             return outcome
         try:
-            candidates = await nowpayments_client.list_payments_by_invoice(intent.now_invoice_id)
+            candidates = await nowpayments_client.list_payments_by_invoice(requested_invoice_id)
         except (nowpayments_client.NowPaymentsError, nowpayments_client.NowPaymentsUnavailableError) as e:
             current_status = intent.status.value
             outcome = _reconcile_outcome(
@@ -841,8 +915,15 @@ async def _reconcile_nowpayments(intent: DepositIntent, db: AsyncSession) -> dic
                 provider_status=None,
                 reconcile_result="provider_error",
             )
-            logger.warning("nowpayments_invoice_reconcile_failed", intent_id=intent_id, error=str(e))
+            safe_error = _redact_nowpayments_error(e)
+            logger.warning("nowpayments_invoice_reconcile_failed", intent_id=intent_id, error=safe_error)
             await db.rollback()
+            await _log_nowpayments_reconcile_debug(
+                intent_id=intent_id,
+                branch="invoice_history_list",
+                error=e,
+                invoice_id=requested_invoice_id,
+            )
             return outcome
 
         provider_status: str | None = None
@@ -855,7 +936,15 @@ async def _reconcile_nowpayments(intent: DepositIntent, db: AsyncSession) -> dic
             try:
                 info = await nowpayments_client.get_payment(payment_id)
             except (nowpayments_client.NowPaymentsError, nowpayments_client.NowPaymentsUnavailableError) as e:
-                logger.warning("nowpayments_payment_reconcile_failed", intent_id=intent_id, error=str(e))
+                safe_error = _redact_nowpayments_error(e)
+                logger.warning("nowpayments_payment_reconcile_failed", intent_id=intent_id, error=safe_error)
+                await _log_nowpayments_reconcile_debug(
+                    intent_id=intent_id,
+                    branch="invoice_candidate_payment_fetch",
+                    error=e,
+                    invoice_id=requested_invoice_id,
+                    payment_id=payment_id,
+                )
                 provider_error = True
                 continue
             candidate_status = str(info.get("payment_status") or "").lower() or None
@@ -901,6 +990,15 @@ async def _reconcile_nowpayments(intent: DepositIntent, db: AsyncSession) -> dic
             reconcile_result="not_configured",
         )
         await db.rollback()
+        await _log_nowpayments_reconcile_debug(
+            intent_id=intent_id,
+            branch="direct_payment_not_configured",
+            payment_id=requested_payment_id,
+            config={
+                "api_key": bool(settings.nowpayments_api_key),
+                "ipn_secret": bool(settings.nowpayments_ipn_secret),
+            },
+        )
         return outcome
 
     try:
@@ -912,8 +1010,15 @@ async def _reconcile_nowpayments(intent: DepositIntent, db: AsyncSession) -> dic
             provider_status=None,
             reconcile_result="provider_error",
         )
-        logger.warning("deposit_reconcile_failed", intent_id=intent_id, error=str(e), provider="nowpayments")
+        safe_error = _redact_nowpayments_error(e)
+        logger.warning("deposit_reconcile_failed", intent_id=intent_id, error=safe_error, provider="nowpayments")
         await db.rollback()
+        await _log_nowpayments_reconcile_debug(
+            intent_id=intent_id,
+            branch="direct_payment_fetch",
+            error=e,
+            payment_id=requested_payment_id,
+        )
         return outcome
 
     provider_status = str(info.get("payment_status") or "").lower() or None

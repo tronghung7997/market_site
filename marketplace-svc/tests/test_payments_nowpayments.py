@@ -78,7 +78,7 @@ class TestNowPaymentsUnit:
                 assert json_body == {"email": "now@example.com", "password": "test-now-password"}
                 assert headers == {"Content-Type": "application/json"}
                 return {"token": "short-lived-token"}
-            assert params == {"invoiceid": "invoice-9001", "limit": "50"}
+            assert params == {"invoiceId": "invoice-9001", "limit": "50"}
             assert headers and headers["Authorization"] == "Bearer short-lived-token"
             return {"data": [{"payment_id": "payment-1"}]}
 

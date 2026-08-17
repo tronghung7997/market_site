@@ -284,12 +284,12 @@ async def _get_payment_history_token() -> str:
 
 
 async def list_payments_by_invoice(invoice_id: str | int) -> list[dict]:
-    """GET /v1/payment/?invoiceid=... using NOW's short-lived auth token."""
+    """GET /v1/payment/?invoiceId=... using NOW's short-lived auth token."""
     token = await _get_payment_history_token()
     body = await _request(
         "GET",
         "payment/",
-        params={"invoiceid": str(invoice_id), "limit": "50"},
+        params={"invoiceId": str(invoice_id), "limit": "50"},
         headers={**_headers(), "Authorization": f"Bearer {token}"},
     )
     rows = body.get("data")

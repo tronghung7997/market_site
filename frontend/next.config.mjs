@@ -5,6 +5,10 @@ const withNextIntl = createNextIntlPlugin("./i18n/request.ts");
 /** @type {import('next').NextConfig} */
 const isProduction = process.env.NODE_ENV === "production";
 const apiTarget = process.env.API_URL ?? "http://localhost:8001";
+// Demo top-up is opt-in in development and always disabled in production.
+// Keeping this as a public build flag lets the wallet hide the control instead
+// of exposing a button that the backend will reject with 403.
+const enableDemoTopup = !isProduction && process.env.NEXT_PUBLIC_ENABLE_DEMO_TOPUP === "true";
 const parsedApiTarget = new URL(apiTarget);
 
 if (!["http:", "https:"].includes(parsedApiTarget.protocol)) {
@@ -40,6 +44,7 @@ const nextConfig = {
   // local .env file, which may contain a development-only localhost target.
   env: {
     BUILT_API_URL: apiTarget,
+    NEXT_PUBLIC_ENABLE_DEMO_TOPUP: enableDemoTopup ? "true" : "false",
   },
   // Edge redirect so old bookmarks keep working even if a page route is stale
   // in the dev server (App Router page redirect alone was returning 200 empty).

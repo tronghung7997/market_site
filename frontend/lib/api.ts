@@ -1,5 +1,5 @@
 import type {
-  Account, ActionItem, AdminDepositIntent, AdminDisputeDetail, AdminOrderDetail, AdminProduct, AdminResourceListResponse, AffiliateStats, AffiliateSummary, CalculateResult, Category, ChargeUsageResult, DashboardData, DepositIntent, DepositMethods, DepositReconcileResult, DepositRailConfigAdmin, DepositRailConfigUpdate, Dispute, PayosWebhookEventRow, AdminAccountWallet, FundOverview, AccountAdminRow, PaginatedAccounts, LogEntry, MoneyConfigAdmin, MoneyConfigPublic, MoneyConfigUpdate, Order, OrderStats, PaginatedAffiliateSummary, PaginatedOrderResponse, PaginatedProducts, PricingField, PricingOptions, ProductDetail, AdminProductDetail, Product, ProductOperations, ProxyState, ProxyRotateResult, ProxyWhitelistResult, Review, SellerApplication, SellerProduct, SellerStats, ServiceTask, TikTokLookupResponse, Transaction, Variant, Wallet, WithdrawRequest, Provider, ProviderHealth, Alert, Resource, ResourceSummary, ResourceSellerFacet, InventoryVariant, SellerSummary, SellerProfile, SellerApiKey, SellerApiKeyCreated,
+  Account, ActionItem, AdminDepositIntent, AdminDisputeDetail, AdminOrderDetail, AdminProduct, AdminResourceListResponse, AffiliateStats, AffiliateSummary, CalculateResult, Category, ChargeUsageResult, DashboardData, DepositIntent, DepositMethods, DepositReconcileResult, DepositRailConfigAdmin, DepositRailConfigUpdate, Dispute, PayosWebhookEventRow, AdminAccountWallet, FundOverview, AccountAdminRow, PaginatedAccounts, LogEntry, MoneyConfigAdmin, MoneyConfigPublic, MoneyConfigUpdate, Order, OrderStats, PaginatedAffiliateSummary, PaginatedOrderResponse, PaginatedProducts, PricingField, PricingOptions, ProductDetail, AdminProductDetail, Product, ProductLocale, ProductOperations, ProductTranslation, ProxyState, ProxyRotateResult, ProxyWhitelistResult, Review, SellerApplication, SellerProduct, SellerStats, ServiceTask, TikTokLookupResponse, Transaction, Variant, Wallet, WithdrawRequest, Provider, ProviderHealth, Alert, Resource, ResourceSummary, ResourceSellerFacet, InventoryVariant, SellerSummary, SellerProfile, SellerApiKey, SellerApiKeyCreated,
 } from "./types";
 
 // Browser requests are always same-origin. This prevents a production bundle
@@ -156,6 +156,8 @@ export const api = {
     request<Product>("/seller/products", { method: "POST", body: JSON.stringify(data) }, true),
   updateProduct: (id: number, data: Record<string, unknown>) =>
     request<Product>(`/seller/products/${id}`, { method: "PATCH", body: JSON.stringify(data) }, true),
+  updateProductTranslation: (id: number, locale: ProductLocale, data: ProductTranslation) =>
+    request<Product>(`/seller/products/${id}/translations/${locale}`, { method: "PATCH", body: JSON.stringify(data) }, true),
   deleteProduct: (id: number) =>
     request<void>(`/seller/products/${id}`, { method: "DELETE" }, true),
   createVariant: (productId: number, data: Record<string, unknown>) =>
@@ -185,6 +187,8 @@ export const api = {
   adminProduct: (id: number) => request<AdminProductDetail>(`/admin/products/${id}`, {}, true),
   adminUpdateProduct: (id: number, data: Record<string, unknown>) =>
     request<Product>(`/admin/products/${id}`, { method: "PATCH", body: JSON.stringify(data) }, true),
+  adminUpdateProductTranslation: (id: number, locale: ProductLocale, data: ProductTranslation) =>
+    request<Product>(`/admin/products/${id}/translations/${locale}`, { method: "PATCH", body: JSON.stringify(data) }, true),
   adminAccounts: (params?: { search?: string; page?: number; per_page?: number }) => {
     const q = new URLSearchParams();
     if (params?.search) q.set("search", params.search);

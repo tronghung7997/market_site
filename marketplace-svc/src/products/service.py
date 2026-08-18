@@ -9,6 +9,7 @@ from src.adapters.registry import get_spec
 from src.exceptions import NotOwner
 from src.i18n.catalog import (
     DEFAULT_LOCALE,
+    available_locales,
     merge_i18n_locale,
     resolve_category_fields,
     resolve_product_fields,
@@ -23,6 +24,9 @@ from src.models.resource import Resource, ResourceStatus
 
 # Cột duy nhất của ProductVariant cho phép null — xem update_variant.
 NULLABLE_VARIANT_FIELDS = {"duration_days"}
+PRODUCT_TRANSLATION_FIELDS = (
+    "title", "description", "warranty_text", "highlight_text", "features",
+)
 
 
 def _product_i18n_from_scalars(data: dict, *, existing: dict | None = None, locale: str = "vi") -> dict:
@@ -34,7 +38,7 @@ def _product_i18n_from_scalars(data: dict, *, existing: dict | None = None, loca
     """
     fields = {
         k: data[k]
-        for k in ("title", "description", "warranty_text", "highlight_text", "features")
+        for k in PRODUCT_TRANSLATION_FIELDS
         if k in data and data[k] is not None
     }
     if not fields:
@@ -95,6 +99,41 @@ async def admin_update_product(product_id: int, data: dict, db: AsyncSession) ->
     text_keys = {"title", "description", "warranty_text", "highlight_text", "features"}
     if text_keys & data.keys():
         product.i18n = _product_i18n_from_scalars(data, existing=product.i18n)
+    await db.commit()
+    await db.refresh(product)
+    return product
+
+
+async def update_product_translation(
+    product_id: int,
+    locale: str,
+    data: dict,
+    db: AsyncSession,
+    *,
+    seller_id: int | None = None,
+) -> Product:
+    """Update one locale without leaking changes into another locale.
+
+    Vietnamese remains mirrored into the legacy scalar columns while the
+    storefront migration is in progress. English only touches ``i18n.en``.
+    """
+    product = await db.get(Product, product_id)
+    if not product:
+        raise HTTPException(status_code=404, detail="Không tìm thấy sản phẩm")
+    if seller_id is not None and product.seller_id != seller_id:
+        raise NotOwner()
+
+    fields = {key: value for key, value in data.items() if key in PRODUCT_TRANSLATION_FIELDS}
+    if "title" in fields and (
+        not isinstance(fields["title"], str) or not fields["title"].strip()
+    ):
+        raise HTTPException(status_code=422, detail="Tên sản phẩm không được để trống")
+
+    product.i18n = merge_i18n_locale(product.i18n, locale, fields)
+    if locale == "vi":
+        for key, value in fields.items():
+            setattr(product, key, value)
+
     await db.commit()
     await db.refresh(product)
     return product
@@ -702,6 +741,23 @@ def _product_list_dict(product: Product, *, locale: str | None = DEFAULT_LOCALE)
     }
 
 
+def _management_translations(product: Product) -> dict[str, dict]:
+    """Return editable locale buckets without applying storefront fallback."""
+    translations = {
+        locale: dict(bucket)
+        for locale, bucket in (product.i18n or {}).items()
+        if locale in {"en", "vi"} and isinstance(bucket, dict)
+    }
+    vi = dict(translations.get("vi") or {})
+    for field in PRODUCT_TRANSLATION_FIELDS:
+        value = getattr(product, field, None)
+        if field not in vi and value is not None:
+            vi[field] = value
+    if vi:
+        translations["vi"] = vi
+    return translations
+
+
 def _product_dict(product: Product, *, locale: str | None = DEFAULT_LOCALE) -> dict:
     if locale is not None:
         localized = resolve_product_fields(product, locale)
@@ -715,12 +771,16 @@ def _product_dict(product: Product, *, locale: str | None = DEFAULT_LOCALE) -> d
             "available_locales": localized["available_locales"],
         }
     else:
+        translations = _management_translations(product)
         text = {
             "title": product.title,
             "description": product.description,
             "features": product.features,
             "warranty_text": product.warranty_text,
             "highlight_text": product.highlight_text,
+            "locale": None,
+            "available_locales": available_locales(translations),
+            "translations": translations,
         }
     return {
         "id": product.id, "seller_id": product.seller_id, "category_id": product.category_id,

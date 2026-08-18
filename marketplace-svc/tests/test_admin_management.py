@@ -48,6 +48,70 @@ async def test_admin_product_update_requires_admin(client):
     assert resp.status_code == 403
 
 
+@pytest.mark.asyncio
+async def test_seller_updates_english_translation_without_overwriting_vi(client):
+    admin_token, seller_token, product_id = await _seller_product(client)
+    headers = {"Authorization": f"Bearer {seller_token}"}
+
+    translated = await client.patch(
+        f"/seller/products/{product_id}/translations/en",
+        json={
+            "title": "English product title",
+            "description": "English product description",
+            "features": ["English feature"],
+        },
+        headers=headers,
+    )
+    assert translated.status_code == 200
+
+    management = await client.get(
+        f"/seller/products/{product_id}/detail", headers=headers,
+    )
+    body = management.json()
+    assert body["title"] == "Original"
+    assert body["translations"]["vi"]["title"] == "Original"
+    assert body["translations"]["en"]["title"] == "English product title"
+    assert set(body["available_locales"]) == {"en", "vi"}
+
+    await client.patch(
+        f"/admin/products/{product_id}",
+        json={"status": "active"},
+        headers={"Authorization": f"Bearer {admin_token}"},
+    )
+    en = await client.get(
+        f"/products/{product_id}", headers={"Accept-Language": "en"},
+    )
+    vi = await client.get(
+        f"/products/{product_id}", headers={"Accept-Language": "vi"},
+    )
+    assert en.json()["title"] == "English product title"
+    assert vi.json()["title"] == "Original"
+
+
+@pytest.mark.asyncio
+async def test_admin_updates_translation_and_seller_cannot_use_admin_route(client):
+    admin_token, seller_token, product_id = await _seller_product(client)
+    denied = await client.patch(
+        f"/admin/products/{product_id}/translations/en",
+        json={"title": "Not allowed"},
+        headers={"Authorization": f"Bearer {seller_token}"},
+    )
+    assert denied.status_code == 403
+
+    updated = await client.patch(
+        f"/admin/products/{product_id}/translations/en",
+        json={"title": "Admin English title"},
+        headers={"Authorization": f"Bearer {admin_token}"},
+    )
+    assert updated.status_code == 200
+
+    detail = await client.get(
+        f"/admin/products/{product_id}",
+        headers={"Authorization": f"Bearer {admin_token}"},
+    )
+    assert detail.json()["translations"]["en"]["title"] == "Admin English title"
+
+
 # ── Feature B: account & role management ─────────────────────────────
 
 @pytest.mark.asyncio

@@ -14,8 +14,10 @@ export interface SellerApiKeyCreated {
   /** HMAC secret — shown once at creation; never stored in the browser. */
   api_secret: string;
   signing_version: string;
+  scopes: string[];
   key_prefix: string;
   created_at: string;
+  expires_at: string;
 }
 
 export interface SellerApiKey {
@@ -23,7 +25,9 @@ export interface SellerApiKey {
   key_prefix: string;
   signing_version?: string;
   key_id_masked?: string | null;
+  scopes: string[];
   created_at: string;
+  expires_at: string;
   last_used_at: string | null;
   revoked_at: string | null;
 }
@@ -59,10 +63,22 @@ export interface Product {
   rating_count: number;
   pricing_strategy?: string | null;
   pricing_params?: Record<string, unknown> | null;
+  locale?: ProductLocale | null;
+  available_locales?: ProductLocale[] | null;
   created_at: string;
   /** GET /products trả kèm gói + tồn kho (fix N+1 trang chủ) — optional vì
    *  một số response cũ (đơn hàng, admin) vẫn là Product trần. */
   variants?: Variant[];
+}
+
+export type ProductLocale = "en" | "vi";
+
+export interface ProductTranslation {
+  title?: string | null;
+  description?: string | null;
+  highlight_text?: string | null;
+  features?: string[] | null;
+  warranty_text?: string | null;
 }
 
 export interface PaginatedProducts {
@@ -90,6 +106,7 @@ export interface ProductDetail extends Product {
   features: string[] | null;
   specs: Record<string, string> | null;
   warranty_text: string | null;
+  translations?: Partial<Record<ProductLocale, ProductTranslation>> | null;
   variants: Variant[];
   seller_name: string | null;
   category_name: string | null;

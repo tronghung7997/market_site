@@ -1,3 +1,5 @@
+from typing import Literal
+
 from fastapi import APIRouter, Depends, Query, status
 from sqlalchemy.ext.asyncio import AsyncSession
 
@@ -62,8 +64,24 @@ async def create_product(body: schemas.ProductCreate, account: Account = Depends
 
 
 @router.patch("/seller/products/{product_id}", response_model=schemas.ProductResponse)
-async def update_product(product_id: int, body: schemas.ProductUpdate, account: Account = Depends(require_role("seller")), db: AsyncSession = Depends(get_session)):
+async def update_product(product_id: int, body: schemas.SellerProductUpdate, account: Account = Depends(require_role("seller")), db: AsyncSession = Depends(get_session)):
     return await service.update_product(product_id, account.id, body.model_dump(exclude_unset=True), db)
+
+
+@router.patch(
+    "/seller/products/{product_id}/translations/{locale}",
+    response_model=schemas.ProductResponse,
+)
+async def update_own_product_translation(
+    product_id: int,
+    locale: Literal["en", "vi"],
+    body: schemas.ProductTranslationUpdate,
+    account: Account = Depends(require_role("seller")),
+    db: AsyncSession = Depends(get_session),
+):
+    return await service.update_product_translation(
+        product_id, locale, body.model_dump(exclude_unset=True), db, seller_id=account.id,
+    )
 
 
 @router.delete("/seller/products/{product_id}", status_code=status.HTTP_204_NO_CONTENT)
@@ -127,6 +145,22 @@ async def admin_update_product(
     db: AsyncSession = Depends(get_session),
 ):
     return await service.admin_update_product(product_id, body.model_dump(exclude_unset=True), db)
+
+
+@router.patch(
+    "/admin/products/{product_id}/translations/{locale}",
+    response_model=schemas.ProductResponse,
+)
+async def admin_update_product_translation(
+    product_id: int,
+    locale: Literal["en", "vi"],
+    body: schemas.ProductTranslationUpdate,
+    _: Account = Depends(require_role("admin")),
+    db: AsyncSession = Depends(get_session),
+):
+    return await service.update_product_translation(
+        product_id, locale, body.model_dump(exclude_unset=True), db,
+    )
 
 
 @router.put("/admin/products/{product_id}/operations")

@@ -1,6 +1,6 @@
 from datetime import datetime
 
-from pydantic import BaseModel
+from pydantic import BaseModel, Field
 
 
 class ProductCreate(BaseModel):
@@ -19,16 +19,35 @@ class ProductCreate(BaseModel):
     # not settable by sellers.
 
 
-class ProductUpdate(BaseModel):
+class ProductContentUpdate(BaseModel):
     title: str | None = None
     category_id: int | None = None
     description: str | None = None
     images: list[str] | None = None
     escrow_days: int | None = None
-    status: str | None = None
     service_type: str | None = None
     features: list[str] | None = None
     specs: dict | None = None
+    warranty_text: str | None = None
+    highlight_text: str | None = None
+
+
+class SellerProductUpdate(ProductContentUpdate):
+    """Seller-editable content. Lifecycle status is intentionally excluded."""
+
+
+class ProductUpdate(ProductContentUpdate):
+    """Admin edit schema; admins may also change lifecycle status."""
+
+    status: str | None = None
+
+
+class ProductTranslationUpdate(BaseModel):
+    """Text shown to buyers for one explicit locale."""
+
+    title: str | None = None
+    description: str | None = None
+    features: list[str] | None = None
     warranty_text: str | None = None
     highlight_text: str | None = None
 
@@ -60,7 +79,7 @@ class ProductResponse(BaseModel):
 
 class VariantCreate(BaseModel):
     name: str
-    price: int
+    price: int = Field(ge=0)
     delivery_mode: str = "instant"
     sla_hours: int = 24
     sort_order: int = 0
@@ -69,7 +88,7 @@ class VariantCreate(BaseModel):
 
 class VariantUpdate(BaseModel):
     name: str | None = None
-    price: int | None = None
+    price: int | None = Field(default=None, ge=0)
     delivery_mode: str | None = None
     sla_hours: int | None = None
     sort_order: int | None = None
@@ -151,6 +170,7 @@ class ProductDetailResponse(ProductListItemResponse):
     features: list | None
     specs: dict | None
     warranty_text: str | None
+    translations: dict[str, dict] | None = None
     seller_name: str | None = None
     category_name: str | None = None
 
@@ -166,7 +186,7 @@ class ProductOperationsUpdate(BaseModel):
     provider_id: int | None = None
     pricing_strategy: str | None = None
     pricing_params: dict | None = None
-    commission_rate: float | None = None
+    commission_rate: float | None = Field(default=None, ge=0, le=100)
 
 
 class SellerPricingUpdate(BaseModel):

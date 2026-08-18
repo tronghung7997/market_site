@@ -1,10 +1,11 @@
 "use client";
 
 import { Link } from "@/i18n/navigation";
-import { useParams } from "next/navigation";
+import { useTranslations } from "next-intl";
+import { useParams, usePathname, useRouter, useSearchParams } from "next/navigation";
 import { useEffect, useState } from "react";
 import { api, vnd } from "@/lib/api";
-import type { AdminProductDetail as AdminProductDetailData, Category, ProductOperations, Provider } from "@/lib/types";
+import type { AdminProductDetail as AdminProductDetailData, Category, ProductLocale, ProductOperations, Provider } from "@/lib/types";
 import { Button, Banner, Card, Field, Input, Select, Spinner, Tag, Textarea } from "@/components/ui";
 import { Activity, ArrowRight, Check, Edit2, Eye, Info, Sliders, Users } from "@/components/Icons";
 import { STRATEGY_INFO, STRATEGY_FORMULAS, ADAPTER_INFO, PARAM_LABELS, formatParamValue } from "@/lib/pricing-config";
@@ -16,6 +17,7 @@ import { ProductPreviewCard } from "@/components/seller/ProductPreviewCard";
 import { formatSpecKey } from "@/lib/utils";
 import { isAdapterCompatible, type CompatMatrix } from "@/lib/compat";
 import { SERVICE_LABELS } from "@/lib/labels";
+import { ProductLanguageRail, productLanguageName } from "@/components/products/ProductLanguageRail";
 
 const CONTENT_EMPTY = {
   title: "", category_id: 0, service_type: "other", status: "active", escrow_days: 2,
@@ -29,15 +31,31 @@ function flatten(cats: Category[]): Category[] {
   return out;
 }
 
-const STATUS_MAP: Record<string, { label: string; tone: "good" | "warn" | "bad" | "neutral" }> = {
-  active: { label: "Đang bán", tone: "good" },
-  draft: { label: "Nháp", tone: "neutral" },
-  paused: { label: "Tạm dừng", tone: "warn" },
-  suspended: { label: "Bị khoá", tone: "bad" },
+const STATUS_TONES: Record<string, "good" | "warn" | "bad" | "neutral"> = {
+  active: "good",
+  draft: "neutral",
+  paused: "warn",
+  suspended: "bad",
+};
+const STATUS_LABEL_KEYS: Record<string, string> = {
+  active: "activeStatus",
+  draft: "draftStatus",
+  paused: "pausedStatus",
+  suspended: "suspendedStatus",
 };
 
 export default function AdminProductDetail() {
-  const { id } = useParams<{ id: string }>();
+  const t = useTranslations("seller");
+  const { id, locale: interfaceLocaleParam } = useParams<{ id: string; locale: string }>();
+  const router = useRouter();
+  const pathname = usePathname();
+  const searchParams = useSearchParams();
+  const interfaceLocale: ProductLocale = interfaceLocaleParam === "en" ? "en" : "vi";
+  const requestedContentLocale = searchParams.get("contentLocale");
+  const initialContentLocale: ProductLocale = requestedContentLocale === "en" || requestedContentLocale === "vi"
+    ? requestedContentLocale
+    : interfaceLocale;
+  const [contentLocale, setContentLocale] = useState<ProductLocale>(initialContentLocale);
   const [product, setProduct] = useState<AdminProductDetailData | null>(null);
   const [ops, setOps] = useState<ProductOperations | null>(null);
   const [providers, setProviders] = useState<Provider[]>([]);
@@ -61,7 +79,39 @@ export default function AdminProductDetail() {
   const [features, setFeatures] = useState<string[]>([]);
   const [specs, setSpecs] = useState<{ key: string; value: string }[]>([]);
   const [savingContent, setSavingContent] = useState(false);
+  const [contentDirty, setContentDirty] = useState(false);
   const [contentMsg, setContentMsg] = useState<{ type: "ok" | "err"; text: string } | null>(null);
+  const markContentDirty = () => { setContentDirty(true); setContentMsg(null); };
+
+  const applyProductToContent = (
+    p: AdminProductDetailData,
+    locale: ProductLocale,
+    includeCommon: boolean,
+  ) => {
+    const translation = p.translations?.[locale] ?? (locale === "vi" ? {
+      title: p.title,
+      description: p.description,
+      highlight_text: p.highlight_text,
+      features: p.features,
+      warranty_text: p.warranty_text,
+    } : {});
+    setContent((current) => ({
+      ...(includeCommon ? {
+        category_id: p.category_id,
+        service_type: p.service_type ?? "other",
+        status: p.status,
+        escrow_days: p.escrow_days,
+      } : current),
+      title: translation.title ?? "",
+      highlight_text: translation.highlight_text ?? "",
+      description: translation.description ?? "",
+      warranty_text: translation.warranty_text ?? "",
+    }));
+    setFeatures(translation.features ?? []);
+    if (includeCommon) {
+      setSpecs(p.specs ? Object.entries(p.specs).map(([key, value]) => ({ key, value: String(value) })) : []);
+    }
+  };
 
   const loadAll = async () => {
     setLoading(true);
@@ -83,23 +133,27 @@ export default function AdminProductDetail() {
       setEditStrategy(o.pricing.strategy || "fixed");
       setEditParams(structuredClone(o.pricing.params ?? {}));
       setEditCommission(p.commission_rate != null ? String(p.commission_rate) : "");
-      setContent({
-        title: p.title,
-        category_id: p.category_id,
-        service_type: p.service_type ?? "other",
-        status: p.status,
-        escrow_days: p.escrow_days,
-        highlight_text: p.highlight_text ?? "",
-        description: p.description ?? "",
-        warranty_text: p.warranty_text ?? "",
-      });
-      setFeatures(p.features ?? []);
-      setSpecs(p.specs ? Object.entries(p.specs).map(([k, v]) => ({ key: k, value: String(v) })) : []);
+      applyProductToContent(p, contentLocale, true);
+      setContentDirty(false);
     } catch {
       setError("Không tải được sản phẩm");
     } finally {
       setLoading(false);
     }
+  };
+
+  const changeContentLocale = (nextLocale: ProductLocale) => {
+    if (nextLocale === contentLocale || !product) return;
+    if (contentDirty && !window.confirm(t("switchLanguageWarning", { language: productLanguageName(contentLocale, interfaceLocale) }))) {
+      return;
+    }
+    setContentLocale(nextLocale);
+    applyProductToContent(product, nextLocale, true);
+    setContentDirty(false);
+    setContentMsg(null);
+    const nextParams = new URLSearchParams(searchParams.toString());
+    nextParams.set("contentLocale", nextLocale);
+    router.replace(`${pathname}?${nextParams.toString()}`, { scroll: false });
   };
 
   const saveContent = async () => {
@@ -110,19 +164,24 @@ export default function AdminProductDetail() {
       const specsObj = specsEntries.length > 0
         ? Object.fromEntries(specsEntries.map((s) => [s.key.trim(), s.value.trim()]))
         : undefined;
-      await api.adminUpdateProduct(Number(id), {
-        title: content.title.trim(),
-        category_id: content.category_id,
-        service_type: content.service_type,
-        status: content.status,
-        escrow_days: content.escrow_days,
-        highlight_text: content.highlight_text.trim() || null,
-        description: content.description.trim() || null,
-        features: featureList.length > 0 ? featureList : null,
-        specs: specsObj ?? null,
-        warranty_text: content.warranty_text.trim() || null,
-      });
-      setContentMsg({ type: "ok", text: "Đã lưu nội dung!" });
+      await Promise.all([
+        api.adminUpdateProduct(Number(id), {
+          category_id: content.category_id,
+          service_type: content.service_type,
+          status: content.status,
+          escrow_days: content.escrow_days,
+          specs: specsObj ?? null,
+        }),
+        api.adminUpdateProductTranslation(Number(id), contentLocale, {
+          title: content.title.trim(),
+          highlight_text: content.highlight_text.trim() || null,
+          description: content.description.trim() || null,
+          features: featureList.length > 0 ? featureList : null,
+          warranty_text: content.warranty_text.trim() || null,
+        }),
+      ]);
+      setContentMsg({ type: "ok", text: t("savedLanguage", { language: productLanguageName(contentLocale, interfaceLocale) }) });
+      setContentDirty(false);
       setEditingContent(false);
       await loadAll();
     } catch (e) {
@@ -133,6 +192,12 @@ export default function AdminProductDetail() {
   };
 
   useEffect(() => { loadAll(); }, [id]);
+  useEffect(() => {
+    if (!dirty && !contentDirty) return;
+    const warnBeforeLeave = (event: BeforeUnloadEvent) => event.preventDefault();
+    window.addEventListener("beforeunload", warnBeforeLeave);
+    return () => window.removeEventListener("beforeunload", warnBeforeLeave);
+  }, [dirty, contentDirty]);
 
   const markDirty = () => { setDirty(true); setSaveMsg(null); };
 
@@ -158,7 +223,7 @@ export default function AdminProductDetail() {
   if (loading) return <Spinner />;
   if (error || !product || !ops) return <Card className="p-6 text-bad text-sm">{error ?? "Không tìm thấy"}</Card>;
 
-  const st = STATUS_MAP[product.status] ?? { label: product.status, tone: "neutral" as const };
+  const st = { label: t(STATUS_LABEL_KEYS[content.status] ?? "status"), tone: STATUS_TONES[content.status] ?? "neutral" as const };
   const strategy = ops.pricing.strategy || "fixed";
   const sInfo = STRATEGY_INFO[strategy] ?? STRATEGY_INFO.fixed;
   const adapterType = ops.provider?.adapter_type ?? "seller_pool";
@@ -205,37 +270,45 @@ export default function AdminProductDetail() {
     ([k]) => k !== "strategy" && k !== "fields"
   );
   const flatCats = flatten(cats);
-  const cleanFeatures = (product.features ?? []).filter((f) => f.trim());
-  const cleanSpecs = product.specs ? Object.entries(product.specs).filter(([k]) => k.trim()) : [];
+  const cleanFeatures = features.filter((feature) => feature.trim());
+  const cleanSpecs = specs.filter((spec) => spec.key.trim()).map((spec) => [spec.key, spec.value] as const);
 
   return (
     <div className="space-y-6">
       {/* Header */}
-      <div className="flex items-center justify-between">
+      <div className="flex flex-wrap items-center justify-between gap-3">
         <div>
           <Link href="/admin/products" className="text-[12px] text-muted hover:text-primary transition-colors">
-            ← Danh sách sản phẩm
+            ← {t("backToProducts")}
           </Link>
-          <h2 className="text-[18px] font-semibold mt-1">{product.title}</h2>
+          <h2 className="text-[18px] font-semibold mt-1">{content.title || t("productFallback", { id })}</h2>
         </div>
-        <Link href={`/products/${id}`}>
-          <Button size="sm" variant="secondary"><Eye size={14} /> Xem trang mua</Button>
+        <Link href={`/products/${id}`} locale={contentLocale}>
+          <Button size="sm" variant="secondary"><Eye size={14} /> {t("viewLanguage", { language: productLanguageName(contentLocale, interfaceLocale) })}</Button>
 
         </Link>
       </div>
 
+      <ProductLanguageRail
+        interfaceLocale={interfaceLocale}
+        activeLocale={contentLocale}
+        translations={product.translations}
+        dirty={contentDirty}
+        onChange={changeContentLocale}
+      />
+
       {/* Section 1: Thong tin san pham (admin editable: content + status) */}
       <div className="space-y-4">
-        <div className="flex items-center justify-between">
+        <div className="flex flex-wrap items-center justify-between gap-3">
           <h3 className="text-[14px] font-semibold flex items-center gap-2">
-            <Info size={14} /> Thông tin sản phẩm
+            <Info size={14} /> {t("productInformation")}
           </h3>
           {!editingContent ? (
-            <Button size="sm" variant="secondary" onClick={() => setEditingContent(true)}><Edit2 size={13} /> Sửa</Button>
+            <Button size="sm" variant="secondary" onClick={() => { setEditingContent(true); setContentDirty(false); }}><Edit2 size={13} /> {t("edit")}</Button>
           ) : (
-            <div className="flex items-center gap-2">
-              <Button size="sm" disabled={savingContent} onClick={saveContent}>{savingContent ? "Đang lưu…" : "Lưu"}</Button>
-              <Button size="sm" variant="ghost" onClick={() => { setEditingContent(false); loadAll(); }}>Huỷ</Button>
+            <div className="flex flex-wrap items-center gap-2">
+              <Button size="sm" disabled={savingContent} onClick={saveContent}>{savingContent ? t("saving") : t("saveLanguage", { language: productLanguageName(contentLocale, interfaceLocale) })}</Button>
+              <Button size="sm" variant="ghost" onClick={() => { setEditingContent(false); loadAll(); }}>{t("cancel")}</Button>
             </div>
           )}
         </div>
@@ -244,40 +317,40 @@ export default function AdminProductDetail() {
           <Card className="p-5 space-y-4">
             <div className="grid gap-4 sm:grid-cols-2 lg:grid-cols-3">
               <div>
-                <div className="text-[11px] text-faint font-medium">Trạng thái</div>
+                <div className="text-[11px] text-faint font-medium">{t("status")}</div>
                 <div className="mt-1"><Tag tone={st.tone}>{st.label}</Tag></div>
               </div>
               <div>
-                <div className="text-[11px] text-faint font-medium">Loại dịch vụ</div>
+                <div className="text-[11px] text-faint font-medium">{t("serviceType")}</div>
                 <div className="text-[13px] font-medium mt-1">{SERVICE_LABELS[product.service_type ?? "other"] ?? product.service_type}</div>
               </div>
               <div>
-                <div className="text-[11px] text-faint font-medium">Danh mục</div>
+                <div className="text-[11px] text-faint font-medium">{t("productCategory")}</div>
                 <div className="text-[13px] font-medium mt-1">{product.category_name ?? "—"}</div>
               </div>
               <div>
-                <div className="text-[11px] text-faint font-medium">Seller</div>
+                <div className="text-[11px] text-faint font-medium">{t("sellerLabel")}</div>
                 <div className="text-[13px] font-medium mt-1">{product.seller_email ?? "—"}</div>
               </div>
               <div>
-                <div className="text-[11px] text-faint font-medium">Ký quỹ</div>
+                <div className="text-[11px] text-faint font-medium">{t("escrowLabel")}</div>
                 <div className="text-[13px] font-medium mt-1">{product.escrow_days} ngày</div>
               </div>
               <div>
-                <div className="text-[11px] text-faint font-medium">Biến thể</div>
+                <div className="text-[11px] text-faint font-medium">{t("variantsTab")}</div>
                 <div className="text-[13px] font-medium mt-1">{product.variants.length} biến thể</div>
               </div>
             </div>
-            {product.highlight_text && (
+            {content.highlight_text && (
               <div>
                 <div className="text-[11px] text-faint font-medium">Dòng nổi bật</div>
-                <div className="text-[13px] text-muted mt-1">{product.highlight_text}</div>
+                <div className="text-[13px] text-muted mt-1">{content.highlight_text}</div>
               </div>
             )}
-            {product.description && (
+            {content.description && (
               <div>
                 <div className="text-[11px] text-faint font-medium mb-1">Mô tả</div>
-                <MarkdownContent>{product.description}</MarkdownContent>
+                <MarkdownContent>{content.description}</MarkdownContent>
               </div>
             )}
             {cleanFeatures.length > 0 && (
@@ -295,7 +368,7 @@ export default function AdminProductDetail() {
             )}
             {cleanSpecs.length > 0 && (
               <div>
-                <div className="text-[11px] text-faint font-medium mb-1.5">Thông số kỹ thuật</div>
+                <div className="text-[11px] text-faint font-medium mb-1.5">{t("specsLabel")}</div>
                 <div className="rounded-lg border border-line overflow-hidden">
                   <div className="divide-y divide-line">
                     {cleanSpecs.map(([k, v]) => (
@@ -308,99 +381,109 @@ export default function AdminProductDetail() {
                 </div>
               </div>
             )}
-            {product.warranty_text && (
+            {content.warranty_text && (
               <div>
-                <div className="text-[11px] text-faint font-medium mb-1">Bảo hành</div>
-                <p className="text-[13px] text-muted whitespace-pre-wrap">{product.warranty_text}</p>
+                <div className="text-[11px] text-faint font-medium mb-1">{t("warrantyLabel")}</div>
+                <p className="text-[13px] text-muted whitespace-pre-wrap">{content.warranty_text}</p>
               </div>
             )}
           </Card>
         ) : (
           <div className="grid grid-cols-1 gap-5 lg:grid-cols-[1fr_360px] items-start">
             <Card className="p-5 space-y-4">
-              <div className="grid gap-4 sm:grid-cols-2">
-                <Field label="Tên sản phẩm"><Input value={content.title} onChange={(e) => setContent({ ...content, title: e.target.value })} /></Field>
-                <Field label="Danh mục">
-                  <Select value={content.category_id} onChange={(e) => setContent({ ...content, category_id: Number(e.target.value) })}>
-                    {flatCats.map((c) => <option key={c.id} value={c.id}>{c.name}</option>)}
-                  </Select>
-                </Field>
+              <div className="flex items-center justify-between gap-3">
+                <div>
+                  <div className="text-[13px] font-semibold">{t("customerContent")} · {productLanguageName(contentLocale, interfaceLocale)}</div>
+                  <div className="mt-0.5 text-[11px] text-faint">{t("customerContentHint", { language: contentLocale.toUpperCase() })}</div>
+                </div>
+                <Tag tone="iris" className="font-mono">{contentLocale.toUpperCase()}</Tag>
               </div>
-              <div className="grid gap-4 sm:grid-cols-3">
-                <Field label="Loại dịch vụ">
-                  <Select value={content.service_type} onChange={(e) => setContent({ ...content, service_type: e.target.value })}>
-                    {Object.entries(SERVICE_LABELS).map(([v, l]) => <option key={v} value={v}>{l}</option>)}
-                  </Select>
-                </Field>
-                <Field label="Ký quỹ (ngày)"><Input type="number" min={1} value={content.escrow_days} onChange={(e) => setContent({ ...content, escrow_days: Number(e.target.value) || 1 })} /></Field>
-                <Field label="Trạng thái">
-                  <Select value={content.status} onChange={(e) => setContent({ ...content, status: e.target.value })}>
-                    <option value="active">Đang bán</option>
-                    <option value="draft">Nháp</option>
-                    <option value="paused">Tạm dừng</option>
-                    <option value="suspended">Bị khoá</option>
-                  </Select>
-                </Field>
-              </div>
-              <Field label="Dòng nổi bật"><Input value={content.highlight_text} onChange={(e) => setContent({ ...content, highlight_text: e.target.value })} /></Field>
-              <Field label="Mô tả">
+              <Field label={t("productName")}><Input value={content.title} onChange={(e) => { setContent({ ...content, title: e.target.value }); markContentDirty(); }} /></Field>
+              <Field label={t("highlightLabel")}><Input value={content.highlight_text} onChange={(e) => { setContent({ ...content, highlight_text: e.target.value }); markContentDirty(); }} /></Field>
+              <Field label={t("descriptionLabel")}>
                 <MarkdownEditor
                   value={content.description}
-                  onChange={(v) => setContent({ ...content, description: v })}
-                  placeholder="VD: **Tài khoản Facebook uy tín**, tạo hơn 2 tháng tuổi."
+                  onChange={(value) => { setContent({ ...content, description: value }); markContentDirty(); }}
+                  placeholder={contentLocale === "en" ? "Describe the product, delivery, and intended use." : "VD: **Tài khoản Facebook uy tín**, tạo hơn 2 tháng tuổi."}
                 />
               </Field>
               <ListEditor
-                label="Tính năng"
+                label={t("featuresLabel")}
                 items={features}
-                addLabel="Thêm tính năng"
-                emptyText="Chưa có tính năng nào."
-                onAdd={() => setFeatures([...features, ""])}
-                onRemove={(i) => setFeatures(features.filter((_, idx) => idx !== i))}
-                renderRow={(f, i) => (
+                addLabel={t("addFeature")}
+                emptyText={t("noFeatures")}
+                onAdd={() => { setFeatures([...features, ""]); markContentDirty(); }}
+                onRemove={(index) => { setFeatures(features.filter((_, itemIndex) => itemIndex !== index)); markContentDirty(); }}
+                renderRow={(feature, index) => (
                   <Input
-                    aria-label={`Tính năng ${i + 1}`}
-                    value={f}
-                    placeholder="VD: Bảo hành 24h nếu login lỗi"
-                    onChange={(e) => {
-                      const next = [...features]; next[i] = e.target.value;
-                      setFeatures(next);
+                    aria-label={`Tính năng ${index + 1}`}
+                    value={feature}
+                    placeholder={contentLocale === "en" ? "Example: 24/7 technical support" : "VD: Bảo hành 24h nếu login lỗi"}
+                    onChange={(event) => {
+                      const next = [...features]; next[index] = event.target.value;
+                      setFeatures(next); markContentDirty();
                     }}
                   />
                 )}
               />
+              <Field label={t("warrantyLabel")}><Textarea rows={3} value={content.warranty_text} onChange={(e) => { setContent({ ...content, warranty_text: e.target.value }); markContentDirty(); }} /></Field>
+
+              <div className="border-t border-line pt-4">
+                <div className="text-[13px] font-semibold">{t("commonInfo")}</div>
+                <div className="mt-0.5 text-[11px] text-faint">{t("appliesBothLanguages")}</div>
+              </div>
+              <div className="grid gap-4 sm:grid-cols-2">
+                <Field label={t("productCategory")}>
+                  <Select value={content.category_id} onChange={(e) => { setContent({ ...content, category_id: Number(e.target.value) }); markContentDirty(); }}>
+                    {flatCats.map((c) => <option key={c.id} value={c.id}>{c.name}</option>)}
+                  </Select>
+                </Field>
+                <Field label={t("serviceType")}>
+                  <Select value={content.service_type} onChange={(e) => { setContent({ ...content, service_type: e.target.value }); markContentDirty(); }}>
+                    {Object.entries(SERVICE_LABELS).map(([v, l]) => <option key={v} value={v}>{l}</option>)}
+                  </Select>
+                </Field>
+                <Field label={t("escrowDaysLabel")}><Input type="number" min={1} value={content.escrow_days} onChange={(e) => { setContent({ ...content, escrow_days: Number(e.target.value) || 1 }); markContentDirty(); }} /></Field>
+                <Field label={t("status")}>
+                  <Select value={content.status} onChange={(e) => { setContent({ ...content, status: e.target.value }); markContentDirty(); }}>
+                    <option value="active">{t("activeStatus")}</option>
+                    <option value="draft">{t("draftStatus")}</option>
+                    <option value="paused">{t("pausedStatus")}</option>
+                    <option value="suspended">{t("suspendedStatus")}</option>
+                  </Select>
+                </Field>
+              </div>
               <ListEditor
-                label="Thông số kỹ thuật"
+                label={t("specsLabel")}
                 items={specs}
-                addLabel="Thêm thông số"
-                emptyText="Chưa có thông số nào."
-                onAdd={() => setSpecs([...specs, { key: "", value: "" }])}
-                onRemove={(i) => setSpecs(specs.filter((_, idx) => idx !== i))}
+                addLabel={t("addSpec")}
+                emptyText={t("noSpecs")}
+                onAdd={() => { setSpecs([...specs, { key: "", value: "" }]); markContentDirty(); }}
+                onRemove={(index) => { setSpecs(specs.filter((_, itemIndex) => itemIndex !== index)); markContentDirty(); }}
                 renderRow={(s, i) => (
                   <div className="flex items-center gap-2">
                     <Input
                       aria-label={`Tên thông số ${i + 1}`}
                       value={s.key}
-                      placeholder="Tên (VD: Xuất xứ)"
+                      placeholder={t("specNamePlaceholder")}
                       onChange={(e) => {
                         const next = [...specs]; next[i] = { ...next[i], key: e.target.value };
-                        setSpecs(next);
+                        setSpecs(next); markContentDirty();
                       }}
                     />
                     <Input
                       aria-label={`Giá trị thông số ${i + 1}`}
                       value={s.value}
-                      placeholder="Giá trị (VD: Việt Nam)"
+                      placeholder={t("specValuePlaceholder")}
                       onChange={(e) => {
                         const next = [...specs]; next[i] = { ...next[i], value: e.target.value };
-                        setSpecs(next);
+                        setSpecs(next); markContentDirty();
                       }}
                     />
                   </div>
                 )}
               />
-              <Field label="Chính sách bảo hành"><Textarea rows={3} value={content.warranty_text} onChange={(e) => setContent({ ...content, warranty_text: e.target.value })} /></Field>
-              <p className="text-[12px] text-muted">Admin sửa nội dung/trạng thái trên sản phẩm của bất kỳ seller. Biến thể & kho vẫn do seller quản lý.</p>
+              <p className="text-[12px] text-muted">{t("adminEditHint")}</p>
             </Card>
             <div className="lg:sticky lg:top-6">
               <ProductPreviewCard

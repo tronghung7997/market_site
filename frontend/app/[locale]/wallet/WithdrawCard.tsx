@@ -3,6 +3,7 @@
 import { useLocale, useTranslations } from "next-intl";
 import { useState } from "react";
 import { api, vnd } from "@/lib/api";
+import { useMoney } from "@/lib/money";
 import { formatDate } from "@/lib/utils";
 import type { Wallet, WithdrawRequest } from "@/lib/types";
 import { Button, Card, Input, Tag } from "@/components/ui";
@@ -21,6 +22,7 @@ export function WithdrawCard({ wallet, onChanged }: {
 }) {
   const t = useTranslations("wallet");
   const locale = useLocale();
+  const { formatLedgerMoney } = useMoney();
   const [amount, setAmount] = useState("");
   const [bankName, setBankName] = useState("");
   const [bankAccountNumber, setBankAccountNumber] = useState("");
@@ -105,12 +107,12 @@ export function WithdrawCard({ wallet, onChanged }: {
         </div>
         <div>
           <div className="flex items-baseline justify-between mb-1.5">
-            <span className="text-[11px] uppercase tracking-wider text-faint font-medium">{t("withdrawAmount")}</span>
+            <span className="text-[11px] uppercase tracking-wider text-faint font-medium">{t("withdrawAmountVnd")}</span>
             <button
               onClick={() => setAmount(String(available))}
               className="text-[11px] text-iris hover:text-iris-hi transition-colors cursor-pointer"
             >
-              {t("withdrawMax", { amount: vnd(available, locale) })}
+              {t("withdrawMaxVnd", { amount: formatLedgerMoney(available, locale) })}
             </button>
           </div>
           <MoneyInput
@@ -133,7 +135,7 @@ export function WithdrawCard({ wallet, onChanged }: {
         >
           {loading ? t("withdrawSubmitting") : t("withdrawSubmit")}
         </Button>
-        <p className="text-[11px] text-faint">{t("withdrawHint")}</p>
+        <p className="text-[11px] text-faint">{t("withdrawCurrencyHint")}</p>
       </div>
     </Card>
   );

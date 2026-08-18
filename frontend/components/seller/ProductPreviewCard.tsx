@@ -1,6 +1,7 @@
 "use client";
 
 import { vnd } from "@/lib/api";
+import { useTranslations } from "next-intl";
 import { formatSpecKey } from "@/lib/utils";
 import { serviceLabel } from "@/lib/labels";
 import type { Variant } from "@/lib/types";
@@ -13,6 +14,12 @@ export const STATUS_TAG: Record<string, { label: string; tone: "good" | "warn" |
   draft: { label: "Nháp", tone: "neutral" },
   paused: { label: "Tạm dừng", tone: "warn" },
   suspended: { label: "Bị khoá", tone: "bad" },
+};
+const STATUS_LABEL_KEYS: Record<string, string> = {
+  active: "activeStatus",
+  draft: "draftStatus",
+  paused: "pausedStatus",
+  suspended: "suspendedStatus",
 };
 
 /* Xem trước — render lại đúng khuôn trang mua (app/products/[id]/page.tsx:
@@ -28,6 +35,7 @@ export function ProductPreviewCard({
   highlightText: string; description: string; features: string[];
   specs: { key: string; value: string }[]; warrantyText: string; variants: Variant[];
 }) {
+  const t = useTranslations("seller");
   const cleanFeatures = features.filter((f) => f.trim());
   const cleanSpecs = specs.filter((s) => s.key.trim());
   const minPrice = variants.length > 0 ? Math.min(...variants.map((v) => v.price)) : null;
@@ -36,13 +44,13 @@ export function ProductPreviewCard({
     <Card className="overflow-hidden">
       <div className="px-4 py-2.5 border-b border-line bg-raised/40 flex items-center gap-2">
         <Eye size={13} className="text-faint" />
-        <span className="text-[12px] font-semibold text-muted uppercase tracking-wider">Xem trước</span>
+        <span className="text-[12px] font-semibold text-muted uppercase tracking-wider">{t("previewTitle")}</span>
       </div>
 
       {status !== "active" && (
         <div className="px-4 pt-3">
           <Banner tone="warn" icon={<Info size={14} />}>
-            Đang ở trạng thái <strong>{STATUS_TAG[status]?.label ?? status}</strong> — khách chưa thấy trang này cho tới khi bạn chuyển về &quot;Đang bán&quot;.
+            {t("previewStatusWarning", { status: t(STATUS_LABEL_KEYS[status] ?? "status"), active: t("activeStatus") })}
           </Banner>
         </div>
       )}
@@ -54,7 +62,7 @@ export function ProductPreviewCard({
           </span>
           <div className="min-w-0 flex-1">
             <h4 className="font-serif text-[15px] leading-tight tracking-tight font-semibold break-words">
-              {title.trim() || <span className="text-faint italic font-sans font-normal text-[13px]">Chưa đặt tên sản phẩm</span>}
+              {title.trim() || <span className="text-faint italic font-sans font-normal text-[13px]">{t("previewUnnamed")}</span>}
             </h4>
             <div className="flex flex-wrap items-center gap-1 mt-1.5">
               {categoryName && <Tag tone="iris">{categoryName}</Tag>}
@@ -66,7 +74,7 @@ export function ProductPreviewCard({
         {minPrice != null && (
           <div className="pt-3 border-t border-line">
             <span className="font-mono text-[18px] font-bold tabular text-iris-hi">
-              {variants.length > 1 ? "Từ " : ""}{vnd(minPrice)}
+              {variants.length > 1 ? `${t("previewFrom")} ` : ""}{vnd(minPrice)}
             </span>
           </div>
         )}
@@ -106,13 +114,13 @@ export function ProductPreviewCard({
 
         {warrantyText.trim() && (
           <div className="pt-3 border-t border-line">
-            <div className="text-[11px] font-semibold text-muted uppercase tracking-wider mb-1">Bảo hành</div>
+            <div className="text-[11px] font-semibold text-muted uppercase tracking-wider mb-1">{t("warrantyLabel")}</div>
             <p className="text-[12px] text-muted leading-relaxed whitespace-pre-line">{warrantyText}</p>
           </div>
         )}
 
         <div className="pt-3 border-t border-line flex items-center gap-1.5 text-[11.5px] text-faint">
-          <Shield size={11} /> Ký quỹ bảo vệ người mua {escrowDays} ngày
+          <Shield size={11} /> {t("previewEscrow", { days: escrowDays })}
         </div>
       </div>
     </Card>

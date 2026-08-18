@@ -84,7 +84,7 @@ export default function WalletPage() {
           </Card>
 
           <DepositCard deposits={deposits} onChanged={onChanged} />
-          <DemoTopup onChanged={onChanged} />
+          {process.env.NEXT_PUBLIC_ENABLE_DEMO_TOPUP === "true" && <DemoTopup onChanged={onChanged} />}
           {isSeller && <WithdrawCard wallet={wallet} onChanged={onChanged} />}
           {isSeller && <WithdrawHistory withdrawals={withdrawals} />}
         </div>

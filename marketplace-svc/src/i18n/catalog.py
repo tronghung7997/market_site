@@ -9,6 +9,7 @@ English storefront must never fall back to ``vi`` (would leak Vietnamese).
 
 from __future__ import annotations
 
+from copy import deepcopy
 from typing import Any
 
 SUPPORTED_LOCALES: tuple[str, ...] = ("en", "vi")
@@ -20,6 +21,11 @@ PRODUCT_I18N_FIELDS = (
     "warranty_text",
     "highlight_text",
     "features",
+    # Structured buyer-facing content.  Pricing numbers and machine keys stay
+    # in products.pricing_params; these fields only contain translated labels
+    # and display values.
+    "specs",
+    "pricing_labels",
 )
 CATEGORY_I18N_FIELDS = ("name",)
 VARIANT_I18N_FIELDS = ("name",)
@@ -138,6 +144,64 @@ def resolve_product_fields(product: Any, locale: str) -> dict[str, Any]:
     resolved["locale"] = normalize_locale(locale)
     resolved["available_locales"] = available_locales(i18n)
     return resolved
+
+
+def resolve_product_specs(product: Any, locale: str) -> dict | None:
+    """Resolve buyer-facing specification labels/values for ``locale``."""
+    resolved = resolve_product_fields(product, locale)
+    value = resolved.get("specs")
+    return value if isinstance(value, dict) else None
+
+
+def resolve_product_pricing_params(product: Any, locale: str) -> dict | None:
+    """Overlay localized pricing labels without changing pricing semantics.
+
+    ``pricing_params`` contains machine keys and numeric values used by the
+    quote engine.  Only the display layer is copied from ``i18n`` so a locale
+    change can never alter a price or provider payload.
+    """
+    raw = getattr(product, "pricing_params", None)
+    if not isinstance(raw, dict):
+        return None
+
+    params = deepcopy(raw)
+    i18n = getattr(product, "i18n", None) or {}
+    labels: dict[str, Any] = {}
+    # Merge field-level labels through the same fallback chain as text fields.
+    # A partially translated locale can therefore fill only what it owns.
+    for loc in reversed(_locale_order(locale)):
+        bucket = i18n.get(loc)
+        if not isinstance(bucket, dict):
+            continue
+        candidate = bucket.get("pricing_labels")
+        if isinstance(candidate, dict):
+            for key, value in candidate.items():
+                if isinstance(value, dict) and isinstance(labels.get(key), dict):
+                    labels[key] = {**labels[key], **value}
+                else:
+                    labels[key] = value
+
+    # Legacy products keep display labels in pricing_params.  Start with
+    # those and let localized values override them.
+    for key in ("field_labels", "type_display", "network_display"):
+        value = labels.get(key)
+        if isinstance(value, dict):
+            params[key] = {**(params.get(key) or {}), **value}
+    duration_labels = labels.get("duration_labels")
+    if isinstance(duration_labels, dict) and isinstance(params.get("duration_options"), list):
+        options = []
+        for option in params["duration_options"]:
+            if not isinstance(option, dict):
+                options.append(option)
+                continue
+            item = dict(option)
+            days = item.get("days")
+            label = duration_labels.get(str(days), duration_labels.get(days))
+            if label:
+                item["label"] = label
+            options.append(item)
+        params["duration_options"] = options
+    return params
 
 
 def resolve_category_fields(category: Any, locale: str) -> dict[str, Any]:

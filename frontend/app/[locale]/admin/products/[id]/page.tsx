@@ -5,7 +5,7 @@ import { useTranslations } from "next-intl";
 import { useParams, usePathname, useRouter, useSearchParams } from "next/navigation";
 import { useEffect, useState } from "react";
 import { api, vnd } from "@/lib/api";
-import type { AdminProductDetail as AdminProductDetailData, Category, ProductLocale, ProductOperations, Provider } from "@/lib/types";
+import type { AdminProductDetail as AdminProductDetailData, Category, ProductLocale, ProductOperations, ProductPricingLabels, Provider } from "@/lib/types";
 import { Button, Banner, Card, Field, Input, Select, Spinner, Tag, Textarea } from "@/components/ui";
 import { Activity, ArrowRight, Check, Edit2, Eye, Info, Sliders, Users } from "@/components/Icons";
 import { STRATEGY_INFO, STRATEGY_FORMULAS, ADAPTER_INFO, PARAM_LABELS, formatParamValue } from "@/lib/pricing-config";
@@ -18,6 +18,7 @@ import { formatSpecKey } from "@/lib/utils";
 import { isAdapterCompatible, type CompatMatrix } from "@/lib/compat";
 import { SERVICE_LABELS } from "@/lib/labels";
 import { ProductLanguageRail, productLanguageName } from "@/components/products/ProductLanguageRail";
+import { ProductPricingLabelsEditor } from "@/components/products/ProductPricingLabelsEditor";
 
 const CONTENT_EMPTY = {
   title: "", category_id: 0, service_type: "other", status: "active", escrow_days: 2,
@@ -78,6 +79,7 @@ export default function AdminProductDetail() {
   const [content, setContent] = useState<typeof CONTENT_EMPTY>(CONTENT_EMPTY);
   const [features, setFeatures] = useState<string[]>([]);
   const [specs, setSpecs] = useState<{ key: string; value: string }[]>([]);
+  const [pricingLabels, setPricingLabels] = useState<ProductPricingLabels>({});
   const [savingContent, setSavingContent] = useState(false);
   const [contentDirty, setContentDirty] = useState(false);
   const [contentMsg, setContentMsg] = useState<{ type: "ok" | "err"; text: string } | null>(null);
@@ -108,9 +110,9 @@ export default function AdminProductDetail() {
       warranty_text: translation.warranty_text ?? "",
     }));
     setFeatures(translation.features ?? []);
-    if (includeCommon) {
-      setSpecs(p.specs ? Object.entries(p.specs).map(([key, value]) => ({ key, value: String(value) })) : []);
-    }
+    const localizedSpecs = translation.specs ?? (locale === "vi" ? p.specs : null);
+    setSpecs(localizedSpecs ? Object.entries(localizedSpecs).map(([key, value]) => ({ key, value: String(value) })) : []);
+    setPricingLabels(translation.pricing_labels ?? {});
   };
 
   const loadAll = async () => {
@@ -161,16 +163,12 @@ export default function AdminProductDetail() {
     try {
       const featureList = features.map((f) => f.trim()).filter(Boolean);
       const specsEntries = specs.filter((s) => s.key.trim());
-      const specsObj = specsEntries.length > 0
-        ? Object.fromEntries(specsEntries.map((s) => [s.key.trim(), s.value.trim()]))
-        : undefined;
       await Promise.all([
         api.adminUpdateProduct(Number(id), {
           category_id: content.category_id,
           service_type: content.service_type,
           status: content.status,
           escrow_days: content.escrow_days,
-          specs: specsObj ?? null,
         }),
         api.adminUpdateProductTranslation(Number(id), contentLocale, {
           title: content.title.trim(),
@@ -178,6 +176,10 @@ export default function AdminProductDetail() {
           description: content.description.trim() || null,
           features: featureList.length > 0 ? featureList : null,
           warranty_text: content.warranty_text.trim() || null,
+          specs: specsEntries.length > 0
+            ? Object.fromEntries(specsEntries.map((s) => [s.key.trim(), s.value.trim()]))
+            : null,
+          pricing_labels: Object.keys(pricingLabels).length > 0 ? pricingLabels : null,
         }),
       ]);
       setContentMsg({ type: "ok", text: t("savedLanguage", { language: productLanguageName(contentLocale, interfaceLocale) }) });
@@ -293,6 +295,7 @@ export default function AdminProductDetail() {
         interfaceLocale={interfaceLocale}
         activeLocale={contentLocale}
         translations={product.translations}
+        requiredFields={{ specs: Boolean(product.specs), pricingLabels: Boolean(product.pricing_params) }}
         dirty={contentDirty}
         onChange={changeContentLocale}
       />
@@ -426,6 +429,30 @@ export default function AdminProductDetail() {
                   />
                 )}
               />
+              <ListEditor
+                label={`${t("specsLabel")} · ${contentLocale.toUpperCase()}`}
+                hint={productLanguageName(contentLocale, interfaceLocale)}
+                items={specs}
+                addLabel={t("addSpec")}
+                emptyText={t("noSpecs")}
+                onAdd={() => { setSpecs([...specs, { key: "", value: "" }]); markContentDirty(); }}
+                onRemove={(index) => { setSpecs(specs.filter((_, itemIndex) => itemIndex !== index)); markContentDirty(); }}
+                renderRow={(s, i) => (
+                  <div className="flex items-center gap-2">
+                    <Input aria-label={`Tên thông số ${i + 1}`} value={s.key} placeholder={t("specNamePlaceholder")}
+                      onChange={(e) => { const next = [...specs]; next[i] = { ...next[i], key: e.target.value }; setSpecs(next); markContentDirty(); }} />
+                    <Input aria-label={`Giá trị thông số ${i + 1}`} value={s.value} placeholder={t("specValuePlaceholder")}
+                      onChange={(e) => { const next = [...specs]; next[i] = { ...next[i], value: e.target.value }; setSpecs(next); markContentDirty(); }} />
+                  </div>
+                )}
+              />
+              <ProductPricingLabelsEditor
+                locale={contentLocale}
+                params={product.pricing_params}
+                value={pricingLabels}
+                onChange={setPricingLabels}
+                onDirty={markContentDirty}
+              />
               <Field label={t("warrantyLabel")}><Textarea rows={3} value={content.warranty_text} onChange={(e) => { setContent({ ...content, warranty_text: e.target.value }); markContentDirty(); }} /></Field>
 
               <div className="border-t border-line pt-4">
@@ -453,36 +480,6 @@ export default function AdminProductDetail() {
                   </Select>
                 </Field>
               </div>
-              <ListEditor
-                label={t("specsLabel")}
-                items={specs}
-                addLabel={t("addSpec")}
-                emptyText={t("noSpecs")}
-                onAdd={() => { setSpecs([...specs, { key: "", value: "" }]); markContentDirty(); }}
-                onRemove={(index) => { setSpecs(specs.filter((_, itemIndex) => itemIndex !== index)); markContentDirty(); }}
-                renderRow={(s, i) => (
-                  <div className="flex items-center gap-2">
-                    <Input
-                      aria-label={`Tên thông số ${i + 1}`}
-                      value={s.key}
-                      placeholder={t("specNamePlaceholder")}
-                      onChange={(e) => {
-                        const next = [...specs]; next[i] = { ...next[i], key: e.target.value };
-                        setSpecs(next); markContentDirty();
-                      }}
-                    />
-                    <Input
-                      aria-label={`Giá trị thông số ${i + 1}`}
-                      value={s.value}
-                      placeholder={t("specValuePlaceholder")}
-                      onChange={(e) => {
-                        const next = [...specs]; next[i] = { ...next[i], value: e.target.value };
-                        setSpecs(next); markContentDirty();
-                      }}
-                    />
-                  </div>
-                )}
-              />
               <p className="text-[12px] text-muted">{t("adminEditHint")}</p>
             </Card>
             <div className="lg:sticky lg:top-6">

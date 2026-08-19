@@ -5,6 +5,8 @@ from sqlalchemy.ext.asyncio import AsyncSession
 from src.adapters.compatibility import ADAPTER_STRATEGY_COMPAT, check_compatibility, setup_status
 from src.auth.dependencies import get_current_account, require_role
 from src.database import get_session
+from src.i18n.deps import get_request_locale
+from src.i18n.catalog import resolve_product_pricing_params
 from src.models.account import Account
 from src.models.order import Order, OrderStatus
 from src.models.product import Product
@@ -32,9 +34,16 @@ _PUBLIC_ADAPTER_ALIASES = {"topproxy": "auto_proxy"}
 
 
 @router.get("/products/{product_id}/pricing-options", response_model=schemas.PricingOptionsResponse)
-async def pricing_options(product_id: int, db: AsyncSession = Depends(get_session)):
+async def pricing_options(
+    product_id: int,
+    locale: str = Depends(get_request_locale),
+    db: AsyncSession = Depends(get_session),
+):
     product = await _get_product(product_id, db)
     strategy_name, params = await resolve_pricing(product, db)
+    # Pricing calculations continue to use the canonical params.  Localized
+    # params are only used to build buyer-facing labels/choices.
+    params = resolve_product_pricing_params(product, locale) or params
     strategy = get_pricing_strategy(strategy_name)
     fields = strategy.get_options(params)
 

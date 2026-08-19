@@ -12,7 +12,9 @@ from src.i18n.catalog import (
     available_locales,
     merge_i18n_locale,
     resolve_category_fields,
+    resolve_product_pricing_params,
     resolve_product_fields,
+    resolve_product_specs,
     resolve_variant_fields,
 )
 from src.models.account import Account
@@ -26,6 +28,10 @@ from src.models.resource import Resource, ResourceStatus
 NULLABLE_VARIANT_FIELDS = {"duration_days"}
 PRODUCT_TRANSLATION_FIELDS = (
     "title", "description", "warranty_text", "highlight_text", "features",
+    "specs", "pricing_labels",
+)
+PRODUCT_LEGACY_MIRROR_FIELDS = (
+    "title", "description", "warranty_text", "highlight_text", "features", "specs",
 )
 
 
@@ -73,7 +79,7 @@ async def update_product(product_id: int, seller_id: int, data: dict, db: AsyncS
     for key, value in data.items():
         if value is not None:
             setattr(product, key, value)
-    text_keys = {"title", "description", "warranty_text", "highlight_text", "features"}
+    text_keys = {"title", "description", "warranty_text", "highlight_text", "features", "specs"}
     if text_keys & data.keys():
         product.i18n = _product_i18n_from_scalars(data, existing=product.i18n)
     await db.commit()
@@ -96,7 +102,7 @@ async def admin_update_product(product_id: int, data: dict, db: AsyncSession) ->
     for key, value in data.items():
         if value is not None:
             setattr(product, key, value)
-    text_keys = {"title", "description", "warranty_text", "highlight_text", "features"}
+    text_keys = {"title", "description", "warranty_text", "highlight_text", "features", "specs"}
     if text_keys & data.keys():
         product.i18n = _product_i18n_from_scalars(data, existing=product.i18n)
     await db.commit()
@@ -131,8 +137,9 @@ async def update_product_translation(
 
     product.i18n = merge_i18n_locale(product.i18n, locale, fields)
     if locale == "vi":
-        for key, value in fields.items():
-            setattr(product, key, value)
+        for key in PRODUCT_LEGACY_MIRROR_FIELDS:
+            if key in fields:
+                setattr(product, key, fields[key])
 
     await db.commit()
     await db.refresh(product)
@@ -735,7 +742,7 @@ def _product_list_dict(product: Product, *, locale: str | None = DEFAULT_LOCALE)
         "highlight_text": highlight_text, "sold_count": product.sold_count,
         "rating_avg": product.rating_avg, "rating_count": product.rating_count,
         "pricing_strategy": product.pricing_strategy,
-        "pricing_params": product.pricing_params,
+        "pricing_params": resolve_product_pricing_params(product, locale) if locale is not None else product.pricing_params,
         "created_at": product.created_at,
         **meta,
     }
@@ -788,11 +795,11 @@ def _product_dict(product: Product, *, locale: str | None = DEFAULT_LOCALE) -> d
         "images": product.images,
         "escrow_days": product.escrow_days, "status": product.status.value,
         "service_type": product.service_type,
-        "specs": product.specs,
+        "specs": resolve_product_specs(product, locale) if locale is not None else product.specs,
         "sold_count": product.sold_count,
         "rating_avg": product.rating_avg, "rating_count": product.rating_count,
         "pricing_strategy": product.pricing_strategy,
-        "pricing_params": product.pricing_params,
+        "pricing_params": resolve_product_pricing_params(product, locale) if locale is not None else product.pricing_params,
         "commission_rate": product.commission_rate,
         "created_at": product.created_at, "updated_at": product.updated_at,
     }

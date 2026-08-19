@@ -79,6 +79,18 @@ export interface ProductTranslation {
   highlight_text?: string | null;
   features?: string[] | null;
   warranty_text?: string | null;
+  /** Locale-specific buyer-facing specs. Keys are display labels for legacy
+   * products; new entries should use stable spec ids. */
+  specs?: Record<string, string> | null;
+  /** Labels only — numeric pricing and machine keys remain common. */
+  pricing_labels?: ProductPricingLabels | null;
+}
+
+export interface ProductPricingLabels {
+  field_labels?: Record<string, string>;
+  type_display?: Record<string, string>;
+  network_display?: Record<string, string>;
+  duration_labels?: Record<string, string>;
 }
 
 export interface PaginatedProducts {

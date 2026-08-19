@@ -7,7 +7,7 @@ import { useDeferredValue, useEffect, useState, type ElementType } from "react";
 import { api, vnd, ApiError } from "@/lib/api";
 import { useAuth } from "@/lib/auth";
 import { cn } from "@/lib/cn";
-import type { Category, ProductDetail, ProductLocale, ProductOperations, Provider, Resource, Variant } from "@/lib/types";
+import type { Category, ProductDetail, ProductLocale, ProductOperations, ProductPricingLabels, Provider, Resource, Variant } from "@/lib/types";
 import { Banner, Button, Card, Field, Input, Select, Spinner, Tag, Textarea } from "@/components/ui";
 import { MoneyInput } from "@/components/MoneyInput";
 import { MarkdownEditor } from "@/components/MarkdownEditor";
@@ -18,6 +18,7 @@ import { isAdapterCompatible } from "@/lib/compat";
 import { STRATEGY_INFO, STRATEGY_FORMULAS, ADAPTER_INFO } from "@/lib/pricing-config";
 import { PricingParamsEditor } from "@/components/PricingParamsEditor";
 import { ProductLanguageRail, productLanguageName } from "@/components/products/ProductLanguageRail";
+import { ProductPricingLabelsEditor } from "@/components/products/ProductPricingLabelsEditor";
 
 const SERVICE_TYPES = [
   { value: "account", key: "serviceTypeAccount" },
@@ -214,6 +215,7 @@ export default function EditProduct() {
   const [features, setFeatures] = useState<string[]>([]);
   const [warrantyText, setWarrantyText] = useState("");
   const [specs, setSpecs] = useState<{ key: string; value: string }[]>([]);
+  const [pricingLabels, setPricingLabels] = useState<ProductPricingLabels>({});
   const [status, setStatus] = useState("active");
   const [dirty, setDirty] = useState(false);
   const markDirty = () => setDirty(true);
@@ -234,7 +236,9 @@ export default function EditProduct() {
     setCategoryId(p.category_id);
     setServiceType(p.service_type ?? "other");
     setEscrowDays(p.escrow_days);
-    setSpecs(p.specs ? Object.entries(p.specs).map(([key, value]) => ({ key, value: String(value) })) : []);
+    const localizedSpecs = translation.specs ?? (locale === "vi" ? p.specs : null);
+    setSpecs(localizedSpecs ? Object.entries(localizedSpecs).map(([key, value]) => ({ key, value: String(value) })) : []);
+    setPricingLabels(translation.pricing_labels ?? {});
     setStatus(p.status);
     setDirty(false);
   };
@@ -284,15 +288,11 @@ export default function EditProduct() {
     try {
       const featureList = features.map((f) => f.trim()).filter(Boolean);
       const specsEntries = specs.filter((s) => s.key.trim());
-      const specsObj = specsEntries.length > 0
-        ? Object.fromEntries(specsEntries.map((s) => [s.key.trim(), s.value.trim()]))
-        : undefined;
       await Promise.all([
         api.updateProduct(Number(id), {
           category_id: categoryId,
           service_type: serviceType,
           escrow_days: escrowDays,
-          specs: specsObj ?? null,
         }),
         api.updateProductTranslation(Number(id), contentLocale, {
           title: title.trim(),
@@ -300,6 +300,10 @@ export default function EditProduct() {
           highlight_text: highlightText.trim() || null,
           features: featureList.length > 0 ? featureList : null,
           warranty_text: warrantyText.trim() || null,
+          specs: specsEntries.length > 0
+            ? Object.fromEntries(specsEntries.map((s) => [s.key.trim(), s.value.trim()]))
+            : null,
+          pricing_labels: Object.keys(pricingLabels).length > 0 ? pricingLabels : null,
         }),
       ]);
       setSuccess(t("savedLanguage", { language: productLanguageName(contentLocale, interfaceLocale) }));
@@ -356,6 +360,7 @@ export default function EditProduct() {
             interfaceLocale={interfaceLocale}
             activeLocale={contentLocale}
             translations={product.translations}
+            requiredFields={{ specs: Boolean(product.specs), pricingLabels: Boolean(product.pricing_params) }}
             dirty={dirty}
             onChange={changeContentLocale}
           />
@@ -387,36 +392,6 @@ export default function EditProduct() {
                   </div>
                 </Field>
               </div>
-              <ListEditor
-                label={t("specsLabel")}
-                items={specs}
-                addLabel={t("addSpec")}
-                emptyText={t("noSpecs")}
-                onAdd={() => { setSpecs([...specs, { key: "", value: "" }]); markDirty(); }}
-                onRemove={(i) => { setSpecs(specs.filter((_, idx) => idx !== i)); markDirty(); }}
-                renderRow={(s, i) => (
-                  <div className="flex items-center gap-2">
-                    <Input
-                      aria-label={`Tên thông số ${i + 1}`}
-                      value={s.key}
-                      placeholder={t("specNamePlaceholder")}
-                      onChange={(e) => {
-                        const next = [...specs]; next[i] = { ...next[i], key: e.target.value };
-                        setSpecs(next); markDirty();
-                      }}
-                    />
-                    <Input
-                      aria-label={`Giá trị thông số ${i + 1}`}
-                      value={s.value}
-                      placeholder={t("specValuePlaceholder")}
-                      onChange={(e) => {
-                        const next = [...specs]; next[i] = { ...next[i], value: e.target.value };
-                        setSpecs(next); markDirty();
-                      }}
-                    />
-                  </div>
-                )}
-              />
             </Card>
 
             <Card className="p-6 space-y-5">
@@ -452,6 +427,30 @@ export default function EditProduct() {
                     }}
                   />
                 )}
+              />
+              <ListEditor
+                label={`${t("specsLabel")} · ${contentLocale.toUpperCase()}`}
+                hint={productLanguageName(contentLocale, interfaceLocale)}
+                items={specs}
+                addLabel={t("addSpec")}
+                emptyText={t("noSpecs")}
+                onAdd={() => { setSpecs([...specs, { key: "", value: "" }]); markDirty(); }}
+                onRemove={(i) => { setSpecs(specs.filter((_, idx) => idx !== i)); markDirty(); }}
+                renderRow={(s, i) => (
+                  <div className="flex items-center gap-2">
+                    <Input aria-label={`Tên thông số ${i + 1}`} value={s.key} placeholder={t("specNamePlaceholder")}
+                      onChange={(e) => { const next = [...specs]; next[i] = { ...next[i], key: e.target.value }; setSpecs(next); markDirty(); }} />
+                    <Input aria-label={`Giá trị thông số ${i + 1}`} value={s.value} placeholder={t("specValuePlaceholder")}
+                      onChange={(e) => { const next = [...specs]; next[i] = { ...next[i], value: e.target.value }; setSpecs(next); markDirty(); }} />
+                  </div>
+                )}
+              />
+              <ProductPricingLabelsEditor
+                locale={contentLocale}
+                params={product.pricing_params}
+                value={pricingLabels}
+                onChange={setPricingLabels}
+                onDirty={markDirty}
               />
             </Card>
 

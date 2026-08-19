@@ -12,6 +12,8 @@ from src.i18n.catalog import (
     parse_accept_language,
     resolve_field,
     resolve_product_fields,
+    resolve_product_pricing_params,
+    resolve_product_specs,
 )
 from src.i18n.en_catalog import CATEGORY_EN, PRODUCT_EN
 from src.models.category import Category
@@ -91,6 +93,13 @@ class _FakeProduct:
         self.warranty_text = None
         self.highlight_text = "Nổi bật"
         self.features = ["A"]
+        self.specs = {"Loại IP": "Datacenter VN"}
+        self.pricing_params = {
+            "base_price": 36000,
+            "network_mult": {"DatacenterA": 3.5},
+            "network_display": {"DatacenterA": "Dùng riêng"},
+            "duration_options": [{"days": 14, "label": "14 ngày"}],
+        }
         self.i18n = {
             "vi": {
                 "title": "Tiêu đề VI",
@@ -103,6 +112,12 @@ class _FakeProduct:
                 "description": "EN description",
                 "highlight_text": "EN highlight",
                 "features": ["A EN"],
+                "specs": {"IP type": "Datacenter VN"},
+                "pricing_labels": {
+                    "field_labels": {"network": "Sharing level"},
+                    "network_display": {"DatacenterA": "Dedicated"},
+                    "duration_labels": {"14": "14 days"},
+                },
             },
         }
 
@@ -117,6 +132,18 @@ def test_resolve_product_fields_object():
 
     vi = resolve_product_fields(p, "vi")
     assert vi["title"] == "Tiêu đề VI"
+
+
+@pytest.mark.no_db
+def test_resolve_structured_product_content_without_changing_price_data():
+    p = _FakeProduct()
+    assert resolve_product_specs(p, "en") == {"IP type": "Datacenter VN"}
+    params = resolve_product_pricing_params(p, "en")
+    assert params["base_price"] == 36000
+    assert params["network_mult"] == {"DatacenterA": 3.5}
+    assert params["field_labels"]["network"] == "Sharing level"
+    assert params["network_display"]["DatacenterA"] == "Dedicated"
+    assert params["duration_options"] == [{"days": 14, "label": "14 days"}]
 
 
 @pytest.mark.asyncio

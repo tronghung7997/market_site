@@ -43,13 +43,19 @@ class ProductUpdate(ProductContentUpdate):
 
 
 class ProductTranslationUpdate(BaseModel):
-    """Text shown to buyers for one explicit locale."""
+    """Buyer-facing content for one explicit locale.
+
+    ``pricing_labels`` contains labels only; numeric pricing and machine keys
+    remain in the common ``pricing_params`` object.
+    """
 
     title: str | None = None
     description: str | None = None
     features: list[str] | None = None
     warranty_text: str | None = None
     highlight_text: str | None = None
+    specs: dict | None = None
+    pricing_labels: dict | None = None
 
 
 class ProductResponse(BaseModel):

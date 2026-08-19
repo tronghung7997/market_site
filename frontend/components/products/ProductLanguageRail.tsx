@@ -9,12 +9,18 @@ const LANGUAGE_NAMES: Record<ProductLocale, Record<ProductLocale, string>> = {
   en: { vi: "Vietnamese", en: "English" },
 };
 
-function translationState(translation: ProductTranslation | null | undefined, label: (key: string) => string) {
+function translationState(
+  translation: ProductTranslation | null | undefined,
+  label: (key: string) => string,
+  required: { specs?: boolean; pricingLabels?: boolean },
+) {
   const hasAny = translation && Object.values(translation).some((value) => (
     Array.isArray(value) ? value.length > 0 : typeof value === "string" ? value.trim() : Boolean(value)
   ));
   if (!hasAny) return { label: label("translationMissing"), tone: "neutral" as const };
-  if (translation?.title?.trim() && translation?.description?.trim()) {
+  const structuredComplete = (!required.specs || Boolean(translation?.specs && Object.keys(translation.specs).length > 0))
+    && (!required.pricingLabels || Boolean(translation?.pricing_labels && Object.keys(translation.pricing_labels).length > 0));
+  if (translation?.title?.trim() && translation?.description?.trim() && structuredComplete) {
     return { label: label("translationComplete"), tone: "good" as const };
   }
   return { label: label("translationIncomplete"), tone: "warn" as const };
@@ -24,12 +30,14 @@ export function ProductLanguageRail({
   interfaceLocale,
   activeLocale,
   translations,
+  requiredFields = {},
   dirty = false,
   onChange,
 }: {
   interfaceLocale: ProductLocale;
   activeLocale: ProductLocale;
   translations?: Partial<Record<ProductLocale, ProductTranslation>> | null;
+  requiredFields?: { specs?: boolean; pricingLabels?: boolean };
   dirty?: boolean;
   onChange: (locale: ProductLocale) => void;
 }) {
@@ -48,7 +56,7 @@ export function ProductLanguageRail({
         </div>
         <div className="flex w-full gap-1 rounded-lg border border-line bg-panel p-1 sm:w-auto" role="group" aria-label={t("chooseContentLanguage")}>
           {(["vi", "en"] as ProductLocale[]).map((locale) => {
-            const state = translationState(translations?.[locale], t);
+            const state = translationState(translations?.[locale], t, requiredFields);
             const active = locale === activeLocale;
             return (
               <button

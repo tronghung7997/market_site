@@ -88,6 +88,7 @@ function applyVolumeDiscount(
 }
 
 function PlanSummary({ strategy, params }: { strategy: string; params: Record<string, unknown> }) {
+  const t = useTranslations("seller.operations.plan");
   if (strategy === "credit") {
     const creditPrice = params.credit_price as number | undefined;
     const packages = (params.packages as { size: number; label?: string }[] | undefined) ?? [];
@@ -95,7 +96,7 @@ function PlanSummary({ strategy, params }: { strategy: string; params: Record<st
     if (creditPrice == null || packages.length === 0) return null;
     return (
       <div className="space-y-2">
-        <div className="text-[12px] font-medium text-muted">Gói bán ra ({vnd(creditPrice)}/request)</div>
+        <div className="text-[12px] font-medium text-muted">{t("packages", { price: vnd(creditPrice) })}</div>
         <div className="grid gap-2 sm:grid-cols-3">
           {packages.map((p) => {
             const base = creditPrice * p.size;
@@ -107,7 +108,7 @@ function PlanSummary({ strategy, params }: { strategy: string; params: Record<st
                   <span className="font-mono text-[15px] font-semibold">{vnd(amount)}</span>
                   {discountPct != null && <Tag tone="good">-{Math.round(discountPct * 100)}%</Tag>}
                 </div>
-                <div className="text-[11px] text-faint mt-0.5">{vnd(Math.round(amount / p.size))}/request</div>
+                <div className="text-[11px] text-faint mt-0.5">{vnd(Math.round(amount / p.size))}{t("perRequest")}</div>
               </div>
             );
           })}
@@ -123,7 +124,7 @@ function PlanSummary({ strategy, params }: { strategy: string; params: Record<st
     if (basePrice == null || !platformMult) return null;
     return (
       <div className="space-y-2">
-        <div className="text-[12px] font-medium text-muted">Giá theo nền tảng (mỗi URL)</div>
+        <div className="text-[12px] font-medium text-muted">{t("platform")}</div>
         <div className="grid gap-2 sm:grid-cols-3">
           {Object.entries(platformMult).map(([platform, mult]) => (
             <div key={platform} className="bg-raised rounded-lg px-3 py-2.5">
@@ -134,7 +135,7 @@ function PlanSummary({ strategy, params }: { strategy: string; params: Record<st
         </div>
         {!!tiers?.length && (
           <div className="text-[12px] text-muted">
-            Giảm giá khi 1 đơn có nhiều URL: {tiers.map((t) => `từ ${t.min_qty} URL -${Math.round(t.discount * 100)}%`).join(", ")}
+            {t("multipleUrls")} {tiers.map((tier) => t("discountTier", { count: tier.min_qty, discount: Math.round(tier.discount * 100) })).join(", ")}
           </div>
         )}
       </div>
@@ -158,14 +159,14 @@ function PlanSummary({ strategy, params }: { strategy: string; params: Record<st
     );
     return (
       <div className="space-y-2">
-        <div className="text-[12px] font-medium text-muted">Ví dụ giá thật</div>
+        <div className="text-[12px] font-medium text-muted">{t("configExample")}</div>
         <div className="bg-raised rounded-lg px-3 py-2.5 text-[13px]">
-          {firstType && <>Loại <strong>{firstType}</strong></>}
-          {firstNetwork && <>, mạng <strong>{firstNetwork}</strong></>}
-          , thuê <strong>{refDays} ngày</strong>
+          {firstType && <>{t("type")} <strong>{firstType}</strong></>}
+          {firstNetwork && <>, {t("network")} <strong>{firstNetwork}</strong></>}
+          , <strong>{t("duration", { days: refDays })}</strong>
           <div className="font-mono text-[16px] font-semibold mt-1">{vnd(exampleAmount)}</div>
         </div>
-        <div className="text-[11px] text-faint">Giá đổi theo loại/mạng/số ngày khách chọn — đây chỉ là 1 ví dụ để hình dung.</div>
+        <div className="text-[11px] text-faint">{t("configHint")}</div>
       </div>
     );
   }
@@ -528,14 +529,17 @@ export default function EditProduct() {
 
 function SetupSummaryCard({ ops, onViewOperations }: { ops: ProductOperations | null; onViewOperations: () => void }) {
   const t = useTranslations("seller");
+  const tx = useTranslations("seller.operations");
   const locale = useLocale();
   if (!ops) return <Card className="p-4"><Spinner /></Card>;
 
   const strategy = ops.pricing.strategy || "fixed";
-  const sInfo = STRATEGY_INFO[strategy] ?? STRATEGY_INFO.fixed;
   const strategyLabel = t(STRATEGY_LABEL_KEYS[strategy] ?? "strategyFixed");
   const adapterType = ops.provider?.adapter_type ?? null;
-  const aInfo = adapterType ? (ADAPTER_INFO[adapterType] ?? { label: adapterType, description: "" }) : null;
+  const aInfo = adapterType ? {
+    label: tx(`adapter.${adapterType}.label`),
+    description: tx(`adapter.${adapterType}.description`),
+  } : null;
 
   return (
     <Card className="p-4 space-y-3">
@@ -581,6 +585,7 @@ function SetupSummaryCard({ ops, onViewOperations }: { ops: ProductOperations | 
 /* ── Operations Tab ─────────────────────────────────────────────── */
 
 function OperationsTab({ productId }: { productId: number }) {
+  const tx = useTranslations("seller.operations");
   const { account } = useAuth();
   const isAdmin = account?.roles?.includes("admin") ?? false;
 
@@ -615,10 +620,12 @@ function OperationsTab({ productId }: { productId: number }) {
         // Seller thường chỉ được chọn trong CHÍNH provider của họ, và chỉ khi
         // đã được admin duyệt — xem providers/service.py::_validate_provider_assignment.
         try {
-          const [pList, matrix] = await Promise.all([api.sellerProviders(), api.adapterCompatibility()]);
+          // Compatibility is enforced by the seller pricing endpoint on save.
+          // The matrix endpoint is admin-only, so do not request it here.
+          const pList = await api.sellerProviders();
           setProviders(pList.filter((p) => p.review_status === "approved"));
           setPendingProviders(pList.filter((p) => p.review_status === "pending_review"));
-          setCompatMatrix(matrix);
+          setCompatMatrix(null);
         } catch {
           // Seller chưa đủ tier để tự đăng ký provider — bỏ qua, phần chọn
           // provider tự phục vụ ẩn đi, seller vẫn xem được provider admin đã gán.
@@ -655,11 +662,11 @@ function OperationsTab({ productId }: { productId: number }) {
           provider_id: editProviderId,
         });
       }
-      setSaveMsg({ type: "ok", text: "Đã lưu cấu hình giá!" });
+      setSaveMsg({ type: "ok", text: tx("savedPricing") });
       setDirty(false);
       await loadOps();
     } catch (e) {
-      setSaveMsg({ type: "err", text: e instanceof Error ? e.message : "Lỗi khi lưu" });
+      setSaveMsg({ type: "err", text: e instanceof Error ? e.message : tx("saveError") });
     } finally {
       setSaving(false);
     }
@@ -669,14 +676,25 @@ function OperationsTab({ productId }: { productId: number }) {
   if (error || !ops) return <Card className="p-6 text-bad text-sm">{error ?? "Không có dữ liệu"}</Card>;
 
   const strategy = ops.pricing.strategy || "fixed";
-  const sInfo = STRATEGY_INFO[strategy] ?? STRATEGY_INFO.fixed;
+  const strategyInfo = Object.fromEntries(Object.keys(STRATEGY_INFO).map((key) => [key, {
+    label: tx(`strategy.${key}.label`),
+    description: tx(`strategy.${key}.description`),
+    formula: tx(`strategy.${key}.formula`),
+  }])) as Record<string, { label: string; description: string; formula: string }>;
+  const sInfo = strategyInfo[strategy] ?? strategyInfo.fixed;
   const adapterType = ops.provider?.adapter_type ?? "seller_pool";
-  const aInfo = ADAPTER_INFO[adapterType] ?? { label: adapterType, description: "" };
+  const aInfo = {
+    label: tx(`adapter.${adapterType}.label`),
+    description: tx(`adapter.${adapterType}.description`),
+  };
   const providerName = ops.provider?.name ?? "Seller Pool";
   const health = ops.provider?.health ?? "healthy";
 
   const healthDot = health === "healthy" ? "bg-good" : health === "degraded" ? "bg-warn" : "bg-bad";
-  const healthLabel = health === "healthy" ? "Khoẻ" : health === "degraded" ? "Chậm" : "Lỗi";
+  const healthLabel = health === "healthy" ? tx("healthy") : health === "degraded" ? tx("degraded") : tx("error");
+  const setupReason = ops.needs_setup_reason?.includes("Nhà cung cấp")
+    ? tx("providerUnavailable")
+    : (ops.needs_setup_reason ?? tx("setupIncomplete"));
 
   // 2 bước đầu (khách nhập / tính giá) luôn chạy được. 2 bước sau (cấp phát/
   // giao hàng thật) chỉ chạy khi needs_setup = false — phản ánh đúng trạng
@@ -684,28 +702,28 @@ function OperationsTab({ productId }: { productId: number }) {
   const fulfillmentReady = !ops.needs_setup;
   const pipelineMap: Record<string, { label: string; active: boolean }[]> = {
     fixed: [
-      { label: "Khách chọn variant", active: true },
-      { label: "Tính giá cố định", active: true },
-      { label: `Lấy từ kho (${aInfo.label})`, active: fulfillmentReady },
-      { label: "Giao data", active: fulfillmentReady },
+      { label: tx("pipeline.fixed.customer"), active: true },
+      { label: tx("pipeline.fixed.price"), active: true },
+      { label: tx("pipeline.fromInventory", { provider: aInfo.label }), active: fulfillmentReady },
+      { label: tx("pipeline.deliverData"), active: fulfillmentReady },
     ],
     config: [
-      { label: "Khách cấu hình", active: true },
-      { label: "Tính giá dynamic", active: true },
-      { label: `${aInfo.label} tạo mới`, active: fulfillmentReady },
-      { label: "Giao tài nguyên", active: fulfillmentReady },
+      { label: tx("pipeline.config.customer"), active: true },
+      { label: tx("pipeline.config.price"), active: true },
+      { label: tx("pipeline.provision", { provider: aInfo.label }), active: fulfillmentReady },
+      { label: tx("pipeline.deliverResource"), active: fulfillmentReady },
     ],
     credit: [
-      { label: "Khách mua gói credit", active: true },
-      { label: "Trừ credit", active: true },
-      { label: `${aInfo.label} cấp API key`, active: fulfillmentReady },
-      { label: "Dùng theo request", active: fulfillmentReady },
+      { label: tx("pipeline.credit.customer"), active: true },
+      { label: tx("pipeline.credit.deduct"), active: true },
+      { label: tx("pipeline.issueKey", { provider: aInfo.label }), active: fulfillmentReady },
+      { label: tx("pipeline.perRequest"), active: fulfillmentReady },
     ],
     task: [
-      { label: "Khách đặt tác vụ", active: true },
-      { label: "Tính giá theo nền tảng", active: true },
-      { label: `${aInfo.label} nhận task`, active: fulfillmentReady },
-      { label: "Team xử lý → giao kết quả", active: fulfillmentReady },
+      { label: tx("pipeline.task.customer"), active: true },
+      { label: tx("pipeline.task.price"), active: true },
+      { label: tx("pipeline.receiveTask", { provider: aInfo.label }), active: fulfillmentReady },
+      { label: tx("pipeline.teamDeliver"), active: fulfillmentReady },
     ],
   };
   const pipelineSteps = pipelineMap[strategy] ?? pipelineMap.fixed;
@@ -717,30 +735,30 @@ function OperationsTab({ productId }: { productId: number }) {
   return (
     <div className="space-y-6">
       {ops.needs_setup && (
-        <Banner tone="bad" icon={<Info size={15} />} title="Sản phẩm chưa bán được">
-          {ops.needs_setup_reason}
+        <Banner tone="bad" icon={<Info size={15} />} title={tx("notReadyTitle")}>
+          {setupReason}
         </Banner>
       )}
 
       {!isAdmin && (
         <Card className="p-5 space-y-3 border-iris/25">
-          <h3 className="text-[14px] font-semibold">Trạng thái để sản phẩm bán được</h3>
+          <h3 className="text-[14px] font-semibold">{tx("setupTitle")}</h3>
           <div className="grid gap-2 sm:grid-cols-3 text-[12.5px]">
             <div className={`rounded-lg border px-3 py-2 ${providers.length > 0 ? "border-good/30 bg-good-soft text-good" : "border-line bg-raised text-muted"}`}>
-              {providers.length > 0 ? "✓ Có backend đã duyệt" : "1. Đăng ký backend"}
+              {providers.length > 0 ? tx("providerApproved") : tx("stepProvider")}
             </div>
             <div className={`rounded-lg border px-3 py-2 ${selectedProvider && selectedProviderCompatible ? "border-good/30 bg-good-soft text-good" : "border-line bg-raised text-muted"}`}>
-              {selectedProvider && selectedProviderCompatible ? "✓ Backend khớp chiến lược giá" : "2. Gắn backend phù hợp"}
+              {selectedProvider && selectedProviderCompatible ? tx("strategyCompatible") : tx("stepStrategy")}
             </div>
             <div className={`rounded-lg border px-3 py-2 ${!ops.needs_setup ? "border-good/30 bg-good-soft text-good" : "border-line bg-raised text-muted"}`}>
-              {!ops.needs_setup ? "✓ Sẵn sàng bán" : "3. Lưu cấu hình để hoàn tất"}
+              {!ops.needs_setup ? tx("ready") : tx("stepSave")}
             </div>
           </div>
           {pendingProviders.length > 0 && (
-            <p className="text-[12px] text-warn">{pendingProviders.length} backend của bạn đang chờ admin duyệt nên chưa xuất hiện trong danh sách chọn. <Link href="/seller/providers" className="underline">Xem trạng thái backend</Link></p>
+            <p className="text-[12px] text-warn">{tx("pendingProviders", { count: pendingProviders.length })} <Link href="/seller/providers" className="underline">{tx("viewBackendStatus")}</Link></p>
           )}
           {providers.length === 0 && pendingProviders.length === 0 && (
-            <p className="text-[12px] text-muted">Chưa có backend nào được duyệt. <Link href="/seller/providers" className="text-iris-hi underline">Đăng ký backend</Link> trước, hoặc liên hệ admin để dùng hạ tầng chung.</p>
+            <p className="text-[12px] text-muted">{tx("noProviders")} <Link href="/seller/providers" className="text-iris-hi underline">{tx("registerBackend")}</Link> {tx("contactAdmin")}</p>
           )}
         </Card>
       )}
@@ -748,7 +766,7 @@ function OperationsTab({ productId }: { productId: number }) {
       {/* Section 1: Pipeline */}
       <Card className="p-5 space-y-3">
         <h3 className="text-[14px] font-semibold flex items-center gap-2">
-          <ArrowRight size={14} /> Pipeline bàn giao
+          <ArrowRight size={14} /> {tx("pipelineTitle")}
         </h3>
         <div className="flex items-center gap-2 flex-wrap">
           {pipelineSteps.map((step, i) => (
@@ -765,12 +783,12 @@ function OperationsTab({ productId }: { productId: number }) {
       {/* Section 2: Chiến lược giá — sản phẩm của bạn, bạn tự cấu hình */}
       <Card className="p-5 space-y-4">
         <h3 className="text-[14px] font-semibold flex items-center gap-2">
-          <Sliders size={14} /> Chiến lược giá
+          <Sliders size={14} /> {tx("strategyTitle")}
         </h3>
 
         {/* Strategy cards */}
         <div className="grid gap-3 sm:grid-cols-2">
-          {Object.entries(STRATEGY_INFO).map(([key, info]) => (
+          {Object.entries(strategyInfo).map(([key, info]) => (
             <button key={key} onClick={() => { setEditStrategy(key); if (key === "fixed") setEditParams({}); markDirty(); }}
               className={`text-left rounded-lg border p-3 transition-all cursor-pointer ${editStrategy === key ? "border-iris bg-iris/5 ring-1 ring-iris/30" : "border-line bg-raised hover:border-muted"}`}>
               <div className="flex items-center gap-2">
@@ -778,7 +796,7 @@ function OperationsTab({ productId }: { productId: number }) {
                 <span className="text-[13px] font-semibold">{info.label}</span>
               </div>
               <p className="text-[12px] text-muted mt-1 ml-5">{info.description}</p>
-              <p className="text-[11px] font-mono text-faint mt-1 ml-5">{STRATEGY_FORMULAS[key]}</p>
+              <p className="text-[11px] font-mono text-faint mt-1 ml-5">{info.formula}</p>
             </button>
           ))}
         </div>
@@ -787,13 +805,13 @@ function OperationsTab({ productId }: { productId: number }) {
         {editStrategy !== "fixed" && (
           <div className="space-y-4 pt-2">
             <PlanSummary strategy={editStrategy} params={editParams} />
-            <div className="text-[12px] font-medium text-muted">Tham số chiến lược</div>
+            <div className="text-[12px] font-medium text-muted">{tx("paramsTitle")}</div>
             <PricingParamsEditor strategy={editStrategy} params={editParams} onChange={(p) => { setEditParams(p); markDirty(); }} />
           </div>
         )}
         {editStrategy === "fixed" && (
           <div className="bg-raised rounded-lg px-4 py-3 text-[13px] text-muted">
-            Giá cố định theo variant — không cần cấu hình thêm.
+            {tx("fixedSummary")}
           </div>
         )}
       </Card>
@@ -801,14 +819,14 @@ function OperationsTab({ productId }: { productId: number }) {
       {/* Section 3: Nhà cung cấp */}
       <Card className="p-5 space-y-3">
         <h3 className="text-[14px] font-semibold flex items-center gap-2">
-          <Users size={14} /> Nhà cung cấp
+          <Users size={14} /> {tx("providerTitle")}
         </h3>
 
         {isAdmin ? (
           <div className="space-y-3">
-            <Field label="Chọn nhà cung cấp" hint="Lựa chọn không tương thích với chiến lược giá đã chọn ở trên bị vô hiệu hoá.">
+            <Field label={tx("selectProvider")} hint={tx("adminProviderHint")}>
               <Select value={editProviderId ?? ""} onChange={(e) => { setEditProviderId(e.target.value ? Number(e.target.value) : null); markDirty(); }}>
-                <option value="">— Không gán (Seller Pool) —</option>
+                <option value="">{tx("noProvider")}</option>
                 {providers.map((p) => {
                   const compatible = isAdapterCompatible(p.adapter_type, editStrategy, compatMatrix);
                   return (
@@ -823,14 +841,14 @@ function OperationsTab({ productId }: { productId: number }) {
               const selected = providers.find((p) => p.id === editProviderId);
               if (!selected || isAdapterCompatible(selected.adapter_type, editStrategy, compatMatrix)) return null;
               return (
-                <Banner tone="bad" icon={<Info size={15} />}>
-                  Adapter &quot;{selected.adapter_type}&quot; không tương thích với chiến lược &quot;{editStrategy}&quot; — lưu sẽ bị từ chối.
+                  <Banner tone="bad" icon={<Info size={15} />}>
+                  {tx("adapterIncompatible", { adapter: selected.adapter_type, strategy: strategyInfo[editStrategy]?.label ?? editStrategy })}
                 </Banner>
               );
             })()}
             {ops.provider && (
               <div className="flex items-center gap-3">
-                <span className="text-[13px] text-muted">Hiện tại:</span>
+                <span className="text-[13px] text-muted">{tx("current")}</span>
                 <span className="text-[13px] font-medium">{providerName}</span>
                 <Tag tone="iris">{aInfo.label}</Tag>
                 <div className="flex items-center gap-1.5">
@@ -842,9 +860,9 @@ function OperationsTab({ productId }: { productId: number }) {
           </div>
         ) : providers.length > 0 ? (
           <div className="space-y-3">
-            <Field label="Chọn backend của bạn" hint="Chỉ liệt kê backend do chính bạn đăng ký và đã được duyệt.">
+            <Field label={tx("selectYourProvider")} hint={tx("providerSelectorHint")}>
               <Select value={editProviderId ?? ""} onChange={(e) => { setEditProviderId(e.target.value ? Number(e.target.value) : null); markDirty(); }}>
-                <option value="">— Không gán —</option>
+                <option value="">{tx("noProviderShort")}</option>
                 {providers.map((p) => {
                   const compatible = isAdapterCompatible(p.adapter_type, editStrategy, compatMatrix);
                   return (
@@ -856,20 +874,20 @@ function OperationsTab({ productId }: { productId: number }) {
               </Select>
             </Field>
             <p className="text-[12.5px] text-faint">
-              Quản lý ở <Link href="/seller/providers" className="text-iris-hi underline">Backend của tôi</Link> — muốn dùng hạ tầng dùng chung thì liên hệ admin.
+              {tx("manageAt")} <Link href="/seller/providers" className="text-iris-hi underline">{tx("myBackends")}</Link> {tx("sharedInfrastructure")}
             </p>
             {(() => {
               const selected = providers.find((p) => p.id === editProviderId);
               if (!selected || isAdapterCompatible(selected.adapter_type, editStrategy, compatMatrix)) return null;
               return (
-                <Banner tone="bad" icon={<Info size={15} />}>
-                  Backend &quot;{selected.adapter_type}&quot; không tương thích với chiến lược &quot;{editStrategy}&quot; — lưu sẽ bị từ chối.
+                  <Banner tone="bad" icon={<Info size={15} />}>
+                  {tx("adapterIncompatible", { adapter: selected.adapter_type, strategy: strategyInfo[editStrategy]?.label ?? editStrategy })}
                 </Banner>
               );
             })()}
             {ops.provider && (
               <div className="flex items-center gap-3">
-                <span className="text-[13px] text-muted">Hiện tại:</span>
+                <span className="text-[13px] text-muted">{tx("current")}</span>
                 <span className="text-[13px] font-medium">{providerName}</span>
                 <Tag tone="iris">{aInfo.label}</Tag>
                 <div className="flex items-center gap-1.5">
@@ -891,17 +909,17 @@ function OperationsTab({ productId }: { productId: number }) {
             </div>
             <p className="text-[13px] text-muted">{aInfo.description}</p>
             <p className="text-[12.5px] text-faint">
-              Muốn tự đấu nối backend riêng? Đăng ký ở <Link href="/seller/providers" className="text-iris-hi underline">Backend của tôi</Link> (cần hạng trusted trở lên, chờ admin duyệt).
+              {tx("manageAt")} <Link href="/seller/providers" className="text-iris-hi underline">{tx("myBackends")}</Link> {tx("sharedInfrastructure")}
             </p>
             {pendingProviders.length > 0 && (
-              <p className="text-[12.5px] text-warn">Backend đã nộp đang chờ duyệt nên chưa thể gắn vào sản phẩm.</p>
+              <p className="text-[12.5px] text-warn">{tx("pendingProviders", { count: pendingProviders.length })}</p>
             )}
           </>
         )}
 
         {ops.demo_mode && (
           <Banner tone="iris" icon={<Info size={15} />}>
-            Sản phẩm đang dùng dữ liệu demo. Khi kết nối API thật, dữ liệu sẽ tự chuyển sang nguồn thật.
+            {tx("demoDescription")}
           </Banner>
         )}
       </Card>
@@ -911,7 +929,7 @@ function OperationsTab({ productId }: { productId: number }) {
       {dirty && (
         <Card className="p-4 flex items-center gap-3 border-iris/30 bg-iris/5">
           <Button size="lg" disabled={saving} onClick={handleSave}>
-            {saving ? "Đang lưu…" : "Lưu cấu hình giá"}
+            {saving ? tx("savingPricing") : tx("savePricing")}
           </Button>
           {saveMsg && <span className={`text-[13px] ${saveMsg.type === "ok" ? "text-good" : "text-bad"}`}>{saveMsg.text}</span>}
         </Card>
@@ -924,31 +942,24 @@ function OperationsTab({ productId }: { productId: number }) {
 
       {/* Section 4: Thống kê */}
       <div className="grid gap-4 sm:grid-cols-4">
-        <StatCard label="Tổng đơn" value={String(ops.stats.total_orders)} />
-        <StatCard label="Doanh thu" value={vnd(ops.stats.revenue)} />
-        <StatCard label="Tỷ lệ thành công" value={`${(ops.stats.success_rate * 100).toFixed(1)}%`} tone={ops.stats.success_rate >= 0.95 ? "good" : ops.stats.success_rate >= 0.8 ? "warn" : "bad"} />
-        <StatCard label="Khiếu nại" value={String(ops.stats.disputes)} tone={ops.stats.disputes === 0 ? "good" : "warn"} />
+        <StatCard label={tx("statsOrders")} value={String(ops.stats.total_orders)} />
+        <StatCard label={tx("statsRevenue")} value={vnd(ops.stats.revenue)} />
+        <StatCard label={tx("statsSuccess")} value={`${(ops.stats.success_rate * 100).toFixed(1)}%`} tone={ops.stats.success_rate >= 0.95 ? "good" : ops.stats.success_rate >= 0.8 ? "warn" : "bad"} />
+        <StatCard label={tx("statsDisputes")} value={String(ops.stats.disputes)} tone={ops.stats.disputes === 0 ? "good" : "warn"} />
       </div>
 
       {/* Section 5: Hướng dẫn */}
       <Card className="p-5 space-y-3 border-iris/20">
         <h3 className="text-[14px] font-semibold flex items-center gap-2">
-          <Info size={14} /> Hướng dẫn
+          <Info size={14} /> {tx("guideTitle")}
         </h3>
         <div className="text-[13px] text-muted space-y-2">
           <p>
-            Sản phẩm của bạn đang dùng chiến lược <strong className="text-primary">{sInfo.label}</strong>.
-            {strategy === "fixed" && " Khi khách mua, hệ thống sẽ lấy giá từ biến thể, trừ tiền ví và giao hàng tự động."}
-            {strategy === "config" && " Khi khách mua, hệ thống sẽ tính giá theo tuỳ chọn khách chọn, trừ tiền ví và giao hàng tự động."}
-            {strategy === "credit" && " Khi khách mua gói credit, hệ thống sẽ cấp API key. Mỗi request tự trừ credit."}
-            {strategy === "task" && " Khi khách đặt tác vụ, hệ thống sẽ tạo task cho team xử lý thủ công."}
+            {tx("guideUsesStrategy", { strategy: sInfo.label })} {tx(`guide.${strategy}`)}
           </p>
           {!isAdmin && ops.needs_setup && (
             <p className="text-bad">
-              {ops.needs_setup_reason ?? "Cấu hình chưa hoàn tất."}{" "}
-              {ops.needs_setup_reason?.includes("Chưa gắn nhà cung cấp")
-                ? "Đây là phần quản trị viên phụ trách — liên hệ để họ gắn nhà cung cấp cho sản phẩm này."
-                : "Thử đổi chiến lược giá ở trên cho khớp với nhà cung cấp đang gắn, hoặc liên hệ quản trị viên để đổi nhà cung cấp."}
+              {setupReason} {tx("adminAssignment")}
             </p>
           )}
         </div>

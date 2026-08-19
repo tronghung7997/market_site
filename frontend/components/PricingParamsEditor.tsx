@@ -1,6 +1,7 @@
 "use client";
 
 import { useState } from "react";
+import { useTranslations } from "next-intl";
 import { Button, Field, Input } from "@/components/ui";
 
 /* ================================================================
@@ -45,6 +46,7 @@ function LabeledMultEditor({
   params: MultParams;
   onChange: (params: MultParams) => void;
 }) {
+  const t = useTranslations("seller.operations.editor");
   const mult = (params[multKey] as Record<string, number>) ?? {};
   const display = (params[displayKey] as Record<string, string>) ?? {};
   const fieldLabels = (params.field_labels as Record<string, string>) ?? {};
@@ -87,14 +89,14 @@ function LabeledMultEditor({
         <div className="text-[12px] font-semibold">{sectionTitle}</div>
         <input
           className="h-7 rounded-md bg-surface border border-line px-2 text-[11.5px] text-muted focus:border-iris focus:text-fg outline-none w-[180px]"
-          placeholder={`Tên nhóm buyer thấy (mặc định: "${defaultFieldLabel}")`}
+          placeholder={t("buyerGroupPlaceholder", { default: defaultFieldLabel })}
           value={fieldLabels[fieldLabelKey] ?? ""}
           onChange={(e) => setFieldLabel(e.target.value)}
         />
       </div>
 
       {codes.length === 0 && (
-        <p className="text-[12px] text-faint">Chưa có lựa chọn nào — thêm ít nhất 1 lựa chọn bên dưới.</p>
+        <p className="text-[12px] text-faint">{t("emptyOptions")}</p>
       )}
 
       {codes.map((code) => (
@@ -103,30 +105,30 @@ function LabeledMultEditor({
             <Input
               value={display[code] ?? code}
               onChange={(e) => onChange({ ...params, [displayKey]: { ...display, [code]: e.target.value } })}
-              placeholder="Nhãn khách thấy"
+              placeholder={t("buyerLabel")}
             />
           </div>
           <span
             className="text-[11px] font-mono bg-surface border border-line rounded px-2 py-2 text-faint shrink-0"
-            title="Mã máy gửi cho nhà cung cấp — không đổi được sau khi tạo, xoá và thêm lại nếu cần đổi."
+            title={t("machineCodeHelp")}
           >
             {code}
           </span>
           <Cell width="w-[80px]"><Input type="number" value={mult[code]} onChange={(e) => updateMultVal(code, Number(e.target.value))} /></Cell>
-          <button onClick={() => removeOption(code)} className="text-bad text-[12px] hover:underline shrink-0">Xoá</button>
+          <button onClick={() => removeOption(code)} className="text-bad text-[12px] hover:underline shrink-0">{t("remove")}</button>
         </div>
       ))}
 
       <div className="flex items-center gap-2 flex-wrap sm:flex-nowrap pt-2 border-t border-line/60 mt-1">
         <div className="flex-1 min-w-[120px]">
-          <Input placeholder="Nhãn khách thấy (VD: Dân cư)" value={newLabel} onChange={(e) => setNewLabel(e.target.value)} />
+          <Input placeholder={t("addLabelPlaceholder")} value={newLabel} onChange={(e) => setNewLabel(e.target.value)} />
         </div>
-        <Cell width="w-[130px]"><Input placeholder="Mã máy (tuỳ chọn)" value={newCode} onChange={(e) => setNewCode(e.target.value)} /></Cell>
-        <Cell width="w-[80px]"><Input type="number" placeholder="Hệ số" value={newMult} onChange={(e) => setNewMult(e.target.value)} /></Cell>
-        <Button size="sm" variant="secondary" onClick={addOption} className="shrink-0">Thêm</Button>
+        <Cell width="w-[130px]"><Input placeholder={t("machineCode")} value={newCode} onChange={(e) => setNewCode(e.target.value)} /></Cell>
+        <Cell width="w-[80px]"><Input type="number" placeholder={t("multiplier")} value={newMult} onChange={(e) => setNewMult(e.target.value)} /></Cell>
+        <Button size="sm" variant="secondary" onClick={addOption} className="shrink-0">{t("add")}</Button>
       </div>
       <p className="text-[11px] text-faint">
-        Mã máy là giá trị gửi thẳng cho nhà cung cấp/công thức tính giá — để trống thì hệ thống tự dùng nhãn làm mã.
+        {t("machineCodeHelp")}
       </p>
     </div>
   );
@@ -139,35 +141,36 @@ function DurationOptionsEditor({ value, onChange }: {
   value: { days: number; label?: string }[];
   onChange: (v: { days: number; label?: string }[]) => void;
 }) {
+  const t = useTranslations("seller.operations.editor");
   const [days, setDays] = useState("");
   const [label, setLabel] = useState("");
 
   const add = () => {
     const d = Number(days);
     if (!d || d <= 0) return;
-    onChange([...value, { days: d, label: label.trim() || `${d} ngày` }]);
+    onChange([...value, { days: d, label: label.trim() || `${d} ${d === 1 ? t("daySingular") : t("dayPlural")}` }]);
     setDays(""); setLabel("");
   };
   const remove = (i: number) => onChange(value.filter((_, idx) => idx !== i));
 
   return (
     <div className="space-y-2">
-      <div className="text-[12px] font-medium text-muted">Tuỳ chọn thời hạn</div>
-      {value.length === 0 && <p className="text-[12px] text-faint">Chưa có tuỳ chọn thời hạn nào.</p>}
+      <div className="text-[12px] font-medium text-muted">{t("duration")}</div>
+      {value.length === 0 && <p className="text-[12px] text-faint">{t("emptyDuration")}</p>}
       {value.map((o, i) => (
         <div key={i} className="flex items-center gap-2">
           <span className="text-[12.5px] bg-raised rounded-md px-2.5 py-1.5 flex-1">
-            <strong>{o.days} ngày</strong>{o.label ? ` — ${o.label}` : ""}
+            <strong>{o.days} {o.days === 1 ? t("daySingular") : t("dayPlural")}</strong>{o.label ? ` — ${o.label}` : ""}
           </span>
-          <button onClick={() => remove(i)} className="text-bad text-[12px] hover:underline shrink-0">Xoá</button>
+          <button onClick={() => remove(i)} className="text-bad text-[12px] hover:underline shrink-0">{t("remove")}</button>
         </div>
       ))}
       <div className="flex items-center gap-2 flex-wrap sm:flex-nowrap pt-1 border-t border-line/60 mt-1">
-        <Cell width="w-[100px]"><Input type="number" placeholder="Số ngày" value={days} onChange={(e) => setDays(e.target.value)} /></Cell>
+        <Cell width="w-[100px]"><Input type="number" placeholder={t("days")} value={days} onChange={(e) => setDays(e.target.value)} /></Cell>
         <div className="flex-1 min-w-[120px]">
-          <Input placeholder="Nhãn hiển thị (VD: 7 ngày)" value={label} onChange={(e) => setLabel(e.target.value)} />
+          <Input placeholder={t("durationLabelPlaceholder")} value={label} onChange={(e) => setLabel(e.target.value)} />
         </div>
-        <Button size="sm" variant="secondary" onClick={add} className="shrink-0">Thêm</Button>
+        <Button size="sm" variant="secondary" onClick={add} className="shrink-0">{t("add")}</Button>
       </div>
     </div>
   );
@@ -177,6 +180,7 @@ function VolumeTiersEditor({ value, onChange }: {
   value: { min_qty: number; discount: number }[];
   onChange: (v: { min_qty: number; discount: number }[]) => void;
 }) {
+  const tx = useTranslations("seller.operations.editor");
   const [minQty, setMinQty] = useState("");
   const [discountPct, setDiscountPct] = useState("");
 
@@ -191,20 +195,20 @@ function VolumeTiersEditor({ value, onChange }: {
 
   return (
     <div className="space-y-2">
-      <div className="text-[12px] font-medium text-muted">Giảm giá theo số lượng</div>
-      {value.length === 0 && <p className="text-[12px] text-faint">Mua càng nhiều càng rẻ — chưa có mức giảm nào.</p>}
-      {value.map((t, i) => (
+      <div className="text-[12px] font-medium text-muted">{tx("volumeDiscount")}</div>
+      {value.length === 0 && <p className="text-[12px] text-faint">{tx("emptyDiscount")}</p>}
+      {value.map((tier, i) => (
         <div key={i} className="flex items-center gap-2">
           <span className="text-[12.5px] bg-raised rounded-md px-2.5 py-1.5 flex-1">
-            Từ <strong>{t.min_qty}</strong> đơn vị → giảm <strong>{Math.round(t.discount * 100)}%</strong>
+            {tx("fromUnits", { count: tier.min_qty, discount: Math.round(tier.discount * 100) })}
           </span>
-          <button onClick={() => remove(i)} className="text-bad text-[12px] hover:underline shrink-0">Xoá</button>
+          <button onClick={() => remove(i)} className="text-bad text-[12px] hover:underline shrink-0">{tx("remove")}</button>
         </div>
       ))}
       <div className="flex items-center gap-2 flex-wrap sm:flex-nowrap pt-1 border-t border-line/60 mt-1">
-        <Cell width="w-[120px]"><Input type="number" placeholder="Từ số lượng" value={minQty} onChange={(e) => setMinQty(e.target.value)} /></Cell>
-        <Cell width="w-[110px]"><Input type="number" placeholder="Giảm (%)" value={discountPct} onChange={(e) => setDiscountPct(e.target.value)} /></Cell>
-        <Button size="sm" variant="secondary" onClick={add} className="shrink-0">Thêm</Button>
+        <Cell width="w-[120px]"><Input type="number" placeholder={tx("fromQuantity")} value={minQty} onChange={(e) => setMinQty(e.target.value)} /></Cell>
+        <Cell width="w-[110px]"><Input type="number" placeholder={tx("discount")} value={discountPct} onChange={(e) => setDiscountPct(e.target.value)} /></Cell>
+        <Button size="sm" variant="secondary" onClick={add} className="shrink-0">{tx("add")}</Button>
       </div>
     </div>
   );
@@ -214,6 +218,7 @@ function PackagesEditor({ value, onChange }: {
   value: { size: number; label?: string }[];
   onChange: (v: { size: number; label?: string }[]) => void;
 }) {
+  const t = useTranslations("seller.operations.editor");
   const [size, setSize] = useState("");
   const [label, setLabel] = useState("");
 
@@ -227,22 +232,22 @@ function PackagesEditor({ value, onChange }: {
 
   return (
     <div className="space-y-2">
-      <div className="text-[12px] font-medium text-muted">Gói credit bán ra</div>
-      {value.length === 0 && <p className="text-[12px] text-faint">Chưa có gói nào — thêm ít nhất 1 gói để bán được.</p>}
+      <div className="text-[12px] font-medium text-muted">{t("creditPackages")}</div>
+      {value.length === 0 && <p className="text-[12px] text-faint">{t("emptyPackages")}</p>}
       {value.map((p, i) => (
         <div key={i} className="flex items-center gap-2">
           <span className="text-[12.5px] bg-raised rounded-md px-2.5 py-1.5 flex-1">
-            <strong>{p.size.toLocaleString("vi-VN")} credit</strong>{p.label ? ` — ${p.label}` : ""}
+            <strong>{t("creditsCount", { count: p.size.toLocaleString() })}</strong>{p.label ? ` — ${p.label}` : ""}
           </span>
-          <button onClick={() => remove(i)} className="text-bad text-[12px] hover:underline shrink-0">Xoá</button>
+          <button onClick={() => remove(i)} className="text-bad text-[12px] hover:underline shrink-0">{t("remove")}</button>
         </div>
       ))}
       <div className="flex items-center gap-2 flex-wrap sm:flex-nowrap pt-1 border-t border-line/60 mt-1">
-        <Cell width="w-[110px]"><Input type="number" placeholder="Số credit" value={size} onChange={(e) => setSize(e.target.value)} /></Cell>
+        <Cell width="w-[110px]"><Input type="number" placeholder={t("credits")} value={size} onChange={(e) => setSize(e.target.value)} /></Cell>
         <div className="flex-1 min-w-[120px]">
-          <Input placeholder="Nhãn hiển thị (VD: Gói nhỏ)" value={label} onChange={(e) => setLabel(e.target.value)} />
+          <Input placeholder={t("creditLabelPlaceholder")} value={label} onChange={(e) => setLabel(e.target.value)} />
         </div>
-        <Button size="sm" variant="secondary" onClick={add} className="shrink-0">Thêm</Button>
+        <Button size="sm" variant="secondary" onClick={add} className="shrink-0">{t("add")}</Button>
       </div>
     </div>
   );
@@ -253,6 +258,7 @@ export function PricingParamsEditor({ strategy, params, onChange }: {
   params: Record<string, unknown>;
   onChange: (p: Record<string, unknown>) => void;
 }) {
+  const t = useTranslations("seller.operations.editor");
   const setParam = (key: string, value: unknown) => {
     onChange({ ...params, [key]: value });
   };
@@ -260,18 +266,18 @@ export function PricingParamsEditor({ strategy, params, onChange }: {
   if (strategy === "config") {
     return (
       <div className="space-y-4">
-        <Field label="Giá cơ bản (VND)">
+        <Field label={t("basePrice")}>
           <Input type="number" value={(params.base_price as number) ?? ""} onChange={(e) => setParam("base_price", Number(e.target.value) || 0)} />
         </Field>
         <LabeledMultEditor
-          sectionTitle="Loại proxy (type_mult)"
-          fieldLabelKey="type" defaultFieldLabel="Loại proxy"
+          sectionTitle={t("typeSection")}
+          fieldLabelKey="type" defaultFieldLabel={t("typeDefault")}
           multKey="type_mult" displayKey="type_display"
           params={params} onChange={onChange}
         />
         <LabeledMultEditor
-          sectionTitle="Nhà mạng / loại IP (network_mult)"
-          fieldLabelKey="network" defaultFieldLabel="Nhà mạng"
+          sectionTitle={t("networkSection")}
+          fieldLabelKey="network" defaultFieldLabel={t("networkDefault")}
           multKey="network_mult" displayKey="network_display"
           params={params} onChange={onChange}
         />
@@ -284,7 +290,7 @@ export function PricingParamsEditor({ strategy, params, onChange }: {
   if (strategy === "credit") {
     return (
       <div className="space-y-4">
-        <Field label="Giá mỗi credit (VND)">
+        <Field label={t("creditPrice")}>
           <Input type="number" value={(params.credit_price as number) ?? ""} onChange={(e) => setParam("credit_price", Number(e.target.value) || 0)} />
         </Field>
         <PackagesEditor value={(params.packages as { size: number; label?: string }[]) ?? []} onChange={(v) => setParam("packages", v)} />
@@ -296,12 +302,12 @@ export function PricingParamsEditor({ strategy, params, onChange }: {
   if (strategy === "task") {
     return (
       <div className="space-y-4">
-        <Field label="Giá cơ bản (VND)">
+        <Field label={t("basePrice")}>
           <Input type="number" value={(params.base_price as number) ?? ""} onChange={(e) => setParam("base_price", Number(e.target.value) || 0)} />
         </Field>
         <LabeledMultEditor
-          sectionTitle="Nền tảng (platform_mult)"
-          fieldLabelKey="platform" defaultFieldLabel="Nền tảng"
+          sectionTitle={t("platformSection")}
+          fieldLabelKey="platform" defaultFieldLabel={t("platformDefault")}
           multKey="platform_mult" displayKey="platform_display"
           params={params} onChange={onChange}
         />

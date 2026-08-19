@@ -455,7 +455,7 @@ function DynamicField({
 }) {
   const englishLabels: Record<string, string> = {
     package_size: "Requests per package", quantity: "Quantity", platform: "Platform",
-    target_urls: "Target URLs", type: "Protocol", network: "Network", duration: "Duration",
+    target_urls: "Target URLs", type: "Protocol", network: "Network", days: "Duration", duration: "Duration",
     country: "Country", region: "Region",
   };
   const fieldLabel = locale === "en" ? englishLabels[field.field] ?? field.label : field.label;

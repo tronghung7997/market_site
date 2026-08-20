@@ -147,7 +147,12 @@ async def _create_sepay_deposit(account_id: int, amount: int, db: AsyncSession) 
     rail = await rail_config.ensure_seeded(db)
     if not rail.sepay_enabled:
         raise HTTPException(status_code=503, detail="Nạp chuyển khoản tạm thời không khả dụng")
-    if not sepay_client.is_configured():
+    if not sepay_client.is_configured(
+        bank_code=rail.sepay_bank_code,
+        account_number=rail.sepay_bank_account_number,
+        account_name=rail.sepay_bank_account_name,
+        account_id=rail.sepay_bank_account_id,
+    ):
         raise HTTPException(status_code=503, detail="SePay chưa được cấu hình — liên hệ quản trị viên")
     if amount < rail.deposit_min_amount:
         raise HTTPException(
@@ -167,6 +172,8 @@ async def _create_sepay_deposit(account_id: int, amount: int, db: AsyncSession) 
         qr_code = sepay_client.build_vietqr_url(
             amount=amount,
             payment_code=payment_code,
+            bank_code=rail.sepay_bank_code,
+            account_number=rail.sepay_bank_account_number,
         )
     except ValueError as exc:
         await db.rollback()
@@ -179,9 +186,10 @@ async def _create_sepay_deposit(account_id: int, amount: int, db: AsyncSession) 
         expires_at=expires_at,
         provider=DepositProvider.sepay.value,
         payment_code=payment_code,
-        bank_code=settings.sepay_bank_code.strip(),
-        bank_account_number=settings.sepay_bank_account_number.strip(),
-        bank_account_name=settings.sepay_bank_account_name.strip(),
+        bank_code=rail.sepay_bank_code.strip(),
+        bank_account_number=rail.sepay_bank_account_number.strip(),
+        bank_account_name=rail.sepay_bank_account_name.strip(),
+        sepay_bank_account_id=rail.sepay_bank_account_id.strip(),
         qr_code=qr_code,
     )
     db.add(intent)
@@ -466,7 +474,8 @@ async def handle_sepay_webhook(payload: dict, db: AsyncSession) -> dict:
         await db.commit()
         return {"note": "outgoing transaction ignored"}
 
-    expected_account = settings.sepay_bank_account_number.strip()
+    rail = await rail_config.ensure_seeded(db)
+    expected_account = rail.sepay_bank_account_number.strip()
     if account_number != expected_account:
         await db.commit()
         logger.error(
@@ -1036,7 +1045,13 @@ async def reconcile_intent(intent_id: int, db: AsyncSession) -> dict:
 
 
 async def _reconcile_sepay(intent: DepositIntent, db: AsyncSession) -> dict:
-    if not sepay_client.is_reconciliation_configured():
+    rail = await rail_config.ensure_seeded(db)
+    if not sepay_client.is_reconciliation_configured(
+        bank_code=rail.sepay_bank_code,
+        account_number=rail.sepay_bank_account_number,
+        account_name=rail.sepay_bank_account_name,
+        account_id=rail.sepay_bank_account_id,
+    ):
         outcome = _reconcile_outcome(
             intent.status.value,
             provider_status=None,
@@ -1059,6 +1074,8 @@ async def _reconcile_sepay(intent: DepositIntent, db: AsyncSession) -> dict:
             payment_code=intent.payment_code,
             amount=intent.amount,
             created_at=intent.created_at - timedelta(minutes=5),
+            bank_account_id=intent.sepay_bank_account_id or rail.sepay_bank_account_id,
+            bank_account_number=rail.sepay_bank_account_number,
         )
     except (sepay_client.SePayError, sepay_client.SePayUnavailableError) as exc:
         outcome = _reconcile_outcome(

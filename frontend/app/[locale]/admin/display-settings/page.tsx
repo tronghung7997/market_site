@@ -124,6 +124,33 @@ function NumField({
   );
 }
 
+function TextField({
+  label,
+  value,
+  onChange,
+  disabled,
+}: {
+  label: string;
+  value: string;
+  onChange: (value: string) => void;
+  disabled?: boolean;
+}) {
+  return (
+    <label className="block min-w-0">
+      <span className="block text-[11px] font-semibold uppercase tracking-wider text-muted">{label}</span>
+      <input
+        value={value}
+        disabled={disabled}
+        onChange={(e) => onChange(e.target.value)}
+        className={cn(
+          "mt-1 h-9 w-full rounded-md border border-line-2 bg-surface px-2.5 text-[13px] text-fg",
+          "placeholder:text-faint focus:border-iris focus:ring-2 focus:ring-iris/15 disabled:bg-raised disabled:text-muted",
+        )}
+      />
+    </label>
+  );
+}
+
 function railStatus(
   enabled: boolean,
   secrets: boolean,
@@ -328,8 +355,8 @@ export default function AdminMoneyAndDepositPage() {
     );
   }
 
-  const payos = rail
-    ? railStatus(Boolean(rv("payos_enabled")), rail.payos_secrets_configured, rail.effective_payos_enabled, t)
+  const sepay = rail
+    ? railStatus(Boolean(rv("sepay_enabled")), rail.sepay_secrets_configured, rail.effective_sepay_enabled, t)
     : null;
   const usdt = rail
     ? railStatus(
@@ -544,31 +571,43 @@ export default function AdminMoneyAndDepositPage() {
           )}
         </div>
 
-        {rail && payos && usdt && (
+        {rail && sepay && usdt && (
           <div className="grid gap-2.5 xl:grid-cols-2">
             <article className="rounded-card border border-line bg-card p-3.5 shadow-card">
               <div className="flex items-start justify-between gap-2.5">
                 <div className="min-w-0">
                   <div className="flex flex-wrap items-center gap-1.5">
-                    <h3 className="text-[13px] font-semibold text-fg">{t("railPayosTitle")}</h3>
-                    <Tag tone={payos.tone}>{payos.label}</Tag>
+                    <h3 className="text-[13px] font-semibold text-fg">{t("railSepayTitle")}</h3>
+                    <Tag tone={sepay.tone}>{sepay.label}</Tag>
                   </div>
-                  <p className="mt-0.5 text-[11px] text-muted">{t("railPayosHint")}</p>
+                  <p className="mt-0.5 text-[11px] text-muted">{t("railSepayHint")}</p>
                 </div>
                 <Switch
-                  checked={Boolean(rv("payos_enabled"))}
-                  onChange={(x) => setRailField("payos_enabled", x)}
+                  checked={Boolean(rv("sepay_enabled"))}
+                  onChange={(x) => setRailField("sepay_enabled", x)}
                   disabled={savingRails}
-                  label={t("railPayosTitle")}
+                  label={t("railSepayTitle")}
                 />
               </div>
               <div className="mt-1.5 flex flex-wrap items-center gap-x-3 gap-y-0.5 text-[11px] text-muted">
                 <span>
                   {t("secretsLabel")}:{" "}
-                  <span className={rail.payos_secrets_configured ? "font-medium text-good" : "font-medium text-bad"}>
-                    {rail.payos_secrets_configured ? t("secretsOk") : t("secretsMissing")}
+                  <span className={rail.sepay_secrets_configured ? "font-medium text-good" : "font-medium text-bad"}>
+                    {rail.sepay_secrets_configured ? t("secretsOk") : t("secretsMissing")}
                   </span>
                 </span>
+                <span>
+                  {t("autoReconcile")}:{" "}
+                  <span className={rail.sepay_reconciliation_configured ? "font-medium text-good" : "font-medium text-bad"}>
+                    {rail.sepay_reconciliation_configured ? t("secretsOk") : t("secretsMissing")}
+                  </span>
+                </span>
+              </div>
+              <div className="mt-3 grid grid-cols-2 gap-2.5">
+                <TextField label={t("sepayBankCode")} value={String(rv("sepay_bank_code"))} onChange={(v) => setRailField("sepay_bank_code", v)} disabled={savingRails} />
+                <TextField label={t("sepayAccountNumber")} value={String(rv("sepay_bank_account_number"))} onChange={(v) => setRailField("sepay_bank_account_number", v)} disabled={savingRails} />
+                <TextField label={t("sepayAccountName")} value={String(rv("sepay_bank_account_name"))} onChange={(v) => setRailField("sepay_bank_account_name", v)} disabled={savingRails} />
+                <TextField label={t("sepayAccountId")} value={String(rv("sepay_bank_account_id"))} onChange={(v) => setRailField("sepay_bank_account_id", v)} disabled={savingRails} />
               </div>
               <div className="mt-3 grid grid-cols-2 gap-2.5 sm:grid-cols-4 xl:grid-cols-2">
                 <NumField
@@ -585,7 +624,7 @@ export default function AdminMoneyAndDepositPage() {
                 />
                 <NumField
                   label={t("expireMinutes")}
-                  hint={t("payosExpireHint")}
+                  hint={t("sepayExpireHint")}
                   value={Number(rv("deposit_expire_minutes"))}
                   onChange={(n) => setRailField("deposit_expire_minutes", n)}
                   disabled={savingRails}
@@ -593,7 +632,7 @@ export default function AdminMoneyAndDepositPage() {
                 />
                 <NumField
                   label={t("reconcileHours")}
-                  hint={t("payosReconcileHint")}
+                  hint={t("sepayReconcileHint")}
                   value={Number(rv("deposit_reconcile_retention_hours"))}
                   onChange={(n) => setRailField("deposit_reconcile_retention_hours", n)}
                   disabled={savingRails}

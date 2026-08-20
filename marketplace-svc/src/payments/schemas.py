@@ -142,6 +142,10 @@ class DepositMethodsResponse(BaseModel):
 class DepositRailConfigAdmin(BaseModel):
     sepay_enabled: bool
     nowpayments_enabled: bool
+    sepay_bank_code: str
+    sepay_bank_account_number: str
+    sepay_bank_account_name: str
+    sepay_bank_account_id: str
     deposit_min_amount: int
     deposit_max_amount: int
     deposit_expire_minutes: int
@@ -167,6 +171,10 @@ class DepositRailConfigUpdate(BaseModel):
 
     sepay_enabled: bool | None = None
     nowpayments_enabled: bool | None = None
+    sepay_bank_code: str | None = None
+    sepay_bank_account_number: str | None = None
+    sepay_bank_account_name: str | None = None
+    sepay_bank_account_id: str | None = None
     deposit_min_amount: int | None = None
     deposit_max_amount: int | None = None
     deposit_expire_minutes: int | None = None

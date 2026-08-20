@@ -1,4 +1,4 @@
-"""Singleton runtime config for deposit rails (PayOS + NOWPayments).
+"""Singleton runtime config for deposit rails (SePay + NOWPayments).
 
 Secrets (API keys, IPN secret) stay in env only.
 This table holds operational toggles and limits admin can change without redeploy.
@@ -18,14 +18,20 @@ class DepositRailConfig(Base):
     id: Mapped[int] = mapped_column(Integer, primary_key=True)
 
     # Feature flags (still require provider secrets for the rail to actually work).
-    payos_enabled: Mapped[bool] = mapped_column(
+    sepay_enabled: Mapped[bool] = mapped_column(
         Boolean, nullable=False, default=True, server_default="true",
     )
     nowpayments_enabled: Mapped[bool] = mapped_column(
         Boolean, nullable=False, default=False, server_default="false",
     )
 
-    # PayOS VND limits / windows
+    # SePay destination (admin-editable; secrets remain in env)
+    sepay_bank_code: Mapped[str] = mapped_column(String(32), nullable=False, server_default="")
+    sepay_bank_account_number: Mapped[str] = mapped_column(String(64), nullable=False, server_default="")
+    sepay_bank_account_name: Mapped[str] = mapped_column(String(160), nullable=False, server_default="")
+    sepay_bank_account_id: Mapped[str] = mapped_column(String(128), nullable=False, server_default="")
+
+    # SePay VND limits / windows
     deposit_min_amount: Mapped[int] = mapped_column(Integer, nullable=False)
     deposit_max_amount: Mapped[int] = mapped_column(Integer, nullable=False)
     deposit_expire_minutes: Mapped[int] = mapped_column(Integer, nullable=False)

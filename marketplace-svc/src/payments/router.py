@@ -4,7 +4,7 @@ from sqlalchemy.ext.asyncio import AsyncSession
 from src.auth.dependencies import get_current_account, require_role
 from src.database import get_session
 from src.models.account import Account
-from src.payments import nowpayments_client, payos_client, schemas, sepay_client, service
+from src.payments import nowpayments_client, payos_client, rail_config, schemas, sepay_client, service
 
 import structlog
 
@@ -95,7 +95,13 @@ async def sepay_webhook(request: Request, db: AsyncSession = Depends(get_session
     signature = request.headers.get("X-SePay-Signature")
     timestamp = request.headers.get("X-SePay-Timestamp")
 
-    if not sepay_client.is_configured():
+    rail = await rail_config.ensure_seeded(db)
+    if not sepay_client.is_configured(
+        bank_code=rail.sepay_bank_code,
+        account_number=rail.sepay_bank_account_number,
+        account_name=rail.sepay_bank_account_name,
+        account_id=rail.sepay_bank_account_id,
+    ):
         logger.error("sepay_webhook_received_but_not_configured")
         raise HTTPException(status_code=503, detail="SePay chưa được cấu hình")
     if not sepay_client.verify_webhook_signature(raw_body, signature, timestamp):

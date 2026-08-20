@@ -7,6 +7,36 @@ export interface Account {
   referred_by_id?: number | null;
 }
 
+export interface ChatMessage {
+  id: number;
+  client_message_id: string;
+  body: string;
+  sender_id: number;
+  sender_role: "buyer" | "seller" | "admin";
+  created_at: string;
+}
+
+export interface ChatConversation {
+  id: string;
+  kind: "product_inquiry" | "order" | "support";
+  status: "open" | "resolved" | "closed" | "blocked" | "read_only";
+  product: { id: number; title: string; image: string | null } | null;
+  counterpart: { id: number; label: string; role: "buyer" | "seller" | "admin" };
+  last_message: ChatMessage | null;
+  unread_count: number;
+  can_send: boolean;
+  created_at: string;
+}
+
+export interface ChatConversationDetail extends ChatConversation {
+  messages: ChatMessage[];
+}
+
+export interface ChatConversationList {
+  items: ChatConversation[];
+  next_cursor: string | null;
+}
+
 export interface SellerApiKeyCreated {
   id: number;
   /** Public key id sent as X-API-Key (ak_live_…). */
@@ -322,6 +352,7 @@ export interface DepositIntent {
   bank_code?: string | null;
   bank_account_number?: string | null;
   bank_account_name?: string | null;
+  sepay_bank_account_id?: string | null;
   sepay_transaction_id?: string | null;
   sepay_reference?: string | null;
   // Shared/legacy hosted checkout fields
@@ -370,6 +401,10 @@ export interface DepositReconcileResult {
 export interface DepositRailConfigAdmin {
   sepay_enabled: boolean;
   nowpayments_enabled: boolean;
+  sepay_bank_code: string;
+  sepay_bank_account_number: string;
+  sepay_bank_account_name: string;
+  sepay_bank_account_id: string;
   deposit_min_amount: number;
   deposit_max_amount: number;
   deposit_expire_minutes: number;
@@ -393,6 +428,10 @@ export interface DepositRailConfigAdmin {
 export type DepositRailConfigUpdate = Partial<{
   sepay_enabled: boolean;
   nowpayments_enabled: boolean;
+  sepay_bank_code: string;
+  sepay_bank_account_number: string;
+  sepay_bank_account_name: string;
+  sepay_bank_account_id: string;
   deposit_min_amount: number;
   deposit_max_amount: number;
   deposit_expire_minutes: number;

@@ -1,7 +1,8 @@
 """Resolve and persist deposit rail operational config (admin-tunable).
 
-Secrets stay in env (NOW API key / IPN secret / PayOS keys).
-Operational flags + limits seed from env once, then live in deposit_rail_config.
+Secrets stay in env (NOW credentials / SePay webhook secret and API token).
+Operational flags, limits, and the SePay destination live in
+deposit_rail_config; env values are only the bootstrap/reset source.
 
 Public methods payload is process-cached (soft TTL + hard invalidate on write)
 so wallet deposit method lists avoid a DB round-trip every request.
@@ -15,7 +16,7 @@ from sqlalchemy.ext.asyncio import AsyncSession
 from src.audit.service import log_event
 from src.config import settings
 from src.models.deposit_rail_config import DepositRailConfig
-from src.payments import nowpayments_client, payos_client
+from src.payments import nowpayments_client, sepay_client
 from src.runtime_config import ProcessConfigCache
 
 _CONFIG_ID = 1
@@ -33,8 +34,12 @@ _MAX_RETENTION_H = 30 * 24
 
 def env_seed_values() -> dict:
     return {
-        "payos_enabled": True,  # historical default: on when secrets present
+        "sepay_enabled": True,
         "nowpayments_enabled": bool(settings.nowpayments_enabled),
+        "sepay_bank_code": settings.sepay_bank_code.strip(),
+        "sepay_bank_account_number": settings.sepay_bank_account_number.strip(),
+        "sepay_bank_account_name": settings.sepay_bank_account_name.strip(),
+        "sepay_bank_account_id": settings.sepay_bank_account_id.strip(),
         "deposit_min_amount": settings.deposit_min_amount,
         "deposit_max_amount": settings.deposit_max_amount,
         "deposit_expire_minutes": settings.deposit_expire_minutes,
@@ -56,6 +61,16 @@ async def get_config_row(db: AsyncSession) -> DepositRailConfig | None:
 async def ensure_seeded(db: AsyncSession) -> DepositRailConfig:
     row = await get_config_row(db)
     if row is not None:
+        # Existing installations predate DB-backed SePay destinations. Copy
+        # env values once so the migration is safe without a manual SQL step.
+        seed = env_seed_values()
+        changed = False
+        for key in ("sepay_bank_code", "sepay_bank_account_number", "sepay_bank_account_name", "sepay_bank_account_id"):
+            if not getattr(row, key).strip() and seed[key]:
+                setattr(row, key, seed[key])
+                changed = True
+        if changed:
+            await db.flush()
         return row
 
     seed = env_seed_values()
@@ -75,7 +90,12 @@ async def ensure_seeded(db: AsyncSession) -> DepositRailConfig:
 def row_to_public(row: DepositRailConfig) -> dict:
     """Buyer-facing methods: admin flag AND secrets present."""
     return {
-        "payos_enabled": bool(row.payos_enabled) and payos_client.is_configured(),
+        "sepay_enabled": bool(row.sepay_enabled) and sepay_client.is_configured(
+            bank_code=row.sepay_bank_code,
+            account_number=row.sepay_bank_account_number,
+            account_name=row.sepay_bank_account_name,
+            account_id=row.sepay_bank_account_id,
+        ),
         "nowpayments_enabled": bool(row.nowpayments_enabled) and nowpayments_client.is_configured(),
         "deposit_min_amount": row.deposit_min_amount,
         "deposit_max_amount": row.deposit_max_amount,
@@ -88,8 +108,12 @@ def row_to_admin(row: DepositRailConfig) -> dict:
     seed = env_seed_values()
     return {
         **{
-            "payos_enabled": row.payos_enabled,
+            "sepay_enabled": row.sepay_enabled,
             "nowpayments_enabled": row.nowpayments_enabled,
+            "sepay_bank_code": row.sepay_bank_code,
+            "sepay_bank_account_number": row.sepay_bank_account_number,
+            "sepay_bank_account_name": row.sepay_bank_account_name,
+            "sepay_bank_account_id": row.sepay_bank_account_id,
             "deposit_min_amount": row.deposit_min_amount,
             "deposit_max_amount": row.deposit_max_amount,
             "deposit_expire_minutes": row.deposit_expire_minutes,
@@ -99,10 +123,26 @@ def row_to_admin(row: DepositRailConfig) -> dict:
             "deposit_usdt_local_window_minutes": row.deposit_usdt_local_window_minutes,
             "deposit_usdt_reconcile_retention_hours": row.deposit_usdt_reconcile_retention_hours,
         },
-        "payos_secrets_configured": payos_client.is_configured(),
+        "sepay_secrets_configured": sepay_client.is_configured(
+            bank_code=row.sepay_bank_code,
+            account_number=row.sepay_bank_account_number,
+            account_name=row.sepay_bank_account_name,
+            account_id=row.sepay_bank_account_id,
+        ),
+        "sepay_reconciliation_configured": sepay_client.is_reconciliation_configured(
+            bank_code=row.sepay_bank_code,
+            account_number=row.sepay_bank_account_number,
+            account_name=row.sepay_bank_account_name,
+            account_id=row.sepay_bank_account_id,
+        ),
         "nowpayments_secrets_configured": nowpayments_client.is_configured(),
         "nowpayments_reconciliation_configured": nowpayments_client.is_reconciliation_configured(),
-        "effective_payos_enabled": bool(row.payos_enabled) and payos_client.is_configured(),
+        "effective_sepay_enabled": bool(row.sepay_enabled) and sepay_client.is_configured(
+            bank_code=row.sepay_bank_code,
+            account_number=row.sepay_bank_account_number,
+            account_name=row.sepay_bank_account_name,
+            account_id=row.sepay_bank_account_id,
+        ),
         "effective_nowpayments_enabled": (
             bool(row.nowpayments_enabled) and nowpayments_client.is_configured()
         ),
@@ -148,8 +188,12 @@ def _validate_positive_int(name: str, value: int, lo: int, hi: int) -> int:
 async def update_config(db: AsyncSession, *, actor_id: int, **fields) -> dict:
     row = await ensure_seeded(db)
     old = {
-        "payos_enabled": row.payos_enabled,
+        "sepay_enabled": row.sepay_enabled,
         "nowpayments_enabled": row.nowpayments_enabled,
+        "sepay_bank_code": row.sepay_bank_code,
+        "sepay_bank_account_number": row.sepay_bank_account_number,
+        "sepay_bank_account_name": row.sepay_bank_account_name,
+        "sepay_bank_account_id": row.sepay_bank_account_id,
         "deposit_min_amount": row.deposit_min_amount,
         "deposit_max_amount": row.deposit_max_amount,
         "deposit_expire_minutes": row.deposit_expire_minutes,
@@ -169,10 +213,17 @@ async def update_config(db: AsyncSession, *, actor_id: int, **fields) -> dict:
     if not provided:
         raise HTTPException(status_code=422, detail="At least one field is required")
 
-    if "payos_enabled" in provided:
-        row.payos_enabled = bool(provided["payos_enabled"])
+    if "sepay_enabled" in provided:
+        row.sepay_enabled = bool(provided["sepay_enabled"])
     if "nowpayments_enabled" in provided:
         row.nowpayments_enabled = bool(provided["nowpayments_enabled"])
+
+    for key in ("sepay_bank_code", "sepay_bank_account_number", "sepay_bank_account_name", "sepay_bank_account_id"):
+        if key in provided:
+            value = str(provided[key] or "").strip()
+            if not value:
+                raise HTTPException(status_code=422, detail=f"{key} cannot be empty")
+            setattr(row, key, value)
 
     if "deposit_min_amount" in provided:
         row.deposit_min_amount = _validate_positive_int(
@@ -235,7 +286,7 @@ async def update_config(db: AsyncSession, *, actor_id: int, **fields) -> dict:
             "subject_id": _CONFIG_ID,
             "old": old,
             "new": {
-                "payos_enabled": row.payos_enabled,
+                "sepay_enabled": row.sepay_enabled,
                 "nowpayments_enabled": row.nowpayments_enabled,
                 "deposit_min_amount": row.deposit_min_amount,
                 "deposit_max_amount": row.deposit_max_amount,

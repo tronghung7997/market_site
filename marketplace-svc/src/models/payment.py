@@ -29,14 +29,16 @@ class DepositIntentStatus(str, PyEnum):
 
 
 class DepositProvider(str, PyEnum):
+    sepay = "sepay"
     payos = "payos"
     nowpayments = "nowpayments"
 
 
 class DepositIntent(Base):
-    """Lệnh nạp ví — multi-provider (PayOS VND | NOWPayments USDT).
+    """Lệnh nạp ví — multi-provider (SePay VND | NOWPayments USDT).
 
-    PayOS: `id` == orderCode map 1-1.
+    SePay: payment_code = configured prefix + 10 opaque alphanumeric chars.
+    PayOS fields remain nullable for historical intents during cutover.
     NOW: order_id = DEP-{id}; credit target VND = amount khi finished validated.
     """
 
@@ -48,13 +50,22 @@ class DepositIntent(Base):
     status: Mapped[DepositIntentStatus] = mapped_column(
         Enum(DepositIntentStatus), default=DepositIntentStatus.pending, nullable=False,
     )
-    provider: Mapped[str] = mapped_column(String(32), nullable=False, default=DepositProvider.payos.value)
+    provider: Mapped[str] = mapped_column(String(32), nullable=False, default=DepositProvider.sepay.value)
 
-    # --- PayOS ---
+    # --- SePay / bank transfer ---
+    payment_code: Mapped[str | None] = mapped_column(String(40), nullable=True, unique=True)
+    bank_code: Mapped[str | None] = mapped_column(String(32), nullable=True)
+    bank_account_number: Mapped[str | None] = mapped_column(String(64), nullable=True)
+    bank_account_name: Mapped[str | None] = mapped_column(String(160), nullable=True)
+    sepay_bank_account_id: Mapped[str | None] = mapped_column(String(128), nullable=True)
+    sepay_transaction_id: Mapped[str | None] = mapped_column(String(64), nullable=True, unique=True)
+    sepay_reference: Mapped[str | None] = mapped_column(String(128), nullable=True)
+    qr_code: Mapped[str | None] = mapped_column(Text, nullable=True)
+
+    # --- Legacy PayOS ---
     payment_link_id: Mapped[str | None] = mapped_column(String(64), nullable=True, unique=True)
     checkout_url: Mapped[str | None] = mapped_column(Text, nullable=True)
-    qr_code: Mapped[str | None] = mapped_column(Text, nullable=True)
-    # Số tiền VND đã credit (PayOS = thực nhận; NOW = target amount khi finished).
+    # Số tiền VND đã credit (bank transfer = exact intent amount; NOW = target amount).
     paid_amount: Mapped[int | None] = mapped_column(Integer, nullable=True)
     payos_reference: Mapped[str | None] = mapped_column(String(100), nullable=True)
 
@@ -95,6 +106,32 @@ class PayosWebhookEvent(Base):
     raw: Mapped[dict] = mapped_column(JSONB, nullable=False)
     signature_valid: Mapped[bool] = mapped_column(Boolean, nullable=False)
     received_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), server_default=func.now(), nullable=False)
+
+
+class SePayWebhookEvent(Base):
+    """Immutable SePay transaction journal used for idempotent crediting.
+
+    ``transaction_id`` is stored as text because webhook payloads currently use
+    an integer while API v2 reconciliation returns UUID identifiers.
+    """
+
+    __tablename__ = "sepay_webhook_events"
+    __table_args__ = (
+        UniqueConstraint("transaction_id", name="uq_sepay_events_transaction_id"),
+    )
+
+    id: Mapped[int] = mapped_column(primary_key=True)
+    transaction_id: Mapped[str] = mapped_column(String(64), nullable=False)
+    payment_code: Mapped[str | None] = mapped_column(String(40), nullable=True)
+    reference: Mapped[str | None] = mapped_column(String(128), nullable=True)
+    account_number: Mapped[str] = mapped_column(String(64), nullable=False)
+    amount: Mapped[int] = mapped_column(Integer, nullable=False)
+    source: Mapped[str] = mapped_column(String(16), nullable=False, default="webhook")
+    signature_valid: Mapped[bool | None] = mapped_column(Boolean, nullable=True)
+    raw: Mapped[dict] = mapped_column(JSONB, nullable=False)
+    received_at: Mapped[datetime] = mapped_column(
+        DateTime(timezone=True), server_default=func.now(), nullable=False,
+    )
 
 
 class NowpaymentsIpnEvent(Base):

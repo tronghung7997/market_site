@@ -4,6 +4,7 @@ import { createContext, useCallback, useContext, useEffect, useState } from "rea
 import { usePathname, useRouter } from "@/i18n/navigation";
 import type { ReactNode } from "react";
 import { api } from "./api";
+import { sessionExpiryRedirect } from "./session-expiry";
 import type { Account } from "./types";
 
 interface AuthState {
@@ -41,11 +42,12 @@ export function AuthProvider({ children }: { children: ReactNode }) {
   useEffect(() => {
     function handleExpired() {
       setAccount(null);
-      if (pathname === "/login") return;
+      const redirectTo = sessionExpiryRedirect(pathname);
+      if (!redirectTo) return;
       // Kèm `next` để đăng nhập lại đưa buyer về ĐÚNG chỗ đang dở (trang sản
       // phẩm, trang đơn…), thay vì thả về trang chủ và bắt tìm lại từ đầu —
       // form login đã đọc sẵn tham số này.
-      router.push(`/login?expired=1&next=${encodeURIComponent(pathname)}`);
+      router.push(redirectTo);
     }
     window.addEventListener("auth:session-expired", handleExpired);
     return () => window.removeEventListener("auth:session-expired", handleExpired);

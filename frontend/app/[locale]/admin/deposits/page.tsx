@@ -1,15 +1,22 @@
 "use client";
 
-/* Trang rà soát nạp tiền multi-provider. PayOS được tra từng order; hosted
- * NOWPayments được tra theo invoice ID đã lưu, nên admin không phải dò payment ID. */
+/* Trang rà soát nạp tiền multi-provider. SePay được đối soát theo payment code;
+ * NOWPayments được tra theo invoice ID đã lưu. */
 
 import * as React from "react";
 import { motion } from "motion/react";
 
 import { api, vnd } from "@/lib/api";
-import type { AdminDepositIntent, PayosWebhookEventRow } from "@/lib/types";
+import type {
+  AdminDepositIntent,
+  AdminDepositLedgerQuery,
+  AdminDepositLedgerResponse,
+  AdminDepositTransaction,
+} from "@/lib/types";
 import { Button, Card, Spinner } from "@/components/ui";
-import { StatsCard, SlidePanel, FilterPills, DepositStatusBadge } from "@/components/admin";
+import { StatsCard, FilterPills, DepositStatusBadge } from "@/components/admin";
+import { DepositTransactionsDialog } from "./deposit-transactions-dialog";
+import { DepositLedgerDialog } from "./deposit-ledger-dialog";
 
 const STATUS_FILTERS = [
   { key: "", label: "Tất cả" },
@@ -20,7 +27,7 @@ const STATUS_FILTERS = [
 ];
 
 function fmtTime(s: string | null | undefined): string {
-  if (!s) return "—";
+  if (!s) return "-";
   const d = new Date(s);
   return `${d.toLocaleDateString("vi-VN")} ${d.toLocaleTimeString("vi-VN", { hour: "2-digit", minute: "2-digit" })}`;
 }
@@ -29,7 +36,7 @@ function reconcileMessage(
   deposit: AdminDepositIntent,
   result: Awaited<ReturnType<typeof api.adminReconcileDeposit>>,
 ): string {
-  const provider = (deposit.provider || "payos") === "nowpayments" ? "NOWPayments" : "PayOS";
+  const provider = (deposit.provider || "sepay") === "nowpayments" ? "NOWPayments" : "SePay";
   const prefix = `Lệnh #${deposit.id}`;
   if (result.reconcile_result === "not_configured") {
     return `${prefix}: chưa gọi được ${provider} vì thiếu cấu hình đối soát; trạng thái nội bộ vẫn là "${result.status}".`;
@@ -58,9 +65,13 @@ export default function AdminDepositsPage() {
   const [msg, setMsg] = React.useState<string | null>(null);
   const [err, setErr] = React.useState<string | null>(null);
 
-  // Sổ webhook trong panel trượt
-  const [eventsFor, setEventsFor] = React.useState<AdminDepositIntent | null>(null);
-  const [events, setEvents] = React.useState<PayosWebhookEventRow[] | null>(null);
+  const [transactionsFor, setTransactionsFor] = React.useState<AdminDepositIntent | null>(null);
+  const [transactions, setTransactions] = React.useState<AdminDepositTransaction[] | null>(null);
+  const [transactionsError, setTransactionsError] = React.useState<string | null>(null);
+  const [ledgerOpen, setLedgerOpen] = React.useState(false);
+  const [ledger, setLedger] = React.useState<AdminDepositLedgerResponse | null>(null);
+  const [ledgerError, setLedgerError] = React.useState<string | null>(null);
+  const ledgerRequestRef = React.useRef(0);
 
   const load = React.useCallback(async () => {
     setLoading(true);
@@ -109,34 +120,42 @@ export default function AdminDepositsPage() {
       }
     }
     const attention = needsAttention > 0 ? `; ${needsAttention} lệnh cần kiểm tra` : "";
-    setMsg(`Đã đối soát ${targets.length} lệnh — ${changed} lệnh đổi trạng thái${attention}.`);
+    setMsg(`Đã đối soát ${targets.length} lệnh: ${changed} lệnh đổi trạng thái${attention}.`);
     setBulkBusy(false);
     await load();
   };
 
-  const openEvents = async (d: AdminDepositIntent) => {
-    setEventsFor(d);
-    setEvents(null);
+  const loadTransactions = async (d: AdminDepositIntent) => {
+    setTransactions(null);
+    setTransactionsError(null);
     try {
-      if ((d.provider || "payos") === "nowpayments") {
-        const rows = await api.adminNowpaymentsEvents(d.now_payment_id || undefined);
-        // Normalize shape for the existing panel (amount/reference optional).
-        setEvents(rows.map((r) => ({
-          id: Number(r.id),
-          order_code: d.id,
-          payment_link_id: String(r.payment_id ?? ""),
-          reference: String(r.payment_status ?? ""),
-          amount: d.amount,
-          signature_valid: Boolean(r.signature_valid),
-          received_at: String(r.received_at ?? ""),
-          raw: (r.raw as Record<string, unknown>) ?? r,
-        })));
-      } else {
-        setEvents(await api.adminPayosEvents(d.id));
-      }
-    } catch {
-      setEvents([]);
+      setTransactions(await api.adminDepositTransactions(d.id));
+    } catch (error) {
+      setTransactionsError(error instanceof Error ? error.message : "Không tải được giao dịch từ provider");
     }
+  };
+
+  const openTransactions = (d: AdminDepositIntent) => {
+    setTransactionsFor(d);
+    void loadTransactions(d);
+  };
+
+  const loadLedger = React.useCallback(async (query: AdminDepositLedgerQuery = {}) => {
+    const requestId = ++ledgerRequestRef.current;
+    setLedger(null);
+    setLedgerError(null);
+    try {
+      const result = await api.adminDepositLedger(query);
+      if (requestId === ledgerRequestRef.current) setLedger(result);
+    } catch (error) {
+      if (requestId === ledgerRequestRef.current) {
+        setLedgerError(error instanceof Error ? error.message : "Không tải được sổ giao dịch nạp tiền");
+      }
+    }
+  }, []);
+
+  const openLedger = () => {
+    setLedgerOpen(true);
   };
 
   const pendingCount = deposits.filter((d) => d.status === "pending").length;
@@ -150,14 +169,19 @@ export default function AdminDepositsPage() {
     <div className="space-y-6">
       <div className="flex items-center justify-between flex-wrap gap-4">
         <div>
-          <h1 className="text-[18px] font-semibold text-slate-900">Nạp tiền (PayOS / USDT)</h1>
+          <h1 className="text-[18px] font-semibold text-slate-900">Nạp tiền (SePay / USDT)</h1>
           <p className="text-[13px] text-slate-500 mt-0.5">
             Rà soát lệnh nạp multi-provider. NOWPayments tự tìm payment bằng hosted invoice đã lưu.
           </p>
         </div>
-        <Button variant="secondary" onClick={reconcileAll} disabled={bulkBusy || loading}>
-          {bulkBusy ? "Đang đối soát…" : "Đối soát tất cả lệnh chưa chốt"}
-        </Button>
+        <div className="flex flex-wrap items-center gap-2">
+          <Button variant="primary" onClick={openLedger}>
+            Tất cả giao dịch
+          </Button>
+          <Button variant="secondary" onClick={reconcileAll} disabled={bulkBusy || loading}>
+            {bulkBusy ? "Đang đối soát…" : "Đối soát tất cả lệnh chưa chốt"}
+          </Button>
+        </div>
       </div>
 
       <div className="grid gap-4 sm:grid-cols-3">
@@ -200,7 +224,7 @@ export default function AdminDepositsPage() {
                         <td className="px-5 py-3 truncate max-w-[200px]">{d.account_email ?? `Tài khoản #${d.account_id}`}</td>
                         <td className="px-5 py-3">
                           <span className="font-mono text-[11px] uppercase text-slate-600">
-                            {d.provider || "payos"}
+                            {d.provider || "sepay"}
                           </span>
                           {d.now_payment_id && (
                             <div className="font-mono text-[10px] text-slate-400 truncate max-w-[120px]">
@@ -220,18 +244,18 @@ export default function AdminDepositsPage() {
                           {d.paid_at ? (
                             <div>
                               {fmtTime(d.paid_at)}
-                              {(d.payos_reference || d.external_reference) && (
+                              {(d.sepay_reference || d.external_reference || d.payos_reference) && (
                                 <div className="font-mono text-[11px] text-slate-400 truncate max-w-[160px]">
-                                  ref {d.payos_reference || d.external_reference}
+                                  ref {d.sepay_reference || d.external_reference || d.payos_reference}
                                 </div>
                               )}
                             </div>
-                          ) : "—"}
+                          ) : "-"}
                         </td>
                         <td className="px-5 py-3 text-right whitespace-nowrap">
                           <div className="flex gap-2 justify-end">
-                            <Button size="sm" variant="secondary" onClick={() => openEvents(d)}>
-                              Sổ webhook
+                            <Button size="sm" variant="secondary" onClick={() => openTransactions(d)}>
+                              Xem giao dịch
                             </Button>
                             {d.status !== "paid" && (
                               <Button
@@ -255,46 +279,36 @@ export default function AdminDepositsPage() {
         </motion.div>
       )}
 
-      <SlidePanel
-        isOpen={eventsFor !== null}
-        onClose={() => setEventsFor(null)}
-        title={eventsFor ? `Sổ webhook — lệnh nạp #${eventsFor.id}` : ""}
-        width="xl"
-      >
-        {events === null ? (
-          <div className="grid place-items-center py-12"><Spinner /></div>
-        ) : events.length === 0 ? (
-          <div className="text-[13px] text-slate-500 space-y-2">
-            <p>Chưa nhận webhook nào cho lệnh này.</p>
-            <p>
-              Nếu lệnh đã <b>paid</b> mà không có webhook: tiền được chốt qua <b>đối soát chủ động</b> (backend
-              tự hỏi PayOS) — đó là hành vi đúng khi webhook bị lỡ (mất mạng, tắt tunnel…).
-            </p>
-          </div>
-        ) : (
-          <div className="space-y-4">
-            {events.map((e) => (
-              <div key={e.id} className="rounded-lg border border-slate-200 overflow-hidden">
-                <div className="px-4 py-2.5 bg-slate-50 flex items-center justify-between text-[12.5px]">
-                  <div className="flex items-center gap-3">
-                    <span className="font-mono font-semibold tabular-nums">{vnd(e.amount)}</span>
-                    <span className="font-mono text-slate-500">ref {e.reference}</span>
-                  </div>
-                  <div className="flex items-center gap-3">
-                    <span className={e.signature_valid ? "text-emerald-600" : "text-red-600"}>
-                      {e.signature_valid ? "✓ Chữ ký hợp lệ" : "✗ Chữ ký sai"}
-                    </span>
-                    <span className="text-slate-400">{fmtTime(e.received_at)}</span>
-                  </div>
-                </div>
-                <pre className="p-4 text-[11.5px] leading-relaxed overflow-x-auto bg-white text-slate-700 max-h-[320px]">
-{JSON.stringify(e.raw, null, 2)}
-                </pre>
-              </div>
-            ))}
-          </div>
-        )}
-      </SlidePanel>
+      <DepositTransactionsDialog
+        deposit={transactionsFor}
+        transactions={transactions}
+        error={transactionsError}
+        onOpenChange={(open) => {
+          if (!open) {
+            setTransactionsFor(null);
+            setTransactions(null);
+            setTransactionsError(null);
+          }
+        }}
+        onRetry={() => {
+          if (transactionsFor) void loadTransactions(transactionsFor);
+        }}
+      />
+
+      <DepositLedgerDialog
+        open={ledgerOpen}
+        ledger={ledger}
+        error={ledgerError}
+        onOpenChange={(open) => {
+          setLedgerOpen(open);
+          if (!open) {
+            ledgerRequestRef.current += 1;
+            setLedger(null);
+            setLedgerError(null);
+          }
+        }}
+        onLoad={loadLedger}
+      />
 
     </div>
   );

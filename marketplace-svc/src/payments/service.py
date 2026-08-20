@@ -1,11 +1,11 @@
-"""Luồng nạp tiền multi-provider (PayOS | NOWPayments).
+"""Luồng nạp tiền multi-provider (SePay bank transfer | NOWPayments).
 
-PayOS design: docs/superpowers/specs/2026-07-23-bank-payment-design.md
+SePay research: docs/superpowers/specs/2026-08-19-sepay-migration-research.md
 NOW plan: docs/superpowers/plans/2026-08-11-nowpayments-usdt-deposit-plan.md
 
 Bất biến:
 - Ledger credit luôn VND integer qua `apply_deposit_paid` (FOR UPDATE).
-- PayOS: credit theo số tiền thực nhận từ bank webhook.
+- SePay: only credit an exact amount/account/payment-code match.
 - NOW: credit đúng `intent.amount` (target VND) khi finished + actually_paid
   validated (không fallback pay_amount; merchant absorb fee/FX).
 """
@@ -16,7 +16,7 @@ from decimal import Decimal
 
 import structlog
 from fastapi import HTTPException
-from sqlalchemy import func, select, update
+from sqlalchemy import String, cast, exists, func, literal, or_, select, update
 from sqlalchemy.dialects.postgresql import insert as pg_insert
 from sqlalchemy.ext.asyncio import AsyncSession
 
@@ -31,9 +31,10 @@ from src.models.payment import (
     DepositProvider,
     NowpaymentsIpnEvent,
     PayosWebhookEvent,
+    SePayWebhookEvent,
 )
 from src.models.wallet import Transaction, TransactionType, Wallet
-from src.payments import fx, nowpayments_client, payos_client, rail_config
+from src.payments import fx, nowpayments_client, payos_client, rail_config, sepay_client
 
 logger = structlog.get_logger()
 
@@ -131,23 +132,23 @@ async def create_deposit(
     amount: int,
     db: AsyncSession,
     *,
-    method: str = "payos",
+    method: str = "sepay",
     pay_currency: str | None = None,
 ) -> DepositIntent:
-    method = (method or "payos").lower().strip()
+    method = (method or "sepay").lower().strip()
     if method == DepositProvider.nowpayments.value:
         return await _create_nowpayments_deposit(account_id, amount, db, pay_currency=pay_currency)
-    if method != DepositProvider.payos.value:
+    if method != DepositProvider.sepay.value:
         raise HTTPException(status_code=400, detail=f"Phương thức nạp không hỗ trợ: {method}")
-    return await _create_payos_deposit(account_id, amount, db)
+    return await _create_sepay_deposit(account_id, amount, db)
 
 
-async def _create_payos_deposit(account_id: int, amount: int, db: AsyncSession) -> DepositIntent:
+async def _create_sepay_deposit(account_id: int, amount: int, db: AsyncSession) -> DepositIntent:
     rail = await rail_config.ensure_seeded(db)
-    if not rail.payos_enabled:
+    if not rail.sepay_enabled:
         raise HTTPException(status_code=503, detail="Nạp chuyển khoản tạm thời không khả dụng")
-    if not payos_client.is_configured():
-        raise HTTPException(status_code=503, detail="Cổng thanh toán chưa được cấu hình — liên hệ quản trị viên")
+    if not sepay_client.is_configured():
+        raise HTTPException(status_code=503, detail="SePay chưa được cấu hình — liên hệ quản trị viên")
     if amount < rail.deposit_min_amount:
         raise HTTPException(
             status_code=422,
@@ -161,41 +162,43 @@ async def _create_payos_deposit(account_id: int, amount: int, db: AsyncSession) 
     await _pending_cap_check(account_id, db)
 
     expires_at = datetime.now(timezone.utc) + timedelta(minutes=rail.deposit_expire_minutes)
+    try:
+        payment_code = sepay_client.generate_payment_code()
+        qr_code = sepay_client.build_vietqr_url(
+            amount=amount,
+            payment_code=payment_code,
+        )
+    except ValueError as exc:
+        await db.rollback()
+        logger.error("sepay_qr_create_failed", account_id=account_id, amount=amount, error=str(exc))
+        raise HTTPException(status_code=503, detail="Cấu hình SePay không hợp lệ") from exc
+
     intent = DepositIntent(
         account_id=account_id,
         amount=amount,
         expires_at=expires_at,
-        provider=DepositProvider.payos.value,
+        provider=DepositProvider.sepay.value,
+        payment_code=payment_code,
+        bank_code=settings.sepay_bank_code.strip(),
+        bank_account_number=settings.sepay_bank_account_number.strip(),
+        bank_account_name=settings.sepay_bank_account_name.strip(),
+        qr_code=qr_code,
     )
     db.add(intent)
     await db.flush()
 
-    try:
-        data = await payos_client.create_payment_request(
-            order_code=intent.id,
-            amount=amount,
-            description=f"NAP{intent.id}",
-            return_url=f"{settings.frontend_base_url}/wallet",
-            cancel_url=f"{settings.frontend_base_url}/wallet",
-            expired_at=int(expires_at.timestamp()),
-        )
-    except (payos_client.PayOSError, payos_client.PayOSUnavailableError) as e:
-        await db.rollback()
-        logger.error("payos_create_failed", account_id=account_id, amount=amount, error=str(e))
-        raise HTTPException(status_code=502, detail="Không tạo được link thanh toán — thử lại sau") from e
-
-    intent.payment_link_id = data.get("paymentLinkId")
-    intent.checkout_url = data.get("checkoutUrl")
-    intent.qr_code = data.get("qrCode")
     await log_event(
-        db, "info", f"Lệnh nạp #{intent.id} tạo — {amount:,}đ (account {account_id})".replace(",", "."),
+        db,
+        "info",
+        f"Lệnh nạp SePay #{intent.id} tạo — {amount:,}đ (account {account_id})".replace(",", "."),
         request_id=current_request_id(),
         metadata={
             "event": "deposit_created",
             "intent_id": intent.id,
             "account_id": account_id,
             "amount": amount,
-            "provider": "payos",
+            "provider": "sepay",
+            "payment_code": intent.payment_code,
         },
     )
     await db.commit()
@@ -303,7 +306,7 @@ async def cancel_deposit(intent_id: int, account_id: int, db: AsyncSession) -> D
     if intent.status != DepositIntentStatus.pending:
         raise HTTPException(status_code=400, detail="Lệnh nạp không còn ở trạng thái chờ")
     intent.status = DepositIntentStatus.cancelled
-    provider = intent.provider or DepositProvider.payos.value
+    provider = intent.provider or DepositProvider.sepay.value
     await log_event(
         db, "info", f"Lệnh nạp #{intent.id} bị huỷ bởi người dùng",
         request_id=current_request_id(),
@@ -356,9 +359,13 @@ async def apply_deposit_paid(
         await db.flush()
         wallet_id = wallet.id
 
-    provider = intent.provider or DepositProvider.payos.value
+    provider = intent.provider or DepositProvider.sepay.value
     if provider == DepositProvider.nowpayments.value:
         note = f"Nạp tiền USDT (lệnh #{intent.id})"
+        intent.external_reference = reference
+    elif provider == DepositProvider.sepay.value:
+        note = f"Nạp tiền qua SePay (lệnh #{intent.id})"
+        intent.sepay_reference = reference
         intent.external_reference = reference
     else:
         note = f"Nạp tiền qua PayOS (lệnh #{intent.id})"
@@ -405,7 +412,182 @@ async def apply_deposit_paid(
 
 
 # ---------------------------------------------------------------------------
-# PayOS webhook (unchanged policy)
+# SePay bank transaction webhook
+# ---------------------------------------------------------------------------
+
+
+async def handle_sepay_webhook(payload: dict, db: AsyncSession) -> dict:
+    """Process a signature-verified SePay transaction and ACK business rejects.
+
+    Invalid HMAC/timestamps are rejected by the router.  Every validly-signed
+    transaction with a usable ID is journaled before business matching so
+    retries and manual replay remain race-safe.
+    """
+    transaction_id_raw = payload.get("id")
+    transaction_id = str(transaction_id_raw or "").strip()
+    payment_code = str(payload.get("code") or "").strip().upper() or None
+    reference = str(payload.get("referenceCode") or "").strip() or None
+    account_number = str(payload.get("accountNumber") or "").strip()
+    transfer_type = str(payload.get("transferType") or "").strip().lower()
+    amount = payload.get("transferAmount")
+
+    if (
+        not transaction_id
+        or len(transaction_id) > 64
+        or isinstance(transaction_id_raw, bool)
+        or not account_number
+        or not isinstance(amount, int)
+        or isinstance(amount, bool)
+        or amount <= 0
+    ):
+        logger.warning("sepay_webhook_bad_shape", payload_keys=sorted(payload.keys()))
+        return {"note": "invalid payload shape"}
+
+    inserted = await db.execute(
+        pg_insert(SePayWebhookEvent)
+        .values(
+            transaction_id=transaction_id,
+            payment_code=payment_code,
+            reference=reference,
+            account_number=account_number,
+            amount=amount,
+            source="webhook",
+            signature_valid=True,
+            raw=payload,
+        )
+        .on_conflict_do_nothing(constraint="uq_sepay_events_transaction_id")
+        .returning(SePayWebhookEvent.id)
+    )
+    if inserted.scalar() is None:
+        await db.commit()
+        return {"note": "duplicate transaction"}
+
+    if transfer_type != "in":
+        await db.commit()
+        return {"note": "outgoing transaction ignored"}
+
+    expected_account = settings.sepay_bank_account_number.strip()
+    if account_number != expected_account:
+        await db.commit()
+        logger.error(
+            "sepay_webhook_account_mismatch",
+            transaction_id=transaction_id,
+            expected=expected_account,
+            got=account_number,
+        )
+        await _alert(
+            db,
+            "error",
+            f"SePay transaction {transaction_id} vào tài khoản lạ {account_number} — không credit",
+            target_id=0,
+            reason_code="bank_account_mismatch",
+        )
+        return {"note": "bank account mismatch"}
+
+    if not sepay_client.is_valid_payment_code(payment_code):
+        await db.commit()
+        logger.warning("sepay_webhook_unmatched_code", code=payment_code, transaction_id=transaction_id)
+        return {"note": "payment code missing or invalid"}
+
+    intent = await db.scalar(
+        select(DepositIntent)
+        .where(DepositIntent.payment_code == payment_code)
+        .with_for_update()
+    )
+    if intent is None:
+        await db.commit()
+        logger.error("sepay_webhook_unknown_intent", payment_code=payment_code, transaction_id=transaction_id)
+        await _alert(
+            db,
+            "error",
+            f"SePay code {payment_code} không khớp lệnh nạp nào ({amount}đ, ref {reference})",
+            target_id=0,
+            reason_code="unknown_order",
+        )
+        return {"note": "unknown deposit intent"}
+
+    intent_id = intent.id
+
+    if (
+        intent.provider != DepositProvider.sepay.value
+        or intent.payment_code != payment_code
+        or intent.bank_account_number != account_number
+    ):
+        intent_provider = intent.provider
+        await db.commit()
+        logger.error(
+            "sepay_webhook_intent_mismatch",
+            intent_id=intent_id,
+            provider=intent_provider,
+            payment_code=payment_code,
+            account_number=account_number,
+        )
+        await _alert(
+            db,
+            "error",
+            f"SePay transaction {transaction_id} không khớp provider/code/tài khoản của lệnh #{intent_id}",
+            target_id=intent_id,
+            reason_code="intent_mismatch",
+        )
+        return {"note": "intent fields mismatch"}
+
+    if intent.status == DepositIntentStatus.paid:
+        same_payment = (
+            (intent.sepay_transaction_id and intent.sepay_transaction_id == transaction_id)
+            or (reference and intent.sepay_reference == reference)
+        )
+        await db.commit()
+        if same_payment:
+            return {"note": "payment already reconciled"}
+        await _alert(
+            db,
+            "warning",
+            f"Lệnh nạp #{intent_id} nhận thêm giao dịch {amount}đ (ref {reference}) sau khi đã paid",
+            target_id=intent_id,
+            reason_code="double_payment",
+        )
+        return {"note": "additional payment requires manual review"}
+
+    if amount != intent.amount:
+        expected_amount = intent.amount
+        await db.commit()
+        logger.warning(
+            "sepay_webhook_amount_mismatch",
+            intent_id=intent_id,
+            expected=expected_amount,
+            received=amount,
+        )
+        await _alert(
+            db,
+            "warning",
+            f"Lệnh nạp #{intent_id} lệch tiền: dự kiến {expected_amount}đ, thực nhận {amount}đ — chưa credit",
+            target_id=intent_id,
+            reason_code="amount_mismatch",
+        )
+        return {"note": "amount mismatch requires manual review"}
+
+    late_status = (
+        intent.status.value
+        if intent.status in (DepositIntentStatus.expired, DepositIntentStatus.cancelled)
+        else None
+    )
+    intent.sepay_transaction_id = transaction_id
+    await apply_deposit_paid(intent, intent.amount, reference or transaction_id, db, source="sepay_webhook")
+    await db.commit()
+
+    if late_status:
+        await _alert(
+            db,
+            "warning",
+            f"Lệnh nạp #{intent_id} thanh toán muộn sau trạng thái {late_status} — đã credit {amount}đ",
+            target_id=intent_id,
+            reason_code="late_payment",
+        )
+    return {"note": "credited"}
+
+
+# ---------------------------------------------------------------------------
+# Legacy PayOS webhook — retained only for intents created before cutover
 # ---------------------------------------------------------------------------
 
 
@@ -845,10 +1027,104 @@ async def reconcile_intent(intent_id: int, db: AsyncSession) -> dict:
             reconcile_result="already_paid",
         )
 
-    provider = intent.provider or DepositProvider.payos.value
+    provider = intent.provider or DepositProvider.sepay.value
     if provider == DepositProvider.nowpayments.value:
         return await _reconcile_nowpayments(intent, db)
+    if provider == DepositProvider.sepay.value:
+        return await _reconcile_sepay(intent, db)
     return await _reconcile_payos(intent, db)
+
+
+async def _reconcile_sepay(intent: DepositIntent, db: AsyncSession) -> dict:
+    if not sepay_client.is_reconciliation_configured():
+        outcome = _reconcile_outcome(
+            intent.status.value,
+            provider_status=None,
+            reconcile_result="not_configured",
+        )
+        await db.rollback()
+        return outcome
+    if not intent.payment_code or not intent.bank_account_number:
+        outcome = _reconcile_outcome(
+            intent.status.value,
+            provider_status=None,
+            reconcile_result="validation_failed",
+        )
+        await db.rollback()
+        return outcome
+
+    intent_id = intent.id
+    try:
+        matches = await sepay_client.list_matching_transactions(
+            payment_code=intent.payment_code,
+            amount=intent.amount,
+            created_at=intent.created_at - timedelta(minutes=5),
+        )
+    except (sepay_client.SePayError, sepay_client.SePayUnavailableError) as exc:
+        outcome = _reconcile_outcome(
+            intent.status.value,
+            provider_status=None,
+            reconcile_result="provider_error",
+        )
+        logger.warning("deposit_reconcile_failed", intent_id=intent_id, error=str(exc), provider="sepay")
+        await db.rollback()
+        return outcome
+
+    if not matches:
+        await db.commit()
+        return _reconcile_outcome(
+            intent.status.value,
+            provider_status="not_found",
+            reconcile_result="not_found",
+        )
+
+    tx = matches[0]
+    transaction_id = str(tx["id"])
+    reference = str(tx.get("reference_number") or "").strip() or transaction_id
+    try:
+        amount = int(tx.get("amount_in") or 0)
+    except (TypeError, ValueError):
+        amount = 0
+    if amount != intent.amount:
+        outcome = _reconcile_outcome(
+            intent.status.value,
+            provider_status="invalid_amount",
+            reconcile_result="validation_failed",
+        )
+        await db.rollback()
+        return outcome
+
+    await db.execute(
+        pg_insert(SePayWebhookEvent)
+        .values(
+            transaction_id=transaction_id,
+            payment_code=intent.payment_code,
+            reference=reference,
+            account_number=intent.bank_account_number,
+            amount=amount,
+            source="reconcile",
+            signature_valid=None,
+            raw=tx,
+        )
+        .on_conflict_do_nothing(constraint="uq_sepay_events_transaction_id")
+    )
+    intent.sepay_transaction_id = transaction_id
+    await apply_deposit_paid(intent, intent.amount, reference, db, source="sepay_reconcile")
+    await db.commit()
+
+    if len(matches) > 1:
+        await _alert(
+            db,
+            "warning",
+            f"Lệnh nạp #{intent_id} có {len(matches)} giao dịch SePay khớp; chỉ credit giao dịch đầu tiên",
+            target_id=intent_id,
+            reason_code="multiple_matching_payments",
+        )
+    return _reconcile_outcome(
+        DepositIntentStatus.paid.value,
+        provider_status="paid",
+        reconcile_result="credited",
+    )
 
 
 async def _reconcile_payos(intent: DepositIntent, db: AsyncSession) -> dict:
@@ -1057,6 +1333,32 @@ async def list_payos_events(db: AsyncSession, order_code: int | None = None, lim
     ]
 
 
+async def list_sepay_events(
+    db: AsyncSession,
+    payment_code: str | None = None,
+    limit: int = 50,
+) -> list[dict]:
+    q = select(SePayWebhookEvent).order_by(SePayWebhookEvent.received_at.desc()).limit(limit)
+    if payment_code:
+        q = q.where(SePayWebhookEvent.payment_code == payment_code)
+    rows = await db.execute(q)
+    return [
+        {
+            "id": event.id,
+            "transaction_id": event.transaction_id,
+            "payment_code": event.payment_code,
+            "reference": event.reference,
+            "account_number": event.account_number,
+            "amount": event.amount,
+            "source": event.source,
+            "signature_valid": event.signature_valid,
+            "received_at": event.received_at,
+            "raw": event.raw,
+        }
+        for event in rows.scalars().all()
+    ]
+
+
 async def list_nowpayments_events(
     db: AsyncSession, payment_id: str | None = None, limit: int = 50,
 ) -> list[dict]:
@@ -1077,6 +1379,289 @@ async def list_nowpayments_events(
         }
         for e in rows.scalars().all()
     ]
+
+
+def _as_decimal(value: object) -> Decimal | None:
+    if value is None or value == "":
+        return None
+    try:
+        return Decimal(str(value))
+    except (ArithmeticError, ValueError):
+        return None
+
+
+def _amount_match(
+    expected: Decimal | None,
+    actual: Decimal | None,
+) -> tuple[str, Decimal | None]:
+    if expected is None or actual is None:
+        return "unknown", None
+    delta = actual - expected
+    if delta == 0:
+        return "exact", delta
+    return ("underpaid" if delta < 0 else "overpaid"), delta
+
+
+def _credit_state(*, credited: bool, actual: Decimal | None) -> str:
+    if credited:
+        return "credited"
+    if actual is not None and actual > 0:
+        return "held"
+    return "not_credited"
+
+
+async def _list_admin_deposit_transactions_for_intent(
+    intent: DepositIntent,
+    db: AsyncSession,
+) -> list[dict]:
+    provider = intent.provider or DepositProvider.sepay.value
+    is_paid = intent.status == DepositIntentStatus.paid
+
+    if provider == DepositProvider.sepay.value:
+        rows = await db.execute(
+            select(SePayWebhookEvent)
+            .where(SePayWebhookEvent.payment_code == intent.payment_code)
+            .order_by(SePayWebhookEvent.received_at.desc(), SePayWebhookEvent.id.desc())
+        )
+        expected = Decimal(intent.amount)
+        transactions = []
+        for event in rows.scalars().all():
+            direction = str(event.raw.get("transferType") or "in").strip().lower()
+            direction = "out" if direction == "out" else "in"
+            actual = Decimal(event.amount)
+            match_status, delta = _amount_match(expected, actual) if direction == "in" else ("unknown", None)
+            credited = is_paid and (
+                intent.sepay_transaction_id == event.transaction_id
+                or bool(event.reference and intent.sepay_reference == event.reference)
+            )
+            transactions.append({
+                "id": f"sepay:{event.id}",
+                "provider": DepositProvider.sepay.value,
+                "provider_transaction_id": event.transaction_id,
+                "provider_status": "received" if direction == "in" else "outgoing",
+                "reference": event.reference,
+                "expected_amount": expected,
+                "actual_amount": actual,
+                "delta_amount": delta,
+                "currency": "VND",
+                "settled_amount": actual if credited else None,
+                "settled_currency": "VND" if credited else None,
+                "match_status": match_status,
+                "credit_status": _credit_state(credited=credited, actual=actual if direction == "in" else None),
+                "direction": direction,
+                "source": event.source,
+                "received_at": event.received_at,
+                "destination": event.account_number,
+                "event_count": 1,
+                "raw": event.raw,
+            })
+        return transactions
+
+    if provider == DepositProvider.nowpayments.value:
+        order_id = nowpayments_client.format_order_id(intent.id)
+        conditions = [NowpaymentsIpnEvent.order_id == order_id]
+        if intent.now_payment_id:
+            conditions.append(NowpaymentsIpnEvent.payment_id == intent.now_payment_id)
+        rows = await db.execute(
+            select(NowpaymentsIpnEvent)
+            .where(or_(*conditions))
+            .order_by(NowpaymentsIpnEvent.received_at.desc(), NowpaymentsIpnEvent.id.desc())
+        )
+        grouped: dict[str, dict] = {}
+        for event in rows.scalars().all():
+            group = grouped.setdefault(event.payment_id, {"latest": event, "count": 0})
+            group["count"] += 1
+
+        transactions = []
+        for payment_id, group in grouped.items():
+            event = group["latest"]
+            raw = event.raw or {}
+            expected = _as_decimal(raw.get("pay_amount")) or _as_decimal(intent.pay_amount)
+            actual = _as_decimal(raw.get("actually_paid"))
+            match_status, delta = _amount_match(expected, actual)
+            credited = is_paid and (
+                intent.now_payment_id == payment_id
+                or intent.external_reference == payment_id
+            )
+            settled_amount = _as_decimal(raw.get("outcome_amount"))
+            settled_currency = str(raw.get("outcome_currency") or "").strip().upper() or None
+            if credited:
+                settled_amount = settled_amount or _as_decimal(intent.outcome_amount)
+                settled_currency = settled_currency or intent.outcome_currency
+            currency = str(raw.get("pay_currency") or intent.pay_currency or "USDT").strip().upper()
+            transactions.append({
+                "id": f"nowpayments:{payment_id}",
+                "provider": DepositProvider.nowpayments.value,
+                "provider_transaction_id": payment_id,
+                "provider_status": event.payment_status,
+                "reference": str(raw.get("order_id") or event.order_id or payment_id),
+                "expected_amount": expected,
+                "actual_amount": actual,
+                "delta_amount": delta,
+                "currency": currency,
+                "settled_amount": settled_amount,
+                "settled_currency": settled_currency,
+                "match_status": match_status,
+                "credit_status": _credit_state(credited=credited, actual=actual),
+                "direction": "in",
+                "source": "ipn",
+                "received_at": event.received_at,
+                "destination": str(raw.get("pay_address") or intent.pay_address or "").strip() or None,
+                "event_count": group["count"],
+                "raw": raw,
+            })
+        return transactions
+
+    if provider != DepositProvider.payos.value:
+        return []
+
+    rows = await db.execute(
+        select(PayosWebhookEvent)
+        .where(PayosWebhookEvent.order_code == intent.id)
+        .order_by(PayosWebhookEvent.received_at.desc(), PayosWebhookEvent.id.desc())
+    )
+    expected = Decimal(intent.amount)
+    transactions = []
+    for event in rows.scalars().all():
+        actual = Decimal(event.amount)
+        match_status, delta = _amount_match(expected, actual)
+        credited = is_paid and bool(
+            intent.payos_reference == event.reference
+            or intent.external_reference == event.reference
+        )
+        transactions.append({
+            "id": f"payos:{event.id}",
+            "provider": DepositProvider.payos.value,
+            "provider_transaction_id": event.reference,
+            "provider_status": "paid",
+            "reference": event.reference,
+            "expected_amount": expected,
+            "actual_amount": actual,
+            "delta_amount": delta,
+            "currency": "VND",
+            "settled_amount": actual if credited else None,
+            "settled_currency": "VND" if credited else None,
+            "match_status": match_status,
+            "credit_status": _credit_state(credited=credited, actual=actual),
+            "direction": "in",
+            "source": "webhook",
+            "received_at": event.received_at,
+            "destination": event.payment_link_id,
+            "event_count": 1,
+            "raw": event.raw,
+        })
+    return transactions
+
+
+async def list_admin_deposit_transactions(
+    intent_id: int,
+    db: AsyncSession,
+) -> list[dict]:
+    """Normalize provider journals into transaction-level rows for one deposit."""
+    intent = await db.get(DepositIntent, intent_id)
+    if intent is None:
+        raise HTTPException(status_code=404, detail="Lệnh nạp không tồn tại")
+    return await _list_admin_deposit_transactions_for_intent(intent, db)
+
+
+async def list_admin_deposit_ledger(
+    db: AsyncSession,
+    *,
+    limit: int = 25,
+    offset: int = 0,
+    provider: str | None = None,
+    search: str | None = None,
+) -> dict:
+    """Return one filtered page of deposit intents and provider transactions."""
+    filters = []
+    normalized_provider = str(provider or "").strip().lower()
+    if normalized_provider:
+        if normalized_provider == DepositProvider.sepay.value:
+            filters.append(or_(
+                DepositIntent.provider == DepositProvider.sepay.value,
+                DepositIntent.provider.is_(None),
+            ))
+        else:
+            filters.append(DepositIntent.provider == normalized_provider)
+
+    normalized_search = str(search or "").strip()
+    if normalized_search:
+        pattern = f"%{normalized_search}%"
+        now_order_id = literal("DEP-") + cast(DepositIntent.id, String)
+        search_conditions = [
+            cast(DepositIntent.id, String).ilike(pattern),
+            Account.email.ilike(pattern),
+            DepositIntent.payment_code.ilike(pattern),
+            DepositIntent.now_payment_id.ilike(pattern),
+            DepositIntent.sepay_transaction_id.ilike(pattern),
+            DepositIntent.sepay_reference.ilike(pattern),
+            DepositIntent.external_reference.ilike(pattern),
+            DepositIntent.payos_reference.ilike(pattern),
+            exists(
+                select(SePayWebhookEvent.id).where(
+                    SePayWebhookEvent.payment_code == DepositIntent.payment_code,
+                    or_(
+                        SePayWebhookEvent.transaction_id.ilike(pattern),
+                        SePayWebhookEvent.reference.ilike(pattern),
+                    ),
+                )
+            ),
+            exists(
+                select(NowpaymentsIpnEvent.id).where(
+                    or_(
+                        NowpaymentsIpnEvent.order_id == now_order_id,
+                        NowpaymentsIpnEvent.payment_id == DepositIntent.now_payment_id,
+                    ),
+                    or_(
+                        NowpaymentsIpnEvent.payment_id.ilike(pattern),
+                        NowpaymentsIpnEvent.order_id.ilike(pattern),
+                    ),
+                )
+            ),
+            exists(
+                select(PayosWebhookEvent.id).where(
+                    PayosWebhookEvent.order_code == DepositIntent.id,
+                    PayosWebhookEvent.reference.ilike(pattern),
+                )
+            ),
+        ]
+        filters.append(or_(*search_conditions))
+
+    total = await db.scalar(
+        select(func.count(DepositIntent.id))
+        .select_from(DepositIntent)
+        .join(Account, DepositIntent.account_id == Account.id)
+        .where(*filters)
+    ) or 0
+    result = await db.execute(
+        select(DepositIntent, Account.email)
+        .join(Account, DepositIntent.account_id == Account.id)
+        .where(*filters)
+        .order_by(DepositIntent.created_at.desc(), DepositIntent.id.desc())
+        .limit(limit)
+        .offset(offset)
+    )
+
+    items = []
+    for intent, email in result.all():
+        transactions = await _list_admin_deposit_transactions_for_intent(intent, db)
+        items.append({
+            "deposit": {
+                "id": intent.id,
+                "account_id": intent.account_id,
+                "account_email": email,
+                "amount": intent.amount,
+                "paid_amount": intent.paid_amount,
+                "status": intent.status.value,
+                "provider": intent.provider or DepositProvider.sepay.value,
+                "payment_code": intent.payment_code,
+                "now_payment_id": intent.now_payment_id,
+                "created_at": intent.created_at,
+                "paid_at": intent.paid_at,
+            },
+            "transactions": transactions,
+        })
+    return {"total": total, "limit": limit, "offset": offset, "items": items}
 
 
 async def list_admin_deposits(
@@ -1105,7 +1690,13 @@ async def list_admin_deposits(
             "account_email": email,
             "amount": intent.amount,
             "status": intent.status.value,
-            "provider": intent.provider or "payos",
+            "provider": intent.provider or "sepay",
+            "payment_code": intent.payment_code,
+            "bank_code": intent.bank_code,
+            "bank_account_number": intent.bank_account_number,
+            "bank_account_name": intent.bank_account_name,
+            "sepay_transaction_id": intent.sepay_transaction_id,
+            "sepay_reference": intent.sepay_reference,
             "checkout_url": intent.checkout_url,
             "qr_code": intent.qr_code,
             "payment_link_id": intent.payment_link_id,

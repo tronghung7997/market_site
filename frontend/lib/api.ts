@@ -1,5 +1,5 @@
 import type {
-  Account, ActionItem, AdminDepositIntent, AdminDisputeDetail, AdminOrderDetail, AdminProduct, AdminResourceListResponse, AffiliateStats, AffiliateSummary, CalculateResult, Category, ChargeUsageResult, DashboardData, DepositIntent, DepositMethods, DepositReconcileResult, DepositRailConfigAdmin, DepositRailConfigUpdate, Dispute, PayosWebhookEventRow, AdminAccountWallet, FundOverview, AccountAdminRow, PaginatedAccounts, LogEntry, MoneyConfigAdmin, MoneyConfigPublic, MoneyConfigUpdate, Order, OrderStats, PaginatedAffiliateSummary, PaginatedOrderResponse, PaginatedProducts, PricingField, PricingOptions, ProductDetail, AdminProductDetail, Product, ProductLocale, ProductOperations, ProductTranslation, ProxyState, ProxyRotateResult, ProxyWhitelistResult, Review, SellerApplication, SellerProduct, SellerStats, ServiceTask, TikTokLookupResponse, Transaction, Variant, Wallet, WithdrawRequest, Provider, ProviderHealth, Alert, Resource, ResourceSummary, ResourceSellerFacet, InventoryVariant, SellerSummary, SellerProfile, SellerApiKey, SellerApiKeyCreated,
+  Account, ActionItem, AdminDepositIntent, AdminDepositLedgerQuery, AdminDepositLedgerResponse, AdminDepositTransaction, AdminDisputeDetail, AdminOrderDetail, AdminProduct, AdminResourceListResponse, AffiliateStats, AffiliateSummary, CalculateResult, Category, ChargeUsageResult, DashboardData, DepositIntent, DepositMethods, DepositReconcileResult, DepositRailConfigAdmin, DepositRailConfigUpdate, Dispute, SePayWebhookEventRow, AdminAccountWallet, FundOverview, AccountAdminRow, PaginatedAccounts, LogEntry, MoneyConfigAdmin, MoneyConfigPublic, MoneyConfigUpdate, Order, OrderStats, PaginatedAffiliateSummary, PaginatedOrderResponse, PaginatedProducts, PricingField, PricingOptions, ProductDetail, AdminProductDetail, Product, ProductLocale, ProductOperations, ProductTranslation, ProxyState, ProxyRotateResult, ProxyWhitelistResult, Review, SellerApplication, SellerProduct, SellerStats, ServiceTask, TikTokLookupResponse, Transaction, Variant, Wallet, WithdrawRequest, Provider, ProviderHealth, Alert, Resource, ResourceSummary, ResourceSellerFacet, InventoryVariant, SellerSummary, SellerProfile, SellerApiKey, SellerApiKeyCreated,
 } from "./types";
 
 // Browser requests are always same-origin. This prevents a production bundle
@@ -29,6 +29,18 @@ function browserLocale(): string {
   return fromPath ?? "en";
 }
 
+function responseErrorDetail(body: unknown): string | null {
+  if (!body || typeof body !== "object") return null;
+  const detail = (body as { detail?: unknown; message?: unknown }).detail
+    ?? (body as { message?: unknown }).message;
+  if (typeof detail === "string") return detail;
+  if (!Array.isArray(detail)) return null;
+
+  const first = detail[0] as { msg?: unknown } | undefined;
+  if (typeof first?.msg !== "string") return null;
+  return first.msg.replace(/^Value error,\s*/i, "");
+}
+
 async function request<T>(path: string, init: RequestInit = {}, auth: boolean | "silent" = false): Promise<T> {
   const headers: Record<string, string> = {
     "Content-Type": "application/json",
@@ -50,10 +62,10 @@ async function request<T>(path: string, init: RequestInit = {}, auth: boolean | 
       }
       throw new ApiError(401, "Your session has expired. Please sign in again.", "SESSION_EXPIRED");
     }
-    const detail = body && (body.detail || body.message);
+    const detail = responseErrorDetail(body);
     throw new ApiError(
       res.status,
-      typeof detail === "string" ? detail : "Something went wrong. Please try again.",
+      detail ?? "Something went wrong. Please try again.",
       typeof body?.error_code === "string" ? body.error_code : undefined,
       body && typeof body.params === "object" && body.params !== null ? body.params : {},
     );
@@ -69,6 +81,8 @@ export const api = {
   },
   login: (email: string, password: string) =>
     request<{ token_type: string }>("/auth/login", { method: "POST", body: JSON.stringify({ email, password }) }),
+  adminLogin: (email: string, password: string) =>
+    request<{ token_type: string }>("/auth/admin/login", { method: "POST", body: JSON.stringify({ email, password }) }),
   logout: () => request<void>("/auth/session", { method: "DELETE" }),
   me: () => request<Account>("/me", {}, "silent"),
   tiktokLookup: (value: string) =>
@@ -229,12 +243,12 @@ export const api = {
   markWithdrawalPaid: (id: number, payoutReference: string) =>
     request<WithdrawRequest>(`/admin/withdrawals/${id}/paid`, { method: "POST", body: JSON.stringify({ payout_reference: payoutReference }) }, true),
   myWithdrawals: () => request<WithdrawRequest[]>("/wallet/withdrawals", {}, true),
-  // --- Nạp tiền thật qua PayOS (src/payments) ---
+  // --- Nạp tiền qua SePay / NOWPayments (src/payments) ---
   depositMethods: () =>
     request<DepositMethods>("/wallet/deposit-methods", {}, false),
   createDeposit: (
     amount: number,
-    opts?: { method?: "payos" | "nowpayments"; pay_currency?: string },
+    opts?: { method?: "sepay" | "nowpayments"; pay_currency?: string },
   ) =>
     request<DepositIntent>(
       "/wallet/deposits",
@@ -242,7 +256,7 @@ export const api = {
         method: "POST",
         body: JSON.stringify({
           amount,
-          method: opts?.method ?? "payos",
+          method: opts?.method ?? "sepay",
           ...(opts?.pay_currency ? { pay_currency: opts.pay_currency } : {}),
         }),
       },
@@ -257,6 +271,16 @@ export const api = {
     if (provider) q.set("provider", provider);
     const qs = q.toString();
     return request<AdminDepositIntent[]>(`/admin/deposits${qs ? `?${qs}` : ""}`, {}, true);
+  },
+  adminDepositTransactions: (id: number) =>
+    request<AdminDepositTransaction[]>(`/admin/deposits/${id}/transactions`, {}, true),
+  adminDepositLedger: (query: AdminDepositLedgerQuery = {}) => {
+    const params = new URLSearchParams();
+    params.set("limit", String(query.limit ?? 25));
+    params.set("offset", String(query.offset ?? 0));
+    if (query.provider) params.set("provider", query.provider);
+    if (query.search) params.set("search", query.search);
+    return request<AdminDepositLedgerResponse>(`/admin/deposit-ledger?${params.toString()}`, {}, true);
   },
   adminNowpaymentsEvents: (paymentId?: string) =>
     request<Array<Record<string, unknown>>>(
@@ -277,8 +301,12 @@ export const api = {
     }, true),
   adminReconcileDeposit: (id: number) =>
     request<DepositReconcileResult>(`/admin/deposits/${id}/reconcile`, { method: "POST" }, true),
-  adminPayosEvents: (orderCode?: number) =>
-    request<PayosWebhookEventRow[]>(`/admin/payos-events${orderCode != null ? `?order_code=${orderCode}` : ""}`, {}, true),
+  adminSePayEvents: (paymentCode?: string) =>
+    request<SePayWebhookEventRow[]>(
+      `/admin/sepay-events${paymentCode ? `?payment_code=${encodeURIComponent(paymentCode)}` : ""}`,
+      {},
+      true,
+    ),
   adminAccountWallet: (accountId: number) =>
     request<AdminAccountWallet>(`/admin/accounts/${accountId}/wallet`, {}, true),
   adminAccountTransactions: (accountId: number) =>

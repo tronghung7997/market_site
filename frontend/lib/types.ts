@@ -310,14 +310,21 @@ export interface WithdrawRequest {
   created_at: string;
 }
 
-export type DepositMethod = "payos" | "nowpayments";
+export type DepositMethod = "sepay" | "nowpayments";
 
 export interface DepositIntent {
   id: number;
   amount: number;
   status: "pending" | "paid" | "cancelled" | "expired";
   provider?: DepositMethod | string;
-  // PayOS
+  // SePay bank transfer
+  payment_code?: string | null;
+  bank_code?: string | null;
+  bank_account_number?: string | null;
+  bank_account_name?: string | null;
+  sepay_transaction_id?: string | null;
+  sepay_reference?: string | null;
+  // Shared/legacy hosted checkout fields
   checkout_url?: string | null;
   qr_code?: string | null;
   payment_link_id?: string | null;
@@ -338,7 +345,7 @@ export interface DepositIntent {
 }
 
 export interface DepositMethods {
-  payos_enabled: boolean;
+  sepay_enabled: boolean;
   nowpayments_enabled: boolean;
   deposit_min_amount: number;
   deposit_max_amount: number;
@@ -361,7 +368,7 @@ export interface DepositReconcileResult {
 }
 
 export interface DepositRailConfigAdmin {
-  payos_enabled: boolean;
+  sepay_enabled: boolean;
   nowpayments_enabled: boolean;
   deposit_min_amount: number;
   deposit_max_amount: number;
@@ -371,10 +378,11 @@ export interface DepositRailConfigAdmin {
   deposit_usdt_max_vnd: number;
   deposit_usdt_local_window_minutes: number;
   deposit_usdt_reconcile_retention_hours: number;
-  payos_secrets_configured: boolean;
+  sepay_secrets_configured: boolean;
+  sepay_reconciliation_configured: boolean;
   nowpayments_secrets_configured: boolean;
   nowpayments_reconciliation_configured: boolean;
-  effective_payos_enabled: boolean;
+  effective_sepay_enabled: boolean;
   effective_nowpayments_enabled: boolean;
   env_seed: Record<string, unknown>;
   updated_at?: string | null;
@@ -383,7 +391,7 @@ export interface DepositRailConfigAdmin {
 }
 
 export type DepositRailConfigUpdate = Partial<{
-  payos_enabled: boolean;
+  sepay_enabled: boolean;
   nowpayments_enabled: boolean;
   deposit_min_amount: number;
   deposit_max_amount: number;
@@ -405,13 +413,70 @@ export interface AdminDepositIntent extends DepositIntent {
   outcome_currency?: string | null;
 }
 
-export interface PayosWebhookEventRow {
+export interface AdminDepositTransaction {
+  id: string;
+  provider: string;
+  provider_transaction_id: string;
+  provider_status: string;
+  reference?: string | null;
+  expected_amount?: number | string | null;
+  actual_amount?: number | string | null;
+  delta_amount?: number | string | null;
+  currency: string;
+  settled_amount?: number | string | null;
+  settled_currency?: string | null;
+  match_status: "exact" | "underpaid" | "overpaid" | "unknown";
+  credit_status: "credited" | "held" | "not_credited";
+  direction?: "in" | "out" | null;
+  source: string;
+  received_at: string;
+  destination?: string | null;
+  event_count: number;
+  raw: Record<string, unknown>;
+}
+
+export interface AdminDepositLedgerIntent {
   id: number;
-  order_code: number;
-  payment_link_id: string;
-  reference: string;
+  account_id: number;
+  account_email?: string | null;
   amount: number;
-  signature_valid: boolean;
+  paid_amount?: number | null;
+  status: "pending" | "paid" | "cancelled" | "expired" | string;
+  provider: string;
+  payment_code?: string | null;
+  now_payment_id?: string | null;
+  created_at: string;
+  paid_at?: string | null;
+}
+
+export interface AdminDepositLedgerEntry {
+  deposit: AdminDepositLedgerIntent;
+  transactions: AdminDepositTransaction[];
+}
+
+export interface AdminDepositLedgerResponse {
+  total: number;
+  limit: number;
+  offset: number;
+  items: AdminDepositLedgerEntry[];
+}
+
+export interface AdminDepositLedgerQuery {
+  limit?: number;
+  offset?: number;
+  provider?: string;
+  search?: string;
+}
+
+export interface SePayWebhookEventRow {
+  id: number;
+  transaction_id: string;
+  payment_code?: string | null;
+  reference?: string | null;
+  account_number: string;
+  amount: number;
+  source: "webhook" | "reconcile" | string;
+  signature_valid?: boolean | null;
   received_at: string;
   raw: Record<string, unknown>;
 }

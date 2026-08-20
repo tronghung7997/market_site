@@ -4,7 +4,7 @@ from sqlalchemy.ext.asyncio import AsyncSession
 from src.auth.dependencies import get_current_account, require_role
 from src.database import get_session
 from src.models.account import Account
-from src.payments import nowpayments_client, payos_client, schemas, service
+from src.payments import nowpayments_client, payos_client, schemas, sepay_client, service
 
 import structlog
 
@@ -88,6 +88,35 @@ async def payos_webhook(request: Request, db: AsyncSession = Depends(get_session
     return await service.handle_webhook(payload, db)
 
 
+@router.post("/webhooks/sepay")
+async def sepay_webhook(request: Request, db: AsyncSession = Depends(get_session)):
+    """Receive a SePay bank transaction using raw-body HMAC verification."""
+    raw_body = await request.body()
+    signature = request.headers.get("X-SePay-Signature")
+    timestamp = request.headers.get("X-SePay-Timestamp")
+
+    if not sepay_client.is_configured():
+        logger.error("sepay_webhook_received_but_not_configured")
+        raise HTTPException(status_code=503, detail="SePay chưa được cấu hình")
+    if not sepay_client.verify_webhook_signature(raw_body, signature, timestamp):
+        from src.security.events import security_event
+
+        security_event("webhook_signature_failed", level="warning", provider="sepay")
+        logger.warning("sepay_webhook_bad_signature")
+        raise HTTPException(status_code=401, detail="Chữ ký webhook không hợp lệ")
+
+    try:
+        payload = await request.json()
+    except ValueError as exc:
+        raise HTTPException(status_code=400, detail="Webhook body không phải JSON") from exc
+    if not isinstance(payload, dict):
+        raise HTTPException(status_code=400, detail="Webhook payload phải là object")
+
+    await service.handle_sepay_webhook(payload, db)
+    # SePay requires this ACK shape for both first delivery and replay.
+    return {"success": True}
+
+
 @router.post("/webhooks/nowpayments")
 async def nowpayments_webhook(request: Request, db: AsyncSession = Depends(get_session)):
     """NOWPayments IPN. Bad signature → 401. Everything else → 200."""
@@ -142,6 +171,15 @@ async def admin_payos_events(
     return await service.list_payos_events(db, order_code)
 
 
+@router.get("/admin/sepay-events")
+async def admin_sepay_events(
+    payment_code: str | None = Query(default=None),
+    _admin: Account = Depends(require_role("admin")),
+    db: AsyncSession = Depends(get_session),
+):
+    return await service.list_sepay_events(db, payment_code)
+
+
 @router.get("/admin/nowpayments-events")
 async def admin_nowpayments_events(
     payment_id: str | None = Query(default=None),
@@ -149,6 +187,39 @@ async def admin_nowpayments_events(
     db: AsyncSession = Depends(get_session),
 ):
     return await service.list_nowpayments_events(db, payment_id)
+
+
+@router.get(
+    "/admin/deposit-ledger",
+    response_model=schemas.AdminDepositLedgerResponse,
+)
+async def admin_deposit_ledger(
+    limit: int = Query(default=25, ge=1, le=100),
+    offset: int = Query(default=0, ge=0),
+    provider: str | None = Query(default=None, max_length=32),
+    search: str | None = Query(default=None, max_length=128),
+    _: Account = Depends(require_role("admin")),
+    db: AsyncSession = Depends(get_session),
+):
+    return await service.list_admin_deposit_ledger(
+        db,
+        limit=limit,
+        offset=offset,
+        provider=provider,
+        search=search,
+    )
+
+
+@router.get(
+    "/admin/deposits/{intent_id}/transactions",
+    response_model=list[schemas.AdminDepositTransactionRow],
+)
+async def admin_deposit_transactions(
+    intent_id: int,
+    _: Account = Depends(require_role("admin")),
+    db: AsyncSession = Depends(get_session),
+):
+    return await service.list_admin_deposit_transactions(intent_id, db)
 
 
 @router.post(

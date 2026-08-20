@@ -2,6 +2,7 @@
 
 import { useLocale, useTranslations } from "next-intl";
 import { useCallback, useEffect, useMemo, useState } from "react";
+import Image from "next/image";
 import { QRCodeSVG } from "qrcode.react";
 import { api } from "@/lib/api";
 import { cn } from "@/lib/cn";
@@ -13,6 +14,7 @@ import { MoneyInput } from "@/components/MoneyInput";
 
 const PRESET_VND = [100_000, 500_000, 1_000_000, 5_000_000];
 const PRESET_USD = [5, 20, 50, 100];
+const qrImageLoader = ({ src }: { src: string }) => src;
 
 type MethodsState =
   | { status: "loading" }
@@ -70,13 +72,13 @@ export default function DepositCard({ deposits, onChanged }: {
   const { currency, formatBrowseMoney, formatLedgerMoney, fxRate, showFxHints } = useMoney();
 
   const [methodsState, setMethodsState] = useState<MethodsState>({ status: "loading" });
-  const [method, setMethod] = useState<DepositMethod>("payos");
+  const [method, setMethod] = useState<DepositMethod>("sepay");
   const [userPickedMethod, setUserPickedMethod] = useState(false);
   const [amount, setAmount] = useState("");
   const [loading, setLoading] = useState(false);
   const [msg, setMsg] = useState("");
   const [err, setErr] = useState("");
-  const [copiedId, setCopiedId] = useState<number | null>(null);
+  const [copiedKey, setCopiedKey] = useState<string | null>(null);
 
   const loadMethods = useCallback(async () => {
     setMethodsState({ status: "loading" });
@@ -96,10 +98,10 @@ export default function DepositCard({ deposits, onChanged }: {
   }, [loadMethods]);
 
   const methods = methodsState.status === "ready" ? methodsState.methods : null;
-  const payosOn = Boolean(methods?.payos_enabled);
+  const sepayOn = Boolean(methods?.sepay_enabled);
   const nowOn = Boolean(methods?.nowpayments_enabled);
-  const anyRail = payosOn || nowOn;
-  const showRailSwitch = payosOn && nowOn;
+  const anyRail = sepayOn || nowOn;
+  const showRailSwitch = sepayOn && nowOn;
 
   // Default rail from display currency; keep user override when both available.
   useEffect(() => {
@@ -108,8 +110,8 @@ export default function DepositCard({ deposits, onChanged }: {
 
     if (currency === "USD" && methods.nowpayments_enabled) {
       setMethod("nowpayments");
-    } else if (methods.payos_enabled) {
-      setMethod("payos");
+    } else if (methods.sepay_enabled) {
+      setMethod("sepay");
     } else if (methods.nowpayments_enabled) {
       setMethod("nowpayments");
     }
@@ -194,7 +196,7 @@ export default function DepositCard({ deposits, onChanged }: {
       setErr(t("depositUsdtUnavailable"));
       return;
     }
-    if (!isUsdt && !payosOn) {
+    if (!isUsdt && !sepayOn) {
       setErr(t("depositBankUnavailable"));
       return;
     }
@@ -204,7 +206,7 @@ export default function DepositCard({ deposits, onChanged }: {
     setErr("");
     // Open synchronously so browser popup protection does not interrupt the
     // provider checkout. The wallet stays open to show the pending deposit.
-    const payTab = window.open("about:blank", "_blank");
+    const payTab = isUsdt ? window.open("about:blank", "_blank") : null;
     try {
       const intent = await api.createDeposit(amountVnd, {
         method,
@@ -244,11 +246,11 @@ export default function DepositCard({ deposits, onChanged }: {
     }
   };
 
-  const copyAddress = async (id: number, address: string) => {
+  const copyValue = async (key: string, value: string) => {
     try {
-      await navigator.clipboard.writeText(address);
-      setCopiedId(id);
-      setTimeout(() => setCopiedId(null), 2000);
+      await navigator.clipboard.writeText(value);
+      setCopiedKey(key);
+      setTimeout(() => setCopiedKey(null), 2000);
     } catch {
       /* ignore */
     }
@@ -305,13 +307,13 @@ export default function DepositCard({ deposits, onChanged }: {
                   type="button"
                   disabled={loading}
                   onClick={() => {
-                    setMethod("payos");
+                    setMethod("sepay");
                     setUserPickedMethod(true);
                     setErr("");
                   }}
                   className={cn(
                     "flex-1 h-8 rounded-md text-[12px] font-medium transition-colors cursor-pointer",
-                    method === "payos"
+                    method === "sepay"
                       ? "bg-surface text-fg shadow-sm border border-line"
                       : "text-muted hover:text-fg",
                   )}
@@ -492,7 +494,7 @@ export default function DepositCard({ deposits, onChanged }: {
 
         {pending.map((d) => {
           const remaining = timeLeftFine(d.expires_at, locale);
-          const isNow = (d.provider || "payos") === "nowpayments";
+          const isNow = (d.provider || "sepay") === "nowpayments";
           return (
             <div key={d.id} className="rounded-lg border border-iris/30 bg-iris-soft/40 overflow-hidden">
               <div className="px-4 py-3 flex items-center justify-between">
@@ -512,6 +514,58 @@ export default function DepositCard({ deposits, onChanged }: {
                   <span className="relative inline-flex rounded-full h-2.5 w-2.5 bg-iris" />
                 </span>
               </div>
+
+              {!isNow && d.qr_code && d.payment_code && d.bank_account_number && (
+                <div className="px-4 pb-3 space-y-3">
+                  <div className="flex flex-col gap-3 sm:flex-row sm:items-start">
+                    <div className="mx-auto shrink-0 rounded-lg border border-line bg-white p-2 sm:mx-0">
+                      <Image
+                        loader={qrImageLoader}
+                        unoptimized
+                        src={d.qr_code}
+                        width={184}
+                        height={184}
+                        alt={t("depositQrAlt")}
+                        className="h-[184px] w-[184px] object-contain"
+                      />
+                    </div>
+                    <div className="min-w-0 flex-1 space-y-2 text-[12px]">
+                      <div>
+                        <div className="text-faint">{t("depositBankAccount")}</div>
+                        <div className="font-mono font-semibold break-all">
+                          {d.bank_account_number}
+                        </div>
+                        <div className="text-muted">
+                          {[d.bank_code, d.bank_account_name].filter(Boolean).join(" · ")}
+                        </div>
+                        <button
+                          type="button"
+                          onClick={() => copyValue(`${d.id}:account`, d.bank_account_number!)}
+                          className="mt-0.5 text-iris hover:underline cursor-pointer"
+                        >
+                          {copiedKey === `${d.id}:account` ? t("depositCopied") : t("depositCopy")}
+                        </button>
+                      </div>
+                      <div className="border-t border-line/70 pt-2">
+                        <div className="text-faint">{t("depositTransferContent")}</div>
+                        <div className="font-mono text-[14px] font-semibold text-iris break-all">
+                          {d.payment_code}
+                        </div>
+                        <button
+                          type="button"
+                          onClick={() => copyValue(`${d.id}:code`, d.payment_code!)}
+                          className="mt-0.5 text-iris hover:underline cursor-pointer"
+                        >
+                          {copiedKey === `${d.id}:code` ? t("depositCopied") : t("depositCopy")}
+                        </button>
+                      </div>
+                    </div>
+                  </div>
+                  <p className="text-[11px] leading-relaxed text-bad/90">
+                    {t("depositExactTransferWarn")}
+                  </p>
+                </div>
+              )}
 
               {isNow && d.pay_address && (
                 <div className="px-4 pb-3 space-y-2">
@@ -533,10 +587,10 @@ export default function DepositCard({ deposits, onChanged }: {
                       <div className="font-mono text-[11px] break-all leading-snug">{d.pay_address}</div>
                       <button
                         type="button"
-                        onClick={() => copyAddress(d.id, d.pay_address!)}
+                        onClick={() => copyValue(`${d.id}:address`, d.pay_address!)}
                         className="text-[12px] text-iris hover:underline cursor-pointer"
                       >
-                        {copiedId === d.id ? t("depositCopied") : t("depositCopyAddress")}
+                        {copiedKey === `${d.id}:address` ? t("depositCopied") : t("depositCopyAddress")}
                       </button>
                     </div>
                   </div>
@@ -570,7 +624,7 @@ export default function DepositCard({ deposits, onChanged }: {
                 <span className="font-mono tabular flex items-center gap-2">
                   {formatAmountLabel(d.paid_amount ?? d.amount)}
                   <span className="text-[10px] text-faint uppercase">
-                    {(d.provider || "payos") === "nowpayments" ? "USDT" : "PayOS"}
+                    {(d.provider || "sepay") === "nowpayments" ? "USDT" : "SePay"}
                   </span>
                 </span>
                 <Tag tone={d.status === "paid" ? "good" : d.status === "expired" ? "bad" : "neutral"}>

@@ -51,25 +51,45 @@ class Settings(BaseSettings):
     api_signing_timestamp_tolerance_seconds: int = 300
     api_signing_ip_limit: int = 120
     api_signing_key_limit: int = 60
+    seller_api_key_ttl_days: int = 90
+    seller_api_key_max_active: int = 5
     # allow = X-Seller-Api-Key still accepted (migration); deny = signed/JWT only.
     legacy_seller_api_key_mode: Literal["allow", "deny"] = "allow"
     # Comma-separated IPs/CIDRs of reverse proxies allowed to set X-Forwarded-For.
     # Empty = never trust XFF (rate limits use the direct TCP peer only).
     # Behind nginx, set the proxy's address/CIDR so per-client IP buckets work.
     trusted_proxy_cidrs: str = ""
+    # Exact public IPs allowed to reach /auth/admin/login and /admin/*.
+    # Empty keeps the allowlist disabled for local development and rollout.
+    admin_allowed_ips: str = ""
     affiliate_click_ip_limit: int = 30
     provider_webhook_ip_limit: int = 120
     # Used to build the callback_url a seller_task_webhook provider POSTs back to.
     backend_base_url: str = "http://localhost:8001"
     default_affiliate_commission_percent: float = 0.0
 
-    # --- PayOS (docs/superpowers/specs/2026-07-23-bank-payment-design.md) ---
-    # Lấy 3 giá trị từ kênh thanh toán trên https://my.payos.vn. Để trống =
-    # chưa cấu hình: tạo lệnh nạp trả 503, job đối soát tự bỏ qua.
+    # --- SePay bank Webhooks + VietQR ---
+    # Bank destination shown to buyers and embedded in every QR. The UUID is
+    # the SePay API v2 bank_account_id used to scope reconciliation queries.
+    # Bootstrap/fallback only: live destination is stored in deposit_rail_config.
+    sepay_bank_code: str = ""
+    sepay_bank_account_number: str = ""
+    sepay_bank_account_name: str = ""
+    sepay_bank_account_id: str = ""
+    sepay_payment_code_prefix: str = "NAP"
+    sepay_webhook_secret: str = ""
+    sepay_webhook_timestamp_tolerance_seconds: int = 300
+    sepay_api_token: str = ""
+    # Sandbox: https://userapi-sandbox.sepay.vn
+    sepay_api_base_url: str = "https://userapi.sepay.vn"
+    sepay_vietqr_base_url: str = "https://vietqr.app/img"
+
+    # --- Legacy PayOS (read/reconcile old intents during cutover only) ---
+    # New bank deposits never use these values. Keep them temporarily so an
+    # already-created PayOS intent can still be cancelled or reconciled.
     payos_client_id: str = ""
     payos_api_key: str = ""
     payos_checksum_key: str = ""
-    # Dev trỏ vào scripts/mock_payos.py (http://127.0.0.1:9400)
     payos_base_url: str = "https://api-merchant.payos.vn"
     deposit_min_amount: int = 10_000
     # Trần một lệnh nạp — chặn gõ thừa số 0 (nạp 500 triệu thay vì 5 triệu là
@@ -196,6 +216,9 @@ class Settings(BaseSettings):
             "api_signing_timestamp_tolerance_seconds",
             "api_signing_ip_limit",
             "api_signing_key_limit",
+            "sepay_webhook_timestamp_tolerance_seconds",
+            "seller_api_key_ttl_days",
+            "seller_api_key_max_active",
             "affiliate_click_ip_limit",
             "provider_webhook_ip_limit",
             "gateway_call_log_retention_days",
@@ -207,8 +230,10 @@ class Settings(BaseSettings):
                 raise ValueError(f"{field_name.upper()} must be greater than zero")
 
         # Fail at boot on bad CIDRs — not on the first rate-limited request.
+        from src.security.admin_access import parse_admin_allowed_ips
         from src.security.client_ip import parse_trusted_proxy_cidrs
         parse_trusted_proxy_cidrs(self.trusted_proxy_cidrs)
+        parse_admin_allowed_ips(self.admin_allowed_ips)
 
         return self
 

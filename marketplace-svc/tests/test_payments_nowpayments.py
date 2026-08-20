@@ -164,7 +164,7 @@ async def _seed_rail_now_enabled():
     async with SessionLocal() as db:
         row = await rail_config.ensure_seeded(db)
         row.nowpayments_enabled = True
-        row.payos_enabled = True
+        row.sepay_enabled = True
         await db.commit()
 
 
@@ -319,21 +319,14 @@ class TestNowPaymentsCreate:
         assert resp.status_code == 400
 
     @pytest.mark.asyncio
-    async def test_method_default_payos_compat(self, client, monkeypatch):
-        """Omit method → payos (existing clients)."""
+    async def test_method_default_sepay(self, client):
+        """Omit method → the active SePay bank rail."""
         token = await register_and_login(client, "now4@example.com")
-        monkeypatch.setattr(
-            "src.payments.payos_client.create_payment_request",
-            AsyncMock(return_value={
-                "paymentLinkId": "pl1",
-                "checkoutUrl": "https://pay.example/x",
-                "qrCode": "qr",
-            }),
-        )
         resp = await client.post("/wallet/deposits", json={"amount": 50_000}, headers=_auth(token))
         assert resp.status_code == 201, resp.text
-        assert resp.json().get("provider", "payos") == "payos"
-        assert resp.json()["checkout_url"]
+        assert resp.json()["provider"] == "sepay"
+        assert resp.json()["payment_code"].startswith("NAP")
+        assert "vietqr.app/img" in resp.json()["qr_code"]
 
 
 class TestNowPaymentsIpn:

@@ -1,12 +1,13 @@
 "use client";
 
 import { Link, usePathname, useRouter } from "@/i18n/navigation";
-import { useTranslations } from "next-intl";
+import { useLocale, useTranslations } from "next-intl";
 import { useEffect } from "react";
 import { useAuth } from "@/lib/auth";
 import { cn } from "@/lib/cn";
-import { Activity, BarChart, Edit2, Inbox, Package, Plug, Store, Rows, Wallet } from "@/components/Icons";
+import { Activity, BarChart, Edit2, Inbox, MessageCircle, Package, Plug, Store, Rows, Wallet } from "@/components/Icons";
 import NotificationBell from "@/components/NotificationBell";
+import MessageShortcut from "@/components/chat/MessageShortcut";
 import { Spinner } from "@/components/ui";
 import type { ReactNode } from "react";
 
@@ -15,11 +16,13 @@ export default function SellerLayout({ children }: { children: ReactNode }) {
   const pathname = usePathname();
   const router = useRouter();
   const t = useTranslations("seller");
+  const locale = useLocale();
   const nav = [
     { href: "/seller", label: t("overview"), icon: BarChart },
     { href: "/seller/products", label: t("products"), icon: Package },
     { href: "/seller/inventory", label: t("inventory"), icon: Rows },
     { href: "/seller/orders", label: t("orders"), icon: Inbox },
+    { href: "/seller/messages", label: locale === "vi" ? "Tin nhắn" : "Messages", icon: MessageCircle },
     { href: "/seller/withdrawals", label: t("withdrawals"), icon: Wallet },
     { href: "/seller/providers", label: t("providers"), icon: Activity },
     { href: "/seller/api-settings", label: "API", icon: Plug },
@@ -50,6 +53,7 @@ export default function SellerLayout({ children }: { children: ReactNode }) {
           </div>
         </div>
         <div className="flex items-center gap-3">
+          <MessageShortcut perspective="seller" href="/seller/messages" />
           <NotificationBell endpoint="seller" />
         </div>
       </div>

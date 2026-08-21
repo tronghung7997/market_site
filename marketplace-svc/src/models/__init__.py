@@ -2,6 +2,7 @@ from src.models.account import Account, AccountRole, ApplicationStatus, SellerAp
 from src.models.affiliate import AffiliateClick, AffiliateCommission
 from src.models.alert import Alert
 from src.models.category import Category
+from src.models.chat import ChatConversation, ChatMessage, ChatParticipant
 from src.models.log_entry import LogEntry
 from src.models.order import Dispute, DisputeStatus, Order, OrderStatus
 from src.models.product import DeliveryMode, Product, ProductStatus, ProductVariant, ServiceType
@@ -29,6 +30,7 @@ __all__ = [
     "AffiliateClick", "AffiliateCommission",
     "Alert",
     "Category",
+    "ChatConversation", "ChatMessage", "ChatParticipant",
     "LogEntry",
     "Dispute", "DisputeStatus", "Order", "OrderStatus",
     "DeliveryMode", "Product", "ProductStatus", "ProductVariant", "ServiceType",

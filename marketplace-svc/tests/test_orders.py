@@ -1,3 +1,4 @@
+import asyncio
 from unittest.mock import AsyncMock
 
 import pytest
@@ -10,7 +11,7 @@ from src.models.order import Order, OrderStatus
 from src.models.pricing_config import PricingConfig
 from src.models.product import Product
 from src.models.provider import Provider
-from src.models.wallet import Wallet
+from src.models.wallet import Transaction, TransactionType, Wallet
 from tests.conftest import make_admin, make_seller, register_and_login
 
 
@@ -129,6 +130,118 @@ async def test_instant_purchase(client):
     assert data["status"] == "delivered"
     assert data["total_amount"] == 2000
     assert data["delivered_data"] is not None
+
+
+@pytest.mark.asyncio
+async def test_negative_quantity_is_rejected_without_changing_wallet(client):
+    buyer_token, _, _, instant_vid, _ = await setup_buyable_product(client)
+    headers = {"Authorization": f"Bearer {buyer_token}"}
+    before = (await client.get("/wallet", headers=headers)).json()["available_balance"]
+
+    resp = await client.post(
+        "/orders",
+        json={"variant_id": instant_vid, "quantity": -100},
+        headers=headers,
+    )
+
+    assert resp.status_code == 422
+    after = (await client.get("/wallet", headers=headers)).json()["available_balance"]
+    assert after == before
+
+
+@pytest.mark.asyncio
+async def test_concurrent_order_create_debits_wallet_once(client):
+    buyer_token, _, _, instant_vid, _ = await setup_buyable_product(client)
+    headers = {"Authorization": f"Bearer {buyer_token}"}
+    buyer_id = (await client.get("/me", headers=headers)).json()["id"]
+    async with SessionLocal() as db:
+        await db.execute(
+            update(Wallet)
+            .where(Wallet.account_id == buyer_id)
+            .values(available_balance=1_000)
+        )
+        await db.commit()
+
+    responses = await asyncio.gather(*(
+        client.post("/orders", json={"variant_id": instant_vid, "quantity": 1}, headers=headers)
+        for _ in range(10)
+    ))
+
+    statuses = [response.status_code for response in responses]
+    assert statuses.count(201) == 1
+    assert statuses.count(402) == 9
+    wallet = (await client.get("/wallet", headers=headers)).json()
+    assert wallet["available_balance"] == 0
+
+    async with SessionLocal() as db:
+        holds = (
+            await db.scalars(
+                select(Transaction).where(
+                    Transaction.wallet_id == wallet["id"],
+                    Transaction.type == TransactionType.purchase_hold,
+                )
+            )
+        ).all()
+        assert len(holds) == 1
+        assert holds[0].amount == 1_000
+
+
+@pytest.mark.asyncio
+async def test_concurrent_confirm_releases_escrow_once(client):
+    buyer_token, seller_token, _, instant_vid, _ = await setup_buyable_product(client)
+    buyer_headers = {"Authorization": f"Bearer {buyer_token}"}
+    order = await client.post(
+        "/orders", json={"variant_id": instant_vid, "quantity": 1}, headers=buyer_headers,
+    )
+    order_id = order.json()["id"]
+
+    first, second = await asyncio.gather(
+        client.post(f"/orders/{order_id}/confirm", headers=buyer_headers),
+        client.post(f"/orders/{order_id}/confirm", headers=buyer_headers),
+    )
+
+    assert sorted((first.status_code, second.status_code)) == [200, 400]
+    seller_wallet = (await client.get(
+        "/wallet", headers={"Authorization": f"Bearer {seller_token}"},
+    )).json()
+    assert seller_wallet["available_balance"] == 1_000
+
+    async with SessionLocal() as db:
+        wallet_id = await db.scalar(select(Wallet.id).where(Wallet.account_id == seller_wallet["account_id"]))
+        releases = (
+            await db.scalars(
+                select(Transaction).where(
+                    Transaction.wallet_id == wallet_id,
+                    Transaction.type == TransactionType.purchase_release,
+                    Transaction.reference_id == f"order-{order_id}",
+                )
+            )
+        ).all()
+        assert len(releases) == 1
+
+
+@pytest.mark.asyncio
+async def test_seller_does_not_receive_affiliate_commission_on_own_order(client):
+    buyer_token, seller_token, _, instant_vid, _ = await setup_buyable_product(client)
+    buyer_headers = {"Authorization": f"Bearer {buyer_token}"}
+    seller_headers = {"Authorization": f"Bearer {seller_token}"}
+    buyer_id = (await client.get("/me", headers=buyer_headers)).json()["id"]
+    seller_id = (await client.get("/me", headers=seller_headers)).json()["id"]
+    async with SessionLocal() as db:
+        await db.execute(update(Account).where(Account.id == buyer_id).values(referred_by_id=seller_id))
+        await db.commit()
+
+    order = await client.post(
+        "/orders", json={"variant_id": instant_vid, "quantity": 1}, headers=buyer_headers,
+    )
+    confirmed = await client.post(f"/orders/{order.json()['id']}/confirm", headers=buyer_headers)
+    assert confirmed.status_code == 200
+
+    async with SessionLocal() as db:
+        commission = await db.scalar(
+            select(AffiliateCommission).where(AffiliateCommission.order_id == order.json()["id"])
+        )
+        assert commission is None
 
 
 @pytest.mark.asyncio

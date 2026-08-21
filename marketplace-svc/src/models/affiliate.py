@@ -1,6 +1,6 @@
 from datetime import datetime
 
-from sqlalchemy import DateTime, Float, ForeignKey, Integer, String, Text, func
+from sqlalchemy import CheckConstraint, DateTime, Float, ForeignKey, Integer, String, Text, func
 from sqlalchemy.orm import Mapped, mapped_column
 
 from src.database import Base
@@ -20,6 +20,10 @@ class AffiliateClick(Base):
 
 class AffiliateCommission(Base):
     __tablename__ = "affiliate_commissions"
+    __table_args__ = (
+        CheckConstraint("rate_percent > 0 AND rate_percent <= 100", name="ck_affiliate_commissions_rate_range"),
+        CheckConstraint("amount > 0", name="ck_affiliate_commissions_amount_positive"),
+    )
 
     id: Mapped[int] = mapped_column(primary_key=True)
     order_id: Mapped[int] = mapped_column(ForeignKey("orders.id"), unique=True, nullable=False)

@@ -1,7 +1,7 @@
 from datetime import datetime
 from enum import Enum as PyEnum
 
-from sqlalchemy import DateTime, Enum, ForeignKey, Integer, String, Text, func
+from sqlalchemy import CheckConstraint, DateTime, Enum, ForeignKey, Integer, String, Text, func
 from sqlalchemy.dialects.postgresql import JSONB
 from sqlalchemy.orm import Mapped, mapped_column
 
@@ -29,6 +29,10 @@ class DisputeStatus(str, PyEnum):
 
 class Order(Base):
     __tablename__ = "orders"
+    __table_args__ = (
+        CheckConstraint("quantity > 0", name="ck_orders_quantity_positive"),
+        CheckConstraint("total_amount >= 0", name="ck_orders_total_nonnegative"),
+    )
 
     id: Mapped[int] = mapped_column(primary_key=True)
     buyer_id: Mapped[int] = mapped_column(ForeignKey("accounts.id"), nullable=False)

@@ -1,3 +1,5 @@
+import asyncio
+
 import pytest
 from tests.conftest import make_admin, make_seller, register_and_login
 
@@ -87,6 +89,28 @@ async def test_second_withdraw_request_fails_once_balance_is_locked(client):
     assert second.status_code == 402
 
     wallet = (await client.get("/wallet", headers={"Authorization": f"Bearer {seller_token}"})).json()
+    assert wallet["available_balance"] == 300_000
+    assert wallet["locked_balance"] == 700_000
+
+
+@pytest.mark.asyncio
+async def test_concurrent_withdrawals_cannot_exceed_available_balance(client):
+    seller_token, _ = await _seller_with_balance(client, "wallet_race@example.com", 1_000_000)
+    headers = {"Authorization": f"Bearer {seller_token}"}
+    body = {
+        "bank_name": "Vietcombank",
+        "bank_account_number": "0123456789",
+        "bank_account_holder": "TEST USER",
+        "amount": 700_000,
+    }
+
+    first, second = await asyncio.gather(
+        client.post("/wallet/withdraw", json=body, headers=headers),
+        client.post("/wallet/withdraw", json=body, headers=headers),
+    )
+
+    assert sorted((first.status_code, second.status_code)) == [200, 402]
+    wallet = (await client.get("/wallet", headers=headers)).json()
     assert wallet["available_balance"] == 300_000
     assert wallet["locked_balance"] == 700_000
 

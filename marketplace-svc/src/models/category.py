@@ -1,4 +1,4 @@
-from sqlalchemy import Float, ForeignKey, Integer, String
+from sqlalchemy import CheckConstraint, Float, ForeignKey, Integer, String
 from sqlalchemy.dialects.postgresql import JSONB
 from sqlalchemy.orm import Mapped, mapped_column
 
@@ -7,6 +7,12 @@ from src.database import Base
 
 class Category(Base):
     __tablename__ = "categories"
+    __table_args__ = (
+        CheckConstraint(
+            "commission_rate IS NULL OR (commission_rate >= 0 AND commission_rate <= 100)",
+            name="ck_categories_commission_rate_range",
+        ),
+    )
 
     id: Mapped[int] = mapped_column(primary_key=True)
     name: Mapped[str] = mapped_column(String(100), nullable=False)

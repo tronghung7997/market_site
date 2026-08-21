@@ -114,6 +114,22 @@ async def test_affiliate_me_requires_auth(client):
 
 
 @pytest.mark.asyncio
+async def test_affiliate_stats_rejects_reversed_and_oversized_date_ranges(client):
+    token = await register_and_login(client, "aff_range@example.com")
+    headers = {"Authorization": f"Bearer {token}"}
+
+    reversed_range = await client.get(
+        "/affiliate/me", params={"date_from": "2026-02-01", "date_to": "2026-01-01"}, headers=headers,
+    )
+    oversized_range = await client.get(
+        "/affiliate/me", params={"date_from": "2024-01-01", "date_to": "2026-01-01"}, headers=headers,
+    )
+
+    assert reversed_range.status_code == 422
+    assert oversized_range.status_code == 422
+
+
+@pytest.mark.asyncio
 async def test_affiliate_me_returns_code_and_zero_totals_for_new_account(client):
     reg = await client.post("/auth/register", json={
         "email": "aff_me@example.com",
@@ -502,4 +518,3 @@ async def test_commission_via_dispute_reject(client):
         assert comm is not None
         assert comm.affiliate_account_id == affiliate_id
         assert comm.amount == 500
-

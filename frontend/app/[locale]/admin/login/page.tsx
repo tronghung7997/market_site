@@ -1,32 +1,34 @@
 "use client";
 
-import { Link, useRouter } from "@/i18n/navigation";
+import { useEffect, useState, Suspense } from "react";
 import { useSearchParams } from "next/navigation";
-import { Suspense, useState } from "react";
 import { useTranslations } from "next-intl";
+import { useRouter } from "@/i18n/navigation";
+import { Logo } from "@/components/Icons";
+import { Button, Card, Field, Input, Spinner } from "@/components/ui";
 import { useAuth } from "@/lib/auth";
-import { api } from "@/lib/api";
 import { isValidEmail, PASSWORD_MAX_LENGTH } from "@/lib/auth-validation";
 import { safeInternalRedirect } from "@/lib/safe-redirect";
 import { useApiErrorMessage } from "@/lib/use-api-error";
-import { Button, Card, Field, Input, Spinner } from "@/components/ui";
-import { Logo } from "@/components/Icons";
 
-export default function LoginPage() {
+export default function AdminLoginPage() {
   return (
     <Suspense fallback={<div className="py-20"><Spinner /></div>}>
-      <LoginForm />
+      <AdminLoginForm />
     </Suspense>
   );
 }
 
-function LoginForm() {
+function AdminLoginForm() {
   const t = useTranslations("auth");
   const apiErrorMessage = useApiErrorMessage();
-  const { login } = useAuth();
+  const { account, adminLogin, loading } = useAuth();
   const router = useRouter();
   const searchParams = useSearchParams();
-  const next = safeInternalRedirect(searchParams.get("next"));
+  const requestedNext = safeInternalRedirect(searchParams.get("next"));
+  const next = requestedNext === "/admin" || requestedNext?.startsWith("/admin/")
+    ? requestedNext
+    : "/admin";
   const [email, setEmail] = useState("");
   const [password, setPassword] = useState("");
   const [fieldErrors, setFieldErrors] = useState<{ email?: string; password?: string }>({});
@@ -35,8 +37,12 @@ function LoginForm() {
   );
   const [busy, setBusy] = useState(false);
 
-  const submit = async (e: React.FormEvent) => {
-    e.preventDefault();
+  useEffect(() => {
+    if (!loading && account?.roles.includes("admin")) router.replace(next);
+  }, [account, loading, next, router]);
+
+  const submit = async (event: React.FormEvent) => {
+    event.preventDefault();
     const errors: { email?: string; password?: string } = {};
     if (!email.trim()) errors.email = t("emailRequired");
     else if (!isValidEmail(email)) errors.email = t("emailInvalid");
@@ -48,9 +54,8 @@ function LoginForm() {
     setBusy(true);
     setError(null);
     try {
-      await login(email.trim(), password);
-      const me = await api.me();
-      router.push(next || (me.roles.includes("seller") ? "/seller" : "/"));
+      await adminLogin(email.trim(), password);
+      router.replace(next);
     } catch (err) {
       setError(apiErrorMessage(err, t("loginFailed")));
     } finally {
@@ -63,18 +68,15 @@ function LoginForm() {
       <Card className="w-full max-w-[380px] p-7">
         <div className="flex flex-col items-center gap-3 mb-7 text-center">
           <Logo withName={false} />
-          <h2 className="font-serif text-[26px] tracking-tight">{t("loginTitle")}</h2>
-          <p className="text-[13px] text-muted">{t("loginSubtitle")}</p>
+          <h1 className="font-serif text-[26px] tracking-tight">{t("adminLoginTitle")}</h1>
+          <p className="text-[13px] text-muted">{t("adminLoginSubtitle")}</p>
         </div>
         <form onSubmit={submit} className="flex flex-col gap-4" noValidate>
-          <Field label={t("email")} error={fieldErrors.email}><Input type="email" required value={email} onChange={(e) => { setEmail(e.target.value); setFieldErrors((current) => ({ ...current, email: undefined })); }} placeholder="you@company.com" autoComplete="email" aria-invalid={Boolean(fieldErrors.email)} /></Field>
-          <Field label={t("password")} error={fieldErrors.password}><Input type="password" required value={password} onChange={(e) => { setPassword(e.target.value); setFieldErrors((current) => ({ ...current, password: undefined })); }} placeholder="••••••••" autoComplete="current-password" aria-invalid={Boolean(fieldErrors.password)} /></Field>
+          <Field label={t("email")} error={fieldErrors.email}><Input type="email" required value={email} onChange={(event) => { setEmail(event.target.value); setFieldErrors((current) => ({ ...current, email: undefined })); }} placeholder="admin@company.com" autoComplete="username" aria-invalid={Boolean(fieldErrors.email)} /></Field>
+          <Field label={t("password")} error={fieldErrors.password}><Input type="password" required value={password} onChange={(event) => { setPassword(event.target.value); setFieldErrors((current) => ({ ...current, password: undefined })); }} placeholder="••••••••••••" autoComplete="current-password" aria-invalid={Boolean(fieldErrors.password)} /></Field>
           {error && <p className="text-bad text-[13px]" role="alert">{error}</p>}
-          <Button type="submit" block size="lg" disabled={busy}>{busy ? t("signingIn") : t("loginTitle")}</Button>
+          <Button type="submit" block size="lg" disabled={busy}>{busy ? t("adminSigningIn") : t("adminLoginTitle")}</Button>
         </form>
-        <p className="text-center text-[13px] text-muted mt-6">
-          {t("noAccount")} <Link href={next ? `/register?next=${encodeURIComponent(next)}` : "/register"} className="text-iris-hi hover:underline">{t("register")}</Link>
-        </p>
       </Card>
     </div>
   );

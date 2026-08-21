@@ -1,4 +1,5 @@
 import { NextRequest, NextResponse } from "next/server";
+import { adminRequestAllowed, isAdminApiPath } from "@/lib/admin-access";
 
 const SESSION_COOKIE = "dx_session";
 const API_TARGET = (
@@ -6,8 +7,14 @@ const API_TARGET = (
   ?? process.env.API_URL
   ?? "http://localhost:8001"
 ).replace(/\/$/, "");
+const API_BASE = new URL(`${API_TARGET}/`);
 const IS_PRODUCTION = process.env.NODE_ENV === "production";
 const UNSAFE_METHODS = new Set(["POST", "PUT", "PATCH", "DELETE"]);
+const REQUEST_HEADER_ALLOWLIST = new Set([
+  "accept",
+  "accept-language",
+  "content-type",
+]);
 
 function sessionCookieOptions() {
   return {
@@ -51,14 +58,56 @@ function csrfAllowed(request: NextRequest): boolean {
   return origin === null || origin === externalRequestOrigin(request);
 }
 
+function buildUpstreamTarget(segments: string[]): { path: string; target: URL } | null {
+  const normalizedSegments: string[] = [];
+  for (const segment of segments) {
+    let decoded: string;
+    try {
+      decoded = decodeURIComponent(segment);
+    } catch {
+      return null;
+    }
+    // Route params may already be decoded by Next. Reject separators, traversal,
+    // NULs, and nested percent-encoding before URL normalization can reinterpret
+    // them as another upstream route.
+    if (
+      decoded === "."
+      || decoded === ".."
+      || decoded.includes("/")
+      || decoded.includes("\\")
+      || decoded.includes("\0")
+      || decoded.includes("%")
+    ) {
+      return null;
+    }
+    normalizedSegments.push(decoded);
+  }
+
+  const path = normalizedSegments.join("/");
+  if (normalizedSegments[0] === "internal") return null;
+
+  const target = new URL(normalizedSegments.map(encodeURIComponent).join("/"), API_BASE);
+  if (target.origin !== API_BASE.origin || !target.pathname.startsWith(API_BASE.pathname)) {
+    return null;
+  }
+  return { path, target };
+}
+
 async function proxy(request: NextRequest, segments: string[]) {
   if (!csrfAllowed(request)) {
     return NextResponse.json({ detail: "Cross-site request bị từ chối" }, { status: 403 });
   }
 
-  const path = segments.join("/");
-  if (path === "internal" || path.startsWith("internal/")) {
+  const upstreamTarget = buildUpstreamTarget(segments);
+  if (!upstreamTarget) {
     return NextResponse.json({ detail: "Not found" }, { status: 404 });
+  }
+  const { path, target } = upstreamTarget;
+  if (isAdminApiPath(path) && !adminRequestAllowed(request.headers)) {
+    return NextResponse.json(
+      { detail: "Not found" },
+      { status: 404, headers: { "Cache-Control": "private, no-store" } },
+    );
   }
   if (path === "auth/session" && UNSAFE_METHODS.has(request.method)) {
     const response = new NextResponse(null, { status: 204 });
@@ -66,11 +115,10 @@ async function proxy(request: NextRequest, segments: string[]) {
     return response;
   }
 
-  const target = new URL(`${API_TARGET}/${path}`);
   target.search = request.nextUrl.search;
-  const headers = new Headers(request.headers);
-  for (const name of ["host", "cookie", "content-length", "connection", "authorization"]) {
-    headers.delete(name);
+  const headers = new Headers();
+  for (const [name, value] of request.headers) {
+    if (REQUEST_HEADER_ALLOWLIST.has(name.toLowerCase())) headers.set(name, value);
   }
   const token = request.cookies.get(SESSION_COOKIE)?.value;
   if (token) headers.set("authorization", `Bearer ${token}`);
@@ -91,7 +139,7 @@ async function proxy(request: NextRequest, segments: string[]) {
     return NextResponse.json({ detail: "Backend tạm thời không khả dụng" }, { status: 502 });
   }
 
-  if (path === "auth/login" && upstream.ok) {
+  if ((path === "auth/login" || path === "auth/admin/login") && upstream.ok) {
     const login = await upstream.json() as { access_token?: string; token_type?: string };
     if (!login.access_token) {
       return NextResponse.json({ detail: "Phản hồi đăng nhập không hợp lệ" }, { status: 502 });

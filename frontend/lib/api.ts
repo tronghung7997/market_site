@@ -1,5 +1,5 @@
 import type {
-  Account, ActionItem, AdminDepositIntent, AdminDepositLedgerQuery, AdminDepositLedgerResponse, AdminDepositTransaction, AdminDisputeDetail, AdminOrderDetail, AdminProduct, AdminResourceListResponse, AffiliateStats, AffiliateSummary, CalculateResult, Category, ChargeUsageResult, DashboardData, DepositIntent, DepositMethods, DepositReconcileResult, DepositRailConfigAdmin, DepositRailConfigUpdate, Dispute, SePayWebhookEventRow, AdminAccountWallet, FundOverview, AccountAdminRow, PaginatedAccounts, LogEntry, MoneyConfigAdmin, MoneyConfigPublic, MoneyConfigUpdate, Order, OrderStats, PaginatedAffiliateSummary, PaginatedOrderResponse, PaginatedProducts, PricingField, PricingOptions, ProductDetail, AdminProductDetail, Product, ProductLocale, ProductOperations, ProductTranslation, ProxyState, ProxyRotateResult, ProxyWhitelistResult, Review, SellerApplication, SellerProduct, SellerStats, ServiceTask, TikTokLookupResponse, Transaction, Variant, Wallet, WithdrawRequest, Provider, ProviderHealth, Alert, Resource, ResourceSummary, ResourceSellerFacet, InventoryVariant, SellerSummary, SellerProfile, SellerApiKey, SellerApiKeyCreated,
+  Account, ActionItem, AdminDepositIntent, AdminDepositLedgerQuery, AdminDepositLedgerResponse, AdminDepositTransaction, AdminDisputeDetail, AdminOrderDetail, AdminProduct, AdminResourceListResponse, AffiliateStats, AffiliateSummary, CalculateResult, Category, ChargeUsageResult, ChatConversationDetail, ChatConversationList, ChatMessage, DashboardData, DepositIntent, DepositMethods, DepositReconcileResult, DepositRailConfigAdmin, DepositRailConfigUpdate, Dispute, SePayWebhookEventRow, AdminAccountWallet, FundOverview, AccountAdminRow, PaginatedAccounts, LogEntry, MoneyConfigAdmin, MoneyConfigPublic, MoneyConfigUpdate, Order, OrderStats, PaginatedAffiliateSummary, PaginatedOrderResponse, PaginatedProducts, PricingField, PricingOptions, ProductDetail, AdminProductDetail, Product, ProductLocale, ProductOperations, ProductTranslation, ProxyState, ProxyRotateResult, ProxyWhitelistResult, Review, SellerApplication, SellerProduct, SellerStats, ServiceTask, TikTokLookupResponse, Transaction, Variant, Wallet, WithdrawRequest, Provider, ProviderHealth, Alert, Resource, ResourceSummary, ResourceSellerFacet, InventoryVariant, SellerSummary, SellerProfile, SellerApiKey, SellerApiKeyCreated,
 } from "./types";
 
 // Browser requests are always same-origin. This prevents a production bundle
@@ -108,6 +108,25 @@ export const api = {
   productsBySeller: (sellerId: number) =>
     request<PaginatedProducts>(`/products?seller_id=${sellerId}`),
   product: (id: number) => request<ProductDetail>(`/products/${id}`),
+
+  chatConversations: (perspective: "buyer" | "seller") =>
+    request<ChatConversationList>(`/chat/conversations?perspective=${perspective}`, {}, true),
+  chatConversation: (id: string) =>
+    request<ChatConversationDetail>(`/chat/conversations/${id}`, {}, true),
+  createInquiry: (productId: number, initialMessage: string, clientMessageId: string) =>
+    request<ChatConversationDetail>("/chat/inquiries", {
+      method: "POST",
+      body: JSON.stringify({ product_id: productId, initial_message: initialMessage, client_message_id: clientMessageId }),
+    }, true),
+  findProductInquiry: (productId: number) =>
+    request<ChatConversationDetail>(`/chat/inquiries/by-product/${productId}`, {}, true),
+  sendChatMessage: (conversationId: string, body: string, clientMessageId: string) =>
+    request<ChatMessage>(`/chat/conversations/${conversationId}/messages`, {
+      method: "POST",
+      body: JSON.stringify({ body, client_message_id: clientMessageId }),
+    }, true),
+  getOrCreateOrderChat: (orderId: number) =>
+    request<ChatConversationDetail>(`/chat/orders/${orderId}`, { method: "POST" }, true),
 
   wallet: () => request<Wallet>("/wallet", {}, true),
   transactions: () => request<Transaction[]>("/wallet/transactions", {}, true),

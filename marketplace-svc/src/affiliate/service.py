@@ -1,4 +1,4 @@
-from datetime import datetime, timedelta, timezone
+from datetime import date, datetime, timedelta, timezone
 
 from fastapi import HTTPException
 from sqlalchemy import func, literal_column, select
@@ -78,7 +78,13 @@ async def apply_affiliate_commission(order: Order, db: AsyncSession) -> None:
     buyer = await db.get(Account, order.buyer_id)
     if not buyer or buyer.referred_by_id is None:
         return
-    if buyer.referred_by_id == order.buyer_id:
+    affiliate = await db.get(Account, buyer.referred_by_id)
+    if (
+        not affiliate
+        or not affiliate.is_active
+        or affiliate.id == order.buyer_id
+        or affiliate.id == order.seller_id
+    ):
         return
 
     existing = await db.scalar(
@@ -105,6 +111,8 @@ async def apply_affiliate_commission(order: Order, db: AsyncSession) -> None:
                 rate = category.commission_rate
     if rate is None:
         rate = settings.default_affiliate_commission_percent
+    if rate <= 0 or rate > 100:
+        return
 
     amount = round(order.total_amount * rate / 100)
     if amount <= 0:
@@ -113,7 +121,7 @@ async def apply_affiliate_commission(order: Order, db: AsyncSession) -> None:
     db.add(
         AffiliateCommission(
             order_id=order.id,
-            affiliate_account_id=buyer.referred_by_id,
+            affiliate_account_id=affiliate.id,
             buyer_account_id=buyer.id,
             rate_percent=rate,
             amount=amount,
@@ -129,7 +137,7 @@ async def apply_affiliate_commission(order: Order, db: AsyncSession) -> None:
             reference_id=str(order.id),
         )
     )
-    await credit_affiliate_commission(buyer.referred_by_id, amount, order.id, db)
+    await credit_affiliate_commission(affiliate.id, amount, order.id, db)
 
 
 async def get_fund_balance(db: AsyncSession) -> int:
@@ -302,13 +310,27 @@ async def list_affiliates_admin(
 
 def _parse_range(date_from: str | None, date_to: str | None) -> tuple[datetime | None, datetime | None]:
     try:
-        start = datetime.fromisoformat(date_from) if date_from else None
-        end = datetime.fromisoformat(date_to) + timedelta(days=1) if date_to else None
+        start_date = date.fromisoformat(date_from) if date_from else None
+        end_date = date.fromisoformat(date_to) if date_to else None
     except ValueError:
         raise HTTPException(
             status_code=422,
             detail="date_from/date_to phải theo định dạng YYYY-MM-DD",
         )
+
+    effective_end = end_date or (datetime.now(timezone.utc).date() if start_date else None)
+    if start_date and effective_end:
+        if start_date > effective_end:
+            raise HTTPException(status_code=422, detail="date_from không được sau date_to")
+        if (effective_end - start_date).days + 1 > 366:
+            raise HTTPException(status_code=422, detail="Khoảng ngày không được vượt quá 366 ngày")
+
+    start = datetime.combine(start_date, datetime.min.time(), tzinfo=timezone.utc) if start_date else None
+    end = (
+        datetime.combine(end_date + timedelta(days=1), datetime.min.time(), tzinfo=timezone.utc)
+        if end_date
+        else None
+    )
     return start, end
 
 

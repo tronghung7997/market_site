@@ -20,7 +20,7 @@ async def create_dispute(
     order_id: int, buyer_id: int, reason: str, db: AsyncSession,
     evidence_type: str | None = None, evidence: dict[str, str] | None = None,
 ) -> Dispute:
-    order = await db.get(Order, order_id)
+    order = await db.get(Order, order_id, with_for_update=True)
     if not order:
         raise HTTPException(status_code=404, detail="Không tìm thấy đơn hàng")
     if order.buyer_id != buyer_id:
@@ -201,13 +201,13 @@ async def get_buyer_dispute(order_id: int, buyer_id: int, db: AsyncSession) -> d
 
 
 async def refund_dispute(dispute_id: int, admin_note: str, db: AsyncSession) -> Dispute:
-    dispute = await db.get(Dispute, dispute_id)
+    dispute = await db.get(Dispute, dispute_id, with_for_update=True)
     if not dispute:
         raise HTTPException(status_code=404, detail="Không tìm thấy khiếu nại")
     if dispute.status != DisputeStatus.open:
         raise HTTPException(status_code=400, detail="Khiếu nại đã được xử lý")
 
-    order = await db.get(Order, dispute.order_id)
+    order = await db.get(Order, dispute.order_id, with_for_update=True)
     dispute.status = DisputeStatus.resolved_refund
     dispute.admin_note = admin_note
     dispute.resolved_at = datetime.now(timezone.utc)
@@ -222,13 +222,13 @@ async def refund_dispute(dispute_id: int, admin_note: str, db: AsyncSession) -> 
 
 
 async def reject_dispute(dispute_id: int, admin_note: str, db: AsyncSession) -> Dispute:
-    dispute = await db.get(Dispute, dispute_id)
+    dispute = await db.get(Dispute, dispute_id, with_for_update=True)
     if not dispute:
         raise HTTPException(status_code=404, detail="Không tìm thấy khiếu nại")
     if dispute.status != DisputeStatus.open:
         raise HTTPException(status_code=400, detail="Khiếu nại đã được xử lý")
 
-    order = await db.get(Order, dispute.order_id)
+    order = await db.get(Order, dispute.order_id, with_for_update=True)
     dispute.status = DisputeStatus.resolved_reject
     dispute.admin_note = admin_note
     dispute.resolved_at = datetime.now(timezone.utc)
@@ -248,13 +248,13 @@ async def reject_dispute(dispute_id: int, admin_note: str, db: AsyncSession) -> 
 
 
 async def partial_refund_dispute(dispute_id: int, admin_note: str, refund_amount: int, db: AsyncSession) -> Dispute:
-    dispute = await db.get(Dispute, dispute_id)
+    dispute = await db.get(Dispute, dispute_id, with_for_update=True)
     if not dispute:
         raise HTTPException(status_code=404, detail="Không tìm thấy khiếu nại")
     if dispute.status != DisputeStatus.open:
         raise HTTPException(status_code=400, detail="Khiếu nại đã được xử lý")
 
-    order = await db.get(Order, dispute.order_id)
+    order = await db.get(Order, dispute.order_id, with_for_update=True)
     if refund_amount <= 0 or refund_amount >= order.total_amount:
         raise HTTPException(status_code=400, detail="Số tiền hoàn phải lớn hơn 0 và nhỏ hơn tổng giá trị đơn hàng")
 
@@ -280,13 +280,13 @@ async def partial_refund_dispute(dispute_id: int, admin_note: str, refund_amount
 
 
 async def replace_dispute(dispute_id: int, admin_note: str, db: AsyncSession) -> Dispute:
-    dispute = await db.get(Dispute, dispute_id)
+    dispute = await db.get(Dispute, dispute_id, with_for_update=True)
     if not dispute:
         raise HTTPException(status_code=404, detail="Không tìm thấy khiếu nại")
     if dispute.status != DisputeStatus.open:
         raise HTTPException(status_code=400, detail="Khiếu nại đã được xử lý")
 
-    order = await db.get(Order, dispute.order_id)
+    order = await db.get(Order, dispute.order_id, with_for_update=True)
     variant = await db.get(ProductVariant, order.variant_id) if order.variant_id else None
     if not variant or variant.delivery_mode != DeliveryMode.instant:
         raise HTTPException(status_code=400, detail="Chỉ đơn hàng giao tự động có tài nguyên mới đổi được sản phẩm")
@@ -323,7 +323,7 @@ async def replace_dispute(dispute_id: int, admin_note: str, db: AsyncSession) ->
 
 
 async def extend_warranty_dispute(dispute_id: int, admin_note: str, extra_days: int, db: AsyncSession) -> Dispute:
-    dispute = await db.get(Dispute, dispute_id)
+    dispute = await db.get(Dispute, dispute_id, with_for_update=True)
     if not dispute:
         raise HTTPException(status_code=404, detail="Không tìm thấy khiếu nại")
     if dispute.status != DisputeStatus.open:
@@ -331,7 +331,7 @@ async def extend_warranty_dispute(dispute_id: int, admin_note: str, extra_days: 
     if extra_days <= 0:
         raise HTTPException(status_code=400, detail="Số ngày gia hạn phải lớn hơn 0")
 
-    order = await db.get(Order, dispute.order_id)
+    order = await db.get(Order, dispute.order_id, with_for_update=True)
     base = order.escrow_expires_at or datetime.now(timezone.utc)
     order.escrow_expires_at = base + timedelta(days=extra_days)
     order.status = OrderStatus.delivered

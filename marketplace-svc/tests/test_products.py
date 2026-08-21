@@ -50,6 +50,33 @@ async def test_add_variant(client):
 
 
 @pytest.mark.asyncio
+async def test_negative_variant_price_is_rejected_on_create_and_update(client):
+    seller_token, _, cat_id = await setup_seller_with_category(client)
+    headers = {"Authorization": f"Bearer {seller_token}"}
+    product = await client.post(
+        "/seller/products", json={"category_id": cat_id, "title": "Price Guard"}, headers=headers,
+    )
+    product_id = product.json()["id"]
+
+    rejected_create = await client.post(
+        f"/seller/products/{product_id}/variants",
+        json={"name": "Invalid", "price": -1},
+        headers=headers,
+    )
+    assert rejected_create.status_code == 422
+
+    variant = await client.post(
+        f"/seller/products/{product_id}/variants",
+        json={"name": "Valid", "price": 1_000},
+        headers=headers,
+    )
+    rejected_update = await client.patch(
+        f"/seller/variants/{variant.json()['id']}", json={"price": -1}, headers=headers,
+    )
+    assert rejected_update.status_code == 422
+
+
+@pytest.mark.asyncio
 async def test_list_products_public(client):
     resp = await client.get("/products")
     assert resp.status_code == 200
@@ -192,6 +219,14 @@ async def test_suspended_product_is_hidden_from_public_storefront(client):
     )
     assert seller_detail.status_code == 200
 
+    attempted_reactivation = await client.patch(
+        f"/seller/products/{product_id}",
+        json={"status": "active", "title": "Still Suspended"},
+        headers={"Authorization": f"Bearer {seller_token}"},
+    )
+    assert attempted_reactivation.status_code == 200
+    assert attempted_reactivation.json()["status"] == "suspended"
+
 
 @pytest.mark.asyncio
 async def test_buyer_cannot_create_product(client):
@@ -285,7 +320,11 @@ async def test_seller_sets_own_pricing_strategy(client):
     assert resp.status_code == 200
     assert resp.json()["pricing_strategy"] == "config"
 
-    detail = await client.get(f"/products/{product_id}")
+    detail = await client.get(
+        f"/seller/products/{product_id}/detail",
+        headers={"Authorization": f"Bearer {seller_token}"},
+    )
+    assert detail.status_code == 200
     assert detail.json()["pricing_params"]["base_price"] == 75000
 
 

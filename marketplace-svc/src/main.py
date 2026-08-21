@@ -10,12 +10,13 @@ from src.audit.router import router as audit_router
 from src.affiliate.router import router as affiliate_router
 from src.auth.router import router as auth_router
 from src.categories.router import router as categories_router
+from src.chat.router import router as chat_router
 from src.config import settings
 from src.debug.router import router as debug_router
 from src.disputes.router import router as disputes_router
 from src.gateway.router import router as gateway_router
 from src.logging import setup_logging
-from src.middleware import RequestIdMiddleware, SecurityHeadersMiddleware
+from src.middleware import AdminIpAllowlistMiddleware, RequestIdMiddleware, SecurityHeadersMiddleware
 from src.observability.sentry import init_sentry
 from src.notifications.router import router as notifications_router
 from src.orders.router import router as orders_router
@@ -118,6 +119,7 @@ app.add_middleware(
         "X-Signature",
     ],
 )
+app.add_middleware(AdminIpAllowlistMiddleware)
 app.add_middleware(
     SecurityHeadersMiddleware,
     enable_hsts=settings.deployment_environment == "production",
@@ -134,6 +136,7 @@ app.include_router(wallet_router)
 app.include_router(money_router)
 app.include_router(payments_router)
 app.include_router(categories_router)
+app.include_router(chat_router)
 app.include_router(products_router)
 app.include_router(resources_router)
 app.include_router(notifications_router)

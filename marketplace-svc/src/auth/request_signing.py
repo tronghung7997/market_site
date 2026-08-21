@@ -296,6 +296,7 @@ async def verify_signed_request(request: Request, db: AsyncSession) -> Account:
         select(SellerApiKey).where(
             SellerApiKey.key_id == headers.key_id,
             SellerApiKey.revoked_at.is_(None),
+            SellerApiKey.expires_at > func.now(),
             SellerApiKey.signing_secret_encrypted.is_not(None),
         )
     )
@@ -380,10 +381,20 @@ async def verify_signed_request(request: Request, db: AsyncSession) -> Account:
             detail="Yêu cầu quyền seller",
         )
 
+    from src.seller_api_keys.service import required_scope_for_request
+    required_scope = required_scope_for_request(request.method, request.url.path)
+    if required_scope and required_scope not in (row.scopes or []):
+        metrics.observe_auth_rejection("insufficient_scope")
+        raise HTTPException(
+            status_code=status.HTTP_403_FORBIDDEN,
+            detail="API key không có scope phù hợp",
+        )
+
     row.last_used_at = func.now()
     await db.commit()
 
     request.state.account_id = account.id
     request.state.api_key_id = row.id
+    request.state.api_key_scopes = list(row.scopes or [])
     metrics.observe_auth_method("signed_v1")
     return account

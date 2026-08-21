@@ -14,8 +14,16 @@ from src.models.wallet import (
 from src.sellers.tiers import withdraw_limit
 
 
-async def get_wallet_by_account(account_id: int, db: AsyncSession) -> Wallet:
-    wallet = await db.scalar(select(Wallet).where(Wallet.account_id == account_id))
+async def get_wallet_by_account(
+    account_id: int,
+    db: AsyncSession,
+    *,
+    for_update: bool = False,
+) -> Wallet:
+    stmt = select(Wallet).where(Wallet.account_id == account_id)
+    if for_update:
+        stmt = stmt.with_for_update()
+    wallet = await db.scalar(stmt)
     if not wallet:
         raise HTTPException(status_code=404, detail="Không tìm thấy ví")
     return wallet
@@ -64,7 +72,7 @@ async def topup(
     """Credit a wallet. `source`/`event` distinguish admin manual vs demo funding."""
     if amount <= 0:
         raise HTTPException(status_code=400, detail="Số tiền phải lớn hơn 0")
-    wallet = await get_wallet_by_account(account_id, db)
+    wallet = await get_wallet_by_account(account_id, db, for_update=True)
     wallet.available_balance += amount
     description = "Demo topup" if event == "demo_topup" else "Admin topup"
     tx = Transaction(wallet_id=wallet.id, type=TransactionType.topup, amount=amount, description=description)
@@ -89,7 +97,17 @@ async def topup(
 
 
 async def deduct_credit(account_id: int, amount: int, description: str, reference_id: str, db: AsyncSession) -> Transaction:
-    wallet = await get_wallet_by_account(account_id, db)
+    if amount <= 0:
+        raise HTTPException(status_code=400, detail="Số tiền phải lớn hơn 0")
+    wallet = await get_wallet_by_account(account_id, db, for_update=True)
+    existing = await db.scalar(
+        select(Transaction).where(
+            Transaction.type == TransactionType.purchase_hold,
+            Transaction.reference_id == reference_id,
+        )
+    )
+    if existing:
+        return existing
     if wallet.available_balance < amount:
         raise InsufficientCredit()
     wallet.available_balance -= amount
@@ -102,39 +120,73 @@ async def deduct_credit(account_id: int, amount: int, description: str, referenc
 
 
 async def release_escrow(order_id: int, seller_id: int, amount: int, platform_fee: int, db: AsyncSession) -> None:
-    seller_wallet = await get_wallet_by_account(seller_id, db)
+    if amount <= 0 or platform_fee < 0 or platform_fee > amount:
+        raise HTTPException(status_code=400, detail="Giá trị thanh toán ký quỹ không hợp lệ")
+    seller_wallet = await get_wallet_by_account(seller_id, db, for_update=True)
+    reference_id = f"order-{order_id}"
+    existing = await db.scalar(
+        select(Transaction.id).where(
+            Transaction.type.in_((TransactionType.purchase_release, TransactionType.platform_fee)),
+            Transaction.reference_id == reference_id,
+        ).limit(1)
+    )
+    if existing:
+        return
     seller_amount = amount - platform_fee
-    seller_wallet.available_balance += seller_amount
-    db.add(Transaction(
-        wallet_id=seller_wallet.id, type=TransactionType.purchase_release,
-        amount=seller_amount, description="Order payment", reference_id=f"order-{order_id}",
-    ))
+    if seller_amount > 0:
+        seller_wallet.available_balance += seller_amount
+        db.add(Transaction(
+            wallet_id=seller_wallet.id, type=TransactionType.purchase_release,
+            amount=seller_amount, description="Order payment", reference_id=reference_id,
+        ))
     if platform_fee > 0:
-        platform_wallet = await get_wallet_by_account(1, db)  # account_id=1 is platform
+        platform_wallet = await get_wallet_by_account(1, db, for_update=True)  # account_id=1 is platform
         platform_wallet.available_balance += platform_fee
         db.add(Transaction(
             wallet_id=platform_wallet.id, type=TransactionType.platform_fee,
-            amount=platform_fee, description="Platform fee", reference_id=f"order-{order_id}",
+            amount=platform_fee, description="Platform fee", reference_id=reference_id,
         ))
 
 
 async def refund_escrow(order_id: int, buyer_id: int, amount: int, db: AsyncSession) -> None:
-    buyer_wallet = await get_wallet_by_account(buyer_id, db)
+    if amount <= 0:
+        raise HTTPException(status_code=400, detail="Số tiền hoàn phải lớn hơn 0")
+    buyer_wallet = await get_wallet_by_account(buyer_id, db, for_update=True)
+    reference_id = f"order-{order_id}"
+    existing = await db.scalar(
+        select(Transaction.id).where(
+            Transaction.type == TransactionType.refund,
+            Transaction.reference_id == reference_id,
+        )
+    )
+    if existing:
+        return
     buyer_wallet.available_balance += amount
     db.add(Transaction(
         wallet_id=buyer_wallet.id, type=TransactionType.refund,
-        amount=amount, description="Order refund", reference_id=f"order-{order_id}",
+        amount=amount, description="Order refund", reference_id=reference_id,
     ))
 
 
 async def credit_affiliate_commission(
     affiliate_account_id: int, amount: int, order_id: int, db: AsyncSession
 ) -> None:
-    wallet = await get_wallet_by_account(affiliate_account_id, db)
+    if amount <= 0:
+        raise HTTPException(status_code=400, detail="Hoa hồng phải lớn hơn 0")
+    wallet = await get_wallet_by_account(affiliate_account_id, db, for_update=True)
+    reference_id = str(order_id)
+    existing = await db.scalar(
+        select(Transaction.id).where(
+            Transaction.type == TransactionType.affiliate_commission,
+            Transaction.reference_id == reference_id,
+        )
+    )
+    if existing:
+        return
     wallet.available_balance += amount
     db.add(Transaction(
         wallet_id=wallet.id, type=TransactionType.affiliate_commission,
-        amount=amount, description="Affiliate commission", reference_id=str(order_id),
+        amount=amount, description="Affiliate commission", reference_id=reference_id,
     ))
 
 
@@ -185,7 +237,7 @@ async def request_withdraw(
 ) -> WithdrawRequest:
     if amount <= 0:
         raise HTTPException(status_code=400, detail="Số tiền phải lớn hơn 0")
-    wallet = await get_wallet_by_account(account_id, db)
+    wallet = await get_wallet_by_account(account_id, db, for_update=True)
     if wallet.available_balance < amount:
         raise InsufficientCredit()
     account = await db.get(Account, account_id)
@@ -199,10 +251,6 @@ async def request_withdraw(
     # vượt quá số dư thực trước khi admin duyệt request nào.
     wallet.available_balance -= amount
     wallet.locked_balance += amount
-    db.add(Transaction(
-        wallet_id=wallet.id, type=TransactionType.withdraw_lock,
-        amount=amount, description="Khoá tiền chờ duyệt rút",
-    ))
     req = WithdrawRequest(
         account_id=account_id, amount=amount,
         bank_bin=bank_bin, bank_name=bank_name,
@@ -210,6 +258,10 @@ async def request_withdraw(
     )
     db.add(req)
     await db.flush()
+    db.add(Transaction(
+        wallet_id=wallet.id, type=TransactionType.withdraw_lock,
+        amount=amount, description="Khoá tiền chờ duyệt rút", reference_id=f"withdraw-{req.id}",
+    ))
     await log_event(
         db, "info", f"Yêu cầu rút #{req.id} — {amount:,}đ (account {account_id}, đã khoá tiền)".replace(",", "."),
         request_id=current_request_id(),
@@ -241,19 +293,21 @@ async def list_withdrawals(db: AsyncSession) -> list[dict]:
 
 
 async def approve_withdrawal(req_id: int, db: AsyncSession) -> WithdrawRequest:
-    req = await db.get(WithdrawRequest, req_id)
+    req = await db.get(WithdrawRequest, req_id, with_for_update=True)
     if not req:
         raise HTTPException(status_code=404, detail="Không tìm thấy yêu cầu rút tiền")
     if req.status != WithdrawStatus.pending:
         raise HTTPException(status_code=400, detail="Yêu cầu đã được xử lý")
-    wallet = await get_wallet_by_account(req.account_id, db)
+    wallet = await get_wallet_by_account(req.account_id, db, for_update=True)
+    if wallet.locked_balance < req.amount:
+        raise HTTPException(status_code=409, detail="Số dư đang khoá không đủ cho yêu cầu này")
     # Tiền đã bị khoá (locked_balance) từ lúc request_withdraw — chỉ cần xoá khỏi
     # locked, KHÔNG đụng available_balance nữa.
     wallet.locked_balance -= req.amount
     req.status = WithdrawStatus.approved
     db.add(Transaction(
         wallet_id=wallet.id, type=TransactionType.withdraw,
-        amount=req.amount, description="Withdrawal approved",
+        amount=req.amount, description="Withdrawal approved", reference_id=f"withdraw-{req.id}",
     ))
     await log_event(
         db, "info", f"Yêu cầu rút #{req.id} được DUYỆT ({req.amount:,}đ, account {req.account_id})".replace(",", "."),
@@ -266,18 +320,21 @@ async def approve_withdrawal(req_id: int, db: AsyncSession) -> WithdrawRequest:
 
 
 async def reject_withdrawal(req_id: int, db: AsyncSession) -> WithdrawRequest:
-    req = await db.get(WithdrawRequest, req_id)
+    req = await db.get(WithdrawRequest, req_id, with_for_update=True)
     if not req:
         raise HTTPException(status_code=404, detail="Không tìm thấy yêu cầu rút tiền")
     if req.status != WithdrawStatus.pending:
         raise HTTPException(status_code=400, detail="Yêu cầu đã được xử lý")
-    wallet = await get_wallet_by_account(req.account_id, db)
+    wallet = await get_wallet_by_account(req.account_id, db, for_update=True)
+    if wallet.locked_balance < req.amount:
+        raise HTTPException(status_code=409, detail="Số dư đang khoá không đủ cho yêu cầu này")
     # Trả tiền đã khoá về lại available_balance.
     wallet.locked_balance -= req.amount
     wallet.available_balance += req.amount
     db.add(Transaction(
         wallet_id=wallet.id, type=TransactionType.withdraw_unlock,
         amount=req.amount, description="Huỷ khoá — yêu cầu rút tiền bị từ chối",
+        reference_id=f"withdraw-{req.id}",
     ))
     req.status = WithdrawStatus.rejected
     await log_event(
@@ -303,7 +360,7 @@ async def list_withdrawals_for_account(account_id: int, db: AsyncSession) -> lis
 async def mark_withdrawal_paid(req_id: int, payout_reference: str, db: AsyncSession) -> WithdrawRequest:
     """approved → paid. Không đụng số dư: tiền đã rời locked_balance từ lúc
     approve; bước này chỉ ghi nhận việc chi thật (đối soát với sao kê bank)."""
-    req = await db.get(WithdrawRequest, req_id)
+    req = await db.get(WithdrawRequest, req_id, with_for_update=True)
     if not req:
         raise HTTPException(status_code=404, detail="Không tìm thấy yêu cầu rút tiền")
     if req.status != WithdrawStatus.approved:

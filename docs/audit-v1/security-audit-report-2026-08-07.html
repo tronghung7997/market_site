@@ -1,0 +1,1375 @@
+<title>Báo Cáo Security Audit — market_site Marketplace</title>
+<style>
+  :root {
+    --bg: #F5F4F1;
+    --surface: #FEFEFC;
+    --surface-2: #EEEDE9;
+    --text: #1C1C1E;
+    --text-2: #6E6E73;
+    --text-3: #AEAEB2;
+    --border: #DDDBD6;
+    --border-2: #C8C6C0;
+    --c-critical: #C0392B;
+    --c-critical-bg: rgba(192,57,43,0.07);
+    --c-high: #C05000;
+    --c-high-bg: rgba(192,80,0,0.07);
+    --c-medium: #9A6E00;
+    --c-medium-bg: rgba(154,110,0,0.07);
+    --c-low: #1A6B3C;
+    --c-low-bg: rgba(26,107,60,0.07);
+    --c-positive: #1A4A7A;
+    --c-positive-bg: rgba(26,74,122,0.07);
+    --c-done: #1A6B3C;
+    --c-done-bg: rgba(26,107,60,0.1);
+    --c-pending: #C0392B;
+    --c-pending-bg: rgba(192,57,43,0.1);
+    --accent: #8B1A1A;
+    --code-bg: #ECEAE6;
+    --shadow: rgba(0,0,0,0.06);
+  }
+
+  @media (prefers-color-scheme: dark) {
+    :root:not([data-theme="light"]) {
+      --bg: #0E0E10;
+      --surface: #1A1A1E;
+      --surface-2: #222226;
+      --text: #EBEBF0;
+      --text-2: #8E8E99;
+      --text-3: #48484E;
+      --border: #2E2E34;
+      --border-2: #3A3A40;
+      --c-critical: #E05252;
+      --c-critical-bg: rgba(224,82,82,0.1);
+      --c-high: #E07840;
+      --c-high-bg: rgba(224,120,64,0.1);
+      --c-medium: #C8A030;
+      --c-medium-bg: rgba(200,160,48,0.1);
+      --c-low: #48A870;
+      --c-low-bg: rgba(72,168,112,0.1);
+      --c-positive: #5090D8;
+      --c-positive-bg: rgba(80,144,216,0.1);
+      --c-done: #48A870;
+      --c-done-bg: rgba(72,168,112,0.12);
+      --c-pending: #E05252;
+      --c-pending-bg: rgba(224,82,82,0.12);
+      --accent: #C04040;
+      --code-bg: #242428;
+      --shadow: rgba(0,0,0,0.3);
+    }
+  }
+
+  :root[data-theme="dark"] {
+    --bg: #0E0E10;
+    --surface: #1A1A1E;
+    --surface-2: #222226;
+    --text: #EBEBF0;
+    --text-2: #8E8E99;
+    --text-3: #48484E;
+    --border: #2E2E34;
+    --border-2: #3A3A40;
+    --c-critical: #E05252;
+    --c-critical-bg: rgba(224,82,82,0.1);
+    --c-high: #E07840;
+    --c-high-bg: rgba(224,120,64,0.1);
+    --c-medium: #C8A030;
+    --c-medium-bg: rgba(200,160,48,0.1);
+    --c-low: #48A870;
+    --c-low-bg: rgba(72,168,112,0.1);
+    --c-positive: #5090D8;
+    --c-positive-bg: rgba(80,144,216,0.1);
+    --c-done: #48A870;
+    --c-done-bg: rgba(72,168,112,0.12);
+    --c-pending: #E05252;
+    --c-pending-bg: rgba(224,82,82,0.12);
+    --accent: #C04040;
+    --code-bg: #242428;
+    --shadow: rgba(0,0,0,0.3);
+  }
+
+  *, *::before, *::after { box-sizing: border-box; margin: 0; padding: 0; }
+
+  body {
+    font-family: 'Segoe UI', system-ui, -apple-system, BlinkMacSystemFont, 'Helvetica Neue', sans-serif;
+    background: var(--bg);
+    color: var(--text);
+    font-size: 14px;
+    line-height: 1.6;
+    -webkit-font-smoothing: antialiased;
+  }
+
+  /* Classification banner */
+  .classification-bar {
+    background: var(--accent);
+    color: #fff;
+    text-align: center;
+    padding: 6px 16px;
+    font-size: 11px;
+    font-weight: 700;
+    letter-spacing: 0.18em;
+    text-transform: uppercase;
+    position: sticky;
+    top: 0;
+    z-index: 100;
+    border-bottom: 1px solid rgba(0,0,0,0.2);
+  }
+
+  .wrapper {
+    max-width: 920px;
+    margin: 0 auto;
+    padding: 40px 24px 80px;
+  }
+
+  /* Header */
+  .report-header {
+    margin-bottom: 40px;
+    padding-bottom: 32px;
+    border-bottom: 1px solid var(--border);
+  }
+
+  .report-eyebrow {
+    font-size: 11px;
+    font-weight: 600;
+    letter-spacing: 0.12em;
+    text-transform: uppercase;
+    color: var(--text-2);
+    margin-bottom: 12px;
+  }
+
+  .report-title {
+    font-size: 28px;
+    font-weight: 700;
+    line-height: 1.2;
+    color: var(--text);
+    text-wrap: balance;
+    margin-bottom: 8px;
+    letter-spacing: -0.01em;
+  }
+
+  .report-subtitle {
+    font-size: 16px;
+    color: var(--text-2);
+    font-weight: 400;
+    margin-bottom: 20px;
+  }
+
+  .meta-row {
+    display: flex;
+    flex-wrap: wrap;
+    gap: 6px 20px;
+    font-size: 12px;
+    color: var(--text-2);
+  }
+
+  .meta-item {
+    display: flex;
+    align-items: center;
+    gap: 5px;
+  }
+
+  .meta-label {
+    font-weight: 600;
+    color: var(--text-3);
+    text-transform: uppercase;
+    font-size: 10px;
+    letter-spacing: 0.08em;
+  }
+
+  /* Overall risk banner */
+  .risk-banner {
+    background: var(--c-critical-bg);
+    border: 1.5px solid var(--c-critical);
+    border-radius: 6px;
+    padding: 20px 24px;
+    margin-bottom: 36px;
+    display: flex;
+    align-items: center;
+    gap: 20px;
+  }
+
+  .risk-badge {
+    background: var(--c-critical);
+    color: #fff;
+    font-size: 11px;
+    font-weight: 700;
+    letter-spacing: 0.12em;
+    text-transform: uppercase;
+    padding: 6px 14px;
+    border-radius: 3px;
+    white-space: nowrap;
+    flex-shrink: 0;
+  }
+
+  .risk-text {
+    font-size: 13px;
+    color: var(--c-critical);
+    font-weight: 500;
+    line-height: 1.5;
+  }
+
+  /* Severity counts */
+  .severity-grid {
+    display: grid;
+    grid-template-columns: repeat(4, 1fr);
+    gap: 12px;
+    margin-bottom: 44px;
+  }
+
+  .severity-card {
+    background: var(--surface);
+    border: 1px solid var(--border);
+    border-radius: 6px;
+    padding: 20px 16px 16px;
+    border-top: 3px solid var(--sev-color);
+  }
+
+  .severity-card.critical { --sev-color: var(--c-critical); }
+  .severity-card.high     { --sev-color: var(--c-high); }
+  .severity-card.medium   { --sev-color: var(--c-medium); }
+  .severity-card.low      { --sev-color: var(--c-low); }
+
+  .sev-count {
+    font-size: 42px;
+    font-weight: 700;
+    line-height: 1;
+    color: var(--sev-color);
+    font-variant-numeric: tabular-nums;
+    letter-spacing: -0.02em;
+    margin-bottom: 6px;
+  }
+
+  .sev-label {
+    font-size: 11px;
+    font-weight: 600;
+    text-transform: uppercase;
+    letter-spacing: 0.1em;
+    color: var(--text-2);
+  }
+
+  .sev-note {
+    font-size: 11px;
+    color: var(--text-3);
+    margin-top: 2px;
+  }
+
+  /* Section */
+  section {
+    margin-bottom: 44px;
+  }
+
+  .section-header {
+    display: flex;
+    align-items: baseline;
+    gap: 12px;
+    margin-bottom: 16px;
+    padding-bottom: 10px;
+    border-bottom: 1px solid var(--border);
+  }
+
+  .section-title {
+    font-size: 15px;
+    font-weight: 700;
+    text-transform: uppercase;
+    letter-spacing: 0.08em;
+    color: var(--text);
+  }
+
+  .section-count {
+    font-size: 11px;
+    color: var(--text-3);
+    font-weight: 500;
+  }
+
+  /* Finding cards */
+  .finding-card {
+    background: var(--surface);
+    border: 1px solid var(--border);
+    border-left: 4px solid var(--find-color);
+    border-radius: 0 6px 6px 0;
+    padding: 16px 20px;
+    margin-bottom: 10px;
+  }
+
+  .finding-card.critical { --find-color: var(--c-critical); background: var(--c-critical-bg); }
+  .finding-card.high     { --find-color: var(--c-high);     background: var(--c-high-bg); }
+  .finding-card.medium   { --find-color: var(--c-medium);   background: var(--c-medium-bg); }
+  .finding-card.low      { --find-color: var(--c-low);      background: var(--c-low-bg); }
+
+  .finding-header {
+    display: flex;
+    align-items: flex-start;
+    gap: 10px;
+    margin-bottom: 8px;
+  }
+
+  .finding-id {
+    font-size: 10px;
+    font-weight: 700;
+    letter-spacing: 0.1em;
+    text-transform: uppercase;
+    background: var(--find-color);
+    color: #fff;
+    padding: 2px 7px;
+    border-radius: 3px;
+    white-space: nowrap;
+    flex-shrink: 0;
+    margin-top: 1px;
+  }
+
+  .finding-title {
+    font-size: 14px;
+    font-weight: 600;
+    color: var(--text);
+    line-height: 1.35;
+  }
+
+  .finding-meta {
+    display: flex;
+    flex-wrap: wrap;
+    gap: 4px 12px;
+    font-size: 11px;
+    color: var(--text-2);
+    margin-bottom: 8px;
+    font-variant-numeric: tabular-nums;
+  }
+
+  .cvss-badge {
+    font-weight: 700;
+    color: var(--find-color);
+  }
+
+  .finding-body {
+    font-size: 13px;
+    color: var(--text);
+    line-height: 1.55;
+    margin-bottom: 6px;
+  }
+
+  .finding-fix {
+    font-size: 12px;
+    color: var(--text-2);
+    border-top: 1px solid var(--border);
+    padding-top: 8px;
+    margin-top: 8px;
+  }
+
+  .finding-fix strong {
+    color: var(--text);
+    font-weight: 600;
+  }
+
+  code {
+    font-family: 'SF Mono', 'Consolas', 'Menlo', monospace;
+    font-size: 0.88em;
+    background: var(--code-bg);
+    padding: 1px 5px;
+    border-radius: 3px;
+    color: var(--text);
+  }
+
+  /* Tables */
+  .table-wrap {
+    overflow-x: auto;
+    border-radius: 6px;
+    border: 1px solid var(--border);
+    box-shadow: 0 1px 3px var(--shadow);
+  }
+
+  table {
+    width: 100%;
+    border-collapse: collapse;
+    font-size: 12.5px;
+    background: var(--surface);
+  }
+
+  thead {
+    background: var(--surface-2);
+  }
+
+  th {
+    padding: 9px 14px;
+    text-align: left;
+    font-size: 10px;
+    font-weight: 700;
+    letter-spacing: 0.1em;
+    text-transform: uppercase;
+    color: var(--text-2);
+    border-bottom: 1px solid var(--border);
+    white-space: nowrap;
+  }
+
+  td {
+    padding: 8px 14px;
+    border-bottom: 1px solid var(--border);
+    color: var(--text);
+    vertical-align: top;
+    line-height: 1.45;
+  }
+
+  tr:last-child td { border-bottom: none; }
+
+  .cvss-num {
+    font-variant-numeric: tabular-nums;
+    font-weight: 700;
+    font-size: 13px;
+  }
+
+  .sev-pill {
+    display: inline-block;
+    padding: 2px 8px;
+    border-radius: 3px;
+    font-size: 10px;
+    font-weight: 700;
+    letter-spacing: 0.08em;
+    text-transform: uppercase;
+    white-space: nowrap;
+  }
+
+  .pill-critical { background: var(--c-critical); color: #fff; }
+  .pill-high     { background: var(--c-high);     color: #fff; }
+  .pill-medium   { background: var(--c-medium);   color: #fff; }
+  .pill-low      { background: var(--c-low);      color: #fff; }
+  .pill-done     { background: var(--c-done-bg);  color: var(--c-done); border: 1px solid var(--c-done); }
+  .pill-pending-p0  { background: var(--c-pending-bg); color: var(--c-pending); border: 1px solid var(--c-pending); }
+  .pill-pending-p1  { background: var(--c-high-bg); color: var(--c-high); border: 1px solid var(--c-high); }
+  .pill-pending-p2  { background: var(--c-medium-bg); color: var(--c-medium); border: 1px solid var(--c-medium); }
+  .pill-pending-p3  { background: var(--c-low-bg); color: var(--c-low); border: 1px solid var(--c-low); }
+
+  /* Positives */
+  .positive-grid {
+    display: grid;
+    grid-template-columns: repeat(auto-fill, minmax(260px, 1fr));
+    gap: 8px;
+  }
+
+  .positive-item {
+    background: var(--c-positive-bg);
+    border: 1px solid rgba(26,74,122,0.2);
+    border-left: 3px solid var(--c-positive);
+    border-radius: 0 4px 4px 0;
+    padding: 8px 12px;
+    font-size: 12px;
+    color: var(--text);
+    line-height: 1.4;
+  }
+
+  /* Critical path */
+  .critical-path {
+    position: relative;
+    padding-left: 28px;
+  }
+
+  .critical-path::before {
+    content: '';
+    position: absolute;
+    left: 8px;
+    top: 12px;
+    bottom: 12px;
+    width: 2px;
+    background: var(--border-2);
+    border-radius: 2px;
+  }
+
+  .cp-step {
+    position: relative;
+    margin-bottom: 16px;
+  }
+
+  .cp-step::before {
+    content: '';
+    position: absolute;
+    left: -24px;
+    top: 8px;
+    width: 10px;
+    height: 10px;
+    border-radius: 50%;
+    background: var(--surface);
+    border: 2px solid var(--cp-color, var(--border-2));
+    z-index: 1;
+  }
+
+  .cp-step.p0 { --cp-color: var(--c-critical); }
+  .cp-step.p1 { --cp-color: var(--c-high); }
+  .cp-step.p2 { --cp-color: var(--c-medium); }
+
+  .cp-label {
+    font-size: 10px;
+    font-weight: 700;
+    text-transform: uppercase;
+    letter-spacing: 0.1em;
+    color: var(--cp-color, var(--text-3));
+    margin-bottom: 2px;
+  }
+
+  .cp-title {
+    font-size: 13px;
+    font-weight: 600;
+    color: var(--text);
+    margin-bottom: 2px;
+  }
+
+  .cp-desc {
+    font-size: 12px;
+    color: var(--text-2);
+    line-height: 1.45;
+  }
+
+  .warning-box {
+    background: var(--c-critical-bg);
+    border: 1.5px solid var(--c-critical);
+    border-radius: 5px;
+    padding: 12px 16px;
+    font-size: 12.5px;
+    color: var(--c-critical);
+    font-weight: 500;
+    margin-top: 16px;
+    line-height: 1.5;
+  }
+
+  /* Audit steps */
+  .audit-steps {
+    display: grid;
+    grid-template-columns: repeat(3, 1fr);
+    gap: 10px;
+  }
+
+  .audit-step {
+    background: var(--surface);
+    border: 1px solid var(--border);
+    border-radius: 6px;
+    padding: 14px 14px 12px;
+  }
+
+  .step-num {
+    font-size: 10px;
+    font-weight: 700;
+    letter-spacing: 0.08em;
+    color: var(--text-3);
+    text-transform: uppercase;
+    margin-bottom: 4px;
+  }
+
+  .step-title {
+    font-size: 13px;
+    font-weight: 700;
+    color: var(--text);
+    margin-bottom: 6px;
+  }
+
+  .step-items {
+    list-style: none;
+    font-size: 11px;
+    color: var(--text-2);
+    line-height: 1.55;
+  }
+
+  .step-items li {
+    padding-left: 10px;
+    position: relative;
+  }
+
+  .step-items li::before {
+    content: '–';
+    position: absolute;
+    left: 0;
+    color: var(--text-3);
+  }
+
+  /* Architecture */
+  .arch-box {
+    background: var(--surface);
+    border: 1px solid var(--border);
+    border-radius: 6px;
+    padding: 20px;
+  }
+
+  .arch-diagram {
+    font-family: 'SF Mono', 'Consolas', 'Menlo', monospace;
+    font-size: 12px;
+    color: var(--text-2);
+    line-height: 1.7;
+    overflow-x: auto;
+    white-space: pre;
+    margin-bottom: 14px;
+  }
+
+  .arch-note {
+    font-size: 12px;
+    color: var(--c-critical);
+    font-weight: 500;
+    line-height: 1.5;
+    border-top: 1px solid var(--border);
+    padding-top: 12px;
+  }
+
+  /* Status summary */
+  .status-summary {
+    display: grid;
+    grid-template-columns: 1fr 1fr;
+    gap: 16px;
+    margin-bottom: 20px;
+  }
+
+  .status-block {
+    background: var(--surface);
+    border: 1px solid var(--border);
+    border-radius: 6px;
+    overflow: hidden;
+  }
+
+  .status-block-header {
+    padding: 10px 16px;
+    background: var(--surface-2);
+    font-size: 11px;
+    font-weight: 700;
+    text-transform: uppercase;
+    letter-spacing: 0.1em;
+    display: flex;
+    align-items: center;
+    gap: 8px;
+    border-bottom: 1px solid var(--border);
+  }
+
+  .status-dot {
+    width: 8px;
+    height: 8px;
+    border-radius: 50%;
+    flex-shrink: 0;
+  }
+
+  .status-block-body {
+    padding: 12px 0;
+  }
+
+  .status-row {
+    padding: 5px 16px;
+    font-size: 12px;
+    display: flex;
+    align-items: flex-start;
+    gap: 8px;
+    line-height: 1.4;
+  }
+
+  .status-icon {
+    flex-shrink: 0;
+    font-size: 13px;
+    margin-top: 0px;
+  }
+
+  /* References */
+  .ref-list {
+    display: flex;
+    flex-direction: column;
+    gap: 6px;
+  }
+
+  .ref-item {
+    background: var(--surface);
+    border: 1px solid var(--border);
+    border-radius: 5px;
+    padding: 9px 14px;
+    font-size: 12px;
+    display: flex;
+    align-items: center;
+    gap: 10px;
+  }
+
+  .ref-file {
+    font-family: 'SF Mono', 'Consolas', 'Menlo', monospace;
+    font-size: 11px;
+    color: var(--c-positive);
+    flex: 0 0 auto;
+    min-width: 320px;
+  }
+
+  .ref-desc {
+    color: var(--text-2);
+    font-size: 12px;
+  }
+
+  /* Footer */
+  .report-footer {
+    margin-top: 60px;
+    padding-top: 20px;
+    border-top: 1px solid var(--border);
+    font-size: 11px;
+    color: var(--text-3);
+    line-height: 1.6;
+    text-align: center;
+  }
+
+  @media (max-width: 700px) {
+    .severity-grid { grid-template-columns: repeat(2, 1fr); }
+    .audit-steps { grid-template-columns: 1fr; }
+    .status-summary { grid-template-columns: 1fr; }
+    .positive-grid { grid-template-columns: 1fr; }
+    .ref-file { min-width: 0; }
+  }
+
+  @media (prefers-reduced-motion: reduce) { * { transition: none !important; animation: none !important; } }
+</style>
+
+<div class="classification-bar">MẬT &mdash; CHỈ SỬ DỤNG NỘI BỘ &mdash; CONFIDENTIAL — INTERNAL USE ONLY</div>
+
+<div class="wrapper">
+
+  <!-- Header -->
+  <header class="report-header">
+    <div class="report-eyebrow">Security Audit Report &mdash; 2026-08-07</div>
+    <h1 class="report-title">Báo Cáo Tổng Hợp Security Audit</h1>
+    <div class="report-subtitle">market_site Marketplace Platform</div>
+    <div class="meta-row">
+      <div class="meta-item"><span class="meta-label">Stack</span> FastAPI 0.115 · Next.js 16.3.0 · PostgreSQL · Redis · Docker</div>
+      <div class="meta-item"><span class="meta-label">Nhánh</span> check-security</div>
+      <div class="meta-item"><span class="meta-label">Phạm vi</span> White-box (full source) + Black/Gray-box (2026-08-04)</div>
+      <div class="meta-item"><span class="meta-label">Kiểm tra</span> 141 HTTP routes · 41 pages · 24 modules · 20 ORM models</div>
+    </div>
+  </header>
+
+  <!-- Overall risk -->
+  <div class="risk-banner">
+    <div class="risk-badge">🔴 CRITICAL</div>
+    <div class="risk-text">
+      Hệ thống <strong>chưa được phép deploy production</strong> ở trạng thái hiện tại. Phát hiện 9 lỗ hổng critical bao gồm: secrets production bị commit vào git, tài khoản admin demo còn hoạt động, lỗi business logic cho phép tạo số dư ảo, và race condition double-spend. Code layer đã được vá local — các bước Ops/Production bắt buộc phải hoàn tất trước khi deploy.
+    </div>
+  </div>
+
+  <!-- Severity counts -->
+  <div class="severity-grid">
+    <div class="severity-card critical">
+      <div class="sev-count">9</div>
+      <div class="sev-label">Critical</div>
+      <div class="sev-note">CVSS 8.1–9.8</div>
+    </div>
+    <div class="severity-card high">
+      <div class="sev-count">14</div>
+      <div class="sev-label">High</div>
+      <div class="sev-note">CVSS 6.5–7.5</div>
+    </div>
+    <div class="severity-card medium">
+      <div class="sev-count">28</div>
+      <div class="sev-label">Medium</div>
+      <div class="sev-note">CVSS 4.0–6.5</div>
+    </div>
+    <div class="severity-card low">
+      <div class="sev-count">24</div>
+      <div class="sev-label">Low / Info</div>
+      <div class="sev-note">CVSS &lt;4.0</div>
+    </div>
+  </div>
+
+  <!-- Methodology -->
+  <section>
+    <div class="section-header">
+      <div class="section-title">1 — Phương Pháp Audit</div>
+    </div>
+    <div class="audit-steps">
+      <div class="audit-step">
+        <div class="step-num">Bước 01</div>
+        <div class="step-title">Recon / Phạm Vi</div>
+        <ul class="step-items">
+          <li>Map attack surface, ports, auth boundaries</li>
+          <li>Xác định stack versions & dependencies</li>
+          <li>Thu thập docker-compose, Dockerfile, CI/CD</li>
+        </ul>
+      </div>
+      <div class="audit-step">
+        <div class="step-num">Bước 02</div>
+        <div class="step-title">Static Analysis (White-box)</div>
+        <ul class="step-items">
+          <li>Scan secrets: grep + gitleaks toàn git history</li>
+          <li>Dependency audit: npm audit, pip-audit</li>
+          <li>Code review: auth/authz, SQL injection, eval</li>
+          <li>Business logic: money flows, race conditions</li>
+        </ul>
+      </div>
+      <div class="audit-step">
+        <div class="step-num">Bước 03</div>
+        <div class="step-title">Dynamic Analysis (Black/Gray)</div>
+        <ul class="step-items">
+          <li>Auth bypass: JWT forge, session fixation</li>
+          <li>Business logic abuse: wallet, affiliate</li>
+          <li>SSRF probing & rate limiting</li>
+          <li>Path traversal / header injection</li>
+        </ul>
+      </div>
+      <div class="audit-step">
+        <div class="step-num">Bước 04</div>
+        <div class="step-title">Threat Modeling</div>
+        <ul class="step-items">
+          <li>Data flow diagram theo kiến trúc thực</li>
+          <li>Trust boundaries: internet / Docker / DB</li>
+          <li>STRIDE per component</li>
+        </ul>
+      </div>
+      <div class="audit-step">
+        <div class="step-num">Bước 05</div>
+        <div class="step-title">Báo Cáo + Checklist</div>
+        <ul class="step-items">
+          <li>Phân loại severity: Critical → Low</li>
+          <li>Evidence + reproduction steps đầy đủ</li>
+          <li>Fix guidance + retest criteria</li>
+        </ul>
+      </div>
+      <div class="audit-step">
+        <div class="step-num">Bước 06</div>
+        <div class="step-title">Retest / Sign-off</div>
+        <ul class="step-items">
+          <li>Verify từng finding đã fix</li>
+          <li>Regression test suite pass</li>
+          <li>Production deploy sign-off</li>
+        </ul>
+      </div>
+    </div>
+  </section>
+
+  <!-- Architecture -->
+  <section>
+    <div class="section-header">
+      <div class="section-title">2 — Kiến Trúc & Attack Surface</div>
+    </div>
+    <div class="arch-box">
+      <div class="arch-diagram">Internet
+   │
+   ├── :3001 ──► Next.js 16.3.0 (frontend)
+   │                  │  /api/[...path] proxy ──► marketplace-svc:8001
+   │
+   └── :8001 ──► FastAPI marketplace-svc        ◄── EXPOSED PUBLIC, không TLS proxy
+                     │
+              [market_site bridge network]
+                     ├── postgres:5432  (port không public)
+                     └── redis:6379     (no auth, port không public)
+
+   Cloudflare Tunnel token: committed vào git (đã comment nhưng còn trong history)
+   Private registry: registry.k7:5000 (HTTP plaintext, không digest pinning)</div>
+      <div class="arch-note">
+        ⚠ Port 8001 public bypasses toàn bộ proxy controls: CSRF check, header stripping, <code>internal/</code> blocklist, cookie-only auth model. Kẻ tấn công gọi thẳng <code>:8001</code> với JWT giả mạo (từ JWT_SECRET bị lộ) có toàn quyền admin. Redis không auth — mọi process trong Docker network đọc/ghi được kể cả rate-limit counters.
+      </div>
+    </div>
+  </section>
+
+  <!-- Critical findings -->
+  <section>
+    <div class="section-header">
+      <div class="section-title">3 — Critical Findings</div>
+      <div class="section-count">9 findings · CVSS 8.1–9.8</div>
+    </div>
+
+    <div class="finding-card critical">
+      <div class="finding-header">
+        <span class="finding-id">C-1</span>
+        <div class="finding-title">Working admin account seeded vào production database</div>
+      </div>
+      <div class="finding-meta">
+        <span class="cvss-badge">CVSS 9.8</span>
+        <span>OWASP A07</span>
+        <span><code>docker-compose.yml:18</code> → <code>db/marketplace-seed.sql:1006</code></span>
+      </div>
+      <div class="finding-body">Seed file mount vào production compose, chạy tự động khi init volume mới. Tạo tài khoản <code>admin@dxtrade.example.com / DemoPass123!</code> với roles <code>[buyer, admin, seller]</code>. Account ID 1 đồng thời là platform fee wallet — mọi người có repo access đều biết thông tin đăng nhập này.</div>
+      <div class="finding-fix"><strong>Fix:</strong> Xóa seed mount khỏi production compose. Chạy <code>python -m src.ops.purge_demo</code>. Thêm startup assertion từ chối <code>*@dxtrade.example.com</code> trên production.</div>
+    </div>
+
+    <div class="finding-card critical">
+      <div class="finding-header">
+        <span class="finding-id">C-2</span>
+        <div class="finding-title">Live production secrets committed vào git history</div>
+      </div>
+      <div class="finding-meta">
+        <span class="cvss-badge">CVSS 9.1</span>
+        <span>OWASP A02</span>
+        <span><code>docker-compose.yml:11,39,41,42</code></span>
+      </div>
+      <div class="finding-body">4 secrets production nằm plaintext trong file được track bởi git: <code>POSTGRES_PASSWORD</code>, <code>DATABASE_URL</code>, <code>JWT_SECRET</code> (HS256 signing key), <code>INTERNAL_API_KEY</code>. Cloudflare <code>TUNNEL_TOKEN</code> đã comment nhưng còn nguyên trong git history. Bất kỳ ai có repo access có thể forge JWT với <code>roles: ["admin"]</code> → toàn quyền admin. Chain với C-FE-2 cho phép unauthenticated access vào <code>/internal/*</code> từ internet.</div>
+      <div class="finding-fix"><strong>Fix:</strong> Rotate ngay 4 secrets (JWT rotation invalidates tất cả sessions hiện tại). Purge git history (<code>git filter-repo</code>). <code>git rm --cached docker-compose.yml</code>. Thêm <code>gitleaks</code> vào Jenkinsfile blocking stage.</div>
+    </div>
+
+    <div class="finding-card critical">
+      <div class="finding-header">
+        <span class="finding-id">C-3</span>
+        <div class="finding-title">Negative quantity mints unlimited wallet balance</div>
+      </div>
+      <div class="finding-meta">
+        <span class="cvss-badge">CVSS 9.3</span>
+        <span>OWASP A04</span>
+        <span><code>src/orders/schemas.py:8</code> · <code>src/wallet/service.py:93</code></span>
+      </div>
+      <div class="finding-body">Field <code>quantity: int = 1</code> không có constraint <code>ge=1</code>. Buyer đặt <code>quantity=-100</code> → <code>total</code> âm → kiểm tra <code>wallet.available_balance &lt; amount</code> (ví dụ: <code>0 &lt; -500000</code>) trả <code>False</code> → pass qua → <code>available_balance -= -500000</code> → cộng vào tài khoản. Buyer có thể tạo số dư tùy ý, rút ra ngay.</div>
+      <div class="finding-fix"><strong>Fix:</strong> <code>quantity: int = Field(1, ge=1, le=100)</code>. Guard <code>if amount &lt;= 0: raise</code> trong tất cả wallet mutators.</div>
+    </div>
+
+    <div class="finding-card critical">
+      <div class="finding-header">
+        <span class="finding-id">C-4</span>
+        <div class="finding-title">Wallet race condition — double-spend / double-pay seller</div>
+      </div>
+      <div class="finding-meta">
+        <span class="cvss-badge">CVSS 8.6</span>
+        <span>OWASP A04</span>
+        <span><code>src/wallet/service.py:91</code> · <code>src/orders/service.py:441</code></span>
+      </div>
+      <div class="finding-body">Không có <code>FOR UPDATE</code> lock ở bất kỳ đâu trong wallet service. N concurrent requests đều pass balance check với giá trị stale, tất cả deduct từ cùng 1 row → balance âm. <code>confirm_order</code> tương tự: 2 request đồng thời đều read trạng thái <code>delivered</code>, đều gọi <code>release_escrow</code> → seller được credit 2 lần, buyer debit 1 lần. Dễ trigger bằng double-click hoặc script.</div>
+      <div class="finding-fix"><strong>Fix:</strong> <code>.with_for_update()</code> trong <code>deduct_credit</code>, <code>request_withdraw</code>, <code>confirm_order</code>, tất cả dispute/withdrawal approval. Thêm <code>CHECK (available_balance &gt;= 0)</code> qua Alembic làm backstop.</div>
+    </div>
+
+    <div class="finding-card critical">
+      <div class="finding-header">
+        <span class="finding-id">BE-C-1</span>
+        <div class="finding-title">Negative units trên usage charge → unlimited free gateway quota</div>
+      </div>
+      <div class="finding-meta">
+        <span class="cvss-badge">CVSS 8.6</span>
+        <span>OWASP A04/A01</span>
+        <span><code>src/usage/schemas.py:8</code> · <code>src/usage/service.py:87</code></span>
+      </div>
+      <div class="finding-body">Field <code>units: int = 1</code> không có <code>ge=1</code>. Buyer set <code>units=-1000000</code> → <code>units_remaining</code> trở thành effectively unlimited → hammers <code>/gw/{key}/&lt;endpoint&gt;</code> miễn phí. Mỗi request forwarded là real, billed request đến backend của seller.</div>
+      <div class="finding-fix"><strong>Fix:</strong> <code>units: int = Field(1, ge=1)</code> trên cả hai request models. Guard <code>if units &lt; 1: raise HTTPException(422)</code> đầu <code>charge_usage()</code>.</div>
+    </div>
+
+    <div class="finding-card critical">
+      <div class="finding-header">
+        <span class="finding-id">BE-C-2</span>
+        <div class="finding-title">Seller-settable negative variant price → mint wallet balance</div>
+      </div>
+      <div class="finding-meta">
+        <span class="cvss-badge">CVSS 9.1</span>
+        <span>OWASP A04/A08</span>
+        <span><code>src/products/schemas.py:61</code> · <code>src/orders/service.py:56</code></span>
+      </div>
+      <div class="finding-body">Field <code>price: int</code> không có <code>ge=0</code>. Seller tạo variant <code>price=-50,000,000</code>, buyer mua → wallet buyer được cộng thêm 50 triệu VND, có thể rút ngay. Đây là path riêng biệt với C-3 — fix C-3 không đóng được lỗ hổng này.</div>
+      <div class="finding-fix"><strong>Fix:</strong> <code>price: int = Field(ge=0)</code> trên <code>VariantCreate/Update</code>. <code>CheckConstraint("price &gt;= 0")</code> trên DB table.</div>
+    </div>
+
+    <div class="finding-card critical">
+      <div class="finding-header">
+        <span class="finding-id">FE-C-1</span>
+        <div class="finding-title">Live secrets committed vào git (duplicate với C-2 — xác nhận từ frontend audit)</div>
+      </div>
+      <div class="finding-meta">
+        <span class="cvss-badge">CVSS 9.8</span>
+        <span>OWASP A02</span>
+        <span><code>docker-compose.yml:11,39–42</code></span>
+      </div>
+      <div class="finding-body">Frontend deep audit xác nhận độc lập: <code>JWT_SECRET</code> trong git cho phép forge admin JWT. <code>INTERNAL_API_KEY</code> chain với FE-C-2 (path traversal) → unauthenticated access <code>/internal/usage/charge</code>, <code>/internal/resources/acquire</code>, <code>/internal/ops/purge-demo-accounts</code> từ public internet.</div>
+      <div class="finding-fix"><strong>Fix:</strong> Cùng với C-2. Ưu tiên thực hiện ngay.</div>
+    </div>
+
+    <div class="finding-card critical">
+      <div class="finding-header">
+        <span class="finding-id">FE-C-2</span>
+        <div class="finding-title">API proxy internal/ blocklist bypass qua path traversal</div>
+      </div>
+      <div class="finding-meta">
+        <span class="cvss-badge">CVSS 9.1</span>
+        <span>OWASP A01</span>
+        <span><code>frontend/app/api/[...path]/route.ts:59</code></span>
+      </div>
+      <div class="finding-body">Blocklist validate raw string trước khi <code>new URL()</code> normalize. Các path như <code>"../internal/foo"</code>, <code>"a/../../internal/z"</code> đều bypass guard nhưng sau normalize trỏ vào <code>/internal/*</code>. Chain với FE-C-1 (leaked key) và FE-H-1 (proxy forward header): <code>curl "/api/%2e%2e/internal/metrics" -H "X-Internal-Key: 7w8EAM76idmctHxtg1820VIzk7N85nDU"</code>.</div>
+      <div class="finding-fix"><strong>Fix:</strong> Validate AFTER normalization. Reject traversal segments (<code>..</code>, <code>.</code>, <code>\0</code>) trước. Chuyển sang allowlist ~40 route prefixes thay vì blocklist.</div>
+    </div>
+
+    <div class="finding-card critical">
+      <div class="finding-header">
+        <span class="finding-id">BE-C-3</span>
+        <div class="finding-title">confirm_order không có row lock → concurrent confirms double-pay seller</div>
+      </div>
+      <div class="finding-meta">
+        <span class="cvss-badge">CVSS 8.1</span>
+        <span>OWASP A04</span>
+        <span><code>src/orders/service.py:441</code></span>
+      </div>
+      <div class="finding-body">Pattern <code>with_for_update</code> đã tồn tại ở <code>provision_pending_order:384</code> nhưng không được áp dụng trong <code>confirm_order</code>. Race condition tương tự còn xuất hiện ở <code>disputes/service.py</code> (refund/reject/partial_refund) và <code>wallet/service.py</code> (approve/reject withdrawal).</div>
+      <div class="finding-fix"><strong>Fix:</strong> <code>await db.get(Order, order_id, with_for_update=True)</code> trong <code>confirm_order</code> và tất cả dispute/withdrawal approval paths. Thêm <code>UNIQUE(reference_id, type)</code> partial index trên <code>transactions</code> làm ledger backstop.</div>
+    </div>
+  </section>
+
+  <!-- High findings -->
+  <section>
+    <div class="section-header">
+      <div class="section-title">4 — High Priority Findings</div>
+      <div class="section-count">13 findings · CVSS 6.5–7.5</div>
+    </div>
+    <div class="table-wrap">
+      <table>
+        <thead>
+          <tr>
+            <th>ID</th>
+            <th>Mô tả</th>
+            <th>CVSS</th>
+            <th>File</th>
+          </tr>
+        </thead>
+        <tbody>
+          <tr>
+            <td><span class="sev-pill pill-high">H-1</span></td>
+            <td>Production chạy development mode — HSTS, docs ban, demo ban đều bị vô hiệu</td>
+            <td class="cvss-num" style="color:var(--c-high)">7.5</td>
+            <td><code>docker-compose.yml:38</code></td>
+          </tr>
+          <tr>
+            <td><span class="sev-pill pill-high">H-2</span></td>
+            <td>Backend container chạy root, cài curl/vim sẵn trong image production</td>
+            <td class="cvss-num" style="color:var(--c-high)">7.3</td>
+            <td><code>marketplace-svc/Dockerfile:18</code></td>
+          </tr>
+          <tr>
+            <td><span class="sev-pill pill-high">H-3</span></td>
+            <td>Token không revocable — stolen token có thể refresh vô hạn, không có logout endpoint</td>
+            <td class="cvss-num" style="color:var(--c-high)">7.1</td>
+            <td><code>src/auth/router.py:80</code></td>
+          </tr>
+          <tr>
+            <td><span class="sev-pill pill-high">H-4</span></td>
+            <td>Jenkins deploy bằng root SSH, không verify host key (MITM → prod RCE)</td>
+            <td class="cvss-num" style="color:var(--c-high)">7.0</td>
+            <td><code>Jenkinsfile:19</code></td>
+          </tr>
+          <tr>
+            <td><span class="sev-pill pill-high">H-5</span></td>
+            <td>Docker image tags mutable, Python deps không pin — npm audit xanh nhưng ship khác</td>
+            <td class="cvss-num" style="color:var(--c-high)">6.8</td>
+            <td><code>docker-compose.yml</code></td>
+          </tr>
+          <tr>
+            <td><span class="sev-pill pill-high">BE-H-1</span></td>
+            <td>Seller API key bypass <code>seller</code> role check; demotion admin không revoke được key, không có expiry</td>
+            <td class="cvss-num" style="color:var(--c-high)">7.1</td>
+            <td><code>src/auth/dependencies.py:67</code></td>
+          </tr>
+          <tr>
+            <td><span class="sev-pill pill-high">BE-H-2</span></td>
+            <td>Seller undo admin product suspension — PATCH cho phép đặt lại status về active</td>
+            <td class="cvss-num" style="color:var(--c-high)">6.5</td>
+            <td><code>src/products/service.py:69</code></td>
+          </tr>
+          <tr>
+            <td><span class="sev-pill pill-high">BE-H-3</span></td>
+            <td>Affiliate commission farming: self-dealing loop, không có fraud controls, fund âm không fail</td>
+            <td class="cvss-num" style="color:var(--c-high)">7.5</td>
+            <td><code>src/affiliate/service.py:71</code></td>
+          </tr>
+          <tr>
+            <td><span class="sev-pill pill-high">BE-H-5</span></td>
+            <td>Withdrawal TOCTOU — balance SELECT không lock, parallel withdraw đẩy balance âm</td>
+            <td class="cvss-num" style="color:var(--c-high)">7.1</td>
+            <td><code>src/wallet/service.py:181</code></td>
+          </tr>
+          <tr>
+            <td><span class="sev-pill pill-high">BE-H-6</span></td>
+            <td>Date range affiliate stats không giới hạn → <code>?date_from=0001-01-01&amp;date_to=9999-12-31</code> → ~3.6M dicts → memory DoS</td>
+            <td class="cvss-num" style="color:var(--c-high)">6.5</td>
+            <td><code>src/affiliate/service.py:487</code></td>
+          </tr>
+          <tr>
+            <td><span class="sev-pill pill-high">BE-H-7</span></td>
+            <td>Systemic thiếu Field constraints: chỉ 16/tổng fields có constraint — quantity, price, units, items: list đều unbounded</td>
+            <td class="cvss-num" style="color:var(--c-high)">7.0</td>
+            <td><code>*/schemas.py (nhiều files)</code></td>
+          </tr>
+          <tr>
+            <td><span class="sev-pill pill-high">FE-H-1</span></td>
+            <td>Next.js proxy forward tất cả client headers lên backend (chỉ deny 5 headers, không allowlist)</td>
+            <td class="cvss-num" style="color:var(--c-high)">7.3</td>
+            <td><code>frontend/app/api/[...path]/route.ts:71</code></td>
+          </tr>
+          <tr>
+            <td><span class="sev-pill pill-high">FE-H-2</span></td>
+            <td>Backend exposed <code>0.0.0.0:8001</code> — bypass toàn bộ proxy: CSRF, auth model, internal blocklist</td>
+            <td class="cvss-num" style="color:var(--c-high)">7.5</td>
+            <td><code>docker-compose.yml:36</code></td>
+          </tr>
+        </tbody>
+      </table>
+    </div>
+  </section>
+
+  <!-- Medium summary -->
+  <section>
+    <div class="section-header">
+      <div class="section-title">5 — Medium Priority (Tóm Tắt)</div>
+      <div class="section-count">17 findings đại diện · CVSS 4.0–6.5</div>
+    </div>
+    <div class="table-wrap">
+      <table>
+        <thead>
+          <tr>
+            <th>ID</th>
+            <th>Mô tả</th>
+            <th>CVSS</th>
+          </tr>
+        </thead>
+        <tbody>
+          <tr><td><code>M-1</code></td><td>Không có DB-level CHECK constraints trên money columns</td><td class="cvss-num" style="color:var(--c-medium)">5.9</td></tr>
+          <tr><td><code>M-3</code></td><td>Redis không authentication — rate-limit counters có thể bị reset từ mọi process trong network</td><td class="cvss-num" style="color:var(--c-medium)">5.5</td></tr>
+          <tr><td><code>M-4</code></td><td>Dev compose publish DB ra all interfaces (0.0.0.0) thay vì localhost</td><td class="cvss-num" style="color:var(--c-medium)">5.8</td></tr>
+          <tr><td><code>BE-M-1</code></td><td>Rate limiting collapse về 1 bucket sau reverse proxy — 1 attacker exhausts limit cho toàn user base</td><td class="cvss-num" style="color:var(--c-medium)">6.5</td></tr>
+          <tr><td><code>BE-M-2</code></td><td><code>/debug/version</code> unauthenticated → leak build info, migration state, DB exception detail</td><td class="cvss-num" style="color:var(--c-medium)">5.8</td></tr>
+          <tr><td><code>BE-M-3</code></td><td>Buyer có thể freeze seller funds vô thời hạn bằng dispute griefing</td><td class="cvss-num" style="color:var(--c-medium)">5.3</td></tr>
+          <tr><td><code>BE-M-8</code></td><td>Money lưu trong 32-bit Integer (max ~85k USD) — overflow chỉ cần ~22 lần nạp tối đa</td><td class="cvss-num" style="color:var(--c-medium)">5.5</td></tr>
+          <tr><td><code>BE-M-10</code></td><td>Category tree cho phép cycle → infinite recursion → 500 trên public <code>GET /categories</code></td><td class="cvss-num" style="color:var(--c-medium)">5.3</td></tr>
+          <tr><td><code>FE-M-2</code></td><td>Auth enforced client-side only (useEffect redirect) — không có middleware gate trên Next.js</td><td class="cvss-num" style="color:var(--c-medium)">5.3</td></tr>
+          <tr><td><code>FE-M-3</code></td><td>Open redirect qua unvalidated <code>?next=</code> parameter sau login — phishing primitive trên financial site</td><td class="cvss-num" style="color:var(--c-medium)">6.1</td></tr>
+          <tr><td><code>FE-M-4</code></td><td>React Query cache không xóa khi logout — shared device thấy financial data của user trước</td><td class="cvss-num" style="color:var(--c-medium)">5.5</td></tr>
+        </tbody>
+      </table>
+    </div>
+  </section>
+
+  <!-- Positives -->
+  <section>
+    <div class="section-header">
+      <div class="section-title">6 — Điểm Bảo Mật Tốt (Giữ Nguyên)</div>
+    </div>
+    <div class="positive-grid">
+      <div class="positive-item">Startup config validation từ chối insecure secrets, enforce ≥32-byte entropy</div>
+      <div class="positive-item">SSRF guard DNS-pinning, re-validate mỗi outbound call, <code>trust_env=False</code></div>
+      <div class="positive-item">PayOS webhook: <code>compare_digest</code>, empty-key refusal, <code>FOR UPDATE</code>, idempotency, reject negative amount</div>
+      <div class="positive-item">Provider webhook fail closed — không configured secret → reject mọi callback</div>
+      <div class="positive-item"><code>httpOnly + sameSite:strict + secure</code> cookie; không token trong <code>localStorage</code></div>
+      <div class="positive-item">CSRF qua Fetch-Metadata với Origin fallback</div>
+      <div class="positive-item">Auth dependency coverage đầy đủ ~20 routers</div>
+      <div class="positive-item">Gateway path traversal blocked: <code>^[A-Za-z0-9_-]{1,64}$</code> + endpoint allowlist</div>
+      <div class="positive-item">Auth rate limiting bucketed theo cả IP và hashed email; <code>fail_open=False</code></div>
+      <div class="positive-item">Sentry scrubbing: <code>send_default_pii=False</code>, drop body/query/cookies</div>
+      <div class="positive-item">Provider credentials encrypted at rest với Fernet; selective field encryption</div>
+      <div class="positive-item">Tất cả SQL parameterized — không có string-concatenated queries</div>
+      <div class="positive-item">Zero XSS sinks frontend: không <code>dangerouslySetInnerHTML</code>, <code>eval</code>, <code>innerHTML</code></div>
+      <div class="positive-item">Token không expose JavaScript — httpOnly cookie only (BFF pattern)</div>
+      <div class="positive-item">Seller markdown sandboxed: <code>disableParsingRawHTML: true</code></div>
+      <div class="positive-item"><code>npm audit</code> = 0 vulnerabilities · <code>pip-audit</code> = 0 vulnerabilities</div>
+    </div>
+  </section>
+
+  <!-- Remediation status -->
+  <section>
+    <div class="section-header">
+      <div class="section-title">7 — Trạng Thái Remediation</div>
+    </div>
+
+    <div class="status-summary">
+      <div class="status-block">
+        <div class="status-block-header">
+          <div class="status-dot" style="background:var(--c-done)"></div>
+          Đã Fix — Local (2026-08-04 → 08-07)
+        </div>
+        <div class="status-block-body">
+          <div class="status-row"><span class="status-icon">✓</span> Next.js RSC patch: 15.5.4 → 16.3.0; npm audit = 0</div>
+          <div class="status-row"><span class="status-icon">✓</span> Demo topup tắt; local blackbox confirmed</div>
+          <div class="status-row"><span class="status-icon">✓</span> CORS lockdown: allowlist thay vì <code>*</code></div>
+          <div class="status-row"><span class="status-icon">✓</span> Default secret fail-fast: startup validation enforce entropy</div>
+          <div class="status-row"><span class="status-icon">✓</span> Auth gate operations: owner/admin-only</div>
+          <div class="status-row"><span class="status-icon">✓</span> Rate limiting login/register: IP + hashed email bucket</div>
+          <div class="status-row"><span class="status-icon">✓</span> Password ≥12 chars; inactive-account check</div>
+          <div class="status-row"><span class="status-icon">✓</span> Session cookie httpOnly/SameSite/Secure (BFF pattern)</div>
+          <div class="status-row"><span class="status-icon">✓</span> SSRF guard DNS-pinning áp dụng</div>
+          <div class="status-row"><span class="status-icon">✓</span> Provider credential Fernet: 15/15 re-encrypted</div>
+          <div class="status-row"><span class="status-icon">✓</span> <code>.dockerignore</code> loại <code>.env</code>, build cache, test artifacts</div>
+          <div class="status-row"><span class="status-icon">✓</span> CI: npm/pip audit + full pytest blocking stages</div>
+          <div class="status-row"><span class="status-icon" style="font-weight:700;color:var(--c-done)">✓</span> <strong>Backend: 669 passed, 0 failed · Security: 59 passed</strong></div>
+        </div>
+      </div>
+
+      <div class="status-block">
+        <div class="status-block-header">
+          <div class="status-dot" style="background:var(--c-pending)"></div>
+          Còn Pending — Ops / Production
+        </div>
+        <div class="status-block-body">
+          <div class="status-row"><span class="sev-pill pill-pending-p0" style="font-size:9px">P0</span> Deploy artifact đã vá lên production</div>
+          <div class="status-row"><span class="sev-pill pill-pending-p0" style="font-size:9px">P0</span> Rotate JWT_SECRET (invalidates tất cả sessions)</div>
+          <div class="status-row"><span class="sev-pill pill-pending-p0" style="font-size:9px">P0</span> Rotate POSTGRES_PASSWORD production</div>
+          <div class="status-row"><span class="sev-pill pill-pending-p0" style="font-size:9px">P0</span> Rotate INTERNAL_API_KEY + revoke TUNNEL_TOKEN</div>
+          <div class="status-row"><span class="sev-pill pill-pending-p0" style="font-size:9px">P0</span> Purge git history (<code>git filter-repo</code>)</div>
+          <div class="status-row"><span class="sev-pill pill-pending-p0" style="font-size:9px">P0</span> Set <code>DEPLOYMENT_ENVIRONMENT=production</code>; xóa seed mount</div>
+          <div class="status-row"><span class="sev-pill pill-pending-p1" style="font-size:9px">P1</span> Chặn port 8001 public (remove <code>ports:</code> mapping)</div>
+          <div class="status-row"><span class="sev-pill pill-pending-p1" style="font-size:9px">P1</span> Ingress/NetworkPolicy chặn <code>/internal/*</code></div>
+          <div class="status-row"><span class="sev-pill pill-pending-p1" style="font-size:9px">P1</span> Redis <code>requirepass</code>; WAF/edge rate limiter</div>
+          <div class="status-row"><span class="sev-pill pill-pending-p1" style="font-size:9px">P1</span> Jenkins: non-root deploy, host-key pinning, trivy blocking</div>
+          <div class="status-row"><span class="sev-pill pill-pending-p1" style="font-size:9px">P1</span> Canary + blackbox retest trên production build SHA</div>
+          <div class="status-row"><span class="sev-pill pill-pending-p2" style="font-size:9px">P2</span> Refresh token model + jti + Redis denylist</div>
+          <div class="status-row"><span class="sev-pill pill-pending-p2" style="font-size:9px">P2</span> BigInteger migration cho money columns (overflow ~$85k)</div>
+        </div>
+      </div>
+    </div>
+  </section>
+
+  <!-- Critical path -->
+  <section>
+    <div class="section-header">
+      <div class="section-title">8 — Critical Path (Không Đổi Thứ Tự)</div>
+    </div>
+    <div class="critical-path">
+      <div class="cp-step p0">
+        <div class="cp-label">P0 — 0–24 giờ</div>
+        <div class="cp-title">Deploy artifact đã vá lên production</div>
+        <div class="cp-desc">Build từ nhánh check-security (đã pass 669 tests). Ghi lại build SHA/digest. Confirm artifact không còn chứa Next.js 15.5.4.</div>
+      </div>
+      <div class="cp-step p0">
+        <div class="cp-label">P0 — 0–8 giờ (song song)</div>
+        <div class="cp-title">Xác minh secret exposure, rotate nếu reuse/exposure</div>
+        <div class="cp-desc">Fingerprint 4 secrets production. Rotate JWT_SECRET (invalidates tất cả sessions), POSTGRES_PASSWORD, INTERNAL_API_KEY, revoke TUNNEL_TOKEN. Purge git history (<code>git filter-repo</code>).</div>
+      </div>
+      <div class="cp-step p0">
+        <div class="cp-label">P0 — +16 giờ</div>
+        <div class="cp-title">Set production mode; xóa admin demo account</div>
+        <div class="cp-desc">Thêm <code>DEPLOYMENT_ENVIRONMENT=production</code> và <code>ENCRYPTION_KEY</code> vào production compose. Xóa seed file mount. Chạy <code>purge_demo</code>. Verify <code>/docs</code> → 404.</div>
+      </div>
+      <div class="cp-step p0">
+        <div class="cp-label">P0 — +24 giờ</div>
+        <div class="cp-title">Chặn port 8001; thiết lập ingress rules</div>
+        <div class="cp-desc">Remove <code>ports: "8001:8001"</code> từ production compose. Frontend reach backend qua Docker internal network. Nếu cần ops access: bind <code>127.0.0.1:8001:8001</code>.</div>
+      </div>
+      <div class="cp-step p0">
+        <div class="cp-label">P0 — +24 giờ</div>
+        <div class="cp-title">Blackbox retest trên production build SHA</div>
+        <div class="cp-desc">Verify không còn access <code>:8001</code> từ ngoài. Verify <code>/internal/*</code> không reachable qua path traversal. Verify admin demo account không đăng nhập được.</div>
+      </div>
+      <div class="cp-step p1">
+        <div class="cp-label">P1 — 1–3 ngày</div>
+        <div class="cp-title">SSRF egress + Redis auth + Jenkins hardening</div>
+        <div class="cp-desc">Thêm Redis <code>requirepass</code>. WAF/edge rate limiter. Jenkins: non-root deploy user, SSH host-key pinning, blocking stages (trivy, gitleaks, audit).</div>
+      </div>
+      <div class="cp-step p2">
+        <div class="cp-label">P2 — ≤1 tuần</div>
+        <div class="cp-title">Auth revocation + business logic fixes</div>
+        <div class="cp-desc">Refresh token model với rotation + Redis denylist. <code>POST /auth/logout</code>. Seller API key expiry/scope. BigInteger migration cho money columns.</div>
+      </div>
+    </div>
+    <div class="warning-box">
+      ⚠ Không rotate secret mới vào process còn vulnerable. Patch và contain RCE/exposure trước, sau đó mới phát hành secret thay thế — nếu không, secret mới sẽ tiếp tục bị lộ qua cùng vector.
+    </div>
+  </section>
+
+  <!-- Retest checklist -->
+  <section>
+    <div class="section-header">
+      <div class="section-title">9 — Retest Checklist (Sign-off)</div>
+    </div>
+    <div class="table-wrap">
+      <table>
+        <thead>
+          <tr>
+            <th>ID</th>
+            <th>Verify bằng</th>
+            <th>Pass khi</th>
+            <th>Done</th>
+          </tr>
+        </thead>
+        <tbody>
+          <tr>
+            <td><span class="sev-pill pill-critical">C-1</span></td>
+            <td><code>SELECT email FROM accounts WHERE email LIKE '%@dxtrade.example.com'</code></td>
+            <td>Zero rows; login trả 401</td>
+            <td style="text-align:center;font-size:16px">☐</td>
+          </tr>
+          <tr>
+            <td><span class="sev-pill pill-critical">C-2</span></td>
+            <td><code>git log --all -S "3ivYYwOP27U2vF9Z" --oneline</code> + <code>gitleaks detect</code></td>
+            <td>Zero commits match; CI pass</td>
+            <td style="text-align:center;font-size:16px">☐</td>
+          </tr>
+          <tr>
+            <td><span class="sev-pill pill-critical">C-3</span></td>
+            <td><code>POST /api/v1/orders {"quantity": -100}</code></td>
+            <td>Returns 422; wallet không đổi</td>
+            <td style="text-align:center;font-size:16px">☐</td>
+          </tr>
+          <tr>
+            <td><span class="sev-pill pill-critical">C-4</span></td>
+            <td>Fund 1 unit, 10 concurrent orders</td>
+            <td>1 order pass; balance = 0; không âm</td>
+            <td style="text-align:center;font-size:16px">☐</td>
+          </tr>
+          <tr>
+            <td><span class="sev-pill pill-high">H-1</span></td>
+            <td><code>docker inspect</code> env + <code>GET /docs</code></td>
+            <td><code>production</code> set; <code>/docs</code> → 404</td>
+            <td style="text-align:center;font-size:16px">☐</td>
+          </tr>
+          <tr>
+            <td><span class="sev-pill pill-high">H-2</span></td>
+            <td><code>docker exec marketplace-svc id</code> + <code>which curl</code></td>
+            <td>Non-root UID; curl not found</td>
+            <td style="text-align:center;font-size:16px">☐</td>
+          </tr>
+          <tr>
+            <td><span class="sev-pill pill-high">H-3</span></td>
+            <td>Login → <code>DELETE /auth/logout</code> → dùng token cũ</td>
+            <td>401 post-logout; refresh cũng 401</td>
+            <td style="text-align:center;font-size:16px">☐</td>
+          </tr>
+          <tr>
+            <td><span class="sev-pill pill-critical">BE-C-1</span></td>
+            <td><code>POST /orders/{id}/usage {"units": -1}</code></td>
+            <td>422</td>
+            <td style="text-align:center;font-size:16px">☐</td>
+          </tr>
+          <tr>
+            <td><span class="sev-pill pill-critical">BE-C-2</span></td>
+            <td>Tạo variant <code>price=-1</code>, mua, check wallet</td>
+            <td>422 trên create; hoặc wallet không tăng</td>
+            <td style="text-align:center;font-size:16px">☐</td>
+          </tr>
+          <tr>
+            <td><span class="sev-pill pill-critical">FE-C-2</span></td>
+            <td><code>curl --path-as-is "/api/a/../../internal/metrics"</code></td>
+            <td>404 hoặc 400</td>
+            <td style="text-align:center;font-size:16px">☐</td>
+          </tr>
+          <tr>
+            <td><span class="sev-pill pill-high">FE-H-1</span></td>
+            <td>Request qua proxy với <code>X-Internal-Key: anything</code></td>
+            <td>Backend không nhận header</td>
+            <td style="text-align:center;font-size:16px">☐</td>
+          </tr>
+          <tr>
+            <td><span class="sev-pill pill-high">FE-H-2</span></td>
+            <td><code>curl http://&lt;host&gt;:8001/health</code> từ ngoài Docker</td>
+            <td>Connection refused</td>
+            <td style="text-align:center;font-size:16px">☐</td>
+          </tr>
+          <tr>
+            <td><span class="sev-pill pill-medium">FE-M-3</span></td>
+            <td>Login với <code>?next=https://evil.tld</code></td>
+            <td>Redirect về <code>/</code>; không về evil.tld</td>
+            <td style="text-align:center;font-size:16px">☐</td>
+          </tr>
+        </tbody>
+      </table>
+    </div>
+  </section>
+
+  <!-- References -->
+  <section>
+    <div class="section-header">
+      <div class="section-title">10 — Tài Liệu Chi Tiết</div>
+    </div>
+    <div class="ref-list">
+      <div class="ref-item">
+        <span class="ref-file">docs/security-audit-whitebox-2026-08-07.md</span>
+        <span class="ref-desc">White-box full: 24 findings, vulnerability register đầy đủ, risk matrix, retest checklist</span>
+      </div>
+      <div class="ref-item">
+        <span class="ref-file">docs/security-audit-backend-deep-2026-08-07.md</span>
+        <span class="ref-desc">Backend deep dive: 32 findings, code evidence, positive findings</span>
+      </div>
+      <div class="ref-item">
+        <span class="ref-file">docs/security-audit-frontend-deep-2026-08-07.md</span>
+        <span class="ref-desc">Frontend deep dive: 19 findings, PoC curl commands</span>
+      </div>
+      <div class="ref-item">
+        <span class="ref-file">docs/security-audit-blackbox-graybox-2026-08-04.md</span>
+        <span class="ref-desc">Black/gray-box 2026-08-04: dynamic testing results, confirmed vs not-confirmed</span>
+      </div>
+      <div class="ref-item">
+        <span class="ref-file">docs/security-audit-remediation-checklist.md</span>
+        <span class="ref-desc">Checklist P0–P3 với tracking, owner, SLA, evidence — cập nhật sau mỗi remediation</span>
+      </div>
+    </div>
+  </section>
+
+  <footer class="report-footer">
+    Báo cáo tổng hợp từ 4 audit docs · 2026-08-07 · market_site Marketplace<br>
+    Mọi thay đổi trạng thái phải cập nhật vào <code>security-audit-remediation-checklist.md</code><br>
+    <strong>Sign-off: Tất cả P0 phải pass trước khi bất kỳ production deployment nào được phép.</strong>
+  </footer>
+
+</div>

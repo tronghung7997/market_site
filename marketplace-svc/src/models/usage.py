@@ -1,7 +1,7 @@
 from datetime import datetime
 from enum import Enum as PyEnum
 
-from sqlalchemy import DateTime, Enum, ForeignKey, Integer, String, Text, func
+from sqlalchemy import CheckConstraint, DateTime, Enum, ForeignKey, Integer, String, Text, func
 from sqlalchemy.dialects.postgresql import JSONB
 from sqlalchemy.orm import Mapped, mapped_column
 
@@ -30,6 +30,12 @@ class OrderBalance(Base):
     """
 
     __tablename__ = "order_balances"
+    __table_args__ = (
+        CheckConstraint("units_total > 0", name="ck_order_balances_total_positive"),
+        CheckConstraint("units_used >= 0", name="ck_order_balances_used_nonnegative"),
+        CheckConstraint("units_used <= units_total", name="ck_order_balances_used_within_total"),
+        CheckConstraint("default_rate IS NULL OR default_rate > 0", name="ck_order_balances_default_rate_positive"),
+    )
 
     id: Mapped[int] = mapped_column(primary_key=True)
     order_id: Mapped[int] = mapped_column(ForeignKey("orders.id"), unique=True, nullable=False)
@@ -54,6 +60,7 @@ class UsageRecord(Base):
     vì buyer cãi "tôi không hề vượt hạn mức" cần tra lại được lịch sử thật."""
 
     __tablename__ = "usage_records"
+    __table_args__ = (CheckConstraint("units > 0", name="ck_usage_records_units_positive"),)
 
     id: Mapped[int] = mapped_column(primary_key=True)
     order_id: Mapped[int] = mapped_column(ForeignKey("orders.id"), nullable=False, index=True)

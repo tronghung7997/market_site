@@ -46,6 +46,8 @@ from src.models.account import Account
 async def register_and_login(client, email, password="StrongPass123!"):
     await client.post("/auth/register", json={"email": email, "password": password})
     resp = await client.post("/auth/login", json={"email": email, "password": password})
+    if resp.status_code == 403 and resp.json().get("error_code") == "ADMIN_LOGIN_REQUIRED":
+        resp = await client.post("/auth/admin/login", json={"email": email, "password": password})
     return resp.json()["access_token"]
 
 

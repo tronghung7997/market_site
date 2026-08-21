@@ -3,6 +3,7 @@ from sqlalchemy import select
 
 from src.database import SessionLocal
 from src.models.account import Account
+from tests.conftest import make_admin
 
 
 @pytest.mark.asyncio
@@ -87,6 +88,18 @@ async def test_register_duplicate_email(client):
 
 
 @pytest.mark.asyncio
+async def test_register_rejects_short_password_with_clear_limit(client):
+    response = await client.post(
+        "/auth/register",
+        json={"email": "short@example.com", "password": "too-short"},
+    )
+    assert response.status_code == 422
+    issue = response.json()["detail"][0]
+    assert issue["loc"][-1] == "password"
+    assert issue["ctx"]["min_length"] == 12
+
+
+@pytest.mark.asyncio
 async def test_register_with_valid_referral_code_sets_referred_by(client):
     seed = await client.post("/auth/register", json={
         "email": "referrer@example.com",
@@ -146,6 +159,39 @@ async def test_login_wrong_password(client):
     await client.post("/auth/register", json={"email": "wp@example.com", "password": "StrongPass123!"})
     response = await client.post("/auth/login", json={"email": "wp@example.com", "password": "wrong"})
     assert response.status_code == 401
+
+
+@pytest.mark.asyncio
+async def test_admin_must_use_dedicated_login(client):
+    email = "private-admin@example.com"
+    password = "StrongPass123!"
+    await client.post("/auth/register", json={"email": email, "password": password})
+    await make_admin(email)
+
+    public_login = await client.post("/auth/login", json={"email": email, "password": password})
+    assert public_login.status_code == 403
+    assert public_login.json()["error_code"] == "ADMIN_LOGIN_REQUIRED"
+
+    admin_login = await client.post(
+        "/auth/admin/login",
+        json={"email": email, "password": password},
+    )
+    assert admin_login.status_code == 200
+    assert "access_token" in admin_login.json()
+
+
+@pytest.mark.asyncio
+async def test_non_admin_cannot_use_admin_login(client):
+    email = "buyer-admin-gate@example.com"
+    password = "StrongPass123!"
+    await client.post("/auth/register", json={"email": email, "password": password})
+
+    response = await client.post(
+        "/auth/admin/login",
+        json={"email": email, "password": password},
+    )
+    assert response.status_code == 403
+    assert response.json()["error_code"] == "ADMIN_ONLY"
 
 
 @pytest.mark.asyncio

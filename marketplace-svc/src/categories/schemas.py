@@ -1,4 +1,4 @@
-from pydantic import BaseModel
+from pydantic import BaseModel, Field
 
 
 class CategoryCreate(BaseModel):
@@ -7,7 +7,7 @@ class CategoryCreate(BaseModel):
     icon: str | None = None
     parent_id: int | None = None
     sort_order: int = 0
-    commission_rate: float | None = None
+    commission_rate: float | None = Field(default=None, ge=0, le=100)
 
 
 class CategoryUpdate(BaseModel):
@@ -16,7 +16,7 @@ class CategoryUpdate(BaseModel):
     icon: str | None = None
     sort_order: int | None = None
     is_active: bool | None = None
-    commission_rate: float | None = None
+    commission_rate: float | None = Field(default=None, ge=0, le=100)
 
 
 class CategoryResponse(BaseModel):

@@ -3,7 +3,7 @@ import hmac
 
 from fastapi import Depends, Header, HTTPException, Request, Security, status
 from fastapi.security import HTTPAuthorizationCredentials, HTTPBearer
-from sqlalchemy import select
+from sqlalchemy import func, select
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from src.config import settings
@@ -73,7 +73,11 @@ async def _resolve_account_by_api_key(
 
     key_hash = hashlib.sha256(key.encode()).hexdigest()
     row = await db.scalar(
-        select(SellerApiKey).where(SellerApiKey.key_hash == key_hash, SellerApiKey.revoked_at.is_(None))
+        select(SellerApiKey).where(
+            SellerApiKey.key_hash == key_hash,
+            SellerApiKey.revoked_at.is_(None),
+            SellerApiKey.expires_at > func.now(),
+        )
     )
     if not row:
         from src.security.events import security_event
@@ -85,17 +89,22 @@ async def _resolve_account_by_api_key(
             path=request.url.path if request is not None else None,
         )
         raise HTTPException(status_code=status.HTTP_401_UNAUTHORIZED, detail="API key không hợp lệ hoặc đã bị thu hồi")
-    from sqlalchemy import func
     row.last_used_at = func.now()
     account = await db.get(Account, row.account_id)
-    await db.commit()
     if not account or not account.is_active:
         raise HTTPException(status_code=status.HTTP_401_UNAUTHORIZED, detail="Không tìm thấy tài khoản")
     if "seller" not in (account.roles or []):
         raise HTTPException(status_code=status.HTTP_403_FORBIDDEN, detail="Yêu cầu quyền seller")
     if request is not None:
+        from src.seller_api_keys.service import required_scope_for_request
+        required_scope = required_scope_for_request(request.method, request.url.path)
+        if required_scope and required_scope not in (row.scopes or []):
+            raise HTTPException(status_code=status.HTTP_403_FORBIDDEN, detail="API key không có scope phù hợp")
+    await db.commit()
+    if request is not None:
         request.state.account_id = account.id
         request.state.api_key_id = row.id
+        request.state.api_key_scopes = list(row.scopes or [])
     return account
 
 

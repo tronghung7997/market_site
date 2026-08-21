@@ -373,7 +373,9 @@ export default function SellerApiSettingsPage() {
               <tr className="text-[12px] text-faint border-b border-line">
                 <th className="font-medium px-5 py-3">{t("apiKeyCol")}</th>
                 <th className="font-medium px-5 py-3">{t("signingVersionCol")}</th>
+                <th className="font-medium px-5 py-3">{t("scopesCol")}</th>
                 <th className="font-medium px-5 py-3">{t("createdAtCol")}</th>
+                <th className="font-medium px-5 py-3">{t("expiresAtCol")}</th>
                 <th className="font-medium px-5 py-3">{t("lastUsedCol")}</th>
                 <th className="font-medium px-5 py-3">{t("statusCol")}</th>
                 <th className="font-medium px-5 py-3" />
@@ -384,19 +386,23 @@ export default function SellerApiSettingsPage() {
                 <tr key={k.id} className="border-b border-line last:border-0 text-[13px]">
                   <td className="px-5 py-3 font-mono">{k.key_prefix}</td>
                   <td className="px-5 py-3 text-muted font-mono">{k.signing_version || SIGNING_VERSION}</td>
+                  <td className="px-5 py-3 text-muted text-[11px]">{k.scopes.join(", ")}</td>
                   <td className="px-5 py-3 text-muted">{new Date(k.created_at).toLocaleDateString(dateLocale)}</td>
+                  <td className="px-5 py-3 text-muted">{new Date(k.expires_at).toLocaleDateString(dateLocale)}</td>
                   <td className="px-5 py-3 text-muted">
                     {k.last_used_at ? new Date(k.last_used_at).toLocaleDateString(dateLocale) : t("neverUsed")}
                   </td>
                   <td className="px-5 py-3">
                     {k.revoked_at ? (
                       <span className="text-faint">{t("revokedStatus")}</span>
+                    ) : new Date(k.expires_at) <= new Date() ? (
+                      <span className="text-faint">{t("expiredStatus")}</span>
                     ) : (
                       <span className="text-good">{t("activeKeyStatus")}</span>
                     )}
                   </td>
                   <td className="px-5 py-3 text-right">
-                    {!k.revoked_at && (
+                    {!k.revoked_at && new Date(k.expires_at) > new Date() && (
                       <Button size="sm" variant="ghost" onClick={() => setRevokeId(k.id)}>
                         <Trash size={14} /> {t("revoke")}
                       </Button>

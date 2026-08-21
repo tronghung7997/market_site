@@ -60,7 +60,7 @@ async def create_order(buyer_id: int, variant_id: int, quantity: int, db: AsyncS
     if variant.delivery_mode == DeliveryMode.instant:
         seller = await db.get(Account, product.seller_id)
         order = Order(
-            buyer_id=buyer_id, seller_id=product.seller_id, variant_id=variant_id,
+            buyer_id=buyer_id, seller_id=product.seller_id, variant_id=variant_id, product_id=product.id,
             quantity=quantity, total_amount=total, status=OrderStatus.delivered,
             display_fx_rate_snapshot=fx_snapshot,
             escrow_expires_at=datetime.now(timezone.utc) + timedelta(
@@ -83,7 +83,7 @@ async def create_order(buyer_id: int, variant_id: int, quantity: int, db: AsyncS
                                   "resource_ids": [r.id for r in resources]})
     else:
         order = Order(
-            buyer_id=buyer_id, seller_id=product.seller_id, variant_id=variant_id,
+            buyer_id=buyer_id, seller_id=product.seller_id, variant_id=variant_id, product_id=product.id,
             quantity=quantity, total_amount=total, status=OrderStatus.pending,
             display_fx_rate_snapshot=fx_snapshot,
         )
@@ -445,7 +445,7 @@ def spawn_provision(order_id: int) -> None:
 
 
 async def confirm_order(order_id: int, buyer_id: int, db: AsyncSession) -> Order:
-    order = await db.get(Order, order_id)
+    order = await db.get(Order, order_id, with_for_update=True)
     if not order:
         raise HTTPException(status_code=404, detail="Không tìm thấy đơn hàng")
     if order.buyer_id != buyer_id:

@@ -4,6 +4,8 @@ from fastapi import APIRouter, Depends, HTTPException, Query, Request, status
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from src.database import get_session
+from src.errors.codes import ErrorCode
+from src.errors.exceptions import api_error
 from src.models.account import Account
 from src.config import settings
 from src.rate_limit import check_rate_limit
@@ -47,6 +49,19 @@ async def _enforce_auth_limit(key: str, limit: int) -> None:
         )
 
 
+async def _authenticate_with_limits(
+    body: schemas.LoginRequest,
+    request: Request,
+    db: AsyncSession,
+) -> Account:
+    await _enforce_auth_limit(f"auth:login:ip:{_peer_ip(request)}", settings.auth_login_ip_limit)
+    await _enforce_auth_limit(
+        f"auth:login:account:{_email_bucket(body.email)}",
+        settings.auth_login_account_limit,
+    )
+    return await service.authenticate(body.email, body.password, db)
+
+
 @router.post("/auth/register", response_model=schemas.AccountResponse, status_code=status.HTTP_201_CREATED)
 async def register(
     body: schemas.RegisterRequest,
@@ -67,12 +82,28 @@ async def login(
     request: Request,
     db: AsyncSession = Depends(get_session),
 ):
-    await _enforce_auth_limit(f"auth:login:ip:{_peer_ip(request)}", settings.auth_login_ip_limit)
-    await _enforce_auth_limit(
-        f"auth:login:account:{_email_bucket(body.email)}",
-        settings.auth_login_account_limit,
-    )
-    account = await service.authenticate(body.email, body.password, db)
+    account = await _authenticate_with_limits(body, request, db)
+    if "admin" in account.roles:
+        raise api_error(ErrorCode.ADMIN_LOGIN_REQUIRED, status.HTTP_403_FORBIDDEN)
+    token = service.create_access_token(account.id, account.roles)
+    return schemas.TokenResponse(access_token=token)
+
+
+@router.post("/auth/admin/login", response_model=schemas.TokenResponse)
+async def admin_login(
+    body: schemas.LoginRequest,
+    request: Request,
+    db: AsyncSession = Depends(get_session),
+):
+    account = await _authenticate_with_limits(body, request, db)
+    if "admin" not in account.roles:
+        security_event(
+            "admin_login_rejected",
+            level="warning",
+            account_id=account.id,
+            reason="admin_role_required",
+        )
+        raise api_error(ErrorCode.ADMIN_ONLY, status.HTTP_403_FORBIDDEN)
     token = service.create_access_token(account.id, account.roles)
     return schemas.TokenResponse(access_token=token)
 

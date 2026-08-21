@@ -1,7 +1,22 @@
 import createMiddleware from "next-intl/middleware";
+import { NextRequest, NextResponse } from "next/server";
 import { routing } from "@/i18n/routing";
+import { adminRequestAllowed, isAdminPagePath } from "@/lib/admin-access";
 
-export default createMiddleware(routing);
+const handleI18n = createMiddleware(routing);
+
+export default function proxy(request: NextRequest) {
+  if (
+    isAdminPagePath(request.nextUrl.pathname, routing.locales)
+    && !adminRequestAllowed(request.headers)
+  ) {
+    return new NextResponse(null, {
+      status: 404,
+      headers: { "Cache-Control": "private, no-store" },
+    });
+  }
+  return handleI18n(request);
+}
 
 export const config = {
   matcher: ["/((?!api|_next|_vercel|.*\\..*).*)"],

@@ -5,7 +5,10 @@ import { useSearchParams } from "next/navigation";
 import { Suspense, useState } from "react";
 import { useTranslations } from "next-intl";
 import { useAuth } from "@/lib/auth";
+import { BCRYPT_MAX_BYTES, isCommonPassword, isValidEmail, PASSWORD_MAX_LENGTH, PASSWORD_MIN_LENGTH, passwordBytes } from "@/lib/auth-validation";
 import { getCookie } from "@/lib/utils";
+import { safeInternalRedirect } from "@/lib/safe-redirect";
+import { useApiErrorMessage } from "@/lib/use-api-error";
 import { Button, Card, Field, Input, Spinner } from "@/components/ui";
 import { Logo } from "@/components/Icons";
 
@@ -19,24 +22,41 @@ export default function RegisterPage() {
 
 function RegisterForm() {
   const t = useTranslations("auth");
+  const apiErrorMessage = useApiErrorMessage();
   const { register } = useAuth();
   const router = useRouter();
   const searchParams = useSearchParams();
-  const next = searchParams.get("next");
+  const next = safeInternalRedirect(searchParams.get("next"));
   const [email, setEmail] = useState("");
   const [password, setPassword] = useState("");
+  const [confirmPassword, setConfirmPassword] = useState("");
+  const [fieldErrors, setFieldErrors] = useState<{ email?: string; password?: string; confirmPassword?: string }>({});
   const [error, setError] = useState<string | null>(null);
   const [busy, setBusy] = useState(false);
 
   const submit = async (e: React.FormEvent) => {
     e.preventDefault();
-    setBusy(true); setError(null);
+    const errors: { email?: string; password?: string; confirmPassword?: string } = {};
+    if (!email.trim()) errors.email = t("emailRequired");
+    else if (!isValidEmail(email)) errors.email = t("emailInvalid");
+    if (!password) errors.password = t("passwordRequired");
+    else if (password.length < PASSWORD_MIN_LENGTH) errors.password = t("passwordMin", { min: PASSWORD_MIN_LENGTH });
+    else if (password.length > PASSWORD_MAX_LENGTH) errors.password = t("passwordTooLong", { max: PASSWORD_MAX_LENGTH });
+    else if (passwordBytes(password) > BCRYPT_MAX_BYTES) errors.password = t("passwordByteLimit", { max: BCRYPT_MAX_BYTES });
+    else if (isCommonPassword(password)) errors.password = t("passwordCommon");
+    if (!confirmPassword) errors.confirmPassword = t("confirmPasswordRequired");
+    else if (confirmPassword !== password) errors.confirmPassword = t("passwordMismatch");
+    setFieldErrors(errors);
+    if (Object.keys(errors).length > 0) return;
+
+    setBusy(true);
+    setError(null);
     try {
       const ref = getCookie("aff_ref");
-      await register(email, password, ref ?? undefined);
+      await register(email.trim(), password, ref ?? undefined);
       router.push(next || "/");
     } catch (err) {
-      setError(err instanceof Error ? err.message : t("registerFailed"));
+      setError(apiErrorMessage(err, t("registerFailed")));
     } finally {
       setBusy(false);
     }
@@ -50,10 +70,11 @@ function RegisterForm() {
           <h2 className="font-serif text-[26px] tracking-tight">{t("registerTitle")}</h2>
           <p className="text-[13px] text-muted">{t("registerSubtitle")}</p>
         </div>
-        <form onSubmit={submit} className="flex flex-col gap-4">
-          <Field label={t("email")}><Input type="email" required value={email} onChange={(e) => setEmail(e.target.value)} placeholder="you@company.com" autoComplete="email" /></Field>
-          <Field label={t("password")} hint={t("passwordHint")}><Input type="password" required minLength={8} value={password} onChange={(e) => setPassword(e.target.value)} placeholder="••••••••" autoComplete="new-password" /></Field>
-          {error && <p className="text-bad text-[13px]">{error}</p>}
+        <form onSubmit={submit} className="flex flex-col gap-4" noValidate>
+          <Field label={t("email")} error={fieldErrors.email}><Input type="email" required value={email} onChange={(e) => { setEmail(e.target.value); setFieldErrors((current) => ({ ...current, email: undefined })); }} placeholder="you@company.com" autoComplete="email" aria-invalid={Boolean(fieldErrors.email)} /></Field>
+          <Field label={t("password")} hint={t("passwordHint", { min: PASSWORD_MIN_LENGTH })} error={fieldErrors.password}><Input type="password" required minLength={PASSWORD_MIN_LENGTH} value={password} onChange={(e) => { setPassword(e.target.value); setFieldErrors((current) => ({ ...current, password: undefined })); }} placeholder="••••••••••••" autoComplete="new-password" aria-invalid={Boolean(fieldErrors.password)} /></Field>
+          <Field label={t("confirmPassword")} error={fieldErrors.confirmPassword}><Input type="password" required value={confirmPassword} onChange={(e) => { setConfirmPassword(e.target.value); setFieldErrors((current) => ({ ...current, confirmPassword: undefined })); }} placeholder="••••••••••••" autoComplete="new-password" aria-invalid={Boolean(fieldErrors.confirmPassword)} /></Field>
+          {error && <p className="text-bad text-[13px]" role="alert">{error}</p>}
           <Button type="submit" block size="lg" disabled={busy}>{busy ? t("creating") : t("registerTitle")}</Button>
         </form>
         <p className="text-center text-[13px] text-muted mt-6">

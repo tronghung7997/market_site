@@ -1,11 +1,11 @@
 from datetime import datetime
 
-from pydantic import BaseModel
+from pydantic import BaseModel, Field
 
 
 class ChargeUsageRequest(BaseModel):
     endpoint: str
-    units: int = 1
+    units: int = Field(default=1, ge=1)
     request_id: str | None = None
 
 

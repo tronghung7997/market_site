@@ -1,11 +1,11 @@
 from datetime import datetime
 
-from pydantic import BaseModel, model_validator
+from pydantic import BaseModel, Field, model_validator
 
 
 class OrderCreate(BaseModel):
     variant_id: int | None = None
-    quantity: int = 1
+    quantity: int = Field(default=1, ge=1, le=100)
     product_id: int | None = None
     user_config: dict | None = None
 

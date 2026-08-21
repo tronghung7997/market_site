@@ -117,6 +117,29 @@ async def test_charge_usage_deducts_and_hard_blocks_at_quota(client):
 
 
 @pytest.mark.asyncio
+async def test_negative_usage_units_are_rejected_without_granting_quota(client):
+    _, _, buyer_token, product_id = await setup_credit_product(client, package_size=5)
+    order = await buy_package(client, buyer_token, product_id, 5)
+
+    buyer_resp = await client.post(
+        f"/orders/{order['id']}/usage",
+        json={"endpoint": "profile", "units": -1},
+        headers={"Authorization": f"Bearer {buyer_token}"},
+    )
+    internal_resp = await client.post(
+        "/internal/usage/charge",
+        json={"order_id": order["id"], "endpoint": "profile", "units": -1},
+        headers=INTERNAL_HEADERS,
+    )
+    assert buyer_resp.status_code == 422
+    assert internal_resp.status_code == 422
+
+    async with SessionLocal() as db:
+        balance = await db.scalar(select(OrderBalance).where(OrderBalance.order_id == order["id"]))
+        assert balance.units_used == 0
+
+
+@pytest.mark.asyncio
 async def test_charge_usage_forbidden_for_non_owner(client):
     _, _, buyer_token, product_id = await setup_credit_product(client)
     order = await buy_package(client, buyer_token, product_id, 5)

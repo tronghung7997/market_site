@@ -74,6 +74,8 @@ async def charge_usage(
         )
     if units is None:
         units = resolve_endpoint_units(balance, endpoint)
+    if units < 1:
+        raise HTTPException(status_code=422, detail="Số đơn vị sử dụng phải lớn hơn 0")
 
     now = datetime.now(timezone.utc)
     if balance.expires_at and now > balance.expires_at:
@@ -121,6 +123,8 @@ async def refund_usage(
     charge_usage() call's `ok` row would still be sitting in the history
     after units_used was quietly decremented back, and the two would no
     longer add up to the balance."""
+    if units < 1:
+        raise HTTPException(status_code=422, detail="Số đơn vị hoàn phải lớn hơn 0")
     balance = await db.scalar(
         select(OrderBalance).where(OrderBalance.order_id == order_id).with_for_update()
     )

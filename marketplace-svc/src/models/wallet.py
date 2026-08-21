@@ -1,7 +1,7 @@
 from datetime import datetime
 from enum import Enum as PyEnum
 
-from sqlalchemy import DateTime, Enum, ForeignKey, Integer, String, Text, func
+from sqlalchemy import CheckConstraint, DateTime, Enum, ForeignKey, Index, Integer, String, Text, func, text
 from sqlalchemy.orm import Mapped, mapped_column
 
 from src.database import Base
@@ -69,6 +69,11 @@ class WithdrawStatus(str, PyEnum):
 
 class Wallet(Base):
     __tablename__ = "wallets"
+    __table_args__ = (
+        CheckConstraint("pending_balance >= 0", name="ck_wallets_pending_nonnegative"),
+        CheckConstraint("available_balance >= 0", name="ck_wallets_available_nonnegative"),
+        CheckConstraint("locked_balance >= 0", name="ck_wallets_locked_nonnegative"),
+    )
 
     id: Mapped[int] = mapped_column(primary_key=True)
     account_id: Mapped[int] = mapped_column(ForeignKey("accounts.id"), unique=True, nullable=False)
@@ -85,6 +90,16 @@ class Wallet(Base):
 
 class Transaction(Base):
     __tablename__ = "transactions"
+    __table_args__ = (
+        CheckConstraint("amount > 0", name="ck_transactions_amount_positive"),
+        Index(
+            "uq_transactions_type_reference",
+            "type",
+            "reference_id",
+            unique=True,
+            postgresql_where=text("reference_id IS NOT NULL"),
+        ),
+    )
 
     id: Mapped[int] = mapped_column(primary_key=True)
     wallet_id: Mapped[int] = mapped_column(ForeignKey("wallets.id"), nullable=False)
@@ -97,6 +112,7 @@ class Transaction(Base):
 
 class WithdrawRequest(Base):
     __tablename__ = "withdraw_requests"
+    __table_args__ = (CheckConstraint("amount > 0", name="ck_withdraw_requests_amount_positive"),)
 
     id: Mapped[int] = mapped_column(primary_key=True)
     account_id: Mapped[int] = mapped_column(ForeignKey("accounts.id"), nullable=False)

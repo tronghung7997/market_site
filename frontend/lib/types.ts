@@ -21,10 +21,18 @@ export interface ChatConversation {
   kind: "product_inquiry" | "order" | "support";
   status: "open" | "resolved" | "closed" | "blocked" | "read_only";
   product: { id: number; title: string; image: string | null } | null;
+  order: {
+    id: number;
+    status: string;
+    quantity: number;
+    total_amount: number;
+    cancel_reason: string | null;
+  } | null;
   counterpart: { id: number; label: string; role: "buyer" | "seller" | "admin" };
   last_message: ChatMessage | null;
   unread_count: number;
   can_send: boolean;
+  read_only_reason: string | null;
   created_at: string;
 }
 

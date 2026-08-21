@@ -5,6 +5,7 @@ from __future__ import annotations
 import hashlib
 import hmac
 import time
+from datetime import datetime, timedelta, timezone
 
 import pytest
 from sqlalchemy import select
@@ -149,6 +150,8 @@ async def test_create_api_key_success_returns_secret_once(client):
     assert body["api_key"].startswith("ak_live_")
     assert body["api_secret"].startswith("sk_live_")
     assert body["signing_version"] == "v1"
+    assert body["scopes"] == ["orders:read", "orders:write", "resources:write"]
+    assert datetime.fromisoformat(body["expires_at"]) > datetime.now(timezone.utc)
     assert body["key_prefix"].startswith(body["api_key"][:12])
     assert "key" not in body  # legacy field removed
 
@@ -160,6 +163,59 @@ async def test_create_api_key_success_returns_secret_once(client):
     assert "key" not in items[0]
     assert "key_hash" not in items[0]
     assert items[0]["signing_version"] == "v1"
+    assert items[0]["scopes"] == body["scopes"]
+    assert items[0]["expires_at"] == body["expires_at"]
+
+
+@pytest.mark.asyncio
+async def test_api_key_scope_is_enforced(client):
+    token = await _trusted_seller(client, "apikey_scope@example.com")
+    created = (
+        await client.post(
+            "/seller/api-keys",
+            json={"scopes": ["orders:read"]},
+            headers={"Authorization": f"Bearer {token}"},
+        )
+    ).json()
+
+    read_headers = _sign(
+        method="GET", path="/seller/orders",
+        api_key=created["api_key"], api_secret=created["api_secret"],
+    )
+    assert (await client.get("/seller/orders", headers=read_headers)).status_code == 200
+
+    write_headers = _sign(
+        method="POST", path="/seller/orders/999999/accept",
+        api_key=created["api_key"], api_secret=created["api_secret"],
+    )
+    assert (await client.post("/seller/orders/999999/accept", headers=write_headers)).status_code == 403
+
+
+@pytest.mark.asyncio
+async def test_expired_api_key_is_rejected(client):
+    token = await _trusted_seller(client, "apikey_expired@example.com")
+    created = (await client.post(
+        "/seller/api-keys", headers={"Authorization": f"Bearer {token}"},
+    )).json()
+    async with SessionLocal() as db:
+        row = await db.get(SellerApiKey, created["id"])
+        row.expires_at = datetime.now(timezone.utc) - timedelta(seconds=1)
+        await db.commit()
+
+    headers = _sign(
+        method="GET", path="/seller/orders",
+        api_key=created["api_key"], api_secret=created["api_secret"],
+    )
+    assert (await client.get("/seller/orders", headers=headers)).status_code == 401
+
+
+@pytest.mark.asyncio
+async def test_api_key_active_cap_is_enforced(client):
+    token = await _trusted_seller(client, "apikey_cap@example.com")
+    headers = {"Authorization": f"Bearer {token}"}
+    for _ in range(settings.seller_api_key_max_active):
+        assert (await client.post("/seller/api-keys", headers=headers)).status_code == 201
+    assert (await client.post("/seller/api-keys", headers=headers)).status_code == 409
 
 
 # ---------------------------------------------------------------------------

@@ -1,7 +1,7 @@
 from datetime import datetime
 from enum import Enum as PyEnum
 
-from sqlalchemy import DateTime, Enum, Float, ForeignKey, Integer, String, Text, func
+from sqlalchemy import CheckConstraint, DateTime, Enum, Float, ForeignKey, Integer, String, Text, func
 from sqlalchemy.dialects.postgresql import JSON, JSONB
 from sqlalchemy.orm import Mapped, mapped_column
 
@@ -33,6 +33,12 @@ class ServiceType(str, PyEnum):
 
 class Product(Base):
     __tablename__ = "products"
+    __table_args__ = (
+        CheckConstraint(
+            "commission_rate IS NULL OR (commission_rate >= 0 AND commission_rate <= 100)",
+            name="ck_products_commission_rate_range",
+        ),
+    )
 
     id: Mapped[int] = mapped_column(primary_key=True)
     seller_id: Mapped[int] = mapped_column(ForeignKey("accounts.id"), nullable=False)
@@ -64,6 +70,7 @@ class Product(Base):
 
 class ProductVariant(Base):
     __tablename__ = "product_variants"
+    __table_args__ = (CheckConstraint("price >= 0", name="ck_product_variants_price_nonnegative"),)
 
     id: Mapped[int] = mapped_column(primary_key=True)
     product_id: Mapped[int] = mapped_column(ForeignKey("products.id"), nullable=False)

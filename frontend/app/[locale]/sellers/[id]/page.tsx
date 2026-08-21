@@ -12,6 +12,7 @@ import { formatDate } from "@/lib/utils";
 import type { Category, Product, SellerProfile } from "@/lib/types";
 import { Card, Spinner, Tag } from "@/components/ui";
 import { Check, ChevronRight, Package, Shield, Star, Verified, X } from "@/components/Icons";
+import StartSellerInquiryDialog from "@/components/chat/StartSellerInquiryDialog";
 
 function stock(p: Product): number {
   return (p.variants ?? []).reduce((s, v) => s + (v.stock_count ?? 0), 0);
@@ -194,6 +195,9 @@ export default function SellerProfilePage() {
                 {seller.member_since && (
                   <span className="text-[12px] text-faint">{t("memberSince", { date: formatDate(seller.member_since) })}</span>
                 )}
+              </div>
+              <div className="mt-3">
+                <StartSellerInquiryDialog sellerId={seller.account_id} sellerName={displayName} products={products} />
               </div>
             </div>
           </div>

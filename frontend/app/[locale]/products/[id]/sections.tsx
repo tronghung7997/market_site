@@ -11,8 +11,9 @@ import { serviceLabel } from "@/lib/labels";
 import { formatSpecKey as fmtKey } from "@/lib/utils";
 import type { Product, ProductDetail } from "@/lib/types";
 import { Card, Tag } from "@/components/ui";
-import { Bolt, Check, MessageCircle, Shield, Star, Verified } from "@/components/Icons";
+import { Bolt, Check, Shield, Star, Verified } from "@/components/Icons";
 import { MarkdownContent } from "@/components/MarkdownContent";
+import StartInquiryDialog from "@/components/chat/StartInquiryDialog";
 
 export function SectionHead({ title, aside }: { title: string; aside?: ReactNode }) {
   return (
@@ -67,12 +68,9 @@ export function ProductIdentity({ product }: { product: ProductDetail }) {
           </div>
           <div className="text-[11.5px] text-faint mt-0.5">{t("shopOnProxora")}</div>
         </div>
-        <Link
-          href={`/sellers/${product.seller_id}`}
-          className="shrink-0 flex items-center gap-1.5 text-[12.5px] font-medium text-iris-hi hover:underline"
-        >
-          <MessageCircle size={12} /> {t("messageSeller")}
-        </Link>
+        <div className="ml-auto shrink-0">
+          <StartInquiryDialog productId={product.id} compact />
+        </div>
       </div>
 
       {product.highlight_text && (

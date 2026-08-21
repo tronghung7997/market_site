@@ -15,6 +15,7 @@ import ServiceDashboard from "@/components/ServiceDashboard";
 import { StatusTimeline, OrderResources, OrderDispute } from "@/components/orders/OrderCardPrimitives";
 import { Button, Card, Disclosure, Field, Monogram, Tag, Textarea } from "@/components/ui";
 import { Check } from "@/components/Icons";
+import OrderChatButton from "@/components/chat/OrderChatButton";
 
 /** Gợi ý hành động — khác `orderStatus().hint` (viết cho buyer, "Người bán
  *  đang chuẩn bị đơn của bạn" vô nghĩa khi seller đọc chính đơn của mình). */
@@ -86,6 +87,8 @@ export default function SellerOrderCard({
         </div>
 
         {sellerHint && <p className="text-[12px] text-muted mt-2.5">{sellerHint}</p>}
+
+        {!['cancelled', 'refunded'].includes(o.status) && <div className="mt-3"><OrderChatButton orderId={o.id} perspective="seller" /></div>}
 
         {o.status === "disputed" && <OrderDispute orderId={o.id} initialDispute={dispute} />}
 

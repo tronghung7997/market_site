@@ -9,6 +9,7 @@ import { cn } from "@/lib/cn";
 import { useWalletBalance } from "@/hooks/use-wallet";
 import { Bolt, Globe, Logo, Menu, Plus, Wallet, X } from "./Icons";
 import NotificationBell from "./NotificationBell";
+import MessageShortcut from "./chat/MessageShortcut";
 import CurrencyToggle from "./CurrencyToggle";
 import { Button } from "./ui";
 
@@ -71,6 +72,7 @@ export default function TopNav() {
   const languageLabel = locale === "vi" ? "Ngôn ngữ" : "Language";
   const navLinks = [{ href: "/", label: t("marketplace") }, { href: "/categories", label: t("categories") }];
   const accountLinks = [
+    { href: "/messages", label: locale === "vi" ? "Tin nhắn" : "Messages", auth: true },
     { href: "/orders", label: t("orders"), auth: true }, { href: "/wallet", label: t("wallet"), auth: true },
     { href: "/affiliate", label: t("affiliate"), auth: true }, { href: "/seller", label: t("seller"), role: "seller" },
     { href: "/seller/apply", label: t("becomeSeller"), auth: true, hideIfRole: "seller" }, { href: "/admin", label: t("admin"), role: "admin" },
@@ -147,6 +149,7 @@ export default function TopNav() {
                   {balance === null ? "—" : formatBrowseMoney(balance, { locale })}
                 </span>
               </Link>
+              <MessageShortcut perspective="buyer" href="/messages" />
               <NotificationBell endpoint="buyer" />
               {/* ≤375px: only menu/logo/bell/avatar in chrome — Top up lives in account menu */}
               <Link href="/wallet" className="hidden min-[400px]:block">

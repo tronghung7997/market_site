@@ -164,6 +164,7 @@ async def provision_sweep_job() -> None:
             select(Order).where(
                 Order.status == OrderStatus.pending,
                 Order.product_id.isnot(None),
+                Order.variant_id.is_(None),
                 Order.created_at <= retry_before,
             ).with_for_update(skip_locked=True)
         )

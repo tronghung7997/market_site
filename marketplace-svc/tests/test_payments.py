@@ -118,6 +118,18 @@ async def _post_webhook(
 
 
 class TestSePayUnit:
+    def test_reconciliation_config_accepts_db_destination(self, monkeypatch):
+        monkeypatch.setattr(settings, "sepay_bank_code", "")
+        monkeypatch.setattr(settings, "sepay_bank_account_number", "")
+        monkeypatch.setattr(settings, "sepay_bank_account_name", "")
+        monkeypatch.setattr(settings, "sepay_bank_account_id", "")
+        assert sepay_client.is_reconciliation_configured(
+            bank_code="BIDV",
+            account_number="8865142865",
+            account_name="NGUYEN NHAT DUY",
+            account_id="0df35cd9-922e-11f1-b21a-a6006ab65aca",
+        )
+
     def test_api_base_url_normalizes_version_suffix(self, monkeypatch):
         monkeypatch.setattr(settings, "sepay_api_base_url", "https://userapi.sepay.vn/v2/")
         assert sepay_client._api_base_url() == "https://userapi.sepay.vn"

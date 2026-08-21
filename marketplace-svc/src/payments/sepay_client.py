@@ -173,15 +173,22 @@ async def list_matching_transactions(
     payment_code: str,
     amount: int,
     created_at: datetime,
+    bank_code: str | None = None,
     bank_account_id: str | None = None,
     bank_account_number: str | None = None,
+    bank_account_name: str | None = None,
 ) -> list[dict]:
     """Return API v2 transactions that exactly match one deposit intent.
 
     SePay's ``q`` parameter is a contains-search, so all security-sensitive
     fields are checked again locally before a transaction is eligible.
     """
-    if not is_reconciliation_configured(account_id=bank_account_id):
+    if not is_reconciliation_configured(
+        bank_code=bank_code,
+        account_number=bank_account_number,
+        account_name=bank_account_name,
+        account_id=bank_account_id,
+    ):
         raise SePayError("SePay API reconciliation is not configured")
 
     local_created = created_at.astimezone(_HCM)

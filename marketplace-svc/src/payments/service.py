@@ -1074,8 +1074,10 @@ async def _reconcile_sepay(intent: DepositIntent, db: AsyncSession) -> dict:
             payment_code=intent.payment_code,
             amount=intent.amount,
             created_at=intent.created_at - timedelta(minutes=5),
+            bank_code=intent.bank_code or rail.sepay_bank_code,
             bank_account_id=intent.sepay_bank_account_id or rail.sepay_bank_account_id,
-            bank_account_number=rail.sepay_bank_account_number,
+            bank_account_number=intent.bank_account_number or rail.sepay_bank_account_number,
+            bank_account_name=intent.bank_account_name or rail.sepay_bank_account_name,
         )
     except (sepay_client.SePayError, sepay_client.SePayUnavailableError) as exc:
         outcome = _reconcile_outcome(

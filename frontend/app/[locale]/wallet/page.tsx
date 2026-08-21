@@ -89,7 +89,13 @@ export default function WalletPage() {
           {isSeller && <WithdrawHistory withdrawals={withdrawals} />}
         </div>
 
-        <TransactionList txs={txs} />
+        <div className="min-w-0">
+          <div className="mb-3 flex items-center justify-between">
+            <span className="text-[13px] font-semibold">{t("txTitle")}</span>
+            <Button variant="ghost" size="sm" onClick={() => router.push("/transactions")}>{t("txViewAll")}</Button>
+          </div>
+          <TransactionList txs={txs.slice(0, 6)} showHeader={false} />
+        </div>
       </div>
     </div>
   );

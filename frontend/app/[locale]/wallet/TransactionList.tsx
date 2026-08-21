@@ -20,7 +20,7 @@ const HOLD_TONE: Record<string, Tone> = {
   disputed: "warn", refunded: "neutral", cancelled: "neutral",
 };
 
-export default function TransactionList({ txs }: { txs: Transaction[] }) {
+export default function TransactionList({ txs, showHeader = true }: { txs: Transaction[]; showHeader?: boolean }) {
   const t = useTranslations("wallet");
   const locale = useLocale();
   const { formatBrowseMoney } = useMoney();
@@ -49,7 +49,8 @@ export default function TransactionList({ txs }: { txs: Transaction[] }) {
         };
       }
       if (
-        blob.includes("payos")
+        blob.includes("sepay")
+        || blob.includes("payos")
         || blob.includes("chuyển khoản")
         || blob.includes("bank")
         || blob.includes("cknh")
@@ -74,10 +75,10 @@ export default function TransactionList({ txs }: { txs: Transaction[] }) {
 
   return (
     <div className="min-w-0">
-      <div className="flex items-center justify-between mb-3">
+      {showHeader && <div className="flex items-center justify-between mb-3">
         <h3 className="text-[13px] font-semibold">{t("txTitle")}</h3>
         <span className="text-[12px] text-muted">{t("txCount", { count: txs.length })}</span>
-      </div>
+      </div>}
 
       {txs.length > 0 && (
         <div className="grid grid-cols-2 gap-3 mb-4">
@@ -107,17 +108,20 @@ export default function TransactionList({ txs }: { txs: Transaction[] }) {
               const description = tx.description ?? (t.has(typeKey) ? t(typeKey) : tx.type);
               const status = describeTransaction(tx);
               return (
-                <div key={tx.id} className="flex items-center gap-4 px-5 py-3.5">
+                <div
+                  key={tx.id}
+                  className="grid grid-cols-[36px_minmax(0,1fr)_auto] items-center gap-x-3 gap-y-1 px-4 py-3.5 sm:flex sm:gap-4 sm:px-5"
+                >
                   <div className={cn(
-                    "grid place-items-center h-9 w-9 shrink-0 rounded-lg text-[13px] font-bold",
+                    "row-span-2 grid h-9 w-9 shrink-0 place-items-center rounded-lg text-[13px] font-bold",
                     tx.direction === "in" ? "bg-good-soft text-good"
                       : tx.direction === "out" ? "bg-bad-soft text-bad"
                       : "bg-raised text-faint",
                   )}>
                     {sign}
                   </div>
-                  <div className="min-w-0 flex-1">
-                    <div className="flex items-center gap-2">
+                  <div className="min-w-0 sm:flex-1">
+                    <div className="flex min-w-0 items-center gap-1.5 sm:gap-2">
                       <Tooltip text={description}>
                         <span className="min-w-0 text-[13px] font-medium truncate cursor-default">
                           {description}
@@ -125,14 +129,18 @@ export default function TransactionList({ txs }: { txs: Transaction[] }) {
                       </Tooltip>
                       <Tag tone={status.tone} className="shrink-0">{status.label}</Tag>
                     </div>
-                    <div className="flex items-center gap-3 mt-1 text-[11.5px] text-faint">
+                    <div className="mt-1 flex min-w-0 flex-wrap items-center gap-x-2 gap-y-0.5 text-[11px] text-faint sm:gap-3 sm:text-[11.5px]">
                       <span>{date.toLocaleDateString(loc, { day: "2-digit", month: "2-digit", year: "numeric" })}</span>
                       <span>{date.toLocaleTimeString(loc, { hour: "2-digit", minute: "2-digit", second: "2-digit" })}</span>
-                      {tx.reference_id && <span className="font-mono">Ref: {tx.reference_id}</span>}
+                      {tx.reference_id && (
+                        <span className="basis-full truncate font-mono sm:basis-auto">
+                          Ref: {tx.reference_id}
+                        </span>
+                      )}
                     </div>
                   </div>
                   <span className={cn(
-                    "font-mono text-[14px] font-semibold tabular shrink-0 w-[112px] text-right",
+                    "shrink-0 self-start pt-0.5 text-right font-mono text-[14px] font-semibold tabular sm:w-[112px]",
                     tx.direction === "in" ? "text-good" : tx.direction === "out" ? "text-bad" : "text-faint",
                   )}>
                     {tx.direction === "neutral" ? "" : sign}{formatBrowseMoney(tx.amount, { locale })}

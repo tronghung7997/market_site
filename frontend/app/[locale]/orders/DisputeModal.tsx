@@ -7,15 +7,29 @@ import { EVIDENCE_TYPE_KEYS } from "@/lib/dispute-evidence";
 import { Button, Input, Select, Textarea } from "@/components/ui";
 import { Dialog, DialogContent, DialogTitle } from "@/components/ui/dialog";
 
-export default function DisputeModal({ orderId, onClose, onSuccess }: {
-  orderId: number; onClose: () => void; onSuccess: () => void;
+export default function DisputeModal({
+  orderId,
+  variantName,
+  initialReason,
+  initialEvidenceType,
+  initialEvidence,
+  onClose,
+  onSuccess,
+}: {
+  orderId: number;
+  variantName?: string | null;
+  initialReason?: string;
+  initialEvidenceType?: string;
+  initialEvidence?: Record<string, string>;
+  onClose: () => void;
+  onSuccess: () => void;
 }) {
   const t = useTranslations("orders");
   const tc = useTranslations("common");
   const te = useTranslations("errors");
-  const [reason, setReason] = useState("");
-  const [evidenceType, setEvidenceType] = useState("");
-  const [evidenceValues, setEvidenceValues] = useState<Record<string, string>>({});
+  const [reason, setReason] = useState(initialReason ?? (variantName ? `[Gói: ${variantName}] ` : ""));
+  const [evidenceType, setEvidenceType] = useState(initialEvidenceType ?? "account");
+  const [evidenceValues, setEvidenceValues] = useState<Record<string, string>>(initialEvidence ?? {});
   const [submitting, setSubmitting] = useState(false);
   const [error, setError] = useState("");
 

@@ -5,24 +5,40 @@ import { useSearchParams } from "next/navigation";
 import { useLocale, useTranslations } from "next-intl";
 import { useCallback, useEffect, useState } from "react";
 import { useQueryClient } from "@tanstack/react-query";
+import {
+  Eye,
+  Download,
+  Copy,
+  MessageSquare,
+  AlertTriangle,
+  Search,
+  Calendar,
+  ShieldCheck,
+  Check,
+  Layers,
+  Sparkles,
+  X,
+} from "lucide-react";
 import { api } from "@/lib/api";
 import { useAuth } from "@/lib/auth";
 import { useMoney } from "@/lib/money";
 import { cn } from "@/lib/cn";
+import { orderStatus } from "@/lib/order-status";
+import { formatDate, formatDateTime } from "@/lib/utils";
 import { queryKeys } from "@/lib/query-keys";
 import { useOrders, useOrderStats } from "@/hooks/use-orders";
-import type { PaginatedOrderResponse } from "@/lib/types";
-import { Button, Card, Pagination, Spinner } from "@/components/ui";
-import OrderCard, { TerminalOrderRow } from "./OrderCard";
+import type { Order, PaginatedOrderResponse } from "@/lib/types";
+import { Button, Card, Pagination, Spinner, Tag } from "@/components/ui";
 import DisputeModal from "./DisputeModal";
-import { FilterCard, PER_PAGE_OPTIONS, StatusTabs, useOrderFilters } from "./OrderFilters";
+import OrderDetailsModal from "./OrderDetailsModal";
+import { PER_PAGE_OPTIONS, useOrderFilters } from "./OrderFilters";
 
 export default function OrdersPage() {
   const t = useTranslations("orders");
   const tc = useTranslations("common");
   const te = useTranslations("errors");
   const locale = useLocale();
-  const { formatBrowseMoney } = useMoney();
+  const { formatBrowseMoney, formatOrderHistoryMoney } = useMoney();
   const { account, loading: authLoading } = useAuth();
   const router = useRouter();
   const searchParams = useSearchParams();
@@ -35,23 +51,43 @@ export default function OrdersPage() {
   const total = ordersQuery.data?.total ?? 0;
   const loading = ordersQuery.isPending;
   const stats = statsQuery.data ?? null;
-  const [disputeOrderId, setDisputeOrderId] = useState<number | null>(null);
+
+  const [selectedOrder, setSelectedOrder] = useState<Order | null>(null);
+  const [disputeTarget, setDisputeTarget] = useState<{
+    orderId: number;
+    variantName?: string | null;
+    initialReason?: string;
+    initialEvidence?: Record<string, string>;
+  } | null>(null);
+
   const [confirmingId, setConfirmingId] = useState<number | null>(null);
   const [toast, setToast] = useState("");
-  const [reviewOrderId, setReviewOrderId] = useState<number | null>(null);
   const [reviewedOrders, setReviewedOrders] = useState<Set<number>>(new Set());
   const [plateOrders, setPlateOrders] = useState<Set<number>>(new Set());
+  const [copiedOrderId, setCopiedOrderId] = useState<number | null>(null);
+
   const handlePlate = useCallback((id: number) => {
     setPlateOrders((prev) => (prev.has(id) ? prev : new Set(prev).add(id)));
   }, []);
-  const handleDelivered = useCallback((id: number, deliveredData: string) => {
-    queryClient.setQueryData<PaginatedOrderResponse>(
-      queryKeys.orders(filters.params as Record<string, unknown>),
-      (prev) => prev
-        ? { ...prev, items: prev.items.map((ord) => (ord.id === id ? { ...ord, delivered_data: deliveredData } : ord)) }
-        : prev,
-    );
-  }, [queryClient, filters.params]);
+
+  const handleDelivered = useCallback(
+    (id: number, deliveredData: string) => {
+      queryClient.setQueryData<PaginatedOrderResponse>(
+        queryKeys.orders(filters.params as Record<string, unknown>),
+        (prev) =>
+          prev
+            ? {
+                ...prev,
+                items: prev.items.map((ord) => (ord.id === id ? { ...ord, delivered_data: deliveredData } : ord)),
+              }
+            : prev,
+      );
+      if (selectedOrder?.id === id) {
+        setSelectedOrder((prev) => (prev ? { ...prev, delivered_data: deliveredData } : prev));
+      }
+    },
+    [queryClient, filters.params, selectedOrder?.id],
+  );
 
   useEffect(() => {
     if (authLoading) return;
@@ -70,6 +106,9 @@ export default function OrdersPage() {
       showToast(t("confirmSuccess"));
       queryClient.invalidateQueries({ queryKey: ["orders"] });
       queryClient.invalidateQueries({ queryKey: queryKeys.orderStats() });
+      if (selectedOrder?.id === orderId) {
+        setSelectedOrder((prev) => (prev ? { ...prev, status: "completed" } : prev));
+      }
     } catch (e: unknown) {
       showToast(e instanceof Error ? e.message : te("UNKNOWN"));
     } finally {
@@ -81,156 +120,542 @@ export default function OrdersPage() {
     showToast(message);
     if (ok) {
       setReviewedOrders((prev) => new Set(prev).add(orderId));
-      setReviewOrderId(null);
     }
   }
 
   function handleDisputeSuccess() {
-    setDisputeOrderId(null);
+    setDisputeTarget(null);
     showToast(t("disputeSuccess"));
     queryClient.invalidateQueries({ queryKey: ["orders"] });
     queryClient.invalidateQueries({ queryKey: queryKeys.orderStats() });
+    if (selectedOrder?.id) {
+      setSelectedOrder((prev) => (prev ? { ...prev, status: "disputed", has_dispute: true } : prev));
+    }
   }
+
+  const handleCopyAll = (o: Order) => {
+    if (!o.delivered_data) return;
+    navigator.clipboard.writeText(o.delivered_data);
+    setCopiedOrderId(o.id);
+    showToast(t("copiedExclaim") || "Đã sao chép toàn bộ dữ liệu!");
+    setTimeout(() => setCopiedOrderId(null), 2000);
+  };
+
+  const handleDownload = (o: Order) => {
+    if (!o.delivered_data) return;
+    const blob = new Blob([o.delivered_data], { type: "text/plain;charset=utf-8" });
+    const url = URL.createObjectURL(blob);
+    const a = document.createElement("a");
+    a.href = url;
+    a.download = `DonHang_${o.id}_${o.quantity}_tai_khoan.txt`;
+    a.click();
+    URL.revokeObjectURL(url);
+  };
 
   const totalPages = Math.max(1, Math.ceil(total / filters.perPage));
 
-  const tabCounts: Record<string, number | undefined> = {
-    "": stats?.total,
-    active: stats?.active,
-    disputed: stats?.disputed,
-    deleted: undefined,
-  };
-
-  if (authLoading) return <div className="w-full mx-auto max-w-[920px] px-6 py-16"><Spinner /></div>;
+  if (authLoading) {
+    return (
+      <div className="w-full mx-auto max-w-[920px] px-6 py-16">
+        <Spinner />
+      </div>
+    );
+  }
 
   return (
-    <div className="w-full mx-auto max-w-[1200px] px-6 py-10">
+    <div className="w-full mx-auto max-w-7xl px-4 sm:px-6 py-8 space-y-6">
       {toast && (
-        <div className="fixed top-5 right-5 z-50 px-4 py-2.5 rounded-lg text-[13px] font-medium shadow-card-lg bg-good text-white">
+        <div className="fixed top-5 right-5 z-50 px-4 py-2.5 rounded-xl text-[13px] font-semibold shadow-card-lg bg-good text-white animate-in fade-in slide-in-from-top-2 duration-200">
           {toast}
         </div>
       )}
 
-      {disputeOrderId !== null && (
-        <DisputeModal orderId={disputeOrderId} onClose={() => setDisputeOrderId(null)} onSuccess={handleDisputeSuccess} />
+      {/* DISPUTE MODAL (TARGETED DISPUTE SUPPORT) */}
+      {disputeTarget !== null && (
+        <DisputeModal
+          orderId={disputeTarget.orderId}
+          variantName={disputeTarget.variantName}
+          initialReason={disputeTarget.initialReason}
+          initialEvidence={disputeTarget.initialEvidence}
+          onClose={() => setDisputeTarget(null)}
+          onSuccess={handleDisputeSuccess}
+        />
       )}
 
-      <div className="grid lg:grid-cols-[260px_1fr] gap-6 min-w-0">
-        <aside className="min-w-0 lg:sticky lg:top-24 lg:self-start space-y-4">
-          <div>
-            <h2 className="font-serif text-[24px] tracking-tight">{t("title")}</h2>
-            <p className="text-[12.5px] text-muted mt-0.5">{t("subtitle")}</p>
-          </div>
+      {/* COMPREHENSIVE ORDER DETAILS & 1000-ITEM INSPECTOR MODAL */}
+      {selectedOrder !== null && (
+        <OrderDetailsModal
+          order={selectedOrder}
+          onClose={() => setSelectedOrder(null)}
+          onConfirm={handleConfirm}
+          confirming={confirmingId === selectedOrder.id}
+          onOpenDispute={(orderId, options) => {
+            setDisputeTarget({
+              orderId,
+              variantName: options?.variantName ?? selectedOrder.variant_name,
+              initialReason: options?.initialReason,
+              initialEvidence: options?.initialEvidence,
+            });
+          }}
+          onOpenReview={() => {}}
+          reviewDone={!!selectedOrder.has_review || reviewedOrders.has(selectedOrder.id)}
+          onReviewDone={handleReviewDone}
+          onDelivered={handleDelivered}
+          onPlate={handlePlate}
+        />
+      )}
 
-          {stats && (
-            <Card className="px-4 py-3.5">
-              <dl className="text-[12.5px] space-y-2">
-                <div className="flex items-baseline justify-between">
-                  <dt className="text-muted">{t("totalOrders")}</dt>
-                  <dd className="font-semibold tabular">{stats.total}</dd>
-                </div>
-                <div className="flex items-baseline justify-between">
-                  <dt className="text-muted">{t("active")}</dt>
-                  <dd className={cn("font-semibold tabular", stats.active > 0 ? "text-iris-hi" : "")}>{stats.active}</dd>
-                </div>
-                <div className="flex items-baseline justify-between">
-                  <dt className="text-muted">{t("disputed")}</dt>
-                  <dd className={cn("font-semibold tabular", stats.disputed > 0 ? "text-bad" : "")}>{stats.disputed}</dd>
-                </div>
-                <div className="flex items-baseline justify-between border-t border-dashed border-line-2 pt-2.5 mt-2.5">
-                  <dt className="text-muted">{t("spent")}</dt>
-                  <dd className="font-mono font-semibold tabular text-[13px]">{formatBrowseMoney(stats.total_spend, { locale })}</dd>
-                </div>
-              </dl>
-            </Card>
-          )}
-
-          <StatusTabs filters={filters} counts={tabCounts} />
-          <FilterCard filters={filters} />
-        </aside>
-
-        <div className="min-w-0">
-          {loading ? (
-            <div className="flex flex-col gap-3.5">
-              {Array.from({ length: 3 }).map((_, i) => (
-                <Card key={i} className="p-5">
-                  <div className="flex items-start gap-3">
-                    <div className="h-11 w-11 shrink-0 rounded-lg bg-raised animate-shimmer" />
-                    <div className="flex-1 space-y-2 pt-1">
-                      <div className="h-4 w-1/3 rounded bg-raised animate-shimmer" />
-                      <div className="h-3 w-1/2 rounded bg-raised animate-shimmer" />
-                    </div>
-                    <div className="h-5 w-24 rounded bg-raised animate-shimmer" />
-                  </div>
-                </Card>
-              ))}
-            </div>
-          ) : orders.length === 0 ? (
-            <Card className="p-8 flex flex-col items-center gap-3 text-center">
-              <p className="text-[13px] text-muted">
-                {filters.hasFilters || filters.tab !== "" ? t("emptyFiltered") : t("empty")}
-              </p>
-              {filters.hasFilters ? (
-                <Button variant="secondary" size="sm" onClick={filters.clear}>{t("clearFilters")}</Button>
-              ) : (
-                <Link href="/"><Button size="sm">{t("explore")}</Button></Link>
-              )}
-            </Card>
-          ) : (
-            <div className="flex flex-col gap-3.5">
-              {orders.map((o) =>
-                o.status === "cancelled" || o.status === "refunded" ? (
-                  <TerminalOrderRow key={o.id} order={o} />
-                ) : (
-                  <OrderCard
-                    key={o.id}
-                    order={o}
-                    confirming={confirmingId === o.id}
-                    plateHidden={plateOrders.has(o.id)}
-                    reviewOpen={reviewOrderId === o.id}
-                    reviewDone={!!o.has_review || reviewedOrders.has(o.id)}
-                    onConfirm={handleConfirm}
-                    onOpenDispute={setDisputeOrderId}
-                    onOpenReview={setReviewOrderId}
-                    onReviewDone={handleReviewDone}
-                    onCloseReview={() => setReviewOrderId(null)}
-                    onDelivered={handleDelivered}
-                    onPlate={handlePlate}
-                  />
-                ),
-              )}
-            </div>
-          )}
-
-          {!loading && total > 0 && (
-            <div className="mt-6 space-y-3">
-              <div className="flex flex-wrap items-center justify-between gap-3 min-w-0">
-                <span className="text-[12px] text-faint tabular min-w-0">
-                  {t("showing", {
-                    from: (filters.page - 1) * filters.perPage + 1,
-                    to: Math.min(filters.page * filters.perPage, total),
-                    total,
-                  })}
-                </span>
-                <Pagination page={filters.page} totalPages={totalPages} onChange={filters.setPage} />
-              </div>
-              {/* Per-page control under pagination so narrow screens don't overflow */}
-              <div className="flex justify-end">
-                <select
-                  value={filters.perPage}
-                  onChange={(e) => filters.setPerPage(Number(e.target.value))}
-                  aria-label={t("perPageAria")}
-                  className="h-8 max-w-full rounded-lg bg-surface border border-line px-2 text-[12px] text-muted cursor-pointer focus:outline-none focus:border-iris"
-                >
-                  {PER_PAGE_OPTIONS.map((n) => (
-                    <option key={n} value={n}>{tc("perPage", { n })}</option>
-                  ))}
-                </select>
-              </div>
-            </div>
-          )}
+      {/* PAGE HEADER */}
+      <div className="flex flex-wrap items-center justify-between gap-4">
+        <div>
+          <h1 className="text-[22px] font-bold text-fg tracking-tight">{t("title")}</h1>
+          <p className="text-[12.5px] text-muted mt-0.5">{t("subtitle")}</p>
         </div>
       </div>
+
+      {/* TOP KPI STAT CARDS (Interactive filters) */}
+      {stats && (
+        <div className="grid grid-cols-1 gap-3 sm:grid-cols-2 lg:grid-cols-4">
+          {/* Card 1: Total Orders */}
+          <div
+            role="button"
+            tabIndex={0}
+            onClick={() => filters.setTab("")}
+            className={cn(
+              "rounded-2xl border border-line bg-surface p-4 shadow-xs flex items-center justify-between gap-3.5 cursor-pointer select-none transition-all duration-200 hover:-translate-y-0.5 hover:shadow-card-lg",
+              filters.tab === ""
+                ? "ring-2 ring-iris border-iris bg-iris-soft/25 shadow-md"
+                : "hover:border-line-2"
+            )}
+          >
+            <div className="flex items-center gap-3.5 min-w-0">
+              <div className="flex h-11 w-11 shrink-0 items-center justify-center rounded-xl bg-iris-soft text-iris font-semibold text-xl">
+                📦
+              </div>
+              <div className="min-w-0">
+                <div className="text-[11px] font-medium uppercase tracking-wider text-muted truncate">{t("totalOrders")}</div>
+                <div className="font-mono text-[22px] font-bold text-fg tabular">{stats.total} <span className="text-[11.5px] font-normal text-muted">đơn</span></div>
+              </div>
+            </div>
+            <div className="text-right shrink-0">
+              {filters.tab === "" ? (
+                <span className="inline-flex items-center gap-1 rounded-md bg-iris px-2 py-0.5 text-[10.5px] font-bold text-white shadow-xs">
+                  ● Tất cả
+                </span>
+              ) : (
+                <span className="text-[11px] text-faint hover:text-fg">Lọc</span>
+              )}
+            </div>
+          </div>
+
+          {/* Card 2: Active Orders */}
+          <div
+            role="button"
+            tabIndex={0}
+            onClick={() => filters.setTab(filters.tab === "active" ? "" : "active")}
+            className={cn(
+              "rounded-2xl border border-line bg-surface p-4 shadow-xs flex items-center justify-between gap-3.5 cursor-pointer select-none transition-all duration-200 hover:-translate-y-0.5 hover:shadow-card-lg",
+              filters.tab === "active"
+                ? "ring-2 ring-good border-good bg-good-soft/25 shadow-md"
+                : "hover:border-line-2"
+            )}
+          >
+            <div className="flex items-center gap-3.5 min-w-0">
+              <div className="flex h-11 w-11 shrink-0 items-center justify-center rounded-xl bg-good-soft text-good font-semibold text-xl">
+                ✓
+              </div>
+              <div className="min-w-0">
+                <div className="text-[11px] font-medium uppercase tracking-wider text-muted truncate">{t("active")}</div>
+                <div className="font-mono text-[22px] font-bold text-good tabular">{stats.active} <span className="text-[11.5px] font-normal text-muted">đơn</span></div>
+              </div>
+            </div>
+            <div className="text-right shrink-0">
+              {filters.tab === "active" ? (
+                <span className="inline-flex items-center gap-1 rounded-md bg-good px-2 py-0.5 text-[10.5px] font-bold text-white shadow-xs">
+                  ● Đang lọc
+                </span>
+              ) : (
+                <span className="text-[11px] text-faint hover:text-fg">Lọc</span>
+              )}
+            </div>
+          </div>
+
+          {/* Card 3: Disputed Orders */}
+          <div
+            role="button"
+            tabIndex={0}
+            onClick={() => filters.setTab(filters.tab === "disputed" ? "" : "disputed")}
+            className={cn(
+              "rounded-2xl border border-line bg-surface p-4 shadow-xs flex items-center justify-between gap-3.5 cursor-pointer select-none transition-all duration-200 hover:-translate-y-0.5 hover:shadow-card-lg",
+              filters.tab === "disputed"
+                ? "ring-2 ring-bad border-bad bg-bad-soft/25 shadow-md"
+                : "hover:border-line-2"
+            )}
+          >
+            <div className="flex items-center gap-3.5 min-w-0">
+              <div className="flex h-11 w-11 shrink-0 items-center justify-center rounded-xl bg-bad-soft text-bad font-semibold text-xl">
+                ⚠️
+              </div>
+              <div className="min-w-0">
+                <div className="text-[11px] font-medium uppercase tracking-wider text-muted truncate">{t("disputed")}</div>
+                <div className="font-mono text-[22px] font-bold text-bad tabular">{stats.disputed} <span className="text-[11.5px] font-normal text-muted">đơn</span></div>
+              </div>
+            </div>
+            <div className="text-right shrink-0">
+              {filters.tab === "disputed" ? (
+                <span className="inline-flex items-center gap-1 rounded-md bg-bad px-2 py-0.5 text-[10.5px] font-bold text-white shadow-xs">
+                  ● Đang lọc
+                </span>
+              ) : (
+                <span className="text-[11px] text-faint hover:text-fg">Lọc</span>
+              )}
+            </div>
+          </div>
+
+          {/* Card 4: Total Spent */}
+          <div
+            role="button"
+            tabIndex={0}
+            onClick={() => {
+              filters.clear();
+              filters.setTab("");
+            }}
+            className={cn(
+              "rounded-2xl border border-line bg-surface p-4 shadow-xs flex items-center justify-between gap-3.5 cursor-pointer select-none transition-all duration-200 hover:-translate-y-0.5 hover:shadow-card-lg hover:border-line-2"
+            )}
+          >
+            <div className="flex items-center gap-3.5 min-w-0">
+              <div className="flex h-11 w-11 shrink-0 items-center justify-center rounded-xl bg-raised text-iris font-semibold text-xl">
+                💳
+              </div>
+              <div className="min-w-0">
+                <div className="text-[11px] font-medium uppercase tracking-wider text-muted truncate">{t("spent")}</div>
+                <div className="font-mono text-[20px] font-bold text-fg tabular truncate">
+                  {formatBrowseMoney(stats.total_spend, { locale })}
+                </div>
+              </div>
+            </div>
+            <div className="text-right shrink-0">
+              {filters.hasFilters ? (
+                <span className="text-[11px] font-medium text-iris hover:underline">
+                  Đặt lại
+                </span>
+              ) : (
+                <span className="text-[11px] text-faint">Đã chi</span>
+              )}
+            </div>
+          </div>
+        </div>
+      )}
+
+      {/* FILTER & SEARCH TOOLBAR */}
+      <div className="rounded-2xl border border-line bg-surface p-4 shadow-xs space-y-4">
+        {/* Status Pills */}
+        <div className="flex flex-wrap items-center justify-between gap-3 border-b border-line pb-3">
+          <div className="flex flex-wrap items-center gap-1.5">
+            {[
+              { key: "", label: t("tabAll"), count: stats?.total },
+              { key: "active", label: t("tabActive"), count: stats?.active },
+              { key: "disputed", label: t("tabDisputed"), count: stats?.disputed },
+              { key: "deleted", label: t("tabDeleted"), count: undefined },
+            ].map((tab) => {
+              const isActive = filters.tab === tab.key;
+              return (
+                <button
+                  key={tab.key}
+                  onClick={() => filters.setTab(tab.key)}
+                  className={`flex items-center gap-1.5 rounded-xl px-3.5 py-1.5 text-[12.5px] font-medium transition-all cursor-pointer ${
+                    isActive
+                      ? "bg-iris text-white shadow-xs font-semibold"
+                      : "text-muted hover:text-fg hover:bg-raised/60"
+                  }`}
+                >
+                  <span>{tab.label}</span>
+                  {tab.count != null && (
+                    <span
+                      className={`rounded-full px-1.5 py-0.2 text-[10.5px] font-mono ${
+                        isActive ? "bg-white/25 text-white" : "bg-raised text-muted"
+                      }`}
+                    >
+                      {tab.count}
+                    </span>
+                  )}
+                </button>
+              );
+            })}
+          </div>
+
+          <div className="text-[12px] text-muted tabular">
+            Hiển thị <span className="font-semibold text-fg">{orders.length}</span> / {total} đơn hàng
+          </div>
+        </div>
+
+        {/* Search Inputs (Flex Responsive Layout - Zero Overflow) */}
+        <div className="flex flex-col gap-3 lg:flex-row lg:items-center">
+          <div className="relative flex-1 min-w-[240px]">
+            <Search size={15} className="absolute left-3.5 top-1/2 -translate-y-1/2 text-muted pointer-events-none" />
+            <input
+              type="text"
+              value={filters.search}
+              onChange={(e) => filters.setSearch(e.target.value)}
+              placeholder="Tìm theo mã đơn (#ORD-...), tên sản phẩm, gói..."
+              className="w-full rounded-xl border border-line bg-canvas pl-9 pr-8 py-2 text-[13px] text-fg placeholder:text-faint focus:border-iris focus:outline-none focus:ring-2 focus:ring-iris/20"
+            />
+            {filters.search && (
+              <button
+                onClick={() => filters.setSearch("")}
+                className="absolute right-3 top-1/2 -translate-y-1/2 text-faint hover:text-fg p-0.5"
+              >
+                <X size={13} />
+              </button>
+            )}
+          </div>
+
+          <div className="flex flex-wrap items-center gap-2">
+            <div className="flex items-center gap-1.5">
+              <input
+                type="date"
+                value={filters.dateFrom}
+                onChange={(e) => filters.setDateFrom(e.target.value)}
+                aria-label={t("filterDateFrom")}
+                className="rounded-xl border border-line bg-canvas px-3 py-2 text-[12px] text-fg focus:border-iris focus:outline-none"
+              />
+              <span className="text-faint text-[12px]">–</span>
+              <input
+                type="date"
+                value={filters.dateTo}
+                onChange={(e) => filters.setDateTo(e.target.value)}
+                aria-label={t("filterDateTo")}
+                className="rounded-xl border border-line bg-canvas px-3 py-2 text-[12px] text-fg focus:border-iris focus:outline-none"
+              />
+            </div>
+
+            <select
+              value={filters.sort}
+              onChange={(e) => filters.setSort(e.target.value)}
+              className="rounded-xl border border-line bg-canvas px-3 py-2 text-[12px] text-fg focus:border-iris focus:outline-none cursor-pointer"
+            >
+              <option value="newest">{t("sortNewest")}</option>
+              <option value="oldest">{t("sortOldest")}</option>
+              <option value="amount_desc">{t("sortAmountDesc")}</option>
+              <option value="amount_asc">{t("sortAmountAsc")}</option>
+            </select>
+
+            {filters.hasFilters && (
+              <button
+                onClick={filters.clear}
+                title={t("clearFilters")}
+                className="inline-flex items-center gap-1 rounded-xl border border-line bg-raised px-3 py-2 text-[12px] font-semibold text-muted hover:border-bad/30 hover:text-bad transition-colors cursor-pointer shrink-0"
+              >
+                <X size={13} />
+                <span>{t("clearFilters") || "Xoá"}</span>
+              </button>
+            )}
+          </div>
+        </div>
+      </div>
+
+      {/* FULL-WIDTH HIGH DENSITY TANSTACK-STYLE DATA TABLE */}
+      {loading ? (
+        <div className="rounded-2xl border border-line bg-surface p-12 text-center">
+          <Spinner />
+        </div>
+      ) : orders.length === 0 ? (
+        <Card className="p-12 flex flex-col items-center gap-3 text-center">
+          <p className="text-[13.5px] text-muted">
+            {filters.hasFilters || filters.tab !== "" ? t("emptyFiltered") : t("empty")}
+          </p>
+          {filters.hasFilters ? (
+            <Button variant="secondary" size="sm" onClick={filters.clear}>
+              {t("clearFilters")}
+            </Button>
+          ) : (
+            <Link href="/">
+              <Button size="sm">{t("explore")}</Button>
+            </Link>
+          )}
+        </Card>
+      ) : (
+        <div className="rounded-2xl border border-line bg-surface shadow-xs overflow-hidden">
+          <div className="overflow-x-auto">
+            <table className="w-full text-left text-[13px]">
+              <thead className="bg-raised/70 border-b border-line text-[11px] font-semibold uppercase tracking-wider text-muted">
+                <tr>
+                  <th className="py-3.5 pl-4 pr-2 w-10">
+                    <input type="checkbox" className="rounded border-line" />
+                  </th>
+                  <th className="py-3.5 px-3 w-36">Thao tác nhanh</th>
+                  <th className="py-3.5 px-3 w-32">Mã đơn</th>
+                  <th className="py-3.5 px-3">Sản phẩm & Gói</th>
+                  <th className="py-3.5 px-3 text-center w-24">Số lượng</th>
+                  <th className="py-3.5 px-3 text-right w-36">Thanh toán</th>
+                  <th className="py-3.5 px-4 text-right w-44">Trạng thái & Bảo hiểm</th>
+                </tr>
+              </thead>
+              <tbody className="divide-y divide-line">
+                {orders.map((o) => {
+                  const st = orderStatus(o.status, locale);
+                  const money = formatOrderHistoryMoney(o.total_amount, o.display_fx_rate_snapshot, { locale });
+                  const hasDeliveredData = !!o.delivered_data;
+                  const isDelivered = o.status === "delivered" || o.status === "completed";
+                  const isDisputed = o.status === "disputed";
+
+                  return (
+                    <tr
+                      key={o.id}
+                      onClick={() => setSelectedOrder(o)}
+                      className="hover:bg-iris-soft/15 transition-colors group cursor-pointer"
+                    >
+                      <td className="py-3.5 pl-4 pr-2" onClick={(e) => e.stopPropagation()}>
+                        <input type="checkbox" className="rounded border-line" />
+                      </td>
+
+                      {/* QUICK ACTION ICONS */}
+                      <td className="py-3.5 px-3" onClick={(e) => e.stopPropagation()}>
+                        <div className="flex items-center gap-1.5">
+                          {/* Quick-view Modal button */}
+                          <button
+                            title="Xem chi tiết & tài khoản"
+                            onClick={() => setSelectedOrder(o)}
+                            className="flex h-8 w-8 items-center justify-center rounded-lg bg-iris-soft text-iris hover:bg-iris hover:text-white transition-colors cursor-pointer"
+                          >
+                            <Eye size={15} />
+                          </button>
+
+                          {/* Download TXT */}
+                          {hasDeliveredData && (
+                            <button
+                              title="Tải file .TXT về máy"
+                              onClick={() => handleDownload(o)}
+                              className="flex h-8 w-8 items-center justify-center rounded-lg bg-raised text-muted hover:bg-line hover:text-fg transition-colors cursor-pointer"
+                            >
+                              <Download size={14} />
+                            </button>
+                          )}
+
+                          {/* Copy All */}
+                          {hasDeliveredData && (
+                            <button
+                              title="Sao chép toàn bộ dữ liệu"
+                              onClick={() => handleCopyAll(o)}
+                              className="flex h-8 w-8 items-center justify-center rounded-lg bg-raised text-muted hover:bg-line hover:text-fg transition-colors cursor-pointer"
+                            >
+                              {copiedOrderId === o.id ? <Check size={14} className="text-good" /> : <Copy size={14} />}
+                            </button>
+                          )}
+
+                          {/* Dispute Button */}
+                          {!["cancelled", "refunded"].includes(o.status) && (
+                            <button
+                              title={o.variant_name ? `Khiếu nại gói ${o.variant_name}` : "Khiếu nại đơn"}
+                              onClick={() => {
+                                setDisputeTarget({
+                                  orderId: o.id,
+                                  variantName: o.variant_name,
+                                  initialReason: o.variant_name ? `[Khiếu nại gói: ${o.variant_name}] ` : "",
+                                });
+                              }}
+                              className="flex h-8 w-8 items-center justify-center rounded-lg bg-raised text-muted hover:bg-bad-soft hover:text-bad transition-colors cursor-pointer"
+                            >
+                              <AlertTriangle size={13} />
+                            </button>
+                          )}
+                        </div>
+                      </td>
+
+                      {/* ORDER ID & DATE */}
+                      <td className="py-3.5 px-3">
+                        <div className="font-mono font-bold text-iris text-[13.5px]">#{o.id}</div>
+                        <div className="text-[11px] text-muted mt-0.5 whitespace-nowrap">
+                          {formatDateTime(o.created_at, locale)}
+                        </div>
+                      </td>
+
+                      {/* PRODUCT TITLE & VARIANT */}
+                      <td className="py-3.5 px-3">
+                        <div className="min-w-0">
+                          <div className="font-semibold text-fg group-hover:text-iris transition-colors line-clamp-1">
+                            {o.product_title ?? tc("orderNumber", { id: o.id })}
+                          </div>
+                          <div className="text-[11.5px] text-muted line-clamp-1 mt-0.5">
+                            {o.variant_name ? (
+                              <span className="font-medium text-fg/80 bg-raised/80 px-1.5 py-0.2 rounded border border-line mr-1.5">
+                                Gói: {o.variant_name}
+                              </span>
+                            ) : null}
+                            <span>{tc("qty", { count: o.quantity })}</span>
+                          </div>
+                        </div>
+                      </td>
+
+                      {/* QUANTITY */}
+                      <td className="py-3.5 px-3 text-center">
+                        <span
+                          className={`inline-flex items-center justify-center rounded-full px-2.5 py-0.5 font-mono text-[12px] font-bold ${
+                            o.quantity >= 1000
+                              ? "bg-iris-soft text-iris border border-iris/30"
+                              : "bg-raised text-fg"
+                          }`}
+                        >
+                          x{o.quantity.toLocaleString()}
+                        </span>
+                      </td>
+
+                      {/* AMOUNT */}
+                      <td className="py-3.5 px-3 text-right">
+                        <div className="font-mono font-bold text-[13.5px] text-fg tabular">
+                          {money.text}
+                        </div>
+                      </td>
+
+                      {/* STATUS & ESCROW */}
+                      <td className="py-3.5 px-4 text-right">
+                        <Tag tone={st.tone}>{st.label}</Tag>
+                        {o.escrow_expires_at && o.status === "delivered" && (
+                          <div className="text-[11px] text-iris-hi flex items-center justify-end gap-1 mt-1 font-medium">
+                            <ShieldCheck size={12} className="text-good" />
+                            <span>{t("escrowUntil", { date: formatDate(o.escrow_expires_at, locale) })}</span>
+                          </div>
+                        )}
+                      </td>
+                    </tr>
+                  );
+                })}
+              </tbody>
+            </table>
+          </div>
+        </div>
+      )}
+
+      {/* PAGINATION CONTROLS */}
+      {!loading && total > 0 && (
+        <div className="mt-6 flex flex-wrap items-center justify-between gap-4">
+          <span className="text-[12px] text-muted tabular">
+            {t("showing", {
+              from: (filters.page - 1) * filters.perPage + 1,
+              to: Math.min(filters.page * filters.perPage, total),
+              total,
+            })}
+          </span>
+
+          <div className="flex items-center gap-3">
+            <Pagination page={filters.page} totalPages={totalPages} onChange={filters.setPage} />
+
+            <select
+              value={filters.perPage}
+              onChange={(e) => filters.setPerPage(Number(e.target.value))}
+              aria-label={t("perPageAria")}
+              className="h-8 rounded-xl bg-surface border border-line px-2.5 text-[12px] text-fg cursor-pointer focus:outline-none focus:border-iris"
+            >
+              {PER_PAGE_OPTIONS.map((n) => (
+                <option key={n} value={n}>
+                  {tc("perPage", { n })}
+                </option>
+              ))}
+            </select>
+          </div>
+        </div>
+      )}
     </div>
   );
 }

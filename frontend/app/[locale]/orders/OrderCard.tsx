@@ -12,6 +12,7 @@ import { Button, Card, CopyButton, Disclosure, Monogram, Tag } from "@/component
 import { Shield, Star } from "@/components/Icons";
 import OrderProxyPanel from "./OrderProxyPanel";
 import ReviewForm from "./ReviewForm";
+import OrderChatButton from "@/components/chat/OrderChatButton";
 
 export { TerminalOrderRow } from "@/components/orders/OrderCardPrimitives";
 
@@ -80,6 +81,8 @@ export default function OrderCard({
         </div>
 
         {st.hint && <p className="text-[12px] text-muted mt-2.5">{st.hint}</p>}
+
+        {!['cancelled', 'refunded'].includes(o.status) && <div className="mt-3"><OrderChatButton orderId={o.id} perspective="buyer" /></div>}
 
         {o.has_dispute && <OrderDispute orderId={o.id} />}
 

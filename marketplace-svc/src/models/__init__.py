@@ -18,6 +18,7 @@ from src.models.payment import (
     DepositProvider,
     NowpaymentsIpnEvent,
     PayosWebhookEvent,
+    SePayWebhookEvent,
 )
 from src.models.wallet import Transaction, TransactionType, Wallet, WithdrawRequest, WithdrawStatus
 from src.models.display_money_config import DisplayMoneyConfig
@@ -39,7 +40,7 @@ __all__ = [
     "OrderBalance", "UsageRecord", "UsageRecordStatus", "GatewayCallLog",
     "Transaction", "TransactionType", "Wallet", "WithdrawRequest", "WithdrawStatus",
     "DepositIntent", "DepositIntentStatus", "DepositProvider",
-    "NowpaymentsIpnEvent", "PayosWebhookEvent",
+    "NowpaymentsIpnEvent", "PayosWebhookEvent", "SePayWebhookEvent",
     "DisplayMoneyConfig",
     "DepositRailConfig",
 ]

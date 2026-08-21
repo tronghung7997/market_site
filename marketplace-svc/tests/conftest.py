@@ -13,8 +13,17 @@ os.environ.setdefault("INTERNAL_API_KEY", "test-internal-key-at-least-32-bytes-l
 os.environ.setdefault("ENCRYPTION_KEY", "test-encryption-key-at-least-32-bytes-long")
 os.environ.setdefault("DEFAULT_AFFILIATE_COMMISSION_PERCENT", "5.0")
 # Nhiều test cũ nạp tiền qua demo-topup; flag này mặc định TẮT (prod-safe) nên
-# bật riêng cho suite. PayOS: khoá test cố định để test chữ ký deterministic.
+# bật riêng cho suite. SePay values are isolated fake sandbox credentials.
 os.environ["ENABLE_DEMO_TOPUP"] = "true"
+os.environ["SEPAY_BANK_CODE"] = "MBBank"
+os.environ["SEPAY_BANK_ACCOUNT_NUMBER"] = "0123456789"
+os.environ["SEPAY_BANK_ACCOUNT_NAME"] = "CONG TY TNHH TEST"
+os.environ["SEPAY_BANK_ACCOUNT_ID"] = "f9e8d7c6-b5a4-3210-fedc-ba0987654321"
+os.environ["SEPAY_PAYMENT_CODE_PREFIX"] = "NAP"
+os.environ["SEPAY_WEBHOOK_SECRET"] = "test-sepay-webhook-secret-at-least-32-bytes"
+os.environ["SEPAY_API_TOKEN"] = "test-sepay-sandbox-token"
+os.environ["SEPAY_API_BASE_URL"] = "https://userapi-sandbox.sepay.vn"
+# Legacy credentials keep historical PayOS reconciliation tests/data loadable.
 os.environ["PAYOS_CLIENT_ID"] = "test-client"
 os.environ["PAYOS_API_KEY"] = "test-api-key"
 os.environ["PAYOS_CHECKSUM_KEY"] = "test-checksum-key"

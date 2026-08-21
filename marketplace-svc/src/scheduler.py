@@ -671,39 +671,46 @@ async def provider_credit_low_job() -> None:
 async def deposit_reconcile_job() -> None:
     """Bù miss-webhook cho lệnh nạp multi-provider.
 
-    PayOS: GET payment-request; NOW: GET /v1/payment/{id}.
+    SePay: API v2 transaction search; NOW: GET /v1/payment/{id}.
+    Legacy PayOS intents are still checked while old credentials remain.
     Cùng apply_deposit_paid + FOR UPDATE — không credit đôi.
 
-    Retention: PayOS dùng deposit_reconcile_retention_hours; NOW dùng
+    Retention: bank rails use deposit_reconcile_retention_hours; NOW uses
     deposit_usdt_reconcile_retention_hours (dài hơn — provider TTL ≠ local UI window).
     """
     from src.models.payment import DepositIntent, DepositIntentStatus, DepositProvider
-    from src.payments import nowpayments_client, payos_client, rail_config
+    from src.payments import nowpayments_client, payos_client, rail_config, sepay_client
     from src.payments.service import reconcile_intent
 
-    secrets_payos = payos_client.is_configured()
+    secrets_sepay = sepay_client.is_reconciliation_configured()
+    legacy_payos = payos_client.is_configured()
     secrets_now = nowpayments_client.is_configured()
-    if not secrets_payos and not secrets_now:
+    if not secrets_sepay and not legacy_payos and not secrets_now:
         return
 
     async with SessionLocal() as db:
         rail = await rail_config.ensure_seeded(db)
-        payos_on = bool(rail.payos_enabled) and secrets_payos
+        sepay_on = bool(rail.sepay_enabled) and secrets_sepay
         now_on = bool(rail.nowpayments_enabled) and secrets_now
-        if not payos_on and not now_on:
+        if not sepay_on and not legacy_payos and not now_on:
             return
 
         now = datetime.now(timezone.utc)
         pending_cutoff = now - timedelta(minutes=10)
-        payos_retention = now - timedelta(hours=rail.deposit_reconcile_retention_hours)
+        bank_retention = now - timedelta(hours=rail.deposit_reconcile_retention_hours)
         now_retention = now - timedelta(hours=rail.deposit_usdt_reconcile_retention_hours)
 
         intent_ids: list[int] = []
 
-        if payos_on:
+        bank_providers: list[str] = []
+        if sepay_on:
+            bank_providers.append(DepositProvider.sepay.value)
+        if legacy_payos:
+            bank_providers.append(DepositProvider.payos.value)
+        if bank_providers:
             pending_rows = await db.execute(
                 select(DepositIntent.id).where(
-                    DepositIntent.provider == DepositProvider.payos.value,
+                    DepositIntent.provider.in_(bank_providers),
                     DepositIntent.status == DepositIntentStatus.pending,
                     DepositIntent.paid_at.is_(None),
                     DepositIntent.created_at <= pending_cutoff,
@@ -711,10 +718,10 @@ async def deposit_reconcile_job() -> None:
             )
             retention_rows = await db.execute(
                 select(DepositIntent.id).where(
-                    DepositIntent.provider == DepositProvider.payos.value,
+                    DepositIntent.provider.in_(bank_providers),
                     DepositIntent.status.in_([DepositIntentStatus.expired, DepositIntentStatus.cancelled]),
                     DepositIntent.paid_at.is_(None),
-                    DepositIntent.created_at >= payos_retention,
+                    DepositIntent.created_at >= bank_retention,
                 ).order_by(DepositIntent.created_at.desc()).limit(20)
             )
             intent_ids.extend(r for (r,) in pending_rows.all())
@@ -759,10 +766,11 @@ async def deposit_reconcile_job() -> None:
 
 
 async def deposit_expire_job() -> None:
-    """Chốt `expired` cho intent pending đã quá hạn (PayOS cũng tự expire theo
-    expiredAt đã gửi lúc tạo link). Buffer 5 phút sau expires_at để nhường
-    webhook/reconcile chạy trước; tiền về muộn sau khi expired vẫn được credit
-    (handle_webhook, chính sách §6.6)."""
+    """Chốt ``expired`` sau local QR/checkout window plus a 5-minute buffer.
+
+    SePay and NOWPayments can still report a real payment later; their handlers
+    credit an otherwise-valid late transfer and raise an operations alert.
+    """
     from src.models.payment import DepositIntent, DepositIntentStatus
 
     async with SessionLocal() as db:

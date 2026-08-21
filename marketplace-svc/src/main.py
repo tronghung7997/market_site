@@ -10,6 +10,7 @@ from src.audit.router import router as audit_router
 from src.affiliate.router import router as affiliate_router
 from src.auth.router import router as auth_router
 from src.categories.router import router as categories_router
+from src.chat.router import router as chat_router
 from src.config import settings
 from src.debug.router import router as debug_router
 from src.disputes.router import router as disputes_router
@@ -134,6 +135,7 @@ app.include_router(wallet_router)
 app.include_router(money_router)
 app.include_router(payments_router)
 app.include_router(categories_router)
+app.include_router(chat_router)
 app.include_router(products_router)
 app.include_router(resources_router)
 app.include_router(notifications_router)

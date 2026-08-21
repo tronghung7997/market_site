@@ -61,6 +61,7 @@ async def create_order(buyer_id: int, variant_id: int, quantity: int, db: AsyncS
         seller = await db.get(Account, product.seller_id)
         order = Order(
             buyer_id=buyer_id, seller_id=product.seller_id, variant_id=variant_id,
+            product_id=product.id,
             quantity=quantity, total_amount=total, status=OrderStatus.delivered,
             display_fx_rate_snapshot=fx_snapshot,
             escrow_expires_at=datetime.now(timezone.utc) + timedelta(
@@ -84,6 +85,7 @@ async def create_order(buyer_id: int, variant_id: int, quantity: int, db: AsyncS
     else:
         order = Order(
             buyer_id=buyer_id, seller_id=product.seller_id, variant_id=variant_id,
+            product_id=product.id,
             quantity=quantity, total_amount=total, status=OrderStatus.pending,
             display_fx_rate_snapshot=fx_snapshot,
         )

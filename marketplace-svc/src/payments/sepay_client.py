@@ -154,6 +154,20 @@ def _api_headers() -> dict[str, str]:
     }
 
 
+def _api_base_url() -> str:
+    """Return the SePay API host without a version suffix.
+
+    ``SEPAY_API_BASE_URL`` is documented as the host (for example,
+    ``https://userapi.sepay.vn``), while older deployments sometimes stored
+    ``/v2`` in the value.  Normalising here keeps both configurations from
+    producing the invalid ``/v2/v2/transactions`` URL.
+    """
+    base_url = str(settings.sepay_api_base_url or "").strip().rstrip("/")
+    while base_url.lower().endswith("/v2"):
+        base_url = base_url[:-3].rstrip("/")
+    return base_url
+
+
 async def list_matching_transactions(
     *,
     payment_code: str,
@@ -182,7 +196,7 @@ async def list_matching_transactions(
         "per_page": 100,
         "timestamp_format": "iso8601",
     }
-    url = f"{settings.sepay_api_base_url.rstrip('/')}/v2/transactions"
+    url = f"{_api_base_url()}/v2/transactions"
     try:
         async with httpx.AsyncClient(timeout=10.0) as client:
             response = await client.get(url, headers=_api_headers(), params=params)

@@ -118,6 +118,10 @@ async def _post_webhook(
 
 
 class TestSePayUnit:
+    def test_api_base_url_normalizes_version_suffix(self, monkeypatch):
+        monkeypatch.setattr(settings, "sepay_api_base_url", "https://userapi.sepay.vn/v2/")
+        assert sepay_client._api_base_url() == "https://userapi.sepay.vn"
+
     def test_signature_vector_and_raw_body_sensitivity(self):
         raw = b'{"id":1,"content":"NAP1"}'
         signature = sepay_client.sign_webhook(raw, 1_700_000_000, "secret")

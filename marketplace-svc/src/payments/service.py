@@ -436,6 +436,7 @@ async def handle_sepay_webhook(payload: dict, db: AsyncSession) -> dict:
     payment_code = str(payload.get("code") or "").strip().upper() or None
     reference = str(payload.get("referenceCode") or "").strip() or None
     account_number = str(payload.get("accountNumber") or "").strip()
+    sub_account = str(payload.get("subAccount") or "").strip()
     transfer_type = str(payload.get("transferType") or "").strip().lower()
     amount = payload.get("transferAmount")
 
@@ -475,23 +476,26 @@ async def handle_sepay_webhook(payload: dict, db: AsyncSession) -> dict:
         return {"note": "outgoing transaction ignored"}
 
     rail = await rail_config.ensure_seeded(db)
-    expected_account = rail.sepay_bank_account_number.strip()
-    if account_number != expected_account:
+    expected_destination = rail.sepay_bank_account_number.strip()
+    if not sepay_client.destination_matches(
+        expected_destination,
+        account_number=account_number,
+        sub_account=sub_account,
+    ):
         await db.commit()
         logger.error(
-            "sepay_webhook_account_mismatch",
+            "sepay_webhook_destination_mismatch",
             transaction_id=transaction_id,
-            expected=expected_account,
-            got=account_number,
+            has_sub_account=bool(sub_account),
         )
         await _alert(
             db,
             "error",
-            f"SePay transaction {transaction_id} vào tài khoản lạ {account_number} — không credit",
+            f"SePay transaction {transaction_id} không khớp tài khoản nhận/VA đã cấu hình — không credit",
             target_id=0,
             reason_code="bank_account_mismatch",
         )
-        return {"note": "bank account mismatch"}
+        return {"note": "bank account or VA mismatch"}
 
     if not sepay_client.is_valid_payment_code(payment_code):
         await db.commit()
@@ -520,7 +524,11 @@ async def handle_sepay_webhook(payload: dict, db: AsyncSession) -> dict:
     if (
         intent.provider != DepositProvider.sepay.value
         or intent.payment_code != payment_code
-        or intent.bank_account_number != account_number
+        or not sepay_client.destination_matches(
+            intent.bank_account_number,
+            account_number=account_number,
+            sub_account=sub_account,
+        )
     ):
         intent_provider = intent.provider
         await db.commit()
@@ -1069,13 +1077,21 @@ async def _reconcile_sepay(intent: DepositIntent, db: AsyncSession) -> dict:
         return outcome
 
     intent_id = intent.id
+    intent_destination = intent.bank_account_number.strip()
+    configured_destination = rail.sepay_bank_account_number.strip()
+    reconciliation_account_id = intent.sepay_bank_account_id or rail.sepay_bank_account_id
+    if intent_destination == configured_destination:
+        # Allow an administrator to correct the parent UUID for an unchanged
+        # real-account/VA destination without invalidating existing intents.
+        reconciliation_account_id = rail.sepay_bank_account_id
+
     try:
         matches = await sepay_client.list_matching_transactions(
             payment_code=intent.payment_code,
             amount=intent.amount,
             created_at=intent.created_at - timedelta(minutes=5),
             bank_code=intent.bank_code or rail.sepay_bank_code,
-            bank_account_id=intent.sepay_bank_account_id or rail.sepay_bank_account_id,
+            bank_account_id=reconciliation_account_id,
             bank_account_number=intent.bank_account_number or rail.sepay_bank_account_number,
             bank_account_name=intent.bank_account_name or rail.sepay_bank_account_name,
         )

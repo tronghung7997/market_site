@@ -154,6 +154,28 @@ def _api_headers() -> dict[str, str]:
     }
 
 
+def destination_matches(
+    expected_destination: str,
+    *,
+    account_number: object,
+    sub_account: object = None,
+) -> bool:
+    """Match either a real bank account or a SePay VA/TKP destination.
+
+    SePay always reports the parent bank account in ``accountNumber`` /
+    ``account_number``. For official VAs and content-based TKP accounts, the
+    actual matched destination is reported separately in ``subAccount`` /
+    ``va``. The configured QR beneficiary may therefore match either field.
+    """
+    expected = str(expected_destination or "").strip()
+    if not expected:
+        return False
+    return expected in {
+        str(account_number or "").strip(),
+        str(sub_account or "").strip(),
+    }
+
+
 def _api_base_url() -> str:
     """Return the SePay API host without a version suffix.
 
@@ -238,7 +260,11 @@ async def list_matching_transactions(
         if (
             str(row.get("transfer_type") or "").lower() == "in"
             and str(row.get("code") or "").strip().upper() == expected_code
-            and str(row.get("account_number") or "").strip() == expected_account
+            and destination_matches(
+                expected_account,
+                account_number=row.get("account_number"),
+                sub_account=row.get("va"),
+            )
             and str(row.get("bank_account_id") or "").strip() == expected_account_id
             and amount_in == amount
             and row.get("id")

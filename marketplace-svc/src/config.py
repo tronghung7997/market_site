@@ -69,8 +69,9 @@ class Settings(BaseSettings):
     default_affiliate_commission_percent: float = 0.0
 
     # --- SePay bank Webhooks + VietQR ---
-    # Bank destination shown to buyers and embedded in every QR. The UUID is
-    # the SePay API v2 bank_account_id used to scope reconciliation queries.
+    # Beneficiary shown to buyers and embedded in every QR: either the real
+    # bank account number or an official VA number. The UUID is always the
+    # parent SePay API v2 bank_account_id used to scope reconciliation queries.
     # Bootstrap/fallback only: live destination is stored in deposit_rail_config.
     sepay_bank_code: str = ""
     sepay_bank_account_number: str = ""

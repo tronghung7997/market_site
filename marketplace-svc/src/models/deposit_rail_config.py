@@ -25,7 +25,9 @@ class DepositRailConfig(Base):
         Boolean, nullable=False, default=False, server_default="false",
     )
 
-    # SePay destination (admin-editable; secrets remain in env)
+    # SePay destination (admin-editable; secrets remain in env). The number is
+    # the QR beneficiary (real account or official VA); the UUID is its parent
+    # SePay bank account, never the VA UUID.
     sepay_bank_code: Mapped[str] = mapped_column(String(32), nullable=False, server_default="")
     sepay_bank_account_number: Mapped[str] = mapped_column(String(64), nullable=False, server_default="")
     sepay_bank_account_name: Mapped[str] = mapped_column(String(160), nullable=False, server_default="")

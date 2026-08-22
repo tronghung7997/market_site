@@ -285,7 +285,16 @@ async def test_seller_sets_own_pricing_strategy(client):
     assert resp.status_code == 200
     assert resp.json()["pricing_strategy"] == "config"
 
-    detail = await client.get(f"/products/{product_id}")
+    # Draft products stay hidden from the public storefront. Read the persisted
+    # seller-owned configuration through the management seam instead.
+    public_detail = await client.get(f"/products/{product_id}")
+    assert public_detail.status_code == 404
+
+    detail = await client.get(
+        f"/seller/products/{product_id}/detail",
+        headers={"Authorization": f"Bearer {seller_token}"},
+    )
+    assert detail.status_code == 200
     assert detail.json()["pricing_params"]["base_price"] == 75000
 
 

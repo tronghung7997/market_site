@@ -16,7 +16,7 @@ from src.debug.router import router as debug_router
 from src.disputes.router import router as disputes_router
 from src.gateway.router import router as gateway_router
 from src.logging import setup_logging
-from src.middleware import RequestIdMiddleware, SecurityHeadersMiddleware
+from src.middleware import AdminIpAllowlistMiddleware, RequestIdMiddleware, SecurityHeadersMiddleware
 from src.observability.sentry import init_sentry
 from src.notifications.router import router as notifications_router
 from src.orders.router import router as orders_router
@@ -119,6 +119,7 @@ app.add_middleware(
         "X-Signature",
     ],
 )
+app.add_middleware(AdminIpAllowlistMiddleware)
 app.add_middleware(
     SecurityHeadersMiddleware,
     enable_hsts=settings.deployment_environment == "production",

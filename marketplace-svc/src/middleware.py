@@ -5,10 +5,11 @@ from typing import Any
 import structlog
 from starlette.middleware.base import BaseHTTPMiddleware, RequestResponseEndpoint
 from starlette.requests import Request
-from starlette.responses import Response
+from starlette.responses import JSONResponse, Response
 from starlette.types import ASGIApp, Message, Receive, Scope, Send
 
 from src.logging import generate_request_id
+from src.security.admin_access import admin_request_allowed, is_admin_network_path
 
 # Safe client-supplied correlation IDs: printable, no spaces, fit VARCHAR(36).
 _REQUEST_ID_RE = re.compile(r"^[A-Za-z0-9._-]{1,36}$")
@@ -152,6 +153,23 @@ class RequestIdMiddleware:
             )
         except Exception:
             pass
+
+
+class AdminIpAllowlistMiddleware(BaseHTTPMiddleware):
+    """Hide all admin HTTP surfaces from clients outside the configured IPs."""
+
+    async def dispatch(self, request: Request, call_next: RequestResponseEndpoint) -> Response:
+        if is_admin_network_path(request.url.path) and not admin_request_allowed(request):
+            structlog.get_logger().warning(
+                "admin_network_access_denied",
+                route=request.url.path,
+            )
+            return JSONResponse(
+                {"detail": "Not found"},
+                status_code=404,
+                headers={"Cache-Control": "private, no-store"},
+            )
+        return await call_next(request)
 
 
 class SecurityHeadersMiddleware(BaseHTTPMiddleware):

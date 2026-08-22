@@ -1,4 +1,5 @@
 import { NextRequest, NextResponse } from "next/server";
+import { adminRequestAllowed, isAdminApiPath } from "@/lib/admin-access";
 
 const SESSION_COOKIE = "dx_session";
 const API_TARGET = (
@@ -60,6 +61,12 @@ async function proxy(request: NextRequest, segments: string[]) {
   if (path === "internal" || path.startsWith("internal/")) {
     return NextResponse.json({ detail: "Not found" }, { status: 404 });
   }
+  if (isAdminApiPath(path) && !adminRequestAllowed(request.headers)) {
+    return NextResponse.json(
+      { detail: "Not found" },
+      { status: 404, headers: { "Cache-Control": "private, no-store" } },
+    );
+  }
   if (path === "auth/session" && UNSAFE_METHODS.has(request.method)) {
     const response = new NextResponse(null, { status: 204 });
     response.cookies.delete(SESSION_COOKIE);
@@ -91,7 +98,7 @@ async function proxy(request: NextRequest, segments: string[]) {
     return NextResponse.json({ detail: "Backend tạm thời không khả dụng" }, { status: 502 });
   }
 
-  if (path === "auth/login" && upstream.ok) {
+  if ((path === "auth/login" || path === "auth/admin/login") && upstream.ok) {
     const login = await upstream.json() as { access_token?: string; token_type?: string };
     if (!login.access_token) {
       return NextResponse.json({ detail: "Phản hồi đăng nhập không hợp lệ" }, { status: 502 });

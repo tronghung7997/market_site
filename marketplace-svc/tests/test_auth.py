@@ -3,6 +3,7 @@ from sqlalchemy import select
 
 from src.database import SessionLocal
 from src.models.account import Account
+from tests.conftest import make_admin
 
 
 @pytest.mark.asyncio
@@ -146,6 +147,39 @@ async def test_login_wrong_password(client):
     await client.post("/auth/register", json={"email": "wp@example.com", "password": "StrongPass123!"})
     response = await client.post("/auth/login", json={"email": "wp@example.com", "password": "wrong"})
     assert response.status_code == 401
+
+
+@pytest.mark.asyncio
+async def test_admin_must_use_dedicated_login(client):
+    email = "private-admin@example.com"
+    password = "StrongPass123!"
+    await client.post("/auth/register", json={"email": email, "password": password})
+    await make_admin(email)
+
+    public_login = await client.post("/auth/login", json={"email": email, "password": password})
+    assert public_login.status_code == 403
+    assert public_login.json()["error_code"] == "ADMIN_LOGIN_REQUIRED"
+
+    admin_login = await client.post(
+        "/auth/admin/login",
+        json={"email": email, "password": password},
+    )
+    assert admin_login.status_code == 200
+    assert "access_token" in admin_login.json()
+
+
+@pytest.mark.asyncio
+async def test_non_admin_cannot_use_admin_login(client):
+    email = "buyer-admin-gate@example.com"
+    password = "StrongPass123!"
+    await client.post("/auth/register", json={"email": email, "password": password})
+
+    response = await client.post(
+        "/auth/admin/login",
+        json={"email": email, "password": password},
+    )
+    assert response.status_code == 403
+    assert response.json()["error_code"] == "ADMIN_ONLY"
 
 
 @pytest.mark.asyncio

@@ -1,0 +1,245 @@
+{
+  "version": 1,
+  "label": "backend architecture guard",
+  "policy": "Existing debt only. New fingerprints or increased occurrences fail verification.",
+  "violations": [
+    {
+      "fingerprint": "6551ecd07b1312d5c368361b9d4a653513adff627157383fa88efbf2de8ee4fe",
+      "rule": "router-adapter-import",
+      "file": "src/gateway/router.py",
+      "evidence": "src.adapters.factory:get_adapter",
+      "count": 1
+    },
+    {
+      "fingerprint": "5a8a4e6e24a871c5f2c18ae56de140520d327c1ae5d1420b461a17849efaf54e",
+      "rule": "router-adapter-import",
+      "file": "src/gateway/router.py",
+      "evidence": "src.adapters.real_api:RealApiAdapter",
+      "count": 1
+    },
+    {
+      "fingerprint": "5c0fbe401967cfa5b1eea7c9fbe32f5449a6979744316c62b177d3c350251edc",
+      "rule": "router-adapter-import",
+      "file": "src/gateway/router.py",
+      "evidence": "src.adapters.registry:get_spec",
+      "count": 1
+    },
+    {
+      "fingerprint": "f7a63eb0f44e6c77f191d53d6a2be707e1512509273223d52246bb41fc3861e5",
+      "rule": "router-adapter-import",
+      "file": "src/orders/router.py",
+      "evidence": "src.adapters.factory:get_adapter",
+      "count": 1
+    },
+    {
+      "fingerprint": "f7d8820c058325fec477a3732d6d34ac64b9ae53c45176ddcb4162d80d88089e",
+      "rule": "router-adapter-import",
+      "file": "src/pricing/router.py",
+      "evidence": "src.adapters.compatibility:ADAPTER_STRATEGY_COMPAT,check_compatibility,setup_status",
+      "count": 1
+    },
+    {
+      "fingerprint": "975dca3a14b410d5587f7e2a02acb801133ef4196a475743f50f03a7967a183e",
+      "rule": "router-adapter-import",
+      "file": "src/providers/router.py",
+      "evidence": "src.adapters.base:ProvisionResult",
+      "count": 1
+    },
+    {
+      "fingerprint": "222a6dc1f3eee8932861266110d7335107b1889a190825f6694f5e60a347a084",
+      "rule": "router-adapter-import",
+      "file": "src/providers/router.py",
+      "evidence": "src.adapters.factory:get_adapter_for_test",
+      "count": 1
+    },
+    {
+      "fingerprint": "ca37669d5b0169e8b06c7594ff53f72ba7cdfed74b95917b022374305b1fa50f",
+      "rule": "router-cross-feature-service",
+      "file": "src/gateway/router.py",
+      "evidence": "src.audit.service:log_event",
+      "count": 2
+    },
+    {
+      "fingerprint": "270b0c5a70fd96d9e3edf91ba7710824f3602124d9b32e9d8d61c9c5f7cc0bad",
+      "rule": "router-cross-feature-service",
+      "file": "src/gateway/router.py",
+      "evidence": "src.tasks.service:update_task",
+      "count": 1
+    },
+    {
+      "fingerprint": "da466c692f7f5cca33acbd50469dce8dc5be6e2667acab1d5e96ed9fa69b8265",
+      "rule": "router-cross-feature-service",
+      "file": "src/gateway/router.py",
+      "evidence": "src.usage.service:charge_usage,refund_usage",
+      "count": 1
+    },
+    {
+      "fingerprint": "e17f6708145aeaf225dbbe591a92002a860fa194e723bacb248c6d0ef77f7319",
+      "rule": "router-cross-feature-service",
+      "file": "src/ops/router.py",
+      "evidence": "src.audit.service:log_event",
+      "count": 1
+    },
+    {
+      "fingerprint": "b7872ec5059a4759cc85ac30dc70e43c978466344ed48f90e652a7bfae5f4e7f",
+      "rule": "router-cross-feature-service",
+      "file": "src/orders/router.py",
+      "evidence": "src.usage.service:get_usage_summary",
+      "count": 1
+    },
+    {
+      "fingerprint": "9d1a369d4cfd23e8296c62dace9f7b701a1f533c85f4c267da8c48e83e6b909d",
+      "rule": "router-cross-feature-service",
+      "file": "src/resources/router.py",
+      "evidence": "src.audit.service:log_event",
+      "count": 1
+    },
+    {
+      "fingerprint": "5770dcdcfb249df2f7675455e5f77c19bfc6ee8c3371f0531cd7977c30b35051",
+      "rule": "router-cross-feature-service",
+      "file": "src/usage/router.py",
+      "evidence": "src.audit.service:log_event",
+      "count": 1
+    },
+    {
+      "fingerprint": "5d3bcccca2f8b137b1c3dd841d9147de590c97f2d3e35f03366955d102dba0d8",
+      "rule": "service-http-exception",
+      "file": "src/affiliate/service.py",
+      "evidence": "fastapi:HTTPException",
+      "count": 1
+    },
+    {
+      "fingerprint": "0d86da76e9140c6389abad6150eafc80d2d0909550ece6e4c76a85e137c10880",
+      "rule": "service-http-exception",
+      "file": "src/alerts/service.py",
+      "evidence": "fastapi:HTTPException",
+      "count": 1
+    },
+    {
+      "fingerprint": "66b28c894faff76361ce03c3411ae09c376aef3c55898a768e6b7da45805f6ce",
+      "rule": "service-http-exception",
+      "file": "src/audit/service.py",
+      "evidence": "fastapi:HTTPException",
+      "count": 1
+    },
+    {
+      "fingerprint": "8e56d1fed02fd1d99a0e6ee616992556f60f2216eaa7333cbd0eb4fd4657de46",
+      "rule": "service-http-exception",
+      "file": "src/auth/service.py",
+      "evidence": "fastapi:HTTPException,status",
+      "count": 1
+    },
+    {
+      "fingerprint": "fd794a28fe9bdee3f538e44718e84a1edae237e40b9dcae2f4fb698092e93f2b",
+      "rule": "service-http-exception",
+      "file": "src/categories/service.py",
+      "evidence": "fastapi:HTTPException",
+      "count": 1
+    },
+    {
+      "fingerprint": "c18785b503e3aba0f4c168684e74722f2d689dc7398d3c82cf107b6d3df36d04",
+      "rule": "service-http-exception",
+      "file": "src/chat/service.py",
+      "evidence": "fastapi:HTTPException",
+      "count": 1
+    },
+    {
+      "fingerprint": "8b50784491781ddcc0188af3ecf6cdcbf565bd01e7f2a0a5ed56f2b475143284",
+      "rule": "service-http-exception",
+      "file": "src/disputes/service.py",
+      "evidence": "fastapi:HTTPException",
+      "count": 1
+    },
+    {
+      "fingerprint": "42c5adff566cf3fe34a71ba9715c6df70ee2e7119d9ba1838f4c82d10f5f99d9",
+      "rule": "service-http-exception",
+      "file": "src/gateway/service.py",
+      "evidence": "fastapi:HTTPException",
+      "count": 1
+    },
+    {
+      "fingerprint": "3da471324fa67df873ab968b87594d8c2ff41ae85cd722295c8dc497c5ec5768",
+      "rule": "service-http-exception",
+      "file": "src/money/service.py",
+      "evidence": "fastapi:HTTPException",
+      "count": 1
+    },
+    {
+      "fingerprint": "a86b00003070e2b8adef596d08ee6aaee100ba2e9f184c653cc7b31420dcda20",
+      "rule": "service-http-exception",
+      "file": "src/orders/service.py",
+      "evidence": "fastapi:HTTPException",
+      "count": 1
+    },
+    {
+      "fingerprint": "47a0be9c25dea9d3df8f50b68a747cf2bc4e11d4a406b953d98609583de9341c",
+      "rule": "service-http-exception",
+      "file": "src/payments/service.py",
+      "evidence": "fastapi:HTTPException",
+      "count": 1
+    },
+    {
+      "fingerprint": "3f72cb36e74163e6f0f0b8429f82bc6068204a03df473f9dc8f1d164870abb67",
+      "rule": "service-http-exception",
+      "file": "src/products/service.py",
+      "evidence": "fastapi:HTTPException",
+      "count": 1
+    },
+    {
+      "fingerprint": "22bc734f106020af830339d5e782c7dc2cdb396fa48a15703c010754d5f44260",
+      "rule": "service-http-exception",
+      "file": "src/providers/service.py",
+      "evidence": "fastapi:HTTPException",
+      "count": 1
+    },
+    {
+      "fingerprint": "ffaf549d44681847421781bf4d172443b6e2acfa312b30d7fef03aabfcd33209",
+      "rule": "service-http-exception",
+      "file": "src/resources/service.py",
+      "evidence": "fastapi:HTTPException",
+      "count": 1
+    },
+    {
+      "fingerprint": "63b39b4512d13836b79205bf708c9ed271fd3c653f8e523829cecf166d8a3f7d",
+      "rule": "service-http-exception",
+      "file": "src/reviews/service.py",
+      "evidence": "fastapi:HTTPException",
+      "count": 1
+    },
+    {
+      "fingerprint": "4e76ac215b1162edb97f2a85b651f7c9af5ef107ad0628e642cd2b002099a546",
+      "rule": "service-http-exception",
+      "file": "src/seller/service.py",
+      "evidence": "fastapi:HTTPException",
+      "count": 1
+    },
+    {
+      "fingerprint": "24bf21a43c16024d48a3f7abfe97500afb275b92e63c470d5831a6966b3d0ca3",
+      "rule": "service-http-exception",
+      "file": "src/seller_api_keys/service.py",
+      "evidence": "fastapi:HTTPException",
+      "count": 1
+    },
+    {
+      "fingerprint": "2fe48d896cf3e238058b1f95bd3d924ee7f4f038518f8f415c9518c305e9cd4f",
+      "rule": "service-http-exception",
+      "file": "src/tasks/service.py",
+      "evidence": "fastapi:HTTPException",
+      "count": 1
+    },
+    {
+      "fingerprint": "ec84ac61c2bf562c60afa6505a10a03fd3efb33282055800420ca102e1fc4fd3",
+      "rule": "service-http-exception",
+      "file": "src/usage/service.py",
+      "evidence": "fastapi:HTTPException",
+      "count": 1
+    },
+    {
+      "fingerprint": "ae3ba7d3d915d50395eb2b0edcb815e94b59538094eb11c3e63c440dd69ff6f9",
+      "rule": "service-http-exception",
+      "file": "src/wallet/service.py",
+      "evidence": "fastapi:HTTPException",
+      "count": 1
+    }
+  ]
+}

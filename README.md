@@ -1,224 +1,249 @@
 # Proxora — Marketplace Platform
 
-Nền tảng cung cấp tài khoản, proxy và dữ liệu số cho doanh nghiệp. Ký quỹ an toàn, giao ngay.
+Nền tảng marketplace cho tài khoản số, proxy và dịch vụ dữ liệu; hỗ trợ buyer, seller và admin, ví nội bộ, ký quỹ, giao tài nguyên và tích hợp nhà cung cấp.
 
-## Tech Stack
+## Nguồn sự thật
+
+Tài liệu này chỉ mô tả trạng thái đang có trong repository. Khi có mâu thuẫn, ưu tiên theo thứ tự:
+
+1. code và cấu hình thực thi;
+2. tests và Alembic migrations;
+3. verification/CI scripts;
+4. tài liệu.
+
+Quy tắc dành cho coding agent nằm trong [`AGENTS.md`](AGENTS.md) và các `AGENTS.md` theo thư mục. Visual contract nằm trong [`DESIGN.md`](DESIGN.md); module contracts nằm trong [`frontend/ARCHITECTURE.md`](frontend/ARCHITECTURE.md) và [`marketplace-svc/ARCHITECTURE.md`](marketplace-svc/ARCHITECTURE.md); domain chat hiện tại nằm trong [`CONTEXT.md`](CONTEXT.md).
+
+## Tech stack hiện tại
 
 | Layer | Công nghệ |
 |---|---|
-| Frontend | Next.js 15, React 19, TailwindCSS, TanStack Table/Query, Recharts, Framer Motion |
-| Backend API | FastAPI, SQLAlchemy (async), Pydantic v2, APScheduler |
-| Database | PostgreSQL 17 |
-| Cache / Queue | Redis 7, RabbitMQ 4 |
-| Auth | JWT (PyJWT + bcrypt) |
-| Runtime | Python 3.13, Node.js, Docker Compose |
+| Frontend/BFF | Next.js 16.3, React 19, TypeScript, Tailwind CSS 4, TanStack Query/Table, `next-intl` |
+| Backend | Python 3.13+, FastAPI, Pydantic v2, SQLAlchemy async, Alembic, APScheduler |
+| Data | PostgreSQL 17; Redis 7 cho rate limit/gateway best-effort |
+| Auth | JWT ở backend; frontend giữ session bằng HTTP-only cookie trong same-origin BFF |
+| Tooling | npm, uv, pytest, Docker Compose |
 
-## Cấu trúc dự án
+Repository hiện không có `publishing-svc` hoặc RabbitMQ runtime. Không thêm dependency/service dựa trên tài liệu cũ nếu code hiện tại không sử dụng.
 
-```
-marketplace/
-├── frontend/                   # Next.js app
-│   ├── app/
-│   │   ├── page.tsx            # Trang chủ (chợ sản phẩm)
-│   │   ├── products/[id]/      # Chi tiết sản phẩm
-│   │   ├── orders/             # Quản lý đơn hàng (buyer)
-│   │   ├── wallet/             # Ví, nạp tiền, lịch sử giao dịch
-│   │   ├── login/ & register/  # Xác thực
-│   │   ├── seller/             # Portal nhà bán
-│   │   │   ├── page.tsx        # Dashboard seller
-│   │   │   ├── products/       # CRUD sản phẩm + variants
-│   │   │   └── orders/         # Xử lý đơn, giao hàng, phản hồi khiếu nại
-│   │   ├── admin/              # Admin console
-│   │   │   ├── page.tsx        # Tổng quan (KPIs, chart, system status)
-│   │   │   ├── orders/         # Quản lý toàn bộ đơn hàng
-│   │   │   ├── products/       # Quản lý sản phẩm toàn hệ thống
-│   │   │   ├── disputes/       # Xử lý khiếu nại (hoàn tiền / từ chối)
-│   │   │   ├── providers/      # Nhà cung cấp & health monitoring
-│   │   │   ├── alerts/         # Cảnh báo hệ thống
-│   │   │   ├── tasks/          # Tác vụ nền
-│   │   │   ├── resources/      # Quản lý tài nguyên
-│   │   │   ├── reports/        # Báo cáo
-│   │   │   └── logs/           # Nhật ký hệ thống
-│   │   └── solutions/          # Landing page giải pháp
-│   ├── components/
-│   │   ├── TopNav.tsx          # Navigation (role-aware)
-│   │   ├── SiteFooter.tsx      # Footer
-│   │   ├── ui.tsx              # Hand-rolled UI primitives
-│   │   ├── ui/                 # shadcn-style components (dialog, tooltip, ...)
-│   │   └── admin/              # Admin-specific components
-│   └── lib/
-│       ├── api.ts              # API client (fetch wrapper)
-│       ├── auth.tsx            # AuthProvider + useAuth hook
-│       ├── types.ts            # TypeScript interfaces
-│       └── utils/              # Formatters (vnd, date)
-│
-├── marketplace-svc/            # FastAPI backend
-│   └── src/
-│       ├── main.py             # App entrypoint + scheduled jobs
-│       ├── config.py           # Settings (env vars)
-│       ├── database.py         # Async SQLAlchemy session
-│       ├── models/             # ORM models
-│       │   ├── account.py      # User accounts + roles
-│       │   ├── product.py      # Products, variants, pricing
-│       │   ├── order.py        # Orders, disputes, escrow
-│       │   ├── wallet.py       # Wallet + transactions
-│       │   ├── resource.py     # Deliverable resources (accounts, proxies)
-│       │   ├── provider.py     # External service providers
-│       │   ├── alert.py        # System alerts
-│       │   └── review.py       # Product reviews
-│       ├── auth/               # JWT auth, registration, login
-│       ├── products/           # Product CRUD, variants, pricing
-│       ├── orders/             # Order lifecycle, escrow, confirmation
-│       ├── wallet/             # Balance, topup, escrow hold/release
-│       ├── disputes/           # Dispute flow (buyer → seller → admin)
-│       ├── resources/          # Resource assignment, expiry
-│       ├── providers/          # Provider health, scoring
-│       ├── pricing/            # Dynamic pricing (credit, task, tiered)
-│       ├── reviews/            # Ratings & reviews
-│       ├── alerts/             # Alert management
-│       ├── seller/             # Seller-specific endpoints
-│       ├── categories/         # Product categories
-│       ├── audit/              # Event logging
-│       ├── tasks/              # Background service tasks
-│       ├── adapters/           # External service adapters
-│       └── scheduler.py        # APScheduler jobs (escrow, SLA, health)
-│
-├── publishing-svc/             # Async worker service
-├── docker-compose.yml          # Production stack
-├── docker-compose.dev.yml      # Dev override (hot reload)
-└── init-db.sql                 # DB initialization
+## Kiến trúc request
+
+```text
+Browser
+  └─ /api/* (same origin)
+       └─ Next.js BFF: app/api/[...path]/route.ts
+            └─ FastAPI :8001
+                 ├─ PostgreSQL :5432 (system of record)
+                 └─ Redis :6379 (best-effort rate limiting/gateway support)
 ```
 
-## Chạy dự án
+- Browser không gọi FastAPI trực tiếp và không nhận access token sau login.
+- BFF lưu JWT trong cookie `dx_session` dạng HTTP-only và thêm `Authorization` khi gọi backend.
+- `/internal/*` không được public qua catch-all BFF.
+- Scheduled jobs hiện chạy trong process backend; danh sách chính xác nằm trong `marketplace-svc/src/main.py`.
 
-### Prerequisites
+## Cấu trúc chính
 
-- Docker Desktop
-- Node.js 20+
-- Python 3.13+ (khuyến nghị dùng [uv](https://docs.astral.sh/uv/))
+```text
+market_site/
+├── AGENTS.md                    # Quy tắc coding agent toàn repository
+├── DESIGN.md                    # Contract thiết kế frontend và skill routing
+├── CONTEXT.md                   # Contract domain chat đang được triển khai
+├── scripts/                     # Verification gates cho agent/CI/local
+├── frontend/
+│   ├── AGENTS.md                # Quy tắc Next.js/frontend
+│   ├── ARCHITECTURE.md          # Module seams và dependency direction
+│   ├── app/[locale]/            # App Router, route en/vi
+│   ├── app/api/[...path]/       # Same-origin BFF
+│   ├── components/              # Shared, admin và chat UI
+│   ├── hooks/                   # TanStack Query hooks
+│   ├── i18n/ & messages/        # next-intl config và catalog en/vi
+│   └── lib/                     # API client, auth, types, money helpers
+├── marketplace-svc/
+│   ├── AGENTS.md                # Quy tắc FastAPI/backend
+│   ├── ARCHITECTURE.md          # Service/router/adapter/transaction seams
+│   ├── src/                     # Feature modules, models, scheduler
+│   ├── alembic/                 # Database migrations
+│   ├── scripts/                 # Ops/seed/recovery scripts
+│   └── tests/                   # Backend pytest suite
+├── db/marketplace-seed.sql
+├── init-db.sql                  # Tạo marketplace_test trên volume mới
+├── docker-compose.dev.yml       # PostgreSQL + Redis cho local development
+└── docker-compose.yml           # Deployment-specific stack
+```
+
+## Yêu cầu môi trường
+
+- Docker Desktop/Engine với Compose
+- Node.js 20.9+ (Node 22 được dùng trong Dockerfile)
+- Python 3.13+
+- [`uv`](https://docs.astral.sh/uv/)
 - Git
 
-### Development
+## Chạy local
+
+### 1. Khởi động PostgreSQL và Redis
+
+Từ root repository:
 
 ```bash
-# 1. Hạ tầng (Postgres + Redis) — chạy trong Docker
 docker compose -f docker-compose.dev.yml up -d
+docker compose -f docker-compose.dev.yml ps
+```
 
-# 2. Backend — chạy native (hot reload nhanh hơn qua bind-mount)
+Local development dùng:
+
+- PostgreSQL: `marketplace:marketplace@localhost:5432/marketplace`
+- Redis: `redis://localhost:6379`
+
+`init-db.sql` tạo `marketplace_test` khi PostgreSQL khởi tạo một volume sạch. Nếu đang dùng volume cũ và test báo database không tồn tại, tạo một lần:
+
+```bash
+docker compose -f docker-compose.dev.yml exec postgres \
+  psql -U marketplace -d postgres -c 'CREATE DATABASE marketplace_test;'
+```
+
+Không chạy lệnh trên nếu database đã tồn tại.
+
+### 2. Chạy backend
+
+```bash
 cd marketplace-svc
-uv sync --extra dev           # hoặc: python -m venv .venv && .venv/bin/pip install -e ".[dev]"
+cp .env.example .env
+```
+
+Sửa file local `marketplace-svc/.env`:
+
+- đặt `DATABASE_URL=postgresql+asyncpg://marketplace:marketplace@localhost:5432/marketplace`;
+- tạo ba giá trị khác nhau, tối thiểu 32 byte cho `JWT_SECRET`, `INTERNAL_API_KEY`, `ENCRYPTION_KEY`;
+- giữ secret thật ngoài Git. Có thể tạo từng giá trị bằng `openssl rand -hex 32`.
+
+Sau đó:
+
+```bash
+uv sync --extra dev
 uv run alembic upgrade head
 uv run uvicorn src.main:app --reload --port 8001
-
-# 3. Frontend — chạy native
-cd frontend && npm install && npm run dev
 ```
 
-`docker-compose.dev.yml` chỉ chứa Postgres + Redis, expose port ra host (`5432`/`6379`) để backend native connect vào và để bạn debug trực tiếp bằng psql/DBeaver. Config mặc định trong `marketplace-svc/src/config.py` đã trỏ sẵn `localhost:5432`/`localhost:6379` với user/pass `marketplace`/`marketplace` — không cần set biến môi trường gì thêm khi chạy native.
+Backend mặc định không bật API docs. Chỉ bật `API_DOCS_ENABLED=true` trong local development nếu cần.
 
-### Production
+### 3. Chạy frontend
+
+Ở terminal khác:
 
 ```bash
-# Backend
-docker compose up -d --build
-
-# Frontend
-cd frontend && npm run build && npm start
+cd frontend
+npm ci
+npm run dev
 ```
 
-### Demo (tunnel ra ngoài)
+Mở <http://localhost:3000/en> hoặc <http://localhost:3000/vi>. Frontend server gọi backend qua `API_URL` (mặc định local là `http://localhost:8001`); browser luôn gọi `/api` same-origin.
+
+## Verification harness
+
+Chạy từ root repository:
 
 ```bash
-# Chạy backend + frontend production build, rồi:
-cloudflared tunnel --url http://localhost:3000
-# hoặc
-ngrok http 3000 --domain=your-domain.ngrok-free.app
+# Design/module guards + TypeScript + i18n + auth-route test + production compile
+./scripts/verify-frontend.sh
+
+# Architecture guard + migrate marketplace_test rồi chạy toàn bộ backend suite
+./scripts/verify-backend.sh
+
+# Targeted backend tests trong lúc phát triển
+./scripts/verify-backend.sh tests/test_chat_inquiries.py tests/test_chat_orders.py
+
+# Full frontend gate, sau đó full backend gate (tuần tự)
+./scripts/verify-all.sh
 ```
 
-## Ports
+Backend suite dùng chung `marketplace_test` và `TRUNCATE` các bảng trước mỗi test. **Không chạy hai tiến trình pytest song song**, kể cả từ agent/worktree khác. Script backend dùng machine-wide lock để chặn việc này.
 
-| Service | Port | URL |
-|---|---|---|
-| Frontend | 3000 | http://localhost:3000 |
-| Marketplace API | 8001 | http://localhost:8001 |
-| Publishing API | 8002 | http://localhost:8002 |
-| PostgreSQL | 5432 | — |
-| Redis | 6379 | — |
-| RabbitMQ Management | 15672 | http://localhost:15672 |
-
-## Scheduled Jobs (APScheduler)
-
-| Job | Interval | Chức năng |
-|---|---|---|
-| `escrow_release` | 30 phút | Giải phóng tiền ký quỹ khi hết hạn |
-| `sla_check` | 10 phút | Kiểm tra đơn quá SLA |
-| `health_check` | 15 phút | Ping provider health |
-| `resource_expire` | 15 phút | Đánh dấu tài nguyên hết hạn |
-| `provider_scoring` | 15 phút | Tính điểm uy tín provider |
-
-## Giao diện theo role
-
-| Role | Route | Chức năng chính |
-|---|---|---|
-| Buyer | `/`, `/products`, `/orders`, `/wallet` | Mua hàng, ký quỹ, khiếu nại |
-| Seller | `/seller/*` | Quản lý sản phẩm, giao hàng, phản hồi khiếu nại |
-| Admin | `/admin/*` | Giám sát toàn hệ thống, xử lý khiếu nại, quản lý provider |
-
-## API Authentication
-
-```
-POST /auth/register    # Đăng ký
-POST /auth/login       # Đăng nhập → access_token
-GET  /me               # Thông tin tài khoản
-
-# Header: Authorization: Bearer <token>
-```
-
-## Test
+Có thể chạy riêng architecture guard backend mà không cần database:
 
 ```bash
 cd marketplace-svc
-uv sync --extra dev
-uv run pytest -q
+uv run python scripts/check_architecture.py
 ```
 
-> **Đừng chạy hai tiến trình pytest song song.** Suite dùng chung DB
-> `marketplace_test` và TRUNCATE mọi bảng trước mỗi test, nên hai lần chạy sẽ giẫm
-> lên nhau và sinh lỗi giả trông y như bug thật (`InvalidRequestError: Could not
-> refresh instance`, register trả 409, request trả 401).
+Các baseline chỉ ghi nhận debt có sẵn. Feature work thông thường không được cập nhật baseline để hợp thức hoá violation mới.
 
-DB test tách riêng khỏi DB dev (`marketplace_test` vs `marketplace`), tạo trước khi
-chạy lần đầu và migrate:
+Các command frontend riêng lẻ:
 
 ```bash
-DATABASE_URL="postgresql+asyncpg://marketplace:marketplace@localhost:5432/marketplace_test" \
-  uv run alembic upgrade head
+cd frontend
+npm run check:harness        # design-system + module-boundary guards
+npm run lint                 # hiện là tsc --noEmit
+npm run check:i18n
+npm run test:auth-route
+API_URL=http://marketplace-svc:8001 npm run build
 ```
 
-## Environment Variables
+Thay đổi UI vẫn phải được kiểm tra trên browser thật: desktop/mobile, console, network, loading/error/empty/permission states. Build thành công không thay thế runtime verification.
 
-### Backend (`marketplace-svc`)
+## Routes theo role
 
-| Biến | Mặc định | Mô tả |
-|---|---|---|
-| `DATABASE_URL` | `postgresql+asyncpg://marketplace:marketplace@localhost:5432/marketplace` | Connection string |
-| `JWT_SECRET` | **bắt buộc** | JWT signing key unique, tối thiểu 32 byte |
-| `INTERNAL_API_KEY` | **bắt buộc** | Key riêng cho `/internal/*`, tối thiểu 32 byte |
-| `ENCRYPTION_KEY` | **bắt buộc** | Khoá mã hoá credential nhà cung cấp, tối thiểu 32 byte |
-| `REDIS_URL` | `redis://localhost:6379` | Redis connection |
-| `PLATFORM_FEE_PERCENT` | `0` | Phí nền tảng (%) |
+Mọi route ứng dụng đều có locale prefix (`/en` hoặc `/vi`).
 
-> **`ENCRYPTION_KEY` — bắt buộc set trước khi serve traffic.**
-> `api_key`/`api_secret` trong `Provider.config` được mã hoá bằng khoá derive từ biến này.
-> Khi rotate, backup DB rồi chạy dry-run và apply bằng
-> `scripts/rotate_encryption_key.py`; không đổi key trực tiếp vì credential cũ sẽ không giải mã được.
-> Backend fail startup nếu secret thiếu, quá ngắn hoặc trùng default cũ.
+| Role | Route chính |
+|---|---|
+| Buyer | `/[locale]`, `/[locale]/categories`, `/[locale]/products/[id]`, `/[locale]/orders`, `/[locale]/wallet`, `/[locale]/transactions`, `/[locale]/messages` |
+| Seller | `/[locale]/seller/*` |
+| Admin | `/[locale]/admin/*` |
 
-### Frontend
+Frontend route visibility không thay thế backend authorization.
 
-| Biến | Mặc định | Mô tả |
-|---|---|---|
-| `NEXT_PUBLIC_API_URL` | `/api` | Browser chỉ gọi same-origin BFF; không đặt secret ở `NEXT_PUBLIC_*` |
-| `API_URL` | `http://localhost:8001` | Upstream backend server-side; production bắt buộc không phải localhost |
+## Environment contract
 
-Frontend dùng `NODE_ENV` chuẩn của Next.js để bật validation production, Secure cookie và security headers; không cần thêm biến môi trường tùy chỉnh.
+### Backend
+
+Nguồn đầy đủ: `marketplace-svc/.env.example` và `marketplace-svc/src/config.py`.
+
+| Biến | Yêu cầu |
+|---|---|
+| `DEPLOYMENT_ENVIRONMENT` | `development`, `test`, `staging`, hoặc `production` |
+| `DATABASE_URL` | PostgreSQL async URL |
+| `REDIS_URL` | Redis URL; mặc định local `redis://localhost:6379` |
+| `JWT_SECRET` | Bắt buộc, unique, tối thiểu 32 byte |
+| `INTERNAL_API_KEY` | Bắt buộc, khác JWT secret, tối thiểu 32 byte |
+| `ENCRYPTION_KEY` | Bắt buộc, khác các secret khác, tối thiểu 32 byte |
+| `PRINCIPAL_HMAC_SECRET` | Nên đặt riêng ở staging/production |
+| `FRONTEND_BASE_URL`, `CORS_ALLOWED_ORIGINS` | Origin frontend được backend chấp nhận |
+| `BACKEND_BASE_URL` | Public callback base URL; production yêu cầu public HTTPS |
+
+Payment/provider variables là server-only. Không đặt credential trong `NEXT_PUBLIC_*`, tài liệu, log hoặc client response. Không đổi trực tiếp `ENCRYPTION_KEY` của môi trường có dữ liệu; dùng quy trình rotate trong `marketplace-svc/scripts/rotate_encryption_key.py` sau khi backup và dry-run.
+
+### Frontend/BFF
+
+Nguồn đầy đủ: `frontend/.env.example` và `frontend/next.config.mjs`.
+
+| Biến | Yêu cầu |
+|---|---|
+| `API_URL` | Backend upstream dùng server-side; production không được trỏ localhost |
+| `NEXT_PUBLIC_ENABLE_DEMO_TOPUP` | Chỉ opt-in development; production luôn bị tắt |
+| `ADMIN_ALLOWED_IPS` | Optional server-side admin network gate |
+| `ADMIN_CLIENT_IP_HEADER` | Header do trusted edge proxy ghi đè |
+| `TIKTOK_LOOKUP_API_URL`, `LOOKUP_API_KEY` | Server-side social lookup integration |
+
+`NEXT_PUBLIC_API_URL` không phải đường bypass BFF: browser client hiện cố định same-origin `/api`.
+
+## Build/deploy
+
+Frontend production compile cần một upstream không phải localhost:
+
+```bash
+cd frontend
+npm ci
+API_URL=https://api.example.com npm run build
+npm start
+```
+
+`API_URL` được đóng vào `BUILT_API_URL` khi build; cần rebuild nếu đổi upstream. `docker-compose.yml`, `Jenkinsfile` và Dockerfiles là cấu hình deployment-specific, có private registry/internal assumptions và không phải local quick-start. Trước deploy thực tế phải inject secret qua cơ chế quản lý secret, kiểm tra image/API URL, migration, CORS, callback URL và backup database. Không lấy giá trị hard-code trong deployment file làm template credential cho môi trường mới.
+
+## Quy tắc cập nhật tài liệu
+
+- Thay đổi dependency/runtime: cập nhật bảng tech stack và command liên quan.
+- Thay đổi API xuyên frontend/backend: cập nhật schema, tests, frontend types/callers cùng lúc.
+- Thay đổi database: thêm migration và chạy gate backend.
+- Thay đổi chat: đọc/cập nhật `CONTEXT.md`; không coi prototype là contract.
+- Chỉ ghi một tính năng là “đã có” khi code path và test tương ứng tồn tại.

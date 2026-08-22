@@ -1605,6 +1605,7 @@ async def list_admin_deposit_ledger(
     limit: int = 25,
     offset: int = 0,
     provider: str | None = None,
+    status: str | None = None,
     search: str | None = None,
 ) -> dict:
     """Return one filtered page of deposit intents and provider transactions."""
@@ -1618,6 +1619,14 @@ async def list_admin_deposit_ledger(
             ))
         else:
             filters.append(DepositIntent.provider == normalized_provider)
+
+    normalized_status = str(status or "").strip().lower()
+    if normalized_status:
+        try:
+            enum_status = DepositIntentStatus(normalized_status)
+            filters.append(DepositIntent.status == enum_status)
+        except ValueError:
+            pass
 
     normalized_search = str(search or "").strip()
     if normalized_search:

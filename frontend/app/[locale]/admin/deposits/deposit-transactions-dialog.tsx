@@ -14,11 +14,11 @@ import {
 import { Button } from "@/components/ui";
 import { Dialog, DialogContent, DialogDescription, DialogHeader, DialogTitle } from "@/components/ui/dialog";
 import { DepositStatusBadge } from "@/components/admin";
-import type { AdminDepositIntent, AdminDepositTransaction } from "@/lib/types";
+import type { AdminDepositIntent, AdminDepositLedgerIntent, AdminDepositTransaction } from "@/lib/types";
 import { cn } from "@/lib/utils/cn";
 
 type Props = {
-  deposit: AdminDepositIntent | null;
+  deposit: AdminDepositIntent | AdminDepositLedgerIntent | null;
   transactions: AdminDepositTransaction[] | null;
   error: string | null;
   onOpenChange: (open: boolean) => void;
@@ -255,8 +255,8 @@ export function DepositTransactionsDialog({ deposit, transactions, error, onOpen
 
   return (
     <Dialog open onOpenChange={onOpenChange}>
-      <DialogContent className="h-[calc(100dvh-1rem)] w-[calc(100vw-1rem)] max-w-[1120px] gap-0 overflow-hidden rounded-2xl p-0 sm:h-[min(820px,calc(100dvh-2rem))] sm:w-[calc(100vw-2rem)]">
-        <DialogHeader className="border-b border-slate-200 px-5 py-4 pr-14 text-left sm:px-6 sm:py-5">
+      <DialogContent className="max-h-[min(820px,calc(100dvh-2rem))] h-auto w-[calc(100vw-1rem)] max-w-[1000px] flex flex-col gap-0 overflow-hidden rounded-2xl p-0 sm:w-[calc(100vw-2rem)]">
+        <DialogHeader className="border-b border-line px-5 py-4 pr-14 text-left sm:px-6 sm:py-5 shrink-0">
           <div className="flex flex-wrap items-center gap-3">
             <span className={cn("grid h-10 min-w-10 place-items-center rounded-lg px-2 text-[10px] font-bold tracking-wide", provider.markClass)}>
               {provider.mark}
@@ -293,7 +293,7 @@ export function DepositTransactionsDialog({ deposit, transactions, error, onOpen
                   {missingJournal
                     ? "Đã cộng ví nhưng thiếu nhật ký provider"
                     : heldCount > 0
-                      ? `${heldCount} giao dịch cần xử lý`
+                      ? `${heldCount} vấn đề cần xử lý`
                     : creditedCount > 0
                       ? "Khoản tiền khớp đã được cộng ví"
                       : "Chưa có khoản tiền nào được cộng ví"}
@@ -338,7 +338,7 @@ export function DepositTransactionsDialog({ deposit, transactions, error, onOpen
                     ? "Đang tải"
                     : missingJournal
                       ? "1 vấn đề"
-                      : `${heldCount} giao dịch`}
+                      : `${heldCount} vấn đề`}
                 </p>
               </div>
             </div>

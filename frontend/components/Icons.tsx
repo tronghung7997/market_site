@@ -125,6 +125,40 @@ export const TrendingUp = (p: IconProps) => (
 export const ClipboardList = (p: IconProps) => (
   <svg {...s(p)}><rect width="8" height="4" x="8" y="2" rx="1" ry="1" /><path d="M16 4h2a2 2 0 0 1 2 2v14a2 2 0 0 1-2 2H6a2 2 0 0 1-2-2V6a2 2 0 0 1 2-2h2" /><path d="M12 11h4" /><path d="M12 16h4" /><path d="M8 11h.01" /><path d="M8 16h.01" /></svg>
 );
+export const RefreshCw = (p: IconProps) => (
+  <svg {...s(p)}><path d="M21 12a9 9 0 0 0-9-9 9.75 9.75 0 0 0-6.74 2.74L3 8" /><path d="M3 3v5h5" /><path d="M3 12a9 9 0 0 0 9 9 9.75 9.75 0 0 0 6.74-2.74L21 16" /><path d="M16 16h5v5" /></svg>
+);
+export const AlertCircle = (p: IconProps) => (
+  <svg {...s(p)}><circle cx="12" cy="12" r="10" /><line x1="12" y1="8" x2="12" y2="12" /><line x1="12" y1="16" x2="12.01" y2="16" /></svg>
+);
+export const AlertTriangle = (p: IconProps) => (
+  <svg {...s(p)}><path d="m21.73 18-8-14a2 2 0 0 0-3.48 0l-8 14A2 2 0 0 0 4 21h16a2 2 0 0 0 1.73-3Z" /><line x1="12" y1="9" x2="12" y2="13" /><line x1="12" y1="17" x2="12.01" y2="17" /></svg>
+);
+export const CheckCircle2 = (p: IconProps) => (
+  <svg {...s(p)}><circle cx="12" cy="12" r="10" /><path d="m9 12 2 2 4-4" /></svg>
+);
+export const BookOpenCheck = (p: IconProps) => (
+  <svg {...s(p)}><path d="M8 3H2v15h7c1.7 0 3 1.3 3 3V7c0-2.2-1.8-4-4-4Z" /><path d="m16 12 2 2 4-4" /><path d="M22 6V3h-6c-2.2 0-4 1.8-4 4v14c0-1.7 1.3-3 3-3h7v-2.3" /></svg>
+);
+export const Landmark = (p: IconProps) => (
+  <svg {...s(p)}><line x1="3" y1="22" x2="21" y2="22" /><line x1="6" y1="18" x2="6" y2="11" /><line x1="10" y1="18" x2="10" y2="11" /><line x1="14" y1="18" x2="14" y2="11" /><line x1="18" y1="18" x2="18" y2="11" /><polygon points="12 2 20 7 4 7" /><line x1="2" y1="11" x2="22" y2="11" /></svg>
+);
+export const Coins = (p: IconProps) => (
+  <svg {...s(p)}><circle cx="8" cy="8" r="6" /><path d="M18.09 10.37A6 6 0 1 1 10.34 18" /><path d="M7 6h1v4" /><path d="m16.71 13.88.7.71-2.82 2.82" /></svg>
+);
+export const WalletCards = (p: IconProps) => (
+  <svg {...s(p)}><rect width="18" height="18" x="3" y="3" rx="2" /><path d="M3 9a2 2 0 0 1 2-2h14a2 2 0 0 1 2 2" /><path d="M3 11h3c.8 0 1.6.3 2.1.9l1.1.9c.5.4 1.2.6 1.8.6H21" /></svg>
+);
+export const ChevronDown = (p: IconProps) => (
+  <svg {...s(p)}><path d="m6 9 6 6 6-6" /></svg>
+);
+export const ChevronUp = (p: IconProps) => (
+  <svg {...s(p)}><path d="m18 15-6-6-6 6" /></svg>
+);
+export const RotateCcw = (p: IconProps) => (
+  <svg {...s(p)}><path d="M3 12a9 9 0 1 0 9-9 9.75 9.75 0 0 0-6.74 2.74L3 8" /><path d="M3 3v5h5" /></svg>
+);
+
 
 /** Brand mark — an aperture/gateway hexagon. Serious, premium. */
 export function Logo({ withName = true }: { withName?: boolean }) {

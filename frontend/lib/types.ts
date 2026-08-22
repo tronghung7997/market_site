@@ -512,6 +512,7 @@ export interface AdminDepositLedgerQuery {
   limit?: number;
   offset?: number;
   provider?: string;
+  status?: string;
   search?: string;
 }
 

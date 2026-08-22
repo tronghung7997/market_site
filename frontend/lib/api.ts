@@ -302,6 +302,7 @@ export const api = {
     params.set("limit", String(query.limit ?? 25));
     params.set("offset", String(query.offset ?? 0));
     if (query.provider) params.set("provider", query.provider);
+    if (query.status) params.set("status", query.status);
     if (query.search) params.set("search", query.search);
     return request<AdminDepositLedgerResponse>(`/admin/deposit-ledger?${params.toString()}`, {}, true);
   },

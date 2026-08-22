@@ -203,6 +203,7 @@ async def admin_deposit_ledger(
     limit: int = Query(default=25, ge=1, le=100),
     offset: int = Query(default=0, ge=0),
     provider: str | None = Query(default=None, max_length=32),
+    status: str | None = Query(default=None, max_length=32),
     search: str | None = Query(default=None, max_length=128),
     _: Account = Depends(require_role("admin")),
     db: AsyncSession = Depends(get_session),
@@ -212,6 +213,7 @@ async def admin_deposit_ledger(
         limit=limit,
         offset=offset,
         provider=provider,
+        status=status,
         search=search,
     )
 

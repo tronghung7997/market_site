@@ -70,6 +70,7 @@ export default function TopNav() {
   const t = useTranslations("nav");
   const tc = useTranslations("currency");
   const languageLabel = locale === "vi" ? "Ngôn ngữ" : "Language";
+  const isAdminRoute = pathname === "/admin" || pathname.startsWith("/admin/");
   const navLinks = [{ href: "/", label: t("marketplace") }, { href: "/categories", label: t("categories") }];
   const accountLinks = [
     { href: "/messages", label: locale === "vi" ? "Tin nhắn" : "Messages", auth: true },
@@ -130,7 +131,7 @@ export default function TopNav() {
             <Link href="/solutions" className="px-2.5 py-1.5 rounded-lg text-[13px] font-medium text-muted hover:text-fg hover:bg-raised transition-colors whitespace-nowrap">{t("solutions")}</Link>
           </nav>
           <div className="flex-1" />
-          {allowLocaleToggle && (
+          {!isAdminRoute && allowLocaleToggle && (
             <LocaleSwitcher
               locale={locale}
               onChange={changeLocale}
@@ -220,7 +221,7 @@ export default function TopNav() {
               );
             })}
             <Link href="/solutions" className="block px-2.5 py-2.5 rounded-lg text-[14px] font-medium text-muted hover:text-fg hover:bg-raised transition-colors">{t("solutions")}</Link>
-            {allowLocaleToggle && (
+            {!isAdminRoute && allowLocaleToggle && (
               <div className="mt-1 flex items-center justify-between border-t border-line pt-3 px-2.5">
                 <span className="text-[11px] font-semibold uppercase tracking-[0.12em] text-faint">{languageLabel}</span>
                 <LocaleSwitcher locale={locale} onChange={changeLocale} label={languageLabel} />

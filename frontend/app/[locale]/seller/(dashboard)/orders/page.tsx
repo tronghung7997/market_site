@@ -9,7 +9,6 @@ import { cn } from "@/lib/cn";
 import { orderStatus } from "@/lib/order-status";
 import { formatDate, formatDateTime } from "@/lib/utils";
 import type { Dispute, Order, Resource } from "@/lib/types";
-import { evidenceFieldLabel, evidenceTypeLabel } from "@/lib/dispute-evidence";
 import {
   Button,
   Card,
@@ -156,7 +155,7 @@ function SellerOrdersConsole() {
       await api.sellerAcceptOrder(orderId);
       await loadData();
     } catch (err: unknown) {
-      alert(err instanceof Error ? err.message : "Không thể tiếp nhận đơn hàng");
+      alert(err instanceof Error ? err.message : t("orderAcceptFailed"));
     } finally {
       setActingOrderId(null);
     }
@@ -256,7 +255,7 @@ function SellerOrdersConsole() {
   // Export CSV
   const handleExportCsv = () => {
     if (filteredOrders.length === 0) {
-      alert("Không có đơn hàng nào để xuất.");
+      alert(t("ordersNoExport"));
       return;
     }
     const headers = ["Order_ID", "Created_At", "Product", "Variant", "Quantity", "Amount_VND", "Status", "Buyer_Email", "Delivered_Data"];
@@ -293,14 +292,14 @@ function SellerOrdersConsole() {
           <h1 className="text-[20px] font-bold text-fg tracking-tight">{t("ordersTitle")}</h1>
           <p className="text-[12.5px] text-muted">
             {t("ordersSubtitle")} &bull;{" "}
-            <span className="font-mono font-medium text-fg">{orders.length}</span> đơn tổng cộng
+            {t("ordersTotalCount", { count: orders.length })}
           </p>
         </div>
 
         <div className="flex items-center gap-2">
           <Button size="sm" variant="secondary" onClick={loadData} className="gap-1.5">
             <RefreshCw size={13} />
-            <span>Làm mới</span>
+            <span>{t("refresh")}</span>
           </Button>
           <Link href="/seller/inventory">
             <Button size="sm" variant="secondary" className="gap-1.5">
@@ -341,12 +340,12 @@ function SellerOrdersConsole() {
           </div>
           <div className="text-2xl font-bold font-mono tabular text-bad">
             {disputedOrders.length}{" "}
-            <span className="text-xs font-normal text-muted font-sans">đơn</span>
+            <span className="text-xs font-normal text-muted font-sans">{t("orderUnit")}</span>
           </div>
           <div className="text-[11px] text-bad font-medium mt-1">
             {unrespondedDisputesCount > 0
-              ? `${unrespondedDisputesCount} đơn cần gửi giải trình gấp`
-              : "Đã phản hồi toàn bộ"}
+              ? t("ordersDisputeUrgent", { count: unrespondedDisputesCount })
+              : t("ordersDisputesAnswered")}
           </div>
         </Card>
 
@@ -367,9 +366,9 @@ function SellerOrdersConsole() {
           </div>
           <div className="text-2xl font-bold font-mono tabular text-warn">
             {actionRequiredOrders.length}{" "}
-            <span className="text-xs font-normal text-muted font-sans">đơn</span>
+            <span className="text-xs font-normal text-muted font-sans">{t("orderUnit")}</span>
           </div>
-          <div className="text-[11px] text-warn font-medium mt-1">Cần duyệt &amp; nạp dữ liệu giao</div>
+          <div className="text-[11px] text-warn font-medium mt-1">{t("ordersActionHint")}</div>
         </Card>
 
         {/* KPI 3: Escrow / Warranty */}
@@ -391,9 +390,9 @@ function SellerOrdersConsole() {
           </div>
           <div className="text-2xl font-bold font-mono tabular text-fg">
             {escrowOrders.length}{" "}
-            <span className="text-xs font-normal text-faint font-sans">đơn</span>
+            <span className="text-xs font-normal text-faint font-sans">{t("orderUnit")}</span>
           </div>
-          <div className="text-[11px] text-faint font-medium mt-1">Giải ngân sau bảo hành (24h-72h)</div>
+          <div className="text-[11px] text-faint font-medium mt-1">{t("ordersEscrowHint")}</div>
         </Card>
 
         {/* KPI 4: Completed & Settled Revenue */}
@@ -415,7 +414,7 @@ function SellerOrdersConsole() {
           </div>
           <div className="text-2xl font-bold font-mono tabular text-good">
             {completedOrders.length}{" "}
-            <span className="text-xs font-normal text-muted font-sans">đơn</span>
+            <span className="text-xs font-normal text-muted font-sans">{t("orderUnit")}</span>
           </div>
           <div className="text-[11px] text-good font-mono font-medium mt-1 truncate">
             {formatBrowseMoney(totalSettledRevenue)}
@@ -503,7 +502,7 @@ function SellerOrdersConsole() {
               className="h-8.5 text-xs gap-1.5 px-3 shrink-0"
             >
               <Download size={13} />
-              <span>Xuất CSV</span>
+              <span>{t("exportCsvPlain")}</span>
             </Button>
           </div>
         </div>
@@ -519,7 +518,7 @@ function SellerOrdersConsole() {
             }}
             className={cn("h-7.5 px-3 text-xs gap-1.5 rounded-lg", activeTab === "all" && "bg-raised font-bold text-fg shadow-xs")}
           >
-            <span>Tất cả</span>
+            <span>{t("allPlain")}</span>
             <span className="px-1.5 py-0.2 rounded-full text-[10px] bg-surface border border-line font-mono font-semibold text-faint">
               {orders.length}
             </span>
@@ -621,18 +620,18 @@ function SellerOrdersConsole() {
           <div className="py-12 px-4 text-center space-y-2">
             <Inbox size={36} className="mx-auto text-faint" />
             <p className="text-[13.5px] font-medium text-fg">{t("noMatchingOrders")}</p>
-            <p className="text-xs text-muted">Thử thay đổi từ khoá tìm kiếm hoặc chuyển tab bộ lọc.</p>
+            <p className="text-xs text-muted">{t("ordersNoMatchHint")}</p>
           </div>
         ) : (
           <div className="overflow-x-auto">
             <table className="w-full text-left text-xs border-collapse">
               <thead>
                 <tr className="bg-raised/40 text-faint text-[11px] font-semibold border-b border-line uppercase tracking-wider">
-                  <th className="px-3 py-3 w-[85px] sm:w-[95px] shrink-0">Mã đơn</th>
-                  <th className="px-4 py-3 min-w-[280px]">Sản phẩm &amp; Gói biến thể</th>
-                  <th className="px-3 py-3 w-[160px] sm:w-[180px]">Khách hàng</th>
+                  <th className="px-3 py-3 w-[85px] sm:w-[95px] shrink-0">{t("orderCode")}</th>
+                  <th className="px-4 py-3 min-w-[280px]">{t("productAndVariant")}</th>
+                  <th className="px-3 py-3 w-[160px] sm:w-[180px]">{t("customer")}</th>
                   <th className="px-3 py-3 w-[95px] font-mono">{t("amount")}</th>
-                  <th className="px-3 py-3 w-[150px]">Tình trạng / Khiếu nại</th>
+                  <th className="px-3 py-3 w-[150px]">{t("statusAndDispute")}</th>
                   <th className="px-4 py-3 text-right w-[130px] sm:w-[150px]">{t("actions")}</th>
                 </tr>
               </thead>
@@ -689,7 +688,7 @@ function SellerOrdersConsole() {
                               <div className="mt-1.5 p-2 rounded-lg bg-raised/80 border border-line text-[11.5px]">
                                 <div className="flex items-start justify-between gap-2">
                                   <div className="font-medium text-fg break-words leading-relaxed min-w-0 flex-1">
-                                    <span className="text-faint text-[10px] font-bold uppercase tracking-wider mr-1.5">Gói:</span>
+                                    <span className="text-faint text-[10px] font-bold uppercase tracking-wider mr-1.5">{t("variantShort")}</span>
                                     {o.variant_name}
                                   </div>
                                   <span className="shrink-0 px-1.5 py-0.5 rounded bg-surface border border-line font-mono font-bold text-fg text-[10.5px]">
@@ -710,20 +709,20 @@ function SellerOrdersConsole() {
                                 <Link
                                   href={`/seller/inventory?product=${o.product_id}`}
                                   className="inline-flex items-center gap-1 text-[11px] text-iris hover:underline font-semibold bg-iris-soft/60 px-2 py-0.5 rounded-md border border-iris/20 transition-colors"
-                                  title="Mở quản lý kho hàng cho sản phẩm này"
+                                  title={t("ordersInventoryTitle")}
                                 >
                                   <Rows size={11} />
-                                  <span>Kho hàng</span>
+                                  <span>{t("manageInventory")}</span>
                                 </Link>
                               )}
                               {o.product_id && (
                                 <Link
                                   href={`/seller/products/${o.product_id}`}
                                   className="inline-flex items-center gap-1 text-[10.5px] text-faint hover:text-fg hover:underline font-medium px-1 py-0.5"
-                                  title="Xem trang chỉnh sửa sản phẩm"
+                                  title={t("editProductTitle")}
                                 >
                                   <ExternalLink size={10} />
-                                  <span>Sửa SP</span>
+                                  <span>{t("editProductShort")}</span>
                                 </Link>
                               )}
                             </div>
@@ -745,7 +744,7 @@ function SellerOrdersConsole() {
                               title={t("chatWithBuyer")}
                             >
                               <MessageSquare size={11} />
-                              <span>Chat</span>
+                              <span>{t("chat")}</span>
                             </Link>
                           </div>
                         )}
@@ -762,7 +761,7 @@ function SellerOrdersConsole() {
                           <Tag tone={st.tone}>{st.label}</Tag>
                           {isCompleted && o.has_review && (
                             <span className="inline-flex items-center gap-0.5 text-[11px] text-warn font-medium">
-                              <Star size={11} className="fill-warn" /> Đã đánh giá
+                              <Star size={11} className="fill-warn" /> {t("rated")}
                             </span>
                           )}
                         </div>
@@ -771,13 +770,13 @@ function SellerOrdersConsole() {
                         {isDisputed && (
                           <div className="p-1.5 rounded-lg bg-bad-soft border border-bad/20 text-bad text-[11px] space-y-0.5 max-w-[220px]">
                             <div className="font-bold flex items-center justify-between gap-1">
-                              <span>Lý do khiếu nại:</span>
+                              <span>{t("disputeReason")}</span>
                               <span className="text-[9.5px] px-1 py-0.2 rounded bg-surface/60 font-normal">
-                                {hasDisputeResponse ? "Đã phản hồi" : "Chưa phản hồi"}
+                                {hasDisputeResponse ? t("responded") : t("awaitingResponse")}
                               </span>
                             </div>
                             <p className="truncate text-fg/90" title={disp?.reason || ""}>
-                              {disp?.reason || "Khách yêu cầu đối soát"}
+                              {disp?.reason || t("disputeFallbackReason")}
                             </p>
                           </div>
                         )}
@@ -786,7 +785,7 @@ function SellerOrdersConsole() {
                         {isDelivered && o.escrow_expires_at && (
                           <div className="text-[10.5px] text-faint flex items-center gap-1">
                             <ShieldCheck size={11} className="text-iris" />
-                            <span>Bảo hành tới: {formatDate(o.escrow_expires_at, locale)}</span>
+                            <span>{t("escrowUntilShort", { date: formatDate(o.escrow_expires_at, locale) })}</span>
                           </div>
                         )}
                       </td>
@@ -803,7 +802,7 @@ function SellerOrdersConsole() {
                               className="h-7 text-[11.5px] gap-1"
                             >
                               <AlertCircle size={12} />
-                              <span>{hasDisputeResponse ? "Xem đối chất" : t("handleDispute")}</span>
+                              <span>{hasDisputeResponse ? t("viewDisputeResponse") : t("handleDispute")}</span>
                             </Button>
                           )}
 
@@ -816,7 +815,7 @@ function SellerOrdersConsole() {
                               className="h-7 text-[11.5px] gap-1"
                             >
                               <Check size={12} />
-                              <span>{actingOrderId === o.id ? "Đang nhận..." : t("acceptOrder")}</span>
+                              <span>{actingOrderId === o.id ? t("accepting") : t("acceptOrder")}</span>
                             </Button>
                           )}
 
@@ -857,8 +856,11 @@ function SellerOrdersConsole() {
         {totalPages > 1 && (
           <div className="p-3 border-t border-line bg-raised/20 flex flex-col sm:flex-row sm:items-center justify-between gap-2 text-xs text-muted">
             <span>
-              Hiển thị {(page - 1) * PAGE_SIZE + 1} &ndash;{" "}
-              {Math.min(page * PAGE_SIZE, filteredOrders.length)} trong tổng {filteredOrders.length} đơn
+              {t("paginationOrders", {
+                from: (page - 1) * PAGE_SIZE + 1,
+                to: Math.min(page * PAGE_SIZE, filteredOrders.length),
+                total: filteredOrders.length,
+              })}
             </span>
             <Pagination page={page} totalPages={totalPages} onChange={setPage} />
           </div>
@@ -934,11 +936,11 @@ function SellerDisputeModal({
   const handleSubmit = async (e: React.FormEvent) => {
     e.preventDefault();
     if (!dispute) {
-      setError("Không tìm thấy thông tin khiếu nại.");
+      setError(t("disputeNotFound"));
       return;
     }
     if (!sellerNote.trim()) {
-      setError("Vui lòng nhập nội dung giải trình cho Admin");
+      setError(t("disputeResponseRequired"));
       return;
     }
 
@@ -948,7 +950,7 @@ function SellerDisputeModal({
       await api.sellerRespondDispute(dispute.id, sellerNote.trim());
       onSuccess();
     } catch (err: unknown) {
-      const msg = err instanceof Error ? err.message : "Không thể gửi phản hồi khiếu nại";
+      const msg = err instanceof Error ? err.message : t("disputeResponseFailed");
       setError(msg);
     } finally {
       setSubmitting(false);
@@ -956,6 +958,21 @@ function SellerDisputeModal({
   };
 
   const hasResponded = !!dispute?.seller_note;
+  const evidenceType = ({
+    account: t("evidenceTypeAccount"),
+    proxy: t("evidenceTypeProxy"),
+    server: t("evidenceTypeServer"),
+    payment: t("evidenceTypePayment"),
+    other: t("evidenceTypeOther"),
+  } as Record<string, string>)[dispute?.evidence_type ?? "other"] ?? dispute?.evidence_type ?? "";
+  const evidenceLabels: Record<string, string> = {
+    username: t("evidenceFieldUsername"),
+    issue: t("evidenceFieldIssue"),
+    ip: t("evidenceFieldIp"),
+    error: t("evidenceFieldError"),
+    server_ip: t("evidenceFieldServerIp"),
+    transaction_id: t("evidenceFieldTransactionId"),
+  };
 
   return (
     <div className="fixed inset-0 z-50 flex items-center justify-center p-4 bg-ink-panel/75 backdrop-blur-xs animate-fade">
@@ -976,7 +993,7 @@ function SellerDisputeModal({
                 <span className="text-[10px] font-bold uppercase tracking-wider text-bad bg-bad-soft px-1.5 py-0.2 rounded">
                   {t("disputeDetailTitle")}
                 </span>
-                <span className="text-xs text-faint font-mono">Đơn #{order.id}</span>
+                <span className="text-xs text-faint font-mono">{t("orderNumber", { id: order.id })}</span>
               </div>
               <h3 id="dispute-modal-title" className="text-[14px] font-bold text-fg truncate max-w-[320px] mt-0.5">
                 {order.product_title}
@@ -1004,19 +1021,19 @@ function SellerDisputeModal({
             </div>
 
             <div className="p-3 rounded-lg bg-surface/80 border border-line text-fg leading-relaxed whitespace-pre-wrap font-sans">
-              {dispute?.reason || "Người mua khiếu nại tài nguyên có lỗi và yêu cầu giải quyết."}
+              {dispute?.reason || t("disputeFallbackClaim")}
             </div>
 
             {/* Evidence metadata */}
             {dispute?.evidence && Object.keys(dispute.evidence).length > 0 && (
               <div className="space-y-1.5 pt-1">
                 <span className="text-[11px] font-semibold text-muted">
-                  Bằng chứng đính kèm ({evidenceTypeLabel(dispute.evidence_type)}):
+                  {t("evidenceAttached", { type: evidenceType })}
                 </span>
                 <div className="grid grid-cols-1 gap-1 font-mono text-[11.5px] p-2 bg-surface/60 rounded-lg border border-line">
                   {Object.entries(dispute.evidence).map(([k, v]) => (
                     <div key={k} className="flex items-baseline gap-1.5">
-                      <span className="text-faint">{evidenceFieldLabel(dispute.evidence_type, k)}:</span>
+                      <span className="text-faint">{evidenceLabels[k] ?? k}:</span>
                       <span className="text-fg break-all">{v}</span>
                     </div>
                   ))}
@@ -1028,7 +1045,7 @@ function SellerDisputeModal({
           {/* Initial Delivered Data Snapshot */}
           {order.delivered_data && (
             <div className="space-y-1.5">
-              <span className="font-semibold text-muted">Dữ liệu bạn đã bàn giao ban đầu:</span>
+              <span className="font-semibold text-muted">{t("deliveredInitial")}</span>
               <div className="p-2.5 rounded-xl bg-raised border border-line font-mono text-[11.5px] text-muted break-all select-all max-h-24 overflow-y-auto">
                 {order.delivered_data}
               </div>
@@ -1039,7 +1056,7 @@ function SellerDisputeModal({
           {hasResponded ? (
             <div className="p-3.5 rounded-xl bg-iris-soft/20 border border-iris/30 space-y-2">
               <div className="flex items-center justify-between text-iris-hi font-bold">
-                <span>✓ Giải trình bạn đã gửi:</span>
+                <span>✓ {t("submittedResponse")}</span>
                 <Tag tone="warn" className="text-[10px]">{t("disputeWaitingAdmin")}</Tag>
               </div>
               <div className="p-3 rounded-lg bg-surface/80 border border-line text-fg leading-relaxed whitespace-pre-wrap">
@@ -1082,7 +1099,7 @@ function SellerDisputeModal({
                     {t("cancel")}
                   </Button>
                   <Button size="sm" type="submit" disabled={submitting || !sellerNote.trim()}>
-                    {submitting ? "Đang gửi..." : t("sendDisputeResponse")}
+                    {submitting ? t("sending") : t("sendDisputeResponse")}
                   </Button>
                 </div>
               </div>
@@ -1101,7 +1118,7 @@ function SellerDisputeModal({
               <span>{t("chatWithBuyer")}</span>
             </Link>
             <Button size="sm" variant="ghost" onClick={onClose}>
-              Đóng
+              {t("close")}
             </Button>
           </div>
         )}
@@ -1155,7 +1172,7 @@ function SellerDeliverModal({
   const handleSubmit = async (e: React.FormEvent) => {
     e.preventDefault();
     if (!data.trim()) {
-      setError("Vui lòng nhập dữ liệu tài nguyên cần bàn giao");
+      setError(t("deliveryRequired"));
       return;
     }
 
@@ -1165,7 +1182,7 @@ function SellerDeliverModal({
       await api.sellerDeliverOrder(order.id, data.trim());
       onSuccess();
     } catch (err: unknown) {
-      const msg = err instanceof Error ? err.message : "Không thể giao đơn hàng";
+      const msg = err instanceof Error ? err.message : t("deliveryFailed");
       setError(msg);
     } finally {
       setSubmitting(false);
@@ -1190,7 +1207,7 @@ function SellerDeliverModal({
                 {t("deliverModalTitle")}
               </span>
               <h3 id="deliver-modal-title" className="text-[14px] font-bold text-fg truncate max-w-[320px] mt-0.5">
-                Đơn #{order.id} &bull; {order.product_title}
+                {t("orderNumber", { id: order.id })} &bull; {order.product_title}
               </h3>
             </div>
           </div>
@@ -1203,11 +1220,11 @@ function SellerDeliverModal({
           {/* Order info & required quantity */}
           <div className="p-3 rounded-xl bg-raised border border-line flex flex-col sm:flex-row sm:items-center justify-between gap-2 text-muted">
             <div>
-              <span>Gói biến thể: </span>
-              <strong className="text-fg">{order.variant_name || "Mặc định"}</strong>
+              <span>{t("variantLabel")} </span>
+              <strong className="text-fg">{order.variant_name || t("defaultVariant")}</strong>
             </div>
             <div className="flex items-center gap-2">
-              <span>Yêu cầu giao:</span>
+              <span>{t("deliveryRequirement")}</span>
               <span className="font-mono font-bold text-iris-hi text-sm px-2 py-0.5 rounded bg-surface border border-line">
                 {order.quantity.toLocaleString()} item
               </span>
@@ -1217,12 +1234,12 @@ function SellerDeliverModal({
           {/* File Upload Toolbar */}
           <div className="flex items-center justify-between gap-2 p-2.5 rounded-xl bg-surface border border-line">
             <div className="text-[11.5px] text-muted">
-              <span>Hỗ trợ nạp hàng loạt (1.000 - 5.000 dòng):</span>
+              <span>{t("bulkUpload")}</span>
             </div>
             <label className="cursor-pointer">
               <span className="inline-flex items-center gap-1.5 px-2.5 py-1 rounded-lg bg-raised hover:bg-raised/80 border border-line text-xs font-semibold text-fg transition-colors">
                 <Upload size={12} className="text-iris" />
-                <span>Tải file .txt / .csv</span>
+                <span>{t("uploadTxtCsv")}</span>
               </span>
               <Input type="file" accept=".txt,.csv" onChange={handleFileUpload} className="hidden" />
             </label>
@@ -1231,7 +1248,7 @@ function SellerDeliverModal({
           {/* Textarea & Line validation */}
           <div className="space-y-1.5">
             <div className="flex items-center justify-between">
-              <label className="font-semibold text-fg">Dữ liệu bàn giao (Key / Tài khoản / Hướng dẫn):</label>
+              <label className="font-semibold text-fg">{t("deliveryPayloadLabel")}</label>
               <div className="flex items-center gap-2 text-[11px] font-mono">
                 <span className={cn(
                   "px-1.5 py-0.5 rounded font-semibold",
@@ -1242,12 +1259,12 @@ function SellerDeliverModal({
                     : "text-warn bg-warn-soft/70 border border-warn/30"
                 )}>
                   {lineCount === 0
-                    ? "Chưa nhập"
+                    ? t("noDataEntered")
                     : isMatch
-                    ? `✓ Đã đủ ${lineCount.toLocaleString()} / ${order.quantity.toLocaleString()} dòng`
+                    ? t("deliveryExactLines", { count: lineCount.toLocaleString(), required: order.quantity.toLocaleString() })
                     : lineCount < order.quantity
-                    ? `⚠️ Đã nhập ${lineCount.toLocaleString()} / ${order.quantity.toLocaleString()} dòng (Thiếu ${(order.quantity - lineCount).toLocaleString()})`
-                    : `⚠️ Đã nhập ${lineCount.toLocaleString()} / ${order.quantity.toLocaleString()} dòng (Thừa ${(lineCount - order.quantity).toLocaleString()})`}
+                    ? t("deliveryMissingLines", { count: lineCount.toLocaleString(), required: order.quantity.toLocaleString(), missing: (order.quantity - lineCount).toLocaleString() })
+                    : t("deliveryExtraLines", { count: lineCount.toLocaleString(), required: order.quantity.toLocaleString(), extra: (lineCount - order.quantity).toLocaleString() })}
                 </span>
               </div>
             </div>
@@ -1256,7 +1273,7 @@ function SellerDeliverModal({
               rows={6}
               value={data}
               onChange={(e) => setData(e.target.value)}
-              placeholder={`Mỗi dòng 1 tài nguyên, hỗ trợ dán 1.000+ dòng:\nuser1|pass1|2fa_cookie\nuser2|pass2|2fa_cookie\nuser3|pass3|2fa_cookie`}
+              placeholder={t("deliveryBulkPlaceholder")}
               className="font-mono text-xs leading-relaxed bg-surface"
               autoFocus
             />
@@ -1264,15 +1281,15 @@ function SellerDeliverModal({
             {/* Duplicate detection badge */}
             {duplicateCount > 0 && (
               <div className="p-2 rounded-lg bg-warn-soft/40 border border-warn/30 text-warn flex items-center justify-between text-[11px]">
-                <span>⚠️ Phát hiện {duplicateCount.toLocaleString()} dòng trùng lặp trong danh sách.</span>
+                <span>{t("duplicateLines", { count: duplicateCount.toLocaleString() })}</span>
                 <Button size="sm" variant="ghost" type="button" onClick={handleRemoveDuplicates} className="h-6 text-[10.5px] text-warn hover:underline">
-                  Loại bỏ trùng lặp
+                  {t("removeDuplicates")}
                 </Button>
               </div>
             )}
 
             <p className="text-[11px] text-muted">
-              💡 Khách hàng sẽ nhận được dữ liệu này ngay sau khi bạn xác nhận giao hàng.
+              💡 {t("deliveryCustomerHint")}
             </p>
           </div>
 
@@ -1288,7 +1305,7 @@ function SellerDeliverModal({
             </Button>
             <Button size="sm" type="submit" disabled={submitting || !data.trim()} className="gap-1.5">
               <Package size={13} />
-              <span>{submitting ? "Đang giao..." : `Xác nhận giao (${lineCount.toLocaleString()} item)`}</span>
+              <span>{submitting ? t("deliverySubmitting") : t("deliveryConfirmCount", { count: lineCount.toLocaleString() })}</span>
             </Button>
           </div>
         </form>
@@ -1382,7 +1399,7 @@ function SellerOrderDetailModal({
             <div>
               <div className="flex items-center gap-2">
                 <Tag tone={st.tone}>{st.label}</Tag>
-                <span className="text-xs text-faint font-mono font-semibold">Đơn #{order.id}</span>
+                <span className="text-xs text-faint font-mono font-semibold">{t("orderNumber", { id: order.id })}</span>
               </div>
               <h3 id="detail-modal-title" className="text-[14px] font-bold text-fg truncate max-w-[320px] mt-0.5">
                 {order.product_title}
@@ -1399,26 +1416,26 @@ function SellerOrderDetailModal({
           {/* Metadata Summary Grid */}
           <div className="grid grid-cols-2 sm:grid-cols-3 gap-2.5 p-3.5 rounded-xl bg-raised/40 border border-line text-[11.5px]">
             <div>
-              <span className="text-faint">Khách mua:</span>
+              <span className="text-faint">{t("buyerLabel")}</span>
               <div className="font-mono text-fg font-medium mt-0.5 truncate" title={order.buyer_email || ""}>
                 {order.buyer_email || "—"}
               </div>
             </div>
             <div>
-              <span className="text-faint">Tổng thanh toán:</span>
+              <span className="text-faint">{t("totalPayment")}</span>
               <div className="font-mono text-fg font-bold mt-0.5">
                 {formatBrowseMoney(order.total_amount)}
               </div>
             </div>
             <div>
-              <span className="text-faint">Thời gian tạo:</span>
+              <span className="text-faint">{t("createdTime")}</span>
               <div className="font-mono text-fg mt-0.5">
                 {formatDate(order.created_at, locale)}
               </div>
             </div>
             {order.variant_name && (
               <div>
-                <span className="text-faint">Gói &amp; Số lượng:</span>
+                <span className="text-faint">{t("variantAndQuantity")}</span>
                 <div className="font-medium text-fg mt-0.5">
                   {order.variant_name} (SL: {order.quantity.toLocaleString()})
                 </div>
@@ -1426,7 +1443,7 @@ function SellerOrderDetailModal({
             )}
             {order.escrow_expires_at && (
               <div className="col-span-2">
-                <span className="text-faint">Thời gian giữ tiền (Escrow):</span>
+                <span className="text-faint">{t("escrowDuration")}</span>
                 <div className="font-medium text-iris-hi mt-0.5">
                   {formatDateTime(order.escrow_expires_at, locale)}
                 </div>
@@ -1436,7 +1453,7 @@ function SellerOrderDetailModal({
 
           {/* Timeline */}
           <div className="p-3 rounded-xl bg-surface border border-line">
-            <span className="font-semibold text-muted mb-1 block">Tiến độ đơn hàng:</span>
+            <span className="font-semibold text-muted mb-1 block">{t("orderProgress")}</span>
             <StatusTimeline status={order.status} />
           </div>
 
@@ -1445,21 +1462,21 @@ function SellerOrderDetailModal({
             <div className="space-y-1.5">
               <div className="flex items-center justify-between">
                 <span className="font-semibold text-fg">
-                  Dữ liệu đã bàn giao ({deliveredLines.length.toLocaleString()} dòng):
+                  {t("deliveredLines", { count: deliveredLines.length.toLocaleString() })}
                 </span>
                 <div className="flex items-center gap-1.5">
                   <Button size="sm" variant="secondary" onClick={handleDownloadDeliveredTxt} className="h-6.5 px-2 text-[11px] gap-1">
                     <Download size={11} />
-                    <span>Tải file TXT</span>
+                    <span>{t("downloadTxt")}</span>
                   </Button>
-                  <CopyButton text={order.delivered_data} label="Sao chép toàn bộ" className="text-[11px]" />
+                  <CopyButton text={order.delivered_data} label={t("copyAll")} className="text-[11px]" />
                 </div>
               </div>
               <div className="p-3 rounded-xl bg-raised border border-line font-mono text-[11.5px] text-fg break-all select-all max-h-36 overflow-y-auto leading-relaxed">
                 {deliveredLines.slice(0, 50).join("\n")}
                 {deliveredLines.length > 50 && (
                   <p className="mt-2 text-[10.5px] text-faint italic font-sans">
-                    ... và {(deliveredLines.length - 50).toLocaleString()} dòng khác. Nhấn &quot;Tải file TXT&quot; để tải toàn bộ.
+                    {t("moreDeliveredLines", { count: (deliveredLines.length - 50).toLocaleString() })}
                   </p>
                 )}
               </div>
@@ -1471,23 +1488,23 @@ function SellerOrderDetailModal({
             <div className="space-y-1.5 pt-1">
               <div className="flex items-center justify-between">
                 <span className="font-semibold text-muted">
-                  Tài nguyên cấp phát tự động ({resources.length.toLocaleString()} item):
+                  {t("allocatedResources", { count: resources.length.toLocaleString() })}
                 </span>
                 <Button size="sm" variant="secondary" onClick={handleDownloadResourcesTxt} className="h-6.5 px-2 text-[11px] gap-1">
                   <Download size={11} />
-                  <span>Tải toàn bộ file</span>
+                  <span>{t("downloadAll")}</span>
                 </Button>
               </div>
               <div className="space-y-1 max-h-36 overflow-y-auto">
                 {resources.slice(0, 30).map((r) => (
                   <div key={r.id} className="p-2 rounded-lg bg-raised border border-line font-mono text-[11px] flex items-center justify-between">
                     <span className="truncate max-w-[320px]">{r.data}</span>
-                    <Tag tone="good" className="text-[9px]">Khả dụng</Tag>
+                    <Tag tone="good" className="text-[9px]">{t("availableStatus")}</Tag>
                   </div>
                 ))}
                 {resources.length > 30 && (
                   <div className="p-2 text-center text-[11px] text-faint bg-raised/50 rounded-lg">
-                    Đang hiển thị 30 / {resources.length.toLocaleString()} tài nguyên. Bấm &quot;Tải toàn bộ file&quot; để xuất tất cả.
+                    {t("showingResources", { count: resources.length.toLocaleString() })}
                   </div>
                 )}
               </div>
@@ -1498,8 +1515,8 @@ function SellerOrderDetailModal({
           {isDisputed && (
             <div className="p-3 rounded-xl bg-bad-soft/30 border border-bad/30 flex items-center justify-between">
               <div>
-                <div className="font-bold text-bad">Đơn hàng đang có tranh chấp</div>
-                <div className="text-[11px] text-muted">Xem nội dung khiếu nại và phản hồi cho Admin</div>
+                <div className="font-bold text-bad">{t("disputedOrderTitle")}</div>
+                <div className="text-[11px] text-muted">{t("disputedOrderHint")}</div>
               </div>
               <Button size="sm" variant="danger" onClick={onDisputeClick}>
                 {t("handleDispute")}
@@ -1510,8 +1527,8 @@ function SellerOrderDetailModal({
           {isProcessing && (
             <div className="p-3 rounded-xl bg-warn-soft/30 border border-warn/30 flex items-center justify-between">
               <div>
-                <div className="font-bold text-warn">Đơn hàng đang chờ bàn giao</div>
-                <div className="text-[11px] text-muted">Nhập key/tài nguyên để hoàn tất đơn cho khách</div>
+                <div className="font-bold text-warn">{t("waitingDeliveryTitle")}</div>
+                <div className="text-[11px] text-muted">{t("waitingDeliveryHint")}</div>
               </div>
               <Button size="sm" onClick={onDeliverClick}>
                 {t("deliverNow")}
@@ -1530,7 +1547,7 @@ function SellerOrderDetailModal({
             <span>{t("chatWithBuyer")}</span>
           </Link>
           <Button size="sm" variant="ghost" onClick={onClose}>
-            Đóng
+            {t("close")}
           </Button>
         </div>
       </div>

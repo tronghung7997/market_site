@@ -360,7 +360,7 @@ function InventoryConsole() {
   const handleFastRestock = async () => {
     if (!activeVariant) return;
     if (parsedRestockItems.length === 0) {
-      setRestockError("Vui lòng nhập hoặc tải lên ít nhất 1 dòng tài nguyên hợp lệ.");
+      setRestockError(t("inventoryResourcesRequired"));
       return;
     }
 
@@ -382,7 +382,7 @@ function InventoryConsole() {
   };
 
   const handleDeleteResource = async (resourceId: number) => {
-    if (!confirm("Bạn có chắc chắn muốn xoá tài nguyên này khỏi kho?")) return;
+    if (!confirm(t("inventoryDeleteConfirm"))) return;
     try {
       await api.deleteResource(resourceId);
       setResources((prev) => prev.filter((r) => r.id !== resourceId));
@@ -405,7 +405,7 @@ function InventoryConsole() {
     if (!activeVariant || resources.length === 0) return;
     const availableItems = resources.filter((r) => r.status === "available");
     if (availableItems.length === 0) {
-      alert("Không có tài nguyên khả dụng nào để xuất file.");
+      alert(t("inventoryNoExport"));
       return;
     }
 
@@ -489,7 +489,7 @@ function InventoryConsole() {
         <div className="flex items-center gap-2">
           <Button size="sm" variant="secondary" onClick={loadSummary} className="gap-1.5">
             <RefreshCw size={13} />
-            <span>Làm mới</span>
+            <span>{t("refresh")}</span>
           </Button>
           {activeProduct && (
             <Button
@@ -521,16 +521,16 @@ function InventoryConsole() {
           )}
         >
           <div className="flex items-center justify-between text-muted text-[12px] font-medium mb-1">
-            <span>Tổng khả dụng</span>
+            <span>{t("inventoryTotalAvailable")}</span>
             <span className="text-good">
               <CheckCircle2 size={15} />
             </span>
           </div>
           <div className="text-2xl font-bold font-mono tabular text-fg">
             {totalAvailable.toLocaleString()}{" "}
-            <span className="text-xs font-normal text-faint font-sans">items</span>
+            <span className="text-xs font-normal text-faint font-sans">{t("itemsUnit")}</span>
           </div>
-          <div className="text-[11px] text-good font-medium mt-1">Sẵn sàng phục vụ khách</div>
+          <div className="text-[11px] text-good font-medium mt-1">{t("inventoryReadyHint")}</div>
         </Card>
 
         <Card
@@ -541,14 +541,14 @@ function InventoryConsole() {
           )}
         >
           <div className="flex items-center justify-between text-warn text-[12px] font-medium mb-1">
-            <span>Gói sắp hết (≤ 5)</span>
+            <span>{t("inventoryLowPackages")}</span>
             <AlertTriangle size={15} />
           </div>
           <div className="text-2xl font-bold font-mono tabular text-warn">
             {lowCount}{" "}
-            <span className="text-xs font-normal text-muted font-sans">gói</span>
+            <span className="text-xs font-normal text-muted font-sans">{t("variants").toLowerCase()}</span>
           </div>
-          <div className="text-[11px] text-warn font-medium mt-1">Cần bổ sung nguồn hàng</div>
+          <div className="text-[11px] text-warn font-medium mt-1">{t("inventoryReplenishHint")}</div>
         </Card>
 
         <Card
@@ -559,14 +559,14 @@ function InventoryConsole() {
           )}
         >
           <div className="flex items-center justify-between text-bad text-[12px] font-medium mb-1">
-            <span>Gói hết hàng (0)</span>
+            <span>{t("inventoryOutPackages")}</span>
             <AlertCircle size={15} />
           </div>
           <div className="text-2xl font-bold font-mono tabular text-bad">
             {outCount}{" "}
-            <span className="text-xs font-normal text-muted font-sans">gói</span>
+            <span className="text-xs font-normal text-muted font-sans">{t("variants").toLowerCase()}</span>
           </div>
-          <div className="text-[11px] text-bad font-medium mt-1">Đang tạm ngừng bán</div>
+          <div className="text-[11px] text-bad font-medium mt-1">{t("inventoryPausedHint")}</div>
         </Card>
 
         <Card
@@ -577,16 +577,16 @@ function InventoryConsole() {
           )}
         >
           <div className="flex items-center justify-between text-muted text-[12px] font-medium mb-1">
-            <span>Tài nguyên lỗi</span>
+            <span>{t("inventoryErrorResources")}</span>
             <span className="text-bad">
               <AlertCircle size={15} />
             </span>
           </div>
           <div className="text-2xl font-bold font-mono tabular text-fg">
             {errorCount}{" "}
-            <span className="text-xs font-normal text-faint font-sans">items</span>
+            <span className="text-xs font-normal text-faint font-sans">{t("itemsUnit")}</span>
           </div>
-          <div className="text-[11px] text-faint font-medium mt-1">Cần kiểm tra &amp; thay thế</div>
+          <div className="text-[11px] text-faint font-medium mt-1">{t("inventoryErrorHint")}</div>
         </Card>
       </div>
 
@@ -595,12 +595,12 @@ function InventoryConsole() {
           <Package size={36} className="mx-auto text-faint mb-3" />
           <p className="text-[14px] font-medium text-fg mb-1">{t("inventoryEmpty")}</p>
           <p className="text-[12.5px] text-muted mb-4 max-w-md mx-auto">
-            Hãy tạo sản phẩm và các gói biến thể trước, sau đó quay lại đây để nạp tài nguyên.
+            {t("inventoryEmptyDescription")}
           </p>
           <Link href="/seller/products/new">
             <Button size="md">
               <Plus size={15} />
-              <span>Tạo sản phẩm đầu tiên</span>
+              <span>{t("inventoryCreateFirst")}</span>
             </Button>
           </Link>
         </Card>
@@ -617,7 +617,7 @@ function InventoryConsole() {
               <div className="p-3 border-b border-line bg-raised/30 space-y-2">
                 <div className="flex items-center justify-between text-xs font-semibold text-fg">
                   <span>{t("product")}</span>
-                  <span className="text-faint font-mono text-[11px]">{filteredProducts.length} mục</span>
+                  <span className="text-faint font-mono text-[11px]">{t("itemsCount", { count: filteredProducts.length })}</span>
                 </div>
 
                 <div className="relative">
@@ -630,7 +630,7 @@ function InventoryConsole() {
                       setProductSearch(e.target.value);
                       setProductPage(1);
                     }}
-                    placeholder="Tìm sản phẩm..."
+                    placeholder={t("inventorySearchPlaceholder")}
                     className="h-8 pl-8 pr-7 text-xs rounded-lg"
                   />
                   {productSearch && (
@@ -682,7 +682,7 @@ function InventoryConsole() {
                       onClick={() => { setFilter("error"); setProductPage(1); }}
                       className={cn("h-6.5 px-2 text-[11.5px] text-bad rounded-md", filter === "error" && "bg-surface shadow-xs font-semibold")}
                     >
-                      Lỗi ({errorCount})
+                      {t("inventoryErrorFilter", { count: errorCount })}
                     </Button>
                   )}
                 </div>
@@ -691,7 +691,7 @@ function InventoryConsole() {
               {/* Product Items List */}
               {paginatedProducts.length === 0 ? (
                 <div className="p-6 text-center text-xs text-muted">
-                  Không tìm thấy sản phẩm khớp bộ lọc.
+                  {t("inventoryNoProductMatch")}
                 </div>
               ) : (
                 <div className="divide-y divide-line max-h-[560px] overflow-y-auto">
@@ -734,9 +734,9 @@ function InventoryConsole() {
                         </div>
 
                         <div className="flex items-center justify-between text-[11px] text-muted pt-0.5">
-                          <span>{p.variants.length} gói</span>
+                          <span>{t("packagesCount", { count: p.variants.length })}</span>
                           <span className="font-mono font-bold text-fg">
-                            Tồn: {p.totalAvailable.toLocaleString()}
+                            {t("stockCountShort", { count: p.totalAvailable.toLocaleString() })}
                           </span>
                         </div>
                       </div>
@@ -757,7 +757,7 @@ function InventoryConsole() {
                       onClick={() => setProductPage((prev) => Math.max(1, prev - 1))}
                       className="h-6 px-1.5 text-[11px]"
                     >
-                      Trước
+                      {t("previous")}
                     </Button>
                     <Button
                       size="sm"
@@ -820,7 +820,7 @@ function InventoryConsole() {
                     <div className="flex items-center justify-between text-xs">
                       <span className="font-semibold text-fg flex items-center gap-1.5">
                         <Package size={13} className="text-iris" />
-                        <span>Danh sách gói biến thể ({activeProduct.variants.length} gói):</span>
+                        <span>{t("inventoryVariantList", { count: activeProduct.variants.length })}</span>
                       </span>
                       <Button
                         size="sm"
@@ -838,10 +838,10 @@ function InventoryConsole() {
                         const isVarSelected = activeVariant?.variant_id === v.variant_id;
                         const varTone = v.available === 0 ? "bad" : v.available <= LOW_STOCK ? "warn" : "good";
                         const toneLabel = v.available === 0
-                          ? "Hết kho (0)"
+                          ? t("stockOutCount", { count: 0 })
                           : v.available <= LOW_STOCK
-                            ? `Sắp hết (${v.available})`
-                            : `Tồn: ${v.available} item`;
+                            ? t("stockLowCount", { count: v.available })
+                            : t("stockCountItems", { count: v.available });
                         const priceNum = variantPrices[v.variant_id];
 
                         return (
@@ -901,7 +901,7 @@ function InventoryConsole() {
                     <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-3 pb-3 border-b border-line">
                       <div>
                         <span className="text-[11px] text-faint uppercase font-medium tracking-wider">
-                          Đang quản lý tài nguyên của:
+                          {t("inventoryManagingResource")}
                         </span>
                         <div className="text-[14px] font-bold text-fg mt-0.5 flex items-center gap-2">
                           <span>{activeVariant.variant_name}</span>
@@ -914,23 +914,23 @@ function InventoryConsole() {
                       <div className="flex items-center gap-2 text-xs flex-wrap">
                         {variantPrices[activeVariant.variant_id] !== undefined && (
                           <div className="px-2.5 py-1 rounded-lg bg-surface border border-line text-muted flex items-baseline gap-1.5">
-                            <span className="text-[10.5px] font-medium">Giá:</span>
+                            <span className="text-[10.5px] font-medium">{t("priceLabel")}</span>
                             <span className="font-mono font-bold text-[13px] text-fg">
                               {formatBrowseMoney(variantPrices[activeVariant.variant_id])}
                             </span>
                           </div>
                         )}
                         <div className="px-2.5 py-1 rounded-lg bg-good-soft border border-good/20 text-good flex items-baseline gap-1.5">
-                          <span className="text-[10.5px] font-medium">Khả dụng:</span>
+                          <span className="text-[10.5px] font-medium">{t("availableLabel")}</span>
                           <span className="font-mono font-bold text-[13px]">{activeVariant.available}</span>
                         </div>
                         <div className="px-2.5 py-1 rounded-lg bg-surface border border-line text-muted flex items-baseline gap-1.5">
-                          <span className="text-[10.5px] font-medium">Đã bán:</span>
+                          <span className="text-[10.5px] font-medium">{t("soldLabel")}</span>
                           <span className="font-mono font-bold text-[13px] text-fg">{activeVariant.assigned}</span>
                         </div>
                         {activeVariant.error > 0 && (
                           <div className="px-2.5 py-1 rounded-lg bg-bad-soft border border-bad/20 text-bad flex items-baseline gap-1.5">
-                            <span className="text-[10.5px] font-medium">Lỗi:</span>
+                            <span className="text-[10.5px] font-medium">{t("errorLabel")}</span>
                             <span className="font-mono font-bold text-[13px]">{activeVariant.error}</span>
                           </div>
                         )}
@@ -953,7 +953,7 @@ function InventoryConsole() {
                             className="h-6 px-1.5 text-[11px] text-iris gap-1"
                           >
                             <Download size={11} />
-                            <span>File mẫu</span>
+                            <span>{t("sampleFile")}</span>
                           </Button>
                           <label className="text-[11.5px] text-iris hover:underline cursor-pointer inline-flex items-center gap-1 font-medium">
                             <Upload size={12} />
@@ -969,7 +969,7 @@ function InventoryConsole() {
                       </div>
 
                       <div className="p-2 rounded-lg bg-surface border border-line text-[11.5px] text-muted">
-                        💡 <strong>Quy chuẩn nạp:</strong> Mỗi dòng là 1 tài nguyên bàn giao (VD: <code className="text-fg font-mono">user|pass|2fa</code> hoặc <code className="text-fg font-mono">license_key</code>). Không cần điền ID.
+                        💡 <strong>{t("restockRuleTitle")}</strong> {t("restockRuleLead")} <code className="text-fg font-mono">user|pass|2fa</code> {t("restockRuleOr")} <code className="text-fg font-mono">license_key</code>{t("restockRuleEnd")}
                       </div>
 
                       <Textarea
@@ -979,7 +979,7 @@ function InventoryConsole() {
                           setRestockText(e.target.value);
                           if (uploadedFileName) setUploadedFileName(null);
                         }}
-                        placeholder={`Mỗi dòng một sản phẩm\nuser1|pass1|cookies\nuser2|pass2|cookies\nkey_license_03`}
+                        placeholder={t("inventoryPastePlaceholderBulk")}
                         className="font-mono text-xs leading-relaxed bg-surface"
                       />
 
@@ -1024,12 +1024,12 @@ function InventoryConsole() {
                           <div className="flex items-center gap-1.5 font-semibold">
                             <CheckCircle2 size={13} />
                             <span>
-                              Sẵn sàng nạp <strong>{parsedRestockItems.length}</strong> dòng tài nguyên mới
-                              {uploadedFileName && <span> từ file <code className="font-mono">{uploadedFileName}</code></span>}
+                              {t("restockReady", { count: parsedRestockItems.length })}
+                              {uploadedFileName && <span> {t("fromFile", { name: uploadedFileName })}</span>}
                             </span>
                           </div>
                           <div className="font-mono text-[11px] text-faint truncate bg-surface/60 px-2 py-0.5 rounded border border-line">
-                            Mẫu dòng 1: {parsedRestockItems[0]}
+                            {t("firstLineSample", { value: parsedRestockItems[0] })}
                           </div>
                         </div>
                       )}
@@ -1052,7 +1052,7 @@ function InventoryConsole() {
                     <div className="space-y-2 pt-2">
                       <div className="flex items-center justify-between text-xs">
                         <span className="font-bold text-fg">
-                          Danh sách tài nguyên trong kho ({resources.length} item):
+                          {t("inventoryResourceList", { count: resources.length })}
                         </span>
                         <div className="flex items-center gap-2">
                           <Button
@@ -1104,9 +1104,9 @@ function InventoryConsole() {
                               <thead>
                                 <tr className="bg-raised/40 text-faint text-[11px] font-semibold border-b border-line">
                                   <th className="px-3.5 py-2.5">{t("status")}</th>
-                                  <th className="px-3.5 py-2.5">Nội dung tài nguyên</th>
-                                  <th className="px-3.5 py-2.5">Đơn hàng</th>
-                                  <th className="px-3.5 py-2.5">Ngày nạp</th>
+                                  <th className="px-3.5 py-2.5">{t("resourceTableContent")}</th>
+                                  <th className="px-3.5 py-2.5">{t("resourceTableOrder")}</th>
+                                  <th className="px-3.5 py-2.5">{t("resourceTableDate")}</th>
                                   <th className="px-3.5 py-2.5 text-right">{t("actions")}</th>
                                 </tr>
                               </thead>
@@ -1178,10 +1178,10 @@ function InventoryConsole() {
                                             variant="ghost"
                                             onClick={() => setActiveDetailResource(res)}
                                             className="h-6 px-1.5 text-[11px] text-iris hover:text-iris-hi"
-                                            title="Xem chi tiết & Sửa"
+                                            title={t("resourceEditTitle")}
                                           >
                                             <Edit2 size={12} />
-                                            <span className="ml-1 hidden sm:inline">Sửa</span>
+                                            <span className="ml-1 hidden sm:inline">{t("editShort")}</span>
                                           </Button>
                                           {isAvailable && (
                                             <Button
@@ -1207,8 +1207,11 @@ function InventoryConsole() {
                           {totalResourcePages > 1 && (
                             <div className="p-2.5 border-t border-line bg-raised/20 flex items-center justify-between text-xs text-muted">
                               <span>
-                                Hiển thị {(resourcePage - 1) * RESOURCES_PAGE_SIZE + 1} &ndash;{" "}
-                                {Math.min(resourcePage * RESOURCES_PAGE_SIZE, resources.length)} / {resources.length}
+                                {t("paginationResources", {
+                                  from: (resourcePage - 1) * RESOURCES_PAGE_SIZE + 1,
+                                  to: Math.min(resourcePage * RESOURCES_PAGE_SIZE, resources.length),
+                                  total: resources.length,
+                                })}
                               </span>
                               <Pagination
                                 page={resourcePage}
@@ -1225,7 +1228,7 @@ function InventoryConsole() {
               </>
             ) : (
               <Card className="p-8 text-center text-muted text-xs">
-                Chọn một sản phẩm từ danh sách bên trái để quản lý kho hàng.
+                {t("inventorySelectProduct")}
               </Card>
             )}
           </div>
@@ -1301,7 +1304,7 @@ function ResourceDetailModal({
 
   const handleSave = async () => {
     if (!data.trim()) {
-      setError("Nội dung tài nguyên không được để trống");
+      setError(t("resourceContentRequired"));
       return;
     }
 
@@ -1358,13 +1361,13 @@ function ResourceDetailModal({
           {/* Metadata Grid */}
           <div className="grid grid-cols-2 gap-2 p-2.5 rounded-xl bg-raised/40 border border-line text-[11.5px]">
             <div>
-              <span className="text-faint">Ngày tạo:</span>
+              <span className="text-faint">{t("createdDate")}</span>
               <div className="font-mono text-fg font-medium mt-0.5">
                 {new Date(resource.created_at).toLocaleString("vi-VN")}
               </div>
             </div>
             <div>
-              <span className="text-faint">Đơn hàng liên kết:</span>
+              <span className="text-faint">{t("linkedOrder")}</span>
               <div className="mt-0.5">
                 {resource.order_id ? (
                   <Link
@@ -1374,7 +1377,7 @@ function ResourceDetailModal({
                     #{resource.order_id}
                   </Link>
                 ) : (
-                  <span className="text-muted">Chưa giao</span>
+                  <span className="text-muted">{t("notDelivered")}</span>
                 )}
               </div>
             </div>
@@ -1393,7 +1396,7 @@ function ResourceDetailModal({
                 className="h-6 px-2 text-[11px] text-iris gap-1"
               >
                 {copied ? <Check size={12} className="text-good" /> : <Copy size={12} />}
-                <span>{copied ? "Đã chép!" : "Sao chép"}</span>
+                <span>{copied ? t("copied") : t("copy")}</span>
               </Button>
             </div>
 
@@ -1403,7 +1406,7 @@ function ResourceDetailModal({
                 value={data}
                 onChange={(e) => setData(e.target.value)}
                 className="font-mono text-xs leading-relaxed bg-surface"
-                placeholder="Nhập nội dung tài nguyên..."
+                placeholder={t("resourceEditPlaceholder")}
               />
             ) : (
               <div className="p-3 rounded-xl bg-raised/50 border border-line font-mono text-xs break-all max-h-40 overflow-y-auto select-all">
@@ -1430,17 +1433,17 @@ function ResourceDetailModal({
                 className="text-bad hover:text-bad hover:bg-bad-soft h-8 text-xs gap-1"
               >
                 <Trash size={13} />
-                <span>Xoá</span>
+                <span>{t("delete")}</span>
               </Button>
             )}
           </div>
           <div className="flex items-center gap-2">
             <Button size="sm" variant="ghost" onClick={onClose}>
-              Đóng
+              {t("close")}
             </Button>
             {isAvailable && (
               <Button size="sm" onClick={handleSave} disabled={saving}>
-                {saving ? "Đang lưu..." : t("saveChanges")}
+                {saving ? t("saving") : t("saveChanges")}
               </Button>
             )}
           </div>
@@ -1476,12 +1479,12 @@ function QuickCreateVariantModal({
   const handleSubmit = async (e: React.FormEvent) => {
     e.preventDefault();
     if (!name.trim()) {
-      setError("Vui lòng nhập tên gói biến thể");
+      setError(t("variantNameRequired"));
       return;
     }
     const numPrice = Number(price);
     if (isNaN(numPrice) || numPrice < 0) {
-      setError("Giá bán không hợp lệ");
+      setError(t("variantPriceInvalid"));
       return;
     }
 
@@ -1495,7 +1498,7 @@ function QuickCreateVariantModal({
       });
       onSuccess(created.id, numPrice);
     } catch (err: unknown) {
-      const msg = err instanceof Error ? err.message : "Không thể tạo gói biến thể";
+      const msg = err instanceof Error ? err.message : t("variantCreateFailed");
       setError(msg);
     } finally {
       setSubmitting(false);
@@ -1513,7 +1516,7 @@ function QuickCreateVariantModal({
         <div className="p-4 border-b border-line bg-raised/50 flex items-center justify-between">
           <div>
             <span className="text-[10px] font-bold uppercase tracking-wider text-iris bg-iris-soft px-1.5 py-0.2 rounded">
-              Tạo gói biến thể mới
+              {t("variantCreateTitle")}
             </span>
             <h3 id="create-variant-title" className="text-[13.5px] font-bold text-fg truncate max-w-[280px] mt-0.5">
               {productTitle}
@@ -1530,7 +1533,7 @@ function QuickCreateVariantModal({
             <Input
               value={name}
               onChange={(e) => setName(e.target.value)}
-              placeholder="VD: Gói 1 Tháng / ACC 2FA Live"
+              placeholder={t("variantNamePlaceholder")}
               className="h-8.5 text-xs"
               autoFocus
             />
@@ -1538,7 +1541,7 @@ function QuickCreateVariantModal({
 
           <div className="grid grid-cols-2 gap-3">
             <div className="space-y-1">
-              <label className="font-semibold text-fg">Giá bán (VND):</label>
+              <label className="font-semibold text-fg">{t("variantPriceVnd")}</label>
               <Input
                 type="number"
                 min="0"
@@ -1573,7 +1576,7 @@ function QuickCreateVariantModal({
               {t("cancel")}
             </Button>
             <Button size="sm" type="submit" disabled={submitting || !name.trim()}>
-              {submitting ? "Đang tạo..." : "Tạo gói"}
+              {submitting ? t("creating") : t("createVariant")}
             </Button>
           </div>
         </form>

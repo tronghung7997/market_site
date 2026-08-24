@@ -232,7 +232,7 @@ export default function SellerProducts() {
           </div>
           <p className="text-[14px] font-medium text-fg mb-1">{t("noProductsYet")}</p>
           <p className="text-[12.5px] text-muted mb-4 max-w-sm mx-auto">
-            Bắt đầu tạo sản phẩm đầu tiên để mở bán trên chợ trực tuyến.
+            {t("productsPageFirstDescription")}
           </p>
           <Link href="/seller/products/new">
             <Button size="md">
@@ -263,7 +263,9 @@ export default function SellerProducts() {
                 <span className="text-xs font-normal text-faint font-sans">/ {stats.total}</span>
               </div>
               <div className="text-[11px] text-good font-medium mt-1">
-                {stats.total > 0 ? Math.round((stats.active / stats.total) * 100) : 0}% đang hoạt động
+                {t("productsPageActivePercent", {
+                  percent: stats.total > 0 ? Math.round((stats.active / stats.total) * 100) : 0,
+                })}
               </div>
             </Card>
 
@@ -280,10 +282,10 @@ export default function SellerProducts() {
               </div>
               <div className="text-2xl font-bold font-mono tabular text-warn">
                 {stats.lowStock}{" "}
-                <span className="text-xs font-normal text-muted font-sans">sản phẩm</span>
+                <span className="text-xs font-normal text-muted font-sans">{t("productsUnit")}</span>
               </div>
               <div className="text-[11px] text-warn font-medium mt-1">
-                Tồn kho ≤ 20 đơn vị
+                {t("productsPageLowStockHint")}
               </div>
             </Card>
 
@@ -300,10 +302,10 @@ export default function SellerProducts() {
               </div>
               <div className="text-2xl font-bold font-mono tabular text-bad">
                 {stats.outOfStock}{" "}
-                <span className="text-xs font-normal text-muted font-sans">sản phẩm</span>
+                <span className="text-xs font-normal text-muted font-sans">{t("productsUnit")}</span>
               </div>
               <div className="text-[11px] text-bad font-medium mt-1">
-                Cần nạp thêm kho
+                {t("productsPageRestockHint")}
               </div>
             </Card>
 
@@ -322,10 +324,10 @@ export default function SellerProducts() {
               </div>
               <div className="text-2xl font-bold font-mono tabular text-fg">
                 {stats.totalStock.toLocaleString()}{" "}
-                <span className="text-xs font-normal text-faint font-sans">items</span>
+                <span className="text-xs font-normal text-faint font-sans">{t("itemsUnit")}</span>
               </div>
               <div className="text-[11px] text-faint font-medium mt-1">
-                Khả dụng trong kho
+                {t("productsPageAvailableHint")}
               </div>
             </Card>
           </div>
@@ -485,7 +487,7 @@ export default function SellerProducts() {
                 <Package size={32} className="mx-auto text-faint mb-2" />
                 <p className="text-[13.5px] font-medium text-fg mb-1">{t("noMatchingProducts")}</p>
                 <p className="text-[12px] text-muted mb-3">
-                  Thử thay đổi từ khoá tìm kiếm hoặc chọn bộ lọc trạng thái khác.
+                  {t("productsPageNoMatchHint")}
                 </p>
                 <Button size="sm" variant="secondary" onClick={resetFilters}>
                   {t("clearFilters")}
@@ -498,7 +500,7 @@ export default function SellerProducts() {
                     <tr className="text-[11.5px] font-semibold text-faint uppercase tracking-wider border-b border-line bg-raised/20">
                       <th className="px-4 py-3">{t("product")}</th>
                       <th className="px-3 py-3 hidden sm:table-cell">{t("category")}</th>
-                      <th className="px-3 py-3">{t("stock")} & Tình trạng</th>
+                      <th className="px-3 py-3">{t("productsPageStockCondition")}</th>
                       <th className="px-3 py-3 hidden md:table-cell">{t("variants")}</th>
                       <th className="px-3 py-3 text-center">{t("toggleStatus")}</th>
                       <th className="px-4 py-3 text-right">{t("actions")}</th>
@@ -613,7 +615,7 @@ export default function SellerProducts() {
                               <Link
                                 href={`/seller/inventory?product=${p.id}`}
                                 className="inline-flex items-center gap-1.5 px-2.5 py-1 rounded-lg border border-line bg-surface hover:bg-raised hover:border-iris/40 text-fg transition-all group"
-                                title="Xem chi tiết và quản lý kho hàng cho sản phẩm này"
+                                title={t("productsPageInventoryTitle")}
                               >
                                 <Package size={12} className="text-iris group-hover:scale-110 transition-transform" />
                                 <span className="font-mono font-bold text-[12.5px]">{p.variant_count}</span>
@@ -694,9 +696,11 @@ export default function SellerProducts() {
             {totalPages > 1 && (
               <div className="p-3 border-t border-line flex items-center justify-between bg-raised/20 text-xs">
                 <span className="text-muted text-[12px]">
-                  Hiển thị {(page - 1) * PAGE_SIZE + 1} &ndash;{" "}
-                  {Math.min(page * PAGE_SIZE, filteredProducts.length)} trong tổng số{" "}
-                  <strong className="font-mono text-fg">{filteredProducts.length}</strong> sản phẩm
+                  {t("paginationProducts", {
+                    from: (page - 1) * PAGE_SIZE + 1,
+                    to: Math.min(page * PAGE_SIZE, filteredProducts.length),
+                    total: filteredProducts.length,
+                  })}
                 </span>
                 <Pagination page={page} totalPages={totalPages} onChange={setPage} />
               </div>
@@ -763,7 +767,7 @@ function InPlaceRestockModal({
         }
       })
       .catch(() => {
-        setError("Không thể tải danh sách gói sản phẩm");
+        setError(t("variantsLoadFailed"));
       })
       .finally(() => {
         setLoadingVariants(false);
@@ -845,11 +849,11 @@ function InPlaceRestockModal({
 
   const handleRestock = async () => {
     if (!selectedVariantId) {
-      setError("Vui lòng chọn gói biến thể");
+      setError(t("variantRequired"));
       return;
     }
     if (parsedItems.length === 0) {
-      setError("Vui lòng nhập ít nhất 1 dòng tài nguyên hợp lệ");
+      setError(t("resourcesRequired"));
       return;
     }
 
@@ -910,7 +914,7 @@ function InPlaceRestockModal({
           ) : variants.length === 0 ? (
             <div className="py-6 text-center text-muted text-xs space-y-2">
               <Package size={28} className="mx-auto text-faint" />
-              <p>Sản phẩm này chưa có gói biến thể nào để nạp kho.</p>
+              <p>{t("noVariantsForRestock")}</p>
             </div>
           ) : (
             <>
@@ -918,9 +922,9 @@ function InPlaceRestockModal({
               <div className="space-y-2">
                 <div className="flex items-center justify-between text-[12px]">
                   <span className="font-semibold text-fg">
-                    {t("selectVariant")} ({variants.length} gói có sẵn):
+                    {t("selectVariant")} · {t("variantsAvailable", { count: variants.length })}
                   </span>
-                  <span className="text-[11px] text-faint">Bấm để chọn gói cần nạp</span>
+                  <span className="text-[11px] text-faint">{t("variantSelectionHint")}</span>
                 </div>
 
                 <div className="grid grid-cols-1 sm:grid-cols-2 gap-2 max-h-48 overflow-y-auto p-0.5">
@@ -930,10 +934,10 @@ function InPlaceRestockModal({
                     const isLow = v.stock_count > 0 && v.stock_count <= 5;
                     const tone = isOut ? "bad" : isLow ? "warn" : "good";
                     const toneLabel = isOut
-                      ? "Hết kho (0)"
+                      ? t("stockOutCount", { count: 0 })
                       : isLow
-                        ? `Sắp hết (${v.stock_count})`
-                        : `Tồn: ${v.stock_count} item`;
+                        ? t("stockLowCount", { count: v.stock_count })
+                        : t("stockCountItems", { count: v.stock_count });
 
                     return (
                       <div
@@ -992,7 +996,7 @@ function InPlaceRestockModal({
                       className="h-6 px-1.5 text-[11px] text-iris gap-1"
                     >
                       <Download size={11} />
-                      <span>File mẫu</span>
+                      <span>{t("sampleFile")}</span>
                     </Button>
                     <label className="text-[11.5px] text-iris hover:underline cursor-pointer inline-flex items-center gap-1 font-medium">
                       <Upload size={12} />
@@ -1009,7 +1013,7 @@ function InPlaceRestockModal({
 
                 <div className="p-2 rounded-lg bg-raised/50 border border-line text-[11.5px] text-muted space-y-0.5">
                   <p>
-                    💡 <strong>Quy chuẩn nạp:</strong> Mỗi dòng là 1 tài nguyên bàn giao (VD: <code className="text-fg font-mono">user|pass|2fa</code> hoặc <code className="text-fg font-mono">license_key</code>). Không cần điền ID.
+                    💡 <strong>{t("restockRuleTitle")}</strong> {t("restockRuleLead")} <code className="text-fg font-mono">user|pass|2fa</code> {t("restockRuleOr")} <code className="text-fg font-mono">license_key</code>{t("restockRuleEnd")}
                   </p>
                 </div>
 
@@ -1047,12 +1051,12 @@ function InPlaceRestockModal({
                     <div className="flex items-center gap-1.5 font-semibold">
                       <CheckCircle2 size={13} />
                       <span>
-                        Sẵn sàng nạp <strong>{parsedItems.length}</strong> dòng tài nguyên mới
-                        {uploadedFileName && <span> từ file <code className="font-mono">{uploadedFileName}</code></span>}
+                        {t("restockReady", { count: parsedItems.length })}
+                        {uploadedFileName && <span> {t("fromFile", { name: uploadedFileName })}</span>}
                       </span>
                     </div>
                     <div className="font-mono text-[11px] text-faint truncate bg-surface/60 px-2 py-0.5 rounded border border-line">
-                      Mẫu dòng 1: {parsedItems[0]}
+                      {t("firstLineSample", { value: parsedItems[0] })}
                     </div>
                   </div>
                 )}

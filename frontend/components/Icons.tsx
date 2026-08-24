@@ -158,6 +158,24 @@ export const ChevronUp = (p: IconProps) => (
 export const RotateCcw = (p: IconProps) => (
   <svg {...s(p)}><path d="M3 12a9 9 0 1 0 9-9 9.75 9.75 0 0 0-6.74 2.74L3 8" /><path d="M3 3v5h5" /></svg>
 );
+export const ArrowLeftRight = (p: IconProps) => (
+  <svg {...s(p)}><path d="m16 3 4 4-4 4" /><path d="M20 7H4" /><path d="m8 21-4-4 4-4" /><path d="M4 17h16" /></svg>
+);
+export const Percent = (p: IconProps) => (
+  <svg {...s(p)}><line x1="19" y1="5" x2="5" y2="19" /><circle cx="6.5" cy="6.5" r="2.5" /><circle cx="17.5" cy="17.5" r="2.5" /></svg>
+);
+export const ListFilter = (p: IconProps) => (
+  <svg {...s(p)}><path d="M3 6h18" /><path d="M7 12h10" /><path d="M10 18h4" /></svg>
+);
+export const Download = (p: IconProps) => (
+  <svg {...s(p)}><path d="M21 15v4a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2v-4" /><polyline points="7 10 12 15 17 10" /><line x1="12" y1="15" x2="12" y2="3" /></svg>
+);
+export const Upload = (p: IconProps) => (
+  <svg {...s(p)}><path d="M21 15v4a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2v-4" /><polyline points="17 8 12 3 7 8" /><line x1="12" y1="3" x2="12" y2="15" /></svg>
+);
+export const ExternalLink = (p: IconProps) => (
+  <svg {...s(p)}><path d="M18 13v6a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2V8a2 2 0 0 1 2-2h6" /><polyline points="15 3 21 3 21 9" /><line x1="10" y1="14" x2="21" y2="3" /></svg>
+);
 
 
 /** Brand mark — an aperture/gateway hexagon. Serious, premium. */

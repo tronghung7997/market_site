@@ -25,6 +25,7 @@ from src.models.pricing_config import PricingConfig
 from src.models.provider import Provider
 from src.models.resource import Resource, ResourceStatus
 from src.pricing.engine import product_pricing_override, resolve_pricing
+from src.products.covers import catalog_items, default_cover_id, images_payload, public_images
 
 # Cột duy nhất của ProductVariant cho phép null — xem update_variant.
 NULLABLE_VARIANT_FIELDS = {"duration_days"}
@@ -54,8 +55,28 @@ def _product_i18n_from_scalars(data: dict, *, existing: dict | None = None, loca
     return merge_i18n_locale(existing, locale, fields)
 
 
+def _images_for_create(data: dict) -> dict:
+    cover_id = data.pop("cover_id", None)
+    data.pop("images", None)
+    return images_payload(cover_id or default_cover_id(data.get("service_type")))
+
+
+def _apply_cover_update(product: Product, data: dict) -> None:
+    if "cover_id" not in data:
+        data.pop("images", None)
+        return
+    cover_id = data.pop("cover_id")
+    data.pop("images", None)
+    product.images = None if cover_id is None else images_payload(cover_id)
+
+
+def list_product_covers() -> dict:
+    return {"items": catalog_items()}
+
+
 async def create_product(seller_id: int, data: dict, db: AsyncSession) -> Product:
     payload = dict(data)
+    payload["images"] = _images_for_create(payload)
     payload["i18n"] = _product_i18n_from_scalars(payload)
     product = Product(seller_id=seller_id, **payload)
     db.add(product)
@@ -96,6 +117,7 @@ async def update_product(product_id: int, seller_id: int, data: dict, db: AsyncS
     if data.get("service_type") is not None and data["service_type"] != product.service_type:
         strategy = await _strategy_after_service_type_change(product, data["service_type"], db)
         await _validate_variant_pricing_model(product, strategy, db)
+    _apply_cover_update(product, data)
     for key, value in data.items():
         if value is not None:
             setattr(product, key, value)
@@ -141,6 +163,7 @@ async def admin_update_product(product_id: int, data: dict, db: AsyncSession) ->
     if data.get("service_type") is not None and data["service_type"] != product.service_type:
         strategy = await _strategy_after_service_type_change(product, data["service_type"], db)
         await _validate_variant_pricing_model(product, strategy, db)
+    _apply_cover_update(product, data)
     for key, value in data.items():
         if value is not None:
             setattr(product, key, value)
@@ -819,9 +842,11 @@ def _product_list_dict(product: Product, *, locale: str | None = DEFAULT_LOCALE)
         title = product.title
         highlight_text = product.highlight_text
         meta = {}
+    images = public_images(product.images)
     return {
         "id": product.id, "seller_id": product.seller_id, "category_id": product.category_id,
-        "title": title, "images": product.images,
+        "title": title, "images": images,
+        "cover_id": None if images is None else images["cover_id"],
         "escrow_days": product.escrow_days, "status": product.status.value,
         "service_type": product.service_type,
         "highlight_text": highlight_text, "sold_count": product.sold_count,
@@ -874,10 +899,12 @@ def _product_dict(product: Product, *, locale: str | None = DEFAULT_LOCALE) -> d
             "available_locales": available_locales(translations),
             "translations": translations,
         }
+    images = public_images(product.images)
     return {
         "id": product.id, "seller_id": product.seller_id, "category_id": product.category_id,
         **text,
-        "images": product.images,
+        "images": images,
+        "cover_id": None if images is None else images["cover_id"],
         "escrow_days": product.escrow_days, "status": product.status.value,
         "service_type": product.service_type,
         "specs": resolve_product_specs(product, locale) if locale is not None else product.specs,

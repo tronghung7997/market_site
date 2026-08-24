@@ -11,6 +11,7 @@ import { serviceLabel } from "@/lib/labels";
 import { formatSpecKey as fmtKey } from "@/lib/utils";
 import type { Product, ProductDetail } from "@/lib/types";
 import { Card, Tag } from "@/components/ui";
+import { parseCoverId, ProductCover } from "@/features/product-covers";
 import { Bolt, Check, Shield, Star, Verified } from "@/components/Icons";
 import { MarkdownContent } from "@/components/MarkdownContent";
 import StartInquiryDialog from "@/components/chat/StartInquiryDialog";
@@ -33,6 +34,13 @@ export function ProductIdentity({ product }: { product: ProductDetail }) {
 
   return (
     <Card className="p-5 sm:p-6">
+      <div className="flex items-start gap-4">
+        <ProductCover
+          coverId={parseCoverId(product)}
+          title={product.title}
+          className="h-14 w-14 rounded-xl"
+        />
+        <div className="min-w-0 flex-1">
       <div className="flex flex-wrap items-center gap-1.5">
         <Tag tone="iris">{serviceLabel(product.service_type, locale)}</Tag>
         <Tag tone="good">{t("forSale")}</Tag>
@@ -53,6 +61,8 @@ export function ProductIdentity({ product }: { product: ProductDetail }) {
         )}
         {product.sold_count > 0 && <span>{tc("sold", { count: product.sold_count.toLocaleString(locale === "vi" ? "vi-VN" : "en-US") })}</span>}
         {totalStock > 0 && <span className="text-good font-medium">{t("inStock", { count: totalStock })}</span>}
+      </div>
+        </div>
       </div>
 
       <div className="flex items-center gap-3 mt-4 pt-4 border-t border-line">
@@ -173,7 +183,10 @@ export function RelatedProducts({ items }: { items: Product[] }) {
           return (
             <Link key={r.id} href={`/products/${r.id}`} className="h-full">
               <Card interactive className="p-4 h-full flex flex-col">
-                <div className="text-[13.5px] font-medium leading-snug line-clamp-2">{r.title}</div>
+                <div className="flex items-start gap-2.5">
+                  <ProductCover coverId={parseCoverId(r)} title={r.title} className="h-8 w-8" />
+                  <div className="text-[13.5px] font-medium leading-snug line-clamp-2">{r.title}</div>
+                </div>
                 <div className="flex items-center gap-2 mt-1.5 text-[11px] text-faint">
                   {r.rating_avg != null && r.rating_count > 0 && (
                     <span className="flex items-center gap-0.5 text-[11px] text-muted">

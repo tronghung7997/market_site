@@ -10,8 +10,10 @@ import { useState } from "react";
 import { useLocale, useTranslations } from "next-intl";
 import { useMoney } from "@/lib/money";
 import { cn } from "@/lib/cn";
+import { parseCoverId } from "@/lib/product-covers";
 import type { Category, Product } from "@/lib/types";
-import { Button, Card, Monogram, Spinner, Tag } from "@/components/ui";
+import { Button, Card, Spinner, Tag } from "@/components/ui";
+import { ProductCover } from "@/components/products/ProductCover";
 import { Grid, Rows, Search, Shield, Star, Verified } from "@/components/Icons";
 import { SectionHead } from "./SectionHead";
 
@@ -129,7 +131,7 @@ export function MarketSection({ products, flatCats, active, activeIds, setActive
                   <tr key={p.id} className="border-b border-line last:border-0 hover:bg-raised transition-colors">
                     <td className="px-5 py-3">
                       <Link href={`/products/${p.id}`} className="flex items-center gap-3">
-                        <Monogram text={p.title} />
+                        <ProductCover coverId={parseCoverId(p)} title={p.title} />
                         <span className="min-w-0">
                           <span className="block font-medium text-[13.5px] truncate">{p.title}</span>
                           <span className="flex items-center gap-1.5 text-[12px] text-faint">
@@ -163,7 +165,7 @@ export function MarketSection({ products, flatCats, active, activeIds, setActive
               <Link key={p.id} href={`/products/${p.id}`} className="animate-rise" style={{ animationDelay: `${i * 40}ms` }}>
                 <Card interactive className="p-3 sm:p-4 h-full">
                   <div className="flex items-start gap-2 sm:gap-3">
-                    <Monogram text={p.title} className="h-8 w-8 sm:h-10 sm:w-10 text-[12px] sm:text-[15px]" />
+                    <ProductCover coverId={parseCoverId(p)} title={p.title} className="h-8 w-8 sm:h-10 sm:w-10" />
                     <div className="min-w-0 flex-1">
                       <div className="flex items-start justify-between gap-1 sm:gap-2">
                         <div className="font-medium text-[12.5px] sm:text-[14px] truncate">{p.title}</div>

@@ -495,6 +495,7 @@ export default function AdminProductDetail() {
                 specs={specs}
                 warrantyText={content.warranty_text}
                 variants={product.variants}
+                coverId={product.cover_id}
               />
             </div>
           </div>

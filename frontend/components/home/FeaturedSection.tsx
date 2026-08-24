@@ -7,8 +7,10 @@ import { Link } from "@/i18n/navigation";
 import { useLocale, useTranslations } from "next-intl";
 import { useMoney } from "@/lib/money";
 import { cn } from "@/lib/cn";
+import { parseCoverId } from "@/lib/product-covers";
 import type { Product } from "@/lib/types";
-import { Card, Monogram } from "@/components/ui";
+import { Card } from "@/components/ui";
+import { ProductCover } from "@/components/products/ProductCover";
 import { ArrowRight, Bolt, Shield, Verified } from "@/components/Icons";
 import { SectionHead } from "./SectionHead";
 
@@ -38,9 +40,10 @@ export function FeaturedSection({ featured, catName, minPrice }: {
                   {/* Header */}
                   <div className="px-3 pt-3 pb-2.5 sm:px-5 sm:pt-5 sm:pb-4">
                     <div className="flex items-center gap-2 sm:gap-3">
-                      <Monogram
-                        text={p.title}
-                        className="h-8 w-8 sm:h-10 sm:w-10 bg-iris-soft border-iris/20 text-[12px] sm:text-[14px]"
+                      <ProductCover
+                        coverId={parseCoverId(p)}
+                        title={p.title}
+                        className="h-8 w-8 sm:h-10 sm:w-10"
                       />
                       <div className="min-w-0">
                         <div className="font-medium text-[13px] sm:text-[15px] truncate">{p.title}</div>

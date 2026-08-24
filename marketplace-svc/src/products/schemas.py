@@ -1,14 +1,28 @@
 from datetime import datetime
 from typing import Literal
 
-from pydantic import BaseModel, Field
+from pydantic import BaseModel, Field, field_validator, model_validator
+
+from src.products.covers import parse_cover_id, public_images
+
+CoverId = Literal[
+    "facebook", "instagram", "tiktok", "youtube", "x",
+    "proxy", "token", "endpoint", "cloud",
+    "payment", "takedown", "account", "other",
+]
+
+
+def _reject_images_blob(data):
+    if isinstance(data, dict) and "images" in data:
+        raise ValueError("images is not accepted; use cover_id")
+    return data
 
 
 class ProductCreate(BaseModel):
     category_id: int
     title: str
     description: str | None = None
-    images: list[str] | None = None
+    cover_id: CoverId | None = None
     escrow_days: int = 2
     status: Literal["draft", "active"] = "draft"
     service_type: str = "other"
@@ -19,18 +33,28 @@ class ProductCreate(BaseModel):
     # commission_rate is admin-controlled (set via /admin/products/{id}/operations),
     # not settable by sellers.
 
+    @model_validator(mode="before")
+    @classmethod
+    def reject_images_blob(cls, data):
+        return _reject_images_blob(data)
+
 
 class ProductContentUpdate(BaseModel):
     title: str | None = None
     category_id: int | None = None
     description: str | None = None
-    images: list[str] | None = None
+    cover_id: CoverId | None = None
     escrow_days: int | None = None
     service_type: str | None = None
     features: list[str] | None = None
     specs: dict | None = None
     warranty_text: str | None = None
     highlight_text: str | None = None
+
+    @model_validator(mode="before")
+    @classmethod
+    def reject_images_blob(cls, data):
+        return _reject_images_blob(data)
 
 
 class SellerProductUpdate(ProductContentUpdate):
@@ -70,6 +94,7 @@ class ProductResponse(BaseModel):
     title: str
     description: str | None
     images: dict | None
+    cover_id: str | None = None
     escrow_days: int
     status: str
     service_type: str | None
@@ -86,6 +111,17 @@ class ProductResponse(BaseModel):
     created_at: datetime
 
     model_config = {"from_attributes": True}
+
+    @field_validator("images", mode="before")
+    @classmethod
+    def coerce_images(cls, value):
+        return public_images(value)
+
+    @model_validator(mode="after")
+    def populate_cover_id(self):
+        if self.cover_id is None:
+            self.cover_id = parse_cover_id(self.images)
+        return self
 
 
 class VariantCreate(BaseModel):
@@ -138,6 +174,7 @@ class ProductListItemBase(BaseModel):
     category_id: int
     title: str
     images: dict | None
+    cover_id: str | None = None
     escrow_days: int
     status: str
     service_type: str | None
@@ -150,6 +187,17 @@ class ProductListItemBase(BaseModel):
     created_at: datetime
     locale: str | None = None
     available_locales: list[str] | None = None
+
+    @field_validator("images", mode="before")
+    @classmethod
+    def coerce_images(cls, value):
+        return public_images(value)
+
+    @model_validator(mode="after")
+    def populate_cover_id(self):
+        if self.cover_id is None:
+            self.cover_id = parse_cover_id(self.images)
+        return self
 
 
 class ProductListItemResponse(ProductListItemBase):
@@ -211,3 +259,13 @@ class SellerPricingUpdate(BaseModel):
     pricing_strategy: str | None = None
     pricing_params: dict | None = None
     provider_id: int | None = None
+
+
+class ProductCoverItem(BaseModel):
+    id: str
+    group: str
+    label: dict[str, str]
+
+
+class ProductCoverCatalogResponse(BaseModel):
+    items: list[ProductCoverItem]

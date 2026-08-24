@@ -19,6 +19,7 @@ from src.models.account import Account, ApplicationStatus, SellerApplication
 from src.models.chat import ChatConversation, ChatMessage, ChatParticipant
 from src.models.order import Order
 from src.models.product import Product, ProductStatus
+from src.products.covers import parse_cover_id
 
 
 async def _participant(
@@ -74,10 +75,7 @@ async def _summary(
             ChatMessage.id > (participant.last_read_message_id or 0),
         )
     )
-    image = None
-    if product and product.images:
-        values = product.images if isinstance(product.images, list) else list(product.images.values())
-        image = str(values[0]) if values else None
+    image = parse_cover_id(product.images) if product else None
     order = await db.get(Order, conversation.order_id) if conversation.order_id else None
     order_status = (
         str(order.status.value if hasattr(order.status, "value") else order.status)

@@ -13,6 +13,11 @@ from . import schemas, service
 router = APIRouter(tags=["products"])
 
 
+@router.get("/product-covers", response_model=schemas.ProductCoverCatalogResponse)
+async def list_product_covers():
+    return service.list_product_covers()
+
+
 @router.get("/products", response_model=schemas.ProductListPageResponse)
 async def list_products(
     category_id: int | None = Query(None, description="Lọc theo danh mục VÀ toàn bộ danh mục con"),

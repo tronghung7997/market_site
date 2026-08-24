@@ -828,3 +828,166 @@ async def _cover_seller(client, tag: str):
     await make_seller(seller_email)
     seller_token = await register_and_login(client, seller_email)
     return seller_token, cat.json()["id"]
+
+
+def test_cover_helpers_reject_legacy_blobs():
+    from src.products.covers import catalog_items, default_cover_id, parse_cover_id, public_images
+
+    assert default_cover_id("proxy") == "proxy"
+    assert default_cover_id(None) == "other"
+    assert parse_cover_id({"cover_id": "facebook"}) == "facebook"
+    assert parse_cover_id(["http://old.example/a.png"]) is None
+    assert parse_cover_id({"cover_id": "not-a-cover"}) is None
+    assert public_images(["http://old.example/a.png"]) is None
+    assert public_images({"cover_id": "facebook"}) == {"cover_id": "facebook"}
+    assert [item["id"] for item in catalog_items()][0] == "facebook"
+
+
+@pytest.mark.asyncio
+async def test_product_covers_catalog_is_public(client):
+    resp = await client.get("/product-covers")
+    assert resp.status_code == 200, resp.text
+    ids = [item["id"] for item in resp.json()["items"]]
+    assert ids == [
+        "facebook", "instagram", "tiktok", "youtube", "x",
+        "proxy", "token", "endpoint", "cloud",
+        "payment", "takedown", "account", "other",
+    ]
+    assert {item["group"] for item in resp.json()["items"]} == {"social", "infra", "service"}
+    facebook = next(item for item in resp.json()["items"] if item["id"] == "facebook")
+    assert facebook["label"]["vi"] == "Facebook"
+    assert facebook["label"]["en"] == "Facebook"
+
+
+@pytest.mark.asyncio
+async def test_create_product_defaults_cover_from_service_type(client):
+    seller_token, cat_id = await _cover_seller(client, "default")
+    resp = await client.post("/seller/products", json={
+        "category_id": cat_id, "title": "Residential Proxy", "service_type": "proxy",
+    }, headers={"Authorization": f"Bearer {seller_token}"})
+    assert resp.status_code == 201, resp.text
+    body = resp.json()
+    assert body["cover_id"] == "proxy"
+    assert body["images"] == {"cover_id": "proxy"}
+
+
+@pytest.mark.asyncio
+async def test_create_product_accepts_explicit_cover_id(client):
+    seller_token, cat_id = await _cover_seller(client, "explicit")
+    resp = await client.post("/seller/products", json={
+        "category_id": cat_id, "title": "FB BM", "service_type": "account",
+        "cover_id": "facebook", "status": "active",
+    }, headers={"Authorization": f"Bearer {seller_token}"})
+    assert resp.status_code == 201, resp.text
+    assert resp.json()["cover_id"] == "facebook"
+    assert resp.json()["images"] == {"cover_id": "facebook"}
+
+    public = await client.get(f"/products/{resp.json()['id']}")
+    assert public.status_code == 200, public.text
+    assert public.json()["cover_id"] == "facebook"
+
+
+@pytest.mark.asyncio
+async def test_create_product_rejects_unknown_cover_id(client):
+    seller_token, cat_id = await _cover_seller(client, "unknown")
+    resp = await client.post("/seller/products", json={
+        "category_id": cat_id, "title": "Bad cover", "cover_id": "not-a-cover",
+    }, headers={"Authorization": f"Bearer {seller_token}"})
+    assert resp.status_code == 422, resp.text
+
+
+@pytest.mark.asyncio
+async def test_create_product_rejects_images_blob(client):
+    seller_token, cat_id = await _cover_seller(client, "blob")
+    resp = await client.post("/seller/products", json={
+        "category_id": cat_id, "title": "Upload attempt",
+        "images": ["https://evil.example/a.png"],
+    }, headers={"Authorization": f"Bearer {seller_token}"})
+    assert resp.status_code == 422, resp.text
+
+
+@pytest.mark.asyncio
+async def test_seller_can_change_and_clear_cover_id(client):
+    seller_token, cat_id = await _cover_seller(client, "patch")
+    created = await client.post("/seller/products", json={
+        "category_id": cat_id, "title": "Cover edit", "cover_id": "facebook",
+    }, headers={"Authorization": f"Bearer {seller_token}"})
+    assert created.status_code == 201, created.text
+    product_id = created.json()["id"]
+
+    patched = await client.patch(
+        f"/seller/products/{product_id}",
+        json={"cover_id": "tiktok"},
+        headers={"Authorization": f"Bearer {seller_token}"},
+    )
+    assert patched.status_code == 200, patched.text
+    assert patched.json()["cover_id"] == "tiktok"
+
+    cleared = await client.patch(
+        f"/seller/products/{product_id}",
+        json={"cover_id": None},
+        headers={"Authorization": f"Bearer {seller_token}"},
+    )
+    assert cleared.status_code == 200, cleared.text
+    assert cleared.json()["cover_id"] is None
+    assert cleared.json()["images"] is None
+
+
+@pytest.mark.asyncio
+async def test_changing_service_type_does_not_overwrite_cover(client):
+    seller_token, cat_id = await _cover_seller(client, "keep")
+    created = await client.post("/seller/products", json={
+        "category_id": cat_id, "title": "Keep cover",
+        "service_type": "account", "cover_id": "instagram",
+    }, headers={"Authorization": f"Bearer {seller_token}"})
+    assert created.status_code == 201, created.text
+    product_id = created.json()["id"]
+
+    patched = await client.patch(
+        f"/seller/products/{product_id}",
+        json={"service_type": "other"},
+        headers={"Authorization": f"Bearer {seller_token}"},
+    )
+    assert patched.status_code == 200, patched.text
+    assert patched.json()["service_type"] == "other"
+    assert patched.json()["cover_id"] == "instagram"
+
+
+@pytest.mark.asyncio
+async def test_seller_cannot_patch_someone_elses_cover(client):
+    seller_token, cat_id = await _cover_seller(client, "owner")
+    created = await client.post("/seller/products", json={
+        "category_id": cat_id, "title": "Owned",
+    }, headers={"Authorization": f"Bearer {seller_token}"})
+    assert created.status_code == 201, created.text
+    other_email = "cover_thief_owner@example.com"
+    other_token = await register_and_login(client, other_email)
+    await make_seller(other_email)
+    other_token = await register_and_login(client, other_email)
+
+    resp = await client.patch(
+        f"/seller/products/{created.json()['id']}",
+        json={"cover_id": "facebook"},
+        headers={"Authorization": f"Bearer {other_token}"},
+    )
+    assert resp.status_code in (403, 404)
+
+
+@pytest.mark.asyncio
+async def test_legacy_images_blob_reads_as_no_cover(client):
+    seller_token, cat_id = await _cover_seller(client, "legacy")
+    created = await client.post("/seller/products", json={
+        "category_id": cat_id, "title": "Legacy images", "status": "active",
+    }, headers={"Authorization": f"Bearer {seller_token}"})
+    assert created.status_code == 201, created.text
+    product_id = created.json()["id"]
+
+    async with SessionLocal() as db:
+        product = await db.get(Product, product_id)
+        product.images = ["http://old.example/cover.png"]
+        await db.commit()
+
+    detail = await client.get(f"/products/{product_id}")
+    assert detail.status_code == 200, detail.text
+    assert detail.json()["cover_id"] is None
+    assert detail.json()["images"] is None

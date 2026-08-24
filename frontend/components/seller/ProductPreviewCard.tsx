@@ -4,8 +4,10 @@ import { vnd } from "@/lib/api";
 import { useTranslations } from "next-intl";
 import { formatSpecKey } from "@/lib/utils";
 import { serviceLabel } from "@/lib/labels";
+import { parseCoverId } from "@/lib/product-covers";
 import type { Variant } from "@/lib/types";
 import { Banner, Card, Tag } from "@/components/ui";
+import { ProductCover } from "@/components/products/ProductCover";
 import { MarkdownContent } from "@/components/MarkdownContent";
 import { Bolt, Check, Eye, Info, Shield } from "@/components/Icons";
 
@@ -29,11 +31,12 @@ const STATUS_LABEL_KEYS: Record<string, string> = {
    Dùng ở cả trang tạo mới lẫn trang sửa sản phẩm. */
 export function ProductPreviewCard({
   title, categoryName, serviceType, status, escrowDays,
-  highlightText, description, features, specs, warrantyText, variants,
+  highlightText, description, features, specs, warrantyText, variants, coverId,
 }: {
   title: string; categoryName?: string; serviceType: string; status: string; escrowDays: number;
   highlightText: string; description: string; features: string[];
   specs: { key: string; value: string }[]; warrantyText: string; variants: Variant[];
+  coverId?: string | null;
 }) {
   const t = useTranslations("seller");
   const cleanFeatures = features.filter((f) => f.trim());
@@ -57,9 +60,7 @@ export function ProductPreviewCard({
 
       <div className="p-4 space-y-3.5">
         <div className="flex items-start gap-2.5">
-          <span className="grid place-items-center h-9 w-9 shrink-0 rounded-lg bg-iris/8 border border-iris/15 font-serif text-[13px] font-bold text-iris-hi">
-            {(title.trim() || "SP").slice(0, 2).toUpperCase()}
-          </span>
+          <ProductCover coverId={parseCoverId(coverId)} title={title.trim() || "SP"} />
           <div className="min-w-0 flex-1">
             <h4 className="font-serif text-[15px] leading-tight tracking-tight font-semibold break-words">
               {title.trim() || <span className="text-faint italic font-sans font-normal text-[13px]">{t("previewUnnamed")}</span>}

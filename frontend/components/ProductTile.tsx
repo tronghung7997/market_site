@@ -6,9 +6,11 @@ import { Link } from "@/i18n/navigation";
 import { useLocale, useTranslations } from "next-intl";
 import { useMoney } from "@/lib/money";
 import { effectiveMinPrice, isAdapterFulfilled } from "@/lib/pricing-display";
+import { parseCoverId } from "@/lib/product-covers";
 import type { Product } from "@/lib/types";
-import { Card, Monogram, Tag } from "@/components/ui";
+import { Card, Tag } from "@/components/ui";
 import { Bolt, Star } from "@/components/Icons";
+import { ProductCover } from "@/components/products/ProductCover";
 
 function DeliveryTag({ p }: { p: Product }) {
   const t = useTranslations("labels.delivery");
@@ -32,7 +34,7 @@ export default function ProductTile({ product: p }: { product: Product }) {
     <Link href={`/products/${p.id}`} className="h-full">
       <Card interactive className="p-3.5 h-full flex flex-col">
         <div className="flex items-start gap-2.5">
-          <Monogram text={p.title} />
+          <ProductCover coverId={parseCoverId(p)} title={p.title} />
           <div className="min-w-0 flex-1">
             <div className="text-[13px] font-medium leading-snug line-clamp-2">{p.title}</div>
             <div className="mt-1 flex items-center gap-x-2 gap-y-0.5 flex-wrap text-[11px] text-faint">

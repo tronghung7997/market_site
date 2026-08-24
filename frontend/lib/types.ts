@@ -92,6 +92,7 @@ export interface Product {
   category_id: number;
   title: string;
   images: Record<string, unknown> | null;
+  cover_id?: string | null;
   escrow_days: number;
   status: string;
   service_type: string | null;

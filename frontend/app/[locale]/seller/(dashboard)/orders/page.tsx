@@ -693,7 +693,7 @@ function SellerOrdersConsole() {
                                     {o.variant_name}
                                   </div>
                                   <span className="shrink-0 px-1.5 py-0.5 rounded bg-surface border border-line font-mono font-bold text-fg text-[10.5px]">
-                                    x{o.quantity}
+                                    x{o.quantity.toLocaleString()}
                                   </span>
                                 </div>
                               </div>
@@ -703,7 +703,7 @@ function SellerOrdersConsole() {
                             <div className="flex items-center gap-2 mt-1.5 flex-wrap text-[11px]">
                               {!o.variant_name && (
                                 <span className="px-1.5 py-0.5 rounded bg-raised border border-line font-mono text-muted">
-                                  SL: {o.quantity}
+                                  SL: {o.quantity.toLocaleString()}
                                 </span>
                               )}
                               {o.product_id && (
@@ -1110,7 +1110,7 @@ function SellerDisputeModal({
   );
 }
 
-/** 2. FAST DELIVERY MODAL */
+/** 2. FAST & BULK DELIVERY MODAL */
 function SellerDeliverModal({
   order,
   isOpen,
@@ -1128,6 +1128,29 @@ function SellerDeliverModal({
   const [error, setError] = useState<string | null>(null);
 
   if (!isOpen) return null;
+
+  const lines = data.split(/\r?\n/).map((l) => l.trim()).filter(Boolean);
+  const lineCount = lines.length;
+  const uniqueCount = new Set(lines).size;
+  const duplicateCount = lineCount - uniqueCount;
+  const isMatch = lineCount === order.quantity;
+
+  const handleFileUpload = (e: React.ChangeEvent<HTMLInputElement>) => {
+    const file = e.target.files?.[0];
+    if (!file) return;
+    const reader = new FileReader();
+    reader.onload = (evt) => {
+      const text = (evt.target?.result as string) || "";
+      setData(text);
+    };
+    reader.readAsText(file);
+    e.target.value = "";
+  };
+
+  const handleRemoveDuplicates = () => {
+    const unique = Array.from(new Set(lines));
+    setData(unique.join("\n"));
+  };
 
   const handleSubmit = async (e: React.FormEvent) => {
     e.preventDefault();
@@ -1149,17 +1172,15 @@ function SellerDeliverModal({
     }
   };
 
-  const lineCount = data.split(/\r?\n/).filter((l) => l.trim()).length;
-
   return (
     <div className="fixed inset-0 z-50 flex items-center justify-center p-4 bg-ink-panel/75 backdrop-blur-xs animate-fade">
       <div
         role="dialog"
         aria-modal="true"
         aria-labelledby="deliver-modal-title"
-        className="w-full max-w-lg bg-surface border border-line rounded-2xl shadow-card-lg overflow-hidden animate-rise"
+        className="w-full max-w-xl bg-surface border border-line rounded-2xl shadow-card-lg overflow-hidden animate-rise flex flex-col max-h-[90vh]"
       >
-        <div className="p-4 border-b border-line bg-raised/50 flex items-center justify-between">
+        <div className="p-4 border-b border-line bg-raised/50 flex items-center justify-between shrink-0">
           <div className="flex items-center gap-2.5">
             <span className="p-1.5 rounded-lg bg-iris-soft text-iris">
               <Package size={18} />
@@ -1168,7 +1189,7 @@ function SellerDeliverModal({
               <span className="text-[10px] font-bold uppercase tracking-wider text-iris bg-iris-soft px-1.5 py-0.2 rounded">
                 {t("deliverModalTitle")}
               </span>
-              <h3 id="deliver-modal-title" className="text-[14px] font-bold text-fg truncate max-w-[300px] mt-0.5">
+              <h3 id="deliver-modal-title" className="text-[14px] font-bold text-fg truncate max-w-[320px] mt-0.5">
                 Đơn #{order.id} &bull; {order.product_title}
               </h3>
             </div>
@@ -1178,28 +1199,78 @@ function SellerDeliverModal({
           </Button>
         </div>
 
-        <form onSubmit={handleSubmit} className="p-5 space-y-3.5 text-xs">
-          <div className="p-2.5 rounded-xl bg-raised border border-line flex items-center justify-between text-muted">
-            <span>Gói: <strong className="text-fg">{order.variant_name || "Mặc định"}</strong></span>
-            <span>Số lượng cần giao: <strong className="font-mono text-iris-hi">{order.quantity} item</strong></span>
+        <form onSubmit={handleSubmit} className="p-5 space-y-3.5 text-xs overflow-y-auto flex-1">
+          {/* Order info & required quantity */}
+          <div className="p-3 rounded-xl bg-raised border border-line flex flex-col sm:flex-row sm:items-center justify-between gap-2 text-muted">
+            <div>
+              <span>Gói biến thể: </span>
+              <strong className="text-fg">{order.variant_name || "Mặc định"}</strong>
+            </div>
+            <div className="flex items-center gap-2">
+              <span>Yêu cầu giao:</span>
+              <span className="font-mono font-bold text-iris-hi text-sm px-2 py-0.5 rounded bg-surface border border-line">
+                {order.quantity.toLocaleString()} item
+              </span>
+            </div>
           </div>
 
+          {/* File Upload Toolbar */}
+          <div className="flex items-center justify-between gap-2 p-2.5 rounded-xl bg-surface border border-line">
+            <div className="text-[11.5px] text-muted">
+              <span>Hỗ trợ nạp hàng loạt (1.000 - 5.000 dòng):</span>
+            </div>
+            <label className="cursor-pointer">
+              <span className="inline-flex items-center gap-1.5 px-2.5 py-1 rounded-lg bg-raised hover:bg-raised/80 border border-line text-xs font-semibold text-fg transition-colors">
+                <Upload size={12} className="text-iris" />
+                <span>Tải file .txt / .csv</span>
+              </span>
+              <Input type="file" accept=".txt,.csv" onChange={handleFileUpload} className="hidden" />
+            </label>
+          </div>
+
+          {/* Textarea & Line validation */}
           <div className="space-y-1.5">
             <div className="flex items-center justify-between">
-              <label className="font-semibold text-fg">Dữ liệu bàn giao (Tài khoản / Key / Hướng dẫn):</label>
-              <span className="text-[11px] text-faint font-mono">
-                {lineCount > 0 ? `${lineCount} dòng` : "Mỗi dòng 1 item"}
-              </span>
+              <label className="font-semibold text-fg">Dữ liệu bàn giao (Key / Tài khoản / Hướng dẫn):</label>
+              <div className="flex items-center gap-2 text-[11px] font-mono">
+                <span className={cn(
+                  "px-1.5 py-0.5 rounded font-semibold",
+                  lineCount === 0
+                    ? "text-faint bg-raised"
+                    : isMatch
+                    ? "text-good bg-good-soft/70 border border-good/30"
+                    : "text-warn bg-warn-soft/70 border border-warn/30"
+                )}>
+                  {lineCount === 0
+                    ? "Chưa nhập"
+                    : isMatch
+                    ? `✓ Đã đủ ${lineCount.toLocaleString()} / ${order.quantity.toLocaleString()} dòng`
+                    : lineCount < order.quantity
+                    ? `⚠️ Đã nhập ${lineCount.toLocaleString()} / ${order.quantity.toLocaleString()} dòng (Thiếu ${(order.quantity - lineCount).toLocaleString()})`
+                    : `⚠️ Đã nhập ${lineCount.toLocaleString()} / ${order.quantity.toLocaleString()} dòng (Thừa ${(lineCount - order.quantity).toLocaleString()})`}
+                </span>
+              </div>
             </div>
 
             <Textarea
-              rows={5}
+              rows={6}
               value={data}
               onChange={(e) => setData(e.target.value)}
-              placeholder={`user1|pass1|2fa_cookie\nuser2|pass2|2fa_cookie\nHoặc link kích hoạt / Key bản quyền...`}
+              placeholder={`Mỗi dòng 1 tài nguyên, hỗ trợ dán 1.000+ dòng:\nuser1|pass1|2fa_cookie\nuser2|pass2|2fa_cookie\nuser3|pass3|2fa_cookie`}
               className="font-mono text-xs leading-relaxed bg-surface"
               autoFocus
             />
+
+            {/* Duplicate detection badge */}
+            {duplicateCount > 0 && (
+              <div className="p-2 rounded-lg bg-warn-soft/40 border border-warn/30 text-warn flex items-center justify-between text-[11px]">
+                <span>⚠️ Phát hiện {duplicateCount.toLocaleString()} dòng trùng lặp trong danh sách.</span>
+                <Button size="sm" variant="ghost" type="button" onClick={handleRemoveDuplicates} className="h-6 text-[10.5px] text-warn hover:underline">
+                  Loại bỏ trùng lặp
+                </Button>
+              </div>
+            )}
+
             <p className="text-[11px] text-muted">
               💡 Khách hàng sẽ nhận được dữ liệu này ngay sau khi bạn xác nhận giao hàng.
             </p>
@@ -1211,13 +1282,13 @@ function SellerDeliverModal({
             </div>
           )}
 
-          <div className="pt-2 border-t border-line flex items-center justify-end gap-2">
+          <div className="pt-2 border-t border-line flex items-center justify-end gap-2 shrink-0">
             <Button size="sm" variant="ghost" type="button" onClick={onClose} disabled={submitting}>
               {t("cancel")}
             </Button>
             <Button size="sm" type="submit" disabled={submitting || !data.trim()} className="gap-1.5">
               <Package size={13} />
-              <span>{submitting ? "Đang giao..." : "Xác nhận giao hàng"}</span>
+              <span>{submitting ? "Đang giao..." : `Xác nhận giao (${lineCount.toLocaleString()} item)`}</span>
             </Button>
           </div>
         </form>
@@ -1263,6 +1334,38 @@ function SellerOrderDetailModal({
   const st = orderStatus(order.status, locale);
   const isProcessing = order.status === "processing";
   const isDisputed = order.status === "disputed";
+
+  // Delivered data lines calculation
+  const deliveredLines = order.delivered_data
+    ? order.delivered_data.split(/\r?\n/).filter((l) => l.trim())
+    : [];
+
+  const handleDownloadDeliveredTxt = () => {
+    if (!order.delivered_data) return;
+    const blob = new Blob([order.delivered_data], { type: "text/plain;charset=utf-8" });
+    const url = URL.createObjectURL(blob);
+    const a = document.createElement("a");
+    a.href = url;
+    a.download = `order_${order.id}_delivered_data.txt`;
+    document.body.appendChild(a);
+    a.click();
+    document.body.removeChild(a);
+    URL.revokeObjectURL(url);
+  };
+
+  const handleDownloadResourcesTxt = () => {
+    if (resources.length === 0) return;
+    const text = resources.map((r) => r.data).join("\n");
+    const blob = new Blob([text], { type: "text/plain;charset=utf-8" });
+    const url = URL.createObjectURL(blob);
+    const a = document.createElement("a");
+    a.href = url;
+    a.download = `order_${order.id}_resources.txt`;
+    document.body.appendChild(a);
+    a.click();
+    document.body.removeChild(a);
+    URL.revokeObjectURL(url);
+  };
 
   return (
     <div className="fixed inset-0 z-50 flex items-center justify-center p-4 bg-ink-panel/75 backdrop-blur-xs animate-fade">
@@ -1317,7 +1420,7 @@ function SellerOrderDetailModal({
               <div>
                 <span className="text-faint">Gói &amp; Số lượng:</span>
                 <div className="font-medium text-fg mt-0.5">
-                  {order.variant_name} (SL: {order.quantity})
+                  {order.variant_name} (SL: {order.quantity.toLocaleString()})
                 </div>
               </div>
             )}
@@ -1337,30 +1440,56 @@ function SellerOrderDetailModal({
             <StatusTimeline status={order.status} />
           </div>
 
-          {/* Delivered Data Box */}
+          {/* Delivered Data Box with Bulk Export */}
           {order.delivered_data && (
             <div className="space-y-1.5">
               <div className="flex items-center justify-between">
-                <span className="font-semibold text-fg">Dữ liệu đã bàn giao cho khách:</span>
-                <CopyButton text={order.delivered_data} label="Sao chép toàn bộ" className="text-[11px]" />
+                <span className="font-semibold text-fg">
+                  Dữ liệu đã bàn giao ({deliveredLines.length.toLocaleString()} dòng):
+                </span>
+                <div className="flex items-center gap-1.5">
+                  <Button size="sm" variant="secondary" onClick={handleDownloadDeliveredTxt} className="h-6.5 px-2 text-[11px] gap-1">
+                    <Download size={11} />
+                    <span>Tải file TXT</span>
+                  </Button>
+                  <CopyButton text={order.delivered_data} label="Sao chép toàn bộ" className="text-[11px]" />
+                </div>
               </div>
               <div className="p-3 rounded-xl bg-raised border border-line font-mono text-[11.5px] text-fg break-all select-all max-h-36 overflow-y-auto leading-relaxed">
-                {order.delivered_data}
+                {deliveredLines.slice(0, 50).join("\n")}
+                {deliveredLines.length > 50 && (
+                  <p className="mt-2 text-[10.5px] text-faint italic font-sans">
+                    ... và {(deliveredLines.length - 50).toLocaleString()} dòng khác. Nhấn &quot;Tải file TXT&quot; để tải toàn bộ.
+                  </p>
+                )}
               </div>
             </div>
           )}
 
-          {/* Auto-assigned resources list if applicable */}
+          {/* Auto-assigned resources list if applicable with Bulk Export */}
           {resources.length > 0 && (
             <div className="space-y-1.5 pt-1">
-              <span className="font-semibold text-muted">Tài nguyên được cấp phát tự động ({resources.length}):</span>
-              <div className="space-y-1 max-h-32 overflow-y-auto">
-                {resources.map((r) => (
+              <div className="flex items-center justify-between">
+                <span className="font-semibold text-muted">
+                  Tài nguyên cấp phát tự động ({resources.length.toLocaleString()} item):
+                </span>
+                <Button size="sm" variant="secondary" onClick={handleDownloadResourcesTxt} className="h-6.5 px-2 text-[11px] gap-1">
+                  <Download size={11} />
+                  <span>Tải toàn bộ file</span>
+                </Button>
+              </div>
+              <div className="space-y-1 max-h-36 overflow-y-auto">
+                {resources.slice(0, 30).map((r) => (
                   <div key={r.id} className="p-2 rounded-lg bg-raised border border-line font-mono text-[11px] flex items-center justify-between">
                     <span className="truncate max-w-[320px]">{r.data}</span>
                     <Tag tone="good" className="text-[9px]">Khả dụng</Tag>
                   </div>
                 ))}
+                {resources.length > 30 && (
+                  <div className="p-2 text-center text-[11px] text-faint bg-raised/50 rounded-lg">
+                    Đang hiển thị 30 / {resources.length.toLocaleString()} tài nguyên. Bấm &quot;Tải toàn bộ file&quot; để xuất tất cả.
+                  </div>
+                )}
               </div>
             </div>
           )}

@@ -61,6 +61,9 @@ export const LogOut = (p: IconProps) => (
 export const Shield = (p: IconProps) => (
   <svg {...s(p)}><path d="M12 2 4 5v6c0 5 3.4 8.5 8 11 4.6-2.5 8-6 8-11V5Z" /><path d="m9 12 2 2 4-4" /></svg>
 );
+export const ShieldCheck = (p: IconProps) => (
+  <svg {...s(p)}><path d="M12 2 4 5v6c0 5 3.4 8.5 8 11 4.6-2.5 8-6 8-11V5Z" /><path d="m9 12 2 2 4-4" /></svg>
+);
 export const Panel = (p: IconProps) => (
   <svg {...s(p)}><rect x="3" y="4" width="18" height="16" rx="2" /><path d="M9 4v16" /></svg>
 );
@@ -72,6 +75,9 @@ export const Package = (p: IconProps) => (
 );
 export const MessageCircle = (p: IconProps) => (
   <svg {...s(p)}><path d="M7.9 20A9 9 0 1 0 4 16.1L2 22Z" /></svg>
+);
+export const MessageSquare = (p: IconProps) => (
+  <svg {...s(p)}><path d="M21 15a2 2 0 0 1-2 2H7l-4 4V5a2 2 0 0 1 2-2h14a2 2 0 0 1 2 2z" /></svg>
 );
 export const Info = (p: IconProps) => (
   <svg {...s(p)}><circle cx="12" cy="12" r="10" /><path d="M12 16v-4" /><path d="M12 8h.01" /></svg>

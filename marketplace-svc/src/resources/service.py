@@ -3,22 +3,47 @@ from sqlalchemy import func, select
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from src.exceptions import NotOwner, ResourceUnavailable
-from src.models.product import ProductVariant
+from src.models.pricing_config import PricingConfig
+from src.models.product import DeliveryMode, Product, ProductVariant
 from src.models.resource import Resource, ResourceStatus
+from src.pricing.engine import product_pricing_override
 
 
 async def bulk_add_resources(variant_id: int, seller_id: int, items: list[str], db: AsyncSession) -> int:
-    variant = await db.get(ProductVariant, variant_id)
+    # Serialize uploads per variant so two concurrent requests cannot both pass
+    # the duplicate check and sell the same credential twice.
+    variant = (await db.execute(
+        select(ProductVariant)
+        .where(ProductVariant.id == variant_id)
+        .with_for_update()
+    )).scalar_one_or_none()
     if not variant:
         raise HTTPException(status_code=404, detail="Không tìm thấy gói sản phẩm")
     from src.models.product import Product
     product = await db.get(Product, variant.product_id)
     if product.seller_id != seller_id:
         raise NotOwner()
-    for item in items:
+    if variant.delivery_mode != DeliveryMode.instant:
+        raise HTTPException(
+            status_code=400,
+            detail="Chỉ gói giao ngay mới sử dụng kho tài nguyên",
+        )
+
+    unique_items = list(dict.fromkeys(item.strip() for item in items if item.strip()))
+    if not unique_items:
+        await db.commit()
+        return 0
+    existing = set((await db.execute(
+        select(Resource.data).where(
+            Resource.variant_id == variant_id,
+            Resource.data.in_(unique_items),
+        )
+    )).scalars())
+    new_items = [item for item in unique_items if item not in existing]
+    for item in new_items:
         db.add(Resource(variant_id=variant_id, seller_id=seller_id, data=item))
     await db.commit()
-    return len(items)
+    return len(new_items)
 
 
 async def list_resources(variant_id: int, seller_id: int, db: AsyncSession) -> list[Resource]:
@@ -67,7 +92,27 @@ async def seller_inventory_summary(seller_id: int, db: AsyncSession) -> list[dic
     Trả cả gói chưa có tài nguyên nào (outer join) — gói hết sạch hàng chính là
     thứ seller cần thấy nhất, mà inner join sẽ giấu đi.
     """
-    from src.models.product import Product
+    products = list((await db.execute(
+        select(Product).where(Product.seller_id == seller_id)
+    )).scalars())
+    configs = {
+        config.service_type: config.strategy
+        for config in (await db.execute(
+            select(PricingConfig).where(PricingConfig.is_active == True)  # noqa: E712
+        )).scalars()
+    }
+    inventory_product_ids = []
+    for product in products:
+        override = product_pricing_override(product)
+        strategy = (
+            override[0]
+            if override is not None
+            else configs.get(product.service_type or "other", "fixed")
+        )
+        if strategy == "fixed":
+            inventory_product_ids.append(product.id)
+    if not inventory_product_ids:
+        return []
 
     rows = await db.execute(
         select(
@@ -78,7 +123,10 @@ async def seller_inventory_summary(seller_id: int, db: AsyncSession) -> list[dic
         .select_from(Product)
         .join(ProductVariant, ProductVariant.product_id == Product.id)
         .outerjoin(Resource, Resource.variant_id == ProductVariant.id)
-        .where(Product.seller_id == seller_id)
+        .where(
+            Product.id.in_(inventory_product_ids),
+            ProductVariant.delivery_mode == DeliveryMode.instant,
+        )
         .group_by(
             Product.id, Product.title, ProductVariant.id, ProductVariant.name,
             ProductVariant.delivery_mode, ProductVariant.is_active, Resource.status,

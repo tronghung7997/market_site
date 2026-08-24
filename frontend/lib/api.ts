@@ -193,6 +193,11 @@ export const api = {
     request<Product>("/seller/products", { method: "POST", body: JSON.stringify(data) }, true),
   updateProduct: (id: number, data: Record<string, unknown>) =>
     request<Product>(`/seller/products/${id}`, { method: "PATCH", body: JSON.stringify(data) }, true),
+  updateSellerProductStatus: (id: number, status: "active" | "paused") =>
+    request<Product>(`/seller/products/${id}/status`, {
+      method: "PUT",
+      body: JSON.stringify({ status }),
+    }, true),
   updateProductTranslation: (id: number, locale: ProductLocale, data: ProductTranslation) =>
     request<Product>(`/seller/products/${id}/translations/${locale}`, { method: "PATCH", body: JSON.stringify(data) }, true),
   deleteProduct: (id: number) =>
@@ -204,7 +209,10 @@ export const api = {
   deleteVariant: (variantId: number) =>
     request<void>(`/seller/variants/${variantId}`, { method: "DELETE" }, true),
   addResources: (variantId: number, items: string[]) =>
-    request<void>(`/seller/variants/${variantId}/resources`, { method: "POST", body: JSON.stringify({ items }) }, true),
+    request<{ count: number }>(`/seller/variants/${variantId}/resources`, {
+      method: "POST",
+      body: JSON.stringify({ items }),
+    }, true),
   sellerVariantResources: (variantId: number) =>
     request<Resource[]>(`/seller/variants/${variantId}/resources`, {}, true),
   inventorySummary: () => request<InventoryVariant[]>("/seller/inventory/summary", {}, true),

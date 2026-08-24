@@ -23,6 +23,9 @@ npm run lint
 echo "==> Frontend i18n catalog check"
 npm run check:i18n
 
+echo "==> Frontend seller inventory logic test"
+npm run test:seller-inventory
+
 echo "==> Frontend auth/BFF route test"
 npm run test:auth-route
 

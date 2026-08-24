@@ -175,6 +175,7 @@ cd frontend
 npm run check:harness        # design-system + module-boundary guards
 npm run lint                 # hiện là tsc --noEmit
 npm run check:i18n
+npm run test:seller-inventory
 npm run test:auth-route
 API_URL=http://marketplace-svc:8001 npm run build
 ```

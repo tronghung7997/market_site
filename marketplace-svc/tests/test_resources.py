@@ -1,5 +1,7 @@
-import pytest
+import asyncio
 from unittest.mock import AsyncMock
+
+import pytest
 from tests.conftest import make_admin, make_seller, register_and_login
 
 from src.config import settings
@@ -43,6 +45,120 @@ async def test_bulk_add_resources(client):
     }, headers={"Authorization": f"Bearer {seller_token}"})
     assert resp.status_code == 201
     assert resp.json()["count"] == 3
+
+
+@pytest.mark.asyncio
+async def test_bulk_add_deduplicates_payload_and_existing_variant_resources(client):
+    seller_token, variant_id = await setup_variant(client)
+    headers = {"Authorization": f"Bearer {seller_token}"}
+
+    first = await client.post(
+        f"/seller/variants/{variant_id}/resources",
+        json={"items": ["same|credential", "same|credential", "other|credential"]},
+        headers=headers,
+    )
+    second = await client.post(
+        f"/seller/variants/{variant_id}/resources",
+        json={"items": ["same|credential", "new|credential"]},
+        headers=headers,
+    )
+
+    assert first.status_code == 201, first.text
+    assert first.json()["count"] == 2
+    assert second.status_code == 201, second.text
+    assert second.json()["count"] == 1
+    resources = await client.get(
+        f"/seller/variants/{variant_id}/resources", headers=headers,
+    )
+    assert sorted(item["data"] for item in resources.json()) == [
+        "new|credential", "other|credential", "same|credential",
+    ]
+
+
+@pytest.mark.asyncio
+async def test_bulk_add_normalizes_whitespace_and_ignores_blank_lines(client):
+    seller_token, variant_id = await setup_variant(client)
+    headers = {"Authorization": f"Bearer {seller_token}"}
+
+    response = await client.post(
+        f"/seller/variants/{variant_id}/resources",
+        json={"items": ["  normalized|credential  ", "   ", "normalized|credential"]},
+        headers=headers,
+    )
+
+    assert response.status_code == 201, response.text
+    assert response.json()["count"] == 1
+    resources = await client.get(
+        f"/seller/variants/{variant_id}/resources", headers=headers,
+    )
+    assert [item["data"] for item in resources.json()] == ["normalized|credential"]
+
+
+@pytest.mark.asyncio
+async def test_bulk_add_rejects_a_different_seller(client):
+    seller_token, variant_id = await setup_variant(client)
+    other_token = await register_and_login(client, "res_other@example.com")
+    await make_seller("res_other@example.com")
+    other_token = await register_and_login(client, "res_other@example.com")
+
+    response = await client.post(
+        f"/seller/variants/{variant_id}/resources",
+        json={"items": ["must|not|be|added"]},
+        headers={"Authorization": f"Bearer {other_token}"},
+    )
+
+    assert response.status_code == 403, response.text
+    owner_resources = await client.get(
+        f"/seller/variants/{variant_id}/resources",
+        headers={"Authorization": f"Bearer {seller_token}"},
+    )
+    assert owner_resources.json() == []
+
+
+@pytest.mark.asyncio
+async def test_concurrent_bulk_add_serializes_duplicate_credentials(client):
+    seller_token, variant_id = await setup_variant(client)
+    headers = {"Authorization": f"Bearer {seller_token}"}
+
+    first, second = await asyncio.gather(
+        client.post(
+            f"/seller/variants/{variant_id}/resources",
+            json={"items": ["concurrent|credential"]},
+            headers=headers,
+        ),
+        client.post(
+            f"/seller/variants/{variant_id}/resources",
+            json={"items": ["concurrent|credential"]},
+            headers=headers,
+        ),
+    )
+
+    assert first.status_code == second.status_code == 201
+    assert first.json()["count"] + second.json()["count"] == 1
+    resources = await client.get(
+        f"/seller/variants/{variant_id}/resources", headers=headers,
+    )
+    assert [item["data"] for item in resources.json()] == ["concurrent|credential"]
+
+
+@pytest.mark.asyncio
+async def test_bulk_add_rejects_manual_delivery_variant(client):
+    seller_token, variant_id = await setup_variant(client)
+    changed = await client.patch(
+        f"/seller/variants/{variant_id}",
+        json={"delivery_mode": "manual"},
+        headers={"Authorization": f"Bearer {seller_token}"},
+    )
+    assert changed.status_code == 200, changed.text
+
+    response = await client.post(
+        f"/seller/variants/{variant_id}/resources",
+        json={"items": ["unused|credential"]},
+        headers={"Authorization": f"Bearer {seller_token}"},
+    )
+
+    assert response.status_code == 400, response.text
+    assert "giao ngay" in response.json()["detail"].lower()
 
 
 @pytest.mark.asyncio
@@ -173,6 +289,59 @@ async def _seller_with_variant(client, email: str):
         "name": "Gói test", "price": 1000, "delivery_mode": "instant",
     }, headers={"Authorization": f"Bearer {token}"})
     return token, product_id, variant.json()["id"]
+
+
+@pytest.mark.asyncio
+async def test_inventory_summary_excludes_legacy_variant_when_effective_pricing_is_dynamic(client):
+    from src.database import SessionLocal
+    from src.models.pricing_config import PricingConfig
+    from src.models.product import Product
+
+    seller_token, product_id, variant_id = await _seller_with_variant(
+        client, "inv_dynamic_legacy@example.com",
+    )
+    # Simulate data written before mixed pricing/variant states were blocked.
+    async with SessionLocal() as db:
+        product = await db.get(Product, product_id)
+        product.service_type = "proxy"
+        db.add(PricingConfig(
+            service_type="proxy",
+            strategy="config",
+            params={
+                "base_price": 10000,
+                "type_mult": {"residential": 1.0},
+                "network_mult": {"shared": 1.0},
+            },
+            is_active=True,
+        ))
+        await db.commit()
+
+    response = await client.get(
+        "/seller/inventory/summary",
+        headers={"Authorization": f"Bearer {seller_token}"},
+    )
+
+    assert response.status_code == 200, response.text
+    assert all(row["variant_id"] != variant_id for row in response.json())
+
+
+@pytest.mark.asyncio
+async def test_inventory_summary_excludes_manual_delivery_variants(client):
+    seller_token, _, variant_id = await _seller_with_variant(client, "inv_manual@example.com")
+    changed = await client.patch(
+        f"/seller/variants/{variant_id}",
+        json={"delivery_mode": "manual"},
+        headers={"Authorization": f"Bearer {seller_token}"},
+    )
+    assert changed.status_code == 200, changed.text
+
+    response = await client.get(
+        "/seller/inventory/summary",
+        headers={"Authorization": f"Bearer {seller_token}"},
+    )
+
+    assert response.status_code == 200, response.text
+    assert all(row["variant_id"] != variant_id for row in response.json())
 
 
 @pytest.mark.asyncio

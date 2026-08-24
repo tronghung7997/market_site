@@ -1,4 +1,5 @@
 from datetime import datetime
+from typing import Literal
 
 from pydantic import BaseModel, Field
 
@@ -9,7 +10,7 @@ class ProductCreate(BaseModel):
     description: str | None = None
     images: list[str] | None = None
     escrow_days: int = 2
-    status: str = "draft"
+    status: Literal["draft", "active"] = "draft"
     service_type: str = "other"
     features: list[str] | None = None
     specs: dict | None = None
@@ -33,7 +34,11 @@ class ProductContentUpdate(BaseModel):
 
 
 class SellerProductUpdate(ProductContentUpdate):
-    """Seller-editable content. Lifecycle status is intentionally excluded."""
+    """Seller-editable content. Lifecycle status uses the dedicated status endpoint."""
+
+
+class SellerProductStatusUpdate(BaseModel):
+    status: Literal["active", "paused"]
 
 
 class ProductUpdate(ProductContentUpdate):
@@ -86,7 +91,7 @@ class ProductResponse(BaseModel):
 class VariantCreate(BaseModel):
     name: str
     price: int = Field(ge=0)
-    delivery_mode: str = "instant"
+    delivery_mode: Literal["instant", "manual"] = "instant"
     sla_hours: int = 24
     sort_order: int = 0
     duration_days: int | None = None
@@ -95,7 +100,7 @@ class VariantCreate(BaseModel):
 class VariantUpdate(BaseModel):
     name: str | None = None
     price: int | None = Field(default=None, ge=0)
-    delivery_mode: str | None = None
+    delivery_mode: Literal["instant", "manual"] | None = None
     sla_hours: int | None = None
     sort_order: int | None = None
     is_active: bool | None = None

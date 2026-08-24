@@ -68,6 +68,19 @@ async def update_product(product_id: int, body: schemas.SellerProductUpdate, acc
     return await service.update_product(product_id, account.id, body.model_dump(exclude_unset=True), db)
 
 
+@router.put(
+    "/seller/products/{product_id}/status",
+    response_model=schemas.ProductResponse,
+)
+async def update_own_product_status(
+    product_id: int,
+    body: schemas.SellerProductStatusUpdate,
+    account: Account = Depends(require_role("seller")),
+    db: AsyncSession = Depends(get_session),
+):
+    return await service.update_seller_product_status(product_id, account.id, body.status, db)
+
+
 @router.patch(
     "/seller/products/{product_id}/translations/{locale}",
     response_model=schemas.ProductResponse,

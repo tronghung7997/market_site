@@ -8,6 +8,13 @@ import { useMoney } from "@/lib/money";
 import type { SellerProduct, Variant } from "@/lib/types";
 import { cn } from "@/lib/cn";
 import {
+  inventoryStockState,
+  isInventoryManagedProduct,
+  nextSellerProductStatus,
+  parseResourceItems,
+  restockableVariants,
+} from "@/features/seller-inventory";
+import {
   Button,
   Card,
   Input,
@@ -47,6 +54,7 @@ export default function SellerProducts() {
   const t = useTranslations("seller");
   const [products, setProducts] = useState<SellerProduct[]>([]);
   const [loading, setLoading] = useState(true);
+  const [loadError, setLoadError] = useState(false);
   const [activeTab, setActiveTab] = useState<FilterTab>("all");
   const [searchQuery, setSearchQuery] = useState("");
   const [selectedCategory, setSelectedCategory] = useState<string | null>(null);
@@ -57,9 +65,10 @@ export default function SellerProducts() {
 
   const load = () => {
     setLoading(true);
+    setLoadError(false);
     api.sellerProducts()
       .then(setProducts)
-      .catch(() => {})
+      .catch(() => setLoadError(true))
       .finally(() => setLoading(false));
   };
 
@@ -74,8 +83,8 @@ export default function SellerProducts() {
   const stats = useMemo(() => {
     const total = products.length;
     const active = products.filter((p) => p.status === "active").length;
-    const lowStock = products.filter((p) => p.total_stock > 0 && p.total_stock <= 20).length;
-    const outOfStock = products.filter((p) => p.total_stock === 0).length;
+    const lowStock = products.filter((p) => inventoryStockState(p, 20) === "low").length;
+    const outOfStock = products.filter((p) => inventoryStockState(p, 20) === "out").length;
     const paused = products.filter((p) => p.status === "paused" || p.status === "draft").length;
     const totalStock = products.reduce((acc, p) => acc + (p.total_stock || 0), 0);
 
@@ -105,8 +114,8 @@ export default function SellerProducts() {
     return products.filter((p) => {
       // Tab filter
       if (activeTab === "active" && p.status !== "active") return false;
-      if (activeTab === "low_stock" && !(p.total_stock > 0 && p.total_stock <= 20)) return false;
-      if (activeTab === "out_of_stock" && p.total_stock !== 0) return false;
+      if (activeTab === "low_stock" && inventoryStockState(p, 20) !== "low") return false;
+      if (activeTab === "out_of_stock" && inventoryStockState(p, 20) !== "out") return false;
       if (activeTab === "paused" && p.status !== "paused" && p.status !== "draft") return false;
 
       // Category facet filter
@@ -137,16 +146,13 @@ export default function SellerProducts() {
   }, [filteredProducts, page]);
 
   const handleToggleStatus = async (product: SellerProduct) => {
-    const nextStatus = product.status === "active" ? "paused" : "active";
+    const nextStatus = nextSellerProductStatus(product.status);
+    if (!nextStatus) return;
     setTogglingId(product.id);
     try {
-      if (nextStatus === "paused") {
-        await api.deleteProduct(product.id);
-      } else {
-        await api.updateProduct(product.id, { status: "active" });
-      }
+      const updated = await api.updateSellerProductStatus(product.id, nextStatus);
       setProducts((prev) =>
-        prev.map((p) => (p.id === product.id ? { ...p, status: nextStatus } : p))
+        prev.map((p) => (p.id === product.id ? { ...p, status: updated.status } : p))
       );
     } catch {
       load();
@@ -213,6 +219,12 @@ export default function SellerProducts() {
           <div className="h-10 rounded-lg bg-raised border border-line" />
           <div className="h-80 rounded-xl bg-raised border border-line" />
         </div>
+      ) : loadError ? (
+        <Card className="p-10 text-center">
+          <AlertCircle size={32} className="mx-auto text-bad mb-2" />
+          <p className="text-[13.5px] font-medium text-fg mb-3">{t("productsLoadFailed")}</p>
+          <Button size="sm" variant="secondary" onClick={load}>{t("retry")}</Button>
+        </Card>
       ) : products.length === 0 ? (
         <Card className="p-10 text-center">
           <div className="grid place-items-center h-12 w-12 rounded-xl bg-raised border border-line mx-auto text-faint mb-3">
@@ -494,17 +506,24 @@ export default function SellerProducts() {
                   </thead>
                   <tbody className="divide-y divide-line text-[13px]">
                     {paginatedProducts.map((p) => {
-                      const isLowStock = p.total_stock > 0 && p.total_stock <= 20;
-                      const isOutOfStock = p.total_stock === 0;
-                      const stockTone = isOutOfStock ? "bad" : isLowStock ? "warn" : "good";
-                      const stockLabel = isOutOfStock
-                        ? t("outOfStockLabel")
-                        : isLowStock
-                          ? t("lowStockLabel")
-                          : t("inStockLabel");
+                      const stockState = inventoryStockState(p, 20);
+                      const isInventoryManaged = isInventoryManagedProduct(p);
+                      const isLowStock = stockState === "low";
+                      const isOutOfStock = stockState === "out";
+                      const stockTone = stockState === "not_managed"
+                        ? "iris"
+                        : isOutOfStock ? "bad" : isLowStock ? "warn" : "good";
+                      const stockLabel = stockState === "not_managed"
+                        ? (p.pricing_strategy ?? "fixed").toUpperCase()
+                        : isOutOfStock
+                          ? t("outOfStockLabel")
+                          : isLowStock
+                            ? t("lowStockLabel")
+                            : t("inStockLabel");
 
                       const isToggling = togglingId === p.id;
                       const isActive = p.status === "active";
+                      const nextStatus = nextSellerProductStatus(p.status);
 
                       return (
                         <tr
@@ -527,12 +546,10 @@ export default function SellerProducts() {
                                   {p.title}
                                 </Link>
                                 <div className="flex items-center gap-2 mt-0.5 text-[11px] text-faint">
-                                  {p.service_type ? (
+                                  {p.service_type && (
                                     <span className="inline-flex items-center gap-1 text-[10.5px] text-iris-hi bg-iris-soft px-1.5 py-0.2 rounded font-medium">
-                                      <Bolt size={11} /> {t("autoDelivery")}
+                                      <Bolt size={11} /> {p.service_type}
                                     </span>
-                                  ) : (
-                                    <span className="text-faint">{t("manualDelivery")}</span>
                                   )}
                                   <span className="font-mono">#{p.id}</span>
                                 </div>
@@ -550,7 +567,7 @@ export default function SellerProducts() {
                             <div className="space-y-1 min-w-[130px]">
                               <div className="flex items-center justify-between gap-2 text-[12px]">
                                 <span className="font-mono font-bold tabular text-fg">
-                                  {p.total_stock.toLocaleString()}
+                                  {isInventoryManaged ? p.total_stock.toLocaleString() : "—"}
                                 </span>
                                 <Tag tone={stockTone}>{stockLabel}</Tag>
                               </div>
@@ -558,46 +575,54 @@ export default function SellerProducts() {
                                 <div
                                   className={cn(
                                     "h-full rounded-full transition-all",
-                                    isOutOfStock
-                                      ? "w-0"
-                                      : isLowStock
-                                        ? "bg-warn w-1/4"
-                                        : "bg-good w-4/5"
+                                    stockState === "not_managed"
+                                      ? "bg-iris w-full"
+                                      : isOutOfStock
+                                        ? "w-0"
+                                        : isLowStock
+                                          ? "bg-warn w-1/4"
+                                          : "bg-good w-4/5"
                                   )}
                                 />
                               </div>
                               {/* In-place Quick Restock Button */}
-                              <Button
-                                size="sm"
-                                variant="ghost"
-                                onClick={() => setRestockProduct(p)}
-                                className={cn(
-                                  "h-6 px-1.5 text-[11px] font-semibold gap-1 transition-colors mt-0.5",
-                                  isOutOfStock
-                                    ? "text-bad hover:bg-bad-soft"
-                                    : isLowStock
-                                      ? "text-warn hover:bg-warn-soft"
-                                      : "text-iris hover:bg-iris-soft"
-                                )}
-                              >
-                                <Plus size={11} />
-                                <span>{t("addStock")}</span>
-                              </Button>
+                              {isInventoryManaged && (
+                                <Button
+                                  size="sm"
+                                  variant="ghost"
+                                  onClick={() => setRestockProduct(p)}
+                                  className={cn(
+                                    "h-6 px-1.5 text-[11px] font-semibold gap-1 transition-colors mt-0.5",
+                                    isOutOfStock
+                                      ? "text-bad hover:bg-bad-soft"
+                                      : isLowStock
+                                        ? "text-warn hover:bg-warn-soft"
+                                        : "text-iris hover:bg-iris-soft"
+                                  )}
+                                >
+                                  <Plus size={11} />
+                                  <span>{t("addStock")}</span>
+                                </Button>
+                              )}
                             </div>
                           </td>
 
                           {/* Variants Count / Link to Inventory */}
                           <td className="px-3 py-3 hidden md:table-cell">
-                            <Link
-                              href={`/seller/inventory?product=${p.id}`}
-                              className="inline-flex items-center gap-1.5 px-2.5 py-1 rounded-lg border border-line bg-surface hover:bg-raised hover:border-iris/40 text-fg transition-all group"
-                              title="Xem chi tiết và quản lý kho hàng cho sản phẩm này"
-                            >
-                              <Package size={12} className="text-iris group-hover:scale-110 transition-transform" />
-                              <span className="font-mono font-bold text-[12.5px]">{p.variant_count}</span>
-                              <span className="text-[11.5px] text-muted group-hover:text-fg">{t("variants").toLowerCase()}</span>
-                              <ChevronRight size={12} className="text-faint group-hover:text-iris transition-colors" />
-                            </Link>
+                            {isInventoryManaged ? (
+                              <Link
+                                href={`/seller/inventory?product=${p.id}`}
+                                className="inline-flex items-center gap-1.5 px-2.5 py-1 rounded-lg border border-line bg-surface hover:bg-raised hover:border-iris/40 text-fg transition-all group"
+                                title="Xem chi tiết và quản lý kho hàng cho sản phẩm này"
+                              >
+                                <Package size={12} className="text-iris group-hover:scale-110 transition-transform" />
+                                <span className="font-mono font-bold text-[12.5px]">{p.variant_count}</span>
+                                <span className="text-[11.5px] text-muted group-hover:text-fg">{t("variants").toLowerCase()}</span>
+                                <ChevronRight size={12} className="text-faint group-hover:text-iris transition-colors" />
+                              </Link>
+                            ) : (
+                              <Tag tone="iris">{(p.pricing_strategy ?? "fixed").toUpperCase()}</Tag>
+                            )}
                           </td>
 
                           {/* Status Toggle Switch */}
@@ -605,9 +630,9 @@ export default function SellerProducts() {
                             <Button
                               size="sm"
                               variant="ghost"
-                              disabled={isToggling}
+                              disabled={isToggling || nextStatus === null}
                               onClick={() => handleToggleStatus(p)}
-                              title={isActive ? t("pause") : t("activate")}
+                              title={nextStatus === null ? t("suspendedStatus") : isActive ? t("pause") : t("activate")}
                               className={cn(
                                 "h-7 px-2.5 rounded-full border text-[11.5px] font-semibold transition-all",
                                 isActive
@@ -621,7 +646,13 @@ export default function SellerProducts() {
                                   isActive ? "bg-good" : "bg-faint"
                                 )}
                               />
-                              {isActive ? t("activeStatus") : t("pausedStatus")}
+                              {isActive
+                                ? t("activeStatus")
+                                : p.status === "suspended"
+                                  ? t("suspendedStatus")
+                                  : p.status === "draft"
+                                    ? t("draftStatus")
+                                    : t("pausedStatus")}
                             </Button>
                           </td>
 
@@ -724,9 +755,10 @@ function InPlaceRestockModal({
     setLoadingVariants(true);
     api.sellerProduct(product.id)
       .then((detail) => {
-        setVariants(detail.variants || []);
-        if (detail.variants && detail.variants.length > 0) {
-          const sorted = [...detail.variants].sort((a, b) => a.stock_count - b.stock_count);
+        const eligibleVariants = restockableVariants(detail.variants || []);
+        setVariants(eligibleVariants);
+        if (eligibleVariants.length > 0) {
+          const sorted = [...eligibleVariants].sort((a, b) => a.stock_count - b.stock_count);
           setSelectedVariantId(sorted[0].id);
         }
       })
@@ -747,24 +779,10 @@ function InPlaceRestockModal({
     return () => window.removeEventListener("keydown", handleKeyDown);
   }, [isOpen, onClose]);
 
-  const parsedItems = useMemo(() => {
-    const rawLines = textData
-      .split(/\r?\n/)
-      .map((l) => l.trim())
-      .filter(Boolean);
-
-    if (!autoDedupe) return rawLines;
-
-    const seen = new Set<string>();
-    const unique: string[] = [];
-    for (const line of rawLines) {
-      if (!seen.has(line)) {
-        seen.add(line);
-        unique.push(line);
-      }
-    }
-    return unique;
-  }, [textData, autoDedupe]);
+  const parsedItems = useMemo(
+    () => parseResourceItems(textData, autoDedupe),
+    [textData, autoDedupe],
+  );
 
   const handleDownloadTemplate = (format: "txt" | "csv") => {
     let content = "";
@@ -838,9 +856,9 @@ function InPlaceRestockModal({
     setSubmitting(true);
     setError(null);
     try {
-      await api.addResources(selectedVariantId, parsedItems);
-      setSuccessCount(parsedItems.length);
-      onSuccess(selectedVariantId, parsedItems.length);
+      const result = await api.addResources(selectedVariantId, parsedItems);
+      setSuccessCount(result.count);
+      onSuccess(selectedVariantId, result.count);
       setTimeout(() => {
         onClose();
       }, 1400);

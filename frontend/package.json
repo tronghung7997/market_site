@@ -12,6 +12,7 @@
     "test:harness": "node --test tests/harness-checkers.test.mjs",
     "check:harness": "npm run check:design-system && npm run check:module-boundaries && npm run test:harness",
     "test:auth-route": "node --no-warnings --experimental-strip-types --test tests/session-expiry.test.mjs",
+    "test:seller-inventory": "node --no-warnings --experimental-strip-types --test tests/seller-inventory-logic.test.ts",
     "check:i18n": "node scripts/check-i18n.mjs"
   },
   "dependencies": {

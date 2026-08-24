@@ -109,6 +109,30 @@ async def test_fallback_to_pricing_config(client):
 
 
 @pytest.mark.asyncio
+async def test_explicit_fixed_strategy_overrides_service_pricing_config(client):
+    pid = await make_product(
+        seller_email="eng_seller_fixed@example.com",
+        pricing_strategy="fixed", pricing_params=None, service_type="proxy",
+    )
+    async with SessionLocal() as db:
+        db.add(PricingConfig(
+            service_type="proxy", strategy="config",
+            params={
+                "base_price": 10000,
+                "type_mult": {"datacenter": 1.0},
+                "network_mult": {"shared": 1.0},
+            },
+            is_active=True,
+        ))
+        await db.commit()
+
+    response = await client.get(f"/products/{pid}/pricing-options")
+
+    assert response.status_code == 200, response.text
+    assert response.json()["strategy"] == "fixed"
+
+
+@pytest.mark.asyncio
 async def test_fallback_to_fixed_when_nothing_configured(client):
     pid = await make_product(
         seller_email="eng_seller5@example.com",

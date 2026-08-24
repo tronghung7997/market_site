@@ -1,6 +1,7 @@
 import pytest
 
 from src.database import SessionLocal
+from src.models.pricing_config import PricingConfig
 from src.models.product import Product
 from tests.conftest import make_admin, make_seller, register_and_login
 
@@ -34,6 +35,19 @@ async def test_create_product(client):
 
 
 @pytest.mark.asyncio
+async def test_seller_cannot_create_admin_suspended_product(client):
+    seller_token, _, cat_id = await setup_seller_with_category(client)
+
+    response = await client.post("/seller/products", json={
+        "category_id": cat_id,
+        "title": "Invalid Seller Suspension",
+        "status": "suspended",
+    }, headers={"Authorization": f"Bearer {seller_token}"})
+
+    assert response.status_code == 422, response.text
+
+
+@pytest.mark.asyncio
 async def test_add_variant(client):
     seller_token, _, cat_id = await setup_seller_with_category(client)
     product = await client.post("/seller/products", json={
@@ -47,6 +61,52 @@ async def test_add_variant(client):
     assert variant.status_code == 201
     assert variant.json()["price"] == 990
     assert variant.json()["delivery_mode"] == "instant"
+
+
+@pytest.mark.asyncio
+async def test_seller_product_list_exposes_effective_pricing_fallback(client):
+    seller_token, _, cat_id = await setup_seller_with_category(client)
+    product = await client.post("/seller/products", json={
+        "category_id": cat_id,
+        "title": "Configured Proxy",
+        "service_type": "proxy",
+        "status": "active",
+    }, headers={"Authorization": f"Bearer {seller_token}"})
+    params = {
+        "base_price": 10000,
+        "type_mult": {"datacenter": 1.0},
+        "network_mult": {"shared": 1.0},
+    }
+    async with SessionLocal() as db:
+        db.add(PricingConfig(
+            service_type="proxy", strategy="config", params=params, is_active=True,
+        ))
+        await db.commit()
+
+    response = await client.get(
+        "/seller/products", headers={"Authorization": f"Bearer {seller_token}"},
+    )
+
+    item = next(row for row in response.json() if row["id"] == product.json()["id"])
+    assert item["pricing_strategy"] == "config"
+    assert item["pricing_params"] == params
+    assert item["total_stock"] == 0
+
+
+@pytest.mark.asyncio
+async def test_variant_delivery_mode_rejects_frontend_alias(client):
+    seller_token, _, cat_id = await setup_seller_with_category(client)
+    product = await client.post("/seller/products", json={
+        "category_id": cat_id, "title": "Strict Delivery Mode",
+    }, headers={"Authorization": f"Bearer {seller_token}"})
+
+    response = await client.post(
+        f"/seller/products/{product.json()['id']}/variants",
+        json={"name": "Invalid Auto", "price": 1000, "delivery_mode": "auto"},
+        headers={"Authorization": f"Bearer {seller_token}"},
+    )
+
+    assert response.status_code == 422, response.text
 
 
 @pytest.mark.asyncio
@@ -165,6 +225,117 @@ async def test_product_detail_includes_variants(client):
 
 
 @pytest.mark.asyncio
+async def test_seller_can_pause_and_reactivate_own_product(client):
+    seller_token, _, cat_id = await setup_seller_with_category(client)
+    product = await client.post("/seller/products", json={
+        "category_id": cat_id, "title": "Seller Lifecycle", "status": "active",
+    }, headers={"Authorization": f"Bearer {seller_token}"})
+    product_id = product.json()["id"]
+
+    paused = await client.put(
+        f"/seller/products/{product_id}/status",
+        json={"status": "paused"},
+        headers={"Authorization": f"Bearer {seller_token}"},
+    )
+    assert paused.status_code == 200, paused.text
+    assert paused.json()["status"] == "paused"
+
+    active = await client.put(
+        f"/seller/products/{product_id}/status",
+        json={"status": "active"},
+        headers={"Authorization": f"Bearer {seller_token}"},
+    )
+    assert active.status_code == 200, active.text
+    assert active.json()["status"] == "active"
+
+
+@pytest.mark.asyncio
+async def test_seller_product_status_rejects_unknown_lifecycle_value(client):
+    seller_token, _, cat_id = await setup_seller_with_category(client)
+    product = await client.post("/seller/products", json={
+        "category_id": cat_id, "title": "Invalid Lifecycle", "status": "active",
+    }, headers={"Authorization": f"Bearer {seller_token}"})
+
+    response = await client.put(
+        f"/seller/products/{product.json()['id']}/status",
+        json={"status": "suspended"},
+        headers={"Authorization": f"Bearer {seller_token}"},
+    )
+
+    assert response.status_code == 422, response.text
+
+
+@pytest.mark.asyncio
+async def test_seller_cannot_change_another_sellers_product_status(client):
+    seller_token, _, cat_id = await setup_seller_with_category(client)
+    product = await client.post("/seller/products", json={
+        "category_id": cat_id, "title": "Owned Lifecycle", "status": "active",
+    }, headers={"Authorization": f"Bearer {seller_token}"})
+
+    other_token = await register_and_login(client, "status_other@example.com")
+    await make_seller("status_other@example.com")
+    other_token = await register_and_login(client, "status_other@example.com")
+    response = await client.put(
+        f"/seller/products/{product.json()['id']}/status",
+        json={"status": "paused"},
+        headers={"Authorization": f"Bearer {other_token}"},
+    )
+
+    assert response.status_code == 403, response.text
+
+
+@pytest.mark.asyncio
+async def test_seller_cannot_reactivate_admin_suspended_product(client):
+    seller_token, admin_token, cat_id = await setup_seller_with_category(client)
+    product = await client.post("/seller/products", json={
+        "category_id": cat_id, "title": "Admin Suspension", "status": "active",
+    }, headers={"Authorization": f"Bearer {seller_token}"})
+    product_id = product.json()["id"]
+    await client.post(
+        f"/admin/products/{product_id}/suspend",
+        headers={"Authorization": f"Bearer {admin_token}"},
+    )
+
+    response = await client.put(
+        f"/seller/products/{product_id}/status",
+        json={"status": "active"},
+        headers={"Authorization": f"Bearer {seller_token}"},
+    )
+
+    assert response.status_code == 409, response.text
+    detail = await client.get(
+        f"/seller/products/{product_id}/detail",
+        headers={"Authorization": f"Bearer {seller_token}"},
+    )
+    assert detail.json()["status"] == "suspended"
+
+
+@pytest.mark.asyncio
+async def test_legacy_pause_endpoint_cannot_clear_admin_suspension(client):
+    seller_token, admin_token, cat_id = await setup_seller_with_category(client)
+    product = await client.post("/seller/products", json={
+        "category_id": cat_id, "title": "Protected Suspension", "status": "active",
+    }, headers={"Authorization": f"Bearer {seller_token}"})
+    product_id = product.json()["id"]
+    await client.post(
+        f"/admin/products/{product_id}/suspend",
+        headers={"Authorization": f"Bearer {admin_token}"},
+    )
+
+    response = await client.delete(
+        f"/seller/products/{product_id}",
+        headers={"Authorization": f"Bearer {seller_token}"},
+    )
+
+    assert response.status_code == 409, response.text
+    detail = await client.get(
+        f"/seller/products/{product_id}/detail",
+        headers={"Authorization": f"Bearer {seller_token}"},
+    )
+    assert detail.json()["status"] == "suspended"
+
+
+@pytest.mark.asyncio
 async def test_suspended_product_is_hidden_from_public_storefront(client):
     seller_token, admin_token, cat_id = await setup_seller_with_category(client)
     product = await client.post("/seller/products", json={
@@ -243,6 +414,27 @@ async def test_admin_sets_product_commission_via_operations(client):
 
 
 @pytest.mark.asyncio
+async def test_admin_operations_cannot_mix_dynamic_pricing_with_variants(client):
+    seller_token, admin_token, cat_id = await setup_seller_with_category(client)
+    product = await client.post("/seller/products", json={
+        "category_id": cat_id, "title": "Admin Mixed Model",
+    }, headers={"Authorization": f"Bearer {seller_token}"})
+    product_id = product.json()["id"]
+    await client.post(
+        f"/seller/products/{product_id}/variants",
+        json={"name": "Fixed Package", "price": 1000, "delivery_mode": "instant"},
+        headers={"Authorization": f"Bearer {seller_token}"},
+    )
+
+    response = await client.put(f"/admin/products/{product_id}/operations", json={
+        "pricing_strategy": "task",
+        "pricing_params": {"base_price": 5000, "platform_mult": {"facebook": 1.0}},
+    }, headers={"Authorization": f"Bearer {admin_token}"})
+
+    assert response.status_code == 409, response.text
+
+
+@pytest.mark.asyncio
 async def test_admin_commission_left_untouched_when_omitted(client):
     seller_token, admin_token, cat_id = await setup_seller_with_category(client)
     product = await client.post("/seller/products", json={
@@ -296,6 +488,101 @@ async def test_seller_sets_own_pricing_strategy(client):
     )
     assert detail.status_code == 200
     assert detail.json()["pricing_params"]["base_price"] == 75000
+
+
+@pytest.mark.asyncio
+async def test_product_with_variants_rejects_service_type_dynamic_fallback(client):
+    seller_token, _, cat_id = await setup_seller_with_category(client)
+    product = await client.post("/seller/products", json={
+        "category_id": cat_id, "title": "Fixed Service Migration",
+    }, headers={"Authorization": f"Bearer {seller_token}"})
+    product_id = product.json()["id"]
+    await client.post(
+        f"/seller/products/{product_id}/variants",
+        json={"name": "Fixed Package", "price": 1000, "delivery_mode": "instant"},
+        headers={"Authorization": f"Bearer {seller_token}"},
+    )
+    async with SessionLocal() as db:
+        db.add(PricingConfig(
+            service_type="proxy", strategy="config",
+            params={
+                "base_price": 10000,
+                "type_mult": {"residential": 1.0},
+                "network_mult": {"shared": 1.0},
+            },
+            is_active=True,
+        ))
+        await db.commit()
+
+    response = await client.patch(
+        f"/seller/products/{product_id}",
+        json={"service_type": "proxy"},
+        headers={"Authorization": f"Bearer {seller_token}"},
+    )
+
+    assert response.status_code == 409, response.text
+    detail = await client.get(
+        f"/seller/products/{product_id}/detail",
+        headers={"Authorization": f"Bearer {seller_token}"},
+    )
+    assert detail.json()["service_type"] == "other"
+
+
+@pytest.mark.asyncio
+async def test_product_with_variants_rejects_switch_to_dynamic_pricing(client):
+    seller_token, _, cat_id = await setup_seller_with_category(client)
+    product = await client.post("/seller/products", json={
+        "category_id": cat_id, "title": "Fixed With Variant",
+    }, headers={"Authorization": f"Bearer {seller_token}"})
+    product_id = product.json()["id"]
+    variant = await client.post(
+        f"/seller/products/{product_id}/variants",
+        json={"name": "Fixed Package", "price": 1000, "delivery_mode": "instant"},
+        headers={"Authorization": f"Bearer {seller_token}"},
+    )
+    assert variant.status_code == 201, variant.text
+
+    response = await client.put(f"/seller/products/{product_id}/pricing", json={
+        "pricing_strategy": "credit",
+        "pricing_params": {
+            "credit_price": 10,
+            "packages": [{"size": 1000, "label": "1k"}],
+        },
+    }, headers={"Authorization": f"Bearer {seller_token}"})
+
+    assert response.status_code == 409, response.text
+    detail = await client.get(
+        f"/seller/products/{product_id}/detail",
+        headers={"Authorization": f"Bearer {seller_token}"},
+    )
+    assert detail.json()["pricing_strategy"] is None
+    assert len(detail.json()["variants"]) == 1
+
+
+@pytest.mark.asyncio
+async def test_dynamic_pricing_product_rejects_variant_creation(client):
+    seller_token, _, cat_id = await setup_seller_with_category(client)
+    product = await client.post("/seller/products", json={
+        "category_id": cat_id, "title": "Dynamic Without Variants",
+    }, headers={"Authorization": f"Bearer {seller_token}"})
+    product_id = product.json()["id"]
+    pricing = await client.put(f"/seller/products/{product_id}/pricing", json={
+        "pricing_strategy": "config",
+        "pricing_params": {
+            "base_price": 10000,
+            "type_mult": {"residential": 1.0},
+            "network_mult": {"shared": 1.0},
+        },
+    }, headers={"Authorization": f"Bearer {seller_token}"})
+    assert pricing.status_code == 200, pricing.text
+
+    response = await client.post(
+        f"/seller/products/{product_id}/variants",
+        json={"name": "Should Not Exist", "price": 1000, "delivery_mode": "instant"},
+        headers={"Authorization": f"Bearer {seller_token}"},
+    )
+
+    assert response.status_code == 409, response.text
 
 
 @pytest.mark.asyncio
@@ -419,6 +706,30 @@ async def test_update_variant_fields(client):
 
 
 @pytest.mark.asyncio
+async def test_variant_with_inventory_cannot_switch_to_manual_delivery(client):
+    token, _, variant_id = await _variant_for_edit(client, "var_delivery@example.com")
+    added = await client.post(
+        f"/seller/variants/{variant_id}/resources",
+        json={"items": ["existing|stock"]},
+        headers={"Authorization": f"Bearer {token}"},
+    )
+    assert added.status_code == 201, added.text
+
+    response = await client.patch(
+        f"/seller/variants/{variant_id}",
+        json={"delivery_mode": "manual"},
+        headers={"Authorization": f"Bearer {token}"},
+    )
+
+    assert response.status_code == 409, response.text
+    detail = await client.get(
+        f"/seller/variants/{variant_id}/resources",
+        headers={"Authorization": f"Bearer {token}"},
+    )
+    assert len(detail.json()) == 1
+
+
+@pytest.mark.asyncio
 async def test_duration_days_can_be_cleared_back_to_forever(client):
     """Từng không làm được: service bỏ qua mọi giá trị None, nên đặt thời hạn rồi
     thì không bao giờ quay lại 'vĩnh viễn'."""
@@ -499,3 +810,21 @@ async def test_seller_detail_rejects_someone_elses_product(client):
     resp = await client.get(f"/seller/products/{product_id}/detail",
                             headers={"Authorization": f"Bearer {other}"})
     assert resp.status_code in (403, 404)
+
+
+async def _cover_seller(client, tag: str):
+    admin_email = f"cover_admin_{tag}@example.com"
+    seller_email = f"cover_seller_{tag}@example.com"
+    admin_token = await register_and_login(client, admin_email)
+    await make_admin(admin_email)
+    admin_token = await register_and_login(client, admin_email)
+    cat = await client.post(
+        "/admin/categories",
+        json={"name": f"CoverCat {tag}", "slug": f"covercat-{tag}"},
+        headers={"Authorization": f"Bearer {admin_token}"},
+    )
+    assert cat.status_code == 201, cat.text
+    seller_token = await register_and_login(client, seller_email)
+    await make_seller(seller_email)
+    seller_token = await register_and_login(client, seller_email)
+    return seller_token, cat.json()["id"]

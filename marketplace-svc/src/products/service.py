@@ -21,8 +21,10 @@ from src.models.account import Account
 from src.models.category import Category
 from src.models.product import DeliveryMode, Product, ProductStatus, ProductVariant
 from src.models.order import Order, OrderStatus
+from src.models.pricing_config import PricingConfig
 from src.models.provider import Provider
 from src.models.resource import Resource, ResourceStatus
+from src.pricing.engine import product_pricing_override, resolve_pricing
 
 # Cột duy nhất của ProductVariant cho phép null — xem update_variant.
 NULLABLE_VARIANT_FIELDS = {"duration_days"}
@@ -68,6 +70,21 @@ async def _validate_category_exists(category_id: int, db: AsyncSession) -> None:
         raise HTTPException(status_code=404, detail="Không tìm thấy danh mục")
 
 
+async def _strategy_after_service_type_change(
+    product: Product, service_type: str, db: AsyncSession,
+) -> str:
+    override = product_pricing_override(product)
+    if override is not None:
+        return override[0]
+    config = (await db.execute(
+        select(PricingConfig).where(
+            PricingConfig.service_type == service_type,
+            PricingConfig.is_active == True,  # noqa: E712
+        )
+    )).scalars().first()
+    return config.strategy if config else "fixed"
+
+
 async def update_product(product_id: int, seller_id: int, data: dict, db: AsyncSession) -> Product:
     product = await db.get(Product, product_id)
     if not product:
@@ -76,12 +93,34 @@ async def update_product(product_id: int, seller_id: int, data: dict, db: AsyncS
         raise NotOwner()
     if data.get("category_id") is not None:
         await _validate_category_exists(data["category_id"], db)
+    if data.get("service_type") is not None and data["service_type"] != product.service_type:
+        strategy = await _strategy_after_service_type_change(product, data["service_type"], db)
+        await _validate_variant_pricing_model(product, strategy, db)
     for key, value in data.items():
         if value is not None:
             setattr(product, key, value)
     text_keys = {"title", "description", "warranty_text", "highlight_text", "features", "specs"}
     if text_keys & data.keys():
         product.i18n = _product_i18n_from_scalars(data, existing=product.i18n)
+    await db.commit()
+    await db.refresh(product)
+    return product
+
+
+async def update_seller_product_status(
+    product_id: int, seller_id: int, status: str, db: AsyncSession,
+) -> Product:
+    product = await db.get(Product, product_id)
+    if not product:
+        raise HTTPException(status_code=404, detail="Không tìm thấy sản phẩm")
+    if product.seller_id != seller_id:
+        raise NotOwner()
+    if product.status == ProductStatus.suspended:
+        raise HTTPException(
+            status_code=409,
+            detail="Sản phẩm đang bị quản trị viên đình chỉ và seller không thể tự thay đổi trạng thái",
+        )
+    product.status = ProductStatus(status)
     await db.commit()
     await db.refresh(product)
     return product
@@ -99,6 +138,9 @@ async def admin_update_product(product_id: int, data: dict, db: AsyncSession) ->
         raise HTTPException(status_code=404, detail="Không tìm thấy sản phẩm")
     if data.get("category_id") is not None:
         await _validate_category_exists(data["category_id"], db)
+    if data.get("service_type") is not None and data["service_type"] != product.service_type:
+        strategy = await _strategy_after_service_type_change(product, data["service_type"], db)
+        await _validate_variant_pricing_model(product, strategy, db)
     for key, value in data.items():
         if value is not None:
             setattr(product, key, value)
@@ -147,13 +189,9 @@ async def update_product_translation(
 
 
 async def delete_product(product_id: int, seller_id: int, db: AsyncSession) -> None:
-    product = await db.get(Product, product_id)
-    if not product:
-        raise HTTPException(status_code=404, detail="Không tìm thấy sản phẩm")
-    if product.seller_id != seller_id:
-        raise NotOwner()
-    product.status = ProductStatus.paused
-    await db.commit()
+    # Backward-compatible pause endpoint. Keep the same lifecycle guard as the
+    # explicit status operation so DELETE cannot clear an admin suspension.
+    await update_seller_product_status(product_id, seller_id, "paused", db)
 
 
 async def suspend_product(product_id: int, db: AsyncSession) -> Product:
@@ -172,6 +210,12 @@ async def create_variant(product_id: int, seller_id: int, data: dict, db: AsyncS
         raise HTTPException(status_code=404, detail="Không tìm thấy sản phẩm")
     if product.seller_id != seller_id:
         raise NotOwner()
+    strategy, _ = await resolve_pricing(product, db)
+    if strategy != "fixed":
+        raise HTTPException(
+            status_code=409,
+            detail="Chỉ sản phẩm giá cố định mới sử dụng biến thể",
+        )
     payload = dict(data)
     if "name" in payload and payload["name"] is not None:
         payload["i18n"] = merge_i18n_locale({}, "vi", {"name": payload["name"]})
@@ -189,6 +233,18 @@ async def update_variant(variant_id: int, seller_id: int, data: dict, db: AsyncS
     product = await db.get(Product, variant.product_id)
     if product.seller_id != seller_id:
         raise NotOwner()
+    if (
+        data.get("delivery_mode") == DeliveryMode.manual.value
+        and variant.delivery_mode == DeliveryMode.instant
+    ):
+        resource_count = await db.scalar(
+            select(func.count()).select_from(Resource).where(Resource.variant_id == variant_id)
+        )
+        if resource_count:
+            raise HTTPException(
+                status_code=409,
+                detail="Không thể chuyển sang giao thủ công khi gói vẫn có lịch sử tài nguyên",
+            )
     for key, value in data.items():
         # Router đã lọc field không gửi (exclude_unset), nên None ở đây là seller
         # CHỦ Ý xoá giá trị. Chỉ chấp nhận với cột cho phép null — nếu không thì
@@ -332,12 +388,24 @@ async def list_seller_products(seller_id: int, db: AsyncSession) -> list[dict]:
     variants_by_product = await _variants_by_product(
         [p.id for p in products], db, locale=None,
     )
+    pricing_configs = {
+        config.service_type: config
+        for config in (await db.execute(
+            select(PricingConfig).where(PricingConfig.is_active == True)  # noqa: E712
+        )).scalars()
+    }
 
     out = []
     for p in products:
         variants = variants_by_product.get(p.id, [])
+        item = _product_list_dict(p, locale=None)
+        pricing = product_pricing_override(p)
+        if pricing is None:
+            config = pricing_configs.get(p.service_type or "other")
+            pricing = (config.strategy, config.params) if config else ("fixed", {})
+        item["pricing_strategy"], item["pricing_params"] = pricing
         out.append({
-            **_product_list_dict(p, locale=None),
+            **item,
             "category_name": category_names.get(p.category_id),
             "variant_count": len(variants),
             "total_stock": sum(v["stock_count"] for v in variants),
@@ -502,6 +570,23 @@ async def _variant_dicts(
     return by_product.get(product_id, [])
 
 
+async def _validate_variant_pricing_model(
+    product: Product, effective_strategy: str, db: AsyncSession,
+) -> None:
+    if effective_strategy == "fixed":
+        return
+    variant_count = await db.scalar(
+        select(func.count()).select_from(ProductVariant).where(
+            ProductVariant.product_id == product.id,
+        )
+    )
+    if variant_count:
+        raise HTTPException(
+            status_code=409,
+            detail="Sản phẩm còn biến thể giá cố định; hãy xoá biến thể trước khi chuyển sang giá động",
+        )
+
+
 def _validate_provider_assignment(provider: Provider | None, product: Product) -> None:
     """Gắn provider vào product phải qua 2 cửa, bất kể ai gắn (admin hay seller):
 
@@ -562,8 +647,8 @@ async def update_product_operations(product_id: int, data: dict, db: AsyncSessio
     provider = await db.get(Provider, effective_provider_id) if effective_provider_id else None
     _validate_provider_assignment(provider, product)
     if not effective_strategy:
-        from src.pricing.engine import resolve_pricing
         effective_strategy, _ = await resolve_pricing(product, db)
+    await _validate_variant_pricing_model(product, effective_strategy, db)
 
     compat = check_compatibility(provider.adapter_type if provider else None, effective_strategy)
     if compat.level == "block":
@@ -605,8 +690,8 @@ async def update_seller_pricing(product_id: int, seller_id: int, data: dict, db:
         )
     _validate_provider_assignment(provider, product)
     if not effective_strategy:
-        from src.pricing.engine import resolve_pricing
         effective_strategy, _ = await resolve_pricing(product, db)
+    await _validate_variant_pricing_model(product, effective_strategy, db)
 
     compat = check_compatibility(provider.adapter_type if provider else None, effective_strategy)
     if compat.level == "block":
@@ -672,8 +757,6 @@ async def list_all_products_admin(db: AsyncSession) -> list[dict]:
 
     # resolve_pricing fallback tier 2 chỉ đọc PricingConfig active theo
     # service_type — prefetch 1 lần rồi resolve tại chỗ.
-    from src.models.pricing_config import PricingConfig
-
     configs: dict[str, str] = {}
     for c in (
         await db.execute(select(PricingConfig).where(PricingConfig.is_active == True))  # noqa: E712
@@ -687,10 +770,12 @@ async def list_all_products_admin(db: AsyncSession) -> list[dict]:
         order_count = order_counts.get(p.id, 0)
         revenue = revenues.get(p.id) or 0
 
-        if p.pricing_strategy and p.pricing_params:
-            strategy_name = p.pricing_strategy
-        else:
-            strategy_name = configs.get(p.service_type or "other", "fixed")
+        pricing_override = product_pricing_override(p)
+        strategy_name = (
+            pricing_override[0]
+            if pricing_override is not None
+            else configs.get(p.service_type or "other", "fixed")
+        )
         setup = setup_status(
             provider.adapter_type if provider else None, strategy_name,
             provider_active=provider.is_active if provider else True,

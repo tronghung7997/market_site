@@ -7,6 +7,12 @@ import { Link } from "@/i18n/navigation";
 import { api } from "@/lib/api";
 import { useMoney } from "@/lib/money";
 import { cn } from "@/lib/cn";
+import {
+  LatestRequestGate,
+  canEditInventoryResource,
+  isInstantDelivery,
+  parseResourceItems,
+} from "@/features/seller-inventory";
 import type { InventoryVariant, Resource } from "@/lib/types";
 import {
   Button,
@@ -98,6 +104,7 @@ function InventoryConsole() {
   const [rows, setRows] = useState<InventoryVariant[]>([]);
   const [variantPrices, setVariantPrices] = useState<Record<number, number>>({});
   const [loading, setLoading] = useState(true);
+  const [summaryLoadError, setSummaryLoadError] = useState(false);
   const [filter, setFilter] = useState<InventoryFilter>("all");
   const [productSearch, setProductSearch] = useState("");
   const [selectedProductId, setSelectedProductId] = useState<number | null>(null);
@@ -107,7 +114,9 @@ function InventoryConsole() {
   // Active variant resources state
   const [resources, setResources] = useState<Resource[]>([]);
   const [loadingResources, setLoadingResources] = useState(false);
+  const [resourceLoadError, setResourceLoadError] = useState(false);
   const [resourcePage, setResourcePage] = useState(1);
+  const resourceRequestGate = useRef(new LatestRequestGate());
 
   // Fast restock state
   const [restockText, setRestockText] = useState("");
@@ -123,11 +132,12 @@ function InventoryConsole() {
 
   const loadSummary = useCallback(async () => {
     setLoading(true);
+    setSummaryLoadError(false);
     try {
       const summary = await api.inventorySummary();
-      setRows(summary);
+      setRows(summary.filter((row) => isInstantDelivery(row.delivery_mode)));
     } catch {
-      // ignore
+      setSummaryLoadError(true);
     } finally {
       setLoading(false);
     }
@@ -139,15 +149,22 @@ function InventoryConsole() {
 
   // Load resources for selected variant
   const loadVariantResources = useCallback(async (variantId: number) => {
+    const request = resourceRequestGate.current.begin();
     setLoadingResources(true);
+    setResourceLoadError(false);
     try {
       const res = await api.sellerVariantResources(variantId);
+      if (!resourceRequestGate.current.isCurrent(request)) return;
       setResources(res);
       setResourcePage(1);
     } catch {
+      if (!resourceRequestGate.current.isCurrent(request)) return;
       setResources([]);
+      setResourceLoadError(true);
     } finally {
-      setLoadingResources(false);
+      if (resourceRequestGate.current.isCurrent(request)) {
+        setLoadingResources(false);
+      }
     }
   }, []);
 
@@ -279,23 +296,10 @@ function InventoryConsole() {
   }, [activeProduct, selectedVariantId]);
 
   // Parsed restock lines
-  const parsedRestockItems = useMemo(() => {
-    const raw = restockText
-      .split(/\r?\n/)
-      .map((l) => l.trim())
-      .filter(Boolean);
-
-    if (!autoDedupe) return raw;
-    const seen = new Set<string>();
-    const unique: string[] = [];
-    for (const item of raw) {
-      if (!seen.has(item)) {
-        seen.add(item);
-        unique.push(item);
-      }
-    }
-    return unique;
-  }, [restockText, autoDedupe]);
+  const parsedRestockItems = useMemo(
+    () => parseResourceItems(restockText, autoDedupe),
+    [restockText, autoDedupe],
+  );
 
   const handleDownloadTemplate = (format: "txt" | "csv") => {
     let content = "";
@@ -363,8 +367,8 @@ function InventoryConsole() {
     setRestocking(true);
     setRestockError(null);
     try {
-      await api.addResources(activeVariant.variant_id, parsedRestockItems);
-      setRestockSuccess(parsedRestockItems.length);
+      const result = await api.addResources(activeVariant.variant_id, parsedRestockItems);
+      setRestockSuccess(result.count);
       setRestockText("");
       await loadSummary();
       await loadVariantResources(activeVariant.variant_id);
@@ -459,6 +463,21 @@ function InventoryConsole() {
     );
   }
 
+  if (summaryLoadError && rows.length === 0) {
+    return (
+      <div className="space-y-5 animate-fade">
+        <div>
+          <h1 className="text-[20px] font-bold text-fg tracking-tight">{t("inventoryTitle")}</h1>
+        </div>
+        <Card className="p-10 text-center">
+          <AlertCircle size={32} className="mx-auto text-bad mb-2" />
+          <p className="text-[13.5px] font-medium text-fg mb-3">{t("inventoryLoadFailed")}</p>
+          <Button size="sm" variant="secondary" onClick={loadSummary}>{t("retry")}</Button>
+        </Card>
+      </div>
+    );
+  }
+
   return (
     <div className="space-y-5 animate-fade">
       {/* Top Page Header */}
@@ -484,6 +503,13 @@ function InventoryConsole() {
           )}
         </div>
       </div>
+
+      {summaryLoadError && (
+        <Card className="p-3 flex items-center justify-between gap-3 border-bad/30">
+          <span className="text-xs text-bad">{t("inventoryLoadFailed")}</span>
+          <Button size="sm" variant="secondary" onClick={loadSummary}>{t("retry")}</Button>
+        </Card>
+      )}
 
       {/* 4 Clickable KPI Summary Metric Cards */}
       <div className="grid grid-cols-2 lg:grid-cols-4 gap-3">
@@ -854,7 +880,7 @@ function InventoryConsole() {
                                   </span>
                                 )}
                                 <span className="text-faint text-[10.5px]">
-                                  ({v.delivery_mode === "auto" ? t("autoDelivery") : t("manualDelivery")})
+                                  ({isInstantDelivery(v.delivery_mode) ? t("autoDelivery") : t("manualDelivery")})
                                 </span>
                               </div>
                               <Tag tone={varTone} className="text-[10px]">
@@ -1055,6 +1081,17 @@ function InventoryConsole() {
                       {loadingResources ? (
                         <div className="py-6 text-center">
                           <Spinner />
+                        </div>
+                      ) : resourceLoadError ? (
+                        <div className="py-6 text-center text-xs text-bad border border-bad/20 rounded-xl bg-bad-soft/20 space-y-2">
+                          <p>{t("resourcesLoadFailed")}</p>
+                          <Button
+                            size="sm"
+                            variant="secondary"
+                            onClick={() => activeVariant && loadVariantResources(activeVariant.variant_id)}
+                          >
+                            {t("retry")}
+                          </Button>
                         </div>
                       ) : resources.length === 0 ? (
                         <div className="py-6 text-center text-xs text-muted border border-line rounded-xl bg-raised/20">
@@ -1282,7 +1319,7 @@ function ResourceDetailModal({
     }
   };
 
-  const isAvailable = resource.status === "available";
+  const isAvailable = canEditInventoryResource(resource.status);
   const isAssigned = resource.status === "assigned";
   const isError = resource.status === "error";
 
@@ -1347,7 +1384,7 @@ function ResourceDetailModal({
           <div className="space-y-1.5">
             <div className="flex items-center justify-between">
               <label className="font-semibold text-fg">
-                {isAvailable || isError ? t("editResourceContent") : t("resourceContent")}:
+                {isAvailable ? t("editResourceContent") : t("resourceContent")}:
               </label>
               <Button
                 size="sm"
@@ -1360,7 +1397,7 @@ function ResourceDetailModal({
               </Button>
             </div>
 
-            {isAvailable || isError ? (
+            {isAvailable ? (
               <Textarea
                 rows={5}
                 value={data}
@@ -1401,7 +1438,7 @@ function ResourceDetailModal({
             <Button size="sm" variant="ghost" onClick={onClose}>
               Đóng
             </Button>
-            {(isAvailable || isError) && (
+            {isAvailable && (
               <Button size="sm" onClick={handleSave} disabled={saving}>
                 {saving ? "Đang lưu..." : t("saveChanges")}
               </Button>
@@ -1430,7 +1467,7 @@ function QuickCreateVariantModal({
   const t = useTranslations("seller");
   const [name, setName] = useState("");
   const [price, setPrice] = useState("10000");
-  const [deliveryMode, setDeliveryMode] = useState<"auto" | "manual">("auto");
+  const [deliveryMode, setDeliveryMode] = useState<"instant" | "manual">("instant");
   const [submitting, setSubmitting] = useState(false);
   const [error, setError] = useState<string | null>(null);
 
@@ -1516,10 +1553,10 @@ function QuickCreateVariantModal({
               <label className="font-semibold text-fg">{t("deliveryMode")}:</label>
               <Select
                 value={deliveryMode}
-                onChange={(e) => setDeliveryMode(e.target.value as "auto" | "manual")}
+                onChange={(e) => setDeliveryMode(e.target.value as "instant" | "manual")}
                 className="h-8.5 text-xs"
               >
-                <option value="auto">{t("autoDelivery")}</option>
+                <option value="instant">{t("autoDelivery")}</option>
                 <option value="manual">{t("manualDelivery")}</option>
               </Select>
             </div>

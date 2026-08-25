@@ -55,6 +55,9 @@ function LoginForm() {
         <form onSubmit={submit} className="flex flex-col gap-4">
           <Field label={t("email")}><Input type="email" required value={email} onChange={(e) => setEmail(e.target.value)} placeholder="you@company.com" autoComplete="email" /></Field>
           <Field label={t("password")}><Input type="password" required value={password} onChange={(e) => setPassword(e.target.value)} placeholder="••••••••" autoComplete="current-password" /></Field>
+          <p className="text-right -mt-2">
+            <Link href="/forgot-password" className="text-[13px] text-iris-hi hover:underline">{t("forgotPassword")}</Link>
+          </p>
           {error && <p className="text-bad text-[13px]">{error}</p>}
           <Button type="submit" block size="lg" disabled={busy}>{busy ? t("signingIn") : t("loginTitle")}</Button>
         </form>

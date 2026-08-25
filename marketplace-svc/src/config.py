@@ -45,6 +45,22 @@ class Settings(BaseSettings):
     auth_login_account_limit: int = 8
     auth_register_ip_limit: int = 10
     auth_refresh_account_limit: int = 30
+    auth_forgot_ip_limit: int = 10
+    auth_forgot_account_limit: int = 5
+    auth_reset_ip_limit: int = 20
+    password_reset_ttl_minutes: int = 30
+    # Outbound transactional mail (SMTP or HTTPS). Inbound ports are not required.
+    mail_provider: Literal["log", "smtp", "resend"] = "log"
+    mail_from: str = ""
+    mail_from_name: str = "Proxora"
+    smtp_host: str = ""
+    smtp_port: int = 587
+    smtp_username: str = ""
+    smtp_password: str = ""
+    smtp_starttls: bool = True
+    resend_api_key: str = ""
+    mail_worker_enabled: bool = True
+    mail_max_attempts: int = 8
     gateway_ip_rate_limit: int = 120
     gateway_key_rate_limit: int = 60
     # Seller API request signing (X-API-Key + HMAC).
@@ -212,6 +228,12 @@ class Settings(BaseSettings):
             "auth_login_account_limit",
             "auth_register_ip_limit",
             "auth_refresh_account_limit",
+            "auth_forgot_ip_limit",
+            "auth_forgot_account_limit",
+            "auth_reset_ip_limit",
+            "password_reset_ttl_minutes",
+            "smtp_port",
+            "mail_max_attempts",
             "gateway_ip_rate_limit",
             "gateway_key_rate_limit",
             "api_signing_timestamp_tolerance_seconds",

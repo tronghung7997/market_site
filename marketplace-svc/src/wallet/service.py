@@ -228,6 +228,7 @@ def _withdraw_dict(req: WithdrawRequest, email: str | None) -> dict:
         "bank_account_number": req.bank_account_number,
         "bank_account_holder": req.bank_account_holder,
         "payout_reference": req.payout_reference, "paid_at": req.paid_at,
+        "reject_reason": req.reject_reason,
     }
 
 
@@ -260,17 +261,28 @@ async def approve_withdrawal(req_id: int, db: AsyncSession) -> WithdrawRequest:
         request_id=current_request_id(),
         metadata={"event": "withdraw_approved", "withdraw_id": req.id, "account_id": req.account_id, "amount": req.amount},
     )
+    from src.mail.service import enqueue_mail, frontend_url
+    await enqueue_mail(
+        db,
+        template="withdrawal_approved",
+        account_id=req.account_id,
+        idempotency_key=f"withdrawal_approved:{req.id}",
+        payload={"amount": req.amount, "action_url": frontend_url("vi", "/seller/withdrawals")},
+    )
     await db.commit()
     await db.refresh(req)
     return req
 
 
-async def reject_withdrawal(req_id: int, db: AsyncSession) -> WithdrawRequest:
+async def reject_withdrawal(req_id: int, reason: str, db: AsyncSession) -> WithdrawRequest:
     req = await db.get(WithdrawRequest, req_id)
     if not req:
         raise HTTPException(status_code=404, detail="Không tìm thấy yêu cầu rút tiền")
     if req.status != WithdrawStatus.pending:
         raise HTTPException(status_code=400, detail="Yêu cầu đã được xử lý")
+    cleaned = reason.strip()
+    if not cleaned:
+        raise HTTPException(status_code=400, detail="Từ chối rút tiền phải kèm lý do")
     wallet = await get_wallet_by_account(req.account_id, db)
     # Trả tiền đã khoá về lại available_balance.
     wallet.locked_balance -= req.amount
@@ -280,10 +292,23 @@ async def reject_withdrawal(req_id: int, db: AsyncSession) -> WithdrawRequest:
         amount=req.amount, description="Huỷ khoá — yêu cầu rút tiền bị từ chối",
     ))
     req.status = WithdrawStatus.rejected
+    req.reject_reason = cleaned[:500]
     await log_event(
         db, "info", f"Yêu cầu rút #{req.id} bị TỪ CHỐI ({req.amount:,}đ trả về ví account {req.account_id})".replace(",", "."),
         request_id=current_request_id(),
         metadata={"event": "withdraw_rejected", "withdraw_id": req.id, "account_id": req.account_id, "amount": req.amount},
+    )
+    from src.mail.service import enqueue_mail, frontend_url
+    await enqueue_mail(
+        db,
+        template="withdrawal_rejected",
+        account_id=req.account_id,
+        idempotency_key=f"withdrawal_rejected:{req.id}",
+        payload={
+            "amount": req.amount,
+            "reason": req.reject_reason,
+            "action_url": frontend_url("vi", "/seller/withdrawals"),
+        },
     )
     await db.commit()
     await db.refresh(req)

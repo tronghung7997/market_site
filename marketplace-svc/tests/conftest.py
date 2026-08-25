@@ -15,6 +15,8 @@ os.environ.setdefault("DEFAULT_AFFILIATE_COMMISSION_PERCENT", "5.0")
 # Nhiều test cũ nạp tiền qua demo-topup; flag này mặc định TẮT (prod-safe) nên
 # bật riêng cho suite. SePay values are isolated fake sandbox credentials.
 os.environ["ENABLE_DEMO_TOPUP"] = "true"
+os.environ["MAIL_PROVIDER"] = "log"
+os.environ["MAIL_WORKER_ENABLED"] = "false"
 os.environ["SEPAY_BANK_CODE"] = "MBBank"
 os.environ["SEPAY_BANK_ACCOUNT_NUMBER"] = "0123456789"
 os.environ["SEPAY_BANK_ACCOUNT_NAME"] = "CONG TY TNHH TEST"

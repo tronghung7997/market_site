@@ -79,8 +79,13 @@ async def approve_withdrawal(req_id: int, _: Account = Depends(require_role("adm
 
 
 @router.post("/admin/withdrawals/{req_id}/reject", response_model=schemas.WithdrawRequestResponse)
-async def reject_withdrawal(req_id: int, _: Account = Depends(require_role("admin")), db: AsyncSession = Depends(get_session)):
-    return await service.reject_withdrawal(req_id, db)
+async def reject_withdrawal(
+    req_id: int,
+    body: schemas.WithdrawRejectRequest,
+    _: Account = Depends(require_role("admin")),
+    db: AsyncSession = Depends(get_session),
+):
+    return await service.reject_withdrawal(req_id, body.reason, db)
 
 
 @router.get("/admin/accounts/{account_id}/wallet")

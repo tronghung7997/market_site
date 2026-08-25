@@ -197,6 +197,11 @@ export default function SellerWithdrawalsPage() {
                       <div className="text-[11.5px] text-faint mt-0.5">
                         {formatDate(r.created_at)} · #{r.id}
                       </div>
+                      {r.status === "rejected" && r.reject_reason && (
+                        <div className="text-[12px] text-muted mt-1">
+                          {t("withdrawRejectReason", { reason: r.reject_reason })}
+                        </div>
+                      )}
                     </div>
                     <Tag tone={s.tone} className="shrink-0">{s.label}</Tag>
                   </div>

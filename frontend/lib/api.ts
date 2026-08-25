@@ -1,5 +1,5 @@
 import type {
-  Account, ActionItem, AdminDepositIntent, AdminDepositLedgerQuery, AdminDepositLedgerResponse, AdminDepositTransaction, AdminDisputeDetail, AdminOrderDetail, AdminProduct, AdminResourceListResponse, AffiliateStats, AffiliateSummary, CalculateResult, Category, ChargeUsageResult, ChatConversationDetail, ChatConversationList, ChatMessage, DashboardData, DepositIntent, DepositMethods, DepositReconcileResult, DepositRailConfigAdmin, DepositRailConfigUpdate, Dispute, SePayWebhookEventRow, AdminAccountWallet, FundOverview, AccountAdminRow, PaginatedAccounts, LogEntry, MoneyConfigAdmin, MoneyConfigPublic, MoneyConfigUpdate, Order, OrderStats, PaginatedAffiliateSummary, PaginatedOrderResponse, PaginatedProducts, PricingField, PricingOptions, ProductDetail, AdminProductDetail, Product, ProductLocale, ProductOperations, ProductTranslation, ProxyState, ProxyRotateResult, ProxyWhitelistResult, Review, SellerApplication, SellerProduct, SellerStats, ServiceTask, TikTokLookupResponse, Transaction, Variant, Wallet, WithdrawRequest, Provider, ProviderHealth, Alert, Resource, ResourceSummary, ResourceSellerFacet, InventoryVariant, SellerSummary, SellerProfile, SellerApiKey, SellerApiKeyCreated,
+  Account, ActionItem, AdminDepositIntent, AdminDepositLedgerQuery, AdminDepositLedgerResponse, AdminDepositTransaction, AdminDisputeDetail, AdminOrderDetail, AdminProduct, AdminResourceListResponse, AffiliateStats, AffiliateSummary, CalculateResult, Category, ChargeUsageResult, ChatConversationDetail, ChatConversationList, ChatMessage, DashboardData, DepositIntent, DepositMethods, DepositReconcileResult, DepositRailConfigAdmin, DepositRailConfigUpdate, Dispute, SePayWebhookEventRow, AdminAccountWallet, FundOverview, AccountAdminRow, PaginatedAccounts, LogEntry, MailConfigAdmin, MailConfigUpdate, MailOutboxList, MailSendTestResponse, MoneyConfigAdmin, MoneyConfigPublic, MoneyConfigUpdate, Order, OrderStats, PaginatedAffiliateSummary, PaginatedOrderResponse, PaginatedProducts, PricingField, PricingOptions, ProductDetail, AdminProductDetail, Product, ProductLocale, ProductOperations, ProductTranslation, ProxyState, ProxyRotateResult, ProxyWhitelistResult, Review, SellerApplication, SellerProduct, SellerStats, ServiceTask, TikTokLookupResponse, Transaction, Variant, Wallet, WithdrawRequest, Provider, ProviderHealth, Alert, Resource, ResourceSummary, ResourceSellerFacet, InventoryVariant, SellerSummary, SellerProfile, SellerApiKey, SellerApiKeyCreated,
 } from "./types";
 
 // Browser requests are always same-origin. This prevents a production bundle
@@ -84,6 +84,16 @@ export const api = {
   adminLogin: (email: string, password: string) =>
     request<{ token_type: string }>("/auth/admin/login", { method: "POST", body: JSON.stringify({ email, password }) }),
   logout: () => request<void>("/auth/session", { method: "DELETE" }),
+  forgotPassword: (email: string, locale: string) =>
+    request<{ message: string }>("/auth/forgot-password", {
+      method: "POST",
+      body: JSON.stringify({ email, locale }),
+    }),
+  resetPassword: (token: string, password: string) =>
+    request<{ message: string }>("/auth/reset-password", {
+      method: "POST",
+      body: JSON.stringify({ token, password }),
+    }),
   me: () => request<Account>("/me", {}, "silent"),
   tiktokLookup: (value: string) =>
     request<TikTokLookupResponse>(`/internal/tiktok?url=${encodeURIComponent(value)}`),
@@ -297,7 +307,8 @@ export const api = {
     request<Dispute>(`/admin/disputes/${id}/extend-warranty`, { method: "POST", body: JSON.stringify({ admin_note: adminNote, extra_days: extraDays }) }, true),
   adminWithdrawals: () => request<WithdrawRequest[]>("/admin/withdrawals", {}, true),
   approveWithdrawal: (id: number) => request<WithdrawRequest>(`/admin/withdrawals/${id}/approve`, { method: "POST" }, true),
-  rejectWithdrawal: (id: number) => request<WithdrawRequest>(`/admin/withdrawals/${id}/reject`, { method: "POST" }, true),
+  rejectWithdrawal: (id: number, reason: string) =>
+    request<WithdrawRequest>(`/admin/withdrawals/${id}/reject`, { method: "POST", body: JSON.stringify({ reason }) }, true),
   requestWithdraw: (amount: number, bank: { bank_name: string; bank_account_number: string; bank_account_holder: string; bank_bin?: string }) =>
     request<WithdrawRequest>("/wallet/withdraw", { method: "POST", body: JSON.stringify({ amount, ...bank }) }, true),
   markWithdrawalPaid: (id: number, payoutReference: string) =>
@@ -527,6 +538,30 @@ export const api = {
       { method: "PATCH", body: JSON.stringify(body) },
       true,
     ),
+  adminMailConfig: () => request<MailConfigAdmin>("/admin/mail-config", {}, true),
+  adminUpdateMailConfig: (body: MailConfigUpdate) =>
+    request<MailConfigAdmin>("/admin/mail-config", {
+      method: "PATCH",
+      body: JSON.stringify(body),
+    }, true),
+  adminResetMailConfigToEnv: () =>
+    request<MailConfigAdmin>("/admin/mail-config/reset-to-env", { method: "POST" }, true),
+  adminSendTestMail: (toEmail: string, locale: "vi" | "en") =>
+    request<MailSendTestResponse>("/admin/mail-config/send-test", {
+      method: "POST",
+      body: JSON.stringify({ to_email: toEmail, locale }),
+    }, true),
+  adminMailOutbox: (query?: { status?: string; template?: string; limit?: number; offset?: number }) => {
+    const params = new URLSearchParams();
+    params.set("limit", String(query?.limit ?? 25));
+    params.set("offset", String(query?.offset ?? 0));
+    if (query?.status) params.set("status", query.status);
+    if (query?.template) params.set("template", query.template);
+    return request<MailOutboxList>(`/admin/mail-outbox?${params.toString()}`, {}, true);
+  },
+  adminRetryMailOutbox: (id: number) =>
+    request<MailOutboxList["items"][number]>(`/admin/mail-outbox/${id}/retry`, { method: "POST" }, true),
+
   adminResetMoneyConfigToEnv: () =>
     request<{
       display_fx_rate: number;

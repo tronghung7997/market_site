@@ -236,6 +236,20 @@ async def review_provider(provider_id: int, decision: str, note: str | None, db:
         raise HTTPException(status_code=400, detail="Từ chối provider phải kèm lý do để seller sửa cấu hình")
     provider.review_status = decision
     provider.review_note = note
+    if decision in ("approved", "rejected") and provider.seller_id is not None:
+        from src.mail.service import enqueue_mail, frontend_url
+        template = "provider_approved" if decision == "approved" else "provider_rejected"
+        await enqueue_mail(
+            db,
+            template=template,
+            account_id=provider.seller_id,
+            idempotency_key=f"provider_review:{provider.id}:{decision}",
+            payload={
+                "provider_name": provider.name,
+                "reason": (note or "").strip(),
+                "action_url": frontend_url("vi", "/seller/providers"),
+            },
+        )
     await db.commit()
     await db.refresh(provider)
     return provider

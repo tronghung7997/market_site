@@ -29,6 +29,8 @@ from src.resources.router import router as resources_router
 from src.resources.proxy_router import router as proxy_router
 from src.reviews.router import router as reviews_router
 from src.payments.router import router as payments_router
+from src.mail.router import router as mail_router
+from src.mail.worker import mail_outbox_send_job
 from src.scheduler import (
     deposit_expire_job,
     deposit_reconcile_job,
@@ -77,6 +79,7 @@ scheduler.add_job(deposit_expire_job, "interval", minutes=10, id="deposit_expire
 scheduler.add_job(provider_credit_low_job, "interval", minutes=15, id="provider_credit_low")
 # Operational log retention (gateway/provider call logs, log_entries, resolved alerts).
 scheduler.add_job(gateway_call_log_cleanup_job, "interval", hours=6, id="gateway_call_log_cleanup")
+scheduler.add_job(mail_outbox_send_job, "interval", seconds=20, id="mail_outbox")
 
 
 @asynccontextmanager
@@ -135,6 +138,7 @@ app.include_router(sellers_router)
 app.include_router(wallet_router)
 app.include_router(money_router)
 app.include_router(payments_router)
+app.include_router(mail_router)
 app.include_router(categories_router)
 app.include_router(chat_router)
 app.include_router(products_router)

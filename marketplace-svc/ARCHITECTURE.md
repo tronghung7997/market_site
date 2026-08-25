@@ -103,7 +103,11 @@ Do not leak provider payloads throughout feature services. Normalize them into a
 
 ### Cross-cutting modules
 
-`auth`, `security`, `errors`, `money`, `audit`, `observability`, and `i18n` are shared because their semantics must be consistent. They must expose narrow interfaces and must not become general dumping grounds.
+`auth`, `security`, `errors`, `money`, `audit`, `observability`, `i18n`, and `mail` are shared because their semantics must be consistent. They must expose narrow interfaces and must not become general dumping grounds.
+
+`mail` owns the transactional outbox and outbound adapters (log / SMTP / Resend). Feature services call `mail.enqueue_mail` in the same transaction as the domain mutation. They must not import mail adapters. Sending is outbound-only; inbound ports are not required.
+
+Operational mail knobs (`provider`, `mail_from`, `mail_from_name`, `worker_enabled`) live in singleton `mail_runtime_config` (env is bootstrap/reset only), using the shared `runtime_config.ProcessConfigCache`. Provider secrets (`RESEND_API_KEY`, SMTP password) stay in env and are never returned by admin APIs — only boolean configured flags. Admin HTTP for mail config, send-test, and outbox listing lives in `mail.router`; adapters remain behind `mail.factory`.
 
 ## 4. Dependency rules
 

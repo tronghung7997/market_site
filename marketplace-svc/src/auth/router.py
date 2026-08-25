@@ -108,6 +108,38 @@ async def admin_login(
     return schemas.TokenResponse(access_token=token)
 
 
+@router.post("/auth/forgot-password", response_model=schemas.PasswordResetAck)
+async def forgot_password(
+    body: schemas.ForgotPasswordRequest,
+    request: Request,
+    db: AsyncSession = Depends(get_session),
+):
+    await _enforce_auth_limit(
+        f"auth:forgot:ip:{_peer_ip(request)}",
+        settings.auth_forgot_ip_limit,
+    )
+    await _enforce_auth_limit(
+        f"auth:forgot:account:{_email_bucket(body.email)}",
+        settings.auth_forgot_account_limit,
+    )
+    message = await service.request_password_reset(body.email, body.locale, db)
+    return schemas.PasswordResetAck(message=message)
+
+
+@router.post("/auth/reset-password", response_model=schemas.PasswordResetAck)
+async def reset_password(
+    body: schemas.ResetPasswordRequest,
+    request: Request,
+    db: AsyncSession = Depends(get_session),
+):
+    await _enforce_auth_limit(
+        f"auth:reset:ip:{_peer_ip(request)}",
+        settings.auth_reset_ip_limit,
+    )
+    message = await service.reset_password(body.token, body.password, db)
+    return schemas.PasswordResetAck(message=message)
+
+
 @router.post("/auth/refresh", response_model=schemas.TokenResponse)
 async def refresh(request: Request, account=Depends(get_current_account)):
     await _enforce_auth_limit(

@@ -1,4 +1,4 @@
-from src.models.account import Account, AccountRole, ApplicationStatus, SellerApplication
+from src.models.account import Account, AccountRole, ApplicationStatus, PasswordResetToken, SellerApplication
 from src.models.affiliate import AffiliateClick, AffiliateCommission
 from src.models.alert import Alert
 from src.models.category import Category
@@ -20,12 +20,14 @@ from src.models.payment import (
     PayosWebhookEvent,
     SePayWebhookEvent,
 )
+from src.models.mail import MailOutbox, MailOutboxStatus
+from src.models.mail_runtime_config import MailRuntimeConfig
 from src.models.wallet import Transaction, TransactionType, Wallet, WithdrawRequest, WithdrawStatus
 from src.models.display_money_config import DisplayMoneyConfig
 from src.models.deposit_rail_config import DepositRailConfig
 
 __all__ = [
-    "Account", "AccountRole", "ApplicationStatus", "SellerApplication",
+    "Account", "AccountRole", "ApplicationStatus", "PasswordResetToken", "SellerApplication",
     "AffiliateClick", "AffiliateCommission",
     "Alert",
     "Category",
@@ -38,6 +40,7 @@ __all__ = [
     "Resource", "ResourceStatus",
     "ServiceTask", "ServiceTaskStatus",
     "OrderBalance", "UsageRecord", "UsageRecordStatus", "GatewayCallLog",
+    "MailOutbox", "MailOutboxStatus", "MailRuntimeConfig",
     "Transaction", "TransactionType", "Wallet", "WithdrawRequest", "WithdrawStatus",
     "DepositIntent", "DepositIntentStatus", "DepositProvider",
     "NowpaymentsIpnEvent", "PayosWebhookEvent", "SePayWebhookEvent",

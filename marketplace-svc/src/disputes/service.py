@@ -15,6 +15,61 @@ from src.sellers.tiers import escrow_days as tier_escrow_days
 from src.sellers.tiers import platform_fee_percent
 from src.wallet.service import refund_escrow, release_escrow
 
+_DISPUTE_OUTCOME = {
+    DisputeStatus.resolved_refund: "refund",
+    DisputeStatus.resolved_reject: "reject",
+    DisputeStatus.resolved_partial_refund: "partial_refund",
+    DisputeStatus.resolved_replace: "replace",
+    DisputeStatus.resolved_extend_warranty: "extend_warranty",
+}
+
+
+def _truncate_reason(reason: str, limit: int = 200) -> str:
+    text = (reason or "").strip()
+    if len(text) <= limit:
+        return text
+    return text[: limit - 1] + "…"
+
+
+async def _enqueue_dispute_opened(db: AsyncSession, dispute: Dispute, order: Order) -> None:
+    from src.mail.service import enqueue_mail, frontend_url
+    await enqueue_mail(
+        db,
+        template="dispute_opened",
+        account_id=order.seller_id,
+        idempotency_key=f"dispute_opened:{dispute.id}",
+        payload={
+            "order_id": order.id,
+            "reason": _truncate_reason(dispute.reason),
+            "action_url": frontend_url("vi", "/seller/orders"),
+        },
+    )
+
+
+async def _enqueue_dispute_resolved(db: AsyncSession, dispute: Dispute, order: Order) -> None:
+    from src.mail.service import enqueue_mail, frontend_url
+    outcome = _DISPUTE_OUTCOME.get(dispute.status, dispute.status.value)
+    payload = {
+        "order_id": order.id,
+        "outcome": outcome,
+        "admin_note": dispute.admin_note or "",
+        "amount": order.total_amount,
+    }
+    await enqueue_mail(
+        db,
+        template="dispute_resolved",
+        account_id=order.buyer_id,
+        idempotency_key=f"dispute_resolved:{dispute.id}:{order.buyer_id}",
+        payload={**payload, "action_url": frontend_url("vi", f"/orders/{order.id}")},
+    )
+    await enqueue_mail(
+        db,
+        template="dispute_resolved",
+        account_id=order.seller_id,
+        idempotency_key=f"dispute_resolved:{dispute.id}:{order.seller_id}",
+        payload={**payload, "action_url": frontend_url("vi", "/seller/orders")},
+    )
+
 
 async def create_dispute(
     order_id: int, buyer_id: int, reason: str, db: AsyncSession,
@@ -40,6 +95,7 @@ async def create_dispute(
         evidence_type=evidence_type, evidence=evidence,
     )
     db.add(dispute)
+    await db.flush()
     await log_event(db, "warning", f"Dispute opened on order {order_id}", request_id=current_request_id(),
                     metadata={"event": "dispute_opened", "order_id": order_id, "buyer_id": buyer_id})
     from src.alerts.service import add_alert
@@ -51,6 +107,7 @@ async def create_dispute(
         target_id=order_id,
         message=f"Đơn #{order_id} bị khiếu nại: {reason[:100]}",
     )
+    await _enqueue_dispute_opened(db, dispute, order)
     await db.commit()
     await db.refresh(dispute)
     return dispute
@@ -216,6 +273,7 @@ async def refund_dispute(dispute_id: int, admin_note: str, db: AsyncSession) -> 
     await refund_escrow(order.id, order.buyer_id, order.total_amount, db)
     await log_event(db, "info", f"Dispute {dispute_id} refunded", request_id=current_request_id(),
                     metadata={"event": "dispute_refunded", "order_id": order.id, "amount": order.total_amount})
+    await _enqueue_dispute_resolved(db, dispute, order)
     await db.commit()
     await db.refresh(dispute)
     return dispute
@@ -242,6 +300,7 @@ async def reject_dispute(dispute_id: int, admin_note: str, db: AsyncSession) -> 
     await apply_affiliate_commission(order, db)
     await log_event(db, "info", f"Dispute {dispute_id} rejected", request_id=current_request_id(),
                     metadata={"event": "dispute_rejected", "order_id": order.id, "amount": order.total_amount})
+    await _enqueue_dispute_resolved(db, dispute, order)
     await db.commit()
     await db.refresh(dispute)
     return dispute
@@ -274,6 +333,7 @@ async def partial_refund_dispute(dispute_id: int, admin_note: str, refund_amount
     await apply_affiliate_commission(order, db)
     await log_event(db, "info", f"Dispute {dispute_id} partially refunded", request_id=current_request_id(),
                     metadata={"event": "dispute_partial_refunded", "order_id": order.id, "refund_amount": refund_amount})
+    await _enqueue_dispute_resolved(db, dispute, order)
     await db.commit()
     await db.refresh(dispute)
     return dispute
@@ -317,6 +377,7 @@ async def replace_dispute(dispute_id: int, admin_note: str, db: AsyncSession) ->
 
     await log_event(db, "info", f"Dispute {dispute_id} resolved via replacement", request_id=current_request_id(),
                     metadata={"event": "dispute_replaced", "order_id": order.id})
+    await _enqueue_dispute_resolved(db, dispute, order)
     await db.commit()
     await db.refresh(dispute)
     return dispute
@@ -342,6 +403,7 @@ async def extend_warranty_dispute(dispute_id: int, admin_note: str, extra_days: 
 
     await log_event(db, "info", f"Dispute {dispute_id} resolved via warranty extension", request_id=current_request_id(),
                     metadata={"event": "dispute_warranty_extended", "order_id": order.id, "extra_days": extra_days})
+    await _enqueue_dispute_resolved(db, dispute, order)
     await db.commit()
     await db.refresh(dispute)
     return dispute

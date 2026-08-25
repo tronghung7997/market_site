@@ -85,6 +85,14 @@ async def approve_application(
             "target_account_id": app.account_id,
         },
     )
+    from src.mail.service import enqueue_mail, frontend_url
+    await enqueue_mail(
+        db,
+        template="seller_application_approved",
+        account_id=app.account_id,
+        idempotency_key=f"seller_application_approved:{app.id}",
+        payload={"action_url": frontend_url("vi", "/seller")},
+    )
     await db.commit()
     await db.refresh(app)
     return app
@@ -116,6 +124,17 @@ async def reject_application(
             "source": "admin",
             "application_id": app_id,
             "target_account_id": app.account_id,
+        },
+    )
+    from src.mail.service import enqueue_mail, frontend_url
+    await enqueue_mail(
+        db,
+        template="seller_application_rejected",
+        account_id=app.account_id,
+        idempotency_key=f"seller_application_rejected:{app.id}",
+        payload={
+            "reason": app.reject_reason or "",
+            "action_url": frontend_url("vi", "/seller/apply"),
         },
     )
     await db.commit()

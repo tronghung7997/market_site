@@ -20,6 +20,7 @@ async def test_all_models_importable():
         Account, Alert, Category, Dispute, LogEntry,
         Order, Product, ProductVariant, Provider, ProviderHealth,
         Resource, SellerApplication, Transaction, Wallet, WithdrawRequest,
+        MailOutbox, PasswordResetToken,
     )
     assert Account.__tablename__ == "accounts"
     assert Wallet.__tablename__ == "wallets"
@@ -36,3 +37,5 @@ async def test_all_models_importable():
     assert SellerApplication.__tablename__ == "seller_applications"
     assert Transaction.__tablename__ == "transactions"
     assert WithdrawRequest.__tablename__ == "withdraw_requests"
+    assert MailOutbox.__tablename__ == "mail_outbox"
+    assert PasswordResetToken.__tablename__ == "password_reset_tokens"

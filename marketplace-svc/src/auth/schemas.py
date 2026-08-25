@@ -21,6 +21,27 @@ class LoginRequest(BaseModel):
     password: str = Field(max_length=128)
 
 
+class ForgotPasswordRequest(BaseModel):
+    email: EmailStr
+    locale: str = "vi"
+
+
+class ResetPasswordRequest(BaseModel):
+    token: str = Field(min_length=20, max_length=256)
+    password: str = Field(min_length=8, max_length=128)
+
+    @field_validator("password")
+    @classmethod
+    def password_fits_bcrypt(cls, value: str) -> str:
+        if len(value.encode("utf-8")) > 72:
+            raise ValueError("Mật khẩu không được vượt quá 72 byte")
+        return value
+
+
+class PasswordResetAck(BaseModel):
+    message: str
+
+
 class TokenResponse(BaseModel):
     access_token: str
     token_type: str = "bearer"

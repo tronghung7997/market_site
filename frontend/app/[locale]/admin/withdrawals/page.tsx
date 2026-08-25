@@ -4,7 +4,7 @@ import * as React from "react";
 import { motion } from "motion/react";
 
 import { api, vnd } from "@/lib/api";
-import { Card, Spinner, Button } from "@/components/ui";
+import { Card, Spinner, Button, Textarea } from "@/components/ui";
 import { StatsCard, ConfirmModal, WithdrawStatusBadge } from "@/components/admin";
 import type { WithdrawRequest } from "@/lib/types";
 
@@ -13,6 +13,7 @@ export default function AdminWithdrawalsPage() {
   const [loading, setLoading] = React.useState(true);
   const [confirmId, setConfirmId] = React.useState<number | null>(null);
   const [rejectId, setRejectId] = React.useState<number | null>(null);
+  const [rejectReason, setRejectReason] = React.useState("");
   const [busy, setBusy] = React.useState(false);
 
   const load = React.useCallback(() => {
@@ -60,10 +61,13 @@ export default function AdminWithdrawalsPage() {
 
   const handleReject = async () => {
     if (rejectId === null) return;
+    const reason = rejectReason.trim();
+    if (!reason) return;
     setBusy(true);
     try {
-      await api.rejectWithdrawal(rejectId);
+      await api.rejectWithdrawal(rejectId, reason);
       setRejectId(null);
+      setRejectReason("");
       load();
     } catch (err) {
       alert(`Từ chối thất bại: ${err instanceof Error ? err.message : "Unknown error"}`);
@@ -177,6 +181,9 @@ export default function AdminWithdrawalsPage() {
                           {r.payout_reference && (
                             <div className="text-[11px] text-slate-400 font-mono truncate">Ref: {r.payout_reference}</div>
                           )}
+                          {r.reject_reason && (
+                            <div className="text-[11px] text-muted truncate">Lý do: {r.reject_reason}</div>
+                          )}
                         </td>
                         <td className="px-5 py-3 font-mono font-semibold tabular-nums">
                           {vnd(r.amount)}
@@ -228,14 +235,22 @@ export default function AdminWithdrawalsPage() {
 
       <ConfirmModal
         isOpen={rejectId !== null}
-        onClose={() => setRejectId(null)}
+        onClose={() => { setRejectId(null); setRejectReason(""); }}
         onConfirm={handleReject}
         title="Từ chối yêu cầu rút tiền"
-        description="Yêu cầu sẽ bị đánh dấu từ chối, số dư trong ví người bán không thay đổi."
+        description="Số tiền đã khoá sẽ được trả về ví người bán. Hãy nêu lý do để họ biết phải sửa gì."
         confirmText="Từ chối"
         variant="danger"
         isLoading={busy}
-      />
+        confirmDisabled={!rejectReason.trim()}
+      >
+        <Textarea
+          value={rejectReason}
+          onChange={(e) => setRejectReason(e.target.value)}
+          placeholder="Lý do từ chối"
+          rows={3}
+        />
+      </ConfirmModal>
 
     </div>
   );

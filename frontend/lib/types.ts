@@ -130,8 +130,8 @@ export interface ProductPricingLabels {
   type_display?: Record<string, string>;
   network_display?: Record<string, string>;
   platform_display?: Record<string, string>;
-  package_labels?: Record<string, string>;
   duration_labels?: Record<string, string>;
+  package_labels?: Record<string, string>;
 }
 
 export interface PaginatedProducts {
@@ -348,6 +348,7 @@ export interface WithdrawRequest {
   bank_bin?: string | null;
   payout_reference?: string | null;
   paid_at?: string | null;
+  reject_reason?: string | null;
   created_at: string;
 }
 
@@ -434,6 +435,67 @@ export interface DepositRailConfigAdmin {
   updated_at?: string | null;
   updated_by_id?: number | null;
   source: string;
+}
+
+export type MailProvider = "log" | "smtp" | "resend";
+
+export interface MailConfigAdmin {
+  provider: MailProvider;
+  mail_from: string;
+  mail_from_name: string;
+  worker_enabled: boolean;
+  env_provider: MailProvider;
+  env_mail_from: string;
+  env_mail_from_name: string;
+  env_worker_enabled: boolean;
+  resend_api_key_configured: boolean;
+  smtp_host_configured: boolean;
+  smtp_credentials_configured: boolean;
+  smtp_host: string | null;
+  smtp_port: number;
+  effective_ready: boolean;
+  effective_mode: string;
+  frontend_base_url: string;
+  updated_at?: string | null;
+  updated_by_id?: number | null;
+  source: string;
+}
+
+export type MailConfigUpdate = Partial<{
+  provider: MailProvider;
+  mail_from: string;
+  mail_from_name: string;
+  worker_enabled: boolean;
+}>;
+
+export interface MailSendTestResponse {
+  id: number;
+  status: string;
+  to_email: string;
+  effective_mode: string;
+  logged_only: boolean;
+  last_error: string | null;
+}
+
+export interface MailOutboxRow {
+  id: number;
+  template: string;
+  to_email: string;
+  account_id: number | null;
+  locale: string;
+  status: string;
+  attempts: number;
+  last_error: string | null;
+  scheduled_at: string;
+  sent_at: string | null;
+  created_at: string | null;
+}
+
+export interface MailOutboxList {
+  items: MailOutboxRow[];
+  total: number;
+  limit: number;
+  offset: number;
 }
 
 export type DepositRailConfigUpdate = Partial<{

@@ -113,6 +113,7 @@ async def test_reject_withdrawal_returns_to_available(client):
                              headers={"Authorization": f"Bearer {seller_token}"})).json()
 
     resp = await client.post(f"/admin/withdrawals/{req['id']}/reject",
+                             json={"reason": "Không đủ điều kiện rút"},
                              headers={"Authorization": f"Bearer {admin_token}"})
     assert resp.status_code == 200
 
@@ -170,6 +171,7 @@ async def test_ledger_sums_to_available_balance_across_a_full_lifecycle(client):
     rejected = (await client.post("/wallet/withdraw", json={"bank_name": "Vietcombank", "bank_account_number": "0123456789", "bank_account_holder": "TEST USER", "amount": 200_000},
                                   headers={"Authorization": f"Bearer {seller_token}"})).json()
     await client.post(f"/admin/withdrawals/{rejected['id']}/reject",
+                      json={"reason": "Sai thông tin ngân hàng"},
                       headers={"Authorization": f"Bearer {admin_token}"})
 
     txs = (await client.get("/wallet/transactions",

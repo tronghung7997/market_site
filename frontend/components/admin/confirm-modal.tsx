@@ -21,6 +21,7 @@ export interface ConfirmModalProps {
   cancelText?: string;
   variant?: "danger" | "primary";
   isLoading?: boolean;
+  confirmDisabled?: boolean;
   children?: React.ReactNode;
 }
 
@@ -34,6 +35,7 @@ export function ConfirmModal({
   cancelText = "Huỷ",
   variant = "primary",
   isLoading = false,
+  confirmDisabled = false,
   children,
 }: ConfirmModalProps) {
   return (
@@ -51,7 +53,7 @@ export function ConfirmModal({
           <Button
             variant={variant}
             onClick={onConfirm}
-            disabled={isLoading}
+            disabled={isLoading || confirmDisabled}
           >
             {isLoading ? "Đang xử lý..." : confirmText}
           </Button>

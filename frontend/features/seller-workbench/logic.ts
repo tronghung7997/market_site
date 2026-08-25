@@ -3,6 +3,12 @@ import {
   moneyInputToVnd,
   vndToMoneyInput,
 } from "../../lib/money/format.ts";
+import type {
+  ProductDetail,
+  ProductLocale,
+  ProductPricingLabels,
+  ProductTranslation,
+} from "../../lib/types.ts";
 
 export type Archetype = "A" | "B";
 export type WorkModelB = "B1" | "B2" | "B3";
@@ -66,6 +72,197 @@ export interface BuyerContentTranslation {
   features: string[];
   specs: Record<string, string>;
   warranty_text: string | null;
+}
+
+export interface SellerProductDraftHydration {
+  primaryLocale: ProductLocale;
+  content: BilingualBuyerContent;
+  workModel: WorkModelB;
+  b1: B1ConfigState;
+  b2: B2CreditState;
+  b3: B3TaskState;
+}
+
+const EMPTY_BUYER_CONTENT: BuyerContentDraft = {
+  title: "",
+  description: "",
+  highlightText: "",
+  featuresText: "",
+  specsText: "",
+  warrantyText: "",
+};
+
+const DEFAULT_B1: B1ConfigState = {
+  basePrice: 0,
+  types: [
+    { key: "residential", label: "Residential", mult: 1.4 },
+    { key: "datacenter", label: "Datacenter", mult: 1 },
+  ],
+  networks: [
+    { key: "fpt", label: "FPT Telecom", mult: 1 },
+    { key: "viettel", label: "Viettel", mult: 1.1 },
+  ],
+  durations: [
+    { days: 7, label: "7 days" },
+    { days: 30, label: "30 days" },
+  ],
+  selectedType: "residential",
+  selectedNetwork: "fpt",
+  selectedDays: 30,
+  qty: 1,
+  isSingleUnit: false,
+};
+
+const DEFAULT_B2: B2CreditState = {
+  creditPrice: 0,
+  packages: [
+    { size: 500, label: "500 requests", discountPct: 0 },
+    { size: 1000, label: "1,000 requests", discountPct: 10 },
+    { size: 5000, label: "5,000 requests", discountPct: 20 },
+  ],
+  selectedPackageSize: 1000,
+};
+
+const DEFAULT_B3: B3TaskState = {
+  basePrice: 0,
+  platforms: [
+    { key: "tiktok", label: "TikTok", mult: 1.2 },
+    { key: "facebook", label: "Facebook", mult: 1 },
+  ],
+  selectedPlatform: "tiktok",
+  urls: "",
+};
+
+function record(value: unknown): Record<string, unknown> {
+  return value && typeof value === "object" && !Array.isArray(value)
+    ? value as Record<string, unknown>
+    : {};
+}
+
+function finiteNumber(value: unknown, fallback = 0): number {
+  return typeof value === "number" && Number.isFinite(value) ? value : fallback;
+}
+
+function localeLabels(
+  translations: ProductDetail["translations"],
+  locale: ProductLocale,
+): ProductPricingLabels {
+  return translations?.[locale]?.pricing_labels ?? {};
+}
+
+function translationToBuyerContent(
+  translation: ProductTranslation | undefined,
+  fallback?: Partial<ProductTranslation>,
+): BuyerContentDraft {
+  const value = { ...fallback, ...translation };
+  return {
+    title: value.title ?? "",
+    description: value.description ?? "",
+    highlightText: value.highlight_text ?? "",
+    featuresText: (value.features ?? []).join("\n"),
+    specsText: Object.entries(value.specs ?? {}).map(([key, item]) => `${key}: ${item}`).join("\n"),
+    warrantyText: value.warranty_text ?? "",
+  };
+}
+
+function numericEntries(value: unknown): [string, number][] {
+  return Object.entries(record(value))
+    .filter((entry): entry is [string, number] => typeof entry[1] === "number" && Number.isFinite(entry[1]));
+}
+
+/** Hydrate the seller edit form from raw management data without applying
+ * storefront locale fallback. This is the shared seam between create/edit
+ * pricing contracts and the edit route. */
+export function hydrateSellerProductDraft(product: ProductDetail): SellerProductDraftHydration {
+  const available = product.available_locales ?? [];
+  const primaryLocale = product.primary_locale
+    ?? (available.length === 1 ? available[0] : undefined)
+    ?? "vi";
+  const scalarFallback: ProductTranslation = {
+    title: product.title,
+    description: product.description,
+    highlight_text: product.highlight_text,
+    features: product.features,
+    specs: product.specs,
+    warranty_text: product.warranty_text,
+  };
+  const content: BilingualBuyerContent = {
+    vi: product.translations?.vi
+      ? translationToBuyerContent(product.translations.vi)
+      : primaryLocale === "vi" ? translationToBuyerContent(undefined, scalarFallback) : { ...EMPTY_BUYER_CONTENT },
+    en: product.translations?.en
+      ? translationToBuyerContent(product.translations.en)
+      : primaryLocale === "en" ? translationToBuyerContent(undefined, scalarFallback) : { ...EMPTY_BUYER_CONTENT },
+  };
+
+  const params = record(product.pricing_params);
+  const labels = localeLabels(product.translations, primaryLocale);
+  const typeMultipliers = numericEntries(params.type_mult);
+  const networkMultipliers = numericEntries(params.network_mult);
+  const rawDurations = Array.isArray(params.duration_options) ? params.duration_options : [];
+  const durations = rawDurations.flatMap((item) => {
+    const option = record(item);
+    const days = finiteNumber(option.days, -1);
+    if (days <= 0) return [];
+    return [{
+      days,
+      label: labels.duration_labels?.[String(days)] ?? (typeof option.label === "string" ? option.label : `${days} days`),
+    }];
+  });
+  const b1: B1ConfigState = {
+    ...DEFAULT_B1,
+    basePrice: finiteNumber(params.base_price),
+    types: typeMultipliers.length > 0
+      ? typeMultipliers.map(([key, mult]) => ({ key, mult, label: labels.type_display?.[key] ?? key }))
+      : DEFAULT_B1.types.map((item) => ({ ...item })),
+    networks: networkMultipliers.length > 0
+      ? networkMultipliers.map(([key, mult]) => ({ key, mult, label: labels.network_display?.[key] ?? key }))
+      : DEFAULT_B1.networks.map((item) => ({ ...item })),
+    durations: durations.length > 0 ? durations : DEFAULT_B1.durations.map((item) => ({ ...item })),
+  };
+  b1.selectedType = b1.types[0]?.key ?? "";
+  b1.selectedNetwork = b1.networks[0]?.key ?? "";
+  b1.selectedDays = b1.durations[0]?.days ?? 30;
+
+  const discountBySize = new Map<number, number>();
+  if (Array.isArray(params.volume_tiers)) {
+    for (const item of params.volume_tiers) {
+      const tier = record(item);
+      const size = finiteNumber(tier.min_qty, -1);
+      if (size > 0) discountBySize.set(size, finiteNumber(tier.discount) * 100);
+    }
+  }
+  const rawPackages = Array.isArray(params.packages) ? params.packages : [];
+  const packages = rawPackages.flatMap((item) => {
+    const pkg = record(item);
+    const size = finiteNumber(pkg.size, -1);
+    if (size <= 0) return [];
+    return [{
+      size,
+      label: labels.package_labels?.[String(size)] ?? (typeof pkg.label === "string" ? pkg.label : `${size} requests`),
+      discountPct: discountBySize.get(size) ?? 0,
+    }];
+  });
+  const b2: B2CreditState = {
+    creditPrice: finiteNumber(params.credit_price),
+    packages: packages.length > 0 ? packages : DEFAULT_B2.packages.map((item) => ({ ...item })),
+    selectedPackageSize: packages[0]?.size ?? DEFAULT_B2.selectedPackageSize,
+  };
+
+  const platformMultipliers = numericEntries(params.platform_mult);
+  const b3: B3TaskState = {
+    ...DEFAULT_B3,
+    basePrice: finiteNumber(params.base_price),
+    platforms: platformMultipliers.length > 0
+      ? platformMultipliers.map(([key, mult]) => ({ key, mult, label: labels.platform_display?.[key] ?? key }))
+      : DEFAULT_B3.platforms.map((item) => ({ ...item })),
+  };
+  b3.selectedPlatform = b3.platforms[0]?.key ?? "";
+
+  const workModel: WorkModelB = product.pricing_strategy === "credit"
+    ? "B2"
+    : product.pricing_strategy === "task" ? "B3" : "B1";
+  return { primaryLocale, content, workModel, b1, b2, b3 };
 }
 
 export interface DynamicPricingPlan {

@@ -622,12 +622,17 @@ async def _variants_by_product(
         name = v.name
         if locale is not None:
             name = resolve_variant_fields(v, locale)["name"]
+        management = {} if locale is not None else {
+            "translations": _management_variant_translations(v),
+            "primary_locale": (v.i18n or {}).get(PRIMARY_LOCALE_KEY, "vi"),
+        }
         out[v.product_id].append({
             "id": v.id, "product_id": v.product_id, "name": name, "price": v.price,
             "delivery_mode": v.delivery_mode.value, "sla_hours": v.sla_hours,
             "duration_days": v.duration_days,
             "sort_order": v.sort_order, "is_active": v.is_active,
             "stock_count": stock_by_variant.get(v.id, 0),
+            **management,
         })
     return out
 
@@ -931,6 +936,20 @@ def _management_translations(product: Product) -> dict[str, dict]:
     return translations
 
 
+def _management_variant_translations(variant: ProductVariant) -> dict[str, dict]:
+    """Return editable package-name buckets without storefront fallback."""
+    translations = {
+        locale: dict(bucket)
+        for locale, bucket in (variant.i18n or {}).items()
+        if locale in {"en", "vi"} and isinstance(bucket, dict)
+    }
+    if (variant.i18n or {}).get(PRIMARY_LOCALE_KEY) != "en":
+        vi = dict(translations.get("vi") or {})
+        vi.setdefault("name", variant.name)
+        translations["vi"] = vi
+    return translations
+
+
 def _product_dict(product: Product, *, locale: str | None = DEFAULT_LOCALE) -> dict:
     if locale is not None:
         localized = resolve_product_fields(product, locale)
@@ -954,6 +973,7 @@ def _product_dict(product: Product, *, locale: str | None = DEFAULT_LOCALE) -> d
             "locale": None,
             "available_locales": available_locales(translations),
             "translations": translations,
+            "primary_locale": (product.i18n or {}).get(PRIMARY_LOCALE_KEY, "vi"),
         }
     images = public_images(product.images)
     return {

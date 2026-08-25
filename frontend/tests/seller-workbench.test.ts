@@ -10,6 +10,7 @@ import {
   buyerContentToTranslation,
   hasCompleteLocalizedContent,
   buildDynamicPricingPlan,
+  hydrateSellerProductDraft,
   effectivePriceInputCurrency,
   priceInputToVnd,
   vndToPriceInput,
@@ -70,6 +71,70 @@ describe("Seller Workbench Logic", () => {
       hasCompleteLocalizedContent({ ...content, vi: { ...content.vi, description: "" } }, "vi"),
       false,
     );
+  });
+
+  it("hydrates the edit workbench from localized product and pricing data", () => {
+    const draft = hydrateSellerProductDraft({
+      id: 74,
+      seller_id: 22,
+      category_id: 9,
+      title: "API credits",
+      images: null,
+      cover_id: "token",
+      escrow_days: 30,
+      status: "paused",
+      service_type: "token",
+      highlight_text: "Usage based",
+      sold_count: 0,
+      rating_avg: null,
+      rating_count: 0,
+      pricing_strategy: "credit",
+      pricing_params: {
+        credit_price: 12,
+        packages: [{ size: 1000, label: "Legacy package label" }],
+        volume_tiers: [{ min_qty: 1000, discount: 0.15 }],
+      },
+      primary_locale: "en",
+      locale: null,
+      available_locales: ["en"],
+      created_at: "2026-08-25T00:00:00Z",
+      description: "English description",
+      features: ["Fast", "Audited"],
+      specs: { region: "Global" },
+      warranty_text: "30-day warranty",
+      translations: {
+        en: {
+          title: "API credits",
+          description: "English description",
+          highlight_text: "Usage based",
+          features: ["Fast", "Audited"],
+          specs: { region: "Global" },
+          warranty_text: "30-day warranty",
+          pricing_labels: { package_labels: { "1000": "1,000 requests" } },
+        },
+      },
+      variants: [],
+      seller_name: "seller",
+      category_name: "Cloud",
+    });
+
+    assert.equal(draft.primaryLocale, "en");
+    assert.equal(draft.content.en.title, "API credits");
+    assert.equal(draft.content.en.featuresText, "Fast\nAudited");
+    assert.equal(draft.content.en.specsText, "region: Global");
+    assert.deepEqual(draft.content.vi, {
+      title: "",
+      description: "",
+      highlightText: "",
+      featuresText: "",
+      specsText: "",
+      warrantyText: "",
+    });
+    assert.equal(draft.workModel, "B2");
+    assert.equal(draft.b2.creditPrice, 12);
+    assert.deepEqual(draft.b2.packages, [
+      { size: 1000, label: "1,000 requests", discountPct: 15 },
+    ]);
   });
 
   it("serializes each dynamic work model to the backend pricing contract", () => {

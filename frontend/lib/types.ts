@@ -152,6 +152,8 @@ export interface Variant {
   is_active: boolean;
   stock_count: number;
   duration_days: number | null;
+  translations?: Partial<Record<ProductLocale, { name?: string | null }>> | null;
+  primary_locale?: ProductLocale | null;
 }
 
 export interface ProductDetail extends Product {
@@ -160,6 +162,7 @@ export interface ProductDetail extends Product {
   specs: Record<string, string> | null;
   warranty_text: string | null;
   translations?: Partial<Record<ProductLocale, ProductTranslation>> | null;
+  primary_locale?: ProductLocale | null;
   variants: Variant[];
   seller_name: string | null;
   category_name: string | null;

@@ -3,7 +3,7 @@
 import { useState } from "react";
 import { useLocale } from "next-intl";
 import { Button, Card, Field, Input, Select, Tag, Textarea } from "@/components/ui";
-import { Plus, Trash, Upload } from "@/components/Icons";
+import { Edit2, Plus, Trash, Upload } from "@/components/Icons";
 import { useMoney } from "@/lib/money";
 import { type WorkbenchVariant } from "./logic";
 import { SellerPriceInput, useSellerPriceCurrency } from "./SellerPriceInput";
@@ -38,6 +38,12 @@ export function SellerVariantManager({
   const [newMode, setNewMode] = useState<"instant" | "manual">("instant");
   const [newSla, setNewSla] = useState(24);
   const [savingNew, setSavingNew] = useState(false);
+  const [editingId, setEditingId] = useState<number | null>(null);
+  const [editName, setEditName] = useState("");
+  const [editPrice, setEditPrice] = useState(0);
+  const [editMode, setEditMode] = useState<"instant" | "manual">("instant");
+  const [editSla, setEditSla] = useState(24);
+  const [savingEdit, setSavingEdit] = useState(false);
 
   // Restock modal state
   const [restockId, setRestockId] = useState<number | null>(null);
@@ -58,6 +64,22 @@ export function SellerVariantManager({
       setAdding(false);
     } finally {
       setSavingNew(false);
+    }
+  };
+
+  const handleEditSubmit = async () => {
+    if (editingId == null || !editName.trim()) return;
+    setSavingEdit(true);
+    try {
+      await onUpdateVariant(editingId, {
+        name: editName.trim(),
+        price: editPrice,
+        delivery_mode: editMode,
+        sla_hours: editSla,
+      });
+      setEditingId(null);
+    } finally {
+      setSavingEdit(false);
     }
   };
 
@@ -162,55 +184,102 @@ export function SellerVariantManager({
         ) : (
           variants.map((v) => {
             const isInstant = v.delivery_mode === "instant";
+            const editing = v.id != null && editingId === v.id;
             return (
-              <div
-                key={v.id ?? v.name}
-                className="p-3.5 rounded-xl border border-line bg-surface flex items-center justify-between gap-3 flex-wrap"
-              >
-                <div className="min-w-0 space-y-1">
-                  <div className="flex items-center gap-2">
-                    <span className="text-[13.5px] font-semibold text-fg">{v.name}</span>
-                    <Tag tone={isInstant ? "good" : "warn"}>
-                      {isInstant ? "⚡ Giao ngay" : `⏱️ ${v.sla_hours || 24}h SLA`}
-                    </Tag>
+              <div key={v.id ?? v.name} className="rounded-xl border border-line bg-surface p-3.5">
+                {editing ? (
+                  <div className="space-y-3">
+                    <div className="grid gap-3 sm:grid-cols-2">
+                      <Field label="Tên gói bán *">
+                        <Input value={editName} onChange={(event) => setEditName(event.target.value)} />
+                      </Field>
+                      <Field label={`Giá bán (${priceCurrency}) *`}>
+                        <SellerPriceInput amountVnd={editPrice} onAmountVndChange={setEditPrice} />
+                      </Field>
+                    </div>
+                    <div className="grid gap-3 sm:grid-cols-2">
+                      <Field label="Kiểu giao hàng">
+                        <Select value={editMode} onChange={(event) => setEditMode(event.target.value as "instant" | "manual")}>
+                          <option value="instant">⚡ Giao ngay tự động (Kho hàng)</option>
+                          <option value="manual">⏱️ Giao thủ công (Có SLA)</option>
+                        </Select>
+                      </Field>
+                      {editMode === "manual" && (
+                        <Field label="Cam kết giao trong (SLA giờ)">
+                          <Input type="number" min={1} value={editSla} onChange={(event) => setEditSla(Number(event.target.value) || 24)} />
+                        </Field>
+                      )}
+                    </div>
+                    <div className="flex justify-end gap-2">
+                      <Button size="sm" variant="ghost" onClick={() => setEditingId(null)}>Hủy</Button>
+                      <Button size="sm" disabled={savingEdit || !editName.trim()} onClick={handleEditSubmit}>
+                        {savingEdit ? "Đang lưu..." : "Lưu gói bán"}
+                      </Button>
+                    </div>
                   </div>
-                  <div className="flex items-center gap-3 text-[12px] text-muted">
-                    <span className="font-mono font-bold text-fg">{formatCheckoutMoney(v.price, { locale })}</span>
-                    <span>•</span>
-                    {isInstant ? (
-                      <span className={v.stock_count > 0 ? "text-good font-medium" : "text-bad font-medium"}>
-                        Kho: {v.stock_count} mã sẵn sàng
-                      </span>
-                    ) : (
-                      <span>Giao thủ công</span>
-                    )}
-                  </div>
-                </div>
+                ) : (
+                  <div className="flex items-center justify-between gap-3 flex-wrap">
+                    <div className="min-w-0 space-y-1">
+                      <div className="flex items-center gap-2">
+                        <span className="text-[13.5px] font-semibold text-fg">{v.name}</span>
+                        <Tag tone={isInstant ? "good" : "warn"}>
+                          {isInstant ? "⚡ Giao ngay" : `⏱️ ${v.sla_hours || 24}h SLA`}
+                        </Tag>
+                      </div>
+                      <div className="flex items-center gap-3 text-[12px] text-muted">
+                        <span className="font-mono font-bold text-fg">{formatCheckoutMoney(v.price, { locale })}</span>
+                        <span>•</span>
+                        {isInstant ? (
+                          <span className={v.stock_count > 0 ? "text-good font-medium" : "text-bad font-medium"}>
+                            Kho: {v.stock_count} mã sẵn sàng
+                          </span>
+                        ) : (
+                          <span>Giao thủ công</span>
+                        )}
+                      </div>
+                    </div>
 
-                <div className="flex items-center gap-2">
-                  {isInstant && v.id && (
-                    <Button
-                      size="sm"
-                      variant="secondary"
-                      onClick={() => {
-                        setRestockId(v.id!);
-                        setRestockText("");
-                      }}
-                    >
-                      <Upload size={12} /> Nạp kho
-                    </Button>
-                  )}
-                  {v.id && (
-                    <Button
-                      size="sm"
-                      variant="ghost"
-                      onClick={() => onDeleteVariant(v.id!)}
-                      className="text-bad hover:bg-bad-soft/50"
-                    >
-                      <Trash size={12} />
-                    </Button>
-                  )}
-                </div>
+                    <div className="flex items-center gap-2">
+                      {v.id && (
+                        <Button
+                          size="sm"
+                          variant="secondary"
+                          onClick={() => {
+                            setEditingId(v.id!);
+                            setEditName(v.name);
+                            setEditPrice(v.price);
+                            setEditMode(v.delivery_mode);
+                            setEditSla(v.sla_hours || 24);
+                          }}
+                        >
+                          <Edit2 size={12} /> Sửa
+                        </Button>
+                      )}
+                      {isInstant && v.id && (
+                        <Button
+                          size="sm"
+                          variant="secondary"
+                          onClick={() => {
+                            setRestockId(v.id!);
+                            setRestockText("");
+                          }}
+                        >
+                          <Upload size={12} /> Nạp kho
+                        </Button>
+                      )}
+                      {v.id && (
+                        <Button
+                          size="sm"
+                          variant="ghost"
+                          onClick={() => onDeleteVariant(v.id!)}
+                          className="text-bad hover:bg-bad-soft/50"
+                        >
+                          <Trash size={12} />
+                        </Button>
+                      )}
+                    </div>
+                  </div>
+                )}
               </div>
             );
           })

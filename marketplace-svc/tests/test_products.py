@@ -63,8 +63,13 @@ async def test_seller_can_create_and_publish_in_one_selected_language(client):
     )
     assert seller_detail.status_code == 200
     assert seller_detail.json()["available_locales"] == ["en"]
+    assert seller_detail.json()["primary_locale"] == "en"
     assert seller_detail.json()["translations"]["en"]["title"] == "English-only service"
     assert "vi" not in seller_detail.json()["translations"]
+    assert seller_detail.json()["variants"][0]["primary_locale"] == "en"
+    assert seller_detail.json()["variants"][0]["translations"] == {
+        "en": {"name": "English package"},
+    }
 
     english = await client.get(
         f"/products/{product_id}", headers={"Accept-Language": "en"},

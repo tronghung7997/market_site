@@ -165,6 +165,10 @@ class VariantResponse(BaseModel):
     is_active: bool
     stock_count: int = 0
     duration_days: int | None = None
+    # Management detail responses expose raw locale buckets so sellers can
+    # edit a translation without storefront fallback masking missing content.
+    translations: dict[str, dict] | None = None
+    primary_locale: str | None = None
 
     model_config = {"from_attributes": True}
 
@@ -241,6 +245,7 @@ class ProductDetailResponse(ProductListItemResponse):
     specs: dict | None
     warranty_text: str | None
     translations: dict[str, dict] | None = None
+    primary_locale: str | None = None
     seller_name: str | None = None
     category_name: str | None = None
 

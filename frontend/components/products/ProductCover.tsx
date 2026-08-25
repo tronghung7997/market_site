@@ -1,7 +1,7 @@
 "use client";
 
 import { cn } from "@/lib/cn";
-import { coverSrc } from "@/lib/product-covers";
+import { coverSrc, inferCoverFromText, isCoverId } from "@/lib/product-covers";
 import { Monogram } from "@/components/ui";
 
 export function ProductCover({
@@ -13,7 +13,8 @@ export function ProductCover({
   title: string;
   className?: string;
 }) {
-  const src = coverSrc(coverId);
+  const effectiveId = isCoverId(coverId) ? coverId : inferCoverFromText(title) || "other";
+  const src = coverSrc(effectiveId);
   if (!src) return <Monogram text={title} className={className} />;
   return (
     <span

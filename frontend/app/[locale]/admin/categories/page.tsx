@@ -6,6 +6,7 @@ import { Pencil, Plus, Trash2 } from "lucide-react";
 import { api } from "@/lib/api";
 import type { Category } from "@/lib/types";
 import { Button, Card, Field, Input, Select, Spinner, Tag } from "@/components/ui";
+import { categoryCoverId, CoverPicker, ProductCover } from "@/features/product-covers";
 
 type FlatCat = Category & { depth: number };
 
@@ -18,7 +19,7 @@ function flatten(cats: Category[], depth = 0): FlatCat[] {
   return out;
 }
 
-const EMPTY = { name: "", slug: "", parent_id: "", commission_rate: "", is_active: true };
+const EMPTY = { name: "", slug: "", icon: "", parent_id: "", commission_rate: "", is_active: true };
 
 export default function AdminCategoriesPage() {
   const [cats, setCats] = React.useState<Category[]>([]);
@@ -43,7 +44,7 @@ export default function AdminCategoriesPage() {
     setCreating(false);
     setEditing(c);
     setForm({
-      name: c.name, slug: c.slug,
+      name: c.name, slug: c.slug, icon: c.icon ?? "",
       parent_id: c.parent_id != null ? String(c.parent_id) : "",
       commission_rate: c.commission_rate != null ? String(c.commission_rate) : "",
       is_active: c.is_active,
@@ -60,11 +61,13 @@ export default function AdminCategoriesPage() {
       if (editing) {
         await api.updateCategory(editing.id, {
           name: form.name.trim(), slug: form.slug.trim(),
+          icon: form.icon || null,
           is_active: form.is_active, commission_rate: commission,
         });
       } else {
         await api.createCategory({
           name: form.name.trim(), slug: form.slug.trim(),
+          icon: form.icon || null,
           parent_id: form.parent_id ? Number(form.parent_id) : null,
           commission_rate: commission,
         });
@@ -126,6 +129,12 @@ export default function AdminCategoriesPage() {
               </Field>
             )}
           </div>
+          <Field label="Hình ảnh" hint="Chọn một cover có sẵn. Để trống thì đoán theo tên danh mục.">
+            <CoverPicker
+              value={form.icon || null}
+              onChange={(id) => setForm({ ...form, icon: id ?? "" })}
+            />
+          </Field>
           {err && <p className="text-[13px] text-red-600">{err}</p>}
           <div className="flex gap-2">
             <Button disabled={busy} onClick={save}>{busy ? "Đang lưu…" : "Lưu"}</Button>
@@ -156,6 +165,7 @@ export default function AdminCategoriesPage() {
                       <td className="px-5 py-2.5">
                         <span style={{ paddingLeft: c.depth * 18 }} className="inline-flex items-center gap-1.5">
                           {c.depth > 0 && <span className="text-slate-300">└</span>}
+                          <ProductCover coverId={categoryCoverId(c)} title={c.name} className="h-7 w-7" />
                           <span className="font-medium text-slate-800">{c.name}</span>
                         </span>
                       </td>

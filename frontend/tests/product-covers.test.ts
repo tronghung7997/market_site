@@ -3,7 +3,7 @@ import assert from "node:assert/strict";
 import { readdirSync } from "node:fs";
 import { dirname, join } from "node:path";
 import { fileURLToPath } from "node:url";
-import { COVER_IDS, coverSrc, isCoverId, parseCoverId } from "../lib/product-covers.ts";
+import { COVER_IDS, categoryCoverId, coverSrc, isCoverId, parseCoverId } from "../lib/product-covers.ts";
 
 const coversDir = join(dirname(fileURLToPath(import.meta.url)), "../public/covers");
 
@@ -25,5 +25,13 @@ describe("product covers", () => {
     assert.equal(parseCoverId({ image: "account" }), "account");
     assert.equal(parseCoverId({ images: ["http://old.example/a.png"] }), null);
     assert.equal(parseCoverId({ cover_id: "Facebook" }), null);
+  });
+
+  it("resolves a category cover from icon, then name/slug", () => {
+    assert.equal(categoryCoverId({ icon: "proxy", name: "Facebook" }), "proxy");
+    assert.equal(categoryCoverId({ icon: null, name: "Facebook Ads" }), "facebook");
+    assert.equal(categoryCoverId({ icon: "nope", name: "Cloud & Server", slug: "cloud" }), "cloud");
+    assert.equal(categoryCoverId({ icon: null, name: "Mạng xã hội", slug: "social" }), "account");
+    assert.equal(categoryCoverId({ icon: null, name: "Misc", slug: "misc" }), "other");
   });
 });

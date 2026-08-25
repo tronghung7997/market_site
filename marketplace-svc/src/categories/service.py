@@ -35,9 +35,13 @@ async def update_category(cat_id: int, data: dict, db: AsyncSession) -> Category
     cat = await db.get(Category, cat_id)
     if not cat:
         raise HTTPException(status_code=404, detail="Không tìm thấy danh mục")
+    icon_provided = "icon" in data
+    icon_value = data.pop("icon", None)
     for key, value in data.items():
         if value is not None:
             setattr(cat, key, value)
+    if icon_provided:
+        cat.icon = icon_value
     if "name" in data and data["name"] is not None:
         cat.i18n = merge_i18n_locale(cat.i18n, "vi", {"name": data["name"]})
     await db.commit()

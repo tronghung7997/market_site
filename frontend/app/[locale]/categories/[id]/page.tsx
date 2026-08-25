@@ -14,7 +14,7 @@ import { effectiveMinPrice } from "@/lib/pricing-display";
 import type { Category, Product } from "@/lib/types";
 import { Card, Spinner } from "@/components/ui";
 import { ChevronRight } from "@/components/Icons";
-import { categoryIcon } from "@/components/CategoryIcon";
+import { categoryCoverId, ProductCover } from "@/features/product-covers";
 import ProductTile from "@/components/ProductTile";
 
 export default function CategoryPage() {
@@ -104,8 +104,6 @@ export default function CategoryPage() {
     </div>
   );
 
-  const Icon = categoryIcon(category.name);
-
   return (
     <div className="w-full mx-auto max-w-[1200px] px-4 sm:px-6 py-5 sm:py-6">
       <nav aria-label={tc("breadcrumb")} className="flex items-center gap-1.5 text-[12.5px] text-muted mb-4">
@@ -123,9 +121,11 @@ export default function CategoryPage() {
       </nav>
 
       <div className="flex items-center gap-3.5">
-        <span className="grid place-items-center h-11 w-11 shrink-0 rounded-xl bg-iris-soft text-iris border border-iris/15">
-          <Icon size={20} />
-        </span>
+        <ProductCover
+          coverId={categoryCoverId(category)}
+          title={category.name}
+          className="h-11 w-11 rounded-xl"
+        />
         <div className="min-w-0">
           <h1 className="font-serif text-[24px] sm:text-[26px] leading-tight tracking-tight font-semibold">{category.name}</h1>
           <p className="text-[12.5px] text-muted mt-0.5">

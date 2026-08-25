@@ -10,7 +10,7 @@ import { useState } from "react";
 import { useLocale, useTranslations } from "next-intl";
 import { useMoney } from "@/lib/money";
 import { cn } from "@/lib/cn";
-import { parseCoverId } from "@/lib/product-covers";
+import { categoryCoverId, parseCoverId } from "@/lib/product-covers";
 import type { Category, Product } from "@/lib/types";
 import { Button, Card, Spinner, Tag } from "@/components/ui";
 import { ProductCover } from "@/components/products/ProductCover";
@@ -75,7 +75,14 @@ export function MarketSection({ products, flatCats, active, activeIds, setActive
       {flatCats.length > 0 && (
         <div className="flex flex-wrap gap-2 mb-4">
           <Pill active={active == null} onClick={() => setActive(null)}>{t("all")}</Pill>
-          {flatCats.map((c) => <Pill key={c.id} active={active === c.id} onClick={() => setActive(c.id)}>{c.name}</Pill>)}
+          {flatCats.map((c) => (
+            <Pill key={c.id} active={active === c.id} onClick={() => setActive(c.id)}>
+              <span className="inline-flex items-center gap-1.5">
+                <ProductCover coverId={categoryCoverId(c)} title={c.name} className="h-4 w-4 rounded" />
+                {c.name}
+              </span>
+            </Pill>
+          ))}
         </div>
       )}
 

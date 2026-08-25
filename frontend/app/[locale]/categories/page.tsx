@@ -12,7 +12,7 @@ import { effectiveMinPrice } from "@/lib/pricing-display";
 import type { Category, Product } from "@/lib/types";
 import { Card, Spinner, Tag } from "@/components/ui";
 import { ArrowRight, ChevronRight, Search } from "@/components/Icons";
-import { categoryIcon } from "@/components/CategoryIcon";
+import { categoryCoverId, ProductCover } from "@/features/product-covers";
 import ProductTile from "@/components/ProductTile";
 
 export default function CategoriesPage() {
@@ -86,7 +86,6 @@ export default function CategoriesPage() {
 
       <div className="space-y-4">
         {shelves.map(({ c, items }) => {
-          const Icon = categoryIcon(c.name);
           const children = c.children ?? [];
           const minPrices = items.map((p) => effectiveMinPrice(p)).filter((v) => v > 0);
           const fromPrice = minPrices.length ? Math.min(...minPrices) : 0;
@@ -96,9 +95,11 @@ export default function CategoriesPage() {
               <div className="grid lg:grid-cols-[260px_minmax(0,1fr)]">
                 <div className="p-5 lg:border-r border-b lg:border-b-0 border-line bg-raised/30 flex flex-col">
                   <Link href={`/categories/${c.id}`} className="group flex items-center gap-3">
-                    <span className="grid place-items-center h-10 w-10 shrink-0 rounded-xl bg-iris-soft text-iris border border-iris/15">
-                      <Icon size={18} />
-                    </span>
+                    <ProductCover
+                      coverId={categoryCoverId(c)}
+                      title={c.name}
+                      className="h-10 w-10 rounded-xl"
+                    />
                     <div className="min-w-0">
                       <div className="font-serif text-[17px] leading-tight tracking-tight font-semibold group-hover:text-iris-hi transition-colors">
                         {c.name}

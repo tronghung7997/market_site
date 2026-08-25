@@ -35,46 +35,28 @@
 1. Reproduce or define the expected behavior.
 2. Make the smallest coherent change that follows existing module boundaries.
 3. Add or update tests for success, invalid input, and unauthorized access where applicable.
-4. Run only the minimum gate for the change type below. Do not production-build the frontend or run the full backend suite unless that table requires it.
+4. Run only the relevant targeted check for the change type below. Do not production-build the frontend or run the full backend suite unless the user explicitly requests it.
 5. Report changed files, commands run, and any check that was skipped or failed. Never claim a check passed unless it was run.
 
 Do not leave placeholders, mock success paths, commented-out implementations, or unrelated formatting churn in production code.
 
-## Verification gates
+## Verification
 
-The default frontend gate is the fast path (design/module guards, `tsc`, i18n, unit tests). It does **not** production-build. Use it for ordinary frontend work:
-
-```bash
-./scripts/verify-frontend.sh
-```
-
-Do **not** run `npm run build` or `./scripts/verify-all.sh` for a small frontend task. Production compile takes about a minute and CI already runs it. Opt in only when `next.config`, middleware/proxy, or the BFF compile path changed, or before a full handoff:
-
-```bash
-RUN_FRONTEND_BUILD=1 ./scripts/verify-frontend.sh
-./scripts/verify-all.sh
-```
-
-Backend: targeted file while iterating; full suite only before handoff. Never run two pytest processes concurrently.
-
-```bash
-./scripts/verify-backend.sh tests/test_chat_inquiries.py tests/test_chat_orders.py
-./scripts/verify-backend.sh                 # full suite; never run concurrently
-```
+Use direct, targeted commands. Do not run `npm run build` for a small frontend task; reserve it for `next.config`, middleware/proxy, BFF compile-path changes, or a full handoff. Backend tests share a database, so never run two pytest processes concurrently.
 
 Minimum gate by change type:
 
 | Change | Required verification |
 |---|---|
-| Documentation only | Check every documented path/command against current config; inspect the diff. No `verify-*.sh`. |
-| Frontend TypeScript/data flow | `./scripts/verify-frontend.sh` (fast default). Do not production-build. |
-| Auth or Next.js BFF | Fast frontend gate plus browser/network inspection. Production build only if middleware/BFF compile path changed. |
-| Visual UI | Fast frontend gate plus live browser verification at relevant desktop/mobile widths. A build is not required. |
-| Backend architecture/import seam | `uv run python scripts/check_architecture.py` from `marketplace-svc/` |
-| Backend behavior | Architecture guard plus targeted pytest file(s); full backend gate before handoff when practical |
+| Documentation only | Check every documented path/command against current config; inspect the diff. |
+| Frontend TypeScript/data flow | Run the relevant direct checks: `npm run lint`, `npm run check:i18n`, and/or `npm test` from `frontend/`. |
+| Auth or Next.js BFF | Targeted frontend tests plus browser/network inspection. Production build only if middleware/BFF compile path changed. |
+| Visual UI | Live browser verification at relevant desktop/mobile widths. A build is not required. |
+| Backend architecture/import seam | Targeted pytest file(s) that cover the affected seam. |
+| Backend behavior | Targeted pytest file(s). |
 | Model/schema | Alembic upgrade on the test DB plus relevant tests; include the migration |
-| Auth, roles, payment, wallet, escrow | Test positive and negative/unauthorized paths; run the full backend gate |
-| Cross-stack contract | Fast frontend gate, targeted backend tests, and live browser/network verification. `./scripts/verify-all.sh` before handoff. |
+| Auth, roles, payment, wallet, escrow | Targeted positive and negative/unauthorized paths. |
+| Cross-stack contract | Relevant frontend checks, targeted backend tests, and live browser/network verification. |
 
 ### Browser verification
 
@@ -89,7 +71,7 @@ A build is not a substitute for browser verification. If browser tooling or a ru
 
 ## Test database concurrency
 
-Backend tests share `marketplace_test` and truncate its tables. Never run two pytest processes concurrently, including from separate agents or worktrees. `scripts/verify-backend.sh` uses a machine-wide lock to enforce this for harness-driven runs.
+Backend tests share `marketplace_test` and truncate its tables. Never run two pytest processes concurrently, including from separate agents or worktrees.
 
 ## Documentation maintenance
 

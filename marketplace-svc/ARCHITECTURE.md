@@ -185,35 +185,11 @@ Tests: <service · router · negative · concurrency as relevant>
 
 Then inspect the owning service, its router/schema, models/migrations, direct callers, and existing tests before changing the interface.
 
-## 10. Executable enforcement
+## 10. Migration strategy
 
-```bash
-cd marketplace-svc
-uv run python scripts/check_architecture.py
-```
-
-The checker uses the Python AST and a tracked baseline. Existing debt may remain; new fingerprints or increased occurrences fail.
-
-It currently enforces high-confidence seams:
-
-- no service-to-router dependency;
-- no schema-to-service/router dependency;
-- no model dependency on FastAPI/service/router;
-- only the composition root assembles routers;
-- no new router-to-adapter orchestration;
-- no new router cross-feature service orchestration;
-- no new `HTTPException` dependency in services;
-- no synchronous SQLAlchemy session interface in `src/`.
-
-Baseline updates require an intentional architecture decision, this contract to remain accurate, explicit review, and `ALLOW_HARNESS_BASELINE_UPDATE=1`. Ordinary feature work must not update it.
-
-## 11. Migration strategy
-
-1. Prevent new debt with the baseline-aware checker.
-2. Deepen the highest-change/highest-risk feature first rather than reorganizing every package.
-3. Move cross-feature orchestration out of routers into an owning application module.
-4. Convert service `HTTPException` usage to application errors when that service is touched.
-5. Introduce provider ports only where production and test adapters justify the seam.
-6. Remove corresponding baseline records as debt disappears.
+1. Deepen the highest-change/highest-risk feature first rather than reorganizing every package.
+2. Move cross-feature orchestration out of routers into an owning application module.
+3. Convert service `HTTPException` usage to application errors when that service is touched.
+4. Introduce provider ports only where production and test adapters justify the seam.
 
 Do not perform a repository-wide clean-architecture rewrite. Preserve behavior with tiny, test-backed migrations.

@@ -437,11 +437,7 @@ For affected routes, verify:
 - no unintended horizontal overflow;
 - English/Vietnamese layout and message parity.
 
-Run the repository frontend gate after visual verification. The default command is the fast path and does not production-build:
-
-```bash
-./scripts/verify-frontend.sh
-```
+Run the relevant direct frontend tests after visual verification.
 
 A screenshot alone cannot prove token use, accessibility, runtime states, or cross-role consistency.
 

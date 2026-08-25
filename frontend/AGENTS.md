@@ -21,7 +21,6 @@ These rules extend the repository-root `AGENTS.md` for `frontend/`.
 - Prefer the token-based `@/components/ui` primitives. Direct Radix dialog/tooltip imports are allowed; split Button/Card/Input/Select/Textarea/Badge files remain migration debt until tokenized.
 - Do not introduce page-local raw colours, framework palette classes, a new primitive system, or per-page token files.
 - New domain behavior belongs behind a feature public interface; routes compose features instead of owning queries, status mappings, or reusable workflows.
-- Never update a harness baseline for ordinary feature work. A baseline increase requires an explicit reviewed architecture/design decision and the matching contract change.
 
 ## Mandatory design-skill routing
 
@@ -69,16 +68,9 @@ Classify the task before implementation and use at most one design lead plus one
 
 ## Verification
 
-The default frontend gate from the repository root is enough for ordinary work. It does **not** production-build:
+Run only the relevant direct checks from `frontend/` when iterating:
 
 ```bash
-./scripts/verify-frontend.sh
-```
-
-Equivalent commands from `frontend/` when iterating on a subset:
-
-```bash
-npm run check:harness
 npm run lint                 # TypeScript: tsc --noEmit
 npm run check:i18n
 npm test
@@ -87,7 +79,7 @@ npm test
 Do not run `npm run build` unless `next.config`, middleware/proxy, or the BFF compile path changed, or the user asked for a full handoff:
 
 ```bash
-RUN_FRONTEND_BUILD=1 ./scripts/verify-frontend.sh
+API_URL=http://marketplace-svc:8001 npm run build
 ```
 
 Additional requirements:

@@ -10,13 +10,12 @@ These rules extend the repository-root `AGENTS.md` for `marketplace-svc/`.
 - Keep route handlers thin. Put domain behavior in the existing feature service/module and persistence constraints in models/migrations.
 - Prefer a deep existing service interface over new pass-through repository/use-case layers. Add a port only at a real seam with production and test adapters.
 - Use `AsyncSession` and async I/O end to end. Do not add synchronous database or HTTP calls to request paths.
-- Never update `scripts/architecture-baseline.json` for ordinary feature work. Baseline growth requires an explicit reviewed architecture decision and matching contract change.
 
 ## Configuration and secrets
 
 - `JWT_SECRET`, `INTERNAL_API_KEY`, and `ENCRYPTION_KEY` are required and must be distinct, environment-provided values of at least 32 bytes.
 - Never read or copy local `.env`, `.env.production*`, `backend.env`, credential backups, provider credentials, webhook secrets, or payment keys into code, tests, logs, fixtures, or documentation.
-- Tests may use obviously fake values set in `tests/conftest.py` or the verification script.
+- Tests may use obviously fake values set in `tests/conftest.py`.
 - Preserve production validation in `src/config.py`; do not add insecure fallback secrets.
 
 ## Domain and security
@@ -41,19 +40,13 @@ These rules extend the repository-root `AGENTS.md` for `marketplace-svc/`.
 - Never run two pytest processes in parallel. Do not use `pytest-xdist`; separate agents/worktrees still share the same default test database.
 - Mark a test `no_db` only when it truly does not touch application persistence.
 - Cover success, validation failure, authentication failure, authorization failure, idempotent retry, and concurrency behavior when relevant.
-- Prefer a targeted test file during iteration. Do not run the full backend suite for a small frontend-only task; use it before handoff.
+- Prefer targeted test files. Run the full backend suite only when the user explicitly requests it.
 
-Fast architecture check from `marketplace-svc/`:
-
-```bash
-uv run python scripts/check_architecture.py
-```
-
-The full verification script runs this guard automatically. From the repository root:
+Run targeted tests directly from `marketplace-svc/`:
 
 ```bash
-./scripts/verify-backend.sh tests/test_chat_inquiries.py
-./scripts/verify-backend.sh
+uv run pytest -q tests/test_chat_inquiries.py
+uv run pytest -q
 ```
 
-The script acquires a machine-wide pytest lock, migrates the test database, and runs pytest. A clean PostgreSQL volume creates `marketplace_test` through `init-db.sql`; for an older volume, create that database once as documented in `README.md`.
+A clean PostgreSQL volume creates `marketplace_test` through `init-db.sql`; for an older volume, create that database once as documented in `README.md`.

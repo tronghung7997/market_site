@@ -201,33 +201,13 @@ Then:
 2. Decide whether the change belongs in route, feature, pattern, primitive, or infrastructure.
 3. Keep implementation behind the smallest useful interface.
 4. Add tests through that interface.
-5. Run `./scripts/verify-frontend.sh` (fast default: no production build) before browser verification.
+5. Run the relevant direct tests before browser verification.
 
-## 9. Executable enforcement
+## 9. Migration sequence
 
-```bash
-npm run check:design-system
-npm run check:module-boundaries
-```
-
-The checks scan the complete source tree and compare violations with tracked baselines. Existing debt may remain; new fingerprints or increased occurrences fail.
-
-Baseline updates require all of the following:
-
-1. An intentional architecture/design-system decision.
-2. The corresponding contract update.
-3. Explicit review of why debt must increase.
-4. `ALLOW_HARNESS_BASELINE_UPDATE=1` when invoking `--write-baseline`.
-
-Ordinary feature work must not update a baseline. Suppression comments are not supported; fix the seam or add a reviewed checker-level exception with a narrow reason.
-
-## 10. Migration sequence
-
-1. Keep baseline debt from growing.
-2. Consolidate `components/ui.tsx` and `components/ui/*` behind one public interface.
-3. Introduce patterns only from proven repeated structures.
-4. Move one domain at a time into `features/`, beginning with high-change routes.
-5. Replace tests that reach through old shallow modules with tests at the new feature interface.
-6. Reduce baseline records in the same change that removes the debt.
+1. Consolidate `components/ui.tsx` and `components/ui/*` behind one public interface.
+2. Introduce patterns only from proven repeated structures.
+3. Move one domain at a time into `features/`, beginning with high-change routes.
+4. Replace tests that reach through old shallow modules with tests at the new feature interface.
 
 Do not create empty feature directories, pass-through wrappers, or a repository-wide rewrite merely to match this document.

@@ -140,45 +140,30 @@ npm run dev
 
 Mở <http://localhost:3000/en> hoặc <http://localhost:3000/vi>. Frontend server gọi backend qua `API_URL` (mặc định local là `http://localhost:8001`); browser luôn gọi `/api` same-origin.
 
-## Verification harness
+## Kiểm tra cục bộ
 
-Chạy từ root repository.
-
-Gate frontend mặc định (design/module guards + TypeScript + i18n + unit tests). **Không** compile production — bước đó khoảng 1 phút và CI đã chạy:
+Chạy các kiểm tra cần thiết trực tiếp từ từng service. Không dùng verification harness.
 
 ```bash
-# Fast frontend gate for local/agent iteration
-./scripts/verify-frontend.sh
-
-# Frontend including production compile (next.config/middleware/BFF, or handoff)
-RUN_FRONTEND_BUILD=1 ./scripts/verify-frontend.sh
-
-# Architecture guard + migrate marketplace_test rồi chạy toàn bộ backend suite
-./scripts/verify-backend.sh
-
-# Targeted backend tests trong lúc phát triển
-./scripts/verify-backend.sh tests/test_chat_inquiries.py tests/test_chat_orders.py
-
-# Full frontend gate (kèm production build), sau đó full backend gate (tuần tự)
-./scripts/verify-all.sh
+cd frontend
+npm run lint
+npm run check:i18n
+npm test
 ```
 
-Backend suite dùng chung `marketplace_test` và `TRUNCATE` các bảng trước mỗi test. **Không chạy hai tiến trình pytest song song**, kể cả từ agent/worktree khác. Script backend dùng machine-wide lock để chặn việc này.
-
-Có thể chạy riêng architecture guard backend mà không cần database:
+Kiểm tra backend theo file trong lúc phát triển:
 
 ```bash
 cd marketplace-svc
-uv run python scripts/check_architecture.py
+uv run pytest -q tests/test_chat_inquiries.py tests/test_chat_orders.py
 ```
 
-Các baseline chỉ ghi nhận debt có sẵn. Feature work thông thường không được cập nhật baseline để hợp thức hoá violation mới.
+Backend suite dùng chung `marketplace_test` và `TRUNCATE` các bảng trước mỗi test. **Không chạy hai tiến trình pytest song song**, kể cả từ agent/worktree khác.
 
 Các command frontend riêng lẻ:
 
 ```bash
 cd frontend
-npm run check:harness        # design-system + module-boundary guards
 npm run lint                 # hiện là tsc --noEmit
 npm run check:i18n
 npm test                     # toàn bộ unit test trong tests/

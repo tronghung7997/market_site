@@ -1,3 +1,11 @@
+export function authenticatedLoginRedirect(next: string | null, roles: string[]): string {
+  const requestedNext = safeInternalRedirect(next);
+  if (requestedNext) return requestedNext;
+  if (roles.includes("admin")) return "/admin";
+  if (roles.includes("seller")) return "/seller";
+  return "/";
+}
+
 export function safeInternalRedirect(value: string | null): string | null {
   if (!value || !value.startsWith("/") || value.startsWith("//")) return null;
   if (/[\\\0\r\n]/.test(value)) return null;

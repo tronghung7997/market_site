@@ -2,12 +2,13 @@
 
 import { Link, useRouter } from "@/i18n/navigation";
 import { useSearchParams } from "next/navigation";
-import { Suspense, useState } from "react";
+import { Suspense, useEffect, useState } from "react";
 import { useTranslations } from "next-intl";
 import { useAuth } from "@/lib/auth";
 import { api } from "@/lib/api";
 import { Button, Card, Field, Input, Spinner } from "@/components/ui";
 import { Logo } from "@/components/Icons";
+import { authenticatedLoginRedirect } from "@/lib/safe-redirect";
 
 export default function LoginPage() {
   return (
@@ -19,10 +20,13 @@ export default function LoginPage() {
 
 function LoginForm() {
   const t = useTranslations("auth");
-  const { login } = useAuth();
+  const { account, loading, login } = useAuth();
   const router = useRouter();
   const searchParams = useSearchParams();
   const next = searchParams.get("next");
+  const authenticatedDestination = account
+    ? authenticatedLoginRedirect(next, account.roles)
+    : null;
   const [email, setEmail] = useState("");
   const [password, setPassword] = useState("");
   const [error, setError] = useState<string | null>(
@@ -30,19 +34,27 @@ function LoginForm() {
   );
   const [busy, setBusy] = useState(false);
 
+  useEffect(() => {
+    if (!loading && authenticatedDestination) router.replace(authenticatedDestination);
+  }, [authenticatedDestination, loading, router]);
+
   const submit = async (e: React.FormEvent) => {
     e.preventDefault();
     setBusy(true); setError(null);
     try {
       await login(email, password);
       const me = await api.me();
-      router.push(next || (me.roles.includes("admin") ? "/admin" : me.roles.includes("seller") ? "/seller" : "/"));
+      router.replace(authenticatedLoginRedirect(next, me.roles));
     } catch (err) {
       setError(err instanceof Error ? err.message : t("loginFailed"));
     } finally {
       setBusy(false);
     }
   };
+
+  if (loading || account) {
+    return <div className="grid min-h-[calc(100vh-3.5rem)] place-items-center"><Spinner /></div>;
+  }
 
   return (
     <div className="min-h-[calc(100vh-3.5rem)] grid place-items-center px-6 py-12 aura">

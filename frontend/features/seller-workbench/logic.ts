@@ -1,3 +1,9 @@
+import {
+  effectiveMoneyInputCurrency,
+  moneyInputToVnd,
+  vndToMoneyInput,
+} from "../../lib/money/format.ts";
+
 export type Archetype = "A" | "B";
 export type WorkModelB = "B1" | "B2" | "B3";
 
@@ -91,42 +97,9 @@ export interface SellableEvaluation {
 
 export type PriceInputCurrency = "VND" | "USD";
 
-function hasUsableFxRate(fxRate: number | null | undefined): fxRate is number {
-  return typeof fxRate === "number" && Number.isFinite(fxRate) && fxRate > 0;
-}
-
-/** Seller inputs follow the current display currency; persisted prices remain integer VND. */
-export function effectivePriceInputCurrency(
-  currency: PriceInputCurrency,
-  fxRate: number | null | undefined,
-): PriceInputCurrency {
-  return currency === "USD" && hasUsableFxRate(fxRate) ? "USD" : "VND";
-}
-
-export function priceInputToVnd(
-  raw: string,
-  currency: PriceInputCurrency,
-  fxRate: number | null | undefined,
-): number {
-  const value = Number(raw);
-  if (!Number.isFinite(value) || value <= 0) return 0;
-  if (effectivePriceInputCurrency(currency, fxRate) === "USD" && hasUsableFxRate(fxRate)) {
-    return Math.round(value * fxRate);
-  }
-  return Math.round(value);
-}
-
-export function vndToPriceInput(
-  amountVnd: number,
-  currency: PriceInputCurrency,
-  fxRate: number | null | undefined,
-): string {
-  if (!Number.isFinite(amountVnd) || amountVnd <= 0) return "";
-  if (effectivePriceInputCurrency(currency, fxRate) === "USD" && hasUsableFxRate(fxRate)) {
-    return (amountVnd / fxRate).toFixed(6).replace(/\.?0+$/, "");
-  }
-  return String(Math.round(amountVnd));
-}
+export const effectivePriceInputCurrency = effectiveMoneyInputCurrency;
+export const priceInputToVnd = moneyInputToVnd;
+export const vndToPriceInput = vndToMoneyInput;
 
 export function parseResourceLines(raw: string): string[] {
   const seen = new Set<string>();

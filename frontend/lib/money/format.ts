@@ -23,7 +23,7 @@ function intlLocale(locale: FormatLocale): string {
   return locale || "en-US";
 }
 
-function isValidFxRate(rate: number | null | undefined): rate is number {
+export function isValidFxRate(rate: number | null | undefined): rate is number {
   return (
     typeof rate === "number" &&
     Number.isFinite(rate) &&
@@ -184,6 +184,39 @@ export function formatOrderHistoryMoney(
 
 /** @deprecated Alias of formatOrderHistoryMoney. */
 export const formatHistoricalOrderMoney = formatOrderHistoryMoney;
+
+export function effectiveMoneyInputCurrency(
+  currency: DisplayCurrency,
+  fxRate: number | null | undefined,
+): DisplayCurrency {
+  return currency === "USD" && isValidFxRate(fxRate) ? "USD" : "VND";
+}
+
+/** Convert a current-display-currency input back to the integer VND ledger. */
+export function moneyInputToVnd(
+  raw: string,
+  currency: DisplayCurrency,
+  fxRate: number | null | undefined,
+): number {
+  const value = Number(raw);
+  if (!Number.isFinite(value) || value <= 0) return 0;
+  if (effectiveMoneyInputCurrency(currency, fxRate) === "USD" && isValidFxRate(fxRate)) {
+    return Math.round(value * fxRate);
+  }
+  return Math.round(value);
+}
+
+export function vndToMoneyInput(
+  amountVnd: number,
+  currency: DisplayCurrency,
+  fxRate: number | null | undefined,
+): string {
+  if (!Number.isFinite(amountVnd) || amountVnd <= 0) return "";
+  if (effectiveMoneyInputCurrency(currency, fxRate) === "USD" && isValidFxRate(fxRate)) {
+    return (amountVnd / fxRate).toFixed(6).replace(/\.?0+$/, "");
+  }
+  return String(Math.round(amountVnd));
+}
 
 /** Convert VND → USD number for hints (not for display strings). */
 export function vndToUsd(

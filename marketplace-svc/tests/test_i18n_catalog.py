@@ -99,6 +99,8 @@ class _FakeProduct:
             "network_mult": {"DatacenterA": 3.5},
             "network_display": {"DatacenterA": "Dùng riêng"},
             "duration_options": [{"days": 14, "label": "14 ngày"}],
+            "platform_display": {"tiktok": "TikTok VI"},
+            "packages": [{"size": 1000, "label": "Gói 1.000 lượt"}],
         }
         self.i18n = {
             "vi": {
@@ -117,6 +119,8 @@ class _FakeProduct:
                     "field_labels": {"network": "Sharing level"},
                     "network_display": {"DatacenterA": "Dedicated"},
                     "duration_labels": {"14": "14 days"},
+                    "platform_display": {"tiktok": "TikTok"},
+                    "package_labels": {"1000": "1,000 requests"},
                 },
             },
         }
@@ -144,6 +148,8 @@ def test_resolve_structured_product_content_without_changing_price_data():
     assert params["field_labels"]["network"] == "Sharing level"
     assert params["network_display"]["DatacenterA"] == "Dedicated"
     assert params["duration_options"] == [{"days": 14, "label": "14 days"}]
+    assert params["platform_display"] == {"tiktok": "TikTok"}
+    assert params["packages"] == [{"size": 1000, "label": "1,000 requests"}]
 
 
 @pytest.mark.asyncio

@@ -35,6 +35,83 @@ async def test_create_product(client):
 
 
 @pytest.mark.asyncio
+async def test_seller_can_create_and_publish_in_one_selected_language(client):
+    seller_token, _, cat_id = await setup_seller_with_category(client)
+    headers = {"Authorization": f"Bearer {seller_token}"}
+
+    product = await client.post("/seller/products", json={
+        "category_id": cat_id,
+        "title": "English-only service",
+        "description": "Complete English buyer description",
+        "content_locale": "en",
+        "status": "active",
+    }, headers=headers)
+    assert product.status_code == 201, product.text
+    product_id = product.json()["id"]
+
+    variant = await client.post(f"/seller/products/{product_id}/variants", json={
+        "name": "English package",
+        "price": 2500,
+        "delivery_mode": "manual",
+        "sla_hours": 8,
+        "content_locale": "en",
+    }, headers=headers)
+    assert variant.status_code == 201, variant.text
+
+    seller_detail = await client.get(
+        f"/seller/products/{product_id}/detail", headers=headers,
+    )
+    assert seller_detail.status_code == 200
+    assert seller_detail.json()["available_locales"] == ["en"]
+    assert seller_detail.json()["translations"]["en"]["title"] == "English-only service"
+    assert "vi" not in seller_detail.json()["translations"]
+
+    english = await client.get(
+        f"/products/{product_id}", headers={"Accept-Language": "en"},
+    )
+    vietnamese_fallback = await client.get(
+        f"/products/{product_id}", headers={"Accept-Language": "vi"},
+    )
+    assert english.json()["title"] == "English-only service"
+    assert english.json()["variants"][0]["name"] == "English package"
+    assert vietnamese_fallback.json()["title"] == "English-only service"
+    assert vietnamese_fallback.json()["variants"][0]["name"] == "English package"
+
+    updated = await client.patch(f"/seller/products/{product_id}", json={
+        "title": "Updated English-only service",
+        "content_locale": "en",
+    }, headers=headers)
+    assert updated.status_code == 200, updated.text
+    seller_detail = (await client.get(
+        f"/seller/products/{product_id}/detail", headers=headers,
+    )).json()
+    assert seller_detail["translations"]["en"]["title"] == "Updated English-only service"
+    assert "vi" not in seller_detail["translations"]
+
+    vietnamese = await client.post("/seller/products", json={
+        "category_id": cat_id,
+        "title": "Dịch vụ chỉ có tiếng Việt",
+        "description": "Mô tả đầy đủ bằng tiếng Việt",
+        "content_locale": "vi",
+        "status": "active",
+    }, headers=headers)
+    assert vietnamese.status_code == 201, vietnamese.text
+    vietnamese_id = vietnamese.json()["id"]
+    await client.post(f"/seller/products/{vietnamese_id}/variants", json={
+        "name": "Gói tiếng Việt",
+        "price": 2500,
+        "delivery_mode": "manual",
+        "content_locale": "vi",
+    }, headers=headers)
+    english_fallback = await client.get(
+        f"/products/{vietnamese_id}", headers={"Accept-Language": "en"},
+    )
+    assert english_fallback.json()["title"] == "Dịch vụ chỉ có tiếng Việt"
+    assert english_fallback.json()["variants"][0]["name"] == "Gói tiếng Việt"
+    assert english_fallback.json()["available_locales"] == ["vi"]
+
+
+@pytest.mark.asyncio
 async def test_seller_cannot_create_admin_suspended_product(client):
     seller_token, _, cat_id = await setup_seller_with_category(client)
 
@@ -61,6 +138,50 @@ async def test_add_variant(client):
     assert variant.status_code == 201
     assert variant.json()["price"] == 990
     assert variant.json()["delivery_mode"] == "instant"
+
+
+@pytest.mark.asyncio
+async def test_seller_can_translate_variant_name_for_each_storefront_locale(client):
+    seller_token, _, cat_id = await setup_seller_with_category(client)
+    product = await client.post("/seller/products", json={
+        "category_id": cat_id,
+        "title": "Tài khoản Premium",
+        "status": "active",
+    }, headers={"Authorization": f"Bearer {seller_token}"})
+    product_id = product.json()["id"]
+    variant = await client.post(f"/seller/products/{product_id}/variants", json={
+        "name": "Gói một tháng",
+        "price": 990,
+        "delivery_mode": "manual",
+        "sla_hours": 24,
+    }, headers={"Authorization": f"Bearer {seller_token}"})
+    variant_id = variant.json()["id"]
+
+    translated = await client.patch(
+        f"/seller/variants/{variant_id}/translations/en",
+        json={"name": "One-month package"},
+        headers={"Authorization": f"Bearer {seller_token}"},
+    )
+    assert translated.status_code == 200, translated.text
+
+    other_token = await register_and_login(client, "variant_translation_other@example.com")
+    await make_seller("variant_translation_other@example.com")
+    other_token = await register_and_login(client, "variant_translation_other@example.com")
+    forbidden = await client.patch(
+        f"/seller/variants/{variant_id}/translations/en",
+        json={"name": "Hijacked name"},
+        headers={"Authorization": f"Bearer {other_token}"},
+    )
+    assert forbidden.status_code == 403
+
+    en = await client.get(
+        f"/products/{product_id}", headers={"Accept-Language": "en"},
+    )
+    vi = await client.get(
+        f"/products/{product_id}", headers={"Accept-Language": "vi"},
+    )
+    assert en.json()["variants"][0]["name"] == "One-month package"
+    assert vi.json()["variants"][0]["name"] == "Gói một tháng"
 
 
 @pytest.mark.asyncio

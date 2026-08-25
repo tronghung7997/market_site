@@ -129,6 +129,8 @@ export interface ProductPricingLabels {
   field_labels?: Record<string, string>;
   type_display?: Record<string, string>;
   network_display?: Record<string, string>;
+  platform_display?: Record<string, string>;
+  package_labels?: Record<string, string>;
   duration_labels?: Record<string, string>;
 }
 

@@ -1,7 +1,7 @@
 "use client";
 
 import type { ProductLocale, ProductTranslation } from "@/lib/types";
-import { Card, Tag } from "@/components/ui";
+import { Button, Card, Tag } from "@/components/ui";
 import { useTranslations } from "next-intl";
 
 const LANGUAGE_NAMES: Record<ProductLocale, Record<ProductLocale, string>> = {
@@ -32,14 +32,18 @@ export function ProductLanguageRail({
   translations,
   requiredFields = {},
   dirty = false,
+  primaryLocale,
   onChange,
+  onPrimaryLocaleChange,
 }: {
   interfaceLocale: ProductLocale;
   activeLocale: ProductLocale;
   translations?: Partial<Record<ProductLocale, ProductTranslation>> | null;
   requiredFields?: { specs?: boolean; pricingLabels?: boolean };
   dirty?: boolean;
+  primaryLocale?: ProductLocale;
   onChange: (locale: ProductLocale) => void;
+  onPrimaryLocaleChange?: (locale: ProductLocale) => void;
 }) {
   const t = useTranslations("seller");
   const languageNames = LANGUAGE_NAMES[interfaceLocale];
@@ -52,12 +56,16 @@ export function ProductLanguageRail({
           </div>
           <div className="mt-1 text-[12px] text-muted">
             {t("interfaceLanguage", { language: languageNames[interfaceLocale] })} · {t("editingLanguage", { language: languageNames[activeLocale] })}
+            {primaryLocale ? ` · ${t("primaryContentLanguage", { language: languageNames[primaryLocale] })}` : ""}
           </div>
         </div>
         <div className="flex w-full gap-1 rounded-lg border border-line bg-panel p-1 sm:w-auto" role="group" aria-label={t("chooseContentLanguage")}>
           {(["vi", "en"] as ProductLocale[]).map((locale) => {
             const state = translationState(translations?.[locale], t, requiredFields);
             const active = locale === activeLocale;
+            const isOptionalMissing = primaryLocale != null
+              && locale !== primaryLocale
+              && state.tone === "neutral";
             return (
               <button
                 key={locale}
@@ -75,12 +83,23 @@ export function ProductLanguageRail({
                   <span className="whitespace-nowrap text-[12.5px] font-medium">{languageNames[locale]}</span>
                 </span>
                 <Tag tone={active ? "neutral" : state.tone} className={active ? "border-white/30 bg-white/15 text-white" : undefined}>
-                  {active && dirty ? t("translationUnsaved") : state.label}
+                  {active && dirty ? t("translationUnsaved") : isOptionalMissing ? t("translationOptional") : state.label}
                 </Tag>
               </button>
             );
           })}
         </div>
+        {primaryLocale && onPrimaryLocaleChange && activeLocale !== primaryLocale && (
+          <Button
+            type="button"
+            size="sm"
+            variant="ghost"
+            onClick={() => onPrimaryLocaleChange(activeLocale)}
+            className="self-start !px-0 text-[12px] text-iris-hi underline-offset-4 hover:bg-transparent hover:underline sm:self-center"
+          >
+            {t("makePrimaryContentLanguage", { language: languageNames[activeLocale] })}
+          </Button>
+        )}
       </div>
     </Card>
   );

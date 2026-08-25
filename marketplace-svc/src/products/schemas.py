@@ -21,6 +21,10 @@ def _reject_images_blob(data):
 class ProductCreate(BaseModel):
     category_id: int
     title: str
+    # Locale of the scalar buyer content in this command. Existing API clients
+    # omit it and keep the historical VI behavior; the bilingual workbench
+    # sends the seller-selected language explicitly.
+    content_locale: Literal["en", "vi"] = "vi"
     description: str | None = None
     cover_id: CoverId | None = None
     escrow_days: int = 2
@@ -41,6 +45,7 @@ class ProductCreate(BaseModel):
 
 class ProductContentUpdate(BaseModel):
     title: str | None = None
+    content_locale: Literal["en", "vi"] | None = None
     category_id: int | None = None
     description: str | None = None
     cover_id: CoverId | None = None
@@ -126,6 +131,7 @@ class ProductResponse(BaseModel):
 
 class VariantCreate(BaseModel):
     name: str
+    content_locale: Literal["en", "vi"] = "vi"
     price: int = Field(ge=0)
     delivery_mode: Literal["instant", "manual"] = "instant"
     sla_hours: int = 24
@@ -135,12 +141,17 @@ class VariantCreate(BaseModel):
 
 class VariantUpdate(BaseModel):
     name: str | None = None
+    content_locale: Literal["en", "vi"] | None = None
     price: int | None = Field(default=None, ge=0)
     delivery_mode: Literal["instant", "manual"] | None = None
     sla_hours: int | None = None
     sort_order: int | None = None
     is_active: bool | None = None
     duration_days: int | None = None
+
+
+class VariantTranslationUpdate(BaseModel):
+    name: str = Field(min_length=1)
 
 
 class VariantResponse(BaseModel):

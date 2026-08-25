@@ -36,14 +36,15 @@ PRODUCT_TRANSLATION_FIELDS = (
 PRODUCT_LEGACY_MIRROR_FIELDS = (
     "title", "description", "warranty_text", "highlight_text", "features", "specs",
 )
+PRIMARY_LOCALE_KEY = "_primary_locale"
 
 
 def _product_i18n_from_scalars(data: dict, *, existing: dict | None = None, locale: str = "vi") -> dict:
-    """Mirror writable text scalars into i18n[locale] when sellers save content.
+    """Mirror writable text scalars into the seller-selected locale bucket.
 
-    Dual-language form UI lands in a later phase; until then new/updated seller
-    content is stored under ``vi`` (current market language) so the VI catalog
-    stays consistent while EN comes from backfill / explicit i18n.en.
+    ``vi`` remains the default for backward-compatible API clients. The seller
+    workbench sends ``content_locale`` explicitly so an EN-only product never
+    creates a fake Vietnamese translation (and vice versa).
     """
     fields = {
         k: data[k]
@@ -76,8 +77,10 @@ def list_product_covers() -> dict:
 
 async def create_product(seller_id: int, data: dict, db: AsyncSession) -> Product:
     payload = dict(data)
+    content_locale = payload.pop("content_locale", "vi")
     payload["images"] = _images_for_create(payload)
-    payload["i18n"] = _product_i18n_from_scalars(payload)
+    payload["i18n"] = _product_i18n_from_scalars(payload, locale=content_locale)
+    payload["i18n"][PRIMARY_LOCALE_KEY] = content_locale
     product = Product(seller_id=seller_id, **payload)
     db.add(product)
     await db.commit()
@@ -107,6 +110,9 @@ async def _strategy_after_service_type_change(
 
 
 async def update_product(product_id: int, seller_id: int, data: dict, db: AsyncSession) -> Product:
+    data = dict(data)
+    has_content_locale = "content_locale" in data
+    content_locale = data.pop("content_locale", None) or "vi"
     product = await db.get(Product, product_id)
     if not product:
         raise HTTPException(status_code=404, detail="Không tìm thấy sản phẩm")
@@ -123,7 +129,11 @@ async def update_product(product_id: int, seller_id: int, data: dict, db: AsyncS
             setattr(product, key, value)
     text_keys = {"title", "description", "warranty_text", "highlight_text", "features", "specs"}
     if text_keys & data.keys():
-        product.i18n = _product_i18n_from_scalars(data, existing=product.i18n)
+        product.i18n = _product_i18n_from_scalars(
+            data, existing=product.i18n, locale=content_locale,
+        )
+        if has_content_locale:
+            product.i18n = {**product.i18n, PRIMARY_LOCALE_KEY: content_locale}
     await db.commit()
     await db.refresh(product)
     return product
@@ -155,6 +165,9 @@ async def admin_update_product(product_id: int, data: dict, db: AsyncSession) ->
     commission_rate stays on the operations endpoint and variants/stock remain
     seller-managed.
     """
+    data = dict(data)
+    has_content_locale = "content_locale" in data
+    content_locale = data.pop("content_locale", None) or "vi"
     product = await db.get(Product, product_id)
     if not product:
         raise HTTPException(status_code=404, detail="Không tìm thấy sản phẩm")
@@ -169,7 +182,11 @@ async def admin_update_product(product_id: int, data: dict, db: AsyncSession) ->
             setattr(product, key, value)
     text_keys = {"title", "description", "warranty_text", "highlight_text", "features", "specs"}
     if text_keys & data.keys():
-        product.i18n = _product_i18n_from_scalars(data, existing=product.i18n)
+        product.i18n = _product_i18n_from_scalars(
+            data, existing=product.i18n, locale=content_locale,
+        )
+        if has_content_locale:
+            product.i18n = {**product.i18n, PRIMARY_LOCALE_KEY: content_locale}
     await db.commit()
     await db.refresh(product)
     return product
@@ -240,8 +257,12 @@ async def create_variant(product_id: int, seller_id: int, data: dict, db: AsyncS
             detail="Chỉ sản phẩm giá cố định mới sử dụng biến thể",
         )
     payload = dict(data)
+    content_locale = payload.pop("content_locale", "vi")
     if "name" in payload and payload["name"] is not None:
-        payload["i18n"] = merge_i18n_locale({}, "vi", {"name": payload["name"]})
+        payload["i18n"] = merge_i18n_locale(
+            {}, content_locale, {"name": payload["name"]},
+        )
+        payload["i18n"][PRIMARY_LOCALE_KEY] = content_locale
     variant = ProductVariant(product_id=product_id, **payload)
     db.add(variant)
     await db.commit()
@@ -250,6 +271,9 @@ async def create_variant(product_id: int, seller_id: int, data: dict, db: AsyncS
 
 
 async def update_variant(variant_id: int, seller_id: int, data: dict, db: AsyncSession) -> ProductVariant:
+    data = dict(data)
+    has_content_locale = "content_locale" in data
+    content_locale = data.pop("content_locale", None) or "vi"
     variant = await db.get(ProductVariant, variant_id)
     if not variant:
         raise HTTPException(status_code=404, detail="Không tìm thấy gói sản phẩm")
@@ -276,7 +300,35 @@ async def update_variant(variant_id: int, seller_id: int, data: dict, db: AsyncS
             continue
         setattr(variant, key, value)
     if "name" in data and data["name"] is not None:
-        variant.i18n = merge_i18n_locale(variant.i18n, "vi", {"name": data["name"]})
+        variant.i18n = merge_i18n_locale(
+            variant.i18n, content_locale, {"name": data["name"]},
+        )
+        if has_content_locale:
+            variant.i18n = {**variant.i18n, PRIMARY_LOCALE_KEY: content_locale}
+    await db.commit()
+    await db.refresh(variant)
+    return variant
+
+
+async def update_variant_translation(
+    variant_id: int,
+    seller_id: int,
+    locale: str,
+    name: str,
+    db: AsyncSession,
+) -> ProductVariant:
+    variant = await db.get(ProductVariant, variant_id)
+    if not variant:
+        raise HTTPException(status_code=404, detail="Không tìm thấy gói sản phẩm")
+    product = await db.get(Product, variant.product_id)
+    if product.seller_id != seller_id:
+        raise NotOwner()
+    clean_name = name.strip()
+    if not clean_name:
+        raise HTTPException(status_code=422, detail="Tên gói sản phẩm không được để trống")
+    variant.i18n = merge_i18n_locale(variant.i18n, locale, {"name": clean_name})
+    if locale == "vi":
+        variant.name = clean_name
     await db.commit()
     await db.refresh(variant)
     return variant
@@ -865,13 +917,17 @@ def _management_translations(product: Product) -> dict[str, dict]:
         for locale, bucket in (product.i18n or {}).items()
         if locale in {"en", "vi"} and isinstance(bucket, dict)
     }
-    vi = dict(translations.get("vi") or {})
-    for field in PRODUCT_TRANSLATION_FIELDS:
-        value = getattr(product, field, None)
-        if field not in vi and value is not None:
-            vi[field] = value
-    if vi:
-        translations["vi"] = vi
+    # Legacy rows predate explicit locale selection and stored Vietnamese in
+    # scalar columns, so keep their management fallback. New EN-primary rows
+    # carry a marker and must not be presented as if a VI translation exists.
+    if (product.i18n or {}).get(PRIMARY_LOCALE_KEY) != "en":
+        vi = dict(translations.get("vi") or {})
+        for field in PRODUCT_TRANSLATION_FIELDS:
+            value = getattr(product, field, None)
+            if field not in vi and value is not None:
+                vi[field] = value
+        if vi:
+            translations["vi"] = vi
     return translations
 
 

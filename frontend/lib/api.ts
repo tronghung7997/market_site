@@ -206,6 +206,11 @@ export const api = {
     request<Variant>(`/seller/products/${productId}/variants`, { method: "POST", body: JSON.stringify(data) }, true),
   updateVariant: (variantId: number, data: Record<string, unknown>) =>
     request<Variant>(`/seller/variants/${variantId}`, { method: "PATCH", body: JSON.stringify(data) }, true),
+  updateVariantTranslation: (variantId: number, locale: ProductLocale, name: string) =>
+    request<Variant>(`/seller/variants/${variantId}/translations/${locale}`, {
+      method: "PATCH",
+      body: JSON.stringify({ name }),
+    }, true),
   deleteVariant: (variantId: number) =>
     request<void>(`/seller/variants/${variantId}`, { method: "DELETE" }, true),
   addResources: (variantId: number, items: string[]) =>

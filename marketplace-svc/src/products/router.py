@@ -117,6 +117,22 @@ async def update_variant(variant_id: int, body: schemas.VariantUpdate, account: 
     return await service.update_variant(variant_id, account.id, body.model_dump(exclude_unset=True), db)
 
 
+@router.patch(
+    "/seller/variants/{variant_id}/translations/{locale}",
+    response_model=schemas.VariantResponse,
+)
+async def update_variant_translation(
+    variant_id: int,
+    locale: Literal["en", "vi"],
+    body: schemas.VariantTranslationUpdate,
+    account: Account = Depends(require_role("seller")),
+    db: AsyncSession = Depends(get_session),
+):
+    return await service.update_variant_translation(
+        variant_id, account.id, locale, body.name, db,
+    )
+
+
 @router.delete("/seller/variants/{variant_id}", status_code=status.HTTP_204_NO_CONTENT)
 async def delete_variant(variant_id: int, account: Account = Depends(require_role("seller")), db: AsyncSession = Depends(get_session)):
     await service.delete_variant(variant_id, account.id, db)

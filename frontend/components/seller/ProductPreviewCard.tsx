@@ -1,7 +1,7 @@
 "use client";
 
-import { vnd } from "@/lib/api";
-import { useTranslations } from "next-intl";
+import { useLocale, useTranslations } from "next-intl";
+import { useMoney } from "@/lib/money";
 import { formatSpecKey } from "@/lib/utils";
 import { serviceLabel } from "@/lib/labels";
 import { parseCoverId } from "@/lib/product-covers";
@@ -39,6 +39,8 @@ export function ProductPreviewCard({
   coverId?: string | null;
 }) {
   const t = useTranslations("seller");
+  const locale = useLocale();
+  const { formatCheckoutMoney } = useMoney();
   const cleanFeatures = features.filter((f) => f.trim());
   const cleanSpecs = specs.filter((s) => s.key.trim());
   const minPrice = variants.length > 0 ? Math.min(...variants.map((v) => v.price)) : null;
@@ -67,7 +69,7 @@ export function ProductPreviewCard({
             </h4>
             <div className="flex flex-wrap items-center gap-1 mt-1.5">
               {categoryName && <Tag tone="iris">{categoryName}</Tag>}
-              <Tag tone="neutral">{serviceLabel(serviceType)}</Tag>
+              <Tag tone="neutral">{serviceLabel(serviceType, locale)}</Tag>
             </div>
           </div>
         </div>
@@ -75,7 +77,7 @@ export function ProductPreviewCard({
         {minPrice != null && (
           <div className="pt-3 border-t border-line">
             <span className="font-mono text-[18px] font-bold tabular text-iris-hi">
-              {variants.length > 1 ? `${t("previewFrom")} ` : ""}{vnd(minPrice)}
+              {variants.length > 1 ? `${t("previewFrom")} ` : ""}{formatCheckoutMoney(minPrice, { locale })}
             </span>
           </div>
         )}

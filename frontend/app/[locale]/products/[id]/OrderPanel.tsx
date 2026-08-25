@@ -151,7 +151,7 @@ export default function OrderPanel({ product, purchase }: {
                   </span>
                 </div>
 
-                {placeError && <p className="text-bad text-[12.5px]">{placeError}</p>}
+                {placeError && <p className="text-bad text-[12.5px]" role="alert">{placeError}</p>}
 
                 <Button size="lg" block disabled={cta.disabled} onClick={onCtaClick}>
                   {t(cta.labelKey)}

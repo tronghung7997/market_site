@@ -46,7 +46,14 @@ async def bulk_add_resources(variant_id: int, seller_id: int, items: list[str], 
     return len(new_items)
 
 
-async def list_resources(variant_id: int, seller_id: int, db: AsyncSession) -> list[Resource]:
+async def list_resources(
+    variant_id: int,
+    seller_id: int,
+    db: AsyncSession,
+    *,
+    page: int = 1,
+    per_page: int = 10_000,
+) -> tuple[list[Resource], int]:
     variant = await db.get(ProductVariant, variant_id)
     if not variant:
         raise HTTPException(status_code=404, detail="Không tìm thấy gói sản phẩm")
@@ -54,10 +61,16 @@ async def list_resources(variant_id: int, seller_id: int, db: AsyncSession) -> l
     product = await db.get(Product, variant.product_id)
     if product.seller_id != seller_id:
         raise NotOwner()
+    filters = Resource.variant_id == variant_id
+    total = int(await db.scalar(select(func.count()).select_from(Resource).where(filters)) or 0)
     result = await db.execute(
-        select(Resource).where(Resource.variant_id == variant_id).order_by(Resource.created_at.desc())
+        select(Resource)
+        .where(filters)
+        .order_by(Resource.created_at.desc())
+        .offset((page - 1) * per_page)
+        .limit(per_page)
     )
-    return list(result.scalars().all())
+    return list(result.scalars().all()), total
 
 
 async def update_resource_data(resource_id: int, seller_id: int, data: str, db: AsyncSession) -> Resource:

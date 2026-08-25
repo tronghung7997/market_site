@@ -171,6 +171,16 @@ async def test_list_resources(client):
                             headers={"Authorization": f"Bearer {seller_token}"})
     assert resp.status_code == 200
     assert len(resp.json()) >= 2
+    assert resp.headers.get("x-total-count") == str(len(resp.json()))
+
+    page = await client.get(
+        f"/seller/variants/{variant_id}/resources",
+        params={"page": 1, "per_page": 1},
+        headers={"Authorization": f"Bearer {seller_token}"},
+    )
+    assert page.status_code == 200
+    assert len(page.json()) == 1
+    assert int(page.headers["x-total-count"]) >= 2
 
 
 @pytest.mark.asyncio

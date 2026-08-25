@@ -113,6 +113,7 @@ function InventoryConsole() {
 
   // Active variant resources state
   const [resources, setResources] = useState<Resource[]>([]);
+  const [resourceTotal, setResourceTotal] = useState(0);
   const [loadingResources, setLoadingResources] = useState(false);
   const [resourceLoadError, setResourceLoadError] = useState(false);
   const [resourcePage, setResourcePage] = useState(1);
@@ -148,18 +149,22 @@ function InventoryConsole() {
   }, [loadSummary]);
 
   // Load resources for selected variant
-  const loadVariantResources = useCallback(async (variantId: number) => {
+  const loadVariantResources = useCallback(async (variantId: number, page = 1) => {
     const request = resourceRequestGate.current.begin();
     setLoadingResources(true);
     setResourceLoadError(false);
     try {
-      const res = await api.sellerVariantResources(variantId);
+      const res = await api.sellerVariantResources(variantId, {
+        page,
+        perPage: RESOURCES_PAGE_SIZE,
+      });
       if (!resourceRequestGate.current.isCurrent(request)) return;
-      setResources(res);
-      setResourcePage(1);
+      setResources(res.items);
+      setResourceTotal(res.total);
     } catch {
       if (!resourceRequestGate.current.isCurrent(request)) return;
       setResources([]);
+      setResourceTotal(0);
       setResourceLoadError(true);
     } finally {
       if (resourceRequestGate.current.isCurrent(request)) {
@@ -242,16 +247,19 @@ function InventoryConsole() {
     }
   }, [productGroups, selectedProductId]);
 
-  // When selected variant changes, load its resources
+  useEffect(() => {
+    setResourcePage(1);
+    setRestockText("");
+    setUploadedFileName(null);
+    setRestockError(null);
+    setRestockSuccess(null);
+  }, [selectedVariantId]);
+
   useEffect(() => {
     if (selectedVariantId) {
-      loadVariantResources(selectedVariantId);
-      setRestockText("");
-      setUploadedFileName(null);
-      setRestockError(null);
-      setRestockSuccess(null);
+      void loadVariantResources(selectedVariantId, resourcePage);
     }
-  }, [selectedVariantId, loadVariantResources]);
+  }, [selectedVariantId, resourcePage, loadVariantResources]);
 
   // Summary Metrics
   const totalAvailable = rows.reduce((s, r) => s + r.available, 0);
@@ -371,7 +379,7 @@ function InventoryConsole() {
       setRestockSuccess(result.count);
       setRestockText("");
       await loadSummary();
-      await loadVariantResources(activeVariant.variant_id);
+      await loadVariantResources(activeVariant.variant_id, resourcePage);
       setTimeout(() => setRestockSuccess(null), 3000);
     } catch (err: unknown) {
       const msg = err instanceof Error ? err.message : t("inventoryAddFailed");
@@ -386,6 +394,7 @@ function InventoryConsole() {
     try {
       await api.deleteResource(resourceId);
       setResources((prev) => prev.filter((r) => r.id !== resourceId));
+      setResourceTotal((n) => Math.max(0, n - 1));
       if (activeDetailResource?.id === resourceId) {
         setActiveDetailResource(null);
       }
@@ -401,9 +410,10 @@ function InventoryConsole() {
   };
 
   // Export TXT / CSV of available resources
-  const handleExportResources = (type: "txt" | "csv") => {
-    if (!activeVariant || resources.length === 0) return;
-    const availableItems = resources.filter((r) => r.status === "available");
+  const handleExportResources = async (type: "txt" | "csv") => {
+    if (!activeVariant || resourceTotal === 0) return;
+    const all = await api.sellerVariantResources(activeVariant.variant_id, { page: 1, perPage: 10000 });
+    const availableItems = all.items.filter((r) => r.status === "available");
     if (availableItems.length === 0) {
       alert(t("inventoryNoExport"));
       return;
@@ -433,12 +443,8 @@ function InventoryConsole() {
     URL.revokeObjectURL(url);
   };
 
-  // Paginated resources list
-  const totalResourcePages = Math.ceil(resources.length / RESOURCES_PAGE_SIZE);
-  const paginatedResources = useMemo(() => {
-    const start = (resourcePage - 1) * RESOURCES_PAGE_SIZE;
-    return resources.slice(start, start + RESOURCES_PAGE_SIZE);
-  }, [resources, resourcePage]);
+  const totalResourcePages = Math.max(1, Math.ceil(resourceTotal / RESOURCES_PAGE_SIZE));
+  const paginatedResources = resources;
 
   if (loading) {
     return (
@@ -1052,14 +1058,14 @@ function InventoryConsole() {
                     <div className="space-y-2 pt-2">
                       <div className="flex items-center justify-between text-xs">
                         <span className="font-bold text-fg">
-                          {t("inventoryResourceList", { count: resources.length })}
+                          {t("inventoryResourceList", { count: resourceTotal })}
                         </span>
                         <div className="flex items-center gap-2">
                           <Button
                             size="sm"
                             variant="ghost"
-                            onClick={() => handleExportResources("txt")}
-                            disabled={resources.length === 0}
+                            onClick={() => void handleExportResources("txt")}
+                            disabled={resourceTotal === 0}
                             className="h-7 text-[11.5px] text-iris gap-1"
                           >
                             <Download size={12} />
@@ -1068,8 +1074,8 @@ function InventoryConsole() {
                           <Button
                             size="sm"
                             variant="ghost"
-                            onClick={() => handleExportResources("csv")}
-                            disabled={resources.length === 0}
+                            onClick={() => void handleExportResources("csv")}
+                            disabled={resourceTotal === 0}
                             className="h-7 text-[11.5px] text-iris gap-1"
                           >
                             <Download size={12} />
@@ -1088,7 +1094,7 @@ function InventoryConsole() {
                           <Button
                             size="sm"
                             variant="secondary"
-                            onClick={() => activeVariant && loadVariantResources(activeVariant.variant_id)}
+                            onClick={() => activeVariant && void loadVariantResources(activeVariant.variant_id, resourcePage)}
                           >
                             {t("retry")}
                           </Button>
@@ -1209,8 +1215,8 @@ function InventoryConsole() {
                               <span>
                                 {t("paginationResources", {
                                   from: (resourcePage - 1) * RESOURCES_PAGE_SIZE + 1,
-                                  to: Math.min(resourcePage * RESOURCES_PAGE_SIZE, resources.length),
-                                  total: resources.length,
+                                  to: Math.min(resourcePage * RESOURCES_PAGE_SIZE, resourceTotal),
+                                  total: resourceTotal,
                                 })}
                               </span>
                               <Pagination

@@ -1,4 +1,4 @@
-from fastapi import APIRouter, Depends, status
+from fastapi import APIRouter, Depends, Query, Response, status
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from src.auth.dependencies import get_current_account, get_seller_account_jwt_or_api_key, require_role, verify_internal_key
@@ -19,8 +19,19 @@ async def bulk_add(variant_id: int, body: schemas.BulkResourceCreate, account: A
 
 
 @router.get("/seller/variants/{variant_id}/resources", response_model=list[schemas.ResourceResponse])
-async def list_res(variant_id: int, account: Account = Depends(require_role("seller")), db: AsyncSession = Depends(get_session)):
-    return await service.list_resources(variant_id, account.id, db)
+async def list_res(
+    variant_id: int,
+    response: Response,
+    page: int = Query(1, ge=1),
+    per_page: int = Query(10_000, ge=1, le=10_000),
+    account: Account = Depends(require_role("seller")),
+    db: AsyncSession = Depends(get_session),
+):
+    items, total = await service.list_resources(
+        variant_id, account.id, db, page=page, per_page=per_page,
+    )
+    response.headers["X-Total-Count"] = str(total)
+    return items
 
 
 @router.get("/seller/inventory/summary", response_model=list[schemas.InventoryVariantSummary])

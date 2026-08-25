@@ -213,8 +213,32 @@ export const api = {
       method: "POST",
       body: JSON.stringify({ items }),
     }, true),
-  sellerVariantResources: (variantId: number) =>
-    request<Resource[]>(`/seller/variants/${variantId}/resources`, {}, true),
+  sellerVariantResources: async (variantId: number, opts: { page?: number; perPage?: number } = {}) => {
+    const q = new URLSearchParams({
+      page: String(opts.page ?? 1),
+      per_page: String(opts.perPage ?? 25),
+    });
+    const path = `/seller/variants/${variantId}/resources?${q}`;
+    const headers: Record<string, string> = { "Accept-Language": browserLocale() };
+    let res: Response;
+    try {
+      res = await fetch(`${BASE}${path}`, { headers, credentials: "same-origin" });
+    } catch {
+      throw new ApiError(0, "Unable to reach the server. Check your connection and try again.", "NETWORK");
+    }
+    const body = await res.json().catch(() => null);
+    if (!res.ok) {
+      if (res.status === 401) {
+        if (typeof window !== "undefined") window.dispatchEvent(new Event("auth:session-expired"));
+        throw new ApiError(401, "Your session has expired. Please sign in again.", "SESSION_EXPIRED");
+      }
+      throw new ApiError(res.status, responseErrorDetail(body) ?? "Something went wrong. Please try again.");
+    }
+    return {
+      items: Array.isArray(body) ? body as Resource[] : [],
+      total: Number(res.headers.get("X-Total-Count") ?? (Array.isArray(body) ? body.length : 0)),
+    };
+  },
   inventorySummary: () => request<InventoryVariant[]>("/seller/inventory/summary", {}, true),
   updateResource: (resourceId: number, data: string) =>
     request<Resource>(`/seller/resources/${resourceId}`, { method: "PATCH", body: JSON.stringify({ data }) }, true),

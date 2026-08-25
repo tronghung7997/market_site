@@ -12,7 +12,7 @@ import { useMoney } from "@/lib/money";
 import { cn } from "@/lib/cn";
 import { categoryCoverId, parseCoverId } from "@/lib/product-covers";
 import type { Category, Product } from "@/lib/types";
-import { Button, Card, Spinner, Tag } from "@/components/ui";
+import { Button, Card, Input, Spinner, Tag } from "@/components/ui";
 import { ProductCover } from "@/components/products/ProductCover";
 import { Grid, Rows, Search, Shield, Star, Verified } from "@/components/Icons";
 import { SectionHead } from "./SectionHead";
@@ -22,7 +22,7 @@ const COLLAPSED_LIMIT = 8;
 function Pill({ active, onClick, children }: { active: boolean; onClick: () => void; children: React.ReactNode }) {
   return (
     <button onClick={onClick}
-      className={cn("h-8 px-3.5 rounded-full text-[13px] font-medium border transition-colors",
+      className={cn("min-h-11 h-11 px-3.5 rounded-full text-[13px] font-medium border transition-colors",
         active ? "bg-fg text-surface border-fg" : "bg-surface text-muted border-line hover:text-fg hover:border-line-2")}>
       {children}
     </button>
@@ -89,8 +89,14 @@ export function MarketSection({ products, flatCats, active, activeIds, setActive
       <div className="flex flex-wrap items-center gap-3 mb-5">
         <div className="relative flex-1 min-w-[200px] max-w-sm">
           <Search size={16} className="absolute left-3 top-1/2 -translate-y-1/2 text-faint" />
-          <input value={q} onChange={(e) => setQ(e.target.value)} placeholder={t("searchProducts")}
-            className="h-9 w-full rounded-lg bg-surface border border-line pl-9 pr-3 text-[13px] placeholder:text-faint focus:border-iris transition-colors" />
+          <Input
+            type="search"
+            value={q}
+            onChange={(e) => setQ(e.target.value)}
+            placeholder={t("searchProducts")}
+            aria-label={t("searchProducts")}
+            className="pl-9"
+          />
         </div>
         <button onClick={() => setInStockOnly((v) => !v)}
           className={cn("flex items-center gap-2 h-9 px-3 rounded-lg border text-[13px] font-medium transition-colors",

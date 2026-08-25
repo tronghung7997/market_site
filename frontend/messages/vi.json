@@ -1,7 +1,13 @@
 {
   "metadata": {
     "title": "Marketplace — Chợ tài khoản & dữ liệu số cho doanh nghiệp",
-    "description": "Nền tảng cung cấp tài khoản, proxy và dữ liệu số cho doanh nghiệp. Ký quỹ an toàn, giao ngay."
+    "description": "Nền tảng cung cấp tài khoản, proxy và dữ liệu số cho doanh nghiệp. Ký quỹ an toàn, giao ngay.",
+    "categoriesTitle": "Danh mục — Marketplace",
+    "categoriesDescription": "Duyệt danh mục tài khoản số, proxy và dữ liệu.",
+    "categoryTitle": "{name} — Marketplace",
+    "categoryDescription": "Sản phẩm trong {name}.",
+    "productTitle": "{title} — Marketplace",
+    "productDescription": "Mua {title}, giao hàng có ký quỹ bảo vệ."
   },
   "nav": {
     "promo": "Nguồn tài khoản & proxy đã xác minh · 195+ quốc gia · giao ngay, ký quỹ bảo vệ người mua",
@@ -164,7 +170,9 @@
     "contact": "Liên hệ",
     "copyright": "© {year} Marketplace. Demo marketplace.",
     "legal": "Giá đã gồm phí nền tảng · Tuân thủ pháp luật Việt Nam",
-    "linksUnavailableHint": "Các trang này sẽ sớm được bổ sung"
+    "linksUnavailableHint": "Các trang này sẽ sớm được bổ sung",
+    "terms": "Điều khoản",
+    "privacy": "Quyền riêng tư"
   },
   "seller": {
     "applyTitle": "Đăng ký làm nhà bán hàng",
@@ -305,7 +313,7 @@
     "orderDisputedLabel": "Đang khiếu nại",
     "handleDispute": "Xử lý khiếu nại",
     "deliverNow": "Giao hàng ngay",
-    "acceptOrder": "Tiếp nhận đơn",
+    "acceptOrder": "Chấp nhận",
     "orderDetail": "Chi tiết đơn",
     "chatWithBuyer": "Nhắn tin với khách",
     "disputeDetailTitle": "Xử lý khiếu nại đơn hàng",
@@ -423,7 +431,7 @@
     "statusAndDispute": "Tình trạng / khiếu nại",
     "variantShort": "Gói:",
     "ordersInventoryTitle": "Mở quản lý kho hàng cho sản phẩm này",
-    "editProductTitle": "Xem trang chỉnh sửa sản phẩm",
+    "editProductTitle": "Chỉnh sửa sản phẩm",
     "editProductShort": "Sửa SP",
     "chat": "Chat",
     "rated": "Đã đánh giá",
@@ -555,7 +563,6 @@
     "quantity": "SL {count}",
     "orderHintPending": "Đơn mới — bấm Chấp nhận để bắt đầu chuẩn bị hàng cho khách.",
     "orderHintProcessing": "Đã nhận đơn — chuẩn bị xong thì bấm Giao hàng.",
-    "acceptOrder": "Chấp nhận",
     "deliverOrder": "Giao hàng",
     "respondToDispute": "Phản hồi khiếu nại",
     "deliveryData": "Dữ liệu bàn giao",
@@ -602,7 +609,6 @@
     "apiKeyPlaceholder": "Nhập key mới nếu cần thay đổi",
     "configurationWarning": "Sửa cấu hình sẽ đưa provider về trạng thái Chờ admin duyệt lại từ đầu.",
     "saving": "Đang lưu…",
-    "saveChanges": "Lưu thay đổi",
     "newConnection": "Kết nối mới",
     "connectYourBackend": "Kết nối backend của bạn",
     "connectionName": "Tên kết nối",
@@ -728,7 +734,6 @@
     "productName": "Tên sản phẩm *",
     "productNamePlaceholder": "VD: Twitter cổ 2020+ — Trust cao",
     "productCategory": "Danh mục *",
-    "serviceType": "Loại dịch vụ",
     "serviceTypeAccount": "Tài khoản",
     "serviceTypeProxy": "Proxy",
     "serviceTypeToken": "Token",
@@ -756,7 +761,6 @@
     "creatingProduct": "Đang tạo…",
     "createProduct": "Tạo sản phẩm",
     "createProductFailed": "Không thể tạo sản phẩm",
-    "editProductTitle": "Chỉnh sửa sản phẩm",
     "productFallback": "Sản phẩm #{id}",
     "variantCount": "{count} biến thể",
     "viewLanguage": "Xem bản {language}",
@@ -775,8 +779,8 @@
     "noFeatures": "Chưa có tính năng nào.",
     "warrantyTerms": "Điều khoản bảo hành",
     "saveLanguage": "Lưu bản {language}",
-    "unsavedChanges": "Có thay đổi chưa lưu."
-    ,"backToProducts": "Danh sách sản phẩm",
+    "unsavedChanges": "Có thay đổi chưa lưu.",
+    "backToProducts": "Danh sách sản phẩm",
     "productInformation": "Thông tin sản phẩm",
     "sellerLabel": "Seller",
     "escrowLabel": "Ký quỹ",
@@ -870,20 +874,60 @@
       "guideTask": "Khi khách đặt tác vụ, đội vận hành sẽ xử lý thủ công và giao kết quả.",
       "adminAssignment": "Phần này do quản trị viên phụ trách.",
       "strategy": {
-        "fixed": { "label": "Cố định", "description": "Giá đặt trên từng biến thể — khách chọn biến thể và số lượng.", "formula": "Giá = variant.price × số lượng" },
-        "config": { "label": "Cấu hình", "description": "Giá tính theo các tuỳ chọn khách chọn.", "formula": "Giá = giá cơ bản × hệ số loại × hệ số mạng × (số ngày / 30) × số lượng" },
-        "credit": { "label": "Gói credit", "description": "Khách mua gói request và hệ thống trừ credit theo từng lần dùng.", "formula": "Giá = giá mỗi credit × số credit trong gói" },
-        "task": { "label": "Theo tác vụ", "description": "Giá theo nền tảng và số URL; đội vận hành xử lý việc giao hàng.", "formula": "Giá = giá cơ bản × hệ số nền tảng × số URL" }
+        "fixed": {
+          "label": "Cố định",
+          "description": "Giá đặt trên từng biến thể — khách chọn biến thể và số lượng.",
+          "formula": "Giá = variant.price × số lượng"
+        },
+        "config": {
+          "label": "Cấu hình",
+          "description": "Giá tính theo các tuỳ chọn khách chọn.",
+          "formula": "Giá = giá cơ bản × hệ số loại × hệ số mạng × (số ngày / 30) × số lượng"
+        },
+        "credit": {
+          "label": "Gói credit",
+          "description": "Khách mua gói request và hệ thống trừ credit theo từng lần dùng.",
+          "formula": "Giá = giá mỗi credit × số credit trong gói"
+        },
+        "task": {
+          "label": "Theo tác vụ",
+          "description": "Giá theo nền tảng và số URL; đội vận hành xử lý việc giao hàng.",
+          "formula": "Giá = giá cơ bản × hệ số nền tảng × số URL"
+        }
       },
       "adapter": {
-        "seller_pool": { "label": "Kho hàng của bạn", "description": "Giao từ tài nguyên bạn đã nạp ở trang Kho hàng." },
-        "mock": { "label": "Demo", "description": "Dữ liệu giả để thử nghiệm — chưa nối API nhà cung cấp thật." },
-        "manual": { "label": "Xử lý thủ công", "description": "Đội vận hành nhận việc và xử lý thủ công." },
-        "topproxy": { "label": "TopProxy (API thật)", "description": "Cấp phát tự động qua API của TopProxy." },
-        "scrapecreators": { "label": "ScrapeCreators (API thật)", "description": "Cấp phát tự động qua API của ScrapeCreators." },
-        "seller_gateway": { "label": "Gateway seller", "description": "Mỗi request được forward qua API seller và trừ credit." },
-        "seller_task_webhook": { "label": "Webhook tác vụ seller", "description": "Gửi tác vụ cho backend seller xử lý tự động." },
-        "dproxy": { "label": "DProxy (proxy xoay IP)", "description": "Cấp phát proxy riêng cho từng đơn." }
+        "seller_pool": {
+          "label": "Kho hàng của bạn",
+          "description": "Giao từ tài nguyên bạn đã nạp ở trang Kho hàng."
+        },
+        "mock": {
+          "label": "Demo",
+          "description": "Dữ liệu giả để thử nghiệm — chưa nối API nhà cung cấp thật."
+        },
+        "manual": {
+          "label": "Xử lý thủ công",
+          "description": "Đội vận hành nhận việc và xử lý thủ công."
+        },
+        "topproxy": {
+          "label": "TopProxy (API thật)",
+          "description": "Cấp phát tự động qua API của TopProxy."
+        },
+        "scrapecreators": {
+          "label": "ScrapeCreators (API thật)",
+          "description": "Cấp phát tự động qua API của ScrapeCreators."
+        },
+        "seller_gateway": {
+          "label": "Gateway seller",
+          "description": "Mỗi request được forward qua API seller và trừ credit."
+        },
+        "seller_task_webhook": {
+          "label": "Webhook tác vụ seller",
+          "description": "Gửi tác vụ cho backend seller xử lý tự động."
+        },
+        "dproxy": {
+          "label": "DProxy (proxy xoay IP)",
+          "description": "Cấp phát proxy riêng cho từng đơn."
+        }
       },
       "pipeline": {
         "fromInventory": "Lấy từ kho ({provider})",
@@ -894,10 +938,22 @@
         "perRequest": "Dùng theo request",
         "receiveTask": "{provider} nhận task",
         "teamDeliver": "Đội xử lý → giao kết quả",
-        "fixed": { "customer": "Khách chọn variant", "price": "Tính giá cố định" },
-        "config": { "customer": "Khách cấu hình", "price": "Tính giá dynamic" },
-        "credit": { "customer": "Khách mua gói credit", "deduct": "Trừ credit" },
-        "task": { "customer": "Khách đặt tác vụ", "price": "Tính giá theo nền tảng" }
+        "fixed": {
+          "customer": "Khách chọn variant",
+          "price": "Tính giá cố định"
+        },
+        "config": {
+          "customer": "Khách cấu hình",
+          "price": "Tính giá dynamic"
+        },
+        "credit": {
+          "customer": "Khách mua gói credit",
+          "deduct": "Trừ credit"
+        },
+        "task": {
+          "customer": "Khách đặt tác vụ",
+          "price": "Tính giá theo nền tảng"
+        }
       },
       "guide": {
         "fixed": "Khi khách mua, hệ thống sẽ lấy giá từ biến thể, trừ tiền ví và giao hàng tự động.",
@@ -995,7 +1051,8 @@
     "show": "Hiện",
     "delete": "Xoá",
     "add": "Thêm",
-    "close": "Đóng"
+    "close": "Đóng",
+    "skipToContent": "Bỏ qua tới nội dung"
   },
   "auth": {
     "loginTitle": "Đăng nhập",
@@ -1866,7 +1923,12 @@
     "statusRecorded": "Đã ghi nhận",
     "typeDepositUsdt": "Nạp USDT",
     "typeDepositBank": "Nạp chuyển khoản",
-    "filter": { "all": "Tất cả", "in": "Tiền vào", "out": "Tiền ra", "pending": "Đang xử lý" },
+    "filter": {
+      "all": "Tất cả",
+      "in": "Tiền vào",
+      "out": "Tiền ra",
+      "pending": "Đang xử lý"
+    },
     "filtering": "Đang lọc",
     "allHistory": "Toàn bộ",
     "orderNumber": "Đơn hàng #{id}",
@@ -1884,5 +1946,27 @@
       "adjustment_credit": "Điều chỉnh số dư",
       "adjustment_debit": "Điều chỉnh số dư"
     }
+  },
+  "notFound": {
+    "title": "Không tìm thấy trang này",
+    "body": "Link có thể đã cũ hoặc trang đã chuyển. Quay lại chợ để tiếp tục xem.",
+    "backHome": "Về chợ"
+  },
+  "legal": {
+    "termsTitle": "Điều khoản sử dụng",
+    "termsDesc": "Quy tắc khi dùng marketplace này.",
+    "termsP1": "Chợ này bán hàng số và dịch vụ chạy qua nhà cung cấp. Tạo tài khoản nghĩa là bạn đồng ý thanh toán vào ký quỹ, nhận đúng mô tả, và không dùng hàng đã mua để gian lận.",
+    "termsP2": "Seller chịu trách nhiệm nội dung listing và giao hàng. Nền tảng giữ tiền trong cửa sổ bảo hành của listing và có thể hoàn hoặc giữ tiền khi khiếu nại được chấp nhận.",
+    "termsP3": "Chúng tôi có thể khóa tài khoản vi phạm, gồm lạm dụng chargeback, credential stuffing, hoặc bán dữ liệu ăn cắp.",
+    "privacyTitle": "Quyền riêng tư",
+    "privacyDesc": "Cách marketplace xử lý dữ liệu tài khoản.",
+    "privacyP1": "Chúng tôi lưu email và hash mật khẩu lúc đăng ký, cookie phiên, lịch sử đơn, và bút toán ví cần để vận hành chợ.",
+    "privacyP2": "Cookie phiên là HttpOnly, không ghi vào localStorage. Chúng tôi không bán dữ liệu cá nhân. Cổng thanh toán chỉ nhận thông tin cần để nạp hoặc rút.",
+    "privacyP3": "Muốn xem hoặc xóa dữ liệu tài khoản, đăng nhập rồi liên hệ hỗ trợ từ email đã đăng ký.",
+    "escrowTitle": "Chính sách ký quỹ",
+    "escrowDesc": "Ký quỹ bảo vệ người mua hoạt động thế nào.",
+    "escrowP1": "Khi thanh toán, tiền nằm trong ký quỹ đến khi bạn xác nhận đã nhận hàng, hoặc hết cửa sổ ký quỹ mà không có khiếu nại mở.",
+    "escrowP2": "Nếu hàng giao không đúng listing, mở khiếu nại kèm bằng chứng trước khi hết hạn. Khiếu nại được chấp nhận có thể hoàn tiền hoặc đổi hàng.",
+    "escrowP3": "Thời gian ký quỹ gắn trên từng sản phẩm. Hàng giao ngay và dịch vụ nhà cung cấp dùng cùng cơ chế giữ rồi giải ngân cho seller."
   }
 }

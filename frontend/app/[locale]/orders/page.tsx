@@ -165,7 +165,7 @@ export default function OrdersPage() {
   return (
     <div className="w-full mx-auto max-w-7xl px-4 sm:px-6 py-8 space-y-6">
       {toast && (
-        <div className="fixed top-5 right-5 z-50 px-4 py-2.5 rounded-xl text-[13px] font-semibold shadow-card-lg bg-good text-white animate-in fade-in slide-in-from-top-2 duration-200">
+        <div role="status" aria-live="polite" className="fixed top-5 right-5 z-50 px-4 py-2.5 rounded-xl text-[13px] font-semibold shadow-card-lg bg-good text-white animate-in fade-in slide-in-from-top-2 duration-200">
           {toast}
         </div>
       )}

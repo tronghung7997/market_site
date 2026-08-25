@@ -60,6 +60,11 @@ const nextConfig = {
         destination: "/:locale/admin/display-settings",
         permanent: false,
       },
+      {
+        source: "/favicon.ico",
+        destination: "/icon.svg",
+        permanent: false,
+      },
     ];
   },
   async headers() {

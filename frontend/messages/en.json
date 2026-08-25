@@ -1,7 +1,13 @@
 {
   "metadata": {
     "title": "Marketplace — Digital accounts and data marketplace for business",
-    "description": "A marketplace for verified digital accounts, proxies, and data for business. Secure escrow and instant delivery."
+    "description": "A marketplace for verified digital accounts, proxies, and data for business. Secure escrow and instant delivery.",
+    "categoriesTitle": "Categories — Marketplace",
+    "categoriesDescription": "Browse digital account, proxy, and data categories.",
+    "categoryTitle": "{name} — Marketplace",
+    "categoryDescription": "Products in {name}.",
+    "productTitle": "{title} — Marketplace",
+    "productDescription": "Buy {title} with escrow-protected delivery."
   },
   "nav": {
     "promo": "Verified accounts & proxies · 195+ countries · instant delivery with buyer-protected escrow",
@@ -164,7 +170,9 @@
     "contact": "Contact",
     "copyright": "© {year} Marketplace. Demo marketplace.",
     "legal": "Prices include platform fees · Complies with applicable law",
-    "linksUnavailableHint": "More pages coming soon"
+    "linksUnavailableHint": "More pages coming soon",
+    "terms": "Terms of use",
+    "privacy": "Privacy"
   },
   "seller": {
     "applyTitle": "Become a seller",
@@ -273,7 +281,7 @@
     "resourceDetailTitle": "Resource Details",
     "resourceContent": "Resource Content",
     "editResourceContent": "Edit Resource Content",
-    "saveChanges": "Save Changes",
+    "saveChanges": "Save changes",
     "createVariantQuick": "Create New Variant",
     "variantName": "Variant Name",
     "variantPrice": "Price ($)",
@@ -305,7 +313,7 @@
     "orderDisputedLabel": "Disputed",
     "handleDispute": "Resolve Dispute",
     "deliverNow": "Deliver Now",
-    "acceptOrder": "Accept Order",
+    "acceptOrder": "Accept",
     "orderDetail": "Order Details",
     "chatWithBuyer": "Chat with Buyer",
     "disputeDetailTitle": "Order Dispute Resolution",
@@ -423,7 +431,7 @@
     "statusAndDispute": "Status / dispute",
     "variantShort": "Variant:",
     "ordersInventoryTitle": "Open inventory management for this product",
-    "editProductTitle": "Open the product editor",
+    "editProductTitle": "Edit product",
     "editProductShort": "Edit product",
     "chat": "Chat",
     "rated": "Rated",
@@ -555,7 +563,6 @@
     "quantity": "Qty {count}",
     "orderHintPending": "New order — accept it to begin preparing the buyer's item.",
     "orderHintProcessing": "Order accepted — deliver it when preparation is complete.",
-    "acceptOrder": "Accept",
     "deliverOrder": "Deliver",
     "respondToDispute": "Respond to dispute",
     "deliveryData": "Delivery data",
@@ -602,7 +609,6 @@
     "apiKeyPlaceholder": "Enter a new key to change it",
     "configurationWarning": "Editing the configuration sends the provider back for administrator approval.",
     "saving": "Saving…",
-    "saveChanges": "Save changes",
     "newConnection": "New connection",
     "connectYourBackend": "Connect your backend",
     "connectionName": "Connection name",
@@ -728,7 +734,6 @@
     "productName": "Product name *",
     "productNamePlaceholder": "e.g. Twitter 2020+ — high trust",
     "productCategory": "Category *",
-    "serviceType": "Service type",
     "serviceTypeAccount": "Account",
     "serviceTypeProxy": "Proxy",
     "serviceTypeToken": "Token",
@@ -756,7 +761,6 @@
     "creatingProduct": "Creating…",
     "createProduct": "Create product",
     "createProductFailed": "Could not create product",
-    "editProductTitle": "Edit product",
     "productFallback": "Product #{id}",
     "variantCount": "{count} variants",
     "viewLanguage": "View {language} version",
@@ -775,8 +779,8 @@
     "noFeatures": "No features yet.",
     "warrantyTerms": "Warranty terms",
     "saveLanguage": "Save {language} version",
-    "unsavedChanges": "You have unsaved changes."
-    ,"backToProducts": "Product list",
+    "unsavedChanges": "You have unsaved changes.",
+    "backToProducts": "Product list",
     "productInformation": "Product information",
     "sellerLabel": "Seller",
     "escrowLabel": "Escrow",
@@ -870,20 +874,60 @@
       "guideTask": "When a customer places a task, the team processes it manually and delivers the result.",
       "adminAssignment": "This is managed by an administrator.",
       "strategy": {
-        "fixed": { "label": "Fixed", "description": "Price is set on each variant — customers choose a variant and quantity.", "formula": "Price = variant.price × quantity" },
-        "config": { "label": "Configurable", "description": "Price is calculated from the customer's selected options.", "formula": "Price = base × type multiplier × network multiplier × (days / 30) × quantity" },
-        "credit": { "label": "Credit package", "description": "Customers buy a request package and credits are deducted per use.", "formula": "Price = price per credit × package credits" },
-        "task": { "label": "Task-based", "description": "Price is based on platform and URL count; the team handles fulfillment.", "formula": "Price = base × platform multiplier × URL count" }
+        "fixed": {
+          "label": "Fixed",
+          "description": "Price is set on each variant — customers choose a variant and quantity.",
+          "formula": "Price = variant.price × quantity"
+        },
+        "config": {
+          "label": "Configurable",
+          "description": "Price is calculated from the customer's selected options.",
+          "formula": "Price = base × type multiplier × network multiplier × (days / 30) × quantity"
+        },
+        "credit": {
+          "label": "Credit package",
+          "description": "Customers buy a request package and credits are deducted per use.",
+          "formula": "Price = price per credit × package credits"
+        },
+        "task": {
+          "label": "Task-based",
+          "description": "Price is based on platform and URL count; the team handles fulfillment.",
+          "formula": "Price = base × platform multiplier × URL count"
+        }
       },
       "adapter": {
-        "seller_pool": { "label": "Your inventory", "description": "Delivered from resources you added in Inventory." },
-        "mock": { "label": "Demo", "description": "Fake data for testing — no real provider API is connected." },
-        "manual": { "label": "Manual processing", "description": "The operations team receives and handles the task manually." },
-        "topproxy": { "label": "TopProxy (live API)", "description": "Automatically provisioned through the TopProxy API." },
-        "scrapecreators": { "label": "ScrapeCreators (live API)", "description": "Automatically provisioned through the ScrapeCreators API." },
-        "seller_gateway": { "label": "Seller gateway", "description": "Each buyer request is forwarded to the seller API and charged against credits." },
-        "seller_task_webhook": { "label": "Seller task webhook", "description": "Tasks are sent to the seller backend for automated processing." },
-        "dproxy": { "label": "DProxy (rotating IP)", "description": "A dedicated proxy is provisioned for each order." }
+        "seller_pool": {
+          "label": "Your inventory",
+          "description": "Delivered from resources you added in Inventory."
+        },
+        "mock": {
+          "label": "Demo",
+          "description": "Fake data for testing — no real provider API is connected."
+        },
+        "manual": {
+          "label": "Manual processing",
+          "description": "The operations team receives and handles the task manually."
+        },
+        "topproxy": {
+          "label": "TopProxy (live API)",
+          "description": "Automatically provisioned through the TopProxy API."
+        },
+        "scrapecreators": {
+          "label": "ScrapeCreators (live API)",
+          "description": "Automatically provisioned through the ScrapeCreators API."
+        },
+        "seller_gateway": {
+          "label": "Seller gateway",
+          "description": "Each buyer request is forwarded to the seller API and charged against credits."
+        },
+        "seller_task_webhook": {
+          "label": "Seller task webhook",
+          "description": "Tasks are sent to the seller backend for automated processing."
+        },
+        "dproxy": {
+          "label": "DProxy (rotating IP)",
+          "description": "A dedicated proxy is provisioned for each order."
+        }
       },
       "pipeline": {
         "fromInventory": "Take from inventory ({provider})",
@@ -894,10 +938,22 @@
         "perRequest": "Use per request",
         "receiveTask": "{provider} receives task",
         "teamDeliver": "Team processes → deliver result",
-        "fixed": { "customer": "Customer selects variant", "price": "Calculate fixed price" },
-        "config": { "customer": "Customer configures", "price": "Calculate dynamic price" },
-        "credit": { "customer": "Customer buys credit package", "deduct": "Deduct credits" },
-        "task": { "customer": "Customer places task", "price": "Calculate platform price" }
+        "fixed": {
+          "customer": "Customer selects variant",
+          "price": "Calculate fixed price"
+        },
+        "config": {
+          "customer": "Customer configures",
+          "price": "Calculate dynamic price"
+        },
+        "credit": {
+          "customer": "Customer buys credit package",
+          "deduct": "Deduct credits"
+        },
+        "task": {
+          "customer": "Customer places task",
+          "price": "Calculate platform price"
+        }
       },
       "guide": {
         "fixed": "When a customer buys, the system takes the price from the selected variant, charges the wallet, and delivers automatically.",
@@ -995,7 +1051,8 @@
     "show": "Show",
     "delete": "Delete",
     "add": "Add",
-    "close": "Close"
+    "close": "Close",
+    "skipToContent": "Skip to content"
   },
   "auth": {
     "loginTitle": "Sign in",
@@ -1866,7 +1923,12 @@
     "statusRecorded": "Recorded",
     "typeDepositUsdt": "USDT deposit",
     "typeDepositBank": "Bank deposit",
-    "filter": { "all": "All", "in": "Money in", "out": "Money out", "pending": "Processing" },
+    "filter": {
+      "all": "All",
+      "in": "Money in",
+      "out": "Money out",
+      "pending": "Processing"
+    },
     "filtering": "Filtering",
     "allHistory": "All",
     "orderNumber": "Order #{id}",
@@ -1884,5 +1946,27 @@
       "adjustment_credit": "Balance adjustment",
       "adjustment_debit": "Balance adjustment"
     }
+  },
+  "notFound": {
+    "title": "This page is not here",
+    "body": "The link may be outdated, or the page was moved. Go back to the marketplace to keep browsing.",
+    "backHome": "Back to marketplace"
+  },
+  "legal": {
+    "termsTitle": "Terms of use",
+    "termsDesc": "Rules for using this marketplace.",
+    "termsP1": "This marketplace lists digital goods and provider-backed services. Creating an account means you agree to pay into escrow, receive the described delivery, and not use purchased items for fraud or abuse.",
+    "termsP2": "Sellers are responsible for the accuracy of their listings and for fulfilling orders. The platform holds payment in escrow for the listing's warranty window and may reverse or withhold funds when a dispute is upheld.",
+    "termsP3": "We may suspend accounts that violate these terms, including chargeback abuse, credential stuffing, or resale of stolen data.",
+    "privacyTitle": "Privacy",
+    "privacyDesc": "How this marketplace handles account data.",
+    "privacyP1": "We store the email and password hash you register with, session cookies, order history, and wallet ledger entries needed to operate the marketplace.",
+    "privacyP2": "The session cookie is HttpOnly and is not written to localStorage. We do not sell personal data. Payment rail providers receive only what they need to complete a deposit or withdrawal.",
+    "privacyP3": "To review or delete your account data, sign in and contact support from the registered email.",
+    "escrowTitle": "Escrow policy",
+    "escrowDesc": "How buyer-protected escrow works.",
+    "escrowP1": "When you pay, funds stay in escrow until you confirm delivery or the listing's escrow window ends without an open dispute.",
+    "escrowP2": "If the delivered item does not match the listing, open a dispute with evidence before the window closes. Upheld disputes can refund or replace the order.",
+    "escrowP3": "Escrow length is set on each product. Instant stock and provider-backed services follow the same hold, then release to the seller."
   }
 }

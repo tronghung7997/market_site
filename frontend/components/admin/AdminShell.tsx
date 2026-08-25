@@ -38,6 +38,7 @@ const NAV_GROUPS: { label: string; items: NavItem[] }[] = [
       { href: "/admin/reports", label: "Báo cáo", icon: FileText },
       { href: "/admin/resources", label: "Tài nguyên", icon: Package },
       { href: "/admin/logs", label: "Nhật ký", icon: Receipt },
+      { href: "/admin/site-audit", label: "Audit giao diện", icon: ClipboardList },
     ],
   },
 ];

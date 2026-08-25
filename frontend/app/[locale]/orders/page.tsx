@@ -28,6 +28,7 @@ import { formatDate, formatDateTime } from "@/lib/utils";
 import { queryKeys } from "@/lib/query-keys";
 import { useOrders, useOrderStats } from "@/hooks/use-orders";
 import type { Order, PaginatedOrderResponse } from "@/lib/types";
+import { parseCoverId, ProductCover } from "@/features/product-covers";
 import { Button, Card, Pagination, Spinner, Tag } from "@/components/ui";
 import DisputeModal from "./DisputeModal";
 import OrderDetailsModal from "./OrderDetailsModal";
@@ -566,17 +567,20 @@ export default function OrdersPage() {
 
                       {/* PRODUCT TITLE & VARIANT */}
                       <td className="py-3.5 px-3">
-                        <div className="min-w-0">
-                          <div className="font-semibold text-fg group-hover:text-iris transition-colors line-clamp-1">
-                            {o.product_title ?? tc("orderNumber", { id: o.id })}
-                          </div>
-                          <div className="text-[11.5px] text-muted line-clamp-1 mt-0.5">
-                            {o.variant_name ? (
-                              <span className="font-medium text-fg/80 bg-raised/80 px-1.5 py-0.2 rounded border border-line mr-1.5">
-                                Gói: {o.variant_name}
-                              </span>
-                            ) : null}
-                            <span>{tc("qty", { count: o.quantity })}</span>
+                        <div className="flex items-center gap-3 min-w-0">
+                          <ProductCover coverId={parseCoverId(o)} title={o.product_title ?? "??"} className="h-8 w-8 rounded-lg shrink-0" />
+                          <div className="min-w-0">
+                            <div className="font-semibold text-fg group-hover:text-iris transition-colors line-clamp-1">
+                              {o.product_title ?? tc("orderNumber", { id: o.id })}
+                            </div>
+                            <div className="text-[11.5px] text-muted line-clamp-1 mt-0.5">
+                              {o.variant_name ? (
+                                <span className="font-medium text-fg/80 bg-raised/80 px-1.5 py-0.2 rounded border border-line mr-1.5">
+                                  Gói: {o.variant_name}
+                                </span>
+                              ) : null}
+                              <span>{tc("qty", { count: o.quantity })}</span>
+                            </div>
                           </div>
                         </div>
                       </td>

@@ -13,6 +13,7 @@ import {
   isInstantDelivery,
   parseResourceItems,
 } from "@/features/seller-inventory";
+import { parseCoverId, ProductCover } from "@/features/product-covers";
 import { SellerPriceInput, useSellerPriceCurrency } from "@/features/seller-workbench";
 import type { InventoryVariant, Resource } from "@/lib/types";
 import {
@@ -727,7 +728,7 @@ function InventoryConsole() {
                       >
                         <div className="flex items-start justify-between gap-2">
                           <div className="flex items-center gap-2 min-w-0">
-                            <Monogram text={p.title} className="h-7 w-7 rounded-md shrink-0 text-[11px]" />
+                            <ProductCover coverId={parseCoverId(p)} title={p.title} className="h-7 w-7 rounded-md shrink-0 text-[11px]" />
                             <div className="min-w-0">
                               <h4 className="font-semibold text-fg text-[12.5px] truncate max-w-[170px]" title={p.title}>
                                 {p.title}
@@ -792,7 +793,7 @@ function InventoryConsole() {
                 <Card className="p-4 space-y-3">
                   <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-3 pb-3 border-b border-line">
                     <div className="flex items-center gap-3 min-w-0">
-                      <Monogram text={activeProduct.title} className="h-10 w-10 rounded-xl shrink-0" />
+                      <ProductCover coverId={parseCoverId(activeProduct)} title={activeProduct.title} className="h-10 w-10 rounded-xl shrink-0" />
                       <div className="min-w-0">
                         <div className="flex items-center gap-2">
                           <span className="text-[10px] font-bold uppercase tracking-wider text-iris bg-iris-soft px-1.5 py-0.2 rounded">

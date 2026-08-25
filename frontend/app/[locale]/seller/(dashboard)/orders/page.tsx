@@ -9,6 +9,7 @@ import { cn } from "@/lib/cn";
 import { orderStatus } from "@/lib/order-status";
 import { formatDate, formatDateTime } from "@/lib/utils";
 import type { Dispute, Order, Resource } from "@/lib/types";
+import { parseCoverId, ProductCover } from "@/features/product-covers";
 import {
   Button,
   Card,
@@ -667,7 +668,7 @@ function SellerOrdersConsole() {
                       {/* 2. Product, Variant & Direct Inventory Sync Links (Clear & Non-overlapping) */}
                       <td className="px-4 py-3 align-top">
                         <div className="flex items-start gap-2.5">
-                          <Monogram text={o.product_title || "??"} className="h-8 w-8 rounded-lg shrink-0 text-[11px] mt-0.5" />
+                          <ProductCover coverId={parseCoverId(o)} title={o.product_title || "??"} className="h-8 w-8 rounded-lg shrink-0 mt-0.5" />
                           <div className="min-w-0 flex-1">
                             {o.product_id ? (
                               <Link
@@ -1395,7 +1396,7 @@ function SellerOrderDetailModal({
         {/* Header */}
         <div className="p-4 border-b border-line bg-raised/50 flex items-center justify-between shrink-0">
           <div className="flex items-center gap-2.5">
-            <Monogram text={order.product_title || "??"} className="h-9 w-9 rounded-xl shrink-0" />
+            <ProductCover coverId={parseCoverId(order)} title={order.product_title || "??"} className="h-9 w-9 rounded-xl shrink-0" />
             <div>
               <div className="flex items-center gap-2">
                 <Tag tone={st.tone}>{st.label}</Tag>

@@ -14,6 +14,7 @@ import {
   parseResourceItems,
   restockableVariants,
 } from "@/features/seller-inventory";
+import { parseCoverId, ProductCover } from "@/features/product-covers";
 import {
   Button,
   Card,
@@ -538,7 +539,7 @@ export default function SellerProducts() {
                           {/* Product Info */}
                           <td className="px-4 py-3">
                             <div className="flex items-center gap-3">
-                              <Monogram text={p.title} className="h-9 w-9 rounded-lg shrink-0" />
+                              <ProductCover coverId={parseCoverId(p)} title={p.title} className="h-9 w-9 rounded-lg shrink-0" />
                               <div className="min-w-0">
                                 <Link
                                   href={`/seller/products/${p.id}`}
@@ -887,7 +888,7 @@ function InPlaceRestockModal({
         {/* Header */}
         <div className="p-4 border-b border-line bg-raised/50 flex items-center justify-between">
           <div className="flex items-center gap-3">
-            <Monogram text={product.title} className="h-8 w-8 rounded-lg shrink-0" />
+            <ProductCover coverId={parseCoverId(product)} title={product.title} className="h-8 w-8 rounded-lg shrink-0" />
             <div>
               <div className="flex items-center gap-1.5">
                 <span className="text-[10px] font-bold uppercase tracking-wider text-iris bg-iris-soft px-1.5 py-0.2 rounded">

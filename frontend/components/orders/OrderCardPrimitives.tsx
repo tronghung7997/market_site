@@ -12,6 +12,7 @@ import { formatDate, formatDateTime } from "@/lib/utils";
 import type { Dispute, Order, Resource } from "@/lib/types";
 import { evidenceFieldLabel, evidenceTypeLabel } from "@/lib/dispute-evidence";
 import { Card, Disclosure, Monogram, Tag } from "@/components/ui";
+import { parseCoverId, ProductCover } from "@/features/product-covers";
 import { Check } from "@/components/Icons";
 
 const TIMELINE_KEYS = ["pending", "processing", "delivered", "completed"] as const;
@@ -193,7 +194,7 @@ export function TerminalOrderRow({ order: o, viewerRole = "buyer" }: { order: Or
   return (
     <Card className="px-4 py-3">
       <div className="flex items-start gap-3 min-w-0">
-        <Monogram text={o.product_title ?? "??"} className="h-8 w-8 text-[12px] text-faint" />
+        <ProductCover coverId={parseCoverId(o)} title={o.product_title ?? "??"} className="h-8 w-8 shrink-0 text-[12px] text-faint" />
         <div className="min-w-0 flex-1">
           <div className="flex items-center gap-2 min-w-0">
             <span className="text-[13px] font-medium truncate">{o.product_title ?? tc("orderNumber", { id: o.id })}</span>

@@ -24,6 +24,7 @@ import { orderStatus } from "@/lib/order-status";
 import { formatDate, formatDateTime } from "@/lib/utils";
 import { useMoney } from "@/lib/money";
 import type { Order } from "@/lib/types";
+import { parseCoverId, ProductCover } from "@/features/product-covers";
 import { Button, Tag } from "@/components/ui";
 import { Dialog, DialogContent } from "@/components/ui/dialog";
 import OrderProxyPanel from "./OrderProxyPanel";
@@ -180,9 +181,11 @@ export default function OrderDetailsModal({
         {/* Header */}
         <div className="flex items-start justify-between gap-3 border-b border-line pb-4">
           <div className="flex items-center gap-3.5 min-w-0">
-            <div className="flex h-11 w-11 shrink-0 items-center justify-center rounded-xl bg-iris-soft text-iris font-bold text-lg border border-iris/20">
-              📦
-            </div>
+            <ProductCover
+              coverId={parseCoverId(o)}
+              title={o.product_title ?? "??"}
+              className="h-11 w-11 rounded-xl shrink-0"
+            />
             <div className="min-w-0">
               <div className="flex items-center gap-2 flex-wrap">
                 <h2 className="text-[17px] font-bold text-fg tracking-tight truncate">

@@ -13,6 +13,7 @@ export {
   formatHistoricalOrderMoney,
   formatLedgerMoney,
   formatOrderHistoryMoney,
+  formatUnitMoney,
   parseDisplayCurrency,
   vndToUsd,
 } from "./format";

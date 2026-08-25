@@ -7,7 +7,7 @@
 
 import { useState } from "react";
 import { useLocale, useTranslations } from "next-intl";
-import { vnd } from "@/lib/api";
+import { useMoney } from "@/lib/money";
 import { formatDate } from "@/lib/utils";
 import { orderStatus } from "@/lib/order-status";
 import type { Order } from "@/lib/types";
@@ -19,6 +19,7 @@ import { ChevronRight, Star } from "@/components/Icons";
 export default function SellerHistoryRow({ order: o }: { order: Order }) {
   const t = useTranslations("seller");
   const locale = useLocale();
+  const { formatOrderHistoryMoney } = useMoney();
   const st = orderStatus(o.status, locale);
   const [open, setOpen] = useState(false);
 
@@ -44,7 +45,9 @@ export default function SellerHistoryRow({ order: o }: { order: Order }) {
             {o.buyer_email && <> · {o.buyer_email}</>}
           </p>
         </div>
-        <span className="font-mono text-[13px] font-medium tabular shrink-0">{vnd(o.total_amount, locale)}</span>
+        <span className="font-mono text-[13px] font-medium tabular shrink-0">
+          {formatOrderHistoryMoney(o.total_amount, o.display_fx_rate_snapshot, { locale }).text}
+        </span>
         <ChevronRight size={14} className={`text-faint shrink-0 transition-transform ${open ? "rotate-90" : ""}`} />
       </button>
 

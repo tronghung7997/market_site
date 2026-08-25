@@ -2,7 +2,7 @@
 
 import { useLocale, useTranslations } from "next-intl";
 import { useState } from "react";
-import { api, vnd } from "@/lib/api";
+import { api } from "@/lib/api";
 import { useMoney } from "@/lib/money";
 import { formatDate } from "@/lib/utils";
 import type { Wallet, WithdrawRequest } from "@/lib/types";
@@ -145,6 +145,7 @@ export function WithdrawHistory({ withdrawals }: { withdrawals: WithdrawRequest[
   const t = useTranslations("wallet");
   const tw = useTranslations("status.withdraw");
   const locale = useLocale();
+  const { formatLedgerMoney } = useMoney();
   if (withdrawals.length === 0) return null;
   return (
     <Card className="p-5">
@@ -153,7 +154,7 @@ export function WithdrawHistory({ withdrawals }: { withdrawals: WithdrawRequest[
         {withdrawals.map((w) => (
           <div key={w.id} className="flex items-center justify-between text-[13px]">
             <div>
-              <div className="font-mono font-medium tabular">{vnd(w.amount, locale)}</div>
+              <div className="font-mono font-medium tabular">{formatLedgerMoney(w.amount, locale)}</div>
               <div className="text-[11px] text-faint">
                 {formatDate(w.created_at, locale)}
               </div>

@@ -13,6 +13,7 @@ import {
   isInstantDelivery,
   parseResourceItems,
 } from "@/features/seller-inventory";
+import { SellerPriceInput, useSellerPriceCurrency } from "@/features/seller-workbench";
 import type { InventoryVariant, Resource } from "@/lib/types";
 import {
   Button,
@@ -1474,8 +1475,9 @@ function QuickCreateVariantModal({
   onSuccess: (newVariantId: number, price?: number) => void;
 }) {
   const t = useTranslations("seller");
+  const { currency: priceCurrency } = useSellerPriceCurrency();
   const [name, setName] = useState("");
-  const [price, setPrice] = useState("10000");
+  const [price, setPrice] = useState(10000);
   const [deliveryMode, setDeliveryMode] = useState<"instant" | "manual">("instant");
   const [submitting, setSubmitting] = useState(false);
   const [error, setError] = useState<string | null>(null);
@@ -1488,8 +1490,7 @@ function QuickCreateVariantModal({
       setError(t("variantNameRequired"));
       return;
     }
-    const numPrice = Number(price);
-    if (isNaN(numPrice) || numPrice < 0) {
+    if (!Number.isFinite(price) || price < 0) {
       setError(t("variantPriceInvalid"));
       return;
     }
@@ -1499,10 +1500,10 @@ function QuickCreateVariantModal({
     try {
       const created = await api.createVariant(productId, {
         name: name.trim(),
-        price: numPrice,
+        price,
         delivery_mode: deliveryMode,
       });
-      onSuccess(created.id, numPrice);
+      onSuccess(created.id, price);
     } catch (err: unknown) {
       const msg = err instanceof Error ? err.message : t("variantCreateFailed");
       setError(msg);
@@ -1547,15 +1548,8 @@ function QuickCreateVariantModal({
 
           <div className="grid grid-cols-2 gap-3">
             <div className="space-y-1">
-              <label className="font-semibold text-fg">{t("variantPriceVnd")}</label>
-              <Input
-                type="number"
-                min="0"
-                step="1000"
-                value={price}
-                onChange={(e) => setPrice(e.target.value)}
-                className="h-8.5 text-xs font-mono"
-              />
+              <label className="font-semibold text-fg">{t("variantPrice", { currency: priceCurrency })}</label>
+              <SellerPriceInput amountVnd={price} onAmountVndChange={setPrice} />
             </div>
 
             <div className="space-y-1">

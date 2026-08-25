@@ -191,7 +191,7 @@ function CreditPreview({ value, locale, backendReady, backendReason, onChange }:
   onChange?: (value: B2CreditState) => void;
 }) {
   const t = useTranslations("seller.workbench");
-  const { formatCheckoutMoney } = useMoney();
+  const { formatCheckoutMoney, formatUnitMoney } = useMoney();
   const result = calculateB2Price(value);
   return (
     <div className="space-y-3 text-[12px]">
@@ -212,7 +212,7 @@ function CreditPreview({ value, locale, backendReady, backendReason, onChange }:
             >
               <span>
                 <span className="block font-semibold">{locale === "vi" ? `Gói ${item.size.toLocaleString("vi-VN")} lượt` : `${item.size.toLocaleString("en-US")} requests`}</span>
-                <span className="font-mono text-[11px] text-muted">{formatCheckoutMoney(value.creditPrice, { locale })} × {item.size.toLocaleString()}</span>
+                <span className="font-mono text-[11px] text-muted">{formatUnitMoney(value.creditPrice, { locale })} × {item.size.toLocaleString()}</span>
               </span>
               <span className="text-right">
                 <span className="block font-mono font-bold text-iris-hi">{formatCheckoutMoney(total, { locale })}</span>

@@ -8,7 +8,8 @@
 
 import { useState } from "react";
 import { useLocale, useTranslations } from "next-intl";
-import { api, vnd } from "@/lib/api";
+import { api } from "@/lib/api";
+import { useMoney } from "@/lib/money";
 import { orderStatus } from "@/lib/order-status";
 import type { Dispute, Order } from "@/lib/types";
 import ServiceDashboard from "@/components/ServiceDashboard";
@@ -33,6 +34,7 @@ export default function SellerOrderCard({
 }) {
   const t = useTranslations("seller");
   const locale = useLocale();
+  const { formatOrderHistoryMoney } = useMoney();
   const st = orderStatus(o.status, locale);
   const elapsedLabel = (iso: string) => {
     const hours = Math.floor((Date.now() - new Date(iso).getTime()) / 3_600_000);
@@ -70,7 +72,9 @@ export default function SellerOrderCard({
         <span className="text-[11.5px] text-faint">{elapsedLabel(o.created_at)}</span>
         <div className="ml-auto flex items-center gap-2.5">
           <Tag tone={st.tone}>{st.label}</Tag>
-          <span className="font-mono text-[14px] font-semibold tabular">{vnd(o.total_amount, locale)}</span>
+          <span className="font-mono text-[14px] font-semibold tabular">
+            {formatOrderHistoryMoney(o.total_amount, o.display_fx_rate_snapshot, { locale }).text}
+          </span>
         </div>
       </div>
 

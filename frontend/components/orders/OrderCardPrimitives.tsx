@@ -183,13 +183,13 @@ export function TerminalOrderRow({ order: o, viewerRole = "buyer" }: { order: Or
   const t = useTranslations("orders");
   const tc = useTranslations("common");
   const locale = useLocale();
-  const { formatOrderHistoryMoney, formatLedgerMoney } = useMoney();
+  const { formatOrderHistoryMoney } = useMoney();
   const st = orderStatus(o.status, locale);
-  // Seller/admin surfaces stay VND; buyer history uses snapshot/legacy rate.
-  const amountText =
-    viewerRole === "buyer"
-      ? formatOrderHistoryMoney(o.total_amount, o.display_fx_rate_snapshot, { locale }).text
-      : formatLedgerMoney(o.total_amount, locale);
+  const amountText = formatOrderHistoryMoney(
+    o.total_amount,
+    o.display_fx_rate_snapshot,
+    { locale },
+  ).text;
   return (
     <Card className="px-4 py-3">
       <div className="flex items-start gap-3 min-w-0">

@@ -89,10 +89,6 @@ export interface SellableEvaluation {
   totalCount: number;
 }
 
-export function formatVND(n: number, locale: "en" | "vi" = "vi"): string {
-  return new Intl.NumberFormat(locale === "en" ? "en-US" : "vi-VN").format(Math.round(n)) + " đ";
-}
-
 export type PriceInputCurrency = "VND" | "USD";
 
 function hasUsableFxRate(fxRate: number | null | undefined): fxRate is number {

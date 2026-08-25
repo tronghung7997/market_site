@@ -6,7 +6,8 @@ import { motion } from "motion/react";
 import { CartesianGrid, Line, LineChart, ResponsiveContainer, Tooltip, XAxis, YAxis } from "recharts";
 import { Check, Coins, Copy, MousePointerClick, ShoppingBag, UserPlus } from "lucide-react";
 import type { AffiliateStats } from "@/lib/types";
-import { vnd, formatDate } from "@/lib/utils";
+import { useMoney } from "@/lib/money";
+import { formatDate } from "@/lib/utils";
 import { StatsCard } from "@/components/admin/stats-card";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 
@@ -26,9 +27,19 @@ const METRIC_COLORS: Record<MetricKey, string> = {
   commission: "#d97706",
 };
 
-export function AffiliateStatsView({ data }: { data: AffiliateStats }) {
+export function AffiliateStatsView({
+  data,
+  moneyMode = "display",
+}: {
+  data: AffiliateStats;
+  moneyMode?: "display" | "ledger";
+}) {
   const t = useTranslations("affiliate");
   const locale = useLocale();
+  const { formatBrowseMoney, formatLedgerMoney } = useMoney();
+  const formatMoney = (amount: number) => moneyMode === "ledger"
+    ? formatLedgerMoney(amount, locale)
+    : formatBrowseMoney(amount, { locale });
   const numberLocale = locale === "vi" ? "vi-VN" : "en-US";
   const { totals, timeseries, commissions, referred_users, code, link } = data;
   const showSpend = referred_users.length === 0 || referred_users[0].total_spent != null;
@@ -109,7 +120,7 @@ export function AffiliateStatsView({ data }: { data: AffiliateStats }) {
         <motion.div variants={item}>
           <StatsCard
             label={t("commission")}
-            value={vnd(totals.commission)}
+            value={formatMoney(totals.commission)}
             tone="good"
             icon={<Coins size={18} />}
             sub={t("commissionSub")}
@@ -144,7 +155,7 @@ export function AffiliateStatsView({ data }: { data: AffiliateStats }) {
                     <td className="px-5 py-2.5 text-right tabular-nums">{u.order_count}</td>
                     {showSpend && (
                       <td className="px-5 py-2.5 text-right tabular-nums font-semibold">
-                        {u.total_spent && u.total_spent > 0 ? vnd(u.total_spent) : "—"}
+                        {u.total_spent && u.total_spent > 0 ? formatMoney(u.total_spent) : "—"}
                       </td>
                     )}
                   </tr>
@@ -200,7 +211,7 @@ export function AffiliateStatsView({ data }: { data: AffiliateStats }) {
                             {t("tooltipClicks", { clicks: d.clicks })} · {t("tooltipSignups", { signups: d.signups })}
                           </p>
                           <p className="text-slate-300">
-                            {t("tooltipOrders", { orders: d.orders })} · {t("tooltipCommission", { amount: vnd(d.commission) })}
+                            {t("tooltipOrders", { orders: d.orders })} · {t("tooltipCommission", { amount: formatMoney(d.commission) })}
                           </p>
                         </div>
                       );
@@ -242,8 +253,8 @@ export function AffiliateStatsView({ data }: { data: AffiliateStats }) {
                     <td className="px-5 py-2.5 font-mono text-slate-400">#{c.order_id}</td>
                     <td className="px-5 py-2.5">{c.product_title || "—"}</td>
                     <td className="px-5 py-2.5 text-right tabular-nums text-muted">{c.rate_percent}%</td>
-                    <td className="px-5 py-2.5 text-right tabular-nums">{c.order_total != null ? vnd(c.order_total) : "—"}</td>
-                    <td className="px-5 py-2.5 text-right tabular-nums font-semibold text-good">{vnd(c.amount)}</td>
+                    <td className="px-5 py-2.5 text-right tabular-nums">{c.order_total != null ? formatMoney(c.order_total) : "—"}</td>
+                    <td className="px-5 py-2.5 text-right tabular-nums font-semibold text-good">{formatMoney(c.amount)}</td>
                     <td className="px-5 py-2.5 text-muted">{formatDate(c.created_at)}</td>
                   </tr>
                 ))}

@@ -1,14 +1,15 @@
 "use client";
 
 import { Link } from "@/i18n/navigation";
-import { useTranslations } from "next-intl";
+import { useLocale, useTranslations } from "next-intl";
 import { cn } from "@/lib/cn";
+import { useMoney } from "@/lib/money";
 import { Button, Card } from "@/components/ui";
 import { ArrowRight, Bolt, Search, Shield } from "@/components/Icons";
 
 const SOLUTION_META = [
-  { key: "scraper" as const, href: "/products/11", icon: Bolt, accent: "iris" as const },
-  { key: "takedown" as const, href: "/products/12", icon: Shield, accent: "good" as const },
+  { key: "scraper" as const, href: "/products/11", icon: Bolt, accent: "iris" as const, priceVnd: 10 },
+  { key: "takedown" as const, href: "/products/12", icon: Shield, accent: "good" as const, priceVnd: 500_000 },
 ];
 
 const accentMap = {
@@ -30,6 +31,8 @@ const accentMap = {
 
 export default function SolutionsPage() {
   const t = useTranslations("solutions");
+  const locale = useLocale();
+  const { formatUnitMoney } = useMoney();
 
   const solutions = SOLUTION_META.map((meta) => {
     const features = t.raw(`${meta.key}.features`) as { label: string; detail: string }[];
@@ -40,7 +43,7 @@ export default function SolutionsPage() {
       title: t(`${meta.key}.title`),
       subtitle: t(`${meta.key}.subtitle`),
       description: t(`${meta.key}.description`),
-      price: t(`${meta.key}.price`),
+      price: t("pricePerRequest", { price: formatUnitMoney(meta.priceVnd, { locale }) }),
       features,
       stats,
     };

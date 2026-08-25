@@ -284,7 +284,7 @@
     "saveChanges": "Lưu thay đổi",
     "createVariantQuick": "Tạo gói biến thể mới",
     "variantName": "Tên gói biến thể",
-    "variantPrice": "Giá bán ($)",
+    "variantPrice": "Giá bán ({currency}):",
     "deliveryMode": "Chế độ giao hàng",
     "variantCreatedSuccess": "Đã tạo gói biến thể thành công!",
     "currentlyRestocking": "Đang nạp kho cho",
@@ -412,7 +412,6 @@
     "variantCreateFailed": "Không thể tạo gói biến thể",
     "variantCreateTitle": "Tạo gói biến thể mới",
     "variantNamePlaceholder": "VD: Gói 1 tháng / ACC 2FA Live",
-    "variantPriceVnd": "Giá bán (VND):",
     "creating": "Đang tạo…",
     "createVariant": "Tạo gói",
     "orderAcceptFailed": "Không thể tiếp nhận đơn hàng",
@@ -1702,6 +1701,7 @@
     "heroTitle2": "Bảo vệ thương hiệu.",
     "heroSubtitle": "Hai công cụ cốt lõi cho doanh nghiệp vận hành trên nền tảng số — từ khai thác dữ liệu đến bảo vệ nội dung.",
     "priceFrom": "Giá từ",
+    "pricePerRequest": "{price} / yêu cầu",
     "trustTitle": "An tâm sử dụng",
     "ctaTitle": "Cần tư vấn giải pháp riêng?",
     "ctaSubtitle": "Đội ngũ Marketplace sẵn sàng hỗ trợ doanh nghiệp của bạn tìm giải pháp phù hợp nhất.",
@@ -1736,7 +1736,6 @@
           "detail": "Python, Node.js"
         }
       ],
-      "price": "Từ 10 ₫ / request",
       "stats": [
         {
           "value": "67",
@@ -1775,7 +1774,6 @@
           "detail": "Tỷ lệ thành công"
         }
       ],
-      "price": "Từ 500.000 ₫ / yêu cầu",
       "stats": [
         {
           "value": "143",

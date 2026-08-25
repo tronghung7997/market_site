@@ -13,7 +13,7 @@
 import {
   LEGACY_ORDER_DISPLAY_FX_RATE,
   type DisplayCurrency,
-} from "./constants";
+} from "./constants.ts";
 
 export type FormatLocale = string; // "en" | "vi" | full BCP-47
 
@@ -69,7 +69,7 @@ function formatUsd(
     // vi-VN defaults to "US$" (CLDR); narrowSymbol keeps a plain "$".
     currencyDisplay: "narrowSymbol",
     minimumFractionDigits: 2,
-    maximumFractionDigits: 2,
+    maximumFractionDigits: usd > 0 && usd < 0.01 ? 6 : 2,
   }).format(usd);
 }
 
@@ -93,6 +93,25 @@ export function formatBrowseMoney(
   ctx: DisplayMoneyContext,
 ): string {
   return formatByCurrency(amountVnd, ctx);
+}
+
+/** Unit rates may be below one US cent; preserve enough precision to avoid $0.00. */
+export function formatUnitMoney(
+  amountVnd: number,
+  { locale = "en", currency, fxRate }: DisplayMoneyContext,
+): string {
+  if (currency !== "USD" || !isValidFxRate(fxRate)) {
+    return formatLedgerMoney(amountVnd, locale);
+  }
+  const usd = amountVnd / fxRate;
+  if (!Number.isFinite(usd)) return formatLedgerMoney(amountVnd, locale);
+  return new Intl.NumberFormat(intlLocale(locale), {
+    style: "currency",
+    currency: "USD",
+    currencyDisplay: "narrowSymbol",
+    minimumFractionDigits: 2,
+    maximumFractionDigits: usd > 0 && usd < 0.01 ? 6 : 2,
+  }).format(usd);
 }
 
 /**

@@ -2,8 +2,9 @@
 
 import { useCallback, useEffect, useState } from "react";
 import { useLocale, useTranslations } from "next-intl";
-import { api, vnd, ApiError } from "@/lib/api";
+import { api, ApiError } from "@/lib/api";
 import { cn } from "@/lib/cn";
+import { useMoney } from "@/lib/money";
 import { formatDate } from "@/lib/utils";
 import type { Wallet, WithdrawRequest } from "@/lib/types";
 import { Button, Card, Input, Spinner, Tag } from "@/components/ui";
@@ -13,6 +14,7 @@ import { Wallet as WalletIcon } from "@/components/Icons";
 export default function SellerWithdrawalsPage() {
   const t = useTranslations("seller");
   const locale = useLocale();
+  const { formatBrowseMoney, formatLedgerMoney } = useMoney();
   const [wallet, setWallet] = useState<Wallet | null>(null);
   const [reqs, setReqs] = useState<WithdrawRequest[]>([]);
   const [loading, setLoading] = useState(true);
@@ -90,11 +92,11 @@ export default function SellerWithdrawalsPage() {
               <WalletIcon size={13} /> {t("availableBalance")}
             </div>
             <div className="font-mono text-[30px] font-semibold tabular tracking-tight mt-1">
-              {vnd(wallet.available_balance, locale)}
+              {formatBrowseMoney(wallet.available_balance, { locale })}
             </div>
             {wallet.locked_balance > 0 && (
               <p className="text-[12px] text-muted mt-2">
-                {t("lockedPending", { amount: vnd(wallet.locked_balance, locale) })}
+                {t("lockedPending", { amount: formatBrowseMoney(wallet.locked_balance, { locale }) })}
               </p>
             )}
           </Card>
@@ -133,7 +135,7 @@ export default function SellerWithdrawalsPage() {
                       t("withdrawUnlimitedPolicy", { tier: tierLabels[policy.tier] ?? policy.tier })
                     ) : (
                       t("withdrawLimitPolicy", {
-                        amount: vnd(limit, locale),
+                        amount: formatLedgerMoney(limit, locale),
                         tier: tierLabels[policy.tier] ?? policy.tier,
                       })
                     )
@@ -152,13 +154,13 @@ export default function SellerWithdrawalsPage() {
 
             {overBalance && (
               <p className="text-[12px] text-bad">
-                {t("withdrawOverBalance", { amount: vnd(wallet.available_balance, locale) })}
+                {t("withdrawOverBalance", { amount: formatLedgerMoney(wallet.available_balance, locale) })}
               </p>
             )}
             {overLimit && !overBalance && limit !== null && (
               <p className="text-[12px] text-bad">
                 {t("withdrawOverLimit", {
-                  amount: vnd(limit, locale),
+                  amount: formatLedgerMoney(limit, locale),
                   tier: tierLabels[policy!.tier] ?? policy!.tier,
                 })}
               </p>
@@ -192,7 +194,7 @@ export default function SellerWithdrawalsPage() {
                 return (
                   <div key={r.id} className="flex items-center gap-4 px-5 py-3.5">
                     <div className="min-w-0 flex-1">
-                      <div className="font-mono text-[14px] font-semibold tabular">{vnd(r.amount, locale)}</div>
+                      <div className="font-mono text-[14px] font-semibold tabular">{formatLedgerMoney(r.amount, locale)}</div>
                       <div className="text-[11.5px] text-faint mt-0.5">
                         {formatDate(r.created_at)} · #{r.id}
                       </div>

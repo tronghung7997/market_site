@@ -4,7 +4,8 @@ import { Link } from "@/i18n/navigation";
 import { useLocale, useTranslations } from "next-intl";
 import { useEffect, useMemo, useState } from "react";
 import { Bar, BarChart, Cell, ResponsiveContainer, Tooltip, XAxis, YAxis } from "recharts";
-import { api, vnd } from "@/lib/api";
+import { api } from "@/lib/api";
+import { useMoney } from "@/lib/money";
 import type { Order, SellerStats } from "@/lib/types";
 import { Button, Card, Spinner } from "@/components/ui";
 import { BarChart as BarIcon, Check, Clock, Inbox, Package, Plus } from "@/components/Icons";
@@ -40,6 +41,7 @@ function build7DayRevenue(orders: Order[], locale: string) {
 export default function SellerDashboard() {
   const t = useTranslations("seller");
   const locale = useLocale();
+  const { formatBrowseMoney } = useMoney();
   const [stats, setStats] = useState<SellerStats | null>(null);
   const [orders, setOrders] = useState<Order[]>([]);
   const [loading, setLoading] = useState(true);
@@ -93,7 +95,7 @@ export default function SellerDashboard() {
       <div className="grid gap-4 sm:grid-cols-2 lg:grid-cols-4">
         <StatCard icon={Package} label={t("totalProducts")} value={String(stats?.product_count ?? 0)} sub={t("activeProducts", { count: stats?.active_count ?? 0 })} />
         <StatCard icon={Inbox} label={t("totalOrders")} value={String(total)} sub={pending ? t("pendingOrders", { count: pending }) : t("noPendingOrders")} tone={pending ? "warn" : undefined} />
-        <StatCard icon={BarIcon} label={t("revenue")} value={vnd(stats?.total_revenue ?? 0, locale)} sub={t("deliveredRevenue")} />
+        <StatCard icon={BarIcon} label={t("revenue")} value={formatBrowseMoney(stats?.total_revenue ?? 0, { locale })} sub={t("deliveredRevenue")} />
         <StatCard icon={Check} label={t("completionRate")} value={`${completionRate}%`} sub={t("orderCount", { completed, total })} tone={completionRate < 50 && total > 0 ? "warn" : undefined} />
       </div>
 
@@ -121,7 +123,7 @@ export default function SellerDashboard() {
                         return (
                           <div className="bg-slate-900 text-white px-3 py-2 rounded-lg text-[12px] shadow-lg">
                             <p className="font-medium">{d.full}</p>
-                            <p className="text-slate-300">{vnd(d.value, locale)}</p>
+                            <p className="text-surface/75">{formatBrowseMoney(d.value, { locale })}</p>
                           </div>
                         );
                       }

@@ -284,7 +284,7 @@
     "saveChanges": "Save changes",
     "createVariantQuick": "Create New Variant",
     "variantName": "Variant Name",
-    "variantPrice": "Price ($)",
+    "variantPrice": "Price ({currency}):",
     "deliveryMode": "Delivery Mode",
     "variantCreatedSuccess": "Variant created successfully!",
     "currentlyRestocking": "Restocking into",
@@ -412,7 +412,6 @@
     "variantCreateFailed": "Could not create the variant",
     "variantCreateTitle": "Create a new variant",
     "variantNamePlaceholder": "e.g. 1-month package / 2FA live account",
-    "variantPriceVnd": "Price (VND):",
     "creating": "Creating…",
     "createVariant": "Create variant",
     "orderAcceptFailed": "Could not accept the order",
@@ -1702,6 +1701,7 @@
     "heroTitle2": "Protect your brand.",
     "heroSubtitle": "Two core tools for teams operating on digital platforms — from data extraction to content protection.",
     "priceFrom": "From",
+    "pricePerRequest": "{price} / request",
     "trustTitle": "Built for peace of mind",
     "ctaTitle": "Need a custom solution?",
     "ctaSubtitle": "Marketplace’s team can help your business find the right fit.",
@@ -1736,7 +1736,6 @@
           "detail": "Python, Node.js"
         }
       ],
-      "price": "From 10 ₫ / request",
       "stats": [
         {
           "value": "67",
@@ -1775,7 +1774,6 @@
           "detail": "Success rate"
         }
       ],
-      "price": "From 500,000 ₫ / request",
       "stats": [
         {
           "value": "143",

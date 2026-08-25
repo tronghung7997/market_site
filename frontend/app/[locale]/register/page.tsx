@@ -8,6 +8,7 @@ import { useAuth } from "@/lib/auth";
 import { getCookie } from "@/lib/utils";
 import { Button, Card, Field, Input, Spinner } from "@/components/ui";
 import { Logo } from "@/components/Icons";
+import { PASSWORD_MIN_LENGTH } from "@/lib/auth-validation";
 
 export default function RegisterPage() {
   return (
@@ -52,7 +53,7 @@ function RegisterForm() {
         </div>
         <form onSubmit={submit} className="flex flex-col gap-4">
           <Field label={t("email")}><Input type="email" required value={email} onChange={(e) => setEmail(e.target.value)} placeholder="you@company.com" autoComplete="email" /></Field>
-          <Field label={t("password")} hint={t("passwordHint")}><Input type="password" required minLength={8} value={password} onChange={(e) => setPassword(e.target.value)} placeholder="••••••••" autoComplete="new-password" /></Field>
+          <Field label={t("password")} hint={t("passwordHint", { min: PASSWORD_MIN_LENGTH })}><Input type="password" required minLength={PASSWORD_MIN_LENGTH} value={password} onChange={(e) => setPassword(e.target.value)} placeholder="••••••••" autoComplete="new-password" /></Field>
           {error && <p className="text-bad text-[13px]">{error}</p>}
           <Button type="submit" block size="lg" disabled={busy}>{busy ? t("creating") : t("registerTitle")}</Button>
         </form>

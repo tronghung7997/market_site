@@ -1070,7 +1070,6 @@
     "passwordMin": "Password must contain at least {min} characters.",
     "passwordTooLong": "Password cannot exceed {max} characters.",
     "passwordByteLimit": "Password cannot exceed {max} bytes. Some accented characters use more than one byte.",
-    "passwordCommon": "This password is too common. Choose a stronger password.",
     "confirmPassword": "Confirm password",
     "confirmPasswordRequired": "Enter the password again.",
     "passwordMismatch": "The two passwords do not match.",

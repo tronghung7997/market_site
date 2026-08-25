@@ -159,12 +159,12 @@ async def test_weak_registration_password_is_rejected(client):
 
 
 @pytest.mark.asyncio
-async def test_common_registration_password_is_rejected(client):
+async def test_eight_character_registration_password_is_accepted(client):
     response = await client.post(
         "/auth/register",
-        json={"email": "common@example.com", "password": "password1234"},
+        json={"email": "eightchars@example.com", "password": "passw0rd"},
     )
-    assert response.status_code == 422
+    assert response.status_code == 201
 
 
 @pytest.mark.asyncio

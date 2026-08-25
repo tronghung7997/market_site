@@ -1070,7 +1070,6 @@
     "passwordMin": "Mật khẩu phải có ít nhất {min} ký tự.",
     "passwordTooLong": "Mật khẩu không được vượt quá {max} ký tự.",
     "passwordByteLimit": "Mật khẩu không được vượt quá {max} byte. Một số ký tự có dấu chiếm nhiều hơn 1 byte.",
-    "passwordCommon": "Mật khẩu này quá phổ biến, vui lòng chọn mật khẩu mạnh hơn.",
     "confirmPassword": "Nhập lại mật khẩu",
     "confirmPasswordRequired": "Vui lòng nhập lại mật khẩu.",
     "passwordMismatch": "Hai mật khẩu không khớp nhau.",

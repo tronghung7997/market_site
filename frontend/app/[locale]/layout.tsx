@@ -2,6 +2,7 @@ import "../globals.css";
 import type { Metadata } from "next";
 import type { ReactNode } from "react";
 import { pageMetadata, siteOrigin } from "@/lib/seo";
+import { SERVER_API_BASE } from "@/lib/server-api";
 import { Suspense } from "react";
 import { Newsreader, Be_Vietnam_Pro, JetBrains_Mono } from "next/font/google";
 import { hasLocale, NextIntlClientProvider } from "next-intl";
@@ -30,9 +31,8 @@ import { routing } from "@/i18n/routing";
  * Returns null on failure so CurrencyProvider can client-retry via /api proxy.
  */
 async function loadMoneyConfig(): Promise<MoneyConfig | null> {
-  const base = process.env.API_URL ?? "http://localhost:8001";
   try {
-    const res = await fetch(`${base}/public/money-config`, {
+    const res = await fetch(`${SERVER_API_BASE}/public/money-config`, {
       // Short-lived cache — admin rate changes should show within a minute.
       next: { revalidate: 30 },
     });

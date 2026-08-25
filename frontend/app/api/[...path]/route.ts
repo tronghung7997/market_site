@@ -1,12 +1,9 @@
 import { NextRequest, NextResponse } from "next/server";
 import { adminRequestAllowed, isAdminApiPath } from "@/lib/admin-access";
+import { SERVER_API_BASE } from "@/lib/server-api";
 
 const SESSION_COOKIE = "dx_session";
-const API_TARGET = (
-  process.env.BUILT_API_URL
-  ?? process.env.API_URL
-  ?? "http://localhost:8001"
-).replace(/\/$/, "");
+const API_TARGET = SERVER_API_BASE;
 const IS_PRODUCTION = process.env.NODE_ENV === "production";
 const UNSAFE_METHODS = new Set(["POST", "PUT", "PATCH", "DELETE"]);
 

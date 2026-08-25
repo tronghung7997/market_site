@@ -188,7 +188,10 @@ def row_to_admin(row: MailRuntimeConfig) -> dict:
 
 
 async def admin_config(db: AsyncSession) -> dict:
+    from .catalog import ensure_seeded as ensure_templates_seeded
+
     row = await ensure_seeded(db)
+    await ensure_templates_seeded(db)
     await db.commit()
     row = await get_config_row(db)
     assert row is not None

@@ -1,5 +1,5 @@
 import type {
-  Account, ActionItem, AdminDepositIntent, AdminDepositLedgerQuery, AdminDepositLedgerResponse, AdminDepositTransaction, AdminDisputeDetail, AdminOrderDetail, AdminProduct, AdminResourceListResponse, AffiliateStats, AffiliateSummary, CalculateResult, Category, ChargeUsageResult, ChatConversationDetail, ChatConversationList, ChatMessage, DashboardData, DepositIntent, DepositMethods, DepositReconcileResult, DepositRailConfigAdmin, DepositRailConfigUpdate, Dispute, SePayWebhookEventRow, AdminAccountWallet, FundOverview, AccountAdminRow, PaginatedAccounts, LogEntry, MailConfigAdmin, MailConfigUpdate, MailOutboxList, MailSendTestResponse, MoneyConfigAdmin, MoneyConfigPublic, MoneyConfigUpdate, Order, OrderStats, PaginatedAffiliateSummary, PaginatedOrderResponse, PaginatedProducts, PricingField, PricingOptions, ProductDetail, AdminProductDetail, Product, ProductLocale, ProductOperations, ProductTranslation, ProxyState, ProxyRotateResult, ProxyWhitelistResult, Review, SellerApplication, SellerProduct, SellerStats, ServiceTask, TikTokLookupResponse, Transaction, Variant, Wallet, WithdrawRequest, Provider, ProviderHealth, Alert, Resource, ResourceSummary, ResourceSellerFacet, InventoryVariant, SellerSummary, SellerProfile, SellerApiKey, SellerApiKeyCreated,
+  Account, ActionItem, AdminDepositIntent, AdminDepositLedgerQuery, AdminDepositLedgerResponse, AdminDepositTransaction, AdminDisputeDetail, AdminOrderDetail, AdminProduct, AdminResourceListResponse, AffiliateStats, AffiliateSummary, CalculateResult, Category, ChargeUsageResult, ChatConversationDetail, ChatConversationList, ChatMessage, DashboardData, DepositIntent, DepositMethods, DepositReconcileResult, DepositRailConfigAdmin, DepositRailConfigUpdate, Dispute, SePayWebhookEventRow, AdminAccountWallet, FundOverview, AccountAdminRow, PaginatedAccounts, LogEntry, MailConfigAdmin, MailConfigUpdate, MailOutboxList, MailSendTestResponse, MailTemplatePreview, MailTemplateRow, MoneyConfigAdmin, MoneyConfigPublic, MoneyConfigUpdate, Order, OrderStats, PaginatedAffiliateSummary, PaginatedOrderResponse, PaginatedProducts, PricingField, PricingOptions, ProductDetail, AdminProductDetail, Product, ProductLocale, ProductOperations, ProductTranslation, ProxyState, ProxyRotateResult, ProxyWhitelistResult, Review, SellerApplication, SellerProduct, SellerStats, ServiceTask, TikTokLookupResponse, Transaction, Variant, Wallet, WithdrawRequest, Provider, ProviderHealth, Alert, Resource, ResourceSummary, ResourceSellerFacet, InventoryVariant, SellerSummary, SellerProfile, SellerApiKey, SellerApiKeyCreated,
 } from "./types";
 
 // Browser requests are always same-origin. This prevents a production bundle
@@ -561,6 +561,22 @@ export const api = {
   },
   adminRetryMailOutbox: (id: number) =>
     request<MailOutboxList["items"][number]>(`/admin/mail-outbox/${id}/retry`, { method: "POST" }, true),
+  adminMailTemplates: () => request<{ items: MailTemplateRow[] }>("/admin/mail-templates", {}, true),
+  adminUpdateMailTemplate: (body: { template: string; locale: "vi" | "en"; subject: string; body: string }) =>
+    request<MailTemplateRow>("/admin/mail-templates", {
+      method: "PATCH",
+      body: JSON.stringify(body),
+    }, true),
+  adminResetMailTemplate: (template: string, locale: "vi" | "en") =>
+    request<MailTemplateRow>("/admin/mail-templates/reset", {
+      method: "POST",
+      body: JSON.stringify({ template, locale }),
+    }, true),
+  adminPreviewMailTemplate: (body: { template: string; locale: "vi" | "en"; subject: string; body: string }) =>
+    request<MailTemplatePreview>("/admin/mail-templates/preview", {
+      method: "POST",
+      body: JSON.stringify(body),
+    }, true),
 
   adminResetMoneyConfigToEnv: () =>
     request<{

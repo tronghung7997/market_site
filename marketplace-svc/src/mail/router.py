@@ -5,7 +5,7 @@ from src.auth.dependencies import require_role
 from src.database import get_session
 from src.models.account import Account
 
-from . import runtime, schemas
+from . import catalog, runtime, schemas
 from .errors import (
     MailConfigError,
     MailNotReady,
@@ -114,4 +114,59 @@ async def retry_mail_outbox(
     try:
         return await runtime.retry_outbox(db, outbox_id=outbox_id, actor_id=admin.id)
     except (MailOutboxNotFound, MailOutboxConflict) as exc:
+        _http(exc)
+
+
+@router.get("/admin/mail-templates", response_model=schemas.MailTemplateList)
+async def admin_mail_templates(
+    _: Account = Depends(require_role("admin")),
+    db: AsyncSession = Depends(get_session),
+):
+    return await catalog.list_templates(db)
+
+
+@router.patch("/admin/mail-templates", response_model=schemas.MailTemplateRow)
+async def update_mail_template(
+    body: schemas.MailTemplateUpdate,
+    admin: Account = Depends(require_role("admin")),
+    db: AsyncSession = Depends(get_session),
+):
+    try:
+        return await catalog.update_template(
+            db,
+            actor_id=admin.id,
+            template=body.template,
+            locale=body.locale,
+            subject=body.subject,
+            body=body.body,
+        )
+    except MailConfigError as exc:
+        _http(exc)
+
+
+@router.post("/admin/mail-templates/reset", response_model=schemas.MailTemplateRow)
+async def reset_mail_template(
+    body: schemas.MailTemplateReset,
+    admin: Account = Depends(require_role("admin")),
+    db: AsyncSession = Depends(get_session),
+):
+    try:
+        return await catalog.reset_template(
+            db,
+            actor_id=admin.id,
+            template=body.template,
+            locale=body.locale,
+        )
+    except MailConfigError as exc:
+        _http(exc)
+
+
+@router.post("/admin/mail-templates/preview", response_model=schemas.MailTemplatePreviewResponse)
+async def preview_mail_template(
+    body: schemas.MailTemplatePreviewRequest,
+    _: Account = Depends(require_role("admin")),
+):
+    try:
+        return catalog.preview(body.template, body.locale, body.subject, body.body)
+    except MailConfigError as exc:
         _http(exc)

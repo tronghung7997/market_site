@@ -107,7 +107,7 @@ Do not leak provider payloads throughout feature services. Normalize them into a
 
 `mail` owns the transactional outbox and outbound adapters (log / SMTP / Resend). Feature services call `mail.enqueue_mail` in the same transaction as the domain mutation. They must not import mail adapters. Sending is outbound-only; inbound ports are not required.
 
-Operational mail knobs (`provider`, `mail_from`, `mail_from_name`, `worker_enabled`) live in singleton `mail_runtime_config` (env is bootstrap/reset only), using the shared `runtime_config.ProcessConfigCache`. Provider secrets (`RESEND_API_KEY`, SMTP password) stay in env and are never returned by admin APIs — only boolean configured flags. Admin HTTP for mail config, send-test, and outbox listing lives in `mail.router`; adapters remain behind `mail.factory`.
+Operational mail knobs (`provider`, `mail_from`, `mail_from_name`, `worker_enabled`) live in singleton `mail_runtime_config` (env is bootstrap/reset only), using the shared `runtime_config.ProcessConfigCache`. Subject/body copy lives in `mail_templates` (template+locale), seeded from the code catalog; admin may edit copy but cannot add template ids. Provider secrets (`RESEND_API_KEY`, SMTP password) stay in env and are never returned by admin APIs — only boolean configured flags. Admin HTTP for mail config, templates, send-test, and outbox listing lives in `mail.router`; adapters remain behind `mail.factory`.
 
 ## 4. Dependency rules
 

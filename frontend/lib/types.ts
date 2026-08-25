@@ -498,6 +498,27 @@ export interface MailOutboxList {
   offset: number;
 }
 
+export interface MailTemplateRow {
+  template: string;
+  locale: "vi" | "en";
+  subject: string;
+  body: string;
+  placeholders: string[];
+  default_subject: string;
+  default_body: string;
+  customized: boolean;
+  updated_at?: string | null;
+  updated_by_id?: number | null;
+}
+
+export interface MailTemplatePreview {
+  template: string;
+  locale: string;
+  subject: string;
+  body: string;
+  placeholders: string[];
+}
+
 export type DepositRailConfigUpdate = Partial<{
   sepay_enabled: boolean;
   nowpayments_enabled: boolean;

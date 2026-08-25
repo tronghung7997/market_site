@@ -77,3 +77,47 @@ class MailOutboxList(BaseModel):
     total: int
     limit: int
     offset: int
+
+
+class MailTemplateRow(BaseModel):
+    template: str
+    locale: str
+    subject: str
+    body: str
+    placeholders: list[str]
+    default_subject: str
+    default_body: str
+    customized: bool
+    updated_at: datetime | None = None
+    updated_by_id: int | None = None
+
+
+class MailTemplateList(BaseModel):
+    items: list[MailTemplateRow]
+
+
+class MailTemplateUpdate(BaseModel):
+    template: str = Field(max_length=100)
+    locale: Literal["vi", "en"]
+    subject: str = Field(min_length=1, max_length=200)
+    body: str = Field(min_length=1, max_length=8000)
+
+
+class MailTemplateReset(BaseModel):
+    template: str = Field(max_length=100)
+    locale: Literal["vi", "en"]
+
+
+class MailTemplatePreviewRequest(BaseModel):
+    template: str = Field(max_length=100)
+    locale: Literal["vi", "en"] = "vi"
+    subject: str = Field(min_length=1, max_length=200)
+    body: str = Field(min_length=1, max_length=8000)
+
+
+class MailTemplatePreviewResponse(BaseModel):
+    template: str
+    locale: str
+    subject: str
+    body: str
+    placeholders: list[str]

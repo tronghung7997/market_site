@@ -10,6 +10,7 @@ import type {
   MailProvider,
 } from "@/lib/types";
 import { Button, Input, Select, Spinner, Tag } from "@/components/ui";
+import { MailTemplateEditor } from "./MailTemplateEditor";
 
 function secretTone(ok: boolean): "good" | "warn" {
   return ok ? "good" : "warn";
@@ -318,6 +319,8 @@ export function MailSettingsPanel() {
           </Button>
         </div>
       </section>
+
+      <MailTemplateEditor />
 
       <section className="rounded-card border border-line bg-card p-4 shadow-card">
         <div className="flex flex-wrap items-end justify-between gap-2">

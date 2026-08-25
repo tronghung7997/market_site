@@ -12,6 +12,7 @@ from src.models.mail import MailOutbox, MailOutboxStatus
 from .adapters import MailAdapter, MailMessage, MailSendError
 from .factory import get_mail_adapter
 from .runtime import MailRuntime, current_runtime
+from .catalog import lookup_copy
 from .templates import render
 
 logger = structlog.get_logger()
@@ -26,10 +27,12 @@ def _backoff_seconds(attempts: int) -> int:
 
 
 async def mail_outbox_send_job() -> None:
+    from .catalog import ensure_seeded as ensure_templates_seeded
     from .runtime import ensure_seeded
 
     async with SessionLocal() as db:
         await ensure_seeded(db)
+        await ensure_templates_seeded(db)
         await db.commit()
     if not current_runtime().worker_enabled:
         return
@@ -51,7 +54,9 @@ async def _persist_send_outcome(
         await db.commit()
         return row.status
     try:
-        subject, text, html_body = render(row.template, row.locale, row.payload)
+        subject, text, html_body = render(
+            row.template, row.locale, row.payload, copy=lookup_copy(row.template, row.locale),
+        )
         await adapter.send(
             MailMessage(
                 to=row.to_email,
@@ -113,6 +118,11 @@ async def deliver_now(outbox_id: int, *, runtime: MailRuntime | None = None) -> 
 
 async def process_mail_outbox() -> int:
     """Claim pending rows, send outside the claim transaction, persist outcome."""
+    from .catalog import ensure_seeded as ensure_templates_seeded
+
+    async with SessionLocal() as db:
+        await ensure_templates_seeded(db)
+        await db.commit()
     runtime = current_runtime()
     adapter = get_mail_adapter(runtime)
     now = datetime.now(timezone.utc)

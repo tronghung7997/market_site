@@ -693,10 +693,26 @@ async def main():
             },
         ]
 
+        cat_cover_map = {
+            "facebook": "facebook",
+            "instagram": "instagram",
+            "tiktok": "tiktok",
+            "youtube": "youtube",
+            "twitter": "x",
+            "telegram": "account",
+            "payment": "payment",
+            "takedown": "takedown",
+            "proxy": "proxy",
+            "endpoint": "endpoint",
+            "token": "token",
+            "cloud": "cloud",
+        }
+
         for item in listings:
             cat_id = flat.get(item["cat"])
             if not cat_id:
                 continue
+            cover_id = item.get("cover_id") or cat_cover_map.get(item["cat"], "other")
             pr = await c.post("/seller/products", headers=seller, json={
                 "category_id": cat_id,
                 "title": item["title"],
@@ -704,6 +720,7 @@ async def main():
                 "status": "active",
                 "escrow_days": 3,
                 "service_type": item.get("service_type", "other"),
+                "cover_id": cover_id,
                 "features": item.get("features"),
                 "specs": item.get("specs"),
                 "warranty_text": item.get("warranty_text"),

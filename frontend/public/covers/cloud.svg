@@ -1,6 +1,24 @@
-<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 512 512" role="img" aria-hidden="true">
-  <rect width="512" height="512" fill="#EEF1F4"/>
-  <rect x="28" y="28" width="456" height="456" rx="36" fill="none" stroke="#1A2430" stroke-width="10"/>
-  <rect x="132" y="228" width="248" height="96" rx="48" fill="none" stroke="#4A6478" stroke-width="16"/>
-  <rect x="176" y="176" width="160" height="80" rx="40" fill="#EEF1F4" stroke="#1A2430" stroke-width="14"/>
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 512 512">
+  <defs>
+    <linearGradient id="cldBg" x1="0%" y1="0%" x2="100%" y2="100%">
+      <stop offset="0%" stop-color="#38BDF8"/>
+      <stop offset="50%" stop-color="#0284C7"/>
+      <stop offset="100%" stop-color="#0369A1"/>
+    </linearGradient>
+    <filter id="cldShadow" x="-20%" y="-20%" width="140%" height="140%">
+      <feDropShadow dx="0" dy="12" stdDeviation="16" flood-color="#0284C7" flood-opacity="0.4"/>
+    </filter>
+    <linearGradient id="cldBevel" x1="0%" y1="0%" x2="0%" y2="100%">
+      <stop offset="0%" stop-color="#FFFFFF" stop-opacity="0.35"/>
+      <stop offset="100%" stop-color="#FFFFFF" stop-opacity="0"/>
+    </linearGradient>
+  </defs>
+  <rect x="32" y="32" width="448" height="448" rx="112" fill="url(#cldBg)" filter="url(#cldShadow)"/>
+  <rect x="32" y="32" width="448" height="448" rx="112" fill="url(#cldBevel)"/>
+  
+  <!-- Sleek Cloud Server Storage Glyph -->
+  <path d="M372 272c0-53-43-96-96-96-42 0-77 27-90 65-8-3-16-5-26-5-44 0-80 36-80 80s36 80 80 80h204c40 0 72-32 72-72 0-32-21-59-50-68 4-8 6-16 6-25-1-6-3-13-6-19z" fill="#FFFFFF"/>
+  <circle cx="216" cy="336" r="10" fill="#0284C7"/>
+  <circle cx="256" cy="336" r="10" fill="#0284C7"/>
+  <circle cx="296" cy="336" r="10" fill="#0284C7"/>
 </svg>

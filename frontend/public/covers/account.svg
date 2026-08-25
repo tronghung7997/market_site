@@ -1,8 +1,25 @@
-<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 512 512" role="img" aria-hidden="true">
-  <rect width="512" height="512" fill="#F1F0F4"/>
-  <rect x="28" y="28" width="456" height="456" rx="36" fill="none" stroke="#1E1C28" stroke-width="10"/>
-  <rect x="118" y="156" width="276" height="200" rx="22" fill="none" stroke="#5A5478" stroke-width="14"/>
-  <circle cx="198" cy="236" r="28" fill="none" stroke="#1E1C28" stroke-width="12"/>
-  <path d="M164 292c10-22 52-22 68 0" fill="none" stroke="#1E1C28" stroke-width="12" stroke-linecap="round"/>
-  <path d="M268 220h92M268 256h72M268 292h84" stroke="#5A5478" stroke-width="12" stroke-linecap="round"/>
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 512 512">
+  <defs>
+    <linearGradient id="accBg" x1="0%" y1="0%" x2="100%" y2="100%">
+      <stop offset="0%" stop-color="#8B5CF6"/>
+      <stop offset="50%" stop-color="#7C3AED"/>
+      <stop offset="100%" stop-color="#5B21B6"/>
+    </linearGradient>
+    <filter id="accShadow" x="-20%" y="-20%" width="140%" height="140%">
+      <feDropShadow dx="0" dy="12" stdDeviation="16" flood-color="#7C3AED" flood-opacity="0.4"/>
+    </filter>
+    <linearGradient id="accBevel" x1="0%" y1="0%" x2="0%" y2="100%">
+      <stop offset="0%" stop-color="#FFFFFF" stop-opacity="0.3"/>
+      <stop offset="100%" stop-color="#FFFFFF" stop-opacity="0"/>
+    </linearGradient>
+  </defs>
+  <rect x="32" y="32" width="448" height="448" rx="112" fill="url(#accBg)" filter="url(#accShadow)"/>
+  <rect x="32" y="32" width="448" height="448" rx="112" fill="url(#accBevel)"/>
+  
+  <!-- Premium VIP Account Avatar Glyph -->
+  <circle cx="256" cy="206" r="62" fill="#FFFFFF"/>
+  <path d="M150 366c0-58 48-106 106-106s106 48 106 106v10H150v-10z" fill="#FFFFFF"/>
+  
+  <!-- Star / Verified Crown Accent -->
+  <path d="M340 160l8 16 18 3-13 13 3 18-16-8-16 8 3-18-13-13 18-3z" fill="#FDE047"/>
 </svg>

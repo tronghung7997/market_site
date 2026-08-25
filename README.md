@@ -141,11 +141,16 @@ Mở <http://localhost:3000/en> hoặc <http://localhost:3000/vi>. Frontend serv
 
 ## Verification harness
 
-Chạy từ root repository:
+Chạy từ root repository.
+
+Gate frontend mặc định (design/module guards + TypeScript + i18n + unit tests). **Không** compile production — bước đó khoảng 1 phút và CI đã chạy:
 
 ```bash
-# Design/module guards + TypeScript + i18n + auth-route test + production compile
+# Fast frontend gate for local/agent iteration
 ./scripts/verify-frontend.sh
+
+# Frontend including production compile (next.config/middleware/BFF, or handoff)
+RUN_FRONTEND_BUILD=1 ./scripts/verify-frontend.sh
 
 # Architecture guard + migrate marketplace_test rồi chạy toàn bộ backend suite
 ./scripts/verify-backend.sh
@@ -153,7 +158,7 @@ Chạy từ root repository:
 # Targeted backend tests trong lúc phát triển
 ./scripts/verify-backend.sh tests/test_chat_inquiries.py tests/test_chat_orders.py
 
-# Full frontend gate, sau đó full backend gate (tuần tự)
+# Full frontend gate (kèm production build), sau đó full backend gate (tuần tự)
 ./scripts/verify-all.sh
 ```
 
@@ -175,9 +180,9 @@ cd frontend
 npm run check:harness        # design-system + module-boundary guards
 npm run lint                 # hiện là tsc --noEmit
 npm run check:i18n
-npm run test:seller-inventory
-npm run test:auth-route
-API_URL=http://marketplace-svc:8001 npm run build
+npm test                     # toàn bộ unit test trong tests/
+npm run test:auth-route      # targeted
+API_URL=http://marketplace-svc:8001 npm run build   # chỉ khi cần compile production
 ```
 
 Thay đổi UI vẫn phải được kiểm tra trên browser thật: desktop/mobile, console, network, loading/error/empty/permission states. Build thành công không thay thế runtime verification.

@@ -35,35 +35,46 @@
 1. Reproduce or define the expected behavior.
 2. Make the smallest coherent change that follows existing module boundaries.
 3. Add or update tests for success, invalid input, and unauthorized access where applicable.
-4. Run targeted checks while iterating, then the required final gate below.
+4. Run only the minimum gate for the change type below. Do not production-build the frontend or run the full backend suite unless that table requires it.
 5. Report changed files, commands run, and any check that was skipped or failed. Never claim a check passed unless it was run.
 
 Do not leave placeholders, mock success paths, commented-out implementations, or unrelated formatting churn in production code.
 
 ## Verification gates
 
-Use the repository scripts from the repository root:
+The default frontend gate is the fast path (design/module guards, `tsc`, i18n, unit tests). It does **not** production-build. Use it for ordinary frontend work:
 
 ```bash
 ./scripts/verify-frontend.sh
-./scripts/verify-backend.sh                 # full backend suite; never run concurrently
-./scripts/verify-backend.sh tests/test_chat_inquiries.py tests/test_chat_orders.py
+```
+
+Do **not** run `npm run build` or `./scripts/verify-all.sh` for a small frontend task. Production compile takes about a minute and CI already runs it. Opt in only when `next.config`, middleware/proxy, or the BFF compile path changed, or before a full handoff:
+
+```bash
+RUN_FRONTEND_BUILD=1 ./scripts/verify-frontend.sh
 ./scripts/verify-all.sh
+```
+
+Backend: targeted file while iterating; full suite only before handoff. Never run two pytest processes concurrently.
+
+```bash
+./scripts/verify-backend.sh tests/test_chat_inquiries.py tests/test_chat_orders.py
+./scripts/verify-backend.sh                 # full suite; never run concurrently
 ```
 
 Minimum gate by change type:
 
 | Change | Required verification |
 |---|---|
-| Documentation only | Check every documented path/command against current config; inspect the diff |
-| Frontend TypeScript/data flow | `npm run check:harness`, `npm run lint`, relevant test, and `npm run check:i18n` when copy/messages change |
-| Auth or Next.js BFF | Frontend checks plus `npm run test:auth-route` and browser/network inspection |
-| Visual UI | Frontend checks plus live browser verification at relevant desktop/mobile widths |
+| Documentation only | Check every documented path/command against current config; inspect the diff. No `verify-*.sh`. |
+| Frontend TypeScript/data flow | `./scripts/verify-frontend.sh` (fast default). Do not production-build. |
+| Auth or Next.js BFF | Fast frontend gate plus browser/network inspection. Production build only if middleware/BFF compile path changed. |
+| Visual UI | Fast frontend gate plus live browser verification at relevant desktop/mobile widths. A build is not required. |
 | Backend architecture/import seam | `uv run python scripts/check_architecture.py` from `marketplace-svc/` |
-| Backend behavior | Architecture guard plus targeted pytest file(s); run the full backend gate before handoff when practical |
+| Backend behavior | Architecture guard plus targeted pytest file(s); full backend gate before handoff when practical |
 | Model/schema | Alembic upgrade on the test DB plus relevant tests; include the migration |
 | Auth, roles, payment, wallet, escrow | Test positive and negative/unauthorized paths; run the full backend gate |
-| Cross-stack contract | Both frontend and backend gates plus live browser/network verification |
+| Cross-stack contract | Fast frontend gate, targeted backend tests, and live browser/network verification. `./scripts/verify-all.sh` before handoff. |
 
 ### Browser verification
 

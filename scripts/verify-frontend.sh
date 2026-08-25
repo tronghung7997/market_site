@@ -1,6 +1,12 @@
 #!/usr/bin/env bash
 set -euo pipefail
 
+# Fast frontend gate for local and agent iteration:
+# design/module guards, TypeScript, i18n, and unit tests.
+# Production compile is opt-in (~1 minute; CI already runs it):
+#   RUN_FRONTEND_BUILD=1 ./scripts/verify-frontend.sh
+# SKIP_FRONTEND_BUILD=1 remains an explicit skip for compatibility.
+
 ROOT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)"
 cd "$ROOT_DIR/frontend"
 
@@ -23,18 +29,15 @@ npm run lint
 echo "==> Frontend i18n catalog check"
 npm run check:i18n
 
-echo "==> Frontend seller inventory logic test"
-npm run test:seller-inventory
+echo "==> Frontend unit tests"
+npm test
 
-echo "==> Frontend auth/BFF route test"
-npm run test:auth-route
-
-if [[ "${SKIP_FRONTEND_BUILD:-0}" == "1" ]]; then
-  echo "==> Skipping frontend production build (SKIP_FRONTEND_BUILD=1)"
-else
+if [[ "${RUN_FRONTEND_BUILD:-0}" == "1" && "${SKIP_FRONTEND_BUILD:-0}" != "1" ]]; then
   # Next's production config intentionally rejects localhost. The default below
   # is the Docker-network upstream and is used only to verify compilation.
   BUILD_API_URL="${API_URL:-http://marketplace-svc:8001}"
   echo "==> Frontend production build (API_URL=$BUILD_API_URL)"
   API_URL="$BUILD_API_URL" npm run build
+else
+  echo "==> Skipping frontend production build (default). Set RUN_FRONTEND_BUILD=1 to compile."
 fi

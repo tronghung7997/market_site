@@ -201,7 +201,7 @@ Then:
 2. Decide whether the change belongs in route, feature, pattern, primitive, or infrastructure.
 3. Keep implementation behind the smallest useful interface.
 4. Add tests through that interface.
-5. Run architecture/design checks before browser verification.
+5. Run `./scripts/verify-frontend.sh` (fast default: no production build) before browser verification.
 
 ## 9. Executable enforcement
 

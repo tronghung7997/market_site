@@ -41,7 +41,7 @@ These rules extend the repository-root `AGENTS.md` for `marketplace-svc/`.
 - Never run two pytest processes in parallel. Do not use `pytest-xdist`; separate agents/worktrees still share the same default test database.
 - Mark a test `no_db` only when it truly does not touch application persistence.
 - Cover success, validation failure, authentication failure, authorization failure, idempotent retry, and concurrency behavior when relevant.
-- Prefer a targeted test file during iteration, then use the full gate before handoff.
+- Prefer a targeted test file during iteration. Do not run the full backend suite for a small frontend-only task; use it before handoff.
 
 Fast architecture check from `marketplace-svc/`:
 

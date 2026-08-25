@@ -69,25 +69,30 @@ Classify the task before implementation and use at most one design lead plus one
 
 ## Verification
 
-Run commands from `frontend/` while iterating:
-
-```bash
-npm run check:harness
-npm run lint                 # TypeScript: tsc --noEmit
-npm run check:i18n
-npm run test:auth-route
-API_URL=http://marketplace-svc:8001 npm run build
-```
-
-Or run the final frontend gate from the repository root:
+The default frontend gate from the repository root is enough for ordinary work. It does **not** production-build:
 
 ```bash
 ./scripts/verify-frontend.sh
 ```
 
+Equivalent commands from `frontend/` when iterating on a subset:
+
+```bash
+npm run check:harness
+npm run lint                 # TypeScript: tsc --noEmit
+npm run check:i18n
+npm test
+```
+
+Do not run `npm run build` unless `next.config`, middleware/proxy, or the BFF compile path changed, or the user asked for a full handoff:
+
+```bash
+RUN_FRONTEND_BUILD=1 ./scripts/verify-frontend.sh
+```
+
 Additional requirements:
 
-- Auth, session, proxy, middleware, or BFF changes require `npm run test:auth-route` and live browser/network inspection.
+- Auth, session, proxy, middleware, or BFF changes require `npm run test:auth-route` (included in `npm test`) and live browser/network inspection.
 - UI changes require live browser checks at the affected desktop and mobile widths, plus console inspection.
 - API contract changes require synchronized backend schemas/tests and frontend types/callers.
 - A successful production build does not prove runtime behavior; verify interactions against a running backend when the task affects them.

@@ -143,6 +143,58 @@ async def test_admin_action_items_counts(client):
 
 
 @pytest.mark.asyncio
+async def test_approve_seller_creates_inbox_alert(client):
+    buyer_token = await register_and_login(client, "notif_approve_seller@example.com")
+    await client.post(
+        "/seller/apply",
+        json={"business_name": "Inbox Shop"},
+        headers={"Authorization": f"Bearer {buyer_token}"},
+    )
+    admin_token = await register_and_login(client, "notif_approve_admin@example.com")
+    await make_admin("notif_approve_admin@example.com")
+    admin_token = await register_and_login(client, "notif_approve_admin@example.com")
+    apps = await client.get("/admin/seller-applications", headers={"Authorization": f"Bearer {admin_token}"})
+    app_id = apps.json()[-1]["id"]
+
+    approved = await client.post(
+        f"/admin/seller-applications/{app_id}/approve",
+        headers={"Authorization": f"Bearer {admin_token}"},
+    )
+    assert approved.status_code == 200
+
+    inbox = await client.get("/me/action-items", headers={"Authorization": f"Bearer {buyer_token}"})
+    assert inbox.status_code == 200
+    items = {i["key"]: i for i in inbox.json()}
+    assert items["seller_application_approved"]["href"] == "/seller"
+    assert items["seller_application_approved"]["dismissible"] is True
+    assert items["seller_application_approved"]["alert_id"] is not None
+
+    admin_inbox = await client.get("/admin/action-items", headers={"Authorization": f"Bearer {admin_token}"})
+    assert not any(i["key"] == "seller_application_approved" for i in admin_inbox.json())
+
+
+@pytest.mark.asyncio
+async def test_me_action_items_merges_buyer_and_seller(client):
+    buyer_token, seller_token, _, _, manual_vid = await setup_buyable_product(client)
+    order = await client.post(
+        "/orders",
+        json={"variant_id": manual_vid, "quantity": 1},
+        headers={"Authorization": f"Bearer {buyer_token}"},
+    )
+    assert order.json()["status"] == "pending"
+
+    seller_inbox = await client.get("/me/action-items", headers={"Authorization": f"Bearer {seller_token}"})
+    assert seller_inbox.status_code == 200
+    seller_keys = {i["key"] for i in seller_inbox.json()}
+    assert "seller_pending_orders" in seller_keys
+
+    buyer_only = await register_and_login(client, "notif_me_buyer@example.com")
+    empty = await client.get("/me/action-items", headers={"Authorization": f"Bearer {buyer_only}"})
+    assert empty.status_code == 200
+    assert empty.json() == []
+
+
+@pytest.mark.asyncio
 async def test_seller_dismiss_own_alert_but_not_others(client):
     seller_token = await register_and_login(client, "notif_dismiss_seller@example.com")
     await make_seller("notif_dismiss_seller@example.com")

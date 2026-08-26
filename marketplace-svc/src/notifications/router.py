@@ -10,6 +10,11 @@ from . import schemas, service
 router = APIRouter(tags=["notifications"])
 
 
+@router.get("/me/action-items", response_model=list[schemas.ActionItem])
+async def account_action_items(account: Account = Depends(get_current_account), db: AsyncSession = Depends(get_session)):
+    return await service.account_action_items(account, db)
+
+
 @router.get("/orders/action-items", response_model=list[schemas.ActionItem])
 async def buyer_action_items(account: Account = Depends(get_current_account), db: AsyncSession = Depends(get_session)):
     return await service.buyer_action_items(account.id, db)

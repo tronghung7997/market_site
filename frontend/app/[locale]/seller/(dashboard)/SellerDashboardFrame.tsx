@@ -2,18 +2,18 @@
 
 import { Link, usePathname, useRouter } from "@/i18n/navigation";
 import { useTranslations } from "next-intl";
-import { useEffect } from "react";
+import { useEffect, useRef } from "react";
 import { useAuth } from "@/lib/auth";
 import { cn } from "@/lib/cn";
 import { Activity, BarChart, Edit2, Inbox, Package, Store, Rows, Wallet } from "@/components/Icons";
-import NotificationBell from "@/components/NotificationBell";
 import { Spinner } from "@/components/ui";
 import type { ReactNode } from "react";
 
 export default function SellerLayout({ children }: { children: ReactNode }) {
-  const { account, loading } = useAuth();
+  const { account, loading, refresh } = useAuth();
   const pathname = usePathname();
   const router = useRouter();
+  const retriedRole = useRef(false);
   const t = useTranslations("seller");
   const nav = [
     { href: "/seller", label: t("overview"), icon: BarChart },
@@ -28,10 +28,16 @@ export default function SellerLayout({ children }: { children: ReactNode }) {
     if (loading) return;
     if (!account) {
       router.push("/login?next=/seller");
-    } else if (!account.roles.includes("seller")) {
-      router.push("/seller/apply");
+      return;
     }
-  }, [account, loading, router]);
+    if (account.roles.includes("seller")) return;
+    if (!retriedRole.current) {
+      retriedRole.current = true;
+      void refresh();
+      return;
+    }
+    router.push("/seller/apply");
+  }, [account, loading, router, refresh]);
 
   if (loading) {
     return (
@@ -77,9 +83,6 @@ export default function SellerLayout({ children }: { children: ReactNode }) {
             <h1 className="text-[18px] font-serif font-semibold">{t("dashboardTitle")}</h1>
             <p className="text-[12px] text-muted">{account.email}</p>
           </div>
-        </div>
-        <div className="flex items-center gap-3">
-          <NotificationBell endpoint="seller" />
         </div>
       </div>
 

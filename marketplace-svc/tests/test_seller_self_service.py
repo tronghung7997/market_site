@@ -9,6 +9,7 @@ from sqlalchemy import update
 from src.database import SessionLocal
 from src.models.product import Product
 from src.models.provider import Provider
+from src.providers.schemas import ProviderTestResponse
 
 from tests.conftest import make_admin, make_seller, register_and_login, set_seller_tier
 
@@ -24,6 +25,14 @@ async def _admin(client, email):
     token = await register_and_login(client, email)
     await make_admin(email)
     return await register_and_login(client, email)
+
+
+async def _mark_pending(provider_id: int) -> None:
+    async with SessionLocal() as db:
+        await db.execute(
+            update(Provider).where(Provider.id == provider_id).values(review_status="pending_review")
+        )
+        await db.commit()
 
 
 async def _product_for_seller(client, admin_token, seller_token, suffix):
@@ -53,7 +62,7 @@ class TestSellerProviderCreation:
         assert resp.status_code == 403
 
     @pytest.mark.asyncio
-    async def test_defaults_to_pending_review(self, client):
+    async def test_starts_as_draft(self, client):
         seller_token = await _trusted_seller(client, "ss_a1@example.com")
         resp = await client.post("/seller/providers", json={
             "name": "My Backend", "adapter_type": "seller_gateway",
@@ -61,8 +70,68 @@ class TestSellerProviderCreation:
         }, headers={"Authorization": f"Bearer {seller_token}"})
         assert resp.status_code == 201, resp.text
         body = resp.json()
-        assert body["review_status"] == "pending_review"
+        assert body["review_status"] == "draft"
         assert body["seller_id"] is not None
+
+    @pytest.mark.asyncio
+    async def test_requires_successful_test_before_review_submission(self, client, monkeypatch):
+        seller_token = await _trusted_seller(client, "ss_workflow@example.com")
+        created = await client.post("/seller/providers", json={
+            "name": "Workflow API", "adapter_type": "seller_gateway",
+            "config": {"base_url": "https://x.example.com", "api_key": "k"},
+        }, headers={"Authorization": f"Bearer {seller_token}"})
+        provider_id = created.json()["id"]
+
+        too_early = await client.post(
+            f"/seller/providers/{provider_id}/submit",
+            headers={"Authorization": f"Bearer {seller_token}"},
+        )
+        assert too_early.status_code == 409
+
+        async def failing_test(_provider_id, _db):
+            return ProviderTestResponse(
+                health={"status": "unhealthy", "message": "HTTP 401"},
+                provision_test=None,
+            )
+
+        monkeypatch.setattr("src.providers.router._run_provider_test", failing_test)
+        failed = await client.post(
+            f"/seller/providers/{provider_id}/test",
+            headers={"Authorization": f"Bearer {seller_token}"},
+        )
+        assert failed.status_code == 200
+        failed_detail = await client.get(
+            f"/seller/providers/{provider_id}",
+            headers={"Authorization": f"Bearer {seller_token}"},
+        )
+        assert failed_detail.json()["review_status"] == "test_failed"
+        assert failed_detail.json()["last_test_result"]["passed"] is False
+
+        async def passing_test(_provider_id, _db):
+            return ProviderTestResponse(
+                health={"status": "healthy"},
+                provision_test={"success": True},
+            )
+
+        monkeypatch.setattr("src.providers.router._run_provider_test", passing_test)
+        tested = await client.post(
+            f"/seller/providers/{provider_id}/test",
+            headers={"Authorization": f"Bearer {seller_token}"},
+        )
+        assert tested.status_code == 200
+        detail = await client.get(
+            f"/seller/providers/{provider_id}",
+            headers={"Authorization": f"Bearer {seller_token}"},
+        )
+        assert detail.json()["review_status"] == "tested"
+        assert detail.json()["last_test_result"]["passed"] is True
+
+        submitted = await client.post(
+            f"/seller/providers/{provider_id}/submit",
+            headers={"Authorization": f"Bearer {seller_token}"},
+        )
+        assert submitted.status_code == 200
+        assert submitted.json()["review_status"] == "pending_review"
 
     @pytest.mark.asyncio
     async def test_rejects_disallowed_adapter_types(self, client):
@@ -141,6 +210,7 @@ class TestApprovalGatesProductAttachment:
             "config": {"base_url": "https://x.example.com", "api_key": "k"},
         }, headers={"Authorization": f"Bearer {seller_token}"})
         provider_id = provider_resp.json()["id"]
+        await _mark_pending(provider_id)
 
         approve_resp = await client.post(f"/admin/providers/{provider_id}/approve", json={
             "note": "looks fine",
@@ -170,6 +240,7 @@ class TestApprovalGatesProductAttachment:
             "config": {"base_url": "https://a.example.com", "api_key": "k"},
         }, headers={"Authorization": f"Bearer {seller_a}"})
         provider_id = provider_resp.json()["id"]
+        await _mark_pending(provider_id)
         await client.post(f"/admin/providers/{provider_id}/approve", json={},
                           headers={"Authorization": f"Bearer {admin_token}"})
 
@@ -196,6 +267,7 @@ class TestApprovalGatesProductAttachment:
             "config": {"base_url": "https://a.example.com", "api_key": "k"},
         }, headers={"Authorization": f"Bearer {seller_a}"})
         provider_id = provider_resp.json()["id"]
+        await _mark_pending(provider_id)
         await client.post(f"/admin/providers/{provider_id}/approve", json={},
                           headers={"Authorization": f"Bearer {admin_token}"})
 
@@ -206,7 +278,7 @@ class TestApprovalGatesProductAttachment:
         assert resp.status_code == 400
 
     @pytest.mark.asyncio
-    async def test_editing_config_after_approval_resets_to_pending_review(self, client):
+    async def test_editing_config_after_approval_is_blocked(self, client):
         admin_token = await _admin(client, "ss_gate_admin5@example.com")
         seller_token = await _trusted_seller(client, "ss_gate_s5@example.com")
 
@@ -215,16 +287,15 @@ class TestApprovalGatesProductAttachment:
             "config": {"base_url": "https://x.example.com", "api_key": "k"},
         }, headers={"Authorization": f"Bearer {seller_token}"})
         provider_id = provider_resp.json()["id"]
+        await _mark_pending(provider_id)
         await client.post(f"/admin/providers/{provider_id}/approve", json={},
                           headers={"Authorization": f"Bearer {admin_token}"})
 
         update_resp = await client.put(f"/seller/providers/{provider_id}", json={
             "config": {"base_url": "https://x.example.com", "api_key": "rotated-key"},
         }, headers={"Authorization": f"Bearer {seller_token}"})
-        assert update_resp.status_code == 200
-        assert update_resp.json()["review_status"] == "pending_review", (
-            "editing credentials after approval must require re-review, not silently stay approved"
-        )
+        assert update_resp.status_code == 409
+        assert "tạo tích hợp mới" in update_resp.json()["detail"]
 
     @pytest.mark.asyncio
     async def test_admin_reject_records_note(self, client):
@@ -236,6 +307,7 @@ class TestApprovalGatesProductAttachment:
             "config": {"base_url": "https://x.example.com", "api_key": "k"},
         }, headers={"Authorization": f"Bearer {seller_token}"})
         provider_id = provider_resp.json()["id"]
+        await _mark_pending(provider_id)
 
         reject_resp = await client.post(f"/admin/providers/{provider_id}/reject", json={
             "note": "base_url không phản hồi",
@@ -253,6 +325,7 @@ class TestApprovalGatesProductAttachment:
             "name": "x", "adapter_type": "seller_gateway",
             "config": {"base_url": "https://x.example.com", "api_key": "k"},
         }, headers={"Authorization": f"Bearer {seller_token}"})
+        await _mark_pending(provider_resp.json()["id"])
 
         reject_resp = await client.post(
             f"/admin/providers/{provider_resp.json()['id']}/reject", json={},
@@ -293,6 +366,18 @@ class TestSellerBaseUrlSSRFGuard:
         assert resp.status_code == 400
 
     @pytest.mark.asyncio
+    async def test_development_allows_localhost_mock_seller(self, client, monkeypatch):
+        from src.config import settings
+        monkeypatch.setattr(settings, "deployment_environment", "development")
+        seller_token = await _trusted_seller(client, "ss_ssrf_local_dev@example.com")
+        resp = await client.post("/seller/providers", json={
+            "name": "Local mock", "adapter_type": "seller_gateway",
+            "config": {"base_url": "http://localhost:9100", "api_key": "mock-seller-secret"},
+        }, headers={"Authorization": f"Bearer {seller_token}"})
+        assert resp.status_code == 201, resp.text
+        assert resp.json()["review_status"] == "draft"
+
+    @pytest.mark.asyncio
     async def test_rejects_loopback_literal_ip_on_create(self, client):
         seller_token = await _trusted_seller(client, "ss_ssrf_loopback@example.com")
         resp = await client.post("/seller/providers", json={
@@ -311,8 +396,7 @@ class TestSellerBaseUrlSSRFGuard:
         assert resp.status_code == 400
 
     @pytest.mark.asyncio
-    async def test_rejects_private_ip_on_update_even_after_approval(self, client):
-        admin_token = await _admin(client, "ss_ssrf_update_admin@example.com")
+    async def test_rejects_private_ip_on_update(self, client):
         seller_token = await _trusted_seller(client, "ss_ssrf_update@example.com")
 
         provider_resp = await client.post("/seller/providers", json={
@@ -320,8 +404,6 @@ class TestSellerBaseUrlSSRFGuard:
             "config": {"base_url": "https://x.example.com", "api_key": "k"},
         }, headers={"Authorization": f"Bearer {seller_token}"})
         provider_id = provider_resp.json()["id"]
-        await client.post(f"/admin/providers/{provider_id}/approve", json={},
-                          headers={"Authorization": f"Bearer {admin_token}"})
 
         resp = await client.put(f"/seller/providers/{provider_id}", json={
             "config": {"base_url": "https://10.0.0.5", "api_key": "k"},
@@ -331,7 +413,7 @@ class TestSellerBaseUrlSSRFGuard:
         async with SessionLocal() as db:
             provider = await db.get(Provider, provider_id)
             # rejected update must not have partially applied
-            assert provider.review_status == "approved"
+            assert provider.review_status == "draft"
 
     @pytest.mark.asyncio
     async def test_admin_created_provider_may_target_localhost_for_local_dev(self, client):

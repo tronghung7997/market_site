@@ -14,3 +14,7 @@ export function sellerTierLabel(tier: string | null | undefined, variant: "label
   if (!tier) return SELLER_TIER_INFO.new[variant];
   return SELLER_TIER_INFO[tier]?.[variant] ?? tier;
 }
+
+export function canUseSellerProviders(tier: string | null | undefined): boolean {
+  return tier === "trusted" || tier === "enterprise";
+}

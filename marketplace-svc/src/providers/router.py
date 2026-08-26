@@ -48,15 +48,38 @@ async def _run_provider_test(provider_id: int, db: AsyncSession) -> schemas.Prov
     elif health_result.get("status") != "healthy":
         skipped_reason = "Chưa thử cấp phát vì kết nối tới nhà cung cấp đang lỗi — sửa kết nối rồi test lại."
     else:
+        endpoint_map = (getattr(adapter, "config", None) or {}).get("endpoint_map")
+        first_path = next(
+            (str(path) for path in endpoint_map.values() if isinstance(path, str) and path.strip()),
+            None,
+        ) if isinstance(endpoint_map, dict) else None
         try:
-            result: ProvisionResult = await adapter.provision(
-                order_id=0, user_config={"test": True}
-            )
-            provision_test = {
-                "success": result.success,
-                "data": result.data,
-                "error": result.error,
-            }
+            if first_path and hasattr(adapter, "call"):
+                path = first_path if first_path.startswith("/") else f"/{first_path}"
+                resp = await adapter.call(0, path, method="GET")
+                ok = resp.status_code < 500 and resp.status_code not in (401, 403, 404)
+                provision_test = {
+                    "success": ok,
+                    "error": None if ok else f"GET {path} → HTTP {resp.status_code}",
+                }
+            elif (getattr(adapter, "config", None) or {}).get("skip_provision_handshake"):
+                provision_test = {
+                    "success": False,
+                    "error": "Chưa khai báo endpoint để kiểm tra contract",
+                }
+            else:
+                result: ProvisionResult = await adapter.provision(
+                    order_id=0,
+                    user_config={
+                        "test": True,
+                        "platform": "web",
+                        "target_url": "https://example.com/contract-test",
+                    },
+                )
+                provision_test = {
+                    "success": result.success,
+                    "error": result.error,
+                }
         except Exception as e:
             logger.warning("Test provision failed for provider %s: %s", provider_id, e, exc_info=True)
             provision_test = {"success": False, "error": "Kết nối nhà cung cấp thất bại"}
@@ -332,5 +355,26 @@ async def test_seller_provider(
 ):
     # Ownership check trước — không cho seller dò sức khoẻ provider người khác
     # chỉ bằng cách đoán provider_id.
-    await service.get_seller_provider(account.id, provider_id, db)
-    return await _run_provider_test(provider_id, db)
+    provider = await service.get_seller_provider(account.id, provider_id, db)
+    if provider.review_status == "pending_review":
+        raise HTTPException(status_code=409, detail="Tích hợp đang chờ admin duyệt")
+    try:
+        result = await _run_provider_test(provider_id, db)
+    except HTTPException as exc:
+        if exc.status_code != 400:
+            raise
+        result = schemas.ProviderTestResponse(
+            health={"status": "unhealthy", "message": exc.detail},
+            provision_test=None,
+        )
+    await service.record_seller_provider_test(account.id, provider_id, result.model_dump(), db)
+    return result
+
+
+@router.post("/seller/providers/{provider_id}/submit", response_model=schemas.ProviderResponse)
+async def submit_seller_provider(
+    provider_id: int,
+    account: Account = Depends(require_min_seller_tier("trusted")),
+    db: AsyncSession = Depends(get_session),
+):
+    return await service.submit_seller_provider(account.id, provider_id, db)

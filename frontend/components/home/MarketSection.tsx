@@ -12,6 +12,7 @@ import { useMoney } from "@/lib/money";
 import { cn } from "@/lib/cn";
 import { categoryCoverId, parseCoverId } from "@/lib/product-covers";
 import type { Category, Product } from "@/lib/types";
+import { fulfillmentFromProduct, fulfillmentTagKey, fulfillmentTagValues, fulfillmentTone } from "@/lib/fulfillment";
 import { Button, Card, Input, Spinner, Tag } from "@/components/ui";
 import { ProductCover } from "@/components/products/ProductCover";
 import { Grid, Rows, Search, Shield, Star, Verified } from "@/components/Icons";
@@ -53,6 +54,7 @@ export function MarketSection({ products, flatCats, active, activeIds, setActive
   error: string | null;
 }) {
   const t = useTranslations("home");
+  const tp = useTranslations("products");
   const locale = useLocale();
   const { formatBrowseMoney } = useMoney();
   const [q, setQ] = useState("");
@@ -148,6 +150,7 @@ export function MarketSection({ products, flatCats, active, activeIds, setActive
                         <span className="min-w-0">
                           <span className="block font-medium text-[13.5px] truncate">{p.title}</span>
                           <span className="flex items-center gap-1.5 text-[12px] text-faint">
+                            <Tag tone={fulfillmentTone(fulfillmentFromProduct(p).kind)}>{tp(fulfillmentTagKey(fulfillmentFromProduct(p)), fulfillmentTagValues(fulfillmentFromProduct(p)))}</Tag>
                             {hasPackages ? t("packageCount", { count: p.variants?.length ?? 0 }) : t("configuredToOrder")} <Verified size={11} className="text-iris" />
                             {p.rating_avg != null && p.rating_avg > 0 && <><Star size={11} className="text-warn fill-warn" /> {p.rating_avg.toFixed(1)}</>}
                             {p.sold_count > 0 && <span>· {t("sold", { count: p.sold_count })}</span>}
@@ -186,6 +189,7 @@ export function MarketSection({ products, flatCats, active, activeIds, setActive
                       <div className="font-mono text-[12px] sm:text-[13.5px] font-semibold tabular">{formatBrowseMoney(minPrice(p), { locale })}</div>
                       <div className="text-[11px] sm:text-[12px] text-faint mt-0.5 truncate">{catName(p.category_id)}</div>
                       <div className="mt-2 sm:mt-3 flex items-center gap-1.5 sm:gap-2 flex-wrap">
+                        <Tag tone={fulfillmentTone(fulfillmentFromProduct(p).kind)}>{tp(fulfillmentTagKey(fulfillmentFromProduct(p)), fulfillmentTagValues(fulfillmentFromProduct(p)))}</Tag>
                         {inStock ? <Tag tone="good">● {t("inStock", { count: stock(p) })}</Tag> : <Tag tone="warn">{hasPackages ? t("outOfStock") : t("onRequest")}</Tag>}
                         <Tag tone="neutral"><Shield size={11} /> {p.escrow_days}d</Tag>
                       </div>

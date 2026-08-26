@@ -10,6 +10,7 @@ import ServiceDashboard from "@/components/ServiceDashboard";
 import { StatusTimeline, OrderResources, OrderDispute } from "@/components/orders/OrderCardPrimitives";
 import { Button, Card, CopyButton, Disclosure, Monogram, Tag } from "@/components/ui";
 import { parseCoverId, ProductCover } from "@/features/product-covers";
+import { fulfillmentFromOrder, fulfillmentTagKey, fulfillmentTagValues, fulfillmentTone } from "@/lib/fulfillment";
 import { Shield, Star } from "@/components/Icons";
 import OrderProxyPanel from "./OrderProxyPanel";
 import ReviewForm from "./ReviewForm";
@@ -35,6 +36,7 @@ export default function OrderCard({
   onPlate: (orderId: number) => void;
 }) {
   const t = useTranslations("orders");
+  const tp = useTranslations("products");
   const tc = useTranslations("common");
   const tcur = useTranslations("currency");
   const locale = useLocale();
@@ -50,6 +52,8 @@ export default function OrderCard({
   // Adapter-fulfilled orders only (stock/manual use variant_id). Proxy panel
   // mounts lazily so non-proxy adapters never 404 on list load.
   const mayHaveProxy = delivered && o.product_id != null;
+  const fulfillment = fulfillmentFromOrder(o);
+  const fulfillmentPending = fulfillment.kind === "task" && o.status !== "delivered";
   const rateForDetails = money.rateUsed;
   const showUsdRateDetail =
     showFxHints && currency === "USD" && rateForDetails != null;
@@ -70,8 +74,9 @@ export default function OrderCard({
           <ProductCover coverId={parseCoverId(o)} title={o.product_title ?? "??"} className="h-9 w-9 rounded-lg shrink-0" />
           <div className="min-w-0 flex-1">
             <div className="font-medium text-[14px] truncate">{o.product_title ?? tc("orderNumber", { id: o.id })}</div>
-            <div className="text-[12px] text-muted truncate">
-              {o.variant_name ? `${o.variant_name} · ` : ""}{tc("qty", { count: o.quantity })}
+            <div className="flex items-center gap-1.5 text-[12px] text-muted truncate">
+              <Tag tone={fulfillmentTone(fulfillment.kind)}>{tp(fulfillmentTagKey(fulfillment, fulfillmentPending), fulfillmentTagValues(fulfillment))}</Tag>
+              <span className="truncate">{o.variant_name ? `${o.variant_name} · ` : ""}{tc("qty", { count: o.quantity })}</span>
             </div>
           </div>
           {o.escrow_expires_at && o.status === "delivered" && (

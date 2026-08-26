@@ -87,10 +87,16 @@ def _instantiate(provider: Provider, db: AsyncSession) -> ProviderAdapter:
     if spec is None:
         raise ValueError(f"Unknown adapter_type: {provider.adapter_type!r}")
 
+    # seller_gateway delivers the platform-minted gateway key itself. Unlike
+    # supplier adapters, it has no separate /provision handshake to invent.
+    config = dict(provider.config or {})
+    if provider.adapter_type == "seller_gateway":
+        config["skip_provision_handshake"] = True
+
     # Chữ ký chung cho MỌI adapter (adapters/base.py) — thêm adapter mới không
     # cần dạy factory cách khởi tạo nó.
     return spec.cls(
-        provider.config or {},
+        config,
         db=db,
         provider_id=provider.id,
         seller_owned=provider.seller_id is not None,

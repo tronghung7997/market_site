@@ -27,9 +27,10 @@ export function PanelShell({ title, aside, children }: {
   );
 }
 
-export default function OrderPanel({ product, purchase }: {
+export default function OrderPanel({ product, purchase, fulfillment }: {
   product: ProductDetail;
   purchase: PurchaseState;
+  fulfillment?: string | null;
 }) {
   const t = useTranslations("products");
   const tc = useTranslations("common");
@@ -62,7 +63,7 @@ export default function OrderPanel({ product, purchase }: {
           </Tag>
         ) : undefined}
       >
-        {order ? <OrderResult order={order} onRebuy={purchase.rebuy} /> : (
+        {order ? <OrderResult order={order} onRebuy={purchase.rebuy} fulfillment={fulfillment} /> : (
           <div className="space-y-4">
             <fieldset>
               <legend className="text-[11px] font-semibold text-faint uppercase tracking-wider mb-2">

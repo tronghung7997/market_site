@@ -41,6 +41,8 @@ class OrderResponse(BaseModel):
     created_at: datetime
     product_title: str | None = None
     pricing_strategy: str | None = None
+    delivery_mode: str | None = None
+    sla_hours: int | None = None
     variant_name: str | None = None
     buyer_email: str | None = None
     seller_email: str | None = None

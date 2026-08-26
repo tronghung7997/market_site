@@ -4,8 +4,10 @@ import { useEffect, useMemo, useState } from "react";
 import { useLocale, useTranslations } from "next-intl";
 import { useRouter } from "next/navigation";
 import { api } from "@/lib/api";
+import { useAuth } from "@/lib/auth";
+import { canUseSellerProviders } from "@/lib/seller-tier";
 import type { Category, ProductLocale, ProductTranslation, Provider, Variant } from "@/lib/types";
-import { Button, Card, Field, Input, Select, Tag, Textarea } from "@/components/ui";
+import { Banner, Button, Card, Field, Input, Select, Tag, Textarea } from "@/components/ui";
 import { Bolt, Package } from "@/components/Icons";
 import { MarkdownEditor } from "@/components/MarkdownEditor";
 import { ProductPreviewCard } from "@/components/seller/ProductPreviewCard";
@@ -47,6 +49,7 @@ const EMPTY_CONTENT: BuyerContentDraft = {
 };
 
 const SERVICE_TYPES = ["account", "proxy", "token", "endpoint", "cloud", "payment", "takedown", "other"] as const;
+type ReceiveMode = "instant" | "sla" | "api" | "task";
 
 function flatten(categories: Category[]): Category[] {
   const result: Category[] = [];
@@ -63,7 +66,10 @@ export default function NewProduct() {
   const interfaceLocale = useLocale() as ProductLocale;
   const t = useTranslations("seller.newProductFlow");
   const ts = useTranslations("seller");
+  const { account } = useAuth();
   const { currency: priceCurrency } = useSellerPriceCurrency();
+  const canUseProviders = canUseSellerProviders(account?.seller_tier);
+  const requiredProviderTier = t("providerRequiredTier");
 
   const [categories, setCategories] = useState<Category[]>([]);
   const [categoriesError, setCategoriesError] = useState(false);
@@ -74,7 +80,10 @@ export default function NewProduct() {
   const [createdProductId, setCreatedProductId] = useState<number | null>(null);
   const [createdVariantId, setCreatedVariantId] = useState<number | null>(null);
 
-  const [archetype, setArchetype] = useState<Archetype>("A");
+  const [receiveMode, setReceiveMode] = useState<ReceiveMode>("instant");
+  const archetype: Archetype = receiveMode === "api" || receiveMode === "task" ? "B" : "A";
+  const workModel: WorkModelB = receiveMode === "task" ? "B3" : "B2";
+  const needsBackend = receiveMode === "api" || receiveMode === "task";
   const [serviceType, setServiceType] = useState<(typeof SERVICE_TYPES)[number]>("account");
   const [categoryId, setCategoryId] = useState(0);
   const [coverId, setCoverId] = useState<CoverId>("account");
@@ -92,11 +101,10 @@ export default function NewProduct() {
 
   const [variantNames, setVariantNames] = useState<Record<ProductLocale, string>>({ vi: "", en: "" });
   const [variantPrice, setVariantPrice] = useState(0);
-  const [deliveryMode, setDeliveryMode] = useState<"instant" | "manual">("instant");
+  const deliveryMode: "instant" | "manual" = receiveMode === "sla" ? "manual" : "instant";
   const [slaHours, setSlaHours] = useState(24);
   const [initialStockText, setInitialStockText] = useState("");
 
-  const [workModel, setWorkModel] = useState<WorkModelB>("B1");
   const [b1, setB1] = useState<B1ConfigState>({
     basePrice: 0,
     types: [
@@ -135,7 +143,12 @@ export default function NewProduct() {
     selectedPlatform: "tiktok",
     urls: "",
   });
-  const selectedProvider = providers.find((provider) => provider.id === selectedProviderId);
+  const requiredAdapterType = receiveMode === "api" ? "seller_gateway" : receiveMode === "task" ? "seller_task_webhook" : null;
+  const compatibleProviders = useMemo(
+    () => providers.filter((provider) => provider.adapter_type === requiredAdapterType),
+    [providers, requiredAdapterType],
+  );
+  const selectedProvider = compatibleProviders.find((provider) => provider.id === selectedProviderId);
   const backend: BackendState = selectedProvider
     ? { status: "approved", name: selectedProvider.name, providerType: selectedProvider.adapter_type }
     : { status: "none", name: "" };
@@ -148,14 +161,31 @@ export default function NewProduct() {
         if (first) setCategoryId(first.id);
       })
       .catch(() => setCategoriesError(true));
+  }, []);
+
+  useEffect(() => {
+    if (!canUseProviders) {
+      setProviders([]);
+      setSelectedProviderId(0);
+      return;
+    }
     api.sellerProviders()
       .then((items) => {
         const approved = items.filter((provider) => provider.is_active && provider.review_status === "approved");
         setProviders(approved);
-        if (approved[0]) setSelectedProviderId(approved[0].id);
       })
       .catch(() => setProviders([]));
-  }, []);
+  }, [canUseProviders]);
+
+  useEffect(() => {
+    if (!needsBackend) {
+      setSelectedProviderId(0);
+      return;
+    }
+    if (!compatibleProviders.some((provider) => provider.id === selectedProviderId)) {
+      setSelectedProviderId(compatibleProviders[0]?.id ?? 0);
+    }
+  }, [needsBackend, compatibleProviders, selectedProviderId]);
 
   const flatCategories = useMemo(() => flatten(categories), [categories]);
   const selectedCategory = flatCategories.find((category) => category.id === categoryId);
@@ -201,10 +231,7 @@ export default function NewProduct() {
     title: primaryContent.title,
     description: primaryContent.description,
     workModel,
-    priceValid:
-      (workModel === "B1" && b1.basePrice > 0)
-      || (workModel === "B2" && b2.creditPrice > 0)
-      || (workModel === "B3" && b3.basePrice > 0),
+    priceValid: workModel === "B2" ? b2.creditPrice > 0 : b3.basePrice > 0,
     backend,
     escrowDays,
     contentLanguageComplete: primaryContentComplete,
@@ -218,15 +245,17 @@ export default function NewProduct() {
     }));
   };
 
-  const selectArchetype = (next: Archetype) => {
-    setArchetype(next);
-    if (next === "A" && serviceType === "proxy") {
+  const selectReceiveMode = (next: ReceiveMode) => {
+    setReceiveMode(next);
+    if (next === "api") {
+      setServiceType("endpoint");
+      setCoverId("endpoint");
+    } else if (next === "task") {
+      setServiceType("takedown");
+      setCoverId("takedown");
+    } else {
       setServiceType("account");
       setCoverId("account");
-    }
-    if (next === "B" && serviceType === "account") {
-      setServiceType("proxy");
-      setCoverId("proxy");
     }
   };
 
@@ -284,6 +313,7 @@ export default function NewProduct() {
         await api.updateSellerPricing(productId, {
           pricing_strategy: "fixed",
           pricing_params: null,
+          provider_id: null,
         });
         let variantId = createdVariantId;
         const variantData = {
@@ -314,7 +344,7 @@ export default function NewProduct() {
         await api.updateSellerPricing(productId, {
           pricing_strategy: pricing.strategy,
           pricing_params: pricing.params,
-          ...(selectedProviderId ? { provider_id: selectedProviderId } : {}),
+          provider_id: selectedProviderId || null,
         });
       }
 
@@ -378,33 +408,37 @@ export default function NewProduct() {
               <h2 className="mt-1 text-[14px] font-bold text-fg">{t("saleMethod")}</h2>
             </div>
             <div className="grid grid-cols-1 gap-3 sm:grid-cols-2">
-              <Button
-                type="button"
-                variant="ghost"
-                aria-pressed={archetype === "A"}
-                onClick={() => selectArchetype("A")}
-                className={`!h-auto !whitespace-normal items-start rounded-xl border p-4 text-left ${archetype === "A" ? "border-iris bg-iris-soft/40 ring-1 ring-iris" : "border-line bg-surface hover:border-line-2"}`}
-              >
-                <span>
-                  <Package size={20} className="mb-2 text-iris-hi" />
-                  <span className="block text-[14px] font-bold">{t("inventoryTitle")}</span>
-                  <span className="mt-1 block text-[12px] leading-relaxed text-muted">{t("inventoryDescription")}</span>
-                </span>
-              </Button>
-              <Button
-                type="button"
-                variant="ghost"
-                aria-pressed={archetype === "B"}
-                onClick={() => selectArchetype("B")}
-                className={`!h-auto !whitespace-normal items-start rounded-xl border p-4 text-left ${archetype === "B" ? "border-iris bg-iris-soft/40 ring-1 ring-iris" : "border-line bg-surface hover:border-line-2"}`}
-              >
-                <span>
-                  <Bolt size={20} className="mb-2 text-iris-hi" />
-                  <span className="block text-[14px] font-bold">{t("dynamicTitle")}</span>
-                  <span className="mt-1 block text-[12px] leading-relaxed text-muted">{t("dynamicDescription")}</span>
-                </span>
-              </Button>
+              {([
+                ["instant", Package, t("instantDelivery"), t("inventoryDescription")],
+                ["sla", Package, t("manualDelivery"), t("inventoryDescription")],
+                ["api", Bolt, t("apiProductTitle"), t("apiProductDescription")],
+                ["task", Bolt, t("taskProductTitle"), t("taskProductDescription")],
+              ] as const).map(([mode, Icon, title, description]) => (
+                <Button
+                  key={mode}
+                  type="button"
+                  variant="ghost"
+                  aria-pressed={receiveMode === mode}
+                  onClick={() => selectReceiveMode(mode)}
+                  className={`!h-auto !whitespace-normal items-start rounded-xl border p-4 text-left ${receiveMode === mode ? "border-iris bg-iris-soft/40 ring-1 ring-iris" : "border-line bg-surface hover:border-line-2"}`}
+                >
+                  <span>
+                    <Icon size={20} className="mb-2 text-iris-hi" />
+                    <span className="block text-[14px] font-bold">{title}</span>
+                    <span className="mt-1 block text-[12px] leading-relaxed text-muted">{description}</span>
+                  </span>
+                </Button>
+              ))}
             </div>
+            {needsBackend && !canUseProviders && (
+              <Banner
+                tone="warn"
+                title={t("providerTierTitle", { tier: requiredProviderTier })}
+                action={<Button size="sm" variant="secondary" onClick={() => router.push("/seller/providers")}>{t("providerTierAction")}</Button>}
+              >
+                {t("providerTierBody", { tier: requiredProviderTier })}
+              </Banner>
+            )}
           </Card>
 
           <ProductLanguageRail
@@ -469,12 +503,9 @@ export default function NewProduct() {
 
           {archetype === "A" ? (
             <Card className="space-y-4 p-5">
-              <div className="flex flex-wrap items-start justify-between gap-2">
-                <div>
-                  <div className="text-[11px] font-bold uppercase tracking-wider text-muted">{t("step3")}</div>
-                  <h2 className="mt-1 text-[14px] font-bold text-fg">{t("fixedSetup")}</h2>
-                </div>
-                <Tag tone={deliveryMode === "instant" ? "good" : "warn"}>{deliveryMode === "instant" ? t("instantTag") : t("manualTag")}</Tag>
+              <div>
+                <div className="text-[11px] font-bold uppercase tracking-wider text-muted">{t("step3")}</div>
+                <h2 className="mt-1 text-[14px] font-bold text-fg">{t("fixedSetup")}</h2>
               </div>
               <div className="grid gap-4 sm:grid-cols-2">
                 <Field label={t("variantName", { language: contentLocale.toUpperCase() })}>
@@ -484,58 +515,27 @@ export default function NewProduct() {
                   <SellerPriceInput amountVnd={variantPrice} onAmountVndChange={setVariantPrice} />
                 </Field>
               </div>
-              <div className="grid gap-4 sm:grid-cols-2">
-                <Field label={t("deliveryMode")}>
-                  <Select value={deliveryMode} onChange={(event) => setDeliveryMode(event.target.value as "instant" | "manual")}>
-                    <option value="instant">{t("instantDelivery")}</option>
-                    <option value="manual">{t("manualDelivery")}</option>
-                  </Select>
+              {receiveMode === "sla" ? (
+                <Field label={t("slaHours")}>
+                  <Input type="number" min={1} max={720} value={slaHours} onChange={(event) => setSlaHours(Math.min(720, Math.max(1, Number(event.target.value) || 24)))} />
                 </Field>
-                {deliveryMode === "manual" ? (
-                  <Field label={t("slaHours")}>
-                    <Input type="number" min={1} max={720} value={slaHours} onChange={(event) => setSlaHours(Math.min(720, Math.max(1, Number(event.target.value) || 24)))} />
-                  </Field>
-                ) : (
-                  <Field label={t("initialStock")} hint={t("stockHint")}>
-                    <Textarea rows={4} value={initialStockText} onChange={(event) => setInitialStockText(event.target.value)} placeholder={t("stockPlaceholder")} />
-                  </Field>
-                )}
-              </div>
+              ) : (
+                <Field label={t("initialStock")} hint={t("stockHint")}>
+                  <Textarea rows={4} value={initialStockText} onChange={(event) => setInitialStockText(event.target.value)} placeholder={t("stockPlaceholder")} />
+                </Field>
+              )}
             </Card>
-          ) : (
+          ) : needsBackend && canUseProviders && compatibleProviders.length > 0 ? (
             <Card className="space-y-4 p-5">
               <div>
                 <div className="text-[11px] font-bold uppercase tracking-wider text-muted">{t("step3")}</div>
                 <h2 className="mt-1 text-[14px] font-bold text-fg">{t("dynamicSetup")}</h2>
               </div>
-              <Field label={t("providerLabel")} hint={providers.length > 0 ? t("providerHint") : t("noApprovedProviders")}>
-                <Select value={selectedProviderId} onChange={(event) => setSelectedProviderId(Number(event.target.value))} disabled={providers.length === 0}>
-                  {providers.length === 0 && <option value={0}>{t("providerPlaceholder")}</option>}
-                  {providers.map((provider) => <option key={provider.id} value={provider.id}>{provider.name} · {provider.adapter_type}</option>)}
+              <Field label={t("integrationLabel")} hint={t("integrationHint")}>
+                <Select value={selectedProviderId} onChange={(event) => setSelectedProviderId(Number(event.target.value))}>
+                  {compatibleProviders.map((provider) => <option key={provider.id} value={provider.id}>{provider.name}</option>)}
                 </Select>
               </Field>
-              <div className="grid grid-cols-1 gap-2 sm:grid-cols-3">
-                {(["B1", "B2", "B3"] as WorkModelB[]).map((model) => (
-                  <Button
-                    type="button"
-                    variant="ghost"
-                    key={model}
-                    aria-pressed={workModel === model}
-                    onClick={() => setWorkModel(model)}
-                    className={`!h-auto !whitespace-normal items-start rounded-lg border p-3 text-left sm:items-center sm:text-center ${workModel === model ? "border-iris bg-iris-soft/40 ring-1 ring-iris" : "border-line bg-surface hover:border-line-2"}`}
-                  >
-                    <span>
-                      <span className="block text-[13px] font-bold">{t(`${model.toLowerCase()}Title`)}</span>
-                      <span className="mt-0.5 block text-[11px] text-muted">{t(`${model.toLowerCase()}Description`)}</span>
-                    </span>
-                  </Button>
-                ))}
-              </div>
-              {workModel === "B1" && (
-                <Field label={t("monthlyBasePrice", { currency: priceCurrency })}>
-                  <SellerPriceInput amountVnd={b1.basePrice} onAmountVndChange={(basePrice) => setB1({ ...b1, basePrice })} />
-                </Field>
-              )}
               {workModel === "B2" && (
                 <Field label={t("requestUnitPrice", { currency: priceCurrency })}>
                   <SellerPriceInput amountVnd={b2.creditPrice} onAmountVndChange={(creditPrice) => setB2({ ...b2, creditPrice })} />
@@ -546,14 +546,15 @@ export default function NewProduct() {
                   <SellerPriceInput amountVnd={b3.basePrice} onAmountVndChange={(basePrice) => setB3({ ...b3, basePrice })} />
                 </Field>
               )}
-              <div className={`rounded-xl border p-3.5 text-[12px] ${selectedProvider ? "border-good/25 bg-good-soft" : "border-warn/25 bg-warn-soft"}`}>
-                <strong className={selectedProvider ? "text-good" : "text-warn"}>
-                  {selectedProvider ? t("providerReadyTitle", { name: selectedProvider.name }) : t("backendRequiredTitle")}
-                </strong>
-                <p className="mt-1 text-muted">{selectedProvider ? t("providerReadyBody") : t("backendRequiredBody")}</p>
-              </div>
             </Card>
-          )}
+          ) : needsBackend ? (
+            <Card className="space-y-3 p-5">
+              <h2 className="text-[14px] font-bold text-fg">{t("connectServerFirst")}</h2>
+              <Button size="sm" variant="secondary" onClick={() => router.push("/seller/providers")}>
+                {canUseProviders ? t("createCompatibleIntegration") : t("providerTierAction")}
+              </Button>
+            </Card>
+          ) : null}
         </div>
 
         <aside className="space-y-4 lg:sticky lg:top-4">

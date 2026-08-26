@@ -331,6 +331,9 @@ function EndpointDashboard({ data, onRefresh, viewerRole }: { data: DashboardDat
                 display={apiKey ? callUrl.replace(apiKey, maskSecret(apiKey)) : callUrl}
                 copyValue={callUrl}
               />
+              <pre className="mt-2 font-mono text-[11px] bg-base border border-line rounded-md p-2 overflow-x-auto whitespace-pre-wrap break-all">
+                {`curl -sS "${callUrl.replace("<endpoint>", "search")}"`}
+              </pre>
             </div>
           )}
         </div>
@@ -565,7 +568,10 @@ export default function ServiceDashboard({ orderId, viewerRole = "buyer" }: { or
           {data.service_type}
         </Tag>
       </div>
-      {data.service_type === "proxy" ? <ProxyDashboard data={data} />
+      {data.balance ? <EndpointDashboard data={data} onRefresh={load} viewerRole={viewerRole} />
+        : (data.tasks && data.tasks.length > 0) ? <TakedownDashboard data={data} />
+        : (data.resources && data.resources.length > 0) ? <ProxyDashboard data={data} />
+        : data.service_type === "proxy" ? <ProxyDashboard data={data} />
         : data.service_type === "endpoint" ? <EndpointDashboard data={data} onRefresh={load} viewerRole={viewerRole} />
         : data.service_type === "takedown" ? <TakedownDashboard data={data} />
         : <DefaultDashboard data={data} />}

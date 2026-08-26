@@ -25,13 +25,15 @@ Run:
 Mock responses are deterministic by default.  To exercise transient failure
 handling, start it with `MOCK_SELLER_FAILURE_RATE=0.05`.
 
-Then in /admin/providers, create a provider:
+Then in /seller/providers (development only) or /admin/providers, create:
     adapter_type = seller_gateway   (or seller_task_webhook, for tasks)
     config = {
         "base_url": "http://localhost:9100",
         "api_key": "mock-seller-secret",       # must match MOCK_SELLER_API_KEY below
         "webhook_secret": "mock-webhook-secret" # only needed for seller_task_webhook
     }
+Staging/production still reject seller loopback. Local development can save,
+test, submit, and approve this mock end to end.
 Gán provider đó vào một sản phẩm strategy=credit (hoặc task), mua thử, rồi
 gọi qua {backend_base_url}/gw/{gateway_key}/search?q=hello — log sẽ hiện ở cả
 hai console (marketplace-svc: request_id + provider_call_logs row; ở đây:

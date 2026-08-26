@@ -8,6 +8,7 @@ import { api } from "@/lib/api";
 import { useMoney } from "@/lib/money";
 import { queryKeys } from "@/lib/query-keys";
 import { orderStatus } from "@/lib/order-status";
+import { fulfillmentFromStrategy } from "@/lib/fulfillment";
 import type { Order } from "@/lib/types";
 import { Button, CopyButton, Tag } from "@/components/ui";
 import { Check, Clock, X } from "@/components/Icons";
@@ -60,7 +61,7 @@ function useElapsed(since: string, active: boolean): string {
   return `${Math.floor(s / 60)}:${String(s % 60).padStart(2, "0")}`;
 }
 
-function ProvisionSteps({ elapsed }: { elapsed: string }) {
+function ProvisionSteps({ elapsed, workingLabel, nextLabel }: { elapsed: string; workingLabel: string; nextLabel: string }) {
   const t = useTranslations("products");
   return (
     <div role="status" aria-live="polite" className="relative pl-7">
@@ -74,24 +75,25 @@ function ProvisionSteps({ elapsed }: { elapsed: string }) {
       <div className="relative pb-3">
         <span className="absolute -left-7 top-[1px] h-[17px] w-[17px] rounded-full border-2 border-warn/25 border-t-warn bg-surface animate-spin-ring" />
         <p className="text-[12.5px] font-medium text-fg">
-          {t("orderFetching")}
+          {workingLabel}
           <span className="ml-1.5 font-mono text-[11px] font-normal text-faint tabular-nums">{elapsed}</span>
         </p>
       </div>
       <div className="relative">
         <span className="absolute -left-7 top-[1px] h-[17px] w-[17px] rounded-full border border-line-2 bg-surface" />
-        <p className="text-[12.5px] text-faint">{t("orderHandoff")}</p>
+        <p className="text-[12.5px] text-faint">{nextLabel}</p>
       </div>
     </div>
   );
 }
 
-export default function OrderResult({ order: initial, onRebuy }: { order: Order; onRebuy: () => void }) {
+export default function OrderResult({ order: initial, onRebuy, fulfillment }: { order: Order; onRebuy: () => void; fulfillment?: string | null }) {
   const t = useTranslations("products");
   const tc = useTranslations("common");
   const locale = useLocale();
   const { formatOrderHistoryMoney } = useMoney();
   const viaProvider = initial.product_id != null;
+  const kind = fulfillmentFromStrategy(fulfillment).kind;
   const order = useOrderPolling(initial, viaProvider);
   const amountText = formatOrderHistoryMoney(
     order.total_amount,
@@ -136,7 +138,11 @@ export default function OrderResult({ order: initial, onRebuy }: { order: Order;
       {pending ? (
         viaProvider ? (
           <div className="space-y-3.5">
-            <ProvisionSteps elapsed={elapsed} />
+            <ProvisionSteps
+              elapsed={elapsed}
+              workingLabel={kind === "task" ? t("orderSendingTask") : kind === "api" ? t("orderIssuingKey") : t("orderFetching")}
+              nextLabel={kind === "task" ? t("orderWaitResult") : kind === "api" ? t("orderReceiveKey") : t("orderHandoff")}
+            />
             <div className="rounded-lg border border-line bg-raised/60 p-3">
               <p className="text-[11px] text-faint uppercase tracking-wider mb-2">{t("orderHandoffInfo")}</p>
               <div className="space-y-1.5" aria-hidden>

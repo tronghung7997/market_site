@@ -199,6 +199,9 @@ export interface Order {
   cancel_reason?: string | null;
   created_at: string;
   product_title?: string | null;
+  pricing_strategy?: string | null;
+  delivery_mode?: string | null;
+  sla_hours?: number | null;
   variant_name?: string | null;
   buyer_email?: string | null;
   seller_email?: string | null;
@@ -695,8 +698,15 @@ export interface Provider {
   fallback_provider_id: number | null;
   quality_score: number | null;
   seller_id: number | null;
-  review_status: "approved" | "pending_review" | "rejected" | "disabled";
+  review_status: "draft" | "test_failed" | "tested" | "pending_review" | "approved" | "rejected" | "disabled";
   review_note: string | null;
+  last_tested_at: string | null;
+  last_test_result: {
+    passed?: boolean;
+    health?: Record<string, unknown>;
+    provision_test?: Record<string, unknown> | null;
+    provision_test_skipped_reason?: string | null;
+  } | null;
 }
 
 export interface ServiceTask {

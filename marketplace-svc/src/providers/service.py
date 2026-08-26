@@ -1,3 +1,5 @@
+from datetime import UTC, datetime
+
 from fastapi import HTTPException
 from sqlalchemy import select
 from sqlalchemy.ext.asyncio import AsyncSession
@@ -148,25 +150,29 @@ async def update_provider(
     return provider
 
 
+def _seller_config(raw: dict, existing: dict | None = None) -> dict:
+    forbidden = {"skip_health_probe", "skip_provision_handshake"} & set(raw)
+    if forbidden:
+        raise HTTPException(status_code=400, detail="Seller không được bỏ qua contract test")
+    return _merge_masked_secrets(raw, existing)
+
+
 async def create_seller_provider(seller_id: int, data: dict, db: AsyncSession) -> Provider:
-    """Seller tự đăng ký backend của họ — luôn `pending_review`, không bao giờ
-    tự động approved (khác `create_provider` admin-path). Admin duyệt bằng
-    đúng nút Test đã có ở /admin/providers rồi mới `review_provider()`, không
-    cần đọc hiểu nghiệp vụ seller — chỉ cần connector trả lời đúng contract
-    (adapters/base.py::ProviderAdapter), xem spec 2026-07-21 nguyên tắc chung."""
+    """Save a seller integration as a draft. Testing and review submission are
+    explicit later transitions; saving credentials never queues admin work."""
     adapter_type = data.get("adapter_type")
     if adapter_type not in SELLER_ALLOWED_ADAPTER_TYPES:
         raise HTTPException(
             status_code=400,
             detail=f"Seller chỉ tự đăng ký được adapter_type: {', '.join(sorted(SELLER_ALLOWED_ADAPTER_TYPES))}",
         )
-    config = _merge_masked_secrets(data.get("config") or {})
+    config = _seller_config(data.get("config") or {})
     await _validate_adapter_config(adapter_type, config)
     await validate_seller_base_url(config.get("base_url", ""))
     provider = Provider(
         name=data["name"], type=adapter_type, adapter_type=adapter_type,
         config=encrypt_config(config), priority=1, is_active=True,
-        seller_id=seller_id, review_status="pending_review",
+        seller_id=seller_id, review_status="draft",
     )
     db.add(provider)
     await db.commit()
@@ -192,25 +198,73 @@ async def update_seller_provider(seller_id: int, provider_id: int, updates: dict
     provider = await get_seller_provider(seller_id, provider_id, db)
 
     if "config" in updates:
-        updates["config"] = _merge_masked_secrets(updates["config"] or {}, provider.config)
+        if provider.review_status == "approved":
+            raise HTTPException(
+                status_code=409,
+                detail="Tích hợp đã duyệt đang được bảo vệ. Hãy tạo tích hợp mới để thay đổi kết nối.",
+            )
+        updates["config"] = _seller_config(updates["config"] or {}, provider.config)
     next_config = updates["config"] if "config" in updates else provider.config
     await _validate_adapter_config(provider.adapter_type, next_config)
     if "config" in updates:
         await validate_seller_base_url((updates["config"] or {}).get("base_url", ""))
-
-    if "config" in updates and updates["config"]:
         updates["config"] = encrypt_config(updates["config"])
 
     for key, value in updates.items():
         setattr(provider, key, value)
 
-    # Sửa cấu hình (credential/base_url) sau khi đã duyệt thì buộc duyệt lại —
-    # admin mới xác nhận CONNECTOR CŨ hoạt động đúng, sửa xong không có gì đảm
-    # bảo connector MỚI vẫn đúng chỉ vì cùng provider_id.
-    if "config" in updates and provider.review_status == "approved":
-        provider.review_status = "pending_review"
+    if "config" in updates:
+        provider.review_status = "draft"
         provider.review_note = None
+        provider.last_tested_at = None
+        provider.last_test_result = None
 
+    await db.commit()
+    await db.refresh(provider)
+    return provider
+
+
+async def record_seller_provider_test(
+    seller_id: int,
+    provider_id: int,
+    result: dict,
+    db: AsyncSession,
+) -> Provider:
+    provider = await get_seller_provider(seller_id, provider_id, db)
+    health = result.get("health") or {}
+    provision = result.get("provision_test")
+    passed = (
+        health.get("status") == "healthy"
+        and health.get("probe") != "skipped"
+        and isinstance(provision, dict)
+        and provision.get("success") is True
+    )
+    provider.last_tested_at = datetime.now(UTC)
+    provider.last_test_result = {
+        "passed": passed,
+        "health": {
+            "status": health.get("status"),
+            "message": health.get("message"),
+        },
+        "provision_test": {
+            "success": provision.get("success"),
+            "error": provision.get("error"),
+        } if isinstance(provision, dict) else None,
+        "provision_test_skipped_reason": result.get("provision_test_skipped_reason"),
+    }
+    if provider.review_status not in ("approved", "disabled"):
+        provider.review_status = "tested" if passed else "test_failed"
+    await db.commit()
+    await db.refresh(provider)
+    return provider
+
+
+async def submit_seller_provider(seller_id: int, provider_id: int, db: AsyncSession) -> Provider:
+    provider = await get_seller_provider(seller_id, provider_id, db)
+    if provider.review_status != "tested":
+        raise HTTPException(status_code=409, detail="Hãy test kết nối thành công trước khi gửi duyệt")
+    provider.review_status = "pending_review"
+    provider.review_note = None
     await db.commit()
     await db.refresh(provider)
     return provider
@@ -229,6 +283,8 @@ async def review_provider(provider_id: int, decision: str, note: str | None, db:
         )
     if decision not in ("approved", "rejected", "disabled"):
         raise HTTPException(status_code=400, detail="decision phải là approved/rejected/disabled")
+    if decision in ("approved", "rejected") and provider.review_status != "pending_review":
+        raise HTTPException(status_code=409, detail="Seller chưa gửi tích hợp này để admin duyệt")
     if decision == "rejected" and not (note or "").strip():
         # A rejection that gives the seller no actionable reason just creates
         # another support loop.  The UI enforces this too; keep the rule at

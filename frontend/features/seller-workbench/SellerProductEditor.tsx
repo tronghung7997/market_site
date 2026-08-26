@@ -2,7 +2,7 @@
 
 import { useCallback, useEffect, useMemo, useState } from "react";
 import { useLocale, useTranslations } from "next-intl";
-import { Link } from "@/i18n/navigation";
+import { Link, useRouter } from "@/i18n/navigation";
 import { api } from "@/lib/api";
 import type {
   Category,
@@ -115,6 +115,7 @@ export function SellerProductEditor({ productId }: { productId: number }) {
   const interfaceLocale = useLocale() as ProductLocale;
   const t = useTranslations("seller.newProductFlow");
   const ts = useTranslations("seller");
+  const router = useRouter();
   const { currency: priceCurrency } = useSellerPriceCurrency();
 
   const [loading, setLoading] = useState(true);
@@ -214,7 +215,19 @@ export function SellerProductEditor({ productId }: { productId: number }) {
   const primaryContent = content[primaryLocale];
   const secondaryLocale: ProductLocale = primaryLocale === "vi" ? "en" : "vi";
   const archetype = product?.pricing_strategy && product.pricing_strategy !== "fixed" ? "B" : "A";
-  const selectedProvider = providers.find((provider) => provider.id === selectedProviderId);
+  const requiredAdapterType = workModel === "B2" ? "seller_gateway" : workModel === "B3" ? "seller_task_webhook" : null;
+  const compatibleProviders = useMemo(
+    () => workModel === "B1" ? providers : providers.filter((provider) => provider.adapter_type === requiredAdapterType),
+    [providers, requiredAdapterType, workModel],
+  );
+  const selectedProvider = compatibleProviders.find((provider) => provider.id === selectedProviderId);
+
+  useEffect(() => {
+    if (!compatibleProviders.some((provider) => provider.id === selectedProviderId)) {
+      setSelectedProviderId(compatibleProviders[0]?.id ?? 0);
+    }
+  }, [compatibleProviders, selectedProviderId]);
+
   const backend: BackendState = selectedProvider
     ? { status: "approved", name: selectedProvider.name, providerType: selectedProvider.adapter_type }
     : { status: "none", name: "" };
@@ -544,25 +557,33 @@ export function SellerProductEditor({ productId }: { productId: number }) {
                 <h2 className="text-[14px] font-bold text-fg">{t("dynamicSetup")}</h2>
                 {operations?.needs_setup_reason && <p className="mt-1 text-[12px] text-warn">{operations.needs_setup_reason}</p>}
               </div>
-              <Field label={t("providerLabel")} hint={providers.length > 0 ? t("providerHint") : t("noApprovedProviders")}>
-                <Select value={selectedProviderId} onChange={(event) => setSelectedProviderId(Number(event.target.value))} disabled={providers.length === 0}>
-                  {providers.length === 0 && <option value={0}>{t("providerPlaceholder")}</option>}
-                  {providers.map((provider) => <option key={provider.id} value={provider.id}>{provider.name} · {provider.adapter_type}</option>)}
+              {workModel !== "B1" && (
+                <div className="grid grid-cols-1 gap-2 sm:grid-cols-2">
+                  {([["B2", t("apiProductTitle"), t("apiProductDescription")], ["B3", t("taskProductTitle"), t("taskProductDescription")]] as const).map(([model, title, description]) => (
+                    <Button type="button" variant="ghost" key={model} aria-pressed={workModel === model} onClick={() => setWorkModel(model)} className={`!h-auto !whitespace-normal items-start rounded-lg border p-3 text-left ${workModel === model ? "border-iris bg-iris-soft/40 ring-1 ring-iris" : "border-line bg-surface hover:border-line-2"}`}>
+                      <span><span className="block text-[13px] font-bold">{title}</span><span className="mt-0.5 block text-[11px] text-muted">{description}</span></span>
+                    </Button>
+                  ))}
+                </div>
+              )}
+              <Field
+                label={t("integrationLabel")}
+                hint={compatibleProviders.length > 0 ? t("integrationHint") : t("noCompatibleIntegrations")}
+              >
+                <Select value={selectedProviderId} onChange={(event) => setSelectedProviderId(Number(event.target.value))} disabled={compatibleProviders.length === 0}>
+                  {compatibleProviders.length === 0 && <option value={0}>{t("integrationPlaceholder")}</option>}
+                  {compatibleProviders.map((provider) => <option key={provider.id} value={provider.id}>{provider.name}</option>)}
                 </Select>
               </Field>
-              <div className="grid grid-cols-1 gap-2 sm:grid-cols-3">
-                {(["B1", "B2", "B3"] as const).map((model) => (
-                  <Button type="button" variant="ghost" key={model} aria-pressed={workModel === model} onClick={() => setWorkModel(model)} className={`!h-auto !whitespace-normal items-start rounded-lg border p-3 text-left sm:items-center sm:text-center ${workModel === model ? "border-iris bg-iris-soft/40 ring-1 ring-iris" : "border-line bg-surface hover:border-line-2"}`}>
-                    <span><span className="block text-[13px] font-bold">{t(`${model.toLowerCase()}Title`)}</span><span className="mt-0.5 block text-[11px] text-muted">{t(`${model.toLowerCase()}Description`)}</span></span>
-                  </Button>
-                ))}
-              </div>
+              {compatibleProviders.length === 0 && workModel !== "B1" && (
+                <Button size="sm" variant="secondary" onClick={() => router.push("/seller/providers")}>{t("createCompatibleIntegration")}</Button>
+              )}
               {workModel === "B1" && <Field label={t("monthlyBasePrice", { currency: priceCurrency })}><SellerPriceInput amountVnd={b1.basePrice} onAmountVndChange={(basePrice) => setB1({ ...b1, basePrice })} /></Field>}
               {workModel === "B2" && <Field label={t("requestUnitPrice", { currency: priceCurrency })}><SellerPriceInput amountVnd={b2.creditPrice} onAmountVndChange={(creditPrice) => setB2({ ...b2, creditPrice })} /></Field>}
               {workModel === "B3" && <Field label={t("taskUnitPrice", { currency: priceCurrency })}><SellerPriceInput amountVnd={b3.basePrice} onAmountVndChange={(basePrice) => setB3({ ...b3, basePrice })} /></Field>}
               <div className={`rounded-xl border p-3.5 text-[12px] ${selectedProvider ? "border-good/25 bg-good-soft" : "border-warn/25 bg-warn-soft"}`}>
-                <strong className={selectedProvider ? "text-good" : "text-warn"}>{selectedProvider ? t("providerReadyTitle", { name: selectedProvider.name }) : t("backendRequiredTitle")}</strong>
-                <p className="mt-1 text-muted">{selectedProvider ? t("providerReadyBody") : t("backendRequiredBody")}</p>
+                <strong className={selectedProvider ? "text-good" : "text-warn"}>{selectedProvider ? t("integrationReadyTitle", { name: selectedProvider.name }) : t("integrationRequiredTitle")}</strong>
+                <p className="mt-1 text-muted">{selectedProvider ? t("integrationReadyBody") : t("integrationRequiredBody")}</p>
               </div>
             </Card>
           )}

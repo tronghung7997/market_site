@@ -221,15 +221,15 @@ export default function DynamicOrderForm({ productId, product, onOrderCreated }:
     <>
       <Card className="overflow-hidden shadow-card-lg">
         <div className="px-5 h-11 flex items-center justify-between bg-ink-panel dotgrid-dark">
-          <span className="text-[12.5px] font-semibold tracking-wide text-white/95">{isAutoDelivered ? t("buyProxy") : t("configureOrder")}</span>
-          {isAutoDelivered ? (
-            <div className="flex items-center gap-1.5">
-              <Tag tone="good">{t("autoDelivered")}</Tag>
-              {/* "Đổi IP" CHỈ đúng với DProxy — proxy tĩnh TopProxy không có
-                  rotate, hứa ở đây là hứa suông ngay trên nút mua. */}
-              {isDproxy && <Tag tone="iris">{t("ipRotatable")}</Tag>}
-            </div>
-          ) : null}
+          <span className="text-[12.5px] font-semibold tracking-wide text-white/95">
+            {options.strategy === "credit" ? t("buyApiAccess") : options.strategy === "task" ? t("submitTaskOrder") : isAutoDelivered ? t("buyProxy") : t("configureOrder")}
+          </span>
+          <div className="flex items-center gap-1.5">
+            {options.strategy === "credit" && <Tag tone="iris">{t("fulfillment.api")}</Tag>}
+            {options.strategy === "task" && <Tag tone="warn">{t("fulfillment.task")}</Tag>}
+            {isAutoDelivered && <Tag tone="good">{t("autoDelivered")}</Tag>}
+            {isDproxy && <Tag tone="iris">{t("ipRotatable")}</Tag>}
+          </div>
         </div>
 
         <div className="p-5 space-y-4">
@@ -396,6 +396,12 @@ export default function DynamicOrderForm({ productId, product, onOrderCreated }:
                       <span className="font-medium">{qty}</span>
                     </div>
                   )}
+                  <div className="flex justify-between">
+                    <span className="text-muted">{t("confirmDelivery")}</span>
+                    <span className="font-medium text-right max-w-[220px]">
+                      {options.strategy === "credit" ? t("deliveryGatewayKey") : options.strategy === "task" ? t("deliveryTaskResult") : t("deliveryAutoSeconds")}
+                    </span>
+                  </div>
                 </>
               )}
               {hasDiscount && calc.original_amount != null && (

@@ -1,5 +1,5 @@
 import type { Metadata } from "next";
-import { SERVER_API_BASE } from "./server-api";
+import { signedBackendFetch } from "./bff-request-signing";
 
 export function siteOrigin(): string {
   return (process.env.NEXT_PUBLIC_SITE_URL ?? "http://localhost:3000").replace(/\/$/, "");
@@ -12,7 +12,7 @@ export function localePath(locale: string, path = "/"): string {
 
 export async function fetchPublicJson<T>(path: string, locale: string): Promise<T | null> {
   try {
-    const res = await fetch(`${SERVER_API_BASE}${path}`, {
+    const res = await signedBackendFetch(path, {
       headers: { "Accept-Language": locale },
       next: { revalidate: 60 },
     });

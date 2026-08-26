@@ -37,7 +37,7 @@ Browser
 ```
 
 - Browser không gọi FastAPI trực tiếp và không nhận access token sau login.
-- BFF lưu JWT trong cookie `dx_session` dạng HTTP-only và thêm `Authorization` khi gọi backend.
+- BFF lưu JWT trong cookie `dx_session` dạng HTTP-only, thêm `Authorization`, và HMAC-sign mọi request sang FastAPI bằng `BFF_REQUEST_SIGNING_SECRET`.
 - `/internal/*` không được public qua catch-all BFF.
 - Scheduled jobs hiện chạy trong process backend; danh sách chính xác nằm trong `marketplace-svc/src/main.py`.
 - Transactional mail ghi `mail_outbox` cùng transaction domain; worker gửi outbound (log / SMTP / Resend). Server không cần mở inbound. Nhiều host chặn SMTP — production nên dùng Resend (HTTPS :443).
@@ -198,6 +198,7 @@ Nguồn đầy đủ: `marketplace-svc/.env.example` và `marketplace-svc/src/co
 | `REDIS_URL` | Redis URL; mặc định local `redis://localhost:6379` |
 | `JWT_SECRET` | Bắt buộc, unique, tối thiểu 32 byte |
 | `INTERNAL_API_KEY` | Bắt buộc, khác JWT secret, tối thiểu 32 byte |
+| `BFF_REQUEST_SIGNING_SECRET` | Bắt buộc, tối thiểu 32 byte; cùng giá trị server-only với frontend/BFF để ký hop BFF → FastAPI |
 | `ENCRYPTION_KEY` | Bắt buộc, khác các secret khác, tối thiểu 32 byte |
 | `PRINCIPAL_HMAC_SECRET` | Nên đặt riêng ở staging/production |
 | `FRONTEND_BASE_URL`, `CORS_ALLOWED_ORIGINS` | Origin frontend được backend chấp nhận; reset-password links dùng `FRONTEND_BASE_URL` |
@@ -217,6 +218,7 @@ Nguồn đầy đủ: `frontend/.env.example` và `frontend/next.config.mjs`.
 | Biến | Yêu cầu |
 |---|---|
 | `API_URL` | Backend upstream dùng server-side; production không được trỏ localhost |
+| `BFF_REQUEST_SIGNING_SECRET` | Bắt buộc, server-only; phải khớp backend và không dùng tiền tố `NEXT_PUBLIC_` |
 | `NEXT_PUBLIC_ENABLE_DEMO_TOPUP` | Chỉ opt-in development; production luôn bị tắt |
 | `ADMIN_ALLOWED_IPS` | Optional server-side admin network gate |
 | `ADMIN_CLIENT_IP_HEADER` | Header do trusted edge proxy ghi đè |

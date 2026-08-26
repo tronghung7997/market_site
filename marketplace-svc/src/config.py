@@ -27,6 +27,9 @@ class Settings(BaseSettings):
     jwt_algorithm: str = "HS256"
     jwt_expire_minutes: int = 60
     internal_api_key: str
+    bff_request_signing_secret: str
+    bff_request_signing_key_id: str = "market-bff-v1"
+    bff_request_signing_timestamp_tolerance_seconds: int = 300
     platform_fee_percent: int = 0
     encryption_key: str
     # Dedicated secret for login principal fingerprinting (S telemetry).
@@ -63,14 +66,6 @@ class Settings(BaseSettings):
     mail_max_attempts: int = 8
     gateway_ip_rate_limit: int = 120
     gateway_key_rate_limit: int = 60
-    # Seller API request signing (X-API-Key + HMAC).
-    api_signing_timestamp_tolerance_seconds: int = 300
-    api_signing_ip_limit: int = 120
-    api_signing_key_limit: int = 60
-    seller_api_key_ttl_days: int = 90
-    seller_api_key_max_active: int = 5
-    # allow = X-Seller-Api-Key still accepted (migration); deny = signed/JWT only.
-    legacy_seller_api_key_mode: Literal["allow", "deny"] = "allow"
     # Comma-separated IPs/CIDRs of reverse proxies allowed to set X-Forwarded-For.
     # Empty = never trust XFF (rate limits use the direct TCP peer only).
     # Behind nginx, set the proxy's address/CIDR so per-client IP buckets work.
@@ -188,7 +183,7 @@ class Settings(BaseSettings):
 
     @model_validator(mode="after")
     def validate_security_settings(self) -> "Settings":
-        for field_name in ("jwt_secret", "internal_api_key", "encryption_key"):
+        for field_name in ("jwt_secret", "internal_api_key", "encryption_key", "bff_request_signing_secret"):
             value = getattr(self, field_name)
             if value in _KNOWN_INSECURE_SECRETS:
                 raise ValueError(f"{field_name.upper()} uses a known insecure default")
@@ -196,6 +191,12 @@ class Settings(BaseSettings):
                 raise ValueError(
                     f"{field_name.upper()} must contain at least {_MIN_SECRET_LENGTH} bytes"
                 )
+        if self.bff_request_signing_secret in {
+            self.jwt_secret,
+            self.internal_api_key,
+            self.encryption_key,
+        }:
+            raise ValueError("BFF_REQUEST_SIGNING_SECRET must differ from every other service secret")
 
         if not self.principal_hmac_secret:
             object.__setattr__(self, "principal_hmac_secret", self.jwt_secret)
@@ -236,12 +237,8 @@ class Settings(BaseSettings):
             "mail_max_attempts",
             "gateway_ip_rate_limit",
             "gateway_key_rate_limit",
-            "api_signing_timestamp_tolerance_seconds",
-            "api_signing_ip_limit",
-            "api_signing_key_limit",
             "sepay_webhook_timestamp_tolerance_seconds",
-            "seller_api_key_ttl_days",
-            "seller_api_key_max_active",
+            "bff_request_signing_timestamp_tolerance_seconds",
             "affiliate_click_ip_limit",
             "provider_webhook_ip_limit",
             "gateway_call_log_retention_days",

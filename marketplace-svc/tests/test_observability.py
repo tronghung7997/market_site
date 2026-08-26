@@ -55,8 +55,8 @@ def test_sentry_event_strips_request_secrets_and_attaches_request_id():
                 "cookies": {"session": "cookie-secret"},
                 "headers": {
                     "Authorization": "Bearer header-secret",
-                    "X-Seller-Api-Key": "seller-secret",
                     "X-API-Key": "ak_live_public-id",
+                    "X-Timestamp": "1786089600",
                     "X-Signature": "v1=deadbeef",
                     "Accept": "application/json",
                 },
@@ -71,8 +71,8 @@ def test_sentry_event_strips_request_secrets_and_attaches_request_id():
         assert "data" not in request
         assert "cookies" not in request
         assert request["headers"]["Authorization"] == "[REDACTED]"
-        assert request["headers"]["X-Seller-Api-Key"] == "[REDACTED]"
         assert request["headers"]["X-API-Key"] == "[REDACTED]"
+        assert request["headers"]["X-Timestamp"] == "[REDACTED]"
         assert request["headers"]["X-Signature"] == "[REDACTED]"
         assert request["headers"]["Accept"] == "application/json"
         assert scrubbed["tags"]["request_id"] == "request-123"

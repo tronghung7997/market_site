@@ -19,6 +19,7 @@ def _settings_kwargs(**overrides):
         "deployment_environment": "test",
         "jwt_secret": "j" * 40,
         "internal_api_key": "i" * 40,
+        "bff_request_signing_secret": "b" * 40,
         "encryption_key": "e" * 40,
         "enable_demo_topup": False,
         "auth_rate_limit_enabled": True,
@@ -229,24 +230,23 @@ async def test_docs_debug_and_evil_cors_are_closed_by_default(client):
 
 
 @pytest.mark.asyncio
-async def test_cors_preflight_allows_signing_headers(client):
-    """Positive preflight: allowed origin may request the three signing headers."""
+async def test_cors_preflight_allows_browser_auth_headers(client):
+    """The browser only sends normal BFF/session headers, never BFF signing secrets."""
     origin = settings.cors_origins[0]
     preflight = await client.options(
         "/seller/orders",
         headers={
             "Origin": origin,
             "Access-Control-Request-Method": "GET",
-            "Access-Control-Request-Headers": "X-API-Key, X-Timestamp, X-Signature, Authorization",
+            "Access-Control-Request-Headers": "Authorization, Content-Type, X-Request-ID",
         },
     )
     assert preflight.status_code == 200
     assert preflight.headers.get("access-control-allow-origin") == origin
     allow = preflight.headers.get("access-control-allow-headers", "").lower()
-    assert "x-api-key" in allow
-    assert "x-timestamp" in allow
-    assert "x-signature" in allow
     assert "authorization" in allow
+    assert "content-type" in allow
+    assert "x-request-id" in allow
 
 
 @pytest.mark.asyncio

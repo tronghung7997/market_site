@@ -1,5 +1,5 @@
 import type {
-  Account, ActionItem, AdminDepositIntent, AdminDepositLedgerQuery, AdminDepositLedgerResponse, AdminDepositTransaction, AdminDisputeDetail, AdminOrderDetail, AdminProduct, AdminResourceListResponse, AffiliateStats, AffiliateSummary, CalculateResult, Category, ChargeUsageResult, ChatConversationDetail, ChatConversationList, ChatMessage, DashboardData, DepositIntent, DepositMethods, DepositReconcileResult, DepositRailConfigAdmin, DepositRailConfigUpdate, Dispute, SePayWebhookEventRow, AdminAccountWallet, FundOverview, AccountAdminRow, PaginatedAccounts, LogEntry, MailConfigAdmin, MailConfigUpdate, MailOutboxList, MailSendTestResponse, MailTemplatePreview, MailTemplateRow, MoneyConfigAdmin, MoneyConfigPublic, MoneyConfigUpdate, Order, OrderStats, PaginatedAffiliateSummary, PaginatedOrderResponse, PaginatedProducts, PricingField, PricingOptions, ProductDetail, AdminProductDetail, Product, ProductLocale, ProductOperations, ProductTranslation, ProxyState, ProxyRotateResult, ProxyWhitelistResult, Review, SellerApplication, SellerProduct, SellerStats, ServiceTask, TikTokLookupResponse, Transaction, Variant, Wallet, WithdrawRequest, Provider, ProviderHealth, Alert, Resource, ResourceSummary, ResourceSellerFacet, InventoryVariant, SellerSummary, SellerProfile, SellerApiKey, SellerApiKeyCreated,
+  Account, ActionItem, AdminDepositIntent, AdminDepositLedgerQuery, AdminDepositLedgerResponse, AdminDepositTransaction, AdminDisputeDetail, AdminOrderDetail, AdminProduct, AdminResourceListResponse, AffiliateStats, AffiliateSummary, CalculateResult, Category, ChargeUsageResult, ChatConversationDetail, ChatConversationList, ChatMessage, DashboardData, DepositIntent, DepositMethods, DepositReconcileResult, DepositRailConfigAdmin, DepositRailConfigUpdate, Dispute, SePayWebhookEventRow, AdminAccountWallet, FundOverview, AccountAdminRow, PaginatedAccounts, LogEntry, MailConfigAdmin, MailConfigUpdate, MailOutboxList, MailSendTestResponse, MailTemplatePreview, MailTemplateRow, MoneyConfigAdmin, MoneyConfigPublic, MoneyConfigUpdate, Order, OrderStats, PaginatedAffiliateSummary, PaginatedOrderResponse, PaginatedProducts, PricingField, PricingOptions, ProductDetail, AdminProductDetail, Product, ProductLocale, ProductOperations, ProductTranslation, ProxyState, ProxyRotateResult, ProxyWhitelistResult, Review, SellerApplication, SellerProduct, SellerStats, ServiceTask, TikTokLookupResponse, Transaction, Variant, Wallet, WithdrawRequest, Provider, ProviderHealth, Alert, Resource, ResourceSummary, ResourceSellerFacet, InventoryVariant, SellerSummary, SellerProfile,
 } from "./types";
 import { SERVER_API_BASE } from "./server-api";
 
@@ -48,7 +48,12 @@ async function request<T>(path: string, init: RequestInit = {}, auth: boolean | 
   };
   let res: Response;
   try {
-    res = await fetch(`${BASE}${path}`, { ...init, headers, credentials: "same-origin" });
+    if (typeof window === "undefined") {
+      const { signedBackendFetch } = await import("./bff-request-signing");
+      res = await signedBackendFetch(path, { ...init, headers });
+    } else {
+      res = await fetch(`${BASE}${path}`, { ...init, headers, credentials: "same-origin" });
+    }
   } catch {
     throw new ApiError(0, "Unable to reach the server. Check your connection and try again.", "NETWORK");
   }
@@ -195,9 +200,6 @@ export const api = {
   sellerProduct: (id: number) => request<ProductDetail>(`/seller/products/${id}/detail`, {}, true),
   sellerStats: () => request<SellerStats>("/seller/stats", {}, true),
   sellerOrders: () => request<Order[]>("/seller/orders", {}, true),
-  createSellerApiKey: () => request<SellerApiKeyCreated>("/seller/api-keys", { method: "POST" }, true),
-  listSellerApiKeys: () => request<SellerApiKey[]>("/seller/api-keys", {}, true),
-  revokeSellerApiKey: (id: number) => request<SellerApiKey>(`/seller/api-keys/${id}`, { method: "DELETE" }, true),
   createProduct: (data: Record<string, unknown>) =>
     request<Product>("/seller/products", { method: "POST", body: JSON.stringify(data) }, true),
   updateProduct: (id: number, data: Record<string, unknown>) =>
@@ -594,7 +596,7 @@ export const api = {
     ),
 };
 
-export type { Account, AdminDisputeDetail, AdminOrderDetail, AdminProduct, AdminResourceListResponse, AffiliateStats, AffiliateSummary, CalculateResult, Category, DashboardData, Dispute, FundOverview, AccountAdminRow, PaginatedAccounts, LogEntry, Order, OrderStats, PaginatedAffiliateSummary, PaginatedOrderResponse, PricingField, PricingOptions, Product, ProductDetail, ProductOperations, Review, SellerApplication, SellerProduct, SellerStats, SellerSummary, SellerProfile, ServiceTask, Transaction, Variant, Wallet, WithdrawRequest, Provider, ProviderHealth, Alert, Resource, ResourceSummary, InventoryVariant, SellerApiKey, SellerApiKeyCreated };
+export type { Account, AdminDisputeDetail, AdminOrderDetail, AdminProduct, AdminResourceListResponse, AffiliateStats, AffiliateSummary, CalculateResult, Category, DashboardData, Dispute, FundOverview, AccountAdminRow, PaginatedAccounts, LogEntry, Order, OrderStats, PaginatedAffiliateSummary, PaginatedOrderResponse, PricingField, PricingOptions, Product, ProductDetail, ProductOperations, Review, SellerApplication, SellerProduct, SellerStats, SellerSummary, SellerProfile, ServiceTask, Transaction, Variant, Wallet, WithdrawRequest, Provider, ProviderHealth, Alert, Resource, ResourceSummary, InventoryVariant };
 
 /** Money formatter sống ở lib/utils/format — re-export để 22 chỗ đang
  * `import { vnd } from "@/lib/api"` không phải sửa cùng lúc; import mới

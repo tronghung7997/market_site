@@ -1,4 +1,5 @@
 import { NextRequest, NextResponse } from "next/server";
+import { signedHeaders } from "@/lib/bff-request-signing";
 import { adminRequestAllowed, isAdminApiPath } from "@/lib/admin-access";
 import { SERVER_API_BASE } from "@/lib/server-api";
 
@@ -73,7 +74,7 @@ async function proxy(request: NextRequest, segments: string[]) {
   const target = new URL(`${API_TARGET}/${path}`);
   target.search = request.nextUrl.search;
   const headers = new Headers(request.headers);
-  for (const name of ["host", "cookie", "content-length", "connection", "authorization"]) {
+  for (const name of ["host", "cookie", "content-length", "connection", "authorization", "x-api-key", "x-timestamp", "x-signature"]) {
     headers.delete(name);
   }
   const token = request.cookies.get(SESSION_COOKIE)?.value;
@@ -82,6 +83,7 @@ async function proxy(request: NextRequest, segments: string[]) {
   const body = request.method === "GET" || request.method === "HEAD"
     ? undefined
     : await request.arrayBuffer();
+  signedHeaders(request.method, target, body).forEach((value, name) => headers.set(name, value));
   let upstream: Response;
   try {
     upstream = await fetch(target, {

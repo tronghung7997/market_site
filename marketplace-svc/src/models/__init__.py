@@ -9,7 +9,6 @@ from src.models.pricing_config import PricingConfig
 from src.models.provider import Provider, ProviderCallLog, ProviderHealth
 from src.models.proxy_allocation import ProxyAllocation, ProxyAllocationStatus
 from src.models.resource import Resource, ResourceStatus
-from src.models.seller_api_key import SellerApiKey
 from src.models.service_task import ServiceTask, ServiceTaskStatus
 from src.models.usage import GatewayCallLog, OrderBalance, UsageRecord, UsageRecordStatus
 from src.models.payment import (

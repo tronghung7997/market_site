@@ -2,7 +2,8 @@ from contextlib import asynccontextmanager
 
 import structlog
 from apscheduler.schedulers.asyncio import AsyncIOScheduler
-from fastapi import FastAPI, Header
+from fastapi import FastAPI, Header, HTTPException, Request
+from fastapi.responses import JSONResponse
 from starlette.middleware.cors import CORSMiddleware
 
 from src.alerts.router import router as alerts_router
@@ -46,11 +47,11 @@ from src.scheduler import (
 from src.errors.handlers import register_error_handlers
 from src.security.crypto import using_default_encryption_key
 from src.seller.router import router as seller_router
-from src.seller_api_keys.router import router as seller_api_keys_router
 from src.sellers.router import router as sellers_router
 from src.usage.router import router as usage_router
 from src.wallet.router import router as wallet_router
 from src.money.router import router as money_router
+from src.security.bff_request_signing import requires_bff_signature, verify_bff_request_signature
 
 # offline
 from fastapi.openapi.docs import (
@@ -116,10 +117,6 @@ app.add_middleware(
         "Authorization",
         "Content-Type",
         "X-Request-ID",
-        "X-Seller-Api-Key",  # legacy — remove after LEGACY_SELLER_API_KEY_MODE=deny rollout
-        "X-API-Key",
-        "X-Timestamp",
-        "X-Signature",
     ],
 )
 app.add_middleware(AdminIpAllowlistMiddleware)
@@ -131,9 +128,18 @@ app.add_middleware(RequestIdMiddleware)
 
 register_error_handlers(app)
 
+
+@app.middleware("http")
+async def require_bff_signature(request: Request, call_next):
+    if requires_bff_signature(request):
+        try:
+            await verify_bff_request_signature(request)
+        except HTTPException as exc:
+            return JSONResponse(status_code=exc.status_code, content={"detail": exc.detail})
+    return await call_next(request)
+
 app.include_router(auth_router)
 app.include_router(seller_router)
-app.include_router(seller_api_keys_router)
 app.include_router(sellers_router)
 app.include_router(wallet_router)
 app.include_router(money_router)

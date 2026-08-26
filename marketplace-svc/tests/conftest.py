@@ -1,4 +1,7 @@
+import hashlib
+import hmac
 import os
+import time
 
 # Tests run against a DEDICATED database so the suite's per-test TRUNCATE never
 # wipes the dev/demo data in `marketplace`. Forced (not setdefault) for safety.
@@ -10,6 +13,7 @@ os.environ["DEPLOYMENT_ENVIRONMENT"] = "test"
 os.environ["AUTH_RATE_LIMIT_ENABLED"] = "false"
 os.environ.setdefault("JWT_SECRET", "test-secret-key-at-least-32-bytes-long-000")
 os.environ.setdefault("INTERNAL_API_KEY", "test-internal-key-at-least-32-bytes-long")
+os.environ.setdefault("BFF_REQUEST_SIGNING_SECRET", "test-bff-signing-secret-at-least-32-bytes")
 os.environ.setdefault("ENCRYPTION_KEY", "test-encryption-key-at-least-32-bytes-long")
 os.environ.setdefault("DEFAULT_AFFILIATE_COMMISSION_PERCENT", "5.0")
 # Nhiều test cũ nạp tiền qua demo-topup; flag này mặc định TẮT (prod-safe) nên
@@ -36,6 +40,7 @@ os.environ["PAYOS_BASE_URL"] = "http://payos.test"
 os.environ["DEPOSIT_MIN_AMOUNT"] = "10000"
 os.environ["DEPOSIT_MAX_AMOUNT"] = "100000000"
 
+import httpx
 import pytest
 from httpx import ASGITransport, AsyncClient
 from sqlalchemy import text, update
@@ -71,6 +76,26 @@ async def set_seller_tier(email, tier):
         await db.commit()
 
 
+class BffRequestSigningAuth(httpx.Auth):
+    requires_request_body = True
+
+    def auth_flow(self, request):
+        timestamp = str(int(time.time()))
+        canonical = b"\n".join((
+            request.method.upper().encode("ascii"),
+            request.url.raw_path,
+            timestamp.encode("ascii"),
+            hashlib.sha256(request.content).hexdigest().encode("ascii"),
+        ))
+        signature = hmac.new(
+            os.environ["BFF_REQUEST_SIGNING_SECRET"].encode("utf-8"), canonical, hashlib.sha256,
+        ).hexdigest()
+        request.headers["X-API-Key"] = "market-bff-v1"
+        request.headers["X-Timestamp"] = timestamp
+        request.headers["X-Signature"] = f"v1={signature}"
+        yield request
+
+
 @pytest.fixture(autouse=True)
 async def clean_db(request):
     """Truncate all tables before each test so the suite is isolated and re-runnable."""
@@ -99,5 +124,7 @@ async def clean_db(request):
 
 @pytest.fixture
 async def client():
-    async with AsyncClient(transport=ASGITransport(app=app), base_url="http://test") as c:
+    async with AsyncClient(
+        transport=ASGITransport(app=app), base_url="http://test", auth=BffRequestSigningAuth(),
+    ) as c:
         yield c

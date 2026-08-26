@@ -3,12 +3,14 @@ from __future__ import annotations
 import hashlib
 import hmac
 import time
+from types import SimpleNamespace
 
 import pytest
 from httpx import ASGITransport, AsyncClient
 
 from src.config import settings
 from src.main import app
+from src.security.bff_request_signing import requires_bff_signature
 
 
 def _signed_headers(method: str, target: str, body: bytes, timestamp: int | None = None) -> dict[str, str]:
@@ -69,3 +71,22 @@ async def test_provider_webhook_remains_outside_bff_signature_gate():
     async with AsyncClient(transport=ASGITransport(app=app), base_url="http://test") as client:
         response = await client.post("/webhooks/payos", json={})
     assert response.status_code == 200
+
+
+@pytest.mark.no_db
+def test_buyer_gateway_paths_do_not_require_bff_signature():
+    def required(path: str) -> bool:
+        return requires_bff_signature(SimpleNamespace(url=SimpleNamespace(path=path)))
+
+    assert required("/gw/gwk_live_abc/search") is False
+    assert required("/products") is True
+    assert required("/gwallet") is True
+    assert required("/internal/metrics") is True
+
+
+@pytest.mark.asyncio
+async def test_buyer_gateway_remains_outside_bff_signature_gate():
+    async with AsyncClient(transport=ASGITransport(app=app), base_url="http://test") as client:
+        response = await client.get("/gw/gwk_live_bogus/search", params={"q": "x"})
+    assert response.status_code == 401
+    assert response.json() == {"detail": "Gateway key không hợp lệ"}

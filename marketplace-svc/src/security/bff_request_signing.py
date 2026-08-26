@@ -26,7 +26,11 @@ _UNSIGNED_EXACT_PATHS = {"/health", "/webhooks/payos", "/webhooks/sepay", "/webh
 
 def requires_bff_signature(request: Request) -> bool:
     path = request.url.path
-    return path not in _UNSIGNED_EXACT_PATHS and not path.startswith("/webhooks/providers/")
+    return (
+        path not in _UNSIGNED_EXACT_PATHS
+        and not path.startswith("/webhooks/providers/")
+        and not path.startswith("/gw/")
+    )
 
 
 def _raw_target(request: Request) -> bytes:

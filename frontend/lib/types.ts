@@ -45,31 +45,6 @@ export interface ChatConversationList {
   next_cursor: string | null;
 }
 
-export interface SellerApiKeyCreated {
-  id: number;
-  /** Public key id sent as X-API-Key (ak_live_…). */
-  api_key: string;
-  /** HMAC secret — shown once at creation; never stored in the browser. */
-  api_secret: string;
-  signing_version: string;
-  scopes: string[];
-  key_prefix: string;
-  created_at: string;
-  expires_at: string;
-}
-
-export interface SellerApiKey {
-  id: number;
-  key_prefix: string;
-  signing_version?: string;
-  key_id_masked?: string | null;
-  scopes: string[];
-  created_at: string;
-  expires_at: string;
-  last_used_at: string | null;
-  revoked_at: string | null;
-}
-
 export interface Category {
   id: number;
   name: string;
@@ -92,6 +67,7 @@ export interface Product {
   category_id: number;
   title: string;
   images: Record<string, unknown> | null;
+  cover_id?: string | null;
   escrow_days: number;
   status: string;
   service_type: string | null;
@@ -128,7 +104,9 @@ export interface ProductPricingLabels {
   field_labels?: Record<string, string>;
   type_display?: Record<string, string>;
   network_display?: Record<string, string>;
+  platform_display?: Record<string, string>;
   duration_labels?: Record<string, string>;
+  package_labels?: Record<string, string>;
 }
 
 export interface PaginatedProducts {
@@ -149,6 +127,8 @@ export interface Variant {
   is_active: boolean;
   stock_count: number;
   duration_days: number | null;
+  translations?: Partial<Record<ProductLocale, { name?: string | null }>> | null;
+  primary_locale?: ProductLocale | null;
 }
 
 export interface ProductDetail extends Product {
@@ -157,6 +137,7 @@ export interface ProductDetail extends Product {
   specs: Record<string, string> | null;
   warranty_text: string | null;
   translations?: Partial<Record<ProductLocale, ProductTranslation>> | null;
+  primary_locale?: ProductLocale | null;
   variants: Variant[];
   seller_name: string | null;
   category_name: string | null;
@@ -345,6 +326,7 @@ export interface WithdrawRequest {
   bank_bin?: string | null;
   payout_reference?: string | null;
   paid_at?: string | null;
+  reject_reason?: string | null;
   created_at: string;
 }
 
@@ -433,6 +415,88 @@ export interface DepositRailConfigAdmin {
   source: string;
 }
 
+export type MailProvider = "log" | "smtp" | "resend";
+
+export interface MailConfigAdmin {
+  provider: MailProvider;
+  mail_from: string;
+  mail_from_name: string;
+  worker_enabled: boolean;
+  env_provider: MailProvider;
+  env_mail_from: string;
+  env_mail_from_name: string;
+  env_worker_enabled: boolean;
+  resend_api_key_configured: boolean;
+  smtp_host_configured: boolean;
+  smtp_credentials_configured: boolean;
+  smtp_host: string | null;
+  smtp_port: number;
+  effective_ready: boolean;
+  effective_mode: string;
+  frontend_base_url: string;
+  updated_at?: string | null;
+  updated_by_id?: number | null;
+  source: string;
+}
+
+export type MailConfigUpdate = Partial<{
+  provider: MailProvider;
+  mail_from: string;
+  mail_from_name: string;
+  worker_enabled: boolean;
+}>;
+
+export interface MailSendTestResponse {
+  id: number;
+  status: string;
+  to_email: string;
+  effective_mode: string;
+  logged_only: boolean;
+  last_error: string | null;
+}
+
+export interface MailOutboxRow {
+  id: number;
+  template: string;
+  to_email: string;
+  account_id: number | null;
+  locale: string;
+  status: string;
+  attempts: number;
+  last_error: string | null;
+  scheduled_at: string;
+  sent_at: string | null;
+  created_at: string | null;
+}
+
+export interface MailOutboxList {
+  items: MailOutboxRow[];
+  total: number;
+  limit: number;
+  offset: number;
+}
+
+export interface MailTemplateRow {
+  template: string;
+  locale: "vi" | "en";
+  subject: string;
+  body: string;
+  placeholders: string[];
+  default_subject: string;
+  default_body: string;
+  customized: boolean;
+  updated_at?: string | null;
+  updated_by_id?: number | null;
+}
+
+export interface MailTemplatePreview {
+  template: string;
+  locale: string;
+  subject: string;
+  body: string;
+  placeholders: string[];
+}
+
 export type DepositRailConfigUpdate = Partial<{
   sepay_enabled: boolean;
   nowpayments_enabled: boolean;
@@ -512,6 +576,7 @@ export interface AdminDepositLedgerQuery {
   limit?: number;
   offset?: number;
   provider?: string;
+  status?: string;
   search?: string;
 }
 

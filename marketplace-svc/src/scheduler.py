@@ -27,15 +27,22 @@ async def escrow_release_job() -> None:
     async with SessionLocal() as db:
         job_id = str(uuid.uuid4())
         now = datetime.now(timezone.utc)
+        # skip_locked + re-check status: confirm/dispute may settle the same
+        # delivered row in another session. Without the lock the job would
+        # credit the seller after a refund (purchase_release and refund use
+        # different ledger types, so the unique (type, reference_id) index
+        # does not collide).
         result = await db.execute(
             select(Order).where(
                 Order.status == OrderStatus.delivered,
                 Order.escrow_expires_at <= now,
-            )
+            ).with_for_update(skip_locked=True)
         )
         orders = list(result.scalars().all())
         for order in orders:
             try:
+                if order.status != OrderStatus.delivered:
+                    continue
                 seller = await db.get(Account, order.seller_id)
                 fee_percent = platform_fee_percent(seller.seller_tier if seller else "new")
                 platform_fee = int(order.total_amount * fee_percent / 100)
@@ -79,10 +86,12 @@ async def sla_check_job() -> None:
         job_id = str(uuid.uuid4())
         now = datetime.now(timezone.utc)
         result = await db.execute(
-            select(Order).where(Order.status == OrderStatus.pending)
+            select(Order).where(Order.status == OrderStatus.pending).with_for_update(skip_locked=True)
         )
         orders = list(result.scalars().all())
         for order in orders:
+            if order.status != OrderStatus.pending:
+                continue
             variant = await db.get(ProductVariant, order.variant_id)
             if not variant:
                 continue
@@ -164,6 +173,7 @@ async def provision_sweep_job() -> None:
             select(Order).where(
                 Order.status == OrderStatus.pending,
                 Order.product_id.isnot(None),
+                Order.variant_id.is_(None),
                 Order.created_at <= retry_before,
             ).with_for_update(skip_locked=True)
         )

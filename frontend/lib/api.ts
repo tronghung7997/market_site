@@ -1,12 +1,11 @@
 import type {
-  Account, ActionItem, AdminDepositIntent, AdminDepositLedgerQuery, AdminDepositLedgerResponse, AdminDepositTransaction, AdminDisputeDetail, AdminOrderDetail, AdminProduct, AdminResourceListResponse, AffiliateStats, AffiliateSummary, CalculateResult, Category, ChargeUsageResult, ChatConversationDetail, ChatConversationList, ChatMessage, DashboardData, DepositIntent, DepositMethods, DepositReconcileResult, DepositRailConfigAdmin, DepositRailConfigUpdate, Dispute, SePayWebhookEventRow, AdminAccountWallet, FundOverview, AccountAdminRow, PaginatedAccounts, LogEntry, MoneyConfigAdmin, MoneyConfigPublic, MoneyConfigUpdate, Order, OrderStats, PaginatedAffiliateSummary, PaginatedOrderResponse, PaginatedProducts, PricingField, PricingOptions, ProductDetail, AdminProductDetail, Product, ProductLocale, ProductOperations, ProductTranslation, ProxyState, ProxyRotateResult, ProxyWhitelistResult, Review, SellerApplication, SellerProduct, SellerStats, ServiceTask, TikTokLookupResponse, Transaction, Variant, Wallet, WithdrawRequest, Provider, ProviderHealth, Alert, Resource, ResourceSummary, ResourceSellerFacet, InventoryVariant, SellerSummary, SellerProfile, SellerApiKey, SellerApiKeyCreated,
+  Account, ActionItem, AdminDepositIntent, AdminDepositLedgerQuery, AdminDepositLedgerResponse, AdminDepositTransaction, AdminDisputeDetail, AdminOrderDetail, AdminProduct, AdminResourceListResponse, AffiliateStats, AffiliateSummary, CalculateResult, Category, ChargeUsageResult, ChatConversationDetail, ChatConversationList, ChatMessage, DashboardData, DepositIntent, DepositMethods, DepositReconcileResult, DepositRailConfigAdmin, DepositRailConfigUpdate, Dispute, SePayWebhookEventRow, AdminAccountWallet, FundOverview, AccountAdminRow, PaginatedAccounts, LogEntry, MailConfigAdmin, MailConfigUpdate, MailOutboxList, MailSendTestResponse, MailTemplatePreview, MailTemplateRow, MoneyConfigAdmin, MoneyConfigPublic, MoneyConfigUpdate, Order, OrderStats, PaginatedAffiliateSummary, PaginatedOrderResponse, PaginatedProducts, PricingField, PricingOptions, ProductDetail, AdminProductDetail, Product, ProductLocale, ProductOperations, ProductTranslation, ProxyState, ProxyRotateResult, ProxyWhitelistResult, Review, SellerApplication, SellerProduct, SellerStats, ServiceTask, TikTokLookupResponse, Transaction, Variant, Wallet, WithdrawRequest, Provider, ProviderHealth, Alert, Resource, ResourceSummary, ResourceSellerFacet, InventoryVariant, SellerSummary, SellerProfile,
 } from "./types";
+import { SERVER_API_BASE } from "./server-api";
 
 // Browser requests are always same-origin. This prevents a production bundle
 // from calling the visitor's localhost or bypassing the controlled Next proxy.
-const BASE = typeof window !== "undefined"
-  ? "/api"
-  : (process.env.API_URL ?? "http://localhost:8001");
+const BASE = typeof window !== "undefined" ? "/api" : SERVER_API_BASE;
 
 export class ApiError extends Error {
   status: number;
@@ -49,7 +48,12 @@ async function request<T>(path: string, init: RequestInit = {}, auth: boolean | 
   };
   let res: Response;
   try {
-    res = await fetch(`${BASE}${path}`, { ...init, headers, credentials: "same-origin" });
+    if (typeof window === "undefined") {
+      const { signedBackendFetch } = await import("./bff-request-signing");
+      res = await signedBackendFetch(path, { ...init, headers });
+    } else {
+      res = await fetch(`${BASE}${path}`, { ...init, headers, credentials: "same-origin" });
+    }
   } catch {
     throw new ApiError(0, "Unable to reach the server. Check your connection and try again.", "NETWORK");
   }
@@ -84,9 +88,42 @@ export const api = {
   adminLogin: (email: string, password: string) =>
     request<{ token_type: string }>("/auth/admin/login", { method: "POST", body: JSON.stringify({ email, password }) }),
   logout: () => request<void>("/auth/session", { method: "DELETE" }),
+  forgotPassword: (email: string, locale: string) =>
+    request<{ message: string }>("/auth/forgot-password", {
+      method: "POST",
+      body: JSON.stringify({ email, locale }),
+    }),
+  resetPassword: (token: string, password: string) =>
+    request<{ message: string }>("/auth/reset-password", {
+      method: "POST",
+      body: JSON.stringify({ token, password }),
+    }),
   me: () => request<Account>("/me", {}, "silent"),
   tiktokLookup: (value: string) =>
     request<TikTokLookupResponse>(`/internal/tiktok?url=${encodeURIComponent(value)}`),
+
+  chatConversations: (perspective: "buyer" | "seller") =>
+    request<ChatConversationList>(`/chat/conversations?perspective=${perspective}`, {}, true),
+  chatConversation: (id: string) =>
+    request<ChatConversationDetail>(`/chat/conversations/${encodeURIComponent(id)}`, {}, true),
+  createInquiry: (productId: number, initialMessage: string, clientMessageId: string) =>
+    request<ChatConversationDetail>("/chat/inquiries", {
+      method: "POST",
+      body: JSON.stringify({
+        product_id: productId,
+        initial_message: initialMessage,
+        client_message_id: clientMessageId,
+      }),
+    }, true),
+  findProductInquiry: (productId: number) =>
+    request<ChatConversationDetail>(`/chat/inquiries/by-product/${productId}`, {}, true),
+  getOrCreateOrderChat: (orderId: number) =>
+    request<ChatConversationDetail>(`/chat/orders/${orderId}`, { method: "POST" }, true),
+  sendChatMessage: (conversationId: string, body: string, clientMessageId: string) =>
+    request<ChatMessage>(`/chat/conversations/${encodeURIComponent(conversationId)}/messages`, {
+      method: "POST",
+      body: JSON.stringify({ body, client_message_id: clientMessageId }),
+    }, true),
 
   categories: () => request<Category[]>("/categories"),
   createCategory: (data: Record<string, unknown>) =>
@@ -182,13 +219,15 @@ export const api = {
   sellerProduct: (id: number) => request<ProductDetail>(`/seller/products/${id}/detail`, {}, true),
   sellerStats: () => request<SellerStats>("/seller/stats", {}, true),
   sellerOrders: () => request<Order[]>("/seller/orders", {}, true),
-  createSellerApiKey: () => request<SellerApiKeyCreated>("/seller/api-keys", { method: "POST" }, true),
-  listSellerApiKeys: () => request<SellerApiKey[]>("/seller/api-keys", {}, true),
-  revokeSellerApiKey: (id: number) => request<SellerApiKey>(`/seller/api-keys/${id}`, { method: "DELETE" }, true),
   createProduct: (data: Record<string, unknown>) =>
     request<Product>("/seller/products", { method: "POST", body: JSON.stringify(data) }, true),
   updateProduct: (id: number, data: Record<string, unknown>) =>
     request<Product>(`/seller/products/${id}`, { method: "PATCH", body: JSON.stringify(data) }, true),
+  updateSellerProductStatus: (id: number, status: "active" | "paused") =>
+    request<Product>(`/seller/products/${id}/status`, {
+      method: "PUT",
+      body: JSON.stringify({ status }),
+    }, true),
   updateProductTranslation: (id: number, locale: ProductLocale, data: ProductTranslation) =>
     request<Product>(`/seller/products/${id}/translations/${locale}`, { method: "PATCH", body: JSON.stringify(data) }, true),
   deleteProduct: (id: number) =>
@@ -197,12 +236,44 @@ export const api = {
     request<Variant>(`/seller/products/${productId}/variants`, { method: "POST", body: JSON.stringify(data) }, true),
   updateVariant: (variantId: number, data: Record<string, unknown>) =>
     request<Variant>(`/seller/variants/${variantId}`, { method: "PATCH", body: JSON.stringify(data) }, true),
+  updateVariantTranslation: (variantId: number, locale: ProductLocale, name: string) =>
+    request<Variant>(`/seller/variants/${variantId}/translations/${locale}`, {
+      method: "PATCH",
+      body: JSON.stringify({ name }),
+    }, true),
   deleteVariant: (variantId: number) =>
     request<void>(`/seller/variants/${variantId}`, { method: "DELETE" }, true),
   addResources: (variantId: number, items: string[]) =>
-    request<void>(`/seller/variants/${variantId}/resources`, { method: "POST", body: JSON.stringify({ items }) }, true),
-  sellerVariantResources: (variantId: number) =>
-    request<Resource[]>(`/seller/variants/${variantId}/resources`, {}, true),
+    request<{ count: number }>(`/seller/variants/${variantId}/resources`, {
+      method: "POST",
+      body: JSON.stringify({ items }),
+    }, true),
+  sellerVariantResources: async (variantId: number, opts: { page?: number; perPage?: number } = {}) => {
+    const q = new URLSearchParams({
+      page: String(opts.page ?? 1),
+      per_page: String(opts.perPage ?? 25),
+    });
+    const path = `/seller/variants/${variantId}/resources?${q}`;
+    const headers: Record<string, string> = { "Accept-Language": browserLocale() };
+    let res: Response;
+    try {
+      res = await fetch(`${BASE}${path}`, { headers, credentials: "same-origin" });
+    } catch {
+      throw new ApiError(0, "Unable to reach the server. Check your connection and try again.", "NETWORK");
+    }
+    const body = await res.json().catch(() => null);
+    if (!res.ok) {
+      if (res.status === 401) {
+        if (typeof window !== "undefined") window.dispatchEvent(new Event("auth:session-expired"));
+        throw new ApiError(401, "Your session has expired. Please sign in again.", "SESSION_EXPIRED");
+      }
+      throw new ApiError(res.status, responseErrorDetail(body) ?? "Something went wrong. Please try again.");
+    }
+    return {
+      items: Array.isArray(body) ? body as Resource[] : [],
+      total: Number(res.headers.get("X-Total-Count") ?? (Array.isArray(body) ? body.length : 0)),
+    };
+  },
   inventorySummary: () => request<InventoryVariant[]>("/seller/inventory/summary", {}, true),
   updateResource: (resourceId: number, data: string) =>
     request<Resource>(`/seller/resources/${resourceId}`, { method: "PATCH", body: JSON.stringify({ data }) }, true),
@@ -256,7 +327,8 @@ export const api = {
     request<Dispute>(`/admin/disputes/${id}/extend-warranty`, { method: "POST", body: JSON.stringify({ admin_note: adminNote, extra_days: extraDays }) }, true),
   adminWithdrawals: () => request<WithdrawRequest[]>("/admin/withdrawals", {}, true),
   approveWithdrawal: (id: number) => request<WithdrawRequest>(`/admin/withdrawals/${id}/approve`, { method: "POST" }, true),
-  rejectWithdrawal: (id: number) => request<WithdrawRequest>(`/admin/withdrawals/${id}/reject`, { method: "POST" }, true),
+  rejectWithdrawal: (id: number, reason: string) =>
+    request<WithdrawRequest>(`/admin/withdrawals/${id}/reject`, { method: "POST", body: JSON.stringify({ reason }) }, true),
   requestWithdraw: (amount: number, bank: { bank_name: string; bank_account_number: string; bank_account_holder: string; bank_bin?: string }) =>
     request<WithdrawRequest>("/wallet/withdraw", { method: "POST", body: JSON.stringify({ amount, ...bank }) }, true),
   markWithdrawalPaid: (id: number, payoutReference: string) =>
@@ -298,6 +370,7 @@ export const api = {
     params.set("limit", String(query.limit ?? 25));
     params.set("offset", String(query.offset ?? 0));
     if (query.provider) params.set("provider", query.provider);
+    if (query.status) params.set("status", query.status);
     if (query.search) params.set("search", query.search);
     return request<AdminDepositLedgerResponse>(`/admin/deposit-ledger?${params.toString()}`, {}, true);
   },
@@ -485,6 +558,46 @@ export const api = {
       { method: "PATCH", body: JSON.stringify(body) },
       true,
     ),
+  adminMailConfig: () => request<MailConfigAdmin>("/admin/mail-config", {}, true),
+  adminUpdateMailConfig: (body: MailConfigUpdate) =>
+    request<MailConfigAdmin>("/admin/mail-config", {
+      method: "PATCH",
+      body: JSON.stringify(body),
+    }, true),
+  adminResetMailConfigToEnv: () =>
+    request<MailConfigAdmin>("/admin/mail-config/reset-to-env", { method: "POST" }, true),
+  adminSendTestMail: (toEmail: string, locale: "vi" | "en") =>
+    request<MailSendTestResponse>("/admin/mail-config/send-test", {
+      method: "POST",
+      body: JSON.stringify({ to_email: toEmail, locale }),
+    }, true),
+  adminMailOutbox: (query?: { status?: string; template?: string; limit?: number; offset?: number }) => {
+    const params = new URLSearchParams();
+    params.set("limit", String(query?.limit ?? 25));
+    params.set("offset", String(query?.offset ?? 0));
+    if (query?.status) params.set("status", query.status);
+    if (query?.template) params.set("template", query.template);
+    return request<MailOutboxList>(`/admin/mail-outbox?${params.toString()}`, {}, true);
+  },
+  adminRetryMailOutbox: (id: number) =>
+    request<MailOutboxList["items"][number]>(`/admin/mail-outbox/${id}/retry`, { method: "POST" }, true),
+  adminMailTemplates: () => request<{ items: MailTemplateRow[] }>("/admin/mail-templates", {}, true),
+  adminUpdateMailTemplate: (body: { template: string; locale: "vi" | "en"; subject: string; body: string }) =>
+    request<MailTemplateRow>("/admin/mail-templates", {
+      method: "PATCH",
+      body: JSON.stringify(body),
+    }, true),
+  adminResetMailTemplate: (template: string, locale: "vi" | "en") =>
+    request<MailTemplateRow>("/admin/mail-templates/reset", {
+      method: "POST",
+      body: JSON.stringify({ template, locale }),
+    }, true),
+  adminPreviewMailTemplate: (body: { template: string; locale: "vi" | "en"; subject: string; body: string }) =>
+    request<MailTemplatePreview>("/admin/mail-templates/preview", {
+      method: "POST",
+      body: JSON.stringify(body),
+    }, true),
+
   adminResetMoneyConfigToEnv: () =>
     request<{
       display_fx_rate: number;
@@ -502,7 +615,7 @@ export const api = {
     ),
 };
 
-export type { Account, AdminDisputeDetail, AdminOrderDetail, AdminProduct, AdminResourceListResponse, AffiliateStats, AffiliateSummary, CalculateResult, Category, DashboardData, Dispute, FundOverview, AccountAdminRow, PaginatedAccounts, LogEntry, Order, OrderStats, PaginatedAffiliateSummary, PaginatedOrderResponse, PricingField, PricingOptions, Product, ProductDetail, ProductOperations, Review, SellerApplication, SellerProduct, SellerStats, SellerSummary, SellerProfile, ServiceTask, Transaction, Variant, Wallet, WithdrawRequest, Provider, ProviderHealth, Alert, Resource, ResourceSummary, InventoryVariant, SellerApiKey, SellerApiKeyCreated };
+export type { Account, AdminDisputeDetail, AdminOrderDetail, AdminProduct, AdminResourceListResponse, AffiliateStats, AffiliateSummary, CalculateResult, Category, DashboardData, Dispute, FundOverview, AccountAdminRow, PaginatedAccounts, LogEntry, Order, OrderStats, PaginatedAffiliateSummary, PaginatedOrderResponse, PricingField, PricingOptions, Product, ProductDetail, ProductOperations, Review, SellerApplication, SellerProduct, SellerStats, SellerSummary, SellerProfile, ServiceTask, Transaction, Variant, Wallet, WithdrawRequest, Provider, ProviderHealth, Alert, Resource, ResourceSummary, InventoryVariant };
 
 /** Money formatter sống ở lib/utils/format — re-export để 22 chỗ đang
  * `import { vnd } from "@/lib/api"` không phải sửa cùng lúc; import mới

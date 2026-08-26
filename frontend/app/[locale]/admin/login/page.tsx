@@ -1,6 +1,6 @@
 "use client";
 
-import { useEffect, useState, Suspense } from "react";
+import { Suspense, useEffect, useState } from "react";
 import { useSearchParams } from "next/navigation";
 import { useTranslations } from "next-intl";
 import { useRouter } from "@/i18n/navigation";
@@ -47,7 +47,9 @@ function AdminLoginForm() {
     if (!email.trim()) errors.email = t("emailRequired");
     else if (!isValidEmail(email)) errors.email = t("emailInvalid");
     if (!password) errors.password = t("passwordRequired");
-    else if (password.length > PASSWORD_MAX_LENGTH) errors.password = t("passwordTooLong", { max: PASSWORD_MAX_LENGTH });
+    else if (password.length > PASSWORD_MAX_LENGTH) {
+      errors.password = t("passwordTooLong", { max: PASSWORD_MAX_LENGTH });
+    }
     setFieldErrors(errors);
     if (Object.keys(errors).length > 0) return;
 
@@ -66,16 +68,28 @@ function AdminLoginForm() {
   return (
     <div className="min-h-[calc(100vh-3.5rem)] grid place-items-center px-6 py-12 aura">
       <Card className="w-full max-w-[380px] p-7">
-        <div className="flex flex-col items-center gap-3 mb-7 text-center">
+        <div className="mb-7 flex flex-col items-center gap-3 text-center">
           <Logo withName={false} />
           <h1 className="font-serif text-[26px] tracking-tight">{t("adminLoginTitle")}</h1>
           <p className="text-[13px] text-muted">{t("adminLoginSubtitle")}</p>
         </div>
         <form onSubmit={submit} className="flex flex-col gap-4" noValidate>
-          <Field label={t("email")} error={fieldErrors.email}><Input type="email" required value={email} onChange={(event) => { setEmail(event.target.value); setFieldErrors((current) => ({ ...current, email: undefined })); }} placeholder="admin@company.com" autoComplete="username" aria-invalid={Boolean(fieldErrors.email)} /></Field>
-          <Field label={t("password")} error={fieldErrors.password}><Input type="password" required value={password} onChange={(event) => { setPassword(event.target.value); setFieldErrors((current) => ({ ...current, password: undefined })); }} placeholder="••••••••••••" autoComplete="current-password" aria-invalid={Boolean(fieldErrors.password)} /></Field>
+          <Field label={t("email")} error={fieldErrors.email}>
+            <Input type="email" required value={email} onChange={(event) => {
+              setEmail(event.target.value);
+              setFieldErrors((current) => ({ ...current, email: undefined }));
+            }} placeholder="admin@company.com" autoComplete="username" aria-invalid={Boolean(fieldErrors.email)} />
+          </Field>
+          <Field label={t("password")} error={fieldErrors.password}>
+            <Input type="password" required value={password} onChange={(event) => {
+              setPassword(event.target.value);
+              setFieldErrors((current) => ({ ...current, password: undefined }));
+            }} placeholder="••••••••••••" autoComplete="current-password" aria-invalid={Boolean(fieldErrors.password)} />
+          </Field>
           {error && <p className="text-bad text-[13px]" role="alert">{error}</p>}
-          <Button type="submit" block size="lg" disabled={busy}>{busy ? t("adminSigningIn") : t("adminLoginTitle")}</Button>
+          <Button type="submit" block size="lg" disabled={busy}>
+            {busy ? t("adminSigningIn") : t("adminLoginTitle")}
+          </Button>
         </form>
       </Card>
     </div>

@@ -1,0 +1,24 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 512 512">
+  <defs>
+    <linearGradient id="othBg" x1="0%" y1="0%" x2="100%" y2="100%">
+      <stop offset="0%" stop-color="#6366F1"/>
+      <stop offset="50%" stop-color="#4F46E5"/>
+      <stop offset="100%" stop-color="#312E81"/>
+    </linearGradient>
+    <filter id="othShadow" x="-20%" y="-20%" width="140%" height="140%">
+      <feDropShadow dx="0" dy="12" stdDeviation="16" flood-color="#4F46E5" flood-opacity="0.4"/>
+    </filter>
+    <linearGradient id="othBevel" x1="0%" y1="0%" x2="0%" y2="100%">
+      <stop offset="0%" stop-color="#FFFFFF" stop-opacity="0.3"/>
+      <stop offset="100%" stop-color="#FFFFFF" stop-opacity="0"/>
+    </linearGradient>
+  </defs>
+  <rect x="32" y="32" width="448" height="448" rx="112" fill="url(#othBg)" filter="url(#othShadow)"/>
+  <rect x="32" y="32" width="448" height="448" rx="112" fill="url(#othBevel)"/>
+  
+  <!-- Modern 3D Isometric Cube / Prism Glyph -->
+  <path d="M256 140l104 60v120l-104 60-104-60V200z" fill="#FFFFFF"/>
+  <path d="M256 140l104 60-104 60-104-60z" fill="#E0E7FF"/>
+  <path d="M256 260v120l-104-60V200z" fill="#C7D2FE"/>
+  <path d="M256 260l104-60v120l-104 60z" fill="#A5B4FC"/>
+</svg>

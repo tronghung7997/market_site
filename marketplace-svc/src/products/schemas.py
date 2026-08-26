@@ -1,15 +1,34 @@
 from datetime import datetime
+from typing import Literal
 
-from pydantic import BaseModel, Field
+from pydantic import BaseModel, Field, field_validator, model_validator
+
+from src.products.covers import parse_cover_id, public_images
+
+CoverId = Literal[
+    "facebook", "instagram", "tiktok", "youtube", "x",
+    "proxy", "token", "endpoint", "cloud",
+    "payment", "takedown", "account", "other",
+]
+
+
+def _reject_images_blob(data):
+    if isinstance(data, dict) and "images" in data:
+        raise ValueError("images is not accepted; use cover_id")
+    return data
 
 
 class ProductCreate(BaseModel):
     category_id: int
     title: str
+    # Locale of the scalar buyer content in this command. Existing API clients
+    # omit it and keep the historical VI behavior; the bilingual workbench
+    # sends the seller-selected language explicitly.
+    content_locale: Literal["en", "vi"] = "vi"
     description: str | None = None
-    images: list[str] | None = None
+    cover_id: CoverId | None = None
     escrow_days: int = 2
-    status: str = "draft"
+    status: Literal["draft", "active"] = "draft"
     service_type: str = "other"
     features: list[str] | None = None
     specs: dict | None = None
@@ -18,12 +37,18 @@ class ProductCreate(BaseModel):
     # commission_rate is admin-controlled (set via /admin/products/{id}/operations),
     # not settable by sellers.
 
+    @model_validator(mode="before")
+    @classmethod
+    def reject_images_blob(cls, data):
+        return _reject_images_blob(data)
+
 
 class ProductContentUpdate(BaseModel):
     title: str | None = None
+    content_locale: Literal["en", "vi"] | None = None
     category_id: int | None = None
     description: str | None = None
-    images: list[str] | None = None
+    cover_id: CoverId | None = None
     escrow_days: int | None = None
     service_type: str | None = None
     features: list[str] | None = None
@@ -31,9 +56,18 @@ class ProductContentUpdate(BaseModel):
     warranty_text: str | None = None
     highlight_text: str | None = None
 
+    @model_validator(mode="before")
+    @classmethod
+    def reject_images_blob(cls, data):
+        return _reject_images_blob(data)
+
 
 class SellerProductUpdate(ProductContentUpdate):
-    """Seller-editable content. Lifecycle status is intentionally excluded."""
+    """Seller-editable content. Lifecycle status uses the dedicated status endpoint."""
+
+
+class SellerProductStatusUpdate(BaseModel):
+    status: Literal["active", "paused"]
 
 
 class ProductUpdate(ProductContentUpdate):
@@ -65,6 +99,7 @@ class ProductResponse(BaseModel):
     title: str
     description: str | None
     images: dict | None
+    cover_id: str | None = None
     escrow_days: int
     status: str
     service_type: str | None
@@ -82,11 +117,23 @@ class ProductResponse(BaseModel):
 
     model_config = {"from_attributes": True}
 
+    @field_validator("images", mode="before")
+    @classmethod
+    def coerce_images(cls, value):
+        return public_images(value)
+
+    @model_validator(mode="after")
+    def populate_cover_id(self):
+        if self.cover_id is None:
+            self.cover_id = parse_cover_id(self.images)
+        return self
+
 
 class VariantCreate(BaseModel):
     name: str
+    content_locale: Literal["en", "vi"] = "vi"
     price: int = Field(ge=0)
-    delivery_mode: str = "instant"
+    delivery_mode: Literal["instant", "manual"] = "instant"
     sla_hours: int = 24
     sort_order: int = 0
     duration_days: int | None = None
@@ -94,12 +141,17 @@ class VariantCreate(BaseModel):
 
 class VariantUpdate(BaseModel):
     name: str | None = None
+    content_locale: Literal["en", "vi"] | None = None
     price: int | None = Field(default=None, ge=0)
-    delivery_mode: str | None = None
+    delivery_mode: Literal["instant", "manual"] | None = None
     sla_hours: int | None = None
     sort_order: int | None = None
     is_active: bool | None = None
     duration_days: int | None = None
+
+
+class VariantTranslationUpdate(BaseModel):
+    name: str = Field(min_length=1)
 
 
 class VariantResponse(BaseModel):
@@ -113,6 +165,10 @@ class VariantResponse(BaseModel):
     is_active: bool
     stock_count: int = 0
     duration_days: int | None = None
+    # Management detail responses expose raw locale buckets so sellers can
+    # edit a translation without storefront fallback masking missing content.
+    translations: dict[str, dict] | None = None
+    primary_locale: str | None = None
 
     model_config = {"from_attributes": True}
 
@@ -133,6 +189,7 @@ class ProductListItemBase(BaseModel):
     category_id: int
     title: str
     images: dict | None
+    cover_id: str | None = None
     escrow_days: int
     status: str
     service_type: str | None
@@ -145,6 +202,17 @@ class ProductListItemBase(BaseModel):
     created_at: datetime
     locale: str | None = None
     available_locales: list[str] | None = None
+
+    @field_validator("images", mode="before")
+    @classmethod
+    def coerce_images(cls, value):
+        return public_images(value)
+
+    @model_validator(mode="after")
+    def populate_cover_id(self):
+        if self.cover_id is None:
+            self.cover_id = parse_cover_id(self.images)
+        return self
 
 
 class ProductListItemResponse(ProductListItemBase):
@@ -177,6 +245,7 @@ class ProductDetailResponse(ProductListItemResponse):
     specs: dict | None
     warranty_text: str | None
     translations: dict[str, dict] | None = None
+    primary_locale: str | None = None
     seller_name: str | None = None
     category_name: str | None = None
 
@@ -206,3 +275,13 @@ class SellerPricingUpdate(BaseModel):
     pricing_strategy: str | None = None
     pricing_params: dict | None = None
     provider_id: int | None = None
+
+
+class ProductCoverItem(BaseModel):
+    id: str
+    group: str
+    label: dict[str, str]
+
+
+class ProductCoverCatalogResponse(BaseModel):
+    items: list[ProductCoverItem]

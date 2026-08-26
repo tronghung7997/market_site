@@ -1,18 +1,28 @@
 from datetime import datetime, timedelta, timezone
+import hashlib
+import secrets
 
 import bcrypt
 import jwt
 from fastapi import HTTPException, status
-from sqlalchemy import select
+from sqlalchemy import delete, select
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from src.config import settings
 from src.audit.service import log_event
 from src.exceptions import DuplicateEmail
 from src.logging import current_request_id
-from src.models.account import Account
+from src.models.account import Account, PasswordResetToken
 from src.models.wallet import Wallet
 from src.auth.utils import generate_unique_affiliate_code
+
+_FORGOT_ACK = "Nếu tài khoản hợp lệ, chúng tôi đã gửi hướng dẫn đặt lại mật khẩu"
+_RESET_ACK = "Mật khẩu đã được cập nhật"
+_RESET_INVALID = "Liên kết đặt lại mật khẩu không hợp lệ hoặc đã hết hạn"
+
+
+def hash_reset_token(raw: str) -> str:
+    return hashlib.sha256(raw.encode("utf-8")).hexdigest()
 
 
 def hash_password(password: str) -> str:
@@ -107,6 +117,117 @@ async def authenticate(email: str, password: str, db: AsyncSession) -> Account:
         account_id=account.id,
     )
     return account
+
+
+async def request_password_reset(email: str, locale: str, db: AsyncSession) -> str:
+    """Always ack the same way. Enqueue mail only for an active account."""
+    from src.mail.service import enqueue_mail, reset_password_url
+    from src.security.events import principal_fingerprint, security_event
+
+    loc = locale if locale in {"vi", "en"} else "vi"
+    account = await db.scalar(select(Account).where(Account.email == email.strip()))
+    if account is not None and account.is_active:
+        await db.execute(
+            delete(PasswordResetToken).where(
+                PasswordResetToken.account_id == account.id,
+                PasswordResetToken.used_at.is_(None),
+            )
+        )
+        raw = secrets.token_urlsafe(32)
+        now = datetime.now(timezone.utc)
+        db.add(
+            PasswordResetToken(
+                account_id=account.id,
+                token_hash=hash_reset_token(raw),
+                expires_at=now + timedelta(minutes=settings.password_reset_ttl_minutes),
+            )
+        )
+        await db.flush()
+        await enqueue_mail(
+            db,
+            template="password_reset",
+            account_id=account.id,
+            idempotency_key=f"password_reset:{account.id}:{hash_reset_token(raw)}",
+            payload={"action_url": reset_password_url(loc, raw)},
+            locale=loc,
+        )
+        await log_event(
+            db, "info", f"Password reset requested for account {account.id}",
+            request_id=current_request_id(),
+            metadata={
+                "event": "password_reset_requested",
+                "actor_id": account.id,
+                "actor_type": "buyer",
+                "subject_type": "account",
+                "subject_id": account.id,
+                "outcome": "success",
+                "source": "public",
+            },
+        )
+        security_event(
+            "password_reset_requested",
+            level="info",
+            account_id=account.id,
+            principal_fingerprint=principal_fingerprint(email),
+        )
+    await db.commit()
+    return _FORGOT_ACK
+
+
+async def reset_password(raw_token: str, new_password: str, db: AsyncSession) -> str:
+    from src.mail.service import enqueue_mail, forgot_password_url
+    from src.security.events import security_event
+
+    now = datetime.now(timezone.utc)
+    token = await db.scalar(
+        select(PasswordResetToken).where(PasswordResetToken.token_hash == hash_reset_token(raw_token))
+    )
+    if (
+        token is None
+        or token.used_at is not None
+        or token.expires_at <= now
+    ):
+        security_event("password_reset_rejected", level="warning", reason="invalid_or_expired")
+        raise HTTPException(status_code=status.HTTP_400_BAD_REQUEST, detail=_RESET_INVALID)
+
+    account = await db.get(Account, token.account_id)
+    if account is None or not account.is_active:
+        security_event("password_reset_rejected", level="warning", reason="inactive")
+        raise HTTPException(status_code=status.HTTP_400_BAD_REQUEST, detail=_RESET_INVALID)
+
+    account.password_hash = hash_password(new_password)
+    token.used_at = now
+    await db.execute(
+        delete(PasswordResetToken).where(
+            PasswordResetToken.account_id == account.id,
+            PasswordResetToken.id != token.id,
+            PasswordResetToken.used_at.is_(None),
+        )
+    )
+    await enqueue_mail(
+        db,
+        template="password_changed",
+        account_id=account.id,
+        idempotency_key=f"password_changed:{account.id}:{token.id}",
+        payload={"action_url": forgot_password_url("vi")},
+        locale="vi",
+    )
+    await log_event(
+        db, "info", f"Password reset completed for account {account.id}",
+        request_id=current_request_id(),
+        metadata={
+            "event": "password_reset_completed",
+            "actor_id": account.id,
+            "actor_type": "buyer",
+            "subject_type": "account",
+            "subject_id": account.id,
+            "outcome": "success",
+            "source": "public",
+        },
+    )
+    security_event("password_reset_completed", level="info", account_id=account.id)
+    await db.commit()
+    return _RESET_ACK
 
 
 _VALID_ROLES = {"buyer", "seller", "admin"}

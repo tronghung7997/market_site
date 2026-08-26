@@ -1,7 +1,7 @@
 import { isIP } from "node:net";
 
 function normalizeIp(raw: string | null | undefined): string | null {
-  let candidate = raw?.split(",", 1)[0]?.trim().replace(/^"|"$/g, "") ?? "";
+  let candidate = raw?.trim().replace(/^"|"$/g, "") ?? "";
   if (!candidate) return null;
 
   if (candidate.startsWith("[")) {
@@ -18,7 +18,8 @@ function normalizeIp(raw: string | null | undefined): string | null {
   const version = isIP(candidate);
   if (version === 6) {
     try {
-      return new URL(`http://[${candidate}]/`).hostname.slice(1, -1).toLowerCase();
+      // WHATWG hostname is already unbracketed (`::1`), not `[::1]`.
+      return new URL(`http://[${candidate}]/`).hostname.toLowerCase();
     } catch {
       return null;
     }
@@ -34,10 +35,22 @@ function configuredAdminIps(): Set<string> | null {
   for (const entry of raw.split(",")) {
     if (!entry.trim()) continue;
     const address = normalizeIp(entry);
-    if (!address) return null; // Invalid config must fail closed.
+    if (!address) return null;
     addresses.add(address);
   }
   return addresses;
+}
+
+function clientIpFromHeaders(headers: Headers): string | null {
+  const headerName = (process.env.ADMIN_CLIENT_IP_HEADER || "x-real-ip").toLowerCase();
+  if (!/^[a-z0-9-]+$/.test(headerName)) return null;
+  const raw = headers.get(headerName);
+  if (!raw) return null;
+  if (headerName === "x-forwarded-for") {
+    const hops = raw.split(",").map((part) => part.trim()).filter(Boolean);
+    return normalizeIp(hops.at(-1) ?? null);
+  }
+  return normalizeIp(raw.split(",", 1)[0]);
 }
 
 export function adminRequestAllowed(headers: Headers): boolean {
@@ -45,9 +58,7 @@ export function adminRequestAllowed(headers: Headers): boolean {
   if (!allowed) return false;
   if (allowed.size === 0) return true;
 
-  const headerName = (process.env.ADMIN_CLIENT_IP_HEADER || "x-forwarded-for").toLowerCase();
-  if (!/^[a-z0-9-]+$/.test(headerName)) return false;
-  const clientIp = normalizeIp(headers.get(headerName));
+  const clientIp = clientIpFromHeaders(headers);
   return clientIp !== null && allowed.has(clientIp);
 }
 

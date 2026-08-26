@@ -154,20 +154,63 @@ def _api_headers() -> dict[str, str]:
     }
 
 
+def destination_matches(
+    expected_destination: str,
+    *,
+    account_number: object,
+    sub_account: object = None,
+) -> bool:
+    """Match either a real bank account or a SePay VA/TKP destination.
+
+    SePay always reports the parent bank account in ``accountNumber`` /
+    ``account_number``. For official VAs and content-based TKP accounts, the
+    actual matched destination is reported separately in ``subAccount`` /
+    ``va``. The configured QR beneficiary may therefore match either field.
+    """
+    expected = str(expected_destination or "").strip()
+    if not expected:
+        return False
+    return expected in {
+        str(account_number or "").strip(),
+        str(sub_account or "").strip(),
+    }
+
+
+def _api_base_url() -> str:
+    """Return the SePay API host without a version suffix.
+
+    ``SEPAY_API_BASE_URL`` is documented as the host (for example,
+    ``https://userapi.sepay.vn``), while older deployments sometimes stored
+    ``/v2`` in the value.  Normalising here keeps both configurations from
+    producing the invalid ``/v2/v2/transactions`` URL.
+    """
+    base_url = str(settings.sepay_api_base_url or "").strip().rstrip("/")
+    while base_url.lower().endswith("/v2"):
+        base_url = base_url[:-3].rstrip("/")
+    return base_url
+
+
 async def list_matching_transactions(
     *,
     payment_code: str,
     amount: int,
     created_at: datetime,
+    bank_code: str | None = None,
     bank_account_id: str | None = None,
     bank_account_number: str | None = None,
+    bank_account_name: str | None = None,
 ) -> list[dict]:
     """Return API v2 transactions that exactly match one deposit intent.
 
     SePay's ``q`` parameter is a contains-search, so all security-sensitive
     fields are checked again locally before a transaction is eligible.
     """
-    if not is_reconciliation_configured(account_id=bank_account_id):
+    if not is_reconciliation_configured(
+        bank_code=bank_code,
+        account_number=bank_account_number,
+        account_name=bank_account_name,
+        account_id=bank_account_id,
+    ):
         raise SePayError("SePay API reconciliation is not configured")
 
     local_created = created_at.astimezone(_HCM)
@@ -182,7 +225,7 @@ async def list_matching_transactions(
         "per_page": 100,
         "timestamp_format": "iso8601",
     }
-    url = f"{settings.sepay_api_base_url.rstrip('/')}/v2/transactions"
+    url = f"{_api_base_url()}/v2/transactions"
     try:
         async with httpx.AsyncClient(timeout=10.0) as client:
             response = await client.get(url, headers=_api_headers(), params=params)
@@ -217,7 +260,11 @@ async def list_matching_transactions(
         if (
             str(row.get("transfer_type") or "").lower() == "in"
             and str(row.get("code") or "").strip().upper() == expected_code
-            and str(row.get("account_number") or "").strip() == expected_account
+            and destination_matches(
+                expected_account,
+                account_number=row.get("account_number"),
+                sub_account=row.get("va"),
+            )
             and str(row.get("bank_account_id") or "").strip() == expected_account_id
             and amount_in == amount
             and row.get("id")

@@ -7,3 +7,12 @@ docker-compose.dev.yml
 .backend.env
 pyproject.toml
 .agents
+AGENTS.md
+CONTEXT.md
+docs
+
+# Coding-agent files are repository contracts and must be versioned.
+!AGENTS.md
+!frontend/AGENTS.md
+!marketplace-svc/AGENTS.md
+!CONTEXT.md

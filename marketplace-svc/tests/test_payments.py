@@ -7,6 +7,7 @@ import time
 from datetime import datetime, timedelta, timezone
 from unittest.mock import AsyncMock
 
+import httpx
 import pytest
 from sqlalchemy import select
 
@@ -21,7 +22,7 @@ from src.models.payment import (
     SePayWebhookEvent,
 )
 from src.models.wallet import Transaction, TransactionType, Wallet
-from src.payments import sepay_client
+from src.payments import rail_config, sepay_client
 from tests.conftest import make_admin, register_and_login
 
 
@@ -79,13 +80,14 @@ def _payload(
     account_number: str | None = None,
     transfer_type: str = "in",
     code: str | None = None,
+    sub_account: str = "",
 ) -> dict:
     return {
         "id": transaction_id,
         "gateway": settings.sepay_bank_code,
         "transactionDate": "2026-08-19 12:00:00",
         "accountNumber": account_number or settings.sepay_bank_account_number,
-        "subAccount": "",
+        "subAccount": sub_account,
         "code": code if code is not None else f"{sepay_client.payment_code_prefix()}{intent_id:010d}",
         "content": code if code is not None else f"{sepay_client.payment_code_prefix()}{intent_id:010d}",
         "transferType": transfer_type,
@@ -118,6 +120,22 @@ async def _post_webhook(
 
 
 class TestSePayUnit:
+    def test_reconciliation_config_accepts_db_destination(self, monkeypatch):
+        monkeypatch.setattr(settings, "sepay_bank_code", "")
+        monkeypatch.setattr(settings, "sepay_bank_account_number", "")
+        monkeypatch.setattr(settings, "sepay_bank_account_name", "")
+        monkeypatch.setattr(settings, "sepay_bank_account_id", "")
+        assert sepay_client.is_reconciliation_configured(
+            bank_code="BIDV",
+            account_number="8865142865",
+            account_name="NGUYEN NHAT DUY",
+            account_id="0df35cd9-922e-11f1-b21a-a6006ab65aca",
+        )
+
+    def test_api_base_url_normalizes_version_suffix(self, monkeypatch):
+        monkeypatch.setattr(settings, "sepay_api_base_url", "https://userapi.sepay.vn/v2/")
+        assert sepay_client._api_base_url() == "https://userapi.sepay.vn"
+
     def test_signature_vector_and_raw_body_sensitivity(self):
         raw = b'{"id":1,"content":"NAP1"}'
         signature = sepay_client.sign_webhook(raw, 1_700_000_000, "secret")
@@ -146,6 +164,59 @@ class TestSePayUnit:
         assert "bank=MBBank" in url
         assert "amount=50000" in url
         assert f"des={code}" in url
+
+    @pytest.mark.asyncio
+    @pytest.mark.parametrize(
+        ("destination", "provider_account", "provider_va", "expected_count"),
+        [
+            ("0123456789", "0123456789", "", 1),
+            ("VA001234", "0123456789", "VA001234", 1),
+            ("OTHER", "0123456789", "VA001234", 0),
+        ],
+    )
+    async def test_reconciliation_accepts_real_or_virtual_destination(
+        self,
+        monkeypatch,
+        destination,
+        provider_account,
+        provider_va,
+        expected_count,
+    ):
+        monkeypatch.setattr(settings, "sepay_api_token", "test-api-token")
+        real_async_client = httpx.AsyncClient
+
+        def handler(request: httpx.Request) -> httpx.Response:
+            assert request.url.params["bank_account_id"] == "parent-account-id"
+            return httpx.Response(200, json={
+                "status": "success",
+                "data": [{
+                    "id": "transaction-id",
+                    "transfer_type": "in",
+                    "amount_in": 50_000,
+                    "account_number": provider_account,
+                    "va": provider_va,
+                    "bank_account_id": "parent-account-id",
+                    "code": "NAP23456789AB",
+                }],
+            })
+
+        transport = httpx.MockTransport(handler)
+        monkeypatch.setattr(
+            sepay_client.httpx,
+            "AsyncClient",
+            lambda **kwargs: real_async_client(transport=transport, **kwargs),
+        )
+
+        matches = await sepay_client.list_matching_transactions(
+            payment_code="NAP23456789AB",
+            amount=50_000,
+            created_at=datetime.now(timezone.utc),
+            bank_code="BIDV",
+            bank_account_id="parent-account-id",
+            bank_account_number=destination,
+            bank_account_name="TEST ACCOUNT",
+        )
+        assert len(matches) == expected_count
 
 
 class TestCreateDeposit:
@@ -260,6 +331,28 @@ class TestSePayWebhook:
             txs = (await db.execute(select(Transaction).where(Transaction.type == TransactionType.deposit))).scalars().all()
             assert len(txs) == 1
             assert "SePay" in txs[0].description
+
+    @pytest.mark.asyncio
+    async def test_official_va_destination_credits(self, client, monkeypatch):
+        monkeypatch.setattr(settings, "sepay_bank_account_number", "VA001234")
+        await register_and_login(client, "official-va@example.com")
+        intent_id = await _make_intent("official-va@example.com", 50_000)
+
+        response = await _post_webhook(
+            client,
+            _payload(
+                intent_id,
+                50_000,
+                account_number="0123456789",
+                sub_account="VA001234",
+            ),
+        )
+
+        assert response.status_code == 200
+        assert await _balance("official-va@example.com") == 50_000
+        async with SessionLocal() as db:
+            intent = await db.get(DepositIntent, intent_id)
+            assert intent.status == DepositIntentStatus.paid
 
     @pytest.mark.asyncio
     async def test_bad_or_expired_signature_never_credits(self, client):
@@ -447,6 +540,40 @@ class TestSePayReconcile:
         late = _payload(intent_id, 40_000, transaction_id=999, reference="FT-REC")
         assert (await _post_webhook(client, late)).status_code == 200
         assert await _balance("reconcile@example.com") == 40_000
+
+    @pytest.mark.asyncio
+    async def test_reconcile_uses_corrected_parent_uuid_for_same_destination(self, client, monkeypatch):
+        await register_and_login(client, "corrected-config@example.com")
+        admin_token = await register_and_login(client, "corrected-admin@example.com")
+        await make_admin("corrected-admin@example.com")
+        intent_id = await _make_intent("corrected-config@example.com", 40_000)
+
+        async with SessionLocal() as db:
+            intent = await db.get(DepositIntent, intent_id)
+            intent.sepay_bank_account_id = "stale-parent-account-id"
+            rail = await rail_config.ensure_seeded(db)
+            rail.sepay_bank_account_id = "correct-parent-account-id"
+            await db.commit()
+
+        list_transactions = AsyncMock(return_value=[{
+            "id": "corrected-config-transaction-id",
+            "transfer_type": "in",
+            "amount_in": 40_000,
+            "account_number": settings.sepay_bank_account_number,
+            "bank_account_id": "correct-parent-account-id",
+            "code": f"{sepay_client.payment_code_prefix()}{intent_id:010d}",
+        }])
+        monkeypatch.setattr(sepay_client, "list_matching_transactions", list_transactions)
+
+        response = await client.post(
+            f"/admin/deposits/{intent_id}/reconcile",
+            headers=_auth(admin_token),
+        )
+
+        assert response.status_code == 200, response.text
+        assert response.json()["reconcile_result"] == "credited"
+        assert list_transactions.await_args.kwargs["bank_account_id"] == "correct-parent-account-id"
+        assert await _balance("corrected-config@example.com") == 40_000
 
     @pytest.mark.asyncio
     async def test_reconcile_not_found_keeps_pending(self, client, monkeypatch):

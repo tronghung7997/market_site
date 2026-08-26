@@ -96,3 +96,31 @@ async def test_category_commission_rate_left_untouched_when_omitted(client):
     }, headers={"Authorization": f"Bearer {token}"})
     assert resp.status_code == 200
     assert resp.json()["commission_rate"] == 4.0
+
+
+@pytest.mark.asyncio
+async def test_category_icon_allowlist_and_clear(client):
+    token = await register_and_login(client, "cat_icon_admin@example.com")
+    await make_admin("cat_icon_admin@example.com")
+    token = await register_and_login(client, "cat_icon_admin@example.com")
+    headers = {"Authorization": f"Bearer {token}"}
+
+    created = await client.post("/admin/categories", json={
+        "name": "Icon Cat", "slug": "icon-cat-facebook-allowlist", "icon": "facebook",
+    }, headers=headers)
+    assert created.status_code == 201
+    assert created.json()["icon"] == "facebook"
+    cat_id = created.json()["id"]
+
+    listed = await client.get("/categories")
+    assert listed.status_code == 200
+    assert any(row["id"] == cat_id and row["icon"] == "facebook" for row in listed.json())
+
+    rejected = await client.post("/admin/categories", json={
+        "name": "Bad Icon", "slug": "bad-icon", "icon": "https://evil.example/x.png",
+    }, headers=headers)
+    assert rejected.status_code == 422
+
+    cleared = await client.patch(f"/admin/categories/{cat_id}", json={"icon": None}, headers=headers)
+    assert cleared.status_code == 200
+    assert cleared.json()["icon"] is None

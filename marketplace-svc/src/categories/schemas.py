@@ -1,4 +1,14 @@
-from pydantic import BaseModel, Field
+from pydantic import BaseModel, Field, field_validator
+
+from src.products.covers import COVER_IDS
+
+
+def _normalize_icon(value: object) -> str | None:
+    if value is None or value == "":
+        return None
+    if isinstance(value, str) and value in COVER_IDS:
+        return value
+    raise ValueError("icon must be an allowlisted cover id")
 
 
 class CategoryCreate(BaseModel):
@@ -9,6 +19,11 @@ class CategoryCreate(BaseModel):
     sort_order: int = 0
     commission_rate: float | None = Field(default=None, ge=0, le=100)
 
+    @field_validator("icon", mode="before")
+    @classmethod
+    def validate_icon(cls, value: object) -> str | None:
+        return _normalize_icon(value)
+
 
 class CategoryUpdate(BaseModel):
     name: str | None = None
@@ -17,6 +32,11 @@ class CategoryUpdate(BaseModel):
     sort_order: int | None = None
     is_active: bool | None = None
     commission_rate: float | None = Field(default=None, ge=0, le=100)
+
+    @field_validator("icon", mode="before")
+    @classmethod
+    def validate_icon(cls, value: object) -> str | None:
+        return _normalize_icon(value)
 
 
 class CategoryResponse(BaseModel):

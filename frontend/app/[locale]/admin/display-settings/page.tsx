@@ -8,9 +8,12 @@
  * 2026-08-13 density: readable type, rails save at bottom of section
  */
 
-import { useEffect, useMemo, useState } from "react";
+import { Suspense, useEffect, useMemo, useState } from "react";
+import { useSearchParams } from "next/navigation";
 import { useLocale, useTranslations } from "next-intl";
 import { api } from "@/lib/api";
+import { MailSettingsPanel } from "@/features/admin-mail";
+import { usePathname, useRouter } from "@/i18n/navigation";
 import type {
   DepositRailConfigAdmin,
   DepositRailConfigUpdate,
@@ -162,9 +165,25 @@ function railStatus(
   return { tone: "bad", label: t("railOff") };
 }
 
-export default function AdminMoneyAndDepositPage() {
+type SettingsTab = "display" | "deposits" | "mail";
+
+function AdminMoneyAndDepositPage() {
   const t = useTranslations("currency");
+  const tTabs = useTranslations("adminSettings");
   const locale = useLocale();
+  const searchParams = useSearchParams();
+  const router = useRouter();
+  const pathname = usePathname();
+  const rawTab = searchParams.get("tab");
+  const tab: SettingsTab = rawTab === "mail" || rawTab === "deposits" ? rawTab : "display";
+
+  const setTab = (next: SettingsTab) => {
+    const params = new URLSearchParams(searchParams.toString());
+    if (next === "display") params.delete("tab");
+    else params.set("tab", next);
+    const qs = params.toString();
+    router.replace(qs ? `${pathname}?${qs}` : pathname);
+  };
 
   const [money, setMoney] = useState<MoneyConfigAdmin | null>(null);
   const [rateInput, setRateInput] = useState("");
@@ -347,7 +366,13 @@ export default function AdminMoneyAndDepositPage() {
     }
   };
 
-  if (loading) {
+  const tabs: { id: SettingsTab; label: string }[] = [
+    { id: "display", label: tTabs("tabDisplay") },
+    { id: "deposits", label: tTabs("tabDeposits") },
+    { id: "mail", label: tTabs("tabMail") },
+  ];
+
+  if (tab !== "mail" && loading) {
     return (
       <div className="grid place-items-center py-16">
         <Spinner />
@@ -374,7 +399,25 @@ export default function AdminMoneyAndDepositPage() {
     <div className="w-full space-y-3.5 pb-5">
       <p className="text-[13px] leading-snug text-muted">{t("pageSubtitle")}</p>
 
-      {/* ── Display settings ─────────────────────────────────── */}
+      <div className="flex flex-wrap gap-1" role="tablist" aria-label={t("pageSubtitle")}>
+        {tabs.map((item) => (
+          <Button
+            key={item.id}
+            type="button"
+            size="sm"
+            role="tab"
+            aria-selected={tab === item.id}
+            variant={tab === item.id ? "primary" : "ghost"}
+            onClick={() => setTab(item.id)}
+          >
+            {item.label}
+          </Button>
+        ))}
+      </div>
+
+      {tab === "mail" && <MailSettingsPanel />}
+
+      {tab === "display" && (
       <section className="overflow-hidden rounded-card border border-line bg-card shadow-card">
         <div className="grid lg:grid-cols-[minmax(0,1fr)_minmax(0,1.1fr)]">
           {/* Rate */}
@@ -556,8 +599,9 @@ export default function AdminMoneyAndDepositPage() {
           </div>
         </div>
       </section>
+      )}
 
-      {/* ── Deposit rails ────────────────────────────────────── */}
+      {tab === "deposits" && (
       <section className="space-y-2.5">
         <div className="flex flex-wrap items-end justify-between gap-2">
           <div className="min-w-0">
@@ -743,6 +787,21 @@ export default function AdminMoneyAndDepositPage() {
           </Button>
         </div>
       </section>
+      )}
     </div>
+  );
+}
+
+export default function AdminSettingsPage() {
+  return (
+    <Suspense
+      fallback={
+        <div className="grid place-items-center py-16">
+          <Spinner />
+        </div>
+      }
+    >
+      <AdminMoneyAndDepositPage />
+    </Suspense>
   );
 }

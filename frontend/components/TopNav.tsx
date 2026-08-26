@@ -2,13 +2,30 @@
 
 import { useLocale, useTranslations } from "next-intl";
 import { Link, usePathname, useRouter } from "@/i18n/navigation";
-import { useEffect, useState } from "react";
+import { useEffect, useRef, useState } from "react";
 import { useAuth } from "@/lib/auth";
 import { useMoney } from "@/lib/money";
 import { cn } from "@/lib/cn";
 import { useWalletBalance } from "@/hooks/use-wallet";
-import { Bolt, Globe, Logo, Menu, Plus, Wallet, X } from "./Icons";
+import {
+  ArrowLeftRight,
+  Bolt,
+  ChevronRight,
+  Globe,
+  Logo,
+  LogOut,
+  Menu,
+  MessageCircle,
+  Package,
+  Percent,
+  Plus,
+  Shield,
+  Store,
+  Wallet,
+  X,
+} from "./Icons";
 import NotificationBell from "./NotificationBell";
+import MessageShortcut from "./chat/MessageShortcut";
 import CurrencyToggle from "./CurrencyToggle";
 import { Button } from "./ui";
 
@@ -69,11 +86,22 @@ export default function TopNav() {
   const t = useTranslations("nav");
   const tc = useTranslations("currency");
   const languageLabel = locale === "vi" ? "Ngôn ngữ" : "Language";
+  const isAdminRoute = pathname === "/admin" || pathname.startsWith("/admin/");
   const navLinks = [{ href: "/", label: t("marketplace") }, { href: "/categories", label: t("categories") }];
+  const accountRoleLabel = account?.roles.includes("admin")
+    ? "Admin"
+    : account?.roles.includes("seller")
+      ? (locale === "vi" ? "Người bán" : "Seller")
+      : (locale === "vi" ? "Người mua" : "Buyer");
+
   const accountLinks = [
-    { href: "/orders", label: t("orders"), auth: true }, { href: "/wallet", label: t("wallet"), auth: true },
-    { href: "/affiliate", label: t("affiliate"), auth: true }, { href: "/seller", label: t("seller"), role: "seller" },
-    { href: "/seller/apply", label: t("becomeSeller"), auth: true, hideIfRole: "seller" }, { href: "/admin", label: t("admin"), role: "admin" },
+    { href: "/messages", label: locale === "vi" ? "Tin nhắn" : "Messages", icon: MessageCircle, auth: true },
+    { href: "/orders", label: t("orders"), icon: Package, auth: true },
+    { href: "/transactions", label: t("transactions"), icon: ArrowLeftRight, auth: true },
+    { href: "/affiliate", label: t("affiliate"), icon: Percent, auth: true },
+    { href: "/seller", label: t("seller"), icon: Store, role: "seller" },
+    { href: "/seller/apply", label: t("becomeSeller"), icon: Store, auth: true, hideIfRole: "seller" },
+    { href: "/admin", label: t("admin"), icon: Shield, role: "admin" },
   ];
   // Số dư đọc từ query cache dùng chung với trang Ví — mua hàng/nạp/rút ở
   // bất kỳ đâu invalidate ["wallet"] là con số này tự nhảy, không cần đổi
@@ -83,8 +111,36 @@ export default function TopNav() {
   const { formatBrowseMoney, allowLocaleToggle, allowToggle } = useMoney();
   const [menuOpen, setMenuOpen] = useState(false);
   const [mobileNavOpen, setMobileNavOpen] = useState(false);
+  const menuRef = useRef<HTMLDivElement>(null);
 
   useEffect(() => { setMenuOpen(false); setMobileNavOpen(false); }, [pathname]);
+
+  // Click outside & Escape key listeners
+  useEffect(() => {
+    if (!menuOpen) return;
+
+    const handleClickOutside = (e: MouseEvent | TouchEvent) => {
+      if (menuRef.current && !menuRef.current.contains(e.target as Node)) {
+        setMenuOpen(false);
+      }
+    };
+
+    const handleKeyDown = (e: KeyboardEvent) => {
+      if (e.key === "Escape") {
+        setMenuOpen(false);
+      }
+    };
+
+    document.addEventListener("mousedown", handleClickOutside);
+    document.addEventListener("touchstart", handleClickOutside);
+    document.addEventListener("keydown", handleKeyDown);
+
+    return () => {
+      document.removeEventListener("mousedown", handleClickOutside);
+      document.removeEventListener("touchstart", handleClickOutside);
+      document.removeEventListener("keydown", handleKeyDown);
+    };
+  }, [menuOpen]);
 
   const changeLocale = (nextLocale: "en" | "vi") => {
     document.cookie = `NEXT_LOCALE=${nextLocale};path=/;max-age=31536000;SameSite=Lax`;
@@ -128,7 +184,7 @@ export default function TopNav() {
             <Link href="/solutions" className="px-2.5 py-1.5 rounded-lg text-[13px] font-medium text-muted hover:text-fg hover:bg-raised transition-colors whitespace-nowrap">{t("solutions")}</Link>
           </nav>
           <div className="flex-1" />
-          {allowLocaleToggle && (
+          {!isAdminRoute && allowLocaleToggle && (
             <LocaleSwitcher
               locale={locale}
               onChange={changeLocale}
@@ -147,49 +203,129 @@ export default function TopNav() {
                   {balance === null ? "—" : formatBrowseMoney(balance, { locale })}
                 </span>
               </Link>
+              <MessageShortcut perspective="buyer" href="/messages" />
               <NotificationBell endpoint="buyer" />
               {/* ≤375px: only menu/logo/bell/avatar in chrome — Top up lives in account menu */}
               <Link href="/wallet" className="hidden min-[400px]:block">
                 <Button size="md"><Plus size={15} /><span className="hidden sm:inline">{t("topUp")}</span></Button>
               </Link>
-              <div className="relative">
+              <div className="relative" ref={menuRef}>
                 <button onClick={() => setMenuOpen((v) => !v)} title={t("accountMenu")} aria-haspopup="menu" aria-expanded={menuOpen}
                   className="grid place-items-center h-9 w-9 rounded-full border-2 border-iris/30 bg-iris-soft text-iris hover:border-iris/60 transition-colors text-[12px] font-bold uppercase">
                   {account.email.slice(0, 2)}
                 </button>
                 {menuOpen && (
-                  <>
-                    <div className="fixed inset-0 z-40" onClick={() => setMenuOpen(false)} />
-                    <div className="absolute right-0 mt-2 w-64 z-50 rounded-xl border border-line bg-surface shadow-card-lg overflow-hidden">
-                      <div className="flex items-center gap-3 px-4 py-3.5 border-b border-line bg-raised/50">
-                        <span className="grid place-items-center h-10 w-10 shrink-0 rounded-full border-2 border-iris/30 bg-iris-soft text-iris text-[13px] font-bold uppercase">
-                          {account.email.slice(0, 2)}
-                        </span>
-                        <div className="min-w-0">
-                          <div className="text-[11.5px] font-semibold text-iris uppercase tracking-wide">{t("yourProfile")}</div>
-                          <div className="text-[13.5px] font-medium text-fg truncate">{account.email}</div>
+                  <div
+                    role="menu"
+                    aria-label={t("accountMenu")}
+                    className="absolute right-0 mt-2 w-64 z-50 rounded-xl border border-line bg-surface shadow-card-lg overflow-hidden animate-rise"
+                  >
+                    {/* Header Dark Card */}
+                    <div className="p-3 bg-ink-panel">
+                      <div className="flex items-center justify-between gap-2 mb-2">
+                        <div className="flex items-center gap-2">
+                          <span className="grid place-items-center h-7 w-7 shrink-0 rounded-lg bg-surface/10 border border-line/20 text-iris-soft text-[11px] font-bold uppercase">
+                            {account.email.slice(0, 2)}
+                          </span>
+                          <span className="text-[10.5px] font-semibold text-iris-soft uppercase tracking-wider">
+                            {t("yourProfile")}
+                          </span>
                         </div>
+                        <span className="shrink-0 text-[10px] font-semibold uppercase tracking-wider text-iris-soft/80 bg-surface/10 px-2 py-0.5 rounded-md border border-line/20">
+                          {accountRoleLabel}
+                        </span>
                       </div>
-                      <div className="py-1 border-b border-line">
-                        <Link
-                          href="/wallet"
-                          className="min-[400px]:hidden flex items-center gap-2 px-4 py-2 text-[13px] font-medium text-iris-hi hover:bg-raised transition-colors"
-                        >
-                          <Plus size={14} /> {t("topUp")}
-                        </Link>
-                        {accountLinks.filter((l) => (!l.auth || account) && (!l.role || account?.roles.includes(l.role)) && (!l.hideIfRole || !account?.roles.includes(l.hideIfRole))).map((l) => (
-                          <Link key={l.href} href={l.href}
-                            className="block px-4 py-2 text-[13px] text-muted hover:text-fg hover:bg-raised transition-colors">
-                            {l.label}
-                          </Link>
-                        ))}
+
+                      <div className="text-[12px] font-mono text-iris-soft/90 break-all leading-snug mb-2.5 px-0.5">
+                        {account.email}
                       </div>
+
+                      {/* Clickable Wallet Snapshot inside Header */}
+                      <Link
+                        href="/wallet"
+                        onClick={() => setMenuOpen(false)}
+                        title={t("walletBalance")}
+                        className="bg-surface/5 hover:bg-surface/10 rounded-lg px-2.5 py-1.5 flex items-center justify-between border border-line/15 transition-colors group cursor-pointer"
+                      >
+                        <div className="flex items-center gap-2">
+                          <span className="text-iris-soft">
+                            <Wallet size={14} />
+                          </span>
+                          <div className="flex items-baseline gap-1.5">
+                            <span className="text-[10px] text-iris-soft/60 uppercase tracking-wider font-medium">
+                              {t("walletBalance")}:
+                            </span>
+                            <span className="text-[12.5px] font-mono font-bold text-iris-soft">
+                              {balance === null ? "—" : formatBrowseMoney(balance, { locale })}
+                            </span>
+                          </div>
+                        </div>
+                        <ChevronRight size={13} className="text-iris-soft/50 group-hover:text-iris-soft group-hover:translate-x-0.5 transition-all" />
+                      </Link>
+                    </div>
+
+                    {/* Menu items with compact spacing */}
+                    <div className="p-1.5 space-y-0.5">
+                      {accountLinks
+                        .filter(
+                          (l) =>
+                            (!l.auth || account) &&
+                            (!l.role || account?.roles.includes(l.role)) &&
+                            (!l.hideIfRole || !account?.roles.includes(l.hideIfRole))
+                        )
+                        .map((l) => {
+                          const IconComp = l.icon;
+                          const isTransactions = l.href === "/transactions";
+                          return (
+                            <Link
+                              key={l.href}
+                              href={l.href}
+                              onClick={() => setMenuOpen(false)}
+                              className={cn(
+                                "flex items-center gap-2.5 px-2.5 py-1.5 rounded-lg text-[12.5px] font-medium transition-colors group",
+                                isTransactions
+                                  ? "text-fg bg-raised/70 hover:bg-raised"
+                                  : "text-muted hover:text-fg hover:bg-raised"
+                              )}
+                            >
+                              <span
+                                className={cn(
+                                  "grid place-items-center h-6 w-6 rounded-md transition-colors shrink-0",
+                                  isTransactions
+                                    ? "bg-iris-soft text-iris"
+                                    : "text-faint group-hover:text-fg"
+                                )}
+                              >
+                                <IconComp size={15} />
+                              </span>
+                              <span className="flex-1 truncate">{l.label}</span>
+                              {isTransactions && (
+                                <span className="text-[9.5px] font-mono font-bold uppercase tracking-wider text-iris bg-iris-soft px-1.5 py-0.5 rounded">
+                                  {locale === "vi" ? "Giao dịch" : "Log"}
+                                </span>
+                              )}
+                            </Link>
+                          );
+                        })}
+                    </div>
+
+                    <div className="h-px bg-line mx-2.5" />
+
+                    {/* Logout button */}
+                    <div className="p-1.5">
                       <button onClick={() => { setMenuOpen(false); logout(); }}
-                        className="w-full text-left px-4 py-2.5 text-[13px] font-medium text-bad hover:bg-bad-soft transition-colors">
-                        {t("signOut")}
+                        className="w-full flex items-center justify-between px-2.5 py-1.5 text-[12.5px] font-medium text-bad rounded-lg hover:bg-bad-soft transition-colors cursor-pointer group"
+                      >
+                        <div className="flex items-center gap-2.5">
+                          <span className="grid place-items-center h-6 w-6 rounded-md text-bad shrink-0">
+                            <LogOut size={15} />
+                          </span>
+                          <span className="font-semibold">{t("signOut")}</span>
+                        </div>
+                        <span className="text-[10px] text-faint font-mono">ESC</span>
                       </button>
                     </div>
-                  </>
+                  </div>
                 )}
               </div>
             </div>
@@ -217,7 +353,7 @@ export default function TopNav() {
               );
             })}
             <Link href="/solutions" className="block px-2.5 py-2.5 rounded-lg text-[14px] font-medium text-muted hover:text-fg hover:bg-raised transition-colors">{t("solutions")}</Link>
-            {allowLocaleToggle && (
+            {!isAdminRoute && allowLocaleToggle && (
               <div className="mt-1 flex items-center justify-between border-t border-line pt-3 px-2.5">
                 <span className="text-[11px] font-semibold uppercase tracking-[0.12em] text-faint">{languageLabel}</span>
                 <LocaleSwitcher locale={locale} onChange={changeLocale} label={languageLabel} />

@@ -10,6 +10,14 @@ def _auth(token: str) -> dict[str, str]:
     return {"Authorization": f"Bearer {token}"}
 
 
+@pytest.mark.no_db
+@pytest.mark.asyncio
+async def test_chat_routes_are_registered(client):
+    response = await client.get("/chat/inquiries/by-product/1")
+
+    assert response.status_code == 401
+
+
 @pytest.mark.asyncio
 async def test_buyer_can_open_product_inquiry_and_seller_can_reply(client):
     buyer_token, seller_token, _, _, _ = await setup_buyable_product(client)

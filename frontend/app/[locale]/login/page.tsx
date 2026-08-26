@@ -2,7 +2,7 @@
 
 import { Link, useRouter } from "@/i18n/navigation";
 import { useSearchParams } from "next/navigation";
-import { Suspense, useState } from "react";
+import { Suspense, useEffect, useState } from "react";
 import { useTranslations } from "next-intl";
 import { useAuth } from "@/lib/auth";
 import { api } from "@/lib/api";
@@ -11,6 +11,7 @@ import { safeInternalRedirect } from "@/lib/safe-redirect";
 import { useApiErrorMessage } from "@/lib/use-api-error";
 import { Button, Card, Field, Input, Spinner } from "@/components/ui";
 import { Logo } from "@/components/Icons";
+import { authenticatedLoginRedirect } from "@/lib/safe-redirect";
 
 export default function LoginPage() {
   return (
@@ -22,11 +23,13 @@ export default function LoginPage() {
 
 function LoginForm() {
   const t = useTranslations("auth");
-  const apiErrorMessage = useApiErrorMessage();
-  const { login } = useAuth();
+  const { account, loading, login } = useAuth();
   const router = useRouter();
   const searchParams = useSearchParams();
-  const next = safeInternalRedirect(searchParams.get("next"));
+  const next = searchParams.get("next");
+  const authenticatedDestination = account
+    ? authenticatedLoginRedirect(next, account.roles)
+    : null;
   const [email, setEmail] = useState("");
   const [password, setPassword] = useState("");
   const [fieldErrors, setFieldErrors] = useState<{ email?: string; password?: string }>({});
@@ -34,6 +37,10 @@ function LoginForm() {
     searchParams.get("expired") ? t("sessionExpired") : null,
   );
   const [busy, setBusy] = useState(false);
+
+  useEffect(() => {
+    if (!loading && authenticatedDestination) router.replace(authenticatedDestination);
+  }, [authenticatedDestination, loading, router]);
 
   const submit = async (e: React.FormEvent) => {
     e.preventDefault();
@@ -50,13 +57,17 @@ function LoginForm() {
     try {
       await login(email.trim(), password);
       const me = await api.me();
-      router.push(next || (me.roles.includes("seller") ? "/seller" : "/"));
+      router.replace(authenticatedLoginRedirect(next, me.roles));
     } catch (err) {
       setError(apiErrorMessage(err, t("loginFailed")));
     } finally {
       setBusy(false);
     }
   };
+
+  if (loading || account) {
+    return <div className="grid min-h-[calc(100vh-3.5rem)] place-items-center"><Spinner /></div>;
+  }
 
   return (
     <div className="min-h-[calc(100vh-3.5rem)] grid place-items-center px-6 py-12 aura">
@@ -66,10 +77,13 @@ function LoginForm() {
           <h2 className="font-serif text-[26px] tracking-tight">{t("loginTitle")}</h2>
           <p className="text-[13px] text-muted">{t("loginSubtitle")}</p>
         </div>
-        <form onSubmit={submit} className="flex flex-col gap-4" noValidate>
-          <Field label={t("email")} error={fieldErrors.email}><Input type="email" required value={email} onChange={(e) => { setEmail(e.target.value); setFieldErrors((current) => ({ ...current, email: undefined })); }} placeholder="you@company.com" autoComplete="email" aria-invalid={Boolean(fieldErrors.email)} /></Field>
-          <Field label={t("password")} error={fieldErrors.password}><Input type="password" required value={password} onChange={(e) => { setPassword(e.target.value); setFieldErrors((current) => ({ ...current, password: undefined })); }} placeholder="••••••••" autoComplete="current-password" aria-invalid={Boolean(fieldErrors.password)} /></Field>
-          {error && <p className="text-bad text-[13px]" role="alert">{error}</p>}
+        <form onSubmit={submit} className="flex flex-col gap-4">
+          <Field label={t("email")}><Input type="email" required value={email} onChange={(e) => setEmail(e.target.value)} placeholder="you@company.com" autoComplete="email" /></Field>
+          <Field label={t("password")}><Input type="password" required value={password} onChange={(e) => setPassword(e.target.value)} placeholder="••••••••" autoComplete="current-password" /></Field>
+          <p className="text-right -mt-2">
+            <Link href="/forgot-password" className="text-[13px] text-iris-hi hover:underline">{t("forgotPassword")}</Link>
+          </p>
+          {error && <p className="text-bad text-[13px]">{error}</p>}
           <Button type="submit" block size="lg" disabled={busy}>{busy ? t("signingIn") : t("loginTitle")}</Button>
         </form>
         <p className="text-center text-[13px] text-muted mt-6">

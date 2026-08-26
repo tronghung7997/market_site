@@ -1,0 +1,20 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 512 512">
+  <defs>
+    <linearGradient id="xBg" x1="0%" y1="0%" x2="100%" y2="100%">
+      <stop offset="0%" stop-color="#24292E"/>
+      <stop offset="100%" stop-color="#000000"/>
+    </linearGradient>
+    <filter id="xShadow" x="-20%" y="-20%" width="140%" height="140%">
+      <feDropShadow dx="0" dy="12" stdDeviation="16" flood-color="#000000" flood-opacity="0.4"/>
+    </filter>
+    <linearGradient id="xBevel" x1="0%" y1="0%" x2="0%" y2="100%">
+      <stop offset="0%" stop-color="#FFFFFF" stop-opacity="0.2"/>
+      <stop offset="100%" stop-color="#FFFFFF" stop-opacity="0"/>
+    </linearGradient>
+  </defs>
+  <rect x="32" y="32" width="448" height="448" rx="112" fill="url(#xBg)" filter="url(#xShadow)"/>
+  <rect x="32" y="32" width="448" height="448" rx="112" fill="url(#xBevel)"/>
+  
+  <!-- Official X Glyph -->
+  <path d="M142 144l92 123-95 101h21l83-89 65 89h72L282 238l88-94h-21l-77 82-62-82h-68zm31 16h33l132 176h-33L173 160z" fill="#FFFFFF"/>
+</svg>

@@ -5,6 +5,7 @@
 import { useEffect, useState } from "react";
 import { api } from "@/lib/api";
 import type { Product, ProductDetail } from "@/lib/types";
+import type { ProductPageCatalog } from "@/features/catalog";
 
 export interface ProductDetailState {
   product: ProductDetail | null;
@@ -15,14 +16,23 @@ export interface ProductDetailState {
   error: string | null;
 }
 
-export function useProductDetail(id: number): ProductDetailState {
-  const [product, setProduct] = useState<ProductDetail | null>(null);
-  const [related, setRelated] = useState<Product[]>([]);
-  const [pricingStrategy, setPricingStrategy] = useState<string | null>(null);
-  const [loading, setLoading] = useState(true);
-  const [error, setError] = useState<string | null>(null);
+export function useProductDetail(id: number, initial?: ProductPageCatalog | null): ProductDetailState {
+  const [product, setProduct] = useState<ProductDetail | null>(initial?.product ?? null);
+  const [related, setRelated] = useState<Product[]>(initial?.related ?? []);
+  const [pricingStrategy, setPricingStrategy] = useState<string | null>(initial?.pricingStrategy ?? null);
+  const [loading, setLoading] = useState(!initial?.product);
+  const [error, setError] = useState<string | null>(initial?.error && !initial.product ? initial.error : null);
 
   useEffect(() => {
+    if (initial?.product && initial.product.id === id) {
+      setProduct(initial.product);
+      setRelated(initial.related);
+      setPricingStrategy(initial.pricingStrategy);
+      setLoading(false);
+      setError(null);
+      return;
+    }
+    setLoading(true);
     (async () => {
       try {
         const p = await api.product(id);
@@ -56,7 +66,7 @@ export function useProductDetail(id: number): ProductDetailState {
         setLoading(false);
       }
     })();
-  }, [id]);
+  }, [id, initial]);
 
   return { product, related, pricingStrategy, loading, error };
 }

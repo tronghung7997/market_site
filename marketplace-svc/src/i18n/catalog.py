@@ -183,7 +183,7 @@ def resolve_product_pricing_params(product: Any, locale: str) -> dict | None:
 
     # Legacy products keep display labels in pricing_params.  Start with
     # those and let localized values override them.
-    for key in ("field_labels", "type_display", "network_display"):
+    for key in ("field_labels", "type_display", "network_display", "platform_display"):
         value = labels.get(key)
         if isinstance(value, dict):
             params[key] = {**(params.get(key) or {}), **value}
@@ -201,6 +201,21 @@ def resolve_product_pricing_params(product: Any, locale: str) -> dict | None:
                 item["label"] = label
             options.append(item)
         params["duration_options"] = options
+
+    package_labels = labels.get("package_labels")
+    if isinstance(package_labels, dict) and isinstance(params.get("packages"), list):
+        packages = []
+        for package in params["packages"]:
+            if not isinstance(package, dict):
+                packages.append(package)
+                continue
+            item = dict(package)
+            size = item.get("size")
+            label = package_labels.get(str(size), package_labels.get(size))
+            if label:
+                item["label"] = label
+            packages.append(item)
+        params["packages"] = packages
     return params
 
 

@@ -1,4 +1,11 @@
+import asyncio
+
 import pytest
+from sqlalchemy import select
+
+from src.database import SessionLocal
+from src.models.order import Order, OrderStatus
+from src.models.wallet import Transaction, TransactionType
 from tests.conftest import make_admin, make_seller, register_and_login
 from tests.test_orders import setup_adapter_product
 
@@ -44,6 +51,37 @@ async def test_buyer_can_dispute(client):
                              headers={"Authorization": f"Bearer {buyer_token}"})
     assert resp.status_code == 201
     assert resp.json()["status"] == "open"
+
+
+@pytest.mark.asyncio
+async def test_concurrent_dispute_refund_and_reject_settle_once(client):
+    buyer_token, admin_token, order_id = await create_delivered_order(client)
+    await client.post(
+        f"/orders/{order_id}/dispute",
+        json={"reason": "Broken"},
+        headers={"Authorization": f"Bearer {buyer_token}"},
+    )
+    disputes = await client.get("/admin/disputes", headers={"Authorization": f"Bearer {admin_token}"})
+    dispute_id = disputes.json()[-1]["id"]
+    headers = {"Authorization": f"Bearer {admin_token}"}
+
+    first, second = await asyncio.gather(
+        client.post(f"/admin/disputes/{dispute_id}/refund", json={"admin_note": "refund"}, headers=headers),
+        client.post(f"/admin/disputes/{dispute_id}/reject", json={"admin_note": "reject"}, headers=headers),
+    )
+
+    assert sorted((first.status_code, second.status_code)) == [200, 400]
+    async with SessionLocal() as db:
+        order = await db.get(Order, order_id)
+        assert order.status in (OrderStatus.refunded, OrderStatus.completed)
+        types = set(
+            await db.scalars(
+                select(Transaction.type).where(Transaction.reference_id == f"order-{order_id}")
+            )
+        )
+        released = bool(types & {TransactionType.purchase_release, TransactionType.platform_fee})
+        refunded = TransactionType.refund in types
+        assert released != refunded
 
 
 @pytest.mark.asyncio

@@ -12,7 +12,7 @@ _PREFIX = "gwk_live_"
 
 def generate_gateway_key() -> tuple[str, str, str]:
     """Returns (plaintext, key_hash, key_prefix) — sha256 at rest, same
-    reasoning as seller_api_keys/service.py: the plaintext already has 256
+    reasoning used for other high-entropy service credentials: the plaintext already has 256
     bits of entropy from secrets.token_urlsafe, bcrypt would only add latency
     to every gateway-forwarded request for no security benefit."""
     raw = secrets.token_urlsafe(32)

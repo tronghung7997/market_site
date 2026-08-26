@@ -82,12 +82,14 @@ export function Tag({
   );
 }
 
-export function Field({ label, hint, children }: { label: string; hint?: string; children: ReactNode }) {
+export function Field({ label, hint, error, children }: { label: string; hint?: string; error?: string; children: ReactNode }) {
   return (
     <label className="flex flex-col gap-1.5">
       <span className="text-[13px] font-medium text-muted">{label}</span>
       {children}
-      {hint && <span className="text-[12px] text-faint">{hint}</span>}
+      {error
+        ? <span className="text-[12px] text-bad" role="alert">{error}</span>
+        : hint && <span className="text-[12px] text-faint">{hint}</span>}
     </label>
   );
 }

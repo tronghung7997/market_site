@@ -5,8 +5,10 @@
 import { Link } from "@/i18n/navigation";
 import { useLocale, useTranslations } from "next-intl";
 import { useMoney } from "@/lib/money";
+import { parseCoverId } from "@/lib/product-covers";
 import type { Product } from "@/lib/types";
-import { Card, Monogram, Spinner } from "@/components/ui";
+import { Card, Spinner } from "@/components/ui";
+import { ProductCover } from "@/components/products/ProductCover";
 
 export function PriceBoard({ products, catName, stock, minPrice, loading }: {
   products: Product[]; catName: (id: number) => string;
@@ -30,7 +32,7 @@ export function PriceBoard({ products, catName, stock, minPrice, loading }: {
         {loading && <div className="px-4 py-10"><Spinner /></div>}
         {!loading && products.slice(0, 5).map((p) => (
           <Link key={p.id} href={`/products/${p.id}`} className="flex items-center gap-3 px-4 py-3 hover:bg-raised transition-colors">
-            <Monogram text={p.title} className="h-8 w-8 rounded-md text-[12px]" />
+            <ProductCover coverId={parseCoverId(p)} title={p.title} className="h-8 w-8 rounded-md" />
             <span className="min-w-0 flex-1">
               <span className="block text-[13px] font-medium truncate">{p.title}</span>
               <span className="block text-[11.5px] text-faint">{catName(p.category_id)}</span>

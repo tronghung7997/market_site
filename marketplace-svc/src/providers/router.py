@@ -281,7 +281,7 @@ async def reject_provider(
 
 # ---------------------------------------------------------------------------
 # Seller self-service — spec 2026-07-21 mục "Trạng thái triển khai", Phần A.
-# Gated behind seller tier "trusted", cùng ngưỡng với seller_api_keys — đăng
+# Gated behind seller tier "trusted" — đăng
 # ký một backend ngoài để platform gọi thay mặt buyer là năng lực nhạy cảm
 # tương đương, không mở đại trà cho seller mới.
 # ---------------------------------------------------------------------------

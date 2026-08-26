@@ -1,4 +1,4 @@
-from src.models.account import Account, AccountRole, ApplicationStatus, SellerApplication
+from src.models.account import Account, AccountRole, ApplicationStatus, PasswordResetToken, SellerApplication
 from src.models.affiliate import AffiliateClick, AffiliateCommission
 from src.models.alert import Alert
 from src.models.category import Category
@@ -10,7 +10,6 @@ from src.models.pricing_config import PricingConfig
 from src.models.provider import Provider, ProviderCallLog, ProviderHealth
 from src.models.proxy_allocation import ProxyAllocation, ProxyAllocationStatus
 from src.models.resource import Resource, ResourceStatus
-from src.models.seller_api_key import SellerApiKey
 from src.models.service_task import ServiceTask, ServiceTaskStatus
 from src.models.usage import GatewayCallLog, OrderBalance, UsageRecord, UsageRecordStatus
 from src.models.payment import (
@@ -21,12 +20,15 @@ from src.models.payment import (
     PayosWebhookEvent,
     SePayWebhookEvent,
 )
+from src.models.mail import MailOutbox, MailOutboxStatus
+from src.models.mail_runtime_config import MailRuntimeConfig
+from src.models.mail_template import MailTemplate
 from src.models.wallet import Transaction, TransactionType, Wallet, WithdrawRequest, WithdrawStatus
 from src.models.display_money_config import DisplayMoneyConfig
 from src.models.deposit_rail_config import DepositRailConfig
 
 __all__ = [
-    "Account", "AccountRole", "ApplicationStatus", "SellerApplication",
+    "Account", "AccountRole", "ApplicationStatus", "PasswordResetToken", "SellerApplication",
     "AffiliateClick", "AffiliateCommission",
     "Alert",
     "Category",
@@ -40,6 +42,7 @@ __all__ = [
     "Resource", "ResourceStatus",
     "ServiceTask", "ServiceTaskStatus",
     "OrderBalance", "UsageRecord", "UsageRecordStatus", "GatewayCallLog",
+    "MailOutbox", "MailOutboxStatus", "MailRuntimeConfig", "MailTemplate",
     "Transaction", "TransactionType", "Wallet", "WithdrawRequest", "WithdrawStatus",
     "DepositIntent", "DepositIntentStatus", "DepositProvider",
     "NowpaymentsIpnEvent", "PayosWebhookEvent", "SePayWebhookEvent",

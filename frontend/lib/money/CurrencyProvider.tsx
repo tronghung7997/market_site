@@ -33,6 +33,7 @@ import {
   formatDisplayMoney,
   formatLedgerMoney,
   formatOrderHistoryMoney,
+  formatUnitMoney,
   parseDisplayCurrency,
   vndToUsd,
   type DisplayMoneyContext,
@@ -59,6 +60,7 @@ type MoneyContextValue = {
   formatLedgerMoney: (amountVnd: number, locale?: string) => string;
   formatBrowseMoney: (amountVnd: number, opts?: LocaleOpts) => string;
   formatCheckoutMoney: (amountVnd: number, opts?: LocaleOpts) => string;
+  formatUnitMoney: (amountVnd: number, opts?: LocaleOpts) => string;
   /** @deprecated Prefer formatBrowseMoney / formatCheckoutMoney. */
   formatDisplayMoney: (amountVnd: number, opts?: LocaleOpts) => string;
   formatOrderHistoryMoney: (
@@ -267,6 +269,8 @@ export function CurrencyProvider({
         formatBrowseMoney(amountVnd, bindCtx(effective, fxRate, opts)),
       formatCheckoutMoney: (amountVnd, opts) =>
         formatCheckoutMoney(amountVnd, bindCtx(effective, fxRate, opts)),
+      formatUnitMoney: (amountVnd, opts) =>
+        formatUnitMoney(amountVnd, bindCtx(effective, fxRate, opts)),
       formatDisplayMoney: (amountVnd, opts) =>
         formatDisplayMoney(amountVnd, bindCtx(effective, fxRate, opts)),
       formatOrderHistoryMoney: history,
@@ -307,6 +311,8 @@ export function useMoney(): MoneyContextValue {
       formatBrowseMoney: (a, opts) =>
         formatLedgerMoney(a, opts?.locale ?? "en"),
       formatCheckoutMoney: (a, opts) =>
+        formatLedgerMoney(a, opts?.locale ?? "en"),
+      formatUnitMoney: (a, opts) =>
         formatLedgerMoney(a, opts?.locale ?? "en"),
       formatDisplayMoney: (a, opts) =>
         formatLedgerMoney(a, opts?.locale ?? "en"),

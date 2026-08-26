@@ -62,7 +62,7 @@ class Order(Base):
     user_config: Mapped[dict | None] = mapped_column(JSONB, nullable=True)
     # Platform-minted token for the `seller_gateway` adapter (strategy=credit) —
     # buyer calls POST/GET /gw/{plaintext}/{endpoint} with this instead of ever
-    # seeing the seller's real base_url/api_key. Hashed at rest like seller_api_keys.
+    # seeing the seller's real base_url/api_key. Hashed at rest.
     gateway_key_hash: Mapped[str | None] = mapped_column(String(64), unique=True, nullable=True)
     gateway_key_prefix: Mapped[str | None] = mapped_column(String(24), nullable=True)
     created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), server_default=func.now())

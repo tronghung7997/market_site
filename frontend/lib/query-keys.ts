@@ -2,6 +2,9 @@
  * Centralized query keys to avoid magic strings
  */
 export const queryKeys = {
+  chat: () => ["chat"] as const,
+  chatList: (perspective: "buyer" | "seller") => ["chat", "list", perspective] as const,
+  chatDetail: (id: string) => ["chat", "detail", id] as const,
   // Orders
   orders: (filters?: Record<string, unknown> | null) =>
     ["orders", filters ?? null] as const,

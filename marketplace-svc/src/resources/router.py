@@ -1,7 +1,7 @@
-from fastapi import APIRouter, Depends, status
+from fastapi import APIRouter, Depends, Query, Response, status
 from sqlalchemy.ext.asyncio import AsyncSession
 
-from src.auth.dependencies import get_current_account, get_seller_account_jwt_or_api_key, require_role, verify_internal_key
+from src.auth.dependencies import get_current_account, get_seller_account, require_role, verify_internal_key
 from src.audit.service import log_event
 from src.database import get_session
 from src.logging import current_request_id
@@ -13,14 +13,25 @@ router = APIRouter(tags=["resources"])
 
 
 @router.post("/seller/variants/{variant_id}/resources", response_model=schemas.BulkResourceResponse, status_code=status.HTTP_201_CREATED)
-async def bulk_add(variant_id: int, body: schemas.BulkResourceCreate, account: Account = Depends(get_seller_account_jwt_or_api_key), db: AsyncSession = Depends(get_session)):
+async def bulk_add(variant_id: int, body: schemas.BulkResourceCreate, account: Account = Depends(get_seller_account), db: AsyncSession = Depends(get_session)):
     count = await service.bulk_add_resources(variant_id, account.id, body.items, db)
     return schemas.BulkResourceResponse(count=count)
 
 
 @router.get("/seller/variants/{variant_id}/resources", response_model=list[schemas.ResourceResponse])
-async def list_res(variant_id: int, account: Account = Depends(require_role("seller")), db: AsyncSession = Depends(get_session)):
-    return await service.list_resources(variant_id, account.id, db)
+async def list_res(
+    variant_id: int,
+    response: Response,
+    page: int = Query(1, ge=1),
+    per_page: int = Query(10_000, ge=1, le=10_000),
+    account: Account = Depends(require_role("seller")),
+    db: AsyncSession = Depends(get_session),
+):
+    items, total = await service.list_resources(
+        variant_id, account.id, db, page=page, per_page=per_page,
+    )
+    response.headers["X-Total-Count"] = str(total)
+    return items
 
 
 @router.get("/seller/inventory/summary", response_model=list[schemas.InventoryVariantSummary])

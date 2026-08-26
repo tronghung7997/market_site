@@ -10,8 +10,10 @@ from src.models.category import Category
 from src.models.order import Order, OrderStatus
 from src.models.product import Product, ProductVariant
 from src.models.resource import Resource, ResourceStatus
+from src.models.wallet import Transaction, TransactionType, Wallet
 from src.scheduler import escrow_release_job, resource_expire_job
 from tests.conftest import make_admin, make_seller, register_and_login
+from tests.test_orders import setup_buyable_product
 
 
 @pytest.mark.asyncio
@@ -30,6 +32,41 @@ async def test_escrow_release_completes_expired_orders():
 
             await db.refresh(order)
             assert order.status == OrderStatus.completed
+
+
+@pytest.mark.asyncio
+async def test_escrow_job_does_not_release_after_order_leaves_delivered(client):
+    buyer_token, seller_token, _, instant_vid, _ = await setup_buyable_product(client)
+    buyer_headers = {"Authorization": f"Bearer {buyer_token}"}
+    seller_headers = {"Authorization": f"Bearer {seller_token}"}
+    order = await client.post(
+        "/orders", json={"variant_id": instant_vid, "quantity": 1}, headers=buyer_headers,
+    )
+    order_id = order.json()["id"]
+    seller_id = (await client.get("/me", headers=seller_headers)).json()["id"]
+
+    async with SessionLocal() as db:
+        ord_obj = await db.get(Order, order_id)
+        ord_obj.status = OrderStatus.refunded
+        ord_obj.escrow_expires_at = datetime.now(timezone.utc) - timedelta(hours=1)
+        await db.commit()
+
+    await escrow_release_job()
+
+    async with SessionLocal() as db:
+        ord_obj = await db.get(Order, order_id)
+        assert ord_obj.status == OrderStatus.refunded
+        wallet_id = await db.scalar(select(Wallet.id).where(Wallet.account_id == seller_id))
+        releases = (
+            await db.scalars(
+                select(Transaction).where(
+                    Transaction.wallet_id == wallet_id,
+                    Transaction.type == TransactionType.purchase_release,
+                    Transaction.reference_id == f"order-{order_id}",
+                )
+            )
+        ).all()
+        assert releases == []
 
 
 @pytest.mark.asyncio

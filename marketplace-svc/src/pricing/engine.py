@@ -15,10 +15,25 @@ from .base import Quote
 from .factory import get_pricing_strategy
 
 
-async def resolve_pricing(product: Product, db: AsyncSession) -> tuple[str, dict]:
-    """3-tier fallback: product-level -> pricing_configs[service_type] -> fixed."""
+def product_pricing_override(product: Product) -> tuple[str, dict] | None:
+    """Return an explicit product-level override when it is complete.
+
+    ``fixed`` intentionally has no JSON params: its prices live on variants, so
+    ``pricing_strategy='fixed', pricing_params=NULL`` must still override a
+    service-level dynamic pricing config.
+    """
+    if product.pricing_strategy == "fixed":
+        return "fixed", product.pricing_params or {}
     if product.pricing_strategy and product.pricing_params:
         return product.pricing_strategy, product.pricing_params
+    return None
+
+
+async def resolve_pricing(product: Product, db: AsyncSession) -> tuple[str, dict]:
+    """3-tier fallback: product-level -> pricing_configs[service_type] -> fixed."""
+    override = product_pricing_override(product)
+    if override is not None:
+        return override
 
     service_type = product.service_type or "other"
     result = await db.execute(

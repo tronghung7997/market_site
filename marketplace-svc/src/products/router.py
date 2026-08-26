@@ -13,6 +13,11 @@ from . import schemas, service
 router = APIRouter(tags=["products"])
 
 
+@router.get("/product-covers", response_model=schemas.ProductCoverCatalogResponse)
+async def list_product_covers():
+    return service.list_product_covers()
+
+
 @router.get("/products", response_model=schemas.ProductListPageResponse)
 async def list_products(
     category_id: int | None = Query(None, description="Lọc theo danh mục VÀ toàn bộ danh mục con"),
@@ -68,6 +73,19 @@ async def update_product(product_id: int, body: schemas.SellerProductUpdate, acc
     return await service.update_product(product_id, account.id, body.model_dump(exclude_unset=True), db)
 
 
+@router.put(
+    "/seller/products/{product_id}/status",
+    response_model=schemas.ProductResponse,
+)
+async def update_own_product_status(
+    product_id: int,
+    body: schemas.SellerProductStatusUpdate,
+    account: Account = Depends(require_role("seller")),
+    db: AsyncSession = Depends(get_session),
+):
+    return await service.update_seller_product_status(product_id, account.id, body.status, db)
+
+
 @router.patch(
     "/seller/products/{product_id}/translations/{locale}",
     response_model=schemas.ProductResponse,
@@ -97,6 +115,22 @@ async def create_variant(product_id: int, body: schemas.VariantCreate, account: 
 @router.patch("/seller/variants/{variant_id}", response_model=schemas.VariantResponse)
 async def update_variant(variant_id: int, body: schemas.VariantUpdate, account: Account = Depends(require_role("seller")), db: AsyncSession = Depends(get_session)):
     return await service.update_variant(variant_id, account.id, body.model_dump(exclude_unset=True), db)
+
+
+@router.patch(
+    "/seller/variants/{variant_id}/translations/{locale}",
+    response_model=schemas.VariantResponse,
+)
+async def update_variant_translation(
+    variant_id: int,
+    locale: Literal["en", "vi"],
+    body: schemas.VariantTranslationUpdate,
+    account: Account = Depends(require_role("seller")),
+    db: AsyncSession = Depends(get_session),
+):
+    return await service.update_variant_translation(
+        variant_id, account.id, locale, body.name, db,
+    )
 
 
 @router.delete("/seller/variants/{variant_id}", status_code=status.HTTP_204_NO_CONTENT)

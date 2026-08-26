@@ -60,7 +60,8 @@ async def create_order(buyer_id: int, variant_id: int, quantity: int, db: AsyncS
     if variant.delivery_mode == DeliveryMode.instant:
         seller = await db.get(Account, product.seller_id)
         order = Order(
-            buyer_id=buyer_id, seller_id=product.seller_id, variant_id=variant_id, product_id=product.id,
+            buyer_id=buyer_id, seller_id=product.seller_id, variant_id=variant_id,
+            product_id=product.id,
             quantity=quantity, total_amount=total, status=OrderStatus.delivered,
             display_fx_rate_snapshot=fx_snapshot,
             escrow_expires_at=datetime.now(timezone.utc) + timedelta(
@@ -83,7 +84,8 @@ async def create_order(buyer_id: int, variant_id: int, quantity: int, db: AsyncS
                                   "resource_ids": [r.id for r in resources]})
     else:
         order = Order(
-            buyer_id=buyer_id, seller_id=product.seller_id, variant_id=variant_id, product_id=product.id,
+            buyer_id=buyer_id, seller_id=product.seller_id, variant_id=variant_id,
+            product_id=product.id,
             quantity=quantity, total_amount=total, status=OrderStatus.pending,
             display_fx_rate_snapshot=fx_snapshot,
         )
@@ -522,6 +524,7 @@ async def _enrich_orders(orders: list[Order], db: AsyncSession) -> list[dict]:
             "cancel_reason": order.cancel_reason,
             "created_at": order.created_at,
             "product_title": product.title if product else None,
+            "pricing_strategy": product.pricing_strategy if product else None,
             "variant_name": variant.name if variant else None,
             "buyer_email": buyer.email if buyer else None,
             "seller_email": seller.email if seller else None,

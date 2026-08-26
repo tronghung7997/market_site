@@ -91,12 +91,12 @@ async def test_register_duplicate_email(client):
 async def test_register_rejects_short_password_with_clear_limit(client):
     response = await client.post(
         "/auth/register",
-        json={"email": "short@example.com", "password": "too-short"},
+        json={"email": "short@example.com", "password": "short7"},
     )
     assert response.status_code == 422
     issue = response.json()["detail"][0]
     assert issue["loc"][-1] == "password"
-    assert issue["ctx"]["min_length"] == 12
+    assert issue["ctx"]["min_length"] == 8
 
 
 @pytest.mark.asyncio

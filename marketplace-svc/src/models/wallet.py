@@ -128,4 +128,5 @@ class WithdrawRequest(Base):
     # Mã tham chiếu giao dịch admin điền khi bấm "Đã chi".
     payout_reference: Mapped[str | None] = mapped_column(String(100), nullable=True)
     paid_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True), nullable=True)
+    reject_reason: Mapped[str | None] = mapped_column(String(500), nullable=True)
     created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), server_default=func.now())

@@ -1,13 +1,10 @@
 import { NextRequest, NextResponse } from "next/server";
+import { signedHeaders } from "@/lib/bff-request-signing";
 import { adminRequestAllowed, isAdminApiPath } from "@/lib/admin-access";
+import { buildUpstreamTarget } from "@/lib/bff-upstream";
+import { SERVER_API_BASE } from "@/lib/server-api";
 
 const SESSION_COOKIE = "dx_session";
-const API_TARGET = (
-  process.env.BUILT_API_URL
-  ?? process.env.API_URL
-  ?? "http://localhost:8001"
-).replace(/\/$/, "");
-const API_BASE = new URL(`${API_TARGET}/`);
 const IS_PRODUCTION = process.env.NODE_ENV === "production";
 const UNSAFE_METHODS = new Set(["POST", "PUT", "PATCH", "DELETE"]);
 const REQUEST_HEADER_ALLOWLIST = new Set([
@@ -58,47 +55,12 @@ function csrfAllowed(request: NextRequest): boolean {
   return origin === null || origin === externalRequestOrigin(request);
 }
 
-function buildUpstreamTarget(segments: string[]): { path: string; target: URL } | null {
-  const normalizedSegments: string[] = [];
-  for (const segment of segments) {
-    let decoded: string;
-    try {
-      decoded = decodeURIComponent(segment);
-    } catch {
-      return null;
-    }
-    // Route params may already be decoded by Next. Reject separators, traversal,
-    // NULs, and nested percent-encoding before URL normalization can reinterpret
-    // them as another upstream route.
-    if (
-      decoded === "."
-      || decoded === ".."
-      || decoded.includes("/")
-      || decoded.includes("\\")
-      || decoded.includes("\0")
-      || decoded.includes("%")
-    ) {
-      return null;
-    }
-    normalizedSegments.push(decoded);
-  }
-
-  const path = normalizedSegments.join("/");
-  if (normalizedSegments[0] === "internal") return null;
-
-  const target = new URL(normalizedSegments.map(encodeURIComponent).join("/"), API_BASE);
-  if (target.origin !== API_BASE.origin || !target.pathname.startsWith(API_BASE.pathname)) {
-    return null;
-  }
-  return { path, target };
-}
-
 async function proxy(request: NextRequest, segments: string[]) {
   if (!csrfAllowed(request)) {
     return NextResponse.json({ detail: "Cross-site request bị từ chối" }, { status: 403 });
   }
 
-  const upstreamTarget = buildUpstreamTarget(segments);
+  const upstreamTarget = buildUpstreamTarget(segments, SERVER_API_BASE);
   if (!upstreamTarget) {
     return NextResponse.json({ detail: "Not found" }, { status: 404 });
   }
@@ -126,6 +88,7 @@ async function proxy(request: NextRequest, segments: string[]) {
   const body = request.method === "GET" || request.method === "HEAD"
     ? undefined
     : await request.arrayBuffer();
+  signedHeaders(request.method, target, body).forEach((value, name) => headers.set(name, value));
   let upstream: Response;
   try {
     upstream = await fetch(target, {

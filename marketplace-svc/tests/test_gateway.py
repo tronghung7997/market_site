@@ -497,7 +497,7 @@ class TestSellerTaskWebhook:
         assert resp.status_code == 401
 
     @pytest.mark.asyncio
-    async def test_webhook_unknown_task_id_404s(self, client, monkeypatch):
+    async def test_webhook_unknown_task_id_is_acked(self, client, monkeypatch):
         _, provider_id, product_id, secret = await setup_task_webhook_product(client)
         raw, sig = _sign(secret, {"status": "completed", "result_data": "x"})
 
@@ -505,7 +505,8 @@ class TestSellerTaskWebhook:
             f"/webhooks/providers/{provider_id}/tasks/does-not-exist",
             content=raw, headers={"Content-Type": "application/json", "X-Signature": sig},
         )
-        assert resp.status_code == 404
+        assert resp.status_code == 200
+        assert resp.json() == {"ok": True, "ignored": True}
 
     @pytest.mark.asyncio
     async def test_webhook_fails_closed_when_provider_has_no_secret(self, client, monkeypatch):

@@ -27,6 +27,9 @@ class Settings(BaseSettings):
     jwt_algorithm: str = "HS256"
     jwt_expire_minutes: int = 60
     internal_api_key: str
+    bff_request_signing_secret: str
+    bff_request_signing_key_id: str = "market-bff-v1"
+    bff_request_signing_timestamp_tolerance_seconds: int = 300
     platform_fee_percent: int = 0
     encryption_key: str
     # Dedicated secret for login principal fingerprinting (S telemetry).
@@ -45,16 +48,24 @@ class Settings(BaseSettings):
     auth_login_account_limit: int = 8
     auth_register_ip_limit: int = 10
     auth_refresh_account_limit: int = 30
+    auth_forgot_ip_limit: int = 10
+    auth_forgot_account_limit: int = 5
+    auth_reset_ip_limit: int = 20
+    password_reset_ttl_minutes: int = 30
+    # Outbound transactional mail (SMTP or HTTPS). Inbound ports are not required.
+    mail_provider: Literal["log", "smtp", "resend"] = "log"
+    mail_from: str = ""
+    mail_from_name: str = "Proxora"
+    smtp_host: str = ""
+    smtp_port: int = 587
+    smtp_username: str = ""
+    smtp_password: str = ""
+    smtp_starttls: bool = True
+    resend_api_key: str = ""
+    mail_worker_enabled: bool = True
+    mail_max_attempts: int = 8
     gateway_ip_rate_limit: int = 120
     gateway_key_rate_limit: int = 60
-    # Seller API request signing (X-API-Key + HMAC).
-    api_signing_timestamp_tolerance_seconds: int = 300
-    api_signing_ip_limit: int = 120
-    api_signing_key_limit: int = 60
-    seller_api_key_ttl_days: int = 90
-    seller_api_key_max_active: int = 5
-    # allow = X-Seller-Api-Key still accepted (migration); deny = signed/JWT only.
-    legacy_seller_api_key_mode: Literal["allow", "deny"] = "allow"
     # Comma-separated IPs/CIDRs of reverse proxies allowed to set X-Forwarded-For.
     # Empty = never trust XFF (rate limits use the direct TCP peer only).
     # Behind nginx, set the proxy's address/CIDR so per-client IP buckets work.
@@ -69,8 +80,9 @@ class Settings(BaseSettings):
     default_affiliate_commission_percent: float = 0.0
 
     # --- SePay bank Webhooks + VietQR ---
-    # Bank destination shown to buyers and embedded in every QR. The UUID is
-    # the SePay API v2 bank_account_id used to scope reconciliation queries.
+    # Beneficiary shown to buyers and embedded in every QR: either the real
+    # bank account number or an official VA number. The UUID is always the
+    # parent SePay API v2 bank_account_id used to scope reconciliation queries.
     # Bootstrap/fallback only: live destination is stored in deposit_rail_config.
     sepay_bank_code: str = ""
     sepay_bank_account_number: str = ""
@@ -171,7 +183,7 @@ class Settings(BaseSettings):
 
     @model_validator(mode="after")
     def validate_security_settings(self) -> "Settings":
-        for field_name in ("jwt_secret", "internal_api_key", "encryption_key"):
+        for field_name in ("jwt_secret", "internal_api_key", "encryption_key", "bff_request_signing_secret"):
             value = getattr(self, field_name)
             if value in _KNOWN_INSECURE_SECRETS:
                 raise ValueError(f"{field_name.upper()} uses a known insecure default")
@@ -179,6 +191,12 @@ class Settings(BaseSettings):
                 raise ValueError(
                     f"{field_name.upper()} must contain at least {_MIN_SECRET_LENGTH} bytes"
                 )
+        if self.bff_request_signing_secret in {
+            self.jwt_secret,
+            self.internal_api_key,
+            self.encryption_key,
+        }:
+            raise ValueError("BFF_REQUEST_SIGNING_SECRET must differ from every other service secret")
 
         if not self.principal_hmac_secret:
             object.__setattr__(self, "principal_hmac_secret", self.jwt_secret)
@@ -211,14 +229,16 @@ class Settings(BaseSettings):
             "auth_login_account_limit",
             "auth_register_ip_limit",
             "auth_refresh_account_limit",
+            "auth_forgot_ip_limit",
+            "auth_forgot_account_limit",
+            "auth_reset_ip_limit",
+            "password_reset_ttl_minutes",
+            "smtp_port",
+            "mail_max_attempts",
             "gateway_ip_rate_limit",
             "gateway_key_rate_limit",
-            "api_signing_timestamp_tolerance_seconds",
-            "api_signing_ip_limit",
-            "api_signing_key_limit",
             "sepay_webhook_timestamp_tolerance_seconds",
-            "seller_api_key_ttl_days",
-            "seller_api_key_max_active",
+            "bff_request_signing_timestamp_tolerance_seconds",
             "affiliate_click_ip_limit",
             "provider_webhook_ip_limit",
             "gateway_call_log_retention_days",

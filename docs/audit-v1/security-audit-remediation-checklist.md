@@ -10,7 +10,8 @@ Checklist hợp nhất và chuẩn hóa từ:
 - Bản checklist remediation trước đó
 
 **Audit reports:** 2026-08-07 (`check-security`) · **Source re-validation/execution:** 2026-08-18 trên `main` HEAD `0558bcc796c26914467937f34c94f2835fc54fa4` + remediation working tree
-**Risk hiện tại:** Critical · **Wave local 08-04:** hoàn tất theo evidence cũ · **Wave findings 08-07:** đang mở · **Production sign-off:** chưa hoàn tất
+**Continue branch:** 2026-08-26 `audit-v1-continue` (merge `main` với conflict lấy main, rồi gắn lại BFF traversal/HMAC + khóa escrow job)
+**Risk hiện tại:** High (P0 app-layer local đã vá; Ops/infra và token revoke còn mở) · **Wave local 08-04:** hoàn tất theo evidence cũ · **Wave findings 08-07:** một phần đã đóng trên continue branch · **Production sign-off:** chưa hoàn tất
 
 Đánh dấu `[x]` chỉ khi có evidence/retest trên đúng source hoặc artifact. `[ ]` là open. `PARTIAL` nghĩa là một phần finding đã đóng nhưng residual risk vẫn còn. Ghi owner + PR/ticket + build SHA/digest + bằng chứng triển khai.
 
@@ -30,8 +31,8 @@ Checklist hợp nhất và chuẩn hóa từ:
 | C-4 | Wallet debit/withdraw race | P0 | **DONE LOCAL** — wallet rows đã lock; 10 concurrent order-create chỉ 1 thắng, concurrent withdraw cũng chỉ 1 thắng; balance/ledger nhất quán | Deploy migration/artifact và retest production |
 | BE-C-1 | Negative usage `units` tạo quota | P0 | **DONE LOCAL** — schema + service + DB CHECK; buyer/internal `units=-1` đều 422, quota không đổi | Deploy migration/artifact |
 | BE-C-2 | Negative variant `price` mint balance | P0 | **DONE LOCAL** — create/update `ge=0` + DB CHECK; hai HTTP regression 422 | Deploy migration/artifact |
-| BE-C-3 | Concurrent order confirm/release | P0 | **DONE LOCAL** — order lock + `(type, reference_id)` unique ledger key; concurrent confirm 1×200/1×400 và một release | Deploy migration/artifact |
-| FE-C-2 | BFF traversal vào `/internal/*` | P0 | **DONE LOCAL** — segment validation + normalized target containment; 5 raw/encoded/backslash PoC đều 404 trên standalone build | Deploy artifact và blackbox lại public edge |
+| BE-C-3 | Concurrent order confirm/release | P0 | **DONE LOCAL** — confirm/dispute/job lock order `FOR UPDATE SKIP LOCKED`; unique ledger key; concurrent confirm + concurrent refund/reject; job không release đơn đã rời `delivered` | Deploy migration/artifact |
+| FE-C-2 | BFF traversal vào `/internal/*` | P0 | **DONE LOCAL** — `buildUpstreamTarget` + HMAC signing trên header allowlist; unit test raw/encoded/backslash | Deploy artifact và blackbox lại public edge |
 
 ### High — canonical, đã gộp alias
 
@@ -42,7 +43,7 @@ Checklist hợp nhất và chuẩn hóa từ:
 | H-3 | Token không revocable (`BE-H-4`) | P1 | **OPEN** | Refresh-token rotation/reuse detection hoặc session store; logout/revoke làm token cũ trả 401 |
 | H-4 | Jenkins root SSH, thiếu host-key pinning/gates | P1 | **OPEN** | Non-root deploy, pinned host key, test/audit/image gates blocking |
 | H-5 | Mutable image tags + build không locked | P1 | **OPEN** — `npm ci` chỉ có trong Dockerfile local chưa ship; mutable tags/Python install/artifact digest còn mở | Ship locked build, image digest + frozen Python install + artifact digest evidence |
-| BE-H-1 | Seller API key role/expiry/scope | P1/P2 | **DONE LOCAL** — 90-day expiry, endpoint scopes, active cap, role re-check; expired/out-of-scope/cap/demotion tests pass | Deploy migration/artifact; thêm revoke-all incident action |
+| BE-H-1 | Seller API key role/expiry/scope | P1/P2 | **SUPERSEDED** — `main` drop table `seller_api_keys` (`db1a2b3c4d5e6`); conflict lấy main, không khôi phục credential store | Không reopen; incident rotate chuyển sang BFF signing secret |
 | BE-H-2 | Seller undo admin suspension | P1 | **DONE LOCAL** — seller schema không nhận lifecycle status; regression giữ `suspended` | Deploy artifact |
 | BE-H-3 | Affiliate self-dealing/fund abuse | P1 | **PARTIAL** — chặn buyer/seller self-dealing, inactive affiliate và rate ngoài 0..100; fund vẫn có thể âm, chưa clawback | Fund invariant/reservation + fraud velocity/collusion + clawback |
 | BE-H-5 | Withdrawal TOCTOU | P0 | **DONE LOCAL** — wallet/request rows lock, balance guard + ledger key; concurrent withdrawals chỉ một request thắng | Deploy migration/artifact |
@@ -117,8 +118,8 @@ Ngay lập tức: fingerprint secret production + contain :8001 và /internal/*
 | P0-04 Operations auth + login limiter | Eng/Ops | local workspace + edge ticket | +24h | App layer **done**; edge/WAF limiter pending Ops |
 | P0-05 Full tests + blackbox retest | Eng/Ops | local workspace + deploy ticket | +24h | Local full suite cuối `669 passed`; build/audit/blackbox pass; deployed artifact retest pending |
 | P0-06 Financial sign/input invariants | Backend | local workspace | Block deploy | **DONE LOCAL** — guards + migration `cs1...`; negative regression pass; production deploy pending |
-| P0-07 Concurrency + ledger idempotency | Backend/DB | local workspace | Block deploy | **PARTIAL** — create/confirm/withdraw locks + concurrent tests pass; dispute concurrency test còn pending |
-| P0-08 Proxy/internal boundary | Frontend/Ops | local workspace + deploy ticket | Block deploy | **PARTIAL** — traversal/header allowlist sẽ được commit; loopback compose bị loại khỏi release, edge header/direct-port retest pending |
+| P0-07 Concurrency + ledger idempotency | Backend/DB | local workspace | Block deploy | **DONE LOCAL** — create/confirm/withdraw/dispute/job locks; concurrent refund/reject + job skip tests; production deploy pending |
+| P0-08 Proxy/internal boundary | Frontend/Ops | local workspace + deploy ticket | Block deploy | **PARTIAL** — traversal + header allowlist + BFF HMAC đã gộp; loopback compose / edge header/direct-port retest pending |
 | P0-09 Production compose + demo seed | Ops/Backend | local workspace + deploy ticket | Block deploy | **OPEN** — production env/seed removal chỉ nằm ở compose local bị loại khỏi release; production DB/container retest pending |
 
 ---
@@ -209,7 +210,7 @@ Không mặc định kết luận production compromised. Kích hoạt incident/
 - [x] Backend full suite cuối chạy `669 passed, 0 failed` trên snapshot đã gồm thay đổi observability
 - [x] Frontend TypeScript + production build pass trên lockfile đã vá
 - [x] Thêm và chạy regression cho negative `quantity`, `price`, `units`
-- [x] Concurrent order-create + confirm + withdraw dùng request/session DB độc lập; dispute concurrency vẫn còn mở
+- [x] Concurrent order-create + confirm + withdraw + dispute refund/reject dùng request/session DB độc lập
 - [x] Standalone BFF traversal test raw/encoded/backslash; header-capture relay trên edge vẫn còn mở
 - [ ] Chạy blackbox retest theo §10 trên đúng build SHA/artifact digest
 - [ ] Không đóng P0 chỉ dựa trên source diff; phải có runtime evidence từ instance đã deploy
@@ -235,7 +236,8 @@ Không mặc định kết luận production compromised. Kích hoạt incident/
 - [x] Dispute create/refund/reject/partial/replace/extend và withdrawal approve/reject lock transition rows
 - [x] Ledger có unique partial index `(type, reference_id)`; order/withdraw/affiliate mutator dùng stable reference
 - [x] Lặp confirm trả conflict và không tạo release lần hai; withdrawal state guards giữ nguyên
-- [x] Concurrent create/confirm/withdraw qua hai HTTP request với DB dependency/session độc lập pass; dispute concurrency còn mở
+- [x] Concurrent create/confirm/withdraw/dispute refund-vs-reject qua hai HTTP request với DB dependency/session độc lập pass
+- [x] `escrow_release_job` / `sla_check_job` lock `FOR UPDATE SKIP LOCKED` và re-check status trước khi settle
 - [x] DB `CHECK` chỉ dùng làm backstop; evidence race là row lock + unique index + concurrency tests
 
 **Definition of done:** với N request đồng thời, đúng số operation hợp lệ thành công, balance/locked balance/ledger/order status nhất quán và không có duplicate payout.

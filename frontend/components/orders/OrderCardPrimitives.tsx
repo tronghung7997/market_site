@@ -12,6 +12,7 @@ import { formatDate, formatDateTime } from "@/lib/utils";
 import type { Dispute, Order, Resource } from "@/lib/types";
 import { evidenceFieldLabel, evidenceTypeLabel } from "@/lib/dispute-evidence";
 import { Card, Disclosure, Monogram, Tag } from "@/components/ui";
+import { parseCoverId, ProductCover } from "@/features/product-covers";
 import { Check } from "@/components/Icons";
 
 const TIMELINE_KEYS = ["pending", "processing", "delivered", "completed"] as const;
@@ -183,17 +184,17 @@ export function TerminalOrderRow({ order: o, viewerRole = "buyer" }: { order: Or
   const t = useTranslations("orders");
   const tc = useTranslations("common");
   const locale = useLocale();
-  const { formatOrderHistoryMoney, formatLedgerMoney } = useMoney();
+  const { formatOrderHistoryMoney } = useMoney();
   const st = orderStatus(o.status, locale);
-  // Seller/admin surfaces stay VND; buyer history uses snapshot/legacy rate.
-  const amountText =
-    viewerRole === "buyer"
-      ? formatOrderHistoryMoney(o.total_amount, o.display_fx_rate_snapshot, { locale }).text
-      : formatLedgerMoney(o.total_amount, locale);
+  const amountText = formatOrderHistoryMoney(
+    o.total_amount,
+    o.display_fx_rate_snapshot,
+    { locale },
+  ).text;
   return (
     <Card className="px-4 py-3">
       <div className="flex items-start gap-3 min-w-0">
-        <Monogram text={o.product_title ?? "??"} className="h-8 w-8 text-[12px] text-faint" />
+        <ProductCover coverId={parseCoverId(o)} title={o.product_title ?? "??"} className="h-8 w-8 shrink-0 text-[12px] text-faint" />
         <div className="min-w-0 flex-1">
           <div className="flex items-center gap-2 min-w-0">
             <span className="text-[13px] font-medium truncate">{o.product_title ?? tc("orderNumber", { id: o.id })}</span>

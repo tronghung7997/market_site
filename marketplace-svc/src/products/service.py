@@ -21,8 +21,11 @@ from src.models.account import Account
 from src.models.category import Category
 from src.models.product import DeliveryMode, Product, ProductStatus, ProductVariant
 from src.models.order import Order, OrderStatus
+from src.models.pricing_config import PricingConfig
 from src.models.provider import Provider
 from src.models.resource import Resource, ResourceStatus
+from src.pricing.engine import product_pricing_override, resolve_pricing
+from src.products.covers import catalog_items, default_cover_id, images_payload, public_images
 
 # Cột duy nhất của ProductVariant cho phép null — xem update_variant.
 NULLABLE_VARIANT_FIELDS = {"duration_days"}
@@ -33,14 +36,15 @@ PRODUCT_TRANSLATION_FIELDS = (
 PRODUCT_LEGACY_MIRROR_FIELDS = (
     "title", "description", "warranty_text", "highlight_text", "features", "specs",
 )
+PRIMARY_LOCALE_KEY = "_primary_locale"
 
 
 def _product_i18n_from_scalars(data: dict, *, existing: dict | None = None, locale: str = "vi") -> dict:
-    """Mirror writable text scalars into i18n[locale] when sellers save content.
+    """Mirror writable text scalars into the seller-selected locale bucket.
 
-    Dual-language form UI lands in a later phase; until then new/updated seller
-    content is stored under ``vi`` (current market language) so the VI catalog
-    stays consistent while EN comes from backfill / explicit i18n.en.
+    ``vi`` remains the default for backward-compatible API clients. The seller
+    workbench sends ``content_locale`` explicitly so an EN-only product never
+    creates a fake Vietnamese translation (and vice versa).
     """
     fields = {
         k: data[k]
@@ -52,9 +56,31 @@ def _product_i18n_from_scalars(data: dict, *, existing: dict | None = None, loca
     return merge_i18n_locale(existing, locale, fields)
 
 
+def _images_for_create(data: dict) -> dict:
+    cover_id = data.pop("cover_id", None)
+    data.pop("images", None)
+    return images_payload(cover_id or default_cover_id(data.get("service_type")))
+
+
+def _apply_cover_update(product: Product, data: dict) -> None:
+    if "cover_id" not in data:
+        data.pop("images", None)
+        return
+    cover_id = data.pop("cover_id")
+    data.pop("images", None)
+    product.images = None if cover_id is None else images_payload(cover_id)
+
+
+def list_product_covers() -> dict:
+    return {"items": catalog_items()}
+
+
 async def create_product(seller_id: int, data: dict, db: AsyncSession) -> Product:
     payload = dict(data)
-    payload["i18n"] = _product_i18n_from_scalars(payload)
+    content_locale = payload.pop("content_locale", "vi")
+    payload["images"] = _images_for_create(payload)
+    payload["i18n"] = _product_i18n_from_scalars(payload, locale=content_locale)
+    payload["i18n"][PRIMARY_LOCALE_KEY] = content_locale
     product = Product(seller_id=seller_id, **payload)
     db.add(product)
     await db.commit()
@@ -68,7 +94,25 @@ async def _validate_category_exists(category_id: int, db: AsyncSession) -> None:
         raise HTTPException(status_code=404, detail="Không tìm thấy danh mục")
 
 
+async def _strategy_after_service_type_change(
+    product: Product, service_type: str, db: AsyncSession,
+) -> str:
+    override = product_pricing_override(product)
+    if override is not None:
+        return override[0]
+    config = (await db.execute(
+        select(PricingConfig).where(
+            PricingConfig.service_type == service_type,
+            PricingConfig.is_active == True,  # noqa: E712
+        )
+    )).scalars().first()
+    return config.strategy if config else "fixed"
+
+
 async def update_product(product_id: int, seller_id: int, data: dict, db: AsyncSession) -> Product:
+    data = dict(data)
+    has_content_locale = "content_locale" in data
+    content_locale = data.pop("content_locale", None) or "vi"
     product = await db.get(Product, product_id)
     if not product:
         raise HTTPException(status_code=404, detail="Không tìm thấy sản phẩm")
@@ -76,12 +120,39 @@ async def update_product(product_id: int, seller_id: int, data: dict, db: AsyncS
         raise NotOwner()
     if data.get("category_id") is not None:
         await _validate_category_exists(data["category_id"], db)
+    if data.get("service_type") is not None and data["service_type"] != product.service_type:
+        strategy = await _strategy_after_service_type_change(product, data["service_type"], db)
+        await _validate_variant_pricing_model(product, strategy, db)
+    _apply_cover_update(product, data)
     for key, value in data.items():
         if value is not None:
             setattr(product, key, value)
     text_keys = {"title", "description", "warranty_text", "highlight_text", "features", "specs"}
     if text_keys & data.keys():
-        product.i18n = _product_i18n_from_scalars(data, existing=product.i18n)
+        product.i18n = _product_i18n_from_scalars(
+            data, existing=product.i18n, locale=content_locale,
+        )
+        if has_content_locale:
+            product.i18n = {**product.i18n, PRIMARY_LOCALE_KEY: content_locale}
+    await db.commit()
+    await db.refresh(product)
+    return product
+
+
+async def update_seller_product_status(
+    product_id: int, seller_id: int, status: str, db: AsyncSession,
+) -> Product:
+    product = await db.get(Product, product_id)
+    if not product:
+        raise HTTPException(status_code=404, detail="Không tìm thấy sản phẩm")
+    if product.seller_id != seller_id:
+        raise NotOwner()
+    if product.status == ProductStatus.suspended:
+        raise HTTPException(
+            status_code=409,
+            detail="Sản phẩm đang bị quản trị viên đình chỉ và seller không thể tự thay đổi trạng thái",
+        )
+    product.status = ProductStatus(status)
     await db.commit()
     await db.refresh(product)
     return product
@@ -94,17 +165,28 @@ async def admin_update_product(product_id: int, data: dict, db: AsyncSession) ->
     commission_rate stays on the operations endpoint and variants/stock remain
     seller-managed.
     """
+    data = dict(data)
+    has_content_locale = "content_locale" in data
+    content_locale = data.pop("content_locale", None) or "vi"
     product = await db.get(Product, product_id)
     if not product:
         raise HTTPException(status_code=404, detail="Không tìm thấy sản phẩm")
     if data.get("category_id") is not None:
         await _validate_category_exists(data["category_id"], db)
+    if data.get("service_type") is not None and data["service_type"] != product.service_type:
+        strategy = await _strategy_after_service_type_change(product, data["service_type"], db)
+        await _validate_variant_pricing_model(product, strategy, db)
+    _apply_cover_update(product, data)
     for key, value in data.items():
         if value is not None:
             setattr(product, key, value)
     text_keys = {"title", "description", "warranty_text", "highlight_text", "features", "specs"}
     if text_keys & data.keys():
-        product.i18n = _product_i18n_from_scalars(data, existing=product.i18n)
+        product.i18n = _product_i18n_from_scalars(
+            data, existing=product.i18n, locale=content_locale,
+        )
+        if has_content_locale:
+            product.i18n = {**product.i18n, PRIMARY_LOCALE_KEY: content_locale}
     await db.commit()
     await db.refresh(product)
     return product
@@ -147,13 +229,9 @@ async def update_product_translation(
 
 
 async def delete_product(product_id: int, seller_id: int, db: AsyncSession) -> None:
-    product = await db.get(Product, product_id)
-    if not product:
-        raise HTTPException(status_code=404, detail="Không tìm thấy sản phẩm")
-    if product.seller_id != seller_id:
-        raise NotOwner()
-    product.status = ProductStatus.paused
-    await db.commit()
+    # Backward-compatible pause endpoint. Keep the same lifecycle guard as the
+    # explicit status operation so DELETE cannot clear an admin suspension.
+    await update_seller_product_status(product_id, seller_id, "paused", db)
 
 
 async def suspend_product(product_id: int, db: AsyncSession) -> Product:
@@ -172,9 +250,19 @@ async def create_variant(product_id: int, seller_id: int, data: dict, db: AsyncS
         raise HTTPException(status_code=404, detail="Không tìm thấy sản phẩm")
     if product.seller_id != seller_id:
         raise NotOwner()
+    strategy, _ = await resolve_pricing(product, db)
+    if strategy != "fixed":
+        raise HTTPException(
+            status_code=409,
+            detail="Chỉ sản phẩm giá cố định mới sử dụng biến thể",
+        )
     payload = dict(data)
+    content_locale = payload.pop("content_locale", "vi")
     if "name" in payload and payload["name"] is not None:
-        payload["i18n"] = merge_i18n_locale({}, "vi", {"name": payload["name"]})
+        payload["i18n"] = merge_i18n_locale(
+            {}, content_locale, {"name": payload["name"]},
+        )
+        payload["i18n"][PRIMARY_LOCALE_KEY] = content_locale
     variant = ProductVariant(product_id=product_id, **payload)
     db.add(variant)
     await db.commit()
@@ -183,12 +271,27 @@ async def create_variant(product_id: int, seller_id: int, data: dict, db: AsyncS
 
 
 async def update_variant(variant_id: int, seller_id: int, data: dict, db: AsyncSession) -> ProductVariant:
+    data = dict(data)
+    has_content_locale = "content_locale" in data
+    content_locale = data.pop("content_locale", None) or "vi"
     variant = await db.get(ProductVariant, variant_id)
     if not variant:
         raise HTTPException(status_code=404, detail="Không tìm thấy gói sản phẩm")
     product = await db.get(Product, variant.product_id)
     if product.seller_id != seller_id:
         raise NotOwner()
+    if (
+        data.get("delivery_mode") == DeliveryMode.manual.value
+        and variant.delivery_mode == DeliveryMode.instant
+    ):
+        resource_count = await db.scalar(
+            select(func.count()).select_from(Resource).where(Resource.variant_id == variant_id)
+        )
+        if resource_count:
+            raise HTTPException(
+                status_code=409,
+                detail="Không thể chuyển sang giao thủ công khi gói vẫn có lịch sử tài nguyên",
+            )
     for key, value in data.items():
         # Router đã lọc field không gửi (exclude_unset), nên None ở đây là seller
         # CHỦ Ý xoá giá trị. Chỉ chấp nhận với cột cho phép null — nếu không thì
@@ -197,7 +300,35 @@ async def update_variant(variant_id: int, seller_id: int, data: dict, db: AsyncS
             continue
         setattr(variant, key, value)
     if "name" in data and data["name"] is not None:
-        variant.i18n = merge_i18n_locale(variant.i18n, "vi", {"name": data["name"]})
+        variant.i18n = merge_i18n_locale(
+            variant.i18n, content_locale, {"name": data["name"]},
+        )
+        if has_content_locale:
+            variant.i18n = {**variant.i18n, PRIMARY_LOCALE_KEY: content_locale}
+    await db.commit()
+    await db.refresh(variant)
+    return variant
+
+
+async def update_variant_translation(
+    variant_id: int,
+    seller_id: int,
+    locale: str,
+    name: str,
+    db: AsyncSession,
+) -> ProductVariant:
+    variant = await db.get(ProductVariant, variant_id)
+    if not variant:
+        raise HTTPException(status_code=404, detail="Không tìm thấy gói sản phẩm")
+    product = await db.get(Product, variant.product_id)
+    if product.seller_id != seller_id:
+        raise NotOwner()
+    clean_name = name.strip()
+    if not clean_name:
+        raise HTTPException(status_code=422, detail="Tên gói sản phẩm không được để trống")
+    variant.i18n = merge_i18n_locale(variant.i18n, locale, {"name": clean_name})
+    if locale == "vi":
+        variant.name = clean_name
     await db.commit()
     await db.refresh(variant)
     return variant
@@ -332,12 +463,24 @@ async def list_seller_products(seller_id: int, db: AsyncSession) -> list[dict]:
     variants_by_product = await _variants_by_product(
         [p.id for p in products], db, locale=None,
     )
+    pricing_configs = {
+        config.service_type: config
+        for config in (await db.execute(
+            select(PricingConfig).where(PricingConfig.is_active == True)  # noqa: E712
+        )).scalars()
+    }
 
     out = []
     for p in products:
         variants = variants_by_product.get(p.id, [])
+        item = _product_list_dict(p, locale=None)
+        pricing = product_pricing_override(p)
+        if pricing is None:
+            config = pricing_configs.get(p.service_type or "other")
+            pricing = (config.strategy, config.params) if config else ("fixed", {})
+        item["pricing_strategy"], item["pricing_params"] = pricing
         out.append({
-            **_product_list_dict(p, locale=None),
+            **item,
             "category_name": category_names.get(p.category_id),
             "variant_count": len(variants),
             "total_stock": sum(v["stock_count"] for v in variants),
@@ -479,12 +622,17 @@ async def _variants_by_product(
         name = v.name
         if locale is not None:
             name = resolve_variant_fields(v, locale)["name"]
+        management = {} if locale is not None else {
+            "translations": _management_variant_translations(v),
+            "primary_locale": (v.i18n or {}).get(PRIMARY_LOCALE_KEY, "vi"),
+        }
         out[v.product_id].append({
             "id": v.id, "product_id": v.product_id, "name": name, "price": v.price,
             "delivery_mode": v.delivery_mode.value, "sla_hours": v.sla_hours,
             "duration_days": v.duration_days,
             "sort_order": v.sort_order, "is_active": v.is_active,
             "stock_count": stock_by_variant.get(v.id, 0),
+            **management,
         })
     return out
 
@@ -500,6 +648,23 @@ async def _variant_dicts(
         [product_id], db, include_inactive=include_inactive, locale=locale,
     )
     return by_product.get(product_id, [])
+
+
+async def _validate_variant_pricing_model(
+    product: Product, effective_strategy: str, db: AsyncSession,
+) -> None:
+    if effective_strategy == "fixed":
+        return
+    variant_count = await db.scalar(
+        select(func.count()).select_from(ProductVariant).where(
+            ProductVariant.product_id == product.id,
+        )
+    )
+    if variant_count:
+        raise HTTPException(
+            status_code=409,
+            detail="Sản phẩm còn biến thể giá cố định; hãy xoá biến thể trước khi chuyển sang giá động",
+        )
 
 
 def _validate_provider_assignment(provider: Provider | None, product: Product) -> None:
@@ -562,8 +727,8 @@ async def update_product_operations(product_id: int, data: dict, db: AsyncSessio
     provider = await db.get(Provider, effective_provider_id) if effective_provider_id else None
     _validate_provider_assignment(provider, product)
     if not effective_strategy:
-        from src.pricing.engine import resolve_pricing
         effective_strategy, _ = await resolve_pricing(product, db)
+    await _validate_variant_pricing_model(product, effective_strategy, db)
 
     compat = check_compatibility(provider.adapter_type if provider else None, effective_strategy)
     if compat.level == "block":
@@ -605,8 +770,8 @@ async def update_seller_pricing(product_id: int, seller_id: int, data: dict, db:
         )
     _validate_provider_assignment(provider, product)
     if not effective_strategy:
-        from src.pricing.engine import resolve_pricing
         effective_strategy, _ = await resolve_pricing(product, db)
+    await _validate_variant_pricing_model(product, effective_strategy, db)
 
     compat = check_compatibility(provider.adapter_type if provider else None, effective_strategy)
     if compat.level == "block":
@@ -672,8 +837,6 @@ async def list_all_products_admin(db: AsyncSession) -> list[dict]:
 
     # resolve_pricing fallback tier 2 chỉ đọc PricingConfig active theo
     # service_type — prefetch 1 lần rồi resolve tại chỗ.
-    from src.models.pricing_config import PricingConfig
-
     configs: dict[str, str] = {}
     for c in (
         await db.execute(select(PricingConfig).where(PricingConfig.is_active == True))  # noqa: E712
@@ -687,10 +850,12 @@ async def list_all_products_admin(db: AsyncSession) -> list[dict]:
         order_count = order_counts.get(p.id, 0)
         revenue = revenues.get(p.id) or 0
 
-        if p.pricing_strategy and p.pricing_params:
-            strategy_name = p.pricing_strategy
-        else:
-            strategy_name = configs.get(p.service_type or "other", "fixed")
+        pricing_override = product_pricing_override(p)
+        strategy_name = (
+            pricing_override[0]
+            if pricing_override is not None
+            else configs.get(p.service_type or "other", "fixed")
+        )
         setup = setup_status(
             provider.adapter_type if provider else None, strategy_name,
             provider_active=provider.is_active if provider else True,
@@ -734,9 +899,11 @@ def _product_list_dict(product: Product, *, locale: str | None = DEFAULT_LOCALE)
         title = product.title
         highlight_text = product.highlight_text
         meta = {}
+    images = public_images(product.images)
     return {
         "id": product.id, "seller_id": product.seller_id, "category_id": product.category_id,
-        "title": title, "images": product.images,
+        "title": title, "images": images,
+        "cover_id": None if images is None else images["cover_id"],
         "escrow_days": product.escrow_days, "status": product.status.value,
         "service_type": product.service_type,
         "highlight_text": highlight_text, "sold_count": product.sold_count,
@@ -755,12 +922,30 @@ def _management_translations(product: Product) -> dict[str, dict]:
         for locale, bucket in (product.i18n or {}).items()
         if locale in {"en", "vi"} and isinstance(bucket, dict)
     }
-    vi = dict(translations.get("vi") or {})
-    for field in PRODUCT_TRANSLATION_FIELDS:
-        value = getattr(product, field, None)
-        if field not in vi and value is not None:
-            vi[field] = value
-    if vi:
+    # Legacy rows predate explicit locale selection and stored Vietnamese in
+    # scalar columns, so keep their management fallback. New EN-primary rows
+    # carry a marker and must not be presented as if a VI translation exists.
+    if (product.i18n or {}).get(PRIMARY_LOCALE_KEY) != "en":
+        vi = dict(translations.get("vi") or {})
+        for field in PRODUCT_TRANSLATION_FIELDS:
+            value = getattr(product, field, None)
+            if field not in vi and value is not None:
+                vi[field] = value
+        if vi:
+            translations["vi"] = vi
+    return translations
+
+
+def _management_variant_translations(variant: ProductVariant) -> dict[str, dict]:
+    """Return editable package-name buckets without storefront fallback."""
+    translations = {
+        locale: dict(bucket)
+        for locale, bucket in (variant.i18n or {}).items()
+        if locale in {"en", "vi"} and isinstance(bucket, dict)
+    }
+    if (variant.i18n or {}).get(PRIMARY_LOCALE_KEY) != "en":
+        vi = dict(translations.get("vi") or {})
+        vi.setdefault("name", variant.name)
         translations["vi"] = vi
     return translations
 
@@ -788,11 +973,14 @@ def _product_dict(product: Product, *, locale: str | None = DEFAULT_LOCALE) -> d
             "locale": None,
             "available_locales": available_locales(translations),
             "translations": translations,
+            "primary_locale": (product.i18n or {}).get(PRIMARY_LOCALE_KEY, "vi"),
         }
+    images = public_images(product.images)
     return {
         "id": product.id, "seller_id": product.seller_id, "category_id": product.category_id,
         **text,
-        "images": product.images,
+        "images": images,
+        "cover_id": None if images is None else images["cover_id"],
         "escrow_days": product.escrow_days, "status": product.status.value,
         "service_type": product.service_type,
         "specs": resolve_product_specs(product, locale) if locale is not None else product.specs,

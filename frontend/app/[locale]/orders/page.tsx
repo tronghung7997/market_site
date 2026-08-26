@@ -28,6 +28,7 @@ import { formatDate, formatDateTime } from "@/lib/utils";
 import { queryKeys } from "@/lib/query-keys";
 import { useOrders, useOrderStats } from "@/hooks/use-orders";
 import type { Order, PaginatedOrderResponse } from "@/lib/types";
+import { parseCoverId, ProductCover } from "@/features/product-covers";
 import { Button, Card, Pagination, Spinner, Tag } from "@/components/ui";
 import DisputeModal from "./DisputeModal";
 import OrderDetailsModal from "./OrderDetailsModal";
@@ -165,7 +166,7 @@ export default function OrdersPage() {
   return (
     <div className="w-full mx-auto max-w-7xl px-4 sm:px-6 py-8 space-y-6">
       {toast && (
-        <div className="fixed top-5 right-5 z-50 px-4 py-2.5 rounded-xl text-[13px] font-semibold shadow-card-lg bg-good text-white animate-in fade-in slide-in-from-top-2 duration-200">
+        <div role="status" aria-live="polite" className="fixed top-5 right-5 z-50 rounded-xl border border-good/25 bg-good-soft px-4 py-2.5 text-[13px] font-semibold text-good shadow-card-lg animate-in fade-in slide-in-from-top-2 duration-200">
           {toast}
         </div>
       )}
@@ -481,10 +482,7 @@ export default function OrdersPage() {
             <table className="w-full text-left text-[13px]">
               <thead className="bg-raised/70 border-b border-line text-[11px] font-semibold uppercase tracking-wider text-muted">
                 <tr>
-                  <th className="py-3.5 pl-4 pr-2 w-10">
-                    <input type="checkbox" className="rounded border-line" />
-                  </th>
-                  <th className="py-3.5 px-3 w-36">Thao tác nhanh</th>
+                  <th className="py-3.5 pl-4 pr-3 w-36">Thao tác nhanh</th>
                   <th className="py-3.5 px-3 w-32">Mã đơn</th>
                   <th className="py-3.5 px-3">Sản phẩm & Gói</th>
                   <th className="py-3.5 px-3 text-center w-24">Số lượng</th>
@@ -506,12 +504,8 @@ export default function OrdersPage() {
                       onClick={() => setSelectedOrder(o)}
                       className="hover:bg-iris-soft/15 transition-colors group cursor-pointer"
                     >
-                      <td className="py-3.5 pl-4 pr-2" onClick={(e) => e.stopPropagation()}>
-                        <input type="checkbox" className="rounded border-line" />
-                      </td>
-
                       {/* QUICK ACTION ICONS */}
-                      <td className="py-3.5 px-3" onClick={(e) => e.stopPropagation()}>
+                      <td className="py-3.5 pl-4 pr-3" onClick={(e) => e.stopPropagation()}>
                         <div className="flex items-center gap-1.5">
                           {/* Quick-view Modal button */}
                           <button
@@ -573,17 +567,20 @@ export default function OrdersPage() {
 
                       {/* PRODUCT TITLE & VARIANT */}
                       <td className="py-3.5 px-3">
-                        <div className="min-w-0">
-                          <div className="font-semibold text-fg group-hover:text-iris transition-colors line-clamp-1">
-                            {o.product_title ?? tc("orderNumber", { id: o.id })}
-                          </div>
-                          <div className="text-[11.5px] text-muted line-clamp-1 mt-0.5">
-                            {o.variant_name ? (
-                              <span className="font-medium text-fg/80 bg-raised/80 px-1.5 py-0.2 rounded border border-line mr-1.5">
-                                Gói: {o.variant_name}
-                              </span>
-                            ) : null}
-                            <span>{tc("qty", { count: o.quantity })}</span>
+                        <div className="flex items-center gap-3 min-w-0">
+                          <ProductCover coverId={parseCoverId(o)} title={o.product_title ?? "??"} className="h-8 w-8 rounded-lg shrink-0" />
+                          <div className="min-w-0">
+                            <div className="font-semibold text-fg group-hover:text-iris transition-colors line-clamp-1">
+                              {o.product_title ?? tc("orderNumber", { id: o.id })}
+                            </div>
+                            <div className="text-[11.5px] text-muted line-clamp-1 mt-0.5">
+                              {o.variant_name ? (
+                                <span className="font-medium text-fg/80 bg-raised/80 px-1.5 py-0.2 rounded border border-line mr-1.5">
+                                  Gói: {o.variant_name}
+                                </span>
+                              ) : null}
+                              <span>{tc("qty", { count: o.quantity })}</span>
+                            </div>
                           </div>
                         </div>
                       </td>

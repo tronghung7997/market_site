@@ -1,0 +1,31 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 512 512">
+  <defs>
+    <linearGradient id="proxyBg" x1="0%" y1="0%" x2="100%" y2="100%">
+      <stop offset="0%" stop-color="#4F46E5"/>
+      <stop offset="50%" stop-color="#06B6D4"/>
+      <stop offset="100%" stop-color="#0284C7"/>
+    </linearGradient>
+    <filter id="proxyShadow" x="-20%" y="-20%" width="140%" height="140%">
+      <feDropShadow dx="0" dy="12" stdDeviation="16" flood-color="#4F46E5" flood-opacity="0.4"/>
+    </filter>
+    <linearGradient id="proxyBevel" x1="0%" y1="0%" x2="0%" y2="100%">
+      <stop offset="0%" stop-color="#FFFFFF" stop-opacity="0.3"/>
+      <stop offset="100%" stop-color="#FFFFFF" stop-opacity="0"/>
+    </linearGradient>
+  </defs>
+  <rect x="32" y="32" width="448" height="448" rx="112" fill="url(#proxyBg)" filter="url(#proxyShadow)"/>
+  <rect x="32" y="32" width="448" height="448" rx="112" fill="url(#proxyBevel)"/>
+  
+  <!-- Global Network / Proxy Tunnel Routing Glyph -->
+  <!-- Outer Globe / Orbital Rings -->
+  <circle cx="256" cy="256" r="120" fill="none" stroke="#FFFFFF" stroke-width="12" opacity="0.3"/>
+  <ellipse cx="256" cy="256" rx="60" ry="120" fill="none" stroke="#FFFFFF" stroke-width="12" opacity="0.3"/>
+  <line x1="136" y1="256" x2="376" y2="256" stroke="#FFFFFF" stroke-width="12" opacity="0.3"/>
+  
+  <!-- Central Glowing Shield & Routing Nodes -->
+  <path d="M256 160l80 32v68c0 56-34 98-80 116-46-18-80-60-80-116v-68l80-32z" fill="#FFFFFF"/>
+  <path d="M256 190l54 22v46c0 38-23 66-54 78-31-12-54-40-54-78v-46l54-22z" fill="#0284C7"/>
+  
+  <!-- Lightning / Fast Tunnel Stream -->
+  <path d="M260 216l-20 36h24l-8 44 26-48h-24l10-32z" fill="#FFFFFF"/>
+</svg>

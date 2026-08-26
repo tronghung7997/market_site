@@ -9,7 +9,17 @@ export default function SiteFooter() {
   const columns = [
     { title: t("products"), links: [t("socialAccounts"), t("proxy"), t("emailSoftware"), t("pricing")] },
     { title: t("business"), links: [t("wholesale"), t("consulting"), t("sla"), t("invoice")] },
-    { title: t("help"), links: [t("docs"), t("faq"), t("policy"), t("contact")] },
+    {
+      title: t("help"),
+      links: [
+        { label: t("docs"), href: null },
+        { label: t("faq"), href: null },
+        { label: t("policy"), href: "/legal/escrow" },
+        { label: t("terms"), href: "/legal/terms" },
+        { label: t("privacy"), href: "/legal/privacy" },
+        { label: t("contact"), href: null },
+      ],
+    },
   ];
 
   return (
@@ -28,12 +38,19 @@ export default function SiteFooter() {
         {columns.map((column) => (
           <div key={column.title}>
             <div className="text-[12px] font-semibold uppercase tracking-wider text-faint mb-3">{column.title}</div>
-            <ul className="space-y-2">{column.links.map((label) => (
-              <li key={label}>
-                {/* No destinations yet — plain text avoids advertising dead # links. */}
-                <span className="text-[13px] text-muted">{label}</span>
-              </li>
-            ))}</ul>
+            <ul className="space-y-2">{column.links.map((item) => {
+              const label = typeof item === "string" ? item : item.label;
+              const href = typeof item === "string" ? null : item.href;
+              return (
+                <li key={label}>
+                  {href ? (
+                    <Link href={href} className="text-[13px] text-muted hover:text-fg">{label}</Link>
+                  ) : (
+                    <span className="text-[13px] text-muted">{label}</span>
+                  )}
+                </li>
+              );
+            })}</ul>
           </div>
         ))}
       </div>

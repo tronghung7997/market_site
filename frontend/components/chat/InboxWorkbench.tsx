@@ -13,6 +13,8 @@ import { useChatConversation, useChatConversations, useSendChatMessage } from "@
 import { useChatEvents } from "@/hooks/use-chat-events";
 import { ChevronLeft, Inbox, MessageCircle, Package } from "@/components/Icons";
 import { Button, Spinner } from "@/components/ui";
+import { ProductCover } from "@/components/products/ProductCover";
+import { parseCoverId } from "@/lib/product-covers";
 
 const copy = {
   vi: {
@@ -342,14 +344,11 @@ export default function InboxWorkbench({ perspective, initialConversationId = nu
         <aside className="hidden border-l border-line bg-raised/35 p-5 xl:block">
           {room?.product ? (
             <>
-              <span
-                className={cn(
-                  "grid h-11 w-11 place-items-center rounded-xl shadow-xs",
-                  roomIsOrder ? "bg-warn-soft text-warn" : "bg-iris-soft text-iris-hi"
-                )}
-              >
-                <RoomIcon order={roomIsOrder} size={19} />
-              </span>
+              <ProductCover
+                coverId={parseCoverId(room.product)}
+                title={room.product.title}
+                className="h-11 w-11 rounded-xl"
+              />
               <h3 className="mt-4 text-[11.5px] font-bold uppercase tracking-wider text-faint">
                 {roomIsOrder ? t.orderChat : t.product}
               </h3>

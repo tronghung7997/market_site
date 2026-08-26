@@ -68,6 +68,10 @@ class WithdrawMarkPaidRequest(BaseModel):
     payout_reference: str = Field(min_length=2, max_length=100)
 
 
+class WithdrawRejectRequest(BaseModel):
+    reason: str = Field(min_length=1, max_length=500)
+
+
 class WithdrawRequestResponse(BaseModel):
     id: int
     account_id: int
@@ -80,6 +84,7 @@ class WithdrawRequestResponse(BaseModel):
     bank_bin: str | None = None
     payout_reference: str | None = None
     paid_at: datetime | None = None
+    reject_reason: str | None = None
     created_at: datetime
 
     model_config = {"from_attributes": True}

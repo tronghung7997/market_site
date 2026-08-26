@@ -1,6 +1,8 @@
 import "../globals.css";
 import type { Metadata } from "next";
 import type { ReactNode } from "react";
+import { pageMetadata, siteOrigin } from "@/lib/seo";
+import { signedBackendFetch } from "@/lib/bff-request-signing";
 import { Suspense } from "react";
 import { Newsreader, Be_Vietnam_Pro, JetBrains_Mono } from "next/font/google";
 import { hasLocale, NextIntlClientProvider } from "next-intl";
@@ -29,9 +31,8 @@ import { routing } from "@/i18n/routing";
  * Returns null on failure so CurrencyProvider can client-retry via /api proxy.
  */
 async function loadMoneyConfig(): Promise<MoneyConfig | null> {
-  const base = process.env.API_URL ?? "http://localhost:8001";
   try {
-    const res = await fetch(`${base}/public/money-config`, {
+    const res = await signedBackendFetch("/public/money-config", {
       // Short-lived cache — admin rate changes should show within a minute.
       next: { revalidate: 30 },
     });
@@ -72,15 +73,14 @@ export async function generateMetadata({ params }: { params: Promise<{ locale: s
   const { locale } = await params;
   if (!hasLocale(routing.locales, locale)) notFound();
   const t = await getTranslations({ locale, namespace: "metadata" });
-  const localePath = locale === routing.defaultLocale ? "" : `/${locale}`;
-
   return {
-    title: t("title"),
-    description: t("description"),
-    alternates: {
-      canonical: localePath || "/",
-      languages: { en: "/", vi: "/vi", "x-default": "/" },
-    },
+    metadataBase: new URL(siteOrigin()),
+    ...pageMetadata({
+      title: t("title"),
+      description: t("description"),
+      locale,
+      path: "/",
+    }),
   };
 }
 
@@ -88,6 +88,7 @@ export default async function RootLayout({ children, params }: { children: React
   const { locale } = await params;
   if (!hasLocale(routing.locales, locale)) notFound();
   setRequestLocale(locale);
+  const tc = await getTranslations({ locale, namespace: "common" });
 
   // Cookie preference wins; otherwise admin/ENV default from server config.
   // null initialConfig → client retries; first paint still uses FALLBACK defaults.
@@ -112,8 +113,14 @@ export default async function RootLayout({ children, params }: { children: React
                 <TooltipProvider>
                   <RouteProgress />
                   <Suspense fallback={null}><ReferralCapture /></Suspense>
+                  <a
+                    href="#main-content"
+                    className="sr-only focus:not-sr-only focus:fixed focus:left-4 focus:top-4 focus:z-[100] focus:rounded-lg focus:bg-iris focus:px-3 focus:py-2 focus:text-[13px] focus:font-medium focus:text-surface"
+                  >
+                    {tc("skipToContent")}
+                  </a>
                   <ChromeGate><TopNav /></ChromeGate>
-                  <main className="flex-1 flex flex-col">{children}</main>
+                  <main id="main-content" className="flex-1 flex flex-col">{children}</main>
                   <ChromeGate><SiteFooter /></ChromeGate>
                 </TooltipProvider>
               </CurrencyProvider>

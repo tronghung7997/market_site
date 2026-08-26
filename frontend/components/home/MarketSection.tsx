@@ -10,8 +10,10 @@ import { useState } from "react";
 import { useLocale, useTranslations } from "next-intl";
 import { useMoney } from "@/lib/money";
 import { cn } from "@/lib/cn";
+import { categoryCoverId, parseCoverId } from "@/lib/product-covers";
 import type { Category, Product } from "@/lib/types";
-import { Button, Card, Monogram, Spinner, Tag } from "@/components/ui";
+import { Button, Card, Input, Spinner, Tag } from "@/components/ui";
+import { ProductCover } from "@/components/products/ProductCover";
 import { Grid, Rows, Search, Shield, Star, Verified } from "@/components/Icons";
 import { SectionHead } from "./SectionHead";
 
@@ -20,7 +22,7 @@ const COLLAPSED_LIMIT = 8;
 function Pill({ active, onClick, children }: { active: boolean; onClick: () => void; children: React.ReactNode }) {
   return (
     <button onClick={onClick}
-      className={cn("h-8 px-3.5 rounded-full text-[13px] font-medium border transition-colors",
+      className={cn("min-h-11 h-11 px-3.5 rounded-full text-[13px] font-medium border transition-colors",
         active ? "bg-fg text-surface border-fg" : "bg-surface text-muted border-line hover:text-fg hover:border-line-2")}>
       {children}
     </button>
@@ -73,15 +75,28 @@ export function MarketSection({ products, flatCats, active, activeIds, setActive
       {flatCats.length > 0 && (
         <div className="flex flex-wrap gap-2 mb-4">
           <Pill active={active == null} onClick={() => setActive(null)}>{t("all")}</Pill>
-          {flatCats.map((c) => <Pill key={c.id} active={active === c.id} onClick={() => setActive(c.id)}>{c.name}</Pill>)}
+          {flatCats.map((c) => (
+            <Pill key={c.id} active={active === c.id} onClick={() => setActive(c.id)}>
+              <span className="inline-flex items-center gap-1.5">
+                <ProductCover coverId={categoryCoverId(c)} title={c.name} className="h-4 w-4 rounded" />
+                {c.name}
+              </span>
+            </Pill>
+          ))}
         </div>
       )}
 
       <div className="flex flex-wrap items-center gap-3 mb-5">
         <div className="relative flex-1 min-w-[200px] max-w-sm">
           <Search size={16} className="absolute left-3 top-1/2 -translate-y-1/2 text-faint" />
-          <input value={q} onChange={(e) => setQ(e.target.value)} placeholder={t("searchProducts")}
-            className="h-9 w-full rounded-lg bg-surface border border-line pl-9 pr-3 text-[13px] placeholder:text-faint focus:border-iris transition-colors" />
+          <Input
+            type="search"
+            value={q}
+            onChange={(e) => setQ(e.target.value)}
+            placeholder={t("searchProducts")}
+            aria-label={t("searchProducts")}
+            className="pl-9"
+          />
         </div>
         <button onClick={() => setInStockOnly((v) => !v)}
           className={cn("flex items-center gap-2 h-9 px-3 rounded-lg border text-[13px] font-medium transition-colors",
@@ -129,7 +144,7 @@ export function MarketSection({ products, flatCats, active, activeIds, setActive
                   <tr key={p.id} className="border-b border-line last:border-0 hover:bg-raised transition-colors">
                     <td className="px-5 py-3">
                       <Link href={`/products/${p.id}`} className="flex items-center gap-3">
-                        <Monogram text={p.title} />
+                        <ProductCover coverId={parseCoverId(p)} title={p.title} />
                         <span className="min-w-0">
                           <span className="block font-medium text-[13.5px] truncate">{p.title}</span>
                           <span className="flex items-center gap-1.5 text-[12px] text-faint">
@@ -163,7 +178,7 @@ export function MarketSection({ products, flatCats, active, activeIds, setActive
               <Link key={p.id} href={`/products/${p.id}`} className="animate-rise" style={{ animationDelay: `${i * 40}ms` }}>
                 <Card interactive className="p-3 sm:p-4 h-full">
                   <div className="flex items-start gap-2 sm:gap-3">
-                    <Monogram text={p.title} className="h-8 w-8 sm:h-10 sm:w-10 text-[12px] sm:text-[15px]" />
+                    <ProductCover coverId={parseCoverId(p)} title={p.title} className="h-8 w-8 sm:h-10 sm:w-10" />
                     <div className="min-w-0 flex-1">
                       <div className="flex items-start justify-between gap-1 sm:gap-2">
                         <div className="font-medium text-[12.5px] sm:text-[14px] truncate">{p.title}</div>

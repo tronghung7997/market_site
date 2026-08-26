@@ -745,7 +745,8 @@ export default function AdminOrdersPage() {
           <div className="relative min-w-[180px] max-w-xs flex-1">
             <Search size={15} className="absolute left-3 top-1/2 -translate-y-1/2 text-slate-400 pointer-events-none" />
             <input
-              type="text"
+              type="search"
+              aria-label="Tìm mã đơn, email, sản phẩm"
               placeholder="Tìm mã đơn, email, sản phẩm…"
               value={search}
               onChange={(e) => setSearch(e.target.value)}

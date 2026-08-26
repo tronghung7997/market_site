@@ -88,7 +88,7 @@ export default function AdminAffiliateDetailPage() {
       {isLoading || !data ? (
         <div className="grid place-items-center py-20"><Spinner /></div>
       ) : (
-        <AffiliateStatsView data={data} />
+        <AffiliateStatsView data={data} moneyMode="ledger" />
       )}
     </div>
   );

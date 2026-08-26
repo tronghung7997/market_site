@@ -17,6 +17,7 @@ _SENSITIVE_HEADERS = {
     "cookie",
     "x-seller-api-key",
     "x-api-key",
+    "x-timestamp",
     "x-signature",
     "x-internal-key",
 }

@@ -1,6 +1,6 @@
 "use client";
 
-import { Link, useRouter } from "@/i18n/navigation";
+import { useRouter } from "@/i18n/navigation";
 import { useLocale, useTranslations } from "next-intl";
 import type { ReactNode } from "react";
 import { useMoney } from "@/lib/money";
@@ -8,7 +8,7 @@ import { useAuth } from "@/lib/auth";
 import { cn } from "@/lib/cn";
 import type { ProductDetail } from "@/lib/types";
 import { Button, Card, Tag } from "@/components/ui";
-import { Bolt, Clock, MessageCircle, Shield } from "@/components/Icons";
+import { Bolt, Clock, Shield } from "@/components/Icons";
 import { ctaState, maxQtyFor, outOfStock, panelMode } from "./purchase";
 import type { PurchaseState } from "./usePurchase";
 import OrderResult from "./OrderResult";
@@ -109,16 +109,9 @@ export default function OrderPanel({ product, purchase }: {
             </fieldset>
 
             {contact ? (
-              <>
-                <p className="border-t border-line pt-3.5 text-[12.5px] text-muted leading-relaxed">
-                  {t("contactBlurb")}
-                </p>
-                <Link href={`/sellers/${product.seller_id}`} className="block">
-                  <Button size="lg" block>
-                    <MessageCircle size={14} /> {t("contactSeller")}
-                  </Button>
-                </Link>
-              </>
+              <p className="border-t border-line pt-3.5 text-[12.5px] text-muted leading-relaxed">
+                {t("contactBlurb")}
+              </p>
             ) : (
               <>
                 <div className="flex items-center justify-between border-t border-line pt-3.5">
@@ -158,7 +151,7 @@ export default function OrderPanel({ product, purchase }: {
                   </span>
                 </div>
 
-                {placeError && <p className="text-bad text-[12.5px]">{placeError}</p>}
+                {placeError && <p className="text-bad text-[12.5px]" role="alert">{placeError}</p>}
 
                 <Button size="lg" block disabled={cta.disabled} onClick={onCtaClick}>
                   {t(cta.labelKey)}

@@ -242,14 +242,6 @@ const EVENT_META: Record<string, EventMeta> = {
     cat: "security",
     describe: (m) => `Admin thu hồi gateway key đơn #${num(m, "order_id") ?? num(m, "subject_id")}`,
   },
-  seller_api_key_created: {
-    cat: "security",
-    describe: (m) => `Seller #${num(m, "actor_id")} tạo API key ${typeof m.prefix === "string" ? m.prefix : ""}`,
-  },
-  seller_api_key_revoked: {
-    cat: "security",
-    describe: (m) => `Seller #${num(m, "actor_id")} thu hồi API key #${num(m, "key_id") ?? num(m, "subject_id")}`,
-  },
   seller_application_submitted: {
     cat: "security",
     describe: (m) => `Tài khoản #${num(m, "actor_id")} nộp đơn đăng ký seller #${num(m, "application_id")}`,

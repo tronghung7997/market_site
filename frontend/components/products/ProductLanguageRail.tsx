@@ -1,7 +1,9 @@
 "use client";
 
 import type { ProductLocale, ProductTranslation } from "@/lib/types";
-import { Card, Tag } from "@/components/ui";
+import { Button, Card, Tag } from "@/components/ui";
+import { Globe } from "@/components/Icons";
+import { cn } from "@/lib/cn";
 import { useTranslations } from "next-intl";
 
 const LANGUAGE_NAMES: Record<ProductLocale, Record<ProductLocale, string>> = {
@@ -32,55 +34,103 @@ export function ProductLanguageRail({
   translations,
   requiredFields = {},
   dirty = false,
+  primaryLocale,
   onChange,
+  onPrimaryLocaleChange,
 }: {
   interfaceLocale: ProductLocale;
   activeLocale: ProductLocale;
   translations?: Partial<Record<ProductLocale, ProductTranslation>> | null;
   requiredFields?: { specs?: boolean; pricingLabels?: boolean };
   dirty?: boolean;
+  primaryLocale?: ProductLocale;
   onChange: (locale: ProductLocale) => void;
+  onPrimaryLocaleChange?: (locale: ProductLocale) => void;
 }) {
   const t = useTranslations("seller");
   const languageNames = LANGUAGE_NAMES[interfaceLocale];
   return (
-    <Card className="overflow-hidden border-iris/25 border-l-4 border-l-iris">
-      <div className="flex flex-col gap-3 bg-iris-soft/55 px-4 py-3 sm:flex-row sm:items-center sm:justify-between">
-        <div>
-          <div className="text-[11px] font-semibold uppercase tracking-[0.12em] text-iris-hi">
-            {t("contentLanguageTitle")}
-          </div>
-          <div className="mt-1 text-[12px] text-muted">
-            {t("interfaceLanguage", { language: languageNames[interfaceLocale] })} · {t("editingLanguage", { language: languageNames[activeLocale] })}
+    <Card className="border-iris/25">
+      <div className="p-4">
+        <div className="flex items-start gap-3">
+          <span className="grid h-9 w-9 shrink-0 place-items-center rounded-lg border border-iris/20 bg-iris-soft text-iris-hi" aria-hidden="true">
+            <Globe size={17} />
+          </span>
+          <div className="min-w-0">
+            <h3 className="text-[13px] font-semibold text-fg">{t("contentLanguageTitle")}</h3>
+            <div className="mt-1 flex flex-wrap gap-x-3 gap-y-1 text-[12px] text-muted">
+              <span>{t("interfaceLanguage", { language: languageNames[interfaceLocale] })}</span>
+              <span>{t("editingLanguage", { language: languageNames[activeLocale] })}</span>
+              {primaryLocale && (
+                <span>{t("primaryContentLanguage", { language: languageNames[primaryLocale] })}</span>
+              )}
+            </div>
           </div>
         </div>
-        <div className="flex w-full gap-1 rounded-lg border border-line bg-panel p-1 sm:w-auto" role="group" aria-label={t("chooseContentLanguage")}>
+
+        <div
+          className="mt-4 grid grid-cols-1 gap-2 sm:grid-cols-2"
+          role="group"
+          aria-label={t("chooseContentLanguage")}
+        >
           {(["vi", "en"] as ProductLocale[]).map((locale) => {
             const state = translationState(translations?.[locale], t, requiredFields);
             const active = locale === activeLocale;
+            const isOptionalMissing = primaryLocale != null
+              && locale !== primaryLocale
+              && state.tone === "neutral";
+            const status = active && dirty
+              ? { label: t("translationUnsaved"), tone: "warn" as const }
+              : isOptionalMissing
+                ? { label: t("translationOptional"), tone: "neutral" as const }
+                : state;
+
             return (
               <button
                 key={locale}
                 type="button"
                 aria-pressed={active}
                 onClick={() => onChange(locale)}
-                className={`flex min-w-0 flex-1 flex-col items-start justify-center gap-1.5 rounded-md px-3 py-2 text-left transition-colors sm:min-w-[172px] sm:flex-row sm:items-center sm:justify-between sm:gap-2 ${
-                  active ? "bg-iris text-white shadow-sm" : "text-muted hover:bg-raised hover:text-fg"
-                }`}
+                className={cn(
+                  "flex min-h-14 min-w-0 items-center gap-3 rounded-lg border px-3 py-2.5 text-left transition-colors",
+                  "focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-iris/35",
+                  active
+                    ? "border-iris bg-iris-soft/55 text-fg shadow-xs"
+                    : "border-line bg-surface text-muted hover:border-line-2 hover:bg-raised/60 hover:text-fg",
+                )}
               >
-                <span className="flex min-w-0 items-center gap-2">
-                  <span className={`font-mono text-[11px] font-bold ${active ? "text-white" : "text-iris-hi"}`}>
-                    {locale.toUpperCase()}
-                  </span>
-                  <span className="whitespace-nowrap text-[12.5px] font-medium">{languageNames[locale]}</span>
+                <span
+                  className={cn(
+                    "grid h-8 w-8 shrink-0 place-items-center rounded-md border font-mono text-[11px] font-bold",
+                    active ? "border-iris/25 bg-panel text-iris-hi" : "border-line bg-raised text-muted",
+                  )}
+                >
+                  {locale.toUpperCase()}
                 </span>
-                <Tag tone={active ? "neutral" : state.tone} className={active ? "border-white/30 bg-white/15 text-white" : undefined}>
-                  {active && dirty ? t("translationUnsaved") : state.label}
+                <span className="min-w-0 flex-1 truncate text-[13px] font-semibold">
+                  {languageNames[locale]}
+                </span>
+                <Tag tone={status.tone} className="shrink-0">
+                  {status.label}
                 </Tag>
               </button>
             );
           })}
         </div>
+
+        {primaryLocale && onPrimaryLocaleChange && activeLocale !== primaryLocale && (
+          <div className="mt-3 flex justify-end border-t border-line pt-3">
+            <Button
+              type="button"
+              size="sm"
+              variant="secondary"
+              onClick={() => onPrimaryLocaleChange(activeLocale)}
+              className="max-sm:w-full"
+            >
+              {t("makePrimaryContentLanguage", { language: languageNames[activeLocale] })}
+            </Button>
+          </div>
+        )}
       </div>
     </Card>
   );

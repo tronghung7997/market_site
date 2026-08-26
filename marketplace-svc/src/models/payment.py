@@ -53,6 +53,9 @@ class DepositIntent(Base):
     provider: Mapped[str] = mapped_column(String(32), nullable=False, default=DepositProvider.sepay.value)
 
     # --- SePay / bank transfer ---
+    # bank_account_number snapshots the QR beneficiary. It may be a real bank
+    # account or an official VA; sepay_bank_account_id is always the parent
+    # bank-account UUID used by API v2 reconciliation.
     payment_code: Mapped[str | None] = mapped_column(String(40), nullable=True, unique=True)
     bank_code: Mapped[str | None] = mapped_column(String(32), nullable=True)
     bank_account_number: Mapped[str | None] = mapped_column(String(64), nullable=True)

@@ -2,12 +2,12 @@
 
 import { useLocale, useTranslations } from "next-intl";
 import { useState } from "react";
-import { api, vnd } from "@/lib/api";
+import { api } from "@/lib/api";
 import { useMoney } from "@/lib/money";
 import { formatDate } from "@/lib/utils";
 import type { Wallet, WithdrawRequest } from "@/lib/types";
 import { Button, Card, Input, Tag } from "@/components/ui";
-import { MoneyInput } from "@/components/MoneyInput";
+import { DisplayCurrencyInput } from "@/components/DisplayCurrencyInput";
 
 const WITHDRAW_TONE: Record<string, "good" | "bad" | "warn" | "iris" | "neutral"> = {
   pending: "warn",
@@ -22,8 +22,8 @@ export function WithdrawCard({ wallet, onChanged }: {
 }) {
   const t = useTranslations("wallet");
   const locale = useLocale();
-  const { formatLedgerMoney } = useMoney();
-  const [amount, setAmount] = useState("");
+  const { formatBrowseMoney } = useMoney();
+  const [amount, setAmount] = useState(0);
   const [bankName, setBankName] = useState("");
   const [bankAccountNumber, setBankAccountNumber] = useState("");
   const [bankAccountHolder, setBankAccountHolder] = useState("");
@@ -34,7 +34,7 @@ export function WithdrawCard({ wallet, onChanged }: {
   const available = wallet?.available_balance ?? 0;
 
   const handleWithdraw = async () => {
-    const value = parseInt(amount) || 0;
+    const value = amount;
     if (value <= 0) { setErr(t("withdrawErrAmount")); return; }
     if (value > available) { setErr(t("withdrawErrBalance")); return; }
     if (!bankName.trim() || !bankAccountNumber.trim() || !bankAccountHolder.trim()) {
@@ -50,7 +50,7 @@ export function WithdrawCard({ wallet, onChanged }: {
         bank_account_number: bankAccountNumber.trim(),
         bank_account_holder: bankAccountHolder.trim(),
       });
-      setAmount("");
+      setAmount(0);
       setMsg(t("withdrawSuccess"));
       await onChanged();
       setTimeout(() => setMsg(""), 4000);
@@ -107,20 +107,19 @@ export function WithdrawCard({ wallet, onChanged }: {
         </div>
         <div>
           <div className="flex items-baseline justify-between mb-1.5">
-            <span className="text-[11px] uppercase tracking-wider text-faint font-medium">{t("withdrawAmountVnd")}</span>
+            <span className="text-[11px] uppercase tracking-wider text-faint font-medium">{t("withdrawAmount")}</span>
             <button
-              onClick={() => setAmount(String(available))}
+              onClick={() => setAmount(available)}
               className="text-[11px] text-iris hover:text-iris-hi transition-colors cursor-pointer"
             >
-              {t("withdrawMaxVnd", { amount: formatLedgerMoney(available, locale) })}
+              {t("withdrawMax", { amount: formatBrowseMoney(available, { locale }) })}
             </button>
           </div>
-          <MoneyInput
-            value={amount}
-            onValueChange={(v) => { setAmount(v); setErr(""); }}
-            placeholder={t("withdrawAmountPh")}
+          <DisplayCurrencyInput
+            amountVnd={amount}
+            onAmountVndChange={(value) => { setAmount(value); setErr(""); }}
             disabled={loading}
-            invalid={!!amount && Number(amount) > available}
+            invalid={amount > available}
           />
         </div>
         {err && (
@@ -145,6 +144,7 @@ export function WithdrawHistory({ withdrawals }: { withdrawals: WithdrawRequest[
   const t = useTranslations("wallet");
   const tw = useTranslations("status.withdraw");
   const locale = useLocale();
+  const { formatBrowseMoney } = useMoney();
   if (withdrawals.length === 0) return null;
   return (
     <Card className="p-5">
@@ -153,7 +153,7 @@ export function WithdrawHistory({ withdrawals }: { withdrawals: WithdrawRequest[
         {withdrawals.map((w) => (
           <div key={w.id} className="flex items-center justify-between text-[13px]">
             <div>
-              <div className="font-mono font-medium tabular">{vnd(w.amount, locale)}</div>
+              <div className="font-mono font-medium tabular">{formatBrowseMoney(w.amount, { locale })}</div>
               <div className="text-[11px] text-faint">
                 {formatDate(w.created_at, locale)}
               </div>

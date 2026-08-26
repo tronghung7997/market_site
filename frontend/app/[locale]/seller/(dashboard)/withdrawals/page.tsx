@@ -2,21 +2,23 @@
 
 import { useCallback, useEffect, useState } from "react";
 import { useLocale, useTranslations } from "next-intl";
-import { api, vnd, ApiError } from "@/lib/api";
+import { api, ApiError } from "@/lib/api";
 import { cn } from "@/lib/cn";
+import { useMoney } from "@/lib/money";
 import { formatDate } from "@/lib/utils";
 import type { Wallet, WithdrawRequest } from "@/lib/types";
 import { Button, Card, Input, Spinner, Tag } from "@/components/ui";
-import { MoneyInput } from "@/components/MoneyInput";
+import { DisplayCurrencyInput } from "@/components/DisplayCurrencyInput";
 import { Wallet as WalletIcon } from "@/components/Icons";
 
 export default function SellerWithdrawalsPage() {
   const t = useTranslations("seller");
   const locale = useLocale();
+  const { formatBrowseMoney } = useMoney();
   const [wallet, setWallet] = useState<Wallet | null>(null);
   const [reqs, setReqs] = useState<WithdrawRequest[]>([]);
   const [loading, setLoading] = useState(true);
-  const [amount, setAmount] = useState("");
+  const [amount, setAmount] = useState(0);
   const [bankName, setBankName] = useState("");
   const [bankAccountNumber, setBankAccountNumber] = useState("");
   const [bankAccountHolder, setBankAccountHolder] = useState("");
@@ -43,7 +45,7 @@ export default function SellerWithdrawalsPage() {
 
   const policy = wallet.withdraw_policy;
   const limit = policy?.limit_per_request ?? null;
-  const parsed = Number(amount.replace(/\D/g, ""));
+  const parsed = amount;
   const valid = parsed > 0;
   const overBalance = valid && parsed > wallet.available_balance;
   const overLimit = valid && limit !== null && parsed > limit;
@@ -64,7 +66,7 @@ export default function SellerWithdrawalsPage() {
         bank_account_number: bankAccountNumber.trim(),
         bank_account_holder: bankAccountHolder.trim(),
       });
-      setAmount("");
+      setAmount(0);
       setOk(t("withdrawSubmitted"));
       await load();
     } catch (e) {
@@ -90,11 +92,11 @@ export default function SellerWithdrawalsPage() {
               <WalletIcon size={13} /> {t("availableBalance")}
             </div>
             <div className="font-mono text-[30px] font-semibold tabular tracking-tight mt-1">
-              {vnd(wallet.available_balance, locale)}
+              {formatBrowseMoney(wallet.available_balance, { locale })}
             </div>
             {wallet.locked_balance > 0 && (
               <p className="text-[12px] text-muted mt-2">
-                {t("lockedPending", { amount: vnd(wallet.locked_balance, locale) })}
+                {t("lockedPending", { amount: formatBrowseMoney(wallet.locked_balance, { locale }) })}
               </p>
             )}
           </Card>
@@ -120,10 +122,9 @@ export default function SellerWithdrawalsPage() {
             />
 
             <div>
-              <MoneyInput
-                value={amount.replace(/\D/g, "")}
-                onValueChange={setAmount}
-                placeholder={t("withdrawAmount")}
+              <DisplayCurrencyInput
+                amountVnd={amount}
+                onAmountVndChange={setAmount}
                 invalid={overBalance || overLimit}
               />
               <div className="flex items-center justify-between gap-3 mt-1.5">
@@ -133,7 +134,7 @@ export default function SellerWithdrawalsPage() {
                       t("withdrawUnlimitedPolicy", { tier: tierLabels[policy.tier] ?? policy.tier })
                     ) : (
                       t("withdrawLimitPolicy", {
-                        amount: vnd(limit, locale),
+                        amount: formatBrowseMoney(limit, { locale }),
                         tier: tierLabels[policy.tier] ?? policy.tier,
                       })
                     )
@@ -141,7 +142,7 @@ export default function SellerWithdrawalsPage() {
                 </p>
                 {maxOut > 0 && (
                   <button
-                    onClick={() => setAmount(String(maxOut))}
+                    onClick={() => setAmount(maxOut)}
                     className="shrink-0 text-[11.5px] text-iris-hi hover:underline cursor-pointer"
                   >
                     {t("withdrawMaximum")}
@@ -152,13 +153,13 @@ export default function SellerWithdrawalsPage() {
 
             {overBalance && (
               <p className="text-[12px] text-bad">
-                {t("withdrawOverBalance", { amount: vnd(wallet.available_balance, locale) })}
+                {t("withdrawOverBalance", { amount: formatBrowseMoney(wallet.available_balance, { locale }) })}
               </p>
             )}
             {overLimit && !overBalance && limit !== null && (
               <p className="text-[12px] text-bad">
                 {t("withdrawOverLimit", {
-                  amount: vnd(limit, locale),
+                  amount: formatBrowseMoney(limit, { locale }),
                   tier: tierLabels[policy!.tier] ?? policy!.tier,
                 })}
               </p>
@@ -192,10 +193,15 @@ export default function SellerWithdrawalsPage() {
                 return (
                   <div key={r.id} className="flex items-center gap-4 px-5 py-3.5">
                     <div className="min-w-0 flex-1">
-                      <div className="font-mono text-[14px] font-semibold tabular">{vnd(r.amount, locale)}</div>
+                      <div className="font-mono text-[14px] font-semibold tabular">{formatBrowseMoney(r.amount, { locale })}</div>
                       <div className="text-[11.5px] text-faint mt-0.5">
                         {formatDate(r.created_at)} · #{r.id}
                       </div>
+                      {r.status === "rejected" && r.reject_reason && (
+                        <div className="text-[12px] text-muted mt-1">
+                          {t("withdrawRejectReason", { reason: r.reject_reason })}
+                        </div>
+                      )}
                     </div>
                     <Tag tone={s.tone} className="shrink-0">{s.label}</Tag>
                   </div>

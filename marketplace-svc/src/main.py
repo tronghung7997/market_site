@@ -135,6 +135,13 @@ async def require_bff_signature(request: Request, call_next):
         try:
             await verify_bff_request_signature(request)
         except HTTPException as exc:
+            from src.security.events import security_event
+
+            security_event(
+                "bff_request_signature_rejected",
+                level="warning",
+                path=request.url.path,
+            )
             return JSONResponse(status_code=exc.status_code, content={"detail": exc.detail})
     return await call_next(request)
 

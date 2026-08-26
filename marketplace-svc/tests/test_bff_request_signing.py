@@ -33,6 +33,7 @@ async def test_site_api_rejects_unsigned_request():
     async with AsyncClient(transport=ASGITransport(app=app), base_url="http://test") as client:
         response = await client.get("/public/money-config")
     assert response.status_code == 401
+    assert response.json() == {"detail": "Yêu cầu không hợp lệ"}
 
 
 @pytest.mark.asyncio

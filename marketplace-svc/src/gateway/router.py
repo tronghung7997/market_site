@@ -287,7 +287,9 @@ async def provider_task_webhook(
         )
     )
     if not task:
-        raise HTTPException(status_code=404, detail="Không tìm thấy tác vụ")
+        # Signed callback for an unknown id is usually the contract-test job
+        # (order_id=0 creates no ServiceTask). Ack so seller backends stop retrying.
+        return {"ok": True, "ignored": True}
 
     status = body.get("status")
     if status not in ("completed", "failed"):

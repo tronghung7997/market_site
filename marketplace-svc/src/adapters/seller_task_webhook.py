@@ -39,6 +39,15 @@ class SellerTaskWebhookAdapter(RealApiAdapter):
             urls = [user_config.get("target_url", "N/A")]
 
         callback_url = f"{settings.backend_base_url}/webhooks/providers/{self.provider_id}/tasks"
+        if order_id == 0:
+            target = next((url for url in urls if url.startswith(("http://", "https://"))), "https://example.com/contract-test")
+            external_id = await self._submit(0, platform if platform != "unknown" else "web", target, callback_url)
+            return ProvisionResult(
+                success=bool(external_id),
+                error=None if external_id else "Backend không trả external_task_id",
+                metadata={"provider": "seller_task_webhook", "contract_test": True},
+            )
+
         task_ids: list[int] = []
         tasks: list[ServiceTask] = []
         submitted = 0

@@ -524,6 +524,7 @@ async def _enrich_orders(orders: list[Order], db: AsyncSession) -> list[dict]:
             "cancel_reason": order.cancel_reason,
             "created_at": order.created_at,
             "product_title": product.title if product else None,
+            "pricing_strategy": product.pricing_strategy if product else None,
             "variant_name": variant.name if variant else None,
             "buyer_email": buyer.email if buyer else None,
             "seller_email": seller.email if seller else None,

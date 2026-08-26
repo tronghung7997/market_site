@@ -40,6 +40,7 @@ class OrderResponse(BaseModel):
     cancel_reason: str | None = None
     created_at: datetime
     product_title: str | None = None
+    pricing_strategy: str | None = None
     variant_name: str | None = None
     buyer_email: str | None = None
     seller_email: str | None = None

@@ -1,6 +1,6 @@
 import { createHash, createHmac } from "node:crypto";
 
-import { SERVER_API_BASE } from "./server-api";
+import { SERVER_API_BASE } from "./server-api.ts";
 
 function requestBodyBytes(body: BodyInit | null | undefined): Uint8Array {
   if (body == null) return new Uint8Array();

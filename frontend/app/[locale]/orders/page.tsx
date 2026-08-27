@@ -23,7 +23,7 @@ import { api } from "@/lib/api";
 import { useAuth } from "@/lib/auth";
 import { useMoney } from "@/lib/money";
 import { cn } from "@/lib/cn";
-import { orderStatus } from "@/lib/order-status";
+import { canOpenDispute, orderStatus } from "@/lib/order-status";
 import { formatDate, formatDateTime } from "@/lib/utils";
 import { queryKeys } from "@/lib/query-keys";
 import { useOrders, useOrderStats } from "@/hooks/use-orders";
@@ -539,7 +539,7 @@ export default function OrdersPage() {
                           )}
 
                           {/* Dispute Button */}
-                          {!["cancelled", "refunded"].includes(o.status) && (
+                          {canOpenDispute(o.status, o.escrow_expires_at) && (
                             <button
                               title={o.variant_name ? `Khiếu nại gói ${o.variant_name}` : "Khiếu nại đơn"}
                               onClick={() => {

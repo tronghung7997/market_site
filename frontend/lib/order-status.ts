@@ -40,6 +40,11 @@ const COPY: Record<"en" | "vi", Record<string, { label: string; hint: string }>>
   },
 };
 
+/** Mirrors the backend dispute eligibility: delivered and still in escrow. */
+export function canOpenDispute(status: string, escrowExpiresAt: string | null, now = Date.now()): boolean {
+  return status === "delivered" && (!escrowExpiresAt || Date.parse(escrowExpiresAt) >= now);
+}
+
 /** Safe lookup — unknown backend status does not break the UI. */
 export function orderStatus(status: string, locale: string = "en"): OrderStatusInfo {
   const loc = locale === "vi" ? "vi" : "en";

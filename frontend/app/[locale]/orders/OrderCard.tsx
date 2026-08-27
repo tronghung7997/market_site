@@ -3,7 +3,7 @@
 import { useLocale, useTranslations } from "next-intl";
 import { useState } from "react";
 import { useMoney } from "@/lib/money";
-import { orderStatus } from "@/lib/order-status";
+import { canOpenDispute, orderStatus } from "@/lib/order-status";
 import { formatDate, formatDateTime } from "@/lib/utils";
 import type { Order } from "@/lib/types";
 import ServiceDashboard from "@/components/ServiceDashboard";
@@ -42,6 +42,7 @@ export default function OrderCard({
   const locale = useLocale();
   const { formatOrderHistoryMoney, currency, showFxHints } = useMoney();
   const st = orderStatus(o.status, locale);
+  const canDispute = canOpenDispute(o.status, o.escrow_expires_at);
   const [dashboardOpen, setDashboardOpen] = useState(false);
   const [paymentOpen, setPaymentOpen] = useState(false);
   const [proxyOpen, setProxyOpen] = useState(false);
@@ -162,7 +163,7 @@ export default function OrderCard({
           ) : (
             <div className="flex gap-2 mt-3.5">
               <Button size="sm" onClick={() => setAskConfirm(true)}>{t("confirmReceived")}</Button>
-              <Button size="sm" variant="danger" onClick={() => onOpenDispute(o.id)}>{t("openDispute")}</Button>
+              {canDispute && <Button size="sm" variant="danger" onClick={() => onOpenDispute(o.id)}>{t("openDispute")}</Button>}
             </div>
           )
         )}

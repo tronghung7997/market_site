@@ -20,7 +20,7 @@ import {
   Terminal,
   Activity,
 } from "lucide-react";
-import { orderStatus } from "@/lib/order-status";
+import { canOpenDispute, orderStatus } from "@/lib/order-status";
 import { formatDate, formatDateTime } from "@/lib/utils";
 import { useMoney } from "@/lib/money";
 import type { Order } from "@/lib/types";
@@ -145,6 +145,7 @@ export default function OrderDetailsModal({
   const delivered = o.status === "delivered" || o.status === "completed";
   const mayHaveProxy = delivered && o.product_id != null;
   const isDelivered = o.status === "delivered";
+  const canDispute = canOpenDispute(o.status, o.escrow_expires_at);
 
   const handleCopySingle = (id: number, text: string) => {
     navigator.clipboard.writeText(text);
@@ -240,19 +241,21 @@ export default function OrderDetailsModal({
 
           <div>
             <div className="text-[10.5px] uppercase tracking-wider text-muted font-medium">Khiếu nại sản phẩm</div>
-            <button
-              onClick={() => {
-                onOpenDispute(o.id, {
-                  variantName: o.variant_name,
-                  initialReason: o.variant_name ? `[Khiếu nại gói: ${o.variant_name}] ` : "",
-                  initialEvidence: { issue: "Gặp sự cố với gói sản phẩm này..." },
-                });
-              }}
-              className="mt-1 inline-flex items-center gap-1 text-[11.5px] font-semibold text-bad hover:underline cursor-pointer"
-            >
-              <AlertTriangle size={12} />
-              {o.variant_name ? `Khiếu nại gói này` : `Khiếu nại đơn`}
-            </button>
+            {canDispute && (
+              <button
+                onClick={() => {
+                  onOpenDispute(o.id, {
+                    variantName: o.variant_name,
+                    initialReason: o.variant_name ? `[Khiếu nại gói: ${o.variant_name}] ` : "",
+                    initialEvidence: { issue: "Gặp sự cố với gói sản phẩm này..." },
+                  });
+                }}
+                className="mt-1 inline-flex items-center gap-1 text-[11.5px] font-semibold text-bad hover:underline cursor-pointer"
+              >
+                <AlertTriangle size={12} />
+                {o.variant_name ? `Khiếu nại gói này` : `Khiếu nại đơn`}
+              </button>
+            )}
           </div>
         </div>
 
@@ -373,20 +376,22 @@ export default function OrderDetailsModal({
 
                         <div className="flex items-center gap-1.5 shrink-0">
                           {/* Dedicated Dispute Button for This Specific Item / Variant */}
-                          <button
-                            title="Khiếu nại riêng mục này"
-                            onClick={() => {
-                              onOpenDispute(o.id, {
-                                variantName: o.variant_name,
-                                initialReason: `[Mục #${globalIdx}] Khiếu nại tài khoản: ${item.raw}`,
-                                initialEvidence: { username: item.user || item.raw, issue: "Tài khoản bị lỗi / sai thông tin" },
-                              });
-                            }}
-                            className="opacity-0 group-hover:opacity-100 rounded-lg px-2 py-1 text-[11px] text-bad hover:bg-bad-soft transition-opacity cursor-pointer flex items-center gap-1"
-                          >
-                            <AlertTriangle size={11} />
-                            <span>Lỗi</span>
-                          </button>
+                          {canDispute && (
+                            <button
+                              title="Khiếu nại riêng mục này"
+                              onClick={() => {
+                                onOpenDispute(o.id, {
+                                  variantName: o.variant_name,
+                                  initialReason: `[Mục #${globalIdx}] Khiếu nại tài khoản: ${item.raw}`,
+                                  initialEvidence: { username: item.user || item.raw, issue: "Tài khoản bị lỗi / sai thông tin" },
+                                });
+                              }}
+                              className="opacity-0 group-hover:opacity-100 rounded-lg px-2 py-1 text-[11px] text-bad hover:bg-bad-soft transition-opacity cursor-pointer flex items-center gap-1"
+                            >
+                              <AlertTriangle size={11} />
+                              <span>Lỗi</span>
+                            </button>
+                          )}
 
                           <button
                             onClick={() => handleCopySingle(item.id, item.raw)}
@@ -508,7 +513,7 @@ export default function OrderDetailsModal({
               </div>
             )}
 
-            {!o.has_dispute && (
+            {!o.has_dispute && canDispute && (
               <div className="rounded-xl border border-line bg-surface p-4 flex items-center justify-between">
                 <div>
                   <div className="text-[13px] font-semibold text-fg">Gặp sự cố với đơn hàng?</div>

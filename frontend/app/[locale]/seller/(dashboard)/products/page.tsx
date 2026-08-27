@@ -496,15 +496,15 @@ export default function SellerProducts() {
               </div>
             ) : (
               <div className="overflow-x-auto">
-                <table className="w-full text-left border-collapse">
+                <table className="w-full min-w-[880px] text-left border-collapse">
                   <thead>
                     <tr className="text-[11.5px] font-semibold text-faint uppercase tracking-wider border-b border-line bg-raised/20">
                       <th className="px-4 py-3">{t("product")}</th>
                       <th className="px-3 py-3 hidden sm:table-cell">{t("category")}</th>
-                      <th className="px-3 py-3">{t("productsPageStockCondition")}</th>
+                      <th className="min-w-[176px] px-3 py-3 whitespace-nowrap">{t("productsPageStockCondition")}</th>
                       <th className="px-3 py-3 hidden md:table-cell">{t("variants")}</th>
-                      <th className="px-3 py-3 text-center">{t("toggleStatus")}</th>
-                      <th className="px-4 py-3 text-right">{t("actions")}</th>
+                      <th className="w-[116px] px-3 py-3 text-center whitespace-nowrap">{t("toggleStatus")}</th>
+                      <th className="w-32 px-3 py-3 text-center whitespace-nowrap">{t("actions")}</th>
                     </tr>
                   </thead>
                   <tbody className="divide-y divide-line text-[13px]">
@@ -629,7 +629,7 @@ export default function SellerProducts() {
                           </td>
 
                           {/* Status Toggle Switch */}
-                          <td className="px-3 py-3 text-center">
+                          <td className="w-[116px] px-3 py-3 text-center">
                             <Button
                               size="sm"
                               variant="ghost"
@@ -660,8 +660,8 @@ export default function SellerProducts() {
                           </td>
 
                           {/* Actions */}
-                          <td className="px-4 py-3 text-right">
-                            <div className="flex items-center gap-1 justify-end">
+                          <td className="w-32 px-3 py-3">
+                            <div className="grid grid-cols-3 justify-items-center gap-1">
                               <Link href={`/products/${p.id}`} title={t("viewPurchasePage")}>
                                 <Button size="sm" variant="ghost" className="h-7 w-7 p-0">
                                   <Eye size={14} />

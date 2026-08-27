@@ -11,11 +11,11 @@ import { ProductCover } from "@/components/products/ProductCover";
 import { MarkdownContent } from "@/components/MarkdownContent";
 import { Bolt, Check, Eye, Info, Shield } from "@/components/Icons";
 
-export const STATUS_TAG: Record<string, { label: string; tone: "good" | "warn" | "bad" | "neutral" }> = {
-  active: { label: "Đang bán", tone: "good" },
-  draft: { label: "Nháp", tone: "neutral" },
-  paused: { label: "Tạm dừng", tone: "warn" },
-  suspended: { label: "Bị khoá", tone: "bad" },
+export const STATUS_TAG: Record<string, { tone: "good" | "warn" | "bad" | "neutral" }> = {
+  active: { tone: "good" },
+  draft: { tone: "neutral" },
+  paused: { tone: "warn" },
+  suspended: { tone: "bad" },
 };
 const STATUS_LABEL_KEYS: Record<string, string> = {
   active: "activeStatus",

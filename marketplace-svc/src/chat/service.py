@@ -234,22 +234,52 @@ async def find_product_inquiry(
     return await _detail(db, conversation, member)
 
 
+_LIST_PERSPECTIVES = {ContextRole.BUYER, ContextRole.SELLER, "all"}
+
+
+async def unread_message_count(
+    account_id: int, perspective: str | None, db: AsyncSession
+) -> int:
+    filters = [
+        ChatParticipant.account_id == account_id,
+        ChatParticipant.archived_at.is_(None),
+        ChatMessage.sender_id != account_id,
+        ChatMessage.id > func.coalesce(ChatParticipant.last_read_message_id, 0),
+    ]
+    if perspective in {ContextRole.BUYER, ContextRole.SELLER}:
+        filters.append(ChatParticipant.context_role == perspective)
+    elif perspective not in {None, "all"}:
+        return 0
+    count = await db.scalar(
+        select(func.count(ChatMessage.id))
+        .select_from(ChatMessage)
+        .join(
+            ChatParticipant,
+            ChatParticipant.conversation_id == ChatMessage.conversation_id,
+        )
+        .where(*filters)
+    )
+    return int(count or 0)
+
+
 async def list_conversations(
     account: Account, perspective: str, db: AsyncSession
 ) -> ConversationList:
-    if perspective not in {ContextRole.BUYER, ContextRole.SELLER}:
+    if perspective not in _LIST_PERSPECTIVES:
         raise HTTPException(status_code=422, detail="Perspective không hợp lệ")
-    if perspective not in (account.roles or []):
+    if perspective != "all" and perspective not in (account.roles or []):
         raise HTTPException(status_code=403, detail="Tài khoản không có vai trò này")
+    membership = [
+        ChatParticipant.account_id == account.id,
+        ChatParticipant.archived_at.is_(None),
+    ]
+    if perspective != "all":
+        membership.append(ChatParticipant.context_role == perspective)
     rows = (
         await db.execute(
             select(ChatConversation, ChatParticipant)
             .join(ChatParticipant, ChatParticipant.conversation_id == ChatConversation.id)
-            .where(
-                ChatParticipant.account_id == account.id,
-                ChatParticipant.context_role == perspective,
-                ChatParticipant.archived_at.is_(None),
-            )
+            .where(*membership)
             .order_by(ChatConversation.last_message_at.desc().nulls_last(), ChatConversation.id.desc())
             .limit(50)
         )

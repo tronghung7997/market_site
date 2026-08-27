@@ -102,7 +102,7 @@ export const api = {
   tiktokLookup: (value: string) =>
     request<TikTokLookupResponse>(`/internal/tiktok?url=${encodeURIComponent(value)}`),
 
-  chatConversations: (perspective: "buyer" | "seller") =>
+  chatConversations: (perspective: "buyer" | "seller" | "all" = "all") =>
     request<ChatConversationList>(`/chat/conversations?perspective=${perspective}`, {}, true),
   chatConversation: (id: string) =>
     request<ChatConversationDetail>(`/chat/conversations/${encodeURIComponent(id)}`, {}, true),
@@ -145,25 +145,6 @@ export const api = {
   productsBySeller: (sellerId: number) =>
     request<PaginatedProducts>(`/products?seller_id=${sellerId}`),
   product: (id: number) => request<ProductDetail>(`/products/${id}`),
-
-  chatConversations: (perspective: "buyer" | "seller") =>
-    request<ChatConversationList>(`/chat/conversations?perspective=${perspective}`, {}, true),
-  chatConversation: (id: string) =>
-    request<ChatConversationDetail>(`/chat/conversations/${id}`, {}, true),
-  createInquiry: (productId: number, initialMessage: string, clientMessageId: string) =>
-    request<ChatConversationDetail>("/chat/inquiries", {
-      method: "POST",
-      body: JSON.stringify({ product_id: productId, initial_message: initialMessage, client_message_id: clientMessageId }),
-    }, true),
-  findProductInquiry: (productId: number) =>
-    request<ChatConversationDetail>(`/chat/inquiries/by-product/${productId}`, {}, true),
-  sendChatMessage: (conversationId: string, body: string, clientMessageId: string) =>
-    request<ChatMessage>(`/chat/conversations/${conversationId}/messages`, {
-      method: "POST",
-      body: JSON.stringify({ body, client_message_id: clientMessageId }),
-    }, true),
-  getOrCreateOrderChat: (orderId: number) =>
-    request<ChatConversationDetail>(`/chat/orders/${orderId}`, { method: "POST" }, true),
 
   wallet: () => request<Wallet>("/wallet", {}, true),
   transactions: () => request<Transaction[]>("/wallet/transactions", {}, true),

@@ -15,6 +15,10 @@ import {
   effectivePriceInputCurrency,
   priceInputToVnd,
   vndToPriceInput,
+  createNewProductPackageDraft,
+  namedNewProductPackages,
+  patchNewProductPackage,
+  toWorkbenchVariantsFromDrafts,
 } from "../features/seller-workbench/logic.ts";
 
 describe("Seller Workbench Logic", () => {
@@ -32,6 +36,47 @@ describe("Seller Workbench Logic", () => {
     assert.equal(priceInputToVnd("0.000462", "USD", 26_000), 12);
     assert.equal(effectivePriceInputCurrency("USD", null), "VND");
     assert.equal(priceInputToVnd("87880", "VND", null), 87_880);
+  });
+
+  it("new-product drafts ignore unnamed extra packages and keep per-package stock", () => {
+    const packages = [
+      createNewProductPackageDraft({
+        clientId: "a",
+        names: { vi: "Gói tháng", en: "Monthly" },
+        price: 50_000,
+        committedStock: 2,
+      }),
+      createNewProductPackageDraft({
+        clientId: "b",
+        names: { vi: "", en: "Untitled" },
+        price: 90_000,
+      }),
+      createNewProductPackageDraft({
+        clientId: "c",
+        names: { vi: "Gói năm", en: "" },
+        price: 400_000,
+        committedStock: 1,
+      }),
+    ];
+
+    assert.deepEqual(namedNewProductPackages(packages, "vi").map((pkg) => pkg.clientId), ["a", "c"]);
+
+    const variants = toWorkbenchVariantsFromDrafts(packages, {
+      contentLocale: "en",
+      primaryLocale: "vi",
+      deliveryMode: "instant",
+      pendingStockByClientId: { a: 3, c: 0 },
+    });
+    assert.equal(variants.length, 2);
+    assert.equal(variants[0].name, "Monthly");
+    assert.equal(variants[0].stock_count, 5);
+    assert.equal(variants[1].name, "Gói năm");
+    assert.equal(variants[1].stock_count, 1);
+
+    const patched = patchNewProductPackage(packages, "c", { names: { en: "Yearly" }, price: 420_000 });
+    assert.equal(patched[2].names.vi, "Gói năm");
+    assert.equal(patched[2].names.en, "Yearly");
+    assert.equal(patched[2].price, 420_000);
   });
 
   it("normalizes resource input without keeping blank or duplicate demo lines", () => {

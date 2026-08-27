@@ -5,7 +5,7 @@ import { useTranslations } from "next-intl";
 import { useEffect, useRef } from "react";
 import { useAuth } from "@/lib/auth";
 import { cn } from "@/lib/cn";
-import { Activity, BarChart, Edit2, Inbox, Package, Store, Rows, Wallet } from "@/components/Icons";
+import { Activity, BarChart, Edit2, Inbox, MessageCircle, Package, Store, Rows, Wallet } from "@/components/Icons";
 import { Spinner } from "@/components/ui";
 import type { ReactNode } from "react";
 
@@ -20,6 +20,7 @@ export default function SellerLayout({ children }: { children: ReactNode }) {
     { href: "/seller/products", label: t("products"), icon: Package },
     { href: "/seller/inventory", label: t("inventory"), icon: Rows },
     { href: "/seller/orders", label: t("orders"), icon: Inbox },
+    { href: "/messages", label: t("messages"), icon: MessageCircle },
     { href: "/seller/withdrawals", label: t("withdrawals"), icon: Wallet },
     { href: "/seller/providers", label: t("providers"), icon: Activity },
   ];

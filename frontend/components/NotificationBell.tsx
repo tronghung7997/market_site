@@ -1,10 +1,13 @@
 "use client";
 
-import { Link, usePathname } from "@/i18n/navigation";
-import { useEffect, useRef, useState } from "react";
+import { Link } from "@/i18n/navigation";
+import { useState } from "react";
+import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
 import { useTranslations } from "next-intl";
 import { api } from "@/lib/api";
+import { queryKeys } from "@/lib/query-keys";
 import type { ActionItem } from "@/lib/types";
+import { useChatEvents } from "@/hooks/use-chat-events";
 import { Bell, X } from "./Icons";
 
 const ENDPOINTS = {
@@ -35,6 +38,7 @@ const LABEL_KEYS: Record<string, { msg: string; hours?: number }> = {
   buyer_escrow_expiring: { msg: "buyerEscrowExpiring", hours: 24 },
   buyer_low_balance: { msg: "buyerLowBalance" },
   buyer_dispute_seller_responded: { msg: "buyerDisputeSellerResponded" },
+  unread_messages: { msg: "unreadMessages" },
   seller_application_approved: { msg: "sellerApplicationApproved" },
   seller_pending_orders: { msg: "sellerPendingOrders" },
   seller_open_disputes: { msg: "sellerOpenDisputes" },
@@ -49,10 +53,16 @@ const LABEL_KEYS: Record<string, { msg: string; hours?: number }> = {
 export default function NotificationBell({ endpoint }: { endpoint: keyof typeof ENDPOINTS }) {
   const t = useTranslations("home");
   const tn = useTranslations("notifications");
-  const pathname = usePathname();
-  const [items, setItems] = useState<ActionItem[]>([]);
+  const queryClient = useQueryClient();
   const [open, setOpen] = useState(false);
-  const mounted = useRef(true);
+  useChatEvents(endpoint !== "admin");
+
+  const { data: items = [] } = useQuery({
+    queryKey: queryKeys.actionItemsFor(endpoint),
+    queryFn: ENDPOINTS[endpoint],
+    refetchInterval: POLL_MS,
+    refetchOnWindowFocus: true,
+  });
 
   const itemLabel = (item: ActionItem) => {
     const mapped = LABEL_KEYS[item.key];
@@ -63,32 +73,18 @@ export default function NotificationBell({ endpoint }: { endpoint: keyof typeof 
     });
   };
 
-  const load = () => {
-    ENDPOINTS[endpoint]()
-      .then((data) => { if (mounted.current) setItems(data); })
-      .catch(() => { if (mounted.current) setItems([]); });
-  };
-
-  useEffect(() => {
-    mounted.current = true;
-    load();
-    const interval = setInterval(load, POLL_MS);
-    return () => { mounted.current = false; clearInterval(interval); };
-    // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [pathname, endpoint]);
+  const dismiss = DISMISS[endpoint];
+  const dismissMutation = useMutation({
+    mutationFn: (alertId: number) => {
+      if (!dismiss) return Promise.reject(new Error("dismiss unavailable"));
+      return dismiss(alertId);
+    },
+    onSuccess: () => {
+      queryClient.invalidateQueries({ queryKey: queryKeys.actionItems() });
+    },
+  });
 
   const total = items.reduce((sum, i) => sum + i.count, 0);
-  const dismiss = DISMISS[endpoint];
-
-  const handleDismiss = async (alertId: number) => {
-    if (!dismiss) return;
-    try {
-      await dismiss(alertId);
-      load();
-    } catch {
-      // giữ nguyên danh sách nếu dismiss thất bại — không âm thầm xoá khỏi UI
-    }
-  };
 
   return (
     <div className="relative">
@@ -131,7 +127,7 @@ export default function NotificationBell({ endpoint }: { endpoint: keyof typeof 
                     </Link>
                     {item.dismissible && item.alert_id !== null && (
                       <button
-                        onClick={() => handleDismiss(item.alert_id as number)}
+                        onClick={() => dismissMutation.mutate(item.alert_id as number)}
                         title={t("dismiss")}
                         aria-label={t("dismiss")}
                         className="shrink-0 grid place-items-center h-7 w-7 mr-2 rounded-md text-faint hover:text-fg hover:bg-raised transition-colors"

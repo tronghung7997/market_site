@@ -163,7 +163,7 @@ function ConfigPreview({ value, locale, backendReady, backendReason, onChange }:
         </FieldLabel>
         <FieldLabel label={t("duration")}>
           <Select value={value.selectedDays} onChange={(event) => onChange?.({ ...value, selectedDays: Number(event.target.value) || 30 })}>
-            {value.durations.map((item) => <option key={item.days} value={item.days}>{locale === "vi" ? `${item.days} ngày` : `${item.days} days`}</option>)}
+            {value.durations.map((item) => <option key={item.days} value={item.days}>{t("durationDays", { count: item.days })}</option>)}
           </Select>
         </FieldLabel>
       </div>
@@ -211,7 +211,7 @@ function CreditPreview({ value, locale, backendReady, backendReason, onChange }:
               className={cn("!h-auto !whitespace-normal flex w-full items-center justify-between rounded-xl border p-3 text-left", active ? "border-iris bg-iris-soft/40 ring-1 ring-iris" : "border-line bg-surface hover:border-line-2")}
             >
               <span>
-                <span className="block font-semibold">{locale === "vi" ? `Gói ${item.size.toLocaleString("vi-VN")} lượt` : `${item.size.toLocaleString("en-US")} requests`}</span>
+                <span className="block font-semibold">{t("creditPackageSize", { count: item.size.toLocaleString(locale === "vi" ? "vi-VN" : "en-US") })}</span>
                 <span className="font-mono text-[11px] text-muted">{formatUnitMoney(value.creditPrice, { locale })} × {item.size.toLocaleString()}</span>
               </span>
               <span className="text-right">

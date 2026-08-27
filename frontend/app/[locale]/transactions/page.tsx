@@ -101,6 +101,8 @@ function statusLabel(tx: Transaction, t: ReturnType<typeof useTranslations>): {
 
 export default function TransactionsPage() {
   const t = useTranslations("transactions");
+  const tn = useTranslations("nav");
+  const tc = useTranslations("common");
   const locale = useLocale();
   const router = useRouter();
   const { account, loading: authLoading } = useAuth();
@@ -239,7 +241,7 @@ export default function TransactionsPage() {
               onClick={() => router.push("/wallet")}
               className="shrink-0 font-medium shadow-xs"
             >
-              + {locale === "vi" ? "Nạp tiền" : "Top up"}
+              + {tn("topUp")}
             </Button>
           </Card>
         </div>
@@ -351,9 +353,9 @@ export default function TransactionsPage() {
             {pendingCount}
           </div>
           <div className="mt-1.5 flex items-center justify-between text-[11.5px] text-faint">
-            <span>{locale === "vi" ? "Chờ xử lý" : "Awaiting processing"}</span>
+            <span>{t("awaitingProcessing")}</span>
             <span className={cn("text-[10.5px] font-medium transition-colors", filter === "pending" ? "text-warn font-semibold" : "text-faint/80 group-hover:text-fg")}>
-              {filter === "pending" ? "✓ Đang chọn" : "Nhấp để lọc"}
+              {filter === "pending" ? `✓ ${t("currentlySelected")}` : t("clickToFilter")}
             </span>
           </div>
         </Card>
@@ -391,10 +393,10 @@ export default function TransactionsPage() {
                 ✕ {t("clear")}
               </span>
             ) : (
-              <span>{locale === "vi" ? "Toàn bộ lịch sử" : "All records"}</span>
+              <span>{t("allHistory")}</span>
             )}
             <span className="text-[10.5px] font-medium text-faint/80 group-hover:text-fg">
-              {hasActiveFilters ? "Đặt lại" : "✓ Mặc định"}
+              {hasActiveFilters ? t("resetAction") : `✓ ${t("defaultView")}`}
             </span>
           </div>
         </Card>
@@ -743,13 +745,7 @@ export default function TransactionsPage() {
               {t("empty")}
             </h3>
             <p className="mt-1 max-w-sm text-[12.5px] text-faint">
-              {hasActiveFilters
-                ? locale === "vi"
-                  ? "Không có giao dịch nào khớp với bộ lọc hiện tại. Hãy thử tìm kiếm hoặc điều chỉnh điều kiện lọc."
-                  : "No transactions match your current search or filter criteria. Try resetting your filters."
-                : locale === "vi"
-                ? "Chưa có biến động số dư nào được ghi nhận."
-                : "No transaction records found yet."}
+              {hasActiveFilters ? t("emptyFilteredHint") : t("emptyNone")}
             </p>
             {hasActiveFilters && (
               <Button
@@ -936,7 +932,7 @@ export default function TransactionsPage() {
 
                 {selectedTx.description && !selectedOrderId && (
                   <div className="pt-2.5">
-                    <div className="text-faint mb-1">{locale === "vi" ? "Ghi chú" : "Description"}</div>
+                    <div className="text-faint mb-1">{t("note")}</div>
                     <div className="rounded-lg bg-raised/70 p-2.5 text-[12.5px] leading-relaxed text-muted">
                       {selectedTx.description}
                     </div>
@@ -950,7 +946,7 @@ export default function TransactionsPage() {
                   size="sm"
                   onClick={() => setSelectedTx(null)}
                 >
-                  {locale === "vi" ? "Đóng" : "Close"}
+                  {tc("close")}
                 </Button>
               </div>
             </div>

@@ -85,17 +85,17 @@ export default function TopNav() {
   const locale = useLocale();
   const t = useTranslations("nav");
   const tc = useTranslations("currency");
-  const languageLabel = locale === "vi" ? "Ngôn ngữ" : "Language";
+  const languageLabel = t("language");
   const isAdminRoute = pathname === "/admin" || pathname.startsWith("/admin/");
   const navLinks = [{ href: "/", label: t("marketplace") }, { href: "/categories", label: t("categories") }];
   const accountRoleLabel = account?.roles.includes("admin")
-    ? "Admin"
+    ? t("admin")
     : account?.roles.includes("seller")
-      ? (locale === "vi" ? "Người bán" : "Seller")
-      : (locale === "vi" ? "Người mua" : "Buyer");
+      ? t("sellerRole")
+      : t("buyerRole");
 
   const accountLinks = [
-    { href: "/messages", label: locale === "vi" ? "Tin nhắn" : "Messages", icon: MessageCircle, auth: true },
+    { href: "/messages", label: t("messages"), icon: MessageCircle, auth: true },
     { href: "/orders", label: t("orders"), icon: Package, auth: true },
     { href: "/transactions", label: t("transactions"), icon: ArrowLeftRight, auth: true },
     { href: "/affiliate", label: t("affiliate"), icon: Percent, auth: true },
@@ -203,7 +203,7 @@ export default function TopNav() {
                   {balance === null ? "—" : formatBrowseMoney(balance, { locale })}
                 </span>
               </Link>
-              <MessageShortcut perspective="buyer" href="/messages" />
+              <MessageShortcut />
               <NotificationBell endpoint="account" />
               {/* ≤375px: only menu/logo/bell/avatar in chrome — Top up lives in account menu */}
               <Link href="/wallet" className="hidden min-[400px]:block">
@@ -301,7 +301,7 @@ export default function TopNav() {
                               <span className="flex-1 truncate">{l.label}</span>
                               {isTransactions && (
                                 <span className="text-[9.5px] font-mono font-bold uppercase tracking-wider text-iris bg-iris-soft px-1.5 py-0.5 rounded">
-                                  {locale === "vi" ? "Giao dịch" : "Log"}
+                                  {t("logBadge")}
                                 </span>
                               )}
                             </Link>

@@ -340,18 +340,18 @@ export default function DepositCard({ deposits, onChanged }: {
           )}
 
           {pending.length > 0 && (
-            <section className="space-y-2.5" aria-label={locale === "vi" ? "Các lệnh nạp đang chờ" : "Pending deposits"}>
+            <section className="space-y-2.5" aria-label={t("pendingDepositsAria")}>
               <div className="flex items-center justify-between px-0.5">
                 <div className="flex items-center gap-2">
                   <span className="text-[12px] font-semibold text-fg">
-                    {locale === "vi" ? "Lệnh nạp đang chờ" : "Pending deposits"}
+                    {t("pendingDeposits")}
                   </span>
                   <span className="rounded-full bg-iris-soft px-2 py-0.5 text-[10px] font-semibold text-iris">
                     {pending.length}
                   </span>
                 </div>
                 <span className="text-[10.5px] text-muted">
-                  {locale === "vi" ? "Mở đúng lệnh cần thanh toán" : "Open the order you need"}
+                  {t("depositOpenNeeded")}
                 </span>
               </div>
 
@@ -401,7 +401,7 @@ export default function DepositCard({ deposits, onChanged }: {
                             }}
                             className="font-semibold"
                           >
-                            {t.has("depositOpenQrModal") ? t("depositOpenQrModal") : (locale === "vi" ? "Mở mã QR" : "Open QR")}
+                            {t("depositOpenQrModal")}
                           </Button>
                         )}
                       </div>
@@ -668,12 +668,12 @@ export default function DepositCard({ deposits, onChanged }: {
                 </span>
               </div>
               <h3 className="text-[18px] font-bold leading-tight text-fg tracking-tight">
-                {t.has("depositModalTitle") ? t("depositModalTitle") : (locale === "vi" ? "Quét mã để nạp tiền" : "Scan QR to Deposit")}
+                {t("depositModalTitle")}
               </h3>
               <p className="mt-1 text-[12px] leading-relaxed text-muted">
                 {(activePending.provider || "sepay") === "nowpayments"
-                  ? (t.has("depositModalSubtitleUsdt") ? t("depositModalSubtitleUsdt") : (locale === "vi" ? "Quét mã hoặc chuyển USDT vào địa chỉ bên dưới" : "Scan QR or send USDT to the address below"))
-                  : (t.has("depositModalSubtitle") ? t("depositModalSubtitle") : (locale === "vi" ? "Mở ứng dụng ngân hàng và quét mã QR bên dưới" : "Open your banking app and scan the QR code below"))}
+                  ? t("depositModalSubtitleUsdt")
+                  : t("depositModalSubtitle")}
               </p>
             </div>
 
@@ -698,7 +698,7 @@ export default function DepositCard({ deposits, onChanged }: {
                   ) : null}
                   <div className="mt-2.5 text-center">
                     <div className="text-[11px] text-slate-500 font-medium">
-                      {t.has("depositAmountExact") ? t("depositAmountExact") : (locale === "vi" ? "Số tiền chính xác cần chuyển" : "Exact amount to transfer")}
+                      {t("depositAmountExact")}
                     </div>
                     <div className="font-mono text-[20px] font-bold text-slate-900 leading-tight">
                       {formatLedgerMoney(activePending.amount, locale)}
@@ -805,7 +805,7 @@ export default function DepositCard({ deposits, onChanged }: {
                   <span className="relative inline-flex rounded-full h-2 w-2 bg-iris" />
                 </span>
                 <span className="leading-relaxed">
-                  {t.has("depositWaitingConfirmation") ? t("depositWaitingConfirmation") : (locale === "vi" ? "Đang đợi hệ thống nhận tiền từ ngân hàng…" : "Waiting for payment confirmation from bank…")}
+                  {t("depositWaitingConfirmation")}
                 </span>
               </div>
               <span className="font-mono text-muted tabular">
@@ -829,12 +829,12 @@ export default function DepositCard({ deposits, onChanged }: {
                 block
                 onClick={() => setIsModalOpen(false)}
               >
-                {t.has("depositModalClose") ? t("depositModalClose") : (locale === "vi" ? "Đóng cửa sổ" : "Close window")}
+                {t("depositModalClose")}
               </Button>
 
               <div className="flex items-center justify-between text-[11px] text-faint pt-1">
                 <span>
-                  {t.has("depositModalCloseHint") ? t("depositModalCloseHint") : (locale === "vi" ? "Lệnh nạp vẫn hoạt động trong nền. Bạn có thể bấm mở lại mã QR bất cứ lúc nào." : "Your deposit remains active in background. You can reopen the QR code anytime.")}
+                  {t("depositModalCloseHint")}
                 </span>
                 <button
                   type="button"
@@ -862,26 +862,24 @@ export default function DepositCard({ deposits, onChanged }: {
                 ✓
               </div>
               <p className="mt-5 text-[10px] font-semibold uppercase tracking-[0.16em] text-good">
-                {locale === "vi" ? "Đã ghi nhận" : "Payment received"}
+                {t("paymentReceived")}
               </p>
               <h3 id="deposit-success-title" className="mt-1 text-[20px] font-bold tracking-tight text-fg">
-                {locale === "vi" ? "Nạp tiền thành công" : "Deposit completed"}
+                {t("depositSuccessTitle")}
               </h3>
               <p className="mt-2 max-w-[280px] text-[12.5px] leading-relaxed text-muted">
-                {locale === "vi"
-                  ? "Khoản tiền đã được cộng vào ví của bạn và sẵn sàng để sử dụng."
-                  : "The funds were added to your wallet and are ready to use."}
+                {t("depositSuccessHint")}
               </p>
 
               <div className="mt-5 w-full rounded-xl border border-good/25 bg-good-soft/45 px-4 py-3.5">
                 <div className="text-[10.5px] font-medium uppercase tracking-wider text-muted">
-                  {locale === "vi" ? "Số tiền đã cộng" : "Amount credited"}
+                  {t("amountCredited")}
                 </div>
                 <div className="mt-1 font-mono text-[24px] font-bold tabular text-good">
                   +{formatAmountLabel(paidDeposit.paid_amount ?? paidDeposit.amount)}
                 </div>
                 <div className="mt-1 text-[11px] text-muted">
-                  {paidDeposit.provider === "nowpayments" ? "NOWPayments · USDT" : "SePay · Chuyển khoản"}
+                  {paidDeposit.provider === "nowpayments" ? "NOWPayments · USDT" : t("sepayBankTransfer")}
                 </div>
               </div>
 
@@ -892,7 +890,7 @@ export default function DepositCard({ deposits, onChanged }: {
                 className="mt-5"
                 onClick={() => setPaidDeposit(null)}
               >
-                {locale === "vi" ? "Tiếp tục sử dụng ví" : "Continue to wallet"}
+                {t("continueWallet")}
               </Button>
             </div>
           </div>

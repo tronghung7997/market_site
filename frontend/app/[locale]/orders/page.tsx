@@ -509,7 +509,7 @@ export default function OrdersPage() {
                         <div className="flex items-center gap-1.5">
                           {/* Quick-view Modal button */}
                           <button
-                            title="Xem chi tiết & tài khoản"
+                            title={t("viewOrderDetails")}
                             onClick={() => setSelectedOrder(o)}
                             className="flex h-8 w-8 items-center justify-center rounded-lg bg-iris-soft text-iris hover:bg-iris hover:text-white transition-colors cursor-pointer"
                           >
@@ -519,7 +519,7 @@ export default function OrdersPage() {
                           {/* Download TXT */}
                           {hasDeliveredData && (
                             <button
-                              title="Tải file .TXT về máy"
+                              title={t("downloadTxtHint")}
                               onClick={() => handleDownload(o)}
                               className="flex h-8 w-8 items-center justify-center rounded-lg bg-raised text-muted hover:bg-line hover:text-fg transition-colors cursor-pointer"
                             >
@@ -530,7 +530,7 @@ export default function OrdersPage() {
                           {/* Copy All */}
                           {hasDeliveredData && (
                             <button
-                              title="Sao chép toàn bộ dữ liệu"
+                              title={t("copyAllData")}
                               onClick={() => handleCopyAll(o)}
                               className="flex h-8 w-8 items-center justify-center rounded-lg bg-raised text-muted hover:bg-line hover:text-fg transition-colors cursor-pointer"
                             >
@@ -541,12 +541,12 @@ export default function OrdersPage() {
                           {/* Dispute Button */}
                           {canOpenDispute(o.status, o.escrow_expires_at) && (
                             <button
-                              title={o.variant_name ? `Khiếu nại gói ${o.variant_name}` : "Khiếu nại đơn"}
+                              title={o.variant_name ? t("disputePackageTitle", { name: o.variant_name }) : t("disputeThisOrder")}
                               onClick={() => {
                                 setDisputeTarget({
                                   orderId: o.id,
                                   variantName: o.variant_name,
-                                  initialReason: o.variant_name ? `[Khiếu nại gói: ${o.variant_name}] ` : "",
+                                  initialReason: o.variant_name ? t("reasonPackagePrefix", { name: o.variant_name }) : "",
                                 });
                               }}
                               className="flex h-8 w-8 items-center justify-center rounded-lg bg-raised text-muted hover:bg-bad-soft hover:text-bad transition-colors cursor-pointer"
@@ -576,7 +576,7 @@ export default function OrdersPage() {
                             <div className="text-[11.5px] text-muted line-clamp-1 mt-0.5">
                               {o.variant_name ? (
                                 <span className="font-medium text-fg/80 bg-raised/80 px-1.5 py-0.2 rounded border border-line mr-1.5">
-                                  Gói: {o.variant_name}
+                                  {t("packageNamed", { name: o.variant_name })}
                                 </span>
                               ) : null}
                               <span>{tc("qty", { count: o.quantity })}</span>

@@ -740,7 +740,7 @@ function SellerOrdersConsole() {
                           <div className="flex items-center gap-2 mt-1">
                             <CopyButton text={o.buyer_email} label="Email" className="text-[10.5px]" />
                             <Link
-                              href={`/seller/messages?order=${o.id}`}
+                              href="/messages"
                               className="text-[11px] text-iris hover:underline inline-flex items-center gap-0.5"
                               title={t("chatWithBuyer")}
                             >
@@ -1088,7 +1088,7 @@ function SellerDisputeModal({
 
               <div className="flex items-center justify-between pt-2 border-t border-line">
                 <Link
-                  href={`/seller/messages?order=${order.id}`}
+                  href="/messages"
                   className="text-xs text-iris hover:underline inline-flex items-center gap-1 font-medium"
                 >
                   <MessageSquare size={13} />
@@ -1112,7 +1112,7 @@ function SellerDisputeModal({
         {hasResponded && (
           <div className="p-3.5 bg-raised/50 border-t border-line flex items-center justify-between shrink-0">
             <Link
-              href={`/seller/messages?order=${order.id}`}
+              href="/messages"
               className="text-xs text-iris hover:underline inline-flex items-center gap-1 font-medium"
             >
               <MessageSquare size={13} />
@@ -1541,7 +1541,7 @@ function SellerOrderDetailModal({
         {/* Footer */}
         <div className="p-3.5 bg-raised/50 border-t border-line flex items-center justify-between shrink-0">
           <Link
-            href={`/seller/messages?order=${order.id}`}
+            href="/messages"
             className="text-xs text-iris hover:underline inline-flex items-center gap-1 font-medium"
           >
             <MessageSquare size={13} />

@@ -7,8 +7,11 @@ import {
   inventoryStockState,
   isInventoryManagedProduct,
   isInstantDelivery,
+  mergeRestockText,
   nextSellerProductStatus,
   parseResourceItems,
+  parseRestockFileContent,
+  restockTemplateContent,
   restockableVariants,
 } from "../features/seller-inventory/index.ts";
 
@@ -54,6 +57,51 @@ test("resource parser trims blanks and optionally deduplicates the upload previe
   assert.deepEqual(parseResourceItems(input, false), [
     "first|secret", "second|secret", "first|secret",
   ]);
+});
+
+test("CSV restock upload strips known headers and unwraps quoted rows", () => {
+  const csv = [
+    "data",
+    "uid_csv_a|pass_a",
+    '"uid_csv_c|quoted|2fa_c"',
+    '"license""quoted"',
+    "LICENSE-CSV-TEST-9901",
+  ].join("\n");
+
+  assert.equal(
+    parseRestockFileContent("sample-restock.csv", csv),
+    "uid_csv_a|pass_a\nuid_csv_c|quoted|2fa_c\nlicense\"quoted\nLICENSE-CSV-TEST-9901",
+  );
+});
+
+test("CSV restock upload keeps the first row when it is not a header", () => {
+  const csv = "uid1|pass1\nuid2|pass2";
+  assert.equal(parseRestockFileContent("pack.CSV", csv), csv);
+});
+
+test("TXT restock upload is passed through unchanged", () => {
+  const txt = "uid_txt_a|pass_a\n\nLICENSE-TXT-TEST-9902\n";
+  assert.equal(parseRestockFileContent("sample-restock.txt", txt), txt);
+});
+
+test("empty CSV restock upload yields an empty payload", () => {
+  assert.equal(parseRestockFileContent("empty.csv", "  \n\n"), "");
+});
+
+test("restock file merge appends without dropping existing lines", () => {
+  assert.equal(mergeRestockText("", "a|b"), "a|b");
+  assert.equal(mergeRestockText("a|b", "c|d"), "a|b\nc|d");
+  assert.equal(mergeRestockText("a|b", ""), "a|b");
+});
+
+test("CSV restock template starts with a data header", () => {
+  const csv = restockTemplateContent("csv");
+  const txt = restockTemplateContent("txt");
+  assert.equal(csv.mimeType, "text/csv");
+  assert.equal(txt.mimeType, "text/plain");
+  assert.match(csv.content, /^data\n/);
+  assert.equal(txt.content.startsWith("data\n"), false);
+  assert.equal(parseResourceItems(parseRestockFileContent("t.csv", csv.content), true).length, 3);
 });
 
 test("only available resources expose editing", () => {

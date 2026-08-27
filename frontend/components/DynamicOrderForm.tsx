@@ -35,6 +35,7 @@ export default function DynamicOrderForm({ productId, product, onOrderCreated }:
   const { account } = useAuth();
   const locale = useLocale();
   const t = useTranslations("products");
+  const tc = useTranslations("common");
   const { formatCheckoutMoney } = useMoney();
 
   const [options, setOptions] = useState<PricingOptions | null>(null);
@@ -133,7 +134,7 @@ export default function DynamicOrderForm({ productId, product, onOrderCreated }:
       // Đây mới là lỗi thật (field đã điền nhưng backend từ chối) — trước đây
       // bị nuốt hoàn toàn, giá cứ đứng ở "—" mãi mà buyer không hiểu vì sao.
       setCalc(null);
-      setCalcError(e instanceof Error ? e.message : (locale === "en" ? "Could not calculate the price. Please try again." : "Không tính được giá — thử lại."));
+      setCalcError(e instanceof Error ? e.message : t("priceCalcFailed"));
     } finally {
       setCalculating(false);
     }
@@ -349,7 +350,7 @@ export default function DynamicOrderForm({ productId, product, onOrderCreated }:
                     }
                     return (
                       <div key={f.field} className="flex justify-between">
-                        <span className="text-muted">{locale === "en" ? ({ package_size: "Requests per package", quantity: "Quantity", platform: "Platform", target_urls: "Target URLs", type: "Protocol", network: "Network", duration: "Duration", country: "Country", region: "Region" }[f.field] ?? f.label) : f.label}</span>
+                        <span className="text-muted">{locale === "en" && t.has(`fields.${f.field}`) ? t(`fields.${f.field}`) : f.label}</span>
                         <span className="font-medium">{display}</span>
                       </div>
                     );
@@ -364,13 +365,13 @@ export default function DynamicOrderForm({ productId, product, onOrderCreated }:
                   </div>
                   {isDproxy && (
                     <div className="flex justify-between">
-                      <span className="text-muted">{locale === "en" ? "IP rotation" : "Đổi IP"}</span>
-                      <span className="font-medium">{locale === "en" ? "Supported" : "Có hỗ trợ"}</span>
+                      <span className="text-muted">{t("ipRotation")}</span>
+                      <span className="font-medium">{t("supported")}</span>
                     </div>
                   )}
                   <div className="flex justify-between">
-                    <span className="text-muted">{locale === "en" ? "View proxy details" : "Xem thông tin proxy"}</span>
-                    <span className="font-medium">{locale === "en" ? "Orders page, after delivery" : "Trang Đơn hàng, sau khi giao"}</span>
+                    <span className="text-muted">{t("viewProxyDetails")}</span>
+                    <span className="font-medium">{t("proxyDetailsWhere")}</span>
                   </div>
                 </>
               ) : (
@@ -385,7 +386,7 @@ export default function DynamicOrderForm({ productId, product, onOrderCreated }:
                     }
                     return (
                       <div key={f.field} className="flex justify-between">
-                        <span className="text-muted">{locale === "en" ? ({ package_size: "Requests per package", quantity: "Quantity", platform: "Platform", target_urls: "Target URLs", type: "Protocol", network: "Network", duration: "Duration", country: "Country", region: "Region" }[f.field] ?? f.label) : f.label}</span>
+                        <span className="text-muted">{locale === "en" && t.has(`fields.${f.field}`) ? t(`fields.${f.field}`) : f.label}</span>
                         <span className="font-medium">{display}</span>
                       </div>
                     );
@@ -406,13 +407,13 @@ export default function DynamicOrderForm({ productId, product, onOrderCreated }:
               )}
               {hasDiscount && calc.original_amount != null && (
                 <div className="flex justify-between">
-                  <span className="text-muted">{locale === "en" ? "Original price" : "Giá gốc"}</span>
+                  <span className="text-muted">{t("originalPrice")}</span>
                   <span className="text-faint line-through">{formatCheckoutMoney(calc.original_amount, { locale })}</span>
                 </div>
               )}
               {hasDiscount && (
                 <div className="flex justify-between">
-                  <span className="text-muted">{locale === "en" ? "Discount" : "Giảm giá"}</span>
+                  <span className="text-muted">{t("discount")}</span>
                   <Tag tone="good">-{Math.round((calc.discount_pct ?? 0) * 100)}%</Tag>
                 </div>
               )}
@@ -425,13 +426,13 @@ export default function DynamicOrderForm({ productId, product, onOrderCreated }:
                 <span>{t("confirmEscrow", { days: product.escrow_days })}</span>
               </div>
               {isAutoDelivered && (
-                <p className="text-[11.5px] text-faint">{locale === "en" ? "If allocation fails, funds are automatically refunded to your wallet." : "Nếu cấp phát thất bại, tiền được tự động hoàn lại vào ví của bạn."}</p>
+                <p className="text-[11.5px] text-faint">{t("allocationRefundHint")}</p>
               )}
               {placeError && <p className="text-bad text-[12.5px]">{placeError}</p>}
             </div>
             <div className="flex gap-2 px-5 py-3 border-t border-line">
               <Button variant="secondary" block onClick={() => { setShowConfirm(false); setPlaceError(null); }} disabled={placing}>
-                {locale === "en" ? "Cancel" : "Huỷ"}
+                {tc("cancel")}
               </Button>
               <Button block disabled={placing} onClick={confirmBuy}>
                 {placing ? t("processing") : t("confirmBuy")}
@@ -459,12 +460,9 @@ function DynamicField({
   locale: string;
   onChange: (v: unknown) => void;
 }) {
-  const englishLabels: Record<string, string> = {
-    package_size: "Requests per package", quantity: "Quantity", platform: "Platform",
-    target_urls: "Target URLs", type: "Protocol", network: "Network", days: "Duration", duration: "Duration",
-    country: "Country", region: "Region",
-  };
-  const fieldLabel = locale === "en" ? englishLabels[field.field] ?? field.label : field.label;
+  const t = useTranslations("products");
+  const catalogLabel = t.has(`fields.${field.field}`) ? t(`fields.${field.field}`) : null;
+  const fieldLabel = locale === "en" ? (catalogLabel ?? field.label) : field.label;
   const label = (
     <div className="text-[11px] text-faint uppercase tracking-wider mb-1.5">
       {fieldLabel}

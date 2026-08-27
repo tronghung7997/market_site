@@ -36,7 +36,8 @@ A prototype under `frontend/app/[locale]/prototype/chat/` is visual exploration,
 - User messages are trimmed plain text from 1 to 4000 characters. Attachments, editing, and deletion are not implemented.
 - Reusing a client message ID with the same sender and body returns the existing message; conflicting reuse is rejected.
 - A cancelled or refunded order makes its order conversation read-only and sending is rejected.
-- The current list API supports only buyer and seller perspectives and validates the selected perspective against the account's global roles.
+- The list API accepts `perspective=buyer`, `perspective=seller`, or `perspective=all`. Buyer/seller still validate against the account's global roles. `all` returns every non-archived conversation the account participates in, using each participant row's context role. The product inbox is unified at `/messages`; `/seller/messages` redirects there.
+- Unread counts appear as a non-dismissible action item (`unread_messages`) pointing at `/messages`, so the notification bell can refresh from the same chat events as the inbox.
 
 ## Reserved or prototype-only concepts — not implemented
 

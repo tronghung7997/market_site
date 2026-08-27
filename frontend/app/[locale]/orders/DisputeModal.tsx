@@ -27,7 +27,23 @@ export default function DisputeModal({
   const t = useTranslations("orders");
   const tc = useTranslations("common");
   const te = useTranslations("errors");
-  const [reason, setReason] = useState(initialReason ?? (variantName ? `[Gói: ${variantName}] ` : ""));
+  const [reason, setReason] = useState(
+    initialReason ?? (variantName ? t("reasonPackagePrefix", { name: variantName }) : ""),
+  );
+
+  const localizeApiError = (error: unknown) => {
+    const message = error instanceof Error ? error.message : "";
+    const byDetail: Record<string, string> = {
+      "Chỉ có thể khiếu nại đơn đã giao": "DISPUTE_ONLY_DELIVERED",
+      "Thời gian ký quỹ đã hết hạn": "DISPUTE_ESCROW_EXPIRED",
+      "Đơn hàng này đã có khiếu nại": "DISPUTE_ALREADY_OPEN",
+      "Không tìm thấy đơn hàng": "ORDER_NOT_FOUND",
+      "Đây không phải đơn hàng của bạn": "NOT_ORDER_OWNER",
+    };
+    const code = byDetail[message];
+    if (code) return te(code);
+    return message || te("UNKNOWN");
+  };
   const [evidenceType, setEvidenceType] = useState(initialEvidenceType ?? "account");
   const [evidenceValues, setEvidenceValues] = useState<Record<string, string>>(initialEvidence ?? {});
   const [submitting, setSubmitting] = useState(false);
@@ -50,7 +66,7 @@ export default function DisputeModal({
       );
       onSuccess();
     } catch (e: unknown) {
-      setError(e instanceof Error ? e.message : te("UNKNOWN"));
+      setError(localizeApiError(e));
     } finally {
       setSubmitting(false);
     }

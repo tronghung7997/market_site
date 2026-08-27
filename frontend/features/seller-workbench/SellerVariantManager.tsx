@@ -1,7 +1,7 @@
 "use client";
 
 import { useState } from "react";
-import { useLocale } from "next-intl";
+import { useLocale, useTranslations } from "next-intl";
 import { Button, Card, Field, Input, Select, Tag, Textarea } from "@/components/ui";
 import { Edit2, Plus, Trash, Upload } from "@/components/Icons";
 import { useMoney } from "@/lib/money";
@@ -30,6 +30,9 @@ export function SellerVariantManager({
   onRestockVariant: (id: number, items: string[]) => Promise<void>;
 }) {
   const locale = useLocale();
+  const t = useTranslations("seller.workbench");
+  const ts = useTranslations("seller");
+  const tc = useTranslations("common");
   const { formatCheckoutMoney } = useMoney();
   const { currency: priceCurrency } = useSellerPriceCurrency();
   const [adding, setAdding] = useState(false);
@@ -45,7 +48,6 @@ export function SellerVariantManager({
   const [editSla, setEditSla] = useState(24);
   const [savingEdit, setSavingEdit] = useState(false);
 
-  // Restock modal state
   const [restockId, setRestockId] = useState<number | null>(null);
   const [restockText, setRestockText] = useState("");
   const [restocking, setRestocking] = useState(false);
@@ -105,47 +107,46 @@ export function SellerVariantManager({
       <div className="flex items-center justify-between">
         <div>
           <span className="text-[11px] font-bold uppercase tracking-wider text-muted">
-            Quản lý gói bán & Kho hàng
+            {t("variantSectionEyebrow")}
           </span>
-          <h3 className="text-[14px] font-bold text-fg">Danh sách các gói đang phục vụ</h3>
+          <h3 className="text-[14px] font-bold text-fg">{t("variantSectionTitle")}</h3>
         </div>
         <Button
           size="sm"
           variant="secondary"
           onClick={() => setAdding((v) => !v)}
         >
-          <Plus size={13} /> {adding ? "Đóng" : "Thêm gói mới"}
+          <Plus size={13} /> {adding ? tc("close") : t("addNewPackage")}
         </Button>
       </div>
 
-      {/* Add New Variant Inline Form */}
       {adding && (
         <div className="p-4 rounded-xl bg-surface border border-line space-y-3">
-          <div className="text-[12.5px] font-bold text-fg">Thêm gói bán mới</div>
+          <div className="text-[12.5px] font-bold text-fg">{t("addPackageFormTitle")}</div>
           <div className="grid gap-3 sm:grid-cols-2">
-            <Field label="Tên gói bán *">
+            <Field label={t("packageName")}>
               <Input
                 value={newName}
                 onChange={(e) => setNewName(e.target.value)}
-                placeholder="VD: Gói 3 Tháng (Tiết kiệm)"
+                placeholder={t("packageNamePlaceholder")}
               />
             </Field>
-            <Field label={`Giá bán (${priceCurrency}) *`}>
+            <Field label={t("sellingPrice", { currency: priceCurrency })}>
               <SellerPriceInput amountVnd={newPrice} onAmountVndChange={setNewPrice} />
             </Field>
           </div>
           <div className="grid gap-3 sm:grid-cols-2">
-            <Field label="Kiểu giao hàng">
+            <Field label={t("deliveryType")}>
               <Select
                 value={newMode}
                 onChange={(e) => setNewMode(e.target.value as "instant" | "manual")}
               >
-                <option value="instant">⚡ Giao ngay tự động (Kho hàng)</option>
-                <option value="manual">⏱️ Giao thủ công (Có SLA)</option>
+                <option value="instant">{t("instantDeliveryOption")}</option>
+                <option value="manual">{t("manualDeliveryOption")}</option>
               </Select>
             </Field>
             {newMode === "manual" && (
-              <Field label="Cam kết giao trong (SLA giờ)">
+              <Field label={t("slaHoursLabel")}>
                 <Input
                   type="number"
                   min={1}
@@ -161,7 +162,7 @@ export function SellerVariantManager({
               variant="ghost"
               onClick={() => setAdding(false)}
             >
-              Hủy
+              {tc("cancel")}
             </Button>
             <Button
               size="sm"
@@ -169,17 +170,16 @@ export function SellerVariantManager({
               disabled={savingNew || !newName.trim()}
               onClick={handleCreate}
             >
-              {savingNew ? "Đang thêm..." : "Lưu gói bán"}
+              {savingNew ? t("addingPackage") : t("savePackage")}
             </Button>
           </div>
         </div>
       )}
 
-      {/* Variants List */}
       <div className="space-y-2.5">
         {variants.length === 0 ? (
           <div className="p-6 text-center text-[12px] text-muted border border-dashed border-line rounded-lg">
-            Chưa có gói bán nào. Vui lòng bấm &ldquo;Thêm gói mới&rdquo; để bắt đầu mở bán.
+            {t("emptyPackages", { action: t("addNewPackage") })}
           </div>
         ) : (
           variants.map((v) => {
@@ -190,30 +190,30 @@ export function SellerVariantManager({
                 {editing ? (
                   <div className="space-y-3">
                     <div className="grid gap-3 sm:grid-cols-2">
-                      <Field label="Tên gói bán *">
+                      <Field label={t("packageName")}>
                         <Input value={editName} onChange={(event) => setEditName(event.target.value)} />
                       </Field>
-                      <Field label={`Giá bán (${priceCurrency}) *`}>
+                      <Field label={t("sellingPrice", { currency: priceCurrency })}>
                         <SellerPriceInput amountVnd={editPrice} onAmountVndChange={setEditPrice} />
                       </Field>
                     </div>
                     <div className="grid gap-3 sm:grid-cols-2">
-                      <Field label="Kiểu giao hàng">
+                      <Field label={t("deliveryType")}>
                         <Select value={editMode} onChange={(event) => setEditMode(event.target.value as "instant" | "manual")}>
-                          <option value="instant">⚡ Giao ngay tự động (Kho hàng)</option>
-                          <option value="manual">⏱️ Giao thủ công (Có SLA)</option>
+                          <option value="instant">{t("instantDeliveryOption")}</option>
+                          <option value="manual">{t("manualDeliveryOption")}</option>
                         </Select>
                       </Field>
                       {editMode === "manual" && (
-                        <Field label="Cam kết giao trong (SLA giờ)">
+                        <Field label={t("slaHoursLabel")}>
                           <Input type="number" min={1} value={editSla} onChange={(event) => setEditSla(Number(event.target.value) || 24)} />
                         </Field>
                       )}
                     </div>
                     <div className="flex justify-end gap-2">
-                      <Button size="sm" variant="ghost" onClick={() => setEditingId(null)}>Hủy</Button>
+                      <Button size="sm" variant="ghost" onClick={() => setEditingId(null)}>{tc("cancel")}</Button>
                       <Button size="sm" disabled={savingEdit || !editName.trim()} onClick={handleEditSubmit}>
-                        {savingEdit ? "Đang lưu..." : "Lưu gói bán"}
+                        {savingEdit ? t("savingPackage") : t("savePackage")}
                       </Button>
                     </div>
                   </div>
@@ -223,7 +223,7 @@ export function SellerVariantManager({
                       <div className="flex items-center gap-2">
                         <span className="text-[13.5px] font-semibold text-fg">{v.name}</span>
                         <Tag tone={isInstant ? "good" : "warn"}>
-                          {isInstant ? "⚡ Giao ngay" : `⏱️ ${v.sla_hours || 24}h SLA`}
+                          {isInstant ? t("instantDeliveryTag") : t("slaHoursTag", { hours: v.sla_hours || 24 })}
                         </Tag>
                       </div>
                       <div className="flex items-center gap-3 text-[12px] text-muted">
@@ -231,10 +231,10 @@ export function SellerVariantManager({
                         <span>•</span>
                         {isInstant ? (
                           <span className={v.stock_count > 0 ? "text-good font-medium" : "text-bad font-medium"}>
-                            Kho: {v.stock_count} mã sẵn sàng
+                            {t("stockReadyCount", { count: v.stock_count })}
                           </span>
                         ) : (
-                          <span>Giao thủ công</span>
+                          <span>{t("manualFulfillment")}</span>
                         )}
                       </div>
                     </div>
@@ -252,7 +252,7 @@ export function SellerVariantManager({
                             setEditSla(v.sla_hours || 24);
                           }}
                         >
-                          <Edit2 size={12} /> Sửa
+                          <Edit2 size={12} /> {ts("edit")}
                         </Button>
                       )}
                       {isInstant && v.id && (
@@ -264,7 +264,7 @@ export function SellerVariantManager({
                             setRestockText("");
                           }}
                         >
-                          <Upload size={12} /> Nạp kho
+                          <Upload size={12} /> {t("restockAction")}
                         </Button>
                       )}
                       {v.id && (
@@ -273,6 +273,7 @@ export function SellerVariantManager({
                           variant="ghost"
                           onClick={() => onDeleteVariant(v.id!)}
                           className="text-bad hover:bg-bad-soft/50"
+                          aria-label={ts("delete")}
                         >
                           <Trash size={12} />
                         </Button>
@@ -286,22 +287,22 @@ export function SellerVariantManager({
         )}
       </div>
 
-      {/* Fast Restock Modal */}
       {restockId && (
         <div className="p-4 rounded-xl border border-good/25 bg-good-soft/30 space-y-3">
           <div className="flex items-center justify-between">
             <div className="text-[13px] font-bold text-fg">
-              Nạp thêm mã kho cho gói #{restockId}
+              {t("restockTitle", { id: restockId })}
             </div>
             <Button
               size="sm"
               variant="ghost"
               onClick={() => setRestockId(null)}
+              aria-label={tc("close")}
             >
               ✕
             </Button>
           </div>
-          <Field label="Danh sách mã mới (Mỗi dòng là 1 mã):">
+          <Field label={t("restockListLabel")}>
             <Textarea
               rows={3}
               value={restockText}
@@ -315,7 +316,7 @@ export function SellerVariantManager({
               variant="ghost"
               onClick={() => setRestockId(null)}
             >
-              Hủy
+              {tc("cancel")}
             </Button>
             <Button
               size="sm"
@@ -323,7 +324,7 @@ export function SellerVariantManager({
               disabled={restocking || !restockText.trim()}
               onClick={handleRestockSubmit}
             >
-              {restocking ? "Đang nạp..." : "Xác nhận nạp"}
+              {restocking ? t("restocking") : t("confirmRestockAction")}
             </Button>
           </div>
         </div>

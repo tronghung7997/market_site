@@ -2,7 +2,7 @@
 
 import { FormEvent, useEffect, useRef, useState } from "react";
 import { useQueryClient } from "@tanstack/react-query";
-import { useLocale } from "next-intl";
+import { useLocale, useTranslations } from "next-intl";
 import { Link, useRouter } from "@/i18n/navigation";
 import { useAuth } from "@/lib/auth";
 import { cn } from "@/lib/cn";
@@ -11,177 +11,241 @@ import type { ChatConversation, ChatConversationList } from "@/lib/types";
 import { queryKeys } from "@/lib/query-keys";
 import { useChatConversation, useChatConversations, useSendChatMessage } from "@/hooks/use-chat";
 import { useChatEvents } from "@/hooks/use-chat-events";
-import { ChevronLeft, Inbox, MessageCircle, Package } from "@/components/Icons";
+import {
+  ChevronLeft,
+  Inbox,
+  MessageCircle,
+  Package,
+  Receipt,
+  ShieldCheck,
+  ExternalLink,
+  Store,
+} from "@/components/Icons";
 import { Button, Spinner } from "@/components/ui";
 import { ProductCover } from "@/components/products/ProductCover";
 import { parseCoverId } from "@/lib/product-covers";
+import { INBOX_HREF, orderWorkspaceHref } from "@/lib/chat-inbox";
 
-const copy = {
-  vi: {
-    inbox: "Tin nhắn", buyerInbox: "Trao đổi sản phẩm và đơn hàng", sellerInbox: "Hộp thư người bán",
-    preSale: "Trao đổi trước mua", orderChat: "Trao đổi theo đơn", order: "Đơn hàng",
-    empty: "Chưa có cuộc trò chuyện", buyerEmpty: "Mở một sản phẩm và chọn Hỏi người bán để bắt đầu.",
-    sellerEmpty: "Câu hỏi từ buyer và trao đổi theo đơn sẽ xuất hiện ở đây.", choose: "Chọn một cuộc trò chuyện",
-    chooseHint: "Tin nhắn và bối cảnh giao dịch sẽ hiện ở đây.", input: "Nhập tin nhắn...", send: "Gửi",
-    product: "Sản phẩm đang trao đổi", quantity: "Số lượng", total: "Tổng tiền", viewOrder: "Xem đơn hàng",
-    safety: "Không gửi mật khẩu, mã khôi phục hoặc thanh toán ngoài nền tảng.", loading: "Đang tải cuộc trò chuyện",
-    error: "Không tải được tin nhắn", back: "Quay lại", readOnly: "Cuộc trò chuyện hiện chỉ đọc.",
-  },
-  en: {
-    inbox: "Messages", buyerInbox: "Product and order conversations", sellerInbox: "Seller inbox",
-    preSale: "Pre-sale inquiry", orderChat: "Order conversation", order: "Order", empty: "No conversations yet",
-    buyerEmpty: "Open a product and choose Ask seller to start.", sellerEmpty: "Buyer questions and order conversations will appear here.",
-    choose: "Choose a conversation", chooseHint: "Messages and transaction context will appear here.", input: "Write a message...",
-    send: "Send", product: "Product context", quantity: "Quantity", total: "Total", viewOrder: "View order",
-    safety: "Do not share passwords, recovery codes, or pay outside the platform.", loading: "Loading conversation",
-    error: "Could not load messages", back: "Back", readOnly: "This conversation is read-only.",
-  },
-};
-
-const orderStatus: Record<string, { vi: string; en: string }> = {
-  pending: { vi: "Chờ xử lý", en: "Pending" }, processing: { vi: "Đang xử lý", en: "Processing" },
-  delivered: { vi: "Đã giao", en: "Delivered" }, completed: { vi: "Hoàn tất", en: "Completed" },
-  disputed: { vi: "Đang khiếu nại", en: "Disputed" }, refunded: { vi: "Đã hoàn tiền", en: "Refunded" },
-  cancelled: { vi: "Đã huỷ", en: "Cancelled" },
-};
-
-function contextLabel(room: ChatConversation, locale: "vi" | "en") {
-  if (room.kind !== "order") return copy[locale].preSale;
-  if (!room.order) return copy[locale].orderChat;
-  const status = orderStatus[room.order.status]?.[locale] ?? room.order.status;
-  return `${copy[locale].order} #${room.order.id} · ${status}`;
+function contextLabel(
+  room: ChatConversation,
+  t: ReturnType<typeof useTranslations<"chat">>,
+  tos: ReturnType<typeof useTranslations<"status.order">>,
+) {
+  if (room.kind !== "order") return t("preSale");
+  if (!room.order) return t("orderChat");
+  const statusKey = `${room.order.status}.label`;
+  const status = tos.has(statusKey) ? tos(statusKey) : room.order.status;
+  return `${t("order")} #${room.order.id} · ${status}`;
 }
 
-function RoomIcon({ order, size = 17 }: { order: boolean; size?: number }) {
-  return order ? <Inbox size={size} /> : <Package size={size} />;
+function RoomIcon({ order, size = 15 }: { order: boolean; size?: number }) {
+  return order ? <Receipt size={size} /> : <MessageCircle size={size} />;
 }
 
-export default function InboxWorkbench({ perspective, initialConversationId = null }: {
-  perspective: "buyer" | "seller"; initialConversationId?: string | null;
+export default function InboxWorkbench({
+  initialConversationId = null,
+}: {
+  initialConversationId?: string | null;
 }) {
-  const locale = useLocale() === "vi" ? "vi" : "en";
-  const t = copy[locale];
+  const t = useTranslations("chat");
+  const tos = useTranslations("status.order");
+  const locale = useLocale();
   const router = useRouter();
   const queryClient = useQueryClient();
   const { account, loading: authLoading } = useAuth();
   const { formatCheckoutMoney } = useMoney();
   const [selectedId, setSelectedId] = useState<string | null>(initialConversationId);
   const [draft, setDraft] = useState("");
-  const list = useChatConversations(perspective);
+  const list = useChatConversations();
   const detail = useChatConversation(selectedId);
   const send = useSendChatMessage();
   const timeline = useRef<HTMLDivElement>(null);
-  const base = perspective === "seller" ? "/seller/messages" : "/messages";
   useChatEvents(!!account);
 
-  const markRoomRead = (id: string) => queryClient.setQueryData<ChatConversationList>(
-    queryKeys.chatList(perspective),
-    (current) => current ? {
-      ...current,
-      items: current.items.map((room) => room.id === id ? { ...room, unread_count: 0 } : room),
-    } : current,
-  );
+  const markRoomRead = (id: string) =>
+    queryClient.setQueryData<ChatConversationList>(
+      queryKeys.chatList(),
+      (current) =>
+        current
+          ? {
+              ...current,
+              items: current.items.map((room) =>
+                room.id === id ? { ...room, unread_count: 0 } : room,
+              ),
+            }
+          : current,
+    );
 
-  useEffect(() => { if (!authLoading && !account) router.push(`/login?next=${base}`); }, [account, authLoading, base, router]);
   useEffect(() => {
-    if (account && perspective === "seller" && !account.roles.includes("seller")) router.push("/seller/apply");
-  }, [account, perspective, router]);
+    if (!authLoading && !account) router.push(`/login?next=${INBOX_HREF}`);
+  }, [account, authLoading, router]);
+
   useEffect(() => {
     if (!detail.data) return;
-    timeline.current?.scrollTo({ top: timeline.current.scrollHeight });
-    queryClient.setQueryData<ChatConversationList>(queryKeys.chatList(perspective), (current) => current ? {
-      ...current,
-      items: current.items.map((room) => room.id === detail.data?.id ? { ...room, unread_count: 0 } : room),
-    } : current);
-  }, [detail.data, perspective, queryClient]);
+    if (timeline.current) {
+      timeline.current.scrollTop = timeline.current.scrollHeight;
+    }
+    queryClient.setQueryData<ChatConversationList>(queryKeys.chatList(), (current) =>
+      current
+        ? {
+            ...current,
+            items: current.items.map((room) =>
+              room.id === detail.data?.id ? { ...room, unread_count: 0 } : room,
+            ),
+          }
+        : current,
+    );
+    queryClient.invalidateQueries({ queryKey: queryKeys.actionItems() });
+  }, [detail.data, queryClient]);
 
-  const selectRoom = (id: string) => { markRoomRead(id); setSelectedId(id); router.replace(`${base}/${id}`); };
-  const goBack = () => { setSelectedId(null); router.replace(base); };
+  const selectRoom = (id: string) => {
+    markRoomRead(id);
+    setSelectedId(id);
+    router.replace(`${INBOX_HREF}/${id}`, { scroll: false });
+  };
+
+  const goBack = () => {
+    setSelectedId(null);
+    router.replace(INBOX_HREF, { scroll: false });
+  };
+
   const submit = async (event: FormEvent) => {
     event.preventDefault();
     const body = draft.trim();
     if (!body || !selectedId || send.isPending) return;
     setDraft("");
-    try { await send.mutateAsync({ conversationId: selectedId, body, clientMessageId: crypto.randomUUID() }); }
-    catch { setDraft(body); }
+    try {
+      await send.mutateAsync({
+        conversationId: selectedId,
+        body,
+        clientMessageId: crypto.randomUUID(),
+      });
+    } catch {
+      setDraft(body);
+    }
   };
 
-  if (authLoading || !account) return <div className="grid min-h-[420px] place-items-center"><Spinner /></div>;
+  if (authLoading || !account) {
+    return (
+      <div className="grid min-h-[420px] place-items-center">
+        <Spinner />
+      </div>
+    );
+  }
+
   const rooms = list.data?.items ?? [];
   const room = detail.data;
   const roomIsOrder = room?.kind === "order";
   const title = room?.product?.title ?? room?.counterpart.label;
-  const roomContext = room ? contextLabel(room, locale) : null;
+  const roomContext = room ? contextLabel(room, t, tos) : null;
   const isSellerCounterpart = room?.counterpart.role === "seller";
-  const orderHref = room?.order
-    ? (perspective === "seller" ? `/seller/orders?search=${room.order.id}` : `/orders?search=${room.order.id}`)
-    : (perspective === "seller" ? "/seller/orders" : "/orders");
+  const orderHref = orderWorkspaceHref(room?.counterpart.role ?? "seller", room?.order?.id);
 
   return (
-    <div className="mx-auto flex w-full max-w-[1280px] flex-1 sm:px-5 sm:py-5">
-      <section className="grid min-h-[calc(100dvh-100px)] w-full overflow-hidden border-line bg-surface sm:min-h-[680px] sm:rounded-xl sm:border sm:shadow-card lg:grid-cols-[320px_minmax(0,1fr)] xl:grid-cols-[320px_minmax(0,1fr)_280px]">
-        <aside className={cn("border-r border-line", selectedId && "hidden lg:block")}>
-          <header className="border-b border-line px-5 py-4">
-            <div className="flex items-center gap-2"><Inbox size={18} className="text-iris-hi" /><h1 className="text-[16px] font-semibold">{t.inbox}</h1></div>
-            <p className="mt-1 text-[12px] text-muted">{perspective === "seller" ? t.sellerInbox : t.buyerInbox}</p>
+    <div className="mx-auto flex w-full max-w-[1320px] flex-1 flex-col px-2 py-2 sm:px-4 sm:py-3 lg:h-[calc(100dvh-76px)] lg:max-h-[860px]">
+      <section className="grid h-full w-full flex-1 overflow-hidden rounded-xl border border-line bg-surface shadow-xs sm:rounded-2xl sm:shadow-card lg:grid-cols-[310px_minmax(0,1fr)] xl:grid-cols-[310px_minmax(0,1fr)_280px]">
+        {/* Left Sidebar: Conversation List */}
+        <aside
+          className={cn(
+            "flex h-full flex-col overflow-hidden border-r border-line bg-surface",
+            selectedId && "hidden lg:flex",
+          )}
+        >
+          <header className="flex items-center justify-between border-b border-line bg-surface/90 px-3.5 py-3 backdrop-blur-xs">
+            <div className="flex items-center gap-2">
+              <div className="grid h-7 w-7 place-items-center rounded-lg bg-iris-soft text-iris">
+                <Inbox size={15} />
+              </div>
+              <h1 className="text-[14.5px] font-bold text-fg">{t("inbox")}</h1>
+            </div>
+            {rooms.length > 0 && (
+              <span className="rounded-full bg-raised px-2 py-0.5 text-[11px] font-semibold text-faint">
+                {rooms.length}
+              </span>
+            )}
           </header>
-          <div className="max-h-[calc(100dvh-174px)] overflow-y-auto sm:max-h-[615px]">
-            {list.isLoading && <div className="p-5"><Spinner /></div>}
-            {!list.isLoading && rooms.length === 0 && <div className="px-6 py-16 text-center">
-              <MessageCircle size={26} className="mx-auto text-faint" /><p className="mt-3 text-[14px] font-medium">{t.empty}</p>
-              <p className="mt-1 text-[12.5px] leading-relaxed text-muted">{perspective === "seller" ? t.sellerEmpty : t.buyerEmpty}</p>
-            </div>}
+
+          <div className="flex-1 space-y-1 overflow-y-auto p-1.5">
+            {list.isLoading && (
+              <div className="p-6 text-center">
+                <Spinner />
+              </div>
+            )}
+            {!list.isLoading && rooms.length === 0 && (
+              <div className="px-5 py-12 text-center">
+                <div className="mx-auto grid h-10 w-10 place-items-center rounded-full bg-raised text-faint">
+                  <MessageCircle size={20} />
+                </div>
+                <p className="mt-3 text-[13.5px] font-semibold text-fg">{t("empty")}</p>
+                <p className="mt-1 text-[11.5px] leading-relaxed text-faint">{t("emptyHint")}</p>
+              </div>
+            )}
             {rooms.map((item) => {
               const isOrder = item.kind === "order";
               const itemIsSeller = item.counterpart.role === "seller";
               const itemTitle = item.product?.title ?? item.counterpart.label;
+              const isSelected = selectedId === item.id;
+
               return (
                 <button
                   key={item.id}
                   onClick={() => selectRoom(item.id)}
+                  type="button"
                   className={cn(
-                    "w-full border-b border-line px-4 py-4 text-left transition-colors hover:bg-raised",
-                    selectedId === item.id && "bg-iris-soft/60"
+                    "group relative flex w-full items-start gap-2.5 rounded-xl px-2.5 py-2.5 text-left transition-all",
+                    isSelected
+                      ? "bg-gradient-to-r from-iris-soft/95 to-surface shadow-xs ring-1 ring-iris/30"
+                      : "hover:bg-raised/70 active:bg-raised",
                   )}
                 >
-                  <span className="flex items-start gap-3">
-                    <span
-                      className={cn(
-                        "grid h-10 w-10 shrink-0 place-items-center rounded-lg shadow-xs",
-                        isOrder ? "bg-warn-soft text-warn" : "bg-iris-soft text-iris-hi"
+                  {/* Icon badge */}
+                  <span
+                    className={cn(
+                      "mt-0.5 grid h-8 w-8 shrink-0 place-items-center rounded-lg border transition-transform group-hover:scale-105",
+                      isOrder
+                        ? "border-amber-500/30 bg-amber-500/10 text-amber-700"
+                        : "border-indigo-500/30 bg-indigo-500/10 text-iris",
+                    )}
+                  >
+                    <RoomIcon order={isOrder} size={15} />
+                  </span>
+
+                  {/* Body preview */}
+                  <span className="min-w-0 flex-1">
+                    <span className="flex items-center justify-between gap-1.5">
+                      <span
+                        className={cn(
+                          "truncate text-[13px] font-semibold",
+                          isSelected ? "text-iris-hi" : "text-fg",
+                        )}
+                      >
+                        {itemTitle}
+                      </span>
+                      {item.unread_count > 0 && (
+                        <span className="inline-flex min-w-4.5 items-center justify-center rounded-full bg-iris px-1.5 py-0.5 text-[10px] font-bold text-white shadow-xs">
+                          {item.unread_count}
+                        </span>
                       )}
-                    >
-                      <RoomIcon order={isOrder} />
                     </span>
-                    <span className="min-w-0 flex-1">
-                      <span className="flex items-center justify-between gap-2">
-                        <span className="truncate text-[13.5px] font-semibold text-fg">
-                          {itemTitle}
-                        </span>
-                        {item.unread_count > 0 && (
-                          <span className="grid min-w-5 place-items-center rounded-full bg-iris px-1.5 py-0.5 text-[10px] font-bold text-white shadow-xs">
-                            {item.unread_count}
-                          </span>
+
+                    <div className="mt-0.5 flex items-center gap-1.5 text-[11px]">
+                      <span
+                        className={cn(
+                          "inline-flex items-center rounded-md px-1.5 py-0.5 font-medium tracking-tight",
+                          isOrder
+                            ? "bg-amber-500/15 text-amber-800"
+                            : "bg-indigo-500/15 text-iris-hi",
                         )}
+                      >
+                        {isOrder ? `${t("order")}` : t("preSale")}
                       </span>
-                      <div className="mt-1 flex flex-wrap items-center gap-1.5">
-                        <span
-                          className={cn(
-                            "inline-flex rounded px-1.5 py-0.5 text-[10px] font-semibold",
-                            isOrder ? "bg-warn-soft text-warn" : "bg-iris-soft text-iris-hi"
-                          )}
-                        >
-                          {contextLabel(item, locale)}
-                        </span>
-                        {itemIsSeller && item.product?.title && (
-                          <span className="truncate text-[11px] text-faint">
-                            · {item.counterpart.label}
-                          </span>
-                        )}
-                      </div>
-                      <span className="mt-1.5 block truncate text-[12px] text-muted">
-                        {item.last_message?.body ?? item.counterpart.label}
-                      </span>
+                      {itemIsSeller && item.product?.title && (
+                        <span className="truncate text-faint">· {item.counterpart.label}</span>
+                      )}
+                    </div>
+
+                    <span className="mt-1 block truncate text-[11.5px] leading-normal text-faint">
+                      {item.last_message?.body ?? item.counterpart.label}
                     </span>
                   </span>
                 </button>
@@ -190,114 +254,170 @@ export default function InboxWorkbench({ perspective, initialConversationId = nu
           </div>
         </aside>
 
-        <main className={cn("min-w-0 flex-col", selectedId ? "flex" : "hidden lg:flex")}>
+        {/* Center: Active Chat Stream */}
+        <main
+          className={cn(
+            "flex h-full flex-col overflow-hidden bg-surface",
+            selectedId ? "flex" : "hidden lg:flex",
+          )}
+        >
           {!selectedId ? (
-            <div className="grid flex-1 place-items-center bg-raised/45 p-8 text-center">
-              <div>
-                <MessageCircle size={34} className="mx-auto text-faint" />
-                <h2 className="mt-4 text-[16px] font-semibold">{t.choose}</h2>
-                <p className="mt-1 text-[13px] text-muted">{t.chooseHint}</p>
+            <div className="grid h-full flex-1 place-items-center bg-raised/30 p-6 text-center">
+              <div className="max-w-xs">
+                <div className="mx-auto grid h-12 w-12 place-items-center rounded-2xl bg-iris-soft text-iris shadow-xs">
+                  <MessageCircle size={24} />
+                </div>
+                <h2 className="mt-3.5 text-[15px] font-bold text-fg">{t("choose")}</h2>
+                <p className="mt-1 text-[12.5px] leading-relaxed text-faint">{t("chooseHint")}</p>
               </div>
             </div>
           ) : detail.isLoading ? (
-            <div className="grid flex-1 place-items-center">
-              <span className="sr-only">{t.loading}</span>
+            <div className="grid h-full flex-1 place-items-center">
               <Spinner />
             </div>
           ) : detail.isError || !room ? (
-            <div className="grid flex-1 place-items-center text-bad">{t.error}</div>
+            <div className="grid h-full flex-1 place-items-center text-bad font-medium">
+              {t("error")}
+            </div>
           ) : (
             <>
-              <header className="flex min-h-[69px] items-center gap-3 border-b border-line px-4 py-3 sm:px-5">
-                <button
-                  onClick={goBack}
-                  className="grid h-9 w-9 place-items-center rounded-lg text-muted hover:bg-raised lg:hidden"
-                  aria-label={t.back}
-                >
-                  <ChevronLeft size={18} />
-                </button>
-                <span
-                  className={cn(
-                    "grid h-9 w-9 shrink-0 place-items-center rounded-lg shadow-xs",
-                    roomIsOrder ? "bg-warn-soft text-warn" : "bg-iris-soft text-iris-hi"
-                  )}
-                >
-                  <RoomIcon order={roomIsOrder} size={16} />
-                </span>
-                <div className="min-w-0 flex-1">
-                  {room.product ? (
+              {/* Header */}
+              <header className="flex h-14 shrink-0 items-center justify-between gap-2 border-b border-line bg-surface/90 px-3 py-2 sm:px-4">
+                <div className="flex min-w-0 items-center gap-2.5">
+                  <button
+                    onClick={goBack}
+                    className="grid h-8 w-8 place-items-center rounded-lg text-faint hover:bg-raised lg:hidden"
+                    aria-label={t("back")}
+                    type="button"
+                  >
+                    <ChevronLeft size={17} />
+                  </button>
+
+                  <span
+                    className={cn(
+                      "grid h-8 w-8 shrink-0 place-items-center rounded-lg border",
+                      roomIsOrder
+                        ? "border-amber-500/30 bg-amber-500/10 text-amber-700"
+                        : "border-indigo-500/30 bg-indigo-500/10 text-iris",
+                    )}
+                  >
+                    <RoomIcon order={roomIsOrder} size={15} />
+                  </span>
+
+                  <div className="min-w-0 flex-1">
+                    <div className="flex items-center gap-2">
+                      {room.product ? (
+                        <Link
+                          href={`/products/${room.product.id}`}
+                          className="group inline-flex max-w-[280px] items-center gap-1 truncate text-[13.5px] font-bold text-fg transition-colors hover:text-iris sm:max-w-[420px]"
+                          title={t("viewProduct")}
+                        >
+                          <span className="truncate">{room.product.title}</span>
+                          <ExternalLink size={12} className="shrink-0 text-iris opacity-70 group-hover:opacity-100" />
+                        </Link>
+                      ) : (
+                        <h2 className="truncate text-[13.5px] font-bold text-fg">{title}</h2>
+                      )}
+                    </div>
+
+                    <div className="flex items-center gap-1.5 text-[11px] text-faint">
+                      {isSellerCounterpart ? (
+                        <Link
+                          href={`/sellers/${room.counterpart.id}`}
+                          className="font-medium text-iris hover:underline"
+                          title={t("viewSeller")}
+                        >
+                          {room.counterpart.label}
+                        </Link>
+                      ) : (
+                        <span>{room.counterpart.label}</span>
+                      )}
+                      <span>•</span>
+                      <span className="font-medium">{roomContext}</span>
+                    </div>
+                  </div>
+                </div>
+
+                {/* Header quick link */}
+                <div className="flex shrink-0 items-center gap-2">
+                  {room.product && (
                     <Link
                       href={`/products/${room.product.id}`}
-                      className="group inline-flex items-center gap-1 font-semibold text-[14px] text-fg hover:text-iris transition-colors truncate max-w-full"
-                      title="Xem chi tiết sản phẩm"
+                      className="hidden sm:inline-flex items-center gap-1 rounded-lg border border-line bg-raised/70 px-2.5 py-1 text-[11.5px] font-semibold text-fg hover:border-iris/40 hover:bg-iris-soft hover:text-iris transition-colors shadow-xs"
                     >
-                      <span className="truncate">{room.product.title}</span>
-                      <span className="text-[11px] text-iris font-mono opacity-80 group-hover:opacity-100 group-hover:translate-x-0.5 transition-all">
-                        ↗
-                      </span>
+                      <span>{t("viewProduct")}</span>
+                      <ExternalLink size={11} />
                     </Link>
-                  ) : (
-                    <h2 className="truncate text-[14px] font-semibold">{title}</h2>
                   )}
-                  <div className="flex flex-wrap items-center gap-1.5 text-[11.5px] text-muted">
-                    {isSellerCounterpart ? (
-                      <Link
-                        href={`/sellers/${room.counterpart.id}`}
-                        className="font-medium text-iris hover:underline inline-flex items-center gap-1"
-                        title="Xem trang người bán"
-                      >
-                        <span>{room.counterpart.label}</span>
-                        <span className="text-[10px]">↗</span>
-                      </Link>
-                    ) : (
-                      <span>{room.counterpart.label}</span>
-                    )}
-                    <span>•</span>
-                    <span>{roomContext}</span>
-                  </div>
+                  {roomIsOrder && room.order && (
+                    <Link
+                      href={orderHref}
+                      className="inline-flex items-center gap-1 rounded-lg border border-amber-500/30 bg-amber-500/10 px-2.5 py-1 text-[11.5px] font-semibold text-amber-800 hover:bg-amber-500/20 transition-colors shadow-xs"
+                    >
+                      <span>{t("viewOrder")}</span>
+                      <ExternalLink size={11} />
+                    </Link>
+                  )}
                 </div>
               </header>
 
+              {/* Order quick status strip */}
               {roomIsOrder && room.order && (
-                <div className="flex flex-wrap items-center gap-x-4 gap-y-1 border-b border-line bg-warn-soft/45 px-5 py-2.5 text-[11.5px]">
-                  <span className="font-semibold text-warn">{roomContext}</span>
-                  <span className="text-muted">{t.quantity}: {room.order.quantity}</span>
-                  <span className="text-muted">{t.total}: {formatCheckoutMoney(room.order.total_amount, { locale })}</span>
-                  <Link href={orderHref} className="ml-auto font-medium text-iris-hi hover:underline">
-                    {t.viewOrder} ↗
-                  </Link>
+                <div className="flex shrink-0 flex-wrap items-center justify-between gap-x-3 gap-y-1 border-b border-amber-500/20 bg-gradient-to-r from-amber-500/10 via-surface to-amber-500/5 px-3.5 py-1.5 text-[11.5px]">
+                  <div className="flex items-center gap-2">
+                    <span className="font-bold text-amber-800">
+                      {t("order")} #{room.order.id}
+                    </span>
+                    <span className="text-faint">·</span>
+                    <span className="text-faint">
+                      {t("quantity")}: <strong className="text-fg">{room.order.quantity}</strong>
+                    </span>
+                  </div>
+                  <div className="flex items-center gap-2">
+                    <span className="font-semibold text-good">
+                      {formatCheckoutMoney(room.order.total_amount, { locale })}
+                    </span>
+                  </div>
                 </div>
               )}
 
-              <div ref={timeline} className="flex-1 space-y-3 overflow-y-auto bg-raised/45 px-4 py-5 sm:px-6">
-                <div className="mx-auto max-w-[720px] rounded-lg border border-warn/20 bg-warn-soft px-3 py-2 text-[11.5px] leading-relaxed text-warn">
-                  {t.safety}
+              {/* Timeline message list */}
+              <div
+                ref={timeline}
+                className="flex-1 space-y-2 overflow-y-auto bg-base/40 p-3 sm:p-4"
+              >
+                {/* Compact safety notice */}
+                <div className="mx-auto flex max-w-[640px] items-center gap-2 rounded-xl border border-amber-500/25 bg-amber-500/10 px-3 py-1.5 text-[11px] font-medium text-amber-800 shadow-xs">
+                  <ShieldCheck size={14} className="shrink-0 text-amber-700" />
+                  <span className="leading-tight">{t("safety")}</span>
                 </div>
+
                 {room.messages.map((message) => {
                   const mine = message.sender_id === account.id;
                   return (
                     <div
                       key={message.id}
-                      className={cn("mx-auto flex max-w-[720px]", mine ? "justify-end" : "justify-start")}
+                      className={cn("mx-auto flex max-w-[640px]", mine ? "justify-end" : "justify-start")}
                     >
                       <div
                         className={cn(
-                          "max-w-[82%] whitespace-pre-wrap break-words rounded-xl px-3.5 py-2.5 text-[13px] leading-relaxed",
+                          "max-w-[82%] whitespace-pre-wrap break-words rounded-2xl px-3.5 py-2 text-[12.5px] leading-relaxed shadow-xs",
                           mine
-                            ? "rounded-br-sm bg-iris text-white shadow-xs"
-                            : "rounded-bl-sm border border-line bg-surface text-fg shadow-xs"
+                            ? "rounded-br-xs bg-gradient-to-br from-iris to-iris-hi text-white shadow-iris/15"
+                            : "rounded-bl-xs border border-line bg-surface text-fg",
                         )}
                       >
-                        <p>{message.body}</p>
+                        <p className="select-text">{message.body}</p>
                         <time
                           className={cn(
-                            "mt-1 block text-right text-[10px]",
-                            mine ? "text-white/65" : "text-faint"
+                            "mt-0.5 block text-right text-[10px]",
+                            mine ? "text-white/70" : "text-faint",
                           )}
                         >
-                          {new Intl.DateTimeFormat(locale, { hour: "2-digit", minute: "2-digit" }).format(
-                            new Date(message.created_at)
-                          )}
+                          {new Intl.DateTimeFormat(locale, {
+                            hour: "2-digit",
+                            minute: "2-digit",
+                          }).format(new Date(message.created_at))}
                         </time>
                       </div>
                     </div>
@@ -305,16 +425,17 @@ export default function InboxWorkbench({ perspective, initialConversationId = nu
                 })}
               </div>
 
-              <form onSubmit={submit} className="border-t border-line bg-surface p-3 sm:p-4">
+              {/* Input action toolbar */}
+              <form onSubmit={submit} className="shrink-0 border-t border-line bg-surface p-2 sm:p-3">
                 {!room.can_send && (
-                  <p className="mx-auto mb-2 max-w-[760px] rounded-lg border border-warn/20 bg-warn-soft px-3 py-2 text-[11.5px] text-warn">
-                    {room.read_only_reason ?? t.readOnly}
+                  <p className="mx-auto mb-2 max-w-[680px] rounded-lg border border-warn/25 bg-warn-soft px-3 py-1.5 text-[11px] text-warn">
+                    {room.read_only_reason ?? t("readOnly")}
                   </p>
                 )}
-                <div className="mx-auto flex max-w-[760px] items-end gap-2 rounded-xl border border-line bg-raised p-2 focus-within:border-iris">
+                <div className="mx-auto flex max-w-[680px] items-end gap-2 rounded-xl border border-line bg-raised/70 p-1.5 pl-3 transition-all focus-within:border-iris focus-within:bg-surface focus-within:ring-2 focus-within:ring-iris/15">
                   <textarea
                     name="message"
-                    aria-label={t.input}
+                    aria-label={t("input")}
                     value={draft}
                     onChange={(event) => setDraft(event.target.value)}
                     onKeyDown={(event) => {
@@ -325,96 +446,110 @@ export default function InboxWorkbench({ perspective, initialConversationId = nu
                     }}
                     rows={1}
                     maxLength={4000}
-                    placeholder={room.can_send ? t.input : (room.read_only_reason ?? t.readOnly)}
-                    className="max-h-32 min-h-10 flex-1 resize-none bg-transparent px-2 py-2 text-[13px] outline-none placeholder:text-faint"
+                    placeholder={room.can_send ? t("input") : (room.read_only_reason ?? t("readOnly"))}
+                    className="max-h-24 min-h-[34px] flex-1 resize-none bg-transparent py-1 text-[13px] outline-none placeholder:text-faint/70"
                     disabled={!room.can_send}
                   />
-                  <Button type="submit" disabled={!draft.trim() || send.isPending || !room.can_send}>
-                    {t.send}
+                  <Button
+                    type="submit"
+                    disabled={!draft.trim() || send.isPending || !room.can_send}
+                    className="h-8 rounded-lg px-3 py-1 text-[12px] font-semibold shadow-xs"
+                  >
+                    {send.isPending ? t("sending") : t("send")}
                   </Button>
                 </div>
                 {send.isError && (
-                  <p className="mx-auto mt-2 max-w-[760px] text-[11.5px] text-bad">{send.error.message}</p>
+                  <p className="mx-auto mt-1.5 max-w-[680px] text-[11px] text-bad">{send.error.message}</p>
                 )}
               </form>
             </>
           )}
         </main>
 
-        <aside className="hidden border-l border-line bg-raised/35 p-5 xl:block">
+        {/* Right Info Sidebar: Product & Order Context */}
+        <aside className="hidden flex-col overflow-y-auto border-l border-line bg-base/30 p-3.5 xl:flex">
           {room?.product ? (
-            <>
-              <ProductCover
-                coverId={parseCoverId(room.product)}
-                title={room.product.title}
-                className="h-11 w-11 rounded-xl"
-              />
-              <h3 className="mt-4 text-[11.5px] font-bold uppercase tracking-wider text-faint">
-                {roomIsOrder ? t.orderChat : t.product}
-              </h3>
-              
-              {/* Clickable product title */}
-              <Link
-                href={`/products/${room.product.id}`}
-                className="group mt-2 block text-[14px] font-semibold leading-snug text-fg hover:text-iris transition-colors"
-                title="Xem chi tiết sản phẩm"
-              >
-                <span>{room.product.title}</span>
-                <span className="ml-1 inline-block text-[12px] font-mono text-iris group-hover:translate-x-0.5 transition-transform">
-                  ↗
-                </span>
-              </Link>
+            <div className="space-y-3">
+              {/* Product preview card */}
+              <div className="rounded-xl border border-line bg-surface p-3 shadow-xs">
+                <div className="flex items-center gap-2.5">
+                  <ProductCover
+                    coverId={parseCoverId(room.product)}
+                    title={room.product.title}
+                    className="h-10 w-10 rounded-lg border-line"
+                  />
+                  <div className="min-w-0 flex-1">
+                    <span className="inline-block rounded bg-indigo-500/10 px-1.5 py-0.2 text-[9.5px] font-bold uppercase tracking-wider text-iris">
+                      {roomIsOrder ? t("orderChat") : t("product")}
+                    </span>
+                    <Link
+                      href={`/products/${room.product.id}`}
+                      className="group mt-0.5 block truncate text-[12.5px] font-bold text-fg hover:text-iris transition-colors"
+                      title={room.product.title}
+                    >
+                      <span>{room.product.title}</span>
+                    </Link>
+                  </div>
+                </div>
 
-              {/* Clickable seller shop name */}
-              <div className="mt-3.5 pt-3.5 border-t border-line/70">
-                <span className="text-[11px] font-medium uppercase tracking-wider text-faint block mb-1.5">
-                  {isSellerCounterpart ? "Người bán" : "Khách hàng"}
-                </span>
-                {isSellerCounterpart ? (
-                  <Link
-                    href={`/sellers/${room.counterpart.id}`}
-                    className="inline-flex items-center gap-1.5 rounded-lg border border-line bg-surface px-2.5 py-1.5 text-[12.5px] font-medium text-fg hover:border-iris hover:bg-iris-soft hover:text-iris transition-all shadow-xs"
-                    title="Xem trang người bán"
-                  >
-                    <span>{room.counterpart.label}</span>
-                    <span className="text-[10px] text-muted">↗</span>
-                  </Link>
-                ) : (
-                  <span className="inline-flex items-center gap-1.5 rounded-lg border border-line bg-surface px-2.5 py-1 text-[12px] font-medium text-muted">
-                    <span>{room.counterpart.label}</span>
+                <div className="mt-2.5 border-t border-line/70 pt-2 text-[11.5px]">
+                  <span className="text-[10px] font-bold uppercase tracking-wider text-faint">
+                    {isSellerCounterpart ? t("seller") : t("customer")}
                   </span>
-                )}
+                  <div className="mt-1 flex items-center justify-between">
+                    <span className="font-medium text-fg">{room.counterpart.label}</span>
+                    {isSellerCounterpart && (
+                      <Link
+                        href={`/sellers/${room.counterpart.id}`}
+                        className="inline-flex items-center gap-1 rounded-md bg-raised px-1.5 py-0.5 text-[10.5px] font-medium text-iris hover:bg-iris-soft transition-colors"
+                      >
+                        <span>{t("viewSeller")}</span>
+                        <ExternalLink size={9.5} />
+                      </Link>
+                    )}
+                  </div>
+                </div>
               </div>
 
+              {/* Order details summary card */}
               {roomIsOrder && room.order && (
-                <dl className="mt-4 space-y-2 border-t border-line pt-4 text-[12px]">
-                  <div className="flex justify-between gap-3">
-                    <dt className="text-muted">{t.order}</dt>
-                    <dd>
-                      <Link
-                        href={orderHref}
-                        className="font-mono font-semibold text-iris hover:underline"
-                        title="Xem chi tiết đơn hàng"
-                      >
-                        #{room.order.id} ↗
-                      </Link>
-                    </dd>
+                <div className="rounded-xl border border-amber-500/25 bg-amber-500/5 p-3 shadow-xs">
+                  <div className="flex items-center justify-between border-b border-amber-500/20 pb-2">
+                    <span className="text-[11px] font-bold uppercase tracking-wider text-amber-800">
+                      {t("order")} #{room.order.id}
+                    </span>
+                    <Link
+                      href={orderHref}
+                      className="inline-flex items-center gap-1 text-[11px] font-semibold text-iris hover:underline"
+                    >
+                      <span>{t("viewOrder")}</span>
+                      <ExternalLink size={10} />
+                    </Link>
                   </div>
-                  <div className="flex justify-between gap-3">
-                    <dt className="text-muted">{t.quantity}</dt>
-                    <dd className="font-medium">{room.order.quantity}</dd>
-                  </div>
-                  <div className="flex justify-between gap-3">
-                    <dt className="text-muted">{t.total}</dt>
-                    <dd className="font-mono font-semibold text-iris-hi">
-                      {formatCheckoutMoney(room.order.total_amount, { locale })}
-                    </dd>
-                  </div>
-                </dl>
+
+                  <dl className="mt-2 space-y-1.5 text-[11.5px]">
+                    <div className="flex justify-between">
+                      <dt className="text-faint">{t("quantity")}</dt>
+                      <dd className="font-semibold text-fg">{room.order.quantity}</dd>
+                    </div>
+                    <div className="flex justify-between">
+                      <dt className="text-faint">{t("total")}</dt>
+                      <dd className="font-mono font-bold text-good">
+                        {formatCheckoutMoney(room.order.total_amount, { locale })}
+                      </dd>
+                    </div>
+                  </dl>
+                </div>
               )}
-            </>
+
+              {/* Safe Escrow badge */}
+              <div className="rounded-xl border border-line bg-surface/70 p-2.5 text-[11px] text-faint flex items-start gap-2">
+                <ShieldCheck size={15} className="text-good shrink-0 mt-0.5" />
+                <span className="leading-snug">Proxora Escrow protected. All transactions and chats are recorded safely.</span>
+              </div>
+            </div>
           ) : (
-            <p className="text-[12px] text-muted">{t.chooseHint}</p>
+            <p className="text-[11.5px] text-faint">{t("chooseHint")}</p>
           )}
         </aside>
       </section>

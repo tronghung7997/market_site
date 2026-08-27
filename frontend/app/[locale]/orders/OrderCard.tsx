@@ -89,7 +89,7 @@ export default function OrderCard({
 
         {st.hint && <p className="text-[12px] text-muted mt-2.5">{st.hint}</p>}
 
-        {!['cancelled', 'refunded'].includes(o.status) && <div className="mt-3"><OrderChatButton orderId={o.id} perspective="buyer" /></div>}
+        {!['cancelled', 'refunded'].includes(o.status) && <div className="mt-3"><OrderChatButton orderId={o.id} /></div>}
 
         {o.has_dispute && <OrderDispute orderId={o.id} />}
 

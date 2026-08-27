@@ -1,28 +1,24 @@
 "use client";
 
-import { useLocale } from "next-intl";
+import { useTranslations } from "next-intl";
 import { Link } from "@/i18n/navigation";
+import { useAuth } from "@/lib/auth";
+import { INBOX_HREF, unreadTotal } from "@/lib/chat-inbox";
 import { useChatConversations } from "@/hooks/use-chat";
+import { useChatEvents } from "@/hooks/use-chat-events";
 import { MessageCircle } from "@/components/Icons";
 
-export default function MessageShortcut({
-  perspective,
-  href,
-}: {
-  perspective: "buyer" | "seller";
-  href: "/messages" | "/seller/messages";
-}) {
-  const locale = useLocale();
-  const conversations = useChatConversations(perspective);
-  const unread = (conversations.data?.items ?? []).reduce(
-    (total, room) => total + room.unread_count,
-    0,
-  );
-  const label = locale === "vi" ? "Tin nhắn" : "Messages";
+export default function MessageShortcut() {
+  const t = useTranslations("nav");
+  const { account } = useAuth();
+  const conversations = useChatConversations(!!account);
+  useChatEvents(!!account);
+  const unread = unreadTotal(conversations.data?.items);
+  const label = t("messages");
 
   return (
     <Link
-      href={href}
+      href={INBOX_HREF}
       aria-label={unread > 0 ? `${label}: ${unread}` : label}
       title={label}
       className="relative grid h-9 w-9 shrink-0 place-items-center rounded-lg border border-line bg-surface text-muted transition-colors hover:border-line-2 hover:text-fg"

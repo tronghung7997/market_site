@@ -126,6 +126,17 @@ function passthroughUpstream(upstream: Response, extra?: (response: NextResponse
   for (const name of ["set-cookie", "content-length", "connection", "content-encoding", "transfer-encoding", "server"]) {
     responseHeaders.delete(name);
   }
+  const contentType = (upstream.headers.get("content-type") || "").toLowerCase();
+  if (contentType.includes("text/event-stream")) {
+    responseHeaders.set("Content-Type", "text/event-stream");
+    responseHeaders.set("Cache-Control", "no-cache, no-transform");
+    responseHeaders.set("X-Accel-Buffering", "no");
+    responseHeaders.set("Connection", "keep-alive");
+    return new Response(upstream.body, {
+      status: upstream.status,
+      headers: responseHeaders,
+    });
+  }
   responseHeaders.set("Cache-Control", "no-store");
   const response = new NextResponse(upstream.body, {
     status: upstream.status,
@@ -245,6 +256,9 @@ async function handler(request: NextRequest, context: RouteContext) {
   const { path } = await context.params;
   return proxy(request, path);
 }
+
+export const runtime = "nodejs";
+export const dynamic = "force-dynamic";
 
 export const GET = handler;
 export const POST = handler;

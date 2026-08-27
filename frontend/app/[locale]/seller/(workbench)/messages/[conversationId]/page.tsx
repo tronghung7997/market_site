@@ -1,6 +1,10 @@
-import InboxWorkbench from "@/components/chat/InboxWorkbench";
+import { redirect } from "@/i18n/navigation";
 
-export default async function SellerConversationPage({ params }: { params: Promise<{ conversationId: string }> }) {
-  const { conversationId } = await params;
-  return <InboxWorkbench perspective="seller" initialConversationId={conversationId} />;
+export default async function SellerConversationRedirect({
+  params,
+}: {
+  params: Promise<{ locale: string; conversationId: string }>;
+}) {
+  const { locale, conversationId } = await params;
+  redirect({ href: `/messages/${conversationId}`, locale: locale as "en" | "vi" });
 }

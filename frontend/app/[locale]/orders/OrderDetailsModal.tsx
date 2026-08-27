@@ -202,7 +202,7 @@ export default function OrderDetailsModal({
                   <>
                     <span>•</span>
                     <span className="font-medium text-fg bg-raised px-2 py-0.5 rounded-md border border-line">
-                      Gói: {o.variant_name}
+                      {t("packageNamed", { name: o.variant_name })}
                     </span>
                   </>
                 )}
@@ -214,46 +214,48 @@ export default function OrderDetailsModal({
         {/* Quick Highlights Banner */}
         <div className="grid grid-cols-2 gap-3 sm:grid-cols-4 rounded-xl border border-line bg-raised/40 p-3 text-center">
           <div>
-            <div className="text-[10.5px] uppercase tracking-wider text-muted font-medium">Số lượng bàn giao</div>
+            <div className="text-[10.5px] uppercase tracking-wider text-muted font-medium">{t("qtyDelivered")}</div>
             <div className="font-mono text-[16px] font-bold text-iris mt-0.5">
-              x{o.quantity.toLocaleString()} {items.length > 0 ? `(${items.length} dòng)` : ""}
+              {items.length > 0
+                ? t("qtyWithLines", { count: o.quantity.toLocaleString(), lines: items.length })
+                : `x${o.quantity.toLocaleString()}`}
             </div>
           </div>
 
           <div>
-            <div className="text-[10.5px] uppercase tracking-wider text-muted font-medium">Thanh toán</div>
+            <div className="text-[10.5px] uppercase tracking-wider text-muted font-medium">{t("payment")}</div>
             <div className="font-mono text-[16px] font-bold text-fg mt-0.5 tabular">
               {money.text}
             </div>
           </div>
 
           <div>
-            <div className="text-[10.5px] uppercase tracking-wider text-muted font-medium">Bảo hiểm Escrow</div>
+            <div className="text-[10.5px] uppercase tracking-wider text-muted font-medium">{t("escrowInsurance")}</div>
             <div className="text-[12px] font-medium text-good flex items-center justify-center gap-1 mt-1">
               <ShieldCheck size={14} className="text-good" />
               <span>
                 {o.escrow_expires_at
                   ? t("escrowUntil", { date: formatDate(o.escrow_expires_at, locale) })
-                  : "Bảo hiểm tự động"}
+                  : t("escrowAuto")}
               </span>
             </div>
           </div>
 
           <div>
-            <div className="text-[10.5px] uppercase tracking-wider text-muted font-medium">Khiếu nại sản phẩm</div>
+            <div className="text-[10.5px] uppercase tracking-wider text-muted font-medium">{t("disputeProduct")}</div>
             {canDispute && (
               <button
                 onClick={() => {
                   onOpenDispute(o.id, {
                     variantName: o.variant_name,
-                    initialReason: o.variant_name ? `[Khiếu nại gói: ${o.variant_name}] ` : "",
-                    initialEvidence: { issue: "Gặp sự cố với gói sản phẩm này..." },
+                    initialReason: o.variant_name ? t("reasonPackagePrefix", { name: o.variant_name }) : "",
+                    initialEvidence: { issue: t("evidenceIssuePackage") },
                   });
                 }}
                 className="mt-1 inline-flex items-center gap-1 text-[11.5px] font-semibold text-bad hover:underline cursor-pointer"
               >
                 <AlertTriangle size={12} />
-                {o.variant_name ? `Khiếu nại gói này` : `Khiếu nại đơn`}
+                {o.variant_name ? t("disputeThisPackage") : t("disputeThisOrder")}
               </button>
             )}
           </div>
@@ -270,7 +272,7 @@ export default function OrderDetailsModal({
             }`}
           >
             <Layers size={14} />
-            <span>Dữ liệu bàn giao {items.length > 0 ? `(${items.length})` : ""}</span>
+            <span>{items.length > 0 ? t("tabDeliveryData", { count: items.length }) : t("tabDeliveryDataEmpty")}</span>
           </button>
 
           {mayHaveProxy && (
@@ -283,7 +285,7 @@ export default function OrderDetailsModal({
               }`}
             >
               <Activity size={14} />
-              <span>Quản lý Proxy / Đổi IP</span>
+              <span>{t("tabProxy")}</span>
             </button>
           )}
 
@@ -296,7 +298,7 @@ export default function OrderDetailsModal({
             }`}
           >
             <Shield size={14} />
-            <span>Bảo hành & Tranh chấp {o.has_dispute ? "⚠️" : ""}</span>
+            <span>{t("tabEscrow")} {o.has_dispute ? "⚠️" : ""}</span>
           </button>
 
           <button
@@ -308,7 +310,7 @@ export default function OrderDetailsModal({
             }`}
           >
             <Star size={14} />
-            <span>Đánh giá</span>
+            <span>{t("tabReview")}</span>
           </button>
         </div>
 
@@ -328,7 +330,7 @@ export default function OrderDetailsModal({
                         setItemSearch(e.target.value);
                         setItemPage(1);
                       }}
-                      placeholder={`Tìm kiếm trong ${items.length.toLocaleString()} tài khoản (email, uid, key)...`}
+                      placeholder={t("searchAccounts", { count: items.length.toLocaleString() })}
                       className="w-full rounded-xl border border-line bg-canvas pl-8.5 pr-3 py-2 text-[12.5px] text-fg placeholder:text-faint focus:border-iris focus:outline-none"
                     />
                   </div>
@@ -339,14 +341,14 @@ export default function OrderDetailsModal({
                       className="inline-flex items-center gap-1.5 rounded-xl bg-iris px-3.5 py-2 text-[12px] font-semibold text-white shadow-sm hover:bg-iris/90 transition-colors cursor-pointer"
                     >
                       {copiedKey === "all" ? <Check size={14} /> : <Copy size={14} />}
-                      {copiedKey === "all" ? "Đã sao chép tất cả!" : `Sao chép tất cả (${items.length})`}
+                      {copiedKey === "all" ? t("copiedAll") : t("copyAllCount", { count: items.length })}
                     </button>
 
                     <button
                       onClick={handleDownload}
                       className="inline-flex items-center gap-1.5 rounded-xl border border-line bg-surface px-3.5 py-2 text-[12px] font-semibold text-fg hover:bg-raised transition-colors cursor-pointer"
                     >
-                      <Download size={14} /> Tải file .TXT
+                      <Download size={14} /> {t("downloadTxt")}
                     </button>
                   </div>
                 </div>
@@ -378,18 +380,18 @@ export default function OrderDetailsModal({
                           {/* Dedicated Dispute Button for This Specific Item / Variant */}
                           {canDispute && (
                             <button
-                              title="Khiếu nại riêng mục này"
+                              title={t("disputeThisItem")}
                               onClick={() => {
                                 onOpenDispute(o.id, {
                                   variantName: o.variant_name,
-                                  initialReason: `[Mục #${globalIdx}] Khiếu nại tài khoản: ${item.raw}`,
-                                  initialEvidence: { username: item.user || item.raw, issue: "Tài khoản bị lỗi / sai thông tin" },
+                                  initialReason: t("reasonItemPrefix", { n: globalIdx, raw: item.raw }),
+                                  initialEvidence: { username: item.user || item.raw, issue: t("evidenceIssueItem") },
                                 });
                               }}
                               className="opacity-0 group-hover:opacity-100 rounded-lg px-2 py-1 text-[11px] text-bad hover:bg-bad-soft transition-opacity cursor-pointer flex items-center gap-1"
                             >
                               <AlertTriangle size={11} />
-                              <span>Lỗi</span>
+                              <span>{t("itemIssue")}</span>
                             </button>
                           )}
 
@@ -401,7 +403,7 @@ export default function OrderDetailsModal({
                                 : "bg-surface border border-line text-iris hover:bg-iris hover:text-white"
                             }`}
                           >
-                            {isCopied ? "Đã copy" : "Copy"}
+                            {isCopied ? t("copiedShort") : tc("copy")}
                           </button>
                         </div>
                       </div>
@@ -412,9 +414,11 @@ export default function OrderDetailsModal({
                 {/* Pagination Controls */}
                 <div className="flex items-center justify-between text-[12px] text-muted pt-1">
                   <span>
-                    Hiển thị <span className="font-semibold text-fg">{(itemPage - 1) * itemsPerPage + 1}</span> -{" "}
-                    <span className="font-semibold text-fg">{Math.min(itemPage * itemsPerPage, filteredItems.length)}</span> /{" "}
-                    <span className="font-bold text-iris">{filteredItems.length.toLocaleString()}</span> mục
+                    {t("showingItems", {
+                      from: (itemPage - 1) * itemsPerPage + 1,
+                      to: Math.min(itemPage * itemsPerPage, filteredItems.length),
+                      total: filteredItems.length.toLocaleString(),
+                    })}
                   </span>
 
                   <div className="flex items-center gap-1">
@@ -440,7 +444,7 @@ export default function OrderDetailsModal({
               </>
             ) : (
               <div className="rounded-xl border border-dashed border-line p-8 text-center text-muted">
-                <p className="text-[13px]">{st.hint || "Chưa có dữ liệu bàn giao cho đơn hàng này."}</p>
+                <p className="text-[13px]">{st.hint || t("noDeliveryData")}</p>
               </div>
             )}
 
@@ -469,7 +473,7 @@ export default function OrderDetailsModal({
             {/* Timeline */}
             {!["disputed", "refunded", "cancelled"].includes(o.status) && (
               <div className="rounded-xl bg-raised/60 border border-line/70 p-4">
-                <div className="text-[12px] font-semibold text-fg mb-2">Tiến trình đơn hàng:</div>
+                <div className="text-[12px] font-semibold text-fg mb-2">{t("orderProgress")}</div>
                 <StatusTimeline status={o.status} />
               </div>
             )}
@@ -479,12 +483,12 @@ export default function OrderDetailsModal({
               <div className="rounded-xl border border-iris/30 bg-iris-soft/25 p-4 space-y-2.5">
                 <div className="flex items-center justify-between">
                   <div className="font-semibold text-fg text-[13.5px]">
-                    Xác nhận nhận hàng & Giải phóng tiền
+                    {t("confirmReceivedTitle")}
                   </div>
                   <ShieldCheck size={18} className="text-good" />
                 </div>
                 <p className="text-[12px] text-muted">
-                  Nếu bạn đã kiểm tra sản phẩm và hài lòng, bạn có thể bấm xác nhận để hệ thống giải phóng tiền sớm cho người bán.
+                  {t("confirmReceivedHint")}
                 </p>
                 {askConfirm ? (
                   <div className="rounded-lg border border-warn/30 bg-warn-soft p-3 space-y-2 mt-2">
@@ -500,7 +504,7 @@ export default function OrderDetailsModal({
                   </div>
                 ) : (
                   <Button size="sm" variant="secondary" onClick={() => setAskConfirm(true)}>
-                    Xác nhận đã nhận hàng
+                    {t("confirmReceived")}
                   </Button>
                 )}
               </div>
@@ -516,11 +520,11 @@ export default function OrderDetailsModal({
             {!o.has_dispute && canDispute && (
               <div className="rounded-xl border border-line bg-surface p-4 flex items-center justify-between">
                 <div>
-                  <div className="text-[13px] font-semibold text-fg">Gặp sự cố với đơn hàng?</div>
+                  <div className="text-[13px] font-semibold text-fg">{t("disputeTroubleTitle")}</div>
                   <div className="text-[11.5px] text-muted">
                     {o.variant_name
-                      ? `Bạn có thể gửi yêu cầu khiếu nại cho gói "${o.variant_name}" để Admin hỗ trợ hoàn tiền hoặc đổi sản phẩm.`
-                      : "Bạn có thể gửi yêu cầu khiếu nại để Admin hỗ trợ hoàn tiền hoặc đổi sản phẩm."}
+                      ? t("disputeTroublePackage", { name: o.variant_name })
+                      : t("disputeTroubleOrder")}
                   </div>
                 </div>
                 <Button
@@ -529,13 +533,13 @@ export default function OrderDetailsModal({
                   onClick={() => {
                     onOpenDispute(o.id, {
                       variantName: o.variant_name,
-                      initialReason: o.variant_name ? `[Khiếu nại gói: ${o.variant_name}] ` : "",
-                      initialEvidence: { issue: "Gặp sự cố với gói sản phẩm này..." },
+                      initialReason: o.variant_name ? t("reasonPackagePrefix", { name: o.variant_name }) : "",
+                      initialEvidence: { issue: t("evidenceIssuePackage") },
                     });
                   }}
                 >
                   <AlertTriangle size={13} className="mr-1" />
-                  Khiếu nại {o.variant_name ? `gói này` : `đơn hàng`}
+                  {o.variant_name ? t("disputeThisPackage") : t("disputeThisOrder")}
                 </Button>
               </div>
             )}
@@ -547,7 +551,7 @@ export default function OrderDetailsModal({
           <div className="space-y-4 pt-1">
             <div className="rounded-xl border border-line bg-surface p-4 space-y-3">
               <div className="flex items-center justify-between">
-                <span className="font-semibold text-fg text-[13.5px]">Đánh giá người bán</span>
+                <span className="font-semibold text-fg text-[13.5px]">{t("reviewSeller")}</span>
                 <Star size={16} className="text-amber-500 fill-amber-500" />
               </div>
               <ReviewForm
@@ -562,10 +566,10 @@ export default function OrderDetailsModal({
             {!["cancelled", "refunded"].includes(o.status) && (
               <div className="rounded-xl border border-line bg-surface p-4 flex items-center justify-between">
                 <div>
-                  <div className="text-[13px] font-semibold text-fg">Trò chuyện với người bán</div>
-                  <div className="text-[11.5px] text-muted">Nhắn tin trực tiếp để trao đổi bảo hành hoặc hỗ trợ kỹ thuật.</div>
+                  <div className="text-[13px] font-semibold text-fg">{t("chatSellerTitle")}</div>
+                  <div className="text-[11.5px] text-muted">{t("chatSellerHint")}</div>
                 </div>
-                <OrderChatButton orderId={o.id} perspective="buyer" />
+                <OrderChatButton orderId={o.id} />
               </div>
             )}
           </div>
@@ -574,12 +578,12 @@ export default function OrderDetailsModal({
         {/* Modal Footer */}
         <div className="flex items-center justify-between pt-3 border-t border-line">
           {!["cancelled", "refunded"].includes(o.status) && (
-            <OrderChatButton orderId={o.id} perspective="buyer" />
+            <OrderChatButton orderId={o.id} />
           )}
 
           <div className="flex items-center gap-2 ml-auto">
             <Button variant="secondary" size="md" onClick={onClose}>
-              {tc("close") || "Đóng"}
+              {tc("close")}
             </Button>
           </div>
         </div>

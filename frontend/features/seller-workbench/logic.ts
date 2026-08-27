@@ -23,6 +23,83 @@ export interface WorkbenchVariant {
   is_active?: boolean;
 }
 
+/** Local draft packages on /seller/products/new before they exist on the server. */
+export interface NewProductPackageDraft {
+  clientId: string;
+  serverId: number | null;
+  names: Record<ProductLocale, string>;
+  price: number;
+  slaHours: number;
+  stockText: string;
+  uploadedFileName: string | null;
+  committedStock: number;
+  autoDedupe: boolean;
+}
+
+const EMPTY_PACKAGE_NAMES: Record<ProductLocale, string> = { vi: "", en: "" };
+
+export function createNewProductPackageDraft(
+  overrides: Partial<NewProductPackageDraft> = {},
+): NewProductPackageDraft {
+  return {
+    clientId: overrides.clientId ?? `pkg-${Math.random().toString(36).slice(2, 10)}`,
+    serverId: overrides.serverId ?? null,
+    names: { ...EMPTY_PACKAGE_NAMES, ...overrides.names },
+    price: overrides.price ?? 0,
+    slaHours: overrides.slaHours ?? 24,
+    stockText: overrides.stockText ?? "",
+    uploadedFileName: overrides.uploadedFileName ?? null,
+    committedStock: overrides.committedStock ?? 0,
+    autoDedupe: overrides.autoDedupe ?? true,
+  };
+}
+
+export function namedNewProductPackages(
+  packages: readonly NewProductPackageDraft[],
+  primaryLocale: ProductLocale,
+): NewProductPackageDraft[] {
+  return packages.filter((pkg) => pkg.names[primaryLocale].trim());
+}
+
+export function patchNewProductPackage(
+  packages: readonly NewProductPackageDraft[],
+  clientId: string,
+  patch: Partial<Omit<NewProductPackageDraft, "names">> & {
+    names?: Partial<Record<ProductLocale, string>>;
+  },
+): NewProductPackageDraft[] {
+  return packages.map((pkg) => {
+    if (pkg.clientId !== clientId) return pkg;
+    return {
+      ...pkg,
+      ...patch,
+      names: patch.names ? { ...pkg.names, ...patch.names } : pkg.names,
+    };
+  });
+}
+
+export function toWorkbenchVariantsFromDrafts(
+  packages: readonly NewProductPackageDraft[],
+  params: {
+    contentLocale: ProductLocale;
+    primaryLocale: ProductLocale;
+    deliveryMode: "instant" | "manual";
+    pendingStockByClientId: Readonly<Record<string, number>>;
+  },
+): WorkbenchVariant[] {
+  return namedNewProductPackages(packages, params.primaryLocale).map((pkg) => ({
+    id: pkg.serverId ?? undefined,
+    name: pkg.names[params.contentLocale].trim() || pkg.names[params.primaryLocale].trim(),
+    price: pkg.price,
+    delivery_mode: params.deliveryMode,
+    stock_count: params.deliveryMode === "instant"
+      ? pkg.committedStock + (params.pendingStockByClientId[pkg.clientId] ?? 0)
+      : 0,
+    sla_hours: pkg.slaHours,
+    is_active: true,
+  }));
+}
+
 export interface B1ConfigState {
   basePrice: number;
   types: { key: string; label: string; mult: number }[];

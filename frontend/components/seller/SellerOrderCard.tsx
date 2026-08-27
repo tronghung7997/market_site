@@ -92,7 +92,7 @@ export default function SellerOrderCard({
 
         {sellerHint && <p className="text-[12px] text-muted mt-2.5">{sellerHint}</p>}
 
-        {!['cancelled', 'refunded'].includes(o.status) && <div className="mt-3"><OrderChatButton orderId={o.id} perspective="seller" /></div>}
+        {!['cancelled', 'refunded'].includes(o.status) && <div className="mt-3"><OrderChatButton orderId={o.id} /></div>}
 
         {o.status === "disputed" && <OrderDispute orderId={o.id} initialDispute={dispute} />}
 

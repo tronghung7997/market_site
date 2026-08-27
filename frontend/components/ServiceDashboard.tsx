@@ -1,7 +1,7 @@
 "use client";
 
 import Link from "next/link";
-import { useLocale } from "next-intl";
+import { useLocale, useTranslations } from "next-intl";
 import { useEffect, useState } from "react";
 import { api, ApiError } from "@/lib/api";
 import type { DashboardData, DashboardResource, DashboardTask, GatewayCallLogItem, UsageRecordItem } from "@/lib/types";
@@ -22,11 +22,11 @@ function fmtDate(iso: string, locale = "vi") {
   return new Date(iso).toLocaleString(locale === "en" ? "en-US" : "vi-VN");
 }
 
-function daysRemaining(expiresAt: string | null): string {
-  if (!expiresAt) return "Vĩnh viễn";
+function daysRemaining(expiresAt: string | null, t: (key: "forever" | "expired" | "daysLeft", values?: { count: number }) => string): string {
+  if (!expiresAt) return t("forever");
   const ms = new Date(expiresAt).getTime() - Date.now();
-  if (ms <= 0) return "Hết hạn";
-  return `${Math.ceil(ms / 86400000)} ngày`;
+  if (ms <= 0) return t("expired");
+  return t("daysLeft", { count: Math.ceil(ms / 86400000) });
 }
 
 function StatCard({ label, value, sub }: { label: string; value: string | number; sub?: string }) {
@@ -40,7 +40,8 @@ function StatCard({ label, value, sub }: { label: string; value: string | number
 }
 
 function CopyButton({ text, label }: { text: string; label?: string }) {
-  const locale = useLocale();
+  const t = useTranslations("orders");
+  const tc = useTranslations("common");
   const [copied, setCopied] = useState(false);
   const handleCopy = () => {
     copyToClipboard(text);
@@ -52,7 +53,7 @@ function CopyButton({ text, label }: { text: string; label?: string }) {
       onClick={handleCopy}
       className="inline-flex items-center gap-1.5 px-2.5 py-1 text-[12px] font-medium rounded-md bg-raised border border-line hover:border-line-2 transition-colors"
     >
-      {copied ? (locale === "en" ? "Copied!" : "Đã sao chép!") : label ?? (locale === "en" ? "Copy" : "Sao chép")}
+      {copied ? t("copiedExclaim") : label ?? tc("copy")}
     </button>
   );
 }
@@ -66,7 +67,7 @@ function maskSecret(value: string): string {
  *  nguyên nó trong URL dòng dưới thì việc che chỉ là hình thức. Nút Sao chép
  *  vẫn đưa bản đầy đủ nên buyer không mất gì. */
 function MaskedValue({ value, display, copyValue }: { value: string; display?: string; copyValue?: string }) {
-  const locale = useLocale();
+  const tc = useTranslations("common");
   const [visible, setVisible] = useState(false);
   const masked = display ?? maskSecret(value);
   return (
@@ -76,7 +77,7 @@ function MaskedValue({ value, display, copyValue }: { value: string; display?: s
         onClick={() => setVisible((v) => !v)}
         className="text-[11px] text-iris-hi hover:underline"
       >
-        {visible ? (locale === "en" ? "Hide" : "Ẩn") : (locale === "en" ? "Show" : "Hiện")}
+        {visible ? tc("hide") : tc("show")}
       </button>
       <CopyButton text={copyValue ?? value} />
     </span>
@@ -88,18 +89,23 @@ function MaskedValue({ value, display, copyValue }: { value: string; display?: s
 // Trạng thái đến từ HAI nguồn: bảng `resources` (đơn kiểu cũ) và
 // `proxy_allocations` (đơn mua qua adapter). Gộp nhãn về một chỗ để dashboard
 // không hiện ra mã máy như "allocated"/"offline".
-const PROXY_STATUS: Record<string, { label: string; tone: "good" | "warn" | "bad" | "neutral" }> = {
-  assigned: { label: "Hoạt động", tone: "good" },
-  available: { label: "Sẵn sàng", tone: "neutral" },
-  allocated: { label: "Hoạt động", tone: "good" },
-  offline: { label: "Tạm ngoại tuyến", tone: "warn" },
-  expired: { label: "Hết hạn", tone: "warn" },
-  released: { label: "Đã thu hồi", tone: "neutral" },
-  error: { label: "Lỗi", tone: "bad" },
-};
 const PROXY_ACTIVE_STATUSES = new Set(["assigned", "available", "allocated"]);
 
+function proxyStatusMeta(status: string, t: ReturnType<typeof useTranslations<"orders">>) {
+  const map: Record<string, { label: string; tone: "good" | "warn" | "bad" | "neutral" }> = {
+    assigned: { label: t("activeStatus"), tone: "good" },
+    available: { label: t("readyStatus"), tone: "neutral" },
+    allocated: { label: t("activeStatus"), tone: "good" },
+    offline: { label: t("offlineStatus"), tone: "warn" },
+    expired: { label: t("expiredStatus"), tone: "warn" },
+    released: { label: t("releasedStatus"), tone: "neutral" },
+    error: { label: t("errorStatus"), tone: "bad" },
+  };
+  return map[status] ?? { label: status, tone: "neutral" as const };
+}
+
 function ProxyDashboard({ data }: { data: DashboardData }) {
+  const t = useTranslations("orders");
   const resources = data.resources ?? [];
   const activeCount = resources.filter((r) => PROXY_ACTIVE_STATUSES.has(r.status)).length;
 
@@ -111,9 +117,9 @@ function ProxyDashboard({ data }: { data: DashboardData }) {
   return (
     <div className="space-y-4">
       <div className="grid grid-cols-2 sm:grid-cols-3 gap-3">
-        <StatCard label="Trạng thái" value={data.status === "delivered" ? "Hoạt động" : data.status} />
-        <StatCard label="Còn lại" value={daysRemaining(expiringResource?.expires_at ?? null)} />
-        <StatCard label="Số IP" value={resources.length} sub={`${activeCount} hoạt động`} />
+        <StatCard label={t("statusLabel")} value={data.status === "delivered" ? t("activeStatus") : data.status} />
+        <StatCard label={t("remaining")} value={daysRemaining(expiringResource?.expires_at ?? null, t)} />
+        <StatCard label={t("ipCount")} value={resources.length} sub={t("activeCount", { count: activeCount })} />
         {/* Ô "Uptime 99.9% / 30 ngày qua" đã bị bỏ: đó là chuỗi hardcode, không
             hề đo đạc gì — một con số bịa đặt hiển thị như dữ liệu thật. Không
             có nguồn uptime nào ở backend thì đừng hứa với buyer. */}
@@ -121,7 +127,7 @@ function ProxyDashboard({ data }: { data: DashboardData }) {
 
       {resources.length > 0 && (
         <div>
-          <h4 className="text-[12.5px] font-medium text-muted mb-2">Danh sách IP / Proxy</h4>
+          <h4 className="text-[12.5px] font-medium text-muted mb-2">{t("ipList")}</h4>
           <div className="space-y-1.5">
             {resources.map((r) => (
               <ResourceRow key={r.id} resource={r} />
@@ -136,7 +142,7 @@ function ProxyDashboard({ data }: { data: DashboardData }) {
         <div className="flex gap-2">
           <CopyButton
             text={resources.filter((r) => r.data).map((r) => r.data).join("\n")}
-            label="Sao chép tất cả"
+            label={t("copyAll")}
           />
         </div>
       )}
@@ -145,7 +151,8 @@ function ProxyDashboard({ data }: { data: DashboardData }) {
 }
 
 function ResourceRow({ resource }: { resource: DashboardResource }) {
-  const { label, tone } = PROXY_STATUS[resource.status] ?? { label: resource.status, tone: "neutral" as const };
+  const t = useTranslations("orders");
+  const { label, tone } = proxyStatusMeta(resource.status, t);
   // `data` có thể rỗng: binding key xoay chỉ mang IP hiện hành (và chưa có IP
   // nào trước lần lấy proxy đầu tiên). MaskedValue giả định chuỗi khác rỗng —
   // đưa undefined/"" vào là nổ ngay khi render.
@@ -158,7 +165,7 @@ function ResourceRow({ resource }: { resource: DashboardResource }) {
   return (
     <div className="flex items-center gap-3 text-[12.5px] px-3 py-2 rounded-lg bg-surface border border-line">
       {!resource.data ? (
-        <span className="font-mono text-faint">Chưa có IP — bấm “Lấy proxy mới”</span>
+        <span className="font-mono text-faint">{t("noIpYet")}</span>
       ) : isCredential ? (
         <MaskedValue value={resource.data} />
       ) : (
@@ -168,18 +175,21 @@ function ResourceRow({ resource }: { resource: DashboardResource }) {
         </span>
       )}
       <Tag tone={tone}>{label}</Tag>
-      <span className="ml-auto text-muted text-[11px]">{daysRemaining(resource.expires_at)}</span>
+      <span className="ml-auto text-muted text-[11px]">{daysRemaining(resource.expires_at, t)}</span>
     </div>
   );
 }
 
 /* ── Endpoint Dashboard ── */
 
-const USAGE_STATUS_MAP: Record<string, { label: string; tone: "good" | "bad" | "warn" }> = {
-  ok: { label: "Thành công", tone: "good" },
-  rejected_quota: { label: "Hết credit", tone: "bad" },
-  rejected_expired: { label: "Hết hạn", tone: "warn" },
-};
+function usageStatusMeta(status: string, t: ReturnType<typeof useTranslations<"orders">>) {
+  const map: Record<string, { label: string; tone: "good" | "bad" | "warn" }> = {
+    ok: { label: t("usageOk"), tone: "good" },
+    rejected_quota: { label: t("usageRejectedQuota"), tone: "bad" },
+    rejected_expired: { label: t("usageRejectedExpired"), tone: "warn" },
+  };
+  return map[status] ?? { label: status, tone: "neutral" as const };
+}
 
 function UsageProgressBar({ used, total }: { used: number; total: number }) {
   const pct = total > 0 ? Math.min(100, Math.round((used / total) * 100)) : 0;
@@ -192,7 +202,8 @@ function UsageProgressBar({ used, total }: { used: number; total: number }) {
 }
 
 function UsageRecordRow({ record }: { record: UsageRecordItem }) {
-  const st = USAGE_STATUS_MAP[record.status] ?? { label: record.status, tone: "neutral" as const };
+  const t = useTranslations("orders");
+  const st = usageStatusMeta(record.status, t);
   return (
     <div className="flex items-center gap-3 text-[12px] px-3 py-1.5 rounded-lg bg-surface border border-line">
       <span className="font-mono text-faint">{fmtDate(record.created_at)}</span>
@@ -217,6 +228,7 @@ function statusCodeTone(code: number | null): "good" | "bad" | "warn" | "neutral
 function GatewayCallRow({
   call, open, onToggle,
 }: { call: GatewayCallLogItem; open: boolean; onToggle: () => void }) {
+  const t = useTranslations("orders");
   return (
     <div className="rounded-lg bg-surface border border-line overflow-hidden">
       <button
@@ -227,9 +239,9 @@ function GatewayCallRow({
         <span className="font-medium">{call.endpoint}</span>
         <span className="text-faint">{call.latency_ms}ms</span>
         <Tag tone={statusCodeTone(call.status_code)} className="ml-auto">
-          {call.status_code ?? "Lỗi kết nối"}
+          {call.status_code ?? t("connectionError")}
         </Tag>
-        <span className="text-faint text-[11px]">{open ? "Thu gọn" : "Chi tiết"}</span>
+        <span className="text-faint text-[11px]">{open ? t("collapse") : t("details")}</span>
       </button>
       {open && (
         <div className="px-3 pb-2.5 space-y-2 border-t border-line pt-2">
@@ -257,7 +269,7 @@ function GatewayCallRow({
           )}
           {call.error && (
             <div>
-              <div className="text-[11px] text-faint mb-1">Lỗi</div>
+              <div className="text-[11px] text-faint mb-1">{t("errorStatus")}</div>
               <p className="text-[11px] text-bad">{call.error}</p>
             </div>
           )}
@@ -292,7 +304,8 @@ function parseGatewayDelivery(raw: string | null | undefined): { key: string | n
 
 function EndpointDashboard({ data, onRefresh, viewerRole }: { data: DashboardData; onRefresh: () => void; viewerRole: "buyer" | "seller" }) {
   const locale = useLocale();
-  const isEnglish = locale === "en";
+  const t = useTranslations("orders");
+  const numberLocale = locale === "en" ? "en-US" : "vi-VN";
   const balance = data.balance;
   const { key: apiKey, callUrl } = parseGatewayDelivery(data.delivered_data);
   const [simulating, setSimulating] = useState(false);
@@ -306,7 +319,7 @@ function EndpointDashboard({ data, onRefresh, viewerRole }: { data: DashboardDat
       await api.chargeUsage(data.order_id, "profile", 1);
       onRefresh();
     } catch (e) {
-      setSimError(e instanceof ApiError ? e.message : isEnglish ? "Could not simulate the request" : "Không giả lập được request");
+      setSimError(e instanceof ApiError ? e.message : t("simulateFailed"));
       onRefresh(); // vẫn refresh để thấy bản ghi bị từ chối trong lịch sử
     } finally {
       setSimulating(false);
@@ -325,7 +338,7 @@ function EndpointDashboard({ data, onRefresh, viewerRole }: { data: DashboardDat
           )}
           {callUrl && (
             <div>
-              <div className="text-[11px] text-faint mb-1">{isEnglish ? "Call URL" : "Địa chỉ gọi"}</div>
+              <div className="text-[11px] text-faint mb-1">{t("callUrl")}</div>
               <MaskedValue
                 value={callUrl}
                 display={apiKey ? callUrl.replace(apiKey, maskSecret(apiKey)) : callUrl}
@@ -340,25 +353,25 @@ function EndpointDashboard({ data, onRefresh, viewerRole }: { data: DashboardDat
       )}
 
       {!balance ? (
-        <Banner tone="warn" icon={<Info size={15} />} title={isEnglish ? "No request balance yet" : "Chưa có số dư request"}>
-          {isEnglish ? "This order has no request balance yet — it may not be delivered, or was purchased before this feature existed." : "Đơn này chưa có số dư theo dõi request — hoặc chưa giao xong, hoặc được mua trước khi tính năng này có (không ảnh hưởng key đã nhận ở trên)."}
+        <Banner tone="warn" icon={<Info size={15} />} title={t("noRequestBalanceTitle")}>
+          {t("noRequestBalanceBody")}
         </Banner>
       ) : (
         <>
           <div>
             <div className="flex items-end justify-between mb-1.5">
-              <span className="text-[12px] text-muted">{isEnglish ? "Request balance" : "Số dư request"}</span>
+              <span className="text-[12px] text-muted">{t("requestBalance")}</span>
               <span className="font-mono text-[13px] font-semibold tabular">
-                {balance.units_used.toLocaleString(isEnglish ? "en-US" : "vi-VN")} / {balance.units_total.toLocaleString(isEnglish ? "en-US" : "vi-VN")}
+                {balance.units_used.toLocaleString(numberLocale)} / {balance.units_total.toLocaleString(numberLocale)}
               </span>
             </div>
             <UsageProgressBar used={balance.units_used} total={balance.units_total} />
             <div className="flex items-center justify-between mt-1">
               <span className="text-[11px] text-faint">
-                {isEnglish ? `${balance.units_remaining.toLocaleString("en-US")} requests remaining` : `Còn lại ${balance.units_remaining.toLocaleString("vi-VN")} request`}
+                {t("requestsRemaining", { count: balance.units_remaining.toLocaleString(numberLocale) })}
               </span>
               {balance.expires_at && (
-                <span className="text-[11px] text-faint">{isEnglish ? "Expires" : "Hết hạn"} {fmtDate(balance.expires_at, locale)}</span>
+                <span className="text-[11px] text-faint">{t("expiresLabel")} {fmtDate(balance.expires_at, locale)}</span>
               )}
             </div>
           </div>
@@ -367,27 +380,27 @@ function EndpointDashboard({ data, onRefresh, viewerRole }: { data: DashboardDat
             <Banner
               tone="bad"
               icon={<Info size={15} />}
-              title="Hết credit"
+              title={t("outOfCreditTitle")}
               action={data.product_id ? (
                 <Link href={`/products/${data.product_id}`}>
-                  <Button size="sm" variant="secondary">Mua thêm gói</Button>
+                  <Button size="sm" variant="secondary">{t("buyMorePack")}</Button>
                 </Link>
               ) : undefined}
             >
-              Đã dùng hết số request trong gói này — mua thêm gói mới để tiếp tục.
+              {t("outOfCreditBody")}
             </Banner>
           ) : balance.units_used / balance.units_total >= LOW_BALANCE_THRESHOLD && (
             <Banner
               tone="warn"
               icon={<Info size={15} />}
-              title="Sắp hết credit"
+              title={t("lowCreditTitle")}
               action={data.product_id ? (
                 <Link href={`/products/${data.product_id}`}>
-                  <Button size="sm" variant="secondary">Mua thêm gói</Button>
+                  <Button size="sm" variant="secondary">{t("buyMorePack")}</Button>
                 </Link>
               ) : undefined}
             >
-              Chỉ còn {balance.units_remaining.toLocaleString("vi-VN")} request — mua thêm sớm để không bị gián đoạn.
+              {t("lowCreditBody", { count: balance.units_remaining.toLocaleString(numberLocale) })}
             </Banner>
           )}
 
@@ -402,10 +415,10 @@ function EndpointDashboard({ data, onRefresh, viewerRole }: { data: DashboardDat
                 disabled={simulating}
                 className="inline-flex items-center gap-1.5 px-3 py-1.5 text-[12px] font-medium rounded-md bg-raised border border-line hover:border-line-2 transition-colors disabled:opacity-50"
               >
-                {simulating ? (isEnglish ? "Sending…" : "Đang gửi…") : (isEnglish ? "Simulate 1 request" : "Trừ thử 1 request")}
+                {simulating ? t("simulating") : t("simulateRequest")}
               </button>
               <span className="text-[11px] text-faint">
-                {isEnglish ? "Checks balance accounting by deducting one real request without calling the provider." : "Kiểm tra cách đếm số dư — trừ 1 request thật khỏi gói, không gọi ra nhà cung cấp."}
+                {t("simulateHint")}
               </span>
             </div>
           )}
@@ -413,7 +426,7 @@ function EndpointDashboard({ data, onRefresh, viewerRole }: { data: DashboardDat
 
           {balance.records.length > 0 && (
             <div>
-              <h4 className="text-[12.5px] font-medium text-muted mb-2">Lịch sử request gần đây</h4>
+              <h4 className="text-[12.5px] font-medium text-muted mb-2">{t("recentRequestHistory")}</h4>
               <div className="space-y-1.5">
                 {balance.records.map((r) => (
                   <UsageRecordRow key={r.id} record={r} />
@@ -425,8 +438,8 @@ function EndpointDashboard({ data, onRefresh, viewerRole }: { data: DashboardDat
           {balance.gateway_calls && balance.gateway_calls.length > 0 && (
             <div>
               <h4 className="text-[12.5px] font-medium text-muted mb-2">
-                Chi tiết request thật gần đây
-                <span className="font-normal text-faint ml-1.5">(lưu 7 ngày)</span>
+                {t("recentGatewayCalls")}
+                <span className="font-normal text-faint ml-1.5">{t("retainedDays")}</span>
               </h4>
               <div className="space-y-1.5">
                 {balance.gateway_calls.map((c) => (
@@ -448,40 +461,45 @@ function EndpointDashboard({ data, onRefresh, viewerRole }: { data: DashboardDat
 
 /* ── Takedown Dashboard ── */
 
-const TASK_STATUS_MAP: Record<string, { label: string; tone: "good" | "bad" | "warn" | "iris" | "neutral" }> = {
-  pending: { label: "Chờ xử lý", tone: "warn" },
-  assigned: { label: "Đã nhận", tone: "iris" },
-  processing: { label: "Đang xử lý", tone: "iris" },
-  completed: { label: "Hoàn tất", tone: "good" },
-  failed: { label: "Thất bại", tone: "bad" },
-};
+function taskStatusMeta(status: string, t: ReturnType<typeof useTranslations<"orders">>, ts: ReturnType<typeof useTranslations<"status.order">>) {
+  const map: Record<string, { label: string; tone: "good" | "bad" | "warn" | "iris" | "neutral" }> = {
+    pending: { label: ts("pending.label"), tone: "warn" },
+    assigned: { label: t("taskAssigned"), tone: "iris" },
+    processing: { label: ts("processing.label"), tone: "iris" },
+    completed: { label: ts("completed.label"), tone: "good" },
+    failed: { label: t("taskFailed"), tone: "bad" },
+  };
+  return map[status] ?? { label: status, tone: "neutral" as const };
+}
 
 function TakedownDashboard({ data }: { data: DashboardData }) {
+  const t = useTranslations("orders");
+  const tos = useTranslations("status.order");
   const tasks = data.tasks ?? [];
-  const completed = tasks.filter((t) => t.status === "completed").length;
-  const processing = tasks.filter((t) => t.status === "processing" || t.status === "assigned").length;
+  const completed = tasks.filter((item) => item.status === "completed").length;
+  const processing = tasks.filter((item) => item.status === "processing" || item.status === "assigned").length;
 
   return (
     <div className="space-y-4">
       <div className="grid grid-cols-3 gap-3">
-        <StatCard label="Tổng task" value={tasks.length} />
-        <StatCard label="Hoàn tất" value={completed} />
-        <StatCard label="Đang xử lý" value={processing} />
+        <StatCard label={t("totalTasks")} value={tasks.length} />
+        <StatCard label={tos("completed.label")} value={completed} />
+        <StatCard label={tos("processing.label")} value={processing} />
       </div>
 
       {tasks.length > 0 && (
         <div>
-          <h4 className="text-[12.5px] font-medium text-muted mb-2">Chi tiết task</h4>
+          <h4 className="text-[12.5px] font-medium text-muted mb-2">{t("taskDetails")}</h4>
           <div className="overflow-x-auto">
             <table className="w-full text-[12.5px]">
               <thead>
                 <tr className="border-b border-line text-left">
-                  <th className="py-2 pr-3 font-medium text-faint">ID</th>
-                  <th className="py-2 pr-3 font-medium text-faint">Nền tảng</th>
-                  <th className="py-2 pr-3 font-medium text-faint">URL</th>
-                  <th className="py-2 pr-3 font-medium text-faint">Trạng thái</th>
-                  <th className="py-2 pr-3 font-medium text-faint">Người xử lý</th>
-                  <th className="py-2 font-medium text-faint">Tạo lúc</th>
+                  <th className="py-2 pr-3 font-medium text-faint">{t("colId")}</th>
+                  <th className="py-2 pr-3 font-medium text-faint">{t("colPlatform")}</th>
+                  <th className="py-2 pr-3 font-medium text-faint">{t("colUrl")}</th>
+                  <th className="py-2 pr-3 font-medium text-faint">{t("colStatus")}</th>
+                  <th className="py-2 pr-3 font-medium text-faint">{t("colAssignee")}</th>
+                  <th className="py-2 font-medium text-faint">{t("colCreated")}</th>
                 </tr>
               </thead>
               <tbody>
@@ -498,7 +516,9 @@ function TakedownDashboard({ data }: { data: DashboardData }) {
 }
 
 function TaskRow({ task }: { task: DashboardTask }) {
-  const st = TASK_STATUS_MAP[task.status] ?? { label: task.status, tone: "neutral" as const };
+  const t = useTranslations("orders");
+  const tos = useTranslations("status.order");
+  const st = taskStatusMeta(task.status, t, tos);
   return (
     <tr className="border-b border-line/50">
       <td className="py-2 pr-3 font-mono text-faint">#{task.id}</td>
@@ -507,7 +527,7 @@ function TaskRow({ task }: { task: DashboardTask }) {
         <span className="font-mono text-[11px]">{task.target_url}</span>
       </td>
       <td className="py-2 pr-3"><Tag tone={st.tone}>{st.label}</Tag></td>
-      <td className="py-2 pr-3 text-muted">{task.assignee ?? "Chưa có"}</td>
+      <td className="py-2 pr-3 text-muted">{task.assignee ?? t("unassigned")}</td>
       <td className="py-2 text-muted">{fmtDate(task.created_at)}</td>
     </tr>
   );
@@ -516,6 +536,7 @@ function TaskRow({ task }: { task: DashboardTask }) {
 /* ── Default Dashboard ── */
 
 function DefaultDashboard({ data }: { data: DashboardData }) {
+  const t = useTranslations("orders");
   return (
     <div>
       {data.delivered_data ? (
@@ -523,7 +544,7 @@ function DefaultDashboard({ data }: { data: DashboardData }) {
           {data.delivered_data}
         </pre>
       ) : (
-        <p className="text-[12.5px] text-muted">Không có dữ liệu dashboard cho dịch vụ này.</p>
+        <p className="text-[12.5px] text-muted">{t("noDashboardData")}</p>
       )}
     </div>
   );
@@ -532,6 +553,7 @@ function DefaultDashboard({ data }: { data: DashboardData }) {
 /* ── Main ServiceDashboard ── */
 
 export default function ServiceDashboard({ orderId, viewerRole = "buyer" }: { orderId: number; viewerRole?: "buyer" | "seller" }) {
+  const t = useTranslations("orders");
   const [data, setData] = useState<DashboardData | null>(null);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState("");
@@ -541,7 +563,7 @@ export default function ServiceDashboard({ orderId, viewerRole = "buyer" }: { or
       const d = await api.orderDashboard(orderId);
       setData(d);
     } catch (e) {
-      setError(e instanceof Error ? e.message : "Không thể tải dashboard");
+      setError(e instanceof Error ? e.message : t("dashboardLoadFailed"));
     } finally {
       setLoading(false);
     }
@@ -554,7 +576,7 @@ export default function ServiceDashboard({ orderId, viewerRole = "buyer" }: { or
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [orderId]);
 
-  if (loading) return <Spinner label="Đang tải dashboard..." />;
+  if (loading) return <Spinner label={t("loadingDashboard")} />;
   if (error) return <p className="text-[12px] text-bad py-2">{error}</p>;
   if (!data) return null;
 
@@ -562,7 +584,7 @@ export default function ServiceDashboard({ orderId, viewerRole = "buyer" }: { or
     <Card className="p-4 mt-3 bg-raised/40">
       <div className="flex items-center justify-between mb-3">
         <h3 className="text-[13px] font-semibold">
-          Dashboard{data.product_title ? ` — ${data.product_title}` : ""}
+          {data.product_title ? t("dashboardTitleNamed", { title: data.product_title }) : t("dashboardTitle")}
         </h3>
         <Tag tone={data.status === "delivered" ? "iris" : data.status === "completed" ? "good" : "neutral"}>
           {data.service_type}

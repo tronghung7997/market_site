@@ -9,6 +9,7 @@ import { canUseSellerProviders } from "@/lib/seller-tier";
 import type { Category, ProductLocale, ProductTranslation, Provider, Variant } from "@/lib/types";
 import { Banner, Button, Card, Field, Input, Select, Tag, Textarea } from "@/components/ui";
 import { Bolt, Package } from "@/components/Icons";
+import { parseResourceItems } from "@/features/seller-inventory";
 import { MarkdownEditor } from "@/components/MarkdownEditor";
 import { ProductPreviewCard } from "@/components/seller/ProductPreviewCard";
 import {
@@ -19,22 +20,24 @@ import {
   type B3TaskState,
   type BuyerContentDraft,
   type WorkModelB,
-  type WorkbenchVariant,
   buildDynamicPricingLabels,
   buildDynamicPricingPlan,
   buyerContentToTranslation,
+  createNewProductPackageDraft,
   evaluateRouteAChecklist,
   evaluateRouteBChecklist,
   hasCompleteLocalizedContent,
+  namedNewProductPackages,
   parseFeatureLines,
-  parseResourceLines,
   parseSpecLines,
   ProductLanguageRail,
   SellerCoverPicker,
   SellerDynamicOrderSimulation,
+  SellerNewProductPackages,
   SellerOrderPanelSimulation,
   SellerPriceInput,
   SellerSellableChecklist,
+  toWorkbenchVariantsFromDrafts,
   useSellerPriceCurrency,
 } from "@/features/seller-workbench";
 import type { CoverId } from "@/lib/product-covers";
@@ -78,7 +81,6 @@ export default function NewProduct() {
   const [saving, setSaving] = useState(false);
   const [error, setError] = useState<string | null>(null);
   const [createdProductId, setCreatedProductId] = useState<number | null>(null);
-  const [createdVariantId, setCreatedVariantId] = useState<number | null>(null);
 
   const [receiveMode, setReceiveMode] = useState<ReceiveMode>("instant");
   const archetype: Archetype = receiveMode === "api" || receiveMode === "task" ? "B" : "A";
@@ -99,11 +101,8 @@ export default function NewProduct() {
     en: { ...EMPTY_CONTENT },
   });
 
-  const [variantNames, setVariantNames] = useState<Record<ProductLocale, string>>({ vi: "", en: "" });
-  const [variantPrice, setVariantPrice] = useState(0);
   const deliveryMode: "instant" | "manual" = receiveMode === "sla" ? "manual" : "instant";
-  const [slaHours, setSlaHours] = useState(24);
-  const [initialStockText, setInitialStockText] = useState("");
+  const [packages, setPackages] = useState(() => [createNewProductPackageDraft({ clientId: "pkg-initial" })]);
 
   const [b1, setB1] = useState<B1ConfigState>({
     basePrice: 0,
@@ -190,31 +189,33 @@ export default function NewProduct() {
   const flatCategories = useMemo(() => flatten(categories), [categories]);
   const selectedCategory = flatCategories.find((category) => category.id === categoryId);
   const activeContent = content[contentLocale];
-  const stockLines = parseResourceLines(initialStockText);
+  const pendingStockByClientId = useMemo(
+    () => Object.fromEntries(
+      packages.map((pkg) => [pkg.clientId, parseResourceItems(pkg.stockText, pkg.autoDedupe).length]),
+    ),
+    [packages],
+  );
   const primaryContentComplete = hasCompleteLocalizedContent(content, primaryLocale);
-  const primaryVariantComplete = Boolean(variantNames[primaryLocale].trim());
+  const namedPackages = namedNewProductPackages(packages, primaryLocale);
+  const primaryVariantComplete = namedPackages.length > 0;
   const primaryContent = content[primaryLocale];
   const secondaryLocale: ProductLocale = primaryLocale === "vi" ? "en" : "vi";
 
-  const workbenchVariants: WorkbenchVariant[] = variantNames[primaryLocale].trim()
-    ? [{
-        name: variantNames[contentLocale].trim() || variantNames[primaryLocale].trim(),
-        price: variantPrice,
-        delivery_mode: deliveryMode,
-        stock_count: deliveryMode === "instant" ? stockLines.length : 0,
-        sla_hours: slaHours,
-        is_active: true,
-      }]
-    : [];
+  const workbenchVariants = toWorkbenchVariantsFromDrafts(packages, {
+    contentLocale,
+    primaryLocale,
+    deliveryMode,
+    pendingStockByClientId,
+  });
 
-  const previewVariants: Variant[] = workbenchVariants.map((variant) => ({
-    id: 0,
+  const previewVariants: Variant[] = workbenchVariants.map((variant, index) => ({
+    id: variant.id ?? -(index + 1),
     product_id: 0,
     name: variant.name,
     price: variant.price,
     delivery_mode: variant.delivery_mode,
     sla_hours: variant.sla_hours ?? 24,
-    sort_order: 0,
+    sort_order: index,
     is_active: true,
     stock_count: variant.stock_count,
     duration_days: null,
@@ -315,30 +316,49 @@ export default function NewProduct() {
           pricing_params: null,
           provider_id: null,
         });
-        let variantId = createdVariantId;
-        const variantData = {
-          name: variantNames[primaryLocale].trim(),
-          content_locale: primaryLocale,
-          price: variantPrice,
-          delivery_mode: deliveryMode,
-          sla_hours: slaHours,
-        };
-        if (variantNames[primaryLocale].trim()) {
+        const nextPackages = [...packages];
+        for (let index = 0; index < nextPackages.length; index += 1) {
+          const pkg = nextPackages[index];
+          const primaryName = pkg.names[primaryLocale].trim();
+          if (!primaryName) continue;
+          const variantData = {
+            name: primaryName,
+            content_locale: primaryLocale,
+            price: pkg.price,
+            delivery_mode: deliveryMode,
+            sla_hours: pkg.slaHours,
+          };
+          let variantId = pkg.serverId;
           if (variantId == null) {
             const created = await api.createVariant(productId, variantData);
             variantId = created.id;
-            setCreatedVariantId(variantId);
           } else {
             await api.updateVariant(variantId, variantData);
           }
-          await api.updateVariantTranslation(variantId, primaryLocale, variantNames[primaryLocale].trim());
-          if (variantNames[secondaryLocale].trim()) {
-            await api.updateVariantTranslation(variantId, secondaryLocale, variantNames[secondaryLocale].trim());
+          await api.updateVariantTranslation(variantId, primaryLocale, primaryName);
+          const secondaryName = pkg.names[secondaryLocale].trim();
+          if (secondaryName) {
+            await api.updateVariantTranslation(variantId, secondaryLocale, secondaryName);
           }
-          if (deliveryMode === "instant" && stockLines.length > 0) {
-            await api.addResources(variantId, stockLines);
+          const pendingItems = parseResourceItems(pkg.stockText, pkg.autoDedupe);
+          let committedStock = pkg.committedStock;
+          let stockText = pkg.stockText;
+          let uploadedFileName = pkg.uploadedFileName;
+          if (deliveryMode === "instant" && pendingItems.length > 0) {
+            const result = await api.addResources(variantId, pendingItems);
+            committedStock += result.count;
+            stockText = "";
+            uploadedFileName = null;
           }
+          nextPackages[index] = {
+            ...pkg,
+            serverId: variantId,
+            committedStock,
+            stockText,
+            uploadedFileName,
+          };
         }
+        setPackages(nextPackages);
       } else {
         const pricing = buildDynamicPricingPlan(workModel, b1, b2, b3);
         await api.updateSellerPricing(productId, {
@@ -503,27 +523,21 @@ export default function NewProduct() {
 
           {archetype === "A" ? (
             <Card className="space-y-4 p-5">
-              <div>
-                <div className="text-[11px] font-bold uppercase tracking-wider text-muted">{t("step3")}</div>
-                <h2 className="mt-1 text-[14px] font-bold text-fg">{t("fixedSetup")}</h2>
-              </div>
-              <div className="grid gap-4 sm:grid-cols-2">
-                <Field label={t("variantName", { language: contentLocale.toUpperCase() })}>
-                  <Input value={variantNames[contentLocale]} onChange={(event) => setVariantNames((current) => ({ ...current, [contentLocale]: event.target.value }))} placeholder={t("variantNamePlaceholder")} />
-                </Field>
-                <Field label={t("price", { currency: priceCurrency })}>
-                  <SellerPriceInput amountVnd={variantPrice} onAmountVndChange={setVariantPrice} />
-                </Field>
-              </div>
-              {receiveMode === "sla" ? (
-                <Field label={t("slaHours")}>
-                  <Input type="number" min={1} max={720} value={slaHours} onChange={(event) => setSlaHours(Math.min(720, Math.max(1, Number(event.target.value) || 24)))} />
-                </Field>
-              ) : (
-                <Field label={t("initialStock")} hint={t("stockHint")}>
-                  <Textarea rows={4} value={initialStockText} onChange={(event) => setInitialStockText(event.target.value)} placeholder={t("stockPlaceholder")} />
-                </Field>
-              )}
+              <SellerNewProductPackages
+                packages={packages}
+                contentLocale={contentLocale}
+                deliveryMode={deliveryMode}
+                priceCurrency={priceCurrency}
+                onChange={setPackages}
+                onDeleteSavedVariant={async (serverId) => {
+                  try {
+                    await api.deleteVariant(serverId);
+                  } catch {
+                    setError(t("saveFailed"));
+                    throw new Error("delete-failed");
+                  }
+                }}
+              />
             </Card>
           ) : needsBackend && canUseProviders && compatibleProviders.length > 0 ? (
             <Card className="space-y-4 p-5">

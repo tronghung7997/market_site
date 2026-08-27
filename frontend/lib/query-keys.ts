@@ -3,7 +3,7 @@
  */
 export const queryKeys = {
   chat: () => ["chat"] as const,
-  chatList: (perspective: "buyer" | "seller") => ["chat", "list", perspective] as const,
+  chatList: () => ["chat", "list"] as const,
   chatDetail: (id: string) => ["chat", "detail", id] as const,
   // Orders
   orders: (filters?: Record<string, unknown> | null) =>
@@ -21,6 +21,9 @@ export const queryKeys = {
 
   // Alerts
   alerts: () => ["alerts"] as const,
+  actionItems: () => ["action-items"] as const,
+  actionItemsFor: (endpoint: "account" | "buyer" | "seller" | "admin") =>
+    ["action-items", endpoint] as const,
 
   // Providers
   providers: () => ["providers"] as const,

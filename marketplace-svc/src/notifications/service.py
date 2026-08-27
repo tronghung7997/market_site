@@ -5,6 +5,8 @@ from sqlalchemy.ext.asyncio import AsyncSession
 
 from src.adapters.compatibility import setup_status
 from src.alerts.service import list_active_alerts, list_seller_alerts
+from src.chat.enums import ContextRole
+from src.chat.service import unread_message_count
 from src.disputes.service import list_seller_open_disputes
 from src.models.account import Account, ApplicationStatus, SellerApplication
 from src.models.alert import Alert
@@ -97,6 +99,14 @@ async def buyer_action_items(buyer_id: int, db: AsyncSession) -> list[ActionItem
             count=seller_responded, href="/orders?status=disputed",
         ))
 
+    unread = await unread_message_count(buyer_id, ContextRole.BUYER, db)
+    if unread:
+        items.append(ActionItem(
+            key="unread_messages", severity="info",
+            label=f"{unread} tin nhắn chưa đọc",
+            count=unread, href="/messages",
+        ))
+
     return items
 
 
@@ -154,14 +164,31 @@ async def seller_action_items(seller_id: int, db: AsyncSession) -> list[ActionIt
             count=len(rejected), href="/seller/withdrawals",
         ))
 
+    unread = await unread_message_count(seller_id, ContextRole.SELLER, db)
+    if unread:
+        items.append(ActionItem(
+            key="unread_messages", severity="info",
+            label=f"{unread} tin nhắn chưa đọc",
+            count=unread, href="/messages",
+        ))
+
     return items
 
 
 async def account_action_items(account: Account, db: AsyncSession) -> list[ActionItem]:
     """Buyer inbox plus seller inbox when the account has the seller role."""
-    items = await buyer_action_items(account.id, db)
+    items = [item for item in await buyer_action_items(account.id, db) if item.key != "unread_messages"]
     if "seller" in (account.roles or []):
-        items.extend(await seller_action_items(account.id, db))
+        items.extend(
+            item for item in await seller_action_items(account.id, db) if item.key != "unread_messages"
+        )
+    unread = await unread_message_count(account.id, None, db)
+    if unread:
+        items.append(ActionItem(
+            key="unread_messages", severity="info",
+            label=f"{unread} tin nhắn chưa đọc",
+            count=unread, href="/messages",
+        ))
     return items
 
 

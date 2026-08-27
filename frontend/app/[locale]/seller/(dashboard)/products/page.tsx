@@ -1,17 +1,20 @@
 "use client";
 
 import { useTranslations } from "next-intl";
-import { useEffect, useMemo, useRef, useState } from "react";
+import { useEffect, useMemo, useState } from "react";
 import { Link } from "@/i18n/navigation";
 import { api } from "@/lib/api";
 import { useMoney } from "@/lib/money";
 import type { SellerProduct, Variant } from "@/lib/types";
 import { cn } from "@/lib/cn";
 import {
+  downloadRestockTemplate,
   inventoryStockState,
   isInventoryManagedProduct,
+  mergeRestockText,
   nextSellerProductStatus,
   parseResourceItems,
+  parseRestockFileContent,
   restockableVariants,
 } from "@/features/seller-inventory";
 import { parseCoverId, ProductCover } from "@/features/product-covers";
@@ -746,7 +749,6 @@ function InPlaceRestockModal({
   const [submitting, setSubmitting] = useState(false);
   const [error, setError] = useState<string | null>(null);
   const [successCount, setSuccessCount] = useState<number | null>(null);
-  const fileInputRef = useRef<HTMLInputElement>(null);
 
   useEffect(() => {
     if (!isOpen) {
@@ -790,26 +792,7 @@ function InPlaceRestockModal({
   );
 
   const handleDownloadTemplate = (format: "txt" | "csv") => {
-    let content = "";
-    let mimeType = "text/plain";
-    let filename = `sample_restock_template.${format}`;
-
-    if (format === "csv") {
-      content = "data\nuid1001|pass123|2fa_code|email@domain.com\nuid1002|pass456|2fa_code|email@domain.com\nLICENSE-KEY-EXAMPLE-9901";
-      mimeType = "text/csv";
-    } else {
-      content = "uid1001|pass123|2fa_code|email@domain.com\nuid1002|pass456|2fa_code|email@domain.com\nLICENSE-KEY-EXAMPLE-9901";
-    }
-
-    const blob = new Blob([content], { type: `${mimeType};charset=utf-8` });
-    const url = URL.createObjectURL(blob);
-    const a = document.createElement("a");
-    a.href = url;
-    a.download = filename;
-    document.body.appendChild(a);
-    a.click();
-    document.body.removeChild(a);
-    URL.revokeObjectURL(url);
+    downloadRestockTemplate(format, "sample_restock_template");
   };
 
   const handleFileUpload = (e: React.ChangeEvent<HTMLInputElement>) => {
@@ -821,28 +804,7 @@ function InPlaceRestockModal({
     reader.onload = (event) => {
       const raw = event.target?.result as string;
       if (!raw) return;
-
-      // Check if CSV format
-      if (file.name.endsWith(".csv")) {
-        const lines = raw.split(/\r?\n/).map((l) => l.trim()).filter(Boolean);
-        if (lines.length > 0) {
-          // If first row is a header like 'data', 'item', 'content', 'resource'
-          const firstLineLower = lines[0].toLowerCase();
-          const isHeader = ["data", "item", "resource", "content", "key"].includes(firstLineLower) ||
-            firstLineLower.startsWith('"data"') || firstLineLower.startsWith('"item"');
-          const dataRows = isHeader ? lines.slice(1) : lines;
-          // Strip CSV wrapper quotes if present
-          const cleaned = dataRows.map((row) => {
-            if (row.startsWith('"') && row.endsWith('"')) {
-              return row.slice(1, -1).replace(/""/g, '"');
-            }
-            return row;
-          });
-          setTextData((prev) => (prev ? `${prev}\n${cleaned.join("\n")}` : cleaned.join("\n")));
-        }
-      } else {
-        setTextData((prev) => (prev ? `${prev}\n${raw}` : raw));
-      }
+      setTextData((prev) => mergeRestockText(prev, parseRestockFileContent(file.name, raw)));
     };
     reader.readAsText(file);
     e.target.value = "";

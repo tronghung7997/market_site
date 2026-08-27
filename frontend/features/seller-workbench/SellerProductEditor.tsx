@@ -103,18 +103,25 @@ function flatten(categories: Category[]): Category[] {
   return result;
 }
 
-function statusPresentation(status: string, locale: ProductLocale) {
-  const vi = locale === "vi";
-  if (status === "active") return { tone: "good" as const, label: vi ? "Đang mở bán" : "Active" };
-  if (status === "paused") return { tone: "warn" as const, label: vi ? "Tạm dừng" : "Paused" };
-  if (status === "suspended") return { tone: "bad" as const, label: vi ? "Bị đình chỉ" : "Suspended" };
-  return { tone: "neutral" as const, label: vi ? "Bản nháp" : "Draft" };
+const STATUS_LABEL_KEYS: Record<string, "activeStatus" | "pausedStatus" | "suspendedStatus" | "draftStatus"> = {
+  active: "activeStatus",
+  paused: "pausedStatus",
+  suspended: "suspendedStatus",
+  draft: "draftStatus",
+};
+
+function statusPresentation(status: string, label: string) {
+  if (status === "active") return { tone: "good" as const, label };
+  if (status === "paused") return { tone: "warn" as const, label };
+  if (status === "suspended") return { tone: "bad" as const, label };
+  return { tone: "neutral" as const, label };
 }
 
 export function SellerProductEditor({ productId }: { productId: number }) {
   const interfaceLocale = useLocale() as ProductLocale;
   const t = useTranslations("seller.newProductFlow");
   const ts = useTranslations("seller");
+  const tw = useTranslations("seller.workbench");
   const router = useRouter();
   const { currency: priceCurrency } = useSellerPriceCurrency();
 
@@ -199,11 +206,11 @@ export function SellerProductEditor({ productId }: { productId: number }) {
       setB3(hydrated.b3);
       setSelectedProviderId(nextProviderId);
     } catch (reason) {
-      setError(reason instanceof Error ? reason.message : (interfaceLocale === "vi" ? "Không thể tải sản phẩm" : "Could not load product"));
+      setError(reason instanceof Error ? reason.message : tw("productLoadFailed"));
     } finally {
       if (showSpinner) setLoading(false);
     }
-  }, [interfaceLocale, productId]);
+  }, [interfaceLocale, productId, tw]);
 
   useEffect(() => {
     loadData();
@@ -419,7 +426,7 @@ export function SellerProductEditor({ productId }: { productId: number }) {
         }
         await api.updateSellerProductStatus(productId, "active");
       }
-      setSuccess(interfaceLocale === "vi" ? "Đã lưu thay đổi." : "Changes saved.");
+      setSuccess(tw("changesSaved"));
       await loadData(false);
     } catch (reason) {
       setError(reason instanceof Error ? reason.message : t("saveFailed"));
@@ -451,13 +458,16 @@ export function SellerProductEditor({ productId }: { productId: number }) {
   if (!product) {
     return (
       <Card className="p-8 text-center">
-        <p className="text-[13px] text-bad">{error ?? (interfaceLocale === "vi" ? "Không tìm thấy sản phẩm." : "Product not found.")}</p>
+        <p className="text-[13px] text-bad">{error ?? tw("productNotFound")}</p>
         <Link href="/seller/products" className="mt-3 inline-block text-[13px] text-iris-hi hover:underline">← {ts("backToProducts")}</Link>
       </Card>
     );
   }
 
-  const status = statusPresentation(product.status, interfaceLocale);
+  const status = statusPresentation(
+    product.status,
+    ts(STATUS_LABEL_KEYS[product.status] ?? "draftStatus"),
+  );
   const previewSpecs = Object.entries(parseSpecLines(activeContent.specsText)).map(([key, value]) => ({ key, value }));
   const previewVariants: Variant[] = displayVariants.map((variant) => ({
     id: variant.id ?? 0,

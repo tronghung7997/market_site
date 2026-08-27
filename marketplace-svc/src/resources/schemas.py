@@ -1,14 +1,14 @@
 from datetime import datetime
 
-from pydantic import BaseModel
+from pydantic import BaseModel, Field
 
 
 class BulkResourceCreate(BaseModel):
-    items: list[str]
+    items: list[str] = Field(min_length=1, max_length=500)
 
 
 class ResourceUpdate(BaseModel):
-    data: str
+    data: str = Field(min_length=1, max_length=8000)
 
 
 class InventoryVariantSummary(BaseModel):
@@ -56,7 +56,7 @@ class ResourceSellerFacet(BaseModel):
 
 class InternalAcquireRequest(BaseModel):
     variant_id: int
-    quantity: int = 1
+    quantity: int = Field(default=1, ge=1, le=100)
 
 
 class InternalAcquireResponse(BaseModel):
@@ -64,7 +64,7 @@ class InternalAcquireResponse(BaseModel):
 
 
 class InternalReleaseRequest(BaseModel):
-    resource_ids: list[int]
+    resource_ids: list[int] = Field(min_length=1, max_length=100)
 
 
 class AdminResourceResponse(BaseModel):

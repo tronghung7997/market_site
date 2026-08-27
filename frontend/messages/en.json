@@ -1620,6 +1620,7 @@
       "withdraw_lock": "Locked for withdrawal",
       "withdraw_unlock": "Withdrawal lock released",
       "affiliate_commission": "Referral commission",
+      "affiliate_clawback": "Referral commission clawback",
       "adjustment_credit": "Balance adjustment",
       "adjustment_debit": "Balance adjustment"
     },
@@ -2052,6 +2053,7 @@
       "withdraw": "Withdrawal",
       "platform_fee": "Platform fee",
       "affiliate_commission": "Referral commission",
+      "affiliate_clawback": "Referral commission clawback",
       "adjustment_credit": "Balance adjustment",
       "adjustment_debit": "Balance adjustment"
     }

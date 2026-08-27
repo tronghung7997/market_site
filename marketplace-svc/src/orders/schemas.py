@@ -1,6 +1,8 @@
 from datetime import datetime
 
-from pydantic import BaseModel, Field, model_validator
+from pydantic import BaseModel, Field, field_validator, model_validator
+
+from src.security.input_limits import bounded_mapping
 
 
 class OrderCreate(BaseModel):
@@ -8,6 +10,11 @@ class OrderCreate(BaseModel):
     quantity: int = Field(default=1, ge=1, le=100)
     product_id: int | None = None
     user_config: dict | None = None
+
+    @field_validator("user_config")
+    @classmethod
+    def bound_user_config(cls, value):
+        return bounded_mapping(value) if value is not None else value
 
     @model_validator(mode="after")
     def check_flow(self):
@@ -21,7 +28,7 @@ class OrderCreate(BaseModel):
 
 
 class ManualDeliverRequest(BaseModel):
-    data: str
+    data: str = Field(min_length=1, max_length=20000)
 
 
 class OrderResponse(BaseModel):

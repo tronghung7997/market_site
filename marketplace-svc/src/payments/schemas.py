@@ -8,9 +8,9 @@ from pydantic import BaseModel, Field
 class DepositCreateRequest(BaseModel):
     """amount is always target VND integer (ledger). method defaults to SePay."""
 
-    amount: int
+    amount: int = Field(ge=1)
     method: Literal["sepay", "nowpayments"] = "sepay"
-    pay_currency: str | None = None
+    pay_currency: str | None = Field(default=None, max_length=16)
 
 
 class DepositResponse(BaseModel):

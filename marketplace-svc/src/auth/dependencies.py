@@ -9,7 +9,7 @@ from src.database import get_session
 from src.models.account import Account
 from src.sellers.tiers import tier_at_least
 
-from .service import decode_access_token
+from .sessions import resolve_account_from_access_token
 
 bearer_scheme = HTTPBearer()
 
@@ -19,11 +19,11 @@ async def get_current_account(
     credentials: HTTPAuthorizationCredentials = Security(bearer_scheme),
     db: AsyncSession = Depends(get_session),
 ) -> Account:
-    payload = decode_access_token(credentials.credentials, path=request.url.path)
-    account = await db.get(Account, int(payload["sub"]))
-    if not account or not account.is_active:
-        raise HTTPException(status_code=status.HTTP_401_UNAUTHORIZED, detail="Không tìm thấy tài khoản")
+    account, session = await resolve_account_from_access_token(
+        credentials.credentials, db, path=request.url.path
+    )
     request.state.account_id = account.id
+    request.state.auth_session_id = session.id
     return account
 
 

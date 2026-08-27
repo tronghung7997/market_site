@@ -1,12 +1,12 @@
 from datetime import datetime
 
-from pydantic import BaseModel
+from pydantic import BaseModel, Field
 
 
 class SellerApplyRequest(BaseModel):
-    business_name: str
-    description: str | None = None
-    contact: str | None = None
+    business_name: str = Field(min_length=1, max_length=255)
+    description: str | None = Field(default=None, max_length=1000)
+    contact: str | None = Field(default=None, max_length=255)
 
 
 class SellerApplicationResponse(BaseModel):
@@ -23,4 +23,4 @@ class SellerApplicationResponse(BaseModel):
 
 
 class RejectRequest(BaseModel):
-    reason: str
+    reason: str = Field(min_length=1, max_length=500)

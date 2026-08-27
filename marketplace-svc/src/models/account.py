@@ -38,6 +38,7 @@ class Account(Base):
         server_default=text("upper(substr(md5(random()::text || clock_timestamp()::text), 1, 8))"),
     )
     referred_by_id: Mapped[int | None] = mapped_column(ForeignKey("accounts.id"), nullable=True)
+    registration_ip: Mapped[str | None] = mapped_column(String(45), nullable=True)
     created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), server_default=func.now())
     updated_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), server_default=func.now(), onupdate=func.now())
 

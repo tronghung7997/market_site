@@ -10,7 +10,7 @@ import { Tooltip } from "@/components/ui/tooltip";
 type Tone = "good" | "bad" | "warn" | "iris" | "neutral";
 const TONE: Record<string, Tone> = {
   topup: "good", deposit: "good", purchase_release: "good", refund: "good",
-  affiliate_commission: "good", withdraw_unlock: "good",
+  affiliate_commission: "good", affiliate_clawback: "bad", withdraw_unlock: "good",
   purchase_hold: "bad", withdraw: "bad", withdraw_lock: "warn",
   platform_fee: "neutral", adjustment_credit: "neutral", adjustment_debit: "neutral",
 };

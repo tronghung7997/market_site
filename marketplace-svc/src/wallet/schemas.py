@@ -34,7 +34,7 @@ class WalletResponse(BaseModel):
 
 class TopupRequest(BaseModel):
     account_id: int
-    amount: int
+    amount: int = Field(ge=1)
 
 
 class TransactionResponse(BaseModel):
@@ -54,7 +54,7 @@ class TransactionResponse(BaseModel):
 
 
 class WithdrawRequestCreate(BaseModel):
-    amount: int
+    amount: int = Field(ge=1)
     # Snapshot thông tin nhận tiền — bắt buộc từ 2026-07-24 (thiết kế PayOS §4).
     # bank_bin (mã BIN ngân hàng) để phase 2 auto-payout qua PayOS; nhập tay
     # thì FE gửi kèm theo tên ngân hàng đã chọn.
@@ -91,4 +91,4 @@ class WithdrawRequestResponse(BaseModel):
 
 
 class DemoTopupRequest(BaseModel):
-    amount: int
+    amount: int = Field(ge=1)

@@ -46,7 +46,7 @@ Classify the task before implementation and use at most one design lead plus one
 
 - Locale routes live under `app/[locale]`. Supported locales are `en` and `vi`, both with an explicit URL prefix; `/` redirects to `/en` or `/vi` according to routing behavior.
 - Browser API calls must remain same-origin under `/api`. `app/api/[...path]/route.ts` is the BFF and forwards server-side to `API_URL`/`BUILT_API_URL`.
-- Authentication uses the HTTP-only `dx_session` cookie owned by the BFF. Never expose the token in a client response, `localStorage`, `sessionStorage`, a query string, or a `NEXT_PUBLIC_*` variable.
+- Authentication uses HTTP-only `dx_session` (access) and `dx_refresh` cookies owned by the BFF. Never expose tokens in a client response, `localStorage`, `sessionStorage`, a query string, or a `NEXT_PUBLIC_*` variable.
 - `/internal/*` must not be forwarded through the public catch-all BFF. Preserve CSRF, admin-network, cookie, and response-header protections in that route.
 - Use the existing client and domain types in `lib/api.ts` and `lib/types.ts`, TanStack Query keys/hooks, and shared UI primitives before creating another request layer or component system.
 

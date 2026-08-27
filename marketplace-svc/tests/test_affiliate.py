@@ -354,6 +354,11 @@ async def test_affiliate_me_shows_commission_after_order_completion(client):
     buyer_me = await client.get("/me", headers={"Authorization": f"Bearer {buyer_token}"})
     await client.post("/wallet/topup", json={"account_id": buyer_me.json()["id"], "amount": 100000},
                       headers={"Authorization": f"Bearer {admin_token}"})
+    await client.post(
+        "/admin/affiliate-fund/topup",
+        json={"amount": 1_000_000, "note": "test budget"},
+        headers={"Authorization": f"Bearer {admin_token}"},
+    )
 
     order = await client.post("/orders", json={"variant_id": variant.json()["id"], "quantity": 1},
                               headers={"Authorization": f"Bearer {buyer_token}"})
@@ -370,11 +375,9 @@ async def test_affiliate_me_shows_commission_after_order_completion(client):
     assert data["commissions"][0]["amount"] == 500
     assert data["commissions"][0]["product_title"] == "MeProd2"
 
-    # The payout drew down the global affiliate fund. With no top-up it goes
-    # negative, signalling admin to fund it.
     fund = await client.get("/admin/affiliate-fund", headers={"Authorization": f"Bearer {admin_token}"})
     assert fund.status_code == 200
-    assert fund.json()["balance"] == -500
+    assert fund.json()["balance"] == 1_000_000 - 500
     assert fund.json()["total_paid_out"] == 500
 
 
@@ -493,6 +496,11 @@ async def test_commission_via_dispute_reject(client):
     buyer_me = await client.get("/me", headers={"Authorization": f"Bearer {buyer_token}"})
     await client.post("/wallet/topup", json={"account_id": buyer_me.json()["id"], "amount": 100000},
                       headers={"Authorization": f"Bearer {admin_token}"})
+    await client.post(
+        "/admin/affiliate-fund/topup",
+        json={"amount": 1_000_000, "note": "test budget"},
+        headers={"Authorization": f"Bearer {admin_token}"},
+    )
 
     order = await client.post("/orders", json={"variant_id": variant.json()["id"], "quantity": 1},
                               headers={"Authorization": f"Bearer {buyer_token}"})

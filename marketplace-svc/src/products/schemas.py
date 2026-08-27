@@ -4,6 +4,7 @@ from typing import Literal
 from pydantic import BaseModel, Field, field_validator, model_validator
 
 from src.products.covers import parse_cover_id, public_images
+from src.security.input_limits import bounded_mapping
 
 CoverId = Literal[
     "facebook", "instagram", "tiktok", "youtube", "x",
@@ -20,22 +21,35 @@ def _reject_images_blob(data):
 
 class ProductCreate(BaseModel):
     category_id: int
-    title: str
+    title: str = Field(min_length=1, max_length=255)
     # Locale of the scalar buyer content in this command. Existing API clients
     # omit it and keep the historical VI behavior; the bilingual workbench
     # sends the seller-selected language explicitly.
     content_locale: Literal["en", "vi"] = "vi"
-    description: str | None = None
+    description: str | None = Field(default=None, max_length=20000)
     cover_id: CoverId | None = None
-    escrow_days: int = 2
+    escrow_days: int = Field(default=2, ge=0, le=90)
     status: Literal["draft", "active"] = "draft"
-    service_type: str = "other"
-    features: list[str] | None = None
+    service_type: str = Field(default="other", max_length=50)
+    features: list[str] | None = Field(default=None, max_length=50)
     specs: dict | None = None
-    warranty_text: str | None = None
-    highlight_text: str | None = None
-    # commission_rate is admin-controlled (set via /admin/products/{id}/operations),
-    # not settable by sellers.
+    warranty_text: str | None = Field(default=None, max_length=8000)
+    highlight_text: str | None = Field(default=None, max_length=2000)
+
+    @field_validator("specs")
+    @classmethod
+    def bound_specs(cls, value):
+        return bounded_mapping(value) if value is not None else value
+
+    @field_validator("features")
+    @classmethod
+    def bound_feature_items(cls, value):
+        if value is None:
+            return value
+        for item in value:
+            if len(item) > 500:
+                raise ValueError("Each feature must be at most 500 characters")
+        return value
 
     @model_validator(mode="before")
     @classmethod
@@ -44,17 +58,22 @@ class ProductCreate(BaseModel):
 
 
 class ProductContentUpdate(BaseModel):
-    title: str | None = None
+    title: str | None = Field(default=None, min_length=1, max_length=255)
     content_locale: Literal["en", "vi"] | None = None
     category_id: int | None = None
-    description: str | None = None
+    description: str | None = Field(default=None, max_length=20000)
     cover_id: CoverId | None = None
-    escrow_days: int | None = None
-    service_type: str | None = None
-    features: list[str] | None = None
+    escrow_days: int | None = Field(default=None, ge=0, le=90)
+    service_type: str | None = Field(default=None, max_length=50)
+    features: list[str] | None = Field(default=None, max_length=50)
     specs: dict | None = None
-    warranty_text: str | None = None
-    highlight_text: str | None = None
+    warranty_text: str | None = Field(default=None, max_length=8000)
+    highlight_text: str | None = Field(default=None, max_length=2000)
+
+    @field_validator("specs")
+    @classmethod
+    def bound_specs(cls, value):
+        return bounded_mapping(value) if value is not None else value
 
     @model_validator(mode="before")
     @classmethod
@@ -83,13 +102,18 @@ class ProductTranslationUpdate(BaseModel):
     remain in the common ``pricing_params`` object.
     """
 
-    title: str | None = None
-    description: str | None = None
-    features: list[str] | None = None
-    warranty_text: str | None = None
-    highlight_text: str | None = None
+    title: str | None = Field(default=None, min_length=1, max_length=255)
+    description: str | None = Field(default=None, max_length=20000)
+    features: list[str] | None = Field(default=None, max_length=50)
+    warranty_text: str | None = Field(default=None, max_length=8000)
+    highlight_text: str | None = Field(default=None, max_length=2000)
     specs: dict | None = None
     pricing_labels: dict | None = None
+
+    @field_validator("specs", "pricing_labels")
+    @classmethod
+    def bound_objects(cls, value):
+        return bounded_mapping(value) if value is not None else value
 
 
 class ProductResponse(BaseModel):
@@ -130,28 +154,28 @@ class ProductResponse(BaseModel):
 
 
 class VariantCreate(BaseModel):
-    name: str
+    name: str = Field(min_length=1, max_length=255)
     content_locale: Literal["en", "vi"] = "vi"
     price: int = Field(ge=0)
     delivery_mode: Literal["instant", "manual"] = "instant"
-    sla_hours: int = 24
-    sort_order: int = 0
-    duration_days: int | None = None
+    sla_hours: int = Field(default=24, ge=1, le=24 * 30)
+    sort_order: int = Field(default=0, ge=-1000, le=10000)
+    duration_days: int | None = Field(default=None, ge=1, le=3650)
 
 
 class VariantUpdate(BaseModel):
-    name: str | None = None
+    name: str | None = Field(default=None, min_length=1, max_length=255)
     content_locale: Literal["en", "vi"] | None = None
     price: int | None = Field(default=None, ge=0)
     delivery_mode: Literal["instant", "manual"] | None = None
-    sla_hours: int | None = None
-    sort_order: int | None = None
+    sla_hours: int | None = Field(default=None, ge=1, le=24 * 30)
+    sort_order: int | None = Field(default=None, ge=-1000, le=10000)
     is_active: bool | None = None
-    duration_days: int | None = None
+    duration_days: int | None = Field(default=None, ge=1, le=3650)
 
 
 class VariantTranslationUpdate(BaseModel):
-    name: str = Field(min_length=1)
+    name: str = Field(min_length=1, max_length=255)
 
 
 class VariantResponse(BaseModel):
@@ -259,9 +283,14 @@ class AdminProductDetailResponse(ProductDetailResponse):
 
 class ProductOperationsUpdate(BaseModel):
     provider_id: int | None = None
-    pricing_strategy: str | None = None
+    pricing_strategy: str | None = Field(default=None, max_length=50)
     pricing_params: dict | None = None
     commission_rate: float | None = Field(default=None, ge=0, le=100)
+
+    @field_validator("pricing_params")
+    @classmethod
+    def bound_pricing_params(cls, value):
+        return bounded_mapping(value) if value is not None else value
 
 
 class SellerPricingUpdate(BaseModel):
@@ -272,9 +301,14 @@ class SellerPricingUpdate(BaseModel):
     đăng ký và đã được duyệt (products/service.py::update_seller_pricing
     validate lại, không tin schema layer)."""
 
-    pricing_strategy: str | None = None
+    pricing_strategy: str | None = Field(default=None, max_length=50)
     pricing_params: dict | None = None
     provider_id: int | None = None
+
+    @field_validator("pricing_params")
+    @classmethod
+    def bound_pricing_params(cls, value):
+        return bounded_mapping(value) if value is not None else value
 
 
 class ProductCoverItem(BaseModel):

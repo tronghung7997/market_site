@@ -1,6 +1,6 @@
 from datetime import datetime
 
-from pydantic import BaseModel
+from pydantic import BaseModel, Field
 
 from src.models.service_task import ServiceTaskStatus
 
@@ -22,5 +22,5 @@ class TaskResponse(BaseModel):
 
 class TaskUpdateRequest(BaseModel):
     status: ServiceTaskStatus | None = None
-    assignee: str | None = None
-    result_data: str | None = None
+    assignee: str | None = Field(default=None, max_length=100)
+    result_data: str | None = Field(default=None, max_length=10000)

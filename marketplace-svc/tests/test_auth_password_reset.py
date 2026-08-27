@@ -47,7 +47,7 @@ async def test_forgot_inactive_account_is_silent(client):
 
 @pytest.mark.asyncio
 async def test_reset_password_success_and_cannot_reuse_token(client):
-    await register_and_login(client, "resetme@example.com", "OldPassword123!")
+    old_access = await register_and_login(client, "resetme@example.com", "OldPassword123!")
     forgot = await client.post(
         "/auth/forgot-password",
         json={"email": "resetme@example.com", "locale": "en"},
@@ -63,6 +63,8 @@ async def test_reset_password_success_and_cannot_reuse_token(client):
         json={"token": token, "password": "NewPassword123!"},
     )
     assert reset.status_code == 200
+    stale = await client.get("/me", headers={"Authorization": f"Bearer {old_access}"})
+    assert stale.status_code == 401
 
     old = await client.post(
         "/auth/login",

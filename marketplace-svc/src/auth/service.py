@@ -33,9 +33,21 @@ def verify_password(plain: str, hashed: str) -> bool:
     return bcrypt.checkpw(plain.encode(), hashed.encode())
 
 
-def create_access_token(account_id: int, roles: list[str]) -> str:
+def create_access_token(
+    account_id: int,
+    roles: list[str],
+    *,
+    jti: str,
+    session_id,
+) -> str:
     expire = datetime.now(timezone.utc) + timedelta(minutes=settings.jwt_expire_minutes)
-    payload = {"sub": str(account_id), "roles": roles, "exp": expire}
+    payload = {
+        "sub": str(account_id),
+        "roles": roles,
+        "exp": expire,
+        "jti": jti,
+        "sid": str(session_id),
+    }
     return jwt.encode(payload, settings.jwt_secret, algorithm=settings.jwt_algorithm)
 
 
@@ -54,7 +66,11 @@ def decode_access_token(token: str, *, path: str | None = None) -> dict:
 
 
 async def register_account(
-    email: str, password: str, db: AsyncSession, referral_code: str | None = None
+    email: str,
+    password: str,
+    db: AsyncSession,
+    referral_code: str | None = None,
+    registration_ip: str | None = None,
 ) -> Account:
     from src.audit.service import log_event
     from src.logging import current_request_id
@@ -75,6 +91,7 @@ async def register_account(
         password_hash=hash_password(password),
         affiliate_code=affiliate_code,
         referred_by_id=referred_by_id,
+        registration_ip=registration_ip,
     )
     db.add(account)
     await db.flush()
@@ -197,6 +214,8 @@ async def reset_password(raw_token: str, new_password: str, db: AsyncSession) ->
 
     account.password_hash = hash_password(new_password)
     token.used_at = now
+    from src.auth.sessions import revoke_all_sessions
+    await revoke_all_sessions(account.id, db)
     await db.execute(
         delete(PasswordResetToken).where(
             PasswordResetToken.account_id == account.id,

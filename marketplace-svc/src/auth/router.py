@@ -11,7 +11,7 @@ from src.config import settings
 from src.rate_limit import check_rate_limit
 from src.security.events import security_event
 
-from . import schemas, service
+from . import schemas, service, sessions
 from .dependencies import get_current_account, require_role
 
 router = APIRouter(tags=["auth"])
@@ -72,7 +72,13 @@ async def register(
         f"auth:register:ip:{_peer_ip(request)}",
         settings.auth_register_ip_limit,
     )
-    account = await service.register_account(body.email, body.password, db, referral_code=body.referral_code)
+    account = await service.register_account(
+        body.email,
+        body.password,
+        db,
+        referral_code=body.referral_code,
+        registration_ip=_peer_ip(request),
+    )
     return account
 
 
@@ -85,8 +91,8 @@ async def login(
     account = await _authenticate_with_limits(body, request, db)
     if "admin" in account.roles:
         raise api_error(ErrorCode.ADMIN_LOGIN_REQUIRED, status.HTTP_403_FORBIDDEN)
-    token = service.create_access_token(account.id, account.roles)
-    return schemas.TokenResponse(access_token=token)
+    issued = await sessions.issue_session(account, db)
+    return schemas.TokenResponse(access_token=issued.access_token, refresh_token=issued.refresh_token)
 
 
 @router.post("/auth/admin/login", response_model=schemas.TokenResponse)
@@ -104,8 +110,8 @@ async def admin_login(
             reason="admin_role_required",
         )
         raise api_error(ErrorCode.ADMIN_ONLY, status.HTTP_403_FORBIDDEN)
-    token = service.create_access_token(account.id, account.roles)
-    return schemas.TokenResponse(access_token=token)
+    issued = await sessions.issue_session(account, db)
+    return schemas.TokenResponse(access_token=issued.access_token, refresh_token=issued.refresh_token)
 
 
 @router.post("/auth/forgot-password", response_model=schemas.PasswordResetAck)
@@ -141,13 +147,44 @@ async def reset_password(
 
 
 @router.post("/auth/refresh", response_model=schemas.TokenResponse)
-async def refresh(request: Request, account=Depends(get_current_account)):
+async def refresh(
+    body: schemas.RefreshRequest,
+    request: Request,
+    db: AsyncSession = Depends(get_session),
+):
     await _enforce_auth_limit(
-        f"auth:refresh:account:{account.id}",
+        f"auth:refresh:ip:{_peer_ip(request)}",
         settings.auth_refresh_account_limit,
     )
-    token = service.create_access_token(account.id, account.roles)
-    return schemas.TokenResponse(access_token=token)
+    issued = await sessions.rotate_refresh(body.refresh_token, db)
+    return schemas.TokenResponse(access_token=issued.access_token, refresh_token=issued.refresh_token)
+
+
+@router.post("/auth/logout", status_code=status.HTTP_204_NO_CONTENT)
+async def logout(
+    request: Request,
+    account=Depends(get_current_account),
+    db: AsyncSession = Depends(get_session),
+):
+    from src.models.auth_session import AuthSession
+
+    session_id = getattr(request.state, "auth_session_id", None)
+    if session_id is not None:
+        session = await db.get(AuthSession, session_id)
+        if session is not None and session.account_id == account.id:
+            await sessions.revoke_session(session, db)
+            await db.commit()
+    return None
+
+
+@router.post("/auth/logout-all", status_code=status.HTTP_204_NO_CONTENT)
+async def logout_all(
+    account=Depends(get_current_account),
+    db: AsyncSession = Depends(get_session),
+):
+    await sessions.revoke_all_sessions(account.id, db)
+    await db.commit()
+    return None
 
 
 @router.get("/me", response_model=schemas.AccountResponse)

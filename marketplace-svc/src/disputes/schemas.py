@@ -1,30 +1,37 @@
 from datetime import datetime
 
-from pydantic import BaseModel
+from pydantic import BaseModel, Field, field_validator
+
+from src.security.input_limits import bounded_mapping
 
 
 class DisputeCreate(BaseModel):
-    reason: str
-    evidence_type: str | None = None
+    reason: str = Field(min_length=1, max_length=2000)
+    evidence_type: str | None = Field(default=None, max_length=50)
     evidence: dict[str, str] | None = None
+
+    @field_validator("evidence")
+    @classmethod
+    def bound_evidence(cls, value):
+        return bounded_mapping(value, max_keys=20, max_bytes=8192) if value is not None else value
 
 
 class AdminDisputeAction(BaseModel):
-    admin_note: str
+    admin_note: str = Field(min_length=1, max_length=2000)
 
 
 class AdminDisputePartialRefund(BaseModel):
-    admin_note: str
-    refund_amount: int
+    admin_note: str = Field(min_length=1, max_length=2000)
+    refund_amount: int = Field(ge=1)
 
 
 class AdminDisputeExtendWarranty(BaseModel):
-    admin_note: str
-    extra_days: int
+    admin_note: str = Field(min_length=1, max_length=2000)
+    extra_days: int = Field(ge=1, le=365)
 
 
 class SellerDisputeRespond(BaseModel):
-    seller_note: str
+    seller_note: str = Field(min_length=1, max_length=2000)
 
 
 class DisputeResponse(BaseModel):

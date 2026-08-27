@@ -190,6 +190,36 @@ async def credit_affiliate_commission(
     ))
 
 
+async def clawback_affiliate_commission(
+    affiliate_account_id: int, amount: int, order_id: int, db: AsyncSession
+) -> int:
+    """Debit recovered commission. Returns the amount actually taken (may be less)."""
+    if amount <= 0:
+        return 0
+    wallet = await get_wallet_by_account(affiliate_account_id, db, for_update=True)
+    reference_id = str(order_id)
+    existing = await db.scalar(
+        select(Transaction.id).where(
+            Transaction.type == TransactionType.affiliate_clawback,
+            Transaction.reference_id == reference_id,
+        )
+    )
+    if existing:
+        return 0
+    recovered = min(wallet.available_balance, amount)
+    if recovered <= 0:
+        return 0
+    wallet.available_balance -= recovered
+    db.add(Transaction(
+        wallet_id=wallet.id,
+        type=TransactionType.affiliate_clawback,
+        amount=recovered,
+        description="Affiliate commission clawback",
+        reference_id=reference_id,
+    ))
+    return recovered
+
+
 async def get_transactions(account_id: int, db: AsyncSession) -> list[dict]:
     wallet = await get_wallet_by_account(account_id, db)
     result = await db.execute(

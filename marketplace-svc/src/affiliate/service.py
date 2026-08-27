@@ -1,3 +1,4 @@
+import ipaddress
 from datetime import date, datetime, timedelta, timezone
 
 from fastapi import HTTPException
@@ -6,14 +7,36 @@ from sqlalchemy.ext.asyncio import AsyncSession
 
 from src.config import settings
 from src.models.account import Account
-from src.models.affiliate import AffiliateClick, AffiliateCommission, AffiliateFundEntry
+from src.models.affiliate import AffiliateClick, AffiliateCommission, AffiliateFund, AffiliateFundEntry
 from src.models.category import Category
 from src.models.order import Order
 from src.models.product import Product, ProductVariant
-from src.wallet.service import credit_affiliate_commission
+from src.wallet.service import clawback_affiliate_commission, credit_affiliate_commission
 
 
 CLICK_DEDUP_WINDOW = timedelta(hours=24)
+_PAID_COMMISSION = AffiliateCommission.clawed_back_at.is_(None)
+
+
+def _is_public_ip(value: str | None) -> bool:
+    if not value:
+        return False
+    try:
+        ip = ipaddress.ip_address(value.split("%", 1)[0])
+    except ValueError:
+        return False
+    return bool(ip.is_global)
+
+
+async def _lock_fund(db: AsyncSession) -> AffiliateFund:
+    fund = await db.get(AffiliateFund, 1, with_for_update=True)
+    if fund is None:
+        fund = AffiliateFund(id=1, balance=0)
+        db.add(fund)
+        await db.flush()
+        fund = await db.get(AffiliateFund, 1, with_for_update=True)
+        assert fund is not None
+    return fund
 
 
 async def record_click(
@@ -118,6 +141,31 @@ async def apply_affiliate_commission(order: Order, db: AsyncSession) -> None:
     if amount <= 0:
         return
 
+    if (
+        _is_public_ip(affiliate.registration_ip)
+        and _is_public_ip(buyer.registration_ip)
+        and affiliate.registration_ip == buyer.registration_ip
+    ):
+        return
+
+    day_start = datetime.now(timezone.utc) - timedelta(hours=24)
+    recent = int(
+        await db.scalar(
+            select(func.count(AffiliateCommission.id)).where(
+                AffiliateCommission.affiliate_account_id == affiliate.id,
+                AffiliateCommission.created_at >= day_start,
+                _PAID_COMMISSION,
+            )
+        )
+        or 0
+    )
+    if recent >= settings.affiliate_max_commissions_per_day:
+        return
+
+    fund = await _lock_fund(db)
+    if fund.balance < amount:
+        return
+
     db.add(
         AffiliateCommission(
             order_id=order.id,
@@ -127,9 +175,7 @@ async def apply_affiliate_commission(order: Order, db: AsyncSession) -> None:
             amount=amount,
         )
     )
-    # Draw the payout down from the global affiliate fund. The balance is
-    # allowed to go negative (commission is always paid); a negative balance
-    # tells admin to top up.
+    fund.balance -= amount
     db.add(
         AffiliateFundEntry(
             amount=-amount,
@@ -140,7 +186,36 @@ async def apply_affiliate_commission(order: Order, db: AsyncSession) -> None:
     await credit_affiliate_commission(affiliate.id, amount, order.id, db)
 
 
+async def clawback_commission_for_order(order: Order, db: AsyncSession) -> None:
+    """Reverse a paid commission when the order is fully refunded. Idempotent."""
+    commission = await db.scalar(
+        select(AffiliateCommission)
+        .where(AffiliateCommission.order_id == order.id)
+        .with_for_update()
+    )
+    if commission is None or commission.clawed_back_at is not None:
+        return
+
+    fund = await _lock_fund(db)
+    recovered = await clawback_affiliate_commission(
+        commission.affiliate_account_id, commission.amount, order.id, db
+    )
+    fund.balance += commission.amount
+    db.add(
+        AffiliateFundEntry(
+            amount=commission.amount,
+            kind="clawback",
+            reference_id=str(order.id),
+            note=None if recovered == commission.amount else f"wallet_recovered={recovered}",
+        )
+    )
+    commission.clawed_back_at = datetime.now(timezone.utc)
+
+
 async def get_fund_balance(db: AsyncSession) -> int:
+    fund = await db.get(AffiliateFund, 1)
+    if fund is not None:
+        return int(fund.balance)
     return int(await db.scalar(select(func.coalesce(func.sum(AffiliateFundEntry.amount), 0))) or 0)
 
 
@@ -150,6 +225,14 @@ async def get_fund_overview(db: AsyncSession, limit: int = 30) -> dict:
         await db.scalar(
             select(func.coalesce(func.sum(AffiliateFundEntry.amount), 0)).where(
                 AffiliateFundEntry.kind == "commission"
+            )
+        )
+        or 0
+    )
+    clawed = int(
+        await db.scalar(
+            select(func.coalesce(func.sum(AffiliateFundEntry.amount), 0)).where(
+                AffiliateFundEntry.kind == "clawback"
             )
         )
         or 0
@@ -176,8 +259,13 @@ async def get_fund_overview(db: AsyncSession, limit: int = 30) -> dict:
         }
         for e in rows.scalars().all()
     ]
-    # spent is stored negative; report as positive "paid out"
-    return {"balance": balance, "total_topped_up": topped, "total_paid_out": -spent, "entries": entries}
+    # spent is stored negative; clawbacks restore budget so net paid out shrinks.
+    return {
+        "balance": balance,
+        "total_topped_up": topped,
+        "total_paid_out": -spent - clawed,
+        "entries": entries,
+    }
 
 
 async def topup_fund(amount: int, admin_id: int, db: AsyncSession, note: str | None = None) -> dict:
@@ -186,6 +274,8 @@ async def topup_fund(amount: int, admin_id: int, db: AsyncSession, note: str | N
 
     if amount <= 0:
         raise HTTPException(status_code=400, detail="Số tiền phải lớn hơn 0")
+    fund = await _lock_fund(db)
+    fund.balance += amount
     db.add(
         AffiliateFundEntry(amount=amount, kind="topup", note=note, created_by=admin_id)
     )
@@ -264,6 +354,7 @@ async def list_affiliates_admin(
             func.count(AffiliateCommission.id).label("orders"),
             func.coalesce(func.sum(AffiliateCommission.amount), 0).label("commission"),
         )
+        .where(_PAID_COMMISSION)
         .group_by(AffiliateCommission.affiliate_account_id)
         .subquery()
     )
@@ -354,11 +445,17 @@ async def get_affiliate_stats(
     commission_q = select(
         func.count(AffiliateCommission.id),
         func.coalesce(func.sum(AffiliateCommission.amount), 0),
-    ).where(AffiliateCommission.affiliate_account_id == account_id)
+    ).where(
+        AffiliateCommission.affiliate_account_id == account_id,
+        _PAID_COMMISSION,
+    )
     revenue_q = (
         select(func.coalesce(func.sum(Order.total_amount), 0))
         .join(AffiliateCommission, AffiliateCommission.order_id == Order.id)
-        .where(AffiliateCommission.affiliate_account_id == account_id)
+        .where(
+            AffiliateCommission.affiliate_account_id == account_id,
+            _PAID_COMMISSION,
+        )
     )
 
     if start:
@@ -393,7 +490,10 @@ async def get_affiliate_stats(
 
     recent = await db.execute(
         select(AffiliateCommission)
-        .where(AffiliateCommission.affiliate_account_id == account_id)
+        .where(
+            AffiliateCommission.affiliate_account_id == account_id,
+            _PAID_COMMISSION,
+        )
         .order_by(AffiliateCommission.created_at.desc())
         .limit(20)
     )
@@ -572,6 +672,7 @@ async def _build_timeseries(
             AffiliateCommission.affiliate_account_id == account_id,
             AffiliateCommission.created_at >= win_start,
             AffiliateCommission.created_at < win_end,
+            _PAID_COMMISSION,
         )
         .group_by(_utc_day(AffiliateCommission.created_at))
     )
@@ -591,6 +692,7 @@ async def _build_timeseries(
             AffiliateCommission.affiliate_account_id == account_id,
             AffiliateCommission.created_at >= win_start,
             AffiliateCommission.created_at < win_end,
+            _PAID_COMMISSION,
         )
         .group_by(_utc_day(AffiliateCommission.created_at))
     )

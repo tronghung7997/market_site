@@ -6,7 +6,7 @@ from pydantic import BaseModel, EmailStr, Field, field_validator
 class RegisterRequest(BaseModel):
     email: EmailStr
     password: str = Field(min_length=8, max_length=128)
-    referral_code: str | None = None
+    referral_code: str | None = Field(default=None, max_length=16)
 
     @field_validator("password")
     @classmethod
@@ -23,7 +23,7 @@ class LoginRequest(BaseModel):
 
 class ForgotPasswordRequest(BaseModel):
     email: EmailStr
-    locale: str = "vi"
+    locale: str = Field(default="vi", max_length=8)
 
 
 class ResetPasswordRequest(BaseModel):
@@ -44,7 +44,12 @@ class PasswordResetAck(BaseModel):
 
 class TokenResponse(BaseModel):
     access_token: str
+    refresh_token: str
     token_type: str = "bearer"
+
+
+class RefreshRequest(BaseModel):
+    refresh_token: str = Field(min_length=20, max_length=256)
 
 
 class AccountResponse(BaseModel):
@@ -75,7 +80,7 @@ class PaginatedAccounts(BaseModel):
 
 
 class UpdateRolesRequest(BaseModel):
-    roles: list[str]
+    roles: list[str] = Field(min_length=1, max_length=3)
 
 
 class UpdateSellerTierRequest(BaseModel):

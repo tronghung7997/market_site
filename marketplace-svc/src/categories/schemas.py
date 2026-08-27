@@ -12,11 +12,11 @@ def _normalize_icon(value: object) -> str | None:
 
 
 class CategoryCreate(BaseModel):
-    name: str
-    slug: str
+    name: str = Field(min_length=1, max_length=100)
+    slug: str = Field(min_length=1, max_length=100)
     icon: str | None = None
     parent_id: int | None = None
-    sort_order: int = 0
+    sort_order: int = Field(default=0, ge=-1000, le=10000)
     commission_rate: float | None = Field(default=None, ge=0, le=100)
 
     @field_validator("icon", mode="before")
@@ -26,10 +26,10 @@ class CategoryCreate(BaseModel):
 
 
 class CategoryUpdate(BaseModel):
-    name: str | None = None
-    slug: str | None = None
+    name: str | None = Field(default=None, min_length=1, max_length=100)
+    slug: str | None = Field(default=None, min_length=1, max_length=100)
     icon: str | None = None
-    sort_order: int | None = None
+    sort_order: int | None = Field(default=None, ge=-1000, le=10000)
     is_active: bool | None = None
     commission_rate: float | None = Field(default=None, ge=0, le=100)
 
@@ -41,8 +41,8 @@ class CategoryUpdate(BaseModel):
 
 class CategoryResponse(BaseModel):
     id: int
-    name: str
-    slug: str
+    name: str = Field(min_length=1, max_length=100)
+    slug: str = Field(min_length=1, max_length=100)
     icon: str | None
     parent_id: int | None
     sort_order: int

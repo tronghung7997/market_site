@@ -1620,6 +1620,7 @@
       "withdraw_lock": "Khoá tiền chờ duyệt rút",
       "withdraw_unlock": "Huỷ khoá rút tiền",
       "affiliate_commission": "Hoa hồng giới thiệu",
+      "affiliate_clawback": "Thu hồi hoa hồng giới thiệu",
       "adjustment_credit": "Đối soát số dư",
       "adjustment_debit": "Đối soát số dư"
     },
@@ -2052,6 +2053,7 @@
       "withdraw": "Rút tiền",
       "platform_fee": "Phí nền tảng",
       "affiliate_commission": "Hoa hồng giới thiệu",
+      "affiliate_clawback": "Thu hồi hoa hồng giới thiệu",
       "adjustment_credit": "Điều chỉnh số dư",
       "adjustment_debit": "Điều chỉnh số dư"
     }

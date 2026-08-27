@@ -9,7 +9,7 @@ MASKED_SECRET = "********"
 
 
 class ProviderCreate(BaseModel):
-    name: str
+    name: str = Field(min_length=1, max_length=255)
     # "type" từng là field bắt buộc riêng nhưng không nơi nào trong UI hiển thị
     # hay dùng nó — chỉ gây nhầm với adapter_type (cái thật sự quyết định hành
     # vi). Cho phép bỏ trống; router tự set = adapter_type nếu admin không điền.
@@ -106,8 +106,8 @@ SELLER_ALLOWED_ADAPTER_TYPES = {
 
 
 class SellerProviderCreate(BaseModel):
-    name: str
-    adapter_type: str
+    name: str = Field(min_length=1, max_length=255)
+    adapter_type: str = Field(min_length=1, max_length=50)
     config: dict = {}
 
 
@@ -117,7 +117,7 @@ class SellerProviderUpdate(BaseModel):
 
 
 class AdminProviderReview(BaseModel):
-    note: str | None = None
+    note: str | None = Field(default=None, max_length=2000)
 
 
 class TopProxySeedRequest(BaseModel):

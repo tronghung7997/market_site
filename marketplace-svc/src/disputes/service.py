@@ -271,6 +271,8 @@ async def refund_dispute(dispute_id: int, admin_note: str, db: AsyncSession) -> 
     order.status = OrderStatus.refunded
 
     await refund_escrow(order.id, order.buyer_id, order.total_amount, db)
+    from src.affiliate.service import clawback_commission_for_order
+    await clawback_commission_for_order(order, db)
     await log_event(db, "info", f"Dispute {dispute_id} refunded", request_id=current_request_id(),
                     metadata={"event": "dispute_refunded", "order_id": order.id, "amount": order.total_amount})
     await _enqueue_dispute_resolved(db, dispute, order)

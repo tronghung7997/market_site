@@ -20,6 +20,7 @@ class TransactionType(str, PyEnum):
     withdraw_unlock = "withdraw_unlock"
     refund = "refund"
     affiliate_commission = "affiliate_commission"
+    affiliate_clawback = "affiliate_clawback"
     # Bút toán đối soát: sổ giao dịch và available_balance lệch nhau vì migration
     # q1a2b3c4d5e6 chuyển tiền giữa các lớp số dư bằng SQL thô, không ghi sổ.
     # Không sửa quá khứ — ghi nhận chênh lệch để sổ cộng ra đúng số dư từ đây.
@@ -46,6 +47,7 @@ TRANSACTION_DIRECTION: dict[str, TransactionDirection] = {
     TransactionType.purchase_release: TransactionDirection.in_,
     TransactionType.refund: TransactionDirection.in_,
     TransactionType.affiliate_commission: TransactionDirection.in_,
+    TransactionType.affiliate_clawback: TransactionDirection.out,
     TransactionType.withdraw_unlock: TransactionDirection.in_,
     TransactionType.platform_fee: TransactionDirection.in_,
     TransactionType.adjustment_credit: TransactionDirection.in_,

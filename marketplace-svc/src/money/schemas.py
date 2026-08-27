@@ -28,7 +28,7 @@ class MoneyConfigAdmin(MoneyConfigPublic):
 
 class MoneyConfigUpdate(BaseModel):
     """Partial update — at least one field required."""
-    display_fx_rate: int | None = Field(None, description="VND per 1 USD")
+    display_fx_rate: int | None = Field(None, ge=1, description="VND per 1 USD")
     display_currency_default: Literal["VND", "USD"] | None = None
     allow_user_toggle: bool | None = None
     allow_locale_toggle: bool | None = None

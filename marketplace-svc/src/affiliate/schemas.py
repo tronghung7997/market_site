@@ -4,9 +4,9 @@ from pydantic import BaseModel, Field
 
 
 class ClickRequest(BaseModel):
-    code: str
-    path: str | None = None
-    referrer: str | None = None
+    code: str = Field(min_length=4, max_length=16)
+    path: str | None = Field(default=None, max_length=500)
+    referrer: str | None = Field(default=None, max_length=500)
     visitor_id: str | None = Field(None, max_length=64)
 
 
@@ -91,12 +91,12 @@ class FundOverview(BaseModel):
 
 
 class FundTopupRequest(BaseModel):
-    amount: int
-    note: str | None = None
+    amount: int = Field(ge=1)
+    note: str | None = Field(default=None, max_length=500)
 
 
 class UpdateCodeRequest(BaseModel):
-    code: str
+    code: str = Field(min_length=4, max_length=8)
 
 
 class AffiliateCodeResponse(BaseModel):

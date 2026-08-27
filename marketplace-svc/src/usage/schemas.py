@@ -4,9 +4,9 @@ from pydantic import BaseModel, Field
 
 
 class ChargeUsageRequest(BaseModel):
-    endpoint: str
-    units: int = Field(default=1, ge=1)
-    request_id: str | None = None
+    endpoint: str = Field(min_length=1, max_length=200)
+    units: int = Field(default=1, ge=1, le=10000)
+    request_id: str | None = Field(default=None, max_length=64)
 
 
 class InternalChargeUsageRequest(ChargeUsageRequest):

@@ -15,7 +15,9 @@ from src.models.wallet import Transaction, TransactionType, Wallet
 from tests.conftest import make_admin, make_seller, register_and_login
 
 
-async def setup_affiliate_order(client, product_rate=None, category_rate=None, use_referral=True):
+async def setup_affiliate_order(
+    client, product_rate=None, category_rate=None, use_referral=True, fund_amount=1_000_000,
+):
     """Create admin/seller/product+variant+resources, an affiliate, a referred buyer with credit.
 
     Returns (admin_token, seller_token, buyer_token, variant_id, affiliate_id, code).
@@ -72,6 +74,12 @@ async def setup_affiliate_order(client, product_rate=None, category_rate=None, u
     buyer_id = buyer_me.json()["id"]
     await client.post("/wallet/topup", json={"account_id": buyer_id, "amount": 100000},
                       headers={"Authorization": f"Bearer {admin_token}"})
+    if fund_amount:
+        await client.post(
+            "/admin/affiliate-fund/topup",
+            json={"amount": fund_amount, "note": "test budget"},
+            headers={"Authorization": f"Bearer {admin_token}"},
+        )
 
     return admin_token, seller_token, buyer_token, variant_id, affiliate_id, code
 
@@ -621,6 +629,59 @@ async def test_no_commission_on_self_referral(client):
             select(AffiliateCommission).where(AffiliateCommission.order_id == order_id)
         )
         assert comm is None
+
+
+@pytest.mark.asyncio
+async def test_commission_skipped_when_affiliate_fund_empty(client):
+    _, _, buyer_token, vid, affiliate_id, _ = await setup_affiliate_order(client, fund_amount=0)
+
+    order = await client.post("/orders", json={"variant_id": vid, "quantity": 1},
+                              headers={"Authorization": f"Bearer {buyer_token}"})
+    order_id = order.json()["id"]
+    confirm = await client.post(f"/orders/{order_id}/confirm",
+                                headers={"Authorization": f"Bearer {buyer_token}"})
+    assert confirm.status_code == 200
+    assert confirm.json()["status"] == "completed"
+
+    async with SessionLocal() as db:
+        comm = await db.scalar(
+            select(AffiliateCommission).where(AffiliateCommission.order_id == order_id)
+        )
+        assert comm is None
+        affiliate_wallet = await db.scalar(select(Wallet).where(Wallet.account_id == affiliate_id))
+        assert affiliate_wallet.available_balance == 0
+
+
+@pytest.mark.asyncio
+async def test_commission_clawback_restores_fund_and_wallet(client):
+    admin_token, _, buyer_token, vid, affiliate_id, _ = await setup_affiliate_order(client)
+
+    order = await client.post("/orders", json={"variant_id": vid, "quantity": 1},
+                              headers={"Authorization": f"Bearer {buyer_token}"})
+    order_id = order.json()["id"]
+    await client.post(f"/orders/{order_id}/confirm",
+                      headers={"Authorization": f"Bearer {buyer_token}"})
+
+    async with SessionLocal() as db:
+        from src.affiliate.service import clawback_commission_for_order
+        ord_obj = await db.get(Order, order_id)
+        await clawback_commission_for_order(ord_obj, db)
+        await clawback_commission_for_order(ord_obj, db)
+        await db.commit()
+
+    async with SessionLocal() as db:
+        comm = await db.scalar(
+            select(AffiliateCommission).where(AffiliateCommission.order_id == order_id)
+        )
+        assert comm is not None
+        assert comm.clawed_back_at is not None
+        affiliate_wallet = await db.scalar(select(Wallet).where(Wallet.account_id == affiliate_id))
+        assert affiliate_wallet.available_balance == 0
+
+    fund = await client.get("/admin/affiliate-fund", headers={"Authorization": f"Bearer {admin_token}"})
+    assert fund.status_code == 200
+    assert fund.json()["balance"] == 1_000_000
+    assert fund.json()["total_paid_out"] == 0
 
 
 @pytest.mark.asyncio

@@ -25,7 +25,10 @@ class Settings(BaseSettings):
     # No usable defaults: every environment must inject unique values.
     jwt_secret: str
     jwt_algorithm: str = "HS256"
-    jwt_expire_minutes: int = 60
+    jwt_expire_minutes: int = 15
+    jwt_refresh_expire_days: int = 7
+    max_request_body_bytes: int = 1_048_576
+    affiliate_max_commissions_per_day: int = 100
     internal_api_key: str
     bff_request_signing_secret: str
     bff_request_signing_key_id: str = "market-bff-v1"
@@ -233,6 +236,10 @@ class Settings(BaseSettings):
             "auth_forgot_account_limit",
             "auth_reset_ip_limit",
             "password_reset_ttl_minutes",
+            "jwt_expire_minutes",
+            "jwt_refresh_expire_days",
+            "max_request_body_bytes",
+            "affiliate_max_commissions_per_day",
             "smtp_port",
             "mail_max_attempts",
             "gateway_ip_rate_limit",

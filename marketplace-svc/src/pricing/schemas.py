@@ -1,4 +1,6 @@
-from pydantic import BaseModel
+from pydantic import BaseModel, field_validator
+
+from src.security.input_limits import bounded_mapping
 
 
 class PricingOptionsResponse(BaseModel):
@@ -17,6 +19,11 @@ class PricingOptionsResponse(BaseModel):
 
 class CalculateRequest(BaseModel):
     user_config: dict
+
+    @field_validator("user_config")
+    @classmethod
+    def bound_user_config(cls, value):
+        return bounded_mapping(value)
 
 
 class CalculateResponse(BaseModel):

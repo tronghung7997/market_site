@@ -40,15 +40,15 @@ Checklist hợp nhất và chuẩn hóa từ:
 |---|---|:---:|---|---|
 | H-1 | Production compose default sang development | P0 | **OPEN** — compose inject production + runtime encryption key chỉ là local patch, không nằm trong commit/release | Release compose, container startup và `/docs` retest pass với secret runtime thật |
 | H-2 | Backend container root + debug tools | P1 | **OPEN** — Dockerfile non-root/bỏ debug tools chỉ là local patch, không nằm trong commit/release | Ship Dockerfile, tách migration khỏi app startup và inspect image runtime |
-| H-3 | Token không revocable (`BE-H-4`) | P1 | **OPEN** | Refresh-token rotation/reuse detection hoặc session store; logout/revoke làm token cũ trả 401 |
+| H-3 | Token không revocable (`BE-H-4`) | P1 | **DONE LOCAL** — opaque refresh + rotation/reuse kills family; access JWT `jti`/`sid`; logout/logout-all/password-reset revoke; BFF `dx_refresh` | Deploy artifact; stolen-token logout retest |
 | H-4 | Jenkins root SSH, thiếu host-key pinning/gates | P1 | **OPEN** | Non-root deploy, pinned host key, test/audit/image gates blocking |
 | H-5 | Mutable image tags + build không locked | P1 | **OPEN** — `npm ci` chỉ có trong Dockerfile local chưa ship; mutable tags/Python install/artifact digest còn mở | Ship locked build, image digest + frozen Python install + artifact digest evidence |
 | BE-H-1 | Seller API key role/expiry/scope | P1/P2 | **SUPERSEDED** — `main` drop table `seller_api_keys` (`db1a2b3c4d5e6`); conflict lấy main, không khôi phục credential store | Không reopen; incident rotate chuyển sang BFF signing secret |
 | BE-H-2 | Seller undo admin suspension | P1 | **DONE LOCAL** — seller schema không nhận lifecycle status; regression giữ `suspended` | Deploy artifact |
-| BE-H-3 | Affiliate self-dealing/fund abuse | P1 | **PARTIAL** — chặn buyer/seller self-dealing, inactive affiliate và rate ngoài 0..100; fund vẫn có thể âm, chưa clawback | Fund invariant/reservation + fraud velocity/collusion + clawback |
+| BE-H-3 | Affiliate self-dealing/fund abuse | P1 | **DONE LOCAL** — fund lock không âm; skip commission nếu hết quỹ; clawback khi refund; public registration-IP collusion skip; daily cap | Deploy migration/artifact |
 | BE-H-5 | Withdrawal TOCTOU | P0 | **DONE LOCAL** — wallet/request rows lock, balance guard + ledger key; concurrent withdrawals chỉ một request thắng | Deploy migration/artifact |
 | BE-H-6 | Affiliate date range memory DoS | P1 | **DONE LOCAL** — strict date, reversed/over-366-day trả 422 | Deploy artifact |
-| BE-H-7 | Systemic input constraints/body size | P1 | **PARTIAL** — money/quota/commission constraints đã thêm; chưa sweep toàn schema/body size | Constraint sweep theo DB columns + numeric/list caps + ASGI/edge body-size limit |
+| BE-H-7 | Systemic input constraints/body size | P1 | **DONE LOCAL** — write schemas có Field/list/JSON caps; ASGI body-size 1 MiB | Deploy artifact; edge body limit still recommended |
 | FE-H-1 | Proxy forward client headers (`M-6`) | P0 | **DONE LOCAL** — request headers dựng từ allowlist `Accept`, `Accept-Language`, `Content-Type`; auth do BFF inject | Deploy artifact; header-capture retest edge |
 | FE-H-2 | Backend public `:8001` (`M-5`) | P0 | **OPEN** — bind loopback chỉ có trong compose local chưa ship; chưa external probe trên production host | Deploy compose hoặc siết firewall/ingress; external probe connection refused |
 
@@ -313,16 +313,16 @@ Không mặc định kết luận production compromised. Kích hoạt incident/
 ### 2.2 JWT & session storage
 
 - [x] JWT secret bắt buộc ≥32 bytes
-- [x] Access token TTL giảm còn 60 phút; refresh rotation/store vẫn là follow-up nếu cần long-lived session
-- [x] Bearer token đã chuyển khỏi `localStorage` sang HttpOnly Secure(production) SameSite=Strict cookie qua same-origin BFF
-- [x] Logout xóa HttpOnly session cookie ở BFF; chưa có refresh store cần revoke
-- [ ] Không embed quyền nhạy cảm chỉ trong JWT claim (giữ check DB roles như hiện tại)
+- [x] Access token TTL mặc định 15 phút; opaque refresh 7 ngày, rotate khi dùng, reuse phát hiện thì revoke cả family
+- [x] Bearer token đã chuyển khỏi `localStorage` sang HttpOnly Secure(production) SameSite=Strict cookie qua same-origin BFF (`dx_session` + `dx_refresh`)
+- [x] Logout/logout-all/password-reset revoke session trên backend; access JWT cũ trả 401; BFF xóa cả hai cookie
+- [x] Không embed quyền nhạy cảm chỉ trong JWT claim (giữ check DB roles như hiện tại)
 
 ### 2.3 Brute force / abuse
 
 - [x] **P0:** Rate limit `POST /auth/login` (IP + normalized email hash)
 - [x] Rate limit `POST /auth/register` (IP)
-- [x] Rate limit `POST /auth/refresh` (account)
+- [x] Rate limit `POST /auth/refresh` (IP)
 - [x] Rate limit `POST /affiliate/click` (IP + campaign hash)
 - [x] Response login fail generic
 - [x] Structured security events/metrics cho auth fail/rate-limit; alert routing production cần Ops cấu hình
@@ -384,7 +384,7 @@ Không mặc định kết luận production compromised. Kích hoạt incident/
 - [x] Affiliate click rate-limit theo IP+campaign, không chỉ `visitor_id`
 - [x] Dedupe theo visitor **hoặc** IP trong cửa sổ 24h; event/alert production cần threshold Ops
 - [x] Không trả commission khi affiliate là buyer, seller của chính order hoặc account inactive; rate phải trong `(0, 100]`
-- [ ] Global affiliate fund không được âm; thêm reservation/cap, collusion/velocity detection và clawback
+- [x] Global affiliate fund lock không âm; skip commission nếu hết quỹ; clawback khi hoàn; collusion IP public; daily cap
 
 ---
 

@@ -1,5 +1,6 @@
 from src.models.account import Account, AccountRole, ApplicationStatus, PasswordResetToken, SellerApplication
-from src.models.affiliate import AffiliateClick, AffiliateCommission
+from src.models.affiliate import AffiliateClick, AffiliateCommission, AffiliateFund, AffiliateFundEntry
+from src.models.auth_session import AuthRefreshToken, AuthSession
 from src.models.alert import Alert
 from src.models.category import Category
 from src.models.chat import ChatConversation, ChatMessage, ChatParticipant
@@ -29,7 +30,8 @@ from src.models.deposit_rail_config import DepositRailConfig
 
 __all__ = [
     "Account", "AccountRole", "ApplicationStatus", "PasswordResetToken", "SellerApplication",
-    "AffiliateClick", "AffiliateCommission",
+    "AffiliateClick", "AffiliateCommission", "AffiliateFund", "AffiliateFundEntry",
+    "AuthRefreshToken", "AuthSession",
     "Alert",
     "Category",
     "ChatConversation", "ChatMessage", "ChatParticipant",

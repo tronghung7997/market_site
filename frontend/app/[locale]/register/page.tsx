@@ -5,13 +5,12 @@ import { useSearchParams } from "next/navigation";
 import { Suspense, useState } from "react";
 import { useTranslations } from "next-intl";
 import { useAuth } from "@/lib/auth";
-import { BCRYPT_MAX_BYTES, isCommonPassword, isValidEmail, PASSWORD_MAX_LENGTH, PASSWORD_MIN_LENGTH, passwordBytes } from "@/lib/auth-validation";
+import { BCRYPT_MAX_BYTES, isValidEmail, PASSWORD_MAX_LENGTH, PASSWORD_MIN_LENGTH, passwordBytes } from "@/lib/auth-validation";
 import { getCookie } from "@/lib/utils";
 import { safeInternalRedirect } from "@/lib/safe-redirect";
 import { useApiErrorMessage } from "@/lib/use-api-error";
 import { Button, Card, Field, Input, Spinner } from "@/components/ui";
 import { Logo } from "@/components/Icons";
-import { PASSWORD_MIN_LENGTH } from "@/lib/auth-validation";
 
 export default function RegisterPage() {
   return (
@@ -44,7 +43,6 @@ function RegisterForm() {
     else if (password.length < PASSWORD_MIN_LENGTH) errors.password = t("passwordMin", { min: PASSWORD_MIN_LENGTH });
     else if (password.length > PASSWORD_MAX_LENGTH) errors.password = t("passwordTooLong", { max: PASSWORD_MAX_LENGTH });
     else if (passwordBytes(password) > BCRYPT_MAX_BYTES) errors.password = t("passwordByteLimit", { max: BCRYPT_MAX_BYTES });
-    else if (isCommonPassword(password)) errors.password = t("passwordCommon");
     if (!confirmPassword) errors.confirmPassword = t("confirmPasswordRequired");
     else if (confirmPassword !== password) errors.confirmPassword = t("passwordMismatch");
     setFieldErrors(errors);

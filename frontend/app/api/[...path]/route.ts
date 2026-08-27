@@ -132,10 +132,12 @@ function passthroughUpstream(upstream: Response, extra?: (response: NextResponse
     responseHeaders.set("Cache-Control", "no-cache, no-transform");
     responseHeaders.set("X-Accel-Buffering", "no");
     responseHeaders.set("Connection", "keep-alive");
-    return new Response(upstream.body, {
+    const response = new NextResponse(upstream.body, {
       status: upstream.status,
       headers: responseHeaders,
     });
+    extra?.(response);
+    return response;
   }
   responseHeaders.set("Cache-Control", "no-store");
   const response = new NextResponse(upstream.body, {

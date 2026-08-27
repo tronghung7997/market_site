@@ -23,6 +23,7 @@ export default function LoginPage() {
 
 function LoginForm() {
   const t = useTranslations("auth");
+  const apiErrorMessage = useApiErrorMessage();
   const { account, loading, login } = useAuth();
   const router = useRouter();
   const searchParams = useSearchParams();

@@ -3,7 +3,7 @@ import assert from "node:assert/strict";
 import { readdirSync } from "node:fs";
 import { dirname, join } from "node:path";
 import { fileURLToPath } from "node:url";
-import { COVER_IDS, categoryCoverId, coverSrc, isCoverId, parseCoverId } from "../lib/product-covers.ts";
+import { COVER_IDS, categoryCoverId, coverSrc, inferCoverFromText, isCoverId, parseCoverId } from "../lib/product-covers.ts";
 
 const coversDir = join(dirname(fileURLToPath(import.meta.url)), "../public/covers");
 
@@ -25,6 +25,7 @@ describe("product covers", () => {
     assert.equal(parseCoverId({ image: "account" }), "account");
     assert.equal(parseCoverId({ images: ["http://old.example/a.png"] }), null);
     assert.equal(parseCoverId({ cover_id: "Facebook" }), null);
+    assert.equal(inferCoverFromText("Telegram premium account"), "telegram");
   });
 
   it("resolves a category cover from icon, then name/slug", () => {

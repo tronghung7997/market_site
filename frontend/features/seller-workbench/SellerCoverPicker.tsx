@@ -9,6 +9,7 @@ const COVER_LABELS: Partial<Record<CoverId, string>> = {
   facebook: "Facebook",
   instagram: "Instagram",
   tiktok: "TikTok",
+  telegram: "Telegram",
   youtube: "YouTube",
   x: "X / Twitter",
   proxy: "Proxy",

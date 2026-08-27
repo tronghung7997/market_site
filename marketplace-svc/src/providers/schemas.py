@@ -43,6 +43,8 @@ class ProviderResponse(BaseModel):
     seller_id: int | None = None
     review_status: str = "approved"
     review_note: str | None = None
+    last_tested_at: datetime | None = None
+    last_test_result: dict | None = None
     # Sổ Xu ước tính — chỉ có ý nghĩa với adapter_type="topproxy" (trả trước
     # bằng Xu, không có API xem số dư). NULL = chưa bật theo dõi.
     credit_balance_xu: int | None = None

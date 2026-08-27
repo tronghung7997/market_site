@@ -6,7 +6,7 @@ from sqlalchemy.ext.asyncio import AsyncSession
 from src.adapters.compatibility import setup_status
 from src.alerts.service import list_active_alerts, list_seller_alerts
 from src.disputes.service import list_seller_open_disputes
-from src.models.account import ApplicationStatus, SellerApplication
+from src.models.account import Account, ApplicationStatus, SellerApplication
 from src.models.alert import Alert
 from src.models.order import Dispute, DisputeStatus, Order, OrderStatus
 from src.models.product import Product
@@ -31,12 +31,24 @@ _ALERT_HREF = {
     "provider_down": "/admin/providers",
     "provision_stuck": "/admin/orders",
     "dispute_opened": "/admin/disputes",
+    "seller_application_approved": "/seller",
+}
+
+# Stable keys so the frontend can i18n known inbox alerts; others stay alert_{id}.
+_INBOX_ALERT_KEYS = {
+    "seller_application_approved": "seller_application_approved",
+}
+
+# Seller-only inbox facts that must not appear in the admin bell.
+_ADMIN_HIDDEN_ALERT_TYPES = {
+    "seller_application_approved",
 }
 
 
 def _alert_item(alert: Alert, href: str) -> ActionItem:
     return ActionItem(
-        key=f"alert_{alert.id}", severity=alert.severity, label=alert.message,
+        key=_INBOX_ALERT_KEYS.get(alert.type, f"alert_{alert.id}"),
+        severity=alert.severity, label=alert.message,
         count=1, href=href, dismissible=True, alert_id=alert.id,
     )
 
@@ -145,6 +157,14 @@ async def seller_action_items(seller_id: int, db: AsyncSession) -> list[ActionIt
     return items
 
 
+async def account_action_items(account: Account, db: AsyncSession) -> list[ActionItem]:
+    """Buyer inbox plus seller inbox when the account has the seller role."""
+    items = await buyer_action_items(account.id, db)
+    if "seller" in (account.roles or []):
+        items.extend(await seller_action_items(account.id, db))
+    return items
+
+
 async def admin_action_items(db: AsyncSession) -> list[ActionItem]:
     # Chỉ cần ĐẾM — không đi qua các list_*() vì chúng enrich từng row
     # (N+1) cho nhu cầu hiển thị chi tiết mà ở đây không dùng đến.
@@ -194,6 +214,8 @@ async def admin_action_items(db: AsyncSession) -> list[ActionItem]:
         ))
 
     for alert in await list_active_alerts(db):
+        if alert.type in _ADMIN_HIDDEN_ALERT_TYPES:
+            continue
         items.append(_alert_item(alert, _ALERT_HREF.get(alert.type, "/admin/alerts")))
 
     return items

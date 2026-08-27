@@ -204,7 +204,7 @@ export default function TopNav() {
                 </span>
               </Link>
               <MessageShortcut perspective="buyer" href="/messages" />
-              <NotificationBell endpoint="buyer" />
+              <NotificationBell endpoint="account" />
               {/* ≤375px: only menu/logo/bell/avatar in chrome — Top up lives in account menu */}
               <Link href="/wallet" className="hidden min-[400px]:block">
                 <Button size="md"><Plus size={15} /><span className="hidden sm:inline">{t("topUp")}</span></Button>

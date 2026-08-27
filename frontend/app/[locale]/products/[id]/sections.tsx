@@ -8,6 +8,7 @@ import type { ReactNode } from "react";
 import { useMoney } from "@/lib/money";
 import { effectiveMinPrice } from "@/lib/pricing-display";
 import { serviceLabel } from "@/lib/labels";
+import { fulfillmentFromProduct, fulfillmentTagKey, fulfillmentTagValues, fulfillmentTone } from "@/lib/fulfillment";
 import { formatSpecKey as fmtKey } from "@/lib/utils";
 import type { Product, ProductDetail } from "@/lib/types";
 import { Card, Tag } from "@/components/ui";
@@ -31,6 +32,7 @@ export function ProductIdentity({ product }: { product: ProductDetail }) {
   const locale = useLocale();
   const totalStock = product.variants.reduce((s, v) => s + v.stock_count, 0);
   const sellerName = product.seller_name ?? "seller";
+  const fulfillment = fulfillmentFromProduct(product);
 
   return (
     <Card className="p-5 sm:p-6">
@@ -42,8 +44,8 @@ export function ProductIdentity({ product }: { product: ProductDetail }) {
         />
         <div className="min-w-0 flex-1">
       <div className="flex flex-wrap items-center gap-1.5">
+        <Tag tone={fulfillmentTone(fulfillment.kind)}>{t(fulfillmentTagKey(fulfillment), fulfillmentTagValues(fulfillment))}</Tag>
         <Tag tone="iris">{serviceLabel(product.service_type, locale)}</Tag>
-        <Tag tone="good">{t("forSale")}</Tag>
         <Tag tone="neutral"><Shield size={11} /> {t("escrowDays", { days: product.escrow_days })}</Tag>
       </div>
 
@@ -82,6 +84,8 @@ export function ProductIdentity({ product }: { product: ProductDetail }) {
           <StartInquiryDialog productId={product.id} compact />
         </div>
       </div>
+
+      <p className="mt-4 text-[13px] leading-relaxed text-muted">{t(`fulfillmentReceive.${fulfillment.kind}`, fulfillmentTagValues(fulfillment))}</p>
 
       {product.highlight_text && (
         <div className="flex items-start gap-2 mt-4 px-3.5 py-2.5 rounded-lg bg-iris/4 border border-iris/12 text-[12.5px] leading-relaxed">
@@ -195,7 +199,7 @@ export function RelatedProducts({ items }: { items: Product[] }) {
                     </span>
                   )}
                   {r.sold_count > 0 && <span>{tc("sold", { count: r.sold_count })}</span>}
-                  <Tag tone="iris">{serviceLabel(r.service_type, locale)}</Tag>
+                  <Tag tone={fulfillmentTone(fulfillmentFromProduct(r).kind)}>{t(fulfillmentTagKey(fulfillmentFromProduct(r)), fulfillmentTagValues(fulfillmentFromProduct(r)))}</Tag>
                 </div>
                 <div className="mt-auto pt-3 flex items-baseline justify-between">
                   <span className="text-[10px] uppercase tracking-wide text-faint font-medium">{tc("from")}</span>

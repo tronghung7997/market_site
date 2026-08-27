@@ -75,13 +75,13 @@ export default function ProductView({ initial }: { initial: ProductPageCatalog }
             {useDynamicForm ? (
               purchase.order ? (
                 <PanelShell title={t("orderPanel")}>
-                  <OrderResult order={purchase.order} onRebuy={purchase.rebuy} />
+                  <OrderResult order={purchase.order} onRebuy={purchase.rebuy} fulfillment={product.pricing_strategy} />
                 </PanelShell>
               ) : (
                 <DynamicOrderForm productId={product.id} product={product} onOrderCreated={purchase.onOrderCreated} />
               )
             ) : (
-              <OrderPanel product={product} purchase={purchase} />
+              <OrderPanel product={product} purchase={purchase} fulfillment={product.pricing_strategy} />
             )}
           </div>
         </aside>

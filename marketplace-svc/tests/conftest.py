@@ -2,6 +2,7 @@ import hashlib
 import hmac
 import os
 import time
+from types import SimpleNamespace
 
 # Tests run against a DEDICATED database so the suite's per-test TRUNCATE never
 # wipes the dev/demo data in `marketplace`. Forced (not setdefault) for safety.
@@ -48,6 +49,7 @@ from sqlalchemy import text, update
 from src.database import SessionLocal, engine
 from src.main import app
 from src.models.account import Account
+from src.security.bff_request_signing import requires_bff_signature
 
 
 async def register_and_login(client, email, password="StrongPass123!"):
@@ -80,6 +82,11 @@ class BffRequestSigningAuth(httpx.Auth):
     requires_request_body = True
 
     def auth_flow(self, request):
+        # Webhooks and gateway calls carry their own signatures. Overwriting
+        # X-Signature here would make every provider callback look forged.
+        if not requires_bff_signature(SimpleNamespace(url=SimpleNamespace(path=request.url.path))):
+            yield request
+            return
         timestamp = str(int(time.time()))
         canonical = b"\n".join((
             request.method.upper().encode("ascii"),

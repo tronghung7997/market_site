@@ -310,6 +310,7 @@ export const api = {
   adminAlerts: () => request<Alert[]>("/admin/alerts", {}, true),
   dismissAlert: (id: number) => request<Alert>(`/admin/alerts/${id}/dismiss`, { method: "POST" }, true),
   dismissSellerAlert: (id: number) => request<Alert>(`/seller/alerts/${id}/dismiss`, { method: "POST" }, true),
+  accountActionItems: () => request<ActionItem[]>("/me/action-items", {}, true),
   buyerActionItems: () => request<ActionItem[]>("/orders/action-items", {}, true),
   sellerActionItems: () => request<ActionItem[]>("/seller/action-items", {}, true),
   adminActionItems: () => request<ActionItem[]>("/admin/action-items", {}, true),
@@ -426,7 +427,9 @@ export const api = {
   updateSellerProvider: (id: number, data: Record<string, unknown>) =>
     request<Provider>(`/seller/providers/${id}`, { method: "PUT", body: JSON.stringify(data) }, true),
   testSellerProvider: (id: number) =>
-    request<{ health: Record<string, unknown>; provision_test: Record<string, unknown> | null }>(`/seller/providers/${id}/test`, { method: "POST" }, true),
+    request<{ health: Record<string, unknown>; provision_test: Record<string, unknown> | null; provision_test_skipped_reason?: string | null }>(`/seller/providers/${id}/test`, { method: "POST" }, true),
+  submitSellerProvider: (id: number) =>
+    request<Provider>(`/seller/providers/${id}/submit`, { method: "POST" }, true),
 
   submitReview: (orderId: number, rating: number, comment?: string) =>
     request<Review>(`/orders/${orderId}/review`, { method: "POST", body: JSON.stringify({ rating, comment: comment || null }) }, true),

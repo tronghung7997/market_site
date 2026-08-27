@@ -25,7 +25,7 @@ export function AuthProvider({ children }: { children: ReactNode }) {
   const router = useRouter();
   const pathname = usePathname();
 
-  const refresh = async () => {
+  const refresh = useCallback(async () => {
     try {
       setAccount(await api.me());
     } catch {
@@ -33,7 +33,7 @@ export function AuthProvider({ children }: { children: ReactNode }) {
     } finally {
       setLoading(false);
     }
-  };
+  }, []);
 
   useEffect(() => {
     refresh();

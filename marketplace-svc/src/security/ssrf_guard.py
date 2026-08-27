@@ -30,7 +30,15 @@ from urllib.parse import urlsplit
 from fastapi import HTTPException
 
 _ALLOWED_SCHEMES = {"https"}
+_LOCAL_LOOPBACK_SCHEMES = {"http", "https"}
+_LOOPBACK_HOSTS = {"localhost", "127.0.0.1", "::1"}
 _RESOLVE_TIMEOUT_SECONDS = 2.0
+
+
+def _seller_loopback_allowed() -> bool:
+    # Local mock_seller.py only. Staging/production/test keep the closed guard.
+    from src.config import settings
+    return settings.deployment_environment == "development"
 
 
 @dataclass(frozen=True)
@@ -74,12 +82,28 @@ async def validate_seller_base_url(
         _reject("thiếu base_url")
         return
     parts = urlsplit(url)
-    if parts.scheme not in _ALLOWED_SCHEMES:
-        _reject("chỉ chấp nhận https")
-        return
     hostname = parts.hostname
     if not hostname:
         _reject("thiếu host")
+        return
+    loopback = hostname.lower() in _LOOPBACK_HOSTS
+    if loopback and _seller_loopback_allowed():
+        if parts.scheme not in _LOCAL_LOOPBACK_SCHEMES:
+            _reject("localhost chỉ chấp nhận http(s)")
+            return None
+        if parts.username is not None or parts.password is not None:
+            _reject("không chấp nhận userinfo trong URL")
+        if parts.query or parts.fragment:
+            _reject("base_url không được chứa query hoặc fragment")
+        try:
+            parts.port
+        except ValueError:
+            _reject("cổng không hợp lệ")
+            return None
+        ip_address = "::1" if hostname == "::1" else "127.0.0.1"
+        return ResolvedTarget(hostname=hostname, ip_address=ip_address)
+    if parts.scheme not in _ALLOWED_SCHEMES:
+        _reject("chỉ chấp nhận https")
         return
     if parts.username is not None or parts.password is not None:
         _reject("không chấp nhận userinfo trong URL")

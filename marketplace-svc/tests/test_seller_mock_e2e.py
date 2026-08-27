@@ -89,51 +89,33 @@ async def test_seller_to_admin_to_buyer_with_mock_gateway_and_task(client, monke
     buyer = await client.get("/me", headers={"Authorization": f"Bearer {buyer_token}"})
     await client.post("/wallet/topup", json={"account_id": buyer.json()["id"], "amount": 10_000}, headers={"Authorization": f"Bearer {admin_token}"})
 
-    # 1) Seller submits a direct gateway; it remains pending until admin review.
+    # 1) Seller saves a direct gateway, tests it, then explicitly submits it.
     gateway = await client.post(
         "/seller/providers",
-        json={"name": "Mock direct API", "adapter_type": "seller_gateway", "config": {"base_url": "https://seller.example.com", "api_key": "mock-seller-secret"}},
+        json={"name": "Mock direct API", "adapter_type": "seller_gateway", "config": {"base_url": "https://seller.example.com", "api_key": "mock-seller-secret", "endpoint_map": {"search": "/v1/search"}}},
         headers={"Authorization": f"Bearer {seller_token}"},
     )
     assert gateway.status_code == 201, gateway.text
-    assert gateway.json()["review_status"] == "pending_review"
+    assert gateway.json()["review_status"] == "draft"
     provider_id = gateway.json()["id"]
     health = await client.post(f"/seller/providers/{provider_id}/test", headers={"Authorization": f"Bearer {seller_token}"})
     assert health.status_code == 200, health.text
+    tested = await client.get(f"/seller/providers/{provider_id}", headers={"Authorization": f"Bearer {seller_token}"})
+    assert tested.json()["review_status"] == "tested"
+    submitted = await client.post(f"/seller/providers/{provider_id}/submit", headers={"Authorization": f"Bearer {seller_token}"})
+    assert submitted.json()["review_status"] == "pending_review"
     approved = await client.post(f"/admin/providers/{provider_id}/approve", json={"note": "Mock API healthy"}, headers={"Authorization": f"Bearer {admin_token}"})
     assert approved.json()["review_status"] == "approved"
     gateway_product = await _setup_product(client, admin_token, seller_token, provider_id, "credit", "gateway")
 
-    # Editing an approved provider sends it back through review.  Existing
-    # product attachments remain visible, but must not accept new orders until
-    # an admin approves the updated credentials again.
-    pending = await client.put(
+    # Approved credentials stay immutable so products and already-issued keys
+    # are never silently redirected to an unreviewed backend.
+    blocked_edit = await client.put(
         f"/seller/providers/{provider_id}",
         json={"config": {"base_url": "https://seller.example.com", "api_key": "changed-secret"}},
         headers={"Authorization": f"Bearer {seller_token}"},
     )
-    assert pending.status_code == 200, pending.text
-    assert pending.json()["review_status"] == "pending_review"
-    blocked = await client.post(
-        "/orders",
-        json={"product_id": gateway_product, "user_config": {"package_size": 2}},
-        headers={"Authorization": f"Bearer {buyer_token}"},
-    )
-    assert blocked.status_code == 201, blocked.text
-    assert blocked.json()["status"] == "cancelled"
-
-    restored = await client.put(
-        f"/seller/providers/{provider_id}",
-        json={"config": {"base_url": "https://seller.example.com", "api_key": "mock-seller-secret"}},
-        headers={"Authorization": f"Bearer {seller_token}"},
-    )
-    assert restored.status_code == 200, restored.text
-    assert restored.json()["review_status"] == "pending_review"
-    reapproved = await client.post(
-        f"/admin/providers/{provider_id}/approve", json={"note": "Updated credentials verified"},
-        headers={"Authorization": f"Bearer {admin_token}"},
-    )
-    assert reapproved.status_code == 200, reapproved.text
+    assert blocked_edit.status_code == 409, blocked_edit.text
 
     placed = await client.post("/orders", json={"product_id": gateway_product, "user_config": {"package_size": 2}}, headers={"Authorization": f"Bearer {buyer_token}"})
     assert placed.status_code == 201, placed.text
@@ -154,6 +136,10 @@ async def test_seller_to_admin_to_buyer_with_mock_gateway_and_task(client, monke
     )
     assert task.status_code == 201, task.text
     task_provider_id = task.json()["id"]
+    task_test = await client.post(f"/seller/providers/{task_provider_id}/test", headers={"Authorization": f"Bearer {seller_token}"})
+    assert task_test.status_code == 200, task_test.text
+    task_submit = await client.post(f"/seller/providers/{task_provider_id}/submit", headers={"Authorization": f"Bearer {seller_token}"})
+    assert task_submit.json()["review_status"] == "pending_review"
     await client.post(f"/admin/providers/{task_provider_id}/approve", json={"note": "Callback contract verified"}, headers={"Authorization": f"Bearer {admin_token}"})
     task_product = await _setup_product(
         client, admin_token, seller_token, task_provider_id, "task", "task", service_type="takedown",
@@ -175,7 +161,10 @@ async def test_seller_to_admin_to_buyer_with_mock_gateway_and_task(client, monke
     # The mock has returned the actual external task id at this point.  In an
     # in-process ASGI test its background callback would re-enter the same
     # event loop, so drive the identical signed callback explicitly here.
-    external_task_id = next(iter(mock_seller._tasks))
+    external_task_id = next(
+        task_id for task_id, task in reversed(mock_seller._tasks.items())
+        if task["target"] == "https://example.com"
+    )
     callback_body = {"status": "completed", "result_data": "mock result for https://example.com (web)"}
     raw = json.dumps(callback_body).encode()
     signature = hmac.new(b"mock-webhook-secret", raw, hashlib.sha256).hexdigest()

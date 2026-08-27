@@ -10,8 +10,10 @@ import type { SellerApplication } from "@/lib/types";
 import { Button, Card, Field, Input, Spinner, Tag, Textarea } from "@/components/ui";
 import { Store } from "@/components/Icons";
 
+const APPLY_POLL_MS = 10_000;
+
 export default function SellerApplyPage() {
-  const { account, loading } = useAuth();
+  const { account, loading, refresh } = useAuth();
   const router = useRouter();
   const t = useTranslations("seller");
 
@@ -37,6 +39,41 @@ export default function SellerApplyPage() {
       .then(setApplication)
       .finally(() => setChecking(false));
   }, [account, loading, router]);
+
+  useEffect(() => {
+    if (loading || !account || account.roles.includes("seller")) return;
+    if (application?.status !== "pending" && application?.status !== "approved") return;
+
+    let cancelled = false;
+    const syncApproved = async () => {
+      await refresh();
+      if (!cancelled) router.push("/seller");
+    };
+
+    if (application.status === "approved") {
+      void syncApproved();
+      return () => { cancelled = true; };
+    }
+
+    const poll = async () => {
+      try {
+        const latest = await api.mySellerApplication();
+        if (cancelled) return;
+        setApplication(latest);
+        if (latest?.status === "approved") await syncApproved();
+      } catch {
+        // keep the pending state if the poll fails
+      }
+    };
+    const interval = setInterval(poll, APPLY_POLL_MS);
+    const onFocus = () => { void poll(); };
+    window.addEventListener("focus", onFocus);
+    return () => {
+      cancelled = true;
+      clearInterval(interval);
+      window.removeEventListener("focus", onFocus);
+    };
+  }, [account, application?.status, loading, refresh, router]);
 
   const submit = async (e: React.FormEvent) => {
     e.preventDefault();
@@ -72,6 +109,17 @@ export default function SellerApplyPage() {
             <p className="text-[12px] text-muted mt-1">
               {t("pendingDescription", { date: formatDate(application.created_at) })}
             </p>
+          </div>
+        )}
+
+        {application && application.status === "approved" && (
+          <div className="rounded-lg border border-good/25 bg-good-soft px-4 py-3.5 text-center">
+            <Tag tone="good" className="mb-2">{t("approved")}</Tag>
+            <p className="text-[13px] text-fg font-medium">{application.business_name}</p>
+            <p className="text-[12px] text-muted mt-1">{t("approvedDescription")}</p>
+            <Button className="mt-3" size="md" onClick={() => { void refresh().then(() => router.push("/seller")); }}>
+              {t("openWorkspace")}
+            </Button>
           </div>
         )}
 

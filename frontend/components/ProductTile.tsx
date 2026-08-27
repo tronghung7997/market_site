@@ -5,27 +5,19 @@
 import { Link } from "@/i18n/navigation";
 import { useLocale, useTranslations } from "next-intl";
 import { useMoney } from "@/lib/money";
-import { effectiveMinPrice, isAdapterFulfilled } from "@/lib/pricing-display";
+import { effectiveMinPrice } from "@/lib/pricing-display";
+import { fulfillmentFromProduct, fulfillmentTagKey, fulfillmentTagValues, fulfillmentTone } from "@/lib/fulfillment";
 import { parseCoverId } from "@/lib/product-covers";
 import type { Product } from "@/lib/types";
 import { Card, Tag } from "@/components/ui";
-import { Bolt, Star } from "@/components/Icons";
+import { Star } from "@/components/Icons";
 import { ProductCover } from "@/components/products/ProductCover";
-
-function DeliveryTag({ p }: { p: Product }) {
-  const t = useTranslations("labels.delivery");
-  if (isAdapterFulfilled(p)) return <Tag tone="good"><Bolt size={10} /> {t("auto")}</Tag>;
-  const variants = p.variants ?? [];
-  const instantStock = variants
-    .filter((v) => v.delivery_mode === "instant")
-    .reduce((s, v) => s + v.stock_count, 0);
-  if (instantStock > 0) return <Tag tone="good"><Bolt size={10} /> {t("instantStock", { count: instantStock })}</Tag>;
-  return <Tag tone="warn">{t("onRequest")}</Tag>;
-}
 
 export default function ProductTile({ product: p }: { product: Product }) {
   const t = useTranslations("common");
+  const tp = useTranslations("products");
   const locale = useLocale();
+  const fulfillment = fulfillmentFromProduct(p);
   const { formatBrowseMoney } = useMoney();
   const mp = effectiveMinPrice(p);
   const variantCount = (p.variants ?? []).length;
@@ -55,7 +47,7 @@ export default function ProductTile({ product: p }: { product: Product }) {
               {mp > 0 ? formatBrowseMoney(mp, { locale }) : t("quote")}
             </div>
           </div>
-          <span className="shrink-0"><DeliveryTag p={p} /></span>
+          <span className="shrink-0"><Tag tone={fulfillmentTone(fulfillment.kind)}>{tp(fulfillmentTagKey(fulfillment), fulfillmentTagValues(fulfillment))}</Tag></span>
         </div>
       </Card>
     </Link>

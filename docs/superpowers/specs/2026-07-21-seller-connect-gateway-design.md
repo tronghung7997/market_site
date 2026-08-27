@@ -478,17 +478,17 @@ Redis thật, không mock hạ tầng).
 
 ### 1. Seller tự đăng ký backend
 
-- Migration `aa1a2b3c4d5e6` — `providers.seller_id`/`review_status`
-  (`pending_review|approved|rejected|disabled`, admin-owned mặc định
-  `approved` để không phá provider cũ)/`review_note`.
-- `providers/service.py`: `create_seller_provider` (ép `seller_id` +
-  `pending_review`, chặn adapter_type ngoài
-  `{seller_gateway, seller_task_webhook}`), `list/get/update_seller_provider`
-  (ownership-checked — `NotOwner` → 403), `review_provider` (admin
-  approve/reject/disable, 400 nếu provider không phải seller tự đăng ký).
-  **Sửa config sau khi đã duyệt tự động rớt về `pending_review`** — admin
-  mới xác nhận connector CŨ, không có gì đảm bảo connector MỚI đúng chỉ vì
-  cùng `provider_id`.
+- Migration `aa1a2b3c4d5e6` thêm `providers.seller_id`/`review_status`/
+  `review_note`; migration `dc1a2b3c4d5e6` thêm `last_tested_at` và bản tóm
+  tắt `last_test_result` đã loại response data/credential.
+- Seller integration đi theo state thật:
+  `draft → tested|test_failed → pending_review → approved|rejected`.
+  `POST /seller/providers/{id}/submit` chỉ nhận `tested`; lưu credential
+  không tự tạo việc cho admin. Seller chỉ được dùng
+  `{seller_gateway, seller_task_webhook}` và vẫn bị ownership check.
+- Tích hợp `approved` không cho seller sửa config tại chỗ. Seller tạo tích
+  hợp mới, test, gửi duyệt rồi mới chuyển sản phẩm; nhờ vậy sản phẩm và
+  gateway key đang chạy không bị trỏ sang credential chưa duyệt.
 - `products/service.py::_validate_provider_assignment` (dùng chung cho cả
   admin lẫn seller path): chỉ provider `approved` mới gắn được; provider
   có `seller_id` chỉ gắn được vào **đúng sản phẩm của seller đó** — áp
@@ -500,14 +500,15 @@ Redis thật, không mock hạ tầng).
   riêng trong `update_seller_pricing`, không chỉ dựa vào
   `_validate_provider_assignment`).
 - Router: `POST/GET /seller/providers`, `GET/PUT /seller/providers/{id}`,
-  `POST /seller/providers/{id}/test` (gate `require_min_seller_tier
-  ("trusted")`, cùng ngưỡng `seller_api_keys`) + `POST /admin/providers/
-  {id}/approve|reject`.
-- Frontend: trang mới `/seller/providers` (đăng ký, sửa, tự test trước khi
-  nộp duyệt), tab "Vận hành" của sản phẩm seller giờ có dropdown chọn
-  provider CỦA CHÍNH HỌ đã duyệt (trước đây 100% read-only). `/admin/
-  providers`: badge "Seller #id · trạng thái" + nút Duyệt/Từ chối trên
-  card khi `pending_review`.
+  `POST /seller/providers/{id}/test|submit` (gate
+  `require_min_seller_tier("trusted")`) + `POST /admin/providers/
+  {id}/approve|reject`. Admin chỉ quyết định provider seller đã chủ động
+  đưa vào `pending_review`.
+- Frontend gọi khái niệm này là **Tích hợp API**, trình bày hai contract cụ
+  thể (API quota hoặc task callback) và chuỗi hành động
+  `Lưu bản nháp → Test contract → Gửi duyệt`. Trang tạo sản phẩm hỏi buyer
+  nhận kho/API/task, tự map API→`credit+seller_gateway` và
+  task→`task+seller_task_webhook`; seller không còn chọn tổ hợp kỹ thuật sai.
 - Test: `tests/test_seller_self_service.py` (12 test) — tier gate, mặc
   định pending_review, chặn adapter_type sai, cô lập seller A/B (403),
   chặn gắn provider chưa duyệt/không phải của mình, **admin cũng bị chặn**

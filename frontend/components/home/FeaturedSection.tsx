@@ -9,7 +9,8 @@ import { useMoney } from "@/lib/money";
 import { cn } from "@/lib/cn";
 import { parseCoverId } from "@/lib/product-covers";
 import type { Product } from "@/lib/types";
-import { Card } from "@/components/ui";
+import { fulfillmentFromProduct, fulfillmentTagKey, fulfillmentTagValues, fulfillmentTone } from "@/lib/fulfillment";
+import { Card, Tag } from "@/components/ui";
 import { ProductCover } from "@/components/products/ProductCover";
 import { ArrowRight, Bolt, Shield, Verified } from "@/components/Icons";
 import { SectionHead } from "./SectionHead";
@@ -20,6 +21,7 @@ export function FeaturedSection({ featured, catName, minPrice }: {
   minPrice: (p: Product) => number;
 }) {
   const t = useTranslations("home");
+  const tp = useTranslations("products");
   const locale = useLocale();
   const { formatBrowseMoney } = useMoney();
   if (featured.length === 0) return null;
@@ -48,6 +50,7 @@ export function FeaturedSection({ featured, catName, minPrice }: {
                       <div className="min-w-0">
                         <div className="font-medium text-[13px] sm:text-[15px] truncate">{p.title}</div>
                         <div className="flex items-center gap-1.5 text-[11px] sm:text-[12px] text-faint">
+                          <Tag tone={fulfillmentTone(fulfillmentFromProduct(p).kind)}>{tp(fulfillmentTagKey(fulfillmentFromProduct(p)), fulfillmentTagValues(fulfillmentFromProduct(p)))}</Tag>
                           {catName(p.category_id)}
                           <Verified size={11} className="text-iris hidden sm:inline" />
                           {p.sold_count > 0 && <span className="hidden sm:inline">· {p.sold_count} {t("soldSuffix")}</span>}

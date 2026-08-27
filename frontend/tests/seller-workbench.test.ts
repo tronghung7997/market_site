@@ -1,5 +1,6 @@
 import { describe, it } from "node:test";
 import assert from "node:assert/strict";
+import { canUseSellerProviders } from "../lib/seller-tier.ts";
 import {
   evaluateRouteAChecklist,
   evaluateRouteBChecklist,
@@ -17,6 +18,13 @@ import {
 } from "../features/seller-workbench/logic.ts";
 
 describe("Seller Workbench Logic", () => {
+  it("only enables private providers for trusted seller tiers", () => {
+    assert.equal(canUseSellerProviders("new"), false);
+    assert.equal(canUseSellerProviders("verified"), false);
+    assert.equal(canUseSellerProviders("trusted"), true);
+    assert.equal(canUseSellerProviders("enterprise"), true);
+  });
+
   it("uses the current display currency for seller price entry while keeping VND ledger values", () => {
     assert.equal(effectivePriceInputCurrency("USD", 26_000), "USD");
     assert.equal(vndToPriceInput(87_880, "USD", 26_000), "3.38");

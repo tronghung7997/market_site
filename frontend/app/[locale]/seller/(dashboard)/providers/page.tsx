@@ -1,38 +1,51 @@
 "use client";
 
 import { useEffect, useState } from "react";
+import { useRouter } from "next/navigation";
 import { useTranslations } from "next-intl";
-import { Link } from "@/i18n/navigation";
 import { api } from "@/lib/api";
 import { useAuth } from "@/lib/auth";
-import { sellerTierLabel } from "@/lib/seller-tier";
+import { canUseSellerProviders, sellerTierLabel } from "@/lib/seller-tier";
 import type { Provider } from "@/lib/types";
 import { Button, Card, Field, Input, Spinner, Tag } from "@/components/ui";
-import { ArrowRight, Check, Clock, Edit2, Info, Plug, Shield, X } from "@/components/Icons";
+import { ArrowRight, Check, Edit2, Info, Package, Plug, Shield } from "@/components/Icons";
 
-const MIN_TIER_FOR_PROVIDERS = "trusted";
-const MIN_TIER_LABEL = sellerTierLabel(MIN_TIER_FOR_PROVIDERS);
+const MIN_TIER_LABEL = sellerTierLabel("trusted");
+const MASKED_SECRET = "********";
 
-const ADAPTER_VALUES = ["seller_gateway", "seller_task_webhook"] as const;
-
-const REVIEW_ICON: Record<string, typeof Check> = {
-  approved: Check,
-  pending_review: Clock,
-  rejected: X,
-  disabled: X,
+type IntegrationType = "seller_gateway" | "seller_task_webhook";
+type EndpointEntry = { name: string; path: string };
+type TestResult = {
+  health: Record<string, unknown>;
+  provision_test: Record<string, unknown> | null;
+  provision_test_skipped_reason?: string | null;
+};
+type TestDisplay = {
+  passed?: boolean;
+  health?: Record<string, unknown>;
+  provision_test?: Record<string, unknown> | null;
+  provision_test_skipped_reason?: string | null;
 };
 
-const REVIEW_TONE: Record<string, "good" | "warn" | "bad" | "neutral"> = {
-  approved: "good",
+const STATUS_TONE: Record<Provider["review_status"], "good" | "warn" | "bad" | "neutral" | "iris"> = {
+  draft: "neutral",
+  test_failed: "bad",
+  tested: "iris",
   pending_review: "warn",
+  approved: "good",
   rejected: "bad",
   disabled: "neutral",
 };
 
-type EndpointEntry = { name: string; path: string };
-
-function emptyForm() {
-  return { name: "", adapter_type: "seller_gateway", base_url: "", api_key: "", webhook_secret: "", endpoint_map: [] as EndpointEntry[] };
+function emptyForm(type: IntegrationType = "seller_gateway") {
+  return {
+    name: "",
+    adapter_type: type,
+    base_url: "",
+    api_key: "",
+    webhook_secret: "",
+    endpoint_map: [{ name: "", path: "" }] as EndpointEntry[],
+  };
 }
 
 function endpointEntries(map: unknown): EndpointEntry[] {
@@ -45,404 +58,192 @@ function endpointEntries(map: unknown): EndpointEntry[] {
 function buildEndpointMap(
   entries: EndpointEntry[],
   t: (key: string, values?: Record<string, string>) => string,
-): Record<string, string> | undefined {
+): Record<string, string> {
   const result: Record<string, string> = {};
   for (const entry of entries) {
     const name = entry.name.trim();
     const path = entry.path.trim();
     if (!name && !path) continue;
-    if (!/^[a-z][a-z0-9_]*$/i.test(name)) {
-      throw new Error(t("endpointNameInvalid"));
-    }
-    if (!path.startsWith("/")) {
-      throw new Error(t("endpointPathInvalid", { name }));
-    }
+    if (!/^[a-z][a-z0-9_]*$/i.test(name)) throw new Error(t("endpointNameInvalid"));
+    if (!path.startsWith("/")) throw new Error(t("endpointPathInvalid", { name }));
     if (result[name]) throw new Error(t("endpointDuplicate", { name }));
     result[name] = path;
   }
-  return Object.keys(result).length > 0 ? result : undefined;
+  if (Object.keys(result).length === 0) throw new Error(t("endpointRequired"));
+  return result;
 }
 
-function buildConfig(
-  form: ReturnType<typeof emptyForm>,
-  t: (key: string, values?: Record<string, string>) => string,
-): Record<string, unknown> {
-  const config: Record<string, unknown> = { base_url: form.base_url, api_key: form.api_key };
-  if (form.adapter_type === "seller_task_webhook") config.webhook_secret = form.webhook_secret;
-  const endpointMap = buildEndpointMap(form.endpoint_map, t);
-  if (endpointMap) config.endpoint_map = endpointMap;
-  return config;
-}
-
-function useAdapterOptions() {
+function EndpointEditor({ entries, onChange }: { entries: EndpointEntry[]; onChange: (entries: EndpointEntry[]) => void }) {
   const t = useTranslations("seller");
-  return [
-    {
-      value: "seller_gateway",
-      label: t("adapterImmediate"),
-      description: t("adapterImmediateDesc"),
-    },
-    {
-      value: "seller_task_webhook",
-      label: t("adapterBackground"),
-      description: t("adapterBackgroundDesc"),
-    },
-  ] as const;
-}
-
-function useReviewTag(status: string) {
-  const t = useTranslations("seller");
-  const key = status in REVIEW_TONE ? status : "pending_review";
-  const labels: Record<string, string> = {
-    approved: t("reviewApproved"),
-    pending_review: t("reviewPending"),
-    rejected: t("reviewRejected"),
-    disabled: t("reviewDisabled"),
-  };
-  return {
-    tone: REVIEW_TONE[key] ?? "warn",
-    label: labels[key] ?? t("reviewPending"),
-    icon: REVIEW_ICON[key] ?? Clock,
-  };
-}
-
-function reviewMessage(note: string, t: ReturnType<typeof useTranslations<"seller">>) {
-  const jsonStart = note.indexOf("{");
-  if (jsonStart < 0) return note;
-
-  try {
-    const details = JSON.parse(note.slice(jsonStart)) as {
-      health?: { status?: string; message?: string };
-      provision_test?: { error?: string } | null;
-    };
-    const reason = details.health?.message ?? details.provision_test?.error;
-    if (reason) return t("reviewConnectFailed", { reason });
-  } catch {
-    // Keep free-form admin notes when the payload is not valid JSON.
-  }
-  return t("reviewNeedUpdate");
-}
-
-function EndpointMapEditor({ entries, onChange }: { entries: EndpointEntry[]; onChange: (entries: EndpointEntry[]) => void }) {
-  const t = useTranslations("seller");
-  const tc = useTranslations("common");
   const update = (index: number, key: keyof EndpointEntry, value: string) => {
     onChange(entries.map((entry, i) => (i === index ? { ...entry, [key]: value } : entry)));
   };
-
   return (
     <div className="space-y-2">
-      <p className="text-[12px] text-muted">{t("endpointMapHint")}</p>
+      <p className="text-[12px] leading-5 text-muted">{t("endpointMapHint")}</p>
       {entries.map((entry, index) => (
-        <div key={`${index}-${entry.name}`} className="grid grid-cols-[1fr_1.4fr_auto] gap-2">
-          <Input value={entry.name} onChange={(e) => update(index, "name", e.target.value)} placeholder="search" aria-label={t("endpointName")} />
-          <Input value={entry.path} onChange={(e) => update(index, "path", e.target.value)} placeholder="/v2/search" aria-label={t("endpointPath")} />
-          <Button size="sm" variant="ghost" onClick={() => onChange(entries.filter((_, i) => i !== index))}>{tc("delete")}</Button>
+        <div key={index} className="grid gap-2 sm:grid-cols-[minmax(0,.8fr)_minmax(0,1.2fr)_auto]">
+          <Input value={entry.name} onChange={(event) => update(index, "name", event.target.value)} placeholder="search" aria-label={t("endpointName")} />
+          <Input value={entry.path} onChange={(event) => update(index, "path", event.target.value)} placeholder="/v1/search" aria-label={t("endpointPath")} />
+          <Button type="button" size="sm" variant="ghost" onClick={() => onChange(entries.filter((_, i) => i !== index))}>{t("removeEndpoint")}</Button>
         </div>
       ))}
-      <Button size="sm" variant="secondary" onClick={() => onChange([...entries, { name: "", path: "" }])}>{t("addEndpoint")}</Button>
+      <Button type="button" size="sm" variant="secondary" onClick={() => onChange([...entries, { name: "", path: "" }])}>{t("addEndpoint")}</Button>
     </div>
   );
 }
 
-function TestSummary({ result }: { result: { health: Record<string, unknown>; provision_test: Record<string, unknown> | null; provision_test_skipped_reason?: string | null } }) {
+function ContractGuide({ type }: { type: IntegrationType }) {
   const t = useTranslations("seller");
-  const health = result.health ?? {};
-  const healthy = health.status === "healthy";
-  const probeSkipped = health.probe === "skipped";
-  const provisionSucceeded = result.provision_test?.success === true;
+  const gateway = type === "seller_gateway";
   return (
-    <div className="space-y-2 text-[12.5px]">
-      <p className={healthy ? "text-good" : "text-bad"}>{healthy ? t("testConfigValid") : t("testConfigInvalid")}</p>
-      {probeSkipped ? (
-        <p className="text-warn">{t("testUpstreamUnverified", { message: String(health.message) })}</p>
-      ) : health.message ? (
-        <p className="text-muted">{String(health.message)}</p>
-      ) : null}
-      {result.provision_test ? (
-        <p className={provisionSucceeded ? "text-good" : "text-bad"}>
-          {provisionSucceeded
-            ? t("testProvisionOk")
-            : t("testProvisionFailed", { error: String(result.provision_test.error ?? t("testProvisionUnknown")) })}
-        </p>
-      ) : null}
-      {result.provision_test_skipped_reason && (
-        <p className="text-muted">{t("testProvisionSkipped", { reason: result.provision_test_skipped_reason })}</p>
-      )}
+    <div className="rounded-xl border border-iris/20 bg-iris-soft p-4">
+      <p className="text-[13px] font-semibold text-fg">{gateway ? t("gatewayContractTitle") : t("taskContractTitle")}</p>
+      <p className="mt-1 text-[12.5px] leading-5 text-muted">{gateway ? t("gatewayContractBody") : t("taskContractBody")}</p>
+      <p className="mt-3 text-[12px] leading-5 text-muted">{gateway ? t("gatewayBuyerResult") : t("taskBuyerResult")}</p>
     </div>
   );
 }
 
-function ProviderCard({ provider, onChanged }: { provider: Provider; onChanged: () => void }) {
+function IntegrationForm({ provider, onSaved, onCancel }: { provider?: Provider; onSaved: () => void; onCancel: () => void }) {
   const t = useTranslations("seller");
-  const adapterOptions = useAdapterOptions();
-  const reviewInfo = useReviewTag(provider.review_status);
-  const ReviewIcon = reviewInfo.icon;
-  const [editing, setEditing] = useState(false);
+  const editing = Boolean(provider);
+  const initialType = (provider?.adapter_type ?? "seller_gateway") as IntegrationType;
   const [form, setForm] = useState(() => ({
-    name: provider.name,
-    adapter_type: provider.adapter_type,
-    base_url: (provider.config.base_url as string) ?? "",
-    api_key: "",
-    webhook_secret: "",
-    endpoint_map: endpointEntries(provider.config.endpoint_map),
+    ...emptyForm(initialType),
+    name: provider?.name ?? "",
+    base_url: (provider?.config.base_url as string) ?? "",
+    endpoint_map: endpointEntries(provider?.config.endpoint_map).length > 0
+      ? endpointEntries(provider?.config.endpoint_map)
+      : [{ name: "", path: "" }],
   }));
   const [saving, setSaving] = useState(false);
-  const [testing, setTesting] = useState(false);
-  const [testResult, setTestResult] = useState<{
-    health: Record<string, unknown>;
-    provision_test: Record<string, unknown> | null;
-    provision_test_skipped_reason?: string | null;
-  } | null>(null);
   const [error, setError] = useState("");
 
-  const handleTest = async () => {
-    setTesting(true);
-    setError("");
-    try {
-      setTestResult(await api.testSellerProvider(provider.id));
-    } catch (e) {
-      setError(e instanceof Error ? e.message : t("providerTestFailed"));
-    } finally {
-      setTesting(false);
-    }
-  };
-
-  const handleSave = async () => {
+  const save = async () => {
     setSaving(true);
     setError("");
     try {
-      const config: Record<string, unknown> = { base_url: form.base_url };
-      if (form.api_key) config.api_key = form.api_key;
-      if (provider.adapter_type === "seller_task_webhook" && form.webhook_secret) {
-        config.webhook_secret = form.webhook_secret;
+      const config: Record<string, unknown> = {
+        base_url: form.base_url.trim(),
+        api_key: editing ? form.api_key || MASKED_SECRET : form.api_key,
+      };
+      if (form.adapter_type === "seller_gateway") {
+        config.endpoint_map = buildEndpointMap(form.endpoint_map, t as (key: string, values?: Record<string, string>) => string);
+      } else {
+        config.webhook_secret = editing ? form.webhook_secret || MASKED_SECRET : form.webhook_secret;
       }
-      const endpointMap = buildEndpointMap(form.endpoint_map, t as (key: string, values?: Record<string, string>) => string);
-      if (endpointMap) config.endpoint_map = endpointMap;
-      await api.updateSellerProvider(provider.id, { config });
-      setEditing(false);
-      onChanged();
-    } catch (e) {
-      setError(e instanceof Error ? e.message : t("providerSaveFailed"));
+      if (provider) await api.updateSellerProvider(provider.id, { config });
+      else await api.createSellerProvider({ name: form.name.trim(), adapter_type: form.adapter_type, config });
+      onSaved();
+    } catch (cause) {
+      setError(cause instanceof Error ? cause.message : t("providerSaveFailed"));
     } finally {
       setSaving(false);
     }
   };
 
-  return (
-    <Card className="p-5 space-y-4">
-      <div className="flex items-start justify-between gap-3 flex-wrap">
-        <div>
-          <div className="flex items-center gap-2">
-            <h3 className="text-[14.5px] font-semibold">{provider.name}</h3>
-            <Tag tone={reviewInfo.tone}><ReviewIcon size={11} />{reviewInfo.label}</Tag>
-          </div>
-          <p className="text-[12.5px] text-muted mt-0.5">
-            {adapterOptions.find((o) => o.value === provider.adapter_type)?.label ?? provider.adapter_type}
-          </p>
-        </div>
-        <div className="flex gap-2">
-          <Button size="sm" variant="secondary" onClick={handleTest} disabled={testing}>
-            {testing ? t("testing") : t("testConnection")}
-          </Button>
-          <Button size="sm" variant="ghost" onClick={() => setEditing((v) => !v)}>
-            <Edit2 size={13} />{editing ? t("close") : t("edit")}
-          </Button>
-        </div>
-      </div>
-
-      {provider.review_status === "rejected" && provider.review_note && (
-        <p className="text-[12.5px] text-bad bg-bad-soft border border-bad/25 rounded-lg px-3 py-2">
-          <strong>{t("providerRejected")}</strong>{reviewMessage(provider.review_note, t)}
-        </p>
-      )}
-      {provider.review_status === "pending_review" && (
-        <p className="text-[12.5px] text-muted">
-          {t("providerPending")}
-        </p>
-      )}
-      {provider.review_status === "approved" && (
-        <div className="flex items-center justify-between gap-3 rounded-lg bg-good-soft border border-good/25 px-3 py-2">
-          <p className="text-[12.5px] text-good">{t("providerReady")}</p>
-          <Link href="/seller/products" className="text-[12.5px] font-medium text-iris-hi underline">{t("goToProducts")}</Link>
-        </div>
-      )}
-
-      {testResult && <div className="bg-raised border border-line rounded-lg p-3"><TestSummary result={testResult} /></div>}
-
-      {editing && (
-        <div className="space-y-3 border-t border-line pt-4">
-          <Field label={t("apiBaseUrl")}>
-            <Input autoComplete="url" value={form.base_url} onChange={(e) => setForm({ ...form, base_url: e.target.value })} placeholder="https://api.your-backend.com" />
-          </Field>
-          <Field label={t("apiKey")} hint={t("apiKeyHint")}>
-            <Input type="password" autoComplete="new-password" value={form.api_key} onChange={(e) => setForm({ ...form, api_key: e.target.value })} placeholder={t("apiKeyPlaceholder")} />
-          </Field>
-          {provider.adapter_type === "seller_task_webhook" && (
-            <Field label={t("webhookSecretLabel")} hint={t("webhookSecretHint")}>
-              <Input type="password" autoComplete="new-password" value={form.webhook_secret} onChange={(e) => setForm({ ...form, webhook_secret: e.target.value })} placeholder={t("webhookSecretPlaceholder")} />
-            </Field>
-          )}
-          <Field label={t("nonStandardEndpoints")}>
-            <EndpointMapEditor entries={form.endpoint_map} onChange={(endpoint_map) => setForm({ ...form, endpoint_map })} />
-          </Field>
-          {error && <p className="text-[12.5px] text-bad">{error}</p>}
-          <div className="flex items-center gap-2 bg-warn-soft border border-warn/25 rounded-lg px-3 py-2">
-            <Shield size={14} className="text-warn shrink-0" />
-            <p className="text-[12px] text-warn">{t("configurationWarning")}</p>
-          </div>
-          <div className="flex justify-end gap-2">
-            <Button variant="ghost" size="sm" onClick={() => setEditing(false)}>{t("cancel")}</Button>
-            <Button size="sm" onClick={handleSave} disabled={saving}>{saving ? t("saving") : t("saveChanges")}</Button>
-          </div>
-        </div>
-      )}
-      {!editing && error && <p className="text-[12.5px] text-bad">{error}</p>}
-    </Card>
+  const canSave = Boolean(
+    form.name.trim()
+    && form.base_url.trim()
+    && (editing || form.api_key.trim())
+    && (form.adapter_type === "seller_gateway"
+      ? form.endpoint_map.some((entry) => entry.name.trim() && entry.path.trim())
+      : editing || form.webhook_secret.trim()),
   );
-}
-
-function CreateProviderForm({ onCreated, onCancel }: { onCreated: () => void; onCancel: () => void }) {
-  const t = useTranslations("seller");
-  const adapterOptions = useAdapterOptions();
-  const [form, setForm] = useState(emptyForm());
-  const [saving, setSaving] = useState(false);
-  const [error, setError] = useState("");
-
-  const handleSubmit = async () => {
-    setSaving(true);
-    setError("");
-    try {
-      const config = buildConfig(form, t as (key: string, values?: Record<string, string>) => string);
-      await api.createSellerProvider({ name: form.name, adapter_type: form.adapter_type, config });
-      onCreated();
-    } catch (e) {
-      setError(e instanceof Error ? e.message : t("submitFailed"));
-    } finally {
-      setSaving(false);
-    }
-  };
 
   return (
     <Card className="overflow-hidden">
-      <div className="grid lg:grid-cols-[minmax(0,1fr)_17rem]">
-        <div className="p-5 sm:p-6 space-y-6">
+      <div className="grid lg:grid-cols-[minmax(0,1fr)_20rem]">
+        <div className="space-y-6 p-5 sm:p-6">
           <div>
-            <p className="text-[11px] font-semibold tracking-[0.12em] uppercase text-iris-hi">{t("newConnection")}</p>
-            <h3 className="mt-1 text-[19px] font-semibold tracking-tight">{t("connectYourBackend")}</h3>
-            <p className="mt-1.5 text-[13px] leading-5 text-muted max-w-xl">
-              {t("createIntro")}
-            </p>
+            <h2 className="text-[18px] font-semibold tracking-tight">{editing ? t("editIntegration") : t("createIntegration")}</h2>
+            <p className="mt-1 max-w-2xl text-[13px] leading-5 text-muted">{t("integrationFormIntro")}</p>
           </div>
 
-          <section className="space-y-3" aria-labelledby="connection-name">
-            <div>
-              <p className="text-[11px] font-semibold tracking-[0.1em] uppercase text-faint">{t("step", { count: 1 })}</p>
-              <h4 id="connection-name" className="text-[14px] font-semibold">{t("nameStepTitle")}</h4>
-            </div>
-            <Field label={t("connectionName")} hint={t("connectionNameHint")}>
-              <Input autoComplete="off" value={form.name} onChange={(e) => setForm({ ...form, name: e.target.value })} placeholder={t("connectionNamePlaceholder")} />
-            </Field>
-          </section>
-
-          <section className="space-y-3 border-t border-line pt-5" aria-labelledby="connection-mode">
-            <div>
-              <p className="text-[11px] font-semibold tracking-[0.1em] uppercase text-faint">{t("step2")}</p>
-              <h4 id="connection-mode" className="text-[14px] font-semibold">{t("modeStepTitle")}</h4>
-              <p className="mt-0.5 text-[12px] text-muted">{t("modeStepHint")}</p>
-            </div>
-            <div className="grid gap-3 sm:grid-cols-2" role="radiogroup" aria-label={t("modeAria")}>
-              {adapterOptions.map((option) => {
-                const selected = form.adapter_type === option.value;
-                return (
-                  <button
-                    key={option.value}
-                    type="button"
-                    role="radio"
-                    aria-checked={selected}
-                    onClick={() => setForm({ ...form, adapter_type: option.value })}
-                    className={`min-w-0 rounded-xl border p-4 text-left transition-colors ${selected ? "border-iris bg-iris-soft shadow-sm" : "border-line bg-surface hover:border-line-2 hover:bg-raised"}`}
-                  >
-                    <span className={`flex h-5 w-5 items-center justify-center rounded-full border ${selected ? "border-iris bg-iris text-white" : "border-line-2 bg-surface"}`}>
-                      {selected && <Check size={12} />}
-                    </span>
-                    <span className="mt-3 block text-[13px] font-semibold">{option.label}</span>
-                    <span className="mt-1 block text-[12px] leading-5 text-muted">{option.description}</span>
-                  </button>
-                );
-              })}
-            </div>
-          </section>
-
-          <section className="space-y-3 border-t border-line pt-5" aria-labelledby="connection-access">
-            <div>
-              <p className="text-[11px] font-semibold tracking-[0.1em] uppercase text-faint">{t("step3")}</p>
-              <h4 id="connection-access" className="text-[14px] font-semibold">{t("accessStepTitle")}</h4>
-              <p className="mt-0.5 text-[12px] text-muted">{t("accessStepHint")}</p>
-            </div>
-            <div className="grid gap-2 sm:grid-cols-2">
-              <div className="rounded-lg border border-line bg-raised px-3 py-2.5">
-                <p className="text-[11px] font-semibold uppercase tracking-[0.08em] text-iris-hi">{t("directionOut")}</p>
-                <p className="mt-1 text-[12px] leading-5 text-muted">{t("directionOutDesc")}</p>
+          {!editing && (
+            <section className="space-y-3">
+              <div>
+                <h3 className="text-[14px] font-semibold">{t("chooseIntegrationType")}</h3>
+                <p className="mt-0.5 text-[12px] text-muted">{t("chooseIntegrationTypeHint")}</p>
               </div>
-              <div className="rounded-lg border border-line bg-raised px-3 py-2.5">
-                <p className="text-[11px] font-semibold uppercase tracking-[0.08em] text-iris-hi">{t("directionIn")}</p>
-                <p className="mt-1 text-[12px] leading-5 text-muted">{t("directionInDesc")}</p>
+              <div className="grid gap-3 sm:grid-cols-2" role="radiogroup" aria-label={t("chooseIntegrationType")}>
+                {(["seller_gateway", "seller_task_webhook"] as const).map((type) => {
+                  const selected = form.adapter_type === type;
+                  return (
+                    <button
+                      key={type}
+                      type="button"
+                      role="radio"
+                      aria-checked={selected}
+                      onClick={() => setForm((current) => ({ ...emptyForm(type), name: current.name }))}
+                      className={`rounded-xl border p-4 text-left transition-colors ${selected ? "border-iris bg-iris-soft ring-1 ring-iris" : "border-line bg-surface hover:border-line-2"}`}
+                    >
+                      <span className={`grid h-6 w-6 place-items-center rounded-full border ${selected ? "border-iris bg-iris text-white" : "border-line-2"}`}>{selected && <Check size={13} />}</span>
+                      <span className="mt-3 block text-[13px] font-semibold">{type === "seller_gateway" ? t("apiIntegration") : t("taskIntegration")}</span>
+                      <span className="mt-1 block text-[12px] leading-5 text-muted">{type === "seller_gateway" ? t("apiIntegrationDesc") : t("taskIntegrationDesc")}</span>
+                    </button>
+                  );
+                })}
               </div>
+            </section>
+          )}
+
+          <ContractGuide type={form.adapter_type} />
+
+          <section className="space-y-4">
+            <div>
+              <h3 className="text-[14px] font-semibold">{t("connectionDetails")}</h3>
+              <p className="mt-0.5 text-[12px] text-muted">{t("connectionDetailsHint")}</p>
             </div>
-            <Field label={t("baseUrlLabel")} hint={t("baseUrlHint")}>
-              <Input autoComplete="url" value={form.base_url} onChange={(e) => setForm({ ...form, base_url: e.target.value })} placeholder={t("baseUrlPlaceholder")} />
-            </Field>
-            <Field label={t("apiKeyCreateLabel")} hint={t("apiKeyCreateHint")}>
-              <Input type="password" autoComplete="new-password" value={form.api_key} onChange={(e) => setForm({ ...form, api_key: e.target.value })} placeholder={t("apiKeyCreatePlaceholder")} />
-            </Field>
-            {form.adapter_type === "seller_task_webhook" && (
-              <Field label={t("webhookCreateLabel")} hint={t("webhookCreateHint")}>
-                <Input type="password" autoComplete="new-password" value={form.webhook_secret} onChange={(e) => setForm({ ...form, webhook_secret: e.target.value })} placeholder={t("webhookCreatePlaceholder")} />
+            {!editing && (
+              <Field label={t("connectionName")} hint={t("connectionNameHint")}>
+                <Input value={form.name} onChange={(event) => setForm({ ...form, name: event.target.value })} placeholder={t("connectionNamePlaceholder")} />
               </Field>
             )}
-            {form.adapter_type === "seller_gateway" && (
-              <details className="rounded-lg border border-line bg-raised px-3 py-2.5">
-                <summary className="cursor-pointer text-[12.5px] font-medium">{t("nonStandardDetails")}</summary>
-                <div className="pt-3">
-                  <EndpointMapEditor entries={form.endpoint_map} onChange={(endpoint_map) => setForm({ ...form, endpoint_map })} />
-                </div>
-              </details>
+            <Field label={t("baseUrlLabel")} hint={t("baseUrlHint")}>
+              <Input autoComplete="url" value={form.base_url} onChange={(event) => setForm({ ...form, base_url: event.target.value })} placeholder="https://api.your-company.com" />
+            </Field>
+            <Field label={t("apiKeyCreateLabel")} hint={editing ? t("apiKeyHint") : t("apiKeyCreateHint")}>
+              <Input type="password" autoComplete="new-password" value={form.api_key} onChange={(event) => setForm({ ...form, api_key: event.target.value })} placeholder={editing ? t("apiKeyPlaceholder") : t("apiKeyCreatePlaceholder")} />
+            </Field>
+            {form.adapter_type === "seller_gateway" ? (
+              <Field label={t("allowedEndpoints")} hint={t("allowedEndpointsHint")}>
+                <EndpointEditor entries={form.endpoint_map} onChange={(endpoint_map) => setForm({ ...form, endpoint_map })} />
+              </Field>
+            ) : (
+              <Field label={t("webhookCreateLabel")} hint={editing ? t("webhookSecretHint") : t("webhookCreateHint")}>
+                <Input type="password" autoComplete="new-password" value={form.webhook_secret} onChange={(event) => setForm({ ...form, webhook_secret: event.target.value })} placeholder={editing ? t("webhookSecretPlaceholder") : t("webhookCreatePlaceholder")} />
+              </Field>
             )}
           </section>
 
           {error && <p role="alert" className="rounded-lg border border-bad/25 bg-bad-soft px-3 py-2.5 text-[12.5px] text-bad">{error}</p>}
-
           <div className="flex flex-wrap items-center justify-between gap-3 border-t border-line pt-5">
-            <p className="text-[12px] leading-5 text-muted max-w-md">{t("connectionSubmittedHint")}</p>
-            <div className="flex items-center gap-2">
+            <p className="max-w-md text-[12px] leading-5 text-muted">{t("saveDraftHint")}</p>
+            <div className="flex gap-2">
               <Button variant="ghost" size="sm" onClick={onCancel}>{t("cancel")}</Button>
-              <Button size="sm" onClick={handleSubmit} disabled={saving || !form.name || !form.base_url}>
-                {saving ? t("submitting") : t("submitForTesting")}<ArrowRight size={14} />
-              </Button>
+              <Button size="sm" disabled={!canSave || saving} onClick={save}>{saving ? t("saving") : t("saveDraftIntegration")}</Button>
             </div>
           </div>
         </div>
 
-        <aside className="border-t border-line bg-raised p-5 sm:p-6 lg:border-t-0 lg:border-l" aria-label={t("roadmapAria")}>
-          <p className="text-[11px] font-semibold tracking-[0.12em] uppercase text-faint">{t("roadmapKicker")}</p>
-          <h4 className="mt-1 text-[14px] font-semibold">{t("roadmapTitle")}</h4>
-          <ol className="mt-5 space-y-5">
-            <li className="relative flex gap-3">
-              <span className="flex h-6 w-6 shrink-0 items-center justify-center rounded-full bg-iris text-[11px] font-semibold text-white">1</span>
-              <div><p className="text-[12.5px] font-medium">{t("roadmap1Title")}</p><p className="mt-0.5 text-[12px] leading-5 text-muted">{t("roadmap1Desc")}</p></div>
-            </li>
-            <li className="relative flex gap-3">
-              <span className="flex h-6 w-6 shrink-0 items-center justify-center rounded-full border border-line-2 bg-surface text-[11px] font-semibold">2</span>
-              <div><p className="text-[12.5px] font-medium">{t("roadmap2Title")}</p><p className="mt-0.5 text-[12px] leading-5 text-muted">{t("roadmap2Desc")}</p></div>
-            </li>
-            <li className="relative flex gap-3">
-              <span className="flex h-6 w-6 shrink-0 items-center justify-center rounded-full border border-line-2 bg-surface text-[11px] font-semibold">3</span>
-              <div><p className="text-[12.5px] font-medium">{t("roadmap3Title")}</p><p className="mt-0.5 text-[12px] leading-5 text-muted">{t("roadmap3Desc")}</p></div>
-            </li>
-          </ol>
+        <aside className="border-t border-line bg-raised p-5 sm:p-6 lg:border-l lg:border-t-0">
+          <h3 className="text-[14px] font-semibold">{t("afterSaveTitle")}</h3>
+          <div className="mt-4 space-y-4">
+            {[
+              [t("saveConnectionTitle"), t("saveConnectionBody")],
+              [t("testConnectionTitle"), t("testConnectionBody")],
+              [t("submitReviewTitle"), t("submitReviewBody")],
+            ].map(([title, body], index) => (
+              <div key={title} className="flex gap-3">
+                <span className="grid h-6 w-6 shrink-0 place-items-center rounded-full border border-line-2 bg-surface text-[11px] font-semibold">{index + 1}</span>
+                <div><p className="text-[12.5px] font-medium">{title}</p><p className="mt-0.5 text-[12px] leading-5 text-muted">{body}</p></div>
+              </div>
+            ))}
+          </div>
           <div className="mt-6 rounded-lg border border-iris/20 bg-iris-soft px-3 py-3">
-            <div className="flex gap-2"><Info size={14} className="mt-0.5 shrink-0 text-iris-hi" /><p className="text-[12px] leading-5 text-muted">{t("buyerKeyNote")}</p></div>
+            <div className="flex gap-2"><Shield size={14} className="mt-0.5 shrink-0 text-iris-hi" /><p className="text-[12px] leading-5 text-muted">{t("buyerKeyNote")}</p></div>
           </div>
         </aside>
       </div>
@@ -450,99 +251,179 @@ function CreateProviderForm({ onCreated, onCancel }: { onCreated: () => void; on
   );
 }
 
+function TestSummary({ result }: { result: TestDisplay | null }) {
+  const t = useTranslations("seller");
+  if (!result) return null;
+  const health = result.health ?? {};
+  const provision = result.provision_test;
+  const passed = result.passed === true || (health.status === "healthy" && provision?.success === true);
+  return (
+    <div className={`rounded-lg border px-3 py-2.5 ${passed ? "border-good/25 bg-good-soft" : "border-bad/25 bg-bad-soft"}`}>
+      <p className={`text-[12.5px] font-medium ${passed ? "text-good" : "text-bad"}`}>{passed ? t("contractTestPassed") : t("contractTestFailed")}</p>
+      {!passed && <p className="mt-1 text-[12px] text-muted">{String(health.message ?? provision?.error ?? t("testProvisionUnknown"))}</p>}
+    </div>
+  );
+}
+
+function IntegrationCard({ provider, onChanged }: { provider: Provider; onChanged: () => void }) {
+  const t = useTranslations("seller");
+  const router = useRouter();
+  const [editing, setEditing] = useState(false);
+  const [working, setWorking] = useState<"test" | "submit" | null>(null);
+  const [error, setError] = useState("");
+  const [testResult, setTestResult] = useState<TestResult | null>(null);
+  const status = provider.review_status;
+  const canTest = !["pending_review", "disabled"].includes(status);
+  const canEdit = status !== "approved" && status !== "pending_review" && status !== "disabled";
+
+  const test = async () => {
+    setWorking("test");
+    setError("");
+    try {
+      setTestResult(await api.testSellerProvider(provider.id));
+      onChanged();
+    } catch (cause) {
+      setError(cause instanceof Error ? cause.message : t("providerTestFailed"));
+    } finally {
+      setWorking(null);
+    }
+  };
+
+  const submit = async () => {
+    setWorking("submit");
+    setError("");
+    try {
+      await api.submitSellerProvider(provider.id);
+      onChanged();
+    } catch (cause) {
+      setError(cause instanceof Error ? cause.message : t("submitFailed"));
+    } finally {
+      setWorking(null);
+    }
+  };
+
+  if (editing) {
+    return <IntegrationForm provider={provider} onSaved={() => { setEditing(false); onChanged(); }} onCancel={() => setEditing(false)} />;
+  }
+
+  return (
+    <Card className="space-y-4 p-5">
+      <div className="flex flex-wrap items-start justify-between gap-3">
+        <div>
+          <div className="flex flex-wrap items-center gap-2">
+            <h3 className="text-[14.5px] font-semibold">{provider.name}</h3>
+            <Tag tone={STATUS_TONE[status]}>{t(`integrationStatus.${status}`)}</Tag>
+          </div>
+          <p className="mt-1 text-[12.5px] text-muted">{provider.adapter_type === "seller_gateway" ? t("apiIntegration") : t("taskIntegration")}</p>
+          <p className="mt-0.5 break-all font-mono text-[11.5px] text-faint">{String(provider.config.base_url ?? "")}</p>
+        </div>
+        <div className="flex flex-wrap gap-2">
+          {canEdit && <Button size="sm" variant="ghost" onClick={() => setEditing(true)}><Edit2 size={13} />{t("edit")}</Button>}
+          {canTest && <Button size="sm" variant="secondary" disabled={working !== null} onClick={test}>{working === "test" ? t("testing") : t("testConnection")}</Button>}
+          {status === "tested" && <Button size="sm" disabled={working !== null} onClick={submit}>{working === "submit" ? t("submittingReview") : t("submitForReview")}<ArrowRight size={13} /></Button>}
+          {status === "approved" && <Button size="sm" onClick={() => router.push("/seller/products/new")}>{t("createProductWithIntegration")}</Button>}
+        </div>
+      </div>
+
+      {provider.adapter_type === "seller_task_webhook" && (
+        <div className="rounded-lg border border-line bg-raised px-3 py-2.5">
+          <p className="text-[11.5px] font-medium text-muted">{t("callbackEndpointLabel")}</p>
+          <code className="mt-1 block break-all text-[11.5px] text-fg">POST /webhooks/providers/{provider.id}/tasks/{"{external_task_id}"}</code>
+        </div>
+      )}
+      {status === "draft" && <p className="text-[12.5px] text-muted">{t("draftIntegrationHint")}</p>}
+      {status === "tested" && <p className="text-[12.5px] text-iris-hi">{t("testedIntegrationHint")}</p>}
+      {status === "pending_review" && <p className="text-[12.5px] text-muted">{t("pendingIntegrationHint")}</p>}
+      {status === "approved" && (
+        <div className="flex gap-2 rounded-lg border border-good/25 bg-good-soft px-3 py-2.5">
+          <Check size={14} className="mt-0.5 shrink-0 text-good" />
+          <p className="text-[12px] leading-5 text-muted">{t("approvedIntegrationHint")}</p>
+        </div>
+      )}
+      {(status === "rejected" || status === "test_failed") && (
+        <div className="rounded-lg border border-bad/25 bg-bad-soft px-3 py-2.5 text-[12.5px] text-bad">
+          {status === "rejected" ? provider.review_note || t("reviewNeedUpdate") : t("testFailedHint")}
+        </div>
+      )}
+      <TestSummary result={testResult ?? provider.last_test_result} />
+      {error && <p role="alert" className="text-[12.5px] text-bad">{error}</p>}
+    </Card>
+  );
+}
+
 export default function SellerProvidersPage() {
   const t = useTranslations("seller");
+  const router = useRouter();
   const { account } = useAuth();
   const [providers, setProviders] = useState<Provider[]>([]);
   const [loading, setLoading] = useState(true);
   const [creating, setCreating] = useState(false);
-  const [justSubmitted, setJustSubmitted] = useState(false);
-
-  const eligible = account?.seller_tier === "trusted" || account?.seller_tier === "enterprise";
+  const eligible = canUseSellerProviders(account?.seller_tier);
 
   const load = async () => {
     setLoading(true);
     try {
       setProviders(await api.sellerProviders());
     } catch {
-      // Tier gate below handles empty list for ineligible sellers.
+      setProviders([]);
     } finally {
       setLoading(false);
     }
   };
 
-  useEffect(() => {
-    load();
-  }, []);
+  useEffect(() => { load(); }, []);
 
   if (loading) return <div className="py-16"><Spinner /></div>;
-
   if (!eligible) {
     return (
       <Card className="p-8 text-center">
-        <Shield size={40} className="mx-auto text-faint mb-3" />
-        <h2 className="text-[16px] font-semibold mb-1.5">{t("tierRequiredTitle", { tier: MIN_TIER_LABEL })}</h2>
-        <p className="text-[13px] text-muted max-w-md mx-auto">
-          {t("tierRequiredProviders", { tier: MIN_TIER_LABEL, current: sellerTierLabel(account?.seller_tier) })}
-        </p>
+        <Shield size={40} className="mx-auto mb-3 text-faint" />
+        <h2 className="text-[16px] font-semibold">{t("tierRequiredTitle", { tier: MIN_TIER_LABEL })}</h2>
+        <p className="mx-auto mt-1.5 max-w-md text-[13px] text-muted">{t("tierRequiredProviders", { tier: MIN_TIER_LABEL, current: sellerTierLabel(account?.seller_tier) })}</p>
       </Card>
     );
   }
 
   return (
     <div className="space-y-6">
-      <div className="flex items-center justify-between flex-wrap gap-3">
+      <header className="flex flex-wrap items-start justify-between gap-3 border-b border-line pb-4">
         <div>
-          <p className="text-[11px] font-semibold tracking-[0.12em] uppercase text-faint">{t("providersKicker")}</p>
-          <h2 className="mt-1 text-[20px] font-semibold tracking-tight">{t("providersTitle")}</h2>
-          <p className="mt-1 text-[13px] leading-5 text-muted max-w-2xl">{t("providersSubtitle")}</p>
+          <h1 className="text-[20px] font-semibold tracking-tight">{t("integrationsTitle")}</h1>
+          <p className="mt-1 max-w-2xl text-[13px] leading-5 text-muted">{t("integrationsSubtitle")}</p>
         </div>
-        {!creating && <Button onClick={() => { setJustSubmitted(false); setCreating(true); }}>{t("connectBackend")} <ArrowRight size={14} /></Button>}
-      </div>
+        {!creating && <Button onClick={() => setCreating(true)}>{t("createIntegration")}<ArrowRight size={14} /></Button>}
+      </header>
+
+      {creating && <IntegrationForm onSaved={() => { setCreating(false); load(); }} onCancel={() => setCreating(false)} />}
 
       {!creating && providers.length === 0 && (
-        <Card className="border-iris/20 bg-iris-soft p-4 sm:p-5">
-          <div className="flex flex-col gap-4 sm:flex-row sm:items-center sm:justify-between">
-            <div><p className="text-[13px] font-semibold">{t("providersReadyTitle")}</p><p className="mt-1 text-[12.5px] leading-5 text-muted">{t("providersReadyDescription")}</p></div>
-            <Button size="sm" onClick={() => setCreating(true)}>{t("startConnection")}</Button>
+        <Card className="overflow-hidden">
+          <div className="grid md:grid-cols-2">
+            <div className="p-6">
+              <Plug size={28} className="text-iris-hi" />
+              <h2 className="mt-4 text-[15px] font-semibold">{t("haveBackendTitle")}</h2>
+              <p className="mt-1 text-[12.5px] leading-5 text-muted">{t("haveBackendBody")}</p>
+              <Button className="mt-4" size="sm" onClick={() => setCreating(true)}>{t("connectMyApi")}</Button>
+            </div>
+            <div className="border-t border-line bg-raised p-6 md:border-l md:border-t-0">
+              <Package size={28} className="text-muted" />
+              <h2 className="mt-4 text-[15px] font-semibold">{t("noBackendTitle")}</h2>
+              <p className="mt-1 text-[12.5px] leading-5 text-muted">{t("noBackendBody")}</p>
+              <Button className="mt-4" size="sm" variant="secondary" onClick={() => router.push("/seller/products/new")}>{t("sellWithoutApi")}</Button>
+            </div>
           </div>
         </Card>
       )}
 
-      {creating && (
-        <CreateProviderForm
-          onCreated={() => { setCreating(false); setJustSubmitted(true); load(); }}
-          onCancel={() => setCreating(false)}
-        />
+      {!creating && providers.length > 0 && (
+        <div className="space-y-3">{providers.map((provider) => <IntegrationCard key={provider.id} provider={provider} onChanged={load} />)}</div>
       )}
 
-      {justSubmitted && (
-        <div className="flex flex-wrap items-center justify-between gap-3 rounded-xl border border-good/25 bg-good-soft px-4 py-3">
-          <div><p className="text-[13px] font-semibold text-good">{t("providerSubmitted")}</p><p className="mt-0.5 text-[12.5px] text-muted">{t("providerSubmittedNext")}</p></div>
-          <Tag tone="warn"><Clock size={11} />{t("needsChecking")}</Tag>
+      {!creating && providers.length > 0 && (
+        <div className="flex gap-2 rounded-lg border border-line bg-raised px-3 py-2.5">
+          <Info size={14} className="mt-0.5 shrink-0 text-muted" />
+          <p className="text-[12px] leading-5 text-muted">{t("approvedEditPolicy")}</p>
         </div>
-      )}
-
-      {providers.length === 0 && !creating ? (
-        <Card className="p-8 text-center">
-          <Plug size={40} className="mx-auto text-faint mb-3" />
-          <p className="text-[14px] font-medium">{t("providersEmptyTitle")}</p>
-          <p className="mt-1 text-[12.5px] text-muted">{t("providersEmptyDescription")}</p>
-        </Card>
-      ) : (
-        <div className="space-y-3">
-          {providers.map((p) => <ProviderCard key={p.id} provider={p} onChanged={load} />)}
-        </div>
-      )}
-
-      {providers.some((p) => p.review_status === "approved") && (
-        <Card className="p-4 flex flex-wrap items-center justify-between gap-3 border-good/25 bg-good-soft">
-          <div>
-            <p className="text-[13px] font-medium">{t("providerApproved")}</p>
-            <p className="text-[12px] text-muted">{t("providerApprovedNext")}</p>
-          </div>
-          <Link href="/seller/products"><Button size="sm">{t("goToProducts")}</Button></Link>
-        </Card>
       )}
     </div>
   );

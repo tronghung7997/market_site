@@ -28,6 +28,9 @@ class Provider(Base):
     seller_id: Mapped[int | None] = mapped_column(ForeignKey("accounts.id"), nullable=True, index=True)
     review_status: Mapped[str] = mapped_column(String(20), default="approved")
     review_note: Mapped[str | None] = mapped_column(Text, nullable=True)
+    last_tested_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True), nullable=True)
+    # Sanitized contract-test summary only. Never persist response data or credentials.
+    last_test_result: Mapped[dict | None] = mapped_column(JSON, nullable=True)
 
     # --- Sổ Xu ước tính (chỉ dùng cho adapter_type="topproxy") ---------------
     # TopProxy trả trước bằng "Xu" và KHÔNG có API xem số dư (catalog §1), nên

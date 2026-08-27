@@ -8,12 +8,14 @@ import type { ActionItem } from "@/lib/types";
 import { Bell, X } from "./Icons";
 
 const ENDPOINTS = {
+  account: api.accountActionItems,
   buyer: api.buyerActionItems,
   seller: api.sellerActionItems,
   admin: api.adminActionItems,
 } as const;
 
 const DISMISS = {
+  account: api.dismissSellerAlert,
   buyer: null,
   seller: api.dismissSellerAlert,
   admin: api.dismissAlert,
@@ -33,6 +35,7 @@ const LABEL_KEYS: Record<string, { msg: string; hours?: number }> = {
   buyer_escrow_expiring: { msg: "buyerEscrowExpiring", hours: 24 },
   buyer_low_balance: { msg: "buyerLowBalance" },
   buyer_dispute_seller_responded: { msg: "buyerDisputeSellerResponded" },
+  seller_application_approved: { msg: "sellerApplicationApproved" },
   seller_pending_orders: { msg: "sellerPendingOrders" },
   seller_open_disputes: { msg: "sellerOpenDisputes" },
   seller_needs_setup: { msg: "sellerNeedsSetup" },

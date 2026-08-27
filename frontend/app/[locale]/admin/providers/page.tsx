@@ -1126,6 +1126,9 @@ function StatCard({ label, value, sub }: { label: string; value: string | number
    ================================================================ */
 
 const REVIEW_STATUS_TONE: Record<string, "good" | "warn" | "bad" | "neutral"> = {
+  draft: "neutral",
+  test_failed: "bad",
+  tested: "neutral",
   approved: "good",
   pending_review: "warn",
   rejected: "bad",
@@ -1133,6 +1136,9 @@ const REVIEW_STATUS_TONE: Record<string, "good" | "warn" | "bad" | "neutral"> = 
 };
 
 const REVIEW_STATUS_LABEL: Record<string, string> = {
+  draft: "Bản nháp",
+  test_failed: "Test lỗi",
+  tested: "Đã test",
   approved: "Đã duyệt",
   pending_review: "Chờ duyệt",
   rejected: "Đã từ chối",
@@ -1241,14 +1247,18 @@ function ProviderReviewModal({
   onReviewed: (provider: Provider) => void;
 }) {
   const [note, setNote] = useState("");
-  const [testResult, setTestResult] = useState<Record<string, unknown> | null>(null);
+  const [testResult, setTestResult] = useState<Record<string, unknown> | null>(
+    provider.last_test_result as Record<string, unknown> | null,
+  );
   const [testing, setTesting] = useState(false);
   const [saving, setSaving] = useState(false);
   const [error, setError] = useState<string | null>(null);
   const [acknowledged, setAcknowledged] = useState(false);
   const health = testResult?.health as Record<string, unknown> | undefined;
   const probeSkipped = health?.probe === "skipped";
-  const testFailed = testResult != null && health?.status !== "healthy";
+  const provisionTest = testResult?.provision_test as Record<string, unknown> | null | undefined;
+  const testPassed = testResult?.passed === true || (health?.status === "healthy" && provisionTest?.success === true);
+  const testFailed = testResult != null && !testPassed;
   const endpointCount = Object.keys((provider.config.endpoint_map as Record<string, unknown> | undefined) ?? {}).length;
 
   const runTest = async () => {
@@ -1311,7 +1321,7 @@ function ProviderReviewModal({
 
           <div className="flex flex-wrap items-center gap-2">
             <Button variant="secondary" size="sm" onClick={runTest} disabled={testing}>{testing ? "Đang test..." : "Chạy test trước khi duyệt"}</Button>
-            {!testResult && <span className="text-[12px] text-muted">Nên test trong phiên review này trước khi duyệt.</span>}
+            {!testResult && <span className="text-[12px] text-muted">Seller chưa có kết quả contract test hợp lệ.</span>}
           </div>
           {testResult && <Card className="p-3"><TestResultBody testResult={testResult} /></Card>}
           {probeSkipped && (
@@ -1328,7 +1338,7 @@ function ProviderReviewModal({
           <div className="flex flex-wrap justify-end gap-2 border-t border-line pt-4">
             <Button variant="secondary" onClick={onClose}>Đóng</Button>
             <Button variant="secondary" className="border-bad/40 text-bad" disabled={saving} onClick={() => decide("rejected")}>Từ chối và gửi lý do</Button>
-            <Button className="bg-good hover:bg-good/90" disabled={saving || testFailed} onClick={() => decide("approved")}>{saving ? "Đang lưu..." : "Duyệt provider"}</Button>
+            <Button className="bg-good hover:bg-good/90" disabled={saving || !testPassed} onClick={() => decide("approved")}>{saving ? "Đang lưu..." : "Duyệt tích hợp"}</Button>
           </div>
         </div>
       </div>

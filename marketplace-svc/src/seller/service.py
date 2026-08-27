@@ -85,6 +85,7 @@ async def approve_application(
             "target_account_id": app.account_id,
         },
     )
+    from src.alerts.service import add_alert
     from src.mail.service import enqueue_mail, frontend_url
     await enqueue_mail(
         db,
@@ -92,6 +93,14 @@ async def approve_application(
         account_id=app.account_id,
         idempotency_key=f"seller_application_approved:{app.id}",
         payload={"action_url": frontend_url("vi", "/seller")},
+    )
+    await add_alert(
+        db,
+        type_="seller_application_approved",
+        severity="info",
+        target_type="seller",
+        target_id=app.account_id,
+        message="Gian hàng của bạn đã được duyệt. Mở khu vực người bán để bắt đầu đăng sản phẩm.",
     )
     await db.commit()
     await db.refresh(app)

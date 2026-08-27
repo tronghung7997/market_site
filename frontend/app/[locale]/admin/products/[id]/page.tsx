@@ -7,8 +7,8 @@ import { useEffect, useState } from "react";
 import { api, vnd } from "@/lib/api";
 import type { AdminProductDetail as AdminProductDetailData, Category, ProductLocale, ProductOperations, ProductPricingLabels, Provider } from "@/lib/types";
 import { Button, Banner, Card, Field, Input, Select, Spinner, Tag, Textarea } from "@/components/ui";
-import { Activity, ArrowRight, Check, Edit2, Eye, Info, Sliders, Users } from "@/components/Icons";
-import { STRATEGY_INFO, STRATEGY_FORMULAS, ADAPTER_INFO, PARAM_LABELS, formatParamValue } from "@/lib/pricing-config";
+import { ArrowRight, Check, Edit2, Eye, Info, Sliders, Users } from "@/components/Icons";
+import { STRATEGY_INFO, STRATEGY_FORMULAS, ADAPTER_INFO } from "@/lib/pricing-config";
 import { PricingParamsEditor } from "@/components/PricingParamsEditor";
 import { MarkdownEditor } from "@/components/MarkdownEditor";
 import { MarkdownContent } from "@/components/MarkdownContent";
@@ -17,6 +17,7 @@ import { ProductPreviewCard } from "@/components/seller/ProductPreviewCard";
 import { formatSpecKey } from "@/lib/utils";
 import { isAdapterCompatible, type CompatMatrix } from "@/lib/compat";
 import { SERVICE_LABELS } from "@/lib/labels";
+import { fulfillmentFromProduct, fulfillmentTagKey, fulfillmentTagValues, fulfillmentTone } from "@/lib/fulfillment";
 import { ProductLanguageRail, productLanguageName } from "@/components/products/ProductLanguageRail";
 import { ProductPricingLabelsEditor } from "@/components/products/ProductPricingLabelsEditor";
 
@@ -47,6 +48,7 @@ const STATUS_LABEL_KEYS: Record<string, string> = {
 
 export default function AdminProductDetail() {
   const t = useTranslations("seller");
+  const tp = useTranslations("products");
   const { id, locale: interfaceLocaleParam } = useParams<{ id: string; locale: string }>();
   const router = useRouter();
   const pathname = usePathname();
@@ -240,30 +242,36 @@ export default function AdminProductDetail() {
   // needs_setup = false, nên phản ánh đúng trạng thái đó thay vì luôn hiện
   // "hoạt động" dù sản phẩm đang bị chặn bán.
   const fulfillmentReady = !ops.needs_setup;
+  const buyerFulfillment = fulfillmentFromProduct(product);
   const pipelineMap: Record<string, { label: string; active: boolean }[]> = {
-    fixed: [
-      { label: "Khách chọn variant", active: true },
-      { label: "Tính giá cố định", active: true },
-      { label: `Lấy từ kho (${aInfo.label})`, active: fulfillmentReady },
-      { label: "Giao data", active: fulfillmentReady },
+    fixed: buyerFulfillment.kind === "sla" ? [
+      { label: tp("pipeline.pickVariant"), active: true },
+      { label: tp("pipeline.fixedPrice"), active: true },
+      { label: tp("pipeline.waitSeller"), active: fulfillmentReady },
+      { label: tp("pipeline.deliverSla"), active: fulfillmentReady },
+    ] : [
+      { label: tp("pipeline.pickVariant"), active: true },
+      { label: tp("pipeline.fixedPrice"), active: true },
+      { label: tp("pipeline.takeFromStock"), active: fulfillmentReady },
+      { label: tp("pipeline.deliverNow"), active: fulfillmentReady },
     ],
     config: [
-      { label: "Khách cấu hình", active: true },
-      { label: "Tính giá dynamic", active: true },
-      { label: `${aInfo.label} tạo mới`, active: fulfillmentReady },
-      { label: "Giao tài nguyên", active: fulfillmentReady },
+      { label: tp("pipeline.configure"), active: true },
+      { label: tp("pipeline.dynamicPrice"), active: true },
+      { label: tp("pipeline.provisionNew"), active: fulfillmentReady },
+      { label: tp("pipeline.deliverResource"), active: fulfillmentReady },
     ],
     credit: [
-      { label: "Khách mua gói credit", active: true },
-      { label: "Trừ credit", active: true },
-      { label: `${aInfo.label} cấp API key`, active: fulfillmentReady },
-      { label: "Dùng theo request", active: fulfillmentReady },
+      { label: tp("pipeline.buyCredit"), active: true },
+      { label: tp("pipeline.deductCredit"), active: true },
+      { label: tp("pipeline.issueKey"), active: fulfillmentReady },
+      { label: tp("pipeline.useByRequest"), active: fulfillmentReady },
     ],
     task: [
-      { label: "Khách đặt tác vụ", active: true },
-      { label: "Tính giá theo nền tảng", active: true },
-      { label: `${aInfo.label} nhận task`, active: fulfillmentReady },
-      { label: "Team xử lý → giao kết quả", active: fulfillmentReady },
+      { label: tp("pipeline.placeTask"), active: true },
+      { label: tp("pipeline.priceByPlatform"), active: true },
+      { label: tp("pipeline.sellerBackendAccepts"), active: fulfillmentReady },
+      { label: tp("pipeline.callbackResult"), active: fulfillmentReady },
     ],
   };
   const pipelineSteps = pipelineMap[strategy] ?? pipelineMap.fixed;
@@ -277,19 +285,29 @@ export default function AdminProductDetail() {
 
   return (
     <div className="space-y-6">
-      {/* Header */}
-      <div className="flex flex-wrap items-center justify-between gap-3">
+      <header className="flex flex-wrap items-start justify-between gap-3 border-b border-line pb-4">
         <div>
-          <Link href="/admin/products" className="text-[12px] text-muted hover:text-primary transition-colors">
+          <Link href="/admin/products" className="text-[12px] font-medium text-muted transition-colors hover:text-fg">
             ← {t("backToProducts")}
           </Link>
-          <h2 className="text-[18px] font-semibold mt-1">{content.title || t("productFallback", { id })}</h2>
+          <div className="mt-1 flex flex-wrap items-center gap-2">
+            <h1 className="text-[24px] font-semibold text-fg">{content.title || t("productFallback", { id })}</h1>
+            <Tag tone={st.tone}>{st.label}</Tag>
+            <Tag tone={fulfillmentTone(buyerFulfillment.kind)}>{tp(fulfillmentTagKey(buyerFulfillment), fulfillmentTagValues(buyerFulfillment))}</Tag>
+            {ops.needs_setup && <Tag tone="bad">Chưa sẵn sàng bán</Tag>}
+          </div>
+          <p className="mt-1 text-[12px] text-muted">{tp(`fulfillmentReceive.${buyerFulfillment.kind}`, fulfillmentTagValues(buyerFulfillment))}</p>
+          <p className="mt-1 text-[12px] text-muted font-mono">Sản phẩm #{id} · {product.seller_email ?? "Chưa có người bán"}</p>
         </div>
-        <Link href={`/products/${id}`} locale={contentLocale}>
-          <Button size="sm" variant="secondary"><Eye size={14} /> {t("viewLanguage", { language: productLanguageName(contentLocale, interfaceLocale) })}</Button>
+        <div className="flex flex-wrap items-center gap-2">
+          {dirty && <Button size="sm" disabled={saving} onClick={handleSave}>{saving ? "Đang lưu..." : "Lưu cấu hình vận hành"}</Button>}
+          <Link href={`/products/${id}`} locale={contentLocale}>
+            <Button size="sm" variant="secondary"><Eye size={14} /> {t("viewLanguage", { language: productLanguageName(contentLocale, interfaceLocale) })}</Button>
+          </Link>
+        </div>
+      </header>
 
-        </Link>
-      </div>
+      {saveMsg && <Banner tone={saveMsg.type === "ok" ? "good" : "bad"}>{saveMsg.text}</Banner>}
 
       <ProductLanguageRail
         interfaceLocale={interfaceLocale}
@@ -300,12 +318,22 @@ export default function AdminProductDetail() {
         onChange={changeContentLocale}
       />
 
+      <Card className="overflow-hidden">
+        <div className="grid divide-y divide-line sm:grid-cols-2 sm:divide-y-0 sm:divide-x lg:grid-cols-5">
+          <AdminProductMetric label="Khả năng bàn giao" value={fulfillmentReady ? "Sẵn sàng" : "Cần cấu hình"} tone={fulfillmentReady ? "good" : "bad"} />
+          <AdminProductMetric label="Nhà cung cấp" value={providerName} />
+          <AdminProductMetric label="Chiến lược giá" value={sInfo.label} />
+          <AdminProductMetric label="Tổng đơn" value={String(ops.stats.total_orders)} />
+          <AdminProductMetric label="Doanh thu" value={vnd(ops.stats.revenue)} />
+        </div>
+      </Card>
+
       {/* Section 1: Thong tin san pham (admin editable: content + status) */}
-      <div className="space-y-4">
+      <section className="space-y-4" aria-labelledby="product-information-heading">
         <div className="flex flex-wrap items-center justify-between gap-3">
-          <h3 className="text-[14px] font-semibold flex items-center gap-2">
+          <h2 id="product-information-heading" className="text-[14px] font-semibold flex items-center gap-2">
             <Info size={14} /> {t("productInformation")}
-          </h3>
+          </h2>
           {!editingContent ? (
             <Button size="sm" variant="secondary" onClick={() => { setEditingContent(true); setContentDirty(false); }}><Edit2 size={13} /> {t("edit")}</Button>
           ) : (
@@ -501,9 +529,13 @@ export default function AdminProductDetail() {
           </div>
         )}
         {contentMsg && <p className={`text-[13px] ${contentMsg.type === "ok" ? "text-good" : "text-bad"}`}>{contentMsg.text}</p>}
-      </div>
+      </section>
 
-      {/* Section 2: Van hanh (editable) */}
+      <section className="space-y-4" aria-labelledby="operations-heading">
+        <div>
+          <h2 id="operations-heading" className="text-[16px] font-semibold text-fg">Vận hành & bàn giao</h2>
+          <p className="mt-1 text-[12px] text-muted">Thiết lập cách sản phẩm tính giá, nhận đơn và bàn giao cho khách.</p>
+        </div>
 
       {ops.needs_setup && (
         <Banner tone="bad" icon={<Info size={15} />} title="Sản phẩm chưa bán được">
@@ -511,11 +543,13 @@ export default function AdminProductDetail() {
         </Banner>
       )}
 
-      {/* Pipeline */}
       <Card className="p-5 space-y-3">
-        <h3 className="text-[14px] font-semibold flex items-center gap-2">
-          <ArrowRight size={14} /> Pipeline bàn giao
-        </h3>
+        <div>
+          <h3 className="text-[14px] font-semibold flex items-center gap-2">
+            <ArrowRight size={14} /> Luồng xử lý đơn
+          </h3>
+          <p className="mt-1 text-[12px] text-muted">Các bước mờ đang bị chặn cho đến khi cấu hình vận hành hoàn tất.</p>
+        </div>
         <div className="flex items-center gap-2 flex-wrap">
           {pipelineSteps.map((step, i) => (
             <div key={i} className="flex items-center gap-2">
@@ -634,38 +668,24 @@ export default function AdminProductDetail() {
         </p>
       </Card>
 
-      {/* Save button */}
-      {dirty && (
-        <Card className="p-4 flex items-center gap-3 border-iris/30 bg-iris/5">
-          <Button size="lg" disabled={saving} onClick={handleSave}>
-            {saving ? "Đang lưu..." : "Lưu cấu hình vận hành"}
-          </Button>
-          {saveMsg && <span className={`text-[13px] ${saveMsg.type === "ok" ? "text-good" : "text-bad"}`}>{saveMsg.text}</span>}
-        </Card>
-      )}
-      {!dirty && saveMsg && (
-        <Card className="p-4 border-good/30 bg-good/5">
-          <span className="text-[13px] text-good">{saveMsg.text}</span>
-        </Card>
-      )}
-
-      {/* Thong ke */}
-      <div className="grid gap-4 sm:grid-cols-4">
-        <StatCard label="Tổng đơn" value={String(ops.stats.total_orders)} />
-        <StatCard label="Doanh thu" value={vnd(ops.stats.revenue)} />
-        <StatCard label="Tỷ lệ thành công" value={`${(ops.stats.success_rate * 100).toFixed(1)}%`} tone={ops.stats.success_rate >= 0.95 ? "good" : ops.stats.success_rate >= 0.8 ? "warn" : "bad"} />
-        <StatCard label="Khiếu nại" value={String(ops.stats.disputes)} tone={ops.stats.disputes === 0 ? "good" : "warn"} />
-      </div>
+      <Card className="overflow-hidden">
+        <div className="grid divide-y divide-line sm:grid-cols-3 sm:divide-x sm:divide-y-0">
+          <AdminProductMetric label="Tỷ lệ thành công" value={`${(ops.stats.success_rate * 100).toFixed(1)}%`} tone={ops.stats.success_rate >= 0.95 ? "good" : ops.stats.success_rate >= 0.8 ? "warn" : "bad"} />
+          <AdminProductMetric label="Khiếu nại" value={String(ops.stats.disputes)} tone={ops.stats.disputes === 0 ? "good" : "warn"} />
+          <AdminProductMetric label="Trạng thái nhà cung cấp" value={healthLabel} tone={health === "healthy" ? "good" : health === "degraded" ? "warn" : "bad"} />
+        </div>
+      </Card>
+      </section>
     </div>
   );
 }
 
-function StatCard({ label, value, tone }: { label: string; value: string; tone?: "good" | "warn" | "bad" }) {
-  const color = tone === "good" ? "text-good" : tone === "warn" ? "text-warn" : tone === "bad" ? "text-bad" : "text-primary";
+function AdminProductMetric({ label, value, tone }: { label: string; value: string; tone?: "good" | "warn" | "bad" }) {
+  const color = tone === "good" ? "text-good" : tone === "warn" ? "text-warn" : tone === "bad" ? "text-bad" : "text-fg";
   return (
-    <Card className="p-4 text-center">
-      <div className="text-[11px] text-muted font-medium">{label}</div>
-      <div className={`text-[18px] font-bold mt-1 ${color}`}>{value}</div>
-    </Card>
+    <div className="p-4">
+      <div className="text-[11px] font-medium text-muted">{label}</div>
+      <div className={`mt-1 truncate text-[15px] font-semibold ${color}`}>{value}</div>
+    </div>
   );
 }

@@ -3,6 +3,7 @@
  *  Interface: chỉ dữ liệu ra, không lộ useEffect nào cho page. */
 
 import { useEffect, useState } from "react";
+import { useTranslations } from "next-intl";
 import { api } from "@/lib/api";
 import type { Product, ProductDetail } from "@/lib/types";
 import type { ProductPageCatalog } from "@/features/catalog";
@@ -17,6 +18,7 @@ export interface ProductDetailState {
 }
 
 export function useProductDetail(id: number, initial?: ProductPageCatalog | null): ProductDetailState {
+  const t = useTranslations("products");
   const [product, setProduct] = useState<ProductDetail | null>(initial?.product ?? null);
   const [related, setRelated] = useState<Product[]>(initial?.related ?? []);
   const [pricingStrategy, setPricingStrategy] = useState<string | null>(initial?.pricingStrategy ?? null);
@@ -60,13 +62,13 @@ export function useProductDetail(id: number, initial?: ProductPageCatalog | null
             }).slice(0, 3));
           } catch { /* ignore */ }
         }
-      } catch (e) {
-        setError(e instanceof Error ? e.message : "Không tìm thấy");
+      } catch {
+        setError(t("notFound"));
       } finally {
         setLoading(false);
       }
     })();
-  }, [id, initial]);
+  }, [id, initial, t]);
 
   return { product, related, pricingStrategy, loading, error };
 }

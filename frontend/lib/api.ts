@@ -32,12 +32,12 @@ function responseErrorDetail(body: unknown): string | null {
   if (!body || typeof body !== "object") return null;
   const detail = (body as { detail?: unknown; message?: unknown }).detail
     ?? (body as { message?: unknown }).message;
-  if (typeof detail === "string") return detail;
-  if (!Array.isArray(detail)) return null;
-
-  const first = detail[0] as { msg?: unknown } | undefined;
-  if (typeof first?.msg !== "string") return null;
-  return first.msg.replace(/^Value error,\s*/i, "");
+  const message = typeof detail === "string"
+    ? detail
+    : Array.isArray(detail) && typeof (detail[0] as { msg?: unknown } | undefined)?.msg === "string"
+      ? (detail[0] as { msg: string }).msg.replace(/^Value error,\s*/i, "")
+      : null;
+  return browserLocale() === "en" && message && /[À-ỹĐđ]/.test(message) ? null : message;
 }
 
 async function request<T>(path: string, init: RequestInit = {}, auth: boolean | "silent" = false): Promise<T> {
@@ -248,7 +248,7 @@ export const api = {
         if (typeof window !== "undefined") window.dispatchEvent(new Event("auth:session-expired"));
         throw new ApiError(401, "Your session has expired. Please sign in again.", "SESSION_EXPIRED");
       }
-      throw new ApiError(res.status, responseErrorDetail(body) ?? "Something went wrong. Please try again.");
+      throw new ApiError(res.status, responseErrorDetail(body) ?? "Something went wrong. Please try again.", "UNKNOWN");
     }
     return {
       items: Array.isArray(body) ? body as Resource[] : [],

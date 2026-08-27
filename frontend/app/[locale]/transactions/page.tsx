@@ -282,7 +282,7 @@ export default function TransactionsPage() {
               <span>{t("transactionsSuffix")}</span>
             </div>
             <span className={cn("text-[10.5px] font-medium transition-colors", filter === "in" ? "text-good font-semibold" : "text-faint/80 group-hover:text-fg")}>
-              {filter === "in" ? "✓ Đang chọn" : "Nhấp để lọc"}
+              {filter === "in" ? `✓ ${t("currentlySelected")}` : t("clickToFilter")}
             </span>
           </div>
         </Card>
@@ -320,7 +320,7 @@ export default function TransactionsPage() {
               <span>{t("transactionsSuffix")}</span>
             </div>
             <span className={cn("text-[10.5px] font-medium transition-colors", filter === "out" ? "text-bad font-semibold" : "text-faint/80 group-hover:text-fg")}>
-              {filter === "out" ? "✓ Đang chọn" : "Nhấp để lọc"}
+              {filter === "out" ? `✓ ${t("currentlySelected")}` : t("clickToFilter")}
             </span>
           </div>
         </Card>
@@ -569,7 +569,7 @@ export default function TransactionsPage() {
                                   router.push(`/orders?search=${orderId}`);
                                 }}
                                 className="inline-flex items-center gap-1 rounded bg-iris-soft/80 px-1.5 py-0.2 font-mono text-[10.5px] font-semibold text-iris hover:bg-iris hover:text-white transition-colors"
-                                title="Xem đơn hàng"
+                                title={t("viewOrder")}
                               >
                                 #{orderId} ↗
                               </button>
@@ -853,7 +853,7 @@ export default function TransactionsPage() {
                     ) : orderQuery.isLoading ? (
                       <div className="flex items-center gap-2 text-[12px] text-faint py-1">
                         <Spinner />
-                        <span>Đang tải thông tin đơn hàng...</span>
+                        <span>{t("loadingOrder")}</span>
                       </div>
                     ) : selectedTx.description ? (
                       <div>

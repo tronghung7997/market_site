@@ -138,7 +138,7 @@ export default function OrdersPage() {
     if (!o.delivered_data) return;
     navigator.clipboard.writeText(o.delivered_data);
     setCopiedOrderId(o.id);
-    showToast(t("copiedExclaim") || "Đã sao chép toàn bộ dữ liệu!");
+    showToast(t("copiedExclaim"));
     setTimeout(() => setCopiedOrderId(null), 2000);
   };
 
@@ -235,16 +235,16 @@ export default function OrdersPage() {
               </div>
               <div className="min-w-0">
                 <div className="text-[11px] font-medium uppercase tracking-wider text-muted truncate">{t("totalOrders")}</div>
-                <div className="font-mono text-[22px] font-bold text-fg tabular">{stats.total} <span className="text-[11.5px] font-normal text-muted">đơn</span></div>
+                <div className="font-mono text-[22px] font-bold text-fg tabular">{stats.total} <span className="text-[11.5px] font-normal text-muted">{t("unit")}</span></div>
               </div>
             </div>
             <div className="text-right shrink-0">
               {filters.tab === "" ? (
                 <span className="inline-flex items-center gap-1 rounded-md bg-iris px-2 py-0.5 text-[10.5px] font-bold text-white shadow-xs">
-                  ● Tất cả
+                  ● {t("tabAll")}
                 </span>
               ) : (
-                <span className="text-[11px] text-faint hover:text-fg">Lọc</span>
+                <span className="text-[11px] text-faint hover:text-fg">{t("filter")}</span>
               )}
             </div>
           </div>
@@ -267,16 +267,16 @@ export default function OrdersPage() {
               </div>
               <div className="min-w-0">
                 <div className="text-[11px] font-medium uppercase tracking-wider text-muted truncate">{t("active")}</div>
-                <div className="font-mono text-[22px] font-bold text-good tabular">{stats.active} <span className="text-[11.5px] font-normal text-muted">đơn</span></div>
+                <div className="font-mono text-[22px] font-bold text-good tabular">{stats.active} <span className="text-[11.5px] font-normal text-muted">{t("unit")}</span></div>
               </div>
             </div>
             <div className="text-right shrink-0">
               {filters.tab === "active" ? (
                 <span className="inline-flex items-center gap-1 rounded-md bg-good px-2 py-0.5 text-[10.5px] font-bold text-white shadow-xs">
-                  ● Đang lọc
+                  ● {t("filtering")}
                 </span>
               ) : (
-                <span className="text-[11px] text-faint hover:text-fg">Lọc</span>
+                <span className="text-[11px] text-faint hover:text-fg">{t("filter")}</span>
               )}
             </div>
           </div>
@@ -299,16 +299,16 @@ export default function OrdersPage() {
               </div>
               <div className="min-w-0">
                 <div className="text-[11px] font-medium uppercase tracking-wider text-muted truncate">{t("disputed")}</div>
-                <div className="font-mono text-[22px] font-bold text-bad tabular">{stats.disputed} <span className="text-[11.5px] font-normal text-muted">đơn</span></div>
+                <div className="font-mono text-[22px] font-bold text-bad tabular">{stats.disputed} <span className="text-[11.5px] font-normal text-muted">{t("unit")}</span></div>
               </div>
             </div>
             <div className="text-right shrink-0">
               {filters.tab === "disputed" ? (
                 <span className="inline-flex items-center gap-1 rounded-md bg-bad px-2 py-0.5 text-[10.5px] font-bold text-white shadow-xs">
-                  ● Đang lọc
+                  ● {t("filtering")}
                 </span>
               ) : (
-                <span className="text-[11px] text-faint hover:text-fg">Lọc</span>
+                <span className="text-[11px] text-faint hover:text-fg">{t("filter")}</span>
               )}
             </div>
           </div>
@@ -339,10 +339,10 @@ export default function OrdersPage() {
             <div className="text-right shrink-0">
               {filters.hasFilters ? (
                 <span className="text-[11px] font-medium text-iris hover:underline">
-                  Đặt lại
+                  {t("reset")}
                 </span>
               ) : (
-                <span className="text-[11px] text-faint">Đã chi</span>
+                <span className="text-[11px] text-faint">{t("spent")}</span>
               )}
             </div>
           </div>
@@ -387,7 +387,7 @@ export default function OrdersPage() {
           </div>
 
           <div className="text-[12px] text-muted tabular">
-            Hiển thị <span className="font-semibold text-fg">{orders.length}</span> / {total} đơn hàng
+            {t("showingCount", { count: orders.length, total })}
           </div>
         </div>
 
@@ -399,7 +399,7 @@ export default function OrdersPage() {
               type="text"
               value={filters.search}
               onChange={(e) => filters.setSearch(e.target.value)}
-              placeholder="Tìm theo mã đơn (#ORD-...), tên sản phẩm, gói..."
+              placeholder={t("searchFullPlaceholder")}
               className="w-full rounded-xl border border-line bg-canvas pl-9 pr-8 py-2 text-[13px] text-fg placeholder:text-faint focus:border-iris focus:outline-none focus:ring-2 focus:ring-iris/20"
             />
             {filters.search && (
@@ -449,7 +449,7 @@ export default function OrdersPage() {
                 className="inline-flex items-center gap-1 rounded-xl border border-line bg-raised px-3 py-2 text-[12px] font-semibold text-muted hover:border-bad/30 hover:text-bad transition-colors cursor-pointer shrink-0"
               >
                 <X size={13} />
-                <span>{t("clearFilters") || "Xoá"}</span>
+                <span>{t("clearFilters")}</span>
               </button>
             )}
           </div>
@@ -482,12 +482,12 @@ export default function OrdersPage() {
             <table className="w-full text-left text-[13px]">
               <thead className="bg-raised/70 border-b border-line text-[11px] font-semibold uppercase tracking-wider text-muted">
                 <tr>
-                  <th className="py-3.5 pl-4 pr-3 w-36">Thao tác nhanh</th>
-                  <th className="py-3.5 px-3 w-32">Mã đơn</th>
-                  <th className="py-3.5 px-3">Sản phẩm & Gói</th>
-                  <th className="py-3.5 px-3 text-center w-24">Số lượng</th>
-                  <th className="py-3.5 px-3 text-right w-36">Thanh toán</th>
-                  <th className="py-3.5 px-4 text-right w-44">Trạng thái & Bảo hiểm</th>
+                  <th className="py-3.5 pl-4 pr-3 w-36">{t("quickActions")}</th>
+                  <th className="py-3.5 px-3 w-32">{t("orderCode")}</th>
+                  <th className="py-3.5 px-3">{t("productPackage")}</th>
+                  <th className="py-3.5 px-3 text-center w-24">{t("quantity")}</th>
+                  <th className="py-3.5 px-3 text-right w-36">{t("payment")}</th>
+                  <th className="py-3.5 px-4 text-right w-44">{t("statusEscrow")}</th>
                 </tr>
               </thead>
               <tbody className="divide-y divide-line">

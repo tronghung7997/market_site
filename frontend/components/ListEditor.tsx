@@ -1,6 +1,7 @@
 "use client";
 
 import type { ReactNode } from "react";
+import { useTranslations } from "next-intl";
 import { Button } from "@/components/ui";
 import { Plus, X } from "@/components/Icons";
 
@@ -16,6 +17,7 @@ export function ListEditor<T>({
   addLabel: string; emptyText: string;
   renderRow: (item: T, index: number) => ReactNode;
 }) {
+  const t = useTranslations("common");
   return (
     <div className="flex flex-col gap-1.5">
       <div className="flex items-baseline justify-between gap-2 flex-wrap">
@@ -27,7 +29,7 @@ export function ListEditor<T>({
         {items.map((item, i) => (
           <div key={i} className="flex items-center gap-2">
             <div className="flex-1 min-w-0">{renderRow(item, i)}</div>
-            <button type="button" aria-label="Xoá dòng này" onClick={() => onRemove(i)}
+            <button type="button" aria-label={t("delete")} onClick={() => onRemove(i)}
               className="shrink-0 grid place-items-center h-9 w-9 rounded-lg text-faint hover:text-bad hover:bg-bad-soft transition-colors cursor-pointer">
               <X size={14} />
             </button>

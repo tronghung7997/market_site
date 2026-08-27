@@ -284,7 +284,7 @@ export default function DepositCard({ deposits, onChanged }: {
       }
       await onChanged();
     } catch (e) {
-      setErr(t("depositCancelFail", { error: e instanceof Error ? e.message : "Không xác định" }));
+      setErr(t("depositCancelFail", { error: e instanceof Error ? e.message : t("depositUnknownError") }));
     }
   };
 

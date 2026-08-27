@@ -140,6 +140,11 @@ export default function InboxWorkbench({
   const roomContext = room ? contextLabel(room, t, tos) : null;
   const isSellerCounterpart = room?.counterpart.role === "seller";
   const orderHref = orderWorkspaceHref(room?.counterpart.role ?? "seller", room?.order?.id);
+  const readOnlyReason = room?.order?.status === "refunded"
+    ? t("readOnlyRefunded")
+    : room?.order?.status === "cancelled"
+      ? t("readOnlyCancelled")
+      : t("readOnly");
 
   return (
     <div className="w-full mx-auto max-w-[1200px] px-4 sm:px-6 py-2.5 sm:py-3.5 flex-1 flex flex-col h-[calc(100dvh-92px)] max-h-[calc(100dvh-92px)] overflow-hidden">
@@ -429,7 +434,7 @@ export default function InboxWorkbench({
               <form onSubmit={submit} className="shrink-0 border-t border-line bg-surface p-2 sm:p-3">
                 {!room.can_send && (
                   <p className="mx-auto mb-2 max-w-[680px] rounded-lg border border-warn/25 bg-warn-soft px-3 py-1.5 text-[11px] text-warn">
-                    {room.read_only_reason ?? t("readOnly")}
+                    {readOnlyReason}
                   </p>
                 )}
                 <div className="mx-auto flex max-w-[680px] items-end gap-2 rounded-xl border border-line bg-raised/70 p-1.5 pl-3 transition-all focus-within:border-iris focus-within:bg-surface focus-within:ring-2 focus-within:ring-iris/15">
@@ -446,7 +451,7 @@ export default function InboxWorkbench({
                     }}
                     rows={1}
                     maxLength={4000}
-                    placeholder={room.can_send ? t("input") : (room.read_only_reason ?? t("readOnly"))}
+                    placeholder={room.can_send ? t("input") : readOnlyReason}
                     className="max-h-24 min-h-[34px] flex-1 resize-none bg-transparent py-1 text-[13px] outline-none placeholder:text-faint/70"
                     disabled={!room.can_send}
                   />
@@ -459,7 +464,7 @@ export default function InboxWorkbench({
                   </Button>
                 </div>
                 {send.isError && (
-                  <p className="mx-auto mt-1.5 max-w-[680px] text-[11px] text-bad">{send.error.message}</p>
+                  <p className="mx-auto mt-1.5 max-w-[680px] text-[11px] text-bad">{t("sendFailed")}</p>
                 )}
               </form>
             </>

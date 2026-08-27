@@ -1617,6 +1617,8 @@
     "error": "Không tải được tin nhắn",
     "back": "Quay lại",
     "readOnly": "Cuộc trò chuyện hiện chỉ đọc.",
+    "readOnlyCancelled": "Đơn hàng đã huỷ. Cuộc trò chuyện hiện chỉ đọc.",
+    "readOnlyRefunded": "Đơn hàng đã hoàn tiền. Cuộc trò chuyện hiện chỉ đọc.",
     "viewProduct": "Xem chi tiết sản phẩm",
     "viewSeller": "Xem trang người bán",
     "viewOrderTitle": "Xem chi tiết đơn hàng",

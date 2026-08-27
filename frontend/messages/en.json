@@ -1617,6 +1617,8 @@
     "error": "Could not load messages",
     "back": "Back",
     "readOnly": "This conversation is read-only.",
+    "readOnlyCancelled": "This order was cancelled. This conversation is read-only.",
+    "readOnlyRefunded": "This order was refunded. This conversation is read-only.",
     "viewProduct": "View product details",
     "viewSeller": "View seller page",
     "viewOrderTitle": "View order details",

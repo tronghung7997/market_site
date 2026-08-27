@@ -142,8 +142,8 @@ export default function InboxWorkbench({
   const orderHref = orderWorkspaceHref(room?.counterpart.role ?? "seller", room?.order?.id);
 
   return (
-    <div className="mx-auto flex w-full max-w-[1320px] flex-1 flex-col px-2 py-2 sm:px-4 sm:py-3 lg:h-[calc(100dvh-76px)] lg:max-h-[860px]">
-      <section className="grid h-full w-full flex-1 overflow-hidden rounded-xl border border-line bg-surface shadow-xs sm:rounded-2xl sm:shadow-card lg:grid-cols-[310px_minmax(0,1fr)] xl:grid-cols-[310px_minmax(0,1fr)_280px]">
+    <div className="w-full mx-auto max-w-[1200px] px-4 sm:px-6 py-2.5 sm:py-3.5 flex-1 flex flex-col h-[calc(100dvh-92px)] max-h-[calc(100dvh-92px)] overflow-hidden">
+      <section className="grid h-full w-full flex-1 overflow-hidden rounded-xl border border-line bg-surface shadow-xs sm:rounded-2xl sm:shadow-card lg:grid-cols-[280px_minmax(0,1fr)] xl:grid-cols-[280px_minmax(0,1fr)_260px]">
         {/* Left Sidebar: Conversation List */}
         <aside
           className={cn(
@@ -228,10 +228,10 @@ export default function InboxWorkbench({
                       )}
                     </span>
 
-                    <div className="mt-0.5 flex items-center gap-1.5 text-[11px]">
+                    <div className="mt-0.5 flex min-w-0 items-center gap-1.5 text-[11px]">
                       <span
                         className={cn(
-                          "inline-flex items-center rounded-md px-1.5 py-0.5 font-medium tracking-tight",
+                          "inline-flex shrink-0 items-center rounded-md px-1.5 py-0.5 font-medium tracking-tight whitespace-nowrap",
                           isOrder
                             ? "bg-amber-500/15 text-amber-800"
                             : "bg-indigo-500/15 text-iris-hi",
@@ -309,7 +309,7 @@ export default function InboxWorkbench({
                       {room.product ? (
                         <Link
                           href={`/products/${room.product.id}`}
-                          className="group inline-flex max-w-[280px] items-center gap-1 truncate text-[13.5px] font-bold text-fg transition-colors hover:text-iris sm:max-w-[420px]"
+                          className="group inline-flex max-w-[260px] items-center gap-1 truncate text-[13.5px] font-bold text-fg transition-colors hover:text-iris sm:max-w-[400px]"
                           title={t("viewProduct")}
                         >
                           <span className="truncate">{room.product.title}</span>
@@ -320,20 +320,20 @@ export default function InboxWorkbench({
                       )}
                     </div>
 
-                    <div className="flex items-center gap-1.5 text-[11px] text-faint">
+                    <div className="flex min-w-0 items-center gap-1.5 text-[11px] text-faint">
                       {isSellerCounterpart ? (
                         <Link
                           href={`/sellers/${room.counterpart.id}`}
-                          className="font-medium text-iris hover:underline"
+                          className="truncate max-w-[160px] sm:max-w-[260px] font-medium text-iris hover:underline"
                           title={t("viewSeller")}
                         >
                           {room.counterpart.label}
                         </Link>
                       ) : (
-                        <span>{room.counterpart.label}</span>
+                        <span className="truncate max-w-[160px] sm:max-w-[260px]">{room.counterpart.label}</span>
                       )}
                       <span>•</span>
-                      <span className="font-medium">{roomContext}</span>
+                      <span className="shrink-0 whitespace-nowrap font-medium">{roomContext}</span>
                     </div>
                   </div>
                 </div>
@@ -343,7 +343,7 @@ export default function InboxWorkbench({
                   {room.product && (
                     <Link
                       href={`/products/${room.product.id}`}
-                      className="hidden sm:inline-flex items-center gap-1 rounded-lg border border-line bg-raised/70 px-2.5 py-1 text-[11.5px] font-semibold text-fg hover:border-iris/40 hover:bg-iris-soft hover:text-iris transition-colors shadow-xs"
+                      className="hidden sm:inline-flex items-center gap-1 rounded-lg border border-line bg-raised/70 px-2.5 py-1 text-[11.5px] font-semibold text-fg hover:border-iris/40 hover:bg-iris-soft hover:text-iris transition-colors shadow-xs whitespace-nowrap"
                     >
                       <span>{t("viewProduct")}</span>
                       <ExternalLink size={11} />
@@ -352,7 +352,7 @@ export default function InboxWorkbench({
                   {roomIsOrder && room.order && (
                     <Link
                       href={orderHref}
-                      className="inline-flex items-center gap-1 rounded-lg border border-amber-500/30 bg-amber-500/10 px-2.5 py-1 text-[11.5px] font-semibold text-amber-800 hover:bg-amber-500/20 transition-colors shadow-xs"
+                      className="inline-flex items-center gap-1 rounded-lg border border-amber-500/30 bg-amber-500/10 px-2.5 py-1 text-[11.5px] font-semibold text-amber-800 hover:bg-amber-500/20 transition-colors shadow-xs whitespace-nowrap"
                     >
                       <span>{t("viewOrder")}</span>
                       <ExternalLink size={11} />
@@ -496,12 +496,14 @@ export default function InboxWorkbench({
                   <span className="text-[10px] font-bold uppercase tracking-wider text-faint">
                     {isSellerCounterpart ? t("seller") : t("customer")}
                   </span>
-                  <div className="mt-1 flex items-center justify-between">
-                    <span className="font-medium text-fg">{room.counterpart.label}</span>
+                  <div className="mt-1 flex flex-col gap-1.5">
+                    <span className="font-medium text-fg truncate text-[12px]" title={room.counterpart.label}>
+                      {room.counterpart.label}
+                    </span>
                     {isSellerCounterpart && (
                       <Link
                         href={`/sellers/${room.counterpart.id}`}
-                        className="inline-flex items-center gap-1 rounded-md bg-raised px-1.5 py-0.5 text-[10.5px] font-medium text-iris hover:bg-iris-soft transition-colors"
+                        className="inline-flex w-fit items-center gap-1 rounded-md bg-raised px-2 py-0.5 text-[11px] font-medium text-iris hover:bg-iris-soft hover:text-iris-hi transition-colors whitespace-nowrap shadow-xs"
                       >
                         <span>{t("viewSeller")}</span>
                         <ExternalLink size={9.5} />
@@ -515,12 +517,12 @@ export default function InboxWorkbench({
               {roomIsOrder && room.order && (
                 <div className="rounded-xl border border-amber-500/25 bg-amber-500/5 p-3 shadow-xs">
                   <div className="flex items-center justify-between border-b border-amber-500/20 pb-2">
-                    <span className="text-[11px] font-bold uppercase tracking-wider text-amber-800">
+                    <span className="text-[11px] font-bold uppercase tracking-wider text-amber-800 shrink-0">
                       {t("order")} #{room.order.id}
                     </span>
                     <Link
                       href={orderHref}
-                      className="inline-flex items-center gap-1 text-[11px] font-semibold text-iris hover:underline"
+                      className="inline-flex items-center gap-1 text-[11px] font-semibold text-iris hover:underline shrink-0 whitespace-nowrap"
                     >
                       <span>{t("viewOrder")}</span>
                       <ExternalLink size={10} />

@@ -1,11 +1,21 @@
 "use client";
 
 import { useTranslations } from "next-intl";
-import { Link } from "@/i18n/navigation";
+import { Link, usePathname } from "@/i18n/navigation";
 import { Logo, Shield } from "./Icons";
 
 export default function SiteFooter() {
   const t = useTranslations("footer");
+  const pathname = usePathname();
+
+  // Hide footer on full-height workspace pages like messages
+  if (
+    pathname?.startsWith("/messages") ||
+    pathname?.includes("/messages")
+  ) {
+    return null;
+  }
+
   const columns = [
     { title: t("products"), links: [t("socialAccounts"), t("proxy"), t("emailSoftware"), t("pricing")] },
     { title: t("business"), links: [t("wholesale"), t("consulting"), t("sla"), t("invoice")] },

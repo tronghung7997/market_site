@@ -1,6 +1,32 @@
 <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 512 512">
-  <rect width="512" height="512" rx="112" fill="#09090B"/>
-  <path d="M302 92c18 35 49 59 88 64v57c-32-1-62-11-88-30v104c0 70-57 127-127 127-58 0-107-39-122-92 17 14 39 22 62 22 54 0 98-44 98-98v-95h58v12c0 36 29 65 65 65v-61c-13-4-24-11-34-21z" fill="#25F4EE" transform="translate(-10 8)"/>
-  <path d="M302 92c18 35 49 59 88 64v57c-32-1-62-11-88-30v104c0 70-57 127-127 127-58 0-107-39-122-92 17 14 39 22 62 22 54 0 98-44 98-98v-95h58v12c0 36 29 65 65 65v-61c-13-4-24-11-34-21z" fill="#FE2C55" transform="translate(8 -6)"/>
-  <path d="M302 92c18 35 49 59 88 64v57c-32-1-62-11-88-30v104c0 70-57 127-127 127-58 0-107-39-122-92 17 14 39 22 62 22 54 0 98-44 98-98v-95h58v12c0 36 29 65 65 65v-61c-13-4-24-11-34-21z" fill="#FFF"/>
+  <defs>
+    <linearGradient id="ttBg" x1="0%" y1="0%" x2="100%" y2="100%">
+      <stop offset="0%" stop-color="#16181f"/>
+      <stop offset="100%" stop-color="#000000"/>
+    </linearGradient>
+    <filter id="ttShadow" x="-20%" y="-20%" width="140%" height="140%">
+      <feDropShadow dx="0" dy="14" stdDeviation="18" flood-color="#000000" flood-opacity="0.45"/>
+    </filter>
+    <linearGradient id="ttBevel" x1="0%" y1="0%" x2="0%" y2="100%">
+      <stop offset="0%" stop-color="#FFFFFF" stop-opacity="0.18"/>
+      <stop offset="100%" stop-color="#FFFFFF" stop-opacity="0"/>
+    </linearGradient>
+  </defs>
+
+  <!-- Background Squircle Card -->
+  <rect x="32" y="32" width="448" height="448" rx="112" fill="url(#ttBg)" filter="url(#ttShadow)"/>
+  <rect x="32" y="32" width="448" height="448" rx="112" fill="url(#ttBevel)"/>
+
+  <!-- TikTok Note with Authentic Chromatic Aberration -->
+  <g id="tiktok-glyph">
+    <!-- Cyan / Aqua Offset Layer (Left / Bottom-Left) -->
+    <path d="M328 112c22 41 58 68 102 74v62c-38-1-73-13-102-35v116c0 78-63 141-141 141s-141-63-141-141 63-141 141-141c8.5 0 16.8.8 24.8 2.3v63.5c-7.8-2.5-16.1-3.8-24.8-3.8-43.6 0-79 35.4-79 79s35.4 79 79 79 79-35.4 79-79V80h62v32z" fill="#25F4EE" transform="translate(-10, 8)"/>
+
+    <!-- Neon Red / Magenta Offset Layer (Right / Top-Right) -->
+    <path d="M328 112c22 41 58 68 102 74v62c-38-1-73-13-102-35v116c0 78-63 141-141 141s-141-63-141-141 63-141 141-141c8.5 0 16.8.8 24.8 2.3v63.5c-7.8-2.5-16.1-3.8-24.8-3.8-43.6 0-79 35.4-79 79s35.4 79 79 79 79-35.4 79-79V80h62v32z" fill="#FE2C55" transform="translate(8, -7)"/>
+
+    <!-- White Center Glyph Layer -->
+    <path d="M328 112c22 41 58 68 102 74v62c-38-1-73-13-102-35v116c0 78-63 141-141 141s-141-63-141-141 63-141 141-141c8.5 0 16.8.8 24.8 2.3v63.5c-7.8-2.5-16.1-3.8-24.8-3.8-43.6 0-79 35.4-79 79s35.4 79 79 79 79-35.4 79-79V80h62v32z" fill="#FFFFFF"/>
+  </g>
 </svg>
+

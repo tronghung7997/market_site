@@ -8,6 +8,7 @@
 import { useLocale, useTranslations } from "next-intl";
 import { useCallback, useEffect, useState } from "react";
 import { api } from "@/lib/api";
+import { useApiErrorMessage } from "@/lib/use-api-error";
 import { cn } from "@/lib/cn";
 import { timeLeftLabel } from "@/lib/time";
 import type { ProxyState } from "@/lib/types";
@@ -33,6 +34,7 @@ export default function OrderProxyPanel({ orderId, deliveredData, onDelivered, o
 }) {
   const t = useTranslations("orders");
   const locale = useLocale();
+  const apiErrorMessage = useApiErrorMessage();
   const [state, setState] = useState<ProxyState | null>(null);
   const [applicable, setApplicable] = useState(true);
   const [rotating, setRotating] = useState(false);
@@ -82,7 +84,7 @@ export default function OrderProxyPanel({ orderId, deliveredData, onDelivered, o
       // docs/superpowers/plans/2026-07-22-dproxy-consolidated-review.md P0).
       if (result.delivered_data) onDelivered?.(orderId, result.delivered_data);
     } catch (e: unknown) {
-      setError(e instanceof Error ? e.message : t("proxyRotateFail"));
+      setError(apiErrorMessage(e, t("proxyRotateFail")));
     } finally {
       setRotating(false);
     }
@@ -199,6 +201,7 @@ function ProxyWhitelistBox({
   onDelivered?: (orderId: number, deliveredData: string) => void;
 }) {
   const t = useTranslations("orders");
+  const apiErrorMessage = useApiErrorMessage();
   const saved = state.whitelist_ips ?? "";
   const [value, setValue] = useState(saved);
   const [saving, setSaving] = useState(false);
@@ -218,7 +221,7 @@ function ProxyWhitelistBox({
         ? { text: t("proxyWlActive"), tone: "good" }
         : { text: t("proxyWlSaved"), tone: "warn" });
     } catch (e) {
-      setMsg({ text: e instanceof Error ? e.message : t("proxyWlFail"), tone: "bad" });
+      setMsg({ text: apiErrorMessage(e, t("proxyWlFail")), tone: "bad" });
     } finally {
       setSaving(false);
     }

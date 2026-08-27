@@ -39,6 +39,9 @@ def api_error(
     status_code: int,
     *,
     detail: str | None = None,
+    headers: dict | None = None,
     **params,
 ) -> CodedHTTPException:
-    return CodedHTTPException(code, status_code, detail=detail, params=params or None)
+    return CodedHTTPException(
+        code, status_code, detail=detail, params=params or None, headers=headers,
+    )

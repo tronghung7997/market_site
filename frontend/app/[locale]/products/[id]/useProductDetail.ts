@@ -5,6 +5,7 @@
 import { useEffect, useState } from "react";
 import { useTranslations } from "next-intl";
 import { api } from "@/lib/api";
+import { useApiErrorMessage } from "@/lib/use-api-error";
 import type { Product, ProductDetail } from "@/lib/types";
 import type { ProductPageCatalog } from "@/features/catalog";
 
@@ -19,6 +20,7 @@ export interface ProductDetailState {
 
 export function useProductDetail(id: number, initial?: ProductPageCatalog | null): ProductDetailState {
   const t = useTranslations("products");
+  const apiErrorMessage = useApiErrorMessage();
   const [product, setProduct] = useState<ProductDetail | null>(initial?.product ?? null);
   const [related, setRelated] = useState<Product[]>(initial?.related ?? []);
   const [pricingStrategy, setPricingStrategy] = useState<string | null>(initial?.pricingStrategy ?? null);
@@ -62,13 +64,13 @@ export function useProductDetail(id: number, initial?: ProductPageCatalog | null
             }).slice(0, 3));
           } catch { /* ignore */ }
         }
-      } catch {
-        setError(t("notFound"));
+      } catch (error) {
+        setError(apiErrorMessage(error, t("notFound")));
       } finally {
         setLoading(false);
       }
     })();
-  }, [id, initial, t]);
+  }, [apiErrorMessage, id, initial, t]);
 
   return { product, related, pricingStrategy, loading, error };
 }

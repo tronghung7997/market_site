@@ -5,6 +5,7 @@ import { useTranslations } from "next-intl";
 import { useRouter } from "@/i18n/navigation";
 import { useAuth } from "@/lib/auth";
 import { ApiError, api } from "@/lib/api";
+import { useApiErrorMessage } from "@/lib/use-api-error";
 import { useCreateInquiry } from "@/hooks/use-chat";
 import { MessageCircle, X } from "@/components/Icons";
 import { Button, Field, Textarea } from "@/components/ui";
@@ -20,6 +21,7 @@ export default function StartInquiryDialog({
 }) {
   const t = useTranslations("chat");
   const router = useRouter();
+  const apiErrorMessage = useApiErrorMessage();
   const { account } = useAuth();
   const create = useCreateInquiry();
   const [open, setOpen] = useState(false);
@@ -67,7 +69,7 @@ export default function StartInquiryDialog({
               <button className="grid h-8 w-8 shrink-0 place-items-center rounded-lg text-muted hover:bg-raised hover:text-fg" onClick={() => setOpen(false)} aria-label={t("cancel")}><X size={16} /></button>
             </header>
             <div className="space-y-4 p-5">
-              <Field label={t("messageLabel")} error={create.error?.message}><Textarea id="product-inquiry-message" name="message" autoFocus value={message} onChange={(event) => setMessage(event.target.value)} placeholder={t("askPlaceholder")} maxLength={4000} rows={5} /></Field>
+              <Field label={t("messageLabel")} error={create.error ? apiErrorMessage(create.error) : undefined}><Textarea id="product-inquiry-message" name="message" autoFocus value={message} onChange={(event) => setMessage(event.target.value)} placeholder={t("askPlaceholder")} maxLength={4000} rows={5} /></Field>
               <div className="flex justify-end gap-2"><Button type="button" variant="ghost" onClick={() => setOpen(false)}>{t("cancel")}</Button><Button type="button" disabled={!message.trim() || create.isPending} onClick={submit}>{create.isPending ? t("sending") : t("sendQuestion")}</Button></div>
             </div>
           </section>

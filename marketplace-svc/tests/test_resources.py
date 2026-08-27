@@ -158,7 +158,7 @@ async def test_bulk_add_rejects_manual_delivery_variant(client):
     )
 
     assert response.status_code == 400, response.text
-    assert "giao ngay" in response.json()["detail"].lower()
+    assert response.json()["error_code"] == "INVENTORY_NOT_INSTANT"
 
 
 @pytest.mark.asyncio
@@ -461,7 +461,7 @@ async def test_cannot_edit_a_resource_already_delivered(client):
     resp = await client.patch(f"/seller/resources/{res['id']}", json={"data": "new|pass"},
                               headers={"Authorization": f"Bearer {seller_token}"})
     assert resp.status_code == 400
-    assert "khiếu nại" in resp.json()["detail"]
+    assert resp.json()["error_code"] == "RESOURCE_NOT_EDITABLE"
 
 
 @pytest.mark.asyncio

@@ -1,8 +1,10 @@
 import uuid
 
-from fastapi import HTTPException
+from fastapi import status
 from sqlalchemy import and_, func, or_, select
 from sqlalchemy.ext.asyncio import AsyncSession
+
+from src.exceptions import ErrorCode, api_error
 
 from src.chat.enums import ContextRole, ConversationKind, ConversationStatus
 from src.chat.events import publish
@@ -27,7 +29,7 @@ async def _participant(
 ) -> ChatParticipant:
     row = await db.get(ChatParticipant, (conversation_id, account_id))
     if row is None:
-        raise HTTPException(status_code=404, detail="Không tìm thấy cuộc trò chuyện")
+        raise api_error(ErrorCode.CHAT_CONVERSATION_NOT_FOUND, status.HTTP_404_NOT_FOUND)
     return row
 
 
@@ -157,9 +159,9 @@ async def create_inquiry(
 ) -> tuple[ConversationDetail, bool]:
     product = await db.get(Product, product_id)
     if product is None or product.status != ProductStatus.active:
-        raise HTTPException(status_code=404, detail="Sản phẩm không khả dụng")
+        raise api_error(ErrorCode.CHAT_PRODUCT_UNAVAILABLE, status.HTTP_404_NOT_FOUND)
     if product.seller_id == account.id:
-        raise HTTPException(status_code=400, detail="Seller không thể tự mở trao đổi sản phẩm")
+        raise api_error(ErrorCode.CHAT_SELF_INQUIRY, status.HTTP_400_BAD_REQUEST)
 
     # Serialise get-or-create on the product row. The unique index is the final
     # guard; this lock lets the losing request observe and reuse the committed room.
@@ -229,7 +231,7 @@ async def find_product_inquiry(
         )
     )
     if conversation is None:
-        raise HTTPException(status_code=404, detail="Chưa có cuộc trò chuyện")
+        raise api_error(ErrorCode.CHAT_INQUIRY_NOT_FOUND, status.HTTP_404_NOT_FOUND)
     member = await _participant(db, conversation.id, account.id)
     return await _detail(db, conversation, member)
 
@@ -266,9 +268,9 @@ async def list_conversations(
     account: Account, perspective: str, db: AsyncSession
 ) -> ConversationList:
     if perspective not in _LIST_PERSPECTIVES:
-        raise HTTPException(status_code=422, detail="Perspective không hợp lệ")
+        raise api_error(ErrorCode.CHAT_INVALID_PERSPECTIVE, status.HTTP_422_UNPROCESSABLE_CONTENT)
     if perspective != "all" and perspective not in (account.roles or []):
-        raise HTTPException(status_code=403, detail="Tài khoản không có vai trò này")
+        raise api_error(ErrorCode.CHAT_ROLE_UNAVAILABLE, status.HTTP_403_FORBIDDEN)
     membership = [
         ChatParticipant.account_id == account.id,
         ChatParticipant.archived_at.is_(None),
@@ -292,7 +294,7 @@ async def get_or_create_order_conversation(
 ) -> tuple[ConversationDetail, bool]:
     order = await db.get(Order, order_id, with_for_update=True)
     if order is None or account.id not in {order.buyer_id, order.seller_id}:
-        raise HTTPException(status_code=404, detail="Không tìm thấy đơn hàng")
+        raise api_error(ErrorCode.ORDER_NOT_FOUND, status.HTTP_404_NOT_FOUND)
     existing = await db.scalar(
         select(ChatConversation).where(
             ChatConversation.kind == ConversationKind.ORDER,
@@ -337,7 +339,7 @@ async def get_conversation(
     participant = await _participant(db, conversation_id, account.id)
     conversation = await db.get(ChatConversation, conversation_id)
     if conversation is None:
-        raise HTTPException(status_code=404, detail="Không tìm thấy cuộc trò chuyện")
+        raise api_error(ErrorCode.CHAT_CONVERSATION_NOT_FOUND, status.HTTP_404_NOT_FOUND)
     return await _detail(db, conversation, participant, mark_read=True)
 
 
@@ -351,16 +353,16 @@ async def send_message(
     participant = await _participant(db, conversation_id, account.id)
     conversation = await db.get(ChatConversation, conversation_id, with_for_update=True)
     if conversation is None:
-        raise HTTPException(status_code=404, detail="Không tìm thấy cuộc trò chuyện")
+        raise api_error(ErrorCode.CHAT_CONVERSATION_NOT_FOUND, status.HTTP_404_NOT_FOUND)
     if conversation.status != ConversationStatus.OPEN:
-        raise HTTPException(status_code=409, detail="Cuộc trò chuyện hiện chỉ đọc")
+        raise api_error(ErrorCode.CHAT_READ_ONLY, status.HTTP_409_CONFLICT)
     if conversation.kind == ConversationKind.ORDER and conversation.order_id:
         order = await db.get(Order, conversation.order_id)
         order_status = str(order.status.value if order and hasattr(order.status, "value") else order.status if order else "")
         if order_status in {"cancelled", "refunded"}:
             conversation.status = ConversationStatus.READ_ONLY
             await db.commit()
-            raise HTTPException(status_code=409, detail="Đơn hàng đã kết thúc, cuộc trò chuyện hiện chỉ đọc")
+            raise api_error(ErrorCode.CHAT_READ_ONLY, status.HTTP_409_CONFLICT)
     existing = await db.scalar(
         select(ChatMessage).where(
             ChatMessage.conversation_id == conversation_id,
@@ -369,7 +371,7 @@ async def send_message(
     )
     if existing:
         if existing.body != body or existing.sender_id != account.id:
-            raise HTTPException(status_code=409, detail="Idempotency key đã được sử dụng")
+            raise api_error(ErrorCode.CHAT_MESSAGE_ID_CONFLICT, status.HTTP_409_CONFLICT)
         return _message_dto(existing)
     message = ChatMessage(
         conversation_id=conversation_id,

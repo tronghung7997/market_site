@@ -143,3 +143,40 @@ async def test_seller_cannot_start_product_inquiry(client):
     )
 
     assert response.status_code == 400
+    assert response.json()["error_code"] == "CHAT_SELF_INQUIRY"
+
+
+@pytest.mark.asyncio
+async def test_chat_rejections_include_client_error_codes(client):
+    buyer_token, seller_token, _, _, _ = await setup_buyable_product(client)
+    product = (await client.get("/seller/products", headers=_auth(seller_token))).json()[-1]
+
+    missing_product = await client.post(
+        "/chat/inquiries",
+        json={
+            "product_id": 999999,
+            "initial_message": "Còn hàng không?",
+            "client_message_id": str(uuid.uuid4()),
+        },
+        headers=_auth(buyer_token),
+    )
+    assert missing_product.status_code == 404
+    assert missing_product.json()["error_code"] == "CHAT_PRODUCT_UNAVAILABLE"
+
+    lookup = await client.get(
+        f"/chat/inquiries/by-product/{product['id']}", headers=_auth(buyer_token),
+    )
+    assert lookup.status_code == 404
+    assert lookup.json()["error_code"] == "CHAT_INQUIRY_NOT_FOUND"
+
+    missing_room = await client.get(
+        f"/chat/conversations/{uuid.uuid4()}", headers=_auth(buyer_token),
+    )
+    assert missing_room.status_code == 404
+    assert missing_room.json()["error_code"] == "CHAT_CONVERSATION_NOT_FOUND"
+
+    invalid_view = await client.get(
+        "/chat/conversations?perspective=admin", headers=_auth(seller_token),
+    )
+    assert invalid_view.status_code == 422
+    assert invalid_view.json()["error_code"] == "CHAT_INVALID_PERSPECTIVE"

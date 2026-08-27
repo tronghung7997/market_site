@@ -1,8 +1,8 @@
-from fastapi import HTTPException
+from fastapi import status
 from sqlalchemy import func, select
 from sqlalchemy.ext.asyncio import AsyncSession
 
-from src.exceptions import NotOwner, ResourceUnavailable
+from src.exceptions import ErrorCode, NotOwner, ResourceUnavailable, api_error
 from src.models.pricing_config import PricingConfig
 from src.models.product import DeliveryMode, Product, ProductVariant
 from src.models.resource import Resource, ResourceStatus
@@ -18,16 +18,13 @@ async def bulk_add_resources(variant_id: int, seller_id: int, items: list[str], 
         .with_for_update()
     )).scalar_one_or_none()
     if not variant:
-        raise HTTPException(status_code=404, detail="Không tìm thấy gói sản phẩm")
+        raise api_error(ErrorCode.VARIANT_NOT_FOUND, status.HTTP_404_NOT_FOUND)
     from src.models.product import Product
     product = await db.get(Product, variant.product_id)
     if product.seller_id != seller_id:
         raise NotOwner()
     if variant.delivery_mode != DeliveryMode.instant:
-        raise HTTPException(
-            status_code=400,
-            detail="Chỉ gói giao ngay mới sử dụng kho tài nguyên",
-        )
+        raise api_error(ErrorCode.INVENTORY_NOT_INSTANT, status.HTTP_400_BAD_REQUEST)
 
     unique_items = list(dict.fromkeys(item.strip() for item in items if item.strip()))
     if not unique_items:
@@ -56,7 +53,7 @@ async def list_resources(
 ) -> tuple[list[Resource], int]:
     variant = await db.get(ProductVariant, variant_id)
     if not variant:
-        raise HTTPException(status_code=404, detail="Không tìm thấy gói sản phẩm")
+        raise api_error(ErrorCode.VARIANT_NOT_FOUND, status.HTTP_404_NOT_FOUND)
     from src.models.product import Product
     product = await db.get(Product, variant.product_id)
     if product.seller_id != seller_id:
@@ -82,17 +79,13 @@ async def update_resource_data(resource_id: int, seller_id: int, data: str, db: 
     """
     resource = await db.get(Resource, resource_id)
     if not resource:
-        raise HTTPException(status_code=404, detail="Không tìm thấy tài nguyên")
+        raise api_error(ErrorCode.RESOURCE_NOT_FOUND, status.HTTP_404_NOT_FOUND)
     if resource.seller_id != seller_id:
         raise NotOwner()
     if resource.status != ResourceStatus.available:
-        raise HTTPException(
-            status_code=400,
-            detail="Chỉ sửa được tài nguyên còn trong kho. Tài nguyên đã giao thì "
-                   "người mua đã nhận bản cũ — hãy xử lý qua khiếu nại của đơn.",
-        )
+        raise api_error(ErrorCode.RESOURCE_NOT_EDITABLE, status.HTTP_400_BAD_REQUEST)
     if not data.strip():
-        raise HTTPException(status_code=400, detail="Nội dung không được để trống")
+        raise api_error(ErrorCode.RESOURCE_EMPTY, status.HTTP_400_BAD_REQUEST)
     resource.data = data.strip()
     await db.commit()
     await db.refresh(resource)
@@ -166,11 +159,11 @@ async def seller_inventory_summary(seller_id: int, db: AsyncSession) -> list[dic
 async def delete_resource(resource_id: int, seller_id: int, db: AsyncSession) -> None:
     resource = await db.get(Resource, resource_id)
     if not resource:
-        raise HTTPException(status_code=404, detail="Không tìm thấy tài nguyên")
+        raise api_error(ErrorCode.RESOURCE_NOT_FOUND, status.HTTP_404_NOT_FOUND)
     if resource.seller_id != seller_id:
         raise NotOwner()
     if resource.status != ResourceStatus.available:
-        raise HTTPException(status_code=400, detail="Chỉ có thể xoá tài nguyên đang ở trạng thái sẵn sàng")
+        raise api_error(ErrorCode.RESOURCE_NOT_DELETABLE, status.HTTP_400_BAD_REQUEST)
     await db.delete(resource)
     await db.commit()
 
@@ -209,9 +202,9 @@ async def order_resources(order_id: int, account_id: int, db: AsyncSession) -> l
     from src.models.order import Order
     order = await db.get(Order, order_id)
     if not order:
-        raise HTTPException(status_code=404, detail="Không tìm thấy đơn hàng")
+        raise api_error(ErrorCode.ORDER_NOT_FOUND, status.HTTP_404_NOT_FOUND)
     if order.buyer_id != account_id and order.seller_id != account_id:
-        raise HTTPException(status_code=403, detail="Bạn không có quyền thực hiện thao tác này")
+        raise api_error(ErrorCode.NOT_ORDER_OWNER, status.HTTP_403_FORBIDDEN)
     result = await db.execute(
         select(Resource).where(Resource.order_id == order_id).order_by(Resource.id)
     )
@@ -222,7 +215,7 @@ async def mark_resource_error(resource_id: int, seller_id: int, db: AsyncSession
     from src.alerts.service import fp_resource, upsert_incident
     resource = await db.get(Resource, resource_id)
     if not resource:
-        raise HTTPException(status_code=404, detail="Không tìm thấy tài nguyên")
+        raise api_error(ErrorCode.RESOURCE_NOT_FOUND, status.HTTP_404_NOT_FOUND)
     if resource.seller_id != seller_id:
         raise NotOwner()
     resource.status = ResourceStatus.error

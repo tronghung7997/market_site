@@ -4,6 +4,7 @@ import { useLocale, useTranslations } from "next-intl";
 import { Suspense, useCallback, useEffect, useMemo, useState } from "react";
 import { Link } from "@/i18n/navigation";
 import { api } from "@/lib/api";
+import { useApiErrorMessage } from "@/lib/use-api-error";
 import { useMoney } from "@/lib/money";
 import { cn } from "@/lib/cn";
 import { orderStatus } from "@/lib/order-status";
@@ -95,6 +96,7 @@ function SellerOrdersConsole() {
   const t = useTranslations("seller");
   const locale = useLocale();
   const { formatBrowseMoney } = useMoney();
+  const apiErrorMessage = useApiErrorMessage();
 
   const [orders, setOrders] = useState<Order[]>([]);
   const [disputes, setDisputes] = useState<Record<number, Dispute>>({});
@@ -156,7 +158,7 @@ function SellerOrdersConsole() {
       await api.sellerAcceptOrder(orderId);
       await loadData();
     } catch (err: unknown) {
-      alert(err instanceof Error ? err.message : t("orderAcceptFailed"));
+      alert(apiErrorMessage(err, t("orderAcceptFailed")));
     } finally {
       setActingOrderId(null);
     }
@@ -927,6 +929,7 @@ function SellerDisputeModal({
   onSuccess: () => void;
 }) {
   const t = useTranslations("seller");
+  const apiErrorMessage = useApiErrorMessage();
   const locale = useLocale();
   const [sellerNote, setSellerNote] = useState("");
   const [submitting, setSubmitting] = useState(false);
@@ -951,8 +954,7 @@ function SellerDisputeModal({
       await api.sellerRespondDispute(dispute.id, sellerNote.trim());
       onSuccess();
     } catch (err: unknown) {
-      const msg = err instanceof Error ? err.message : t("disputeResponseFailed");
-      setError(msg);
+      setError(apiErrorMessage(err, t("disputeResponseFailed")));
     } finally {
       setSubmitting(false);
     }
@@ -1141,6 +1143,7 @@ function SellerDeliverModal({
   onSuccess: () => void;
 }) {
   const t = useTranslations("seller");
+  const apiErrorMessage = useApiErrorMessage();
   const [data, setData] = useState("");
   const [submitting, setSubmitting] = useState(false);
   const [error, setError] = useState<string | null>(null);
@@ -1183,8 +1186,7 @@ function SellerDeliverModal({
       await api.sellerDeliverOrder(order.id, data.trim());
       onSuccess();
     } catch (err: unknown) {
-      const msg = err instanceof Error ? err.message : t("deliveryFailed");
-      setError(msg);
+      setError(apiErrorMessage(err, t("deliveryFailed")));
     } finally {
       setSubmitting(false);
     }

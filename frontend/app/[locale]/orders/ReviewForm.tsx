@@ -3,6 +3,7 @@
 import { useTranslations } from "next-intl";
 import { useState } from "react";
 import { api } from "@/lib/api";
+import { useApiErrorMessage } from "@/lib/use-api-error";
 import { Button, Textarea } from "@/components/ui";
 import { Star } from "@/components/Icons";
 
@@ -13,7 +14,7 @@ export default function ReviewForm({ orderId, onDone, onCancel }: {
 }) {
   const t = useTranslations("orders");
   const tc = useTranslations("common");
-  const te = useTranslations("errors");
+  const apiErrorMessage = useApiErrorMessage();
   const [rating, setRating] = useState(5);
   const [comment, setComment] = useState("");
   const [submitting, setSubmitting] = useState(false);
@@ -24,7 +25,7 @@ export default function ReviewForm({ orderId, onDone, onCancel }: {
       await api.submitReview(orderId, rating, comment || undefined);
       onDone(true, t("reviewSuccess"));
     } catch (e: unknown) {
-      onDone(false, e instanceof Error ? e.message : te("UNKNOWN"));
+      onDone(false, apiErrorMessage(e));
     } finally {
       setSubmitting(false);
     }

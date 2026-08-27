@@ -4,6 +4,7 @@ import { useTranslations } from "next-intl";
 import { useEffect, useMemo, useState } from "react";
 import { Link } from "@/i18n/navigation";
 import { api } from "@/lib/api";
+import { useApiErrorMessage } from "@/lib/use-api-error";
 import { useMoney } from "@/lib/money";
 import type { SellerProduct, Variant } from "@/lib/types";
 import { cn } from "@/lib/cn";
@@ -740,6 +741,7 @@ function InPlaceRestockModal({
 }) {
   const t = useTranslations("seller");
   const { formatBrowseMoney } = useMoney();
+  const apiErrorMessage = useApiErrorMessage();
   const [variants, setVariants] = useState<Variant[]>([]);
   const [selectedVariantId, setSelectedVariantId] = useState<number | null>(null);
   const [loadingVariants, setLoadingVariants] = useState(true);
@@ -830,8 +832,7 @@ function InPlaceRestockModal({
         onClose();
       }, 1400);
     } catch (err: unknown) {
-      const msg = err instanceof Error ? err.message : t("inventoryAddFailed");
-      setError(msg);
+      setError(apiErrorMessage(err, t("inventoryAddFailed")));
     } finally {
       setSubmitting(false);
     }

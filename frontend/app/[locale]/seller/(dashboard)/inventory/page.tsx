@@ -5,6 +5,7 @@ import { Suspense, useCallback, useEffect, useMemo, useRef, useState } from "rea
 import { useTranslations } from "next-intl";
 import { Link } from "@/i18n/navigation";
 import { api } from "@/lib/api";
+import { useApiErrorMessage } from "@/lib/use-api-error";
 import { useMoney } from "@/lib/money";
 import { cn } from "@/lib/cn";
 import {
@@ -102,6 +103,7 @@ export default function InventoryPage() {
 function InventoryConsole() {
   const t = useTranslations("seller");
   const { formatBrowseMoney } = useMoney();
+  const apiErrorMessage = useApiErrorMessage();
   const searchParams = useSearchParams();
   const targetVariantId = Number(searchParams.get("variant")) || null;
   const targetProductId = Number(searchParams.get("product")) || null;
@@ -351,8 +353,7 @@ function InventoryConsole() {
       await loadVariantResources(activeVariant.variant_id, resourcePage);
       setTimeout(() => setRestockSuccess(null), 3000);
     } catch (err: unknown) {
-      const msg = err instanceof Error ? err.message : t("inventoryAddFailed");
-      setRestockError(msg);
+      setRestockError(apiErrorMessage(err, t("inventoryAddFailed")));
     } finally {
       setRestocking(false);
     }
@@ -368,8 +369,8 @@ function InventoryConsole() {
         setActiveDetailResource(null);
       }
       await loadSummary();
-    } catch {
-      alert(t("inventoryDeleteFailed"));
+    } catch (err: unknown) {
+      alert(apiErrorMessage(err, t("inventoryDeleteFailed")));
     }
   };
 
@@ -1260,6 +1261,7 @@ function ResourceDetailModal({
   onDelete: (id: number) => void;
 }) {
   const t = useTranslations("seller");
+  const apiErrorMessage = useApiErrorMessage();
   const [data, setData] = useState(resource.data);
   const [copied, setCopied] = useState(false);
   const [saving, setSaving] = useState(false);
@@ -1292,8 +1294,7 @@ function ResourceDetailModal({
       onSuccess(updated);
       onClose();
     } catch (err: unknown) {
-      const msg = err instanceof Error ? err.message : t("inventorySaveFailed");
-      setError(msg);
+      setError(apiErrorMessage(err, t("inventorySaveFailed")));
     } finally {
       setSaving(false);
     }
@@ -1445,6 +1446,7 @@ function QuickCreateVariantModal({
   onSuccess: (newVariantId: number, price?: number) => void;
 }) {
   const t = useTranslations("seller");
+  const apiErrorMessage = useApiErrorMessage();
   const { currency: priceCurrency } = useSellerPriceCurrency();
   const [name, setName] = useState("");
   const [price, setPrice] = useState(10000);
@@ -1475,8 +1477,7 @@ function QuickCreateVariantModal({
       });
       onSuccess(created.id, price);
     } catch (err: unknown) {
-      const msg = err instanceof Error ? err.message : t("variantCreateFailed");
-      setError(msg);
+      setError(apiErrorMessage(err, t("variantCreateFailed")));
     } finally {
       setSubmitting(false);
     }

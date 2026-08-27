@@ -5,6 +5,7 @@ import { useTranslations } from "next-intl";
 import { useRouter } from "@/i18n/navigation";
 import { useAuth } from "@/lib/auth";
 import { ApiError, api } from "@/lib/api";
+import { useApiErrorMessage } from "@/lib/use-api-error";
 import type { Product } from "@/lib/types";
 import { useCreateInquiry } from "@/hooks/use-chat";
 import { MessageCircle, X } from "@/components/Icons";
@@ -21,6 +22,7 @@ export default function StartSellerInquiryDialog({
 }) {
   const t = useTranslations("chat");
   const router = useRouter();
+  const apiErrorMessage = useApiErrorMessage();
   const { account } = useAuth();
   const create = useCreateInquiry();
   const available = products.filter((product) => product.status === "active");
@@ -59,7 +61,7 @@ export default function StartSellerInquiryDialog({
       setOpen(false);
       router.push(`/messages/${room.id}`);
     } catch (cause) {
-      setError(cause instanceof Error ? cause.message : t("sendFailed"));
+      setError(apiErrorMessage(cause, t("sendFailed")));
     } finally {
       setSending(false);
     }
@@ -93,7 +95,7 @@ export default function StartSellerInquiryDialog({
                   {available.map((product) => <option key={product.id} value={product.id}>{product.title}</option>)}
                 </select>
               </Field>
-              <Field label={t("messageLabel")} error={error ?? create.error?.message}>
+              <Field label={t("messageLabel")} error={error ?? (create.error ? apiErrorMessage(create.error) : undefined)}>
                 <Textarea id="seller-inquiry-message" name="message" value={message} onChange={(event) => setMessage(event.target.value)} placeholder={t("writeQuestion")} maxLength={4000} rows={5} />
               </Field>
               <div className="flex justify-end gap-2">

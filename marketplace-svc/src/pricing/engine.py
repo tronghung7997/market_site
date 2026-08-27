@@ -4,12 +4,13 @@ Mọi caller (endpoint /calculate, orders service) đều đi qua quote_product
 nên giá xem trước và giá trừ ví không thể lệch nhau.
 """
 
-from fastapi import HTTPException
+from fastapi import status
 from sqlalchemy import select
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from src.models.pricing_config import PricingConfig
 from src.models.product import Product
+from src.exceptions import ErrorCode, api_error
 
 from .base import Quote
 from .factory import get_pricing_strategy
@@ -53,5 +54,5 @@ async def quote_product(product: Product, user_config: dict, db: AsyncSession) -
     strategy_name, params = await resolve_pricing(product, db)
     strategy = get_pricing_strategy(strategy_name)
     if not strategy.validate(params, user_config):
-        raise HTTPException(status_code=400, detail="Cấu hình không hợp lệ")
+        raise api_error(ErrorCode.INVALID_PRODUCT_CONFIG, status.HTTP_400_BAD_REQUEST)
     return strategy.quote(params, user_config)

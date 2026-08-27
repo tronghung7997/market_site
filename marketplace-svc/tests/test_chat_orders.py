@@ -55,3 +55,4 @@ async def test_order_parties_share_one_scoped_conversation(client):
         f"/chat/orders/{order.json()['id']}", headers=_auth(outsider)
     )
     assert denied.status_code == 404
+    assert denied.json()["error_code"] == "ORDER_NOT_FOUND"

@@ -1,6 +1,8 @@
-from fastapi import HTTPException
+from fastapi import status
 from sqlalchemy import func, select
 from sqlalchemy.ext.asyncio import AsyncSession
+
+from src.exceptions import ErrorCode, api_error
 
 from src.models.order import Order, OrderStatus
 from src.models.product import Product, ProductVariant
@@ -12,20 +14,20 @@ async def create_review(
 ) -> Review:
     order = await db.get(Order, order_id)
     if not order:
-        raise HTTPException(status_code=404, detail="Không tìm thấy đơn hàng")
+        raise api_error(ErrorCode.ORDER_NOT_FOUND, status.HTTP_404_NOT_FOUND)
     if order.buyer_id != buyer_id:
-        raise HTTPException(status_code=403, detail="Đây không phải đơn hàng của bạn")
+        raise api_error(ErrorCode.NOT_ORDER_OWNER, status.HTTP_403_FORBIDDEN)
     if order.status != OrderStatus.completed:
-        raise HTTPException(status_code=400, detail="Đơn hàng chưa hoàn tất")
+        raise api_error(ErrorCode.ORDER_NOT_COMPLETED, status.HTTP_400_BAD_REQUEST)
 
     existing = await db.execute(select(Review).where(Review.order_id == order_id))
     if existing.scalar_one_or_none():
-        raise HTTPException(status_code=400, detail="Bạn đã đánh giá đơn hàng này rồi")
+        raise api_error(ErrorCode.REVIEW_ALREADY_EXISTS, status.HTTP_400_BAD_REQUEST)
 
     # Resolve product_id from order's variant
     variant = await db.get(ProductVariant, order.variant_id)
     if not variant:
-        raise HTTPException(status_code=400, detail="Không tìm thấy gói sản phẩm")
+        raise api_error(ErrorCode.VARIANT_NOT_FOUND, status.HTTP_400_BAD_REQUEST)
 
     review = Review(
         order_id=order_id,

@@ -1,6 +1,6 @@
 from datetime import datetime, timedelta, timezone
 
-from fastapi import HTTPException
+from fastapi import HTTPException, status
 from sqlalchemy import select
 from sqlalchemy.ext.asyncio import AsyncSession
 
@@ -14,6 +14,7 @@ from src.resources.service import claim_resources, release_resources
 from src.sellers.tiers import escrow_days as tier_escrow_days
 from src.sellers.tiers import platform_fee_percent
 from src.wallet.service import refund_escrow, release_escrow
+from src.exceptions import ErrorCode, api_error
 
 _DISPUTE_OUTCOME = {
     DisputeStatus.resolved_refund: "refund",
@@ -77,17 +78,17 @@ async def create_dispute(
 ) -> Dispute:
     order = await db.get(Order, order_id, with_for_update=True)
     if not order:
-        raise HTTPException(status_code=404, detail="Không tìm thấy đơn hàng")
+        raise api_error(ErrorCode.ORDER_NOT_FOUND, status.HTTP_404_NOT_FOUND)
     if order.buyer_id != buyer_id:
-        raise HTTPException(status_code=403, detail="Đây không phải đơn hàng của bạn")
+        raise api_error(ErrorCode.NOT_ORDER_OWNER, status.HTTP_403_FORBIDDEN)
     if order.status != OrderStatus.delivered:
-        raise HTTPException(status_code=400, detail="Chỉ có thể khiếu nại đơn đã giao")
+        raise api_error(ErrorCode.DISPUTE_ONLY_DELIVERED, status.HTTP_400_BAD_REQUEST)
     if order.escrow_expires_at and datetime.now(timezone.utc) > order.escrow_expires_at:
-        raise HTTPException(status_code=400, detail="Thời gian ký quỹ đã hết hạn")
+        raise api_error(ErrorCode.DISPUTE_ESCROW_EXPIRED, status.HTTP_400_BAD_REQUEST)
 
     existing = await db.scalar(select(Dispute).where(Dispute.order_id == order_id))
     if existing:
-        raise HTTPException(status_code=400, detail="Đơn hàng này đã có khiếu nại")
+        raise api_error(ErrorCode.DISPUTE_ALREADY_OPEN, status.HTTP_400_BAD_REQUEST)
 
     order.status = OrderStatus.disputed
     dispute = Dispute(
@@ -208,12 +209,12 @@ async def get_dispute_detail(dispute_id: int, db: AsyncSession) -> dict:
 async def seller_respond_dispute(dispute_id: int, seller_id: int, seller_note: str, db: AsyncSession) -> dict:
     dispute = await db.get(Dispute, dispute_id)
     if not dispute:
-        raise HTTPException(status_code=404, detail="Không tìm thấy khiếu nại")
+        raise api_error(ErrorCode.DISPUTE_NOT_FOUND, status.HTTP_404_NOT_FOUND)
     if dispute.status != DisputeStatus.open:
-        raise HTTPException(status_code=400, detail="Khiếu nại đã được xử lý")
+        raise api_error(ErrorCode.DISPUTE_ALREADY_RESOLVED, status.HTTP_400_BAD_REQUEST)
     order = await db.get(Order, dispute.order_id)
     if not order or order.seller_id != seller_id:
-        raise HTTPException(status_code=403, detail="Đây không phải khiếu nại của bạn")
+        raise api_error(ErrorCode.NOT_OWNER, status.HTTP_403_FORBIDDEN)
     dispute.seller_note = seller_note
     await log_event(db, "info", f"Seller responded to dispute {dispute_id}", request_id=current_request_id(),
                     metadata={"event": "dispute_seller_responded", "order_id": order.id, "seller_id": seller_id})

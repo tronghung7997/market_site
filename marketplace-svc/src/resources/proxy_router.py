@@ -14,7 +14,7 @@ import ipaddress
 from datetime import datetime, timezone
 
 import structlog
-from fastapi import APIRouter, Depends, HTTPException
+from fastapi import APIRouter, Depends, status
 from pydantic import BaseModel, Field
 from sqlalchemy import select
 from sqlalchemy.ext.asyncio import AsyncSession
@@ -25,6 +25,7 @@ from src.adapters.factory import get_binding_adapter
 from src.adapters.topproxy import TopProxyContractError, TopProxyKeyError, TopProxyUnavailableError
 from src.auth.dependencies import get_current_account
 from src.database import get_session
+from src.exceptions import ErrorCode, api_error
 from src.models.account import Account
 from src.models.order import Order, OrderStatus
 from src.models.proxy_allocation import ProxyAllocation, ProxyAllocationStatus
@@ -44,11 +45,11 @@ async def rotate_proxy(
     order = await db.get(Order, order_id)
     if not order or order.buyer_id != account.id:
         # 404, not 403 — do not confirm order existence to a non-owner.
-        raise HTTPException(status_code=404, detail="Không tìm thấy đơn hàng")
+        raise api_error(ErrorCode.ORDER_NOT_FOUND, status.HTTP_404_NOT_FOUND)
     if order.status not in (OrderStatus.delivered, OrderStatus.completed):
-        raise HTTPException(status_code=400, detail="Đơn hàng này không còn ở trạng thái dùng được")
+        raise api_error(ErrorCode.ORDER_NOT_USABLE, status.HTTP_400_BAD_REQUEST)
     if not order.provider_id:
-        raise HTTPException(status_code=400, detail="Đơn hàng này chưa được cấp phát")
+        raise api_error(ErrorCode.ORDER_NOT_PROVISIONED, status.HTTP_400_BAD_REQUEST)
 
     # Locked for the duration: two simultaneous clicks on the same
     # allocation must not both pass the cooldown check and both reach
@@ -58,13 +59,13 @@ async def rotate_proxy(
         select(ProxyAllocation).where(ProxyAllocation.order_id == order_id).with_for_update()
     )
     if allocation is None or allocation.status != ProxyAllocationStatus.allocated:
-        raise HTTPException(status_code=400, detail="Đơn hàng này không có proxy đang hoạt động")
+        raise api_error(ErrorCode.PROXY_NOT_ACTIVE, status.HTTP_400_BAD_REQUEST)
 
     now = datetime.now(timezone.utc)
     if allocation.expires_at <= now:
-        raise HTTPException(status_code=400, detail="Proxy đã hết hạn")
+        raise api_error(ErrorCode.PROXY_EXPIRED, status.HTTP_400_BAD_REQUEST)
     if not allocation.rotation_available:
-        raise HTTPException(status_code=400, detail="Proxy này không hỗ trợ đổi IP")
+        raise api_error(ErrorCode.PROXY_ROTATION_UNSUPPORTED, status.HTTP_400_BAD_REQUEST)
 
     if allocation.cooldown_seconds and allocation.last_rotated_at:
         elapsed = (now - allocation.last_rotated_at).total_seconds()
@@ -77,10 +78,11 @@ async def rotate_proxy(
             # countdown is available separately via GET /orders/{id}/proxy's
             # cooldown_remaining_seconds. Retry-After header for any HTTP-
             # level client that respects it.
-            raise HTTPException(
-                status_code=429,
-                detail=f"Vui lòng chờ {retry_after} giây trước khi đổi IP tiếp",
+            raise api_error(
+                ErrorCode.PROXY_ROTATION_COOLDOWN,
+                status.HTTP_429_TOO_MANY_REQUESTS,
                 headers={"Retry-After": str(retry_after)},
+                seconds=retry_after,
             )
 
     # get_binding_adapter chứ KHÔNG phải get_adapter: provider bị tắt (hết Xu,
@@ -92,7 +94,7 @@ async def rotate_proxy(
     # rotatable sau này chỉ cần implement RotatableProxyAdapter là dùng chung
     # được toàn bộ phần khoá/cooldown/refresh bên dưới.
     if not isinstance(adapter, RotatableProxyAdapter):
-        raise HTTPException(status_code=400, detail="Sản phẩm này không hỗ trợ đổi IP proxy")
+        raise api_error(ErrorCode.PROXY_ROTATION_UNSUPPORTED, status.HTTP_400_BAD_REQUEST)
 
     # Nhà cung cấp gắn quyền truy cập vào TỪNG lượt cấp proxy, không nhớ theo
     # key, nên IP buyer phải được gửi lại mỗi lần đổi. Chỉ thêm tham số khi
@@ -109,18 +111,18 @@ async def rotate_proxy(
         assignment = await adapter.rotate_assignment(allocation.external_id, **rotate_kwargs)
     except DProxyAuthError:
         logger.error("dproxy_rotate_auth_error", order_id=order_id, allocation_id=allocation.id)
-        raise HTTPException(status_code=502, detail="Sai thông tin xác thực với nhà cung cấp proxy")
+        raise api_error(ErrorCode.PROXY_PROVIDER_AUTH, status.HTTP_502_BAD_GATEWAY)
     except TopProxyKeyError as e:
         # Binding hỏng (key hết hạn/bị thu hồi), KHÔNG phải sự cố hạ tầng —
         # 400 để buyer hiểu là proxy của mình hết hiệu lực chứ không phải
         # "thử lại sau vài phút".
         logger.warning("topproxy_rotate_key_error", order_id=order_id, error=str(e))
-        raise HTTPException(status_code=400, detail="Proxy của đơn này không còn hiệu lực — liên hệ hỗ trợ")
+        raise api_error(ErrorCode.PROXY_BINDING_INVALID, status.HTTP_400_BAD_REQUEST)
     except (DProxyUnavailableError, TopProxyUnavailableError):
-        raise HTTPException(status_code=502, detail="Không thể kết nối nhà cung cấp proxy")
+        raise api_error(ErrorCode.PROXY_PROVIDER_UNAVAILABLE, status.HTTP_502_BAD_GATEWAY)
     except (DProxyContractError, TopProxyContractError):
         logger.error("proxy_rotate_contract_error", order_id=order_id, allocation_id=allocation.id)
-        raise HTTPException(status_code=502, detail="Nhà cung cấp proxy trả về dữ liệu không hợp lệ")
+        raise api_error(ErrorCode.PROXY_PROVIDER_INVALID, status.HTTP_502_BAD_GATEWAY)
 
     apply_rotated_assignment(allocation, assignment)
     allocation.last_rotated_at = now
@@ -164,11 +166,11 @@ async def get_proxy_state(
     rotate_path, provider base_url/API key, or the internal allocation id."""
     order = await db.get(Order, order_id)
     if not order or order.buyer_id != account.id:
-        raise HTTPException(status_code=404, detail="Không tìm thấy đơn hàng")
+        raise api_error(ErrorCode.ORDER_NOT_FOUND, status.HTTP_404_NOT_FOUND)
 
     allocation = await db.scalar(select(ProxyAllocation).where(ProxyAllocation.order_id == order_id))
     if allocation is None:
-        raise HTTPException(status_code=404, detail="Đơn hàng này không có proxy")
+        raise api_error(ErrorCode.PROXY_NOT_FOUND, status.HTTP_404_NOT_FOUND)
 
     now = datetime.now(timezone.utc)
     cooldown_remaining = 0
@@ -253,11 +255,11 @@ async def set_proxy_whitelist(
     order = await db.get(Order, order_id)
     if not order or order.buyer_id != account.id:
         # 404 chứ không 403 — không xác nhận sự tồn tại của đơn cho người lạ.
-        raise HTTPException(status_code=404, detail="Không tìm thấy đơn hàng")
+        raise api_error(ErrorCode.ORDER_NOT_FOUND, status.HTTP_404_NOT_FOUND)
     if order.status not in (OrderStatus.delivered, OrderStatus.completed):
-        raise HTTPException(status_code=400, detail="Đơn hàng này không còn ở trạng thái dùng được")
+        raise api_error(ErrorCode.ORDER_NOT_USABLE, status.HTTP_400_BAD_REQUEST)
     if not order.provider_id:
-        raise HTTPException(status_code=400, detail="Đơn hàng này chưa được cấp phát")
+        raise api_error(ErrorCode.ORDER_NOT_PROVISIONED, status.HTTP_400_BAD_REQUEST)
 
     cleaned: list[str] = []
     for raw in body.ips:
@@ -267,26 +269,23 @@ async def set_proxy_whitelist(
         try:
             parsed = ipaddress.ip_address(text)
         except ValueError:
-            raise HTTPException(status_code=422, detail=f"“{text}” không phải địa chỉ IP hợp lệ")
+            raise api_error(ErrorCode.PROXY_INVALID_IP, status.HTTP_422_UNPROCESSABLE_CONTENT, ip=text)
         if parsed.version != 4:
-            raise HTTPException(status_code=422, detail="Nhà cung cấp chỉ nhận IPv4")
+            raise api_error(ErrorCode.PROXY_IPV4_ONLY, status.HTTP_422_UNPROCESSABLE_CONTENT)
         if str(parsed) not in cleaned:
             cleaned.append(str(parsed))
     if len(cleaned) > MAX_WHITELIST_IPS:
-        raise HTTPException(
-            status_code=422,
-            detail="Chỉ khai báo được MỘT địa chỉ IP — nhập đúng IP của thiết bị sẽ dùng proxy",
-        )
+        raise api_error(ErrorCode.PROXY_WHITELIST_LIMIT, status.HTTP_422_UNPROCESSABLE_CONTENT)
 
     allocation = await db.scalar(
         select(ProxyAllocation).where(ProxyAllocation.order_id == order_id).with_for_update()
     )
     if allocation is None:
-        raise HTTPException(status_code=404, detail="Đơn hàng này không có proxy")
+        raise api_error(ErrorCode.PROXY_NOT_FOUND, status.HTTP_404_NOT_FOUND)
 
     adapter = await get_binding_adapter(order.provider_id, db)
     if not getattr(adapter, "supports_ip_whitelist", False):
-        raise HTTPException(status_code=400, detail="Sản phẩm này không cần khai báo IP")
+        raise api_error(ErrorCode.PROXY_WHITELIST_UNSUPPORTED, status.HTTP_400_BAD_REQUEST)
 
     allocation.whitelist_ips = ",".join(cleaned) or None
 

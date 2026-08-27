@@ -13,6 +13,7 @@ from src.models.product import Product
 from src.models.provider import Provider, ProviderHealth
 from src.pricing.engine import quote_product, resolve_pricing
 from src.pricing.factory import get_pricing_strategy
+from src.exceptions import ErrorCode, api_error
 
 from . import schemas
 
@@ -22,7 +23,7 @@ router = APIRouter(tags=["pricing"])
 async def _get_product(product_id: int, db: AsyncSession) -> Product:
     product = await db.get(Product, product_id)
     if not product:
-        raise HTTPException(status_code=404, detail="Không tìm thấy sản phẩm")
+        raise api_error(ErrorCode.PRODUCT_NOT_FOUND, 404)
     return product
 
 

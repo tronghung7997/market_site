@@ -2,7 +2,7 @@ import asyncio
 from datetime import datetime, timedelta, timezone
 
 import structlog
-from fastapi import HTTPException
+from fastapi import HTTPException, status
 from sqlalchemy import func, select
 from sqlalchemy.ext.asyncio import AsyncSession
 
@@ -25,6 +25,7 @@ from src.logging import current_request_id
 from src.sellers.tiers import escrow_days as tier_escrow_days, platform_fee_percent
 from src.usage.service import create_balance_for_order, get_usage_summary
 from src.wallet.service import deduct_credit, refund_escrow, release_escrow
+from src.exceptions import ErrorCode, api_error
 from src.money.service import get_effective_rate
 
 logger = structlog.get_logger()
@@ -47,12 +48,12 @@ def _buyer_cancel_reason(buyer_message: str | None) -> str:
 async def create_order(buyer_id: int, variant_id: int, quantity: int, db: AsyncSession) -> Order:
     variant = await db.get(ProductVariant, variant_id)
     if not variant or not variant.is_active:
-        raise HTTPException(status_code=404, detail="Không tìm thấy gói sản phẩm")
+        raise api_error(ErrorCode.VARIANT_NOT_FOUND, status.HTTP_404_NOT_FOUND)
     product = await db.get(Product, variant.product_id)
     if not product or product.status != ProductStatus.active:
-        raise HTTPException(status_code=400, detail="Sản phẩm hiện không khả dụng")
+        raise api_error(ErrorCode.PRODUCT_UNAVAILABLE, status.HTTP_400_BAD_REQUEST)
     if product.seller_id == buyer_id:
-        raise HTTPException(status_code=400, detail="Không thể mua sản phẩm của chính mình")
+        raise api_error(ErrorCode.SELF_PURCHASE, status.HTTP_400_BAD_REQUEST)
 
     total = variant.price * quantity
     fx_snapshot = await get_effective_rate(db)
@@ -245,11 +246,11 @@ async def create_order_with_adapter(
     """
     product = await db.get(Product, product_id)
     if not product or product.status != ProductStatus.active:
-        raise HTTPException(status_code=400, detail="Sản phẩm hiện không khả dụng")
+        raise api_error(ErrorCode.PRODUCT_UNAVAILABLE, status.HTTP_400_BAD_REQUEST)
     if not product.provider_id:
-        raise HTTPException(status_code=400, detail="Sản phẩm chưa được cấu hình nhà cung cấp")
+        raise api_error(ErrorCode.PROVIDER_NOT_CONFIGURED, status.HTTP_400_BAD_REQUEST)
     if product.seller_id == buyer_id:
-        raise HTTPException(status_code=400, detail="Không thể mua sản phẩm của chính mình")
+        raise api_error(ErrorCode.SELF_PURCHASE, status.HTTP_400_BAD_REQUEST)
 
     q = await quote_product(product, user_config, db)
     total_amount = q.amount
@@ -270,12 +271,10 @@ async def create_order_with_adapter(
         and quantity_spec.max_quantity_per_order is not None
         and q.quantity > quantity_spec.max_quantity_per_order
     ):
-        raise HTTPException(
-            status_code=400,
-            detail=(
-                f"Sản phẩm này chỉ hỗ trợ tối đa {quantity_spec.max_quantity_per_order} "
-                f"đơn vị mỗi đơn — vui lòng giảm số lượng"
-            ),
+        raise api_error(
+            ErrorCode.ORDER_QUANTITY_LIMIT,
+            status.HTTP_400_BAD_REQUEST,
+            max=quantity_spec.max_quantity_per_order,
         )
 
     order = Order(
@@ -449,11 +448,11 @@ def spawn_provision(order_id: int) -> None:
 async def confirm_order(order_id: int, buyer_id: int, db: AsyncSession) -> Order:
     order = await db.get(Order, order_id, with_for_update=True)
     if not order:
-        raise HTTPException(status_code=404, detail="Không tìm thấy đơn hàng")
+        raise api_error(ErrorCode.ORDER_NOT_FOUND, status.HTTP_404_NOT_FOUND)
     if order.buyer_id != buyer_id:
-        raise HTTPException(status_code=403, detail="Đây không phải đơn hàng của bạn")
+        raise api_error(ErrorCode.NOT_ORDER_OWNER, status.HTTP_403_FORBIDDEN)
     if order.status != OrderStatus.delivered:
-        raise HTTPException(status_code=400, detail="Đơn hàng chưa được giao")
+        raise api_error(ErrorCode.ORDER_NOT_DELIVERED, status.HTTP_400_BAD_REQUEST)
     order.status = OrderStatus.completed
     seller = await db.get(Account, order.seller_id)
     fee_percent = platform_fee_percent(seller.seller_tier if seller else "new")
@@ -630,20 +629,20 @@ async def list_all_orders(db: AsyncSession) -> list[dict]:
 async def get_order(order_id: int, account_id: int, db: AsyncSession) -> dict:
     order = await db.get(Order, order_id)
     if not order:
-        raise HTTPException(status_code=404, detail="Không tìm thấy đơn hàng")
+        raise api_error(ErrorCode.ORDER_NOT_FOUND, status.HTTP_404_NOT_FOUND)
     if order.buyer_id != account_id and order.seller_id != account_id:
-        raise HTTPException(status_code=403, detail="Bạn không có quyền xem đơn hàng này")
+        raise api_error(ErrorCode.NOT_ORDER_OWNER, status.HTTP_403_FORBIDDEN)
     return await _enrich_order(order, db)
 
 
 async def accept_order(order_id: int, seller_id: int, db: AsyncSession) -> Order:
     order = await db.get(Order, order_id)
     if not order:
-        raise HTTPException(status_code=404, detail="Không tìm thấy đơn hàng")
+        raise api_error(ErrorCode.ORDER_NOT_FOUND, status.HTTP_404_NOT_FOUND)
     if order.seller_id != seller_id:
-        raise HTTPException(status_code=403, detail="Đây không phải đơn hàng của bạn")
+        raise api_error(ErrorCode.NOT_ORDER_OWNER, status.HTTP_403_FORBIDDEN)
     if order.status != OrderStatus.pending:
-        raise HTTPException(status_code=400, detail="Đơn hàng không ở trạng thái chờ xử lý")
+        raise api_error(ErrorCode.ORDER_NOT_PENDING, status.HTTP_400_BAD_REQUEST)
     order.status = OrderStatus.processing
     await db.commit()
     await db.refresh(order)
@@ -693,11 +692,11 @@ async def get_admin_order_detail(order_id: int, db: AsyncSession) -> dict:
 async def deliver_order(order_id: int, seller_id: int, data: str, db: AsyncSession) -> Order:
     order = await db.get(Order, order_id)
     if not order:
-        raise HTTPException(status_code=404, detail="Không tìm thấy đơn hàng")
+        raise api_error(ErrorCode.ORDER_NOT_FOUND, status.HTTP_404_NOT_FOUND)
     if order.seller_id != seller_id:
-        raise HTTPException(status_code=403, detail="Đây không phải đơn hàng của bạn")
+        raise api_error(ErrorCode.NOT_ORDER_OWNER, status.HTTP_403_FORBIDDEN)
     if order.status != OrderStatus.processing:
-        raise HTTPException(status_code=400, detail="Đơn hàng không ở trạng thái đang xử lý")
+        raise api_error(ErrorCode.ORDER_NOT_PROCESSING, status.HTTP_400_BAD_REQUEST)
     product = None
     if order.product_id:
         product = await db.get(Product, order.product_id)

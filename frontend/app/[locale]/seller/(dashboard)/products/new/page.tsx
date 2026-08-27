@@ -4,6 +4,7 @@ import { useEffect, useMemo, useState } from "react";
 import { useLocale, useTranslations } from "next-intl";
 import { useRouter } from "next/navigation";
 import { api } from "@/lib/api";
+import { useApiErrorMessage } from "@/lib/use-api-error";
 import { useAuth } from "@/lib/auth";
 import { canUseSellerProviders } from "@/lib/seller-tier";
 import type { Category, ProductLocale, ProductTranslation, Provider, Variant } from "@/lib/types";
@@ -69,6 +70,7 @@ export default function NewProduct() {
   const interfaceLocale = useLocale() as ProductLocale;
   const t = useTranslations("seller.newProductFlow");
   const ts = useTranslations("seller");
+  const apiErrorMessage = useApiErrorMessage();
   const { account } = useAuth();
   const { currency: priceCurrency } = useSellerPriceCurrency();
   const canUseProviders = canUseSellerProviders(account?.seller_tier);
@@ -379,8 +381,8 @@ export default function NewProduct() {
         await api.updateSellerProductStatus(productId, "active");
       }
       router.push(`/seller/products/${productId}`);
-    } catch {
-      setError(t("saveFailed"));
+    } catch (reason) {
+      setError(apiErrorMessage(reason, t("saveFailed")));
     } finally {
       setSaving(false);
     }
@@ -532,8 +534,8 @@ export default function NewProduct() {
                 onDeleteSavedVariant={async (serverId) => {
                   try {
                     await api.deleteVariant(serverId);
-                  } catch {
-                    setError(t("saveFailed"));
+                  } catch (reason) {
+                    setError(apiErrorMessage(reason, t("saveFailed")));
                     throw new Error("delete-failed");
                   }
                 }}

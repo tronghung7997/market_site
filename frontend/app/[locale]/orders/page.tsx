@@ -20,6 +20,7 @@ import {
   X,
 } from "lucide-react";
 import { api } from "@/lib/api";
+import { useApiErrorMessage } from "@/lib/use-api-error";
 import { useAuth } from "@/lib/auth";
 import { useMoney } from "@/lib/money";
 import { cn } from "@/lib/cn";
@@ -37,9 +38,9 @@ import { PER_PAGE_OPTIONS, useOrderFilters } from "./OrderFilters";
 export default function OrdersPage() {
   const t = useTranslations("orders");
   const tc = useTranslations("common");
-  const te = useTranslations("errors");
   const locale = useLocale();
   const { formatBrowseMoney, formatOrderHistoryMoney } = useMoney();
+  const apiErrorMessage = useApiErrorMessage();
   const { account, loading: authLoading } = useAuth();
   const router = useRouter();
   const searchParams = useSearchParams();
@@ -111,7 +112,7 @@ export default function OrdersPage() {
         setSelectedOrder((prev) => (prev ? { ...prev, status: "completed" } : prev));
       }
     } catch (e: unknown) {
-      showToast(e instanceof Error ? e.message : te("UNKNOWN"));
+      showToast(apiErrorMessage(e));
     } finally {
       setConfirmingId(null);
     }

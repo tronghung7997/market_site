@@ -161,7 +161,7 @@ class TestProxyRotate:
         calls = _patch_dproxy_http(monkeypatch, [_resp(200, {"ok": True}), _resp(200, [_sample("ext-rot")])])
         second = await client.post(f"/orders/{order_id}/proxy/rotate", headers={"Authorization": f"Bearer {buyer_token}"})
         assert second.status_code == 429
-        assert "giây" in second.json()["detail"]
+        assert second.json()["error_code"] == "PROXY_ROTATION_COOLDOWN"
         assert int(second.headers["retry-after"]) > 0
         assert len(calls) == 0  # cooldown blocks BEFORE calling DProxy
 

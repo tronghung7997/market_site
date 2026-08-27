@@ -23,6 +23,14 @@ async def setup_seller_with_category(client):
 
 
 @pytest.mark.asyncio
+async def test_pricing_options_missing_product_includes_client_error_code(client):
+    response = await client.get("/products/999999/pricing-options")
+
+    assert response.status_code == 404
+    assert response.json()["error_code"] == "PRODUCT_NOT_FOUND"
+
+
+@pytest.mark.asyncio
 async def test_create_product(client):
     seller_token, _, cat_id = await setup_seller_with_category(client)
     resp = await client.post("/seller/products", json={
@@ -907,7 +915,8 @@ async def test_cannot_delete_variant_that_still_has_stock(client):
     resp = await client.delete(f"/seller/variants/{vid}",
                                headers={"Authorization": f"Bearer {token}"})
     assert resp.status_code == 400
-    assert "2 tài nguyên" in resp.json()["detail"]
+    assert resp.json()["error_code"] == "VARIANT_HAS_RESOURCES"
+    assert resp.json()["params"]["count"] == 2
 
 
 @pytest.mark.asyncio

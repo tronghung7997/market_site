@@ -25,6 +25,7 @@ import { Button, Spinner } from "@/components/ui";
 import { ProductCover } from "@/components/products/ProductCover";
 import { parseCoverId } from "@/lib/product-covers";
 import { INBOX_HREF, orderWorkspaceHref } from "@/lib/chat-inbox";
+import { useApiErrorMessage } from "@/lib/use-api-error";
 
 function contextLabel(
   room: ChatConversation,
@@ -54,6 +55,7 @@ export default function InboxWorkbench({
   const queryClient = useQueryClient();
   const { account, loading: authLoading } = useAuth();
   const { formatCheckoutMoney } = useMoney();
+  const apiErrorMessage = useApiErrorMessage();
   const [selectedId, setSelectedId] = useState<string | null>(initialConversationId);
   const [draft, setDraft] = useState("");
   const list = useChatConversations();
@@ -282,7 +284,7 @@ export default function InboxWorkbench({
             </div>
           ) : detail.isError || !room ? (
             <div className="grid h-full flex-1 place-items-center text-bad font-medium">
-              {t("error")}
+              {apiErrorMessage(detail.error, t("error"))}
             </div>
           ) : (
             <>
@@ -464,7 +466,9 @@ export default function InboxWorkbench({
                   </Button>
                 </div>
                 {send.isError && (
-                  <p className="mx-auto mt-1.5 max-w-[680px] text-[11px] text-bad">{t("sendFailed")}</p>
+                  <p className="mx-auto mt-1.5 max-w-[680px] text-[11px] text-bad">
+                    {apiErrorMessage(send.error, t("sendFailed"))}
+                  </p>
                 )}
               </form>
             </>

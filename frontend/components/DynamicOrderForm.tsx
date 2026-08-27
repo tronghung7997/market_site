@@ -3,7 +3,8 @@
 import { useCallback, useEffect, useRef, useState } from "react";
 import { useRouter } from "next/navigation";
 import { useLocale, useTranslations } from "next-intl";
-import { api, ApiError } from "@/lib/api";
+import { api } from "@/lib/api";
+import { useApiErrorMessage } from "@/lib/use-api-error";
 import { useAuth } from "@/lib/auth";
 import { useMoney } from "@/lib/money";
 import type { CalculateResult, Order, PricingField, PricingOptions, ProductDetail } from "@/lib/types";
@@ -37,6 +38,7 @@ export default function DynamicOrderForm({ productId, product, onOrderCreated }:
   const t = useTranslations("products");
   const tc = useTranslations("common");
   const { formatCheckoutMoney } = useMoney();
+  const apiErrorMessage = useApiErrorMessage();
 
   const [options, setOptions] = useState<PricingOptions | null>(null);
   const [loadingOptions, setLoadingOptions] = useState(true);
@@ -74,12 +76,12 @@ export default function DynamicOrderForm({ productId, product, onOrderCreated }:
         }
         setConfig(defaults);
       } catch (e) {
-        setOptionsError(e instanceof Error ? e.message : t("optionsLoadFailed"));
+        setOptionsError(apiErrorMessage(e, t("optionsLoadFailed")));
       } finally {
         setLoadingOptions(false);
       }
     })();
-  }, [productId, t]);
+  }, [apiErrorMessage, productId, t]);
 
   // Debounced calculate on config/qty change
   const debounceRef = useRef<ReturnType<typeof setTimeout> | null>(null);
@@ -134,11 +136,11 @@ export default function DynamicOrderForm({ productId, product, onOrderCreated }:
       // Đây mới là lỗi thật (field đã điền nhưng backend từ chối) — trước đây
       // bị nuốt hoàn toàn, giá cứ đứng ở "—" mãi mà buyer không hiểu vì sao.
       setCalc(null);
-      setCalcError(e instanceof Error ? e.message : t("priceCalcFailed"));
+      setCalcError(apiErrorMessage(e, t("priceCalcFailed")));
     } finally {
       setCalculating(false);
     }
-  }, [productId, options, isDproxy, isSingleUnit, t, locale]);
+  }, [apiErrorMessage, productId, options, isDproxy, isSingleUnit, t, locale]);
 
   useEffect(() => {
     if (!options) return;
@@ -165,11 +167,7 @@ export default function DynamicOrderForm({ productId, product, onOrderCreated }:
       setShowConfirm(false);
       onOrderCreated(order);
     } catch (e) {
-      if (e instanceof ApiError && e.status === 402) {
-        setPlaceError(t("insufficientBalance"));
-      } else {
-        setPlaceError(e instanceof Error ? e.message : t("placeFailed"));
-      }
+      setPlaceError(apiErrorMessage(e, t("placeFailed")));
     } finally {
       setPlacing(false);
     }

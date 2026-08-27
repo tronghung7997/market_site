@@ -1,12 +1,12 @@
 from collections import defaultdict
 
-from fastapi import HTTPException
+from fastapi import status as http_status
 from sqlalchemy import func, select
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from src.adapters.compatibility import check_compatibility, setup_status
 from src.adapters.registry import get_spec
-from src.exceptions import NotOwner
+from src.exceptions import ErrorCode, NotOwner, api_error
 from src.i18n.catalog import (
     DEFAULT_LOCALE,
     available_locales,
@@ -91,7 +91,7 @@ async def create_product(seller_id: int, data: dict, db: AsyncSession) -> Produc
 async def _validate_category_exists(category_id: int, db: AsyncSession) -> None:
     category = await db.get(Category, category_id)
     if not category:
-        raise HTTPException(status_code=404, detail="Không tìm thấy danh mục")
+        raise api_error(ErrorCode.CATEGORY_NOT_FOUND, http_status.HTTP_404_NOT_FOUND)
 
 
 async def _strategy_after_service_type_change(
@@ -115,7 +115,7 @@ async def update_product(product_id: int, seller_id: int, data: dict, db: AsyncS
     content_locale = data.pop("content_locale", None) or "vi"
     product = await db.get(Product, product_id)
     if not product:
-        raise HTTPException(status_code=404, detail="Không tìm thấy sản phẩm")
+        raise api_error(ErrorCode.PRODUCT_NOT_FOUND, http_status.HTTP_404_NOT_FOUND)
     if product.seller_id != seller_id:
         raise NotOwner()
     if data.get("category_id") is not None:
@@ -144,14 +144,11 @@ async def update_seller_product_status(
 ) -> Product:
     product = await db.get(Product, product_id)
     if not product:
-        raise HTTPException(status_code=404, detail="Không tìm thấy sản phẩm")
+        raise api_error(ErrorCode.PRODUCT_NOT_FOUND, http_status.HTTP_404_NOT_FOUND)
     if product.seller_id != seller_id:
         raise NotOwner()
     if product.status == ProductStatus.suspended:
-        raise HTTPException(
-            status_code=409,
-            detail="Sản phẩm đang bị quản trị viên đình chỉ và seller không thể tự thay đổi trạng thái",
-        )
+        raise api_error(ErrorCode.PRODUCT_SUSPENDED, http_status.HTTP_409_CONFLICT)
     product.status = ProductStatus(status)
     await db.commit()
     await db.refresh(product)
@@ -170,7 +167,7 @@ async def admin_update_product(product_id: int, data: dict, db: AsyncSession) ->
     content_locale = data.pop("content_locale", None) or "vi"
     product = await db.get(Product, product_id)
     if not product:
-        raise HTTPException(status_code=404, detail="Không tìm thấy sản phẩm")
+        raise api_error(ErrorCode.PRODUCT_NOT_FOUND, http_status.HTTP_404_NOT_FOUND)
     if data.get("category_id") is not None:
         await _validate_category_exists(data["category_id"], db)
     if data.get("service_type") is not None and data["service_type"] != product.service_type:
@@ -207,7 +204,7 @@ async def update_product_translation(
     """
     product = await db.get(Product, product_id)
     if not product:
-        raise HTTPException(status_code=404, detail="Không tìm thấy sản phẩm")
+        raise api_error(ErrorCode.PRODUCT_NOT_FOUND, http_status.HTTP_404_NOT_FOUND)
     if seller_id is not None and product.seller_id != seller_id:
         raise NotOwner()
 
@@ -215,7 +212,7 @@ async def update_product_translation(
     if "title" in fields and (
         not isinstance(fields["title"], str) or not fields["title"].strip()
     ):
-        raise HTTPException(status_code=422, detail="Tên sản phẩm không được để trống")
+        raise api_error(ErrorCode.PRODUCT_TITLE_EMPTY, http_status.HTTP_422_UNPROCESSABLE_CONTENT)
 
     product.i18n = merge_i18n_locale(product.i18n, locale, fields)
     if locale == "vi":
@@ -237,7 +234,7 @@ async def delete_product(product_id: int, seller_id: int, db: AsyncSession) -> N
 async def suspend_product(product_id: int, db: AsyncSession) -> Product:
     product = await db.get(Product, product_id)
     if not product:
-        raise HTTPException(status_code=404, detail="Không tìm thấy sản phẩm")
+        raise api_error(ErrorCode.PRODUCT_NOT_FOUND, http_status.HTTP_404_NOT_FOUND)
     product.status = ProductStatus.suspended
     await db.commit()
     await db.refresh(product)
@@ -247,15 +244,12 @@ async def suspend_product(product_id: int, db: AsyncSession) -> Product:
 async def create_variant(product_id: int, seller_id: int, data: dict, db: AsyncSession) -> ProductVariant:
     product = await db.get(Product, product_id)
     if not product:
-        raise HTTPException(status_code=404, detail="Không tìm thấy sản phẩm")
+        raise api_error(ErrorCode.PRODUCT_NOT_FOUND, http_status.HTTP_404_NOT_FOUND)
     if product.seller_id != seller_id:
         raise NotOwner()
     strategy, _ = await resolve_pricing(product, db)
     if strategy != "fixed":
-        raise HTTPException(
-            status_code=409,
-            detail="Chỉ sản phẩm giá cố định mới sử dụng biến thể",
-        )
+        raise api_error(ErrorCode.VARIANT_FIXED_ONLY, http_status.HTTP_409_CONFLICT)
     payload = dict(data)
     content_locale = payload.pop("content_locale", "vi")
     if "name" in payload and payload["name"] is not None:
@@ -276,7 +270,7 @@ async def update_variant(variant_id: int, seller_id: int, data: dict, db: AsyncS
     content_locale = data.pop("content_locale", None) or "vi"
     variant = await db.get(ProductVariant, variant_id)
     if not variant:
-        raise HTTPException(status_code=404, detail="Không tìm thấy gói sản phẩm")
+        raise api_error(ErrorCode.VARIANT_NOT_FOUND, http_status.HTTP_404_NOT_FOUND)
     product = await db.get(Product, variant.product_id)
     if product.seller_id != seller_id:
         raise NotOwner()
@@ -288,10 +282,7 @@ async def update_variant(variant_id: int, seller_id: int, data: dict, db: AsyncS
             select(func.count()).select_from(Resource).where(Resource.variant_id == variant_id)
         )
         if resource_count:
-            raise HTTPException(
-                status_code=409,
-                detail="Không thể chuyển sang giao thủ công khi gói vẫn có lịch sử tài nguyên",
-            )
+            raise api_error(ErrorCode.VARIANT_HAS_HISTORY, http_status.HTTP_409_CONFLICT)
     for key, value in data.items():
         # Router đã lọc field không gửi (exclude_unset), nên None ở đây là seller
         # CHỦ Ý xoá giá trị. Chỉ chấp nhận với cột cho phép null — nếu không thì
@@ -319,13 +310,13 @@ async def update_variant_translation(
 ) -> ProductVariant:
     variant = await db.get(ProductVariant, variant_id)
     if not variant:
-        raise HTTPException(status_code=404, detail="Không tìm thấy gói sản phẩm")
+        raise api_error(ErrorCode.VARIANT_NOT_FOUND, http_status.HTTP_404_NOT_FOUND)
     product = await db.get(Product, variant.product_id)
     if product.seller_id != seller_id:
         raise NotOwner()
     clean_name = name.strip()
     if not clean_name:
-        raise HTTPException(status_code=422, detail="Tên gói sản phẩm không được để trống")
+        raise api_error(ErrorCode.VARIANT_NAME_EMPTY, http_status.HTTP_422_UNPROCESSABLE_CONTENT)
     variant.i18n = merge_i18n_locale(variant.i18n, locale, {"name": clean_name})
     if locale == "vi":
         variant.name = clean_name
@@ -344,7 +335,7 @@ async def delete_variant(variant_id: int, seller_id: int, db: AsyncSession) -> N
     """
     variant = await db.get(ProductVariant, variant_id)
     if not variant:
-        raise HTTPException(status_code=404, detail="Không tìm thấy gói sản phẩm")
+        raise api_error(ErrorCode.VARIANT_NOT_FOUND, http_status.HTTP_404_NOT_FOUND)
     product = await db.get(Product, variant.product_id)
     if product.seller_id != seller_id:
         raise NotOwner()
@@ -353,21 +344,13 @@ async def delete_variant(variant_id: int, seller_id: int, db: AsyncSession) -> N
         select(func.count()).select_from(Order).where(Order.variant_id == variant_id)
     )
     if order_count:
-        raise HTTPException(
-            status_code=400,
-            detail=f"Gói này đã có {order_count} đơn hàng nên không xoá được — lịch sử "
-                   f"đơn phải giữ lại. Hãy tắt bán gói này thay vì xoá.",
-        )
+        raise api_error(ErrorCode.VARIANT_HAS_ORDERS, http_status.HTTP_400_BAD_REQUEST, count=order_count)
 
     resource_count = await db.scalar(
         select(func.count()).select_from(Resource).where(Resource.variant_id == variant_id)
     )
     if resource_count:
-        raise HTTPException(
-            status_code=400,
-            detail=f"Gói này còn {resource_count} tài nguyên trong kho. Xoá hết tài nguyên "
-                   f"ở trang Kho hàng trước, hoặc tắt bán gói này thay vì xoá.",
-        )
+        raise api_error(ErrorCode.VARIANT_HAS_RESOURCES, http_status.HTTP_400_BAD_REQUEST, count=resource_count)
 
     await db.delete(variant)
     await db.commit()
@@ -523,7 +506,7 @@ async def get_seller_stats(seller_id: int, db: AsyncSession) -> dict:
 async def get_own_product_detail(product_id: int, seller_id: int, db: AsyncSession) -> dict:
     product = await db.get(Product, product_id)
     if not product:
-        raise HTTPException(status_code=404, detail="Không tìm thấy sản phẩm")
+        raise api_error(ErrorCode.PRODUCT_NOT_FOUND, http_status.HTTP_404_NOT_FOUND)
     if product.seller_id != seller_id:
         raise NotOwner()
     # Seller portal sees stored scalars (what they edit), not EN-resolved storefront copy.
@@ -553,11 +536,11 @@ async def get_product_detail(
     """
     product = await db.get(Product, product_id)
     if not product:
-        raise HTTPException(status_code=404, detail="Không tìm thấy sản phẩm")
+        raise api_error(ErrorCode.PRODUCT_NOT_FOUND, http_status.HTTP_404_NOT_FOUND)
     if public and product.status != ProductStatus.active:
         # Use 404 so public callers cannot distinguish a hidden product from a
         # nonexistent one or access it directly by its ID.
-        raise HTTPException(status_code=404, detail="Không tìm thấy sản phẩm")
+        raise api_error(ErrorCode.PRODUCT_NOT_FOUND, http_status.HTTP_404_NOT_FOUND)
 
     seller = await db.get(Account, product.seller_id)
     category = await db.get(Category, product.category_id)
@@ -661,10 +644,7 @@ async def _validate_variant_pricing_model(
         )
     )
     if variant_count:
-        raise HTTPException(
-            status_code=409,
-            detail="Sản phẩm còn biến thể giá cố định; hãy xoá biến thể trước khi chuyển sang giá động",
-        )
+        raise api_error(ErrorCode.PRODUCT_HAS_FIXED_VARIANTS, http_status.HTTP_409_CONFLICT)
 
 
 def _validate_provider_assignment(provider: Provider | None, product: Product) -> None:
@@ -680,15 +660,9 @@ def _validate_provider_assignment(provider: Provider | None, product: Product) -
     if provider is None:
         return
     if provider.review_status != "approved":
-        raise HTTPException(
-            status_code=400,
-            detail="Provider này chưa được admin duyệt (review_status != approved)",
-        )
+        raise api_error(ErrorCode.PROVIDER_NOT_APPROVED, http_status.HTTP_400_BAD_REQUEST)
     if provider.seller_id is not None and provider.seller_id != product.seller_id:
-        raise HTTPException(
-            status_code=400,
-            detail="Provider này do seller khác tự đăng ký — chỉ gắn được vào sản phẩm của chính seller đó",
-        )
+        raise api_error(ErrorCode.PROVIDER_NOT_OWNED, http_status.HTTP_400_BAD_REQUEST)
 
 
 def _validate_pricing_params_for_provider(
@@ -718,7 +692,7 @@ async def update_product_operations(product_id: int, data: dict, db: AsyncSessio
     """
     product = await db.get(Product, product_id)
     if not product:
-        raise HTTPException(status_code=404, detail="Không tìm thấy sản phẩm")
+        raise api_error(ErrorCode.PRODUCT_NOT_FOUND, http_status.HTTP_404_NOT_FOUND)
 
     effective_provider_id = data.get("provider_id", product.provider_id)
     effective_strategy = data.get("pricing_strategy", product.pricing_strategy)
@@ -732,7 +706,7 @@ async def update_product_operations(product_id: int, data: dict, db: AsyncSessio
 
     compat = check_compatibility(provider.adapter_type if provider else None, effective_strategy)
     if compat.level == "block":
-        raise HTTPException(status_code=400, detail=compat.message)
+        raise api_error(ErrorCode.PRODUCT_PRICING_INCOMPATIBLE, http_status.HTTP_400_BAD_REQUEST)
     _validate_pricing_params_for_provider(provider, effective_strategy, effective_params)
 
     for key, value in data.items():
@@ -755,7 +729,7 @@ async def update_seller_pricing(product_id: int, seller_id: int, data: dict, db:
     """
     product = await db.get(Product, product_id)
     if not product:
-        raise HTTPException(status_code=404, detail="Không tìm thấy sản phẩm")
+        raise api_error(ErrorCode.PRODUCT_NOT_FOUND, http_status.HTTP_404_NOT_FOUND)
     if product.seller_id != seller_id:
         raise NotOwner()
 
@@ -764,10 +738,7 @@ async def update_seller_pricing(product_id: int, seller_id: int, data: dict, db:
     effective_params = data.get("pricing_params", product.pricing_params)
     provider = await db.get(Provider, effective_provider_id) if effective_provider_id else None
     if "provider_id" in data and provider is not None and provider.seller_id != seller_id:
-        raise HTTPException(
-            status_code=400,
-            detail="Seller chỉ tự gắn được provider do chính mình đăng ký — provider dùng chung hoặc của seller khác vẫn phải qua admin",
-        )
+        raise api_error(ErrorCode.SELLER_PROVIDER_RESTRICTED, http_status.HTTP_400_BAD_REQUEST)
     _validate_provider_assignment(provider, product)
     if not effective_strategy:
         effective_strategy, _ = await resolve_pricing(product, db)
@@ -775,7 +746,7 @@ async def update_seller_pricing(product_id: int, seller_id: int, data: dict, db:
 
     compat = check_compatibility(provider.adapter_type if provider else None, effective_strategy)
     if compat.level == "block":
-        raise HTTPException(status_code=400, detail=compat.message)
+        raise api_error(ErrorCode.PRODUCT_PRICING_INCOMPATIBLE, http_status.HTTP_400_BAD_REQUEST)
     _validate_pricing_params_for_provider(provider, effective_strategy, effective_params)
 
     for key, value in data.items():

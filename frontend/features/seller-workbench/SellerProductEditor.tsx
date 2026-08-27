@@ -4,6 +4,7 @@ import { useCallback, useEffect, useMemo, useState } from "react";
 import { useLocale, useTranslations } from "next-intl";
 import { Link, useRouter } from "@/i18n/navigation";
 import { api } from "@/lib/api";
+import { useApiErrorMessage } from "@/lib/use-api-error";
 import type {
   Category,
   ProductDetail,
@@ -122,6 +123,7 @@ export function SellerProductEditor({ productId }: { productId: number }) {
   const t = useTranslations("seller.newProductFlow");
   const ts = useTranslations("seller");
   const tw = useTranslations("seller.workbench");
+  const apiErrorMessage = useApiErrorMessage();
   const router = useRouter();
   const { currency: priceCurrency } = useSellerPriceCurrency();
 
@@ -206,7 +208,7 @@ export function SellerProductEditor({ productId }: { productId: number }) {
       setB3(hydrated.b3);
       setSelectedProviderId(nextProviderId);
     } catch (reason) {
-      setError(reason instanceof Error ? reason.message : tw("productLoadFailed"));
+      setError(apiErrorMessage(reason, tw("productLoadFailed")));
     } finally {
       if (showSpinner) setLoading(false);
     }
@@ -314,7 +316,7 @@ export function SellerProductEditor({ productId }: { productId: number }) {
         [created.id]: { vi: contentLocale === "vi" ? created.name : "", en: contentLocale === "en" ? created.name : "" },
       }));
     } catch (reason) {
-      setError(reason instanceof Error ? reason.message : t("saveFailed"));
+      setError(apiErrorMessage(reason, t("saveFailed")));
       throw reason;
     }
   };
@@ -336,7 +338,7 @@ export function SellerProductEditor({ productId }: { productId: number }) {
       }
       setVariants((current) => current.map((variant) => variant.id === variantId ? { ...variant, ...common, ...(contentLocale === primaryLocale && name ? { name: name.trim() } : {}) } : variant));
     } catch (reason) {
-      setError(reason instanceof Error ? reason.message : t("saveFailed"));
+      setError(apiErrorMessage(reason, t("saveFailed")));
       throw reason;
     }
   };
@@ -351,7 +353,7 @@ export function SellerProductEditor({ productId }: { productId: number }) {
         return next;
       });
     } catch (reason) {
-      setError(reason instanceof Error ? reason.message : t("saveFailed"));
+      setError(apiErrorMessage(reason, t("saveFailed")));
       throw reason;
     }
   };
@@ -363,7 +365,7 @@ export function SellerProductEditor({ productId }: { productId: number }) {
         ? { ...variant, stock_count: variant.stock_count + result.count }
         : variant));
     } catch (reason) {
-      setError(reason instanceof Error ? reason.message : t("saveFailed"));
+      setError(apiErrorMessage(reason, t("saveFailed")));
       throw reason;
     }
   };
@@ -429,7 +431,7 @@ export function SellerProductEditor({ productId }: { productId: number }) {
       setSuccess(tw("changesSaved"));
       await loadData(false);
     } catch (reason) {
-      setError(reason instanceof Error ? reason.message : t("saveFailed"));
+      setError(apiErrorMessage(reason, t("saveFailed")));
     } finally {
       setSaving(false);
     }
@@ -446,7 +448,7 @@ export function SellerProductEditor({ productId }: { productId: number }) {
       await api.updateSellerProductStatus(productId, status);
       await loadData(false);
     } catch (reason) {
-      setError(reason instanceof Error ? reason.message : t("saveFailed"));
+      setError(apiErrorMessage(reason, t("saveFailed")));
     } finally {
       setSaving(false);
     }

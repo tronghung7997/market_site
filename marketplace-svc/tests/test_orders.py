@@ -253,6 +253,51 @@ async def test_seller_does_not_receive_affiliate_commission_on_own_order(client)
 
 
 @pytest.mark.asyncio
+async def test_order_rejections_include_client_error_codes(client):
+    buyer_token, seller_token, _, instant_variant_id, _ = await setup_buyable_product(client)
+    buyer_headers = {"Authorization": f"Bearer {buyer_token}"}
+    seller_headers = {"Authorization": f"Bearer {seller_token}"}
+
+    missing_variant = await client.post(
+        "/orders", json={"variant_id": 999999, "quantity": 1}, headers=buyer_headers,
+    )
+    assert missing_variant.status_code == 404
+    assert missing_variant.json()["error_code"] == "VARIANT_NOT_FOUND"
+
+    own_product = await client.post(
+        "/orders", json={"variant_id": instant_variant_id, "quantity": 1}, headers=seller_headers,
+    )
+    assert own_product.status_code == 400
+    assert own_product.json()["error_code"] == "SELF_PURCHASE"
+
+    order = await client.post(
+        "/orders", json={"variant_id": instant_variant_id, "quantity": 1}, headers=buyer_headers,
+    )
+    assert order.status_code == 201
+    order_id = order.json()["id"]
+    assert (await client.post(f"/orders/{order_id}/confirm", headers=buyer_headers)).status_code == 200
+
+    confirmed_twice = await client.post(f"/orders/{order_id}/confirm", headers=buyer_headers)
+    assert confirmed_twice.status_code == 400
+    assert confirmed_twice.json()["error_code"] == "ORDER_NOT_DELIVERED"
+
+    first_review = await client.post(
+        f"/orders/{order_id}/review", json={"rating": 5}, headers=buyer_headers,
+    )
+    assert first_review.status_code == 201
+    second_review = await client.post(
+        f"/orders/{order_id}/review", json={"rating": 4}, headers=buyer_headers,
+    )
+    assert second_review.status_code == 400
+    assert second_review.json()["error_code"] == "REVIEW_ALREADY_EXISTS"
+
+    accept = await client.post(
+        f"/seller/orders/{order_id}/accept", headers=seller_headers,
+    )
+    assert accept.status_code == 400
+    assert accept.json()["error_code"] == "ORDER_NOT_PENDING"
+
+
 async def test_instant_purchase_insufficient_credit(client):
     buyer_token = await register_and_login(client, "ord_broke@example.com")
 

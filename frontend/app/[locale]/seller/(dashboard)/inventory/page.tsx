@@ -271,6 +271,7 @@ function InventoryConsole() {
   const outCount = rows.filter((r) => r.available === 0).length;
   const lowCount = rows.filter((r) => r.available > 0 && r.available <= LOW_STOCK).length;
   const errorCount = rows.filter((r) => r.error > 0).length;
+  const outProductCount = productGroups.filter((group) => group.hasOut).length;
 
   // Filtered product groups for left column
   const filteredProducts = useMemo(() => {
@@ -540,7 +541,9 @@ function InventoryConsole() {
             {outCount}{" "}
             <span className="text-xs font-normal text-muted font-sans">{t("variants").toLowerCase()}</span>
           </div>
-          <div className="text-[11px] text-bad font-medium mt-1">{t("inventoryPausedHint")}</div>
+          <div className="text-[11px] text-bad font-medium mt-1">
+            {t("inventoryOutProductsHint", { count: outProductCount })}
+          </div>
         </Card>
 
         <Card
@@ -590,8 +593,8 @@ function InventoryConsole() {
               {/* Filter & Search Header */}
               <div className="p-3 border-b border-line bg-raised/30 space-y-2">
                 <div className="flex items-center justify-between text-xs font-semibold text-fg">
-                  <span>{t("product")}</span>
-                  <span className="text-faint font-mono text-[11px]">{t("itemsCount", { count: filteredProducts.length })}</span>
+                  <span>{t("inventoryProducts")}</span>
+                  <span className="text-faint font-mono text-[11px]">{t("inventoryProductsCount", { count: filteredProducts.length })}</span>
                 </div>
 
                 <div className="relative">
@@ -636,7 +639,7 @@ function InventoryConsole() {
                       onClick={() => { setFilter("out"); setProductPage(1); }}
                       className={cn("h-6.5 px-2 text-[11.5px] text-bad rounded-md", filter === "out" && "bg-surface shadow-xs font-semibold")}
                     >
-                      {t("filterOutOfStock")}
+                      {t("inventoryFilterOutProducts")}
                     </Button>
                   )}
                   {lowCount > 0 && (

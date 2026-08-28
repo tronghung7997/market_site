@@ -482,7 +482,7 @@ async def test_adapter_order_invalid_config(client):
     }, headers={"Authorization": f"Bearer {buyer_token}"})
 
     assert resp.status_code == 400
-    assert "không hợp lệ" in resp.json()["detail"]
+    assert resp.json()["error_code"] == "INVALID_PRODUCT_CONFIG"
 
 
 @pytest.mark.asyncio

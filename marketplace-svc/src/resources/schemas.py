@@ -37,6 +37,7 @@ class ResourceResponse(BaseModel):
     assigned_at: datetime | None = None
     expires_at: datetime | None = None
     created_at: datetime
+    refund_amount_cap: int | None = None
 
     model_config = {"from_attributes": True}
 

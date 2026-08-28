@@ -137,7 +137,8 @@ async def apply_affiliate_commission(order: Order, db: AsyncSession) -> None:
     if rate <= 0 or rate > 100:
         return
 
-    amount = round(order.total_amount * rate / 100)
+    commission_base = order.total_amount - order.refunded_amount
+    amount = round(commission_base * rate / 100)
     if amount <= 0:
         return
 

@@ -5,7 +5,15 @@ from src.models.alert import Alert
 from src.models.category import Category
 from src.models.chat import ChatConversation, ChatMessage, ChatParticipant
 from src.models.log_entry import LogEntry
-from src.models.order import Dispute, DisputeStatus, Order, OrderStatus
+from src.models.order import (
+    Dispute,
+    DisputeClaimResource,
+    DisputeMessage,
+    DisputeResourceAction,
+    DisputeStatus,
+    Order,
+    OrderStatus,
+)
 from src.models.product import DeliveryMode, Product, ProductStatus, ProductVariant, ServiceType
 from src.models.pricing_config import PricingConfig
 from src.models.provider import Provider, ProviderCallLog, ProviderHealth
@@ -36,7 +44,8 @@ __all__ = [
     "Category",
     "ChatConversation", "ChatMessage", "ChatParticipant",
     "LogEntry",
-    "Dispute", "DisputeStatus", "Order", "OrderStatus",
+    "Dispute", "DisputeClaimResource", "DisputeMessage", "DisputeResourceAction",
+    "DisputeStatus", "Order", "OrderStatus",
     "DeliveryMode", "Product", "ProductStatus", "ProductVariant", "ServiceType",
     "PricingConfig",
     "Provider", "ProviderCallLog", "ProviderHealth",

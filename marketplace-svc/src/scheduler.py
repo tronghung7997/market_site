@@ -45,13 +45,15 @@ async def escrow_release_job() -> None:
                     continue
                 seller = await db.get(Account, order.seller_id)
                 fee_percent = platform_fee_percent(seller.seller_tier if seller else "new")
-                platform_fee = int(order.total_amount * fee_percent / 100)
-                await release_escrow(order.id, order.seller_id, order.total_amount, platform_fee, db)
+                remaining_amount = order.total_amount - order.refunded_amount
+                platform_fee = int(remaining_amount * fee_percent / 100)
+                if remaining_amount:
+                    await release_escrow(order.id, order.seller_id, remaining_amount, platform_fee, db)
                 order.status = OrderStatus.completed
                 from src.affiliate.service import apply_affiliate_commission
                 await apply_affiliate_commission(order, db)
                 await log_event(db, "info", f"Escrow released for order {order.id}", job_id=job_id,
-                                metadata={"event": "escrow_released", "order_id": order.id, "amount": order.total_amount})
+                                metadata={"event": "escrow_released", "order_id": order.id, "amount": remaining_amount})
                 await db.commit()
                 logger.info("escrow_released", order_id=order.id)
             except Exception as e:

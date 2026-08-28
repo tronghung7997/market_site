@@ -3,7 +3,7 @@
 /* Shared order display blocks for buyer OrderCard and seller SellerOrderCard. */
 
 import { useLocale, useTranslations } from "next-intl";
-import { useState } from "react";
+import { useEffect, useState } from "react";
 import { api } from "@/lib/api";
 import { useMoney } from "@/lib/money";
 import { cn } from "@/lib/cn";
@@ -11,7 +11,7 @@ import { orderStatus } from "@/lib/order-status";
 import { formatDate, formatDateTime } from "@/lib/utils";
 import type { Dispute, Order, Resource } from "@/lib/types";
 import { evidenceFieldLabel, evidenceTypeLabel } from "@/lib/dispute-evidence";
-import { Card, Disclosure, Monogram, Tag } from "@/components/ui";
+import { Button, Card, Disclosure, Monogram, Tag, Textarea } from "@/components/ui";
 import { parseCoverId, ProductCover } from "@/features/product-covers";
 import { Check } from "@/components/Icons";
 
@@ -103,13 +103,28 @@ export const DISPUTE_STATUS_INFO: Record<string, { label: string; tone: "good" |
   resolved_extend_warranty: { label: "Warranty extended", tone: "iris" },
 };
 
-export function OrderDispute({ orderId, initialDispute }: { orderId: number; initialDispute?: Dispute | null }) {
+export function OrderDispute({ orderId, initialDispute, viewerRole = "buyer", refreshKey = 0 }: { orderId: number; initialDispute?: Dispute | null; viewerRole?: "buyer" | "seller"; refreshKey?: number }) {
   const t = useTranslations("orders");
   const td = useTranslations("status.dispute");
   const locale = useLocale();
   const [dispute, setDispute] = useState<Dispute | null>(initialDispute ?? null);
   const [open, setOpen] = useState(false);
   const [loaded, setLoaded] = useState(!!initialDispute);
+  const [message, setMessage] = useState("");
+  const [submitting, setSubmitting] = useState(false);
+
+  useEffect(() => {
+    if (initialDispute !== undefined) {
+      setDispute(initialDispute);
+      setLoaded(true);
+    }
+  }, [initialDispute]);
+
+  useEffect(() => {
+    if (refreshKey > 0) {
+      void refresh();
+    }
+  }, [refreshKey]);
 
   const toggle = async () => {
     setOpen((v) => !v);
@@ -117,6 +132,28 @@ export function OrderDispute({ orderId, initialDispute }: { orderId: number; ini
       try { setDispute(await api.orderDispute(orderId)); } catch { /* ignore */ }
       setLoaded(true);
     }
+  };
+
+  const refresh = async () => {
+    const next = viewerRole === "seller" ? await api.sellerDispute(orderId) : await api.orderDispute(orderId);
+    setDispute(next);
+    setLoaded(true);
+  };
+
+  const sendMessage = async () => {
+    if (!message.trim() || viewerRole !== "buyer") return;
+    setSubmitting(true);
+    try {
+      await api.buyerDisputeMessage(orderId, message.trim());
+      setMessage("");
+      await refresh();
+    } finally { setSubmitting(false); }
+  };
+
+  const acceptResolution = async () => {
+    setSubmitting(true);
+    try { await api.acceptDisputeResolution(orderId); await refresh(); }
+    finally { setSubmitting(false); }
   };
 
   const toneMap = DISPUTE_STATUS_INFO;
@@ -135,6 +172,36 @@ export function OrderDispute({ orderId, initialDispute }: { orderId: number; ini
           <>
             <Tag tone={info.tone}>{info.label}</Tag>
 
+            {dispute.timeline && dispute.timeline.length > 0 ? (
+              <div className="mt-3 space-y-0">
+                {dispute.timeline.map((event, index) => (
+                  <div key={event.id} className="relative flex gap-3 pb-4 last:pb-1">
+                    {index < dispute.timeline!.length - 1 && <span className="absolute left-[5px] top-3 h-full w-px bg-line" />}
+                    <span className={cn(
+                      "relative mt-1 h-[11px] w-[11px] shrink-0 rounded-full ring-4 ring-surface",
+                      event.actor_role === "buyer" ? "bg-iris" : event.actor_role === "seller" ? "bg-warn" : "bg-good",
+                    )} />
+                    <div className="min-w-0 flex-1">
+                      <div className="flex flex-wrap items-baseline justify-between gap-2">
+                        <span className="text-[11px] font-semibold text-fg">{t(`disputeEvents.${event.event_type}`)}</span>
+                        <span className="text-[10.5px] text-faint">{formatDateTime(event.created_at, locale)}</span>
+                      </div>
+                      {event.body && <p className="mt-0.5 text-muted">{event.body}</p>}
+                      {event.resource_ids.length > 0 && (
+                        <div className="mt-1.5 flex flex-wrap gap-1">
+                          {event.resource_ids.map((id, resourceIndex) => (
+                            <span key={`${event.id}-${id}`} className="rounded-md border border-line bg-raised px-1.5 py-0.5 font-mono text-[10.5px] text-fg">
+                              #{id}{event.replacement_resource_ids?.[resourceIndex] ? ` → #${event.replacement_resource_ids[resourceIndex]}` : ""}
+                            </span>
+                          ))}
+                        </div>
+                      )}
+                      {!!event.refund_amount && <p className="mt-1 font-mono text-[11px] font-semibold text-good">{t("refundAmountMinor", { amount: event.refund_amount })}</p>}
+                    </div>
+                  </div>
+                ))}
+              </div>
+            ) : (
             <div className="mt-1 space-y-3">
               <div className="border-l-2 border-iris/40 pl-3">
                 <p className="text-[11px] font-semibold text-iris-hi mb-0.5">
@@ -173,6 +240,17 @@ export function OrderDispute({ orderId, initialDispute }: { orderId: number; ini
                 </div>
               )}
             </div>
+            )}
+
+            {viewerRole === "buyer" && dispute.status === "open" && (
+              <div className="mt-3 space-y-2 border-t border-line pt-3">
+                <Textarea rows={2} value={message} onChange={(e) => setMessage(e.target.value)} placeholder={t("disputeMessagePlaceholder")} />
+                <div className="flex flex-wrap gap-2">
+                  <Button size="sm" variant="secondary" disabled={submitting || !message.trim()} onClick={sendMessage}>{t("sendDisputeMessage")}</Button>
+                  {!!dispute.resource_actions?.length && <Button size="sm" disabled={submitting} onClick={acceptResolution}>{t("acceptDisputeResolution")}</Button>}
+                </div>
+              </div>
+            )}
           </>
         )}
       </div>

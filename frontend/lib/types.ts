@@ -627,6 +627,31 @@ export interface Dispute {
   variant_name?: string | null;
   buyer_email?: string | null;
   order_amount?: number | null;
+  refunded_amount?: number;
+  claimed_resource_ids?: number[];
+  resource_actions?: DisputeResourceAction[];
+  timeline?: DisputeTimelineEvent[];
+}
+
+export interface DisputeResourceAction {
+  id?: number;
+  action: "replace" | "refund";
+  original_resource_id: number;
+  replacement_resource_id: number | null;
+  refund_amount: number;
+  note?: string | null;
+  created_at: string;
+}
+
+export interface DisputeTimelineEvent {
+  id: string;
+  event_type: string;
+  actor_role: "buyer" | "seller" | "admin" | "system";
+  body: string | null;
+  resource_ids: number[];
+  replacement_resource_ids?: (number | null)[];
+  refund_amount?: number;
+  created_at: string;
 }
 
 export interface AdminDisputeOrder {
@@ -761,6 +786,17 @@ export interface Resource {
   assigned_at: string | null;
   expires_at: string | null;
   created_at: string;
+  refund_amount_cap: number | null;
+}
+
+export interface SellerDisputeResource {
+  id: number;
+  status: string;
+  expires_at: string | null;
+  data: string;
+  refund_amount_cap: number | null;
+  action: "replace" | "refund" | null;
+  replacement_resource_id: number | null;
 }
 
 export interface InventoryVariant {

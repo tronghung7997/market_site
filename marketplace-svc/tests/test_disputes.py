@@ -10,7 +10,7 @@ from tests.conftest import make_admin, make_seller, register_and_login
 from tests.test_orders import setup_adapter_product
 
 
-async def create_delivered_order(client):
+async def create_delivered_order(client, *, quantity: int = 1, stock_count: int | None = None):
     admin_token = await register_and_login(client, "disp_admin@example.com")
     await make_admin("disp_admin@example.com")
     admin_token = await register_and_login(client, "disp_admin@example.com")
@@ -31,7 +31,7 @@ async def create_delivered_order(client):
         "name": "DisputeVar", "price": 1000, "delivery_mode": "instant",
     }, headers={"Authorization": f"Bearer {seller_token}"})
     await client.post(f"/seller/variants/{variant.json()['id']}/resources", json={
-        "items": ["uid|pass"],
+        "items": [f"uid-{index}|pass-{index}" for index in range(stock_count or quantity)],
     }, headers={"Authorization": f"Bearer {seller_token}"})
 
     buyer_token = await register_and_login(client, "disp_buyer@example.com")
@@ -39,9 +39,20 @@ async def create_delivered_order(client):
     await client.post("/wallet/topup", json={"account_id": buyer_me.json()["id"], "amount": 50000},
                       headers={"Authorization": f"Bearer {admin_token}"})
 
-    order = await client.post("/orders", json={"variant_id": variant.json()["id"], "quantity": 1},
+    order = await client.post("/orders", json={"variant_id": variant.json()["id"], "quantity": quantity},
                               headers={"Authorization": f"Bearer {buyer_token}"})
     return buyer_token, admin_token, order.json()["id"]
+
+
+@pytest.mark.asyncio
+async def test_missing_buyer_dispute_returns_client_error_code(client):
+    buyer_token, _, order_id = await create_delivered_order(client)
+    response = await client.get(
+        f"/orders/{order_id}/dispute",
+        headers={"Authorization": f"Bearer {buyer_token}"},
+    )
+    assert response.status_code == 404
+    assert response.json()["error_code"] == "DISPUTE_NOT_FOUND"
 
 
 @pytest.mark.asyncio
@@ -149,3 +160,143 @@ async def test_admin_can_open_dispute_detail_for_adapter_order(client):
     assert data["order"]["variant_id"] is None
     assert data["order"]["product_title"] == "Proxy Package"
     assert data["seller_note"] == "Đã kiểm tra lại"
+
+
+@pytest.mark.asyncio
+async def test_resource_claim_batches_partial_refund_replace_timeline_and_final_release(client):
+    buyer_token, _, order_id = await create_delivered_order(client, quantity=4, stock_count=6)
+    seller_token = await register_and_login(client, "disp_seller@example.com")
+    buyer_headers = {"Authorization": f"Bearer {buyer_token}"}
+    seller_headers = {"Authorization": f"Bearer {seller_token}"}
+
+    resources = await client.get(f"/orders/{order_id}/resources", headers=buyer_headers)
+    assert resources.status_code == 200, resources.text
+    resource_ids = [row["id"] for row in resources.json()]
+    assert len(resource_ids) == 4
+    assert [row["refund_amount_cap"] for row in resources.json()] == [1000, 1000, 1000, 1000]
+
+    opened = await client.post(
+        f"/orders/{order_id}/dispute",
+        json={
+            "reason": "Two scattered accounts failed",
+            "resource_ids": [resource_ids[0], resource_ids[2]],
+            "idempotency_key": "open-batch-0001",
+        },
+        headers=buyer_headers,
+    )
+    assert opened.status_code == 201, opened.text
+    dispute_id = opened.json()["id"]
+
+    selected = await client.get(f"/seller/disputes/{dispute_id}/resources", headers=seller_headers)
+    assert selected.status_code == 200, selected.text
+    assert [row["id"] for row in selected.json()["items"]] == [resource_ids[0], resource_ids[2]]
+
+    refund_body = {
+        "resource_ids": [resource_ids[0]],
+        "action": "refund",
+        "idempotency_key": "refund-batch-001",
+        "seller_note": "Refunded the first failed account",
+    }
+    refunded = await client.post(
+        f"/seller/disputes/{dispute_id}/resources/action",
+        json=refund_body,
+        headers=seller_headers,
+    )
+    assert refunded.status_code == 200, refunded.text
+    assert refunded.json()["actions"][0]["refund_amount"] == 1000
+    retried = await client.post(
+        f"/seller/disputes/{dispute_id}/resources/action",
+        json=refund_body,
+        headers=seller_headers,
+    )
+    assert retried.status_code == 200, retried.text
+    assert retried.json()["retried"] is True
+    premature_accept = await client.post(f"/orders/{order_id}/dispute/accept", headers=buyer_headers)
+    assert premature_accept.status_code == 409
+
+    appended = await client.post(
+        f"/orders/{order_id}/dispute/claims",
+        json={
+            "reason": "Another account stopped working",
+            "resource_ids": [resource_ids[1]],
+            "idempotency_key": "claim-batch-0002",
+        },
+        headers=buyer_headers,
+    )
+    assert appended.status_code == 200, appended.text
+    message = await client.post(
+        f"/orders/{order_id}/dispute/messages",
+        json={"body": "Please replace the remaining accounts", "idempotency_key": "buyer-message-001"},
+        headers=buyer_headers,
+    )
+    assert message.status_code == 200, message.text
+
+    replaced = await client.post(
+        f"/seller/disputes/{dispute_id}/resources/action",
+        json={
+            "resource_ids": [resource_ids[2], resource_ids[1]],
+            "action": "replace",
+            "idempotency_key": "replace-batch-01",
+            "seller_note": "Replacements issued",
+        },
+        headers=seller_headers,
+    )
+    assert replaced.status_code == 200, replaced.text
+    assert all(row["replacement_resource_id"] for row in replaced.json()["actions"])
+
+    detail = await client.get(f"/orders/{order_id}/dispute", headers=buyer_headers)
+    assert detail.status_code == 200, detail.text
+    event_types = [event["event_type"] for event in detail.json()["timeline"]]
+    assert event_types.count("claim_batch") == 2
+    assert "resource_refund" in event_types
+    assert "resource_replace" in event_types
+    assert "buyer_message" in event_types
+    assert "seller_message" in event_types
+
+    accepted = await client.post(f"/orders/{order_id}/dispute/accept", headers=buyer_headers)
+    assert accepted.status_code == 200, accepted.text
+    assert accepted.json()["status"] == "resolved_partial_refund"
+
+    async with SessionLocal() as db:
+        order = await db.get(Order, order_id)
+        assert order.status == OrderStatus.completed
+        assert order.total_amount == 4000
+        assert order.refunded_amount == 1000
+        refund_transactions = list(
+            await db.scalars(
+                select(Transaction).where(
+                    Transaction.type == TransactionType.refund,
+                    Transaction.reference_id == f"order-{order_id}:dispute:{dispute_id}:refund-batch-001",
+                )
+            )
+        )
+        assert len(refund_transactions) == 1
+        assert refund_transactions[0].amount == 1000
+
+
+@pytest.mark.asyncio
+async def test_seller_cannot_remedy_unclaimed_account(client):
+    buyer_token, _, order_id = await create_delivered_order(client, quantity=2, stock_count=3)
+    seller_token = await register_and_login(client, "disp_seller@example.com")
+    buyer_headers = {"Authorization": f"Bearer {buyer_token}"}
+    seller_headers = {"Authorization": f"Bearer {seller_token}"}
+    resources = (await client.get(f"/orders/{order_id}/resources", headers=buyer_headers)).json()
+    opened = await client.post(
+        f"/orders/{order_id}/dispute",
+        json={"reason": "One failed", "resource_ids": [resources[0]["id"]], "idempotency_key": "open-batch-0001"},
+        headers=buyer_headers,
+    )
+    await register_and_login(client, "other-disp-seller@example.com")
+    await make_seller("other-disp-seller@example.com")
+    other_seller_token = await register_and_login(client, "other-disp-seller@example.com")
+    unauthorized = await client.get(
+        f"/seller/disputes/{opened.json()['id']}/resources",
+        headers={"Authorization": f"Bearer {other_seller_token}"},
+    )
+    assert unauthorized.status_code == 404
+    response = await client.post(
+        f"/seller/disputes/{opened.json()['id']}/resources/action",
+        json={"resource_ids": [resources[1]["id"]], "action": "refund", "idempotency_key": "refund-wrong-001"},
+        headers=seller_headers,
+    )
+    assert response.status_code == 400

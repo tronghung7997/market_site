@@ -931,200 +931,339 @@ function SellerDisputeModal({
   const t = useTranslations("seller");
   const apiErrorMessage = useApiErrorMessage();
   const locale = useLocale();
+  const { formatBrowseMoney } = useMoney();
+
+  type Tab = "claim" | "remedy";
+  const [activeTab, setActiveTab] = useState<Tab>("claim");
+
+  // Respond tab
   const [sellerNote, setSellerNote] = useState("");
   const [submitting, setSubmitting] = useState(false);
   const [error, setError] = useState<string | null>(null);
 
+  // Remedy tab
+  type SDR = { id: number; status: string; data: string; refund_amount_cap: number | null; action: "replace" | "refund" | null; replacement_resource_id: number | null };
+  const [resources, setResources] = useState<SDR[]>([]);
+  const [resourcesLoading, setResourcesLoading] = useState(false);
+  const [selected, setSelected] = useState<Set<number>>(new Set());
+  const [remedyNote, setRemedyNote] = useState("");
+  const [remedySubmitting, setRemedySubmitting] = useState(false);
+  const [remedyError, setRemedyError] = useState<string | null>(null);
+
+  const hasClaimed = (dispute?.claimed_resource_ids?.length ?? 0) > 0;
+  const hasResponded = !!dispute?.seller_note;
+
+  const loadResources = async () => {
+    if (!dispute) return;
+    setResourcesLoading(true);
+    try {
+      const PER_PAGE = 100;
+      let pg = 1;
+      const all: SDR[] = [];
+      while (true) {
+        const resp: { items: SDR[]; total: number } = await fetch(
+          `/api/seller/disputes/${dispute.id}/resources?page=${pg}&per_page=${PER_PAGE}`,
+          { credentials: "include" }
+        ).then((r) => r.json());
+        all.push(...(resp.items ?? []));
+        if (all.length >= resp.total || (resp.items?.length ?? 0) < PER_PAGE) break;
+        pg++;
+      }
+      setResources(all);
+    } catch { /* silent */ }
+    finally { setResourcesLoading(false); }
+  };
+
+  useEffect(() => {
+    if (isOpen && activeTab === "remedy" && dispute?.id) void loadResources();
+  // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [isOpen, activeTab, dispute?.id]);
+
   if (!isOpen) return null;
 
-  const handleSubmit = async (e: React.FormEvent) => {
+  const handleRespond = async (e: React.FormEvent) => {
     e.preventDefault();
-    if (!dispute) {
-      setError(t("disputeNotFound"));
-      return;
-    }
-    if (!sellerNote.trim()) {
-      setError(t("disputeResponseRequired"));
-      return;
-    }
-
-    setSubmitting(true);
-    setError(null);
+    if (!dispute) { setError(t("disputeNotFound")); return; }
+    if (!sellerNote.trim()) { setError(t("disputeResponseRequired")); return; }
+    setSubmitting(true); setError(null);
     try {
       await api.sellerRespondDispute(dispute.id, sellerNote.trim());
       onSuccess();
     } catch (err: unknown) {
       setError(apiErrorMessage(err, t("disputeResponseFailed")));
-    } finally {
-      setSubmitting(false);
-    }
+    } finally { setSubmitting(false); }
   };
 
-  const hasResponded = !!dispute?.seller_note;
+  const toggleResource = (id: number) =>
+    setSelected((cur) => { const next = new Set(cur); if (next.has(id)) next.delete(id); else next.add(id); return next; });
+
+  const selectAll = () => setSelected(new Set(resources.filter((r) => !r.action).map((r) => r.id)));
+
+  const handleRemedy = async (action: "refund" | "replace") => {
+    if (!dispute || selected.size === 0) return;
+    setRemedySubmitting(true); setRemedyError(null);
+    try {
+      await api.sellerResolveDisputeResources(dispute.id, [...selected], action, remedyNote.trim() || undefined);
+      setSelected(new Set()); setRemedyNote("");
+      await loadResources();
+      onSuccess();
+    } catch (err: unknown) {
+      setRemedyError(apiErrorMessage(err, action === "refund" ? t("refundFailed") : t("replaceFailed")));
+    } finally { setRemedySubmitting(false); }
+  };
+
   const evidenceType = ({
-    account: t("evidenceTypeAccount"),
-    proxy: t("evidenceTypeProxy"),
-    server: t("evidenceTypeServer"),
-    payment: t("evidenceTypePayment"),
-    other: t("evidenceTypeOther"),
+    account: t("evidenceTypeAccount"), proxy: t("evidenceTypeProxy"),
+    server: t("evidenceTypeServer"), payment: t("evidenceTypePayment"), other: t("evidenceTypeOther"),
   } as Record<string, string>)[dispute?.evidence_type ?? "other"] ?? dispute?.evidence_type ?? "";
   const evidenceLabels: Record<string, string> = {
-    username: t("evidenceFieldUsername"),
-    issue: t("evidenceFieldIssue"),
-    ip: t("evidenceFieldIp"),
-    error: t("evidenceFieldError"),
-    server_ip: t("evidenceFieldServerIp"),
-    transaction_id: t("evidenceFieldTransactionId"),
+    username: t("evidenceFieldUsername"), issue: t("evidenceFieldIssue"),
+    ip: t("evidenceFieldIp"), error: t("evidenceFieldError"),
+    server_ip: t("evidenceFieldServerIp"), transaction_id: t("evidenceFieldTransactionId"),
   };
+
+  const unresolved = resources.filter((r) => !r.action);
+  const resolved = resources.filter((r) => r.action);
+  const selectedRefundTotal = [...selected].reduce((sum, id) => {
+    const r = resources.find((res) => res.id === id);
+    return sum + (r?.refund_amount_cap ?? 0);
+  }, 0);
 
   return (
     <div className="fixed inset-0 z-50 flex items-center justify-center p-4 bg-ink-panel/75 backdrop-blur-xs animate-fade">
       <div
-        role="dialog"
-        aria-modal="true"
-        aria-labelledby="dispute-modal-title"
-        className="w-full max-w-xl bg-surface border border-line rounded-2xl shadow-card-lg overflow-hidden animate-rise flex flex-col max-h-[85vh]"
+        role="dialog" aria-modal="true" aria-labelledby="dispute-modal-title"
+        className="w-full max-w-2xl bg-surface border border-line rounded-2xl shadow-card-lg overflow-hidden animate-rise flex flex-col max-h-[90vh]"
       >
         {/* Header */}
         <div className="p-4 border-b border-line bg-raised/50 flex items-center justify-between shrink-0">
-          <div className="flex items-center gap-2.5">
-            <span className="p-1.5 rounded-lg bg-bad-soft text-bad">
-              <AlertCircle size={18} />
-            </span>
-            <div>
-              <div className="flex items-center gap-2">
-                <span className="text-[10px] font-bold uppercase tracking-wider text-bad bg-bad-soft px-1.5 py-0.2 rounded">
+          <div className="flex items-center gap-2.5 min-w-0">
+            <span className="p-1.5 rounded-lg bg-bad-soft text-bad shrink-0"><AlertCircle size={18} /></span>
+            <div className="min-w-0">
+              <div className="flex items-center gap-2 flex-wrap">
+                <span className="text-[10px] font-bold uppercase tracking-wider text-bad bg-bad-soft px-1.5 py-0.2 rounded shrink-0">
                   {t("disputeDetailTitle")}
                 </span>
                 <span className="text-xs text-faint font-mono">{t("orderNumber", { id: order.id })}</span>
+                {hasClaimed && (
+                  <span className="text-[10px] font-mono text-warn bg-warn-soft/70 border border-warn/30 px-1.5 py-0.2 rounded shrink-0">
+                    {t("claim_batch", { count: dispute?.claimed_resource_ids?.length ?? 0 })}
+                  </span>
+                )}
               </div>
-              <h3 id="dispute-modal-title" className="text-[14px] font-bold text-fg truncate max-w-[320px] mt-0.5">
+              <h3 id="dispute-modal-title" className="text-[14px] font-bold text-fg truncate max-w-[380px] mt-0.5">
                 {order.product_title}
               </h3>
             </div>
           </div>
-          <Button size="sm" variant="ghost" onClick={onClose} className="h-7 w-7 p-0 text-muted hover:text-fg">
+          <Button size="sm" variant="ghost" onClick={onClose} className="h-7 w-7 p-0 text-muted hover:text-fg shrink-0">
             <X size={14} />
           </Button>
         </div>
 
-        {/* Body */}
-        <div className="p-5 space-y-4 text-xs overflow-y-auto flex-1">
-          {/* Buyer Claim Section */}
-          <div className="p-3.5 rounded-xl bg-bad-soft/25 border border-bad/30 space-y-2.5">
-            <div className="flex items-center justify-between text-bad font-bold">
-              <span className="flex items-center gap-1.5">
-                <span>🚨 {t("disputeBuyerClaim")}</span>
-              </span>
-              {dispute?.created_at && (
-                <span className="text-[11px] font-normal text-muted font-mono">
-                  {formatDateTime(dispute.created_at, locale)}
-                </span>
+        {/* Tab bar */}
+        {hasClaimed && (
+          <div className="flex border-b border-line bg-raised/20 shrink-0">
+            <button
+              onClick={() => setActiveTab("claim")}
+              className={cn(
+                "flex-1 py-2.5 text-[12px] font-semibold transition-colors",
+                activeTab === "claim" ? "text-bad border-b-2 border-bad bg-bad-soft/20" : "text-muted hover:text-fg"
               )}
-            </div>
-
-            <div className="p-3 rounded-lg bg-surface/80 border border-line text-fg leading-relaxed whitespace-pre-wrap font-sans">
-              {dispute?.reason || t("disputeFallbackClaim")}
-            </div>
-
-            {/* Evidence metadata */}
-            {dispute?.evidence && Object.keys(dispute.evidence).length > 0 && (
-              <div className="space-y-1.5 pt-1">
-                <span className="text-[11px] font-semibold text-muted">
-                  {t("evidenceAttached", { type: evidenceType })}
-                </span>
-                <div className="grid grid-cols-1 gap-1 font-mono text-[11.5px] p-2 bg-surface/60 rounded-lg border border-line">
-                  {Object.entries(dispute.evidence).map(([k, v]) => (
-                    <div key={k} className="flex items-baseline gap-1.5">
-                      <span className="text-faint">{evidenceLabels[k] ?? k}:</span>
-                      <span className="text-fg break-all">{v}</span>
-                    </div>
-                  ))}
-                </div>
-              </div>
-            )}
-          </div>
-
-          {/* Initial Delivered Data Snapshot */}
-          {order.delivered_data && (
-            <div className="space-y-1.5">
-              <span className="font-semibold text-muted">{t("deliveredInitial")}</span>
-              <div className="p-2.5 rounded-xl bg-raised border border-line font-mono text-[11.5px] text-muted break-all select-all max-h-24 overflow-y-auto">
-                {order.delivered_data}
-              </div>
-            </div>
-          )}
-
-          {/* Seller Response View or Input Form */}
-          {hasResponded ? (
-            <div className="p-3.5 rounded-xl bg-iris-soft/20 border border-iris/30 space-y-2">
-              <div className="flex items-center justify-between text-iris-hi font-bold">
-                <span>✓ {t("submittedResponse")}</span>
-                <Tag tone="warn" className="text-[10px]">{t("disputeWaitingAdmin")}</Tag>
-              </div>
-              <div className="p-3 rounded-lg bg-surface/80 border border-line text-fg leading-relaxed whitespace-pre-wrap">
-                {dispute?.seller_note}
-              </div>
-            </div>
-          ) : (
-            <form onSubmit={handleSubmit} className="space-y-3 pt-1">
-              <div className="space-y-1.5">
-                <label className="font-bold text-fg block">
-                  {t("disputeSellerResponse")}:
-                </label>
-                <Textarea
-                  rows={4}
-                  value={sellerNote}
-                  onChange={(e) => setSellerNote(e.target.value)}
-                  placeholder={t("disputeSellerPlaceholder")}
-                  className="text-xs bg-surface leading-relaxed"
-                  autoFocus
-                />
-              </div>
-
-              {error && (
-                <div className="p-2.5 rounded-lg bg-bad-soft border border-bad/20 text-bad text-xs font-medium">
-                  {error}
-                </div>
-              )}
-
-              <div className="flex items-center justify-between pt-2 border-t border-line">
-                <Link
-                  href="/messages"
-                  className="text-xs text-iris hover:underline inline-flex items-center gap-1 font-medium"
-                >
-                  <MessageSquare size={13} />
-                  <span>{t("chatWithBuyer")}</span>
-                </Link>
-
-                <div className="flex items-center gap-2">
-                  <Button size="sm" variant="ghost" type="button" onClick={onClose} disabled={submitting}>
-                    {t("cancel")}
-                  </Button>
-                  <Button size="sm" type="submit" disabled={submitting || !sellerNote.trim()}>
-                    {submitting ? t("sending") : t("sendDisputeResponse")}
-                  </Button>
-                </div>
-              </div>
-            </form>
-          )}
-        </div>
-
-        {/* Footer for already responded state */}
-        {hasResponded && (
-          <div className="p-3.5 bg-raised/50 border-t border-line flex items-center justify-between shrink-0">
-            <Link
-              href="/messages"
-              className="text-xs text-iris hover:underline inline-flex items-center gap-1 font-medium"
             >
-              <MessageSquare size={13} />
-              <span>{t("chatWithBuyer")}</span>
-            </Link>
-            <Button size="sm" variant="ghost" onClick={onClose}>
-              {t("close")}
-            </Button>
+              🚨 {t("disputeBuyerClaim")}
+            </button>
+            <button
+              onClick={() => setActiveTab("remedy")}
+              className={cn(
+                "flex-1 py-2.5 text-[12px] font-semibold transition-colors",
+                activeTab === "remedy" ? "text-warn border-b-2 border-warn bg-warn-soft/20" : "text-muted hover:text-fg"
+              )}
+            >
+              🔧 {t("claimedAccountsTitle", { count: dispute?.claimed_resource_ids?.length ?? 0 })}
+              {(dispute?.claimed_resource_ids?.length ?? 0) > resolved.length && activeTab !== "remedy" && (
+                <span className="ml-1.5 inline-flex items-center justify-center w-4 h-4 rounded-full bg-warn text-white text-[9px] font-bold">
+                  {(dispute?.claimed_resource_ids?.length ?? 0) - resolved.length}
+                </span>
+              )}
+            </button>
           </div>
         )}
+
+        <div className="flex-1 overflow-y-auto">
+
+          {/* ── TAB: Claim + Respond ── */}
+          {activeTab === "claim" && (
+            <div className="p-5 space-y-4 text-xs">
+              <div className="p-3.5 rounded-xl bg-bad-soft/25 border border-bad/30 space-y-2.5">
+                <div className="flex items-center justify-between text-bad font-bold">
+                  <span>🚨 {t("disputeBuyerClaim")}</span>
+                  {dispute?.created_at && (
+                    <span className="text-[11px] font-normal text-muted font-mono">{formatDateTime(dispute.created_at, locale)}</span>
+                  )}
+                </div>
+                <div className="p-3 rounded-lg bg-surface/80 border border-line text-fg leading-relaxed whitespace-pre-wrap font-sans">
+                  {dispute?.reason || t("disputeFallbackClaim")}
+                </div>
+                {dispute?.evidence && Object.keys(dispute.evidence).length > 0 && (
+                  <div className="space-y-1.5 pt-1">
+                    <span className="text-[11px] font-semibold text-muted">{t("evidenceAttached", { type: evidenceType })}</span>
+                    <div className="grid grid-cols-1 gap-1 font-mono text-[11.5px] p-2 bg-surface/60 rounded-lg border border-line">
+                      {Object.entries(dispute.evidence).map(([k, v]) => (
+                        <div key={k} className="flex items-baseline gap-1.5">
+                          <span className="text-faint">{evidenceLabels[k] ?? k}:</span>
+                          <span className="text-fg break-all">{v}</span>
+                        </div>
+                      ))}
+                    </div>
+                  </div>
+                )}
+              </div>
+
+              {order.delivered_data && (
+                <div className="space-y-1.5">
+                  <span className="font-semibold text-muted">{t("deliveredInitial")}</span>
+                  <div className="p-2.5 rounded-xl bg-raised border border-line font-mono text-[11.5px] text-muted break-all select-all max-h-24 overflow-y-auto">
+                    {order.delivered_data}
+                  </div>
+                </div>
+              )}
+
+              {hasResponded ? (
+                <div className="p-3.5 rounded-xl bg-iris-soft/20 border border-iris/30 space-y-2">
+                  <div className="flex items-center justify-between text-iris-hi font-bold">
+                    <span>✓ {t("submittedResponse")}</span>
+                    <Tag tone="warn" className="text-[10px]">{t("disputeWaitingAdmin")}</Tag>
+                  </div>
+                  <div className="p-3 rounded-lg bg-surface/80 border border-line text-fg leading-relaxed whitespace-pre-wrap">
+                    {dispute?.seller_note}
+                  </div>
+                  {hasClaimed && (
+                    <p className="text-[11px] text-warn font-medium flex items-center gap-1">
+                      <AlertTriangle size={11} /> {t("claimedAccountsHint")}
+                    </p>
+                  )}
+                </div>
+              ) : (
+                <form onSubmit={handleRespond} className="space-y-3 pt-1">
+                  <div className="space-y-1.5">
+                    <label className="font-bold text-fg block">{t("disputeSellerResponse")}:</label>
+                    <Textarea rows={4} value={sellerNote} onChange={(e) => setSellerNote(e.target.value)}
+                      placeholder={t("disputeSellerPlaceholder")} className="text-xs bg-surface leading-relaxed" autoFocus />
+                  </div>
+                  {error && <div className="p-2.5 rounded-lg bg-bad-soft border border-bad/20 text-bad text-xs font-medium">{error}</div>}
+                  <div className="flex items-center justify-between pt-2 border-t border-line">
+                    <Link href="/messages" className="text-xs text-iris hover:underline inline-flex items-center gap-1 font-medium">
+                      <MessageSquare size={13} /><span>{t("chatWithBuyer")}</span>
+                    </Link>
+                    <div className="flex items-center gap-2">
+                      <Button size="sm" variant="ghost" type="button" onClick={onClose} disabled={submitting}>{t("cancel")}</Button>
+                      <Button size="sm" type="submit" disabled={submitting || !sellerNote.trim()}>
+                        {submitting ? t("sending") : t("sendDisputeResponse")}
+                      </Button>
+                    </div>
+                  </div>
+                </form>
+              )}
+
+              {hasResponded && (
+                <div className="pt-2 border-t border-line flex items-center justify-between">
+                  <Link href="/messages" className="text-xs text-iris hover:underline inline-flex items-center gap-1 font-medium">
+                    <MessageSquare size={13} /><span>{t("chatWithBuyer")}</span>
+                  </Link>
+                  <Button size="sm" variant="ghost" onClick={onClose}>{t("close")}</Button>
+                </div>
+              )}
+            </div>
+          )}
+
+          {/* ── TAB: Resource Remedy ── */}
+          {activeTab === "remedy" && (
+            <div className="p-5 space-y-4 text-xs">
+              {resourcesLoading ? (
+                <div className="flex items-center justify-center py-10 gap-2 text-muted">
+                  <Spinner /><span>{t("loading")}</span>
+                </div>
+              ) : resources.length === 0 ? (
+                <div className="py-10 text-center text-muted">{t("noClaimedAccounts")}</div>
+              ) : (
+                <>
+                  <div className="flex items-center justify-between rounded-lg bg-warn-soft/30 border border-warn/25 px-3 py-2">
+                    <div>
+                      <span className="font-semibold text-fg">{t("claimedAccountsTitle", { count: resources.length })}</span>
+                      <span className="ml-2 text-muted">{t("claimPending")}: {unresolved.length} · {t("claimResolved")}: {resolved.length}</span>
+                    </div>
+                    {unresolved.length > 0 && (
+                      <Button size="sm" variant="ghost" onClick={selectAll} className="text-[11px]">{t("selectAll")}</Button>
+                    )}
+                  </div>
+
+                  <div className="max-h-72 overflow-y-auto rounded-xl border border-line divide-y divide-line/50">
+                    {resources.map((resource) => {
+                      const isPending = !resource.action;
+                      return (
+                        <label key={resource.id} className={cn(
+                          "flex items-center gap-2.5 px-3 py-2.5 text-[11.5px] transition-colors",
+                          isPending ? "cursor-pointer hover:bg-raised/60" : "opacity-70 cursor-default",
+                          selected.has(resource.id) && "bg-iris-soft/20"
+                        )}>
+                          <input type="checkbox" checked={selected.has(resource.id)} disabled={!isPending}
+                            onChange={() => isPending && toggleResource(resource.id)} className="h-3.5 w-3.5 accent-iris shrink-0" />
+                          <span className="font-mono text-faint text-[10.5px] shrink-0">#{resource.id}</span>
+                          <span className="flex-1 font-mono text-fg truncate min-w-0">{resource.data}</span>
+                          {resource.refund_amount_cap != null && (
+                            <span className="text-muted font-mono shrink-0 text-[10.5px]">{formatBrowseMoney(resource.refund_amount_cap)}</span>
+                          )}
+                          {resource.action === "refund" && <span className="px-1.5 py-0.5 rounded text-[10px] font-bold bg-good-soft text-good border border-good/30 shrink-0">✓ Hoàn tiền</span>}
+                          {resource.action === "replace" && <span className="px-1.5 py-0.5 rounded text-[10px] font-bold bg-iris-soft text-iris border border-iris/30 shrink-0">✓ Thay thế</span>}
+                          {!resource.action && <span className="text-warn text-[10px] font-medium shrink-0">{t("claimPending")}</span>}
+                        </label>
+                      );
+                    })}
+                  </div>
+
+                  {unresolved.length > 0 && (
+                    <div className="space-y-3 p-3.5 rounded-xl bg-raised/50 border border-line">
+                      <div className="flex items-center justify-between text-[11.5px]">
+                        <span className="text-muted">{t("selected")}: <span className="font-mono font-bold text-fg">{selected.size}</span></span>
+                        {selected.size > 0 && selectedRefundTotal > 0 && (
+                          <span className="text-muted">Hoàn tiền: <span className="font-mono font-bold text-warn">{formatBrowseMoney(selectedRefundTotal)}</span></span>
+                        )}
+                      </div>
+                      <Textarea rows={2} value={remedyNote} onChange={(e) => setRemedyNote(e.target.value)}
+                        placeholder={t("resourceActionNote")} className="text-xs" />
+                      {remedyError && <div className="p-2.5 rounded-lg bg-bad-soft border border-bad/20 text-bad text-xs font-medium">{remedyError}</div>}
+                      <div className="flex flex-wrap gap-2 pt-1">
+                        <Button size="sm" disabled={remedySubmitting || selected.size === 0} onClick={() => handleRemedy("replace")} className="gap-1.5">
+                          <RefreshCw size={12} />
+                          {t("replaceSelected", { count: selected.size })}
+                        </Button>
+                        <Button size="sm" variant="danger" disabled={remedySubmitting || selected.size === 0} onClick={() => handleRemedy("refund")} className="gap-1.5">
+                          <ArrowRight size={12} />
+                          {t("refundSelected", { count: selected.size })}
+                          {selected.size > 0 && selectedRefundTotal > 0 && (
+                            <span className="opacity-75 ml-0.5">({formatBrowseMoney(selectedRefundTotal)})</span>
+                          )}
+                        </Button>
+                        {selected.size > 0 && (
+                          <Button size="sm" variant="ghost" onClick={() => setSelected(new Set())} className="text-muted">
+                            {t("clearSelection")}
+                          </Button>
+                        )}
+                      </div>
+                    </div>
+                  )}
+
+                  {unresolved.length === 0 && (
+                    <div className="p-3 rounded-xl bg-good-soft/30 border border-good/30 text-good text-[12px] font-semibold text-center">
+                      ✓ {t("allClaimsHandled")}
+                    </div>
+                  )}
+                </>
+              )}
+            </div>
+          )}
+        </div>
       </div>
     </div>
   );

@@ -1,5 +1,5 @@
 import type {
-  Account, ActionItem, AdminDepositIntent, AdminDepositLedgerQuery, AdminDepositLedgerResponse, AdminDepositTransaction, AdminDisputeDetail, AdminOrderDetail, AdminProduct, AdminResourceListResponse, AffiliateStats, AffiliateSummary, CalculateResult, Category, ChargeUsageResult, ChatConversationDetail, ChatConversationList, ChatMessage, DashboardData, DepositIntent, DepositMethods, DepositReconcileResult, DepositRailConfigAdmin, DepositRailConfigUpdate, Dispute, SePayWebhookEventRow, AdminAccountWallet, FundOverview, AccountAdminRow, PaginatedAccounts, LogEntry, MailConfigAdmin, MailConfigUpdate, MailOutboxList, MailSendTestResponse, MailTemplatePreview, MailTemplateRow, MoneyConfigAdmin, MoneyConfigPublic, MoneyConfigUpdate, Order, OrderStats, PaginatedAffiliateSummary, PaginatedOrderResponse, PaginatedProducts, PricingField, PricingOptions, ProductDetail, AdminProductDetail, Product, ProductLocale, ProductOperations, ProductTranslation, ProxyState, ProxyRotateResult, ProxyWhitelistResult, Review, SellerApplication, SellerProduct, SellerStats, ServiceTask, TikTokLookupResponse, Transaction, Variant, Wallet, WithdrawRequest, Provider, ProviderHealth, Alert, Resource, ResourceSummary, ResourceSellerFacet, InventoryVariant, SellerSummary, SellerProfile,
+  Account, ActionItem, AdminDepositIntent, AdminDepositLedgerQuery, AdminDepositLedgerResponse, AdminDepositTransaction, AdminDisputeDetail, AdminOrderDetail, AdminProduct, AdminResourceListResponse, AffiliateStats, AffiliateSummary, CalculateResult, Category, ChargeUsageResult, ChatConversationDetail, ChatConversationList, ChatMessage, DashboardData, DepositIntent, DepositMethods, DepositReconcileResult, DepositRailConfigAdmin, DepositRailConfigUpdate, Dispute, SePayWebhookEventRow, AdminAccountWallet, FundOverview, AccountAdminRow, PaginatedAccounts, LogEntry, MailConfigAdmin, MailConfigUpdate, MailOutboxList, MailSendTestResponse, MailTemplatePreview, MailTemplateRow, MoneyConfigAdmin, MoneyConfigPublic, MoneyConfigUpdate, Order, OrderStats, PaginatedAffiliateSummary, PaginatedOrderResponse, PaginatedProducts, PricingField, PricingOptions, ProductDetail, AdminProductDetail, Product, ProductLocale, ProductOperations, ProductTranslation, ProxyState, ProxyRotateResult, ProxyWhitelistResult, Review, SellerApplication, SellerProduct, SellerStats, ServiceTask, TikTokLookupResponse, Transaction, Variant, Wallet, WithdrawRequest, Provider, ProviderHealth, Alert, Resource, ResourceSummary, ResourceSellerFacet, InventoryVariant, SellerSummary, SellerProfile, SellerDisputeResource,
 } from "./types";
 import { SERVER_API_BASE } from "./server-api";
 
@@ -38,6 +38,10 @@ function responseErrorDetail(body: unknown): string | null {
       ? (detail[0] as { msg: string }).msg.replace(/^Value error,\s*/i, "")
       : null;
   return browserLocale() === "en" && message && /[À-ỹĐđ]/.test(message) ? null : message;
+}
+
+function newIdempotencyKey(): string {
+  return globalThis.crypto?.randomUUID?.() ?? `ui-${Date.now()}-${Math.random().toString(36).slice(2)}`;
 }
 
 async function request<T>(path: string, init: RequestInit = {}, auth: boolean | "silent" = false): Promise<T> {
@@ -169,11 +173,20 @@ export const api = {
 
   confirmOrder: (orderId: number) =>
     request<Order>(`/orders/${orderId}/confirm`, { method: "POST" }, true),
-  openDispute: (orderId: number, reason: string, evidenceType?: string, evidence?: Record<string, string>) =>
+  openDispute: (orderId: number, reason: string, evidenceType?: string, evidence?: Record<string, string>, resourceIds?: number[]) =>
     request<Dispute>(`/orders/${orderId}/dispute`, {
       method: "POST",
-      body: JSON.stringify({ reason, evidence_type: evidenceType ?? null, evidence: evidence ?? null }),
+      body: JSON.stringify({ reason, evidence_type: evidenceType ?? null, evidence: evidence ?? null, resource_ids: resourceIds ?? null, idempotency_key: resourceIds?.length ? newIdempotencyKey() : null }),
     }, true),
+  appendDisputeClaims: (orderId: number, reason: string, resourceIds: number[]) =>
+    request<Dispute>(`/orders/${orderId}/dispute/claims`, {
+      method: "POST",
+      body: JSON.stringify({ reason, resource_ids: resourceIds, idempotency_key: newIdempotencyKey() }),
+    }, true),
+  buyerDisputeMessage: (orderId: number, body: string) =>
+    request<Dispute>(`/orders/${orderId}/dispute/messages`, { method: "POST", body: JSON.stringify({ body, idempotency_key: newIdempotencyKey() }) }, true),
+  acceptDisputeResolution: (orderId: number) =>
+    request<Dispute>(`/orders/${orderId}/dispute/accept`, { method: "POST" }, true),
   orderDispute: (orderId: number) => request<Dispute>(`/orders/${orderId}/dispute`, {}, true),
 
   orderProxyState: (orderId: number) => request<ProxyState>(`/orders/${orderId}/proxy`, {}, true),
@@ -392,6 +405,17 @@ export const api = {
   sellerDispute: (orderId: number) => request<Dispute>(`/seller/orders/${orderId}/dispute`, {}, true),
   sellerRespondDispute: (disputeId: number, sellerNote: string) =>
     request<Dispute>(`/seller/disputes/${disputeId}/respond`, { method: "POST", body: JSON.stringify({ seller_note: sellerNote }) }, true),
+  sellerDisputeResources: (disputeId: number) =>
+    request<{ items: SellerDisputeResource[] }>(`/seller/disputes/${disputeId}/resources`, {}, true).then((response) => response.items),
+  sellerDisputeReplacements: (disputeId: number) =>
+    request<Resource[]>(`/seller/disputes/${disputeId}/replacement-resources`, {}, true),
+  sellerResolveDisputeResources: (disputeId: number, resourceIds: number[], action: "replace" | "refund", note?: string) =>
+    request<{ actions: unknown[] }>(`/seller/disputes/${disputeId}/resources/action`, {
+      method: "POST",
+      body: JSON.stringify({ resource_ids: resourceIds, action, seller_note: note ?? null, idempotency_key: newIdempotencyKey() }),
+    }, true),
+  sellerEscalateDispute: (disputeId: number, note?: string) =>
+    request<Dispute>(`/seller/disputes/${disputeId}/escalate`, { method: "POST", body: JSON.stringify({ seller_note: note ?? null }) }, true),
   providers: () => request<Provider[]>("/providers", {}, true),
   createProvider: (data: Record<string, unknown>) =>
     request<Provider>("/admin/providers", { method: "POST", body: JSON.stringify(data) }, true),

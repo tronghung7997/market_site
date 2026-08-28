@@ -1,10 +1,12 @@
-from fastapi import APIRouter, Depends, HTTPException, Query, status
+from fastapi import APIRouter, Depends, Query, status
 from sqlalchemy import select
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from src.adapters.factory import get_adapter
 from src.auth.dependencies import get_current_account, get_seller_account, require_role
 from src.database import get_session
+from src.errors.codes import ErrorCode
+from src.errors.exceptions import api_error
 from src.models.account import Account
 from src.models.order import Order
 from src.models.product import Product, ProductVariant
@@ -85,9 +87,9 @@ async def order_dashboard(
 ):
     order = await db.get(Order, order_id)
     if not order:
-        raise HTTPException(status_code=404, detail="Không tìm thấy đơn hàng")
+        raise api_error(ErrorCode.ORDER_NOT_FOUND, status.HTTP_404_NOT_FOUND)
     if order.buyer_id != account.id and order.seller_id != account.id:
-        raise HTTPException(status_code=403, detail="Bạn không có quyền thực hiện thao tác này")
+        raise api_error(ErrorCode.NOT_ORDER_OWNER, status.HTTP_403_FORBIDDEN)
 
     product = None
     if order.product_id:

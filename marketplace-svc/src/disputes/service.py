@@ -1,16 +1,24 @@
 from datetime import datetime, timedelta, timezone
 
 from fastapi import HTTPException, status
-from sqlalchemy import select
+from sqlalchemy import func, select
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from src.audit.service import log_event, query_logs
 from src.logging import current_request_id
 from src.models.account import Account
-from src.models.order import Dispute, DisputeStatus, Order, OrderStatus
+from src.models.order import (
+    Dispute,
+    DisputeClaimResource,
+    DisputeMessage,
+    DisputeResourceAction,
+    DisputeStatus,
+    Order,
+    OrderStatus,
+)
 from src.models.product import DeliveryMode, Product, ProductVariant
-from src.models.resource import Resource
-from src.resources.service import claim_resources, release_resources
+from src.models.resource import Resource, ResourceStatus
+from src.resources.service import claim_resources
 from src.sellers.tiers import escrow_days as tier_escrow_days
 from src.sellers.tiers import platform_fee_percent
 from src.wallet.service import refund_escrow, release_escrow
@@ -75,20 +83,34 @@ async def _enqueue_dispute_resolved(db: AsyncSession, dispute: Dispute, order: O
 async def create_dispute(
     order_id: int, buyer_id: int, reason: str, db: AsyncSession,
     evidence_type: str | None = None, evidence: dict[str, str] | None = None,
-) -> Dispute:
+    resource_ids: list[int] | None = None, idempotency_key: str | None = None,
+) -> dict:
     order = await db.get(Order, order_id, with_for_update=True)
     if not order:
         raise api_error(ErrorCode.ORDER_NOT_FOUND, status.HTTP_404_NOT_FOUND)
     if order.buyer_id != buyer_id:
         raise api_error(ErrorCode.NOT_ORDER_OWNER, status.HTTP_403_FORBIDDEN)
+    existing = await db.scalar(
+        select(Dispute).where(
+            Dispute.order_id == order_id,
+            Dispute.status == DisputeStatus.open,
+        )
+    )
+    if existing and idempotency_key:
+        prior = await db.scalar(
+            select(DisputeClaimResource.id).where(
+                DisputeClaimResource.dispute_id == existing.id,
+                DisputeClaimResource.batch_key == idempotency_key,
+            )
+        )
+        if prior:
+            return await _enrich_dispute(existing, db)
+    if existing:
+        raise api_error(ErrorCode.DISPUTE_ALREADY_OPEN, status.HTTP_400_BAD_REQUEST)
     if order.status != OrderStatus.delivered:
         raise api_error(ErrorCode.DISPUTE_ONLY_DELIVERED, status.HTTP_400_BAD_REQUEST)
     if order.escrow_expires_at and datetime.now(timezone.utc) > order.escrow_expires_at:
         raise api_error(ErrorCode.DISPUTE_ESCROW_EXPIRED, status.HTTP_400_BAD_REQUEST)
-
-    existing = await db.scalar(select(Dispute).where(Dispute.order_id == order_id))
-    if existing:
-        raise api_error(ErrorCode.DISPUTE_ALREADY_OPEN, status.HTTP_400_BAD_REQUEST)
 
     order.status = OrderStatus.disputed
     dispute = Dispute(
@@ -97,6 +119,15 @@ async def create_dispute(
     )
     db.add(dispute)
     await db.flush()
+    if resource_ids:
+        await _add_claim_resources(
+            dispute,
+            order,
+            resource_ids,
+            reason,
+            idempotency_key or f"open-{dispute.id}",
+            db,
+        )
     await log_event(db, "warning", f"Dispute opened on order {order_id}", request_id=current_request_id(),
                     metadata={"event": "dispute_opened", "order_id": order_id, "buyer_id": buyer_id})
     from src.alerts.service import add_alert
@@ -111,7 +142,7 @@ async def create_dispute(
     await _enqueue_dispute_opened(db, dispute, order)
     await db.commit()
     await db.refresh(dispute)
-    return dispute
+    return await _enrich_dispute(dispute, db)
 
 
 async def _resolve_order_product(order: Order | None, db: AsyncSession) -> tuple[Product | None, ProductVariant | None]:
@@ -129,11 +160,149 @@ async def _resolve_order_product(order: Order | None, db: AsyncSession) -> tuple
     return None, None
 
 
+async def _add_claim_resources(
+    dispute: Dispute,
+    order: Order,
+    resource_ids: list[int],
+    reason: str,
+    batch_key: str,
+    db: AsyncSession,
+) -> None:
+    resources = list(
+        (
+            await db.execute(
+                select(Resource)
+                .where(Resource.id.in_(resource_ids), Resource.order_id == order.id)
+                .with_for_update()
+            )
+        ).scalars()
+    )
+    if len(resources) != len(resource_ids):
+        raise HTTPException(status_code=400, detail="Every selected account must belong to this order")
+    already_claimed = await db.scalar(
+        select(DisputeClaimResource.id)
+        .where(
+            DisputeClaimResource.dispute_id == dispute.id,
+            DisputeClaimResource.resource_id.in_(resource_ids),
+        )
+        .limit(1)
+    )
+    if already_claimed:
+        raise HTTPException(status_code=409, detail="A selected account is already in this dispute")
+    for resource_id in resource_ids:
+        db.add(
+            DisputeClaimResource(
+                dispute_id=dispute.id,
+                resource_id=resource_id,
+                batch_key=batch_key,
+                reason=reason,
+            )
+        )
+
+
+def _timeline_events(
+    dispute: Dispute,
+    claims: list[DisputeClaimResource],
+    actions: list[DisputeResourceAction],
+    messages: list[DisputeMessage],
+) -> list[dict]:
+    events: list[dict] = [
+        {
+            "id": f"case-opened-{dispute.id}",
+            "event_type": "case_opened",
+            "created_at": dispute.created_at,
+            "actor_role": "buyer",
+            "body": dispute.reason,
+            "resource_ids": [],
+        }
+    ]
+    claim_batches: dict[str, list[DisputeClaimResource]] = {}
+    for claim in claims:
+        claim_batches.setdefault(claim.batch_key or f"legacy-{claim.id}", []).append(claim)
+    for batch_key, batch in claim_batches.items():
+        events.append(
+            {
+                "id": f"claim-{batch_key}",
+                "event_type": "claim_batch",
+                "created_at": min(row.created_at for row in batch),
+                "actor_role": "buyer",
+                "body": next((row.reason for row in batch if row.reason), None),
+                "resource_ids": [row.resource_id for row in batch],
+            }
+        )
+    action_batches: dict[str, list[DisputeResourceAction]] = {}
+    for action in actions:
+        action_batches.setdefault(action.idempotency_key, []).append(action)
+    for action_key, batch in action_batches.items():
+        events.append(
+            {
+                "id": f"action-{action_key}",
+                "event_type": f"resource_{batch[0].action}",
+                "created_at": min(row.created_at for row in batch),
+                "actor_role": "seller",
+                "action": batch[0].action,
+                "resource_ids": [row.original_resource_id for row in batch],
+                "replacement_resource_ids": [row.replacement_resource_id for row in batch],
+                "refund_amount": sum(row.refund_amount for row in batch),
+            }
+        )
+    for message in messages:
+        events.append(
+            {
+                "id": f"message-{message.id}",
+                "event_type": message.event_type,
+                "created_at": message.created_at,
+                "actor_role": message.actor_role,
+                "body": message.body,
+                "resource_ids": [],
+            }
+        )
+    if dispute.resolved_at:
+        events.append(
+            {
+                "id": f"case-resolved-{dispute.id}",
+                "event_type": "case_resolved",
+                "created_at": dispute.resolved_at,
+                "actor_role": "admin" if dispute.admin_note else "buyer",
+                "body": dispute.admin_note,
+                "resource_ids": [],
+            }
+        )
+    return sorted(events, key=lambda event: (event["created_at"], event["event_type"]))
+
+
 async def _enrich_dispute(dispute: Dispute, db: AsyncSession) -> dict:
     """Dispute ORM → dict with product/variant names + buyer email + order amount."""
     order = await db.get(Order, dispute.order_id)
     product, variant = await _resolve_order_product(order, db)
     buyer = await db.get(Account, dispute.buyer_id)
+    claims = list(
+        (
+            await db.execute(
+                select(DisputeClaimResource)
+                .where(DisputeClaimResource.dispute_id == dispute.id)
+                .order_by(DisputeClaimResource.created_at, DisputeClaimResource.id)
+            )
+        ).scalars()
+    )
+    actions = list(
+        (
+            await db.execute(
+                select(DisputeResourceAction)
+                .where(DisputeResourceAction.dispute_id == dispute.id)
+                .order_by(DisputeResourceAction.created_at, DisputeResourceAction.id)
+            )
+        ).scalars()
+    )
+    messages = list(
+        (
+            await db.execute(
+                select(DisputeMessage)
+                .where(DisputeMessage.dispute_id == dispute.id)
+                .order_by(DisputeMessage.created_at, DisputeMessage.id)
+            )
+        ).scalars()
+    )
     return {
         "id": dispute.id, "order_id": dispute.order_id, "buyer_id": dispute.buyer_id,
         "reason": dispute.reason, "evidence_type": dispute.evidence_type, "evidence": dispute.evidence,
@@ -144,6 +313,19 @@ async def _enrich_dispute(dispute: Dispute, db: AsyncSession) -> dict:
         "variant_name": variant.name if variant else None,
         "buyer_email": buyer.email if buyer else None,
         "order_amount": order.total_amount if order else None,
+        "refunded_amount": order.refunded_amount if order else 0,
+        "claimed_resource_ids": [claim.resource_id for claim in claims],
+        "resource_actions": [
+            {
+                "original_resource_id": row.original_resource_id,
+                "replacement_resource_id": row.replacement_resource_id,
+                "action": row.action,
+                "refund_amount": row.refund_amount,
+                "created_at": row.created_at,
+            }
+            for row in actions
+        ],
+        "timeline": _timeline_events(dispute, claims, actions, messages),
     }
 
 
@@ -155,7 +337,7 @@ async def list_disputes(db: AsyncSession) -> list[dict]:
 async def get_dispute_detail(dispute_id: int, db: AsyncSession) -> dict:
     dispute = await db.get(Dispute, dispute_id)
     if not dispute:
-        raise HTTPException(status_code=404, detail="Không tìm thấy khiếu nại")
+        raise api_error(ErrorCode.DISPUTE_NOT_FOUND, status.HTTP_404_NOT_FOUND)
 
     order = await db.get(Order, dispute.order_id)
     product, variant = await _resolve_order_product(order, db)
@@ -207,15 +389,24 @@ async def get_dispute_detail(dispute_id: int, db: AsyncSession) -> dict:
 
 
 async def seller_respond_dispute(dispute_id: int, seller_id: int, seller_note: str, db: AsyncSession) -> dict:
-    dispute = await db.get(Dispute, dispute_id)
+    dispute = await db.get(Dispute, dispute_id, with_for_update=True)
     if not dispute:
         raise api_error(ErrorCode.DISPUTE_NOT_FOUND, status.HTTP_404_NOT_FOUND)
     if dispute.status != DisputeStatus.open:
         raise api_error(ErrorCode.DISPUTE_ALREADY_RESOLVED, status.HTTP_400_BAD_REQUEST)
-    order = await db.get(Order, dispute.order_id)
+    order = await db.get(Order, dispute.order_id, with_for_update=True)
     if not order or order.seller_id != seller_id:
         raise api_error(ErrorCode.NOT_OWNER, status.HTTP_403_FORBIDDEN)
     dispute.seller_note = seller_note
+    db.add(
+        DisputeMessage(
+            dispute_id=dispute.id,
+            actor_id=seller_id,
+            actor_role="seller",
+            event_type="seller_message",
+            body=seller_note,
+        )
+    )
     await log_event(db, "info", f"Seller responded to dispute {dispute_id}", request_id=current_request_id(),
                     metadata={"event": "dispute_seller_responded", "order_id": order.id, "seller_id": seller_id})
     await db.commit()
@@ -223,14 +414,459 @@ async def seller_respond_dispute(dispute_id: int, seller_id: int, seller_note: s
     return await _enrich_dispute(dispute, db)
 
 
+async def append_claim_batch(
+    order_id: int,
+    buyer_id: int,
+    resource_ids: list[int],
+    reason: str,
+    idempotency_key: str,
+    db: AsyncSession,
+) -> dict:
+    order = await db.get(Order, order_id, with_for_update=True)
+    if not order:
+        raise api_error(ErrorCode.ORDER_NOT_FOUND, status.HTTP_404_NOT_FOUND)
+    if order.buyer_id != buyer_id:
+        raise api_error(ErrorCode.NOT_ORDER_OWNER, status.HTTP_403_FORBIDDEN)
+    if order.status != OrderStatus.disputed:
+        raise api_error(ErrorCode.DISPUTE_ONLY_DELIVERED, status.HTTP_400_BAD_REQUEST)
+    dispute = await db.scalar(
+        select(Dispute).where(
+            Dispute.order_id == order_id,
+            Dispute.status == DisputeStatus.open,
+        ).with_for_update()
+    )
+    if not dispute:
+        raise api_error(ErrorCode.DISPUTE_NOT_FOUND, status.HTTP_404_NOT_FOUND)
+    prior = await db.scalar(
+        select(DisputeClaimResource.id).where(
+            DisputeClaimResource.dispute_id == dispute.id,
+            DisputeClaimResource.batch_key == idempotency_key,
+        )
+    )
+    if prior:
+        return await _enrich_dispute(dispute, db)
+    await _add_claim_resources(dispute, order, resource_ids, reason, idempotency_key, db)
+    await log_event(
+        db,
+        "warning",
+        f"Buyer added {len(resource_ids)} account(s) to dispute {dispute.id}",
+        request_id=current_request_id(),
+        metadata={
+            "event": "dispute_claim_batch_added",
+            "order_id": order.id,
+            "dispute_id": dispute.id,
+            "buyer_id": buyer_id,
+            "resource_count": len(resource_ids),
+        },
+    )
+    await db.commit()
+    return await _enrich_dispute(dispute, db)
+
+
+async def append_buyer_message(
+    order_id: int,
+    buyer_id: int,
+    body: str,
+    idempotency_key: str,
+    db: AsyncSession,
+) -> dict:
+    order = await db.get(Order, order_id)
+    if not order or order.buyer_id != buyer_id:
+        raise api_error(ErrorCode.ORDER_NOT_FOUND, status.HTTP_404_NOT_FOUND)
+    dispute = await db.scalar(
+        select(Dispute).where(
+            Dispute.order_id == order_id,
+            Dispute.status == DisputeStatus.open,
+        )
+    )
+    if not dispute:
+        raise api_error(ErrorCode.DISPUTE_NOT_FOUND, status.HTTP_404_NOT_FOUND)
+    prior = await db.scalar(
+        select(DisputeMessage.id).where(
+            DisputeMessage.dispute_id == dispute.id,
+            DisputeMessage.idempotency_key == idempotency_key,
+        )
+    )
+    if not prior:
+        db.add(
+            DisputeMessage(
+                dispute_id=dispute.id,
+                actor_id=buyer_id,
+                actor_role="buyer",
+                event_type="buyer_message",
+                body=body,
+                idempotency_key=idempotency_key,
+            )
+        )
+        await db.commit()
+    return await _enrich_dispute(dispute, db)
+
+
+async def seller_resolve_resources(
+    dispute_id: int,
+    seller_id: int,
+    resource_ids: list[int],
+    action: str,
+    replacement_resource_ids: list[int] | None,
+    idempotency_key: str,
+    db: AsyncSession,
+    seller_note: str | None = None,
+) -> dict:
+    dispute = await db.get(Dispute, dispute_id, with_for_update=True)
+    if not dispute:
+        raise api_error(ErrorCode.DISPUTE_NOT_FOUND, status.HTTP_404_NOT_FOUND)
+    order = await db.get(Order, dispute.order_id, with_for_update=True)
+    if not order or order.seller_id != seller_id:
+        raise api_error(ErrorCode.NOT_OWNER, status.HTTP_403_FORBIDDEN)
+    prior = list(
+        (
+            await db.execute(
+                select(DisputeResourceAction)
+                .where(
+                    DisputeResourceAction.dispute_id == dispute_id,
+                    DisputeResourceAction.idempotency_key == idempotency_key,
+                )
+                .order_by(DisputeResourceAction.id)
+            )
+        ).scalars()
+    )
+    if prior:
+        return _resource_action_result(dispute, prior, retried=True)
+    if dispute.status != DisputeStatus.open:
+        raise api_error(ErrorCode.DISPUTE_ALREADY_RESOLVED, status.HTTP_400_BAD_REQUEST)
+    variant = await db.get(ProductVariant, order.variant_id) if order.variant_id else None
+    if not variant or variant.delivery_mode != DeliveryMode.instant:
+        raise HTTPException(status_code=400, detail="Account-level remedies require an instant inventory order")
+
+    found = list(
+        (
+            await db.execute(
+                select(Resource)
+                .where(
+                    Resource.id.in_(resource_ids),
+                    Resource.order_id == order.id,
+                    Resource.seller_id == seller_id,
+                )
+                .with_for_update()
+            )
+        ).scalars()
+    )
+    by_id = {resource.id: resource for resource in found}
+    if len(by_id) != len(resource_ids):
+        raise HTTPException(status_code=400, detail="Every selected account must belong to this disputed order")
+    originals = [by_id[resource_id] for resource_id in resource_ids]
+    claimed = set(
+        (
+            await db.execute(
+                select(DisputeClaimResource.resource_id).where(
+                    DisputeClaimResource.dispute_id == dispute_id,
+                    DisputeClaimResource.resource_id.in_(resource_ids),
+                )
+            )
+        ).scalars()
+    )
+    if claimed != set(resource_ids):
+        raise HTTPException(status_code=400, detail="Seller may only remedy accounts claimed by the buyer")
+    already_handled = await db.scalar(
+        select(DisputeResourceAction.id)
+        .where(
+            DisputeResourceAction.dispute_id == dispute_id,
+            DisputeResourceAction.original_resource_id.in_(resource_ids),
+        )
+        .limit(1)
+    )
+    if already_handled:
+        raise HTTPException(status_code=409, detail="A selected account has already been remedied")
+    if any(resource.refund_amount_cap is None for resource in originals):
+        raise HTTPException(status_code=409, detail="This legacy order has no safe per-account refund allocation")
+
+    replacements: list[Resource] = []
+    if action == "replace":
+        if replacement_resource_ids is not None:
+            if len(replacement_resource_ids) != len(originals):
+                raise HTTPException(status_code=400, detail="Select one replacement for each claimed account")
+            available = list(
+                (
+                    await db.execute(
+                        select(Resource)
+                        .where(
+                            Resource.id.in_(replacement_resource_ids),
+                            Resource.variant_id == variant.id,
+                            Resource.seller_id == seller_id,
+                            Resource.status == ResourceStatus.available,
+                        )
+                        .with_for_update()
+                    )
+                ).scalars()
+            )
+            available_by_id = {resource.id: resource for resource in available}
+            if len(available_by_id) != len(replacement_resource_ids):
+                raise HTTPException(status_code=409, detail="A selected replacement is unavailable")
+            replacements = [available_by_id[resource_id] for resource_id in replacement_resource_ids]
+            now = datetime.now(timezone.utc)
+            expires_at = now + timedelta(days=variant.duration_days) if variant.duration_days else None
+            for original, replacement in zip(originals, replacements, strict=True):
+                replacement.status = ResourceStatus.assigned
+                replacement.assigned_at = now
+                replacement.order_id = order.id
+                replacement.expires_at = expires_at
+                replacement.refund_amount_cap = original.refund_amount_cap
+        else:
+            replacements = await claim_resources(
+                variant.id,
+                len(originals),
+                db,
+                order_id=order.id,
+                duration_days=variant.duration_days,
+            )
+            for original, replacement in zip(originals, replacements, strict=True):
+                replacement.refund_amount_cap = original.refund_amount_cap
+    elif action != "refund":
+        raise HTTPException(status_code=400, detail="Unsupported account remedy")
+
+    refund_amount = sum(resource.refund_amount_cap or 0 for resource in originals) if action == "refund" else 0
+    if refund_amount:
+        await refund_escrow(
+            order.id,
+            order.buyer_id,
+            refund_amount,
+            db,
+            reference_suffix=f":dispute:{dispute.id}:{idempotency_key}",
+        )
+    rows: list[DisputeResourceAction] = []
+    for index, original in enumerate(originals):
+        original.status = ResourceStatus.error
+        row = DisputeResourceAction(
+            dispute_id=dispute.id,
+            original_resource_id=original.id,
+            replacement_resource_id=replacements[index].id if replacements else None,
+            action=action,
+            refund_amount=original.refund_amount_cap or 0 if action == "refund" else 0,
+            idempotency_key=idempotency_key,
+        )
+        db.add(row)
+        rows.append(row)
+    if seller_note:
+        dispute.seller_note = seller_note
+        db.add(
+            DisputeMessage(
+                dispute_id=dispute.id,
+                actor_id=seller_id,
+                actor_role="seller",
+                event_type="seller_message",
+                body=seller_note,
+                idempotency_key=f"{idempotency_key}:note",
+            )
+        )
+    await db.flush()
+    await log_event(
+        db,
+        "info",
+        f"Seller remedied {len(rows)} disputed account(s)",
+        request_id=current_request_id(),
+        metadata={
+            "event": "seller_dispute_resource_action",
+            "order_id": order.id,
+            "dispute_id": dispute.id,
+            "seller_id": seller_id,
+            "action": action,
+            "resource_count": len(rows),
+            "refund_amount": refund_amount,
+        },
+    )
+    from src.alerts.service import add_alert
+    await add_alert(
+        db,
+        type_="buyer_dispute_resource_resolved",
+        severity="info",
+        target_type="buyer",
+        target_id=order.buyer_id,
+        message=f"Seller handled {len(rows)} account(s) on order #{order.id}.",
+        href=f"/orders?search={order.id}",
+    )
+    await db.commit()
+    return _resource_action_result(dispute, rows, retried=False)
+
+
+def _resource_action_result(
+    dispute: Dispute,
+    rows: list[DisputeResourceAction],
+    *,
+    retried: bool,
+) -> dict:
+    return {
+        "dispute_id": dispute.id,
+        "status": dispute.status.value,
+        "retried": retried,
+        "actions": [
+            {
+                "original_resource_id": row.original_resource_id,
+                "replacement_resource_id": row.replacement_resource_id,
+                "action": row.action,
+                "refund_amount": row.refund_amount,
+            }
+            for row in rows
+        ],
+    }
+
+
 async def get_seller_dispute(order_id: int, seller_id: int, db: AsyncSession) -> dict | None:
     order = await db.get(Order, order_id)
     if not order or order.seller_id != seller_id:
         return None
-    dispute = await db.scalar(select(Dispute).where(Dispute.order_id == order_id))
+    dispute = await db.scalar(
+        select(Dispute)
+        .where(Dispute.order_id == order_id)
+        .order_by(Dispute.created_at.desc())
+    )
     if not dispute:
         return None
     return await _enrich_dispute(dispute, db)
+
+
+async def seller_escalate_dispute(
+    dispute_id: int,
+    seller_id: int,
+    seller_note: str,
+    db: AsyncSession,
+) -> dict:
+    dispute = await db.get(Dispute, dispute_id, with_for_update=True)
+    order = await db.get(Order, dispute.order_id, with_for_update=True) if dispute else None
+    if not dispute:
+        raise api_error(ErrorCode.DISPUTE_NOT_FOUND, status.HTTP_404_NOT_FOUND)
+    if not order or order.seller_id != seller_id:
+        raise api_error(ErrorCode.NOT_OWNER, status.HTTP_403_FORBIDDEN)
+    if dispute.status != DisputeStatus.open:
+        raise api_error(ErrorCode.DISPUTE_ALREADY_RESOLVED, status.HTTP_400_BAD_REQUEST)
+    dispute.seller_note = seller_note
+    db.add(
+        DisputeMessage(
+            dispute_id=dispute.id,
+            actor_id=seller_id,
+            actor_role="seller",
+            event_type="case_escalated",
+            body=seller_note,
+        )
+    )
+    await log_event(
+        db,
+        "warning",
+        f"Seller escalated dispute {dispute_id}",
+        request_id=current_request_id(),
+        metadata={
+            "event": "seller_dispute_escalated",
+            "order_id": order.id,
+            "seller_id": seller_id,
+        },
+    )
+    await db.commit()
+    return await _enrich_dispute(dispute, db)
+
+
+async def seller_dispute_resources(
+    dispute_id: int,
+    seller_id: int,
+    db: AsyncSession,
+    *,
+    search: str | None,
+    page: int,
+    per_page: int,
+) -> dict:
+    dispute = await db.get(Dispute, dispute_id)
+    order = await db.get(Order, dispute.order_id) if dispute else None
+    if not dispute or not order or order.seller_id != seller_id:
+        raise api_error(ErrorCode.DISPUTE_NOT_FOUND, status.HTTP_404_NOT_FOUND)
+    claimed_ids = select(DisputeClaimResource.resource_id).where(
+        DisputeClaimResource.dispute_id == dispute_id
+    )
+    query = select(Resource).where(Resource.id.in_(claimed_ids))
+    if search:
+        term = search.strip().lstrip("#")
+        if term.isdigit():
+            query = query.where(Resource.id == int(term))
+        else:
+            query = query.where(Resource.status == term)
+    total = int(await db.scalar(select(func.count()).select_from(query.subquery())) or 0)
+    resources = list(
+        (
+            await db.execute(
+                query.order_by(Resource.id)
+                .offset((page - 1) * per_page)
+                .limit(per_page)
+            )
+        ).scalars()
+    )
+    history = {
+        row.original_resource_id: row
+        for row in (
+            await db.execute(
+                select(DisputeResourceAction).where(
+                    DisputeResourceAction.dispute_id == dispute_id
+                )
+            )
+        ).scalars()
+    }
+    return {
+        "items": [
+            {
+                "id": resource.id,
+                "status": resource.status.value,
+                "expires_at": resource.expires_at,
+                "data": resource.data,
+                "refund_amount_cap": resource.refund_amount_cap,
+                "action": history[resource.id].action if resource.id in history else None,
+                "replacement_resource_id": (
+                    history[resource.id].replacement_resource_id
+                    if resource.id in history
+                    else None
+                ),
+            }
+            for resource in resources
+        ],
+        "total": total,
+        "page": page,
+        "per_page": per_page,
+    }
+
+
+async def seller_replacement_resources(
+    dispute_id: int,
+    seller_id: int,
+    db: AsyncSession,
+    *,
+    search: str | None,
+    page: int,
+    per_page: int,
+) -> dict:
+    dispute = await db.get(Dispute, dispute_id)
+    order = await db.get(Order, dispute.order_id) if dispute else None
+    if not dispute or not order or order.seller_id != seller_id or not order.variant_id:
+        raise api_error(ErrorCode.DISPUTE_NOT_FOUND, status.HTTP_404_NOT_FOUND)
+    query = select(Resource).where(
+        Resource.variant_id == order.variant_id,
+        Resource.seller_id == seller_id,
+        Resource.status == ResourceStatus.available,
+    )
+    if search:
+        term = search.strip().lstrip("#")
+        if term.isdigit():
+            query = query.where(Resource.id == int(term))
+    total = int(await db.scalar(select(func.count()).select_from(query.subquery())) or 0)
+    resources = list(
+        (
+            await db.execute(
+                query.order_by(Resource.id)
+                .offset((page - 1) * per_page)
+                .limit(per_page)
+            )
+        ).scalars()
+    )
+    return {
+        "items": [{"id": resource.id, "data": resource.data} for resource in resources],
+        "total": total,
+        "page": page,
+        "per_page": per_page,
+    }
 
 
 async def list_seller_open_disputes(seller_id: int, db: AsyncSession) -> list[dict]:
@@ -248,22 +884,141 @@ async def list_seller_open_disputes(seller_id: int, db: AsyncSession) -> list[di
     return [await _enrich_dispute(d, db) for d in result.scalars().all()]
 
 
+async def list_seller_disputes(
+    seller_id: int,
+    db: AsyncSession,
+    *,
+    page: int,
+    per_page: int,
+    status_filter: str | None = None,
+) -> dict:
+    base = (
+        select(Dispute)
+        .join(Order, Order.id == Dispute.order_id)
+        .where(Order.seller_id == seller_id)
+    )
+    if status_filter == "open":
+        base = base.where(Dispute.status == DisputeStatus.open)
+    total = int(await db.scalar(select(func.count()).select_from(base.subquery())) or 0)
+    disputes = list(
+        (
+            await db.execute(
+                base.order_by(Dispute.created_at.desc())
+                .offset((page - 1) * per_page)
+                .limit(per_page)
+            )
+        ).scalars()
+    )
+    return {
+        "items": [await _enrich_dispute(dispute, db) for dispute in disputes],
+        "total": total,
+        "page": page,
+        "per_page": per_page,
+    }
+
+
 async def get_buyer_dispute(order_id: int, buyer_id: int, db: AsyncSession) -> dict | None:
     order = await db.get(Order, order_id)
     if not order or order.buyer_id != buyer_id:
         return None
-    dispute = await db.scalar(select(Dispute).where(Dispute.order_id == order_id))
+    dispute = await db.scalar(
+        select(Dispute)
+        .where(Dispute.order_id == order_id)
+        .order_by(Dispute.created_at.desc())
+    )
     if not dispute:
         return None
+    return await _enrich_dispute(dispute, db)
+
+
+async def accept_dispute_resolution(order_id: int, buyer_id: int, db: AsyncSession) -> dict:
+    order = await db.get(Order, order_id, with_for_update=True)
+    if not order:
+        raise api_error(ErrorCode.ORDER_NOT_FOUND, status.HTTP_404_NOT_FOUND)
+    if order.buyer_id != buyer_id:
+        raise api_error(ErrorCode.NOT_ORDER_OWNER, status.HTTP_403_FORBIDDEN)
+    dispute = await db.scalar(
+        select(Dispute).where(
+            Dispute.order_id == order_id,
+            Dispute.status == DisputeStatus.open,
+        ).with_for_update()
+    )
+    if not dispute:
+        raise api_error(ErrorCode.DISPUTE_NOT_FOUND, status.HTTP_404_NOT_FOUND)
+    claimed = set(
+        (
+            await db.execute(
+                select(DisputeClaimResource.resource_id).where(
+                    DisputeClaimResource.dispute_id == dispute.id
+                )
+            )
+        ).scalars()
+    )
+    remedied = set(
+        (
+            await db.execute(
+                select(DisputeResourceAction.original_resource_id).where(
+                    DisputeResourceAction.dispute_id == dispute.id
+                )
+            )
+        ).scalars()
+    )
+    if claimed and claimed - remedied:
+        raise HTTPException(status_code=409, detail="Every claimed account must be remedied before acceptance")
+    if not claimed and not dispute.seller_note:
+        raise HTTPException(status_code=409, detail="The seller has not responded yet")
+
+    actions = list(
+        (
+            await db.execute(
+                select(DisputeResourceAction).where(
+                    DisputeResourceAction.dispute_id == dispute.id
+                )
+            )
+        ).scalars()
+    )
+    if any(action.action == "refund" for action in actions):
+        dispute.status = DisputeStatus.resolved_partial_refund
+    elif actions:
+        dispute.status = DisputeStatus.resolved_replace
+    else:
+        dispute.status = DisputeStatus.resolved_reject
+    dispute.resolved_at = datetime.now(timezone.utc)
+    order.status = OrderStatus.completed
+    remaining_amount = order.total_amount - order.refunded_amount
+    if remaining_amount:
+        seller = await db.get(Account, order.seller_id)
+        fee_percent = platform_fee_percent(seller.seller_tier if seller else "new")
+        platform_fee = int(remaining_amount * fee_percent / 100)
+        await release_escrow(
+            order.id,
+            order.seller_id,
+            remaining_amount,
+            platform_fee,
+            db,
+        )
+    db.add(
+        DisputeMessage(
+            dispute_id=dispute.id,
+            actor_id=buyer_id,
+            actor_role="buyer",
+            event_type="buyer_accepted",
+            body="Buyer accepted the applied resolution.",
+        )
+    )
+    from src.affiliate.service import apply_affiliate_commission
+    await apply_affiliate_commission(order, db)
+    await db.commit()
+    await db.refresh(dispute)
     return await _enrich_dispute(dispute, db)
 
 
 async def refund_dispute(dispute_id: int, admin_note: str, db: AsyncSession) -> Dispute:
     dispute = await db.get(Dispute, dispute_id, with_for_update=True)
     if not dispute:
-        raise HTTPException(status_code=404, detail="Không tìm thấy khiếu nại")
+        raise api_error(ErrorCode.DISPUTE_NOT_FOUND, status.HTTP_404_NOT_FOUND)
     if dispute.status != DisputeStatus.open:
-        raise HTTPException(status_code=400, detail="Khiếu nại đã được xử lý")
+        raise api_error(ErrorCode.DISPUTE_ALREADY_RESOLVED, status.HTTP_400_BAD_REQUEST)
 
     order = await db.get(Order, dispute.order_id, with_for_update=True)
     dispute.status = DisputeStatus.resolved_refund
@@ -271,11 +1026,18 @@ async def refund_dispute(dispute_id: int, admin_note: str, db: AsyncSession) -> 
     dispute.resolved_at = datetime.now(timezone.utc)
     order.status = OrderStatus.refunded
 
-    await refund_escrow(order.id, order.buyer_id, order.total_amount, db)
+    remaining_amount = order.total_amount - order.refunded_amount
+    if remaining_amount:
+        await refund_escrow(
+            order.id,
+            order.buyer_id,
+            remaining_amount,
+            db,
+        )
     from src.affiliate.service import clawback_commission_for_order
     await clawback_commission_for_order(order, db)
     await log_event(db, "info", f"Dispute {dispute_id} refunded", request_id=current_request_id(),
-                    metadata={"event": "dispute_refunded", "order_id": order.id, "amount": order.total_amount})
+                    metadata={"event": "dispute_refunded", "order_id": order.id, "amount": remaining_amount})
     await _enqueue_dispute_resolved(db, dispute, order)
     await db.commit()
     await db.refresh(dispute)
@@ -285,9 +1047,9 @@ async def refund_dispute(dispute_id: int, admin_note: str, db: AsyncSession) -> 
 async def reject_dispute(dispute_id: int, admin_note: str, db: AsyncSession) -> Dispute:
     dispute = await db.get(Dispute, dispute_id, with_for_update=True)
     if not dispute:
-        raise HTTPException(status_code=404, detail="Không tìm thấy khiếu nại")
+        raise api_error(ErrorCode.DISPUTE_NOT_FOUND, status.HTTP_404_NOT_FOUND)
     if dispute.status != DisputeStatus.open:
-        raise HTTPException(status_code=400, detail="Khiếu nại đã được xử lý")
+        raise api_error(ErrorCode.DISPUTE_ALREADY_RESOLVED, status.HTTP_400_BAD_REQUEST)
 
     order = await db.get(Order, dispute.order_id, with_for_update=True)
     dispute.status = DisputeStatus.resolved_reject
@@ -297,12 +1059,14 @@ async def reject_dispute(dispute_id: int, admin_note: str, db: AsyncSession) -> 
 
     seller = await db.get(Account, order.seller_id)
     fee_percent = platform_fee_percent(seller.seller_tier if seller else "new")
-    platform_fee = int(order.total_amount * fee_percent / 100)
-    await release_escrow(order.id, order.seller_id, order.total_amount, platform_fee, db)
+    remaining_amount = order.total_amount - order.refunded_amount
+    platform_fee = int(remaining_amount * fee_percent / 100)
+    if remaining_amount:
+        await release_escrow(order.id, order.seller_id, remaining_amount, platform_fee, db)
     from src.affiliate.service import apply_affiliate_commission
     await apply_affiliate_commission(order, db)
     await log_event(db, "info", f"Dispute {dispute_id} rejected", request_id=current_request_id(),
-                    metadata={"event": "dispute_rejected", "order_id": order.id, "amount": order.total_amount})
+                    metadata={"event": "dispute_rejected", "order_id": order.id, "amount": remaining_amount})
     await _enqueue_dispute_resolved(db, dispute, order)
     await db.commit()
     await db.refresh(dispute)
@@ -312,26 +1076,34 @@ async def reject_dispute(dispute_id: int, admin_note: str, db: AsyncSession) -> 
 async def partial_refund_dispute(dispute_id: int, admin_note: str, refund_amount: int, db: AsyncSession) -> Dispute:
     dispute = await db.get(Dispute, dispute_id, with_for_update=True)
     if not dispute:
-        raise HTTPException(status_code=404, detail="Không tìm thấy khiếu nại")
+        raise api_error(ErrorCode.DISPUTE_NOT_FOUND, status.HTTP_404_NOT_FOUND)
     if dispute.status != DisputeStatus.open:
-        raise HTTPException(status_code=400, detail="Khiếu nại đã được xử lý")
+        raise api_error(ErrorCode.DISPUTE_ALREADY_RESOLVED, status.HTTP_400_BAD_REQUEST)
 
     order = await db.get(Order, dispute.order_id, with_for_update=True)
-    if refund_amount <= 0 or refund_amount >= order.total_amount:
-        raise HTTPException(status_code=400, detail="Số tiền hoàn phải lớn hơn 0 và nhỏ hơn tổng giá trị đơn hàng")
+    remaining_before_refund = order.total_amount - order.refunded_amount
+    if refund_amount <= 0 or refund_amount >= remaining_before_refund:
+        raise api_error(ErrorCode.DISPUTE_INVALID_REFUND_AMOUNT, status.HTTP_400_BAD_REQUEST)
 
     dispute.status = DisputeStatus.resolved_partial_refund
     dispute.admin_note = admin_note
     dispute.resolved_at = datetime.now(timezone.utc)
     order.status = OrderStatus.completed
 
-    await refund_escrow(order.id, order.buyer_id, refund_amount, db)
-    order.total_amount -= refund_amount
+    await refund_escrow(
+        order.id,
+        order.buyer_id,
+        refund_amount,
+        db,
+        reference_suffix=f":dispute:{dispute.id}:admin-partial",
+    )
 
     seller = await db.get(Account, order.seller_id)
     fee_percent = platform_fee_percent(seller.seller_tier if seller else "new")
-    platform_fee = int(order.total_amount * fee_percent / 100)
-    await release_escrow(order.id, order.seller_id, order.total_amount, platform_fee, db)
+    remaining_amount = order.total_amount - order.refunded_amount
+    platform_fee = int(remaining_amount * fee_percent / 100)
+    if remaining_amount:
+        await release_escrow(order.id, order.seller_id, remaining_amount, platform_fee, db)
     from src.affiliate.service import apply_affiliate_commission
     await apply_affiliate_commission(order, db)
     await log_event(db, "info", f"Dispute {dispute_id} partially refunded", request_id=current_request_id(),
@@ -345,25 +1117,43 @@ async def partial_refund_dispute(dispute_id: int, admin_note: str, refund_amount
 async def replace_dispute(dispute_id: int, admin_note: str, db: AsyncSession) -> Dispute:
     dispute = await db.get(Dispute, dispute_id, with_for_update=True)
     if not dispute:
-        raise HTTPException(status_code=404, detail="Không tìm thấy khiếu nại")
+        raise api_error(ErrorCode.DISPUTE_NOT_FOUND, status.HTTP_404_NOT_FOUND)
     if dispute.status != DisputeStatus.open:
-        raise HTTPException(status_code=400, detail="Khiếu nại đã được xử lý")
+        raise api_error(ErrorCode.DISPUTE_ALREADY_RESOLVED, status.HTTP_400_BAD_REQUEST)
 
     order = await db.get(Order, dispute.order_id, with_for_update=True)
     variant = await db.get(ProductVariant, order.variant_id) if order.variant_id else None
     if not variant or variant.delivery_mode != DeliveryMode.instant:
-        raise HTTPException(status_code=400, detail="Chỉ đơn hàng giao tự động có tài nguyên mới đổi được sản phẩm")
+        raise api_error(ErrorCode.DISPUTE_REPLACEMENT_UNAVAILABLE, status.HTTP_400_BAD_REQUEST)
+
+    existing_resource_action = await db.scalar(
+        select(DisputeResourceAction.id)
+        .where(DisputeResourceAction.dispute_id == dispute.id)
+        .limit(1)
+    )
+    if existing_resource_action:
+        raise HTTPException(
+            status_code=409,
+            detail="A case with account-level remedies cannot also receive a full-order replacement",
+        )
 
     old_resources = (await db.execute(
         select(Resource).where(Resource.order_id == order.id)
     )).scalars().all()
     if not old_resources:
-        raise HTTPException(status_code=400, detail="Đơn hàng chưa có tài nguyên nào được cấp để đổi")
+        raise api_error(ErrorCode.DISPUTE_NO_RESOURCES_TO_REPLACE, status.HTTP_400_BAD_REQUEST)
 
-    await release_resources([r.id for r in old_resources], db)
+    for resource in old_resources:
+        resource.status = ResourceStatus.error
     new_resources = await claim_resources(
         variant.id, order.quantity, db, order_id=order.id, duration_days=variant.duration_days,
     )
+    refund_base, refund_remainder = divmod(
+        order.total_amount - order.refunded_amount,
+        len(new_resources),
+    )
+    for index, resource in enumerate(new_resources):
+        resource.refund_amount_cap = refund_base + (1 if index < refund_remainder else 0)
     order.delivered_data = "\n".join(r.data for r in new_resources)
 
     product = await db.get(Product, order.product_id) if order.product_id else await db.get(Product, variant.product_id)
@@ -389,11 +1179,11 @@ async def replace_dispute(dispute_id: int, admin_note: str, db: AsyncSession) ->
 async def extend_warranty_dispute(dispute_id: int, admin_note: str, extra_days: int, db: AsyncSession) -> Dispute:
     dispute = await db.get(Dispute, dispute_id, with_for_update=True)
     if not dispute:
-        raise HTTPException(status_code=404, detail="Không tìm thấy khiếu nại")
+        raise api_error(ErrorCode.DISPUTE_NOT_FOUND, status.HTTP_404_NOT_FOUND)
     if dispute.status != DisputeStatus.open:
-        raise HTTPException(status_code=400, detail="Khiếu nại đã được xử lý")
+        raise api_error(ErrorCode.DISPUTE_ALREADY_RESOLVED, status.HTTP_400_BAD_REQUEST)
     if extra_days <= 0:
-        raise HTTPException(status_code=400, detail="Số ngày gia hạn phải lớn hơn 0")
+        raise api_error(ErrorCode.DISPUTE_INVALID_EXTENSION_DAYS, status.HTTP_400_BAD_REQUEST)
 
     order = await db.get(Order, dispute.order_id, with_for_update=True)
     base = order.escrow_expires_at or datetime.now(timezone.utc)

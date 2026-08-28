@@ -148,11 +148,22 @@ async def release_escrow(order_id: int, seller_id: int, amount: int, platform_fe
         ))
 
 
-async def refund_escrow(order_id: int, buyer_id: int, amount: int, db: AsyncSession) -> None:
+async def refund_escrow(
+    order_id: int,
+    buyer_id: int,
+    amount: int,
+    db: AsyncSession,
+    *,
+    reference_suffix: str = "",
+) -> None:
     if amount <= 0:
         raise HTTPException(status_code=400, detail="Số tiền hoàn phải lớn hơn 0")
+    from src.models.order import Order
+    order = await db.get(Order, order_id, with_for_update=True)
+    if not order or order.buyer_id != buyer_id or amount > order.total_amount - order.refunded_amount:
+        raise HTTPException(status_code=400, detail="Số tiền hoàn vượt quá số dư ký quỹ")
     buyer_wallet = await get_wallet_by_account(buyer_id, db, for_update=True)
-    reference_id = f"order-{order_id}"
+    reference_id = f"order-{order_id}{reference_suffix}"
     existing = await db.scalar(
         select(Transaction.id).where(
             Transaction.type == TransactionType.refund,
@@ -161,6 +172,7 @@ async def refund_escrow(order_id: int, buyer_id: int, amount: int, db: AsyncSess
     )
     if existing:
         return
+    order.refunded_amount += amount
     buyer_wallet.available_balance += amount
     db.add(Transaction(
         wallet_id=buyer_wallet.id, type=TransactionType.refund,

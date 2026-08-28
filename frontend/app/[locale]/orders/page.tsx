@@ -60,9 +60,12 @@ export default function OrdersPage() {
     variantName?: string | null;
     initialReason?: string;
     initialEvidence?: Record<string, string>;
+    resourceIds?: number[];
+    appendToExisting?: boolean;
   } | null>(null);
 
   const [confirmingId, setConfirmingId] = useState<number | null>(null);
+  const [disputeRevision, setDisputeRevision] = useState(0);
   const [toast, setToast] = useState("");
   const [reviewedOrders, setReviewedOrders] = useState<Set<number>>(new Set());
   const [plateOrders, setPlateOrders] = useState<Set<number>>(new Set());
@@ -127,6 +130,7 @@ export default function OrdersPage() {
 
   function handleDisputeSuccess() {
     setDisputeTarget(null);
+    setDisputeRevision((revision) => revision + 1);
     showToast(t("disputeSuccess"));
     queryClient.invalidateQueries({ queryKey: ["orders"] });
     queryClient.invalidateQueries({ queryKey: queryKeys.orderStats() });
@@ -179,6 +183,8 @@ export default function OrdersPage() {
           variantName={disputeTarget.variantName}
           initialReason={disputeTarget.initialReason}
           initialEvidence={disputeTarget.initialEvidence}
+          resourceIds={disputeTarget.resourceIds}
+          appendToExisting={disputeTarget.appendToExisting}
           onClose={() => setDisputeTarget(null)}
           onSuccess={handleDisputeSuccess}
         />
@@ -191,12 +197,15 @@ export default function OrdersPage() {
           onClose={() => setSelectedOrder(null)}
           onConfirm={handleConfirm}
           confirming={confirmingId === selectedOrder.id}
+          disputeRevision={disputeRevision}
           onOpenDispute={(orderId, options) => {
             setDisputeTarget({
               orderId,
               variantName: options?.variantName ?? selectedOrder.variant_name,
               initialReason: options?.initialReason,
               initialEvidence: options?.initialEvidence,
+              resourceIds: options?.resourceIds,
+              appendToExisting: selectedOrder.has_dispute,
             });
           }}
           onOpenReview={() => {}}
@@ -481,7 +490,7 @@ export default function OrdersPage() {
         <div className="rounded-2xl border border-line bg-surface shadow-xs overflow-hidden">
           <div className="overflow-x-auto">
             <table className="w-full text-left text-[13px]">
-              <thead className="bg-raised/70 border-b border-line text-[11px] font-semibold uppercase tracking-wider text-muted">
+              <thead className="bg-raised/70 border-b border-line text-[11px] font-semibold uppercase tracking-wider text-muted whitespace-nowrap">
                 <tr>
                   <th className="py-3.5 pl-4 pr-3 w-36">{t("quickActions")}</th>
                   <th className="py-3.5 px-3 w-32">{t("orderCode")}</th>

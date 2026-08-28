@@ -14,6 +14,8 @@ export default function DisputeModal({
   initialReason,
   initialEvidenceType,
   initialEvidence,
+  resourceIds,
+  appendToExisting,
   onClose,
   onSuccess,
 }: {
@@ -22,6 +24,8 @@ export default function DisputeModal({
   initialReason?: string;
   initialEvidenceType?: string;
   initialEvidence?: Record<string, string>;
+  resourceIds?: number[];
+  appendToExisting?: boolean;
   onClose: () => void;
   onSuccess: () => void;
 }) {
@@ -45,12 +49,17 @@ export default function DisputeModal({
       const evidence = Object.fromEntries(
         Object.entries(evidenceValues).filter(([, v]) => v.trim() !== ""),
       );
-      await api.openDispute(
-        orderId,
-        reason.trim(),
-        evidenceType || undefined,
-        Object.keys(evidence).length > 0 ? evidence : undefined,
-      );
+      if (appendToExisting) {
+        await api.appendDisputeClaims(orderId, reason.trim(), resourceIds ?? []);
+      } else {
+        await api.openDispute(
+          orderId,
+          reason.trim(),
+          evidenceType || undefined,
+          Object.keys(evidence).length > 0 ? evidence : undefined,
+          resourceIds,
+        );
+      }
       onSuccess();
     } catch (e: unknown) {
       setError(apiErrorMessage(e));
@@ -62,7 +71,14 @@ export default function DisputeModal({
   return (
     <Dialog open onOpenChange={(open) => { if (!open) onClose(); }}>
       <DialogContent className="max-w-[420px] border-line bg-surface p-6 gap-4 max-h-[90vh] overflow-y-auto">
-        <DialogTitle className="text-[16px] font-semibold">{t("disputeTitle", { id: orderId })}</DialogTitle>
+        <DialogTitle className="text-[16px] font-semibold">
+          {appendToExisting ? t("addClaimTitle", { count: resourceIds?.length ?? 0 }) : t("disputeTitle", { id: orderId })}
+        </DialogTitle>
+        {!!resourceIds?.length && (
+          <p className="rounded-lg border border-bad/20 bg-bad-soft/25 px-3 py-2 text-[12px] text-muted">
+            {t("selectedAccounts", { count: resourceIds.length })}
+          </p>
+        )}
         <Textarea rows={4} placeholder={t("disputeReasonPh")} value={reason} onChange={(e) => setReason(e.target.value)} />
 
         <div className="space-y-1">

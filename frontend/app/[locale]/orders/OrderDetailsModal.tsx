@@ -1,6 +1,6 @@
 "use client";
 
-import React, { useState, useMemo } from "react";
+import React, { useEffect, useState, useMemo } from "react";
 import { useLocale, useTranslations } from "next-intl";
 import {
   X,
@@ -23,7 +23,8 @@ import {
 import { canOpenDispute, orderStatus } from "@/lib/order-status";
 import { formatDate, formatDateTime } from "@/lib/utils";
 import { useMoney } from "@/lib/money";
-import type { Order } from "@/lib/types";
+import { api } from "@/lib/api";
+import type { Order, Resource } from "@/lib/types";
 import { parseCoverId, ProductCover } from "@/features/product-covers";
 import { Button, Tag } from "@/components/ui";
 import { Dialog, DialogContent } from "@/components/ui/dialog";
@@ -38,7 +39,8 @@ interface ParsedItem {
   raw: string;
   user?: string;
   pass?: string;
-  resourceId?: string | null;
+  resourceId?: number | null;
+  resourceStatus?: string;
   isConfigOrInstruction?: boolean;
 }
 
@@ -47,6 +49,7 @@ export default function OrderDetailsModal({
   onClose,
   onConfirm,
   confirming,
+  disputeRevision,
   onOpenDispute,
   onOpenReview,
   reviewDone,
@@ -58,7 +61,8 @@ export default function OrderDetailsModal({
   onClose: () => void;
   onConfirm: (orderId: number) => void;
   confirming: boolean;
-  onOpenDispute: (orderId: number, options?: { variantName?: string | null; initialReason?: string; initialEvidence?: Record<string, string> }) => void;
+  disputeRevision: number;
+  onOpenDispute: (orderId: number, options?: { variantName?: string | null; initialReason?: string; initialEvidence?: Record<string, string>; resourceIds?: number[] }) => void;
   onOpenReview: (orderId: number) => void;
   reviewDone?: boolean;
   onReviewDone: (orderId: number, ok: boolean, message: string) => void;
@@ -82,13 +86,13 @@ export default function OrderDetailsModal({
       .filter(Boolean);
   }, [o.delivered_data]);
 
-  const items: ParsedItem[] = useMemo(() => {
+  const parsedItems: ParsedItem[] = useMemo(() => {
     return lines.map((line, idx) => {
       // Check if line contains a resource ID pattern like: id:123, [123], #123, ID=123, res_123
       const idMatch =
         line.match(/(?:^|[\s|;,])(?:id|resource|res|item)[_:\s#=]+([a-zA-Z0-9_-]+)/i) ||
         line.match(/^\[#?([a-zA-Z0-9_-]+)\]/);
-      const customId = idMatch ? idMatch[1] : null;
+      const customId = idMatch && /^\d+$/.test(idMatch[1]) ? Number(idMatch[1]) : null;
 
       // Detect if line is instruction / gateway / service / endpoint config rather than raw stock item
       const isConfig =
@@ -112,6 +116,49 @@ export default function OrderDetailsModal({
       };
     });
   }, [lines]);
+
+  const [resources, setResources] = useState<Resource[]>([]);
+  const [selectedResourceIds, setSelectedResourceIds] = useState<Set<number>>(new Set());
+  const [claimedResourceIds, setClaimedResourceIds] = useState<Set<number>>(new Set());
+
+  useEffect(() => {
+    setSelectedResourceIds(new Set());
+  }, [disputeRevision]);
+
+  useEffect(() => {
+    let active = true;
+    Promise.all([
+      api.orderResources(o.id),
+      o.has_dispute ? api.orderDispute(o.id).catch(() => null) : Promise.resolve(null),
+    ])
+      .then(([rows, dispute]) => {
+        if (!active) return;
+        setResources(rows);
+        setClaimedResourceIds(new Set(dispute?.claimed_resource_ids ?? []));
+      })
+      .catch(() => {
+        if (!active) return;
+        setResources([]);
+        setClaimedResourceIds(new Set());
+      });
+    return () => { active = false; };
+  }, [o.has_dispute, o.id, disputeRevision]);
+
+  const items: ParsedItem[] = useMemo(() => {
+    if (resources.length === 0) return parsedItems;
+    return resources.map((resource, idx) => {
+      const parts = resource.data.split(/[|:]/);
+      return {
+        id: idx + 1,
+        raw: resource.data,
+        user: parts[0] || "",
+        pass: parts[1] || "",
+        resourceId: resource.id,
+        resourceStatus: resource.status,
+        isConfigOrInstruction: false,
+      };
+    });
+  }, [parsedItems, resources]);
 
   const isServiceDelivery = useMemo(() => {
     if (items.length === 0) return false;
@@ -145,7 +192,26 @@ export default function OrderDetailsModal({
   const delivered = o.status === "delivered" || o.status === "completed";
   const mayHaveProxy = delivered && o.product_id != null;
   const isDelivered = o.status === "delivered";
-  const canDispute = canOpenDispute(o.status, o.escrow_expires_at);
+  const canDispute = o.status === "disputed" || canOpenDispute(o.status, o.escrow_expires_at);
+
+  const toggleResource = (resourceId: number) => {
+    setSelectedResourceIds((current) => {
+      const next = new Set(current);
+      if (next.has(resourceId)) next.delete(resourceId); else next.add(resourceId);
+      return next;
+    });
+  };
+
+  const openSelectedDispute = () => {
+    const resourceIds = [...selectedResourceIds];
+    if (resourceIds.length === 0) return;
+    onOpenDispute(o.id, {
+      variantName: o.variant_name,
+      resourceIds,
+      initialReason: t("reasonSelectedAccounts", { count: resourceIds.length }),
+      initialEvidence: { issue: t("evidenceIssueItem") },
+    });
+  };
 
   const handleCopySingle = (id: number, text: string) => {
     navigator.clipboard.writeText(text);
@@ -353,15 +419,41 @@ export default function OrderDetailsModal({
                   </div>
                 </div>
 
+                {selectedResourceIds.size > 0 && (
+                  <div className="sticky top-0 z-10 flex items-center justify-between gap-3 rounded-xl border border-bad/25 bg-surface px-3.5 py-2.5 shadow-card">
+                    <div className="text-[12px] font-semibold text-fg">
+                      {t("selectedAccounts", { count: selectedResourceIds.size })}
+                    </div>
+                    <div className="flex items-center gap-2">
+                      <Button size="sm" variant="ghost" onClick={() => setSelectedResourceIds(new Set())}>{tc("cancel")}</Button>
+                      <Button size="sm" variant="danger" onClick={openSelectedDispute}>
+                        <AlertTriangle size={13} className="mr-1" />
+                        {o.has_dispute ? t("addToDispute") : t("openDisputeSelected")}
+                      </Button>
+                    </div>
+                  </div>
+                )}
+
                 {/* Paginated Resource Table (Supports up to 10,000 lines without DOM lag) */}
                 <div className="max-h-[380px] overflow-y-auto rounded-xl border border-line divide-y divide-line bg-canvas">
                   {paginatedItems.map((item, idx) => {
                     const globalIdx = (itemPage - 1) * itemsPerPage + idx + 1;
                     const isCopied = copiedKey === item.id;
+                    const alreadyClaimed = !!item.resourceId && claimedResourceIds.has(item.resourceId);
                     const showRowIndex = !item.isConfigOrInstruction && !isServiceDelivery && items.length > 1;
                     return (
                       <div key={item.id} className="flex items-center justify-between p-2.5 hover:bg-raised/50 text-[12px] group">
                         <div className="flex items-center gap-2 min-w-0 pr-2">
+                          {item.resourceId && (
+                            <input
+                              type="checkbox"
+                              aria-label={t("selectAccount", { id: item.resourceId })}
+                              checked={selectedResourceIds.has(item.resourceId)}
+                              disabled={!canDispute || item.resourceStatus !== "assigned" || alreadyClaimed}
+                              onChange={() => toggleResource(item.resourceId!)}
+                              className="h-4 w-4 shrink-0 accent-iris disabled:opacity-35"
+                            />
+                          )}
                           {item.resourceId ? (
                             <span className="font-mono text-[10.5px] font-bold text-iris bg-iris-soft px-1.5 py-0.5 rounded shrink-0">
                               #{item.resourceId}
@@ -371,6 +463,11 @@ export default function OrderDetailsModal({
                               #{String(globalIdx).padStart(4, "0")}
                             </span>
                           ) : null}
+                          {alreadyClaimed && (
+                            <span className="shrink-0 rounded-md bg-warn-soft px-1.5 py-0.5 text-[10.5px] font-semibold text-warn">
+                              {t("accountAlreadyClaimed")}
+                            </span>
+                          )}
                           <span className="font-mono font-medium text-fg break-all select-all">
                             {item.raw}
                           </span>
@@ -378,7 +475,7 @@ export default function OrderDetailsModal({
 
                         <div className="flex items-center gap-1.5 shrink-0">
                           {/* Dedicated Dispute Button for This Specific Item / Variant */}
-                          {canDispute && (
+                          {canDispute && !alreadyClaimed && (
                             <button
                               title={t("disputeThisItem")}
                               onClick={() => {
@@ -386,6 +483,7 @@ export default function OrderDetailsModal({
                                   variantName: o.variant_name,
                                   initialReason: t("reasonItemPrefix", { n: globalIdx, raw: item.raw }),
                                   initialEvidence: { username: item.user || item.raw, issue: t("evidenceIssueItem") },
+                                  resourceIds: item.resourceId ? [item.resourceId] : undefined,
                                 });
                               }}
                               className="opacity-0 group-hover:opacity-100 rounded-lg px-2 py-1 text-[11px] text-bad hover:bg-bad-soft transition-opacity cursor-pointer flex items-center gap-1"
@@ -513,7 +611,7 @@ export default function OrderDetailsModal({
             {/* Dispute information */}
             {o.has_dispute && (
               <div className="rounded-xl border border-bad/30 bg-bad-soft/20 p-4">
-                <OrderDispute orderId={o.id} />
+                <OrderDispute orderId={o.id} refreshKey={disputeRevision} />
               </div>
             )}
 

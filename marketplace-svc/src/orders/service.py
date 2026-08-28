@@ -2,7 +2,7 @@ import asyncio
 from datetime import datetime, timedelta, timezone
 
 import structlog
-from fastapi import HTTPException, status
+from fastapi import status
 from sqlalchemy import func, select
 from sqlalchemy.ext.asyncio import AsyncSession
 
@@ -75,6 +75,9 @@ async def create_order(buyer_id: int, variant_id: int, quantity: int, db: AsyncS
         resources = await claim_resources(
             variant_id, quantity, db, order_id=order.id, duration_days=variant.duration_days,
         )
+        refund_base, refund_remainder = divmod(total, len(resources))
+        for index, resource in enumerate(resources):
+            resource.refund_amount_cap = refund_base + (1 if index < refund_remainder else 0)
         order.delivered_data = "\n".join(r.data for r in resources)
         rid = current_request_id()
         await log_event(db, "info", f"Order {order.id} placed (instant)", request_id=rid,
@@ -456,12 +459,14 @@ async def confirm_order(order_id: int, buyer_id: int, db: AsyncSession) -> Order
     order.status = OrderStatus.completed
     seller = await db.get(Account, order.seller_id)
     fee_percent = platform_fee_percent(seller.seller_tier if seller else "new")
-    platform_fee = int(order.total_amount * fee_percent / 100)
-    await release_escrow(order.id, order.seller_id, order.total_amount, platform_fee, db=db)
+    remaining_amount = order.total_amount - order.refunded_amount
+    platform_fee = int(remaining_amount * fee_percent / 100)
+    if remaining_amount:
+        await release_escrow(order.id, order.seller_id, remaining_amount, platform_fee, db=db)
     from src.affiliate.service import apply_affiliate_commission
     await apply_affiliate_commission(order, db)
     await log_event(db, "info", f"Order {order.id} confirmed by buyer", request_id=current_request_id(),
-                    metadata={"event": "order_confirmed", "order_id": order.id, "amount": order.total_amount})
+                    metadata={"event": "order_confirmed", "order_id": order.id, "amount": remaining_amount})
     await db.commit()
     await db.refresh(order)
     return order
@@ -652,7 +657,7 @@ async def accept_order(order_id: int, seller_id: int, db: AsyncSession) -> Order
 async def get_admin_order_detail(order_id: int, db: AsyncSession) -> dict:
     order = await db.get(Order, order_id)
     if not order:
-        raise HTTPException(status_code=404, detail="Không tìm thấy đơn hàng")
+        raise api_error(ErrorCode.ORDER_NOT_FOUND, status.HTTP_404_NOT_FOUND)
     enriched = await _enrich_order(order, db)
 
     resources_result = await db.execute(

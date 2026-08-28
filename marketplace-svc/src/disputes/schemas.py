@@ -9,6 +9,15 @@ class DisputeCreate(BaseModel):
     reason: str = Field(min_length=1, max_length=2000)
     evidence_type: str | None = Field(default=None, max_length=50)
     evidence: dict[str, str] | None = None
+    resource_ids: list[int] | None = Field(default=None, max_length=500)
+    idempotency_key: str | None = Field(default=None, min_length=8, max_length=128)
+
+    @field_validator("resource_ids")
+    @classmethod
+    def unique_resource_ids(cls, value: list[int] | None) -> list[int] | None:
+        if value is not None and (not value or len(set(value)) != len(value)):
+            raise ValueError("resource_ids must be non-empty and unique")
+        return value
 
     @field_validator("evidence")
     @classmethod
@@ -34,6 +43,43 @@ class SellerDisputeRespond(BaseModel):
     seller_note: str = Field(min_length=1, max_length=2000)
 
 
+class DisputeClaimAppend(BaseModel):
+    resource_ids: list[int] = Field(min_length=1, max_length=500)
+    reason: str = Field(min_length=1, max_length=2000)
+    idempotency_key: str = Field(min_length=8, max_length=128)
+
+    @field_validator("resource_ids")
+    @classmethod
+    def unique_claim_resources(cls, value: list[int]) -> list[int]:
+        if len(set(value)) != len(value):
+            raise ValueError("resource_ids must be unique")
+        return value
+
+
+class DisputeMessageCreate(BaseModel):
+    body: str = Field(min_length=1, max_length=2000)
+    idempotency_key: str = Field(min_length=8, max_length=128)
+
+
+class SellerResourceAction(BaseModel):
+    resource_ids: list[int] = Field(min_length=1, max_length=500)
+    action: str = Field(pattern="^(replace|refund)$")
+    replacement_resource_ids: list[int] | None = Field(default=None, max_length=500)
+    idempotency_key: str = Field(min_length=8, max_length=128)
+    seller_note: str | None = Field(default=None, max_length=2000)
+
+    @field_validator("resource_ids", "replacement_resource_ids")
+    @classmethod
+    def unique_resources(cls, value: list[int] | None) -> list[int] | None:
+        if value is not None and len(set(value)) != len(value):
+            raise ValueError("resource IDs must be unique")
+        return value
+
+
+class SellerDisputeEscalate(BaseModel):
+    seller_note: str = Field(min_length=1, max_length=2000)
+
+
 class DisputeResponse(BaseModel):
     id: int
     order_id: int
@@ -50,6 +96,10 @@ class DisputeResponse(BaseModel):
     variant_name: str | None = None
     buyer_email: str | None = None
     order_amount: int | None = None
+    refunded_amount: int = 0
+    claimed_resource_ids: list[int] = Field(default_factory=list)
+    resource_actions: list[dict] = Field(default_factory=list)
+    timeline: list[dict] = Field(default_factory=list)
 
     model_config = {"from_attributes": True}
 

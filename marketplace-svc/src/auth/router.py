@@ -42,9 +42,9 @@ async def _enforce_auth_limit(key: str, limit: int) -> None:
             "auth_rate_limited",
             bucket_type=":".join(key.split(":")[1:3]),
         )
-        raise HTTPException(
-            status_code=status.HTTP_429_TOO_MANY_REQUESTS,
-            detail="Quá nhiều yêu cầu, vui lòng thử lại sau",
+        raise api_error(
+            ErrorCode.AUTH_RATE_LIMITED,
+            status.HTTP_429_TOO_MANY_REQUESTS,
             headers={"Retry-After": str(settings.auth_rate_limit_window_seconds)},
         )
 

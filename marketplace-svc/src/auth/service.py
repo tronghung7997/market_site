@@ -10,7 +10,7 @@ from sqlalchemy.ext.asyncio import AsyncSession
 
 from src.config import settings
 from src.audit.service import log_event
-from src.exceptions import DuplicateEmail
+from src.exceptions import DuplicateEmail, ErrorCode, api_error
 from src.logging import current_request_id
 from src.models.account import Account, PasswordResetToken
 from src.models.wallet import Wallet
@@ -127,7 +127,7 @@ async def authenticate(email: str, password: str, db: AsyncSession) -> Account:
             principal_fingerprint=principal_fingerprint(email),
             reason="invalid_credentials",
         )
-        raise HTTPException(status_code=status.HTTP_401_UNAUTHORIZED, detail="Email hoặc mật khẩu không đúng")
+        raise api_error(ErrorCode.INVALID_CREDENTIALS, status.HTTP_401_UNAUTHORIZED)
     security_event(
         "auth_login_success",
         level="info",

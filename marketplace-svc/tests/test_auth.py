@@ -160,6 +160,7 @@ async def test_login_wrong_password(client):
     await client.post("/auth/register", json={"email": "wp@example.com", "password": "StrongPass123!"})
     response = await client.post("/auth/login", json={"email": "wp@example.com", "password": "wrong"})
     assert response.status_code == 401
+    assert response.json()["error_code"] == "INVALID_CREDENTIALS"
 
 
 @pytest.mark.asyncio

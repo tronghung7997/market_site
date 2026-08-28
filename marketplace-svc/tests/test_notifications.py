@@ -81,6 +81,7 @@ async def test_seller_action_items_pending_order_and_alert(client):
     assert resp.status_code == 200
     items = {i["key"]: i for i in resp.json()}
     assert items["seller_pending_orders"]["count"] == 1
+    assert items["seller_pending_orders"]["href"] == "/seller/orders?tab=action_required"
     assert items[f"alert_{alert_id}"]["dismissible"] is True
     assert items[f"alert_{alert_id}"]["alert_id"] == alert_id
 
@@ -95,6 +96,7 @@ async def test_seller_action_items_open_dispute_no_note(client):
     resp = await client.get("/seller/action-items", headers={"Authorization": f"Bearer {seller_token}"})
     items = {i["key"]: i for i in resp.json()}
     assert items["seller_open_disputes"]["count"] == 1
+    assert items["seller_open_disputes"]["href"] == "/seller/orders?tab=disputed"
 
     disputes = await client.get("/admin/disputes", headers={"Authorization": f"Bearer {admin_token}"})
     dispute_id = disputes.json()[-1]["id"]

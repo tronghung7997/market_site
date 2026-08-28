@@ -51,7 +51,7 @@ def _alert_item(alert: Alert, href: str) -> ActionItem:
     return ActionItem(
         key=_INBOX_ALERT_KEYS.get(alert.type, f"alert_{alert.id}"),
         severity=alert.severity, label=alert.message,
-        count=1, href=href, dismissible=True, alert_id=alert.id,
+        count=1, href=alert.href or href, dismissible=True, alert_id=alert.id,
     )
 
 
@@ -85,7 +85,7 @@ async def buyer_action_items(buyer_id: int, db: AsyncSession) -> list[ActionItem
         items.append(ActionItem(
             key="buyer_low_balance", severity="warning",
             label=f"{low_balance} đơn sắp hết hạn mức sử dụng",
-            count=low_balance, href="/orders",
+            count=low_balance, href="/orders?status=active",
         ))
 
     seller_responded = await db.scalar(
@@ -133,7 +133,7 @@ async def seller_action_items(seller_id: int, db: AsyncSession) -> list[ActionIt
         items.append(ActionItem(
             key="seller_pending_orders", severity="warning",
             label=f"{stats['pending_orders']} orders need confirmation",
-            count=stats["pending_orders"], href="/seller/orders",
+            count=stats["pending_orders"], href="/seller/orders?tab=action_required",
         ))
 
     open_disputes = await list_seller_open_disputes(seller_id, db)
@@ -141,7 +141,7 @@ async def seller_action_items(seller_id: int, db: AsyncSession) -> list[ActionIt
         items.append(ActionItem(
             key="seller_open_disputes", severity="critical",
             label=f"{len(open_disputes)} disputes need your response",
-            count=len(open_disputes), href="/seller/orders",
+            count=len(open_disputes), href="/seller/orders?tab=disputed",
         ))
 
     for alert in await list_seller_alerts(seller_id, db):

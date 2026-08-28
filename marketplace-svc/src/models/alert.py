@@ -15,6 +15,7 @@ class Alert(Base):
     target_type: Mapped[str] = mapped_column(String(50), nullable=False)
     target_id: Mapped[int] = mapped_column(Integer, nullable=False)
     message: Mapped[str] = mapped_column(Text, nullable=False)
+    href: Mapped[str | None] = mapped_column(String(500), nullable=True)
     is_active: Mapped[bool] = mapped_column(default=True)
     # Incident identity for repeatable operational conditions (see upsert_incident).
     # One-off alerts (e.g. dispute_opened) leave this NULL.

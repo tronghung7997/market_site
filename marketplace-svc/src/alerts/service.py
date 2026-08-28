@@ -42,6 +42,7 @@ async def add_alert(
     target_type: str,
     target_id: int,
     message: str,
+    href: str | None = None,
     fingerprint: str | None = None,
 ) -> Alert:
     """Add a one-off alert to the caller transaction. Never commits.
@@ -57,6 +58,7 @@ async def add_alert(
         target_type=target_type,
         target_id=target_id,
         message=message,
+        href=href,
         fingerprint=fingerprint,
         is_active=True,
         first_seen_at=now,

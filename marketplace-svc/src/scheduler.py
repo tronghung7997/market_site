@@ -18,7 +18,7 @@ from src.models.provider import Provider, ProviderHealth
 from src.models.resource import Resource, ResourceStatus
 from src.providers.service import apply_scores
 from src.sellers.tiers import platform_fee_percent
-from src.wallet.service import refund_escrow, release_escrow
+from src.wallet.service import escrow_settlement, refund_escrow, release_escrow
 
 logger = structlog.get_logger()
 
@@ -45,8 +45,9 @@ async def escrow_release_job() -> None:
                     continue
                 seller = await db.get(Account, order.seller_id)
                 fee_percent = platform_fee_percent(seller.seller_tier if seller else "new")
-                remaining_amount = order.total_amount - order.refunded_amount
-                platform_fee = int(remaining_amount * fee_percent / 100)
+                remaining_amount, platform_fee = escrow_settlement(
+                    order.total_amount, order.refunded_amount, fee_percent
+                )
                 if remaining_amount:
                     await release_escrow(order.id, order.seller_id, remaining_amount, platform_fee, db)
                 order.status = OrderStatus.completed

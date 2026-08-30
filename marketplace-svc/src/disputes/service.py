@@ -21,7 +21,7 @@ from src.models.resource import Resource, ResourceStatus
 from src.resources.service import claim_resources
 from src.sellers.tiers import escrow_days as tier_escrow_days
 from src.sellers.tiers import platform_fee_percent
-from src.wallet.service import refund_escrow, release_escrow
+from src.wallet.service import escrow_settlement, refund_escrow, release_escrow
 from src.exceptions import ErrorCode, api_error
 
 _DISPUTE_OUTCOME = {
@@ -977,19 +977,23 @@ async def accept_dispute_resolution(order_id: int, buyer_id: int, db: AsyncSessi
             )
         ).scalars()
     )
-    if any(action.action == "refund" for action in actions):
+    fully_refunded = order.refunded_amount == order.total_amount
+    if fully_refunded:
+        dispute.status = DisputeStatus.resolved_refund
+    elif any(action.action == "refund" for action in actions):
         dispute.status = DisputeStatus.resolved_partial_refund
     elif actions:
         dispute.status = DisputeStatus.resolved_replace
     else:
         dispute.status = DisputeStatus.resolved_reject
     dispute.resolved_at = datetime.now(timezone.utc)
-    order.status = OrderStatus.completed
-    remaining_amount = order.total_amount - order.refunded_amount
+    order.status = OrderStatus.refunded if fully_refunded else OrderStatus.completed
+    seller = await db.get(Account, order.seller_id)
+    fee_percent = platform_fee_percent(seller.seller_tier if seller else "new")
+    remaining_amount, platform_fee = escrow_settlement(
+        order.total_amount, order.refunded_amount, fee_percent
+    )
     if remaining_amount:
-        seller = await db.get(Account, order.seller_id)
-        fee_percent = platform_fee_percent(seller.seller_tier if seller else "new")
-        platform_fee = int(remaining_amount * fee_percent / 100)
         await release_escrow(
             order.id,
             order.seller_id,
@@ -1006,8 +1010,12 @@ async def accept_dispute_resolution(order_id: int, buyer_id: int, db: AsyncSessi
             body="Buyer accepted the applied resolution.",
         )
     )
-    from src.affiliate.service import apply_affiliate_commission
-    await apply_affiliate_commission(order, db)
+    if fully_refunded:
+        from src.affiliate.service import clawback_commission_for_order
+        await clawback_commission_for_order(order, db)
+    else:
+        from src.affiliate.service import apply_affiliate_commission
+        await apply_affiliate_commission(order, db)
     await db.commit()
     await db.refresh(dispute)
     return await _enrich_dispute(dispute, db)
@@ -1059,8 +1067,9 @@ async def reject_dispute(dispute_id: int, admin_note: str, db: AsyncSession) -> 
 
     seller = await db.get(Account, order.seller_id)
     fee_percent = platform_fee_percent(seller.seller_tier if seller else "new")
-    remaining_amount = order.total_amount - order.refunded_amount
-    platform_fee = int(remaining_amount * fee_percent / 100)
+    remaining_amount, platform_fee = escrow_settlement(
+        order.total_amount, order.refunded_amount, fee_percent
+    )
     if remaining_amount:
         await release_escrow(order.id, order.seller_id, remaining_amount, platform_fee, db)
     from src.affiliate.service import apply_affiliate_commission
@@ -1100,8 +1109,9 @@ async def partial_refund_dispute(dispute_id: int, admin_note: str, refund_amount
 
     seller = await db.get(Account, order.seller_id)
     fee_percent = platform_fee_percent(seller.seller_tier if seller else "new")
-    remaining_amount = order.total_amount - order.refunded_amount
-    platform_fee = int(remaining_amount * fee_percent / 100)
+    remaining_amount, platform_fee = escrow_settlement(
+        order.total_amount, order.refunded_amount, fee_percent
+    )
     if remaining_amount:
         await release_escrow(order.id, order.seller_id, remaining_amount, platform_fee, db)
     from src.affiliate.service import apply_affiliate_commission

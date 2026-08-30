@@ -3,11 +3,17 @@
 Run:  marketplace-svc/.venv/bin/python marketplace-svc/scripts/seed_demo.py
 """
 import asyncio
+import hashlib
+import hmac
 import json
 import os
+import time
 
 import asyncpg
 import httpx
+from dotenv import load_dotenv
+
+load_dotenv()
 
 BASE = "http://localhost:8001"
 DB = "postgresql://marketplace:marketplace@localhost:5432/marketplace"
@@ -24,6 +30,26 @@ DPROXY_BASE_URL = os.environ.get("MOCK_DPROXY_BASE_URL", "http://127.0.0.1:9201"
 DPROXY_API_KEY = os.environ.get("MOCK_DPROXY_API_KEY", "mock-dproxy-token")
 DPROXY_PROVIDER_NAME = "DProxy Demo"
 DPROXY_PRODUCT_TITLE = "Proxy xoay IP - Demo"
+
+BFF_SIGNING_SECRET = os.environ["BFF_REQUEST_SIGNING_SECRET"]
+BFF_SIGNING_KEY_ID = os.environ.get("BFF_REQUEST_SIGNING_KEY_ID", "market-bff-v1")
+
+
+async def sign_request(request: httpx.Request) -> None:
+    """Sign direct seed requests using the same contract as the Next BFF."""
+    timestamp = str(int(time.time()))
+    target = request.url.raw_path.decode("ascii")
+    body = request.content or b""
+    canonical = b"\n".join((
+        request.method.upper().encode("ascii"),
+        target.encode("ascii"),
+        timestamp.encode("ascii"),
+        hashlib.sha256(body).hexdigest().encode("ascii"),
+    ))
+    signature = hmac.new(BFF_SIGNING_SECRET.encode(), canonical, hashlib.sha256).hexdigest()
+    request.headers["x-api-key"] = BFF_SIGNING_KEY_ID
+    request.headers["x-timestamp"] = timestamp
+    request.headers["x-signature"] = f"v1={signature}"
 
 
 # ---------------------------------------------------------------------------
@@ -313,7 +339,10 @@ async def reg(c, email):
 
 
 async def login(c, email):
-    r = await c.post("/auth/login", json={"email": email, "password": PW})
+    endpoint = "/auth/admin/login" if email == ADMIN else "/auth/login"
+    r = await c.post(endpoint, json={"email": email, "password": PW})
+    if r.status_code != 200:
+        raise RuntimeError(f"Login failed for {email}: {r.status_code} {r.text}")
     return {"Authorization": f"Bearer {r.json()['access_token']}"}
 
 
@@ -520,7 +549,11 @@ async def seed_dproxy(c: httpx.AsyncClient, conn, admin: dict, seller: dict, fla
 
 
 async def main():
-    async with httpx.AsyncClient(base_url=BASE, timeout=10) as c:
+    async with httpx.AsyncClient(
+        base_url=BASE,
+        timeout=10,
+        event_hooks={"request": [sign_request]},
+    ) as c:
         for e in (ADMIN, SELLER, BUYER):
             await reg(c, e)
 

@@ -14,6 +14,17 @@ from src.models.wallet import (
 from src.sellers.tiers import withdraw_limit
 
 
+def escrow_settlement(total_amount: int, refunded_amount: int, fee_percent: float) -> tuple[int, int]:
+    """Return the remaining escrow and platform fee paid at final settlement."""
+    if total_amount < 0 or refunded_amount < 0 or refunded_amount > total_amount:
+        raise ValueError("Invalid order refund totals")
+    if fee_percent < 0 or fee_percent > 100:
+        raise ValueError("Invalid platform fee percentage")
+    remaining_amount = total_amount - refunded_amount
+    platform_fee = int(remaining_amount * fee_percent / 100)
+    return remaining_amount, platform_fee
+
+
 async def get_wallet_by_account(
     account_id: int,
     db: AsyncSession,

@@ -1,6 +1,7 @@
 import asyncio
 
 import pytest
+from pydantic import ValidationError
 from sqlalchemy import select
 
 from src.database import SessionLocal
@@ -8,6 +9,49 @@ from src.models.order import Order, OrderStatus
 from src.models.wallet import Transaction, TransactionType
 from tests.conftest import make_admin, make_seller, register_and_login
 from tests.test_orders import setup_adapter_product
+
+
+@pytest.mark.no_db
+def test_dispute_resource_contract_accepts_two_thousand_items_but_not_more():
+    from src.disputes.schemas import DisputeClaimAppend, SellerResourceAction
+
+    resource_ids = list(range(1, 2001))
+    claim = DisputeClaimAppend(
+        resource_ids=resource_ids,
+        reason="Bulk account failures",
+        idempotency_key="bulk-claim-2000",
+    )
+    remedy = SellerResourceAction(
+        resource_ids=resource_ids,
+        action="refund",
+        idempotency_key="bulk-refund-2000",
+    )
+    assert len(claim.resource_ids) == 2000
+    assert len(remedy.resource_ids) == 2000
+
+    with pytest.raises(ValidationError):
+        DisputeClaimAppend(
+            resource_ids=list(range(1, 2002)),
+            reason="Too many",
+            idempotency_key="bulk-claim-2001",
+        )
+
+
+@pytest.mark.no_db
+def test_partial_refund_settlement_pays_seller_only_the_remaining_escrow():
+    from src.wallet.service import escrow_settlement
+
+    remaining, platform_fee = escrow_settlement(
+        total_amount=2_000_000,
+        refunded_amount=500_000,
+        fee_percent=10,
+    )
+    assert remaining == 1_500_000
+    assert platform_fee == 150_000
+    assert remaining - platform_fee == 1_350_000
+
+    with pytest.raises(ValueError):
+        escrow_settlement(1_000, 1_001, 10)
 
 
 async def create_delivered_order(client, *, quantity: int = 1, stock_count: int | None = None):
@@ -36,7 +80,7 @@ async def create_delivered_order(client, *, quantity: int = 1, stock_count: int 
 
     buyer_token = await register_and_login(client, "disp_buyer@example.com")
     buyer_me = await client.get("/me", headers={"Authorization": f"Bearer {buyer_token}"})
-    await client.post("/wallet/topup", json={"account_id": buyer_me.json()["id"], "amount": 50000},
+    await client.post("/wallet/topup", json={"account_id": buyer_me.json()["id"], "amount": max(50000, quantity * 1000)},
                       headers={"Authorization": f"Bearer {admin_token}"})
 
     order = await client.post("/orders", json={"variant_id": variant.json()["id"], "quantity": quantity},
@@ -300,3 +344,39 @@ async def test_seller_cannot_remedy_unclaimed_account(client):
         headers=seller_headers,
     )
     assert response.status_code == 400
+
+
+@pytest.mark.asyncio
+async def test_refunding_every_claimed_resource_marks_order_fully_refunded(client):
+    buyer_token, _, order_id = await create_delivered_order(client, quantity=3)
+    seller_token = await register_and_login(client, "disp_seller@example.com")
+    buyer_headers = {"Authorization": f"Bearer {buyer_token}"}
+    seller_headers = {"Authorization": f"Bearer {seller_token}"}
+    resources = (await client.get(f"/orders/{order_id}/resources", headers=buyer_headers)).json()
+    resource_ids = [resource["id"] for resource in resources]
+
+    opened = await client.post(
+        f"/orders/{order_id}/dispute",
+        json={"reason": "All failed", "resource_ids": resource_ids, "idempotency_key": "all-failed-open"},
+        headers=buyer_headers,
+    )
+    await client.post(
+        f"/seller/disputes/{opened.json()['id']}/resources/action",
+        json={"resource_ids": resource_ids, "action": "refund", "idempotency_key": "all-failed-refund"},
+        headers=seller_headers,
+    )
+    accepted = await client.post(f"/orders/{order_id}/dispute/accept", headers=buyer_headers)
+
+    assert accepted.status_code == 200, accepted.text
+    assert accepted.json()["status"] == "resolved_refund"
+    async with SessionLocal() as db:
+        order = await db.get(Order, order_id)
+        assert order.status == OrderStatus.refunded
+        assert order.refunded_amount == order.total_amount
+        release = await db.scalar(
+            select(Transaction.id).where(
+                Transaction.type == TransactionType.purchase_release,
+                Transaction.reference_id == f"order-{order_id}",
+            )
+        )
+        assert release is None

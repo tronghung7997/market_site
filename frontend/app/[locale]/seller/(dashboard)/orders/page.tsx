@@ -949,6 +949,8 @@ function SellerDisputeModal({
   const [remedyNote, setRemedyNote] = useState("");
   const [remedySubmitting, setRemedySubmitting] = useState(false);
   const [remedyError, setRemedyError] = useState<string | null>(null);
+  const [resourceSearch, setResourceSearch] = useState("");
+  const [resourcePage, setResourcePage] = useState(1);
 
   const hasClaimed = (dispute?.claimed_resource_ids?.length ?? 0) > 0;
   const hasResponded = !!dispute?.seller_note;
@@ -1001,9 +1003,15 @@ function SellerDisputeModal({
 
   const handleRemedy = async (action: "refund" | "replace") => {
     if (!dispute || selected.size === 0) return;
+    const confirmed = window.confirm(
+      action === "refund"
+        ? t("confirmRefundSelected", { count: selected.size, amount: formatBrowseMoney(selectedRefundTotal) })
+        : t("confirmReplaceSelected", { count: selected.size }),
+    );
+    if (!confirmed) return;
     setRemedySubmitting(true); setRemedyError(null);
     try {
-      await api.sellerResolveDisputeResources(dispute.id, [...selected], action, remedyNote.trim() || undefined);
+      await api.sellerResolveDisputeResourcesBatched(dispute.id, [...selected], action, remedyNote.trim() || undefined);
       setSelected(new Set()); setRemedyNote("");
       await loadResources();
       onSuccess();
@@ -1024,6 +1032,19 @@ function SellerDisputeModal({
 
   const unresolved = resources.filter((r) => !r.action);
   const resolved = resources.filter((r) => r.action);
+  const filteredResources = resources.filter((resource) => {
+    const query = resourceSearch.trim().toLowerCase();
+    return !query
+      || String(resource.id).includes(query.replace(/^#/, ""))
+      || resource.data.toLowerCase().includes(query)
+      || (resource.action ?? t("claimPending")).toLowerCase().includes(query);
+  });
+  const resourcePageSize = 100;
+  const resourcePageCount = Math.max(1, Math.ceil(filteredResources.length / resourcePageSize));
+  const visibleResources = filteredResources.slice(
+    (resourcePage - 1) * resourcePageSize,
+    resourcePage * resourcePageSize,
+  );
   const selectedRefundTotal = [...selected].reduce((sum, id) => {
     const r = resources.find((res) => res.id === id);
     return sum + (r?.refund_amount_cap ?? 0);
@@ -1056,7 +1077,7 @@ function SellerDisputeModal({
               </h3>
             </div>
           </div>
-          <Button size="sm" variant="ghost" onClick={onClose} className="h-7 w-7 p-0 text-muted hover:text-fg shrink-0">
+          <Button size="sm" variant="ghost" onClick={onClose} aria-label={t("close")} className="h-7 w-7 p-0 text-muted hover:text-fg shrink-0">
             <X size={14} />
           </Button>
         </div>
@@ -1071,7 +1092,8 @@ function SellerDisputeModal({
                 activeTab === "claim" ? "text-bad border-b-2 border-bad bg-bad-soft/20" : "text-muted hover:text-fg"
               )}
             >
-              🚨 {t("disputeBuyerClaim")}
+              <AlertTriangle size={13} className="mr-1.5 inline-block" aria-hidden="true" />
+              {t("disputeBuyerClaim")}
             </button>
             <button
               onClick={() => setActiveTab("remedy")}
@@ -1080,7 +1102,8 @@ function SellerDisputeModal({
                 activeTab === "remedy" ? "text-warn border-b-2 border-warn bg-warn-soft/20" : "text-muted hover:text-fg"
               )}
             >
-              🔧 {t("claimedAccountsTitle", { count: dispute?.claimed_resource_ids?.length ?? 0 })}
+              <RefreshCw size={13} className="mr-1.5 inline-block" aria-hidden="true" />
+              {t("claimedAccountsTitle", { count: dispute?.claimed_resource_ids?.length ?? 0 })}
               {(dispute?.claimed_resource_ids?.length ?? 0) > resolved.length && activeTab !== "remedy" && (
                 <span className="ml-1.5 inline-flex items-center justify-center w-4 h-4 rounded-full bg-warn text-white text-[9px] font-bold">
                   {(dispute?.claimed_resource_ids?.length ?? 0) - resolved.length}
@@ -1097,7 +1120,7 @@ function SellerDisputeModal({
             <div className="p-5 space-y-4 text-xs">
               <div className="p-3.5 rounded-xl bg-bad-soft/25 border border-bad/30 space-y-2.5">
                 <div className="flex items-center justify-between text-bad font-bold">
-                  <span>🚨 {t("disputeBuyerClaim")}</span>
+                  <span><AlertTriangle size={13} className="mr-1.5 inline-block" aria-hidden="true" />{t("disputeBuyerClaim")}</span>
                   {dispute?.created_at && (
                     <span className="text-[11px] font-normal text-muted font-mono">{formatDateTime(dispute.created_at, locale)}</span>
                   )}
@@ -1198,8 +1221,15 @@ function SellerDisputeModal({
                     )}
                   </div>
 
+                  <Input
+                    value={resourceSearch}
+                    onChange={(event) => { setResourceSearch(event.target.value); setResourcePage(1); }}
+                    placeholder={t("searchClaimedAccounts")}
+                    aria-label={t("searchClaimedAccounts")}
+                  />
+
                   <div className="max-h-72 overflow-y-auto rounded-xl border border-line divide-y divide-line/50">
-                    {resources.map((resource) => {
+                    {visibleResources.map((resource) => {
                       const isPending = !resource.action;
                       return (
                         <label key={resource.id} className={cn(
@@ -1214,20 +1244,35 @@ function SellerDisputeModal({
                           {resource.refund_amount_cap != null && (
                             <span className="text-muted font-mono shrink-0 text-[10.5px]">{formatBrowseMoney(resource.refund_amount_cap)}</span>
                           )}
-                          {resource.action === "refund" && <span className="px-1.5 py-0.5 rounded text-[10px] font-bold bg-good-soft text-good border border-good/30 shrink-0">✓ Hoàn tiền</span>}
-                          {resource.action === "replace" && <span className="px-1.5 py-0.5 rounded text-[10px] font-bold bg-iris-soft text-iris border border-iris/30 shrink-0">✓ Thay thế</span>}
+                          {resource.action === "refund" && <span className="px-1.5 py-0.5 rounded text-[10px] font-bold bg-good-soft text-good border border-good/30 shrink-0">✓ {t("resourceRefunded")}</span>}
+                          {resource.action === "replace" && <span className="px-1.5 py-0.5 rounded text-[10px] font-bold bg-iris-soft text-iris border border-iris/30 shrink-0">✓ {t("resourceReplaced")}</span>}
                           {!resource.action && <span className="text-warn text-[10px] font-medium shrink-0">{t("claimPending")}</span>}
                         </label>
                       );
                     })}
                   </div>
 
+                  {resourcePageCount > 1 && (
+                    <div className="flex items-center justify-between text-[11px] text-muted">
+                      <span>{t("showingClaimedAccounts", {
+                        from: (resourcePage - 1) * resourcePageSize + 1,
+                        to: Math.min(resourcePage * resourcePageSize, filteredResources.length),
+                        total: filteredResources.length,
+                      })}</span>
+                      <div className="flex items-center gap-2">
+                        <Button size="sm" variant="ghost" disabled={resourcePage === 1} onClick={() => setResourcePage((page) => Math.max(1, page - 1))}>‹</Button>
+                        <span className="font-mono">{resourcePage}/{resourcePageCount}</span>
+                        <Button size="sm" variant="ghost" disabled={resourcePage === resourcePageCount} onClick={() => setResourcePage((page) => Math.min(resourcePageCount, page + 1))}>›</Button>
+                      </div>
+                    </div>
+                  )}
+
                   {unresolved.length > 0 && (
                     <div className="space-y-3 p-3.5 rounded-xl bg-raised/50 border border-line">
                       <div className="flex items-center justify-between text-[11.5px]">
                         <span className="text-muted">{t("selected")}: <span className="font-mono font-bold text-fg">{selected.size}</span></span>
                         {selected.size > 0 && selectedRefundTotal > 0 && (
-                          <span className="text-muted">Hoàn tiền: <span className="font-mono font-bold text-warn">{formatBrowseMoney(selectedRefundTotal)}</span></span>
+                          <span className="text-muted">{t("refundEstimate")}: <span className="font-mono font-bold text-warn">{formatBrowseMoney(selectedRefundTotal)}</span></span>
                         )}
                       </div>
                       <Textarea rows={2} value={remedyNote} onChange={(e) => setRemedyNote(e.target.value)}

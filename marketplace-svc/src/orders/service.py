@@ -24,7 +24,7 @@ from src.audit.service import log_event, query_logs
 from src.logging import current_request_id
 from src.sellers.tiers import escrow_days as tier_escrow_days, platform_fee_percent
 from src.usage.service import create_balance_for_order, get_usage_summary
-from src.wallet.service import deduct_credit, refund_escrow, release_escrow
+from src.wallet.service import deduct_credit, escrow_settlement, refund_escrow, release_escrow
 from src.exceptions import ErrorCode, api_error
 from src.money.service import get_effective_rate
 
@@ -459,8 +459,9 @@ async def confirm_order(order_id: int, buyer_id: int, db: AsyncSession) -> Order
     order.status = OrderStatus.completed
     seller = await db.get(Account, order.seller_id)
     fee_percent = platform_fee_percent(seller.seller_tier if seller else "new")
-    remaining_amount = order.total_amount - order.refunded_amount
-    platform_fee = int(remaining_amount * fee_percent / 100)
+    remaining_amount, platform_fee = escrow_settlement(
+        order.total_amount, order.refunded_amount, fee_percent
+    )
     if remaining_amount:
         await release_escrow(order.id, order.seller_id, remaining_amount, platform_fee, db=db)
     from src.affiliate.service import apply_affiliate_commission

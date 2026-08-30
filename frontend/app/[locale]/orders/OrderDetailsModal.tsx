@@ -175,6 +175,10 @@ export default function OrderDetailsModal({
   const [reviewOpen, setReviewOpen] = useState(false);
 
   const itemsPerPage = 20;
+  const delivered = o.status === "delivered" || o.status === "completed";
+  const mayHaveProxy = delivered && o.product_id != null;
+  const isDelivered = o.status === "delivered";
+  const canDispute = o.status === "disputed" || canOpenDispute(o.status, o.escrow_expires_at);
 
   const filteredItems = useMemo(() => {
     if (!itemSearch.trim()) return items;
@@ -182,17 +186,24 @@ export default function OrderDetailsModal({
     return items.filter((it) => it.raw.toLowerCase().includes(q));
   }, [items, itemSearch]);
 
+  const selectableFilteredResourceIds = useMemo(
+    () => filteredItems.flatMap((item) =>
+      item.resourceId
+      && canDispute
+      && item.resourceStatus === "assigned"
+      && !claimedResourceIds.has(item.resourceId)
+        ? [item.resourceId]
+        : [],
+    ),
+    [canDispute, claimedResourceIds, filteredItems],
+  );
+
   const paginatedItems = useMemo(() => {
     const start = (itemPage - 1) * itemsPerPage;
     return filteredItems.slice(start, start + itemsPerPage);
   }, [filteredItems, itemPage]);
 
   const totalItemPages = Math.max(1, Math.ceil(filteredItems.length / itemsPerPage));
-
-  const delivered = o.status === "delivered" || o.status === "completed";
-  const mayHaveProxy = delivered && o.product_id != null;
-  const isDelivered = o.status === "delivered";
-  const canDispute = o.status === "disputed" || canOpenDispute(o.status, o.escrow_expires_at);
 
   const toggleResource = (resourceId: number) => {
     setSelectedResourceIds((current) => {
@@ -309,7 +320,7 @@ export default function OrderDetailsModal({
 
           <div>
             <div className="text-[10.5px] uppercase tracking-wider text-muted font-medium">{t("disputeProduct")}</div>
-            {canDispute && (
+            {canDispute && !o.has_dispute && (
               <button
                 onClick={() => {
                   onOpenDispute(o.id, {
@@ -402,6 +413,15 @@ export default function OrderDetailsModal({
                   </div>
 
                   <div className="flex items-center gap-2">
+                    {selectableFilteredResourceIds.length > 0 && (
+                      <Button
+                        size="sm"
+                        variant="secondary"
+                        onClick={() => setSelectedResourceIds(new Set(selectableFilteredResourceIds))}
+                      >
+                        {t("selectAllResults", { count: selectableFilteredResourceIds.length })}
+                      </Button>
+                    )}
                     <button
                       onClick={handleCopyAll}
                       className="inline-flex items-center gap-1.5 rounded-xl bg-iris px-3.5 py-2 text-[12px] font-semibold text-white shadow-sm hover:bg-iris/90 transition-colors cursor-pointer"
@@ -486,7 +506,7 @@ export default function OrderDetailsModal({
                                   resourceIds: item.resourceId ? [item.resourceId] : undefined,
                                 });
                               }}
-                              className="opacity-0 group-hover:opacity-100 rounded-lg px-2 py-1 text-[11px] text-bad hover:bg-bad-soft transition-opacity cursor-pointer flex items-center gap-1"
+                              className="opacity-100 md:opacity-0 md:group-hover:opacity-100 rounded-lg px-2 py-1 text-[11px] text-bad hover:bg-bad-soft transition-opacity cursor-pointer flex items-center gap-1 min-h-11 md:min-h-0"
                             >
                               <AlertTriangle size={11} />
                               <span>{t("itemIssue")}</span>

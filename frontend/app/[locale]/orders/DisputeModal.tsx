@@ -52,7 +52,7 @@ export default function DisputeModal({
       if (appendToExisting) {
         await api.appendDisputeClaims(orderId, reason.trim(), resourceIds ?? []);
       } else {
-        await api.openDispute(
+        await api.openDisputeBatched(
           orderId,
           reason.trim(),
           evidenceType || undefined,

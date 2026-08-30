@@ -107,6 +107,7 @@ export function OrderDispute({ orderId, initialDispute, viewerRole = "buyer", re
   const t = useTranslations("orders");
   const td = useTranslations("status.dispute");
   const locale = useLocale();
+  const { formatBrowseMoney } = useMoney();
   const [dispute, setDispute] = useState<Dispute | null>(initialDispute ?? null);
   const [open, setOpen] = useState(false);
   const [loaded, setLoaded] = useState(!!initialDispute);
@@ -151,18 +152,27 @@ export function OrderDispute({ orderId, initialDispute, viewerRole = "buyer", re
   };
 
   const acceptResolution = async () => {
+    if (!window.confirm(t("acceptDisputeResolutionConfirm"))) return;
     setSubmitting(true);
     try { await api.acceptDisputeResolution(orderId); await refresh(); }
     finally { setSubmitting(false); }
   };
 
+  const claimedCount = dispute?.claimed_resource_ids?.length ?? 0;
+  const remediedCount = dispute?.resource_actions?.length ?? 0;
+  const hasCompleteRemedy = !!dispute
+    && dispute.status === "open"
+    && ((claimedCount > 0 && remediedCount >= claimedCount) || (claimedCount === 0 && !!dispute.seller_note));
   const toneMap = DISPUTE_STATUS_INFO;
   const info = dispute
     ? {
-        label: td.has(dispute.status) ? td(dispute.status as "open") : (toneMap[dispute.status]?.label ?? dispute.status),
-        tone: toneMap[dispute.status]?.tone ?? ("neutral" as const),
+        label: hasCompleteRemedy
+          ? td("awaiting_buyer_acceptance")
+          : td.has(dispute.status) ? td(dispute.status as "open") : (toneMap[dispute.status]?.label ?? dispute.status),
+        tone: hasCompleteRemedy ? ("iris" as const) : toneMap[dispute.status]?.tone ?? ("neutral" as const),
       }
     : null;
+  const canAcceptResolution = hasCompleteRemedy;
 
   return (
     <Disclosure label={t("showDispute")} labelOpen={t("hideDispute")} open={open} onToggle={toggle}>
@@ -196,7 +206,7 @@ export function OrderDispute({ orderId, initialDispute, viewerRole = "buyer", re
                           ))}
                         </div>
                       )}
-                      {!!event.refund_amount && <p className="mt-1 font-mono text-[11px] font-semibold text-good">{t("refundAmountMinor", { amount: event.refund_amount })}</p>}
+                      {!!event.refund_amount && <p className="mt-1 font-mono text-[11px] font-semibold text-good">{t("refundAmountMinor", { amount: formatBrowseMoney(event.refund_amount) })}</p>}
                     </div>
                   </div>
                 ))}
@@ -247,7 +257,7 @@ export function OrderDispute({ orderId, initialDispute, viewerRole = "buyer", re
                 <Textarea rows={2} value={message} onChange={(e) => setMessage(e.target.value)} placeholder={t("disputeMessagePlaceholder")} />
                 <div className="flex flex-wrap gap-2">
                   <Button size="sm" variant="secondary" disabled={submitting || !message.trim()} onClick={sendMessage}>{t("sendDisputeMessage")}</Button>
-                  {!!dispute.resource_actions?.length && <Button size="sm" disabled={submitting} onClick={acceptResolution}>{t("acceptDisputeResolution")}</Button>}
+                  {canAcceptResolution && <Button size="sm" disabled={submitting} onClick={acceptResolution}>{t("acceptDisputeResolution")}</Button>}
                 </div>
               </div>
             )}

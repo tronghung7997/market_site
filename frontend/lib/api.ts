@@ -2,6 +2,7 @@ import type {
   Account, ActionItem, AdminDepositIntent, AdminDepositLedgerQuery, AdminDepositLedgerResponse, AdminDepositTransaction, AdminDisputeDetail, AdminOrderDetail, AdminProduct, AdminResourceListResponse, AffiliateStats, AffiliateSummary, CalculateResult, Category, ChargeUsageResult, ChatConversationDetail, ChatConversationList, ChatMessage, DashboardData, DepositIntent, DepositMethods, DepositReconcileResult, DepositRailConfigAdmin, DepositRailConfigUpdate, Dispute, SePayWebhookEventRow, AdminAccountWallet, FundOverview, AccountAdminRow, PaginatedAccounts, LogEntry, MailConfigAdmin, MailConfigUpdate, MailOutboxList, MailSendTestResponse, MailTemplatePreview, MailTemplateRow, MoneyConfigAdmin, MoneyConfigPublic, MoneyConfigUpdate, Order, OrderStats, PaginatedAffiliateSummary, PaginatedOrderResponse, PaginatedProducts, PricingField, PricingOptions, ProductDetail, AdminProductDetail, Product, ProductLocale, ProductOperations, ProductTranslation, ProxyState, ProxyRotateResult, ProxyWhitelistResult, Review, SellerApplication, SellerProduct, SellerStats, ServiceTask, TikTokLookupResponse, Transaction, Variant, Wallet, WithdrawRequest, Provider, ProviderHealth, Alert, Resource, ResourceSummary, ResourceSellerFacet, InventoryVariant, SellerSummary, SellerProfile, SellerDisputeResource,
 } from "./types";
 import { SERVER_API_BASE } from "./server-api";
+import { chunkDisputeResourceIds } from "./dispute-batches";
 
 // Browser requests are always same-origin. This prevents a production bundle
 // from calling the visitor's localhost or bypassing the controlled Next proxy.
@@ -183,6 +184,21 @@ export const api = {
       method: "POST",
       body: JSON.stringify({ reason, resource_ids: resourceIds, idempotency_key: newIdempotencyKey() }),
     }, true),
+  openDisputeBatched: async (
+    orderId: number,
+    reason: string,
+    evidenceType?: string,
+    evidence?: Record<string, string>,
+    resourceIds: number[] = [],
+  ) => {
+    const batches = chunkDisputeResourceIds(resourceIds);
+    const first = batches.shift();
+    let dispute = await api.openDispute(orderId, reason, evidenceType, evidence, first);
+    for (const batch of batches) {
+      dispute = await api.appendDisputeClaims(orderId, reason, batch);
+    }
+    return dispute;
+  },
   buyerDisputeMessage: (orderId: number, body: string) =>
     request<Dispute>(`/orders/${orderId}/dispute/messages`, { method: "POST", body: JSON.stringify({ body, idempotency_key: newIdempotencyKey() }) }, true),
   acceptDisputeResolution: (orderId: number) =>
@@ -414,6 +430,25 @@ export const api = {
       method: "POST",
       body: JSON.stringify({ resource_ids: resourceIds, action, seller_note: note ?? null, idempotency_key: newIdempotencyKey() }),
     }, true),
+  sellerResolveDisputeResourcesBatched: async (
+    disputeId: number,
+    resourceIds: number[],
+    action: "replace" | "refund",
+    note?: string,
+  ) => {
+    const batches = chunkDisputeResourceIds(resourceIds);
+    const actions: unknown[] = [];
+    for (const [index, batch] of batches.entries()) {
+      const result = await api.sellerResolveDisputeResources(
+        disputeId,
+        batch,
+        action,
+        index === batches.length - 1 ? note : undefined,
+      );
+      actions.push(...result.actions);
+    }
+    return { actions };
+  },
   sellerEscalateDispute: (disputeId: number, note?: string) =>
     request<Dispute>(`/seller/disputes/${disputeId}/escalate`, { method: "POST", body: JSON.stringify({ seller_note: note ?? null }) }, true),
   providers: () => request<Provider[]>("/providers", {}, true),

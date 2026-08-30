@@ -9,7 +9,7 @@ class DisputeCreate(BaseModel):
     reason: str = Field(min_length=1, max_length=2000)
     evidence_type: str | None = Field(default=None, max_length=50)
     evidence: dict[str, str] | None = None
-    resource_ids: list[int] | None = Field(default=None, max_length=500)
+    resource_ids: list[int] | None = Field(default=None, max_length=2000)
     idempotency_key: str | None = Field(default=None, min_length=8, max_length=128)
 
     @field_validator("resource_ids")
@@ -44,7 +44,7 @@ class SellerDisputeRespond(BaseModel):
 
 
 class DisputeClaimAppend(BaseModel):
-    resource_ids: list[int] = Field(min_length=1, max_length=500)
+    resource_ids: list[int] = Field(min_length=1, max_length=2000)
     reason: str = Field(min_length=1, max_length=2000)
     idempotency_key: str = Field(min_length=8, max_length=128)
 
@@ -62,9 +62,9 @@ class DisputeMessageCreate(BaseModel):
 
 
 class SellerResourceAction(BaseModel):
-    resource_ids: list[int] = Field(min_length=1, max_length=500)
+    resource_ids: list[int] = Field(min_length=1, max_length=2000)
     action: str = Field(pattern="^(replace|refund)$")
-    replacement_resource_ids: list[int] | None = Field(default=None, max_length=500)
+    replacement_resource_ids: list[int] | None = Field(default=None, max_length=2000)
     idempotency_key: str = Field(min_length=8, max_length=128)
     seller_note: str | None = Field(default=None, max_length=2000)
 

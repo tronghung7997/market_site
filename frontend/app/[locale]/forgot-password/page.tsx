@@ -4,11 +4,13 @@ import { Link } from "@/i18n/navigation";
 import { useState, type FormEvent } from "react";
 import { useLocale, useTranslations } from "next-intl";
 import { requestPasswordReset } from "@/features/auth-password";
+import { useApiErrorMessage } from "@/lib/use-api-error";
 import { Button, Card, Field, Input } from "@/components/ui";
 import { Logo } from "@/components/Icons";
 
 export default function ForgotPasswordPage() {
   const t = useTranslations("auth");
+  const apiErrorMessage = useApiErrorMessage();
   const locale = useLocale();
   const [email, setEmail] = useState("");
   const [error, setError] = useState<string | null>(null);
@@ -23,7 +25,7 @@ export default function ForgotPasswordPage() {
       await requestPasswordReset(email, locale);
       setAck(true);
     } catch (err) {
-      setError(err instanceof Error ? err.message : t("forgotFailed"));
+      setError(apiErrorMessage(err, t("forgotFailed")));
     } finally {
       setBusy(false);
     }
@@ -44,7 +46,7 @@ export default function ForgotPasswordPage() {
             <Field label={t("email")}>
               <Input type="email" required value={email} onChange={(e) => setEmail(e.target.value)} placeholder="you@company.com" autoComplete="email" />
             </Field>
-            {error && <p className="text-bad text-[13px]">{error}</p>}
+            {error && <p className="text-bad text-[13px]" role="alert">{error}</p>}
             <Button type="submit" block size="lg" disabled={busy}>{busy ? t("forgotSubmitting") : t("forgotSubmit")}</Button>
           </form>
         )}

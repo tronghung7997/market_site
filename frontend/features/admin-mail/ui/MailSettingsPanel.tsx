@@ -3,6 +3,7 @@
 import { useCallback, useEffect, useMemo, useState } from "react";
 import { useLocale, useTranslations } from "next-intl";
 import { api } from "@/lib/api";
+import { useApiErrorMessage } from "@/lib/use-api-error";
 import type {
   MailConfigAdmin,
   MailConfigUpdate,
@@ -18,6 +19,7 @@ function secretTone(ok: boolean): "good" | "warn" {
 
 export function MailSettingsPanel() {
   const t = useTranslations("adminMail");
+  const apiErrorMessage = useApiErrorMessage();
   const locale = useLocale();
   const [cfg, setCfg] = useState<MailConfigAdmin | null>(null);
   const [provider, setProvider] = useState<MailProvider>("log");
@@ -54,7 +56,7 @@ export function MailSettingsPanel() {
       setRows(data.items);
       setTotal(data.total);
     } catch (e) {
-      setListErr(e instanceof Error ? e.message : t("listFail"));
+      setListErr(apiErrorMessage(e, t("listFail")));
     }
   }, [t]);
 
@@ -65,7 +67,7 @@ export function MailSettingsPanel() {
       const data = await api.adminMailConfig();
       apply(data);
     } catch (e) {
-      setErr(e instanceof Error ? e.message : t("loadFail"));
+      setErr(apiErrorMessage(e, t("loadFail")));
     } finally {
       setLoading(false);
     }
@@ -104,7 +106,7 @@ export function MailSettingsPanel() {
       apply(next);
       setMsg(t("saved"));
     } catch (e) {
-      setErr(e instanceof Error ? e.message : t("saveFail"));
+      setErr(apiErrorMessage(e, t("saveFail")));
     } finally {
       setSaving(false);
     }
@@ -120,7 +122,7 @@ export function MailSettingsPanel() {
       apply(next);
       setMsg(t("resetDone"));
     } catch (e) {
-      setErr(e instanceof Error ? e.message : t("resetFail"));
+      setErr(apiErrorMessage(e, t("resetFail")));
     } finally {
       setSaving(false);
     }
@@ -140,7 +142,7 @@ export function MailSettingsPanel() {
       );
       await loadList(statusFilter);
     } catch (e) {
-      setErr(e instanceof Error ? e.message : t("testFail"));
+      setErr(apiErrorMessage(e, t("testFail")));
     } finally {
       setTesting(false);
     }
@@ -152,7 +154,7 @@ export function MailSettingsPanel() {
       await api.adminRetryMailOutbox(id);
       await loadList(statusFilter);
     } catch (e) {
-      setListErr(e instanceof Error ? e.message : t("retryFail"));
+      setListErr(apiErrorMessage(e, t("retryFail")));
     }
   };
 

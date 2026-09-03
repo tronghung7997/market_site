@@ -3,7 +3,8 @@
 import Link from "next/link";
 import { useLocale, useTranslations } from "next-intl";
 import { useEffect, useState } from "react";
-import { api, ApiError } from "@/lib/api";
+import { api } from "@/lib/api";
+import { useApiErrorMessage } from "@/lib/use-api-error";
 import type { DashboardData, DashboardResource, DashboardTask, GatewayCallLogItem, UsageRecordItem } from "@/lib/types";
 import { Banner, Button, Card, Spinner, Tag } from "@/components/ui";
 import { Info } from "@/components/Icons";
@@ -305,6 +306,7 @@ function parseGatewayDelivery(raw: string | null | undefined): { key: string | n
 function EndpointDashboard({ data, onRefresh, viewerRole }: { data: DashboardData; onRefresh: () => void; viewerRole: "buyer" | "seller" }) {
   const locale = useLocale();
   const t = useTranslations("orders");
+  const apiErrorMessage = useApiErrorMessage();
   const numberLocale = locale === "en" ? "en-US" : "vi-VN";
   const balance = data.balance;
   const { key: apiKey, callUrl } = parseGatewayDelivery(data.delivered_data);
@@ -319,7 +321,7 @@ function EndpointDashboard({ data, onRefresh, viewerRole }: { data: DashboardDat
       await api.chargeUsage(data.order_id, "profile", 1);
       onRefresh();
     } catch (e) {
-      setSimError(e instanceof ApiError ? e.message : t("simulateFailed"));
+      setSimError(apiErrorMessage(e, t("simulateFailed")));
       onRefresh(); // vẫn refresh để thấy bản ghi bị từ chối trong lịch sử
     } finally {
       setSimulating(false);
@@ -554,6 +556,7 @@ function DefaultDashboard({ data }: { data: DashboardData }) {
 
 export default function ServiceDashboard({ orderId, viewerRole = "buyer" }: { orderId: number; viewerRole?: "buyer" | "seller" }) {
   const t = useTranslations("orders");
+  const apiErrorMessage = useApiErrorMessage();
   const [data, setData] = useState<DashboardData | null>(null);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState("");
@@ -563,7 +566,7 @@ export default function ServiceDashboard({ orderId, viewerRole = "buyer" }: { or
       const d = await api.orderDashboard(orderId);
       setData(d);
     } catch (e) {
-      setError(e instanceof Error ? e.message : t("dashboardLoadFailed"));
+      setError(apiErrorMessage(e, t("dashboardLoadFailed")));
     } finally {
       setLoading(false);
     }

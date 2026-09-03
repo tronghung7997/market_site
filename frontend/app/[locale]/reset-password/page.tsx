@@ -9,6 +9,7 @@ import {
   confirmPasswordReset,
   validateResetPassword,
 } from "@/features/auth-password";
+import { useApiErrorMessage } from "@/lib/use-api-error";
 import { Button, Card, Field, Input, Spinner } from "@/components/ui";
 import { Logo } from "@/components/Icons";
 
@@ -22,6 +23,7 @@ export default function ResetPasswordPage() {
 
 function ResetPasswordForm() {
   const t = useTranslations("auth");
+  const apiErrorMessage = useApiErrorMessage();
   const searchParams = useSearchParams();
   const token = searchParams.get("token") ?? "";
   const [password, setPassword] = useState("");
@@ -54,7 +56,7 @@ function ResetPasswordForm() {
       await confirmPasswordReset(token, password);
       setAck(true);
     } catch (err) {
-      setError(err instanceof Error ? err.message : t("resetFailed"));
+      setError(apiErrorMessage(err, t("resetFailed")));
     } finally {
       setBusy(false);
     }
@@ -78,7 +80,7 @@ function ResetPasswordForm() {
             <Field label={t("confirmPassword")}>
               <Input type="password" required value={confirm} onChange={(e) => setConfirm(e.target.value)} placeholder="••••••••" autoComplete="new-password" />
             </Field>
-            {error && <p className="text-bad text-[13px]">{error}</p>}
+            {error && <p className="text-bad text-[13px]" role="alert">{error}</p>}
             <Button type="submit" block size="lg" disabled={busy || !token}>{busy ? t("resetSubmitting") : t("resetSubmit")}</Button>
           </form>
         )}

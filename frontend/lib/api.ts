@@ -1,24 +1,19 @@
 import type {
   Account, ActionItem, AdminDepositIntent, AdminDepositLedgerQuery, AdminDepositLedgerResponse, AdminDepositTransaction, AdminDisputeDetail, AdminOrderDetail, AdminProduct, AdminResourceListResponse, AffiliateStats, AffiliateSummary, CalculateResult, Category, ChargeUsageResult, ChatConversationDetail, ChatConversationList, ChatMessage, DashboardData, DepositIntent, DepositMethods, DepositReconcileResult, DepositRailConfigAdmin, DepositRailConfigUpdate, Dispute, SePayWebhookEventRow, AdminAccountWallet, FundOverview, AccountAdminRow, PaginatedAccounts, LogEntry, MailConfigAdmin, MailConfigUpdate, MailOutboxList, MailSendTestResponse, MailTemplatePreview, MailTemplateRow, MoneyConfigAdmin, MoneyConfigPublic, MoneyConfigUpdate, Order, OrderStats, PaginatedAffiliateSummary, PaginatedOrderResponse, PaginatedProducts, PricingField, PricingOptions, ProductDetail, AdminProductDetail, Product, ProductLocale, ProductOperations, ProductTranslation, ProxyState, ProxyRotateResult, ProxyWhitelistResult, Review, SellerApplication, SellerProduct, SellerStats, ServiceTask, TikTokLookupResponse, Transaction, Variant, Wallet, WithdrawRequest, Provider, ProviderHealth, Alert, Resource, ResourceSummary, ResourceSellerFacet, InventoryVariant, SellerSummary, SellerProfile, SellerDisputeResource, SellerDisputeResourceList, SellerReplacementResourceList,
 } from "./types";
+import {
+  ApiError,
+  NETWORK_ERROR_MESSAGE,
+  apiErrorFromResponse,
+} from "./api-error";
 import { SERVER_API_BASE } from "./server-api";
 import { chunkDisputeResourceIds, chunkPairedDisputeResources } from "./dispute-batches";
+
+export { ApiError, apiErrorFromResponse } from "./api-error";
 
 // Browser requests are always same-origin. This prevents a production bundle
 // from calling the visitor's localhost or bypassing the controlled Next proxy.
 const BASE = typeof window !== "undefined" ? "/api" : SERVER_API_BASE;
-
-export class ApiError extends Error {
-  status: number;
-  errorCode?: string;
-  params: Record<string, unknown>;
-  constructor(status: number, message: string, errorCode?: string, params: Record<string, unknown> = {}) {
-    super(message);
-    this.status = status;
-    this.errorCode = errorCode;
-    this.params = params;
-  }
-}
 
 function browserLocale(): string {
   if (typeof document === "undefined") return "en";
@@ -27,18 +22,6 @@ function browserLocale(): string {
   // First visit to /vi may not have the cookie yet — derive from the path.
   const fromPath = window.location.pathname.match(/^\/(en|vi)(?:\/|$)/)?.[1];
   return fromPath ?? "en";
-}
-
-function responseErrorDetail(body: unknown): string | null {
-  if (!body || typeof body !== "object") return null;
-  const detail = (body as { detail?: unknown; message?: unknown }).detail
-    ?? (body as { message?: unknown }).message;
-  const message = typeof detail === "string"
-    ? detail
-    : Array.isArray(detail) && typeof (detail[0] as { msg?: unknown } | undefined)?.msg === "string"
-      ? (detail[0] as { msg: string }).msg.replace(/^Value error,\s*/i, "")
-      : null;
-  return browserLocale() === "en" && message && /[À-ỹĐđ]/.test(message) ? null : message;
 }
 
 function newIdempotencyKey(): string {
@@ -60,24 +43,15 @@ async function request<T>(path: string, init: RequestInit = {}, auth: boolean | 
       res = await fetch(`${BASE}${path}`, { ...init, headers, credentials: "same-origin" });
     }
   } catch {
-    throw new ApiError(0, "Unable to reach the server. Check your connection and try again.", "NETWORK");
+    throw new ApiError(0, NETWORK_ERROR_MESSAGE, "NETWORK");
   }
   if (res.status === 204) return undefined as T;
   const body = await res.json().catch(() => null);
   if (!res.ok) {
-    if (res.status === 401 && auth) {
-      if (auth === true && typeof window !== "undefined") {
-        window.dispatchEvent(new Event("auth:session-expired"));
-      }
-      throw new ApiError(401, "Your session has expired. Please sign in again.", "SESSION_EXPIRED");
+    if (res.status === 401 && auth === true && typeof window !== "undefined") {
+      window.dispatchEvent(new Event("auth:session-expired"));
     }
-    const detail = responseErrorDetail(body);
-    throw new ApiError(
-      res.status,
-      detail ?? "Something went wrong. Please try again.",
-      typeof body?.error_code === "string" ? body.error_code : undefined,
-      body && typeof body.params === "object" && body.params !== null ? body.params : {},
-    );
+    throw apiErrorFromResponse(path, res.status, body, { auth, locale: browserLocale() });
   }
   return body as T;
 }
@@ -271,15 +245,17 @@ export const api = {
     try {
       res = await fetch(`${BASE}${path}`, { headers, credentials: "same-origin" });
     } catch {
-      throw new ApiError(0, "Unable to reach the server. Check your connection and try again.", "NETWORK");
+      throw new ApiError(0, NETWORK_ERROR_MESSAGE, "NETWORK");
     }
     const body = await res.json().catch(() => null);
     if (!res.ok) {
-      if (res.status === 401) {
-        if (typeof window !== "undefined") window.dispatchEvent(new Event("auth:session-expired"));
-        throw new ApiError(401, "Your session has expired. Please sign in again.", "SESSION_EXPIRED");
+      if (res.status === 401 && typeof window !== "undefined") {
+        window.dispatchEvent(new Event("auth:session-expired"));
       }
-      throw new ApiError(res.status, responseErrorDetail(body) ?? "Something went wrong. Please try again.", "UNKNOWN");
+      throw apiErrorFromResponse(path, res.status, body, {
+        auth: res.status === 401,
+        locale: browserLocale(),
+      });
     }
     return {
       items: Array.isArray(body) ? body as Resource[] : [],

@@ -12,6 +12,7 @@ import { Suspense, useEffect, useMemo, useState } from "react";
 import { useSearchParams } from "next/navigation";
 import { useLocale, useTranslations } from "next-intl";
 import { api } from "@/lib/api";
+import { useApiErrorMessage } from "@/lib/use-api-error";
 import { MailSettingsPanel } from "@/features/admin-mail";
 import { usePathname, useRouter } from "@/i18n/navigation";
 import type {
@@ -168,6 +169,7 @@ function railStatus(
 type SettingsTab = "display" | "deposits" | "mail";
 
 function AdminMoneyAndDepositPage() {
+  const apiErrorMessage = useApiErrorMessage();
   const t = useTranslations("currency");
   const tTabs = useTranslations("adminSettings");
   const locale = useLocale();
@@ -222,7 +224,7 @@ function AdminMoneyAndDepositPage() {
       setRail(r);
       setRailDraft({});
     } catch (e) {
-      const msg = e instanceof Error ? e.message : t("pageLoadFail");
+      const msg = apiErrorMessage(e, t("pageLoadFail"));
       setDisplayErr(msg);
       setRailsErr(msg);
     } finally {
@@ -304,7 +306,7 @@ function AdminMoneyAndDepositPage() {
       const next = await api.adminMoneyConfig();
       applyMoney(next);
     } catch (e) {
-      setDisplayErr(e instanceof Error ? e.message : t("displaySaveFail"));
+      setDisplayErr(apiErrorMessage(e, t("displaySaveFail")));
     } finally {
       setSavingDisplay(false);
     }
@@ -322,7 +324,7 @@ function AdminMoneyAndDepositPage() {
       const next = await api.adminMoneyConfig();
       applyMoney(next);
     } catch (e) {
-      setDisplayErr(e instanceof Error ? e.message : t("displayResetFail"));
+      setDisplayErr(apiErrorMessage(e, t("displayResetFail")));
     } finally {
       setSavingDisplay(false);
     }
@@ -343,7 +345,7 @@ function AdminMoneyAndDepositPage() {
       setRailDraft({});
       setRailsMsg(t("railsSaved"));
     } catch (e) {
-      setRailsErr(e instanceof Error ? e.message : t("railsSaveFail"));
+      setRailsErr(apiErrorMessage(e, t("railsSaveFail")));
     } finally {
       setSavingRails(false);
     }
@@ -360,7 +362,7 @@ function AdminMoneyAndDepositPage() {
       setRailDraft({});
       setRailsMsg(t("railsReset"));
     } catch (e) {
-      setRailsErr(e instanceof Error ? e.message : t("railsResetFail"));
+      setRailsErr(apiErrorMessage(e, t("railsResetFail")));
     } finally {
       setSavingRails(false);
     }

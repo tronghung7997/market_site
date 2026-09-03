@@ -5,6 +5,7 @@ import { useParams } from "next/navigation";
 import { useEffect, useMemo, useState, type ReactNode } from "react";
 import { useLocale, useTranslations } from "next-intl";
 import { api } from "@/lib/api";
+import { useApiErrorMessage } from "@/lib/use-api-error";
 import { useMoney } from "@/lib/money";
 import { effectiveMinPrice, isAdapterFulfilled } from "@/lib/pricing-display";
 import { flattenCategories } from "@/lib/categories";
@@ -53,6 +54,7 @@ const TIER_KEYS = ["new", "verified", "trusted", "enterprise"] as const;
 
 export default function SellerProfilePage() {
   const t = useTranslations("sellers");
+  const apiErrorMessage = useApiErrorMessage();
   const locale = useLocale();
   const { formatBrowseMoney } = useMoney();
   const numberLocale = locale === "vi" ? "vi-VN" : "en-US";
@@ -95,12 +97,12 @@ export default function SellerProfilePage() {
         setCategories(c);
         setProducts(list.items);
       } catch (e) {
-        setError(e instanceof Error ? e.message : t("notFound"));
+        setError(apiErrorMessage(e, t("notFound")));
       } finally {
         setLoading(false);
       }
     })();
-  }, [id, t]);
+  }, [apiErrorMessage, id, t]);
 
   const sellerCategories = useMemo(() => {
     if (!categories.length || !products.length) return [];

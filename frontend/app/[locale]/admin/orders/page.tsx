@@ -22,7 +22,8 @@ import {
   Search,
   X,
 } from "lucide-react";
-import { api, vnd, ApiError } from "@/lib/api";
+import { api, vnd } from "@/lib/api";
+import { useApiErrorMessage } from "@/lib/use-api-error";
 import { Banner, Card, Spinner } from "@/components/ui";
 import { FacetSelect, SlidePanel, buildFacetOptions } from "@/components/admin";
 import { OrderStatusBadge } from "@/components/admin/status-badge";
@@ -253,6 +254,7 @@ const USAGE_STATUS_STYLES: Record<string, string> = {
 };
 
 function UsageSection({ orderId, usage: initial }: { orderId: number; usage: UsageBalance }) {
+  const apiErrorMessage = useApiErrorMessage();
   const [usage, setUsage] = React.useState(initial);
   const [simulating, setSimulating] = React.useState(false);
   const [simError, setSimError] = React.useState<string | null>(null);
@@ -271,7 +273,7 @@ function UsageSection({ orderId, usage: initial }: { orderId: number; usage: Usa
       await api.chargeUsage(orderId, "profile", 1);
       await refresh();
     } catch (e) {
-      setSimError(e instanceof ApiError ? e.message : "Không giả lập được request");
+      setSimError(apiErrorMessage(e, "Không giả lập được request"));
       await refresh();
     } finally {
       setSimulating(false);

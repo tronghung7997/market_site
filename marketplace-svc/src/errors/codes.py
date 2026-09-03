@@ -79,6 +79,7 @@ class ErrorCode(str, Enum):
     SELLER_PROVIDER_RESTRICTED = "SELLER_PROVIDER_RESTRICTED"
     INVALID_CREDENTIALS = "INVALID_CREDENTIALS"
     AUTH_RATE_LIMITED = "AUTH_RATE_LIMITED"
+    PASSWORD_RESET_INVALID = "PASSWORD_RESET_INVALID"
     DISPUTE_INVALID_REFUND_AMOUNT = "DISPUTE_INVALID_REFUND_AMOUNT"
     DISPUTE_REPLACEMENT_UNAVAILABLE = "DISPUTE_REPLACEMENT_UNAVAILABLE"
     DISPUTE_NO_RESOURCES_TO_REPLACE = "DISPUTE_NO_RESOURCES_TO_REPLACE"
@@ -159,6 +160,7 @@ MESSAGES_EN: dict[ErrorCode, str] = {
     ErrorCode.SELLER_PROVIDER_RESTRICTED: "You can only attach a provider you registered yourself",
     ErrorCode.INVALID_CREDENTIALS: "Email or password is incorrect",
     ErrorCode.AUTH_RATE_LIMITED: "Too many attempts. Please try again later",
+    ErrorCode.PASSWORD_RESET_INVALID: "This reset link is invalid or has expired",
     ErrorCode.DISPUTE_INVALID_REFUND_AMOUNT: "Refund amount must be greater than zero and less than the order total",
     ErrorCode.DISPUTE_REPLACEMENT_UNAVAILABLE: "Only automatically delivered orders with inventory can be replaced",
     ErrorCode.DISPUTE_NO_RESOURCES_TO_REPLACE: "This order has no delivered resources to replace",

@@ -3,6 +3,7 @@
 import { Fragment, useEffect, useState, useCallback, useMemo } from "react";
 import { createPortal } from "react-dom";
 import { api } from "@/lib/api";
+import { useApiErrorMessage } from "@/lib/use-api-error";
 import { Banner, Card, Spinner, Tag, Button, Field, Input, Select, Textarea } from "@/components/ui";
 import { Info } from "@/components/Icons";
 import type { AdminProduct, Provider, ProviderHealth } from "@/lib/types";
@@ -91,6 +92,7 @@ function PricingEditor({
   onSaved: () => void;
   onClose: () => void;
 }) {
+  const apiErrorMessage = useApiErrorMessage();
   const [strategy, setStrategy] = useState(product.pricing_strategy ?? "fixed");
   const strategyIncompatible = !isAdapterCompatible(adapterType, strategy, compatMatrix);
   const [paramsText, setParamsText] = useState(
@@ -134,7 +136,7 @@ function PricingEditor({
         (r.discount_pct ? ` (gốc ${r.original_amount?.toLocaleString("vi-VN")}đ, -${Math.round(r.discount_pct * 100)}%)` : ""),
       );
     } catch (e: unknown) {
-      setError(e instanceof Error ? e.message : "Tính thử thất bại");
+      setError(apiErrorMessage(e, "Tính thử thất bại"));
     }
   };
 
@@ -150,7 +152,7 @@ function PricingEditor({
       });
       onSaved();
     } catch (e: unknown) {
-      setError(e instanceof Error ? e.message : "Lỗi khi lưu");
+      setError(apiErrorMessage(e, "Lỗi khi lưu"));
     } finally {
       setSaving(false);
     }
@@ -218,6 +220,7 @@ function PricingEditor({
 }
 
 function ProviderProductsTab({ providerId, adapterType }: { providerId: number; adapterType: string }) {
+  const apiErrorMessage = useApiErrorMessage();
   const [products, setProducts] = useState<ProviderProduct[]>([]);
   const [allProducts, setAllProducts] = useState<AdminProduct[]>([]);
   const [compatMatrix, setCompatMatrix] = useState<CompatMatrix | null>(null);
@@ -259,7 +262,7 @@ function ProviderProductsTab({ providerId, adapterType }: { providerId: number; 
       setAttachId("");
       load();
     } catch (e: unknown) {
-      setActionError(e instanceof Error ? e.message : "Gắn sản phẩm thất bại");
+      setActionError(apiErrorMessage(e, "Gắn sản phẩm thất bại"));
     }
   };
 
@@ -269,7 +272,7 @@ function ProviderProductsTab({ providerId, adapterType }: { providerId: number; 
       await api.updateProductOperations(productId, { provider_id: null });
       load();
     } catch (e: unknown) {
-      setActionError(e instanceof Error ? e.message : "Tháo liên kết thất bại");
+      setActionError(apiErrorMessage(e, "Tháo liên kết thất bại"));
     }
   };
 
@@ -769,6 +772,7 @@ function ProviderEditPanel({
   onClose: () => void;
   onSaved: (p: Provider) => void;
 }) {
+  const apiErrorMessage = useApiErrorMessage();
   const [tab, setTab] = useState<TabKey>(initialTab ?? "general");
   const [adapterType, setAdapterType] = useState(provider.adapter_type ?? "mock");
   const [config, setConfig] = useState<Record<string, unknown>>(provider.config ?? {});
@@ -797,7 +801,7 @@ function ProviderEditPanel({
       setTimeout(() => setSuccess(null), 3000);
       onSaved(updated);
     } catch (e: unknown) {
-      setError(e instanceof Error ? e.message : "Lỗi khi lưu");
+      setError(apiErrorMessage(e, "Lỗi khi lưu"));
     } finally {
       setSaving(false);
     }
@@ -817,7 +821,7 @@ function ProviderEditPanel({
             },
       );
     } catch (e: unknown) {
-      setTestResult({ error: e instanceof Error ? e.message : "Test thất bại" });
+      setTestResult({ error: apiErrorMessage(e, "Test thất bại") });
     } finally {
       setTesting(false);
     }
@@ -990,6 +994,7 @@ function CreateProviderPanel({
   onClose: () => void;
   onCreated: (p: Provider) => void;
 }) {
+  const apiErrorMessage = useApiErrorMessage();
   const [adapterType, setAdapterType] = useState("mock");
   const [name, setName] = useState("");
   const [config, setConfig] = useState<Record<string, unknown>>({});
@@ -1022,7 +1027,7 @@ function CreateProviderPanel({
       });
       onCreated(created);
     } catch (e: unknown) {
-      setError(e instanceof Error ? e.message : "Không tạo được nhà cung cấp");
+      setError(apiErrorMessage(e, "Không tạo được nhà cung cấp"));
     } finally {
       setSaving(false);
     }
@@ -1246,6 +1251,7 @@ function ProviderReviewModal({
   onClose: () => void;
   onReviewed: (provider: Provider) => void;
 }) {
+  const apiErrorMessage = useApiErrorMessage();
   const [note, setNote] = useState("");
   const [testResult, setTestResult] = useState<Record<string, unknown> | null>(
     provider.last_test_result as Record<string, unknown> | null,
@@ -1266,7 +1272,7 @@ function ProviderReviewModal({
     try {
       setTestResult(await api.testProvider(provider.id));
     } catch (e) {
-      setError(e instanceof Error ? e.message : "Không chạy được test provider");
+      setError(apiErrorMessage(e, "Không chạy được test provider"));
     } finally {
       setTesting(false);
     }
@@ -1293,7 +1299,7 @@ function ProviderReviewModal({
       onReviewed(updated);
       onClose();
     } catch (e) {
-      setError(e instanceof Error ? e.message : "Không cập nhật được trạng thái duyệt");
+      setError(apiErrorMessage(e, "Không cập nhật được trạng thái duyệt"));
     } finally {
       setSaving(false);
     }
@@ -1352,6 +1358,7 @@ function ProviderReviewModal({
    ================================================================ */
 
 export default function AdminProvidersPage() {
+  const apiErrorMessage = useApiErrorMessage();
   const [providers, setProviders] = useState<ExpandedProvider[]>([]);
   const [loading, setLoading] = useState(true);
   const [editProvider, setEditProvider] = useState<ExpandedProvider | null>(null);
@@ -1431,7 +1438,7 @@ export default function AdminProvidersPage() {
         data: { health: result.health, provision_test_skipped_reason: result.provision_test_skipped_reason },
       });
     } catch (e: unknown) {
-      setTestResult({ id: provider.id, data: { error: e instanceof Error ? e.message : "Test thất bại" } });
+      setTestResult({ id: provider.id, data: { error: apiErrorMessage(e, "Test thất bại") } });
     } finally {
       setTestingId(null);
     }

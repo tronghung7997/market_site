@@ -116,7 +116,7 @@ async def test_reset_with_garbage_token(client):
         json={"token": "x" * 40, "password": "ValidPassword123!"},
     )
     assert resp.status_code == 400
-    assert "hết hạn" in resp.json()["detail"] or "không hợp lệ" in resp.json()["detail"]
+    assert resp.json()["error_code"] == "PASSWORD_RESET_INVALID"
 
 
 @pytest.mark.asyncio

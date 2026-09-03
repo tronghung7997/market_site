@@ -8,6 +8,7 @@ import { Button, Card, Spinner, Tag } from "@/components/ui";
 import { SearchInput, Pagination, SlidePanel } from "@/components/admin";
 import { MoneyInput } from "@/components/MoneyInput";
 import { api, vnd } from "@/lib/api";
+import { useApiErrorMessage } from "@/lib/use-api-error";
 import type { AdminAccountWallet, Transaction } from "@/lib/types";
 import { cn } from "@/lib/cn";
 import { SELLER_TIERS, sellerTierLabel } from "@/lib/seller-tier";
@@ -25,6 +26,7 @@ function sameRoles(a: string[], b: string[]) {
 }
 
 export default function AdminAccountsPage() {
+  const apiErrorMessage = useApiErrorMessage();
   const { account: me } = useAuth();
   const [search, setSearch] = React.useState("");
   const [applied, setApplied] = React.useState("");
@@ -69,7 +71,7 @@ export default function AdminAccountsPage() {
       setData((d) => d ? { ...d, items: d.items.map((u) => u.id === row.id ? updated : u) } : d);
       setDraft((dr) => ({ ...dr, [row.id]: updated.roles }));
     } catch (e) {
-      setErr(e instanceof Error ? e.message : "Cập nhật vai trò thất bại");
+      setErr(apiErrorMessage(e, "Cập nhật vai trò thất bại"));
       setDraft((dr) => ({ ...dr, [row.id]: row.roles })); // revert
     } finally {
       setSavingId(null);
@@ -107,7 +109,7 @@ export default function AdminAccountsPage() {
       await openWallet(walletFor);
       setWalletMsg(`Đã cộng ${vnd(amount)} vào ví ${walletFor.email}.`);
     } catch (e) {
-      setWalletMsg(e instanceof Error ? `Topup thất bại: ${e.message}` : "Topup thất bại");
+      setWalletMsg(`Topup thất bại: ${apiErrorMessage(e, "Topup thất bại")}`);
     } finally {
       setTopupBusy(false);
     }
@@ -119,7 +121,7 @@ export default function AdminAccountsPage() {
       const updated = await api.adminUpdateSellerTier(row.id, tier);
       setData((d) => d ? { ...d, items: d.items.map((u) => u.id === row.id ? updated : u) } : d);
     } catch (e) {
-      setErr(e instanceof Error ? e.message : "Cập nhật cấp độ thất bại");
+      setErr(apiErrorMessage(e, "Cập nhật cấp độ thất bại"));
     } finally {
       setTierSavingId(null);
     }

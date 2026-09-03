@@ -4,6 +4,7 @@ import * as React from "react";
 import { motion } from "motion/react";
 import { Pencil, Plus, Trash2 } from "lucide-react";
 import { api } from "@/lib/api";
+import { useApiErrorMessage } from "@/lib/use-api-error";
 import type { Category } from "@/lib/types";
 import { Button, Card, Field, Input, Select, Spinner, Tag } from "@/components/ui";
 import { categoryCoverId, CoverPicker, ProductCover } from "@/features/product-covers";
@@ -22,6 +23,7 @@ function flatten(cats: Category[], depth = 0): FlatCat[] {
 const EMPTY = { name: "", slug: "", icon: "", parent_id: "", commission_rate: "", is_active: true };
 
 export default function AdminCategoriesPage() {
+  const apiErrorMessage = useApiErrorMessage();
   const [cats, setCats] = React.useState<Category[]>([]);
   const [loading, setLoading] = React.useState(true);
   const [editing, setEditing] = React.useState<Category | null>(null);
@@ -75,14 +77,14 @@ export default function AdminCategoriesPage() {
       closePanel();
       await load();
     } catch (e) {
-      setErr(e instanceof Error ? e.message : "Lưu thất bại");
+      setErr(apiErrorMessage(e, "Lưu thất bại"));
     } finally { setBusy(false); }
   };
 
   const remove = async (c: Category) => {
     if (!confirm(`Xoá danh mục "${c.name}"?`)) return;
     try { await api.deleteCategory(c.id); await load(); }
-    catch (e) { alert(e instanceof Error ? e.message : "Xoá thất bại"); }
+    catch (e) { alert(apiErrorMessage(e, "Xoá thất bại")); }
   };
 
   return (

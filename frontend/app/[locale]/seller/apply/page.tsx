@@ -5,6 +5,7 @@ import { useRouter } from "@/i18n/navigation";
 import { useTranslations } from "next-intl";
 import { useAuth } from "@/lib/auth";
 import { api } from "@/lib/api";
+import { useApiErrorMessage } from "@/lib/use-api-error";
 import { formatDate } from "@/lib/utils";
 import type { SellerApplication } from "@/lib/types";
 import { Button, Card, Field, Input, Spinner, Tag, Textarea } from "@/components/ui";
@@ -16,6 +17,7 @@ export default function SellerApplyPage() {
   const { account, loading, refresh } = useAuth();
   const router = useRouter();
   const t = useTranslations("seller");
+  const apiErrorMessage = useApiErrorMessage();
 
   const [checking, setChecking] = useState(true);
   const [application, setApplication] = useState<SellerApplication | null>(null);
@@ -82,7 +84,7 @@ export default function SellerApplyPage() {
       const app = await api.sellerApply({ business_name: businessName, description: description || undefined, contact: contact || undefined });
       setApplication(app);
     } catch (err) {
-      setError(err instanceof Error ? err.message : t("submitFailed"));
+      setError(apiErrorMessage(err, t("submitFailed")));
     } finally {
       setBusy(false);
     }

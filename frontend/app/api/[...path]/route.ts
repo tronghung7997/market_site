@@ -11,6 +11,7 @@ import {
 } from "@/lib/bff-session";
 import { buildUpstreamTarget } from "@/lib/bff-upstream";
 import { SERVER_API_BASE } from "@/lib/server-api";
+import { bffErrorBody } from "@/lib/bff-error";
 
 const IS_PRODUCTION = process.env.NODE_ENV === "production";
 const UNSAFE_METHODS = new Set(["POST", "PUT", "PATCH", "DELETE"]);
@@ -121,7 +122,7 @@ async function rotateRefresh(request: NextRequest, refreshToken: string): Promis
   }
 }
 
-function passthroughUpstream(upstream: Response, extra?: (response: NextResponse) => void) {
+async function passthroughUpstream(upstream: Response, extra?: (response: NextResponse) => void) {
   const responseHeaders = new Headers(upstream.headers);
   for (const name of ["set-cookie", "content-length", "connection", "content-encoding", "transfer-encoding", "server"]) {
     responseHeaders.delete(name);
@@ -136,6 +137,23 @@ function passthroughUpstream(upstream: Response, extra?: (response: NextResponse
       status: upstream.status,
       headers: responseHeaders,
     });
+    extra?.(response);
+    return response;
+  }
+  // Re-serialize JSON errors so additive fields like error_code survive
+  // content-encoding stripping and proxy buffering.
+  if (!upstream.ok && contentType.includes("application/json")) {
+    const payload = await upstream.json().catch(() => null);
+    const headers = new Headers({ "Cache-Control": "no-store" });
+    const requestId = upstream.headers.get("x-request-id");
+    if (requestId) headers.set("x-request-id", requestId);
+    const response = NextResponse.json(
+      payload ?? bffErrorBody("BACKEND_UNAVAILABLE", "The service is temporarily unavailable. Please try again."),
+      {
+        status: upstream.status,
+        headers,
+      },
+    );
     extra?.(response);
     return response;
   }
@@ -169,17 +187,20 @@ async function proxyLogout(request: NextRequest): Promise<NextResponse> {
 
 async function proxy(request: NextRequest, segments: string[]) {
   if (!csrfAllowed(request)) {
-    return NextResponse.json({ detail: "Cross-site request bị từ chối" }, { status: 403 });
+    return NextResponse.json(
+      bffErrorBody("CSRF_REJECTED", "This request was blocked. Refresh the page and try again."),
+      { status: 403 },
+    );
   }
 
   const upstreamTarget = buildUpstreamTarget(segments, SERVER_API_BASE);
   if (!upstreamTarget) {
-    return NextResponse.json({ detail: "Not found" }, { status: 404 });
+    return NextResponse.json(bffErrorBody("NOT_FOUND", "Not found"), { status: 404 });
   }
   const { path, target } = upstreamTarget;
   if (isAdminApiPath(path) && !adminRequestAllowed(request.headers)) {
     return NextResponse.json(
-      { detail: "Not found" },
+      bffErrorBody("NOT_FOUND", "Not found"),
       { status: 404, headers: { "Cache-Control": "private, no-store" } },
     );
   }
@@ -190,11 +211,17 @@ async function proxy(request: NextRequest, segments: string[]) {
   const refreshCookie = request.cookies.get(REFRESH_COOKIE)?.value;
   if (path === "auth/refresh") {
     if (!refreshCookie) {
-      return NextResponse.json({ detail: "Token không hợp lệ" }, { status: 401 });
+      return NextResponse.json(
+        bffErrorBody("SESSION_EXPIRED", "Your session has expired. Please sign in again."),
+        { status: 401 },
+      );
     }
     const rotated = await rotateRefresh(request, refreshCookie);
     if (!rotated) {
-      const failed = NextResponse.json({ detail: "Token không hợp lệ" }, { status: 401 });
+      const failed = NextResponse.json(
+        bffErrorBody("SESSION_EXPIRED", "Your session has expired. Please sign in again."),
+        { status: 401 },
+      );
       clearAuthCookies(failed);
       return failed;
     }
@@ -215,14 +242,20 @@ async function proxy(request: NextRequest, segments: string[]) {
   try {
     upstream = await signedFetch(request.method, target, headers, body);
   } catch {
-    return NextResponse.json({ detail: "Backend tạm thời không khả dụng" }, { status: 502 });
+    return NextResponse.json(
+      bffErrorBody("BACKEND_UNAVAILABLE", "The service is temporarily unavailable. Please try again."),
+      { status: 502 },
+    );
   }
 
   if ((path === "auth/login" || path === "auth/admin/login") && upstream.ok) {
     const login = await upstream.json() as { access_token?: string; refresh_token?: string; token_type?: string };
     const tokens = tokensFromLoginPayload(login);
     if (!tokens) {
-      return NextResponse.json({ detail: "Phản hồi đăng nhập không hợp lệ" }, { status: 502 });
+      return NextResponse.json(
+        bffErrorBody("INVALID_LOGIN_RESPONSE", "Sign-in could not be completed. Please try again."),
+        { status: 502 },
+      );
     }
     const response = NextResponse.json({ token_type: tokens.tokenType });
     applyAuthCookies(response, tokens.accessToken, tokens.refreshToken);
@@ -236,18 +269,20 @@ async function proxy(request: NextRequest, segments: string[]) {
       retryHeaders.set("authorization", `Bearer ${rotated.accessToken}`);
       try {
         const retried = await signedFetch(request.method, target, retryHeaders, body);
-        return passthroughUpstream(retried, (response) => {
+        return await passthroughUpstream(retried, (response) => {
           applyAuthCookies(response, rotated.accessToken, rotated.refreshToken);
         });
       } catch {
-        return NextResponse.json({ detail: "Backend tạm thời không khả dụng" }, { status: 502 });
+        return NextResponse.json(
+          bffErrorBody("BACKEND_UNAVAILABLE", "The service is temporarily unavailable. Please try again."),
+          { status: 502 },
+        );
       }
     }
-    const response = passthroughUpstream(upstream, clearAuthCookies);
-    return response;
+    return await passthroughUpstream(upstream, clearAuthCookies);
   }
 
-  const response = passthroughUpstream(upstream);
+  const response = await passthroughUpstream(upstream);
   if (upstream.status === 401) clearAuthCookies(response);
   return response;
 }

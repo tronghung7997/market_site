@@ -7,7 +7,6 @@ import { useTranslations } from "next-intl";
 import { useAuth } from "@/lib/auth";
 import { api } from "@/lib/api";
 import { isValidEmail, PASSWORD_MAX_LENGTH } from "@/lib/auth-validation";
-import { safeInternalRedirect } from "@/lib/safe-redirect";
 import { useApiErrorMessage } from "@/lib/use-api-error";
 import { Button, Card, Field, Input, Spinner } from "@/components/ui";
 import { Logo } from "@/components/Icons";
@@ -78,13 +77,39 @@ function LoginForm() {
           <h2 className="font-serif text-[26px] tracking-tight">{t("loginTitle")}</h2>
           <p className="text-[13px] text-muted">{t("loginSubtitle")}</p>
         </div>
-        <form onSubmit={submit} className="flex flex-col gap-4">
-          <Field label={t("email")}><Input type="email" required value={email} onChange={(e) => setEmail(e.target.value)} placeholder="you@company.com" autoComplete="email" /></Field>
-          <Field label={t("password")}><Input type="password" required value={password} onChange={(e) => setPassword(e.target.value)} placeholder="••••••••" autoComplete="current-password" /></Field>
+        <form onSubmit={submit} className="flex flex-col gap-4" noValidate>
+          <Field label={t("email")} error={fieldErrors.email}>
+            <Input
+              type="email"
+              required
+              value={email}
+              onChange={(e) => {
+                setEmail(e.target.value);
+                setFieldErrors((current) => ({ ...current, email: undefined }));
+              }}
+              placeholder="you@company.com"
+              autoComplete="email"
+              aria-invalid={Boolean(fieldErrors.email)}
+            />
+          </Field>
+          <Field label={t("password")} error={fieldErrors.password}>
+            <Input
+              type="password"
+              required
+              value={password}
+              onChange={(e) => {
+                setPassword(e.target.value);
+                setFieldErrors((current) => ({ ...current, password: undefined }));
+              }}
+              placeholder="••••••••"
+              autoComplete="current-password"
+              aria-invalid={Boolean(fieldErrors.password)}
+            />
+          </Field>
           <p className="text-right -mt-2">
             <Link href="/forgot-password" className="text-[13px] text-iris-hi hover:underline">{t("forgotPassword")}</Link>
           </p>
-          {error && <p className="text-bad text-[13px]">{error}</p>}
+          {error && <p className="text-bad text-[13px]" role="alert">{error}</p>}
           <Button type="submit" block size="lg" disabled={busy}>{busy ? t("signingIn") : t("loginTitle")}</Button>
         </form>
         <p className="text-center text-[13px] text-muted mt-6">

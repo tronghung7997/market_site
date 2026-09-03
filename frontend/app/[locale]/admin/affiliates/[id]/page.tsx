@@ -4,11 +4,13 @@ import { useState } from "react";
 import { useRouter, useParams } from "next/navigation";
 import { ArrowLeft, Check, Pencil, X } from "lucide-react";
 import { api } from "@/lib/api";
+import { useApiErrorMessage } from "@/lib/use-api-error";
 import { useAdminAffiliateDetail } from "@/hooks/use-affiliate";
 import { Button, Input, Spinner } from "@/components/ui";
 import { AffiliateStatsView } from "@/components/AffiliateStatsView";
 
 export default function AdminAffiliateDetailPage() {
+  const apiErrorMessage = useApiErrorMessage();
   const params = useParams<{ id: string }>();
   const id = Number(params.id);
   const router = useRouter();
@@ -35,7 +37,7 @@ export default function AdminAffiliateDetailPage() {
       setEditing(false);
       await refetch();
     } catch (e) {
-      setErr(e instanceof Error ? e.message : "Đổi mã thất bại");
+      setErr(apiErrorMessage(e, "Đổi mã thất bại"));
     } finally {
       setBusy(false);
     }

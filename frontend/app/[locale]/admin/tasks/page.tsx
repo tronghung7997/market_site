@@ -2,6 +2,7 @@
 
 import { useEffect, useState, useMemo, useCallback } from "react";
 import { api } from "@/lib/api";
+import { useApiErrorMessage } from "@/lib/use-api-error";
 import { Card, Spinner, Tag, Button, Field, Select, Input, Textarea } from "@/components/ui";
 import type { ServiceTask } from "@/lib/types";
 
@@ -63,6 +64,7 @@ function TaskEditRow({
   onSaved: (t: ServiceTask) => void;
   onCancel: () => void;
 }) {
+  const apiErrorMessage = useApiErrorMessage();
   const [status, setStatus] = useState(task.status);
   const [assignee, setAssignee] = useState(task.assignee ?? "");
   const [resultData, setResultData] = useState(task.result_data ?? "");
@@ -80,7 +82,7 @@ function TaskEditRow({
       });
       onSaved(updated);
     } catch (e: unknown) {
-      setError(e instanceof Error ? e.message : "Lỗi khi lưu");
+      setError(apiErrorMessage(e, "Lỗi khi lưu"));
     } finally {
       setSaving(false);
     }

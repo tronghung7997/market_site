@@ -5,6 +5,7 @@ import { useLocale, useTranslations } from "next-intl";
 import { useEffect, useState } from "react";
 import { useQueryClient } from "@tanstack/react-query";
 import { api } from "@/lib/api";
+import { useApiErrorMessage } from "@/lib/use-api-error";
 import { useAuth } from "@/lib/auth";
 import { useMoney } from "@/lib/money";
 import { queryKeys } from "@/lib/query-keys";
@@ -103,6 +104,7 @@ export default function WalletPage() {
 
 function DemoTopup({ onChanged }: { onChanged: () => Promise<void> }) {
   const t = useTranslations("wallet");
+  const apiErrorMessage = useApiErrorMessage();
   const locale = useLocale();
   const { formatLedgerMoney } = useMoney();
   const [amount, setAmount] = useState("");
@@ -123,7 +125,7 @@ function DemoTopup({ onChanged }: { onChanged: () => Promise<void> }) {
       await onChanged();
       setTimeout(() => setMsg(""), 3000);
     } catch (e) {
-      setErr(t("demoFail", { error: e instanceof Error ? e.message : "—" }));
+      setErr(t("demoFail", { error: apiErrorMessage(e, "—") }));
     } finally {
       setLoading(false);
     }

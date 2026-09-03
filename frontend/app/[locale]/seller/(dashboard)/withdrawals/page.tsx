@@ -2,7 +2,8 @@
 
 import { useCallback, useEffect, useState } from "react";
 import { useLocale, useTranslations } from "next-intl";
-import { api, ApiError } from "@/lib/api";
+import { api } from "@/lib/api";
+import { useApiErrorMessage } from "@/lib/use-api-error";
 import { cn } from "@/lib/cn";
 import { useMoney } from "@/lib/money";
 import { formatDate } from "@/lib/utils";
@@ -13,6 +14,7 @@ import { Wallet as WalletIcon } from "@/components/Icons";
 
 export default function SellerWithdrawalsPage() {
   const t = useTranslations("seller");
+  const apiErrorMessage = useApiErrorMessage();
   const locale = useLocale();
   const { formatBrowseMoney } = useMoney();
   const [wallet, setWallet] = useState<Wallet | null>(null);
@@ -70,7 +72,7 @@ export default function SellerWithdrawalsPage() {
       setOk(t("withdrawSubmitted"));
       await load();
     } catch (e) {
-      setErr(e instanceof ApiError ? e.message : t("withdrawFailed"));
+      setErr(apiErrorMessage(e, t("withdrawFailed")));
     } finally {
       setBusy(false);
     }

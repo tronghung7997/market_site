@@ -5,6 +5,7 @@ import { useTranslations } from "next-intl";
 import { useParams, usePathname, useRouter, useSearchParams } from "next/navigation";
 import { useEffect, useState } from "react";
 import { api, vnd } from "@/lib/api";
+import { useApiErrorMessage } from "@/lib/use-api-error";
 import type { AdminProductDetail as AdminProductDetailData, Category, ProductLocale, ProductOperations, ProductPricingLabels, Provider } from "@/lib/types";
 import { Button, Banner, Card, Field, Input, Select, Spinner, Tag, Textarea } from "@/components/ui";
 import { ArrowRight, Check, Edit2, Eye, Info, Sliders, Users } from "@/components/Icons";
@@ -47,6 +48,7 @@ const STATUS_LABEL_KEYS: Record<string, string> = {
 };
 
 export default function AdminProductDetail() {
+  const apiErrorMessage = useApiErrorMessage();
   const t = useTranslations("seller");
   const tp = useTranslations("products");
   const { id, locale: interfaceLocaleParam } = useParams<{ id: string; locale: string }>();
@@ -189,7 +191,7 @@ export default function AdminProductDetail() {
       setEditingContent(false);
       await loadAll();
     } catch (e) {
-      setContentMsg({ type: "err", text: e instanceof Error ? e.message : "Lỗi khi lưu" });
+      setContentMsg({ type: "err", text: apiErrorMessage(e, "Lỗi khi lưu") });
     } finally {
       setSavingContent(false);
     }
@@ -218,7 +220,7 @@ export default function AdminProductDetail() {
       setDirty(false);
       await loadAll();
     } catch (e) {
-      setSaveMsg({ type: "err", text: e instanceof Error ? e.message : "Lỗi khi lưu" });
+      setSaveMsg({ type: "err", text: apiErrorMessage(e, "Lỗi khi lưu") });
     } finally {
       setSaving(false);
     }

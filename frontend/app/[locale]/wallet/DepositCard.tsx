@@ -5,6 +5,7 @@ import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import Image from "next/image";
 import { QRCodeSVG } from "qrcode.react";
 import { api } from "@/lib/api";
+import { useApiErrorMessage } from "@/lib/use-api-error";
 import { cn } from "@/lib/cn";
 import { useMoney } from "@/lib/money";
 import { timeLeftFine } from "@/lib/time";
@@ -67,6 +68,7 @@ export default function DepositCard({ deposits, onChanged }: {
   onChanged: () => Promise<void>;
 }) {
   const t = useTranslations("wallet");
+  const apiErrorMessage = useApiErrorMessage();
   const td = useTranslations("status.deposit");
   const locale = useLocale();
   const { currency, formatBrowseMoney, formatLedgerMoney, fxRate, showFxHints } = useMoney();
@@ -92,10 +94,10 @@ export default function DepositCard({ deposits, onChanged }: {
     } catch (e) {
       setMethodsState({
         status: "error",
-        message: e instanceof Error ? e.message : t("depositMethodsLoadFail"),
+        message: apiErrorMessage(e, t("depositMethodsLoadFail")),
       });
     }
-  }, [t]);
+  }, [apiErrorMessage, t]);
 
   useEffect(() => {
     void loadMethods();
@@ -261,7 +263,7 @@ export default function DepositCard({ deposits, onChanged }: {
       await onChanged();
     } catch (e) {
       if (payTab) payTab.close();
-      const raw = e instanceof Error ? e.message : "";
+      const raw = apiErrorMessage(e, "");
       if (/tối đa|maximum|max/i.test(raw)) {
         setErr(t("depositMaxError", { amount: formatMaxLabel }));
       } else if (/tối thiểu|minimum|min/i.test(raw)) {
@@ -284,7 +286,7 @@ export default function DepositCard({ deposits, onChanged }: {
       }
       await onChanged();
     } catch (e) {
-      setErr(t("depositCancelFail", { error: e instanceof Error ? e.message : t("depositUnknownError") }));
+      setErr(t("depositCancelFail", { error: apiErrorMessage(e, t("depositUnknownError")) }));
     }
   };
 

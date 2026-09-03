@@ -69,10 +69,51 @@ function RegisterForm() {
           <h2 className="font-serif text-[26px] tracking-tight">{t("registerTitle")}</h2>
           <p className="text-[13px] text-muted">{t("registerSubtitle")}</p>
         </div>
-        <form onSubmit={submit} className="flex flex-col gap-4">
-          <Field label={t("email")}><Input type="email" required value={email} onChange={(e) => setEmail(e.target.value)} placeholder="you@company.com" autoComplete="email" /></Field>
-          <Field label={t("password")} hint={t("passwordHint", { min: PASSWORD_MIN_LENGTH })}><Input type="password" required minLength={PASSWORD_MIN_LENGTH} value={password} onChange={(e) => setPassword(e.target.value)} placeholder="••••••••" autoComplete="new-password" /></Field>
-          {error && <p className="text-bad text-[13px]">{error}</p>}
+        <form onSubmit={submit} className="flex flex-col gap-4" noValidate>
+          <Field label={t("email")} error={fieldErrors.email}>
+            <Input
+              type="email"
+              required
+              value={email}
+              onChange={(e) => {
+                setEmail(e.target.value);
+                setFieldErrors((current) => ({ ...current, email: undefined }));
+              }}
+              placeholder="you@company.com"
+              autoComplete="email"
+              aria-invalid={Boolean(fieldErrors.email)}
+            />
+          </Field>
+          <Field label={t("password")} hint={t("passwordHint", { min: PASSWORD_MIN_LENGTH })} error={fieldErrors.password}>
+            <Input
+              type="password"
+              required
+              minLength={PASSWORD_MIN_LENGTH}
+              value={password}
+              onChange={(e) => {
+                setPassword(e.target.value);
+                setFieldErrors((current) => ({ ...current, password: undefined }));
+              }}
+              placeholder="••••••••"
+              autoComplete="new-password"
+              aria-invalid={Boolean(fieldErrors.password)}
+            />
+          </Field>
+          <Field label={t("confirmPassword")} error={fieldErrors.confirmPassword}>
+            <Input
+              type="password"
+              required
+              value={confirmPassword}
+              onChange={(e) => {
+                setConfirmPassword(e.target.value);
+                setFieldErrors((current) => ({ ...current, confirmPassword: undefined }));
+              }}
+              placeholder="••••••••"
+              autoComplete="new-password"
+              aria-invalid={Boolean(fieldErrors.confirmPassword)}
+            />
+          </Field>
+          {error && <p className="text-bad text-[13px]" role="alert">{error}</p>}
           <Button type="submit" block size="lg" disabled={busy}>{busy ? t("creating") : t("registerTitle")}</Button>
         </form>
         <p className="text-center text-[13px] text-muted mt-6">

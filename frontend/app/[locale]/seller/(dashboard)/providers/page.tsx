@@ -4,6 +4,7 @@ import { useEffect, useState } from "react";
 import { useRouter } from "next/navigation";
 import { useTranslations } from "next-intl";
 import { api } from "@/lib/api";
+import { useApiErrorMessage } from "@/lib/use-api-error";
 import { useAuth } from "@/lib/auth";
 import { canUseSellerProviders, sellerTierLabel } from "@/lib/seller-tier";
 import type { Provider } from "@/lib/types";
@@ -107,6 +108,7 @@ function ContractGuide({ type }: { type: IntegrationType }) {
 
 function IntegrationForm({ provider, onSaved, onCancel }: { provider?: Provider; onSaved: () => void; onCancel: () => void }) {
   const t = useTranslations("seller");
+  const apiErrorMessage = useApiErrorMessage();
   const editing = Boolean(provider);
   const initialType = (provider?.adapter_type ?? "seller_gateway") as IntegrationType;
   const [form, setForm] = useState(() => ({
@@ -137,7 +139,7 @@ function IntegrationForm({ provider, onSaved, onCancel }: { provider?: Provider;
       else await api.createSellerProvider({ name: form.name.trim(), adapter_type: form.adapter_type, config });
       onSaved();
     } catch (cause) {
-      setError(cause instanceof Error ? cause.message : t("providerSaveFailed"));
+      setError(apiErrorMessage(cause, t("providerSaveFailed")));
     } finally {
       setSaving(false);
     }
@@ -267,6 +269,7 @@ function TestSummary({ result }: { result: TestDisplay | null }) {
 
 function IntegrationCard({ provider, onChanged }: { provider: Provider; onChanged: () => void }) {
   const t = useTranslations("seller");
+  const apiErrorMessage = useApiErrorMessage();
   const router = useRouter();
   const [editing, setEditing] = useState(false);
   const [working, setWorking] = useState<"test" | "submit" | null>(null);
@@ -283,7 +286,7 @@ function IntegrationCard({ provider, onChanged }: { provider: Provider; onChange
       setTestResult(await api.testSellerProvider(provider.id));
       onChanged();
     } catch (cause) {
-      setError(cause instanceof Error ? cause.message : t("providerTestFailed"));
+      setError(apiErrorMessage(cause, t("providerTestFailed")));
     } finally {
       setWorking(null);
     }
@@ -296,7 +299,7 @@ function IntegrationCard({ provider, onChanged }: { provider: Provider; onChange
       await api.submitSellerProvider(provider.id);
       onChanged();
     } catch (cause) {
-      setError(cause instanceof Error ? cause.message : t("submitFailed"));
+      setError(apiErrorMessage(cause, t("submitFailed")));
     } finally {
       setWorking(null);
     }

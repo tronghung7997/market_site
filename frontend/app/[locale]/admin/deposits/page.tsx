@@ -5,6 +5,7 @@ import { createPortal } from "react-dom";
 import { AnimatePresence, motion } from "motion/react";
 
 import { api } from "@/lib/api";
+import { useApiErrorMessage } from "@/lib/use-api-error";
 import type {
   AdminDepositIntent,
   AdminDepositLedgerEntry,
@@ -86,6 +87,7 @@ interface ReconcileFeedback {
 }
 
 export default function AdminDepositsPage() {
+  const apiErrorMessage = useApiErrorMessage();
   const [ledger, setLedger] = React.useState<AdminDepositLedgerResponse | null>(null);
   const [loading, setLoading] = React.useState(true);
   const [error, setError] = React.useState<string | null>(null);
@@ -142,7 +144,7 @@ export default function AdminDepositsPage() {
       }
     } catch (err) {
       if (requestId === ledgerRequestRef.current) {
-        setError(err instanceof Error ? err.message : "Không tải được danh sách nạp tiền");
+        setError(apiErrorMessage(err, "Không tải được danh sách nạp tiền"));
       }
     } finally {
       if (requestId === ledgerRequestRef.current) {
@@ -261,7 +263,7 @@ export default function AdminDepositsPage() {
         id: String(Date.now()),
         type: "error",
         title: `Lệnh #${deposit.id}: Lỗi đối soát`,
-        message: err instanceof Error ? err.message : "Lỗi kết nối tới cổng thanh toán.",
+        message: apiErrorMessage(err, "Lỗi kết nối tới cổng thanh toán."),
         depositId: deposit.id,
         entry,
       });

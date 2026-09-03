@@ -14,6 +14,7 @@ import { ListFilter, Search, X } from "lucide-react";
 import { useDebounce } from "@/lib/hooks/useDebounce";
 
 import { api, vnd } from "@/lib/api";
+import { useApiErrorMessage } from "@/lib/use-api-error";
 import { Banner, Card, Spinner, Button, Textarea, Input } from "@/components/ui";
 import { MoneyInput } from "@/components/MoneyInput";
 import {
@@ -460,6 +461,7 @@ function DisputeDetailContent({
 }
 
 export default function AdminDisputesPage() {
+  const apiErrorMessage = useApiErrorMessage();
   // Filter & pagination state
   const [status, setStatus] = React.useState("all");
   const [buyerKey, setBuyerKey] = React.useState<string | null>(null);
@@ -621,7 +623,7 @@ export default function AdminDisputesPage() {
       setDaysInput("");
       queryResult.refetch();
     } catch (err) {
-      alert(err instanceof Error ? err.message : "Xử lý thất bại");
+      alert(apiErrorMessage(err, "Xử lý thất bại"));
     } finally {
       setBusy(false);
     }

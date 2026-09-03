@@ -3,11 +3,13 @@
 import { useCallback, useEffect, useMemo, useState } from "react";
 import { useTranslations } from "next-intl";
 import { api } from "@/lib/api";
+import { useApiErrorMessage } from "@/lib/use-api-error";
 import type { MailTemplatePreview, MailTemplateRow } from "@/lib/types";
 import { Button, Input, Select, Tag, Textarea } from "@/components/ui";
 
 export function MailTemplateEditor() {
   const t = useTranslations("adminMail");
+  const apiErrorMessage = useApiErrorMessage();
   const [items, setItems] = useState<MailTemplateRow[]>([]);
   const [template, setTemplate] = useState("password_reset");
   const [locale, setLocale] = useState<"vi" | "en">("vi");
@@ -42,7 +44,7 @@ export function MailTemplateEditor() {
       const data = await api.adminMailTemplates();
       setItems(data.items);
     } catch (e) {
-      setErr(e instanceof Error ? e.message : t("tplLoadFail"));
+      setErr(apiErrorMessage(e, t("tplLoadFail")));
     } finally {
       setLoading(false);
     }
@@ -69,7 +71,7 @@ export function MailTemplateEditor() {
       )));
       setMsg(t("tplSaved"));
     } catch (e) {
-      setErr(e instanceof Error ? e.message : t("tplSaveFail"));
+      setErr(apiErrorMessage(e, t("tplSaveFail")));
     } finally {
       setSaving(false);
     }
@@ -87,7 +89,7 @@ export function MailTemplateEditor() {
       )));
       setMsg(t("tplResetDone"));
     } catch (e) {
-      setErr(e instanceof Error ? e.message : t("tplResetFail"));
+      setErr(apiErrorMessage(e, t("tplResetFail")));
     } finally {
       setSaving(false);
     }
@@ -99,7 +101,7 @@ export function MailTemplateEditor() {
       const next = await api.adminPreviewMailTemplate({ template, locale, subject, body });
       setPreview(next);
     } catch (e) {
-      setErr(e instanceof Error ? e.message : t("tplPreviewFail"));
+      setErr(apiErrorMessage(e, t("tplPreviewFail")));
     }
   };
 

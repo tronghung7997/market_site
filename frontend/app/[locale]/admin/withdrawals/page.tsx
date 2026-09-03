@@ -4,11 +4,13 @@ import * as React from "react";
 import { motion } from "motion/react";
 
 import { api, vnd } from "@/lib/api";
+import { useApiErrorMessage } from "@/lib/use-api-error";
 import { Card, Spinner, Button, Textarea } from "@/components/ui";
 import { StatsCard, ConfirmModal, WithdrawStatusBadge } from "@/components/admin";
 import type { WithdrawRequest } from "@/lib/types";
 
 export default function AdminWithdrawalsPage() {
+  const apiErrorMessage = useApiErrorMessage();
   const [requests, setRequests] = React.useState<WithdrawRequest[]>([]);
   const [loading, setLoading] = React.useState(true);
   const [confirmId, setConfirmId] = React.useState<number | null>(null);
@@ -37,7 +39,7 @@ export default function AdminWithdrawalsPage() {
       setConfirmId(null);
       load();
     } catch (err) {
-      alert(`Duyệt thất bại: ${err instanceof Error ? err.message : "Unknown error"}`);
+      alert(`Duyệt thất bại: ${apiErrorMessage(err, "Unknown error")}`);
     } finally {
       setBusy(false);
     }
@@ -53,7 +55,7 @@ export default function AdminWithdrawalsPage() {
       await api.markWithdrawalPaid(id, ref.trim());
       load();
     } catch (err) {
-      alert(`Đánh dấu đã chi thất bại: ${err instanceof Error ? err.message : "Unknown error"}`);
+      alert(`Đánh dấu đã chi thất bại: ${apiErrorMessage(err, "Unknown error")}`);
     } finally {
       setBusy(false);
     }
@@ -70,7 +72,7 @@ export default function AdminWithdrawalsPage() {
       setRejectReason("");
       load();
     } catch (err) {
-      alert(`Từ chối thất bại: ${err instanceof Error ? err.message : "Unknown error"}`);
+      alert(`Từ chối thất bại: ${apiErrorMessage(err, "Unknown error")}`);
     } finally {
       setBusy(false);
     }

@@ -3,7 +3,8 @@
 import { FormEvent, useEffect, useRef, useState } from "react";
 import { useLocale, useTranslations } from "next-intl";
 import { Link } from "@/i18n/navigation";
-import { api, ApiError } from "@/lib/api";
+import { api } from "@/lib/api";
+import { useApiErrorMessage } from "@/lib/use-api-error";
 import type { TikTokLookupResponse } from "@/lib/types";
 import { Banner, Button, Card, CopyButton, Input, Tag } from "@/components/ui";
 import { ArrowRight, Check, Clock, Search, Shield, Verified } from "@/components/Icons";
@@ -22,6 +23,7 @@ function ResultSkeleton() {
 
 export default function TikTokIdPage() {
   const t = useTranslations("tiktokLookup");
+  const apiErrorMessage = useApiErrorMessage();
   const locale = useLocale();
   const [value, setValue] = useState("");
   const [result, setResult] = useState<TikTokLookupResponse | null>(null);
@@ -36,7 +38,7 @@ export default function TikTokIdPage() {
     if (!input.trim()) { setError(t("errors.empty")); setResult(null); return; }
     setLoading(true); setError(null); setResult(null);
     try { setResult(await api.tiktokLookup(input)); }
-    catch (cause) { setError(cause instanceof ApiError ? cause.message : t("errors.generic")); }
+    catch (cause) { setError(apiErrorMessage(cause, t("errors.generic"))); }
     finally { setLoading(false); }
   };
 

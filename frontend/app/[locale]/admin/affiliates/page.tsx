@@ -5,6 +5,7 @@ import { useRouter } from "next/navigation";
 import { motion } from "motion/react";
 import { ArrowRight, Wallet as WalletIcon } from "lucide-react";
 import { api, vnd } from "@/lib/api";
+import { useApiErrorMessage } from "@/lib/use-api-error";
 import type { FundOverview } from "@/lib/types";
 import { useAdminAffiliates } from "@/hooks/use-affiliate";
 import { Button, Card, Input, Spinner } from "@/components/ui";
@@ -12,6 +13,7 @@ import { MoneyInput } from "@/components/MoneyInput";
 import { SearchInput, Pagination } from "@/components/admin";
 
 function FundPanel() {
+  const apiErrorMessage = useApiErrorMessage();
   const [fund, setFund] = React.useState<FundOverview | null>(null);
   const [amount, setAmount] = React.useState("");
   const [note, setNote] = React.useState("");
@@ -34,7 +36,7 @@ function FundPanel() {
       setMsg(`Đã nạp ${vnd(n)} vào quỹ`);
       setTimeout(() => setMsg(null), 2500);
     } catch (e) {
-      setMsg(e instanceof Error ? e.message : "Nạp quỹ thất bại");
+      setMsg(apiErrorMessage(e, "Nạp quỹ thất bại"));
     } finally {
       setBusy(false);
     }

@@ -3,6 +3,7 @@
 import { useLocale, useTranslations } from "next-intl";
 import { useState } from "react";
 import { api } from "@/lib/api";
+import { useApiErrorMessage } from "@/lib/use-api-error";
 import { useMoney } from "@/lib/money";
 import { formatDate } from "@/lib/utils";
 import type { Wallet, WithdrawRequest } from "@/lib/types";
@@ -21,6 +22,7 @@ export function WithdrawCard({ wallet, onChanged }: {
   onChanged: () => Promise<void>;
 }) {
   const t = useTranslations("wallet");
+  const apiErrorMessage = useApiErrorMessage();
   const locale = useLocale();
   const { formatBrowseMoney } = useMoney();
   const [amount, setAmount] = useState(0);
@@ -55,7 +57,7 @@ export function WithdrawCard({ wallet, onChanged }: {
       await onChanged();
       setTimeout(() => setMsg(""), 4000);
     } catch (e) {
-      setErr(t("withdrawFail", { error: e instanceof Error ? e.message : "—" }));
+      setErr(t("withdrawFail", { error: apiErrorMessage(e, "—") }));
     } finally {
       setLoading(false);
     }

@@ -3,6 +3,7 @@
 import * as React from "react";
 import { motion } from "motion/react";
 import { api } from "@/lib/api";
+import { useApiErrorMessage } from "@/lib/use-api-error";
 import type { SellerApplication } from "@/lib/types";
 import { formatDateTime } from "@/lib/utils";
 import { Button, Card, Spinner, Tag, Textarea } from "@/components/ui";
@@ -20,6 +21,7 @@ const STATUS_LABEL: Record<SellerApplication["status"], string> = {
 };
 
 export default function AdminSellerApplicationsPage() {
+  const apiErrorMessage = useApiErrorMessage();
   const [apps, setApps] = React.useState<SellerApplication[] | null>(null);
   const [loading, setLoading] = React.useState(true);
   const [err, setErr] = React.useState<string | null>(null);
@@ -43,7 +45,7 @@ export default function AdminSellerApplicationsPage() {
       const updated = await api.adminApproveSellerApplication(id);
       setApps((cur) => cur?.map((a) => (a.id === id ? updated : a)) ?? cur);
     } catch (e) {
-      setErr(e instanceof Error ? e.message : "Duyệt đơn thất bại");
+      setErr(apiErrorMessage(e, "Duyệt đơn thất bại"));
     } finally {
       setBusyId(null);
     }
@@ -58,7 +60,7 @@ export default function AdminSellerApplicationsPage() {
       setRejectModal(null);
       setReason("");
     } catch (e) {
-      setErr(e instanceof Error ? e.message : "Từ chối đơn thất bại");
+      setErr(apiErrorMessage(e, "Từ chối đơn thất bại"));
     } finally {
       setBusyId(null);
     }

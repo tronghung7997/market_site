@@ -18,7 +18,6 @@ from src.auth.utils import generate_unique_affiliate_code
 
 _FORGOT_ACK = "Nếu tài khoản hợp lệ, chúng tôi đã gửi hướng dẫn đặt lại mật khẩu"
 _RESET_ACK = "Mật khẩu đã được cập nhật"
-_RESET_INVALID = "Liên kết đặt lại mật khẩu không hợp lệ hoặc đã hết hạn"
 
 
 def hash_reset_token(raw: str) -> str:
@@ -205,12 +204,12 @@ async def reset_password(raw_token: str, new_password: str, db: AsyncSession) ->
         or token.expires_at <= now
     ):
         security_event("password_reset_rejected", level="warning", reason="invalid_or_expired")
-        raise HTTPException(status_code=status.HTTP_400_BAD_REQUEST, detail=_RESET_INVALID)
+        raise api_error(ErrorCode.PASSWORD_RESET_INVALID, status.HTTP_400_BAD_REQUEST)
 
     account = await db.get(Account, token.account_id)
     if account is None or not account.is_active:
         security_event("password_reset_rejected", level="warning", reason="inactive")
-        raise HTTPException(status_code=status.HTTP_400_BAD_REQUEST, detail=_RESET_INVALID)
+        raise api_error(ErrorCode.PASSWORD_RESET_INVALID, status.HTTP_400_BAD_REQUEST)
 
     account.password_hash = hash_password(new_password)
     token.used_at = now

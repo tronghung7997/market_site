@@ -137,6 +137,7 @@ function InventoryConsole() {
   // Modals state
   const [activeDetailResource, setActiveDetailResource] = useState<Resource | null>(null);
   const [isCreateVariantOpen, setIsCreateVariantOpen] = useState(false);
+  const restockPanelRef = useRef<HTMLDivElement>(null);
 
   const loadSummary = useCallback(async () => {
     setLoading(true);
@@ -239,6 +240,15 @@ function InventoryConsole() {
         setSelectedProductId(match.product_id);
         setSelectedVariantId(match.variant_id);
         setFilter("all");
+        const idx = productGroups.findIndex((g) => g.id === match.product_id);
+        if (idx !== -1) {
+          setProductPage(Math.floor(idx / PRODUCTS_PAGE_SIZE) + 1);
+        }
+        setTimeout(() => {
+          restockPanelRef.current?.scrollIntoView({ behavior: "smooth", block: "center" });
+          const textarea = restockPanelRef.current?.querySelector("textarea");
+          textarea?.focus();
+        }, 120);
       }
     }
   }, [targetProductId, targetVariantId, productGroups, rows]);
@@ -916,12 +926,26 @@ function InventoryConsole() {
                     </div>
 
                     {/* FAST RESTOCK PANEL (Textarea + File Upload + Sample Template + Status) */}
-                    <div className="bg-raised/40 rounded-xl p-3.5 border border-line space-y-3">
+                    <div
+                      ref={restockPanelRef}
+                      className={cn(
+                        "bg-raised/40 rounded-xl p-3.5 border border-line space-y-3 transition-all",
+                        targetVariantId === activeVariant.variant_id &&
+                          "ring-2 ring-iris/70 border-iris/50 bg-iris-soft/15 shadow-md",
+                      )}
+                    >
                       <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-1 text-xs">
-                        <span className="font-bold text-fg flex items-center gap-1.5">
-                          <Plus size={14} className="text-iris" />
-                          <span>{t("currentlyRestocking")}: <strong className="text-iris-hi">{activeVariant.variant_name}</strong></span>
-                        </span>
+                        <div className="flex items-center gap-2 flex-wrap">
+                          <span className="font-bold text-fg flex items-center gap-1.5">
+                            <Plus size={14} className="text-iris" />
+                            <span>{t("currentlyRestocking")}: <strong className="text-iris-hi">{activeVariant.variant_name}</strong></span>
+                          </span>
+                          {targetVariantId === activeVariant.variant_id && (
+                            <Tag tone="iris" className="text-[10px] animate-pulse font-semibold">
+                              {t("targetRestockBadge")}
+                            </Tag>
+                          )}
+                        </div>
 
                         <div className="flex items-center gap-2">
                           <Button

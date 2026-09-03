@@ -9,7 +9,8 @@
 import { useState } from "react";
 import { useTranslations } from "next-intl";
 import { useQueryClient } from "@tanstack/react-query";
-import { api, ApiError } from "@/lib/api";
+import { api } from "@/lib/api";
+import { useApiErrorMessage } from "@/lib/use-api-error";
 import { queryKeys } from "@/lib/query-keys";
 import type { Order, ProductDetail, Variant } from "@/lib/types";
 import { clampQty, pickDefaultVariant } from "./purchase";
@@ -36,7 +37,7 @@ export interface PurchaseState {
 
 export function usePurchase(product: ProductDetail | null): PurchaseState {
   const t = useTranslations("products");
-  const te = useTranslations("errors");
+  const apiErrorMessage = useApiErrorMessage();
   const queryClient = useQueryClient();
   const [chosen, setChosen] = useState<Variant | null>(null);
   const [qty, setQtyRaw] = useState(1);
@@ -73,13 +74,7 @@ export function usePurchase(product: ProductDetail | null): PurchaseState {
       orderPlaced(await api.createOrder(selected.id, qty));
       setShowConfirm(false);
     } catch (e) {
-      if (e instanceof ApiError && (e.errorCode === "INSUFFICIENT_CREDIT" || e.status === 402)) {
-        setPlaceError(te.has("INSUFFICIENT_CREDIT") ? te("INSUFFICIENT_CREDIT") : t("insufficientBalance"));
-      } else if (e instanceof ApiError && e.errorCode && te.has(e.errorCode)) {
-        setPlaceError(te(e.errorCode));
-      } else {
-        setPlaceError(e instanceof Error ? e.message : t("placeFailed"));
-      }
+      setPlaceError(apiErrorMessage(e, t("placeFailed")));
     } finally {
       setPlacing(false);
     }

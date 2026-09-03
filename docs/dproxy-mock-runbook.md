@@ -1,5 +1,7 @@
 # Mock DProxy runbook
 
+Live API (`api.dproxy.info`) and the M2M partner-purchase contract: [`dproxy/api.md`](./dproxy/api.md). Snapshot: [`dproxy/openapi.json`](./dproxy/openapi.json).
+
 `marketplace-svc/scripts/mock_dproxy.py` is a stateful HTTP fake for local and
 E2E testing. It exposes the DProxy-shaped endpoints to marketplace code and a
 separate authenticated control API for deterministic failure scenarios.

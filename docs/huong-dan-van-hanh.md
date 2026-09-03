@@ -44,7 +44,9 @@ Buyer nạp ví ──> Mua hàng: trừ ví, tiền vào ký quỹ (escrow)
    | Đã huỷ / hoàn tiền | Giao thất bại, tiền đã về ví | Kiểm tra ví |
 7. **Nhận hàng**: bấm **Xác nhận** trên đơn `delivered` để kết thúc sớm,
    hoặc để escrow tự hết hạn (số ngày ghi trên sản phẩm).
-   Có vấn đề → mở **Khiếu nại** trên đơn.
+   Có vấn đề → mở **Khiếu nại** trên đơn. Luồng đầy đủ (claim acc,
+   seller hoàn/đổi, hai đồng hồ tự đóng, tiền remaining):
+   `docs/dispute-flow.md`.
 8. Takedown fail một phần: hệ thống tự hoàn tiền phần URL không xử lý
    được về ví — không cần khiếu nại.
 
@@ -61,7 +63,8 @@ Buyer nạp ví ──> Mua hàng: trừ ví, tiền vào ký quỹ (escrow)
 4. **Đơn thủ công**: xem `/seller/orders`, bấm **Accept** rồi
    **Deliver** kèm dữ liệu giao.
 5. **Doanh thu**: tiền vào ví seller khi buyer xác nhận hoặc escrow hết
-   hạn. Theo dõi ở `/seller` (stats) và `/wallet`.
+   hạn. Đơn đang khiếu nại **không** tự trả khi hết escrow — xem
+   `docs/dispute-flow.md`. Theo dõi ở `/seller` (stats) và `/wallet`.
 6. Lưu ý: giá kiểu Cấu hình/Credit/Tác vụ do **admin** cấu hình ở tầng
    vận hành; seller chỉ quản variant giá cố định của mình.
 
@@ -83,6 +86,8 @@ Buyer nạp ví ──> Mua hàng: trừ ví, tiền vào ký quỹ (escrow)
      tự hoàn tiền tỉ lệ cho buyer, phần còn lại vẫn giao; fail hết →
      huỷ đơn + hoàn đủ. Có thông báo "Đơn #X chuyển sang …" ngay khi lưu.
 2. **`/admin/orders`** — theo dõi đơn, xử lý khiếu nại ở `/admin/disputes`.
+   Case buyer/seller im sau hạn escrow tự đóng về seller; admin chỉ vào
+   khi còn tranh chấp. Chi tiết: `docs/dispute-flow.md`.
 3. **`/admin/alerts`** — cảnh báo provider lỗi / backlog tác vụ cao.
 
 ### Quản lý nhà cung cấp & giá — `/admin/providers`

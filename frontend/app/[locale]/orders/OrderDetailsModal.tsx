@@ -655,7 +655,7 @@ export default function OrderDetailsModal({
 
         {/* Tab 2: Proxy Dashboard (OrderProxyPanel) */}
         {activeTab === "proxy" && mayHaveProxy && (
-          <div className="pt-1">
+          <div className="pt-1 pb-8">
             <OrderProxyPanel
               orderId={o.id}
               deliveredData={o.delivered_data}
@@ -666,7 +666,7 @@ export default function OrderDetailsModal({
         )}
 
         {activeTab === "dispute" && hasCase && (
-          <div className="space-y-3 pt-1">
+          <div className="space-y-3 pt-1 pb-8">
             <p className="text-[12px] text-muted">{t("disputeTabHint")}</p>
             <OrderDispute
               orderId={o.id}
@@ -688,7 +688,7 @@ export default function OrderDetailsModal({
 
         {/* Tab 3: Escrow & confirmation */}
         {activeTab === "escrow" && (
-          <div className="space-y-4 pt-1">
+          <div className="space-y-4 pt-1 pb-8">
             {/* Timeline */}
             {!["refunded", "cancelled"].includes(o.status) && (
               <div className="rounded-xl bg-raised/60 border border-line/70 p-4">
@@ -742,7 +742,7 @@ export default function OrderDetailsModal({
 
         {/* Tab 4: Review & Chat */}
         {activeTab === "review" && showReview && (
-          <div className="space-y-4 pt-1">
+          <div className="space-y-4 pt-1 pb-8">
             <div className="rounded-xl border border-line bg-surface p-4 space-y-3">
               <div className="flex items-center justify-between">
                 <span className="font-semibold text-fg text-[13.5px]">{t("reviewSeller")}</span>
@@ -770,7 +770,7 @@ export default function OrderDetailsModal({
         )}
 
         {/* Modal Footer — confirm stays here so every tab can finish the order */}
-        <div className="sticky bottom-0 -mx-6 -mb-6 mt-1 space-y-2 border-t border-line bg-surface px-6 py-3">
+        <div className="sticky bottom-0 -mx-6 -mb-6 mt-3 space-y-2 border-t border-line bg-surface/95 backdrop-blur-xs px-6 py-3.5 shadow-lg">
           {canConfirm && askConfirm && (
             <div className="rounded-xl border border-warn/30 bg-warn-soft px-3 py-2.5">
               <p className="text-[12.5px] font-semibold text-fg">{t("confirmReleaseTitle", { amount: money.text })}</p>

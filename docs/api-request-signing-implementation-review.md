@@ -7,7 +7,7 @@
 
 ## Tiến độ (cập nhật 2026-08-07)
 
-| Hạng mục | Trạng thái | Ghi chú |
+| Hạng mục | Trạng thái ``| Ghi chú |
 |----------|------------|---------|
 | Protocol + module ký | ✅ Hardened | ASCII path contract; bytes HMAC; dummy Fernet decrypt |
 | DB migration | ✅ Hardened | downgrade **fails** if signed-only rows exist (no silent DELETE) |

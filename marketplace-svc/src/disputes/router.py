@@ -102,7 +102,15 @@ async def seller_escalate(dispute_id: int, body: schemas.SellerDisputeEscalate, 
 
 
 @router.get("/seller/disputes/{dispute_id}/replacement-resources")
-async def seller_replacement_resource_list(dispute_id: int, search: str | None = None, page: int = Query(1, ge=1), per_page: int = Query(50, ge=1, le=100), account: Account = Depends(require_role("seller")), db: AsyncSession = Depends(get_session)):
+async def seller_replacement_resource_list(
+    dispute_id: int,
+    search: str | None = None,
+    page: int = Query(1, ge=1),
+    per_page: int = Query(50, ge=1, le=100),
+    ids_only: bool = False,
+    account: Account = Depends(require_role("seller")),
+    db: AsyncSession = Depends(get_session),
+):
     return await service.seller_replacement_resources(
         dispute_id,
         account.id,
@@ -110,11 +118,21 @@ async def seller_replacement_resource_list(dispute_id: int, search: str | None =
         search=search,
         page=page,
         per_page=per_page,
+        ids_only=ids_only,
     )
 
 
 @router.get("/seller/disputes/{dispute_id}/resources")
-async def seller_dispute_resource_list(dispute_id: int, search: str | None = None, page: int = Query(1, ge=1), per_page: int = Query(50, ge=1, le=100), account: Account = Depends(require_role("seller")), db: AsyncSession = Depends(get_session)):
+async def seller_dispute_resource_list(
+    dispute_id: int,
+    search: str | None = None,
+    page: int = Query(1, ge=1),
+    per_page: int = Query(50, ge=1, le=100),
+    pending_only: bool = False,
+    ids_only: bool = False,
+    account: Account = Depends(require_role("seller")),
+    db: AsyncSession = Depends(get_session),
+):
     return await service.seller_dispute_resources(
         dispute_id,
         account.id,
@@ -122,6 +140,8 @@ async def seller_dispute_resource_list(dispute_id: int, search: str | None = Non
         search=search,
         page=page,
         per_page=per_page,
+        pending_only=pending_only,
+        ids_only=ids_only,
     )
 
 

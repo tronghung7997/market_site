@@ -4,7 +4,7 @@ from sqlalchemy import func, select
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from src.adapters.compatibility import setup_status
-from src.alerts.service import list_active_alerts, list_seller_alerts
+from src.alerts.service import list_active_alerts, list_buyer_alerts, list_seller_alerts
 from src.chat.enums import ContextRole
 from src.chat.service import unread_message_count
 from src.disputes.service import list_seller_open_disputes
@@ -44,6 +44,8 @@ _INBOX_ALERT_KEYS = {
 # Seller-only inbox facts that must not appear in the admin bell.
 _ADMIN_HIDDEN_ALERT_TYPES = {
     "seller_application_approved",
+    "buyer_dispute_resource_resolved",
+    "seller_dispute_resource_resolved",
 }
 
 
@@ -106,6 +108,9 @@ async def buyer_action_items(buyer_id: int, db: AsyncSession) -> list[ActionItem
             label=f"{unread} tin nhắn chưa đọc",
             count=unread, href="/messages",
         ))
+
+    for alert in await list_buyer_alerts(buyer_id, db):
+        items.append(_alert_item(alert, "/orders"))
 
     return items
 

@@ -207,6 +207,7 @@ export interface Order {
   seller_email?: string | null;
   has_review?: boolean;
   has_dispute?: boolean;
+  dispute_status?: string | null;
   service_type?: string | null;
   fulfillment?: { kind: "instant" | "manual" | "api" | "task" | "proxy"; status: string } | null;
   settlement?: { status: "escrow_held" | "released" | "refunded" } | null;
@@ -644,6 +645,7 @@ export interface Dispute {
   resolution_offered_at?: string | null;
   resolution_deadline_at?: string | null;
   escrow_expires_at?: string | null;
+  abandon_after_at?: string | null;
   resolved_at: string | null;
   product_title?: string | null;
   variant_name?: string | null;
@@ -704,6 +706,8 @@ export interface AdminDisputeDetail {
   admin_note: string | null;
   seller_note: string | null;
   created_at: string;
+  resolution_deadline_at?: string | null;
+  abandon_after_at?: string | null;
   resolved_at: string | null;
   order: AdminDisputeOrder;
   resources: ResourceInfo[];
@@ -819,6 +823,22 @@ export interface SellerDisputeResource {
   refund_amount_cap: number | null;
   action: "replace" | "refund" | null;
   replacement_resource_id: number | null;
+}
+
+export interface SellerDisputeResourceList {
+  items: SellerDisputeResource[];
+  ids?: number[];
+  total: number;
+  page: number;
+  per_page: number;
+}
+
+export interface SellerReplacementResourceList {
+  items: Array<{ id: number; data: string }>;
+  ids?: number[];
+  total: number;
+  page: number;
+  per_page: number;
 }
 
 export interface InventoryVariant {

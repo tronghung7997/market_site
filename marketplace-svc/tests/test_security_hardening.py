@@ -51,6 +51,13 @@ def test_dispute_resolution_timeout_hours_must_be_positive():
 
 
 @pytest.mark.no_db
+def test_dispute_abandon_grace_hours_must_be_positive():
+    assert Settings(_env_file=None, **_settings_kwargs()).dispute_abandon_grace_hours == 24
+    with pytest.raises(ValidationError, match="DISPUTE_ABANDON_GRACE_HOURS"):
+        Settings(_env_file=None, **_settings_kwargs(dispute_abandon_grace_hours=0))
+
+
+@pytest.mark.no_db
 def test_production_cannot_enable_demo_topup_or_disable_auth_limiter():
     with pytest.raises(ValidationError, match="ENABLE_DEMO_TOPUP"):
         Settings(

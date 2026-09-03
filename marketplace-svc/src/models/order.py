@@ -27,6 +27,7 @@ class DisputeStatus(str, PyEnum):
     resolved_extend_warranty = "resolved_extend_warranty"
     resolved_timeout = "resolved_timeout"
     withdrawn_by_buyer = "withdrawn_by_buyer"
+    resolved_abandoned = "resolved_abandoned"
 
 
 class Order(Base):

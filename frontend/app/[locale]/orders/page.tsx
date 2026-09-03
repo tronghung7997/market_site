@@ -3,7 +3,7 @@
 import { Link, useRouter } from "@/i18n/navigation";
 import { useSearchParams } from "next/navigation";
 import { useLocale, useTranslations } from "next-intl";
-import { useCallback, useEffect, useState } from "react";
+import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { useQueryClient } from "@tanstack/react-query";
 import {
   Eye,
@@ -24,7 +24,7 @@ import { useApiErrorMessage } from "@/lib/use-api-error";
 import { useAuth } from "@/lib/auth";
 import { useMoney } from "@/lib/money";
 import { cn } from "@/lib/cn";
-import { canOpenDispute, orderStatus } from "@/lib/order-status";
+import { canOpenDispute, displayOrderStatus, hasOpenDispute } from "@/lib/order-status";
 import { formatDate, formatDateTime } from "@/lib/utils";
 import { queryKeys } from "@/lib/query-keys";
 import { useOrders, useOrderStats } from "@/hooks/use-orders";
@@ -34,6 +34,7 @@ import { Button, Card, Pagination, Spinner, Tag } from "@/components/ui";
 import DisputeModal from "./DisputeModal";
 import OrderDetailsModal from "./OrderDetailsModal";
 import { PER_PAGE_OPTIONS, useOrderFilters } from "./OrderFilters";
+import { parseHighlightedResourceIds } from "@/lib/dispute-case";
 
 export default function OrdersPage() {
   const t = useTranslations("orders");
@@ -70,6 +71,11 @@ export default function OrdersPage() {
   const [reviewedOrders, setReviewedOrders] = useState<Set<number>>(new Set());
   const [plateOrders, setPlateOrders] = useState<Set<number>>(new Set());
   const [copiedOrderId, setCopiedOrderId] = useState<number | null>(null);
+  const highlightResourceIds = useMemo(
+    () => parseHighlightedResourceIds(searchParams.get("resources")),
+    [searchParams],
+  );
+  const autoOpened = useRef(false);
 
   const handlePlate = useCallback((id: number) => {
     setPlateOrders((prev) => (prev.has(id) ? prev : new Set(prev).add(id)));
@@ -94,10 +100,77 @@ export default function OrdersPage() {
     [queryClient, filters.params, selectedOrder?.id],
   );
 
+  const [extraHighlightResourceIds, setExtraHighlightResourceIds] = useState<number[]>([]);
+
   useEffect(() => {
     if (authLoading) return;
     if (!account) router.push("/login");
   }, [account, authLoading, router]);
+
+  useEffect(() => {
+    if (autoOpened.current || authLoading || !account) return;
+    const query = (searchParams.get("search") || "").trim();
+    if (!query && highlightResourceIds.length === 0) return;
+    const asId = Number(query);
+    if (Number.isInteger(asId) && asId > 0) {
+      const match = orders.find((row) => row.id === asId);
+      if (match) {
+        autoOpened.current = true;
+        setSelectedOrder(match);
+      } else if (!loading) {
+        autoOpened.current = true;
+        api.getOrder(asId).then((fetched) => {
+          if (fetched) setSelectedOrder(fetched);
+        }).catch(() => {});
+      }
+      return;
+    }
+    if (orders.length === 1 && !loading) {
+      autoOpened.current = true;
+      setSelectedOrder(orders[0]);
+    }
+  }, [account, authLoading, highlightResourceIds.length, loading, orders, searchParams]);
+
+  useEffect(() => {
+    const handleNotificationClick = async (event: Event) => {
+      const customEvent = event as CustomEvent<{ href: string }>;
+      const href = customEvent?.detail?.href;
+      if (!href) return;
+
+      try {
+        const url = new URL(href, window.location.origin);
+        const isOrdersPage =
+          url.pathname === "/orders" ||
+          url.pathname === `/${locale}/orders` ||
+          url.pathname.endsWith("/orders");
+        if (!isOrdersPage) return;
+
+        const query = (url.searchParams.get("search") || "").trim();
+        const asId = Number(query);
+        const resourcesParam = url.searchParams.get("resources");
+        if (resourcesParam) {
+          setExtraHighlightResourceIds(parseHighlightedResourceIds(resourcesParam));
+        }
+
+        if (Number.isInteger(asId) && asId > 0) {
+          const match = orders.find((row) => row.id === asId);
+          if (match) {
+            setSelectedOrder(match);
+          } else {
+            const fetched = await api.getOrder(asId);
+            if (fetched) setSelectedOrder(fetched);
+          }
+        }
+      } catch {
+        // ignore
+      }
+    };
+
+    window.addEventListener("app:notification-click", handleNotificationClick);
+    return () => {
+      window.removeEventListener("app:notification-click", handleNotificationClick);
+    };
+  }, [locale, orders]);
 
   function showToast(msg: string) {
     setToast(msg);
@@ -111,8 +184,44 @@ export default function OrdersPage() {
       showToast(t("confirmSuccess"));
       queryClient.invalidateQueries({ queryKey: ["orders"] });
       queryClient.invalidateQueries({ queryKey: queryKeys.orderStats() });
+      queryClient.setQueryData<PaginatedOrderResponse>(
+        queryKeys.orders(filters.params as Record<string, unknown>),
+        (prev) =>
+          prev
+            ? {
+                ...prev,
+                items: prev.items.map((ord) =>
+                  ord.id === orderId
+                    ? {
+                        ...ord,
+                        status: "completed",
+                        has_dispute: false,
+                        protection: { status: "closed" },
+                        fulfillment: ord.fulfillment ? { ...ord.fulfillment, status: "completed" } : ord.fulfillment,
+                        capabilities: ord.capabilities
+                          ? { ...ord.capabilities, can_confirm: false, can_dispute: false, can_review: true }
+                          : ord.capabilities,
+                      }
+                    : ord,
+                ),
+              }
+            : prev,
+      );
       if (selectedOrder?.id === orderId) {
-        setSelectedOrder((prev) => (prev ? { ...prev, status: "completed" } : prev));
+        setSelectedOrder((prev) =>
+          prev
+            ? {
+                ...prev,
+                status: "completed",
+                has_dispute: false,
+                protection: { status: "closed" },
+                fulfillment: prev.fulfillment ? { ...prev.fulfillment, status: "completed" } : prev.fulfillment,
+                capabilities: prev.capabilities
+                  ? { ...prev.capabilities, can_confirm: false, can_dispute: false, can_review: true }
+                  : prev.capabilities,
+              }
+            : prev,
+        );
       }
     } catch (e: unknown) {
       showToast(apiErrorMessage(e));
@@ -129,18 +238,40 @@ export default function OrdersPage() {
   }
 
   function handleDisputeSuccess() {
+    const orderId = disputeTarget?.orderId ?? selectedOrder?.id;
     setDisputeTarget(null);
     setDisputeRevision((revision) => revision + 1);
     showToast(t("disputeSuccess"));
     queryClient.invalidateQueries({ queryKey: ["orders"] });
     queryClient.invalidateQueries({ queryKey: queryKeys.orderStats() });
-    if (selectedOrder?.id) {
+    const patch = {
+      has_dispute: true as const,
+      protection: { status: "dispute_open" as const },
+    };
+    if (orderId) {
+      queryClient.setQueryData<PaginatedOrderResponse>(
+        queryKeys.orders(filters.params as Record<string, unknown>),
+        (prev) =>
+          prev
+            ? {
+                ...prev,
+                items: prev.items.map((ord) =>
+                  ord.id === orderId
+                    ? {
+                        ...ord,
+                        ...patch,
+                        capabilities: ord.capabilities
+                          ? { ...ord.capabilities, can_confirm: false, can_dispute: false, can_review: false }
+                          : ord.capabilities,
+                      }
+                    : ord,
+                ),
+              }
+            : prev,
+      );
       setSelectedOrder((prev) => prev ? {
         ...prev,
-        status: "delivered",
-        has_dispute: true,
-        fulfillment: { ...(prev.fulfillment ?? { kind: "instant" as const }), status: "delivered" },
-        protection: { status: "dispute_open" },
+        ...patch,
         capabilities: prev.capabilities ? {
           ...prev.capabilities,
           can_confirm: false,
@@ -202,30 +333,19 @@ export default function OrdersPage() {
   return (
     <div className="w-full mx-auto max-w-7xl px-4 sm:px-6 py-8 space-y-6">
       {toast && (
-        <div role="status" aria-live="polite" className="fixed top-5 right-5 z-50 rounded-xl border border-good/25 bg-good-soft px-4 py-2.5 text-[13px] font-semibold text-good shadow-card-lg animate-in fade-in slide-in-from-top-2 duration-200">
+        <div role="status" aria-live="polite" className="fixed top-5 right-5 z-[90] rounded-xl border border-good/25 bg-good-soft px-4 py-2.5 text-[13px] font-semibold text-good shadow-card-lg animate-in fade-in slide-in-from-top-2 duration-200">
           {toast}
         </div>
-      )}
-
-      {/* DISPUTE MODAL (TARGETED DISPUTE SUPPORT) */}
-      {disputeTarget !== null && (
-        <DisputeModal
-          orderId={disputeTarget.orderId}
-          variantName={disputeTarget.variantName}
-          initialReason={disputeTarget.initialReason}
-          initialEvidence={disputeTarget.initialEvidence}
-          resourceIds={disputeTarget.resourceIds}
-          appendToExisting={disputeTarget.appendToExisting}
-          onClose={() => setDisputeTarget(null)}
-          onSuccess={handleDisputeSuccess}
-        />
       )}
 
       {/* COMPREHENSIVE ORDER DETAILS & 1000-ITEM INSPECTOR MODAL */}
       {selectedOrder !== null && (
         <OrderDetailsModal
           order={selectedOrder}
+          highlightResourceIds={extraHighlightResourceIds.length > 0 ? extraHighlightResourceIds : highlightResourceIds}
           onClose={() => setSelectedOrder(null)}
+          open={disputeTarget === null}
+          lockDismiss={disputeTarget !== null}
           onConfirm={handleConfirm}
           confirming={confirmingId === selectedOrder.id}
           disputeRevision={disputeRevision}
@@ -245,6 +365,19 @@ export default function OrdersPage() {
           onDelivered={handleDelivered}
           onPlate={handlePlate}
           onDisputeChanged={handleDisputeChanged}
+        />
+      )}
+
+      {disputeTarget !== null && (
+        <DisputeModal
+          orderId={disputeTarget.orderId}
+          variantName={disputeTarget.variantName}
+          initialReason={disputeTarget.initialReason}
+          initialEvidence={disputeTarget.initialEvidence}
+          resourceIds={disputeTarget.resourceIds}
+          appendToExisting={disputeTarget.appendToExisting}
+          onClose={() => setDisputeTarget(null)}
+          onSuccess={handleDisputeSuccess}
         />
       )}
 
@@ -534,11 +667,11 @@ export default function OrdersPage() {
               </thead>
               <tbody className="divide-y divide-line">
                 {orders.map((o) => {
-                  const st = orderStatus(o.status, locale);
+                  const st = displayOrderStatus(o, locale);
                   const money = formatOrderHistoryMoney(o.total_amount, o.display_fx_rate_snapshot, { locale });
                   const hasDeliveredData = !!o.delivered_data;
                   const isDelivered = o.status === "delivered" || o.status === "completed";
-                  const isDisputed = o.status === "disputed";
+                  const isDisputed = hasOpenDispute(o);
 
                   return (
                     <tr
@@ -581,7 +714,7 @@ export default function OrdersPage() {
                           )}
 
                           {/* Dispute Button */}
-                          {canOpenDispute(o.status, o.escrow_expires_at) && (
+                          {canOpenDispute(o.status, o.escrow_expires_at) && !isDisputed && (
                             <button
                               title={o.variant_name ? t("disputePackageTitle", { name: o.variant_name }) : t("disputeThisOrder")}
                               onClick={() => {

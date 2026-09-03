@@ -79,6 +79,55 @@ export function displayTimelineEvents(events: DisputeTimelineEvent[]): DisputeTi
   return events;
 }
 
+export type DeliveryResourceMark =
+  | { kind: "refunded"; amount: number }
+  | { kind: "replaced"; replacementId: number | null }
+  | { kind: "replacement"; originalId: number }
+  | { kind: "claimed" };
+
+/** Latest dispute action wins over a bare claim so handover rows show the outcome. */
+export function deliveryResourceMarks(
+  dispute: Pick<Dispute, "claimed_resource_ids" | "resource_actions"> | null | undefined,
+): Record<number, DeliveryResourceMark> {
+  const marks: Record<number, DeliveryResourceMark> = {};
+  if (!dispute) return marks;
+  for (const id of dispute.claimed_resource_ids ?? []) {
+    marks[id] = { kind: "claimed" };
+  }
+  for (const action of dispute.resource_actions ?? []) {
+    if (action.action === "refund") {
+      marks[action.original_resource_id] = { kind: "refunded", amount: action.refund_amount || 0 };
+      continue;
+    }
+    if (action.action === "replace") {
+      marks[action.original_resource_id] = {
+        kind: "replaced",
+        replacementId: action.replacement_resource_id,
+      };
+      if (action.replacement_resource_id) {
+        marks[action.replacement_resource_id] = {
+          kind: "replacement",
+          originalId: action.original_resource_id,
+        };
+      }
+    }
+  }
+  return marks;
+}
+
+export function parseHighlightedResourceIds(raw: string | null | undefined): number[] {
+  if (!raw) return [];
+  const seen = new Set<number>();
+  const ids: number[] = [];
+  for (const part of raw.split(",")) {
+    const id = Number(part.trim());
+    if (!Number.isInteger(id) || id <= 0 || seen.has(id)) continue;
+    seen.add(id);
+    ids.push(id);
+  }
+  return ids;
+}
+
 export const TIMELINE_CHIP_LIMIT = 8;
 
 export function visibleResourceIds(ids: number[]): { shown: number[]; hidden: number } {

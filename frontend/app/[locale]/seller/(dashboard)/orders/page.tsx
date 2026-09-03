@@ -1,13 +1,13 @@
 "use client";
 
 import { useLocale, useTranslations } from "next-intl";
-import { Suspense, useCallback, useEffect, useMemo, useState } from "react";
+import { Suspense, useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { Link } from "@/i18n/navigation";
 import { api } from "@/lib/api";
 import { useApiErrorMessage } from "@/lib/use-api-error";
 import { useMoney } from "@/lib/money";
 import { cn } from "@/lib/cn";
-import { orderStatus } from "@/lib/order-status";
+import { displayOrderStatus } from "@/lib/order-status";
 import { formatDate, formatDateTime } from "@/lib/utils";
 import type { Dispute, Order, Resource } from "@/lib/types";
 import { useSearchParams } from "next/navigation";
@@ -48,7 +48,6 @@ import {
   Rows,
   Search,
   ShieldCheck,
-  Star,
   Trash,
   Upload,
   X,
@@ -56,7 +55,9 @@ import {
 import { StatusTimeline } from "@/components/orders/OrderCardPrimitives";
 import { DisputeCaseView } from "@/components/orders/DisputeCaseView";
 import OrderChatButton from "@/components/chat/OrderChatButton";
-import { resourceLabelMap, summarizeDisputeCase } from "@/lib/dispute-case";
+import { deliveryResourceMarks, parseHighlightedResourceIds, resourceLabelMap, summarizeDisputeCase } from "@/lib/dispute-case";
+import { DeliveryAccountBadge } from "@/components/orders/DeliveryAccountBadge";
+import { SellerDisputeRemedyPanel } from "@/components/seller/SellerDisputeRemedyPanel";
 
 const PAGE_SIZE = 20;
 
@@ -68,6 +69,12 @@ function isOrderDisputed(o: Order, disp?: Dispute | null): boolean {
   if (o.protection?.status === "dispute_open") return true;
   if (disp) return disp.status === "open";
   return Boolean(o.has_dispute && o.status === "delivered");
+}
+
+function closedDisputeStatus(o: Order, disp?: Dispute | null): string | null {
+  const status = disp?.status && disp.status !== "open" ? disp.status : o.dispute_status;
+  if (!status || status === "open") return null;
+  return status;
 }
 
 export default function SellerOrdersPage() {
@@ -104,6 +111,7 @@ function OrdersLoadingSkeleton() {
 
 function SellerOrdersConsole() {
   const t = useTranslations("seller");
+  const td = useTranslations("status.dispute");
   const locale = useLocale();
   const { formatBrowseMoney } = useMoney();
   const apiErrorMessage = useApiErrorMessage();
@@ -113,6 +121,8 @@ function SellerOrdersConsole() {
   const [disputes, setDisputes] = useState<Record<number, Dispute>>({});
   const [loading, setLoading] = useState(true);
   const [actingOrderId, setActingOrderId] = useState<number | null>(null);
+  const hasLoadedRef = useRef(false);
+  const modalOrderIdsRef = useRef<number[]>([]);
 
   // Filters & Search — initialized from URL ?tab=... if present
   const validTabs: FilterTab[] = ["all", "disputed", "action_required", "escrow", "completed", "cancelled"];
@@ -127,7 +137,12 @@ function SellerOrdersConsole() {
     }
   }, [urlTab]);
 
-  const [search, setSearch] = useState("");
+  const urlSearch = searchParams.get("search") ?? "";
+  const highlightResourceIds = useMemo(
+    () => parseHighlightedResourceIds(searchParams.get("resources")),
+    [searchParams],
+  );
+  const [search, setSearch] = useState(urlSearch);
   const [selectedProductTitle, setSelectedProductTitle] = useState<string>("all");
   const [timeFilter, setTimeFilter] = useState<TimeFilter>("all");
   const [page, setPage] = useState(1);
@@ -136,16 +151,28 @@ function SellerOrdersConsole() {
   const [activeDisputeOrder, setActiveDisputeOrder] = useState<Order | null>(null);
   const [activeDeliverOrder, setActiveDeliverOrder] = useState<Order | null>(null);
   const [activeDetailOrder, setActiveDetailOrder] = useState<Order | null>(null);
+  const autoOpened = useRef(false);
 
   const loadData = useCallback(async () => {
-    setLoading(true);
+    const showSkeleton = !hasLoadedRef.current;
+    if (showSkeleton) setLoading(true);
     try {
       const list = await api.sellerOrders();
       setOrders(list);
+      setActiveDisputeOrder((current) => (
+        current ? list.find((row) => row.id === current.id) ?? current : current
+      ));
+      setActiveDetailOrder((current) => (
+        current ? list.find((row) => row.id === current.id) ?? current : current
+      ));
 
-      // Fetch disputes for all candidate disputed orders (open overlay or disputed status)
+      const extraIds = new Set(modalOrderIdsRef.current);
       const candidateDisputedOrders = list.filter(
-        (o) => o.status === "disputed" || o.protection?.status === "dispute_open" || o.has_dispute,
+        (o) =>
+          o.status === "disputed"
+          || o.protection?.status === "dispute_open"
+          || o.has_dispute
+          || extraIds.has(o.id),
       );
       if (candidateDisputedOrders.length > 0) {
         const disputeEntries = await Promise.all(
@@ -166,16 +193,66 @@ function SellerOrdersConsole() {
       } else {
         setDisputes({});
       }
+      hasLoadedRef.current = true;
     } catch {
       // ignore
     } finally {
-      setLoading(false);
+      if (showSkeleton) setLoading(false);
     }
   }, []);
 
   useEffect(() => {
     loadData();
   }, [loadData]);
+
+  useEffect(() => {
+    if (urlSearch) setSearch(urlSearch);
+  }, [urlSearch]);
+
+  useEffect(() => {
+    if (autoOpened.current || !orders.length) return;
+    const query = (urlSearch || "").trim();
+    if (!query && highlightResourceIds.length === 0) return;
+    const asId = Number(query);
+    const match = Number.isInteger(asId) && asId > 0
+      ? orders.find((row) => row.id === asId)
+      : null;
+    if (!match) return;
+    autoOpened.current = true;
+    setActiveDetailOrder(match);
+  }, [highlightResourceIds.length, orders, urlSearch]);
+
+  useEffect(() => {
+    const handleNotificationClick = async (event: Event) => {
+      const customEvent = event as CustomEvent<{ href: string }>;
+      const href = customEvent?.detail?.href;
+      if (!href) return;
+
+      try {
+        const url = new URL(href, window.location.origin);
+        if (!url.pathname.includes("/seller/orders")) return;
+
+        const query = (url.searchParams.get("search") || "").trim();
+        const asId = Number(query);
+        if (Number.isInteger(asId) && asId > 0) {
+          const match = orders.find((row) => row.id === asId);
+          if (match) {
+            setActiveDetailOrder(match);
+          } else {
+            const fetched = await api.getOrder(asId);
+            if (fetched) setActiveDetailOrder(fetched);
+          }
+        }
+      } catch {
+        // ignore
+      }
+    };
+
+    window.addEventListener("app:notification-click", handleNotificationClick);
+    return () => {
+      window.removeEventListener("app:notification-click", handleNotificationClick);
+    };
+  }, [orders]);
 
   // Actions
   const handleAccept = async (orderId: number) => {
@@ -194,6 +271,10 @@ function SellerOrdersConsole() {
     setActiveDeliverOrder(null);
     await loadData();
   };
+
+  modalOrderIdsRef.current = [activeDisputeOrder?.id, activeDetailOrder?.id].filter(
+    (id): id is number => typeof id === "number",
+  );
 
   const handleDisputeResponseSuccess = async () => {
     await loadData();
@@ -663,23 +744,24 @@ function SellerOrdersConsole() {
             <p className="text-xs text-muted">{t("ordersNoMatchHint")}</p>
           </div>
         ) : (
-          <div className="overflow-x-auto">
-            <table className="w-full text-left text-xs border-collapse">
+          <div className="overflow-hidden">
+            <table className="w-full table-fixed text-left text-xs border-collapse">
               <thead>
-                <tr className="bg-raised/40 text-faint text-[11px] font-semibold border-b border-line uppercase tracking-wider">
-                  <th className="px-3 py-3 w-[85px] sm:w-[95px] shrink-0">{t("orderCode")}</th>
-                  <th className="px-4 py-3 min-w-[280px]">{t("productAndVariant")}</th>
-                  <th className="px-3 py-3 w-[160px] sm:w-[180px]">{t("customer")}</th>
-                  <th className="px-3 py-3 w-[95px] font-mono">{t("amount")}</th>
-                  <th className="px-3 py-3 w-[150px]">{t("statusAndDispute")}</th>
-                  <th className="px-4 py-3 text-right w-[130px] sm:w-[150px]">{t("actions")}</th>
+                <tr className="bg-raised/40 text-faint text-[11px] font-semibold border-b border-line uppercase tracking-wide">
+                  <th className="px-3 py-3 w-[6.5rem] whitespace-nowrap">{t("orderCode")}</th>
+                  <th className="px-3 py-3">{t("productAndVariant")}</th>
+                  <th className="px-3 py-3 w-[11rem]">{t("customer")}</th>
+                  <th className="px-3 py-3 w-[5.25rem] font-mono">{t("amount")}</th>
+                  <th className="px-3 py-3 w-[8.75rem] whitespace-nowrap">{t("statusAndDispute")}</th>
+                  <th className="px-3 py-3 w-[9.75rem] text-right">{t("actions")}</th>
                 </tr>
               </thead>
               <tbody className="divide-y divide-line text-[12.5px]">
                 {paginatedOrders.map((o) => {
                   const disp = disputes[o.id];
                   const isDisputed = isOrderDisputed(o, disp);
-                  const st = isDisputed ? orderStatus("disputed", locale) : orderStatus(o.status, locale);
+                  const closedStatus = closedDisputeStatus(o, disp);
+                  const st = displayOrderStatus(o, locale);
                   const isPending = o.status === "pending";
                   const isProcessing = o.status === "processing";
                   const isDelivered = o.status === "delivered" && !isDisputed;
@@ -698,17 +780,17 @@ function SellerOrdersConsole() {
                       )}
                     >
                       {/* 1. Order ID & Time (Compact) */}
-                      <td className="px-3 py-3 align-top whitespace-nowrap">
-                        <div className="font-mono font-bold text-fg text-[12.5px]">
+                      <td className="px-3 py-3 align-top">
+                        <div className="font-mono font-bold text-fg text-[12.5px] whitespace-nowrap">
                           #{o.id}
                         </div>
-                        <div className="text-[10.5px] text-faint mt-0.5" title={o.created_at}>
+                        <div className="text-[10.5px] text-faint mt-0.5 whitespace-nowrap" title={o.created_at}>
                           {formatDate(o.created_at, locale)}
                         </div>
                       </td>
 
                       {/* 2. Product, Variant & Direct Inventory Sync Links (Clear & Non-overlapping) */}
-                      <td className="px-4 py-3 align-top">
+                      <td className="px-3 py-3 align-top">
                         <div className="flex items-start gap-2.5">
                           <ProductCover coverId={parseCoverId(o)} title={o.product_title || "??"} className="h-8 w-8 rounded-lg shrink-0 mt-0.5" />
                           <div className="min-w-0 flex-1">
@@ -775,7 +857,7 @@ function SellerOrdersConsole() {
 
                       {/* 3. Customer Info */}
                       <td className="px-3 py-3 align-top">
-                        <div className="font-mono text-muted text-[12px] truncate max-w-[180px]" title={o.buyer_email || ""}>
+                        <div className="font-mono text-muted text-[12px] truncate" title={o.buyer_email || ""}>
                           {o.buyer_email || <span className="text-faint">&mdash;</span>}
                         </div>
                         {o.buyer_email && (
@@ -798,91 +880,80 @@ function SellerOrdersConsole() {
                       </td>
 
                       {/* 5. Status & Dispute / Escrow Indicators */}
-                      <td className="px-3 py-3 align-top space-y-1">
-                        <div className="flex items-center gap-1.5">
-                          <Tag tone={st.tone}>{st.label}</Tag>
-                          {isCompleted && o.has_review && (
-                            <span className="inline-flex items-center gap-0.5 text-[11px] text-warn font-medium">
-                              <Star size={11} className="fill-warn" /> {t("rated")}
-                            </span>
-                          )}
-                        </div>
-
-                        {/* Dispute info summary */}
+                      <td className="px-3 py-3 align-top min-w-0 overflow-hidden">
+                        <Tag tone={st.tone}>{st.label}</Tag>
                         {isDisputed && (
-                          <div className="p-1.5 rounded-lg bg-bad-soft border border-bad/20 text-bad text-[11px] space-y-0.5 max-w-[220px]">
-                            <div className="font-bold flex items-center justify-between gap-1">
-                              <span>{t("disputeReason")}</span>
-                              <span className="text-[9.5px] px-1 py-0.2 rounded bg-surface/60 font-normal">
-                                {hasDisputeResponse ? t("responded") : t("awaitingResponse")}
-                              </span>
-                            </div>
-                            <p className="truncate text-fg/90" title={disp?.reason || ""}>
-                              {disp?.reason || t("disputeFallbackReason")}
-                            </p>
-                          </div>
+                          <p className="mt-1 truncate text-[10.5px] text-muted" title={disp?.reason || ""}>
+                            {hasDisputeResponse ? t("responded") : t("awaitingResponse")}
+                          </p>
                         )}
-
-                        {/* Escrow expiry indicator */}
+                        {closedStatus && (
+                          <p className="mt-1 truncate text-[10.5px] text-muted" title={td.has(closedStatus as "open") ? td(closedStatus as "open") : closedStatus}>
+                            {td.has(closedStatus as "open") ? td(closedStatus as "open") : closedStatus}
+                          </p>
+                        )}
                         {isDelivered && o.escrow_expires_at && (
-                          <div className="text-[10.5px] text-faint flex items-center gap-1">
-                            <ShieldCheck size={11} className="text-iris" />
-                            <span>{t("escrowUntilShort", { date: formatDate(o.escrow_expires_at, locale) })}</span>
-                          </div>
+                          <p className="mt-1 truncate text-[10.5px] text-faint">
+                            {t("escrowUntilShort", { date: formatDate(o.escrow_expires_at, locale) })}
+                          </p>
                         )}
                       </td>
 
                       {/* 6. Action Shortcuts */}
-                      <td className="px-4 py-3 align-top text-right">
-                        <div className="flex items-center justify-end gap-1.5">
-                          {/* Dispute Action */}
+                      <td className="px-3 py-3 align-top">
+                        <div className="flex flex-col items-stretch gap-1">
                           {isDisputed && (
                             <Button
                               size="sm"
                               variant={!hasDisputeResponse ? "danger" : "secondary"}
                               onClick={() => setActiveDisputeOrder(o)}
-                              className="h-7 text-[11.5px] gap-1"
+                              className="h-7 w-full justify-center text-[11px] gap-1 whitespace-nowrap"
                             >
                               <AlertCircle size={12} />
                               <span>{hasDisputeResponse ? t("viewDisputeResponse") : t("handleDispute")}</span>
                             </Button>
                           )}
-
-                          {/* Accept Pending Order */}
+                          {closedStatus && (
+                            <Button
+                              size="sm"
+                              variant="secondary"
+                              onClick={() => setActiveDisputeOrder(o)}
+                              className="h-7 w-full justify-center text-[11px] gap-1 whitespace-nowrap"
+                            >
+                              <AlertCircle size={12} />
+                              <span>{t("viewDisputeHistory")}</span>
+                            </Button>
+                          )}
                           {isPending && (
                             <Button
                               size="sm"
                               disabled={actingOrderId === o.id}
                               onClick={() => handleAccept(o.id)}
-                              className="h-7 text-[11.5px] gap-1"
+                              className="h-7 w-full justify-center text-[11px] gap-1 whitespace-nowrap"
                             >
                               <Check size={12} />
                               <span>{actingOrderId === o.id ? t("accepting") : t("acceptOrder")}</span>
                             </Button>
                           )}
-
-                          {/* Deliver Processing Order */}
                           {isProcessing && (
                             <Button
                               size="sm"
                               onClick={() => setActiveDeliverOrder(o)}
-                              className="h-7 text-[11.5px] gap-1"
+                              className="h-7 w-full justify-center text-[11px] gap-1 whitespace-nowrap"
                             >
                               <Package size={12} />
                               <span>{t("deliverNow")}</span>
                             </Button>
                           )}
-
-                          {/* Inspect Order Details */}
                           <Button
                             size="sm"
                             variant="ghost"
                             onClick={() => setActiveDetailOrder(o)}
-                            className="h-7 px-2 text-[11.5px] text-muted hover:text-fg"
+                            className="h-7 w-full justify-center px-2 text-[11px] text-muted hover:text-fg"
                             title={t("orderDetail")}
                           >
                             <Eye size={13} />
-                            <span className="ml-1 hidden sm:inline">{t("orderDetail")}</span>
+                            <span className="ml-1">{t("orderDetail")}</span>
                           </Button>
                         </div>
                       </td>
@@ -935,6 +1006,7 @@ function SellerOrdersConsole() {
         <SellerOrderDetailModal
           order={activeDetailOrder}
           dispute={disputes[activeDetailOrder.id]}
+          highlightResourceIds={highlightResourceIds}
           isOpen={!!activeDetailOrder}
           onClose={() => setActiveDetailOrder(null)}
           onDeliverClick={() => {
@@ -965,7 +1037,7 @@ function SellerDisputeModal({
   dispute?: Dispute | null;
   isOpen: boolean;
   onClose: () => void;
-  onSuccess: () => void;
+  onSuccess: () => void | Promise<void>;
 }) {
   const t = useTranslations("seller");
   const apiErrorMessage = useApiErrorMessage();
@@ -985,51 +1057,22 @@ function SellerDisputeModal({
   type Tab = "claim" | "remedy";
   const [activeTab, setActiveTab] = useState<Tab>("claim");
 
-  // Respond tab
   const [sellerNote, setSellerNote] = useState("");
   const [submitting, setSubmitting] = useState(false);
   const [error, setError] = useState<string | null>(null);
-
-  // Remedy tab
-  type SDR = { id: number; status: string; data: string; refund_amount_cap: number | null; action: "replace" | "refund" | null; replacement_resource_id: number | null };
-  const [resources, setResources] = useState<SDR[]>([]);
-  const [resourcesLoading, setResourcesLoading] = useState(false);
-  const [selected, setSelected] = useState<Set<number>>(new Set());
-  const [remedyNote, setRemedyNote] = useState("");
-  const [remedySubmitting, setRemedySubmitting] = useState(false);
-  const [remedyError, setRemedyError] = useState<string | null>(null);
-  const [resourceSearch, setResourceSearch] = useState("");
-  const [resourcePage, setResourcePage] = useState(1);
+  const [labelRows, setLabelRows] = useState<Array<{ id: number; data?: string | null }>>([]);
 
   const hasClaimed = (dispute?.claimed_resource_ids?.length ?? 0) > 0;
   const caseSummary = dispute ? summarizeDisputeCase(dispute) : null;
   const td = useTranslations("status.dispute");
-
-  const loadResources = async () => {
-    if (!dispute) return;
-    setResourcesLoading(true);
-    try {
-      const PER_PAGE = 100;
-      let pg = 1;
-      const all: SDR[] = [];
-      while (true) {
-        const resp: { items: SDR[]; total: number } = await fetch(
-          `/api/seller/disputes/${dispute.id}/resources?page=${pg}&per_page=${PER_PAGE}`,
-          { credentials: "include" }
-        ).then((r) => r.json());
-        all.push(...(resp.items ?? []));
-        if (all.length >= resp.total || (resp.items?.length ?? 0) < PER_PAGE) break;
-        pg++;
-      }
-      setResources(all);
-    } catch { /* silent */ }
-    finally { setResourcesLoading(false); }
-  };
+  const isOpenCase = dispute?.status === "open";
 
   useEffect(() => {
-    if (isOpen && dispute?.id) void loadResources();
-  // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [isOpen, dispute?.id]);
+    if (!isOpen || !dispute?.id) return;
+    void api.sellerDisputeResources(dispute.id, { per_page: 100 })
+      .then((page) => setLabelRows(page.items))
+      .catch(() => setLabelRows([]));
+  }, [isOpen, dispute?.id, dispute?.status, dispute?.resource_actions?.length]);
 
   if (!isOpen) return null;
 
@@ -1041,61 +1084,17 @@ function SellerDisputeModal({
     try {
       await api.sellerRespondDispute(dispute.id, sellerNote.trim());
       setSellerNote("");
-      onSuccess();
+      await onSuccess();
     } catch (err: unknown) {
       setError(apiErrorMessage(err, t("disputeResponseFailed")));
     } finally { setSubmitting(false); }
   };
 
-  const toggleResource = (id: number) =>
-    setSelected((cur) => { const next = new Set(cur); if (next.has(id)) next.delete(id); else next.add(id); return next; });
-
-  const selectAll = () => setSelected(new Set(resources.filter((r) => !r.action).map((r) => r.id)));
-
-  const handleRemedy = async (action: "refund" | "replace") => {
-    if (!dispute || selected.size === 0) return;
-    const confirmed = window.confirm(
-      action === "refund"
-        ? t("confirmRefundSelected", { count: selected.size, amount: formatBrowseMoney(selectedRefundTotal) })
-        : t("confirmReplaceSelected", { count: selected.size }),
-    );
-    if (!confirmed) return;
-    setRemedySubmitting(true); setRemedyError(null);
-    try {
-      await api.sellerResolveDisputeResourcesBatched(dispute.id, [...selected], action, remedyNote.trim() || undefined);
-      setSelected(new Set()); setRemedyNote("");
-      await loadResources();
-      onSuccess();
-    } catch (err: unknown) {
-      setRemedyError(apiErrorMessage(err, action === "refund" ? t("refundFailed") : t("replaceFailed")));
-    } finally { setRemedySubmitting(false); }
-  };
-
-  const unresolved = resources.filter((r) => !r.action);
-  const resolved = resources.filter((r) => r.action);
-  const filteredResources = resources.filter((resource) => {
-    const query = resourceSearch.trim().toLowerCase();
-    return !query
-      || String(resource.id).includes(query.replace(/^#/, ""))
-      || resource.data.toLowerCase().includes(query)
-      || (resource.action ?? t("claimPending")).toLowerCase().includes(query);
-  });
-  const resourcePageSize = 100;
-  const resourcePageCount = Math.max(1, Math.ceil(filteredResources.length / resourcePageSize));
-  const visibleResources = filteredResources.slice(
-    (resourcePage - 1) * resourcePageSize,
-    resourcePage * resourcePageSize,
-  );
-  const selectedRefundTotal = [...selected].reduce((sum, id) => {
-    const r = resources.find((res) => res.id === id);
-    return sum + (r?.refund_amount_cap ?? 0);
-  }, 0);
-
   return (
     <div className="fixed inset-0 z-50 flex items-center justify-center p-4 bg-ink-panel/75 backdrop-blur-xs animate-fade">
       <div
         role="dialog" aria-modal="true" aria-labelledby="dispute-modal-title"
-        className="w-full max-w-2xl bg-surface border border-line rounded-2xl shadow-card-lg overflow-hidden animate-rise flex flex-col max-h-[90vh]"
+        className="w-full max-w-4xl bg-surface border border-line rounded-2xl shadow-card-lg overflow-hidden animate-rise flex flex-col max-h-[90vh]"
       >
         {/* Header */}
         <div className="p-4 border-b border-line bg-raised/50 flex items-center justify-between shrink-0">
@@ -1103,8 +1102,11 @@ function SellerDisputeModal({
             <span className="p-1.5 rounded-lg bg-bad-soft text-bad shrink-0"><AlertCircle size={18} /></span>
             <div className="min-w-0">
               <div className="flex items-center gap-2 flex-wrap">
-                <span className="text-[10px] font-bold uppercase tracking-wider text-bad bg-bad-soft px-1.5 py-0.2 rounded shrink-0">
-                  {t("disputeDetailTitle")}
+                <span className={cn(
+                  "text-[10px] font-bold uppercase tracking-wider px-1.5 py-0.2 rounded shrink-0",
+                  isOpenCase ? "text-bad bg-bad-soft" : "text-muted bg-raised",
+                )}>
+                  {isOpenCase ? t("disputeDetailTitle") : t("disputeHistoryTitle")}
                 </span>
                 <span className="text-xs text-faint font-mono">{t("orderNumber", { id: order.id })}</span>
                 {hasClaimed && (
@@ -1124,7 +1126,7 @@ function SellerDisputeModal({
         </div>
 
         {/* Tab bar */}
-        {hasClaimed && (
+        {hasClaimed && isOpenCase && (
           <div className="flex border-b border-line bg-raised/20 shrink-0">
             <button
               onClick={() => setActiveTab("claim")}
@@ -1145,9 +1147,9 @@ function SellerDisputeModal({
             >
               <RefreshCw size={13} className="mr-1.5 inline-block" aria-hidden="true" />
               {t("claimedAccountsTitle", { count: dispute?.claimed_resource_ids?.length ?? 0 })}
-              {(dispute?.claimed_resource_ids?.length ?? 0) > resolved.length && activeTab !== "remedy" && (
+              {(caseSummary?.pending ?? 0) > 0 && activeTab !== "remedy" && (
                 <span className="ml-1.5 inline-flex items-center justify-center w-4 h-4 rounded-full bg-warn text-white text-[9px] font-bold">
-                  {(dispute?.claimed_resource_ids?.length ?? 0) - resolved.length}
+                  {caseSummary?.pending}
                 </span>
               )}
             </button>
@@ -1156,7 +1158,7 @@ function SellerDisputeModal({
 
         <div className="flex-1 overflow-y-auto">
 
-          {activeTab === "claim" && (
+          {(activeTab === "claim" || !isOpenCase) && (
             <div className="p-5 space-y-4 text-xs">
               {dispute ? (
                 <DisputeCaseView
@@ -1167,8 +1169,9 @@ function SellerDisputeModal({
                       : td.has(dispute.status) ? td(dispute.status as "open") : dispute.status
                   }
                   statusTone={caseSummary && caseSummary.pending > 0 ? "warn" : dispute.status === "open" ? "iris" : "neutral"}
-                  resourceLabels={resourceLabelMap(resources)}
+                  resourceLabels={resourceLabelMap(labelRows)}
                   formatRefund={formatBrowseMoney}
+                  viewerRole="seller"
                 />
               ) : (
                 <p className="text-muted">{t("disputeFallbackClaim")}</p>
@@ -1203,110 +1206,18 @@ function SellerDisputeModal({
           )}
 
           {/* ── TAB: Resource Remedy ── */}
-          {activeTab === "remedy" && (
-            <div className="p-5 space-y-4 text-xs">
-              {resourcesLoading ? (
-                <div className="flex items-center justify-center py-10 gap-2 text-muted">
-                  <Spinner /><span>{t("loading")}</span>
-                </div>
-              ) : resources.length === 0 ? (
-                <div className="py-10 text-center text-muted">{t("noClaimedAccounts")}</div>
+          {activeTab === "remedy" && isOpenCase && (
+            <div className="p-5">
+              {dispute ? (
+                <SellerDisputeRemedyPanel
+                  disputeId={dispute.id}
+                  dispute={dispute}
+                  order={order}
+                  formatRefund={formatBrowseMoney}
+                  onChanged={onSuccess}
+                />
               ) : (
-                <>
-                  <div className="flex items-center justify-between rounded-lg bg-warn-soft/30 border border-warn/25 px-3 py-2">
-                    <div>
-                      <span className="font-semibold text-fg">{t("claimedAccountsTitle", { count: resources.length })}</span>
-                      <span className="ml-2 text-muted">{t("claimPending")}: {unresolved.length} · {t("claimResolved")}: {resolved.length}</span>
-                    </div>
-                    {unresolved.length > 0 && (
-                      <Button size="sm" variant="ghost" onClick={selectAll} className="text-[11px]">{t("selectAll")}</Button>
-                    )}
-                  </div>
-
-                  <Input
-                    value={resourceSearch}
-                    onChange={(event) => { setResourceSearch(event.target.value); setResourcePage(1); }}
-                    placeholder={t("searchClaimedAccounts")}
-                    aria-label={t("searchClaimedAccounts")}
-                  />
-
-                  <div className="max-h-72 overflow-y-auto rounded-xl border border-line divide-y divide-line/50">
-                    {visibleResources.map((resource) => {
-                      const isPending = !resource.action;
-                      return (
-                        <label key={resource.id} className={cn(
-                          "flex items-center gap-2.5 px-3 py-2.5 text-[11.5px] transition-colors",
-                          isPending ? "cursor-pointer hover:bg-raised/60" : "opacity-70 cursor-default",
-                          selected.has(resource.id) && "bg-iris-soft/20"
-                        )}>
-                          <input type="checkbox" checked={selected.has(resource.id)} disabled={!isPending}
-                            onChange={() => isPending && toggleResource(resource.id)} className="h-3.5 w-3.5 accent-iris shrink-0" />
-                          <span className="font-mono text-faint text-[10.5px] shrink-0">#{resource.id}</span>
-                          <span className="flex-1 font-mono text-fg truncate min-w-0">{resource.data}</span>
-                          {resource.refund_amount_cap != null && (
-                            <span className="text-muted font-mono shrink-0 text-[10.5px]">{formatBrowseMoney(resource.refund_amount_cap)}</span>
-                          )}
-                          {resource.action === "refund" && <span className="px-1.5 py-0.5 rounded text-[10px] font-bold bg-good-soft text-good border border-good/30 shrink-0">✓ {t("resourceRefunded")}</span>}
-                          {resource.action === "replace" && <span className="px-1.5 py-0.5 rounded text-[10px] font-bold bg-iris-soft text-iris border border-iris/30 shrink-0">✓ {t("resourceReplaced")}</span>}
-                          {!resource.action && <span className="text-warn text-[10px] font-medium shrink-0">{t("claimPending")}</span>}
-                        </label>
-                      );
-                    })}
-                  </div>
-
-                  {resourcePageCount > 1 && (
-                    <div className="flex items-center justify-between text-[11px] text-muted">
-                      <span>{t("showingClaimedAccounts", {
-                        from: (resourcePage - 1) * resourcePageSize + 1,
-                        to: Math.min(resourcePage * resourcePageSize, filteredResources.length),
-                        total: filteredResources.length,
-                      })}</span>
-                      <div className="flex items-center gap-2">
-                        <Button size="sm" variant="ghost" disabled={resourcePage === 1} onClick={() => setResourcePage((page) => Math.max(1, page - 1))}>‹</Button>
-                        <span className="font-mono">{resourcePage}/{resourcePageCount}</span>
-                        <Button size="sm" variant="ghost" disabled={resourcePage === resourcePageCount} onClick={() => setResourcePage((page) => Math.min(resourcePageCount, page + 1))}>›</Button>
-                      </div>
-                    </div>
-                  )}
-
-                  {unresolved.length > 0 && (
-                    <div className="space-y-3 p-3.5 rounded-xl bg-raised/50 border border-line">
-                      <div className="flex items-center justify-between text-[11.5px]">
-                        <span className="text-muted">{t("selected")}: <span className="font-mono font-bold text-fg">{selected.size}</span></span>
-                        {selected.size > 0 && selectedRefundTotal > 0 && (
-                          <span className="text-muted">{t("refundEstimate")}: <span className="font-mono font-bold text-warn">{formatBrowseMoney(selectedRefundTotal)}</span></span>
-                        )}
-                      </div>
-                      <Textarea rows={2} value={remedyNote} onChange={(e) => setRemedyNote(e.target.value)}
-                        placeholder={t("resourceActionNote")} className="text-xs" />
-                      {remedyError && <div className="p-2.5 rounded-lg bg-bad-soft border border-bad/20 text-bad text-xs font-medium">{remedyError}</div>}
-                      <div className="flex flex-wrap gap-2 pt-1">
-                        <Button size="sm" disabled={remedySubmitting || selected.size === 0} onClick={() => handleRemedy("replace")} className="gap-1.5">
-                          <RefreshCw size={12} />
-                          {t("replaceSelected", { count: selected.size })}
-                        </Button>
-                        <Button size="sm" variant="danger" disabled={remedySubmitting || selected.size === 0} onClick={() => handleRemedy("refund")} className="gap-1.5">
-                          <ArrowRight size={12} />
-                          {t("refundSelected", { count: selected.size })}
-                          {selected.size > 0 && selectedRefundTotal > 0 && (
-                            <span className="opacity-75 ml-0.5">({formatBrowseMoney(selectedRefundTotal)})</span>
-                          )}
-                        </Button>
-                        {selected.size > 0 && (
-                          <Button size="sm" variant="ghost" onClick={() => setSelected(new Set())} className="text-muted">
-                            {t("clearSelection")}
-                          </Button>
-                        )}
-                      </div>
-                    </div>
-                  )}
-
-                  {unresolved.length === 0 && (
-                    <div className="p-3 rounded-xl bg-good-soft/30 border border-good/30 text-good text-[12px] font-semibold text-center">
-                      ✓ {t("allClaimsHandled")}
-                    </div>
-                  )}
-                </>
+                <p className="py-10 text-center text-muted">{t("noClaimedAccounts")}</p>
               )}
             </div>
           )}
@@ -1507,6 +1418,7 @@ function SellerDeliverModal({
 function SellerOrderDetailModal({
   order,
   dispute,
+  highlightResourceIds = [],
   isOpen,
   onClose,
   onDeliverClick,
@@ -1514,16 +1426,28 @@ function SellerOrderDetailModal({
 }: {
   order: Order;
   dispute?: Dispute | null;
+  highlightResourceIds?: number[];
   isOpen: boolean;
   onClose: () => void;
   onDeliverClick: () => void;
   onDisputeClick: () => void;
 }) {
   const t = useTranslations("seller");
+  const td = useTranslations("status.dispute");
   const locale = useLocale();
   const { formatBrowseMoney } = useMoney();
   const [resources, setResources] = useState<Resource[]>([]);
   const [loadingResources, setLoadingResources] = useState(false);
+  const [fetchedDispute, setFetchedDispute] = useState<Dispute | null>(null);
+  const caseRecord = dispute ?? fetchedDispute;
+  const isOpenCase = isOrderDisputed(order, caseRecord);
+
+  useEffect(() => {
+    if (!isOpen || !order.id) return;
+    if (!dispute && (order.dispute_status || order.has_dispute)) {
+      api.sellerDispute(order.id).then(setFetchedDispute).catch(() => setFetchedDispute(null));
+    }
+  }, [isOpen, order.id, order.dispute_status, order.has_dispute, dispute]);
 
   useEffect(() => {
     if (order.id) {
@@ -1537,8 +1461,10 @@ function SellerOrderDetailModal({
 
   if (!isOpen) return null;
 
-  const isDisputed = isOrderDisputed(order, dispute);
-  const st = isDisputed ? orderStatus("disputed", locale) : orderStatus(order.status, locale);
+  const st = displayOrderStatus(
+    isOpenCase ? { ...order, has_dispute: true, protection: { status: "dispute_open" } } : order,
+    locale,
+  );
   const isProcessing = order.status === "processing";
 
   // Delivered data lines calculation
@@ -1579,7 +1505,7 @@ function SellerOrderDetailModal({
         role="dialog"
         aria-modal="true"
         aria-labelledby="detail-modal-title"
-        className="w-full max-w-xl bg-surface border border-line rounded-2xl shadow-card-lg overflow-hidden animate-rise flex flex-col max-h-[88vh]"
+        className="w-full max-w-4xl bg-surface border border-line rounded-2xl shadow-card-lg overflow-hidden animate-rise flex flex-col max-h-[90vh]"
       >
         {/* Header */}
         <div className="p-4 border-b border-line bg-raised/50 flex items-center justify-between shrink-0">
@@ -1685,12 +1611,28 @@ function SellerOrderDetailModal({
                 </Button>
               </div>
               <div className="space-y-1 max-h-36 overflow-y-auto">
-                {resources.slice(0, 30).map((r) => (
-                  <div key={r.id} className="p-2 rounded-lg bg-raised border border-line font-mono text-[11px] flex items-center justify-between">
-                    <span className="truncate max-w-[320px]">{r.data}</span>
-                    <Tag tone="good" className="text-[9px]">{t("availableStatus")}</Tag>
+                {resources.slice(0, 30).map((r) => {
+                  const mark = deliveryResourceMarks(caseRecord)[r.id];
+                  const highlighted = highlightResourceIds.includes(r.id);
+                  const inactive = r.status === "error" || mark?.kind === "refunded" || mark?.kind === "replaced";
+                  return (
+                  <div key={r.id} className={cn(
+                    "p-2 rounded-lg border font-mono text-[11px] flex items-center justify-between gap-2",
+                    highlighted ? "border-iris bg-iris-soft/40" : "bg-raised border-line",
+                    inactive && "opacity-70",
+                  )}>
+                    <span className={cn("truncate max-w-[240px]", inactive && "text-muted line-through")}>{r.data}</span>
+                    <div className="flex items-center gap-1 shrink-0">
+                      <DeliveryAccountBadge mark={mark} highlighted={highlighted} formatRefund={formatBrowseMoney} />
+                      {!mark && (
+                        <Tag tone={r.status === "assigned" ? "good" : r.status === "error" ? "bad" : "neutral"} className="text-[9px]">
+                          {t("availableStatus")}
+                        </Tag>
+                      )}
+                    </div>
                   </div>
-                ))}
+                  );
+                })}
                 {resources.length > 30 && (
                   <div className="p-2 text-center text-[11px] text-faint bg-raised/50 rounded-lg">
                     {t("showingResources", { count: resources.length.toLocaleString() })}
@@ -1700,16 +1642,26 @@ function SellerOrderDetailModal({
             </div>
           )}
 
-          {/* Direct Actions in Drawer */}
-          {isDisputed && (
-            <div className="p-3 rounded-xl bg-bad-soft/30 border border-bad/30 flex items-center justify-between">
-              <div>
-                <div className="font-bold text-bad">{t("disputedOrderTitle")}</div>
-                <div className="text-[11px] text-muted">{t("disputedOrderHint")}</div>
+          {caseRecord && (
+            <div className="space-y-2 rounded-xl border border-line p-3">
+              <div className="flex items-center justify-between gap-2">
+                <div>
+                  <div className="font-bold text-fg">{isOpenCase ? t("disputedOrderTitle") : t("disputeHistoryTitle")}</div>
+                  <div className="text-[11px] text-muted">
+                    {isOpenCase ? t("disputedOrderHint") : t("closedDisputeHint")}
+                  </div>
+                </div>
+                <Button size="sm" variant={isOpenCase ? "danger" : "secondary"} onClick={onDisputeClick}>
+                  {isOpenCase ? t("handleDispute") : t("viewDisputeHistory")}
+                </Button>
               </div>
-              <Button size="sm" variant="danger" onClick={onDisputeClick}>
-                {t("handleDispute")}
-              </Button>
+              <DisputeCaseView
+                dispute={caseRecord}
+                statusLabel={td.has(caseRecord.status as "open") ? td(caseRecord.status as "open") : caseRecord.status}
+                statusTone={isOpenCase ? "warn" : "neutral"}
+                formatRefund={formatBrowseMoney}
+                viewerRole="seller"
+              />
             </div>
           )}
 

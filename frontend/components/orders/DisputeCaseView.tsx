@@ -22,6 +22,7 @@ export function DisputeCaseView({
   resourceLabels = {},
   formatRefund,
   onResourceClick,
+  viewerRole = "buyer",
 }: {
   dispute: Dispute;
   statusLabel: string;
@@ -29,6 +30,7 @@ export function DisputeCaseView({
   resourceLabels?: Record<number, string>;
   formatRefund: (amount: number) => string;
   onResourceClick?: (resourceId: number) => void;
+  viewerRole?: "buyer" | "seller";
 }) {
   const t = useTranslations("orders");
   const locale = useLocale();
@@ -51,7 +53,13 @@ export function DisputeCaseView({
         </p>
       )}
 
-      {dispute.status === "open" && !dispute.resolution_deadline_at && dispute.escrow_expires_at && (
+      {dispute.status === "open" && !dispute.resolution_deadline_at && dispute.abandon_after_at && (
+        <p className="rounded-lg border border-warn/25 bg-warn-soft/35 px-3 py-2 text-[12px] text-fg">
+          {t(viewerRole === "seller" ? "disputeAbandonDeadlineSeller" : "disputeAbandonDeadline", { date: formatDateTime(dispute.abandon_after_at, locale) })}
+        </p>
+      )}
+
+      {dispute.status === "open" && !dispute.resolution_deadline_at && !dispute.abandon_after_at && dispute.escrow_expires_at && (
         <p className="rounded-lg border border-warn/25 bg-warn-soft/35 px-3 py-2 text-[12px] text-fg">
           {t("disputeEscrowPaused", { date: formatDateTime(dispute.escrow_expires_at, locale) })}
         </p>
@@ -161,6 +169,9 @@ function TimelineBeat({
     | "resource_refund"
     | "case_escalated"
     | "buyer_accepted"
+    | "buyer_withdrew"
+    | "resolution_timeout"
+    | "resolution_abandoned"
     | "case_resolved";
   const title = [
     "case_opened",
@@ -171,6 +182,9 @@ function TimelineBeat({
     "resource_refund",
     "case_escalated",
     "buyer_accepted",
+    "buyer_withdrew",
+    "resolution_timeout",
+    "resolution_abandoned",
     "case_resolved",
   ].includes(event.event_type)
     ? t(`disputeEvents.${eventKey}`)

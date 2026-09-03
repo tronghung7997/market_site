@@ -8,7 +8,7 @@ import { api } from "@/lib/api";
 import { useApiErrorMessage } from "@/lib/use-api-error";
 import { useMoney } from "@/lib/money";
 import { cn } from "@/lib/cn";
-import { orderStatus } from "@/lib/order-status";
+import { displayOrderStatus } from "@/lib/order-status";
 import { formatDate } from "@/lib/utils";
 import type { Dispute, Order, Resource } from "@/lib/types";
 import { isDisputeReadyToAccept, resourceLabelMap } from "@/lib/dispute-case";
@@ -97,7 +97,7 @@ export function OrderResources({ orderId }: { orderId: number }) {
 }
 
 export const DISPUTE_STATUS_INFO: Record<string, { label: string; tone: "good" | "bad" | "warn" | "iris" | "neutral" }> = {
-  open: { label: "Waiting for admin review", tone: "warn" },
+  open: { label: "Waiting for the seller", tone: "warn" },
   resolved_refund: { label: "Full refund issued", tone: "bad" },
   resolved_reject: { label: "Rejected — order stands", tone: "neutral" },
   resolved_partial_refund: { label: "Partial refund issued", tone: "bad" },
@@ -153,7 +153,7 @@ export function OrderDispute({
     if (!dispute || resourceLabelsProp) return;
     let active = true;
     const load = viewerRole === "seller"
-      ? api.sellerDisputeResources(dispute.id).then((rows) => resourceLabelMap(rows))
+      ? api.sellerDisputeResources(dispute.id, { per_page: 100 }).then((page) => resourceLabelMap(page.items))
       : api.orderResources(orderId).then((rows) => resourceLabelMap(rows));
     load.then((labels) => { if (active) setFetchedLabels(labels); }).catch(() => { /* keep #id chips */ });
     return () => { active = false; };
@@ -240,7 +240,7 @@ export function OrderDispute({
                 <p className="text-[12px] text-muted">{t("disputeReadyToAcceptHint")}</p>
               )}
               <Textarea rows={2} value={message} onChange={(e) => setMessage(e.target.value)} placeholder={t("disputeMessagePlaceholder")} />
-              <div className="flex flex-wrap gap-2">
+              <div className="flex flex-wrap gap-2 pt-1 pb-2">
                 <Button size="sm" variant="secondary" disabled={submitting || !message.trim()} onClick={sendMessage}>{t("sendDisputeMessage")}</Button>
                 {canAcceptResolution && <Button size="sm" disabled={submitting} onClick={acceptResolution}>{t("acceptDisputeResolution")}</Button>}
                 {(dispute.resource_actions?.length ?? 0) === 0 && (
@@ -269,7 +269,7 @@ export function TerminalOrderRow({ order: o, viewerRole = "buyer" }: { order: Or
   const tc = useTranslations("common");
   const locale = useLocale();
   const { formatOrderHistoryMoney } = useMoney();
-  const st = orderStatus(o.status, locale);
+  const st = displayOrderStatus(o, locale);
   const amountText = formatOrderHistoryMoney(
     o.total_amount,
     o.display_fx_rate_snapshot,

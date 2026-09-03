@@ -1,7 +1,7 @@
 from datetime import datetime, timedelta, timezone
 
 from fastapi import HTTPException, status
-from sqlalchemy import func, select
+from sqlalchemy import func, or_, select
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from src.audit.service import log_event, query_logs
@@ -25,6 +25,87 @@ from src.sellers.tiers import platform_fee_percent
 from src.wallet.service import escrow_settlement, refund_escrow, release_escrow
 from src.exceptions import ErrorCode, api_error
 
+_REMEDY_ALERT_ID_LIMIT = 6
+_REMEDY_ALERT_HREF_ID_LIMIT = 20
+
+
+def _resource_id_preview(ids: list[int], limit: int = _REMEDY_ALERT_ID_LIMIT) -> str:
+    labels = [f"#{resource_id}" for resource_id in ids[:limit]]
+    extra = len(ids) - limit
+    if extra > 0:
+        labels.append(f"+{extra}")
+    return ", ".join(labels)
+
+
+def _remedy_alert_href(order_id: int, resource_ids: list[int], *, seller: bool) -> str:
+    shown = ",".join(str(resource_id) for resource_id in resource_ids[:_REMEDY_ALERT_HREF_ID_LIMIT])
+    path = "/seller/orders" if seller else "/orders"
+    return f"{path}?search={order_id}&resources={shown}"
+
+
+async def _refresh_order_delivered_data(order: Order, db: AsyncSession) -> None:
+    live = list(
+        (
+            await db.execute(
+                select(Resource)
+                .where(Resource.order_id == order.id, Resource.status == ResourceStatus.assigned)
+                .order_by(Resource.id)
+            )
+        ).scalars()
+    )
+    order.delivered_data = "\n".join(resource.data for resource in live) if live else None
+
+
+async def _notify_resource_remedy(
+    db: AsyncSession,
+    *,
+    order: Order,
+    action: str,
+    originals: list[Resource],
+    replacements: list[Resource],
+) -> None:
+    from src.alerts.service import add_alert
+
+    original_ids = [resource.id for resource in originals]
+    replacement_ids = [resource.id for resource in replacements]
+    highlight_ids = original_ids + replacement_ids
+    preview = _resource_id_preview(original_ids, _REMEDY_ALERT_ID_LIMIT)
+    if action == "refund":
+        buyer_message = (
+            f"Đơn #{order.id}: seller hoàn {len(original_ids)} tài khoản ({preview})."
+        )
+        seller_message = (
+            f"Đơn #{order.id}: đã hoàn {len(original_ids)} tài khoản cho buyer ({preview})."
+        )
+    else:
+        pairs = ", ".join(
+            f"#{original.id} → #{replacement.id}"
+            for original, replacement in zip(originals, replacements, strict=True)
+        )
+        if len(pairs) > 180:
+            pairs = _resource_id_preview(original_ids, _REMEDY_ALERT_ID_LIMIT)
+        buyer_message = f"Đơn #{order.id}: seller đổi {len(original_ids)} tài khoản ({pairs})."
+        seller_message = f"Đơn #{order.id}: đã đổi {len(original_ids)} tài khoản cho buyer ({pairs})."
+    await add_alert(
+        db,
+        type_="buyer_dispute_resource_resolved",
+        severity="info",
+        target_type="buyer",
+        target_id=order.buyer_id,
+        message=buyer_message,
+        href=_remedy_alert_href(order.id, highlight_ids, seller=False),
+    )
+    await add_alert(
+        db,
+        type_="seller_dispute_resource_resolved",
+        severity="info",
+        target_type="seller",
+        target_id=order.seller_id,
+        message=seller_message,
+        href=_remedy_alert_href(order.id, highlight_ids, seller=True),
+    )
+
+
 _DISPUTE_OUTCOME = {
     DisputeStatus.resolved_refund: "refund",
     DisputeStatus.resolved_reject: "reject",
@@ -33,7 +114,46 @@ _DISPUTE_OUTCOME = {
     DisputeStatus.resolved_extend_warranty: "extend_warranty",
     DisputeStatus.resolved_timeout: "timeout",
     DisputeStatus.withdrawn_by_buyer: "withdrawn",
+    DisputeStatus.resolved_abandoned: "abandoned",
 }
+
+
+def last_buyer_claim_activity_at(
+    dispute: Dispute,
+    claims: list[DisputeClaimResource],
+) -> datetime:
+    """Return only buyer actions that expand the case's claimed scope.
+
+    Chat is intentionally excluded. A buyer can send arbitrary messages, while
+    every resource may be claimed once per case; using only claims prevents a
+    periodic "still waiting" message from freezing escrow forever.
+    """
+    times = [dispute.created_at]
+    times.extend(claim.created_at for claim in claims if claim.created_at)
+    return max(times)
+
+
+def compute_abandon_after_at(
+    *,
+    escrow_expires_at: datetime | None,
+    last_buyer_claim_activity: datetime,
+    resolution_deadline_at: datetime | None,
+    has_resource_remedy: bool,
+    grace_hours: int | None = None,
+) -> datetime | None:
+    """When an untouched open case may auto-settle remaining escrow to the seller.
+
+    The buyer-response deadline (after a seller offer) is a different clock.
+    A resource remedy blocks abandonment so the buyer can still accept or the
+    offer-timeout job can finish the case.
+    """
+    if has_resource_remedy or resolution_deadline_at or not escrow_expires_at:
+        return None
+    hours = grace_hours if grace_hours is not None else settings.dispute_abandon_grace_hours
+    start = escrow_expires_at
+    if last_buyer_claim_activity > start:
+        start = last_buyer_claim_activity
+    return start + timedelta(hours=hours)
 
 
 def _clear_resolution_deadline(dispute: Dispute) -> None:
@@ -74,6 +194,20 @@ async def _all_claimed_resources_remedied(dispute_id: int, db: AsyncSession) -> 
         ).scalars()
     )
     return claimed <= remedied
+
+
+_DISPUTE_ID_LIST_LIMIT = 2000
+
+
+def _resource_search_clause(search: str | None):
+    term = (search or "").strip().lstrip("#")
+    if not term:
+        return None
+    escaped = term.replace("\\", "\\\\").replace("%", "\\%").replace("_", "\\_")
+    data_match = Resource.data.ilike(f"%{escaped}%", escape="\\")
+    if term.isdigit():
+        return or_(Resource.id == int(term), data_match)
+    return data_match
 
 
 def _truncate_reason(reason: str, limit: int = 200) -> str:
@@ -356,7 +490,10 @@ def _timeline_events(
                 "created_at": dispute.resolved_at,
                 "actor_role": (
                     "system"
-                    if dispute.status == DisputeStatus.resolved_timeout
+                    if dispute.status in (
+                        DisputeStatus.resolved_timeout,
+                        DisputeStatus.resolved_abandoned,
+                    )
                     else "admin" if dispute.admin_note else "buyer"
                 ),
                 "body": dispute.admin_note,
@@ -407,6 +544,12 @@ async def _enrich_dispute(dispute: Dispute, db: AsyncSession) -> dict:
         "resolution_offered_at": dispute.resolution_offered_at,
         "resolution_deadline_at": dispute.resolution_deadline_at,
         "escrow_expires_at": order.escrow_expires_at if order else None,
+        "abandon_after_at": compute_abandon_after_at(
+            escrow_expires_at=order.escrow_expires_at if order else None,
+            last_buyer_claim_activity=last_buyer_claim_activity_at(dispute, claims),
+            resolution_deadline_at=dispute.resolution_deadline_at,
+            has_resource_remedy=bool(actions),
+        ),
         "resolved_at": dispute.resolved_at,
         "product_title": product.title if product else None,
         "variant_name": variant.name if variant else None,
@@ -473,6 +616,15 @@ async def get_dispute_detail(dispute_id: int, db: AsyncSession) -> dict:
         ],
         key=lambda x: x["timestamp"],
     )
+    claims = list(
+        (await db.execute(select(DisputeClaimResource).where(DisputeClaimResource.dispute_id == dispute.id))).scalars()
+    )
+    messages = list(
+        (await db.execute(select(DisputeMessage).where(DisputeMessage.dispute_id == dispute.id))).scalars()
+    )
+    has_remedy = await db.scalar(
+        select(DisputeResourceAction.id).where(DisputeResourceAction.dispute_id == dispute.id).limit(1)
+    )
 
     return {
         "id": dispute.id, "order_id": dispute.order_id, "buyer_id": dispute.buyer_id,
@@ -482,6 +634,12 @@ async def get_dispute_detail(dispute_id: int, db: AsyncSession) -> dict:
         "created_at": dispute.created_at,
         "resolution_offered_at": dispute.resolution_offered_at,
         "resolution_deadline_at": dispute.resolution_deadline_at,
+        "abandon_after_at": compute_abandon_after_at(
+            escrow_expires_at=order.escrow_expires_at if order else None,
+            last_buyer_claim_activity=last_buyer_claim_activity_at(dispute, claims),
+            resolution_deadline_at=dispute.resolution_deadline_at,
+            has_resource_remedy=bool(has_remedy),
+        ),
         "resolved_at": dispute.resolved_at,
         "order": order_info,
         "resources": resources,
@@ -508,7 +666,7 @@ async def seller_respond_dispute(dispute_id: int, seller_id: int, seller_note: s
         .where(DisputeClaimResource.dispute_id == dispute.id)
         .limit(1)
     )
-    if not has_claims:
+    if not has_claims or await _all_claimed_resources_remedied(dispute.id, db):
         _offer_resolution_deadline(dispute)
     db.add(
         DisputeMessage(
@@ -759,6 +917,7 @@ async def seller_resolve_resources(
         )
         db.add(row)
         rows.append(row)
+    await _refresh_order_delivered_data(order, db)
     if seller_note:
         dispute.seller_note = seller_note
         db.add(
@@ -788,15 +947,12 @@ async def seller_resolve_resources(
             "refund_amount": refund_amount,
         },
     )
-    from src.alerts.service import add_alert
-    await add_alert(
+    await _notify_resource_remedy(
         db,
-        type_="buyer_dispute_resource_resolved",
-        severity="info",
-        target_type="buyer",
-        target_id=order.buyer_id,
-        message=f"Seller handled {len(rows)} account(s) on order #{order.id}.",
-        href=f"/orders?search={order.id}",
+        order=order,
+        action=action,
+        originals=originals,
+        replacements=replacements,
     )
     if fully_refunded:
         await _finalize_dispute(
@@ -898,6 +1054,8 @@ async def seller_dispute_resources(
     search: str | None,
     page: int,
     per_page: int,
+    pending_only: bool = False,
+    ids_only: bool = False,
 ) -> dict:
     dispute = await db.get(Dispute, dispute_id)
     order = await db.get(Order, dispute.order_id) if dispute else None
@@ -906,18 +1064,31 @@ async def seller_dispute_resources(
     claimed_ids = select(DisputeClaimResource.resource_id).where(
         DisputeClaimResource.dispute_id == dispute_id
     )
-    query = select(Resource).where(Resource.id.in_(claimed_ids))
-    if search:
-        term = search.strip().lstrip("#")
-        if term.isdigit():
-            query = query.where(Resource.id == int(term))
-        else:
-            query = query.where(Resource.status == term)
-    total = int(await db.scalar(select(func.count()).select_from(query.subquery())) or 0)
+    filters = [Resource.id.in_(claimed_ids)]
+    search_clause = _resource_search_clause(search)
+    if search_clause is not None:
+        filters.append(search_clause)
+    if pending_only:
+        handled_ids = select(DisputeResourceAction.original_resource_id).where(
+            DisputeResourceAction.dispute_id == dispute_id
+        )
+        filters.append(~Resource.id.in_(handled_ids))
+    total = int(await db.scalar(select(func.count()).select_from(Resource).where(*filters)) or 0)
+    if ids_only:
+        ids = list(
+            (
+                await db.execute(
+                    select(Resource.id).where(*filters).order_by(Resource.id).limit(_DISPUTE_ID_LIST_LIMIT)
+                )
+            ).scalars()
+        )
+        return {"items": [], "ids": ids, "total": total, "page": 1, "per_page": len(ids)}
     resources = list(
         (
             await db.execute(
-                query.order_by(Resource.id)
+                select(Resource)
+                .where(*filters)
+                .order_by(Resource.id)
                 .offset((page - 1) * per_page)
                 .limit(per_page)
             )
@@ -950,6 +1121,7 @@ async def seller_dispute_resources(
             }
             for resource in resources
         ],
+        "ids": [],
         "total": total,
         "page": page,
         "per_page": per_page,
@@ -964,25 +1136,36 @@ async def seller_replacement_resources(
     search: str | None,
     page: int,
     per_page: int,
+    ids_only: bool = False,
 ) -> dict:
     dispute = await db.get(Dispute, dispute_id)
     order = await db.get(Order, dispute.order_id) if dispute else None
     if not dispute or not order or order.seller_id != seller_id or not order.variant_id:
         raise api_error(ErrorCode.DISPUTE_NOT_FOUND, status.HTTP_404_NOT_FOUND)
-    query = select(Resource).where(
+    filters = [
         Resource.variant_id == order.variant_id,
         Resource.seller_id == seller_id,
         Resource.status == ResourceStatus.available,
-    )
-    if search:
-        term = search.strip().lstrip("#")
-        if term.isdigit():
-            query = query.where(Resource.id == int(term))
-    total = int(await db.scalar(select(func.count()).select_from(query.subquery())) or 0)
+    ]
+    search_clause = _resource_search_clause(search)
+    if search_clause is not None:
+        filters.append(search_clause)
+    total = int(await db.scalar(select(func.count()).select_from(Resource).where(*filters)) or 0)
+    if ids_only:
+        ids = list(
+            (
+                await db.execute(
+                    select(Resource.id).where(*filters).order_by(Resource.id).limit(_DISPUTE_ID_LIST_LIMIT)
+                )
+            ).scalars()
+        )
+        return {"items": [], "ids": ids, "total": total, "page": 1, "per_page": len(ids)}
     resources = list(
         (
             await db.execute(
-                query.order_by(Resource.id)
+                select(Resource)
+                .where(*filters)
+                .order_by(Resource.id)
                 .offset((page - 1) * per_page)
                 .limit(per_page)
             )
@@ -990,6 +1173,7 @@ async def seller_replacement_resources(
     )
     return {
         "items": [{"id": resource.id, "data": resource.data} for resource in resources],
+        "ids": [],
         "total": total,
         "page": page,
         "per_page": per_page,
@@ -997,11 +1181,9 @@ async def seller_replacement_resources(
 
 
 async def list_seller_open_disputes(seller_id: int, db: AsyncSession) -> list[dict]:
-    """Khiếu nại đang mở của seller mà seller CHƯA phản hồi (seller_note rỗng).
+    """Open disputes for this seller that still have an empty seller_note.
 
-    Dùng cho bell thông báo — khiếu nại tự động xử lý bất lợi cho seller nếu
-    seller im lặng, nên đây là action-item cần nhắc riêng, khác với khiếu nại
-    seller đã trả lời và đang chờ admin quyết định.
+    Used for the seller action bell. A missing note is not an automatic loss.
     """
     result = await db.execute(
         select(Dispute).join(Order, Order.id == Dispute.order_id)
@@ -1185,6 +1367,65 @@ async def withdraw_dispute(order_id: int, buyer_id: int, db: AsyncSession) -> di
     await db.commit()
     await db.refresh(dispute)
     return await _enrich_dispute(dispute, db)
+
+
+async def resolve_abandoned_dispute(
+    dispute: Dispute,
+    order: Order,
+    db: AsyncSession,
+    *,
+    now: datetime | None = None,
+) -> None:
+    """Settle an untouched open case after escrow expiry plus buyer silence."""
+    current_time = now or datetime.now(timezone.utc)
+    has_remedy = await db.scalar(
+        select(DisputeResourceAction.id)
+        .where(DisputeResourceAction.dispute_id == dispute.id)
+        .limit(1)
+    )
+    claims = list(
+        (
+            await db.execute(
+                select(DisputeClaimResource).where(DisputeClaimResource.dispute_id == dispute.id)
+            )
+        ).scalars()
+    )
+    messages = list(
+        (
+            await db.execute(
+                select(DisputeMessage).where(DisputeMessage.dispute_id == dispute.id)
+            )
+        ).scalars()
+    )
+    abandon_at = compute_abandon_after_at(
+        escrow_expires_at=order.escrow_expires_at,
+            last_buyer_claim_activity=last_buyer_claim_activity_at(dispute, claims),
+        resolution_deadline_at=dispute.resolution_deadline_at,
+        has_resource_remedy=bool(has_remedy),
+    )
+    if dispute.status != DisputeStatus.open or not abandon_at or abandon_at > current_time:
+        raise ValueError("Dispute is not eligible for abandonment settlement")
+    await _finalize_dispute(
+        dispute,
+        order,
+        db,
+        status_value=DisputeStatus.resolved_abandoned,
+        actor_id=1,
+        actor_role="admin",
+        event_type="resolution_abandoned",
+        body="Buyer activity stopped after escrow expiry; remaining escrow was released to the seller.",
+    )
+    await log_event(
+        db,
+        "info",
+        f"Dispute {dispute.id} auto-resolved after buyer abandonment",
+        metadata={
+            "event": "dispute_abandoned",
+            "order_id": order.id,
+            "dispute_id": dispute.id,
+            "abandon_after_at": abandon_at.isoformat(),
+        },
+    )
 
 
 async def resolve_dispute_after_response_timeout(

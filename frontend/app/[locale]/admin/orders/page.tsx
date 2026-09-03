@@ -75,6 +75,9 @@ const DISPUTE_LABELS: Record<string, string> = {
   open: "Đang mở",
   resolved_refund: "Hoàn tiền",
   resolved_reject: "Từ chối",
+  resolved_timeout: "Tự hoàn tất (buyer im)",
+  withdrawn_by_buyer: "Buyer rút khiếu nại",
+  resolved_abandoned: "Tự hoàn tất (bỏ cuộc)",
 };
 
 // Cột số căn phải (header lẫn cell)

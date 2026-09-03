@@ -55,6 +55,7 @@ class OrderResponse(BaseModel):
     seller_email: str | None = None
     has_review: bool = False
     has_dispute: bool = False
+    dispute_status: str | None = None
     service_type: str | None = None
     fulfillment: "FulfillmentInfo | None" = None
     settlement: "SettlementInfo | None" = None

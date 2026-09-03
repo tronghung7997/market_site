@@ -58,6 +58,10 @@ class Settings(BaseSettings):
     # Buyer response window after a seller has offered a dispute resolution.
     # Applies across delivery strategies until per-product policies are added.
     dispute_resolution_timeout_hours: int = 24
+    # After escrow expiry, an untouched open case (no resource remedy, no
+    # buyer-response deadline) settles remaining escrow to the seller once
+    # this many hours pass without further buyer activity.
+    dispute_abandon_grace_hours: int = 24
     # Outbound transactional mail (SMTP or HTTPS). Inbound ports are not required.
     mail_provider: Literal["log", "smtp", "resend"] = "log"
     mail_from: str = ""
@@ -240,6 +244,7 @@ class Settings(BaseSettings):
             "auth_reset_ip_limit",
             "password_reset_ttl_minutes",
             "dispute_resolution_timeout_hours",
+            "dispute_abandon_grace_hours",
             "jwt_expire_minutes",
             "jwt_refresh_expire_days",
             "max_request_body_bytes",

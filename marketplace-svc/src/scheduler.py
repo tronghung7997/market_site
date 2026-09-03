@@ -12,14 +12,14 @@ from src.database import SessionLocal
 from src.audit.service import purge_operational_logs
 from src.gateway.call_history import purge_old_gateway_call_logs
 from src.models.account import Account
-from src.models.order import Dispute, DisputeStatus, Order, OrderStatus
+from src.models.order import Dispute, DisputeResourceAction, DisputeStatus, Order, OrderStatus
 from src.models.product import Product, ProductVariant
 from src.models.provider import Provider, ProviderHealth
 from src.models.resource import Resource, ResourceStatus
 from src.providers.service import apply_scores
 from src.sellers.tiers import platform_fee_percent
 from src.wallet.service import escrow_settlement, refund_escrow, release_escrow
-from src.disputes.service import resolve_dispute_after_response_timeout
+from src.disputes.service import resolve_abandoned_dispute, resolve_dispute_after_response_timeout
 
 logger = structlog.get_logger()
 
@@ -124,6 +124,52 @@ async def dispute_resolution_timeout_job() -> None:
                 await db.rollback()
                 logger.error(
                     "dispute_resolution_timeout_failed",
+                    order_id=order_id,
+                    error=str(e),
+                )
+
+
+async def dispute_abandonment_job() -> None:
+    """Close untouched open cases after escrow expiry plus buyer silence."""
+    async with SessionLocal() as db:
+        now = datetime.now(timezone.utc)
+        result = await db.execute(
+            select(Order)
+            .join(Dispute, Dispute.order_id == Order.id)
+            .where(
+                Dispute.status == DisputeStatus.open,
+                Dispute.resolution_deadline_at.is_(None),
+                ~select(DisputeResourceAction.id).where(
+                    DisputeResourceAction.dispute_id == Dispute.id,
+                ).exists(),
+                Order.escrow_expires_at.is_not(None),
+                Order.escrow_expires_at <= now,
+            )
+            .with_for_update(skip_locked=True)
+        )
+        orders = list(result.scalars().all())
+        for order in orders:
+            order_id = order.id
+            try:
+                dispute = await db.scalar(
+                    select(Dispute)
+                    .where(
+                        Dispute.order_id == order.id,
+                        Dispute.status == DisputeStatus.open,
+                    )
+                    .with_for_update()
+                )
+                if not dispute:
+                    continue
+                await resolve_abandoned_dispute(dispute, order, db, now=now)
+                await db.commit()
+                logger.info("dispute_abandoned", dispute_id=dispute.id, order_id=order_id)
+            except ValueError:
+                await db.rollback()
+            except Exception as e:
+                await db.rollback()
+                logger.error(
+                    "dispute_abandonment_failed",
                     order_id=order_id,
                     error=str(e),
                 )

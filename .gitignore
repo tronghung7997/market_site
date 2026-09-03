@@ -11,6 +11,12 @@ AGENTS.md
 CONTEXT.md
 docs
 
+# `docs/` is otherwise local scratch space. This is the versioned dispute
+# settlement contract used by buyer, seller and operations flows.
+!docs/
+docs/*
+!docs/dispute-flow.md
+
 # Coding-agent files are repository contracts and must be versioned.
 !AGENTS.md
 !frontend/AGENTS.md

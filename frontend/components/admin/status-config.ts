@@ -31,6 +31,9 @@ export const DISPUTE_STATUS: Record<string, StatusConfig> = {
   resolved_partial_refund: { label: "Hoàn tiền một phần", tone: "bad" },
   resolved_replace: { label: "Đã đổi sản phẩm", tone: "iris" },
   resolved_extend_warranty: { label: "Đã gia hạn bảo hành", tone: "iris" },
+  resolved_timeout: { label: "Tự hoàn tất (buyer im)", tone: "good" },
+  withdrawn_by_buyer: { label: "Buyer rút khiếu nại", tone: "neutral" },
+  resolved_abandoned: { label: "Tự hoàn tất (bỏ cuộc)", tone: "good" },
 };
 
 // Withdrawal request statuses

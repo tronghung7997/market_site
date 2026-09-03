@@ -94,6 +94,7 @@ class DisputeResponse(BaseModel):
     resolution_offered_at: datetime | None = None
     resolution_deadline_at: datetime | None = None
     escrow_expires_at: datetime | None = None
+    abandon_after_at: datetime | None = None
     resolved_at: datetime | None
     product_title: str | None = None
     variant_name: str | None = None
@@ -148,6 +149,7 @@ class DisputeResponseFull(BaseModel):
     created_at: datetime
     resolution_offered_at: datetime | None = None
     resolution_deadline_at: datetime | None = None
+    abandon_after_at: datetime | None = None
     resolved_at: datetime | None
     order: DisputeOrderInfo
     resources: list[DisputeResourceInfo]

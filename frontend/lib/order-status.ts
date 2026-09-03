@@ -25,7 +25,7 @@ const COPY: Record<"en" | "vi", Record<string, { label: string; hint: string }>>
     processing: { label: "Processing", hint: "The seller has accepted your order and is fulfilling it." },
     delivered: { label: "Delivered", hint: "Item delivered — check it, then confirm to complete." },
     completed: { label: "Completed", hint: "Order completed; payment released to the seller." },
-    disputed: { label: "Disputed", hint: "A dispute is being reviewed by an admin." },
+    disputed: { label: "Disputed", hint: "A dispute is open — waiting on the seller." },
     refunded: { label: "Refunded", hint: "Funds have been returned to your wallet." },
     cancelled: { label: "Cancelled", hint: "This order was cancelled." },
   },
@@ -34,7 +34,7 @@ const COPY: Record<"en" | "vi", Record<string, { label: string; hint: string }>>
     processing: { label: "Đang xử lý", hint: "Người bán đã nhận đơn và đang giao." },
     delivered: { label: "Đã giao", hint: "Hàng đã giao — kiểm tra rồi bấm xác nhận để hoàn tất." },
     completed: { label: "Hoàn tất", hint: "Đơn đã hoàn tất, tiền đã chuyển cho người bán." },
-    disputed: { label: "Khiếu nại", hint: "Khiếu nại đang được quản trị viên xử lý." },
+    disputed: { label: "Khiếu nại", hint: "Đơn đang có khiếu nại — chờ người bán xử lý." },
     refunded: { label: "Đã hoàn tiền", hint: "Tiền đã được hoàn về ví của bạn." },
     cancelled: { label: "Đã huỷ", hint: "Đơn đã bị huỷ." },
   },
@@ -43,6 +43,29 @@ const COPY: Record<"en" | "vi", Record<string, { label: string; hint: string }>>
 /** Mirrors the backend dispute eligibility: delivered and still in escrow. */
 export function canOpenDispute(status: string, escrowExpiresAt: string | null, now = Date.now()): boolean {
   return status === "delivered" && (!escrowExpiresAt || Date.parse(escrowExpiresAt) >= now);
+}
+
+/** Open dispute is an overlay: commercial status stays delivered. */
+export function hasOpenDispute(order: {
+  status?: string;
+  has_dispute?: boolean;
+  protection?: { status?: string } | null;
+}): boolean {
+  if (order.protection?.status === "dispute_open") return true;
+  if (order.has_dispute) return true;
+  return order.status === "disputed";
+}
+
+export function displayOrderStatus(
+  order: {
+    status: string;
+    has_dispute?: boolean;
+    protection?: { status?: string } | null;
+  },
+  locale: string = "en",
+): OrderStatusInfo {
+  if (hasOpenDispute(order)) return orderStatus("disputed", locale);
+  return orderStatus(order.status, locale);
 }
 
 /** Safe lookup — unknown backend status does not break the UI. */

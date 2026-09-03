@@ -1,8 +1,8 @@
 import type {
-  Account, ActionItem, AdminDepositIntent, AdminDepositLedgerQuery, AdminDepositLedgerResponse, AdminDepositTransaction, AdminDisputeDetail, AdminOrderDetail, AdminProduct, AdminResourceListResponse, AffiliateStats, AffiliateSummary, CalculateResult, Category, ChargeUsageResult, ChatConversationDetail, ChatConversationList, ChatMessage, DashboardData, DepositIntent, DepositMethods, DepositReconcileResult, DepositRailConfigAdmin, DepositRailConfigUpdate, Dispute, SePayWebhookEventRow, AdminAccountWallet, FundOverview, AccountAdminRow, PaginatedAccounts, LogEntry, MailConfigAdmin, MailConfigUpdate, MailOutboxList, MailSendTestResponse, MailTemplatePreview, MailTemplateRow, MoneyConfigAdmin, MoneyConfigPublic, MoneyConfigUpdate, Order, OrderStats, PaginatedAffiliateSummary, PaginatedOrderResponse, PaginatedProducts, PricingField, PricingOptions, ProductDetail, AdminProductDetail, Product, ProductLocale, ProductOperations, ProductTranslation, ProxyState, ProxyRotateResult, ProxyWhitelistResult, Review, SellerApplication, SellerProduct, SellerStats, ServiceTask, TikTokLookupResponse, Transaction, Variant, Wallet, WithdrawRequest, Provider, ProviderHealth, Alert, Resource, ResourceSummary, ResourceSellerFacet, InventoryVariant, SellerSummary, SellerProfile, SellerDisputeResource,
+  Account, ActionItem, AdminDepositIntent, AdminDepositLedgerQuery, AdminDepositLedgerResponse, AdminDepositTransaction, AdminDisputeDetail, AdminOrderDetail, AdminProduct, AdminResourceListResponse, AffiliateStats, AffiliateSummary, CalculateResult, Category, ChargeUsageResult, ChatConversationDetail, ChatConversationList, ChatMessage, DashboardData, DepositIntent, DepositMethods, DepositReconcileResult, DepositRailConfigAdmin, DepositRailConfigUpdate, Dispute, SePayWebhookEventRow, AdminAccountWallet, FundOverview, AccountAdminRow, PaginatedAccounts, LogEntry, MailConfigAdmin, MailConfigUpdate, MailOutboxList, MailSendTestResponse, MailTemplatePreview, MailTemplateRow, MoneyConfigAdmin, MoneyConfigPublic, MoneyConfigUpdate, Order, OrderStats, PaginatedAffiliateSummary, PaginatedOrderResponse, PaginatedProducts, PricingField, PricingOptions, ProductDetail, AdminProductDetail, Product, ProductLocale, ProductOperations, ProductTranslation, ProxyState, ProxyRotateResult, ProxyWhitelistResult, Review, SellerApplication, SellerProduct, SellerStats, ServiceTask, TikTokLookupResponse, Transaction, Variant, Wallet, WithdrawRequest, Provider, ProviderHealth, Alert, Resource, ResourceSummary, ResourceSellerFacet, InventoryVariant, SellerSummary, SellerProfile, SellerDisputeResource, SellerDisputeResourceList, SellerReplacementResourceList,
 } from "./types";
 import { SERVER_API_BASE } from "./server-api";
-import { chunkDisputeResourceIds } from "./dispute-batches";
+import { chunkDisputeResourceIds, chunkPairedDisputeResources } from "./dispute-batches";
 
 // Browser requests are always same-origin. This prevents a production bundle
 // from calling the visitor's localhost or bypassing the controlled Next proxy.
@@ -322,6 +322,7 @@ export const api = {
   adminAlerts: () => request<Alert[]>("/admin/alerts", {}, true),
   dismissAlert: (id: number) => request<Alert>(`/admin/alerts/${id}/dismiss`, { method: "POST" }, true),
   dismissSellerAlert: (id: number) => request<Alert>(`/seller/alerts/${id}/dismiss`, { method: "POST" }, true),
+  dismissOwnAlert: (id: number) => request<Alert>(`/me/alerts/${id}/dismiss`, { method: "POST" }, true),
   accountActionItems: () => request<ActionItem[]>("/me/action-items", {}, true),
   buyerActionItems: () => request<ActionItem[]>("/orders/action-items", {}, true),
   sellerActionItems: () => request<ActionItem[]>("/seller/action-items", {}, true),
@@ -423,29 +424,64 @@ export const api = {
   sellerDispute: (orderId: number) => request<Dispute>(`/seller/orders/${orderId}/dispute`, {}, true),
   sellerRespondDispute: (disputeId: number, sellerNote: string) =>
     request<Dispute>(`/seller/disputes/${disputeId}/respond`, { method: "POST", body: JSON.stringify({ seller_note: sellerNote }) }, true),
-  sellerDisputeResources: (disputeId: number) =>
-    request<{ items: SellerDisputeResource[] }>(`/seller/disputes/${disputeId}/resources`, {}, true).then((response) => response.items),
-  sellerDisputeReplacements: (disputeId: number) =>
-    request<Resource[]>(`/seller/disputes/${disputeId}/replacement-resources`, {}, true),
-  sellerResolveDisputeResources: (disputeId: number, resourceIds: number[], action: "replace" | "refund", note?: string) =>
+  sellerDisputeResources: (
+    disputeId: number,
+    opts?: { search?: string; page?: number; per_page?: number; pending_only?: boolean; ids_only?: boolean },
+  ) => {
+    const query = new URLSearchParams();
+    if (opts?.search) query.set("search", opts.search);
+    if (opts?.page) query.set("page", String(opts.page));
+    if (opts?.per_page) query.set("per_page", String(opts.per_page));
+    if (opts?.pending_only) query.set("pending_only", "true");
+    if (opts?.ids_only) query.set("ids_only", "true");
+    const suffix = query.size ? `?${query.toString()}` : "";
+    return request<SellerDisputeResourceList>(`/seller/disputes/${disputeId}/resources${suffix}`, {}, true);
+  },
+  sellerDisputeReplacements: (
+    disputeId: number,
+    opts?: { search?: string; page?: number; per_page?: number; ids_only?: boolean },
+  ) => {
+    const query = new URLSearchParams();
+    if (opts?.search) query.set("search", opts.search);
+    if (opts?.page) query.set("page", String(opts.page));
+    if (opts?.per_page) query.set("per_page", String(opts.per_page));
+    if (opts?.ids_only) query.set("ids_only", "true");
+    const suffix = query.size ? `?${query.toString()}` : "";
+    return request<SellerReplacementResourceList>(`/seller/disputes/${disputeId}/replacement-resources${suffix}`, {}, true);
+  },
+  sellerResolveDisputeResources: (
+    disputeId: number,
+    resourceIds: number[],
+    action: "replace" | "refund",
+    note?: string,
+    replacementResourceIds?: number[],
+  ) =>
     request<{ actions: unknown[] }>(`/seller/disputes/${disputeId}/resources/action`, {
       method: "POST",
-      body: JSON.stringify({ resource_ids: resourceIds, action, seller_note: note ?? null, idempotency_key: newIdempotencyKey() }),
+      body: JSON.stringify({
+        resource_ids: resourceIds,
+        action,
+        seller_note: note ?? null,
+        replacement_resource_ids: replacementResourceIds ?? null,
+        idempotency_key: newIdempotencyKey(),
+      }),
     }, true),
   sellerResolveDisputeResourcesBatched: async (
     disputeId: number,
     resourceIds: number[],
     action: "replace" | "refund",
     note?: string,
+    replacementResourceIds?: number[],
   ) => {
-    const batches = chunkDisputeResourceIds(resourceIds);
+    const batches = chunkPairedDisputeResources(resourceIds, replacementResourceIds);
     const actions: unknown[] = [];
     for (const [index, batch] of batches.entries()) {
       const result = await api.sellerResolveDisputeResources(
         disputeId,
-        batch,
+        batch.resourceIds,
         action,
         index === batches.length - 1 ? note : undefined,
+        batch.replacementResourceIds,
       );
       actions.push(...result.actions);
     }

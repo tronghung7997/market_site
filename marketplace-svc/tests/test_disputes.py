@@ -6,8 +6,15 @@ from pydantic import ValidationError
 from sqlalchemy import select
 
 from src.database import SessionLocal
-from src.models.order import Dispute, DisputeStatus, Order, OrderStatus
-from src.scheduler import dispute_resolution_timeout_job
+from src.models.order import (
+    Dispute,
+    DisputeClaimResource,
+    DisputeMessage,
+    DisputeStatus,
+    Order,
+    OrderStatus,
+)
+from src.scheduler import dispute_abandonment_job, dispute_resolution_timeout_job
 from src.models.wallet import Transaction, TransactionType
 from tests.conftest import make_admin, make_seller, register_and_login
 from tests.test_orders import setup_adapter_product
@@ -475,10 +482,27 @@ async def test_refunding_every_claimed_resource_auto_closes_case_and_order(clien
     )
     assert refunded.status_code == 200, refunded.text
     assert refunded.json()["status"] == "resolved_refund"
+    listed = await client.get("/seller/orders", headers=seller_headers)
+    listed_order = next(row for row in listed.json() if row["id"] == order_id)
+    assert listed_order["status"] == "refunded"
+    assert listed_order["has_dispute"] is False
+    assert listed_order["dispute_status"] == "resolved_refund"
+    remaining = (await client.get(f"/orders/{order_id}/resources", headers=buyer_headers)).json()
+    assert {row["id"] for row in remaining} == set(resource_ids)
+    assert {row["status"] for row in remaining} == {"error"}
+    buyer_inbox = await client.get("/orders/action-items", headers=buyer_headers)
+    buyer_alerts = [item for item in buyer_inbox.json() if item.get("href", "").startswith(f"/orders?search={order_id}")]
+    assert buyer_alerts, buyer_inbox.json()
+    assert all(str(resource_id) in buyer_alerts[0]["href"] for resource_id in resource_ids)
+    assert f"#{resource_ids[0]}" in buyer_alerts[0]["label"]
+    seller_inbox = await client.get("/seller/action-items", headers=seller_headers)
+    seller_alerts = [item for item in seller_inbox.json() if item.get("href", "").startswith(f"/seller/orders?search={order_id}")]
+    assert seller_alerts, seller_inbox.json()
     async with SessionLocal() as db:
         order = await db.get(Order, order_id)
         assert order.status == OrderStatus.refunded
         assert order.refunded_amount == order.total_amount
+        assert not order.delivered_data
         release = await db.scalar(
             select(Transaction.id).where(
                 Transaction.type == TransactionType.purchase_release,
@@ -591,3 +615,311 @@ async def test_instant_claims_require_remedies_before_seller_note_starts_deadlin
     )
     assert responded.status_code == 200, responded.text
     assert responded.json()["resolution_deadline_at"] is None
+    assert responded.json()["abandon_after_at"] is not None
+
+
+@pytest.mark.no_db
+def test_abandon_clock_starts_after_escrow_or_later_buyer_claim():
+    from src.disputes.service import compute_abandon_after_at
+
+    escrow = datetime(2026, 9, 1, 12, tzinfo=timezone.utc)
+    earlier = escrow - timedelta(hours=3)
+    later = escrow + timedelta(hours=2)
+    assert compute_abandon_after_at(
+        escrow_expires_at=escrow,
+        last_buyer_claim_activity=earlier,
+        resolution_deadline_at=None,
+        has_resource_remedy=False,
+        grace_hours=24,
+    ) == escrow + timedelta(hours=24)
+    assert compute_abandon_after_at(
+        escrow_expires_at=escrow,
+        last_buyer_claim_activity=later,
+        resolution_deadline_at=None,
+        has_resource_remedy=False,
+        grace_hours=24,
+    ) == later + timedelta(hours=24)
+    assert compute_abandon_after_at(
+        escrow_expires_at=escrow,
+        last_buyer_claim_activity=later,
+        resolution_deadline_at=later,
+        has_resource_remedy=False,
+        grace_hours=24,
+    ) is None
+    assert compute_abandon_after_at(
+        escrow_expires_at=escrow,
+        last_buyer_claim_activity=later,
+        resolution_deadline_at=None,
+        has_resource_remedy=True,
+        grace_hours=24,
+    ) is None
+    assert compute_abandon_after_at(
+        escrow_expires_at=None,
+        last_buyer_claim_activity=later,
+        resolution_deadline_at=None,
+        has_resource_remedy=False,
+        grace_hours=24,
+    ) is None
+
+
+async def _backdate_open_dispute_past_abandon_grace(order_id: int, *, extra_hours: int = 1) -> int:
+    past = datetime.now(timezone.utc) - timedelta(hours=24 + extra_hours)
+    async with SessionLocal() as db:
+        order = await db.get(Order, order_id)
+        order.escrow_expires_at = past
+        dispute = await db.scalar(
+            select(Dispute).where(Dispute.order_id == order_id, Dispute.status == DisputeStatus.open)
+        )
+        dispute.created_at = past
+        claims = list(
+            (await db.execute(select(DisputeClaimResource).where(DisputeClaimResource.dispute_id == dispute.id))).scalars()
+        )
+        for claim in claims:
+            claim.created_at = past
+        messages = list(
+            (await db.execute(select(DisputeMessage).where(DisputeMessage.dispute_id == dispute.id))).scalars()
+        )
+        for message in messages:
+            message.created_at = past
+        await db.commit()
+        return dispute.id
+
+
+@pytest.mark.asyncio
+async def test_abandoned_partial_claim_releases_full_remaining_escrow_to_seller(client):
+    buyer_token, _, order_id = await create_delivered_order(client, quantity=3)
+    buyer_headers = {"Authorization": f"Bearer {buyer_token}"}
+    resources = (await client.get(f"/orders/{order_id}/resources", headers=buyer_headers)).json()
+    claimed = [row["id"] for row in resources[:2]]
+    opened = await client.post(
+        f"/orders/{order_id}/dispute",
+        json={"reason": "Two accounts failed", "resource_ids": claimed},
+        headers=buyer_headers,
+    )
+    assert opened.status_code == 201, opened.text
+    await _backdate_open_dispute_past_abandon_grace(order_id)
+    await dispute_abandonment_job()
+
+    order = await client.get(f"/orders/{order_id}", headers=buyer_headers)
+    assert order.json()["status"] == "completed"
+    assert order.json()["has_dispute"] is False
+    dispute = await client.get(f"/orders/{order_id}/dispute", headers=buyer_headers)
+    assert dispute.json()["status"] == "resolved_abandoned"
+    async with SessionLocal() as db:
+        release = await db.scalar(
+            select(Transaction.id).where(
+                Transaction.type == TransactionType.purchase_release,
+                Transaction.reference_id == f"order-{order_id}",
+            )
+        )
+        assert release is not None
+        persisted = await db.get(Order, order_id)
+        assert persisted.refunded_amount == 0
+
+
+@pytest.mark.asyncio
+async def test_seller_note_without_remedy_does_not_block_abandonment(client):
+    buyer_token, _, order_id = await create_delivered_order(client, quantity=2)
+    buyer_headers = {"Authorization": f"Bearer {buyer_token}"}
+    seller_token = await register_and_login(client, "disp_seller@example.com")
+    resources = (await client.get(f"/orders/{order_id}/resources", headers=buyer_headers)).json()
+    opened = await client.post(
+        f"/orders/{order_id}/dispute",
+        json={"reason": "One account failed", "resource_ids": [resources[0]["id"]]},
+        headers=buyer_headers,
+    )
+    await client.post(
+        f"/seller/disputes/{opened.json()['id']}/respond",
+        json={"seller_note": "Looking into it."},
+        headers={"Authorization": f"Bearer {seller_token}"},
+    )
+    await _backdate_open_dispute_past_abandon_grace(order_id)
+    await dispute_abandonment_job()
+    dispute = await client.get(f"/orders/{order_id}/dispute", headers=buyer_headers)
+    assert dispute.json()["status"] == "resolved_abandoned"
+
+
+@pytest.mark.asyncio
+async def test_buyer_message_does_not_extend_abandonment_grace(client):
+    buyer_token, _, order_id = await create_delivered_order(client, quantity=1)
+    buyer_headers = {"Authorization": f"Bearer {buyer_token}"}
+    resources = (await client.get(f"/orders/{order_id}/resources", headers=buyer_headers)).json()
+    await client.post(
+        f"/orders/{order_id}/dispute",
+        json={"reason": "Account failed", "resource_ids": [resources[0]["id"]]},
+        headers=buyer_headers,
+    )
+    await _backdate_open_dispute_past_abandon_grace(order_id)
+    message = await client.post(
+        f"/orders/{order_id}/dispute/messages",
+        json={"body": "Still waiting on a replacement.", "idempotency_key": "abandon-keep-open-001"},
+        headers=buyer_headers,
+    )
+    assert message.status_code == 200, message.text
+    await dispute_abandonment_job()
+    dispute = await client.get(f"/orders/{order_id}/dispute", headers=buyer_headers)
+    assert dispute.json()["status"] == "resolved_abandoned"
+
+
+@pytest.mark.asyncio
+async def test_seller_can_reoffer_after_buyer_counters_completed_instant_remedy(client):
+    buyer_token, _, order_id = await create_delivered_order(client, quantity=1, stock_count=2)
+    buyer_headers = {"Authorization": f"Bearer {buyer_token}"}
+    seller_token = await register_and_login(client, "disp_seller@example.com")
+    seller_headers = {"Authorization": f"Bearer {seller_token}"}
+    resources = (await client.get(f"/orders/{order_id}/resources", headers=buyer_headers)).json()
+    opened = await client.post(
+        f"/orders/{order_id}/dispute",
+        json={"reason": "Account failed", "resource_ids": [resources[0]["id"]]},
+        headers=buyer_headers,
+    )
+    dispute_id = opened.json()["id"]
+    remedied = await client.post(
+        f"/seller/disputes/{dispute_id}/resources/action",
+        json={"resource_ids": [resources[0]["id"]], "action": "replace", "idempotency_key": "reoffer-remedy-001"},
+        headers=seller_headers,
+    )
+    assert remedied.status_code == 200, remedied.text
+    before_counter = await client.get(f"/orders/{order_id}/dispute", headers=buyer_headers)
+    assert before_counter.json()["resolution_deadline_at"] is not None
+
+    counter = await client.post(
+        f"/orders/{order_id}/dispute/messages",
+        json={"body": "The replacement also fails.", "idempotency_key": "reoffer-counter-001"},
+        headers=buyer_headers,
+    )
+    assert counter.status_code == 200, counter.text
+    assert counter.json()["resolution_deadline_at"] is None
+
+    reoffered = await client.post(
+        f"/seller/disputes/{dispute_id}/respond",
+        json={"seller_note": "Please verify the replacement credentials again."},
+        headers=seller_headers,
+    )
+    assert reoffered.status_code == 200, reoffered.text
+    assert reoffered.json()["resolution_deadline_at"] is not None
+
+
+@pytest.mark.asyncio
+async def test_resource_remedy_blocks_abandonment(client):
+    buyer_token, _, order_id = await create_delivered_order(client, quantity=2, stock_count=3)
+    buyer_headers = {"Authorization": f"Bearer {buyer_token}"}
+    seller_token = await register_and_login(client, "disp_seller@example.com")
+    resources = (await client.get(f"/orders/{order_id}/resources", headers=buyer_headers)).json()
+    opened = await client.post(
+        f"/orders/{order_id}/dispute",
+        json={"reason": "Account failed", "resource_ids": [resources[0]["id"]]},
+        headers=buyer_headers,
+    )
+    remedied = await client.post(
+        f"/seller/disputes/{opened.json()['id']}/resources/action",
+        json={"resource_ids": [resources[0]["id"]], "action": "replace", "idempotency_key": "abandon-block-001"},
+        headers={"Authorization": f"Bearer {seller_token}"},
+    )
+    assert remedied.status_code == 200, remedied.text
+    await _backdate_open_dispute_past_abandon_grace(order_id)
+    await dispute_abandonment_job()
+    dispute = await client.get(f"/orders/{order_id}/dispute", headers=buyer_headers)
+    assert dispute.json()["status"] == "open"
+
+
+@pytest.mark.asyncio
+async def test_seller_can_search_pending_claimed_accounts_and_list_ids(client):
+    buyer_token, _, order_id = await create_delivered_order(client, quantity=3, stock_count=4)
+    buyer_headers = {"Authorization": f"Bearer {buyer_token}"}
+    seller_token = await register_and_login(client, "disp_seller@example.com")
+    seller_headers = {"Authorization": f"Bearer {seller_token}"}
+    resources = (await client.get(f"/orders/{order_id}/resources", headers=buyer_headers)).json()
+    opened = await client.post(
+        f"/orders/{order_id}/dispute",
+        json={"reason": "Scattered failures", "resource_ids": [resources[0]["id"], resources[1]["id"]]},
+        headers=buyer_headers,
+    )
+    dispute_id = opened.json()["id"]
+    await client.post(
+        f"/seller/disputes/{dispute_id}/resources/action",
+        json={"resource_ids": [resources[0]["id"]], "action": "refund", "idempotency_key": "search-refund-001"},
+        headers=seller_headers,
+    )
+    username = resources[1]["data"].split("|")[0]
+    found = await client.get(
+        f"/seller/disputes/{dispute_id}/resources?search={username}&pending_only=true",
+        headers=seller_headers,
+    )
+    assert found.status_code == 200, found.text
+    assert [row["id"] for row in found.json()["items"]] == [resources[1]["id"]]
+    ids = await client.get(
+        f"/seller/disputes/{dispute_id}/resources?pending_only=true&ids_only=true",
+        headers=seller_headers,
+    )
+    assert ids.json()["ids"] == [resources[1]["id"]]
+    assert ids.json()["total"] == 1
+
+
+@pytest.mark.asyncio
+async def test_seller_can_pick_specific_replacement_accounts(client):
+    buyer_token, _, order_id = await create_delivered_order(client, quantity=1, stock_count=3)
+    buyer_headers = {"Authorization": f"Bearer {buyer_token}"}
+    seller_token = await register_and_login(client, "disp_seller@example.com")
+    seller_headers = {"Authorization": f"Bearer {seller_token}"}
+    claimed = (await client.get(f"/orders/{order_id}/resources", headers=buyer_headers)).json()
+    opened = await client.post(
+        f"/orders/{order_id}/dispute",
+        json={"reason": "Account failed", "resource_ids": [claimed[0]["id"]]},
+        headers=buyer_headers,
+    )
+    stock = await client.get(
+        f"/seller/disputes/{opened.json()['id']}/replacement-resources",
+        headers=seller_headers,
+    )
+    assert stock.status_code == 200, stock.text
+    assert stock.json()["total"] == 2
+    chosen = stock.json()["items"][1]["id"]
+    replaced = await client.post(
+        f"/seller/disputes/{opened.json()['id']}/resources/action",
+        json={
+            "resource_ids": [claimed[0]["id"]],
+            "action": "replace",
+            "replacement_resource_ids": [chosen],
+            "idempotency_key": "pick-replace-001",
+        },
+        headers=seller_headers,
+    )
+    assert replaced.status_code == 200, replaced.text
+    assert replaced.json()["actions"][0]["replacement_resource_id"] == chosen
+    after = (await client.get(f"/orders/{order_id}", headers=buyer_headers)).json()
+    assigned = (await client.get(f"/orders/{order_id}/resources", headers=buyer_headers)).json()
+    live = [row for row in assigned if row["status"] == "assigned"]
+    assert [row["id"] for row in live] == [chosen]
+    assert after["delivered_data"] == live[0]["data"]
+    inbox = await client.get("/orders/action-items", headers=buyer_headers)
+    hrefs = [item["href"] for item in inbox.json() if "resources=" in item.get("href", "")]
+    assert any(str(claimed[0]["id"]) in href and str(chosen) in href for href in hrefs), inbox.json()
+
+
+@pytest.mark.asyncio
+async def test_seller_replace_requires_one_replacement_per_claimed_account(client):
+    buyer_token, _, order_id = await create_delivered_order(client, quantity=2, stock_count=4)
+    buyer_headers = {"Authorization": f"Bearer {buyer_token}"}
+    seller_token = await register_and_login(client, "disp_seller@example.com")
+    claimed = (await client.get(f"/orders/{order_id}/resources", headers=buyer_headers)).json()
+    opened = await client.post(
+        f"/orders/{order_id}/dispute",
+        json={"reason": "Both failed", "resource_ids": [claimed[0]["id"], claimed[1]["id"]]},
+        headers=buyer_headers,
+    )
+    stock = await client.get(
+        f"/seller/disputes/{opened.json()['id']}/replacement-resources",
+        headers={"Authorization": f"Bearer {seller_token}"},
+    )
+    mismatched = await client.post(
+        f"/seller/disputes/{opened.json()['id']}/resources/action",
+        json={
+            "resource_ids": [claimed[0]["id"], claimed[1]["id"]],
+            "action": "replace",
+            "replacement_resource_ids": [stock.json()["items"][0]["id"]],
+            "idempotency_key": "pick-replace-mismatch",
+        },
+        headers={"Authorization": f"Bearer {seller_token}"},
+    )
+    assert mismatched.status_code == 400

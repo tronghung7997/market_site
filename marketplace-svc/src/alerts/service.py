@@ -184,10 +184,20 @@ async def dismiss_alert(alert_id: int, db: AsyncSession) -> Alert:
 
 
 async def dismiss_seller_alert(alert_id: int, seller_id: int, db: AsyncSession) -> Alert:
+    return await dismiss_own_alert(alert_id, seller_id, db, allowed_types=("seller",))
+
+
+async def dismiss_own_alert(
+    alert_id: int,
+    account_id: int,
+    db: AsyncSession,
+    *,
+    allowed_types: tuple[str, ...] = ("buyer", "seller"),
+) -> Alert:
     alert = await db.get(Alert, alert_id)
     if not alert:
         raise HTTPException(status_code=404, detail="Không tìm thấy cảnh báo")
-    if alert.target_type != "seller" or alert.target_id != seller_id:
+    if alert.target_type not in allowed_types or alert.target_id != account_id:
         raise HTTPException(status_code=403, detail="Đây không phải cảnh báo của bạn")
     alert.is_active = False
     alert.resolved_at = datetime.now(timezone.utc)
@@ -199,6 +209,14 @@ async def dismiss_seller_alert(alert_id: int, seller_id: int, db: AsyncSession) 
 async def list_seller_alerts(seller_id: int, db: AsyncSession) -> list[Alert]:
     result = await db.execute(
         select(Alert).where(Alert.is_active, Alert.target_type == "seller", Alert.target_id == seller_id)
+        .order_by(Alert.created_at.desc())
+    )
+    return list(result.scalars().all())
+
+
+async def list_buyer_alerts(buyer_id: int, db: AsyncSession) -> list[Alert]:
+    result = await db.execute(
+        select(Alert).where(Alert.is_active, Alert.target_type == "buyer", Alert.target_id == buyer_id)
         .order_by(Alert.created_at.desc())
     )
     return list(result.scalars().all())

@@ -26,7 +26,8 @@ refund; Proxora does not implement physical reverse shipping.
 - [x] Platform fee and affiliate commission are calculated from that same remaining amount.
 - [x] A full refund pays the seller nothing and claws back an existing affiliate commission.
 - [x] Replacement without refund leaves the full remaining escrow payable to the seller.
-- [x] Buyer acceptance, admin resolution, manual confirmation, and automatic escrow expiry use the same settlement calculation.
+- [x] Buyer acceptance, admin resolution, manual confirmation, automatic escrow expiry, unanswered seller-offer timeout, and abandoned-case timeout use the same settlement calculation.
+- [x] An untouched open case cannot hold escrow after the original deadline plus a buyer-silence grace; remaining escrow then goes to the seller (`resolved_abandoned`). A seller note is not a remedy. A resource remedy or an armed buyer-response deadline uses the existing offer-timeout path instead.
 - [x] Purchase release and platform fee transactions are idempotent per order.
 
 ## Large-order UX checklist

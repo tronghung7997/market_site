@@ -3,7 +3,7 @@
 import { useLocale, useTranslations } from "next-intl";
 import { useState } from "react";
 import { useMoney } from "@/lib/money";
-import { canOpenDispute, orderStatus } from "@/lib/order-status";
+import { canOpenDispute, displayOrderStatus } from "@/lib/order-status";
 import { formatDate, formatDateTime } from "@/lib/utils";
 import type { Order } from "@/lib/types";
 import ServiceDashboard from "@/components/ServiceDashboard";
@@ -41,7 +41,7 @@ export default function OrderCard({
   const tcur = useTranslations("currency");
   const locale = useLocale();
   const { formatOrderHistoryMoney, currency, showFxHints } = useMoney();
-  const st = orderStatus(o.status, locale);
+  const st = displayOrderStatus(o, locale);
   const canDispute = o.capabilities?.can_dispute ?? canOpenDispute(o.status, o.escrow_expires_at);
   const [dashboardOpen, setDashboardOpen] = useState(false);
   const [paymentOpen, setPaymentOpen] = useState(false);

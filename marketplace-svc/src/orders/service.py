@@ -511,9 +511,15 @@ async def _enrich_orders(orders: list[Order], db: AsyncSession) -> list[dict]:
         (await db.execute(select(Review.order_id).where(Review.order_id.in_(order_ids)))).scalars()
     )
     dispute_rows = (await db.execute(
-        select(Dispute.order_id, Dispute.status).where(Dispute.order_id.in_(order_ids))
+        select(Dispute.order_id, Dispute.status, Dispute.created_at)
+        .where(Dispute.order_id.in_(order_ids))
+        .order_by(Dispute.created_at.desc())
     )).all()
-    open_disputes = {order_id for order_id, dispute_status in dispute_rows if dispute_status == DisputeStatus.open}
+    latest_dispute_status: dict[int, str] = {}
+    for order_id, dispute_status, _created_at in dispute_rows:
+        if order_id not in latest_dispute_status:
+            latest_dispute_status[order_id] = dispute_status.value
+    open_disputes = {order_id for order_id, status_value in latest_dispute_status.items() if status_value == DisputeStatus.open.value}
     task_rows = (await db.execute(
         select(ServiceTask.order_id, ServiceTask.status).where(ServiceTask.order_id.in_(order_ids))
     )).all()
@@ -572,6 +578,7 @@ async def _enrich_orders(orders: list[Order], db: AsyncSession) -> list[dict]:
             "seller_email": seller.email if seller else None,
             "has_review": order.id in reviewed,
             "has_dispute": is_open_dispute,
+            "dispute_status": latest_dispute_status.get(order.id),
             "fulfillment": {"kind": fulfillment_kind, "status": fulfillment_status},
             "settlement": {"status": "released" if order.status == OrderStatus.completed else "refunded" if is_terminal_refund else "escrow_held"},
             "protection": {"status": "dispute_open" if is_open_dispute else "active" if order.status == OrderStatus.delivered else "closed"},

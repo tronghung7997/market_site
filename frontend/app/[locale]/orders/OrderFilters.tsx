@@ -31,6 +31,14 @@ export function useOrderFilters(initialTab: string, initialSearch = "") {
     setPage(1);
   }, [tab, debouncedSearch, dateFrom, dateTo, sort, perPage]);
 
+  useEffect(() => {
+    if (initialTab !== undefined) setTab(initialTab);
+  }, [initialTab]);
+
+  useEffect(() => {
+    if (initialSearch !== undefined) setSearch(initialSearch);
+  }, [initialSearch]);
+
   const hasFilters = search !== "" || dateFrom !== "" || dateTo !== "" || sort !== "newest";
 
   const clear = () => { setSearch(""); setDateFrom(""); setDateTo(""); setSort("newest"); };

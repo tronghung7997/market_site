@@ -229,3 +229,53 @@ async def test_seller_dismiss_own_alert_but_not_others(client):
 
     resp = await client.get("/seller/action-items", headers={"Authorization": f"Bearer {seller_token}"})
     assert not any(i.get("alert_id") == alert_id for i in resp.json())
+
+
+@pytest.mark.asyncio
+async def test_buyer_can_dismiss_own_alert_but_not_sellers(client):
+    buyer_token = await register_and_login(client, "notif_dismiss_buyer@example.com")
+    buyer_me = await client.get("/me", headers={"Authorization": f"Bearer {buyer_token}"})
+    buyer_id = buyer_me.json()["id"]
+    seller_token = await register_and_login(client, "notif_dismiss_buyer_seller@example.com")
+    await make_seller("notif_dismiss_buyer_seller@example.com")
+    seller_token = await register_and_login(client, "notif_dismiss_buyer_seller@example.com")
+    seller_me = await client.get("/me", headers={"Authorization": f"Bearer {seller_token}"})
+    seller_id = seller_me.json()["id"]
+
+    async with SessionLocal() as db:
+        buyer_alert = await add_alert(
+            db,
+            type_="buyer_dispute_resource_resolved",
+            severity="info",
+            target_type="buyer",
+            target_id=buyer_id,
+            message="Đơn #1: seller hoàn 1 tài khoản (#91).",
+            href="/orders?search=1&resources=91",
+        )
+        seller_alert = await add_alert(
+            db,
+            type_="seller_dispute_resource_resolved",
+            severity="info",
+            target_type="seller",
+            target_id=seller_id,
+            message="Đơn #1: đã hoàn 1 tài khoản cho buyer (#91).",
+            href="/seller/orders?search=1&resources=91",
+        )
+        await db.commit()
+        buyer_alert_id = buyer_alert.id
+        seller_alert_id = seller_alert.id
+
+    inbox = await client.get("/orders/action-items", headers={"Authorization": f"Bearer {buyer_token}"})
+    assert any(item.get("alert_id") == buyer_alert_id for item in inbox.json())
+    forbidden = await client.post(
+        f"/me/alerts/{seller_alert_id}/dismiss",
+        headers={"Authorization": f"Bearer {buyer_token}"},
+    )
+    assert forbidden.status_code == 403
+    ok = await client.post(
+        f"/me/alerts/{buyer_alert_id}/dismiss",
+        headers={"Authorization": f"Bearer {buyer_token}"},
+    )
+    assert ok.status_code == 200
+    after = await client.get("/orders/action-items", headers={"Authorization": f"Bearer {buyer_token}"})
+    assert not any(item.get("alert_id") == buyer_alert_id for item in after.json())

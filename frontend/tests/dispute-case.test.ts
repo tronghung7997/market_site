@@ -2,8 +2,10 @@ import assert from "node:assert/strict";
 import test from "node:test";
 
 import {
+  deliveryResourceMarks,
   displayTimelineEvents,
   isDisputeReadyToAccept,
+  parseHighlightedResourceIds,
   resourceLabelMap,
   resourcePreview,
   summarizeDisputeCase,
@@ -86,4 +88,25 @@ test("resourceLabelMap skips empty payloads", () => {
     ]),
     { 1: "user" },
   );
+});
+
+test("deliveryResourceMarks prefers refund/replace over a bare claim", () => {
+  const marks = deliveryResourceMarks({
+    claimed_resource_ids: [91, 92, 123],
+    resource_actions: [
+      { original_resource_id: 91, replacement_resource_id: null, action: "refund", refund_amount: 135, created_at: "t1" },
+      { original_resource_id: 92, replacement_resource_id: 229, action: "replace", refund_amount: 0, created_at: "t2" },
+      { original_resource_id: 123, replacement_resource_id: 230, action: "replace", refund_amount: 0, created_at: "t3" },
+    ],
+  });
+  assert.deepEqual(marks[91], { kind: "refunded", amount: 135 });
+  assert.deepEqual(marks[92], { kind: "replaced", replacementId: 229 });
+  assert.deepEqual(marks[229], { kind: "replacement", originalId: 92 });
+  assert.deepEqual(marks[123], { kind: "replaced", replacementId: 230 });
+  assert.deepEqual(marks[230], { kind: "replacement", originalId: 123 });
+});
+
+test("parseHighlightedResourceIds keeps unique positive integers", () => {
+  assert.deepEqual(parseHighlightedResourceIds("91, 229,91,x"), [91, 229]);
+  assert.deepEqual(parseHighlightedResourceIds(""), []);
 });

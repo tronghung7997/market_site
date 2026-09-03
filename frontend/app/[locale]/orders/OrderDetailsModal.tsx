@@ -16,12 +16,13 @@ import {
   Layers,
   Activity,
 } from "@/components/Icons";
-import { resourceLabelMap } from "@/lib/dispute-case";
-import { canOpenDispute, orderStatus } from "@/lib/order-status";
+import { deliveryResourceMarks, resourceLabelMap } from "@/lib/dispute-case";
+import { DeliveryAccountBadge } from "@/components/orders/DeliveryAccountBadge";
+import { canOpenDispute, displayOrderStatus, hasOpenDispute } from "@/lib/order-status";
 import { formatDate, formatDateTime } from "@/lib/utils";
 import { useMoney } from "@/lib/money";
 import { api } from "@/lib/api";
-import type { Order, Resource } from "@/lib/types";
+import type { Dispute, Order, Resource } from "@/lib/types";
 import { parseCoverId, ProductCover } from "@/features/product-covers";
 import { Button, Tag } from "@/components/ui";
 import { Dialog, DialogContent } from "@/components/ui/dialog";
@@ -54,6 +55,9 @@ export default function OrderDetailsModal({
   onDelivered,
   onPlate,
   onDisputeChanged,
+  highlightResourceIds = [],
+  lockDismiss = false,
+  open = true,
 }: {
   order: Order;
   onClose: () => void;
@@ -67,13 +71,16 @@ export default function OrderDetailsModal({
   onDelivered: (orderId: number, deliveredData: string) => void;
   onPlate: (orderId: number) => void;
   onDisputeChanged: (order: Order, outcome: "withdrawn") => void;
+  highlightResourceIds?: number[];
+  lockDismiss?: boolean;
+  open?: boolean;
 }) {
   const t = useTranslations("orders");
   const tc = useTranslations("common");
   const tcur = useTranslations("currency");
   const locale = useLocale();
-  const { formatOrderHistoryMoney, currency, showFxHints } = useMoney();
-  const st = orderStatus(o.status, locale);
+  const { formatOrderHistoryMoney, formatBrowseMoney, currency, showFxHints } = useMoney();
+  const st = displayOrderStatus(o, locale);
   const money = formatOrderHistoryMoney(o.total_amount, o.display_fx_rate_snapshot, { locale });
 
   // Parsing delivered_data (multi-line accounts/proxies/gateway keys)
@@ -118,7 +125,8 @@ export default function OrderDetailsModal({
 
   const [resources, setResources] = useState<Resource[]>([]);
   const [selectedResourceIds, setSelectedResourceIds] = useState<Set<number>>(new Set());
-  const [claimedResourceIds, setClaimedResourceIds] = useState<Set<number>>(new Set());
+  const [caseRecord, setCaseRecord] = useState<Dispute | null>(null);
+  const hasCase = Boolean(o.has_dispute || o.dispute_status);
 
   useEffect(() => {
     setSelectedResourceIds(new Set());
@@ -128,20 +136,23 @@ export default function OrderDetailsModal({
     let active = true;
     Promise.all([
       api.orderResources(o.id),
-      o.has_dispute ? api.orderDispute(o.id).catch(() => null) : Promise.resolve(null),
+      hasCase ? api.orderDispute(o.id).catch(() => null) : Promise.resolve(null),
     ])
       .then(([rows, dispute]) => {
         if (!active) return;
         setResources(rows);
-        setClaimedResourceIds(new Set(dispute?.claimed_resource_ids ?? []));
+        setCaseRecord(dispute);
       })
       .catch(() => {
         if (!active) return;
         setResources([]);
-        setClaimedResourceIds(new Set());
+        setCaseRecord(null);
       });
     return () => { active = false; };
-  }, [o.has_dispute, o.id, disputeRevision]);
+  }, [hasCase, o.id, disputeRevision]);
+
+  const accountMarks = useMemo(() => deliveryResourceMarks(caseRecord), [caseRecord]);
+  const highlightIds = useMemo(() => new Set(highlightResourceIds), [highlightResourceIds]);
 
   const items: ParsedItem[] = useMemo(() => {
     if (resources.length === 0) return parsedItems;
@@ -166,7 +177,7 @@ export default function OrderDetailsModal({
   }, [items]);
 
   const [activeTab, setActiveTab] = useState<"data" | "proxy" | "service" | "escrow" | "review" | "dispute">(
-    o.has_dispute ? "dispute" : "data",
+    highlightResourceIds.length > 0 ? "data" : o.has_dispute ? "dispute" : "data",
   );
   const [itemSearch, setItemSearch] = useState("");
   const [itemPage, setItemPage] = useState(1);
@@ -179,9 +190,15 @@ export default function OrderDetailsModal({
   const fulfillmentStatus = o.fulfillment?.status ?? o.status;
   const delivered = ["delivered", "completed"].includes(fulfillmentStatus);
   const mayHaveProxy = o.capabilities?.can_view_proxy ?? (delivered && o.service_type === "proxy");
-  const canDispute = o.capabilities?.can_dispute ?? canOpenDispute(o.status, o.escrow_expires_at);
-  const canConfirm = o.capabilities?.can_confirm ?? o.status === "delivered";
+  const canDispute = o.status === "delivered" && !hasOpenDispute(o)
+    && (o.capabilities?.can_dispute ?? canOpenDispute(o.status, o.escrow_expires_at));
+  const canConfirm = o.status === "delivered" && !hasOpenDispute(o)
+    && (o.capabilities?.can_confirm ?? true);
   const canReview = o.capabilities?.can_review ?? (o.status === "completed" && !reviewDone);
+
+  useEffect(() => {
+    if (!canConfirm) setAskConfirm(false);
+  }, [canConfirm]);
   const canChat = o.capabilities?.can_chat ?? !["cancelled", "refunded"].includes(o.status);
   const showReview = canReview || !!reviewDone || !!o.has_review;
 
@@ -202,17 +219,28 @@ export default function OrderDetailsModal({
       item.resourceId
       && canDispute
       && item.resourceStatus === "assigned"
-      && !claimedResourceIds.has(item.resourceId)
+      && !accountMarks[item.resourceId]
         ? [item.resourceId]
         : [],
     ),
-    [canDispute, claimedResourceIds, filteredItems],
+    [accountMarks, canDispute, filteredItems],
+  );
+
+  const liveItems = useMemo(
+    () => items.filter((item) => !item.resourceId || item.resourceStatus === "assigned"),
+    [items],
   );
 
   const paginatedItems = useMemo(() => {
     const start = (itemPage - 1) * itemsPerPage;
     return filteredItems.slice(start, start + itemsPerPage);
   }, [filteredItems, itemPage]);
+
+  useEffect(() => {
+    if (highlightResourceIds.length === 0 || items.length === 0) return;
+    const index = items.findIndex((item) => item.resourceId != null && highlightIds.has(item.resourceId));
+    if (index >= 0) setItemPage(Math.floor(index / itemsPerPage) + 1);
+  }, [highlightIds, highlightResourceIds.length, items, itemsPerPage]);
 
   const totalItemPages = Math.max(1, Math.ceil(filteredItems.length / itemsPerPage));
 
@@ -244,9 +272,9 @@ export default function OrderDetailsModal({
   const handleCopyAll = () => {
     let out = "";
     if (copyFormat === "userpass") {
-      out = items.map((it) => (it.user && it.pass ? `${it.user}|${it.pass}` : it.raw)).join("\n");
+      out = liveItems.map((it) => (it.user && it.pass ? `${it.user}|${it.pass}` : it.raw)).join("\n");
     } else {
-      out = items.map((it) => it.raw).join("\n");
+      out = liveItems.map((it) => it.raw).join("\n");
     }
     navigator.clipboard.writeText(out);
     setCopiedKey("all");
@@ -254,7 +282,7 @@ export default function OrderDetailsModal({
   };
 
   const handleDownload = () => {
-    const out = items.map((it) => it.raw).join("\n");
+    const out = liveItems.map((it) => it.raw).join("\n");
     const blob = new Blob([out], { type: "text/plain;charset=utf-8" });
     const url = URL.createObjectURL(blob);
     const a = document.createElement("a");
@@ -265,8 +293,12 @@ export default function OrderDetailsModal({
   };
 
   return (
-    <Dialog open onOpenChange={(open) => { if (!open) onClose(); }}>
-      <DialogContent className="max-w-4xl border-line bg-surface p-6 gap-0 max-h-[92vh] overflow-y-auto rounded-2xl shadow-2xl space-y-4">
+    <Dialog open={open} onOpenChange={(next) => { if (!next && !lockDismiss) onClose(); }}>
+      <DialogContent
+        className="max-w-4xl border-line bg-surface p-6 gap-0 max-h-[92vh] overflow-y-auto rounded-2xl shadow-2xl space-y-4"
+        onPointerDownOutside={(event) => { if (lockDismiss) event.preventDefault(); }}
+        onInteractOutside={(event) => { if (lockDismiss) event.preventDefault(); }}
+      >
         {/* Header */}
         <div className="flex items-start justify-between gap-3 border-b border-line pb-4">
           <div className="flex items-center gap-3.5 min-w-0">
@@ -331,7 +363,7 @@ export default function OrderDetailsModal({
 
           <div>
             <div className="text-[10.5px] uppercase tracking-wider text-muted font-medium">{t("disputeProduct")}</div>
-            {o.has_dispute ? (
+            {hasCase ? (
               <button
                 onClick={() => setActiveTab("dispute")}
                 className="mt-1 inline-flex items-center gap-1 text-[11.5px] font-semibold text-bad hover:underline cursor-pointer"
@@ -385,7 +417,7 @@ export default function OrderDetailsModal({
             </button>
           )}
 
-          {o.has_dispute && (
+          {hasCase && (
             <button
               onClick={() => setActiveTab("dispute")}
               className={`flex items-center gap-1.5 rounded-xl px-3.5 py-1.5 text-[12.5px] font-medium transition-all ${
@@ -426,7 +458,7 @@ export default function OrderDetailsModal({
 
         {/* Tab 1: Delivered Accounts / Resource Inspector */}
         {activeTab === "data" && (
-          <div className="space-y-3 pt-1">
+          <div className="space-y-3 pt-1 pb-8">
             {items.length > 0 ? (
               <>
                 {/* Search & Action Bar */}
@@ -460,7 +492,7 @@ export default function OrderDetailsModal({
                       className="inline-flex items-center gap-1.5 rounded-xl bg-iris px-3.5 py-2 text-[12px] font-semibold text-white shadow-sm hover:bg-iris/90 transition-colors cursor-pointer"
                     >
                       {copiedKey === "all" ? <Check size={14} /> : <Copy size={14} />}
-                      {copiedKey === "all" ? t("copiedAll") : t("copyAllCount", { count: items.length })}
+                      {copiedKey === "all" ? t("copiedAll") : t("copyAllCount", { count: liveItems.length })}
                     </button>
 
                     <button
@@ -471,6 +503,9 @@ export default function OrderDetailsModal({
                     </button>
                   </div>
                 </div>
+                {liveItems.length !== items.length && (
+                  <p className="text-[11px] text-muted">{t("copyLiveHint")}</p>
+                )}
 
                 {selectedResourceIds.size > 0 && (
                   <div className="sticky top-0 z-10 flex items-center justify-between gap-3 rounded-xl border border-bad/25 bg-surface px-3.5 py-2.5 shadow-card">
@@ -492,17 +527,24 @@ export default function OrderDetailsModal({
                   {paginatedItems.map((item, idx) => {
                     const globalIdx = (itemPage - 1) * itemsPerPage + idx + 1;
                     const isCopied = copiedKey === item.id;
-                    const alreadyClaimed = !!item.resourceId && claimedResourceIds.has(item.resourceId);
+                    const mark = item.resourceId ? accountMarks[item.resourceId] : undefined;
+                    const highlighted = !!item.resourceId && highlightIds.has(item.resourceId);
+                    const inactive = mark?.kind === "refunded" || mark?.kind === "replaced" || item.resourceStatus === "error";
                     const showRowIndex = !item.isConfigOrInstruction && !isServiceDelivery && items.length > 1;
                     return (
-                      <div key={item.id} className="flex items-center justify-between p-2.5 hover:bg-raised/50 text-[12px] group">
+                      <div
+                        key={item.id}
+                        className={`flex items-center justify-between p-2.5 text-[12px] group ${
+                          highlighted ? "bg-iris-soft/40" : "hover:bg-raised/50"
+                        } ${inactive ? "opacity-70" : ""}`}
+                      >
                         <div className="flex items-center gap-2 min-w-0 pr-2">
                           {item.resourceId && (
                             <input
                               type="checkbox"
                               aria-label={t("selectAccount", { id: item.resourceId })}
                               checked={selectedResourceIds.has(item.resourceId)}
-                              disabled={!canDispute || item.resourceStatus !== "assigned" || alreadyClaimed}
+                              disabled={!canDispute || item.resourceStatus !== "assigned" || !!mark}
                               onChange={() => toggleResource(item.resourceId!)}
                               className="h-4 w-4 shrink-0 accent-iris disabled:opacity-35"
                             />
@@ -516,24 +558,24 @@ export default function OrderDetailsModal({
                               #{String(globalIdx).padStart(4, "0")}
                             </span>
                           ) : null}
-                          {alreadyClaimed && (
-                            <span className="shrink-0 rounded-md bg-warn-soft px-1.5 py-0.5 text-[10.5px] font-semibold text-warn">
-                              {t("accountAlreadyClaimed")}
-                            </span>
-                          )}
-                          {item.resourceId && itemSearch.replace(/^#/, "") === String(item.resourceId) && (
+                          <DeliveryAccountBadge
+                            mark={mark}
+                            highlighted={highlighted}
+                            formatRefund={formatBrowseMoney}
+                          />
+                          {item.resourceId && itemSearch.replace(/^#/, "") === String(item.resourceId) && !highlighted && (
                             <span className="shrink-0 rounded-md bg-iris-soft px-1.5 py-0.5 text-[10.5px] font-semibold text-iris-hi">
                               {t("accountFromTimeline")}
                             </span>
                           )}
-                          <span className="font-mono font-medium text-fg break-all select-all">
+                          <span className={`font-mono font-medium break-all select-all ${inactive ? "text-muted line-through" : "text-fg"}`}>
                             {item.raw}
                           </span>
                         </div>
 
                         <div className="flex items-center gap-1.5 shrink-0">
                           {/* Dedicated Dispute Button for This Specific Item / Variant */}
-                          {canDispute && !alreadyClaimed && (
+                          {canDispute && !mark && item.resourceStatus === "assigned" && (
                             <button
                               title={t("disputeThisItem")}
                               onClick={() => {
@@ -623,7 +665,7 @@ export default function OrderDetailsModal({
           </div>
         )}
 
-        {activeTab === "dispute" && o.has_dispute && (
+        {activeTab === "dispute" && hasCase && (
           <div className="space-y-3 pt-1">
             <p className="text-[12px] text-muted">{t("disputeTabHint")}</p>
             <OrderDispute
@@ -655,9 +697,8 @@ export default function OrderDetailsModal({
               </div>
             )}
 
-            {/* Early Confirmation Release */}
             {canConfirm && (
-              <div className="rounded-xl border border-iris/30 bg-iris-soft/25 p-4 space-y-2.5">
+              <div className="rounded-xl border border-iris/30 bg-iris-soft/25 p-4 space-y-1.5">
                 <div className="flex items-center justify-between">
                   <div className="font-semibold text-fg text-[13.5px]">
                     {t("confirmReceivedTitle")}
@@ -667,23 +708,6 @@ export default function OrderDetailsModal({
                 <p className="text-[12px] text-muted">
                   {t("confirmReceivedHint")}
                 </p>
-                {askConfirm ? (
-                  <div className="rounded-lg border border-warn/30 bg-warn-soft p-3 space-y-2 mt-2">
-                    <p className="text-[12.5px] font-semibold text-fg">{t("confirmReleaseTitle", { amount: money.text })}</p>
-                    <div className="flex gap-2">
-                      <Button size="sm" variant="primary" onClick={() => onConfirm(o.id)} disabled={confirming}>
-                        {confirming ? t("confirming") : t("confirmReleaseYes")}
-                      </Button>
-                      <Button size="sm" variant="ghost" onClick={() => setAskConfirm(false)}>
-                        {tc("cancel")}
-                      </Button>
-                    </div>
-                  </div>
-                ) : (
-                  <Button size="sm" variant="secondary" onClick={() => setAskConfirm(true)}>
-                    {t("confirmReceived")}
-                  </Button>
-                )}
               </div>
             )}
 
@@ -745,16 +769,34 @@ export default function OrderDetailsModal({
           </div>
         )}
 
-        {/* Modal Footer */}
-        <div className="flex items-center justify-between pt-3 border-t border-line">
-          {canChat && (
-            <OrderChatButton orderId={o.id} />
+        {/* Modal Footer — confirm stays here so every tab can finish the order */}
+        <div className="sticky bottom-0 -mx-6 -mb-6 mt-1 space-y-2 border-t border-line bg-surface px-6 py-3">
+          {canConfirm && askConfirm && (
+            <div className="rounded-xl border border-warn/30 bg-warn-soft px-3 py-2.5">
+              <p className="text-[12.5px] font-semibold text-fg">{t("confirmReleaseTitle", { amount: money.text })}</p>
+              <p className="text-[11.5px] text-muted mt-0.5">{t("confirmReleaseBody")}</p>
+              <div className="flex flex-wrap gap-2 mt-2">
+                <Button size="sm" onClick={() => onConfirm(o.id)} disabled={confirming}>
+                  {confirming ? t("confirming") : t("confirmReleaseYes")}
+                </Button>
+                <Button size="sm" variant="ghost" onClick={() => setAskConfirm(false)} disabled={confirming}>
+                  {t("confirmReleaseMore")}
+                </Button>
+              </div>
+            </div>
           )}
-
-          <div className="flex items-center gap-2 ml-auto">
-            <Button variant="secondary" size="md" onClick={onClose}>
-              {tc("close")}
-            </Button>
+          <div className="flex items-center justify-between gap-3">
+            {canChat ? <OrderChatButton orderId={o.id} /> : <span />}
+            <div className="flex items-center gap-2">
+              <Button variant="secondary" size="md" onClick={onClose} disabled={confirming}>
+                {tc("close")}
+              </Button>
+              {canConfirm && !askConfirm && (
+                <Button size="md" onClick={() => setAskConfirm(true)} disabled={confirming}>
+                  {t("confirmReceived")}
+                </Button>
+              )}
+            </div>
           </div>
         </div>
       </DialogContent>

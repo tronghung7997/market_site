@@ -28,3 +28,8 @@ async def seller_alerts(account: Account = Depends(get_current_account), db: Asy
 @router.post("/seller/alerts/{alert_id}/dismiss", response_model=schemas.AlertResponse)
 async def dismiss_seller_alert(alert_id: int, account: Account = Depends(get_current_account), db: AsyncSession = Depends(get_session)):
     return await service.dismiss_seller_alert(alert_id, account.id, db)
+
+
+@router.post("/me/alerts/{alert_id}/dismiss", response_model=schemas.AlertResponse)
+async def dismiss_own_alert(alert_id: int, account: Account = Depends(get_current_account), db: AsyncSession = Depends(get_session)):
+    return await service.dismiss_own_alert(alert_id, account.id, db)

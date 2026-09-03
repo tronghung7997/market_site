@@ -38,6 +38,9 @@ const STATUS_TABS: { key: string; label: string; color?: string }[] = [
   { key: "resolved_replace", label: "Đổi sản phẩm", color: "bg-indigo-400" },
   { key: "resolved_extend_warranty", label: "Gia hạn", color: "bg-sky-400" },
   { key: "resolved_reject", label: "Từ chối", color: "bg-emerald-400" },
+  { key: "resolved_timeout", label: "Buyer im", color: "bg-teal-400" },
+  { key: "withdrawn_by_buyer", label: "Buyer rút", color: "bg-slate-400" },
+  { key: "resolved_abandoned", label: "Bỏ cuộc", color: "bg-teal-300" },
 ];
 
 // Cột số căn phải (header lẫn cell)
@@ -62,6 +65,8 @@ const EVENT_LABELS: Record<string, string> = {
   dispute_partial_refunded: "Hoàn tiền một phần",
   dispute_replaced: "Đổi sản phẩm",
   dispute_warranty_extended: "Gia hạn bảo hành",
+  dispute_resolution_timeout: "Tự đóng — buyer không phản hồi",
+  dispute_abandoned: "Tự đóng — không thao tác sau hạn ký quỹ",
 };
 
 type DisputeAction = "refund" | "reject" | "partial_refund" | "replace" | "extend_warranty";

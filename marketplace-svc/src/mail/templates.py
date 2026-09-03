@@ -52,6 +52,9 @@ _OUTCOMES = {
     "partial_refund": {"vi": "Hoàn một phần", "en": "Partial refund"},
     "replace": {"vi": "Đổi hàng", "en": "Replacement issued"},
     "extend_warranty": {"vi": "Gia hạn bảo hành", "en": "Warranty extended"},
+    "timeout": {"vi": "Tự hoàn tất vì buyer không phản hồi", "en": "Completed after buyer timeout"},
+    "withdrawn": {"vi": "Buyer đã rút khiếu nại", "en": "Withdrawn by buyer"},
+    "abandoned": {"vi": "Tự hoàn tất vì không ai thao tác sau hạn ký quỹ", "en": "Completed after the case was abandoned"},
 }
 
 # Default subject/body. `{name}` is replaced from the safe context at send time.

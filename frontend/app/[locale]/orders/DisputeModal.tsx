@@ -17,7 +17,7 @@ import {
 } from "lucide-react";
 import { api } from "@/lib/api";
 import { useApiErrorMessage } from "@/lib/use-api-error";
-import { Button, Input, Textarea } from "@/components/ui";
+import { Button, Input, Spinner, Textarea } from "@/components/ui";
 import { Dialog, DialogContent, DialogTitle } from "@/components/ui/dialog";
 
 const QUICK_ISSUES = [
@@ -155,8 +155,19 @@ export default function DisputeModal({
     hasIssueDescription;
 
   return (
-    <Dialog open onOpenChange={(open) => { if (!open) onClose(); }}>
-      <DialogContent className="max-w-[480px] border-line bg-surface p-6 gap-4 max-h-[92vh] overflow-y-auto rounded-2xl shadow-card-lg">
+    <Dialog open onOpenChange={(open) => { if (!open && !submitting) onClose(); }}>
+      <DialogContent
+        overlayClassName="z-[80]"
+        className="z-[80] max-w-2xl border-line bg-surface p-6 gap-4 max-h-[92vh] overflow-y-auto rounded-2xl shadow-card-lg"
+      >
+        {submitting && (
+          <div className="absolute inset-0 z-20 grid place-items-center rounded-2xl bg-surface/80">
+            <div className="flex items-center gap-2 text-muted">
+              <Spinner />
+              <span className="text-[13px]">{t("submitting")}</span>
+            </div>
+          </div>
+        )}
         {/* Header */}
         <div className="border-b border-line pb-3">
           <DialogTitle className="text-[16px] font-bold text-fg flex items-center gap-2">
@@ -346,7 +357,7 @@ export default function DisputeModal({
         {error && <p className="text-[12px] text-bad font-medium">{error}</p>}
 
         {/* Footer Actions */}
-        <div className="flex justify-end gap-2 pt-2 border-t border-line">
+        <div className="flex flex-wrap justify-end gap-2 pt-2 border-t border-line">
           <Button variant="ghost" size="sm" onClick={onClose} disabled={submitting}>
             {tc("cancel")}
           </Button>

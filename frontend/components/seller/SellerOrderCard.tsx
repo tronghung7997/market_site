@@ -10,7 +10,7 @@ import { useEffect, useState } from "react";
 import { useLocale, useTranslations } from "next-intl";
 import { api } from "@/lib/api";
 import { useMoney } from "@/lib/money";
-import { orderStatus } from "@/lib/order-status";
+import { displayOrderStatus } from "@/lib/order-status";
 import type { Dispute, Order, SellerDisputeResource } from "@/lib/types";
 import ServiceDashboard from "@/components/ServiceDashboard";
 import { StatusTimeline, OrderResources, OrderDispute } from "@/components/orders/OrderCardPrimitives";
@@ -35,7 +35,7 @@ export default function SellerOrderCard({
   const t = useTranslations("seller");
   const locale = useLocale();
   const { formatOrderHistoryMoney } = useMoney();
-  const st = orderStatus(o.status, locale);
+  const st = displayOrderStatus(o, locale);
   const elapsedLabel = (iso: string) => {
     const hours = Math.floor((Date.now() - new Date(iso).getTime()) / 3_600_000);
     if (hours < 1) return t("orderJustNow");
@@ -169,7 +169,7 @@ function SellerDisputeActions({ dispute, onChanged }: { dispute: Dispute; onChan
   const [note, setNote] = useState("");
   const [submitting, setSubmitting] = useState(false);
 
-  const load = async () => setResources(await api.sellerDisputeResources(dispute.id));
+  const load = async () => setResources((await api.sellerDisputeResources(dispute.id, { per_page: 100 })).items);
   useEffect(() => { void load(); }, [dispute.id]);
 
   const toggle = (id: number) => setSelected((current) => {

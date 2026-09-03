@@ -17,3 +17,28 @@ export function chunkDisputeResourceIds(
   }
   return batches;
 }
+
+export function chunkPairedDisputeResources(
+  resourceIds: number[],
+  replacementResourceIds: number[] | undefined,
+  batchSize = DISPUTE_RESOURCE_BATCH_SIZE,
+): Array<{ resourceIds: number[]; replacementResourceIds?: number[] }> {
+  const claimed = [...new Set(resourceIds)];
+  if (replacementResourceIds == null) {
+    return chunkDisputeResourceIds(claimed, batchSize).map((ids) => ({ resourceIds: ids }));
+  }
+  if (replacementResourceIds.length !== claimed.length) {
+    throw new RangeError("replacementResourceIds length must match unique resourceIds");
+  }
+  if (new Set(replacementResourceIds).size !== replacementResourceIds.length) {
+    throw new RangeError("replacement resource IDs must be unique");
+  }
+  const batches: Array<{ resourceIds: number[]; replacementResourceIds: number[] }> = [];
+  for (let index = 0; index < claimed.length; index += batchSize) {
+    batches.push({
+      resourceIds: claimed.slice(index, index + batchSize),
+      replacementResourceIds: replacementResourceIds.slice(index, index + batchSize),
+    });
+  }
+  return batches;
+}

@@ -19,6 +19,7 @@ from src.models.resource import Resource, ResourceStatus
 from src.providers.service import apply_scores
 from src.sellers.tiers import platform_fee_percent
 from src.wallet.service import escrow_settlement, refund_escrow, release_escrow
+from src.disputes.service import resolve_dispute_after_response_timeout
 
 logger = structlog.get_logger()
 
@@ -86,6 +87,46 @@ async def escrow_release_job() -> None:
                     ),
                 )
                 await db.commit()
+
+
+async def dispute_resolution_timeout_job() -> None:
+    """Apply seller offers unanswered past the configured buyer-response window."""
+    async with SessionLocal() as db:
+        now = datetime.now(timezone.utc)
+        result = await db.execute(
+            select(Order)
+            .join(Dispute, Dispute.order_id == Order.id)
+            .where(
+                Dispute.status == DisputeStatus.open,
+                Dispute.resolution_deadline_at.is_not(None),
+                Dispute.resolution_deadline_at <= now,
+            )
+            .with_for_update(skip_locked=True)
+        )
+        orders = list(result.scalars().all())
+        for order in orders:
+            order_id = order.id
+            try:
+                dispute = await db.scalar(
+                    select(Dispute)
+                    .where(
+                        Dispute.order_id == order.id,
+                        Dispute.status == DisputeStatus.open,
+                    )
+                    .with_for_update()
+                )
+                if not dispute:
+                    continue
+                await resolve_dispute_after_response_timeout(dispute, order, db, now=now)
+                await db.commit()
+                logger.info("dispute_resolution_timeout", dispute_id=dispute.id, order_id=order_id)
+            except Exception as e:
+                await db.rollback()
+                logger.error(
+                    "dispute_resolution_timeout_failed",
+                    order_id=order_id,
+                    error=str(e),
+                )
 
 
 async def sla_check_job() -> None:

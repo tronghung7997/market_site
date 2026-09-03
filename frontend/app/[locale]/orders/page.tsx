@@ -151,6 +151,25 @@ export default function OrdersPage() {
     }
   }
 
+  function handleDisputeChanged(order: Order, outcome: "withdrawn") {
+    setDisputeRevision((revision) => revision + 1);
+    queryClient.invalidateQueries({ queryKey: ["orders"] });
+    queryClient.invalidateQueries({ queryKey: queryKeys.orderStats() });
+    if (outcome === "withdrawn") {
+      const completed = !order.escrow_expires_at || new Date(order.escrow_expires_at).getTime() <= Date.now();
+      setSelectedOrder((prev) => prev?.id === order.id
+        ? {
+            ...prev,
+            has_dispute: false,
+            status: completed ? "completed" : prev.status,
+            fulfillment: completed && prev.fulfillment ? { ...prev.fulfillment, status: "completed" } : prev.fulfillment,
+            protection: { status: completed ? "closed" : "active" },
+          }
+        : prev);
+      showToast(t(completed ? "withdrawDisputeCompleted" : "withdrawDisputeSuccess"));
+    }
+  }
+
   const handleCopyAll = (o: Order) => {
     if (!o.delivered_data) return;
     navigator.clipboard.writeText(o.delivered_data);
@@ -225,6 +244,7 @@ export default function OrdersPage() {
           onReviewDone={handleReviewDone}
           onDelivered={handleDelivered}
           onPlate={handlePlate}
+          onDisputeChanged={handleDisputeChanged}
         />
       )}
 

@@ -45,6 +45,18 @@ export function DisputeCaseView({
         )}
       </div>
 
+      {dispute.status === "open" && dispute.resolution_deadline_at && (
+        <p className="rounded-lg border border-iris/25 bg-iris-soft/35 px-3 py-2 text-[12px] text-fg">
+          {t("disputeResolutionDeadline", { date: formatDateTime(dispute.resolution_deadline_at, locale) })}
+        </p>
+      )}
+
+      {dispute.status === "open" && !dispute.resolution_deadline_at && dispute.escrow_expires_at && (
+        <p className="rounded-lg border border-warn/25 bg-warn-soft/35 px-3 py-2 text-[12px] text-fg">
+          {t("disputeEscrowPaused", { date: formatDateTime(dispute.escrow_expires_at, locale) })}
+        </p>
+      )}
+
       {(summary.claimed > 0 || summary.refundedAmount > 0) && (
         <div
           className="grid grid-cols-2 gap-px overflow-hidden rounded-xl border border-line bg-line sm:grid-cols-4"

@@ -10,6 +10,7 @@ import { cn } from "@/lib/cn";
 import { orderStatus } from "@/lib/order-status";
 import { formatDate, formatDateTime } from "@/lib/utils";
 import type { Dispute, Order, Resource } from "@/lib/types";
+import { useSearchParams } from "next/navigation";
 import { parseCoverId, ProductCover } from "@/features/product-covers";
 import {
   Button,
@@ -41,7 +42,6 @@ import {
   Inbox,
   Info,
   ListFilter,
-  MessageSquare,
   Package,
   Plus,
   RefreshCw,
@@ -55,12 +55,20 @@ import {
 } from "@/components/Icons";
 import { StatusTimeline } from "@/components/orders/OrderCardPrimitives";
 import { DisputeCaseView } from "@/components/orders/DisputeCaseView";
+import OrderChatButton from "@/components/chat/OrderChatButton";
 import { resourceLabelMap, summarizeDisputeCase } from "@/lib/dispute-case";
 
 const PAGE_SIZE = 20;
 
 type FilterTab = "all" | "disputed" | "action_required" | "escrow" | "completed" | "cancelled";
 type TimeFilter = "all" | "today" | "7d" | "30d";
+
+function isOrderDisputed(o: Order, disp?: Dispute | null): boolean {
+  if (o.status === "disputed") return true;
+  if (o.protection?.status === "dispute_open") return true;
+  if (disp) return disp.status === "open";
+  return Boolean(o.has_dispute && o.status === "delivered");
+}
 
 export default function SellerOrdersPage() {
   return (
@@ -99,14 +107,26 @@ function SellerOrdersConsole() {
   const locale = useLocale();
   const { formatBrowseMoney } = useMoney();
   const apiErrorMessage = useApiErrorMessage();
+  const searchParams = useSearchParams();
 
   const [orders, setOrders] = useState<Order[]>([]);
   const [disputes, setDisputes] = useState<Record<number, Dispute>>({});
   const [loading, setLoading] = useState(true);
   const [actingOrderId, setActingOrderId] = useState<number | null>(null);
 
-  // Filters & Search
-  const [activeTab, setActiveTab] = useState<FilterTab>("all");
+  // Filters & Search — initialized from URL ?tab=... if present
+  const validTabs: FilterTab[] = ["all", "disputed", "action_required", "escrow", "completed", "cancelled"];
+  const urlTab = searchParams.get("tab") as FilterTab | null;
+  const [activeTab, setActiveTab] = useState<FilterTab>(
+    urlTab && validTabs.includes(urlTab) ? urlTab : "all",
+  );
+
+  useEffect(() => {
+    if (urlTab && validTabs.includes(urlTab)) {
+      setActiveTab(urlTab);
+    }
+  }, [urlTab]);
+
   const [search, setSearch] = useState("");
   const [selectedProductTitle, setSelectedProductTitle] = useState<string>("all");
   const [timeFilter, setTimeFilter] = useState<TimeFilter>("all");
@@ -123,24 +143,28 @@ function SellerOrdersConsole() {
       const list = await api.sellerOrders();
       setOrders(list);
 
-      // Fetch disputes for all disputed orders
-      const disputedOrders = list.filter((o) => o.status === "disputed");
-      if (disputedOrders.length > 0) {
+      // Fetch disputes for all candidate disputed orders (open overlay or disputed status)
+      const candidateDisputedOrders = list.filter(
+        (o) => o.status === "disputed" || o.protection?.status === "dispute_open" || o.has_dispute,
+      );
+      if (candidateDisputedOrders.length > 0) {
         const disputeEntries = await Promise.all(
-          disputedOrders.map(async (o) => {
+          candidateDisputedOrders.map(async (o) => {
             try {
               const disp = await api.sellerDispute(o.id);
               return [o.id, disp] as const;
             } catch {
               return null;
             }
-          })
+          }),
         );
         const map: Record<number, Dispute> = {};
         for (const entry of disputeEntries) {
-          if (entry) map[entry[0]] = entry[1];
+          if (entry && entry[1]) map[entry[0]] = entry[1];
         }
         setDisputes(map);
+      } else {
+        setDisputes({});
       }
     } catch {
       // ignore
@@ -176,7 +200,10 @@ function SellerOrdersConsole() {
   };
 
   // KPI Metrics Calculation
-  const disputedOrders = useMemo(() => orders.filter((o) => o.status === "disputed"), [orders]);
+  const disputedOrders = useMemo(
+    () => orders.filter((o) => isOrderDisputed(o, disputes[o.id])),
+    [orders, disputes],
+  );
   const unrespondedDisputesCount = useMemo(() => {
     return disputedOrders.filter((o) => {
       const dispute = disputes[o.id];
@@ -192,8 +219,8 @@ function SellerOrdersConsole() {
   }, [orders]);
 
   const escrowOrders = useMemo(() => {
-    return orders.filter((o) => o.status === "delivered");
-  }, [orders]);
+    return orders.filter((o) => o.status === "delivered" && !isOrderDisputed(o, disputes[o.id]));
+  }, [orders, disputes]);
 
   const completedOrders = useMemo(() => {
     return orders.filter((o) => o.status === "completed");
@@ -219,10 +246,13 @@ function SellerOrdersConsole() {
   // Filtered orders
   const filteredOrders = useMemo(() => {
     return orders.filter((o) => {
+      const disp = disputes[o.id];
+      const isDisputed = isOrderDisputed(o, disp);
+
       // 1. Tab filter
-      if (activeTab === "disputed" && o.status !== "disputed") return false;
+      if (activeTab === "disputed" && !isDisputed) return false;
       if (activeTab === "action_required" && o.status !== "pending" && o.status !== "processing") return false;
-      if (activeTab === "escrow" && o.status !== "delivered") return false;
+      if (activeTab === "escrow" && (o.status !== "delivered" || isDisputed)) return false;
       if (activeTab === "completed" && o.status !== "completed") return false;
       if (activeTab === "cancelled" && o.status !== "cancelled" && o.status !== "refunded") return false;
 
@@ -647,14 +677,17 @@ function SellerOrdersConsole() {
               </thead>
               <tbody className="divide-y divide-line text-[12.5px]">
                 {paginatedOrders.map((o) => {
-                  const st = orderStatus(o.status, locale);
-                  const isDisputed = o.status === "disputed";
+                  const disp = disputes[o.id];
+                  const isDisputed = isOrderDisputed(o, disp);
+                  const st = isDisputed ? orderStatus("disputed", locale) : orderStatus(o.status, locale);
                   const isPending = o.status === "pending";
                   const isProcessing = o.status === "processing";
-                  const isDelivered = o.status === "delivered";
+                  const isDelivered = o.status === "delivered" && !isDisputed;
                   const isCompleted = o.status === "completed";
-                  const disp = disputes[o.id];
-                  const hasDisputeResponse = !!disp?.seller_note;
+                  const hasDisputeResponse = Boolean(
+                    disp?.seller_note ||
+                    (disp && summarizeDisputeCase(disp).pending === 0 && summarizeDisputeCase(disp).claimed > 0),
+                  );
 
                   return (
                     <tr
@@ -748,14 +781,13 @@ function SellerOrdersConsole() {
                         {o.buyer_email && (
                           <div className="flex items-center gap-2 mt-1">
                             <CopyButton text={o.buyer_email} label="Email" className="text-[10.5px]" />
-                            <Link
-                              href="/messages"
-                              className="text-[11px] text-iris hover:underline inline-flex items-center gap-0.5"
-                              title={t("chatWithBuyer")}
-                            >
-                              <MessageSquare size={11} />
-                              <span>{t("chat")}</span>
-                            </Link>
+                            <OrderChatButton
+                              orderId={o.id}
+                              appearance="link"
+                              label={t("chat")}
+                              iconSize={11}
+                              className="text-[11px] text-iris hover:underline inline-flex items-center gap-0.5 disabled:opacity-60"
+                            />
                           </div>
                         )}
                       </td>
@@ -924,7 +956,7 @@ function SellerOrdersConsole() {
 /** 1. DISPUTE RESOLUTION MODAL */
 function SellerDisputeModal({
   order,
-  dispute,
+  dispute: propDispute,
   isOpen,
   onClose,
   onSuccess,
@@ -938,6 +970,17 @@ function SellerDisputeModal({
   const t = useTranslations("seller");
   const apiErrorMessage = useApiErrorMessage();
   const { formatBrowseMoney } = useMoney();
+
+  const [fetchedDispute, setFetchedDispute] = useState<Dispute | null>(null);
+  const dispute = propDispute ?? fetchedDispute;
+
+  useEffect(() => {
+    if (!propDispute && isOpen && order?.id) {
+      api.sellerDispute(order.id)
+        .then(setFetchedDispute)
+        .catch(() => setFetchedDispute(null));
+    }
+  }, [propDispute, isOpen, order?.id]);
 
   type Tab = "claim" | "remedy";
   const [activeTab, setActiveTab] = useState<Tab>("claim");
@@ -1141,9 +1184,12 @@ function SellerDisputeModal({
                   </div>
                   {error && <div className="rounded-lg border border-bad/20 bg-bad-soft p-2.5 text-xs font-medium text-bad">{error}</div>}
                   <div className="flex items-center justify-between pt-1">
-                    <Link href="/messages" className="inline-flex items-center gap-1 text-xs font-medium text-iris hover:underline">
-                      <MessageSquare size={13} /><span>{t("chatWithBuyer")}</span>
-                    </Link>
+                    <OrderChatButton
+                      orderId={order.id}
+                      appearance="link"
+                      label={t("chatWithBuyer")}
+                      className="inline-flex items-center gap-1 text-xs font-medium text-iris hover:underline disabled:opacity-60"
+                    />
                     <div className="flex items-center gap-2">
                       <Button size="sm" variant="ghost" type="button" onClick={onClose} disabled={submitting}>{t("close")}</Button>
                       <Button size="sm" type="submit" disabled={submitting || !sellerNote.trim()}>
@@ -1491,9 +1537,9 @@ function SellerOrderDetailModal({
 
   if (!isOpen) return null;
 
-  const st = orderStatus(order.status, locale);
+  const isDisputed = isOrderDisputed(order, dispute);
+  const st = isDisputed ? orderStatus("disputed", locale) : orderStatus(order.status, locale);
   const isProcessing = order.status === "processing";
-  const isDisputed = order.status === "disputed";
 
   // Delivered data lines calculation
   const deliveredLines = order.delivered_data
@@ -1682,13 +1728,12 @@ function SellerOrderDetailModal({
 
         {/* Footer */}
         <div className="p-3.5 bg-raised/50 border-t border-line flex items-center justify-between shrink-0">
-          <Link
-            href="/messages"
-            className="text-xs text-iris hover:underline inline-flex items-center gap-1 font-medium"
-          >
-            <MessageSquare size={13} />
-            <span>{t("chatWithBuyer")}</span>
-          </Link>
+          <OrderChatButton
+            orderId={order.id}
+            appearance="link"
+            label={t("chatWithBuyer")}
+            className="text-xs text-iris hover:underline inline-flex items-center gap-1 font-medium disabled:opacity-60"
+          />
           <Button size="sm" variant="ghost" onClick={onClose}>
             {t("close")}
           </Button>

@@ -203,6 +203,8 @@ export const api = {
     request<Dispute>(`/orders/${orderId}/dispute/messages`, { method: "POST", body: JSON.stringify({ body, idempotency_key: newIdempotencyKey() }) }, true),
   acceptDisputeResolution: (orderId: number) =>
     request<Dispute>(`/orders/${orderId}/dispute/accept`, { method: "POST" }, true),
+  withdrawDispute: (orderId: number) =>
+    request<Dispute>(`/orders/${orderId}/dispute/withdraw`, { method: "POST" }, true),
   orderDispute: (orderId: number) => request<Dispute>(`/orders/${orderId}/dispute`, {}, true),
 
   orderProxyState: (orderId: number) => request<ProxyState>(`/orders/${orderId}/proxy`, {}, true),

@@ -208,6 +208,7 @@ Nguồn đầy đủ: `marketplace-svc/.env.example` và `marketplace-svc/src/co
 | `RESEND_API_KEY` | Secret Resend; bắt buộc khi gửi qua Resend. Không bao giờ trả về admin API |
 | `SMTP_HOST`, `SMTP_PORT`, `SMTP_USERNAME`, `SMTP_PASSWORD`, `SMTP_STARTTLS` | Secret/hạ tầng SMTP; bắt buộc khi `MAIL_PROVIDER=smtp` |
 | `MAIL_WORKER_ENABLED`, `MAIL_MAX_ATTEMPTS` | Worker seed + trần retry; `MAIL_MAX_ATTEMPTS` chỉ env |
+| `DISPUTE_RESOLUTION_TIMEOUT_HOURS` | Thời gian buyer phản hồi sau remedy/response của seller; mặc định 24 giờ, hết hạn case tự settle |
 
 Payment/provider variables là server-only. Không đặt credential trong `NEXT_PUBLIC_*`, tài liệu, log hoặc client response. Không đổi trực tiếp `ENCRYPTION_KEY` của môi trường có dữ liệu; dùng quy trình rotate trong `marketplace-svc/scripts/rotate_encryption_key.py` sau khi backup và dry-run.
 

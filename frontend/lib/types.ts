@@ -641,6 +641,9 @@ export interface Dispute {
   admin_note: string | null;
   seller_note: string | null;
   created_at: string;
+  resolution_offered_at?: string | null;
+  resolution_deadline_at?: string | null;
+  escrow_expires_at?: string | null;
   resolved_at: string | null;
   product_title?: string | null;
   variant_name?: string | null;

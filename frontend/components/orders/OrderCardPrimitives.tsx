@@ -5,6 +5,7 @@
 import { useLocale, useTranslations } from "next-intl";
 import { useEffect, useState } from "react";
 import { api } from "@/lib/api";
+import { useApiErrorMessage } from "@/lib/use-api-error";
 import { useMoney } from "@/lib/money";
 import { cn } from "@/lib/cn";
 import { orderStatus } from "@/lib/order-status";
@@ -112,6 +113,7 @@ export function OrderDispute({
   layout = "disclosure",
   resourceLabels: resourceLabelsProp,
   onResourceClick,
+  onDisputeChanged,
 }: {
   orderId: number;
   initialDispute?: Dispute | null;
@@ -120,15 +122,18 @@ export function OrderDispute({
   layout?: "disclosure" | "panel";
   resourceLabels?: Record<number, string>;
   onResourceClick?: (resourceId: number) => void;
+  onDisputeChanged?: (outcome: "withdrawn") => void;
 }) {
   const t = useTranslations("orders");
   const td = useTranslations("status.dispute");
+  const apiErrorMessage = useApiErrorMessage();
   const { formatBrowseMoney } = useMoney();
   const [dispute, setDispute] = useState<Dispute | null>(initialDispute ?? null);
   const [open, setOpen] = useState(layout === "panel");
   const [loaded, setLoaded] = useState(!!initialDispute);
   const [message, setMessage] = useState("");
   const [submitting, setSubmitting] = useState(false);
+  const [actionError, setActionError] = useState("");
   const [fetchedLabels, setFetchedLabels] = useState<Record<number, string>>({});
 
   useEffect(() => {
@@ -190,6 +195,19 @@ export function OrderDispute({
     finally { setSubmitting(false); }
   };
 
+  const withdrawDispute = async () => {
+    if (!window.confirm(t("withdrawDisputeConfirm"))) return;
+    setActionError("");
+    setSubmitting(true);
+    try {
+      await api.withdrawDispute(orderId);
+      await refresh();
+      onDisputeChanged?.("withdrawn");
+    }
+    catch (error) { setActionError(apiErrorMessage(error)); }
+    finally { setSubmitting(false); }
+  };
+
   const canAcceptResolution = !!dispute && isDisputeReadyToAccept(dispute);
   const toneMap = DISPUTE_STATUS_INFO;
   const info = dispute
@@ -225,7 +243,11 @@ export function OrderDispute({
               <div className="flex flex-wrap gap-2">
                 <Button size="sm" variant="secondary" disabled={submitting || !message.trim()} onClick={sendMessage}>{t("sendDisputeMessage")}</Button>
                 {canAcceptResolution && <Button size="sm" disabled={submitting} onClick={acceptResolution}>{t("acceptDisputeResolution")}</Button>}
+                {(dispute.resource_actions?.length ?? 0) === 0 && (
+                  <Button size="sm" variant="ghost" disabled={submitting} onClick={withdrawDispute}>{t("withdrawDispute")}</Button>
+                )}
               </div>
+              {actionError && <p className="text-[12px] text-bad" role="alert">{actionError}</p>}
             </div>
           )}
         </>

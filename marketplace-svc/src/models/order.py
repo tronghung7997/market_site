@@ -25,6 +25,8 @@ class DisputeStatus(str, PyEnum):
     resolved_partial_refund = "resolved_partial_refund"
     resolved_replace = "resolved_replace"
     resolved_extend_warranty = "resolved_extend_warranty"
+    resolved_timeout = "resolved_timeout"
+    withdrawn_by_buyer = "withdrawn_by_buyer"
 
 
 class Order(Base):
@@ -95,6 +97,10 @@ class Dispute(Base):
     admin_note: Mapped[str | None] = mapped_column(Text, nullable=True)
     seller_note: Mapped[str | None] = mapped_column(Text, nullable=True)
     created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), server_default=func.now())
+    # Set only after a seller has made a concrete response/remedy offer. Buyer
+    # activity clears both fields, preventing a stale offer from auto-settling.
+    resolution_offered_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True), nullable=True)
+    resolution_deadline_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True), nullable=True)
     resolved_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True), nullable=True)
 
 

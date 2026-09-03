@@ -1,11 +1,13 @@
 import asyncio
+from datetime import datetime, timedelta, timezone
 
 import pytest
 from pydantic import ValidationError
 from sqlalchemy import select
 
 from src.database import SessionLocal
-from src.models.order import Order, OrderStatus
+from src.models.order import Dispute, DisputeStatus, Order, OrderStatus
+from src.scheduler import dispute_resolution_timeout_job
 from src.models.wallet import Transaction, TransactionType
 from tests.conftest import make_admin, make_seller, register_and_login
 from tests.test_orders import setup_adapter_product
@@ -110,6 +112,108 @@ async def test_buyer_can_dispute(client):
     assert order.json()["status"] == "delivered"
     assert order.json()["protection"] == {"status": "dispute_open"}
     assert order.json()["capabilities"]["can_confirm"] is False
+
+
+@pytest.mark.asyncio
+async def test_buyer_can_withdraw_unremedied_dispute_without_changing_escrow_deadline(client):
+    buyer_token, _, order_id = await create_delivered_order(client)
+    headers = {"Authorization": f"Bearer {buyer_token}"}
+    opened = await client.post(
+        f"/orders/{order_id}/dispute", json={"reason": "Opened in error"}, headers=headers,
+    )
+    assert opened.status_code == 201, opened.text
+
+    before = await client.get(f"/orders/{order_id}", headers=headers)
+    buyer_token = await register_and_login(client, "disp_buyer@example.com")
+    headers = {"Authorization": f"Bearer {buyer_token}"}
+    withdrawn = await client.post(f"/orders/{order_id}/dispute/withdraw", headers=headers)
+    assert withdrawn.status_code == 200, withdrawn.text
+    assert withdrawn.json()["status"] == "withdrawn_by_buyer"
+    assert withdrawn.json()["resolution_deadline_at"] is None
+
+    after = await client.get(f"/orders/{order_id}", headers=headers)
+    assert after.json()["status"] == "delivered"
+    assert after.json()["has_dispute"] is False
+    assert after.json()["escrow_expires_at"] == before.json()["escrow_expires_at"]
+
+
+@pytest.mark.asyncio
+async def test_withdrawing_after_escrow_expiry_completes_order_immediately(client):
+    buyer_token, _, order_id = await create_delivered_order(client)
+    headers = {"Authorization": f"Bearer {buyer_token}"}
+    opened = await client.post(
+        f"/orders/{order_id}/dispute", json={"reason": "Opened in error"}, headers=headers,
+    )
+    assert opened.status_code == 201, opened.text
+    async with SessionLocal() as db:
+        order = await db.get(Order, order_id)
+        order.escrow_expires_at = datetime.now(timezone.utc) - timedelta(seconds=1)
+        await db.commit()
+
+    buyer_token = await register_and_login(client, "disp_buyer@example.com")
+    headers = {"Authorization": f"Bearer {buyer_token}"}
+    withdrawn = await client.post(f"/orders/{order_id}/dispute/withdraw", headers=headers)
+    assert withdrawn.status_code == 200, withdrawn.text
+    order = await client.get(f"/orders/{order_id}", headers=headers)
+    assert order.json()["status"] == "completed"
+    assert order.json()["has_dispute"] is False
+
+    async with SessionLocal() as db:
+        release = await db.scalar(
+            select(Transaction.id).where(
+                Transaction.type == TransactionType.purchase_release,
+                Transaction.reference_id == f"order-{order_id}",
+            )
+        )
+        assert release is not None
+
+
+@pytest.mark.asyncio
+async def test_withdrawing_legacy_order_without_escrow_deadline_completes_order(client):
+    buyer_token, _, order_id = await create_delivered_order(client)
+    headers = {"Authorization": f"Bearer {buyer_token}"}
+    opened = await client.post(
+        f"/orders/{order_id}/dispute", json={"reason": "Opened in error"}, headers=headers,
+    )
+    assert opened.status_code == 201, opened.text
+    async with SessionLocal() as db:
+        order = await db.get(Order, order_id)
+        order.escrow_expires_at = None
+        await db.commit()
+
+    buyer_token = await register_and_login(client, "disp_buyer@example.com")
+    withdrawn = await client.post(
+        f"/orders/{order_id}/dispute/withdraw", headers={"Authorization": f"Bearer {buyer_token}"},
+    )
+    assert withdrawn.status_code == 200, withdrawn.text
+    order = await client.get(f"/orders/{order_id}", headers={"Authorization": f"Bearer {buyer_token}"})
+    assert order.json()["status"] == "completed"
+    assert order.json()["has_dispute"] is False
+
+
+@pytest.mark.asyncio
+async def test_buyer_cannot_withdraw_after_seller_has_issued_resource_remedy(client):
+    buyer_token, _, order_id = await create_delivered_order(client, stock_count=2)
+    buyer_headers = {"Authorization": f"Bearer {buyer_token}"}
+    seller_token = await register_and_login(client, "disp_seller@example.com")
+    resources = (await client.get(f"/orders/{order_id}/resources", headers=buyer_headers)).json()
+    opened = await client.post(
+        f"/orders/{order_id}/dispute",
+        json={"reason": "Account failed", "resource_ids": [resources[0]["id"]]},
+        headers=buyer_headers,
+    )
+    resolved = await client.post(
+        f"/seller/disputes/{opened.json()['id']}/resources/action",
+        json={"resource_ids": [resources[0]["id"]], "action": "replace", "idempotency_key": "withdraw-block-001"},
+        headers={"Authorization": f"Bearer {seller_token}"},
+    )
+    assert resolved.status_code == 200, resolved.text
+
+    buyer_token = await register_and_login(client, "disp_buyer@example.com")
+    buyer_headers = {"Authorization": f"Bearer {buyer_token}"}
+    withdrawn = await client.post(f"/orders/{order_id}/dispute/withdraw", headers=buyer_headers)
+    assert withdrawn.status_code == 409
+    assert withdrawn.json()["error_code"] == "DISPUTE_WITHDRAWAL_NOT_ALLOWED"
 
 
 @pytest.mark.asyncio
@@ -351,7 +455,7 @@ async def test_seller_cannot_remedy_unclaimed_account(client):
 
 
 @pytest.mark.asyncio
-async def test_refunding_every_claimed_resource_marks_order_fully_refunded(client):
+async def test_refunding_every_claimed_resource_auto_closes_case_and_order(client):
     buyer_token, _, order_id = await create_delivered_order(client, quantity=3)
     seller_token = await register_and_login(client, "disp_seller@example.com")
     buyer_headers = {"Authorization": f"Bearer {buyer_token}"}
@@ -364,15 +468,13 @@ async def test_refunding_every_claimed_resource_marks_order_fully_refunded(clien
         json={"reason": "All failed", "resource_ids": resource_ids, "idempotency_key": "all-failed-open"},
         headers=buyer_headers,
     )
-    await client.post(
+    refunded = await client.post(
         f"/seller/disputes/{opened.json()['id']}/resources/action",
         json={"resource_ids": resource_ids, "action": "refund", "idempotency_key": "all-failed-refund"},
         headers=seller_headers,
     )
-    accepted = await client.post(f"/orders/{order_id}/dispute/accept", headers=buyer_headers)
-
-    assert accepted.status_code == 200, accepted.text
-    assert accepted.json()["status"] == "resolved_refund"
+    assert refunded.status_code == 200, refunded.text
+    assert refunded.json()["status"] == "resolved_refund"
     async with SessionLocal() as db:
         order = await db.get(Order, order_id)
         assert order.status == OrderStatus.refunded
@@ -384,3 +486,108 @@ async def test_refunding_every_claimed_resource_marks_order_fully_refunded(clien
             )
         )
         assert release is None
+
+
+@pytest.mark.asyncio
+async def test_unanswered_seller_response_auto_settles_after_resolution_deadline(client):
+    buyer_token, seller_token, _, product_id = await setup_adapter_product(client)
+    buyer_headers = {"Authorization": f"Bearer {buyer_token}"}
+    seller_headers = {"Authorization": f"Bearer {seller_token}"}
+    created = await client.post(
+        "/orders",
+        json={
+            "product_id": product_id,
+            "user_config": {"type": "residential", "network": "shared", "days": 30, "quantity": 1},
+            "quantity": 1,
+        },
+        headers=buyer_headers,
+    )
+    assert created.status_code == 201, created.text
+    order_id = created.json()["id"]
+    opened = await client.post(
+        f"/orders/{order_id}/dispute",
+        json={"reason": "Proxy is unavailable"},
+        headers=buyer_headers,
+    )
+    assert opened.status_code == 201, opened.text
+    dispute_id = opened.json()["id"]
+    responded = await client.post(
+        f"/seller/disputes/{dispute_id}/respond",
+        json={"seller_note": "Replacement access has been issued."},
+        headers=seller_headers,
+    )
+    assert responded.status_code == 200, responded.text
+    assert responded.json()["resolution_deadline_at"] is not None
+
+    async with SessionLocal() as db:
+        dispute = await db.get(Dispute, dispute_id)
+        dispute.resolution_deadline_at = datetime.now(timezone.utc) - timedelta(seconds=1)
+        await db.commit()
+
+    await dispute_resolution_timeout_job()
+
+    async with SessionLocal() as db:
+        dispute = await db.get(Dispute, dispute_id)
+        order = await db.get(Order, order_id)
+        assert dispute.status == DisputeStatus.resolved_timeout
+        assert dispute.resolution_deadline_at is None
+        assert order.status == OrderStatus.completed
+        release = await db.scalar(
+            select(Transaction.id).where(
+                Transaction.type == TransactionType.purchase_release,
+                Transaction.reference_id == f"order-{order_id}",
+            )
+        )
+        assert release is not None
+
+
+@pytest.mark.asyncio
+async def test_buyer_message_clears_pending_resolution_deadline(client):
+    buyer_token, seller_token, _, product_id = await setup_adapter_product(client)
+    buyer_headers = {"Authorization": f"Bearer {buyer_token}"}
+    created = await client.post(
+        "/orders",
+        json={
+            "product_id": product_id,
+            "user_config": {"type": "residential", "network": "shared", "days": 30, "quantity": 1},
+            "quantity": 1,
+        },
+        headers=buyer_headers,
+    )
+    order_id = created.json()["id"]
+    opened = await client.post(
+        f"/orders/{order_id}/dispute", json={"reason": "Proxy is unavailable"}, headers=buyer_headers,
+    )
+    dispute_id = opened.json()["id"]
+    await client.post(
+        f"/seller/disputes/{dispute_id}/respond",
+        json={"seller_note": "Replacement access has been issued."},
+        headers={"Authorization": f"Bearer {seller_token}"},
+    )
+    message = await client.post(
+        f"/orders/{order_id}/dispute/messages",
+        json={"body": "The replacement still does not work.", "idempotency_key": "buyer-counter-001"},
+        headers=buyer_headers,
+    )
+    assert message.status_code == 200, message.text
+    assert message.json()["resolution_deadline_at"] is None
+
+
+@pytest.mark.asyncio
+async def test_instant_claims_require_remedies_before_seller_note_starts_deadline(client):
+    buyer_token, _, order_id = await create_delivered_order(client, quantity=1)
+    buyer_headers = {"Authorization": f"Bearer {buyer_token}"}
+    seller_token = await register_and_login(client, "disp_seller@example.com")
+    resources = (await client.get(f"/orders/{order_id}/resources", headers=buyer_headers)).json()
+    opened = await client.post(
+        f"/orders/{order_id}/dispute",
+        json={"reason": "Account is unavailable", "resource_ids": [resources[0]["id"]]},
+        headers=buyer_headers,
+    )
+    responded = await client.post(
+        f"/seller/disputes/{opened.json()['id']}/respond",
+        json={"seller_note": "I will investigate."},
+        headers={"Authorization": f"Bearer {seller_token}"},
+    )
+    assert responded.status_code == 200, responded.text
+    assert responded.json()["resolution_deadline_at"] is None

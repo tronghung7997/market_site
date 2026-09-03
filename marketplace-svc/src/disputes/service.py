@@ -5,6 +5,7 @@ from sqlalchemy import func, select
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from src.audit.service import log_event, query_logs
+from src.config import settings
 from src.logging import current_request_id
 from src.models.account import Account
 from src.models.order import (
@@ -30,7 +31,49 @@ _DISPUTE_OUTCOME = {
     DisputeStatus.resolved_partial_refund: "partial_refund",
     DisputeStatus.resolved_replace: "replace",
     DisputeStatus.resolved_extend_warranty: "extend_warranty",
+    DisputeStatus.resolved_timeout: "timeout",
+    DisputeStatus.withdrawn_by_buyer: "withdrawn",
 }
+
+
+def _clear_resolution_deadline(dispute: Dispute) -> None:
+    dispute.resolution_offered_at = None
+    dispute.resolution_deadline_at = None
+
+
+def _offer_resolution_deadline(dispute: Dispute, *, now: datetime | None = None) -> None:
+    """Start the buyer response window once; a new buyer response clears it."""
+    if dispute.resolution_deadline_at:
+        return
+    offered_at = now or datetime.now(timezone.utc)
+    dispute.resolution_offered_at = offered_at
+    dispute.resolution_deadline_at = offered_at + timedelta(
+        hours=settings.dispute_resolution_timeout_hours
+    )
+
+
+async def _all_claimed_resources_remedied(dispute_id: int, db: AsyncSession) -> bool:
+    claimed = set(
+        (
+            await db.execute(
+                select(DisputeClaimResource.resource_id).where(
+                    DisputeClaimResource.dispute_id == dispute_id
+                )
+            )
+        ).scalars()
+    )
+    if not claimed:
+        return False
+    remedied = set(
+        (
+            await db.execute(
+                select(DisputeResourceAction.original_resource_id).where(
+                    DisputeResourceAction.dispute_id == dispute_id
+                )
+            )
+        ).scalars()
+    )
+    return claimed <= remedied
 
 
 def _truncate_reason(reason: str, limit: int = 200) -> str:
@@ -78,6 +121,55 @@ async def _enqueue_dispute_resolved(db: AsyncSession, dispute: Dispute, order: O
         idempotency_key=f"dispute_resolved:{dispute.id}:{order.seller_id}",
         payload={**payload, "action_url": frontend_url("vi", "/seller/orders")},
     )
+
+
+async def _finalize_dispute(
+    dispute: Dispute,
+    order: Order,
+    db: AsyncSession,
+    *,
+    status_value: DisputeStatus,
+    actor_id: int,
+    actor_role: str,
+    event_type: str,
+    body: str,
+) -> None:
+    """Apply one terminal dispute outcome and settle only the remaining escrow.
+
+    Callers hold locks for both the commercial order and its open case. Keeping
+    this operation shared prevents the buyer path, full-refund path, and
+    timeout worker from drifting into different financial outcomes.
+    """
+    fully_refunded = order.refunded_amount == order.total_amount
+    dispute.status = DisputeStatus.resolved_refund if fully_refunded else status_value
+    dispute.resolved_at = datetime.now(timezone.utc)
+    _clear_resolution_deadline(dispute)
+    order.status = OrderStatus.refunded if fully_refunded else OrderStatus.completed
+
+    seller = await db.get(Account, order.seller_id)
+    fee_percent = platform_fee_percent(seller.seller_tier if seller else "new")
+    remaining_amount, platform_fee = escrow_settlement(
+        order.total_amount, order.refunded_amount, fee_percent
+    )
+    if remaining_amount:
+        await release_escrow(order.id, order.seller_id, remaining_amount, platform_fee, db)
+
+    db.add(
+        DisputeMessage(
+            dispute_id=dispute.id,
+            actor_id=actor_id,
+            actor_role=actor_role,
+            event_type=event_type,
+            body=body,
+        )
+    )
+    if fully_refunded:
+        from src.affiliate.service import clawback_commission_for_order
+        await clawback_commission_for_order(order, db)
+    else:
+        from src.affiliate.service import apply_affiliate_commission
+        await apply_affiliate_commission(order, db)
+    await _enqueue_dispute_resolved(db, dispute, order)
 
 
 async def create_dispute(
@@ -262,7 +354,11 @@ def _timeline_events(
                 "id": f"case-resolved-{dispute.id}",
                 "event_type": "case_resolved",
                 "created_at": dispute.resolved_at,
-                "actor_role": "admin" if dispute.admin_note else "buyer",
+                "actor_role": (
+                    "system"
+                    if dispute.status == DisputeStatus.resolved_timeout
+                    else "admin" if dispute.admin_note else "buyer"
+                ),
                 "body": dispute.admin_note,
                 "resource_ids": [],
             }
@@ -307,7 +403,11 @@ async def _enrich_dispute(dispute: Dispute, db: AsyncSession) -> dict:
         "reason": dispute.reason, "evidence_type": dispute.evidence_type, "evidence": dispute.evidence,
         "status": dispute.status,
         "admin_note": dispute.admin_note, "seller_note": dispute.seller_note,
-        "created_at": dispute.created_at, "resolved_at": dispute.resolved_at,
+        "created_at": dispute.created_at,
+        "resolution_offered_at": dispute.resolution_offered_at,
+        "resolution_deadline_at": dispute.resolution_deadline_at,
+        "escrow_expires_at": order.escrow_expires_at if order else None,
+        "resolved_at": dispute.resolved_at,
         "product_title": product.title if product else None,
         "variant_name": variant.name if variant else None,
         "buyer_email": buyer.email if buyer else None,
@@ -380,6 +480,8 @@ async def get_dispute_detail(dispute_id: int, db: AsyncSession) -> dict:
         "status": dispute.status,
         "admin_note": dispute.admin_note, "seller_note": dispute.seller_note,
         "created_at": dispute.created_at,
+        "resolution_offered_at": dispute.resolution_offered_at,
+        "resolution_deadline_at": dispute.resolution_deadline_at,
         "resolved_at": dispute.resolved_at,
         "order": order_info,
         "resources": resources,
@@ -397,6 +499,17 @@ async def seller_respond_dispute(dispute_id: int, seller_id: int, seller_note: s
     if not order or order.seller_id != seller_id:
         raise api_error(ErrorCode.NOT_OWNER, status.HTTP_403_FORBIDDEN)
     dispute.seller_note = seller_note
+    # Resource-backed instant disputes need an actual remedy for every claim;
+    # a note alone must never unlock automatic settlement. Proxy/task disputes
+    # have no account-resource remedy, so their concrete seller response opens
+    # the same buyer-response window.
+    has_claims = await db.scalar(
+        select(DisputeClaimResource.id)
+        .where(DisputeClaimResource.dispute_id == dispute.id)
+        .limit(1)
+    )
+    if not has_claims:
+        _offer_resolution_deadline(dispute)
     db.add(
         DisputeMessage(
             dispute_id=dispute.id,
@@ -445,6 +558,7 @@ async def append_claim_batch(
     if prior:
         return await _enrich_dispute(dispute, db)
     await _add_claim_resources(dispute, order, resource_ids, reason, idempotency_key, db)
+    _clear_resolution_deadline(dispute)
     await log_event(
         db,
         "warning",
@@ -469,14 +583,14 @@ async def append_buyer_message(
     idempotency_key: str,
     db: AsyncSession,
 ) -> dict:
-    order = await db.get(Order, order_id)
+    order = await db.get(Order, order_id, with_for_update=True)
     if not order or order.buyer_id != buyer_id:
         raise api_error(ErrorCode.ORDER_NOT_FOUND, status.HTTP_404_NOT_FOUND)
     dispute = await db.scalar(
         select(Dispute).where(
             Dispute.order_id == order_id,
             Dispute.status == DisputeStatus.open,
-        )
+        ).with_for_update()
     )
     if not dispute:
         raise api_error(ErrorCode.DISPUTE_NOT_FOUND, status.HTTP_404_NOT_FOUND)
@@ -487,6 +601,7 @@ async def append_buyer_message(
         )
     )
     if not prior:
+        _clear_resolution_deadline(dispute)
         db.add(
             DisputeMessage(
                 dispute_id=dispute.id,
@@ -544,7 +659,6 @@ async def seller_resolve_resources(
                 .where(
                     Resource.id.in_(resource_ids),
                     Resource.order_id == order.id,
-                    Resource.seller_id == seller_id,
                 )
                 .with_for_update()
             )
@@ -658,6 +772,7 @@ async def seller_resolve_resources(
             )
         )
     await db.flush()
+    fully_refunded = order.refunded_amount == order.total_amount
     await log_event(
         db,
         "info",
@@ -683,6 +798,19 @@ async def seller_resolve_resources(
         message=f"Seller handled {len(rows)} account(s) on order #{order.id}.",
         href=f"/orders?search={order.id}",
     )
+    if fully_refunded:
+        await _finalize_dispute(
+            dispute,
+            order,
+            db,
+            status_value=DisputeStatus.resolved_refund,
+            actor_id=seller_id,
+            actor_role="seller",
+            event_type="seller_full_refund",
+            body="Seller refunded the full order amount.",
+        )
+    elif await _all_claimed_resources_remedied(dispute.id, db):
+        _offer_resolution_deadline(dispute)
     await db.commit()
     return _resource_action_result(dispute, rows, retried=False)
 
@@ -976,48 +1104,129 @@ async def accept_dispute_resolution(order_id: int, buyer_id: int, db: AsyncSessi
             )
         ).scalars()
     )
-    fully_refunded = order.refunded_amount == order.total_amount
-    if fully_refunded:
-        dispute.status = DisputeStatus.resolved_refund
-    elif any(action.action == "refund" for action in actions):
-        dispute.status = DisputeStatus.resolved_partial_refund
+    if any(action.action == "refund" for action in actions):
+        outcome = DisputeStatus.resolved_partial_refund
     elif actions:
-        dispute.status = DisputeStatus.resolved_replace
+        outcome = DisputeStatus.resolved_replace
     else:
-        dispute.status = DisputeStatus.resolved_reject
-    dispute.resolved_at = datetime.now(timezone.utc)
-    order.status = OrderStatus.refunded if fully_refunded else OrderStatus.completed
-    seller = await db.get(Account, order.seller_id)
-    fee_percent = platform_fee_percent(seller.seller_tier if seller else "new")
-    remaining_amount, platform_fee = escrow_settlement(
-        order.total_amount, order.refunded_amount, fee_percent
+        outcome = DisputeStatus.resolved_reject
+    await _finalize_dispute(
+        dispute,
+        order,
+        db,
+        status_value=outcome,
+        actor_id=buyer_id,
+        actor_role="buyer",
+        event_type="buyer_accepted",
+        body="Buyer accepted the applied resolution.",
     )
-    if remaining_amount:
-        await release_escrow(
-            order.id,
-            order.seller_id,
-            remaining_amount,
-            platform_fee,
-            db,
-        )
-    db.add(
-        DisputeMessage(
-            dispute_id=dispute.id,
-            actor_id=buyer_id,
-            actor_role="buyer",
-            event_type="buyer_accepted",
-            body="Buyer accepted the applied resolution.",
-        )
-    )
-    if fully_refunded:
-        from src.affiliate.service import clawback_commission_for_order
-        await clawback_commission_for_order(order, db)
-    else:
-        from src.affiliate.service import apply_affiliate_commission
-        await apply_affiliate_commission(order, db)
     await db.commit()
     await db.refresh(dispute)
     return await _enrich_dispute(dispute, db)
+
+
+async def withdraw_dispute(order_id: int, buyer_id: int, db: AsyncSession) -> dict:
+    """Let the buyer withdraw an untouched case and resume the original escrow clock."""
+    order = await db.get(Order, order_id, with_for_update=True)
+    if not order:
+        raise api_error(ErrorCode.ORDER_NOT_FOUND, status.HTTP_404_NOT_FOUND)
+    if order.buyer_id != buyer_id:
+        raise api_error(ErrorCode.NOT_ORDER_OWNER, status.HTTP_403_FORBIDDEN)
+    dispute = await db.scalar(
+        select(Dispute).where(
+            Dispute.order_id == order_id,
+            Dispute.status == DisputeStatus.open,
+        ).with_for_update()
+    )
+    if not dispute:
+        raise api_error(ErrorCode.DISPUTE_NOT_FOUND, status.HTTP_404_NOT_FOUND)
+    has_remedy = await db.scalar(
+        select(DisputeResourceAction.id)
+        .where(DisputeResourceAction.dispute_id == dispute.id)
+        .limit(1)
+    )
+    if has_remedy:
+        raise api_error(ErrorCode.DISPUTE_WITHDRAWAL_NOT_ALLOWED, status.HTTP_409_CONFLICT)
+
+    dispute.status = DisputeStatus.withdrawn_by_buyer
+    dispute.resolved_at = datetime.now(timezone.utc)
+    _clear_resolution_deadline(dispute)
+    db.add(DisputeMessage(
+        dispute_id=dispute.id,
+        actor_id=buyer_id,
+        actor_role="buyer",
+        event_type="buyer_withdrew",
+        body="Buyer withdrew this dispute.",
+    ))
+
+    # The original escrow expiry is never extended or restarted by a dispute.
+    # If it elapsed while the case was open, settle now under the same locks;
+    # otherwise the ordinary escrow job will complete it at that original time.
+    # A legacy delivered order with no expiry has no scheduler completion path,
+    # so buyer withdrawal is its explicit confirmation to settle immediately.
+    now = datetime.now(timezone.utc)
+    should_settle = not order.escrow_expires_at or order.escrow_expires_at <= now
+    if order.status == OrderStatus.delivered and should_settle:
+        seller = await db.get(Account, order.seller_id)
+        fee_percent = platform_fee_percent(seller.seller_tier if seller else "new")
+        remaining_amount, platform_fee = escrow_settlement(
+            order.total_amount, order.refunded_amount, fee_percent
+        )
+        if remaining_amount:
+            await release_escrow(order.id, order.seller_id, remaining_amount, platform_fee, db)
+        order.status = OrderStatus.completed
+        from src.affiliate.service import apply_affiliate_commission
+        await apply_affiliate_commission(order, db)
+    await log_event(
+        db, "info", f"Buyer withdrew dispute {dispute.id}", request_id=current_request_id(),
+        metadata={"event": "dispute_withdrawn", "order_id": order.id, "dispute_id": dispute.id, "buyer_id": buyer_id},
+    )
+    await _enqueue_dispute_resolved(db, dispute, order)
+    await db.commit()
+    await db.refresh(dispute)
+    return await _enrich_dispute(dispute, db)
+
+
+async def resolve_dispute_after_response_timeout(
+    dispute: Dispute,
+    order: Order,
+    db: AsyncSession,
+    *,
+    now: datetime | None = None,
+) -> None:
+    """Settle an unanswered seller offer after its buyer-response deadline."""
+    current_time = now or datetime.now(timezone.utc)
+    if (
+        dispute.status != DisputeStatus.open
+        or not dispute.resolution_deadline_at
+        or dispute.resolution_deadline_at > current_time
+    ):
+        raise ValueError("Dispute is not eligible for response-timeout settlement")
+    deadline_at = dispute.resolution_deadline_at
+    await _finalize_dispute(
+        dispute,
+        order,
+        db,
+        status_value=DisputeStatus.resolved_timeout,
+        actor_id=1,
+        # The persisted timeline currently permits buyer/seller/admin only;
+        # actor_id 1 is the platform account. The response projection renders
+        # resolved_timeout as a system event.
+        actor_role="admin",
+        event_type="resolution_timeout",
+        body="Buyer response deadline elapsed; the resolution was applied automatically.",
+    )
+    await log_event(
+        db,
+        "info",
+        f"Dispute {dispute.id} auto-resolved after buyer response deadline",
+        metadata={
+            "event": "dispute_resolution_timeout",
+            "order_id": order.id,
+            "dispute_id": dispute.id,
+            "deadline_at": deadline_at.isoformat(),
+        },
+    )
 
 
 async def refund_dispute(dispute_id: int, admin_note: str, db: AsyncSession) -> Dispute:

@@ -55,6 +55,9 @@ class Settings(BaseSettings):
     auth_forgot_account_limit: int = 5
     auth_reset_ip_limit: int = 20
     password_reset_ttl_minutes: int = 30
+    # Buyer response window after a seller has offered a dispute resolution.
+    # Applies across delivery strategies until per-product policies are added.
+    dispute_resolution_timeout_hours: int = 24
     # Outbound transactional mail (SMTP or HTTPS). Inbound ports are not required.
     mail_provider: Literal["log", "smtp", "resend"] = "log"
     mail_from: str = ""
@@ -236,6 +239,7 @@ class Settings(BaseSettings):
             "auth_forgot_account_limit",
             "auth_reset_ip_limit",
             "password_reset_ttl_minutes",
+            "dispute_resolution_timeout_hours",
             "jwt_expire_minutes",
             "jwt_refresh_expire_days",
             "max_request_body_bytes",

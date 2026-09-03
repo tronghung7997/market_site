@@ -72,6 +72,11 @@ async def buyer_accept(order_id: int, account: Account = Depends(get_current_acc
     return await service.accept_dispute_resolution(order_id, account.id, db)
 
 
+@router.post("/orders/{order_id}/dispute/withdraw", response_model=schemas.DisputeResponse)
+async def buyer_withdraw(order_id: int, account: Account = Depends(get_current_account), db: AsyncSession = Depends(get_session)):
+    return await service.withdraw_dispute(order_id, account.id, db)
+
+
 @router.get("/seller/disputes")
 async def seller_disputes(page: int = Query(1, ge=1), per_page: int = Query(100, ge=1, le=100), account: Account = Depends(require_role("seller")), db: AsyncSession = Depends(get_session)):
     return await service.list_seller_disputes(account.id, db, page=page, per_page=per_page)

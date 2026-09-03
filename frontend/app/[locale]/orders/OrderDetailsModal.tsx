@@ -53,6 +53,7 @@ export default function OrderDetailsModal({
   onReviewDone,
   onDelivered,
   onPlate,
+  onDisputeChanged,
 }: {
   order: Order;
   onClose: () => void;
@@ -65,6 +66,7 @@ export default function OrderDetailsModal({
   onReviewDone: (orderId: number, ok: boolean, message: string) => void;
   onDelivered: (orderId: number, deliveredData: string) => void;
   onPlate: (orderId: number) => void;
+  onDisputeChanged: (order: Order, outcome: "withdrawn") => void;
 }) {
   const t = useTranslations("orders");
   const tc = useTranslations("common");
@@ -633,6 +635,10 @@ export default function OrderDetailsModal({
                 setItemSearch(`#${resourceId}`);
                 setItemPage(1);
                 setActiveTab("data");
+              }}
+              onDisputeChanged={(outcome) => {
+                setActiveTab("escrow");
+                onDisputeChanged(o, outcome);
               }}
             />
           </div>

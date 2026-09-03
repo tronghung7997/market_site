@@ -1,11 +1,11 @@
 /** Evidence type field keys — labels live in messages/orders.evidence*. */
 
 export const EVIDENCE_TYPE_KEYS: Record<string, string[]> = {
-  account: ["username", "issue"],
-  proxy: ["ip", "error"],
-  server: ["server_ip", "error"],
-  payment: ["transaction_id", "error"],
-  other: [],
+  account: ["username", "issue", "desired_remedy", "proof_url"],
+  proxy: ["ip", "error", "desired_remedy", "proof_url"],
+  server: ["server_ip", "error", "desired_remedy", "proof_url"],
+  payment: ["transaction_id", "error", "desired_remedy", "proof_url"],
+  other: ["issue", "desired_remedy", "proof_url"],
 };
 
 /** Legacy shape kept for seller/admin call sites that still read labels here. */
@@ -21,6 +21,8 @@ export const EVIDENCE_TYPES: Record<string, { label: string; fields: EvidenceFie
     fields: [
       { key: "username", label: "Username / handle", placeholder: "@username or email" },
       { key: "issue", label: "Issue encountered", placeholder: "e.g. locked, wrong password" },
+      { key: "desired_remedy", label: "Desired resolution", placeholder: "Replace or refund" },
+      { key: "proof_url", label: "Proof link", placeholder: "https://..." },
     ],
   },
   proxy: {

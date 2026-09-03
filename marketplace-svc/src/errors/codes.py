@@ -43,6 +43,7 @@ class ErrorCode(str, Enum):
     ORDER_NOT_PROCESSING = "ORDER_NOT_PROCESSING"
     DISPUTE_NOT_FOUND = "DISPUTE_NOT_FOUND"
     DISPUTE_ALREADY_RESOLVED = "DISPUTE_ALREADY_RESOLVED"
+    DISPUTE_WITHDRAWAL_NOT_ALLOWED = "DISPUTE_WITHDRAWAL_NOT_ALLOWED"
     ORDER_NOT_USABLE = "ORDER_NOT_USABLE"
     ORDER_NOT_PROVISIONED = "ORDER_NOT_PROVISIONED"
     PROXY_NOT_ACTIVE = "PROXY_NOT_ACTIVE"
@@ -108,6 +109,7 @@ MESSAGES_EN: dict[ErrorCode, str] = {
     ErrorCode.DISPUTE_ONLY_DELIVERED: "You can only open a dispute on a delivered order",
     ErrorCode.DISPUTE_ESCROW_EXPIRED: "The escrow window for this order has expired",
     ErrorCode.DISPUTE_ALREADY_OPEN: "This order already has an open dispute",
+    ErrorCode.DISPUTE_WITHDRAWAL_NOT_ALLOWED: "This dispute can no longer be withdrawn after a seller remedy was applied",
     ErrorCode.CHAT_CONVERSATION_NOT_FOUND: "Conversation not found",
     ErrorCode.CHAT_PRODUCT_UNAVAILABLE: "This product is unavailable for inquiries",
     ErrorCode.CHAT_SELF_INQUIRY: "You cannot start an inquiry for your own product",

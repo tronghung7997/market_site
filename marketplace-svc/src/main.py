@@ -36,6 +36,7 @@ from src.mail.worker import mail_outbox_send_job
 from src.scheduler import (
     deposit_expire_job,
     deposit_reconcile_job,
+    dispute_resolution_timeout_job,
     dproxy_reconciliation_job,
     escrow_release_job,
     gateway_call_log_cleanup_job,
@@ -67,6 +68,7 @@ init_sentry()
 
 scheduler = AsyncIOScheduler()
 scheduler.add_job(escrow_release_job, "interval", minutes=30, id="escrow_release")
+scheduler.add_job(dispute_resolution_timeout_job, "interval", minutes=15, id="dispute_resolution_timeout")
 scheduler.add_job(sla_check_job, "interval", minutes=10, id="sla_check")
 # Provider-health polling is deliberately paused: its current probes can
 # report an untested/billable provider as healthy, while persisting 96 rows per

@@ -3,7 +3,6 @@
 import React, { useEffect, useState, useMemo } from "react";
 import { useLocale, useTranslations } from "next-intl";
 import {
-  X,
   Copy,
   Check,
   Download,
@@ -12,14 +11,12 @@ import {
   ChevronRight,
   ShieldCheck,
   AlertTriangle,
-  MessageSquare,
   Star,
-  ExternalLink,
   Shield,
   Layers,
-  Terminal,
   Activity,
-} from "lucide-react";
+} from "@/components/Icons";
+import { resourceLabelMap } from "@/lib/dispute-case";
 import { canOpenDispute, orderStatus } from "@/lib/order-status";
 import { formatDate, formatDateTime } from "@/lib/utils";
 import { useMoney } from "@/lib/money";
@@ -166,7 +163,9 @@ export default function OrderDetailsModal({
     return configCount > 0 && configCount >= items.length / 2;
   }, [items]);
 
-  const [activeTab, setActiveTab] = useState<"data" | "proxy" | "service" | "escrow" | "review">("data");
+  const [activeTab, setActiveTab] = useState<"data" | "proxy" | "service" | "escrow" | "review" | "dispute">(
+    o.has_dispute ? "dispute" : "data",
+  );
   const [itemSearch, setItemSearch] = useState("");
   const [itemPage, setItemPage] = useState(1);
   const [copyFormat, setCopyFormat] = useState<"raw" | "userpass">("raw");
@@ -175,16 +174,26 @@ export default function OrderDetailsModal({
   const [reviewOpen, setReviewOpen] = useState(false);
 
   const itemsPerPage = 20;
-  const delivered = o.status === "delivered" || o.status === "completed";
-  const mayHaveProxy = delivered && o.product_id != null;
-  const isDelivered = o.status === "delivered";
-  const canDispute = o.status === "disputed" || canOpenDispute(o.status, o.escrow_expires_at);
+  const fulfillmentStatus = o.fulfillment?.status ?? o.status;
+  const delivered = ["delivered", "completed"].includes(fulfillmentStatus);
+  const mayHaveProxy = o.capabilities?.can_view_proxy ?? (delivered && o.service_type === "proxy");
+  const canDispute = o.capabilities?.can_dispute ?? canOpenDispute(o.status, o.escrow_expires_at);
+  const canConfirm = o.capabilities?.can_confirm ?? o.status === "delivered";
+  const canReview = o.capabilities?.can_review ?? (o.status === "completed" && !reviewDone);
+  const canChat = o.capabilities?.can_chat ?? !["cancelled", "refunded"].includes(o.status);
+  const showReview = canReview || !!reviewDone || !!o.has_review;
 
   const filteredItems = useMemo(() => {
     if (!itemSearch.trim()) return items;
-    const q = itemSearch.toLowerCase();
-    return items.filter((it) => it.raw.toLowerCase().includes(q));
+    const q = itemSearch.toLowerCase().replace(/^#/, "");
+    return items.filter((it) => {
+      if (it.raw.toLowerCase().includes(itemSearch.toLowerCase())) return true;
+      if (it.resourceId != null && String(it.resourceId).includes(q)) return true;
+      return false;
+    });
   }, [items, itemSearch]);
+
+  const deliveryLabels = useMemo(() => resourceLabelMap(resources), [resources]);
 
   const selectableFilteredResourceIds = useMemo(
     () => filteredItems.flatMap((item) =>
@@ -320,7 +329,15 @@ export default function OrderDetailsModal({
 
           <div>
             <div className="text-[10.5px] uppercase tracking-wider text-muted font-medium">{t("disputeProduct")}</div>
-            {canDispute && !o.has_dispute && (
+            {o.has_dispute ? (
+              <button
+                onClick={() => setActiveTab("dispute")}
+                className="mt-1 inline-flex items-center gap-1 text-[11.5px] font-semibold text-bad hover:underline cursor-pointer"
+              >
+                <AlertTriangle size={12} />
+                {t("disputeViewCase")}
+              </button>
+            ) : canDispute ? (
               <button
                 onClick={() => {
                   onOpenDispute(o.id, {
@@ -334,7 +351,7 @@ export default function OrderDetailsModal({
                 <AlertTriangle size={12} />
                 {o.variant_name ? t("disputeThisPackage") : t("disputeThisOrder")}
               </button>
-            )}
+            ) : null}
           </div>
         </div>
 
@@ -366,6 +383,20 @@ export default function OrderDetailsModal({
             </button>
           )}
 
+          {o.has_dispute && (
+            <button
+              onClick={() => setActiveTab("dispute")}
+              className={`flex items-center gap-1.5 rounded-xl px-3.5 py-1.5 text-[12.5px] font-medium transition-all ${
+                activeTab === "dispute"
+                  ? "bg-iris text-white shadow-sm font-semibold"
+                  : "text-muted hover:text-fg hover:bg-raised"
+              }`}
+            >
+              <AlertTriangle size={14} />
+              <span>{t("tabDispute")}</span>
+            </button>
+          )}
+
           <button
             onClick={() => setActiveTab("escrow")}
             className={`flex items-center gap-1.5 rounded-xl px-3.5 py-1.5 text-[12.5px] font-medium transition-all ${
@@ -375,10 +406,10 @@ export default function OrderDetailsModal({
             }`}
           >
             <Shield size={14} />
-            <span>{t("tabEscrow")} {o.has_dispute ? "⚠️" : ""}</span>
+            <span>{t("tabEscrow")}</span>
           </button>
 
-          <button
+          {showReview && <button
             onClick={() => setActiveTab("review")}
             className={`flex items-center gap-1.5 rounded-xl px-3.5 py-1.5 text-[12.5px] font-medium transition-all ${
               activeTab === "review"
@@ -388,7 +419,7 @@ export default function OrderDetailsModal({
           >
             <Star size={14} />
             <span>{t("tabReview")}</span>
-          </button>
+          </button>}
         </div>
 
         {/* Tab 1: Delivered Accounts / Resource Inspector */}
@@ -488,6 +519,11 @@ export default function OrderDetailsModal({
                               {t("accountAlreadyClaimed")}
                             </span>
                           )}
+                          {item.resourceId && itemSearch.replace(/^#/, "") === String(item.resourceId) && (
+                            <span className="shrink-0 rounded-md bg-iris-soft px-1.5 py-0.5 text-[10.5px] font-semibold text-iris-hi">
+                              {t("accountFromTimeline")}
+                            </span>
+                          )}
                           <span className="font-mono font-medium text-fg break-all select-all">
                             {item.raw}
                           </span>
@@ -585,19 +621,36 @@ export default function OrderDetailsModal({
           </div>
         )}
 
-        {/* Tab 3: Escrow, Confirmation & Dispute */}
+        {activeTab === "dispute" && o.has_dispute && (
+          <div className="space-y-3 pt-1">
+            <p className="text-[12px] text-muted">{t("disputeTabHint")}</p>
+            <OrderDispute
+              orderId={o.id}
+              refreshKey={disputeRevision}
+              layout="panel"
+              resourceLabels={deliveryLabels}
+              onResourceClick={(resourceId) => {
+                setItemSearch(`#${resourceId}`);
+                setItemPage(1);
+                setActiveTab("data");
+              }}
+            />
+          </div>
+        )}
+
+        {/* Tab 3: Escrow & confirmation */}
         {activeTab === "escrow" && (
           <div className="space-y-4 pt-1">
             {/* Timeline */}
-            {!["disputed", "refunded", "cancelled"].includes(o.status) && (
+            {!["refunded", "cancelled"].includes(o.status) && (
               <div className="rounded-xl bg-raised/60 border border-line/70 p-4">
                 <div className="text-[12px] font-semibold text-fg mb-2">{t("orderProgress")}</div>
-                <StatusTimeline status={o.status} />
+                <StatusTimeline status={fulfillmentStatus} />
               </div>
             )}
 
             {/* Early Confirmation Release */}
-            {o.status === "delivered" && (
+            {canConfirm && (
               <div className="rounded-xl border border-iris/30 bg-iris-soft/25 p-4 space-y-2.5">
                 <div className="flex items-center justify-between">
                   <div className="font-semibold text-fg text-[13.5px]">
@@ -625,13 +678,6 @@ export default function OrderDetailsModal({
                     {t("confirmReceived")}
                   </Button>
                 )}
-              </div>
-            )}
-
-            {/* Dispute information */}
-            {o.has_dispute && (
-              <div className="rounded-xl border border-bad/30 bg-bad-soft/20 p-4">
-                <OrderDispute orderId={o.id} refreshKey={disputeRevision} />
               </div>
             )}
 
@@ -665,23 +711,23 @@ export default function OrderDetailsModal({
         )}
 
         {/* Tab 4: Review & Chat */}
-        {activeTab === "review" && (
+        {activeTab === "review" && showReview && (
           <div className="space-y-4 pt-1">
             <div className="rounded-xl border border-line bg-surface p-4 space-y-3">
               <div className="flex items-center justify-between">
                 <span className="font-semibold text-fg text-[13.5px]">{t("reviewSeller")}</span>
                 <Star size={16} className="text-amber-500 fill-amber-500" />
               </div>
-              <ReviewForm
+              {canReview ? <ReviewForm
                 orderId={o.id}
                 onDone={(ok, msg) => {
                   onReviewDone(o.id, ok, msg);
                 }}
                 onCancel={() => setReviewOpen(false)}
-              />
+              /> : <p className="text-[12px] text-muted">{t("reviewed")}</p>}
             </div>
 
-            {!["cancelled", "refunded"].includes(o.status) && (
+            {canChat && (
               <div className="rounded-xl border border-line bg-surface p-4 flex items-center justify-between">
                 <div>
                   <div className="text-[13px] font-semibold text-fg">{t("chatSellerTitle")}</div>
@@ -695,7 +741,7 @@ export default function OrderDetailsModal({
 
         {/* Modal Footer */}
         <div className="flex items-center justify-between pt-3 border-t border-line">
-          {!["cancelled", "refunded"].includes(o.status) && (
+          {canChat && (
             <OrderChatButton orderId={o.id} />
           )}
 

@@ -54,6 +54,8 @@ import {
   X,
 } from "@/components/Icons";
 import { StatusTimeline } from "@/components/orders/OrderCardPrimitives";
+import { DisputeCaseView } from "@/components/orders/DisputeCaseView";
+import { resourceLabelMap, summarizeDisputeCase } from "@/lib/dispute-case";
 
 const PAGE_SIZE = 20;
 
@@ -170,14 +172,19 @@ function SellerOrdersConsole() {
   };
 
   const handleDisputeResponseSuccess = async () => {
-    setActiveDisputeOrder(null);
     await loadData();
   };
 
   // KPI Metrics Calculation
   const disputedOrders = useMemo(() => orders.filter((o) => o.status === "disputed"), [orders]);
   const unrespondedDisputesCount = useMemo(() => {
-    return disputedOrders.filter((o) => !disputes[o.id]?.seller_note).length;
+    return disputedOrders.filter((o) => {
+      const dispute = disputes[o.id];
+      if (!dispute) return true;
+      const summary = summarizeDisputeCase(dispute);
+      if (summary.claimed > 0) return summary.pending > 0;
+      return !dispute.seller_note;
+    }).length;
   }, [disputedOrders, disputes]);
 
   const actionRequiredOrders = useMemo(() => {
@@ -930,7 +937,6 @@ function SellerDisputeModal({
 }) {
   const t = useTranslations("seller");
   const apiErrorMessage = useApiErrorMessage();
-  const locale = useLocale();
   const { formatBrowseMoney } = useMoney();
 
   type Tab = "claim" | "remedy";
@@ -953,7 +959,8 @@ function SellerDisputeModal({
   const [resourcePage, setResourcePage] = useState(1);
 
   const hasClaimed = (dispute?.claimed_resource_ids?.length ?? 0) > 0;
-  const hasResponded = !!dispute?.seller_note;
+  const caseSummary = dispute ? summarizeDisputeCase(dispute) : null;
+  const td = useTranslations("status.dispute");
 
   const loadResources = async () => {
     if (!dispute) return;
@@ -977,9 +984,9 @@ function SellerDisputeModal({
   };
 
   useEffect(() => {
-    if (isOpen && activeTab === "remedy" && dispute?.id) void loadResources();
+    if (isOpen && dispute?.id) void loadResources();
   // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [isOpen, activeTab, dispute?.id]);
+  }, [isOpen, dispute?.id]);
 
   if (!isOpen) return null;
 
@@ -990,6 +997,7 @@ function SellerDisputeModal({
     setSubmitting(true); setError(null);
     try {
       await api.sellerRespondDispute(dispute.id, sellerNote.trim());
+      setSellerNote("");
       onSuccess();
     } catch (err: unknown) {
       setError(apiErrorMessage(err, t("disputeResponseFailed")));
@@ -1018,16 +1026,6 @@ function SellerDisputeModal({
     } catch (err: unknown) {
       setRemedyError(apiErrorMessage(err, action === "refund" ? t("refundFailed") : t("replaceFailed")));
     } finally { setRemedySubmitting(false); }
-  };
-
-  const evidenceType = ({
-    account: t("evidenceTypeAccount"), proxy: t("evidenceTypeProxy"),
-    server: t("evidenceTypeServer"), payment: t("evidenceTypePayment"), other: t("evidenceTypeOther"),
-  } as Record<string, string>)[dispute?.evidence_type ?? "other"] ?? dispute?.evidence_type ?? "";
-  const evidenceLabels: Record<string, string> = {
-    username: t("evidenceFieldUsername"), issue: t("evidenceFieldIssue"),
-    ip: t("evidenceFieldIp"), error: t("evidenceFieldError"),
-    server_ip: t("evidenceFieldServerIp"), transaction_id: t("evidenceFieldTransactionId"),
   };
 
   const unresolved = resources.filter((r) => !r.action);
@@ -1093,7 +1091,7 @@ function SellerDisputeModal({
               )}
             >
               <AlertTriangle size={13} className="mr-1.5 inline-block" aria-hidden="true" />
-              {t("disputeBuyerClaim")}
+              {t("disputeTimelineTab")}
             </button>
             <button
               onClick={() => setActiveTab("remedy")}
@@ -1115,87 +1113,45 @@ function SellerDisputeModal({
 
         <div className="flex-1 overflow-y-auto">
 
-          {/* ── TAB: Claim + Respond ── */}
           {activeTab === "claim" && (
             <div className="p-5 space-y-4 text-xs">
-              <div className="p-3.5 rounded-xl bg-bad-soft/25 border border-bad/30 space-y-2.5">
-                <div className="flex items-center justify-between text-bad font-bold">
-                  <span><AlertTriangle size={13} className="mr-1.5 inline-block" aria-hidden="true" />{t("disputeBuyerClaim")}</span>
-                  {dispute?.created_at && (
-                    <span className="text-[11px] font-normal text-muted font-mono">{formatDateTime(dispute.created_at, locale)}</span>
-                  )}
-                </div>
-                <div className="p-3 rounded-lg bg-surface/80 border border-line text-fg leading-relaxed whitespace-pre-wrap font-sans">
-                  {dispute?.reason || t("disputeFallbackClaim")}
-                </div>
-                {dispute?.evidence && Object.keys(dispute.evidence).length > 0 && (
-                  <div className="space-y-1.5 pt-1">
-                    <span className="text-[11px] font-semibold text-muted">{t("evidenceAttached", { type: evidenceType })}</span>
-                    <div className="grid grid-cols-1 gap-1 font-mono text-[11.5px] p-2 bg-surface/60 rounded-lg border border-line">
-                      {Object.entries(dispute.evidence).map(([k, v]) => (
-                        <div key={k} className="flex items-baseline gap-1.5">
-                          <span className="text-faint">{evidenceLabels[k] ?? k}:</span>
-                          <span className="text-fg break-all">{v}</span>
-                        </div>
-                      ))}
-                    </div>
-                  </div>
-                )}
-              </div>
-
-              {order.delivered_data && (
-                <div className="space-y-1.5">
-                  <span className="font-semibold text-muted">{t("deliveredInitial")}</span>
-                  <div className="p-2.5 rounded-xl bg-raised border border-line font-mono text-[11.5px] text-muted break-all select-all max-h-24 overflow-y-auto">
-                    {order.delivered_data}
-                  </div>
-                </div>
+              {dispute ? (
+                <DisputeCaseView
+                  dispute={dispute}
+                  statusLabel={
+                    caseSummary && caseSummary.pending > 0
+                      ? t("claimedAccountsTitle", { count: caseSummary.pending })
+                      : td.has(dispute.status) ? td(dispute.status as "open") : dispute.status
+                  }
+                  statusTone={caseSummary && caseSummary.pending > 0 ? "warn" : dispute.status === "open" ? "iris" : "neutral"}
+                  resourceLabels={resourceLabelMap(resources)}
+                  formatRefund={formatBrowseMoney}
+                />
+              ) : (
+                <p className="text-muted">{t("disputeFallbackClaim")}</p>
               )}
 
-              {hasResponded ? (
-                <div className="p-3.5 rounded-xl bg-iris-soft/20 border border-iris/30 space-y-2">
-                  <div className="flex items-center justify-between text-iris-hi font-bold">
-                    <span>✓ {t("submittedResponse")}</span>
-                    <Tag tone="warn" className="text-[10px]">{t("disputeWaitingAdmin")}</Tag>
-                  </div>
-                  <div className="p-3 rounded-lg bg-surface/80 border border-line text-fg leading-relaxed whitespace-pre-wrap">
-                    {dispute?.seller_note}
-                  </div>
-                  {hasClaimed && (
-                    <p className="text-[11px] text-warn font-medium flex items-center gap-1">
-                      <AlertTriangle size={11} /> {t("claimedAccountsHint")}
-                    </p>
-                  )}
-                </div>
-              ) : (
-                <form onSubmit={handleRespond} className="space-y-3 pt-1">
+              {dispute?.status === "open" && (
+                <form onSubmit={handleRespond} className="space-y-3 border-t border-line pt-4">
                   <div className="space-y-1.5">
-                    <label className="font-bold text-fg block">{t("disputeSellerResponse")}:</label>
-                    <Textarea rows={4} value={sellerNote} onChange={(e) => setSellerNote(e.target.value)}
-                      placeholder={t("disputeSellerPlaceholder")} className="text-xs bg-surface leading-relaxed" autoFocus />
+                    <label className="block font-semibold text-fg">{t("disputeSellerResponse")}</label>
+                    <p className="text-[11.5px] text-muted">{t("replyAgainHint")}</p>
+                    <Textarea rows={3} value={sellerNote} onChange={(e) => setSellerNote(e.target.value)}
+                      placeholder={t("disputeSellerPlaceholder")} className="bg-surface text-xs leading-relaxed" />
                   </div>
-                  {error && <div className="p-2.5 rounded-lg bg-bad-soft border border-bad/20 text-bad text-xs font-medium">{error}</div>}
-                  <div className="flex items-center justify-between pt-2 border-t border-line">
-                    <Link href="/messages" className="text-xs text-iris hover:underline inline-flex items-center gap-1 font-medium">
+                  {error && <div className="rounded-lg border border-bad/20 bg-bad-soft p-2.5 text-xs font-medium text-bad">{error}</div>}
+                  <div className="flex items-center justify-between pt-1">
+                    <Link href="/messages" className="inline-flex items-center gap-1 text-xs font-medium text-iris hover:underline">
                       <MessageSquare size={13} /><span>{t("chatWithBuyer")}</span>
                     </Link>
                     <div className="flex items-center gap-2">
-                      <Button size="sm" variant="ghost" type="button" onClick={onClose} disabled={submitting}>{t("cancel")}</Button>
+                      <Button size="sm" variant="ghost" type="button" onClick={onClose} disabled={submitting}>{t("close")}</Button>
                       <Button size="sm" type="submit" disabled={submitting || !sellerNote.trim()}>
                         {submitting ? t("sending") : t("sendDisputeResponse")}
                       </Button>
                     </div>
                   </div>
                 </form>
-              )}
-
-              {hasResponded && (
-                <div className="pt-2 border-t border-line flex items-center justify-between">
-                  <Link href="/messages" className="text-xs text-iris hover:underline inline-flex items-center gap-1 font-medium">
-                    <MessageSquare size={13} /><span>{t("chatWithBuyer")}</span>
-                  </Link>
-                  <Button size="sm" variant="ghost" onClick={onClose}>{t("close")}</Button>
-                </div>
               )}
             </div>
           )}

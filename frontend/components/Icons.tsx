@@ -173,6 +173,14 @@ export const Percent = (p: IconProps) => (
 export const ListFilter = (p: IconProps) => (
   <svg {...s(p)}><path d="M3 6h18" /><path d="M7 12h10" /><path d="M10 18h4" /></svg>
 );
+export const Layers = (p: IconProps) => (
+  <svg {...s(p)}>
+    <path d="M12.83 2.18a2 2 0 0 0-1.66 0L2.6 6.08a1 1 0 0 0 0 1.83l8.58 3.91a2 2 0 0 0 1.66 0l8.58-3.9a1 1 0 0 0 0-1.83Z" />
+    <path d="M2 12a1 1 0 0 0 .58.91l8.6 3.91a2 2 0 0 0 1.65 0l8.58-3.9A1 1 0 0 0 22 12" />
+    <path d="M2 17a1 1 0 0 0 .58.91l8.6 3.91a2 2 0 0 0 1.65 0l8.58-3.9A1 1 0 0 0 22 17" />
+  </svg>
+);
+
 export const Download = (p: IconProps) => (
   <svg {...s(p)}><path d="M21 15v4a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2v-4" /><polyline points="7 10 12 15 17 10" /><line x1="12" y1="15" x2="12" y2="3" /></svg>
 );

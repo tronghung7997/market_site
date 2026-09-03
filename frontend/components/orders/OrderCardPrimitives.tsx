@@ -8,12 +8,13 @@ import { api } from "@/lib/api";
 import { useMoney } from "@/lib/money";
 import { cn } from "@/lib/cn";
 import { orderStatus } from "@/lib/order-status";
-import { formatDate, formatDateTime } from "@/lib/utils";
+import { formatDate } from "@/lib/utils";
 import type { Dispute, Order, Resource } from "@/lib/types";
-import { evidenceFieldLabel, evidenceTypeLabel } from "@/lib/dispute-evidence";
+import { isDisputeReadyToAccept, resourceLabelMap } from "@/lib/dispute-case";
 import { Button, Card, Disclosure, Monogram, Tag, Textarea } from "@/components/ui";
 import { parseCoverId, ProductCover } from "@/features/product-covers";
 import { Check } from "@/components/Icons";
+import { DisputeCaseView } from "./DisputeCaseView";
 
 const TIMELINE_KEYS = ["pending", "processing", "delivered", "completed"] as const;
 
@@ -103,16 +104,32 @@ export const DISPUTE_STATUS_INFO: Record<string, { label: string; tone: "good" |
   resolved_extend_warranty: { label: "Warranty extended", tone: "iris" },
 };
 
-export function OrderDispute({ orderId, initialDispute, viewerRole = "buyer", refreshKey = 0 }: { orderId: number; initialDispute?: Dispute | null; viewerRole?: "buyer" | "seller"; refreshKey?: number }) {
+export function OrderDispute({
+  orderId,
+  initialDispute,
+  viewerRole = "buyer",
+  refreshKey = 0,
+  layout = "disclosure",
+  resourceLabels: resourceLabelsProp,
+  onResourceClick,
+}: {
+  orderId: number;
+  initialDispute?: Dispute | null;
+  viewerRole?: "buyer" | "seller";
+  refreshKey?: number;
+  layout?: "disclosure" | "panel";
+  resourceLabels?: Record<number, string>;
+  onResourceClick?: (resourceId: number) => void;
+}) {
   const t = useTranslations("orders");
   const td = useTranslations("status.dispute");
-  const locale = useLocale();
   const { formatBrowseMoney } = useMoney();
   const [dispute, setDispute] = useState<Dispute | null>(initialDispute ?? null);
-  const [open, setOpen] = useState(false);
+  const [open, setOpen] = useState(layout === "panel");
   const [loaded, setLoaded] = useState(!!initialDispute);
   const [message, setMessage] = useState("");
   const [submitting, setSubmitting] = useState(false);
+  const [fetchedLabels, setFetchedLabels] = useState<Record<number, string>>({});
 
   useEffect(() => {
     if (initialDispute !== undefined) {
@@ -122,10 +139,20 @@ export function OrderDispute({ orderId, initialDispute, viewerRole = "buyer", re
   }, [initialDispute]);
 
   useEffect(() => {
-    if (refreshKey > 0) {
+    if (refreshKey > 0 || layout === "panel") {
       void refresh();
     }
-  }, [refreshKey]);
+  }, [refreshKey, layout]);
+
+  useEffect(() => {
+    if (!dispute || resourceLabelsProp) return;
+    let active = true;
+    const load = viewerRole === "seller"
+      ? api.sellerDisputeResources(dispute.id).then((rows) => resourceLabelMap(rows))
+      : api.orderResources(orderId).then((rows) => resourceLabelMap(rows));
+    load.then((labels) => { if (active) setFetchedLabels(labels); }).catch(() => { /* keep #id chips */ });
+    return () => { active = false; };
+  }, [dispute?.id, orderId, resourceLabelsProp, viewerRole]);
 
   const toggle = async () => {
     setOpen((v) => !v);
@@ -136,9 +163,14 @@ export function OrderDispute({ orderId, initialDispute, viewerRole = "buyer", re
   };
 
   const refresh = async () => {
-    const next = viewerRole === "seller" ? await api.sellerDispute(orderId) : await api.orderDispute(orderId);
-    setDispute(next);
-    setLoaded(true);
+    try {
+      const next = viewerRole === "seller" ? await api.sellerDispute(orderId) : await api.orderDispute(orderId);
+      setDispute(next);
+    } catch {
+      if (!initialDispute) setDispute(null);
+    } finally {
+      setLoaded(true);
+    }
   };
 
   const sendMessage = async () => {
@@ -158,112 +190,54 @@ export function OrderDispute({ orderId, initialDispute, viewerRole = "buyer", re
     finally { setSubmitting(false); }
   };
 
-  const claimedCount = dispute?.claimed_resource_ids?.length ?? 0;
-  const remediedCount = dispute?.resource_actions?.length ?? 0;
-  const hasCompleteRemedy = !!dispute
-    && dispute.status === "open"
-    && ((claimedCount > 0 && remediedCount >= claimedCount) || (claimedCount === 0 && !!dispute.seller_note));
+  const canAcceptResolution = !!dispute && isDisputeReadyToAccept(dispute);
   const toneMap = DISPUTE_STATUS_INFO;
   const info = dispute
     ? {
-        label: hasCompleteRemedy
+        label: canAcceptResolution
           ? td("awaiting_buyer_acceptance")
           : td.has(dispute.status) ? td(dispute.status as "open") : (toneMap[dispute.status]?.label ?? dispute.status),
-        tone: hasCompleteRemedy ? ("iris" as const) : toneMap[dispute.status]?.tone ?? ("neutral" as const),
+        tone: canAcceptResolution ? ("iris" as const) : toneMap[dispute.status]?.tone ?? ("neutral" as const),
       }
     : null;
-  const canAcceptResolution = hasCompleteRemedy;
+  const labels = resourceLabelsProp ?? fetchedLabels;
+
+  const body = (
+    <div className={cn(layout === "disclosure" && "mt-2.5", "space-y-2 text-[12.5px]")}>
+      {loaded && !dispute && <p className="text-faint">{t("disputeLoadFail")}</p>}
+      {dispute && info && (
+        <>
+          <DisputeCaseView
+            dispute={dispute}
+            statusLabel={info.label}
+            statusTone={info.tone}
+            resourceLabels={labels}
+            formatRefund={formatBrowseMoney}
+            onResourceClick={onResourceClick}
+          />
+
+          {viewerRole === "buyer" && dispute.status === "open" && (
+            <div className="mt-3 space-y-2 border-t border-line pt-3">
+              {canAcceptResolution && (
+                <p className="text-[12px] text-muted">{t("disputeReadyToAcceptHint")}</p>
+              )}
+              <Textarea rows={2} value={message} onChange={(e) => setMessage(e.target.value)} placeholder={t("disputeMessagePlaceholder")} />
+              <div className="flex flex-wrap gap-2">
+                <Button size="sm" variant="secondary" disabled={submitting || !message.trim()} onClick={sendMessage}>{t("sendDisputeMessage")}</Button>
+                {canAcceptResolution && <Button size="sm" disabled={submitting} onClick={acceptResolution}>{t("acceptDisputeResolution")}</Button>}
+              </div>
+            </div>
+          )}
+        </>
+      )}
+    </div>
+  );
+
+  if (layout === "panel") return body;
 
   return (
     <Disclosure label={t("showDispute")} labelOpen={t("hideDispute")} open={open} onToggle={toggle}>
-      <div className="mt-2.5 space-y-2 text-[12.5px]">
-        {loaded && !dispute && <p className="text-faint">{t("disputeLoadFail")}</p>}
-        {dispute && info && (
-          <>
-            <Tag tone={info.tone}>{info.label}</Tag>
-
-            {dispute.timeline && dispute.timeline.length > 0 ? (
-              <div className="mt-3 space-y-0">
-                {dispute.timeline.map((event, index) => (
-                  <div key={event.id} className="relative flex gap-3 pb-4 last:pb-1">
-                    {index < dispute.timeline!.length - 1 && <span className="absolute left-[5px] top-3 h-full w-px bg-line" />}
-                    <span className={cn(
-                      "relative mt-1 h-[11px] w-[11px] shrink-0 rounded-full ring-4 ring-surface",
-                      event.actor_role === "buyer" ? "bg-iris" : event.actor_role === "seller" ? "bg-warn" : "bg-good",
-                    )} />
-                    <div className="min-w-0 flex-1">
-                      <div className="flex flex-wrap items-baseline justify-between gap-2">
-                        <span className="text-[11px] font-semibold text-fg">{t(`disputeEvents.${event.event_type}`)}</span>
-                        <span className="text-[10.5px] text-faint">{formatDateTime(event.created_at, locale)}</span>
-                      </div>
-                      {event.body && <p className="mt-0.5 text-muted">{event.body}</p>}
-                      {event.resource_ids.length > 0 && (
-                        <div className="mt-1.5 flex flex-wrap gap-1">
-                          {event.resource_ids.map((id, resourceIndex) => (
-                            <span key={`${event.id}-${id}`} className="rounded-md border border-line bg-raised px-1.5 py-0.5 font-mono text-[10.5px] text-fg">
-                              #{id}{event.replacement_resource_ids?.[resourceIndex] ? ` → #${event.replacement_resource_ids[resourceIndex]}` : ""}
-                            </span>
-                          ))}
-                        </div>
-                      )}
-                      {!!event.refund_amount && <p className="mt-1 font-mono text-[11px] font-semibold text-good">{t("refundAmountMinor", { amount: formatBrowseMoney(event.refund_amount) })}</p>}
-                    </div>
-                  </div>
-                ))}
-              </div>
-            ) : (
-            <div className="mt-1 space-y-3">
-              <div className="border-l-2 border-iris/40 pl-3">
-                <p className="text-[11px] font-semibold text-iris-hi mb-0.5">
-                  {t("buyer")} <span className="font-normal text-faint">· {formatDateTime(dispute.created_at, locale)}</span>
-                </p>
-                <p>{dispute.reason}</p>
-                {dispute.evidence && Object.keys(dispute.evidence).length > 0 && (
-                  <div className="mt-1.5 space-y-0.5 text-[11.5px]">
-                    <p className="text-faint">{t("evidence", { type: evidenceTypeLabel(dispute.evidence_type) })}</p>
-                    {Object.entries(dispute.evidence).map(([key, value]) => (
-                      <p key={key} className="text-muted">
-                        <span className="text-faint">{evidenceFieldLabel(dispute.evidence_type, key)}: </span>
-                        {value}
-                      </p>
-                    ))}
-                  </div>
-                )}
-              </div>
-
-              {dispute.seller_note && (
-                <div className="border-l-2 border-line-2 pl-3">
-                  <p className="text-[11px] font-semibold text-muted mb-0.5">{t("seller")}</p>
-                  <p>{dispute.seller_note}</p>
-                </div>
-              )}
-
-              {(dispute.admin_note || dispute.resolved_at) && (
-                <div className="border-l-2 border-good/50 pl-3">
-                  <p className="text-[11px] font-semibold text-good mb-0.5">
-                    {t("admin")}
-                    {dispute.resolved_at && (
-                      <span className="font-normal text-faint"> · {formatDateTime(dispute.resolved_at, locale)}</span>
-                    )}
-                  </p>
-                  <p>{dispute.admin_note ?? info.label}</p>
-                </div>
-              )}
-            </div>
-            )}
-
-            {viewerRole === "buyer" && dispute.status === "open" && (
-              <div className="mt-3 space-y-2 border-t border-line pt-3">
-                <Textarea rows={2} value={message} onChange={(e) => setMessage(e.target.value)} placeholder={t("disputeMessagePlaceholder")} />
-                <div className="flex flex-wrap gap-2">
-                  <Button size="sm" variant="secondary" disabled={submitting || !message.trim()} onClick={sendMessage}>{t("sendDisputeMessage")}</Button>
-                  {canAcceptResolution && <Button size="sm" disabled={submitting} onClick={acceptResolution}>{t("acceptDisputeResolution")}</Button>}
-                </div>
-              </div>
-            )}
-          </>
-        )}
-      </div>
+      {body}
     </Disclosure>
   );
 }

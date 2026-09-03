@@ -157,6 +157,16 @@ Security and financial behavior are never page/router convenience logic.
 - Provider/webhook success requires cryptographic or upstream verification where applicable.
 - Security, ledger, and role semantics require positive and negative tests through the application/HTTP interface.
 
+### Dispute settlement invariants
+
+- Instant-inventory orders allocate the immutable order total across delivered resources in integer ledger units. Remainders are assigned deterministically by resource order; legacy orders are backfilled only when resource count equals purchased quantity.
+- A buyer may add multiple append-only claim batches to one open case. Each resource can appear only once in that case, while later replacement resources may be claimed in a later batch.
+- Seller resource remedies are immutable and idempotent. Refund actions credit only the selected resources' allocation; replacement actions preserve that allocation on the replacement and never return a reported-broken resource to available inventory.
+- `orders.total_amount` remains the original commercial amount. `orders.refunded_amount` accumulates refunds and is constrained to `0..total_amount`; seller release, platform fee and affiliate commission use only `total_amount - refunded_amount`.
+- An open dispute is an overlay in `disputes`, not an `orders.status` value: the order retains its delivered lifecycle while scheduler settlement, buyer confirmation, and proxy rotation explicitly exclude the open case. Buyer acceptance requires every claimed resource to have a remedy, resolves the case, and releases only the remaining escrow. Admin full-order replacement is rejected after account-level remedies to prevent double compensation.
+- The dispute timeline is derived from immutable claim batches, resource actions and case messages. Authorization for every buyer/seller case operation is enforced in the disputes service, independent of frontend visibility.
+- `OrderResponse` exposes a read-only lifecycle projection (`fulfillment`, `settlement`, `protection`, `capabilities`, and optional task progress). It is derived from the commercial order, product strategy, task state, and dispute case; it guides buyer UI but does not replace financial state or authorize mutations.
+
 ## 8. Testing through interfaces
 
 The feature interface is the primary test surface.

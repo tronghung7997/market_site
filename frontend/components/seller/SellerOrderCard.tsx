@@ -114,9 +114,9 @@ export default function SellerOrderCard({
               {t("deliverOrder")}
             </Button>
           )}
-          {o.status === "disputed" && !dispute?.seller_note && !responding && (
+          {o.status === "disputed" && !responding && (
             <Button size="sm" variant="secondary" onClick={() => setResponding(true)}>
-              {t("respondToDispute")}
+              {dispute?.seller_note ? t("addAnotherReply") : t("respondToDispute")}
             </Button>
           )}
         </div>

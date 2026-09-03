@@ -207,6 +207,25 @@ export interface Order {
   seller_email?: string | null;
   has_review?: boolean;
   has_dispute?: boolean;
+  service_type?: string | null;
+  fulfillment?: { kind: "instant" | "manual" | "api" | "task" | "proxy"; status: string } | null;
+  settlement?: { status: "escrow_held" | "released" | "refunded" } | null;
+  protection?: { status: "active" | "dispute_open" | "closed" } | null;
+  capabilities?: {
+    can_confirm: boolean;
+    can_dispute: boolean;
+    can_review: boolean;
+    can_chat: boolean;
+    can_view_proxy: boolean;
+  } | null;
+  task_progress?: {
+    total: number;
+    pending: number;
+    assigned: number;
+    processing: number;
+    completed: number;
+    failed: number;
+  } | null;
 }
 
 export interface MoneyConfigPublic {

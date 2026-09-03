@@ -357,7 +357,15 @@ async def test_buyer_list_orders(client):
                       headers={"Authorization": f"Bearer {buyer_token}"})
     resp = await client.get("/orders", headers={"Authorization": f"Bearer {buyer_token}"})
     assert resp.status_code == 200
-    assert len(resp.json()) >= 1
+    assert len(resp.json()["items"]) >= 1
+    order = resp.json()["items"][0]
+    assert order["fulfillment"] == {"kind": "instant", "status": "delivered"}
+    assert order["settlement"] == {"status": "escrow_held"}
+    assert order["protection"] == {"status": "active"}
+    assert order["capabilities"]["can_confirm"] is True
+    assert order["capabilities"]["can_dispute"] is True
+    assert order["capabilities"]["can_review"] is False
+    assert order["capabilities"]["can_view_proxy"] is False
 
 
 # ---------------------------------------------------------------------------

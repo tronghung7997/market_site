@@ -55,8 +55,46 @@ class OrderResponse(BaseModel):
     seller_email: str | None = None
     has_review: bool = False
     has_dispute: bool = False
+    service_type: str | None = None
+    fulfillment: "FulfillmentInfo | None" = None
+    settlement: "SettlementInfo | None" = None
+    protection: "ProtectionInfo | None" = None
+    capabilities: "OrderCapabilities | None" = None
+    task_progress: "TaskProgress | None" = None
 
     model_config = {"from_attributes": True}
+
+
+class FulfillmentInfo(BaseModel):
+    """Buyer-facing delivery projection; it does not replace the financial order state."""
+
+    kind: str
+    status: str
+
+
+class SettlementInfo(BaseModel):
+    status: str
+
+
+class ProtectionInfo(BaseModel):
+    status: str
+
+
+class OrderCapabilities(BaseModel):
+    can_confirm: bool = False
+    can_dispute: bool = False
+    can_review: bool = False
+    can_chat: bool = False
+    can_view_proxy: bool = False
+
+
+class TaskProgress(BaseModel):
+    total: int
+    pending: int
+    assigned: int
+    processing: int
+    completed: int
+    failed: int
 
 
 class TimelineEvent(BaseModel):

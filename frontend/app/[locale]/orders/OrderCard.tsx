@@ -42,17 +42,18 @@ export default function OrderCard({
   const locale = useLocale();
   const { formatOrderHistoryMoney, currency, showFxHints } = useMoney();
   const st = orderStatus(o.status, locale);
-  const canDispute = canOpenDispute(o.status, o.escrow_expires_at);
+  const canDispute = o.capabilities?.can_dispute ?? canOpenDispute(o.status, o.escrow_expires_at);
   const [dashboardOpen, setDashboardOpen] = useState(false);
   const [paymentOpen, setPaymentOpen] = useState(false);
   const [proxyOpen, setProxyOpen] = useState(false);
   const [askConfirm, setAskConfirm] = useState(false);
-  const delivered = o.status === "delivered" || o.status === "completed";
+  const fulfillmentStatus = o.fulfillment?.status ?? o.status;
+  const delivered = ["delivered", "completed"].includes(fulfillmentStatus);
   const deliveredData = locale === "en" ? o.delivered_data?.replace(/^Gọi qua:/gm, "Call URL:") : o.delivered_data;
   const money = formatOrderHistoryMoney(o.total_amount, o.display_fx_rate_snapshot, { locale });
-  // Adapter-fulfilled orders only (stock/manual use variant_id). Proxy panel
-  // mounts lazily so non-proxy adapters never 404 on list load.
-  const mayHaveProxy = delivered && o.product_id != null;
+  // The backend, not the presence of product_id, determines whether this order
+  // owns a proxy allocation. Other adapter orders may be tasks or API credit.
+  const mayHaveProxy = o.capabilities?.can_view_proxy ?? (delivered && o.service_type === "proxy");
   const fulfillment = fulfillmentFromOrder(o);
   const fulfillmentPending = fulfillment.kind === "task" && o.status !== "delivered";
   const rateForDetails = money.rateUsed;
@@ -89,13 +90,13 @@ export default function OrderCard({
 
         {st.hint && <p className="text-[12px] text-muted mt-2.5">{st.hint}</p>}
 
-        {!['cancelled', 'refunded'].includes(o.status) && <div className="mt-3"><OrderChatButton orderId={o.id} /></div>}
+        {(o.capabilities?.can_chat ?? !['cancelled', 'refunded'].includes(o.status)) && <div className="mt-3"><OrderChatButton orderId={o.id} /></div>}
 
         {o.has_dispute && <OrderDispute orderId={o.id} />}
 
-        {!["disputed", "refunded", "cancelled"].includes(o.status) && (
+        {!["refunded", "cancelled"].includes(o.status) && (
           <div className="mt-3 rounded-lg bg-raised/60 border border-line/70">
-            <StatusTimeline status={o.status} />
+            <StatusTimeline status={fulfillmentStatus} />
           </div>
         )}
 

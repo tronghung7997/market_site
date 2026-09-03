@@ -112,7 +112,6 @@ async def create_dispute(
     if order.escrow_expires_at and datetime.now(timezone.utc) > order.escrow_expires_at:
         raise api_error(ErrorCode.DISPUTE_ESCROW_EXPIRED, status.HTTP_400_BAD_REQUEST)
 
-    order.status = OrderStatus.disputed
     dispute = Dispute(
         order_id=order_id, buyer_id=buyer_id, reason=reason,
         evidence_type=evidence_type, evidence=evidence,
@@ -427,7 +426,7 @@ async def append_claim_batch(
         raise api_error(ErrorCode.ORDER_NOT_FOUND, status.HTTP_404_NOT_FOUND)
     if order.buyer_id != buyer_id:
         raise api_error(ErrorCode.NOT_ORDER_OWNER, status.HTTP_403_FORBIDDEN)
-    if order.status != OrderStatus.disputed:
+    if order.status != OrderStatus.delivered:
         raise api_error(ErrorCode.DISPUTE_ONLY_DELIVERED, status.HTTP_400_BAD_REQUEST)
     dispute = await db.scalar(
         select(Dispute).where(

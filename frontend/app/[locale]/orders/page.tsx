@@ -135,7 +135,19 @@ export default function OrdersPage() {
     queryClient.invalidateQueries({ queryKey: ["orders"] });
     queryClient.invalidateQueries({ queryKey: queryKeys.orderStats() });
     if (selectedOrder?.id) {
-      setSelectedOrder((prev) => (prev ? { ...prev, status: "disputed", has_dispute: true } : prev));
+      setSelectedOrder((prev) => prev ? {
+        ...prev,
+        status: "delivered",
+        has_dispute: true,
+        fulfillment: { ...(prev.fulfillment ?? { kind: "instant" as const }), status: "delivered" },
+        protection: { status: "dispute_open" },
+        capabilities: prev.capabilities ? {
+          ...prev.capabilities,
+          can_confirm: false,
+          can_dispute: false,
+          can_review: false,
+        } : prev.capabilities,
+      } : prev);
     }
   }
 

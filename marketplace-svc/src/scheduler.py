@@ -12,7 +12,7 @@ from src.database import SessionLocal
 from src.audit.service import purge_operational_logs
 from src.gateway.call_history import purge_old_gateway_call_logs
 from src.models.account import Account
-from src.models.order import Order, OrderStatus
+from src.models.order import Dispute, DisputeStatus, Order, OrderStatus
 from src.models.product import Product, ProductVariant
 from src.models.provider import Provider, ProviderHealth
 from src.models.resource import Resource, ResourceStatus
@@ -36,6 +36,10 @@ async def escrow_release_job() -> None:
             select(Order).where(
                 Order.status == OrderStatus.delivered,
                 Order.escrow_expires_at <= now,
+                ~select(Dispute.id).where(
+                    Dispute.order_id == Order.id,
+                    Dispute.status == DisputeStatus.open,
+                ).exists(),
             ).with_for_update(skip_locked=True)
         )
         orders = list(result.scalars().all())

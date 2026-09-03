@@ -8,7 +8,7 @@ from src.database import get_session
 from src.i18n.deps import get_request_locale
 from src.i18n.catalog import resolve_product_pricing_params
 from src.models.account import Account
-from src.models.order import Order, OrderStatus
+from src.models.order import Dispute, DisputeStatus, Order, OrderStatus
 from src.models.product import Product
 from src.models.provider import Provider, ProviderHealth
 from src.pricing.engine import quote_product, resolve_pricing
@@ -139,7 +139,7 @@ async def product_operations(
     disputes = await db.scalar(
         select(func.count(Order.id)).where(
             Order.product_id == product_id,
-            Order.status == OrderStatus.disputed,
+            Order.id.in_(select(Dispute.order_id).where(Dispute.status == DisputeStatus.open)),
         )
     ) or 0
 

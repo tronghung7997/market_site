@@ -46,10 +46,11 @@ class TestProxyRotate:
     @pytest.mark.asyncio
     async def test_rotate_requires_delivered_or_completed_status(self, client, monkeypatch):
         buyer_token, _, order_id, _ = await _deliver_dproxy_order(client, monkeypatch, "_status")
-        async with SessionLocal() as db:
-            order = await db.get(Order, order_id)
-            order.status = OrderStatus.disputed
-            await db.commit()
+        dispute = await client.post(
+            f"/orders/{order_id}/dispute", json={"reason": "Broken"},
+            headers={"Authorization": f"Bearer {buyer_token}"},
+        )
+        assert dispute.status_code == 201
 
         resp = await client.post(f"/orders/{order_id}/proxy/rotate", headers={"Authorization": f"Bearer {buyer_token}"})
         assert resp.status_code == 400

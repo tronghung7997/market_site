@@ -13,11 +13,12 @@ from src.config import settings
 from src.database import SessionLocal
 from src.gateway.service import mint_gateway_key
 from src.models.account import Account
-from src.models.order import Dispute, Order, OrderStatus
+from src.models.order import Dispute, DisputeStatus, Order, OrderStatus
 from src.models.provider import Provider
 from src.models.resource import Resource
 from src.models.product import DeliveryMode, Product, ProductStatus, ProductVariant
 from src.models.review import Review
+from src.models.service_task import ServiceTask
 from src.pricing.engine import quote_product, resolve_pricing
 from src.resources.service import claim_resources
 from src.audit.service import log_event, query_logs
@@ -456,6 +457,10 @@ async def confirm_order(order_id: int, buyer_id: int, db: AsyncSession) -> Order
         raise api_error(ErrorCode.NOT_ORDER_OWNER, status.HTTP_403_FORBIDDEN)
     if order.status != OrderStatus.delivered:
         raise api_error(ErrorCode.ORDER_NOT_DELIVERED, status.HTTP_400_BAD_REQUEST)
+    if await db.scalar(select(Dispute.id).where(
+        Dispute.order_id == order.id, Dispute.status == DisputeStatus.open,
+    )):
+        raise api_error(ErrorCode.DISPUTE_ALREADY_OPEN, status.HTTP_400_BAD_REQUEST)
     order.status = OrderStatus.completed
     seller = await db.get(Account, order.seller_id)
     fee_percent = platform_fee_percent(seller.seller_tier if seller else "new")
@@ -505,9 +510,21 @@ async def _enrich_orders(orders: list[Order], db: AsyncSession) -> list[dict]:
     reviewed = set(
         (await db.execute(select(Review.order_id).where(Review.order_id.in_(order_ids)))).scalars()
     )
-    disputed = set(
-        (await db.execute(select(Dispute.order_id).where(Dispute.order_id.in_(order_ids)))).scalars()
-    )
+    dispute_rows = (await db.execute(
+        select(Dispute.order_id, Dispute.status).where(Dispute.order_id.in_(order_ids))
+    )).all()
+    disputed = {order_id for order_id, _ in dispute_rows}
+    open_disputes = {order_id for order_id, dispute_status in dispute_rows if dispute_status == DisputeStatus.open}
+    task_rows = (await db.execute(
+        select(ServiceTask.order_id, ServiceTask.status).where(ServiceTask.order_id.in_(order_ids))
+    )).all()
+    task_progress: dict[int, dict[str, int]] = {}
+    for task_order_id, task_status in task_rows:
+        progress = task_progress.setdefault(task_order_id, {
+            "total": 0, "pending": 0, "assigned": 0, "processing": 0, "completed": 0, "failed": 0,
+        })
+        progress["total"] += 1
+        progress[task_status.value] += 1
 
     out = []
     for order in orders:
@@ -519,6 +536,24 @@ async def _enrich_orders(orders: list[Order], db: AsyncSession) -> list[dict]:
             product = products.get(variant.product_id)
         buyer = accounts.get(order.buyer_id)
         seller = accounts.get(order.seller_id)
+        strategy = product.pricing_strategy if product else None
+        service_type = product.service_type if product else None
+        delivery_mode = variant.delivery_mode.value if variant else None
+        if strategy == "task":
+            fulfillment_kind = "task"
+        elif service_type == "proxy":
+            fulfillment_kind = "proxy"
+        elif strategy == "credit":
+            fulfillment_kind = "api"
+        elif delivery_mode == DeliveryMode.manual.value:
+            fulfillment_kind = "manual"
+        else:
+            fulfillment_kind = "instant"
+        # Disputes are an overlay and never replace the commercial lifecycle.
+        fulfillment_status = order.status.value
+        is_open_dispute = order.id in open_disputes
+        within_escrow = not order.escrow_expires_at or datetime.now(timezone.utc) <= order.escrow_expires_at
+        is_terminal_refund = order.status in {OrderStatus.refunded, OrderStatus.cancelled}
         out.append({
             "id": order.id, "buyer_id": order.buyer_id, "seller_id": order.seller_id,
             "variant_id": order.variant_id, "product_id": order.product_id,
@@ -529,14 +564,26 @@ async def _enrich_orders(orders: list[Order], db: AsyncSession) -> list[dict]:
             "cancel_reason": order.cancel_reason,
             "created_at": order.created_at,
             "product_title": product.title if product else None,
-            "pricing_strategy": product.pricing_strategy if product else None,
-            "delivery_mode": variant.delivery_mode.value if variant else None,
+            "pricing_strategy": strategy,
+            "delivery_mode": delivery_mode,
             "sla_hours": variant.sla_hours if variant else None,
+            "service_type": service_type,
             "variant_name": variant.name if variant else None,
             "buyer_email": buyer.email if buyer else None,
             "seller_email": seller.email if seller else None,
             "has_review": order.id in reviewed,
             "has_dispute": order.id in disputed,
+            "fulfillment": {"kind": fulfillment_kind, "status": fulfillment_status},
+            "settlement": {"status": "released" if order.status == OrderStatus.completed else "refunded" if is_terminal_refund else "escrow_held"},
+            "protection": {"status": "dispute_open" if is_open_dispute else "active" if order.status == OrderStatus.delivered else "closed"},
+            "capabilities": {
+                "can_confirm": order.status == OrderStatus.delivered and not is_open_dispute,
+                "can_dispute": order.status == OrderStatus.delivered and within_escrow and not is_open_dispute,
+                "can_review": order.status == OrderStatus.completed and order.id not in reviewed and product is not None,
+                "can_chat": not is_terminal_refund,
+                "can_view_proxy": fulfillment_kind == "proxy" and fulfillment_status in {"delivered", "completed"},
+            },
+            "task_progress": task_progress.get(order.id),
         })
     return out
 
@@ -563,7 +610,9 @@ async def list_buyer_orders(
     if status == "active":
         q = q.where(Order.status.in_(["pending", "processing", "delivered"]))
     elif status == "disputed":
-        q = q.where(Order.status == OrderStatus.disputed)
+        q = q.where(Order.id.in_(
+            select(Dispute.order_id).where(Dispute.status == DisputeStatus.open)
+        ))
     elif status == "deleted":
         q = q.where(Order.status.in_(["cancelled", "refunded"]))
     elif status and status in OrderStatus.__members__:
@@ -611,7 +660,7 @@ async def buyer_order_stats(buyer_id: int, db: AsyncSession) -> dict:
     )).scalar() or 0
     disputed = (await db.execute(
         select(func.count()).select_from(
-            base.where(Order.status == OrderStatus.disputed).subquery()
+            base.where(Order.id.in_(select(Dispute.order_id).where(Dispute.status == DisputeStatus.open))).subquery()
         )
     )).scalar() or 0
     total_spend = (await db.execute(

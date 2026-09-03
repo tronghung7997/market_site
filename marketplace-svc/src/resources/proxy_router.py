@@ -27,7 +27,7 @@ from src.auth.dependencies import get_current_account
 from src.database import get_session
 from src.exceptions import ErrorCode, api_error
 from src.models.account import Account
-from src.models.order import Order, OrderStatus
+from src.models.order import Dispute, DisputeStatus, Order, OrderStatus
 from src.models.proxy_allocation import ProxyAllocation, ProxyAllocationStatus
 from src.resources.proxy_service import apply_rotated_assignment
 
@@ -47,6 +47,10 @@ async def rotate_proxy(
         # 404, not 403 — do not confirm order existence to a non-owner.
         raise api_error(ErrorCode.ORDER_NOT_FOUND, status.HTTP_404_NOT_FOUND)
     if order.status not in (OrderStatus.delivered, OrderStatus.completed):
+        raise api_error(ErrorCode.ORDER_NOT_USABLE, status.HTTP_400_BAD_REQUEST)
+    if await db.scalar(select(Dispute.id).where(
+        Dispute.order_id == order.id, Dispute.status == DisputeStatus.open,
+    )):
         raise api_error(ErrorCode.ORDER_NOT_USABLE, status.HTTP_400_BAD_REQUEST)
     if not order.provider_id:
         raise api_error(ErrorCode.ORDER_NOT_PROVISIONED, status.HTTP_400_BAD_REQUEST)

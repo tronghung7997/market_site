@@ -110,6 +110,13 @@ async def test_manual_order_processing_until_all_tasks_complete(client):
     assert len(tasks) == 4
     assert all(t["status"] == "pending" for t in tasks)
 
+    detail = await client.get(f"/orders/{order['id']}", headers={"Authorization": f"Bearer {buyer_token}"})
+    assert detail.status_code == 200
+    assert detail.json()["fulfillment"] == {"kind": "task", "status": "processing"}
+    assert detail.json()["task_progress"] == {
+        "total": 4, "pending": 4, "assigned": 0, "processing": 0, "completed": 0, "failed": 0,
+    }
+
     # Hoàn thành 3/4: order vẫn processing
     for t in tasks[:3]:
         resp = await client.put(f"/admin/tasks/{t['id']}", json={"status": "completed"},
@@ -128,6 +135,18 @@ async def test_manual_order_processing_until_all_tasks_complete(client):
     data = order_resp.json()
     assert data["status"] == "delivered"
     assert data["escrow_expires_at"] is not None
+
+    # Adapter orders have product_id (not variant_id) and remain reviewable once
+    # the buyer has confirmed settlement.
+    confirmed = await client.post(f"/orders/{order['id']}/confirm", headers={"Authorization": f"Bearer {buyer_token}"})
+    assert confirmed.status_code == 200
+    detail = await client.get(f"/orders/{order['id']}", headers={"Authorization": f"Bearer {buyer_token}"})
+    assert detail.json()["capabilities"]["can_review"] is True
+    review = await client.post(
+        f"/orders/{order['id']}/review", json={"rating": 5, "comment": "Done"},
+        headers={"Authorization": f"Bearer {buyer_token}"},
+    )
+    assert review.status_code == 201
 
 
 @pytest.mark.asyncio

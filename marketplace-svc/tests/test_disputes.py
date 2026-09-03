@@ -106,6 +106,10 @@ async def test_buyer_can_dispute(client):
                              headers={"Authorization": f"Bearer {buyer_token}"})
     assert resp.status_code == 201
     assert resp.json()["status"] == "open"
+    order = await client.get(f"/orders/{order_id}", headers={"Authorization": f"Bearer {buyer_token}"})
+    assert order.json()["status"] == "delivered"
+    assert order.json()["protection"] == {"status": "dispute_open"}
+    assert order.json()["capabilities"]["can_confirm"] is False
 
 
 @pytest.mark.asyncio

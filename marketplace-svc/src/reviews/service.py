@@ -24,15 +24,19 @@ async def create_review(
     if existing.scalar_one_or_none():
         raise api_error(ErrorCode.REVIEW_ALREADY_EXISTS, status.HTTP_400_BAD_REQUEST)
 
-    # Resolve product_id from order's variant
-    variant = await db.get(ProductVariant, order.variant_id)
-    if not variant:
+    # Stock/manual orders retain a variant; adapter orders retain product_id.
+    # Both are commercial product purchases and are reviewable after settlement.
+    product_id = order.product_id
+    if product_id is None and order.variant_id is not None:
+        variant = await db.get(ProductVariant, order.variant_id)
+        product_id = variant.product_id if variant else None
+    if product_id is None:
         raise api_error(ErrorCode.VARIANT_NOT_FOUND, status.HTTP_400_BAD_REQUEST)
 
     review = Review(
         order_id=order_id,
         buyer_id=buyer_id,
-        product_id=variant.product_id,
+        product_id=product_id,
         rating=rating,
         comment=comment,
     )
@@ -42,11 +46,11 @@ async def create_review(
     # Update product rating_avg and rating_count
     result = await db.execute(
         select(func.avg(Review.rating), func.count(Review.id)).where(
-            Review.product_id == variant.product_id
+            Review.product_id == product_id
         )
     )
     avg_rating, count = result.one()
-    product = await db.get(Product, variant.product_id)
+    product = await db.get(Product, product_id)
     if product:
         product.rating_avg = float(avg_rating) if avg_rating else None
         product.rating_count = count or 0

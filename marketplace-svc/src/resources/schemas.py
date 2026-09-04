@@ -11,6 +11,21 @@ class ResourceUpdate(BaseModel):
     data: str = Field(min_length=1, max_length=8000)
 
 
+class ResourceRestock(BaseModel):
+    data: str | None = Field(default=None, max_length=8000)
+
+
+class BulkResourceAction(BaseModel):
+    action: str = Field(pattern="^(restock|archive|delete)$")
+    resource_ids: list[int] = Field(min_length=1, max_length=500)
+
+
+class BulkResourceActionResult(BaseModel):
+    action: str
+    count: int
+    resource_ids: list[int]
+
+
 class InventoryVariantSummary(BaseModel):
     product_id: int
     product_title: str
@@ -38,6 +53,7 @@ class ResourceResponse(BaseModel):
     expires_at: datetime | None = None
     created_at: datetime
     refund_amount_cap: int | None = None
+    is_archived: bool = False
 
     model_config = {"from_attributes": True}
 

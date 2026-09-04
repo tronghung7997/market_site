@@ -1,8 +1,10 @@
 from fastapi import status
-from sqlalchemy import func, select
+from sqlalchemy import and_, func, or_, select
 from sqlalchemy.ext.asyncio import AsyncSession
 
+from src.audit.service import log_event
 from src.exceptions import ErrorCode, NotOwner, ResourceUnavailable, api_error
+from src.logging import current_request_id
 from src.models.pricing_config import PricingConfig
 from src.models.product import DeliveryMode, Product, ProductVariant
 from src.models.resource import Resource, ResourceStatus
@@ -48,6 +50,9 @@ async def list_resources(
     seller_id: int,
     db: AsyncSession,
     *,
+    status_filter: str | None = None,
+    search: str | None = None,
+    include_archived: bool = False,
     page: int = 1,
     per_page: int = 10_000,
 ) -> tuple[list[Resource], int]:
@@ -58,31 +63,51 @@ async def list_resources(
     product = await db.get(Product, variant.product_id)
     if product.seller_id != seller_id:
         raise NotOwner()
-    filters = Resource.variant_id == variant_id
-    total = int(await db.scalar(select(func.count()).select_from(Resource).where(filters)) or 0)
+    filters = [Resource.variant_id == variant_id]
+    if not include_archived:
+        filters.append(Resource.is_archived == False)  # noqa: E712
+    if status_filter and status_filter != "all":
+        filters.append(Resource.status == ResourceStatus(status_filter))
+    if search and search.strip():
+        q = search.strip()
+        if q.startswith("#") and q[1:].isdigit():
+            filters.append(Resource.order_id == int(q[1:]))
+        elif q.isdigit():
+            filters.append(or_(Resource.id == int(q), Resource.order_id == int(q), Resource.data.ilike(f"%{q}%")))
+        else:
+            filters.append(Resource.data.ilike(f"%{q}%"))
+
+    total = int(await db.scalar(select(func.count()).select_from(Resource).where(*filters)) or 0)
     result = await db.execute(
         select(Resource)
-        .where(filters)
-        .order_by(Resource.created_at.desc())
+        .where(*filters)
+        .order_by(Resource.created_at.desc(), Resource.id.desc())
         .offset((page - 1) * per_page)
         .limit(per_page)
     )
     return list(result.scalars().all()), total
 
 
-async def update_resource_data(resource_id: int, seller_id: int, data: str, db: AsyncSession) -> Resource:
-    """Sửa nội dung một tài nguyên còn trong kho.
+async def _verify_resource_ownership(resource: Resource, seller_id: int, db: AsyncSession) -> None:
+    if resource.seller_id == seller_id:
+        return
+    variant = await db.get(ProductVariant, resource.variant_id)
+    if variant:
+        from src.models.product import Product
+        product = await db.get(Product, variant.product_id)
+        if product and product.seller_id == seller_id:
+            resource.seller_id = seller_id
+            return
+    raise NotOwner()
 
-    Chỉ cho sửa khi `available`. Tài nguyên đã giao thì `Order.delivered_data` là
-    bản sao chụp lúc giao — sửa ở đây không đổi được thứ buyer đang cầm, nên cho
-    sửa sẽ khiến seller tưởng đã vá cho khách trong khi không.
-    """
+
+async def update_resource_data(resource_id: int, seller_id: int, data: str, db: AsyncSession) -> Resource:
+    """Sửa nội dung một tài nguyên còn trong kho hoặc đã thu hồi lỗi."""
     resource = await db.get(Resource, resource_id)
     if not resource:
         raise api_error(ErrorCode.RESOURCE_NOT_FOUND, status.HTTP_404_NOT_FOUND)
-    if resource.seller_id != seller_id:
-        raise NotOwner()
-    if resource.status != ResourceStatus.available:
+    await _verify_resource_ownership(resource, seller_id, db)
+    if resource.status not in (ResourceStatus.available, ResourceStatus.error):
         raise api_error(ErrorCode.RESOURCE_NOT_EDITABLE, status.HTTP_400_BAD_REQUEST)
     if not data.strip():
         raise api_error(ErrorCode.RESOURCE_EMPTY, status.HTTP_400_BAD_REQUEST)
@@ -92,12 +117,109 @@ async def update_resource_data(resource_id: int, seller_id: int, data: str, db: 
     return resource
 
 
-async def seller_inventory_summary(seller_id: int, db: AsyncSession) -> list[dict]:
-    """Đếm tồn kho theo từng gói sản phẩm của seller.
+async def restock_resource(
+    resource_id: int,
+    seller_id: int,
+    db: AsyncSession,
+    *,
+    data: str | None = None,
+) -> Resource:
+    """Đưa một tài nguyên (lỗi/đã thu hồi) trở lại kho bán."""
+    resource = await db.get(Resource, resource_id)
+    if not resource:
+        raise api_error(ErrorCode.RESOURCE_NOT_FOUND, status.HTTP_404_NOT_FOUND)
+    await _verify_resource_ownership(resource, seller_id, db)
+    if resource.status == ResourceStatus.assigned:
+        raise api_error(ErrorCode.RESOURCE_NOT_EDITABLE, status.HTTP_400_BAD_REQUEST)
+    if data and data.strip():
+        resource.data = data.strip()
+    resource.status = ResourceStatus.available
+    resource.order_id = None
+    resource.assigned_at = None
+    resource.expires_at = None
+    resource.is_archived = False
+    await log_event(
+        db,
+        "info",
+        f"Seller restocked resource #{resource_id}",
+        request_id=current_request_id(),
+        metadata={"event": "seller_resource_restocked", "resource_id": resource_id, "seller_id": seller_id},
+    )
+    await db.commit()
+    await db.refresh(resource)
+    return resource
 
-    Trả cả gói chưa có tài nguyên nào (outer join) — gói hết sạch hàng chính là
-    thứ seller cần thấy nhất, mà inner join sẽ giấu đi.
-    """
+
+async def archive_resource(resource_id: int, seller_id: int, db: AsyncSession) -> Resource:
+    """Ẩn tài nguyên khỏi kho mà không vi phạm ràng buộc khoá ngoại."""
+    resource = await db.get(Resource, resource_id)
+    if not resource:
+        raise api_error(ErrorCode.RESOURCE_NOT_FOUND, status.HTTP_404_NOT_FOUND)
+    await _verify_resource_ownership(resource, seller_id, db)
+    if resource.status == ResourceStatus.assigned:
+        raise api_error(ErrorCode.RESOURCE_NOT_DELETABLE, status.HTTP_400_BAD_REQUEST)
+    resource.is_archived = True
+    await log_event(
+        db,
+        "info",
+        f"Seller archived resource #{resource_id}",
+        request_id=current_request_id(),
+        metadata={"event": "seller_resource_archived", "resource_id": resource_id, "seller_id": seller_id},
+    )
+    await db.commit()
+    await db.refresh(resource)
+    return resource
+
+
+async def bulk_resource_action(
+    variant_id: int,
+    seller_id: int,
+    action: str,
+    resource_ids: list[int],
+    db: AsyncSession,
+) -> tuple[str, int, list[int]]:
+    variant = await db.get(ProductVariant, variant_id)
+    if not variant:
+        raise api_error(ErrorCode.VARIANT_NOT_FOUND, status.HTTP_404_NOT_FOUND)
+    from src.models.product import Product
+    product = await db.get(Product, variant.product_id)
+    if product.seller_id != seller_id:
+        raise NotOwner()
+
+    result = await db.execute(
+        select(Resource).where(
+            Resource.id.in_(resource_ids),
+            Resource.variant_id == variant_id,
+            Resource.seller_id == seller_id,
+        )
+    )
+    resources = list(result.scalars().all())
+    affected_ids: list[int] = []
+
+    if action == "restock":
+        for r in resources:
+            if r.status != ResourceStatus.assigned:
+                r.status = ResourceStatus.available
+                r.order_id = None
+                r.assigned_at = None
+                r.expires_at = None
+                r.is_archived = False
+                affected_ids.append(r.id)
+    elif action in ("archive", "delete"):
+        for r in resources:
+            if r.status != ResourceStatus.assigned:
+                if action == "delete" and r.order_id is None and r.status == ResourceStatus.available:
+                    await db.delete(r)
+                else:
+                    r.is_archived = True
+                affected_ids.append(r.id)
+
+    await db.commit()
+    return action, len(affected_ids), affected_ids
+
+
+async def seller_inventory_summary(seller_id: int, db: AsyncSession) -> list[dict]:
+    """Đếm tồn kho theo từng gói sản phẩm của seller."""
     products = list((await db.execute(
         select(Product).where(Product.seller_id == seller_id)
     )).scalars())
@@ -128,7 +250,7 @@ async def seller_inventory_summary(seller_id: int, db: AsyncSession) -> list[dic
         )
         .select_from(Product)
         .join(ProductVariant, ProductVariant.product_id == Product.id)
-        .outerjoin(Resource, Resource.variant_id == ProductVariant.id)
+        .outerjoin(Resource, and_(Resource.variant_id == ProductVariant.id, Resource.is_archived == False))  # noqa: E712
         .where(
             Product.id.in_(inventory_product_ids),
             ProductVariant.delivery_mode == DeliveryMode.instant,
@@ -137,8 +259,6 @@ async def seller_inventory_summary(seller_id: int, db: AsyncSession) -> list[dic
             Product.id, Product.title, ProductVariant.id, ProductVariant.name,
             ProductVariant.delivery_mode, ProductVariant.is_active, Resource.status,
         )
-        # Product.id nằm trong khoá sắp xếp vì tên sản phẩm KHÔNG duy nhất — thiếu
-        # nó thì variant của hai sản phẩm trùng tên sẽ xen kẽ nhau.
         .order_by(Product.title, Product.id, ProductVariant.sort_order)
     )
 
@@ -160,10 +280,13 @@ async def delete_resource(resource_id: int, seller_id: int, db: AsyncSession) ->
     resource = await db.get(Resource, resource_id)
     if not resource:
         raise api_error(ErrorCode.RESOURCE_NOT_FOUND, status.HTTP_404_NOT_FOUND)
-    if resource.seller_id != seller_id:
-        raise NotOwner()
-    if resource.status != ResourceStatus.available:
+    await _verify_resource_ownership(resource, seller_id, db)
+    if resource.status not in (ResourceStatus.available, ResourceStatus.error):
         raise api_error(ErrorCode.RESOURCE_NOT_DELETABLE, status.HTTP_400_BAD_REQUEST)
+    if resource.order_id is not None or resource.status == ResourceStatus.error:
+        resource.is_archived = True
+        await db.commit()
+        return
     await db.delete(resource)
     await db.commit()
 
@@ -172,7 +295,7 @@ async def claim_resources(variant_id: int, quantity: int, db: AsyncSession, *, o
     from datetime import datetime, timedelta, timezone
     result = await db.execute(
         select(Resource)
-        .where(Resource.variant_id == variant_id, Resource.status == ResourceStatus.available)
+        .where(Resource.variant_id == variant_id, Resource.status == ResourceStatus.available, Resource.is_archived == False)  # noqa: E712
         .order_by(Resource.created_at)
         .limit(quantity)
         .with_for_update(skip_locked=True)

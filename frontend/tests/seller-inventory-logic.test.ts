@@ -3,8 +3,11 @@ import test from "node:test";
 
 import {
   LatestRequestGate,
+  canArchiveInventoryResource,
   canEditInventoryResource,
+  canRestockInventoryResource,
   inventoryStockState,
+  isDefectiveReturnResource,
   isInventoryManagedProduct,
   isInstantDelivery,
   mergeRestockText,
@@ -104,11 +107,26 @@ test("CSV restock template starts with a data header", () => {
   assert.equal(parseResourceItems(parseRestockFileContent("t.csv", csv.content), true).length, 3);
 });
 
-test("only available resources expose editing", () => {
+test("available and error resources expose editing", () => {
   assert.equal(canEditInventoryResource("available"), true);
-  for (const status of ["assigned", "expired", "error"]) {
+  assert.equal(canEditInventoryResource("error"), true);
+  for (const status of ["assigned", "expired"]) {
     assert.equal(canEditInventoryResource(status), false);
   }
+});
+
+test("restock and archive capability rules", () => {
+  assert.equal(canRestockInventoryResource("error"), true);
+  assert.equal(canRestockInventoryResource("available"), false);
+  assert.equal(canRestockInventoryResource("assigned"), false);
+
+  assert.equal(canArchiveInventoryResource("error"), true);
+  assert.equal(canArchiveInventoryResource("available"), true);
+  assert.equal(canArchiveInventoryResource("assigned"), false);
+
+  assert.equal(isDefectiveReturnResource("error", 123), true);
+  assert.equal(isDefectiveReturnResource("error", null), false);
+  assert.equal(isDefectiveReturnResource("available", 123), false);
 });
 
 test("seller lifecycle actions do not override admin suspension", () => {

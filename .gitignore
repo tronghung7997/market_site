@@ -22,3 +22,9 @@ docs/*
 !frontend/AGENTS.md
 !marketplace-svc/AGENTS.md
 !CONTEXT.md
+.pi
+scratch
+.hallmark
+frontend/CLAUDE.md
+skills-lock.json
+/frontend/frontend.env

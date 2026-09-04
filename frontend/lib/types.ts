@@ -813,6 +813,13 @@ export interface Resource {
   expires_at: string | null;
   created_at: string;
   refund_amount_cap: number | null;
+  is_archived?: boolean;
+}
+
+export interface BulkResourceActionResult {
+  action: string;
+  count: number;
+  resource_ids: number[];
 }
 
 export interface SellerDisputeResource {

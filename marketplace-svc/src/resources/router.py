@@ -22,13 +22,23 @@ async def bulk_add(variant_id: int, body: schemas.BulkResourceCreate, account: A
 async def list_res(
     variant_id: int,
     response: Response,
+    status: str | None = None,
+    search: str | None = None,
+    include_archived: bool = False,
     page: int = Query(1, ge=1),
     per_page: int = Query(10_000, ge=1, le=10_000),
     account: Account = Depends(require_role("seller")),
     db: AsyncSession = Depends(get_session),
 ):
     items, total = await service.list_resources(
-        variant_id, account.id, db, page=page, per_page=per_page,
+        variant_id,
+        account.id,
+        db,
+        status_filter=status,
+        search=search,
+        include_archived=include_archived,
+        page=page,
+        per_page=per_page,
     )
     response.headers["X-Total-Count"] = str(total)
     return items
@@ -42,6 +52,39 @@ async def inventory_summary(account: Account = Depends(require_role("seller")), 
 @router.patch("/seller/resources/{resource_id}", response_model=schemas.ResourceResponse)
 async def update_res(resource_id: int, body: schemas.ResourceUpdate, account: Account = Depends(require_role("seller")), db: AsyncSession = Depends(get_session)):
     return await service.update_resource_data(resource_id, account.id, body.data, db)
+
+
+@router.post("/seller/resources/{resource_id}/restock", response_model=schemas.ResourceResponse)
+async def restock_res(
+    resource_id: int,
+    body: schemas.ResourceRestock | None = None,
+    account: Account = Depends(require_role("seller")),
+    db: AsyncSession = Depends(get_session),
+):
+    data = body.data if body else None
+    return await service.restock_resource(resource_id, account.id, db, data=data)
+
+
+@router.post("/seller/resources/{resource_id}/archive", response_model=schemas.ResourceResponse)
+async def archive_res(
+    resource_id: int,
+    account: Account = Depends(require_role("seller")),
+    db: AsyncSession = Depends(get_session),
+):
+    return await service.archive_resource(resource_id, account.id, db)
+
+
+@router.post("/seller/variants/{variant_id}/resources/bulk-action", response_model=schemas.BulkResourceActionResult)
+async def bulk_action_res(
+    variant_id: int,
+    body: schemas.BulkResourceAction,
+    account: Account = Depends(require_role("seller")),
+    db: AsyncSession = Depends(get_session),
+):
+    action, count, ids = await service.bulk_resource_action(
+        variant_id, account.id, body.action, body.resource_ids, db,
+    )
+    return schemas.BulkResourceActionResult(action=action, count=count, resource_ids=ids)
 
 
 @router.delete("/seller/resources/{resource_id}", status_code=status.HTTP_204_NO_CONTENT)

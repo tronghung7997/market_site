@@ -487,3 +487,96 @@ async def test_inventory_summary_counts_sold_separately(client):
     row = next(r for r in rows if r["variant_id"] == variant_id)
     assert row["available"] == 1
     assert row["assigned"] == 1
+
+
+@pytest.mark.asyncio
+async def test_list_resources_filtering_by_status_and_search(client):
+    from sqlalchemy import update as sa_update
+    from src.database import SessionLocal
+    from src.models.resource import Resource, ResourceStatus
+
+    seller_token, _, variant_id = await _seller_with_variant(client, "filter_search@example.com")
+    headers = {"Authorization": f"Bearer {seller_token}"}
+    await client.post(f"/seller/variants/{variant_id}/resources",
+                      json={"items": ["user1|pass1|uid100", "user2|pass2|uid200", "user3|pass3|uid300"]},
+                      headers=headers)
+
+    buyer_token = await register_and_login(client, "buyer_search@example.com")
+    await client.post("/wallet/demo-topup", headers={"Authorization": f"Bearer {buyer_token}"}, json={"amount": 100000})
+    order = (await client.post("/orders", headers={"Authorization": f"Bearer {buyer_token}"},
+                               json={"variant_id": variant_id, "quantity": 1})).json()
+    order_id = order["id"]
+
+    all_res = (await client.get(f"/seller/variants/{variant_id}/resources", headers=headers)).json()
+    assigned_res = next(r for r in all_res if r["status"] == "assigned")
+    avail_res = [r for r in all_res if r["status"] == "available"]
+    err_res = avail_res[0]
+
+    async with SessionLocal() as db:
+        await db.execute(sa_update(Resource).where(Resource.id == err_res["id"]).values(status=ResourceStatus.error, order_id=order_id))
+        await db.commit()
+
+    # Filter by error
+    error_list = await client.get(f"/seller/variants/{variant_id}/resources", params={"status": "error"}, headers=headers)
+    assert error_list.status_code == 200
+    assert len(error_list.json()) == 1
+    assert error_list.json()[0]["id"] == err_res["id"]
+
+    # Search by data text
+    search_res = await client.get(f"/seller/variants/{variant_id}/resources", params={"search": assigned_res["data"]}, headers=headers)
+    assert search_res.status_code == 200
+    assert any(r["id"] == assigned_res["id"] for r in search_res.json())
+
+    # Search by order_id
+    search_order = await client.get(f"/seller/variants/{variant_id}/resources", params={"search": f"#{order_id}"}, headers=headers)
+    assert search_order.status_code == 200
+    found_ids = [r["id"] for r in search_order.json()]
+    assert assigned_res["id"] in found_ids or err_res["id"] in found_ids
+
+
+@pytest.mark.asyncio
+async def test_restock_and_archive_resource(client):
+    from sqlalchemy import update as sa_update
+    from src.database import SessionLocal
+    from src.models.resource import Resource, ResourceStatus
+
+    seller_token, _, variant_id = await _seller_with_variant(client, "restock_arch@example.com")
+    headers = {"Authorization": f"Bearer {seller_token}"}
+    await client.post(f"/seller/variants/{variant_id}/resources",
+                      json={"items": ["broken|acc|1", "broken|acc|2"]},
+                      headers=headers)
+    all_res = (await client.get(f"/seller/variants/{variant_id}/resources", headers=headers)).json()
+    r1, r2 = all_res[0], all_res[1]
+
+    async with SessionLocal() as db:
+        await db.execute(sa_update(Resource).where(Resource.id == r1["id"]).values(status=ResourceStatus.error))
+        await db.execute(sa_update(Resource).where(Resource.id == r2["id"]).values(status=ResourceStatus.error))
+        await db.commit()
+
+    # Restock r1 with updated data
+    restocked = await client.post(f"/seller/resources/{r1['id']}/restock", json={"data": "fixed|acc|1"}, headers=headers)
+    assert restocked.status_code == 200
+    data = restocked.json()
+    assert data["status"] == "available"
+    assert data["order_id"] is None
+    assert data["data"] == "fixed|acc|1"
+    assert data["is_archived"] is False
+
+    # Archive r2
+    archived = await client.post(f"/seller/resources/{r2['id']}/archive", headers=headers)
+    assert archived.status_code == 200
+    assert archived.json()["is_archived"] is True
+
+    # Check that archived item is excluded from normal listing
+    active_items = (await client.get(f"/seller/variants/{variant_id}/resources", headers=headers)).json()
+    assert all(item["id"] != r2["id"] for item in active_items)
+
+    # Bulk actions
+    bulk_resp = await client.post(
+        f"/seller/variants/{variant_id}/resources/bulk-action",
+        json={"action": "archive", "resource_ids": [r1["id"]]},
+        headers=headers,
+    )
+    assert bulk_resp.status_code == 200
+    assert bulk_resp.json()["count"] == 1
+

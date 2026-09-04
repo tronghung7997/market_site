@@ -1,5 +1,5 @@
 import type {
-  Account, ActionItem, AdminDepositIntent, AdminDepositLedgerQuery, AdminDepositLedgerResponse, AdminDepositTransaction, AdminDisputeDetail, AdminOrderDetail, AdminProduct, AdminResourceListResponse, AffiliateStats, AffiliateSummary, CalculateResult, Category, ChargeUsageResult, ChatConversationDetail, ChatConversationList, ChatMessage, DashboardData, DepositIntent, DepositMethods, DepositReconcileResult, DepositRailConfigAdmin, DepositRailConfigUpdate, Dispute, SePayWebhookEventRow, AdminAccountWallet, FundOverview, AccountAdminRow, PaginatedAccounts, LogEntry, MailConfigAdmin, MailConfigUpdate, MailOutboxList, MailSendTestResponse, MailTemplatePreview, MailTemplateRow, MoneyConfigAdmin, MoneyConfigPublic, MoneyConfigUpdate, Order, OrderStats, PaginatedAffiliateSummary, PaginatedOrderResponse, PaginatedProducts, PricingField, PricingOptions, ProductDetail, AdminProductDetail, Product, ProductLocale, ProductOperations, ProductTranslation, ProxyState, ProxyRotateResult, ProxyWhitelistResult, Review, SellerApplication, SellerProduct, SellerStats, ServiceTask, TikTokLookupResponse, Transaction, Variant, Wallet, WithdrawRequest, Provider, ProviderHealth, Alert, Resource, ResourceSummary, ResourceSellerFacet, InventoryVariant, SellerSummary, SellerProfile, SellerDisputeResource, SellerDisputeResourceList, SellerReplacementResourceList,
+  Account, ActionItem, AdminDepositIntent, AdminDepositLedgerQuery, AdminDepositLedgerResponse, AdminDepositTransaction, AdminDisputeDetail, AdminOrderDetail, AdminProduct, AdminResourceListResponse, AffiliateStats, AffiliateSummary, CalculateResult, Category, ChargeUsageResult, ChatConversationDetail, ChatConversationList, ChatMessage, DashboardData, DepositIntent, DepositMethods, DepositReconcileResult, DepositRailConfigAdmin, DepositRailConfigUpdate, Dispute, SePayWebhookEventRow, AdminAccountWallet, FundOverview, AccountAdminRow, PaginatedAccounts, LogEntry, MailConfigAdmin, MailConfigUpdate, MailOutboxList, MailSendTestResponse, MailTemplatePreview, MailTemplateRow, MoneyConfigAdmin, MoneyConfigPublic, MoneyConfigUpdate, Order, OrderStats, PaginatedAffiliateSummary, PaginatedOrderResponse, PaginatedProducts, PricingField, PricingOptions, ProductDetail, AdminProductDetail, Product, ProductLocale, ProductOperations, ProductTranslation, ProxyState, ProxyRotateResult, ProxyWhitelistResult, Review, SellerApplication, SellerProduct, SellerStats, ServiceTask, TikTokLookupResponse, Transaction, Variant, Wallet, WithdrawRequest, Provider, ProviderHealth, Alert, Resource, ResourceSummary, ResourceSellerFacet, InventoryVariant, SellerSummary, SellerProfile, SellerDisputeResource, SellerDisputeResourceList, SellerReplacementResourceList, BulkResourceActionResult,
 } from "./types";
 import {
   ApiError,
@@ -234,11 +234,20 @@ export const api = {
       method: "POST",
       body: JSON.stringify({ items }),
     }, true),
-  sellerVariantResources: async (variantId: number, opts: { page?: number; perPage?: number } = {}) => {
+  sellerVariantResources: async (
+    variantId: number,
+    opts: { page?: number; perPage?: number; status?: string; search?: string } = {},
+  ) => {
     const q = new URLSearchParams({
       page: String(opts.page ?? 1),
       per_page: String(opts.perPage ?? 25),
     });
+    if (opts.status && opts.status !== "all") {
+      q.set("status", opts.status);
+    }
+    if (opts.search?.trim()) {
+      q.set("search", opts.search.trim());
+    }
     const path = `/seller/variants/${variantId}/resources?${q}`;
     const headers: Record<string, string> = { "Accept-Language": browserLocale() };
     let res: Response;
@@ -265,6 +274,20 @@ export const api = {
   inventorySummary: () => request<InventoryVariant[]>("/seller/inventory/summary", {}, true),
   updateResource: (resourceId: number, data: string) =>
     request<Resource>(`/seller/resources/${resourceId}`, { method: "PATCH", body: JSON.stringify({ data }) }, true),
+  restockResource: (resourceId: number, data?: string) =>
+    request<Resource>(`/seller/resources/${resourceId}/restock`, {
+      method: "POST",
+      body: JSON.stringify({ data: data ?? null }),
+    }, true),
+  archiveResource: (resourceId: number) =>
+    request<Resource>(`/seller/resources/${resourceId}/archive`, {
+      method: "POST",
+    }, true),
+  bulkResourceAction: (variantId: number, action: "restock" | "archive" | "delete", resourceIds: number[]) =>
+    request<BulkResourceActionResult>(`/seller/variants/${variantId}/resources/bulk-action`, {
+      method: "POST",
+      body: JSON.stringify({ action, resource_ids: resourceIds }),
+    }, true),
   deleteResource: (resourceId: number) =>
     request<void>(`/seller/resources/${resourceId}`, { method: "DELETE" }, true),
   sellerAcceptOrder: (orderId: number) =>

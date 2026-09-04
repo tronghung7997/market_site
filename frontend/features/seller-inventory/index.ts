@@ -105,7 +105,19 @@ export function downloadRestockTemplate(format: "txt" | "csv", basename: string)
 }
 
 export function canEditInventoryResource(status: string): boolean {
-  return status === "available";
+  return status === "available" || status === "error";
+}
+
+export function canRestockInventoryResource(status: string): boolean {
+  return status === "error";
+}
+
+export function canArchiveInventoryResource(status: string): boolean {
+  return status === "error" || status === "available";
+}
+
+export function isDefectiveReturnResource(status: string, orderId: number | null | undefined): boolean {
+  return status === "error" && typeof orderId === "number" && orderId > 0;
 }
 
 export function nextSellerProductStatus(status: string): SellerMutableProductStatus | null {

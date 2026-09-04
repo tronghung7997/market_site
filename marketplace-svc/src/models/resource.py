@@ -1,7 +1,7 @@
 from datetime import datetime
 from enum import Enum as PyEnum
 
-from sqlalchemy import DateTime, Enum, ForeignKey, Integer, Text, func
+from sqlalchemy import Boolean, DateTime, Enum, ForeignKey, Integer, Text, func
 from sqlalchemy.orm import Mapped, mapped_column
 
 from src.database import Base
@@ -30,3 +30,4 @@ class Resource(Base):
     # Immutable escrow allocation for this delivered unit. A replacement inherits
     # the original unit's cap so repeated remedies can never exceed the order hold.
     refund_amount_cap: Mapped[int | None] = mapped_column(Integer, nullable=True)
+    is_archived: Mapped[bool] = mapped_column(Boolean, default=False, server_default=func.false(), nullable=False)

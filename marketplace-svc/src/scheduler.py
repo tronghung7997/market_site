@@ -452,7 +452,12 @@ async def resource_expire_job() -> None:
 
         for vid in affected_variants:
             available = await db.execute(
-                select(Resource).where(Resource.variant_id == vid, Resource.status == ResourceStatus.available)
+                select(Resource).where(
+                    Resource.variant_id == vid,
+                    Resource.status == ResourceStatus.available,
+                    Resource.order_id.is_(None),
+                    Resource.is_archived == False,  # noqa: E712
+                )
             )
             count = len(list(available.scalars().all()))
             if count <= 3:

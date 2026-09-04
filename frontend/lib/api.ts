@@ -236,7 +236,7 @@ export const api = {
     }, true),
   sellerVariantResources: async (
     variantId: number,
-    opts: { page?: number; perPage?: number; status?: string; search?: string } = {},
+    opts: { page?: number; perPage?: number; status?: string; search?: string; archivedOnly?: boolean } = {},
   ) => {
     const q = new URLSearchParams({
       page: String(opts.page ?? 1),
@@ -247,6 +247,9 @@ export const api = {
     }
     if (opts.search?.trim()) {
       q.set("search", opts.search.trim());
+    }
+    if (opts.archivedOnly) {
+      q.set("archived_only", "true");
     }
     const path = `/seller/variants/${variantId}/resources?${q}`;
     const headers: Record<string, string> = { "Accept-Language": browserLocale() };
@@ -274,16 +277,20 @@ export const api = {
   inventorySummary: () => request<InventoryVariant[]>("/seller/inventory/summary", {}, true),
   updateResource: (resourceId: number, data: string) =>
     request<Resource>(`/seller/resources/${resourceId}`, { method: "PATCH", body: JSON.stringify({ data }) }, true),
-  restockResource: (resourceId: number, data?: string) =>
+  restockResource: (resourceId: number, data: string) =>
     request<Resource>(`/seller/resources/${resourceId}/restock`, {
       method: "POST",
-      body: JSON.stringify({ data: data ?? null }),
+      body: JSON.stringify({ data }),
     }, true),
   archiveResource: (resourceId: number) =>
     request<Resource>(`/seller/resources/${resourceId}/archive`, {
       method: "POST",
     }, true),
-  bulkResourceAction: (variantId: number, action: "restock" | "archive" | "delete", resourceIds: number[]) =>
+  restoreResource: (resourceId: number) =>
+    request<Resource>(`/seller/resources/${resourceId}/restore`, {
+      method: "POST",
+    }, true),
+  bulkResourceAction: (variantId: number, action: "archive" | "restore" | "delete", resourceIds: number[]) =>
     request<BulkResourceActionResult>(`/seller/variants/${variantId}/resources/bulk-action`, {
       method: "POST",
       body: JSON.stringify({ action, resource_ids: resourceIds }),

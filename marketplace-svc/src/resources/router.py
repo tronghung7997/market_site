@@ -6,6 +6,7 @@ from src.audit.service import log_event
 from src.database import get_session
 from src.logging import current_request_id
 from src.models.account import Account
+from src.models.resource import ResourceStatus
 
 from . import schemas, service
 
@@ -22,9 +23,10 @@ async def bulk_add(variant_id: int, body: schemas.BulkResourceCreate, account: A
 async def list_res(
     variant_id: int,
     response: Response,
-    status: str | None = None,
+    resource_status: ResourceStatus | None = Query(None, alias="status"),
     search: str | None = None,
     include_archived: bool = False,
+    archived_only: bool = False,
     page: int = Query(1, ge=1),
     per_page: int = Query(10_000, ge=1, le=10_000),
     account: Account = Depends(require_role("seller")),
@@ -34,9 +36,10 @@ async def list_res(
         variant_id,
         account.id,
         db,
-        status_filter=status,
+        status_filter=resource_status,
         search=search,
         include_archived=include_archived,
+        archived_only=archived_only,
         page=page,
         per_page=per_page,
     )
@@ -57,12 +60,11 @@ async def update_res(resource_id: int, body: schemas.ResourceUpdate, account: Ac
 @router.post("/seller/resources/{resource_id}/restock", response_model=schemas.ResourceResponse)
 async def restock_res(
     resource_id: int,
-    body: schemas.ResourceRestock | None = None,
+    body: schemas.ResourceRestock,
     account: Account = Depends(require_role("seller")),
     db: AsyncSession = Depends(get_session),
 ):
-    data = body.data if body else None
-    return await service.restock_resource(resource_id, account.id, db, data=data)
+    return await service.restock_resource(resource_id, account.id, db, data=body.data)
 
 
 @router.post("/seller/resources/{resource_id}/archive", response_model=schemas.ResourceResponse)
@@ -72,6 +74,15 @@ async def archive_res(
     db: AsyncSession = Depends(get_session),
 ):
     return await service.archive_resource(resource_id, account.id, db)
+
+
+@router.post("/seller/resources/{resource_id}/restore", response_model=schemas.ResourceResponse)
+async def restore_res(
+    resource_id: int,
+    account: Account = Depends(require_role("seller")),
+    db: AsyncSession = Depends(get_session),
+):
+    return await service.restore_resource(resource_id, account.id, db)
 
 
 @router.post("/seller/variants/{variant_id}/resources/bulk-action", response_model=schemas.BulkResourceActionResult)

@@ -368,7 +368,33 @@ async def test_inventory_summary_counts_by_variant(client):
     assert len(rows) == 1
     assert rows[0]["available"] == 3
     assert rows[0]["assigned"] == 0
+    assert rows[0]["archived"] == 0
     assert rows[0]["product_title"]
+
+
+@pytest.mark.asyncio
+async def test_inventory_summary_counts_archived_resources_separately(client):
+    seller_token, _, variant_id = await _seller_with_variant(client, "inv_archived_count@example.com")
+    headers = {"Authorization": f"Bearer {seller_token}"}
+    await client.post(
+        f"/seller/variants/{variant_id}/resources",
+        json={"items": ["visible|resource", "archived|resource"]},
+        headers=headers,
+    )
+    resources = (await client.get(
+        f"/seller/variants/{variant_id}/resources",
+        headers=headers,
+    )).json()
+    archived_id = next(resource["id"] for resource in resources if resource["data"] == "archived|resource")
+    archived = await client.post(f"/seller/resources/{archived_id}/archive", headers=headers)
+    assert archived.status_code == 200, archived.text
+
+    rows = (await client.get("/seller/inventory/summary", headers=headers)).json()
+    row = next(item for item in rows if item["variant_id"] == variant_id)
+
+    assert row["available"] == 1
+    assert row["assigned"] == 0
+    assert row["archived"] == 1
 
 
 @pytest.mark.asyncio
@@ -533,6 +559,22 @@ async def test_list_resources_filtering_by_status_and_search(client):
     found_ids = [r["id"] for r in search_order.json()]
     assert assigned_res["id"] in found_ids or err_res["id"] in found_ids
 
+    invalid = await client.get(
+        f"/seller/variants/{variant_id}/resources",
+        params={"status": "bogus"},
+        headers=headers,
+    )
+    assert invalid.status_code == 422
+
+    cannot_restock_order_history = await client.post(
+        f"/seller/resources/{err_res['id']}/restock",
+        json={"data": "fixed-but-historical"},
+        headers=headers,
+    )
+    assert cannot_restock_order_history.status_code == 400
+    history = (await client.get(f"/orders/{order_id}/resources", headers=headers)).json()
+    assert any(item["id"] == err_res["id"] for item in history)
+
 
 @pytest.mark.asyncio
 async def test_restock_and_archive_resource(client):
@@ -571,6 +613,18 @@ async def test_restock_and_archive_resource(client):
     active_items = (await client.get(f"/seller/variants/{variant_id}/resources", headers=headers)).json()
     assert all(item["id"] != r2["id"] for item in active_items)
 
+    archived_items = (await client.get(
+        f"/seller/variants/{variant_id}/resources",
+        params={"archived_only": "true"},
+        headers=headers,
+    )).json()
+    assert [item["id"] for item in archived_items] == [r2["id"]]
+
+    restored = await client.post(f"/seller/resources/{r2['id']}/restore", headers=headers)
+    assert restored.status_code == 200
+    assert restored.json()["is_archived"] is False
+    assert restored.json()["status"] == "error"
+
     # Bulk actions
     bulk_resp = await client.post(
         f"/seller/variants/{variant_id}/resources/bulk-action",
@@ -580,3 +634,24 @@ async def test_restock_and_archive_resource(client):
     assert bulk_resp.status_code == 200
     assert bulk_resp.json()["count"] == 1
 
+    atomic_failure = await client.post(
+        f"/seller/variants/{variant_id}/resources/bulk-action",
+        json={"action": "restore", "resource_ids": [r1["id"], 999999999]},
+        headers=headers,
+    )
+    assert atomic_failure.status_code == 400
+    still_archived = (await client.get(
+        f"/seller/variants/{variant_id}/resources",
+        params={"archived_only": "true"},
+        headers=headers,
+    )).json()
+    assert any(item["id"] == r1["id"] for item in still_archived)
+
+    public_products = (await client.get("/products")).json()["items"]
+    public_variant = next(
+        variant
+        for product in public_products
+        for variant in product["variants"]
+        if variant["id"] == variant_id
+    )
+    assert public_variant["stock_count"] == 0

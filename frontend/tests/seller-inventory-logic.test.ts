@@ -113,12 +113,14 @@ test("available and error resources expose editing", () => {
   for (const status of ["assigned", "expired"]) {
     assert.equal(canEditInventoryResource(status), false);
   }
+  assert.equal(canEditInventoryResource("error", 123), false);
 });
 
 test("restock and archive capability rules", () => {
   assert.equal(canRestockInventoryResource("error"), true);
   assert.equal(canRestockInventoryResource("available"), false);
   assert.equal(canRestockInventoryResource("assigned"), false);
+  assert.equal(canRestockInventoryResource("error", 123), false);
 
   assert.equal(canArchiveInventoryResource("error"), true);
   assert.equal(canArchiveInventoryResource("available"), true);

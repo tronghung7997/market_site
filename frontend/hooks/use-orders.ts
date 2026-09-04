@@ -18,6 +18,7 @@ export function useOrders(filters: OrderFilters = {}, enabled = true) {
     queryKey: queryKeys.orders(filters as Record<string, unknown>),
     queryFn: () => api.orders(filters),
     enabled,
+    placeholderData: (previousData) => previousData,
   });
 }
 

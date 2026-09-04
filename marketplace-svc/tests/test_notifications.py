@@ -250,7 +250,7 @@ async def test_buyer_can_dismiss_own_alert_but_not_sellers(client):
             target_type="buyer",
             target_id=buyer_id,
             message="Đơn #1: seller hoàn 1 tài khoản (#91).",
-            href="/orders?search=1&resources=91",
+            href="/orders?order_id=1&resources=91",
         )
         seller_alert = await add_alert(
             db,
@@ -259,7 +259,7 @@ async def test_buyer_can_dismiss_own_alert_but_not_sellers(client):
             target_type="seller",
             target_id=seller_id,
             message="Đơn #1: đã hoàn 1 tài khoản cho buyer (#91).",
-            href="/seller/orders?search=1&resources=91",
+            href="/seller/orders?order_id=1&resources=91",
         )
         await db.commit()
         buyer_alert_id = buyer_alert.id

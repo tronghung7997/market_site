@@ -159,6 +159,8 @@ Security and financial behavior are never page/router convenience logic.
 
 ### Dispute settlement invariants
 
+- A resource that has ever been attached to an order is immutable inventory history: it may be inspected, archived, refunded, or replaced through the order/dispute workflow, but it must never return to sellable stock. Archiving is visibility-only and restoring an archived resource must preserve its status, order link, assignment timestamps, and refund allocation. Every stock projection and allocation path excludes archived resources and requires sellable resources to have no order link.
+
 - Instant-inventory orders allocate the immutable order total across delivered resources in integer ledger units. Remainders are assigned deterministically by resource order; legacy orders are backfilled only when resource count equals purchased quantity.
 - A buyer may add multiple append-only claim batches to one open case. Each resource can appear only once in that case, while later replacement resources may be claimed in a later batch.
 - Seller resource remedies are immutable and idempotent. Refund actions credit only the selected resources' allocation; replacement actions preserve that allocation on the replacement and never return a reported-broken resource to available inventory. A refund or replace writes one-off buyer and seller alerts naming the affected resource IDs, with an href that opens that order's delivery list highlighting those IDs. `Order.delivered_data` is refreshed to currently assigned resources only; remedied originals stay on the order as `error` for the inspector.

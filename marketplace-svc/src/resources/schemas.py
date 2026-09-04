@@ -12,11 +12,11 @@ class ResourceUpdate(BaseModel):
 
 
 class ResourceRestock(BaseModel):
-    data: str | None = Field(default=None, max_length=8000)
+    data: str = Field(min_length=1, max_length=8000)
 
 
 class BulkResourceAction(BaseModel):
-    action: str = Field(pattern="^(restock|archive|delete)$")
+    action: str = Field(pattern="^(archive|restore|delete)$")
     resource_ids: list[int] = Field(min_length=1, max_length=500)
 
 
@@ -37,6 +37,7 @@ class InventoryVariantSummary(BaseModel):
     assigned: int
     expired: int
     error: int
+    archived: int
 
 
 class BulkResourceResponse(BaseModel):

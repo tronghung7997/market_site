@@ -2,7 +2,7 @@
 
 import { useSearchParams } from "next/navigation";
 import { Suspense, useCallback, useEffect, useMemo, useRef, useState } from "react";
-import { useTranslations } from "next-intl";
+import { useLocale, useTranslations } from "next-intl";
 import { Link } from "@/i18n/navigation";
 import { api } from "@/lib/api";
 import { useApiErrorMessage } from "@/lib/use-api-error";
@@ -108,6 +108,7 @@ export default function InventoryPage() {
 
 function InventoryConsole() {
   const t = useTranslations("seller");
+  const locale = useLocale();
   const { formatBrowseMoney } = useMoney();
   const apiErrorMessage = useApiErrorMessage();
   const searchParams = useSearchParams();
@@ -131,7 +132,7 @@ function InventoryConsole() {
   const [resourceLoadError, setResourceLoadError] = useState(false);
   const [resourcePage, setResourcePage] = useState(1);
   const [resourcePageSize, setResourcePageSize] = useState(25);
-  const [resourceStatusFilter, setResourceStatusFilter] = useState<"all" | "available" | "error" | "assigned">("all");
+  const [resourceStatusFilter, setResourceStatusFilter] = useState<"all" | "available" | "error" | "assigned" | "archived">("all");
   const [resourceSearch, setResourceSearch] = useState("");
   const debouncedResourceSearch = useDebounce(resourceSearch, 250);
   const [selectedResourceIds, setSelectedResourceIds] = useState<Set<number>>(new Set());
@@ -186,8 +187,9 @@ function InventoryConsole() {
         const res = await api.sellerVariantResources(variantId, {
           page,
           perPage,
-          status: statusFilter !== "all" ? statusFilter : undefined,
+          status: statusFilter !== "all" && statusFilter !== "archived" ? statusFilter : undefined,
           search: searchQuery.trim() || undefined,
+          archivedOnly: statusFilter === "archived",
         });
         if (!resourceRequestGate.current.isCurrent(request)) return;
         setResources(res.items);
@@ -474,7 +476,7 @@ function InventoryConsole() {
     }
   };
 
-  const handleRestockSingle = async (resourceId: number, data?: string) => {
+  const handleRestockSingle = async (resourceId: number, data: string) => {
     try {
       await api.restockResource(resourceId, data);
       await loadSummary();
@@ -522,40 +524,27 @@ function InventoryConsole() {
     }
   };
 
-  const handleBulkRestock = async () => {
-    if (!activeVariant || selectedResourceIds.size === 0) return;
-    const count = selectedResourceIds.size;
-    if (!confirm(t("inventoryBulkRestockConfirm", { count }))) return;
-
-    setBulkOperating(true);
-    setBulkMessage(null);
+  const handleRestoreSingle = async (resourceId: number) => {
     try {
-      await api.bulkResourceAction(
-        activeVariant.variant_id,
-        "restock",
-        Array.from(selectedResourceIds),
-      );
-      setSelectedResourceIds(new Set());
-      setBulkMessage({
-        type: "success",
-        text: t("inventoryRestockSuccess", { count }),
+      await api.restoreResource(resourceId);
+      setSelectedResourceIds((prev) => {
+        const next = new Set(prev);
+        next.delete(resourceId);
+        return next;
       });
+      if (activeDetailResource?.id === resourceId) setActiveDetailResource(null);
       await loadSummary();
-      await loadVariantResources(
-        activeVariant.variant_id,
-        resourcePage,
-        resourceStatusFilter,
-        debouncedResourceSearch,
-        resourcePageSize,
-      );
-      setTimeout(() => setBulkMessage(null), 3500);
+      if (activeVariant) {
+        await loadVariantResources(
+          activeVariant.variant_id,
+          resourcePage,
+          resourceStatusFilter,
+          debouncedResourceSearch,
+          resourcePageSize,
+        );
+      }
     } catch (err: unknown) {
-      setBulkMessage({
-        type: "error",
-        text: apiErrorMessage(err, t("inventorySaveFailed")),
-      });
-    } finally {
-      setBulkOperating(false);
+      alert(apiErrorMessage(err, t("inventoryRestoreFailed")));
     }
   };
 
@@ -567,7 +556,7 @@ function InventoryConsole() {
     setBulkOperating(true);
     setBulkMessage(null);
     try {
-      await api.bulkResourceAction(
+      const result = await api.bulkResourceAction(
         activeVariant.variant_id,
         "archive",
         Array.from(selectedResourceIds),
@@ -575,7 +564,7 @@ function InventoryConsole() {
       setSelectedResourceIds(new Set());
       setBulkMessage({
         type: "success",
-        text: t("inventoryArchiveSuccess", { count }),
+        text: t("inventoryArchiveSuccess", { count: result.count }),
       });
       await loadSummary();
       await loadVariantResources(
@@ -591,6 +580,30 @@ function InventoryConsole() {
         type: "error",
         text: apiErrorMessage(err, t("inventoryDeleteFailed")),
       });
+    } finally {
+      setBulkOperating(false);
+    }
+  };
+
+  const handleBulkRestore = async () => {
+    if (!activeVariant || selectedResourceIds.size === 0) return;
+    const count = selectedResourceIds.size;
+    if (!confirm(t("inventoryBulkRestoreConfirm", { count }))) return;
+    setBulkOperating(true);
+    setBulkMessage(null);
+    try {
+      const result = await api.bulkResourceAction(
+        activeVariant.variant_id,
+        "restore",
+        Array.from(selectedResourceIds),
+      );
+      setSelectedResourceIds(new Set());
+      setBulkMessage({ type: "success", text: t("inventoryRestoreSuccess", { count: result.count }) });
+      await loadSummary();
+      await loadVariantResources(activeVariant.variant_id, resourcePage, resourceStatusFilter, debouncedResourceSearch, resourcePageSize);
+      setTimeout(() => setBulkMessage(null), 3500);
+    } catch (err: unknown) {
+      setBulkMessage({ type: "error", text: apiErrorMessage(err, t("inventoryRestoreFailed")) });
     } finally {
       setBulkOperating(false);
     }
@@ -1371,6 +1384,21 @@ function InventoryConsole() {
                               {activeVariant.assigned}
                             </span>
                           </button>
+                          <button
+                            type="button"
+                            onClick={() => setResourceStatusFilter("archived")}
+                            className={cn(
+                              "px-2.5 py-1 rounded-md transition-all font-medium text-xs flex items-center gap-1.5 whitespace-nowrap shrink-0",
+                              resourceStatusFilter === "archived"
+                                ? "bg-surface text-fg font-semibold shadow-xs ring-1 ring-line"
+                                : "text-muted hover:text-fg hover:bg-raised/40",
+                            )}
+                          >
+                            <span>{t("inventorySubtabArchived")}</span>
+                            <span className="text-[10px] px-1.5 py-0.5 rounded-full bg-raised text-muted font-mono leading-none">
+                              {activeVariant.archived}
+                            </span>
+                          </button>
                         </div>
 
                         {/* Export Buttons */}
@@ -1461,25 +1489,23 @@ function InventoryConsole() {
                               <Download size={12} />
                               <span>{t("inventoryBulkExportTxt")}</span>
                             </Button>
-                            <Button
-                              size="sm"
-                              onClick={handleBulkRestock}
-                              disabled={bulkOperating}
-                              className="h-7 text-xs gap-1 bg-good hover:bg-good/90 text-white"
-                            >
-                              <RotateCcw size={12} />
-                              <span>{t("inventoryBulkRestock", { count: selectedResourceIds.size })}</span>
-                            </Button>
-                            <Button
-                              size="sm"
-                              variant="secondary"
-                              onClick={handleBulkArchive}
-                              disabled={bulkOperating}
-                              className="h-7 text-xs gap-1 text-bad hover:bg-bad-soft"
-                            >
-                              <EyeOff size={12} />
-                              <span>{t("inventoryBulkArchive", { count: selectedResourceIds.size })}</span>
-                            </Button>
+                            {resourceStatusFilter === "archived" ? (
+                              <Button size="sm" onClick={handleBulkRestore} disabled={bulkOperating} className="h-7 text-xs gap-1">
+                                <RotateCcw size={12} />
+                                <span>{t("inventoryBulkRestore", { count: selectedResourceIds.size })}</span>
+                              </Button>
+                            ) : (
+                              <Button
+                                size="sm"
+                                variant="secondary"
+                                onClick={handleBulkArchive}
+                                disabled={bulkOperating}
+                                className="h-7 text-xs gap-1 text-bad hover:bg-bad-soft"
+                              >
+                                <EyeOff size={12} />
+                                <span>{t("inventoryBulkArchive", { count: selectedResourceIds.size })}</span>
+                              </Button>
+                            )}
                           </div>
                         </div>
                       )}
@@ -1520,7 +1546,7 @@ function InventoryConsole() {
                       ) : (
                         <div className="rounded-xl border border-line overflow-hidden bg-surface">
                           <div className="overflow-x-auto">
-                            <table className="w-full text-left text-xs border-collapse">
+                            <table className="w-full table-fixed text-left text-xs border-collapse">
                               <thead>
                                 <tr className="bg-raised/40 text-faint text-[11px] font-semibold border-b border-line">
                                   <th className="w-10 px-3 py-2.5 text-center">
@@ -1532,11 +1558,11 @@ function InventoryConsole() {
                                       title={isAllPageSelected ? t("inventoryDeselectAll") : t("inventorySelectAllPage")}
                                     />
                                   </th>
-                                  <th className="px-3.5 py-2.5">{t("status")}</th>
+                                  <th className="w-28 px-3.5 py-2.5 whitespace-nowrap">{t("status")}</th>
                                   <th className="px-3.5 py-2.5">{t("resourceTableContent")}</th>
-                                  <th className="px-3.5 py-2.5">{t("resourceTableOrder")}</th>
-                                  <th className="px-3.5 py-2.5">{t("resourceTableDate")}</th>
-                                  <th className="px-3.5 py-2.5 text-right">{t("actions")}</th>
+                                  <th className="w-20 px-3.5 py-2.5 whitespace-nowrap">{t("resourceTableOrder")}</th>
+                                  <th className="w-28 px-3.5 py-2.5 whitespace-nowrap">{t("resourceTableDate")}</th>
+                                  <th className="w-32 px-3.5 py-2.5 text-right whitespace-nowrap">{t("actions")}</th>
                                 </tr>
                               </thead>
                               <tbody className="divide-y divide-line text-[12px]">
@@ -1546,7 +1572,9 @@ function InventoryConsole() {
                                   const isError = res.status === "error";
                                   const isDefective = isDefectiveReturnResource(res.status, res.order_id);
 
-                                  const tone = isAvailable
+                                  const tone = res.is_archived
+                                    ? "neutral"
+                                    : isAvailable
                                     ? "good"
                                     : isAssigned
                                       ? "neutral"
@@ -1556,7 +1584,9 @@ function InventoryConsole() {
                                           ? "bad"
                                           : "warn";
 
-                                  const label = isAvailable
+                                  const label = res.is_archived
+                                    ? t("inventoryResourceArchived")
+                                    : isAvailable
                                     ? t("inventoryResourceAvailable")
                                     : isAssigned
                                       ? t("inventoryResourceAssigned")
@@ -1595,7 +1625,7 @@ function InventoryConsole() {
                                       </td>
 
                                       {/* Resource Data */}
-                                      <td className="px-3.5 py-2 font-mono text-[11.5px] max-w-[280px]">
+                                      <td className="px-3.5 py-2 font-mono text-[11.5px] min-w-0">
                                         <span className="truncate block" title={res.data}>
                                           {res.data.slice(0, 36)}
                                           {res.data.length > 36 && "..."}
@@ -1606,7 +1636,7 @@ function InventoryConsole() {
                                       <td className="px-3.5 py-2 text-muted">
                                         {res.order_id ? (
                                           <Link
-                                            href={`/seller/orders?search=${res.order_id}`}
+                                            href={`/seller/orders?search=%23${res.order_id}`}
                                             onClick={(e) => e.stopPropagation()}
                                             className="font-mono text-iris hover:underline"
                                           >
@@ -1618,61 +1648,74 @@ function InventoryConsole() {
                                       </td>
 
                                       {/* Date */}
-                                      <td className="px-3.5 py-2 text-faint font-mono text-[11px]">
-                                        {new Date(res.created_at).toLocaleDateString("vi-VN", {
+                                      <td className="px-3.5 py-2 text-faint font-mono text-[11px] whitespace-nowrap">
+                                        {new Date(res.created_at).toLocaleDateString(locale === "vi" ? "vi-VN" : "en-US", {
                                           month: "numeric",
                                           day: "numeric",
                                           hour: "2-digit",
                                           minute: "2-digit",
+                                          hour12: false,
                                         })}
                                       </td>
 
                                       {/* Actions */}
-                                      <td className="px-3.5 py-2 text-right">
+                                      <td className="px-3.5 py-2 text-right whitespace-nowrap">
                                         <div className="flex items-center justify-end gap-1" onClick={(e) => e.stopPropagation()}>
-                                          {canRestockInventoryResource(res.status) && (
+                                          {canRestockInventoryResource(res.status, res.order_id) && !res.is_archived && (
                                             <Button
                                               size="sm"
                                               variant="ghost"
-                                              onClick={() => void handleRestockSingle(res.id)}
-                                              className="h-6 px-1.5 text-[11px] text-good hover:text-good hover:bg-good-soft gap-1"
+                                              onClick={() => setActiveDetailResource(res)}
+                                              className="h-7 w-7 p-0 text-good hover:text-good hover:bg-good-soft inline-flex items-center justify-center rounded-lg"
                                               title={t("inventoryRestockSingle")}
+                                              aria-label={t("inventoryRestockSingle")}
                                             >
-                                              <RotateCcw size={12} />
-                                              <span className="ml-0.5 hidden xl:inline">{t("inventoryRestockSingle")}</span>
+                                              <RotateCcw size={13} />
                                             </Button>
                                           )}
-                                          {canArchiveInventoryResource(res.status) && (
+                                          {res.is_archived ? (
+                                            <Button
+                                              size="sm"
+                                              variant="ghost"
+                                              onClick={() => void handleRestoreSingle(res.id)}
+                                              className="h-7 w-7 p-0 text-iris hover:text-iris-hi hover:bg-iris-soft inline-flex items-center justify-center rounded-lg"
+                                              title={t("inventoryRestoreSingle")}
+                                              aria-label={t("inventoryRestoreSingle")}
+                                            >
+                                              <RotateCcw size={13} />
+                                            </Button>
+                                          ) : canArchiveInventoryResource(res.status) && (
                                             <Button
                                               size="sm"
                                               variant="ghost"
                                               onClick={() => void handleArchiveSingle(res.id)}
-                                              className="h-6 px-1.5 text-[11px] text-muted hover:text-bad hover:bg-bad-soft gap-1"
+                                              className="h-7 w-7 p-0 text-muted hover:text-bad hover:bg-bad-soft inline-flex items-center justify-center rounded-lg"
                                               title={t("inventoryArchiveSingle")}
+                                              aria-label={t("inventoryArchiveSingle")}
                                             >
-                                              <EyeOff size={12} />
-                                              <span className="ml-0.5 hidden xl:inline">{t("inventoryArchiveSingle")}</span>
+                                              <EyeOff size={13} />
                                             </Button>
                                           )}
                                           <Button
                                             size="sm"
                                             variant="ghost"
                                             onClick={() => setActiveDetailResource(res)}
-                                            className="h-6 px-1.5 text-[11px] text-iris hover:text-iris-hi"
+                                            className="h-7 w-7 p-0 text-iris hover:text-iris-hi hover:bg-iris-soft inline-flex items-center justify-center rounded-lg"
                                             title={t("resourceEditTitle")}
+                                            aria-label={t("resourceEditTitle")}
                                           >
-                                            <Edit2 size={12} />
-                                            <span className="ml-1 hidden sm:inline">{t("editShort")}</span>
+                                            <Edit2 size={13} />
                                           </Button>
                                           {isAvailable && (
                                             <Button
                                               size="sm"
                                               variant="ghost"
                                               onClick={() => handleDeleteResource(res.id)}
-                                              className="h-6 w-6 p-0 text-bad hover:text-bad hover:bg-bad-soft"
+                                              className="h-7 w-7 p-0 text-bad hover:text-bad hover:bg-bad-soft inline-flex items-center justify-center rounded-lg"
                                               title={t("inventoryDeleteLine")}
+                                              aria-label={t("inventoryDeleteLine")}
                                             >
-                                              <Trash size={12} />
+                                              <Trash size={13} />
                                             </Button>
                                           )}
                                         </div>
@@ -1727,6 +1770,7 @@ function InventoryConsole() {
           onDelete={handleDeleteResource}
           onRestock={handleRestockSingle}
           onArchive={handleArchiveSingle}
+          onRestore={handleRestoreSingle}
         />
       )}
 
@@ -1760,14 +1804,16 @@ function ResourceDetailModal({
   onDelete,
   onRestock,
   onArchive,
+  onRestore,
 }: {
   resource: Resource;
   isOpen: boolean;
   onClose: () => void;
   onSuccess: (updated: Resource) => void;
   onDelete: (id: number) => void;
-  onRestock?: (id: number, data?: string) => Promise<void> | void;
+  onRestock?: (id: number, data: string) => Promise<void> | void;
   onArchive?: (id: number) => Promise<void> | void;
+  onRestore?: (id: number) => Promise<void> | void;
 }) {
   const t = useTranslations("seller");
   const apiErrorMessage = useApiErrorMessage();
@@ -1776,6 +1822,7 @@ function ResourceDetailModal({
   const [saving, setSaving] = useState(false);
   const [restocking, setRestocking] = useState(false);
   const [archiving, setArchiving] = useState(false);
+  const [restoring, setRestoring] = useState(false);
   const [error, setError] = useState<string | null>(null);
 
   useEffect(() => {
@@ -1839,11 +1886,25 @@ function ResourceDetailModal({
     }
   };
 
+  const handleRestore = async () => {
+    if (!onRestore) return;
+    setRestoring(true);
+    setError(null);
+    try {
+      await onRestore(resource.id);
+      onClose();
+    } catch (err: unknown) {
+      setError(apiErrorMessage(err, t("inventoryRestoreFailed")));
+    } finally {
+      setRestoring(false);
+    }
+  };
+
   const isAvailable = resource.status === "available";
   const isAssigned = resource.status === "assigned";
   const isError = resource.status === "error";
   const isDefective = isDefectiveReturnResource(resource.status, resource.order_id);
-  const isEditable = canEditInventoryResource(resource.status);
+  const isEditable = canEditInventoryResource(resource.status, resource.order_id);
 
   const tone = isAvailable
     ? "good"
@@ -1914,7 +1975,7 @@ function ResourceDetailModal({
               <div className="mt-0.5">
                 {resource.order_id ? (
                   <Link
-                    href={`/seller/orders?search=${resource.order_id}`}
+                    href={`/seller/orders?search=%23${resource.order_id}`}
                     className="font-mono text-iris hover:underline font-bold"
                   >
                     #{resource.order_id}
@@ -1979,7 +2040,18 @@ function ResourceDetailModal({
                 <span>{t("delete")}</span>
               </Button>
             )}
-            {canArchiveInventoryResource(resource.status) && onArchive && (
+            {resource.is_archived && onRestore ? (
+              <Button
+                size="sm"
+                variant="ghost"
+                onClick={handleRestore}
+                disabled={restoring || saving || restocking}
+                className="text-iris hover:text-iris-hi h-8 text-xs gap-1"
+              >
+                <RotateCcw size={13} />
+                <span>{restoring ? t("inventoryRestoringSingle") : t("inventoryRestoreSingle")}</span>
+              </Button>
+            ) : canArchiveInventoryResource(resource.status) && onArchive && (
               <Button
                 size="sm"
                 variant="ghost"
@@ -1996,7 +2068,7 @@ function ResourceDetailModal({
             <Button size="sm" variant="ghost" onClick={onClose}>
               {t("close")}
             </Button>
-            {canRestockInventoryResource(resource.status) && onRestock && (
+            {canRestockInventoryResource(resource.status, resource.order_id) && !resource.is_archived && onRestock && (
               <Button
                 size="sm"
                 onClick={handleRestock}

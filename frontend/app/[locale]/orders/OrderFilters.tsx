@@ -16,16 +16,22 @@ export interface OrderFilterParams {
   sort?: string; page?: number; per_page?: number;
 }
 
-export function useOrderFilters(initialTab: string, initialSearch = "") {
+export function useOrderFilters(
+  initialTab = "",
+  initialSearch = "",
+  initialDateFrom = "",
+  initialDateTo = "",
+  initialSort = "newest",
+) {
   const [tab, setTab] = useState(initialTab);
   const [search, setSearch] = useState(initialSearch);
-  const [dateFrom, setDateFrom] = useState("");
-  const [dateTo, setDateTo] = useState("");
-  const [sort, setSort] = useState("newest");
+  const [dateFrom, setDateFrom] = useState(initialDateFrom);
+  const [dateTo, setDateTo] = useState(initialDateTo);
+  const [sort, setSort] = useState(initialSort);
   const [page, setPage] = useState(1);
   const [perPage, setPerPage] = useState(20);
 
-  const debouncedSearch = useDebounce(search, 350);
+  const debouncedSearch = useDebounce(search, 300);
 
   useEffect(() => {
     setPage(1);
@@ -39,9 +45,74 @@ export function useOrderFilters(initialTab: string, initialSearch = "") {
     if (initialSearch !== undefined) setSearch(initialSearch);
   }, [initialSearch]);
 
-  const hasFilters = search !== "" || dateFrom !== "" || dateTo !== "" || sort !== "newest";
+  const setDatePreset = (preset: "all" | "today" | "7d" | "30d") => {
+    if (preset === "all") {
+      setDateFrom("");
+      setDateTo("");
+      return;
+    }
+    const now = new Date();
+    const toStr = now.toISOString().slice(0, 10);
+    if (preset === "today") {
+      setDateFrom(toStr);
+      setDateTo(toStr);
+    } else if (preset === "7d") {
+      const from = new Date(Date.now() - 7 * 86400000);
+      setDateFrom(from.toISOString().slice(0, 10));
+      setDateTo(toStr);
+    } else if (preset === "30d") {
+      const from = new Date(Date.now() - 30 * 86400000);
+      setDateFrom(from.toISOString().slice(0, 10));
+      setDateTo(toStr);
+    }
+  };
 
-  const clear = () => { setSearch(""); setDateFrom(""); setDateTo(""); setSort("newest"); };
+  const activeDatePreset = useMemo<"all" | "today" | "7d" | "30d" | "custom">(() => {
+    if (!dateFrom && !dateTo) return "all";
+    const now = new Date();
+    const toStr = now.toISOString().slice(0, 10);
+    if (dateTo === toStr) {
+      if (dateFrom === toStr) return "today";
+      const d7 = new Date(Date.now() - 7 * 86400000).toISOString().slice(0, 10);
+      if (dateFrom === d7) return "7d";
+      const d30 = new Date(Date.now() - 30 * 86400000).toISOString().slice(0, 10);
+      if (dateFrom === d30) return "30d";
+    }
+    return "custom";
+  }, [dateFrom, dateTo]);
+
+  const isExactIdSearch = useMemo(() => {
+    const s = search.trim();
+    return s.startsWith("#") && s.length > 1 && !isNaN(Number(s.slice(1).trim()));
+  }, [search]);
+
+  const toggleSort = (column: "code" | "amount") => {
+    if (column === "code") {
+      setSort((prev) => (prev === "newest" ? "oldest" : "newest"));
+    } else if (column === "amount") {
+      setSort((prev) => (prev === "amount_desc" ? "amount_asc" : "amount_desc"));
+    }
+  };
+
+  const hasFilters = search !== "" || dateFrom !== "" || dateTo !== "" || sort !== "newest" || tab !== "";
+
+  const clear = () => {
+    setTab("");
+    setSearch("");
+    setDateFrom("");
+    setDateTo("");
+    setSort("newest");
+    setPage(1);
+  };
+
+  const clearSearch = () => {
+    setSearch("");
+  };
+
+  const clearDates = () => {
+    setDateFrom("");
+    setDateTo("");
+  };
 
   const params = useMemo<OrderFilterParams>(() => ({
     status: tab || undefined,
@@ -56,7 +127,8 @@ export function useOrderFilters(initialTab: string, initialSearch = "") {
   return {
     tab, setTab, search, setSearch, dateFrom, setDateFrom, dateTo, setDateTo,
     sort, setSort, page, setPage, perPage, setPerPage,
-    debouncedSearch, hasFilters, clear, params,
+    debouncedSearch, hasFilters, clear, clearSearch, clearDates,
+    setDatePreset, activeDatePreset, isExactIdSearch, toggleSort, params,
   };
 }
 

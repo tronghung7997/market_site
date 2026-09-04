@@ -491,12 +491,12 @@ async def test_refunding_every_claimed_resource_auto_closes_case_and_order(clien
     assert {row["id"] for row in remaining} == set(resource_ids)
     assert {row["status"] for row in remaining} == {"error"}
     buyer_inbox = await client.get("/orders/action-items", headers=buyer_headers)
-    buyer_alerts = [item for item in buyer_inbox.json() if item.get("href", "").startswith(f"/orders?search={order_id}")]
+    buyer_alerts = [item for item in buyer_inbox.json() if item.get("href", "").startswith(f"/orders?order_id={order_id}")]
     assert buyer_alerts, buyer_inbox.json()
     assert all(str(resource_id) in buyer_alerts[0]["href"] for resource_id in resource_ids)
     assert f"#{resource_ids[0]}" in buyer_alerts[0]["label"]
     seller_inbox = await client.get("/seller/action-items", headers=seller_headers)
-    seller_alerts = [item for item in seller_inbox.json() if item.get("href", "").startswith(f"/seller/orders?search={order_id}")]
+    seller_alerts = [item for item in seller_inbox.json() if item.get("href", "").startswith(f"/seller/orders?order_id={order_id}")]
     assert seller_alerts, seller_inbox.json()
     async with SessionLocal() as db:
         order = await db.get(Order, order_id)
@@ -895,6 +895,50 @@ async def test_seller_can_pick_specific_replacement_accounts(client):
     inbox = await client.get("/orders/action-items", headers=buyer_headers)
     hrefs = [item["href"] for item in inbox.json() if "resources=" in item.get("href", "")]
     assert any(str(claimed[0]["id"]) in href and str(chosen) in href for href in hrefs), inbox.json()
+
+
+@pytest.mark.asyncio
+async def test_archived_resource_cannot_be_used_as_dispute_replacement(client):
+    from sqlalchemy import update as sa_update
+
+    from src.database import SessionLocal
+    from src.models.resource import Resource
+
+    buyer_token, _, order_id = await create_delivered_order(client, quantity=1, stock_count=3)
+    buyer_headers = {"Authorization": f"Bearer {buyer_token}"}
+    seller_token = await register_and_login(client, "disp_seller@example.com")
+    seller_headers = {"Authorization": f"Bearer {seller_token}"}
+    claimed = (await client.get(f"/orders/{order_id}/resources", headers=buyer_headers)).json()
+    opened = await client.post(
+        f"/orders/{order_id}/dispute",
+        json={"reason": "Account failed", "resource_ids": [claimed[0]["id"]]},
+        headers=buyer_headers,
+    )
+    stock = (await client.get(
+        f"/seller/disputes/{opened.json()['id']}/replacement-resources",
+        headers=seller_headers,
+    )).json()
+    archived_id = stock["items"][0]["id"]
+    async with SessionLocal() as db:
+        await db.execute(sa_update(Resource).where(Resource.id == archived_id).values(is_archived=True))
+        await db.commit()
+
+    after = await client.get(
+        f"/seller/disputes/{opened.json()['id']}/replacement-resources",
+        headers=seller_headers,
+    )
+    assert archived_id not in [item["id"] for item in after.json()["items"]]
+    rejected = await client.post(
+        f"/seller/disputes/{opened.json()['id']}/resources/action",
+        json={
+            "resource_ids": [claimed[0]["id"]],
+            "action": "replace",
+            "replacement_resource_ids": [archived_id],
+            "idempotency_key": "archived-replacement",
+        },
+        headers=seller_headers,
+    )
+    assert rejected.status_code == 409
 
 
 @pytest.mark.asyncio

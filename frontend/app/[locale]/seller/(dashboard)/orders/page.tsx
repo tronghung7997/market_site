@@ -142,6 +142,7 @@ function SellerOrdersConsole() {
     () => parseHighlightedResourceIds(searchParams.get("resources")),
     [searchParams],
   );
+  const [extraHighlightResourceIds, setExtraHighlightResourceIds] = useState<number[]>([]);
   const [search, setSearch] = useState(urlSearch);
   const [selectedProductTitle, setSelectedProductTitle] = useState<string>("all");
   const [timeFilter, setTimeFilter] = useState<TimeFilter>("all");
@@ -206,21 +207,32 @@ function SellerOrdersConsole() {
   }, [loadData]);
 
   useEffect(() => {
-    if (urlSearch) setSearch(urlSearch);
-  }, [urlSearch]);
+    const isOrderDeepLink =
+      Boolean(searchParams.get("order_id") || searchParams.get("order")) ||
+      Boolean(highlightResourceIds.length);
+    if (urlSearch && !isOrderDeepLink) setSearch(urlSearch);
+  }, [highlightResourceIds.length, searchParams, urlSearch]);
 
   useEffect(() => {
     if (autoOpened.current || !orders.length) return;
-    const query = (urlSearch || "").trim();
-    if (!query && highlightResourceIds.length === 0) return;
-    const asId = Number(query);
-    const match = Number.isInteger(asId) && asId > 0
-      ? orders.find((row) => row.id === asId)
+    const targetOrderId =
+      Number(searchParams.get("order_id") || searchParams.get("order")) ||
+      (highlightResourceIds.length ? Number((urlSearch || "").replace(/^#/, "").trim()) : 0);
+
+    const directSearch = (urlSearch || "").trim();
+    const directSearchId = !targetOrderId && directSearch.startsWith("#")
+      ? Number(directSearch.replace(/^#/, "").trim())
+      : 0;
+
+    const effectiveId = targetOrderId || (directSearchId > 0 ? directSearchId : 0);
+
+    const match = Number.isInteger(effectiveId) && effectiveId > 0
+      ? orders.find((row) => row.id === effectiveId)
       : null;
     if (!match) return;
     autoOpened.current = true;
     setActiveDetailOrder(match);
-  }, [highlightResourceIds.length, orders, urlSearch]);
+  }, [highlightResourceIds.length, orders, searchParams, urlSearch]);
 
   useEffect(() => {
     const handleNotificationClick = async (event: Event) => {
@@ -232,14 +244,20 @@ function SellerOrdersConsole() {
         const url = new URL(href, window.location.origin);
         if (!url.pathname.includes("/seller/orders")) return;
 
-        const query = (url.searchParams.get("search") || "").trim();
-        const asId = Number(query);
-        if (Number.isInteger(asId) && asId > 0) {
-          const match = orders.find((row) => row.id === asId);
+        const targetId =
+          Number(url.searchParams.get("order_id") || url.searchParams.get("order")) ||
+          Number((url.searchParams.get("search") || "").replace(/^#/, "").trim());
+        const resourcesParam = url.searchParams.get("resources");
+        if (resourcesParam) {
+          setExtraHighlightResourceIds(parseHighlightedResourceIds(resourcesParam));
+        }
+
+        if (Number.isInteger(targetId) && targetId > 0) {
+          const match = orders.find((row) => row.id === targetId);
           if (match) {
             setActiveDetailOrder(match);
           } else {
-            const fetched = await api.getOrder(asId);
+            const fetched = await api.getOrder(targetId);
             if (fetched) setActiveDetailOrder(fetched);
           }
         }
@@ -253,6 +271,40 @@ function SellerOrdersConsole() {
       window.removeEventListener("app:notification-click", handleNotificationClick);
     };
   }, [orders]);
+
+  const handleCloseDetailOrder = useCallback(() => {
+    const currentId = activeDetailOrder?.id;
+    setActiveDetailOrder(null);
+    setExtraHighlightResourceIds([]);
+    if (typeof window !== "undefined") {
+      const sp = new URLSearchParams(window.location.search);
+      let changed = false;
+      if (sp.has("order_id")) {
+        sp.delete("order_id");
+        changed = true;
+      }
+      if (sp.has("order")) {
+        sp.delete("order");
+        changed = true;
+      }
+      if (sp.has("resources")) {
+        sp.delete("resources");
+        if (
+          currentId &&
+          sp.has("search") &&
+          (sp.get("search") === String(currentId) || sp.get("search") === `#${currentId}`)
+        ) {
+          sp.delete("search");
+        }
+        changed = true;
+      }
+      if (changed) {
+        const newQuery = sp.toString();
+        const newUrl = `${window.location.pathname}${newQuery ? `?${newQuery}` : ""}${window.location.hash}`;
+        window.history.replaceState(null, "", newUrl);
+      }
+    }
+  }, [activeDetailOrder?.id]);
 
   // Actions
   const handleAccept = async (orderId: number) => {
@@ -354,12 +406,22 @@ function SellerOrdersConsole() {
 
       // 4. Search query
       if (search.trim()) {
-        const q = search.toLowerCase().trim();
-        const matchId = String(o.id).includes(q);
-        const matchTitle = (o.product_title || "").toLowerCase().includes(q);
-        const matchVariant = (o.variant_name || "").toLowerCase().includes(q);
-        const matchBuyer = (o.buyer_email || "").toLowerCase().includes(q);
-        if (!matchId && !matchTitle && !matchVariant && !matchBuyer) return false;
+        const raw = search.trim();
+        if (raw.startsWith("#")) {
+          const targetId = Number(raw.slice(1).trim());
+          if (Number.isInteger(targetId) && targetId > 0) {
+            if (o.id !== targetId) return false;
+          } else {
+            return false;
+          }
+        } else {
+          const q = raw.toLowerCase();
+          const matchId = String(o.id).includes(q);
+          const matchTitle = (o.product_title || "").toLowerCase().includes(q);
+          const matchVariant = (o.variant_name || "").toLowerCase().includes(q);
+          const matchBuyer = (o.buyer_email || "").toLowerCase().includes(q);
+          if (!matchId && !matchTitle && !matchVariant && !matchBuyer) return false;
+        }
       }
 
       return true;
@@ -1006,9 +1068,9 @@ function SellerOrdersConsole() {
         <SellerOrderDetailModal
           order={activeDetailOrder}
           dispute={disputes[activeDetailOrder.id]}
-          highlightResourceIds={highlightResourceIds}
+          highlightResourceIds={extraHighlightResourceIds.length > 0 ? extraHighlightResourceIds : highlightResourceIds}
           isOpen={!!activeDetailOrder}
-          onClose={() => setActiveDetailOrder(null)}
+          onClose={handleCloseDetailOrder}
           onDeliverClick={() => {
             const ord = activeDetailOrder;
             setActiveDetailOrder(null);

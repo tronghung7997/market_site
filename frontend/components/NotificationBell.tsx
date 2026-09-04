@@ -121,14 +121,18 @@ export default function NotificationBell({ endpoint }: { endpoint: keyof typeof 
     setOpen(false);
 
     const destination = new URL(href, window.location.origin);
-    const currentSearch = searchParams.size ? `?${searchParams.toString()}` : "";
+    const normalizedDestPath = destination.pathname.replace(/^\/(?:en|vi)/, "") || "/";
+    const isSamePath = normalizedDestPath === pathname || destination.pathname === pathname;
 
     // Dispatch an event so listening pages can re-open target modals even if on the exact same route
     window.dispatchEvent(new CustomEvent("app:notification-click", { detail: { href } }));
 
-    // Do not send a duplicate navigation to Next if this alert already points to the visible page.
-    // `pathname` is locale-neutral (/orders); API action-item links are too.
-    if (destination.pathname === pathname && destination.search === currentSearch) return;
+    // If already on the target page (e.g. /orders or /seller/orders), update browser URL quietly
+    // without triggering Next.js router re-navigation/query re-fetching
+    if (isSamePath) {
+      window.history.replaceState(null, "", href);
+      return;
+    }
 
     router.push(href);
   };

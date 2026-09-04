@@ -3,7 +3,7 @@ from datetime import datetime, timedelta, timezone
 
 import structlog
 from fastapi import status
-from sqlalchemy import func, select
+from sqlalchemy import func, or_, select
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from src.adapters.compatibility import check_compatibility
@@ -625,15 +625,45 @@ async def list_buyer_orders(
         q = q.where(Order.status == OrderStatus(status))
 
     if search:
-        try:
-            q = q.where(Order.id == int(search))
-        except ValueError:
-            pass  # non-numeric search yields no filter
+        search_clean = search.strip()
+        if search_clean.startswith("#"):
+            id_part = search_clean.lstrip("#").strip()
+            if id_part.isdigit():
+                q = q.where(Order.id == int(id_part))
+            else:
+                q = q.where(Order.id == -1)
+        else:
+            product_match = select(Product.id).where(Product.title.ilike(f"%{search_clean}%"))
+            variant_match = select(ProductVariant.id).where(ProductVariant.name.ilike(f"%{search_clean}%"))
+            product_via_variant = select(ProductVariant.id).where(ProductVariant.product_id.in_(product_match))
+
+            conditions = [
+                Order.delivered_data.ilike(f"%{search_clean}%"),
+                Order.product_id.in_(product_match),
+                Order.variant_id.in_(variant_match),
+                Order.variant_id.in_(product_via_variant),
+            ]
+            if search_clean.isdigit():
+                conditions.append(Order.id == int(search_clean))
+
+            q = q.where(or_(*conditions))
 
     if date_from:
-        q = q.where(Order.created_at >= datetime.fromisoformat(date_from))
+        try:
+            dt_from = datetime.fromisoformat(date_from)
+            if dt_from.tzinfo is None:
+                dt_from = dt_from.replace(tzinfo=timezone.utc)
+            q = q.where(Order.created_at >= dt_from)
+        except ValueError:
+            pass
     if date_to:
-        q = q.where(Order.created_at < datetime.fromisoformat(date_to) + timedelta(days=1))
+        try:
+            dt_to = datetime.fromisoformat(date_to)
+            if dt_to.tzinfo is None:
+                dt_to = dt_to.replace(tzinfo=timezone.utc)
+            q = q.where(Order.created_at < dt_to + timedelta(days=1))
+        except ValueError:
+            pass
 
     # count
     count_q = select(func.count()).select_from(q.subquery())
@@ -642,9 +672,9 @@ async def list_buyer_orders(
     # sort
     if sort == "oldest":
         q = q.order_by(Order.created_at.asc())
-    elif sort == "price_desc":
+    elif sort in ("price_desc", "amount_desc"):
         q = q.order_by(Order.total_amount.desc())
-    elif sort == "price_asc":
+    elif sort in ("price_asc", "amount_asc"):
         q = q.order_by(Order.total_amount.asc())
     else:
         q = q.order_by(Order.created_at.desc())

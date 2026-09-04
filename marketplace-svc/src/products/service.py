@@ -595,7 +595,12 @@ async def _variants_by_product(
     if instant_ids:
         rows = await db.execute(
             select(Resource.variant_id, func.count(Resource.id))
-            .where(Resource.variant_id.in_(instant_ids), Resource.status == ResourceStatus.available)
+            .where(
+                Resource.variant_id.in_(instant_ids),
+                Resource.status == ResourceStatus.available,
+                Resource.order_id.is_(None),
+                Resource.is_archived == False,  # noqa: E712
+            )
             .group_by(Resource.variant_id)
         )
         stock_by_variant = dict(rows.all())

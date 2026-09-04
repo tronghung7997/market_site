@@ -566,7 +566,7 @@ export default function TransactionsPage() {
                               <button
                                 onClick={(e) => {
                                   e.stopPropagation();
-                                  router.push(`/orders?search=${orderId}`);
+                                  router.push(`/orders?search=%23${orderId}`);
                                 }}
                                 className="inline-flex items-center gap-1 rounded bg-iris-soft/80 px-1.5 py-0.2 font-mono text-[10.5px] font-semibold text-iris hover:bg-iris hover:text-white transition-colors"
                                 title={t("viewOrder")}
@@ -883,7 +883,7 @@ export default function TransactionsPage() {
                         size="sm"
                         onClick={() => {
                           setSelectedTx(null);
-                          router.push(`/orders?search=${selectedOrderId}`);
+                          router.push(`/orders?search=%23${selectedOrderId}`);
                         }}
                         className="gap-1.5 text-[12px] font-medium"
                       >

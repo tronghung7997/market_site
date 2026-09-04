@@ -8,8 +8,8 @@ test("every conversation opens in the unified inbox", () => {
 });
 
 test("order links follow the conversation context role, not a second inbox", () => {
-  assert.equal(orderWorkspaceHref("buyer", 12), "/seller/orders?search=12");
-  assert.equal(orderWorkspaceHref("seller", 12), "/orders?search=12");
+  assert.equal(orderWorkspaceHref("buyer", 12), "/seller/orders?search=%2312");
+  assert.equal(orderWorkspaceHref("seller", 12), "/orders?search=%2312");
   assert.equal(orderWorkspaceHref("buyer"), "/seller/orders");
 });
 

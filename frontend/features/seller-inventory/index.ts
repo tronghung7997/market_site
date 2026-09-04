@@ -104,12 +104,12 @@ export function downloadRestockTemplate(format: "txt" | "csv", basename: string)
   URL.revokeObjectURL(url);
 }
 
-export function canEditInventoryResource(status: string): boolean {
-  return status === "available" || status === "error";
+export function canEditInventoryResource(status: string, orderId?: number | null): boolean {
+  return !orderId && (status === "available" || status === "error");
 }
 
-export function canRestockInventoryResource(status: string): boolean {
-  return status === "error";
+export function canRestockInventoryResource(status: string, orderId?: number | null): boolean {
+  return status === "error" && !orderId;
 }
 
 export function canArchiveInventoryResource(status: string): boolean {

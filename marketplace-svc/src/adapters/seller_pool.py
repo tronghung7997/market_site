@@ -57,6 +57,8 @@ class SellerPoolAdapter(ProviderAdapter):
             .where(
                 Resource.variant_id == variant_id,
                 Resource.status == ResourceStatus.available,
+                Resource.order_id.is_(None),
+                Resource.is_archived == False,  # noqa: E712
             )
         )
         available = count_result.scalar() or 0

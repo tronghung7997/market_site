@@ -859,6 +859,7 @@ export interface InventoryVariant {
   assigned: number;
   expired: number;
   error: number;
+  archived: number;
 }
 
 export interface AdminResource {

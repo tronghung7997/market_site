@@ -15,7 +15,7 @@ export default function OrderDetailRedirect() {
 
   useEffect(() => {
     if (!id) return;
-    router.replace(/^\d+$/.test(id) ? `/orders?search=${id}` : "/orders");
+    router.replace(/^\d+$/.test(id) ? `/orders?search=%23${id}` : "/orders");
   }, [id, router]);
 
   return (

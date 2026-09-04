@@ -18,6 +18,8 @@ import {
   Layers,
   Sparkles,
   X,
+  ArrowUpDown,
+  Filter,
 } from "lucide-react";
 import { api } from "@/lib/api";
 import { useApiErrorMessage } from "@/lib/use-api-error";
@@ -45,7 +47,18 @@ export default function OrdersPage() {
   const { account, loading: authLoading } = useAuth();
   const router = useRouter();
   const searchParams = useSearchParams();
-  const filters = useOrderFilters(searchParams.get("status") ?? "", searchParams.get("search") ?? "");
+  const isOrderDeepLink =
+    Boolean(searchParams.get("order_id") || searchParams.get("order")) ||
+    Boolean(searchParams.get("resources"));
+  const initialSearch = isOrderDeepLink ? "" : (searchParams.get("search") ?? "");
+
+  const filters = useOrderFilters(
+    searchParams.get("status") ?? "",
+    initialSearch,
+    searchParams.get("date_from") ?? "",
+    searchParams.get("date_to") ?? "",
+    searchParams.get("sort") ?? "newest",
+  );
 
   const queryClient = useQueryClient();
   const ordersQuery = useOrders(filters.params, !authLoading && !!account);
@@ -72,11 +85,59 @@ export default function OrdersPage() {
   const [reviewedOrders, setReviewedOrders] = useState<Set<number>>(new Set());
   const [plateOrders, setPlateOrders] = useState<Set<number>>(new Set());
   const [copiedOrderId, setCopiedOrderId] = useState<number | null>(null);
+  const [copiedCodeId, setCopiedCodeId] = useState<number | null>(null);
   const highlightResourceIds = useMemo(
     () => parseHighlightedResourceIds(searchParams.get("resources")),
     [searchParams],
   );
   const autoOpened = useRef(false);
+  const targetOrderIdFromUrl = useMemo(() => {
+    const rawOrderId = Number(searchParams.get("order_id") || searchParams.get("order"));
+    if (Number.isInteger(rawOrderId) && rawOrderId > 0) return rawOrderId;
+    const resources = searchParams.get("resources");
+    const rawSearch = (searchParams.get("search") || "").replace(/^#/, "").trim();
+    const searchId = Number(rawSearch);
+    if (resources && Number.isInteger(searchId) && searchId > 0) return searchId;
+    if (searchParams.get("search")?.startsWith("#") && Number.isInteger(searchId) && searchId > 0) return searchId;
+    return 0;
+  }, [searchParams]);
+  const initialTargetOrderId = useRef<number>(0);
+  if (initialTargetOrderId.current === 0 && targetOrderIdFromUrl > 0) {
+    initialTargetOrderId.current = targetOrderIdFromUrl;
+  }
+
+  useEffect(() => {
+    if (typeof window === "undefined") return;
+    const sp = new URLSearchParams(window.location.search);
+    if (filters.tab) sp.set("status", filters.tab);
+    else sp.delete("status");
+
+    if (filters.debouncedSearch.trim()) sp.set("search", filters.debouncedSearch.trim());
+    else if (!isOrderDeepLink) sp.delete("search");
+
+    if (selectedOrder) {
+      sp.set("order_id", String(selectedOrder.id));
+    } else if (autoOpened.current) {
+      sp.delete("order_id");
+      sp.delete("order");
+    }
+
+    if (filters.dateFrom) sp.set("date_from", filters.dateFrom);
+    else sp.delete("date_from");
+
+    if (filters.dateTo) sp.set("date_to", filters.dateTo);
+    else sp.delete("date_to");
+
+    if (filters.sort && filters.sort !== "newest") sp.set("sort", filters.sort);
+    else sp.delete("sort");
+
+    if (filters.page > 1) sp.set("page", String(filters.page));
+    else sp.delete("page");
+
+    const newQuery = sp.toString();
+    const newUrl = `${window.location.pathname}${newQuery ? `?${newQuery}` : ""}${window.location.hash}`;
+    window.history.replaceState(null, "", newUrl);
+  }, [filters.tab, filters.debouncedSearch, filters.dateFrom, filters.dateTo, filters.sort, filters.page, selectedOrder, isOrderDeepLink]);
 
   const handlePlate = useCallback((id: number) => {
     setPlateOrders((prev) => (prev.has(id) ? prev : new Set(prev).add(id)));
@@ -110,27 +171,20 @@ export default function OrdersPage() {
 
   useEffect(() => {
     if (autoOpened.current || authLoading || !account) return;
-    const query = (searchParams.get("search") || "").trim();
-    if (!query && highlightResourceIds.length === 0) return;
-    const asId = Number(query);
-    if (Number.isInteger(asId) && asId > 0) {
-      const match = orders.find((row) => row.id === asId);
+    const effectiveId = initialTargetOrderId.current || targetOrderIdFromUrl;
+    if (effectiveId > 0) {
+      const match = orders.find((row) => row.id === effectiveId);
       if (match) {
         autoOpened.current = true;
         setSelectedOrder(match);
       } else if (!loading) {
         autoOpened.current = true;
-        api.getOrder(asId).then((fetched) => {
+        api.getOrder(effectiveId).then((fetched) => {
           if (fetched) setSelectedOrder(fetched);
         }).catch(() => {});
       }
-      return;
     }
-    if (orders.length === 1 && !loading) {
-      autoOpened.current = true;
-      setSelectedOrder(orders[0]);
-    }
-  }, [account, authLoading, highlightResourceIds.length, loading, orders, searchParams]);
+  }, [account, authLoading, loading, orders, targetOrderIdFromUrl]);
 
   useEffect(() => {
     const handleNotificationClick = async (event: Event) => {
@@ -146,19 +200,20 @@ export default function OrdersPage() {
           url.pathname.endsWith("/orders");
         if (!isOrdersPage) return;
 
-        const query = (url.searchParams.get("search") || "").trim();
-        const asId = Number(query);
+        const targetId =
+          Number(url.searchParams.get("order_id") || url.searchParams.get("order")) ||
+          Number((url.searchParams.get("search") || "").replace(/^#/, "").trim());
         const resourcesParam = url.searchParams.get("resources");
         if (resourcesParam) {
           setExtraHighlightResourceIds(parseHighlightedResourceIds(resourcesParam));
         }
 
-        if (Number.isInteger(asId) && asId > 0) {
-          const match = orders.find((row) => row.id === asId);
+        if (Number.isInteger(targetId) && targetId > 0) {
+          const match = orders.find((row) => row.id === targetId);
           if (match) {
             setSelectedOrder(match);
           } else {
-            const fetched = await api.getOrder(asId);
+            const fetched = await api.getOrder(targetId);
             if (fetched) setSelectedOrder(fetched);
           }
         }
@@ -310,6 +365,13 @@ export default function OrdersPage() {
     setTimeout(() => setCopiedOrderId(null), 2000);
   };
 
+  const handleCopyCode = (id: number) => {
+    navigator.clipboard.writeText(`#${id}`);
+    setCopiedCodeId(id);
+    showToast(t("copiedOrderCode"));
+    setTimeout(() => setCopiedCodeId(null), 2000);
+  };
+
   const handleDownload = (o: Order) => {
     if (!o.delivered_data) return;
     const blob = new Blob([o.delivered_data], { type: "text/plain;charset=utf-8" });
@@ -320,6 +382,40 @@ export default function OrdersPage() {
     a.click();
     URL.revokeObjectURL(url);
   };
+
+  const handleCloseOrderModal = useCallback(() => {
+    const currentId = selectedOrder?.id;
+    setSelectedOrder(null);
+    setExtraHighlightResourceIds([]);
+    if (typeof window !== "undefined") {
+      const sp = new URLSearchParams(window.location.search);
+      let changed = false;
+      if (sp.has("order_id")) {
+        sp.delete("order_id");
+        changed = true;
+      }
+      if (sp.has("order")) {
+        sp.delete("order");
+        changed = true;
+      }
+      if (sp.has("resources")) {
+        sp.delete("resources");
+        if (
+          currentId &&
+          sp.has("search") &&
+          (sp.get("search") === String(currentId) || sp.get("search") === `#${currentId}`)
+        ) {
+          sp.delete("search");
+        }
+        changed = true;
+      }
+      if (changed) {
+        const newQuery = sp.toString();
+        const newUrl = `${window.location.pathname}${newQuery ? `?${newQuery}` : ""}${window.location.hash}`;
+        window.history.replaceState(null, "", newUrl);
+      }
+    }
+  }, [selectedOrder?.id]);
 
   const totalPages = Math.max(1, Math.ceil(total / filters.perPage));
 
@@ -344,7 +440,7 @@ export default function OrdersPage() {
         <OrderDetailsModal
           order={selectedOrder}
           highlightResourceIds={extraHighlightResourceIds.length > 0 ? extraHighlightResourceIds : highlightResourceIds}
-          onClose={() => setSelectedOrder(null)}
+          onClose={handleCloseOrderModal}
           open={disputeTarget === null}
           lockDismiss={disputeTarget !== null}
           onConfirm={handleConfirm}
@@ -570,69 +666,201 @@ export default function OrdersPage() {
         </div>
 
         {/* Search Inputs (Flex Responsive Layout - Zero Overflow) */}
-        <div className="flex flex-col gap-3 lg:flex-row lg:items-center">
-          <div className="relative flex-1 min-w-[240px]">
-            <Search size={15} className="absolute left-3.5 top-1/2 -translate-y-1/2 text-muted pointer-events-none" />
-            <input
-              type="text"
-              value={filters.search}
-              onChange={(e) => filters.setSearch(e.target.value)}
-              placeholder={t("searchFullPlaceholder")}
-              className="w-full rounded-xl border border-line bg-canvas pl-9 pr-8 py-2 text-[13px] text-fg placeholder:text-faint focus:border-iris focus:outline-none focus:ring-2 focus:ring-iris/20"
-            />
-            {filters.search && (
-              <button
-                onClick={() => filters.setSearch("")}
-                className="absolute right-3 top-1/2 -translate-y-1/2 text-faint hover:text-fg p-0.5"
-              >
-                <X size={13} />
-              </button>
-            )}
-          </div>
-
-          <div className="flex flex-wrap items-center gap-2">
-            <div className="flex items-center gap-1.5">
+        <div className="flex flex-col gap-3">
+          <div className="flex flex-col gap-3 lg:flex-row lg:items-center">
+            <div className="relative flex-1 min-w-[240px]">
+              <Search size={15} className="absolute left-3.5 top-1/2 -translate-y-1/2 text-muted pointer-events-none" />
               <input
-                type="date"
-                value={filters.dateFrom}
-                onChange={(e) => filters.setDateFrom(e.target.value)}
-                aria-label={t("filterDateFrom")}
-                className="rounded-xl border border-line bg-canvas px-3 py-2 text-[12px] text-fg focus:border-iris focus:outline-none"
+                type="text"
+                value={filters.search}
+                onChange={(e) => filters.setSearch(e.target.value)}
+                placeholder={t("searchFullPlaceholder")}
+                className="w-full rounded-xl border border-line bg-canvas pl-9 pr-28 py-2 text-[13px] text-fg placeholder:text-faint focus:border-iris focus:outline-none focus:ring-2 focus:ring-iris/20"
               />
-              <span className="text-faint text-[12px]">–</span>
-              <input
-                type="date"
-                value={filters.dateTo}
-                onChange={(e) => filters.setDateTo(e.target.value)}
-                aria-label={t("filterDateTo")}
-                className="rounded-xl border border-line bg-canvas px-3 py-2 text-[12px] text-fg focus:border-iris focus:outline-none"
-              />
+              <div className="absolute right-2.5 top-1/2 -translate-y-1/2 flex items-center gap-1.5">
+                {filters.isExactIdSearch && (
+                  <span className="inline-flex items-center gap-1 rounded-md bg-iris/15 px-1.5 py-0.5 text-[10.5px] font-bold text-iris">
+                    ● {t("exactIdMatch")}
+                  </span>
+                )}
+                {filters.search && (
+                  <button
+                    onClick={filters.clearSearch}
+                    aria-label={t("clearSearch")}
+                    className="text-faint hover:text-fg p-0.5 rounded transition-colors"
+                  >
+                    <X size={13} />
+                  </button>
+                )}
+              </div>
             </div>
 
-            <select
-              value={filters.sort}
-              onChange={(e) => filters.setSort(e.target.value)}
-              className="rounded-xl border border-line bg-canvas px-3 py-2 text-[12px] text-fg focus:border-iris focus:outline-none cursor-pointer"
-            >
-              <option value="newest">{t("sortNewest")}</option>
-              <option value="oldest">{t("sortOldest")}</option>
-              <option value="amount_desc">{t("sortAmountDesc")}</option>
-              <option value="amount_asc">{t("sortAmountAsc")}</option>
-            </select>
+            <div className="flex flex-wrap items-center gap-2">
+              {/* Date Presets Quick Pills */}
+              <div className="flex items-center gap-1 rounded-xl border border-line bg-canvas p-0.5">
+                {[
+                  { key: "all", label: t("filterAllTime") },
+                  { key: "today", label: t("filterToday") },
+                  { key: "7d", label: t("filter7Days") },
+                  { key: "30d", label: t("filter30Days") },
+                ].map((p) => {
+                  const isCurrent = filters.activeDatePreset === p.key;
+                  return (
+                    <button
+                      key={p.key}
+                      type="button"
+                      onClick={() => filters.setDatePreset(p.key as any)}
+                      className={cn(
+                        "rounded-lg px-2.5 py-1 text-[11px] font-medium transition-all cursor-pointer",
+                        isCurrent
+                          ? "bg-iris text-white shadow-xs font-semibold"
+                          : "text-muted hover:text-fg hover:bg-raised"
+                      )}
+                    >
+                      {p.label}
+                    </button>
+                  );
+                })}
+              </div>
 
-            {filters.hasFilters && (
-              <button
-                onClick={filters.clear}
-                title={t("clearFilters")}
-                className="inline-flex items-center gap-1 rounded-xl border border-line bg-raised px-3 py-2 text-[12px] font-semibold text-muted hover:border-bad/30 hover:text-bad transition-colors cursor-pointer shrink-0"
+              {/* Custom Date Range Picker */}
+              <div className="flex items-center gap-1.5">
+                <input
+                  type="date"
+                  value={filters.dateFrom}
+                  onChange={(e) => filters.setDateFrom(e.target.value)}
+                  aria-label={t("filterDateFrom")}
+                  className="rounded-xl border border-line bg-canvas px-2.5 py-1.5 text-[12px] text-fg focus:border-iris focus:outline-none"
+                />
+                <span className="text-faint text-[12px]">–</span>
+                <input
+                  type="date"
+                  value={filters.dateTo}
+                  onChange={(e) => filters.setDateTo(e.target.value)}
+                  aria-label={t("filterDateTo")}
+                  className="rounded-xl border border-line bg-canvas px-2.5 py-1.5 text-[12px] text-fg focus:border-iris focus:outline-none"
+                />
+              </div>
+
+              {/* Sort Dropdown */}
+              <select
+                value={filters.sort}
+                onChange={(e) => filters.setSort(e.target.value)}
+                aria-label={tc("sort")}
+                className="rounded-xl border border-line bg-canvas px-3 py-1.5 text-[12px] text-fg focus:border-iris focus:outline-none cursor-pointer"
               >
-                <X size={13} />
-                <span>{t("clearFilters")}</span>
-              </button>
-            )}
+                <option value="newest">{t("sortNewest")}</option>
+                <option value="oldest">{t("sortOldest")}</option>
+                <option value="amount_desc">{t("sortAmountDesc")}</option>
+                <option value="amount_asc">{t("sortAmountAsc")}</option>
+              </select>
+
+              {filters.hasFilters && (
+                <button
+                  onClick={filters.clear}
+                  title={t("clearFilters")}
+                  className="inline-flex items-center gap-1 rounded-xl border border-line bg-raised px-2.5 py-1.5 text-[12px] font-semibold text-muted hover:border-bad/30 hover:text-bad transition-colors cursor-pointer shrink-0"
+                >
+                  <X size={13} />
+                  <span>{t("clearFilters")}</span>
+                </button>
+              )}
+            </div>
           </div>
+
+          {/* Active Filter Chips Bar */}
+          {filters.hasFilters && (
+            <div className="flex flex-wrap items-center gap-1.5 pt-1 border-t border-line/60 text-[12px]">
+              <span className="text-faint text-[11px] font-medium mr-1 flex items-center gap-1">
+                <Filter size={11} />
+                {t("filtering")}:
+              </span>
+              {filters.tab && (
+                <span className="inline-flex items-center gap-1 rounded-lg border border-iris/30 bg-iris-soft/50 px-2 py-0.5 text-[11.5px] font-medium text-iris-hi">
+                  <span>
+                    {filters.tab === "active"
+                      ? t("tabActive")
+                      : filters.tab === "disputed"
+                      ? t("tabDisputed")
+                      : filters.tab === "deleted"
+                      ? t("tabDeleted")
+                      : filters.tab}
+                  </span>
+                  <button
+                    type="button"
+                    onClick={() => filters.setTab("")}
+                    className="hover:text-fg ml-0.5"
+                  >
+                    <X size={11} />
+                  </button>
+                </span>
+              )}
+              {filters.search && (
+                <span className="inline-flex items-center gap-1 rounded-lg border border-line bg-raised px-2 py-0.5 text-[11.5px] font-medium text-fg">
+                  <span>{t("activeFilterSearch", { query: filters.search })}</span>
+                  <button
+                    type="button"
+                    onClick={filters.clearSearch}
+                    className="text-faint hover:text-fg ml-0.5"
+                  >
+                    <X size={11} />
+                  </button>
+                </span>
+              )}
+              {(filters.dateFrom || filters.dateTo) && (
+                <span className="inline-flex items-center gap-1 rounded-lg border border-line bg-raised px-2 py-0.5 text-[11.5px] font-medium text-fg">
+                  <span>
+                    {t("activeFilterDate", {
+                      range: `${filters.dateFrom || "..."} → ${filters.dateTo || "..."}`,
+                    })}
+                  </span>
+                  <button
+                    type="button"
+                    onClick={filters.clearDates}
+                    className="text-faint hover:text-fg ml-0.5"
+                  >
+                    <X size={11} />
+                  </button>
+                </span>
+              )}
+              {filters.sort !== "newest" && (
+                <span className="inline-flex items-center gap-1 rounded-lg border border-line bg-raised px-2 py-0.5 text-[11.5px] font-medium text-fg">
+                  <span>
+                    {filters.sort === "oldest"
+                      ? t("sortOldest")
+                      : filters.sort === "amount_desc"
+                      ? t("sortAmountDesc")
+                      : filters.sort === "amount_asc"
+                      ? t("sortAmountAsc")
+                      : filters.sort}
+                  </span>
+                  <button
+                    type="button"
+                    onClick={() => filters.setSort("newest")}
+                    className="text-faint hover:text-fg ml-0.5"
+                  >
+                    <X size={11} />
+                  </button>
+                </span>
+              )}
+              <button
+                type="button"
+                onClick={filters.clear}
+                className="text-iris hover:underline text-[11.5px] font-medium ml-1 cursor-pointer"
+              >
+                {t("clearAll")}
+              </button>
+            </div>
+          )}
         </div>
       </div>
+
+      {/* Smooth fetching progress line */}
+      {ordersQuery.isFetching && !loading && (
+        <div className="h-0.5 w-full bg-iris/20 overflow-hidden rounded-full -mt-2">
+          <div className="h-full bg-iris animate-pulse w-full" />
+        </div>
+      )}
 
       {/* FULL-WIDTH HIGH DENSITY TANSTACK-STYLE DATA TABLE */}
       {loading ? (
@@ -661,10 +889,36 @@ export default function OrdersPage() {
               <thead className="bg-raised/70 border-b border-line text-[11px] font-semibold uppercase tracking-wider text-muted whitespace-nowrap">
                 <tr>
                   <th className="py-3.5 pl-4 pr-3 w-36">{t("quickActions")}</th>
-                  <th className="py-3.5 px-3 w-32">{t("orderCode")}</th>
+                  <th
+                    className="py-3.5 px-3 w-36 cursor-pointer select-none hover:text-fg transition-colors"
+                    onClick={() => filters.toggleSort("code")}
+                    title={tc("sort")}
+                  >
+                    <div className="flex items-center gap-1.5">
+                      <span>{t("orderCode")}</span>
+                      {filters.sort === "newest" && <span className="text-iris font-bold">↓</span>}
+                      {filters.sort === "oldest" && <span className="text-iris font-bold">↑</span>}
+                      {filters.sort !== "newest" && filters.sort !== "oldest" && (
+                        <ArrowUpDown size={11} className="text-faint opacity-60" />
+                      )}
+                    </div>
+                  </th>
                   <th className="py-3.5 px-3">{t("productPackage")}</th>
                   <th className="py-3.5 px-3 text-center w-24">{t("quantity")}</th>
-                  <th className="py-3.5 px-3 text-right w-36">{t("payment")}</th>
+                  <th
+                    className="py-3.5 px-3 text-right w-36 cursor-pointer select-none hover:text-fg transition-colors"
+                    onClick={() => filters.toggleSort("amount")}
+                    title={tc("sort")}
+                  >
+                    <div className="flex items-center justify-end gap-1.5">
+                      {filters.sort === "amount_desc" && <span className="text-iris font-bold">↓</span>}
+                      {filters.sort === "amount_asc" && <span className="text-iris font-bold">↑</span>}
+                      {filters.sort !== "amount_desc" && filters.sort !== "amount_asc" && (
+                        <ArrowUpDown size={11} className="text-faint opacity-60" />
+                      )}
+                      <span>{t("payment")}</span>
+                    </div>
+                  </th>
                   <th className="py-3.5 px-4 text-right w-44">{t("statusEscrow")}</th>
                 </tr>
               </thead>
@@ -738,7 +992,24 @@ export default function OrdersPage() {
 
                       {/* ORDER ID & DATE */}
                       <td className="py-3.5 px-3">
-                        <div className="font-mono font-bold text-iris text-[13.5px]">#{o.id}</div>
+                        <div className="flex items-center gap-1.5">
+                          <span className="font-mono font-bold text-iris text-[13.5px]">#{o.id}</span>
+                          <button
+                            type="button"
+                            title={copiedCodeId === o.id ? t("copiedOrderCode") : t("copyOrderCode")}
+                            onClick={(e) => {
+                              e.stopPropagation();
+                              handleCopyCode(o.id);
+                            }}
+                            className="p-1 rounded text-muted hover:text-fg hover:bg-raised transition-colors cursor-pointer"
+                          >
+                            {copiedCodeId === o.id ? (
+                              <Check size={12} className="text-good" />
+                            ) : (
+                              <Copy size={12} />
+                            )}
+                          </button>
+                        </div>
                         <div className="text-[11px] text-muted mt-0.5 whitespace-nowrap">
                           {formatDateTime(o.created_at, locale)}
                         </div>

@@ -7,7 +7,7 @@ export function conversationInboxPath(conversationId: string): string {
 export function orderWorkspaceHref(counterpartRole: "buyer" | "seller" | "admin", orderId?: number): string {
   const sellerSide = counterpartRole === "buyer";
   const base = sellerSide ? "/seller/orders" : "/orders";
-  return orderId != null ? `${base}?search=${orderId}` : base;
+  return orderId != null ? `${base}?search=%23${orderId}` : base;
 }
 
 export function unreadTotal(rooms: { unread_count: number }[] | undefined): number {

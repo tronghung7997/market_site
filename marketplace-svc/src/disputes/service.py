@@ -40,7 +40,7 @@ def _resource_id_preview(ids: list[int], limit: int = _REMEDY_ALERT_ID_LIMIT) ->
 def _remedy_alert_href(order_id: int, resource_ids: list[int], *, seller: bool) -> str:
     shown = ",".join(str(resource_id) for resource_id in resource_ids[:_REMEDY_ALERT_HREF_ID_LIMIT])
     path = "/seller/orders" if seller else "/orders"
-    return f"{path}?search={order_id}&resources={shown}"
+    return f"{path}?order_id={order_id}&resources={shown}"
 
 
 async def _refresh_order_delivered_data(order: Order, db: AsyncSession) -> None:
@@ -865,6 +865,8 @@ async def seller_resolve_resources(
                             Resource.variant_id == variant.id,
                             Resource.seller_id == seller_id,
                             Resource.status == ResourceStatus.available,
+                            Resource.order_id.is_(None),
+                            Resource.is_archived == False,  # noqa: E712
                         )
                         .with_for_update()
                     )
@@ -1146,6 +1148,8 @@ async def seller_replacement_resources(
         Resource.variant_id == order.variant_id,
         Resource.seller_id == seller_id,
         Resource.status == ResourceStatus.available,
+        Resource.order_id.is_(None),
+        Resource.is_archived == False,  # noqa: E712
     ]
     search_clause = _resource_search_clause(search)
     if search_clause is not None:

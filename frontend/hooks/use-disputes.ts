@@ -7,6 +7,7 @@ export function useDisputes() {
   return useQuery({
     queryKey: queryKeys.disputes(),
     queryFn: () => api.adminDisputes(),
+    select: (data) => data.items,
   });
 }
 

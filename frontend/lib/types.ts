@@ -674,6 +674,13 @@ export interface Dispute {
   marketplace_conversation_id?: string | null;
 }
 
+export interface PaginatedDisputes {
+  items: Dispute[];
+  total: number;
+  page: number;
+  per_page: number;
+}
+
 export interface DisputeResourceAction {
   id?: number;
   action: "replace" | "refund";

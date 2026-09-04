@@ -60,6 +60,57 @@ export function isDisputeReadyToAccept(dispute: Pick<Dispute, "status" | "claime
  * that repeats the same reason. Merge those into one beat so the thread
  * reads as “buyer opened, these accounts”.
  */
+export const DISPUTE_TIMELINE_EVENT_KEYS = [
+  "case_opened",
+  "claim_batch",
+  "buyer_message",
+  "seller_message",
+  "resource_replace",
+  "resource_refund",
+  "case_escalated",
+  "buyer_accepted",
+  "buyer_withdrew",
+  "resolution_timeout",
+  "resolution_abandoned",
+  "seller_full_refund",
+  "admin_refund",
+  "admin_partial_refund",
+  "admin_reject",
+  "admin_replace",
+  "admin_extend_warranty",
+  "case_resolved",
+] as const;
+
+export type DisputeTimelineEventKey = (typeof DISPUTE_TIMELINE_EVENT_KEYS)[number];
+
+export function isKnownDisputeTimelineEvent(eventType: string): eventType is DisputeTimelineEventKey {
+  return (DISPUTE_TIMELINE_EVENT_KEYS as readonly string[]).includes(eventType);
+}
+
+export function isPlaceholderResolutionNote(note: string | null | undefined): boolean {
+  const text = (note ?? "").trim();
+  return !text || text === "—" || text === "-" || text === "–" || text === "−";
+}
+
+const SELLER_TIMELINE_COPY = new Set([
+  "admin_refund",
+  "admin_partial_refund",
+  "admin_reject",
+  "admin_replace",
+  "admin_extend_warranty",
+  "seller_full_refund",
+]);
+
+export function disputeTimelineCopyKey(
+  eventType: string,
+  viewerRole: "buyer" | "seller" = "buyer",
+): string {
+  if (viewerRole === "seller" && SELLER_TIMELINE_COPY.has(eventType)) {
+    return `disputeEventsSeller.${eventType}`;
+  }
+  return `disputeEvents.${eventType}`;
+}
+
 export function displayTimelineEvents(events: DisputeTimelineEvent[]): DisputeTimelineEvent[] {
   if (events.length < 2) return events;
   const [first, second, ...rest] = events;

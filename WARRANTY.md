@@ -18,7 +18,7 @@ refund; Proxora does not implement physical reverse shipping.
 - [x] Seller may respond, replace claimed instant-inventory resources, refund them, or escalate.
 - [x] Seller cannot remedy an unclaimed resource or another seller's order.
 - [x] Buyer can accept only after every claimed resource has a remedy, or after a seller response for a whole-order case.
-- [x] Admin may reject, fully refund, partially refund, replace, or extend warranty.
+- [x] Admin may reject, fully refund, partially refund, replace, or extend warranty. The buyer timeline names that outcome and shows the refunded amount; placeholder admin notes are not shown.
 - [x] Cancelled, refunded, and resolved cases cannot be mutated through the open-case paths.
 - [x] Buyer and seller actions use idempotency keys; concurrent final decisions settle once.
 

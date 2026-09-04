@@ -27,17 +27,32 @@ class DisputeCreate(BaseModel):
 
 
 class AdminDisputeAction(BaseModel):
-    admin_note: str = Field(min_length=1, max_length=2000)
+    admin_note: str = Field(default="", max_length=2000)
+
+    @field_validator("admin_note")
+    @classmethod
+    def strip_admin_note(cls, value: str) -> str:
+        return value.strip()
 
 
 class AdminDisputePartialRefund(BaseModel):
-    admin_note: str = Field(min_length=1, max_length=2000)
+    admin_note: str = Field(default="", max_length=2000)
     refund_amount: int = Field(ge=1)
+
+    @field_validator("admin_note")
+    @classmethod
+    def strip_admin_note(cls, value: str) -> str:
+        return value.strip()
 
 
 class AdminDisputeExtendWarranty(BaseModel):
-    admin_note: str = Field(min_length=1, max_length=2000)
+    admin_note: str = Field(default="", max_length=2000)
     extra_days: int = Field(ge=1, le=365)
+
+    @field_validator("admin_note")
+    @classmethod
+    def strip_admin_note(cls, value: str) -> str:
+        return value.strip()
 
 
 class SellerDisputeRespond(BaseModel):
@@ -132,6 +147,13 @@ class DisputeResponse(BaseModel):
     marketplace_conversation_id: UUID | None = None
 
     model_config = {"from_attributes": True}
+
+
+class DisputeListResponse(BaseModel):
+    items: list[DisputeResponse]
+    total: int
+    page: int
+    per_page: int
 
 
 class DisputeResourceInfo(BaseModel):

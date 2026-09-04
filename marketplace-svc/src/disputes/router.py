@@ -163,9 +163,14 @@ async def seller_dispute_resource_list(
     )
 
 
-@router.get("/admin/disputes", response_model=list[schemas.DisputeResponse])
-async def list_disputes(_: Account = Depends(require_role("admin")), db: AsyncSession = Depends(get_session)):
-    return await service.list_disputes(db)
+@router.get("/admin/disputes", response_model=schemas.DisputeListResponse)
+async def list_disputes(
+    page: int = Query(1, ge=1),
+    per_page: int = Query(50, ge=1, le=100),
+    _: Account = Depends(require_role("admin")),
+    db: AsyncSession = Depends(get_session),
+):
+    return await service.list_disputes(db, page=page, per_page=per_page)
 
 
 @router.get("/admin/disputes/{dispute_id}", response_model=schemas.DisputeResponseFull)
@@ -174,25 +179,25 @@ async def get_dispute(dispute_id: int, _: Account = Depends(require_role("admin"
 
 
 @router.post("/admin/disputes/{dispute_id}/refund", response_model=schemas.DisputeResponse)
-async def refund(dispute_id: int, body: schemas.AdminDisputeAction, _: Account = Depends(require_role("admin")), db: AsyncSession = Depends(get_session)):
-    return await service.refund_dispute(dispute_id, body.admin_note, db)
+async def refund(dispute_id: int, body: schemas.AdminDisputeAction, account: Account = Depends(require_role("admin")), db: AsyncSession = Depends(get_session)):
+    return await service.refund_dispute(dispute_id, body.admin_note, db, admin_id=account.id)
 
 
 @router.post("/admin/disputes/{dispute_id}/reject", response_model=schemas.DisputeResponse)
-async def reject(dispute_id: int, body: schemas.AdminDisputeAction, _: Account = Depends(require_role("admin")), db: AsyncSession = Depends(get_session)):
-    return await service.reject_dispute(dispute_id, body.admin_note, db)
+async def reject(dispute_id: int, body: schemas.AdminDisputeAction, account: Account = Depends(require_role("admin")), db: AsyncSession = Depends(get_session)):
+    return await service.reject_dispute(dispute_id, body.admin_note, db, admin_id=account.id)
 
 
 @router.post("/admin/disputes/{dispute_id}/partial-refund", response_model=schemas.DisputeResponse)
-async def partial_refund(dispute_id: int, body: schemas.AdminDisputePartialRefund, _: Account = Depends(require_role("admin")), db: AsyncSession = Depends(get_session)):
-    return await service.partial_refund_dispute(dispute_id, body.admin_note, body.refund_amount, db)
+async def partial_refund(dispute_id: int, body: schemas.AdminDisputePartialRefund, account: Account = Depends(require_role("admin")), db: AsyncSession = Depends(get_session)):
+    return await service.partial_refund_dispute(dispute_id, body.admin_note, body.refund_amount, db, admin_id=account.id)
 
 
 @router.post("/admin/disputes/{dispute_id}/replace", response_model=schemas.DisputeResponse)
-async def replace(dispute_id: int, body: schemas.AdminDisputeAction, _: Account = Depends(require_role("admin")), db: AsyncSession = Depends(get_session)):
-    return await service.replace_dispute(dispute_id, body.admin_note, db)
+async def replace(dispute_id: int, body: schemas.AdminDisputeAction, account: Account = Depends(require_role("admin")), db: AsyncSession = Depends(get_session)):
+    return await service.replace_dispute(dispute_id, body.admin_note, db, admin_id=account.id)
 
 
 @router.post("/admin/disputes/{dispute_id}/extend-warranty", response_model=schemas.DisputeResponse)
-async def extend_warranty(dispute_id: int, body: schemas.AdminDisputeExtendWarranty, _: Account = Depends(require_role("admin")), db: AsyncSession = Depends(get_session)):
-    return await service.extend_warranty_dispute(dispute_id, body.admin_note, body.extra_days, db)
+async def extend_warranty(dispute_id: int, body: schemas.AdminDisputeExtendWarranty, account: Account = Depends(require_role("admin")), db: AsyncSession = Depends(get_session)):
+    return await service.extend_warranty_dispute(dispute_id, body.admin_note, body.extra_days, db, admin_id=account.id)

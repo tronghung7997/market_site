@@ -5,7 +5,10 @@ import { cn } from "@/lib/cn";
 import { formatDateTime } from "@/lib/utils";
 import {
   displayTimelineEvents,
+  disputeTimelineCopyKey,
   formatDisputeAccountChip,
+  isKnownDisputeTimelineEvent,
+  isPlaceholderResolutionNote,
   resourceWarrantyGeneration,
   summarizeDisputeCase,
   visibleResourceIds,
@@ -73,15 +76,20 @@ export function DisputeCaseView({
 
       {(summary.claimed > 0 || summary.refundedAmount > 0) && (
         <div
-          className="grid grid-cols-2 gap-px overflow-hidden rounded-xl border border-line bg-line sm:grid-cols-4"
+          className={cn(
+            "grid grid-cols-2 gap-px overflow-hidden rounded-xl border border-line bg-line",
+            dispute.status === "open" ? "sm:grid-cols-4" : "sm:grid-cols-3",
+          )}
           aria-label={t("disputeSummaryAria")}
         >
           <SummaryCell label={t("disputeSummaryClaimed")} value={String(summary.claimed)} />
-          <SummaryCell
-            label={t("disputeSummaryPending")}
-            value={String(summary.pending)}
-            emphasis={summary.pending > 0 ? "warn" : undefined}
-          />
+          {dispute.status === "open" && (
+            <SummaryCell
+              label={t("disputeSummaryPending")}
+              value={String(summary.pending)}
+              emphasis={summary.pending > 0 ? "warn" : undefined}
+            />
+          )}
           <SummaryCell label={t("disputeSummaryReplaced")} value={String(summary.replaced)} />
           <SummaryCell
             label={t("disputeSummaryRefunded")}
@@ -109,6 +117,7 @@ export function DisputeCaseView({
               resourceLabels={resourceLabels}
               formatRefund={formatRefund}
               locale={locale}
+              viewerRole={viewerRole}
               onResourceClick={onResourceClick}
             />
           ))}
@@ -153,6 +162,7 @@ function TimelineBeat({
   resourceLabels,
   formatRefund,
   locale,
+  viewerRole,
   onResourceClick,
 }: {
   event: DisputeTimelineEvent;
@@ -162,39 +172,18 @@ function TimelineBeat({
   resourceLabels: Record<number, string>;
   formatRefund: (amount: number) => string;
   locale: string;
+  viewerRole: "buyer" | "seller";
   onResourceClick?: (resourceId: number) => void;
 }) {
   const t = useTranslations("orders");
+  const td = useTranslations("status.dispute");
   const { shown, hidden } = visibleResourceIds(event.resource_ids);
-  const eventKey = event.event_type as
-    | "case_opened"
-    | "claim_batch"
-    | "buyer_message"
-    | "seller_message"
-    | "resource_replace"
-    | "resource_refund"
-    | "case_escalated"
-    | "buyer_accepted"
-    | "buyer_withdrew"
-    | "resolution_timeout"
-    | "resolution_abandoned"
-    | "case_resolved";
-  const title = [
-    "case_opened",
-    "claim_batch",
-    "buyer_message",
-    "seller_message",
-    "resource_replace",
-    "resource_refund",
-    "case_escalated",
-    "buyer_accepted",
-    "buyer_withdrew",
-    "resolution_timeout",
-    "resolution_abandoned",
-    "case_resolved",
-  ].includes(event.event_type)
-    ? t(`disputeEvents.${eventKey}`)
+  const title = isKnownDisputeTimelineEvent(event.event_type)
+    ? event.event_type === "case_resolved" && td.has(dispute.status as "open")
+      ? td(dispute.status as "open")
+      : t(disputeTimelineCopyKey(event.event_type, viewerRole))
     : event.event_type;
+  const resolutionNote = isPlaceholderResolutionNote(event.body) ? null : event.body;
   const evidenceEntries = showEvidence && dispute.evidence
     ? Object.entries(dispute.evidence).filter(([, value]) => value)
     : [];
@@ -220,7 +209,7 @@ function TimelineBeat({
           && shown.some((id) => resourceWarrantyGeneration(id, dispute.resource_actions) === 1) && (
           <p className="mt-1 text-[11px] font-medium text-iris">{t("claimedWarrantyAccount")}</p>
         )}
-        {event.body && <p className="mt-1 whitespace-pre-wrap text-[12.5px] leading-relaxed text-muted">{event.body}</p>}
+        {resolutionNote && <p className="mt-1 whitespace-pre-wrap text-[12.5px] leading-relaxed text-muted">{resolutionNote}</p>}
         {shown.length > 0 && (
           <div className="mt-1.5 flex flex-wrap gap-1">
             {shown.map((id, resourceIndex) => {
@@ -262,7 +251,9 @@ function TimelineBeat({
         )}
         {!!event.refund_amount && (
           <p className="mt-1 font-mono text-[11px] font-semibold tabular text-good">
-            {t("refundAmountMinor", { amount: formatRefund(event.refund_amount) })}
+            {t(viewerRole === "seller" ? "refundAmountMinorSeller" : "refundAmountMinor", {
+              amount: formatRefund(event.refund_amount),
+            })}
           </p>
         )}
         {evidenceEntries.length > 0 && (

@@ -531,7 +531,7 @@ export default function AdminDisputesPage() {
     staleTime: 30_000,
   });
 
-  const allDisputes = React.useMemo(() => queryResult.data ?? [], [queryResult.data]);
+  const allDisputes = React.useMemo(() => queryResult.data?.items ?? [], [queryResult.data]);
 
   const buyerOf = (d: Dispute) => d.buyer_email ?? `#${d.buyer_id}`;
 
@@ -636,7 +636,7 @@ export default function AdminDisputesPage() {
   // Handle action
   const handleAction = async () => {
     if (!actionModal) return;
-    const adminNote = note.trim() || "—";
+    const adminNote = note.trim();
     setBusy(true);
     try {
       switch (actionModal.action) {
@@ -975,6 +975,7 @@ export default function AdminDisputesPage() {
         confirmText={actionModal ? ACTION_LABELS[actionModal.action].confirmText : "Xác nhận"}
         variant={actionModal ? ACTION_LABELS[actionModal.action].variant : "primary"}
         isLoading={busy}
+        confirmDisabled={actionModal?.action === "partial_refund" && !(parseInt(amountInput, 10) > 0)}
       >
         <div className="space-y-2">
           {actionModal?.action === "partial_refund" && (

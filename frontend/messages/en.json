@@ -1951,6 +1951,7 @@
     "disputeAbandonDeadlineSeller": "If the buyer does not add another claim and no seller remedy is issued, remaining escrow is released to you on {date}.",
     "disputeEscrowPaused": "Original escrow deadline: {date}. Escrow completion is paused while this dispute is open.",
     "refundAmountMinor": "Refunded: {amount}",
+    "refundAmountMinorSeller": "Refunded to buyer: {amount}",
     "disputeEvents": {
       "case_opened": "Buyer opened the dispute",
       "claim_batch": "Buyer claimed affected accounts",
@@ -1963,7 +1964,21 @@
       "buyer_withdrew": "Buyer withdrew the dispute",
       "resolution_timeout": "Closed automatically after the buyer response deadline",
       "resolution_abandoned": "Closed automatically after no further buyer action",
+      "seller_full_refund": "Seller refunded the full order",
+      "admin_refund": "Marketplace refunded the remaining escrow to you",
+      "admin_partial_refund": "Marketplace issued a partial refund",
+      "admin_reject": "Marketplace rejected the claim — remaining escrow goes to the seller",
+      "admin_replace": "Marketplace replaced the delivered accounts",
+      "admin_extend_warranty": "Marketplace extended the warranty window",
       "case_resolved": "Dispute resolved"
+    },
+    "disputeEventsSeller": {
+      "admin_refund": "Marketplace refunded remaining escrow to the buyer",
+      "admin_partial_refund": "Marketplace refunded part of the order to the buyer; remaining escrow is released to you",
+      "admin_reject": "Marketplace rejected the claim — remaining escrow is released to you",
+      "admin_replace": "Marketplace replaced the delivered accounts",
+      "admin_extend_warranty": "Marketplace extended the warranty window",
+      "seller_full_refund": "You refunded the full order"
     },
     "disputeReasonPh": "Describe the reason for your dispute…",
     "disputeFormTitle": "Warranty request / Dispute",

@@ -1,6 +1,7 @@
 import type {
   Account, ActionItem, AdminDepositIntent, AdminDepositLedgerQuery, AdminDepositLedgerResponse, AdminDepositTransaction, AdminDisputeDetail, AdminOrderDetail, AdminProduct, AdminResourceListResponse, AffiliateStats, AffiliateSummary, CalculateResult, Category, ChargeUsageResult, ChatConversationDetail, ChatConversationList, ChatMessage, DashboardData, DepositIntent, DepositMethods, DepositReconcileResult, DepositRailConfigAdmin, DepositRailConfigUpdate, Dispute, SePayWebhookEventRow, AdminAccountWallet, FundOverview, AccountAdminRow, PaginatedAccounts, LogEntry, MailConfigAdmin, MailConfigUpdate, MailOutboxList, MailSendTestResponse, MailTemplatePreview, MailTemplateRow, MoneyConfigAdmin, MoneyConfigPublic, MoneyConfigUpdate, Order, OrderStats, PaginatedAffiliateSummary, PaginatedOrderResponse, PaginatedProducts, PricingField, PricingOptions, ProductDetail, AdminProductDetail, Product, ProductLocale, ProductOperations, ProductTranslation, ProxyState, ProxyRotateResult, ProxyWhitelistResult, Review, SellerApplication, SellerProduct, SellerStats, ServiceTask, TikTokLookupResponse, Transaction, Variant, Wallet, WithdrawRequest, Provider, ProviderHealth, Alert, Resource, ResourceSummary, ResourceSellerFacet, InventoryVariant, SellerSummary, SellerProfile, SellerDisputeResource, SellerDisputeResourceList, SellerReplacementResourceList, BulkResourceActionResult,
 } from "./types";
+import type { PaginatedDisputes } from "./types";
 import {
   ApiError,
   NETWORK_ERROR_MESSAGE,
@@ -345,7 +346,8 @@ export const api = {
   buyerActionItems: () => request<ActionItem[]>("/orders/action-items", {}, true),
   sellerActionItems: () => request<ActionItem[]>("/seller/action-items", {}, true),
   adminActionItems: () => request<ActionItem[]>("/admin/action-items", {}, true),
-  adminDisputes: () => request<Dispute[]>("/admin/disputes", {}, true),
+  adminDisputes: (page = 1, perPage = 100) =>
+    request<PaginatedDisputes>(`/admin/disputes?page=${page}&per_page=${perPage}`, {}, true),
   adminDisputeDetail: (id: number) => request<AdminDisputeDetail>(`/admin/disputes/${id}`, {}, true),
   refundDispute: (id: number, adminNote: string) =>
     request<Dispute>(`/admin/disputes/${id}/refund`, { method: "POST", body: JSON.stringify({ admin_note: adminNote }) }, true),

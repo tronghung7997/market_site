@@ -235,7 +235,7 @@ async def test_concurrent_dispute_refund_and_reject_settle_once(client):
         headers={"Authorization": f"Bearer {buyer_token}"},
     )
     disputes = await client.get("/admin/disputes", headers={"Authorization": f"Bearer {admin_token}"})
-    dispute_id = disputes.json()[-1]["id"]
+    dispute_id = disputes.json()["items"][-1]["id"]
     headers = {"Authorization": f"Bearer {admin_token}"}
 
     first, second = await asyncio.gather(
@@ -264,7 +264,7 @@ async def test_admin_refund_dispute(client):
                       headers={"Authorization": f"Bearer {buyer_token}"})
 
     disputes = await client.get("/admin/disputes", headers={"Authorization": f"Bearer {admin_token}"})
-    dispute_id = disputes.json()[-1]["id"]
+    dispute_id = disputes.json()["items"][-1]["id"]
 
     resp = await client.post(f"/admin/disputes/{dispute_id}/refund",
                              json={"admin_note": "Confirmed broken"},
@@ -280,7 +280,7 @@ async def test_admin_reject_dispute(client):
                       headers={"Authorization": f"Bearer {buyer_token}"})
 
     disputes = await client.get("/admin/disputes", headers={"Authorization": f"Bearer {admin_token}"})
-    dispute_id = disputes.json()[-1]["id"]
+    dispute_id = disputes.json()["items"][-1]["id"]
 
     resp = await client.post(f"/admin/disputes/{dispute_id}/reject",
                              json={"admin_note": "Product works fine"},
@@ -1219,7 +1219,7 @@ async def test_seller_escalate_appends_note_to_existing_support_thread(client):
 
     admin_headers = {"Authorization": f"Bearer {admin_token}"}
     listed = await client.get("/admin/disputes", headers=admin_headers)
-    row = next(item for item in listed.json() if item["id"] == dispute_id)
+    row = next(item for item in listed.json()["items"] if item["id"] == dispute_id)
     assert row["review_requested_at"] is not None
 
     conflicted = await client.post(
@@ -1382,3 +1382,63 @@ async def test_unauthorized_append_and_escalate_are_rejected(client):
         json={"note": "Please help", "idempotency_key": "anon-esc"},
     )
     assert anonymous.status_code == 401
+
+
+@pytest.mark.asyncio
+async def test_admin_partial_refund_is_named_on_buyer_timeline(client):
+    buyer_token, admin_token, order_id = await create_delivered_order(client, quantity=2)
+    buyer_headers = {"Authorization": f"Bearer {buyer_token}"}
+    admin_headers = {"Authorization": f"Bearer {admin_token}"}
+    resources = (await client.get(f"/orders/{order_id}/resources", headers=buyer_headers)).json()
+    opened = await client.post(
+        f"/orders/{order_id}/dispute",
+        json={
+            "reason": "Both accounts failed",
+            "resource_ids": [resources[0]["id"], resources[1]["id"]],
+            "idempotency_key": "admin-partial-open",
+        },
+        headers=buyer_headers,
+    )
+    assert opened.status_code == 201, opened.text
+    settled = await client.post(
+        f"/admin/disputes/{opened.json()['id']}/partial-refund",
+        json={"admin_note": "—", "refund_amount": 400},
+        headers=admin_headers,
+    )
+    assert settled.status_code == 200, settled.text
+    assert settled.json()["status"] == "resolved_partial_refund"
+    case = await client.get(f"/orders/{order_id}/dispute", headers=buyer_headers)
+    assert case.status_code == 200, case.text
+    payload = case.json()
+    assert payload["refunded_amount"] == 400
+    events = payload["timeline"]
+    outcomes = [event for event in events if event["event_type"] == "admin_partial_refund"]
+    assert len(outcomes) == 1
+    assert outcomes[0]["actor_role"] == "admin"
+    assert outcomes[0]["refund_amount"] == 400
+    assert outcomes[0]["body"] is None
+    assert not any(event["event_type"] == "case_resolved" for event in events)
+
+
+@pytest.mark.asyncio
+async def test_admin_reject_timeline_does_not_imply_a_buyer_refund(client):
+    buyer_token, admin_token, order_id = await create_delivered_order(client)
+    buyer_headers = {"Authorization": f"Bearer {buyer_token}"}
+    opened = await client.post(
+        f"/orders/{order_id}/dispute",
+        json={"reason": "I changed my mind", "idempotency_key": "admin-reject-open"},
+        headers=buyer_headers,
+    )
+    rejected = await client.post(
+        f"/admin/disputes/{opened.json()['id']}/reject",
+        json={"admin_note": "Credentials work as described."},
+        headers={"Authorization": f"Bearer {admin_token}"},
+    )
+    assert rejected.status_code == 200, rejected.text
+    case = await client.get(f"/orders/{order_id}/dispute", headers=buyer_headers)
+    payload = case.json()
+    outcomes = [event for event in payload["timeline"] if event["event_type"] == "admin_reject"]
+    assert len(outcomes) == 1
+    assert outcomes[0]["body"] == "Credentials work as described."
+    assert "refund_amount" not in outcomes[0] or not outcomes[0].get("refund_amount")
+    assert payload["refunded_amount"] == 0

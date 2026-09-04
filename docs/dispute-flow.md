@@ -78,11 +78,11 @@ Ví dụ đơn 100 acc, giá đều:
 
 **Buyer:** mở đúng acc hỏng; nếu seller đã đổi acc thì Accept hoặc claim acc mới trước hạn A; chat case không gia hạn. Acc gen 2 hoặc seller im: chat Marketplace. Rút khi seller chưa remedy.
 
-**Seller:** trong tab xử lý acc, search / chọn / chọn tất cả kết quả (kể cả ~1k acc, 100 dòng/trang). Acc đã hoàn/đổi hiện badge (kèm acc thay) và không chọn lại được. Đổi acc: lấy ngẫu nhiên từ kho, hoặc tự chọn đúng số acc kho. Hoàn tiền chỉ acc đã chọn. Mỗi lần hoàn/đổi, buyer và seller nhận thông báo; bấm vào mở dữ liệu bàn giao và highlight đúng acc. Đừng chỉ chat nếu muốn khóa đồng hồ B; xong hết acc claimed thì chờ buyer 24h.
+**Seller:** trong tab xử lý acc, search / chọn / chọn tất cả kết quả (kể cả ~1k acc, 100 dòng/trang). Acc đã hoàn/đổi hiện badge (kèm acc thay) và không chọn lại được. Đổi acc: lấy ngẫu nhiên từ kho, hoặc tự chọn đúng số acc kho. Hoàn tiền chỉ acc đã chọn. Mỗi lần hoàn/đổi, buyer và seller nhận thông báo; bấm vào mở dữ liệu bàn giao và highlight đúng acc. Đừng chỉ chat nếu muốn khóa đồng hồ B; xong hết acc claimed thì chờ buyer 24h. Timeline seller cùng dữ liệu với buyer: khi admin chốt, seller thấy remaining về mình hay phần nào đã hoàn cho buyer.
 
 **Dữ liệu bàn giao:** acc đã hoàn / đã đổi / acc thay thế được gắn nhãn trên danh sách. `delivered_data` (sao chép/tải) chỉ còn acc đang assigned.
 
-**Admin (`/admin/disputes`):** tab **Chờ review** khi `review_requested_at` đã set. Vào khi hai bên còn tranh, seller im mà buyer vẫn bám, hoặc đã có remedy dở. Hoàn / từ chối như cũ. Chat các bên ở `/admin/support`. Không hoàn 99 chỉ vì seller chậm nếu không có evidence.
+**Admin (`/admin/disputes`):** tab **Chờ review** khi `review_requested_at` đã set. Vào khi hai bên còn tranh, seller im mà buyer vẫn bám, hoặc đã có remedy dở. Hoàn / từ chối / hoàn một phần / đổi / gia hạn. Timeline buyer hiện đúng outcome (kèm số tiền hoàn), không hiện “chờ seller” sau khi case đã đóng. Chat các bên ở `/admin/support`. Không hoàn 99 chỉ vì seller chậm nếu không có evidence.
 
 ## 6. Việc hệ thống không làm
 

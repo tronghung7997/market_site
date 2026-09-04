@@ -1951,6 +1951,7 @@
     "disputeAbandonDeadlineSeller": "Nếu buyer không claim thêm và seller chưa xử lý acc, phần tiền còn lại sẽ về bạn vào {date}.",
     "disputeEscrowPaused": "Hạn escrow ban đầu: {date}. Đơn tạm dừng hoàn tất trong khi khiếu nại còn mở.",
     "refundAmountMinor": "Đã hoàn: {amount}",
+    "refundAmountMinorSeller": "Đã hoàn cho buyer: {amount}",
     "disputeEvents": {
       "case_opened": "Buyer mở khiếu nại",
       "claim_batch": "Buyer khiếu nại các tài khoản",
@@ -1963,7 +1964,21 @@
       "buyer_withdrew": "Buyer đã rút khiếu nại",
       "resolution_timeout": "Tự đóng vì buyer không phản hồi hạn xử lý",
       "resolution_abandoned": "Tự đóng vì không có thao tác sau hạn ký quỹ",
+      "seller_full_refund": "Seller đã hoàn toàn bộ đơn",
+      "admin_refund": "Marketplace đã hoàn phần ký quỹ còn lại cho bạn",
+      "admin_partial_refund": "Marketplace đã hoàn một phần",
+      "admin_reject": "Marketplace từ chối khiếu nại — phần ký quỹ còn lại về seller",
+      "admin_replace": "Marketplace đã đổi tài khoản giao cho bạn",
+      "admin_extend_warranty": "Marketplace đã gia hạn thời gian bảo hành",
       "case_resolved": "Khiếu nại đã kết thúc"
+    },
+    "disputeEventsSeller": {
+      "admin_refund": "Marketplace đã hoàn phần ký quỹ còn lại cho buyer",
+      "admin_partial_refund": "Marketplace đã hoàn một phần cho buyer; phần ký quỹ còn lại được giải ngân cho bạn",
+      "admin_reject": "Marketplace từ chối khiếu nại — phần ký quỹ còn lại được giải ngân cho bạn",
+      "admin_replace": "Marketplace đã đổi tài khoản giao cho buyer",
+      "admin_extend_warranty": "Marketplace đã gia hạn thời gian bảo hành",
+      "seller_full_refund": "Bạn đã hoàn toàn bộ đơn"
     },
     "disputeReasonPh": "Mô tả lý do khiếu nại…",
     "disputeFormTitle": "Yêu cầu bảo hành / Khiếu nại",

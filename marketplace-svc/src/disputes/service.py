@@ -606,11 +606,71 @@ async def mark_marketplace_review_requested(
     return True
 
 
+_PLACEHOLDER_ADMIN_NOTES = frozenset({"", "—", "-", "–", "−"})
+_TERMINAL_TIMELINE_EVENTS = frozenset({
+    "buyer_accepted",
+    "buyer_withdrew",
+    "resolution_timeout",
+    "resolution_abandoned",
+    "seller_full_refund",
+    "admin_refund",
+    "admin_partial_refund",
+    "admin_reject",
+    "admin_replace",
+    "admin_extend_warranty",
+})
+_STATUS_TIMELINE_EVENT = {
+    DisputeStatus.resolved_refund: "admin_refund",
+    DisputeStatus.resolved_partial_refund: "admin_partial_refund",
+    DisputeStatus.resolved_reject: "admin_reject",
+    DisputeStatus.resolved_replace: "admin_replace",
+    DisputeStatus.resolved_extend_warranty: "admin_extend_warranty",
+    DisputeStatus.resolved_timeout: "resolution_timeout",
+    DisputeStatus.resolved_abandoned: "resolution_abandoned",
+    DisputeStatus.withdrawn_by_buyer: "buyer_withdrew",
+}
+_BUYER_REFUND_EVENTS = frozenset({
+    "admin_refund",
+    "admin_partial_refund",
+    "seller_full_refund",
+})
+
+
+def _public_resolution_body(note: str | None) -> str | None:
+    text = (note or "").strip()
+    if text in _PLACEHOLDER_ADMIN_NOTES:
+        return None
+    return text
+
+
+def _record_admin_resolution(
+    db: AsyncSession,
+    dispute: Dispute,
+    *,
+    admin_id: int,
+    event_type: str,
+    admin_note: str,
+) -> None:
+    note = _public_resolution_body(admin_note)
+    dispute.admin_note = note
+    db.add(
+        DisputeMessage(
+            dispute_id=dispute.id,
+            actor_id=admin_id,
+            actor_role="admin",
+            event_type=event_type,
+            body=note or "",
+        )
+    )
+
+
 def _timeline_events(
     dispute: Dispute,
     claims: list[DisputeClaimResource],
     actions: list[DisputeResourceAction],
     messages: list[DisputeMessage],
+    *,
+    refunded_amount: int = 0,
 ) -> list[dict]:
     events: list[dict] = [
         {
@@ -653,34 +713,46 @@ def _timeline_events(
             }
         )
     for message in messages:
-        events.append(
-            {
-                "id": f"message-{message.id}",
-                "event_type": message.event_type,
-                "created_at": message.created_at,
-                "actor_role": message.actor_role,
-                "body": message.body,
-                "resource_ids": [],
-            }
-        )
-    if dispute.resolved_at:
-        events.append(
-            {
-                "id": f"case-resolved-{dispute.id}",
-                "event_type": "case_resolved",
-                "created_at": dispute.resolved_at,
-                "actor_role": (
-                    "system"
-                    if dispute.status in (
-                        DisputeStatus.resolved_timeout,
-                        DisputeStatus.resolved_abandoned,
-                    )
-                    else "admin" if dispute.admin_note else "buyer"
-                ),
-                "body": dispute.admin_note,
-                "resource_ids": [],
-            }
-        )
+        event = {
+            "id": f"message-{message.id}",
+            "event_type": message.event_type,
+            "created_at": message.created_at,
+            "actor_role": message.actor_role,
+            "body": _public_resolution_body(message.body),
+            "resource_ids": [],
+        }
+        if message.event_type in _BUYER_REFUND_EVENTS and refunded_amount:
+            event["refund_amount"] = refunded_amount
+        events.append(event)
+    message_types = {message.event_type for message in messages}
+    if dispute.resolved_at and not (message_types & _TERMINAL_TIMELINE_EVENTS):
+        event_type = _STATUS_TIMELINE_EVENT.get(dispute.status, "case_resolved")
+        event = {
+            "id": f"case-resolved-{dispute.id}",
+            "event_type": event_type,
+            "created_at": dispute.resolved_at,
+            "actor_role": (
+                "system"
+                if dispute.status in {
+                    DisputeStatus.resolved_timeout,
+                    DisputeStatus.resolved_abandoned,
+                }
+                else "admin"
+                if dispute.status in {
+                    DisputeStatus.resolved_refund,
+                    DisputeStatus.resolved_partial_refund,
+                    DisputeStatus.resolved_reject,
+                    DisputeStatus.resolved_replace,
+                    DisputeStatus.resolved_extend_warranty,
+                }
+                else "buyer"
+            ),
+            "body": _public_resolution_body(dispute.admin_note),
+            "resource_ids": [],
+        }
+        if event_type in _BUYER_REFUND_EVENTS and refunded_amount:
+            event["refund_amount"] = refunded_amount
+        events.append(event)
     return sorted(events, key=lambda event: (event["created_at"], event["event_type"]))
 
 
@@ -753,13 +825,49 @@ async def _enrich_dispute(dispute: Dispute, db: AsyncSession) -> dict:
             }
             for row in actions
         ],
-        "timeline": _timeline_events(dispute, claims, actions, messages),
+        "timeline": _timeline_events(
+            dispute,
+            claims,
+            actions,
+            messages,
+            refunded_amount=order.refunded_amount if order else 0,
+        ),
     }
 
 
-async def list_disputes(db: AsyncSession) -> list[dict]:
-    result = await db.execute(select(Dispute).order_by(Dispute.created_at.desc()))
-    return [await _enrich_dispute(d, db) for d in result.scalars().all()]
+async def _dispute_list_page(
+    db: AsyncSession,
+    base,
+    *,
+    page: int,
+    per_page: int,
+) -> dict:
+    total = int(await db.scalar(select(func.count()).select_from(base.subquery())) or 0)
+    rows = (await db.execute(
+        base.join(Order, Order.id == Dispute.order_id)
+        .outerjoin(ProductVariant, ProductVariant.id == Order.variant_id)
+        .outerjoin(Product, Product.id == func.coalesce(Order.product_id, ProductVariant.product_id))
+        .outerjoin(Account, Account.id == Dispute.buyer_id)
+        .with_only_columns(Dispute, Order, Product.title, ProductVariant.name, Account.email)
+        .order_by(Dispute.created_at.desc())
+        .offset((page - 1) * per_page).limit(per_page)
+    )).all()
+    items = [{
+        "id": dispute.id, "order_id": dispute.order_id, "buyer_id": dispute.buyer_id,
+        "reason": dispute.reason, "evidence_type": dispute.evidence_type, "evidence": dispute.evidence,
+        "status": dispute.status, "admin_note": dispute.admin_note, "seller_note": dispute.seller_note,
+        "created_at": dispute.created_at, "resolution_offered_at": dispute.resolution_offered_at,
+        "resolution_deadline_at": dispute.resolution_deadline_at,
+        "escrow_expires_at": order.escrow_expires_at, "abandon_after_at": None,
+        "review_requested_at": dispute.review_requested_at, "resolved_at": dispute.resolved_at,
+        "product_title": title, "variant_name": variant_name, "buyer_email": email,
+        "order_amount": order.total_amount, "refunded_amount": order.refunded_amount,
+    } for dispute, order, title, variant_name, email in rows]
+    return {"items": items, "total": total, "page": page, "per_page": per_page}
+
+
+async def list_disputes(db: AsyncSession, *, page: int, per_page: int) -> dict:
+    return await _dispute_list_page(db, select(Dispute), page=page, per_page=per_page)
 
 
 async def get_dispute_detail(dispute_id: int, db: AsyncSession) -> dict:
@@ -1427,27 +1535,15 @@ async def list_seller_disputes(
 ) -> dict:
     base = (
         select(Dispute)
-        .join(Order, Order.id == Dispute.order_id)
-        .where(Order.seller_id == seller_id)
+        .where(
+            Dispute.order_id.in_(
+                select(Order.id).where(Order.seller_id == seller_id)
+            )
+        )
     )
     if status_filter == "open":
         base = base.where(Dispute.status == DisputeStatus.open)
-    total = int(await db.scalar(select(func.count()).select_from(base.subquery())) or 0)
-    disputes = list(
-        (
-            await db.execute(
-                base.order_by(Dispute.created_at.desc())
-                .offset((page - 1) * per_page)
-                .limit(per_page)
-            )
-        ).scalars()
-    )
-    return {
-        "items": [await _enrich_dispute(dispute, db) for dispute in disputes],
-        "total": total,
-        "page": page,
-        "per_page": per_page,
-    }
+    return await _dispute_list_page(db, base, page=page, per_page=per_page)
 
 
 async def get_buyer_dispute(order_id: int, buyer_id: int, db: AsyncSession) -> dict | None:
@@ -1700,7 +1796,7 @@ async def resolve_dispute_after_response_timeout(
     )
 
 
-async def refund_dispute(dispute_id: int, admin_note: str, db: AsyncSession) -> Dispute:
+async def refund_dispute(dispute_id: int, admin_note: str, db: AsyncSession, *, admin_id: int) -> Dispute:
     dispute = await db.get(Dispute, dispute_id, with_for_update=True)
     if not dispute:
         raise api_error(ErrorCode.DISPUTE_NOT_FOUND, status.HTTP_404_NOT_FOUND)
@@ -1709,8 +1805,10 @@ async def refund_dispute(dispute_id: int, admin_note: str, db: AsyncSession) -> 
 
     order = await db.get(Order, dispute.order_id, with_for_update=True)
     dispute.status = DisputeStatus.resolved_refund
-    dispute.admin_note = admin_note
     dispute.resolved_at = datetime.now(timezone.utc)
+    _record_admin_resolution(
+        db, dispute, admin_id=admin_id, event_type="admin_refund", admin_note=admin_note,
+    )
     order.status = OrderStatus.refunded
 
     remaining_amount = order.total_amount - order.refunded_amount
@@ -1731,7 +1829,7 @@ async def refund_dispute(dispute_id: int, admin_note: str, db: AsyncSession) -> 
     return dispute
 
 
-async def reject_dispute(dispute_id: int, admin_note: str, db: AsyncSession) -> Dispute:
+async def reject_dispute(dispute_id: int, admin_note: str, db: AsyncSession, *, admin_id: int) -> Dispute:
     dispute = await db.get(Dispute, dispute_id, with_for_update=True)
     if not dispute:
         raise api_error(ErrorCode.DISPUTE_NOT_FOUND, status.HTTP_404_NOT_FOUND)
@@ -1740,8 +1838,10 @@ async def reject_dispute(dispute_id: int, admin_note: str, db: AsyncSession) -> 
 
     order = await db.get(Order, dispute.order_id, with_for_update=True)
     dispute.status = DisputeStatus.resolved_reject
-    dispute.admin_note = admin_note
     dispute.resolved_at = datetime.now(timezone.utc)
+    _record_admin_resolution(
+        db, dispute, admin_id=admin_id, event_type="admin_reject", admin_note=admin_note,
+    )
     order.status = OrderStatus.completed
 
     seller = await db.get(Account, order.seller_id)
@@ -1761,7 +1861,7 @@ async def reject_dispute(dispute_id: int, admin_note: str, db: AsyncSession) -> 
     return dispute
 
 
-async def partial_refund_dispute(dispute_id: int, admin_note: str, refund_amount: int, db: AsyncSession) -> Dispute:
+async def partial_refund_dispute(dispute_id: int, admin_note: str, refund_amount: int, db: AsyncSession, *, admin_id: int) -> Dispute:
     dispute = await db.get(Dispute, dispute_id, with_for_update=True)
     if not dispute:
         raise api_error(ErrorCode.DISPUTE_NOT_FOUND, status.HTTP_404_NOT_FOUND)
@@ -1774,8 +1874,10 @@ async def partial_refund_dispute(dispute_id: int, admin_note: str, refund_amount
         raise api_error(ErrorCode.DISPUTE_INVALID_REFUND_AMOUNT, status.HTTP_400_BAD_REQUEST)
 
     dispute.status = DisputeStatus.resolved_partial_refund
-    dispute.admin_note = admin_note
     dispute.resolved_at = datetime.now(timezone.utc)
+    _record_admin_resolution(
+        db, dispute, admin_id=admin_id, event_type="admin_partial_refund", admin_note=admin_note,
+    )
     order.status = OrderStatus.completed
 
     await refund_escrow(
@@ -1803,7 +1905,7 @@ async def partial_refund_dispute(dispute_id: int, admin_note: str, refund_amount
     return dispute
 
 
-async def replace_dispute(dispute_id: int, admin_note: str, db: AsyncSession) -> Dispute:
+async def replace_dispute(dispute_id: int, admin_note: str, db: AsyncSession, *, admin_id: int) -> Dispute:
     dispute = await db.get(Dispute, dispute_id, with_for_update=True)
     if not dispute:
         raise api_error(ErrorCode.DISPUTE_NOT_FOUND, status.HTTP_404_NOT_FOUND)
@@ -1854,8 +1956,10 @@ async def replace_dispute(dispute_id: int, admin_note: str, db: AsyncSession) ->
     order.status = OrderStatus.delivered
 
     dispute.status = DisputeStatus.resolved_replace
-    dispute.admin_note = admin_note
     dispute.resolved_at = datetime.now(timezone.utc)
+    _record_admin_resolution(
+        db, dispute, admin_id=admin_id, event_type="admin_replace", admin_note=admin_note,
+    )
 
     await log_event(db, "info", f"Dispute {dispute_id} resolved via replacement", request_id=current_request_id(),
                     metadata={"event": "dispute_replaced", "order_id": order.id})
@@ -1865,7 +1969,7 @@ async def replace_dispute(dispute_id: int, admin_note: str, db: AsyncSession) ->
     return dispute
 
 
-async def extend_warranty_dispute(dispute_id: int, admin_note: str, extra_days: int, db: AsyncSession) -> Dispute:
+async def extend_warranty_dispute(dispute_id: int, admin_note: str, extra_days: int, db: AsyncSession, *, admin_id: int) -> Dispute:
     dispute = await db.get(Dispute, dispute_id, with_for_update=True)
     if not dispute:
         raise api_error(ErrorCode.DISPUTE_NOT_FOUND, status.HTTP_404_NOT_FOUND)
@@ -1880,8 +1984,10 @@ async def extend_warranty_dispute(dispute_id: int, admin_note: str, extra_days: 
     order.status = OrderStatus.delivered
 
     dispute.status = DisputeStatus.resolved_extend_warranty
-    dispute.admin_note = admin_note
     dispute.resolved_at = datetime.now(timezone.utc)
+    _record_admin_resolution(
+        db, dispute, admin_id=admin_id, event_type="admin_extend_warranty", admin_note=admin_note,
+    )
 
     await log_event(db, "info", f"Dispute {dispute_id} resolved via warranty extension", request_id=current_request_id(),
                     metadata={"event": "dispute_warranty_extended", "order_id": order.id, "extra_days": extra_days})

@@ -6,6 +6,9 @@ import {
   displayTimelineEvents,
   formatDisputeAccountChip,
   isDeliveryRowClaimable,
+  isKnownDisputeTimelineEvent,
+  isPlaceholderResolutionNote,
+  disputeTimelineCopyKey,
   isDisputeReadyToAccept,
   parseHighlightedResourceIds,
   resourceLabelMap,
@@ -112,6 +115,18 @@ test("deliveryResourceMarks prefers refund/replace over a bare claim", () => {
 test("parseHighlightedResourceIds keeps unique positive integers", () => {
   assert.deepEqual(parseHighlightedResourceIds("91, 229,91,x"), [91, 229]);
   assert.deepEqual(parseHighlightedResourceIds(""), []);
+});
+
+test("resolution notes skip placeholder dashes and known admin outcomes are mapped", () => {
+  assert.equal(isPlaceholderResolutionNote("—"), true);
+  assert.equal(isPlaceholderResolutionNote("  -  "), true);
+  assert.equal(isPlaceholderResolutionNote("Partial refund for two accounts"), false);
+  assert.equal(isKnownDisputeTimelineEvent("admin_partial_refund"), true);
+  assert.equal(isKnownDisputeTimelineEvent("case_resolved"), true);
+  assert.equal(isKnownDisputeTimelineEvent("unknown_event"), false);
+  assert.equal(disputeTimelineCopyKey("admin_partial_refund", "buyer"), "disputeEvents.admin_partial_refund");
+  assert.equal(disputeTimelineCopyKey("admin_partial_refund", "seller"), "disputeEventsSeller.admin_partial_refund");
+  assert.equal(disputeTimelineCopyKey("case_opened", "seller"), "disputeEvents.case_opened");
 });
 
 test("warranty chips mark the first replacement hop", () => {

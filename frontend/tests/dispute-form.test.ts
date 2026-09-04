@@ -17,6 +17,12 @@ test("account-backed orders require a claim selection; services do not", () => {
   assert.equal(disputeFormMode({ claimableCount: 3 }), "accounts");
   assert.equal(disputeFormMode({ claimableCount: 0 }), "service");
   assert.equal(disputeFormMode({ claimableCount: 0, appendToExisting: true }), "accounts");
+  for (const fulfillmentKind of ["proxy", "task", "sla", "api"] as const) {
+    assert.equal(
+      disputeFormMode({ claimableCount: 3, appendToExisting: true, fulfillmentKind }),
+      "service",
+    );
+  }
 });
 
 test("only assigned, unclaimed inventory rows are claimable", () => {
@@ -106,5 +112,11 @@ test("submit stays blocked until account claims are chosen", () => {
     selectedIds: [],
     hasIssueDescription: true,
     loading: true,
+  }), false);
+  assert.equal(canSubmitDisputeForm({
+    mode: "service",
+    selectedIds: [],
+    hasIssueDescription: true,
+    scopeError: true,
   }), false);
 });

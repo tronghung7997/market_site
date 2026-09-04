@@ -26,7 +26,11 @@ export function isDisputeIssueId(value: string): value is DisputeIssueId {
 export function disputeFormMode(input: {
   claimableCount: number;
   appendToExisting?: boolean;
+  fulfillmentKind?: FulfillmentKind | string | null;
 }): DisputeFormMode {
+  if (["proxy", "task", "sla", "api"].includes(input.fulfillmentKind ?? "")) {
+    return "service";
+  }
   if (input.appendToExisting || input.claimableCount > 0) return "accounts";
   return "service";
 }
@@ -124,8 +128,9 @@ export function canSubmitDisputeForm(input: {
   hasIssueDescription: boolean;
   submitting?: boolean;
   loading?: boolean;
+  scopeError?: boolean;
 }): boolean {
-  if (input.submitting || input.loading || !input.hasIssueDescription) return false;
+  if (input.submitting || input.loading || input.scopeError || !input.hasIssueDescription) return false;
   if (input.mode === "accounts") return input.selectedIds.length > 0;
   return true;
 }

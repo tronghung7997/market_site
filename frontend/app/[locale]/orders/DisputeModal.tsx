@@ -13,8 +13,8 @@ import {
   FileQuestion,
   WifiOff,
   HelpCircle,
-  Search,
 } from "lucide-react";
+import { Search } from "@/components/Icons";
 import { api } from "@/lib/api";
 import { useApiErrorMessage } from "@/lib/use-api-error";
 import { fulfillmentFromOrder } from "@/lib/fulfillment";
@@ -74,6 +74,7 @@ export default function DisputeModal({
   const [resources, setResources] = useState<Resource[]>([]);
   const [claimedIds, setClaimedIds] = useState<number[]>([]);
   const [loadingScope, setLoadingScope] = useState(true);
+  const [scopeError, setScopeError] = useState("");
   const [selectedIds, setSelectedIds] = useState<number[]>(resourceIds ?? []);
   const [selectionReady, setSelectionReady] = useState(false);
   const [accountQuery, setAccountQuery] = useState("");
@@ -98,20 +99,25 @@ export default function DisputeModal({
   useEffect(() => {
     let active = true;
     setLoadingScope(true);
+    setScopeError("");
     const needsExistingCase = Boolean(appendToExisting || orderProp?.has_dispute);
     Promise.all([
-      api.orderResources(orderId).catch(() => [] as Resource[]),
-      needsExistingCase ? api.orderDispute(orderId).catch(() => null) : Promise.resolve(null),
-      orderProp ? Promise.resolve(orderProp) : api.getOrder(orderId).catch(() => null),
+      api.orderResources(orderId),
+      needsExistingCase ? api.orderDispute(orderId) : Promise.resolve(null),
+      orderProp ? Promise.resolve(orderProp) : api.getOrder(orderId),
     ]).then(([rows, dispute, fetched]) => {
       if (!active) return;
       setResources(rows);
       setClaimedIds(dispute?.claimed_resource_ids ?? []);
       if (fetched) setOrderRecord(fetched);
       setLoadingScope(false);
+    }).catch((cause: unknown) => {
+      if (!active) return;
+      setScopeError(apiErrorMessage(cause));
+      setLoadingScope(false);
     });
     return () => { active = false; };
-  }, [appendToExisting, orderId, orderProp]);
+  }, [apiErrorMessage, appendToExisting, orderId, orderProp]);
 
   const claimableIds = useMemo(
     () => claimableResourceIds(resources, claimedIds),
@@ -122,11 +128,12 @@ export default function DisputeModal({
     return resources.filter((row) => allowed.has(row.id));
   }, [claimableIds, resources]);
 
+  const fulfillmentKind = orderRecord ? fulfillmentFromOrder(orderRecord).kind : undefined;
   const mode = disputeFormMode({
     claimableCount: claimableIds.length,
     appendToExisting,
+    fulfillmentKind,
   });
-  const fulfillmentKind = orderRecord ? fulfillmentFromOrder(orderRecord).kind : undefined;
   const issueIds = disputeIssueIds(mode, fulfillmentKind);
 
   useEffect(() => {
@@ -240,6 +247,7 @@ export default function DisputeModal({
     hasIssueDescription,
     submitting,
     loading: loadingScope,
+    scopeError: Boolean(scopeError),
   });
 
   const pickerLimit = 50;
@@ -285,6 +293,10 @@ export default function DisputeModal({
             <Spinner />
             <span>{t("disputeLoadingScope")}</span>
           </div>
+        ) : scopeError ? (
+          <p role="alert" className="rounded-lg border border-bad/25 bg-bad-soft/30 px-3 py-2 text-[12px] text-bad">
+            {scopeError}
+          </p>
         ) : mode === "accounts" ? (
           <div className="rounded-xl border border-warn/25 bg-warn-soft/20 p-3 space-y-2.5">
             <div className="space-y-1">
@@ -299,8 +311,12 @@ export default function DisputeModal({
               <>
                 <div className="flex flex-wrap items-center gap-2">
                   <div className="relative min-w-[180px] flex-1">
+                    <label htmlFor="dispute-account-search" className="sr-only">
+                      {t("disputeAccountSearchPh")}
+                    </label>
                     <Search size={13} className="absolute left-2.5 top-1/2 -translate-y-1/2 text-muted" />
                     <Input
+                      id="dispute-account-search"
                       value={accountQuery}
                       onChange={(e) => setAccountQuery(e.target.value)}
                       placeholder={t("disputeAccountSearchPh")}

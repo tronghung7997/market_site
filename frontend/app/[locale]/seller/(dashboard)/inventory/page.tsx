@@ -1660,63 +1660,80 @@ function InventoryConsole() {
 
                                       {/* Actions */}
                                       <td className="px-3.5 py-2 text-right whitespace-nowrap">
-                                        <div className="flex items-center justify-end gap-1" onClick={(e) => e.stopPropagation()}>
-                                          {canRestockInventoryResource(res.status, res.order_id) && !res.is_archived && (
+                                        <div
+                                          className="grid grid-cols-3 w-[92px] ml-auto gap-1 items-center justify-items-center"
+                                          onClick={(e) => e.stopPropagation()}
+                                        >
+                                          {/* Slot 1: Edit / View detail */}
+                                          <div className="col-start-1">
                                             <Button
                                               size="sm"
                                               variant="ghost"
                                               onClick={() => setActiveDetailResource(res)}
-                                              className="h-7 w-7 p-0 text-good hover:text-good hover:bg-good-soft inline-flex items-center justify-center rounded-lg"
-                                              title={t("inventoryRestockSingle")}
-                                              aria-label={t("inventoryRestockSingle")}
-                                            >
-                                              <RotateCcw size={13} />
-                                            </Button>
-                                          )}
-                                          {res.is_archived ? (
-                                            <Button
-                                              size="sm"
-                                              variant="ghost"
-                                              onClick={() => void handleRestoreSingle(res.id)}
                                               className="h-7 w-7 p-0 text-iris hover:text-iris-hi hover:bg-iris-soft inline-flex items-center justify-center rounded-lg"
-                                              title={t("inventoryRestoreSingle")}
-                                              aria-label={t("inventoryRestoreSingle")}
+                                              title={t("resourceEditTitle")}
+                                              aria-label={t("resourceEditTitle")}
                                             >
-                                              <RotateCcw size={13} />
+                                              <Edit2 size={13} />
                                             </Button>
-                                          ) : canArchiveInventoryResource(res.status) && (
-                                            <Button
-                                              size="sm"
-                                              variant="ghost"
-                                              onClick={() => void handleArchiveSingle(res.id)}
-                                              className="h-7 w-7 p-0 text-muted hover:text-bad hover:bg-bad-soft inline-flex items-center justify-center rounded-lg"
-                                              title={t("inventoryArchiveSingle")}
-                                              aria-label={t("inventoryArchiveSingle")}
-                                            >
-                                              <EyeOff size={13} />
-                                            </Button>
-                                          )}
-                                          <Button
-                                            size="sm"
-                                            variant="ghost"
-                                            onClick={() => setActiveDetailResource(res)}
-                                            className="h-7 w-7 p-0 text-iris hover:text-iris-hi hover:bg-iris-soft inline-flex items-center justify-center rounded-lg"
-                                            title={t("resourceEditTitle")}
-                                            aria-label={t("resourceEditTitle")}
-                                          >
-                                            <Edit2 size={13} />
-                                          </Button>
+                                          </div>
+
+                                          {/* Slot 2: Lifecycle action (Restock / Restore / Archive) */}
+                                          {canRestockInventoryResource(res.status, res.order_id) && !res.is_archived ? (
+                                            <div className="col-start-2">
+                                              <Button
+                                                size="sm"
+                                                variant="ghost"
+                                                onClick={() => setActiveDetailResource(res)}
+                                                className="h-7 w-7 p-0 text-good hover:text-good hover:bg-good-soft inline-flex items-center justify-center rounded-lg"
+                                                title={t("inventoryRestockSingle")}
+                                                aria-label={t("inventoryRestockSingle")}
+                                              >
+                                                <RotateCcw size={13} />
+                                              </Button>
+                                            </div>
+                                          ) : res.is_archived ? (
+                                            <div className="col-start-2">
+                                              <Button
+                                                size="sm"
+                                                variant="ghost"
+                                                onClick={() => void handleRestoreSingle(res.id)}
+                                                className="h-7 w-7 p-0 text-iris hover:text-iris-hi hover:bg-iris-soft inline-flex items-center justify-center rounded-lg"
+                                                title={t("inventoryRestoreSingle")}
+                                                aria-label={t("inventoryRestoreSingle")}
+                                              >
+                                                <RotateCcw size={13} />
+                                              </Button>
+                                            </div>
+                                          ) : canArchiveInventoryResource(res.status) ? (
+                                            <div className="col-start-2">
+                                              <Button
+                                                size="sm"
+                                                variant="ghost"
+                                                onClick={() => void handleArchiveSingle(res.id)}
+                                                className="h-7 w-7 p-0 text-muted hover:text-bad hover:bg-bad-soft inline-flex items-center justify-center rounded-lg"
+                                                title={t("inventoryArchiveSingle")}
+                                                aria-label={t("inventoryArchiveSingle")}
+                                              >
+                                                <EyeOff size={13} />
+                                              </Button>
+                                            </div>
+                                          ) : null}
+
+                                          {/* Slot 3: Delete */}
                                           {isAvailable && (
-                                            <Button
-                                              size="sm"
-                                              variant="ghost"
-                                              onClick={() => handleDeleteResource(res.id)}
-                                              className="h-7 w-7 p-0 text-bad hover:text-bad hover:bg-bad-soft inline-flex items-center justify-center rounded-lg"
-                                              title={t("inventoryDeleteLine")}
-                                              aria-label={t("inventoryDeleteLine")}
-                                            >
-                                              <Trash size={13} />
-                                            </Button>
+                                            <div className="col-start-3">
+                                              <Button
+                                                size="sm"
+                                                variant="ghost"
+                                                onClick={() => handleDeleteResource(res.id)}
+                                                className="h-7 w-7 p-0 text-bad hover:text-bad hover:bg-bad-soft inline-flex items-center justify-center rounded-lg"
+                                                title={t("inventoryDeleteLine")}
+                                                aria-label={t("inventoryDeleteLine")}
+                                              >
+                                                <Trash size={13} />
+                                              </Button>
+                                            </div>
                                           )}
                                         </div>
                                       </td>

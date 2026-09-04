@@ -9,7 +9,11 @@ refund; Proxora does not implement physical reverse shipping.
 - [x] Buyer may open a case only for their delivered order and before escrow expiry.
 - [x] Buyer may claim one, many, or all affected resources, up to 2,000 per request.
 - [x] Duplicate resources and resources from another order are rejected.
+- [x] Only currently assigned accounts may be claimed; error/refunded/replaced originals are rejected.
 - [x] Buyer may append later claim batches and case messages while the case is open.
+- [x] A replacement account may be claimed once (warranty generation 1); a second-generation replacement cannot be claimed.
+- [x] Case chat does not pause the buyer-response deadline; claiming a replacement or escalating to Marketplace does.
+- [x] Buyer or seller may escalate to Marketplace on an open case with a required note; that pauses auto-settlement for admin review and does not refund escrow. Reopening an existing Marketplace thread does not pause clocks.
 - [x] Seller sees the buyer reason, evidence, affected resources, and pending/resolved counts.
 - [x] Seller may respond, replace claimed instant-inventory resources, refund them, or escalate.
 - [x] Seller cannot remedy an unclaimed resource or another seller's order.

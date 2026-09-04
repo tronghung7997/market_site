@@ -102,6 +102,7 @@ class Dispute(Base):
     # activity clears both fields, preventing a stale offer from auto-settling.
     resolution_offered_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True), nullable=True)
     resolution_deadline_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True), nullable=True)
+    review_requested_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True), nullable=True)
     resolved_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True), nullable=True)
 
 

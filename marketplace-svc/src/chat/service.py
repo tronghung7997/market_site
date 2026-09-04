@@ -9,6 +9,7 @@ from src.exceptions import ErrorCode, api_error
 from src.chat.enums import ContextRole, ConversationKind, ConversationStatus
 from src.chat.events import publish
 from src.chat.schemas import (
+    ChatDisputeContext,
     ChatMessageResponse,
     ChatOrderContext,
     ChatProduct,
@@ -19,9 +20,22 @@ from src.chat.schemas import (
 )
 from src.models.account import Account, ApplicationStatus, SellerApplication
 from src.models.chat import ChatConversation, ChatMessage, ChatParticipant
-from src.models.order import Order
+from src.models.order import (
+    Dispute,
+    DisputeClaimResource,
+    DisputeResourceAction,
+    DisputeStatus,
+    Order,
+)
 from src.models.product import Product, ProductStatus
 from src.products.covers import parse_cover_id
+
+MARKETPLACE_LABEL = "Marketplace"
+MARKETPLACE_COUNTERPART_ID = 0
+
+
+def _has_role(account: Account, role: str) -> bool:
+    return role in (account.roles or [])
 
 
 async def _participant(
@@ -30,6 +44,29 @@ async def _participant(
     row = await db.get(ChatParticipant, (conversation_id, account_id))
     if row is None:
         raise api_error(ErrorCode.CHAT_CONVERSATION_NOT_FOUND, status.HTTP_404_NOT_FOUND)
+    return row
+
+
+async def _participant_for_account(
+    db: AsyncSession, conversation_id: uuid.UUID, account: Account
+) -> ChatParticipant:
+    row = await db.get(ChatParticipant, (conversation_id, account.id))
+    if row is not None:
+        return row
+    conversation = await db.get(ChatConversation, conversation_id)
+    if (
+        conversation is None
+        or conversation.kind != ConversationKind.SUPPORT
+        or not _has_role(account, "admin")
+    ):
+        raise api_error(ErrorCode.CHAT_CONVERSATION_NOT_FOUND, status.HTTP_404_NOT_FOUND)
+    row = ChatParticipant(
+        conversation_id=conversation.id,
+        account_id=account.id,
+        context_role=ContextRole.ADMIN,
+    )
+    db.add(row)
+    await db.flush()
     return row
 
 
@@ -43,14 +80,29 @@ async def _summary(
     participant: ChatParticipant,
 ) -> ConversationSummary:
     product = await db.get(Product, conversation.product_id) if conversation.product_id else None
-    counterpart_id = (
-        conversation.seller_id if participant.context_role == ContextRole.BUYER else conversation.buyer_id
-    )
-    counterpart_role = (
-        ContextRole.SELLER if participant.context_role == ContextRole.BUYER else ContextRole.BUYER
-    )
-    counterpart_label = f"Khách hàng #{counterpart_id or 0}"
-    if counterpart_role == ContextRole.SELLER:
+    if conversation.kind == ConversationKind.SUPPORT:
+        if participant.context_role == ContextRole.ADMIN:
+            counterpart_id = conversation.requester_id or 0
+            counterpart_role = conversation.requester_role or ContextRole.BUYER
+            requester = await db.get(Account, counterpart_id) if counterpart_id else None
+            counterpart_label = (
+                requester.email.split("@", 1)[0]
+                if requester and requester.email
+                else f"#{counterpart_id}"
+            )
+        else:
+            counterpart_id = MARKETPLACE_COUNTERPART_ID
+            counterpart_role = ContextRole.ADMIN
+            counterpart_label = MARKETPLACE_LABEL
+    else:
+        counterpart_id = (
+            conversation.seller_id if participant.context_role == ContextRole.BUYER else conversation.buyer_id
+        )
+        counterpart_role = (
+            ContextRole.SELLER if participant.context_role == ContextRole.BUYER else ContextRole.BUYER
+        )
+        counterpart_label = f"Khách hàng #{counterpart_id or 0}"
+    if counterpart_role == ContextRole.SELLER and conversation.kind != ConversationKind.SUPPORT:
         business_name = await db.scalar(
             select(SellerApplication.business_name)
             .where(
@@ -84,7 +136,10 @@ async def _summary(
         if order
         else None
     )
-    terminal_order = order_status in {"cancelled", "refunded"}
+    terminal_order = (
+        conversation.kind != ConversationKind.SUPPORT
+        and order_status in {"cancelled", "refunded"}
+    )
     effective_status = (
         ConversationStatus.READ_ONLY if terminal_order else conversation.status
     )
@@ -97,6 +152,60 @@ async def _summary(
         )
     elif effective_status != ConversationStatus.OPEN:
         read_only_reason = "Cuộc trò chuyện hiện chỉ đọc."
+    dispute_ctx = None
+    if order:
+        dispute = await db.scalar(
+            select(Dispute)
+            .where(Dispute.order_id == order.id)
+            .order_by(Dispute.id.desc())
+            .limit(1)
+        )
+        if dispute:
+            claimed_count = int(
+                await db.scalar(
+                    select(func.count(DisputeClaimResource.id)).where(
+                        DisputeClaimResource.dispute_id == dispute.id
+                    )
+                )
+                or 0
+            )
+            replaced_count = int(
+                await db.scalar(
+                    select(func.count(DisputeResourceAction.id)).where(
+                        DisputeResourceAction.dispute_id == dispute.id,
+                        DisputeResourceAction.action == "replace",
+                    )
+                )
+                or 0
+            )
+            refund_row = (
+                await db.execute(
+                    select(
+                        func.count(DisputeResourceAction.id),
+                        func.coalesce(func.sum(DisputeResourceAction.refund_amount), 0),
+                    ).where(
+                        DisputeResourceAction.dispute_id == dispute.id,
+                        DisputeResourceAction.action == "refund",
+                    )
+                )
+            ).first()
+            refunded_count = int(refund_row[0] or 0) if refund_row else 0
+            refunded_amount = int(refund_row[1] or 0) if refund_row else 0
+            pending_count = max(0, claimed_count - replaced_count - refunded_count)
+            dispute_status = (
+                str(dispute.status.value if hasattr(dispute.status, "value") else dispute.status)
+            )
+            dispute_ctx = ChatDisputeContext(
+                id=dispute.id,
+                status=dispute_status,
+                reason=dispute.reason,
+                review_requested_at=dispute.review_requested_at,
+                claimed_count=claimed_count,
+                replaced_count=replaced_count,
+                pending_count=pending_count,
+                refunded_amount=refunded_amount,
+            )
+
     return ConversationSummary(
         id=conversation.id,
         kind=conversation.kind,
@@ -113,6 +222,7 @@ async def _summary(
             if order
             else None
         ),
+        dispute=dispute_ctx,
         counterpart=SafeCounterpart(
             id=counterpart_id or 0,
             label=counterpart_label,
@@ -336,7 +446,7 @@ async def get_or_create_order_conversation(
 async def get_conversation(
     account: Account, conversation_id: uuid.UUID, db: AsyncSession
 ) -> ConversationDetail:
-    participant = await _participant(db, conversation_id, account.id)
+    participant = await _participant_for_account(db, conversation_id, account)
     conversation = await db.get(ChatConversation, conversation_id)
     if conversation is None:
         raise api_error(ErrorCode.CHAT_CONVERSATION_NOT_FOUND, status.HTTP_404_NOT_FOUND)
@@ -350,7 +460,7 @@ async def send_message(
     client_message_id: uuid.UUID,
     db: AsyncSession,
 ) -> ChatMessageResponse:
-    participant = await _participant(db, conversation_id, account.id)
+    participant = await _participant_for_account(db, conversation_id, account)
     conversation = await db.get(ChatConversation, conversation_id, with_for_update=True)
     if conversation is None:
         raise api_error(ErrorCode.CHAT_CONVERSATION_NOT_FOUND, status.HTTP_404_NOT_FOUND)
@@ -387,9 +497,187 @@ async def send_message(
     participant.last_read_message_id = max(participant.last_read_message_id or 0, message.id)
     await db.commit()
     await db.refresh(message)
-    recipients = [value for value in (conversation.buyer_id, conversation.seller_id) if value]
+    if conversation.kind == ConversationKind.SUPPORT:
+        recipients = list(
+            (
+                await db.execute(
+                    select(ChatParticipant.account_id).where(
+                        ChatParticipant.conversation_id == conversation.id
+                    )
+                )
+            ).scalars()
+        )
+        if conversation.requester_id:
+            recipients.append(conversation.requester_id)
+    else:
+        recipients = [value for value in (conversation.buyer_id, conversation.seller_id) if value]
     await publish(
         recipients,
         {"type": "message.created", "conversation_id": str(conversation.id), "message_id": message.id},
     )
     return _message_dto(message)
+
+
+async def ensure_support_conversation(
+    account: Account,
+    order: Order,
+    dispute: Dispute,
+    db: AsyncSession,
+    *,
+    initial_message: str,
+    client_message_id: uuid.UUID,
+) -> tuple[uuid.UUID, bool]:
+    """Create or reuse the requester's Marketplace thread. Flush only; caller commits."""
+    trimmed = initial_message.strip()
+    requester_role = ContextRole.SELLER if account.id == order.seller_id else ContextRole.BUYER
+    existing = await db.scalar(
+        select(ChatConversation).where(
+            ChatConversation.kind == ConversationKind.SUPPORT,
+            ChatConversation.order_id == order.id,
+            ChatConversation.requester_id == account.id,
+        )
+    )
+    if existing:
+        member = await _participant(db, existing.id, account.id)
+        member.archived_at = None
+        if trimmed:
+            await _append_support_message(
+                existing, member, account, trimmed, client_message_id, db
+            )
+        return existing.id, False
+
+    conversation = ChatConversation(
+        kind=ConversationKind.SUPPORT,
+        status=ConversationStatus.OPEN,
+        order_id=order.id,
+        product_id=order.product_id,
+        requester_id=account.id,
+        requester_role=requester_role,
+        subject=f"Dispute #{dispute.id} · Order #{order.id}",
+        created_by_id=account.id,
+    )
+    db.add(conversation)
+    await db.flush()
+    member = ChatParticipant(
+        conversation_id=conversation.id,
+        account_id=account.id,
+        context_role=requester_role,
+    )
+    db.add(member)
+    message = ChatMessage(
+        conversation_id=conversation.id,
+        sender_id=account.id,
+        sender_role=requester_role,
+        client_message_id=client_message_id,
+        body=trimmed,
+    )
+    db.add(message)
+    await db.flush()
+    conversation.last_message_id = message.id
+    conversation.last_message_at = message.created_at
+    member.last_read_message_id = message.id
+    return conversation.id, True
+
+
+async def notify_support_opened(account_id: int, conversation_id: uuid.UUID, created: bool) -> None:
+    if created:
+        await publish(
+            [account_id],
+            {"type": "conversation.created", "conversation_id": str(conversation_id)},
+        )
+
+
+async def open_support_conversation(
+    account: Account,
+    order_id: int,
+    db: AsyncSession,
+) -> tuple[ConversationDetail, bool]:
+    """Reopen an existing Marketplace thread. Creating one requires dispute escalate."""
+    order = await db.get(Order, order_id, with_for_update=True)
+    if order is None or account.id not in {order.buyer_id, order.seller_id}:
+        raise api_error(ErrorCode.ORDER_NOT_FOUND, status.HTTP_404_NOT_FOUND)
+    existing = await db.scalar(
+        select(ChatConversation).where(
+            ChatConversation.kind == ConversationKind.SUPPORT,
+            ChatConversation.order_id == order.id,
+            ChatConversation.requester_id == account.id,
+        )
+    )
+    if existing:
+        member = await _participant(db, existing.id, account.id)
+        if member.archived_at is not None:
+            member.archived_at = None
+            await db.commit()
+        return await _detail(db, existing, member), False
+    dispute = await db.scalar(
+        select(Dispute)
+        .where(Dispute.order_id == order.id, Dispute.status == DisputeStatus.open)
+        .limit(1)
+    )
+    if not dispute:
+        raise api_error(ErrorCode.CHAT_SUPPORT_REQUIRES_DISPUTE, status.HTTP_400_BAD_REQUEST)
+    raise api_error(ErrorCode.CHAT_SUPPORT_REQUIRES_REVIEW, status.HTTP_400_BAD_REQUEST)
+
+
+async def _append_support_message(
+    conversation: ChatConversation,
+    participant: ChatParticipant,
+    account: Account,
+    body: str,
+    client_message_id: uuid.UUID,
+    db: AsyncSession,
+) -> None:
+    existing = await db.scalar(
+        select(ChatMessage).where(
+            ChatMessage.conversation_id == conversation.id,
+            ChatMessage.client_message_id == client_message_id,
+        )
+    )
+    trimmed = body.strip()
+    if existing:
+        if existing.body != trimmed or existing.sender_id != account.id:
+            raise api_error(ErrorCode.CHAT_MESSAGE_ID_CONFLICT, status.HTTP_409_CONFLICT)
+        return
+    if not trimmed:
+        return
+    message = ChatMessage(
+        conversation_id=conversation.id,
+        sender_id=account.id,
+        sender_role=participant.context_role,
+        client_message_id=client_message_id,
+        body=trimmed,
+    )
+    db.add(message)
+    await db.flush()
+    conversation.last_message_id = message.id
+    conversation.last_message_at = message.created_at
+    participant.last_read_message_id = max(participant.last_read_message_id or 0, message.id)
+
+
+async def list_support_conversations(account: Account, db: AsyncSession) -> ConversationList:
+    if not _has_role(account, "admin"):
+        raise api_error(ErrorCode.ADMIN_ONLY, status.HTTP_403_FORBIDDEN)
+    rooms = list(
+        (
+            await db.execute(
+                select(ChatConversation)
+                .where(ChatConversation.kind == ConversationKind.SUPPORT)
+                .order_by(
+                    ChatConversation.last_message_at.desc().nulls_last(),
+                    ChatConversation.id.desc(),
+                )
+                .limit(100)
+            )
+        ).scalars()
+    )
+    items = []
+    for room in rooms:
+        member = await db.get(ChatParticipant, (room.id, account.id))
+        if member is None:
+            member = ChatParticipant(
+                conversation_id=room.id,
+                account_id=account.id,
+                context_role=ContextRole.ADMIN,
+            )
+        items.append(await _summary(db, room, member))
+    return ConversationList(items=items)

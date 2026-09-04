@@ -5,6 +5,7 @@ export const queryKeys = {
   chat: () => ["chat"] as const,
   chatList: () => ["chat", "list"] as const,
   chatDetail: (id: string) => ["chat", "detail", id] as const,
+  adminSupportList: () => ["chat", "admin-support"] as const,
   // Orders
   orders: (filters?: Record<string, unknown> | null) =>
     ["orders", filters ?? null] as const,

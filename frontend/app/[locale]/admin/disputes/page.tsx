@@ -33,6 +33,7 @@ const DEFAULT_PAGE_SIZE = 20;
 // trong thanh phân bố (đồng bộ khuôn console với các trang admin khác).
 const STATUS_TABS: { key: string; label: string; color?: string }[] = [
   { key: "all", label: "Tất cả" },
+  { key: "pending_review", label: "Chờ review", color: "bg-fuchsia-400" },
   { key: "open", label: "Đang mở", color: "bg-amber-400" },
   { key: "resolved_refund", label: "Hoàn tiền", color: "bg-red-400" },
   { key: "resolved_partial_refund", label: "Hoàn một phần", color: "bg-rose-300" },
@@ -68,7 +69,12 @@ const EVENT_LABELS: Record<string, string> = {
   dispute_warranty_extended: "Gia hạn bảo hành",
   dispute_resolution_timeout: "Tự đóng — buyer không phản hồi",
   dispute_abandoned: "Tự đóng — không thao tác sau hạn ký quỹ",
+  dispute_marketplace_review: "Chờ review Marketplace",
 };
+
+function isPendingReview(d: Dispute) {
+  return d.status === "open" && Boolean(d.review_requested_at);
+}
 
 type DisputeAction = "refund" | "reject" | "partial_refund" | "replace" | "extend_warranty";
 
@@ -162,7 +168,16 @@ const columns: ColumnDef<Dispute>[] = [
   {
     accessorKey: "status",
     header: "Trạng thái",
-    cell: ({ row }) => <DisputeStatusBadge status={row.original.status} />,
+    cell: ({ row }) => (
+      <div className="flex flex-col items-start gap-1">
+        <DisputeStatusBadge status={row.original.status} />
+        {isPendingReview(row.original) && (
+          <span className="inline-flex items-center rounded-md border border-fuchsia-200 bg-fuchsia-50 px-1.5 py-0.5 text-[11px] font-medium text-fuchsia-700">
+            Chờ review
+          </span>
+        )}
+      </div>
+    ),
   },
   {
     id: "actions",
@@ -246,6 +261,9 @@ function DisputeDetailContent({
           <div>
             <p className="text-slate-500 text-[11.5px]">Trạng thái</p>
             <DisputeStatusBadge status={detail.status} />
+            {detail.status === "open" && detail.review_requested_at && (
+              <p className="mt-1 text-[12px] text-fuchsia-700">Chờ review Marketplace</p>
+            )}
           </div>
           {detail.evidence && Object.keys(detail.evidence).length > 0 && (
             <div className="col-span-2">
@@ -274,6 +292,15 @@ function DisputeDetailContent({
                 : "—"}
             </p>
           </div>
+          {detail.review_requested_at && (
+            <div className="col-span-2 rounded-lg border border-fuchsia-200 bg-fuchsia-50 px-3 py-2 text-[12px] text-fuchsia-800">
+              Auto-settlement đang tạm dừng. Chat với các bên tại{" "}
+              <Link href="/admin/support" className="font-medium text-indigo-600 hover:underline">
+                Chat Marketplace
+              </Link>
+              . Hoàn hoặc từ chối ở đây để chốt tiền.
+            </div>
+          )}
           {detail.resolved_at && (
             <div>
               <p className="text-slate-500 text-[11.5px]">Giải quyết lúc</p>
@@ -525,7 +552,9 @@ export default function AdminDisputesPage() {
     const counts: Record<string, number> = { all: scope.length };
     for (const tab of STATUS_TABS) {
       if (tab.key === "all") continue;
-      counts[tab.key] = scope.filter((d) => d.status === tab.key).length;
+      counts[tab.key] = tab.key === "pending_review"
+        ? scope.filter(isPendingReview).length
+        : scope.filter((d) => d.status === tab.key).length;
     }
     return counts;
   }, [scope]);
@@ -542,8 +571,14 @@ export default function AdminDisputesPage() {
 
   // Đang mở xếp trước (việc cần xử lý), mới nhất trước trong cùng nhóm
   const filteredDisputes = React.useMemo(() => {
-    const base = status === "all" ? scope : scope.filter((d) => d.status === status);
+    const base = status === "all"
+      ? scope
+      : status === "pending_review"
+        ? scope.filter(isPendingReview)
+        : scope.filter((d) => d.status === status);
     return [...base].sort((a, b) => {
+      const reviewDiff = Number(isPendingReview(b)) - Number(isPendingReview(a));
+      if (reviewDiff !== 0) return reviewDiff;
       const openDiff = Number(b.status === "open") - Number(a.status === "open");
       if (openDiff !== 0) return openDiff;
       return new Date(b.created_at).getTime() - new Date(a.created_at).getTime();

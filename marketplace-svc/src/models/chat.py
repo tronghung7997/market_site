@@ -51,6 +51,18 @@ class ChatConversation(Base):
             unique=True,
             postgresql_where=text("kind = 'order'"),
         ),
+        Index(
+            "uq_chat_support_order_requester",
+            "order_id",
+            "requester_id",
+            unique=True,
+            postgresql_where=text("kind = 'support'"),
+        ),
+        CheckConstraint(
+            "kind != 'support' OR "
+            "(order_id IS NOT NULL AND requester_id IS NOT NULL AND requester_role IN ('buyer', 'seller'))",
+            name="ck_chat_conversations_support_context",
+        ),
         Index("ix_chat_conversations_last_message", "last_message_at", "id"),
     )
 

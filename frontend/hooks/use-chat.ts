@@ -33,8 +33,19 @@ export function useSendChatMessage() {
     onSuccess: (_, variables) => {
       client.invalidateQueries({ queryKey: queryKeys.chatDetail(variables.conversationId) });
       client.invalidateQueries({ queryKey: queryKeys.chat() });
+      client.invalidateQueries({ queryKey: queryKeys.adminSupportList() });
       client.invalidateQueries({ queryKey: queryKeys.actionItems() });
     },
+  });
+}
+
+export function useAdminSupportConversations(enabled = true) {
+  return useQuery({
+    queryKey: queryKeys.adminSupportList(),
+    queryFn: () => api.adminSupportConversations(),
+    enabled,
+    refetchOnWindowFocus: true,
+    refetchInterval: enabled ? CHAT_REFETCH_MS : false,
   });
 }
 

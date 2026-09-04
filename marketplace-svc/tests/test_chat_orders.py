@@ -56,3 +56,20 @@ async def test_order_parties_share_one_scoped_conversation(client):
     )
     assert denied.status_code == 404
     assert denied.json()["error_code"] == "ORDER_NOT_FOUND"
+
+
+@pytest.mark.asyncio
+async def test_marketplace_support_requires_open_dispute(client):
+    buyer_token, seller_token, _, instant_variant_id, _ = await setup_buyable_product(client)
+    order = await client.post(
+        "/orders",
+        json={"variant_id": instant_variant_id, "quantity": 1},
+        headers=_auth(buyer_token),
+    )
+    assert order.status_code == 201
+    missing = await client.post(
+        f"/chat/orders/{order.json()['id']}/support",
+        headers=_auth(buyer_token),
+    )
+    assert missing.status_code == 400
+    assert missing.json()["error_code"] == "CHAT_SUPPORT_REQUIRES_DISPUTE"

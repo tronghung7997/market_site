@@ -33,6 +33,7 @@ _ALERT_HREF = {
     "provider_down": "/admin/providers",
     "provision_stuck": "/admin/orders",
     "dispute_opened": "/admin/disputes",
+    "dispute_marketplace_review": "/admin/support",
     "seller_application_approved": "/seller",
 }
 
@@ -221,6 +222,19 @@ async def admin_action_items(db: AsyncSession) -> list[ActionItem]:
             key="admin_open_disputes", severity="critical",
             label=f"{open_disputes} open disputes",
             count=open_disputes, href="/admin/disputes",
+        ))
+
+    marketplace_review = await db.scalar(
+        select(func.count(Dispute.id)).where(
+            Dispute.status == DisputeStatus.open,
+            Dispute.review_requested_at.is_not(None),
+        )
+    ) or 0
+    if marketplace_review:
+        items.append(ActionItem(
+            key="admin_marketplace_review", severity="warning",
+            label=f"{marketplace_review} dispute chats waiting on Marketplace",
+            count=marketplace_review, href="/admin/support",
         ))
 
     pending_withdrawals = await db.scalar(

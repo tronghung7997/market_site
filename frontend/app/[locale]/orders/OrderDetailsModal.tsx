@@ -16,7 +16,12 @@ import {
   Layers,
   Activity,
 } from "@/components/Icons";
-import { deliveryResourceMarks, resourceLabelMap } from "@/lib/dispute-case";
+import {
+  deliveryResourceMarks,
+  isDeliveryRowClaimable,
+  resourceLabelMap,
+  resourceWarrantyGeneration,
+} from "@/lib/dispute-case";
 import { DeliveryAccountBadge } from "@/components/orders/DeliveryAccountBadge";
 import { canOpenDispute, displayOrderStatus, hasOpenDispute } from "@/lib/order-status";
 import { formatDate, formatDateTime } from "@/lib/utils";
@@ -192,6 +197,9 @@ export default function OrderDetailsModal({
   const mayHaveProxy = o.capabilities?.can_view_proxy ?? (delivered && o.service_type === "proxy");
   const canDispute = o.status === "delivered" && !hasOpenDispute(o)
     && (o.capabilities?.can_dispute ?? canOpenDispute(o.status, o.escrow_expires_at));
+  const canAppendClaims = hasOpenDispute(o)
+    && (o.capabilities?.can_append_claims ?? o.status === "delivered");
+  const canSelectAccounts = canDispute || canAppendClaims;
   const canConfirm = o.status === "delivered" && !hasOpenDispute(o)
     && (o.capabilities?.can_confirm ?? true);
   const canReview = o.capabilities?.can_review ?? (o.status === "completed" && !reviewDone);
@@ -215,15 +223,18 @@ export default function OrderDetailsModal({
   const deliveryLabels = useMemo(() => resourceLabelMap(resources), [resources]);
 
   const selectableFilteredResourceIds = useMemo(
-    () => filteredItems.flatMap((item) =>
-      item.resourceId
-      && canDispute
-      && item.resourceStatus === "assigned"
-      && !accountMarks[item.resourceId]
+    () => filteredItems.flatMap((item) => {
+      if (!item.resourceId || !canSelectAccounts) return [];
+      const mark = accountMarks[item.resourceId];
+      return isDeliveryRowClaimable({
+        resourceStatus: item.resourceStatus,
+        mark,
+        generation: resourceWarrantyGeneration(item.resourceId, caseRecord?.resource_actions),
+      })
         ? [item.resourceId]
-        : [],
-    ),
-    [accountMarks, canDispute, filteredItems],
+        : [];
+    }),
+    [accountMarks, canSelectAccounts, caseRecord?.resource_actions, filteredItems],
   );
 
   const liveItems = useMemo(
@@ -544,7 +555,11 @@ export default function OrderDetailsModal({
                               type="checkbox"
                               aria-label={t("selectAccount", { id: item.resourceId })}
                               checked={selectedResourceIds.has(item.resourceId)}
-                              disabled={!canDispute || item.resourceStatus !== "assigned" || !!mark}
+                              disabled={!canSelectAccounts || !isDeliveryRowClaimable({
+                                resourceStatus: item.resourceStatus,
+                                mark,
+                                generation: resourceWarrantyGeneration(item.resourceId, caseRecord?.resource_actions),
+                              })}
                               onChange={() => toggleResource(item.resourceId!)}
                               className="h-4 w-4 shrink-0 accent-iris disabled:opacity-35"
                             />
@@ -575,7 +590,11 @@ export default function OrderDetailsModal({
 
                         <div className="flex items-center gap-1.5 shrink-0">
                           {/* Dedicated Dispute Button for This Specific Item / Variant */}
-                          {canDispute && !mark && item.resourceStatus === "assigned" && (
+                          {canSelectAccounts && item.resourceId != null && isDeliveryRowClaimable({
+                            resourceStatus: item.resourceStatus,
+                            mark,
+                            generation: resourceWarrantyGeneration(item.resourceId, caseRecord?.resource_actions),
+                          }) && (
                             <button
                               title={t("disputeThisItem")}
                               onClick={() => {
@@ -589,7 +608,7 @@ export default function OrderDetailsModal({
                               className="opacity-100 md:opacity-0 md:group-hover:opacity-100 rounded-lg px-2 py-1 text-[11px] text-bad hover:bg-bad-soft transition-opacity cursor-pointer flex items-center gap-1 min-h-11 md:min-h-0"
                             >
                               <AlertTriangle size={11} />
-                              <span>{t("itemIssue")}</span>
+                              <span>{mark?.kind === "replacement" ? t("warrantyIssue") : t("itemIssue")}</span>
                             </button>
                           )}
 
@@ -677,6 +696,14 @@ export default function OrderDetailsModal({
                 setItemSearch(`#${resourceId}`);
                 setItemPage(1);
                 setActiveTab("data");
+              }}
+              onClaimAccounts={(resourceIds) => {
+                onOpenDispute(o.id, {
+                  variantName: o.variant_name,
+                  resourceIds,
+                  initialReason: t("reasonSelectedAccounts", { count: resourceIds.length }),
+                  initialEvidence: { issue: t("evidenceIssueItem") },
+                });
               }}
               onDisputeChanged={(outcome) => {
                 setActiveTab("escrow");

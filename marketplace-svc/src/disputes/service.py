@@ -1,3 +1,4 @@
+import uuid
 from datetime import datetime, timedelta, timezone
 
 from fastapi import HTTPException, status
@@ -27,6 +28,9 @@ from src.exceptions import ErrorCode, api_error
 
 _REMEDY_ALERT_ID_LIMIT = 6
 _REMEDY_ALERT_HREF_ID_LIMIT = 20
+MAX_WARRANTY_CLAIM_GENERATION = 1
+MARKETPLACE_LABEL = "Marketplace"
+_ESCALATE_MESSAGE_NS = uuid.UUID("6b1f0c2e-4d3a-4f5b-9c8d-7e6f5a4b3c2d")
 
 
 def _resource_id_preview(ids: list[int], limit: int = _REMEDY_ALERT_ID_LIMIT) -> str:
@@ -133,6 +137,30 @@ def last_buyer_claim_activity_at(
     return max(times)
 
 
+def replacement_generation(
+    resource_id: int,
+    actions: list[DisputeResourceAction] | list[tuple[int, int | None]],
+) -> int:
+    """How many replace hops produced this resource in the case (0 = original delivery)."""
+    parent: dict[int, int] = {}
+    for action in actions:
+        if isinstance(action, tuple):
+            original_id, replacement_id = action
+        else:
+            original_id = action.original_resource_id
+            replacement_id = action.replacement_resource_id
+        if replacement_id:
+            parent[replacement_id] = original_id
+    generation = 0
+    current = resource_id
+    seen: set[int] = set()
+    while current in parent and current not in seen:
+        seen.add(current)
+        generation += 1
+        current = parent[current]
+    return generation
+
+
 def compute_abandon_after_at(
     *,
     escrow_expires_at: datetime | None,
@@ -140,14 +168,15 @@ def compute_abandon_after_at(
     resolution_deadline_at: datetime | None,
     has_resource_remedy: bool,
     grace_hours: int | None = None,
+    review_requested: bool = False,
 ) -> datetime | None:
     """When an untouched open case may auto-settle remaining escrow to the seller.
 
     The buyer-response deadline (after a seller offer) is a different clock.
     A resource remedy blocks abandonment so the buyer can still accept or the
-    offer-timeout job can finish the case.
+    offer-timeout job can finish the case. Marketplace review pauses both clocks.
     """
-    if has_resource_remedy or resolution_deadline_at or not escrow_expires_at:
+    if review_requested or has_resource_remedy or resolution_deadline_at or not escrow_expires_at:
         return None
     hours = grace_hours if grace_hours is not None else settings.dispute_abandon_grace_hours
     start = escrow_expires_at
@@ -162,8 +191,8 @@ def _clear_resolution_deadline(dispute: Dispute) -> None:
 
 
 def _offer_resolution_deadline(dispute: Dispute, *, now: datetime | None = None) -> None:
-    """Start the buyer response window once; a new buyer response clears it."""
-    if dispute.resolution_deadline_at:
+    """Start the buyer response window once; a new claim batch clears it."""
+    if dispute.review_requested_at or dispute.resolution_deadline_at:
         return
     offered_at = now or datetime.now(timezone.utc)
     dispute.resolution_offered_at = offered_at
@@ -414,6 +443,18 @@ async def _add_claim_resources(
     )
     if already_claimed:
         raise HTTPException(status_code=409, detail="A selected account is already in this dispute")
+    if any(resource.status != ResourceStatus.assigned for resource in resources):
+        raise api_error(ErrorCode.DISPUTE_RESOURCE_NOT_CLAIMABLE, status.HTTP_400_BAD_REQUEST)
+    actions = list(
+        (
+            await db.execute(
+                select(DisputeResourceAction).where(DisputeResourceAction.dispute_id == dispute.id)
+            )
+        ).scalars()
+    )
+    for resource_id in resource_ids:
+        if replacement_generation(resource_id, actions) > MAX_WARRANTY_CLAIM_GENERATION:
+            raise api_error(ErrorCode.DISPUTE_WARRANTY_LIMIT, status.HTTP_409_CONFLICT)
     for resource_id in resource_ids:
         db.add(
             DisputeClaimResource(
@@ -423,6 +464,146 @@ async def _add_claim_resources(
                 reason=reason,
             )
         )
+
+
+async def _warranty_claimable_ids(
+    order_id: int | None,
+    claimed_ids: list[int],
+    actions: list[DisputeResourceAction],
+    db: AsyncSession,
+) -> list[int]:
+    if not order_id:
+        return []
+    claimed = set(claimed_ids)
+    candidate_ids = [
+        action.replacement_resource_id
+        for action in actions
+        if action.replacement_resource_id
+        and action.replacement_resource_id not in claimed
+        and replacement_generation(action.replacement_resource_id, actions) <= MAX_WARRANTY_CLAIM_GENERATION
+    ]
+    if not candidate_ids:
+        return []
+    assigned = list(
+        (
+            await db.execute(
+                select(Resource.id).where(
+                    Resource.order_id == order_id,
+                    Resource.id.in_(candidate_ids),
+                    Resource.status == ResourceStatus.assigned,
+                )
+            )
+        ).scalars()
+    )
+    return assigned
+
+
+async def orders_with_appendable_claims(order_ids: list[int], db: AsyncSession) -> set[int]:
+    """Open-case orders that still have an assigned, unclaimed, gen ≤ 1 account."""
+    if not order_ids:
+        return set()
+    disputes = list(
+        (
+            await db.execute(
+                select(Dispute).where(
+                    Dispute.order_id.in_(order_ids),
+                    Dispute.status == DisputeStatus.open,
+                )
+            )
+        ).scalars()
+    )
+    if not disputes:
+        return set()
+    dispute_ids = [row.id for row in disputes]
+    claimed_by_dispute: dict[int, set[int]] = {row.id: set() for row in disputes}
+    for dispute_id, resource_id in (
+        await db.execute(
+            select(DisputeClaimResource.dispute_id, DisputeClaimResource.resource_id).where(
+                DisputeClaimResource.dispute_id.in_(dispute_ids)
+            )
+        )
+    ).all():
+        claimed_by_dispute[dispute_id].add(resource_id)
+    actions_by_dispute: dict[int, list[DisputeResourceAction]] = {row.id: [] for row in disputes}
+    for action in (
+        await db.execute(
+            select(DisputeResourceAction).where(DisputeResourceAction.dispute_id.in_(dispute_ids))
+        )
+    ).scalars():
+        actions_by_dispute[action.dispute_id].append(action)
+    assigned_by_order: dict[int, list[int]] = {}
+    for order_id, resource_id in (
+        await db.execute(
+            select(Resource.order_id, Resource.id).where(
+                Resource.order_id.in_([row.order_id for row in disputes]),
+                Resource.status == ResourceStatus.assigned,
+            )
+        )
+    ).all():
+        assigned_by_order.setdefault(order_id, []).append(resource_id)
+    appendable: set[int] = set()
+    for row in disputes:
+        claimed = claimed_by_dispute[row.id]
+        actions = actions_by_dispute[row.id]
+        for resource_id in assigned_by_order.get(row.order_id, []):
+            if (
+                resource_id not in claimed
+                and replacement_generation(resource_id, actions) <= MAX_WARRANTY_CLAIM_GENERATION
+            ):
+                appendable.add(row.order_id)
+                break
+    return appendable
+
+
+async def mark_marketplace_review_requested(
+    dispute: Dispute,
+    order: Order,
+    account: Account,
+    db: AsyncSession,
+    *,
+    note: str,
+) -> bool:
+    """Pause auto-settlement for Marketplace review. Idempotent after the first note."""
+    if dispute.status != DisputeStatus.open:
+        raise api_error(ErrorCode.DISPUTE_ALREADY_RESOLVED, status.HTTP_400_BAD_REQUEST)
+    if dispute.review_requested_at:
+        return False
+    dispute.review_requested_at = datetime.now(timezone.utc)
+    _clear_resolution_deadline(dispute)
+    role = "seller" if account.id == order.seller_id else "buyer"
+    db.add(
+        DisputeMessage(
+            dispute_id=dispute.id,
+            actor_id=account.id,
+            actor_role=role,
+            event_type="case_escalated",
+            body=note,
+        )
+    )
+    from src.alerts.service import add_alert
+    await add_alert(
+        db,
+        type_="dispute_marketplace_review",
+        severity="warning",
+        target_type="order",
+        target_id=order.id,
+        message=f"Đơn #{order.id}: {role} mở chat {MARKETPLACE_LABEL} về khiếu nại.",
+        href="/admin/disputes",
+    )
+    await log_event(
+        db,
+        "warning",
+        f"Marketplace review requested on order {order.id}",
+        request_id=current_request_id(),
+        metadata={
+            "event": "dispute_marketplace_review",
+            "order_id": order.id,
+            "dispute_id": dispute.id,
+            "actor_id": account.id,
+            "role": role,
+        },
+    )
+    return True
 
 
 def _timeline_events(
@@ -549,7 +730,9 @@ async def _enrich_dispute(dispute: Dispute, db: AsyncSession) -> dict:
             last_buyer_claim_activity=last_buyer_claim_activity_at(dispute, claims),
             resolution_deadline_at=dispute.resolution_deadline_at,
             has_resource_remedy=bool(actions),
+            review_requested=bool(dispute.review_requested_at),
         ),
+        "review_requested_at": dispute.review_requested_at,
         "resolved_at": dispute.resolved_at,
         "product_title": product.title if product else None,
         "variant_name": variant.name if variant else None,
@@ -557,6 +740,9 @@ async def _enrich_dispute(dispute: Dispute, db: AsyncSession) -> dict:
         "order_amount": order.total_amount if order else None,
         "refunded_amount": order.refunded_amount if order else 0,
         "claimed_resource_ids": [claim.resource_id for claim in claims],
+        "warranty_claimable_ids": await _warranty_claimable_ids(
+            order.id if order else None, [claim.resource_id for claim in claims], actions, db
+        ),
         "resource_actions": [
             {
                 "original_resource_id": row.original_resource_id,
@@ -639,7 +825,9 @@ async def get_dispute_detail(dispute_id: int, db: AsyncSession) -> dict:
             last_buyer_claim_activity=last_buyer_claim_activity_at(dispute, claims),
             resolution_deadline_at=dispute.resolution_deadline_at,
             has_resource_remedy=bool(has_remedy),
+            review_requested=bool(dispute.review_requested_at),
         ),
+        "review_requested_at": dispute.review_requested_at,
         "resolved_at": dispute.resolved_at,
         "order": order_info,
         "resources": resources,
@@ -759,7 +947,6 @@ async def append_buyer_message(
         )
     )
     if not prior:
-        _clear_resolution_deadline(dispute)
         db.add(
             DisputeMessage(
                 dispute_id=dispute.id,
@@ -1009,43 +1196,76 @@ async def get_seller_dispute(order_id: int, seller_id: int, db: AsyncSession) ->
     return await _enrich_dispute(dispute, db)
 
 
+async def request_marketplace_review(
+    account: Account,
+    note: str,
+    idempotency_key: str,
+    db: AsyncSession,
+    *,
+    order_id: int | None = None,
+    dispute_id: int | None = None,
+) -> dict:
+    """Pause settlement and open Marketplace chat. This module owns the transaction."""
+    trimmed = note.strip()
+    dispute: Dispute | None
+    order: Order | None
+    if dispute_id is not None:
+        dispute = await db.get(Dispute, dispute_id, with_for_update=True)
+        order = await db.get(Order, dispute.order_id, with_for_update=True) if dispute else None
+        if not dispute:
+            raise api_error(ErrorCode.DISPUTE_NOT_FOUND, status.HTTP_404_NOT_FOUND)
+        if not order or order.seller_id != account.id:
+            raise api_error(ErrorCode.NOT_OWNER, status.HTTP_403_FORBIDDEN)
+    else:
+        order = await db.get(Order, order_id, with_for_update=True) if order_id is not None else None
+        if not order or account.id not in {order.buyer_id, order.seller_id}:
+            raise api_error(ErrorCode.ORDER_NOT_FOUND, status.HTTP_404_NOT_FOUND)
+        dispute = await db.scalar(
+            select(Dispute)
+            .where(Dispute.order_id == order.id, Dispute.status == DisputeStatus.open)
+            .with_for_update()
+        )
+        if not dispute:
+            raise api_error(ErrorCode.DISPUTE_NOT_FOUND, status.HTTP_404_NOT_FOUND)
+    if dispute.status != DisputeStatus.open:
+        raise api_error(ErrorCode.DISPUTE_ALREADY_RESOLVED, status.HTTP_400_BAD_REQUEST)
+    await mark_marketplace_review_requested(dispute, order, account, db, note=trimmed)
+    from src.chat.service import ensure_support_conversation, notify_support_opened
+    conversation_id, created = await ensure_support_conversation(
+        account,
+        order,
+        dispute,
+        db,
+        initial_message=trimmed,
+        client_message_id=uuid.uuid5(
+            _ESCALATE_MESSAGE_NS, f"{dispute.id}:{account.id}:{idempotency_key}"
+        ),
+    )
+    await db.commit()
+    await notify_support_opened(account.id, conversation_id, created)
+    await db.refresh(dispute)
+    result = await _enrich_dispute(dispute, db)
+    result["marketplace_conversation_id"] = conversation_id
+    return result
+
+
 async def seller_escalate_dispute(
     dispute_id: int,
     seller_id: int,
     seller_note: str,
+    idempotency_key: str,
     db: AsyncSession,
 ) -> dict:
-    dispute = await db.get(Dispute, dispute_id, with_for_update=True)
-    order = await db.get(Order, dispute.order_id, with_for_update=True) if dispute else None
-    if not dispute:
-        raise api_error(ErrorCode.DISPUTE_NOT_FOUND, status.HTTP_404_NOT_FOUND)
-    if not order or order.seller_id != seller_id:
+    seller = await db.get(Account, seller_id)
+    if not seller:
         raise api_error(ErrorCode.NOT_OWNER, status.HTTP_403_FORBIDDEN)
-    if dispute.status != DisputeStatus.open:
-        raise api_error(ErrorCode.DISPUTE_ALREADY_RESOLVED, status.HTTP_400_BAD_REQUEST)
-    dispute.seller_note = seller_note
-    db.add(
-        DisputeMessage(
-            dispute_id=dispute.id,
-            actor_id=seller_id,
-            actor_role="seller",
-            event_type="case_escalated",
-            body=seller_note,
-        )
-    )
-    await log_event(
+    return await request_marketplace_review(
+        seller,
+        seller_note,
+        idempotency_key,
         db,
-        "warning",
-        f"Seller escalated dispute {dispute_id}",
-        request_id=current_request_id(),
-        metadata={
-            "event": "seller_dispute_escalated",
-            "order_id": order.id,
-            "seller_id": seller_id,
-        },
+        dispute_id=dispute_id,
     )
-    await db.commit()
-    return await _enrich_dispute(dispute, db)
 
 
 async def seller_dispute_resources(
@@ -1407,7 +1627,12 @@ async def resolve_abandoned_dispute(
         resolution_deadline_at=dispute.resolution_deadline_at,
         has_resource_remedy=bool(has_remedy),
     )
-    if dispute.status != DisputeStatus.open or not abandon_at or abandon_at > current_time:
+    if (
+        dispute.status != DisputeStatus.open
+        or dispute.review_requested_at
+        or not abandon_at
+        or abandon_at > current_time
+    ):
         raise ValueError("Dispute is not eligible for abandonment settlement")
     await _finalize_dispute(
         dispute,
@@ -1443,6 +1668,7 @@ async def resolve_dispute_after_response_timeout(
     current_time = now or datetime.now(timezone.utc)
     if (
         dispute.status != DisputeStatus.open
+        or dispute.review_requested_at
         or not dispute.resolution_deadline_at
         or dispute.resolution_deadline_at > current_time
     ):

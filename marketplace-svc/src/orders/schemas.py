@@ -84,6 +84,8 @@ class ProtectionInfo(BaseModel):
 class OrderCapabilities(BaseModel):
     can_confirm: bool = False
     can_dispute: bool = False
+    can_append_claims: bool = False
+    can_request_review: bool = False
     can_review: bool = False
     can_chat: bool = False
     can_view_proxy: bool = False

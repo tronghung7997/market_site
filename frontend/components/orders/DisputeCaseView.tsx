@@ -3,7 +3,13 @@
 import { useLocale, useTranslations } from "next-intl";
 import { cn } from "@/lib/cn";
 import { formatDateTime } from "@/lib/utils";
-import { displayTimelineEvents, summarizeDisputeCase, visibleResourceIds } from "@/lib/dispute-case";
+import {
+  displayTimelineEvents,
+  formatDisputeAccountChip,
+  resourceWarrantyGeneration,
+  summarizeDisputeCase,
+  visibleResourceIds,
+} from "@/lib/dispute-case";
 import { evidenceFieldLabel, evidenceTypeLabel } from "@/lib/dispute-evidence";
 import type { Dispute, DisputeTimelineEvent } from "@/lib/types";
 import { Tag } from "@/components/ui";
@@ -210,6 +216,10 @@ function TimelineBeat({
             {formatDateTime(event.created_at, locale)}
           </time>
         </div>
+        {event.event_type === "claim_batch"
+          && shown.some((id) => resourceWarrantyGeneration(id, dispute.resource_actions) === 1) && (
+          <p className="mt-1 text-[11px] font-medium text-iris">{t("claimedWarrantyAccount")}</p>
+        )}
         {event.body && <p className="mt-1 whitespace-pre-wrap text-[12.5px] leading-relaxed text-muted">{event.body}</p>}
         {shown.length > 0 && (
           <div className="mt-1.5 flex flex-wrap gap-1">
@@ -218,9 +228,18 @@ function TimelineBeat({
               const replacement = event.replacement_resource_ids?.[originalIndex >= 0 ? originalIndex : resourceIndex];
               const label = resourceLabels[id];
               const replacementLabel = replacement ? resourceLabels[replacement] : null;
-              const text = replacement
-                ? `#${id}${label ? ` ${label}` : ""} → #${replacement}${replacementLabel ? ` ${replacementLabel}` : ""}`
-                : `#${id}${label ? ` ${label}` : ""}`;
+              const warrantyGeneration = resourceWarrantyGeneration(
+                replacement ?? id,
+                dispute.resource_actions,
+              );
+              const text = formatDisputeAccountChip({
+                resourceId: id,
+                resourceLabel: label,
+                replacementId: replacement,
+                replacementLabel,
+                warranty: warrantyGeneration === 1,
+                warrantyMark: t("warrantyReplacementMark"),
+              });
               const className = cn(
                 "rounded-md border border-line bg-raised px-1.5 py-0.5 font-mono text-[10.5px] text-fg",
                 onResourceClick && "cursor-pointer hover:border-iris/40 hover:text-iris",

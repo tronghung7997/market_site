@@ -4,10 +4,13 @@ import test from "node:test";
 import {
   deliveryResourceMarks,
   displayTimelineEvents,
+  formatDisputeAccountChip,
+  isDeliveryRowClaimable,
   isDisputeReadyToAccept,
   parseHighlightedResourceIds,
   resourceLabelMap,
   resourcePreview,
+  resourceWarrantyGeneration,
   summarizeDisputeCase,
   visibleResourceIds,
 } from "../lib/dispute-case.ts";
@@ -109,4 +112,45 @@ test("deliveryResourceMarks prefers refund/replace over a bare claim", () => {
 test("parseHighlightedResourceIds keeps unique positive integers", () => {
   assert.deepEqual(parseHighlightedResourceIds("91, 229,91,x"), [91, 229]);
   assert.deepEqual(parseHighlightedResourceIds(""), []);
+});
+
+test("warranty chips mark the first replacement hop", () => {
+  assert.equal(
+    formatDisputeAccountChip({
+      resourceId: 12,
+      replacementId: 88,
+      warranty: true,
+      warrantyMark: "(warranty)",
+    }),
+    "#12 → #88 (warranty)",
+  );
+  assert.equal(
+    formatDisputeAccountChip({
+      resourceId: 88,
+      warranty: true,
+      warrantyMark: "(warranty)",
+    }),
+    "#88 (warranty)",
+  );
+  assert.equal(
+    formatDisputeAccountChip({
+      resourceId: 88,
+      replacementId: 99,
+      warranty: false,
+    }),
+    "#88 → #99",
+  );
+});
+
+test("warranty generation allows the first replacement and blocks the second", () => {
+  const actions = [
+    { original_resource_id: 1, replacement_resource_id: 11, action: "replace" as const, refund_amount: 0, created_at: "t1" },
+    { original_resource_id: 11, replacement_resource_id: 21, action: "replace" as const, refund_amount: 0, created_at: "t2" },
+  ];
+  assert.equal(resourceWarrantyGeneration(1, actions), 0);
+  assert.equal(resourceWarrantyGeneration(11, actions), 1);
+  assert.equal(resourceWarrantyGeneration(21, actions), 2);
+  assert.equal(isDeliveryRowClaimable({ resourceStatus: "assigned", mark: { kind: "replacement", originalId: 1 }, generation: 1 }), true);
+  assert.equal(isDeliveryRowClaimable({ resourceStatus: "assigned", mark: { kind: "replacement", originalId: 11 }, generation: 2 }), false);
+  assert.equal(isDeliveryRowClaimable({ resourceStatus: "assigned", mark: { kind: "claimed" }, generation: 0 }), false);
 });

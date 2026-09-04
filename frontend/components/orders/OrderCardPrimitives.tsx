@@ -14,8 +14,9 @@ import type { Dispute, Order, Resource } from "@/lib/types";
 import { isDisputeReadyToAccept, resourceLabelMap } from "@/lib/dispute-case";
 import { Button, Card, Disclosure, Monogram, Tag, Textarea } from "@/components/ui";
 import { parseCoverId, ProductCover } from "@/features/product-covers";
-import { Check } from "@/components/Icons";
+import { Check, ShieldCheck } from "@/components/Icons";
 import { DisputeCaseView } from "./DisputeCaseView";
+import MarketplaceChatButton from "@/components/chat/MarketplaceChatButton";
 
 const TIMELINE_KEYS = ["pending", "processing", "delivered", "completed"] as const;
 
@@ -113,6 +114,7 @@ export function OrderDispute({
   layout = "disclosure",
   resourceLabels: resourceLabelsProp,
   onResourceClick,
+  onClaimAccounts,
   onDisputeChanged,
 }: {
   orderId: number;
@@ -122,6 +124,7 @@ export function OrderDispute({
   layout?: "disclosure" | "panel";
   resourceLabels?: Record<number, string>;
   onResourceClick?: (resourceId: number) => void;
+  onClaimAccounts?: (resourceIds: number[]) => void;
   onDisputeChanged?: (outcome: "withdrawn") => void;
 }) {
   const t = useTranslations("orders");
@@ -235,19 +238,121 @@ export function OrderDispute({
           />
 
           {viewerRole === "buyer" && dispute.status === "open" && (
-            <div className="mt-3 space-y-2 border-t border-line pt-3">
+            <div className="mt-3 space-y-3 border-t border-line pt-3">
               {canAcceptResolution && (
-                <p className="text-[12px] text-muted">{t("disputeReadyToAcceptHint")}</p>
+                <div className="rounded-xl border border-iris/30 bg-iris-soft/20 p-3.5 space-y-2.5 shadow-2xs">
+                  <div className="space-y-0.5">
+                    <p className="text-[12.5px] font-bold text-fg">{t("acceptDisputeResolution")}</p>
+                    <p className="text-[11.5px] leading-relaxed text-muted">{t("disputeReadyToAcceptHint")}</p>
+                  </div>
+                  <div className="flex flex-wrap items-center gap-2 pt-1">
+                    <Button size="sm" disabled={submitting} onClick={acceptResolution}>
+                      {t("acceptDisputeResolution")}
+                    </Button>
+                    {(dispute.warranty_claimable_ids?.length ?? 0) > 0 && onClaimAccounts && (
+                      <Button
+                        size="sm"
+                        variant="danger"
+                        disabled={submitting}
+                        onClick={() => onClaimAccounts(dispute.warranty_claimable_ids ?? [])}
+                      >
+                        {t("claimWarrantyAccounts")}
+                      </Button>
+                    )}
+                    {!dispute.review_requested_at && (
+                      <MarketplaceChatButton
+                        orderId={orderId}
+                        canRequestReview={true}
+                        onOpened={() => { void refresh(); }}
+                      />
+                    )}
+                  </div>
+                </div>
               )}
-              <Textarea rows={2} value={message} onChange={(e) => setMessage(e.target.value)} placeholder={t("disputeMessagePlaceholder")} />
-              <div className="flex flex-wrap gap-2 pt-1 pb-2">
-                <Button size="sm" variant="secondary" disabled={submitting || !message.trim()} onClick={sendMessage}>{t("sendDisputeMessage")}</Button>
-                {canAcceptResolution && <Button size="sm" disabled={submitting} onClick={acceptResolution}>{t("acceptDisputeResolution")}</Button>}
-                {(dispute.resource_actions?.length ?? 0) === 0 && (
-                  <Button size="sm" variant="ghost" disabled={submitting} onClick={withdrawDispute}>{t("withdrawDispute")}</Button>
-                )}
+
+              {!canAcceptResolution && (dispute.warranty_claimable_ids?.length ?? 0) > 0 && (
+                <div className="rounded-xl border border-warn/30 bg-warn-soft/20 p-3.5 space-y-2 shadow-2xs">
+                  <p className="text-[11.5px] leading-relaxed text-muted">{t("warrantyClaimHint")}</p>
+                  {onClaimAccounts && (
+                    <Button
+                      size="sm"
+                      variant="danger"
+                      disabled={submitting}
+                      onClick={() => onClaimAccounts(dispute.warranty_claimable_ids ?? [])}
+                    >
+                      {t("claimWarrantyAccounts")}
+                    </Button>
+                  )}
+                </div>
+              )}
+
+              {dispute.review_requested_at ? (
+                <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-2.5 rounded-xl border border-iris/25 bg-iris-soft/40 p-3 text-[12px]">
+                  <div className="flex items-start gap-2.5">
+                    <ShieldCheck size={18} className="text-iris shrink-0 mt-0.5" />
+                    <div>
+                      <p className="font-semibold text-fg">{t("marketplaceReviewPausedTitle")}</p>
+                      <p className="mt-0.5 text-[11.5px] leading-relaxed text-muted">{t("marketplaceReviewPaused")}</p>
+                    </div>
+                  </div>
+                  <div className="shrink-0 self-end sm:self-auto">
+                    <MarketplaceChatButton
+                      orderId={orderId}
+                      canRequestReview={false}
+                      onOpened={() => { void refresh(); }}
+                    />
+                  </div>
+                </div>
+              ) : null}
+
+              {/* Timeline message input */}
+              <div className="space-y-2 pt-1">
+                <Textarea rows={2} value={message} onChange={(e) => setMessage(e.target.value)} placeholder={t("disputeMessagePlaceholder")} />
+                <div className="flex flex-wrap items-center justify-between gap-2">
+                  <div className="flex flex-wrap items-center gap-2">
+                    <Button size="sm" variant="secondary" disabled={submitting || !message.trim()} onClick={sendMessage}>{t("sendDisputeMessage")}</Button>
+                    {!canAcceptResolution && !dispute.review_requested_at && (
+                      <MarketplaceChatButton
+                        orderId={orderId}
+                        canRequestReview={true}
+                        onOpened={() => { void refresh(); }}
+                      />
+                    )}
+                  </div>
+                  {(dispute.resource_actions?.length ?? 0) === 0 && (
+                    <Button size="sm" variant="ghost" disabled={submitting} onClick={withdrawDispute}>{t("withdrawDispute")}</Button>
+                  )}
+                </div>
               </div>
               {actionError && <p className="text-[12px] text-bad" role="alert">{actionError}</p>}
+            </div>
+          )}
+          {viewerRole === "seller" && dispute.status === "open" && (
+            <div className="mt-3 border-t border-line pt-3">
+              {dispute.review_requested_at ? (
+                <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-2.5 rounded-xl border border-iris/25 bg-iris-soft/40 p-3 text-[12px]">
+                  <div className="flex items-start gap-2.5">
+                    <ShieldCheck size={18} className="text-iris shrink-0 mt-0.5" />
+                    <div>
+                      <p className="font-semibold text-fg">{t("marketplaceReviewPausedTitle")}</p>
+                      <p className="mt-0.5 text-[11.5px] leading-relaxed text-muted">{t("marketplaceReviewPaused")}</p>
+                    </div>
+                  </div>
+                  <div className="shrink-0 self-end sm:self-auto">
+                    <MarketplaceChatButton
+                      orderId={orderId}
+                      canRequestReview={false}
+                      onOpened={() => { void refresh(); }}
+                    />
+                  </div>
+                </div>
+              ) : (
+                <MarketplaceChatButton
+                  orderId={orderId}
+                  canRequestReview={true}
+                  onOpened={() => { void refresh(); }}
+                />
+              )}
             </div>
           )}
         </>

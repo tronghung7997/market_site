@@ -55,7 +55,8 @@ import {
 import { StatusTimeline } from "@/components/orders/OrderCardPrimitives";
 import { DisputeCaseView } from "@/components/orders/DisputeCaseView";
 import OrderChatButton from "@/components/chat/OrderChatButton";
-import { deliveryResourceMarks, parseHighlightedResourceIds, resourceLabelMap, summarizeDisputeCase } from "@/lib/dispute-case";
+import MarketplaceChatButton from "@/components/chat/MarketplaceChatButton";
+import { deliveryResourceMarks, isDisputeReadyToAccept, parseHighlightedResourceIds, resourceLabelMap, summarizeDisputeCase } from "@/lib/dispute-case";
 import { DeliveryAccountBadge } from "@/components/orders/DeliveryAccountBadge";
 import { SellerDisputeRemedyPanel } from "@/components/seller/SellerDisputeRemedyPanel";
 
@@ -1228,9 +1229,19 @@ function SellerDisputeModal({
                   statusLabel={
                     caseSummary && caseSummary.pending > 0
                       ? t("claimedAccountsTitle", { count: caseSummary.pending })
+                      : isDisputeReadyToAccept(dispute)
+                      ? td("awaiting_buyer_acceptance")
                       : td.has(dispute.status) ? td(dispute.status as "open") : dispute.status
                   }
-                  statusTone={caseSummary && caseSummary.pending > 0 ? "warn" : dispute.status === "open" ? "iris" : "neutral"}
+                  statusTone={
+                    caseSummary && caseSummary.pending > 0
+                      ? "warn"
+                      : isDisputeReadyToAccept(dispute)
+                      ? "iris"
+                      : dispute.status === "open"
+                      ? "iris"
+                      : "neutral"
+                  }
                   resourceLabels={resourceLabelMap(labelRows)}
                   formatRefund={formatBrowseMoney}
                   viewerRole="seller"
@@ -1249,12 +1260,19 @@ function SellerDisputeModal({
                   </div>
                   {error && <div className="rounded-lg border border-bad/20 bg-bad-soft p-2.5 text-xs font-medium text-bad">{error}</div>}
                   <div className="flex items-center justify-between pt-1">
-                    <OrderChatButton
-                      orderId={order.id}
-                      appearance="link"
-                      label={t("chatWithBuyer")}
-                      className="inline-flex items-center gap-1 text-xs font-medium text-iris hover:underline disabled:opacity-60"
-                    />
+                    <div className="flex flex-col items-start gap-1.5">
+                      <OrderChatButton
+                        orderId={order.id}
+                        appearance="link"
+                        label={t("chatWithBuyer")}
+                        className="inline-flex items-center gap-1 text-xs font-medium text-iris hover:underline disabled:opacity-60"
+                      />
+                      <MarketplaceChatButton
+                        orderId={order.id}
+                        appearance="link"
+                        canRequestReview={!dispute.review_requested_at}
+                      />
+                    </div>
                     <div className="flex items-center gap-2">
                       <Button size="sm" variant="ghost" type="button" onClick={onClose} disabled={submitting}>{t("close")}</Button>
                       <Button size="sm" type="submit" disabled={submitting || !sellerNote.trim()}>
@@ -1719,8 +1737,14 @@ function SellerOrderDetailModal({
               </div>
               <DisputeCaseView
                 dispute={caseRecord}
-                statusLabel={td.has(caseRecord.status as "open") ? td(caseRecord.status as "open") : caseRecord.status}
-                statusTone={isOpenCase ? "warn" : "neutral"}
+                statusLabel={
+                  isDisputeReadyToAccept(caseRecord)
+                    ? td("awaiting_buyer_acceptance")
+                    : td.has(caseRecord.status as "open")
+                    ? td(caseRecord.status as "open")
+                    : caseRecord.status
+                }
+                statusTone={isDisputeReadyToAccept(caseRecord) ? "iris" : isOpenCase ? "warn" : "neutral"}
                 formatRefund={formatBrowseMoney}
                 viewerRole="seller"
               />

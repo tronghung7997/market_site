@@ -23,8 +23,10 @@ Một đơn chỉ có **một case đang mở**.
 | Seller hoàn từng acc | Tiền acc đó về buyer ngay. Acc đánh dấu `error` |
 | Seller đổi acc | Acc mới gán vào đơn; **không** trừ escrow |
 | Seller chỉ nhắn | Timeline có reply. **Không** tự chia tiền |
-| Buyer nhắn | Case tiếp tục; xóa hạn phản hồi của buyer nếu đang có, nhưng không gia hạn đồng hồ B |
-| Buyer claim batch mới | Case tiếp tục; xóa hạn phản hồi của buyer và gia hạn đồng hồ B |
+| Buyer nhắn | Case tiếp tục. **Không** xóa đồng hồ A, không gia hạn đồng hồ B |
+| Buyer claim acc bảo hành (gen 1) | Case tiếp tục; xóa đồng hồ A; seller phải xử lý acc mới |
+| Buyer claim acc thay thế lần 2 | Từ chối — Accept hoặc chat Marketplace |
+| Chat Marketplace | Ghi chú bắt buộc + idempotency. Pause đồng hồ A/B (`review_requested_at`). Admin chốt tiền trên `/admin/disputes` (tab Chờ review); chat tại `/admin/support`. Không tự hoàn |
 | Buyer rút case (chưa có remedy acc) | Case đóng. Escrow chưa hết → đơn vẫn `delivered`. Escrow đã hết → trả remaining cho seller ngay |
 | Admin reject / refund / partial / replace | Admin chốt, settle remaining |
 
@@ -39,9 +41,9 @@ Bật khi:
 - Instant: **mọi** acc đã claim đều đã hoàn hoặc đổi, hoặc
 - Case không có acc: seller đã **nhắn** (proxy/task / cả gói)
 
-Buyer có `DISPUTE_RESOLUTION_TIMEOUT_HOURS` (mặc định 24h). Hết hạn mà buyer không accept / không nhắn thêm → `resolved_timeout`, **phần escrow còn lại về seller**.
+Buyer có `DISPUTE_RESOLUTION_TIMEOUT_HOURS` (mặc định 24h). Hết hạn mà buyer không accept / không claim acc bảo hành / không mở chat Marketplace → `resolved_timeout`, **phần escrow còn lại về seller**.
 
-Buyer nhắn hoặc claim thêm → tắt đồng hồ này. Với case instant đã remedy, seller reply sau đó sẽ gửi một offer mới và bật lại đồng hồ A.
+Chỉ claim batch mới tắt đồng hồ A. Chat case không tắt. Chat Marketplace pause cả hai đồng hồ đến khi admin chốt.
 
 Hoàn **hết** số tiền đơn → đóng ngay `resolved_refund`, không chờ buyer.
 
@@ -74,13 +76,13 @@ Ví dụ đơn 100 acc, giá đều:
 
 ## 5. Việc từng vai
 
-**Buyer:** mở đúng acc hỏng; nếu seller đã xử lý thì accept hoặc nhắn tiếp trước hạn A; muốn thôi thì rút khi seller chưa remedy.
+**Buyer:** mở đúng acc hỏng; nếu seller đã đổi acc thì Accept hoặc claim acc mới trước hạn A; chat case không gia hạn. Acc gen 2 hoặc seller im: chat Marketplace. Rút khi seller chưa remedy.
 
 **Seller:** trong tab xử lý acc, search / chọn / chọn tất cả kết quả (kể cả ~1k acc, 100 dòng/trang). Acc đã hoàn/đổi hiện badge (kèm acc thay) và không chọn lại được. Đổi acc: lấy ngẫu nhiên từ kho, hoặc tự chọn đúng số acc kho. Hoàn tiền chỉ acc đã chọn. Mỗi lần hoàn/đổi, buyer và seller nhận thông báo; bấm vào mở dữ liệu bàn giao và highlight đúng acc. Đừng chỉ chat nếu muốn khóa đồng hồ B; xong hết acc claimed thì chờ buyer 24h.
 
 **Dữ liệu bàn giao:** acc đã hoàn / đã đổi / acc thay thế được gắn nhãn trên danh sách. `delivered_data` (sao chép/tải) chỉ còn acc đang assigned.
 
-**Admin (`/admin/disputes`):** vào khi hai bên còn tranh, seller im mà buyer vẫn bám, hoặc đã có remedy dở. Không hoàn 99 chỉ vì seller chậm nếu không có evidence.
+**Admin (`/admin/disputes`):** tab **Chờ review** khi `review_requested_at` đã set. Vào khi hai bên còn tranh, seller im mà buyer vẫn bám, hoặc đã có remedy dở. Hoàn / từ chối như cũ. Chat các bên ở `/admin/support`. Không hoàn 99 chỉ vì seller chậm nếu không có evidence.
 
 ## 6. Việc hệ thống không làm
 

@@ -9,7 +9,7 @@ import { cn } from "@/lib/cn";
 import { useMoney } from "@/lib/money";
 import type { ChatConversation, ChatConversationList } from "@/lib/types";
 import { queryKeys } from "@/lib/query-keys";
-import { useChatConversation, useChatConversations, useSendChatMessage } from "@/hooks/use-chat";
+import { useAdminSupportConversations, useChatConversation, useChatConversations, useSendChatMessage } from "@/hooks/use-chat";
 import { useChatEvents } from "@/hooks/use-chat-events";
 import {
   ChevronLeft,
@@ -24,7 +24,7 @@ import {
 import { Button, Spinner } from "@/components/ui";
 import { ProductCover } from "@/components/products/ProductCover";
 import { parseCoverId } from "@/lib/product-covers";
-import { INBOX_HREF, orderWorkspaceHref } from "@/lib/chat-inbox";
+import { ADMIN_SUPPORT_HREF, INBOX_HREF, orderWorkspaceHref } from "@/lib/chat-inbox";
 import { useApiErrorMessage } from "@/lib/use-api-error";
 
 function contextLabel(
@@ -32,6 +32,9 @@ function contextLabel(
   t: ReturnType<typeof useTranslations<"chat">>,
   tos: ReturnType<typeof useTranslations<"status.order">>,
 ) {
+  if (room.kind === "support") {
+    return room.order ? `${t("marketplaceSupport")} · ${t("order")} #${room.order.id}` : t("marketplaceSupport");
+  }
   if (room.kind !== "order") return t("preSale");
   if (!room.order) return t("orderChat");
   const statusKey = `${room.order.status}.label`;
@@ -39,14 +42,27 @@ function contextLabel(
   return `${t("order")} #${room.order.id} · ${status}`;
 }
 
-function RoomIcon({ order, size = 15 }: { order: boolean; size?: number }) {
-  return order ? <Receipt size={size} /> : <MessageCircle size={size} />;
+function RoomIcon({ kind, size = 15 }: { kind: ChatConversation["kind"]; size?: number }) {
+  if (kind === "order") return <Receipt size={size} />;
+  if (kind === "support") return <ShieldCheck size={size} />;
+  return <MessageCircle size={size} />;
+}
+
+function parseDisputeReason(reason: string): { tags: string[]; note: string } {
+  if (!reason) return { tags: [], note: "" };
+  const matches = reason.match(/\[(.*?)\]/g);
+  if (!matches || matches.length === 0) return { tags: [], note: reason.trim() };
+  const tags = matches.map((m) => m.slice(1, -1).trim()).filter(Boolean);
+  const note = reason.replace(/\[(.*?)\]/g, "").trim();
+  return { tags, note };
 }
 
 export default function InboxWorkbench({
   initialConversationId = null,
+  variant = "user",
 }: {
   initialConversationId?: string | null;
+  variant?: "user" | "admin-support";
 }) {
   const t = useTranslations("chat");
   const tos = useTranslations("status.order");
@@ -58,15 +74,20 @@ export default function InboxWorkbench({
   const apiErrorMessage = useApiErrorMessage();
   const [selectedId, setSelectedId] = useState<string | null>(initialConversationId);
   const [draft, setDraft] = useState("");
-  const list = useChatConversations();
+  const adminMode = variant === "admin-support";
+  const inboxHref = adminMode ? ADMIN_SUPPORT_HREF : INBOX_HREF;
+  const userList = useChatConversations(!adminMode && !!account);
+  const adminList = useAdminSupportConversations(adminMode && !!account);
+  const list = adminMode ? adminList : userList;
   const detail = useChatConversation(selectedId);
   const send = useSendChatMessage();
   const timeline = useRef<HTMLDivElement>(null);
   useChatEvents(!!account);
 
+  const listKey = adminMode ? queryKeys.adminSupportList() : queryKeys.chatList();
   const markRoomRead = (id: string) =>
     queryClient.setQueryData<ChatConversationList>(
-      queryKeys.chatList(),
+      listKey,
       (current) =>
         current
           ? {
@@ -79,7 +100,7 @@ export default function InboxWorkbench({
     );
 
   useEffect(() => {
-    if (!authLoading && !account) router.push(`/login?next=${INBOX_HREF}`);
+    if (!authLoading && !account && !adminMode) router.push(`/login?next=${INBOX_HREF}`);
   }, [account, authLoading, router]);
 
   useEffect(() => {
@@ -87,7 +108,7 @@ export default function InboxWorkbench({
     if (timeline.current) {
       timeline.current.scrollTop = timeline.current.scrollHeight;
     }
-    queryClient.setQueryData<ChatConversationList>(queryKeys.chatList(), (current) =>
+    queryClient.setQueryData<ChatConversationList>(listKey, (current) =>
       current
         ? {
             ...current,
@@ -103,12 +124,12 @@ export default function InboxWorkbench({
   const selectRoom = (id: string) => {
     markRoomRead(id);
     setSelectedId(id);
-    router.replace(`${INBOX_HREF}/${id}`, { scroll: false });
+    router.replace(`${inboxHref}/${id}`, { scroll: false });
   };
 
   const goBack = () => {
     setSelectedId(null);
-    router.replace(INBOX_HREF, { scroll: false });
+    router.replace(inboxHref, { scroll: false });
   };
 
   const submit = async (event: FormEvent) => {
@@ -138,10 +159,11 @@ export default function InboxWorkbench({
   const rooms = list.data?.items ?? [];
   const room = detail.data;
   const roomIsOrder = room?.kind === "order";
+  const roomIsSupport = room?.kind === "support";
   const title = room?.product?.title ?? room?.counterpart.label;
   const roomContext = room ? contextLabel(room, t, tos) : null;
   const isSellerCounterpart = room?.counterpart.role === "seller";
-  const orderHref = orderWorkspaceHref(room?.counterpart.role ?? "seller", room?.order?.id);
+  const orderHref = orderWorkspaceHref(room?.counterpart.role ?? "seller", room?.order?.id, { admin: adminMode });
   const readOnlyReason = room?.order?.status === "refunded"
     ? t("readOnlyRefunded")
     : room?.order?.status === "cancelled"
@@ -149,7 +171,12 @@ export default function InboxWorkbench({
       : t("readOnly");
 
   return (
-    <div className="w-full mx-auto max-w-[1200px] px-4 sm:px-6 py-2.5 sm:py-3.5 flex-1 flex flex-col h-[calc(100dvh-92px)] max-h-[calc(100dvh-92px)] overflow-hidden">
+    <div className={cn(
+      "w-full mx-auto max-w-[1200px] px-4 sm:px-6 py-2.5 sm:py-3.5 flex-1 flex flex-col overflow-hidden",
+      adminMode
+        ? "h-[calc(100dvh-168px)] max-h-[calc(100dvh-168px)] max-w-none px-0 sm:px-0 py-0"
+        : "h-[calc(100dvh-92px)] max-h-[calc(100dvh-92px)]",
+    )}>
       <section className="grid h-full w-full flex-1 overflow-hidden rounded-xl border border-line bg-surface shadow-xs sm:rounded-2xl sm:shadow-card lg:grid-cols-[280px_minmax(0,1fr)] xl:grid-cols-[280px_minmax(0,1fr)_260px]">
         {/* Left Sidebar: Conversation List */}
         <aside
@@ -163,7 +190,7 @@ export default function InboxWorkbench({
               <div className="grid h-7 w-7 place-items-center rounded-lg bg-iris-soft text-iris">
                 <Inbox size={15} />
               </div>
-              <h1 className="text-[14.5px] font-bold text-fg">{t("inbox")}</h1>
+              <h1 className="text-[14.5px] font-bold text-fg">{adminMode ? t("marketplaceInbox") : t("inbox")}</h1>
             </div>
             {rooms.length > 0 && (
               <span className="rounded-full bg-raised px-2 py-0.5 text-[11px] font-semibold text-faint">
@@ -183,12 +210,13 @@ export default function InboxWorkbench({
                 <div className="mx-auto grid h-10 w-10 place-items-center rounded-full bg-raised text-faint">
                   <MessageCircle size={20} />
                 </div>
-                <p className="mt-3 text-[13.5px] font-semibold text-fg">{t("empty")}</p>
-                <p className="mt-1 text-[11.5px] leading-relaxed text-faint">{t("emptyHint")}</p>
+                <p className="mt-3 text-[13.5px] font-semibold text-fg">{adminMode ? t("marketplaceEmpty") : t("empty")}</p>
+                <p className="mt-1 text-[11.5px] leading-relaxed text-faint">{adminMode ? t("marketplaceEmptyHint") : t("emptyHint")}</p>
               </div>
             )}
             {rooms.map((item) => {
               const isOrder = item.kind === "order";
+              const isSupport = item.kind === "support";
               const itemIsSeller = item.counterpart.role === "seller";
               const itemTitle = item.product?.title ?? item.counterpart.label;
               const isSelected = selectedId === item.id;
@@ -209,12 +237,14 @@ export default function InboxWorkbench({
                   <span
                     className={cn(
                       "mt-0.5 grid h-8 w-8 shrink-0 place-items-center rounded-lg border transition-transform group-hover:scale-105",
-                      isOrder
-                        ? "border-amber-500/30 bg-amber-500/10 text-amber-700"
-                        : "border-indigo-500/30 bg-indigo-500/10 text-iris",
+                      isSupport
+                        ? "border-iris/25 bg-iris-soft text-iris"
+                        : isOrder
+                        ? "border-warn/25 bg-warn-soft text-warn"
+                        : "border-iris/25 bg-iris-soft text-iris",
                     )}
                   >
-                    <RoomIcon order={isOrder} size={15} />
+                    <RoomIcon kind={item.kind} size={15} />
                   </span>
 
                   {/* Body preview */}
@@ -239,12 +269,14 @@ export default function InboxWorkbench({
                       <span
                         className={cn(
                           "inline-flex shrink-0 items-center rounded-md px-1.5 py-0.5 font-medium tracking-tight whitespace-nowrap",
-                          isOrder
-                            ? "bg-amber-500/15 text-amber-800"
-                            : "bg-indigo-500/15 text-iris-hi",
+                          isSupport
+                            ? "bg-iris-soft text-iris-hi"
+                            : isOrder
+                            ? "bg-warn-soft text-warn"
+                            : "bg-iris-soft text-iris-hi",
                         )}
                       >
-                        {isOrder ? `${t("order")}` : t("preSale")}
+                        {isSupport ? t("marketplaceChat") : isOrder ? `${t("order")}` : t("preSale")}
                       </span>
                       {itemIsSeller && item.product?.title && (
                         <span className="truncate text-faint">· {item.counterpart.label}</span>
@@ -289,11 +321,12 @@ export default function InboxWorkbench({
           ) : (
             <>
               {/* Header */}
-              <header className="flex h-14 shrink-0 items-center justify-between gap-2 border-b border-line bg-surface/90 px-3 py-2 sm:px-4">
-                <div className="flex min-w-0 items-center gap-2.5">
+              {/* Header */}
+              <header className="flex min-h-[58px] shrink-0 items-center justify-between gap-3 border-b border-line bg-surface/95 px-3.5 py-2 sm:px-5 backdrop-blur-xs">
+                <div className="flex min-w-0 flex-1 items-center gap-2.5 sm:gap-3">
                   <button
                     onClick={goBack}
-                    className="grid h-8 w-8 place-items-center rounded-lg text-faint hover:bg-raised lg:hidden"
+                    className="grid h-8 w-8 shrink-0 place-items-center rounded-lg text-faint hover:bg-raised lg:hidden"
                     aria-label={t("back")}
                     type="button"
                   >
@@ -302,13 +335,15 @@ export default function InboxWorkbench({
 
                   <span
                     className={cn(
-                      "grid h-8 w-8 shrink-0 place-items-center rounded-lg border",
-                      roomIsOrder
-                        ? "border-amber-500/30 bg-amber-500/10 text-amber-700"
-                        : "border-indigo-500/30 bg-indigo-500/10 text-iris",
+                      "grid h-9 w-9 shrink-0 place-items-center rounded-xl border",
+                      roomIsSupport
+                        ? "border-iris/25 bg-iris-soft text-iris"
+                        : roomIsOrder
+                        ? "border-warn/25 bg-warn-soft text-warn"
+                        : "border-iris/25 bg-iris-soft text-iris",
                     )}
                   >
-                    <RoomIcon order={roomIsOrder} size={15} />
+                    <RoomIcon kind={room.kind} size={16} />
                   </span>
 
                   <div className="min-w-0 flex-1">
@@ -316,88 +351,160 @@ export default function InboxWorkbench({
                       {room.product ? (
                         <Link
                           href={`/products/${room.product.id}`}
-                          className="group inline-flex max-w-[260px] items-center gap-1 truncate text-[13.5px] font-bold text-fg transition-colors hover:text-iris sm:max-w-[400px]"
-                          title={t("viewProduct")}
+                          className="group flex min-w-0 max-w-full items-center gap-1 text-[13.5px] font-bold text-fg transition-colors hover:text-iris"
+                          title={room.product.title}
                         >
                           <span className="truncate">{room.product.title}</span>
-                          <ExternalLink size={12} className="shrink-0 text-iris opacity-70 group-hover:opacity-100" />
+                          <ExternalLink size={11} className="shrink-0 text-iris opacity-60 group-hover:opacity-100" />
                         </Link>
                       ) : (
                         <h2 className="truncate text-[13.5px] font-bold text-fg">{title}</h2>
                       )}
+                      {room.dispute && (
+                        <span className="hidden sm:inline-flex shrink-0 items-center rounded-md border border-warn/30 bg-warn-soft px-1.5 py-0.5 text-[10.5px] font-semibold text-warn">
+                          {t("disputeReviewStatus")}
+                        </span>
+                      )}
                     </div>
 
-                    <div className="flex min-w-0 items-center gap-1.5 text-[11px] text-faint">
-                      {isSellerCounterpart ? (
-                        <Link
-                          href={`/sellers/${room.counterpart.id}`}
-                          className="truncate max-w-[160px] sm:max-w-[260px] font-medium text-iris hover:underline"
-                          title={t("viewSeller")}
-                        >
-                          {room.counterpart.label}
-                        </Link>
+                    <div className="mt-0.5 flex items-center gap-1.5 text-[11.5px] text-muted overflow-hidden text-ellipsis whitespace-nowrap">
+                      {roomIsSupport ? (
+                        <>
+                          <span className="font-medium text-fg shrink-0">
+                            {adminMode
+                              ? `${room.counterpart.role === "seller" ? t("seller") : t("customer")}: ${room.counterpart.label}`
+                              : t("marketplaceSupportTeam")}
+                          </span>
+                          {room.order && (
+                            <>
+                              <span className="text-line-2 shrink-0">•</span>
+                              <span className="tabular font-medium text-faint shrink-0">
+                                {t("order")} #{room.order.id}
+                              </span>
+                              <span className="text-line-2 shrink-0">•</span>
+                              <span className="font-mono text-faint shrink-0">
+                                {formatCheckoutMoney(room.order.total_amount, { locale })}
+                              </span>
+                            </>
+                          )}
+                        </>
+                      ) : isSellerCounterpart ? (
+                        <>
+                          <Link
+                            href={`/sellers/${room.counterpart.id}`}
+                            className="font-medium text-iris hover:underline truncate max-w-[160px]"
+                            title={t("viewSeller")}
+                          >
+                            {room.counterpart.label}
+                          </Link>
+                          <span>•</span>
+                          <span className="font-medium">{roomContext}</span>
+                        </>
                       ) : (
-                        <span className="truncate max-w-[160px] sm:max-w-[260px]">{room.counterpart.label}</span>
+                        <>
+                          <span className="truncate max-w-[160px]">{room.counterpart.label}</span>
+                          <span>•</span>
+                          <span className="font-medium">{roomContext}</span>
+                        </>
                       )}
-                      <span>•</span>
-                      <span className="shrink-0 whitespace-nowrap font-medium">{roomContext}</span>
                     </div>
                   </div>
                 </div>
 
                 {/* Header quick link */}
                 <div className="flex shrink-0 items-center gap-2">
-                  {room.product && (
+                  {adminMode && room.dispute ? (
                     <Link
-                      href={`/products/${room.product.id}`}
-                      className="hidden sm:inline-flex items-center gap-1 rounded-lg border border-line bg-raised/70 px-2.5 py-1 text-[11.5px] font-semibold text-fg hover:border-iris/40 hover:bg-iris-soft hover:text-iris transition-colors shadow-xs whitespace-nowrap"
+                      href={`/admin/disputes?order_id=${room.order?.id ?? ""}`}
+                      className="inline-flex items-center gap-1 rounded-lg bg-iris px-2.5 py-1 text-[11.5px] font-semibold text-white hover:bg-iris-hi transition-colors shadow-xs"
                     >
-                      <span>{t("viewProduct")}</span>
+                      <span>{t("adminResolveDispute")}</span>
                       <ExternalLink size={11} />
                     </Link>
-                  )}
-                  {roomIsOrder && room.order && (
+                  ) : room.order ? (
                     <Link
                       href={orderHref}
-                      className="inline-flex items-center gap-1 rounded-lg border border-amber-500/30 bg-amber-500/10 px-2.5 py-1 text-[11.5px] font-semibold text-amber-800 hover:bg-amber-500/20 transition-colors shadow-xs whitespace-nowrap"
+                      className="inline-flex items-center gap-1 rounded-lg border border-line bg-raised/70 px-2.5 py-1 text-[11.5px] font-medium text-fg hover:border-iris/40 hover:bg-surface transition-colors shadow-xs"
                     >
                       <span>{t("viewOrder")}</span>
                       <ExternalLink size={11} />
                     </Link>
-                  )}
+                  ) : null}
                 </div>
               </header>
-
-              {/* Order quick status strip */}
-              {roomIsOrder && room.order && (
-                <div className="flex shrink-0 flex-wrap items-center justify-between gap-x-3 gap-y-1 border-b border-amber-500/20 bg-gradient-to-r from-amber-500/10 via-surface to-amber-500/5 px-3.5 py-1.5 text-[11.5px]">
-                  <div className="flex items-center gap-2">
-                    <span className="font-bold text-amber-800">
-                      {t("order")} #{room.order.id}
-                    </span>
-                    <span className="text-faint">·</span>
-                    <span className="text-faint">
-                      {t("quantity")}: <strong className="text-fg">{room.order.quantity}</strong>
-                    </span>
-                  </div>
-                  <div className="flex items-center gap-2">
-                    <span className="font-semibold text-good">
-                      {formatCheckoutMoney(room.order.total_amount, { locale })}
-                    </span>
-                  </div>
-                </div>
-              )}
 
               {/* Timeline message list */}
               <div
                 ref={timeline}
-                className="flex-1 space-y-2 overflow-y-auto bg-base/40 p-3 sm:p-4"
+                className="flex-1 space-y-2.5 overflow-y-auto bg-base/30 p-3 sm:p-4"
               >
                 {/* Compact safety notice */}
-                <div className="mx-auto flex max-w-[640px] items-center gap-2 rounded-xl border border-amber-500/25 bg-amber-500/10 px-3 py-1.5 text-[11px] font-medium text-amber-800 shadow-xs">
-                  <ShieldCheck size={14} className="shrink-0 text-amber-700" />
+                <div className="mx-auto flex max-w-[620px] items-center gap-2 rounded-xl border border-warn/25 bg-warn-soft/40 px-3 py-1.5 text-[11px] font-medium text-warn shadow-xs">
+                  <ShieldCheck size={14} className="shrink-0 text-warn" />
                   <span className="leading-tight">{t("safety")}</span>
                 </div>
+
+                {/* Enriched Dispute Review Context Banner */}
+                {roomIsSupport && (
+                  <div className="mx-auto max-w-[620px] rounded-xl border border-iris/25 bg-surface p-3.5 shadow-2xs">
+                    <div className="flex items-center justify-between border-b border-line/60 pb-2">
+                      <div className="flex items-center gap-2">
+                        <span className="grid h-5 w-5 place-items-center rounded-md bg-iris text-white">
+                          <ShieldCheck size={13} />
+                        </span>
+                        <h3 className="text-[12.5px] font-bold text-fg">
+                          {t("disputeContextTitle")} · {t("order")} #{room.order?.id}
+                        </h3>
+                      </div>
+                      <span className="rounded-full border border-warn/30 bg-warn-soft px-2 py-0.5 text-[10.5px] font-bold text-warn">
+                        {t("disputeReviewStatus")}
+                      </span>
+                    </div>
+
+                    {room.dispute && (() => {
+                      const { tags, note } = parseDisputeReason(room.dispute.reason);
+                      return (
+                        <div className="mt-2.5 space-y-2">
+                          <div className="flex flex-wrap items-center gap-1.5 text-[11.5px]">
+                            <span className="font-semibold text-faint shrink-0">{t("disputeReasonLabel")}:</span>
+                            {tags.length > 0 ? (
+                              tags.map((tag, idx) => (
+                                <span
+                                  key={idx}
+                                  className="inline-flex items-center rounded-md border border-line bg-raised/70 px-1.5 py-0.5 text-[11px] font-medium text-fg"
+                                >
+                                  {tag}
+                                </span>
+                              ))
+                            ) : (
+                              <span className="font-medium text-fg">{room.dispute.reason}</span>
+                            )}
+                            {note && <span className="text-muted text-[11.5px] ml-1">{note}</span>}
+                          </div>
+
+                          <div className="grid grid-cols-3 gap-2 rounded-lg border border-line bg-raised/30 p-2 text-center text-[11px]">
+                            <div className="rounded-md bg-bad-soft/40 py-1">
+                              <p className="text-muted text-[10.5px] font-medium">{t("disputeClaimed")}</p>
+                              <p className="mt-0.5 font-mono text-[13.5px] font-bold text-bad tabular">{room.dispute.claimed_count}</p>
+                            </div>
+                            <div className="rounded-md bg-iris-soft/40 py-1">
+                              <p className="text-muted text-[10.5px] font-medium">{t("disputeReplaced")}</p>
+                              <p className="mt-0.5 font-mono text-[13.5px] font-bold text-iris tabular">{room.dispute.replaced_count}</p>
+                            </div>
+                            <div className="rounded-md bg-warn-soft/40 py-1">
+                              <p className="text-muted text-[10.5px] font-medium">{t("disputePending")}</p>
+                              <p className="mt-0.5 font-mono text-[13.5px] font-bold text-warn tabular">{room.dispute.pending_count}</p>
+                            </div>
+                          </div>
+                        </div>
+                      );
+                    })()}
+
+                    <p className="mt-2 text-[11px] leading-relaxed text-muted border-t border-line/50 pt-2">
+                      {adminMode ? t("disputeAdminAdvice") : t("disputeBuyerAdvice")}
+                    </p>
+                  </div>
+                )}
 
                 {room.messages.map((message) => {
                   const mine = message.sender_id === account.id;
@@ -476,86 +583,110 @@ export default function InboxWorkbench({
         </main>
 
         {/* Right Info Sidebar: Product & Order Context */}
-        <aside className="hidden flex-col overflow-y-auto border-l border-line bg-base/30 p-3.5 xl:flex">
-          {room?.product ? (
+        <aside className="hidden flex-col overflow-y-auto border-l border-line bg-base/20 p-3.5 xl:flex">
+          {room ? (
             <div className="space-y-3">
               {/* Product preview card */}
-              <div className="rounded-xl border border-line bg-surface p-3 shadow-xs">
-                <div className="flex items-center gap-2.5">
-                  <ProductCover
-                    coverId={parseCoverId(room.product)}
-                    title={room.product.title}
-                    className="h-10 w-10 rounded-lg border-line"
-                  />
-                  <div className="min-w-0 flex-1">
-                    <span className="inline-block rounded bg-indigo-500/10 px-1.5 py-0.2 text-[9.5px] font-bold uppercase tracking-wider text-iris">
-                      {roomIsOrder ? t("orderChat") : t("product")}
-                    </span>
-                    <Link
-                      href={`/products/${room.product.id}`}
-                      className="group mt-0.5 block truncate text-[12.5px] font-bold text-fg hover:text-iris transition-colors"
-                      title={room.product.title}
-                    >
-                      <span>{room.product.title}</span>
-                    </Link>
-                  </div>
-                </div>
-
-                <div className="mt-2.5 border-t border-line/70 pt-2 text-[11.5px]">
+              {room.product && (
+                <div className="rounded-xl border border-line bg-surface p-3 shadow-2xs">
                   <span className="text-[10px] font-bold uppercase tracking-wider text-faint">
-                    {isSellerCounterpart ? t("seller") : t("customer")}
+                    {roomIsOrder ? t("orderChat") : t("product")}
                   </span>
-                  <div className="mt-1 flex flex-col gap-1.5">
-                    <span className="font-medium text-fg truncate text-[12px]" title={room.counterpart.label}>
-                      {room.counterpart.label}
-                    </span>
-                    {isSellerCounterpart && (
+                  <div className="mt-2 flex items-center gap-2.5">
+                    <ProductCover
+                      coverId={parseCoverId(room.product)}
+                      title={room.product.title}
+                      className="h-10 w-10 shrink-0 rounded-lg border-line"
+                    />
+                    <div className="min-w-0 flex-1">
                       <Link
-                        href={`/sellers/${room.counterpart.id}`}
-                        className="inline-flex w-fit items-center gap-1 rounded-md bg-raised px-2 py-0.5 text-[11px] font-medium text-iris hover:bg-iris-soft hover:text-iris-hi transition-colors whitespace-nowrap shadow-xs"
+                        href={`/products/${room.product.id}`}
+                        className="group block truncate text-[12.5px] font-semibold text-fg hover:text-iris transition-colors"
+                        title={room.product.title}
                       >
-                        <span>{t("viewSeller")}</span>
-                        <ExternalLink size={9.5} />
+                        {room.product.title}
                       </Link>
-                    )}
+                    </div>
                   </div>
                 </div>
-              </div>
+              )}
 
-              {/* Order details summary card */}
-              {roomIsOrder && room.order && (
-                <div className="rounded-xl border border-amber-500/25 bg-amber-500/5 p-3 shadow-xs">
-                  <div className="flex items-center justify-between border-b border-amber-500/20 pb-2">
-                    <span className="text-[11px] font-bold uppercase tracking-wider text-amber-800 shrink-0">
+              {/* Order & Dispute details summary card */}
+              {room.order && (
+                <div className="rounded-xl border border-line bg-surface p-3 shadow-2xs">
+                  <div className="flex items-center justify-between border-b border-line pb-2">
+                    <span className="text-[10.5px] font-bold uppercase tracking-wider text-faint">
                       {t("order")} #{room.order.id}
                     </span>
                     <Link
                       href={orderHref}
-                      className="inline-flex items-center gap-1 text-[11px] font-semibold text-iris hover:underline shrink-0 whitespace-nowrap"
+                      className="inline-flex items-center gap-1 text-[11px] font-medium text-iris hover:underline"
                     >
                       <span>{t("viewOrder")}</span>
                       <ExternalLink size={10} />
                     </Link>
                   </div>
 
-                  <dl className="mt-2 space-y-1.5 text-[11.5px]">
+                  <dl className="mt-2 space-y-1.5 text-[12px]">
                     <div className="flex justify-between">
-                      <dt className="text-faint">{t("quantity")}</dt>
-                      <dd className="font-semibold text-fg">{room.order.quantity}</dd>
+                      <dt className="text-muted">{t("quantity")}</dt>
+                      <dd className="font-semibold text-fg tabular">{room.order.quantity}</dd>
                     </div>
                     <div className="flex justify-between">
-                      <dt className="text-faint">{t("total")}</dt>
-                      <dd className="font-mono font-bold text-good">
+                      <dt className="text-muted">{t("total")}</dt>
+                      <dd className="font-mono font-semibold text-fg tabular">
                         {formatCheckoutMoney(room.order.total_amount, { locale })}
                       </dd>
                     </div>
+                    {room.dispute && (
+                      <div className="border-t border-line/60 pt-2 space-y-1.5">
+                        <div className="flex justify-between items-center">
+                          <dt className="text-muted">{t("disputeStatus")}</dt>
+                          <dd>
+                            <span className="inline-flex items-center rounded-full border border-warn/30 bg-warn-soft px-1.5 py-0.5 text-[10px] font-semibold text-warn">
+                              {t("disputeReviewStatus")}
+                            </span>
+                          </dd>
+                        </div>
+                        {adminMode && (
+                          <Link
+                            href={`/admin/disputes?order_id=${room.order.id}`}
+                            className="mt-2 flex w-full items-center justify-center gap-1 rounded-lg bg-iris px-2.5 py-1.5 text-[11.5px] font-semibold text-white hover:bg-iris-hi transition-colors shadow-2xs"
+                          >
+                            <span>{t("adminResolveDispute")}</span>
+                            <ExternalLink size={11} />
+                          </Link>
+                        )}
+                      </div>
+                    )}
                   </dl>
                 </div>
               )}
 
+              {/* Counterpart info */}
+              <div className="rounded-xl border border-line bg-surface p-3 shadow-2xs">
+                <span className="text-[10px] font-bold uppercase tracking-wider text-faint">
+                  {roomIsSupport
+                    ? (adminMode ? t("supportRequester") : t("supportProvider"))
+                    : (isSellerCounterpart ? t("seller") : t("customer"))}
+                </span>
+                <p className="mt-1.5 text-[12.5px] font-semibold text-fg truncate">
+                  {roomIsSupport && !adminMode ? t("marketplaceSupportTeam") : room.counterpart.label}
+                </p>
+                {isSellerCounterpart && !roomIsSupport && (
+                  <Link
+                    href={`/sellers/${room.counterpart.id}`}
+                    className="mt-1.5 inline-flex items-center gap-1 text-[11px] font-medium text-iris hover:underline"
+                  >
+                    <span>{t("viewSeller")}</span>
+                    <ExternalLink size={10} />
+                  </Link>
+                )}
+              </div>
+
               {/* Safe Escrow badge */}
-              <div className="rounded-xl border border-line bg-surface/70 p-2.5 text-[11px] text-faint flex items-start gap-2">
-                <ShieldCheck size={15} className="text-good shrink-0 mt-0.5" />
+              <div className="rounded-xl border border-line bg-surface/50 p-2.5 text-[11px] text-faint flex items-start gap-2">
+                <ShieldCheck size={14} className="text-good shrink-0 mt-0.5" />
                 <span className="leading-snug">Proxora Escrow protected. All transactions and chats are recorded safely.</span>
               </div>
             </div>

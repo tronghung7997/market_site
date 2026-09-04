@@ -98,6 +98,7 @@ async def dispute_resolution_timeout_job() -> None:
             .join(Dispute, Dispute.order_id == Order.id)
             .where(
                 Dispute.status == DisputeStatus.open,
+                Dispute.review_requested_at.is_(None),
                 Dispute.resolution_deadline_at.is_not(None),
                 Dispute.resolution_deadline_at <= now,
             )
@@ -138,6 +139,7 @@ async def dispute_abandonment_job() -> None:
             .join(Dispute, Dispute.order_id == Order.id)
             .where(
                 Dispute.status == DisputeStatus.open,
+                Dispute.review_requested_at.is_(None),
                 Dispute.resolution_deadline_at.is_(None),
                 ~select(DisputeResourceAction.id).where(
                     DisputeResourceAction.dispute_id == Dispute.id,

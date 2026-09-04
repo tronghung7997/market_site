@@ -47,6 +47,7 @@ const LABEL_KEYS: Record<string, { msg: string; hours?: number }> = {
   seller_withdrawals_rejected: { msg: "sellerWithdrawalsRejected" },
   admin_pending_applications: { msg: "adminPendingApplications" },
   admin_open_disputes: { msg: "adminOpenDisputes" },
+  admin_marketplace_review: { msg: "adminMarketplaceReview" },
   admin_pending_withdrawals: { msg: "adminPendingWithdrawals" },
   admin_pending_tasks: { msg: "adminPendingTasks" },
 };

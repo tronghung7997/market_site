@@ -98,6 +98,18 @@ export const api = {
     request<ChatConversationDetail>(`/chat/inquiries/by-product/${productId}`, {}, true),
   getOrCreateOrderChat: (orderId: number) =>
     request<ChatConversationDetail>(`/chat/orders/${orderId}`, { method: "POST" }, true),
+  openMarketplaceChat: (orderId: number) =>
+    request<ChatConversationDetail>(`/chat/orders/${orderId}/support`, { method: "POST" }, true),
+  escalateMarketplaceReview: (orderId: number, note: string, idempotencyKey?: string) =>
+    request<Dispute>(`/orders/${orderId}/dispute/escalate`, {
+      method: "POST",
+      body: JSON.stringify({
+        note,
+        idempotency_key: idempotencyKey ?? newIdempotencyKey(),
+      }),
+    }, true),
+  adminSupportConversations: () =>
+    request<ChatConversationList>("/chat/admin/support", {}, true),
   sendChatMessage: (conversationId: string, body: string, clientMessageId: string) =>
     request<ChatMessage>(`/chat/conversations/${encodeURIComponent(conversationId)}/messages`, {
       method: "POST",
@@ -493,8 +505,14 @@ export const api = {
     }
     return { actions };
   },
-  sellerEscalateDispute: (disputeId: number, note?: string) =>
-    request<Dispute>(`/seller/disputes/${disputeId}/escalate`, { method: "POST", body: JSON.stringify({ seller_note: note ?? null }) }, true),
+  sellerEscalateDispute: (disputeId: number, note: string, idempotencyKey?: string) =>
+    request<Dispute>(`/seller/disputes/${disputeId}/escalate`, {
+      method: "POST",
+      body: JSON.stringify({
+        seller_note: note,
+        idempotency_key: idempotencyKey ?? newIdempotencyKey(),
+      }),
+    }, true),
   providers: () => request<Provider[]>("/providers", {}, true),
   createProvider: (data: Record<string, unknown>) =>
     request<Provider>("/admin/providers", { method: "POST", body: JSON.stringify(data) }, true),

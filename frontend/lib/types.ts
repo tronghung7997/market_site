@@ -16,6 +16,17 @@ export interface ChatMessage {
   created_at: string;
 }
 
+export interface ChatDisputeContext {
+  id: number;
+  status: string;
+  reason: string;
+  review_requested_at: string | null;
+  claimed_count: number;
+  replaced_count: number;
+  pending_count: number;
+  refunded_amount: number;
+}
+
 export interface ChatConversation {
   id: string;
   kind: "product_inquiry" | "order" | "support";
@@ -28,6 +39,7 @@ export interface ChatConversation {
     total_amount: number;
     cancel_reason: string | null;
   } | null;
+  dispute?: ChatDisputeContext | null;
   counterpart: { id: number; label: string; role: "buyer" | "seller" | "admin" };
   last_message: ChatMessage | null;
   unread_count: number;
@@ -215,6 +227,8 @@ export interface Order {
   capabilities?: {
     can_confirm: boolean;
     can_dispute: boolean;
+    can_append_claims: boolean;
+    can_request_review: boolean;
     can_review: boolean;
     can_chat: boolean;
     can_view_proxy: boolean;
@@ -646,6 +660,7 @@ export interface Dispute {
   resolution_deadline_at?: string | null;
   escrow_expires_at?: string | null;
   abandon_after_at?: string | null;
+  review_requested_at?: string | null;
   resolved_at: string | null;
   product_title?: string | null;
   variant_name?: string | null;
@@ -653,8 +668,10 @@ export interface Dispute {
   order_amount?: number | null;
   refunded_amount?: number;
   claimed_resource_ids?: number[];
+  warranty_claimable_ids?: number[];
   resource_actions?: DisputeResourceAction[];
   timeline?: DisputeTimelineEvent[];
+  marketplace_conversation_id?: string | null;
 }
 
 export interface DisputeResourceAction {
@@ -708,6 +725,7 @@ export interface AdminDisputeDetail {
   created_at: string;
   resolution_deadline_at?: string | null;
   abandon_after_at?: string | null;
+  review_requested_at?: string | null;
   resolved_at: string | null;
   order: AdminDisputeOrder;
   resources: ResourceInfo[];

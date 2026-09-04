@@ -18,6 +18,19 @@ class InquiryCreate(BaseModel):
         return value
 
 
+class SupportConversationCreate(BaseModel):
+    initial_message: str | None = Field(default=None, max_length=4000)
+    client_message_id: uuid.UUID | None = None
+
+    @field_validator("initial_message")
+    @classmethod
+    def optional_message(cls, value: str | None) -> str | None:
+        if value is None:
+            return None
+        value = value.strip()
+        return value or None
+
+
 class MessageCreate(BaseModel):
     body: str = Field(min_length=1, max_length=4000)
     client_message_id: uuid.UUID
@@ -60,12 +73,24 @@ class ChatOrderContext(BaseModel):
     cancel_reason: str | None = None
 
 
+class ChatDisputeContext(BaseModel):
+    id: int
+    status: str
+    reason: str
+    review_requested_at: datetime | None = None
+    claimed_count: int = 0
+    replaced_count: int = 0
+    pending_count: int = 0
+    refunded_amount: int = 0
+
+
 class ConversationSummary(BaseModel):
     id: uuid.UUID
     kind: str
     status: str
     product: ChatProduct | None
     order: ChatOrderContext | None = None
+    dispute: ChatDisputeContext | None = None
     counterpart: SafeCounterpart
     last_message: ChatMessageResponse | None
     unread_count: int

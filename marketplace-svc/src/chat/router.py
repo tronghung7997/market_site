@@ -4,7 +4,7 @@ from fastapi import APIRouter, Depends, Response, status
 from fastapi.responses import StreamingResponse
 from sqlalchemy.ext.asyncio import AsyncSession
 
-from src.auth.dependencies import get_current_account
+from src.auth.dependencies import get_current_account, require_role
 from src.database import get_session
 from src.models.account import Account
 
@@ -60,6 +60,26 @@ async def get_or_create_order_conversation(
     result, created = await service.get_or_create_order_conversation(account, order_id, db)
     response.status_code = status.HTTP_201_CREATED if created else status.HTTP_200_OK
     return result
+
+
+@router.post("/orders/{order_id}/support", response_model=schemas.ConversationDetail)
+async def open_support_conversation(
+    order_id: int,
+    response: Response,
+    account: Account = Depends(get_current_account),
+    db: AsyncSession = Depends(get_session),
+):
+    result, created = await service.open_support_conversation(account, order_id, db)
+    response.status_code = status.HTTP_201_CREATED if created else status.HTTP_200_OK
+    return result
+
+
+@router.get("/admin/support", response_model=schemas.ConversationList)
+async def list_support_conversations(
+    account: Account = Depends(require_role("admin")),
+    db: AsyncSession = Depends(get_session),
+):
+    return await service.list_support_conversations(account, db)
 
 
 @router.get("/conversations", response_model=schemas.ConversationList)

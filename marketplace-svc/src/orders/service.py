@@ -26,6 +26,7 @@ from src.logging import current_request_id
 from src.sellers.tiers import escrow_days as tier_escrow_days, platform_fee_percent
 from src.usage.service import create_balance_for_order, get_usage_summary
 from src.wallet.service import deduct_credit, escrow_settlement, refund_escrow, release_escrow
+from src.disputes.service import orders_with_appendable_claims
 from src.exceptions import ErrorCode, api_error
 from src.money.service import get_effective_rate
 
@@ -511,15 +512,19 @@ async def _enrich_orders(orders: list[Order], db: AsyncSession) -> list[dict]:
         (await db.execute(select(Review.order_id).where(Review.order_id.in_(order_ids)))).scalars()
     )
     dispute_rows = (await db.execute(
-        select(Dispute.order_id, Dispute.status, Dispute.created_at)
+        select(Dispute.order_id, Dispute.status, Dispute.created_at, Dispute.review_requested_at)
         .where(Dispute.order_id.in_(order_ids))
         .order_by(Dispute.created_at.desc())
     )).all()
     latest_dispute_status: dict[int, str] = {}
-    for order_id, dispute_status, _created_at in dispute_rows:
+    review_requested_orders: set[int] = set()
+    for order_id, dispute_status, _created_at, review_requested_at in dispute_rows:
         if order_id not in latest_dispute_status:
             latest_dispute_status[order_id] = dispute_status.value
+            if dispute_status == DisputeStatus.open and review_requested_at:
+                review_requested_orders.add(order_id)
     open_disputes = {order_id for order_id, status_value in latest_dispute_status.items() if status_value == DisputeStatus.open.value}
+    appendable_claim_orders = await orders_with_appendable_claims(list(open_disputes), db)
     task_rows = (await db.execute(
         select(ServiceTask.order_id, ServiceTask.status).where(ServiceTask.order_id.in_(order_ids))
     )).all()
@@ -585,6 +590,12 @@ async def _enrich_orders(orders: list[Order], db: AsyncSession) -> list[dict]:
             "capabilities": {
                 "can_confirm": order.status == OrderStatus.delivered and not is_open_dispute,
                 "can_dispute": order.status == OrderStatus.delivered and within_escrow and not is_open_dispute,
+                "can_append_claims": (
+                    is_open_dispute
+                    and fulfillment_kind == "instant"
+                    and order.id in appendable_claim_orders
+                ),
+                "can_request_review": is_open_dispute and order.id not in review_requested_orders,
                 "can_review": order.status == OrderStatus.completed and order.id not in reviewed and product is not None,
                 "can_chat": not is_terminal_refund,
                 "can_view_proxy": fulfillment_kind == "proxy" and fulfillment_status in {"delivered", "completed"},

@@ -115,6 +115,60 @@ export function deliveryResourceMarks(
   return marks;
 }
 
+export const MAX_WARRANTY_CLAIM_GENERATION = 1;
+
+/** 0 = original delivery; 1 = first warranty replacement; 2+ is blocked. */
+export function formatDisputeAccountChip(input: {
+  resourceId: number;
+  resourceLabel?: string | null;
+  replacementId?: number | null;
+  replacementLabel?: string | null;
+  warranty?: boolean;
+  warrantyMark?: string;
+}): string {
+  const left = `#${input.resourceId}${input.resourceLabel ? ` ${input.resourceLabel}` : ""}`;
+  const mark = input.warranty && input.warrantyMark ? ` ${input.warrantyMark}` : "";
+  if (input.replacementId) {
+    const right = `#${input.replacementId}${input.replacementLabel ? ` ${input.replacementLabel}` : ""}`;
+    return `${left} → ${right}${mark}`;
+  }
+  return `${left}${mark}`;
+}
+
+export function resourceWarrantyGeneration(
+  resourceId: number,
+  actions: Array<{ original_resource_id: number; replacement_resource_id: number | null }> | null | undefined,
+): number {
+  const parent = new Map<number, number>();
+  for (const action of actions ?? []) {
+    if (action.replacement_resource_id) {
+      parent.set(action.replacement_resource_id, action.original_resource_id);
+    }
+  }
+  let generation = 0;
+  let current = resourceId;
+  const seen = new Set<number>();
+  while (parent.has(current) && !seen.has(current)) {
+    seen.add(current);
+    generation += 1;
+    current = parent.get(current)!;
+  }
+  return generation;
+}
+
+export function isDeliveryRowClaimable(input: {
+  resourceStatus?: string;
+  mark?: DeliveryResourceMark;
+  generation: number;
+}): boolean {
+  if (input.resourceStatus !== "assigned") return false;
+  if (input.generation > MAX_WARRANTY_CLAIM_GENERATION) return false;
+  if (input.mark?.kind === "refunded" || input.mark?.kind === "replaced" || input.mark?.kind === "claimed") {
+    return false;
+  }
+  return true;
+}
+
 export function parseHighlightedResourceIds(raw: string | null | undefined): number[] {
   if (!raw) return [];
   const seen = new Set<number>();

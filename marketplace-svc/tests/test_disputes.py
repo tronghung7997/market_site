@@ -1,9 +1,10 @@
 import asyncio
+import uuid
 from datetime import datetime, timedelta, timezone
 
 import pytest
 from pydantic import ValidationError
-from sqlalchemy import select
+from sqlalchemy import select, update
 
 from src.database import SessionLocal
 from src.models.order import (
@@ -15,6 +16,8 @@ from src.models.order import (
     OrderStatus,
 )
 from src.scheduler import dispute_abandonment_job, dispute_resolution_timeout_job
+from src.models.account import Account
+from src.models.resource import Resource, ResourceStatus
 from src.models.wallet import Transaction, TransactionType
 from tests.conftest import make_admin, make_seller, register_and_login
 from tests.test_orders import setup_adapter_product
@@ -566,7 +569,7 @@ async def test_unanswered_seller_response_auto_settles_after_resolution_deadline
 
 
 @pytest.mark.asyncio
-async def test_buyer_message_clears_pending_resolution_deadline(client):
+async def test_buyer_message_keeps_pending_resolution_deadline(client):
     buyer_token, seller_token, _, product_id = await setup_adapter_product(client)
     buyer_headers = {"Authorization": f"Bearer {buyer_token}"}
     created = await client.post(
@@ -594,7 +597,7 @@ async def test_buyer_message_clears_pending_resolution_deadline(client):
         headers=buyer_headers,
     )
     assert message.status_code == 200, message.text
-    assert message.json()["resolution_deadline_at"] is None
+    assert message.json()["resolution_deadline_at"] is not None
 
 
 @pytest.mark.asyncio
@@ -660,6 +663,24 @@ def test_abandon_clock_starts_after_escrow_or_later_buyer_claim():
         has_resource_remedy=False,
         grace_hours=24,
     ) is None
+    assert compute_abandon_after_at(
+        escrow_expires_at=escrow,
+        last_buyer_claim_activity=later,
+        resolution_deadline_at=None,
+        has_resource_remedy=False,
+        review_requested=True,
+        grace_hours=24,
+    ) is None
+
+
+@pytest.mark.no_db
+def test_replacement_generation_counts_warranty_hops():
+    from src.disputes.service import replacement_generation
+
+    actions = [(1, 11), (11, 21)]
+    assert replacement_generation(1, actions) == 0
+    assert replacement_generation(11, actions) == 1
+    assert replacement_generation(21, actions) == 2
 
 
 async def _backdate_open_dispute_past_abandon_grace(order_id: int, *, extra_hours: int = 1) -> int:
@@ -789,15 +810,45 @@ async def test_seller_can_reoffer_after_buyer_counters_completed_instant_remedy(
         headers=buyer_headers,
     )
     assert counter.status_code == 200, counter.text
-    assert counter.json()["resolution_deadline_at"] is None
+    assert counter.json()["resolution_deadline_at"] is not None
 
-    reoffered = await client.post(
+    resources_after = (await client.get(f"/orders/{order_id}/resources", headers=buyer_headers)).json()
+    original_id = resources[0]["id"]
+    replacement_id = next(
+        row["id"] for row in resources_after if row["id"] != original_id and row["status"] == "assigned"
+    )
+    claimed = await client.post(
+        f"/orders/{order_id}/dispute/claims",
+        json={
+            "reason": "Replacement also fails",
+            "resource_ids": [replacement_id],
+            "idempotency_key": "reoffer-claim-001",
+        },
+        headers=buyer_headers,
+    )
+    assert claimed.status_code == 200, claimed.text
+    assert claimed.json()["resolution_deadline_at"] is None
+
+    noted = await client.post(
         f"/seller/disputes/{dispute_id}/respond",
         json={"seller_note": "Please verify the replacement credentials again."},
         headers=seller_headers,
     )
-    assert reoffered.status_code == 200, reoffered.text
-    assert reoffered.json()["resolution_deadline_at"] is not None
+    assert noted.status_code == 200, noted.text
+    assert noted.json()["resolution_deadline_at"] is None
+
+    refunded = await client.post(
+        f"/seller/disputes/{dispute_id}/resources/action",
+        json={
+            "resource_ids": [replacement_id],
+            "action": "refund",
+            "idempotency_key": "reoffer-refund-001",
+        },
+        headers=seller_headers,
+    )
+    assert refunded.status_code == 200, refunded.text
+    after_refund = await client.get(f"/orders/{order_id}/dispute", headers=buyer_headers)
+    assert after_refund.json()["status"] == "resolved_refund"
 
 
 @pytest.mark.asyncio
@@ -967,3 +1018,361 @@ async def test_seller_replace_requires_one_replacement_per_claimed_account(clien
         headers={"Authorization": f"Bearer {seller_token}"},
     )
     assert mismatched.status_code == 400
+
+
+@pytest.mark.asyncio
+async def test_buyer_can_claim_warranty_replacement_once(client):
+    buyer_token, admin_token, order_id = await create_delivered_order(client, quantity=1, stock_count=3)
+    buyer_headers = {"Authorization": f"Bearer {buyer_token}"}
+    seller_token = await register_and_login(client, "disp_seller@example.com")
+    seller_headers = {"Authorization": f"Bearer {seller_token}"}
+    original = (await client.get(f"/orders/{order_id}/resources", headers=buyer_headers)).json()[0]["id"]
+    opened = await client.post(
+        f"/orders/{order_id}/dispute",
+        json={"reason": "Dead account", "resource_ids": [original], "idempotency_key": "warranty-open"},
+        headers=buyer_headers,
+    )
+    assert opened.status_code == 201, opened.text
+    first = await client.post(
+        f"/seller/disputes/{opened.json()['id']}/resources/action",
+        json={"resource_ids": [original], "action": "replace", "idempotency_key": "warranty-replace-1"},
+        headers=seller_headers,
+    )
+    assert first.status_code == 200, first.text
+    live = (await client.get(f"/orders/{order_id}/resources", headers=buyer_headers)).json()
+    gen1 = next(row["id"] for row in live if row["id"] != original and row["status"] == "assigned")
+    claimed = await client.post(
+        f"/orders/{order_id}/dispute/claims",
+        json={"reason": "Replacement dead", "resource_ids": [gen1], "idempotency_key": "warranty-claim-1"},
+        headers=buyer_headers,
+    )
+    assert claimed.status_code == 200, claimed.text
+    assert gen1 in claimed.json()["claimed_resource_ids"]
+    second = await client.post(
+        f"/seller/disputes/{opened.json()['id']}/resources/action",
+        json={"resource_ids": [gen1], "action": "replace", "idempotency_key": "warranty-replace-2"},
+        headers=seller_headers,
+    )
+    assert second.status_code == 200, second.text
+    live = (await client.get(f"/orders/{order_id}/resources", headers=buyer_headers)).json()
+    gen2 = next(row["id"] for row in live if row["id"] not in {original, gen1} and row["status"] == "assigned")
+    blocked = await client.post(
+        f"/orders/{order_id}/dispute/claims",
+        json={"reason": "Second replacement dead", "resource_ids": [gen2], "idempotency_key": "warranty-claim-2"},
+        headers=buyer_headers,
+    )
+    assert blocked.status_code == 409
+    assert blocked.json()["error_code"] == "DISPUTE_WARRANTY_LIMIT"
+
+    preview = await client.post(
+        f"/chat/orders/{order_id}/support",
+        headers=buyer_headers,
+    )
+    assert preview.status_code == 400
+    assert preview.json()["error_code"] == "CHAT_SUPPORT_REQUIRES_REVIEW"
+
+    support = await client.post(
+        f"/orders/{order_id}/dispute/escalate",
+        json={
+            "note": "Seller replaced twice and it still fails.",
+            "idempotency_key": "warranty-escalate-1",
+        },
+        headers=buyer_headers,
+    )
+    assert support.status_code == 200, support.text
+    conversation_id = support.json()["marketplace_conversation_id"]
+    assert conversation_id
+    case = await client.get(f"/orders/{order_id}/dispute", headers=buyer_headers)
+    assert case.json()["review_requested_at"] is not None
+    assert case.json()["resolution_deadline_at"] is None
+    timeline_bodies = [event["body"] for event in case.json()["timeline"] if event.get("event_type") == "case_escalated"]
+    assert "Seller replaced twice and it still fails." in timeline_bodies
+
+    room = await client.post(f"/chat/orders/{order_id}/support", headers=buyer_headers)
+    assert room.status_code == 200, room.text
+    assert room.json()["id"] == conversation_id
+    assert room.json()["kind"] == "support"
+    assert room.json()["counterpart"]["label"] == "Marketplace"
+
+    admin_headers = {"Authorization": f"Bearer {admin_token}"}
+    inbox = await client.get("/chat/admin/support", headers=admin_headers)
+    assert inbox.status_code == 200, inbox.text
+    assert any(item["id"] == conversation_id for item in inbox.json()["items"])
+    outsider = await register_and_login(client, "warranty_outsider@example.com")
+    denied = await client.post(
+        f"/chat/orders/{order_id}/support",
+        headers={"Authorization": f"Bearer {outsider}"},
+    )
+    assert denied.status_code == 404
+
+
+@pytest.mark.asyncio
+async def test_claim_rejects_unassigned_order_resource(client):
+    buyer_token, _, order_id = await create_delivered_order(client, quantity=2)
+    buyer_headers = {"Authorization": f"Bearer {buyer_token}"}
+    rows = (await client.get(f"/orders/{order_id}/resources", headers=buyer_headers)).json()
+    first, second = rows[0]["id"], rows[1]["id"]
+    async with SessionLocal() as db:
+        await db.execute(update(Resource).where(Resource.id == second).values(status=ResourceStatus.error))
+        await db.commit()
+    opened = await client.post(
+        f"/orders/{order_id}/dispute",
+        json={"reason": "One account failed", "resource_ids": [first], "idempotency_key": "claim-assigned-open"},
+        headers=buyer_headers,
+    )
+    assert opened.status_code == 201, opened.text
+    blocked = await client.post(
+        f"/orders/{order_id}/dispute/claims",
+        json={"reason": "Also this one", "resource_ids": [second], "idempotency_key": "claim-error-account"},
+        headers=buyer_headers,
+    )
+    assert blocked.status_code == 400
+    assert blocked.json()["error_code"] == "DISPUTE_RESOURCE_NOT_CLAIMABLE"
+
+
+@pytest.mark.asyncio
+async def test_can_append_claims_tracks_assigned_unclaimed_generation(client):
+    buyer_token, _, order_id = await create_delivered_order(client, quantity=1, stock_count=3)
+    buyer_headers = {"Authorization": f"Bearer {buyer_token}"}
+    seller_token = await register_and_login(client, "disp_seller@example.com")
+    original = (await client.get(f"/orders/{order_id}/resources", headers=buyer_headers)).json()[0]["id"]
+    opened = await client.post(
+        f"/orders/{order_id}/dispute",
+        json={"reason": "Dead", "resource_ids": [original], "idempotency_key": "cap-open"},
+        headers=buyer_headers,
+    )
+    assert opened.status_code == 201, opened.text
+    before = await client.get(f"/orders/{order_id}", headers=buyer_headers)
+    assert before.json()["capabilities"]["can_append_claims"] is False
+    replaced = await client.post(
+        f"/seller/disputes/{opened.json()['id']}/resources/action",
+        json={"resource_ids": [original], "action": "replace", "idempotency_key": "cap-replace"},
+        headers={"Authorization": f"Bearer {seller_token}"},
+    )
+    assert replaced.status_code == 200, replaced.text
+    after_replace = await client.get(f"/orders/{order_id}", headers=buyer_headers)
+    assert after_replace.json()["capabilities"]["can_append_claims"] is True
+
+
+@pytest.mark.asyncio
+async def test_seller_escalate_appends_note_to_existing_support_thread(client):
+    buyer_token, admin_token, order_id = await create_delivered_order(client, quantity=1)
+    buyer_headers = {"Authorization": f"Bearer {buyer_token}"}
+    seller_token = await register_and_login(client, "disp_seller@example.com")
+    seller_headers = {"Authorization": f"Bearer {seller_token}"}
+    original = (await client.get(f"/orders/{order_id}/resources", headers=buyer_headers)).json()[0]["id"]
+    opened = await client.post(
+        f"/orders/{order_id}/dispute",
+        json={"reason": "Dead account", "resource_ids": [original], "idempotency_key": "esc-open"},
+        headers=buyer_headers,
+    )
+    dispute_id = opened.json()["id"]
+    first = await client.post(
+        f"/seller/disputes/{dispute_id}/escalate",
+        json={"seller_note": "Buyer looks fraudulent.", "idempotency_key": "seller-esc-1"},
+        headers=seller_headers,
+    )
+    assert first.status_code == 200, first.text
+    assert first.json()["review_requested_at"] is not None
+    conversation_id = first.json()["marketplace_conversation_id"]
+    assert conversation_id
+    first_room = await client.get(f"/chat/conversations/{conversation_id}", headers=seller_headers)
+    assert first_room.status_code == 200, first_room.text
+    assert any(message["body"] == "Buyer looks fraudulent." for message in first_room.json()["messages"])
+
+    second = await client.post(
+        f"/seller/disputes/{dispute_id}/escalate",
+        json={"seller_note": "Here is extra evidence.", "idempotency_key": "seller-esc-2"},
+        headers=seller_headers,
+    )
+    assert second.status_code == 200, second.text
+    retry = await client.post(
+        f"/seller/disputes/{dispute_id}/escalate",
+        json={"seller_note": "Here is extra evidence.", "idempotency_key": "seller-esc-2"},
+        headers=seller_headers,
+    )
+    assert retry.status_code == 200, retry.text
+    room = await client.get(f"/chat/conversations/{conversation_id}", headers=seller_headers)
+    bodies = [message["body"] for message in room.json()["messages"]]
+    assert bodies.count("Buyer looks fraudulent.") == 1
+    assert bodies.count("Here is extra evidence.") == 1
+
+    blank = await client.post(
+        f"/seller/disputes/{dispute_id}/escalate",
+        json={"seller_note": "   ", "idempotency_key": "seller-esc-blank"},
+        headers=seller_headers,
+    )
+    assert blank.status_code == 422
+
+    missing = await client.post(
+        f"/chat/orders/{order_id}/support",
+        headers=buyer_headers,
+    )
+    assert missing.status_code == 400
+    assert missing.json()["error_code"] == "CHAT_SUPPORT_REQUIRES_REVIEW"
+
+    admin_headers = {"Authorization": f"Bearer {admin_token}"}
+    listed = await client.get("/admin/disputes", headers=admin_headers)
+    row = next(item for item in listed.json() if item["id"] == dispute_id)
+    assert row["review_requested_at"] is not None
+
+    conflicted = await client.post(
+        f"/seller/disputes/{dispute_id}/escalate",
+        json={"seller_note": "Account vẫn lỗi", "idempotency_key": "seller-esc-1"},
+        headers=seller_headers,
+    )
+    assert conflicted.status_code == 409
+    assert conflicted.json()["error_code"] == "CHAT_MESSAGE_ID_CONFLICT"
+    room = await client.get(f"/chat/conversations/{conversation_id}", headers=seller_headers)
+    bodies = [message["body"] for message in room.json()["messages"]]
+    assert "Account vẫn lỗi" not in bodies
+    assert bodies.count("Buyer looks fraudulent.") == 1
+
+
+@pytest.mark.asyncio
+async def test_timeout_job_skips_marketplace_review_case(client):
+    buyer_token, seller_token, _, product_id = await setup_adapter_product(client)
+    buyer_headers = {"Authorization": f"Bearer {buyer_token}"}
+    seller_headers = {"Authorization": f"Bearer {seller_token}"}
+    created = await client.post(
+        "/orders",
+        json={
+            "product_id": product_id,
+            "user_config": {"type": "residential", "network": "shared", "days": 30, "quantity": 1},
+            "quantity": 1,
+        },
+        headers=buyer_headers,
+    )
+    assert created.status_code == 201, created.text
+    order_id = created.json()["id"]
+    opened = await client.post(
+        f"/orders/{order_id}/dispute",
+        json={"reason": "Proxy is unavailable"},
+        headers=buyer_headers,
+    )
+    dispute_id = opened.json()["id"]
+    responded = await client.post(
+        f"/seller/disputes/{dispute_id}/respond",
+        json={"seller_note": "Replacement access has been issued."},
+        headers=seller_headers,
+    )
+    assert responded.status_code == 200, responded.text
+    escalated = await client.post(
+        f"/orders/{order_id}/dispute/escalate",
+        json={"note": "Seller is stalling.", "idempotency_key": "timeout-review-esc"},
+        headers=buyer_headers,
+    )
+    assert escalated.status_code == 200, escalated.text
+    assert escalated.json()["review_requested_at"] is not None
+
+    async with SessionLocal() as db:
+        dispute = await db.get(Dispute, dispute_id)
+        dispute.resolution_deadline_at = datetime.now(timezone.utc) - timedelta(seconds=1)
+        await db.commit()
+
+    await dispute_resolution_timeout_job()
+
+    async with SessionLocal() as db:
+        dispute = await db.get(Dispute, dispute_id)
+        order = await db.get(Order, order_id)
+        assert dispute.status == DisputeStatus.open
+        assert dispute.review_requested_at is not None
+        assert order.status == OrderStatus.delivered
+        release = await db.scalar(
+            select(Transaction.id).where(
+                Transaction.type == TransactionType.purchase_release,
+                Transaction.reference_id == f"order-{order_id}",
+            )
+        )
+        assert release is None
+
+
+@pytest.mark.asyncio
+async def test_admin_reject_after_marketplace_review_releases_remaining_to_seller(client):
+    buyer_token, admin_token, order_id = await create_delivered_order(client)
+    buyer_headers = {"Authorization": f"Bearer {buyer_token}"}
+    admin_headers = {"Authorization": f"Bearer {admin_token}"}
+    opened = await client.post(
+        f"/orders/{order_id}/dispute",
+        json={"reason": "Broken", "idempotency_key": "reject-review-open"},
+        headers=buyer_headers,
+    )
+    dispute_id = opened.json()["id"]
+    escalated = await client.post(
+        f"/orders/{order_id}/dispute/escalate",
+        json={"note": "Need Marketplace to decide.", "idempotency_key": "reject-review-esc"},
+        headers=buyer_headers,
+    )
+    assert escalated.status_code == 200, escalated.text
+    rejected = await client.post(
+        f"/admin/disputes/{dispute_id}/reject",
+        json={"admin_note": "Buyer evidence is insufficient."},
+        headers=admin_headers,
+    )
+    assert rejected.status_code == 200, rejected.text
+    assert rejected.json()["status"] == "resolved_reject"
+
+    async with SessionLocal() as db:
+        order = await db.get(Order, order_id)
+        assert order.status == OrderStatus.completed
+        assert order.refunded_amount == 0
+        release = await db.scalar(
+            select(Transaction).where(
+                Transaction.type == TransactionType.purchase_release,
+                Transaction.reference_id == f"order-{order_id}",
+            )
+        )
+        assert release is not None
+        from src.sellers.tiers import platform_fee_percent
+        from src.wallet.service import escrow_settlement
+        seller = await db.get(Account, order.seller_id)
+        remaining, fee = escrow_settlement(
+            order.total_amount,
+            order.refunded_amount,
+            platform_fee_percent(seller.seller_tier if seller else "new"),
+        )
+        assert release.amount == remaining - fee
+
+
+@pytest.mark.asyncio
+async def test_unauthorized_append_and_escalate_are_rejected(client):
+    buyer_token, _, order_id = await create_delivered_order(client)
+    buyer_headers = {"Authorization": f"Bearer {buyer_token}"}
+    original = (await client.get(f"/orders/{order_id}/resources", headers=buyer_headers)).json()[0]["id"]
+    opened = await client.post(
+        f"/orders/{order_id}/dispute",
+        json={"reason": "Dead account", "resource_ids": [original], "idempotency_key": "unauth-open"},
+        headers=buyer_headers,
+    )
+    assert opened.status_code == 201, opened.text
+    outsider = await register_and_login(client, "unauth_outsider@example.com")
+    outsider_headers = {"Authorization": f"Bearer {outsider}"}
+
+    append = await client.post(
+        f"/orders/{order_id}/dispute/claims",
+        json={"reason": "Also mine", "resource_ids": [original], "idempotency_key": "unauth-claim"},
+        headers=outsider_headers,
+    )
+    assert append.status_code == 403
+    assert append.json()["error_code"] == "NOT_ORDER_OWNER"
+
+    escalate = await client.post(
+        f"/orders/{order_id}/dispute/escalate",
+        json={"note": "Please help", "idempotency_key": "unauth-esc"},
+        headers=outsider_headers,
+    )
+    assert escalate.status_code == 404
+    assert escalate.json()["error_code"] == "ORDER_NOT_FOUND"
+
+    seller_escalate = await client.post(
+        f"/seller/disputes/{opened.json()['id']}/escalate",
+        json={"seller_note": "Please help", "idempotency_key": "unauth-seller-esc"},
+        headers=outsider_headers,
+    )
+    assert seller_escalate.status_code == 403
+
+    anonymous = await client.post(
+        f"/orders/{order_id}/dispute/escalate",
+        json={"note": "Please help", "idempotency_key": "anon-esc"},
+    )
+    assert anonymous.status_code == 401

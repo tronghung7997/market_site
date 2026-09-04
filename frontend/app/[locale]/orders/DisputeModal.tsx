@@ -18,7 +18,7 @@ import { Search } from "@/components/Icons";
 import { api } from "@/lib/api";
 import { useApiErrorMessage } from "@/lib/use-api-error";
 import { fulfillmentFromOrder } from "@/lib/fulfillment";
-import { resourcePreview } from "@/lib/dispute-case";
+import { MAX_WARRANTY_CLAIM_GENERATION, resourcePreview, resourceWarrantyGeneration } from "@/lib/dispute-case";
 import {
   canSubmitDisputeForm,
   claimableResourceIds,
@@ -31,7 +31,7 @@ import {
   initialSelectedClaimIds,
   type DisputeIssueId,
 } from "@/lib/dispute-form";
-import type { Order, Resource } from "@/lib/types";
+import type { DisputeResourceAction, Order, Resource } from "@/lib/types";
 import { Button, Input, Spinner, Textarea } from "@/components/ui";
 import { Dialog, DialogContent, DialogTitle } from "@/components/ui/dialog";
 
@@ -73,6 +73,7 @@ export default function DisputeModal({
   const [orderRecord, setOrderRecord] = useState<Order | null>(orderProp ?? null);
   const [resources, setResources] = useState<Resource[]>([]);
   const [claimedIds, setClaimedIds] = useState<number[]>([]);
+  const [resourceActions, setResourceActions] = useState<DisputeResourceAction[]>([]);
   const [loadingScope, setLoadingScope] = useState(true);
   const [scopeError, setScopeError] = useState("");
   const [selectedIds, setSelectedIds] = useState<number[]>(resourceIds ?? []);
@@ -109,6 +110,7 @@ export default function DisputeModal({
       if (!active) return;
       setResources(rows);
       setClaimedIds(dispute?.claimed_resource_ids ?? []);
+      setResourceActions(dispute?.resource_actions ?? []);
       if (fetched) setOrderRecord(fetched);
       setLoadingScope(false);
     }).catch((cause: unknown) => {
@@ -120,8 +122,10 @@ export default function DisputeModal({
   }, [apiErrorMessage, appendToExisting, orderId, orderProp]);
 
   const claimableIds = useMemo(
-    () => claimableResourceIds(resources, claimedIds),
-    [claimedIds, resources],
+    () => claimableResourceIds(resources, claimedIds).filter(
+      (id) => resourceWarrantyGeneration(id, resourceActions) <= MAX_WARRANTY_CLAIM_GENERATION,
+    ),
+    [claimedIds, resourceActions, resources],
   );
   const claimableRows = useMemo(() => {
     const allowed = new Set(claimableIds);

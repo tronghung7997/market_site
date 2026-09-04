@@ -84,6 +84,10 @@ class ErrorCode(str, Enum):
     DISPUTE_REPLACEMENT_UNAVAILABLE = "DISPUTE_REPLACEMENT_UNAVAILABLE"
     DISPUTE_NO_RESOURCES_TO_REPLACE = "DISPUTE_NO_RESOURCES_TO_REPLACE"
     DISPUTE_INVALID_EXTENSION_DAYS = "DISPUTE_INVALID_EXTENSION_DAYS"
+    DISPUTE_WARRANTY_LIMIT = "DISPUTE_WARRANTY_LIMIT"
+    DISPUTE_RESOURCE_NOT_CLAIMABLE = "DISPUTE_RESOURCE_NOT_CLAIMABLE"
+    CHAT_SUPPORT_REQUIRES_DISPUTE = "CHAT_SUPPORT_REQUIRES_DISPUTE"
+    CHAT_SUPPORT_REQUIRES_REVIEW = "CHAT_SUPPORT_REQUIRES_REVIEW"
 
 
 MESSAGES_EN: dict[ErrorCode, str] = {
@@ -165,4 +169,14 @@ MESSAGES_EN: dict[ErrorCode, str] = {
     ErrorCode.DISPUTE_REPLACEMENT_UNAVAILABLE: "Only automatically delivered orders with inventory can be replaced",
     ErrorCode.DISPUTE_NO_RESOURCES_TO_REPLACE: "This order has no delivered resources to replace",
     ErrorCode.DISPUTE_INVALID_EXTENSION_DAYS: "Extension days must be greater than zero",
+    ErrorCode.DISPUTE_WARRANTY_LIMIT: (
+        "This account already received a warranty replacement. Accept the case or chat with Marketplace"
+    ),
+    ErrorCode.DISPUTE_RESOURCE_NOT_CLAIMABLE: (
+        "Only assigned accounts that have not been claimed can be added to this dispute"
+    ),
+    ErrorCode.CHAT_SUPPORT_REQUIRES_DISPUTE: "Marketplace chat is available while a dispute is open",
+    ErrorCode.CHAT_SUPPORT_REQUIRES_REVIEW: (
+        "Open Marketplace chat with a note so admin can pause auto-settlement"
+    ),
 }

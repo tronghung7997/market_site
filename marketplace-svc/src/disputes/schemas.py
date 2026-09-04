@@ -1,4 +1,5 @@
 from datetime import datetime
+from uuid import UUID
 
 from pydantic import BaseModel, Field, field_validator
 
@@ -78,6 +79,28 @@ class SellerResourceAction(BaseModel):
 
 class SellerDisputeEscalate(BaseModel):
     seller_note: str = Field(min_length=1, max_length=2000)
+    idempotency_key: str = Field(min_length=8, max_length=128)
+
+    @field_validator("seller_note")
+    @classmethod
+    def meaningful_seller_note(cls, value: str) -> str:
+        value = value.strip()
+        if not value:
+            raise ValueError("seller_note must not be empty")
+        return value
+
+
+class DisputeEscalate(BaseModel):
+    note: str = Field(min_length=1, max_length=2000)
+    idempotency_key: str = Field(min_length=8, max_length=128)
+
+    @field_validator("note")
+    @classmethod
+    def meaningful_note(cls, value: str) -> str:
+        value = value.strip()
+        if not value:
+            raise ValueError("note must not be empty")
+        return value
 
 
 class DisputeResponse(BaseModel):
@@ -95,6 +118,7 @@ class DisputeResponse(BaseModel):
     resolution_deadline_at: datetime | None = None
     escrow_expires_at: datetime | None = None
     abandon_after_at: datetime | None = None
+    review_requested_at: datetime | None = None
     resolved_at: datetime | None
     product_title: str | None = None
     variant_name: str | None = None
@@ -102,8 +126,10 @@ class DisputeResponse(BaseModel):
     order_amount: int | None = None
     refunded_amount: int = 0
     claimed_resource_ids: list[int] = Field(default_factory=list)
+    warranty_claimable_ids: list[int] = Field(default_factory=list)
     resource_actions: list[dict] = Field(default_factory=list)
     timeline: list[dict] = Field(default_factory=list)
+    marketplace_conversation_id: UUID | None = None
 
     model_config = {"from_attributes": True}
 
@@ -150,6 +176,7 @@ class DisputeResponseFull(BaseModel):
     resolution_offered_at: datetime | None = None
     resolution_deadline_at: datetime | None = None
     abandon_after_at: datetime | None = None
+    review_requested_at: datetime | None = None
     resolved_at: datetime | None
     order: DisputeOrderInfo
     resources: list[DisputeResourceInfo]

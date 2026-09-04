@@ -332,7 +332,7 @@ async def test_inventory_summary_excludes_legacy_variant_when_effective_pricing_
     )
 
     assert response.status_code == 200, response.text
-    assert all(row["variant_id"] != variant_id for row in response.json())
+    assert all(row["variant_id"] != variant_id for row in response.json()["items"])
 
 
 @pytest.mark.asyncio
@@ -351,7 +351,7 @@ async def test_inventory_summary_excludes_manual_delivery_variants(client):
     )
 
     assert response.status_code == 200, response.text
-    assert all(row["variant_id"] != variant_id for row in response.json())
+    assert all(row["variant_id"] != variant_id for row in response.json()["items"])
 
 
 @pytest.mark.asyncio
@@ -364,7 +364,7 @@ async def test_inventory_summary_counts_by_variant(client):
     resp = await client.get("/seller/inventory/summary",
                             headers={"Authorization": f"Bearer {seller_token}"})
     assert resp.status_code == 200, resp.text
-    rows = [r for r in resp.json() if r["variant_id"] == variant_id]
+    rows = [r for r in resp.json()["items"] if r["variant_id"] == variant_id]
     assert len(rows) == 1
     assert rows[0]["available"] == 3
     assert rows[0]["assigned"] == 0
@@ -389,7 +389,7 @@ async def test_inventory_summary_counts_archived_resources_separately(client):
     archived = await client.post(f"/seller/resources/{archived_id}/archive", headers=headers)
     assert archived.status_code == 200, archived.text
 
-    rows = (await client.get("/seller/inventory/summary", headers=headers)).json()
+    rows = (await client.get("/seller/inventory/summary", headers=headers)).json()["items"]
     row = next(item for item in rows if item["variant_id"] == variant_id)
 
     assert row["available"] == 1
@@ -405,7 +405,7 @@ async def test_inventory_summary_includes_variants_with_no_stock(client):
 
     resp = await client.get("/seller/inventory/summary",
                             headers={"Authorization": f"Bearer {seller_token}"})
-    rows = [r for r in resp.json() if r["variant_id"] == variant_id]
+    rows = [r for r in resp.json()["items"] if r["variant_id"] == variant_id]
     assert len(rows) == 1
     assert rows[0]["available"] == 0
 
@@ -419,7 +419,7 @@ async def test_inventory_summary_only_shows_own_products(client):
     other_token, _, _ = await _seller_with_variant(client, "inv4@example.com")
     resp = await client.get("/seller/inventory/summary",
                             headers={"Authorization": f"Bearer {other_token}"})
-    assert all(r["variant_id"] != variant_id for r in resp.json())
+    assert all(r["variant_id"] != variant_id for r in resp.json()["items"])
 
 
 @pytest.mark.asyncio
@@ -509,10 +509,56 @@ async def test_inventory_summary_counts_sold_separately(client):
         await db.commit()
 
     rows = (await client.get("/seller/inventory/summary",
-                             headers={"Authorization": f"Bearer {seller_token}"})).json()
+                             headers={"Authorization": f"Bearer {seller_token}"})).json()["items"]
     row = next(r for r in rows if r["variant_id"] == variant_id)
     assert row["available"] == 1
     assert row["assigned"] == 1
+
+
+@pytest.mark.asyncio
+async def test_resource_default_page_is_bounded_and_export_streams_all(client):
+    seller_token, _, variant_id = await _seller_with_variant(client, "inv_export@example.com")
+    headers = {"Authorization": f"Bearer {seller_token}"}
+    values = [f"resource-{index}|password" for index in range(75)]
+    added = await client.post(
+        f"/seller/variants/{variant_id}/resources",
+        json={"items": values},
+        headers=headers,
+    )
+    assert added.status_code == 201, added.text
+
+    page = await client.get(f"/seller/variants/{variant_id}/resources", headers=headers)
+    assert len(page.json()) == 50
+    assert page.headers["x-total-count"] == "75"
+
+    exported = await client.get(
+        f"/seller/variants/{variant_id}/resources/export?format=txt",
+        headers=headers,
+    )
+    assert exported.status_code == 200, exported.text
+    assert len(exported.text.strip().splitlines()) == 75
+    assert "attachment;" in exported.headers["content-disposition"]
+
+
+@pytest.mark.asyncio
+async def test_inventory_summary_is_paginated_and_searchable(client):
+    seller_token, product_id, _ = await _seller_with_variant(client, "inv_page@example.com")
+    headers = {"Authorization": f"Bearer {seller_token}"}
+    for name in ("Searchable A", "Searchable B"):
+        created = await client.post(
+            f"/seller/products/{product_id}/variants",
+            json={"name": name, "price": 1000, "delivery_mode": "instant"},
+            headers=headers,
+        )
+        assert created.status_code == 201, created.text
+
+    response = await client.get(
+        "/seller/inventory/summary?search=Searchable&page=1&per_page=1",
+        headers=headers,
+    )
+    assert response.status_code == 200, response.text
+    assert response.json()["total"] == 2
+    assert len(response.json()["items"]) == 1
 
 
 @pytest.mark.asyncio

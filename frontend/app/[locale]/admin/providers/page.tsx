@@ -233,7 +233,7 @@ function ProviderProductsTab({ providerId, adapterType }: { providerId: number; 
     setLoading(true);
     Promise.all([
       api.providerProducts(providerId).catch(() => []),
-      api.adminProducts().catch(() => []),
+      api.adminProducts({ perPage: 100 }).then((result) => result.items).catch(() => []),
       api.adapterCompatibility().catch(() => null),
     ])
       .then(([linked, all, matrix]) => {
@@ -1374,8 +1374,8 @@ export default function AdminProvidersPage() {
       .catch(() => [])
       .then((p) => setProviders(p ?? []))
       .finally(() => setLoading(false));
-    api.adminProducts()
-      .then((all) => setLinkedCount((all ?? []).filter((p) => p.provider_name != null).length))
+    api.adminProducts({ perPage: 100 })
+      .then((result) => setLinkedCount(result.items.filter((p) => p.provider_name != null).length))
       .catch(() => setLinkedCount(null));
   }, []);
 

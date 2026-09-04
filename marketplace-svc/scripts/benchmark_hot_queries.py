@@ -43,6 +43,7 @@ from src.models.category import Category  # noqa: E402
 from src.models.chat import ChatConversation, ChatMessage, ChatParticipant  # noqa: E402
 from src.models.order import Dispute, DisputeMessage, DisputeStatus, Order, OrderStatus  # noqa: E402
 from src.models.product import DeliveryMode, Product, ProductStatus, ProductVariant  # noqa: E402
+from src.resources.service import seller_inventory_summary  # noqa: E402
 
 
 @dataclass(frozen=True)
@@ -50,12 +51,15 @@ class Scenario:
     conversations: int
     messages_per_conversation: int
     disputes: int
+    inventory_variants: int = 1
+    inventory_resources: int = 0
 
 
 SCENARIOS = {
     "small": Scenario(10, 20, 10),
     "medium": Scenario(50, 200, 100),
     "large": Scenario(500, 1_000, 1_000),
+    "inventory": Scenario(1, 1, 0, inventory_variants=2_000, inventory_resources=1_000_000),
 }
 
 
@@ -130,6 +134,33 @@ async def seed(scenario: Scenario) -> tuple[int, int, uuid.UUID]:
         )
         db.add(variant)
         await db.flush()
+
+        if scenario.inventory_variants > 1:
+            await db.execute(text("""
+                INSERT INTO product_variants
+                    (product_id, name, price, delivery_mode, sla_hours, sort_order, is_active)
+                SELECT :product_id, 'Benchmark variant ' || n, 10000, 'instant', 24, n, true
+                FROM generate_series(2, :variant_count) AS n
+            """), {"product_id": product.id, "variant_count": scenario.inventory_variants})
+            variant.delivery_mode = DeliveryMode.instant
+            await db.flush()
+        if scenario.inventory_resources:
+            await db.execute(text("""
+                WITH variants AS (
+                    SELECT array_agg(id ORDER BY id) AS ids, count(*) AS total
+                    FROM product_variants WHERE product_id = :product_id
+                )
+                INSERT INTO resources
+                    (variant_id, seller_id, status, data, is_archived, created_at)
+                SELECT v.ids[((g - 1) % v.total)::int + 1], :seller_id,
+                       'available', 'benchmark-resource-' || g, false, now()
+                FROM generate_series(1, :resource_count) AS g
+                CROSS JOIN variants v
+            """), {
+                "product_id": product.id,
+                "seller_id": seller.id,
+                "resource_count": scenario.inventory_resources,
+            })
 
         total_orders = max(scenario.conversations, scenario.disputes)
         orders = [
@@ -286,6 +317,12 @@ async def main(args: argparse.Namespace) -> None:
                         db=db,
                         page=1,
                         per_page=min(scenario.disputes, 100),
+                    ),
+                ),
+                (
+                    "seller_inventory",
+                    lambda: seller_inventory_summary(
+                        seller_id, db, page=1, per_page=100,
                     ),
                 ),
             ]

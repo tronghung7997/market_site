@@ -221,10 +221,32 @@ async def test_seller_product_list_exposes_effective_pricing_fallback(client):
         "/seller/products", headers={"Authorization": f"Bearer {seller_token}"},
     )
 
-    item = next(row for row in response.json() if row["id"] == product.json()["id"])
+    body = response.json()
+    item = next(row for row in body["items"] if row["id"] == product.json()["id"])
+    assert body["total"] >= 1
     assert item["pricing_strategy"] == "config"
     assert item["pricing_params"] == params
     assert item["total_stock"] == 0
+
+
+@pytest.mark.asyncio
+async def test_seller_products_are_paginated_and_searchable(client):
+    seller_token, _, cat_id = await setup_seller_with_category(client)
+    headers = {"Authorization": f"Bearer {seller_token}"}
+    for title in ("Paged Alpha", "Paged Beta"):
+        created = await client.post(
+            "/seller/products",
+            json={"category_id": cat_id, "title": title},
+            headers=headers,
+        )
+        assert created.status_code == 201, created.text
+
+    first = await client.get("/seller/products?page=1&per_page=1&search=Paged", headers=headers)
+    second = await client.get("/seller/products?page=2&per_page=1&search=Paged", headers=headers)
+    assert first.status_code == second.status_code == 200
+    assert first.json()["total"] == 2
+    assert len(first.json()["items"]) == len(second.json()["items"]) == 1
+    assert first.json()["items"][0]["id"] != second.json()["items"][0]["id"]
 
 
 @pytest.mark.asyncio

@@ -53,9 +53,17 @@ async def get_own_product(product_id: int, account: Account = Depends(require_ro
     return await service.get_own_product_detail(product_id, account.id, db)
 
 
-@router.get("/seller/products", response_model=list[schemas.SellerProductResponse])
-async def seller_products(account: Account = Depends(require_role("seller")), db: AsyncSession = Depends(get_session)):
-    return await service.list_seller_products(account.id, db)
+@router.get("/seller/products", response_model=schemas.SellerProductListResponse)
+async def seller_products(
+    search: str | None = None,
+    page: int = Query(1, ge=1),
+    per_page: int = Query(50, ge=1, le=100),
+    account: Account = Depends(require_role("seller")),
+    db: AsyncSession = Depends(get_session),
+):
+    return await service.list_seller_products(
+        account.id, db, search=search, page=page, per_page=per_page,
+    )
 
 
 @router.get("/seller/stats")
@@ -148,12 +156,17 @@ async def set_seller_pricing(
     return await service.update_seller_pricing(product_id, account.id, body.model_dump(exclude_unset=True), db)
 
 
-@router.get("/admin/products")
+@router.get("/admin/products", response_model=schemas.AdminProductListResponse)
 async def list_all_products(
+    search: str | None = None,
+    page: int = Query(1, ge=1),
+    per_page: int = Query(50, ge=1, le=100),
     _: Account = Depends(require_role("admin")),
     db: AsyncSession = Depends(get_session),
 ):
-    return await service.list_all_products_admin(db)
+    return await service.list_all_products_admin(
+        db, search=search, page=page, per_page=per_page,
+    )
 
 
 @router.get("/admin/products/{product_id}", response_model=schemas.AdminProductDetailResponse)

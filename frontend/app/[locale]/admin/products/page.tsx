@@ -235,11 +235,11 @@ export default function AdminProductsPage() {
 
   const queryResult = useQuery({
     queryKey: ["admin", "products"] as const,
-    queryFn: () => api.adminProducts(),
+    queryFn: () => api.adminProducts({ perPage: 100 }),
     staleTime: 30_000,
   });
 
-  const allProducts = React.useMemo(() => queryResult.data ?? [], [queryResult.data]);
+  const allProducts = React.useMemo(() => queryResult.data?.items ?? [], [queryResult.data]);
 
   // Tầng lọc: search → (người bán ∩ nguồn hàng ∩ loại dịch vụ) → trạng thái
   const searchScope = React.useMemo(() => {

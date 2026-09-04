@@ -2,6 +2,7 @@ import type {
   Account, ActionItem, AdminDepositIntent, AdminDepositLedgerQuery, AdminDepositLedgerResponse, AdminDepositTransaction, AdminDisputeDetail, AdminOrderDetail, AdminProduct, AdminResourceListResponse, AffiliateStats, AffiliateSummary, CalculateResult, Category, ChargeUsageResult, ChatConversationDetail, ChatConversationList, ChatMessage, DashboardData, DepositIntent, DepositMethods, DepositReconcileResult, DepositRailConfigAdmin, DepositRailConfigUpdate, Dispute, SePayWebhookEventRow, AdminAccountWallet, FundOverview, AccountAdminRow, PaginatedAccounts, LogEntry, MailConfigAdmin, MailConfigUpdate, MailOutboxList, MailSendTestResponse, MailTemplatePreview, MailTemplateRow, MoneyConfigAdmin, MoneyConfigPublic, MoneyConfigUpdate, Order, OrderStats, PaginatedAffiliateSummary, PaginatedOrderResponse, PaginatedProducts, PricingField, PricingOptions, ProductDetail, AdminProductDetail, Product, ProductLocale, ProductOperations, ProductTranslation, ProxyState, ProxyRotateResult, ProxyWhitelistResult, Review, SellerApplication, SellerProduct, SellerStats, ServiceTask, TikTokLookupResponse, Transaction, Variant, Wallet, WithdrawRequest, Provider, ProviderHealth, Alert, Resource, ResourceSummary, ResourceSellerFacet, InventoryVariant, SellerSummary, SellerProfile, SellerDisputeResource, SellerDisputeResourceList, SellerReplacementResourceList, BulkResourceActionResult,
 } from "./types";
 import type { PaginatedDisputes } from "./types";
+import type { PaginatedAdminProducts, PaginatedInventoryVariants, PaginatedSellerProducts } from "./types";
 import {
   ApiError,
   NETWORK_ERROR_MESSAGE,
@@ -215,7 +216,11 @@ export const api = {
   adminRejectSellerApplication: (id: number, reason: string) =>
     request<SellerApplication>(`/admin/seller-applications/${id}/reject`, { method: "POST", body: JSON.stringify({ reason }) }, true),
 
-  sellerProducts: () => request<SellerProduct[]>("/seller/products", {}, true),
+  sellerProducts: (params: { search?: string; page?: number; perPage?: number } = {}) => {
+    const q = new URLSearchParams({ page: String(params.page ?? 1), per_page: String(params.perPage ?? 50) });
+    if (params.search?.trim()) q.set("search", params.search.trim());
+    return request<PaginatedSellerProducts>(`/seller/products?${q}`, {}, true);
+  },
   // Như api.product() nhưng kèm cả biến thể đã tắt — trang quản lý cần thấy chúng để bật lại.
   sellerProduct: (id: number) => request<ProductDetail>(`/seller/products/${id}/detail`, {}, true),
   sellerStats: () => request<SellerStats>("/seller/stats", {}, true),
@@ -289,7 +294,21 @@ export const api = {
       total: Number(res.headers.get("X-Total-Count") ?? (Array.isArray(body) ? body.length : 0)),
     };
   },
-  inventorySummary: () => request<InventoryVariant[]>("/seller/inventory/summary", {}, true),
+  inventorySummary: (params: { search?: string; page?: number; perPage?: number } = {}) => {
+    const q = new URLSearchParams({ page: String(params.page ?? 1), per_page: String(params.perPage ?? 50) });
+    if (params.search?.trim()) q.set("search", params.search.trim());
+    return request<PaginatedInventoryVariants>(`/seller/inventory/summary?${q}`, {}, true);
+  },
+  sellerResourceExportUrl: (
+    variantId: number,
+    params: { format: "csv" | "txt"; status?: string; search?: string; archivedOnly?: boolean },
+  ) => {
+    const q = new URLSearchParams({ format: params.format });
+    if (params.status && params.status !== "all") q.set("status", params.status);
+    if (params.search?.trim()) q.set("search", params.search.trim());
+    if (params.archivedOnly) q.set("archived_only", "true");
+    return `/api/seller/variants/${variantId}/resources/export?${q}`;
+  },
   updateResource: (resourceId: number, data: string) =>
     request<Resource>(`/seller/resources/${resourceId}`, { method: "PATCH", body: JSON.stringify({ data }) }, true),
   restockResource: (resourceId: number, data: string) =>
@@ -319,7 +338,11 @@ export const api = {
 
   productOperations: (id: number) => request<ProductOperations>(`/products/${id}/operations`, {}, true),
 
-  adminProducts: () => request<AdminProduct[]>("/admin/products", {}, true),
+  adminProducts: (params: { search?: string; page?: number; perPage?: number } = {}) => {
+    const q = new URLSearchParams({ page: String(params.page ?? 1), per_page: String(params.perPage ?? 50) });
+    if (params.search?.trim()) q.set("search", params.search.trim());
+    return request<PaginatedAdminProducts>(`/admin/products?${q}`, {}, true);
+  },
   // Bản duy nhất còn commission_rate — trường này đã rút khỏi GET /products{,/{id}}.
   adminProduct: (id: number) => request<AdminProductDetail>(`/admin/products/${id}`, {}, true),
   adminUpdateProduct: (id: number, data: Record<string, unknown>) =>

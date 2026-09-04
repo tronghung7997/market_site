@@ -425,16 +425,30 @@ async def list_products(
     }
 
 
-async def list_seller_products(seller_id: int, db: AsyncSession) -> list[dict]:
+async def list_seller_products(
+    seller_id: int,
+    db: AsyncSession,
+    *,
+    search: str | None = None,
+    page: int = 1,
+    per_page: int = 50,
+) -> dict:
     """Bảng quản lý của seller — mọi lookup gom IN/GROUP BY như bản admin.
 
     Bản cũ mỗi sản phẩm 2 query (danh mục + gói) cộng 1 query đếm kho MỖI gói
     giao ngay; seller 1000 sản phẩm là ~4.000 query một lần mở trang."""
+    filters = [Product.seller_id == seller_id]
+    if search and search.strip():
+        filters.append(Product.title.ilike(f"%{search.strip()}%"))
+    total = int(await db.scalar(
+        select(func.count(Product.id)).where(*filters)
+    ) or 0)
     products = list((await db.execute(
-        select(Product).where(Product.seller_id == seller_id).order_by(Product.created_at.desc())
+        select(Product).where(*filters).order_by(Product.created_at.desc(), Product.id.desc())
+        .offset((page - 1) * per_page).limit(per_page)
     )).scalars())
     if not products:
-        return []
+        return {"items": [], "total": total, "page": page, "per_page": per_page}
 
     category_names = {
         c.id: c.name
@@ -468,7 +482,7 @@ async def list_seller_products(seller_id: int, db: AsyncSession) -> list[dict]:
             "variant_count": len(variants),
             "total_stock": sum(v["stock_count"] for v in variants),
         })
-    return out
+    return {"items": out, "total": total, "page": page, "per_page": per_page}
 
 
 async def get_seller_stats(seller_id: int, db: AsyncSession) -> dict:
@@ -761,16 +775,30 @@ async def update_seller_pricing(product_id: int, seller_id: int, data: dict, db:
     return product
 
 
-async def list_all_products_admin(db: AsyncSession) -> list[dict]:
+async def list_all_products_admin(
+    db: AsyncSession,
+    *,
+    search: str | None = None,
+    page: int = 1,
+    per_page: int = 50,
+) -> dict:
     """Return every product with seller email, provider name, order count, revenue.
 
     Mọi lookup gom theo IN/GROUP BY — bản cũ query riêng từng product
     (~6 query × N sản phẩm) làm /admin/products mất 1.5s.
     """
-    result = await db.execute(select(Product).order_by(Product.created_at.desc()))
+    filters = []
+    if search and search.strip():
+        filters.append(Product.title.ilike(f"%{search.strip()}%"))
+    total = int(await db.scalar(select(func.count(Product.id)).where(*filters)) or 0)
+    result = await db.execute(
+        select(Product).where(*filters)
+        .order_by(Product.created_at.desc(), Product.id.desc())
+        .offset((page - 1) * per_page).limit(per_page)
+    )
     products = list(result.scalars().all())
     if not products:
-        return []
+        return {"items": [], "total": total, "page": page, "per_page": per_page}
 
     seller_ids = {p.seller_id for p in products}
     sellers = {
@@ -852,7 +880,7 @@ async def list_all_products_admin(db: AsyncSession) -> list[dict]:
             "needs_setup_reason": setup["needs_setup_reason"],
             "demo_mode": setup["demo_mode"],
         })
-    return out
+    return {"items": out, "total": total, "page": page, "per_page": per_page}
 
 
 def _product_list_dict(product: Product, *, locale: str | None = DEFAULT_LOCALE) -> dict:

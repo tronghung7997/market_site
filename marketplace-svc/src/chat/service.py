@@ -3,6 +3,7 @@ import uuid
 from fastapi import status
 from sqlalchemy import and_, func, or_, select
 from sqlalchemy.ext.asyncio import AsyncSession
+from sqlalchemy.orm import aliased
 
 from src.exceptions import ErrorCode, api_error
 
@@ -579,10 +580,25 @@ async def ensure_support_conversation(
     return conversation.id, True
 
 
-async def notify_support_opened(account_id: int, conversation_id: uuid.UUID, created: bool) -> None:
+async def notify_support_opened(
+    account_id: int,
+    conversation_id: uuid.UUID,
+    created: bool,
+    db: AsyncSession,
+) -> None:
     if created:
+        admin_ids = list(
+            (
+                await db.execute(
+                    select(Account.id).where(
+                        Account.is_active.is_(True),
+                        Account.roles.any("admin"),
+                    )
+                )
+            ).scalars()
+        )
         await publish(
-            [account_id],
+            [account_id, *admin_ids],
             {"type": "conversation.created", "conversation_id": str(conversation_id)},
         )
 
@@ -657,27 +673,168 @@ async def _append_support_message(
 async def list_support_conversations(account: Account, db: AsyncSession) -> ConversationList:
     if not _has_role(account, "admin"):
         raise api_error(ErrorCode.ADMIN_ONLY, status.HTTP_403_FORBIDDEN)
-    rooms = list(
-        (
-            await db.execute(
-                select(ChatConversation)
-                .where(ChatConversation.kind == ConversationKind.SUPPORT)
-                .order_by(
-                    ChatConversation.last_message_at.desc().nulls_last(),
-                    ChatConversation.id.desc(),
-                )
-                .limit(100)
-            )
-        ).scalars()
+    last_message = aliased(ChatMessage)
+    latest_dispute_id = (
+        select(Dispute.id)
+        .where(Dispute.order_id == ChatConversation.order_id)
+        .order_by(Dispute.id.desc())
+        .limit(1)
+        .correlate(ChatConversation)
+        .scalar_subquery()
     )
-    items = []
-    for room in rooms:
-        member = await db.get(ChatParticipant, (room.id, account.id))
-        if member is None:
-            member = ChatParticipant(
-                conversation_id=room.id,
-                account_id=account.id,
-                context_role=ContextRole.ADMIN,
+    unread_count = (
+        select(func.count(ChatMessage.id))
+        .where(
+            ChatMessage.conversation_id == ChatConversation.id,
+            ChatMessage.sender_id != account.id,
+            ChatMessage.id > func.coalesce(ChatParticipant.last_read_message_id, 0),
+        )
+        .correlate(ChatConversation, ChatParticipant)
+        .scalar_subquery()
+    )
+    claimed_count = (
+        select(func.count(DisputeClaimResource.id))
+        .where(DisputeClaimResource.dispute_id == Dispute.id)
+        .correlate(Dispute)
+        .scalar_subquery()
+    )
+    replaced_count = (
+        select(func.count(DisputeResourceAction.id))
+        .where(
+            DisputeResourceAction.dispute_id == Dispute.id,
+            DisputeResourceAction.action == "replace",
+        )
+        .correlate(Dispute)
+        .scalar_subquery()
+    )
+    refunded_count = (
+        select(func.count(DisputeResourceAction.id))
+        .where(
+            DisputeResourceAction.dispute_id == Dispute.id,
+            DisputeResourceAction.action == "refund",
+        )
+        .correlate(Dispute)
+        .scalar_subquery()
+    )
+    refunded_amount = (
+        select(func.coalesce(func.sum(DisputeResourceAction.refund_amount), 0))
+        .where(
+            DisputeResourceAction.dispute_id == Dispute.id,
+            DisputeResourceAction.action == "refund",
+        )
+        .correlate(Dispute)
+        .scalar_subquery()
+    )
+    rows = (
+        await db.execute(
+            select(
+                ChatConversation,
+                Account.email,
+                Product,
+                last_message,
+                Order,
+                Dispute,
+                unread_count.label("unread_count"),
+                claimed_count.label("claimed_count"),
+                replaced_count.label("replaced_count"),
+                refunded_count.label("refunded_count"),
+                refunded_amount.label("refunded_amount"),
             )
-        items.append(await _summary(db, room, member))
+            .outerjoin(
+                ChatParticipant,
+                and_(
+                    ChatParticipant.conversation_id == ChatConversation.id,
+                    ChatParticipant.account_id == account.id,
+                ),
+            )
+            .outerjoin(Account, Account.id == ChatConversation.requester_id)
+            .outerjoin(Product, Product.id == ChatConversation.product_id)
+            .outerjoin(last_message, last_message.id == ChatConversation.last_message_id)
+            .outerjoin(Order, Order.id == ChatConversation.order_id)
+            .outerjoin(Dispute, Dispute.id == latest_dispute_id)
+            .where(ChatConversation.kind == ConversationKind.SUPPORT)
+            .order_by(
+                ChatConversation.last_message_at.desc().nulls_last(),
+                ChatConversation.id.desc(),
+            )
+            .limit(100)
+        )
+    ).all()
+    items: list[ConversationSummary] = []
+    for (
+        room,
+        requester_email,
+        product,
+        message,
+        order,
+        dispute,
+        unread,
+        claims,
+        replacements,
+        refunds,
+        refund_total,
+    ) in rows:
+        dispute_ctx = None
+        if dispute:
+            dispute_ctx = ChatDisputeContext(
+                id=dispute.id,
+                status=str(dispute.status.value if hasattr(dispute.status, "value") else dispute.status),
+                reason=dispute.reason,
+                review_requested_at=dispute.review_requested_at,
+                claimed_count=int(claims or 0),
+                replaced_count=int(replacements or 0),
+                pending_count=max(0, int(claims or 0) - int(replacements or 0) - int(refunds or 0)),
+                refunded_amount=int(refund_total or 0),
+            )
+        order_status = (
+            str(order.status.value if hasattr(order.status, "value") else order.status)
+            if order
+            else None
+        )
+        items.append(
+            ConversationSummary(
+                id=room.id,
+                kind=room.kind,
+                status=room.status,
+                product=(
+                    ChatProduct(
+                        id=product.id,
+                        title=product.title,
+                        image=parse_cover_id(product.images),
+                    )
+                    if product
+                    else None
+                ),
+                order=(
+                    ChatOrderContext(
+                        id=order.id,
+                        status=order_status or "",
+                        quantity=order.quantity,
+                        total_amount=order.total_amount,
+                        cancel_reason=order.cancel_reason,
+                    )
+                    if order
+                    else None
+                ),
+                dispute=dispute_ctx,
+                counterpart=SafeCounterpart(
+                    id=room.requester_id or 0,
+                    label=(
+                        requester_email.split("@", 1)[0]
+                        if requester_email
+                        else f"#{room.requester_id or 0}"
+                    ),
+                    role=room.requester_role or ContextRole.BUYER,
+                ),
+                last_message=_message_dto(message) if message else None,
+                unread_count=int(unread or 0),
+                can_send=room.status == ConversationStatus.OPEN,
+                read_only_reason=(
+                    None
+                    if room.status == ConversationStatus.OPEN
+                    else "Cuộc trò chuyện hiện chỉ đọc."
+                ),
+                created_at=room.created_at,
+            )
+        )
     return ConversationList(items=items)

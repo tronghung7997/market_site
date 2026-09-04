@@ -38,7 +38,7 @@ A prototype under `frontend/app/[locale]/prototype/chat/` is visual exploration,
 - Reusing a client message ID with the same sender and body returns the existing message; conflicting reuse is rejected.
 - A cancelled or refunded order makes its order conversation read-only and sending is rejected. Marketplace support stays open so admin review can continue after the commercial order completes.
 - At most one Marketplace support conversation exists for `(order, requester)`; reopening reuses it. Creating it is owned by dispute escalate (`POST /orders/{id}/dispute/escalate` or seller escalate): a required note plus idempotency key pauses auto-settlement (`review_requested_at`) and does not refund escrow. `POST /chat/orders/{id}/support` only reopens an existing thread and does not pause clocks.
-- Admins list support conversations with `GET /chat/admin/support`. Non-admins receive 403.
+- Admins list support conversations with `GET /chat/admin/support`. Non-admins receive 403. The support inbox projection is loaded in one bounded database query, polls as recovery, and active admins receive best-effort chat invalidation when a new review thread is created.
 - The list API accepts `perspective=buyer`, `perspective=seller`, or `perspective=all`. Buyer/seller still validate against the account's global roles. `all` returns every non-archived conversation the account participates in, using each participant row's context role. The product inbox is unified at `/messages`; `/seller/messages` redirects there. Admin dispute review is a separate inbox at `/admin/support`.
 - Unread counts appear as a non-dismissible action item (`unread_messages`) pointing at `/messages`, so the notification bell can refresh from the same chat events as the inbox.
 

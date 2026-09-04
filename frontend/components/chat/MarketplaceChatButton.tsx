@@ -38,6 +38,7 @@ export default function MarketplaceChatButton({
   const [note, setNote] = useState("");
   const [error, setError] = useState<string | null>(null);
   const idempotencyKey = useRef(crypto.randomUUID());
+  const idempotencyBody = useRef<string | null>(null);
   const caption = loading ? t("opening") : t("marketplaceChatAction");
 
   const go = (conversationId: string) => {
@@ -58,6 +59,10 @@ export default function MarketplaceChatButton({
   const submitNote = async () => {
     const body = note.trim();
     if (!body) return;
+    if (idempotencyBody.current !== null && idempotencyBody.current !== body) {
+      idempotencyKey.current = crypto.randomUUID();
+    }
+    idempotencyBody.current = body;
     setLoading(true);
     setError(null);
     try {
@@ -69,6 +74,10 @@ export default function MarketplaceChatButton({
       }
       await openExisting();
     } catch (cause) {
+      if (cause instanceof ApiError && cause.errorCode === "CHAT_MESSAGE_ID_CONFLICT") {
+        idempotencyKey.current = crypto.randomUUID();
+        idempotencyBody.current = null;
+      }
       setError(apiErrorMessage(cause, t("openFailed")));
     } finally {
       setLoading(false);

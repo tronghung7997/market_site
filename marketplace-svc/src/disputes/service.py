@@ -1242,7 +1242,7 @@ async def request_marketplace_review(
         ),
     )
     await db.commit()
-    await notify_support_opened(account.id, conversation_id, created)
+    await notify_support_opened(account.id, conversation_id, created, db)
     await db.refresh(dispute)
     result = await _enrich_dispute(dispute, db)
     result["marketplace_conversation_id"] = conversation_id

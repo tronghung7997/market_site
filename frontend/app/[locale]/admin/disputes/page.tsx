@@ -10,6 +10,7 @@ import {
   useReactTable,
 } from "@tanstack/react-table";
 import { Link } from "@/i18n/navigation";
+import { useSearchParams } from "next/navigation";
 import { ListFilter, Search, X } from "lucide-react";
 import { useDebounce } from "@/lib/hooks/useDebounce";
 
@@ -489,6 +490,11 @@ function DisputeDetailContent({
 
 export default function AdminDisputesPage() {
   const apiErrorMessage = useApiErrorMessage();
+  const searchParams = useSearchParams();
+  const linkedDisputeId = React.useMemo(() => {
+    const value = Number(searchParams.get("dispute_id"));
+    return Number.isSafeInteger(value) && value > 0 ? value : null;
+  }, [searchParams]);
   // Filter & pagination state
   const [status, setStatus] = React.useState("all");
   const [buyerKey, setBuyerKey] = React.useState<string | null>(null);
@@ -497,7 +503,11 @@ export default function AdminDisputesPage() {
     pageIndex: 0,
     pageSize: DEFAULT_PAGE_SIZE,
   });
-  const [selectedDisputeId, setSelectedDisputeId] = React.useState<number | null>(null);
+  const [selectedDisputeId, setSelectedDisputeId] = React.useState<number | null>(linkedDisputeId);
+
+  React.useEffect(() => {
+    if (linkedDisputeId !== null) setSelectedDisputeId(linkedDisputeId);
+  }, [linkedDisputeId]);
 
   // Action modal state
   const [actionModal, setActionModal] = React.useState<{

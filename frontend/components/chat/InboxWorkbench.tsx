@@ -415,7 +415,7 @@ export default function InboxWorkbench({
                 <div className="flex shrink-0 items-center gap-2">
                   {adminMode && room.dispute ? (
                     <Link
-                      href={`/admin/disputes?order_id=${room.order?.id ?? ""}`}
+                      href={`/admin/disputes?dispute_id=${room.dispute.id}`}
                       className="inline-flex items-center gap-1 rounded-lg bg-iris px-2.5 py-1 text-[11.5px] font-semibold text-white hover:bg-iris-hi transition-colors shadow-xs"
                     >
                       <span>{t("adminResolveDispute")}</span>
@@ -648,9 +648,9 @@ export default function InboxWorkbench({
                             </span>
                           </dd>
                         </div>
-                        {adminMode && (
+                        {adminMode && room.dispute && (
                           <Link
-                            href={`/admin/disputes?order_id=${room.order.id}`}
+                            href={`/admin/disputes?dispute_id=${room.dispute.id}`}
                             className="mt-2 flex w-full items-center justify-center gap-1 rounded-lg bg-iris px-2.5 py-1.5 text-[11.5px] font-semibold text-white hover:bg-iris-hi transition-colors shadow-2xs"
                           >
                             <span>{t("adminResolveDispute")}</span>

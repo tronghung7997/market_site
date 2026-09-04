@@ -1048,6 +1048,12 @@ async def test_buyer_can_claim_warranty_replacement_once(client):
     )
     assert claimed.status_code == 200, claimed.text
     assert gen1 in claimed.json()["claimed_resource_ids"]
+    seller_pending = await client.get(
+        f"/seller/disputes/{opened.json()['id']}/resources?pending_only=true",
+        headers=seller_headers,
+    )
+    assert seller_pending.status_code == 200, seller_pending.text
+    assert [row["id"] for row in seller_pending.json()["items"]] == [gen1]
     second = await client.post(
         f"/seller/disputes/{opened.json()['id']}/resources/action",
         json={"resource_ids": [gen1], "action": "replace", "idempotency_key": "warranty-replace-2"},

@@ -58,6 +58,7 @@ export default function OrdersPage() {
   const [selectedOrder, setSelectedOrder] = useState<Order | null>(null);
   const [disputeTarget, setDisputeTarget] = useState<{
     orderId: number;
+    order?: Order | null;
     variantName?: string | null;
     initialReason?: string;
     initialEvidence?: Record<string, string>;
@@ -352,6 +353,7 @@ export default function OrdersPage() {
           onOpenDispute={(orderId, options) => {
             setDisputeTarget({
               orderId,
+              order: selectedOrder,
               variantName: options?.variantName ?? selectedOrder.variant_name,
               initialReason: options?.initialReason,
               initialEvidence: options?.initialEvidence,
@@ -371,6 +373,7 @@ export default function OrdersPage() {
       {disputeTarget !== null && (
         <DisputeModal
           orderId={disputeTarget.orderId}
+          order={disputeTarget.order}
           variantName={disputeTarget.variantName}
           initialReason={disputeTarget.initialReason}
           initialEvidence={disputeTarget.initialEvidence}
@@ -720,6 +723,7 @@ export default function OrdersPage() {
                               onClick={() => {
                                 setDisputeTarget({
                                   orderId: o.id,
+                                  order: o,
                                   variantName: o.variant_name,
                                   initialReason: o.variant_name ? t("reasonPackagePrefix", { name: o.variant_name }) : "",
                                 });

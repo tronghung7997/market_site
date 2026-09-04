@@ -1181,7 +1181,7 @@ function SellerDisputeModal({
                 <form onSubmit={handleRespond} className="space-y-3 border-t border-line pt-4">
                   <div className="space-y-1.5">
                     <label className="block font-semibold text-fg">{t("disputeSellerResponse")}</label>
-                    <p className="text-[11.5px] text-muted">{t("replyAgainHint")}</p>
+                    <p className="text-[11.5px] text-muted">{t(hasClaimed ? "replyAgainHintAccounts" : "replyAgainHint")}</p>
                     <Textarea rows={3} value={sellerNote} onChange={(e) => setSellerNote(e.target.value)}
                       placeholder={t("disputeSellerPlaceholder")} className="bg-surface text-xs leading-relaxed" />
                   </div>

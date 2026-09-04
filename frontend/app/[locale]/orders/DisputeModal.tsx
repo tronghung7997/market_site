@@ -1,6 +1,6 @@
 "use client";
 
-import { useState } from "react";
+import { useEffect, useMemo, useState } from "react";
 import { useTranslations } from "next-intl";
 import {
   AlertTriangle,
@@ -13,25 +13,39 @@ import {
   FileQuestion,
   WifiOff,
   HelpCircle,
-  X,
+  Search,
 } from "lucide-react";
 import { api } from "@/lib/api";
 import { useApiErrorMessage } from "@/lib/use-api-error";
+import { fulfillmentFromOrder } from "@/lib/fulfillment";
+import { resourcePreview } from "@/lib/dispute-case";
+import {
+  canSubmitDisputeForm,
+  claimableResourceIds,
+  defaultDisputeIssue,
+  disputeEvidenceType,
+  disputeFormMode,
+  disputeIssueIds,
+  disputeScopeNoticeKey,
+  disputeSubmitResourceIds,
+  initialSelectedClaimIds,
+  type DisputeIssueId,
+} from "@/lib/dispute-form";
+import type { Order, Resource } from "@/lib/types";
 import { Button, Input, Spinner, Textarea } from "@/components/ui";
 import { Dialog, DialogContent, DialogTitle } from "@/components/ui/dialog";
 
-const QUICK_ISSUES = [
-  { id: "wrong_credentials", icon: Key },
-  { id: "checkpoint_locked", icon: Lock },
-  { id: "wrong_description", icon: FileQuestion },
-  { id: "connection_failed", icon: WifiOff },
-  { id: "other", icon: HelpCircle },
-] as const;
-
-type QuickIssueId = (typeof QUICK_ISSUES)[number]["id"];
+const ISSUE_ICONS: Record<DisputeIssueId, typeof Key> = {
+  wrong_credentials: Key,
+  checkpoint_locked: Lock,
+  wrong_description: FileQuestion,
+  connection_failed: WifiOff,
+  other: HelpCircle,
+};
 
 export default function DisputeModal({
   orderId,
+  order: orderProp,
   variantName,
   initialReason,
   initialEvidenceType,
@@ -42,6 +56,7 @@ export default function DisputeModal({
   onSuccess,
 }: {
   orderId: number;
+  order?: Order | null;
   variantName?: string | null;
   initialReason?: string;
   initialEvidenceType?: string;
@@ -55,17 +70,18 @@ export default function DisputeModal({
   const tc = useTranslations("common");
   const apiErrorMessage = useApiErrorMessage();
 
-  // Resource IDs selected
+  const [orderRecord, setOrderRecord] = useState<Order | null>(orderProp ?? null);
+  const [resources, setResources] = useState<Resource[]>([]);
+  const [claimedIds, setClaimedIds] = useState<number[]>([]);
+  const [loadingScope, setLoadingScope] = useState(true);
   const [selectedIds, setSelectedIds] = useState<number[]>(resourceIds ?? []);
+  const [selectionReady, setSelectionReady] = useState(false);
+  const [accountQuery, setAccountQuery] = useState("");
 
-  // 1. Quick Issue Selector
-  const [selectedIssue, setSelectedIssue] = useState<QuickIssueId>("wrong_credentials");
+  const [selectedIssue, setSelectedIssue] = useState<DisputeIssueId>("wrong_credentials");
   const [customIssue, setCustomIssue] = useState<string>("");
-
-  // 2. Desired Remedy: Replace vs Refund
   const [desiredRemedy, setDesiredRemedy] = useState<"replace" | "refund">("replace");
 
-  // 3. Detail Note (clean out auto-generated generic strings so placeholder shows)
   const isGenericInitialReason =
     !initialReason ||
     initialReason.startsWith("Có lỗi với") ||
@@ -75,15 +91,81 @@ export default function DisputeModal({
   const [detailNote, setDetailNote] = useState<string>(
     isGenericInitialReason ? "" : initialReason
   );
-
-  // 4. Proof screenshot / link
   const [proofUrl, setProofUrl] = useState<string>(initialEvidence?.proof_url ?? "");
-
   const [submitting, setSubmitting] = useState(false);
   const [error, setError] = useState("");
 
-  const removeResourceId = (idToRemove: number) => {
-    setSelectedIds((prev) => prev.filter((id) => id !== idToRemove));
+  useEffect(() => {
+    let active = true;
+    setLoadingScope(true);
+    const needsExistingCase = Boolean(appendToExisting || orderProp?.has_dispute);
+    Promise.all([
+      api.orderResources(orderId).catch(() => [] as Resource[]),
+      needsExistingCase ? api.orderDispute(orderId).catch(() => null) : Promise.resolve(null),
+      orderProp ? Promise.resolve(orderProp) : api.getOrder(orderId).catch(() => null),
+    ]).then(([rows, dispute, fetched]) => {
+      if (!active) return;
+      setResources(rows);
+      setClaimedIds(dispute?.claimed_resource_ids ?? []);
+      if (fetched) setOrderRecord(fetched);
+      setLoadingScope(false);
+    });
+    return () => { active = false; };
+  }, [appendToExisting, orderId, orderProp]);
+
+  const claimableIds = useMemo(
+    () => claimableResourceIds(resources, claimedIds),
+    [claimedIds, resources],
+  );
+  const claimableRows = useMemo(() => {
+    const allowed = new Set(claimableIds);
+    return resources.filter((row) => allowed.has(row.id));
+  }, [claimableIds, resources]);
+
+  const mode = disputeFormMode({
+    claimableCount: claimableIds.length,
+    appendToExisting,
+  });
+  const fulfillmentKind = orderRecord ? fulfillmentFromOrder(orderRecord).kind : undefined;
+  const issueIds = disputeIssueIds(mode, fulfillmentKind);
+
+  useEffect(() => {
+    if (loadingScope || selectionReady) return;
+    setSelectedIds(initialSelectedClaimIds({
+      preferredIds: resourceIds ?? [],
+      claimableIds,
+    }));
+    setSelectionReady(true);
+  }, [claimableIds, loadingScope, resourceIds, selectionReady]);
+
+  useEffect(() => {
+    if (!issueIds.includes(selectedIssue)) {
+      setSelectedIssue(defaultDisputeIssue(mode, fulfillmentKind));
+    }
+  }, [fulfillmentKind, issueIds, mode, selectedIssue]);
+
+  const filteredClaimable = useMemo(() => {
+    const q = accountQuery.trim().toLowerCase().replace(/^#/, "");
+    if (!q) return claimableRows;
+    return claimableRows.filter((row) => {
+      if (String(row.id).includes(q)) return true;
+      const preview = resourcePreview(row.data)?.toLowerCase() ?? "";
+      return preview.includes(q) || row.data.toLowerCase().includes(q);
+    });
+  }, [accountQuery, claimableRows]);
+
+  const toggleResource = (id: number) => {
+    setSelectedIds((current) => (
+      current.includes(id) ? current.filter((row) => row !== id) : [...current, id]
+    ));
+  };
+
+  const selectVisible = () => {
+    setSelectedIds((current) => {
+      const next = new Set(current);
+      for (const row of filteredClaimable) next.add(row.id);
+      return [...next];
+    });
   };
 
   async function handleSubmit() {
@@ -94,10 +176,9 @@ export default function DisputeModal({
         selectedIssue === "other" && customIssue.trim()
           ? customIssue.trim()
           : t(`disputeIssues.${selectedIssue}`);
-      const remedyLabel =
-        desiredRemedy === "replace"
-          ? t("disputeDesiredReplace")
-          : t("disputeDesiredRefund");
+      const remedyLabel = mode === "accounts"
+        ? (desiredRemedy === "replace" ? t("disputeDesiredReplace") : t("disputeDesiredRefund"))
+        : (desiredRemedy === "replace" ? t("disputeDesiredReplaceService") : t("disputeDesiredRefundService"));
       const noteTrimmed = detailNote.trim();
 
       const fullReason = noteTrimmed
@@ -121,19 +202,23 @@ export default function DisputeModal({
         evidence.error = noteTrimmed;
       }
 
-      const effectiveEvidenceType =
-        initialEvidenceType ||
-        (selectedIssue === "connection_failed" ? "proxy" : "account");
+      const submitIds = disputeSubmitResourceIds(mode, selectedIds);
+      const evidenceType = disputeEvidenceType({
+        mode,
+        fulfillmentKind,
+        selectedIssue,
+        initialEvidenceType,
+      });
 
       if (appendToExisting) {
-        await api.appendDisputeClaims(orderId, fullReason, selectedIds);
+        await api.appendDisputeClaims(orderId, fullReason, submitIds ?? selectedIds);
       } else {
         await api.openDisputeBatched(
           orderId,
           fullReason,
-          effectiveEvidenceType,
+          evidenceType,
           Object.keys(evidence).length > 0 ? evidence : undefined,
-          selectedIds.length > 0 ? selectedIds : undefined,
+          submitIds ?? [],
         );
       }
       onSuccess();
@@ -149,10 +234,21 @@ export default function DisputeModal({
     customIssue.trim().length > 0 ||
     detailNote.trim().length > 0;
 
-  const canSubmit =
-    !submitting &&
-    (!appendToExisting || selectedIds.length > 0) &&
-    hasIssueDescription;
+  const canSubmit = canSubmitDisputeForm({
+    mode,
+    selectedIds,
+    hasIssueDescription,
+    submitting,
+    loading: loadingScope,
+  });
+
+  const pickerLimit = 50;
+  const visibleClaimable = filteredClaimable.slice(0, pickerLimit);
+
+  const replaceTitle = mode === "accounts" ? t("disputeDesiredReplace") : t("disputeDesiredReplaceService");
+  const replaceHint = mode === "accounts" ? t("disputeDesiredReplaceHint") : t("disputeDesiredReplaceServiceHint");
+  const refundTitle = mode === "accounts" ? t("disputeDesiredRefund") : t("disputeDesiredRefundService");
+  const refundHint = mode === "accounts" ? t("disputeDesiredRefundHint") : t("disputeDesiredRefundServiceHint");
 
   return (
     <Dialog open onOpenChange={(open) => { if (!open && !submitting) onClose(); }}>
@@ -168,7 +264,6 @@ export default function DisputeModal({
             </div>
           </div>
         )}
-        {/* Header */}
         <div className="border-b border-line pb-3">
           <DialogTitle className="text-[16px] font-bold text-fg flex items-center gap-2">
             <AlertTriangle size={18} className="text-warn shrink-0" />
@@ -185,55 +280,95 @@ export default function DisputeModal({
           </div>
         </div>
 
-        {/* 1. Account Selection Review (if items are selected) */}
-        {selectedIds.length > 0 ? (
-          <div className="rounded-xl border border-warn/25 bg-warn-soft/20 p-3 space-y-2">
-            <div className="flex items-center justify-between text-[11.5px] font-semibold text-fg">
-              <span>{t("disputeSelectedSummary", { count: selectedIds.length })}</span>
+        {loadingScope ? (
+          <div className="flex items-center gap-2 rounded-xl border border-line bg-raised/40 px-3 py-2.5 text-[12px] text-muted">
+            <Spinner />
+            <span>{t("disputeLoadingScope")}</span>
+          </div>
+        ) : mode === "accounts" ? (
+          <div className="rounded-xl border border-warn/25 bg-warn-soft/20 p-3 space-y-2.5">
+            <div className="space-y-1">
+              <p className="text-[12px] font-semibold text-fg">
+                {t("disputeSelectedSummary", { count: selectedIds.length })}
+              </p>
+              <p className="text-[11.5px] text-muted">{t("disputeAccountsNeedSelect")}</p>
             </div>
-            <div className="flex flex-wrap gap-1 max-h-24 overflow-y-auto pr-1">
-              {selectedIds.map((id) => (
-                <span
-                  key={id}
-                  className="inline-flex items-center gap-1 rounded-md border border-line bg-surface px-2 py-0.5 font-mono text-[11px] text-fg shadow-2xs"
-                >
-                  <span>#{id}</span>
-                  {selectedIds.length > 1 && (
-                    <button
-                      type="button"
-                      onClick={() => removeResourceId(id)}
-                      title={t("disputeRemoveAccount", { id })}
-                      className="text-faint hover:text-bad ml-0.5 cursor-pointer"
-                    >
-                      <X size={11} />
-                    </button>
+            {claimableRows.length === 0 ? (
+              <p className="text-[12px] text-muted">{t("disputeNoClaimableAccounts")}</p>
+            ) : (
+              <>
+                <div className="flex flex-wrap items-center gap-2">
+                  <div className="relative min-w-[180px] flex-1">
+                    <Search size={13} className="absolute left-2.5 top-1/2 -translate-y-1/2 text-muted" />
+                    <Input
+                      value={accountQuery}
+                      onChange={(e) => setAccountQuery(e.target.value)}
+                      placeholder={t("disputeAccountSearchPh")}
+                      className="h-8 pl-8 text-[12px]"
+                    />
+                  </div>
+                  <Button type="button" size="sm" variant="secondary" onClick={selectVisible}>
+                    {t("disputeSelectVisible", { count: filteredClaimable.length })}
+                  </Button>
+                  {selectedIds.length > 0 && (
+                    <Button type="button" size="sm" variant="ghost" onClick={() => setSelectedIds([])}>
+                      {t("disputeClearSelection")}
+                    </Button>
                   )}
-                </span>
-              ))}
-            </div>
+                </div>
+                {filteredClaimable.length > pickerLimit && (
+                  <p className="text-[11px] text-muted">
+                    {t("disputeAccountPickerCap", { shown: pickerLimit, total: filteredClaimable.length })}
+                  </p>
+                )}
+                <div className="max-h-44 overflow-y-auto rounded-lg border border-line bg-surface divide-y divide-line">
+                  {filteredClaimable.length === 0 ? (
+                    <p className="px-3 py-2.5 text-[12px] text-muted">{t("disputeAccountSearchEmpty")}</p>
+                  ) : visibleClaimable.map((row) => {
+                    const checked = selectedIds.includes(row.id);
+                    const preview = resourcePreview(row.data) ?? row.data;
+                    return (
+                      <label
+                        key={row.id}
+                        className="flex items-center gap-2.5 px-3 py-2 text-[12px] cursor-pointer hover:bg-raised/50"
+                      >
+                        <input
+                          type="checkbox"
+                          checked={checked}
+                          onChange={() => toggleResource(row.id)}
+                          className="h-4 w-4 shrink-0 accent-iris"
+                          aria-label={t("selectAccount", { id: row.id })}
+                        />
+                        <span className="font-mono text-[10.5px] font-bold text-iris bg-iris-soft px-1.5 py-0.5 rounded shrink-0">
+                          #{row.id}
+                        </span>
+                        <span className="font-mono text-fg truncate">{preview}</span>
+                      </label>
+                    );
+                  })}
+                </div>
+              </>
+            )}
           </div>
         ) : (
-          !appendToExisting && (
-            <p className="rounded-lg border border-line bg-raised/50 px-3 py-2 text-[11.5px] text-muted">
-              {t("disputeWholeOrderNotice")}
-            </p>
-          )
+          <p className="rounded-lg border border-line bg-raised/50 px-3 py-2 text-[11.5px] text-muted">
+            {t(disputeScopeNoticeKey(mode, fulfillmentKind))}
+          </p>
         )}
 
-        {/* 2. Quick Issue Selection */}
-        <div className="space-y-2">
+        {!loadingScope && <div className="space-y-2">
           <label className="text-[12px] font-semibold text-fg block">
             {t("disputeIssueTitle")}
           </label>
           <div className="flex flex-wrap gap-2">
-            {QUICK_ISSUES.map((item) => {
-              const Icon = item.icon;
-              const isSelected = selectedIssue === item.id;
+            {issueIds.map((item) => {
+              const Icon = ISSUE_ICONS[item];
+              const isSelected = selectedIssue === item;
               return (
                 <button
-                  key={item.id}
+                  key={item}
                   type="button"
-                  onClick={() => setSelectedIssue(item.id)}
+                  onClick={() => setSelectedIssue(item)}
                   className={`inline-flex items-center gap-2 rounded-xl border px-3 py-2 text-[12px] font-medium transition-all cursor-pointer ${
                     isSelected
                       ? "border-iris bg-iris-soft/30 font-semibold text-fg shadow-2xs ring-1 ring-iris"
@@ -249,13 +384,12 @@ export default function DisputeModal({
                   >
                     {isSelected ? <Check size={10} strokeWidth={3} /> : <Icon size={10} />}
                   </div>
-                  <span className="whitespace-nowrap">{t(`disputeIssues.${item.id}`)}</span>
+                  <span className="whitespace-nowrap">{t(`disputeIssues.${item}`)}</span>
                 </button>
               );
             })}
           </div>
 
-          {/* Ô nhập cụ thể khi chọn 'Vấn đề khác' */}
           {selectedIssue === "other" && (
             <div className="pt-1.5 space-y-1">
               <label className="text-[11.5px] font-semibold text-fg block">
@@ -270,10 +404,9 @@ export default function DisputeModal({
               />
             </div>
           )}
-        </div>
+        </div>}
 
-        {/* 3. Desired Resolution: Replace vs Refund */}
-        <div className="space-y-2">
+        {!loadingScope && <div className="space-y-2">
           <label className="text-[12px] font-semibold text-fg block">
             {t("disputeDesiredTitle")}
           </label>
@@ -293,10 +426,10 @@ export default function DisputeModal({
               />
               <div className="min-w-0">
                 <p className="text-[12px] font-semibold text-fg leading-tight truncate">
-                  {t("disputeDesiredReplace")}
+                  {replaceTitle}
                 </p>
                 <p className="text-[10.5px] text-muted mt-0.5 truncate">
-                  {t("disputeDesiredReplaceHint")}
+                  {replaceHint}
                 </p>
               </div>
             </button>
@@ -316,17 +449,16 @@ export default function DisputeModal({
               />
               <div className="min-w-0">
                 <p className="text-[12px] font-semibold text-fg leading-tight truncate">
-                  {t("disputeDesiredRefund")}
+                  {refundTitle}
                 </p>
                 <p className="text-[10.5px] text-muted mt-0.5 truncate">
-                  {t("disputeDesiredRefundHint")}
+                  {refundHint}
                 </p>
               </div>
             </button>
           </div>
-        </div>
+        </div>}
 
-        {/* 4. Additional Detail Note */}
         <div className="space-y-1.5">
           <label className="text-[12px] font-semibold text-fg block">
             {t("disputeDetailNoteLabel")}
@@ -340,7 +472,6 @@ export default function DisputeModal({
           />
         </div>
 
-        {/* 5. Screenshot / Proof Link */}
         <div className="space-y-1">
           <label className="text-[11.5px] text-muted flex items-center gap-1.5">
             <ImageIcon size={13} className="text-faint" />
@@ -355,8 +486,10 @@ export default function DisputeModal({
         </div>
 
         {error && <p className="text-[12px] text-bad font-medium">{error}</p>}
+        {!loadingScope && mode === "accounts" && selectedIds.length === 0 && claimableRows.length > 0 && (
+          <p className="text-[12px] text-warn font-medium">{t("disputeSubmitNeedAccounts")}</p>
+        )}
 
-        {/* Footer Actions */}
         <div className="flex flex-wrap justify-end gap-2 pt-2 border-t border-line">
           <Button variant="ghost" size="sm" onClick={onClose} disabled={submitting}>
             {tc("cancel")}

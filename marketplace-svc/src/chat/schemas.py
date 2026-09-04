@@ -101,6 +101,7 @@ class ConversationSummary(BaseModel):
 
 class ConversationDetail(ConversationSummary):
     messages: list[ChatMessageResponse]
+    next_cursor: int | None = None
 
 
 class ConversationList(BaseModel):

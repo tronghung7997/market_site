@@ -41,6 +41,7 @@ from src.scheduler import (
     dproxy_reconciliation_job,
     escrow_release_job,
     gateway_call_log_cleanup_job,
+    chat_message_retention_job,
     provider_credit_low_job,
     provision_sweep_job,
     resource_expire_job,
@@ -85,6 +86,7 @@ scheduler.add_job(deposit_expire_job, "interval", minutes=10, id="deposit_expire
 scheduler.add_job(provider_credit_low_job, "interval", minutes=15, id="provider_credit_low")
 # Operational log retention (gateway/provider call logs, log_entries, resolved alerts).
 scheduler.add_job(gateway_call_log_cleanup_job, "interval", hours=6, id="gateway_call_log_cleanup")
+scheduler.add_job(chat_message_retention_job, "interval", hours=6, id="chat_message_retention")
 scheduler.add_job(mail_outbox_send_job, "interval", seconds=20, id="mail_outbox")
 
 

@@ -160,6 +160,15 @@ uv run pytest -q tests/test_chat_inquiries.py tests/test_chat_orders.py
 
 Backend suite dùng chung `marketplace_test` và `TRUNCATE` các bảng trước mỗi test. **Không chạy hai tiến trình pytest song song**, kể cả từ agent/worktree khác.
 
+Đo các database hot path bằng dữ liệu tổng hợp trong database test:
+
+```bash
+cd marketplace-svc
+uv run python scripts/benchmark_hot_queries.py --scenario small --repeat 5
+```
+
+Benchmark này xóa và seed lại toàn bộ `marketplace_test`, đồng thời từ chối chạy nếu tên database không chính xác. Không chạy benchmark song song với pytest.
+
 Các command frontend riêng lẻ:
 
 ```bash

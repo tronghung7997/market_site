@@ -94,10 +94,11 @@ async def list_conversations(
 @router.get("/conversations/{conversation_id}", response_model=schemas.ConversationDetail)
 async def get_conversation(
     conversation_id: uuid.UUID,
+    before_id: int | None = None,
     account: Account = Depends(get_current_account),
     db: AsyncSession = Depends(get_session),
 ):
-    return await service.get_conversation(account, conversation_id, db)
+    return await service.get_conversation(account, conversation_id, db, before_id=before_id)
 
 
 @router.post(

@@ -20,6 +20,7 @@ from src.providers.service import apply_scores
 from src.sellers.tiers import platform_fee_percent
 from src.wallet.service import escrow_settlement, refund_escrow, release_escrow
 from src.disputes.service import resolve_abandoned_dispute, resolve_dispute_after_response_timeout
+from src.chat.retention import purge_expired_messages
 
 logger = structlog.get_logger()
 
@@ -921,3 +922,12 @@ async def operational_log_cleanup_job() -> None:
 async def gateway_call_log_cleanup_job() -> None:
     """Backward-compatible name — delegates to operational_log_cleanup_job."""
     await operational_log_cleanup_job()
+
+
+async def chat_message_retention_job() -> None:
+    try:
+        async with SessionLocal() as db:
+            deleted = await purge_expired_messages(db)
+        logger.info("chat_message_retention_done", deleted=deleted)
+    except Exception as e:
+        logger.error("chat_message_retention_failed", error=str(e))

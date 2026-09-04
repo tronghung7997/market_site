@@ -1,7 +1,7 @@
 import uuid
 
 from fastapi import status
-from sqlalchemy import and_, func, or_, select
+from sqlalchemy import and_, case, func, or_, select
 from sqlalchemy.ext.asyncio import AsyncSession
 from sqlalchemy.orm import aliased
 
@@ -243,22 +243,34 @@ async def _detail(
     participant: ChatParticipant,
     *,
     mark_read: bool = False,
+    before_id: int | None = None,
 ) -> ConversationDetail:
-    messages = (
+    query = (
+        select(ChatMessage)
+        .where(ChatMessage.conversation_id == conversation.id)
+        .order_by(ChatMessage.id.desc())
+        .limit(51)
+    )
+    if before_id is not None:
+        query = query.where(ChatMessage.id < before_id)
+    newest_first = list(
         await db.scalars(
-            select(ChatMessage)
-            .where(ChatMessage.conversation_id == conversation.id)
-            .order_by(ChatMessage.id)
-            .limit(100)
+            query
         )
-    ).all()
-    if mark_read and messages:
+    )
+    has_more = len(newest_first) > 50
+    messages = list(reversed(newest_first[:50]))
+    if mark_read and before_id is None and messages:
         participant.last_read_message_id = max(
             participant.last_read_message_id or 0, messages[-1].id
         )
         await db.commit()
     summary = await _summary(db, conversation, participant)
-    return ConversationDetail(**summary.model_dump(), messages=[_message_dto(m) for m in messages])
+    return ConversationDetail(
+        **summary.model_dump(),
+        messages=[_message_dto(m) for m in messages],
+        next_cursor=messages[0].id if has_more and messages else None,
+    )
 
 
 async def create_inquiry(
@@ -388,16 +400,95 @@ async def list_conversations(
     ]
     if perspective != "all":
         membership.append(ChatParticipant.context_role == perspective)
+    last_message = aliased(ChatMessage)
+    counterpart = aliased(Account)
+    counterpart_id = case(
+        (ChatConversation.kind == ConversationKind.SUPPORT, ChatConversation.requester_id),
+        (ChatParticipant.context_role == ContextRole.BUYER, ChatConversation.seller_id),
+        else_=ChatConversation.buyer_id,
+    )
+    latest_dispute_id = (
+        select(Dispute.id).where(Dispute.order_id == ChatConversation.order_id)
+        .order_by(Dispute.id.desc()).limit(1).correlate(ChatConversation).scalar_subquery()
+    )
+    unread = (
+        select(func.count(ChatMessage.id)).where(
+            ChatMessage.conversation_id == ChatConversation.id,
+            ChatMessage.sender_id != account.id,
+            ChatMessage.id > func.coalesce(ChatParticipant.last_read_message_id, 0),
+        ).correlate(ChatConversation, ChatParticipant).scalar_subquery()
+    )
+    claimed = select(func.count(DisputeClaimResource.id)).where(
+        DisputeClaimResource.dispute_id == Dispute.id
+    ).correlate(Dispute).scalar_subquery()
+    replaced = select(func.count(DisputeResourceAction.id)).where(
+        DisputeResourceAction.dispute_id == Dispute.id,
+        DisputeResourceAction.action == "replace",
+    ).correlate(Dispute).scalar_subquery()
+    refunded = select(func.count(DisputeResourceAction.id)).where(
+        DisputeResourceAction.dispute_id == Dispute.id,
+        DisputeResourceAction.action == "refund",
+    ).correlate(Dispute).scalar_subquery()
+    refund_total = select(func.coalesce(func.sum(DisputeResourceAction.refund_amount), 0)).where(
+        DisputeResourceAction.dispute_id == Dispute.id,
+        DisputeResourceAction.action == "refund",
+    ).correlate(Dispute).scalar_subquery()
+    business_name = select(SellerApplication.business_name).where(
+        SellerApplication.account_id == counterpart_id,
+        SellerApplication.status == ApplicationStatus.approved,
+    ).order_by(SellerApplication.id.desc()).limit(1).correlate(ChatConversation, ChatParticipant).scalar_subquery()
     rows = (
         await db.execute(
-            select(ChatConversation, ChatParticipant)
+            select(
+                ChatConversation, ChatParticipant, Product, Order, last_message,
+                counterpart.email, business_name.label("business_name"), Dispute,
+                unread.label("unread"), claimed.label("claimed"), replaced.label("replaced"),
+                refunded.label("refunded"), refund_total.label("refund_total"),
+            )
             .join(ChatParticipant, ChatParticipant.conversation_id == ChatConversation.id)
+            .outerjoin(Product, Product.id == ChatConversation.product_id)
+            .outerjoin(Order, Order.id == ChatConversation.order_id)
+            .outerjoin(last_message, last_message.id == ChatConversation.last_message_id)
+            .outerjoin(counterpart, counterpart.id == counterpart_id)
+            .outerjoin(Dispute, Dispute.id == latest_dispute_id)
             .where(*membership)
             .order_by(ChatConversation.last_message_at.desc().nulls_last(), ChatConversation.id.desc())
             .limit(50)
         )
     ).all()
-    return ConversationList(items=[await _summary(db, room, member) for room, member in rows])
+    items = []
+    for room, member, product, order, message, email, shop_name, dispute, unread_n, claims, replacements, refunds, refund_amount in rows:
+        order_status = str(order.status.value if order and hasattr(order.status, "value") else order.status or "") if order else None
+        terminal = room.kind != ConversationKind.SUPPORT and order_status in {"cancelled", "refunded"}
+        effective_status = ConversationStatus.READ_ONLY if terminal else room.status
+        if room.kind == ConversationKind.SUPPORT and member.context_role != ContextRole.ADMIN:
+            cp_id, cp_role, cp_label = 0, ContextRole.ADMIN, MARKETPLACE_LABEL
+        else:
+            cp_id = room.requester_id if room.kind == ConversationKind.SUPPORT else (room.seller_id if member.context_role == ContextRole.BUYER else room.buyer_id)
+            cp_role = room.requester_role if room.kind == ConversationKind.SUPPORT else (ContextRole.SELLER if member.context_role == ContextRole.BUYER else ContextRole.BUYER)
+            if cp_role == ContextRole.BUYER and room.kind != ConversationKind.SUPPORT:
+                cp_label = f"Khách hàng #{cp_id or 0}"
+            else:
+                cp_label = shop_name if cp_role == ContextRole.SELLER and room.kind != ConversationKind.SUPPORT else None
+                cp_label = cp_label or (email.split("@", 1)[0] if email else f"#{cp_id or 0}")
+        dispute_ctx = ChatDisputeContext(
+            id=dispute.id, status=dispute.status.value, reason=dispute.reason,
+            review_requested_at=dispute.review_requested_at, claimed_count=int(claims or 0),
+            replaced_count=int(replacements or 0),
+            pending_count=max(0, int(claims or 0)-int(replacements or 0)-int(refunds or 0)),
+            refunded_amount=int(refund_amount or 0),
+        ) if dispute else None
+        items.append(ConversationSummary(
+            id=room.id, kind=room.kind, status=effective_status,
+            product=ChatProduct(id=product.id, title=product.title, image=parse_cover_id(product.images)) if product else None,
+            order=ChatOrderContext(id=order.id, status=order_status or "", quantity=order.quantity, total_amount=order.total_amount, cancel_reason=order.cancel_reason) if order else None,
+            dispute=dispute_ctx, counterpart=SafeCounterpart(id=cp_id or 0, label=cp_label, role=cp_role),
+            last_message=_message_dto(message) if message else None, unread_count=int(unread_n or 0),
+            can_send=effective_status == ConversationStatus.OPEN,
+            read_only_reason=(order.cancel_reason if terminal and order else None) or (None if effective_status == ConversationStatus.OPEN else "Cuộc trò chuyện hiện chỉ đọc."),
+            created_at=room.created_at,
+        ))
+    return ConversationList(items=items)
 
 
 async def get_or_create_order_conversation(
@@ -445,13 +536,19 @@ async def get_or_create_order_conversation(
 
 
 async def get_conversation(
-    account: Account, conversation_id: uuid.UUID, db: AsyncSession
+    account: Account,
+    conversation_id: uuid.UUID,
+    db: AsyncSession,
+    *,
+    before_id: int | None = None,
 ) -> ConversationDetail:
     participant = await _participant_for_account(db, conversation_id, account)
     conversation = await db.get(ChatConversation, conversation_id)
     if conversation is None:
         raise api_error(ErrorCode.CHAT_CONVERSATION_NOT_FOUND, status.HTTP_404_NOT_FOUND)
-    return await _detail(db, conversation, participant, mark_read=True)
+    return await _detail(
+        db, conversation, participant, mark_read=True, before_id=before_id
+    )
 
 
 async def send_message(

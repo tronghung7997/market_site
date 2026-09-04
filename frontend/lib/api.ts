@@ -84,8 +84,10 @@ export const api = {
 
   chatConversations: (perspective: "buyer" | "seller" | "all" = "all") =>
     request<ChatConversationList>(`/chat/conversations?perspective=${perspective}`, {}, true),
-  chatConversation: (id: string) =>
-    request<ChatConversationDetail>(`/chat/conversations/${encodeURIComponent(id)}`, {}, true),
+  chatConversation: (id: string, beforeId?: number) => {
+    const cursor = beforeId == null ? "" : `?before_id=${beforeId}`;
+    return request<ChatConversationDetail>(`/chat/conversations/${encodeURIComponent(id)}${cursor}`, {}, true);
+  },
   createInquiry: (productId: number, initialMessage: string, clientMessageId: string) =>
     request<ChatConversationDetail>("/chat/inquiries", {
       method: "POST",

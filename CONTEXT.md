@@ -21,7 +21,7 @@ A prototype under `frontend/app/[locale]/prototype/chat/` is visual exploration,
 - **Marketplace support:** Conversation between a dispute party (buyer or seller) and Marketplace admins, scoped to one open dispute/order. The requester counterpart label is `Marketplace`. Buyer and seller each get their own thread; they do not share it. Admins list threads at `/admin/support`.
 - **Participant:** An account represented by a `ChatParticipant` row. Reading and sending require membership, except admins may open `support` conversations and are joined on first access.
 - **Context role:** The participant's role inside the conversation: `buyer` or `seller` in product/order chats, and `admin` in Marketplace support. It must come from the participant row, not be inferred from the account's global role list.
-- **Read cursor:** `last_read_message_id` for one participant. Opening conversation detail advances it to the latest returned message and unread counts are calculated from it.
+- **Read cursor:** `last_read_message_id` for one participant. Opening the newest conversation page advances it to the latest returned message and unread counts are calculated from it. Transcript pages contain the newest 50 messages and use `before_id`/`next_cursor` keyset pagination for older messages.
 - **Client message ID:** Client-generated UUID used as an idempotency key within a conversation.
 - **Read-only conversation:** A conversation that cannot accept messages. Order conversations become effectively read-only when the order is cancelled or refunded.
 - **Safe counterpart:** The API response exposes an ID, display label, and context role rather than a raw email field. Current seller-label fallback may derive a label from the local part of the seller email; changing this requires an explicit privacy decision and tests.
@@ -41,6 +41,7 @@ A prototype under `frontend/app/[locale]/prototype/chat/` is visual exploration,
 - Admins list support conversations with `GET /chat/admin/support`. Non-admins receive 403. The support inbox projection is loaded in one bounded database query, polls as recovery, and active admins receive best-effort chat invalidation when a new review thread is created.
 - The list API accepts `perspective=buyer`, `perspective=seller`, or `perspective=all`. Buyer/seller still validate against the account's global roles. `all` returns every non-archived conversation the account participates in, using each participant row's context role. The product inbox is unified at `/messages`; `/seller/messages` redirects there. Admin dispute review is a separate inbox at `/admin/support`.
 - Unread counts appear as a non-dismissible action item (`unread_messages`) pointing at `/messages`, so the notification bell can refresh from the same chat events as the inbox.
+- Chat retention runs in bounded batches. Inactive product inquiries and terminal order chats expire after 30 days; Marketplace support expires 90 days after its dispute resolves. Open disputes and each conversation's final preview message are retained. Dispute timeline/audit records are outside chat retention.
 
 ## Reserved or prototype-only concepts — not implemented
 
@@ -53,6 +54,6 @@ The schema, frontend types, or visual prototype may mention the following, but a
 - system-authored lifecycle messages;
 - next-action ownership or SLA workflow;
 - source inquiry linkage from an order conversation;
-- attachment, edit, delete, pagination beyond the current fixed query limits.
+- attachment, edit, or user-triggered deletion.
 
 Implementing any item above requires an explicit product specification, backend authorization rules, schema/migration changes where needed, API tests, synchronized frontend types/UI, and an update to this file. Enum values or prototype screens alone are not acceptance criteria.

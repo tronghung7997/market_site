@@ -50,6 +50,7 @@ export interface ChatConversation {
 
 export interface ChatConversationDetail extends ChatConversation {
   messages: ChatMessage[];
+  next_cursor: number | null;
 }
 
 export interface ChatConversationList {

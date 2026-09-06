@@ -47,7 +47,6 @@ import {
   Download,
   Edit2,
   ExternalLink,
-  Eye,
   EyeOff,
   FileText,
   Package,
@@ -145,7 +144,6 @@ function InventoryConsole() {
   const [bulkMessage, setBulkMessage] = useState<{ type: "success" | "error"; text: string } | null>(null);
   const [refreshing, setRefreshing] = useState(false);
   const [copiedId, setCopiedId] = useState<number | null>(null);
-  const [revealedResourceIds, setRevealedResourceIds] = useState<Set<number>>(new Set());
   const resourceRequestGate = useRef(new LatestRequestGate());
   const summaryRequestGate = useRef(new LatestRequestGate());
   const resourceCacheRef = useRef<Map<string, { items: Resource[]; total: number }>>(new Map());
@@ -378,7 +376,6 @@ function InventoryConsole() {
     setResourceSearch("");
     setResourceStatusFilter("all");
     setSelectedResourceIds(new Set());
-    setRevealedResourceIds(new Set());
     setRestockText("");
     setUploadedFileName(null);
     setRestockError(null);
@@ -422,7 +419,6 @@ function InventoryConsole() {
     setResourceSearch("");
     setResourceStatusFilter("all");
     setSelectedResourceIds(new Set());
-    setRevealedResourceIds(new Set());
     setRestockText("");
     setUploadedFileName(null);
     setRestockError(null);
@@ -1879,7 +1875,6 @@ function InventoryConsole() {
                                   const isAssigned = res.status === "assigned";
                                   const isError = res.status === "error";
                                   const isDefective = isDefectiveReturnResource(res.status, res.order_id);
-                                  const isRevealed = revealedResourceIds.has(res.id);
 
                                   const tone = res.is_archived
                                     ? "neutral"
@@ -1940,13 +1935,13 @@ function InventoryConsole() {
                                         <div className="relative group/cell flex items-center gap-1.5 max-w-full">
                                           <span
                                             className="truncate font-mono text-[12px] text-fg select-all flex-1 min-w-0 cursor-text"
-                                            title={isRevealed ? res.data : undefined}
+                                            title={res.data}
                                           >
-                                            {isRevealed ? res.data : "••••••••••••"}
+                                            {res.data}
                                           </span>
 
                                           {/* Floating hover popover showing full content */}
-                                          {isRevealed && <div
+                                          <div
                                             className={cn(
                                               "pointer-events-none absolute left-0 z-50 hidden group-hover/cell:block opacity-0 group-hover/cell:opacity-100 group-hover/cell:pointer-events-auto transition-all duration-150",
                                               idx === 0 ? "top-full mt-1.5" : "bottom-full mb-1.5"
@@ -1961,24 +1956,9 @@ function InventoryConsole() {
                                                 {res.data}
                                               </div>
                                             </div>
-                                          </div>}
+                                          </div>
 
                                           <div className="flex items-center gap-0.5 shrink-0" onClick={(e) => e.stopPropagation()}>
-                                            <button
-                                              type="button"
-                                              onClick={() => setRevealedResourceIds((current) => {
-                                                const next = new Set(current);
-                                                if (next.has(res.id)) next.delete(res.id);
-                                                else next.add(res.id);
-                                                return next;
-                                              })}
-                                              className="h-8 w-8 lg:h-6 lg:w-6 inline-flex items-center justify-center rounded text-faint transition-colors hover:text-iris hover:bg-raised focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-iris"
-                                              title={isRevealed ? t("inventoryHideSecret") : t("inventoryShowSecret")}
-                                              aria-label={isRevealed ? t("inventoryHideSecret") : t("inventoryShowSecret")}
-                                              aria-pressed={isRevealed}
-                                            >
-                                              {isRevealed ? <EyeOff size={13} /> : <Eye size={13} />}
-                                            </button>
                                             <button
                                               type="button"
                                               onClick={() => void handleCopyData(res.id, res.data)}

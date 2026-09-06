@@ -1,4 +1,5 @@
 from fastapi import APIRouter, Depends, Query, Response, status
+from fastapi.responses import StreamingResponse
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from src.auth.dependencies import get_current_account, get_seller_account, require_role, verify_internal_key
@@ -28,7 +29,7 @@ async def list_res(
     include_archived: bool = False,
     archived_only: bool = False,
     page: int = Query(1, ge=1),
-    per_page: int = Query(10_000, ge=1, le=10_000),
+    per_page: int = Query(50, ge=1, le=100),
     account: Account = Depends(require_role("seller")),
     db: AsyncSession = Depends(get_session),
 ):
@@ -47,9 +48,39 @@ async def list_res(
     return items
 
 
-@router.get("/seller/inventory/summary", response_model=list[schemas.InventoryVariantSummary])
-async def inventory_summary(account: Account = Depends(require_role("seller")), db: AsyncSession = Depends(get_session)):
-    return await service.seller_inventory_summary(account.id, db)
+@router.get("/seller/inventory/summary", response_model=schemas.InventorySummaryResponse)
+async def inventory_summary(
+    search: str | None = None,
+    page: int = Query(1, ge=1),
+    per_page: int = Query(50, ge=1, le=100),
+    account: Account = Depends(require_role("seller")),
+    db: AsyncSession = Depends(get_session),
+):
+    return await service.seller_inventory_summary(
+        account.id, db, search=search, page=page, per_page=per_page,
+    )
+
+
+@router.get("/seller/variants/{variant_id}/resources/export")
+async def export_resources(
+    variant_id: int,
+    format: str = Query("csv", pattern="^(csv|txt)$"),
+    resource_status: ResourceStatus | None = Query(None, alias="status"),
+    search: str | None = None,
+    archived_only: bool = False,
+    account: Account = Depends(require_role("seller")),
+    db: AsyncSession = Depends(get_session),
+):
+    stream = await service.export_resources(
+        variant_id, account.id, db, format=format, status_filter=resource_status,
+        search=search, archived_only=archived_only,
+    )
+    filename = f"inventory_variant_{variant_id}.{format}"
+    return StreamingResponse(
+        stream,
+        media_type="text/csv" if format == "csv" else "text/plain",
+        headers={"Content-Disposition": f'attachment; filename="{filename}"'},
+    )
 
 
 @router.patch("/seller/resources/{resource_id}", response_model=schemas.ResourceResponse)

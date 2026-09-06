@@ -1,3 +1,7 @@
+import csv
+import io
+from collections.abc import AsyncIterator
+
 from fastapi import status
 from sqlalchemy import and_, func, or_, select
 from sqlalchemy.ext.asyncio import AsyncSession
@@ -55,7 +59,7 @@ async def list_resources(
     include_archived: bool = False,
     archived_only: bool = False,
     page: int = 1,
-    per_page: int = 10_000,
+    per_page: int = 50,
 ) -> tuple[list[Resource], int]:
     variant = await db.get(ProductVariant, variant_id)
     if not variant:
@@ -241,7 +245,14 @@ async def bulk_resource_action(
     return action, len(affected_ids), affected_ids
 
 
-async def seller_inventory_summary(seller_id: int, db: AsyncSession) -> list[dict]:
+async def seller_inventory_summary(
+    seller_id: int,
+    db: AsyncSession,
+    *,
+    search: str | None = None,
+    page: int = 1,
+    per_page: int = 50,
+) -> dict:
     """Đếm tồn kho theo từng gói sản phẩm của seller."""
     products = list((await db.execute(
         select(Product).where(Product.seller_id == seller_id)
@@ -263,7 +274,26 @@ async def seller_inventory_summary(seller_id: int, db: AsyncSession) -> list[dic
         if strategy == "fixed":
             inventory_product_ids.append(product.id)
     if not inventory_product_ids:
-        return []
+        return {"items": [], "total": 0, "page": page, "per_page": per_page}
+
+    variant_filters = [
+        Product.id.in_(inventory_product_ids),
+        ProductVariant.delivery_mode == DeliveryMode.instant,
+    ]
+    if search and search.strip():
+        term = f"%{search.strip()}%"
+        variant_filters.append(or_(Product.title.ilike(term), ProductVariant.name.ilike(term)))
+    total = int(await db.scalar(
+        select(func.count(ProductVariant.id))
+        .select_from(ProductVariant)
+        .join(Product, ProductVariant.product_id == Product.id)
+        .where(*variant_filters)
+    ) or 0)
+    page_variant_ids = select(ProductVariant.id).join(
+        Product, ProductVariant.product_id == Product.id
+    ).where(*variant_filters).order_by(
+        Product.title, Product.id, ProductVariant.sort_order, ProductVariant.id
+    ).offset((page - 1) * per_page).limit(per_page).subquery()
 
     rows = await db.execute(
         select(
@@ -282,8 +312,7 @@ async def seller_inventory_summary(seller_id: int, db: AsyncSession) -> list[dic
             ),
         )
         .where(
-            Product.id.in_(inventory_product_ids),
-            ProductVariant.delivery_mode == DeliveryMode.instant,
+            ProductVariant.id.in_(select(page_variant_ids.c.id)),
         )
         .group_by(
             Product.id, Product.title, ProductVariant.id, ProductVariant.name,
@@ -296,8 +325,7 @@ async def seller_inventory_summary(seller_id: int, db: AsyncSession) -> list[dic
         select(Resource.variant_id, func.count(Resource.id))
         .where(
             Resource.variant_id.in_(select(ProductVariant.id).where(
-                ProductVariant.product_id.in_(inventory_product_ids),
-                ProductVariant.delivery_mode == DeliveryMode.instant,
+                ProductVariant.id.in_(select(page_variant_ids.c.id)),
             )),
             Resource.is_archived == True,  # noqa: E712
         )
@@ -317,7 +345,69 @@ async def seller_inventory_summary(seller_id: int, db: AsyncSession) -> list[dic
         })
         if res_status is not None:
             entry[res_status.value] = count
-    return list(by_variant.values())
+    return {
+        "items": list(by_variant.values()),
+        "total": total,
+        "page": page,
+        "per_page": per_page,
+    }
+
+
+async def export_resources(
+    variant_id: int,
+    seller_id: int,
+    db: AsyncSession,
+    *,
+    format: str,
+    status_filter: ResourceStatus | None = None,
+    search: str | None = None,
+    archived_only: bool = False,
+) -> AsyncIterator[str]:
+    """Stream one seller-owned variant without loading its inventory into memory."""
+    variant = await db.get(ProductVariant, variant_id)
+    if not variant:
+        raise api_error(ErrorCode.VARIANT_NOT_FOUND, status.HTTP_404_NOT_FOUND)
+    product = await db.get(Product, variant.product_id)
+    if not product or product.seller_id != seller_id:
+        raise NotOwner()
+
+    filters = [Resource.variant_id == variant_id]
+    if archived_only:
+        filters.append(Resource.is_archived == True)  # noqa: E712
+    else:
+        filters.append(Resource.is_archived == False)  # noqa: E712
+    if status_filter:
+        filters.append(Resource.status == status_filter)
+    if search and search.strip():
+        filters.append(Resource.data.ilike(f"%{search.strip()}%"))
+
+    async def generate() -> AsyncIterator[str]:
+        cursor = 0
+        if format == "csv":
+            yield "ID,Status,Data,Order,Created At\r\n"
+        while True:
+            rows = list((await db.execute(
+                select(Resource).where(*filters, Resource.id > cursor)
+                .order_by(Resource.id).limit(1_000)
+            )).scalars())
+            if not rows:
+                break
+            for resource in rows:
+                if format == "txt":
+                    yield f"{resource.data}\n"
+                    continue
+                output = io.StringIO()
+                csv.writer(output).writerow([
+                    resource.id,
+                    resource.status.value,
+                    resource.data,
+                    resource.order_id or "",
+                    resource.created_at.isoformat(),
+                ])
+                yield output.getvalue()
+            cursor = rows[-1].id
+
+    return generate()
 
 
 async def delete_resource(resource_id: int, seller_id: int, db: AsyncSession) -> None:

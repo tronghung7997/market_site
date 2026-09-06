@@ -22,6 +22,12 @@ async def list_product_covers():
 async def list_products(
     category_id: int | None = Query(None, description="Lọc theo danh mục VÀ toàn bộ danh mục con"),
     seller_id: int | None = Query(None),
+    search: str | None = Query(None, min_length=1, max_length=100),
+    in_stock: bool = Query(False),
+    fulfillment: Literal["instant"] | None = Query(None),
+    min_price: int | None = Query(None, ge=0),
+    max_price: int | None = Query(None, ge=0),
+    sort: Literal["newest", "bestseller", "rating", "price_asc", "price_desc"] = Query("newest"),
     page: int = Query(1, ge=1),
     per_page: int = Query(50, ge=1, le=100),
     locale: str = Depends(get_request_locale),
@@ -31,6 +37,12 @@ async def list_products(
         db,
         category_id=category_id,
         seller_id=seller_id,
+        search=search,
+        in_stock=in_stock,
+        fulfillment=fulfillment,
+        min_price=min_price,
+        max_price=max_price,
+        sort=sort,
         page=page,
         per_page=per_page,
         locale=locale,
@@ -53,9 +65,17 @@ async def get_own_product(product_id: int, account: Account = Depends(require_ro
     return await service.get_own_product_detail(product_id, account.id, db)
 
 
-@router.get("/seller/products", response_model=list[schemas.SellerProductResponse])
-async def seller_products(account: Account = Depends(require_role("seller")), db: AsyncSession = Depends(get_session)):
-    return await service.list_seller_products(account.id, db)
+@router.get("/seller/products", response_model=schemas.SellerProductListResponse)
+async def seller_products(
+    search: str | None = None,
+    page: int = Query(1, ge=1),
+    per_page: int = Query(50, ge=1, le=100),
+    account: Account = Depends(require_role("seller")),
+    db: AsyncSession = Depends(get_session),
+):
+    return await service.list_seller_products(
+        account.id, db, search=search, page=page, per_page=per_page,
+    )
 
 
 @router.get("/seller/stats")
@@ -148,12 +168,17 @@ async def set_seller_pricing(
     return await service.update_seller_pricing(product_id, account.id, body.model_dump(exclude_unset=True), db)
 
 
-@router.get("/admin/products")
+@router.get("/admin/products", response_model=schemas.AdminProductListResponse)
 async def list_all_products(
+    search: str | None = None,
+    page: int = Query(1, ge=1),
+    per_page: int = Query(50, ge=1, le=100),
     _: Account = Depends(require_role("admin")),
     db: AsyncSession = Depends(get_session),
 ):
-    return await service.list_all_products_admin(db)
+    return await service.list_all_products_admin(
+        db, search=search, page=page, per_page=per_page,
+    )
 
 
 @router.get("/admin/products/{product_id}", response_model=schemas.AdminProductDetailResponse)

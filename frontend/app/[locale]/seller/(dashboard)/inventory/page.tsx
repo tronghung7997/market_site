@@ -158,8 +158,8 @@ function InventoryConsole() {
     setLoading(true);
     setSummaryLoadError(false);
     try {
-      const summary = await api.inventorySummary();
-      setRows(summary.filter((row) => isInstantDelivery(row.delivery_mode)));
+      const summary = await api.inventorySummary({ perPage: 100 });
+      setRows(summary.items.filter((row) => isInstantDelivery(row.delivery_mode)));
     } catch {
       setSummaryLoadError(true);
     } finally {
@@ -618,51 +618,32 @@ function InventoryConsole() {
   const handleExportResources = async (type: "txt" | "csv") => {
     if (!activeVariant) return;
 
-    let exportItems: Resource[] = [];
     if (selectedResourceIds.size > 0) {
-      exportItems = resources.filter((r) => selectedResourceIds.has(r.id));
-    } else {
-      const all = await api.sellerVariantResources(activeVariant.variant_id, {
-        page: 1,
-        perPage: 10000,
-        status: resourceStatusFilter !== "all" ? resourceStatusFilter : undefined,
-        search: debouncedResourceSearch.trim() || undefined,
-      });
-      exportItems = all.items;
-    }
-
-    if (exportItems.length === 0) {
-      alert(t("inventoryNoExport"));
+      const exportItems = resources.filter((r) => selectedResourceIds.has(r.id));
+      if (exportItems.length === 0) return;
+      const content = type === "csv"
+        ? "ID,Status,Data,Order,Created At\n" + exportItems.map((r) => `${r.id},${r.status},"${r.data.replace(/"/g, '""')}",${r.order_id ?? ""},${r.created_at}`).join("\n")
+        : exportItems.map((r) => r.data).join("\n");
+      const blob = new Blob([content], { type: type === "csv" ? "text/csv;charset=utf-8" : "text/plain;charset=utf-8" });
+      const url = URL.createObjectURL(blob);
+      const link = document.createElement("a");
+      link.href = url;
+      link.download = `inventory_var_${activeVariant.variant_id}_selected_${selectedResourceIds.size}.${type}`;
+      link.click();
+      URL.revokeObjectURL(url);
       return;
     }
 
-    let fileContent = "";
-    let mimeType = "text/plain";
-    let extension = "txt";
-
-    if (type === "csv") {
-      fileContent = "ID,Status,Data,Order,Created At\n" +
-        exportItems.map((r) => `${r.id},${r.status},"${r.data.replace(/"/g, '""')}",${r.order_id ?? ""},${r.created_at}`).join("\n");
-      mimeType = "text/csv";
-      extension = "csv";
-    } else {
-      fileContent = exportItems.map((r) => r.data).join("\n");
-    }
-
-    const blob = new Blob([fileContent], { type: `${mimeType};charset=utf-8` });
-    const url = URL.createObjectURL(blob);
+    const url = api.sellerResourceExportUrl(activeVariant.variant_id, {
+      format: type,
+      status: resourceStatusFilter !== "all" && resourceStatusFilter !== "archived" ? resourceStatusFilter : undefined,
+      search: debouncedResourceSearch,
+      archivedOnly: resourceStatusFilter === "archived",
+    });
     const link = document.createElement("a");
     link.href = url;
-    const suffix = selectedResourceIds.size > 0
-      ? `_selected_${selectedResourceIds.size}`
-      : resourceStatusFilter !== "all"
-        ? `_${resourceStatusFilter}`
-        : "";
-    link.download = `inventory_var_${activeVariant.variant_id}${suffix}_${new Date().toISOString().slice(0, 10)}.${extension}`;
-    document.body.appendChild(link);
+    link.download = "";
     link.click();
-    document.body.removeChild(link);
-    URL.revokeObjectURL(url);
   };
 
   const totalResourcePages = Math.max(1, Math.ceil(resourceTotal / resourcePageSize));

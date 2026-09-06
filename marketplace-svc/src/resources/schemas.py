@@ -40,6 +40,13 @@ class InventoryVariantSummary(BaseModel):
     archived: int
 
 
+class InventorySummaryResponse(BaseModel):
+    items: list[InventoryVariantSummary]
+    total: int
+    page: int
+    per_page: int
+
+
 class BulkResourceResponse(BaseModel):
     count: int
 

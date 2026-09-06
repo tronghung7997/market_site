@@ -71,8 +71,8 @@ export default function SellerProducts() {
   const load = () => {
     setLoading(true);
     setLoadError(false);
-    api.sellerProducts()
-      .then(setProducts)
+    api.sellerProducts({ perPage: 100 })
+      .then((result) => setProducts(result.items))
       .catch(() => setLoadError(true))
       .finally(() => setLoading(false));
   };

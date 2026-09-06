@@ -764,6 +764,20 @@ export interface SellerProduct extends Product {
   total_stock: number;
 }
 
+export interface PaginatedSellerProducts {
+  items: SellerProduct[];
+  total: number;
+  page: number;
+  per_page: number;
+}
+
+export interface PaginatedAdminProducts {
+  items: AdminProduct[];
+  total: number;
+  page: number;
+  per_page: number;
+}
+
 export interface Provider {
   id: number;
   name: string;
@@ -886,6 +900,13 @@ export interface InventoryVariant {
   expired: number;
   error: number;
   archived: number;
+}
+
+export interface PaginatedInventoryVariants {
+  items: InventoryVariant[];
+  total: number;
+  page: number;
+  per_page: number;
 }
 
 export interface AdminResource {

@@ -7,6 +7,7 @@ export {
 } from "./data/load-public";
 export type {
   CategoryHubCatalog,
+  CategoryBrowseQuery,
   CategoryPageCatalog,
   HomeCatalog,
   ProductPageCatalog,

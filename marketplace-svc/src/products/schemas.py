@@ -261,6 +261,20 @@ class SellerProductResponse(ProductListItemBase):
     total_stock: int
 
 
+class SellerProductListResponse(BaseModel):
+    items: list[SellerProductResponse]
+    total: int
+    page: int
+    per_page: int
+
+
+class AdminProductListResponse(BaseModel):
+    items: list[dict]
+    total: int
+    page: int
+    per_page: int
+
+
 class ProductDetailResponse(ProductListItemResponse):
     """GET /products/{id} và /seller/products/{id}/detail — bản đầy đủ.
     Vẫn KHÔNG có commission_rate; admin lấy qua GET /admin/products/{id}."""

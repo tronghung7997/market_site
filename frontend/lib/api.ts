@@ -128,10 +128,27 @@ export const api = {
   deleteCategory: (id: number) =>
     request<void>(`/admin/categories/${id}`, { method: "DELETE" }, true),
   // Backend luôn phân trang; categoryId lọc theo cả nhánh danh mục.
-  products: (opts: { categoryId?: number; sellerId?: number; page?: number; perPage?: number } = {}) => {
+  products: (opts: {
+    categoryId?: number;
+    sellerId?: number;
+    search?: string;
+    inStock?: boolean;
+    fulfillment?: "instant";
+    minPrice?: number;
+    maxPrice?: number;
+    sort?: "newest" | "bestseller" | "rating" | "price_asc" | "price_desc";
+    page?: number;
+    perPage?: number;
+  } = {}) => {
     const q = new URLSearchParams();
     if (opts.categoryId) q.set("category_id", String(opts.categoryId));
     if (opts.sellerId) q.set("seller_id", String(opts.sellerId));
+    if (opts.search) q.set("search", opts.search);
+    if (opts.inStock) q.set("in_stock", "true");
+    if (opts.fulfillment) q.set("fulfillment", opts.fulfillment);
+    if (opts.minPrice != null) q.set("min_price", String(opts.minPrice));
+    if (opts.maxPrice != null) q.set("max_price", String(opts.maxPrice));
+    if (opts.sort && opts.sort !== "newest") q.set("sort", opts.sort);
     if (opts.page) q.set("page", String(opts.page));
     if (opts.perPage) q.set("per_page", String(opts.perPage));
     const qs = q.toString();

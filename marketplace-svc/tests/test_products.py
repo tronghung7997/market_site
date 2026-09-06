@@ -319,6 +319,67 @@ async def test_list_products_pagination(client):
 
 
 @pytest.mark.asyncio
+async def test_public_product_browse_filters_apply_before_pagination(client):
+    seller_token, _, cat_id = await setup_seller_with_category(client)
+    headers = {"Authorization": f"Bearer {seller_token}"}
+
+    created = []
+    for title, price, stock in (
+        ("Browse Alpha", 12000, 2),
+        ("Browse Beta", 32000, 0),
+        ("Browse Gamma", 52000, 1),
+    ):
+        product = await client.post("/seller/products", json={
+            "category_id": cat_id,
+            "title": title,
+            "highlight_text": f"Searchable {title}",
+            "status": "active",
+        }, headers=headers)
+        variant = await client.post(
+            f"/seller/products/{product.json()['id']}/variants",
+            json={"name": "Instant", "price": price, "delivery_mode": "instant"},
+            headers=headers,
+        )
+        if stock:
+            await client.post(
+                f"/seller/variants/{variant.json()['id']}/resources",
+                json={"items": [f"{title}-{index}" for index in range(stock)]},
+                headers=headers,
+            )
+        created.append(product.json()["id"])
+
+    filtered = await client.get("/products", params={
+        "category_id": cat_id,
+        "search": "browse",
+        "in_stock": True,
+        "fulfillment": "instant",
+        "min_price": 10000,
+        "max_price": 60000,
+        "sort": "price_desc",
+        "page": 1,
+        "per_page": 1,
+    })
+    assert filtered.status_code == 200, filtered.text
+    body = filtered.json()
+    assert body["total"] == 2
+    assert len(body["items"]) == 1
+    assert body["items"][0]["id"] == created[2]
+
+    second = await client.get("/products", params={
+        "category_id": cat_id,
+        "search": "browse",
+        "in_stock": True,
+        "sort": "price_desc",
+        "page": 2,
+        "per_page": 1,
+    })
+    assert second.json()["items"][0]["id"] == created[0]
+
+    invalid = await client.get("/products", params={"min_price": -1})
+    assert invalid.status_code == 422
+
+
+@pytest.mark.asyncio
 async def test_list_products_filters_whole_category_subtree(client):
     """?category_id=cha phải ra cả sản phẩm nằm ở danh mục CON — cùng ngữ
     nghĩa subtreeIds() client dùng để lọc tay trước đây."""

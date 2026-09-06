@@ -381,6 +381,12 @@ async def list_products(
     db: AsyncSession,
     category_id: int | None = None,
     seller_id: int | None = None,
+    search: str | None = None,
+    in_stock: bool = False,
+    fulfillment: str | None = None,
+    min_price: int | None = None,
+    max_price: int | None = None,
+    sort: str = "newest",
     page: int = 1,
     per_page: int = 50,
     locale: str = DEFAULT_LOCALE,
@@ -402,15 +408,101 @@ async def list_products(
     if seller_id:
         filters.append(Product.seller_id == seller_id)
 
-    total = await db.scalar(select(func.count(Product.id)).where(*filters)) or 0
-
-    query = select(Product).where(*filters).order_by(Product.created_at.desc())
-    query = query.offset((page - 1) * per_page).limit(per_page)
-    products = list((await db.execute(query)).scalars())
-
-    variants_by_product = await _variants_by_product(
-        [p.id for p in products], db, locale=locale,
+    has_browse_filters = bool(
+        search or in_stock or fulfillment or min_price is not None
+        or max_price is not None or sort != "newest"
     )
+    variants_by_product: dict[int, list[dict]] | None = None
+
+    if has_browse_filters:
+        products = list((await db.execute(
+            select(Product).where(*filters).order_by(Product.created_at.desc(), Product.id.desc())
+        )).scalars())
+        if search:
+            needle = search.strip().casefold()
+            matching_products = []
+            for product in products:
+                localized = resolve_product_fields(product, locale)
+                if (
+                    needle in localized["title"].casefold()
+                    or needle in (localized.get("highlight_text") or "").casefold()
+                ):
+                    matching_products.append(product)
+            products = matching_products
+
+        variants_by_product = await _variants_by_product(
+            [product.id for product in products], db, locale=locale,
+        )
+
+        def browse_price(product: Product) -> int:
+            variants = variants_by_product.get(product.id, [])
+            prices = [row["price"] for row in variants if row["price"] > 0]
+            if prices:
+                return min(prices)
+            params = product.pricing_params or {}
+            if product.pricing_strategy == "credit":
+                unit = params.get("credit_price", 0)
+                packages = params.get("packages", [])
+                sizes = [
+                    row.get("size", 0) for row in packages
+                    if isinstance(row, dict) and isinstance(row.get("size"), (int, float)) and row["size"] > 0
+                ] if isinstance(packages, list) else []
+                return int(unit * min(sizes)) if isinstance(unit, (int, float)) and unit > 0 and sizes else 0
+            if product.pricing_strategy == "config":
+                base = params.get("base_price", 0)
+                duration_options = params.get("duration_options", [])
+                durations = [
+                    row.get("days", 0) for row in duration_options
+                    if isinstance(row, dict) and isinstance(row.get("days"), (int, float)) and row["days"] > 0
+                ] if isinstance(duration_options, list) else []
+                days = min(durations) if durations else 30
+                type_mult = params.get("type_mult") or {}
+                network_mult = params.get("network_mult") or {}
+                type_values = [value for value in type_mult.values() if isinstance(value, (int, float)) and value > 0] if isinstance(type_mult, dict) else []
+                network_values = [value for value in network_mult.values() if isinstance(value, (int, float)) and value > 0] if isinstance(network_mult, dict) else []
+                return round(base * (min(type_values) if type_values else 1) * (min(network_values) if network_values else 1) * days / 30) if isinstance(base, (int, float)) and base > 0 else 0
+            base = params.get("base_price", 0)
+            return int(base) if isinstance(base, (int, float)) and base > 0 else 0
+
+        if in_stock:
+            products = [
+                product for product in products
+                if product.pricing_strategy not in (None, "fixed")
+                or sum(row["stock_count"] for row in variants_by_product.get(product.id, [])) > 0
+            ]
+        if fulfillment == "instant":
+            products = [
+                product for product in products
+                if product.pricing_strategy in (None, "fixed")
+                and any(row["delivery_mode"] == "instant" for row in variants_by_product.get(product.id, []))
+            ]
+        if min_price is not None:
+            products = [product for product in products if browse_price(product) >= min_price]
+        if max_price is not None:
+            products = [product for product in products if 0 < browse_price(product) <= max_price]
+
+        if sort == "bestseller":
+            products.sort(key=lambda product: (product.sold_count, product.id), reverse=True)
+        elif sort == "rating":
+            products.sort(key=lambda product: (product.rating_avg or 0, product.rating_count, product.id), reverse=True)
+        elif sort == "price_asc":
+            products.sort(key=lambda product: (browse_price(product) <= 0, browse_price(product), product.id))
+        elif sort == "price_desc":
+            products.sort(key=lambda product: (browse_price(product), product.id), reverse=True)
+
+        total = len(products)
+        start = (page - 1) * per_page
+        products = products[start:start + per_page]
+    else:
+        total = await db.scalar(select(func.count(Product.id)).where(*filters)) or 0
+        query = select(Product).where(*filters).order_by(Product.created_at.desc(), Product.id.desc())
+        query = query.offset((page - 1) * per_page).limit(per_page)
+        products = list((await db.execute(query)).scalars())
+
+    if variants_by_product is None:
+        variants_by_product = await _variants_by_product(
+            [p.id for p in products], db, locale=locale,
+        )
     return {
         "items": [
             {

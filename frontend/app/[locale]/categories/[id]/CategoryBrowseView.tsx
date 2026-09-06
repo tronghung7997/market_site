@@ -4,11 +4,8 @@ import { Link, useRouter, usePathname } from "@/i18n/navigation";
 import { useSearchParams } from "next/navigation";
 import { useLocale, useTranslations } from "next-intl";
 import { useEffect, useMemo, useRef, useState, useTransition } from "react";
-import { flattenCategories, subtreeIds } from "@/lib/categories";
+import { flattenCategories } from "@/lib/categories";
 import { useMoney } from "@/lib/money";
-import { effectiveMinPrice } from "@/lib/pricing-display";
-import { fulfillmentFromProduct } from "@/lib/fulfillment";
-import type { Category, Product } from "@/lib/types";
 import { Button, Card, Tag } from "@/components/ui";
 import { Bolt, Check, ChevronLeft, ChevronRight, Grid, Rows, Search, ShieldCheck, Star, X } from "@/components/Icons";
 import { categoryCoverId, ProductCover } from "@/features/product-covers";
@@ -30,7 +27,7 @@ export function CategoryBrowseView({
   const router = useRouter();
   const pathname = usePathname();
   const searchParams = useSearchParams();
-  const [, startTransition] = useTransition();
+  const [isPending, startTransition] = useTransition();
 
   const { formatBrowseMoney, currency, fxRate } = useMoney();
   const searchInputRef = useRef<HTMLInputElement>(null);
@@ -48,9 +45,12 @@ export function CategoryBrowseView({
   const paramPrice = searchParams?.get("price") || "all";
   const paramMin = searchParams?.get("min") || "";
   const paramMax = searchParams?.get("max") || "";
-  const paramView = (searchParams?.get("view") as "grid" | "list") || "grid";
-  const paramSub = searchParams?.get("sub") ? Number(searchParams?.get("sub")) : null;
-  const paramPage = searchParams?.get("page") ? Math.max(1, Number(searchParams?.get("page"))) : 1;
+  const rawView = searchParams?.get("view");
+  const paramView: "grid" | "list" = rawView === "list" ? "list" : "grid";
+  const rawSub = Number(searchParams?.get("sub"));
+  const paramSub = Number.isFinite(rawSub) && rawSub > 0 ? rawSub : null;
+  const rawPage = Number(searchParams?.get("page") || "1");
+  const paramPage = Number.isFinite(rawPage) && rawPage > 0 ? Math.floor(rawPage) : 1;
 
   const [q, setQ] = useState(paramQ);
   const [sort, setSort] = useState<string>(paramSort);
@@ -62,6 +62,23 @@ export function CategoryBrowseView({
   const [viewMode, setViewMode] = useState<"grid" | "list">(paramView);
   const [subFilter, setSubFilter] = useState<number | null>(paramSub);
   const [currentPage, setCurrentPage] = useState<number>(paramPage);
+
+  useEffect(() => {
+    const nextView = searchParams?.get("view");
+    const nextPage = Number(searchParams?.get("page") || "1");
+    const nextSub = Number(searchParams?.get("sub"));
+
+    setQ(searchParams?.get("q") || "");
+    setSort(searchParams?.get("sort") || "newest");
+    setInStockOnly(searchParams?.get("stock") === "1");
+    setInstantOnly(searchParams?.get("instant") === "1");
+    setPriceRange(searchParams?.get("price") || "all");
+    setCustomMin(searchParams?.get("min") || "");
+    setCustomMax(searchParams?.get("max") || "");
+    setViewMode(nextView === "list" ? "list" : "grid");
+    setSubFilter(Number.isFinite(nextSub) && nextSub > 0 ? nextSub : null);
+    setCurrentPage(Number.isFinite(nextPage) && nextPage > 0 ? Math.floor(nextPage) : 1);
+  }, [searchParams]);
 
   const flatCats = useMemo(() => flattenCategories(cats), [cats]);
   const category = flatCats.find((c) => c.id === categoryId) ?? null;
@@ -87,123 +104,29 @@ export function CategoryBrowseView({
 
   // Debounced search sync to URL
   useEffect(() => {
+    const urlQuery = searchParams?.get("q") || "";
+    if (q === urlQuery) return;
     const timer = setTimeout(() => {
       syncToUrl({ q: q.trim() || null, page: "1" });
       setCurrentPage(1);
     }, 250);
     return () => clearTimeout(timer);
-  }, [q]);
-
-  const stock = (p: Product) => (p.variants ?? []).reduce((s, v) => s + (v.stock_count ?? 0), 0);
-
-  const inCategory = useMemo(() => {
-    if (!category) return [];
-    const ids = new Set(subtreeIds(category));
-    return products.filter((p) => ids.has(p.category_id));
-  }, [category, products]);
-
-  const countFor = (c: Category) => {
-    const ids = new Set(subtreeIds(c));
-    return products.filter((p) => ids.has(p.category_id)).length;
-  };
-
-  // Instant delivery count in this category
-  const instantCount = useMemo(() => {
-    return inCategory.filter((p) => fulfillmentFromProduct(p).kind === "instant").length;
-  }, [inCategory]);
+  }, [q, searchParams]);
 
   const rate = fxRate && fxRate > 0 ? fxRate : 25000;
   const tier1Vnd = currency === "USD" ? rate : 25000;
   const tier2Vnd = currency === "USD" ? rate * 2 : 50000;
 
-  // Filter and sort products
-  const filteredAndSorted = useMemo(() => {
-    let list = inCategory;
-
-    // Subcategory filter (if this category has children)
-    if (subFilter != null) {
-      const sub = flatCats.find((c) => c.id === subFilter);
-      const ids = sub ? new Set(subtreeIds(sub)) : new Set([subFilter]);
-      list = list.filter((p) => ids.has(p.category_id));
-    }
-
-    // Text search filter
-    if (q.trim()) {
-      const needle = q.trim().toLowerCase();
-      list = list.filter((p) => {
-        const titleMatch = p.title.toLowerCase().includes(needle);
-        const descMatch = (p.highlight_text ?? "").toLowerCase().includes(needle);
-        return titleMatch || descMatch;
-      });
-    }
-
-    // In-stock only
-    if (inStockOnly) {
-      list = list.filter((p) => stock(p) > 0);
-    }
-
-    // Instant delivery only
-    if (instantOnly) {
-      list = list.filter((p) => fulfillmentFromProduct(p).kind === "instant");
-    }
-
-    // Price range filter (amount in VND)
-    if (priceRange === "under1") {
-      list = list.filter((p) => {
-        const mp = effectiveMinPrice(p);
-        return mp > 0 && mp < tier1Vnd;
-      });
-    } else if (priceRange === "1to2") {
-      list = list.filter((p) => {
-        const mp = effectiveMinPrice(p);
-        return mp >= tier1Vnd && mp <= tier2Vnd;
-      });
-    } else if (priceRange === "above2") {
-      list = list.filter((p) => {
-        const mp = effectiveMinPrice(p);
-        return mp > tier2Vnd;
-      });
-    } else if (priceRange === "custom") {
-      const minVal = parseFloat(customMin);
-      const maxVal = parseFloat(customMax);
-      const minVnd = !isNaN(minVal) ? (currency === "USD" ? minVal * rate : minVal) : 0;
-      const maxVnd = !isNaN(maxVal) ? (currency === "USD" ? maxVal * rate : maxVal) : Infinity;
-      list = list.filter((p) => {
-        const mp = effectiveMinPrice(p);
-        return mp >= minVnd && mp <= maxVnd;
-      });
-    }
-
-    // Sorting
-    const sorted = [...list];
-    switch (sort) {
-      case "bestseller":
-        sorted.sort((a, b) => b.sold_count - a.sold_count);
-        break;
-      case "rating":
-        sorted.sort((a, b) => (b.rating_avg ?? 0) - (a.rating_avg ?? 0));
-        break;
-      case "price_asc":
-        sorted.sort((a, b) => (effectiveMinPrice(a) || Infinity) - (effectiveMinPrice(b) || Infinity));
-        break;
-      case "price_desc":
-        sorted.sort((a, b) => effectiveMinPrice(b) - effectiveMinPrice(a));
-        break;
-      default: // newest
-        sorted.sort((a, b) => new Date(b.created_at).getTime() - new Date(a.created_at).getTime());
-        break;
-    }
-
-    return sorted;
-  }, [inCategory, subFilter, q, inStockOnly, instantOnly, priceRange, customMin, customMax, currency, rate, tier1Vnd, tier2Vnd, sort, flatCats]);
-
-  // Pagination calculation
-  const totalPages = Math.max(1, Math.ceil(filteredAndSorted.length / ITEMS_PER_PAGE));
+  const totalPages = Math.max(1, Math.ceil(initial.total / initial.perPage));
   const validPage = Math.min(currentPage, totalPages);
-  const pagedItems = useMemo(() => {
-    const startIdx = (validPage - 1) * ITEMS_PER_PAGE;
-    return filteredAndSorted.slice(startIdx, startIdx + ITEMS_PER_PAGE);
-  }, [filteredAndSorted, validPage]);
+  const pagedItems = products;
+  const pageNumbers = Array.from(
+    new Set([
+      1,
+      totalPages,
+      ...Array.from({ length: 5 }, (_, index) => validPage - 2 + index),
+    ]),
+  ).filter((pageNumber) => pageNumber >= 1 && pageNumber <= totalPages).sort((a, b) => a - b);
 
   const handlePageChange = (newPage: number) => {
     setCurrentPage(newPage);
@@ -228,6 +151,8 @@ export function CategoryBrowseView({
       price: null,
       min: null,
       max: null,
+      min_vnd: null,
+      max_vnd: null,
       sub: null,
       sort: null,
       page: null,
@@ -237,9 +162,6 @@ export function CategoryBrowseView({
   const hasActiveFilters = Boolean(
     q.trim() || inStockOnly || instantOnly || priceRange !== "all" || subFilter !== null || customMin.trim() || customMax.trim()
   );
-
-  const minPrices = inCategory.map((p) => effectiveMinPrice(p)).filter((v) => v > 0);
-  const fromPrice = minPrices.length ? Math.min(...minPrices) : 0;
 
   if (error || !category) {
     return (
@@ -284,15 +206,7 @@ export function CategoryBrowseView({
               {category.name}
             </h1>
             <div className="flex items-center gap-x-3 gap-y-1 flex-wrap text-[12.5px] text-muted mt-1">
-              <span>{t("sellingCount", { count: inCategory.length })}</span>
-              {fromPrice > 0 && (
-                <>
-                  <span className="text-faint">·</span>
-                  <span className="font-mono text-iris-hi font-medium">
-                    {t("priceFrom", { price: formatBrowseMoney(fromPrice, { locale }) })}
-                  </span>
-                </>
-              )}
+              <span>{t("sellingCount", { count: initial.total })}</span>
               <span className="text-faint">·</span>
               <span className="text-good font-medium inline-flex items-center gap-1">
                 <ShieldCheck size={13} /> {t("escrowProtected")}
@@ -349,7 +263,7 @@ export function CategoryBrowseView({
                 : "bg-surface text-muted border border-line hover:text-fg hover:border-line-2"
             }`}
           >
-            {t("allWithCount", { count: inCategory.length })}
+            {t("allCategories")}
           </button>
           {children.map((c) => {
             const isSelected = subFilter === c.id;
@@ -370,9 +284,6 @@ export function CategoryBrowseView({
                 }`}
               >
                 <span>{c.name}</span>
-                <span className={`text-[11px] ${isSelected ? "text-white/80" : "text-faint"}`}>
-                  {countFor(c)}
-                </span>
               </button>
             );
           })}
@@ -489,8 +400,7 @@ export function CategoryBrowseView({
           </button>
 
           {/* Toggle Instant Delivery */}
-          {instantCount > 0 && (
-            <button
+          <button
               type="button"
               aria-pressed={instantOnly}
               onClick={() => {
@@ -506,9 +416,8 @@ export function CategoryBrowseView({
               }`}
             >
               <Bolt size={13} className={instantOnly ? "text-iris-hi fill-iris-hi" : "text-faint"} />
-              <span>{t("instantOnly")} ({instantCount})</span>
-            </button>
-          )}
+              <span>{t("instantOnly")}</span>
+          </button>
 
           {/* Price Range Preset Chips */}
           <div className="flex items-center gap-1 bg-surface border border-line p-0.5 rounded-lg shrink-0">
@@ -527,7 +436,7 @@ export function CategoryBrowseView({
                     setPriceRange(p.key);
                     setCustomMin("");
                     setCustomMax("");
-                    syncToUrl({ price: p.key === "all" ? null : p.key, min: null, max: null, page: "1" });
+                    syncToUrl({ price: p.key === "all" ? null : p.key, min: null, max: null, min_vnd: null, max_vnd: null, page: "1" });
                     setCurrentPage(1);
                   }}
                   className={`h-7 px-2.5 rounded text-[12px] font-medium transition-colors cursor-pointer ${
@@ -550,6 +459,8 @@ export function CategoryBrowseView({
                   price: "custom",
                   min: customMin.trim() || null,
                   max: customMax.trim() || null,
+                  min_vnd: customMin.trim() ? String(Math.round(Number(customMin) * (currency === "USD" ? rate : 1))) : null,
+                  max_vnd: customMax.trim() ? String(Math.round(Number(customMax) * (currency === "USD" ? rate : 1))) : null,
                   page: "1",
                 });
                 setCurrentPage(1);
@@ -607,8 +518,8 @@ export function CategoryBrowseView({
       <div className="mt-4 mb-3 flex items-center justify-between text-[12.5px] text-muted">
         <span>
           {t("showingCount", {
-            shown: filteredAndSorted.length,
-            total: inCategory.length,
+            shown: products.length,
+            total: initial.total,
           })}
         </span>
         {totalPages > 1 && (
@@ -619,16 +530,17 @@ export function CategoryBrowseView({
       </div>
 
       {/* Product List / Grid */}
-      {filteredAndSorted.length === 0 ? (
+      <div aria-busy={isPending} className={isPending ? "opacity-60 transition-opacity" : "transition-opacity"}>
+      {products.length === 0 ? (
         <Card className="p-12 text-center mt-4 max-w-md mx-auto">
           <div className="w-12 h-12 rounded-full bg-raised flex items-center justify-center mx-auto mb-3 text-faint">
             <Search size={20} />
           </div>
           <div className="font-medium text-fg text-[15px]">
-            {inCategory.length === 0 ? t("emptyCategory") : t("emptyFilter")}
+            {hasActiveFilters ? t("emptyFilter") : t("emptyCategory")}
           </div>
           <p className="text-[13px] text-muted mt-1.5">
-            Thử xóa bớt bộ lọc hoặc chọn mức giá khác.
+            {t("emptyFilterHint")}
           </p>
           <div className="mt-5 flex items-center justify-center gap-3">
             {hasActiveFilters && (
@@ -656,12 +568,17 @@ export function CategoryBrowseView({
           ))}
         </div>
       )}
+      </div>
 
       {/* Pagination Controls */}
       {totalPages > 1 && (
         <div className="mt-8 pt-5 border-t border-line flex flex-col sm:flex-row items-center justify-between gap-4">
           <div className="text-[13px] text-muted">
-            Hiển thị {(validPage - 1) * ITEMS_PER_PAGE + 1}–{Math.min(validPage * ITEMS_PER_PAGE, filteredAndSorted.length)} trên tổng số {filteredAndSorted.length} sản phẩm
+            {t("paginationSummary", {
+              from: (validPage - 1) * ITEMS_PER_PAGE + 1,
+              to: (validPage - 1) * initial.perPage + products.length,
+              total: initial.total,
+            })}
           </div>
           <div className="flex items-center gap-1.5">
             <Button
@@ -674,21 +591,26 @@ export function CategoryBrowseView({
             >
               <ChevronLeft size={13} /> {t("prevPage")}
             </Button>
-            {Array.from({ length: totalPages }, (_, idx) => idx + 1).map((pNum) => {
+            {pageNumbers.map((pNum, index) => {
               const isCurrent = pNum === validPage;
               return (
-                <button
-                  key={pNum}
-                  type="button"
-                  onClick={() => handlePageChange(pNum)}
-                  className={`h-8 w-8 rounded-lg text-[13px] font-medium transition-all cursor-pointer ${
-                    isCurrent
-                      ? "bg-iris text-white shadow-sm font-semibold"
-                      : "bg-surface text-muted border border-line hover:text-fg hover:border-line-2"
-                  }`}
-                >
-                  {pNum}
-                </button>
+                <span key={pNum} className="contents">
+                  {index > 0 && pNum - pageNumbers[index - 1] > 1 && (
+                    <span className="w-6 text-center text-faint" aria-hidden="true">…</span>
+                  )}
+                  <button
+                    type="button"
+                    onClick={() => handlePageChange(pNum)}
+                    aria-current={isCurrent ? "page" : undefined}
+                    className={`h-8 w-8 rounded-lg text-[13px] font-medium transition-all cursor-pointer ${
+                      isCurrent
+                        ? "bg-iris text-white shadow-sm font-semibold"
+                        : "bg-surface text-muted border border-line hover:text-fg hover:border-line-2"
+                    }`}
+                  >
+                    {pNum}
+                  </button>
+                </span>
               );
             })}
             <Button
@@ -707,4 +629,3 @@ export function CategoryBrowseView({
     </div>
   );
 }
-

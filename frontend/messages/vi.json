@@ -1653,7 +1653,14 @@
     "inStock": "Còn hàng",
     "escrowProtected": "Ký quỹ 100%",
     "siblingsTitle": "Cùng nhóm:",
-    "viewDetails": "Xem chi tiết"
+    "viewDetails": "Xem chi tiết",
+    "searchSuggestion": "Thử từ khóa khác hoặc xóa bộ lọc danh mục.",
+    "shelfRemaining": "Còn {count} sản phẩm khác trong danh mục này.",
+    "shelfAllReady": "Đã hiển thị toàn bộ {count} sản phẩm phù hợp.",
+    "emptyFilterHint": "Thử xóa bớt bộ lọc hoặc chọn mức giá khác.",
+    "paginationSummary": "Hiển thị {from}–{to} trên tổng số {total} sản phẩm",
+    "previewCount": "{count} sản phẩm nổi bật",
+    "previewHint": "Mở danh mục để xem toàn bộ sản phẩm."
   },
   "products": {
     "notFound": "Không tìm thấy",

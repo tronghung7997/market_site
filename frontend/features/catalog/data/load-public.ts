@@ -11,13 +11,29 @@ export type HomeCatalog = {
 export type CategoryHubCatalog = {
   categories: Category[];
   products: Product[];
+  total: number;
   error: string | null;
 };
 
 export type CategoryPageCatalog = {
   categories: Category[];
   products: Product[];
+  total: number;
+  page: number;
+  perPage: number;
   error: string | null;
+};
+
+export type CategoryBrowseQuery = {
+  q?: string;
+  sort?: string;
+  stock?: string;
+  instant?: string;
+  price?: string;
+  minVnd?: string;
+  maxVnd?: string;
+  sub?: string;
+  page?: string;
 };
 
 export type ProductPageCatalog = {
@@ -50,20 +66,58 @@ export async function loadCategoryHub(locale: string): Promise<CategoryHubCatalo
     fetchPublicJson<PaginatedProducts>("/products?page=1&per_page=100", locale),
   ]);
   if (!categories || !products) {
-    return { categories: categories ?? [], products: [], error: "load" };
+    return { categories: categories ?? [], products: [], total: 0, error: "load" };
   }
-  return { categories, products: products.items, error: null };
+  return { categories, products: products.items, total: products.total, error: null };
 }
 
-export async function loadCategoryPage(locale: string, categoryId: number): Promise<CategoryPageCatalog> {
+export async function loadCategoryPage(
+  locale: string,
+  categoryId: number,
+  query: CategoryBrowseQuery = {},
+): Promise<CategoryPageCatalog> {
+  const requestedPage = Number(query.page);
+  const page = Number.isInteger(requestedPage) && requestedPage > 0 ? requestedPage : 1;
+  const requestedSub = Number(query.sub);
+  const effectiveCategoryId = Number.isInteger(requestedSub) && requestedSub > 0 ? requestedSub : categoryId;
+  const params = new URLSearchParams({
+    category_id: String(effectiveCategoryId),
+    page: String(page),
+    per_page: "24",
+  });
+  if (query.q?.trim()) params.set("search", query.q.trim());
+  if (query.stock === "1") params.set("in_stock", "true");
+  if (query.instant === "1") params.set("fulfillment", "instant");
+  if (["bestseller", "rating", "price_asc", "price_desc"].includes(query.sort ?? "")) {
+    params.set("sort", query.sort!);
+  }
+  if (query.price === "under1") params.set("max_price", "24999");
+  if (query.price === "1to2") {
+    params.set("min_price", "25000");
+    params.set("max_price", "50000");
+  }
+  if (query.price === "above2") params.set("min_price", "50001");
+  if (query.price === "custom") {
+    const minVnd = Number(query.minVnd);
+    const maxVnd = Number(query.maxVnd);
+    if (Number.isFinite(minVnd) && minVnd >= 0) params.set("min_price", String(Math.round(minVnd)));
+    if (Number.isFinite(maxVnd) && maxVnd >= 0) params.set("max_price", String(Math.round(maxVnd)));
+  }
   const [categories, products] = await Promise.all([
     fetchPublicJson<Category[]>("/categories", locale),
-    fetchPublicJson<PaginatedProducts>(`/products?category_id=${categoryId}&page=1&per_page=100`, locale),
+    fetchPublicJson<PaginatedProducts>(`/products?${params}`, locale),
   ]);
   if (!categories || !products) {
-    return { categories: categories ?? [], products: [], error: "load" };
+    return { categories: categories ?? [], products: [], total: 0, page, perPage: 24, error: "load" };
   }
-  return { categories, products: products.items, error: null };
+  return {
+    categories,
+    products: products.items,
+    total: products.total,
+    page: products.page,
+    perPage: products.per_page,
+    error: null,
+  };
 }
 
 export async function loadProductPage(locale: string, productId: number): Promise<ProductPageCatalog> {

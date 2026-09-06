@@ -34,6 +34,10 @@ export function CategoryHubView({ initial }: { initial: CategoryHubCatalog }) {
   const [q, setQ] = useState(initialQ);
   const [selectedTopCat, setSelectedTopCat] = useState<number | null>(null);
 
+  useEffect(() => {
+    setQ(searchParams?.get("q") || "");
+  }, [searchParams]);
+
   const flatCats = useMemo(() => flattenCategories(cats), [cats]);
   const topCats = useMemo(
     () => (cats.length > 0 ? cats : flatCats.filter((c) => c.parent_id == null)),
@@ -141,7 +145,7 @@ export function CategoryHubView({ initial }: { initial: CategoryHubCatalog }) {
             {t("title")}
           </h1>
           <p className="text-[13.5px] text-muted mt-1 max-w-[540px]">
-            {t("subtitle", { cats: topCats.length, products: products.length })}
+            {t("subtitle", { cats: topCats.length, products: initial.total })}
           </p>
         </div>
 
@@ -212,13 +216,11 @@ export function CategoryHubView({ initial }: { initial: CategoryHubCatalog }) {
               : "bg-surface text-muted border border-line hover:text-fg hover:border-line-2"
           }`}
         >
-          {t("allCategories")} ({totalMatchCount})
+          {t("allCategories")}{queryLower ? ` (${totalMatchCount})` : ""}
         </button>
         {topCats.map((cat) => {
           const matchCount = matchingProductsOf(cat).length;
-          const totalCount = productsOf(cat).length;
           const isSelected = selectedTopCat === cat.id;
-          const displayCount = queryLower ? matchCount : totalCount;
 
           return (
             <button
@@ -244,9 +246,7 @@ export function CategoryHubView({ initial }: { initial: CategoryHubCatalog }) {
               }`}
             >
               <span>{cat.name}</span>
-              <span className={`text-[11px] ${isSelected ? "text-white/80" : matchCount === 0 && queryLower ? "text-faint/60" : "text-faint"}`}>
-                {displayCount}
-              </span>
+              {queryLower && <span className={`text-[11px] ${isSelected ? "text-white/80" : matchCount === 0 ? "text-faint/60" : "text-faint"}`}>{matchCount}</span>}
             </button>
           );
         })}
@@ -262,7 +262,7 @@ export function CategoryHubView({ initial }: { initial: CategoryHubCatalog }) {
           </div>
           <div className="font-medium text-fg text-[15px]">{t("noMatch", { q })}</div>
           <p className="text-[13px] text-muted mt-1.5">
-            Thử tìm kiếm với từ khóa khác hoặc xóa bộ lọc danh mục.
+            {t("searchSuggestion")}
           </p>
           <div className="mt-4 flex items-center justify-center gap-2">
             <Button
@@ -288,14 +288,8 @@ export function CategoryHubView({ initial }: { initial: CategoryHubCatalog }) {
           const fromPrice = minPrices.length ? Math.min(...minPrices) : 0;
 
           // When query active, show items matching query first
-          const matchingItems = queryLower
-            ? items.filter((p) => p.title.toLowerCase().includes(queryLower))
-            : [];
-          const displayItems = queryLower && matchingItems.length > 0
-            ? [...matchingItems, ...items.filter((p) => !matchingItems.includes(p))].slice(0, 8)
-            : items.slice(0, 8);
-
-          const remainingCount = Math.max(0, items.length - displayItems.length);
+          const matchingItems = queryLower ? matchingProductsOf(c) : items;
+          const displayItems = matchingItems.slice(0, 8);
 
           return (
             <Card key={c.id} className="overflow-hidden shadow-card">
@@ -318,7 +312,7 @@ export function CategoryHubView({ initial }: { initial: CategoryHubCatalog }) {
                       <ChevronRight size={15} className="text-faint group-hover:text-iris-hi group-hover:translate-x-0.5 transition-all shrink-0" />
                     </Link>
                     <div className="flex items-center gap-2 text-[12.5px] text-muted mt-0.5">
-                      <span>{t("productCount", { count: items.length })}</span>
+                      <span>{t("previewCount", { count: items.length })}</span>
                       {fromPrice > 0 && (
                         <>
                           <span className="text-faint">·</span>
@@ -335,7 +329,6 @@ export function CategoryHubView({ initial }: { initial: CategoryHubCatalog }) {
                 {children.length > 0 && (
                   <div className="flex flex-wrap items-center gap-1.5">
                     {children.map((sub) => {
-                      const subItemsCount = productsOf(sub).length;
                       return (
                         <Link key={sub.id} href={`/categories/${sub.id}`}>
                           <Tag
@@ -343,7 +336,6 @@ export function CategoryHubView({ initial }: { initial: CategoryHubCatalog }) {
                             className="hover:border-iris/40 hover:text-iris-hi transition-colors cursor-pointer py-1 px-2.5 rounded-lg text-[12px]"
                           >
                             <span>{sub.name}</span>
-                            <span className="text-faint ml-1">({subItemsCount})</span>
                           </Tag>
                         </Link>
                       );
@@ -369,16 +361,12 @@ export function CategoryHubView({ initial }: { initial: CategoryHubCatalog }) {
 
                 {/* Shelf Footer Strip */}
                 <div className="mt-4 pt-3.5 border-t border-line/60 flex items-center justify-between text-[12.5px]">
-                  <span className="text-muted">
-                    {remainingCount > 0
-                      ? `Còn ${remainingCount} sản phẩm khác trong danh mục này.`
-                      : `Toàn bộ ${items.length} sản phẩm đang sẵn sàng.`}
-                  </span>
+                  <span className="text-muted">{t("previewHint")}</span>
                   <Link
                     href={`/categories/${c.id}`}
                     className="font-medium text-iris-hi hover:underline inline-flex items-center gap-1"
                   >
-                    {t("viewFullShelf", { count: items.length, name: c.name })}
+                    {t("viewCategory")}
                   </Link>
                 </div>
               </div>

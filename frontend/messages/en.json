@@ -1653,7 +1653,14 @@
     "inStock": "In stock",
     "escrowProtected": "100% Escrow",
     "siblingsTitle": "Related:",
-    "viewDetails": "View details"
+    "viewDetails": "View details",
+    "searchSuggestion": "Try another search term or clear the category filter.",
+    "shelfRemaining": "{count} more products in this category.",
+    "shelfAllReady": "All {count} matching products are shown.",
+    "emptyFilterHint": "Try removing a filter or choosing another price range.",
+    "paginationSummary": "Showing {from}–{to} of {total} products",
+    "previewCount": "{count} featured products",
+    "previewHint": "Open the category to browse the complete catalog."
   },
   "products": {
     "notFound": "Product not found",

@@ -1,3 +1,4 @@
+import { Suspense } from "react";
 import { getLocale } from "next-intl/server";
 import { loadCategoryPage } from "@/features/catalog";
 import { CategoryBrowseView } from "./CategoryBrowseView";
@@ -11,5 +12,9 @@ export default async function CategoryPage({
   const locale = await getLocale();
   const categoryId = Number(id);
   const initial = await loadCategoryPage(locale, categoryId);
-  return <CategoryBrowseView categoryId={categoryId} initial={initial} />;
+  return (
+    <Suspense>
+      <CategoryBrowseView categoryId={categoryId} initial={initial} />
+    </Suspense>
+  );
 }

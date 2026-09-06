@@ -11,6 +11,7 @@ import { Bolt, Check, ChevronLeft, ChevronRight, Grid, Rows, Search, ShieldCheck
 import { categoryCoverId, ProductCover } from "@/features/product-covers";
 import ProductTile from "@/components/ProductTile";
 import type { CategoryPageCatalog } from "@/features/catalog";
+import { useDebounce } from "@/lib/hooks/useDebounce";
 
 const ITEMS_PER_PAGE = 24;
 
@@ -32,6 +33,8 @@ export function CategoryBrowseView({
   const { formatBrowseMoney, currency, fxRate } = useMoney();
   const searchInputRef = useRef<HTMLInputElement>(null);
   const productsListRef = useRef<HTMLDivElement>(null);
+  // Blocks the URL→state sync from overwriting q while user is typing.
+  const isTypingRef = useRef(false);
 
   const cats = initial.categories;
   const products = initial.products;
@@ -63,12 +66,16 @@ export function CategoryBrowseView({
   const [subFilter, setSubFilter] = useState<number | null>(paramSub);
   const [currentPage, setCurrentPage] = useState<number>(paramPage);
 
+  // Sync FROM URL (browser back/forward, external navigation, non-q filter changes).
+  // q is skipped while the user is typing to prevent character truncation.
   useEffect(() => {
     const nextView = searchParams?.get("view");
     const nextPage = Number(searchParams?.get("page") || "1");
     const nextSub = Number(searchParams?.get("sub"));
 
-    setQ(searchParams?.get("q") || "");
+    if (!isTypingRef.current) {
+      setQ(searchParams?.get("q") || "");
+    }
     setSort(searchParams?.get("sort") || "newest");
     setInStockOnly(searchParams?.get("stock") === "1");
     setInstantOnly(searchParams?.get("instant") === "1");
@@ -102,16 +109,21 @@ export function CategoryBrowseView({
     });
   };
 
-  // Debounced search sync to URL
+  // Debounced q — URL updates only after user STOPS typing for 250ms.
+  const debouncedQ = useDebounce(q, 250);
+
   useEffect(() => {
     const urlQuery = searchParams?.get("q") || "";
-    if (q === urlQuery) return;
-    const timer = setTimeout(() => {
-      syncToUrl({ q: q.trim() || null, page: "1" });
-      setCurrentPage(1);
-    }, 250);
-    return () => clearTimeout(timer);
-  }, [q, searchParams]);
+    const normalized = debouncedQ.trim();
+    if (normalized === urlQuery) {
+      isTypingRef.current = false;
+      return;
+    }
+    syncToUrl({ q: normalized || null, page: "1" });
+    setCurrentPage(1);
+    // searchParams intentionally excluded — guard reads it synchronously.
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [debouncedQ]);
 
   const rate = fxRate && fxRate > 0 ? fxRate : 25000;
   const tier1Vnd = currency === "USD" ? rate : 25000;
@@ -301,7 +313,7 @@ export function CategoryBrowseView({
               ref={searchInputRef}
               type="text"
               value={q}
-              onChange={(e) => setQ(e.target.value)}
+              onChange={(e) => { isTypingRef.current = true; setQ(e.target.value); }}
               placeholder={t("searchInCurrent", { name: category.name })}
               aria-label={t("searchInCurrent", { name: category.name })}
               className="h-10 w-full rounded-xl bg-surface border border-line pl-10 pr-9 text-sm text-fg placeholder:text-faint transition-all focus:border-iris focus:ring-1 focus:ring-iris/30 focus:outline-none"

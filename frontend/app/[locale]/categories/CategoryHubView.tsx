@@ -13,6 +13,7 @@ import { ArrowRight, ChevronRight, Search, ShieldCheck, X } from "@/components/I
 import { categoryCoverId, ProductCover } from "@/features/product-covers";
 import ProductTile from "@/components/ProductTile";
 import type { CategoryHubCatalog } from "@/features/catalog";
+import { useDebounce } from "@/lib/hooks/useDebounce";
 
 export function CategoryHubView({ initial }: { initial: CategoryHubCatalog }) {
   const t = useTranslations("categories");
@@ -24,6 +25,9 @@ export function CategoryHubView({ initial }: { initial: CategoryHubCatalog }) {
 
   const { formatBrowseMoney } = useMoney();
   const searchInputRef = useRef<HTMLInputElement>(null);
+  // Tracks whether the user is actively typing — blocks URL→q sync from
+  // overwriting the input mid-keystroke (which caused characters to be cut).
+  const isTypingRef = useRef(false);
 
   const cats = initial.categories;
   const products = initial.products;
@@ -34,32 +38,40 @@ export function CategoryHubView({ initial }: { initial: CategoryHubCatalog }) {
   const [q, setQ] = useState(initialQ);
   const [selectedTopCat, setSelectedTopCat] = useState<number | null>(null);
 
+  // Debounced value — URL only updates after the user STOPS typing for 250ms,
+  // preventing mid-word router.replace calls that truncated the input.
+  const debouncedQ = useDebounce(q, 250);
+
+  // Sync FROM URL → q (browser back/forward, external navigation).
+  // Skipped while the user is actively typing so the input isn't reset.
   useEffect(() => {
+    if (isTypingRef.current) return;
     setQ(searchParams?.get("q") || "");
   }, [searchParams]);
 
-  const flatCats = useMemo(() => flattenCategories(cats), [cats]);
-  const topCats = useMemo(
-    () => (cats.length > 0 ? cats : flatCats.filter((c) => c.parent_id == null)),
-    [cats, flatCats],
-  );
-
-  // Sync search query to URL with debouncing
+  // Sync debouncedQ TO URL once it stabilises.
   useEffect(() => {
-    const timer = setTimeout(() => {
-      startTransition(() => {
-        const params = new URLSearchParams(searchParams?.toString() || "");
-        if (q.trim()) {
-          params.set("q", q.trim());
-        } else {
-          params.delete("q");
-        }
-        const qs = params.toString();
-        router.replace(qs ? `${pathname}?${qs}` : pathname, { scroll: false });
-      });
-    }, 250);
-    return () => clearTimeout(timer);
-  }, [q, pathname, router, searchParams]);
+    const currentQ = searchParams?.get("q") || "";
+    const normalized = debouncedQ.trim();
+    if (normalized === currentQ) {
+      // Input has settled to match URL — allow URL→q sync again.
+      isTypingRef.current = false;
+      return;
+    }
+    startTransition(() => {
+      const params = new URLSearchParams(searchParams?.toString() || "");
+      if (normalized) {
+        params.set("q", normalized);
+      } else {
+        params.delete("q");
+      }
+      const qs = params.toString();
+      router.replace(qs ? `${pathname}?${qs}` : pathname, { scroll: false });
+    });
+    // searchParams intentionally excluded — guard above reads it synchronously
+    // and is always fresh. Adding it as a dep would re-run after every replace.
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [debouncedQ, pathname, router]);
 
   // Keyboard shortcut '/' to focus search input
   useEffect(() => {
@@ -76,6 +88,12 @@ export function CategoryHubView({ initial }: { initial: CategoryHubCatalog }) {
     window.addEventListener("keydown", handleKeyDown);
     return () => window.removeEventListener("keydown", handleKeyDown);
   }, []);
+
+  const flatCats = useMemo(() => flattenCategories(cats), [cats]);
+  const topCats = useMemo(
+    () => (cats.length > 0 ? cats : flatCats.filter((c) => c.parent_id == null)),
+    [cats, flatCats],
+  );
 
   const productsOf = (c: Category): Product[] => {
     const ids = new Set(subtreeIds(c));
@@ -157,7 +175,7 @@ export function CategoryHubView({ initial }: { initial: CategoryHubCatalog }) {
               ref={searchInputRef}
               type="text"
               value={q}
-              onChange={(e) => setQ(e.target.value)}
+              onChange={(e) => { isTypingRef.current = true; setQ(e.target.value); }}
               placeholder={t("searchAll")}
               aria-label={t("searchAll")}
               className="h-10 w-full rounded-xl bg-surface border border-line pl-10 pr-9 text-sm text-fg placeholder:text-faint transition-all focus:border-iris focus:ring-1 focus:ring-iris/30 focus:outline-none"

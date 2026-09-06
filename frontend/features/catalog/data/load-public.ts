@@ -1,9 +1,12 @@
 import { fetchPublicJson } from "@/lib/seo";
-import type { Category, PaginatedProducts, Product, ProductDetail, SellerSummary } from "@/lib/types";
+import { unstable_cache } from "next/cache";
+import type { Category, PaginatedProducts, Product, ProductCatalogSummary, ProductDetail, SellerSummary } from "@/lib/types";
 
 export type HomeCatalog = {
   categories: Category[];
   products: Product[];
+  total: number;
+  summary: ProductCatalogSummary | null;
   topSellers: SellerSummary[];
   error: string | null;
 };
@@ -43,18 +46,32 @@ export type ProductPageCatalog = {
   error: string | null;
 };
 
+const loadCachedCatalogSummary = unstable_cache(
+  async (locale: string) => {
+    const summary = await fetchPublicJson<ProductCatalogSummary>("/products/catalog-summary", locale);
+    // Do not cache rollout/network failures as an all-zero advertising metric.
+    if (!summary) throw new Error("Catalog summary is unavailable");
+    return summary;
+  },
+  ["public-catalog-summary-v1"],
+  { revalidate: 600, tags: ["public-catalog-summary"] },
+);
+
 export async function loadHomeCatalog(locale: string): Promise<HomeCatalog> {
-  const [categories, products, topSellers] = await Promise.all([
+  const [categories, products, summary, topSellers] = await Promise.all([
     fetchPublicJson<Category[]>("/categories", locale),
-    fetchPublicJson<PaginatedProducts>("/products?page=1&per_page=100", locale),
+    fetchPublicJson<PaginatedProducts>("/products?page=1&per_page=24", locale),
+    loadCachedCatalogSummary(locale).catch(() => null),
     fetchPublicJson<SellerSummary[]>("/sellers/top?limit=6", locale),
   ]);
   if (!categories || !products) {
-    return { categories: categories ?? [], products: [], topSellers: topSellers ?? [], error: "load" };
+    return { categories: categories ?? [], products: [], total: 0, summary: null, topSellers: topSellers ?? [], error: "load" };
   }
   return {
     categories,
     products: products.items,
+    total: products.total,
+    summary,
     topSellers: topSellers ?? [],
     error: null,
   };

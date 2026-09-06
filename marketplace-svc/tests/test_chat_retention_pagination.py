@@ -9,7 +9,7 @@ from src.chat.service import get_conversation
 from src.database import SessionLocal
 from src.models.account import Account
 from src.models.chat import ChatConversation, ChatMessage, ChatParticipant
-from src.models.order import Order, OrderStatus
+from src.models.order import Dispute, DisputeStatus, Order, OrderStatus
 
 
 async def _account(db, email: str, roles: list[str]) -> Account:
@@ -109,3 +109,53 @@ async def test_retention_keeps_active_chat_and_terminal_chat_preview():
         ))
         assert completed_count == 1
         assert active_count == 2
+
+
+@pytest.mark.asyncio
+async def test_support_retention_uses_latest_resolved_dispute():
+    now = datetime.now(timezone.utc)
+    old = now - timedelta(days=120)
+    recent = now - timedelta(days=10)
+    async with SessionLocal() as db:
+        buyer = await _account(db, "support-buyer@example.test", ["buyer"])
+        seller = await _account(db, "support-seller@example.test", ["buyer", "seller"])
+        order = Order(
+            buyer_id=buyer.id, seller_id=seller.id, quantity=1, total_amount=100,
+            status=OrderStatus.completed,
+        )
+        db.add(order)
+        await db.flush()
+        room = ChatConversation(
+            kind="support", status="open", order_id=order.id, buyer_id=buyer.id,
+            seller_id=seller.id, requester_id=buyer.id, requester_role="buyer",
+            created_by_id=buyer.id, last_message_at=old, created_at=old,
+        )
+        db.add(room)
+        await db.flush()
+        db.add_all([
+            Dispute(
+                order_id=order.id, buyer_id=buyer.id, reason="old case",
+                status=DisputeStatus.resolved_reject, resolved_at=old,
+            ),
+            Dispute(
+                order_id=order.id, buyer_id=buyer.id, reason="recent case",
+                status=DisputeStatus.resolved_refund, resolved_at=recent,
+            ),
+        ])
+        pair = [
+            ChatMessage(
+                conversation_id=room.id, sender_id=buyer.id, sender_role="buyer",
+                client_message_id=uuid.uuid4(), body=f"old-{index}", created_at=old,
+            )
+            for index in range(2)
+        ]
+        db.add_all(pair)
+        await db.flush()
+        room.last_message_id = pair[-1].id
+        await db.commit()
+
+        assert await purge_expired_messages(db) == 0
+        remaining = await db.scalar(select(func.count(ChatMessage.id)).where(
+            ChatMessage.conversation_id == room.id
+        ))
+        assert remaining == 2

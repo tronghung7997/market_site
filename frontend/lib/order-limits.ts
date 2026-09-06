@@ -1,0 +1,1 @@
+export const MAX_ORDER_QUANTITY = 5_000;

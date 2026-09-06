@@ -111,3 +111,19 @@ async def test_admin_resource_seller_facet(client):
     listed = await client.get(f"/admin/resources?seller_id={row['seller_id']}", headers={"Authorization": f"Bearer {admin}"})
     assert listed.status_code == 200
     assert listed.json()["total"] == 3
+
+    invalid_page = await client.get(
+        "/admin/resources?page=0",
+        headers={"Authorization": f"Bearer {admin}"},
+    )
+    oversized_page = await client.get(
+        "/admin/resources?per_page=101",
+        headers={"Authorization": f"Bearer {admin}"},
+    )
+    invalid_status = await client.get(
+        "/admin/resources?status=not-a-status",
+        headers={"Authorization": f"Bearer {admin}"},
+    )
+    assert invalid_page.status_code == 422
+    assert oversized_page.status_code == 422
+    assert invalid_status.status_code == 422

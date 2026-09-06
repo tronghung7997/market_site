@@ -1,17 +1,18 @@
 "use client";
 
 import { useTranslations } from "next-intl";
-import { useEffect, useMemo, useState } from "react";
+import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { Link } from "@/i18n/navigation";
 import { api } from "@/lib/api";
 import { useApiErrorMessage } from "@/lib/use-api-error";
 import { useMoney } from "@/lib/money";
-import type { SellerProduct, Variant } from "@/lib/types";
+import type { SellerProduct, SellerProductCounts, Variant } from "@/lib/types";
 import { cn } from "@/lib/cn";
 import {
   downloadRestockTemplate,
   inventoryStockState,
   isInventoryManagedProduct,
+  LatestRequestGate,
   mergeRestockText,
   nextSellerProductStatus,
   parseResourceItems,
@@ -19,6 +20,7 @@ import {
   restockableVariants,
 } from "@/features/seller-inventory";
 import { parseCoverId, ProductCover } from "@/features/product-covers";
+import { useDebounce } from "@/lib/hooks/useDebounce";
 import {
   Button,
   Card,
@@ -67,88 +69,63 @@ export default function SellerProducts() {
   const [togglingId, setTogglingId] = useState<number | null>(null);
   const [restockProduct, setRestockProduct] = useState<SellerProduct | null>(null);
   const [page, setPage] = useState(1);
+  const [totalProducts, setTotalProducts] = useState(0);
+  const [counts, setCounts] = useState<SellerProductCounts>({
+    all: 0, active: 0, paused: 0, low_stock: 0, out_of_stock: 0, total_stock: 0,
+  });
+  const [categories, setCategories] = useState<string[]>([]);
+  const [serviceTypes, setServiceTypes] = useState<string[]>([]);
+  const debouncedSearch = useDebounce(searchQuery, 250);
+  const productRequestGate = useRef(new LatestRequestGate());
 
-  const load = () => {
+  const load = useCallback(() => {
+    const request = productRequestGate.current.begin();
     setLoading(true);
     setLoadError(false);
-    api.sellerProducts({ perPage: 100 })
-      .then((result) => setProducts(result.items))
-      .catch(() => setLoadError(true))
-      .finally(() => setLoading(false));
-  };
+    return api.sellerProducts({
+      page,
+      perPage: PAGE_SIZE,
+      search: debouncedSearch,
+      status: activeTab,
+      category: selectedCategory ?? undefined,
+      serviceType: selectedService ?? undefined,
+    })
+      .then((result) => {
+        if (!productRequestGate.current.isCurrent(request)) return;
+        setProducts(result.items);
+        setTotalProducts(result.total);
+        setCounts(result.counts);
+        setCategories(result.categories ?? []);
+        setServiceTypes(result.service_types ?? []);
+      })
+      .catch(() => {
+        if (productRequestGate.current.isCurrent(request)) setLoadError(true);
+      })
+      .finally(() => {
+        if (productRequestGate.current.isCurrent(request)) setLoading(false);
+      });
+  }, [activeTab, debouncedSearch, page, selectedCategory, selectedService]);
 
-  useEffect(load, []);
+  useEffect(() => {
+    void load();
+  }, [load]);
 
   // Reset page to 1 when filters change
   useEffect(() => {
     setPage(1);
-  }, [activeTab, searchQuery, selectedCategory, selectedService]);
+  }, [activeTab, debouncedSearch, selectedCategory, selectedService]);
 
-  // KPI Calculations
-  const stats = useMemo(() => {
-    const total = products.length;
-    const active = products.filter((p) => p.status === "active").length;
-    const lowStock = products.filter((p) => inventoryStockState(p, 20) === "low").length;
-    const outOfStock = products.filter((p) => inventoryStockState(p, 20) === "out").length;
-    const paused = products.filter((p) => p.status === "paused" || p.status === "draft").length;
-    const totalStock = products.reduce((acc, p) => acc + (p.total_stock || 0), 0);
+  const stats = {
+    total: counts.all,
+    active: counts.active,
+    lowStock: counts.low_stock,
+    outOfStock: counts.out_of_stock,
+    paused: counts.paused,
+    totalStock: counts.total_stock,
+  };
 
-    return { total, active, lowStock, outOfStock, paused, totalStock };
-  }, [products]);
-
-  // Unique categories for filter dropdown
-  const categories = useMemo(() => {
-    const set = new Set<string>();
-    for (const p of products) {
-      if (p.category_name) set.add(p.category_name);
-    }
-    return Array.from(set);
-  }, [products]);
-
-  // Unique service types for filter dropdown
-  const serviceTypes = useMemo(() => {
-    const set = new Set<string>();
-    for (const p of products) {
-      if (p.service_type) set.add(p.service_type);
-    }
-    return Array.from(set);
-  }, [products]);
-
-  // Filtered Products
-  const filteredProducts = useMemo(() => {
-    return products.filter((p) => {
-      // Tab filter
-      if (activeTab === "active" && p.status !== "active") return false;
-      if (activeTab === "low_stock" && inventoryStockState(p, 20) !== "low") return false;
-      if (activeTab === "out_of_stock" && inventoryStockState(p, 20) !== "out") return false;
-      if (activeTab === "paused" && p.status !== "paused" && p.status !== "draft") return false;
-
-      // Category facet filter
-      if (selectedCategory && p.category_name !== selectedCategory) return false;
-
-      // Service type facet filter
-      if (selectedService && p.service_type !== selectedService) return false;
-
-      // Search filter
-      if (searchQuery.trim()) {
-        const query = searchQuery.toLowerCase().trim();
-        const matchTitle = p.title.toLowerCase().includes(query);
-        const matchCategory = p.category_name?.toLowerCase().includes(query);
-        const matchService = p.service_type?.toLowerCase().includes(query);
-        const matchId = String(p.id).includes(query);
-        if (!matchTitle && !matchCategory && !matchService && !matchId) return false;
-      }
-
-      return true;
-    });
-  }, [products, activeTab, selectedCategory, selectedService, searchQuery]);
-
-  // Paginated subset
-  const totalPages = Math.ceil(filteredProducts.length / PAGE_SIZE);
-  const paginatedProducts = useMemo(() => {
-    const start = (page - 1) * PAGE_SIZE;
-    return filteredProducts.slice(start, start + PAGE_SIZE);
-  }, [filteredProducts, page]);
+  const totalPages = Math.max(1, Math.ceil(totalProducts / PAGE_SIZE));
+  const paginatedProducts = products;
 
   const handleToggleStatus = async (product: SellerProduct) => {
     const nextStatus = nextSellerProductStatus(product.status);
@@ -159,6 +136,7 @@ export default function SellerProducts() {
       setProducts((prev) =>
         prev.map((p) => (p.id === product.id ? { ...p, status: updated.status } : p))
       );
+      void load();
     } catch {
       load();
     } finally {
@@ -203,7 +181,7 @@ export default function SellerProducts() {
       <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-3">
         <div>
           <h1 className="text-[18px] font-bold text-fg tracking-tight">{t("yourProducts")}</h1>
-          <p className="text-[12.5px] text-muted">{t("productCount", { count: products.length })}</p>
+          <p className="text-[12.5px] text-muted">{t("productCount", { count: counts.all })}</p>
         </div>
         <Link href="/seller/products/new">
           <Button size="md" className="gap-1.5 shadow-sm">
@@ -230,7 +208,7 @@ export default function SellerProducts() {
           <p className="text-[13.5px] font-medium text-fg mb-3">{t("productsLoadFailed")}</p>
           <Button size="sm" variant="secondary" onClick={load}>{t("retry")}</Button>
         </Card>
-      ) : products.length === 0 ? (
+      ) : counts.all === 0 && !hasActiveFilters ? (
         <Card className="p-10 text-center">
           <div className="grid place-items-center h-12 w-12 rounded-xl bg-raised border border-line mx-auto text-faint mb-3">
             <Package size={24} />
@@ -487,7 +465,7 @@ export default function SellerProducts() {
             </div>
 
             {/* Smart Table */}
-            {filteredProducts.length === 0 ? (
+            {paginatedProducts.length === 0 ? (
               <div className="p-8 text-center">
                 <Package size={32} className="mx-auto text-faint mb-2" />
                 <p className="text-[13.5px] font-medium text-fg mb-1">{t("noMatchingProducts")}</p>
@@ -703,8 +681,8 @@ export default function SellerProducts() {
                 <span className="text-muted text-[12px]">
                   {t("paginationProducts", {
                     from: (page - 1) * PAGE_SIZE + 1,
-                    to: Math.min(page * PAGE_SIZE, filteredProducts.length),
-                    total: filteredProducts.length,
+                    to: Math.min(page * PAGE_SIZE, totalProducts),
+                    total: totalProducts,
                   })}
                 </span>
                 <Pagination page={page} totalPages={totalPages} onChange={setPage} />

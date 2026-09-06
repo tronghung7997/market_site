@@ -226,14 +226,15 @@ function ProviderProductsTab({ providerId, adapterType }: { providerId: number; 
   const [compatMatrix, setCompatMatrix] = useState<CompatMatrix | null>(null);
   const [loading, setLoading] = useState(true);
   const [attachId, setAttachId] = useState<string>("");
+  const [attachSearch, setAttachSearch] = useState("");
   const [editingId, setEditingId] = useState<number | null>(null);
   const [actionError, setActionError] = useState<string | null>(null);
 
-  const load = useCallback(() => {
+  const load = useCallback((search = attachSearch) => {
     setLoading(true);
     Promise.all([
       api.providerProducts(providerId).catch(() => []),
-      api.adminProducts({ perPage: 100 }).then((result) => result.items).catch(() => []),
+      api.adminProducts({ perPage: 50, search }).then((result) => result.items).catch(() => []),
       api.adapterCompatibility().catch(() => null),
     ])
       .then(([linked, all, matrix]) => {
@@ -242,10 +243,11 @@ function ProviderProductsTab({ providerId, adapterType }: { providerId: number; 
         setCompatMatrix(matrix);
       })
       .finally(() => setLoading(false));
-  }, [providerId]);
+  }, [attachSearch, providerId]);
 
   useEffect(() => {
-    load();
+    const timer = setTimeout(() => load(), 250);
+    return () => clearTimeout(timer);
   }, [load]);
 
   const linkedIds = useMemo(() => new Set(products.map((p) => p.id)), [products]);
@@ -283,7 +285,15 @@ function ProviderProductsTab({ providerId, adapterType }: { providerId: number; 
       {/* Attach row */}
       <div className="flex items-end gap-2">
         <div className="flex-1">
-          <Field label="Gắn sản phẩm vào provider" hint={`Sản phẩm có chiến lược giá không tương thích với adapter "${adapterType}" bị vô hiệu hoá.`}>
+          <Field label="Gắn sản phẩm vào provider" hint={`Tìm theo tên/ID. Sản phẩm không tương thích với adapter "${adapterType}" bị vô hiệu hoá.`}>
+            <Input
+              id="provider-product-search"
+              name="provider-product-search"
+              value={attachSearch}
+              onChange={(e) => setAttachSearch(e.target.value)}
+              placeholder="Tìm sản phẩm theo tên hoặc ID"
+              className="mb-2"
+            />
             <Select value={attachId} onChange={(e) => setAttachId(e.target.value)}>
               <option value="">Chọn sản phẩm...</option>
               {attachable.map((p) => {
@@ -1374,8 +1384,8 @@ export default function AdminProvidersPage() {
       .catch(() => [])
       .then((p) => setProviders(p ?? []))
       .finally(() => setLoading(false));
-    api.adminProducts({ perPage: 100 })
-      .then((result) => setLinkedCount(result.items.filter((p) => p.provider_name != null).length))
+    api.adminProducts({ perPage: 1, hasProvider: true })
+      .then((result) => setLinkedCount(result.total))
       .catch(() => setLinkedCount(null));
   }, []);
 

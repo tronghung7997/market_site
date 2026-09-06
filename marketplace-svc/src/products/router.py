@@ -49,6 +49,11 @@ async def list_products(
     )
 
 
+@router.get("/products/catalog-summary", response_model=schemas.ProductCatalogSummaryResponse)
+async def product_catalog_summary(db: AsyncSession = Depends(get_session)):
+    return await service.get_product_catalog_summary(db)
+
+
 @router.get("/products/{product_id}", response_model=schemas.ProductDetailResponse)
 async def get_product(
     product_id: int,
@@ -68,13 +73,17 @@ async def get_own_product(product_id: int, account: Account = Depends(require_ro
 @router.get("/seller/products", response_model=schemas.SellerProductListResponse)
 async def seller_products(
     search: str | None = None,
+    status: Literal["active", "paused", "low_stock", "out_of_stock"] | None = Query(None),
+    category: str | None = None,
+    service_type: str | None = None,
     page: int = Query(1, ge=1),
     per_page: int = Query(50, ge=1, le=100),
     account: Account = Depends(require_role("seller")),
     db: AsyncSession = Depends(get_session),
 ):
     return await service.list_seller_products(
-        account.id, db, search=search, page=page, per_page=per_page,
+        account.id, db, search=search, status=status, category=category,
+        service_type=service_type, page=page, per_page=per_page,
     )
 
 
@@ -171,13 +180,25 @@ async def set_seller_pricing(
 @router.get("/admin/products", response_model=schemas.AdminProductListResponse)
 async def list_all_products(
     search: str | None = None,
+    status: Literal["active", "draft", "paused", "suspended", "needs_setup"] | None = Query(None),
+    seller: str | None = None,
+    provider: str | None = None,
+    service_type: str | None = None,
+    has_provider: bool | None = Query(None),
+    sort_by: Literal[
+        "created_at", "title", "status", "service_type", "seller_email",
+        "provider_name", "order_count", "revenue",
+    ] | None = Query(None),
+    sort_dir: Literal["asc", "desc"] = Query("desc"),
     page: int = Query(1, ge=1),
     per_page: int = Query(50, ge=1, le=100),
     _: Account = Depends(require_role("admin")),
     db: AsyncSession = Depends(get_session),
 ):
     return await service.list_all_products_admin(
-        db, search=search, page=page, per_page=per_page,
+        db, search=search, status=status, seller=seller, provider=provider,
+        service_type=service_type, has_provider=has_provider,
+        sort_by=sort_by, sort_dir=sort_dir, page=page, per_page=per_page,
     )
 
 

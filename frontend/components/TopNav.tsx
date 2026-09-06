@@ -166,11 +166,11 @@ export default function TopNav() {
               Nạp tiền + avatar, nhét thêm vào đó thì chật và nút menu nằm lọt giữa
               hai thứ không liên quan. */}
           <button onClick={() => setMobileNavOpen((v) => !v)} title={t("menu")} aria-label={t("menu")} aria-expanded={mobileNavOpen}
-            className="md:hidden grid place-items-center h-9 w-9 -ml-1 rounded-lg text-muted hover:text-fg hover:bg-raised transition-colors shrink-0">
+            className="lg:hidden grid place-items-center h-9 w-9 -ml-1 rounded-lg text-muted hover:text-fg hover:bg-raised transition-colors shrink-0">
             {mobileNavOpen ? <X size={18} /> : <Menu size={18} />}
           </button>
           <Link href="/" aria-label="Marketplace"><Logo /></Link>
-          <nav className="hidden md:flex items-center gap-0.5 shrink-0">
+          <nav className="hidden lg:flex items-center gap-0.5 shrink-0">
             {navLinks.map((l) => {
               const active = l.href === "/" ? pathname === "/" : pathname.startsWith(l.href);
               return (
@@ -189,15 +189,15 @@ export default function TopNav() {
               locale={locale}
               onChange={changeLocale}
               label={languageLabel}
-              className="hidden sm:inline-flex"
+              className="hidden lg:inline-flex"
             />
           )}
           {/* Currency independent of locale — shown when admin enables toggle. */}
-          <CurrencyToggle className="hidden sm:inline-flex" />
+          <CurrencyToggle className="hidden lg:inline-flex" />
           {account ? (
             <div className="flex items-center gap-2 sm:gap-2.5 shrink-0">
               <Link href="/wallet" title={t("walletBalance")}
-                className="hidden sm:flex items-center gap-2 h-9 rounded-lg border border-line bg-surface px-3 hover:border-line-2 transition-colors">
+                className="hidden lg:flex items-center gap-2 h-9 rounded-lg border border-line bg-surface px-3 hover:border-line-2 transition-colors">
                 <Wallet size={15} className="text-muted" />
                 <span className="font-mono text-[13px] font-medium tabular whitespace-nowrap">
                   {balance === null ? "—" : formatBrowseMoney(balance, { locale })}

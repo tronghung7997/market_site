@@ -23,7 +23,7 @@ import {
 import { useDebounce } from "@/lib/hooks/useDebounce";
 import { parseCoverId, ProductCover } from "@/features/product-covers";
 import { SellerPriceInput, useSellerPriceCurrency } from "@/features/seller-workbench";
-import type { InventoryVariant, Resource } from "@/lib/types";
+import type { InventoryCounts, InventoryVariant, Resource } from "@/lib/types";
 import {
   Button,
   Card,
@@ -121,9 +121,14 @@ function InventoryConsole() {
   const [summaryLoadError, setSummaryLoadError] = useState(false);
   const [filter, setFilter] = useState<InventoryFilter>("all");
   const [productSearch, setProductSearch] = useState("");
+  const debouncedProductSearch = useDebounce(productSearch, 250);
   const [selectedProductId, setSelectedProductId] = useState<number | null>(null);
   const [selectedVariantId, setSelectedVariantId] = useState<number | null>(null);
   const [productPage, setProductPage] = useState(1);
+  const [summaryTotal, setSummaryTotal] = useState(0);
+  const [summaryCounts, setSummaryCounts] = useState<InventoryCounts>({
+    all: 0, out: 0, low: 0, error: 0, available: 0,
+  });
 
   // Active variant resources state
   const [resources, setResources] = useState<Resource[]>([]);
@@ -138,7 +143,30 @@ function InventoryConsole() {
   const [selectedResourceIds, setSelectedResourceIds] = useState<Set<number>>(new Set());
   const [bulkOperating, setBulkOperating] = useState(false);
   const [bulkMessage, setBulkMessage] = useState<{ type: "success" | "error"; text: string } | null>(null);
+  const [refreshing, setRefreshing] = useState(false);
+  const [copiedId, setCopiedId] = useState<number | null>(null);
+  const [revealedResourceIds, setRevealedResourceIds] = useState<Set<number>>(new Set());
   const resourceRequestGate = useRef(new LatestRequestGate());
+  const summaryRequestGate = useRef(new LatestRequestGate());
+  const resourceCacheRef = useRef<Map<string, { items: Resource[]; total: number }>>(new Map());
+  const resourceCacheVersionRef = useRef(0);
+  const productPriceCacheRef = useRef<Map<number, Record<number, number>>>(new Map());
+  const resourceAbortRef = useRef<AbortController | null>(null);
+  const productDetailAbortRef = useRef<AbortController | null>(null);
+  const prevFilterParamsRef = useRef<string>("");
+
+  const invalidateResourceCache = useCallback((variantId?: number) => {
+    resourceCacheVersionRef.current += 1;
+    if (variantId) {
+      for (const key of Array.from(resourceCacheRef.current.keys())) {
+        if (key.startsWith(`${variantId}:`)) {
+          resourceCacheRef.current.delete(key);
+        }
+      }
+    } else {
+      resourceCacheRef.current.clear();
+    }
+  }, []);
 
   // Fast restock state
   const [restockText, setRestockText] = useState("");
@@ -155,23 +183,39 @@ function InventoryConsole() {
   const restockPanelRef = useRef<HTMLDivElement>(null);
 
   const loadSummary = useCallback(async () => {
+    const request = summaryRequestGate.current.begin();
     setLoading(true);
     setSummaryLoadError(false);
     try {
-      const summary = await api.inventorySummary({ perPage: 100 });
+      const summary = await api.inventorySummary({
+        page: productPage,
+        perPage: PRODUCTS_PAGE_SIZE,
+        search: debouncedProductSearch,
+        stock: targetProductId || targetVariantId ? "all" : filter,
+        productId: targetProductId ?? undefined,
+        variantId: targetVariantId ?? undefined,
+      });
+      if (!summaryRequestGate.current.isCurrent(request)) return;
       setRows(summary.items.filter((row) => isInstantDelivery(row.delivery_mode)));
+      setSummaryTotal(summary.total);
+      setSummaryCounts(summary.counts);
     } catch {
+      if (!summaryRequestGate.current.isCurrent(request)) return;
       setSummaryLoadError(true);
     } finally {
-      setLoading(false);
+      if (summaryRequestGate.current.isCurrent(request)) setLoading(false);
     }
-  }, []);
+  }, [debouncedProductSearch, filter, productPage, targetProductId, targetVariantId]);
 
   useEffect(() => {
     loadSummary();
   }, [loadSummary]);
 
-  // Load resources for selected variant
+  useEffect(() => {
+    setProductPage(1);
+  }, [debouncedProductSearch, filter]);
+
+  // Load resources for selected variant (with cache + abort controller)
   const loadVariantResources = useCallback(
     async (
       variantId: number,
@@ -179,8 +223,24 @@ function InventoryConsole() {
       statusFilter = resourceStatusFilter,
       searchQuery = debouncedResourceSearch,
       perPage = resourcePageSize,
+      skipCache = false,
     ) => {
+      resourceAbortRef.current?.abort();
+      resourceAbortRef.current = null;
       const request = resourceRequestGate.current.begin();
+      const cacheKey = `${variantId}:${page}:${perPage}:${statusFilter}:${searchQuery.trim()}`;
+      if (!skipCache && resourceCacheRef.current.has(cacheKey)) {
+        const cached = resourceCacheRef.current.get(cacheKey)!;
+        setResources(cached.items);
+        setResourceTotal(cached.total);
+        setLoadingResources(false);
+        setResourceLoadError(false);
+        return;
+      }
+
+      const controller = new AbortController();
+      resourceAbortRef.current = controller;
+      const cacheVersion = resourceCacheVersionRef.current;
       setLoadingResources(true);
       setResourceLoadError(false);
       try {
@@ -190,11 +250,17 @@ function InventoryConsole() {
           status: statusFilter !== "all" && statusFilter !== "archived" ? statusFilter : undefined,
           search: searchQuery.trim() || undefined,
           archivedOnly: statusFilter === "archived",
+          signal: controller.signal,
         });
-        if (!resourceRequestGate.current.isCurrent(request)) return;
+        if (
+          !resourceRequestGate.current.isCurrent(request)
+          || cacheVersion !== resourceCacheVersionRef.current
+        ) return;
+        resourceCacheRef.current.set(cacheKey, { items: res.items, total: res.total });
         setResources(res.items);
         setResourceTotal(res.total);
-      } catch {
+      } catch (err) {
+        if ((err as Error)?.name === "AbortError") return;
         if (!resourceRequestGate.current.isCurrent(request)) return;
         setResources([]);
         setResourceTotal(0);
@@ -208,20 +274,46 @@ function InventoryConsole() {
     [resourceStatusFilter, debouncedResourceSearch, resourcePageSize],
   );
 
-  // Fetch prices for selected product's variants
+  // Fetch prices for selected product's variants (with cache + abort controller)
+  const fetchProductPrices = useCallback((productId: number) => {
+    if (productPriceCacheRef.current.has(productId)) {
+      const cached = productPriceCacheRef.current.get(productId)!;
+      setVariantPrices((prev) => ({ ...prev, ...cached }));
+      return;
+    }
+
+    productDetailAbortRef.current?.abort();
+    const controller = new AbortController();
+    productDetailAbortRef.current = controller;
+
+    api.sellerProduct(productId, { signal: controller.signal })
+      .then((detail) => {
+        const map: Record<number, number> = {};
+        for (const v of detail.variants || []) {
+          map[v.id] = v.price;
+        }
+        productPriceCacheRef.current.set(productId, map);
+        setVariantPrices((prev) => ({ ...prev, ...map }));
+      })
+      .catch((err) => {
+        if ((err as Error)?.name !== "AbortError") {
+          // ignore network or other errors silently
+        }
+      });
+  }, []);
+
   useEffect(() => {
     if (selectedProductId) {
-      api.sellerProduct(selectedProductId)
-        .then((detail) => {
-          const map: Record<number, number> = {};
-          for (const v of detail.variants || []) {
-            map[v.id] = v.price;
-          }
-          setVariantPrices((prev) => ({ ...prev, ...map }));
-        })
-        .catch(() => {});
+      fetchProductPrices(selectedProductId);
     }
-  }, [selectedProductId]);
+  }, [selectedProductId, fetchProductPrices]);
+
+  useEffect(() => () => {
+    resourceAbortRef.current?.abort();
+    productDetailAbortRef.current?.abort();
+    resourceRequestGate.current.begin();
+    summaryRequestGate.current.begin();
+  }, []);
 
   // Group rows by product with accurate total-level status
   const productGroups: ProductGroup[] = useMemo(() => {
@@ -236,7 +328,7 @@ function InventoryConsole() {
       const totalAvailable = g.variants.reduce((acc, v) => acc + v.available, 0);
       const totalAssigned = g.variants.reduce((acc, v) => acc + v.assigned, 0);
       const hasOut = totalAvailable === 0;
-      const hasLow = totalAvailable > 0 && totalAvailable <= 10;
+      const hasLow = totalAvailable > 0 && totalAvailable <= LOW_STOCK;
       const hasError = g.variants.some((v) => v.error > 0);
 
       return {
@@ -250,28 +342,119 @@ function InventoryConsole() {
     });
   }, [rows]);
 
+  // Unified Product & Variant Selection (Atomic, Cached, Non-blocking)
+  const handleSelectProduct = useCallback((product: ProductGroup) => {
+    if (product.id === selectedProductId) return;
+
+    const targetVariant = product.variants[0] || null;
+    const targetVariantId = targetVariant ? targetVariant.variant_id : null;
+
+    // Immediately abort any pending requests
+    resourceAbortRef.current?.abort();
+    productDetailAbortRef.current?.abort();
+
+    // Check cache for resources
+    let hasCachedResources = false;
+    if (targetVariantId) {
+      const cacheKey = `${targetVariantId}:1:${resourcePageSize}:all:`;
+      if (resourceCacheRef.current.has(cacheKey)) {
+        const cached = resourceCacheRef.current.get(cacheKey)!;
+        setResources(cached.items);
+        setResourceTotal(cached.total);
+        setLoadingResources(false);
+        setResourceLoadError(false);
+        hasCachedResources = true;
+      }
+    }
+
+    if (!hasCachedResources) {
+      setResources([]);
+      setLoadingResources(Boolean(targetVariantId));
+      setResourceLoadError(false);
+    }
+
+    // Reset filters atomically
+    setResourcePage(1);
+    setResourceSearch("");
+    setResourceStatusFilter("all");
+    setSelectedResourceIds(new Set());
+    setRevealedResourceIds(new Set());
+    setRestockText("");
+    setUploadedFileName(null);
+    setRestockError(null);
+    setRestockSuccess(null);
+
+    // Urgent highlight update for sidebar
+    setSelectedProductId(product.id);
+    setSelectedVariantId(targetVariantId);
+
+    // Track filter key to prevent duplicate fetch from useEffect
+    if (targetVariantId) {
+      prevFilterParamsRef.current = `${targetVariantId}:1:all::${resourcePageSize}`;
+      if (!hasCachedResources) {
+        void loadVariantResources(targetVariantId, 1, "all", "", resourcePageSize);
+      }
+    }
+
+  }, [selectedProductId, resourcePageSize, loadVariantResources]);
+
+  const handleSelectVariant = useCallback((variantId: number) => {
+    if (variantId === selectedVariantId) return;
+
+    resourceAbortRef.current?.abort();
+
+    const cacheKey = `${variantId}:1:${resourcePageSize}:all:`;
+    let hasCachedResources = false;
+    if (resourceCacheRef.current.has(cacheKey)) {
+      const cached = resourceCacheRef.current.get(cacheKey)!;
+      setResources(cached.items);
+      setResourceTotal(cached.total);
+      setLoadingResources(false);
+      setResourceLoadError(false);
+      hasCachedResources = true;
+    } else {
+      setResources([]);
+      setLoadingResources(true);
+      setResourceLoadError(false);
+    }
+
+    setResourcePage(1);
+    setResourceSearch("");
+    setResourceStatusFilter("all");
+    setSelectedResourceIds(new Set());
+    setRevealedResourceIds(new Set());
+    setRestockText("");
+    setUploadedFileName(null);
+    setRestockError(null);
+    setRestockSuccess(null);
+
+    setSelectedVariantId(variantId);
+
+    prevFilterParamsRef.current = `${variantId}:1:all::${resourcePageSize}`;
+    if (!hasCachedResources) {
+      void loadVariantResources(variantId, 1, "all", "", resourcePageSize);
+    }
+  }, [selectedVariantId, resourcePageSize, loadVariantResources]);
+
   // Handle URL query target (product or variant)
   useEffect(() => {
     if (targetProductId && productGroups.length > 0) {
       const match = productGroups.find((g) => g.id === targetProductId);
       if (match) {
-        setSelectedProductId(match.id);
-        if (match.variants.length > 0) {
-          setSelectedVariantId(match.variants[0].variant_id);
-        }
+        handleSelectProduct(match);
         setFilter("all");
       }
     } else if (targetVariantId && rows.length > 0) {
       const match = rows.find((r) => r.variant_id === targetVariantId);
       if (match) {
-        setSelectedProductId(match.product_id);
-        setSelectedVariantId(match.variant_id);
+        const prod = productGroups.find((g) => g.id === match.product_id);
+        if (prod) {
+          handleSelectProduct(prod);
+          handleSelectVariant(match.variant_id);
+        }
         setFilter("all");
         setIsRestockOpen(true);
-        const idx = productGroups.findIndex((g) => g.id === match.product_id);
-        if (idx !== -1) {
-          setProductPage(Math.floor(idx / PRODUCTS_PAGE_SIZE) + 1);
-        }
+        setProductPage(1);
         setTimeout(() => {
           restockPanelRef.current?.scrollIntoView({ behavior: "smooth", block: "center" });
           const textarea = restockPanelRef.current?.querySelector("textarea");
@@ -279,47 +462,55 @@ function InventoryConsole() {
         }, 120);
       }
     }
-  }, [targetProductId, targetVariantId, productGroups, rows]);
+  }, [targetProductId, targetVariantId, productGroups, rows, handleSelectProduct, handleSelectVariant]);
 
-
-
-  // Set default selected product and variant if not set
+  // Keep the detail pane aligned with the currently loaded server page.
   useEffect(() => {
-    if (productGroups.length > 0 && selectedProductId === null) {
-      const first = productGroups[0];
-      setSelectedProductId(first.id);
-      if (first.variants.length > 0) {
-        setSelectedVariantId(first.variants[0].variant_id);
-      }
+    if (productGroups.length === 0) {
+      setSelectedProductId(null);
+      setSelectedVariantId(null);
+      setResources([]);
+      setResourceTotal(0);
+      setSelectedResourceIds(new Set());
+      return;
     }
-  }, [productGroups, selectedProductId]);
+    const selectedProduct = productGroups.find((product) => product.id === selectedProductId);
+    if (!selectedProduct) {
+      handleSelectProduct(productGroups[0]);
+      return;
+    }
+    if (!selectedProduct.variants.some((variant) => variant.variant_id === selectedVariantId)) {
+      const firstVariant = selectedProduct.variants[0];
+      if (firstVariant) handleSelectVariant(firstVariant.variant_id);
+    }
+  }, [
+    productGroups,
+    selectedProductId,
+    selectedVariantId,
+    handleSelectProduct,
+    handleSelectVariant,
+  ]);
 
-  useEffect(() => {
-    setResourcePage(1);
-    setResourceSearch("");
-    setResourceStatusFilter("all");
-    setSelectedResourceIds(new Set());
-    setRestockText("");
-    setUploadedFileName(null);
-    setRestockError(null);
-    setRestockSuccess(null);
-  }, [selectedVariantId]);
-
+  // Reset pagination and selection on filter/search change
   useEffect(() => {
     setResourcePage(1);
     setSelectedResourceIds(new Set());
   }, [resourceStatusFilter, debouncedResourceSearch, resourcePageSize]);
 
+  // Reload resources when table filter / search / pagination changes
   useEffect(() => {
-    if (selectedVariantId) {
-      void loadVariantResources(
-        selectedVariantId,
-        resourcePage,
-        resourceStatusFilter,
-        debouncedResourceSearch,
-        resourcePageSize,
-      );
-    }
+    if (!selectedVariantId) return;
+    const filterKey = `${selectedVariantId}:${resourcePage}:${resourceStatusFilter}:${debouncedResourceSearch}:${resourcePageSize}`;
+    if (prevFilterParamsRef.current === filterKey) return;
+    prevFilterParamsRef.current = filterKey;
+
+    void loadVariantResources(
+      selectedVariantId,
+      resourcePage,
+      resourceStatusFilter,
+      debouncedResourceSearch,
+      resourcePageSize,
+    );
   }, [
     selectedVariantId,
     resourcePage,
@@ -329,37 +520,14 @@ function InventoryConsole() {
     loadVariantResources,
   ]);
 
-  // Summary Metrics
-  const totalAvailable = rows.reduce((s, r) => s + r.available, 0);
-  const outCount = rows.filter((r) => r.available === 0).length;
-  const lowCount = rows.filter((r) => r.available > 0 && r.available <= LOW_STOCK).length;
-  const errorCount = rows.filter((r) => r.error > 0).length;
-  const outProductCount = productGroups.filter((group) => group.hasOut).length;
+  const totalAvailable = summaryCounts.available;
+  const outCount = summaryCounts.out;
+  const lowCount = summaryCounts.low;
+  const errorCount = summaryCounts.error;
+  const outProductCount = summaryCounts.out;
 
-  // Filtered product groups for left column
-  const filteredProducts = useMemo(() => {
-    return productGroups.filter((g) => {
-      if (filter === "out" && !g.hasOut) return false;
-      if (filter === "low" && !g.hasLow) return false;
-      if (filter === "error" && !g.hasError) return false;
-
-      if (productSearch.trim()) {
-        const q = productSearch.toLowerCase().trim();
-        const matchTitle = g.title.toLowerCase().includes(q);
-        const matchId = String(g.id).includes(q);
-        const matchVariant = g.variants.some((v) => v.variant_name.toLowerCase().includes(q));
-        if (!matchTitle && !matchId && !matchVariant) return false;
-      }
-      return true;
-    });
-  }, [productGroups, filter, productSearch]);
-
-  // Paginated product list
-  const totalProductPages = Math.ceil(filteredProducts.length / PRODUCTS_PAGE_SIZE);
-  const paginatedProducts = useMemo(() => {
-    const start = (productPage - 1) * PRODUCTS_PAGE_SIZE;
-    return filteredProducts.slice(start, start + PRODUCTS_PAGE_SIZE);
-  }, [filteredProducts, productPage]);
+  const totalProductPages = Math.max(1, Math.ceil(summaryTotal / PRODUCTS_PAGE_SIZE));
+  const paginatedProducts = productGroups;
 
   // Active product group
   const activeProduct = useMemo(() => {
@@ -371,12 +539,6 @@ function InventoryConsole() {
     if (!activeProduct) return null;
     return activeProduct.variants.find((v) => v.variant_id === selectedVariantId) || activeProduct.variants[0] || null;
   }, [activeProduct, selectedVariantId]);
-
-  useEffect(() => {
-    if (activeVariant && activeVariant.available === 0) {
-      setIsRestockOpen(true);
-    }
-  }, [activeVariant?.variant_id, activeVariant?.available]);
 
   // Parsed restock lines
   const parsedRestockItems = useMemo(
@@ -416,6 +578,7 @@ function InventoryConsole() {
       const result = await api.addResources(activeVariant.variant_id, parsedRestockItems);
       setRestockSuccess(result.count);
       setRestockText("");
+      invalidateResourceCache(activeVariant.variant_id);
       await loadSummary();
       await loadVariantResources(
         activeVariant.variant_id,
@@ -423,6 +586,7 @@ function InventoryConsole() {
         resourceStatusFilter,
         debouncedResourceSearch,
         resourcePageSize,
+        true,
       );
       setTimeout(() => setRestockSuccess(null), 3000);
     } catch (err: unknown) {
@@ -460,6 +624,7 @@ function InventoryConsole() {
     if (!confirm(t("inventoryDeleteConfirm"))) return;
     try {
       await api.deleteResource(resourceId);
+      invalidateResourceCache(activeVariant?.variant_id);
       setResources((prev) => prev.filter((r) => r.id !== resourceId));
       setSelectedResourceIds((prev) => {
         const next = new Set(prev);
@@ -479,6 +644,7 @@ function InventoryConsole() {
   const handleRestockSingle = async (resourceId: number, data: string) => {
     try {
       await api.restockResource(resourceId, data);
+      invalidateResourceCache(activeVariant?.variant_id);
       await loadSummary();
       if (activeVariant) {
         await loadVariantResources(
@@ -487,6 +653,7 @@ function InventoryConsole() {
           resourceStatusFilter,
           debouncedResourceSearch,
           resourcePageSize,
+          true,
         );
       }
       if (activeDetailResource?.id === resourceId) {
@@ -501,6 +668,7 @@ function InventoryConsole() {
     if (!confirm(t("inventoryArchiveConfirm"))) return;
     try {
       await api.archiveResource(resourceId);
+      invalidateResourceCache(activeVariant?.variant_id);
       setSelectedResourceIds((prev) => {
         const next = new Set(prev);
         next.delete(resourceId);
@@ -517,6 +685,7 @@ function InventoryConsole() {
           resourceStatusFilter,
           debouncedResourceSearch,
           resourcePageSize,
+          true,
         );
       }
     } catch (err: unknown) {
@@ -527,6 +696,7 @@ function InventoryConsole() {
   const handleRestoreSingle = async (resourceId: number) => {
     try {
       await api.restoreResource(resourceId);
+      invalidateResourceCache(activeVariant?.variant_id);
       setSelectedResourceIds((prev) => {
         const next = new Set(prev);
         next.delete(resourceId);
@@ -541,6 +711,7 @@ function InventoryConsole() {
           resourceStatusFilter,
           debouncedResourceSearch,
           resourcePageSize,
+          true,
         );
       }
     } catch (err: unknown) {
@@ -566,6 +737,7 @@ function InventoryConsole() {
         type: "success",
         text: t("inventoryArchiveSuccess", { count: result.count }),
       });
+      invalidateResourceCache(activeVariant.variant_id);
       await loadSummary();
       await loadVariantResources(
         activeVariant.variant_id,
@@ -573,6 +745,7 @@ function InventoryConsole() {
         resourceStatusFilter,
         debouncedResourceSearch,
         resourcePageSize,
+        true,
       );
       setTimeout(() => setBulkMessage(null), 3500);
     } catch (err: unknown) {
@@ -599,8 +772,9 @@ function InventoryConsole() {
       );
       setSelectedResourceIds(new Set());
       setBulkMessage({ type: "success", text: t("inventoryRestoreSuccess", { count: result.count }) });
+      invalidateResourceCache(activeVariant.variant_id);
       await loadSummary();
-      await loadVariantResources(activeVariant.variant_id, resourcePage, resourceStatusFilter, debouncedResourceSearch, resourcePageSize);
+      await loadVariantResources(activeVariant.variant_id, resourcePage, resourceStatusFilter, debouncedResourceSearch, resourcePageSize, true);
       setTimeout(() => setBulkMessage(null), 3500);
     } catch (err: unknown) {
       setBulkMessage({ type: "error", text: apiErrorMessage(err, t("inventoryRestoreFailed")) });
@@ -609,7 +783,67 @@ function InventoryConsole() {
     }
   };
 
+  const handleBulkDelete = async () => {
+    if (!activeVariant || selectedResourceIds.size === 0) return;
+    const count = selectedResourceIds.size;
+    if (!confirm(t("inventoryBulkDeleteConfirm", { count }))) return;
+    setBulkOperating(true);
+    setBulkMessage(null);
+    try {
+      const result = await api.bulkResourceAction(
+        activeVariant.variant_id,
+        "delete",
+        Array.from(selectedResourceIds),
+      );
+      setSelectedResourceIds(new Set());
+      setBulkMessage({ type: "success", text: t("inventoryDeleteSuccess", { count: result.count }) });
+      invalidateResourceCache(activeVariant.variant_id);
+      await loadSummary();
+      await loadVariantResources(activeVariant.variant_id, resourcePage, resourceStatusFilter, debouncedResourceSearch, resourcePageSize, true);
+      setTimeout(() => setBulkMessage(null), 3500);
+    } catch (err: unknown) {
+      setBulkMessage({ type: "error", text: apiErrorMessage(err, t("inventoryDeleteFailed")) });
+    } finally {
+      setBulkOperating(false);
+    }
+  };
+
+  const handleFullRefresh = async () => {
+    setRefreshing(true);
+    invalidateResourceCache();
+    productPriceCacheRef.current.clear();
+    try {
+      await Promise.all([
+        loadSummary(),
+        activeVariant
+          ? loadVariantResources(
+              activeVariant.variant_id,
+              resourcePage,
+              resourceStatusFilter,
+              debouncedResourceSearch,
+              resourcePageSize,
+              true,
+            )
+          : Promise.resolve(),
+      ]);
+    } finally {
+      setRefreshing(false);
+    }
+  };
+
+  const handleCopyData = async (id: number, text: string) => {
+    try {
+      await navigator.clipboard.writeText(text);
+      setCopiedId(id);
+      setTimeout(() => setCopiedId((current) => current === id ? null : current), 1800);
+    } catch {
+      setBulkMessage({ type: "error", text: t("inventoryCopyFailed") });
+      setTimeout(() => setBulkMessage(null), 3500);
+    }
+  };
+
   const handleUpdateResourceSuccess = (updated: Resource) => {
+    invalidateResourceCache(updated.variant_id);
     setResources((prev) => prev.map((r) => (r.id === updated.id ? updated : r)));
     setActiveDetailResource(updated);
   };
@@ -649,7 +883,7 @@ function InventoryConsole() {
   const totalResourcePages = Math.max(1, Math.ceil(resourceTotal / resourcePageSize));
   const paginatedResources = resources;
 
-  if (loading) {
+  if (loading && rows.length === 0) {
     return (
       <div className="space-y-5 animate-pulse">
         <div className="flex items-center justify-between">
@@ -696,20 +930,16 @@ function InventoryConsole() {
           <p className="text-[12.5px] text-muted">{t("inventorySummary", { count: totalAvailable })}</p>
         </div>
         <div className="flex items-center gap-2">
-          <Button size="sm" variant="secondary" onClick={loadSummary} className="gap-1.5">
-            <RefreshCw size={13} />
+          <Button
+            size="sm"
+            variant="secondary"
+            onClick={handleFullRefresh}
+            disabled={refreshing}
+            className="gap-1.5"
+          >
+            <RefreshCw size={13} className={cn(refreshing && "animate-spin")} />
             <span>{t("refresh")}</span>
           </Button>
-          {activeProduct && (
-            <Button
-              size="sm"
-              onClick={() => setIsCreateVariantOpen(true)}
-              className="gap-1.5 shadow-sm"
-            >
-              <Plus size={13} />
-              <span>{t("createVariantQuick")}</span>
-            </Button>
-          )}
         </div>
       </div>
 
@@ -723,9 +953,19 @@ function InventoryConsole() {
       {/* 4 Clickable KPI Summary Metric Cards */}
       <div className="grid grid-cols-2 lg:grid-cols-4 gap-3">
         <Card
+          role="button"
+          tabIndex={0}
+          aria-pressed={filter === "all"}
           onClick={() => { setFilter("all"); setProductPage(1); }}
+          onKeyDown={(event) => {
+            if (event.key === "Enter" || event.key === " ") {
+              event.preventDefault();
+              setFilter("all");
+              setProductPage(1);
+            }
+          }}
           className={cn(
-            "p-3.5 flex flex-col justify-between cursor-pointer transition-all hover:border-good/50 hover:shadow-xs",
+            "p-3.5 flex flex-col justify-between cursor-pointer transition-all hover:border-good/50 hover:shadow-xs focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-iris",
             filter === "all" && "ring-2 ring-iris/40 border-iris/50"
           )}
         >
@@ -743,9 +983,19 @@ function InventoryConsole() {
         </Card>
 
         <Card
+          role="button"
+          tabIndex={0}
+          aria-pressed={filter === "low"}
           onClick={() => { setFilter(filter === "low" ? "all" : "low"); setProductPage(1); }}
+          onKeyDown={(event) => {
+            if (event.key === "Enter" || event.key === " ") {
+              event.preventDefault();
+              setFilter(filter === "low" ? "all" : "low");
+              setProductPage(1);
+            }
+          }}
           className={cn(
-            "p-3.5 flex flex-col justify-between border-warn/30 bg-warn-soft/20 cursor-pointer transition-all hover:border-warn/60 hover:shadow-xs",
+            "p-3.5 flex flex-col justify-between border-warn/30 bg-warn-soft/20 cursor-pointer transition-all hover:border-warn/60 hover:shadow-xs focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-iris",
             filter === "low" && "ring-2 ring-warn/50 border-warn bg-warn-soft/40"
           )}
         >
@@ -755,15 +1005,25 @@ function InventoryConsole() {
           </div>
           <div className="text-2xl font-bold font-mono tabular text-warn">
             {lowCount}{" "}
-            <span className="text-xs font-normal text-muted font-sans">{t("variants").toLowerCase()}</span>
+            <span className="text-xs font-normal text-muted font-sans">{t("productsUnit")}</span>
           </div>
           <div className="text-[11px] text-warn font-medium mt-1">{t("inventoryReplenishHint")}</div>
         </Card>
 
         <Card
+          role="button"
+          tabIndex={0}
+          aria-pressed={filter === "out"}
           onClick={() => { setFilter(filter === "out" ? "all" : "out"); setProductPage(1); }}
+          onKeyDown={(event) => {
+            if (event.key === "Enter" || event.key === " ") {
+              event.preventDefault();
+              setFilter(filter === "out" ? "all" : "out");
+              setProductPage(1);
+            }
+          }}
           className={cn(
-            "p-3.5 flex flex-col justify-between border-bad/30 bg-bad-soft/20 cursor-pointer transition-all hover:border-bad/60 hover:shadow-xs",
+            "p-3.5 flex flex-col justify-between border-bad/30 bg-bad-soft/20 cursor-pointer transition-all hover:border-bad/60 hover:shadow-xs focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-iris",
             filter === "out" && "ring-2 ring-bad/50 border-bad bg-bad-soft/40"
           )}
         >
@@ -773,7 +1033,7 @@ function InventoryConsole() {
           </div>
           <div className="text-2xl font-bold font-mono tabular text-bad">
             {outCount}{" "}
-            <span className="text-xs font-normal text-muted font-sans">{t("variants").toLowerCase()}</span>
+            <span className="text-xs font-normal text-muted font-sans">{t("productsUnit")}</span>
           </div>
           <div className="text-[11px] text-bad font-medium mt-1">
             {t("inventoryOutProductsHint", { count: outProductCount })}
@@ -781,9 +1041,19 @@ function InventoryConsole() {
         </Card>
 
         <Card
+          role="button"
+          tabIndex={0}
+          aria-pressed={filter === "error"}
           onClick={() => { setFilter(filter === "error" ? "all" : "error"); setProductPage(1); }}
+          onKeyDown={(event) => {
+            if (event.key === "Enter" || event.key === " ") {
+              event.preventDefault();
+              setFilter(filter === "error" ? "all" : "error");
+              setProductPage(1);
+            }
+          }}
           className={cn(
-            "p-3.5 flex flex-col justify-between cursor-pointer transition-all hover:border-bad/50 hover:shadow-xs",
+            "p-3.5 flex flex-col justify-between cursor-pointer transition-all hover:border-bad/50 hover:shadow-xs focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-iris",
             filter === "error" && "ring-2 ring-bad/50 border-bad/50 bg-bad-soft/20"
           )}
         >
@@ -795,7 +1065,7 @@ function InventoryConsole() {
           </div>
           <div className="text-2xl font-bold font-mono tabular text-fg">
             {errorCount}{" "}
-            <span className="text-xs font-normal text-faint font-sans">{t("itemsUnit")}</span>
+            <span className="text-xs font-normal text-faint font-sans">{t("productsUnit")}</span>
           </div>
           <div className="text-[11px] text-faint font-medium mt-1">{t("inventoryErrorHint")}</div>
         </Card>
@@ -828,7 +1098,12 @@ function InventoryConsole() {
               <div className="p-3 border-b border-line bg-raised/30 space-y-2">
                 <div className="flex items-center justify-between text-xs font-semibold text-fg">
                   <span>{t("inventoryProducts")}</span>
-                  <span className="text-faint font-mono text-[11px]">{t("inventoryProductsCount", { count: filteredProducts.length })}</span>
+                  <div className="flex items-center gap-1.5">
+                    {loading && rows.length > 0 && (
+                      <RefreshCw size={12} className="text-iris animate-spin inline-block" />
+                    )}
+                    <span className="text-faint font-mono text-[11px]">{t("inventoryProductsCount", { count: summaryTotal })}</span>
+                  </div>
                 </div>
 
                 <div className="relative">
@@ -836,6 +1111,7 @@ function InventoryConsole() {
                     <Search size={13} />
                   </span>
                   <Input
+                    name="inventory-product-search"
                     value={productSearch}
                     onChange={(e) => {
                       setProductSearch(e.target.value);
@@ -905,7 +1181,7 @@ function InventoryConsole() {
                   {t("inventoryNoProductMatch")}
                 </div>
               ) : (
-                <div className="divide-y divide-line max-h-[560px] overflow-y-auto">
+                <div className="divide-y divide-line lg:max-h-[560px] lg:overflow-y-auto">
                   {paginatedProducts.map((p) => {
                     const isSelected = selectedProductId === p.id;
                     const isOutOfStock = p.totalAvailable === 0;
@@ -914,16 +1190,13 @@ function InventoryConsole() {
                     const stockLabel = isOutOfStock ? t("outOfStockLabel") : isLowStock ? t("lowStockLabel") : t("inStockLabel");
 
                     return (
-                      <div
+                      <button
+                        type="button"
                         key={p.id}
-                        onClick={() => {
-                          setSelectedProductId(p.id);
-                          if (p.variants.length > 0) {
-                            setSelectedVariantId(p.variants[0].variant_id);
-                          }
-                        }}
+                        onClick={() => handleSelectProduct(p)}
+                        aria-pressed={isSelected}
                         className={cn(
-                          "p-3 cursor-pointer transition-all space-y-1.5 text-xs text-left",
+                          "w-full p-3 cursor-pointer transition-all space-y-1.5 text-xs text-left focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-inset focus-visible:ring-iris",
                           isSelected
                             ? "bg-iris-soft/40 border-l-4 border-iris"
                             : "hover:bg-raised/50"
@@ -950,7 +1223,7 @@ function InventoryConsole() {
                             {t("stockCountShort", { count: p.totalAvailable.toLocaleString() })}
                           </span>
                         </div>
-                      </div>
+                      </button>
                     );
                   })}
                 </div>
@@ -1056,11 +1329,13 @@ function InventoryConsole() {
                         const priceNum = variantPrices[v.variant_id];
 
                         return (
-                          <div
+                          <button
+                            type="button"
                             key={v.variant_id}
-                            onClick={() => setSelectedVariantId(v.variant_id)}
+                            onClick={() => handleSelectVariant(v.variant_id)}
+                            aria-pressed={isVarSelected}
                             className={cn(
-                              "p-2.5 rounded-xl border text-xs cursor-pointer transition-all flex flex-col justify-between gap-1.5 text-left",
+                              "p-2.5 rounded-xl border text-xs cursor-pointer transition-all flex flex-col justify-between gap-1.5 text-left focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-iris",
                               isVarSelected
                                 ? "border-iris bg-iris-soft/40 shadow-xs ring-1 ring-iris"
                                 : "border-line bg-surface hover:bg-raised/60 hover:border-line-2"
@@ -1098,7 +1373,7 @@ function InventoryConsole() {
                                 {toneLabel}
                               </Tag>
                             </div>
-                          </div>
+                          </button>
                         );
                       })}
                     </div>
@@ -1221,6 +1496,7 @@ function InventoryConsole() {
                         </div>
 
                         <Textarea
+                          name="inventory-restock-items"
                           rows={3}
                           value={restockText}
                           onChange={(e) => {
@@ -1412,6 +1688,7 @@ function InventoryConsole() {
                         <div className="relative flex-1 min-w-0 max-w-sm">
                           <Search size={13} className="absolute left-2.5 top-1/2 -translate-y-1/2 text-muted pointer-events-none" />
                           <Input
+                            name="inventory-resource-search"
                             value={resourceSearch}
                             onChange={(e) => setResourceSearch(e.target.value)}
                             placeholder={t("inventorySearchResourcePlaceholder")}
@@ -1431,6 +1708,7 @@ function InventoryConsole() {
                         <div className="flex items-center gap-1.5 text-[11px] text-muted shrink-0 pr-0.5">
                           <span className="whitespace-nowrap">{t("inventoryPageSize")}</span>
                           <Select
+                            name="inventory-resource-page-size"
                             value={String(resourcePageSize)}
                             onChange={(e) => setResourcePageSize(Number(e.target.value))}
                             className="h-7 text-xs bg-surface w-16 py-0 px-1 text-center"
@@ -1438,7 +1716,6 @@ function InventoryConsole() {
                             <option value="25">25</option>
                             <option value="50">50</option>
                             <option value="100">100</option>
-                            <option value="200">200</option>
                           </Select>
                         </div>
                       </div>
@@ -1476,16 +1753,30 @@ function InventoryConsole() {
                                 <span>{t("inventoryBulkRestore", { count: selectedResourceIds.size })}</span>
                               </Button>
                             ) : (
-                              <Button
-                                size="sm"
-                                variant="secondary"
-                                onClick={handleBulkArchive}
-                                disabled={bulkOperating}
-                                className="h-7 text-xs gap-1 text-bad hover:bg-bad-soft"
-                              >
-                                <EyeOff size={12} />
-                                <span>{t("inventoryBulkArchive", { count: selectedResourceIds.size })}</span>
-                              </Button>
+                              <>
+                                <Button
+                                  size="sm"
+                                  variant="secondary"
+                                  onClick={handleBulkArchive}
+                                  disabled={bulkOperating}
+                                  className="h-7 text-xs gap-1 text-muted hover:text-bad"
+                                >
+                                  <EyeOff size={12} />
+                                  <span>{t("inventoryBulkArchive", { count: selectedResourceIds.size })}</span>
+                                </Button>
+                                {resourceStatusFilter === "available" && (
+                                  <Button
+                                    size="sm"
+                                    variant="secondary"
+                                    onClick={handleBulkDelete}
+                                    disabled={bulkOperating}
+                                    className="h-7 text-xs gap-1 text-bad hover:bg-bad-soft"
+                                  >
+                                    <Trash size={12} />
+                                    <span>{t("inventoryBulkDelete", { count: selectedResourceIds.size })}</span>
+                                  </Button>
+                                )}
+                              </>
                             )}
                           </div>
                         </div>
@@ -1505,53 +1796,90 @@ function InventoryConsole() {
                         </div>
                       )}
 
-                      {loadingResources ? (
-                        <div className="py-6 text-center">
-                          <Spinner />
-                        </div>
-                      ) : resourceLoadError ? (
-                        <div className="py-6 text-center text-xs text-bad border border-bad/20 rounded-xl bg-bad-soft/20 space-y-2">
-                          <p>{t("resourcesLoadFailed")}</p>
-                          <Button
-                            size="sm"
-                            variant="secondary"
-                            onClick={() => activeVariant && void loadVariantResources(activeVariant.variant_id, resourcePage)}
-                          >
-                            {t("retry")}
-                          </Button>
-                        </div>
-                      ) : resources.length === 0 ? (
-                        <div className="py-6 text-center text-xs text-muted border border-line rounded-xl bg-raised/20">
-                          {t("inventoryNoLines")}
-                        </div>
-                      ) : (
-                        <div className="rounded-xl border border-line overflow-hidden bg-surface">
-                          <div className="overflow-x-auto">
-                            <table className="w-full table-fixed text-left text-xs border-collapse">
-                              <thead>
-                                <tr className="bg-raised/40 text-faint text-[11px] font-semibold border-b border-line">
-                                  <th className="w-10 px-3 py-2.5 text-center">
-                                    <Input
-                                      type="checkbox"
-                                      checked={isAllPageSelected}
-                                      onChange={toggleSelectAllPage}
-                                      className="h-3.5 w-3.5 rounded border-line-2 text-iris focus:ring-0 p-0"
-                                      title={isAllPageSelected ? t("inventoryDeselectAll") : t("inventorySelectAllPage")}
-                                    />
-                                  </th>
-                                  <th className="w-28 px-3.5 py-2.5 whitespace-nowrap">{t("status")}</th>
-                                  <th className="px-3.5 py-2.5">{t("resourceTableContent")}</th>
-                                  <th className="w-20 px-3.5 py-2.5 whitespace-nowrap">{t("resourceTableOrder")}</th>
-                                  <th className="w-28 px-3.5 py-2.5 whitespace-nowrap">{t("resourceTableDate")}</th>
-                                  <th className="w-32 px-3.5 py-2.5 text-right whitespace-nowrap">{t("actions")}</th>
+                      {/* TABLE CONTAINER: PERMANENTLY MOUNTED TO PREVENT COLLAPSING / BLANK FLASH */}
+                      <div className="rounded-xl border border-line overflow-hidden bg-surface relative">
+                        {/* Smooth top progress bar on refresh / load */}
+                        {loadingResources && (
+                          <div className="absolute top-0 left-0 right-0 h-0.5 bg-line overflow-hidden z-20">
+                            <div className="h-full bg-iris animate-pulse w-full" />
+                          </div>
+                        )}
+
+                        <div className="overflow-x-auto">
+                          <table className="w-full table-fixed text-left text-xs border-collapse">
+                            <thead>
+                              <tr className="bg-raised/40 text-faint text-[11px] font-semibold border-b border-line">
+                                <th className="w-10 px-3 py-2.5 text-center">
+                                  <Input
+                                    type="checkbox"
+                                    name="select-all-resources"
+                                    aria-label={isAllPageSelected ? t("inventoryDeselectAll") : t("inventorySelectAllPage")}
+                                    checked={isAllPageSelected && paginatedResources.length > 0}
+                                    disabled={loadingResources || paginatedResources.length === 0}
+                                    onChange={toggleSelectAllPage}
+                                    className="h-5 w-5 rounded border-line-2 text-iris focus:ring-0 p-0"
+                                    title={isAllPageSelected ? t("inventoryDeselectAll") : t("inventorySelectAllPage")}
+                                  />
+                                </th>
+                                <th className="w-28 px-3.5 py-2.5 whitespace-nowrap">{t("status")}</th>
+                                <th className="px-3.5 py-2.5">{t("resourceTableContent")}</th>
+                                <th className="w-20 px-3.5 py-2.5 whitespace-nowrap">{t("resourceTableOrder")}</th>
+                                <th className="w-28 px-3.5 py-2.5 whitespace-nowrap">{t("resourceTableDate")}</th>
+                                <th className="w-32 px-3.5 py-2.5 text-right whitespace-nowrap">{t("actions")}</th>
+                              </tr>
+                            </thead>
+                            <tbody className="divide-y divide-line text-[12px]">
+                              {loadingResources ? (
+                                Array.from({ length: Math.min(5, resourcePageSize) }).map((_, idx) => (
+                                  <tr key={`res-skel-${idx}`} className="animate-pulse">
+                                    <td className="w-10 px-3 py-2.5 text-center">
+                                      <div className="h-3.5 w-3.5 rounded bg-raised mx-auto" />
+                                    </td>
+                                    <td className="w-28 px-3.5 py-2.5">
+                                      <div className="h-4.5 w-16 rounded bg-raised" />
+                                    </td>
+                                    <td className="px-3.5 py-2.5">
+                                      <div className="h-4 w-3/4 rounded bg-raised" />
+                                    </td>
+                                    <td className="w-20 px-3.5 py-2.5">
+                                      <div className="h-4 w-8 rounded bg-raised" />
+                                    </td>
+                                    <td className="w-28 px-3.5 py-2.5">
+                                      <div className="h-4 w-16 rounded bg-raised" />
+                                    </td>
+                                    <td className="w-32 px-3.5 py-2.5 text-right">
+                                      <div className="h-4 w-12 rounded bg-raised ml-auto" />
+                                    </td>
+                                  </tr>
+                                ))
+                              ) : resourceLoadError ? (
+                                <tr>
+                                  <td colSpan={6} className="py-10 text-center text-xs text-bad">
+                                    <p className="mb-2">{t("resourcesLoadFailed")}</p>
+                                    <Button
+                                      size="sm"
+                                      variant="secondary"
+                                      onClick={() => activeVariant && void loadVariantResources(activeVariant.variant_id, resourcePage)}
+                                    >
+                                      {t("retry")}
+                                    </Button>
+                                  </td>
                                 </tr>
-                              </thead>
-                              <tbody className="divide-y divide-line text-[12px]">
-                                {paginatedResources.map((res) => {
+                              ) : paginatedResources.length === 0 ? (
+                                <tr>
+                                  <td colSpan={6} className="py-12 text-center text-xs text-muted">
+                                    <Package size={28} className="mx-auto text-faint mb-2 opacity-50" />
+                                    <p className="font-medium text-fg mb-0.5">{t("inventoryNoLines")}</p>
+                                    <p className="text-faint text-[11px]">{t("inventoryPasteMore")}</p>
+                                  </td>
+                                </tr>
+                              ) : (
+                                paginatedResources.map((res, idx) => {
                                   const isAvailable = res.status === "available";
                                   const isAssigned = res.status === "assigned";
                                   const isError = res.status === "error";
                                   const isDefective = isDefectiveReturnResource(res.status, res.order_id);
+                                  const isRevealed = revealedResourceIds.has(res.id);
 
                                   const tone = res.is_archived
                                     ? "neutral"
@@ -1566,7 +1894,7 @@ function InventoryConsole() {
                                           : "warn";
 
                                   const label = res.is_archived
-                                    ? t("inventoryResourceArchived")
+                                    ? t("inventorySubtabArchived")
                                     : isAvailable
                                     ? t("inventoryResourceAvailable")
                                     : isAssigned
@@ -1580,15 +1908,17 @@ function InventoryConsole() {
                                   return (
                                     <tr
                                       key={res.id}
-                                      onClick={() => setActiveDetailResource(res)}
-                                      className="hover:bg-raised/40 transition-colors cursor-pointer"
+                                      onDoubleClick={() => setActiveDetailResource(res)}
+                                      className="hover:bg-raised/40 transition-colors"
                                     >
                                       <td className="w-10 px-3 py-2 text-center" onClick={(e) => e.stopPropagation()}>
                                         <Input
                                           type="checkbox"
+                                          name={`select-resource-${res.id}`}
+                                          aria-label={`Chọn tài nguyên #${res.id}`}
                                           checked={selectedResourceIds.has(res.id)}
                                           onChange={() => toggleSelectResource(res.id)}
-                                          className="h-3.5 w-3.5 rounded border-line-2 text-iris focus:ring-0 p-0"
+                                          className="h-5 w-5 rounded border-line-2 text-iris focus:ring-0 p-0"
                                         />
                                       </td>
 
@@ -1605,12 +1935,66 @@ function InventoryConsole() {
                                         </div>
                                       </td>
 
-                                      {/* Resource Data */}
-                                      <td className="px-3.5 py-2 font-mono text-[11.5px] min-w-0">
-                                        <span className="truncate block" title={res.data}>
-                                          {res.data.slice(0, 36)}
-                                          {res.data.length > 36 && "..."}
-                                        </span>
+                                      {/* Resource Data with Hover Preview & Quick Copy */}
+                                      <td className="px-3.5 py-2 font-mono text-[12px] min-w-0">
+                                        <div className="relative group/cell flex items-center gap-1.5 max-w-full">
+                                          <span
+                                            className="truncate font-mono text-[12px] text-fg select-all flex-1 min-w-0 cursor-text"
+                                            title={isRevealed ? res.data : undefined}
+                                          >
+                                            {isRevealed ? res.data : "••••••••••••"}
+                                          </span>
+
+                                          {/* Floating hover popover showing full content */}
+                                          {isRevealed && <div
+                                            className={cn(
+                                              "pointer-events-none absolute left-0 z-50 hidden group-hover/cell:block opacity-0 group-hover/cell:opacity-100 group-hover/cell:pointer-events-auto transition-all duration-150",
+                                              idx === 0 ? "top-full mt-1.5" : "bottom-full mb-1.5"
+                                            )}
+                                          >
+                                            <div className="bg-surface/95 backdrop-blur-md border border-line-2 shadow-card-lg rounded-lg p-2.5 text-[11.5px] font-mono max-w-lg w-max min-w-[220px] space-y-1 ring-1 ring-line/50">
+                                              <div className="flex items-center justify-between text-[10px] text-muted font-sans border-b border-line/60 pb-1 mb-0.5 gap-3">
+                                                <span className="font-semibold text-fg">{t("inventoryFullContent")}</span>
+                                                <span className="text-faint">{t("inventoryClickToCopy")}</span>
+                                              </div>
+                                              <div className="break-all whitespace-pre-wrap select-all text-fg font-mono leading-relaxed max-h-48 overflow-y-auto">
+                                                {res.data}
+                                              </div>
+                                            </div>
+                                          </div>}
+
+                                          <div className="flex items-center gap-0.5 shrink-0" onClick={(e) => e.stopPropagation()}>
+                                            <button
+                                              type="button"
+                                              onClick={() => setRevealedResourceIds((current) => {
+                                                const next = new Set(current);
+                                                if (next.has(res.id)) next.delete(res.id);
+                                                else next.add(res.id);
+                                                return next;
+                                              })}
+                                              className="h-8 w-8 lg:h-6 lg:w-6 inline-flex items-center justify-center rounded text-faint transition-colors hover:text-iris hover:bg-raised focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-iris"
+                                              title={isRevealed ? t("inventoryHideSecret") : t("inventoryShowSecret")}
+                                              aria-label={isRevealed ? t("inventoryHideSecret") : t("inventoryShowSecret")}
+                                              aria-pressed={isRevealed}
+                                            >
+                                              {isRevealed ? <EyeOff size={13} /> : <Eye size={13} />}
+                                            </button>
+                                            <button
+                                              type="button"
+                                              onClick={() => void handleCopyData(res.id, res.data)}
+                                              className={cn(
+                                                "h-8 w-8 lg:h-6 lg:w-6 inline-flex items-center justify-center rounded transition-colors focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-iris",
+                                                copiedId === res.id
+                                                  ? "text-good bg-good-soft font-semibold"
+                                                  : "text-faint hover:text-iris hover:bg-raised"
+                                              )}
+                                              title={copiedId === res.id ? t("inventoryCopiedResource") : t("inventoryCopyResource")}
+                                              aria-label={copiedId === res.id ? t("inventoryCopiedResource") : t("inventoryCopyResource")}
+                                            >
+                                              {copiedId === res.id ? <Check size={13} /> : <Copy size={13} />}
+                                            </button>
+                                          </div>
+                                        </div>
                                       </td>
 
                                       {/* Assigned Order */}
@@ -1619,7 +2003,7 @@ function InventoryConsole() {
                                           <Link
                                             href={`/seller/orders?search=%23${res.order_id}`}
                                             onClick={(e) => e.stopPropagation()}
-                                            className="font-mono text-iris hover:underline"
+                                            className="text-iris hover:underline font-mono text-[11px]"
                                           >
                                             #{res.order_id}
                                           </Link>
@@ -1628,11 +2012,11 @@ function InventoryConsole() {
                                         )}
                                       </td>
 
-                                      {/* Date */}
-                                      <td className="px-3.5 py-2 text-faint font-mono text-[11px] whitespace-nowrap">
-                                        {new Date(res.created_at).toLocaleDateString(locale === "vi" ? "vi-VN" : "en-US", {
-                                          month: "numeric",
+                                      {/* Created Date */}
+                                      <td className="px-3.5 py-2 text-muted font-mono text-[11px] whitespace-nowrap">
+                                        {new Date(res.created_at).toLocaleString(locale === "vi" ? "vi-VN" : "en-US", {
                                           day: "numeric",
+                                          month: "numeric",
                                           hour: "2-digit",
                                           minute: "2-digit",
                                           hour12: false,
@@ -1645,7 +2029,6 @@ function InventoryConsole() {
                                           className="grid grid-cols-3 w-[92px] ml-auto gap-1 items-center justify-items-center"
                                           onClick={(e) => e.stopPropagation()}
                                         >
-                                          {/* Slot 1: Edit / View detail */}
                                           <div className="col-start-1">
                                             <Button
                                               size="sm"
@@ -1659,7 +2042,6 @@ function InventoryConsole() {
                                             </Button>
                                           </div>
 
-                                          {/* Slot 2: Lifecycle action (Restock / Restore / Archive) */}
                                           {canRestockInventoryResource(res.status, res.order_id) && !res.is_archived ? (
                                             <div className="col-start-2">
                                               <Button
@@ -1686,12 +2068,12 @@ function InventoryConsole() {
                                                 <RotateCcw size={13} />
                                               </Button>
                                             </div>
-                                          ) : canArchiveInventoryResource(res.status) ? (
+                                          ) : isAvailable ? (
                                             <div className="col-start-2">
                                               <Button
                                                 size="sm"
                                                 variant="ghost"
-                                                onClick={() => void handleArchiveSingle(res.id)}
+                                                onClick={() => handleArchiveSingle(res.id)}
                                                 className="h-7 w-7 p-0 text-muted hover:text-bad hover:bg-bad-soft inline-flex items-center justify-center rounded-lg"
                                                 title={t("inventoryArchiveSingle")}
                                                 aria-label={t("inventoryArchiveSingle")}
@@ -1701,7 +2083,6 @@ function InventoryConsole() {
                                             </div>
                                           ) : null}
 
-                                          {/* Slot 3: Delete */}
                                           {isAvailable && (
                                             <div className="col-start-3">
                                               <Button
@@ -1720,30 +2101,30 @@ function InventoryConsole() {
                                       </td>
                                     </tr>
                                   );
-                                })}
-                              </tbody>
-                            </table>
-                          </div>
-
-                          {/* Resource List Pagination */}
-                          {totalResourcePages > 1 && (
-                            <div className="p-2.5 border-t border-line bg-raised/20 flex items-center justify-between text-xs text-muted">
-                              <span>
-                                {t("paginationResources", {
-                                  from: (resourcePage - 1) * resourcePageSize + 1,
-                                  to: Math.min(resourcePage * resourcePageSize, resourceTotal),
-                                  total: resourceTotal,
-                                })}
-                              </span>
-                              <Pagination
-                                page={resourcePage}
-                                totalPages={totalResourcePages}
-                                onChange={setResourcePage}
-                              />
-                            </div>
-                          )}
+                                })
+                              )}
+                            </tbody>
+                          </table>
                         </div>
-                      )}
+
+                        {/* Resource List Pagination */}
+                        {!loadingResources && totalResourcePages > 1 && (
+                          <div className="p-2.5 border-t border-line bg-raised/20 flex items-center justify-between text-xs text-muted">
+                            <span>
+                              {t("paginationResources", {
+                                from: (resourcePage - 1) * resourcePageSize + 1,
+                                to: Math.min(resourcePage * resourcePageSize, resourceTotal),
+                                total: resourceTotal,
+                              })}
+                            </span>
+                            <Pagination
+                              page={resourcePage}
+                              totalPages={totalResourcePages}
+                              onChange={setResourcePage}
+                            />
+                          </div>
+                        )}
+                      </div>
                     </div>
                   </Card>
                 )}
@@ -1793,6 +2174,73 @@ function InventoryConsole() {
   );
 }
 
+function useModalFocus(isOpen: boolean, onClose: () => void) {
+  const dialogRef = useRef<HTMLDivElement>(null);
+  const onCloseRef = useRef(onClose);
+
+  useEffect(() => {
+    onCloseRef.current = onClose;
+  }, [onClose]);
+
+  useEffect(() => {
+    if (!isOpen) return;
+    const previousFocus = document.activeElement instanceof HTMLElement ? document.activeElement : null;
+    const previousOverflow = document.body.style.overflow;
+    document.body.style.overflow = "hidden";
+
+    const focusableSelector = [
+      "button:not([disabled])",
+      "a[href]",
+      "input:not([disabled])",
+      "select:not([disabled])",
+      "textarea:not([disabled])",
+      "[tabindex]:not([tabindex='-1'])",
+    ].join(",");
+    const frame = requestAnimationFrame(() => {
+      const dialog = dialogRef.current;
+      const preferred = dialog?.querySelector<HTMLElement>("[autofocus]");
+      const first = dialog?.querySelector<HTMLElement>(focusableSelector);
+      (preferred ?? first ?? dialog)?.focus();
+    });
+
+    const handleKeyDown = (event: KeyboardEvent) => {
+      if (event.key === "Escape") {
+        event.preventDefault();
+        onCloseRef.current();
+        return;
+      }
+      if (event.key !== "Tab") return;
+      const dialog = dialogRef.current;
+      if (!dialog) return;
+      const focusable = Array.from(dialog.querySelectorAll<HTMLElement>(focusableSelector));
+      if (focusable.length === 0) {
+        event.preventDefault();
+        dialog.focus();
+        return;
+      }
+      const first = focusable[0];
+      const last = focusable[focusable.length - 1];
+      if (event.shiftKey && document.activeElement === first) {
+        event.preventDefault();
+        last.focus();
+      } else if (!event.shiftKey && document.activeElement === last) {
+        event.preventDefault();
+        first.focus();
+      }
+    };
+
+    document.addEventListener("keydown", handleKeyDown);
+    return () => {
+      cancelAnimationFrame(frame);
+      document.removeEventListener("keydown", handleKeyDown);
+      document.body.style.overflow = previousOverflow;
+      previousFocus?.focus();
+    };
+  }, [isOpen]);
+
+  return dialogRef;
+}
+
 /** Resource Detail & Edit Modal with 1-click Copy, multi-line editor, restock and archive actions */
 function ResourceDetailModal({
   resource,
@@ -1822,6 +2270,7 @@ function ResourceDetailModal({
   const [archiving, setArchiving] = useState(false);
   const [restoring, setRestoring] = useState(false);
   const [error, setError] = useState<string | null>(null);
+  const dialogRef = useModalFocus(isOpen, onClose);
 
   useEffect(() => {
     setData(resource.data);
@@ -1831,10 +2280,14 @@ function ResourceDetailModal({
 
   if (!isOpen) return null;
 
-  const handleCopy = () => {
-    navigator.clipboard.writeText(data);
-    setCopied(true);
-    setTimeout(() => setCopied(false), 2000);
+  const handleCopy = async () => {
+    try {
+      await navigator.clipboard.writeText(data);
+      setCopied(true);
+      setTimeout(() => setCopied(false), 2000);
+    } catch {
+      setError(t("inventoryCopyFailed"));
+    }
   };
 
   const handleSave = async () => {
@@ -1925,11 +2378,18 @@ function ResourceDetailModal({
           : t("inventoryResourceExpired");
 
   return (
-    <div className="fixed inset-0 z-50 flex items-center justify-center p-4 bg-ink-panel/75 backdrop-blur-xs animate-fade">
+    <div
+      className="fixed inset-0 z-50 flex items-center justify-center p-4 bg-ink-panel/75 backdrop-blur-xs animate-fade"
+      onMouseDown={(event) => {
+        if (event.target === event.currentTarget) onClose();
+      }}
+    >
       <div
+        ref={dialogRef}
         role="dialog"
         aria-modal="true"
         aria-labelledby="resource-detail-title"
+        tabIndex={-1}
         className="w-full max-w-lg bg-surface border border-line rounded-2xl shadow-card-lg overflow-hidden animate-rise"
       >
         {/* Header */}
@@ -1940,7 +2400,7 @@ function ResourceDetailModal({
               {t("resourceDetailTitle")} <span className="font-mono text-faint font-normal">#{resource.id}</span>
             </h3>
           </div>
-          <Button size="sm" variant="ghost" onClick={onClose} className="h-7 w-7 p-0 text-muted hover:text-fg">
+          <Button size="sm" variant="ghost" onClick={onClose} aria-label={t("close")} className="h-7 w-7 p-0 text-muted hover:text-fg">
             <X size={14} />
           </Button>
         </div>
@@ -1988,13 +2448,13 @@ function ResourceDetailModal({
           {/* Content Box */}
           <div className="space-y-1.5">
             <div className="flex items-center justify-between">
-              <label className="font-semibold text-fg">
+              <label htmlFor="resource-detail-content" className="font-semibold text-fg">
                 {isEditable ? t("editResourceContent") : t("resourceContent")}:
               </label>
               <Button
                 size="sm"
                 variant="ghost"
-                onClick={handleCopy}
+                onClick={() => void handleCopy()}
                 className="h-6 px-2 text-[11px] text-iris gap-1"
               >
                 {copied ? <Check size={12} className="text-good" /> : <Copy size={12} />}
@@ -2004,6 +2464,7 @@ function ResourceDetailModal({
 
             {isEditable ? (
               <Textarea
+                id="resource-detail-content"
                 rows={5}
                 value={data}
                 onChange={(e) => setData(e.target.value)}
@@ -2018,7 +2479,7 @@ function ResourceDetailModal({
           </div>
 
           {error && (
-            <div className="p-2.5 rounded-lg bg-bad-soft border border-bad/20 text-bad text-xs font-medium">
+            <div role="alert" className="p-2.5 rounded-lg bg-bad-soft border border-bad/20 text-bad text-xs font-medium">
               {error}
             </div>
           )}
@@ -2111,6 +2572,7 @@ function QuickCreateVariantModal({
   const [deliveryMode, setDeliveryMode] = useState<"instant" | "manual">("instant");
   const [submitting, setSubmitting] = useState(false);
   const [error, setError] = useState<string | null>(null);
+  const dialogRef = useModalFocus(isOpen, onClose);
 
   if (!isOpen) return null;
 
@@ -2142,11 +2604,18 @@ function QuickCreateVariantModal({
   };
 
   return (
-    <div className="fixed inset-0 z-50 flex items-center justify-center p-4 bg-ink-panel/75 backdrop-blur-xs animate-fade">
+    <div
+      className="fixed inset-0 z-50 flex items-center justify-center p-4 bg-ink-panel/75 backdrop-blur-xs animate-fade"
+      onMouseDown={(event) => {
+        if (event.target === event.currentTarget) onClose();
+      }}
+    >
       <div
+        ref={dialogRef}
         role="dialog"
         aria-modal="true"
         aria-labelledby="create-variant-title"
+        tabIndex={-1}
         className="w-full max-w-md bg-surface border border-line rounded-2xl shadow-card-lg overflow-hidden animate-rise"
       >
         <div className="p-4 border-b border-line bg-raised/50 flex items-center justify-between">
@@ -2158,15 +2627,16 @@ function QuickCreateVariantModal({
               {productTitle}
             </h3>
           </div>
-          <Button size="sm" variant="ghost" onClick={onClose} className="h-7 w-7 p-0 text-muted hover:text-fg">
+          <Button size="sm" variant="ghost" onClick={onClose} aria-label={t("close")} className="h-7 w-7 p-0 text-muted hover:text-fg">
             <X size={14} />
           </Button>
         </div>
 
         <form onSubmit={handleSubmit} className="p-4 space-y-3.5 text-xs">
           <div className="space-y-1">
-            <label className="font-semibold text-fg">{t("variantName")}:</label>
+            <label htmlFor="inventory-variant-name" className="font-semibold text-fg">{t("variantName")}:</label>
             <Input
+              id="inventory-variant-name"
               value={name}
               onChange={(e) => setName(e.target.value)}
               placeholder={t("variantNamePlaceholder")}
@@ -2182,8 +2652,9 @@ function QuickCreateVariantModal({
             </div>
 
             <div className="space-y-1">
-              <label className="font-semibold text-fg">{t("deliveryMode")}:</label>
+              <label htmlFor="inventory-variant-delivery" className="font-semibold text-fg">{t("deliveryMode")}:</label>
               <Select
+                id="inventory-variant-delivery"
                 value={deliveryMode}
                 onChange={(e) => setDeliveryMode(e.target.value as "instant" | "manual")}
                 className="h-8.5 text-xs"
@@ -2195,7 +2666,7 @@ function QuickCreateVariantModal({
           </div>
 
           {error && (
-            <div className="p-2.5 rounded-lg bg-bad-soft border border-bad/20 text-bad text-xs font-medium">
+            <div role="alert" className="p-2.5 rounded-lg bg-bad-soft border border-bad/20 text-bad text-xs font-medium">
               {error}
             </div>
           )}

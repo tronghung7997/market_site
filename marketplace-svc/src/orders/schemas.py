@@ -2,12 +2,13 @@ from datetime import datetime
 
 from pydantic import BaseModel, Field, field_validator, model_validator
 
+from src.orders.constants import MAX_ORDER_QUANTITY
 from src.security.input_limits import bounded_mapping
 
 
 class OrderCreate(BaseModel):
     variant_id: int | None = None
-    quantity: int = Field(default=1, ge=1, le=100)
+    quantity: int = Field(default=1, ge=1, le=MAX_ORDER_QUANTITY)
     product_id: int | None = None
     user_config: dict | None = None
 

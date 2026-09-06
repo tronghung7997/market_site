@@ -1,6 +1,7 @@
 /** Pure purchase decision helpers — no React, no i18n strings (keys only). */
 
 import type { Variant } from "@/lib/types";
+import { MAX_ORDER_QUANTITY } from "../../../../lib/order-limits.ts";
 
 export const purchasable = (v: Variant): boolean =>
   v.price > 0 && (v.delivery_mode !== "instant" || v.stock_count > 0);
@@ -13,8 +14,10 @@ export function pickDefaultVariant(variants: Variant[]): Variant | null {
 }
 
 export function maxQtyFor(v: Variant | null): number {
-  if (!v) return 999;
-  return v.delivery_mode === "instant" ? Math.max(1, v.stock_count) : 999;
+  if (!v) return MAX_ORDER_QUANTITY;
+  return v.delivery_mode === "instant"
+    ? Math.min(MAX_ORDER_QUANTITY, Math.max(1, v.stock_count))
+    : MAX_ORDER_QUANTITY;
 }
 
 export function clampQty(n: number, v: Variant | null): number {

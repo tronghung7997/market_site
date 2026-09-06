@@ -7,6 +7,7 @@ import { api } from "@/lib/api";
 import { useApiErrorMessage } from "@/lib/use-api-error";
 import { useAuth } from "@/lib/auth";
 import { useMoney } from "@/lib/money";
+import { MAX_ORDER_QUANTITY } from "@/lib/order-limits";
 import type { CalculateResult, Order, PricingField, PricingOptions, ProductDetail } from "@/lib/types";
 import { Banner, Button, Card, Input, Select, Tag, Textarea } from "@/components/ui";
 import { Info, Shield } from "@/components/Icons";
@@ -259,12 +260,13 @@ export default function DynamicOrderForm({ productId, product, onOrderCreated }:
               <input
                 type="number"
                 min={1}
+                max={MAX_ORDER_QUANTITY}
                 value={qty}
-                onChange={(e) => setQty(Math.max(1, Number(e.target.value) || 1))}
+                onChange={(e) => setQty(Math.min(MAX_ORDER_QUANTITY, Math.max(1, Number(e.target.value) || 1)))}
                 className="h-9 w-12 text-center font-mono text-[13px] font-medium border-x border-line bg-surface"
               />
               <button
-                onClick={() => setQty(qty + 1)}
+                onClick={() => setQty(Math.min(MAX_ORDER_QUANTITY, qty + 1))}
                 className="h-9 w-9 grid place-items-center text-muted hover:text-fg hover:bg-raised transition-colors"
               >
                 +

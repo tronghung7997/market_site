@@ -1,3 +1,5 @@
+from typing import Literal
+
 from fastapi import APIRouter, Depends, Query, Response, status
 from fastapi.responses import StreamingResponse
 from sqlalchemy.ext.asyncio import AsyncSession
@@ -51,13 +53,18 @@ async def list_res(
 @router.get("/seller/inventory/summary", response_model=schemas.InventorySummaryResponse)
 async def inventory_summary(
     search: str | None = None,
+    stock: Literal["out", "low", "error"] | None = Query(None),
+    product_id: int | None = Query(None, ge=1),
+    variant_id: int | None = Query(None, ge=1),
     page: int = Query(1, ge=1),
     per_page: int = Query(50, ge=1, le=100),
     account: Account = Depends(require_role("seller")),
     db: AsyncSession = Depends(get_session),
 ):
     return await service.seller_inventory_summary(
-        account.id, db, search=search, page=page, per_page=per_page,
+        account.id, db, search=search, stock=stock,
+        product_id=product_id, variant_id=variant_id,
+        page=page, per_page=per_page,
     )
 
 
@@ -194,19 +201,19 @@ async def mark_error(resource_id: int, account: Account = Depends(require_role("
 
 @router.get("/admin/resources", response_model=schemas.AdminResourceListResponse)
 async def admin_resources(
-    status: str | None = None,
-    variant_id: int | None = None,
-    product_id: int | None = None,
-    seller_id: int | None = None,
+    resource_status: ResourceStatus | None = Query(None, alias="status"),
+    variant_id: int | None = Query(None, ge=1),
+    product_id: int | None = Query(None, ge=1),
+    seller_id: int | None = Query(None, ge=1),
     search: str | None = None,
-    page: int = 1,
-    per_page: int = 20,
+    page: int = Query(1, ge=1),
+    per_page: int = Query(20, ge=1, le=100),
     _: Account = Depends(require_role("admin")),
     db: AsyncSession = Depends(get_session),
 ):
     return await service.list_all_resources(
         db,
-        status=status,
+        status=resource_status,
         variant_id=variant_id,
         product_id=product_id,
         seller_id=seller_id,

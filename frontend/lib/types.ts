@@ -129,6 +129,13 @@ export interface PaginatedProducts {
   per_page: number;
 }
 
+export interface ProductCatalogSummary {
+  products: number;
+  variants: number;
+  available_stock: number;
+  category_counts: Array<{ category_id: number; count: number }>;
+}
+
 export interface Variant {
   id: number;
   product_id: number;
@@ -764,11 +771,38 @@ export interface SellerProduct extends Product {
   total_stock: number;
 }
 
+export interface SellerProductCounts {
+  all: number;
+  active: number;
+  paused: number;
+  low_stock: number;
+  out_of_stock: number;
+  total_stock: number;
+}
+
 export interface PaginatedSellerProducts {
   items: SellerProduct[];
   total: number;
   page: number;
   per_page: number;
+  counts: SellerProductCounts;
+  categories: string[];
+  service_types: string[];
+}
+
+export interface AdminProductFacet {
+  key: string;
+  count: number;
+}
+
+export interface AdminProductCounts {
+  all: number;
+  active: number;
+  draft: number;
+  paused: number;
+  suspended: number;
+  needs_setup: number;
+  total_revenue: number;
 }
 
 export interface PaginatedAdminProducts {
@@ -776,6 +810,10 @@ export interface PaginatedAdminProducts {
   total: number;
   page: number;
   per_page: number;
+  counts: AdminProductCounts;
+  sellers: AdminProductFacet[];
+  providers: AdminProductFacet[];
+  services: AdminProductFacet[];
 }
 
 export interface Provider {
@@ -902,11 +940,20 @@ export interface InventoryVariant {
   archived: number;
 }
 
+export interface InventoryCounts {
+  all: number;
+  out: number;
+  low: number;
+  error: number;
+  available: number;
+}
+
 export interface PaginatedInventoryVariants {
   items: InventoryVariant[];
   total: number;
   page: number;
   per_page: number;
+  counts: InventoryCounts;
 }
 
 export interface AdminResource {

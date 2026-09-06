@@ -1,7 +1,7 @@
 from collections import defaultdict
 
 from fastapi import status as http_status
-from sqlalchemy import func, select
+from sqlalchemy import case, func, or_, select
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from src.adapters.compatibility import check_compatibility, setup_status
@@ -24,7 +24,7 @@ from src.models.order import Order, OrderStatus
 from src.models.pricing_config import PricingConfig
 from src.models.provider import Provider
 from src.models.resource import Resource, ResourceStatus
-from src.pricing.engine import product_pricing_override, resolve_pricing
+from src.pricing.engine import inventory_managed_sql, product_pricing_override, resolve_pricing
 from src.products.covers import catalog_items, default_cover_id, images_payload, public_images
 
 # Cột duy nhất của ProductVariant cho phép null — xem update_variant.
@@ -517,11 +517,91 @@ async def list_products(
     }
 
 
+async def get_product_catalog_summary(db: AsyncSession) -> dict:
+    """Global public-catalog totals without loading every product into Next.js."""
+    active_products = Product.status == ProductStatus.active
+    products = await db.scalar(select(func.count(Product.id)).where(active_products)) or 0
+    variants = await db.scalar(
+        select(func.count(ProductVariant.id))
+        .join(Product, Product.id == ProductVariant.product_id)
+        .where(active_products, ProductVariant.is_active == True)  # noqa: E712
+    ) or 0
+    available_stock = await db.scalar(
+        select(func.count(Resource.id))
+        .join(ProductVariant, ProductVariant.id == Resource.variant_id)
+        .join(Product, Product.id == ProductVariant.product_id)
+        .where(
+            active_products,
+            ProductVariant.is_active == True,  # noqa: E712
+            ProductVariant.delivery_mode == DeliveryMode.instant,
+            Resource.status == ResourceStatus.available,
+            Resource.order_id.is_(None),
+            Resource.is_archived == False,  # noqa: E712
+        )
+    ) or 0
+    category_rows = (await db.execute(
+        select(Product.category_id, func.count(Product.id))
+        .where(active_products)
+        .group_by(Product.category_id)
+    )).all()
+    return {
+        "products": products,
+        "variants": variants,
+        "available_stock": available_stock,
+        "category_counts": [
+            {"category_id": category_id, "count": count}
+            for category_id, count in category_rows
+        ],
+    }
+
+
+SELLER_LOW_STOCK = 20
+
+
+def _empty_seller_counts() -> dict:
+    return {
+        "all": 0, "active": 0, "paused": 0, "low_stock": 0,
+        "out_of_stock": 0, "total_stock": 0,
+    }
+
+
+def _seller_search_filters(seller_id: int, search: str | None) -> list:
+    filters = [Product.seller_id == seller_id]
+    if search and search.strip():
+        term = search.strip()
+        search_filters = [Product.title.ilike(f"%{term}%")]
+        if term.isdigit():
+            search_filters.append(Product.id == int(term))
+        filters.append(or_(*search_filters))
+    return filters
+
+
+def _available_stock_by_product():
+    return (
+        select(
+            ProductVariant.product_id.label("product_id"),
+            func.count(Resource.id).label("stock"),
+        )
+        .join(Resource, Resource.variant_id == ProductVariant.id)
+        .where(
+            ProductVariant.delivery_mode == DeliveryMode.instant,
+            Resource.status == ResourceStatus.available,
+            Resource.order_id.is_(None),
+            Resource.is_archived == False,  # noqa: E712
+        )
+        .group_by(ProductVariant.product_id)
+        .subquery()
+    )
+
+
 async def list_seller_products(
     seller_id: int,
     db: AsyncSession,
     *,
     search: str | None = None,
+    status: str | None = None,
+    category: str | None = None,
+    service_type: str | None = None,
     page: int = 1,
     per_page: int = 50,
 ) -> dict:
@@ -529,18 +609,93 @@ async def list_seller_products(
 
     Bản cũ mỗi sản phẩm 2 query (danh mục + gói) cộng 1 query đếm kho MỖI gói
     giao ngay; seller 1000 sản phẩm là ~4.000 query một lần mở trang."""
-    filters = [Product.seller_id == seller_id]
-    if search and search.strip():
-        filters.append(Product.title.ilike(f"%{search.strip()}%"))
-    total = int(await db.scalar(
-        select(func.count(Product.id)).where(*filters)
-    ) or 0)
-    products = list((await db.execute(
-        select(Product).where(*filters).order_by(Product.created_at.desc(), Product.id.desc())
-        .offset((page - 1) * per_page).limit(per_page)
+    filters = _seller_search_filters(seller_id, search)
+    stock = _available_stock_by_product()
+    stock_col = func.coalesce(stock.c.stock, 0)
+    managed = inventory_managed_sql()
+    scoped = (
+        select(
+            Product.id,
+            Product.status,
+            Product.service_type,
+            Product.created_at,
+            Category.name.label("category_name"),
+            stock_col.label("stock"),
+            managed.label("managed"),
+        )
+        .outerjoin(Category, Category.id == Product.category_id)
+        .outerjoin(stock, stock.c.product_id == Product.id)
+        .where(*filters)
+    )
+    scope = scoped.subquery()
+    facet_base = (
+        select(Product.category_id, Product.service_type)
+        .where(*filters)
+        .subquery()
+    )
+    categories = list((await db.execute(
+        select(Category.name)
+        .join(facet_base, facet_base.c.category_id == Category.id)
+        .distinct().order_by(Category.name)
     )).scalars())
-    if not products:
-        return {"items": [], "total": total, "page": page, "per_page": per_page}
+    service_types = list((await db.execute(
+        select(facet_base.c.service_type)
+        .where(facet_base.c.service_type.is_not(None))
+        .distinct().order_by(facet_base.c.service_type)
+    )).scalars())
+    count_row = (await db.execute(select(
+        func.count(scope.c.id),
+        func.sum(case((scope.c.status == ProductStatus.active, 1), else_=0)),
+        func.sum(case((scope.c.status.in_([ProductStatus.paused, ProductStatus.draft]), 1), else_=0)),
+        func.sum(case((scope.c.managed & (scope.c.stock > 0) & (scope.c.stock <= SELLER_LOW_STOCK), 1), else_=0)),
+        func.sum(case((scope.c.managed & (scope.c.stock == 0), 1), else_=0)),
+        func.sum(case((scope.c.managed, scope.c.stock), else_=0)),
+    ))).one()
+    counts = {
+        "all": int(count_row[0] or 0),
+        "active": int(count_row[1] or 0),
+        "paused": int(count_row[2] or 0),
+        "low_stock": int(count_row[3] or 0),
+        "out_of_stock": int(count_row[4] or 0),
+        "total_stock": int(count_row[5] or 0),
+    }
+    tab = (status or "all").strip().lower()
+    page_filters = []
+    if tab == "active":
+        page_filters.append(scope.c.status == ProductStatus.active)
+    elif tab == "paused":
+        page_filters.append(scope.c.status.in_([ProductStatus.paused, ProductStatus.draft]))
+    elif tab == "low_stock":
+        page_filters.append(scope.c.managed & (scope.c.stock > 0) & (scope.c.stock <= SELLER_LOW_STOCK))
+    elif tab == "out_of_stock":
+        page_filters.append(scope.c.managed & (scope.c.stock == 0))
+    if category:
+        page_filters.append(scope.c.category_name == category)
+    if service_type:
+        page_filters.append(scope.c.service_type == service_type)
+
+    page_rows = (await db.execute(
+        select(scope.c.id, func.count().over().label("filtered_total"))
+        .where(*page_filters)
+        .order_by(scope.c.created_at.desc(), scope.c.id.desc())
+        .offset((page - 1) * per_page).limit(per_page)
+    )).all()
+    page_ids = [row.id for row in page_rows]
+    total = int(page_rows[0].filtered_total) if page_rows else 0
+    if not page_rows and page > 1:
+        total = int(await db.scalar(
+            select(func.count()).select_from(scope).where(*page_filters)
+        ) or 0)
+    if not page_ids:
+        return {
+            "items": [], "total": total, "page": page, "per_page": per_page,
+            "counts": counts, "categories": categories, "service_types": service_types,
+        }
+    products = list((await db.execute(
+        select(Product).where(Product.id.in_(page_ids))
+        .order_by(Product.created_at.desc(), Product.id.desc())
+    )).scalars())
+    products.sort(key=lambda p: page_ids.index(p.id))
 
     category_names = {
         c.id: c.name
@@ -574,7 +729,10 @@ async def list_seller_products(
             "variant_count": len(variants),
             "total_stock": sum(v["stock_count"] for v in variants),
         })
-    return {"items": out, "total": total, "page": page, "per_page": per_page}
+    return {
+        "items": out, "total": total, "page": page, "per_page": per_page,
+        "counts": counts, "categories": categories, "service_types": service_types,
+    }
 
 
 async def get_seller_stats(seller_id: int, db: AsyncSession) -> dict:
@@ -867,10 +1025,37 @@ async def update_seller_pricing(product_id: int, seller_id: int, data: dict, db:
     return product
 
 
+def _empty_admin_counts() -> dict:
+    return {
+        "all": 0, "active": 0, "draft": 0, "paused": 0,
+        "suspended": 0, "needs_setup": 0, "total_revenue": 0,
+    }
+
+
+def _admin_strategy_name(
+    pricing_strategy: str | None,
+    pricing_params: dict | None,
+    service_type: str | None,
+    configs: dict[str, str],
+) -> str:
+    if pricing_strategy == "fixed":
+        return "fixed"
+    if pricing_strategy and pricing_params:
+        return pricing_strategy
+    return configs.get(service_type or "other", "fixed")
+
+
 async def list_all_products_admin(
     db: AsyncSession,
     *,
     search: str | None = None,
+    status: str | None = None,
+    seller: str | None = None,
+    provider: str | None = None,
+    service_type: str | None = None,
+    has_provider: bool | None = None,
+    sort_by: str | None = None,
+    sort_dir: str = "desc",
     page: int = 1,
     per_page: int = 50,
 ) -> dict:
@@ -881,16 +1066,169 @@ async def list_all_products_admin(
     """
     filters = []
     if search and search.strip():
-        filters.append(Product.title.ilike(f"%{search.strip()}%"))
-    total = int(await db.scalar(select(func.count(Product.id)).where(*filters)) or 0)
-    result = await db.execute(
-        select(Product).where(*filters)
+        term = search.strip()
+        search_filters = [
+            Product.title.ilike(f"%{term}%"),
+            Account.email.ilike(f"%{term}%"),
+            Provider.name.ilike(f"%{term}%"),
+        ]
+        if term.isdigit():
+            search_filters.append(Product.id == int(term))
+        filters.append(or_(*search_filters))
+    if has_provider is True:
+        filters.append(Product.provider_id.is_not(None))
+    elif has_provider is False:
+        filters.append(Product.provider_id.is_(None))
+
+    configs: dict[str, str] = {}
+    for c in (
+        await db.execute(select(PricingConfig).where(PricingConfig.is_active == True))  # noqa: E712
+    ).scalars():
+        configs.setdefault(c.service_type, c.strategy)
+
+    scan = list((await db.execute(
+        select(
+            Product.id, Product.title, Product.status, Product.service_type,
+            Product.pricing_strategy, Product.pricing_params, Product.created_at,
+            Account.email, Provider.name, Provider.adapter_type, Provider.is_active,
+        )
+        .outerjoin(Account, Product.seller_id == Account.id)
+        .outerjoin(Provider, Product.provider_id == Provider.id)
+        .where(*filters)
         .order_by(Product.created_at.desc(), Product.id.desc())
-        .offset((page - 1) * per_page).limit(per_page)
-    )
-    products = list(result.scalars().all())
+    )).all())
+
+    annotated = []
+    for row in scan:
+        strategy = _admin_strategy_name(
+            row.pricing_strategy, row.pricing_params, row.service_type, configs,
+        )
+        setup = setup_status(
+            row.adapter_type, strategy,
+            provider_active=True if row.is_active is None else bool(row.is_active),
+        )
+        seller_key = row.email or "—"
+        provider_key = row.name or "Seller Pool"
+        annotated.append({
+            "id": row.id,
+            "title": row.title or "",
+            "status": row.status.value if row.status else "",
+            "service_type": row.service_type or "other",
+            "created_at": row.created_at,
+            "seller_key": seller_key,
+            "provider_key": provider_key,
+            "needs_setup": setup["needs_setup"],
+            "needs_setup_reason": setup["needs_setup_reason"],
+            "demo_mode": setup["demo_mode"],
+            "strategy_name": strategy,
+        })
+
+    def matches(item: dict, skip: str | None = None) -> bool:
+        if skip != "seller" and seller and item["seller_key"] != seller:
+            return False
+        if skip != "provider" and provider and item["provider_key"] != provider:
+            return False
+        if skip != "service" and service_type and item["service_type"] != service_type:
+            return False
+        tab = (status or "all").strip().lower()
+        if skip != "status":
+            if tab == "needs_setup":
+                if not item["needs_setup"]:
+                    return False
+            elif tab != "all" and item["status"] != tab:
+                return False
+        return True
+
+    def facet(key_name: str, skip: str) -> list[dict]:
+        tally: dict[str, int] = {}
+        for item in annotated:
+            if not matches(item, skip=skip):
+                continue
+            key = item[key_name]
+            tally[key] = tally.get(key, 0) + 1
+        return [
+            {"key": key, "count": count}
+            for key, count in sorted(tally.items(), key=lambda pair: (-pair[1], pair[0]))
+        ]
+
+    scoped = [item for item in annotated if matches(item)]
+    counts = _empty_admin_counts()
+    counts["all"] = len([item for item in annotated if matches(item, skip="status")])
+    for item in annotated:
+        if not matches(item, skip="status"):
+            continue
+        if item["status"] in counts:
+            counts[item["status"]] += 1
+        if item["needs_setup"]:
+            counts["needs_setup"] += 1
+
+    sort_key = (sort_by or "created_at").strip().lower()
+    descending = (sort_dir or "desc").lower() != "asc"
+    order_counts: dict[int, int] = {}
+    revenues: dict[int, int] = {}
+    scoped_ids = [item["id"] for item in scoped]
+    count_ids = [item["id"] for item in annotated if matches(item, skip="status")]
+    metric_ids = set(scoped_ids) | set(count_ids)
+    if metric_ids:
+        order_counts = {
+            pid: cnt for pid, cnt in (
+                await db.execute(
+                    select(Order.product_id, func.count(Order.id))
+                    .where(Order.product_id.in_(metric_ids))
+                    .group_by(Order.product_id)
+                )
+            ).all() if pid in metric_ids
+        }
+        revenues = {
+            pid: int(total or 0) for pid, total in (
+                await db.execute(
+                    select(Order.product_id, func.sum(Order.total_amount))
+                    .where(
+                        Order.product_id.in_(metric_ids),
+                        Order.status.in_([OrderStatus.delivered, OrderStatus.completed]),
+                    )
+                    .group_by(Order.product_id)
+                )
+            ).all() if pid in metric_ids
+        }
+        counts["total_revenue"] = sum(revenues.get(pid, 0) for pid in count_ids)
+
+    def sort_value(item: dict):
+        if sort_key == "title":
+            return item["title"].lower()
+        if sort_key == "status":
+            return item["status"]
+        if sort_key == "service_type":
+            return item["service_type"]
+        if sort_key == "seller_email":
+            return item["seller_key"].lower()
+        if sort_key == "provider_name":
+            return item["provider_key"].lower()
+        if sort_key == "order_count":
+            return order_counts.get(item["id"], 0)
+        if sort_key == "revenue":
+            return revenues.get(item["id"], 0)
+        return item["created_at"] or 0
+
+    scoped.sort(key=lambda item: (sort_value(item), item["id"]), reverse=descending)
+    total = len(scoped)
+    page_items = scoped[(page - 1) * per_page: page * per_page]
+    products = []
+    if page_items:
+        by_id = {
+            p.id: p for p in (
+                await db.execute(select(Product).where(Product.id.in_([i["id"] for i in page_items])))
+            ).scalars()
+        }
+        products = [by_id[item["id"]] for item in page_items if item["id"] in by_id]
+    setup_by_id = {item["id"]: item for item in page_items}
     if not products:
-        return {"items": [], "total": total, "page": page, "per_page": per_page}
+        return {
+            "items": [], "total": total, "page": page, "per_page": per_page,
+            "counts": counts, "sellers": facet("seller_key", "seller"),
+            "providers": facet("provider_key", "provider"),
+            "services": facet("service_type", "service"),
+        }
 
     seller_ids = {p.seller_id for p in products}
     sellers = {
@@ -908,55 +1246,11 @@ async def list_all_products_admin(
             ).scalars()
         }
 
-    product_ids = [p.id for p in products]
-    order_counts = {
-        pid: cnt for pid, cnt in (
-            await db.execute(
-                select(Order.product_id, func.count(Order.id))
-                .where(Order.product_id.in_(product_ids))
-                .group_by(Order.product_id)
-            )
-        ).all()
-    }
-    revenues = {
-        pid: total for pid, total in (
-            await db.execute(
-                select(Order.product_id, func.sum(Order.total_amount))
-                .where(
-                    Order.product_id.in_(product_ids),
-                    Order.status.in_([OrderStatus.delivered, OrderStatus.completed]),
-                )
-                .group_by(Order.product_id)
-            )
-        ).all()
-    }
-
-    # resolve_pricing fallback tier 2 chỉ đọc PricingConfig active theo
-    # service_type — prefetch 1 lần rồi resolve tại chỗ.
-    configs: dict[str, str] = {}
-    for c in (
-        await db.execute(select(PricingConfig).where(PricingConfig.is_active == True))  # noqa: E712
-    ).scalars():
-        configs.setdefault(c.service_type, c.strategy)
-
     out = []
     for p in products:
         seller = sellers.get(p.seller_id)
         provider = providers.get(p.provider_id) if p.provider_id else None
-        order_count = order_counts.get(p.id, 0)
-        revenue = revenues.get(p.id) or 0
-
-        pricing_override = product_pricing_override(p)
-        strategy_name = (
-            pricing_override[0]
-            if pricing_override is not None
-            else configs.get(p.service_type or "other", "fixed")
-        )
-        setup = setup_status(
-            provider.adapter_type if provider else None, strategy_name,
-            provider_active=provider.is_active if provider else True,
-        )
-
+        meta = setup_by_id.get(p.id, {})
         out.append({
             "id": p.id,
             "title": p.title,
@@ -966,13 +1260,18 @@ async def list_all_products_admin(
             "provider_name": provider.name if provider else None,
             "adapter_type": provider.adapter_type if provider else None,
             "pricing_strategy": p.pricing_strategy,
-            "order_count": order_count,
-            "revenue": revenue,
-            "needs_setup": setup["needs_setup"],
-            "needs_setup_reason": setup["needs_setup_reason"],
-            "demo_mode": setup["demo_mode"],
+            "order_count": order_counts.get(p.id, 0),
+            "revenue": revenues.get(p.id) or 0,
+            "needs_setup": meta.get("needs_setup", False),
+            "needs_setup_reason": meta.get("needs_setup_reason"),
+            "demo_mode": meta.get("demo_mode", False),
         })
-    return {"items": out, "total": total, "page": page, "per_page": per_page}
+    return {
+        "items": out, "total": total, "page": page, "per_page": per_page,
+        "counts": counts, "sellers": facet("seller_key", "seller"),
+        "providers": facet("provider_key", "provider"),
+        "services": facet("service_type", "service"),
+    }
 
 
 def _product_list_dict(product: Product, *, locale: str | None = DEFAULT_LOCALE) -> dict:

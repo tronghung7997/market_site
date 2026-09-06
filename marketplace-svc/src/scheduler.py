@@ -20,7 +20,7 @@ from src.providers.service import apply_scores
 from src.sellers.tiers import platform_fee_percent
 from src.wallet.service import escrow_settlement, refund_escrow, release_escrow
 from src.disputes.service import resolve_abandoned_dispute, resolve_dispute_after_response_timeout
-from src.chat.retention import purge_expired_messages
+from src.chat.retention import CHAT_RETENTION_BATCH_SIZE, purge_expired_messages
 
 logger = structlog.get_logger()
 
@@ -926,8 +926,13 @@ async def gateway_call_log_cleanup_job() -> None:
 
 async def chat_message_retention_job() -> None:
     try:
+        deleted = 0
         async with SessionLocal() as db:
-            deleted = await purge_expired_messages(db)
+            while deleted < 20_000:
+                batch = await purge_expired_messages(db)
+                deleted += batch
+                if batch < CHAT_RETENTION_BATCH_SIZE:
+                    break
         logger.info("chat_message_retention_done", deleted=deleted)
     except Exception as e:
         logger.error("chat_message_retention_failed", error=str(e))

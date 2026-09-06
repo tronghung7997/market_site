@@ -8,8 +8,6 @@ import {
   ColumnDef,
   flexRender,
   getCoreRowModel,
-  getPaginationRowModel,
-  getSortedRowModel,
   useReactTable,
   type SortingState,
 } from "@tanstack/react-table";
@@ -26,7 +24,7 @@ import {
 import { api, vnd } from "@/lib/api";
 import { Banner, Card, Tag } from "@/components/ui";
 import { useDebounce } from "@/lib/hooks/useDebounce";
-import { FacetSelect, buildFacetOptions } from "@/components/admin";
+import { FacetSelect } from "@/components/admin";
 import { ProductStatusBadge, StatusBadge } from "@/components/admin/status-badge";
 import { SERVICE_LABELS } from "@/lib/labels";
 import type { AdminProduct } from "@/lib/types";
@@ -231,93 +229,72 @@ export default function AdminProductsPage() {
 
   React.useEffect(() => {
     setPagination((p) => ({ ...p, pageIndex: 0 }));
-  }, [status, sellerKey, providerKey, serviceKey, debouncedSearch]);
+  }, [status, sellerKey, providerKey, serviceKey, debouncedSearch, sorting]);
+
+  const sortBy = sorting[0]?.id;
+  const sortDir = sorting[0] ? (sorting[0].desc ? "desc" : "asc") : undefined;
 
   const queryResult = useQuery({
-    queryKey: ["admin", "products"] as const,
-    queryFn: () => api.adminProducts({ perPage: 100 }),
+    queryKey: [
+      "admin", "products", "table", pagination.pageIndex, pagination.pageSize,
+      debouncedSearch, status, sellerKey, providerKey, serviceKey, sortBy, sortDir,
+    ] as const,
+    queryFn: () => api.adminProducts({
+      page: pagination.pageIndex + 1,
+      perPage: pagination.pageSize,
+      search: debouncedSearch,
+      status,
+      seller: sellerKey ?? undefined,
+      provider: providerKey ?? undefined,
+      serviceType: serviceKey ?? undefined,
+      sortBy,
+      sortDir,
+    }),
     staleTime: 30_000,
   });
 
-  const allProducts = React.useMemo(() => queryResult.data?.items ?? [], [queryResult.data]);
-
-  // Tầng lọc: search → (người bán ∩ nguồn hàng ∩ loại dịch vụ) → trạng thái
-  const searchScope = React.useMemo(() => {
-    const q = debouncedSearch.trim().toLowerCase();
-    if (!q) return allProducts;
-    return allProducts.filter(
-      (p) =>
-        p.title.toLowerCase().includes(q) ||
-        p.seller_email?.toLowerCase().includes(q) ||
-        p.provider_name?.toLowerCase().includes(q)
-    );
-  }, [allProducts, debouncedSearch]);
-
-  const sellerOf = (p: AdminProduct) => p.seller_email ?? "—";
-  const providerOf = (p: AdminProduct) => p.provider_name ?? "Seller Pool";
-
-  const matchesFacets = React.useCallback(
-    (p: AdminProduct, skip?: "seller" | "provider" | "service") =>
-      (skip === "seller" || sellerKey === null || sellerOf(p) === sellerKey) &&
-      (skip === "provider" || providerKey === null || providerOf(p) === providerKey) &&
-      (skip === "service" || serviceKey === null || p.service_type === serviceKey),
-    [sellerKey, providerKey, serviceKey]
-  );
-
-  // Facet nào cũng đếm trong phạm vi đã áp các facet còn lại (cross-filter)
-  const sellerOptions = React.useMemo(
-    () =>
-      buildFacetOptions(
-        searchScope.filter((p) => matchesFacets(p, "seller")),
-        allProducts,
-        sellerKey,
-        sellerOf,
-        sellerOf
-      ),
-    [searchScope, allProducts, sellerKey, matchesFacets]
-  );
-
-  const providerOptions = React.useMemo(
-    () =>
-      buildFacetOptions(
-        searchScope.filter((p) => matchesFacets(p, "provider")),
-        allProducts,
-        providerKey,
-        providerOf,
-        providerOf
-      ),
-    [searchScope, allProducts, providerKey, matchesFacets]
-  );
-
-  const serviceOptions = React.useMemo(
-    () =>
-      buildFacetOptions(
-        searchScope.filter((p) => matchesFacets(p, "service")),
-        allProducts,
-        serviceKey,
-        (p) => p.service_type,
-        (p) => SERVICE_LABELS[p.service_type] ?? p.service_type
-      ),
-    [searchScope, allProducts, serviceKey, matchesFacets]
-  );
-
-  const scope = React.useMemo(
-    () => searchScope.filter((p) => matchesFacets(p)),
-    [searchScope, matchesFacets]
-  );
-
-  const tabCounts = React.useMemo(() => {
-    const counts: Record<string, number> = { all: scope.length };
-    for (const tab of STATUS_TABS) {
-      if (tab.key === "all") continue;
-      counts[tab.key] = tab.special
-        ? scope.filter((p) => p.needs_setup).length
-        : scope.filter((p) => p.status === tab.key).length;
+  const filteredProducts = queryResult.data?.items ?? [];
+  const counts = queryResult.data?.counts;
+  const sellerOptions = React.useMemo(() => {
+    const options = (queryResult.data?.sellers ?? []).map((facet) => ({
+      key: facet.key, label: facet.key, count: facet.count,
+    }));
+    if (sellerKey && !options.some((option) => option.key === sellerKey)) {
+      options.push({ key: sellerKey, label: sellerKey, count: 0 });
     }
-    return counts;
-  }, [scope]);
+    return options;
+  }, [queryResult.data?.sellers, sellerKey]);
+  const providerOptions = React.useMemo(() => {
+    const options = (queryResult.data?.providers ?? []).map((facet) => ({
+      key: facet.key, label: facet.key, count: facet.count,
+    }));
+    if (providerKey && !options.some((option) => option.key === providerKey)) {
+      options.push({ key: providerKey, label: providerKey, count: 0 });
+    }
+    return options;
+  }, [queryResult.data?.providers, providerKey]);
+  const serviceOptions = React.useMemo(() => {
+    const options = (queryResult.data?.services ?? []).map((facet) => ({
+      key: facet.key,
+      label: SERVICE_LABELS[facet.key] ?? facet.key,
+      count: facet.count,
+    }));
+    if (serviceKey && !options.some((option) => option.key === serviceKey)) {
+      options.push({ key: serviceKey, label: SERVICE_LABELS[serviceKey] ?? serviceKey, count: 0 });
+    }
+    return options;
+  }, [queryResult.data?.services, serviceKey]);
 
-  // Thanh phân bố chỉ gồm trạng thái thật (needs_setup chồng lấn nên đứng ngoài)
+  const tabCounts: Record<string, number> = {
+    all: counts?.all ?? 0,
+    active: counts?.active ?? 0,
+    draft: counts?.draft ?? 0,
+    paused: counts?.paused ?? 0,
+    suspended: counts?.suspended ?? 0,
+    needs_setup: counts?.needs_setup ?? 0,
+  };
+  const scopeCount = counts?.all ?? 0;
+
   const barSegments = React.useMemo(() => {
     const segments = STATUS_TABS.filter((t) => t.key !== "all" && !t.special).map((t) => ({
       key: t.key,
@@ -327,25 +304,16 @@ export default function AdminProductsPage() {
       clickable: true,
     }));
     const covered = segments.reduce((sum, s) => sum + s.count, 0);
-    const other = scope.length - covered;
+    const other = scopeCount - covered;
     if (other > 0) {
       segments.push({ key: "other", label: "Khác", count: other, color: "bg-slate-300", clickable: false });
     }
     return segments.filter((s) => s.count > 0);
-  }, [tabCounts, scope.length]);
+  }, [scopeCount, counts]);
 
-  const totalRevenue = React.useMemo(
-    () => scope.reduce((sum, p) => sum + p.revenue, 0),
-    [scope]
-  );
+  const totalRevenue = counts?.total_revenue ?? 0;
 
-  const filteredProducts = React.useMemo(() => {
-    if (status === "all") return scope;
-    if (status === "needs_setup") return scope.filter((p) => p.needs_setup);
-    return scope.filter((p) => p.status === status);
-  }, [scope, status]);
-
-  const total = filteredProducts.length;
+  const total = queryResult.data?.total ?? 0;
   const totalPages = Math.max(1, Math.ceil(total / pagination.pageSize));
 
   React.useEffect(() => {
@@ -369,8 +337,9 @@ export default function AdminProductsPage() {
     onSortingChange: setSorting,
     onPaginationChange: setPagination,
     getCoreRowModel: getCoreRowModel(),
-    getSortedRowModel: getSortedRowModel(),
-    getPaginationRowModel: getPaginationRowModel(),
+    manualPagination: true,
+    manualSorting: true,
+    pageCount: totalPages,
     autoResetPageIndex: false,
     meta: tableMeta,
   });
@@ -405,7 +374,7 @@ export default function AdminProductsPage() {
                 Sản phẩm
               </p>
               <p className="text-[26px] leading-8 font-semibold font-mono tabular-nums text-slate-900">
-                {scope.length.toLocaleString("vi-VN")}
+                {scopeCount.toLocaleString("vi-VN")}
               </p>
             </div>
             <div>
@@ -428,7 +397,7 @@ export default function AdminProductsPage() {
             )}
           </div>
 
-          {scope.length > 0 && (
+          {scopeCount > 0 && (
             <div className="w-full min-w-[240px] flex-1 sm:w-auto sm:max-w-sm">
               <div className="flex h-2 overflow-hidden rounded-full bg-slate-100">
                 {barSegments.map((s) => (
@@ -475,6 +444,8 @@ export default function AdminProductsPage() {
           <div className="relative min-w-[180px] max-w-xs flex-1">
             <Search size={15} className="absolute left-3 top-1/2 -translate-y-1/2 text-slate-400 pointer-events-none" />
             <input
+              id="admin-products-search"
+              name="admin-products-search"
               type="text"
               placeholder="Tìm sản phẩm, người bán, nguồn hàng…"
               value={search}
@@ -549,7 +520,7 @@ export default function AdminProductsPage() {
           {total === 0 && !queryResult.isLoading ? (
             <div className="px-4 py-14 text-center">
               <p className="text-[13px] text-slate-500">
-                {allProducts.length === 0
+                {!hasFilters
                   ? "Chưa có sản phẩm nào."
                   : "Không có sản phẩm khớp bộ lọc hiện tại."}
               </p>

@@ -5,7 +5,8 @@ nên giá xem trước và giá trừ ví không thể lệch nhau.
 """
 
 from fastapi import status
-from sqlalchemy import select
+from sqlalchemy import and_, case, cast, false, func, select, true
+from sqlalchemy.dialects.postgresql import JSONB
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from src.models.pricing_config import PricingConfig
@@ -28,6 +29,35 @@ def product_pricing_override(product: Product) -> tuple[str, dict] | None:
     if product.pricing_strategy and product.pricing_params:
         return product.pricing_strategy, product.pricing_params
     return None
+
+
+def inventory_managed_sql():
+    """SQL equivalent of ``product_pricing_override(...) == ('fixed', ...)``.
+
+    ``pricing_params`` is JSON (not JSONB); compare via JSONB cast because
+    PostgreSQL has no ``json <> json`` operator.
+    """
+    config_strategy = (
+        select(PricingConfig.strategy)
+        .where(
+            PricingConfig.service_type == func.coalesce(Product.service_type, "other"),
+            PricingConfig.is_active == True,  # noqa: E712
+        )
+        .limit(1)
+        .correlate(Product)
+        .scalar_subquery()
+    )
+    dynamic_override = and_(
+        Product.pricing_strategy.is_not(None),
+        Product.pricing_strategy != "fixed",
+        Product.pricing_params.is_not(None),
+        cast(Product.pricing_params, JSONB) != cast("{}", JSONB),
+    )
+    return case(
+        (Product.pricing_strategy == "fixed", true()),
+        (dynamic_override, false()),
+        else_=func.coalesce(config_strategy, "fixed") == "fixed",
+    )
 
 
 async def resolve_pricing(product: Product, db: AsyncSession) -> tuple[str, dict]:

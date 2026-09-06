@@ -323,6 +323,8 @@ export default function AdminResourcesPage() {
           <div className="relative min-w-[180px] max-w-xs flex-1">
             <Search size={15} className="absolute left-3 top-1/2 -translate-y-1/2 text-slate-400 pointer-events-none" />
             <input
+              id="admin-resource-search"
+              name="admin-resource-search"
               type="text"
               placeholder="Tìm theo ID, sản phẩm, biến thể, người bán…"
               value={search}

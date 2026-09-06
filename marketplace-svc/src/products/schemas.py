@@ -253,6 +253,18 @@ class ProductListPageResponse(BaseModel):
     per_page: int
 
 
+class ProductCatalogCategoryCount(BaseModel):
+    category_id: int
+    count: int
+
+
+class ProductCatalogSummaryResponse(BaseModel):
+    products: int
+    variants: int
+    available_stock: int
+    category_counts: list[ProductCatalogCategoryCount]
+
+
 class SellerProductResponse(ProductListItemBase):
     """Item của GET /seller/products — bảng quản lý cần số đếm, không cần
     danh sách gói đầy đủ."""
@@ -261,11 +273,38 @@ class SellerProductResponse(ProductListItemBase):
     total_stock: int
 
 
+class SellerProductCounts(BaseModel):
+    all: int
+    active: int
+    paused: int
+    low_stock: int
+    out_of_stock: int
+    total_stock: int
+
+
 class SellerProductListResponse(BaseModel):
     items: list[SellerProductResponse]
     total: int
     page: int
     per_page: int
+    counts: SellerProductCounts
+    categories: list[str] = []
+    service_types: list[str] = []
+
+
+class AdminProductFacet(BaseModel):
+    key: str
+    count: int
+
+
+class AdminProductCounts(BaseModel):
+    all: int
+    active: int
+    draft: int
+    paused: int
+    suspended: int
+    needs_setup: int
+    total_revenue: int = 0
 
 
 class AdminProductListResponse(BaseModel):
@@ -273,6 +312,10 @@ class AdminProductListResponse(BaseModel):
     total: int
     page: int
     per_page: int
+    counts: AdminProductCounts
+    sellers: list[AdminProductFacet] = []
+    providers: list[AdminProductFacet] = []
+    services: list[AdminProductFacet] = []
 
 
 class ProductDetailResponse(ProductListItemResponse):

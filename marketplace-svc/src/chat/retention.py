@@ -29,12 +29,16 @@ async def purge_expired_messages(
         Dispute.order_id == ChatConversation.order_id,
         Dispute.status == DisputeStatus.open,
     ).exists()
-    old_resolved_dispute = select(Dispute.id).where(
-        Dispute.order_id == ChatConversation.order_id,
-        Dispute.status != DisputeStatus.open,
-        Dispute.resolved_at.is_not(None),
-        Dispute.resolved_at < support_cutoff,
-    ).exists()
+    latest_resolved_at = (
+        select(func.max(Dispute.resolved_at))
+        .where(
+            Dispute.order_id == ChatConversation.order_id,
+            Dispute.status != DisputeStatus.open,
+            Dispute.resolved_at.is_not(None),
+        )
+        .correlate(ChatConversation)
+        .scalar_subquery()
+    )
     eligible_conversation = or_(
         (
             (ChatConversation.kind == ConversationKind.PRODUCT_INQUIRY)
@@ -51,7 +55,8 @@ async def purge_expired_messages(
         (
             (ChatConversation.kind == ConversationKind.SUPPORT)
             & ~open_dispute
-            & old_resolved_dispute
+            & latest_resolved_at.is_not(None)
+            & (latest_resolved_at < support_cutoff)
         ),
     )
     ids = (

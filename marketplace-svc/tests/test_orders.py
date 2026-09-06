@@ -2,6 +2,7 @@ import asyncio
 from unittest.mock import AsyncMock
 
 import pytest
+from pydantic import ValidationError
 from sqlalchemy import select, update
 
 from src.database import SessionLocal
@@ -12,7 +13,17 @@ from src.models.pricing_config import PricingConfig
 from src.models.product import Product
 from src.models.provider import Provider
 from src.models.wallet import Transaction, TransactionType, Wallet
+from src.orders.constants import MAX_ORDER_QUANTITY
+from src.orders.schemas import OrderCreate
 from tests.conftest import make_admin, make_seller, register_and_login
+
+
+def test_order_quantity_accepts_bulk_orders_up_to_global_limit():
+    assert OrderCreate(variant_id=1, quantity=101).quantity == 101
+    assert OrderCreate(variant_id=1, quantity=MAX_ORDER_QUANTITY).quantity == MAX_ORDER_QUANTITY
+
+    with pytest.raises(ValidationError):
+        OrderCreate(variant_id=1, quantity=MAX_ORDER_QUANTITY + 1)
 
 
 async def setup_affiliate_order(

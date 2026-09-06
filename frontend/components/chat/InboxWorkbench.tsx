@@ -1,13 +1,14 @@
 "use client";
 
-import { FormEvent, useEffect, useRef, useState } from "react";
+import { FormEvent, UIEvent, useEffect, useLayoutEffect, useRef, useState } from "react";
 import { useQueryClient } from "@tanstack/react-query";
 import { useLocale, useTranslations } from "next-intl";
 import { Link, useRouter } from "@/i18n/navigation";
 import { useAuth } from "@/lib/auth";
 import { cn } from "@/lib/cn";
 import { useMoney } from "@/lib/money";
-import type { ChatConversation, ChatConversationList } from "@/lib/types";
+import { api } from "@/lib/api";
+import type { ChatConversation, ChatConversationList, ChatMessage } from "@/lib/types";
 import { queryKeys } from "@/lib/query-keys";
 import { useAdminSupportConversations, useChatConversation, useChatConversations, useSendChatMessage } from "@/hooks/use-chat";
 import { useChatEvents } from "@/hooks/use-chat-events";
@@ -48,6 +49,13 @@ function RoomIcon({ kind, size = 15 }: { kind: ChatConversation["kind"]; size?: 
   return <MessageCircle size={size} />;
 }
 
+function mergeChatMessages(existing: ChatMessage[], incoming: ChatMessage[]): ChatMessage[] {
+  const byId = new Map<number, ChatMessage>();
+  for (const message of existing) byId.set(message.id, message);
+  for (const message of incoming) byId.set(message.id, message);
+  return [...byId.values()].sort((a, b) => a.id - b.id);
+}
+
 function parseDisputeReason(reason: string): { tags: string[]; note: string } {
   if (!reason) return { tags: [], note: "" };
   const matches = reason.match(/\[(.*?)\]/g);
@@ -74,6 +82,12 @@ export default function InboxWorkbench({
   const apiErrorMessage = useApiErrorMessage();
   const [selectedId, setSelectedId] = useState<string | null>(initialConversationId);
   const [draft, setDraft] = useState("");
+  const [timelineMessages, setTimelineMessages] = useState<ChatMessage[]>([]);
+  const [olderCursor, setOlderCursor] = useState<number | null>(null);
+  const [loadingOlder, setLoadingOlder] = useState(false);
+  const stickToBottom = useRef(true);
+  const hydratedRoom = useRef<string | null>(null);
+  const olderRequestId = useRef(0);
   const adminMode = variant === "admin-support";
   const inboxHref = adminMode ? ADMIN_SUPPORT_HREF : INBOX_HREF;
   const userList = useChatConversations(!adminMode && !!account);
@@ -104,9 +118,22 @@ export default function InboxWorkbench({
   }, [account, authLoading, router]);
 
   useEffect(() => {
-    if (!detail.data) return;
-    if (timeline.current) {
-      timeline.current.scrollTop = timeline.current.scrollHeight;
+    olderRequestId.current += 1;
+    hydratedRoom.current = null;
+    setTimelineMessages([]);
+    setOlderCursor(null);
+    setLoadingOlder(false);
+    stickToBottom.current = true;
+  }, [selectedId]);
+
+  useEffect(() => {
+    if (!detail.data || detail.data.id !== selectedId) return;
+    if (hydratedRoom.current !== selectedId) {
+      hydratedRoom.current = selectedId;
+      setTimelineMessages(detail.data.messages);
+      setOlderCursor(detail.data.next_cursor);
+    } else {
+      setTimelineMessages((prev) => mergeChatMessages(prev, detail.data.messages));
     }
     queryClient.setQueryData<ChatConversationList>(listKey, (current) =>
       current
@@ -119,9 +146,42 @@ export default function InboxWorkbench({
         : current,
     );
     queryClient.invalidateQueries({ queryKey: queryKeys.actionItems() });
-  }, [detail.data, queryClient]);
+  }, [detail.data, queryClient, selectedId]);
+
+  useLayoutEffect(() => {
+    if (stickToBottom.current && timeline.current) {
+      timeline.current.scrollTop = timeline.current.scrollHeight;
+    }
+  }, [selectedId, timelineMessages]);
+
+  const loadOlder = async () => {
+    if (!selectedId || olderCursor == null || loadingOlder) return;
+    const requestId = ++olderRequestId.current;
+    const roomId = selectedId;
+    const node = timeline.current;
+    const previousHeight = node?.scrollHeight ?? 0;
+    setLoadingOlder(true);
+    try {
+      const page = await api.chatConversation(roomId, olderCursor);
+      if (requestId !== olderRequestId.current) return;
+      setTimelineMessages((prev) => mergeChatMessages(page.messages, prev));
+      setOlderCursor(page.next_cursor);
+      requestAnimationFrame(() => {
+        if (node) node.scrollTop = node.scrollHeight - previousHeight;
+      });
+    } finally {
+      if (requestId === olderRequestId.current) setLoadingOlder(false);
+    }
+  };
+
+  const onTimelineScroll = (event: UIEvent<HTMLDivElement>) => {
+    const node = event.currentTarget;
+    stickToBottom.current = node.scrollHeight - node.scrollTop - node.clientHeight < 48;
+    if (node.scrollTop < 48) void loadOlder();
+  };
 
   const selectRoom = (id: string) => {
+    olderRequestId.current += 1;
     markRoomRead(id);
     setSelectedId(id);
     router.replace(`${inboxHref}/${id}`, { scroll: false });
@@ -137,6 +197,7 @@ export default function InboxWorkbench({
     const body = draft.trim();
     if (!body || !selectedId || send.isPending) return;
     setDraft("");
+    stickToBottom.current = true;
     try {
       await send.mutateAsync({
         conversationId: selectedId,
@@ -436,6 +497,7 @@ export default function InboxWorkbench({
               {/* Timeline message list */}
               <div
                 ref={timeline}
+                onScroll={onTimelineScroll}
                 className="flex-1 space-y-2.5 overflow-y-auto bg-base/30 p-3 sm:p-4"
               >
                 {/* Compact safety notice */}
@@ -506,7 +568,19 @@ export default function InboxWorkbench({
                   </div>
                 )}
 
-                {room.messages.map((message) => {
+                {olderCursor != null && (
+                  <div className="flex justify-center">
+                    <button
+                      type="button"
+                      onClick={() => void loadOlder()}
+                      disabled={loadingOlder}
+                      className="rounded-full border border-line bg-surface px-3 py-1 text-[11px] font-medium text-muted hover:text-fg"
+                    >
+                      {loadingOlder ? t("loading") : t("loadOlder")}
+                    </button>
+                  </div>
+                )}
+                {timelineMessages.map((message) => {
                   const mine = message.sender_id === account.id;
                   return (
                     <div

@@ -236,7 +236,7 @@ async def test_seller_products_are_paginated_and_searchable(client):
     for title in ("Paged Alpha", "Paged Beta"):
         created = await client.post(
             "/seller/products",
-            json={"category_id": cat_id, "title": title},
+            json={"category_id": cat_id, "title": title, "status": "active"},
             headers=headers,
         )
         assert created.status_code == 201, created.text
@@ -247,6 +247,96 @@ async def test_seller_products_are_paginated_and_searchable(client):
     assert first.json()["total"] == 2
     assert len(first.json()["items"]) == len(second.json()["items"]) == 1
     assert first.json()["items"][0]["id"] != second.json()["items"][0]["id"]
+    assert first.json()["items"][0]["title"] == "Paged Beta"
+    assert second.json()["items"][0]["title"] == "Paged Alpha"
+    assert first.json()["counts"]["all"] == 2
+
+    invalid_status = await client.get(
+        "/seller/products?status=bogus", headers=headers,
+    )
+    assert invalid_status.status_code == 422
+
+    paused = await client.post(
+        "/seller/products",
+        json={"category_id": cat_id, "title": "Paged Gamma", "status": "active"},
+        headers=headers,
+    )
+    assert paused.status_code == 201, paused.text
+    status = await client.put(
+        f"/seller/products/{paused.json()['id']}/status",
+        json={"status": "paused"},
+        headers=headers,
+    )
+    assert status.status_code == 200, status.text
+    filtered = await client.get(
+        "/seller/products?status=paused&search=Paged",
+        headers=headers,
+    )
+    assert filtered.status_code == 200
+    assert filtered.json()["total"] == 1
+    assert filtered.json()["items"][0]["status"] == "paused"
+    assert filtered.json()["counts"]["paused"] == 1
+
+
+@pytest.mark.asyncio
+async def test_admin_products_are_paginated_and_searchable(client):
+    seller_token, admin_token, cat_id = await setup_seller_with_category(client)
+    headers = {"Authorization": f"Bearer {seller_token}"}
+    for title in ("Admin page alpha", "Admin page beta"):
+        created = await client.post(
+            "/seller/products",
+            json={"category_id": cat_id, "title": title},
+            headers=headers,
+        )
+        assert created.status_code == 201, created.text
+
+    first = await client.get(
+        "/admin/products?page=1&per_page=1&search=Admin%20page",
+        headers={"Authorization": f"Bearer {admin_token}"},
+    )
+    second = await client.get(
+        "/admin/products?page=2&per_page=1&search=Admin%20page",
+        headers={"Authorization": f"Bearer {admin_token}"},
+    )
+    assert first.status_code == second.status_code == 200
+    assert first.json()["total"] == 2
+    assert len(first.json()["items"]) == len(second.json()["items"]) == 1
+    assert first.json()["items"][0]["id"] != second.json()["items"][0]["id"]
+    assert first.json()["counts"]["all"] == 2
+    assert first.json()["sellers"]
+
+    invalid_sort = await client.get(
+        "/admin/products?sort_by=bogus",
+        headers={"Authorization": f"Bearer {admin_token}"},
+    )
+    assert invalid_sort.status_code == 422
+
+
+@pytest.mark.asyncio
+async def test_admin_products_filter_by_status(client):
+    seller_token, admin_token, cat_id = await setup_seller_with_category(client)
+    headers = {"Authorization": f"Bearer {seller_token}"}
+    created = await client.post(
+        "/seller/products",
+        json={"category_id": cat_id, "title": "Admin paused product", "status": "active"},
+        headers=headers,
+    )
+    assert created.status_code == 201, created.text
+    paused_status = await client.put(
+        f"/seller/products/{created.json()['id']}/status",
+        json={"status": "paused"},
+        headers=headers,
+    )
+    assert paused_status.status_code == 200, paused_status.text
+    paused = await client.get(
+        "/admin/products?status=paused&search=Admin%20paused",
+        headers={"Authorization": f"Bearer {admin_token}"},
+    )
+    assert paused.status_code == 200, paused.text
+    assert paused.json()["total"] >= 1
+    assert all(item["status"] == "paused" for item in paused.json()["items"])
+    forbidden = await client.get("/admin/products", headers=headers)
+    assert forbidden.status_code == 403
 
 
 @pytest.mark.asyncio
@@ -316,6 +406,14 @@ async def test_list_products_pagination(client):
     page2 = (await client.get("/products", params={"page": 2, "per_page": 2})).json()
     assert len(page2["items"]) == 1
     assert {p["id"] for p in body["items"]}.isdisjoint({p["id"] for p in page2["items"]})
+
+    summary_response = await client.get("/products/catalog-summary")
+    assert summary_response.status_code == 200
+    summary = summary_response.json()
+    assert summary["products"] == 3
+    assert summary["variants"] == 0
+    assert summary["available_stock"] == 0
+    assert summary["category_counts"] == [{"category_id": cat_id, "count": 3}]
 
 
 @pytest.mark.asyncio

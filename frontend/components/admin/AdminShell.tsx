@@ -141,6 +141,7 @@ export default function AdminShell({ children }: { children: ReactNode }) {
                   <Link
                     key={item.href}
                     href={item.href}
+                    prefetch={false}
                     title={collapsed ? item.label : undefined}
                     className={cn(
                       "group relative flex items-center rounded-lg text-[13.5px] font-medium transition-colors",
@@ -168,6 +169,7 @@ export default function AdminShell({ children }: { children: ReactNode }) {
         <div className="mt-auto p-3 border-t border-[var(--side-line)] space-y-1">
           <Link
             href="/"
+            prefetch={false}
             title={collapsed ? "Về Chợ" : undefined}
             className={cn(
               "flex items-center rounded-lg text-[13px] font-medium text-[var(--side-muted)] hover:text-white hover:bg-white/5 transition-colors",

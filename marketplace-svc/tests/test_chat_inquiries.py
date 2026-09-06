@@ -21,7 +21,7 @@ async def test_chat_routes_are_registered(client):
 @pytest.mark.asyncio
 async def test_buyer_can_open_product_inquiry_and_seller_can_reply(client):
     buyer_token, seller_token, _, _, _ = await setup_buyable_product(client)
-    product = (await client.get("/seller/products", headers=_auth(seller_token))).json()[-1]
+    product = (await client.get("/seller/products", headers=_auth(seller_token))).json()["items"][-1]
 
     opened = await client.post(
         "/chat/inquiries",
@@ -98,7 +98,7 @@ async def test_buyer_can_open_product_inquiry_and_seller_can_reply(client):
 @pytest.mark.asyncio
 async def test_inquiry_is_scoped_to_product_and_reuses_existing_room(client):
     buyer_token, seller_token, _, _, _ = await setup_buyable_product(client)
-    product = (await client.get("/seller/products", headers=_auth(seller_token))).json()[-1]
+    product = (await client.get("/seller/products", headers=_auth(seller_token))).json()["items"][-1]
     client_message_id = str(uuid.uuid4())
     payload = {
         "product_id": product["id"],
@@ -130,7 +130,7 @@ async def test_inquiry_is_scoped_to_product_and_reuses_existing_room(client):
 @pytest.mark.asyncio
 async def test_seller_cannot_start_product_inquiry(client):
     _, seller_token, _, _, _ = await setup_buyable_product(client)
-    product = (await client.get("/seller/products", headers=_auth(seller_token))).json()[-1]
+    product = (await client.get("/seller/products", headers=_auth(seller_token))).json()["items"][-1]
 
     response = await client.post(
         "/chat/inquiries",
@@ -149,7 +149,7 @@ async def test_seller_cannot_start_product_inquiry(client):
 @pytest.mark.asyncio
 async def test_chat_rejections_include_client_error_codes(client):
     buyer_token, seller_token, _, _, _ = await setup_buyable_product(client)
-    product = (await client.get("/seller/products", headers=_auth(seller_token))).json()[-1]
+    product = (await client.get("/seller/products", headers=_auth(seller_token))).json()["items"][-1]
 
     missing_product = await client.post(
         "/chat/inquiries",

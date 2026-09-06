@@ -106,7 +106,7 @@ export default function AdminOverview() {
   });
   const productsQ = useQuery({
     queryKey: ["admin", "products"],
-    queryFn: () => api.adminProducts({ perPage: 100 }),
+    queryFn: () => api.adminProducts({ status: "needs_setup", perPage: 1 }),
     staleTime: 60_000,
   });
   const withdrawalsQ = useQuery({
@@ -126,7 +126,7 @@ export default function AdminOverview() {
   // (sản phẩm cần thiết lập, lệnh rút đã duyệt chờ chi) — nghiêm trọng lên đầu.
   const queue = React.useMemo<ActionItem[]>(() => {
     const items: ActionItem[] = [...(actionQ.data ?? [])];
-    const needsSetup = (productsQ.data?.items ?? []).filter((p) => p.needs_setup).length;
+    const needsSetup = productsQ.data?.counts.needs_setup ?? productsQ.data?.total ?? 0;
     if (needsSetup > 0) {
       items.push({
         key: "admin_needs_setup", severity: "warning",

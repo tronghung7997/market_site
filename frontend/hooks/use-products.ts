@@ -6,14 +6,14 @@ import type { AdminProduct } from "@/lib/types";
 export function useAdminProducts() {
   return useQuery({
     queryKey: queryKeys.products(),
-    queryFn: () => api.adminProducts({ perPage: 100 }),
+    queryFn: () => api.adminProducts({ page: 1, perPage: 50 }),
   });
 }
 
 export function useProductDetail(id: number | null) {
   return useQuery({
     queryKey: queryKeys.productDetail(id ?? 0),
-    queryFn: () => api.adminProducts({ perPage: 100 }),
+    queryFn: () => api.adminProduct(id!),
     enabled: !!id,
   });
 }

@@ -54,14 +54,15 @@ function HomeInner({ initial }: { initial: HomeCatalog }) {
   const catName = (id: number) => flatCats.find((c) => c.id === id)?.name ?? "—";
   const stock = (p: typeof products[number]) => (p.variants ?? []).reduce((s, v) => s + (v.stock_count ?? 0), 0);
   const minPrice = (p: typeof products[number]) => effectiveMinPrice(p);
-  const variantCount = products.reduce((s, p) => s + (p.variants?.length ?? 0), 0);
-  const totalStock = products.reduce((s, p) => s + stock(p), 0);
-
-  const activeIds = useMemo(() => {
-    if (active == null) return null;
-    const cat = flatCats.find((c) => c.id === active);
-    return cat ? new Set(subtreeIds(cat)) : new Set([active]);
-  }, [active, flatCats]);
+  const categoryCount = (categoryId: number) => {
+    if (!initial.summary) return null;
+    const category = flatCats.find((item) => item.id === categoryId);
+    const ids = new Set(category ? subtreeIds(category) : [categoryId]);
+    return initial.summary.category_counts.reduce(
+      (sum, row) => sum + (ids.has(row.category_id) ? row.count : 0),
+      0,
+    );
+  };
 
   const featured = [...products].sort((a, b) => stock(b) - stock(a)).slice(0, 3);
 
@@ -99,7 +100,7 @@ function HomeInner({ initial }: { initial: HomeCatalog }) {
 
       <section className="border-b border-line bg-surface">
         <div className="w-full mx-auto max-w-[1200px] px-6 grid grid-cols-2 md:grid-cols-4 divide-x divide-line">
-          {[[t("activeProducts"), `${products.length}`], [t("packages"), `${variantCount}`], [t("availableStock"), `${totalStock}`], [t("escrowTime"), t("days", { count: 3 })]].map(([label, val], i) => (
+          {[[t("activeProducts"), `${initial.summary?.products ?? initial.total}`], [t("packages"), initial.summary ? `${initial.summary.variants}` : "—"], [t("availableStock"), initial.summary ? `${initial.summary.available_stock}` : "—"], [t("escrowTime"), t("days", { count: 3 })]].map(([label, val], i) => (
             <div key={i} className="px-5 py-4">
               <div className="font-mono text-[26px] font-semibold tabular">{val}</div>
               <div className="text-[12.5px] text-muted mt-1">{label}</div>
@@ -113,8 +114,8 @@ function HomeInner({ initial }: { initial: HomeCatalog }) {
           <SectionHead title={t("categories")} sub={t("categoriesSub")} />
           <div className="grid gap-2.5 sm:gap-4 grid-cols-2 sm:[grid-template-columns:repeat(auto-fill,minmax(220px,1fr))]">
             {flatCats
-              .map((c) => ({ c, count: products.filter((p) => subtreeIds(c).includes(p.category_id)).length }))
-              .filter((x) => x.count > 0)
+              .map((c) => ({ c, count: categoryCount(c.id) }))
+              .filter((x) => x.count == null || x.count > 0)
               .map(({ c, count }) => (
                 <Link key={c.id} href={`/categories/${c.id}`} className="block">
                   <Card interactive className="p-3 sm:p-5 h-full">
@@ -124,7 +125,7 @@ function HomeInner({ initial }: { initial: HomeCatalog }) {
                       className="h-8 w-8 sm:h-10 sm:w-10 rounded-lg"
                     />
                     <div className="mt-2.5 sm:mt-4 font-medium text-[13.5px] sm:text-[15px]">{c.name}</div>
-                    <div className="text-[11.5px] sm:text-[12.5px] text-muted mt-0.5">{common("products", { count })}</div>
+                    {count != null && <div className="text-[11.5px] sm:text-[12.5px] text-muted mt-0.5">{common("products", { count })}</div>}
                   </Card>
                 </Link>
               ))}
@@ -134,9 +135,9 @@ function HomeInner({ initial }: { initial: HomeCatalog }) {
 
       <MarketSection
         products={products}
+        initialTotal={initial.total}
         flatCats={flatCats}
         active={active}
-        activeIds={activeIds}
         setActive={setActive}
         catName={catName}
         stock={stock}

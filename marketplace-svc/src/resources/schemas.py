@@ -2,6 +2,8 @@ from datetime import datetime
 
 from pydantic import BaseModel, Field
 
+from src.orders.constants import MAX_ORDER_QUANTITY
+
 
 class BulkResourceCreate(BaseModel):
     items: list[str] = Field(min_length=1, max_length=500)
@@ -40,11 +42,20 @@ class InventoryVariantSummary(BaseModel):
     archived: int
 
 
+class InventoryCounts(BaseModel):
+    all: int
+    out: int
+    low: int
+    error: int
+    available: int
+
+
 class InventorySummaryResponse(BaseModel):
     items: list[InventoryVariantSummary]
     total: int
     page: int
     per_page: int
+    counts: InventoryCounts
 
 
 class BulkResourceResponse(BaseModel):
@@ -81,7 +92,7 @@ class ResourceSellerFacet(BaseModel):
 
 class InternalAcquireRequest(BaseModel):
     variant_id: int
-    quantity: int = Field(default=1, ge=1, le=100)
+    quantity: int = Field(default=1, ge=1, le=MAX_ORDER_QUANTITY)
 
 
 class InternalAcquireResponse(BaseModel):
@@ -89,7 +100,7 @@ class InternalAcquireResponse(BaseModel):
 
 
 class InternalReleaseRequest(BaseModel):
-    resource_ids: list[int] = Field(min_length=1, max_length=100)
+    resource_ids: list[int] = Field(min_length=1, max_length=MAX_ORDER_QUANTITY)
 
 
 class AdminResourceResponse(BaseModel):

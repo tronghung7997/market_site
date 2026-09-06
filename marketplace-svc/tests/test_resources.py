@@ -539,18 +539,43 @@ async def test_resource_default_page_is_bounded_and_export_streams_all(client):
     assert len(exported.text.strip().splitlines()) == 75
     assert "attachment;" in exported.headers["content-disposition"]
 
+    buyer_token = await register_and_login(client, "inv_export_buyer@example.com")
+    forbidden = await client.get(
+        f"/seller/variants/{variant_id}/resources/export?format=txt",
+        headers={"Authorization": f"Bearer {buyer_token}"},
+    )
+    assert forbidden.status_code == 403
+
+    too_big = await client.get(
+        f"/seller/variants/{variant_id}/resources?per_page=200",
+        headers=headers,
+    )
+    assert too_big.status_code == 422
+
 
 @pytest.mark.asyncio
 async def test_inventory_summary_is_paginated_and_searchable(client):
     seller_token, product_id, _ = await _seller_with_variant(client, "inv_page@example.com")
     headers = {"Authorization": f"Bearer {seller_token}"}
-    for name in ("Searchable A", "Searchable B"):
-        created = await client.post(
-            f"/seller/products/{product_id}/variants",
-            json={"name": name, "price": 1000, "delivery_mode": "instant"},
-            headers=headers,
-        )
-        assert created.status_code == 201, created.text
+    cat_id = (await client.get("/categories")).json()[-1]["id"]
+    second = await client.post(
+        "/seller/products",
+        json={"category_id": cat_id, "title": "Searchable second", "status": "active"},
+        headers=headers,
+    )
+    assert second.status_code == 201, second.text
+    variant = await client.post(
+        f"/seller/products/{second.json()['id']}/variants",
+        json={"name": "Searchable pack", "price": 1000, "delivery_mode": "instant"},
+        headers=headers,
+    )
+    assert variant.status_code == 201, variant.text
+    renamed = await client.patch(
+        f"/seller/products/{product_id}",
+        json={"title": "Searchable first"},
+        headers=headers,
+    )
+    assert renamed.status_code == 200, renamed.text
 
     response = await client.get(
         "/seller/inventory/summary?search=Searchable&page=1&per_page=1",
@@ -558,7 +583,25 @@ async def test_inventory_summary_is_paginated_and_searchable(client):
     )
     assert response.status_code == 200, response.text
     assert response.json()["total"] == 2
-    assert len(response.json()["items"]) == 1
+    assert {row["product_id"] for row in response.json()["items"]} == {product_id}
+    page_two = await client.get(
+        "/seller/inventory/summary?search=Searchable&page=2&per_page=1",
+        headers=headers,
+    )
+    assert page_two.json()["items"][0]["product_id"] != product_id
+    assert "counts" in response.json()
+
+    by_product_id = await client.get(
+        f"/seller/inventory/summary?search={product_id}",
+        headers=headers,
+    )
+    assert by_product_id.status_code == 200
+    assert {row["product_id"] for row in by_product_id.json()["items"]} == {product_id}
+
+    invalid_stock = await client.get(
+        "/seller/inventory/summary?stock=bogus", headers=headers,
+    )
+    assert invalid_stock.status_code == 422
 
 
 @pytest.mark.asyncio
@@ -604,6 +647,15 @@ async def test_list_resources_filtering_by_status_and_search(client):
     assert search_order.status_code == 200
     found_ids = [r["id"] for r in search_order.json()]
     assert assigned_res["id"] in found_ids or err_res["id"] in found_ids
+    exported = await client.get(
+        f"/seller/variants/{variant_id}/resources/export",
+        params={"format": "txt", "search": f"#{order_id}"},
+        headers=headers,
+    )
+    assert exported.status_code == 200
+    listed_data = {row["data"] for row in search_order.json()}
+    exported_data = {line for line in exported.text.strip().splitlines() if line}
+    assert exported_data == listed_data
 
     invalid = await client.get(
         f"/seller/variants/{variant_id}/resources",

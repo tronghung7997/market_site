@@ -6,9 +6,10 @@
  *  Danh mục nên nhận từ page. */
 
 import { Link } from "@/i18n/navigation";
-import { useState } from "react";
+import { useEffect, useRef, useState } from "react";
 import { useLocale, useTranslations } from "next-intl";
 import { useMoney } from "@/lib/money";
+import { api } from "@/lib/api";
 import { cn } from "@/lib/cn";
 import { categoryCoverId, parseCoverId } from "@/lib/product-covers";
 import type { Category, Product } from "@/lib/types";
@@ -40,12 +41,11 @@ export function ChevronIcon({ open }: { open: boolean }) {
   );
 }
 
-export function MarketSection({ products, flatCats, active, activeIds, setActive, catName, stock, minPrice, loading, error }: {
+export function MarketSection({ products, initialTotal, flatCats, active, setActive, catName, stock, minPrice, loading, error }: {
   products: Product[];
+  initialTotal: number;
   flatCats: Category[];
   active: number | null;
-  /** id danh mục đang chọn + toàn bộ nhánh con — null = không lọc danh mục. */
-  activeIds: Set<number> | null;
   setActive: (id: number | null) => void;
   catName: (id: number) => string;
   stock: (p: Product) => number;
@@ -61,12 +61,71 @@ export function MarketSection({ products, flatCats, active, activeIds, setActive
   const [inStockOnly, setInStockOnly] = useState(false);
   const [view, setView] = useState<"table" | "grid">("table");
   const [showAll, setShowAll] = useState(false);
+  const [catalogProducts, setCatalogProducts] = useState(products);
+  const [catalogTotal, setCatalogTotal] = useState(initialTotal);
+  const [catalogPage, setCatalogPage] = useState(1);
+  const [catalogLoading, setCatalogLoading] = useState(false);
+  const [catalogError, setCatalogError] = useState(false);
+  const initialRender = useRef(true);
 
-  const filtered = products.filter((p) =>
-    (activeIds == null || activeIds.has(p.category_id)) &&
-    (q === "" || p.title.toLowerCase().includes(q.toLowerCase())) &&
-    (!inStockOnly || stock(p) > 0));
-  const hasMore = filtered.length > COLLAPSED_LIMIT;
+  useEffect(() => {
+    if (initialRender.current && active == null && q === "" && !inStockOnly) {
+      initialRender.current = false;
+      return;
+    }
+    initialRender.current = false;
+    const controller = new AbortController();
+    const timer = window.setTimeout(() => {
+      setCatalogLoading(true);
+      setCatalogError(false);
+      api.products({
+        categoryId: active ?? undefined,
+        search: q.trim() || undefined,
+        inStock: inStockOnly,
+        page: 1,
+        perPage: 24,
+        signal: controller.signal,
+      }).then((result) => {
+        setCatalogProducts(result.items);
+        setCatalogTotal(result.total);
+        setCatalogPage(1);
+      }).catch((requestError: unknown) => {
+        if (!(requestError instanceof DOMException && requestError.name === "AbortError")) {
+          setCatalogError(true);
+        }
+      }).finally(() => {
+        if (!controller.signal.aborted) setCatalogLoading(false);
+      });
+    }, q ? 250 : 0);
+    return () => {
+      window.clearTimeout(timer);
+      controller.abort();
+    };
+  }, [active, q, inStockOnly]);
+
+  const loadMore = async () => {
+    const nextPage = catalogPage + 1;
+    setCatalogLoading(true);
+    setCatalogError(false);
+    try {
+      const result = await api.products({
+        categoryId: active ?? undefined,
+        search: q.trim() || undefined,
+        inStock: inStockOnly,
+        page: nextPage,
+        perPage: 24,
+      });
+      setCatalogProducts((current) => [...current, ...result.items]);
+      setCatalogTotal(result.total);
+      setCatalogPage(nextPage);
+    } catch {
+      setCatalogError(true);
+    } finally {
+      setCatalogLoading(false);
+    }
+  };
+
+  const filtered = catalogProducts;
   const isFiltering = active != null || q !== "" || inStockOnly;
   const visible = (showAll || isFiltering) ? filtered : filtered.slice(0, COLLAPSED_LIMIT);
 
@@ -92,6 +151,8 @@ export function MarketSection({ products, flatCats, active, activeIds, setActive
         <div className="relative flex-1 min-w-[200px] max-w-sm">
           <Search size={16} className="absolute left-3 top-1/2 -translate-y-1/2 text-faint" />
           <Input
+            id="home-product-search"
+            name="product-search"
             type="search"
             value={q}
             onChange={(e) => setQ(e.target.value)}
@@ -118,9 +179,9 @@ export function MarketSection({ products, flatCats, active, activeIds, setActive
         </div>
       </div>
 
-      {loading && <Spinner label={t("loadingMarket")} />}
-      {error && !loading && <Card className="p-5 text-bad text-sm">{error}</Card>}
-      {!loading && !error && filtered.length === 0 && <Card className="p-6 text-muted text-sm">{t("noProducts")}</Card>}
+      {(loading || (catalogLoading && filtered.length === 0)) && <Spinner label={t("loadingMarket")} />}
+      {(error || catalogError) && !loading && <Card className="p-5 text-bad text-sm">{error || t("noProducts")}</Card>}
+      {!loading && !catalogLoading && !error && !catalogError && filtered.length === 0 && <Card className="p-6 text-muted text-sm">{t("noProducts")}</Card>}
 
       {!loading && visible.length > 0 && (view === "table" ? (
         <Card className="overflow-hidden">
@@ -202,14 +263,18 @@ export function MarketSection({ products, flatCats, active, activeIds, setActive
         </div>
       ))}
 
-      {hasMore && !isFiltering && (
+      {((!showAll && !isFiltering && filtered.length > COLLAPSED_LIMIT) || filtered.length < catalogTotal) && (
         <div className="text-center mt-4">
           <button
-            onClick={() => setShowAll((v) => !v)}
+            onClick={() => {
+              if (!showAll && !isFiltering) setShowAll(true);
+              else void loadMore();
+            }}
+            disabled={catalogLoading}
             className="inline-flex items-center gap-1.5 text-[13px] font-medium text-iris hover:text-iris-hi transition-colors"
           >
-            {showAll ? t("collapse") : t("viewAllProducts", { count: filtered.length })}
-            <ChevronIcon open={showAll} />
+            {catalogLoading ? t("loadingMarket") : t("viewAllProducts", { count: catalogTotal })}
+            <ChevronIcon open={false} />
           </button>
         </div>
       )}

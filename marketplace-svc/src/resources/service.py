@@ -3,16 +3,33 @@ import io
 from collections.abc import AsyncIterator
 
 from fastapi import status
-from sqlalchemy import and_, func, or_, select
+from sqlalchemy import and_, case, func, or_, select
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from src.audit.service import log_event
 from src.exceptions import ErrorCode, NotOwner, ResourceUnavailable, api_error
 from src.logging import current_request_id
-from src.models.pricing_config import PricingConfig
 from src.models.product import DeliveryMode, Product, ProductVariant
 from src.models.resource import Resource, ResourceStatus
-from src.pricing.engine import product_pricing_override
+from src.pricing.engine import inventory_managed_sql
+
+INVENTORY_LOW_STOCK = 5
+
+
+def _resource_search_clause(search: str | None):
+    if not search or not search.strip():
+        return None
+    q = search.strip()
+    if q.startswith("#") and q[1:].isdigit():
+        return Resource.order_id == int(q[1:])
+    if q.isdigit():
+        n = int(q)
+        return or_(Resource.id == n, Resource.order_id == n, Resource.data.ilike(f"%{q}%"))
+    return Resource.data.ilike(f"%{q}%")
+
+
+def _fixed_strategy_sql():
+    return inventory_managed_sql()
 
 
 async def bulk_add_resources(variant_id: int, seller_id: int, items: list[str], db: AsyncSession) -> int:
@@ -75,14 +92,9 @@ async def list_resources(
         filters.append(Resource.is_archived == False)  # noqa: E712
     if status_filter:
         filters.append(Resource.status == status_filter)
-    if search and search.strip():
-        q = search.strip()
-        if q.startswith("#") and q[1:].isdigit():
-            filters.append(Resource.order_id == int(q[1:]))
-        elif q.isdigit():
-            filters.append(or_(Resource.id == int(q), Resource.order_id == int(q), Resource.data.ilike(f"%{q}%")))
-        else:
-            filters.append(Resource.data.ilike(f"%{q}%"))
+    search_clause = _resource_search_clause(search)
+    if search_clause is not None:
+        filters.append(search_clause)
 
     total = int(await db.scalar(select(func.count()).select_from(Resource).where(*filters)) or 0)
     result = await db.execute(
@@ -241,8 +253,25 @@ async def bulk_resource_action(
                 r.is_archived = True
             affected_ids.append(r.id)
 
+    await log_event(
+        db,
+        "warning" if action == "delete" else "info",
+        f"Seller bulk resource action={action} variant=#{variant_id} count={len(affected_ids)}",
+        request_id=current_request_id(),
+        metadata={
+            "event": f"seller_resources_bulk_{action}",
+            "seller_id": seller_id,
+            "variant_id": variant_id,
+            "resource_ids": affected_ids,
+            # Resource plaintext is intentionally excluded from the audit log.
+        },
+    )
     await db.commit()
     return action, len(affected_ids), affected_ids
+
+
+def _empty_inventory_counts() -> dict:
+    return {"all": 0, "out": 0, "low": 0, "error": 0, "available": 0}
 
 
 async def seller_inventory_summary(
@@ -250,52 +279,129 @@ async def seller_inventory_summary(
     db: AsyncSession,
     *,
     search: str | None = None,
+    stock: str | None = None,
+    product_id: int | None = None,
+    variant_id: int | None = None,
     page: int = 1,
     per_page: int = 50,
 ) -> dict:
-    """Đếm tồn kho theo từng gói sản phẩm của seller."""
-    products = list((await db.execute(
-        select(Product).where(Product.seller_id == seller_id)
-    )).scalars())
-    configs = {
-        config.service_type: config.strategy
-        for config in (await db.execute(
-            select(PricingConfig).where(PricingConfig.is_active == True)  # noqa: E712
-        )).scalars()
+    """Đếm tồn kho theo từng gói, phân trang theo sản phẩm."""
+    empty = {
+        "items": [], "total": 0, "page": page, "per_page": per_page,
+        "counts": _empty_inventory_counts(),
     }
-    inventory_product_ids = []
-    for product in products:
-        override = product_pricing_override(product)
-        strategy = (
-            override[0]
-            if override is not None
-            else configs.get(product.service_type or "other", "fixed")
-        )
-        if strategy == "fixed":
-            inventory_product_ids.append(product.id)
-    if not inventory_product_ids:
-        return {"items": [], "total": 0, "page": page, "per_page": per_page}
-
-    variant_filters = [
-        Product.id.in_(inventory_product_ids),
+    product_filters = [
+        Product.seller_id == seller_id,
+        _fixed_strategy_sql(),
         ProductVariant.delivery_mode == DeliveryMode.instant,
     ]
-    if search and search.strip():
-        term = f"%{search.strip()}%"
-        variant_filters.append(or_(Product.title.ilike(term), ProductVariant.name.ilike(term)))
-    total = int(await db.scalar(
-        select(func.count(ProductVariant.id))
-        .select_from(ProductVariant)
-        .join(Product, ProductVariant.product_id == Product.id)
-        .where(*variant_filters)
-    ) or 0)
-    page_variant_ids = select(ProductVariant.id).join(
-        Product, ProductVariant.product_id == Product.id
-    ).where(*variant_filters).order_by(
-        Product.title, Product.id, ProductVariant.sort_order, ProductVariant.id
-    ).offset((page - 1) * per_page).limit(per_page).subquery()
+    if product_id is not None:
+        product_filters.append(Product.id == product_id)
+    if variant_id is not None:
+        owner = await db.scalar(
+            select(Product.id)
+            .join(ProductVariant, ProductVariant.product_id == Product.id)
+            .where(
+                ProductVariant.id == variant_id,
+                Product.seller_id == seller_id,
+            )
+        )
+        if owner is None:
+            return empty
+        product_filters.append(Product.id == owner)
+    if search and search.strip() and product_id is None and variant_id is None:
+        raw_term = search.strip()
+        term = f"%{raw_term}%"
+        search_filters = [Product.title.ilike(term), ProductVariant.name.ilike(term)]
+        if raw_term.isdigit():
+            numeric_id = int(raw_term)
+            search_filters.extend([
+                Product.id == numeric_id,
+                ProductVariant.id == numeric_id,
+            ])
+        product_filters.append(or_(*search_filters))
 
-    rows = await db.execute(
+    matching_product_ids = (
+        select(Product.id)
+        .join(ProductVariant, ProductVariant.product_id == Product.id)
+        .where(*product_filters)
+        .distinct()
+    )
+    product_stock = (
+        select(
+            Product.id.label("product_id"),
+            Product.title.label("product_title"),
+            func.count(Resource.id).filter(
+                Resource.status == ResourceStatus.available,
+                Resource.order_id.is_(None),
+                Resource.is_archived == False,  # noqa: E712
+            ).label("available"),
+            func.count(Resource.id).filter(
+                Resource.status == ResourceStatus.error,
+                Resource.is_archived == False,  # noqa: E712
+            ).label("errors"),
+        )
+        .join(ProductVariant, ProductVariant.product_id == Product.id)
+        .outerjoin(Resource, Resource.variant_id == ProductVariant.id)
+        .where(
+            Product.id.in_(matching_product_ids),
+            ProductVariant.delivery_mode == DeliveryMode.instant,
+        )
+        .group_by(Product.id, Product.title)
+        .subquery()
+    )
+    out_condition = product_stock.c.available == 0
+    low_condition = and_(
+        product_stock.c.available > 0,
+        product_stock.c.available <= INVENTORY_LOW_STOCK,
+    )
+    error_condition = product_stock.c.errors > 0
+    count_row = (await db.execute(select(
+        func.count(product_stock.c.product_id),
+        func.sum(case((out_condition, 1), else_=0)),
+        func.sum(case((low_condition, 1), else_=0)),
+        func.sum(case((error_condition, 1), else_=0)),
+        func.sum(product_stock.c.available),
+    ))).one()
+    counts = {
+        "all": int(count_row[0] or 0),
+        "out": int(count_row[1] or 0),
+        "low": int(count_row[2] or 0),
+        "error": int(count_row[3] or 0),
+        "available": int(count_row[4] or 0),
+    }
+    stock_tab = (stock or "all").strip().lower()
+    page_filters = []
+    if product_id is None and variant_id is None:
+        if stock_tab == "out":
+            page_filters.append(out_condition)
+        elif stock_tab == "low":
+            page_filters.append(low_condition)
+        elif stock_tab == "error":
+            page_filters.append(error_condition)
+    page_rows = (await db.execute(
+        select(
+            product_stock.c.product_id,
+            func.count().over().label("filtered_total"),
+        )
+        .where(*page_filters)
+        .order_by(product_stock.c.product_title, product_stock.c.product_id)
+        .offset((page - 1) * per_page).limit(per_page)
+    )).all()
+    page_ids = [row.product_id for row in page_rows]
+    total = int(page_rows[0].filtered_total) if page_rows else 0
+    if not page_rows and page > 1:
+        total = int(await db.scalar(
+            select(func.count()).select_from(product_stock).where(*page_filters)
+        ) or 0)
+    if not page_ids:
+        return {
+            **empty,
+            "total": total,
+            "counts": counts,
+        }
+
+    stock_rows = await db.execute(
         select(
             Product.id, Product.title, ProductVariant.id, ProductVariant.name,
             ProductVariant.delivery_mode, ProductVariant.is_active,
@@ -312,21 +418,21 @@ async def seller_inventory_summary(
             ),
         )
         .where(
-            ProductVariant.id.in_(select(page_variant_ids.c.id)),
+            Product.id.in_(page_ids),
+            ProductVariant.delivery_mode == DeliveryMode.instant,
         )
         .group_by(
             Product.id, Product.title, ProductVariant.id, ProductVariant.name,
             ProductVariant.delivery_mode, ProductVariant.is_active, Resource.status,
         )
-        .order_by(Product.title, Product.id, ProductVariant.sort_order)
+        .order_by(Product.title, Product.id, ProductVariant.sort_order, ProductVariant.id)
     )
-
     archived_rows = await db.execute(
         select(Resource.variant_id, func.count(Resource.id))
         .where(
-            Resource.variant_id.in_(select(ProductVariant.id).where(
-                ProductVariant.id.in_(select(page_variant_ids.c.id)),
-            )),
+            Resource.variant_id.in_(
+                select(ProductVariant.id).where(ProductVariant.product_id.in_(page_ids))
+            ),
             Resource.is_archived == True,  # noqa: E712
         )
         .group_by(Resource.variant_id)
@@ -334,22 +440,31 @@ async def seller_inventory_summary(
     archived_by_variant = dict(archived_rows.all())
 
     by_variant: dict[int, dict] = {}
-    for product_id, title, variant_id, variant_name, delivery_mode, is_active, res_status, count in rows.all():
-        entry = by_variant.setdefault(variant_id, {
-            "product_id": product_id, "product_title": title,
-            "variant_id": variant_id, "variant_name": variant_name,
+    for pid, title, vid, vname, delivery_mode, is_active, res_status, count in stock_rows.all():
+        entry = by_variant.setdefault(vid, {
+            "product_id": pid, "product_title": title,
+            "variant_id": vid, "variant_name": vname,
             "delivery_mode": delivery_mode.value if delivery_mode else None,
             "is_active": is_active,
             "available": 0, "assigned": 0, "expired": 0, "error": 0,
-            "archived": archived_by_variant.get(variant_id, 0),
+            "archived": archived_by_variant.get(vid, 0),
         })
         if res_status is not None:
             entry[res_status.value] = count
+
+    grouped: dict[int, list[dict]] = {}
+    for entry in by_variant.values():
+        grouped.setdefault(entry["product_id"], []).append(entry)
+
+    items: list[dict] = []
+    for pid in page_ids:
+        items.extend(grouped.get(pid, []))
     return {
-        "items": list(by_variant.values()),
+        "items": items,
         "total": total,
         "page": page,
         "per_page": per_page,
+        "counts": counts,
     }
 
 
@@ -378,8 +493,9 @@ async def export_resources(
         filters.append(Resource.is_archived == False)  # noqa: E712
     if status_filter:
         filters.append(Resource.status == status_filter)
-    if search and search.strip():
-        filters.append(Resource.data.ilike(f"%{search.strip()}%"))
+    search_clause = _resource_search_clause(search)
+    if search_clause is not None:
+        filters.append(search_clause)
 
     async def generate() -> AsyncIterator[str]:
         cursor = 0
@@ -548,19 +664,26 @@ async def list_all_resources(
             rid = int(term.lstrip("#"))
             base = base.where(Resource.id == rid)
         except ValueError:
-            from sqlalchemy import or_
             like = f"%{term}%"
+            matching_variants = (
+                select(ProductVariant.id)
+                .join(Product, ProductVariant.product_id == Product.id)
+                .where(or_(
+                    Product.title.ilike(like),
+                    ProductVariant.name.ilike(like),
+                ))
+            )
+            matching_sellers = select(Account.id).where(Account.email.ilike(like))
             base = base.where(or_(
-                Product.title.ilike(like),
-                ProductVariant.name.ilike(like),
-                Account.email.ilike(like),
+                Resource.variant_id.in_(matching_variants),
+                Resource.seller_id.in_(matching_sellers),
             ))
 
     count_q = select(safunc.count()).select_from(base.subquery())
     total = (await db.execute(count_q)).scalar() or 0
 
     rows = await db.execute(
-        base.order_by(Resource.created_at.desc())
+        base.order_by(Resource.created_at.desc(), Resource.id.desc())
         .offset((page - 1) * per_page)
         .limit(per_page)
     )

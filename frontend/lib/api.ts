@@ -44,7 +44,10 @@ async function request<T>(path: string, init: RequestInit = {}, auth: boolean | 
     } else {
       res = await fetch(`${BASE}${path}`, { ...init, headers, credentials: "same-origin" });
     }
-  } catch {
+  } catch (err) {
+    if ((err as Error)?.name === "AbortError") {
+      throw err;
+    }
     throw new ApiError(0, NETWORK_ERROR_MESSAGE, "NETWORK");
   }
   if (res.status === 204) return undefined as T;
@@ -139,6 +142,7 @@ export const api = {
     sort?: "newest" | "bestseller" | "rating" | "price_asc" | "price_desc";
     page?: number;
     perPage?: number;
+    signal?: AbortSignal;
   } = {}) => {
     const q = new URLSearchParams();
     if (opts.categoryId) q.set("category_id", String(opts.categoryId));
@@ -152,7 +156,7 @@ export const api = {
     if (opts.page) q.set("page", String(opts.page));
     if (opts.perPage) q.set("per_page", String(opts.perPage));
     const qs = q.toString();
-    return request<PaginatedProducts>(`/products${qs ? `?${qs}` : ""}`);
+    return request<PaginatedProducts>(`/products${qs ? `?${qs}` : ""}`, { signal: opts.signal });
   },
   productsBySeller: (sellerId: number) =>
     request<PaginatedProducts>(`/products?seller_id=${sellerId}`),
@@ -233,13 +237,23 @@ export const api = {
   adminRejectSellerApplication: (id: number, reason: string) =>
     request<SellerApplication>(`/admin/seller-applications/${id}/reject`, { method: "POST", body: JSON.stringify({ reason }) }, true),
 
-  sellerProducts: (params: { search?: string; page?: number; perPage?: number } = {}) => {
+  sellerProducts: (params: {
+    search?: string;
+    status?: string;
+    category?: string;
+    serviceType?: string;
+    page?: number;
+    perPage?: number;
+  } = {}) => {
     const q = new URLSearchParams({ page: String(params.page ?? 1), per_page: String(params.perPage ?? 50) });
     if (params.search?.trim()) q.set("search", params.search.trim());
+    if (params.status && params.status !== "all") q.set("status", params.status);
+    if (params.category) q.set("category", params.category);
+    if (params.serviceType) q.set("service_type", params.serviceType);
     return request<PaginatedSellerProducts>(`/seller/products?${q}`, {}, true);
   },
   // Như api.product() nhưng kèm cả biến thể đã tắt — trang quản lý cần thấy chúng để bật lại.
-  sellerProduct: (id: number) => request<ProductDetail>(`/seller/products/${id}/detail`, {}, true),
+  sellerProduct: (id: number, init: RequestInit = {}) => request<ProductDetail>(`/seller/products/${id}/detail`, init, true),
   sellerStats: () => request<SellerStats>("/seller/stats", {}, true),
   sellerOrders: () => request<Order[]>("/seller/orders", {}, true),
   createProduct: (data: Record<string, unknown>) =>
@@ -273,7 +287,7 @@ export const api = {
     }, true),
   sellerVariantResources: async (
     variantId: number,
-    opts: { page?: number; perPage?: number; status?: string; search?: string; archivedOnly?: boolean } = {},
+    opts: { page?: number; perPage?: number; status?: string; search?: string; archivedOnly?: boolean; signal?: AbortSignal } = {},
   ) => {
     const q = new URLSearchParams({
       page: String(opts.page ?? 1),
@@ -292,8 +306,11 @@ export const api = {
     const headers: Record<string, string> = { "Accept-Language": browserLocale() };
     let res: Response;
     try {
-      res = await fetch(`${BASE}${path}`, { headers, credentials: "same-origin" });
-    } catch {
+      res = await fetch(`${BASE}${path}`, { headers, credentials: "same-origin", signal: opts.signal });
+    } catch (err) {
+      if ((err as Error)?.name === "AbortError") {
+        throw err;
+      }
       throw new ApiError(0, NETWORK_ERROR_MESSAGE, "NETWORK");
     }
     const body = await res.json().catch(() => null);
@@ -311,9 +328,19 @@ export const api = {
       total: Number(res.headers.get("X-Total-Count") ?? (Array.isArray(body) ? body.length : 0)),
     };
   },
-  inventorySummary: (params: { search?: string; page?: number; perPage?: number } = {}) => {
+  inventorySummary: (params: {
+    search?: string;
+    stock?: string;
+    productId?: number;
+    variantId?: number;
+    page?: number;
+    perPage?: number;
+  } = {}) => {
     const q = new URLSearchParams({ page: String(params.page ?? 1), per_page: String(params.perPage ?? 50) });
     if (params.search?.trim()) q.set("search", params.search.trim());
+    if (params.stock && params.stock !== "all") q.set("stock", params.stock);
+    if (params.productId) q.set("product_id", String(params.productId));
+    if (params.variantId) q.set("variant_id", String(params.variantId));
     return request<PaginatedInventoryVariants>(`/seller/inventory/summary?${q}`, {}, true);
   },
   sellerResourceExportUrl: (
@@ -355,9 +382,28 @@ export const api = {
 
   productOperations: (id: number) => request<ProductOperations>(`/products/${id}/operations`, {}, true),
 
-  adminProducts: (params: { search?: string; page?: number; perPage?: number } = {}) => {
+  adminProducts: (params: {
+    search?: string;
+    status?: string;
+    seller?: string;
+    provider?: string;
+    serviceType?: string;
+    hasProvider?: boolean;
+    sortBy?: string;
+    sortDir?: "asc" | "desc";
+    page?: number;
+    perPage?: number;
+  } = {}) => {
     const q = new URLSearchParams({ page: String(params.page ?? 1), per_page: String(params.perPage ?? 50) });
     if (params.search?.trim()) q.set("search", params.search.trim());
+    if (params.status && params.status !== "all") q.set("status", params.status);
+    if (params.seller) q.set("seller", params.seller);
+    if (params.provider) q.set("provider", params.provider);
+    if (params.serviceType) q.set("service_type", params.serviceType);
+    if (params.hasProvider === true) q.set("has_provider", "true");
+    if (params.hasProvider === false) q.set("has_provider", "false");
+    if (params.sortBy) q.set("sort_by", params.sortBy);
+    if (params.sortDir) q.set("sort_dir", params.sortDir);
     return request<PaginatedAdminProducts>(`/admin/products?${q}`, {}, true);
   },
   // Bản duy nhất còn commission_rate — trường này đã rút khỏi GET /products{,/{id}}.

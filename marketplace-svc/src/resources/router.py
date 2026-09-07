@@ -54,6 +54,7 @@ async def list_res(
 async def inventory_summary(
     search: str | None = None,
     stock: Literal["out", "low", "error"] | None = Query(None),
+    product_status: Literal["active", "all"] = Query("active"),
     product_id: int | None = Query(None, ge=1),
     variant_id: int | None = Query(None, ge=1),
     page: int = Query(1, ge=1),
@@ -62,7 +63,7 @@ async def inventory_summary(
     db: AsyncSession = Depends(get_session),
 ):
     return await service.seller_inventory_summary(
-        account.id, db, search=search, stock=stock,
+        account.id, db, search=search, stock=stock, product_status=product_status,
         product_id=product_id, variant_id=variant_id,
         page=page, per_page=per_page,
     )

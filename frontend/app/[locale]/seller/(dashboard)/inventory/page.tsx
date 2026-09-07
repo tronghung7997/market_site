@@ -64,6 +64,7 @@ const PRODUCTS_PAGE_SIZE = 10;
 const RESOURCES_PAGE_SIZE = 25;
 
 type InventoryFilter = "all" | "out" | "low" | "error";
+type InventoryProductStatus = "active" | "all";
 
 interface ProductGroup {
   id: number;
@@ -119,6 +120,7 @@ function InventoryConsole() {
   const [loading, setLoading] = useState(true);
   const [summaryLoadError, setSummaryLoadError] = useState(false);
   const [filter, setFilter] = useState<InventoryFilter>("all");
+  const [productStatus, setProductStatus] = useState<InventoryProductStatus>("active");
   const [productSearch, setProductSearch] = useState("");
   const debouncedProductSearch = useDebounce(productSearch, 250);
   const [selectedProductId, setSelectedProductId] = useState<number | null>(null);
@@ -190,6 +192,7 @@ function InventoryConsole() {
         perPage: PRODUCTS_PAGE_SIZE,
         search: debouncedProductSearch,
         stock: targetProductId || targetVariantId ? "all" : filter,
+        productStatus: targetProductId || targetVariantId ? "all" : productStatus,
         productId: targetProductId ?? undefined,
         variantId: targetVariantId ?? undefined,
       });
@@ -203,7 +206,7 @@ function InventoryConsole() {
     } finally {
       if (summaryRequestGate.current.isCurrent(request)) setLoading(false);
     }
-  }, [debouncedProductSearch, filter, productPage, targetProductId, targetVariantId]);
+  }, [debouncedProductSearch, filter, productPage, productStatus, targetProductId, targetVariantId]);
 
   useEffect(() => {
     loadSummary();
@@ -211,7 +214,7 @@ function InventoryConsole() {
 
   useEffect(() => {
     setProductPage(1);
-  }, [debouncedProductSearch, filter]);
+  }, [debouncedProductSearch, filter, productStatus]);
 
   // Load resources for selected variant (with cache + abort controller)
   const loadVariantResources = useCallback(
@@ -1070,16 +1073,24 @@ function InventoryConsole() {
       {productGroups.length === 0 ? (
         <Card className="p-10 text-center">
           <Package size={36} className="mx-auto text-faint mb-3" />
-          <p className="text-[14px] font-medium text-fg mb-1">{t("inventoryEmpty")}</p>
-          <p className="text-[12.5px] text-muted mb-4 max-w-md mx-auto">
-            {t("inventoryEmptyDescription")}
+          <p className="text-[14px] font-medium text-fg mb-1">
+            {productStatus === "active" ? t("inventoryNoSellingProducts") : t("inventoryEmpty")}
           </p>
-          <Link href="/seller/products/new">
-            <Button size="md">
-              <Plus size={15} />
-              <span>{t("inventoryCreateFirst")}</span>
+          <p className="text-[12.5px] text-muted mb-4 max-w-md mx-auto">
+            {productStatus === "active" ? t("inventoryNoSellingProductsHint") : t("inventoryEmptyDescription")}
+          </p>
+          {productStatus === "active" ? (
+            <Button size="md" variant="secondary" onClick={() => setProductStatus("all")}>
+              {t("inventoryViewPausedProducts")}
             </Button>
-          </Link>
+          ) : (
+            <Link href="/seller/products/new">
+              <Button size="md">
+                <Plus size={15} />
+                <span>{t("inventoryCreateFirst")}</span>
+              </Button>
+            </Link>
+          )}
         </Card>
       ) : (
         /* OPTION A+ MASTER-DETAIL WORKBENCH */
@@ -1100,6 +1111,31 @@ function InventoryConsole() {
                     )}
                     <span className="text-faint font-mono text-[11px]">{t("inventoryProductsCount", { count: summaryTotal })}</span>
                   </div>
+                </div>
+
+                <div className="flex rounded-lg border border-line bg-surface p-0.5" aria-label={t("inventoryProductVisibilityFilter")}>
+                  <button
+                    type="button"
+                    aria-pressed={productStatus === "active"}
+                    onClick={() => setProductStatus("active")}
+                    className={cn(
+                      "h-7 flex-1 rounded-md px-2 text-[11.5px] font-medium text-muted transition-colors",
+                      productStatus === "active" && "bg-iris-soft text-iris-hi shadow-xs",
+                    )}
+                  >
+                    {t("inventorySellingProducts")}
+                  </button>
+                  <button
+                    type="button"
+                    aria-pressed={productStatus === "all"}
+                    onClick={() => setProductStatus("all")}
+                    className={cn(
+                      "h-7 flex-1 rounded-md px-2 text-[11.5px] font-medium text-muted transition-colors",
+                      productStatus === "all" && "bg-raised text-fg shadow-xs",
+                    )}
+                  >
+                    {t("inventoryAllProducts")}
+                  </button>
                 </div>
 
                 <div className="relative">

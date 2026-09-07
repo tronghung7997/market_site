@@ -9,7 +9,7 @@ from sqlalchemy.ext.asyncio import AsyncSession
 from src.audit.service import log_event
 from src.exceptions import ErrorCode, NotOwner, ResourceUnavailable, api_error
 from src.logging import current_request_id
-from src.models.product import DeliveryMode, Product, ProductVariant
+from src.models.product import DeliveryMode, Product, ProductStatus, ProductVariant
 from src.models.resource import Resource, ResourceStatus
 from src.pricing.engine import inventory_managed_sql
 
@@ -280,6 +280,7 @@ async def seller_inventory_summary(
     *,
     search: str | None = None,
     stock: str | None = None,
+    product_status: str = "active",
     product_id: int | None = None,
     variant_id: int | None = None,
     page: int = 1,
@@ -295,6 +296,8 @@ async def seller_inventory_summary(
         _fixed_strategy_sql(),
         ProductVariant.delivery_mode == DeliveryMode.instant,
     ]
+    if product_status == "active" and product_id is None and variant_id is None:
+        product_filters.append(Product.status == ProductStatus.active)
     if product_id is not None:
         product_filters.append(Product.id == product_id)
     if variant_id is not None:

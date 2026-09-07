@@ -423,6 +423,40 @@ async def test_inventory_summary_only_shows_own_products(client):
 
 
 @pytest.mark.asyncio
+async def test_inventory_summary_defaults_to_active_products(client):
+    seller_token, product_id, variant_id = await _seller_with_variant(
+        client, "inventory_active_scope@example.com",
+    )
+    headers = {"Authorization": f"Bearer {seller_token}"}
+
+    paused = await client.put(
+        f"/seller/products/{product_id}/status",
+        json={"status": "paused"},
+        headers=headers,
+    )
+    assert paused.status_code == 200, paused.text
+
+    default_scope = await client.get("/seller/inventory/summary", headers=headers)
+    assert default_scope.status_code == 200, default_scope.text
+    assert all(row["variant_id"] != variant_id for row in default_scope.json()["items"])
+    assert default_scope.json()["total"] == 0
+
+    all_scope = await client.get(
+        "/seller/inventory/summary?product_status=all",
+        headers=headers,
+    )
+    assert all_scope.status_code == 200, all_scope.text
+    assert {row["variant_id"] for row in all_scope.json()["items"]} == {variant_id}
+
+    direct_scope = await client.get(
+        f"/seller/inventory/summary?product_id={product_id}",
+        headers=headers,
+    )
+    assert direct_scope.status_code == 200, direct_scope.text
+    assert {row["variant_id"] for row in direct_scope.json()["items"]} == {variant_id}
+
+
+@pytest.mark.asyncio
 async def test_update_available_resource(client):
     seller_token, _, variant_id = await _seller_with_variant(client, "inv5@example.com")
     await client.post(f"/seller/variants/{variant_id}/resources", json={"items": ["old|pass"]},

@@ -331,6 +331,7 @@ export const api = {
   inventorySummary: (params: {
     search?: string;
     stock?: string;
+    productStatus?: "active" | "all";
     productId?: number;
     variantId?: number;
     page?: number;
@@ -339,6 +340,7 @@ export const api = {
     const q = new URLSearchParams({ page: String(params.page ?? 1), per_page: String(params.perPage ?? 50) });
     if (params.search?.trim()) q.set("search", params.search.trim());
     if (params.stock && params.stock !== "all") q.set("stock", params.stock);
+    if (params.productStatus === "all") q.set("product_status", "all");
     if (params.productId) q.set("product_id", String(params.productId));
     if (params.variantId) q.set("variant_id", String(params.variantId));
     return request<PaginatedInventoryVariants>(`/seller/inventory/summary?${q}`, {}, true);

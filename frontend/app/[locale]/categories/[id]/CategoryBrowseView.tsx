@@ -121,6 +121,7 @@ export function CategoryBrowseView({
     }
     syncToUrl({ q: normalized || null, page: "1" });
     setCurrentPage(1);
+    isTypingRef.current = false;
     // searchParams intentionally excluded — guard reads it synchronously.
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [debouncedQ]);

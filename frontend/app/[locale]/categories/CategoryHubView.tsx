@@ -68,6 +68,7 @@ export function CategoryHubView({ initial }: { initial: CategoryHubCatalog }) {
       const qs = params.toString();
       router.replace(qs ? `${pathname}?${qs}` : pathname, { scroll: false });
     });
+    isTypingRef.current = false;
     // searchParams intentionally excluded — guard above reads it synchronously
     // and is always fresh. Adding it as a dep would re-run after every replace.
     // eslint-disable-next-line react-hooks/exhaustive-deps

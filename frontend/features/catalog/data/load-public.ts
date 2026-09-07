@@ -1,5 +1,6 @@
 import { fetchPublicJson } from "@/lib/seo";
 import { unstable_cache } from "next/cache";
+import { subtreeIds } from "@/lib/categories";
 import type { Category, PaginatedProducts, Product, ProductCatalogSummary, ProductDetail, SellerSummary } from "@/lib/types";
 
 export type HomeCatalog = {
@@ -96,7 +97,16 @@ export async function loadCategoryPage(
   const requestedPage = Number(query.page);
   const page = Number.isInteger(requestedPage) && requestedPage > 0 ? requestedPage : 1;
   const requestedSub = Number(query.sub);
-  const effectiveCategoryId = Number.isInteger(requestedSub) && requestedSub > 0 ? requestedSub : categoryId;
+  const categories = await fetchPublicJson<Category[]>("/categories", locale);
+  if (!categories) {
+    return { categories: [], products: [], total: 0, page, perPage: 24, error: "load" };
+  }
+  const rootCategory = categories.find((category) => category.id === categoryId);
+  const allowedCategoryIds = new Set(rootCategory ? subtreeIds(rootCategory) : [categoryId]);
+  const effectiveCategoryId =
+    Number.isInteger(requestedSub) && allowedCategoryIds.has(requestedSub)
+      ? requestedSub
+      : categoryId;
   const params = new URLSearchParams({
     category_id: String(effectiveCategoryId),
     page: String(page),
@@ -120,12 +130,9 @@ export async function loadCategoryPage(
     if (Number.isFinite(minVnd) && minVnd >= 0) params.set("min_price", String(Math.round(minVnd)));
     if (Number.isFinite(maxVnd) && maxVnd >= 0) params.set("max_price", String(Math.round(maxVnd)));
   }
-  const [categories, products] = await Promise.all([
-    fetchPublicJson<Category[]>("/categories", locale),
-    fetchPublicJson<PaginatedProducts>(`/products?${params}`, locale),
-  ]);
-  if (!categories || !products) {
-    return { categories: categories ?? [], products: [], total: 0, page, perPage: 24, error: "load" };
+  const products = await fetchPublicJson<PaginatedProducts>(`/products?${params}`, locale);
+  if (!products) {
+    return { categories, products: [], total: 0, page, perPage: 24, error: "load" };
   }
   return {
     categories,

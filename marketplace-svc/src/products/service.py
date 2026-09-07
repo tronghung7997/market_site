@@ -1,7 +1,8 @@
 from collections import defaultdict
 
 from fastapi import status as http_status
-from sqlalchemy import case, func, or_, select
+from sqlalchemy import Float, and_, case, cast, func, or_, select
+from sqlalchemy.dialects.postgresql import JSONB, JSONPATH
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from src.adapters.compatibility import check_compatibility, setup_status
@@ -408,101 +409,100 @@ async def list_products(
     if seller_id:
         filters.append(Product.seller_id == seller_id)
 
-    has_browse_filters = bool(
-        search or in_stock or fulfillment or min_price is not None
-        or max_price is not None or sort != "newest"
+    variant_stats = (
+        select(
+            ProductVariant.product_id.label("product_id"),
+            func.min(ProductVariant.price).filter(ProductVariant.price > 0).label("min_price"),
+            func.count(Resource.id).filter(and_(
+                Resource.status == ResourceStatus.available,
+                Resource.order_id.is_(None),
+                Resource.is_archived == False,  # noqa: E712
+            )).label("stock_count"),
+            func.bool_or(ProductVariant.delivery_mode == DeliveryMode.instant).label("has_instant"),
+        )
+        .outerjoin(Resource, Resource.variant_id == ProductVariant.id)
+        .where(ProductVariant.is_active == True)  # noqa: E712
+        .group_by(ProductVariant.product_id)
+        .subquery()
     )
-    variants_by_product: dict[int, list[dict]] | None = None
+    params = cast(Product.pricing_params, JSONB)
+    base_price = cast(params["base_price"].astext, Float)
+    credit_price = cast(params["credit_price"].astext, Float)
+    package_size = cast(func.jsonb_path_query_first(
+        params, cast("$.packages[0].size", JSONPATH),
+    ), Float)
+    duration_days = func.coalesce(
+        cast(func.jsonb_path_query_first(
+            params, cast("$.duration_options[0].days", JSONPATH),
+        ), Float),
+        30.0,
+    )
+    type_multiplier = func.coalesce(
+        cast(func.jsonb_path_query_first(
+            params, cast("$.type_mult.*", JSONPATH),
+        ), Float),
+        1.0,
+    )
+    network_multiplier = func.coalesce(
+        cast(func.jsonb_path_query_first(
+            params, cast("$.network_mult.*", JSONPATH),
+        ), Float),
+        1.0,
+    )
+    dynamic_price = case(
+        (Product.pricing_strategy == "credit", credit_price * package_size),
+        (
+            Product.pricing_strategy == "config",
+            func.round(base_price * type_multiplier * network_multiplier * duration_days / 30.0),
+        ),
+        else_=base_price,
+    )
+    browse_price = func.coalesce(variant_stats.c.min_price, dynamic_price, 0)
+    managed = inventory_managed_sql()
 
-    if has_browse_filters:
-        products = list((await db.execute(
-            select(Product).where(*filters).order_by(Product.created_at.desc(), Product.id.desc())
-        )).scalars())
-        if search:
-            needle = search.strip().casefold()
-            matching_products = []
-            for product in products:
-                localized = resolve_product_fields(product, locale)
-                if (
-                    needle in localized["title"].casefold()
-                    or needle in (localized.get("highlight_text") or "").casefold()
-                ):
-                    matching_products.append(product)
-            products = matching_products
+    query = select(Product).outerjoin(variant_stats, variant_stats.c.product_id == Product.id)
+    if search and search.strip():
+        locale_title = func.nullif(Product.i18n[locale]["title"].astext, "")
+        locale_highlight = func.nullif(Product.i18n[locale]["highlight_text"].astext, "")
+        if locale == "vi":
+            locale_title = func.coalesce(locale_title, func.nullif(Product.i18n["en"]["title"].astext, ""))
+            locale_highlight = func.coalesce(
+                locale_highlight,
+                func.nullif(Product.i18n["en"]["highlight_text"].astext, ""),
+            )
+        term = f"%{search.strip()}%"
+        filters.append(or_(
+            func.coalesce(locale_title, Product.title).ilike(term),
+            func.coalesce(locale_highlight, Product.highlight_text, "").ilike(term),
+        ))
+    if in_stock:
+        filters.append(or_(managed == False, func.coalesce(variant_stats.c.stock_count, 0) > 0))  # noqa: E712
+    if fulfillment == "instant":
+        filters.append(and_(managed == True, variant_stats.c.has_instant == True))  # noqa: E712
+    if min_price is not None:
+        filters.append(browse_price >= min_price)
+    if max_price is not None:
+        filters.extend((browse_price > 0, browse_price <= max_price))
 
-        variants_by_product = await _variants_by_product(
-            [product.id for product in products], db, locale=locale,
-        )
-
-        def browse_price(product: Product) -> int:
-            variants = variants_by_product.get(product.id, [])
-            prices = [row["price"] for row in variants if row["price"] > 0]
-            if prices:
-                return min(prices)
-            params = product.pricing_params or {}
-            if product.pricing_strategy == "credit":
-                unit = params.get("credit_price", 0)
-                packages = params.get("packages", [])
-                sizes = [
-                    row.get("size", 0) for row in packages
-                    if isinstance(row, dict) and isinstance(row.get("size"), (int, float)) and row["size"] > 0
-                ] if isinstance(packages, list) else []
-                return int(unit * min(sizes)) if isinstance(unit, (int, float)) and unit > 0 and sizes else 0
-            if product.pricing_strategy == "config":
-                base = params.get("base_price", 0)
-                duration_options = params.get("duration_options", [])
-                durations = [
-                    row.get("days", 0) for row in duration_options
-                    if isinstance(row, dict) and isinstance(row.get("days"), (int, float)) and row["days"] > 0
-                ] if isinstance(duration_options, list) else []
-                days = min(durations) if durations else 30
-                type_mult = params.get("type_mult") or {}
-                network_mult = params.get("network_mult") or {}
-                type_values = [value for value in type_mult.values() if isinstance(value, (int, float)) and value > 0] if isinstance(type_mult, dict) else []
-                network_values = [value for value in network_mult.values() if isinstance(value, (int, float)) and value > 0] if isinstance(network_mult, dict) else []
-                return round(base * (min(type_values) if type_values else 1) * (min(network_values) if network_values else 1) * days / 30) if isinstance(base, (int, float)) and base > 0 else 0
-            base = params.get("base_price", 0)
-            return int(base) if isinstance(base, (int, float)) and base > 0 else 0
-
-        if in_stock:
-            products = [
-                product for product in products
-                if product.pricing_strategy not in (None, "fixed")
-                or sum(row["stock_count"] for row in variants_by_product.get(product.id, [])) > 0
-            ]
-        if fulfillment == "instant":
-            products = [
-                product for product in products
-                if product.pricing_strategy in (None, "fixed")
-                and any(row["delivery_mode"] == "instant" for row in variants_by_product.get(product.id, []))
-            ]
-        if min_price is not None:
-            products = [product for product in products if browse_price(product) >= min_price]
-        if max_price is not None:
-            products = [product for product in products if 0 < browse_price(product) <= max_price]
-
-        if sort == "bestseller":
-            products.sort(key=lambda product: (product.sold_count, product.id), reverse=True)
-        elif sort == "rating":
-            products.sort(key=lambda product: (product.rating_avg or 0, product.rating_count, product.id), reverse=True)
-        elif sort == "price_asc":
-            products.sort(key=lambda product: (browse_price(product) <= 0, browse_price(product), product.id))
-        elif sort == "price_desc":
-            products.sort(key=lambda product: (browse_price(product), product.id), reverse=True)
-
-        total = len(products)
-        start = (page - 1) * per_page
-        products = products[start:start + per_page]
+    if sort == "bestseller":
+        order_by = (Product.sold_count.desc(), Product.id.desc())
+    elif sort == "rating":
+        order_by = (func.coalesce(Product.rating_avg, 0).desc(), Product.rating_count.desc(), Product.id.desc())
+    elif sort == "price_asc":
+        order_by = ((browse_price <= 0).asc(), browse_price.asc(), Product.id.asc())
+    elif sort == "price_desc":
+        order_by = (browse_price.desc(), Product.id.desc())
     else:
-        total = await db.scalar(select(func.count(Product.id)).where(*filters)) or 0
-        query = select(Product).where(*filters).order_by(Product.created_at.desc(), Product.id.desc())
-        query = query.offset((page - 1) * per_page).limit(per_page)
-        products = list((await db.execute(query)).scalars())
+        order_by = (Product.created_at.desc(), Product.id.desc())
 
-    if variants_by_product is None:
-        variants_by_product = await _variants_by_product(
-            [p.id for p in products], db, locale=locale,
-        )
+    total = await db.scalar(select(func.count(Product.id)).select_from(Product).outerjoin(
+        variant_stats, variant_stats.c.product_id == Product.id,
+    ).where(*filters)) or 0
+    query = query.where(*filters).order_by(*order_by).offset((page - 1) * per_page).limit(per_page)
+    products = list((await db.execute(query)).scalars())
+    variants_by_product = await _variants_by_product(
+        [product.id for product in products], db, locale=locale,
+    )
     return {
         "items": [
             {

@@ -35,16 +35,15 @@ logger = structlog.get_logger()
 # check). Per docs/superpowers/plans/2026-07-22-dproxy-review-fixes.md Medium
 # A: one fixed contract used everywhere, not a config knob that can drift.
 _LIST_PATH = "/api/v1/proxies/user"
-_CATALOG_PATH = "/api/v1/catalog"
-_PURCHASE_PATH = "/api/v1/proxies/order"
+_CATALOG_PATH = "/api/v1/store/plans"
+_PURCHASE_PATH = "/api/v1/customer/marketplace/partner-purchase"
 _DEFAULT_ROTATE_METHOD = "POST"
 _ALLOWED_AUTH_TYPES = {"bearer", "header"}
 _ALLOWED_ROTATE_METHODS = {"GET", "POST", "PUT"}
 
 
 class DProxyContractError(Exception):
-    """Supplier response doesn't match the expected shape (bad status code,
-    non-JSON body, top-level object isn't a list)."""
+    """Supplier response doesn't match the expected status or JSON shape."""
 
 
 class DProxyAuthError(Exception):
@@ -179,6 +178,60 @@ def _parse_assignment(item) -> ProxyAssignment | None:
     )
 
 
+def _parse_purchase_assignment(body) -> ProxyAssignment | None:
+    """Parse the M2M partner-purchase response documented by DProxy.
+
+    The contract returns an order UUID rather than an assignment UUID, so
+    freshly purchased rows are deliberately not marked rotatable.  Using the
+    order UUID for a rotate URL would guess at an undocumented relationship.
+    """
+    if not isinstance(body, dict) or body.get("success") is not True:
+        return None
+    data = body.get("data")
+    if not isinstance(data, dict) or data.get("status") != "fulfilled" or data.get("quantity") != 1:
+        return None
+    proxies = data.get("proxies")
+    if not isinstance(proxies, list) or len(proxies) != 1 or not isinstance(proxies[0], dict):
+        return None
+
+    proxy = proxies[0]
+    raw_order_id = data.get("order_id")
+    host = proxy.get("ip")
+    port_raw = proxy.get("port")
+    username = proxy.get("username")
+    password = proxy.get("password")
+    expires_at = _parse_dt(proxy.get("expires_at"))
+    if not raw_order_id or not host or port_raw is None or not username or not password or expires_at is None:
+        return None
+    try:
+        external_id = str(UUID(str(raw_order_id)))
+        port = int(port_raw)
+    except (ValueError, AttributeError, TypeError):
+        return None
+    if not 1 <= port <= 65535:
+        return None
+
+    return ProxyAssignment(
+        external_id=external_id,
+        proxy_id=None,
+        host=str(host),
+        port=port,
+        username=str(username),
+        password=str(password),
+        public_ip=str(host),
+        assigned_at=datetime.now(timezone.utc),
+        expires_at=expires_at,
+        online=True,
+        rotation_available=False,
+        rotation_mode=None,
+        cooldown_seconds=None,
+        last_rotated_at=None,
+        rotate_path=None,
+        country=None,
+        proxy_type=None,
+    )
+
+
 async def validate_dproxy_config(config: dict) -> None:
     """Admin-authoring validation for adapter_type=dproxy, wired into
     src/providers/service.py create_provider/update_provider.
@@ -210,6 +263,24 @@ async def validate_dproxy_config(config: dict) -> None:
     if parts.query or parts.fragment:
         raise HTTPException(status_code=400, detail="config.base_url không được chứa query string hoặc fragment")
 
+    plan_id = config.get("plan_id")
+    if plan_id is not None:
+        try:
+            UUID(str(plan_id))
+        except (ValueError, AttributeError, TypeError) as e:
+            raise HTTPException(status_code=400, detail="config.plan_id phải là UUID hợp lệ") from e
+    plan_ids = config.get("plan_ids")
+    if plan_ids is not None:
+        if not isinstance(plan_ids, dict) or not plan_ids:
+            raise HTTPException(status_code=400, detail="config.plan_ids phải là object không rỗng")
+        try:
+            for key, value in plan_ids.items():
+                if not isinstance(key, str) or not key:
+                    raise ValueError
+                UUID(str(value))
+        except (ValueError, AttributeError, TypeError) as e:
+            raise HTTPException(status_code=400, detail="Mỗi giá trị config.plan_ids phải là UUID hợp lệ") from e
+
     auth_type = config.get("auth_type") or "bearer"
     if auth_type not in _ALLOWED_AUTH_TYPES:
         raise HTTPException(
@@ -236,6 +307,15 @@ class DProxyAdapter(RealApiAdapter, RotatableProxyAdapter):
         self.rotate_method = (config.get("rotate_method") or _DEFAULT_ROTATE_METHOD).upper()
         self.auth_type = config.get("auth_type") or "bearer"
         self.auth_header = config.get("auth_header") or "X-API-Key"
+        self.plan_id = config.get("plan_id")
+        self.plan_ids = config.get("plan_ids") or {}
+        self.channel = config.get("channel") or "proxora"
+
+    def _resolve_plan_id(self, user_config: dict) -> str | None:
+        selection_key = "|".join(
+            str(user_config.get(field, "")) for field in ("type", "network", "days")
+        )
+        return self.plan_ids.get(selection_key) or self.plan_id
 
     def _headers(self, idempotency_key: str | None = None) -> dict:
         headers = {"Content-Type": "application/json"}
@@ -278,15 +358,8 @@ class DProxyAdapter(RealApiAdapter, RotatableProxyAdapter):
         return [a for item in body if (a := _parse_assignment(item)) is not None]
 
     async def list_catalog(self) -> dict:
-        """Advisory only — never raises, never blocks a purchase. A `None`
-        for any key means "this DProxy deployment's support for that
-        selection dimension is unknown/unsupported", not an error. Contract
-        for /api/v1/catalog is assumed (see docs/superpowers/plans/
-        2026-07-22-dproxy-integration.md 'Open contract questions'); this
-        method's only job is to survive whatever shape actually comes back
-        and degrade to "nothing supported" rather than crash the caller
-        (check_health, which merges this into the admin-facing health dict)."""
-        empty = {"countries": None, "types": None, "durations_days": None}
+        """Return the live M2M sales plans as advisory health metadata."""
+        empty = {"plans": None}
         try:
             resp = await self._request_with_retry(
                 "GET", _CATALOG_PATH, operation="list_catalog", headers=self._headers(),
@@ -299,38 +372,32 @@ class DProxyAdapter(RealApiAdapter, RotatableProxyAdapter):
             body = resp.json()
         except ValueError:
             return empty
-        if not isinstance(body, dict):
+        if not isinstance(body, list):
             return empty
-
-        def _str_list(value) -> list[str] | None:
-            if not isinstance(value, list) or not all(isinstance(v, str) for v in value):
-                return None
-            return value or None
-
-        def _int_list(value) -> list[int] | None:
-            if not isinstance(value, list) or not all(isinstance(v, int) for v in value):
-                return None
-            return value or None
-
-        return {
-            "countries": _str_list(body.get("countries")),
-            "types": _str_list(body.get("types")),
-            "durations_days": _int_list(body.get("durations_days")),
-        }
+        plans = [
+            {key: item.get(key) for key in ("id", "name", "proxy_count", "duration_days", "price", "currency")}
+            for item in body
+            if isinstance(item, dict) and isinstance(item.get("id"), str) and isinstance(item.get("name"), str)
+        ]
+        return {"plans": plans or None}
 
     async def purchase_assignment(
-        self, *, country: str | None, proxy_type: str | None, duration_days: int, idempotency_key: str,
+        self, *, plan_id: str, partner_order_id: str,
     ) -> ProxyAssignment:
-        """Buys ONE fresh assignment matching the buyer's chosen
-        country/type/duration — used by the `config`-strategy path in
-        provision(), never by the `credit` (first-available) path. Unlike
-        list_assignments, a structurally invalid response here is fatal —
-        there's exactly one row and it must parse or the purchase failed."""
+        """Buy exactly one proxy through DProxy's marketplace M2M API."""
         try:
             resp = await self._request_with_retry(
                 "POST", _PURCHASE_PATH, operation="purchase_assignment",
-                idempotency_key=idempotency_key, headers=self._headers(idempotency_key),
-                json={"country": country, "type": proxy_type, "duration_days": duration_days, "quantity": 1},
+                idempotency_key=partner_order_id, headers=self._headers(partner_order_id),
+                json={
+                    "partner_order_id": partner_order_id,
+                    "plan_id": plan_id,
+                    "quantity": 1,
+                    "channel": self.channel,
+                    "metadata": {
+                        "proxora_order_id": partner_order_id.removeprefix("proxora-").removeprefix("order-")
+                    },
+                },
             )
         except httpx.HTTPError as e:
             raise DProxyUnavailableError(str(e)) from e
@@ -346,7 +413,7 @@ class DProxyAdapter(RealApiAdapter, RotatableProxyAdapter):
             body = resp.json()
         except ValueError as e:
             raise DProxyContractError("Phản hồi mua proxy không phải JSON hợp lệ") from e
-        assignment = _parse_assignment(body)
+        assignment = _parse_purchase_assignment(body)
         if assignment is None:
             raise DProxyContractError("Phản hồi mua proxy không đúng định dạng")
         return assignment
@@ -469,13 +536,11 @@ class DProxyAdapter(RealApiAdapter, RotatableProxyAdapter):
             )
 
         try:
+            plan_id = self._resolve_plan_id(user_config)
+            if not plan_id:
+                raise DProxyContractError("Nhà cung cấp DProxy chưa cấu hình plan_id")
             assignment = await self.purchase_assignment(
-                # DProxy bán theo QUỐC GIA thật (payload nhà cung cấp là
-                # "country") — field `network` của ConfigPricing chỉ là tên ô
-                # chọn phía buyer. Khác TopProxy, nơi `network` là nhà mạng
-                # (loaiproxy) và được mang bằng ProxyAssignment.network.
-                country=user_config.get("network"), proxy_type=user_config.get("type"),
-                duration_days=int(user_config["days"]), idempotency_key=f"order-{order_id}",
+                plan_id=plan_id, partner_order_id=f"proxora-{order_id}",
             )
         except DProxyAuthError:
             return ProvisionResult(success=False, error="Sai thông tin xác thực với nhà cung cấp proxy")

@@ -20,6 +20,7 @@ from src.orders.service import provision_pending_order
 from .conftest import make_admin, make_seller, register_and_login
 
 FUTURE = (datetime.now(timezone.utc) + timedelta(days=5)).isoformat()
+PLAN_ID = "1906e1af-70df-4a53-8874-53b8e5a51935"
 
 
 def label_to_uuid(label: str) -> str:
@@ -55,25 +56,22 @@ def _sample(external_id="ext-1", *, status="active", proxy_status="online") -> d
 
 
 def _config_sample(external_id="ext-cfg", *, country="VN", proxy_type="residential", duration_days=7) -> dict:
-    """POST /api/v1/proxies/order response shape — a single object, not a
-    list (unlike _sample(), which mimics the GET list endpoint)."""
+    """Documented POST partner-purchase response shape."""
     uid = label_to_uuid(external_id)
     now = datetime.now(timezone.utc)
     return {
-        "id": uid,
-        "assigned_at": now.isoformat(),
-        "expired_at": (now + timedelta(days=duration_days)).isoformat(),
-        "status": "active",
-        "username": "u", "password": "p", "is_active": True,
-        "proxies": {
-            "host": "s4.dproxy.info", "port": 20160,
-            "status": {"msg": "online"}, "proxy_id": "px-1", "ip_public": "1.2.3.4",
-            "country": country,
-            "proxies_type": {"name": proxy_type},
-            "rotation": {
-                "available": True, "mode": "pppoe", "cooldown_seconds": 60, "last_rotated_at": None,
-                "rotate_endpoint": f"/api/v1/proxies/user/{uid}/rotate",
-            },
+        "success": True,
+        "data": {
+            "order_id": uid,
+            "partner_order_id": "order-test",
+            "status": "fulfilled",
+            "quantity": 1,
+            "proxies": [{
+                "ip": "1.2.3.4", "port": 20160, "username": "u", "password": "p",
+                "formatted_string": "1.2.3.4:20160:u:p",
+                "socks5_url": "socks5://u:p@1.2.3.4:20160",
+                "expires_at": (now + timedelta(days=duration_days)).isoformat(),
+            }],
         },
     }
 
@@ -181,7 +179,14 @@ async def setup_dproxy_config_product(client, *, suffix=""):
 
     provider_resp = await client.post("/admin/providers", json={
         "name": "DProxy Config", "type": "dproxy", "adapter_type": "dproxy",
-        "config": {"base_url": "https://dproxy.example.com", "api_key": "dpx-secret"},
+        "config": {
+            "base_url": "https://dproxy.example.com", "api_key": "dpx-secret",
+            "plan_ids": {
+                "residential|VN|7": PLAN_ID,
+                "datacenter|US|30": PLAN_ID,
+            },
+            "channel": "proxora",
+        },
         "priority": 1,
     }, headers={"Authorization": f"Bearer {admin_token}"})
     assert provider_resp.status_code == 201, provider_resp.text
@@ -438,7 +443,7 @@ class TestDProxyConfigStrategyProvisioning:
             client, buyer_token, product_id, monkeypatch, type_="datacenter", network="US", days=30,
         )
 
-        _patch_dproxy_http(
+        calls = _patch_dproxy_http(
             monkeypatch, _resp(200, _config_sample("ext-cfg-ok", country="US", proxy_type="datacenter", duration_days=30)),
         )
         await provision_pending_order(order_id)
@@ -446,14 +451,20 @@ class TestDProxyConfigStrategyProvisioning:
         async with SessionLocal() as db:
             order = await db.get(Order, order_id)
             assert order.status == OrderStatus.delivered
-            assert "US" in order.delivered_data
-            assert "datacenter" in order.delivered_data
+            assert "Host: 1.2.3.4" in order.delivered_data
+            assert "Port: 20160" in order.delivered_data
 
             allocation = await db.scalar(select(ProxyAllocation).where(ProxyAllocation.order_id == order_id))
             assert allocation is not None
             assert allocation.external_id == label_to_uuid("ext-cfg-ok")
             assert allocation.status == ProxyAllocationStatus.allocated
             assert allocation.provider_id == provider_id
+
+        assert calls[0]["url"].endswith("/api/v1/customer/marketplace/partner-purchase")
+        assert calls[0]["json"]["partner_order_id"] == f"proxora-{order_id}"
+        assert calls[0]["json"]["plan_id"] == PLAN_ID
+        assert calls[0]["json"]["quantity"] == 1
+        assert calls[0]["json"]["channel"] == "proxora"
 
     @pytest.mark.asyncio
     async def test_idempotent_retry_does_not_purchase_a_second_proxy(self, client, monkeypatch):
@@ -484,7 +495,7 @@ class TestDProxyConfigStrategyProvisioning:
         # purchase_assignment again. If it wrongly purchased again, this
         # array would fail to parse as the single-object purchase response
         # and the order would come back cancelled instead of delivered.
-        _patch_dproxy_http(monkeypatch, _resp(200, [_config_sample("ext-cfg-retry")]))
+        _patch_dproxy_http(monkeypatch, _resp(200, [_sample("ext-cfg-retry")]))
         await provision_pending_order(order_id)
 
         async with SessionLocal() as db:

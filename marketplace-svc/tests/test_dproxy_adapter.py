@@ -13,6 +13,7 @@ from src.adapters.dproxy import (
     DProxyContractError,
     DProxyUnavailableError,
     _parse_assignment,
+    _parse_purchase_assignment,
     expected_rotate_path,
     validate_dproxy_config,
 )
@@ -21,6 +22,7 @@ from src.security.crypto import encrypt_str
 FUTURE = (datetime.now(timezone.utc) + timedelta(days=5)).isoformat()
 PAST = (datetime.now(timezone.utc) - timedelta(days=1)).isoformat()
 EXT_ID = "cab68c1a-707c-4148-a326-e69e99c870db"
+PLAN_ID = "1906e1af-70df-4a53-8874-53b8e5a51935"
 
 
 def _sample(**overrides) -> dict:
@@ -49,6 +51,31 @@ def _sample(**overrides) -> dict:
     }
     base.update(overrides)
     return base
+
+
+def _purchase_sample(**proxy_overrides) -> dict:
+    proxy = {
+        "ip": "171.246.96.55",
+        "port": 20002,
+        "username": "u_c8da7228_8",
+        "password": "df0ff12e71f6",
+        "formatted_string": "171.246.96.55:20002:u_c8da7228_8:df0ff12e71f6",
+        "socks5_url": "socks5://u_c8da7228_8:df0ff12e71f6@171.246.96.55:20002",
+        "expires_at": FUTURE,
+    }
+    proxy.update(proxy_overrides)
+    formatted = proxy["formatted_string"]
+    return {
+        "success": True,
+        "data": {
+            "order_id": EXT_ID,
+            "partner_order_id": "THM-ORDER-123456",
+            "status": "fulfilled",
+            "quantity": 1,
+            "proxies": [proxy],
+            "export_text": formatted,
+        },
+    }
 
 
 # ---------------------------------------------------------------------------
@@ -178,6 +205,29 @@ class TestParseAssignment:
         assert [p for p in (_parse_assignment(i) for i in []) if p is not None] == []
 
 
+class TestParsePurchaseAssignment:
+    def test_documented_m2m_response_parses(self):
+        assignment = _parse_purchase_assignment(_purchase_sample())
+        assert assignment is not None
+        assert assignment.external_id == EXT_ID
+        assert assignment.host == "171.246.96.55"
+        assert assignment.port == 20002
+        assert assignment.username == "u_c8da7228_8"
+        assert assignment.password == "df0ff12e71f6"
+        assert assignment.rotation_available is False
+        assert assignment.rotate_path is None
+
+    @pytest.mark.parametrize("body", [None, {}, {"success": False}, {"success": True, "data": {}}])
+    def test_incomplete_or_unsuccessful_response_is_rejected(self, body):
+        assert _parse_purchase_assignment(body) is None
+
+    def test_more_than_one_proxy_is_rejected_by_single_assignment_contract(self):
+        body = _purchase_sample()
+        body["data"]["quantity"] = 2
+        body["data"]["proxies"].append(dict(body["data"]["proxies"][0]))
+        assert _parse_purchase_assignment(body) is None
+
+
 def test_expected_rotate_path_matches_sample_contract():
     assert expected_rotate_path(EXT_ID) == f"/api/v1/proxies/user/{EXT_ID}/rotate"
 
@@ -247,7 +297,11 @@ def _adapter(**config_overrides) -> DProxyAdapter:
     # RealApiAdapter.__init__ treats config["api_key"] as already-encrypted
     # (matches how a real Provider row loads it — encrypted at rest by
     # providers/service.py) — encrypt it here too so decrypt_str doesn't choke.
-    config = {"base_url": "https://dproxy.example.com", "api_key": encrypt_str("k")}
+    config = {
+        "base_url": "https://dproxy.example.com",
+        "api_key": encrypt_str("k"),
+        "plan_id": PLAN_ID,
+    }
     config.update(config_overrides)
     return DProxyAdapter(config, db=None, provider_id=1)
 
@@ -316,6 +370,73 @@ class TestListAssignments:
         headers = mock.call_args.kwargs["headers"]
         assert headers["X-Custom-Key"] == "k"
         assert "Authorization" not in headers
+
+
+class TestPartnerPurchase:
+    @pytest.fixture(autouse=True)
+    def _no_sleep(self, monkeypatch):
+        monkeypatch.setattr("src.adapters.real_api.asyncio.sleep", AsyncMock())
+
+    @pytest.mark.asyncio
+    async def test_posts_documented_m2m_contract(self, monkeypatch):
+        adapter = _adapter(auth_type="header", auth_header="X-API-Key", channel="proxora")
+        mock = AsyncMock(return_value=_resp(200, _purchase_sample()))
+        monkeypatch.setattr(httpx.AsyncClient, "request", mock)
+
+        assignment = await adapter.purchase_assignment(plan_id=PLAN_ID, partner_order_id="THM-987654")
+
+        assert assignment.external_id == EXT_ID
+        assert assignment.host == "171.246.96.55"
+        assert mock.call_args.args[0] == "POST"
+        assert mock.call_args.args[1].endswith("/api/v1/customer/marketplace/partner-purchase")
+        assert mock.call_args.kwargs["json"] == {
+            "partner_order_id": "THM-987654",
+            "plan_id": PLAN_ID,
+            "quantity": 1,
+            "channel": "proxora",
+            "metadata": {"proxora_order_id": "THM-987654"},
+        }
+        assert mock.call_args.kwargs["headers"]["X-API-Key"] == "k"
+        assert mock.call_args.kwargs["headers"]["Idempotency-Key"] == "THM-987654"
+        assert mock.call_args.kwargs["headers"]["Content-Type"] == "application/json"
+
+
+class TestListCatalog:
+    @pytest.fixture(autouse=True)
+    def _no_sleep(self, monkeypatch):
+        monkeypatch.setattr("src.adapters.real_api.asyncio.sleep", AsyncMock())
+
+    @pytest.mark.asyncio
+    async def test_store_plans_are_exposed_as_health_metadata(self, monkeypatch):
+        adapter = _adapter()
+        plans = [{
+            "id": PLAN_ID,
+            "name": "Residential VN 7d",
+            "proxy_count": 1,
+            "duration_days": 7,
+            "price": 1.5,
+            "currency": "USD",
+            "country_id": 1,
+            "is_active": True,
+        }]
+        mock = AsyncMock(return_value=_resp(200, plans))
+        monkeypatch.setattr(httpx.AsyncClient, "request", mock)
+        result = await adapter.list_catalog()
+        assert mock.call_args.args[1].endswith("/api/v1/store/plans")
+        assert result == {"plans": [{
+            "id": PLAN_ID,
+            "name": "Residential VN 7d",
+            "proxy_count": 1,
+            "duration_days": 7,
+            "price": 1.5,
+            "currency": "USD",
+        }]}
+
+    @pytest.mark.asyncio
+    async def test_catalog_http_error_returns_null_plans(self, monkeypatch):
+        adapter = _adapter()
+        monkeypatch.setattr(httpx.AsyncClient, "request", AsyncMock(return_value=_resp(401)))
+        assert await adapter.list_catalog() == {"plans": None}
 
 
 class TestRotateAssignment:
@@ -411,6 +532,19 @@ class TestValidateDproxyConfig:
     async def test_rejects_bad_rotate_method(self):
         with pytest.raises(Exception):
             await validate_dproxy_config({"base_url": "https://dproxy.example.com", "rotate_method": "DELETE"})
+
+    @pytest.mark.asyncio
+    async def test_rejects_invalid_plan_id(self):
+        with pytest.raises(Exception):
+            await validate_dproxy_config({"base_url": "https://dproxy.example.com", "plan_id": "not-a-uuid"})
+
+    @pytest.mark.asyncio
+    async def test_rejects_invalid_plan_mapping(self):
+        with pytest.raises(Exception):
+            await validate_dproxy_config({
+                "base_url": "https://dproxy.example.com",
+                "plan_ids": {"residential|VN|30": "not-a-uuid"},
+            })
 
     @pytest.mark.asyncio
     async def test_accepts_well_formed_config(self):

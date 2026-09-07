@@ -33,6 +33,7 @@ import os
 from base64 import b64decode
 from datetime import datetime, timedelta, timezone
 from typing import Literal
+from uuid import UUID
 
 import uvicorn
 from fastapi import FastAPI, Header, HTTPException, Request, Response
@@ -57,6 +58,8 @@ FailureMode = Literal[
     "list_empty",
     "rotate_500",
     "rotate_malformed",
+    "purchase_500",
+    "purchase_malformed",
 ]
 
 
@@ -64,23 +67,19 @@ class ModeRequest(BaseModel):
     mode: FailureMode
 
 
-class CatalogRequest(BaseModel):
-    """PUT /_mock/catalog body — any key set to null simulates a DProxy
-    deployment that doesn't support that selection dimension at all."""
-    countries: list[str] | None = None
-    types: list[str] | None = None
-    durations_days: list[int] | None = None
+class PartnerPurchaseRequest(BaseModel):
+    """POST /api/v1/customer/marketplace/partner-purchase — OpenAPI
+    PartnerPurchaseRequest in docs/dproxy/openapi.json."""
+    partner_order_id: str
+    plan_id: str
+    quantity: int = Field(default=1, ge=1, le=100)
+    channel: str = "taphoammo"
+    metadata: dict | None = None
 
 
-class PurchaseRequest(BaseModel):
-    """POST /api/v1/proxies/order body — assumed contract shape, see plan
-    docs/superpowers/plans/2026-07-22-dproxy-integration.md 'Open contract
-    questions': the real DProxy purchase-with-duration endpoint isn't
-    confirmed yet, this is what the adapter/mock agree on for now."""
-    country: str | None = None
-    type: str | None = None
-    duration_days: int = Field(ge=1)
-    quantity: int = 1
+class MockPlansRequest(BaseModel):
+    """PUT /_mock/plans — replace the sales-plan catalog the mock serves."""
+    plans: list[dict]
 
 
 RotateBehavior = Literal["ip_and_password", "password_only"]
@@ -150,24 +149,64 @@ def _new_assignment(
     }
 
 
-_DEFAULT_CATALOG = {
-    "countries": ["VN", "US", "RU"],
-    "types": ["residential", "datacenter"],
-    "durations_days": [3, 7, 30],
-}
+_DEFAULT_PLANS = [
+    {
+        "id": "1906e1af-70df-4a53-8874-53b8e5a51935",
+        "name": "Residential VN 7d",
+        "proxy_count": 1,
+        "duration_days": 7,
+        "price": 1.5,
+        "currency": "USD",
+        "is_active": True,
+        "min_quantity": 1,
+        "max_quantity": 1000,
+        "proxies_type_id": 1,
+        "country_id": 1,
+        "service_type_id": None,
+        "ip_version_id": None,
+        "_proxy_type": "residential",
+        "_country": "VN",
+    },
+    {
+        "id": "aaaaaaaa-aaaa-4aaa-8aaa-aaaaaaaaaaaa",
+        "name": "Datacenter US 30d",
+        "proxy_count": 1,
+        "duration_days": 30,
+        "price": 3.0,
+        "currency": "USD",
+        "is_active": True,
+        "min_quantity": 1,
+        "max_quantity": 1000,
+        "proxies_type_id": 2,
+        "country_id": 2,
+        "service_type_id": None,
+        "ip_version_id": None,
+        "_proxy_type": "datacenter",
+        "_country": "US",
+    },
+]
 
 _assignments: dict[str, dict] = {}
+_orders: dict[str, dict] = {}
 _mode: FailureMode = "normal"
-_catalog: dict = dict(_DEFAULT_CATALOG)
+_plans: list[dict] = []
 _next_index = 4  # 1-3 are the fixed reset_state() pool; purchases start after.
 
 
+def _public_plan(plan: dict) -> dict:
+    result = copy.deepcopy(plan)
+    result.pop("_proxy_type", None)
+    result.pop("_country", None)
+    return result
+
+
 def reset_state() -> None:
-    global _mode, _catalog, _next_index
+    global _mode, _plans, _next_index
     _mode = "normal"
-    _catalog = dict(_DEFAULT_CATALOG)
+    _plans = copy.deepcopy(_DEFAULT_PLANS)
     _next_index = 4
     _assignments.clear()
+    _orders.clear()
     for index in range(1, 4):
         assignment = _new_assignment(index)
         _assignments[assignment["id"]] = assignment
@@ -297,29 +336,79 @@ async def list_user_proxies(request: Request, response: Response):
     return [_public_assignment(item) for item in _assignments.values()]
 
 
-@app.get("/api/v1/catalog")
-async def get_catalog(request: Request) -> dict:
-    """Assumed contract — see PurchaseRequest docstring. A null key means
-    this deployment doesn't support that selection dimension."""
+@app.get("/api/v1/store/plans")
+async def list_store_plans(request: Request):
+    """OpenAPI ProxySalesPlanResponse array — docs/dproxy/api.md catalog."""
     _check_api_auth(request)
-    return dict(_catalog)
-
-
-@app.post("/api/v1/proxies/order")
-async def purchase_proxy(body: PurchaseRequest, request: Request):
-    _check_api_auth(request)
-    if body.quantity != 1:
-        raise HTTPException(status_code=400, detail="quantity phải bằng 1 mỗi lần mua")
     if _mode == "list_500":
         raise HTTPException(status_code=503, detail="Simulated DProxy outage")
+    if _mode == "list_malformed":
+        return {"unexpected": "top-level object instead of array"}
+    return [_public_plan(plan) for plan in _plans]
+
+
+@app.post("/api/v1/customer/marketplace/partner-purchase")
+async def partner_purchase(body: PartnerPurchaseRequest, request: Request):
+    """Documented M2M purchase — docs/dproxy/api.md + OpenAPI PartnerPurchaseRequest."""
+    _check_api_auth(request)
+    if _mode == "purchase_500" or _mode == "list_500":
+        raise HTTPException(status_code=503, detail="Simulated DProxy outage")
+    if _mode == "purchase_malformed":
+        return {"unexpected": "shape"}
+    if body.quantity != 1:
+        raise HTTPException(status_code=422, detail="quantity must be 1 for this mock")
+    try:
+        UUID(str(body.plan_id))
+    except ValueError:
+        raise HTTPException(status_code=422, detail="plan_id must be a UUID") from None
+
+    existing = _orders.get(body.partner_order_id)
+    if existing is not None:
+        return existing
+
+    plan = next((p for p in _plans if p["id"] == body.plan_id), None)
+    if plan is None:
+        raise HTTPException(status_code=422, detail="Unknown plan_id")
+
     global _next_index
     index = _next_index
     _next_index += 1
     assignment = _new_assignment(
-        index, country=body.country, proxy_type=body.type, duration_days=body.duration_days,
+        index,
+        country=plan.get("_country"),
+        proxy_type=plan.get("_proxy_type"),
+        duration_days=int(plan["duration_days"]),
     )
+    # M2M docs use `ip` as the connect host, not a separate public IP.
+    assignment["proxies"]["host"] = assignment["proxies"]["ip_public"]
     _assignments[assignment["id"]] = assignment
-    return _public_assignment(assignment)
+
+    ip = assignment["proxies"]["ip_public"]
+    port = assignment["proxies"]["port"]
+    username = assignment["username"]
+    password = assignment["password"]
+    formatted = f"{ip}:{port}:{username}:{password}"
+    payload = {
+        "success": True,
+        "data": {
+            "order_id": assignment["id"],
+            "partner_order_id": body.partner_order_id,
+            "status": "fulfilled",
+            "quantity": 1,
+            "proxies": [{
+                "ip": ip,
+                "port": port,
+                "username": username,
+                "password": password,
+                "formatted_string": formatted,
+                "socks5_url": f"socks5://{username}:{password}@{ip}:{port}",
+                "expires_at": assignment["expired_at"],
+            }],
+            "export_text": formatted,
+        },
+    }
+    _orders[body.partner_order_id] = payload
+    return payload
 
 
 @app.post("/api/v1/proxies/user/{assignment_id}/rotate")
@@ -385,20 +474,19 @@ async def mock_state(x_mock_control_key: str | None = Header(default=None)) -> d
     return {
         "mode": _mode,
         "auth_type": AUTH_TYPE,
-        "catalog": dict(_catalog),
+        "plans": [_public_plan(plan) for plan in _plans],
         "assignment_count": len(_assignments),
         "assignments": [_public_assignment(item) for item in _assignments.values()],
+        "order_count": len(_orders),
     }
 
 
-@app.put("/_mock/catalog")
-async def mock_catalog(body: CatalogRequest, x_mock_control_key: str | None = Header(default=None)) -> dict:
-    """Reconfigure what /api/v1/catalog reports — set a key to null to
-    simulate a DProxy deployment that doesn't support that dimension."""
+@app.put("/_mock/plans")
+async def mock_plans(body: MockPlansRequest, x_mock_control_key: str | None = Header(default=None)) -> dict:
     _check_control_auth(x_mock_control_key)
-    global _catalog
-    _catalog = body.model_dump()
-    return dict(_catalog)
+    global _plans
+    _plans = copy.deepcopy(body.plans)
+    return {"plans": [_public_plan(plan) for plan in _plans]}
 
 
 @app.post("/_mock/reset")

@@ -62,22 +62,20 @@ An immediate second rotation returns `429` plus `Retry-After`.
 
 ## Catalog and on-demand purchase
 
-`GET /api/v1/catalog` reports what the deployment currently supports
-selecting on — any key can be `null`, meaning that dimension isn't offered
-(the buyer-facing form should then not require/show it):
+`GET /api/v1/store/plans` is the live M2M catalog (`ProxySalesPlanResponse`):
 
 ```bash
-curl -sS http://127.0.0.1:9201/api/v1/catalog \
+curl -sS http://127.0.0.1:9201/api/v1/store/plans \
   -H 'Authorization: Bearer mock-dproxy-token'
 ```
 
-`POST /api/v1/proxies/order` buys ONE fresh assignment matching the given
-country/type/duration (`quantity` must be `1`):
+`POST /api/v1/customer/marketplace/partner-purchase` buys ONE assignment for
+a `plan_id` (`quantity` must be `1`):
 
 ```bash
-curl -sS -X POST http://127.0.0.1:9201/api/v1/proxies/order \
+curl -sS -X POST http://127.0.0.1:9201/api/v1/customer/marketplace/partner-purchase \
   -H 'Authorization: Bearer mock-dproxy-token' -H 'Content-Type: application/json' \
-  -d '{"country":"VN","type":"residential","duration_days":7,"quantity":1}'
+  -d '{"partner_order_id":"THM-987654","plan_id":"1906e1af-70df-4a53-8874-53b8e5a51935","quantity":1,"channel":"proxora"}'
 ```
 
 ## Deterministic E2E controls
@@ -102,6 +100,8 @@ Available global modes:
 - `list_empty`
 - `rotate_500`
 - `rotate_malformed`
+- `purchase_500`
+- `purchase_malformed`
 
 Example:
 
@@ -111,13 +111,12 @@ curl -sS -X PUT http://127.0.0.1:9201/_mock/mode \
   -d '{"mode":"list_empty"}'
 ```
 
-Reconfigure the catalog to simulate a deployment that doesn't support a given
-dimension (e.g. no country support — set it to `null`):
+Replace the sales-plan catalog:
 
 ```bash
-curl -sS -X PUT http://127.0.0.1:9201/_mock/catalog \
+curl -sS -X PUT http://127.0.0.1:9201/_mock/plans \
   -H "$CONTROL" -H 'Content-Type: application/json' \
-  -d '{"countries":null,"types":["residential","datacenter"],"durations_days":[3,7,30]}'
+  -d '{"plans":[{"id":"1906e1af-70df-4a53-8874-53b8e5a51935","name":"Residential VN 7d","proxy_count":1,"duration_days":7,"price":1.5,"currency":"USD"}]}'
 ```
 
 Make one assignment offline, expired, or non-rotatable:
@@ -142,10 +141,10 @@ curl -sS http://127.0.0.1:9201/_mock/state -H "$CONTROL"
 3. Admin links the approved provider to a proxy product using either pricing
    strategy: `credit` with `package_size` fixed at 1 for a no-selection
    "quick buy" flow, or `config` (type/network/days) for a buyer-selectable
-   country/type/duration flow — the latter now actually purchases a fresh
-   assignment matching the buyer's choice via `POST /api/v1/proxies/order`
-   (see `GET /api/v1/catalog` below for the mock's configurable option
-   list). Both are DProxyAdapter-honored end to end; `quantity` stays fixed
+   country/type/duration flow — the latter purchases a fresh assignment via
+   `POST /api/v1/customer/marketplace/partner-purchase` using mapped
+   `plan_ids` from `GET /api/v1/store/plans`. Both are DProxyAdapter-honored
+   end to end; `quantity` stays fixed
    at 1 either way — one order always binds exactly one `ProxyAllocation`.
 4. Buyer funds the wallet and purchases the product.
 5. Confirm the delivered order contains normalized proxy credentials and the
@@ -228,3 +227,96 @@ URLs:
 
 Use the value of `MOCK_DPROXY_API_KEY` as the provider API key. The dashboard,
 supplier API, and test-control API intentionally use three different secrets.
+
+---
+
+## Operator flow (VI) — seller → admin → buyer
+
+DProxy **chỉ admin tạo provider**. Seller không tự đăng ký `adapter_type=dproxy`.
+Một đơn luôn `quantity = 1`.
+
+```
+Admin tạo provider dproxy (review_status=approved)
+        │
+Seller tạo sản phẩm proxy → gắn provider đã duyệt → status=active
+        │
+Buyer nạp ví → mua
+        │
+credit  → bind 1 assignment sẵn có (hết kho: rotate-then-relist)
+config  → POST /api/v1/customer/marketplace/partner-purchase (cần plan_id)
+        │
+Đơn delivered → buyer rotate IP (lần 2 ngay: 429)
+```
+
+### 1. Admin — provider
+
+UI: `/admin/providers`, `adapter_type=dproxy`.
+
+Mock:
+
+```json
+{
+  "base_url": "http://127.0.0.1:9201",
+  "api_key": "mock-dproxy-token",
+  "auth_type": "bearer"
+}
+```
+
+M2M (mua theo plan). Backend nhận các field này; form UI hiện **chưa có ô**
+`plan_id` / `plan_ids` / `channel` — ghi vào `config`:
+
+```json
+{
+  "base_url": "https://api.dproxy.info",
+  "api_key": "<token>",
+  "auth_type": "bearer",
+  "channel": "proxora",
+  "plan_id": "1906e1af-70df-4a53-8874-53b8e5a51935",
+  "plan_ids": {
+    "residential|vn|7": "1906e1af-70df-4a53-8874-53b8e5a51935",
+    "datacenter|us|30": "aaaaaaaa-aaaa-4aaa-8aaa-aaaaaaaaaaaa"
+  }
+}
+```
+
+Key `plan_ids` = `type|network|days` khớp option trên sản phẩm `config`.
+Nút Test = health (catalog `plans` + list user), **không** gọi purchase.
+
+### 2. Seller — sản phẩm
+
+1. Buyer nộp đơn seller → admin duyệt.
+2. `/seller/products/new` — danh mục proxy, escrow.
+3. Gắn `provider_id` DProxy đã approved (seller không tạo được adapter này).
+4. Giá:
+   - **credit** + `package_size=1`: mua nhanh, bind pool. Chạy được với mock + form admin hiện tại.
+   - **config**: buyer chọn type/network/days; cần `plan_ids` trên provider.
+
+Sản phẩm `status=active` mới lên chợ.
+
+### 3. Admin — duyệt
+
+| Việc | Ý nghĩa |
+|---|---|
+| Duyệt seller | Seller mới tạo sản phẩm |
+| Tạo/test provider DProxy | Kết nối mock hoặc live |
+| Gắn provider vào sản phẩm | Chỉ provider `approved` |
+| `status=active` | Buyer thấy trên chợ |
+
+Provider DProxy do admin tạo sẵn `approved`. Hàng `pending_review` chỉ áp dụng
+provider **seller tự đăng ký** (không phải dproxy).
+
+### 4. Buyer
+
+1. Nạp ví → mở sản phẩm.
+2. Credit: gần như chỉ bấm mua (số lượng khóa = 1). Config: chọn type/network/days.
+3. Đặt hàng → escrow. Thành công: **delivered**, hiện host/port/user/pass.
+4. Đổi IP: `POST /orders/{id}/proxy/rotate`. Cooldown: 429.
+
+### 5. UI còn thiếu
+
+- Form admin chưa có `channel` / `plan_id` / `plan_ids`.
+- Health UI còn nhìn catalog cũ (countries/types); mock/live trả `plans`.
+- Checkout buyer **đã** khóa qty=1 khi `adapter_type === dproxy`.
+
+E2E **credit + mock**: làm được ngay. E2E **config + partner-purchase**: cần
+ghi `plan_id` vào config provider trước.

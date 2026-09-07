@@ -1,6 +1,6 @@
 from __future__ import annotations
 
-from datetime import datetime
+from datetime import datetime, timezone
 from uuid import UUID
 
 import pytest
@@ -223,72 +223,98 @@ async def test_online_offline_dashboard_endpoint_round_trips(dproxy_client: Asyn
     assert body["is_active"] is True
 
 
+PLAN_VN_7D = "1906e1af-70df-4a53-8874-53b8e5a51935"
+PLAN_US_30D = "aaaaaaaa-aaaa-4aaa-8aaa-aaaaaaaaaaaa"
+
+
 @pytest.mark.asyncio
-async def test_catalog_get_and_put_round_trip(dproxy_client: AsyncClient):
-    default = await dproxy_client.get("/api/v1/catalog", headers=API_HEADERS)
+async def test_store_plans_match_sales_plan_contract(dproxy_client: AsyncClient):
+    default = await dproxy_client.get("/api/v1/store/plans", headers=API_HEADERS)
     assert default.status_code == 200
     body = default.json()
-    assert body["countries"] == ["VN", "US", "RU"]
-    assert body["types"] == ["residential", "datacenter"]
-    assert body["durations_days"] == [3, 7, 30]
+    assert isinstance(body, list)
+    assert {item["id"] for item in body} == {PLAN_VN_7D, PLAN_US_30D}
+    for item in body:
+        for key in ("id", "name", "proxy_count", "duration_days", "price", "currency"):
+            assert key in item
+        assert "_proxy_type" not in item
+        assert "_country" not in item
 
     assert (await dproxy_client.put(
-        "/_mock/catalog", json={"countries": None, "types": ["residential"], "durations_days": [7]},
-    )).status_code == 401  # no control key
+        "/_mock/plans", json={"plans": []},
+    )).status_code == 401
 
     updated = await dproxy_client.put(
-        "/_mock/catalog", headers=CONTROL_HEADERS,
-        json={"countries": None, "types": ["residential"], "durations_days": [7]},
+        "/_mock/plans", headers=CONTROL_HEADERS,
+        json={"plans": [{
+            "id": PLAN_VN_7D, "name": "Only VN", "proxy_count": 1,
+            "duration_days": 7, "price": 1, "currency": "USD",
+        }]},
     )
     assert updated.status_code == 200
-    assert updated.json() == {"countries": None, "types": ["residential"], "durations_days": [7]}
-
-    refreshed = await dproxy_client.get("/api/v1/catalog", headers=API_HEADERS)
-    assert refreshed.json()["countries"] is None
+    refreshed = await dproxy_client.get("/api/v1/store/plans", headers=API_HEADERS)
+    assert [item["id"] for item in refreshed.json()] == [PLAN_VN_7D]
 
 
 @pytest.mark.asyncio
-async def test_purchase_endpoint_creates_matching_fresh_assignment(dproxy_client: AsyncClient):
+async def test_partner_purchase_returns_documented_m2m_shape(dproxy_client: AsyncClient):
     before = (await dproxy_client.get("/api/v1/proxies/user", headers=API_HEADERS)).json()
     assert len(before) == 3
 
     purchased = await dproxy_client.post(
-        "/api/v1/proxies/order", headers=API_HEADERS,
-        json={"country": "US", "type": "datacenter", "duration_days": 14, "quantity": 1},
+        "/api/v1/customer/marketplace/partner-purchase", headers=API_HEADERS,
+        json={
+            "partner_order_id": "THM-987654",
+            "plan_id": PLAN_US_30D,
+            "quantity": 1,
+            "channel": "proxora",
+            "metadata": {"proxora_order_id": "99"},
+        },
     )
     assert purchased.status_code == 200
     body = purchased.json()
-    assert body["proxies"]["country"] == "US"
-    assert body["proxies"]["proxies_type"]["name"] == "datacenter"
-    expires_in = datetime.fromisoformat(body["expired_at"]) - datetime.fromisoformat(body["assigned_at"])
-    assert 13.9 <= expires_in.total_seconds() / 86400 <= 14.1
+    assert body["success"] is True
+    data = body["data"]
+    assert data["partner_order_id"] == "THM-987654"
+    assert data["status"] == "fulfilled"
+    assert data["quantity"] == 1
+    assert str(UUID(data["order_id"])) == data["order_id"]
+    proxy = data["proxies"][0]
+    assert set(proxy) >= {"ip", "port", "username", "password", "formatted_string", "socks5_url", "expires_at"}
+    assert data["export_text"] == proxy["formatted_string"]
+    assert proxy["formatted_string"] == f"{proxy['ip']}:{proxy['port']}:{proxy['username']}:{proxy['password']}"
+    expires_at = datetime.fromisoformat(proxy["expires_at"])
+    assert 29.9 <= (expires_at - datetime.now(timezone.utc)).total_seconds() / 86400 <= 30.1
 
     after = (await dproxy_client.get("/api/v1/proxies/user", headers=API_HEADERS)).json()
     assert len(after) == 4
-    assert body["id"] not in {a["id"] for a in before}
+    assert data["order_id"] not in {a["id"] for a in before}
 
 
 @pytest.mark.asyncio
-async def test_purchase_endpoint_rejects_quantity_other_than_one(dproxy_client: AsyncClient):
+async def test_partner_purchase_rejects_quantity_other_than_one(dproxy_client: AsyncClient):
     resp = await dproxy_client.post(
-        "/api/v1/proxies/order", headers=API_HEADERS,
-        json={"country": "VN", "type": "residential", "duration_days": 7, "quantity": 3},
+        "/api/v1/customer/marketplace/partner-purchase", headers=API_HEADERS,
+        json={"partner_order_id": "THM-Q", "plan_id": PLAN_VN_7D, "quantity": 3},
     )
-    assert resp.status_code == 400
+    assert resp.status_code == 422
 
 
 @pytest.mark.asyncio
-async def test_purchase_endpoint_accepts_null_country_when_catalog_omits_it(dproxy_client: AsyncClient):
-    """A deployment that doesn't support country selection (catalog reports
-    countries=null) must still accept a purchase with country=null — the
-    mock never requires a field its own catalog says is unsupported."""
-    await dproxy_client.put(
-        "/_mock/catalog", headers=CONTROL_HEADERS,
-        json={"countries": None, "types": ["residential"], "durations_days": [7]},
+async def test_partner_purchase_is_idempotent_on_partner_order_id(dproxy_client: AsyncClient):
+    payload = {
+        "partner_order_id": "THM-DUP",
+        "plan_id": PLAN_VN_7D,
+        "quantity": 1,
+        "channel": "proxora",
+    }
+    first = await dproxy_client.post(
+        "/api/v1/customer/marketplace/partner-purchase", headers=API_HEADERS, json=payload,
     )
-    resp = await dproxy_client.post(
-        "/api/v1/proxies/order", headers=API_HEADERS,
-        json={"country": None, "type": "residential", "duration_days": 7, "quantity": 1},
+    second = await dproxy_client.post(
+        "/api/v1/customer/marketplace/partner-purchase", headers=API_HEADERS, json=payload,
     )
-    assert resp.status_code == 200
-    assert resp.json()["proxies"]["country"] is None
+    assert first.status_code == second.status_code == 200
+    assert first.json()["data"]["order_id"] == second.json()["data"]["order_id"]
+    after = (await dproxy_client.get("/api/v1/proxies/user", headers=API_HEADERS)).json()
+    assert len(after) == 4

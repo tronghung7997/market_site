@@ -8,8 +8,8 @@ import { Button, Card } from "@/components/ui";
 import { ArrowRight, Bolt, Search, Shield } from "@/components/Icons";
 
 const SOLUTION_META = [
-  { key: "scraper" as const, href: "/products/11", icon: Bolt, accent: "iris" as const, priceVnd: 10 },
-  { key: "takedown" as const, href: "/products/12", icon: Shield, accent: "good" as const, priceVnd: 500_000 },
+  { key: "scraper" as const, href: "/products/39", icon: Bolt, accent: "iris" as const, priceVnd: 50 },
+  { key: "takedown" as const, href: "/products/40", icon: Shield, accent: "good" as const, priceVnd: 50 },
 ];
 
 const accentMap = {

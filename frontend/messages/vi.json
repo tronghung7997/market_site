@@ -2421,78 +2421,78 @@
       "cta": "Mở công cụ"
     },
     "scraper": {
-      "eyebrow": "Thu thập",
-      "title": "TikTok Scraper API",
-      "subtitle": "Trích xuất dữ liệu TikTok quy mô lớn",
-      "description": "API truy xuất profile, video, comments, hashtags. Mua gói credit, mỗi request trừ credit. REST + JSON, SDK Python & Node.js.",
+      "eyebrow": "Facebook",
+      "title": "Facebook Profile Lookup API",
+      "subtitle": "Tra cứu dữ liệu Facebook công khai theo thời gian thực",
+      "description": "Lấy dữ liệu profile, bài viết và bình luận Facebook công khai. Mỗi request sử dụng một credit.",
       "features": [
         {
-          "label": "100 req/s",
-          "detail": "Rate limit cao"
+          "label": "4 endpoints",
+          "detail": "Profile, bài viết, bình luận"
         },
         {
-          "label": "REST + JSON",
-          "detail": "Tích hợp nhanh"
+          "label": "Dữ liệu công khai",
+          "detail": "Không cần tài khoản"
         },
         {
           "label": "Credit-based",
-          "detail": "Chỉ trả khi dùng"
+          "detail": "1 credit mỗi request"
         },
         {
-          "label": "SDK sẵn",
-          "detail": "Python, Node.js"
+          "label": "100–1.000",
+          "detail": "Request mỗi gói"
         }
       ],
       "stats": [
         {
-          "value": "67",
-          "label": "đã mua"
-        },
-        {
-          "value": "4.5",
-          "label": "đánh giá"
-        },
-        {
-          "value": "5",
+          "value": "4",
           "label": "endpoints"
+        },
+        {
+          "value": "1",
+          "label": "credit / request"
+        },
+        {
+          "value": "100",
+          "label": "request / gói"
         }
       ]
     },
     "takedown": {
-      "eyebrow": "Bảo vệ",
-      "title": "Takedown đa nền tảng",
-      "subtitle": "Gỡ nội dung vi phạm trên mạng xã hội",
-      "description": "Dịch vụ takedown nội dung trên Facebook, Instagram, TikTok, YouTube. Team xử lý 24–72h, tracking real-time qua dashboard.",
+      "eyebrow": "TikTok",
+      "title": "TikTok Profile Lookup API",
+      "subtitle": "Tra cứu dữ liệu TikTok công khai theo thời gian thực",
+      "description": "Lấy dữ liệu profile, video, bình luận và kết quả tìm kiếm người dùng TikTok công khai. Mỗi request sử dụng một credit.",
       "features": [
         {
-          "label": "4 nền tảng",
-          "detail": "FB, IG, TikTok, YT"
+          "label": "4 endpoints",
+          "detail": "Profile, video, bình luận"
         },
         {
-          "label": "24–72h SLA",
-          "detail": "Cam kết thời gian"
+          "label": "Dữ liệu công khai",
+          "detail": "Không cần tài khoản"
         },
         {
-          "label": "Real-time",
-          "detail": "Dashboard theo dõi"
+          "label": "Credit-based",
+          "detail": "1 credit mỗi request"
         },
         {
-          "label": "> 85%",
-          "detail": "Tỷ lệ thành công"
+          "label": "100–1.000",
+          "detail": "Request mỗi gói"
         }
       ],
       "stats": [
         {
-          "value": "143",
-          "label": "đã mua"
+          "value": "4",
+          "label": "endpoints"
         },
         {
-          "value": "4.6",
-          "label": "đánh giá"
+          "value": "1",
+          "label": "credit / request"
         },
         {
-          "value": "24h",
-          "label": "phản hồi"
+          "value": "100",
+          "label": "request / gói"
         }
       ]
     },

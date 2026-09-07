@@ -2421,78 +2421,78 @@
       "cta": "Open tool"
     },
     "scraper": {
-      "eyebrow": "Collect",
-      "title": "TikTok Scraper API",
-      "subtitle": "Extract TikTok data at scale",
-      "description": "API for profiles, videos, comments, and hashtags. Buy credit packs; each request spends credit. REST + JSON, Python & Node.js SDKs.",
+      "eyebrow": "Facebook",
+      "title": "Facebook Profile Lookup API",
+      "subtitle": "Look up public Facebook data in real time",
+      "description": "Retrieve publicly accessible Facebook profile, post, and comment data. Each request uses one credit.",
       "features": [
         {
-          "label": "100 req/s",
-          "detail": "High rate limit"
+          "label": "4 endpoints",
+          "detail": "Profiles, posts, comments"
         },
         {
-          "label": "REST + JSON",
-          "detail": "Fast integration"
+          "label": "Public data",
+          "detail": "No account required"
         },
         {
           "label": "Credit-based",
-          "detail": "Pay only when you use it"
+          "detail": "1 credit per request"
         },
         {
-          "label": "SDKs ready",
-          "detail": "Python, Node.js"
+          "label": "100–1,000",
+          "detail": "Request packages"
         }
       ],
       "stats": [
         {
-          "value": "67",
-          "label": "sold"
-        },
-        {
-          "value": "4.5",
-          "label": "rating"
-        },
-        {
-          "value": "5",
+          "value": "4",
           "label": "endpoints"
+        },
+        {
+          "value": "1",
+          "label": "credit / request"
+        },
+        {
+          "value": "100",
+          "label": "requests / pack"
         }
       ]
     },
     "takedown": {
-      "eyebrow": "Protect",
-      "title": "Multi-platform takedown",
-      "subtitle": "Remove violating content on social platforms",
-      "description": "Takedown service for Facebook, Instagram, TikTok, and YouTube. 24–72h handling with real-time dashboard tracking.",
+      "eyebrow": "TikTok",
+      "title": "TikTok Profile Lookup API",
+      "subtitle": "Look up public TikTok data in real time",
+      "description": "Retrieve publicly accessible TikTok profiles, videos, comments, and user-search results. Each request uses one credit.",
       "features": [
         {
-          "label": "4 platforms",
-          "detail": "FB, IG, TikTok, YT"
+          "label": "4 endpoints",
+          "detail": "Profiles, videos, comments"
         },
         {
-          "label": "24–72h SLA",
-          "detail": "Time commitment"
+          "label": "Public data",
+          "detail": "No account required"
         },
         {
-          "label": "Real-time",
-          "detail": "Tracking dashboard"
+          "label": "Credit-based",
+          "detail": "1 credit per request"
         },
         {
-          "label": "> 85%",
-          "detail": "Success rate"
+          "label": "100–1,000",
+          "detail": "Request packages"
         }
       ],
       "stats": [
         {
-          "value": "143",
-          "label": "sold"
+          "value": "4",
+          "label": "endpoints"
         },
         {
-          "value": "4.6",
-          "label": "rating"
+          "value": "1",
+          "label": "credit / request"
         },
         {
-          "value": "24h",
-          "label": "response"
+          "value": "100",
+          "label": "requests / pack"
         }
       ]
     },

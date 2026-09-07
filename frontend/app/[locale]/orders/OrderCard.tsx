@@ -49,7 +49,11 @@ export default function OrderCard({
   const [askConfirm, setAskConfirm] = useState(false);
   const fulfillmentStatus = o.fulfillment?.status ?? o.status;
   const delivered = ["delivered", "completed"].includes(fulfillmentStatus);
-  const deliveredData = locale === "en" ? o.delivered_data?.replace(/^Gọi qua:/gm, "Call URL:") : o.delivered_data;
+  const deliveredData = o.gateway_access
+    ? `${tp("gatewayKey")}: ${o.gateway_access.key}\n${tp("gatewayCallUrl")}: ${o.gateway_access.url}`
+    : locale === "en"
+      ? o.delivered_data?.replace(/^Gọi qua:/gm, "Call URL:")
+      : o.delivered_data;
   const money = formatOrderHistoryMoney(o.total_amount, o.display_fx_rate_snapshot, { locale });
   // The backend, not the presence of product_id, determines whether this order
   // owns a proxy allocation. Other adapter orders may be tasks or API credit.
@@ -104,7 +108,7 @@ export default function OrderCard({
           <div className="mt-3">
             <div className="flex items-center justify-between mb-1">
               <span className="text-[10.5px] text-faint uppercase tracking-wider">{t("deliveredData")}</span>
-              <CopyButton text={o.delivered_data} />
+              <CopyButton text={deliveredData ?? ""} />
             </div>
             <pre className="font-mono text-[12px] bg-raised border border-line rounded-lg p-2.5 whitespace-pre-wrap break-all">{deliveredData}</pre>
           </div>

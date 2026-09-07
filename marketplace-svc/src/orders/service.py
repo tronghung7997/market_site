@@ -47,6 +47,28 @@ def _buyer_cancel_reason(buyer_message: str | None) -> str:
     return f"{specific} {_REFUND_NOTE}"
 
 
+def _gateway_access_from_delivery_data(data: str | None) -> dict[str, str] | None:
+    """Extract locale-neutral gateway fields from new and legacy delivery data."""
+    if not data:
+        return None
+    key = url = None
+    for line in data.splitlines():
+        label, separator, value = line.partition("=")
+        if separator and label.strip() == "gateway_key":
+            key = value.strip()
+        elif separator and label.strip() == "gateway_url":
+            url = value.strip()
+        else:
+            label, separator, value = line.partition(":")
+            if not separator:
+                continue
+            if label.strip().lower() == "gateway key":
+                key = value.strip()
+            elif label.strip().lower() in {"gọi qua", "call url"}:
+                url = value.strip()
+    return {"key": key, "url": url} if key and url else None
+
+
 async def create_order(buyer_id: int, variant_id: int, quantity: int, db: AsyncSession) -> Order:
     variant = await db.get(ProductVariant, variant_id)
     if not variant or not variant.is_active:
@@ -206,8 +228,8 @@ async def _apply_provision_result(
                     # /gw/{key}/<endpoint> (src/gateway/router.py).
                     gateway_key = await mint_gateway_key(order)
                     order.delivered_data = (
-                        f"Gateway key: {gateway_key}\n"
-                        f"Gọi qua: {settings.backend_base_url}/gw/{gateway_key}/<endpoint>"
+                        f"gateway_key={gateway_key}\n"
+                        f"gateway_url={settings.backend_base_url}/gw/{gateway_key}/<endpoint>"
                     )
             await log_event(
                 db, "info", f"Order {order.id} provisioned via adapter", request_id=rid,
@@ -571,6 +593,7 @@ async def _enrich_orders(orders: list[Order], db: AsyncSession) -> list[dict]:
             "total_amount": order.total_amount, "status": order.status,
             "display_fx_rate_snapshot": order.display_fx_rate_snapshot,
             "escrow_expires_at": order.escrow_expires_at, "delivered_data": order.delivered_data,
+            "gateway_access": _gateway_access_from_delivery_data(order.delivered_data),
             "cancel_reason": order.cancel_reason,
             "created_at": order.created_at,
             "product_title": product.title if product else None,
@@ -710,10 +733,21 @@ async def buyer_order_stats(buyer_id: int, db: AsyncSession) -> dict:
             base.where(Order.id.in_(select(Dispute.order_id).where(Dispute.status == DisputeStatus.open))).subquery()
         )
     )).scalar() or 0
+    cancelled_or_refunded = (await db.execute(
+        select(func.count()).select_from(
+            base.where(Order.status.in_(["cancelled", "refunded"])).subquery()
+        )
+    )).scalar() or 0
     total_spend = (await db.execute(
         select(func.coalesce(func.sum(Order.total_amount), 0)).where(Order.buyer_id == buyer_id)
     )).scalar() or 0
-    return {"total": total, "active": active, "disputed": disputed, "total_spend": total_spend}
+    return {
+        "total": total,
+        "active": active,
+        "disputed": disputed,
+        "cancelled_or_refunded": cancelled_or_refunded,
+        "total_spend": total_spend,
+    }
 
 
 async def list_seller_orders(seller_id: int, db: AsyncSession) -> list[dict]:

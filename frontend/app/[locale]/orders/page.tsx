@@ -61,8 +61,8 @@ export default function OrdersPage() {
   );
 
   const queryClient = useQueryClient();
-  const ordersQuery = useOrders(filters.params, !authLoading && !!account);
-  const statsQuery = useOrderStats(!authLoading && !!account);
+  const ordersQuery = useOrders(filters.params, !authLoading && !!account, account?.id);
+  const statsQuery = useOrderStats(!authLoading && !!account, account?.id);
   const orders = ordersQuery.data?.items ?? [];
   const total = ordersQuery.data?.total ?? 0;
   const loading = ordersQuery.isPending;
@@ -146,7 +146,7 @@ export default function OrdersPage() {
   const handleDelivered = useCallback(
     (id: number, deliveredData: string) => {
       queryClient.setQueryData<PaginatedOrderResponse>(
-        queryKeys.orders(filters.params as Record<string, unknown>),
+        queryKeys.orders(filters.params as Record<string, unknown>, account?.id),
         (prev) =>
           prev
             ? {
@@ -159,7 +159,7 @@ export default function OrdersPage() {
         setSelectedOrder((prev) => (prev ? { ...prev, delivered_data: deliveredData } : prev));
       }
     },
-    [queryClient, filters.params, selectedOrder?.id],
+    [queryClient, filters.params, selectedOrder?.id, account?.id],
   );
 
   const [extraHighlightResourceIds, setExtraHighlightResourceIds] = useState<number[]>([]);
@@ -241,7 +241,7 @@ export default function OrdersPage() {
       queryClient.invalidateQueries({ queryKey: ["orders"] });
       queryClient.invalidateQueries({ queryKey: queryKeys.orderStats() });
       queryClient.setQueryData<PaginatedOrderResponse>(
-        queryKeys.orders(filters.params as Record<string, unknown>),
+        queryKeys.orders(filters.params as Record<string, unknown>, account?.id),
         (prev) =>
           prev
             ? {
@@ -306,7 +306,7 @@ export default function OrdersPage() {
     };
     if (orderId) {
       queryClient.setQueryData<PaginatedOrderResponse>(
-        queryKeys.orders(filters.params as Record<string, unknown>),
+        queryKeys.orders(filters.params as Record<string, unknown>, account?.id),
         (prev) =>
           prev
             ? {
@@ -632,7 +632,7 @@ export default function OrdersPage() {
               { key: "", label: t("tabAll"), count: stats?.total },
               { key: "active", label: t("tabActive"), count: stats?.active },
               { key: "disputed", label: t("tabDisputed"), count: stats?.disputed },
-              { key: "deleted", label: t("tabDeleted"), count: undefined },
+              { key: "deleted", label: t("tabDeleted"), count: stats?.cancelled_or_refunded },
             ].map((tab) => {
               const isActive = filters.tab === tab.key;
               return (
@@ -668,7 +668,7 @@ export default function OrdersPage() {
         {/* Search Inputs (Flex Responsive Layout - Zero Overflow) */}
         <div className="flex flex-col gap-3">
           <div className="flex flex-col gap-3 lg:flex-row lg:items-center">
-            <div className="relative flex-1 min-w-[240px]">
+            <div className="relative min-w-[320px] flex-1">
               <Search size={15} className="absolute left-3.5 top-1/2 -translate-y-1/2 text-muted pointer-events-none" />
               <input
                 type="text"
@@ -754,17 +754,6 @@ export default function OrdersPage() {
                 <option value="amount_desc">{t("sortAmountDesc")}</option>
                 <option value="amount_asc">{t("sortAmountAsc")}</option>
               </select>
-
-              {filters.hasFilters && (
-                <button
-                  onClick={filters.clear}
-                  title={t("clearFilters")}
-                  className="inline-flex items-center gap-1 rounded-xl border border-line bg-raised px-2.5 py-1.5 text-[12px] font-semibold text-muted hover:border-bad/30 hover:text-bad transition-colors cursor-pointer shrink-0"
-                >
-                  <X size={13} />
-                  <span>{t("clearFilters")}</span>
-                </button>
-              )}
             </div>
           </div>
 

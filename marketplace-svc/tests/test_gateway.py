@@ -137,8 +137,8 @@ async def _buy_and_deliver(client, buyer_token, product_id, package_size, monkey
 
 def _extract_gateway_key(delivered_data: str) -> str:
     for line in delivered_data.splitlines():
-        if line.startswith("Gateway key:"):
-            return line.split(":", 1)[1].strip()
+        if line.startswith("gateway_key="):
+            return line.split("=", 1)[1].strip()
     raise AssertionError(f"no gateway key line in {delivered_data!r}")
 
 
@@ -156,7 +156,8 @@ class TestSellerGateway:
             order = await db.get(Order, order_id)
             assert order.status == OrderStatus.delivered
             assert order.gateway_key_hash is not None
-            assert "Gateway key:" in order.delivered_data
+            assert "gateway_key=" in order.delivered_data
+            assert "gateway_url=" in order.delivered_data
             # The seller's own provision response ("session issued") never
             # reaches the buyer — only the platform-minted key does.
             assert "session issued" not in order.delivered_data
@@ -164,6 +165,13 @@ class TestSellerGateway:
             balance = await db.scalar(select(OrderBalance).where(OrderBalance.order_id == order_id))
             assert balance.units_total == 5
             assert balance.units_used == 0
+
+        response = await client.get(f"/orders/{order_id}", headers={"Authorization": f"Bearer {buyer_token}"})
+        assert response.status_code == 200, response.text
+        assert response.json()["gateway_access"] == {
+            "key": _extract_gateway_key(order.delivered_data),
+            "url": next(line.split("=", 1)[1] for line in order.delivered_data.splitlines() if line.startswith("gateway_url=")),
+        }
 
     @pytest.mark.asyncio
     async def test_forward_call_charges_usage_and_reaches_the_seller(self, client, monkeypatch):

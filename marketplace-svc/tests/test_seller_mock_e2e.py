@@ -123,7 +123,7 @@ async def test_seller_to_admin_to_buyer_with_mock_gateway_and_task(client, monke
     async with SessionLocal() as db:
         order = await db.get(Order, placed.json()["id"])
         assert order.status == OrderStatus.delivered
-        key = next(line.split(":", 1)[1].strip() for line in order.delivered_data.splitlines() if line.startswith("Gateway key:"))
+        key = next(line.split("=", 1)[1] for line in order.delivered_data.splitlines() if line.startswith("gateway_key="))
     forwarded = await client.get(f"/gw/{key}/search", params={"q": "adapter-contract"})
     assert forwarded.status_code == 200, forwarded.text
     assert forwarded.json()["results"][0] == "result-0-for-adapter-contract"

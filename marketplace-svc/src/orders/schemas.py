@@ -32,6 +32,11 @@ class ManualDeliverRequest(BaseModel):
     data: str = Field(min_length=1, max_length=20000)
 
 
+class GatewayAccessInfo(BaseModel):
+    key: str
+    url: str
+
+
 class OrderResponse(BaseModel):
     id: int
     buyer_id: int
@@ -45,6 +50,7 @@ class OrderResponse(BaseModel):
     status: str
     escrow_expires_at: datetime | None
     delivered_data: str | None
+    gateway_access: GatewayAccessInfo | None = None
     cancel_reason: str | None = None
     created_at: datetime
     product_title: str | None = None
@@ -159,4 +165,5 @@ class OrderStatsResponse(BaseModel):
     total: int
     active: int
     disputed: int
+    cancelled_or_refunded: int
     total_spend: int

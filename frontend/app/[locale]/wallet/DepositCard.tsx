@@ -499,7 +499,7 @@ export default function DepositCard({ deposits, onChanged }: {
                       autoComplete="off"
                       value={amount}
                       onChange={(e) => {
-                        let v = e.target.value.replace(/[^\d.]/g, "");
+                        let v = e.target.value.replace(",", ".").replace(/[^\d.]/g, "");
                         const dot = v.indexOf(".");
                         if (dot !== -1) {
                           const intPart = v.slice(0, dot).slice(0, USD_INPUT_MAX_INT_DIGITS);
@@ -534,6 +534,11 @@ export default function DepositCard({ deposits, onChanged }: {
                     <span aria-hidden className="absolute right-3 top-1/2 -translate-y-1/2 text-[13px] text-faint font-medium select-none">
                       $
                     </span>
+                    {hasAmount && !meetsMin && (
+                      <p className="mt-1 text-[11px] text-bad">
+                        {t("depositMinError", { amount: formatMinLabel })}
+                      </p>
+                    )}
                     {hasAmount && !meetsMax && (
                       <p className="mt-1 text-[11px] text-bad">
                         {t("depositMaxError", { amount: formatMaxLabel })}

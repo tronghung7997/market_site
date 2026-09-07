@@ -100,6 +100,9 @@ export default function OrderResult({ order: initial, onRebuy, fulfillment }: { 
     order.display_fx_rate_snapshot,
     { locale },
   ).text;
+  const deliveryText = order.gateway_access
+    ? `${t("gatewayKey")}: ${order.gateway_access.key}\n${t("gatewayCallUrl")}: ${order.gateway_access.url}`
+    : order.delivered_data;
 
   const pending = order.status === "pending";
   const failed = order.status === "cancelled" || order.status === "refunded";
@@ -200,13 +203,13 @@ export default function OrderResult({ order: initial, onRebuy, fulfillment }: { 
             </div>
           </div>
         </div>
-      ) : order.delivered_data ? (
+      ) : deliveryText ? (
         <div className="animate-rise">
           <div className="flex items-center justify-between mb-1">
             <span className="text-[11px] text-faint uppercase tracking-wider">{t("orderHandoffInfo")}</span>
-            <CopyButton text={order.delivered_data} label={tc("copy")} copiedLabel={tc("copied")} />
+            <CopyButton text={deliveryText} label={tc("copy")} copiedLabel={tc("copied")} />
           </div>
-          <pre className="font-mono text-[12px] bg-raised border border-line rounded-lg p-3 whitespace-pre-wrap break-all">{order.delivered_data}</pre>
+          <pre className="font-mono text-[12px] bg-raised border border-line rounded-lg p-3 whitespace-pre-wrap break-all">{deliveryText}</pre>
         </div>
       ) : (
         <p className="text-[12.5px] text-muted">{t("orderSellerSla")}</p>

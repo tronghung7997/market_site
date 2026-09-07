@@ -216,6 +216,7 @@ export interface Order {
   status: string;
   escrow_expires_at: string | null;
   delivered_data: string | null;
+  gateway_access?: { key: string; url: string } | null;
   cancel_reason?: string | null;
   created_at: string;
   product_title?: string | null;
@@ -1051,6 +1052,7 @@ export interface OrderStats {
   total: number;
   active: number;
   disputed: number;
+  cancelled_or_refunded: number;
   total_spend: number;
 }
 

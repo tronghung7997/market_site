@@ -152,6 +152,23 @@ async def test_instant_purchase(client):
 
 
 @pytest.mark.asyncio
+async def test_order_stats_include_cancelled_and_refunded_orders(client):
+    buyer_token, _, _, instant_vid, _ = await setup_buyable_product(client)
+    headers = {"Authorization": f"Bearer {buyer_token}"}
+    created = await client.post("/orders", json={"variant_id": instant_vid, "quantity": 1}, headers=headers)
+
+    async with SessionLocal() as db:
+        await db.execute(
+            update(Order).where(Order.id == created.json()["id"]).values(status=OrderStatus.cancelled)
+        )
+        await db.commit()
+
+    stats = await client.get("/orders/stats", headers=headers)
+    assert stats.status_code == 200
+    assert stats.json()["cancelled_or_refunded"] == 1
+
+
+@pytest.mark.asyncio
 async def test_negative_quantity_is_rejected_without_changing_wallet(client):
     buyer_token, _, _, instant_vid, _ = await setup_buyable_product(client)
     headers = {"Authorization": f"Bearer {buyer_token}"}

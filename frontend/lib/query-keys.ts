@@ -7,10 +7,13 @@ export const queryKeys = {
   chatDetail: (id: string) => ["chat", "detail", id] as const,
   adminSupportList: () => ["chat", "admin-support"] as const,
   // Orders
-  orders: (filters?: Record<string, unknown> | null) =>
-    ["orders", filters ?? null] as const,
+  orders: (filters?: Record<string, unknown> | null, accountId?: number | null) =>
+    accountId == null
+      ? (filters == null ? ["orders"] as const : ["orders", filters] as const)
+      : ["orders", accountId, filters ?? null] as const,
   orderDetail: (id: number) => ["order", id] as const,
-  orderStats: () => ["order-stats"] as const,
+  orderStats: (accountId?: number | null) =>
+    accountId == null ? ["order-stats"] as const : ["order-stats", accountId] as const,
 
   // Products
   products: () => ["products"] as const,

@@ -13,9 +13,9 @@ export interface OrderFilters {
   per_page?: number;
 }
 
-export function useOrders(filters: OrderFilters = {}, enabled = true) {
+export function useOrders(filters: OrderFilters = {}, enabled = true, accountId?: number | null) {
   return useQuery({
-    queryKey: queryKeys.orders(filters as Record<string, unknown>),
+    queryKey: queryKeys.orders(filters as Record<string, unknown>, accountId),
     queryFn: () => api.orders(filters),
     enabled,
     placeholderData: (previousData) => previousData,
@@ -30,9 +30,9 @@ export function useOrderDetail(id: number | null) {
   });
 }
 
-export function useOrderStats(enabled = true) {
+export function useOrderStats(enabled = true, accountId?: number | null) {
   return useQuery({
-    queryKey: queryKeys.orderStats(),
+    queryKey: queryKeys.orderStats(accountId),
     queryFn: () => api.orderStats(),
     enabled,
   });

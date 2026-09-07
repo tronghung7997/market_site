@@ -292,9 +292,9 @@ function parseGatewayDelivery(raw: string | null | undefined): { key: string | n
   let key: string | null = null;
   let callUrl: string | null = null;
   for (const line of raw.split("\n")) {
-    const keyMatch = line.match(/^\s*Gateway key:\s*(\S+)\s*$/);
+    const keyMatch = line.match(/^\s*(?:Gateway key:\s*|gateway_key=)(\S+)\s*$/);
     if (keyMatch) key = keyMatch[1];
-    const urlMatch = line.match(/^\s*Gọi qua:\s*(\S+)\s*$/);
+    const urlMatch = line.match(/^\s*(?:Gọi qua:\s*|Call URL:\s*|gateway_url=)(\S+)\s*$/);
     if (urlMatch) callUrl = urlMatch[1];
   }
   // Bàn giao không theo khuôn (đơn cũ, provider khác): coi cả khối là key —

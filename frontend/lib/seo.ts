@@ -1,5 +1,8 @@
 import type { Metadata } from "next";
 import { signedBackendFetch } from "./bff-request-signing";
+import { isGoogleIndexingEnabled } from "./search-indexing";
+
+export { isGoogleIndexingEnabled } from "./search-indexing";
 
 export function siteOrigin(): string {
   return (process.env.NEXT_PUBLIC_SITE_URL ?? "http://localhost:3000").replace(/\/$/, "");
@@ -54,14 +57,17 @@ export function pageMetadata({
       url,
       locale: locale === "vi" ? "vi_VN" : "en_US",
       type: "website",
-      siteName: "Marketplace",
+      siteName: "GMMO",
     },
     twitter: {
       card: "summary_large_image",
       title,
       description,
     },
-    robots: index ? { index: true, follow: true } : { index: false, follow: false },
+    robots:
+      index && isGoogleIndexingEnabled()
+        ? { index: true, follow: true }
+        : { index: false, follow: false },
   };
 }
 

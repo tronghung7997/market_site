@@ -156,7 +156,7 @@ export function CtaBanner() {
     <section className="border-t border-line aura">
       <div className="w-full mx-auto max-w-[1200px] px-6 py-16 text-center">
         <h2 className="font-serif text-[clamp(1.6rem,3vw,2.4rem)] tracking-tight">
-          {t("ctaTitle")} <span className="text-iris italic">Marketplace</span>
+          {t("ctaTitle")} <span className="text-iris italic">GMMO</span>
         </h2>
         <p className="mt-3 text-[14px] text-muted max-w-md mx-auto leading-relaxed">
           {t("ctaDescription")}

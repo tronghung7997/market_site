@@ -21,7 +21,7 @@ const NAV_GROUPS: { label: string; items: NavItem[] }[] = [
       { href: "/admin/products", label: "Sản phẩm", icon: Package },
       { href: "/admin/categories", label: "Danh mục", icon: Grid },
       { href: "/admin/disputes", label: "Khiếu nại", icon: Shield },
-      { href: "/admin/support", label: "Chat Marketplace", icon: MessageCircle },
+      { href: "/admin/support", label: "Chat GMMO", icon: MessageCircle },
       { href: "/admin/affiliates", label: "Affiliate", icon: TrendingUp },
     ],
   },
@@ -116,7 +116,7 @@ export default function AdminShell({ children }: { children: ReactNode }) {
           </span>
           {!collapsed && (
             <div className="ml-2.5 min-w-0 animate-rise">
-              <div className="font-serif text-[18px] font-semibold leading-none tracking-tight">Marketplace</div>
+              <div className="font-serif text-[18px] font-semibold leading-none tracking-tight">GMMO</div>
               <div className="mt-1 text-[10px] font-semibold uppercase tracking-[0.16em] text-[var(--side-accent)]">
                 Admin Console
               </div>

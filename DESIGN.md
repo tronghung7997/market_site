@@ -46,7 +46,7 @@ Proxora is a trust-first marketplace for digital goods and provider-backed servi
 
 ### Naming note
 
-The repository/product is called **Proxora**, while the current UI wordmark is **Marketplace**. This naming decision is unresolved. Preserve the surrounding surface's current product name; do not introduce a third name or perform a global rename without an explicit brand decision.
+The product and UI wordmark are called **GMMO**. “Marketplace” remains a generic product-category term only, not the brand name.
 
 ---
 

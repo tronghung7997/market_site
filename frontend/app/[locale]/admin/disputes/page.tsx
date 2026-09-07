@@ -70,7 +70,7 @@ const EVENT_LABELS: Record<string, string> = {
   dispute_warranty_extended: "Gia hạn bảo hành",
   dispute_resolution_timeout: "Tự đóng — buyer không phản hồi",
   dispute_abandoned: "Tự đóng — không thao tác sau hạn ký quỹ",
-  dispute_marketplace_review: "Chờ review Marketplace",
+  dispute_marketplace_review: "Chờ review GMMO",
 };
 
 function isPendingReview(d: Dispute) {
@@ -263,7 +263,7 @@ function DisputeDetailContent({
             <p className="text-slate-500 text-[11.5px]">Trạng thái</p>
             <DisputeStatusBadge status={detail.status} />
             {detail.status === "open" && detail.review_requested_at && (
-              <p className="mt-1 text-[12px] text-fuchsia-700">Chờ review Marketplace</p>
+              <p className="mt-1 text-[12px] text-fuchsia-700">Chờ review GMMO</p>
             )}
           </div>
           {detail.evidence && Object.keys(detail.evidence).length > 0 && (
@@ -297,7 +297,7 @@ function DisputeDetailContent({
             <div className="col-span-2 rounded-lg border border-fuchsia-200 bg-fuchsia-50 px-3 py-2 text-[12px] text-fuchsia-800">
               Auto-settlement đang tạm dừng. Chat với các bên tại{" "}
               <Link href="/admin/support" className="font-medium text-indigo-600 hover:underline">
-                Chat Marketplace
+                Chat GMMO
               </Link>
               . Hoàn hoặc từ chối ở đây để chốt tiền.
             </div>

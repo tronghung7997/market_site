@@ -1,5 +1,5 @@
 import type { MetadataRoute } from "next";
-import { fetchPublicJson, localePath, siteOrigin } from "@/lib/seo";
+import { fetchPublicJson, isGoogleIndexingEnabled, localePath, siteOrigin } from "@/lib/seo";
 
 type CategoryNode = { id: number; children?: CategoryNode[] };
 type ProductPage = { items: { id: number }[]; total: number; page: number; per_page: number };
@@ -14,6 +14,8 @@ function flattenCategories(nodes: CategoryNode[]): number[] {
 }
 
 export default async function sitemap(): Promise<MetadataRoute.Sitemap> {
+  if (!isGoogleIndexingEnabled()) return [];
+
   const origin = siteOrigin();
   const locales = ["en", "vi"] as const;
   const now = new Date();

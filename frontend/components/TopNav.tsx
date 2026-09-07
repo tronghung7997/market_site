@@ -169,7 +169,7 @@ export default function TopNav() {
             className="lg:hidden grid place-items-center h-9 w-9 -ml-1 rounded-lg text-muted hover:text-fg hover:bg-raised transition-colors shrink-0">
             {mobileNavOpen ? <X size={18} /> : <Menu size={18} />}
           </button>
-          <Link href="/" aria-label="Marketplace"><Logo /></Link>
+          <Link href="/" aria-label="GMMO"><Logo /></Link>
           <nav className="hidden lg:flex items-center gap-0.5 shrink-0">
             {navLinks.map((l) => {
               const active = l.href === "/" ? pathname === "/" : pathname.startsWith(l.href);

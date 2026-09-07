@@ -176,7 +176,7 @@ function conversationsFor(role: PrototypeRole): Conversation[] {
     },
     {
       id: "support",
-      title: role === "admin" ? "Buyer #8421" : "Marketplace Support",
+      title: role === "admin" ? "Buyer #8421" : "GMMO Support",
       subtitle: "Support #SUP-184 · Billing",
       preview: role === "admin" ? "Mình cần hỗ trợ kiểm tra trạng thái…" : "Mình đã nhận case. Thanh toán đã…",
       time: "09:46",
@@ -874,4 +874,3 @@ export default function ChatPrototype({
     </div>
   );
 }
-

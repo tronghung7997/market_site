@@ -229,6 +229,7 @@ Nguồn đầy đủ: `frontend/.env.example` và `frontend/next.config.mjs`.
 | Biến | Yêu cầu |
 |---|---|
 | `API_URL` | Backend upstream dùng server-side; production không được trỏ localhost |
+| `GOOGLE_INDEXING_ENABLED` | Mặc định tắt; chỉ giá trị chính xác `true` mới cho phép index, xuất sitemap và crawl public routes |
 | `BFF_REQUEST_SIGNING_SECRET` | Bắt buộc, server-only; phải khớp backend và không dùng tiền tố `NEXT_PUBLIC_` |
 | `NEXT_PUBLIC_ENABLE_DEMO_TOPUP` | Chỉ opt-in development; production luôn bị tắt |
 | `ADMIN_ALLOWED_IPS` | Optional server-side admin network gate |

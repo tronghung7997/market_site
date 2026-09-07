@@ -205,7 +205,7 @@ export function Logo({ withName = true }: { withName?: boolean }) {
           <path d="M12 8 16 10.2v3.6L12 16l-4-2.2v-3.6Z" fill="var(--color-iris-hi)" opacity="0.9" />
         </svg>
       </span>
-      {withName && <span className="font-serif text-[19px] font-semibold tracking-tight">Marketplace</span>}
+      {withName && <span className="font-serif text-[19px] font-semibold tracking-tight">GMMO</span>}
     </span>
   );
 }

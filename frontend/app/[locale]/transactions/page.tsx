@@ -55,8 +55,8 @@ function providerFor(tx: Transaction): string {
   ) {
     return "SePay";
   }
-  if (tx.type.startsWith("purchase")) return "Marketplace";
-  return "Marketplace";
+  if (tx.type.startsWith("purchase")) return "GMMO";
+  return "GMMO";
 }
 
 function isPending(tx: Transaction): boolean {
@@ -956,4 +956,3 @@ export default function TransactionsPage() {
     </div>
   );
 }
-

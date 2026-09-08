@@ -178,7 +178,9 @@ def _parse_assignment(item) -> ProxyAssignment | None:
     )
 
 
-def _parse_purchase_assignment(body) -> ProxyAssignment | None:
+def _parse_purchase_assignment(
+    body, *, expected_partner_order_id: str | None = None,
+) -> ProxyAssignment | None:
     """Parse the M2M partner-purchase response documented by DProxy.
 
     The contract returns an order UUID rather than an assignment UUID, so
@@ -189,6 +191,11 @@ def _parse_purchase_assignment(body) -> ProxyAssignment | None:
         return None
     data = body.get("data")
     if not isinstance(data, dict) or data.get("status") != "fulfilled" or data.get("quantity") != 1:
+        return None
+    if (
+        expected_partner_order_id is not None
+        and data.get("partner_order_id") != expected_partner_order_id
+    ):
         return None
     proxies = data.get("proxies")
     if not isinstance(proxies, list) or len(proxies) != 1 or not isinstance(proxies[0], dict):
@@ -275,7 +282,10 @@ async def validate_dproxy_config(config: dict) -> None:
             raise HTTPException(status_code=400, detail="config.plan_ids phải là object không rỗng")
         try:
             for key, value in plan_ids.items():
-                if not isinstance(key, str) or not key:
+                if not isinstance(key, str):
+                    raise ValueError
+                proxy_type, network, days = key.split("|")
+                if not proxy_type or not network or int(days) <= 0:
                     raise ValueError
                 UUID(str(value))
         except (ValueError, AttributeError, TypeError) as e:
@@ -315,7 +325,13 @@ class DProxyAdapter(RealApiAdapter, RotatableProxyAdapter):
         selection_key = "|".join(
             str(user_config.get(field, "")) for field in ("type", "network", "days")
         )
-        return self.plan_ids.get(selection_key) or self.plan_id
+        # An explicit matrix is authoritative: silently falling back to a
+        # default plan can deliver a different country/type/duration than the
+        # buyer paid for.  A single plan_id remains valid for products that do
+        # not expose a selection matrix.
+        if self.plan_ids:
+            return self.plan_ids.get(selection_key)
+        return self.plan_id
 
     def _headers(self, idempotency_key: str | None = None) -> dict:
         headers = {"Content-Type": "application/json"}
@@ -382,12 +398,13 @@ class DProxyAdapter(RealApiAdapter, RotatableProxyAdapter):
         return {"plans": plans or None}
 
     async def purchase_assignment(
-        self, *, plan_id: str, partner_order_id: str,
+        self, *, plan_id: str, partner_order_id: str, order_id: int,
     ) -> ProxyAssignment:
         """Buy exactly one proxy through DProxy's marketplace M2M API."""
         try:
             resp = await self._request_with_retry(
                 "POST", _PURCHASE_PATH, operation="purchase_assignment",
+                order_id=order_id,
                 idempotency_key=partner_order_id, headers=self._headers(partner_order_id),
                 json={
                     "partner_order_id": partner_order_id,
@@ -413,7 +430,9 @@ class DProxyAdapter(RealApiAdapter, RotatableProxyAdapter):
             body = resp.json()
         except ValueError as e:
             raise DProxyContractError("Phản hồi mua proxy không phải JSON hợp lệ") from e
-        assignment = _parse_purchase_assignment(body)
+        assignment = _parse_purchase_assignment(
+            body, expected_partner_order_id=partner_order_id,
+        )
         if assignment is None:
             raise DProxyContractError("Phản hồi mua proxy không đúng định dạng")
         return assignment
@@ -509,38 +528,39 @@ class DProxyAdapter(RealApiAdapter, RotatableProxyAdapter):
         """`config`-strategy path: buy a fresh assignment matching the
         buyer's chosen country/type/duration and bind it exclusively to
         this order. Never buys a second proxy on retry."""
-        from src.resources.proxy_service import bind_first_available_assignment, bind_purchased_assignment, get_order_proxy_allocation
+        from src.resources.proxy_service import bind_purchased_assignment, get_order_proxy_allocation
 
         existing = await get_order_proxy_allocation(order_id, self.db)
         if existing is not None:
-            # Idempotent retry — bind_first_available_assignment's existing-
-            # allocation branch already does exactly the "refresh from a
-            # fresh list, never pick a different candidate" dance this needs
-            # too; how the original assignment was obtained (purchase vs
-            # pool-pick) doesn't matter to that refresh logic.
+            # Replay the documented idempotency key instead of assuming the
+            # M2M order UUID is also an ID returned by /proxies/user. DProxy's
+            # response documents only data.order_id, not assignment_id.
             try:
-                assignments = await self.list_assignments()
+                plan_id = self._resolve_plan_id(user_config)
+                if not plan_id:
+                    raise DProxyContractError("Nhà cung cấp DProxy chưa cấu hình plan_id cho lựa chọn này")
+                assignment = await self.purchase_assignment(
+                    plan_id=plan_id,
+                    partner_order_id=f"proxora-{order_id}",
+                    order_id=order_id,
+                )
             except DProxyAuthError:
                 return ProvisionResult(success=False, error="Sai thông tin xác thực với nhà cung cấp proxy")
             except DProxyContractError:
                 return ProvisionResult(success=False, error="Nhà cung cấp proxy trả về dữ liệu không hợp lệ")
-            allocation = await bind_first_available_assignment(self.provider_id, order_id, assignments, self.db)
-            if allocation is None:
-                return ProvisionResult(success=False, error="Proxy đã cấp không còn khả dụng")
-            assignment = next((a for a in assignments if a.external_id == allocation.external_id), None)
-            if assignment is None:
-                return ProvisionResult(success=False, error="Proxy đã cấp không còn khả dụng")
+            if assignment.external_id != existing.external_id:
+                return ProvisionResult(success=False, error="Nhà cung cấp proxy trả về sai đơn đã cấp")
             return ProvisionResult(
                 success=True, data=assignment.delivered_text(), resource_id=assignment.external_id,
-                metadata={"provider": "dproxy", "proxy_allocation_id": allocation.id},
+                metadata={"provider": "dproxy", "proxy_allocation_id": existing.id},
             )
 
         try:
             plan_id = self._resolve_plan_id(user_config)
             if not plan_id:
-                raise DProxyContractError("Nhà cung cấp DProxy chưa cấu hình plan_id")
+                raise DProxyContractError("Nhà cung cấp DProxy chưa cấu hình plan_id cho lựa chọn này")
             assignment = await self.purchase_assignment(
-                plan_id=plan_id, partner_order_id=f"proxora-{order_id}",
+                plan_id=plan_id, partner_order_id=f"proxora-{order_id}", order_id=order_id,
             )
         except DProxyAuthError:
             return ProvisionResult(success=False, error="Sai thông tin xác thực với nhà cung cấp proxy")

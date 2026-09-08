@@ -55,7 +55,10 @@ def _sample(external_id="ext-1", *, status="active", proxy_status="online") -> d
     }
 
 
-def _config_sample(external_id="ext-cfg", *, country="VN", proxy_type="residential", duration_days=7) -> dict:
+def _config_sample(
+    external_id="ext-cfg", *, partner_order_id="order-test",
+    country="VN", proxy_type="residential", duration_days=7,
+) -> dict:
     """Documented POST partner-purchase response shape."""
     uid = label_to_uuid(external_id)
     now = datetime.now(timezone.utc)
@@ -63,7 +66,7 @@ def _config_sample(external_id="ext-cfg", *, country="VN", proxy_type="residenti
         "success": True,
         "data": {
             "order_id": uid,
-            "partner_order_id": "order-test",
+            "partner_order_id": partner_order_id,
             "status": "fulfilled",
             "quantity": 1,
             "proxies": [{
@@ -444,7 +447,10 @@ class TestDProxyConfigStrategyProvisioning:
         )
 
         calls = _patch_dproxy_http(
-            monkeypatch, _resp(200, _config_sample("ext-cfg-ok", country="US", proxy_type="datacenter", duration_days=30)),
+            monkeypatch, _resp(200, _config_sample(
+                "ext-cfg-ok", partner_order_id=f"proxora-{order_id}",
+                country="US", proxy_type="datacenter", duration_days=30,
+            )),
         )
         await provision_pending_order(order_id)
 
@@ -471,7 +477,8 @@ class TestDProxyConfigStrategyProvisioning:
         buyer_token, _, product_id, _ = await setup_dproxy_config_product(client, suffix="_cfgretry")
         order_id = await _place_config_order(client, buyer_token, product_id, monkeypatch)
 
-        _patch_dproxy_http(monkeypatch, _resp(200, _config_sample("ext-cfg-retry")))
+        response = _config_sample("ext-cfg-retry", partner_order_id=f"proxora-{order_id}")
+        _patch_dproxy_http(monkeypatch, _resp(200, response))
         await provision_pending_order(order_id)
 
         async with SessionLocal() as db:
@@ -490,12 +497,10 @@ class TestDProxyConfigStrategyProvisioning:
             await db.execute(update(Order).where(Order.id == order_id).values(status=OrderStatus.pending))
             await db.commit()
 
-        # Queue a LIST response (array) this time, not a purchase response
-        # (object) — the idempotent branch must call list_assignments, never
-        # purchase_assignment again. If it wrongly purchased again, this
-        # array would fail to parse as the single-object purchase response
-        # and the order would come back cancelled instead of delivered.
-        _patch_dproxy_http(monkeypatch, _resp(200, [_sample("ext-cfg-retry")]))
+        # Replay the same partner-purchase. DProxy idempotency is keyed by
+        # partner_order_id; the adapter must not assume order_id also appears
+        # as an assignment ID in /proxies/user.
+        calls = _patch_dproxy_http(monkeypatch, _resp(200, response))
         await provision_pending_order(order_id)
 
         async with SessionLocal() as db:
@@ -505,6 +510,15 @@ class TestDProxyConfigStrategyProvisioning:
                 select(func.count()).select_from(ProxyAllocation).where(ProxyAllocation.order_id == order_id)
             )
             assert count == 1  # still exactly one — no second purchase/binding
+        assert len(calls) == 1
+        assert calls[0]["url"].endswith("/api/v1/customer/marketplace/partner-purchase")
+
+        async with SessionLocal() as db:
+            logs = (await db.execute(select(ProviderCallLog).where(
+                ProviderCallLog.order_id == order_id,
+                ProviderCallLog.operation == "purchase_assignment",
+            ))).scalars().all()
+            assert logs
 
     @pytest.mark.asyncio
     async def test_purchase_auth_failure_is_terminal_not_retried(self, client, monkeypatch):
@@ -561,6 +575,29 @@ class TestDProxyCompatibility:
             headers={"Authorization": f"Bearer {admin_token}"},
         )
         assert resp.status_code == 200, resp.text
+
+    @pytest.mark.asyncio
+    async def test_dproxy_exact_price_requires_an_upstream_plan_mapping(self, client):
+        _, admin_token, product_id, provider_id = await setup_dproxy_config_product(
+            client, suffix="_unmapped_price",
+        )
+        resp = await client.put(
+            f"/admin/products/{product_id}/operations",
+            json={
+                "provider_id": provider_id,
+                "pricing_strategy": "config",
+                "pricing_params": {
+                    "base_price": 90000,
+                    "type_mult": {"mobile": 1.0},
+                    "network_mult": {"SG": 1.0},
+                    "duration_options": [{"days": 7, "label": "7 days"}],
+                    "plan_prices": {"mobile|SG|7": 21000},
+                },
+            },
+            headers={"Authorization": f"Bearer {admin_token}"},
+        )
+        assert resp.status_code == 400
+        assert resp.json()["error_code"] == "PRODUCT_PRICING_INCOMPATIBLE"
 
     @pytest.mark.asyncio
     async def test_attaching_dproxy_provider_with_task_strategy_is_still_blocked(self, client, monkeypatch):

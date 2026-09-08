@@ -1,6 +1,39 @@
 from .base import PricingStrategy
 
 
+def parse_plan_price_key(key) -> tuple[str, str, int] | None:
+    """`type|network|days` → tuple, or None if the key is not a sellable plan."""
+    parts = str(key).split("|")
+    if len(parts) != 3:
+        return None
+    proxy_type, network, raw_days = parts
+    if not proxy_type.strip() or not network.strip():
+        return None
+    try:
+        days = int(raw_days)
+    except (TypeError, ValueError):
+        return None
+    if days <= 0:
+        return None
+    return proxy_type.strip(), network.strip(), days
+
+
+def plan_prices_map(params: dict) -> dict[str, int]:
+    raw = params.get("plan_prices")
+    if not isinstance(raw, dict) or not raw:
+        return {}
+    out: dict[str, int] = {}
+    for key, value in raw.items():
+        parsed = parse_plan_price_key(key)
+        if parsed is None:
+            continue
+        if not isinstance(value, int) or isinstance(value, bool) or value <= 0:
+            continue
+        proxy_type, network, days = parsed
+        out[f"{proxy_type}|{network}|{days}"] = value
+    return out
+
+
 def humanize_code(code) -> str:
     """Mã máy → nhãn đọc được, dùng khi admin chưa đặt tên hiển thị.
 
@@ -26,6 +59,21 @@ class ConfigPricing(PricingStrategy):
 
     name = "config"
 
+    def normalize_user_config(self, params: dict, user_config: dict) -> dict:
+        cfg = dict(user_config)
+        prices = plan_prices_map(params)
+        raw_key = cfg.get("plan_key")
+        parsed = parse_plan_price_key(raw_key) if raw_key is not None and raw_key != "" else None
+        if parsed is not None:
+            proxy_type, network, days = parsed
+            cfg["type"] = proxy_type
+            cfg["network"] = network
+            cfg["days"] = days
+            cfg["plan_key"] = f"{proxy_type}|{network}|{days}"
+        elif prices and "type" in cfg and "network" in cfg and "days" in cfg:
+            cfg["plan_key"] = f"{cfg['type']}|{cfg['network']}|{cfg['days']}"
+        return cfg
+
     def get_options(self, params: dict) -> list[dict]:
         # field_labels/type_display/network_display là lớp hiển thị tuỳ chọn —
         # key máy (gửi cho adapter/nhà cung cấp thật, xem RealApiAdapter.provision)
@@ -36,6 +84,36 @@ class ConfigPricing(PricingStrategy):
         network_display = params.get("network_display", {})
 
         fields: list[dict] = []
+        prices = plan_prices_map(params)
+        if prices:
+            fields.append({
+                "field": "plan_key",
+                "type": "radio",
+                "label": field_labels.get("plan_key", "Gói proxy"),
+                "required": True,
+                "choices": [
+                    {
+                        "value": key,
+                        "label": (
+                            f"{type_display.get(parsed[0]) or humanize_code(parsed[0])}"
+                            f" · {network_display.get(parsed[1]) or parsed[1]}"
+                            f" · {parsed[2]} ngày"
+                        ),
+                    }
+                    for key, parsed in (
+                        (k, parse_plan_price_key(k)) for k in prices
+                    )
+                    if parsed is not None
+                ],
+            })
+            fields.append({
+                "field": "quantity",
+                "type": "number",
+                "label": field_labels.get("quantity", "Số lượng"),
+                "required": True,
+                "min": 1,
+            })
+            return fields
 
         if "type_mult" in params:
             fields.append({
@@ -82,30 +160,42 @@ class ConfigPricing(PricingStrategy):
         return fields
 
     def _subtotal(self, params: dict, user_config: dict) -> tuple[int, int]:
-        quantity = user_config["quantity"]
-        type_mult = params["type_mult"][user_config["type"]]
-        network_mult = params["network_mult"][user_config["network"]]
-        days = user_config["days"]
+        cfg = self.normalize_user_config(params, user_config)
+        quantity = cfg["quantity"]
+        prices = plan_prices_map(params)
+        if prices:
+            key = f"{cfg['type']}|{cfg['network']}|{cfg['days']}"
+            subtotal = prices[key] * quantity
+            return subtotal, quantity
+        type_mult = params["type_mult"][cfg["type"]]
+        network_mult = params["network_mult"][cfg["network"]]
+        days = cfg["days"]
         subtotal = round(
             params["base_price"] * type_mult * network_mult * (days / 30) * quantity
         )
         return subtotal, quantity
 
     def validate(self, params: dict, user_config: dict) -> bool:
+        cfg = self.normalize_user_config(params, user_config)
         required = ["type", "network", "days", "quantity"]
-        if not all(k in user_config for k in required):
+        if not all(k in cfg for k in required):
             return False
 
-        quantity = user_config["quantity"]
+        quantity = cfg["quantity"]
         if not isinstance(quantity, int) or quantity < 1:
             return False
 
-        if user_config["type"] not in params.get("type_mult", {}):
+        prices = plan_prices_map(params)
+        if prices:
+            key = f"{cfg['type']}|{cfg['network']}|{cfg['days']}"
+            return key in prices
+
+        if cfg["type"] not in params.get("type_mult", {}):
             return False
-        if user_config["network"] not in params.get("network_mult", {}):
+        if cfg["network"] not in params.get("network_mult", {}):
             return False
 
-        days = user_config["days"]
+        days = cfg["days"]
         if not isinstance(days, int) or isinstance(days, bool) or days <= 0:
             return False
 

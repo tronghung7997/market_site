@@ -83,6 +83,7 @@ async def resolve_pricing(product: Product, db: AsyncSession) -> tuple[str, dict
 async def quote_product(product: Product, user_config: dict, db: AsyncSession) -> Quote:
     strategy_name, params = await resolve_pricing(product, db)
     strategy = get_pricing_strategy(strategy_name)
+    user_config = strategy.normalize_user_config(params, user_config)
     if not strategy.validate(params, user_config):
         raise api_error(ErrorCode.INVALID_PRODUCT_CONFIG, status.HTTP_400_BAD_REQUEST)
     return strategy.quote(params, user_config)

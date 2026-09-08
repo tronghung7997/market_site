@@ -24,7 +24,12 @@ Default provider values:
   "config": {
     "base_url": "http://127.0.0.1:9201",
     "api_key": "mock-dproxy-token",
-    "auth_type": "bearer"
+    "auth_type": "bearer",
+    "channel": "proxora",
+    "plan_ids": {
+      "residential|VN|7": "1906e1af-70df-4a53-8874-53b8e5a51935",
+      "datacenter|US|30": "39c0cf21-b47b-42ec-b159-4b1f4c60e184"
+    }
   }
 }
 ```
@@ -136,6 +141,31 @@ curl -sS http://127.0.0.1:9201/_mock/state -H "$CONTROL"
 
 ## Full marketplace scenario after DProxyAdapter lands
 
+### Recommended admin workflow
+
+The admin UI deliberately treats the provider as the connection, not as a
+sellable product. Configure DProxy in this order:
+
+1. Create a DProxy provider with only the API URL and API key. The live URL is
+   `https://api.dproxy.info`; local mock is `http://127.0.0.1:9201`.
+2. Reopen **Kết nối API**, click **Kiểm tra kết nối và tải gói**, then turn on
+   the packages that may be sold. Each package is shown as buyer-facing type,
+   country, and days; raw `plan_ids` JSON is available only under
+   **Cấu hình nâng cao**.
+3. Save. The panel continues to **Sản phẩm liên kết** instead of ending the
+   workflow.
+4. Attach one marketplace product, click **Giá**, select one enabled DProxy
+   package, and enter the amount the buyer pays for one proxy. The UI generates
+   `config` pricing parameters; operators do not calculate the 30-day base or
+   multipliers manually.
+5. Publish and buy-test the product. The buyer sees only that plan's type,
+   country/network, duration, final price, one-proxy quantity, and automatic
+   delivery promise.
+
+Use one marketplace product per DProxy plan. This prevents a Cartesian product
+of independently configured type/network/duration choices from exposing a
+combination that has no upstream `plan_id`.
+
 1. Start Postgres/Redis, marketplace backend, frontend, and this mock.
 2. Admin creates and tests an `adapter_type=dproxy` provider using the config above.
 3. Admin links the approved provider to a proxy product using either pricing
@@ -148,21 +178,161 @@ curl -sS http://127.0.0.1:9201/_mock/state -H "$CONTROL"
    at 1 either way — one order always binds exactly one `ProxyAllocation`.
 4. Buyer funds the wallet and purchases the product.
 5. Confirm the delivered order contains normalized proxy credentials and the
-   admin allocation view shows the stable upstream assignment ID.
-6. Buyer calls `POST /orders/{order_id}/proxy/rotate`; confirm public IP changes.
-7. Repeat immediately; confirm cooldown UI/API returns 429 and no second rotate occurs.
-8. Reset, switch to `list_empty`, and confirm a new purchase follows the intended
-   out-of-stock/refund behavior.
-9. Switch to `list_malformed` and `list_500`; confirm contract and transient
-   errors are classified differently, secrets remain absent from logs, and the
-   order lifecycle matches the DProxy implementation plan.
+   admin allocation view stores the stable upstream **M2M order UUID**. The
+   documented purchase response does not expose an assignment UUID.
+6. For `credit` only, buyer calls `POST /orders/{order_id}/proxy/rotate`; confirm
+   public IP changes, then repeat immediately and confirm cooldown returns 429.
+   Do not advertise rotation for `config` M2M orders until DProxy returns an
+   assignment identifier and rotation metadata in that contract.
+7. For `credit`, switch to `list_empty`, `list_malformed`, and `list_500` to
+   verify inventory failure/refund behavior.
+8. For `config`, switch to `purchase_malformed` and `purchase_500`; verify the
+   M2M contract/transient errors, refund lifecycle, and redacted provider logs.
+9. Retry provisioning the same order and verify the same `partner_order_id` is
+   replayed, only one allocation exists, and no second supplier order is made.
+
+## Automated seller-to-buyer E2E
+
+The repeatable automated test is
+`marketplace-svc/tests/test_seller_mock_e2e.py`. It uses the public marketplace
+HTTP routes and the real PostgreSQL test database. Only the external seller API
+is replaced by the in-process `scripts.mock_seller` ASGI app.
+
+Run it from the backend directory:
+
+```bash
+cd marketplace-svc
+uv run pytest -q tests/test_seller_mock_e2e.py
+```
+
+Expected result:
+
+```text
+1 passed
+```
+
+The scenario verifies both supported seller-integration journeys:
+
+1. create seller, buyer, and admin accounts; fund the buyer wallet;
+2. seller creates and tests an integration, submits it, and admin approves it;
+3. seller creates and activates a product backed by that integration;
+4. buyer places an order and the seller can see it in `GET /seller/orders`;
+5. the real provisioning service delivers the order and the buyer dashboard
+   reports `delivered`;
+6. direct-gateway credentials can call the proxied seller endpoint;
+7. asynchronous tasks complete through the signed provider callback;
+8. approved provider credentials cannot be silently changed.
+
+This test truncates and uses the shared `marketplace_test` database. Never run
+it concurrently with another pytest process or a benchmark that uses the same
+database. It does not need the frontend, a separately running backend, or live
+DProxy credentials.
+
+### Direct UI E2E with Chrome DevTools
+
+Use this when browser rendering and the same-origin Next.js BFF must be tested,
+not only the backend domain flow. Start the local backend and frontend using the
+repository README. Run seller and buyer in two isolated browser contexts so
+their HTTP-only sessions do not overwrite each other.
+
+Seller context:
+
+1. Open `/vi/login?next=/seller/products/new` and sign in as the local seller.
+2. On `/vi/seller/products/new`, select instant inventory delivery.
+3. Fill the primary-language title, category, service type, escrow period,
+   description, package name, price, and at least one mock inventory line.
+4. Confirm the readiness panel reaches `5/5`, then click **Mở bán sản phẩm**.
+5. Record the product ID from `/vi/seller/products/{product_id}` and confirm the
+   page reports `Đang bán` and the expected available stock.
+
+Buyer context:
+
+1. Open `/vi/login?next=/products/{product_id}` and sign in as the local buyer.
+2. Confirm the product title, package, stock, price, and escrow period.
+3. Click **Mua ngay**, verify the confirmation dialog, then click
+   **Xác nhận mua** once.
+4. Record the returned order ID. Confirm the page reports `Đã giao`, displays
+   exactly the inventory line entered by the seller, and reduces the wallet by
+   exactly the displayed total.
+5. Open `/vi/orders?order_id={order_id}` and confirm the same status, package,
+   quantity, total, escrow date, and delivered data.
+
+Return to the seller context and open
+`/vi/seller/orders?order_id={order_id}`. Confirm the order dialog shows the same
+buyer, product, package, quantity, total, `Đã giao` status, escrow date, and one
+allocated resource.
+
+Keep **Preserve log** enabled and filter Network by `api`. These are the required
+checkpoints:
+
+| Request | Expected |
+|---|---|
+| `POST /api/seller/products` | `201`; creates a draft owned by the seller |
+| translation and pricing calls under `/api/seller/products/{id}` | `200` |
+| `POST /api/seller/products/{id}/variants` | `201` |
+| `POST /api/seller/variants/{variant_id}/resources` | `201` |
+| `PUT /api/seller/products/{id}/status` | `200`; payload is `active` |
+| `POST /api/orders` | `201`; quantity and variant match the UI |
+| `GET /api/seller/orders` | `200`; contains the new order |
+| `GET /api/orders/{order_id}/resources` | `200`; contains one delivered line |
+
+Unauthenticated `GET /api/me` calls may return `401` while the login page is
+initializing; authenticated workflow requests must not return `4xx` or `5xx`.
+Inspect Console separately and record application errors and browser issues.
+Use only mock inventory or mock provider endpoints for this run; never use live
+`api.dproxy.info` credentials for a destructive purchase test.
+
+Verified on 2026-09-08 through Chrome DevTools against the local stack: seller
+created and activated product `#76`; buyer created order `#138`; the order was
+delivered immediately, buyer balance decreased by `$1.25`, and both seller and
+buyer order dialogs showed the same allocated mock resource.
+
+### Direct DProxy M2M product check
+
+For the actual DProxy-backed product, start and reset `scripts.mock_dproxy`
+before opening the buyer UI:
+
+```bash
+cd marketplace-svc
+uv run uvicorn scripts.mock_dproxy:app --host 127.0.0.1 --port 9201
+```
+
+```bash
+curl -sS -X POST http://127.0.0.1:9201/_mock/reset \
+  -H 'X-Mock-Control-Key: mock-dproxy-control'
+```
+
+Then use Chrome DevTools against `/vi/products/{dproxy_product_id}`:
+
+1. choose the exact mapped combination `residential` / `VN` / `7 days`;
+2. confirm `POST /api/products/{id}/calculate` returns `200`;
+3. click purchase and confirm the dialog shows one dedicated proxy, automatic
+   delivery, the selected type/network/duration, and no rotation promise;
+4. confirm `POST /api/orders` sends `quantity=1` plus
+   `user_config={type: residential, network: VN, days: 7, package_size: 1}`;
+5. the create response may initially be `pending`; wait for the UI poll
+   `GET /api/orders/{order_id}` to return `delivered`;
+6. confirm the buyer sees host, port, username, password, current IP, and expiry;
+7. call `GET /_mock/state` with the control key and verify `order_count` increases
+   by exactly one and `assignment_count` increases by exactly one;
+8. verify the mock server log contains exactly one successful
+   `POST /api/v1/customer/marketplace/partner-purchase` for the order.
+
+Verified on 2026-09-08 directly through Chrome DevTools using DProxy product
+`#29`: the buyer selected `residential|VN|7`, `POST /api/orders` created order
+`#139`, the mock accepted one partner purchase, allocation count changed from
+3 to 4, the order became `delivered`, and the wallet decreased by `$0.80`
+(`21,000` ledger units at the stored FX snapshot). The delivered proxy was the
+new fourth mock assignment. The browser console had no application error; it
+reported only missing `id`/`name` accessibility issues on form fields.
 
 ## Environment variables
 
 - `MOCK_DPROXY_PORT` (default `9201`)
 - `MOCK_DPROXY_API_KEY` (default `mock-dproxy-token`)
 - `MOCK_DPROXY_CONTROL_KEY` (default `mock-dproxy-control`)
-- `MOCK_DPROXY_AUTH_TYPE` (`bearer` or `header`, default `bearer`)
+- `MOCK_DPROXY_AUTH_TYPE` (`bearer` or `header`, default `bearer`; selects the
+  dashboard/config hint while supplier endpoints accept either documented form)
 - `MOCK_DPROXY_AUTH_HEADER` (default `X-API-Key`)
 - `MOCK_DPROXY_COOLDOWN_SECONDS` (default `15`)
 
@@ -242,10 +412,10 @@ Seller tạo sản phẩm proxy → gắn provider đã duyệt → status=activ
         │
 Buyer nạp ví → mua
         │
-credit  → bind 1 assignment sẵn có (hết kho: rotate-then-relist)
+credit  → bind 1 assignment sẵn có (có thể rotate nếu inventory contract cho phép)
 config  → POST /api/v1/customer/marketplace/partner-purchase (cần plan_id)
         │
-Đơn delivered → buyer rotate IP (lần 2 ngay: 429)
+Đơn delivered → config M2M không hiện rotate; credit tùy metadata assignment
 ```
 
 ### 1. Admin — provider
@@ -262,8 +432,7 @@ Mock:
 }
 ```
 
-M2M (mua theo plan). Backend nhận các field này; form UI hiện **chưa có ô**
-`plan_id` / `plan_ids` / `channel` — ghi vào `config`:
+M2M (mua theo plan). Form admin có các ô `plan_id`, `plan_ids` và `channel`:
 
 ```json
 {
@@ -310,13 +479,12 @@ provider **seller tự đăng ký** (không phải dproxy).
 1. Nạp ví → mở sản phẩm.
 2. Credit: gần như chỉ bấm mua (số lượng khóa = 1). Config: chọn type/network/days.
 3. Đặt hàng → escrow. Thành công: **delivered**, hiện host/port/user/pass.
-4. Đổi IP: `POST /orders/{id}/proxy/rotate`. Cooldown: 429.
+4. Đơn config M2M không hiện đổi IP vì response purchase không có assignment ID.
+   Đơn credit chỉ hiện đổi IP khi assignment inventory báo có rotation.
 
-### 5. UI còn thiếu
+### 5. Lưu ý UI
 
-- Form admin chưa có `channel` / `plan_id` / `plan_ids`.
-- Health UI còn nhìn catalog cũ (countries/types); mock/live trả `plans`.
-- Checkout buyer **đã** khóa qty=1 khi `adapter_type === dproxy`.
-
-E2E **credit + mock**: làm được ngay. E2E **config + partner-purchase**: cần
-ghi `plan_id` vào config provider trước.
+- Health UI đọc catalog M2M `plans` và inventory riêng biệt.
+- Checkout buyer khóa qty=1 khi `adapter_type === dproxy`.
+- `plan_ids` là ma trận authoritative: nếu đã khai báo thì lựa chọn buyer phải
+  có key khớp chính xác; hệ thống không fallback sang `plan_id` để tránh giao sai gói.

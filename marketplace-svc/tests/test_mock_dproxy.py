@@ -48,6 +48,11 @@ async def test_list_contract_and_auth(dproxy_client: AsyncClient):
     assert body[0]["proxies"]["rotation"]["rotate_endpoint"].endswith("/rotate")
     assert "_rotation_count" not in body[0]
 
+    header_response = await dproxy_client.get(
+        "/api/v1/proxies/user", headers={"X-API-Key": "mock-dproxy-token"},
+    )
+    assert header_response.status_code == 200
+
 
 @pytest.mark.asyncio
 async def test_rotate_changes_ip_and_enforces_cooldown(dproxy_client: AsyncClient):
@@ -288,7 +293,7 @@ async def test_partner_purchase_returns_documented_m2m_shape(dproxy_client: Asyn
 
     after = (await dproxy_client.get("/api/v1/proxies/user", headers=API_HEADERS)).json()
     assert len(after) == 4
-    assert data["order_id"] not in {a["id"] for a in before}
+    assert data["order_id"] not in {a["id"] for a in after}
 
 
 @pytest.mark.asyncio

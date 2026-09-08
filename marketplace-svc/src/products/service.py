@@ -946,8 +946,22 @@ def _validate_pricing_params_for_provider(
     """
     spec = get_spec(provider.adapter_type) if provider else None
     if spec is None or spec.validate_pricing_params is None:
-        return
-    spec.validate_pricing_params(strategy, params or {})
+        pass
+    else:
+        spec.validate_pricing_params(strategy, params or {})
+
+    # DProxy's explicit matrix is authoritative. A product price must never be
+    # published for a tuple that has no upstream plan mapping, otherwise the
+    # buyer can pay successfully and provisioning only fails afterwards.
+    if provider and provider.adapter_type == "dproxy" and strategy == "config":
+        plan_prices = (params or {}).get("plan_prices")
+        plan_ids = (provider.config or {}).get("plan_ids")
+        if isinstance(plan_prices, dict) and plan_prices and isinstance(plan_ids, dict):
+            if any(key not in plan_ids for key in plan_prices):
+                raise api_error(
+                    ErrorCode.PRODUCT_PRICING_INCOMPATIBLE,
+                    http_status.HTTP_400_BAD_REQUEST,
+                )
 
 
 async def update_product_operations(product_id: int, data: dict, db: AsyncSession) -> Product:

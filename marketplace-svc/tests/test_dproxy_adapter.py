@@ -227,6 +227,11 @@ class TestParsePurchaseAssignment:
         body["data"]["proxies"].append(dict(body["data"]["proxies"][0]))
         assert _parse_purchase_assignment(body) is None
 
+    def test_response_for_a_different_partner_order_is_rejected(self):
+        assert _parse_purchase_assignment(
+            _purchase_sample(), expected_partner_order_id="another-order",
+        ) is None
+
 
 def test_expected_rotate_path_matches_sample_contract():
     assert expected_rotate_path(EXT_ID) == f"/api/v1/proxies/user/{EXT_ID}/rotate"
@@ -380,10 +385,14 @@ class TestPartnerPurchase:
     @pytest.mark.asyncio
     async def test_posts_documented_m2m_contract(self, monkeypatch):
         adapter = _adapter(auth_type="header", auth_header="X-API-Key", channel="proxora")
-        mock = AsyncMock(return_value=_resp(200, _purchase_sample()))
+        response_body = _purchase_sample()
+        response_body["data"]["partner_order_id"] = "THM-987654"
+        mock = AsyncMock(return_value=_resp(200, response_body))
         monkeypatch.setattr(httpx.AsyncClient, "request", mock)
 
-        assignment = await adapter.purchase_assignment(plan_id=PLAN_ID, partner_order_id="THM-987654")
+        assignment = await adapter.purchase_assignment(
+            plan_id=PLAN_ID, partner_order_id="THM-987654", order_id=987654,
+        )
 
         assert assignment.external_id == EXT_ID
         assert assignment.host == "171.246.96.55"
@@ -399,6 +408,18 @@ class TestPartnerPurchase:
         assert mock.call_args.kwargs["headers"]["X-API-Key"] == "k"
         assert mock.call_args.kwargs["headers"]["Idempotency-Key"] == "THM-987654"
         assert mock.call_args.kwargs["headers"]["Content-Type"] == "application/json"
+
+    @pytest.mark.asyncio
+    async def test_rejects_response_for_another_partner_order(self, monkeypatch):
+        adapter = _adapter()
+        monkeypatch.setattr(
+            httpx.AsyncClient, "request",
+            AsyncMock(return_value=_resp(200, _purchase_sample())),
+        )
+        with pytest.raises(DProxyContractError):
+            await adapter.purchase_assignment(
+                plan_id=PLAN_ID, partner_order_id="wrong-order", order_id=12,
+            )
 
 
 class TestListCatalog:
@@ -545,6 +566,22 @@ class TestValidateDproxyConfig:
                 "base_url": "https://dproxy.example.com",
                 "plan_ids": {"residential|VN|30": "not-a-uuid"},
             })
+
+    @pytest.mark.asyncio
+    @pytest.mark.parametrize("key", ["residential|VN", "residential||7", "residential|VN|0", "residential|VN|seven"])
+    async def test_rejects_invalid_plan_mapping_key(self, key):
+        with pytest.raises(Exception):
+            await validate_dproxy_config({
+                "base_url": "https://dproxy.example.com",
+                "plan_ids": {key: PLAN_ID},
+            })
+
+    def test_explicit_plan_matrix_never_falls_back_to_default_plan(self):
+        adapter = _adapter(
+            plan_id=PLAN_ID,
+            plan_ids={"residential|VN|7": "aaaaaaaa-aaaa-4aaa-8aaa-aaaaaaaaaaaa"},
+        )
+        assert adapter._resolve_plan_id({"type": "datacenter", "network": "US", "days": 30}) is None
 
     @pytest.mark.asyncio
     async def test_accepts_well_formed_config(self):

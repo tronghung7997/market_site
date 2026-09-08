@@ -150,6 +150,19 @@ function ConfigPreview({ value, locale, backendReady, backendReason, onChange }:
   const canBuy = result.valid && backendReady;
   return (
     <div className="space-y-3 text-[12px]">
+      {value.isSingleUnit ? (
+        <div className="rounded-lg border border-line bg-raised/40 px-3 py-3">
+          <p className="text-[11px] uppercase tracking-wider text-faint">{locale === "en" ? "Package you receive" : "Gói bạn nhận"}</p>
+          <p className="mt-1 text-[13px] font-medium">
+            {(value.types.find((item) => item.key === value.selectedType)?.label ?? value.selectedType)
+              + " · "
+              + (value.networks.find((item) => item.key === value.selectedNetwork)?.label ?? value.selectedNetwork)
+              + " · "
+              + t("durationDays", { count: value.selectedDays })}
+          </p>
+        </div>
+      ) : (
+        <>
       <FieldLabel label={t("proxyType")}>
         <Select value={value.selectedType} onChange={(event) => onChange?.({ ...value, selectedType: event.target.value })}>
           {value.types.map((item) => <option key={item.key} value={item.key}>{item.label}</option>)}
@@ -167,6 +180,8 @@ function ConfigPreview({ value, locale, backendReady, backendReason, onChange }:
           </Select>
         </FieldLabel>
       </div>
+        </>
+      )}
       {!value.isSingleUnit && (
         <div className="flex items-center justify-between border-t border-line pt-3">
           <span className="text-muted">{t("proxyQuantity")}</span>

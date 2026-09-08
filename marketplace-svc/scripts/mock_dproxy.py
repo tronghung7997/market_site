@@ -33,7 +33,7 @@ import os
 from base64 import b64decode
 from datetime import datetime, timedelta, timezone
 from typing import Literal
-from uuid import UUID
+from uuid import NAMESPACE_URL, UUID, uuid5
 
 import uvicorn
 from fastapi import FastAPI, Header, HTTPException, Request, Response
@@ -223,15 +223,13 @@ def _public_assignment(assignment: dict) -> dict:
 
 
 def _check_api_auth(request: Request) -> None:
-    if AUTH_TYPE == "bearer":
-        supplied = request.headers.get("authorization")
-        expected = f"Bearer {API_KEY}"
-    elif AUTH_TYPE == "header":
-        supplied = request.headers.get(AUTH_HEADER)
-        expected = API_KEY
-    else:
+    if AUTH_TYPE not in {"bearer", "header"}:
         raise RuntimeError(f"Unsupported MOCK_DPROXY_AUTH_TYPE: {AUTH_TYPE!r}")
-    if supplied != expected:
+    bearer_ok = hmac.compare_digest(
+        request.headers.get("authorization", ""), f"Bearer {API_KEY}",
+    )
+    header_ok = hmac.compare_digest(request.headers.get(AUTH_HEADER, ""), API_KEY)
+    if not (bearer_ok or header_ok):
         raise HTTPException(status_code=401, detail="Invalid API credential")
 
 
@@ -391,7 +389,10 @@ async def partner_purchase(body: PartnerPurchaseRequest, request: Request):
     payload = {
         "success": True,
         "data": {
-            "order_id": assignment["id"],
+            # The supplier contract exposes an order UUID, not an assignment
+            # UUID. Keep them deliberately distinct so local E2E cannot hide
+            # an invalid identity assumption in the marketplace adapter.
+            "order_id": str(uuid5(NAMESPACE_URL, f"mock-dproxy:{body.partner_order_id}")),
             "partner_order_id": body.partner_order_id,
             "status": "fulfilled",
             "quantity": 1,

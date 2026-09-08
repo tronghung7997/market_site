@@ -244,6 +244,37 @@ class TestConfigPricing:
         field_names = [f["field"] for f in self.strategy.get_options(CONFIG_PARAMS)]
         assert {"type", "network", "days", "quantity"} <= set(field_names)
 
+    def test_plan_prices_quote_independent_packages(self):
+        params = {
+            "plan_prices": {
+                "residential|VN|7": 21000,
+                "datacenter|US|30": 90000,
+            },
+            "type_display": {"residential": "Dân cư", "datacenter": "Datacenter"},
+            "network_display": {"VN": "VN", "US": "US"},
+        }
+        assert self.strategy.quote(params, {"plan_key": "residential|VN|7", "quantity": 1}).amount == 21000
+        assert self.strategy.quote(params, {"type": "datacenter", "network": "US", "days": 30, "quantity": 1}).amount == 90000
+
+    def test_plan_prices_reject_unmapped_combination(self):
+        params = {"plan_prices": {"residential|VN|7": 21000, "datacenter|US|30": 90000}}
+        assert self.strategy.validate(params, {
+            "type": "residential", "network": "US", "days": 7, "quantity": 1,
+        }) is False
+
+    def test_plan_prices_get_options_is_a_package_list(self):
+        params = {"plan_prices": {"residential|VN|7": 21000, "datacenter|US|30": 90000}}
+        fields = self.strategy.get_options(params)
+        assert [field["field"] for field in fields] == ["plan_key", "quantity"]
+        assert {choice["value"] for choice in fields[0]["choices"]} == {
+            "residential|VN|7", "datacenter|US|30",
+        }
+
+    def test_normalize_expands_plan_key_for_adapter(self):
+        params = {"plan_prices": {"residential|VN|7": 21000}}
+        cfg = self.strategy.normalize_user_config(params, {"plan_key": "residential|VN|7", "quantity": 1})
+        assert (cfg["type"], cfg["network"], cfg["days"]) == ("residential", "VN", 7)
+
 
 # ---------------------------------------------------------------------------
 # CreditPricing

@@ -1,8 +1,11 @@
 "use client";
 
 import { useState } from "react";
-import { useTranslations } from "next-intl";
-import { Button, Field, Input } from "@/components/ui";
+import { useLocale, useTranslations } from "next-intl";
+import { Button, Banner, Field, Input, Select } from "@/components/ui";
+import { Info } from "@/components/Icons";
+import { dproxyParamsFromPackages, packagesFromDproxyParams } from "@/lib/dproxy-plan";
+import { DproxyCodeSelect } from "@/components/DproxyCodeSelect";
 
 /* ================================================================
    Editor cho tham số chiến lược giá (config/credit/task) — dùng chung
@@ -253,20 +256,83 @@ function PackagesEditor({ value, onChange }: {
   );
 }
 
-export function PricingParamsEditor({ strategy, params, onChange }: {
+export function PricingParamsEditor({ strategy, params, onChange, adapterType }: {
   strategy: string;
   params: Record<string, unknown>;
   onChange: (p: Record<string, unknown>) => void;
+  adapterType?: string | null;
 }) {
   const t = useTranslations("seller.operations.editor");
+  const locale = useLocale();
+  const dproxyCopy = locale === "en"
+    ? {
+      title: "Packages the buyer can choose",
+      help: "Add every mapped DProxy package this product sells. Buyers pick a whole package — they cannot mix type, country, and duration.",
+      type: "Proxy type",
+      network: "Country or network",
+      days: "Days",
+      salePrice: "Buyer price (VND)",
+      add: "Add package",
+      remove: "Remove",
+    }
+    : {
+      title: "Gói buyer được chọn",
+      help: "Thêm từng gói DProxy đã map. Buyer chọn nguyên gói, không trộn loại × quốc gia × số ngày.",
+      type: "Loại proxy",
+      network: "Quốc gia hoặc nhà mạng",
+      days: "Số ngày",
+      salePrice: "Giá khách trả (VND)",
+      add: "Thêm gói",
+      remove: "Xoá",
+    };
   const setParam = (key: string, value: unknown) => {
     onChange({ ...params, [key]: value });
   };
 
-  if (strategy === "config") {
+  if (strategy === "config" && (adapterType === "dproxy" || Boolean(params.plan_prices))) {
+    const packages = packagesFromDproxyParams(params);
+    const writePackages = (next: typeof packages) => onChange({ ...params, ...dproxyParamsFromPackages(next) });
     return (
       <div className="space-y-4">
-        <Field label={t("basePrice")}>
+        <Banner tone="iris" icon={<Info size={14} />} title={dproxyCopy.title}>
+          {dproxyCopy.help}
+        </Banner>
+        {packages.map((item, index) => (
+          <div key={`${item.type}|${item.network}|${item.days}|${index}`} className="grid grid-cols-1 gap-2 rounded-lg border border-line p-3 sm:grid-cols-[1fr_1fr_96px_1fr_auto]">
+            <DproxyCodeSelect kind="type" name={`pkg-type-${index}`} value={item.type} onChange={(type) => writePackages(packages.map((row, rowIndex) => rowIndex === index ? { ...row, type } : row))} locale={locale === "en" ? "en" : "vi"} />
+            <DproxyCodeSelect kind="network" name={`pkg-network-${index}`} value={item.network} onChange={(network) => writePackages(packages.map((row, rowIndex) => rowIndex === index ? { ...row, network } : row))} locale={locale === "en" ? "en" : "vi"} />
+            <Field label={dproxyCopy.days}>
+              <Input type="number" min={1} value={item.days} onChange={(e) => writePackages(packages.map((row, rowIndex) => rowIndex === index ? { ...row, days: Number(e.target.value) || 0 } : row))} />
+            </Field>
+            <Field label={dproxyCopy.salePrice}>
+              <Input type="number" min={1} value={item.price || ""} onChange={(e) => writePackages(packages.map((row, rowIndex) => rowIndex === index ? { ...row, price: Number(e.target.value) || 0 } : row))} />
+            </Field>
+            <button type="button" className="text-bad text-[12px] self-end pb-2" onClick={() => writePackages(packages.filter((_, rowIndex) => rowIndex !== index))}>{dproxyCopy.remove}</button>
+          </div>
+        ))}
+        <Button size="sm" variant="secondary" onClick={() => writePackages([...packages, { type: "residential", network: "VN", days: 7, price: 0 }])}>{dproxyCopy.add}</Button>
+      </div>
+    );
+  }
+
+  if (strategy === "config") {
+    const basePrice = Number(params.base_price) || 0;
+    const types = Object.entries((params.type_mult as Record<string, number>) ?? {});
+    const networks = Object.entries((params.network_mult as Record<string, number>) ?? {});
+    const durations = (params.duration_options as { days: number; label?: string }[]) ?? [];
+    const examples = types.flatMap(([type, typeMult]) => networks.flatMap(([network, networkMult]) =>
+      durations.map((duration) => ({
+        key: `${type}|${network}|${duration.days}`,
+        label: `${((params.type_display as Record<string, string>) ?? {})[type] ?? type} · ${((params.network_display as Record<string, string>) ?? {})[network] ?? network} · ${duration.label ?? `${duration.days} ngày`}`,
+        price: Math.round(basePrice * typeMult * networkMult * duration.days / 30),
+      })),
+    )).slice(0, 12);
+    return (
+      <div className="space-y-4">
+        <Banner tone="iris" icon={<Info size={14} />} title={t("configPricingTitle")}>
+          {t("configPricingHelp")}
+        </Banner>
+        <Field label={t("basePrice")} hint={t("basePriceHelp")}>
           <Input type="number" value={(params.base_price as number) ?? ""} onChange={(e) => setParam("base_price", Number(e.target.value) || 0)} />
         </Field>
         <LabeledMultEditor
@@ -282,6 +348,19 @@ export function PricingParamsEditor({ strategy, params, onChange }: {
           params={params} onChange={onChange}
         />
         <DurationOptionsEditor value={(params.duration_options as { days: number; label?: string }[]) ?? []} onChange={(v) => setParam("duration_options", v)} />
+        {examples.length > 0 && (
+          <div className="rounded-lg border border-line overflow-hidden">
+            <div className="px-3 py-2 bg-raised text-[12px] font-medium">{t("buyerPricePreview")}</div>
+            <div className="divide-y divide-line">
+              {examples.map((example) => (
+                <div key={example.key} className="flex items-center justify-between gap-3 px-3 py-2 text-[12px]">
+                  <span className="text-muted">{example.label}</span>
+                  <span className="font-mono font-semibold tabular">{example.price.toLocaleString("vi-VN")}đ</span>
+                </div>
+              ))}
+            </div>
+          </div>
+        )}
         <VolumeTiersEditor value={(params.volume_tiers as { min_qty: number; discount: number }[]) ?? []} onChange={(v) => setParam("volume_tiers", v)} />
       </div>
     );

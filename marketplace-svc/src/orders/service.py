@@ -20,6 +20,7 @@ from src.models.product import DeliveryMode, Product, ProductStatus, ProductVari
 from src.models.review import Review
 from src.models.service_task import ServiceTask
 from src.pricing.engine import quote_product, resolve_pricing
+from src.pricing.factory import get_pricing_strategy
 from src.resources.service import claim_resources
 from src.audit.service import log_event, query_logs
 from src.logging import current_request_id
@@ -278,6 +279,10 @@ async def create_order_with_adapter(
         raise api_error(ErrorCode.PROVIDER_NOT_CONFIGURED, status.HTTP_400_BAD_REQUEST)
     if product.seller_id == buyer_id:
         raise api_error(ErrorCode.SELF_PURCHASE, status.HTTP_400_BAD_REQUEST)
+
+    strategy_name, params = await resolve_pricing(product, db)
+    strategy = get_pricing_strategy(strategy_name)
+    user_config = strategy.normalize_user_config(params, user_config)
 
     q = await quote_product(product, user_config, db)
     total_amount = q.amount

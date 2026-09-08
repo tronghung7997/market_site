@@ -38,6 +38,10 @@ class PricingStrategy(ABC):
         """Return (pre-discount amount in VND, effective quantity)."""
         ...
 
+    def normalize_user_config(self, params: dict, user_config: dict) -> dict:
+        """Return a copy of user_config ready to validate, quote, and persist."""
+        return dict(user_config)
+
     def quote(self, params: dict, user_config: dict) -> Quote:
         subtotal, quantity = self._subtotal(params, user_config)
         tiers = params.get("volume_tiers", [])

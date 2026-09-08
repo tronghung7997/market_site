@@ -589,7 +589,7 @@ export default function AdminProductDetail() {
         {editStrategy !== "fixed" && (
           <div className="space-y-4 pt-2">
             <div className="text-[12px] font-medium text-muted">Tham số chiến lược</div>
-            <PricingParamsEditor strategy={editStrategy} params={editParams} onChange={(p) => { setEditParams(p); markDirty(); }} />
+            <PricingParamsEditor adapterType={adapterType} strategy={editStrategy} params={editParams} onChange={(p) => { setEditParams(p); markDirty(); }} />
           </div>
         )}
         {editStrategy === "fixed" && (

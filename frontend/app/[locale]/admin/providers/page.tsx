@@ -8,6 +8,16 @@ import { Banner, Card, Spinner, Tag, Button, Field, Input, Select, Textarea } fr
 import { Info } from "@/components/Icons";
 import type { AdminProduct, Provider, ProviderHealth } from "@/lib/types";
 import { isAdapterCompatible, type CompatMatrix } from "@/lib/compat";
+import {
+  dproxyNetworkLabel,
+  dproxyParamsFromPackages,
+  dproxyTypeLabel,
+  formatDproxyPlanKey,
+  guessDproxyMapping,
+  packagesFromDproxyParams,
+  parseDproxyPlanKey,
+} from "@/lib/dproxy-plan";
+import { DproxyCodeSelect } from "@/components/DproxyCodeSelect";
 
 /* ================================================================
    Constants & helpers
@@ -30,7 +40,7 @@ const ADAPTER_DESCRIPTIONS: Record<string, { label: string; desc: string; icon: 
   scrapecreators: { label: "ScrapCreators", desc: "Kết nối API nhà cung cấp scraping thật", icon: "M13 10V3L4 14h7v7l9-11h-7z" },
   seller_gateway: { label: "Gateway seller", desc: "Forward từng request qua API thật của seller, buyer không thấy credential", icon: "M8 9l3 3-3 3m5 0h3M5 21h14a2 2 0 002-2V5a2 2 0 00-2-2H5a2 2 0 00-2 2v14a2 2 0 002 2z" },
   seller_task_webhook: { label: "Webhook tác vụ seller", desc: "Gửi tác vụ cho backend seller, nhận kết quả qua webhook", icon: "M8 7h12m0 0l-4-4m4 4l-4 4M16 17H4m0 0l4 4m-4-4l4-4" },
-  dproxy: { label: "DProxy", desc: "Proxy xoay IP — mỗi đơn được cấp một proxy độc quyền, buyer tự đổi IP", icon: "M4 4v5h.582m15.356 2A8.001 8.001 0 004.582 9m0 0H9m11 11v-5h-.581m0 0a8.003 8.003 0 01-15.357-2m15.357 2H15" },
+  dproxy: { label: "DProxy", desc: "Khi khách mua, hệ thống tự mua đúng 1 proxy từ DProxy và giao ngay. Mỗi sản phẩm bán đúng 1 gói.", icon: "M4 4v5h.582m15.356 2A8.001 8.001 0 004.582 9m0 0H9m11 11v-5h-.581m0 0a8.003 8.003 0 01-15.357-2m15.357 2H15" },
 };
 
 const ADAPTER_OPTIONS = ["mock", "seller_pool", "manual", "topproxy", "scrapecreators", "seller_gateway", "seller_task_webhook", "dproxy"];
@@ -63,6 +73,110 @@ interface ProviderProduct {
   compat_message: string | null;
 }
 
+interface DProxyPlan {
+  id: string;
+  name: string;
+  proxy_count?: number;
+  duration_days?: number;
+  price?: number;
+  currency?: string;
+}
+
+function DProxyProductPricingEditor({
+  product,
+  providerConfig,
+  onSaved,
+}: {
+  product: ProviderProduct;
+  providerConfig: Record<string, unknown>;
+  onSaved: () => void;
+}) {
+  const apiErrorMessage = useApiErrorMessage();
+  const planIds = (providerConfig.plan_ids as Record<string, string>) ?? {};
+  const mappings = Object.entries(planIds);
+  const currentPackages = packagesFromDproxyParams(product.pricing_params ?? {});
+  const [prices, setPrices] = useState<Record<string, number>>(() => {
+    const next: Record<string, number> = {};
+    for (const [key] of mappings) {
+      const match = currentPackages.find((item) => formatDproxyPlanKey(item.type, item.network, item.days) === key);
+      next[key] = match?.price ?? 0;
+    }
+    return next;
+  });
+  const [selectedKey, setSelectedKey] = useState(() => {
+    const pricedKeys = new Set(currentPackages.map((item) => formatDproxyPlanKey(item.type, item.network, item.days)));
+    return mappings.find(([key]) => pricedKeys.has(key))?.[0] ?? mappings[0]?.[0] ?? "";
+  });
+  const [saving, setSaving] = useState(false);
+  const [error, setError] = useState<string | null>(null);
+
+  const save = async () => {
+    const selected = mappings.find(([key]) => key === selectedKey);
+    if (!selected || !(prices[selectedKey] > 0)) {
+      setError("Chọn một gói và nhập giá buyer trả.");
+      return;
+    }
+    const item = parseDproxyPlanKey(selectedKey);
+    const packages = [{ type: item.type, network: item.network, days: item.days, price: prices[selectedKey] }];
+    const params = dproxyParamsFromPackages(packages);
+    const customTypeDisplay = (providerConfig.type_display as Record<string, string>) ?? {};
+    const customNetworkDisplay = (providerConfig.network_display as Record<string, string>) ?? {};
+    setSaving(true);
+    setError(null);
+    try {
+      await api.updateProductOperations(product.id, {
+        pricing_strategy: "config",
+        pricing_params: {
+          ...params,
+          type_display: { ...(params.type_display as Record<string, string>), ...customTypeDisplay },
+          network_display: { ...(params.network_display as Record<string, string>), ...customNetworkDisplay },
+        },
+      });
+      onSaved();
+    } catch (e: unknown) {
+      setError(apiErrorMessage(e, "Không lưu được giá bán"));
+    } finally {
+      setSaving(false);
+    }
+  };
+
+  if (!mappings.length) {
+    return <Banner tone="warn" icon={<Info size={14} />}>Chưa có gói nào được phép dùng. Sang tab Kết nối, tải danh sách gói và chọn gói nguồn trước.</Banner>;
+  }
+
+  return (
+    <div className="rounded-lg border border-iris/30 bg-iris-soft/20 p-4 space-y-4">
+      <div>
+        <p className="text-[13px] font-semibold">Chọn gói cho sản phẩm này</p>
+        <p className="text-[12px] text-muted mt-1">Một sản phẩm chỉ bán một gói DProxy hoàn chỉnh. Buyer không tự trộn loại proxy, khu vực và thời hạn.</p>
+      </div>
+      <div className="space-y-3">
+        {mappings.map(([key]) => {
+          const item = parseDproxyPlanKey(key);
+          return (
+            <div key={key} className="rounded-lg border border-line bg-surface p-3 space-y-2">
+              <label className="flex items-center gap-2 text-[12.5px] font-medium">
+                <input name={`product-${product.id}-dproxy-plan`} type="radio" checked={selectedKey === key} onChange={() => setSelectedKey(key)} />
+                {dproxyTypeLabel(item.type)} · {dproxyNetworkLabel(item.network)} · {item.days} ngày
+              </label>
+              {selectedKey === key && (
+                <Field label="Giá buyer trả (VND)" hint="Đây là giá cuối cùng hiển thị trên marketplace.">
+                  <Input name={`product-${product.id}-dproxy-price`} type="number" min={1} value={prices[key] || ""} onChange={(e) => setPrices((current) => ({ ...current, [key]: Number(e.target.value) || 0 }))} placeholder="Ví dụ: 21000" />
+                </Field>
+              )}
+            </div>
+          );
+        })}
+      </div>
+      <Banner tone="warn" icon={<Info size={14} />} title="Chưa tính lợi nhuận tự động">
+        Giá vốn DProxy dùng USD, còn giá buyer trả dùng VND. Xem giá vốn ở tab Kết nối và đối chiếu theo tỷ giá vận hành hiện tại.
+      </Banner>
+      {error && <p className="text-[12px] text-bad">{error}</p>}
+      <Button size="sm" onClick={save} disabled={saving}>{saving ? "Đang lưu..." : "Lưu gói và giá buyer trả"}</Button>
+    </div>
+  );
+}
+
 const STRATEGY_LABELS: Record<string, string> = {
   fixed: "Cố định",
   config: "Cấu hình",
@@ -82,12 +196,14 @@ const SAMPLE_CONFIGS: Record<string, string> = {
 function PricingEditor({
   product,
   adapterType,
+  providerConfig,
   compatMatrix,
   onSaved,
   onClose,
 }: {
   product: ProviderProduct;
   adapterType: string;
+  providerConfig: Record<string, unknown>;
   compatMatrix: CompatMatrix | null;
   onSaved: () => void;
   onClose: () => void;
@@ -102,6 +218,16 @@ function PricingEditor({
   const [testResult, setTestResult] = useState<string | null>(null);
   const [error, setError] = useState<string | null>(null);
   const [saving, setSaving] = useState(false);
+
+  if (adapterType === "dproxy") {
+    return (
+      <DProxyProductPricingEditor
+        product={product}
+        providerConfig={providerConfig}
+        onSaved={onSaved}
+      />
+    );
+  }
 
   const parseParams = (): Record<string, unknown> | null => {
     try {
@@ -219,7 +345,7 @@ function PricingEditor({
   );
 }
 
-function ProviderProductsTab({ providerId, adapterType }: { providerId: number; adapterType: string }) {
+function ProviderProductsTab({ providerId, adapterType, providerConfig }: { providerId: number; adapterType: string; providerConfig: Record<string, unknown> }) {
   const apiErrorMessage = useApiErrorMessage();
   const [products, setProducts] = useState<ProviderProduct[]>([]);
   const [allProducts, setAllProducts] = useState<AdminProduct[]>([]);
@@ -285,7 +411,7 @@ function ProviderProductsTab({ providerId, adapterType }: { providerId: number; 
       {/* Attach row */}
       <div className="flex items-end gap-2">
         <div className="flex-1">
-          <Field label="Gắn sản phẩm vào provider" hint={`Tìm theo tên/ID. Sản phẩm không tương thích với adapter "${adapterType}" bị vô hiệu hoá.`}>
+          <Field label="Gắn sản phẩm vào kết nối này" hint={adapterType === "dproxy" ? "Mỗi sản phẩm DProxy nên bán đúng 1 gói đã bật. Gắn xong, bấm Giá để nhập số tiền khách trả." : `Tìm theo tên/ID. Sản phẩm không tương thích với adapter "${adapterType}" bị vô hiệu hoá.`}>
             <Input
               id="provider-product-search"
               name="provider-product-search"
@@ -294,7 +420,7 @@ function ProviderProductsTab({ providerId, adapterType }: { providerId: number; 
               placeholder="Tìm sản phẩm theo tên hoặc ID"
               className="mb-2"
             />
-            <Select value={attachId} onChange={(e) => setAttachId(e.target.value)}>
+            <Select name="provider-product-id" value={attachId} onChange={(e) => setAttachId(e.target.value)}>
               <option value="">Chọn sản phẩm...</option>
               {attachable.map((p) => {
                 const compatible = isAdapterCompatible(adapterType, p.pricing_strategy ?? "fixed", compatMatrix);
@@ -386,6 +512,7 @@ function ProviderProductsTab({ providerId, adapterType }: { providerId: number; 
                           <PricingEditor
                             product={p}
                             adapterType={adapterType}
+                            providerConfig={providerConfig}
                             compatMatrix={compatMatrix}
                             onSaved={() => {
                               setEditingId(null);
@@ -403,6 +530,190 @@ function ProviderProductsTab({ providerId, adapterType }: { providerId: number; 
           </div>
         </>
       )}
+    </div>
+  );
+}
+
+function DProxyPlanMapper({
+  plans,
+  value,
+  onChange,
+  onCustomLabel,
+  typeDisplay,
+  networkDisplay,
+}: {
+  plans: DProxyPlan[];
+  value: Record<string, string>;
+  onChange: (next: Record<string, string>) => void;
+  onCustomLabel: (kind: "type" | "network", code: string, label: string) => void;
+  typeDisplay: Record<string, string>;
+  networkDisplay: Record<string, string>;
+}) {
+  const existingByPlan = useMemo(() => new Map(Object.entries(value).map(([key, id]) => [id, key])), [value]);
+  const [drafts, setDrafts] = useState<Record<string, { type: string; network: string; days: number }>>(() =>
+    Object.fromEntries(plans.map((plan) => {
+      const existing = existingByPlan.get(plan.id);
+      const parsed = existing ? parseDproxyPlanKey(existing) : guessDproxyMapping(plan.name, plan.duration_days);
+      return [plan.id, parsed];
+    })),
+  );
+  const [customEditors, setCustomEditors] = useState<Record<string, boolean>>({});
+  const [customDrafts, setCustomDrafts] = useState<Record<string, { kind: "type" | "network"; code: string; label: string }>>({});
+
+  useEffect(() => {
+    setDrafts((current) => Object.fromEntries(plans.map((plan) => {
+      const existing = existingByPlan.get(plan.id);
+      return [plan.id, existing ? parseDproxyPlanKey(existing) : current[plan.id] ?? guessDproxyMapping(plan.name, plan.duration_days)];
+    })));
+  }, [existingByPlan, plans]);
+
+  const toggle = (plan: DProxyPlan, enabled: boolean) => {
+    const next = { ...value };
+    const oldKey = existingByPlan.get(plan.id);
+    if (oldKey) delete next[oldKey];
+    if (enabled) {
+      const draft = drafts[plan.id];
+      if (draft?.type.trim() && draft.network.trim() && draft.days > 0) {
+        next[formatDproxyPlanKey(draft.type, draft.network, draft.days)] = plan.id;
+      }
+    }
+    onChange(next);
+  };
+
+  const updateDraft = (plan: DProxyPlan, patch: Partial<{ type: string; network: string; days: number }>) => {
+    const oldKey = existingByPlan.get(plan.id);
+    const nextDraft = { ...(drafts[plan.id] ?? { type: "", network: "", days: plan.duration_days ?? 0 }), ...patch };
+    setDrafts((current) => ({ ...current, [plan.id]: nextDraft }));
+    if (oldKey) {
+      const next = { ...value };
+      delete next[oldKey];
+      if (nextDraft.type.trim() && nextDraft.network.trim() && nextDraft.days > 0) {
+        next[formatDproxyPlanKey(nextDraft.type, nextDraft.network, nextDraft.days)] = plan.id;
+      }
+      onChange(next);
+    }
+  };
+
+  const applyCustomValue = (plan: DProxyPlan) => {
+    const custom = customDrafts[plan.id];
+    if (!custom?.code.trim() || !custom.label.trim()) return;
+    const code = custom.code.trim();
+    updateDraft(plan, custom.kind === "type" ? { type: code } : { network: code });
+    onCustomLabel(custom.kind, code, custom.label.trim());
+    setCustomEditors((current) => ({ ...current, [plan.id]: false }));
+  };
+
+  return (
+    <div className="rounded-lg border border-line overflow-hidden">
+      <div className="border-b border-line bg-raised px-4 py-3">
+        <p className="text-[13px] font-semibold">Chọn gói DProxy đưa lên marketplace</p>
+        <p className="mt-1 max-w-[72ch] text-[12px] text-muted">
+          DProxy chỉ trả về tên và giá nguồn. Hãy mô tả gói bằng ngôn ngữ buyer hiểu, rồi chọn “Dùng gói này”.
+          Bước này chưa đăng bán và chưa đặt giá bán.
+        </p>
+      </div>
+      <div className="divide-y divide-line">
+        {plans.map((plan) => {
+          const enabled = existingByPlan.has(plan.id);
+          const draft = drafts[plan.id] ?? guessDproxyMapping(plan.name, plan.duration_days);
+          const complete = Boolean(draft.type.trim() && draft.network.trim() && draft.days > 0);
+          return (
+            <div key={plan.id} className={`p-4 ${enabled ? "bg-iris-soft/20" : "bg-surface"}`}>
+              <div className="flex flex-col gap-3 sm:flex-row sm:items-start sm:justify-between">
+                <div className="min-w-0">
+                  <div className="flex flex-wrap items-center gap-2">
+                    <p className="text-[13px] font-semibold text-fg">{plan.name}</p>
+                    <Tag tone={enabled ? "iris" : "neutral"}>{enabled ? "Đã chọn" : "Chưa chọn"}</Tag>
+                  </div>
+                  <p className="mt-1 text-[11.5px] text-muted">
+                    DProxy cung cấp · Giá vốn {plan.price ?? "—"} {plan.currency ?? "USD"} · {plan.proxy_count ?? 1} proxy
+                  </p>
+                </div>
+                <label className="flex min-h-10 shrink-0 cursor-pointer items-center gap-2 rounded-lg border border-line bg-surface px-3 text-[12px] font-medium">
+                  <input name={`dproxy-plan-${plan.id}`} type="checkbox" checked={enabled} disabled={!enabled && !complete} onChange={(e) => toggle(plan, e.target.checked)} />
+                  {enabled ? "Đang dùng gói này" : "Dùng gói này"}
+                </label>
+              </div>
+
+              <div className="mt-3 rounded-lg border border-line bg-raised/50 p-3">
+                <div className="mb-2">
+                  <p className="text-[12px] font-semibold text-fg">Gói hiển thị cho buyer</p>
+                  <p className="mt-0.5 text-[11.5px] text-muted">Các trường dưới đây là nhãn hiển thị trên marketplace; chúng không thay đổi gói nguồn của DProxy.</p>
+                </div>
+                <div className="grid grid-cols-1 gap-2 sm:grid-cols-[1fr_1fr_112px]">
+                  <DproxyCodeSelect kind="type" name={`dproxy-type-${plan.id}`} value={draft.type} allowCustom={false} currentLabel={typeDisplay[draft.type]} onChange={(type) => updateDraft(plan, { type })} />
+                  <DproxyCodeSelect kind="network" name={`dproxy-network-${plan.id}`} value={draft.network} proxyType={draft.type} allowCustom={false} currentLabel={networkDisplay[draft.network]} onChange={(network) => updateDraft(plan, { network })} />
+                  <Field label="Thời hạn (ngày)"><Input name={`dproxy-days-${plan.id}`} type="number" min={1} value={draft.days || ""} onChange={(e) => updateDraft(plan, { days: Number(e.target.value) || 0 })} /></Field>
+                </div>
+                {complete && (
+                  <div className="mt-3 flex flex-col gap-1 rounded-md border border-iris/25 bg-iris-soft/40 px-3 py-2 sm:flex-row sm:items-center sm:justify-between">
+                    <p className="text-[12px] text-fg"><span className="font-semibold">Buyer nhìn thấy:</span> {typeDisplay[draft.type] ?? dproxyTypeLabel(draft.type)} · {networkDisplay[draft.network] ?? dproxyNetworkLabel(draft.network)} · {draft.days} ngày</p>
+                  </div>
+                )}
+                {!complete && <p className="mt-2 text-[11.5px] text-warn">Điền đủ loại proxy, quốc gia hoặc nhà mạng và thời hạn để có thể chọn gói này.</p>}
+                <div className="mt-3 border-t border-line pt-3">
+                  <button
+                    type="button"
+                    className="text-[11.5px] font-medium text-iris hover:underline"
+                    onClick={() => {
+                      setCustomEditors((current) => ({ ...current, [plan.id]: !current[plan.id] }));
+                      setCustomDrafts((current) => current[plan.id] ? current : {
+                        ...current,
+                        [plan.id]: { kind: "type", code: "", label: "" },
+                      });
+                    }}
+                  >
+                    {customEditors[plan.id] ? "Đóng tùy chỉnh" : "Không thấy lựa chọn phù hợp?"}
+                  </button>
+                  {customEditors[plan.id] && (() => {
+                    const custom = customDrafts[plan.id] ?? { kind: "type" as const, code: "", label: "" };
+                    const valid = Boolean(custom.code.trim() && custom.label.trim());
+                    return (
+                      <div className="mt-3 space-y-3 rounded-lg border border-iris/25 bg-surface p-3">
+                        <div>
+                          <p className="text-[12px] font-semibold text-fg">Thêm lựa chọn chưa có trong hệ thống</p>
+                          <p className="mt-0.5 text-[11.5px] text-muted">Chỉ dùng khi DProxy cung cấp một mã mới. Không cần nhập Plan ID — hệ thống lấy từ gói nguồn này.</p>
+                        </div>
+                        <Field label="Bạn muốn thêm gì?">
+                          <Select
+                            name={`dproxy-custom-kind-${plan.id}`}
+                            value={custom.kind}
+                            onChange={(event) => setCustomDrafts((current) => ({ ...current, [plan.id]: { ...custom, kind: event.target.value as "type" | "network" } }))}
+                          >
+                            <option value="type">Loại proxy mới</option>
+                            <option value="network">Quốc gia hoặc nhà mạng mới</option>
+                          </Select>
+                        </Field>
+                        <div className="grid grid-cols-1 gap-3 sm:grid-cols-2">
+                          <Field label="Tên buyer nhìn thấy" hint="Ví dụ: Residential cao cấp">
+                            <Input
+                              name={`dproxy-custom-label-${plan.id}`}
+                              value={custom.label}
+                              onChange={(event) => setCustomDrafts((current) => ({ ...current, [plan.id]: { ...custom, label: event.target.value } }))}
+                              placeholder="Residential cao cấp"
+                            />
+                          </Field>
+                          <Field label="Mã DProxy" hint="Chép đúng mã trong tài liệu hoặc API DProxy.">
+                            <Input
+                              name={`dproxy-custom-code-${plan.id}`}
+                              value={custom.code}
+                              onChange={(event) => setCustomDrafts((current) => ({ ...current, [plan.id]: { ...custom, code: event.target.value } }))}
+                              placeholder="premium_residential"
+                            />
+                          </Field>
+                        </div>
+                        <Button type="button" size="sm" variant="secondary" disabled={!valid} onClick={() => applyCustomValue(plan)}>
+                          Dùng lựa chọn này
+                        </Button>
+                      </div>
+                    );
+                  })()}
+                </div>
+              </div>
+            </div>
+          );
+        })}
+      </div>
     </div>
   );
 }
@@ -431,6 +742,28 @@ function AdapterConnectionFields({
   testing?: boolean;
   testResult?: Record<string, unknown> | null;
 }) {
+  const serializedPlanIds = JSON.stringify(config.plan_ids ?? {}, null, 2);
+  const [planIdsText, setPlanIdsText] = useState(serializedPlanIds);
+  const [planIdsError, setPlanIdsError] = useState<string>();
+
+  useEffect(() => {
+    setPlanIdsText(serializedPlanIds);
+    setPlanIdsError(undefined);
+  }, [serializedPlanIds]);
+
+  const commitPlanIds = () => {
+    try {
+      const parsed: unknown = JSON.parse(planIdsText || "{}");
+      if (!parsed || Array.isArray(parsed) || typeof parsed !== "object") {
+        throw new Error("plan_ids must be an object");
+      }
+      onChange({ ...config, plan_ids: parsed });
+      setPlanIdsError(undefined);
+    } catch {
+      setPlanIdsError("JSON không hợp lệ. Dùng object có key type|network|days và value là plan UUID.");
+    }
+  };
+
   if (adapterType === "mock") {
     return (
       <div className="rounded-lg bg-surface border border-line p-4 text-center">
@@ -463,6 +796,7 @@ function AdapterConnectionFields({
         </div>
         <Field label="Kênh thông báo (notification channel)">
           <Input
+            name="notification-channel"
             value={(config.notification_channel as string) ?? ""}
             onChange={(e) => onChange({ ...config, notification_channel: e.target.value })}
             placeholder="VD: #takedown-team"
@@ -486,6 +820,7 @@ function AdapterConnectionFields({
 
         <Field label="API Key">
           <Input
+            name={`${adapterType}-api-key`}
             type="password"
             value={(config.api_key as string) ?? ""}
             onChange={(e) => onChange({ ...config, api_key: e.target.value })}
@@ -579,27 +914,44 @@ function AdapterConnectionFields({
 
   if (adapterType === "dproxy") {
     const authType = (config.auth_type as string) ?? "bearer";
+    const health = testResult?.health as Record<string, unknown> | undefined;
+    const plans = Array.isArray(health?.plans) ? health.plans as DProxyPlan[] : [];
+    const planIds = (config.plan_ids as Record<string, string>) ?? {};
+    const connected = health?.status === "healthy" || health?.status === "warning";
+    const hasMappings = Object.keys(planIds).length > 0;
     return (
       <div className="space-y-4">
-        <div className="rounded-lg bg-iris-soft/50 border border-iris/20 p-3">
-          <p className="text-[12px] text-iris-hi">
-            Nền tảng gọi <code>GET /api/v1/proxies/user</code> (cố định, không cấu hình được) để lấy tồn kho
-            proxy và cấp độc quyền cho từng đơn. Buyer tự đổi IP qua nút &quot;Đổi IP&quot; — không bao giờ
-            thấy base_url/api_key thật.{" "}
-            {providerId != null ? "Dùng nút Test để kiểm tra trước khi lưu." : "Lưu xong mới test kết nối được."}
-          </p>
+        <div className="rounded-lg border border-line bg-raised/50 p-3 space-y-2">
+          <p className="text-[13px] font-semibold">4 bước để bán được</p>
+          {[
+            [Boolean(config.base_url && config.api_key), "Nhập địa chỉ API và API key"],
+            [connected, "Kiểm tra kết nối để lấy danh sách gói"],
+            [hasMappings, "Chọn gói được phép dùng"],
+            [false, "Gắn sản phẩm và nhập giá khách trả"],
+          ].map(([done, label], index) => (
+            <div key={String(label)} className="flex items-center gap-2 text-[12px]">
+              <span className={`h-5 w-5 grid place-items-center rounded-full border text-[10px] ${done ? "border-good/30 bg-good-soft text-good" : "border-line bg-surface text-muted"}`}>{done ? "✓" : index + 1}</span>
+              <span className={done ? "text-fg" : "text-muted"}>{label}</span>
+            </div>
+          ))}
         </div>
 
-        <Field label="Base URL">
+        <Banner tone="iris" icon={<Info size={14} />} title="Kết nối này chưa bán được hàng">
+          Kết nối chỉ cho hệ thống nói chuyện với DProxy. Khách mua sản phẩm trên chợ; mỗi sản phẩm bán đúng 1 gói, giao 1 proxy sau khi thanh toán.
+        </Banner>
+
+        <Field label="Địa chỉ API DProxy">
           <Input
-            value={(config.base_url as string) ?? ""}
+            name="dproxy-base-url"
+            value={(config.base_url as string) ?? "https://api.dproxy.info"}
             onChange={(e) => onChange({ ...config, base_url: e.target.value })}
-            placeholder="https://api.dproxy.example"
+            placeholder="https://api.dproxy.info"
           />
         </Field>
 
-        <Field label="API Key">
+        <Field label="API Key DProxy" hint="Chỉ lưu ở backend; seller và buyer không nhìn thấy giá trị này.">
           <Input
+            name="dproxy-api-key"
             type="password"
             value={(config.api_key as string) ?? ""}
             onChange={(e) => onChange({ ...config, api_key: e.target.value })}
@@ -607,43 +959,16 @@ function AdapterConnectionFields({
           />
         </Field>
 
-        <Field label="Kiểu xác thực">
-          <Select
-            value={authType}
-            onChange={(e) => onChange({ ...config, auth_type: e.target.value })}
-          >
-            <option value="bearer">Authorization: Bearer</option>
-            <option value="header">Header tuỳ chỉnh</option>
-          </Select>
-        </Field>
-
-        {authType === "header" && (
-          <Field label="Tên header xác thực">
-            <Input
-              value={(config.auth_header as string) ?? ""}
-              onChange={(e) => onChange({ ...config, auth_header: e.target.value })}
-              placeholder="X-API-Key"
-            />
-          </Field>
-        )}
-
-        <Field label="Rotate method">
-          <Select
-            value={(config.rotate_method as string) ?? "POST"}
-            onChange={(e) => onChange({ ...config, rotate_method: e.target.value })}
-          >
-            <option value="POST">POST</option>
-            <option value="GET">GET</option>
-            <option value="PUT">PUT</option>
-          </Select>
-        </Field>
-
         {providerId != null && onTest && (
           <div className="flex gap-2">
             <Button variant="secondary" size="sm" onClick={() => onTest("health")} disabled={testing}>
-              {testing ? "Đang test..." : "Test kết nối"}
+              {testing ? "Đang tải danh sách gói..." : "Kiểm tra kết nối và tải gói"}
             </Button>
           </div>
+        )}
+
+        {providerId == null && (
+          <Banner tone="warn" icon={<Info size={14} />}>Tạo nhà cung cấp trước. Sau đó mở lại, bấm “Kiểm tra kết nối và tải gói”, rồi bật gói muốn bán.</Banner>
         )}
 
         {testResult && (
@@ -652,6 +977,48 @@ function AdapterConnectionFields({
             <TestResultBody testResult={testResult} />
           </Card>
         )}
+
+        {plans.length > 0 && (
+          <DProxyPlanMapper
+            plans={plans}
+            value={planIds}
+            typeDisplay={(config.type_display as Record<string, string>) ?? {}}
+            networkDisplay={(config.network_display as Record<string, string>) ?? {}}
+            onChange={(next) => onChange({ ...config, plan_ids: next })}
+            onCustomLabel={(kind, code, label) => {
+              const field = kind === "type" ? "type_display" : "network_display";
+              const current = (config[field] as Record<string, string>) ?? {};
+              onChange({ ...config, [field]: { ...current, [code]: label } });
+            }}
+          />
+        )}
+
+        {connected && plans.length === 0 && (
+          <Banner tone="warn" icon={<Info size={14} />}>Kết nối được nhưng DProxy không trả danh sách gói. Chưa gắn được sản phẩm.</Banner>
+        )}
+
+        {hasMappings && (
+          <Banner tone="good" icon={<Info size={14} />} title={`${Object.keys(planIds).length} gói đã chọn`}>
+            Lưu, rồi sang tab “Sản phẩm liên kết”: gắn 1 sản phẩm cho 1 gói và nhập giá khách trả.
+          </Banner>
+        )}
+
+        <details className="rounded-lg border border-line bg-surface">
+          <summary className="cursor-pointer px-3 py-2.5 text-[12px] font-medium">Cấu hình nâng cao</summary>
+          <div className="px-3 pb-3 pt-1 space-y-4 border-t border-line">
+            <Field label="Kiểu xác thực">
+              <Select name="dproxy-auth-type" value={authType} onChange={(e) => onChange({ ...config, auth_type: e.target.value })}>
+                <option value="bearer">Authorization: Bearer</option>
+                <option value="header">Header tùy chỉnh</option>
+              </Select>
+            </Field>
+            {authType === "header" && <Field label="Tên header"><Input name="dproxy-auth-header" value={(config.auth_header as string) ?? "X-API-Key"} onChange={(e) => onChange({ ...config, auth_header: e.target.value })} /></Field>}
+            <Field label="Channel"><Input name="dproxy-channel" value={(config.channel as string) ?? "proxora"} onChange={(e) => onChange({ ...config, channel: e.target.value })} /></Field>
+            <Field label="Mapping JSON" error={planIdsError} hint="Chỉ dùng khi cần nhập thủ công hoặc khôi phục cấu hình.">
+              <Textarea name="dproxy-plan-mapping" value={planIdsText} onChange={(e) => setPlanIdsText(e.target.value)} onBlur={commitPlanIds} rows={5} spellCheck={false} aria-invalid={Boolean(planIdsError)} className="font-mono text-[12px]" />
+            </Field>
+          </div>
+        </details>
       </div>
     );
   }
@@ -780,7 +1147,7 @@ function ProviderEditPanel({
   allProviders: ExpandedProvider[];
   initialTab?: TabKey;
   onClose: () => void;
-  onSaved: (p: Provider) => void;
+  onSaved: (p: Provider, close?: boolean) => void;
 }) {
   const apiErrorMessage = useApiErrorMessage();
   const [tab, setTab] = useState<TabKey>(initialTab ?? "general");
@@ -807,9 +1174,11 @@ function ProviderEditPanel({
         fallback_provider_id: fallbackId,
         is_active: isActive,
       });
-      setSuccess("Da luu thanh cong!");
+      const continueToProducts = adapterType === "dproxy" && tab === "api" && Object.keys((config.plan_ids as Record<string, string>) ?? {}).length > 0;
+      setSuccess(continueToProducts ? "Đã lưu gói. Tiếp theo: gắn sản phẩm và nhập giá khách trả." : "Đã lưu thành công!");
       setTimeout(() => setSuccess(null), 3000);
-      onSaved(updated);
+      onSaved(updated, !continueToProducts);
+      if (continueToProducts) setTab("products");
     } catch (e: unknown) {
       setError(apiErrorMessage(e, "Lỗi khi lưu"));
     } finally {
@@ -821,6 +1190,16 @@ function ProviderEditPanel({
     setTesting(true);
     setTestResult(null);
     try {
+      // Test phải dùng đúng giá trị đang thấy trong form. Trước đây endpoint
+      // đọc config cũ trong DB nên admin vừa sửa API key rồi bấm Test vẫn nhận
+      // kết quả của credential cũ.
+      const updated = await api.updateProvider(provider.id, {
+        adapter_type: adapterType,
+        config,
+        fallback_provider_id: fallbackId,
+        is_active: isActive,
+      });
+      onSaved(updated, false);
       const result = await api.testProvider(provider.id);
       setTestResult(
         type === "health"
@@ -887,11 +1266,11 @@ function ProviderEditPanel({
           {tab === "general" && (
             <>
               <Field label="Ten nhà cung cấp">
-                <Input value={provider.name} disabled className="opacity-60" />
+                <Input name="provider-name" value={provider.name} disabled className="opacity-60" />
               </Field>
 
               <Field label="Loai adapter">
-                <Select value={adapterType} onChange={(e) => setAdapterType(e.target.value)}>
+                <Select name="provider-adapter-type" value={adapterType} onChange={(e) => setAdapterType(e.target.value)}>
                   {ADAPTER_OPTIONS.map((a) => (
                     <option key={a} value={a}>
                       {ADAPTER_DESCRIPTIONS[a]?.label ?? a}
@@ -909,6 +1288,7 @@ function ProviderEditPanel({
 
               <Field label="Nhà cung cấp dự phòng">
                 <Select
+                  name="provider-fallback-id"
                   value={fallbackId ?? ""}
                   onChange={(e) => setFallbackId(e.target.value ? Number(e.target.value) : null)}
                 >
@@ -957,7 +1337,7 @@ function ProviderEditPanel({
             // đã lưu — nếu không, đổi loại adapter ở tab "Thông tin chung" rồi
             // sang thẳng tab này (chưa bấm Lưu) sẽ vẫn kiểm tra tương thích
             // theo loại CŨ, gây hiểu nhầm sản phẩm nào gắn được.
-            <ProviderProductsTab providerId={provider.id} adapterType={adapterType} />
+            <ProviderProductsTab providerId={provider.id} adapterType={adapterType} providerConfig={config} />
           )}
 
           {/* Bottom actions (visible on all tabs) */}
@@ -975,7 +1355,11 @@ function ProviderEditPanel({
 
             <div className="flex gap-2">
               <Button onClick={handleSave} disabled={saving}>
-                {saving ? "Đang lưu..." : "Lưu thay đổi"}
+                {saving
+                  ? "Đang lưu..."
+                  : adapterType === "dproxy" && tab === "api" && Object.keys((config.plan_ids as Record<string, string>) ?? {}).length > 0
+                    ? "Lưu và tiếp tục gắn sản phẩm"
+                    : "Lưu thay đổi"}
               </Button>
               <Button variant="secondary" onClick={onClose}>
                 Đóng
@@ -1071,7 +1455,15 @@ function CreateProviderPanel({
                   <button
                     key={a}
                     type="button"
-                    onClick={() => { setAdapterType(a); setConfig({}); }}
+                    onClick={() => {
+                      setAdapterType(a);
+                      setConfig(a === "dproxy" ? {
+                        base_url: "https://api.dproxy.info",
+                        auth_type: "header",
+                        auth_header: "X-API-Key",
+                        channel: "proxora",
+                      } : {});
+                    }}
                     className={`text-left rounded-lg border p-3 transition-all cursor-pointer ${active ? "border-iris bg-iris/5 ring-1 ring-iris/30" : "border-line bg-raised hover:border-muted"}`}
                   >
                     <div className="flex items-center gap-2">
@@ -1413,12 +1805,16 @@ export default function AdminProvidersPage() {
     });
   }, [providers.length, getLatestHealth]); // eslint-disable-line react-hooks/exhaustive-deps
 
-  const handleSaved = (updated: Provider) => {
+  const handleSaved = (updated: Provider, close = true) => {
     setProviders((prev) =>
       prev.map((p) => (p.id === updated.id ? { ...p, ...updated } : p)),
     );
-    setEditProvider(null);
-    setEditProviderInitialTab(undefined);
+    if (close) {
+      setEditProvider(null);
+      setEditProviderInitialTab(undefined);
+    } else {
+      setEditProvider((current) => current ? { ...current, ...updated } : current);
+    }
   };
 
   const handleCreated = (created: Provider) => {

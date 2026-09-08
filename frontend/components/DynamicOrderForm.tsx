@@ -94,6 +94,7 @@ export default function DynamicOrderForm({ productId, product, onOrderCreated }:
   // package_size=1 bất kể field gốc cho phép gì. Xem
   // docs/superpowers/plans/2026-07-22-dproxy-consolidated-review.md P0#1.
   const isDproxy = options?.adapter_type === "dproxy";
+  const isDproxyM2m = isDproxy && options?.strategy === "config";
   // "auto_proxy" là nhãn public của adapter proxy mua-theo-đơn (backend che
   // tên nguồn thật — xem _PUBLIC_ADAPTER_ALIASES, src/pricing/router.py).
   // Cùng ràng buộc 1 allocation/đơn với DProxy nên dùng chung khoá số lượng.
@@ -228,7 +229,7 @@ export default function DynamicOrderForm({ productId, product, onOrderCreated }:
             {options.strategy === "credit" && <Tag tone="iris">{t("fulfillment.api")}</Tag>}
             {options.strategy === "task" && <Tag tone="warn">{t("fulfillment.task")}</Tag>}
             {isAutoDelivered && <Tag tone="good">{t("autoDelivered")}</Tag>}
-            {isDproxy && <Tag tone="iris">{t("ipRotatable")}</Tag>}
+            {isDproxy && !isDproxyM2m && <Tag tone="iris">{t("ipRotatable")}</Tag>}
           </div>
         </div>
 
@@ -240,9 +241,32 @@ export default function DynamicOrderForm({ productId, product, onOrderCreated }:
           )}
 
           {/* Dynamic fields */}
-          {visibleFields.map((f) => (
+          {(() => {
+            const packageField = visibleFields.find((f) => f.field === "plan_key");
+            const packageOnly = Boolean(packageField);
+            const collapsed = packageOnly
+              ? (packageField?.choices?.length ?? 0) <= 1
+              : isDproxyM2m && visibleFields.length > 0 && visibleFields.every((f) => (f.choices?.length ?? 0) <= 1);
+            if (collapsed) {
+              const summaryFields = packageField ? [packageField] : visibleFields;
+              return (
+            <div className="rounded-lg border border-line bg-raised/40 px-3 py-3 space-y-1">
+              <p className="text-[11px] uppercase tracking-wider text-faint">{locale === "en" ? "Package you receive" : "Gói bạn nhận"}</p>
+              <p className="text-[13px] font-medium">
+                {summaryFields.map((f) => {
+                  const val = config[f.field];
+                  const choice = f.choices?.find((c) => String(c.value) === String(val));
+                  return choice?.label ?? String(val ?? "—");
+                }).join(" · ")}
+              </p>
+              <p className="text-[12px] text-muted">{locale === "en" ? "This product sells this exact package. After payment, one proxy is delivered automatically." : "Sản phẩm này bán đúng gói trên. Thanh toán xong hệ thống giao 1 proxy tự động."}</p>
+            </div>
+              );
+            }
+            return visibleFields.map((f) => (
             <DynamicField key={f.field} field={f} value={config[f.field]} locale={locale} onChange={(v) => updateField(f.field, v)} />
-          ))}
+            ));
+          })()}
 
           {/* Quantity — ẩn với strategy "task" (tự đếm theo URL), "credit"
               (package_size ở trên đã là số lượng thật) và với DProxy/auto_proxy
@@ -363,7 +387,7 @@ export default function DynamicOrderForm({ productId, product, onOrderCreated }:
                     <span className="text-muted">{t("confirmDelivery")}</span>
                     <span className="font-medium">{t("deliveryAutoSeconds")}</span>
                   </div>
-                  {isDproxy && (
+                  {isDproxy && !isDproxyM2m && (
                     <div className="flex justify-between">
                       <span className="text-muted">{t("ipRotation")}</span>
                       <span className="font-medium">{t("supported")}</span>

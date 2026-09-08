@@ -119,7 +119,18 @@ async def test_seller_to_admin_to_buyer_with_mock_gateway_and_task(client, monke
 
     placed = await client.post("/orders", json={"product_id": gateway_product, "user_config": {"package_size": 2}}, headers={"Authorization": f"Bearer {buyer_token}"})
     assert placed.status_code == 201, placed.text
+    seller_orders = await client.get(
+        "/seller/orders", headers={"Authorization": f"Bearer {seller_token}"},
+    )
+    assert seller_orders.status_code == 200, seller_orders.text
+    assert any(row["id"] == placed.json()["id"] for row in seller_orders.json())
     await provision_pending_order(placed.json()["id"])
+    buyer_dashboard = await client.get(
+        f"/orders/{placed.json()['id']}/dashboard",
+        headers={"Authorization": f"Bearer {buyer_token}"},
+    )
+    assert buyer_dashboard.status_code == 200, buyer_dashboard.text
+    assert buyer_dashboard.json()["status"] == "delivered"
     async with SessionLocal() as db:
         order = await db.get(Order, placed.json()["id"])
         assert order.status == OrderStatus.delivered

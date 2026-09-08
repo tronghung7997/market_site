@@ -25,8 +25,10 @@ import {
   type BackendState,
   type BuyerContentDraft,
   type WorkbenchVariant,
+  applyDproxySinglePlan,
   buildDynamicPricingLabels,
   buildDynamicPricingPlan,
+  dproxySalePrice,
   buyerContentToTranslation,
   evaluateRouteAChecklist,
   evaluateRouteBChecklist,
@@ -40,6 +42,7 @@ import { SellerCoverPicker } from "./SellerCoverPicker";
 import { SellerDynamicOrderSimulation } from "./SellerDynamicOrderSimulation";
 import { SellerOrderPanelSimulation } from "./SellerOrderPanelSimulation";
 import { SellerPriceInput, useSellerPriceCurrency } from "./SellerPriceInput";
+import { dproxyNetworkLabel, dproxyTypeLabel } from "@/lib/dproxy-plan";
 import { SellerSellableChecklist } from "./SellerSellableChecklist";
 import { SellerVariantManager } from "./SellerVariantManager";
 
@@ -167,9 +170,10 @@ export function SellerProductEditor({ productId }: { productId: number }) {
       ]);
       const hydrated = hydrateSellerProductDraft(detail);
       const approvedProviders = providerItems.filter((provider) => provider.is_active && provider.review_status === "approved");
-      const nextProviderId = productOperations?.provider?.id && approvedProviders.some((provider) => provider.id === productOperations.provider?.id)
-        ? productOperations.provider.id
-        : approvedProviders[0]?.id ?? 0;
+      // The operations endpoint is the source of truth. Admin-managed providers
+      // are intentionally absent from sellerProviders; falling back here would
+      // make a harmless Save rebind the product to an unrelated seller provider.
+      const nextProviderId = productOperations?.provider?.id ?? approvedProviders[0]?.id ?? 0;
       const names: LocalizedVariantNames = {};
       for (const variant of detail.variants) {
         const variantPrimary = variant.primary_locale ?? hydrated.primaryLocale;
@@ -229,13 +233,28 @@ export function SellerProductEditor({ productId }: { productId: number }) {
     () => workModel === "B1" ? providers : providers.filter((provider) => provider.adapter_type === requiredAdapterType),
     [providers, requiredAdapterType, workModel],
   );
-  const selectedProvider = compatibleProviders.find((provider) => provider.id === selectedProviderId);
+  const operationsProvider = operations?.provider;
+  const selectedProvider = compatibleProviders.find((provider) => provider.id === selectedProviderId)
+    ?? (operationsProvider?.id === selectedProviderId ? operationsProvider : undefined);
+  const providerManagedByAdmin = Boolean(
+    operationsProvider?.id === selectedProviderId
+    && !compatibleProviders.some((provider) => provider.id === selectedProviderId),
+  );
+  const isDproxyProduct = selectedProvider?.adapter_type === "dproxy";
 
   useEffect(() => {
-    if (!compatibleProviders.some((provider) => provider.id === selectedProviderId)) {
+    if (!isDproxyProduct || b1.isSingleUnit) return;
+    setB1(applyDproxySinglePlan(b1, {}));
+  }, [isDproxyProduct]);
+
+  useEffect(() => {
+    if (
+      operationsProvider?.id !== selectedProviderId
+      && !compatibleProviders.some((provider) => provider.id === selectedProviderId)
+    ) {
       setSelectedProviderId(compatibleProviders[0]?.id ?? 0);
     }
-  }, [compatibleProviders, selectedProviderId]);
+  }, [compatibleProviders, operationsProvider?.id, selectedProviderId]);
 
   const backend: BackendState = selectedProvider
     ? { status: "approved", name: selectedProvider.name, providerType: selectedProvider.adapter_type }
@@ -409,11 +428,13 @@ export function SellerProductEditor({ productId }: { productId: number }) {
           if (secondaryName) await api.updateVariantTranslation(variant.id, secondaryLocale, secondaryName);
         }
       } else {
-        const pricing = buildDynamicPricingPlan(workModel, b1, b2, b3);
+        const pricing = buildDynamicPricingPlan(workModel, b1, b2, b3, selectedProvider?.adapter_type);
         await api.updateSellerPricing(productId, {
           pricing_strategy: pricing.strategy,
           pricing_params: pricing.params,
-          ...(selectedProviderId ? { provider_id: selectedProviderId } : {}),
+          ...(selectedProviderId && selectedProviderId !== operations?.provider?.id
+            ? { provider_id: selectedProviderId }
+            : {}),
         });
       }
 
@@ -580,17 +601,42 @@ export function SellerProductEditor({ productId }: { productId: number }) {
               )}
               <Field
                 label={t("integrationLabel")}
-                hint={compatibleProviders.length > 0 ? t("integrationHint") : t("noCompatibleIntegrations")}
+                hint={providerManagedByAdmin
+                  ? t("adminManagedIntegrationHint")
+                  : compatibleProviders.length > 0 ? t("integrationHint") : t("noCompatibleIntegrations")}
               >
-                <Select value={selectedProviderId} onChange={(event) => setSelectedProviderId(Number(event.target.value))} disabled={compatibleProviders.length === 0}>
-                  {compatibleProviders.length === 0 && <option value={0}>{t("integrationPlaceholder")}</option>}
+                <Select value={selectedProviderId} onChange={(event) => setSelectedProviderId(Number(event.target.value))} disabled={providerManagedByAdmin || compatibleProviders.length === 0}>
+                  {providerManagedByAdmin && operationsProvider && <option value={operationsProvider.id}>{operationsProvider.name}</option>}
+                  {!providerManagedByAdmin && compatibleProviders.length === 0 && <option value={0}>{t("integrationPlaceholder")}</option>}
                   {compatibleProviders.map((provider) => <option key={provider.id} value={provider.id}>{provider.name}</option>)}
                 </Select>
               </Field>
               {compatibleProviders.length === 0 && workModel !== "B1" && (
                 <Button size="sm" variant="secondary" onClick={() => router.push("/seller/providers")}>{t("createCompatibleIntegration")}</Button>
               )}
-              {workModel === "B1" && <Field label={t("monthlyBasePrice", { currency: priceCurrency })}><SellerPriceInput amountVnd={b1.basePrice} onAmountVndChange={(basePrice) => setB1({ ...b1, basePrice })} /></Field>}
+              {workModel === "B1" && isDproxyProduct && (
+                <div className="space-y-3 rounded-lg border border-iris/25 bg-iris-soft/20 p-3">
+                  <div>
+                    <p className="text-[13px] font-semibold">{t("dproxySetupTitle")}</p>
+                    <p className="mt-1 text-[12px] text-muted">{t("dproxySellerPricingHelp")}</p>
+                  </div>
+                  <div className="grid gap-3 opacity-75" aria-label={t("dproxyPackageLocked")}>
+                    <Field label={t("dproxyType")}>
+                      <Input value={dproxyTypeLabel(b1.selectedType, interfaceLocale === "en" ? "en" : "vi")} readOnly />
+                    </Field>
+                    <Field label={t("dproxyNetwork")}>
+                      <Input value={dproxyNetworkLabel(b1.selectedNetwork, interfaceLocale === "en" ? "en" : "vi")} readOnly />
+                    </Field>
+                    <Field label={t("dproxyDays")}>
+                      <Input type="number" value={b1.selectedDays} readOnly />
+                    </Field>
+                  </div>
+                  <Field label={t("dproxySalePrice", { currency: priceCurrency })}>
+                    <SellerPriceInput amountVnd={dproxySalePrice(b1)} onAmountVndChange={(salePrice) => setB1(applyDproxySinglePlan(b1, { salePrice }))} />
+                  </Field>
+                </div>
+              )}
+              {workModel === "B1" && !isDproxyProduct && <Field label={t("monthlyBasePrice", { currency: priceCurrency })}><SellerPriceInput amountVnd={b1.basePrice} onAmountVndChange={(basePrice) => setB1({ ...b1, basePrice })} /></Field>}
               {workModel === "B2" && <Field label={t("requestUnitPrice", { currency: priceCurrency })}><SellerPriceInput amountVnd={b2.creditPrice} onAmountVndChange={(creditPrice) => setB2({ ...b2, creditPrice })} /></Field>}
               {workModel === "B3" && <Field label={t("taskUnitPrice", { currency: priceCurrency })}><SellerPriceInput amountVnd={b3.basePrice} onAmountVndChange={(basePrice) => setB3({ ...b3, basePrice })} /></Field>}
               <div className={`rounded-xl border p-3.5 text-[12px] ${selectedProvider ? "border-good/25 bg-good-soft" : "border-warn/25 bg-warn-soft"}`}>

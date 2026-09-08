@@ -9,6 +9,7 @@ import type {
   ProductPricingLabels,
   ProductTranslation,
 } from "../../lib/types.ts";
+import { dproxyParamsFromPackages } from "../../lib/dproxy-plan.ts";
 
 export type Archetype = "A" | "B";
 export type WorkModelB = "B1" | "B2" | "B3";
@@ -300,6 +301,7 @@ export function hydrateSellerProductDraft(product: ProductDetail): SellerProduct
   b1.selectedType = b1.types[0]?.key ?? "";
   b1.selectedNetwork = b1.networks[0]?.key ?? "";
   b1.selectedDays = b1.durations[0]?.days ?? 30;
+  b1.isSingleUnit = b1.types.length === 1 && b1.networks.length === 1 && b1.durations.length === 1;
 
   const discountBySize = new Map<number, number>();
   if (Array.isArray(params.volume_tiers)) {
@@ -426,13 +428,61 @@ function keyedNumbers(items: { key: string; mult: number }[]): Record<string, nu
   return Object.fromEntries(items.map((item) => [item.key, item.mult]));
 }
 
+export function applyDproxySinglePlan(
+  current: B1ConfigState,
+  patch: { type?: string; network?: string; days?: number; salePrice?: number },
+): B1ConfigState {
+  const type = patch.type ?? current.selectedType ?? current.types[0]?.key ?? "residential";
+  const network = patch.network ?? current.selectedNetwork ?? current.networks[0]?.key ?? "VN";
+  const days = patch.days ?? current.selectedDays ?? current.durations[0]?.days ?? 30;
+  const currentSale = current.durations[0]
+    ? Math.round(current.basePrice * current.durations[0].days / 30)
+    : current.basePrice;
+  const salePrice = patch.salePrice ?? currentSale;
+  const typeLabel = current.types.find((item) => item.key === type)?.label ?? type;
+  const networkLabel = current.networks.find((item) => item.key === network)?.label ?? network;
+  return {
+    basePrice: days > 0 ? Math.round(salePrice * 30 / days) : 0,
+    types: [{ key: type, label: typeLabel, mult: 1 }],
+    networks: [{ key: network, label: networkLabel, mult: 1 }],
+    durations: [{ days, label: `${days} days` }],
+    selectedType: type,
+    selectedNetwork: network,
+    selectedDays: days,
+    qty: 1,
+    isSingleUnit: true,
+  };
+}
+
+export function dproxySalePrice(b1: B1ConfigState): number {
+  const days = b1.selectedDays || b1.durations[0]?.days || 30;
+  return days > 0 ? Math.round(b1.basePrice * days / 30) : 0;
+}
+
 export function buildDynamicPricingPlan(
   workModel: WorkModelB,
   b1: B1ConfigState,
   b2: B2CreditState,
   b3: B3TaskState,
+  adapterType?: string,
 ): DynamicPricingPlan {
   if (workModel === "B1") {
+    if (adapterType === "dproxy") {
+      const params = dproxyParamsFromPackages([{
+        type: b1.selectedType,
+        network: b1.selectedNetwork,
+        days: b1.selectedDays,
+        price: dproxySalePrice(b1),
+      }]);
+      return {
+        strategy: "config",
+        params: {
+          ...params,
+          type_display: Object.fromEntries(b1.types.map((item) => [item.key, item.label])),
+          network_display: Object.fromEntries(b1.networks.map((item) => [item.key, item.label])),
+        },
+      };
+    }
     return {
       strategy: "config",
       params: {
@@ -440,6 +490,8 @@ export function buildDynamicPricingPlan(
         type_mult: keyedNumbers(b1.types),
         network_mult: keyedNumbers(b1.networks),
         duration_options: b1.durations.map(({ days, label }) => ({ days, label })),
+        type_display: Object.fromEntries(b1.types.map((item) => [item.key, item.label])),
+        network_display: Object.fromEntries(b1.networks.map((item) => [item.key, item.label])),
       },
     };
   }

@@ -20,6 +20,7 @@ import {
   X,
   ArrowUpDown,
   Filter,
+  Star,
 } from "lucide-react";
 import { api } from "@/lib/api";
 import { useApiErrorMessage } from "@/lib/use-api-error";
@@ -27,7 +28,7 @@ import { useAuth } from "@/lib/auth";
 import { useMoney } from "@/lib/money";
 import { cn } from "@/lib/cn";
 import { canOpenDispute, displayOrderStatus, hasOpenDispute } from "@/lib/order-status";
-import { formatDate, formatDateTime } from "@/lib/utils";
+import { formatDate, formatDateTime, daysAgo } from "@/lib/utils";
 import { queryKeys } from "@/lib/query-keys";
 import { useOrders, useOrderStats } from "@/hooks/use-orders";
 import type { Order, PaginatedOrderResponse } from "@/lib/types";
@@ -490,144 +491,273 @@ export default function OrdersPage() {
 
       {/* TOP KPI STAT CARDS (Interactive filters) */}
       {stats && (
-        <div className="grid grid-cols-1 gap-3 sm:grid-cols-2 lg:grid-cols-4">
-          {/* Card 1: Total Orders */}
-          <div
-            role="button"
-            tabIndex={0}
-            onClick={() => filters.setTab("")}
-            className={cn(
-              "rounded-2xl border border-line bg-surface p-4 shadow-xs flex items-center justify-between gap-3.5 cursor-pointer select-none transition-all duration-200 hover:-translate-y-0.5 hover:shadow-card-lg",
-              filters.tab === ""
-                ? "ring-2 ring-iris border-iris bg-iris-soft/25 shadow-md"
-                : "hover:border-line-2"
-            )}
-          >
-            <div className="flex items-center gap-3.5 min-w-0">
-              <div className="flex h-11 w-11 shrink-0 items-center justify-center rounded-xl bg-iris-soft text-iris font-semibold text-xl">
-                📦
-              </div>
-              <div className="min-w-0">
-                <div className="text-[11px] font-medium uppercase tracking-wider text-muted truncate">{t("totalOrders")}</div>
-                <div className="font-mono text-[22px] font-bold text-fg tabular">{stats.total} <span className="text-[11.5px] font-normal text-muted">{t("unit")}</span></div>
-              </div>
-            </div>
-            <div className="text-right shrink-0">
-              {filters.tab === "" ? (
-                <span className="inline-flex items-center gap-1 rounded-md bg-iris px-2 py-0.5 text-[10.5px] font-bold text-white shadow-xs">
-                  ● {t("tabAll")}
-                </span>
-              ) : (
-                <span className="text-[11px] text-faint hover:text-fg">{t("filter")}</span>
+        <>
+          {/* Mobile Horizontal Carousel (sm:hidden) */}
+          <div className="sm:hidden flex items-stretch gap-2.5 overflow-x-auto pb-1.5 -mx-4 px-4 scrollbar-none snap-x snap-mandatory">
+            {/* Card 1: Total Orders */}
+            <div
+              role="button"
+              tabIndex={0}
+              onClick={() => filters.setTab("")}
+              className={cn(
+                "min-w-[135px] max-w-[160px] flex-1 shrink-0 snap-start rounded-2xl border bg-surface p-3 cursor-pointer select-none transition-all shadow-xs flex flex-col justify-between",
+                filters.tab === ""
+                  ? "ring-2 ring-iris border-iris bg-iris-soft/25 shadow-sm"
+                  : "border-line hover:border-line-2"
               )}
+            >
+              <div className="flex items-center gap-2">
+                <div className="flex h-7 w-7 shrink-0 items-center justify-center rounded-lg bg-iris-soft text-iris text-sm">
+                  📦
+                </div>
+                <div className="text-[10.5px] font-semibold uppercase tracking-wider text-muted truncate">
+                  {t("totalOrders")}
+                </div>
+              </div>
+              <div className="mt-2.5 flex items-baseline justify-between gap-1">
+                <div className="font-mono text-[19px] font-bold text-fg tabular">
+                  {stats.total} <span className="text-[11px] font-normal text-muted">{t("unit")}</span>
+                </div>
+                {filters.tab === "" && (
+                  <span className="rounded bg-iris px-1.5 py-0.2 text-[9.5px] font-bold text-white">
+                    ●
+                  </span>
+                )}
+              </div>
             </div>
-          </div>
 
-          {/* Card 2: Active Orders */}
-          <div
-            role="button"
-            tabIndex={0}
-            onClick={() => filters.setTab(filters.tab === "active" ? "" : "active")}
-            className={cn(
-              "rounded-2xl border border-line bg-surface p-4 shadow-xs flex items-center justify-between gap-3.5 cursor-pointer select-none transition-all duration-200 hover:-translate-y-0.5 hover:shadow-card-lg",
-              filters.tab === "active"
-                ? "ring-2 ring-good border-good bg-good-soft/25 shadow-md"
-                : "hover:border-line-2"
-            )}
-          >
-            <div className="flex items-center gap-3.5 min-w-0">
-              <div className="flex h-11 w-11 shrink-0 items-center justify-center rounded-xl bg-good-soft text-good font-semibold text-xl">
-                ✓
-              </div>
-              <div className="min-w-0">
-                <div className="text-[11px] font-medium uppercase tracking-wider text-muted truncate">{t("active")}</div>
-                <div className="font-mono text-[22px] font-bold text-good tabular">{stats.active} <span className="text-[11.5px] font-normal text-muted">{t("unit")}</span></div>
-              </div>
-            </div>
-            <div className="text-right shrink-0">
-              {filters.tab === "active" ? (
-                <span className="inline-flex items-center gap-1 rounded-md bg-good px-2 py-0.5 text-[10.5px] font-bold text-white shadow-xs">
-                  ● {t("filtering")}
-                </span>
-              ) : (
-                <span className="text-[11px] text-faint hover:text-fg">{t("filter")}</span>
+            {/* Card 2: Active Orders */}
+            <div
+              role="button"
+              tabIndex={0}
+              onClick={() => filters.setTab(filters.tab === "active" ? "" : "active")}
+              className={cn(
+                "min-w-[135px] max-w-[160px] flex-1 shrink-0 snap-start rounded-2xl border bg-surface p-3 cursor-pointer select-none transition-all shadow-xs flex flex-col justify-between",
+                filters.tab === "active"
+                  ? "ring-2 ring-good border-good bg-good-soft/25 shadow-sm"
+                  : "border-line hover:border-line-2"
               )}
+            >
+              <div className="flex items-center gap-2">
+                <div className="flex h-7 w-7 shrink-0 items-center justify-center rounded-lg bg-good-soft text-good font-semibold text-sm">
+                  ✓
+                </div>
+                <div className="text-[10.5px] font-semibold uppercase tracking-wider text-muted truncate">
+                  {t("tabActive")}
+                </div>
+              </div>
+              <div className="mt-2.5 flex items-baseline justify-between gap-1">
+                <div className="font-mono text-[19px] font-bold text-good tabular">
+                  {stats.active} <span className="text-[11px] font-normal text-muted">{t("unit")}</span>
+                </div>
+                {filters.tab === "active" && (
+                  <span className="rounded bg-good px-1.5 py-0.2 text-[9.5px] font-bold text-white">
+                    ●
+                  </span>
+                )}
+              </div>
             </div>
-          </div>
 
-          {/* Card 3: Disputed Orders */}
-          <div
-            role="button"
-            tabIndex={0}
-            onClick={() => filters.setTab(filters.tab === "disputed" ? "" : "disputed")}
-            className={cn(
-              "rounded-2xl border border-line bg-surface p-4 shadow-xs flex items-center justify-between gap-3.5 cursor-pointer select-none transition-all duration-200 hover:-translate-y-0.5 hover:shadow-card-lg",
-              filters.tab === "disputed"
-                ? "ring-2 ring-bad border-bad bg-bad-soft/25 shadow-md"
-                : "hover:border-line-2"
-            )}
-          >
-            <div className="flex items-center gap-3.5 min-w-0">
-              <div className="flex h-11 w-11 shrink-0 items-center justify-center rounded-xl bg-bad-soft text-bad font-semibold text-xl">
-                ⚠️
-              </div>
-              <div className="min-w-0">
-                <div className="text-[11px] font-medium uppercase tracking-wider text-muted truncate">{t("disputed")}</div>
-                <div className="font-mono text-[22px] font-bold text-bad tabular">{stats.disputed} <span className="text-[11.5px] font-normal text-muted">{t("unit")}</span></div>
-              </div>
-            </div>
-            <div className="text-right shrink-0">
-              {filters.tab === "disputed" ? (
-                <span className="inline-flex items-center gap-1 rounded-md bg-bad px-2 py-0.5 text-[10.5px] font-bold text-white shadow-xs">
-                  ● {t("filtering")}
-                </span>
-              ) : (
-                <span className="text-[11px] text-faint hover:text-fg">{t("filter")}</span>
+            {/* Card 3: Disputed Orders */}
+            <div
+              role="button"
+              tabIndex={0}
+              onClick={() => filters.setTab(filters.tab === "disputed" ? "" : "disputed")}
+              className={cn(
+                "min-w-[135px] max-w-[160px] flex-1 shrink-0 snap-start rounded-2xl border bg-surface p-3 cursor-pointer select-none transition-all shadow-xs flex flex-col justify-between",
+                filters.tab === "disputed"
+                  ? "ring-2 ring-bad border-bad bg-bad-soft/25 shadow-sm"
+                  : "border-line hover:border-line-2"
               )}
-            </div>
-          </div>
-
-          {/* Card 4: Total Spent */}
-          <div
-            role="button"
-            tabIndex={0}
-            onClick={() => {
-              filters.clear();
-              filters.setTab("");
-            }}
-            className={cn(
-              "rounded-2xl border border-line bg-surface p-4 shadow-xs flex items-center justify-between gap-3.5 cursor-pointer select-none transition-all duration-200 hover:-translate-y-0.5 hover:shadow-card-lg hover:border-line-2"
-            )}
-          >
-            <div className="flex items-center gap-3.5 min-w-0">
-              <div className="flex h-11 w-11 shrink-0 items-center justify-center rounded-xl bg-raised text-iris font-semibold text-xl">
-                💳
+            >
+              <div className="flex items-center gap-2">
+                <div className="flex h-7 w-7 shrink-0 items-center justify-center rounded-lg bg-bad-soft text-bad text-sm">
+                  ⚠️
+                </div>
+                <div className="text-[10.5px] font-semibold uppercase tracking-wider text-muted truncate">
+                  {t("disputed")}
+                </div>
               </div>
-              <div className="min-w-0">
-                <div className="text-[11px] font-medium uppercase tracking-wider text-muted truncate">{t("spent")}</div>
-                <div className="font-mono text-[20px] font-bold text-fg tabular truncate">
+              <div className="mt-2.5 flex items-baseline justify-between gap-1">
+                <div className="font-mono text-[19px] font-bold text-bad tabular">
+                  {stats.disputed} <span className="text-[11px] font-normal text-muted">{t("unit")}</span>
+                </div>
+                {filters.tab === "disputed" && (
+                  <span className="rounded bg-bad px-1.5 py-0.2 text-[9.5px] font-bold text-white">
+                    ●
+                  </span>
+                )}
+              </div>
+            </div>
+
+            {/* Card 4: Total Spent */}
+            <div
+              role="button"
+              tabIndex={0}
+              onClick={() => {
+                filters.clear();
+                filters.setTab("");
+              }}
+              className={cn(
+                "min-w-[135px] max-w-[160px] flex-1 shrink-0 snap-start rounded-2xl border border-line bg-surface p-3 cursor-pointer select-none transition-all shadow-xs flex flex-col justify-between hover:border-line-2"
+              )}
+            >
+              <div className="flex items-center gap-2">
+                <div className="flex h-7 w-7 shrink-0 items-center justify-center rounded-lg bg-raised text-iris text-sm">
+                  💳
+                </div>
+                <div className="text-[10.5px] font-semibold uppercase tracking-wider text-muted truncate">
+                  {t("spent")}
+                </div>
+              </div>
+              <div className="mt-2.5 flex items-baseline justify-between gap-1">
+                <div className="font-mono text-[16px] font-bold text-fg tabular truncate">
                   {formatBrowseMoney(stats.total_spend, { locale })}
                 </div>
               </div>
             </div>
-            <div className="text-right shrink-0">
-              {filters.hasFilters ? (
-                <span className="text-[11px] font-medium text-iris hover:underline">
-                  {t("reset")}
-                </span>
-              ) : (
-                <span className="text-[11px] text-faint">{t("spent")}</span>
+          </div>
+
+          {/* Desktop/Tablet Grid (hidden sm:grid) */}
+          <div className="hidden sm:grid sm:grid-cols-2 lg:grid-cols-4 gap-3">
+            {/* Card 1: Total Orders */}
+            <div
+              role="button"
+              tabIndex={0}
+              onClick={() => filters.setTab("")}
+              className={cn(
+                "rounded-2xl border border-line bg-surface p-4 shadow-xs flex items-center justify-between gap-3.5 cursor-pointer select-none transition-all duration-200 hover:-translate-y-0.5 hover:shadow-card-lg",
+                filters.tab === ""
+                  ? "ring-2 ring-iris border-iris bg-iris-soft/25 shadow-md"
+                  : "hover:border-line-2"
               )}
+            >
+              <div className="flex items-center gap-3.5 min-w-0">
+                <div className="flex h-11 w-11 shrink-0 items-center justify-center rounded-xl bg-iris-soft text-iris font-semibold text-xl">
+                  📦
+                </div>
+                <div className="min-w-0">
+                  <div className="text-[11px] font-medium uppercase tracking-wider text-muted truncate">{t("totalOrders")}</div>
+                  <div className="font-mono text-[22px] font-bold text-fg tabular">{stats.total} <span className="text-[11.5px] font-normal text-muted">{t("unit")}</span></div>
+                </div>
+              </div>
+              <div className="text-right shrink-0">
+                {filters.tab === "" ? (
+                  <span className="inline-flex items-center gap-1 rounded-md bg-iris px-2 py-0.5 text-[10.5px] font-bold text-white shadow-xs">
+                    ● {t("tabAll")}
+                  </span>
+                ) : (
+                  <span className="text-[11px] text-faint hover:text-fg">{t("filter")}</span>
+                )}
+              </div>
+            </div>
+
+            {/* Card 2: Active Orders */}
+            <div
+              role="button"
+              tabIndex={0}
+              onClick={() => filters.setTab(filters.tab === "active" ? "" : "active")}
+              className={cn(
+                "rounded-2xl border border-line bg-surface p-4 shadow-xs flex items-center justify-between gap-3.5 cursor-pointer select-none transition-all duration-200 hover:-translate-y-0.5 hover:shadow-card-lg",
+                filters.tab === "active"
+                  ? "ring-2 ring-good border-good bg-good-soft/25 shadow-md"
+                  : "hover:border-line-2"
+              )}
+            >
+              <div className="flex items-center gap-3.5 min-w-0">
+                <div className="flex h-11 w-11 shrink-0 items-center justify-center rounded-xl bg-good-soft text-good font-semibold text-xl">
+                  ✓
+                </div>
+                <div className="min-w-0">
+                  <div className="text-[11px] font-medium uppercase tracking-wider text-muted truncate">{t("active")}</div>
+                  <div className="font-mono text-[22px] font-bold text-good tabular">{stats.active} <span className="text-[11.5px] font-normal text-muted">{t("unit")}</span></div>
+                </div>
+              </div>
+              <div className="text-right shrink-0">
+                {filters.tab === "active" ? (
+                  <span className="inline-flex items-center gap-1 rounded-md bg-good px-2 py-0.5 text-[10.5px] font-bold text-white shadow-xs">
+                    ● {t("filtering")}
+                  </span>
+                ) : (
+                  <span className="text-[11px] text-faint hover:text-fg">{t("filter")}</span>
+                )}
+              </div>
+            </div>
+
+            {/* Card 3: Disputed Orders */}
+            <div
+              role="button"
+              tabIndex={0}
+              onClick={() => filters.setTab(filters.tab === "disputed" ? "" : "disputed")}
+              className={cn(
+                "rounded-2xl border border-line bg-surface p-4 shadow-xs flex items-center justify-between gap-3.5 cursor-pointer select-none transition-all duration-200 hover:-translate-y-0.5 hover:shadow-card-lg",
+                filters.tab === "disputed"
+                  ? "ring-2 ring-bad border-bad bg-bad-soft/25 shadow-md"
+                  : "hover:border-line-2"
+              )}
+            >
+              <div className="flex items-center gap-3.5 min-w-0">
+                <div className="flex h-11 w-11 shrink-0 items-center justify-center rounded-xl bg-bad-soft text-bad font-semibold text-xl">
+                  ⚠️
+                </div>
+                <div className="min-w-0">
+                  <div className="text-[11px] font-medium uppercase tracking-wider text-muted truncate">{t("disputed")}</div>
+                  <div className="font-mono text-[22px] font-bold text-bad tabular">{stats.disputed} <span className="text-[11.5px] font-normal text-muted">{t("unit")}</span></div>
+                </div>
+              </div>
+              <div className="text-right shrink-0">
+                {filters.tab === "disputed" ? (
+                  <span className="inline-flex items-center gap-1 rounded-md bg-bad px-2 py-0.5 text-[10.5px] font-bold text-white shadow-xs">
+                    ● {t("filtering")}
+                  </span>
+                ) : (
+                  <span className="text-[11px] text-faint hover:text-fg">{t("filter")}</span>
+                )}
+              </div>
+            </div>
+
+            {/* Card 4: Total Spent */}
+            <div
+              role="button"
+              tabIndex={0}
+              onClick={() => {
+                filters.clear();
+                filters.setTab("");
+              }}
+              className={cn(
+                "rounded-2xl border border-line bg-surface p-4 shadow-xs flex items-center justify-between gap-3.5 cursor-pointer select-none transition-all duration-200 hover:-translate-y-0.5 hover:shadow-card-lg hover:border-line-2"
+              )}
+            >
+              <div className="flex items-center gap-3.5 min-w-0">
+                <div className="flex h-11 w-11 shrink-0 items-center justify-center rounded-xl bg-raised text-iris font-semibold text-xl">
+                  💳
+                </div>
+                <div className="min-w-0">
+                  <div className="text-[11px] font-medium uppercase tracking-wider text-muted truncate">{t("spent")}</div>
+                  <div className="font-mono text-[20px] font-bold text-fg tabular truncate">
+                    {formatBrowseMoney(stats.total_spend, { locale })}
+                  </div>
+                </div>
+              </div>
+              <div className="text-right shrink-0">
+                {filters.hasFilters ? (
+                  <span className="text-[11px] font-medium text-iris hover:underline">
+                    {t("reset")}
+                  </span>
+                ) : (
+                  <span className="text-[11px] text-faint">{t("spent")}</span>
+                )}
+              </div>
             </div>
           </div>
-        </div>
+        </>
       )}
 
       {/* FILTER & SEARCH TOOLBAR */}
-      <div className="rounded-2xl border border-line bg-surface p-4 shadow-xs space-y-4">
+      <div className="rounded-2xl border border-line bg-surface p-3.5 sm:p-4 shadow-xs space-y-3.5">
         {/* Status Pills */}
-        <div className="flex flex-wrap items-center justify-between gap-3 border-b border-line pb-3">
-          <div className="flex flex-wrap items-center gap-1.5">
+        <div className="flex items-center justify-between gap-3 border-b border-line pb-3">
+          <div className="flex items-center gap-1.5 overflow-x-auto scrollbar-none -mx-1 px-1 py-0.5">
             {[
               { key: "", label: t("tabAll"), count: stats?.total },
               { key: "active", label: t("tabActive"), count: stats?.active },
@@ -639,7 +769,7 @@ export default function OrdersPage() {
                 <button
                   key={tab.key}
                   onClick={() => filters.setTab(tab.key)}
-                  className={`flex items-center gap-1.5 rounded-xl px-3.5 py-1.5 text-[12.5px] font-medium transition-all cursor-pointer ${
+                  className={`flex items-center gap-1.5 rounded-xl px-3 sm:px-3.5 py-1.5 text-[12px] sm:text-[12.5px] font-medium transition-all cursor-pointer shrink-0 ${
                     isActive
                       ? "bg-iris text-white shadow-xs font-semibold"
                       : "text-muted hover:text-fg hover:bg-raised/60"
@@ -660,22 +790,22 @@ export default function OrdersPage() {
             })}
           </div>
 
-          <div className="text-[12px] text-muted tabular">
+          <div className="hidden sm:block text-[12px] text-muted tabular shrink-0">
             {t("showingCount", { count: orders.length, total })}
           </div>
         </div>
 
         {/* Search Inputs (Flex Responsive Layout - Zero Overflow) */}
         <div className="flex flex-col gap-3">
-          <div className="flex flex-col gap-3 lg:flex-row lg:items-center">
-            <div className="relative min-w-[320px] flex-1">
+          <div className="flex flex-col gap-2.5 lg:flex-row lg:items-center">
+            <div className="relative w-full min-w-0 flex-1">
               <Search size={15} className="absolute left-3.5 top-1/2 -translate-y-1/2 text-muted pointer-events-none" />
               <input
                 type="text"
                 value={filters.search}
                 onChange={(e) => filters.setSearch(e.target.value)}
                 placeholder={t("searchFullPlaceholder")}
-                className="w-full rounded-xl border border-line bg-canvas pl-9 pr-28 py-2 text-[13px] text-fg placeholder:text-faint focus:border-iris focus:outline-none focus:ring-2 focus:ring-iris/20"
+                className="w-full rounded-xl border border-line bg-canvas pl-9 pr-24 sm:pr-28 py-2 text-[13px] text-fg placeholder:text-faint focus:border-iris focus:outline-none focus:ring-2 focus:ring-iris/20"
               />
               <div className="absolute right-2.5 top-1/2 -translate-y-1/2 flex items-center gap-1.5">
                 {filters.isExactIdSearch && (
@@ -687,7 +817,7 @@ export default function OrdersPage() {
                   <button
                     onClick={filters.clearSearch}
                     aria-label={t("clearSearch")}
-                    className="text-faint hover:text-fg p-0.5 rounded transition-colors"
+                    className="text-faint hover:text-fg p-0.5 rounded transition-colors cursor-pointer"
                   >
                     <X size={13} />
                   </button>
@@ -695,9 +825,9 @@ export default function OrdersPage() {
               </div>
             </div>
 
-            <div className="flex flex-wrap items-center gap-2">
+            <div className="flex flex-col sm:flex-row sm:items-center gap-2">
               {/* Date Presets Quick Pills */}
-              <div className="flex items-center gap-1 rounded-xl border border-line bg-canvas p-0.5">
+              <div className="flex items-center gap-1 rounded-xl border border-line bg-canvas p-0.5 overflow-x-auto scrollbar-none">
                 {[
                   { key: "all", label: t("filterAllTime") },
                   { key: "today", label: t("filterToday") },
@@ -711,7 +841,7 @@ export default function OrdersPage() {
                       type="button"
                       onClick={() => filters.setDatePreset(p.key as any)}
                       className={cn(
-                        "rounded-lg px-2.5 py-1 text-[11px] font-medium transition-all cursor-pointer",
+                        "rounded-lg px-2.5 py-1 text-[11px] font-medium transition-all cursor-pointer shrink-0",
                         isCurrent
                           ? "bg-iris text-white shadow-xs font-semibold"
                           : "text-muted hover:text-fg hover:bg-raised"
@@ -730,7 +860,7 @@ export default function OrdersPage() {
                   value={filters.dateFrom}
                   onChange={(e) => filters.setDateFrom(e.target.value)}
                   aria-label={t("filterDateFrom")}
-                  className="rounded-xl border border-line bg-canvas px-2.5 py-1.5 text-[12px] text-fg focus:border-iris focus:outline-none"
+                  className="flex-1 sm:flex-none rounded-xl border border-line bg-canvas px-2.5 py-1.5 text-[12px] text-fg focus:border-iris focus:outline-none"
                 />
                 <span className="text-faint text-[12px]">–</span>
                 <input
@@ -738,7 +868,7 @@ export default function OrdersPage() {
                   value={filters.dateTo}
                   onChange={(e) => filters.setDateTo(e.target.value)}
                   aria-label={t("filterDateTo")}
-                  className="rounded-xl border border-line bg-canvas px-2.5 py-1.5 text-[12px] text-fg focus:border-iris focus:outline-none"
+                  className="flex-1 sm:flex-none rounded-xl border border-line bg-canvas px-2.5 py-1.5 text-[12px] text-fg focus:border-iris focus:outline-none"
                 />
               </div>
 
@@ -747,7 +877,7 @@ export default function OrdersPage() {
                 value={filters.sort}
                 onChange={(e) => filters.setSort(e.target.value)}
                 aria-label={tc("sort")}
-                className="rounded-xl border border-line bg-canvas px-3 py-1.5 text-[12px] text-fg focus:border-iris focus:outline-none cursor-pointer"
+                className="w-full sm:w-auto rounded-xl border border-line bg-canvas px-3 py-1.5 text-[12px] text-fg focus:border-iris focus:outline-none cursor-pointer"
               >
                 <option value="newest">{t("sortNewest")}</option>
                 <option value="oldest">{t("sortOldest")}</option>
@@ -872,7 +1002,214 @@ export default function OrdersPage() {
           )}
         </Card>
       ) : (
-        <div className="rounded-2xl border border-line bg-surface shadow-xs overflow-hidden">
+        <>
+          {/* MOBILE ORDER CARDS (Dedicated touch-friendly layout, zero truncation) */}
+          <div className="block md:hidden space-y-3">
+            {orders.map((o) => {
+              const st = displayOrderStatus(o, locale);
+              const money = formatOrderHistoryMoney(o.total_amount, o.display_fx_rate_snapshot, { locale });
+              const hasDeliveredData = !!o.delivered_data;
+              const isDisputed = hasOpenDispute(o);
+              const timeAgo = daysAgo(o.created_at, locale);
+              const exactDate = formatDateTime(o.created_at, locale);
+              const canDispute = canOpenDispute(o.status, o.escrow_expires_at);
+
+              const borderAccent =
+                isDisputed
+                  ? "border-l-bad"
+                  : o.status === "completed"
+                  ? "border-l-iris"
+                  : o.status === "delivered"
+                  ? "border-l-good"
+                  : o.status === "cancelled" || o.status === "refunded"
+                  ? "border-l-line"
+                  : "border-l-warn";
+
+              return (
+                <div
+                  key={o.id}
+                  className={cn(
+                    "rounded-2xl border border-line bg-surface p-4 shadow-xs border-l-4 transition-all hover:shadow-card-md",
+                    borderAccent
+                  )}
+                >
+                  {/* Top Line: Order #ID + Copy code + Date + Status */}
+                  <div className="flex items-center justify-between gap-2">
+                    <div className="flex items-center gap-1.5 min-w-0">
+                      <button
+                        type="button"
+                        onClick={() => setSelectedOrder(o)}
+                        className="font-mono font-bold text-iris text-[14.5px] hover:underline cursor-pointer"
+                      >
+                        #{o.id}
+                      </button>
+                      <button
+                        type="button"
+                        title={copiedCodeId === o.id ? t("copiedOrderCode", { code: `#${o.id}` }) : t("copyOrderCode")}
+                        onClick={() => handleCopyCode(o.id)}
+                        className="p-1 rounded-md text-muted hover:text-fg hover:bg-raised transition-colors cursor-pointer"
+                      >
+                        {copiedCodeId === o.id ? (
+                          <Check size={13} className="text-good" />
+                        ) : (
+                          <Copy size={13} />
+                        )}
+                      </button>
+                    </div>
+                    <div className="flex items-center gap-2 shrink-0">
+                      <span className="text-[11.5px] text-muted whitespace-nowrap" title={exactDate}>
+                        {timeAgo}
+                      </span>
+                      <Tag tone={st.tone}>{st.label}</Tag>
+                    </div>
+                  </div>
+
+                  {/* Product Details Row */}
+                  <div
+                    onClick={() => setSelectedOrder(o)}
+                    className="mt-3 flex items-start gap-3 cursor-pointer group"
+                  >
+                    <ProductCover
+                      coverId={parseCoverId(o)}
+                      title={o.product_title ?? "??"}
+                      className="h-11 w-11 rounded-xl shrink-0 mt-0.5"
+                    />
+                    <div className="min-w-0 flex-1">
+                      <h3 className="font-semibold text-[13.5px] text-fg leading-snug group-hover:text-iris transition-colors break-words">
+                        {o.product_title ?? tc("orderNumber", { id: o.id })}
+                      </h3>
+                      <div className="flex flex-wrap items-center gap-1.5 mt-1.5 text-[12px] text-muted">
+                        {o.variant_name && (
+                          <span className="font-medium text-fg/80 bg-raised px-2 py-0.5 rounded-md border border-line text-[11px] break-all">
+                            {t("packageNamed", { name: o.variant_name })}
+                          </span>
+                        )}
+                        <span className="font-mono text-fg font-medium">
+                          {tc("qty", { count: o.quantity })}
+                        </span>
+                      </div>
+                    </div>
+                  </div>
+
+                  {/* Guarantees & Status Alerts */}
+                  {o.escrow_expires_at && o.status === "delivered" && (
+                    <div className="mt-2.5 flex items-center gap-1.5 text-[11.5px] text-good font-medium bg-good-soft/30 border border-good/20 rounded-lg px-2.5 py-1">
+                      <ShieldCheck size={13} className="shrink-0 text-good" />
+                      <span>{t("escrowUntil", { date: formatDate(o.escrow_expires_at, locale) })}</span>
+                    </div>
+                  )}
+
+                  {isDisputed && (
+                    <div className="mt-2.5 flex items-center justify-between gap-2 text-[11.5px] text-bad font-medium bg-bad-soft/40 border border-bad/25 rounded-lg px-2.5 py-1">
+                      <div className="flex items-center gap-1.5">
+                        <AlertTriangle size={13} className="shrink-0" />
+                        <span>{t("tabDisputed")}</span>
+                      </div>
+                      <button
+                        type="button"
+                        onClick={() => setSelectedOrder(o)}
+                        className="underline text-bad hover:text-bad font-semibold cursor-pointer"
+                      >
+                        {t("disputeViewCase")}
+                      </button>
+                    </div>
+                  )}
+
+                  {/* Price & Divider */}
+                  <div className="mt-3 pt-2.5 border-t border-line/70 flex items-center justify-between">
+                    <div className="text-[12px] text-muted flex items-center gap-1.5">
+                      <span>{t("payment")}:</span>
+                      <span className="font-mono text-[15px] font-bold text-fg tabular">
+                        {money.text}
+                      </span>
+                    </div>
+                    {o.status === "completed" && (
+                      o.has_review || reviewedOrders.has(o.id) ? (
+                        <span className="flex items-center gap-1 text-[11.5px] text-good font-medium">
+                          <Star size={12} className="fill-good text-good" /> {t("reviewed")}
+                        </span>
+                      ) : (
+                        <button
+                          type="button"
+                          onClick={() => setSelectedOrder(o)}
+                          className="flex items-center gap-1 text-[11.5px] text-iris hover:underline font-medium cursor-pointer"
+                        >
+                          <Star size={12} /> {t("review")}
+                        </button>
+                      )
+                    )}
+                  </div>
+
+                  {/* Action Buttons: Clear, Touch-friendly, No Cut-off */}
+                  <div className="mt-3 flex flex-wrap items-center gap-2">
+                    <button
+                      type="button"
+                      onClick={() => setSelectedOrder(o)}
+                      className="flex-1 min-w-[140px] min-h-[38px] rounded-xl bg-iris text-white text-[12.5px] font-semibold flex items-center justify-center gap-1.5 shadow-xs hover:bg-iris/90 active:scale-[0.98] transition-all cursor-pointer"
+                    >
+                      <Eye size={15} />
+                      <span>{t("viewOrderDetails")}</span>
+                    </button>
+
+                    {hasDeliveredData && (
+                      <button
+                        type="button"
+                        title={t("downloadTxtHint")}
+                        onClick={() => handleDownload(o)}
+                        className="min-h-[38px] px-3 rounded-xl border border-line bg-surface text-fg hover:bg-raised text-[12px] font-medium flex items-center gap-1.5 transition-colors cursor-pointer"
+                      >
+                        <Download size={14} className="text-muted" />
+                        <span>{t("downloadTxt")}</span>
+                      </button>
+                    )}
+
+                    {hasDeliveredData && (
+                      <button
+                        type="button"
+                        title={t("copyAllData")}
+                        onClick={() => handleCopyAll(o)}
+                        className="min-h-[38px] px-3 rounded-xl border border-line bg-surface text-fg hover:bg-raised text-[12px] font-medium flex items-center gap-1.5 transition-colors cursor-pointer"
+                      >
+                        {copiedOrderId === o.id ? (
+                          <>
+                            <Check size={14} className="text-good" />
+                            <span className="text-good">{t("copiedShort")}</span>
+                          </>
+                        ) : (
+                          <>
+                            <Copy size={14} className="text-muted" />
+                            <span>{tc("copy")}</span>
+                          </>
+                        )}
+                      </button>
+                    )}
+
+                    {canDispute && !isDisputed && (
+                      <button
+                        type="button"
+                        title={o.variant_name ? t("disputePackageTitle", { name: o.variant_name }) : t("disputeThisOrder")}
+                        onClick={() => {
+                          setDisputeTarget({
+                            orderId: o.id,
+                            order: o,
+                            variantName: o.variant_name,
+                            initialReason: o.variant_name ? t("reasonPackagePrefix", { name: o.variant_name }) : "",
+                          });
+                        }}
+                        className="min-h-[38px] px-3 rounded-xl border border-line bg-surface text-bad hover:bg-bad-soft text-[12px] font-medium flex items-center gap-1.5 transition-colors cursor-pointer"
+                      >
+                        <AlertTriangle size={13} />
+                        <span>{t("openDispute")}</span>
+                      </button>
+                    )}
+                  </div>
+                </div>
+              );
+            })}
+          </div>
+
+          {/* FULL-WIDTH HIGH DENSITY TANSTACK-STYLE DATA TABLE (DESKTOP) */}
+          <div className="hidden md:block rounded-2xl border border-line bg-surface shadow-xs overflow-hidden">
           <div className="overflow-x-auto">
             <table className="w-full text-left text-[13px]">
               <thead className="bg-raised/70 border-b border-line text-[11px] font-semibold uppercase tracking-wider text-muted whitespace-nowrap">
@@ -1061,6 +1398,7 @@ export default function OrdersPage() {
             </table>
           </div>
         </div>
+      </>
       )}
 
       {/* PAGINATION CONTROLS */}

@@ -1,11 +1,17 @@
 import { NextRequest, NextResponse } from "next/server";
 
-import { buildTikTokProviderUrl, sanitizeLookupApiKey } from "@/lib/tiktok-lookup";
+import {
+  buildTikTokProviderUrl,
+  sanitizeLookupApiKey,
+  tiktokLookupExpectedOrigin,
+  tiktokLookupFromOwnFrontend,
+} from "@/lib/tiktok-lookup";
 
 export const runtime = "nodejs";
 
 const PROVIDER_URL = process.env.TIKTOK_LOOKUP_API_URL;
 const REQUEST_TIMEOUT_MS = 10_000;
+const LOOKUP_ERROR_DETAIL = "Không thể thực hiện tra cứu lúc này. Vui lòng thử lại sau.";
 
 type ProviderProfile = {
   id?: unknown;
@@ -77,18 +83,26 @@ function fetchedAt(value: unknown): string | null {
 }
 
 export async function GET(request: NextRequest) {
+  const expectedOrigin = tiktokLookupExpectedOrigin(request.headers, request.nextUrl.origin);
+  if (!tiktokLookupFromOwnFrontend(request.headers, expectedOrigin)) {
+    return NextResponse.json(
+      { detail: LOOKUP_ERROR_DETAIL },
+      { status: 403, headers: { "Cache-Control": "no-store" } },
+    );
+  }
+
   const normalizedUrl = normalizeTikTokProfile(request.nextUrl.searchParams.get("url") ?? "");
   if (!normalizedUrl) return NextResponse.json({ detail: "Nhập username hoặc link profile TikTok hợp lệ." }, { status: 400 });
 
   const apiKey = sanitizeLookupApiKey(process.env.LOOKUP_API_KEY ?? "");
-  if (!apiKey) return NextResponse.json({ detail: "Dịch vụ tìm TikTok ID chưa được cấu hình." }, { status: 503 });
-  if (!PROVIDER_URL) return NextResponse.json({ detail: "Dịch vụ tìm TikTok ID chưa được cấu hình." }, { status: 503 });
+  if (!apiKey) return NextResponse.json({ detail: LOOKUP_ERROR_DETAIL }, { status: 503 });
+  if (!PROVIDER_URL) return NextResponse.json({ detail: LOOKUP_ERROR_DETAIL }, { status: 503 });
 
   let providerUrl: URL;
   try {
     providerUrl = buildTikTokProviderUrl(PROVIDER_URL, normalizedUrl, apiKey);
   } catch {
-    return NextResponse.json({ detail: "Dịch vụ tìm TikTok ID chưa được cấu hình." }, { status: 503 });
+    return NextResponse.json({ detail: LOOKUP_ERROR_DETAIL }, { status: 503 });
   }
 
   let upstream: Response;
@@ -97,13 +111,13 @@ export async function GET(request: NextRequest) {
       headers: { Accept: "application/json" }, cache: "no-store", signal: AbortSignal.timeout(REQUEST_TIMEOUT_MS),
     });
   } catch {
-    return NextResponse.json({ detail: "Dịch vụ tìm TikTok ID tạm thời không khả dụng." }, { status: 502 });
+    return NextResponse.json({ detail: LOOKUP_ERROR_DETAIL }, { status: 502 });
   }
   if (!upstream.ok) {
     const status = upstream.status === 404 ? 404 : 502;
     const detail = status === 404
       ? "Không tìm thấy profile TikTok này."
-      : "Dịch vụ tìm TikTok ID tạm thời không khả dụng.";
+      : LOOKUP_ERROR_DETAIL;
     return NextResponse.json({ detail }, { status });
   }
 
@@ -112,7 +126,7 @@ export async function GET(request: NextRequest) {
   const id = asId(profile?.id) ?? asId(profile?.uid);
   const username = asString(profile?.unique_id) ?? asString(payload?.username);
   if (payload?.success !== true || !profile || !id || !username) {
-    return NextResponse.json({ detail: "Phản hồi từ dịch vụ TikTok không hợp lệ." }, { status: 502 });
+    return NextResponse.json({ detail: LOOKUP_ERROR_DETAIL }, { status: 502 });
   }
 
   return NextResponse.json({

@@ -65,10 +65,10 @@ base_price * type_mult * network_mult * days / 30 * quantity
 ```
 
 DProxy is plan-based and uses exact keys such as
-`residential|VN|7 -> <plan UUID>`. Independent type/network/duration arrays form
-a Cartesian product in the buyer UI. Therefore the intended product model is
-**one marketplace product per DProxy plan**. This prevents buyers from choosing
-a combination that has no upstream `plan_id`.
+`residential|VN|7 -> <plan UUID>`. One marketplace product may expose multiple
+complete DProxy plans. The buyer UI derives its type/network/duration selectors
+from that allowlist and never creates a free Cartesian product, preventing a
+combination that has no upstream `plan_id`.
 
 Do not silently fall back to a default DProxy plan when an explicit `plan_ids`
 matrix exists. Delivering a different type, country, or duration from what the
@@ -157,9 +157,9 @@ logging, and seller visibility of a buyer order.
   type, country/network, and duration without writing raw `plan_ids` JSON.
 - Saving a configured DProxy connection advances to linked products instead of
   closing the workflow.
-- For a DProxy-linked product, the pricing editor asks for one mapped plan and
-  the final price paid by the buyer. It generates backend-compatible config
-  pricing parameters automatically.
+- For a DProxy-linked product, the pricing editor asks for one or more mapped
+  plans and the final price paid by the buyer for each. It generates
+  backend-compatible config pricing parameters automatically.
 
 ### `frontend/components/PricingParamsEditor.tsx`
 

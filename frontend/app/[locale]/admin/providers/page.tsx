@@ -40,7 +40,7 @@ const ADAPTER_DESCRIPTIONS: Record<string, { label: string; desc: string; icon: 
   scrapecreators: { label: "ScrapCreators", desc: "Kết nối API nhà cung cấp scraping thật", icon: "M13 10V3L4 14h7v7l9-11h-7z" },
   seller_gateway: { label: "Gateway seller", desc: "Forward từng request qua API thật của seller, buyer không thấy credential", icon: "M8 9l3 3-3 3m5 0h3M5 21h14a2 2 0 002-2V5a2 2 0 00-2-2H5a2 2 0 00-2 2v14a2 2 0 002 2z" },
   seller_task_webhook: { label: "Webhook tác vụ seller", desc: "Gửi tác vụ cho backend seller, nhận kết quả qua webhook", icon: "M8 7h12m0 0l-4-4m4 4l-4 4M16 17H4m0 0l4 4m-4-4l4-4" },
-  dproxy: { label: "DProxy", desc: "Khi khách mua, hệ thống tự mua đúng 1 proxy từ DProxy và giao ngay. Mỗi sản phẩm bán đúng 1 gói.", icon: "M4 4v5h.582m15.356 2A8.001 8.001 0 004.582 9m0 0H9m11 11v-5h-.581m0 0a8.003 8.003 0 01-15.357-2m15.357 2H15" },
+  dproxy: { label: "DProxy", desc: "Khi khách mua, hệ thống mua đúng gói buyer đã chọn từ DProxy và giao 1 proxy tự động.", icon: "M4 4v5h.582m15.356 2A8.001 8.001 0 004.582 9m0 0H9m11 11v-5h-.581m0 0a8.003 8.003 0 01-15.357-2m15.357 2H15" },
 };
 
 const ADAPTER_OPTIONS = ["mock", "seller_pool", "manual", "topproxy", "scrapecreators", "seller_gateway", "seller_task_webhook", "dproxy"];
@@ -85,10 +85,12 @@ interface DProxyPlan {
 function DProxyProductPricingEditor({
   product,
   providerConfig,
+  instanceId,
   onSaved,
 }: {
   product: ProviderProduct;
   providerConfig: Record<string, unknown>;
+  instanceId: "mobile" | "desktop";
   onSaved: () => void;
 }) {
   const apiErrorMessage = useApiErrorMessage();
@@ -103,21 +105,27 @@ function DProxyProductPricingEditor({
     }
     return next;
   });
-  const [selectedKey, setSelectedKey] = useState(() => {
+  const [selectedKeys, setSelectedKeys] = useState<Set<string>>(() => {
     const pricedKeys = new Set(currentPackages.map((item) => formatDproxyPlanKey(item.type, item.network, item.days)));
-    return mappings.find(([key]) => pricedKeys.has(key))?.[0] ?? mappings[0]?.[0] ?? "";
+    return new Set(mappings.map(([key]) => key).filter((key) => pricedKeys.has(key)));
   });
   const [saving, setSaving] = useState(false);
   const [error, setError] = useState<string | null>(null);
 
   const save = async () => {
-    const selected = mappings.find(([key]) => key === selectedKey);
-    if (!selected || !(prices[selectedKey] > 0)) {
-      setError("Chọn một gói và nhập giá buyer trả.");
+    const selected = mappings.filter(([key]) => selectedKeys.has(key));
+    if (!selected.length) {
+      setError("Chọn ít nhất một gói để bán trên sản phẩm này.");
       return;
     }
-    const item = parseDproxyPlanKey(selectedKey);
-    const packages = [{ type: item.type, network: item.network, days: item.days, price: prices[selectedKey] }];
+    if (selected.some(([key]) => !(prices[key] > 0))) {
+      setError("Nhập giá buyer trả cho tất cả gói đã chọn.");
+      return;
+    }
+    const packages = selected.map(([key]) => {
+      const item = parseDproxyPlanKey(key);
+      return { type: item.type, network: item.network, days: item.days, price: prices[key] };
+    });
     const params = dproxyParamsFromPackages(packages);
     const customTypeDisplay = (providerConfig.type_display as Record<string, string>) ?? {};
     const customNetworkDisplay = (providerConfig.network_display as Record<string, string>) ?? {};
@@ -145,34 +153,67 @@ function DProxyProductPricingEditor({
   }
 
   return (
-    <div className="rounded-lg border border-iris/30 bg-iris-soft/20 p-4 space-y-4">
-      <div>
-        <p className="text-[13px] font-semibold">Chọn gói cho sản phẩm này</p>
-        <p className="text-[12px] text-muted mt-1">Một sản phẩm chỉ bán một gói DProxy hoàn chỉnh. Buyer không tự trộn loại proxy, khu vực và thời hạn.</p>
+    <div className="overflow-hidden rounded-xl border border-line bg-surface">
+      <div className="flex flex-col gap-3 border-b border-line bg-raised/50 px-4 py-4 sm:flex-row sm:items-start sm:justify-between">
+        <div>
+          <p className="text-[14px] font-semibold text-fg">Các lựa chọn buyer có thể mua</p>
+          <p className="mt-1 max-w-[68ch] text-[12px] leading-relaxed text-muted">Mỗi dòng là một gói DProxy hoàn chỉnh. Bật những dòng muốn bán và nhập giá buyer thanh toán.</p>
+        </div>
+        <Tag tone={selectedKeys.size ? "iris" : "neutral"}>{selectedKeys.size}/{mappings.length} đang bán</Tag>
       </div>
-      <div className="space-y-3">
+      <div className="hidden grid-cols-[minmax(0,1fr)_180px_112px] gap-4 border-b border-line px-4 py-2 text-[11px] font-semibold text-muted sm:grid">
+        <span>Lựa chọn hiển thị cho buyer</span>
+        <span>Giá buyer thanh toán (VND)</span>
+        <span className="text-right">Trạng thái</span>
+      </div>
+      <div className="divide-y divide-line">
         {mappings.map(([key]) => {
           const item = parseDproxyPlanKey(key);
+          const selected = selectedKeys.has(key);
           return (
-            <div key={key} className="rounded-lg border border-line bg-surface p-3 space-y-2">
-              <label className="flex items-center gap-2 text-[12.5px] font-medium">
-                <input name={`product-${product.id}-dproxy-plan`} type="radio" checked={selectedKey === key} onChange={() => setSelectedKey(key)} />
-                {dproxyTypeLabel(item.type)} · {dproxyNetworkLabel(item.network)} · {item.days} ngày
+            <div key={key} className={`grid gap-3 px-4 py-4 sm:grid-cols-[minmax(0,1fr)_180px_112px] sm:items-center sm:gap-4 ${selected ? "bg-iris-soft/15" : "bg-surface"}`}>
+              <div className="min-w-0">
+                <p className="text-[13px] font-semibold text-fg">{dproxyTypeLabel(item.type)} · {dproxyNetworkLabel(item.network)} · {item.days} ngày</p>
+                <p className="mt-1 text-[11.5px] text-muted">Cấp đúng 1 proxy từ gói nguồn đã liên kết.</p>
+              </div>
+              <div>
+                <label htmlFor={`product-${product.id}-${instanceId}-dproxy-price-${key}`} className="mb-1 block text-[11px] font-medium text-muted sm:hidden">Giá buyer thanh toán (VND)</label>
+                <Input
+                  id={`product-${product.id}-${instanceId}-dproxy-price-${key}`}
+                  name={`product-${product.id}-${instanceId}-dproxy-price-${key}`}
+                  type="number"
+                  min={1}
+                  value={prices[key] || ""}
+                  disabled={!selected}
+                  onChange={(e) => setPrices((current) => ({ ...current, [key]: Number(e.target.value) || 0 }))}
+                  placeholder={selected ? "Ví dụ: 59000" : "Bật bán để nhập giá"}
+                  aria-label={`Giá bán ${dproxyTypeLabel(item.type)} ${dproxyNetworkLabel(item.network)} ${item.days} ngày`}
+                />
+              </div>
+              <label className="flex min-h-10 cursor-pointer items-center justify-between gap-2 rounded-lg border border-line bg-surface px-3 text-[12px] font-medium sm:justify-end sm:border-0 sm:bg-transparent sm:px-0">
+                <span className="sm:hidden">Bán lựa chọn này</span>
+                <input
+                  name={`product-${product.id}-${instanceId}-dproxy-plan-${key}`}
+                  type="checkbox"
+                  checked={selected}
+                  onChange={(event) => setSelectedKeys((current) => {
+                    const next = new Set(current);
+                    if (event.target.checked) next.add(key);
+                    else next.delete(key);
+                    return next;
+                  })}
+                />
+                <span>{selected ? "Đang bán" : "Chưa bán"}</span>
               </label>
-              {selectedKey === key && (
-                <Field label="Giá buyer trả (VND)" hint="Đây là giá cuối cùng hiển thị trên marketplace.">
-                  <Input name={`product-${product.id}-dproxy-price`} type="number" min={1} value={prices[key] || ""} onChange={(e) => setPrices((current) => ({ ...current, [key]: Number(e.target.value) || 0 }))} placeholder="Ví dụ: 21000" />
-                </Field>
-              )}
             </div>
           );
         })}
       </div>
-      <Banner tone="warn" icon={<Info size={14} />} title="Chưa tính lợi nhuận tự động">
-        Giá vốn DProxy dùng USD, còn giá buyer trả dùng VND. Xem giá vốn ở tab Kết nối và đối chiếu theo tỷ giá vận hành hiện tại.
-      </Banner>
-      {error && <p className="text-[12px] text-bad">{error}</p>}
-      <Button size="sm" onClick={save} disabled={saving}>{saving ? "Đang lưu..." : "Lưu gói và giá buyer trả"}</Button>
+      <div className="space-y-3 border-t border-line px-4 py-4">
+        <Banner tone="warn" icon={<Info size={14} />} title="Kiểm tra biên lợi nhuận trước khi lưu">Giá vốn DProxy dùng USD, giá bán dùng VND. Hệ thống chưa tự quy đổi tỷ giá hoặc cảnh báo bán dưới giá vốn.</Banner>
+        {error && <p className="text-[12px] text-bad">{error}</p>}
+        <div className="flex justify-end"><Button size="sm" onClick={save} disabled={saving}>{saving ? "Đang lưu..." : `Lưu ${selectedKeys.size || "các"} lựa chọn đang bán`}</Button></div>
+      </div>
     </div>
   );
 }
@@ -197,6 +238,7 @@ function PricingEditor({
   product,
   adapterType,
   providerConfig,
+  instanceId,
   compatMatrix,
   onSaved,
   onClose,
@@ -204,6 +246,7 @@ function PricingEditor({
   product: ProviderProduct;
   adapterType: string;
   providerConfig: Record<string, unknown>;
+  instanceId: "mobile" | "desktop";
   compatMatrix: CompatMatrix | null;
   onSaved: () => void;
   onClose: () => void;
@@ -224,6 +267,7 @@ function PricingEditor({
       <DProxyProductPricingEditor
         product={product}
         providerConfig={providerConfig}
+        instanceId={instanceId}
         onSaved={onSaved}
       />
     );
@@ -409,9 +453,9 @@ function ProviderProductsTab({ providerId, adapterType, providerConfig }: { prov
   return (
     <div className="space-y-3">
       {/* Attach row */}
-      <div className="flex items-end gap-2">
-        <div className="flex-1">
-          <Field label="Gắn sản phẩm vào kết nối này" hint={adapterType === "dproxy" ? "Mỗi sản phẩm DProxy nên bán đúng 1 gói đã bật. Gắn xong, bấm Giá để nhập số tiền khách trả." : `Tìm theo tên/ID. Sản phẩm không tương thích với adapter "${adapterType}" bị vô hiệu hoá.`}>
+      <div className="flex flex-col gap-2 sm:flex-row sm:items-end">
+        <div className="w-full flex-1">
+          <Field label="Gắn sản phẩm vào kết nối này" hint={adapterType === "dproxy" ? "Một sản phẩm có thể bán nhiều gói DProxy. Gắn xong, bấm Giá để chọn các biến thể và nhập giá khách trả cho từng gói." : `Tìm theo tên/ID. Sản phẩm không tương thích với adapter "${adapterType}" bị vô hiệu hoá.`}>
             <Input
               id="provider-product-search"
               name="provider-product-search"
@@ -433,7 +477,7 @@ function ProviderProductsTab({ providerId, adapterType, providerConfig }: { prov
             </Select>
           </Field>
         </div>
-        <Button size="sm" onClick={handleAttach} disabled={!attachId}>Gắn</Button>
+        <Button size="sm" onClick={handleAttach} disabled={!attachId} className="w-full sm:w-auto">Gắn sản phẩm</Button>
       </div>
 
       {actionError && <p className="text-[12px] text-bad">{actionError}</p>}
@@ -445,7 +489,38 @@ function ProviderProductsTab({ providerId, adapterType, providerConfig }: { prov
       ) : (
         <>
           <p className="text-[12px] text-muted">{products.length} sản phẩm sử dụng provider này</p>
-          <div className="rounded-lg border border-line overflow-hidden">
+          <div className="space-y-3 sm:hidden">
+            {products.map((p) => (
+              <div key={p.id} className="overflow-hidden rounded-xl border border-line bg-surface">
+                <div className="space-y-3 p-4">
+                  <div>
+                    <p className="text-[13px] font-semibold leading-snug text-fg">{p.title}</p>
+                    <div className="mt-2 flex flex-wrap items-center gap-2">
+                      <Tag tone="neutral">{p.service_type}</Tag>
+                      {p.pricing_strategy ? <Tag tone="iris">{STRATEGY_LABELS[p.pricing_strategy] ?? p.pricing_strategy}</Tag> : <Tag tone="neutral">Mặc định</Tag>}
+                      {p.compat_level === "block" && <Tag tone="bad">Sai cấu hình</Tag>}
+                      {p.compat_level === "warn" && <Tag tone="iris">Demo</Tag>}
+                    </div>
+                  </div>
+                  <div className="grid grid-cols-2 gap-3 border-y border-line py-3 text-[12px]">
+                    <div><p className="text-muted">Đơn hàng</p><p className="mt-1 font-semibold text-fg">{p.order_count}</p></div>
+                    <div><p className="text-muted">Doanh thu</p><p className="mt-1 font-semibold text-fg">{p.revenue.toLocaleString("vi-VN")}đ</p></div>
+                  </div>
+                  <div className="flex items-center gap-4">
+                    <button onClick={() => setEditingId(editingId === p.id ? null : p.id)} className="text-[12px] font-medium text-iris hover:underline">{editingId === p.id ? "Đóng bảng giá" : "Cấu hình giá bán"}</button>
+                    <button onClick={() => handleDetach(p.id)} className="text-[12px] font-medium text-bad hover:underline">Tháo liên kết</button>
+                  </div>
+                  {p.compat_level === "block" && <Banner tone="bad" icon={<Info size={14} />}>{p.compat_message ?? "Cấu hình sai — đơn hàng cho sản phẩm này sẽ bị huỷ tự động."}</Banner>}
+                </div>
+                {editingId === p.id && (
+                  <div className="border-t border-line p-3">
+                    <PricingEditor product={p} adapterType={adapterType} providerConfig={providerConfig} instanceId="mobile" compatMatrix={compatMatrix} onSaved={() => { setEditingId(null); load(); }} onClose={() => setEditingId(null)} />
+                  </div>
+                )}
+              </div>
+            ))}
+          </div>
+          <div className="hidden overflow-hidden rounded-lg border border-line sm:block">
             <table className="w-full text-[13px]">
               <thead>
                 <tr className="bg-surface border-b border-line">
@@ -513,6 +588,7 @@ function ProviderProductsTab({ providerId, adapterType, providerConfig }: { prov
                             product={p}
                             adapterType={adapterType}
                             providerConfig={providerConfig}
+                            instanceId="desktop"
                             compatMatrix={compatMatrix}
                             onSaved={() => {
                               setEditingId(null);
@@ -604,12 +680,11 @@ function DProxyPlanMapper({
   };
 
   return (
-    <div className="rounded-lg border border-line overflow-hidden">
+    <div className="overflow-hidden rounded-xl border border-line bg-surface">
       <div className="border-b border-line bg-raised px-4 py-3">
-        <p className="text-[13px] font-semibold">Chọn gói DProxy đưa lên marketplace</p>
+        <p className="text-[14px] font-semibold text-fg">Danh mục nguồn từ DProxy</p>
         <p className="mt-1 max-w-[72ch] text-[12px] text-muted">
-          DProxy chỉ trả về tên và giá nguồn. Hãy mô tả gói bằng ngôn ngữ buyer hiểu, rồi chọn “Dùng gói này”.
-          Bước này chưa đăng bán và chưa đặt giá bán.
+          Chọn gói hệ thống được phép mua khi có đơn. Tên gốc và giá vốn đến từ DProxy; các trường bên dưới chỉ quyết định buyer nhìn thấy lựa chọn đó như thế nào.
         </p>
       </div>
       <div className="divide-y divide-line">
@@ -635,10 +710,10 @@ function DProxyPlanMapper({
                 </label>
               </div>
 
-              <div className="mt-3 rounded-lg border border-line bg-raised/50 p-3">
+              <div className="mt-3 border-t border-line pt-3">
                 <div className="mb-2">
-                  <p className="text-[12px] font-semibold text-fg">Gói hiển thị cho buyer</p>
-                  <p className="mt-0.5 text-[11.5px] text-muted">Các trường dưới đây là nhãn hiển thị trên marketplace; chúng không thay đổi gói nguồn của DProxy.</p>
+                  <p className="text-[12px] font-semibold text-fg">Buyer sẽ chọn gói này theo</p>
+                  <p className="mt-0.5 text-[11.5px] text-muted">Chuẩn hóa tên kỹ thuật của DProxy thành ba thuộc tính dễ chọn trên trang sản phẩm.</p>
                 </div>
                 <div className="grid grid-cols-1 gap-2 sm:grid-cols-[1fr_1fr_112px]">
                   <DproxyCodeSelect kind="type" name={`dproxy-type-${plan.id}`} value={draft.type} allowCustom={false} currentLabel={typeDisplay[draft.type]} onChange={(type) => updateDraft(plan, { type })} />
@@ -647,7 +722,7 @@ function DProxyPlanMapper({
                 </div>
                 {complete && (
                   <div className="mt-3 flex flex-col gap-1 rounded-md border border-iris/25 bg-iris-soft/40 px-3 py-2 sm:flex-row sm:items-center sm:justify-between">
-                    <p className="text-[12px] text-fg"><span className="font-semibold">Buyer nhìn thấy:</span> {typeDisplay[draft.type] ?? dproxyTypeLabel(draft.type)} · {networkDisplay[draft.network] ?? dproxyNetworkLabel(draft.network)} · {draft.days} ngày</p>
+                    <p className="text-[12px] text-fg"><span className="font-semibold">Hiển thị:</span> {typeDisplay[draft.type] ?? dproxyTypeLabel(draft.type)} · {networkDisplay[draft.network] ?? dproxyNetworkLabel(draft.network)} · {draft.days} ngày</p>
                   </div>
                 )}
                 {!complete && <p className="mt-2 text-[11.5px] text-warn">Điền đủ loại proxy, quốc gia hoặc nhà mạng và thời hạn để có thể chọn gói này.</p>}
@@ -919,25 +994,29 @@ function AdapterConnectionFields({
     const planIds = (config.plan_ids as Record<string, string>) ?? {};
     const connected = health?.status === "healthy" || health?.status === "warning";
     const hasMappings = Object.keys(planIds).length > 0;
+    const connectionVerified = connected || hasMappings;
     return (
       <div className="space-y-4">
         <div className="rounded-lg border border-line bg-raised/50 p-3 space-y-2">
-          <p className="text-[13px] font-semibold">4 bước để bán được</p>
+          <p className="text-[13px] font-semibold">Thiết lập nguồn DProxy</p>
+          <p className="text-[11.5px] leading-relaxed text-muted">Hoàn tất ba bước tại đây, sau đó cấu hình sản phẩm sẽ bán.</p>
           {[
             [Boolean(config.base_url && config.api_key), "Nhập địa chỉ API và API key"],
-            [connected, "Kiểm tra kết nối để lấy danh sách gói"],
+            [connectionVerified, "Kiểm tra kết nối để lấy danh sách gói"],
             [hasMappings, "Chọn gói được phép dùng"],
-            [false, "Gắn sản phẩm và nhập giá khách trả"],
           ].map(([done, label], index) => (
             <div key={String(label)} className="flex items-center gap-2 text-[12px]">
               <span className={`h-5 w-5 grid place-items-center rounded-full border text-[10px] ${done ? "border-good/30 bg-good-soft text-good" : "border-line bg-surface text-muted"}`}>{done ? "✓" : index + 1}</span>
               <span className={done ? "text-fg" : "text-muted"}>{label}</span>
             </div>
           ))}
+          <div className="mt-3 border-t border-line pt-3 text-[12px] text-muted">
+            <span className="font-semibold text-fg">Bước tiếp theo:</span> mở “Sản phẩm liên kết”, chọn sản phẩm và đặt giá bán cho từng lựa chọn.
+          </div>
         </div>
 
-        <Banner tone="iris" icon={<Info size={14} />} title="Kết nối này chưa bán được hàng">
-          Kết nối chỉ cho hệ thống nói chuyện với DProxy. Khách mua sản phẩm trên chợ; mỗi sản phẩm bán đúng 1 gói, giao 1 proxy sau khi thanh toán.
+        <Banner tone="iris" icon={<Info size={14} />} title="Provider là nguồn hàng, chưa phải sản phẩm">
+          Provider lưu kết nối và danh mục gói được phép mua. Chỉ những gói được gắn và định giá trong “Sản phẩm liên kết” mới xuất hiện cho buyer.
         </Banner>
 
         <Field label="Địa chỉ API DProxy">
@@ -999,7 +1078,7 @@ function AdapterConnectionFields({
 
         {hasMappings && (
           <Banner tone="good" icon={<Info size={14} />} title={`${Object.keys(planIds).length} gói đã chọn`}>
-            Lưu, rồi sang tab “Sản phẩm liên kết”: gắn 1 sản phẩm cho 1 gói và nhập giá khách trả.
+            Lưu, rồi sang tab “Sản phẩm liên kết”: gắn sản phẩm, chọn một hoặc nhiều gói và nhập giá khách trả cho từng gói.
           </Banner>
         )}
 

@@ -263,6 +263,16 @@ export default function DynamicOrderForm({ productId, product, onOrderCreated }:
             </div>
               );
             }
+            if (packageField) {
+              return (
+                <DproxyPackagePicker
+                  field={packageField}
+                  value={config[packageField.field]}
+                  locale={locale}
+                  onChange={(next) => updateField(packageField.field, next)}
+                />
+              );
+            }
             return visibleFields.map((f) => (
             <DynamicField key={f.field} field={f} value={config[f.field]} locale={locale} onChange={(v) => updateField(f.field, v)} />
             ));
@@ -472,6 +482,104 @@ export default function DynamicOrderForm({ productId, product, onOrderCreated }:
 /* ================================================================
    Dynamic field renderer
    ================================================================ */
+
+interface DproxyPackageChoice {
+  value: string;
+  type: string;
+  network: string;
+  days: string;
+  typeLabel: string;
+  networkLabel: string;
+  daysLabel: string;
+}
+
+function parseDproxyPackageChoices(field: PricingField): DproxyPackageChoice[] {
+  return (field.choices ?? []).flatMap((choice) => {
+    const [type, network, days] = String(choice.value).split("|");
+    if (!type || !network || !days) return [];
+    const labels = choice.label.split(" · ");
+    return [{
+      value: String(choice.value),
+      type,
+      network,
+      days,
+      typeLabel: labels[0] || type,
+      networkLabel: labels[1] || network,
+      daysLabel: labels[2] || `${days} ngày`,
+    }];
+  });
+}
+
+function uniquePackageOptions(
+  items: DproxyPackageChoice[],
+  key: "type" | "network" | "days",
+  label: "typeLabel" | "networkLabel" | "daysLabel",
+) {
+  return Array.from(new Map(items.map((item) => [item[key], item[label]])).entries());
+}
+
+function DproxyPackagePicker({
+  field,
+  value,
+  locale,
+  onChange,
+}: {
+  field: PricingField;
+  value: unknown;
+  locale: string;
+  onChange: (value: string) => void;
+}) {
+  const choices = parseDproxyPackageChoices(field);
+  const selected = choices.find((choice) => choice.value === String(value)) ?? choices[0];
+  if (!selected) return null;
+
+  const typeOptions = uniquePackageOptions(choices, "type", "typeLabel");
+  const networkChoices = choices.filter((choice) => choice.type === selected.type);
+  const networkOptions = uniquePackageOptions(networkChoices, "network", "networkLabel");
+  const durationChoices = networkChoices.filter((choice) => choice.network === selected.network);
+  const durationOptions = uniquePackageOptions(durationChoices, "days", "daysLabel");
+
+  const selectClosest = (partial: Partial<Pick<DproxyPackageChoice, "type" | "network" | "days">>) => {
+    const desired = { type: selected.type, network: selected.network, days: selected.days, ...partial };
+    const exact = choices.find((choice) => choice.type === desired.type && choice.network === desired.network && choice.days === desired.days);
+    const sameTypeAndNetwork = choices.find((choice) => choice.type === desired.type && choice.network === desired.network);
+    const sameType = choices.find((choice) => choice.type === desired.type);
+    onChange((exact ?? sameTypeAndNetwork ?? sameType ?? choices[0]).value);
+  };
+
+  return (
+    <div className="space-y-4" aria-label={locale === "en" ? "Choose proxy package" : "Chọn gói proxy"}>
+      <div>
+        <p className="text-[15px] font-semibold">{locale === "en" ? "Choose your proxy" : "Chọn gói proxy"}</p>
+        <p className="text-[12px] leading-relaxed text-muted mt-1">{locale === "en" ? "Options update automatically so every combination can be delivered." : "Các lựa chọn tự cập nhật để mọi cấu hình đều có thể giao."}</p>
+      </div>
+      <div className="divide-y divide-line rounded-lg border border-line bg-surface px-3">
+        <div className="grid grid-cols-[104px_minmax(0,1fr)] items-center gap-3 py-3">
+          <label htmlFor="dproxy-package-type" className="text-[12px] font-medium text-muted">{locale === "en" ? "Proxy type" : "Loại proxy"}</label>
+          <Select id="dproxy-package-type" name="dproxy-package-type" value={selected.type} onChange={(event) => selectClosest({ type: event.target.value })}>
+            {typeOptions.map(([optionValue, optionLabel]) => <option key={optionValue} value={optionValue}>{optionLabel}</option>)}
+          </Select>
+        </div>
+        <div className="grid grid-cols-[104px_minmax(0,1fr)] items-center gap-3 py-3">
+          <label htmlFor="dproxy-package-network" className="text-[12px] font-medium leading-snug text-muted">{locale === "en" ? "Location" : "Khu vực / mạng"}</label>
+          <Select id="dproxy-package-network" name="dproxy-package-network" value={selected.network} onChange={(event) => selectClosest({ network: event.target.value })}>
+            {networkOptions.map(([optionValue, optionLabel]) => <option key={optionValue} value={optionValue}>{optionLabel}</option>)}
+          </Select>
+        </div>
+        <div className="grid grid-cols-[104px_minmax(0,1fr)] items-center gap-3 py-3">
+          <label htmlFor="dproxy-package-days" className="text-[12px] font-medium text-muted">{locale === "en" ? "Duration" : "Thời hạn"}</label>
+          <Select id="dproxy-package-days" name="dproxy-package-days" value={selected.days} onChange={(event) => selectClosest({ days: event.target.value })}>
+            {durationOptions.map(([optionValue, optionLabel]) => <option key={optionValue} value={optionValue}>{optionLabel}</option>)}
+          </Select>
+        </div>
+      </div>
+      <div className="flex items-start justify-between gap-4 border-t border-line pt-3">
+        <p className="shrink-0 text-[12px] text-muted">{locale === "en" ? "You receive" : "Bạn sẽ nhận"}</p>
+        <p className="text-right text-[13px] font-semibold leading-snug">{selected.typeLabel} · {selected.networkLabel} · {selected.daysLabel}</p>
+      </div>
+    </div>
+  );
+}
 
 function DynamicField({
   field,

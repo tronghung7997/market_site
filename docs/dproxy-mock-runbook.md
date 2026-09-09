@@ -154,17 +154,43 @@ sellable product. Configure DProxy in this order:
    **Cấu hình nâng cao**.
 3. Save. The panel continues to **Sản phẩm liên kết** instead of ending the
    workflow.
-4. Attach one marketplace product, click **Giá**, select one enabled DProxy
-   package, and enter the amount the buyer pays for one proxy. The UI generates
-   `config` pricing parameters; operators do not calculate the 30-day base or
-   multipliers manually.
-5. Publish and buy-test the product. The buyer sees only that plan's type,
-   country/network, duration, final price, one-proxy quantity, and automatic
-   delivery promise.
+4. Attach one marketplace product and click **Giá**. Tick every complete DProxy
+   package that should appear as a variant on this product, then enter the VND
+   selling price for each package. One product may contain many packages.
+5. Publish and buy-test the product. Buyer chooses **Loại proxy → Quốc gia / nhà
+   mạng → Thời hạn** on one product page. Each selection resolves to exactly one
+   enabled package and therefore one upstream `plan_id`.
 
-Use one marketplace product per DProxy plan. This prevents a Cartesian product
-of independently configured type/network/duration choices from exposing a
-combination that has no upstream `plan_id`.
+Do not configure a free Cartesian product. The UI may look like three selectors,
+but the source of truth is a list of complete, valid packages. For example, if
+`residential|viettel|7` and `residential|vinaphone|30` exist but
+`residential|vinaphone|7` does not, buyer will never be offered the missing
+combination.
+
+### Multi-variant demo
+
+The default mock catalog contains enough data to demonstrate one product with
+multiple variants:
+
+| Buyer sees | Internal mapping key | Example sale price |
+|---|---|---:|
+| Dân cư · Việt Nam · 7 ngày | `residential|VN|7` | 59,000 VND |
+| Dân cư · Viettel · 7 ngày | `residential|viettel|7` | 65,000 VND |
+| Dân cư · Viettel · 30 ngày | `residential|viettel|30` | 189,000 VND |
+| Dân cư · VinaPhone · 30 ngày | `residential|vinaphone|30` | 179,000 VND |
+| Di động · MobiFone · 7 ngày | `mobile|mobifone|7` | 89,000 VND |
+| Datacenter · Hoa Kỳ · 30 ngày | `datacenter|US|30` | 109,000 VND |
+
+To configure the demo:
+
+1. Start the mock and create/test a DProxy provider.
+2. In **Kết nối API**, map the catalog names to buyer-facing type, carrier or
+   country, and duration. Select every source package that may be sold.
+3. Save and open **Sản phẩm liên kết**. Attach one proxy product.
+4. Open **Giá**, tick all six packages above, enter the example prices, and
+   choose **Lưu 6 gói và giá bán**.
+5. Open the public product page. Change the three selectors and verify the total
+   price changes. Unsupported combinations are removed automatically.
 
 1. Start Postgres/Redis, marketplace backend, frontend, and this mock.
 2. Admin creates and tests an `adapter_type=dproxy` provider using the config above.

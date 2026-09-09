@@ -230,6 +230,14 @@ async def test_online_offline_dashboard_endpoint_round_trips(dproxy_client: Asyn
 
 PLAN_VN_7D = "1906e1af-70df-4a53-8874-53b8e5a51935"
 PLAN_US_30D = "aaaaaaaa-aaaa-4aaa-8aaa-aaaaaaaaaaaa"
+DEMO_MULTI_VARIANT_PLAN_IDS = {
+    PLAN_VN_7D,
+    "22222222-2222-4222-8222-222222222222",
+    "33333333-3333-4333-8333-333333333333",
+    "44444444-4444-4444-8444-444444444444",
+    "55555555-5555-4555-8555-555555555555",
+    PLAN_US_30D,
+}
 
 
 @pytest.mark.asyncio
@@ -238,7 +246,13 @@ async def test_store_plans_match_sales_plan_contract(dproxy_client: AsyncClient)
     assert default.status_code == 200
     body = default.json()
     assert isinstance(body, list)
-    assert {item["id"] for item in body} == {PLAN_VN_7D, PLAN_US_30D}
+    assert {item["id"] for item in body} == DEMO_MULTI_VARIANT_PLAN_IDS
+    assert {item["name"] for item in body} >= {
+        "Residential Viettel 7d",
+        "Residential Viettel 30d",
+        "Residential Vinaphone 30d",
+        "Mobile Mobifone 7d",
+    }
     for item in body:
         for key in ("id", "name", "proxy_count", "duration_days", "price", "currency"):
             assert key in item

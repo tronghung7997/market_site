@@ -1,5 +1,7 @@
 import { NextRequest, NextResponse } from "next/server";
 
+import { buildTikTokProviderUrl, sanitizeLookupApiKey } from "@/lib/tiktok-lookup";
+
 export const runtime = "nodejs";
 
 const PROVIDER_URL = process.env.TIKTOK_LOOKUP_API_URL;
@@ -7,6 +9,7 @@ const REQUEST_TIMEOUT_MS = 10_000;
 
 type ProviderProfile = {
   id?: unknown;
+  uid?: unknown;
   unique_id?: unknown;
   nickname?: unknown;
   avatar?: unknown;
@@ -40,6 +43,12 @@ function asString(value: unknown): string | null {
   return typeof value === "string" && value.trim() ? value : null;
 }
 
+function asId(value: unknown): string | null {
+  const text = asString(value);
+  if (text) return text;
+  return typeof value === "number" && Number.isFinite(value) ? String(value) : null;
+}
+
 function asNumber(value: unknown): number {
   return typeof value === "number" && Number.isFinite(value) ? value : 0;
 }
@@ -71,18 +80,16 @@ export async function GET(request: NextRequest) {
   const normalizedUrl = normalizeTikTokProfile(request.nextUrl.searchParams.get("url") ?? "");
   if (!normalizedUrl) return NextResponse.json({ detail: "Nhập username hoặc link profile TikTok hợp lệ." }, { status: 400 });
 
-  const apiKey = process.env.LOOKUP_API_KEY;
+  const apiKey = sanitizeLookupApiKey(process.env.LOOKUP_API_KEY ?? "");
   if (!apiKey) return NextResponse.json({ detail: "Dịch vụ tìm TikTok ID chưa được cấu hình." }, { status: 503 });
   if (!PROVIDER_URL) return NextResponse.json({ detail: "Dịch vụ tìm TikTok ID chưa được cấu hình." }, { status: 503 });
 
   let providerUrl: URL;
   try {
-    providerUrl = new URL(PROVIDER_URL);
+    providerUrl = buildTikTokProviderUrl(PROVIDER_URL, normalizedUrl, apiKey);
   } catch {
     return NextResponse.json({ detail: "Dịch vụ tìm TikTok ID chưa được cấu hình." }, { status: 503 });
   }
-  providerUrl.searchParams.set("url", normalizedUrl);
-  providerUrl.searchParams.set("api_key", apiKey);
 
   let upstream: Response;
   try {
@@ -102,7 +109,7 @@ export async function GET(request: NextRequest) {
 
   const payload = await upstream.json().catch(() => null) as ProviderPayload | null;
   const profile = payload?.data?.data;
-  const id = asString(profile?.id);
+  const id = asId(profile?.id) ?? asId(profile?.uid);
   const username = asString(profile?.unique_id) ?? asString(payload?.username);
   if (payload?.success !== true || !profile || !id || !username) {
     return NextResponse.json({ detail: "Phản hồi từ dịch vụ TikTok không hợp lệ." }, { status: 502 });

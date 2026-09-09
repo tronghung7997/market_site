@@ -306,12 +306,12 @@ export default function OrderDetailsModal({
   return (
     <Dialog open={open} onOpenChange={(next) => { if (!next && !lockDismiss) onClose(); }}>
       <DialogContent
-        className="max-w-4xl border-line bg-surface p-6 gap-0 max-h-[92vh] overflow-y-auto rounded-2xl shadow-2xl space-y-4"
+        className="w-[calc(100vw-1.5rem)] sm:w-full max-w-4xl border-line bg-surface p-4 sm:p-6 gap-0 max-h-[90vh] overflow-y-auto rounded-2xl shadow-2xl space-y-4"
         onPointerDownOutside={(event) => { if (lockDismiss) event.preventDefault(); }}
         onInteractOutside={(event) => { if (lockDismiss) event.preventDefault(); }}
       >
         {/* Header */}
-        <div className="flex items-start justify-between gap-3 border-b border-line pb-4">
+        <div className="flex items-start justify-between gap-3 border-b border-line pb-4 pr-6">
           <div className="flex items-center gap-3.5 min-w-0">
             <ProductCover
               coverId={parseCoverId(o)}
@@ -320,7 +320,7 @@ export default function OrderDetailsModal({
             />
             <div className="min-w-0">
               <div className="flex items-center gap-2 flex-wrap">
-                <h2 className="text-[17px] font-bold text-fg tracking-tight truncate">
+                <h2 className="text-[16px] sm:text-[17px] font-bold text-fg tracking-tight break-words">
                   {o.product_title ?? tc("orderNumber", { id: o.id })}
                 </h2>
                 <Tag tone={st.tone}>{st.label}</Tag>
@@ -328,11 +328,11 @@ export default function OrderDetailsModal({
               <div className="flex items-center gap-2 text-[12px] text-muted mt-1 flex-wrap">
                 <span className="font-mono font-bold text-iris">#{o.id}</span>
                 <span>•</span>
-                <span>{formatDateTime(o.created_at, locale)}</span>
+                <span className="whitespace-nowrap">{formatDateTime(o.created_at, locale)}</span>
                 {o.variant_name && (
                   <>
                     <span>•</span>
-                    <span className="font-medium text-fg bg-raised px-2 py-0.5 rounded-md border border-line">
+                    <span className="font-medium text-fg bg-raised px-2 py-0.5 rounded-md border border-line break-all">
                       {t("packageNamed", { name: o.variant_name })}
                     </span>
                   </>
@@ -342,8 +342,8 @@ export default function OrderDetailsModal({
           </div>
         </div>
 
-        {/* Quick Highlights Banner */}
-        <div className="grid grid-cols-2 gap-3 sm:grid-cols-4 rounded-xl border border-line bg-raised/40 p-3 text-center">
+        {/* Top KPI row */}
+        <div className="grid grid-cols-2 gap-2.5 sm:grid-cols-4 sm:gap-3 rounded-xl border border-line bg-raised/40 p-3 text-center">
           <div>
             <div className="text-[10.5px] uppercase tracking-wider text-muted font-medium">{t("qtyDelivered")}</div>
             <div className="font-mono text-[16px] font-bold text-iris mt-0.5">
@@ -401,10 +401,10 @@ export default function OrderDetailsModal({
         </div>
 
         {/* Tab Navigation */}
-        <div className="flex items-center gap-1.5 border-b border-line pb-2 pt-1 overflow-x-auto">
+        <div className="flex items-center gap-1.5 border-b border-line pb-2 pt-1 overflow-x-auto scrollbar-none -mx-1 px-1">
           <button
             onClick={() => setActiveTab("data")}
-            className={`flex items-center gap-1.5 rounded-xl px-3.5 py-1.5 text-[12.5px] font-medium transition-all ${
+            className={`flex items-center gap-1.5 rounded-xl px-3.5 py-1.5 text-[12.5px] font-medium transition-all shrink-0 ${
               activeTab === "data"
                 ? "bg-iris text-white shadow-sm font-semibold"
                 : "text-muted hover:text-fg hover:bg-raised"
@@ -417,7 +417,7 @@ export default function OrderDetailsModal({
           {mayHaveProxy && (
             <button
               onClick={() => setActiveTab("proxy")}
-              className={`flex items-center gap-1.5 rounded-xl px-3.5 py-1.5 text-[12.5px] font-medium transition-all ${
+              className={`flex items-center gap-1.5 rounded-xl px-3.5 py-1.5 text-[12.5px] font-medium transition-all shrink-0 ${
                 activeTab === "proxy"
                   ? "bg-iris text-white shadow-sm font-semibold"
                   : "text-muted hover:text-fg hover:bg-raised"
@@ -431,7 +431,7 @@ export default function OrderDetailsModal({
           {hasCase && (
             <button
               onClick={() => setActiveTab("dispute")}
-              className={`flex items-center gap-1.5 rounded-xl px-3.5 py-1.5 text-[12.5px] font-medium transition-all ${
+              className={`flex items-center gap-1.5 rounded-xl px-3.5 py-1.5 text-[12.5px] font-medium transition-all shrink-0 ${
                 activeTab === "dispute"
                   ? "bg-iris text-white shadow-sm font-semibold"
                   : "text-muted hover:text-fg hover:bg-raised"
@@ -444,7 +444,7 @@ export default function OrderDetailsModal({
 
           <button
             onClick={() => setActiveTab("escrow")}
-            className={`flex items-center gap-1.5 rounded-xl px-3.5 py-1.5 text-[12.5px] font-medium transition-all ${
+            className={`flex items-center gap-1.5 rounded-xl px-3.5 py-1.5 text-[12.5px] font-medium transition-all shrink-0 ${
               activeTab === "escrow"
                 ? "bg-iris text-white shadow-sm font-semibold"
                 : "text-muted hover:text-fg hover:bg-raised"
@@ -454,17 +454,19 @@ export default function OrderDetailsModal({
             <span>{t("tabEscrow")}</span>
           </button>
 
-          {showReview && <button
-            onClick={() => setActiveTab("review")}
-            className={`flex items-center gap-1.5 rounded-xl px-3.5 py-1.5 text-[12.5px] font-medium transition-all ${
-              activeTab === "review"
-                ? "bg-iris text-white shadow-sm font-semibold"
-                : "text-muted hover:text-fg hover:bg-raised"
-            }`}
-          >
-            <Star size={14} />
-            <span>{t("tabReview")}</span>
-          </button>}
+          {showReview && (
+            <button
+              onClick={() => setActiveTab("review")}
+              className={`flex items-center gap-1.5 rounded-xl px-3.5 py-1.5 text-[12.5px] font-medium transition-all shrink-0 ${
+                activeTab === "review"
+                  ? "bg-iris text-white shadow-sm font-semibold"
+                  : "text-muted hover:text-fg hover:bg-raised"
+              }`}
+            >
+              <Star size={14} />
+              <span>{t("tabReview")}</span>
+            </button>
+          )}
         </div>
 
         {/* Tab 1: Delivered Accounts / Resource Inspector */}
@@ -473,9 +475,9 @@ export default function OrderDetailsModal({
             {items.length > 0 ? (
               <>
                 {/* Search & Action Bar */}
-                <div className="flex flex-wrap items-center justify-between gap-2.5">
-                  <div className="relative flex-1 min-w-[240px]">
-                    <Search size={14} className="absolute left-3 top-1/2 -translate-y-1/2 text-muted" />
+                <div className="flex flex-col sm:flex-row items-stretch sm:items-center justify-between gap-2.5">
+                  <div className="relative flex-1 min-w-0">
+                    <Search size={14} className="absolute left-3 top-1/2 -translate-y-1/2 text-muted pointer-events-none" />
                     <input
                       type="text"
                       value={itemSearch}
@@ -488,7 +490,7 @@ export default function OrderDetailsModal({
                     />
                   </div>
 
-                  <div className="flex items-center gap-2">
+                  <div className="flex items-center gap-2 flex-wrap">
                     {selectableFilteredResourceIds.length > 0 && (
                       <Button
                         size="sm"
@@ -500,7 +502,7 @@ export default function OrderDetailsModal({
                     )}
                     <button
                       onClick={handleCopyAll}
-                      className="inline-flex items-center gap-1.5 rounded-xl bg-iris px-3.5 py-2 text-[12px] font-semibold text-white shadow-sm hover:bg-iris/90 transition-colors cursor-pointer"
+                      className="flex-1 sm:flex-none inline-flex items-center justify-center gap-1.5 rounded-xl bg-iris px-3.5 py-2 text-[12px] font-semibold text-white shadow-sm hover:bg-iris/90 transition-colors cursor-pointer"
                     >
                       {copiedKey === "all" ? <Check size={14} /> : <Copy size={14} />}
                       {copiedKey === "all" ? t("copiedAll") : t("copyAllCount", { count: liveItems.length })}
@@ -508,7 +510,7 @@ export default function OrderDetailsModal({
 
                     <button
                       onClick={handleDownload}
-                      className="inline-flex items-center gap-1.5 rounded-xl border border-line bg-surface px-3.5 py-2 text-[12px] font-semibold text-fg hover:bg-raised transition-colors cursor-pointer"
+                      className="flex-1 sm:flex-none inline-flex items-center justify-center gap-1.5 rounded-xl border border-line bg-surface px-3.5 py-2 text-[12px] font-semibold text-fg hover:bg-raised transition-colors cursor-pointer"
                     >
                       <Download size={14} /> {t("downloadTxt")}
                     </button>
@@ -533,8 +535,8 @@ export default function OrderDetailsModal({
                   </div>
                 )}
 
-                {/* Paginated Resource Table (Supports up to 10,000 lines without DOM lag) */}
-                <div className="max-h-[380px] overflow-y-auto rounded-xl border border-line divide-y divide-line bg-canvas">
+                {/* Paginated Resource List (Supports up to 10,000 lines without DOM lag) */}
+                <div className="max-h-[420px] overflow-y-auto rounded-xl border border-line divide-y divide-line bg-canvas">
                   {paginatedItems.map((item, idx) => {
                     const globalIdx = (itemPage - 1) * itemsPerPage + idx + 1;
                     const isCopied = copiedKey === item.id;
@@ -545,83 +547,89 @@ export default function OrderDetailsModal({
                     return (
                       <div
                         key={item.id}
-                        className={`flex items-center justify-between p-2.5 text-[12px] group ${
-                          highlighted ? "bg-iris-soft/40" : "hover:bg-raised/50"
+                        className={`p-3 text-[12px] space-y-2 group transition-colors ${
+                          highlighted ? "bg-iris-soft/40" : "hover:bg-raised/40"
                         } ${inactive ? "opacity-70" : ""}`}
                       >
-                        <div className="flex items-center gap-2 min-w-0 pr-2">
-                          {item.resourceId && (
-                            <input
-                              type="checkbox"
-                              aria-label={t("selectAccount", { id: item.resourceId })}
-                              checked={selectedResourceIds.has(item.resourceId)}
-                              disabled={!canSelectAccounts || !isDeliveryRowClaimable({
-                                resourceStatus: item.resourceStatus,
-                                mark,
-                                generation: resourceWarrantyGeneration(item.resourceId, caseRecord?.resource_actions),
-                              })}
-                              onChange={() => toggleResource(item.resourceId!)}
-                              className="h-4 w-4 shrink-0 accent-iris disabled:opacity-35"
+                        {/* Top meta row: Badges, Checkbox, Actions */}
+                        <div className="flex items-center justify-between gap-2 flex-wrap">
+                          <div className="flex items-center gap-2 min-w-0 flex-wrap">
+                            {item.resourceId && (
+                              <input
+                                type="checkbox"
+                                aria-label={t("selectAccount", { id: item.resourceId })}
+                                checked={selectedResourceIds.has(item.resourceId)}
+                                disabled={!canSelectAccounts || !isDeliveryRowClaimable({
+                                  resourceStatus: item.resourceStatus,
+                                  mark,
+                                  generation: resourceWarrantyGeneration(item.resourceId, caseRecord?.resource_actions),
+                                })}
+                                onChange={() => toggleResource(item.resourceId!)}
+                                className="h-4 w-4 shrink-0 accent-iris disabled:opacity-35 cursor-pointer"
+                              />
+                            )}
+                            {item.resourceId ? (
+                              <span className="font-mono text-[10.5px] font-bold text-iris bg-iris-soft px-1.5 py-0.5 rounded shrink-0">
+                                #{item.resourceId}
+                              </span>
+                            ) : showRowIndex ? (
+                              <span className="font-mono text-[10.5px] text-faint shrink-0">
+                                #{String(globalIdx).padStart(2, "0")}
+                              </span>
+                            ) : null}
+                            <DeliveryAccountBadge
+                              mark={mark}
+                              highlighted={highlighted}
+                              formatRefund={formatBrowseMoney}
                             />
-                          )}
-                          {item.resourceId ? (
-                            <span className="font-mono text-[10.5px] font-bold text-iris bg-iris-soft px-1.5 py-0.5 rounded shrink-0">
-                              #{item.resourceId}
-                            </span>
-                          ) : showRowIndex ? (
-                            <span className="font-mono text-[10.5px] text-faint w-12 shrink-0">
-                              #{String(globalIdx).padStart(4, "0")}
-                            </span>
-                          ) : null}
-                          <DeliveryAccountBadge
-                            mark={mark}
-                            highlighted={highlighted}
-                            formatRefund={formatBrowseMoney}
-                          />
-                          {item.resourceId && itemSearch.replace(/^#/, "") === String(item.resourceId) && !highlighted && (
-                            <span className="shrink-0 rounded-md bg-iris-soft px-1.5 py-0.5 text-[10.5px] font-semibold text-iris-hi">
-                              {t("accountFromTimeline")}
-                            </span>
-                          )}
-                          <span className={`font-mono font-medium break-all select-all ${inactive ? "text-muted line-through" : "text-fg"}`}>
-                            {item.raw}
-                          </span>
+                            {item.resourceId && itemSearch.replace(/^#/, "") === String(item.resourceId) && !highlighted && (
+                              <span className="shrink-0 rounded-md bg-iris-soft px-1.5 py-0.5 text-[10.5px] font-semibold text-iris-hi">
+                                {t("accountFromTimeline")}
+                              </span>
+                            )}
+                          </div>
+
+                          <div className="flex items-center gap-1.5 shrink-0 ml-auto">
+                            {/* Dedicated Dispute Button */}
+                            {canSelectAccounts && item.resourceId != null && isDeliveryRowClaimable({
+                              resourceStatus: item.resourceStatus,
+                              mark,
+                              generation: resourceWarrantyGeneration(item.resourceId, caseRecord?.resource_actions),
+                            }) && (
+                              <button
+                                title={t("disputeThisItem")}
+                                onClick={() => {
+                                  onOpenDispute(o.id, {
+                                    variantName: o.variant_name,
+                                    initialReason: t("reasonItemPrefix", { n: globalIdx, raw: item.raw }),
+                                    initialEvidence: { username: item.user || item.raw, issue: t("evidenceIssueItem") },
+                                    resourceIds: item.resourceId ? [item.resourceId] : undefined,
+                                  });
+                                }}
+                                className="rounded-lg px-2 py-1 text-[11px] text-bad hover:bg-bad-soft transition-colors cursor-pointer flex items-center gap-1"
+                              >
+                                <AlertTriangle size={11} />
+                                <span>{mark?.kind === "replacement" ? t("warrantyIssue") : t("itemIssue")}</span>
+                              </button>
+                            )}
+
+                            <button
+                              onClick={() => handleCopySingle(item.id, item.raw)}
+                              className={`rounded-lg px-2.5 py-1 text-[11px] font-semibold transition-colors cursor-pointer flex items-center gap-1 ${
+                                isCopied
+                                  ? "bg-good text-white"
+                                  : "bg-surface border border-line text-iris hover:bg-iris hover:text-white"
+                              }`}
+                            >
+                              {isCopied ? <Check size={12} /> : <Copy size={12} />}
+                              <span>{isCopied ? t("copiedShort") : tc("copy")}</span>
+                            </button>
+                          </div>
                         </div>
 
-                        <div className="flex items-center gap-1.5 shrink-0">
-                          {/* Dedicated Dispute Button for This Specific Item / Variant */}
-                          {canSelectAccounts && item.resourceId != null && isDeliveryRowClaimable({
-                            resourceStatus: item.resourceStatus,
-                            mark,
-                            generation: resourceWarrantyGeneration(item.resourceId, caseRecord?.resource_actions),
-                          }) && (
-                            <button
-                              title={t("disputeThisItem")}
-                              onClick={() => {
-                                onOpenDispute(o.id, {
-                                  variantName: o.variant_name,
-                                  initialReason: t("reasonItemPrefix", { n: globalIdx, raw: item.raw }),
-                                  initialEvidence: { username: item.user || item.raw, issue: t("evidenceIssueItem") },
-                                  resourceIds: item.resourceId ? [item.resourceId] : undefined,
-                                });
-                              }}
-                              className="opacity-100 md:opacity-0 md:group-hover:opacity-100 rounded-lg px-2 py-1 text-[11px] text-bad hover:bg-bad-soft transition-opacity cursor-pointer flex items-center gap-1 min-h-11 md:min-h-0"
-                            >
-                              <AlertTriangle size={11} />
-                              <span>{mark?.kind === "replacement" ? t("warrantyIssue") : t("itemIssue")}</span>
-                            </button>
-                          )}
-
-                          <button
-                            onClick={() => handleCopySingle(item.id, item.raw)}
-                            className={`rounded-lg px-2.5 py-1 text-[11px] font-semibold transition-colors cursor-pointer ${
-                              isCopied
-                                ? "bg-good text-white"
-                                : "bg-surface border border-line text-iris hover:bg-iris hover:text-white"
-                            }`}
-                          >
-                            {isCopied ? t("copiedShort") : tc("copy")}
-                          </button>
+                        {/* Monospace text box: never cut off, full wrap */}
+                        <div className={`rounded-lg bg-canvas border border-line/70 p-2 font-mono text-[12px] break-all select-all ${inactive ? "text-muted line-through" : "text-fg"}`}>
+                          {item.raw}
                         </div>
                       </div>
                     );
@@ -797,7 +805,7 @@ export default function OrderDetailsModal({
         )}
 
         {/* Modal Footer — confirm stays here so every tab can finish the order */}
-        <div className="sticky bottom-0 -mx-6 -mb-6 mt-3 space-y-2 border-t border-line bg-surface/95 backdrop-blur-xs px-6 py-3.5 shadow-lg">
+        <div className="sticky bottom-0 -mx-4 sm:-mx-6 -mb-4 sm:-mb-6 mt-3 space-y-2 border-t border-line bg-surface/95 backdrop-blur-xs px-4 sm:px-6 py-3.5 shadow-lg">
           {canConfirm && askConfirm && (
             <div className="rounded-xl border border-warn/30 bg-warn-soft px-3 py-2.5">
               <p className="text-[12.5px] font-semibold text-fg">{t("confirmReleaseTitle", { amount: money.text })}</p>

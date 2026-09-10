@@ -1,7 +1,7 @@
 from datetime import datetime
 from enum import Enum as PyEnum
 
-from sqlalchemy import DateTime, ForeignKey, Integer, String, Text, func
+from sqlalchemy import DateTime, ForeignKey, Index, Integer, String, Text, func
 from sqlalchemy.dialects.postgresql import JSONB
 from sqlalchemy.orm import Mapped, mapped_column
 
@@ -17,6 +17,9 @@ class MailOutboxStatus(str, PyEnum):
 
 class MailOutbox(Base):
     __tablename__ = "mail_outbox"
+    __table_args__ = (
+        Index("ix_mail_outbox_status_scheduled_id", "status", "scheduled_at", "id"),
+    )
 
     id: Mapped[int] = mapped_column(primary_key=True)
     idempotency_key: Mapped[str] = mapped_column(String(255), unique=True, nullable=False)

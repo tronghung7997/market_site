@@ -151,6 +151,24 @@ async def test_send_test_and_outbox_list(client, recording_mail):
 
 
 @pytest.mark.asyncio
+async def test_send_test_reports_provider_failure(client, recording_mail):
+    headers = await _admin(client, "mail-test-failure-admin@test.com")
+    await client.get("/admin/mail-config", headers=headers)
+    recording_mail.fail_times = 1
+
+    response = await client.post(
+        "/admin/mail-config/send-test",
+        json={"to_email": "failure@example.com", "locale": "vi"},
+        headers=headers,
+    )
+
+    assert response.status_code == 502
+    assert response.json()["detail"] == "recording adapter forced failure"
+    listing = await client.get("/admin/mail-outbox?template=admin_test", headers=headers)
+    assert listing.json()["items"][0]["status"] == "pending"
+
+
+@pytest.mark.asyncio
 async def test_outbox_retry_and_buyer_forbidden(client, recording_mail):
     headers = await _admin(client, "mail-retry-admin@test.com")
     await client.get("/admin/mail-config", headers=headers)

@@ -123,6 +123,8 @@ export function MailTemplateEditor() {
         <label className="min-w-[12rem] flex-1 text-[12px] text-muted">
           {t("tplSelect")}
           <Select
+            id="mail-template"
+            name="template"
             value={template}
             onChange={(e) => setTemplate(e.target.value)}
             className="mt-1 h-9"
@@ -156,11 +158,23 @@ export function MailTemplateEditor() {
 
       <label className="mt-3 block text-[11px] font-semibold uppercase tracking-wider text-muted">
         {t("tplSubject")}
-        <Input value={subject} onChange={(e) => setSubject(e.target.value)} className="mt-1 h-9" />
+        <Input
+          id="mail-template-subject"
+          name="subject"
+          value={subject}
+          onChange={(e) => setSubject(e.target.value)}
+          className="mt-1 h-9"
+        />
       </label>
       <label className="mt-2.5 block text-[11px] font-semibold uppercase tracking-wider text-muted">
         {t("tplBody")}
-        <Textarea value={body} onChange={(e) => setBody(e.target.value)} className="mt-1 min-h-[10rem] font-mono text-[13px]" />
+        <Textarea
+          id="mail-template-body"
+          name="body"
+          value={body}
+          onChange={(e) => setBody(e.target.value)}
+          className="mt-1 min-h-[10rem] font-mono text-[13px]"
+        />
       </label>
 
       {(msg || err) && (

@@ -45,6 +45,10 @@ class MailSendError(Exception):
     """Transient or provider error. Worker retries."""
 
 
+class PermanentMailSendError(MailSendError):
+    """Provider rejected the message/configuration; retrying cannot fix it."""
+
+
 class LogMailAdapter(MailAdapter):
     """Development/test default: log metadata, never the reset URL/body."""
 
@@ -91,6 +95,13 @@ class SmtpMailAdapter(MailAdapter):
                 if settings.smtp_username:
                     smtp.login(settings.smtp_username, settings.smtp_password)
                 smtp.send_message(msg)
+        except smtplib.SMTPResponseException as exc:
+            error = f"smtp_{exc.smtp_code}"
+            if 500 <= exc.smtp_code < 600:
+                raise PermanentMailSendError(error) from exc
+            raise MailSendError(error) from exc
+        except (smtplib.SMTPRecipientsRefused, smtplib.SMTPSenderRefused) as exc:
+            raise PermanentMailSendError(type(exc).__name__) from exc
         except (smtplib.SMTPException, OSError) as exc:
             raise MailSendError(str(exc)) from exc
 
@@ -113,7 +124,7 @@ class ResendMailAdapter(MailAdapter):
                 response = await client.post(_RESEND_URL, json=payload, headers=headers)
         except httpx.HTTPError as exc:
             raise MailSendError(str(exc)) from exc
-        if response.status_code >= 500 or response.status_code == 429:
+        if response.status_code >= 500 or response.status_code in {408, 429}:
             raise MailSendError(f"resend_http_{response.status_code}")
         if response.status_code >= 400:
-            raise MailSendError(f"resend_http_{response.status_code}")
+            raise PermanentMailSendError(f"resend_http_{response.status_code}")

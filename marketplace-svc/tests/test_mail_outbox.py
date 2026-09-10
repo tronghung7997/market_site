@@ -1,10 +1,17 @@
 from datetime import datetime, timezone
 
 import pytest
+import httpx
 from sqlalchemy import func, select
 
 from src.database import SessionLocal
-from src.mail.adapters import RecordingMailAdapter
+from src.mail.adapters import (
+    MailMessage,
+    MailSendError,
+    PermanentMailSendError,
+    RecordingMailAdapter,
+    ResendMailAdapter,
+)
 from src.mail.factory import get_mail_adapter, set_mail_adapter
 from src.mail.service import enqueue_mail
 from src.mail.templates import UnknownMailTemplate
@@ -29,6 +36,30 @@ def test_log_adapter_is_default_when_unconfigured():
     assert mail_configured() is True
     adapter = get_mail_adapter()
     assert isinstance(adapter, LogMailAdapter)
+
+
+@pytest.mark.no_db
+@pytest.mark.asyncio
+@pytest.mark.parametrize(
+    ("status_code", "error_type"),
+    [(403, PermanentMailSendError), (422, PermanentMailSendError), (429, MailSendError), (503, MailSendError)],
+)
+async def test_resend_classifies_permanent_and_transient_errors(monkeypatch, status_code, error_type):
+    async def fake_post(_client, _url, **_kwargs):
+        return httpx.Response(status_code)
+
+    monkeypatch.setattr(httpx.AsyncClient, "post", fake_post)
+
+    with pytest.raises(error_type, match=f"resend_http_{status_code}") as caught:
+        await ResendMailAdapter().send(
+            MailMessage(
+                to="recipient@example.com",
+                subject="Test",
+                text="Test body",
+                from_email="sender@example.com",
+            )
+        )
+    assert type(caught.value) is error_type
 
 
 @pytest.mark.asyncio
@@ -139,3 +170,29 @@ async def test_worker_retries_then_fails(recording_mail, monkeypatch):
     assert row.status == MailOutboxStatus.failed.value
     assert row.attempts == settings.mail_max_attempts
     assert recording_mail.sent == []
+
+
+@pytest.mark.asyncio
+async def test_worker_does_not_retry_permanent_provider_error(recording_mail):
+    async def reject(_message):
+        raise PermanentMailSendError("resend_http_403")
+
+    recording_mail.send = reject
+    async with SessionLocal() as db:
+        await enqueue_mail(
+            db,
+            template="password_changed",
+            to_email="reject@example.com",
+            idempotency_key="permanent-failure",
+            payload={"action_url": "http://localhost:3000/vi/forgot-password"},
+        )
+        await db.commit()
+
+    sent = await process_mail_outbox()
+
+    assert sent == 0
+    async with SessionLocal() as db:
+        row = await db.scalar(select(MailOutbox))
+    assert row.status == MailOutboxStatus.failed.value
+    assert row.attempts == 1
+    assert row.last_error == "resend_http_403"

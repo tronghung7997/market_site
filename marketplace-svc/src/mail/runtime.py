@@ -29,6 +29,7 @@ from .errors import (
     MailOutboxConflict,
     MailOutboxNotFound,
     MailTestCooldown,
+    MailTestSendFailed,
 )
 from .service import enqueue_mail
 
@@ -417,6 +418,8 @@ async def send_test(
     refreshed = await db.get(MailOutbox, outbox_id)
     if refreshed is None:
         raise MailOutboxNotFound()
+    if refreshed.status != MailOutboxStatus.sent.value:
+        raise MailTestSendFailed(refreshed.last_error or "mail provider did not accept the message")
     return {
         "id": outbox_id,
         "status": status,

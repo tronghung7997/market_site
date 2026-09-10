@@ -12,6 +12,7 @@ from .errors import (
     MailOutboxConflict,
     MailOutboxNotFound,
     MailTestCooldown,
+    MailTestSendFailed,
 )
 
 router = APIRouter(tags=["mail"])
@@ -28,6 +29,8 @@ def _http(exc: Exception) -> None:
             detail="Wait before sending another test email",
             headers={"Retry-After": str(exc.retry_after_seconds)},
         ) from exc
+    if isinstance(exc, MailTestSendFailed):
+        raise HTTPException(status_code=502, detail=exc.detail) from exc
     if isinstance(exc, MailOutboxNotFound):
         raise HTTPException(status_code=404, detail="Outbox row not found") from exc
     if isinstance(exc, MailOutboxConflict):
@@ -84,7 +87,7 @@ async def send_test_mail(
             to_email=str(body.to_email),
             locale=body.locale,
         )
-    except (MailConfigError, MailNotReady, MailTestCooldown, MailOutboxNotFound) as exc:
+    except (MailConfigError, MailNotReady, MailTestCooldown, MailTestSendFailed, MailOutboxNotFound) as exc:
         _http(exc)
 
 

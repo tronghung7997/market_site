@@ -9,7 +9,7 @@ from src.config import settings
 from src.database import SessionLocal
 from src.models.mail import MailOutbox, MailOutboxStatus
 
-from .adapters import MailAdapter, MailMessage, MailSendError
+from .adapters import MailAdapter, MailMessage, MailSendError, PermanentMailSendError
 from .factory import get_mail_adapter
 from .runtime import MailRuntime, current_runtime
 from .catalog import lookup_copy
@@ -73,7 +73,7 @@ async def _persist_send_outcome(
         row.attempts += 1
         row.last_error = str(exc)[:_MAX_ERROR]
         row.updated_at = datetime.now(timezone.utc)
-        if row.attempts >= settings.mail_max_attempts:
+        if isinstance(exc, PermanentMailSendError) or row.attempts >= settings.mail_max_attempts:
             row.status = MailOutboxStatus.failed.value
             logger.error(
                 "mail_outbox_failed",

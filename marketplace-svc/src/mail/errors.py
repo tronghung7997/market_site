@@ -23,6 +23,12 @@ class MailTestCooldown(Exception):
         self.retry_after_seconds = retry_after_seconds
 
 
+class MailTestSendFailed(Exception):
+    def __init__(self, detail: str) -> None:
+        super().__init__(detail)
+        self.detail = detail
+
+
 class MailOutboxNotFound(Exception):
     pass
 

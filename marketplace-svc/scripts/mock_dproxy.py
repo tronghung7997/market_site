@@ -26,6 +26,7 @@ error/cooldown/lifecycle E2E cases deterministic.
 
 from __future__ import annotations
 
+import asyncio
 import copy
 import hmac
 import json
@@ -56,11 +57,31 @@ FailureMode = Literal[
     "list_500",
     "list_malformed",
     "list_empty",
+    # Key M2M không có quyền đọc inventory (tag "Services") — chưa verify live.
+    "list_403",
+    # /proxies/user trả object bọc {success,data:[...]} như /user/list.
+    "list_wrapped",
     "rotate_500",
     "rotate_malformed",
     "purchase_500",
     "purchase_malformed",
+    # DProxy KHÔNG replay theo partner_order_id: gửi trùng → 409.
+    "purchase_duplicate_409",
+    # DProxy KHÔNG idempotent: gửi trùng → mua thêm một proxy nữa, order_id mới.
+    "purchase_not_idempotent",
+    # Hết credit/hạn mức → 402 (mã thật chưa biết, đây là giả định).
+    "purchase_402",
+    # Hết hàng cho plan → 409 out of stock.
+    "purchase_out_of_stock",
+    # Fulfill xong nhưng phản hồi chậm quá timeout adapter (mặc định 30s);
+    # MOCK_DPROXY_SLOW_SECONDS chỉnh độ trễ. Lần gọi sau (retry) trả ngay.
+    "purchase_slow_then_ok",
+    # Trả status khác "fulfilled" (vd pending) — adapter phải từ chối.
+    "purchase_pending_status",
+    # partner-dispute lỗi 5xx.
+    "dispute_500",
 ]
+SLOW_SECONDS = float(os.environ.get("MOCK_DPROXY_SLOW_SECONDS", "8"))
 
 
 class ModeRequest(BaseModel):
@@ -75,6 +96,13 @@ class PartnerPurchaseRequest(BaseModel):
     quantity: int = Field(default=1, ge=1, le=100)
     channel: str = "taphoammo"
     metadata: dict | None = None
+
+
+class PartnerDisputeRequest(BaseModel):
+    """POST /api/v1/customer/marketplace/partner-dispute — OpenAPI
+    PartnerDisputeRequest."""
+    partner_order_id: str
+    reason: str | None = None
 
 
 class MockPlansRequest(BaseModel):
@@ -256,6 +284,11 @@ _DEFAULT_PLANS = [
 
 _assignments: dict[str, dict] = {}
 _orders: dict[str, dict] = {}
+# partner_order_id → assignment id, để partner-dispute thu hồi đúng node.
+_order_assignment: dict[str, str] = {}
+_disputes: list[dict] = []
+_purchase_calls: list[dict] = []
+_slow_served: set[str] = set()
 _mode: FailureMode = "normal"
 _plans: list[dict] = []
 _next_index = 4  # 1-3 are the fixed reset_state() pool; purchases start after.
@@ -275,6 +308,10 @@ def reset_state() -> None:
     _next_index = 4
     _assignments.clear()
     _orders.clear()
+    _order_assignment.clear()
+    _disputes.clear()
+    _purchase_calls.clear()
+    _slow_served.clear()
     for index in range(1, 4):
         assignment = _new_assignment(index)
         _assignments[assignment["id"]] = assignment
@@ -398,8 +435,14 @@ async def list_user_proxies(request: Request, response: Response):
         return {"unexpected": "top-level object instead of array"}
     if _mode == "list_empty":
         return []
+    if _mode == "list_403":
+        raise HTTPException(status_code=403, detail="API key has no access to user proxies")
     response.headers["X-Mock-DProxy"] = "true"
-    return [_public_assignment(item) for item in _assignments.values()]
+    items = [_public_assignment(item) for item in _assignments.values()]
+    if _mode == "list_wrapped":
+        return {"success": True, "message": "User proxies fetched successfully", "data": items,
+                "meta": {"page": 1, "page_size": len(items), "total": len(items)}}
+    return items
 
 
 @app.get("/api/v1/store/plans")
@@ -417,10 +460,18 @@ async def list_store_plans(request: Request):
 async def partner_purchase(body: PartnerPurchaseRequest, request: Request):
     """Documented M2M purchase — docs/dproxy/api.md + OpenAPI PartnerPurchaseRequest."""
     _check_api_auth(request)
+    _purchase_calls.append({
+        "partner_order_id": body.partner_order_id, "plan_id": body.plan_id,
+        "idempotency_key": request.headers.get("idempotency-key"), "at": _iso(_utcnow()),
+    })
     if _mode == "purchase_500" or _mode == "list_500":
         raise HTTPException(status_code=503, detail="Simulated DProxy outage")
     if _mode == "purchase_malformed":
         return {"unexpected": "shape"}
+    if _mode == "purchase_402":
+        raise HTTPException(status_code=402, detail="Insufficient credit balance")
+    if _mode == "purchase_out_of_stock":
+        raise HTTPException(status_code=409, detail="No proxy nodes available for this plan")
     if body.quantity != 1:
         raise HTTPException(status_code=422, detail="quantity must be 1 for this mock")
     try:
@@ -430,7 +481,10 @@ async def partner_purchase(body: PartnerPurchaseRequest, request: Request):
 
     existing = _orders.get(body.partner_order_id)
     if existing is not None:
-        return existing
+        if _mode == "purchase_duplicate_409":
+            raise HTTPException(status_code=409, detail="partner_order_id already exists")
+        if _mode != "purchase_not_idempotent":
+            return existing
 
     plan = next((p for p in _plans if p["id"] == body.plan_id), None)
     if plan is None:
@@ -454,15 +508,19 @@ async def partner_purchase(body: PartnerPurchaseRequest, request: Request):
     username = assignment["username"]
     password = assignment["password"]
     formatted = f"{ip}:{port}:{username}:{password}"
+    order_uuid = str(uuid5(NAMESPACE_URL, f"mock-dproxy:{body.partner_order_id}"))
+    if _mode == "purchase_not_idempotent" and existing is not None:
+        # Đơn thứ hai cho cùng partner_order_id — order_id KHÁC.
+        order_uuid = str(uuid5(NAMESPACE_URL, f"mock-dproxy:{body.partner_order_id}:{index}"))
     payload = {
         "success": True,
         "data": {
             # The supplier contract exposes an order UUID, not an assignment
             # UUID. Keep them deliberately distinct so local E2E cannot hide
             # an invalid identity assumption in the marketplace adapter.
-            "order_id": str(uuid5(NAMESPACE_URL, f"mock-dproxy:{body.partner_order_id}")),
+            "order_id": order_uuid,
             "partner_order_id": body.partner_order_id,
-            "status": "fulfilled",
+            "status": "pending" if _mode == "purchase_pending_status" else "fulfilled",
             "quantity": 1,
             "proxies": [{
                 "ip": ip,
@@ -477,7 +535,71 @@ async def partner_purchase(body: PartnerPurchaseRequest, request: Request):
         },
     }
     _orders[body.partner_order_id] = payload
+    _order_assignment[body.partner_order_id] = assignment["id"]
+    if _mode == "purchase_slow_then_ok" and body.partner_order_id not in _slow_served:
+        # Node đã cấp (state đã ghi) nhưng phản hồi tới muộn hơn timeout
+        # adapter → phía sàn thấy timeout và retry cùng partner_order_id.
+        _slow_served.add(body.partner_order_id)
+        await asyncio.sleep(SLOW_SECONDS)
     return payload
+
+
+@app.post("/api/v1/customer/marketplace/partner-dispute")
+async def partner_dispute(body: PartnerDisputeRequest, request: Request):
+    """Thu hồi node + hoàn credit — docs/dproxy/api.md §"Đi kèm M2M"."""
+    _check_api_auth(request)
+    if _mode == "dispute_500":
+        raise HTTPException(status_code=503, detail="Simulated DProxy outage")
+    order = _orders.get(body.partner_order_id)
+    if order is None:
+        raise HTTPException(status_code=404, detail="Partner order not found")
+    assignment_id = _order_assignment.get(body.partner_order_id)
+    assignment = _assignments.get(assignment_id) if assignment_id else None
+    already = any(d["partner_order_id"] == body.partner_order_id for d in _disputes)
+    if assignment is not None:
+        assignment["is_active"] = False
+        assignment["status"] = "revoked"
+    _disputes.append({
+        "partner_order_id": body.partner_order_id, "reason": body.reason,
+        "order_id": order["data"]["order_id"], "at": _iso(_utcnow()),
+    })
+    order["data"]["status"] = "disputed"
+    return {
+        "success": True,
+        "data": {
+            "order_id": order["data"]["order_id"],
+            "partner_order_id": body.partner_order_id,
+            "status": "disputed",
+            "refunded": not already,
+            "revoked_nodes": 1 if assignment is not None else 0,
+        },
+    }
+
+
+@app.get("/api/v1/customer/marketplace/orders")
+async def list_marketplace_orders(request: Request, channel: str | None = None, limit: int = 50, offset: int = 0):
+    """Đối soát: list đơn partner — response shape là GIẢ ĐỊNH (OpenAPI để {})."""
+    _check_api_auth(request)
+    rows = [
+        {
+            "order_id": o["data"]["order_id"],
+            "partner_order_id": pid,
+            "status": o["data"]["status"],
+            "quantity": o["data"]["quantity"],
+            "channel": "proxora",
+        }
+        for pid, o in _orders.items()
+    ]
+    if channel:
+        rows = [r for r in rows if r["channel"] == channel]
+    return {"success": True, "data": rows[offset:offset + limit], "meta": {"total": len(rows)}}
+
+
+@app.get("/api/v1/customer/marketplace/credit-summary")
+async def credit_summary(request: Request):
+    """Shape giả định — OpenAPI để {}."""
+    _check_api_auth(request)
+    return {"success": True, "data": {"credit_limit": 1000.0, "used": float(len(_orders)), "currency": "USD"}}
 
 
 @app.post("/api/v1/proxies/user/{assignment_id}/rotate")
@@ -547,6 +669,9 @@ async def mock_state(x_mock_control_key: str | None = Header(default=None)) -> d
         "assignment_count": len(_assignments),
         "assignments": [_public_assignment(item) for item in _assignments.values()],
         "order_count": len(_orders),
+        "orders": {pid: o["data"]["order_id"] for pid, o in _orders.items()},
+        "purchase_calls": list(_purchase_calls),
+        "disputes": list(_disputes),
     }
 
 

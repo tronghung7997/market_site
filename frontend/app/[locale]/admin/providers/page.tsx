@@ -994,7 +994,9 @@ function AdapterConnectionFields({
     const planIds = (config.plan_ids as Record<string, string>) ?? {};
     const connected = health?.status === "healthy" || health?.status === "warning";
     const hasMappings = Object.keys(planIds).length > 0;
-    const connectionVerified = connected || hasMappings;
+    // Catalog về được = base_url + key đúng, kể cả khi list inventory bị 403
+    // (key M2M có thể không đọc được /proxies/user — xem docs/dproxy/api.md).
+    const connectionVerified = connected || hasMappings || plans.length > 0;
     return (
       <div className="space-y-4">
         <div className="rounded-lg border border-line bg-raised/50 p-3 space-y-2">

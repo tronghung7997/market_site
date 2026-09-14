@@ -14,13 +14,16 @@ from src.database import SessionLocal
 from src.models.order import Order, OrderStatus
 from src.models.product import Product
 from src.models.provider import ProviderCallLog
-from src.models.proxy_allocation import ProxyAllocation, ProxyAllocationStatus
+from src.models.alert import Alert
+from src.models.proxy_allocation import ProxyAllocation, ProxyAllocationSource, ProxyAllocationStatus
+from src.adapters.dproxy import default_partner_order_prefix
 from src.orders.service import provision_pending_order
 
 from .conftest import make_admin, make_seller, register_and_login
 
 FUTURE = (datetime.now(timezone.utc) + timedelta(days=5)).isoformat()
 PLAN_ID = "1906e1af-70df-4a53-8874-53b8e5a51935"
+PREFIX = default_partner_order_prefix()
 
 
 def label_to_uuid(label: str) -> str:
@@ -448,7 +451,7 @@ class TestDProxyConfigStrategyProvisioning:
 
         calls = _patch_dproxy_http(
             monkeypatch, _resp(200, _config_sample(
-                "ext-cfg-ok", partner_order_id=f"proxora-{order_id}",
+                "ext-cfg-ok", partner_order_id=f"{PREFIX}{order_id}",
                 country="US", proxy_type="datacenter", duration_days=30,
             )),
         )
@@ -465,9 +468,14 @@ class TestDProxyConfigStrategyProvisioning:
             assert allocation.external_id == label_to_uuid("ext-cfg-ok")
             assert allocation.status == ProxyAllocationStatus.allocated
             assert allocation.provider_id == provider_id
+            assert allocation.source == ProxyAllocationSource.purchase.value
+            # Đơn M2M không có assignment id → không được hứa rotate.
+            assert allocation.rotation_available is False
 
         assert calls[0]["url"].endswith("/api/v1/customer/marketplace/partner-purchase")
-        assert calls[0]["json"]["partner_order_id"] == f"proxora-{order_id}"
+        assert calls[0]["json"]["metadata"] == {"proxora_order_id": str(order_id)}
+        assert calls[0]["headers"]["Idempotency-Key"] == f"{PREFIX}{order_id}"
+        assert calls[0]["json"]["partner_order_id"] == f"{PREFIX}{order_id}"
         assert calls[0]["json"]["plan_id"] == PLAN_ID
         assert calls[0]["json"]["quantity"] == 1
         assert calls[0]["json"]["channel"] == "proxora"
@@ -477,7 +485,7 @@ class TestDProxyConfigStrategyProvisioning:
         buyer_token, _, product_id, _ = await setup_dproxy_config_product(client, suffix="_cfgretry")
         order_id = await _place_config_order(client, buyer_token, product_id, monkeypatch)
 
-        response = _config_sample("ext-cfg-retry", partner_order_id=f"proxora-{order_id}")
+        response = _config_sample("ext-cfg-retry", partner_order_id=f"{PREFIX}{order_id}")
         _patch_dproxy_http(monkeypatch, _resp(200, response))
         await provision_pending_order(order_id)
 
@@ -544,6 +552,102 @@ class TestDProxyConfigStrategyProvisioning:
             order = await db.get(Order, order_id)
             assert order.status == OrderStatus.cancelled
 
+    @pytest.mark.asyncio
+    @pytest.mark.parametrize("status,detail", [
+        (402, "Insufficient credit balance"),
+        (409, "partner_order_id already exists"),
+        (422, "Unknown plan_id"),
+    ])
+    async def test_purchase_4xx_refunds_buyer_and_raises_operational_alert(
+        self, client, monkeypatch, status, detail,
+    ):
+        """4xx từ lệnh mua là lỗi vận hành (hết credit, plan sai, trùng id):
+        buyer được hoàn tiền NGAY, không retry — nhưng admin phải thấy alert
+        có partner_order_id để đối soát, không phải một đơn huỷ im lặng."""
+        buyer_token, _, product_id, _ = await setup_dproxy_config_product(
+            client, suffix=f"_cfg4xx{status}",
+        )
+        order_id = await _place_config_order(client, buyer_token, product_id, monkeypatch)
+
+        calls = _patch_dproxy_http(monkeypatch, _resp(status, {"detail": detail}))
+        await provision_pending_order(order_id)
+
+        assert len(calls) == 1  # không retry 4xx
+        async with SessionLocal() as db:
+            order = await db.get(Order, order_id)
+            assert order.status == OrderStatus.cancelled
+            alert = await db.scalar(select(Alert).where(
+                Alert.type == "provision_operational", Alert.target_id == order_id,
+            ))
+            assert alert is not None
+            assert f"HTTP {status}" in alert.message
+            assert detail in alert.message
+            assert f"{PREFIX}{order_id}" in alert.message
+
+    @pytest.mark.asyncio
+    async def test_non_fulfilled_status_is_rejected(self, client, monkeypatch):
+        buyer_token, _, product_id, _ = await setup_dproxy_config_product(client, suffix="_cfgpend")
+        order_id = await _place_config_order(client, buyer_token, product_id, monkeypatch)
+        body = _config_sample("ext-cfg-pend", partner_order_id=f"{PREFIX}{order_id}")
+        body["data"]["status"] = "pending"
+        _patch_dproxy_http(monkeypatch, _resp(200, body))
+        await provision_pending_order(order_id)
+        async with SessionLocal() as db:
+            order = await db.get(Order, order_id)
+            assert order.status == OrderStatus.cancelled
+            assert await db.scalar(
+                select(func.count()).select_from(ProxyAllocation).where(ProxyAllocation.order_id == order_id)
+            ) == 0
+
+    @pytest.mark.asyncio
+    async def test_timeout_then_replay_delivers_once(self, client, monkeypatch):
+        """Tình huống nguy hiểm nhất: DProxy fulfill nhưng phản hồi tới muộn
+        hơn timeout → adapter thấy timeout, đơn ở lại `pending`, sweep retry
+        cùng partner_order_id, DProxy replay → giao đúng MỘT proxy, một
+        allocation, không mua lần hai."""
+        buyer_token, _, product_id, _ = await setup_dproxy_config_product(client, suffix="_cfgtimeout")
+        order_id = await _place_config_order(client, buyer_token, product_id, monkeypatch)
+        body = _config_sample("ext-cfg-timeout", partner_order_id=f"{PREFIX}{order_id}")
+
+        calls = _patch_dproxy_http(monkeypatch, [
+            httpx.ReadTimeout("slow"), httpx.ReadTimeout("slow"), httpx.ReadTimeout("slow"),
+            _resp(200, body),
+        ])
+        await provision_pending_order(order_id)  # 3 attempts, all timeout
+        async with SessionLocal() as db:
+            order = await db.get(Order, order_id)
+            assert order.status == OrderStatus.pending
+        assert len(calls) == 3
+        assert {c["json"]["partner_order_id"] for c in calls} == {f"{PREFIX}{order_id}"}
+
+        await provision_pending_order(order_id)  # sweep retry → replay
+        async with SessionLocal() as db:
+            order = await db.get(Order, order_id)
+            assert order.status == OrderStatus.delivered
+            assert await db.scalar(
+                select(func.count()).select_from(ProxyAllocation).where(ProxyAllocation.order_id == order_id)
+            ) == 1
+        assert len(calls) == 4
+
+    @pytest.mark.asyncio
+    async def test_unmapped_selection_fails_with_operational_alert(self, client, monkeypatch):
+        """plan_ids là ma trận cứng: tổ hợp không có plan → không mua bừa
+        plan khác, huỷ + hoàn tiền + alert cấu hình."""
+        buyer_token, _, product_id, _ = await setup_dproxy_config_product(client, suffix="_cfgunmapped")
+        order_id = await _place_config_order(
+            client, buyer_token, product_id, monkeypatch, type_="datacenter", network="VN", days=7,
+        )
+        calls = _patch_dproxy_http(monkeypatch, _resp(500))
+        await provision_pending_order(order_id)
+        assert calls == []
+        async with SessionLocal() as db:
+            order = await db.get(Order, order_id)
+            assert order.status == OrderStatus.cancelled
+            alert = await db.scalar(select(Alert).where(
+                Alert.type == "provision_operational", Alert.target_id == order_id,
+            ))
+            assert alert is not None and "datacenter|VN|7" in alert.message
+
 
 class TestDProxyCompatibility:
     """DProxy is compatible with BOTH pricing strategies:
@@ -562,16 +666,67 @@ class TestDProxyCompatibility:
 
     @pytest.mark.asyncio
     async def test_attaching_dproxy_provider_with_config_strategy_is_allowed(self, client, monkeypatch):
-        _, admin_token, product_id, provider_id = await setup_dproxy_product(client, suffix="_compat")
+        _, admin_token, product_id, provider_id = await setup_dproxy_config_product(client, suffix="_compat")
         resp = await client.put(
             f"/admin/products/{product_id}/operations",
             json={
                 "provider_id": provider_id, "pricing_strategy": "config",
                 "pricing_params": {
-                    "base_price": 1000, "type_mult": {"a": 1.0}, "network_mult": {"b": 1.0},
+                    "base_price": 1000, "type_mult": {"residential": 1.0}, "network_mult": {"VN": 1.0},
+                    "duration_options": [{"days": 7, "label": "7 ngày"}],
+                    "plan_prices": {"residential|VN|7": 21000},
+                },
+            },
+            headers={"Authorization": f"Bearer {admin_token}"},
+        )
+        assert resp.status_code == 200, resp.text
+
+    @pytest.mark.asyncio
+    async def test_dproxy_config_without_exact_plan_prices_is_rejected(self, client, monkeypatch):
+        """Công thức type_mult/network_mult tự do cho phép buyer ghép tổ hợp
+        không có plan thượng nguồn → trả tiền xong mới fail. DProxy `config`
+        bắt buộc niêm yết từng gói (plan_prices)."""
+        _, admin_token, product_id, provider_id = await setup_dproxy_config_product(client, suffix="_nofree")
+        resp = await client.put(
+            f"/admin/products/{product_id}/operations",
+            json={
+                "provider_id": provider_id, "pricing_strategy": "config",
+                "pricing_params": {
+                    "base_price": 1000, "type_mult": {"residential": 1.0}, "network_mult": {"VN": 1.0},
                     "duration_options": [{"days": 7, "label": "7 ngày"}],
                 },
             },
+            headers={"Authorization": f"Bearer {admin_token}"},
+        )
+        assert resp.status_code == 400
+        assert resp.json()["error_code"] == "PRODUCT_PRICING_INCOMPATIBLE"
+
+    @pytest.mark.asyncio
+    async def test_single_plan_id_provider_cannot_sell_multiple_packages(self, client, monkeypatch):
+        """Provider chỉ có plan_id đơn mà product bán 2 gói → cả 2 map về một
+        plan → giao sai loại/thời hạn. Chặn ở bước gắn product."""
+        _, admin_token, product_id, provider_id = await setup_dproxy_product(client, suffix="_single")
+        resp = await client.put(
+            f"/admin/providers/{provider_id}",
+            json={"config": {"base_url": "https://dproxy.example.com", "api_key": "dpx-secret", "plan_id": PLAN_ID}},
+            headers={"Authorization": f"Bearer {admin_token}"},
+        )
+        assert resp.status_code == 200, resp.text
+        params = {
+            "base_price": 1000, "type_mult": {"residential": 1.0}, "network_mult": {"VN": 1.0},
+            "duration_options": [{"days": 7, "label": "7"}, {"days": 30, "label": "30"}],
+        }
+        resp = await client.put(
+            f"/admin/products/{product_id}/operations",
+            json={"provider_id": provider_id, "pricing_strategy": "config",
+                  "pricing_params": {**params, "plan_prices": {"residential|VN|7": 1, "residential|VN|30": 2}}},
+            headers={"Authorization": f"Bearer {admin_token}"},
+        )
+        assert resp.status_code == 400
+        resp = await client.put(
+            f"/admin/products/{product_id}/operations",
+            json={"provider_id": provider_id, "pricing_strategy": "config",
+                  "pricing_params": {**params, "plan_prices": {"residential|VN|7": 1}}},
             headers={"Authorization": f"Bearer {admin_token}"},
         )
         assert resp.status_code == 200, resp.text

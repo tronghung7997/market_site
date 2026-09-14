@@ -954,14 +954,27 @@ def _validate_pricing_params_for_provider(
     # published for a tuple that has no upstream plan mapping, otherwise the
     # buyer can pay successfully and provisioning only fails afterwards.
     if provider and provider.adapter_type == "dproxy" and strategy == "config":
-        plan_prices = (params or {}).get("plan_prices")
-        plan_ids = (provider.config or {}).get("plan_ids")
-        if isinstance(plan_prices, dict) and plan_prices and isinstance(plan_ids, dict):
+        from src.pricing.config_pricing import plan_prices_map
+
+        plan_prices = plan_prices_map(params or {})
+        config = provider.config or {}
+        plan_ids = config.get("plan_ids")
+        plan_id = config.get("plan_id")
+        if not plan_prices:
+            # Không cho bán DProxy theo công thức type_mult/network_mult tự do:
+            # mọi tổ hợp buyer chọn phải là một plan có giá niêm yết và có
+            # plan_id thượng nguồn — nếu không thì thanh toán xong mới fail.
+            raise api_error(ErrorCode.PRODUCT_PRICING_INCOMPATIBLE, http_status.HTTP_400_BAD_REQUEST)
+        if isinstance(plan_ids, dict) and plan_ids:
             if any(key not in plan_ids for key in plan_prices):
-                raise api_error(
-                    ErrorCode.PRODUCT_PRICING_INCOMPATIBLE,
-                    http_status.HTTP_400_BAD_REQUEST,
-                )
+                raise api_error(ErrorCode.PRODUCT_PRICING_INCOMPATIBLE, http_status.HTTP_400_BAD_REQUEST)
+        elif plan_id:
+            # Một plan_id duy nhất chỉ đúng khi product bán ĐÚNG MỘT gói —
+            # nhiều gói mà cùng map về một plan là giao sai loại/thời hạn.
+            if len(plan_prices) != 1:
+                raise api_error(ErrorCode.PRODUCT_PRICING_INCOMPATIBLE, http_status.HTTP_400_BAD_REQUEST)
+        else:
+            raise api_error(ErrorCode.PRODUCT_PRICING_INCOMPATIBLE, http_status.HTTP_400_BAD_REQUEST)
 
 
 async def update_product_operations(product_id: int, data: dict, db: AsyncSession) -> Product:

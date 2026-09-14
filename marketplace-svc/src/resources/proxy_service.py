@@ -8,12 +8,15 @@ Resource row.
 """
 from datetime import datetime, timezone
 
+import structlog
 from sqlalchemy import select
 from sqlalchemy.exc import IntegrityError
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from src.adapters.base import ProxyAssignment
-from src.models.proxy_allocation import ProxyAllocation, ProxyAllocationStatus
+from src.models.proxy_allocation import ProxyAllocation, ProxyAllocationSource, ProxyAllocationStatus
+
+logger = structlog.get_logger()
 
 
 async def get_order_proxy_allocation(order_id: int, db: AsyncSession, *, for_update: bool = False) -> ProxyAllocation | None:
@@ -123,12 +126,38 @@ async def bind_purchased_assignment(
     with, so this just lets it propagate."""
     allocation = ProxyAllocation(
         provider_id=provider_id, order_id=order_id, external_id=assignment.external_id,
+        source=ProxyAllocationSource.purchase.value,
     )
     _apply_assignment(allocation, assignment)
     allocation.status = ProxyAllocationStatus.allocated
     db.add(allocation)
     await db.flush()
     return allocation
+
+
+async def revoke_order_proxy(order_id: int, provider_id: int | None, db: AsyncSession) -> bool | None:
+    """Thu hồi proxy thượng nguồn của một đơn vừa được HOÀN TIỀN TOÀN BỘ
+    (dispute refund, deadline refund). Best-effort: trả None khi đơn không
+    có allocation/adapter không hỗ trợ, True/False theo kết quả revoke.
+    Không bao giờ raise — refund đã xong, việc thu hồi hỏng chỉ được ghi log
+    để admin đối soát, không được làm hỏng transaction hoàn tiền."""
+    if not provider_id:
+        return None
+    allocation = await get_order_proxy_allocation(order_id, db)
+    if allocation is None or allocation.status in (
+        ProxyAllocationStatus.released, ProxyAllocationStatus.expired,
+    ):
+        return None
+    from src.adapters.factory import get_binding_adapter
+
+    try:
+        adapter = await get_binding_adapter(provider_id, db)
+        return bool(await adapter.revoke(allocation.external_id))
+    except Exception as e:  # noqa: BLE001 — refund đã commit-được, chỉ log
+        logger.warning(
+            "order_proxy_revoke_failed", order_id=order_id, provider_id=provider_id, error=str(e),
+        )
+        return False
 
 
 async def mark_allocation_expired(allocation: ProxyAllocation, db: AsyncSession) -> None:

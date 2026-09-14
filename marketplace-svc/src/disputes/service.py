@@ -327,6 +327,10 @@ async def _finalize_dispute(
         )
     )
     if fully_refunded:
+        # Buyer đã nhận lại toàn bộ tiền → thu hồi proxy thượng nguồn (DProxy
+        # M2M: partner-dispute hoàn credit cho sàn). Best-effort, không raise.
+        from src.resources.proxy_service import revoke_order_proxy
+        await revoke_order_proxy(order.id, order.provider_id, db)
         from src.affiliate.service import clawback_commission_for_order
         await clawback_commission_for_order(order, db)
     else:
@@ -1819,6 +1823,11 @@ async def refund_dispute(dispute_id: int, admin_note: str, db: AsyncSession, *, 
             remaining_amount,
             db,
         )
+    # Hoàn toàn bộ → thu hồi proxy thượng nguồn (best-effort, xem
+    # proxy_service.revoke_order_proxy). Không thu hồi ở partial refund:
+    # đơn vẫn `completed`, buyer giữ hàng.
+    from src.resources.proxy_service import revoke_order_proxy
+    await revoke_order_proxy(order.id, order.provider_id, db)
     from src.affiliate.service import clawback_commission_for_order
     await clawback_commission_for_order(order, db)
     await log_event(db, "info", f"Dispute {dispute_id} refunded", request_id=current_request_id(),

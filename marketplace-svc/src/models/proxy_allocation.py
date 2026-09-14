@@ -7,6 +7,16 @@ from sqlalchemy.orm import Mapped, mapped_column
 from src.database import Base
 
 
+class ProxyAllocationSource(str, PyEnum):
+    # Bound from the account's existing inventory (`GET /api/v1/proxies/user`)
+    # — external_id là assignment UUID, reconcile/rotate được qua list.
+    pool = "pool"
+    # Mua on-demand qua M2M partner-purchase — external_id là ORDER UUID của
+    # DProxy, KHÔNG xuất hiện trong /proxies/user nên reconciliation theo
+    # list phải bỏ qua, và thu hồi đi qua partner-dispute chứ không rotate.
+    purchase = "purchase"
+
+
 class ProxyAllocationStatus(str, PyEnum):
     allocated = "allocated"
     # Present upstream but temporarily unusable (inactive/offline) — a
@@ -58,6 +68,12 @@ class ProxyAllocation(Base):
     # moment the assignment reappears in any state (online, offline, or
     # expired — "present" is what matters here, not usability).
     consecutive_misses: Mapped[int] = mapped_column(Integer, nullable=False, default=0, server_default="0")
+    # Nguồn binding — quyết định cách reconcile và thu hồi (xem
+    # ProxyAllocationSource). Cột string chứ không phải Enum DB để thêm nguồn
+    # mới không cần ALTER TYPE.
+    source: Mapped[str] = mapped_column(
+        String(16), nullable=False, default=ProxyAllocationSource.pool.value, server_default="pool",
+    )
     # IPv4 của BUYER được nhà cung cấp cho phép kết nối tới proxy. Hiện chỉ
     # MỘT IP (API get.php không hiểu danh sách nối dấu phẩy — quan sát thực địa
     # 28/07 đơn #93; dashboard nhà cung cấp có 2 ô nhưng đó là chuyện của web

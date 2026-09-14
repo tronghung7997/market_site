@@ -403,7 +403,7 @@ class TestPartnerPurchase:
             "plan_id": PLAN_ID,
             "quantity": 1,
             "channel": "proxora",
-            "metadata": {"proxora_order_id": "THM-987654"},
+            "metadata": {"proxora_order_id": "987654"},
         }
         assert mock.call_args.kwargs["headers"]["X-API-Key"] == "k"
         assert mock.call_args.kwargs["headers"]["Idempotency-Key"] == "THM-987654"

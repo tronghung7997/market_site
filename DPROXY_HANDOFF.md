@@ -246,29 +246,20 @@ Result:
 Backend tests share `marketplace_test`; never run multiple pytest processes in
 parallel.
 
-## Known gap to fix next
+## Status 2026-09-14
 
-The current live product `#29` still exposes independent choices for two proxy
-types, two countries, and several durations. Only specific combinations have a
-DProxy plan mapping. For example, Datacenter + VN is visible even though it has
-no matching upstream plan. The valid Residential + VN + 7-day path passes E2E,
-but unsupported combinations can still reach calculation/order UI and then
-fail provisioning.
-
-The next agent should make the buyer form plan-aware. Recommended smallest
-coherent fix:
-
-1. For a DProxy-linked product, expose only the exact mapped plan assigned to
-   that product; do not render independent cross-product options.
-2. Prefer a product payload or pricing-options contract that provides allowed
-   tuples, rather than inferring provider configuration in the browser.
-3. Enforce the same allowed tuple in the backend price/order path. UI filtering
-   is not authorization or contract validation.
-4. Add success, invalid-combination, and unauthorized tests where applicable.
-5. Re-run targeted frontend checks, targeted backend tests serially, and a live
-   DevTools purchase at desktop and mobile widths.
-
-Do not solve this by restoring fallback to a default plan.
+- "Known gap" cũ (buyer form không plan-aware) đã xử lý: backend `config`
+  strategy có `plan_prices`/`plan_key` (`src/pricing/config_pricing.py`),
+  `products/service.py` bắt buộc DProxy `config` có `plan_prices` map đủ vào
+  `plan_ids`.
+- Review 2026-09-14 sửa thêm: allocation M2M có `source=purchase` (migration
+  `dk1a2b3c4d5e6`), reconciliation bỏ qua nhóm này; 4xx khi mua → alert vận
+  hành; refund/quá hạn provision → `partner-dispute`; timeout mặc định 30s;
+  `partner_order_id` có prefix môi trường; health tách catalog khỏi list.
+- Mock có thêm mode giả lập các giả định CHƯA verify với live — xem
+  `docs/dproxy/api.md` §"Chưa xác minh" và `docs/dproxy-mock-runbook.md`
+  §"Kịch bản M2M tự chạy". Việc còn lại trước khi bán thật: probe 8 mục đó
+  bằng key thật.
 
 ## Suggested continuation checklist
 
@@ -291,7 +282,7 @@ Do not solve this by restoring fallback to a default plan.
 ## Primary references
 
 - DProxy source docs: `docs/dproxy/api.md`, `docs/dproxy/openapi.json`, and
-  `docs/dproxy/User-Proxy-APIs-M2M-Purchase.rtf`
+  `docs/dproxy/User-Proxy-APIs-M2M-Purchase.docx`
 - Local test instructions: `docs/dproxy-mock-runbook.md`
 - DProxy mock: `marketplace-svc/scripts/mock_dproxy.py`
 - Production adapter: `marketplace-svc/src/adapters/dproxy.py`

@@ -237,6 +237,36 @@ PROVISION_RETRY_AFTER_SECONDS = 120
 PROVISION_DEADLINE_SECONDS = 15 * 60
 
 
+async def _dispute_dproxy_deadline_order(order: Order, provider: Provider, db) -> str:
+    """Best-effort partner-dispute cho đơn DProxy quá hạn provision. Trả về
+    đoạn nối vào alert message — không raise: refund đã ghi vào session,
+    thu hồi hỏng chỉ đổi nội dung cảnh báo cho admin đối soát tay."""
+    from src.adapters.dproxy import DProxyAdapter
+    from src.adapters.factory import get_binding_adapter
+
+    try:
+        adapter = await get_binding_adapter(provider.id, db)
+    except Exception as e:  # noqa: BLE001
+        return f" — không dựng được adapter DProxy để thu hồi ({e})"
+    if not isinstance(adapter, DProxyAdapter) or not adapter.is_purchase_config(order.user_config or {}):
+        return ""
+    partner_order_id = adapter.partner_order_id_for(order.id)
+    try:
+        ok = await adapter.dispute_purchase(partner_order_id, reason="provision deadline refund")
+    except Exception as e:  # noqa: BLE001 — auth/unavailable/anything
+        logger.warning("dproxy_deadline_dispute_failed", order_id=order.id, error=str(e))
+        return (
+            f" — KHÔNG gửi được partner-dispute cho partner_order_id={partner_order_id} ({e}); "
+            f"đối soát marketplace/orders bên DProxy, nếu đã fulfill thì dispute tay"
+        )
+    if ok:
+        return f" — đã gửi partner-dispute partner_order_id={partner_order_id}"
+    return (
+        f" — DProxy từ chối partner-dispute partner_order_id={partner_order_id}; "
+        f"đối soát marketplace/orders bên DProxy"
+    )
+
+
 async def provision_sweep_job() -> None:
     """Rescue adapter orders stuck at `pending`.
 
@@ -303,6 +333,12 @@ async def provision_sweep_job() -> None:
                         f"{settings.topproxy_marker_prefix}{order.id} không (nếu có: Xu đã trừ, "
                         f"cứu bằng scripts/recover_topproxy_orders.py)"
                     )
+                elif provider is not None and provider.adapter_type == "dproxy":
+                    # Đơn M2M: mọi retry đều timeout/5xx không có nghĩa là DProxy
+                    # CHƯA cấp node — timeout sau khi họ fulfill là hoàn toàn có
+                    # thể. Buyer đã được hoàn tiền nên gửi partner-dispute để
+                    # DProxy thu node + hoàn credit; 404 = họ không có đơn này.
+                    alert_message += await _dispute_dproxy_deadline_order(order, provider, db)
                 await upsert_incident(
                     db,
                     fingerprint=fp_order(order.id, "provision_stuck"),
@@ -407,14 +443,17 @@ async def health_check_job() -> None:
             # `error`, mà đó đúng là ca cần tắt nhất — mỗi đơn đi qua provider
             # hỏng là một vòng trừ tiền → cấp phát fail → hoàn tiền cho buyer.
             # Vẫn giữ ngưỡng 3 lần liên tiếp nên một cú mạng chập không đủ tắt.
-            if status_str != "healthy":
+            # "warning" cố ý KHÔNG tính vào ngưỡng tắt (xem comment trên) —
+            # so sánh với "healthy" thôi là 3 lần "kho thấp" liên tiếp cũng
+            # tắt provider, đúng thứ comment nói không được làm.
+            if status_str not in ("healthy", "warning"):
                 recent = await db.execute(
                     select(ProviderHealth)
                     .where(ProviderHealth.provider_id == provider.id)
                     .order_by(ProviderHealth.checked_at.desc()).limit(3)
                 )
                 recent_list = list(recent.scalars().all())
-                if len(recent_list) >= 3 and all(h.status != "healthy" for h in recent_list):
+                if len(recent_list) >= 3 and all(h.status not in ("healthy", "warning") for h in recent_list):
                     provider.is_active = False
                     await log_event(db, "critical", f"Provider {provider.name} marked down", job_id=job_id,
                                     metadata={"event": "provider_down", "provider_id": provider.id})
@@ -603,7 +642,7 @@ async def dproxy_reconciliation_job() -> None:
     """
     from src.adapters.dproxy import DProxyAdapter, DProxyAuthError, DProxyContractError, DProxyUnavailableError
     from src.adapters.factory import get_adapter
-    from src.models.proxy_allocation import ProxyAllocation, ProxyAllocationStatus
+    from src.models.proxy_allocation import ProxyAllocation, ProxyAllocationSource, ProxyAllocationStatus
     from src.resources.proxy_service import _apply_assignment
 
     async with SessionLocal() as db:
@@ -677,14 +716,31 @@ async def dproxy_reconciliation_job() -> None:
                     ),
                 )
 
+            # Chỉ binding từ POOL: external_id của allocation mua qua M2M là
+            # order UUID của DProxy, không bao giờ có trong /proxies/user —
+            # đối chiếu theo list sẽ "mất tích" 3 lượt rồi flip sang `error`
+            # + alert critical cho MỌI đơn M2M. Nhóm đó chỉ hết hạn theo
+            # đồng hồ (bên dưới); DProxy chưa có API tra cứu node theo đơn.
             bindings = list((await db.execute(
                 select(ProxyAllocation).where(
                     ProxyAllocation.provider_id == provider.id,
+                    ProxyAllocation.source != ProxyAllocationSource.purchase.value,
                     ProxyAllocation.status.in_(
                         [ProxyAllocationStatus.allocated, ProxyAllocationStatus.offline],
                     ),
                 )
             )).scalars().all())
+
+            purchased = list((await db.execute(
+                select(ProxyAllocation).where(
+                    ProxyAllocation.provider_id == provider.id,
+                    ProxyAllocation.source == ProxyAllocationSource.purchase.value,
+                    ProxyAllocation.status == ProxyAllocationStatus.allocated,
+                    ProxyAllocation.expires_at <= now,
+                )
+            )).scalars().all())
+            for allocation in purchased:
+                allocation.status = ProxyAllocationStatus.expired
 
             for allocation in bindings:
                 match = by_external_id.get(allocation.external_id)
@@ -733,6 +789,7 @@ async def dproxy_reconciliation_job() -> None:
             logger.info(
                 "dproxy_reconciliation", provider_id=provider.id, total=len(assignments),
                 usable=sum(1 for a in assignments if a.is_usable(now=now)), bound=len(bindings),
+                purchased_expired=len(purchased),
                 rotation_capable=sum(1 for a in assignments if a.rotation_available),
             )
 

@@ -25,6 +25,7 @@ from fastapi import HTTPException
 
 from src.adapters.base import ProvisionResult, ProxyAssignment, RotatableProxyAdapter
 from src.adapters.real_api import RealApiAdapter
+from src.config import settings
 
 logger = structlog.get_logger()
 
@@ -37,7 +38,14 @@ logger = structlog.get_logger()
 _LIST_PATH = "/api/v1/proxies/user"
 _CATALOG_PATH = "/api/v1/store/plans"
 _PURCHASE_PATH = "/api/v1/customer/marketplace/partner-purchase"
+_DISPUTE_PATH = "/api/v1/customer/marketplace/partner-dispute"
 _DEFAULT_ROTATE_METHOD = "POST"
+# Lệnh mua M2M cấp node thật nên có thể chậm hơn 5s mặc định của
+# RealApiAdapter. Timeout ngắn ở đây là NGUY HIỂM chứ không chỉ chậm: timeout
+# → retry cùng partner_order_id → nếu DProxy đã fulfill lần đầu thì kết quả
+# phụ thuộc hoàn toàn vào việc họ có replay theo partner_order_id hay không
+# (chưa verify với live). Kéo dài timeout để hạn chế rơi vào tình huống đó.
+_DEFAULT_TIMEOUT_SECONDS = 30.0
 _ALLOWED_AUTH_TYPES = {"bearer", "header"}
 _ALLOWED_ROTATE_METHODS = {"GET", "POST", "PUT"}
 
@@ -56,6 +64,44 @@ class DProxyUnavailableError(Exception):
     left to propagate out of provision() so the existing
     provision_sweep_job retry/deadline machinery (src/scheduler.py) picks
     it up unchanged, same as any other RealApiAdapter subclass."""
+
+
+class DProxyPurchaseRejected(Exception):
+    """DProxy trả 4xx cho lệnh mua: hết credit/hạn mức, plan sai, hết hàng,
+    trùng partner_order_id... Khác DProxyContractError ở chỗ đây là lỗi VẬN
+    HÀNH — không đơn nào sau đó tự khỏi được, admin phải nhìn thấy. Giữ
+    status + detail (đã cắt ngắn) để đưa vào alert."""
+
+    def __init__(self, status_code: int, detail: str | None = None):
+        self.status_code = status_code
+        self.detail = detail
+        super().__init__(f"HTTP {status_code}" + (f": {detail}" if detail else ""))
+
+
+def _error_detail(resp: httpx.Response, limit: int = 200) -> str | None:
+    """`detail` từ body lỗi FastAPI-style của DProxy, cắt ngắn để đưa vào
+    alert/log — không bao giờ lộ nguyên body ra ngoài."""
+    try:
+        body = resp.json()
+    except ValueError:
+        return None
+    detail = body.get("detail") if isinstance(body, dict) else None
+    if isinstance(detail, list):
+        detail = "; ".join(str(d.get("msg", d)) if isinstance(d, dict) else str(d) for d in detail)
+    if not isinstance(detail, str) or not detail:
+        return None
+    return detail[:limit]
+
+
+def default_partner_order_prefix() -> str:
+    """Prefix mặc định cho partner_order_id, có tên MÔI TRƯỜNG: staging và
+    prod thường dùng chung một tài khoản DProxy, mà order id ở hai DB thì
+    trùng nhau (đơn #140 ở cả hai) — nếu DProxy replay theo partner_order_id
+    thì prod sẽ nhận đúng proxy staging đã mua. Production giữ `proxora-`
+    trần cho gọn; mọi môi trường khác gắn thêm tên. Admin override qua
+    config.partner_order_prefix."""
+    env = settings.deployment_environment
+    return "proxora-" if env == "production" else f"proxora-{env}-"
 
 
 def expected_rotate_path(external_id: str) -> str:
@@ -314,12 +360,26 @@ class DProxyAdapter(RealApiAdapter, RotatableProxyAdapter):
         self, config: dict, *, db=None, provider_id: int | None = None, seller_owned: bool = False,
     ):
         super().__init__(config, db=db, provider_id=provider_id, seller_owned=seller_owned)
+        if not config.get("timeout_seconds"):
+            self.timeout = _DEFAULT_TIMEOUT_SECONDS
         self.rotate_method = (config.get("rotate_method") or _DEFAULT_ROTATE_METHOD).upper()
         self.auth_type = config.get("auth_type") or "bearer"
         self.auth_header = config.get("auth_header") or "X-API-Key"
         self.plan_id = config.get("plan_id")
         self.plan_ids = config.get("plan_ids") or {}
         self.channel = config.get("channel") or "proxora"
+        self.partner_order_prefix = config.get("partner_order_prefix") or default_partner_order_prefix()
+
+    def partner_order_id_for(self, order_id: int) -> str:
+        """ID đơn phía sàn gửi cho DProxy — deterministic theo order id để
+        retry replay được, và là thứ duy nhất DProxy biết về đơn của mình
+        (dùng để partner-dispute / đối soát qua marketplace/orders)."""
+        return f"{self.partner_order_prefix}{order_id}"
+
+    @staticmethod
+    def is_purchase_config(user_config: dict) -> bool:
+        """`config` strategy → mua on-demand qua M2M. `credit` → bind từ pool."""
+        return "type" in user_config and "network" in user_config and "days" in user_config
 
     def _resolve_plan_id(self, user_config: dict) -> str | None:
         selection_key = "|".join(
@@ -411,9 +471,7 @@ class DProxyAdapter(RealApiAdapter, RotatableProxyAdapter):
                     "plan_id": plan_id,
                     "quantity": 1,
                     "channel": self.channel,
-                    "metadata": {
-                        "proxora_order_id": partner_order_id.removeprefix("proxora-").removeprefix("order-")
-                    },
+                    "metadata": {"proxora_order_id": str(order_id)},
                 },
             )
         except httpx.HTTPError as e:
@@ -424,7 +482,7 @@ class DProxyAdapter(RealApiAdapter, RotatableProxyAdapter):
         if resp.status_code >= 500:
             raise DProxyUnavailableError(f"HTTP {resp.status_code}")
         if resp.status_code >= 400:
-            raise DProxyContractError(f"HTTP {resp.status_code}")
+            raise DProxyPurchaseRejected(resp.status_code, _error_detail(resp))
 
         try:
             body = resp.json()
@@ -436,6 +494,35 @@ class DProxyAdapter(RealApiAdapter, RotatableProxyAdapter):
         if assignment is None:
             raise DProxyContractError("Phản hồi mua proxy không đúng định dạng")
         return assignment
+
+    async def dispute_purchase(self, partner_order_id: str, *, reason: str | None = None) -> bool:
+        """`POST partner-dispute` — DProxy thu hồi node + hoàn credit cho một
+        đơn M2M (docs/dproxy/api.md §"Đi kèm M2M"). Gọi khi sàn đã hoàn tiền
+        buyer (dispute refund) hoặc huỷ đơn quá hạn provision mà lệnh mua
+        CÓ THỂ đã fulfill (timeout sau khi DProxy cấp node). 404 = DProxy
+        không có đơn này → không có gì để thu hồi, coi như xong (True).
+        4xx khác → False (admin đối soát tay); auth/5xx raise như mọi call."""
+        try:
+            resp = await self._request_with_retry(
+                "POST", _DISPUTE_PATH, operation="dispute_purchase",
+                idempotency_key=f"{partner_order_id}-dispute", headers=self._headers(),
+                json={"partner_order_id": partner_order_id, "reason": reason or "marketplace refund"},
+            )
+        except httpx.HTTPError as e:
+            raise DProxyUnavailableError(str(e)) from e
+        if resp.status_code in (401, 403):
+            raise DProxyAuthError(f"HTTP {resp.status_code}")
+        if resp.status_code >= 500:
+            raise DProxyUnavailableError(f"HTTP {resp.status_code}")
+        if resp.status_code == 404:
+            return True
+        if resp.status_code >= 400:
+            logger.warning(
+                "dproxy_dispute_rejected", partner_order_id=partner_order_id,
+                status=resp.status_code, detail=_error_detail(resp),
+            )
+            return False
+        return True
 
     async def rotate_assignment(self, external_id: str) -> ProxyAssignment:
         try:
@@ -485,7 +572,7 @@ class DProxyAdapter(RealApiAdapter, RotatableProxyAdapter):
         # at whatever it was when admin bought it). Otherwise this is the
         # `credit` (no-selection) flow, unchanged: pick first-available from
         # the existing pool.
-        if "type" in user_config and "network" in user_config and "days" in user_config:
+        if self.is_purchase_config(user_config):
             return await self._provision_via_purchase(order_id, user_config)
 
         from src.resources.proxy_service import bind_first_available_assignment
@@ -524,49 +611,80 @@ class DProxyAdapter(RealApiAdapter, RotatableProxyAdapter):
             metadata={"provider": "dproxy", "proxy_allocation_id": allocation.id},
         )
 
+    def _purchase_failure(self, e: DProxyPurchaseRejected, order_id: int) -> ProvisionResult:
+        """4xx từ lệnh mua là lỗi vận hành: hết credit/hạn mức, plan chưa
+        map, hết hàng, trùng partner_order_id (nếu DProxy không replay)...
+        Buyer được hoàn tiền như fail thường, nhưng admin PHẢI thấy alert —
+        không thì sản phẩm cứ bán, mỗi đơn là một vòng trừ-refund im lặng.
+        Nêu partner_order_id để admin đối soát bằng marketplace/orders."""
+        partner_order_id = self.partner_order_id_for(order_id)
+        return ProvisionResult(
+            success=False,
+            error=f"DProxy từ chối lệnh mua ({e})",
+            operational_error=(
+                f"DProxy từ chối lệnh mua cho đơn #{order_id} ({e}). "
+                f"Kiểm tra credit/hạn mức (credit-summary), plan_id đã map, và đối soát "
+                f"partner_order_id={partner_order_id} trong marketplace/orders."
+            ),
+            operational_severity="critical",
+        )
+
     async def _provision_via_purchase(self, order_id: int, user_config: dict) -> ProvisionResult:
         """`config`-strategy path: buy a fresh assignment matching the
         buyer's chosen country/type/duration and bind it exclusively to
-        this order. Never buys a second proxy on retry."""
+        this order. Never buys a second proxy on retry: partner_order_id là
+        deterministic theo order id, retry (timeout/5xx/sweep) gửi lại đúng
+        id đó và DProxy replay — giả định này chưa verify với live, xem
+        docs/dproxy/api.md §"Chưa xác minh"."""
         from src.resources.proxy_service import bind_purchased_assignment, get_order_proxy_allocation
+
+        partner_order_id = self.partner_order_id_for(order_id)
+        plan_id = self._resolve_plan_id(user_config)
+        if not plan_id:
+            return ProvisionResult(
+                success=False,
+                error="Nhà cung cấp DProxy chưa cấu hình plan_id cho lựa chọn này",
+                operational_error=(
+                    f"Đơn #{order_id}: lựa chọn {user_config.get('type')}|{user_config.get('network')}|"
+                    f"{user_config.get('days')} không có plan_id trong config DProxy (plan_ids/plan_id)"
+                ),
+                operational_severity="critical",
+            )
+
+        try:
+            assignment = await self.purchase_assignment(
+                plan_id=plan_id, partner_order_id=partner_order_id, order_id=order_id,
+            )
+        except DProxyAuthError:
+            return ProvisionResult(
+                success=False, error="Sai thông tin xác thực với nhà cung cấp proxy",
+                operational_error=f"Đơn #{order_id}: DProxy từ chối API key (401/403)",
+            )
+        except DProxyPurchaseRejected as e:
+            return self._purchase_failure(e, order_id)
+        except DProxyContractError:
+            return ProvisionResult(success=False, error="Nhà cung cấp proxy trả về dữ liệu không hợp lệ")
+        # DProxyUnavailableError intentionally propagates — see class docstring.
 
         existing = await get_order_proxy_allocation(order_id, self.db)
         if existing is not None:
-            # Replay the documented idempotency key instead of assuming the
-            # M2M order UUID is also an ID returned by /proxies/user. DProxy's
-            # response documents only data.order_id, not assignment_id.
-            try:
-                plan_id = self._resolve_plan_id(user_config)
-                if not plan_id:
-                    raise DProxyContractError("Nhà cung cấp DProxy chưa cấu hình plan_id cho lựa chọn này")
-                assignment = await self.purchase_assignment(
-                    plan_id=plan_id,
-                    partner_order_id=f"proxora-{order_id}",
-                    order_id=order_id,
-                )
-            except DProxyAuthError:
-                return ProvisionResult(success=False, error="Sai thông tin xác thực với nhà cung cấp proxy")
-            except DProxyContractError:
-                return ProvisionResult(success=False, error="Nhà cung cấp proxy trả về dữ liệu không hợp lệ")
+            # Replay path: an earlier attempt bound the allocation but the
+            # order never left `pending` (crash between flush and commit is
+            # the only way here — both live in one transaction). The replayed
+            # response must be the SAME upstream order, never a substitute.
             if assignment.external_id != existing.external_id:
-                return ProvisionResult(success=False, error="Nhà cung cấp proxy trả về sai đơn đã cấp")
+                return ProvisionResult(
+                    success=False, error="Nhà cung cấp proxy trả về sai đơn đã cấp",
+                    operational_error=(
+                        f"Đơn #{order_id}: DProxy replay partner_order_id={partner_order_id} "
+                        f"nhưng trả order_id khác ({assignment.external_id} ≠ {existing.external_id}) — "
+                        f"có thể đã mua 2 proxy, đối soát marketplace/orders"
+                    ),
+                )
             return ProvisionResult(
                 success=True, data=assignment.delivered_text(), resource_id=assignment.external_id,
                 metadata={"provider": "dproxy", "proxy_allocation_id": existing.id},
             )
-
-        try:
-            plan_id = self._resolve_plan_id(user_config)
-            if not plan_id:
-                raise DProxyContractError("Nhà cung cấp DProxy chưa cấu hình plan_id cho lựa chọn này")
-            assignment = await self.purchase_assignment(
-                plan_id=plan_id, partner_order_id=f"proxora-{order_id}", order_id=order_id,
-            )
-        except DProxyAuthError:
-            return ProvisionResult(success=False, error="Sai thông tin xác thực với nhà cung cấp proxy")
-        except DProxyContractError:
-            return ProvisionResult(success=False, error="Nhà cung cấp proxy trả về dữ liệu không hợp lệ")
-        # DProxyUnavailableError intentionally propagates — see class docstring.
 
         allocation = await bind_purchased_assignment(self.provider_id, order_id, assignment, self.db)
         return ProvisionResult(
@@ -577,23 +695,37 @@ class DProxyAdapter(RealApiAdapter, RotatableProxyAdapter):
         )
 
     async def check_health(self) -> dict:
+        # Catalog TRƯỚC và độc lập với list: tài khoản M2M có thể không có
+        # (hoặc không được đọc) inventory ở /proxies/user, nhưng admin vẫn
+        # cần catalog để map plan — nếu catalog chỉ được lấy sau khi list
+        # thành công thì lỗi list chặn luôn bước map plan trong UI.
+        catalog = await self.list_catalog()
+        purchase_ready = bool(self.plan_id or self.plan_ids)
         try:
             assignments = await self.list_assignments()
         except DProxyAuthError:
-            return {"status": "unhealthy", "message": "Sai thông tin xác thực"}
+            return {"status": "unhealthy", "message": "Sai thông tin xác thực", **catalog}
         except DProxyUnavailableError:
-            return {"status": "unhealthy", "message": "Không thể kết nối nhà cung cấp"}
+            return {"status": "unhealthy", "message": "Không thể kết nối nhà cung cấp", **catalog}
         except DProxyContractError:
-            return {"status": "unhealthy", "message": "Dữ liệu trả về không hợp lệ"}
+            return {"status": "unhealthy", "message": "Dữ liệu trả về không hợp lệ", **catalog}
 
         usable = [a for a in assignments if a.is_usable()]
         rotation_capable = sum(1 for a in usable if a.rotation_available)
         earliest_expiry = min((a.expires_at for a in usable), default=None)
-        catalog = await self.list_catalog()
         if not usable:
+            # Pool rỗng chỉ là "warning" khi provider bán theo pool (credit).
+            # Provider đã map plan mua on-demand thì pool rỗng là bình thường
+            # — không được để nó trông như hết hàng.
+            if purchase_ready:
+                return {
+                    "status": "healthy",
+                    "message": "Kết nối OK — bán theo lệnh mua M2M (pool trống)",
+                    "usable": 0, "total": len(assignments), "purchase_ready": True, **catalog,
+                }
             return {
                 "status": "warning", "message": "Không còn proxy khả dụng", "usable": 0,
-                "total": len(assignments), **catalog,
+                "total": len(assignments), "purchase_ready": False, **catalog,
             }
         return {
             "status": "healthy",
@@ -602,6 +734,7 @@ class DProxyAdapter(RealApiAdapter, RotatableProxyAdapter):
             "total": len(assignments),
             "rotation_capable": rotation_capable,
             "earliest_expiry": earliest_expiry.isoformat() if earliest_expiry else None,
+            "purchase_ready": purchase_ready,
             **catalog,
         }
 
@@ -618,7 +751,28 @@ class DProxyAdapter(RealApiAdapter, RotatableProxyAdapter):
         return None
 
     async def revoke(self, resource_id: str) -> bool:
+        """Thu hồi binding. Pool: chỉ release local (không có endpoint xoá
+        assignment). Purchase: gọi partner-dispute để DProxy thu node + hoàn
+        credit — buyer đã được sàn hoàn tiền thì không được giữ proxy tới
+        hết hạn. Trả False khi thượng nguồn từ chối/không liên lạc được để
+        caller log cho admin đối soát; binding local vẫn được release."""
+        from src.models.proxy_allocation import ProxyAllocation, ProxyAllocationSource
         from src.resources.proxy_service import release_allocation
+        from sqlalchemy import select
 
+        allocation = await self.db.scalar(
+            select(ProxyAllocation).where(
+                ProxyAllocation.provider_id == self.provider_id, ProxyAllocation.external_id == resource_id,
+            )
+        )
+        upstream_ok = True
+        if allocation is not None and allocation.source == ProxyAllocationSource.purchase.value:
+            try:
+                upstream_ok = await self.dispute_purchase(
+                    self.partner_order_id_for(allocation.order_id), reason="marketplace refund",
+                )
+            except (DProxyAuthError, DProxyUnavailableError) as e:
+                logger.warning("dproxy_revoke_upstream_failed", order_id=allocation.order_id, error=str(e))
+                upstream_ok = False
         await release_allocation(self.provider_id, resource_id, self.db)
-        return True
+        return upstream_ok

@@ -99,14 +99,27 @@ curl -sS -X POST http://127.0.0.1:9201/_mock/reset -H "$CONTROL"
 
 Available global modes:
 
-- `normal`
-- `list_500`
-- `list_malformed`
-- `list_empty`
-- `rotate_500`
-- `rotate_malformed`
-- `purchase_500`
-- `purchase_malformed`
+| Mode | Giả lập | Kỳ vọng phía sàn |
+|---|---|---|
+| `normal` | — | — |
+| `list_500` / `list_malformed` / `list_empty` | list hỏng / sai shape / rỗng | credit: hết hàng → refund; health unhealthy/warning |
+| `list_403` | key M2M không đọc được `/proxies/user` | health `unhealthy` nhưng vẫn có `plans` (catalog độc lập) |
+| `list_wrapped` | `/proxies/user` trả `{success,data:[...]}` | `DProxyContractError` — nếu live như vậy, adapter phải đổi parser |
+| `rotate_500` / `rotate_malformed` | rotate hỏng | buyer thấy 502, allocation không đổi |
+| `purchase_500` | 5xx khi mua | đơn ở `pending`, sweep retry 2 phút/lần, 15 phút → refund + partner-dispute |
+| `purchase_malformed` | body lạ | huỷ + refund, không alert vận hành |
+| `purchase_402` | hết credit/hạn mức | huỷ + refund NGAY, alert `provision_operational` critical |
+| `purchase_out_of_stock` | 409 hết node | như trên |
+| `purchase_pending_status` | `status=pending` thay vì `fulfilled` | huỷ + refund (contract) |
+| `purchase_duplicate_409` | DProxy KHÔNG replay, trùng id → 409 | retry sau timeout → huỷ + refund + alert có `partner_order_id` để đối soát |
+| `purchase_not_idempotent` | trùng id → mua thêm, `order_id` mới | chỉ dùng để chứng minh mock/adapter phát hiện được — sàn giao 1, alert |
+| `purchase_slow_then_ok` | fulfill nhưng phản hồi sau `MOCK_DPROXY_SLOW_SECONDS` (8s) | với `timeout_seconds` < 8: timeout → pending → sweep replay → giao 1 proxy |
+| `dispute_500` | partner-dispute sập | refund vẫn thành công, alert ghi "KHÔNG gửi được partner-dispute" |
+
+Cũng có `POST /api/v1/customer/marketplace/partner-dispute`,
+`GET .../marketplace/orders`, `GET .../marketplace/credit-summary` (shape của
+hai cái sau là GIẢ ĐỊNH — OpenAPI để `{}`). `/_mock/state` trả thêm
+`orders`, `purchase_calls` (kèm `Idempotency-Key`) và `disputes` để soi.
 
 Example:
 
@@ -138,6 +151,31 @@ Inspect mock state:
 ```bash
 curl -sS http://127.0.0.1:9201/_mock/state -H "$CONTROL"
 ```
+
+## Kịch bản M2M tự chạy (không cần DProxy thật)
+
+Tất cả các case dưới đã có test tự động — chạy tuần tự (DB test dùng chung):
+
+```bash
+cd marketplace-svc
+uv run pytest -q tests/test_mock_dproxy.py tests/test_dproxy_adapter.py \
+  tests/test_dproxy_orders.py tests/test_dproxy_m2m_lifecycle.py tests/test_dproxy_reconciliation.py
+```
+
+Muốn xem tận mắt trên UI với mock: chạy mock, tạo provider trỏ
+`http://127.0.0.1:9201` (`plan_ids` map `residential|VN|7` →
+`1906e1af-...`), product `config` với `plan_prices`, rồi:
+
+| # | Tình huống | Làm | Kiểm tra |
+|---|---|---|---|
+| 1 | Mua thành công | mode `normal`, buyer mua | đơn `delivered`, `/_mock/state.order_count` +1, `orders` có `proxora-development-<id>` |
+| 2 | Hết credit | mode `purchase_402`, mua | đơn `cancelled` + ví hoàn, `/admin/alerts` có `provision_operational` với `partner_order_id` |
+| 3 | DProxy sập lúc mua | mode `purchase_500`, mua | đơn `pending`; đổi `normal` → sweep (≤2 phút) giao xong, `purchase_calls` cùng một `partner_order_id` |
+| 4 | Quá hạn 15 phút | giữ `purchase_500` 15 phút (hoặc sửa `created_at` trong DB) | đơn `cancelled`, alert `provision_stuck` ghi "đã gửi partner-dispute", `/_mock/state.disputes` có id |
+| 5 | Timeout sau khi fulfill | provider `timeout_seconds: 3`, mode `purchase_slow_then_ok`, mua | lần 1 timeout ×3 → `pending`; sweep replay → `delivered`, `assignment_count` chỉ +1 |
+| 6 | Hoàn tiền dispute | sau #1 buyer mở dispute, admin refund | `disputes` có id, assignment tương ứng `status=revoked`, allocation `released` |
+| 7 | Đối soát định kỳ | sau #1 chờ job `dproxy_reconciliation` (15 phút) | allocation vẫn `allocated`, KHÔNG có alert `dproxy_allocation_disappeared` |
+| 8 | Key không đọc inventory | mode `list_403`, bấm Test provider | status unhealthy nhưng bảng plan vẫn load để map |
 
 ## Full marketplace scenario after DProxyAdapter lands
 

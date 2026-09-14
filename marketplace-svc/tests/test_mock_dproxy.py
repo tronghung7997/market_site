@@ -337,3 +337,98 @@ async def test_partner_purchase_is_idempotent_on_partner_order_id(dproxy_client:
     assert first.json()["data"]["order_id"] == second.json()["data"]["order_id"]
     after = (await dproxy_client.get("/api/v1/proxies/user", headers=API_HEADERS)).json()
     assert len(after) == 4
+
+
+async def _purchase(dproxy_client: AsyncClient, partner_order_id: str):
+    return await dproxy_client.post(
+        "/api/v1/customer/marketplace/partner-purchase", headers=API_HEADERS,
+        json={"partner_order_id": partner_order_id, "plan_id": PLAN_VN_7D, "quantity": 1, "channel": "proxora"},
+    )
+
+
+async def _set_mode(dproxy_client: AsyncClient, mode: str):
+    resp = await dproxy_client.put("/_mock/mode", headers=CONTROL_HEADERS, json={"mode": mode})
+    assert resp.status_code == 200, resp.text
+
+
+@pytest.mark.asyncio
+async def test_partner_dispute_revokes_node_and_records(dproxy_client: AsyncClient):
+    first = await _purchase(dproxy_client, "THM-DISPUTE")
+    order_id = first.json()["data"]["order_id"]
+
+    missing = await dproxy_client.post(
+        "/api/v1/customer/marketplace/partner-dispute", headers=API_HEADERS,
+        json={"partner_order_id": "THM-NOPE"},
+    )
+    assert missing.status_code == 404
+
+    resp = await dproxy_client.post(
+        "/api/v1/customer/marketplace/partner-dispute", headers=API_HEADERS,
+        json={"partner_order_id": "THM-DISPUTE", "reason": "refund"},
+    )
+    assert resp.status_code == 200
+    assert resp.json()["data"] == {
+        "order_id": order_id, "partner_order_id": "THM-DISPUTE", "status": "disputed",
+        "refunded": True, "revoked_nodes": 1,
+    }
+    state = (await dproxy_client.get("/_mock/state", headers=CONTROL_HEADERS)).json()
+    assert state["disputes"][0]["partner_order_id"] == "THM-DISPUTE"
+    revoked = [a for a in state["assignments"] if a["status"] == "revoked"]
+    assert len(revoked) == 1 and revoked[0]["is_active"] is False
+
+    orders = (await dproxy_client.get(
+        "/api/v1/customer/marketplace/orders", headers=API_HEADERS, params={"channel": "proxora"},
+    )).json()
+    assert orders["data"][0]["status"] == "disputed"
+
+
+@pytest.mark.asyncio
+async def test_purchase_failure_modes(dproxy_client: AsyncClient):
+    await _set_mode(dproxy_client, "purchase_402")
+    assert (await _purchase(dproxy_client, "THM-402")).status_code == 402
+    await _set_mode(dproxy_client, "purchase_out_of_stock")
+    assert (await _purchase(dproxy_client, "THM-OOS")).status_code == 409
+    await _set_mode(dproxy_client, "purchase_pending_status")
+    assert (await _purchase(dproxy_client, "THM-PEND")).json()["data"]["status"] == "pending"
+
+    await _set_mode(dproxy_client, "normal")
+    first = await _purchase(dproxy_client, "THM-REPLAY")
+    await _set_mode(dproxy_client, "purchase_duplicate_409")
+    assert (await _purchase(dproxy_client, "THM-REPLAY")).status_code == 409
+    await _set_mode(dproxy_client, "purchase_not_idempotent")
+    second = await _purchase(dproxy_client, "THM-REPLAY")
+    assert second.status_code == 200
+    assert second.json()["data"]["order_id"] != first.json()["data"]["order_id"]
+
+    state = (await dproxy_client.get("/_mock/state", headers=CONTROL_HEADERS)).json()
+    assert [c["partner_order_id"] for c in state["purchase_calls"]] == [
+        "THM-402", "THM-OOS", "THM-PEND", "THM-REPLAY", "THM-REPLAY", "THM-REPLAY",
+    ]
+
+
+@pytest.mark.asyncio
+async def test_list_modes_for_m2m_key_assumptions(dproxy_client: AsyncClient):
+    await _set_mode(dproxy_client, "list_403")
+    assert (await dproxy_client.get("/api/v1/proxies/user", headers=API_HEADERS)).status_code == 403
+    plans = await dproxy_client.get("/api/v1/store/plans", headers=API_HEADERS)
+    assert plans.status_code == 200 and len(plans.json()) >= 1
+
+    await _set_mode(dproxy_client, "list_wrapped")
+    body = (await dproxy_client.get("/api/v1/proxies/user", headers=API_HEADERS)).json()
+    assert body["success"] is True and len(body["data"]) == 3
+
+
+@pytest.mark.asyncio
+async def test_slow_purchase_serves_immediately_on_replay(dproxy_client: AsyncClient, monkeypatch):
+    slept: list[float] = []
+
+    async def fake_sleep(seconds):
+        slept.append(seconds)
+
+    monkeypatch.setattr(mock_dproxy.asyncio, "sleep", fake_sleep)
+    await _set_mode(dproxy_client, "purchase_slow_then_ok")
+    first = await _purchase(dproxy_client, "THM-SLOW")
+    second = await _purchase(dproxy_client, "THM-SLOW")
+    assert first.status_code == second.status_code == 200
+    assert first.json()["data"]["order_id"] == second.json()["data"]["order_id"]
+    assert slept == [mock_dproxy.SLOW_SECONDS]

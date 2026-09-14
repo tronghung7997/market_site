@@ -56,13 +56,23 @@ export default function DynamicOrderForm({ productId, product, onOrderCreated }:
   const [placeError, setPlaceError] = useState<string | null>(null);
   const [showConfirm, setShowConfirm] = useState(false);
 
-  // Fetch pricing options on mount
+  // Fetch pricing options on mount.
+  //
+  // Effect này có thể chạy nhiều lần cho cùng một productId: StrictMode ở
+  // dev gọi 2 lần, và ở prod `t`/`apiErrorMessage` đổi identity khi
+  // IntlProvider re-render (vd sau khi /me về). Trước 14/09 mỗi lần chạy lại
+  // là `setConfig(defaults)` — response về SAU khi buyer đã chọn gói thì đè
+  // lựa chọn về gói mặc định, buyer bấm mua và trả tiền cho gói khác (quan
+  // sát thực tế: đơn #148 chọn VN 7 ngày, đặt thành US 30 ngày). Hai lớp
+  // chặn: response cũ/của effect đã cleanup bị bỏ, và default chỉ điền vào
+  // field CHƯA có giá trị — không bao giờ ghi đè thứ buyer đã chọn.
   useEffect(() => {
+    let cancelled = false;
     (async () => {
       try {
         const opts = await api.pricingOptions(productId);
+        if (cancelled) return;
         setOptions(opts);
-        // Set default values
         const defaults: Record<string, unknown> = {};
         for (const f of opts.fields) {
           if (f.default != null) {
@@ -75,13 +85,21 @@ export default function DynamicOrderForm({ productId, product, onOrderCreated }:
             defaults[f.field] = f.min ?? 1;
           }
         }
-        setConfig(defaults);
+        setConfig((prev) => {
+          const next = { ...prev };
+          for (const [field, value] of Object.entries(defaults)) {
+            if (next[field] == null || next[field] === "") next[field] = value;
+          }
+          return next;
+        });
       } catch (e) {
+        if (cancelled) return;
         setOptionsError(apiErrorMessage(e, t("optionsLoadFailed")));
       } finally {
-        setLoadingOptions(false);
+        if (!cancelled) setLoadingOptions(false);
       }
     })();
+    return () => { cancelled = true; };
   }, [apiErrorMessage, productId, t]);
 
   // Debounced calculate on config/qty change
@@ -115,8 +133,14 @@ export default function DynamicOrderForm({ productId, product, onOrderCreated }:
   // "đơn này có được giao tự động không", tức `isSingleUnit`.
   const isAutoDelivered = isSingleUnit;
 
+  // Mỗi lượt tính giá mang một số thứ tự; chỉ lượt MỚI NHẤT được ghi kết quả.
+  // Không có guard này, buyer đổi gói 2 lần nhanh → response của gói cũ về
+  // sau → nút mua hiện giá gói cũ (backend vẫn tính đúng theo config, nhưng
+  // buyer nhìn sai giá tới lúc bấm).
+  const calcSeqRef = useRef(0);
   const doCalculate = useCallback(async (cfg: Record<string, unknown>, q: number) => {
     if (!options || !options.ready || options.fields.length === 0) return;
+    const seq = ++calcSeqRef.current;
     // Field bắt buộc còn trống (vd target_urls rỗng lúc mới vào trang) không
     // phải là lỗi — buyer chỉ đang chưa điền xong. Bỏ qua im lặng, đừng gọi
     // API để rồi biến "chưa điền" thành một thông báo lỗi giả.
@@ -132,15 +156,17 @@ export default function DynamicOrderForm({ productId, product, onOrderCreated }:
     try {
       const merged = { ...cfg, quantity: isSingleUnit ? 1 : q, ...(isDproxy ? { package_size: 1 } : {}) };
       const result = await api.calculatePrice(productId, merged);
+      if (seq !== calcSeqRef.current) return;
       setCalc(result);
       setCalcError(null);
     } catch (e) {
+      if (seq !== calcSeqRef.current) return;
       // Đây mới là lỗi thật (field đã điền nhưng backend từ chối) — trước đây
       // bị nuốt hoàn toàn, giá cứ đứng ở "—" mãi mà buyer không hiểu vì sao.
       setCalc(null);
       setCalcError(apiErrorMessage(e, t("priceCalcFailed")));
     } finally {
-      setCalculating(false);
+      if (seq === calcSeqRef.current) setCalculating(false);
     }
   }, [apiErrorMessage, productId, options, isDproxy, isSingleUnit, t, locale]);
 

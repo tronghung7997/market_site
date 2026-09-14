@@ -1473,7 +1473,7 @@
       "price_desc": "Giá cao → thấp"
     },
     "colPrice": "Giá",
-    "colSold": "Đã bán · Đánh giá",
+    "colSold": "Đã bán",
     "noRating": "chưa có đánh giá",
     "selectAll": "Chọn tất cả trên trang",
     "selectRow": "Chọn {title}",

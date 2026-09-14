@@ -20,7 +20,7 @@ function SortHeader({
   const Icon = sort === asc ? ChevronUp : ChevronDown;
   return (
     <th className={cn("px-3 py-3", className)} aria-sort={sort === asc ? "ascending" : sort === desc ? "descending" : "none"}>
-      <button type="button" onClick={() => onSort(sort === desc ? asc : desc)} className={cn("inline-flex items-center gap-1 rounded hover:text-fg", active && "text-fg")}>
+      <button type="button" onClick={() => onSort(sort === desc ? asc : desc)} className={cn("inline-flex items-center gap-1 rounded uppercase tracking-wider hover:text-fg", active && "text-fg")}>
         {label} <Icon size={12} className={cn(!active && "opacity-40")} />
       </button>
     </th>
@@ -60,7 +60,7 @@ export function SellerProductsTable({
 
   return (
     <div className="overflow-x-auto">
-      <table className="w-full min-w-[960px] border-collapse text-left">
+      <table className="w-full min-w-[880px] border-collapse text-left">
         <thead>
           <tr className="border-b border-line bg-raised/20 text-[11.5px] font-semibold uppercase tracking-wider text-faint">
             <th className="w-10 px-3 py-3">
@@ -74,12 +74,12 @@ export function SellerProductsTable({
               />
             </th>
             <SortHeader label={t("product")} asc="title" desc="title" sort={sort} onSort={onSort} className="pl-1" />
-            <th className="px-3 py-3">{t("category")}</th>
+            <th className="px-3 py-3 whitespace-nowrap">{t("category")}</th>
             <SortHeader label={tp("colPrice")} asc="price_asc" desc="price_desc" sort={sort} onSort={onSort} className="text-right" />
-            <SortHeader label={t("productsPageStockCondition")} asc="stock_asc" desc="stock_desc" sort={sort} onSort={onSort} className="min-w-[176px] whitespace-nowrap" />
+            <SortHeader label={t("stock")} asc="stock_asc" desc="stock_desc" sort={sort} onSort={onSort} className="min-w-[150px] whitespace-nowrap" />
             <SortHeader label={tp("colSold")} asc="sold_desc" desc="sold_desc" sort={sort} onSort={onSort} className="text-right whitespace-nowrap" />
             <th className="w-[116px] px-3 py-3 text-center whitespace-nowrap">{t("toggleStatus")}</th>
-            <th className="w-24 px-3 py-3 text-center whitespace-nowrap">{t("actions")}</th>
+            <th className="w-20 px-3 py-3 text-center whitespace-nowrap">{t("actions")}</th>
           </tr>
         </thead>
         <tbody className="divide-y divide-line text-[13px]">
@@ -108,7 +108,7 @@ export function SellerProductsTable({
                   <div className="flex items-center gap-3">
                     <ProductCover coverId={parseCoverId(p)} title={p.title} className="h-9 w-9 shrink-0 rounded-lg" />
                     <div className="min-w-0">
-                      <Link href={`/seller/products/${p.id}`} className="block max-w-[240px] truncate text-[13.5px] font-medium text-fg transition-colors hover:text-iris sm:max-w-[300px]" title={p.title}>
+                      <Link href={`/seller/products/${p.id}`} className="block max-w-[260px] truncate text-[13.5px] font-medium text-fg transition-colors hover:text-iris" title={p.title}>
                         {p.title}
                       </Link>
                       <div className="mt-0.5 flex items-center gap-2 text-[11px] text-faint">
@@ -127,7 +127,7 @@ export function SellerProductsTable({
                     </div>
                   </div>
                 </td>
-                <td className="px-3 py-3 text-muted">{p.category_name ?? "—"}</td>
+                <td className="px-3 py-3 text-muted whitespace-nowrap">{p.category_name ?? "—"}</td>
                 <td className="px-3 py-3 text-right font-mono text-[12.5px] tabular whitespace-nowrap">
                   {p.price_min === null || p.price_max === null ? (
                     <span className="text-faint">—</span>
@@ -138,7 +138,7 @@ export function SellerProductsTable({
                   )}
                 </td>
                 <td className="px-3 py-3">
-                  <div className="flex min-w-[130px] items-center justify-between gap-2 text-[12px]">
+                  <div className="flex items-center justify-between gap-2 text-[12px]">
                     <span className="font-mono font-bold tabular text-fg">{managed ? p.total_stock.toLocaleString(locale) : "—"}</span>
                     <Tag tone={stockTone}>{stockLabel}</Tag>
                   </div>
@@ -181,7 +181,7 @@ export function SellerProductsTable({
                     {isActive ? t("activeStatus") : p.status === "suspended" ? t("suspendedStatus") : p.status === "draft" ? t("draftStatus") : t("pausedStatus")}
                   </Button>
                 </td>
-                <td className="w-24 px-3 py-3">
+                <td className="w-20 px-3 py-3">
                   <div className="flex items-center justify-center gap-1">
                     <Link href={`/products/${p.id}`} title={t("viewPurchasePage")} className="inline-flex h-7 w-7 items-center justify-center rounded-lg text-muted hover:bg-surface hover:text-fg">
                       <Eye size={14} />

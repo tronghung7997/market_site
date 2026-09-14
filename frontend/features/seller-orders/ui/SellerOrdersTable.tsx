@@ -27,7 +27,7 @@ function SortHeader({
       <button
         type="button"
         onClick={() => onSort(sort === desc ? asc : desc)}
-        className={cn("inline-flex items-center gap-1 rounded hover:text-fg", active && "text-fg")}
+        className={cn("inline-flex items-center gap-1 rounded uppercase tracking-wider hover:text-fg", active && "text-fg")}
       >
         {label}
         <Icon size={12} className={cn(!active && "opacity-40")} />
@@ -74,7 +74,7 @@ export function SellerOrdersTable({
 
   return (
     <div className="overflow-x-auto">
-      <table className="w-full min-w-[900px] border-collapse text-left text-xs">
+      <table className="w-full min-w-[880px] border-collapse text-left text-xs">
         <thead>
           <tr className="border-b border-line bg-raised/40 text-[11px] font-semibold uppercase tracking-wide text-faint">
             <SortHeader label={t("orderCode")} asc="oldest" desc="newest" sort={sort} onSort={onSort} className="w-[7rem] whitespace-nowrap" />

@@ -205,3 +205,20 @@ async def test_dashboard_rejects_buyers_and_bad_ranges(client):
     bad_tz = await client.get("/seller/dashboard", params={"tz": "Mars/Olympus"}, headers=seller)
     assert bad_tz.status_code == 400
     assert bad_tz.json()["error_code"] == "DASHBOARD_RANGE_INVALID"
+
+
+@pytest.mark.asyncio
+async def test_open_dispute_counts_as_disputed_not_delivered(client):
+    buyer, seller, _ = await _seed_orders(client)
+    delivered_id = next(
+        o["id"] for o in (await client.get("/seller/orders", headers=seller)).json()["items"]
+        if o["status"] == "delivered"
+    )
+    opened = await client.post(f"/orders/{delivered_id}/dispute", json={"reason": "Broken"}, headers=buyer)
+    assert opened.status_code in (200, 201), opened.text
+
+    body = (await client.get("/seller/dashboard", headers=seller)).json()
+    assert body["orders"]["by_status"]["disputed"] == 1
+    assert body["orders"]["by_status"]["delivered"] == 0
+    assert body["orders"]["dispute_count"] == 1
+    assert sum(body["orders"]["by_status"].values()) == body["orders"]["total"]

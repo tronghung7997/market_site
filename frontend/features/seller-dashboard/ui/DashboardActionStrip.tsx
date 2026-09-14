@@ -2,6 +2,7 @@
 
 import { useTranslations } from "next-intl";
 import { Link } from "@/i18n/navigation";
+import { useActionItemLabel } from "@/lib/action-item-label";
 import { cn } from "@/lib/cn";
 import type { SellerDashboard } from "@/lib/types";
 import { AlertCircle, AlertTriangle, CheckCircle2, ChevronRight, Info } from "@/components/Icons";
@@ -16,6 +17,7 @@ const MAX_SHOWN = 4;
 
 export function DashboardActionStrip({ items }: { items: SellerDashboard["action_items"] }) {
   const t = useTranslations("sellerDashboard");
+  const itemLabel = useActionItemLabel();
   if (items.length === 0) {
     return (
       <div className="flex items-center gap-2 rounded-lg border border-good/25 bg-good-soft/50 px-3 py-2 text-[12.5px] text-good">
@@ -41,8 +43,8 @@ export function DashboardActionStrip({ items }: { items: SellerDashboard["action
             )}
           >
             <Icon size={15} className="shrink-0" />
-            <span className="min-w-0 flex-1 truncate text-[12.5px] font-semibold text-fg" title={item.label}>
-              {item.label}
+            <span className="min-w-0 flex-1 truncate text-[12.5px] font-semibold text-fg" title={itemLabel(item)}>
+              {itemLabel(item)}
             </span>
             <ChevronRight size={14} className="shrink-0" />
           </Link>

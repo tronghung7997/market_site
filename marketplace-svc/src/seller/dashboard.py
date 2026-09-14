@@ -27,7 +27,7 @@ from sqlalchemy import Date, String, case, cast, func, select
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from src.exceptions import ErrorCode, api_error
-from src.models.order import Dispute, Order, OrderStatus
+from src.models.order import Dispute, DisputeStatus, Order, OrderStatus
 from src.models.product import DeliveryMode, Product, ProductStatus, ProductVariant
 from src.models.resource import Resource, ResourceStatus
 from src.models.review import Review
@@ -164,14 +164,21 @@ async def _order_totals(seller_id: int, start: datetime, end: datetime, db: Asyn
 
 
 async def _status_counts(seller_id: int, rng: DashboardRange, db: AsyncSession) -> dict[str, int]:
+    """Orders in range by status. An open dispute is an overlay on a delivered
+    order, so it is reported under `disputed` (and not under `delivered`) —
+    the same way the orders console and the buyer view label it."""
+    open_dispute = Order.id.in_(
+        select(Dispute.order_id).where(Dispute.status == DisputeStatus.open)
+    )
+    effective = case((open_dispute, OrderStatus.disputed.value), else_=cast(Order.status, String)).label("effective")
     rows = (await db.execute(
-        select(Order.status, func.count(Order.id))
+        select(effective, func.count(Order.id))
         .where(Order.seller_id == seller_id, Order.created_at >= rng.start, Order.created_at < rng.end)
-        .group_by(Order.status)
+        .group_by(effective)
     )).all()
     counts = {s: 0 for s in ALL_STATUSES}
     for status_value, n in rows:
-        counts[status_value.value if hasattr(status_value, "value") else str(status_value)] = int(n)
+        counts[str(status_value)] = int(n)
     return counts
 
 

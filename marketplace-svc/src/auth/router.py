@@ -142,7 +142,7 @@ async def reset_password(
         f"auth:reset:ip:{_peer_ip(request)}",
         settings.auth_reset_ip_limit,
     )
-    message = await service.reset_password(body.token, body.password, db)
+    message = await service.reset_password(body.token, body.password, db, locale=body.locale)
     return schemas.PasswordResetAck(message=message)
 
 

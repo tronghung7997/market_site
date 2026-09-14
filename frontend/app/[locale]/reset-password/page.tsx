@@ -3,7 +3,7 @@
 import { Link } from "@/i18n/navigation";
 import { useSearchParams } from "next/navigation";
 import { Suspense, useState } from "react";
-import { useTranslations } from "next-intl";
+import { useLocale, useTranslations } from "next-intl";
 import {
   PASSWORD_MIN_LENGTH,
   confirmPasswordReset,
@@ -23,6 +23,7 @@ export default function ResetPasswordPage() {
 
 function ResetPasswordForm() {
   const t = useTranslations("auth");
+  const locale = useLocale();
   const apiErrorMessage = useApiErrorMessage();
   const searchParams = useSearchParams();
   const token = searchParams.get("token") ?? "";
@@ -53,7 +54,7 @@ function ResetPasswordForm() {
     setBusy(true);
     setError(null);
     try {
-      await confirmPasswordReset(token, password);
+      await confirmPasswordReset(token, password, locale);
       setAck(true);
     } catch (err) {
       setError(apiErrorMessage(err, t("resetFailed")));

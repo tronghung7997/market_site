@@ -97,12 +97,13 @@ async def admin_mail_outbox(
     db: AsyncSession = Depends(get_session),
     status: str | None = Query(None),
     template: str | None = Query(None),
+    to_email: str | None = Query(None, max_length=255),
     limit: int = Query(25, ge=1, le=100),
     offset: int = Query(0, ge=0),
 ):
     try:
         return await runtime.list_outbox(
-            db, status=status, template=template, limit=limit, offset=offset,
+            db, status=status, template=template, to_email=to_email, limit=limit, offset=offset,
         )
     except MailConfigError as exc:
         _http(exc)

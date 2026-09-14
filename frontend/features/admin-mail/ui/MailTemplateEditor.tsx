@@ -48,7 +48,7 @@ export function MailTemplateEditor() {
     } finally {
       setLoading(false);
     }
-  }, [t]);
+  }, [apiErrorMessage, t]);
 
   useEffect(() => {
     void load();

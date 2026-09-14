@@ -12,8 +12,23 @@ import type {
 } from "@/lib/types";
 import { Button, Input, Select, Spinner, Tag } from "@/components/ui";
 
-const OUTBOX_PAGE_SIZE = 25;
 import { MailTemplateEditor } from "./MailTemplateEditor";
+
+const OUTBOX_PAGE_SIZE = 25;
+// Must match KNOWN_TEMPLATES in marketplace-svc/src/mail/templates.py.
+const MAIL_TEMPLATE_IDS = [
+  "password_reset",
+  "password_changed",
+  "seller_application_approved",
+  "seller_application_rejected",
+  "provider_approved",
+  "provider_rejected",
+  "withdrawal_approved",
+  "withdrawal_rejected",
+  "dispute_opened",
+  "dispute_resolved",
+  "admin_test",
+] as const;
 
 function secretTone(ok: boolean): "good" | "warn" {
   return ok ? "good" : "warn";
@@ -37,6 +52,9 @@ export function MailSettingsPanel() {
   const [rows, setRows] = useState<MailOutboxRow[]>([]);
   const [total, setTotal] = useState(0);
   const [statusFilter, setStatusFilter] = useState("");
+  const [templateFilter, setTemplateFilter] = useState("");
+  const [toFilter, setToFilter] = useState("");
+  const [toQuery, setToQuery] = useState("");
   const [listErr, setListErr] = useState("");
   const [listMsg, setListMsg] = useState("");
   const [offset, setOffset] = useState(0);
@@ -51,12 +69,14 @@ export function MailSettingsPanel() {
     setWorkerEnabled(data.worker_enabled);
   };
 
-  const loadList = useCallback(async (status: string, nextOffset: number, quiet = false) => {
+  const loadList = useCallback(async (nextOffset: number, quiet = false) => {
     setListErr("");
     if (!quiet) setRefreshing(true);
     try {
       const data = await api.adminMailOutbox({
-        status: status || undefined,
+        status: statusFilter || undefined,
+        template: templateFilter || undefined,
+        to_email: toQuery || undefined,
         limit: OUTBOX_PAGE_SIZE,
         offset: nextOffset,
       });
@@ -67,7 +87,7 @@ export function MailSettingsPanel() {
     } finally {
       if (!quiet) setRefreshing(false);
     }
-  }, [t]);
+  }, [apiErrorMessage, statusFilter, t, templateFilter, toQuery]);
 
   const load = useCallback(async () => {
     setLoading(true);
@@ -80,23 +100,43 @@ export function MailSettingsPanel() {
     } finally {
       setLoading(false);
     }
-  }, [t]);
+  }, [apiErrorMessage, t]);
 
   useEffect(() => {
     void load();
   }, [load]);
 
   useEffect(() => {
-    void loadList(statusFilter, offset);
-  }, [loadList, statusFilter, offset]);
+    void loadList(offset);
+  }, [loadList, offset]);
+
+  // Debounce the recipient search so each keystroke does not hit the API.
+  useEffect(() => {
+    const timer = window.setTimeout(() => {
+      setOffset(0);
+      setToQuery(toFilter.trim());
+    }, 300);
+    return () => window.clearTimeout(timer);
+  }, [toFilter]);
+
+  // Only poll while something can actually change soon: a row mid-send, or a
+  // pending row whose schedule is due within the next poll window. Rows parked
+  // on a long backoff should not keep the tab polling for half an hour.
+  const active = useMemo(() => {
+    const horizon = Date.now() + 10_000;
+    return rows.some((row) => (
+      row.status === "sending"
+      || (row.status === "pending" && new Date(row.scheduled_at).getTime() <= horizon)
+    ));
+  }, [rows]);
 
   useEffect(() => {
-    if (!rows.some((row) => row.status === "pending" || row.status === "sending")) return;
+    if (!active) return;
     const timer = window.setInterval(() => {
-      void loadList(statusFilter, offset, true);
+      void loadList(offset, true);
     }, 5000);
     return () => window.clearInterval(timer);
-  }, [loadList, offset, rows, statusFilter]);
+  }, [active, loadList, offset]);
 
   const dirty = useMemo(() => {
     if (!cfg) return false;
@@ -108,11 +148,11 @@ export function MailSettingsPanel() {
     );
   }, [cfg, provider, mailFrom, mailFromName, workerEnabled]);
 
-  const selectedReady = Boolean(
+  // Mirrors backend mail_ready(): `log` never needs a from-address.
+  const selectedReady = provider === "log" || Boolean(
     mailFrom.trim()
     && (
-      provider === "log"
-      || (provider === "resend" && cfg?.resend_api_key_configured)
+      (provider === "resend" && cfg?.resend_api_key_configured)
       || (provider === "smtp" && cfg?.smtp_host_configured)
     )
   );
@@ -166,10 +206,10 @@ export function MailSettingsPanel() {
           ? t("testLogged", { status: result.status })
           : t("testSent", { status: result.status }),
       );
-      await loadList(statusFilter, offset);
+      await loadList(offset);
     } catch (e) {
       setErr(apiErrorMessage(e, t("testFail")));
-      await loadList(statusFilter, offset);
+      await loadList(offset);
     } finally {
       setTesting(false);
     }
@@ -182,7 +222,7 @@ export function MailSettingsPanel() {
     try {
       await api.adminRetryMailOutbox(id);
       setListMsg(t("retryDone", { id }));
-      await loadList(statusFilter, offset);
+      await loadList(offset);
     } catch (e) {
       setListErr(apiErrorMessage(e, t("retryFail")));
     } finally {
@@ -381,7 +421,37 @@ export function MailSettingsPanel() {
             <p className="mt-0.5 text-[12px] text-muted">{t("outboxHint", { total })}</p>
           </div>
           <div className="flex flex-wrap items-end gap-2">
-            <label className="text-[12px] text-muted">
+            <label className="flex basis-full flex-col text-[12px] text-muted sm:basis-[13rem]">
+              {t("toFilter")}
+              <Input
+                id="mail-to-filter"
+                name="to_email"
+                type="search"
+                value={toFilter}
+                onChange={(e) => setToFilter(e.target.value)}
+                placeholder={t("toFilterPlaceholder")}
+                className="mt-1 h-9 w-full"
+              />
+            </label>
+            <label className="flex min-w-[8rem] flex-1 flex-col text-[12px] text-muted sm:flex-none sm:basis-[11rem]">
+              {t("templateFilter")}
+              <Select
+                id="mail-template-filter"
+                name="template"
+                value={templateFilter}
+                onChange={(e) => {
+                  setOffset(0);
+                  setTemplateFilter(e.target.value);
+                }}
+                className="mt-1 h-9 w-full"
+              >
+                <option value="">{t("templateAll")}</option>
+                {MAIL_TEMPLATE_IDS.map((name) => (
+                  <option key={name} value={name}>{t(`tplNames.${name}`)}</option>
+                ))}
+              </Select>
+            </label>
+            <label className="flex min-w-[7rem] flex-1 flex-col text-[12px] text-muted sm:flex-none sm:basis-[8rem]">
               {t("statusFilter")}
               <Select
                 id="mail-status-filter"
@@ -391,7 +461,7 @@ export function MailSettingsPanel() {
                   setOffset(0);
                   setStatusFilter(e.target.value);
                 }}
-                className="mt-1 h-9 w-auto min-w-[8rem]"
+                className="mt-1 h-9 w-full"
               >
                 <option value="">{t("statusAll")}</option>
                 <option value="pending">{t("status.pending")}</option>
@@ -403,7 +473,7 @@ export function MailSettingsPanel() {
             <Button
               size="sm"
               variant="secondary"
-              onClick={() => void loadList(statusFilter, offset)}
+              onClick={() => void loadList(offset)}
               disabled={refreshing}
             >
               {refreshing ? t("refreshing") : t("refresh")}

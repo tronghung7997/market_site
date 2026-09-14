@@ -204,3 +204,70 @@ async def test_outbox_retry_and_buyer_forbidden(client, recording_mail):
 
     missing = await client.post("/admin/mail-outbox/999999/retry", headers=headers)
     assert missing.status_code == 404
+
+
+@pytest.mark.asyncio
+async def test_outbox_retry_resets_attempt_budget(client, recording_mail):
+    headers = await _admin(client, "mail-retry-budget-admin@test.com")
+    async with SessionLocal() as db:
+        row = await enqueue_mail(
+            db,
+            template="password_changed",
+            to_email="budget@example.com",
+            idempotency_key="retry-budget",
+            payload={"action_url": "http://localhost:3000/vi/forgot-password"},
+        )
+        row.status = MailOutboxStatus.failed.value
+        row.attempts = 8
+        await db.commit()
+        outbox_id = row.id
+
+    retry = await client.post(f"/admin/mail-outbox/{outbox_id}/retry", headers=headers)
+    assert retry.status_code == 200, retry.text
+    assert retry.json()["attempts"] == 0
+
+
+@pytest.mark.asyncio
+async def test_outbox_list_filters_by_recipient(client, recording_mail):
+    headers = await _admin(client, "mail-filter-admin@test.com")
+    async with SessionLocal() as db:
+        for i, email in enumerate(["alpha@one.test", "beta@two.test", "gamma@one.test"]):
+            await enqueue_mail(
+                db,
+                template="password_changed",
+                to_email=email,
+                idempotency_key=f"filter-{i}",
+                payload={"action_url": "http://localhost:3000/vi/forgot-password"},
+            )
+        await db.commit()
+
+    listing = await client.get("/admin/mail-outbox?to_email=%40ONE.test", headers=headers)
+    assert listing.status_code == 200, listing.text
+    emails = {row["to_email"] for row in listing.json()["items"]}
+    assert emails == {"alpha@one.test", "gamma@one.test"}
+
+    # LIKE metacharacters are literal, not wildcards.
+    wild = await client.get("/admin/mail-outbox?to_email=%25", headers=headers)
+    assert wild.json()["total"] == 0
+
+
+@pytest.mark.asyncio
+async def test_send_test_unexpected_error_marks_row_failed(client, recording_mail, monkeypatch):
+    headers = await _admin(client, "mail-crash-admin@test.com")
+
+    async def boom(*_args, **_kwargs):
+        raise RuntimeError("render exploded")
+
+    monkeypatch.setattr("src.mail.worker.deliver_now", boom)
+    response = await client.post(
+        "/admin/mail-config/send-test",
+        json={"to_email": "crash@example.com", "locale": "vi"},
+        headers=headers,
+    )
+    assert response.status_code == 502
+    assert "render exploded" in response.json()["detail"]
+
+    listing = await client.get("/admin/mail-outbox?to_email=crash@example.com", headers=headers)
+    row = listing.json()["items"][0]
+    assert row["status"] == "failed"
+    assert row["last_error"] == "render exploded"

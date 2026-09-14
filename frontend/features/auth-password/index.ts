@@ -10,6 +10,6 @@ export function requestPasswordReset(email: string, locale: string) {
   return api.forgotPassword(email, locale);
 }
 
-export function confirmPasswordReset(token: string, password: string) {
-  return api.resetPassword(token, password);
+export function confirmPasswordReset(token: string, password: string, locale: string) {
+  return api.resetPassword(token, password, locale);
 }

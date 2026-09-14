@@ -190,10 +190,13 @@ async def request_password_reset(email: str, locale: str, db: AsyncSession) -> s
     return _FORGOT_ACK
 
 
-async def reset_password(raw_token: str, new_password: str, db: AsyncSession) -> str:
+async def reset_password(
+    raw_token: str, new_password: str, db: AsyncSession, *, locale: str = "vi",
+) -> str:
     from src.mail.service import enqueue_mail, forgot_password_url
     from src.security.events import security_event
 
+    loc = locale if locale in {"vi", "en"} else "vi"
     now = datetime.now(timezone.utc)
     token = await db.scalar(
         select(PasswordResetToken).where(PasswordResetToken.token_hash == hash_reset_token(raw_token))
@@ -227,8 +230,8 @@ async def reset_password(raw_token: str, new_password: str, db: AsyncSession) ->
         template="password_changed",
         account_id=account.id,
         idempotency_key=f"password_changed:{account.id}:{token.id}",
-        payload={"action_url": forgot_password_url("vi")},
-        locale="vi",
+        payload={"action_url": forgot_password_url(loc)},
+        locale=loc,
     )
     await log_event(
         db, "info", f"Password reset completed for account {account.id}",

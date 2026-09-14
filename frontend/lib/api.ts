@@ -77,10 +77,10 @@ export const api = {
       method: "POST",
       body: JSON.stringify({ email, locale }),
     }),
-  resetPassword: (token: string, password: string) =>
+  resetPassword: (token: string, password: string, locale: string) =>
     request<{ message: string }>("/auth/reset-password", {
       method: "POST",
-      body: JSON.stringify({ token, password }),
+      body: JSON.stringify({ token, password, locale }),
     }),
   me: () => request<Account>("/me", {}, "silent"),
   tiktokLookup: (value: string) =>
@@ -768,12 +768,19 @@ export const api = {
       method: "POST",
       body: JSON.stringify({ to_email: toEmail, locale }),
     }, true),
-  adminMailOutbox: (query?: { status?: string; template?: string; limit?: number; offset?: number }) => {
+  adminMailOutbox: (query?: {
+    status?: string;
+    template?: string;
+    to_email?: string;
+    limit?: number;
+    offset?: number;
+  }) => {
     const params = new URLSearchParams();
     params.set("limit", String(query?.limit ?? 25));
     params.set("offset", String(query?.offset ?? 0));
     if (query?.status) params.set("status", query.status);
     if (query?.template) params.set("template", query.template);
+    if (query?.to_email) params.set("to_email", query.to_email);
     return request<MailOutboxList>(`/admin/mail-outbox?${params.toString()}`, {}, true);
   },
   adminRetryMailOutbox: (id: number) =>

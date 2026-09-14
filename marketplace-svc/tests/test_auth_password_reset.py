@@ -60,7 +60,7 @@ async def test_reset_password_success_and_cannot_reuse_token(client):
 
     reset = await client.post(
         "/auth/reset-password",
-        json={"token": token, "password": "NewPassword123!"},
+        json={"token": token, "password": "NewPassword123!", "locale": "en"},
     )
     assert reset.status_code == 200
     stale = await client.get("/me", headers={"Authorization": f"Bearer {old_access}"})
@@ -76,7 +76,10 @@ async def test_reset_password_success_and_cannot_reuse_token(client):
         json={"email": "resetme@example.com", "password": "NewPassword123!"},
     )
     assert new.status_code == 200
-    assert await _outbox("password_changed")
+    changed = await _outbox("password_changed")
+    assert changed
+    assert changed[0].locale == "en"
+    assert "/en/forgot-password" in changed[0].payload["action_url"]
 
     reuse = await client.post(
         "/auth/reset-password",

@@ -29,6 +29,7 @@ class ForgotPasswordRequest(BaseModel):
 class ResetPasswordRequest(BaseModel):
     token: str = Field(min_length=20, max_length=256)
     password: str = Field(min_length=8, max_length=128)
+    locale: str = Field(default="vi", max_length=8)
 
     @field_validator("password")
     @classmethod

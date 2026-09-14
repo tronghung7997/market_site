@@ -82,10 +82,21 @@ def runtime_from_mapping(data: dict) -> MailRuntime:
 
 
 def current_runtime() -> MailRuntime:
+    """Process-cached runtime; falls back to env when the cache is cold.
+
+    Send paths must use :func:`load_runtime` so a cold cache in another
+    worker process cannot resurrect env values over the admin-saved row.
+    """
     cached = _cache.get()
     if cached is not None:
         return runtime_from_mapping(cached)
     return env_runtime()
+
+
+async def load_runtime(db: AsyncSession) -> MailRuntime:
+    """DB-backed runtime (seeds on first call, refreshes the process cache)."""
+    row = await ensure_seeded(db)
+    return runtime_from_mapping(_row_snapshot(row))
 
 
 def _row_snapshot(row: MailRuntimeConfig) -> dict:
@@ -293,6 +304,7 @@ async def list_outbox(
     *,
     status: str | None = None,
     template: str | None = None,
+    to_email: str | None = None,
     limit: int = 25,
     offset: int = 0,
 ) -> dict:
@@ -306,6 +318,11 @@ async def list_outbox(
         filters.append(MailOutbox.status == status)
     if template:
         filters.append(MailOutbox.template == template.strip()[:100])
+    if to_email:
+        needle = to_email.strip().lower()[:255]
+        if needle:
+            escaped = needle.replace("\\", "\\\\").replace("%", "\\%").replace("_", "\\_")
+            filters.append(func.lower(MailOutbox.to_email).like(f"%{escaped}%", escape="\\"))
 
     count_stmt = select(func.count()).select_from(MailOutbox)
     list_stmt = select(MailOutbox).order_by(MailOutbox.created_at.desc(), MailOutbox.id.desc())
@@ -330,6 +347,9 @@ async def retry_outbox(db: AsyncSession, *, outbox_id: int, actor_id: int) -> di
     row.scheduled_at = now
     row.updated_at = now
     row.last_error = None
+    # A manual retry restarts the attempt budget so the worker gets its full
+    # backoff sequence again instead of failing on the first transient error.
+    row.attempts = 0
     await db.flush()
     await log_event(
         db, "info", "Mail outbox retry requested",
@@ -346,6 +366,19 @@ async def retry_outbox(db: AsyncSession, *, outbox_id: int, actor_id: int) -> di
     await db.commit()
     await db.refresh(row)
     return _outbox_public(row)
+
+
+async def _mark_failed(db: AsyncSession, outbox_id: int, error: str) -> None:
+    await db.rollback()
+    row = await db.get(MailOutbox, outbox_id)
+    if row is None:
+        return
+    now = datetime.now(timezone.utc)
+    row.status = MailOutboxStatus.failed.value
+    row.attempts += 1
+    row.last_error = error
+    row.updated_at = now
+    await db.commit()
 
 
 async def send_test(
@@ -413,7 +446,11 @@ async def send_test(
     await db.commit()
     outbox_id = queued.id
 
-    status = await deliver_now(outbox_id, runtime=runtime)
+    try:
+        status = await deliver_now(outbox_id, runtime=runtime)
+    except Exception as exc:  # noqa: BLE001 — never leave the row stuck in `sending`
+        await _mark_failed(db, outbox_id, str(exc)[:500])
+        raise MailTestSendFailed(str(exc)[:500]) from exc
     db.expire_all()
     refreshed = await db.get(MailOutbox, outbox_id)
     if refreshed is None:

@@ -140,3 +140,46 @@ def test_default_render_still_matches_catalog():
     assert "Reset your Marketplace password" == subject
     assert "https://site.test/reset" in text
     assert "https://site.test/reset" in html_body
+
+
+@pytest.mark.asyncio
+async def test_send_test_and_worker_use_admin_copy_with_cold_cache(client, recording_mail):
+    """Admin copy must be read from DB on send paths, not only from the TTL cache."""
+    from src.mail import catalog
+
+    headers = await _admin(client, "tpl-cold-admin@test.com")
+    patched = await client.patch(
+        "/admin/mail-templates",
+        json={
+            "template": "admin_test",
+            "locale": "en",
+            "subject": "Custom test subject",
+            "body": "Custom body {action_url}",
+        },
+        headers=headers,
+    )
+    assert patched.status_code == 200, patched.text
+
+    # Simulate TTL expiry in this (or another) worker process.
+    catalog._cache.invalidate()
+    sent = await client.post(
+        "/admin/mail-config/send-test",
+        json={"to_email": "cold@example.com", "locale": "en"},
+        headers=headers,
+    )
+    assert sent.status_code == 200, sent.text
+    assert recording_mail.sent[-1].subject == "Custom test subject"
+
+    async with SessionLocal() as db:
+        await enqueue_mail(
+            db,
+            template="admin_test",
+            to_email="cold-worker@example.com",
+            locale="en",
+            idempotency_key="tpl-cold-worker",
+            payload={"action_url": "https://x.test"},
+        )
+        await db.commit()
+    catalog._cache.invalidate()
+    assert await process_mail_outbox() == 1
+    assert recording_mail.sent[-1].subject == "Custom test subject"

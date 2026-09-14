@@ -41,17 +41,35 @@ def _snapshot_from_rows(rows: list[MailTemplate]) -> dict:
     return data
 
 
-def lookup_copy(template: str, locale: str) -> tuple[str, str]:
+CopySnapshot = dict[str, dict[str, str]]
+
+
+def lookup_copy(
+    template: str,
+    locale: str,
+    snapshot: CopySnapshot | None = None,
+) -> tuple[str, str]:
+    """Resolve subject/body for a template.
+
+    Pass ``snapshot`` (from :func:`load_snapshot`) on send paths so a cache
+    TTL expiry mid-batch cannot silently drop admin-customized copy. Without
+    it, only the process cache is consulted before falling back to defaults.
+    """
     loc = locale if locale in _LOCALES else "vi"
-    cached = _cache.get()
-    if cached is not None:
-        row = cached.get(_key(template, loc))
+    data = snapshot if snapshot is not None else _cache.get()
+    if data is not None:
+        row = data.get(_key(template, loc))
         if row:
             return row["subject"], row["body"]
     return default_copy(template, loc)
 
 
-async def ensure_seeded(db: AsyncSession) -> None:
+async def load_snapshot(db: AsyncSession) -> CopySnapshot:
+    """Seed missing rows, refresh the cache, and return the DB-backed snapshot."""
+    return await ensure_seeded(db)
+
+
+async def ensure_seeded(db: AsyncSession) -> CopySnapshot:
     existing = list((await db.execute(select(MailTemplate))).scalars().all())
     have = {(row.template, row.locale) for row in existing}
     missing = [
@@ -70,7 +88,9 @@ async def ensure_seeded(db: AsyncSession) -> None:
         await db.execute(pg_insert(MailTemplate).values(missing).on_conflict_do_nothing())
         await db.flush()
         existing = list((await db.execute(select(MailTemplate))).scalars().all())
-    _cache.set(_snapshot_from_rows(existing))
+    snapshot = _snapshot_from_rows(existing)
+    _cache.set(snapshot)
+    return snapshot
 
 
 def _row_public(row: MailTemplate) -> dict:

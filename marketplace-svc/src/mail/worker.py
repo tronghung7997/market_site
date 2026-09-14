@@ -11,8 +11,8 @@ from src.models.mail import MailOutbox, MailOutboxStatus
 
 from .adapters import MailAdapter, MailMessage, MailSendError, PermanentMailSendError
 from .factory import get_mail_adapter
-from .runtime import MailRuntime, current_runtime
-from .catalog import lookup_copy
+from .catalog import CopySnapshot, load_snapshot, lookup_copy
+from .runtime import MailRuntime, load_runtime
 from .templates import render
 
 logger = structlog.get_logger()
@@ -27,16 +27,13 @@ def _backoff_seconds(attempts: int) -> int:
 
 
 async def mail_outbox_send_job() -> None:
-    from .catalog import ensure_seeded as ensure_templates_seeded
-    from .runtime import ensure_seeded
-
     async with SessionLocal() as db:
-        await ensure_seeded(db)
-        await ensure_templates_seeded(db)
+        runtime = await load_runtime(db)
+        copies = await load_snapshot(db)
         await db.commit()
-    if not current_runtime().worker_enabled:
+    if not runtime.worker_enabled:
         return
-    await process_mail_outbox()
+    await process_mail_outbox(runtime=runtime, copies=copies)
 
 
 async def _persist_send_outcome(
@@ -44,6 +41,7 @@ async def _persist_send_outcome(
     row: MailOutbox,
     adapter: MailAdapter | None,
     runtime: MailRuntime,
+    copies: CopySnapshot,
 ) -> str:
     now = datetime.now(timezone.utc)
     if adapter is None:
@@ -55,7 +53,8 @@ async def _persist_send_outcome(
         return row.status
     try:
         subject, text, html_body = render(
-            row.template, row.locale, row.payload, copy=lookup_copy(row.template, row.locale),
+            row.template, row.locale, row.payload,
+            copy=lookup_copy(row.template, row.locale, copies),
         )
         await adapter.send(
             MailMessage(
@@ -107,23 +106,33 @@ async def _persist_send_outcome(
 
 async def deliver_now(outbox_id: int, *, runtime: MailRuntime | None = None) -> str:
     """Send one outbox row immediately (admin test). Uses its own session."""
-    rt = runtime or current_runtime()
-    adapter = get_mail_adapter(rt)
     async with SessionLocal() as db:
+        rt = runtime or await load_runtime(db)
+        copies = await load_snapshot(db)
+        await db.commit()
+        adapter = get_mail_adapter(rt)
         row = await db.get(MailOutbox, outbox_id)
         if row is None:
             return "missing"
-        return await _persist_send_outcome(db, row, adapter, rt)
+        return await _persist_send_outcome(db, row, adapter, rt, copies)
 
 
-async def process_mail_outbox() -> int:
-    """Claim pending rows, send outside the claim transaction, persist outcome."""
-    from .catalog import ensure_seeded as ensure_templates_seeded
+async def process_mail_outbox(
+    *,
+    runtime: MailRuntime | None = None,
+    copies: CopySnapshot | None = None,
+) -> int:
+    """Claim pending rows, send outside the claim transaction, persist outcome.
 
-    async with SessionLocal() as db:
-        await ensure_templates_seeded(db)
-        await db.commit()
-    runtime = current_runtime()
+    Runtime and template copy are resolved from the DB once per batch and
+    reused for every row, so a process-cache TTL expiry mid-batch cannot
+    change provider/from/copy between rows.
+    """
+    if runtime is None or copies is None:
+        async with SessionLocal() as db:
+            runtime = runtime or await load_runtime(db)
+            copies = copies if copies is not None else await load_snapshot(db)
+            await db.commit()
     adapter = get_mail_adapter(runtime)
     now = datetime.now(timezone.utc)
     async with SessionLocal() as db:
@@ -168,7 +177,7 @@ async def process_mail_outbox() -> int:
             row = await db.get(MailOutbox, row_id)
             if row is None:
                 continue
-            status = await _persist_send_outcome(db, row, adapter, runtime)
+            status = await _persist_send_outcome(db, row, adapter, runtime, copies)
             if status == MailOutboxStatus.sent.value:
                 sent += 1
     return sent

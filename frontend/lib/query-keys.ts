@@ -59,4 +59,18 @@ export const queryKeys = {
   adminAffiliates: (params?: Record<string, unknown>) => ["admin-affiliates", params ?? null] as const,
   adminAffiliateDetail: (id: number, params?: Record<string, unknown>) =>
     ["admin-affiliate", id, params ?? null] as const,
+
+  // Seller overview
+  sellerDashboard: (params: Record<string, unknown>) => ["seller-dashboard", params] as const,
+
+  // Seller orders console — prefix ["seller-orders"] invalidates list + detail.
+  sellerOrders: (params?: Record<string, unknown> | null) =>
+    params == null ? ["seller-orders"] as const : ["seller-orders", "list", params] as const,
+  sellerOrderDetail: (id: number) => ["seller-orders", "detail", id] as const,
+  sellerDispute: (orderId: number) => ["seller-orders", "dispute", orderId] as const,
+  sellerOrderResources: (orderId: number) => ["seller-orders", "resources", orderId] as const,
+
+  // Seller products console
+  sellerProducts: (params?: Record<string, unknown> | null) =>
+    params == null ? ["seller-products"] as const : ["seller-products", "list", params] as const,
 } as const;

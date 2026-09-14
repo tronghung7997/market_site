@@ -271,15 +271,36 @@ class SellerProductResponse(ProductListItemBase):
     category_name: str | None = None
     variant_count: int
     total_stock: int
+    # Active-variant price span; None when the product has no active packages.
+    price_min: int | None = None
+    price_max: int | None = None
 
 
 class SellerProductCounts(BaseModel):
     all: int
     active: int
     paused: int
+    draft: int
+    suspended: int
     low_stock: int
     out_of_stock: int
     total_stock: int
+    low_stock_threshold: int
+
+
+class SellerProductBulkStatusRequest(BaseModel):
+    ids: list[int] = Field(min_length=1, max_length=200)
+    status: Literal["active", "paused"]
+
+
+class SellerProductBulkSkipped(BaseModel):
+    id: int
+    reason: Literal["not_found", "not_owner", "suspended"]
+
+
+class SellerProductBulkStatusResponse(BaseModel):
+    updated: list[int]
+    skipped: list[SellerProductBulkSkipped]
 
 
 class SellerProductListResponse(BaseModel):

@@ -594,6 +594,37 @@ def _available_stock_by_product():
     )
 
 
+async def seller_inventory_counts(seller_id: int, db: AsyncSession) -> dict:
+    """Store-wide stock health for the seller overview — same rules as the
+    products page counts (managed = fixed-price inventory products only) but
+    without search/tab filters, so the two never disagree on thresholds."""
+    stock = _available_stock_by_product()
+    stock_col = func.coalesce(stock.c.stock, 0)
+    managed = inventory_managed_sql()
+    scope = (
+        select(Product.id, Product.status, stock_col.label("stock"), managed.label("managed"))
+        .outerjoin(stock, stock.c.product_id == Product.id)
+        .where(Product.seller_id == seller_id)
+        .subquery()
+    )
+    row = (await db.execute(select(
+        func.count(scope.c.id),
+        func.sum(case((scope.c.status == ProductStatus.active, 1), else_=0)),
+        func.sum(case((scope.c.managed, 1), else_=0)),
+        func.sum(case((scope.c.managed, scope.c.stock), else_=0)),
+        func.sum(case((scope.c.managed & (scope.c.stock > 0) & (scope.c.stock <= SELLER_LOW_STOCK), 1), else_=0)),
+        func.sum(case((scope.c.managed & (scope.c.stock == 0), 1), else_=0)),
+    ))).one()
+    return {
+        "product_count": int(row[0] or 0),
+        "active_count": int(row[1] or 0),
+        "managed_products": int(row[2] or 0),
+        "total_stock": int(row[3] or 0),
+        "low_stock": int(row[4] or 0),
+        "out_of_stock": int(row[5] or 0),
+    }
+
+
 async def list_seller_products(
     seller_id: int,
     db: AsyncSession,
@@ -602,6 +633,7 @@ async def list_seller_products(
     status: str | None = None,
     category: str | None = None,
     service_type: str | None = None,
+    sort: str = "newest",
     page: int = 1,
     per_page: int = 50,
 ) -> dict:
@@ -613,18 +645,25 @@ async def list_seller_products(
     stock = _available_stock_by_product()
     stock_col = func.coalesce(stock.c.stock, 0)
     managed = inventory_managed_sql()
+    price_range = _variant_price_range_by_product()
     scoped = (
         select(
             Product.id,
             Product.status,
             Product.service_type,
             Product.created_at,
+            Product.title,
+            Product.sold_count,
+            Product.rating_avg,
             Category.name.label("category_name"),
             stock_col.label("stock"),
             managed.label("managed"),
+            price_range.c.price_min.label("price_min"),
+            price_range.c.price_max.label("price_max"),
         )
         .outerjoin(Category, Category.id == Product.category_id)
         .outerjoin(stock, stock.c.product_id == Product.id)
+        .outerjoin(price_range, price_range.c.product_id == Product.id)
         .where(*filters)
     )
     scope = scoped.subquery()
@@ -646,10 +685,12 @@ async def list_seller_products(
     count_row = (await db.execute(select(
         func.count(scope.c.id),
         func.sum(case((scope.c.status == ProductStatus.active, 1), else_=0)),
-        func.sum(case((scope.c.status.in_([ProductStatus.paused, ProductStatus.draft]), 1), else_=0)),
+        func.sum(case((scope.c.status == ProductStatus.paused, 1), else_=0)),
         func.sum(case((scope.c.managed & (scope.c.stock > 0) & (scope.c.stock <= SELLER_LOW_STOCK), 1), else_=0)),
         func.sum(case((scope.c.managed & (scope.c.stock == 0), 1), else_=0)),
         func.sum(case((scope.c.managed, scope.c.stock), else_=0)),
+        func.sum(case((scope.c.status == ProductStatus.draft, 1), else_=0)),
+        func.sum(case((scope.c.status == ProductStatus.suspended, 1), else_=0)),
     ))).one()
     counts = {
         "all": int(count_row[0] or 0),
@@ -658,13 +699,18 @@ async def list_seller_products(
         "low_stock": int(count_row[3] or 0),
         "out_of_stock": int(count_row[4] or 0),
         "total_stock": int(count_row[5] or 0),
+        "draft": int(count_row[6] or 0),
+        "suspended": int(count_row[7] or 0),
+        "low_stock_threshold": SELLER_LOW_STOCK,
     }
     tab = (status or "all").strip().lower()
     page_filters = []
     if tab == "active":
         page_filters.append(scope.c.status == ProductStatus.active)
     elif tab == "paused":
-        page_filters.append(scope.c.status.in_([ProductStatus.paused, ProductStatus.draft]))
+        page_filters.append(scope.c.status == ProductStatus.paused)
+    elif tab == "draft":
+        page_filters.append(scope.c.status == ProductStatus.draft)
     elif tab == "low_stock":
         page_filters.append(scope.c.managed & (scope.c.stock > 0) & (scope.c.stock <= SELLER_LOW_STOCK))
     elif tab == "out_of_stock":
@@ -674,10 +720,20 @@ async def list_seller_products(
     if service_type:
         page_filters.append(scope.c.service_type == service_type)
 
+    order_by = {
+        "oldest": (scope.c.created_at.asc(), scope.c.id.asc()),
+        "title": (scope.c.title.asc(), scope.c.id.asc()),
+        "stock_asc": (case((scope.c.managed, scope.c.stock), else_=None).asc().nulls_last(), scope.c.id.desc()),
+        "stock_desc": (case((scope.c.managed, scope.c.stock), else_=None).desc().nulls_last(), scope.c.id.desc()),
+        "sold_desc": (scope.c.sold_count.desc(), scope.c.id.desc()),
+        "rating_desc": (scope.c.rating_avg.desc().nulls_last(), scope.c.id.desc()),
+        "price_asc": (scope.c.price_min.asc().nulls_last(), scope.c.id.desc()),
+        "price_desc": (scope.c.price_max.desc().nulls_last(), scope.c.id.desc()),
+    }.get(sort, (scope.c.created_at.desc(), scope.c.id.desc()))
     page_rows = (await db.execute(
         select(scope.c.id, func.count().over().label("filtered_total"))
         .where(*page_filters)
-        .order_by(scope.c.created_at.desc(), scope.c.id.desc())
+        .order_by(*order_by)
         .offset((page - 1) * per_page).limit(per_page)
     )).all()
     page_ids = [row.id for row in page_rows]
@@ -723,16 +779,65 @@ async def list_seller_products(
             config = pricing_configs.get(p.service_type or "other")
             pricing = (config.strategy, config.params) if config else ("fixed", {})
         item["pricing_strategy"], item["pricing_params"] = pricing
+        prices = [v["price"] for v in variants if v.get("is_active", True)]
         out.append({
             **item,
             "category_name": category_names.get(p.category_id),
             "variant_count": len(variants),
             "total_stock": sum(v["stock_count"] for v in variants),
+            "price_min": min(prices) if prices else None,
+            "price_max": max(prices) if prices else None,
         })
     return {
         "items": out, "total": total, "page": page, "per_page": per_page,
         "counts": counts, "categories": categories, "service_types": service_types,
     }
+
+
+SELLER_PRODUCT_SORTS = (
+    "newest", "oldest", "title", "stock_asc", "stock_desc", "sold_desc", "rating_desc", "price_asc", "price_desc",
+)
+
+
+def _variant_price_range_by_product():
+    return (
+        select(
+            ProductVariant.product_id.label("product_id"),
+            func.min(ProductVariant.price).label("price_min"),
+            func.max(ProductVariant.price).label("price_max"),
+        )
+        .where(ProductVariant.is_active == True)  # noqa: E712
+        .group_by(ProductVariant.product_id)
+        .subquery()
+    )
+
+
+async def bulk_update_seller_product_status(
+    product_ids: list[int], seller_id: int, status: str, db: AsyncSession,
+) -> dict:
+    """Pause/activate many products in one commit. Rows the seller may not
+    change (not theirs, suspended, unknown) are reported, never silently
+    skipped, and never block the rest."""
+    wanted = list(dict.fromkeys(product_ids))
+    rows = (await db.execute(
+        select(Product).where(Product.id.in_(wanted))
+    )).scalars().all()
+    by_id = {p.id: p for p in rows}
+    updated: list[int] = []
+    skipped: list[dict] = []
+    for pid in wanted:
+        product = by_id.get(pid)
+        if not product:
+            skipped.append({"id": pid, "reason": "not_found"})
+        elif product.seller_id != seller_id:
+            skipped.append({"id": pid, "reason": "not_owner"})
+        elif product.status == ProductStatus.suspended:
+            skipped.append({"id": pid, "reason": "suspended"})
+        else:
+            product.status = ProductStatus(status)
+            updated.append(pid)
+    await db.commit()
+    return {"updated": updated, "skipped": skipped}
 
 
 async def get_seller_stats(seller_id: int, db: AsyncSession) -> dict:

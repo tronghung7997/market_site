@@ -64,9 +64,25 @@ async def confirm_order(order_id: int, account: Account = Depends(get_current_ac
     return await service.confirm_order(order_id, account.id, db)
 
 
-@router.get("/seller/orders", response_model=list[schemas.OrderResponse])
-async def seller_orders(account: Account = Depends(get_seller_account), db: AsyncSession = Depends(get_session)):
-    return await service.list_seller_orders(account.id, db)
+@router.get("/seller/orders", response_model=schemas.PaginatedSellerOrderResponse)
+async def seller_orders(
+    account: Account = Depends(get_seller_account),
+    db: AsyncSession = Depends(get_session),
+    tab: str = Query("all", pattern="^(all|disputed|action_required|escrow|completed|cancelled)$"),
+    search: str | None = Query(None, max_length=200),
+    product_id: int | None = Query(None, ge=1),
+    kind: str | None = Query(None, pattern="^(instant|manual|api|task|proxy)$"),
+    date_from: str | None = Query(None),
+    date_to: str | None = Query(None),
+    sort: str = Query("newest", pattern="^(newest|oldest|amount_desc|amount_asc)$"),
+    page: int = Query(1, ge=1),
+    per_page: int = Query(20, ge=1, le=100),
+):
+    return await service.list_seller_orders(
+        account.id, db,
+        tab=tab, search=search, product_id=product_id, kind=kind,
+        date_from=date_from, date_to=date_to, sort=sort, page=page, per_page=per_page,
+    )
 
 
 @router.post("/seller/orders/{order_id}/accept", response_model=schemas.OrderResponse)

@@ -63,6 +63,8 @@ class OrderResponse(BaseModel):
     has_review: bool = False
     has_dispute: bool = False
     dispute_status: str | None = None
+    # Open dispute with no seller reply yet — the seller console's "handle now" signal.
+    dispute_awaiting_seller: bool = False
     service_type: str | None = None
     fulfillment: "FulfillmentInfo | None" = None
     settlement: "SettlementInfo | None" = None
@@ -159,6 +161,26 @@ class PaginatedOrderResponse(BaseModel):
     total: int
     page: int
     per_page: int
+
+
+class SellerOrderCounts(BaseModel):
+    all: int
+    disputed: int
+    action_required: int
+    escrow: int
+    completed: int
+    cancelled: int
+    disputes_awaiting_seller: int
+
+
+class SellerOrderProductFacet(BaseModel):
+    id: int
+    title: str
+
+
+class PaginatedSellerOrderResponse(PaginatedOrderResponse):
+    counts: SellerOrderCounts
+    products: list[SellerOrderProductFacet]
 
 
 class OrderStatsResponse(BaseModel):

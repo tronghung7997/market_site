@@ -229,6 +229,8 @@ export interface Order {
   has_review?: boolean;
   has_dispute?: boolean;
   dispute_status?: string | null;
+  /** Open dispute with no seller reply yet — "handle now" in the seller console. */
+  dispute_awaiting_seller?: boolean;
   service_type?: string | null;
   fulfillment?: { kind: "instant" | "manual" | "api" | "task" | "proxy"; status: string } | null;
   settlement?: { status: "escrow_held" | "released" | "refunded" } | null;
@@ -756,6 +758,88 @@ export interface SellerStats {
   total_revenue: number;
 }
 
+export type SellerDashboardRangeKey = "7d" | "30d" | "90d" | "custom";
+
+export interface SellerDashboardRange {
+  key: SellerDashboardRangeKey;
+  tz: string;
+  from_date: string;
+  to_date: string;
+  compare_from_date: string;
+  compare_to_date: string;
+  days: number;
+  bucket: "day" | "week";
+}
+
+export interface SellerDashboardMoney {
+  gross: number;
+  gross_prev: number;
+  net_released: number;
+  net_released_prev: number;
+  platform_fee: number;
+  refunded: number;
+  refunded_orders: number;
+  escrow_held: number;
+  escrow_orders: number;
+  pending_withdrawals: number;
+  wallet: { available: number; pending: number; locked: number };
+}
+
+export interface SellerDashboardOrders {
+  total: number;
+  total_prev: number;
+  completed_prev: number;
+  by_status: Record<string, number>;
+  completion_rate: number | null;
+  dispute_count: number;
+  dispute_rate: number | null;
+  avg_order_value: number | null;
+}
+
+export interface SellerDashboardPoint {
+  date: string;
+  orders: number;
+  gross: number;
+  net: number;
+  refunded: number;
+}
+
+export interface SellerDashboardTopProduct {
+  id: number;
+  title: string;
+  service_type: string | null;
+  status: string;
+  orders: number;
+  gross: number;
+  net: number;
+  inventory_managed: boolean;
+  total_stock: number;
+  stock_state: "in_stock" | "low" | "out" | "not_managed";
+  rating_avg: number | null;
+  rating_count: number;
+}
+
+export interface SellerDashboardInventory {
+  product_count: number;
+  active_count: number;
+  managed_products: number;
+  total_stock: number;
+  low_stock: number;
+  out_of_stock: number;
+}
+
+export interface SellerDashboard {
+  range: SellerDashboardRange;
+  money: SellerDashboardMoney;
+  orders: SellerDashboardOrders;
+  timeseries: SellerDashboardPoint[];
+  top_products: SellerDashboardTopProduct[];
+  inventory: SellerDashboardInventory;
+  customers: { unique_buyers: number; new_buyers: number; returning_buyers: number };
+  reviews: { rating_avg: number | null; rating_count: number; count_in_range: number };
+  action_items: Pick<ActionItem, "key" | "severity" | "label" | "count" | "href">[];
+}
+
 export interface Review {
   id: number;
   order_id: number;
@@ -770,15 +854,62 @@ export interface SellerProduct extends Product {
   category_name: string | null;
   variant_count: number;
   total_stock: number;
+  /** Active-package price span; null when there is no active package. */
+  price_min: number | null;
+  price_max: number | null;
 }
 
 export interface SellerProductCounts {
   all: number;
   active: number;
   paused: number;
+  draft: number;
+  suspended: number;
   low_stock: number;
   out_of_stock: number;
   total_stock: number;
+  /** Stock at or below this (and above 0) counts as low — same rule as the tabs. */
+  low_stock_threshold: number;
+}
+
+export type SellerProductTab = "all" | "active" | "paused" | "draft" | "low_stock" | "out_of_stock";
+export type SellerProductSort =
+  | "newest" | "oldest" | "title" | "stock_asc" | "stock_desc" | "sold_desc" | "rating_desc" | "price_asc" | "price_desc";
+
+export interface SellerProductBulkStatusResult {
+  updated: number[];
+  skipped: { id: number; reason: "not_found" | "not_owner" | "suspended" }[];
+}
+
+export type SellerOrderTab = "all" | "disputed" | "action_required" | "escrow" | "completed" | "cancelled";
+export type SellerOrderKind = "instant" | "manual" | "api" | "task" | "proxy";
+export type SellerOrderSort = "newest" | "oldest" | "amount_desc" | "amount_asc";
+
+export interface SellerOrderCounts {
+  all: number;
+  disputed: number;
+  action_required: number;
+  escrow: number;
+  completed: number;
+  cancelled: number;
+  disputes_awaiting_seller: number;
+}
+
+export interface SellerOrderQuery {
+  tab?: SellerOrderTab;
+  search?: string;
+  product_id?: number;
+  kind?: SellerOrderKind;
+  date_from?: string;
+  date_to?: string;
+  sort?: SellerOrderSort;
+  page?: number;
+  per_page?: number;
+}
+
+export interface PaginatedSellerOrders extends PaginatedOrderResponse {
+  counts: SellerOrderCounts;
+  products: { id: number; title: string }[];
 }
 
 export interface PaginatedSellerProducts {

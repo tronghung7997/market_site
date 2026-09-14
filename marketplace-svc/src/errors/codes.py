@@ -22,6 +22,7 @@ class ErrorCode(str, Enum):
     SELF_PURCHASE = "SELF_PURCHASE"
     PROVIDER_NOT_CONFIGURED = "PROVIDER_NOT_CONFIGURED"
     INVALID_PRODUCT_CONFIG = "INVALID_PRODUCT_CONFIG"
+    DASHBOARD_RANGE_INVALID = "DASHBOARD_RANGE_INVALID"
     ORDER_QUANTITY_LIMIT = "ORDER_QUANTITY_LIMIT"
     ORDER_NOT_FOUND = "ORDER_NOT_FOUND"
     NOT_ORDER_OWNER = "NOT_ORDER_OWNER"
@@ -107,6 +108,7 @@ MESSAGES_EN: dict[ErrorCode, str] = {
     ErrorCode.SELF_PURCHASE: "You cannot purchase your own product",
     ErrorCode.PROVIDER_NOT_CONFIGURED: "This product is not ready to accept orders",
     ErrorCode.INVALID_PRODUCT_CONFIG: "The selected product configuration is invalid",
+    ErrorCode.DASHBOARD_RANGE_INVALID: "The selected date range is invalid",
     ErrorCode.ORDER_QUANTITY_LIMIT: "This product supports a maximum of {max} unit per order",
     ErrorCode.ORDER_NOT_FOUND: "Order not found",
     ErrorCode.NOT_ORDER_OWNER: "This is not your order",

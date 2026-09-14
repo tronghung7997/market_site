@@ -486,7 +486,7 @@ async def test_refunding_every_claimed_resource_auto_closes_case_and_order(clien
     assert refunded.status_code == 200, refunded.text
     assert refunded.json()["status"] == "resolved_refund"
     listed = await client.get("/seller/orders", headers=seller_headers)
-    listed_order = next(row for row in listed.json() if row["id"] == order_id)
+    listed_order = next(row for row in listed.json()["items"] if row["id"] == order_id)
     assert listed_order["status"] == "refunded"
     assert listed_order["has_dispute"] is False
     assert listed_order["dispute_status"] == "resolved_refund"

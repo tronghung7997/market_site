@@ -1,5 +1,5 @@
 import type {
-  Account, ActionItem, AdminDepositIntent, AdminDepositLedgerQuery, AdminDepositLedgerResponse, AdminDepositTransaction, AdminDisputeDetail, AdminOrderDetail, AdminProduct, AdminResourceListResponse, AffiliateStats, AffiliateSummary, CalculateResult, Category, ChargeUsageResult, ChatConversationDetail, ChatConversationList, ChatMessage, DashboardData, DepositIntent, DepositMethods, DepositReconcileResult, DepositRailConfigAdmin, DepositRailConfigUpdate, Dispute, SePayWebhookEventRow, AdminAccountWallet, FundOverview, AccountAdminRow, PaginatedAccounts, LogEntry, MailConfigAdmin, MailConfigUpdate, MailOutboxList, MailSendTestResponse, MailTemplatePreview, MailTemplateRow, MoneyConfigAdmin, MoneyConfigPublic, MoneyConfigUpdate, Order, OrderStats, PaginatedAffiliateSummary, PaginatedOrderResponse, PaginatedProducts, PricingField, PricingOptions, ProductDetail, AdminProductDetail, Product, ProductLocale, ProductOperations, ProductTranslation, ProxyState, ProxyRotateResult, ProxyWhitelistResult, Review, SellerApplication, SellerProduct, SellerStats, ServiceTask, TikTokLookupResponse, Transaction, Variant, Wallet, WithdrawRequest, Provider, ProviderHealth, Alert, Resource, ResourceSummary, ResourceSellerFacet, InventoryVariant, SellerSummary, SellerProfile, SellerDisputeResource, SellerDisputeResourceList, SellerReplacementResourceList, BulkResourceActionResult,
+  Account, ActionItem, AdminDepositIntent, AdminDepositLedgerQuery, AdminDepositLedgerResponse, AdminDepositTransaction, AdminDisputeDetail, AdminOrderDetail, AdminProduct, AdminResourceListResponse, AffiliateStats, AffiliateSummary, CalculateResult, Category, ChargeUsageResult, ChatConversationDetail, ChatConversationList, ChatMessage, DashboardData, DepositIntent, DepositMethods, DepositReconcileResult, DepositRailConfigAdmin, DepositRailConfigUpdate, Dispute, SePayWebhookEventRow, AdminAccountWallet, FundOverview, AccountAdminRow, PaginatedAccounts, LogEntry, MailConfigAdmin, MailConfigUpdate, MailOutboxList, MailSendTestResponse, MailTemplatePreview, MailTemplateRow, MoneyConfigAdmin, MoneyConfigPublic, MoneyConfigUpdate, Order, OrderStats, PaginatedAffiliateSummary, PaginatedOrderResponse, PaginatedProducts, PricingField, PricingOptions, ProductDetail, AdminProductDetail, Product, ProductLocale, ProductOperations, ProductTranslation, ProxyState, ProxyRotateResult, ProxyWhitelistResult, Review, SellerApplication, SellerDashboard, SellerDashboardRangeKey, SellerOrderQuery, PaginatedSellerOrders, SellerProduct, SellerProductBulkStatusResult, SellerProductSort, SellerStats, ServiceTask, TikTokLookupResponse, Transaction, Variant, Wallet, WithdrawRequest, Provider, ProviderHealth, Alert, Resource, ResourceSummary, ResourceSellerFacet, InventoryVariant, SellerSummary, SellerProfile, SellerDisputeResource, SellerDisputeResourceList, SellerReplacementResourceList, BulkResourceActionResult,
 } from "./types";
 import type { PaginatedDisputes } from "./types";
 import type { PaginatedAdminProducts, PaginatedInventoryVariants, PaginatedSellerProducts } from "./types";
@@ -242,6 +242,7 @@ export const api = {
     status?: string;
     category?: string;
     serviceType?: string;
+    sort?: SellerProductSort;
     page?: number;
     perPage?: number;
   } = {}) => {
@@ -250,12 +251,31 @@ export const api = {
     if (params.status && params.status !== "all") q.set("status", params.status);
     if (params.category) q.set("category", params.category);
     if (params.serviceType) q.set("service_type", params.serviceType);
+    if (params.sort && params.sort !== "newest") q.set("sort", params.sort);
     return request<PaginatedSellerProducts>(`/seller/products?${q}`, {}, true);
   },
+  bulkUpdateSellerProductStatus: (ids: number[], status: "active" | "paused") =>
+    request<SellerProductBulkStatusResult>("/seller/products/bulk-status", {
+      method: "POST", body: JSON.stringify({ ids, status }),
+    }, true),
   // Như api.product() nhưng kèm cả biến thể đã tắt — trang quản lý cần thấy chúng để bật lại.
   sellerProduct: (id: number, init: RequestInit = {}) => request<ProductDetail>(`/seller/products/${id}/detail`, init, true),
   sellerStats: () => request<SellerStats>("/seller/stats", {}, true),
-  sellerOrders: () => request<Order[]>("/seller/orders", {}, true),
+  sellerDashboard: (params: { range: SellerDashboardRangeKey; tz: string; from?: string; to?: string }) => {
+    const q = new URLSearchParams({ range: params.range, tz: params.tz });
+    if (params.from) q.set("from", params.from);
+    if (params.to) q.set("to", params.to);
+    return request<SellerDashboard>(`/seller/dashboard?${q}`, {}, true);
+  },
+  sellerOrders: (params: SellerOrderQuery = {}) => {
+    const q = new URLSearchParams();
+    for (const [key, value] of Object.entries(params)) {
+      if (value === undefined || value === null || value === "" || value === "all") continue;
+      q.set(key, String(value));
+    }
+    const query = q.toString();
+    return request<PaginatedSellerOrders>(`/seller/orders${query ? `?${query}` : ""}`, {}, true);
+  },
   createProduct: (data: Record<string, unknown>) =>
     request<Product>("/seller/products", { method: "POST", body: JSON.stringify(data) }, true),
   updateProduct: (id: number, data: Record<string, unknown>) =>

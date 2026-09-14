@@ -73,9 +73,12 @@ async def get_own_product(product_id: int, account: Account = Depends(require_ro
 @router.get("/seller/products", response_model=schemas.SellerProductListResponse)
 async def seller_products(
     search: str | None = None,
-    status: Literal["active", "paused", "low_stock", "out_of_stock"] | None = Query(None),
+    status: Literal["active", "paused", "draft", "low_stock", "out_of_stock"] | None = Query(None),
     category: str | None = None,
     service_type: str | None = None,
+    sort: Literal[
+        "newest", "oldest", "title", "stock_asc", "stock_desc", "sold_desc", "rating_desc", "price_asc", "price_desc",
+    ] = Query("newest"),
     page: int = Query(1, ge=1),
     per_page: int = Query(50, ge=1, le=100),
     account: Account = Depends(require_role("seller")),
@@ -83,8 +86,17 @@ async def seller_products(
 ):
     return await service.list_seller_products(
         account.id, db, search=search, status=status, category=category,
-        service_type=service_type, page=page, per_page=per_page,
+        service_type=service_type, sort=sort, page=page, per_page=per_page,
     )
+
+
+@router.post("/seller/products/bulk-status", response_model=schemas.SellerProductBulkStatusResponse)
+async def bulk_update_own_product_status(
+    body: schemas.SellerProductBulkStatusRequest,
+    account: Account = Depends(require_role("seller")),
+    db: AsyncSession = Depends(get_session),
+):
+    return await service.bulk_update_seller_product_status(body.ids, account.id, body.status, db)
 
 
 @router.get("/seller/stats")

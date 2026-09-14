@@ -3,7 +3,7 @@ from datetime import datetime, timedelta, timezone
 
 import structlog
 from fastapi import status
-from sqlalchemy import func, or_, select
+from sqlalchemy import case, func, or_, select
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from src.adapters.compatibility import check_compatibility
@@ -534,17 +534,20 @@ async def _enrich_orders(orders: list[Order], db: AsyncSession) -> list[dict]:
         (await db.execute(select(Review.order_id).where(Review.order_id.in_(order_ids)))).scalars()
     )
     dispute_rows = (await db.execute(
-        select(Dispute.order_id, Dispute.status, Dispute.created_at, Dispute.review_requested_at)
+        select(Dispute.order_id, Dispute.status, Dispute.created_at, Dispute.review_requested_at, Dispute.seller_note)
         .where(Dispute.order_id.in_(order_ids))
         .order_by(Dispute.created_at.desc())
     )).all()
     latest_dispute_status: dict[int, str] = {}
     review_requested_orders: set[int] = set()
-    for order_id, dispute_status, _created_at, review_requested_at in dispute_rows:
+    awaiting_seller_orders: set[int] = set()
+    for order_id, dispute_status, _created_at, review_requested_at, seller_note in dispute_rows:
         if order_id not in latest_dispute_status:
             latest_dispute_status[order_id] = dispute_status.value
             if dispute_status == DisputeStatus.open and review_requested_at:
                 review_requested_orders.add(order_id)
+            if dispute_status == DisputeStatus.open and not seller_note:
+                awaiting_seller_orders.add(order_id)
     open_disputes = {order_id for order_id, status_value in latest_dispute_status.items() if status_value == DisputeStatus.open.value}
     appendable_claim_orders = await orders_with_appendable_claims(list(open_disputes), db)
     task_rows = (await db.execute(
@@ -607,6 +610,7 @@ async def _enrich_orders(orders: list[Order], db: AsyncSession) -> list[dict]:
             "has_review": order.id in reviewed,
             "has_dispute": is_open_dispute,
             "dispute_status": latest_dispute_status.get(order.id),
+            "dispute_awaiting_seller": order.id in awaiting_seller_orders,
             "fulfillment": {"kind": fulfillment_kind, "status": fulfillment_status},
             "settlement": {"status": "released" if order.status == OrderStatus.completed else "refunded" if is_terminal_refund else "escrow_held"},
             "protection": {"status": "dispute_open" if is_open_dispute else "active" if order.status == OrderStatus.delivered else "closed"},
@@ -750,11 +754,161 @@ async def buyer_order_stats(buyer_id: int, db: AsyncSession) -> dict:
     }
 
 
-async def list_seller_orders(seller_id: int, db: AsyncSession) -> list[dict]:
-    result = await db.execute(
-        select(Order).where(Order.seller_id == seller_id).order_by(Order.created_at.desc())
+SELLER_ORDER_TABS = ("all", "disputed", "action_required", "escrow", "completed", "cancelled")
+SELLER_ORDER_KINDS = ("instant", "manual", "api", "task", "proxy")
+SELLER_ORDER_SORTS = ("newest", "oldest", "amount_desc", "amount_asc")
+
+
+def _open_dispute_order_ids():
+    return select(Dispute.order_id).where(Dispute.status == DisputeStatus.open)
+
+
+def _seller_tab_filter(tab: str):
+    """One clause per console tab. Disputes are an overlay, so `escrow` means
+    delivered AND not disputed, and `disputed` catches both the legacy
+    `disputed` status and an open dispute on a delivered order."""
+    open_disputed = or_(Order.status == OrderStatus.disputed, Order.id.in_(_open_dispute_order_ids()))
+    if tab == "disputed":
+        return open_disputed
+    if tab == "action_required":
+        return Order.status.in_((OrderStatus.pending, OrderStatus.processing))
+    if tab == "escrow":
+        return (Order.status == OrderStatus.delivered) & ~Order.id.in_(_open_dispute_order_ids())
+    if tab == "completed":
+        return Order.status == OrderStatus.completed
+    if tab == "cancelled":
+        return Order.status.in_((OrderStatus.cancelled, OrderStatus.refunded))
+    return None
+
+
+def _seller_order_product_id():
+    return func.coalesce(Order.product_id, ProductVariant.product_id)
+
+
+def _fulfillment_kind_sql():
+    """SQL twin of the kind resolution in `_enrich_orders` — keep in sync."""
+    return case(
+        (Product.pricing_strategy == "task", "task"),
+        (Product.service_type == "proxy", "proxy"),
+        (Product.pricing_strategy == "credit", "api"),
+        (ProductVariant.delivery_mode == DeliveryMode.manual, "manual"),
+        else_="instant",
     )
-    return await _enrich_orders(list(result.scalars().all()), db)
+
+
+async def list_seller_orders(
+    seller_id: int,
+    db: AsyncSession,
+    *,
+    tab: str = "all",
+    search: str | None = None,
+    product_id: int | None = None,
+    kind: str | None = None,
+    date_from: str | None = None,
+    date_to: str | None = None,
+    sort: str = "newest",
+    page: int = 1,
+    per_page: int = 20,
+) -> dict:
+    """Seller console listing: server-side tabs/filters/sort/pagination plus
+    store-wide tab counts so the console header never depends on the page."""
+    base = (
+        select(Order.id)
+        .select_from(Order)
+        .outerjoin(ProductVariant, ProductVariant.id == Order.variant_id)
+        .outerjoin(Product, Product.id == _seller_order_product_id())
+        .where(Order.seller_id == seller_id)
+    )
+
+    filters = []
+    tab_clause = _seller_tab_filter(tab if tab in SELLER_ORDER_TABS else "all")
+    if tab_clause is not None:
+        filters.append(tab_clause)
+    if product_id:
+        filters.append(_seller_order_product_id() == product_id)
+    if kind in SELLER_ORDER_KINDS:
+        filters.append(_fulfillment_kind_sql() == kind)
+    if search and search.strip():
+        term = search.strip()
+        if term.startswith("#"):
+            id_part = term.lstrip("#").strip()
+            filters.append(Order.id == (int(id_part) if id_part.isdigit() else -1))
+        else:
+            buyer_match = select(Account.id).where(Account.email.ilike(f"%{term}%"))
+            conditions = [
+                Product.title.ilike(f"%{term}%"),
+                ProductVariant.name.ilike(f"%{term}%"),
+                Order.buyer_id.in_(buyer_match),
+            ]
+            if term.isdigit():
+                conditions.append(Order.id == int(term))
+            filters.append(or_(*conditions))
+    for raw, clause in ((date_from, "from"), (date_to, "to")):
+        if not raw:
+            continue
+        try:
+            dt = datetime.fromisoformat(raw)
+        except ValueError:
+            continue
+        if dt.tzinfo is None:
+            dt = dt.replace(tzinfo=timezone.utc)
+        filters.append(Order.created_at >= dt if clause == "from" else Order.created_at < dt + timedelta(days=1))
+
+    filtered = base.where(*filters)
+    total = int((await db.execute(select(func.count()).select_from(filtered.subquery()))).scalar() or 0)
+
+    order_by = {
+        "oldest": (Order.created_at.asc(), Order.id.asc()),
+        "amount_desc": (Order.total_amount.desc(), Order.created_at.desc()),
+        "amount_asc": (Order.total_amount.asc(), Order.created_at.desc()),
+    }.get(sort, (Order.created_at.desc(), Order.id.desc()))
+    page_ids = list((await db.execute(
+        filtered.order_by(*order_by).offset((page - 1) * per_page).limit(per_page)
+    )).scalars())
+    orders = []
+    if page_ids:
+        rows = (await db.execute(select(Order).where(Order.id.in_(page_ids)))).scalars().all()
+        by_id = {o.id: o for o in rows}
+        orders = [by_id[i] for i in page_ids if i in by_id]
+    items = await _enrich_orders(orders, db)
+
+    scope = select(Order.id, Order.status).where(Order.seller_id == seller_id).subquery()
+    open_ids = _open_dispute_order_ids()
+    count_row = (await db.execute(select(
+        func.count(scope.c.id),
+        func.coalesce(func.sum(case((or_(scope.c.status == OrderStatus.disputed, scope.c.id.in_(open_ids)), 1), else_=0)), 0),
+        func.coalesce(func.sum(case((scope.c.status.in_((OrderStatus.pending, OrderStatus.processing)), 1), else_=0)), 0),
+        func.coalesce(func.sum(case(((scope.c.status == OrderStatus.delivered) & ~scope.c.id.in_(open_ids), 1), else_=0)), 0),
+        func.coalesce(func.sum(case((scope.c.status == OrderStatus.completed, 1), else_=0)), 0),
+        func.coalesce(func.sum(case((scope.c.status.in_((OrderStatus.cancelled, OrderStatus.refunded)), 1), else_=0)), 0),
+    ))).one()
+    awaiting = int((await db.execute(
+        select(func.count(Dispute.id))
+        .join(Order, Order.id == Dispute.order_id)
+        .where(Order.seller_id == seller_id, Dispute.status == DisputeStatus.open, Dispute.seller_note.is_(None))
+    )).scalar() or 0)
+    counts = {
+        "all": int(count_row[0]), "disputed": int(count_row[1]), "action_required": int(count_row[2]),
+        "escrow": int(count_row[3]), "completed": int(count_row[4]), "cancelled": int(count_row[5]),
+        "disputes_awaiting_seller": awaiting,
+    }
+
+    product_rows = (await db.execute(
+        select(Product.id, Product.title)
+        .where(Product.id.in_(
+            select(_seller_order_product_id())
+            .select_from(Order)
+            .outerjoin(ProductVariant, ProductVariant.id == Order.variant_id)
+            .where(Order.seller_id == seller_id)
+        ))
+        .order_by(Product.title)
+    )).all()
+
+    return {
+        "items": items, "total": total, "page": page, "per_page": per_page,
+        "counts": counts,
+        "products": [{"id": pid, "title": title} for pid, title in product_rows],
+    }
 
 
 async def list_all_orders(db: AsyncSession) -> list[dict]:

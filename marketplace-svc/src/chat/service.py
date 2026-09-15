@@ -211,7 +211,7 @@ async def _summary(
         id=conversation.id,
         kind=conversation.kind,
         status=effective_status,
-        product=ChatProduct(id=product.id, title=product.title, image=image) if product else None,
+        product=ChatProduct(id=product.id, title=product.title, image=image, slug=product.slug, public_key=product.public_key) if product else None,
         order=(
             ChatOrderContext(
                 id=order.id,
@@ -480,7 +480,7 @@ async def list_conversations(
         ) if dispute else None
         items.append(ConversationSummary(
             id=room.id, kind=room.kind, status=effective_status,
-            product=ChatProduct(id=product.id, title=product.title, image=parse_cover_id(product.images)) if product else None,
+            product=ChatProduct(id=product.id, title=product.title, image=parse_cover_id(product.images), slug=product.slug, public_key=product.public_key) if product else None,
             order=ChatOrderContext(id=order.id, status=order_status or "", quantity=order.quantity, total_amount=order.total_amount, cancel_reason=order.cancel_reason) if order else None,
             dispute=dispute_ctx, counterpart=SafeCounterpart(id=cp_id or 0, label=cp_label, role=cp_role),
             last_message=_message_dto(message) if message else None, unread_count=int(unread_n or 0),
@@ -898,6 +898,8 @@ async def list_support_conversations(account: Account, db: AsyncSession) -> Conv
                         id=product.id,
                         title=product.title,
                         image=parse_cover_id(product.images),
+                        slug=product.slug,
+                        public_key=product.public_key,
                     )
                     if product
                     else None

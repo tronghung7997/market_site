@@ -54,6 +54,9 @@ class OrderResponse(BaseModel):
     cancel_reason: str | None = None
     created_at: datetime
     product_title: str | None = None
+    # Public product ref for links: /products/{product_slug}-{product_key}.
+    product_slug: str | None = None
+    product_key: str | None = None
     pricing_strategy: str | None = None
     delivery_mode: str | None = None
     sla_hours: int | None = None

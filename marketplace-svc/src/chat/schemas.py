@@ -63,6 +63,9 @@ class ChatProduct(BaseModel):
     id: int
     title: str
     image: str | None = None
+    # Public URL ref; inbox links use /products/{slug}-{public_key}.
+    slug: str | None = None
+    public_key: str | None = None
 
 
 class ChatOrderContext(BaseModel):

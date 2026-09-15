@@ -6,6 +6,7 @@ from sqlalchemy.dialects.postgresql import JSON, JSONB
 from sqlalchemy.orm import Mapped, mapped_column
 
 from src.database import Base
+from src.i18n.slug import new_public_key, slugify_text
 
 
 class ProductStatus(str, PyEnum):
@@ -31,6 +32,11 @@ class ServiceType(str, PyEnum):
     other = "other"
 
 
+def _default_slug(context) -> str:
+    params = context.get_current_parameters()
+    return slugify_text(params.get("title"))
+
+
 class Product(Base):
     __tablename__ = "products"
     __table_args__ = (
@@ -44,6 +50,11 @@ class Product(Base):
     seller_id: Mapped[int] = mapped_column(ForeignKey("accounts.id"), nullable=False)
     category_id: Mapped[int] = mapped_column(ForeignKey("categories.id"), nullable=False)
     title: Mapped[str] = mapped_column(String(255), nullable=False)
+    # Public URL identity: /products/{slug}-{public_key}. The key is the only
+    # lookup handle exposed outside; the slug is decorative and editable.
+    # Defaults keep direct ORM inserts (tests, seeds) valid without a slug.
+    public_key: Mapped[str] = mapped_column(String(12), unique=True, nullable=False, default=new_public_key)
+    slug: Mapped[str] = mapped_column(String(160), nullable=False, default=_default_slug)
     description: Mapped[str | None] = mapped_column(Text, nullable=True)
     images: Mapped[dict | None] = mapped_column(JSON, nullable=True)
     escrow_days: Mapped[int] = mapped_column(Integer, default=2)

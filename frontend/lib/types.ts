@@ -845,9 +845,9 @@ export interface SellerDashboard {
 
 export interface Review {
   id: number;
-  order_id: number;
-  buyer_id: number;
   product_id: number;
+  /** Masked reviewer handle ("ng***n"); the API no longer exposes buyer/order ids. */
+  reviewer_label: string;
   rating: number;
   comment: string | null;
   created_at: string;

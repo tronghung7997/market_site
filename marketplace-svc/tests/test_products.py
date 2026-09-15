@@ -1315,3 +1315,132 @@ async def test_legacy_images_blob_reads_as_no_cover(client):
     assert detail.status_code == 200, detail.text
     assert detail.json()["cover_id"] is None
     assert detail.json()["images"] is None
+
+
+# --- Public identifiers: slug + public_key (phase 1) -------------------------
+
+import re as _re
+
+_KEY_RE = _re.compile(r"^[0-9a-z]{8}$")
+
+
+async def _create_public_product(client, token, cat_id, **overrides):
+    payload = {
+        "category_id": cat_id, "title": "Proxy dân cư — Trust cao", "status": "active",
+        **overrides,
+    }
+    resp = await client.post("/seller/products", json=payload, headers={"Authorization": f"Bearer {token}"})
+    assert resp.status_code == 201, resp.text
+    return resp.json()
+
+
+@pytest.mark.asyncio
+async def test_product_gets_slug_and_public_key(client):
+    seller_token, _, cat_id = await setup_seller_with_category(client)
+    body = await _create_public_product(client, seller_token, cat_id)
+    assert body["slug"] == "proxy-dan-cu-trust-cao"
+    assert _KEY_RE.match(body["public_key"]) and not body["public_key"].isdigit()
+    assert body["canonical_path"] == f"/products/{body['slug']}-{body['public_key']}"
+
+
+@pytest.mark.asyncio
+async def test_duplicate_titles_share_slug_but_not_key(client):
+    seller_token, _, cat_id = await setup_seller_with_category(client)
+    first = await _create_public_product(client, seller_token, cat_id)
+    second = await _create_public_product(client, seller_token, cat_id)
+    assert first["slug"] == second["slug"]
+    assert first["public_key"] != second["public_key"]
+    for body in (first, second):
+        resp = await client.get(body["canonical_path"])
+        assert resp.status_code == 200
+        assert resp.json()["id"] == body["id"]
+
+
+@pytest.mark.asyncio
+async def test_public_detail_resolves_canonical_key_and_legacy_id(client):
+    seller_token, _, cat_id = await setup_seller_with_category(client)
+    body = await _create_public_product(client, seller_token, cat_id)
+    key = body["public_key"]
+    for ref in (f"{body['slug']}-{key}", key, f"stale-title-{key}", str(body["id"])):
+        resp = await client.get(f"/products/{ref}")
+        assert resp.status_code == 200, ref
+        data = resp.json()
+        assert data["id"] == body["id"]
+        assert data["canonical_path"] == body["canonical_path"]
+    for bad in ("just-a-slug", "zzzzzzzz", "99999999", "12345678"):
+        assert (await client.get(f"/products/{bad}")).status_code == 404, bad
+
+
+@pytest.mark.asyncio
+async def test_public_detail_hides_non_active_products_by_key_too(client):
+    seller_token, _, cat_id = await setup_seller_with_category(client)
+    body = await _create_public_product(client, seller_token, cat_id, status="draft")
+    assert (await client.get(body["canonical_path"])).status_code == 404
+    assert (await client.get(f"/products/{body['id']}")).status_code == 404
+    own = await client.get(
+        f"/seller/products/{body['id']}/detail", headers={"Authorization": f"Bearer {seller_token}"},
+    )
+    assert own.status_code == 200
+    assert own.json()["public_key"] == body["public_key"]
+
+
+@pytest.mark.asyncio
+async def test_public_list_items_carry_public_ref(client):
+    seller_token, _, cat_id = await setup_seller_with_category(client)
+    body = await _create_public_product(client, seller_token, cat_id)
+    items = (await client.get("/products")).json()["items"]
+    match = next(item for item in items if item["id"] == body["id"])
+    assert match["public_key"] == body["public_key"]
+    assert match["canonical_path"] == body["canonical_path"]
+
+
+@pytest.mark.asyncio
+async def test_slug_follows_title_until_customised(client):
+    seller_token, _, cat_id = await setup_seller_with_category(client)
+    headers = {"Authorization": f"Bearer {seller_token}"}
+    body = await _create_public_product(client, seller_token, cat_id, title="Tài khoản A")
+    pid, key = body["id"], body["public_key"]
+    assert body["slug"] == "tai-khoan-a"
+
+    resp = await client.patch(f"/seller/products/{pid}", json={"title": "Tài khoản B"}, headers=headers)
+    assert resp.status_code == 200 and resp.json()["slug"] == "tai-khoan-b"
+
+    resp = await client.patch(f"/seller/products/{pid}", json={"slug": "my-custom-url"}, headers=headers)
+    assert resp.status_code == 200 and resp.json()["slug"] == "my-custom-url"
+    assert resp.json()["public_key"] == key
+
+    resp = await client.patch(f"/seller/products/{pid}", json={"title": "Tài khoản C"}, headers=headers)
+    assert resp.status_code == 200 and resp.json()["slug"] == "my-custom-url"
+
+    resp = await client.patch(f"/seller/products/{pid}", json={"slug": "Bad Slug!"}, headers=headers)
+    assert resp.status_code == 422
+
+    # Old and new slugs both resolve through the key; canonical path reflects the current slug.
+    resp = await client.get(f"/products/tai-khoan-a-{key}")
+    assert resp.status_code == 200
+    assert resp.json()["canonical_path"] == f"/products/my-custom-url-{key}"
+
+
+@pytest.mark.asyncio
+async def test_custom_slug_accepted_on_create(client):
+    seller_token, _, cat_id = await setup_seller_with_category(client)
+    body = await _create_public_product(client, seller_token, cat_id, slug="chosen-url")
+    assert body["slug"] == "chosen-url"
+
+
+@pytest.mark.asyncio
+async def test_public_variants_expose_stock_state_and_max_quantity(client):
+    seller_token, _, cat_id = await setup_seller_with_category(client)
+    headers = {"Authorization": f"Bearer {seller_token}"}
+    body = await _create_public_product(client, seller_token, cat_id)
+    for variant in (
+        {"name": "Instant", "price": 1000, "delivery_mode": "instant"},
+        {"name": "Manual", "price": 2000, "delivery_mode": "manual"},
+    ):
+        resp = await client.post(f"/seller/products/{body['id']}/variants", json=variant, headers=headers)
+        assert resp.status_code == 201, resp.text
+    variants = {v["name"]: v for v in (await client.get(body["canonical_path"])).json()["variants"]}
+    assert variants["Instant"]["stock_state"] == "out"
+    assert variants["Instant"]["max_quantity"] == 0
+    assert variants["Manual"]["stock_state"] == "manual"
+    assert variants["Manual"]["max_quantity"] == 5000

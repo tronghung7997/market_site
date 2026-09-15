@@ -5,6 +5,7 @@ from sqlalchemy.ext.asyncio import AsyncSession
 
 from src.auth.dependencies import require_role
 from src.database import get_session
+from src.exceptions import ErrorCode, api_error
 from src.i18n.deps import get_request_locale
 from src.models.account import Account
 
@@ -54,13 +55,21 @@ async def product_catalog_summary(db: AsyncSession = Depends(get_session)):
     return await service.get_product_catalog_summary(db)
 
 
-@router.get("/products/{product_id}", response_model=schemas.ProductDetailResponse)
+@router.get("/products/{product_ref}", response_model=schemas.ProductDetailResponse)
 async def get_product(
-    product_id: int,
+    product_ref: str,
     locale: str = Depends(get_request_locale),
     db: AsyncSession = Depends(get_session),
 ):
-    return await service.get_product_detail(product_id, db, locale=locale, public=True)
+    """Public detail by ``{slug}-{public_key}``, bare key, or legacy integer id.
+
+    The integer form stays so old bookmarks, chat history and indexed pages
+    resolve; the frontend redirects them to ``canonical_path``. Unparseable
+    refs and unknown keys both answer 404 without revealing which."""
+    product = await service.resolve_product_ref(product_ref, db)
+    if product is None:
+        raise api_error(ErrorCode.PRODUCT_NOT_FOUND, status.HTTP_404_NOT_FOUND)
+    return await service.get_product_detail(product.id, db, locale=locale, public=True)
 
 
 @router.get("/seller/products/{product_id}/detail", response_model=schemas.ProductDetailResponse)

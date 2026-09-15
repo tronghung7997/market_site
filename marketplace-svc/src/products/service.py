@@ -20,6 +20,7 @@ from src.i18n.catalog import (
     resolve_product_specs,
     resolve_variant_fields,
 )
+from src.i18n.slug import canonical_path, new_public_key, parse_public_ref, slugify_text
 from src.models.account import Account
 from src.models.category import Category
 from src.models.product import DeliveryMode, Product, ProductStatus, ProductVariant
@@ -27,6 +28,7 @@ from src.models.order import Order, OrderStatus
 from src.models.pricing_config import PricingConfig
 from src.models.provider import Provider
 from src.models.resource import Resource, ResourceStatus
+from src.orders.constants import MAX_ORDER_QUANTITY
 from src.pricing.engine import inventory_managed_sql, product_pricing_override, resolve_pricing
 from src.products.covers import catalog_items, default_cover_id, images_payload, public_images
 from src.seller.settings import get_low_stock_threshold
@@ -41,6 +43,64 @@ PRODUCT_LEGACY_MIRROR_FIELDS = (
     "title", "description", "warranty_text", "highlight_text", "features", "specs",
 )
 PRIMARY_LOCALE_KEY = "_primary_locale"
+PRODUCT_PATH_PREFIX = "/products"
+# Public stock is bucketed so competitors cannot poll exact inventory levels.
+PUBLIC_LOW_STOCK_THRESHOLD = 10
+
+
+def _public_ref_fields(product: Product) -> dict:
+    return {
+        "slug": product.slug,
+        "public_key": product.public_key,
+        "canonical_path": canonical_path(PRODUCT_PATH_PREFIX, product.slug, product.public_key),
+    }
+
+
+def _public_stock(delivery_mode: DeliveryMode, count: int) -> tuple[str, int]:
+    """(stock_state, max_quantity) for buyer-facing variant payloads."""
+    if delivery_mode != DeliveryMode.instant:
+        return "manual", MAX_ORDER_QUANTITY
+    if count <= 0:
+        return "out", 0
+    state = "low" if count <= PUBLIC_LOW_STOCK_THRESHOLD else "in_stock"
+    return state, min(count, MAX_ORDER_QUANTITY)
+
+
+async def _unused_public_key(db: AsyncSession) -> str:
+    """Collision on 36^8 keys is practically impossible, but the unique
+    constraint would surface as a 500, so check once before insert."""
+    for _ in range(5):
+        key = new_public_key()
+        exists = await db.scalar(select(Product.id).where(Product.public_key == key))
+        if exists is None:
+            return key
+    raise RuntimeError("could not allocate a product public key")
+
+
+def _apply_slug_update(product: Product, data: dict, *, previous_title: str) -> None:
+    """Explicit ``slug`` wins; otherwise a still-automatic slug follows the title.
+
+    A slug the seller customised (differs from slugify(old title)) is left
+    alone when the title changes, so their chosen URL text survives edits.
+    """
+    if data.get("slug"):
+        product.slug = data["slug"]
+        return
+    title_changed = product.title != previous_title
+    if title_changed and product.slug == slugify_text(previous_title):
+        product.slug = slugify_text(product.title)
+
+
+async def resolve_product_ref(raw: str, db: AsyncSession) -> Product | None:
+    """Load a product from a public path segment: legacy id, bare key or
+    ``{slug}-{key}``. Returns None for unparseable input (caller answers 404)."""
+    ref = parse_public_ref(raw)
+    if ref is None:
+        return None
+    kind, value = ref
+    if kind == "id":
+        return await db.get(Product, value)
+    return await db.scalar(select(Product).where(Product.public_key == value))
 
 
 def _product_i18n_from_scalars(data: dict, *, existing: dict | None = None, locale: str = "vi") -> dict:
@@ -85,6 +145,8 @@ async def create_product(seller_id: int, data: dict, db: AsyncSession) -> Produc
     payload["images"] = _images_for_create(payload)
     payload["i18n"] = _product_i18n_from_scalars(payload, locale=content_locale)
     payload["i18n"][PRIMARY_LOCALE_KEY] = content_locale
+    payload["public_key"] = await _unused_public_key(db)
+    payload["slug"] = payload.get("slug") or slugify_text(payload.get("title"))
     product = Product(seller_id=seller_id, **payload)
     db.add(product)
     await db.commit()
@@ -128,9 +190,12 @@ async def update_product(product_id: int, seller_id: int, data: dict, db: AsyncS
         strategy = await _strategy_after_service_type_change(product, data["service_type"], db)
         await _validate_variant_pricing_model(product, strategy, db)
     _apply_cover_update(product, data)
+    previous_title = product.title
+    slug_value = data.pop("slug", None)
     for key, value in data.items():
         if value is not None:
             setattr(product, key, value)
+    _apply_slug_update(product, {"slug": slug_value}, previous_title=previous_title)
     text_keys = {"title", "description", "warranty_text", "highlight_text", "features", "specs"}
     if text_keys & data.keys():
         product.i18n = _product_i18n_from_scalars(
@@ -178,9 +243,12 @@ async def admin_update_product(product_id: int, data: dict, db: AsyncSession) ->
         strategy = await _strategy_after_service_type_change(product, data["service_type"], db)
         await _validate_variant_pricing_model(product, strategy, db)
     _apply_cover_update(product, data)
+    previous_title = product.title
+    slug_value = data.pop("slug", None)
     for key, value in data.items():
         if value is not None:
             setattr(product, key, value)
+    _apply_slug_update(product, {"slug": slug_value}, previous_title=previous_title)
     text_keys = {"title", "description", "warranty_text", "highlight_text", "features", "specs"}
     if text_keys & data.keys():
         product.i18n = _product_i18n_from_scalars(
@@ -220,9 +288,11 @@ async def update_product_translation(
 
     product.i18n = merge_i18n_locale(product.i18n, locale, fields)
     if locale == "vi":
+        previous_title = product.title
         for key in PRODUCT_LEGACY_MIRROR_FIELDS:
             if key in fields:
                 setattr(product, key, fields[key])
+        _apply_slug_update(product, {}, previous_title=previous_title)
 
     await db.commit()
     await db.refresh(product)
@@ -1009,12 +1079,14 @@ async def _variants_by_product(
             "translations": _management_variant_translations(v),
             "primary_locale": (v.i18n or {}).get(PRIMARY_LOCALE_KEY, "vi"),
         }
+        stock_state, max_quantity = _public_stock(v.delivery_mode, stock_by_variant.get(v.id, 0))
         out[v.product_id].append({
             "id": v.id, "product_id": v.product_id, "name": name, "price": v.price,
             "delivery_mode": v.delivery_mode.value, "sla_hours": v.sla_hours,
             "duration_days": v.duration_days,
             "sort_order": v.sort_order, "is_active": v.is_active,
             "stock_count": stock_by_variant.get(v.id, 0),
+            "stock_state": stock_state, "max_quantity": max_quantity,
             **management,
         })
     return out
@@ -1384,6 +1456,7 @@ async def list_all_products_admin(
         meta = setup_by_id.get(p.id, {})
         out.append({
             "id": p.id,
+            **_public_ref_fields(p),
             "title": p.title,
             "service_type": p.service_type or "other",
             "status": p.status.value,
@@ -1428,6 +1501,7 @@ def _product_list_dict(product: Product, *, locale: str | None = DEFAULT_LOCALE)
     images = public_images(product.images)
     return {
         "id": product.id, "seller_id": product.seller_id, "category_id": product.category_id,
+        **_public_ref_fields(product),
         "title": title, "images": images,
         "cover_id": None if images is None else images["cover_id"],
         "escrow_days": product.escrow_days, "status": product.status.value,
@@ -1504,6 +1578,7 @@ def _product_dict(product: Product, *, locale: str | None = DEFAULT_LOCALE) -> d
     images = public_images(product.images)
     return {
         "id": product.id, "seller_id": product.seller_id, "category_id": product.category_id,
+        **_public_ref_fields(product),
         **text,
         "images": images,
         "cover_id": None if images is None else images["cover_id"],

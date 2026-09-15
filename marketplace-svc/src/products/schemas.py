@@ -1,6 +1,7 @@
 from datetime import datetime
 from typing import Literal
 
+from src.i18n.slug import SLUG_PATTERN, canonical_path
 from pydantic import BaseModel, Field, field_validator, model_validator
 
 from src.products.covers import parse_cover_id, public_images
@@ -26,6 +27,9 @@ class ProductCreate(BaseModel):
     # omit it and keep the historical VI behavior; the bilingual workbench
     # sends the seller-selected language explicitly.
     content_locale: Literal["en", "vi"] = "vi"
+    # Optional URL text override. The public key stays the lookup handle, so a
+    # custom slug never has to be unique and can be changed later.
+    slug: str | None = Field(default=None, min_length=1, max_length=140, pattern=SLUG_PATTERN)
     description: str | None = Field(default=None, max_length=20000)
     cover_id: CoverId | None = None
     escrow_days: int = Field(default=2, ge=0, le=90)
@@ -60,6 +64,9 @@ class ProductCreate(BaseModel):
 class ProductContentUpdate(BaseModel):
     title: str | None = Field(default=None, min_length=1, max_length=255)
     content_locale: Literal["en", "vi"] | None = None
+    # Optional URL text override. The public key stays the lookup handle, so a
+    # custom slug never has to be unique and can be changed later.
+    slug: str | None = Field(default=None, min_length=1, max_length=140, pattern=SLUG_PATTERN)
     category_id: int | None = None
     description: str | None = Field(default=None, max_length=20000)
     cover_id: CoverId | None = None
@@ -120,6 +127,10 @@ class ProductResponse(BaseModel):
     id: int
     seller_id: int
     category_id: int
+    slug: str
+    public_key: str
+    # /products/{slug}-{public_key}; filled from slug+key when built from ORM rows.
+    canonical_path: str | None = None
     title: str
     description: str | None
     images: dict | None
@@ -150,6 +161,12 @@ class ProductResponse(BaseModel):
     def populate_cover_id(self):
         if self.cover_id is None:
             self.cover_id = parse_cover_id(self.images)
+        return self
+
+    @model_validator(mode="after")
+    def populate_canonical_path(self):
+        if self.canonical_path is None:
+            self.canonical_path = canonical_path("/products", self.slug, self.public_key)
         return self
 
 
@@ -188,6 +205,10 @@ class VariantResponse(BaseModel):
     sort_order: int
     is_active: bool
     stock_count: int = 0
+    # Buyer-facing inventory signal: in_stock / low / out for instant packages,
+    # manual for made-to-order. max_quantity caps the order form.
+    stock_state: str | None = None
+    max_quantity: int | None = None
     duration_days: int | None = None
     # Management detail responses expose raw locale buckets so sellers can
     # edit a translation without storefront fallback masking missing content.
@@ -211,6 +232,10 @@ class ProductListItemBase(BaseModel):
     id: int
     seller_id: int
     category_id: int
+    slug: str
+    public_key: str
+    # /products/{slug}-{public_key}; filled from slug+key when built from ORM rows.
+    canonical_path: str | None = None
     title: str
     images: dict | None
     cover_id: str | None = None
@@ -236,6 +261,12 @@ class ProductListItemBase(BaseModel):
     def populate_cover_id(self):
         if self.cover_id is None:
             self.cover_id = parse_cover_id(self.images)
+        return self
+
+    @model_validator(mode="after")
+    def populate_canonical_path(self):
+        if self.canonical_path is None:
+            self.canonical_path = canonical_path("/products", self.slug, self.public_key)
         return self
 
 

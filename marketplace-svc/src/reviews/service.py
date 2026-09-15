@@ -6,6 +6,7 @@ from sqlalchemy.ext.asyncio import AsyncSession
 
 from src.exceptions import ErrorCode, api_error
 
+from src.models.account import Account
 from src.models.order import Order, OrderStatus
 from src.models.product import Product, ProductVariant
 from src.models.review import Review
@@ -93,22 +94,30 @@ async def get_product_reviews(product_id: int, db: AsyncSession) -> list[dict]:
     """Newest first; each row carries the purchased variant name so the
     storefront can show *which* package the buyer is rating."""
     result = await db.execute(
-        select(Review, ProductVariant.name)
+        select(Review, ProductVariant.name, Account.email)
         .join(Order, Order.id == Review.order_id)
         .outerjoin(ProductVariant, ProductVariant.id == Order.variant_id)
+        .outerjoin(Account, Account.id == Review.buyer_id)
         .where(Review.product_id == product_id)
         .order_by(Review.created_at.desc())
     )
     return [
         {
             "id": review.id,
-            "order_id": review.order_id,
-            "buyer_id": review.buyer_id,
             "product_id": review.product_id,
+            "reviewer_label": mask_reviewer(email),
             "rating": review.rating,
             "comment": review.comment,
             "created_at": review.created_at,
             "variant_name": variant_name,
         }
-        for review, variant_name in result.all()
+        for review, variant_name, email in result.all()
     ]
+
+
+def mask_reviewer(email: str | None) -> str:
+    """"nguyenvan@x" -> "ng***n"; never the account id, never the full address."""
+    local = (email or "").split("@", 1)[0]
+    if len(local) < 3:
+        return "***"
+    return f"{local[:2]}***{local[-1]}"

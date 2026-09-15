@@ -97,7 +97,7 @@ const columns: ColumnDef<Dispute>[] = [
         className="text-indigo-600 hover:underline font-mono"
         onClick={(e) => e.stopPropagation()}
       >
-        #{row.original.order_id}
+        {row.original.order_code ?? `#${row.original.order_id}`}
       </Link>
     ),
   },
@@ -340,7 +340,7 @@ function DisputeDetailContent({
                 href={`/admin/orders?highlight=${detail.order.id}`}
                 className="font-mono text-indigo-600 hover:underline"
               >
-                #{detail.order.id}
+                {detail.order.order_code ?? `#${detail.order.id}`}
               </Link>
             </div>
             <div>
@@ -544,7 +544,8 @@ export default function AdminDisputesPage() {
         d.reason.toLowerCase().includes(q) ||
         d.buyer_email?.toLowerCase().includes(q) ||
         d.product_title?.toLowerCase().includes(q) ||
-        String(d.order_id).includes(q)
+        String(d.order_id).includes(q) ||
+        (d.order_code?.toLowerCase().includes(q) ?? false)
     );
   }, [allDisputes, debouncedSearch]);
 

@@ -753,6 +753,7 @@ export interface DisputeTimelineEvent {
 
 export interface AdminDisputeOrder {
   id: number;
+  order_code?: string | null;
   buyer_id: number;
   seller_id: number;
   variant_id: number | null;

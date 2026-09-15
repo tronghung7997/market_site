@@ -128,7 +128,9 @@ const columns: ColumnDef<Order>[] = [
     accessorKey: "id",
     header: ({ column }) => <SortHeader column={column} label="#" />,
     cell: ({ row }) => (
-      <span className="font-mono text-slate-400">#{row.original.id}</span>
+      <span className="font-mono text-slate-500" title={`#${row.original.id}`}>
+        {row.original.order_code ?? `#${row.original.id}`}
+      </span>
     ),
     enableSorting: true,
   },
@@ -561,6 +563,7 @@ export default function AdminOrdersPage() {
     return allOrders.filter(
       (o) =>
         String(o.id).includes(q) ||
+        o.order_code?.toLowerCase().includes(q) ||
         o.buyer_email?.toLowerCase().includes(q) ||
         o.seller_email?.toLowerCase().includes(q) ||
         o.product_title?.toLowerCase().includes(q)
@@ -956,7 +959,7 @@ export default function AdminOrdersPage() {
       <SlidePanel
         isOpen={selectedOrderId !== null}
         onClose={() => setSelectedOrderId(null)}
-        title={`Đơn hàng #${selectedOrderId}`}
+        title={`Đơn hàng ${allOrders.find((o) => o.id === selectedOrderId)?.order_code ?? `#${selectedOrderId}`} (#${selectedOrderId})`}
         width="lg"
       >
         {selectedOrderId !== null && (

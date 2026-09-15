@@ -34,9 +34,14 @@ from src.models.review import Review
 from src.models.wallet import Transaction, TransactionType, Wallet, WithdrawRequest, WithdrawStatus
 from src.notifications.service import seller_action_items
 from src.pricing.engine import inventory_managed_sql
-from src.products.service import SELLER_LOW_STOCK, seller_inventory_counts
+from src.products.service import seller_inventory_counts
+from src.seller.settings import get_low_stock_threshold
 
 PRESET_DAYS = {"7d": 7, "30d": 30, "90d": 90}
+# Calendar presets run from the period start up to today (browser tz).
+CALENDAR_PRESETS = ("today", "this_week", "this_month", "this_quarter", "this_year")
+RANGE_KEYS = tuple(PRESET_DAYS) + CALENDAR_PRESETS + ("custom",)
+RANGE_KEY_PATTERN = "^(" + "|".join(RANGE_KEYS) + ")$"
 MAX_CUSTOM_DAYS = 366
 # Daily buckets stay readable up to a quarter; longer ranges roll up by week.
 WEEKLY_BUCKET_FROM_DAYS = 93
@@ -110,6 +115,8 @@ def resolve_range(
     if key in PRESET_DAYS:
         days = PRESET_DAYS[key]
         return DashboardRange(key, tz, local_today - timedelta(days=days - 1), local_today)
+    if key in CALENDAR_PRESETS:
+        return DashboardRange(key, tz, _calendar_start(key, local_today), local_today)
     if key != "custom":
         raise api_error(ErrorCode.DASHBOARD_RANGE_INVALID, http_status.HTTP_400_BAD_REQUEST, detail="Khoảng thời gian không hợp lệ")
     if not from_date or not to_date:
@@ -121,6 +128,18 @@ def resolve_range(
     if (to_date - from_date).days + 1 > MAX_CUSTOM_DAYS:
         raise api_error(ErrorCode.DASHBOARD_RANGE_INVALID, http_status.HTTP_400_BAD_REQUEST, detail="Khoảng thời gian tối đa 366 ngày")
     return DashboardRange("custom", tz, from_date, to_date)
+
+
+def _calendar_start(key: str, today: date) -> date:
+    if key == "today":
+        return today
+    if key == "this_week":
+        return today - timedelta(days=today.weekday())
+    if key == "this_month":
+        return today.replace(day=1)
+    if key == "this_quarter":
+        return today.replace(month=((today.month - 1) // 3) * 3 + 1, day=1)
+    return today.replace(month=1, day=1)
 
 
 def _local_bucket(column, rng: DashboardRange):
@@ -302,6 +321,7 @@ async def _top_products(seller_id: int, rng: DashboardRange, db: AsyncSession, l
         .order_by(per_product.c.gross.desc(), per_product.c.orders.desc(), Product.id)
         .limit(limit)
     )).all()
+    low_stock = await get_low_stock_threshold(db)
     out = []
     for pid, title, service_type, status_value, rating_avg, rating_count, orders, gross, net, total_stock, managed in rows:
         managed = bool(managed)
@@ -309,7 +329,7 @@ async def _top_products(seller_id: int, rng: DashboardRange, db: AsyncSession, l
             stock_state = "not_managed"
         elif total_stock == 0:
             stock_state = "out"
-        elif total_stock <= SELLER_LOW_STOCK:
+        elif total_stock <= low_stock:
             stock_state = "low"
         else:
             stock_state = "in_stock"

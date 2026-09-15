@@ -1,6 +1,8 @@
 import type { SellerDashboardRangeKey } from "@/lib/types";
 
-export const RANGE_PRESETS: SellerDashboardRangeKey[] = ["7d", "30d", "90d"];
+export const RANGE_PRESETS: SellerDashboardRangeKey[] = [
+  "today", "this_week", "this_month", "this_quarter", "this_year", "7d", "30d", "90d",
+];
 export const DEFAULT_RANGE: SellerDashboardRangeKey = "30d";
 export const MAX_CUSTOM_DAYS = 366;
 

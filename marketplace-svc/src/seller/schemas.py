@@ -135,3 +135,15 @@ class SellerDashboardResponse(BaseModel):
     customers: DashboardCustomers
     reviews: DashboardReviews
     action_items: list[DashboardActionItem]
+
+
+class SellerRuntimeConfigResponse(BaseModel):
+    low_stock_threshold: int
+    inventory_export_row_limit: int
+    updated_at: str | None = None
+    updated_by_id: int | None = None
+
+
+class SellerRuntimeConfigUpdate(BaseModel):
+    low_stock_threshold: int | None = Field(default=None, ge=1, le=1_000)
+    inventory_export_row_limit: int | None = Field(default=None, ge=100, le=500_000)

@@ -7,7 +7,7 @@ from src.auth.dependencies import get_current_account, require_role
 from src.database import get_session
 from src.models.account import Account
 
-from . import dashboard, schemas, service
+from . import dashboard, schemas, service, settings
 
 router = APIRouter(tags=["seller"])
 
@@ -48,7 +48,7 @@ async def reject(
 
 @router.get("/seller/dashboard", response_model=schemas.SellerDashboardResponse)
 async def seller_dashboard(
-    range: str = Query("30d", pattern="^(7d|30d|90d|custom)$"),
+    range: str = Query("30d", pattern=dashboard.RANGE_KEY_PATTERN),
     tz: str = Query("UTC", max_length=64),
     from_date: date | None = Query(None, alias="from"),
     to_date: date | None = Query(None, alias="to"),
@@ -57,3 +57,22 @@ async def seller_dashboard(
 ):
     rng = dashboard.resolve_range(range, tz, from_date, to_date)
     return await dashboard.get_seller_dashboard(account.id, rng, db)
+
+
+@router.get("/admin/seller-config", response_model=schemas.SellerRuntimeConfigResponse)
+async def admin_seller_config(_: Account = Depends(require_role("admin")), db: AsyncSession = Depends(get_session)):
+    return await settings.get_seller_settings(db)
+
+
+@router.patch("/admin/seller-config", response_model=schemas.SellerRuntimeConfigResponse)
+async def update_admin_seller_config(
+    body: schemas.SellerRuntimeConfigUpdate,
+    admin: Account = Depends(require_role("admin")),
+    db: AsyncSession = Depends(get_session),
+):
+    return await settings.update_seller_settings(
+        db,
+        actor_id=admin.id,
+        low_stock_threshold=body.low_stock_threshold,
+        inventory_export_row_limit=body.inventory_export_row_limit,
+    )

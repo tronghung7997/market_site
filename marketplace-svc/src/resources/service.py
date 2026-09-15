@@ -1,6 +1,7 @@
 import csv
 import io
 from collections.abc import AsyncIterator
+from datetime import datetime
 
 from fastapi import status
 from sqlalchemy import and_, case, func, or_, select
@@ -32,7 +33,9 @@ def _fixed_strategy_sql():
     return inventory_managed_sql()
 
 
-async def bulk_add_resources(variant_id: int, seller_id: int, items: list[str], db: AsyncSession) -> int:
+async def bulk_add_resources(variant_id: int, seller_id: int, items: list[str], db: AsyncSession) -> dict:
+    """Returns {"count", "skipped_duplicate", "skipped_existing"} — the two
+    skip counters let the console explain why 5 pasted lines became 3 rows."""
     # Serialize uploads per variant so two concurrent requests cannot both pass
     # the duplicate check and sell the same credential twice.
     variant = (await db.execute(
@@ -49,10 +52,11 @@ async def bulk_add_resources(variant_id: int, seller_id: int, items: list[str], 
     if variant.delivery_mode != DeliveryMode.instant:
         raise api_error(ErrorCode.INVENTORY_NOT_INSTANT, status.HTTP_400_BAD_REQUEST)
 
-    unique_items = list(dict.fromkeys(item.strip() for item in items if item.strip()))
+    cleaned = [item.strip() for item in items if item.strip()]
+    unique_items = list(dict.fromkeys(cleaned))
     if not unique_items:
         await db.commit()
-        return 0
+        return {"count": 0, "skipped_duplicate": 0, "skipped_existing": 0}
     existing = set((await db.execute(
         select(Resource.data).where(
             Resource.variant_id == variant_id,
@@ -63,7 +67,11 @@ async def bulk_add_resources(variant_id: int, seller_id: int, items: list[str], 
     for item in new_items:
         db.add(Resource(variant_id=variant_id, seller_id=seller_id, data=item))
     await db.commit()
-    return len(new_items)
+    return {
+        "count": len(new_items),
+        "skipped_duplicate": len(cleaned) - len(unique_items),
+        "skipped_existing": len(unique_items) - len(new_items),
+    }
 
 
 async def list_resources(
@@ -75,6 +83,10 @@ async def list_resources(
     search: str | None = None,
     include_archived: bool = False,
     archived_only: bool = False,
+    created_from: datetime | None = None,
+    created_to: datetime | None = None,
+    has_order: bool | None = None,
+    sort: str = "newest",
     page: int = 1,
     per_page: int = 50,
 ) -> tuple[list[Resource], int]:
@@ -85,6 +97,35 @@ async def list_resources(
     product = await db.get(Product, variant.product_id)
     if product.seller_id != seller_id:
         raise NotOwner()
+    filters = seller_resource_filters(
+        variant_id, status_filter=status_filter, search=search, include_archived=include_archived,
+        archived_only=archived_only, created_from=created_from, created_to=created_to, has_order=has_order,
+    )
+
+    total = int(await db.scalar(select(func.count()).select_from(Resource).where(*filters)) or 0)
+    order = (Resource.created_at.asc(), Resource.id.asc()) if sort == "oldest" else (Resource.created_at.desc(), Resource.id.desc())
+    result = await db.execute(
+        select(Resource)
+        .where(*filters)
+        .order_by(*order)
+        .offset((page - 1) * per_page)
+        .limit(per_page)
+    )
+    return list(result.scalars().all()), total
+
+
+def seller_resource_filters(
+    variant_id: int,
+    *,
+    status_filter: ResourceStatus | None = None,
+    search: str | None = None,
+    include_archived: bool = False,
+    archived_only: bool = False,
+    created_from: datetime | None = None,
+    created_to: datetime | None = None,
+    has_order: bool | None = None,
+) -> list:
+    """One filter set shared by list / export / "select all matching" bulk actions."""
     filters = [Resource.variant_id == variant_id]
     if archived_only:
         filters.append(Resource.is_archived == True)  # noqa: E712
@@ -95,16 +136,15 @@ async def list_resources(
     search_clause = _resource_search_clause(search)
     if search_clause is not None:
         filters.append(search_clause)
-
-    total = int(await db.scalar(select(func.count()).select_from(Resource).where(*filters)) or 0)
-    result = await db.execute(
-        select(Resource)
-        .where(*filters)
-        .order_by(Resource.created_at.desc(), Resource.id.desc())
-        .offset((page - 1) * per_page)
-        .limit(per_page)
-    )
-    return list(result.scalars().all()), total
+    if created_from is not None:
+        filters.append(Resource.created_at >= created_from)
+    if created_to is not None:
+        filters.append(Resource.created_at < created_to)
+    if has_order is True:
+        filters.append(Resource.order_id.is_not(None))
+    elif has_order is False:
+        filters.append(Resource.order_id.is_(None))
+    return filters
 
 
 async def _verify_resource_ownership(resource: Resource, seller_id: int, db: AsyncSession) -> None:
@@ -213,13 +253,23 @@ async def restore_resource(resource_id: int, seller_id: int, db: AsyncSession) -
     return resource
 
 
+BULK_ALL_MATCHING_LIMIT = 50_000
+
+
 async def bulk_resource_action(
     variant_id: int,
     seller_id: int,
     action: str,
-    resource_ids: list[int],
+    resource_ids: list[int] | None,
     db: AsyncSession,
+    *,
+    match_filters: list | None = None,
 ) -> tuple[str, int, list[int]]:
+    """Archive / restore / delete either an explicit id list or every row
+    matching the caller's current filter (`match_filters`, built with
+    seller_resource_filters). Filter mode skips rows that cannot take the
+    action (assigned units) instead of failing the whole batch, because a
+    "select all 12k matching" click cannot be expected to pre-screen them."""
     variant = await db.get(ProductVariant, variant_id)
     if not variant:
         raise api_error(ErrorCode.VARIANT_NOT_FOUND, status.HTTP_404_NOT_FOUND)
@@ -228,15 +278,26 @@ async def bulk_resource_action(
     if product.seller_id != seller_id:
         raise NotOwner()
 
-    result = await db.execute(
-        select(Resource).where(
-            Resource.id.in_(resource_ids),
-            Resource.variant_id == variant_id,
-        ).with_for_update()
-    )
-    resources = list(result.scalars().all())
-    if len(set(resource_ids)) != len(resource_ids) or len(resources) != len(resource_ids):
-        raise api_error(ErrorCode.RESOURCE_NOT_EDITABLE, status.HTTP_400_BAD_REQUEST)
+    by_filter = match_filters is not None
+    if by_filter:
+        result = await db.execute(
+            select(Resource).where(*match_filters).order_by(Resource.id)
+            .limit(BULK_ALL_MATCHING_LIMIT).with_for_update()
+        )
+        resources = list(result.scalars().all())
+        if action in ("archive", "delete"):
+            resources = [r for r in resources if r.status != ResourceStatus.assigned]
+    else:
+        resource_ids = resource_ids or []
+        result = await db.execute(
+            select(Resource).where(
+                Resource.id.in_(resource_ids),
+                Resource.variant_id == variant_id,
+            ).with_for_update()
+        )
+        resources = list(result.scalars().all())
+        if len(set(resource_ids)) != len(resource_ids) or len(resources) != len(resource_ids):
+            raise api_error(ErrorCode.RESOURCE_NOT_EDITABLE, status.HTTP_400_BAD_REQUEST)
     affected_ids: list[int] = []
 
     if action == "restore":

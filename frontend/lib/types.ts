@@ -758,7 +758,10 @@ export interface SellerStats {
   total_revenue: number;
 }
 
-export type SellerDashboardRangeKey = "7d" | "30d" | "90d" | "custom";
+export type SellerDashboardRangeKey =
+  | "7d" | "30d" | "90d"
+  | "today" | "this_week" | "this_month" | "this_quarter" | "this_year"
+  | "custom";
 
 export interface SellerDashboardRange {
   key: SellerDashboardRangeKey;
@@ -1086,6 +1089,210 @@ export interface PaginatedInventoryVariants {
   page: number;
   per_page: number;
   counts: InventoryCounts;
+}
+
+// --- Seller inventory console (package-level) -----------------------------
+
+export type InventoryStockTab = "all" | "low" | "out" | "error" | "inactive";
+export type InventoryPackageSort = "available_asc" | "available_desc" | "title" | "last_restock" | "sold_desc";
+export type InventoryProductStatusFilter = "active" | "paused" | "all";
+export type InventoryStockState = "in_stock" | "low" | "out" | "inactive";
+
+export interface InventoryPackage {
+  product_id: number;
+  product_title: string;
+  product_status: string;
+  cover_id: string | null;
+  service_type: string | null;
+  category_id: number;
+  category_name: string;
+  variant_id: number;
+  variant_name: string;
+  price: number;
+  delivery_mode: string | null;
+  is_active: boolean;
+  available: number;
+  assigned: number;
+  error: number;
+  expired: number;
+  archived: number;
+  sold_30d: number;
+  last_restock_at: string | null;
+  stock_state: InventoryStockState;
+}
+
+export interface InventoryPackageCounts {
+  all: number;
+  low: number;
+  out: number;
+  error: number;
+  inactive: number;
+  available_total: number;
+  sold_30d: number;
+  products: number;
+}
+
+export interface InventoryCategoryFacet {
+  id: number;
+  name: string;
+  count: number;
+}
+
+export interface InventoryPackagesResponse {
+  items: InventoryPackage[];
+  total: number;
+  page: number;
+  per_page: number;
+  view: "grouped" | "flat";
+  counts: InventoryPackageCounts;
+  categories: InventoryCategoryFacet[];
+  low_stock_threshold: number;
+}
+
+export interface InventoryPackageSibling {
+  variant_id: number;
+  variant_name: string;
+  available: number;
+  is_active: boolean;
+  delivery_mode: string | null;
+  price: number;
+}
+
+export interface InventoryPackageDetail extends InventoryPackage {
+  low_stock_threshold: number;
+  expected_field_count: number | null;
+  siblings: InventoryPackageSibling[];
+}
+
+export interface InventoryPackageBulkStatusResult {
+  updated: number[];
+  skipped: { id: number; reason: "not_found" | "not_owner" | string }[];
+  is_active: boolean;
+}
+
+export interface RestockPreview {
+  total_lines: number;
+  duplicate_in_file: number;
+  existing_in_stock: number;
+  to_add: number;
+  expected_field_count: number | null;
+  malformed: { line: number; fields: number }[];
+  malformed_total: number;
+}
+
+export interface RestockResult {
+  count: number;
+  skipped_duplicate: number;
+  skipped_existing: number;
+}
+
+export type ResourceStatusFilter = "all" | "available" | "assigned" | "error" | "expired" | "archived";
+export type ResourceSort = "newest" | "oldest";
+
+export interface SellerResourceQuery {
+  page?: number;
+  perPage?: number;
+  status?: ResourceStatusFilter;
+  search?: string;
+  createdFrom?: string;
+  createdTo?: string;
+  hasOrder?: boolean | null;
+  sort?: ResourceSort;
+  signal?: AbortSignal;
+}
+
+export interface BulkResourceActionInput {
+  action: "archive" | "restore";
+  resourceIds?: number[];
+  allMatching?: boolean;
+  status?: ResourceStatusFilter;
+  search?: string;
+  createdFrom?: string;
+  createdTo?: string;
+  hasOrder?: boolean | null;
+}
+
+export type InventoryExportMask = "none" | "middle" | "edges" | "id_only";
+export type InventoryExportColumn =
+  | "category" | "product" | "variant" | "id" | "status" | "data" | "order"
+  | "created_at" | "assigned_at" | "expires_at" | "price";
+export type InventoryResourceStatus = "available" | "assigned" | "error" | "expired";
+
+export interface InventoryScope {
+  variantIds?: number[];
+  productIds?: number[];
+  categoryIds?: number[];
+  includeInactive?: boolean;
+}
+
+export interface InventoryExportParams extends InventoryScope {
+  statuses?: InventoryResourceStatus[];
+  includeArchived?: boolean;
+  createdFrom?: string;
+  createdTo?: string;
+  assignedFrom?: string;
+  assignedTo?: string;
+  mask?: InventoryExportMask;
+  maskChar?: string;
+  format?: "csv" | "txt";
+  columns?: InventoryExportColumn[];
+}
+
+export interface InventoryExportPreview {
+  rows: Record<InventoryExportColumn, string | number>[];
+  total: number;
+  packages: number;
+  row_limit: number;
+  columns: InventoryExportColumn[];
+}
+
+export type InventoryReportGroup = "category" | "product" | "variant" | "day" | "week";
+export type InventoryReportMetric = "added" | "sold" | "error" | "expired" | "archived" | "stock" | "revenue";
+export type InventoryReportBasis = "created" | "assigned";
+
+export interface InventoryReportParams extends InventoryScope {
+  range: SellerDashboardRangeKey;
+  from?: string;
+  to?: string;
+  tz?: string;
+  groupBy?: InventoryReportGroup;
+  basis?: InventoryReportBasis;
+  compare?: boolean;
+  lowOnly?: boolean;
+  hasError?: boolean;
+  noActivity?: boolean;
+}
+
+export interface InventoryReportRow {
+  key: string;
+  label: string | null;
+  sublabel: string | null;
+  added: number;
+  sold: number;
+  error: number;
+  expired: number;
+  archived: number;
+  stock: number;
+  revenue: number;
+  prev: Record<InventoryReportMetric, number> | null;
+}
+
+export interface InventoryReportResponse {
+  range: SellerDashboardRange;
+  group_by: InventoryReportGroup;
+  basis: InventoryReportBasis;
+  packages: number;
+  rows: InventoryReportRow[];
+  totals: Record<InventoryReportMetric, number>;
+  prev_totals: Record<InventoryReportMetric, number> | null;
+  low_stock_threshold: number;
+}
+
+export interface SellerRuntimeConfig {
+  low_stock_threshold: number;
+  inventory_export_row_limit: number;
+  updated_at: string | null;
+  updated_by_id: number | null;
 }
 
 export interface AdminResource {

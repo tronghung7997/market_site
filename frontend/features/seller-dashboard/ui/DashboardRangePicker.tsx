@@ -13,12 +13,17 @@ import {
   type DashboardRangeParams,
 } from "../model";
 
-const PRESET_LABEL: Record<SellerDashboardRangeKey, "range7d" | "range30d" | "range90d" | "rangeCustom"> = {
+export const PRESET_LABEL = {
+  today: "rangeToday",
+  this_week: "rangeThisWeek",
+  this_month: "rangeThisMonth",
+  this_quarter: "rangeThisQuarter",
+  this_year: "rangeThisYear",
   "7d": "range7d",
   "30d": "range30d",
   "90d": "range90d",
   custom: "rangeCustom",
-};
+} as const satisfies Record<SellerDashboardRangeKey, string>;
 
 export function DashboardRangePicker({
   params,

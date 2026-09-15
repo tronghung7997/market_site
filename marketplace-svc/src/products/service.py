@@ -27,6 +27,7 @@ from src.models.provider import Provider
 from src.models.resource import Resource, ResourceStatus
 from src.pricing.engine import inventory_managed_sql, product_pricing_override, resolve_pricing
 from src.products.covers import catalog_items, default_cover_id, images_payload, public_images
+from src.seller.settings import get_low_stock_threshold
 
 # Cột duy nhất của ProductVariant cho phép null — xem update_variant.
 NULLABLE_VARIANT_FIELDS = {"duration_days"}
@@ -555,7 +556,6 @@ async def get_product_catalog_summary(db: AsyncSession) -> dict:
     }
 
 
-SELLER_LOW_STOCK = 20
 
 
 def _empty_seller_counts() -> dict:
@@ -598,6 +598,7 @@ async def seller_inventory_counts(seller_id: int, db: AsyncSession) -> dict:
     """Store-wide stock health for the seller overview — same rules as the
     products page counts (managed = fixed-price inventory products only) but
     without search/tab filters, so the two never disagree on thresholds."""
+    low_stock = await get_low_stock_threshold(db)
     stock = _available_stock_by_product()
     stock_col = func.coalesce(stock.c.stock, 0)
     managed = inventory_managed_sql()
@@ -612,7 +613,7 @@ async def seller_inventory_counts(seller_id: int, db: AsyncSession) -> dict:
         func.sum(case((scope.c.status == ProductStatus.active, 1), else_=0)),
         func.sum(case((scope.c.managed, 1), else_=0)),
         func.sum(case((scope.c.managed, scope.c.stock), else_=0)),
-        func.sum(case((scope.c.managed & (scope.c.stock > 0) & (scope.c.stock <= SELLER_LOW_STOCK), 1), else_=0)),
+        func.sum(case((scope.c.managed & (scope.c.stock > 0) & (scope.c.stock <= low_stock), 1), else_=0)),
         func.sum(case((scope.c.managed & (scope.c.stock == 0), 1), else_=0)),
     ))).one()
     return {
@@ -642,6 +643,7 @@ async def list_seller_products(
     Bản cũ mỗi sản phẩm 2 query (danh mục + gói) cộng 1 query đếm kho MỖI gói
     giao ngay; seller 1000 sản phẩm là ~4.000 query một lần mở trang."""
     filters = _seller_search_filters(seller_id, search)
+    low_stock = await get_low_stock_threshold(db)
     stock = _available_stock_by_product()
     stock_col = func.coalesce(stock.c.stock, 0)
     managed = inventory_managed_sql()
@@ -686,7 +688,7 @@ async def list_seller_products(
         func.count(scope.c.id),
         func.sum(case((scope.c.status == ProductStatus.active, 1), else_=0)),
         func.sum(case((scope.c.status == ProductStatus.paused, 1), else_=0)),
-        func.sum(case((scope.c.managed & (scope.c.stock > 0) & (scope.c.stock <= SELLER_LOW_STOCK), 1), else_=0)),
+        func.sum(case((scope.c.managed & (scope.c.stock > 0) & (scope.c.stock <= low_stock), 1), else_=0)),
         func.sum(case((scope.c.managed & (scope.c.stock == 0), 1), else_=0)),
         func.sum(case((scope.c.managed, scope.c.stock), else_=0)),
         func.sum(case((scope.c.status == ProductStatus.draft, 1), else_=0)),
@@ -701,7 +703,7 @@ async def list_seller_products(
         "total_stock": int(count_row[5] or 0),
         "draft": int(count_row[6] or 0),
         "suspended": int(count_row[7] or 0),
-        "low_stock_threshold": SELLER_LOW_STOCK,
+        "low_stock_threshold": low_stock,
     }
     tab = (status or "all").strip().lower()
     page_filters = []
@@ -712,7 +714,7 @@ async def list_seller_products(
     elif tab == "draft":
         page_filters.append(scope.c.status == ProductStatus.draft)
     elif tab == "low_stock":
-        page_filters.append(scope.c.managed & (scope.c.stock > 0) & (scope.c.stock <= SELLER_LOW_STOCK))
+        page_filters.append(scope.c.managed & (scope.c.stock > 0) & (scope.c.stock <= low_stock))
     elif tab == "out_of_stock":
         page_filters.append(scope.c.managed & (scope.c.stock == 0))
     if category:

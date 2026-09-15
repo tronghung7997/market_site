@@ -3,6 +3,12 @@ import type {
 } from "./types";
 import type { PaginatedDisputes } from "./types";
 import type { PaginatedAdminProducts, PaginatedInventoryVariants, PaginatedSellerProducts } from "./types";
+import type {
+  BulkResourceActionInput, InventoryExportParams, InventoryExportPreview, InventoryPackageBulkStatusResult,
+  InventoryPackageDetail, InventoryPackagesResponse, InventoryPackageSort, InventoryProductStatusFilter,
+  InventoryReportParams, InventoryReportResponse, InventoryStockTab, RestockPreview, RestockResult,
+  SellerResourceQuery, SellerRuntimeConfig,
+} from "./types";
 import {
   ApiError,
   NETWORK_ERROR_MESSAGE,
@@ -59,6 +65,45 @@ async function request<T>(path: string, init: RequestInit = {}, auth: boolean | 
     throw apiErrorFromResponse(path, res.status, body, { auth, locale: browserLocale() });
   }
   return body as T;
+}
+
+function inventoryExportQuery(params: InventoryExportParams) {
+  const q = new URLSearchParams();
+  if (params.variantIds?.length) q.set("variant_ids", params.variantIds.join(","));
+  if (params.productIds?.length) q.set("product_ids", params.productIds.join(","));
+  if (params.categoryIds?.length) q.set("category_ids", params.categoryIds.join(","));
+  if (params.includeInactive) q.set("include_inactive", "true");
+  if (params.statuses?.length) q.set("statuses", params.statuses.join(","));
+  if (params.includeArchived) q.set("include_archived", "true");
+  if (params.createdFrom) q.set("created_from", params.createdFrom);
+  if (params.createdTo) q.set("created_to", params.createdTo);
+  if (params.assignedFrom) q.set("assigned_from", params.assignedFrom);
+  if (params.assignedTo) q.set("assigned_to", params.assignedTo);
+  if (params.mask && params.mask !== "none") q.set("mask", params.mask);
+  if (params.maskChar && params.maskChar !== "•") q.set("mask_char", params.maskChar);
+  if (params.format) q.set("format", params.format);
+  if (params.columns?.length) q.set("columns", params.columns.join(","));
+  return q;
+}
+
+function inventoryReportQuery(params: InventoryReportParams) {
+  const q = new URLSearchParams({ range: params.range });
+  if (params.variantIds?.length) q.set("variant_ids", params.variantIds.join(","));
+  if (params.productIds?.length) q.set("product_ids", params.productIds.join(","));
+  if (params.categoryIds?.length) q.set("category_ids", params.categoryIds.join(","));
+  if (params.includeInactive) q.set("include_inactive", "true");
+  if (params.range === "custom" && params.from && params.to) {
+    q.set("from", params.from);
+    q.set("to", params.to);
+  }
+  if (params.tz) q.set("tz", params.tz);
+  if (params.groupBy) q.set("group_by", params.groupBy);
+  if (params.basis) q.set("basis", params.basis);
+  if (params.compare === false) q.set("compare", "false");
+  if (params.lowOnly) q.set("low_only", "true");
+  if (params.hasError) q.set("has_error", "true");
+  if (params.noActivity) q.set("no_activity", "true");
+  return q;
 }
 
 export const api = {
@@ -301,27 +346,30 @@ export const api = {
   deleteVariant: (variantId: number) =>
     request<void>(`/seller/variants/${variantId}`, { method: "DELETE" }, true),
   addResources: (variantId: number, items: string[]) =>
-    request<{ count: number }>(`/seller/variants/${variantId}/resources`, {
+    request<RestockResult>(`/seller/variants/${variantId}/resources`, {
       method: "POST",
       body: JSON.stringify({ items }),
     }, true),
-  sellerVariantResources: async (
-    variantId: number,
-    opts: { page?: number; perPage?: number; status?: string; search?: string; archivedOnly?: boolean; signal?: AbortSignal } = {},
-  ) => {
+  restockPreview: (variantId: number, items: string[]) =>
+    request<RestockPreview>(`/seller/variants/${variantId}/resources/preview`, {
+      method: "POST",
+      body: JSON.stringify({ items }),
+    }, true),
+  sellerVariantResources: async (variantId: number, opts: SellerResourceQuery = {}) => {
     const q = new URLSearchParams({
       page: String(opts.page ?? 1),
       per_page: String(opts.perPage ?? 25),
     });
-    if (opts.status && opts.status !== "all") {
+    if (opts.status === "archived") {
+      q.set("archived_only", "true");
+    } else if (opts.status && opts.status !== "all") {
       q.set("status", opts.status);
     }
-    if (opts.search?.trim()) {
-      q.set("search", opts.search.trim());
-    }
-    if (opts.archivedOnly) {
-      q.set("archived_only", "true");
-    }
+    if (opts.search?.trim()) q.set("search", opts.search.trim());
+    if (opts.createdFrom) q.set("created_from", opts.createdFrom);
+    if (opts.createdTo) q.set("created_to", opts.createdTo);
+    if (opts.hasOrder === true || opts.hasOrder === false) q.set("has_order", String(opts.hasOrder));
+    if (opts.sort && opts.sort !== "newest") q.set("sort", opts.sort);
     const path = `/seller/variants/${variantId}/resources?${q}`;
     const headers: Record<string, string> = { "Accept-Language": browserLocale() };
     let res: Response;
@@ -390,11 +438,67 @@ export const api = {
     request<Resource>(`/seller/resources/${resourceId}/restore`, {
       method: "POST",
     }, true),
-  bulkResourceAction: (variantId: number, action: "archive" | "restore" | "delete", resourceIds: number[]) =>
+  bulkResourceAction: (variantId: number, input: BulkResourceActionInput) =>
     request<BulkResourceActionResult>(`/seller/variants/${variantId}/resources/bulk-action`, {
       method: "POST",
-      body: JSON.stringify({ action, resource_ids: resourceIds }),
+      body: JSON.stringify({
+        action: input.action,
+        resource_ids: input.resourceIds ?? [],
+        all_matching: Boolean(input.allMatching),
+        status: input.status && input.status !== "all" && input.status !== "archived" ? input.status : undefined,
+        archived_only: input.status === "archived",
+        search: input.search?.trim() || undefined,
+        created_from: input.createdFrom || undefined,
+        created_to: input.createdTo || undefined,
+        has_order: input.hasOrder === true || input.hasOrder === false ? input.hasOrder : undefined,
+      }),
     }, true),
+  // --- Inventory console (package-level) ---
+  inventoryPackages: (params: {
+    search?: string;
+    categoryId?: number | null;
+    productStatus?: InventoryProductStatusFilter;
+    stock?: InventoryStockTab;
+    includeInactive?: boolean;
+    sort?: InventoryPackageSort;
+    view?: "grouped" | "flat";
+    page?: number;
+    perPage?: number;
+  } = {}) => {
+    const q = new URLSearchParams({ page: String(params.page ?? 1), per_page: String(params.perPage ?? 20) });
+    if (params.search?.trim()) q.set("search", params.search.trim());
+    if (params.categoryId) q.set("category_id", String(params.categoryId));
+    if (params.productStatus && params.productStatus !== "active") q.set("product_status", params.productStatus);
+    if (params.stock && params.stock !== "all") q.set("stock", params.stock);
+    if (params.includeInactive) q.set("include_inactive", "true");
+    if (params.sort) q.set("sort", params.sort);
+    if (params.view) q.set("view", params.view);
+    return request<InventoryPackagesResponse>(`/seller/inventory/packages?${q}`, {}, true);
+  },
+  inventoryPackage: (variantId: number) =>
+    request<InventoryPackageDetail>(`/seller/inventory/packages/${variantId}`, {}, true),
+  bulkPackageStatus: (variantIds: number[], isActive: boolean) =>
+    request<InventoryPackageBulkStatusResult>("/seller/inventory/packages/bulk-status", {
+      method: "POST",
+      body: JSON.stringify({ variant_ids: variantIds, is_active: isActive }),
+    }, true),
+  inventoryExportPreview: (params: InventoryExportParams, limit = 20) => {
+    const q = inventoryExportQuery(params);
+    q.set("preview", String(limit));
+    return request<InventoryExportPreview>(`/seller/inventory/export?${q}`, {}, true);
+  },
+  inventoryExportUrl: (params: InventoryExportParams) =>
+    `/api/seller/inventory/export?${inventoryExportQuery(params)}`,
+  inventoryReport: (params: InventoryReportParams) =>
+    request<InventoryReportResponse>(`/seller/inventory/report?${inventoryReportQuery(params)}`, {}, true),
+  inventoryReportCsvUrl: (params: InventoryReportParams) => {
+    const q = inventoryReportQuery(params);
+    q.set("format", "csv");
+    return `/api/seller/inventory/report?${q}`;
+  },
+  adminSellerConfig: () => request<SellerRuntimeConfig>("/admin/seller-config", {}, true),
+  updateAdminSellerConfig: (body: { low_stock_threshold?: number; inventory_export_row_limit?: number }) =>
+    request<SellerRuntimeConfig>("/admin/seller-config", { method: "PATCH", body: JSON.stringify(body) }, true),
   deleteResource: (resourceId: number) =>
     request<void>(`/seller/resources/${resourceId}`, { method: "DELETE" }, true),
   sellerAcceptOrder: (orderId: number) =>

@@ -71,6 +71,16 @@ export const queryKeys = {
   sellerOrderResources: (orderId: number) => ["seller-orders", "resources", orderId] as const,
 
   // Seller products console
+  // Seller inventory console — prefix ["seller-inventory"] invalidates every view.
+  sellerInventory: (params?: Record<string, unknown> | null) =>
+    params == null ? ["seller-inventory"] as const : ["seller-inventory", "packages", params] as const,
+  sellerInventoryPackage: (variantId: number) => ["seller-inventory", "package", variantId] as const,
+  sellerInventoryResources: (variantId: number, params: Record<string, unknown>) =>
+    ["seller-inventory", "resources", variantId, params] as const,
+  sellerInventoryAll: () => ["seller-inventory", "all-packages"] as const,
+  sellerInventoryReport: (params: Record<string, unknown>) => ["seller-inventory", "report", params] as const,
+  sellerInventoryExportPreview: (params: Record<string, unknown>) => ["seller-inventory", "export-preview", params] as const,
+  adminSellerConfig: () => ["admin-seller-config"] as const,
   sellerProducts: (params?: Record<string, unknown> | null) =>
     params == null ? ["seller-products"] as const : ["seller-products", "list", params] as const,
 } as const;

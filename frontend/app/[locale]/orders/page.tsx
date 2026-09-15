@@ -23,6 +23,7 @@ import {
   Star,
 } from "lucide-react";
 import { api } from "@/lib/api";
+import { useVariantTermFor } from "@/lib/variant-term";
 import { useApiErrorMessage } from "@/lib/use-api-error";
 import { useAuth } from "@/lib/auth";
 import { useMoney } from "@/lib/money";
@@ -41,6 +42,7 @@ import { parseHighlightedResourceIds } from "@/lib/dispute-case";
 
 export default function OrdersPage() {
   const t = useTranslations("orders");
+  const termFor = useVariantTermFor();
   const tc = useTranslations("common");
   const locale = useLocale();
   const { formatBrowseMoney, formatOrderHistoryMoney } = useMoney();
@@ -70,6 +72,7 @@ export default function OrdersPage() {
   const stats = statsQuery.data ?? null;
 
   const [selectedOrder, setSelectedOrder] = useState<Order | null>(null);
+  const [modalTab, setModalTab] = useState<"review" | undefined>(undefined);
   const [disputeTarget, setDisputeTarget] = useState<{
     orderId: number;
     order?: Order | null;
@@ -289,9 +292,18 @@ export default function OrdersPage() {
 
   function handleReviewDone(orderId: number, ok: boolean, message: string) {
     showToast(message);
-    if (ok) {
-      setReviewedOrders((prev) => new Set(prev).add(orderId));
-    }
+    if (!ok) return;
+    setReviewedOrders((prev) => new Set(prev).add(orderId));
+    const markReviewed = (ord: Order): Order => ({
+      ...ord,
+      has_review: true,
+      capabilities: ord.capabilities ? { ...ord.capabilities, can_review: false } : ord.capabilities,
+    });
+    queryClient.setQueryData<PaginatedOrderResponse>(
+      queryKeys.orders(filters.params as Record<string, unknown>, account?.id),
+      (prev) => prev ? { ...prev, items: prev.items.map((ord) => (ord.id === orderId ? markReviewed(ord) : ord)) } : prev,
+    );
+    setSelectedOrder((prev) => (prev && prev.id === orderId ? markReviewed(prev) : prev));
   }
 
   function handleDisputeSuccess() {
@@ -387,6 +399,7 @@ export default function OrdersPage() {
   const handleCloseOrderModal = useCallback(() => {
     const currentId = selectedOrder?.id;
     setSelectedOrder(null);
+    setModalTab(undefined);
     setExtraHighlightResourceIds([]);
     if (typeof window !== "undefined") {
       const sp = new URLSearchParams(window.location.search);
@@ -459,6 +472,7 @@ export default function OrdersPage() {
             });
           }}
           onOpenReview={() => {}}
+          initialTab={modalTab}
           reviewDone={!!selectedOrder.has_review || reviewedOrders.has(selectedOrder.id)}
           onReviewDone={handleReviewDone}
           onDelivered={handleDelivered}
@@ -1081,7 +1095,7 @@ export default function OrdersPage() {
                       <div className="flex flex-wrap items-center gap-1.5 mt-1.5 text-[12px] text-muted">
                         {o.variant_name && (
                           <span className="font-medium text-fg/80 bg-raised px-2 py-0.5 rounded-md border border-line text-[11px] break-all">
-                            {t("packageNamed", { name: o.variant_name })}
+                            {t("packageNamed", { name: o.variant_name, ...termFor(o.service_type) })}
                           </span>
                         )}
                         <span className="font-mono text-fg font-medium">
@@ -1123,21 +1137,19 @@ export default function OrdersPage() {
                         {money.text}
                       </span>
                     </div>
-                    {o.status === "completed" && (
-                      o.has_review || reviewedOrders.has(o.id) ? (
-                        <span className="flex items-center gap-1 text-[11.5px] text-good font-medium">
-                          <Star size={12} className="fill-good text-good" /> {t("reviewed")}
-                        </span>
-                      ) : (
-                        <button
-                          type="button"
-                          onClick={() => setSelectedOrder(o)}
-                          className="flex items-center gap-1 text-[11.5px] text-iris hover:underline font-medium cursor-pointer"
-                        >
-                          <Star size={12} /> {t("review")}
-                        </button>
-                      )
-                    )}
+                    {(o.has_review || reviewedOrders.has(o.id)) ? (
+                      <span className="flex items-center gap-1 text-[11.5px] text-good font-medium">
+                        <Star size={12} className="fill-good text-good" /> {t("reviewed")}
+                      </span>
+                    ) : o.capabilities?.can_review ? (
+                      <button
+                        type="button"
+                        onClick={() => { setModalTab("review"); setSelectedOrder(o); }}
+                        className="flex items-center gap-1 text-[11.5px] text-iris hover:underline font-medium cursor-pointer"
+                      >
+                        <Star size={12} /> {t("review")}
+                      </button>
+                    ) : null}
                   </div>
 
                   {/* Action Buttons: Clear, Touch-friendly, No Cut-off */}
@@ -1352,7 +1364,7 @@ export default function OrdersPage() {
                             <div className="text-[11.5px] text-muted line-clamp-1 mt-0.5">
                               {o.variant_name ? (
                                 <span className="font-medium text-fg/80 bg-raised/80 px-1.5 py-0.2 rounded border border-line mr-1.5">
-                                  {t("packageNamed", { name: o.variant_name })}
+                                  {t("packageNamed", { name: o.variant_name, ...termFor(o.service_type) })}
                                 </span>
                               ) : null}
                               <span>{tc("qty", { count: o.quantity })}</span>

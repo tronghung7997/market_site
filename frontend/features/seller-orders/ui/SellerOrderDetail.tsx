@@ -4,6 +4,7 @@ import { useLocale, useTranslations } from "next-intl";
 import { useState } from "react";
 import { Link } from "@/i18n/navigation";
 import { cn } from "@/lib/cn";
+import { useVariantTerm } from "@/lib/variant-term";
 import { useMoney } from "@/lib/money";
 import { useApiErrorMessage } from "@/lib/use-api-error";
 import { displayOrderStatus } from "@/lib/order-status";
@@ -61,6 +62,7 @@ export function SellerOrderDetail({
   const apiErrorMessage = useApiErrorMessage();
   const orderQuery = useSellerOrder(orderId);
   const order = orderQuery.data;
+  const term = useVariantTerm(order?.service_type);
   const wantsDispute = Boolean(order && (order.has_dispute || order.dispute_status || order.status === "disputed"));
   const disputeQuery = useSellerDispute(orderId, wantsDispute);
   const resourcesQuery = useSellerOrderResources(orderId);
@@ -169,7 +171,7 @@ export function SellerOrderDetail({
               <div className="mt-0.5 font-mono text-fg">{formatDateTime(order.created_at, locale)}</div>
             </div>
             <div className="min-w-0">
-              <span className="text-faint">{t("variantAndQuantity")}</span>
+              <span className="text-faint">{t("variantAndQuantity", { ...term })}</span>
               <div className="mt-0.5 truncate font-medium text-fg">
                 {order.variant_name || t("defaultVariant")} · x{order.quantity.toLocaleString()}
               </div>

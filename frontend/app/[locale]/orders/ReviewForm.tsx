@@ -33,14 +33,18 @@ export default function ReviewForm({ orderId, onDone, onCancel }: {
 
   return (
     <div className="mt-3 p-3.5 rounded-lg border border-line bg-raised">
-      <div className="flex gap-1 mb-2">
-        {[1, 2, 3, 4, 5].map((s) => (
-          <button key={s} onClick={() => setRating(s)} className="p-0.5" aria-label={t("starAria", { n: s })}>
-            <Star size={18} className={s <= rating ? "text-warn fill-warn" : "text-line-2"} />
-          </button>
-        ))}
+      <div className="flex items-center gap-2 mb-2">
+        <div className="flex gap-1">
+          {[1, 2, 3, 4, 5].map((s) => (
+            <button key={s} type="button" onClick={() => setRating(s)} className="p-0.5" aria-label={t("starAria", { n: s })}>
+              <Star size={20} className={s <= rating ? "text-warn fill-warn" : "text-line-2"} />
+            </button>
+          ))}
+        </div>
+        <span className="text-[12px] font-medium text-fg">{t(`starLabel${rating}` as "starLabel5")}</span>
       </div>
-      <Textarea rows={3} placeholder={t("reviewCommentPh")} value={comment} onChange={(e) => setComment(e.target.value)} />
+      <Textarea rows={3} placeholder={t("reviewCommentPh")} value={comment} onChange={(e) => setComment(e.target.value)} maxLength={2000} />
+      <p className="mt-1.5 text-[11px] text-faint">{t("reviewPublicHint")}</p>
       <div className="flex gap-2 mt-2">
         <Button size="sm" onClick={submit} disabled={submitting}>
           {submitting ? t("submitting") : t("submitReview")}

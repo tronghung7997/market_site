@@ -95,3 +95,36 @@ async def test_bulk_status_reports_skipped_rows_and_respects_ownership(client):
     assert back.json()["updated"] == [a, b]
     assert (await client.post("/seller/products/bulk-status", json={"ids": [], "status": "active"}, headers=h)).status_code == 422
     assert (await client.post("/seller/products/bulk-status", json={"ids": [a], "status": "suspended"}, headers=h)).status_code == 422
+
+
+@pytest.mark.asyncio
+async def test_seller_products_category_ids_expand_branch_and_expose_facet(client):
+    seller_token, admin_token, root_id = await setup_seller_with_category(client)
+    h = _auth(seller_token)
+    ah = _auth(admin_token)
+    social = (await client.post("/admin/categories", json={"name": "Social", "slug": "social-console"}, headers=ah)).json()["id"]
+    facebook = (await client.post("/admin/categories", json={"name": "Facebook", "slug": "fb-console", "parent_id": social}, headers=ah)).json()["id"]
+    tiktok = (await client.post("/admin/categories", json={"name": "TikTok", "slug": "tt-console", "parent_id": social}, headers=ah)).json()["id"]
+
+    fb_product = await _product(client, h, facebook, "FB acc", prices=(1000,))
+    tt_product = await _product(client, h, tiktok, "TT acc", prices=(1000,))
+    root_product = await _product(client, h, root_id, "Root acc", prices=(1000,))
+
+    async def ids(**params):
+        r = await client.get("/seller/products", params=params, headers=h)
+        assert r.status_code == 200, r.text
+        return sorted(p["id"] for p in r.json()["items"])
+
+    # Ticking the parent brings the whole branch; children can be picked alone.
+    assert await ids(category_ids=str(social)) == sorted([fb_product, tt_product])
+    assert await ids(category_ids=str(tiktok)) == [tt_product]
+    assert await ids(category_ids=f"{tiktok},{root_id}") == sorted([tt_product, root_product])
+    assert await ids(category_ids="abc") == sorted([fb_product, tt_product, root_product])
+
+    body = (await client.get("/seller/products", params={"category_ids": str(tiktok)}, headers=h)).json()
+    facet = {row["id"]: row for row in body["category_facet"]}
+    # Facet spans the whole catalogue, not the current filter, and carries parents.
+    assert facet[facebook] == {"id": facebook, "name": "Facebook", "parent_id": social, "parent_name": "Social", "count": 1}
+    assert facet[tiktok]["count"] == 1
+    assert facet[root_id]["parent_id"] is None
+    assert social not in facet  # no product sits directly on the parent

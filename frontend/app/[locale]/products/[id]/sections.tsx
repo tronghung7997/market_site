@@ -13,7 +13,8 @@ import { formatSpecKey as fmtKey } from "@/lib/utils";
 import type { Product, ProductDetail } from "@/lib/types";
 import { Card, Tag } from "@/components/ui";
 import { parseCoverId, ProductCover } from "@/features/product-covers";
-import { Bolt, Check, Shield, Star, Verified } from "@/components/Icons";
+import { EscrowBadge } from "@/components/products/EscrowHelp";
+import { Bolt, Check, Star, Verified } from "@/components/Icons";
 import { MarkdownContent } from "@/components/MarkdownContent";
 import StartInquiryDialog from "@/components/chat/StartInquiryDialog";
 
@@ -46,7 +47,7 @@ export function ProductIdentity({ product }: { product: ProductDetail }) {
       <div className="flex flex-wrap items-center gap-1.5">
         <Tag tone={fulfillmentTone(fulfillment.kind)}>{t(fulfillmentTagKey(fulfillment), fulfillmentTagValues(fulfillment))}</Tag>
         <Tag tone="iris">{serviceLabel(product.service_type, locale)}</Tag>
-        <Tag tone="neutral"><Shield size={11} /> {t("escrowDays", { days: product.escrow_days })}</Tag>
+        <EscrowBadge days={product.escrow_days} label={t("escrowDays", { days: product.escrow_days })} />
       </div>
 
       <h1 className="mt-3 font-serif text-[24px] sm:text-[28px] leading-[1.18] tracking-tight font-semibold">
@@ -147,7 +148,7 @@ export function WarrantyCard({ product }: { product: ProductDetail }) {
     <Card className="overflow-hidden">
       <SectionHead
         title={t("warranty")}
-        aside={<Tag tone="neutral"><Shield size={11} /> {t("escrowDays", { days: product.escrow_days })}</Tag>}
+        aside={<EscrowBadge days={product.escrow_days} label={t("escrowDays", { days: product.escrow_days })} />}
       />
       <div className="p-5 space-y-4 text-[13px]">
         {product.warranty_text ? (

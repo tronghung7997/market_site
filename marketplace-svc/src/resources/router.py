@@ -36,7 +36,7 @@ async def list_res(
     has_order: bool | None = None,
     sort: Literal["newest", "oldest"] = "newest",
     page: int = Query(1, ge=1),
-    per_page: int = Query(50, ge=1, le=100),
+    per_page: int = Query(50, ge=1, le=500),
     account: Account = Depends(require_role("seller")),
     db: AsyncSession = Depends(get_session),
 ):

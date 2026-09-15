@@ -287,6 +287,7 @@ export const api = {
     search?: string;
     status?: string;
     category?: string;
+    categoryIds?: number[];
     serviceType?: string;
     sort?: SellerProductSort;
     page?: number;
@@ -296,6 +297,7 @@ export const api = {
     if (params.search?.trim()) q.set("search", params.search.trim());
     if (params.status && params.status !== "all") q.set("status", params.status);
     if (params.category) q.set("category", params.category);
+    if (params.categoryIds?.length) q.set("category_ids", params.categoryIds.join(","));
     if (params.serviceType) q.set("service_type", params.serviceType);
     if (params.sort && params.sort !== "newest") q.set("sort", params.sort);
     return request<PaginatedSellerProducts>(`/seller/products?${q}`, {}, true);

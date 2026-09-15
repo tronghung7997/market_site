@@ -4,6 +4,7 @@ import { useState } from "react";
 import { useLocale, useTranslations } from "next-intl";
 import { Link } from "@/i18n/navigation";
 import { cn } from "@/lib/cn";
+import { useVariantTerm, type VariantTerm } from "@/lib/variant-term";
 import { useMoney } from "@/lib/money";
 import type { ProductLocale } from "@/lib/types";
 import { Button, Input, Select, Tag } from "@/components/ui";
@@ -17,7 +18,8 @@ import { LocaleTag } from "./BasicsFields";
 export interface VariantDraft { name: string; price: number; delivery_mode: "instant" | "manual"; sla_hours: number }
 export interface VariantStats { sold: number; error: number }
 
-function Editor({ initial, contentLocale, primaryLocale, pending, onSave, onCancel }: {
+function Editor({ initial, contentLocale, primaryLocale, pending, onSave, onCancel, term }: {
+  term: VariantTerm;
   initial: VariantDraft; contentLocale: ProductLocale; primaryLocale: ProductLocale; pending: boolean;
   onSave: (draft: VariantDraft) => void; onCancel: () => void;
 }) {
@@ -30,7 +32,7 @@ function Editor({ initial, contentLocale, primaryLocale, pending, onSave, onCanc
     <div className="space-y-3 bg-iris-soft/20 p-3">
       <div className="grid gap-3 sm:grid-cols-[minmax(0,1fr)_170px_170px_110px]">
         <div>
-          <label className="mb-1 flex items-center justify-between text-[11.5px] font-medium text-muted">{t("nameCol")}{contentLocale !== primaryLocale && <LocaleTag locale={contentLocale} />}</label>
+          <label className="mb-1 flex items-center justify-between text-[11.5px] font-medium text-muted">{t("nameCol", { ...term })}{contentLocale !== primaryLocale && <LocaleTag locale={contentLocale} />}</label>
           <Input autoFocus value={draft.name} onChange={(e) => setDraft({ ...draft, name: e.target.value })} placeholder={t("namePlaceholder")} maxLength={255} />
         </div>
         <div>
@@ -51,7 +53,7 @@ function Editor({ initial, contentLocale, primaryLocale, pending, onSave, onCanc
       </div>
       <div className="flex justify-end gap-2">
         <Button size="sm" variant="ghost" onClick={onCancel} disabled={pending}>{tc("cancel")}</Button>
-        <Button size="sm" onClick={() => onSave({ ...draft, name: draft.name.trim() })} disabled={!valid || pending}>{pending ? t("saving") : t("save")}</Button>
+        <Button size="sm" onClick={() => onSave({ ...draft, name: draft.name.trim() })} disabled={!valid || pending}>{pending ? t("saving") : t("save", { ...term })}</Button>
       </div>
     </div>
   );
@@ -61,7 +63,7 @@ function Editor({ initial, contentLocale, primaryLocale, pending, onSave, onCanc
  *  row in place, stop/start selling (never delete), and hop to the inventory
  *  console for stock. */
 export function VariantsTable({
-  variants, stats, lowStockThreshold, contentLocale, primaryLocale, pending,
+  variants, stats, lowStockThreshold, contentLocale, primaryLocale, pending, serviceType,
   onAdd, onUpdate, onSetActive, onReorder,
 }: {
   variants: (WorkbenchVariant & { id: number })[];
@@ -74,8 +76,10 @@ export function VariantsTable({
   onUpdate: (id: number, draft: VariantDraft) => Promise<void>;
   onSetActive: (id: number, active: boolean) => Promise<void>;
   onReorder: (ids: number[]) => Promise<void>;
+  serviceType: string;
 }) {
   const t = useTranslations("sellerProductForm.variants");
+  const term = useVariantTerm(serviceType);
   const locale = useLocale();
   const { formatCheckoutMoney } = useMoney();
   const [showInactive, setShowInactive] = useState(false);
@@ -103,12 +107,12 @@ export function VariantsTable({
     <div className="overflow-hidden rounded-xl border border-line">
       <div className="flex flex-wrap items-center justify-between gap-3 border-b border-line px-4 py-3">
         <div>
-          <div className="text-[13.5px] font-bold text-fg">{t("count", { count: variants.length })}</div>
+          <div className="text-[13.5px] font-bold text-fg">{t("count", { count: variants.length, ...term })}</div>
           <div className="text-[12px] text-muted">{t("tableHint")}</div>
         </div>
         <div className="flex items-center gap-3">
           {inactiveCount > 0 && <Switch checked={showInactive} onChange={setShowInactive} label={t("showInactive", { count: inactiveCount })} />}
-          <Button size="sm" variant="secondary" onClick={() => setEditing("new")} disabled={editing === "new"}><Plus size={13} /> {t("add")}</Button>
+          <Button size="sm" variant="secondary" onClick={() => setEditing("new")} disabled={editing === "new"}><Plus size={13} /> {t("add", { ...term })}</Button>
         </div>
       </div>
       <div className="overflow-x-auto">
@@ -116,7 +120,7 @@ export function VariantsTable({
           <thead>
             <tr className="border-b border-line bg-raised/40 text-left text-[11px] font-semibold uppercase tracking-wider text-faint">
               <th className="w-7 px-2 py-2" />
-              <th className="px-2 py-2">{t("nameCol")}</th>
+              <th className="px-2 py-2">{t("nameCol", { ...term })}</th>
               <th className="w-[96px] px-2 py-2 text-right">{t("priceShort")}</th>
               <th className="w-[112px] px-2 py-2">{t("stockCol")}</th>
               <th className="w-[80px] px-2 py-2 text-right">{t("sold30")}</th>
@@ -133,7 +137,7 @@ export function VariantsTable({
               if (editing === v.id) {
                 return (
                   <tr key={v.id}><td colSpan={7} className="p-0">
-                    <Editor initial={{ name: v.name, price: v.price, delivery_mode: v.delivery_mode, sla_hours: v.sla_hours ?? 24 }} contentLocale={contentLocale} primaryLocale={primaryLocale} pending={pending} onSave={(d) => submit(v.id, d)} onCancel={() => setEditing(null)} />
+                    <Editor initial={{ name: v.name, price: v.price, delivery_mode: v.delivery_mode, sla_hours: v.sla_hours ?? 24 }} contentLocale={contentLocale} primaryLocale={primaryLocale} pending={pending} onSave={(d) => submit(v.id, d)} onCancel={() => setEditing(null)} term={term} />
                   </td></tr>
                 );
               }
@@ -178,18 +182,18 @@ export function VariantsTable({
               );
             })}
             {visible.length === 0 && editing !== "new" && (
-              <tr><td colSpan={7} className="px-4 py-8 text-center text-[12.5px] text-muted">{t("empty")}</td></tr>
+              <tr><td colSpan={7} className="px-4 py-8 text-center text-[12.5px] text-muted">{t("empty", { ...term })}</td></tr>
             )}
             {editing === "new" && (
               <tr><td colSpan={7} className="p-0">
-                <Editor initial={{ name: "", price: 0, delivery_mode: "instant", sla_hours: 24 }} contentLocale={contentLocale} primaryLocale={primaryLocale} pending={pending} onSave={(d) => submit("new", d)} onCancel={() => setEditing(null)} />
+                <Editor initial={{ name: "", price: 0, delivery_mode: "instant", sla_hours: 24 }} contentLocale={contentLocale} primaryLocale={primaryLocale} pending={pending} onSave={(d) => submit("new", d)} onCancel={() => setEditing(null)} term={term} />
               </td></tr>
             )}
           </tbody>
         </table>
       </div>
       <div className="border-t border-line bg-raised/40 px-4 py-2.5 text-[12px] text-muted">
-        {t("footer")} <Link href="/seller/inventory" className="text-iris hover:underline">{t("inventoryLink")}</Link>.
+        {t("footer", { ...term })} <Link href="/seller/inventory" className="text-iris hover:underline">{t("inventoryLink")}</Link>.
       </div>
     </div>
   );

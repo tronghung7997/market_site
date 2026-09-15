@@ -3,6 +3,7 @@
 import { useLocale, useTranslations } from "next-intl";
 import { Link } from "@/i18n/navigation";
 import { cn } from "@/lib/cn";
+import { useVariantTermFor } from "@/lib/variant-term";
 import { useMoney } from "@/lib/money";
 import type { SellerProduct, SellerProductSort } from "@/lib/types";
 import { inventoryStockState, isInventoryManagedProduct, nextSellerProductStatus } from "@/features/seller-inventory";
@@ -52,6 +53,7 @@ export function SellerProductsTable({
 }) {
   const t = useTranslations("seller");
   const tp = useTranslations("sellerProducts");
+  const termFor = useVariantTermFor();
   const locale = useLocale();
   const { formatBrowseMoney } = useMoney();
   const pageIds = products.map((p) => p.id);
@@ -120,7 +122,7 @@ export function SellerProductsTable({
                         <span className="font-mono">#{p.id}</span>
                         {managed && (
                           <Link href={`/seller/inventory?product=${p.id}`} className="inline-flex items-center gap-0.5 text-faint hover:text-iris" title={t("productsPageInventoryTitle")}>
-                            {p.variant_count} {t("variants").toLowerCase()} <ChevronRight size={11} />
+                            {t("variantCount", { count: p.variant_count, ...termFor(p.service_type) })} <ChevronRight size={11} />
                           </Link>
                         )}
                       </div>

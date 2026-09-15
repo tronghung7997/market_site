@@ -7,7 +7,7 @@ import { cn } from "@/lib/cn";
 import { useApiErrorMessage } from "@/lib/use-api-error";
 import { useDebounce } from "@/lib/hooks/useDebounce";
 import type { SellerProduct, SellerProductBulkStatusResult, SellerProductSort, SellerProductTab } from "@/lib/types";
-import { nextSellerProductStatus } from "@/features/seller-inventory";
+import { CategoryTreeSelect, nextSellerProductStatus } from "@/features/seller-inventory";
 import { Button, Card, Input, Pagination, Select } from "@/components/ui";
 import { AlertCircle, AlertTriangle, CheckCircle2, ListFilter, Package, Plus, Search, X } from "@/components/Icons";
 import { DEFAULT_PRODUCT_FILTERS, hasActiveProductFilters, PAGE_SIZE, PRODUCT_SORTS, PRODUCT_TABS, type SellerProductsFilters } from "../model";
@@ -62,7 +62,7 @@ export function SellerProductsConsole({
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [debounced]);
   // Selection is per result set: a new filter/page starts clean.
-  useEffect(() => { setSelected(new Set()); }, [filters.tab, filters.search, filters.category, filters.serviceType, filters.page, filters.sort]);
+  useEffect(() => { setSelected(new Set()); }, [filters.tab, filters.search, filters.categoryIds, filters.serviceType, filters.page, filters.sort]);
 
   const handleToggleStatus = async (product: SellerProduct) => {
     const status = nextSellerProductStatus(product.status);
@@ -189,14 +189,8 @@ export function SellerProductsConsole({
 
           <Card className={cn("overflow-hidden p-0 transition-opacity", refreshing && "opacity-70")} aria-busy={refreshing}>
             <div className="flex flex-wrap items-center gap-2 border-b border-line bg-raised/30 p-3">
-              {data.categories.length > 0 && (
-                <div className="relative">
-                  <Select value={filters.category ?? "all"} onChange={(e) => patch({ category: e.target.value === "all" ? null : e.target.value, page: 1 })} aria-label={t("allCategories")} className="h-9 min-w-[140px] rounded-lg pl-8 pr-7 text-xs">
-                    <option value="all">{t("allCategories")}</option>
-                    {data.categories.map((c) => <option key={c} value={c}>{c}</option>)}
-                  </Select>
-                  <ListFilter size={13} className="pointer-events-none absolute left-2.5 top-3 text-muted" />
-                </div>
+              {data.category_facet.length > 0 && (
+                <CategoryTreeSelect facet={data.category_facet} value={filters.categoryIds} onChange={(next) => patch({ categoryIds: next, page: 1 })} />
               )}
               {data.service_types.length > 0 && (
                 <div className="relative">

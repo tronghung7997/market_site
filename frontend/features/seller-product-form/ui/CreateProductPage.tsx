@@ -4,6 +4,7 @@ import { useEffect, useMemo, useState } from "react";
 import { useLocale, useTranslations } from "next-intl";
 import { useRouter } from "@/i18n/navigation";
 import { api } from "@/lib/api";
+import { useVariantTerm } from "@/lib/variant-term";
 import { useApiErrorMessage } from "@/lib/use-api-error";
 import { useAuth } from "@/lib/auth";
 import { canUseSellerProviders } from "@/lib/seller-tier";
@@ -48,6 +49,7 @@ export function CreateProductPage() {
   const { account } = useAuth();
   const canUseProviders = canUseSellerProviders(account?.seller_tier);
   const core = useProductFormCore(interfaceLocale, { loadProviders: canUseProviders });
+  const term = useVariantTerm(core.serviceType);
 
   const [receiveMode, setReceiveMode] = useState<ReceiveMode>("instant");
   const { archetype, deliveryMode, workModel } = receiveModeFor(receiveMode);
@@ -186,7 +188,7 @@ export function CreateProductPage() {
   };
 
   const orderPanel = archetype === "A"
-    ? <SellerOrderPanelSimulation title={core.activeContent.title} categoryName={catLabel} coverId={core.coverId} escrowDays={core.escrowDays} variants={workbenchVariants} />
+    ? <SellerOrderPanelSimulation title={core.activeContent.title} categoryName={catLabel} coverId={core.coverId} escrowDays={core.escrowDays} variants={workbenchVariants} serviceType={core.serviceType} />
     : <SellerDynamicOrderSimulation title={core.activeContent.title} categoryName={catLabel} coverId={core.coverId} escrowDays={core.escrowDays} workModel={workModel} b1={core.b1} b2={core.b2} b3={core.b3} backend={core.backend} onB1Change={core.setB1} onB2Change={core.setB2} onB3Change={core.setB3} />;
 
   return (
@@ -213,11 +215,11 @@ export function CreateProductPage() {
             <BasicsFields core={core} />
           </SectionCard>
 
-          <SectionCard id={SECTION_DOM_ID.variants} number={2} state={variantsDone ? "done" : "todo"} title={t("sections.variants")} subtitle={t("sections.variantsHint")}>
+          <SectionCard id={SECTION_DOM_ID.variants} number={2} state={variantsDone ? "done" : "todo"} title={t("sections.variants", { ...term })} subtitle={t("sections.variantsHint", { ...term })}>
             <div className="space-y-4">
               <ReceiveModePicker value={receiveMode} onChange={selectReceiveMode} lockedAdvanced={!canUseProviders} lockedReason={tf("providerTierBody", { tier: tf("providerRequiredTier") })} />
               {archetype === "A" ? (
-                <DraftPackages packages={packages} onChange={setPackages} contentLocale={core.contentLocale} primaryLocale={core.primaryLocale} deliveryMode={deliveryMode} onRetireSaved={retireSaved} />
+                <DraftPackages packages={packages} onChange={setPackages} contentLocale={core.contentLocale} primaryLocale={core.primaryLocale} deliveryMode={deliveryMode} onRetireSaved={retireSaved} serviceType={core.serviceType} />
               ) : (
                 <div className="rounded-xl border border-line bg-surface p-4 text-[12.5px] text-muted">
                   {t("variants.dynamicNote")}{" "}
@@ -239,7 +241,7 @@ export function CreateProductPage() {
 
         <aside className="space-y-4 lg:sticky lg:top-[150px]">
           <ReadinessCard evaluation={evaluation} titleMissing={!core.primaryContent.title.trim()} onJump={jump} title={t("readiness.createTitle")} />
-          <CustomerGlance title={core.activeContent.title} categoryLabel={catLabel} coverId={core.coverId} deliveryLabel={deliveryLabel} escrowDays={core.escrowDays} highlightText={core.activeContent.highlightText} minPrice={minPrice} variantCount={previewVariants.length} onPreview={() => setPreviewOpen(true)} />
+          <CustomerGlance title={core.activeContent.title} categoryLabel={catLabel} coverId={core.coverId} deliveryLabel={deliveryLabel} escrowDays={core.escrowDays} highlightText={core.activeContent.highlightText} minPrice={minPrice} variantCount={previewVariants.length} onPreview={() => setPreviewOpen(true)} serviceType={core.serviceType} />
         </aside>
       </div>
 

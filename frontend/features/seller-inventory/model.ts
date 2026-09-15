@@ -227,7 +227,7 @@ export function stockBarPercent(available: number, threshold: number): number {
 // Package page (/seller/inventory/[variantId])
 // ---------------------------------------------------------------------------
 
-export const RESOURCE_PAGE_SIZES = [25, 50, 100] as const;
+export const RESOURCE_PAGE_SIZES = [25, 50, 100, 200, 500] as const;
 export const RESOURCE_STATUS_TABS: ResourceStatusFilter[] = ["all", "available", "assigned", "error", "expired", "archived"];
 export type ResourceDatePreset = "all" | "7d" | "30d" | "90d" | "custom";
 export const RESOURCE_DATE_PRESETS: ResourceDatePreset[] = ["all", "7d", "30d", "90d", "custom"];

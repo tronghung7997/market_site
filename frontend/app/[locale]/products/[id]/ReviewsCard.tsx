@@ -95,6 +95,7 @@ function ReviewsBody({ productId }: { productId: number }) {
                   <div className="flex items-center gap-2">
                     <span className="text-[13px] font-medium">{t("buyer", { id: r.buyer_id })}</span>
                     <Tag tone="good"><Verified size={10} /> {t("purchased")}</Tag>
+                    {r.variant_name && <span className="text-[11.5px] text-faint truncate max-w-[200px]">· {r.variant_name}</span>}
                   </div>
                   <span className="text-[11px] text-faint">{formatDate(r.created_at, locale)}</span>
                 </div>

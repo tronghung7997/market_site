@@ -1,6 +1,7 @@
 "use client";
 
 import { Link } from "@/i18n/navigation";
+import { useVariantTermFor } from "@/lib/variant-term";
 import { useTranslations } from "next-intl";
 import { useParams, usePathname, useRouter, useSearchParams } from "next/navigation";
 import { useEffect, useState } from "react";
@@ -51,6 +52,7 @@ export default function AdminProductDetail() {
   const apiErrorMessage = useApiErrorMessage();
   const t = useTranslations("seller");
   const tp = useTranslations("products");
+  const termFor = useVariantTermFor();
   const { id, locale: interfaceLocaleParam } = useParams<{ id: string; locale: string }>();
   const router = useRouter();
   const pathname = usePathname();
@@ -245,14 +247,15 @@ export default function AdminProductDetail() {
   // "hoạt động" dù sản phẩm đang bị chặn bán.
   const fulfillmentReady = !ops.needs_setup;
   const buyerFulfillment = fulfillmentFromProduct(product);
+  const term = termFor(product.service_type);
   const pipelineMap: Record<string, { label: string; active: boolean }[]> = {
     fixed: buyerFulfillment.kind === "sla" ? [
-      { label: tp("pipeline.pickVariant"), active: true },
+      { label: tp("pipeline.pickVariant", { ...term }), active: true },
       { label: tp("pipeline.fixedPrice"), active: true },
       { label: tp("pipeline.waitSeller"), active: fulfillmentReady },
       { label: tp("pipeline.deliverSla"), active: fulfillmentReady },
     ] : [
-      { label: tp("pipeline.pickVariant"), active: true },
+      { label: tp("pipeline.pickVariant", { ...term }), active: true },
       { label: tp("pipeline.fixedPrice"), active: true },
       { label: tp("pipeline.takeFromStock"), active: fulfillmentReady },
       { label: tp("pipeline.deliverNow"), active: fulfillmentReady },

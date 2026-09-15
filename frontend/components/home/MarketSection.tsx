@@ -9,6 +9,7 @@ import { Link } from "@/i18n/navigation";
 import { useEffect, useRef, useState } from "react";
 import { useLocale, useTranslations } from "next-intl";
 import { useMoney } from "@/lib/money";
+import { useVariantTermFor } from "@/lib/variant-term";
 import { api } from "@/lib/api";
 import { cn } from "@/lib/cn";
 import { categoryCoverId, parseCoverId } from "@/lib/product-covers";
@@ -55,6 +56,7 @@ export function MarketSection({ products, initialTotal, flatCats, active, setAct
 }) {
   const t = useTranslations("home");
   const tp = useTranslations("products");
+  const termFor = useVariantTermFor();
   const locale = useLocale();
   const { formatBrowseMoney } = useMoney();
   const [q, setQ] = useState("");
@@ -212,7 +214,7 @@ export function MarketSection({ products, initialTotal, flatCats, active, setAct
                           <span className="block font-medium text-[13.5px] truncate">{p.title}</span>
                           <span className="flex items-center gap-1.5 text-[12px] text-faint">
                             <Tag tone={fulfillmentTone(fulfillmentFromProduct(p).kind)}>{tp(fulfillmentTagKey(fulfillmentFromProduct(p)), fulfillmentTagValues(fulfillmentFromProduct(p)))}</Tag>
-                            {hasPackages ? t("packageCount", { count: p.variants?.length ?? 0 }) : t("configuredToOrder")} <Verified size={11} className="text-iris" />
+                            {hasPackages ? t("packageCount", { count: p.variants?.length ?? 0, ...termFor(p.service_type) }) : t("configuredToOrder")} <Verified size={11} className="text-iris" />
                             {p.rating_avg != null && p.rating_avg > 0 && <><Star size={11} className="text-warn fill-warn" /> {p.rating_avg.toFixed(1)}</>}
                             {p.sold_count > 0 && <span>· {t("sold", { count: p.sold_count })}</span>}
                           </span>

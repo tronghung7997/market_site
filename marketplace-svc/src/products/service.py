@@ -4,9 +4,11 @@ from fastapi import status as http_status
 from sqlalchemy import Float, and_, case, cast, func, or_, select
 from sqlalchemy.dialects.postgresql import JSONB, JSONPATH
 from sqlalchemy.ext.asyncio import AsyncSession
+from sqlalchemy.orm import aliased
 
 from src.adapters.compatibility import check_compatibility, setup_status
 from src.adapters.registry import get_spec
+from src.categories.service import category_subtree_ids
 from src.exceptions import ErrorCode, NotOwner, api_error
 from src.i18n.catalog import (
     DEFAULT_LOCALE,
@@ -633,6 +635,7 @@ async def list_seller_products(
     search: str | None = None,
     status: str | None = None,
     category: str | None = None,
+    category_ids: list[int] | None = None,
     service_type: str | None = None,
     sort: str = "newest",
     page: int = 1,
@@ -657,6 +660,7 @@ async def list_seller_products(
             Product.title,
             Product.sold_count,
             Product.rating_avg,
+            Product.category_id,
             Category.name.label("category_name"),
             stock_col.label("stock"),
             managed.label("managed"),
@@ -679,6 +683,21 @@ async def list_seller_products(
         .join(facet_base, facet_base.c.category_id == Category.id)
         .distinct().order_by(Category.name)
     )).scalars())
+    # Parent → child facet with product counts, over the seller's whole
+    # catalogue (not the current filter) so ticking never empties the tree.
+    parent_category = aliased(Category)
+    facet_rows = (await db.execute(
+        select(Category.id, Category.name, Category.parent_id, parent_category.name, Category.sort_order, func.count())
+        .select_from(facet_base)
+        .join(Category, Category.id == facet_base.c.category_id)
+        .outerjoin(parent_category, parent_category.id == Category.parent_id)
+        .group_by(Category.id, Category.name, Category.parent_id, parent_category.name, Category.sort_order)
+        .order_by(parent_category.name.nulls_first(), Category.sort_order, Category.name)
+    )).all()
+    category_facet = [
+        {"id": cid, "name": name, "parent_id": pid, "parent_name": pname, "count": int(n)}
+        for cid, name, pid, pname, _sort, n in facet_rows
+    ]
     service_types = list((await db.execute(
         select(facet_base.c.service_type)
         .where(facet_base.c.service_type.is_not(None))
@@ -719,6 +738,9 @@ async def list_seller_products(
         page_filters.append(scope.c.managed & (scope.c.stock == 0))
     if category:
         page_filters.append(scope.c.category_name == category)
+    if category_ids:
+        # A parent category means its whole branch (Mạng xã hội → Facebook, TikTok…).
+        page_filters.append(scope.c.category_id.in_(await category_subtree_ids(category_ids, db) or [-1]))
     if service_type:
         page_filters.append(scope.c.service_type == service_type)
 
@@ -747,7 +769,8 @@ async def list_seller_products(
     if not page_ids:
         return {
             "items": [], "total": total, "page": page, "per_page": per_page,
-            "counts": counts, "categories": categories, "service_types": service_types,
+            "counts": counts, "categories": categories, "category_facet": category_facet,
+            "service_types": service_types,
         }
     products = list((await db.execute(
         select(Product).where(Product.id.in_(page_ids))
@@ -792,7 +815,8 @@ async def list_seller_products(
         })
     return {
         "items": out, "total": total, "page": page, "per_page": per_page,
-        "counts": counts, "categories": categories, "service_types": service_types,
+        "counts": counts, "categories": categories, "category_facet": category_facet,
+        "service_types": service_types,
     }
 
 

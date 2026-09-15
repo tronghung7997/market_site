@@ -5,6 +5,7 @@ import { useLocale, useTranslations } from "next-intl";
 import { useQuery } from "@tanstack/react-query";
 import { Link } from "@/i18n/navigation";
 import { api } from "@/lib/api";
+import { useVariantTerm } from "@/lib/variant-term";
 import { cn } from "@/lib/cn";
 import { queryKeys } from "@/lib/query-keys";
 import { useApiErrorMessage } from "@/lib/use-api-error";
@@ -57,6 +58,7 @@ export function EditProductPage({ productId }: { productId: number }) {
   const apiErrorMessage = useApiErrorMessage();
   const { formatCheckoutMoney } = useMoney();
   const core = useProductFormCore(interfaceLocale, { loadProviders: true });
+  const term = useVariantTerm(core.serviceType);
 
   const [tab, setTab] = useState<EditTab>("basics");
   const [loading, setLoading] = useState(true);
@@ -281,13 +283,13 @@ export function EditProductPage({ productId }: { productId: number }) {
   const timeFmt = new Intl.DateTimeFormat(interfaceLocale === "vi" ? "vi-VN" : "en-US", { day: "2-digit", month: "2-digit", hour: "2-digit", minute: "2-digit" });
 
   const orderPanel = archetype === "A"
-    ? <SellerOrderPanelSimulation title={core.activeContent.title} categoryName={catLabel} coverId={core.coverId} escrowDays={core.escrowDays} variants={displayVariants} />
+    ? <SellerOrderPanelSimulation title={core.activeContent.title} categoryName={catLabel} coverId={core.coverId} escrowDays={core.escrowDays} variants={displayVariants} serviceType={core.serviceType} />
     : <SellerDynamicOrderSimulation title={core.activeContent.title} categoryName={catLabel} coverId={core.coverId} escrowDays={core.escrowDays} workModel={core.workModel} b1={core.b1} b2={core.b2} b3={core.b3} backend={core.backend} onB1Change={core.setB1} onB2Change={core.setB2} onB3Change={core.setB3} />;
 
   const headerMeta = [
     catLabel || null,
     deliveryLabel,
-    archetype === "A" ? t("edit.variantSummary", { count: variants.length, ready: readyCount }) : null,
+    archetype === "A" ? t("edit.variantSummary", { count: variants.length, ready: readyCount, ...term }) : null,
     !dirty && lastSavedAt ? t("edit.lastSaved", { time: timeFmt.format(lastSavedAt) }) : null,
   ].filter(Boolean).join(" · ");
 
@@ -332,7 +334,7 @@ export function EditProductPage({ productId }: { productId: number }) {
       <div role="tablist" aria-label={t("edit.tabsLabel")} className="flex flex-wrap gap-1 border-b border-line">
         {TABS.map((key) => (
           <button key={key} type="button" role="tab" aria-selected={tab === key} onClick={() => setTab(key)} className={cn("-mb-px border-b-2 px-3.5 py-2.5 text-[13px] font-medium transition-colors", tab === key ? "border-iris text-fg" : "border-transparent text-muted hover:text-fg")}>
-            {t(`sections.${key}`)}
+            {t(`sections.${key}`, { ...term })}
             {key === "variants" && archetype === "A" && <span className="ml-1.5 rounded-full bg-raised px-1.5 py-0.5 font-mono text-[10.5px] text-muted">{variants.length}</span>}
           </button>
         ))}
@@ -352,6 +354,7 @@ export function EditProductPage({ productId }: { productId: number }) {
                   lowStockThreshold={statsQuery.data?.low_stock_threshold ?? 20}
                   contentLocale={core.contentLocale}
                   primaryLocale={core.primaryLocale}
+                  serviceType={core.serviceType}
                   pending={variantPending}
                   onAdd={addVariant}
                   onUpdate={updateVariant}
@@ -391,7 +394,7 @@ export function EditProductPage({ productId }: { productId: number }) {
               )}
             </Card>
           )}
-          <CustomerGlance title={core.activeContent.title} categoryLabel={catLabel} coverId={core.coverId} deliveryLabel={deliveryLabel} escrowDays={core.escrowDays} highlightText={core.activeContent.highlightText} minPrice={minPrice} variantCount={activeVariants.length} onPreview={() => setPreviewOpen(true)} />
+          <CustomerGlance title={core.activeContent.title} categoryLabel={catLabel} coverId={core.coverId} deliveryLabel={deliveryLabel} escrowDays={core.escrowDays} highlightText={core.activeContent.highlightText} minPrice={minPrice} variantCount={activeVariants.length} onPreview={() => setPreviewOpen(true)} serviceType={core.serviceType} />
         </aside>
       </div>
 

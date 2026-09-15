@@ -851,6 +851,8 @@ export interface Review {
   rating: number;
   comment: string | null;
   created_at: string;
+  /** Package the reviewer bought — shown next to the "purchased" badge. */
+  variant_name?: string | null;
 }
 
 export interface SellerProduct extends Product {
@@ -922,6 +924,8 @@ export interface PaginatedSellerProducts {
   per_page: number;
   counts: SellerProductCounts;
   categories: string[];
+  /** Parent → child facet over the seller's whole catalogue, with product counts. */
+  category_facet: InventoryCategoryFacet[];
   service_types: string[];
 }
 
@@ -1054,7 +1058,8 @@ export interface SellerDisputeResourceList {
 }
 
 export interface SellerReplacementResourceList {
-  items: Array<{ id: number; data: string }>;
+  /** Oldest stock first — the order "replace from stock" hands accounts out. */
+  items: Array<{ id: number; data: string; created_at?: string | null }>;
   ids?: number[];
   total: number;
   page: number;

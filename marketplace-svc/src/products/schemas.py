@@ -303,6 +303,14 @@ class SellerProductBulkStatusResponse(BaseModel):
     skipped: list[SellerProductBulkSkipped]
 
 
+class SellerProductCategoryFacet(BaseModel):
+    id: int
+    name: str
+    parent_id: int | None = None
+    parent_name: str | None = None
+    count: int
+
+
 class SellerProductListResponse(BaseModel):
     items: list[SellerProductResponse]
     total: int
@@ -310,6 +318,7 @@ class SellerProductListResponse(BaseModel):
     per_page: int
     counts: SellerProductCounts
     categories: list[str] = []
+    category_facet: list[SellerProductCategoryFacet] = []
     service_types: list[str] = []
 
 

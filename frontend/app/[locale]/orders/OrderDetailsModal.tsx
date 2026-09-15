@@ -24,6 +24,7 @@ import {
 } from "@/lib/dispute-case";
 import { DeliveryAccountBadge } from "@/components/orders/DeliveryAccountBadge";
 import { canOpenDispute, displayOrderStatus, hasOpenDispute } from "@/lib/order-status";
+import { useVariantTermFor } from "@/lib/variant-term";
 import { formatDate, formatDateTime } from "@/lib/utils";
 import { useMoney } from "@/lib/money";
 import { api } from "@/lib/api";
@@ -63,6 +64,7 @@ export default function OrderDetailsModal({
   highlightResourceIds = [],
   lockDismiss = false,
   open = true,
+  initialTab,
 }: {
   order: Order;
   onClose: () => void;
@@ -79,8 +81,11 @@ export default function OrderDetailsModal({
   highlightResourceIds?: number[];
   lockDismiss?: boolean;
   open?: boolean;
+  /** Land on a specific tab (the orders list's "Đánh giá" link opens straight on review). */
+  initialTab?: "review";
 }) {
   const t = useTranslations("orders");
+  const termFor = useVariantTermFor();
   const tc = useTranslations("common");
   const tcur = useTranslations("currency");
   const locale = useLocale();
@@ -182,7 +187,7 @@ export default function OrderDetailsModal({
   }, [items]);
 
   const [activeTab, setActiveTab] = useState<"data" | "proxy" | "service" | "escrow" | "review" | "dispute">(
-    highlightResourceIds.length > 0 ? "data" : o.has_dispute ? "dispute" : "data",
+    initialTab ?? (highlightResourceIds.length > 0 ? "data" : o.has_dispute ? "dispute" : "data"),
   );
   const [itemSearch, setItemSearch] = useState("");
   const [itemPage, setItemPage] = useState(1);
@@ -202,7 +207,9 @@ export default function OrderDetailsModal({
   const canSelectAccounts = canDispute || canAppendClaims;
   const canConfirm = o.status === "delivered" && !hasOpenDispute(o)
     && (o.capabilities?.can_confirm ?? true);
-  const canReview = o.capabilities?.can_review ?? (o.status === "completed" && !reviewDone);
+  // Reviews open the moment goods are delivered — confirming (releasing escrow) is not required.
+  const canReview = !reviewDone && !o.has_review
+    && (o.capabilities?.can_review ?? ["delivered", "completed"].includes(o.status));
 
   useEffect(() => {
     if (!canConfirm) setAskConfirm(false);
@@ -333,7 +340,7 @@ export default function OrderDetailsModal({
                   <>
                     <span>•</span>
                     <span className="font-medium text-fg bg-raised px-2 py-0.5 rounded-md border border-line break-all">
-                      {t("packageNamed", { name: o.variant_name })}
+                      {t("packageNamed", { name: o.variant_name, ...termFor(o.service_type) })}
                     </span>
                   </>
                 )}
@@ -781,8 +788,13 @@ export default function OrderDetailsModal({
             <div className="rounded-xl border border-line bg-surface p-4 space-y-3">
               <div className="flex items-center justify-between">
                 <span className="font-semibold text-fg text-[13.5px]">{t("reviewSeller")}</span>
-                <Star size={16} className="text-amber-500 fill-amber-500" />
+                <Star size={16} className="text-warn fill-warn" />
               </div>
+              <ul className="space-y-1 text-[11.5px] text-muted">
+                {[t("reviewHow1"), t("reviewHow2"), t("reviewHow3")].map((line, i) => (
+                  <li key={i} className="flex items-start gap-1.5"><Check size={12} className="mt-0.5 shrink-0 text-good" />{line}</li>
+                ))}
+              </ul>
               {canReview ? <ReviewForm
                 orderId={o.id}
                 onDone={(ok, msg) => {

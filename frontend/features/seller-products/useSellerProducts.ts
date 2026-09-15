@@ -11,7 +11,7 @@ export function useSellerProducts(filters: SellerProductsFilters) {
     perPage: PAGE_SIZE,
     search: filters.search.trim(),
     status: filters.tab,
-    category: filters.category ?? undefined,
+    categoryIds: filters.categoryIds,
     serviceType: filters.serviceType ?? undefined,
     sort: filters.sort,
   };

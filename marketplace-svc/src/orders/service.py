@@ -18,6 +18,7 @@ from src.models.provider import Provider
 from src.models.resource import Resource
 from src.models.product import DeliveryMode, Product, ProductStatus, ProductVariant
 from src.models.review import Review
+from src.reviews.service import can_review_order
 from src.models.service_task import ServiceTask
 from src.pricing.engine import quote_product, resolve_pricing
 from src.resources.service import claim_resources
@@ -623,7 +624,7 @@ async def _enrich_orders(orders: list[Order], db: AsyncSession) -> list[dict]:
                     and order.id in appendable_claim_orders
                 ),
                 "can_request_review": is_open_dispute and order.id not in review_requested_orders,
-                "can_review": order.status == OrderStatus.completed and order.id not in reviewed and product is not None,
+                "can_review": can_review_order(order) and order.id not in reviewed and product is not None,
                 "can_chat": not is_terminal_refund,
                 "can_view_proxy": fulfillment_kind == "proxy" and fulfillment_status in {"delivered", "completed"},
             },

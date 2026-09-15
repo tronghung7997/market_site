@@ -3,6 +3,7 @@
 import { useTranslations } from "next-intl";
 import { useEffect, useMemo, useState } from "react";
 import { api } from "@/lib/api";
+import { useVariantTerm } from "@/lib/variant-term";
 import { cn } from "@/lib/cn";
 import { useApiErrorMessage } from "@/lib/use-api-error";
 import { useMoney } from "@/lib/money";
@@ -31,6 +32,7 @@ export function RestockDialog({ product, onClose }: { product: SellerProduct | n
 
 function RestockForm({ product, onClose }: { product: SellerProduct; onClose: () => void }) {
   const t = useTranslations("seller");
+  const term = useVariantTerm(product.service_type);
   const { formatBrowseMoney } = useMoney();
   const apiErrorMessage = useApiErrorMessage();
   const invalidate = useInvalidateSellerProducts();
@@ -114,14 +116,14 @@ function RestockForm({ product, onClose }: { product: SellerProduct; onClose: ()
         ) : variants.length === 0 ? (
           <div className="space-y-2 py-6 text-center text-xs text-muted">
             <Package size={28} className="mx-auto text-faint" />
-            <p>{error ?? t("noVariantsForRestock")}</p>
+            <p>{error ?? t("noVariantsForRestock", { ...term })}</p>
           </div>
         ) : (
           <>
             <div className="space-y-2">
               <div className="flex items-center justify-between text-[12px]">
-                <span className="font-semibold text-fg">{t("selectVariant")} · {t("variantsAvailable", { count: variants.length })}</span>
-                <span className="text-[11px] text-faint">{t("variantSelectionHint")}</span>
+                <span className="font-semibold text-fg">{t("selectVariant", { ...term })} · {t("variantsAvailable", { count: variants.length, ...term })}</span>
+                <span className="text-[11px] text-faint">{t("variantSelectionHint", { ...term })}</span>
               </div>
               <div role="radiogroup" className="grid max-h-48 grid-cols-1 gap-2 overflow-y-auto p-0.5 sm:grid-cols-2">
                 {variants.map((v) => {

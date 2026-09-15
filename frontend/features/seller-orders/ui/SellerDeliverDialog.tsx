@@ -3,6 +3,7 @@
 import { useTranslations } from "next-intl";
 import { useState } from "react";
 import { cn } from "@/lib/cn";
+import { useVariantTerm } from "@/lib/variant-term";
 import { useApiErrorMessage } from "@/lib/use-api-error";
 import type { Order } from "@/lib/types";
 import { Button, Input, Textarea } from "@/components/ui";
@@ -30,6 +31,7 @@ export function SellerDeliverDialog({
 
 function DeliverForm({ order, onClose, onDelivered }: { order: Order; onClose: () => void; onDelivered?: (order: Order) => void }) {
   const t = useTranslations("seller");
+  const term = useVariantTerm(order.service_type);
   const apiErrorMessage = useApiErrorMessage();
   const deliver = useDeliverOrder();
   const [data, setData] = useState("");
@@ -83,7 +85,7 @@ function DeliverForm({ order, onClose, onDelivered }: { order: Order; onClose: (
       <form onSubmit={handleSubmit} className="max-h-[75vh] space-y-3.5 overflow-y-auto p-5 text-xs">
         <div className="flex flex-col justify-between gap-2 rounded-xl border border-line bg-raised p-3 text-muted sm:flex-row sm:items-center">
           <div>
-            <span>{t("variantLabel")} </span>
+            <span>{t("variantLabel", { ...term })} </span>
             <strong className="text-fg">{order.variant_name || t("defaultVariant")}</strong>
           </div>
           <div className="flex items-center gap-2">

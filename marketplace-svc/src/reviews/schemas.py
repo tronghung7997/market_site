@@ -16,5 +16,6 @@ class ReviewResponse(BaseModel):
     rating: int
     comment: str | None
     created_at: datetime
+    variant_name: str | None = None
 
     model_config = {"from_attributes": True}

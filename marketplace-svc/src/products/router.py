@@ -75,6 +75,7 @@ async def seller_products(
     search: str | None = None,
     status: Literal["active", "paused", "draft", "low_stock", "out_of_stock"] | None = Query(None),
     category: str | None = None,
+    category_ids: str | None = Query(None, description="Comma-separated category ids; a parent means its whole branch"),
     service_type: str | None = None,
     sort: Literal[
         "newest", "oldest", "title", "stock_asc", "stock_desc", "sold_desc", "rating_desc", "price_asc", "price_desc",
@@ -86,8 +87,16 @@ async def seller_products(
 ):
     return await service.list_seller_products(
         account.id, db, search=search, status=status, category=category,
+        category_ids=_id_list(category_ids),
         service_type=service_type, sort=sort, page=page, per_page=per_page,
     )
+
+
+def _id_list(raw: str | None) -> list[int] | None:
+    if not raw:
+        return None
+    out = [int(part) for part in (piece.strip() for piece in raw.split(",")) if part.isdigit()]
+    return out or None
 
 
 @router.post("/seller/products/bulk-status", response_model=schemas.SellerProductBulkStatusResponse)

@@ -5,9 +5,11 @@ import { useLocale, useTranslations } from "next-intl";
 import type { ReactNode } from "react";
 import { useMoney } from "@/lib/money";
 import { useAuth } from "@/lib/auth";
+import { useVariantTerm } from "@/lib/variant-term";
 import { cn } from "@/lib/cn";
 import type { ProductDetail } from "@/lib/types";
 import { Button, Card, Tag } from "@/components/ui";
+import { EscrowHelp } from "@/components/products/EscrowHelp";
 import { Bolt, Clock, Shield } from "@/components/Icons";
 import { ctaState, maxQtyFor, outOfStock, panelMode } from "./purchase";
 import type { PurchaseState } from "./usePurchase";
@@ -38,6 +40,7 @@ export default function OrderPanel({ product, purchase, fulfillment }: {
   const { formatCheckoutMoney } = useMoney();
   const router = useRouter();
   const { account } = useAuth();
+  const term = useVariantTerm(product.service_type);
   const { selected, qty, total, order, placing, placeError, showConfirm } = purchase;
 
   const instant = selected?.delivery_mode === "instant";
@@ -67,7 +70,7 @@ export default function OrderPanel({ product, purchase, fulfillment }: {
           <div className="space-y-4">
             <fieldset>
               <legend className="text-[11px] font-semibold text-faint uppercase tracking-wider mb-2">
-                {t("choosePackage", { count: product.variants.length })}
+                {t("choosePackage", { count: product.variants.length, ...term })}
               </legend>
               <div role="radiogroup" className="space-y-1.5 max-h-[304px] overflow-y-auto overscroll-contain pr-0.5">
                 {product.variants.map((v) => {
@@ -159,7 +162,7 @@ export default function OrderPanel({ product, purchase, fulfillment }: {
                 </Button>
                 {showOosHint && (
                   <p className="text-[11.5px] text-faint text-center -mt-1.5">
-                    {t("oosHint")}
+                    {t("oosHint", { ...term })}
                   </p>
                 )}
               </>
@@ -167,7 +170,7 @@ export default function OrderPanel({ product, purchase, fulfillment }: {
 
             <p className="text-[11.5px] text-faint leading-relaxed text-center">
               <Shield size={11} className="inline -mt-0.5 mr-0.5 text-good" />
-              {t("escrowNote", { days: product.escrow_days })}
+              {t("escrowNote", { days: product.escrow_days })} <EscrowHelp days={product.escrow_days} className="align-middle" />
             </p>
           </div>
         )}
@@ -190,7 +193,7 @@ export default function OrderPanel({ product, purchase, fulfillment }: {
                 <span className="font-medium text-right max-w-[220px] truncate">{product.title}</span>
               </div>
               <div className="flex justify-between">
-                <span className="text-muted">{t("confirmPackage")}</span>
+                <span className="text-muted">{t("confirmPackage", { ...term })}</span>
                 <span className="font-medium">{selected.name}</span>
               </div>
               <div className="flex justify-between">

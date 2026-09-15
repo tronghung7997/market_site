@@ -615,7 +615,8 @@ async def claim_resources(variant_id: int, quantity: int, db: AsyncSession, *, o
             Resource.order_id.is_(None),
             Resource.is_archived == False,  # noqa: E712
         )
-        .order_by(Resource.created_at)
+        # Oldest stock first (FIFO) — the same rule warranty replacements follow.
+        .order_by(Resource.created_at, Resource.id)
         .limit(quantity)
         .with_for_update(skip_locked=True)
     )

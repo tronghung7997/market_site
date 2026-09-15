@@ -2,6 +2,7 @@
 
 import { useTranslations } from "next-intl";
 import { useMoney } from "@/lib/money";
+import { useVariantTerm } from "@/lib/variant-term";
 import { Card } from "@/components/ui";
 import { ProductCover } from "@/components/products/ProductCover";
 import { Eye } from "@/components/Icons";
@@ -9,7 +10,7 @@ import { Eye } from "@/components/Icons";
 /** Slim "what the buyer sees" card: just the head of the listing. The full
  *  page lives behind the preview button so the sidebar stays short. */
 export function CustomerGlance({
-  title, categoryLabel, coverId, deliveryLabel, escrowDays, highlightText, minPrice, variantCount, onPreview,
+  title, categoryLabel, coverId, deliveryLabel, escrowDays, highlightText, minPrice, variantCount, onPreview, serviceType,
 }: {
   title: string;
   categoryLabel: string;
@@ -20,8 +21,10 @@ export function CustomerGlance({
   minPrice: number | null;
   variantCount: number;
   onPreview: () => void;
+  serviceType: string;
 }) {
   const t = useTranslations("sellerProductForm.glance");
+  const term = useVariantTerm(serviceType);
   const { formatCheckoutMoney } = useMoney();
   const meta = [categoryLabel || t("noCategory"), deliveryLabel, t("protection", { days: escrowDays })].filter(Boolean).join(" · ");
   return (
@@ -39,7 +42,7 @@ export function CustomerGlance({
         {minPrice != null && minPrice > 0
           ? t("from", { price: formatCheckoutMoney(minPrice) })
           : <span className="text-[12.5px] font-medium text-faint">{t("noPrice")}</span>}
-        {variantCount > 1 && <span className="ml-1.5 text-[11.5px] font-normal text-faint">· {t("variants", { count: variantCount })}</span>}
+        {variantCount > 1 && <span className="ml-1.5 text-[11.5px] font-normal text-faint">· {t("variants", { count: variantCount, ...term })}</span>}
       </div>
       <button type="button" onClick={onPreview} className="mt-3 inline-flex items-center gap-1.5 text-[12.5px] font-medium text-iris hover:underline">
         <Eye size={13} /> {t("fullPreview")}

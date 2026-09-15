@@ -392,7 +392,7 @@ async def test_buyer_list_orders(client):
     assert order["protection"] == {"status": "active"}
     assert order["capabilities"]["can_confirm"] is True
     assert order["capabilities"]["can_dispute"] is True
-    assert order["capabilities"]["can_review"] is False
+    assert order["capabilities"]["can_review"] is True  # delivered → reviewable right away
     assert order["capabilities"]["can_view_proxy"] is False
 
 
@@ -1254,3 +1254,56 @@ async def test_provision_failure_sets_cancel_reason_on_order(client, monkeypatch
     assert body["status"] == "cancelled"
     assert body["cancel_reason"] and "hết hàng" in body["cancel_reason"]
     assert "hoàn về ví" in body["cancel_reason"]
+
+
+@pytest.mark.asyncio
+async def test_review_opens_on_delivery_and_closes_after_window(client):
+    """Buyers rate what they received: delivered orders are reviewable without
+    confirming (releasing escrow), refunded ones never, and the window shuts
+    30 days after protection ends."""
+    from datetime import datetime, timedelta, timezone
+
+    buyer_token, seller_token, _, instant_variant_id, manual_variant_id = await setup_buyable_product(client)
+    buyer_headers = {"Authorization": f"Bearer {buyer_token}"}
+
+    order = await client.post("/orders", json={"variant_id": instant_variant_id, "quantity": 1}, headers=buyer_headers)
+    assert order.status_code == 201
+    order_id = order.json()["id"]
+    listed = (await client.get("/orders", headers=buyer_headers)).json()["items"]
+    row = next(o for o in listed if o["id"] == order_id)
+    assert row["status"] == "delivered"
+    assert row["capabilities"]["can_review"] is True
+    assert row["capabilities"]["can_confirm"] is True  # reviewing never touches escrow
+
+    review = await client.post(f"/orders/{order_id}/review", json={"rating": 4, "comment": "ok"}, headers=buyer_headers)
+    assert review.status_code == 201, review.text
+    row = next(o for o in (await client.get("/orders", headers=buyer_headers)).json()["items"] if o["id"] == order_id)
+    assert row["has_review"] is True
+    assert row["capabilities"]["can_review"] is False
+    assert row["capabilities"]["can_confirm"] is True
+
+    # Storefront list shows which package the buyer rated.
+    product_id = row["product_id"] or (await client.get(f"/orders/{order_id}", headers=buyer_headers)).json()["product_id"]
+    reviews = (await client.get(f"/products/{product_id}/reviews")).json()
+    assert reviews[0]["variant_name"] == "Instant Var"
+
+    # A manual order that is still waiting on the seller is not reviewable.
+    pending = await client.post("/orders", json={"variant_id": manual_variant_id, "quantity": 1}, headers=buyer_headers)
+    pending_id = pending.json()["id"]
+    blocked = await client.post(f"/orders/{pending_id}/review", json={"rating": 5}, headers=buyer_headers)
+    assert blocked.status_code == 400
+    assert blocked.json()["error_code"] == "REVIEW_NOT_ELIGIBLE"
+
+    # Window: push protection end 31 days into the past → closed.
+    late = await client.post("/orders", json={"variant_id": instant_variant_id, "quantity": 1}, headers=buyer_headers)
+    late_id = late.json()["id"]
+    async with SessionLocal() as db:
+        await db.execute(update(Order).where(Order.id == late_id).values(
+            escrow_expires_at=datetime.now(timezone.utc) - timedelta(days=31),
+        ))
+        await db.commit()
+    row = next(o for o in (await client.get("/orders", headers=buyer_headers)).json()["items"] if o["id"] == late_id)
+    assert row["capabilities"]["can_review"] is False
+    closed = await client.post(f"/orders/{late_id}/review", json={"rating": 5}, headers=buyer_headers)
+    assert closed.status_code == 400
+    assert closed.json()["error_code"] == "REVIEW_WINDOW_CLOSED"

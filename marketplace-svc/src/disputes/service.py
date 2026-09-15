@@ -1487,7 +1487,7 @@ async def seller_replacement_resources(
         ids = list(
             (
                 await db.execute(
-                    select(Resource.id).where(*filters).order_by(Resource.id).limit(_DISPUTE_ID_LIST_LIMIT)
+                    select(Resource.id).where(*filters).order_by(Resource.created_at, Resource.id).limit(_DISPUTE_ID_LIST_LIMIT)
                 )
             ).scalars()
         )
@@ -1497,14 +1497,19 @@ async def seller_replacement_resources(
             await db.execute(
                 select(Resource)
                 .where(*filters)
-                .order_by(Resource.id)
+                # Oldest stock first — mirrors claim_resources(), so the first
+                # N rows are exactly what "replace from stock" hands out.
+                .order_by(Resource.created_at, Resource.id)
                 .offset((page - 1) * per_page)
                 .limit(per_page)
             )
         ).scalars()
     )
     return {
-        "items": [{"id": resource.id, "data": resource.data} for resource in resources],
+        "items": [
+            {"id": resource.id, "data": resource.data, "created_at": resource.created_at}
+            for resource in resources
+        ],
         "ids": [],
         "total": total,
         "page": page,

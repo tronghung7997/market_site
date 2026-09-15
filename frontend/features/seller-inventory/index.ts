@@ -12,5 +12,6 @@ export {
   type ResourceFilters,
 } from "./model";
 export { InventoryConsole, InventoryConsoleSkeleton } from "./ui/InventoryConsole";
+export { CategoryTreeSelect } from "./ui/CategoryTreeSelect";
 export { PackagePage, PackagePageSkeleton } from "./ui/PackagePage";
 export { ExportPage, ExportPageSkeleton, parseExportParams, type ExportPageParams } from "./ui/ExportPage";

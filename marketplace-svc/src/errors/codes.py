@@ -39,6 +39,8 @@ class ErrorCode(str, Enum):
     CHAT_INVALID_PERSPECTIVE = "CHAT_INVALID_PERSPECTIVE"
     CHAT_ROLE_UNAVAILABLE = "CHAT_ROLE_UNAVAILABLE"
     ORDER_NOT_COMPLETED = "ORDER_NOT_COMPLETED"
+    REVIEW_NOT_ELIGIBLE = "REVIEW_NOT_ELIGIBLE"
+    REVIEW_WINDOW_CLOSED = "REVIEW_WINDOW_CLOSED"
     REVIEW_ALREADY_EXISTS = "REVIEW_ALREADY_EXISTS"
     ORDER_NOT_PENDING = "ORDER_NOT_PENDING"
     ORDER_NOT_PROCESSING = "ORDER_NOT_PROCESSING"
@@ -126,6 +128,8 @@ MESSAGES_EN: dict[ErrorCode, str] = {
     ErrorCode.CHAT_INVALID_PERSPECTIVE: "Invalid conversation view",
     ErrorCode.CHAT_ROLE_UNAVAILABLE: "Your account cannot use this conversation view",
     ErrorCode.ORDER_NOT_COMPLETED: "This order is not completed yet",
+    ErrorCode.REVIEW_NOT_ELIGIBLE: "You can review this order once it has been delivered",
+    ErrorCode.REVIEW_WINDOW_CLOSED: "The review window for this order has closed",
     ErrorCode.REVIEW_ALREADY_EXISTS: "You have already reviewed this order",
     ErrorCode.ORDER_NOT_PENDING: "This order is not waiting for seller acceptance",
     ErrorCode.ORDER_NOT_PROCESSING: "This order is not awaiting delivery",

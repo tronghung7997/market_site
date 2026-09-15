@@ -1442,3 +1442,50 @@ async def test_admin_reject_timeline_does_not_imply_a_buyer_refund(client):
     assert outcomes[0]["body"] == "Credentials work as described."
     assert "refund_amount" not in outcomes[0] or not outcomes[0].get("refund_amount")
     assert payload["refunded_amount"] == 0
+
+
+@pytest.mark.asyncio
+async def test_replace_from_stock_hands_out_oldest_account_first(client):
+    """Warranty swaps follow FIFO: the listing is oldest-stock-first (with
+    created_at so the console can show it) and an auto replace takes row #1."""
+    from datetime import datetime, timedelta, timezone
+
+    from sqlalchemy import update as sa_update
+
+    from src.database import SessionLocal
+    from src.models.resource import Resource
+
+    buyer_token, _, order_id = await create_delivered_order(client, quantity=1, stock_count=4)
+    buyer_headers = {"Authorization": f"Bearer {buyer_token}"}
+    seller_token = await register_and_login(client, "disp_seller@example.com")
+    seller_headers = {"Authorization": f"Bearer {seller_token}"}
+    claimed = (await client.get(f"/orders/{order_id}/resources", headers=buyer_headers)).json()
+    opened = await client.post(
+        f"/orders/{order_id}/dispute",
+        json={"reason": "Account failed", "resource_ids": [claimed[0]["id"]]},
+        headers=buyer_headers,
+    )
+    dispute_id = opened.json()["id"]
+    stock = (await client.get(f"/seller/disputes/{dispute_id}/replacement-resources", headers=seller_headers)).json()
+    assert stock["total"] == 3
+    # Make the *highest* id the oldest stock so id order and age order differ.
+    oldest_id = stock["items"][-1]["id"]
+    async with SessionLocal() as db:
+        await db.execute(sa_update(Resource).where(Resource.id == oldest_id).values(
+            created_at=datetime.now(timezone.utc) - timedelta(days=30),
+        ))
+        await db.commit()
+
+    listed = (await client.get(f"/seller/disputes/{dispute_id}/replacement-resources", headers=seller_headers)).json()
+    assert listed["items"][0]["id"] == oldest_id
+    assert listed["items"][0]["created_at"]
+    ids_only = (await client.get(f"/seller/disputes/{dispute_id}/replacement-resources?ids_only=true", headers=seller_headers)).json()
+    assert ids_only["ids"][0] == oldest_id
+
+    replaced = await client.post(
+        f"/seller/disputes/{dispute_id}/resources/action",
+        json={"resource_ids": [claimed[0]["id"]], "action": "replace", "idempotency_key": "fifo-replace-001"},
+        headers=seller_headers,
+    )
+    assert replaced.status_code == 200, replaced.text
+    assert replaced.json()["actions"][0]["replacement_resource_id"] == oldest_id

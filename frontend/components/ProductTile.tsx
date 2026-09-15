@@ -5,6 +5,7 @@
 import { Link } from "@/i18n/navigation";
 import { useLocale, useTranslations } from "next-intl";
 import { useMoney } from "@/lib/money";
+import { useVariantTermFor } from "@/lib/variant-term";
 import { effectiveMinPrice } from "@/lib/pricing-display";
 import { fulfillmentFromProduct, fulfillmentTagKey, fulfillmentTagValues, fulfillmentTone } from "@/lib/fulfillment";
 import { parseCoverId } from "@/lib/product-covers";
@@ -24,12 +25,14 @@ export default function ProductTile({
 }) {
   const t = useTranslations("common");
   const tp = useTranslations("products");
+  const termFor = useVariantTermFor();
   const tc = useTranslations("categories");
   const locale = useLocale();
   const fulfillment = fulfillmentFromProduct(p);
   const { formatBrowseMoney } = useMoney();
   const mp = effectiveMinPrice(p);
   const variantCount = (p.variants ?? []).length;
+  const term = termFor(p.service_type);
   const stockCount = (p.variants ?? []).reduce((s, v) => s + (v.stock_count ?? 0), 0);
   const isOutOfStock = (p.variants ?? []).length > 0 && stockCount === 0;
 
@@ -55,7 +58,7 @@ export default function ProductTile({
                   </span>
                 )}
                 {p.sold_count > 0 && <span>{t("sold", { count: p.sold_count })}</span>}
-                {variantCount > 1 && <span>{t("packages", { count: variantCount })}</span>}
+                {variantCount > 1 && <span>{t("packages", { count: variantCount, ...term })}</span>}
                 <Tag tone={fulfillmentTone(fulfillment.kind)}>{tp(fulfillmentTagKey(fulfillment), fulfillmentTagValues(fulfillment))}</Tag>
                 {isOutOfStock ? (
                   <Tag tone="bad">{tc("outOfStock")}</Tag>
@@ -112,7 +115,7 @@ export default function ProductTile({
                 </span>
               )}
               {p.sold_count > 0 && <span>{t("sold", { count: p.sold_count })}</span>}
-              {variantCount > 1 && <span>{t("packages", { count: variantCount })}</span>}
+              {variantCount > 1 && <span>{t("packages", { count: variantCount, ...term })}</span>}
               {isOutOfStock ? (
                 <Tag tone="bad">{tc("outOfStock")}</Tag>
               ) : stockCount > 0 ? (
@@ -159,7 +162,7 @@ export default function ProductTile({
                 </span>
               )}
               {p.sold_count > 0 && <span>{t("sold", { count: p.sold_count })}</span>}
-              {variantCount > 1 && <span>{t("packages", { count: variantCount })}</span>}
+              {variantCount > 1 && <span>{t("packages", { count: variantCount, ...term })}</span>}
             </div>
           </div>
         </div>

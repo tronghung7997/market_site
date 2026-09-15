@@ -3,6 +3,7 @@
 import { useState, type ChangeEvent, type Dispatch, type SetStateAction } from "react";
 import { useTranslations } from "next-intl";
 import { cn } from "@/lib/cn";
+import { useVariantTerm } from "@/lib/variant-term";
 import type { ProductLocale } from "@/lib/types";
 import { Button, Input, Textarea } from "@/components/ui";
 import { ChevronDown, ChevronUp, Download, Plus, Upload, X } from "@/components/Icons";
@@ -16,7 +17,7 @@ import { LocaleTag } from "./BasicsFields";
  *  inventory console. Removing a row that already exists on the server only
  *  stops selling it (no delete anywhere). */
 export function DraftPackages({
-  packages, onChange, contentLocale, primaryLocale, deliveryMode, onRetireSaved,
+  packages, onChange, contentLocale, primaryLocale, deliveryMode, onRetireSaved, serviceType,
 }: {
   packages: NewProductPackageDraft[];
   onChange: Dispatch<SetStateAction<NewProductPackageDraft[]>>;
@@ -24,8 +25,10 @@ export function DraftPackages({
   primaryLocale: ProductLocale;
   deliveryMode: "instant" | "manual";
   onRetireSaved?: (serverId: number) => Promise<void>;
+  serviceType: string;
 }) {
   const t = useTranslations("sellerProductForm.variants");
+  const term = useVariantTerm(serviceType);
   const ts = useTranslations("seller");
   const { currency } = useSellerPriceCurrency();
   const [openStock, setOpenStock] = useState<Set<string>>(new Set());
@@ -64,7 +67,7 @@ export function DraftPackages({
   return (
     <div className="space-y-2.5">
       <div className="hidden grid-cols-[minmax(0,1fr)_170px_150px_32px] gap-3 px-1 text-[11px] font-semibold uppercase tracking-wider text-faint sm:grid">
-        <span>{t("nameCol")}</span>
+        <span>{t("nameCol", { ...term })}</span>
         <span>{t("priceCol", { currency })}</span>
         <span>{deliveryMode === "instant" ? t("stockCol") : t("slaCol")}</span>
         <span />
@@ -82,7 +85,7 @@ export function DraftPackages({
                   value={pkg.names[contentLocale]}
                   onChange={(e) => update(pkg.clientId, { names: { [contentLocale]: e.target.value } })}
                   placeholder={t("namePlaceholder")}
-                  aria-label={t("nameCol")}
+                  aria-label={t("nameCol", { ...term })}
                   maxLength={255}
                 />
                 {contentLocale !== primaryLocale && <span className="absolute right-2 top-1/2 -translate-y-1/2"><LocaleTag locale={contentLocale} /></span>}
@@ -100,7 +103,7 @@ export function DraftPackages({
                   <span className="text-[12px] text-muted">{t("hours")}</span>
                 </div>
               )}
-              <button type="button" onClick={() => remove(pkg)} disabled={packages.length <= 1 || removing === pkg.clientId} aria-label={t("remove")} title={t("remove")} className="inline-flex h-8 w-8 items-center justify-center justify-self-end rounded-lg text-faint hover:bg-raised hover:text-fg disabled:opacity-30">
+              <button type="button" onClick={() => remove(pkg)} disabled={packages.length <= 1 || removing === pkg.clientId} aria-label={t("remove", { ...term })} title={t("remove", { ...term })} className="inline-flex h-8 w-8 items-center justify-center justify-self-end rounded-lg text-faint hover:bg-raised hover:text-fg disabled:opacity-30">
                 <X size={14} />
               </button>
             </div>
@@ -129,7 +132,7 @@ export function DraftPackages({
         );
       })}
       <Button type="button" size="sm" variant="secondary" onClick={() => onChange((current) => [...current, createNewProductPackageDraft()])}>
-        <Plus size={13} /> {t("add")}
+        <Plus size={13} /> {t("add", { ...term })}
       </Button>
     </div>
   );

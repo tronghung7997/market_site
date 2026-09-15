@@ -17,29 +17,30 @@ export function useSellerOrders(filters: SellerOrdersFilters) {
   });
 }
 
-export function useSellerOrder(orderId: number, initial?: Order | null) {
+/** `orderRef` is the ORD-XXXXXXXX code from the route, or a numeric id. */
+export function useSellerOrder(orderRef: string | number, initial?: Order | null) {
   return useQuery({
-    queryKey: queryKeys.sellerOrderDetail(orderId),
-    queryFn: () => api.getOrder(orderId),
+    queryKey: queryKeys.sellerOrderDetail(orderRef),
+    queryFn: () => api.getOrder(orderRef),
     initialData: initial ?? undefined,
-    enabled: Number.isInteger(orderId) && orderId > 0,
+    enabled: Boolean(orderRef),
   });
 }
 
-export function useSellerDispute(orderId: number, enabled: boolean) {
+export function useSellerDispute(orderRef: string | number, enabled: boolean) {
   return useQuery({
-    queryKey: queryKeys.sellerDispute(orderId),
-    queryFn: () => api.sellerDispute(orderId),
-    enabled: enabled && orderId > 0,
+    queryKey: queryKeys.sellerDispute(orderRef),
+    queryFn: () => api.sellerDispute(orderRef),
+    enabled: enabled && Boolean(orderRef),
     retry: false,
   });
 }
 
-export function useSellerOrderResources(orderId: number) {
+export function useSellerOrderResources(orderRef: string | number) {
   return useQuery({
-    queryKey: queryKeys.sellerOrderResources(orderId),
-    queryFn: () => api.orderResources(orderId),
-    enabled: orderId > 0,
+    queryKey: queryKeys.sellerOrderResources(orderRef),
+    queryFn: () => api.orderResources(orderRef),
+    enabled: Boolean(orderRef),
   });
 }
 

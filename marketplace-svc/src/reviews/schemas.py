@@ -48,6 +48,7 @@ class SellerReviewRow(ReviewResponse):
     """Seller/admin row: order and buyer ids are fine here — the seller
     fulfilled that order and sees it in their console anyway."""
     order_id: int
+    order_code: str | None = None
     buyer_id: int
     product_title: str | None = None
     is_hidden: bool = False

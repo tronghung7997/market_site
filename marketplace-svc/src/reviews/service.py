@@ -180,7 +180,7 @@ async def list_seller_reviews(
         )
     ) or 0)
     query = (
-        select(Review, ProductVariant.name, Product.title, Account.email)
+        select(Review, ProductVariant.name, Product.title, Account.email, Order.order_code)
         .join(Product, Product.id == Review.product_id)
         .join(Order, Order.id == Review.order_id)
         .outerjoin(ProductVariant, ProductVariant.id == Order.variant_id)
@@ -193,7 +193,7 @@ async def list_seller_reviews(
         query.order_by(Review.created_at.desc(), Review.id.desc()).offset((page - 1) * per_page).limit(per_page)
     )).all()
     return {
-        "items": [{**_review_dict(review, variant_name, email), "product_title": title} for review, variant_name, title, email in rows],
+        "items": [{**_review_dict(review, variant_name, email), "product_title": title, "order_code": order_code} for review, variant_name, title, email, order_code in rows],
         "total": total, "unreplied": unreplied, "page": page, "per_page": per_page,
     }
 
@@ -208,7 +208,7 @@ async def _seller_owned_review(review_id: int, seller_id: int, db: AsyncSession)
 
 async def get_seller_review(review_id: int, db: AsyncSession) -> dict:
     row = (await db.execute(
-        select(Review, ProductVariant.name, Product.title, Account.email)
+        select(Review, ProductVariant.name, Product.title, Account.email, Order.order_code)
         .join(Product, Product.id == Review.product_id)
         .join(Order, Order.id == Review.order_id)
         .outerjoin(ProductVariant, ProductVariant.id == Order.variant_id)
@@ -217,8 +217,8 @@ async def get_seller_review(review_id: int, db: AsyncSession) -> dict:
     )).first()
     if not row:
         raise api_error(ErrorCode.REVIEW_NOT_FOUND, status.HTTP_404_NOT_FOUND)
-    review, variant_name, title, email = row
-    return {**_review_dict(review, variant_name, email), "product_title": title}
+    review, variant_name, title, email, order_code = row
+    return {**_review_dict(review, variant_name, email), "product_title": title, "order_code": order_code}
 
 
 async def reply_to_review(review_id: int, seller_id: int, body: str, db: AsyncSession) -> dict:
@@ -242,7 +242,7 @@ async def delete_review_reply(review_id: int, seller_id: int, db: AsyncSession) 
 
 def _admin_query(*filters):
     return (
-        select(Review, ProductVariant.name, Product.title, Product.seller_id, Account.email)
+        select(Review, ProductVariant.name, Product.title, Product.seller_id, Account.email, Order.order_code)
         .join(Product, Product.id == Review.product_id)
         .join(Order, Order.id == Review.order_id)
         .join(Account, Account.id == Review.buyer_id)
@@ -251,9 +251,9 @@ def _admin_query(*filters):
     )
 
 
-def _admin_row(review: Review, variant_name: str | None, title: str, seller_id: int, email: str) -> dict:
+def _admin_row(review: Review, variant_name: str | None, title: str, seller_id: int, email: str, order_code: str | None = None) -> dict:
     return {
-        **_review_dict(review, variant_name, email), "product_title": title, "seller_id": seller_id,
+        **_review_dict(review, variant_name, email), "product_title": title, "seller_id": seller_id, "order_code": order_code,
         "buyer_email": email, "hidden_reason": review.hidden_reason, "hidden_at": review.hidden_at,
         "hidden_by_id": review.hidden_by_id,
     }

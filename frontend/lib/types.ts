@@ -34,6 +34,8 @@ export interface ChatConversation {
   product: { id: number; title: string; image: string | null; slug?: string | null; public_key?: string | null } | null;
   order: {
     id: number;
+    /** Buyer/seller-facing order number. */
+    code?: string | null;
     status: string;
     quantity: number;
     total_amount: number;
@@ -225,6 +227,8 @@ export interface Transaction {
 
 export interface Order {
   id: number;
+  /** Buyer/seller-facing order number (ORD-XXXXXXXX): what the UI shows and links. */
+  order_code: string;
   buyer_id: number;
   seller_id: number;
   // Exactly one of these is set: variant_id for stock/manual orders, product_id
@@ -249,8 +253,13 @@ export interface Order {
   delivery_mode?: string | null;
   sla_hours?: number | null;
   variant_name?: string | null;
+  /** Seller view: masked (`bu***@gmail.com`); admin view: full; absent for buyers. */
   buyer_email?: string | null;
+  /** Admin view only; buyers get seller_name/seller_path instead. */
   seller_email?: string | null;
+  seller_name?: string | null;
+  seller_path?: string | null;
+  buyer_key?: string | null;
   has_review?: boolean;
   has_dispute?: boolean;
   dispute_status?: string | null;
@@ -687,6 +696,7 @@ export interface AdminOrderDetail extends Order {
 export interface Dispute {
   id: number;
   order_id: number;
+  order_code?: string | null;
   buyer_id: number;
   reason: string;
   evidence_type?: string | null;
@@ -908,6 +918,7 @@ export interface PublicReviewList {
 export interface SellerReview extends Review {
   /** Seller/admin rows keep the ids — the seller fulfilled that order. */
   order_id: number;
+  order_code?: string | null;
   buyer_id: number;
   product_title: string | null;
   is_hidden: boolean;

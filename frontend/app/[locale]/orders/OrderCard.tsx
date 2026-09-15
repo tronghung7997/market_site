@@ -67,7 +67,7 @@ export default function OrderCard({
   return (
     <Card className="p-0 overflow-hidden">
       <div className="flex flex-wrap items-center gap-x-3 gap-y-1 px-4 py-2 bg-raised/50 border-b border-line">
-        <span className="font-mono text-[13px] font-semibold">#{o.id}</span>
+        <span className="font-mono text-[13px] font-semibold">#{o.order_code}</span>
         <span className="text-[11.5px] text-faint">{formatDateTime(o.created_at, locale)}</span>
         <div className="ml-auto flex items-center gap-2.5">
           <Tag tone={st.tone}>{st.label}</Tag>
@@ -79,7 +79,7 @@ export default function OrderCard({
         <div className="flex items-center gap-3 min-w-0">
           <ProductCover coverId={parseCoverId(o)} title={o.product_title ?? "??"} className="h-9 w-9 rounded-lg shrink-0" />
           <div className="min-w-0 flex-1">
-            <div className="font-medium text-[14px] truncate">{o.product_title ?? tc("orderNumber", { id: o.id })}</div>
+            <div className="font-medium text-[14px] truncate">{o.product_title ?? tc("orderNumber", { id: o.order_code })}</div>
             <div className="flex items-center gap-1.5 text-[12px] text-muted truncate">
               <Tag tone={fulfillmentTone(fulfillment.kind)}>{tp(fulfillmentTagKey(fulfillment, fulfillmentPending), fulfillmentTagValues(fulfillment))}</Tag>
               <span className="truncate">{o.variant_name ? `${o.variant_name} · ` : ""}{tc("qty", { count: o.quantity })}</span>

@@ -328,12 +328,12 @@ export default function OrderDetailsModal({
             <div className="min-w-0">
               <div className="flex items-center gap-2 flex-wrap">
                 <h2 className="text-[16px] sm:text-[17px] font-bold text-fg tracking-tight break-words">
-                  {o.product_title ?? tc("orderNumber", { id: o.id })}
+                  {o.product_title ?? tc("orderNumber", { id: o.order_code })}
                 </h2>
                 <Tag tone={st.tone}>{st.label}</Tag>
               </div>
               <div className="flex items-center gap-2 text-[12px] text-muted mt-1 flex-wrap">
-                <span className="font-mono font-bold text-iris">#{o.id}</span>
+                <span className="font-mono font-bold text-iris">#{o.order_code}</span>
                 <span>•</span>
                 <span className="whitespace-nowrap">{formatDateTime(o.created_at, locale)}</span>
                 {o.variant_name && (

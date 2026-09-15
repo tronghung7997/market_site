@@ -1055,7 +1055,7 @@ export default function OrdersPage() {
                         onClick={() => setSelectedOrder(o)}
                         className="font-mono font-bold text-iris text-[14.5px] hover:underline cursor-pointer"
                       >
-                        #{o.id}
+                        #{o.order_code}
                       </button>
                       <button
                         type="button"
@@ -1090,7 +1090,7 @@ export default function OrdersPage() {
                     />
                     <div className="min-w-0 flex-1">
                       <h3 className="font-semibold text-[13.5px] text-fg leading-snug group-hover:text-iris transition-colors break-words">
-                        {o.product_title ?? tc("orderNumber", { id: o.id })}
+                        {o.product_title ?? tc("orderNumber", { id: o.order_code })}
                       </h3>
                       <div className="flex flex-wrap items-center gap-1.5 mt-1.5 text-[12px] text-muted">
                         {o.variant_name && (
@@ -1331,7 +1331,7 @@ export default function OrdersPage() {
                       {/* ORDER ID & DATE */}
                       <td className="py-3.5 px-3">
                         <div className="flex items-center gap-1.5">
-                          <span className="font-mono font-bold text-iris text-[13.5px]">#{o.id}</span>
+                          <span className="font-mono font-bold text-iris text-[13.5px]">#{o.order_code}</span>
                           <button
                             type="button"
                             title={copiedCodeId === o.id ? t("copiedOrderCode") : t("copyOrderCode")}
@@ -1359,7 +1359,7 @@ export default function OrdersPage() {
                           <ProductCover coverId={parseCoverId(o)} title={o.product_title ?? "??"} className="h-8 w-8 rounded-lg shrink-0" />
                           <div className="min-w-0">
                             <div className="font-semibold text-fg group-hover:text-iris transition-colors line-clamp-1">
-                              {o.product_title ?? tc("orderNumber", { id: o.id })}
+                              {o.product_title ?? tc("orderNumber", { id: o.order_code })}
                             </div>
                             <div className="text-[11.5px] text-muted line-clamp-1 mt-0.5">
                               {o.variant_name ? (

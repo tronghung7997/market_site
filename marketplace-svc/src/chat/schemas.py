@@ -72,6 +72,8 @@ class ChatProduct(BaseModel):
 
 class ChatOrderContext(BaseModel):
     id: int
+    # Buyer/seller-facing order number for labels and links.
+    code: str | None = None
     status: str
     quantity: int
     total_amount: int

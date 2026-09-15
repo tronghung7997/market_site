@@ -70,11 +70,11 @@ export function RecentOrders({ orders }: { orders: Order[] }) {
               <Link key={o.id} href="/orders">
                 <Card interactive className="p-3 sm:p-4 h-full">
                   <div className="flex items-center justify-between gap-2">
-                    <span className="font-mono text-[11px] sm:text-[11.5px] text-faint">#{o.id}</span>
+                    <span className="font-mono text-[11px] sm:text-[11.5px] text-faint">#{o.order_code}</span>
                     <Tag tone={st.tone}>{st.label}</Tag>
                   </div>
                   <div className="mt-1.5 sm:mt-2 text-[12.5px] sm:text-[13.5px] font-medium truncate">
-                    {o.product_title ?? o.variant_name ?? t("orderFallback", { id: o.id })}
+                    {o.product_title ?? o.variant_name ?? t("orderFallback", { id: o.order_code })}
                   </div>
                   <div className="mt-1.5 sm:mt-2 font-mono text-[13px] sm:text-[14px] font-semibold tabular">
                     {money.text}

@@ -30,15 +30,16 @@ from src.models.account import Account
 from src.models.order import Dispute, DisputeStatus, Order, OrderStatus
 from src.models.proxy_allocation import ProxyAllocation, ProxyAllocationStatus
 from src.resources.proxy_service import apply_rotated_assignment
+from src.orders.refs import OrderRef
 
 logger = structlog.get_logger()
 
 router = APIRouter(tags=["proxy"])
 
 
-@router.post("/orders/{order_id}/proxy/rotate")
+@router.post("/orders/{order_ref}/proxy/rotate")
 async def rotate_proxy(
-    order_id: int,
+    order_id: OrderRef,
     account: Account = Depends(get_current_account),
     db: AsyncSession = Depends(get_session),
 ):
@@ -160,9 +161,9 @@ async def rotate_proxy(
     }
 
 
-@router.get("/orders/{order_id}/proxy")
+@router.get("/orders/{order_ref}/proxy")
 async def get_proxy_state(
-    order_id: int,
+    order_id: OrderRef,
     account: Account = Depends(get_current_account),
     db: AsyncSession = Depends(get_session),
 ):
@@ -239,9 +240,9 @@ class ProxyWhitelistRequest(BaseModel):
     ips: list[str] = Field(default_factory=list, max_length=8)
 
 
-@router.put("/orders/{order_id}/proxy/whitelist")
+@router.put("/orders/{order_ref}/proxy/whitelist")
 async def set_proxy_whitelist(
-    order_id: int,
+    order_id: OrderRef,
     body: ProxyWhitelistRequest,
     account: Account = Depends(get_current_account),
     db: AsyncSession = Depends(get_session),

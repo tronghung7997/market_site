@@ -15,6 +15,7 @@ from src.models.service_task import ServiceTask
 from src.usage.service import get_usage_summary
 
 from . import schemas, service
+from src.orders.refs import OrderRef
 
 router = APIRouter(tags=["orders"])
 
@@ -54,13 +55,13 @@ async def order_stats(account: Account = Depends(get_current_account), db: Async
     return await service.buyer_order_stats(account.id, db)
 
 
-@router.get("/orders/{order_id}", response_model=schemas.OrderResponse)
-async def get_order(order_id: int, account: Account = Depends(get_current_account), db: AsyncSession = Depends(get_session)):
+@router.get("/orders/{order_ref}", response_model=schemas.OrderResponse)
+async def get_order(order_id: OrderRef, account: Account = Depends(get_current_account), db: AsyncSession = Depends(get_session)):
     return await service.get_order(order_id, account.id, db)
 
 
-@router.post("/orders/{order_id}/confirm", response_model=schemas.OrderResponse)
-async def confirm_order(order_id: int, account: Account = Depends(get_current_account), db: AsyncSession = Depends(get_session)):
+@router.post("/orders/{order_ref}/confirm", response_model=schemas.OrderResponse)
+async def confirm_order(order_id: OrderRef, account: Account = Depends(get_current_account), db: AsyncSession = Depends(get_session)):
     return await service.confirm_order(order_id, account.id, db)
 
 
@@ -85,19 +86,19 @@ async def seller_orders(
     )
 
 
-@router.post("/seller/orders/{order_id}/accept", response_model=schemas.OrderResponse)
-async def accept(order_id: int, account: Account = Depends(get_seller_account), db: AsyncSession = Depends(get_session)):
+@router.post("/seller/orders/{order_ref}/accept", response_model=schemas.OrderResponse)
+async def accept(order_id: OrderRef, account: Account = Depends(get_seller_account), db: AsyncSession = Depends(get_session)):
     return await service.accept_order(order_id, account.id, db)
 
 
-@router.post("/seller/orders/{order_id}/deliver", response_model=schemas.OrderResponse)
-async def deliver(order_id: int, body: schemas.ManualDeliverRequest, account: Account = Depends(get_seller_account), db: AsyncSession = Depends(get_session)):
+@router.post("/seller/orders/{order_ref}/deliver", response_model=schemas.OrderResponse)
+async def deliver(order_id: OrderRef, body: schemas.ManualDeliverRequest, account: Account = Depends(get_seller_account), db: AsyncSession = Depends(get_session)):
     return await service.deliver_order(order_id, account.id, body.data, db)
 
 
-@router.get("/orders/{order_id}/dashboard")
+@router.get("/orders/{order_ref}/dashboard")
 async def order_dashboard(
-    order_id: int,
+    order_id: OrderRef,
     account: Account = Depends(get_current_account),
     db: AsyncSession = Depends(get_session),
 ):

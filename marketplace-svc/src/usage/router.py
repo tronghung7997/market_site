@@ -8,13 +8,14 @@ from src.logging import current_request_id
 from src.models.account import Account
 
 from . import schemas, service
+from src.orders.refs import OrderRef
 
 router = APIRouter(tags=["usage"])
 
 
-@router.post("/orders/{order_id}/usage", response_model=schemas.ChargeUsageResponse)
+@router.post("/orders/{order_ref}/usage", response_model=schemas.ChargeUsageResponse)
 async def charge_order_usage(
-    order_id: int,
+    order_id: OrderRef,
     body: schemas.ChargeUsageRequest,
     account: Account = Depends(get_current_account),
     db: AsyncSession = Depends(get_session),

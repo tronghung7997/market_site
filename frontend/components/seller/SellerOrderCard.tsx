@@ -68,7 +68,7 @@ export default function SellerOrderCard({
   return (
     <Card className="p-0 overflow-hidden">
       <div className="flex flex-wrap items-center gap-x-3 gap-y-1 px-4 py-2 bg-raised/50 border-b border-line">
-        <span className="font-mono text-[13px] font-semibold">#{o.id}</span>
+        <span className="font-mono text-[13px] font-semibold">#{o.order_code}</span>
         <span className="text-[11.5px] text-faint">{elapsedLabel(o.created_at)}</span>
         <div className="ml-auto flex items-center gap-2.5">
           <Tag tone={st.tone}>{st.label}</Tag>
@@ -82,7 +82,7 @@ export default function SellerOrderCard({
         <div className="flex items-center gap-3 min-w-0">
           <Monogram text={o.product_title ?? "??"} />
           <div className="min-w-0 flex-1">
-            <div className="font-medium text-[14px] truncate">{o.product_title ?? t("orderNumber", { id: o.id })}</div>
+            <div className="font-medium text-[14px] truncate">{o.product_title ?? t("orderNumber", { id: o.order_code })}</div>
             <div className="text-[12px] text-muted truncate">
               {o.variant_name ? `${o.variant_name} · ` : ""}{t("quantity", { count: o.quantity })}
               {o.buyer_email && <> · {o.buyer_email}</>}

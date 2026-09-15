@@ -70,9 +70,9 @@ export const queryKeys = {
   // Seller orders console — prefix ["seller-orders"] invalidates list + detail.
   sellerOrders: (params?: Record<string, unknown> | null) =>
     params == null ? ["seller-orders"] as const : ["seller-orders", "list", params] as const,
-  sellerOrderDetail: (id: number) => ["seller-orders", "detail", id] as const,
-  sellerDispute: (orderId: number) => ["seller-orders", "dispute", orderId] as const,
-  sellerOrderResources: (orderId: number) => ["seller-orders", "resources", orderId] as const,
+  sellerOrderDetail: (id: string | number) => ["seller-orders", "detail", String(id)] as const,
+  sellerDispute: (orderId: string | number) => ["seller-orders", "dispute", String(orderId)] as const,
+  sellerOrderResources: (orderId: string | number) => ["seller-orders", "resources", String(orderId)] as const,
 
   // Seller products console
   // Seller inventory console — prefix ["seller-inventory"] invalidates every view.

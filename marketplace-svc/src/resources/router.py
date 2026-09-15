@@ -13,6 +13,7 @@ from src.models.account import Account
 from src.models.resource import ResourceStatus
 
 from . import inventory, schemas, service
+from src.orders.refs import OrderRef
 
 router = APIRouter(tags=["resources"])
 
@@ -212,8 +213,8 @@ async def internal_release(body: schemas.InternalReleaseRequest, db: AsyncSessio
     return {"status": "released"}
 
 
-@router.get("/orders/{order_id}/resources", response_model=list[schemas.ResourceResponse])
-async def order_res(order_id: int, account: Account = Depends(get_current_account), db: AsyncSession = Depends(get_session)):
+@router.get("/orders/{order_ref}/resources", response_model=list[schemas.ResourceResponse])
+async def order_res(order_id: OrderRef, account: Account = Depends(get_current_account), db: AsyncSession = Depends(get_session)):
     return await service.order_resources(order_id, account.id, db)
 
 

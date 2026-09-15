@@ -121,6 +121,7 @@ class DisputeEscalate(BaseModel):
 class DisputeResponse(BaseModel):
     id: int
     order_id: int
+    order_code: str | None = None
     buyer_id: int
     reason: str
     evidence_type: str | None = None
@@ -164,6 +165,7 @@ class DisputeResourceInfo(BaseModel):
 
 class DisputeOrderInfo(BaseModel):
     id: int
+    order_code: str | None = None
     buyer_id: int
     seller_id: int
     variant_id: int | None
@@ -187,6 +189,7 @@ class DisputeTimelineEvent(BaseModel):
 class DisputeResponseFull(BaseModel):
     id: int
     order_id: int
+    order_code: str | None = None
     buyer_id: int
     reason: str
     evidence_type: str | None = None

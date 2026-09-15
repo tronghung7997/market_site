@@ -386,11 +386,11 @@ export function TerminalOrderRow({ order: o, viewerRole = "buyer" }: { order: Or
         <ProductCover coverId={parseCoverId(o)} title={o.product_title ?? "??"} className="h-8 w-8 shrink-0 text-[12px] text-faint" />
         <div className="min-w-0 flex-1">
           <div className="flex items-center gap-2 min-w-0">
-            <span className="text-[13px] font-medium truncate">{o.product_title ?? tc("orderNumber", { id: o.id })}</span>
+            <span className="text-[13px] font-medium truncate">{o.product_title ?? tc("orderNumber", { id: o.order_code })}</span>
             <Tag tone={st.tone}>{st.label}</Tag>
           </div>
           <p className="text-[11.5px] text-faint mt-0.5">
-            {tc("orderNumber", { id: o.id })} · {formatDate(o.created_at, locale)}
+            {tc("orderNumber", { id: o.order_code })} · {formatDate(o.created_at, locale)}
             {viewerRole === "seller" && o.buyer_email && <> · {o.buyer_email}</>}
           </p>
           {o.cancel_reason && (

@@ -6,13 +6,14 @@ from src.database import get_session
 from src.models.account import Account
 
 from . import schemas, service
+from src.orders.refs import OrderRef
 
 router = APIRouter(tags=["reviews"])
 
 
-@router.post("/orders/{order_id}/review", response_model=schemas.ReviewResponse, status_code=status.HTTP_201_CREATED)
+@router.post("/orders/{order_ref}/review", response_model=schemas.ReviewResponse, status_code=status.HTTP_201_CREATED)
 async def create_review(
-    order_id: int,
+    order_id: OrderRef,
     body: schemas.ReviewCreate,
     account: Account = Depends(get_current_account),
     db: AsyncSession = Depends(get_session),

@@ -39,6 +39,8 @@ class GatewayAccessInfo(BaseModel):
 
 class OrderResponse(BaseModel):
     id: int
+    # Buyer/seller-facing order number; the only reference the UI shows or links.
+    order_code: str
     buyer_id: int
     seller_id: int
     variant_id: int | None = None
@@ -61,8 +63,14 @@ class OrderResponse(BaseModel):
     delivery_mode: str | None = None
     sla_hours: int | None = None
     variant_name: str | None = None
+    # Counterparty exposure depends on the viewer (see _enrich_orders):
+    # buyers get seller_name/seller_path and no seller_email; sellers get a
+    # masked buyer_email plus buyer_key; admins get both emails in full.
     buyer_email: str | None = None
     seller_email: str | None = None
+    seller_name: str | None = None
+    seller_path: str | None = None
+    buyer_key: str | None = None
     has_review: bool = False
     has_dispute: bool = False
     dispute_status: str | None = None

@@ -9,20 +9,21 @@ export function adminSupportInboxPath(conversationId: string): string {
   return `${ADMIN_SUPPORT_HREF}/${conversationId}`;
 }
 
+/** `orderRef` is the ORD-XXXXXXXX code (buyer/seller) or the numeric id (admin). */
 export function orderWorkspaceHref(
   counterpartRole: "buyer" | "seller" | "admin",
-  orderId?: number,
+  orderRef?: string | number | null,
   options?: { admin?: boolean },
 ): string {
   if (options?.admin) {
-    return orderId != null ? `/admin/orders?highlight=${orderId}` : "/admin/disputes";
+    return orderRef != null ? `/admin/orders?highlight=${orderRef}` : "/admin/disputes";
   }
   if (counterpartRole === "admin") {
-    return orderId != null ? `/orders?search=%23${orderId}` : "/orders";
+    return orderRef != null ? `/orders?search=%23${orderRef}` : "/orders";
   }
   const sellerSide = counterpartRole === "buyer";
   const base = sellerSide ? "/seller/orders" : "/orders";
-  return orderId != null ? `${base}?search=%23${orderId}` : base;
+  return orderRef != null ? `${base}?search=%23${orderRef}` : base;
 }
 
 export function unreadTotal(rooms: { unread_count: number }[] | undefined): number {

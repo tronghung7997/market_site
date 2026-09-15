@@ -93,7 +93,7 @@ function SellerReviewRow({ review, productId }: { review: SellerReview; productI
         <span className="font-medium text-fg">{t("buyer", { id: review.buyer_id })}</span>
         {review.variant_name && <span className="text-faint">· {review.variant_name}</span>}
         <span className="text-faint">· {formatDate(review.created_at, locale)}</span>
-        <span className="font-mono text-[11px] text-faint">#{review.order_id}</span>
+        <span className="font-mono text-[11px] text-faint">#{review.order_code ?? review.order_id}</span>
         {review.is_auto && <Tag tone="neutral">{t("auto")}</Tag>}
         {review.is_hidden && <Tag tone="neutral"><EyeOff size={10} /> {t("hiddenByAdmin")}</Tag>}
         {!review.is_hidden && !review.seller_reply && <Tag tone="warn">{t("awaitingReply")}</Tag>}

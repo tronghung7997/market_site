@@ -254,7 +254,7 @@ async def _enqueue_dispute_opened(db: AsyncSession, dispute: Dispute, order: Ord
         account_id=order.seller_id,
         idempotency_key=f"dispute_opened:{dispute.id}",
         payload={
-            "order_id": order.id,
+            "order_id": order.order_code,
             "reason": _truncate_reason(dispute.reason),
             "action_url": frontend_url("vi", "/seller/orders"),
         },
@@ -265,7 +265,7 @@ async def _enqueue_dispute_resolved(db: AsyncSession, dispute: Dispute, order: O
     from src.mail.service import enqueue_mail, frontend_url
     outcome = _DISPUTE_OUTCOME.get(dispute.status, dispute.status.value)
     payload = {
-        "order_id": order.id,
+        "order_id": order.order_code,
         "outcome": outcome,
         "admin_note": dispute.admin_note or "",
         "amount": order.total_amount,
@@ -275,7 +275,7 @@ async def _enqueue_dispute_resolved(db: AsyncSession, dispute: Dispute, order: O
         template="dispute_resolved",
         account_id=order.buyer_id,
         idempotency_key=f"dispute_resolved:{dispute.id}:{order.buyer_id}",
-        payload={**payload, "action_url": frontend_url("vi", f"/orders/{order.id}")},
+        payload={**payload, "action_url": frontend_url("vi", f"/orders/{order.order_code}")},
     )
     await enqueue_mail(
         db,
@@ -789,7 +789,8 @@ async def _enrich_dispute(dispute: Dispute, db: AsyncSession) -> dict:
         ).scalars()
     )
     return {
-        "id": dispute.id, "order_id": dispute.order_id, "buyer_id": dispute.buyer_id,
+        "id": dispute.id, "order_id": dispute.order_id, "order_code": order.order_code if order else None,
+        "buyer_id": dispute.buyer_id,
         "reason": dispute.reason, "evidence_type": dispute.evidence_type, "evidence": dispute.evidence,
         "status": dispute.status,
         "admin_note": dispute.admin_note, "seller_note": dispute.seller_note,
@@ -853,7 +854,7 @@ async def _dispute_list_page(
         .offset((page - 1) * per_page).limit(per_page)
     )).all()
     items = [{
-        "id": dispute.id, "order_id": dispute.order_id, "buyer_id": dispute.buyer_id,
+        "id": dispute.id, "order_id": dispute.order_id, "order_code": order.order_code, "buyer_id": dispute.buyer_id,
         "reason": dispute.reason, "evidence_type": dispute.evidence_type, "evidence": dispute.evidence,
         "status": dispute.status, "admin_note": dispute.admin_note, "seller_note": dispute.seller_note,
         "created_at": dispute.created_at, "resolution_offered_at": dispute.resolution_offered_at,
@@ -883,7 +884,7 @@ async def get_dispute_detail(dispute_id: int, db: AsyncSession) -> dict:
     order_info = None
     if order:
         order_info = {
-            "id": order.id, "buyer_id": order.buyer_id, "seller_id": order.seller_id,
+            "id": order.id, "order_code": order.order_code, "buyer_id": order.buyer_id, "seller_id": order.seller_id,
             "variant_id": order.variant_id, "quantity": order.quantity,
             "total_amount": order.total_amount, "status": order.status,
             "escrow_expires_at": order.escrow_expires_at, "delivered_data": order.delivered_data,
@@ -921,7 +922,8 @@ async def get_dispute_detail(dispute_id: int, db: AsyncSession) -> dict:
     )
 
     return {
-        "id": dispute.id, "order_id": dispute.order_id, "buyer_id": dispute.buyer_id,
+        "id": dispute.id, "order_id": dispute.order_id, "order_code": order.order_code if order else None,
+        "buyer_id": dispute.buyer_id,
         "reason": dispute.reason, "evidence_type": dispute.evidence_type, "evidence": dispute.evidence,
         "status": dispute.status,
         "admin_note": dispute.admin_note, "seller_note": dispute.seller_note,

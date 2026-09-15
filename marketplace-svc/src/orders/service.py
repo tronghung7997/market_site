@@ -31,6 +31,8 @@ from src.wallet.service import deduct_credit, escrow_settlement, refund_escrow, 
 from src.disputes.service import orders_with_appendable_claims
 from src.exceptions import ErrorCode, api_error
 from src.money.service import get_effective_rate
+from src.orders.codes import mask_email, parse_order_ref
+from src.sellers.service import approved_business_names, seller_refs_by_id
 
 logger = structlog.get_logger()
 
@@ -503,8 +505,14 @@ async def confirm_order(order_id: int, buyer_id: int, db: AsyncSession) -> Order
     return order
 
 
-async def _enrich_orders(orders: list[Order], db: AsyncSession) -> list[dict]:
+async def _enrich_orders(orders: list[Order], db: AsyncSession, *, viewer: str = "admin") -> list[dict]:
     """Orders ORM → dicts with product/variant names + buyer/seller emails for display.
+
+    ``viewer`` decides how much of the counterparty is exposed:
+    - ``buyer``: no ``seller_email``; gets ``seller_name`` / ``seller_path``
+      (the shop, reachable through order chat) instead;
+    - ``seller``: ``buyer_email`` masked (``bu***@gmail.com``) + ``buyer_key``;
+    - ``admin``: everything.
 
     Gom lookup theo IN thay vì query từng đơn — list admin/seller từng mất
     ~6 query × N đơn (2.3s với 80 đơn), giờ cố định 5 query bất kể N.
@@ -530,6 +538,9 @@ async def _enrich_orders(orders: list[Order], db: AsyncSession) -> list[dict]:
     if account_ids:
         rows = await db.execute(select(Account).where(Account.id.in_(account_ids)))
         accounts = {a.id: a for a in rows.scalars()}
+    seller_ids = {o.seller_id for o in orders}
+    seller_names = await approved_business_names(list(seller_ids), db) if viewer == "buyer" else {}
+    seller_refs = await seller_refs_by_id(seller_ids, db) if viewer == "buyer" else {}
 
     order_ids = [o.id for o in orders]
     reviewed = set(
@@ -593,7 +604,8 @@ async def _enrich_orders(orders: list[Order], db: AsyncSession) -> list[dict]:
         within_escrow = not order.escrow_expires_at or datetime.now(timezone.utc) <= order.escrow_expires_at
         is_terminal_refund = order.status in {OrderStatus.refunded, OrderStatus.cancelled}
         out.append({
-            "id": order.id, "buyer_id": order.buyer_id, "seller_id": order.seller_id,
+            "id": order.id, "order_code": order.order_code,
+            "buyer_id": order.buyer_id, "seller_id": order.seller_id,
             "variant_id": order.variant_id, "product_id": order.product_id,
             "quantity": order.quantity,
             "total_amount": order.total_amount, "status": order.status,
@@ -610,8 +622,7 @@ async def _enrich_orders(orders: list[Order], db: AsyncSession) -> list[dict]:
             "sla_hours": variant.sla_hours if variant else None,
             "service_type": service_type,
             "variant_name": variant.name if variant else None,
-            "buyer_email": buyer.email if buyer else None,
-            "seller_email": seller.email if seller else None,
+            **_counterparty_fields(viewer, buyer, seller, seller_names.get(order.seller_id), seller_refs.get(order.seller_id, {})),
             "has_review": order.id in reviewed,
             "has_dispute": is_open_dispute,
             "dispute_status": latest_dispute_status.get(order.id),
@@ -637,9 +648,38 @@ async def _enrich_orders(orders: list[Order], db: AsyncSession) -> list[dict]:
     return out
 
 
-async def _enrich_order(order: Order, db: AsyncSession) -> dict:
+async def _enrich_order(order: Order, db: AsyncSession, *, viewer: str = "admin") -> dict:
     """Order ORM → dict with product/variant names + buyer/seller emails for display."""
-    return (await _enrich_orders([order], db))[0]
+    return (await _enrich_orders([order], db, viewer=viewer))[0]
+
+
+def _counterparty_fields(viewer: str, buyer: Account | None, seller: Account | None, seller_business_name: str | None, seller_ref: dict) -> dict:
+    if viewer == "buyer":
+        return {
+            "buyer_email": buyer.email if buyer else None,
+            "seller_email": None,
+            "seller_name": seller_business_name or (seller.email.split("@", 1)[0] if seller else None),
+            "seller_path": seller_ref.get("seller_path"),
+        }
+    if viewer == "seller":
+        return {
+            "buyer_email": mask_email(buyer.email) if buyer else None,
+            "buyer_key": buyer.public_key if buyer else None,
+            "seller_email": seller.email if seller else None,
+        }
+    return {
+        "buyer_email": buyer.email if buyer else None,
+        "seller_email": seller.email if seller else None,
+    }
+
+
+def _order_ref_condition(term: str):
+    """``#212`` / ``212`` -> id match, ``ORD-XXXXXXXX`` (any case, optional prefix) -> code match."""
+    parsed = parse_order_ref(term)
+    if parsed is None:
+        return Order.id == -1
+    kind, value = parsed
+    return Order.id == int(value) if kind == "id" else Order.order_code == value
 
 
 async def list_buyer_orders(
@@ -669,12 +709,8 @@ async def list_buyer_orders(
 
     if search:
         search_clean = search.strip()
-        if search_clean.startswith("#"):
-            id_part = search_clean.lstrip("#").strip()
-            if id_part.isdigit():
-                q = q.where(Order.id == int(id_part))
-            else:
-                q = q.where(Order.id == -1)
+        if search_clean.startswith("#") or (not search_clean.isdigit() and parse_order_ref(search_clean) is not None):
+            q = q.where(_order_ref_condition(search_clean.lstrip("#").strip()))
         else:
             product_match = select(Product.id).where(Product.title.ilike(f"%{search_clean}%"))
             variant_match = select(ProductVariant.id).where(ProductVariant.name.ilike(f"%{search_clean}%"))
@@ -724,7 +760,7 @@ async def list_buyer_orders(
 
     q = q.offset((page - 1) * per_page).limit(per_page)
     result = await db.execute(q)
-    items = await _enrich_orders(list(result.scalars().all()), db)
+    items = await _enrich_orders(list(result.scalars().all()), db, viewer="buyer")
 
     return {"items": items, "total": total, "page": page, "per_page": per_page}
 
@@ -835,9 +871,8 @@ async def list_seller_orders(
         filters.append(_fulfillment_kind_sql() == kind)
     if search and search.strip():
         term = search.strip()
-        if term.startswith("#"):
-            id_part = term.lstrip("#").strip()
-            filters.append(Order.id == (int(id_part) if id_part.isdigit() else -1))
+        if term.startswith("#") or (not term.isdigit() and parse_order_ref(term) is not None):
+            filters.append(_order_ref_condition(term.lstrip("#").strip()))
         else:
             buyer_match = select(Account.id).where(Account.email.ilike(f"%{term}%"))
             conditions = [
@@ -875,7 +910,7 @@ async def list_seller_orders(
         rows = (await db.execute(select(Order).where(Order.id.in_(page_ids)))).scalars().all()
         by_id = {o.id: o for o in rows}
         orders = [by_id[i] for i in page_ids if i in by_id]
-    items = await _enrich_orders(orders, db)
+    items = await _enrich_orders(orders, db, viewer="seller")
 
     scope = select(Order.id, Order.status).where(Order.seller_id == seller_id).subquery()
     open_ids = _open_dispute_order_ids()
@@ -927,7 +962,7 @@ async def get_order(order_id: int, account_id: int, db: AsyncSession) -> dict:
         raise api_error(ErrorCode.ORDER_NOT_FOUND, status.HTTP_404_NOT_FOUND)
     if order.buyer_id != account_id and order.seller_id != account_id:
         raise api_error(ErrorCode.NOT_ORDER_OWNER, status.HTTP_403_FORBIDDEN)
-    return await _enrich_order(order, db)
+    return await _enrich_order(order, db, viewer="buyer" if order.buyer_id == account_id else "seller")
 
 
 async def accept_order(order_id: int, seller_id: int, db: AsyncSession) -> Order:

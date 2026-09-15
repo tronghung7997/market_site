@@ -30,7 +30,7 @@ function SellerOrdersRoute() {
   const params = useMemo(() => new URLSearchParams(searchParams.toString()), [searchParams]);
   const filters = useMemo(() => parseOrdersFilters(params), [params]);
 
-  const detailHref = useCallback((id: number, source: URLSearchParams) => {
+  const detailHref = useCallback((id: number | string, source: URLSearchParams) => {
     const resources = source.get("resources");
     return `/seller/orders/${id}${resources ? `?resources=${encodeURIComponent(resources)}` : ""}`;
   }, []);

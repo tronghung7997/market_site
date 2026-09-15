@@ -48,10 +48,11 @@ export function SellerOrderDetailSkeleton() {
 }
 
 export function SellerOrderDetail({
-  orderId,
+  orderRef,
   highlightResourceIds = [],
 }: {
-  orderId: number;
+  /** Route param: the ORD-XXXXXXXX code (legacy numeric ids still resolve). */
+  orderRef: string;
   highlightResourceIds?: number[];
 }) {
   const t = useTranslations("seller");
@@ -60,12 +61,12 @@ export function SellerOrderDetail({
   const locale = useLocale();
   const { formatBrowseMoney } = useMoney();
   const apiErrorMessage = useApiErrorMessage();
-  const orderQuery = useSellerOrder(orderId);
+  const orderQuery = useSellerOrder(orderRef);
   const order = orderQuery.data;
   const term = useVariantTerm(order?.service_type);
   const wantsDispute = Boolean(order && (order.has_dispute || order.dispute_status || order.status === "disputed"));
-  const disputeQuery = useSellerDispute(orderId, wantsDispute);
-  const resourcesQuery = useSellerOrderResources(orderId);
+  const disputeQuery = useSellerDispute(orderRef, wantsDispute);
+  const resourcesQuery = useSellerOrderResources(orderRef);
   const accept = useAcceptOrder();
   const [deliverOpen, setDeliverOpen] = useState(false);
   const [disputeOpen, setDisputeOpen] = useState(false);
@@ -117,7 +118,7 @@ export function SellerOrderDetail({
             <div className="flex flex-wrap items-center gap-2">
               <Tag tone={st.tone}>{st.label}</Tag>
               {order.fulfillment && <FulfillmentKindTag kind={order.fulfillment.kind} />}
-              <span className="font-mono text-xs font-semibold text-faint">{t("orderNumber", { id: order.id })}</span>
+              <span className="font-mono text-xs font-semibold text-faint">{t("orderNumber", { id: order.order_code })}</span>
             </div>
             <h1 className="mt-0.5 truncate text-[15px] font-bold text-fg">{order.product_title}</h1>
           </div>
@@ -159,7 +160,6 @@ export function SellerOrderDetail({
               <span className="text-faint">{t("buyerLabel")}</span>
               <div className="mt-0.5 flex items-center gap-1.5 font-mono font-medium text-fg">
                 <span className="truncate" title={order.buyer_email || ""}>{order.buyer_email || "—"}</span>
-                {order.buyer_email && <CopyButton text={order.buyer_email} label="" className="text-[10.5px]" />}
               </div>
             </div>
             <div>
@@ -210,7 +210,7 @@ export function SellerOrderDetail({
               <div className="flex items-center justify-between gap-2">
                 <span className="text-[12.5px] font-semibold text-fg">{t("deliveredLines", { count: deliveredLines.length.toLocaleString() })}</span>
                 <div className="flex items-center gap-1.5">
-                  <Button size="sm" variant="secondary" onClick={() => downloadText(`order_${order.id}_delivered_data.txt`, order.delivered_data!)} className="h-7 gap-1 px-2 text-[11px]">
+                  <Button size="sm" variant="secondary" onClick={() => downloadText(`order_${order.order_code}_delivered_data.txt`, order.delivered_data!)} className="h-7 gap-1 px-2 text-[11px]">
                     <Download size={11} /> {t("downloadTxt")}
                   </Button>
                   <CopyButton text={order.delivered_data} label={t("copyAll")} className="text-[11px]" />
@@ -231,7 +231,7 @@ export function SellerOrderDetail({
             <Card className="space-y-2 p-4">
               <div className="flex items-center justify-between gap-2">
                 <span className="text-[12.5px] font-semibold text-muted">{t("allocatedResources", { count: resources.length.toLocaleString() })}</span>
-                <Button size="sm" variant="secondary" onClick={() => downloadText(`order_${order.id}_resources.txt`, resources.map((r) => r.data).join("\n"))} className="h-7 gap-1 px-2 text-[11px]">
+                <Button size="sm" variant="secondary" onClick={() => downloadText(`order_${order.order_code}_resources.txt`, resources.map((r) => r.data).join("\n"))} className="h-7 gap-1 px-2 text-[11px]">
                   <Download size={11} /> {t("downloadAll")}
                 </Button>
               </div>

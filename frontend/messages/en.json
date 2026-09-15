@@ -1756,7 +1756,8 @@
     "CHAT_SUPPORT_REQUIRES_DISPUTE": "GMMO chat is available while a dispute is open",
     "CHAT_SUPPORT_REQUIRES_REVIEW": "Open GMMO chat with a note so admin can pause auto-settlement",
     "REVIEW_NOT_ELIGIBLE": "You can review this order once it has been delivered",
-    "REVIEW_WINDOW_CLOSED": "The review window for this order has closed"
+    "REVIEW_WINDOW_CLOSED": "The review window for this order has closed",
+    "REVIEW_NOT_FOUND": "Review not found"
   },
   "common": {
     "loading": "Loading…",
@@ -1793,7 +1794,9 @@
       "accountPlural": "account types",
       "package": "package",
       "packagePlural": "packages"
-    }
+    },
+    "edit": "Edit",
+    "saving": "Saving…"
   },
   "auth": {
     "loginTitle": "Sign in",
@@ -2156,7 +2159,14 @@
       "step3": "After {days} days, or when you press “Confirm”, the money is released to the seller.",
       "note": "Claims can only be opened while escrow is active.",
       "policyLink": "Read the policy"
-    }
+    },
+    "reviewAuto": "automatic review",
+    "reviewsPage": "{from}–{to} of {total} reviews",
+    "reviewsFilterAria": "Filter reviews by star",
+    "reviewsFilterStar": "Show only {star}-star reviews",
+    "reviewsFilteredBy": "Showing {count} {star}-star reviews",
+    "reviewsFilterClear": "Show all",
+    "reviewsNoneForStar": "No {star}-star reviews yet."
   },
   "chat": {
     "inbox": "Messages",
@@ -3193,7 +3203,13 @@
     "retry": "Retry",
     "reset": "Reset",
     "save": "Save",
-    "saving": "Saving…"
+    "saving": "Saving…",
+    "reviewWindowTitle": "Buyer review window",
+    "reviewWindowHint": "Buyers can review as soon as goods are delivered and for this many more days after escrow ends. After that the Review button disappears.",
+    "autoReviewTitle": "Automatic 5★ review",
+    "autoReviewHint": "Delivered orders the buyer never rated get a 5★ (no comment, tagged “Auto”) this many days after purchase. Refunded / disputed orders are skipped. Runs once a day.",
+    "autoReviewEnabled": "Enable auto review",
+    "daysLabel": "Days"
   },
   "adminMail": {
     "title": "Outbound mail",
@@ -3332,7 +3348,8 @@
       "content": "Description for buyers",
       "contentHint": "Buyers read this before ordering. Templates are available.",
       "advanced": "Languages & advanced",
-      "advancedHint": "English translation, service type, server integration. Optional."
+      "advancedHint": "English translation, service type, server integration. Optional.",
+      "reviews": "Reviews"
     },
     "readiness": {
       "createTitle": "What is left to publish?",
@@ -3503,5 +3520,47 @@
       "footer": "Stopping a {term} keeps its stock and history — nothing is deleted. Restock / inspect each {term} at",
       "inventoryLink": "Inventory"
     }
+  },
+  "reviews": {
+    "sellerReplyTitle": "Reply from {name}",
+    "sellerFallback": "the seller",
+    "sellerTitle": "{count} customer reviews",
+    "unrepliedCount": "{count} reviews awaiting your reply",
+    "allReplied": "All replied",
+    "unrepliedOnly": "Unreplied only",
+    "sellerHint": "Replies are public and appear right under the customer's review on the product page. Keep them polite and short — other buyers read them before purchasing.",
+    "sellerEmpty": "No reviews for this product yet.",
+    "noUnreplied": "No reviews waiting for a reply.",
+    "buyer": "Buyer #{id}",
+    "hiddenByAdmin": "Hidden by admin",
+    "awaitingReply": "Awaiting reply",
+    "noComment": "Star rating only, no comment.",
+    "yourReply": "Your reply",
+    "deleteReply": "Delete reply",
+    "replyPlaceholder": "Thanks for your purchase…",
+    "sendReply": "Send reply",
+    "replyAction": "Reply",
+    "publicNote": "Shown publicly",
+    "replyFailed": "Could not send the reply",
+    "loadFailed": "Could not load reviews",
+    "adminTitle": "{count} reviews",
+    "adminHint": "Hidden reviews leave the product page and no longer count toward the rating.",
+    "filter": {
+      "all": "All",
+      "visible": "Visible",
+      "hidden": "Hidden"
+    },
+    "adminEmpty": "No reviews.",
+    "hidden": "Hidden",
+    "visible": "Visible",
+    "hide": "Hide review",
+    "unhide": "Show again",
+    "sellerReplied": "Seller replied",
+    "hiddenMeta": "Hidden on {date}",
+    "moderateFailed": "Could not update the review",
+    "hideConfirmTitle": "Hide this review?",
+    "hideConfirmBody": "It disappears from the product page and the rating is recomputed. The buyer still counts as having reviewed. You can show it again later.",
+    "hideReasonPlaceholder": "Reason (optional, admin-only)",
+    "auto": "Auto"
   }
 }

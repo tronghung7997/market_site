@@ -936,3 +936,17 @@ async def chat_message_retention_job() -> None:
         logger.info("chat_message_retention_done", deleted=deleted)
     except Exception as e:
         logger.error("chat_message_retention_failed", error=str(e))
+
+
+async def auto_review_job() -> None:
+    """Automatic 5★ for orders the buyer never rated (admin-configurable delay)."""
+    from src.reviews.service import auto_review_stale_orders
+
+    async with SessionLocal() as db:
+        try:
+            reviewed = await auto_review_stale_orders(db)
+            if reviewed:
+                logger.info("auto_review_applied", count=len(reviewed))
+        except Exception as e:
+            await db.rollback()
+            logger.error("auto_review_failed", error=str(e))

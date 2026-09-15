@@ -7,7 +7,7 @@ what "low stock" means.
 """
 from datetime import datetime
 
-from sqlalchemy import DateTime, Integer, func
+from sqlalchemy import Boolean, DateTime, Integer, func
 from sqlalchemy.orm import Mapped, mapped_column
 
 from src.database import Base
@@ -24,6 +24,11 @@ class SellerRuntimeConfig(Base):
     inventory_export_row_limit: Mapped[int] = mapped_column(
         Integer, nullable=False, default=50_000, server_default="50000",
     )
+    # Buyers may leave a review for this many days after the protection window ends.
+    review_window_days: Mapped[int] = mapped_column(Integer, nullable=False, default=30, server_default="30")
+    # Orders with no review this many days after purchase get an automatic 5★.
+    auto_review_days: Mapped[int] = mapped_column(Integer, nullable=False, default=7, server_default="7")
+    auto_review_enabled: Mapped[bool] = mapped_column(Boolean, nullable=False, default=True, server_default="true")
     updated_at: Mapped[datetime] = mapped_column(
         DateTime(timezone=True), server_default=func.now(), onupdate=func.now(),
     )

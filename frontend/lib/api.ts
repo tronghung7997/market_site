@@ -1,5 +1,10 @@
 import type {
   Account, ActionItem, AdminDepositIntent, AdminDepositLedgerQuery, AdminDepositLedgerResponse, AdminDepositTransaction, AdminDisputeDetail, AdminOrderDetail, AdminProduct, AdminResourceListResponse, AffiliateStats, AffiliateSummary, CalculateResult, Category, ChargeUsageResult, ChatConversationDetail, ChatConversationList, ChatMessage, DashboardData, DepositIntent, DepositMethods, DepositReconcileResult, DepositRailConfigAdmin, DepositRailConfigUpdate, Dispute, SePayWebhookEventRow, AdminAccountWallet, FundOverview, AccountAdminRow, PaginatedAccounts, LogEntry, MailConfigAdmin, MailConfigUpdate, MailOutboxList, MailSendTestResponse, MailTemplatePreview, MailTemplateRow, MoneyConfigAdmin, MoneyConfigPublic, MoneyConfigUpdate, Order, OrderStats, PaginatedAffiliateSummary, PaginatedOrderResponse, PaginatedProducts, PricingField, PricingOptions, ProductDetail, AdminProductDetail, Product, ProductLocale, ProductOperations, ProductTranslation, ProxyState, ProxyRotateResult, ProxyWhitelistResult, Review, SellerApplication, SellerDashboard, SellerDashboardRangeKey, SellerOrderQuery, PaginatedSellerOrders, SellerProduct, SellerProductBulkStatusResult, SellerProductSort, SellerStats, ServiceTask, TikTokLookupResponse, Transaction, Variant, Wallet, WithdrawRequest, Provider, ProviderHealth, Alert, Resource, ResourceSummary, ResourceSellerFacet, InventoryVariant, SellerSummary, SellerProfile, SellerDisputeResource, SellerDisputeResourceList, SellerReplacementResourceList, BulkResourceActionResult,
+  AdminReview,
+  AdminReviewList,
+  SellerReview,
+  SellerReviewList,
+  PublicReviewList,
 } from "./types";
 import type { PaginatedDisputes } from "./types";
 import type { PaginatedAdminProducts, PaginatedInventoryVariants, PaginatedSellerProducts } from "./types";
@@ -500,7 +505,7 @@ export const api = {
     return `/api/seller/inventory/report?${q}`;
   },
   adminSellerConfig: () => request<SellerRuntimeConfig>("/admin/seller-config", {}, true),
-  updateAdminSellerConfig: (body: { low_stock_threshold?: number; inventory_export_row_limit?: number }) =>
+  updateAdminSellerConfig: (body: Partial<Pick<SellerRuntimeConfig, "low_stock_threshold" | "inventory_export_row_limit" | "review_window_days" | "auto_review_days" | "auto_review_enabled">>) =>
     request<SellerRuntimeConfig>("/admin/seller-config", { method: "PATCH", body: JSON.stringify(body) }, true),
   deleteResource: (resourceId: number) =>
     request<void>(`/seller/resources/${resourceId}`, { method: "DELETE" }, true),
@@ -754,8 +759,29 @@ export const api = {
 
   submitReview: (orderId: number, rating: number, comment?: string) =>
     request<Review>(`/orders/${orderId}/review`, { method: "POST", body: JSON.stringify({ rating, comment: comment || null }) }, true),
-  productReviews: (productId: number) =>
-    request<Review[]>(`/products/${productId}/reviews`),
+  productReviews: (productId: number, params: { page?: number; perPage?: number; rating?: number | null } = {}) => {
+    const q = new URLSearchParams({ page: String(params.page ?? 1), per_page: String(params.perPage ?? 5) });
+    if (params.rating) q.set("rating", String(params.rating));
+    return request<PublicReviewList>(`/products/${productId}/reviews?${q}`);
+  },
+  sellerReviews: (params: { productId?: number; unrepliedOnly?: boolean; page?: number; perPage?: number } = {}) => {
+    const q = new URLSearchParams({ page: String(params.page ?? 1), per_page: String(params.perPage ?? 20) });
+    if (params.productId) q.set("product_id", String(params.productId));
+    if (params.unrepliedOnly) q.set("unreplied_only", "true");
+    return request<SellerReviewList>(`/seller/reviews?${q}`, {}, true);
+  },
+  sellerReplyReview: (reviewId: number, body: string) =>
+    request<SellerReview>(`/seller/reviews/${reviewId}/reply`, { method: "PUT", body: JSON.stringify({ body }) }, true),
+  sellerDeleteReviewReply: (reviewId: number) =>
+    request<SellerReview>(`/seller/reviews/${reviewId}/reply`, { method: "DELETE" }, true),
+  adminReviews: (params: { productId?: number; hidden?: boolean; page?: number; perPage?: number } = {}) => {
+    const q = new URLSearchParams({ page: String(params.page ?? 1), per_page: String(params.perPage ?? 20) });
+    if (params.productId) q.set("product_id", String(params.productId));
+    if (params.hidden != null) q.set("hidden", String(params.hidden));
+    return request<AdminReviewList>(`/admin/reviews?${q}`, {}, true);
+  },
+  adminSetReviewVisibility: (reviewId: number, hidden: boolean, reason?: string) =>
+    request<AdminReview>(`/admin/reviews/${reviewId}/visibility`, { method: "PATCH", body: JSON.stringify({ hidden, reason: reason || null }) }, true),
 
   orderDashboard: (orderId: number) => request<DashboardData>(`/orders/${orderId}/dashboard`, {}, true),
   chargeUsage: (orderId: number, endpoint: string, units = 1) =>

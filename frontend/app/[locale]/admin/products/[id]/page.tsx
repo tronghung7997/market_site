@@ -2,6 +2,7 @@
 
 import { Link } from "@/i18n/navigation";
 import { useVariantTermFor } from "@/lib/variant-term";
+import { AdminReviewsPanel } from "@/features/reviews";
 import { useTranslations } from "next-intl";
 import { useParams, usePathname, useRouter, useSearchParams } from "next/navigation";
 import { useEffect, useState } from "react";
@@ -680,6 +681,14 @@ export default function AdminProductDetail() {
           <AdminProductMetric label="Trạng thái nhà cung cấp" value={healthLabel} tone={health === "healthy" ? "good" : health === "degraded" ? "warn" : "bad"} />
         </div>
       </Card>
+      </section>
+
+      <section className="space-y-4" aria-labelledby="reviews-heading">
+        <div>
+          <h2 id="reviews-heading" className="text-[16px] font-semibold text-fg">Đánh giá của khách</h2>
+          <p className="text-[12px] text-muted">Ẩn đánh giá vi phạm khỏi trang mua — tiền và đơn hàng không bị ảnh hưởng; có thể hiện lại bất kỳ lúc nào.</p>
+        </div>
+        <AdminReviewsPanel productId={product.id} />
       </section>
     </div>
   );

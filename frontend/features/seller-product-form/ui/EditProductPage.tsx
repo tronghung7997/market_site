@@ -16,6 +16,7 @@ import { ExternalLink } from "@/components/Icons";
 import { ProductCover } from "@/components/products/ProductCover";
 import { parseCoverId } from "@/lib/product-covers";
 import { browserTimeZone } from "@/features/seller-dashboard";
+import { SellerReviewsPanel, useSellerReviews } from "@/features/reviews";
 import {
   type WorkbenchVariant,
   buildDynamicPricingPlan,
@@ -41,8 +42,8 @@ import { CustomerGlance } from "./CustomerGlance";
 import { CustomerPreviewDialog } from "./CustomerPreviewDialog";
 import { FormHeader } from "./FormHeader";
 
-type EditTab = FormSection;
-const TABS: EditTab[] = ["basics", "variants", "content", "advanced"];
+type EditTab = FormSection | "reviews";
+const TABS: EditTab[] = ["basics", "variants", "content", "advanced", "reviews"];
 type SavedVariant = WorkbenchVariant & { id: number };
 type LocalizedVariantNames = Record<number, Record<ProductLocale, string>>;
 
@@ -130,11 +131,15 @@ export function EditProductPage({ productId }: { productId: number }) {
 
   useEffect(() => { void loadData(); }, [loadData]);
 
+  // Only auto-pick when nothing is chosen. A provider assigned by an admin is
+  // not in the seller's own list; swapping it here would dirty the form on
+  // load and silently change the integration on the next save.
   useEffect(() => {
-    if (!product || archetype === "A") return;
-    if (!core.compatibleProviders.some((p) => p.id === core.selectedProviderId)) core.setSelectedProviderId(core.compatibleProviders[0]?.id ?? 0);
+    if (!product || archetype === "A" || core.selectedProviderId !== 0) return;
+    if (core.compatibleProviders[0]) core.setSelectedProviderId(core.compatibleProviders[0].id);
   }, [archetype, core.compatibleProviders, core.selectedProviderId, product]); // eslint-disable-line react-hooks/exhaustive-deps
 
+  const reviewsQuery = useSellerReviews({ productId, page: 1 });
   const statsQuery = useQuery({
     queryKey: queryKeys.sellerInventoryReport({ range: "30d", productIds: [productId], groupBy: "variant", includeInactive: true }),
     queryFn: () => api.inventoryReport({ range: "30d", tz: browserTimeZone(), productIds: [productId], groupBy: "variant", includeInactive: true, compare: false }),
@@ -336,6 +341,7 @@ export function EditProductPage({ productId }: { productId: number }) {
           <button key={key} type="button" role="tab" aria-selected={tab === key} onClick={() => setTab(key)} className={cn("-mb-px border-b-2 px-3.5 py-2.5 text-[13px] font-medium transition-colors", tab === key ? "border-iris text-fg" : "border-transparent text-muted hover:text-fg")}>
             {t(`sections.${key}`, { ...term })}
             {key === "variants" && archetype === "A" && <span className="ml-1.5 rounded-full bg-raised px-1.5 py-0.5 font-mono text-[10.5px] text-muted">{variants.length}</span>}
+            {key === "reviews" && (reviewsQuery.data?.unreplied ?? 0) > 0 && <span className="ml-1.5 rounded-full bg-warn-soft px-1.5 py-0.5 font-mono text-[10.5px] text-warn">{reviewsQuery.data?.unreplied}</span>}
           </button>
         ))}
       </div>
@@ -376,6 +382,7 @@ export function EditProductPage({ productId }: { productId: number }) {
               <AdvancedFields core={core} interfaceLocale={interfaceLocale} dynamic={archetype === "B"} translations={translations} providerHint={operations?.needs_setup_reason ?? null} />
             </Card>
           )}
+          {tab === "reviews" && <SellerReviewsPanel productId={productId} />}
         </div>
 
         <aside className="space-y-4 lg:sticky lg:top-[150px]">

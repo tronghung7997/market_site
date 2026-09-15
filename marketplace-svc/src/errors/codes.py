@@ -42,6 +42,7 @@ class ErrorCode(str, Enum):
     REVIEW_NOT_ELIGIBLE = "REVIEW_NOT_ELIGIBLE"
     REVIEW_WINDOW_CLOSED = "REVIEW_WINDOW_CLOSED"
     REVIEW_ALREADY_EXISTS = "REVIEW_ALREADY_EXISTS"
+    REVIEW_NOT_FOUND = "REVIEW_NOT_FOUND"
     ORDER_NOT_PENDING = "ORDER_NOT_PENDING"
     ORDER_NOT_PROCESSING = "ORDER_NOT_PROCESSING"
     DISPUTE_NOT_FOUND = "DISPUTE_NOT_FOUND"
@@ -131,6 +132,7 @@ MESSAGES_EN: dict[ErrorCode, str] = {
     ErrorCode.REVIEW_NOT_ELIGIBLE: "You can review this order once it has been delivered",
     ErrorCode.REVIEW_WINDOW_CLOSED: "The review window for this order has closed",
     ErrorCode.REVIEW_ALREADY_EXISTS: "You have already reviewed this order",
+    ErrorCode.REVIEW_NOT_FOUND: "Review not found",
     ErrorCode.ORDER_NOT_PENDING: "This order is not waiting for seller acceptance",
     ErrorCode.ORDER_NOT_PROCESSING: "This order is not awaiting delivery",
     ErrorCode.DISPUTE_NOT_FOUND: "Dispute not found",

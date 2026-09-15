@@ -1756,7 +1756,8 @@
     "CHAT_SUPPORT_REQUIRES_DISPUTE": "Chat GMMO chỉ dùng khi đơn đang có khiếu nại mở",
     "CHAT_SUPPORT_REQUIRES_REVIEW": "Hãy gửi ghi chú cho GMMO để admin tạm dừng tự quyết toán",
     "REVIEW_NOT_ELIGIBLE": "Bạn có thể đánh giá sau khi đơn đã được giao",
-    "REVIEW_WINDOW_CLOSED": "Đã quá thời hạn đánh giá cho đơn này"
+    "REVIEW_WINDOW_CLOSED": "Đã quá thời hạn đánh giá cho đơn này",
+    "REVIEW_NOT_FOUND": "Không tìm thấy đánh giá"
   },
   "common": {
     "loading": "Đang tải…",
@@ -1793,7 +1794,9 @@
       "accountPlural": "phân loại tài khoản",
       "package": "gói",
       "packagePlural": "gói"
-    }
+    },
+    "edit": "Sửa",
+    "saving": "Đang lưu…"
   },
   "auth": {
     "loginTitle": "Đăng nhập",
@@ -2156,7 +2159,14 @@
       "step3": "Hết {days} ngày, hoặc khi bạn bấm “Xác nhận”, tiền mới chuyển cho người bán.",
       "note": "Khiếu nại chỉ mở được trong thời gian ký quỹ.",
       "policyLink": "Xem chính sách"
-    }
+    },
+    "reviewAuto": "đánh giá tự động",
+    "reviewsPage": "{from}–{to} / {total} đánh giá",
+    "reviewsFilterAria": "Lọc đánh giá theo số sao",
+    "reviewsFilterStar": "Chỉ xem đánh giá {star} sao",
+    "reviewsFilteredBy": "Đang xem {count} đánh giá {star} sao",
+    "reviewsFilterClear": "Xem tất cả",
+    "reviewsNoneForStar": "Chưa có đánh giá {star} sao."
   },
   "chat": {
     "inbox": "Tin nhắn",
@@ -3193,7 +3203,13 @@
     "retry": "Thử lại",
     "reset": "Đặt lại",
     "save": "Lưu",
-    "saving": "Đang lưu…"
+    "saving": "Đang lưu…",
+    "reviewWindowTitle": "Thời hạn đánh giá của người mua",
+    "reviewWindowHint": "Người mua được đánh giá ngay khi nhận hàng và còn được đánh giá thêm chừng này ngày sau khi hết ký quỹ. Quá hạn, nút Đánh giá biến mất.",
+    "autoReviewTitle": "Tự động đánh giá 5★",
+    "autoReviewHint": "Đơn đã giao mà người mua không đánh giá sau chừng này ngày kể từ lúc mua sẽ được hệ thống chấm 5★ (không nhận xét, gắn nhãn “Tự động”). Đơn hoàn tiền / có khiếu nại không áp dụng. Chạy mỗi ngày một lần.",
+    "autoReviewEnabled": "Bật tự động đánh giá",
+    "daysLabel": "Số ngày"
   },
   "adminMail": {
     "title": "Mail đi",
@@ -3332,7 +3348,8 @@
       "content": "Mô tả cho khách",
       "contentHint": "Khách đọc phần này trước khi mua. Có thể dùng mẫu gợi ý.",
       "advanced": "Ngôn ngữ & nâng cao",
-      "advancedHint": "Bản dịch tiếng Anh, loại dịch vụ, kết nối server. Không bắt buộc."
+      "advancedHint": "Bản dịch tiếng Anh, loại dịch vụ, kết nối server. Không bắt buộc.",
+      "reviews": "Đánh giá"
     },
     "readiness": {
       "createTitle": "Còn gì để mở bán?",
@@ -3503,5 +3520,47 @@
       "footer": "Ngừng bán giữ nguyên kho và lịch sử — không có thao tác xoá. Nạp / xem tài nguyên từng {term} tại",
       "inventoryLink": "Kho hàng"
     }
+  },
+  "reviews": {
+    "sellerReplyTitle": "Phản hồi từ {name}",
+    "sellerFallback": "người bán",
+    "sellerTitle": "{count} đánh giá của khách",
+    "unrepliedCount": "{count} đánh giá chưa trả lời",
+    "allReplied": "Đã trả lời hết",
+    "unrepliedOnly": "Chỉ chưa trả lời",
+    "sellerHint": "Trả lời hiển thị công khai ngay dưới đánh giá của khách trên trang mua. Trả lời lịch sự, ngắn gọn — khách khác đọc để quyết định mua.",
+    "sellerEmpty": "Chưa có đánh giá nào cho sản phẩm này.",
+    "noUnreplied": "Không còn đánh giá nào chờ trả lời.",
+    "buyer": "Người mua #{id}",
+    "hiddenByAdmin": "Admin đã ẩn",
+    "awaitingReply": "Chưa trả lời",
+    "noComment": "Khách chỉ chấm sao, không viết nhận xét.",
+    "yourReply": "Phản hồi của bạn",
+    "deleteReply": "Xoá phản hồi",
+    "replyPlaceholder": "Cảm ơn bạn đã mua hàng…",
+    "sendReply": "Gửi phản hồi",
+    "replyAction": "Trả lời",
+    "publicNote": "Hiển thị công khai",
+    "replyFailed": "Không gửi được phản hồi",
+    "loadFailed": "Không tải được đánh giá",
+    "adminTitle": "{count} đánh giá",
+    "adminHint": "Đánh giá bị ẩn không hiện trên trang mua và không tính vào điểm sản phẩm.",
+    "filter": {
+      "all": "Tất cả",
+      "visible": "Đang hiện",
+      "hidden": "Đã ẩn"
+    },
+    "adminEmpty": "Không có đánh giá nào.",
+    "hidden": "Đã ẩn",
+    "visible": "Đang hiện",
+    "hide": "Ẩn đánh giá",
+    "unhide": "Hiện lại",
+    "sellerReplied": "Seller đã trả lời",
+    "hiddenMeta": "Ẩn ngày {date}",
+    "moderateFailed": "Không cập nhật được đánh giá",
+    "hideConfirmTitle": "Ẩn đánh giá này?",
+    "hideConfirmBody": "Đánh giá sẽ biến mất khỏi trang mua và điểm sản phẩm được tính lại. Người mua vẫn được ghi nhận là đã đánh giá. Bạn có thể hiện lại sau.",
+    "hideReasonPlaceholder": "Lý do (tuỳ chọn, chỉ admin thấy)",
+    "auto": "Tự động"
   }
 }

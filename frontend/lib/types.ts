@@ -853,6 +853,60 @@ export interface Review {
   created_at: string;
   /** Package the reviewer bought — shown next to the "purchased" badge. */
   variant_name?: string | null;
+  /** Public answer from the seller, if any. */
+  seller_reply?: string | null;
+  seller_replied_at?: string | null;
+  /** Written by the auto-review job (5★, no comment) when the buyer never rated. */
+  is_auto?: boolean;
+}
+
+export interface ReviewSummary {
+  average: number | null;
+  counts: Record<"1" | "2" | "3" | "4" | "5", number>;
+}
+
+export interface PublicReviewList {
+  items: Review[];
+  /** Count after the star filter — drives pagination. */
+  total: number;
+  page: number;
+  per_page: number;
+  rating: number | null;
+  /** Star breakdown over all visible reviews, independent of the page shown. */
+  summary: ReviewSummary;
+}
+
+/** Seller console row: the seller's own product reviews, hidden ones flagged. */
+export interface SellerReview extends Review {
+  /** Seller/admin rows keep the ids — the seller fulfilled that order. */
+  order_id: number;
+  buyer_id: number;
+  product_title: string | null;
+  is_hidden: boolean;
+}
+
+export interface SellerReviewList {
+  items: SellerReview[];
+  total: number;
+  /** Visible reviews still waiting for a seller reply. */
+  unreplied: number;
+  page: number;
+  per_page: number;
+}
+
+export interface AdminReview extends SellerReview {
+  buyer_email: string | null;
+  seller_id: number | null;
+  hidden_reason: string | null;
+  hidden_at: string | null;
+  hidden_by_id: number | null;
+}
+
+export interface AdminReviewList {
+  items: AdminReview[];
+  total: number;
+  page: number;
+  per_page: number;
 }
 
 export interface SellerProduct extends Product {
@@ -1308,6 +1362,11 @@ export interface InventoryReportResponse {
 export interface SellerRuntimeConfig {
   low_stock_threshold: number;
   inventory_export_row_limit: number;
+  /** Days after the protection window ends during which a buyer may still review. */
+  review_window_days: number;
+  /** Days after purchase before an unreviewed order gets an automatic 5★. */
+  auto_review_days: number;
+  auto_review_enabled: boolean;
   updated_at: string | null;
   updated_by_id: number | null;
 }

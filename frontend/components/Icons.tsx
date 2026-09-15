@@ -125,6 +125,12 @@ export const Menu = (p: IconProps) => (
 export const X = (p: IconProps) => (
   <svg {...s(p)}><path d="M18 6 6 18" /><path d="m6 6 12 12" /></svg>
 );
+export const User = (p: IconProps) => (
+  <svg {...s(p)}><path d="M19 21v-2a4 4 0 0 0-4-4H9a4 4 0 0 0-4 4v2" /><circle cx="12" cy="7" r="4" /></svg>
+);
+export const Flag = (p: IconProps) => (
+  <svg {...s(p)}><path d="M4 21V4" /><path d="M4 4h12l-1.5 4L16 12H4" /></svg>
+);
 export const Users = (p: IconProps) => (
   <svg {...s(p)}><path d="M16 21v-2a4 4 0 0 0-4-4H6a4 4 0 0 0-4 4v2" /><circle cx="9" cy="7" r="4" /><path d="M22 21v-2a4 4 0 0 0-3-3.87" /><path d="M16 3.13a4 4 0 0 1 0 7.75" /></svg>
 );

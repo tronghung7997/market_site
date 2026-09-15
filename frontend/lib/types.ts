@@ -1459,6 +1459,35 @@ export interface TikTokLookupResponse {
   };
 }
 
+export type FacebookEntityType = "Profile" | "Page" | "Group" | "Event" | "Unknown";
+
+export interface FacebookEntity {
+  id: string;
+  type: FacebookEntityType;
+  username: string | null;
+  name: string | null;
+  avatar: string | null;
+  url: string;
+  description: string | null;
+  likes: number | null;
+  members: number | null;
+  privacy: string | null;
+  old_page_id: string | null;
+}
+
+export interface FacebookLookupResponse {
+  success: true;
+  platform: "facebook";
+  query: { input: string; handle: string; kind: string };
+  entity: FacebookEntity;
+  meta: {
+    source: string | null;
+    data_status: string | null;
+    cached: boolean;
+    fetched_at: string;
+  };
+}
+
 export interface OrderStats {
   total: number;
   active: number;

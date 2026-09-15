@@ -1757,7 +1757,11 @@
     "CHAT_SUPPORT_REQUIRES_REVIEW": "Open GMMO chat with a note so admin can pause auto-settlement",
     "REVIEW_NOT_ELIGIBLE": "You can review this order once it has been delivered",
     "REVIEW_WINDOW_CLOSED": "The review window for this order has closed",
-    "REVIEW_NOT_FOUND": "Review not found"
+    "REVIEW_NOT_FOUND": "Review not found",
+    "LOOKUP_INVALID_INPUT": "That link or username is not valid. Check the address.",
+    "LOOKUP_NOT_FOUND": "We could not find this on Facebook.",
+    "LOOKUP_RATE_LIMITED": "Too many lookups in a row. Wait a moment and try again.",
+    "LOOKUP_UNAVAILABLE": "The lookup service is temporarily unavailable. Please try again later."
   },
   "common": {
     "loading": "Loading…",
@@ -2760,11 +2764,29 @@
     "ctaSubtitle": "GMMO’s team can help your business find the right fit.",
     "ctaRegister": "Open an account",
     "ctaExplore": "Browse marketplace",
-    "lookup": {
-      "eyebrow": "Free utility",
-      "title": "TikTok ID lookup",
-      "description": "Find a TikTok profile's numeric ID and public account details with a username or profile link.",
-      "cta": "Open tool"
+    "tools": {
+      "eyebrow": "Free tools",
+      "title": "Social ID lookup",
+      "subtitle": "No sign-in, nothing stored. Paste a link and get the ID.",
+      "open": "Open tool",
+      "tiktok": {
+        "title": "Find TikTok ID",
+        "description": "Numeric ID and public metrics of a TikTok profile from a username or link.",
+        "chips": [
+          "@username",
+          "Profile link"
+        ]
+      },
+      "facebook": {
+        "title": "Find Facebook ID",
+        "description": "The permanent numeric ID of a profile, page or group — post links and profile.php?id= work too.",
+        "chips": [
+          "Profile",
+          "Page",
+          "Group",
+          "Post link"
+        ]
+      }
     },
     "scraper": {
       "eyebrow": "Facebook",
@@ -2902,6 +2924,105 @@
       "videos": "Videos",
       "friends": "Friends",
       "diggs": "Digg"
+    }
+  },
+  "facebookLookup": {
+    "back": "All solutions",
+    "eyebrow": "Facebook lookup",
+    "title": "Find a Facebook ID in seconds",
+    "subtitle": "Paste a profile, page, group or any post link — we detect the owner and return the permanent numeric ID.",
+    "supports": {
+      "title": "Accepts any input",
+      "profile": "Profile",
+      "page": "Page",
+      "group": "Group",
+      "post": "Post / photo link",
+      "numeric": "Numeric ID",
+      "short": "fb.me / share link"
+    },
+    "steps": {
+      "title": "How it works",
+      "one": "Paste a link or username — no Facebook sign-in needed.",
+      "two": "We normalise the link, detect profile / page / group and resolve the ID.",
+      "three": "Get the permanent numeric ID, a stable link and the public details."
+    },
+    "workspace": {
+      "title": "Facebook ID lookup",
+      "ready": "Result ready",
+      "found": "Found — the Facebook ID is shown just below."
+    },
+    "input": {
+      "label": "Facebook link, username or ID",
+      "placeholder": "https://www.facebook.com/bui.v.phu",
+      "hint": "Pasting a link looks it up automatically. Supports profiles, pages, groups, posts, profile.php?id=… and numeric IDs.",
+      "clear": "Clear"
+    },
+    "preview": {
+      "willLookup": "Will look up",
+      "invalid": "This doesn't look like a Facebook link or username yet.",
+      "kind": {
+        "username": "Username",
+        "numeric": "Numeric ID",
+        "profile": "Profile",
+        "page": "Page",
+        "group": "Group",
+        "people": "Profile",
+        "link": "Short link"
+      }
+    },
+    "actions": {
+      "submit": "Find ID",
+      "loading": "Looking up",
+      "cancel": "Cancel",
+      "retry": "Try again",
+      "copyId": "Copy ID",
+      "copied": "Copied",
+      "copyLink": "Copy permanent link",
+      "copyShare": "Share result",
+      "open": "Open on Facebook",
+      "examples": "Quick try:",
+      "exampleProfile": "Profile",
+      "examplePage": "Page",
+      "exampleGroup": "Group"
+    },
+    "recent": {
+      "title": "Recent lookups",
+      "clear": "Clear history"
+    },
+    "empty": {
+      "title": "Ready to look up",
+      "description": "The result shows the Facebook ID, entity type (profile, page, group), display name, username and a permanent link."
+    },
+    "errors": {
+      "title": "Lookup unavailable",
+      "empty": "Enter a Facebook link or username to continue.",
+      "invalid": "This doesn't look like a Facebook link or username. Check the address.",
+      "generic": "We could not complete the lookup. Please try again.",
+      "notFoundHint": "Double-check the link, or paste a public post from that account — fully locked profiles may not resolve."
+    },
+    "result": {
+      "idLabel": "Facebook ID",
+      "permanentLink": "Permanent link",
+      "type": {
+        "Profile": "Profile",
+        "Page": "Page",
+        "Group": "Group",
+        "Event": "Event",
+        "Unknown": "Entity"
+      },
+      "username": "Username",
+      "noUsername": "No username",
+      "likes": "Likes",
+      "members": "Members",
+      "privacy": "Privacy",
+      "oldPageId": "Old page ID",
+      "about": "About",
+      "dataFull": "Full data",
+      "dataPartial": "Partial data",
+      "partialNote": "Facebook limited access, so some fields may be empty. The ID is still exact.",
+      "cached": "From cache",
+      "fetchedAt": "Looked up {date}",
+      "queried": "Queried: {handle}"
     }
   },
   "affiliate": {

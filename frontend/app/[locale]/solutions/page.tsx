@@ -5,11 +5,16 @@ import { useLocale, useTranslations } from "next-intl";
 import { cn } from "@/lib/cn";
 import { useMoney } from "@/lib/money";
 import { Button, Card } from "@/components/ui";
-import { ArrowRight, Bolt, Search, Shield } from "@/components/Icons";
+import { ArrowRight, Bolt, Search, Shield, Users } from "@/components/Icons";
 
 const SOLUTION_META = [
   { key: "scraper" as const, href: "/products/39", icon: Bolt, accent: "iris" as const, priceVnd: 50 },
   { key: "takedown" as const, href: "/products/40", icon: Shield, accent: "good" as const, priceVnd: 50 },
+];
+
+const TOOLS = [
+  { key: "tiktok" as const, href: "/solutions/tiktok-id", icon: Search },
+  { key: "facebook" as const, href: "/solutions/facebook-id", icon: Users },
 ];
 
 const accentMap = {
@@ -72,29 +77,46 @@ export default function SolutionsPage() {
 
       <section className="bg-surface">
         <div className="w-full mx-auto max-w-[1200px] px-6 py-14">
-          <Link href="/solutions/tiktok-id" className="group mb-6 block">
-            <Card className="relative overflow-hidden border-iris/25 bg-iris-soft/35 p-0 transition-all duration-200 group-hover:-translate-y-0.5 group-hover:border-iris/45 group-hover:shadow-card-lg">
-              <div className="absolute inset-y-0 right-0 hidden w-[42%] bg-[radial-gradient(circle_at_72%_46%,rgba(79,70,229,0.18),transparent_48%)] lg:block" />
-              <div className="relative grid gap-6 px-6 py-6 sm:px-8 lg:grid-cols-[1fr_auto] lg:items-center">
-                <div className="max-w-xl">
-                  <div className="mb-3 flex items-center gap-2.5">
-                    <span className="grid h-10 w-10 place-items-center rounded-lg border border-iris/20 bg-surface text-iris-hi">
-                      <Search size={19} />
-                    </span>
-                    <span className="text-[11px] font-semibold uppercase tracking-[0.12em] text-iris-hi">
-                      {t("lookup.eyebrow")}
-                    </span>
-                  </div>
-                  <h2 className="font-serif text-[23px] font-semibold tracking-tight">{t("lookup.title")}</h2>
-                  <p className="mt-1.5 text-[13.5px] leading-relaxed text-muted">{t("lookup.description")}</p>
+          <div className="mb-10">
+            <div className="mb-4 flex flex-wrap items-end justify-between gap-3">
+              <div>
+                <div className="mb-1.5 inline-flex items-center gap-2 text-[11px] font-semibold uppercase tracking-[0.12em] text-iris-hi">
+                  <Search size={13} />
+                  {t("tools.eyebrow")}
                 </div>
-                <div className="flex items-center gap-3 text-[13px] font-medium text-iris-hi">
-                  {t("lookup.cta")}
-                  <ArrowRight size={18} className="transition-transform group-hover:translate-x-0.5" />
-                </div>
+                <h2 className="font-serif text-[22px] font-semibold tracking-tight">{t("tools.title")}</h2>
+                <p className="mt-1 text-[13.5px] text-muted">{t("tools.subtitle")}</p>
               </div>
-            </Card>
-          </Link>
+            </div>
+            <div className="grid gap-4 sm:grid-cols-2">
+              {TOOLS.map((tool) => {
+                const chips = t.raw(`tools.${tool.key}.chips`) as string[];
+                return (
+                  <Link key={tool.key} href={tool.href} className="group block">
+                    <Card className="relative h-full overflow-hidden border-iris/20 bg-iris-soft/25 p-0 transition-all duration-200 group-hover:-translate-y-0.5 group-hover:border-iris/45 group-hover:shadow-card-lg">
+                      <div className="absolute inset-y-0 right-0 w-[45%] bg-[radial-gradient(circle_at_80%_40%,rgba(79,70,229,0.14),transparent_55%)]" />
+                      <div className="relative flex h-full flex-col px-5 py-5 sm:px-6">
+                        <div className="flex items-start justify-between gap-3">
+                          <span className="grid h-10 w-10 shrink-0 place-items-center rounded-lg border border-iris/20 bg-surface text-iris-hi">
+                            <tool.icon size={19} />
+                          </span>
+                          <ArrowRight size={18} className="text-faint transition-all group-hover:translate-x-0.5 group-hover:text-iris-hi" />
+                        </div>
+                        <h3 className="mt-3 font-serif text-[20px] font-semibold tracking-tight">{t(`tools.${tool.key}.title`)}</h3>
+                        <p className="mt-1 text-[13px] leading-relaxed text-muted">{t(`tools.${tool.key}.description`)}</p>
+                        <div className="mt-auto flex flex-wrap items-center gap-1.5 pt-4">
+                          {chips.map((chip) => (
+                            <span key={chip} className="rounded-full border border-line bg-surface px-2 py-0.5 text-[11px] text-muted">{chip}</span>
+                          ))}
+                          <span className="ml-auto inline-flex items-center gap-1 text-[12.5px] font-medium text-iris-hi">{t("tools.open")}</span>
+                        </div>
+                      </div>
+                    </Card>
+                  </Link>
+                );
+              })}
+            </div>
+          </div>
           <div className="grid gap-6 lg:grid-cols-2">
             {solutions.map((s) => {
               const a = accentMap[s.accent];

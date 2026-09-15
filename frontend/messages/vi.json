@@ -1757,7 +1757,11 @@
     "CHAT_SUPPORT_REQUIRES_REVIEW": "Hãy gửi ghi chú cho GMMO để admin tạm dừng tự quyết toán",
     "REVIEW_NOT_ELIGIBLE": "Bạn có thể đánh giá sau khi đơn đã được giao",
     "REVIEW_WINDOW_CLOSED": "Đã quá thời hạn đánh giá cho đơn này",
-    "REVIEW_NOT_FOUND": "Không tìm thấy đánh giá"
+    "REVIEW_NOT_FOUND": "Không tìm thấy đánh giá",
+    "LOOKUP_INVALID_INPUT": "Link hoặc username không hợp lệ. Kiểm tra lại đường dẫn.",
+    "LOOKUP_NOT_FOUND": "Không tìm thấy đối tượng này trên Facebook.",
+    "LOOKUP_RATE_LIMITED": "Bạn tra cứu quá nhanh. Đợi một chút rồi thử lại.",
+    "LOOKUP_UNAVAILABLE": "Dịch vụ tra cứu tạm thời không khả dụng. Vui lòng thử lại sau."
   },
   "common": {
     "loading": "Đang tải…",
@@ -2760,11 +2764,29 @@
     "ctaSubtitle": "Đội ngũ GMMO sẵn sàng hỗ trợ doanh nghiệp của bạn tìm giải pháp phù hợp nhất.",
     "ctaRegister": "Mở tài khoản",
     "ctaExplore": "Khám phá chợ",
-    "lookup": {
+    "tools": {
       "eyebrow": "Công cụ miễn phí",
-      "title": "Tìm TikTok ID",
-      "description": "Tra numeric ID và thông tin công khai của profile TikTok bằng username hoặc link profile.",
-      "cta": "Mở công cụ"
+      "title": "Tra cứu ID mạng xã hội",
+      "subtitle": "Không cần đăng nhập, không lưu dữ liệu của bạn. Dán link là có ID.",
+      "open": "Mở công cụ",
+      "tiktok": {
+        "title": "Tìm TikTok ID",
+        "description": "Numeric ID và chỉ số công khai của profile TikTok từ username hoặc link.",
+        "chips": [
+          "@username",
+          "Link profile"
+        ]
+      },
+      "facebook": {
+        "title": "Tìm Facebook ID",
+        "description": "ID số cố định của profile, fanpage hay group — nhận cả link bài viết và profile.php?id=.",
+        "chips": [
+          "Profile",
+          "Page",
+          "Group",
+          "Link bài viết"
+        ]
+      }
     },
     "scraper": {
       "eyebrow": "Facebook",
@@ -2902,6 +2924,105 @@
       "videos": "Videos",
       "friends": "Friends",
       "diggs": "Digg"
+    }
+  },
+  "facebookLookup": {
+    "back": "Xem tất cả giải pháp",
+    "eyebrow": "Facebook lookup",
+    "title": "Tìm Facebook ID trong vài giây",
+    "subtitle": "Dán link profile, page, group hay một bài viết bất kỳ — chúng tôi tự nhận ra chủ sở hữu và trả về ID số cố định.",
+    "supports": {
+      "title": "Nhận mọi dạng đầu vào",
+      "profile": "Trang cá nhân",
+      "page": "Fanpage",
+      "group": "Group",
+      "post": "Link bài viết / ảnh",
+      "numeric": "ID số",
+      "short": "fb.me / link chia sẻ"
+    },
+    "steps": {
+      "title": "Cách hoạt động",
+      "one": "Dán link hoặc username — không cần đăng nhập Facebook.",
+      "two": "Hệ thống chuẩn hoá link, nhận diện profile / page / group rồi tra ID.",
+      "three": "Nhận ID số cố định, link vĩnh viễn và thông tin công khai của đối tượng."
+    },
+    "workspace": {
+      "title": "Tra cứu Facebook ID",
+      "ready": "Đã có kết quả",
+      "found": "Đã tìm thấy — Facebook ID ở ngay bên dưới."
+    },
+    "input": {
+      "label": "Link Facebook, username hoặc ID",
+      "placeholder": "https://www.facebook.com/bui.v.phu",
+      "hint": "Dán link là tự tra cứu. Hỗ trợ profile, page, group, bài viết, profile.php?id=… và ID số.",
+      "clear": "Xoá"
+    },
+    "preview": {
+      "willLookup": "Sẽ tra cứu",
+      "invalid": "Chưa nhận ra đây là link hoặc username Facebook.",
+      "kind": {
+        "username": "Username",
+        "numeric": "ID số",
+        "profile": "Trang cá nhân",
+        "page": "Fanpage",
+        "group": "Group",
+        "people": "Trang cá nhân",
+        "link": "Link rút gọn"
+      }
+    },
+    "actions": {
+      "submit": "Tìm ID",
+      "loading": "Đang tìm",
+      "cancel": "Huỷ",
+      "retry": "Thử lại",
+      "copyId": "Sao chép ID",
+      "copied": "Đã sao chép",
+      "copyLink": "Sao chép link vĩnh viễn",
+      "copyShare": "Chia sẻ kết quả",
+      "open": "Mở trên Facebook",
+      "examples": "Thử nhanh:",
+      "exampleProfile": "Profile",
+      "examplePage": "Page",
+      "exampleGroup": "Group"
+    },
+    "recent": {
+      "title": "Tra cứu gần đây",
+      "clear": "Xoá lịch sử"
+    },
+    "empty": {
+      "title": "Sẵn sàng tra cứu",
+      "description": "Kết quả gồm Facebook ID, loại đối tượng (profile, page, group), tên hiển thị, username và link vĩnh viễn."
+    },
+    "errors": {
+      "title": "Không thể tra cứu",
+      "empty": "Nhập link hoặc username Facebook để tiếp tục.",
+      "invalid": "Chưa nhận ra đây là link hoặc username Facebook. Kiểm tra lại đường dẫn.",
+      "generic": "Có lỗi xảy ra khi tra cứu. Hãy thử lại sau.",
+      "notFoundHint": "Kiểm tra lại link, hoặc thử dán link bài viết công khai của tài khoản đó — profile khoá hoàn toàn có thể không tra được."
+    },
+    "result": {
+      "idLabel": "Facebook ID",
+      "permanentLink": "Link vĩnh viễn",
+      "type": {
+        "Profile": "Trang cá nhân",
+        "Page": "Fanpage",
+        "Group": "Group",
+        "Event": "Sự kiện",
+        "Unknown": "Đối tượng"
+      },
+      "username": "Username",
+      "noUsername": "Không có username",
+      "likes": "Lượt thích",
+      "members": "Thành viên",
+      "privacy": "Quyền riêng tư",
+      "oldPageId": "ID page cũ",
+      "about": "Giới thiệu",
+      "dataFull": "Dữ liệu đầy đủ",
+      "dataPartial": "Dữ liệu một phần",
+      "partialNote": "Facebook giới hạn truy cập nên một số trường có thể trống. ID vẫn chính xác.",
+      "cached": "Từ bộ nhớ đệm",
+      "fetchedAt": "Tra cứu lúc {date}",
+      "queried": "Đã tra: {handle}"
     }
   },
   "affiliate": {

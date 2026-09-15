@@ -21,7 +21,7 @@ export default async function sitemap(): Promise<MetadataRoute.Sitemap> {
   const now = new Date();
   const entries: MetadataRoute.Sitemap = [];
 
-  const staticPaths = ["/", "/categories", "/legal/terms", "/legal/privacy", "/legal/escrow"];
+  const staticPaths = ["/", "/categories", "/solutions", "/solutions/tiktok-id", "/solutions/facebook-id", "/legal/terms", "/legal/privacy", "/legal/escrow"];
   for (const locale of locales) {
     for (const path of staticPaths) {
       entries.push({

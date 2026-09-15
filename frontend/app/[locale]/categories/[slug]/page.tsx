@@ -1,21 +1,20 @@
 import { Suspense } from "react";
-import { getLocale } from "next-intl/server";
+import { permanentRedirect } from "@/i18n/navigation";
 import { loadCategoryPage } from "@/features/catalog";
+import { categoryPath } from "@/lib/routes";
 import { CategoryBrowseView } from "./CategoryBrowseView";
 
 export default async function CategoryPage({
   params,
   searchParams,
 }: {
-  params: Promise<{ id: string }>;
+  params: Promise<{ locale: string; slug: string }>;
   searchParams: Promise<Record<string, string | string[] | undefined>>;
 }) {
-  const { id } = await params;
+  const { locale, slug } = await params;
   const rawQuery = await searchParams;
   const first = (value: string | string[] | undefined) => Array.isArray(value) ? value[0] : value;
-  const locale = await getLocale();
-  const categoryId = Number(id);
-  const initial = await loadCategoryPage(locale, categoryId, {
+  const initial = await loadCategoryPage(locale, slug, {
     q: first(rawQuery.q),
     sort: first(rawQuery.sort),
     stock: first(rawQuery.stock),
@@ -26,9 +25,13 @@ export default async function CategoryPage({
     sub: first(rawQuery.sub),
     page: first(rawQuery.page),
   });
+  // Legacy `/categories/12` links resolve by id, then move to the slug URL.
+  if (initial.category && initial.category.slug !== slug) {
+    permanentRedirect({ href: categoryPath(initial.category), locale });
+  }
   return (
     <Suspense>
-      <CategoryBrowseView categoryId={categoryId} initial={initial} />
+      <CategoryBrowseView categoryId={initial.category?.id ?? 0} initial={initial} />
     </Suspense>
   );
 }

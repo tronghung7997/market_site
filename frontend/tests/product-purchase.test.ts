@@ -1,7 +1,7 @@
 import { describe, it } from "node:test";
 import assert from "node:assert/strict";
 
-import { clampQty, maxQtyFor } from "../app/[locale]/products/[id]/purchase.ts";
+import { clampQty, maxQtyFor } from "../app/[locale]/products/[key]/purchase.ts";
 import type { Variant } from "../lib/types.ts";
 
 function variant(stock_count: number, delivery_mode: Variant["delivery_mode"]): Variant {

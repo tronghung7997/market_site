@@ -574,7 +574,7 @@ async def list_products(
     query = query.where(*filters).order_by(*order_by).offset((page - 1) * per_page).limit(per_page)
     products = list((await db.execute(query)).scalars())
     variants_by_product = await _variants_by_product(
-        [product.id for product in products], db, locale=locale,
+        [product.id for product in products], db, locale=locale, public=True,
     )
     return {
         "items": [
@@ -1016,7 +1016,7 @@ async def get_product_detail(
             resolve_category_fields(category, locale)["name"] if category else None
         )
         variants = await _variant_dicts(
-            product_id, db, include_inactive=include_inactive_variants, locale=locale,
+            product_id, db, include_inactive=include_inactive_variants, locale=locale, public=public,
         )
     else:
         base = _product_dict(product, locale=None)
@@ -1031,6 +1031,7 @@ async def get_product_detail(
         "seller_name": seller.email.split("@", 1)[0] if seller else None,
         "seller_email": seller.email if seller else None,
         "category_name": category_name,
+        "category_slug": category.slug if category else None,
     }
 
 
@@ -1040,10 +1041,15 @@ async def _variants_by_product(
     *,
     include_inactive: bool = False,
     locale: str | None = DEFAULT_LOCALE,
+    public: bool = False,
 ) -> dict[int, list[dict]]:
     """Serialize gói kèm tồn kho thật cho NHIỀU sản phẩm bằng đúng 2 query:
     gói (IN product_ids) + đếm Resource available GROUP BY variant_id. Dùng
-    chung cho list lẫn detail để hai nơi không lệch số."""
+    chung cho list lẫn detail để hai nơi không lệch số.
+
+    ``public=True`` (storefront) drops the exact ``stock_count``: buyers get
+    the bucketed ``stock_state`` + ``max_quantity`` only, so competitors
+    cannot read a seller's inventory off the product page."""
     if not product_ids:
         return {}
     variant_filter = [ProductVariant.product_id.in_(product_ids)]
@@ -1080,12 +1086,13 @@ async def _variants_by_product(
             "primary_locale": (v.i18n or {}).get(PRIMARY_LOCALE_KEY, "vi"),
         }
         stock_state, max_quantity = _public_stock(v.delivery_mode, stock_by_variant.get(v.id, 0))
+        exact_stock = {} if public else {"stock_count": stock_by_variant.get(v.id, 0)}
         out[v.product_id].append({
             "id": v.id, "product_id": v.product_id, "name": name, "price": v.price,
             "delivery_mode": v.delivery_mode.value, "sla_hours": v.sla_hours,
             "duration_days": v.duration_days,
             "sort_order": v.sort_order, "is_active": v.is_active,
-            "stock_count": stock_by_variant.get(v.id, 0),
+            **exact_stock,
             "stock_state": stock_state, "max_quantity": max_quantity,
             **management,
         })
@@ -1098,9 +1105,10 @@ async def _variant_dicts(
     *,
     include_inactive: bool = False,
     locale: str | None = DEFAULT_LOCALE,
+    public: bool = False,
 ) -> list[dict]:
     by_product = await _variants_by_product(
-        [product_id], db, include_inactive=include_inactive, locale=locale,
+        [product_id], db, include_inactive=include_inactive, locale=locale, public=public,
     )
     return by_product.get(product_id, [])
 

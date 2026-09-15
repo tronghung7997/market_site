@@ -7,7 +7,7 @@ import type { ProductDetail } from "@/lib/types";
 import { Dialog, DialogContent, DialogTitle } from "@/components/ui/dialog";
 import { Eye, X } from "@/components/Icons";
 import { ChevronRight } from "@/components/Icons";
-import { DescriptionCard, ProductIdentity, SpecsPlate, WarrantyCard } from "@/app/[locale]/products/[id]/sections";
+import { DescriptionCard, ProductIdentity, SpecsPlate, WarrantyCard } from "@/app/[locale]/products/[key]/sections";
 
 type Device = "desktop" | "mobile";
 

@@ -11,6 +11,7 @@ import { queryKeys } from "@/lib/query-keys";
 import { useApiErrorMessage } from "@/lib/use-api-error";
 import { useMoney } from "@/lib/money";
 import type { ProductDetail, ProductLocale, ProductOperations, ProductTranslation, Variant } from "@/lib/types";
+import { productPath } from "@/lib/routes";
 import { Button, Card, Spinner, Tag } from "@/components/ui";
 import { ExternalLink } from "@/components/Icons";
 import { ProductCover } from "@/components/products/ProductCover";
@@ -113,7 +114,7 @@ export function EditProductPage({ productId }: { productId: number }) {
       core.setB3(hydrated.b3);
       if (productOperations?.provider?.id) core.setSelectedProviderId(productOperations.provider.id);
       setVariants(detail.variants.map((v) => ({
-        id: v.id, name: v.name, price: v.price, delivery_mode: v.delivery_mode === "manual" ? "manual" : "instant", stock_count: v.stock_count, sla_hours: v.sla_hours, is_active: v.is_active,
+        id: v.id, name: v.name, price: v.price, delivery_mode: v.delivery_mode === "manual" ? "manual" : "instant", stock_count: v.stock_count ?? 0, sla_hours: v.sla_hours, is_active: v.is_active,
       })));
       setVariantNames(names);
       setSavedSnapshot(formSnapshot({
@@ -283,7 +284,7 @@ export function EditProductPage({ productId }: { productId: number }) {
   const deliveryLabel = archetype === "B"
     ? t(`receive.short.${core.workModel === "B3" ? "task" : "api"}`)
     : t(`receive.short.${activeVariants.some((v) => v.delivery_mode === "instant") || activeVariants.length === 0 ? "instant" : "sla"}`);
-  const readyCount = activeVariants.filter((v) => v.delivery_mode === "manual" || v.stock_count > 0).length;
+  const readyCount = activeVariants.filter((v) => v.delivery_mode === "manual" || (v.stock_count ?? 0) > 0).length;
   const totals = statsQuery.data?.totals;
   const timeFmt = new Intl.DateTimeFormat(interfaceLocale === "vi" ? "vi-VN" : "en-US", { day: "2-digit", month: "2-digit", hour: "2-digit", minute: "2-digit" });
 
@@ -320,7 +321,7 @@ export function EditProductPage({ productId }: { productId: number }) {
         actions={(
           <>
             {product.status === "active" && (
-              <Link href={`/products/${product.id}`} target="_blank" className="inline-flex h-9 items-center gap-1.5 rounded-lg px-3 text-[13px] font-medium text-muted hover:bg-surface hover:text-fg">
+              <Link href={productPath(product)} target="_blank" className="inline-flex h-9 items-center gap-1.5 rounded-lg px-3 text-[13px] font-medium text-muted hover:bg-surface hover:text-fg">
                 <ExternalLink size={13} /> {t("edit.viewLive")}
               </Link>
             )}

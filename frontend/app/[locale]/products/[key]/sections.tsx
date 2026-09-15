@@ -9,8 +9,10 @@ import { useMoney } from "@/lib/money";
 import { effectiveMinPrice } from "@/lib/pricing-display";
 import { serviceLabel } from "@/lib/labels";
 import { fulfillmentFromProduct, fulfillmentTagKey, fulfillmentTagValues, fulfillmentTone } from "@/lib/fulfillment";
+import { productStockState } from "@/lib/stock";
 import { formatSpecKey as fmtKey } from "@/lib/utils";
 import type { Product, ProductDetail } from "@/lib/types";
+import { productPath, sellerPath } from "@/lib/routes";
 import { Card, Tag } from "@/components/ui";
 import { parseCoverId, ProductCover } from "@/features/product-covers";
 import { EscrowBadge } from "@/components/products/EscrowHelp";
@@ -31,7 +33,7 @@ export function ProductIdentity({ product }: { product: ProductDetail }) {
   const t = useTranslations("products");
   const tc = useTranslations("common");
   const locale = useLocale();
-  const totalStock = product.variants.reduce((s, v) => s + v.stock_count, 0);
+  const stock = productStockState(product.variants);
   const sellerName = product.seller_name ?? "seller";
   const fulfillment = fulfillmentFromProduct(product);
 
@@ -63,7 +65,8 @@ export function ProductIdentity({ product }: { product: ProductDetail }) {
           </a>
         )}
         {product.sold_count > 0 && <span>{tc("sold", { count: product.sold_count.toLocaleString(locale === "vi" ? "vi-VN" : "en-US") })}</span>}
-        {totalStock > 0 && <span className="text-good font-medium">{t("inStock", { count: totalStock })}</span>}
+        {stock === "in_stock" && <span className="text-good font-medium">{t("inStockLabel")}</span>}
+        {stock === "low" && <span className="text-warn font-medium">{t("lowStockLabel")}</span>}
       </div>
         </div>
       </div>
@@ -74,7 +77,7 @@ export function ProductIdentity({ product }: { product: ProductDetail }) {
         </span>
         <div className="min-w-0 flex-1">
           <div className="flex items-center gap-1.5 flex-wrap">
-            <Link href={`/sellers/${product.seller_id}`} className="text-[13px] font-medium hover:underline truncate">
+            <Link href={sellerPath({ account_id: product.seller_id })} className="text-[13px] font-medium hover:underline truncate">
               {sellerName}
             </Link>
             <Tag tone="good"><Verified size={10} /> {t("verified")}</Tag>
@@ -186,7 +189,7 @@ export function RelatedProducts({ items }: { items: Product[] }) {
         {items.map((r) => {
           const rPrice = effectiveMinPrice(r);
           return (
-            <Link key={r.id} href={`/products/${r.id}`} className="h-full">
+            <Link key={r.id} href={productPath(r)} className="h-full">
               <Card interactive className="p-4 h-full flex flex-col">
                 <div className="flex items-start gap-2.5">
                   <ProductCover coverId={parseCoverId(r)} title={r.title} className="h-8 w-8" />

@@ -2,7 +2,7 @@ from datetime import datetime
 from typing import Literal
 
 from src.i18n.slug import SLUG_PATTERN, canonical_path
-from pydantic import BaseModel, Field, field_validator, model_validator
+from pydantic import BaseModel, Field, field_validator, model_serializer, model_validator
 
 from src.products.covers import parse_cover_id, public_images
 from src.security.input_limits import bounded_mapping
@@ -204,7 +204,9 @@ class VariantResponse(BaseModel):
     sla_hours: int
     sort_order: int
     is_active: bool
-    stock_count: int = 0
+    # Exact count is management-only (seller/admin). Public product payloads
+    # omit it (see _drop_hidden_stock) and carry the bucketed signal instead.
+    stock_count: int | None = None
     # Buyer-facing inventory signal: in_stock / low / out for instant packages,
     # manual for made-to-order. max_quantity caps the order form.
     stock_state: str | None = None
@@ -216,6 +218,15 @@ class VariantResponse(BaseModel):
     primary_locale: str | None = None
 
     model_config = {"from_attributes": True}
+
+    @model_serializer(mode="wrap")
+    def _drop_hidden_stock(self, handler):
+        """Storefront variants have no exact count: leave the key out entirely
+        rather than emitting ``stock_count: null``."""
+        data = handler(self)
+        if isinstance(data, dict) and data.get("stock_count") is None:
+            data.pop("stock_count", None)
+        return data
 
 
 class ProductListItemBase(BaseModel):
@@ -390,6 +401,8 @@ class ProductDetailResponse(ProductListItemResponse):
     primary_locale: str | None = None
     seller_name: str | None = None
     category_name: str | None = None
+    # For the breadcrumb link: categories are addressed by slug on the storefront.
+    category_slug: str | None = None
 
 
 class AdminProductDetailResponse(ProductDetailResponse):

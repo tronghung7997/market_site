@@ -7,6 +7,7 @@ import { cn } from "@/lib/cn";
 import { useApiErrorMessage } from "@/lib/use-api-error";
 import { daysAgo } from "@/lib/utils";
 import type { RestockResult } from "@/lib/types";
+import { productPath } from "@/lib/routes";
 import { parseCoverId, ProductCover } from "@/features/product-covers";
 import { Button, Card, Tag } from "@/components/ui";
 import { AlertCircle, AlertTriangle, CheckCircle2, ChevronRight, Download, Edit2, ExternalLink, Plus, X } from "@/components/Icons";
@@ -127,7 +128,7 @@ export function PackagePage({
           <div className="flex flex-wrap items-center gap-2">
             <Switch checked={pkg.is_active} onChange={(next) => void toggleActive(next)} label={pkg.is_active ? t("package.selling") : t("package.notSelling")} />
             <Link href={`/seller/products/${pkg.product_id}`}><Button size="sm" variant="ghost" className="h-8 gap-1 text-xs"><Edit2 size={13} /> {t("package.editProduct")}</Button></Link>
-            <Link href={`/products/${pkg.product_id}`} target="_blank"><Button size="sm" variant="ghost" className="h-8 gap-1 text-xs"><ExternalLink size={13} /> {t("package.viewStore")}</Button></Link>
+            <Link href={productPath({ id: pkg.product_id })} target="_blank"><Button size="sm" variant="ghost" className="h-8 gap-1 text-xs"><ExternalLink size={13} /> {t("package.viewStore")}</Button></Link>
             <Link href={`/seller/inventory/export?tab=goods&variants=${pkg.variant_id}`}><Button size="sm" variant="secondary" className="h-8 gap-1 text-xs"><Download size={13} /> {t("package.export")}</Button></Link>
             <Button size="sm" variant={filters.restock ? "secondary" : "primary"} onClick={() => onFiltersChange({ ...filters, restock: !filters.restock })} className="h-8 gap-1 text-xs">
               {filters.restock ? <><X size={13} /> {t("package.closeRestock")}</> : <><Plus size={13} /> {t("package.restock")}</>}

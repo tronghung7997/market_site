@@ -151,7 +151,9 @@
     "recentOrdersTitle": "Recent orders",
     "recentOrdersSubtitle": "Continue tracking your orders",
     "viewAllOrders": "View all orders",
-    "orderFallback": "Order #{id}"
+    "orderFallback": "Order #{id}",
+    "inStockShort": "In stock",
+    "lowStock": "Low stock"
   },
   "footer": {
     "escrow": "Buyer-protected escrow",
@@ -1996,7 +1998,8 @@
     "emptyFilterHint": "Try removing a filter or choosing another price range.",
     "paginationSummary": "Showing {from}–{to} of {total} products",
     "previewCount": "{count} featured products",
-    "previewHint": "Open the category to browse the complete catalog."
+    "previewHint": "Open the category to browse the complete catalog.",
+    "lowStock": "Low stock"
   },
   "products": {
     "notFound": "Product not found",
@@ -2166,7 +2169,11 @@
     "reviewsFilterStar": "Show only {star}-star reviews",
     "reviewsFilteredBy": "Showing {count} {star}-star reviews",
     "reviewsFilterClear": "Show all",
-    "reviewsNoneForStar": "No {star}-star reviews yet."
+    "reviewsNoneForStar": "No {star}-star reviews yet.",
+    "instantReady": "Instant · in stock",
+    "instantLow": "Instant · only a few left",
+    "inStockLabel": "In stock",
+    "lowStockLabel": "Low stock"
   },
   "chat": {
     "inbox": "Messages",

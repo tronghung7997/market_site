@@ -7,7 +7,7 @@ import { useVariantTerm } from "@/lib/variant-term";
 import { cn } from "@/lib/cn";
 import { useApiErrorMessage } from "@/lib/use-api-error";
 import { useMoney } from "@/lib/money";
-import type { SellerProduct, Variant } from "@/lib/types";
+import type { SellerProduct, SellerVariant } from "@/lib/types";
 import {
   downloadRestockTemplate,
   mergeRestockText,
@@ -36,7 +36,7 @@ function RestockForm({ product, onClose }: { product: SellerProduct; onClose: ()
   const { formatBrowseMoney } = useMoney();
   const apiErrorMessage = useApiErrorMessage();
   const invalidate = useInvalidateSellerProducts();
-  const [variants, setVariants] = useState<Variant[]>([]);
+  const [variants, setVariants] = useState<SellerVariant[]>([]);
   const [selectedVariantId, setSelectedVariantId] = useState<number | null>(null);
   const [loadingVariants, setLoadingVariants] = useState(true);
   const [textData, setTextData] = useState("");
@@ -52,7 +52,9 @@ function RestockForm({ product, onClose }: { product: SellerProduct; onClose: ()
     api.sellerProduct(product.id)
       .then((detail) => {
         if (cancelled) return;
-        const eligible = restockableVariants(detail.variants || []);
+        // Seller detail always carries the exact count; the type is loose because
+        // the same Variant shape serves the storefront, where it is omitted.
+        const eligible = restockableVariants(detail.variants || []).map((v) => ({ ...v, stock_count: v.stock_count ?? 0 }));
         setVariants(eligible);
         if (eligible.length > 0) {
           setSelectedVariantId([...eligible].sort((a, b) => a.stock_count - b.stock_count)[0].id);

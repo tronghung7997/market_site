@@ -10,6 +10,7 @@ import { useVariantTermFor } from "@/lib/variant-term";
 import { cn } from "@/lib/cn";
 import { parseCoverId } from "@/lib/product-covers";
 import type { Product } from "@/lib/types";
+import { productPath } from "@/lib/routes";
 import { fulfillmentFromProduct, fulfillmentTagKey, fulfillmentTagValues, fulfillmentTone } from "@/lib/fulfillment";
 import { Card, Tag } from "@/components/ui";
 import { ProductCover } from "@/components/products/ProductCover";
@@ -40,7 +41,7 @@ export function FeaturedSection({ featured, catName, minPrice }: {
             const variants = p.variants ?? [];
             const term = termFor(p.service_type);
             return (
-              <Link key={p.id} href={`/products/${p.id}`} className="group">
+              <Link key={p.id} href={productPath(p)} className="group">
                 <Card className="p-0 flex flex-col h-full overflow-hidden transition-all duration-150 group-hover:shadow-card-lg group-hover:-translate-y-0.5">
                   {/* Header */}
                   <div className="px-3 pt-3 pb-2.5 sm:px-5 sm:pt-5 sm:pb-4">

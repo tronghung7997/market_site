@@ -151,7 +151,9 @@
     "recentOrdersTitle": "Đơn hàng gần đây",
     "recentOrdersSubtitle": "Tiếp tục theo dõi đơn của bạn",
     "viewAllOrders": "Xem tất cả đơn hàng",
-    "orderFallback": "Đơn #{id}"
+    "orderFallback": "Đơn #{id}",
+    "inStockShort": "Còn hàng",
+    "lowStock": "Sắp hết"
   },
   "footer": {
     "escrow": "Ký quỹ bảo vệ người mua",
@@ -1996,7 +1998,8 @@
     "emptyFilterHint": "Thử xóa bớt bộ lọc hoặc chọn mức giá khác.",
     "paginationSummary": "Hiển thị {from}–{to} trên tổng số {total} sản phẩm",
     "previewCount": "{count} sản phẩm nổi bật",
-    "previewHint": "Mở danh mục để xem toàn bộ sản phẩm."
+    "previewHint": "Mở danh mục để xem toàn bộ sản phẩm.",
+    "lowStock": "Sắp hết"
   },
   "products": {
     "notFound": "Không tìm thấy",
@@ -2166,7 +2169,11 @@
     "reviewsFilterStar": "Chỉ xem đánh giá {star} sao",
     "reviewsFilteredBy": "Đang xem {count} đánh giá {star} sao",
     "reviewsFilterClear": "Xem tất cả",
-    "reviewsNoneForStar": "Chưa có đánh giá {star} sao."
+    "reviewsNoneForStar": "Chưa có đánh giá {star} sao.",
+    "instantReady": "Giao ngay · còn hàng",
+    "instantLow": "Giao ngay · sắp hết",
+    "inStockLabel": "Còn hàng",
+    "lowStockLabel": "Sắp hết hàng"
   },
   "chat": {
     "inbox": "Tin nhắn",

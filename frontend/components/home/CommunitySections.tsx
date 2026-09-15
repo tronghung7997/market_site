@@ -4,6 +4,7 @@
  *  hàng gần đây (chỉ buyer đã đăng nhập). */
 
 import { Link } from "@/i18n/navigation";
+import { sellerPath } from "@/lib/routes";
 import { useLocale, useTranslations } from "next-intl";
 import { useMoney } from "@/lib/money";
 import { orderStatus } from "@/lib/order-status";
@@ -20,7 +21,7 @@ export function TrustedSellers({ sellers }: { sellers: SellerSummary[] }) {
       <SectionHead title={t("trustedSellersTitle")} sub={t("trustedSellersSubtitle")} />
       <div className="grid gap-2.5 sm:gap-4 grid-cols-2 sm:grid-cols-3 lg:grid-cols-6">
         {sellers.map((s) => (
-          <Link key={s.account_id} href={`/sellers/${s.account_id}`}>
+          <Link key={s.account_id} href={sellerPath(s)}>
             <Card interactive className="p-3 sm:p-4 h-full text-center">
               <span className="mx-auto grid place-items-center h-9 w-9 sm:h-11 sm:w-11 rounded-full bg-iris-soft text-iris border border-iris/15">
                 <Store size={15} />

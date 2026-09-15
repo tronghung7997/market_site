@@ -8,6 +8,7 @@ import { flattenCategories, subtreeIds } from "@/lib/categories";
 import { useMoney } from "@/lib/money";
 import { effectiveMinPrice } from "@/lib/pricing-display";
 import type { Category, Product } from "@/lib/types";
+import { categoryPath } from "@/lib/routes";
 import { Button, Card, Tag } from "@/components/ui";
 import { ArrowRight, ChevronRight, Search, ShieldCheck, X } from "@/components/Icons";
 import { categoryCoverId, ProductCover } from "@/features/product-covers";
@@ -213,7 +214,7 @@ export function CategoryHubView({ initial }: { initial: CategoryHubCatalog }) {
             {directSubMatches.map((sub) => (
               <Link
                 key={sub.id}
-                href={`/categories/${sub.id}`}
+                href={categoryPath(sub)}
                 className="inline-flex items-center gap-1 px-2.5 py-1 rounded-lg bg-surface border border-iris/30 text-iris-hi font-medium text-[12.5px] hover:bg-iris hover:text-white transition-all shadow-sm"
               >
                 <span>{sub.name}</span>
@@ -322,7 +323,7 @@ export function CategoryHubView({ initial }: { initial: CategoryHubCatalog }) {
                   />
                   <div className="min-w-0">
                     <Link
-                      href={`/categories/${c.id}`}
+                      href={categoryPath(c)}
                       className="group inline-flex items-center gap-1.5"
                     >
                       <h2 className="font-serif text-[19px] sm:text-[21px] leading-tight font-semibold text-fg group-hover:text-iris-hi transition-colors truncate">
@@ -349,7 +350,7 @@ export function CategoryHubView({ initial }: { initial: CategoryHubCatalog }) {
                   <div className="flex flex-wrap items-center gap-1.5">
                     {children.map((sub) => {
                       return (
-                        <Link key={sub.id} href={`/categories/${sub.id}`}>
+                        <Link key={sub.id} href={categoryPath(sub)}>
                           <Tag
                             tone="neutral"
                             className="hover:border-iris/40 hover:text-iris-hi transition-colors cursor-pointer py-1 px-2.5 rounded-lg text-[12px]"
@@ -363,7 +364,7 @@ export function CategoryHubView({ initial }: { initial: CategoryHubCatalog }) {
                 )}
 
                 <Link
-                  href={`/categories/${c.id}`}
+                  href={categoryPath(c)}
                   className="hidden sm:inline-flex items-center gap-1.5 text-[13px] font-medium text-iris-hi hover:underline shrink-0"
                 >
                   {t("enterCategory")} <ArrowRight size={13} />
@@ -382,7 +383,7 @@ export function CategoryHubView({ initial }: { initial: CategoryHubCatalog }) {
                 <div className="mt-4 pt-3.5 border-t border-line/60 flex items-center justify-between text-[12.5px]">
                   <span className="text-muted">{t("previewHint")}</span>
                   <Link
-                    href={`/categories/${c.id}`}
+                    href={categoryPath(c)}
                     className="font-medium text-iris-hi hover:underline inline-flex items-center gap-1"
                   >
                     {t("viewCategory")}

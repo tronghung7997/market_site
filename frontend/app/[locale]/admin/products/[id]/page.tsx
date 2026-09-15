@@ -9,6 +9,7 @@ import { useEffect, useState } from "react";
 import { api, vnd } from "@/lib/api";
 import { useApiErrorMessage } from "@/lib/use-api-error";
 import type { AdminProductDetail as AdminProductDetailData, Category, ProductLocale, ProductOperations, ProductPricingLabels, Provider } from "@/lib/types";
+import { productPath } from "@/lib/routes";
 import { Button, Banner, Card, Field, Input, Select, Spinner, Tag, Textarea } from "@/components/ui";
 import { ArrowRight, Check, Edit2, Eye, Info, Sliders, Users } from "@/components/Icons";
 import { STRATEGY_INFO, STRATEGY_FORMULAS, ADAPTER_INFO } from "@/lib/pricing-config";
@@ -307,7 +308,7 @@ export default function AdminProductDetail() {
         </div>
         <div className="flex flex-wrap items-center gap-2">
           {dirty && <Button size="sm" disabled={saving} onClick={handleSave}>{saving ? "Đang lưu..." : "Lưu cấu hình vận hành"}</Button>}
-          <Link href={`/products/${id}`} locale={contentLocale}>
+          <Link href={productPath(product)} locale={contentLocale}>
             <Button size="sm" variant="secondary"><Eye size={14} /> {t("viewLanguage", { language: productLanguageName(contentLocale, interfaceLocale) })}</Button>
           </Link>
         </div>

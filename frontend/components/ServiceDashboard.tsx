@@ -6,6 +6,7 @@ import { useEffect, useState } from "react";
 import { api } from "@/lib/api";
 import { useApiErrorMessage } from "@/lib/use-api-error";
 import type { DashboardData, DashboardResource, DashboardTask, GatewayCallLogItem, UsageRecordItem } from "@/lib/types";
+import { productPath } from "@/lib/routes";
 import { Banner, Button, Card, Spinner, Tag } from "@/components/ui";
 import { Info } from "@/components/Icons";
 
@@ -384,7 +385,7 @@ function EndpointDashboard({ data, onRefresh, viewerRole }: { data: DashboardDat
               icon={<Info size={15} />}
               title={t("outOfCreditTitle")}
               action={data.product_id ? (
-                <Link href={`/products/${data.product_id}`}>
+                <Link href={productPath({ id: data.product_id })}>
                   <Button size="sm" variant="secondary">{t("buyMorePack")}</Button>
                 </Link>
               ) : undefined}
@@ -397,7 +398,7 @@ function EndpointDashboard({ data, onRefresh, viewerRole }: { data: DashboardDat
               icon={<Info size={15} />}
               title={t("lowCreditTitle")}
               action={data.product_id ? (
-                <Link href={`/products/${data.product_id}`}>
+                <Link href={productPath({ id: data.product_id })}>
                   <Button size="sm" variant="secondary">{t("buyMorePack")}</Button>
                 </Link>
               ) : undefined}

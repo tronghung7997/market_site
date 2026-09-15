@@ -9,6 +9,7 @@ import { useAuth } from "@/lib/auth";
 import { useMoney } from "@/lib/money";
 import { useWalletBalance, useWalletTransactions } from "@/hooks/use-wallet";
 import type { Transaction } from "@/lib/types";
+import { productPath } from "@/lib/routes";
 import {
   Button,
   Card,
@@ -869,7 +870,8 @@ export default function TransactionsPage() {
                           size="sm"
                           onClick={() => {
                             setSelectedTx(null);
-                            router.push(`/products/${relatedOrder.product_id}`);
+                            if (relatedOrder.product_id == null) return;
+                            router.push(productPath({ id: relatedOrder.product_id, slug: relatedOrder.product_slug, public_key: relatedOrder.product_key }));
                           }}
                           className="gap-1.5 text-[12px] font-medium shadow-xs"
                         >

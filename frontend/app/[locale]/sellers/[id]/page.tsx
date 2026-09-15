@@ -11,13 +11,11 @@ import { effectiveMinPrice, isAdapterFulfilled } from "@/lib/pricing-display";
 import { flattenCategories } from "@/lib/categories";
 import { formatDate } from "@/lib/utils";
 import type { Category, Product, SellerProfile } from "@/lib/types";
+import { productPath } from "@/lib/routes";
+import { productStockState } from "@/lib/stock";
 import { Card, Spinner, Tag } from "@/components/ui";
 import { Check, ChevronRight, Package, Shield, Star, Verified, X } from "@/components/Icons";
 import StartSellerInquiryDialog from "@/components/chat/StartSellerInquiryDialog";
-
-function stock(p: Product): number {
-  return (p.variants ?? []).reduce((s, v) => s + (v.stock_count ?? 0), 0);
-}
 
 type StockState = "in_stock" | "manual" | "out_of_stock" | "auto";
 
@@ -25,12 +23,15 @@ function stockState(p: Product): StockState {
   // Adapter-fulfilled products have no variant stock — counting variants would
   // wrongly show "Out of stock" for every provider product.
   if (isAdapterFulfilled(p)) return "auto";
-  const variants = p.variants ?? [];
-  const hasInstantStock = variants.some((v) => v.delivery_mode === "instant" && v.stock_count > 0);
-  if (hasInstantStock) return "in_stock";
-  const hasManual = variants.some((v) => v.delivery_mode === "manual" && v.is_active);
-  if (hasManual) return "manual";
-  return "out_of_stock";
+  switch (productStockState(p.variants)) {
+    case "in_stock":
+    case "low":
+      return "in_stock";
+    case "manual":
+      return "manual";
+    default:
+      return "out_of_stock";
+  }
 }
 
 const STOCK_BADGE_CLASS: Record<StockState, string> = {
@@ -277,11 +278,10 @@ export default function SellerProfilePage() {
                 {visibleProducts.map((p, i) => {
                   const state = stockState(p);
                   const price = effectiveMinPrice(p);
-                  const units = stock(p);
                   return (
                     <Link
                       key={p.id}
-                      href={`/products/${p.id}`}
+                      href={productPath(p)}
                       className="group animate-rise"
                       style={{ animationDelay: `${Math.min(i, 8) * 40}ms` }}
                     >
@@ -308,7 +308,6 @@ export default function SellerProfilePage() {
                               </span>
                             )}
                             {p.sold_count > 0 && <span>{t("sold", { count: p.sold_count })}</span>}
-                            {state === "in_stock" && <span>{t("stockCount", { count: units })}</span>}
                           </div>
                         </div>
                         <div className="px-5 py-3.5 bg-raised/50 border-t border-line flex items-center justify-between mt-auto">

@@ -3,7 +3,6 @@
 /** Product detail — catalog. */
 
 import { Link } from "@/i18n/navigation";
-import { useParams } from "next/navigation";
 import { useTranslations } from "next-intl";
 import { useEffect, useRef, useState } from "react";
 import { Card, Spinner } from "@/components/ui";
@@ -18,12 +17,12 @@ import MobileBuyBar from "./MobileBuyBar";
 import ReviewsCard from "./ReviewsCard";
 import { DescriptionCard, ProductIdentity, RelatedProducts, SpecsPlate, WarrantyCard } from "./sections";
 import type { ProductPageCatalog } from "@/features/catalog";
+import { categoryPath } from "@/lib/routes";
 
-export default function ProductView({ initial }: { initial: ProductPageCatalog }) {
+export default function ProductView({ initial, productRef }: { initial: ProductPageCatalog; productRef: string }) {
   const t = useTranslations("products");
   const tc = useTranslations("common");
-  const { id } = useParams<{ id: string }>();
-  const { product, related, pricingStrategy, loading, error } = useProductDetail(Number(id), initial);
+  const { product, related, pricingStrategy, loading, error } = useProductDetail(productRef, initial);
   const purchase = usePurchase(product);
   const useDynamicForm = pricingStrategy != null && pricingStrategy !== "fixed";
 
@@ -58,7 +57,7 @@ export default function ProductView({ initial }: { initial: ProductPageCatalog }
         <ChevronRight size={12} className="text-faint shrink-0" />
         {product.category_name && (
           <>
-            <Link href={`/categories/${product.category_id}`} className="hover:text-fg transition-colors shrink-0">{product.category_name}</Link>
+            <Link href={categoryPath({ id: product.category_id, slug: product.category_slug })} className="hover:text-fg transition-colors shrink-0">{product.category_name}</Link>
             <ChevronRight size={12} className="text-faint shrink-0" />
           </>
         )}

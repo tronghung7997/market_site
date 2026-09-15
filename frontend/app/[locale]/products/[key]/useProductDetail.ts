@@ -8,6 +8,13 @@ import { api } from "@/lib/api";
 import { useApiErrorMessage } from "@/lib/use-api-error";
 import type { Product, ProductDetail } from "@/lib/types";
 import type { ProductPageCatalog } from "@/features/catalog";
+import { productKeyFromParam } from "@/lib/routes";
+
+/** Does the server-loaded product belong to this route param (key, or legacy id)? */
+function matchesRef(product: ProductDetail, ref: string): boolean {
+  const key = productKeyFromParam(ref);
+  return key ? product.public_key === key : String(product.id) === ref;
+}
 
 export interface ProductDetailState {
   product: ProductDetail | null;
@@ -18,7 +25,7 @@ export interface ProductDetailState {
   error: string | null;
 }
 
-export function useProductDetail(id: number, initial?: ProductPageCatalog | null): ProductDetailState {
+export function useProductDetail(ref: string, initial?: ProductPageCatalog | null): ProductDetailState {
   const t = useTranslations("products");
   const apiErrorMessage = useApiErrorMessage();
   const [product, setProduct] = useState<ProductDetail | null>(initial?.product ?? null);
@@ -28,7 +35,7 @@ export function useProductDetail(id: number, initial?: ProductPageCatalog | null
   const [error, setError] = useState<string | null>(initial?.error && !initial.product ? initial.error : null);
 
   useEffect(() => {
-    if (initial?.product && initial.product.id === id) {
+    if (initial?.product && matchesRef(initial.product, ref)) {
       setProduct(initial.product);
       setRelated(initial.related);
       setPricingStrategy(initial.pricingStrategy);
@@ -39,10 +46,10 @@ export function useProductDetail(id: number, initial?: ProductPageCatalog | null
     setLoading(true);
     (async () => {
       try {
-        const p = await api.product(id);
+        const p = await api.product(ref);
         setProduct(p);
         try {
-          const opts = await api.pricingOptions(id);
+          const opts = await api.pricingOptions(p.id);
           setPricingStrategy(opts.strategy);
         } catch {
           setPricingStrategy("fixed"); // fallback to fixed/variant flow
@@ -70,7 +77,7 @@ export function useProductDetail(id: number, initial?: ProductPageCatalog | null
         setLoading(false);
       }
     })();
-  }, [apiErrorMessage, id, initial, t]);
+  }, [apiErrorMessage, ref, initial, t]);
 
   return { product, related, pricingStrategy, loading, error };
 }

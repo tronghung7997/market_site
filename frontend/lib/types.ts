@@ -31,7 +31,7 @@ export interface ChatConversation {
   id: string;
   kind: "product_inquiry" | "order" | "support";
   status: "open" | "resolved" | "closed" | "blocked" | "read_only";
-  product: { id: number; title: string; image: string | null } | null;
+  product: { id: number; title: string; image: string | null; slug?: string | null; public_key?: string | null } | null;
   order: {
     id: number;
     status: string;
@@ -79,6 +79,12 @@ export interface Product {
   seller_id: number;
   category_id: number;
   title: string;
+  /** URL slug, generated from the Vietnamese title and editable by the seller. */
+  slug: string;
+  /** 8-char base36 key that identifies the product in public URLs. */
+  public_key: string;
+  /** `/products/{slug}-{public_key}` — build links with `productPath()`. */
+  canonical_path?: string | null;
   images: Record<string, unknown> | null;
   cover_id?: string | null;
   escrow_days: number;
@@ -145,11 +151,19 @@ export interface Variant {
   sla_hours: number;
   sort_order: number;
   is_active: boolean;
-  stock_count: number;
+  /** Exact units — seller/admin payloads only. Absent on the storefront. */
+  stock_count?: number;
+  /** Storefront inventory signal; see lib/stock.ts. */
+  stock_state?: "in_stock" | "low" | "out" | "manual" | null;
+  /** Largest quantity the order form may submit for this package. */
+  max_quantity?: number | null;
   duration_days: number | null;
   translations?: Partial<Record<ProductLocale, { name?: string | null }>> | null;
   primary_locale?: ProductLocale | null;
 }
+
+/** Management variant row (seller/admin endpoints): the exact count is always there. */
+export type SellerVariant = Variant & { stock_count: number };
 
 export interface ProductDetail extends Product {
   description: string | null;
@@ -161,6 +175,8 @@ export interface ProductDetail extends Product {
   variants: Variant[];
   seller_name: string | null;
   category_name: string | null;
+  /** Storefront category URL segment — `categoryPath()` falls back to the id. */
+  category_slug?: string | null;
 }
 
 /** GET /admin/products/{id} — như ProductDetail nhưng kèm commission_rate
@@ -220,6 +236,9 @@ export interface Order {
   cancel_reason?: string | null;
   created_at: string;
   product_title?: string | null;
+  /** Public URL parts of the ordered product, for "view product" links. */
+  product_slug?: string | null;
+  product_key?: string | null;
   pricing_strategy?: string | null;
   delivery_mode?: string | null;
   sla_hours?: number | null;

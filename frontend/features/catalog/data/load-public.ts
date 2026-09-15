@@ -1,6 +1,7 @@
 import { fetchPublicJson } from "@/lib/seo";
 import { unstable_cache } from "next/cache";
-import { subtreeIds } from "@/lib/categories";
+import { flattenCategories } from "@/lib/categories";
+import { matchCategoryParam } from "@/lib/routes";
 import type { Category, PaginatedProducts, Product, ProductCatalogSummary, ProductDetail, SellerSummary } from "@/lib/types";
 
 export type HomeCatalog = {
@@ -21,6 +22,10 @@ export type CategoryHubCatalog = {
 
 export type CategoryPageCatalog = {
   categories: Category[];
+  /** The category the route param resolved to (by slug, or legacy id); null = unknown. */
+  category: Category | null;
+  /** Slug of the sub-category filter in effect, if any. */
+  sub: string | null;
   products: Product[];
   total: number;
   page: number;
@@ -91,22 +96,24 @@ export async function loadCategoryHub(locale: string): Promise<CategoryHubCatalo
 
 export async function loadCategoryPage(
   locale: string,
-  categoryId: number,
+  /** Route param: the category slug, or a legacy numeric id. */
+  categoryRef: string,
   query: CategoryBrowseQuery = {},
 ): Promise<CategoryPageCatalog> {
   const requestedPage = Number(query.page);
   const page = Number.isInteger(requestedPage) && requestedPage > 0 ? requestedPage : 1;
-  const requestedSub = Number(query.sub);
   const categories = await fetchPublicJson<Category[]>("/categories", locale);
   if (!categories) {
-    return { categories: [], products: [], total: 0, page, perPage: 24, error: "load" };
+    return { categories: [], category: null, sub: null, products: [], total: 0, page, perPage: 24, error: "load" };
   }
-  const rootCategory = categories.find((category) => category.id === categoryId);
-  const allowedCategoryIds = new Set(rootCategory ? subtreeIds(rootCategory) : [categoryId]);
-  const effectiveCategoryId =
-    Number.isInteger(requestedSub) && allowedCategoryIds.has(requestedSub)
-      ? requestedSub
-      : categoryId;
+  const category = matchCategoryParam(categoryRef, flattenCategories(categories));
+  if (!category) {
+    return { categories, category: null, sub: null, products: [], total: 0, page, perPage: 24, error: null };
+  }
+  // `?sub=` narrows to one descendant; accepts a slug (current links) or an id (old links).
+  const descendants = flattenCategories(category.children ?? []);
+  const subCategory = matchCategoryParam(query.sub, descendants);
+  const effectiveCategoryId = subCategory?.id ?? category.id;
   const params = new URLSearchParams({
     category_id: String(effectiveCategoryId),
     page: String(page),
@@ -132,10 +139,12 @@ export async function loadCategoryPage(
   }
   const products = await fetchPublicJson<PaginatedProducts>(`/products?${params}`, locale);
   if (!products) {
-    return { categories, products: [], total: 0, page, perPage: 24, error: "load" };
+    return { categories, category, sub: subCategory?.slug ?? null, products: [], total: 0, page, perPage: 24, error: "load" };
   }
   return {
     categories,
+    category,
+    sub: subCategory?.slug ?? null,
     products: products.items,
     total: products.total,
     page: products.page,
@@ -144,8 +153,13 @@ export async function loadCategoryPage(
   };
 }
 
-export async function loadProductPage(locale: string, productId: number): Promise<ProductPageCatalog> {
-  const product = await fetchPublicJson<ProductDetail>(`/products/${productId}`, locale);
+/**
+ * `productRef` is the route param: `{slug}-{key}`, a bare key, or a legacy
+ * numeric id — the backend resolves all three. The page compares the result's
+ * canonical path with the param and redirects when they differ.
+ */
+export async function loadProductPage(locale: string, productRef: string): Promise<ProductPageCatalog> {
+  const product = await fetchPublicJson<ProductDetail>(`/products/${encodeURIComponent(productRef)}`, locale);
   if (!product) {
     return { product: null, related: [], pricingStrategy: "fixed", error: "missing" };
   }

@@ -6,6 +6,7 @@ import { cn } from "@/lib/cn";
 import { useVariantTermFor } from "@/lib/variant-term";
 import { useMoney } from "@/lib/money";
 import type { SellerProduct, SellerProductSort } from "@/lib/types";
+import { productPath } from "@/lib/routes";
 import { inventoryStockState, isInventoryManagedProduct, nextSellerProductStatus } from "@/features/seller-inventory";
 import { parseCoverId, ProductCover } from "@/features/product-covers";
 import { Button, Tag } from "@/components/ui";
@@ -185,7 +186,7 @@ export function SellerProductsTable({
                 </td>
                 <td className="w-20 px-3 py-3">
                   <div className="flex items-center justify-center gap-1">
-                    <Link href={`/products/${p.id}`} title={t("viewPurchasePage")} className="inline-flex h-7 w-7 items-center justify-center rounded-lg text-muted hover:bg-surface hover:text-fg">
+                    <Link href={productPath(p)} title={t("viewPurchasePage")} className="inline-flex h-7 w-7 items-center justify-center rounded-lg text-muted hover:bg-surface hover:text-fg">
                       <Eye size={14} />
                     </Link>
                     <Link href={`/seller/products/${p.id}`} title={t("edit")} className="inline-flex h-7 w-7 items-center justify-center rounded-lg text-iris hover:bg-iris-soft hover:text-iris-hi">

@@ -9,6 +9,7 @@ import { cn } from "@/lib/cn";
 import { useMoney } from "@/lib/money";
 import { api } from "@/lib/api";
 import type { ChatConversation, ChatConversationList, ChatMessage } from "@/lib/types";
+import { productPath, sellerPath } from "@/lib/routes";
 import { queryKeys } from "@/lib/query-keys";
 import { useAdminSupportConversations, useChatConversation, useChatConversations, useSendChatMessage } from "@/hooks/use-chat";
 import { useChatEvents } from "@/hooks/use-chat-events";
@@ -411,7 +412,7 @@ export default function InboxWorkbench({
                     <div className="flex items-center gap-2">
                       {room.product ? (
                         <Link
-                          href={`/products/${room.product.id}`}
+                          href={productPath(room.product)}
                           className="group flex min-w-0 max-w-full items-center gap-1 text-[13.5px] font-bold text-fg transition-colors hover:text-iris"
                           title={room.product.title}
                         >
@@ -452,7 +453,7 @@ export default function InboxWorkbench({
                       ) : isSellerCounterpart ? (
                         <>
                           <Link
-                            href={`/sellers/${room.counterpart.id}`}
+                            href={sellerPath({ account_id: room.counterpart.id })}
                             className="font-medium text-iris hover:underline truncate max-w-[160px]"
                             title={t("viewSeller")}
                           >
@@ -674,7 +675,7 @@ export default function InboxWorkbench({
                     />
                     <div className="min-w-0 flex-1">
                       <Link
-                        href={`/products/${room.product.id}`}
+                        href={productPath(room.product)}
                         className="group block truncate text-[12.5px] font-semibold text-fg hover:text-iris transition-colors"
                         title={room.product.title}
                       >
@@ -749,7 +750,7 @@ export default function InboxWorkbench({
                 </p>
                 {isSellerCounterpart && !roomIsSupport && (
                   <Link
-                    href={`/sellers/${room.counterpart.id}`}
+                    href={sellerPath({ account_id: room.counterpart.id })}
                     className="mt-1.5 inline-flex items-center gap-1 text-[11px] font-medium text-iris hover:underline"
                   >
                     <span>{t("viewSeller")}</span>

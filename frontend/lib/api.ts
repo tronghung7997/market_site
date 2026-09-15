@@ -211,7 +211,8 @@ export const api = {
   },
   productsBySeller: (sellerId: number) =>
     request<PaginatedProducts>(`/products?seller_id=${sellerId}`),
-  product: (id: number) => request<ProductDetail>(`/products/${id}`),
+  /** `ref` is `{slug}-{key}`, a bare key, or a legacy numeric id. */
+  product: (ref: string | number) => request<ProductDetail>(`/products/${encodeURIComponent(String(ref))}`),
 
   wallet: () => request<Wallet>("/wallet", {}, true),
   transactions: () => request<Transaction[]>("/wallet/transactions", {}, true),

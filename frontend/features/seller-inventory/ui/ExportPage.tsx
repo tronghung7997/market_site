@@ -16,7 +16,7 @@ import { browserTimeZone, DashboardRangePicker, formatIsoDate, percentDelta, typ
 import { Button, Card, Input, Select } from "@/components/ui";
 import { AlertCircle, BarChart, ChevronRight, Download, Eye, Info } from "@/components/Icons";
 import {
-  buildCsv, buildScopeTree, compactScope, DEFAULT_EXPORT_COLUMNS, DEFAULT_REPORT_METRICS, defaultReportColumns,
+  buildCsv, buildScopeTree, categoryPath, compactScope, DEFAULT_EXPORT_COLUMNS, DEFAULT_REPORT_METRICS, defaultReportColumns,
   downloadTextFile, EXPORT_COLUMNS, EXPORT_MASKS, exportFileName, groupReportRows, isMetricColumn, localDayStart,
   maskSample, REPORT_GROUPS, reportColumnsFor, reportGroupingsFor, RESOURCE_STATUSES,
   type ExportTab, type ReportColumn, type ReportGrouping,
@@ -204,12 +204,16 @@ function ReportTab({ scope, packages, threshold }: { scope: ReturnType<typeof co
     return t(`report.metric.${c}`);
   };
   const fmt = (metric: InventoryReportMetric, value: number) => metric === "revenue" ? formatBrowseMoney(value, { locale }) : value.toLocaleString(locale);
-  const rowLabel = (r: InventoryReportRow) => (timeGrouped ? formatIsoDate(r.key, locale) : (r.label ?? r.key));
+  const rowLabel = (r: InventoryReportRow) => {
+    if (timeGrouped) return formatIsoDate(r.key, locale);
+    if (groupBy === "category") return categoryPath(r) || (r.label ?? r.key);
+    return r.label ?? r.key;
+  };
   const cellText = (c: ReportColumn, r: InventoryReportRow, index: number): string | number => {
     if (c === "index") return index;
     if (c === "label") return rowLabel(r);
     if (c === "product") return r.product_title ?? "";
-    if (c === "category") return r.category_name ?? "";
+    if (c === "category") return categoryPath(r);
     return r[c];
   };
 

@@ -1,4 +1,5 @@
 import type {
+  InventoryCategoryFacet,
   InventoryExportColumn,
   InventoryExportMask,
   InventoryPackage,
@@ -29,7 +30,8 @@ export const PRODUCT_STATUS_FILTERS: InventoryProductStatusFilter[] = ["active",
 export interface InventoryFilters {
   tab: InventoryStockTab;
   search: string;
-  categoryId: number | null;
+  /** Category ids as picked (a parent stands for its whole branch server-side). */
+  categoryIds: number[];
   productStatus: InventoryProductStatusFilter;
   sort: InventoryPackageSort;
   grouped: boolean;
@@ -38,7 +40,7 @@ export interface InventoryFilters {
 }
 
 export const DEFAULT_INVENTORY_FILTERS: InventoryFilters = {
-  tab: "all", search: "", categoryId: null, productStatus: "active", sort: "available_asc",
+  tab: "all", search: "", categoryIds: [], productStatus: "active", sort: "available_asc",
   grouped: true, hideInactive: true, page: 1,
 };
 
@@ -48,11 +50,11 @@ function pickEnum<T extends string>(value: string | null, allowed: readonly T[],
 
 export function parseInventoryFilters(search: URLSearchParams): InventoryFilters {
   const page = Number(search.get("page"));
-  const categoryId = Number(search.get("category"));
+  const categoryIds = (search.get("category") ?? "").split(",").map(Number).filter((n) => Number.isInteger(n) && n > 0);
   return {
     tab: pickEnum(search.get("tab"), STOCK_TABS, "all"),
     search: search.get("search") ?? "",
-    categoryId: Number.isInteger(categoryId) && categoryId > 0 ? categoryId : null,
+    categoryIds: [...new Set(categoryIds)],
     productStatus: pickEnum(search.get("products"), PRODUCT_STATUS_FILTERS, "active"),
     sort: pickEnum(search.get("sort"), PACKAGE_SORTS, "available_asc"),
     grouped: search.get("view") !== "flat",
@@ -65,7 +67,7 @@ export function inventoryFiltersToSearch(f: InventoryFilters): string {
   const q = new URLSearchParams();
   if (f.tab !== "all") q.set("tab", f.tab);
   if (f.search.trim()) q.set("search", f.search.trim());
-  if (f.categoryId) q.set("category", String(f.categoryId));
+  if (f.categoryIds.length) q.set("category", f.categoryIds.join(","));
   if (f.productStatus !== "active") q.set("products", f.productStatus);
   if (f.sort !== "available_asc") q.set("sort", f.sort);
   if (!f.grouped) q.set("view", "flat");
@@ -76,7 +78,7 @@ export function inventoryFiltersToSearch(f: InventoryFilters): string {
 }
 
 export function hasActiveInventoryFilters(f: InventoryFilters): boolean {
-  return f.tab !== "all" || f.search.trim() !== "" || f.categoryId !== null || f.productStatus !== "active";
+  return f.tab !== "all" || f.search.trim() !== "" || f.categoryIds.length > 0 || f.productStatus !== "active";
 }
 
 export interface PackageGroup {
@@ -89,6 +91,96 @@ export interface PackageGroup {
   sold30d: number;
   error: number;
   packages: InventoryPackage[];
+}
+
+/** "Mạng xã hội › Facebook" — child categories always shown with their parent. */
+export function categoryPath(item: { category_name: string | null; category_parent_name?: string | null }): string {
+  const name = item.category_name ?? "";
+  return item.category_parent_name ? `${item.category_parent_name} › ${name}` : name;
+}
+
+// ---------------------------------------------------------------------------
+// Category tree (facet → parent/child nodes with tri-state selection)
+// ---------------------------------------------------------------------------
+
+export interface CategoryNode {
+  id: number;
+  name: string;
+  count: number;
+  children: CategoryNode[];
+}
+
+/** Facet rows are leaf categories (where products live); parents come from
+ *  parent_id/parent_name and are synthesised so the tree always has a root. */
+export function buildCategoryTree(facet: InventoryCategoryFacet[]): CategoryNode[] {
+  const roots: CategoryNode[] = [];
+  const nodes = new Map<number, CategoryNode>();
+  // A parent may also hold products of its own, so it can appear both as a
+  // facet row and as somebody's parent — one node either way.
+  const root = (id: number, name: string): CategoryNode => {
+    let node = nodes.get(id);
+    if (!node) {
+      node = { id, name, count: 0, children: [] };
+      nodes.set(id, node);
+      roots.push(node);
+    } else if (!node.name) {
+      node.name = name;
+    }
+    return node;
+  };
+  for (const cat of facet) {
+    if (cat.parent_id == null) {
+      root(cat.id, cat.name).count += cat.count;
+      continue;
+    }
+    const parent = root(cat.parent_id, cat.parent_name ?? "");
+    parent.children.push({ id: cat.id, name: cat.name, count: cat.count, children: [] });
+    parent.count += cat.count;
+  }
+  return roots;
+}
+
+export function categoryNodeIds(node: CategoryNode): number[] {
+  return [node.id, ...node.children.flatMap(categoryNodeIds)];
+}
+
+/** Ids the picker should show as ticked: a picked parent ticks its branch. */
+export function expandCategorySelection(tree: CategoryNode[], picked: number[]): Set<number> {
+  const out = new Set<number>();
+  const pickedSet = new Set(picked);
+  const walk = (node: CategoryNode, inherited: boolean) => {
+    const on = inherited || pickedSet.has(node.id);
+    if (on) out.add(node.id);
+    node.children.forEach((c) => walk(c, on));
+  };
+  tree.forEach((n) => walk(n, false));
+  return out;
+}
+
+/** Inverse: fully-ticked branches collapse to the parent id, keeping URLs short. */
+export function compactCategorySelection(tree: CategoryNode[], ticked: Set<number>): number[] {
+  const out: number[] = [];
+  const walk = (node: CategoryNode) => {
+    const ids = categoryNodeIds(node);
+    if (ids.every((id) => ticked.has(id))) {
+      out.push(node.id);
+      return;
+    }
+    node.children.forEach(walk);
+  };
+  tree.forEach(walk);
+  return out;
+}
+
+export function categorySelectionLabel(tree: CategoryNode[], picked: number[]): string[] {
+  const names: string[] = [];
+  const pickedSet = new Set(picked);
+  const walk = (node: CategoryNode) => {
+    if (pickedSet.has(node.id)) { names.push(node.name); return; }
+    node.children.forEach(walk);
+  };
+  tree.forEach(walk);
+  return names;
 }
 
 /** Rows arrive contiguous per product; fold them into product groups. */
@@ -261,6 +353,8 @@ export interface ScopeSelection {
 export interface ScopeCategory {
   id: number;
   name: string;
+  /** Child categories (a parent like "Mạng xã hội" holds Facebook, TikTok…). */
+  children: ScopeCategory[];
   products: ScopeProduct[];
 }
 
@@ -274,12 +368,18 @@ export interface ScopeProduct {
 
 export function buildScopeTree(items: InventoryPackage[]): ScopeCategory[] {
   const cats = new Map<number, ScopeCategory>();
+  const roots: ScopeCategory[] = [];
+  const ensure = (id: number, name: string, parentId: number | null, parentName: string | null): ScopeCategory => {
+    let cat = cats.get(id);
+    if (cat) return cat;
+    cat = { id, name, children: [], products: [] };
+    cats.set(id, cat);
+    if (parentId == null) roots.push(cat);
+    else ensure(parentId, parentName ?? "", null, null).children.push(cat);
+    return cat;
+  };
   for (const pkg of items) {
-    let cat = cats.get(pkg.category_id);
-    if (!cat) {
-      cat = { id: pkg.category_id, name: pkg.category_name, products: [] };
-      cats.set(pkg.category_id, cat);
-    }
+    const cat = ensure(pkg.category_id, pkg.category_name, pkg.category_parent_id, pkg.category_parent_name);
     let product = cat.products.find((p) => p.id === pkg.product_id);
     if (!product) {
       product = { id: pkg.product_id, title: pkg.product_title, status: pkg.product_status, coverId: pkg.cover_id, packages: [] };
@@ -287,9 +387,23 @@ export function buildScopeTree(items: InventoryPackage[]): ScopeCategory[] {
     }
     product.packages.push(pkg);
   }
-  const out = [...cats.values()].sort((a, b) => a.name.localeCompare(b.name));
-  for (const cat of out) cat.products.sort((a, b) => a.title.localeCompare(b.title));
-  return out;
+  const sortCat = (cat: ScopeCategory) => {
+    cat.children.sort((a, b) => a.name.localeCompare(b.name));
+    cat.products.sort((a, b) => a.title.localeCompare(b.title));
+    cat.children.forEach(sortCat);
+  };
+  roots.sort((a, b) => a.name.localeCompare(b.name));
+  roots.forEach(sortCat);
+  return roots;
+}
+
+/** Every package under a category, children included. */
+export function scopeCategoryPackages(cat: ScopeCategory): InventoryPackage[] {
+  return [...cat.products.flatMap((p) => p.packages), ...cat.children.flatMap(scopeCategoryPackages)];
+}
+
+export function scopeCategoryProducts(cat: ScopeCategory): ScopeProduct[] {
+  return [...cat.products, ...cat.children.flatMap(scopeCategoryProducts)];
 }
 
 export type CheckState = "none" | "some" | "all";
@@ -303,16 +417,18 @@ export function checkState(ids: number[], selected: Set<number>): CheckState {
 export function scopeSummary(tree: ScopeCategory[], selected: Set<number>): { categories: number; products: number; packages: number } {
   let categories = 0;
   let products = 0;
-  for (const cat of tree) {
-    let catHit = false;
+  const walk = (cat: ScopeCategory) => {
+    let hit = false;
     for (const product of cat.products) {
       if (product.packages.some((p) => selected.has(p.variant_id))) {
         products += 1;
-        catHit = true;
+        hit = true;
       }
     }
-    if (catHit) categories += 1;
-  }
+    if (hit) categories += 1;
+    cat.children.forEach(walk);
+  };
+  tree.forEach(walk);
   return { categories, products, packages: selected.size };
 }
 
@@ -325,11 +441,11 @@ export function compactScope(tree: ScopeCategory[], selected: Set<number>, inclu
   const productIds: number[] = [];
   const variantIds: number[] = [];
   const eligible = (p: InventoryPackage) => includeInactive || p.is_active;
-  for (const cat of tree) {
-    const catPkgs = cat.products.flatMap((p) => p.packages).filter(eligible);
+  const walk = (cat: ScopeCategory) => {
+    const catPkgs = scopeCategoryPackages(cat).filter(eligible);
     if (catPkgs.length > 0 && catPkgs.every((p) => selected.has(p.variant_id))) {
       categoryIds.push(cat.id);
-      continue;
+      return;
     }
     for (const product of cat.products) {
       const pkgs = product.packages.filter(eligible);
@@ -339,7 +455,9 @@ export function compactScope(tree: ScopeCategory[], selected: Set<number>, inclu
       }
       for (const p of pkgs) if (selected.has(p.variant_id)) variantIds.push(p.variant_id);
     }
-  }
+    cat.children.forEach(walk);
+  };
+  tree.forEach(walk);
   return {
     variantIds: variantIds.length ? variantIds : undefined,
     productIds: productIds.length ? productIds : undefined,
@@ -411,7 +529,7 @@ export function groupReportRows(rows: InventoryReportRow[], grouping: ReportGrou
   const blocks = new Map<string, ReportGroupBlock>();
   for (const r of rows) {
     const key = grouping === "product" ? `p${r.product_id ?? r.key}` : `c${r.category_id ?? r.key}`;
-    const label = (grouping === "product" ? r.product_title : r.category_name) ?? "—";
+    const label = (grouping === "product" ? r.product_title : categoryPath(r) || null) ?? "—";
     let block = blocks.get(key);
     if (!block) {
       block = { key, label, rows: [], totals: sumMetrics([]) };

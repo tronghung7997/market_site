@@ -89,3 +89,32 @@ async def list_categories_tree(db: AsyncSession, locale: str = DEFAULT_LOCALE) -
         return nodes
 
     return build_tree(None)
+
+
+async def category_subtree_ids(category_ids, db: AsyncSession) -> list[int]:
+    """Each id plus every ACTIVE descendant, de-duplicated (order preserved).
+
+    Sellers pick "Mạng xã hội" and expect Facebook/TikTok/… underneath it to
+    come along; same semantics as subtreeIds() in frontend/lib/categories.ts."""
+    wanted = [int(c) for c in category_ids if c is not None]
+    if not wanted:
+        return []
+    rows = (await db.execute(select(Category.id, Category.parent_id).where(Category.is_active))).all()
+    children: dict[int | None, list[int]] = {}
+    for cid, pid in rows:
+        children.setdefault(pid, []).append(cid)
+    known = {cid for cid, _ in rows}
+    out: list[int] = []
+    seen: set[int] = set()
+    for root in wanted:
+        if root not in known:
+            continue
+        stack = [root]
+        while stack:
+            current = stack.pop()
+            if current in seen:
+                continue
+            seen.add(current)
+            out.append(current)
+            stack.extend(children.get(current, []))
+    return out

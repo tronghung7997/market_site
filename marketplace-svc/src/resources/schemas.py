@@ -170,6 +170,8 @@ class InventoryPackage(BaseModel):
     service_type: str | None = None
     category_id: int
     category_name: str
+    category_parent_id: int | None = None
+    category_parent_name: str | None = None
     variant_id: int
     variant_name: str
     price: int
@@ -199,6 +201,8 @@ class InventoryPackageCounts(BaseModel):
 class InventoryCategoryFacet(BaseModel):
     id: int
     name: str
+    parent_id: int | None = None
+    parent_name: str | None = None
     count: int
 
 
@@ -261,6 +265,7 @@ class InventoryReportRow(BaseModel):
     product_title: str | None = None
     category_id: int | None = None
     category_name: str | None = None
+    category_parent_name: str | None = None
     added: int
     sold: int
     error: int

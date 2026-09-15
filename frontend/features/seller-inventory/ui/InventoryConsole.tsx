@@ -9,12 +9,13 @@ import { useApiErrorMessage } from "@/lib/use-api-error";
 import { useDebounce } from "@/lib/hooks/useDebounce";
 import type { InventoryPackageSort, InventoryProductStatusFilter } from "@/lib/types";
 import { Button, Card, Input, Pagination, Select } from "@/components/ui";
-import { AlertCircle, AlertTriangle, BarChart, CheckCircle2, Download, ListFilter, Package, Plus, RefreshCw, Search, X } from "@/components/Icons";
+import { AlertCircle, AlertTriangle, BarChart, CheckCircle2, Download, Package, Plus, RefreshCw, Search, X } from "@/components/Icons";
 import {
   DEFAULT_INVENTORY_FILTERS, hasActiveInventoryFilters, PACKAGE_PAGE_SIZE, PACKAGE_SORTS, PRODUCT_STATUS_FILTERS,
   type InventoryFilters,
 } from "../model";
 import { useBulkPackageStatus, useInventoryPackages } from "../useInventory";
+import { CategoryTreeSelect } from "./CategoryTreeSelect";
 import { InventorySummaryStrip } from "./InventorySummaryStrip";
 import { PackageTable } from "./PackageTable";
 
@@ -66,7 +67,7 @@ export function InventoryConsole({
   useEffect(() => {
     if (debounced.trim() !== filters.search.trim()) patch({ search: debounced, page: 1 });
   }, [debounced, filters.search, patch]);
-  useEffect(() => { setSelected(new Set()); }, [filters.page, filters.tab, filters.categoryId, filters.productStatus]);
+  useEffect(() => { setSelected(new Set()); }, [filters.page, filters.tab, filters.categoryIds, filters.productStatus]);
 
   const handleBulk = async (isActive: boolean) => {
     const ids = [...selected];
@@ -164,13 +165,7 @@ export function InventoryConsole({
                 )}
               </div>
               {data.categories.length > 0 && (
-                <div className="relative">
-                  <Select value={filters.categoryId ?? "all"} onChange={(e) => patch({ categoryId: e.target.value === "all" ? null : Number(e.target.value), page: 1 })} aria-label={t("filters.category")} className="h-9 min-w-[150px] rounded-lg pl-8 pr-7 text-xs">
-                    <option value="all">{t("filters.allCategories")}</option>
-                    {data.categories.map((c) => <option key={c.id} value={c.id}>{c.name} ({c.count})</option>)}
-                  </Select>
-                  <ListFilter size={13} className="pointer-events-none absolute left-2.5 top-3 text-muted" />
-                </div>
+                <CategoryTreeSelect facet={data.categories} value={filters.categoryIds} onChange={(categoryIds) => patch({ categoryIds, page: 1 })} />
               )}
               <Select value={filters.productStatus} onChange={(e) => patch({ productStatus: e.target.value as InventoryProductStatusFilter, page: 1 })} aria-label={t("filters.productStatus")} className="h-9 w-40 rounded-lg px-2.5 text-xs">
                 {PRODUCT_STATUS_FILTERS.map((s) => <option key={s} value={s}>{t(`filters.products.${s}`)}</option>)}

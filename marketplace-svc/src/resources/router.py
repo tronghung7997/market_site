@@ -291,7 +291,7 @@ async def preview_restock(
 @router.get("/seller/inventory/packages", response_model=schemas.InventoryPackagesResponse)
 async def inventory_packages(
     search: str | None = None,
-    category_id: int | None = Query(None, ge=1),
+    category_ids: str | None = None,
     product_status: Literal["active", "paused", "all"] = "active",
     stock: Literal["all", "low", "out", "error", "inactive"] = "all",
     include_inactive: bool = False,
@@ -303,7 +303,7 @@ async def inventory_packages(
     db: AsyncSession = Depends(get_session),
 ):
     return await inventory.list_packages(
-        account.id, db, search=search, category_id=category_id, product_status=product_status,
+        account.id, db, search=search, category_ids=_id_list(category_ids), product_status=product_status,
         stock=stock, include_inactive=include_inactive, sort=sort, view=view, page=page, per_page=per_page,
     )
 

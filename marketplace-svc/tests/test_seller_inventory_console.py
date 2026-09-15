@@ -30,10 +30,12 @@ async def _seller(client, email):
     return await register_and_login(client, email)
 
 
-async def _category(client, admin_token, name, slug):
-    await client.post("/admin/categories", json={"name": name, "slug": slug}, headers=_auth(admin_token))
-    cats = (await client.get("/categories")).json()
-    return next(c["id"] for c in cats if c["slug"] == slug)
+async def _category(client, admin_token, name, slug, parent_id=None):
+    resp = await client.post(
+        "/admin/categories", json={"name": name, "slug": slug, "parent_id": parent_id}, headers=_auth(admin_token),
+    )
+    assert resp.status_code in (200, 201), resp.text
+    return resp.json()["id"]
 
 
 async def _product(client, token, cat_id, title, status="active"):
@@ -83,7 +85,8 @@ async def _mark(variant_id, data_prefix, *, status=None, assigned_at=None, creat
 async def _fixture(client):
     """Two categories, three products, five instant packages + one manual."""
     admin = await _admin(client)
-    fb = await _category(client, admin, "Facebook", "inv-fb")
+    social = await _category(client, admin, "Mạng xã hội", "inv-social")
+    fb = await _category(client, admin, "Facebook", "inv-fb", parent_id=social)
     mail = await _category(client, admin, "Email", "inv-mail")
     token = await _seller(client, "inv_console_seller@example.com")
     p_clone = await _product(client, token, fb, "Facebook Clone")
@@ -115,7 +118,7 @@ async def _fixture(client):
         await db.execute(update(ProductVariant).where(ProductVariant.id == v_old).values(is_active=False))
         await db.commit()
     return {
-        "admin": admin, "token": token, "cats": {"fb": fb, "mail": mail},
+        "admin": admin, "token": token, "cats": {"fb": fb, "mail": mail, "social": social},
         "products": {"clone": p_clone, "trust": p_trust, "gmail": p_gmail},
         "variants": {"full": v_full, "cookie": v_cookie, "old": v_old, "uid": v_uid, "manual": v_manual, "gmail": v_gmail},
     }
@@ -151,10 +154,11 @@ async def test_packages_grouped_default_hides_inactive_and_counts_by_threshold(c
     assert counts["available_total"] == 23 + 3 + 5
     assert counts["sold_30d"] == 5 + 2  # assigned/error with assigned_at in last 30 days
     assert counts["products"] == 2
-    assert {c["name"]: c["count"] for c in body["categories"]} == {"Facebook": 4, "Email": 1}
+    assert {c["name"]: (c["count"], c["parent_name"]) for c in body["categories"]} == {"Facebook": (4, "Mạng xã hội"), "Email": (1, None)}
 
     full = next(r for r in body["items"] if r["variant_id"] == f["variants"]["full"])
     assert full["available"] == 23 and full["assigned"] == 5 and full["error"] == 2
+    assert full["category_parent_id"] == f["cats"]["social"] and full["category_parent_name"] == "Mạng xã hội"
     assert full["stock_state"] == "in_stock" and full["last_restock_at"]
     cookie = next(r for r in body["items"] if r["variant_id"] == f["variants"]["cookie"])
     assert cookie["stock_state"] == "low"
@@ -165,10 +169,17 @@ async def test_packages_filters_category_status_and_inactive_tab(client):
     f = await _fixture(client)
     h = _auth(f["token"])
     mail_only = (await client.get(
-        f"/seller/inventory/packages?category_id={f['cats']['mail']}&product_status=all", headers=h,
+        f"/seller/inventory/packages?category_ids={f['cats']['mail']}&product_status=all", headers=h,
     )).json()
     assert [r["variant_id"] for r in mail_only["items"]] == [f["variants"]["gmail"]]
     assert mail_only["items"][0]["product_status"] == "paused"
+    # A parent category pulls in every child branch; several ids combine.
+    social = (await client.get(f"/seller/inventory/packages?category_ids={f['cats']['social']}&view=flat", headers=h)).json()
+    assert {r["variant_id"] for r in social["items"]} == {f["variants"]["full"], f["variants"]["cookie"], f["variants"]["uid"]}
+    both = (await client.get(
+        f"/seller/inventory/packages?category_ids={f['cats']['social']},{f['cats']['mail']}&product_status=all&view=flat", headers=h,
+    )).json()
+    assert both["total"] == 4
 
     inactive = (await client.get("/seller/inventory/packages?stock=inactive", headers=h)).json()
     assert [r["variant_id"] for r in inactive["items"]] == [f["variants"]["old"]]
@@ -302,11 +313,10 @@ async def test_export_multi_scope_masked_csv_txt_and_preview(client):
     f = await _fixture(client)
     h = _auth(f["token"])
     fb = f["cats"]["fb"]
-
     preview = (await client.get(
-        f"/seller/inventory/export?category_ids={fb}&statuses=available&preview=5&mask=middle", headers=h,
+        f"/seller/inventory/export?category_ids={f['cats']['social']}&statuses=available&preview=5&mask=middle", headers=h,
     )).json()
-    assert preview["packages"] == 3            # full, cookie, uid (old is inactive → excluded)
+    assert preview["packages"] == 3            # parent category → Facebook branch: full, cookie, uid (old inactive → excluded)
     assert preview["total"] == 23 + 3 + 5
     assert preview["row_limit"] == 50_000
     assert preview["columns"] == ["product", "variant", "id", "status", "data", "order", "created_at"]
@@ -380,7 +390,7 @@ async def test_report_groups_presets_and_csv(client):
     assert by_variant["rows"][0]["key"] == str(f["variants"]["full"])
 
     by_cat = (await client.get("/seller/inventory/report?range=this_year&group_by=category", headers=h)).json()
-    assert {r["label"]: r["added"] for r in by_cat["rows"]} == {"Facebook": 38, "Email": 25}
+    assert {r["label"]: (r["added"], r["category_parent_name"]) for r in by_cat["rows"]} == {"Facebook": (38, "Mạng xã hội"), "Email": (25, None)}
     by_product = (await client.get("/seller/inventory/report?range=this_year&group_by=product", headers=h)).json()
     assert {r["label"]: r["category_name"] for r in by_product["rows"]} == {"Facebook Clone": "Facebook", "FB Trust": "Facebook", "Gmail US": "Email"}
     assert by_cat["range"]["key"] == "this_year"

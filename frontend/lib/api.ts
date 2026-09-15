@@ -457,7 +457,7 @@ export const api = {
   // --- Inventory console (package-level) ---
   inventoryPackages: (params: {
     search?: string;
-    categoryId?: number | null;
+    categoryIds?: number[];
     productStatus?: InventoryProductStatusFilter;
     stock?: InventoryStockTab;
     includeInactive?: boolean;
@@ -468,7 +468,7 @@ export const api = {
   } = {}) => {
     const q = new URLSearchParams({ page: String(params.page ?? 1), per_page: String(params.perPage ?? 20) });
     if (params.search?.trim()) q.set("search", params.search.trim());
-    if (params.categoryId) q.set("category_id", String(params.categoryId));
+    if (params.categoryIds?.length) q.set("category_ids", params.categoryIds.join(","));
     if (params.productStatus && params.productStatus !== "active") q.set("product_status", params.productStatus);
     if (params.stock && params.stock !== "all") q.set("stock", params.stock);
     if (params.includeInactive) q.set("include_inactive", "true");

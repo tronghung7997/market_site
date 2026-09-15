@@ -1106,6 +1106,8 @@ export interface InventoryPackage {
   service_type: string | null;
   category_id: number;
   category_name: string;
+  category_parent_id: number | null;
+  category_parent_name: string | null;
   variant_id: number;
   variant_name: string;
   price: number;
@@ -1135,6 +1137,8 @@ export interface InventoryPackageCounts {
 export interface InventoryCategoryFacet {
   id: number;
   name: string;
+  parent_id: number | null;
+  parent_name: string | null;
   count: number;
 }
 
@@ -1274,6 +1278,7 @@ export interface InventoryReportRow {
   product_title: string | null;
   category_id: number | null;
   category_name: string | null;
+  category_parent_name: string | null;
   added: number;
   sold: number;
   error: number;

@@ -10,7 +10,7 @@ import type { InventoryPackage, InventoryPackageSort } from "@/lib/types";
 import { parseCoverId, ProductCover } from "@/features/product-covers";
 import { Tag } from "@/components/ui";
 import { ChevronDown, ChevronRight, ChevronUp, Edit2, Plus } from "@/components/Icons";
-import { checkState, groupPackages, stockBarPercent, stockTone, type PackageGroup } from "../model";
+import { categoryPath, checkState, groupPackages, stockBarPercent, stockTone, type PackageGroup } from "../model";
 
 function SortHeader({
   label, asc, desc, sort, onSort, className,
@@ -151,7 +151,7 @@ export function PackageTable({
             <Link href={`/seller/products/${group.productId}`} className="truncate text-[13px] font-semibold text-fg hover:text-iris" title={group.productTitle}>{group.productTitle}</Link>
             <span className="shrink-0 font-mono text-[11px] text-faint">#{group.productId}</span>
             {group.productStatus !== "active" && <Tag tone="neutral">{t("state.productPaused")}</Tag>}
-            <span className="truncate text-[11.5px] text-faint">{group.categoryName}</span>
+            <span className="truncate text-[11.5px] text-faint">{categoryPath(group.packages[0])}</span>
           </div>
         </td>
         <td className="px-2 py-2 whitespace-nowrap">

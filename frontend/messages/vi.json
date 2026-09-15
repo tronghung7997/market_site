@@ -1744,6 +1744,14 @@
       "moveRight": "Đưa cột {column} sang phải",
       "remove": "Bỏ cột {column}",
       "add": "Thêm cột {column}"
+    },
+    "categoryPicker": {
+      "all": "Tất cả danh mục",
+      "many": "{first} +{count}",
+      "clear": "Bỏ chọn danh mục",
+      "searchPlaceholder": "Tìm danh mục…",
+      "hint": "Tick danh mục cha = chọn cả nhánh",
+      "empty": "Chưa có danh mục"
     }
   },
   "errors": {

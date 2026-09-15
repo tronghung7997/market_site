@@ -1744,6 +1744,14 @@
       "moveRight": "Move {column} right",
       "remove": "Remove {column}",
       "add": "Add {column}"
+    },
+    "categoryPicker": {
+      "all": "All categories",
+      "many": "{first} +{count}",
+      "clear": "Clear categories",
+      "searchPlaceholder": "Search categories…",
+      "hint": "Tick a parent to select its whole branch",
+      "empty": "No categories"
     }
   },
   "errors": {

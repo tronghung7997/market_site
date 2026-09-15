@@ -17,7 +17,7 @@ export function useInventoryPackages(filters: InventoryFilters) {
     page: filters.page,
     perPage: PACKAGE_PAGE_SIZE,
     search: filters.search.trim(),
-    categoryId: filters.categoryId,
+    categoryIds: filters.categoryIds,
     productStatus: filters.productStatus,
     stock: filters.tab,
     includeInactive: !filters.hideInactive,

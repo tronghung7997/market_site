@@ -16,8 +16,10 @@ from datetime import date, datetime, timedelta, timezone
 
 from fastapi import status as http_status
 from sqlalchemy import Date, String, and_, case, cast, func, literal, or_, select
+from sqlalchemy.orm import aliased
 from sqlalchemy.ext.asyncio import AsyncSession
 
+from src.categories.service import category_subtree_ids
 from src.exceptions import ErrorCode, NotOwner, api_error
 from src.models.category import Category
 from src.models.order import Order
@@ -106,8 +108,11 @@ def _scope_filters(seller_id: int) -> list:
     ]
 
 
+ParentCategory = aliased(Category)
+
+
 def _package_row(row, low_stock: int) -> dict:
-    (pid, ptitle, pstatus, images, service_type, cat_id, cat_name,
+    (pid, ptitle, pstatus, images, service_type, cat_id, cat_name, cat_parent_id, cat_parent_name,
      vid, vname, price, delivery_mode, is_active,
      available, assigned, error, expired, archived, sold_30d, last_restock_at) = row
     available = int(available or 0)
@@ -130,6 +135,8 @@ def _package_row(row, low_stock: int) -> dict:
         "service_type": service_type,
         "category_id": cat_id,
         "category_name": cat_name,
+        "category_parent_id": cat_parent_id,
+        "category_parent_name": cat_parent_name,
         "variant_id": vid,
         "variant_name": vname,
         "price": int(price),
@@ -152,6 +159,7 @@ def _package_columns(stats):
         Product.status.label("product_status"), Product.images.label("images"),
         Product.service_type.label("service_type"),
         Category.id.label("category_id"), Category.name.label("category_name"),
+        ParentCategory.id.label("category_parent_id"), ParentCategory.name.label("category_parent_name"),
         ProductVariant.id.label("variant_id"), ProductVariant.name.label("variant_name"),
         ProductVariant.price.label("price"), ProductVariant.delivery_mode.label("delivery_mode"),
         ProductVariant.is_active.label("is_active"),
@@ -171,6 +179,7 @@ def _package_base(stats, filters):
         .select_from(ProductVariant)
         .join(Product, Product.id == ProductVariant.product_id)
         .join(Category, Category.id == Product.category_id)
+        .outerjoin(ParentCategory, ParentCategory.id == Category.parent_id)
         .outerjoin(stats, stats.c.variant_id == ProductVariant.id)
         .where(*filters)
     )
@@ -194,7 +203,7 @@ async def list_packages(
     db: AsyncSession,
     *,
     search: str | None = None,
-    category_id: int | None = None,
+    category_ids: list[int] | None = None,
     product_status: str = "active",
     stock: str = "all",
     include_inactive: bool = False,
@@ -211,8 +220,9 @@ async def list_packages(
         filters.append(Product.status == ProductStatus.active)
     elif product_status == "paused":
         filters.append(Product.status == ProductStatus.paused)
-    if category_id is not None:
-        filters.append(Product.category_id == category_id)
+    if category_ids:
+        # A parent category means its whole branch (Mạng xã hội → Facebook, TikTok…).
+        filters.append(Product.category_id.in_(await category_subtree_ids(category_ids, db) or [-1]))
     search_clause = _search_filter(search)
     if search_clause is not None:
         filters.append(search_clause)
@@ -250,15 +260,19 @@ async def list_packages(
 
     # Category facet over the seller's whole managed scope (not the current filter).
     facet_rows = (await db.execute(
-        select(Category.id, Category.name, func.count(func.distinct(ProductVariant.id)))
+        select(Category.id, Category.name, Category.parent_id, ParentCategory.name, Category.sort_order, func.count(func.distinct(ProductVariant.id)))
         .select_from(ProductVariant)
         .join(Product, Product.id == ProductVariant.product_id)
         .join(Category, Category.id == Product.category_id)
+        .outerjoin(ParentCategory, ParentCategory.id == Category.parent_id)
         .where(*_scope_filters(seller_id))
-        .group_by(Category.id, Category.name)
-        .order_by(Category.name)
+        .group_by(Category.id, Category.name, Category.parent_id, ParentCategory.name, Category.sort_order)
+        .order_by(ParentCategory.name.nulls_first(), Category.sort_order, Category.name)
     )).all()
-    categories = [{"id": cid, "name": name, "count": int(n)} for cid, name, n in facet_rows]
+    categories = [
+        {"id": cid, "name": name, "parent_id": pid, "parent_name": pname, "count": int(n)}
+        for cid, name, pid, pname, _sort, n in facet_rows
+    ]
 
     page_filters = []
     if stock == "low":
@@ -497,7 +511,7 @@ async def resolve_export_variants(
     if product_ids:
         scope_clauses.append(Product.id.in_(product_ids))
     if category_ids:
-        scope_clauses.append(Product.category_id.in_(category_ids))
+        scope_clauses.append(Product.category_id.in_(await category_subtree_ids(category_ids, db) or [-1]))
     if scope_clauses:
         filters.append(or_(*scope_clauses))
     if not include_inactive:
@@ -546,24 +560,25 @@ def _export_select():
             Resource.id, Resource.status, Resource.data, Resource.order_id,
             Resource.created_at, Resource.assigned_at, Resource.expires_at, Resource.is_archived,
             ProductVariant.id, ProductVariant.name, ProductVariant.price,
-            Product.id, Product.title, Category.name,
+            Product.id, Product.title, Category.name, ParentCategory.name,
         )
         .join(ProductVariant, ProductVariant.id == Resource.variant_id)
         .join(Product, Product.id == ProductVariant.product_id)
         .join(Category, Category.id == Product.category_id)
+        .outerjoin(ParentCategory, ParentCategory.id == Category.parent_id)
     )
 
 
 def _export_row(row, columns: list[str], mask: str, mask_char: str, *, index: int = 0, locale: str = "en") -> dict:
     (rid, rstatus, data, order_id, created_at, assigned_at, expires_at, archived,
-     vid, vname, price, pid, ptitle, cat_name) = row
+     vid, vname, price, pid, ptitle, cat_name, cat_parent) = row
     labels = STATUS_LABELS[locale]
     status_label = labels[rstatus.value]
     if archived:
         status_label = f"{labels['archived']} ({status_label})"
     values = {
         "index": index,
-        "category": cat_name,
+        "category": f"{cat_parent} › {cat_name}" if cat_parent else cat_name,
         "product": f"{ptitle} (#{pid})",
         "variant": f"{vname} (#{vid})",
         "id": rid,
@@ -665,17 +680,17 @@ async def _report_entity_rows(
     start = rng.compare_start if previous else rng.start
     end = rng.compare_end if previous else rng.end
     if group_by == "category":
-        key_cols = [Category.id, Category.name]
+        key_cols = [Category.id, Category.name, ParentCategory.name]
         select_cols = [Category.id, Category.name, cast(literal(None), String)]
-        ctx_cols = [cast(literal(None), String), cast(literal(None), String), Category.id, Category.name]
+        ctx_cols = [cast(literal(None), String), cast(literal(None), String), Category.id, Category.name, ParentCategory.name]
     elif group_by == "product":
-        key_cols = [Product.id, Product.title, Category.id, Category.name]
+        key_cols = [Product.id, Product.title, Category.id, Category.name, ParentCategory.name]
         select_cols = [Product.id, Product.title, Category.name]
-        ctx_cols = [Product.id, Product.title, Category.id, Category.name]
+        ctx_cols = [Product.id, Product.title, Category.id, Category.name, ParentCategory.name]
     else:
-        key_cols = [ProductVariant.id, ProductVariant.name, Product.id, Product.title, Category.id, Category.name]
+        key_cols = [ProductVariant.id, ProductVariant.name, Product.id, Product.title, Category.id, Category.name, ParentCategory.name]
         select_cols = [ProductVariant.id, ProductVariant.name, Product.title]
-        ctx_cols = [Product.id, Product.title, Category.id, Category.name]
+        ctx_cols = [Product.id, Product.title, Category.id, Category.name, ParentCategory.name]
     live = Resource.is_archived == False  # noqa: E712
     res_rows = (await db.execute(
         select(
@@ -699,6 +714,7 @@ async def _report_entity_rows(
         .select_from(ProductVariant)
         .join(Product, Product.id == ProductVariant.product_id)
         .join(Category, Category.id == Product.category_id)
+        .outerjoin(ParentCategory, ParentCategory.id == Category.parent_id)
         .outerjoin(Resource, Resource.variant_id == ProductVariant.id)
         .where(ProductVariant.id.in_(variant_ids))
         .group_by(*key_cols)
@@ -722,10 +738,11 @@ async def _report_entity_rows(
     )).all()
     revenue = {k: int(v) for k, v in rev_rows}
     out: dict[tuple, dict] = {}
-    for key_id, label, sublabel, pid, ptitle, cid, cname, added, sold, error, expired, archived, stock in res_rows:
+    for key_id, label, sublabel, pid, ptitle, cid, cname, cparent, added, sold, error, expired, archived, stock in res_rows:
         out[(key_id,)] = {
             "key": str(key_id), "label": label, "sublabel": sublabel,
             "product_id": pid, "product_title": ptitle, "category_id": cid, "category_name": cname,
+            "category_parent_name": cparent,
             "added": int(added), "sold": int(sold), "error": int(error), "expired": int(expired),
             "archived": int(archived), "stock": int(stock), "revenue": revenue.get(key_id, 0),
         }
@@ -773,6 +790,7 @@ async def _report_time_rows(
         out[(cur,)] = {
             "key": cur.isoformat(), "label": cur.isoformat(), "sublabel": None,
             "product_id": None, "product_title": None, "category_id": None, "category_name": None,
+            "category_parent_name": None,
             "added": int(r[1]) if r else 0, "sold": int(r[2]) if r else 0,
             "error": int(r[3]) if r else 0, "expired": int(r[4]) if r else 0,
             "archived": int(r[5]) if r else 0, "stock": 0, "revenue": revenue.get(cur, 0),

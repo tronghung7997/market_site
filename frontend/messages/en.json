@@ -2161,7 +2161,12 @@
       "policyLink": "Read the policy"
     },
     "reviewAuto": "automatic review",
-    "reviewsPage": "{from}–{to} of {total} reviews"
+    "reviewsPage": "{from}–{to} of {total} reviews",
+    "reviewsFilterAria": "Filter reviews by star",
+    "reviewsFilterStar": "Show only {star}-star reviews",
+    "reviewsFilteredBy": "Showing {count} {star}-star reviews",
+    "reviewsFilterClear": "Show all",
+    "reviewsNoneForStar": "No {star}-star reviews yet."
   },
   "chat": {
     "inbox": "Messages",

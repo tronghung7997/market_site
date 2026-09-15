@@ -759,8 +759,9 @@ export const api = {
 
   submitReview: (orderId: number, rating: number, comment?: string) =>
     request<Review>(`/orders/${orderId}/review`, { method: "POST", body: JSON.stringify({ rating, comment: comment || null }) }, true),
-  productReviews: (productId: number, params: { page?: number; perPage?: number } = {}) => {
-    const q = new URLSearchParams({ page: String(params.page ?? 1), per_page: String(params.perPage ?? 10) });
+  productReviews: (productId: number, params: { page?: number; perPage?: number; rating?: number | null } = {}) => {
+    const q = new URLSearchParams({ page: String(params.page ?? 1), per_page: String(params.perPage ?? 5) });
+    if (params.rating) q.set("rating", String(params.rating));
     return request<PublicReviewList>(`/products/${productId}/reviews?${q}`);
   },
   sellerReviews: (params: { productId?: number; unrepliedOnly?: boolean; page?: number; perPage?: number } = {}) => {

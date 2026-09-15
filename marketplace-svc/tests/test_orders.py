@@ -1437,6 +1437,10 @@ async def test_auto_review_after_configured_days(client):
     auto = next(r for r in public["items"] if r["order_id"] == stale)
     assert auto["rating"] == 5 and auto["comment"] is None and auto["is_auto"] is True
     assert public["summary"]["counts"]["5"] == 1 and public["summary"]["counts"]["3"] == 1
+    only3 = (await client.get(f"/products/{product_id}/reviews", params={"rating": 3})).json()
+    assert [r["rating"] for r in only3["items"]] == [3] and only3["total"] == 1 and only3["rating"] == 3
+    assert only3["summary"]["counts"]["5"] == 1  # summary ignores the star filter
+    assert (await client.get(f"/products/{product_id}/reviews", params={"rating": 6})).status_code == 422
     row = next(o for o in (await client.get("/orders", headers=buyer_headers)).json()["items"] if o["id"] == stale)
     assert row["has_review"] is True and row["capabilities"]["can_review"] is False
     assert next(o for o in (await client.get("/orders", headers=buyer_headers)).json()["items"] if o["id"] == fresh)["has_review"] is False

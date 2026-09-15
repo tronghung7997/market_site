@@ -25,9 +25,10 @@ async def product_reviews(
     product_id: int,
     page: int = Query(1, ge=1),
     per_page: int = Query(service.PUBLIC_REVIEW_PAGE_SIZE, ge=1, le=50),
+    rating: int | None = Query(None, ge=1, le=5),
     db: AsyncSession = Depends(get_session),
 ):
-    return await service.get_product_reviews(product_id, db, page=page, per_page=per_page)
+    return await service.get_product_reviews(product_id, db, page=page, per_page=per_page, rating=rating)
 
 
 # --- seller ---------------------------------------------------------------------

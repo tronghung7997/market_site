@@ -2161,7 +2161,12 @@
       "policyLink": "Xem chính sách"
     },
     "reviewAuto": "đánh giá tự động",
-    "reviewsPage": "{from}–{to} / {total} đánh giá"
+    "reviewsPage": "{from}–{to} / {total} đánh giá",
+    "reviewsFilterAria": "Lọc đánh giá theo số sao",
+    "reviewsFilterStar": "Chỉ xem đánh giá {star} sao",
+    "reviewsFilteredBy": "Đang xem {count} đánh giá {star} sao",
+    "reviewsFilterClear": "Xem tất cả",
+    "reviewsNoneForStar": "Chưa có đánh giá {star} sao."
   },
   "chat": {
     "inbox": "Tin nhắn",

@@ -34,6 +34,7 @@ class PublicReviewList(BaseModel):
     total: int
     page: int
     per_page: int
+    rating: int | None = None
     summary: ReviewSummary
 
 

@@ -28,28 +28,32 @@ export default function ReviewsCard({ product }: { product: ProductDetail }) {
   );
 }
 
-const REVIEWS_PER_PAGE = 10;
+const REVIEWS_PER_PAGE = 5;
 
 function ReviewsBody({ productId, sellerName }: { productId: number; sellerName: string | null }) {
   const t = useTranslations("products");
   const locale = useLocale();
   const [page, setPage] = useState(1);
+  const [rating, setRating] = useState<number | null>(null);
   const [data, setData] = useState<PublicReviewList | null>(null);
   const [loading, setLoading] = useState(true);
 
   useEffect(() => {
     let cancelled = false;
     setLoading(true);
-    api.productReviews(productId, { page, perPage: REVIEWS_PER_PAGE })
+    api.productReviews(productId, { page, perPage: REVIEWS_PER_PAGE, rating })
       .then((res) => { if (!cancelled) setData(res); })
       .catch(() => {})
       .finally(() => { if (!cancelled) setLoading(false); });
     return () => { cancelled = true; };
-  }, [productId, page]);
+  }, [productId, page, rating]);
+
+  const pickRating = (star: number | null) => { setRating(star); setPage(1); };
 
   if (!data && loading) return <div className="py-4"><Spinner /></div>;
 
-  if (!data || data.total === 0) {
+  const allVisible = data ? Object.values(data.summary.counts).reduce((a, b) => a + b, 0) : 0;
+  if (!data || allVisible === 0) {
     return (
       <div className="py-10 text-center">
         <span className="inline-grid place-items-center h-11 w-11 rounded-full bg-raised border border-line text-faint mb-3">
@@ -74,25 +78,47 @@ function ReviewsBody({ productId, sellerName }: { productId: number; sellerName:
               <Star key={s} size={14} className={s <= Math.round(avg) ? "text-warn fill-warn" : "text-line-2"} />
             ))}
           </div>
-          <div className="text-[12px] text-faint mt-1.5 whitespace-nowrap">{t("reviewsCount", { count: data.total })}</div>
+          <div className="text-[12px] text-faint mt-1.5 whitespace-nowrap">{t("reviewsCount", { count: allVisible })}</div>
         </div>
-        <div className="flex-1 space-y-1.5 max-w-xs">
+        <div className="flex-1 space-y-0.5 max-w-xs" role="group" aria-label={t("reviewsFilterAria")}>
           {dist.map(({ star, count }) => {
-            const pct = Math.round((count / data.total) * 100);
+            const pct = Math.round((count / allVisible) * 100);
+            const active = rating === star;
             return (
-              <div key={star} className="flex items-center gap-2 text-[11.5px]">
-                <span className="w-3 text-faint tabular-nums">{star}</span>
-                <div className="flex-1 h-1.5 rounded-full bg-raised overflow-hidden">
-                  <div className="h-full rounded-full bg-warn transition-all" style={{ width: `${pct}%` }} />
-                </div>
-                <span className="w-5 text-right text-faint tabular-nums">{count}</span>
-              </div>
+              <button
+                key={star}
+                type="button"
+                onClick={() => pickRating(active ? null : star)}
+                disabled={count === 0 && !active}
+                aria-pressed={active}
+                title={t("reviewsFilterStar", { star })}
+                className={cn(
+                  "flex w-full items-center gap-2 rounded-md px-1.5 py-1 text-[11.5px] transition-colors",
+                  active ? "bg-warn-soft text-fg" : "hover:bg-raised",
+                  count === 0 && !active && "cursor-default opacity-60",
+                )}
+              >
+                <span className={cn("w-3 tabular-nums", active ? "font-semibold text-fg" : "text-faint")}>{star}</span>
+                <Star size={10} className="text-warn fill-warn shrink-0" />
+                <span className="flex-1 h-1.5 rounded-full bg-raised overflow-hidden">
+                  <span className="block h-full rounded-full bg-warn transition-all" style={{ width: `${pct}%` }} />
+                </span>
+                <span className={cn("w-6 text-right tabular-nums", active ? "text-fg" : "text-faint")}>{count}</span>
+              </button>
             );
           })}
         </div>
       </div>
 
+      {rating != null && (
+        <div className="flex flex-wrap items-center gap-2 text-[12px] text-muted">
+          <span>{t("reviewsFilteredBy", { star: rating, count: data.total })}</span>
+          <button type="button" onClick={() => pickRating(null)} className="text-iris hover:underline">{t("reviewsFilterClear")}</button>
+        </div>
+      )}
+
       <div className={cn("space-y-0 divide-y divide-line transition-opacity", loading && "opacity-60")} aria-busy={loading}>
+        {data.items.length === 0 && <p className="py-6 text-center text-[12.5px] text-muted">{t("reviewsNoneForStar", { star: rating ?? 0 })}</p>}
         {data.items.map((r) => (
           <div key={r.id} className="py-4 first:pt-0">
             <div className="flex items-start gap-3">

@@ -867,9 +867,11 @@ export interface ReviewSummary {
 
 export interface PublicReviewList {
   items: Review[];
+  /** Count after the star filter — drives pagination. */
   total: number;
   page: number;
   per_page: number;
+  rating: number | null;
   /** Star breakdown over all visible reviews, independent of the page shown. */
   summary: ReviewSummary;
 }

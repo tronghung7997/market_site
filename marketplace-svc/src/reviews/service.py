@@ -20,7 +20,7 @@ from src.seller.settings import get_auto_review_policy, get_review_window_days
 # protection window ends so old orders cannot be review-bombed long after the
 # fact. Refunded/cancelled orders never open.
 REVIEWABLE_STATUSES = {OrderStatus.delivered, OrderStatus.completed}
-PUBLIC_REVIEW_PAGE_SIZE = 10
+PUBLIC_REVIEW_PAGE_SIZE = 5
 
 
 def review_deadline(order: Order, window_days: int) -> datetime | None:
@@ -97,30 +97,37 @@ async def refresh_product_rating(product_id: int, db: AsyncSession) -> None:
         product.rating_count = count or 0
 
 
-async def get_product_reviews(product_id: int, db: AsyncSession, *, page: int = 1, per_page: int = PUBLIC_REVIEW_PAGE_SIZE) -> dict:
+async def get_product_reviews(
+    product_id: int, db: AsyncSession, *, page: int = 1, per_page: int = PUBLIC_REVIEW_PAGE_SIZE, rating: int | None = None,
+) -> dict:
     """Visible reviews, newest first, one page at a time, plus the star
     breakdown over *all* visible reviews so the summary never depends on the
-    page being shown. Each row carries the purchased variant name."""
+    page or the star filter. `total` is the count *after* the filter (drives
+    pagination); the summary's counts add up to the unfiltered number."""
     visible = [Review.product_id == product_id, Review.is_hidden == False]  # noqa: E712
     breakdown = (await db.execute(
         select(Review.rating, func.count()).where(*visible).group_by(Review.rating)
     )).all()
     counts = {star: 0 for star in range(1, 6)}
-    for rating, n in breakdown:
-        counts[int(rating)] = int(n)
-    total = sum(counts.values())
-    average = (sum(star * n for star, n in counts.items()) / total) if total else None
+    for star, n in breakdown:
+        counts[int(star)] = int(n)
+    all_visible = sum(counts.values())
+    average = (sum(star * n for star, n in counts.items()) / all_visible) if all_visible else None
+    filters = list(visible)
+    if rating is not None:
+        filters.append(Review.rating == rating)
     rows = (await db.execute(
         select(Review, ProductVariant.name)
         .join(Order, Order.id == Review.order_id)
         .outerjoin(ProductVariant, ProductVariant.id == Order.variant_id)
-        .where(*visible)
+        .where(*filters)
         .order_by(Review.created_at.desc(), Review.id.desc())
         .offset((page - 1) * per_page).limit(per_page)
     )).all()
     return {
         "items": [_review_dict(review, variant_name) for review, variant_name in rows],
-        "total": total, "page": page, "per_page": per_page,
+        "total": counts[rating] if rating is not None else all_visible, "page": page, "per_page": per_page,
+        "rating": rating,
         "summary": {"average": round(average, 2) if average is not None else None, "counts": counts},
     }
 

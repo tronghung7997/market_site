@@ -2953,7 +2953,7 @@
     },
     "input": {
       "label": "Link Facebook, username hoặc ID",
-      "placeholder": "https://www.facebook.com/bui.v.phu",
+      "placeholder": "https://www.facebook.com/zuck",
       "hint": "Dán link là tự tra cứu. Hỗ trợ profile, page, group, bài viết, profile.php?id=… và ID số.",
       "clear": "Xoá"
     },
@@ -2982,8 +2982,7 @@
       "open": "Mở trên Facebook",
       "examples": "Thử nhanh:",
       "exampleProfile": "Profile",
-      "examplePage": "Page",
-      "exampleGroup": "Group"
+      "examplePage": "Page"
     },
     "recent": {
       "title": "Tra cứu gần đây",

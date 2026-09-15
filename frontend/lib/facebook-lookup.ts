@@ -7,7 +7,7 @@ export type FacebookTargetKind = "username" | "numeric" | "profile" | "page" | "
 export interface FacebookTarget {
   /** Canonical URL sent to the provider. */
   url: string;
-  /** Short human label, e.g. `bui.v.phu`, `profile.php?id=1000…`, `groups/abc`. */
+  /** Short human label, e.g. `zuck`, `profile.php?id=1000…`, `groups/abc`. */
   handle: string;
   kind: FacebookTargetKind;
 }

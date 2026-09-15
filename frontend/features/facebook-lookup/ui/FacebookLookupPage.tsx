@@ -15,7 +15,6 @@ import { failureStatus, useFacebookLookup } from "../useFacebookLookup";
 const EXAMPLES = [
   { key: "exampleProfile", value: "https://www.facebook.com/zuck" },
   { key: "examplePage", value: "https://www.facebook.com/meta" },
-  { key: "exampleGroup", value: "https://www.facebook.com/groups/tuyendungit" },
 ] as const;
 
 const TYPE_ICON: Record<FacebookEntityType, typeof User> = { Profile: User, Page: Flag, Group: Users, Event: Clock, Unknown: Globe };

@@ -2953,7 +2953,7 @@
     },
     "input": {
       "label": "Facebook link, username or ID",
-      "placeholder": "https://www.facebook.com/bui.v.phu",
+      "placeholder": "https://www.facebook.com/zuck",
       "hint": "Pasting a link looks it up automatically. Supports profiles, pages, groups, posts, profile.php?id=… and numeric IDs.",
       "clear": "Clear"
     },
@@ -2982,8 +2982,7 @@
       "open": "Open on Facebook",
       "examples": "Quick try:",
       "exampleProfile": "Profile",
-      "examplePage": "Page",
-      "exampleGroup": "Group"
+      "examplePage": "Page"
     },
     "recent": {
       "title": "Recent lookups",

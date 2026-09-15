@@ -71,7 +71,7 @@ export function useFacebookLookup() {
     }
   }, [value]);
 
-  // Deep link: /solutions/facebook-id?q=bui.v.phu
+  // Deep link: /solutions/facebook-id?q=zuck
   useEffect(() => {
     if (bootRan.current) return;
     bootRan.current = true;

@@ -3202,7 +3202,7 @@
     "reviewWindowTitle": "Thời hạn đánh giá của người mua",
     "reviewWindowHint": "Người mua được đánh giá ngay khi nhận hàng và còn được đánh giá thêm chừng này ngày sau khi hết ký quỹ. Quá hạn, nút Đánh giá biến mất.",
     "autoReviewTitle": "Tự động đánh giá 5★",
-    "autoReviewHint": "Đơn đã giao mà người mua không đánh giá sau chừng này ngày kể từ lúc mua sẽ được hệ thống chấm 5★ (không nhận xét, gắn nhãn “Tự động”). Đơn hoàn tiền / có khiếu nại không áp dụng. Chạy mỗi giờ.",
+    "autoReviewHint": "Đơn đã giao mà người mua không đánh giá sau chừng này ngày kể từ lúc mua sẽ được hệ thống chấm 5★ (không nhận xét, gắn nhãn “Tự động”). Đơn hoàn tiền / có khiếu nại không áp dụng. Chạy mỗi ngày một lần.",
     "autoReviewEnabled": "Bật tự động đánh giá",
     "daysLabel": "Số ngày"
   },

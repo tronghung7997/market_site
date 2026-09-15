@@ -3202,7 +3202,7 @@
     "reviewWindowTitle": "Buyer review window",
     "reviewWindowHint": "Buyers can review as soon as goods are delivered and for this many more days after escrow ends. After that the Review button disappears.",
     "autoReviewTitle": "Automatic 5★ review",
-    "autoReviewHint": "Delivered orders the buyer never rated get a 5★ (no comment, tagged “Auto”) this many days after purchase. Refunded / disputed orders are skipped. Runs hourly.",
+    "autoReviewHint": "Delivered orders the buyer never rated get a 5★ (no comment, tagged “Auto”) this many days after purchase. Refunded / disputed orders are skipped. Runs once a day.",
     "autoReviewEnabled": "Enable auto review",
     "daysLabel": "Days"
   },

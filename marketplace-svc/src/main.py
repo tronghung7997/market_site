@@ -71,7 +71,7 @@ init_sentry()
 
 scheduler = AsyncIOScheduler()
 scheduler.add_job(escrow_release_job, "interval", minutes=30, id="escrow_release")
-scheduler.add_job(auto_review_job, "interval", hours=1, id="auto_review")
+scheduler.add_job(auto_review_job, "interval", hours=24, id="auto_review")
 scheduler.add_job(dispute_resolution_timeout_job, "interval", minutes=15, id="dispute_resolution_timeout")
 scheduler.add_job(dispute_abandonment_job, "interval", minutes=15, id="dispute_abandonment")
 scheduler.add_job(sla_check_job, "interval", minutes=10, id="sla_check")

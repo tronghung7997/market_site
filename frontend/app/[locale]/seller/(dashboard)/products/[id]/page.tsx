@@ -1,9 +1,9 @@
 "use client";
 
 import { useParams } from "next/navigation";
-import { SellerProductEditor } from "@/features/seller-workbench";
+import { EditProductPage } from "@/features/seller-product-form";
 
-export default function EditProductPage() {
+export default function EditProduct() {
   const { id } = useParams<{ id: string }>();
-  return <SellerProductEditor productId={Number(id)} />;
+  return <EditProductPage productId={Number(id)} />;
 }

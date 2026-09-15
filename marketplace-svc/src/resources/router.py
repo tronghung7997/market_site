@@ -353,10 +353,12 @@ async def inventory_export(
     mask_char: str = Query("•", min_length=1, max_length=1),
     format: Literal["csv", "txt"] = "csv",
     columns: str | None = None,
+    locale: str | None = None,
     preview: int | None = Query(None, ge=1, le=100),
     account: Account = Depends(require_role("seller")),
     db: AsyncSession = Depends(get_session),
 ):
+    lang = inventory.export_locale(locale)
     scope = await _export_scope(account, db, variant_ids, product_ids, category_ids, include_inactive)
     cols = inventory.normalize_columns(_str_list(columns, inventory.EXPORT_COLUMNS), mask)
     status_list = _str_list(statuses, ("available", "assigned", "expired", "error"))
@@ -367,11 +369,13 @@ async def inventory_export(
     )
     if preview:
         return await inventory.export_preview(
-            account.id, db, variant_ids=scope, limit=preview, columns=cols, mask=mask, mask_char=mask_char, **filters,
+            account.id, db, variant_ids=scope, limit=preview, columns=cols, mask=mask, mask_char=mask_char,
+            locale=lang, **filters,
         )
     row_limit = await inventory.get_export_row_limit(db)
     stream = await inventory.export_stream(
-        db, variant_ids=scope, fmt=format, columns=cols, mask=mask, mask_char=mask_char, row_limit=row_limit, **filters,
+        db, variant_ids=scope, fmt=format, columns=cols, mask=mask, mask_char=mask_char, row_limit=row_limit,
+        locale=lang, **filters,
     )
     stamp = date.today().isoformat()
     filename = f"inventory_{len(scope)}-packages_{stamp}.{format}"

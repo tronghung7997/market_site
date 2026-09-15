@@ -250,12 +250,17 @@ class InventoryExportPreview(BaseModel):
     packages: int
     row_limit: int
     columns: list[str]
+    headers: dict[str, str]
 
 
 class InventoryReportRow(BaseModel):
     key: str
     label: str | None = None
     sublabel: str | None = None
+    product_id: int | None = None
+    product_title: str | None = None
+    category_id: int | None = None
+    category_name: str | None = None
     added: int
     sold: int
     error: int

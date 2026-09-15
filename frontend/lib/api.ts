@@ -83,6 +83,7 @@ function inventoryExportQuery(params: InventoryExportParams) {
   if (params.maskChar && params.maskChar !== "•") q.set("mask_char", params.maskChar);
   if (params.format) q.set("format", params.format);
   if (params.columns?.length) q.set("columns", params.columns.join(","));
+  if (params.locale) q.set("locale", params.locale);
   return q;
 }
 

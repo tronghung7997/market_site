@@ -103,3 +103,56 @@ test("scope tree: tri-state checks and compact scope collapse whole nodes", () =
   assert.deepEqual(compactScope(tree, selected, true), { variantIds: [1, 2], productIds: [2], categoryIds: undefined, includeInactive: true });
   assert.deepEqual(compactScope(tree, new Set([5]), false), { variantIds: undefined, productIds: undefined, categoryIds: [20], includeInactive: undefined });
 });
+
+import {
+  buildCsv,
+  csvCell,
+  defaultReportColumns,
+  groupReportRows,
+  moveItem,
+  reportColumnsFor,
+  reportGroupingsFor,
+} from "../features/seller-inventory/model.ts";
+import type { InventoryReportRow } from "../lib/types.ts";
+
+function reportRow(over: Partial<InventoryReportRow>): InventoryReportRow {
+  return {
+    key: "1", label: "Full 2FA", sublabel: "Facebook Clone", product_id: 1, product_title: "Facebook Clone",
+    category_id: 10, category_name: "Facebook", added: 0, sold: 0, error: 0, expired: 0, archived: 0, stock: 0, revenue: 0, prev: null,
+    ...over,
+  };
+}
+
+test("report columns follow the grouping and keep label + metrics", () => {
+  assert.deepEqual(reportColumnsFor("variant").slice(0, 4), ["index", "label", "product", "category"]);
+  assert.deepEqual(reportColumnsFor("product").slice(0, 3), ["index", "label", "category"]);
+  assert.deepEqual(reportColumnsFor("day").slice(0, 3), ["index", "label", "added"]);
+  assert.deepEqual(defaultReportColumns("category"), ["index", "label", "added", "sold", "error", "expired", "stock"]);
+  assert.deepEqual(reportGroupingsFor("variant"), ["none", "product", "category"]);
+  assert.deepEqual(reportGroupingsFor("week"), ["none"]);
+});
+
+test("groupReportRows folds rows by product/category with subtotals, sold-first", () => {
+  const rows = [
+    reportRow({ key: "1", sold: 2, stock: 5 }),
+    reportRow({ key: "2", label: "Cookies", sold: 9, stock: 1 }),
+    reportRow({ key: "3", label: "UID", product_id: 2, product_title: "Trust", sold: 4 }),
+    reportRow({ key: "4", label: "Session", product_id: 3, product_title: "Gmail", category_id: 20, category_name: "Email", sold: 7 }),
+  ];
+  const flat = groupReportRows(rows, "none");
+  assert.equal(flat.length, 1);
+  assert.equal(flat[0].totals.sold, 22);
+
+  const byProduct = groupReportRows(rows, "product");
+  assert.deepEqual(byProduct.map((b) => [b.label, b.rows.length, b.totals.sold]), [["Facebook Clone", 2, 11], ["Gmail", 1, 7], ["Trust", 1, 4]]);
+  const byCategory = groupReportRows(rows, "category");
+  assert.deepEqual(byCategory.map((b) => [b.label, b.totals.sold, b.totals.stock]), [["Facebook", 15, 6], ["Email", 7, 0]]);
+});
+
+test("moveItem reorders and csv helpers quote correctly", () => {
+  assert.deepEqual(moveItem(["a", "b", "c"], 0, 2), ["b", "c", "a"]);
+  assert.deepEqual(moveItem(["a", "b", "c"], 2, 0), ["c", "a", "b"]);
+  assert.deepEqual(moveItem(["a", "b"], 5, 0), ["a", "b"]);
+  assert.equal(csvCell('say "hi", ok'), '"say ""hi"", ok"');
+  assert.equal(buildCsv([["STT", "Phân loại"], [1, "Full 2FA"]]), "STT,Phân loại\r\n1,Full 2FA");
+});

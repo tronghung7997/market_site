@@ -7,6 +7,7 @@ import type {
   InventoryReportBasis,
   InventoryReportGroup,
   InventoryReportMetric,
+  InventoryReportRow,
   InventoryResourceStatus,
   InventoryStockTab,
   ResourceSort,
@@ -242,7 +243,7 @@ export function fieldCount(line: string): number {
 export type ExportTab = "report" | "goods";
 export const EXPORT_MASKS: InventoryExportMask[] = ["none", "middle", "edges", "id_only"];
 export const EXPORT_COLUMNS: InventoryExportColumn[] = [
-  "category", "product", "variant", "id", "status", "data", "order", "created_at", "assigned_at", "expires_at", "price",
+  "index", "category", "product", "variant", "id", "status", "data", "order", "created_at", "assigned_at", "expires_at", "price",
 ];
 export const DEFAULT_EXPORT_COLUMNS: InventoryExportColumn[] = ["product", "variant", "id", "status", "data", "order", "created_at"];
 export const RESOURCE_STATUSES: InventoryResourceStatus[] = ["available", "assigned", "error", "expired"];
@@ -361,4 +362,93 @@ export function maskSample(sample: string, mask: InventoryExportMask, maskChar: 
   if (mask === "middle") return maskResourceData(sample, token);
   if (sample.length > 10) return `${sample.slice(0, 4)}${token}${sample.slice(-4)}`;
   return sample.length > 2 ? `${sample.slice(0, 2)}${token}` : token;
+}
+
+// ---------------------------------------------------------------------------
+// Report columns, grouping and client-side CSV
+// ---------------------------------------------------------------------------
+
+export type ReportColumn = "index" | "label" | "product" | "category" | InventoryReportMetric;
+export type ReportGrouping = "none" | "product" | "category";
+
+/** Columns that make sense for a grouping — `label` is the grouped entity itself. */
+export function reportColumnsFor(groupBy: InventoryReportGroup): ReportColumn[] {
+  const context: ReportColumn[] = groupBy === "variant" ? ["product", "category"] : groupBy === "product" ? ["category"] : [];
+  return ["index", "label", ...context, ...REPORT_METRICS];
+}
+
+export function defaultReportColumns(groupBy: InventoryReportGroup): ReportColumn[] {
+  const context: ReportColumn[] = groupBy === "variant" ? ["product", "category"] : groupBy === "product" ? ["category"] : [];
+  return ["index", "label", ...context, ...DEFAULT_REPORT_METRICS];
+}
+
+export function reportGroupingsFor(groupBy: InventoryReportGroup): ReportGrouping[] {
+  if (groupBy === "variant") return ["none", "product", "category"];
+  if (groupBy === "product") return ["none", "category"];
+  return ["none"];
+}
+
+export function isMetricColumn(column: ReportColumn): column is InventoryReportMetric {
+  return (REPORT_METRICS as string[]).includes(column);
+}
+
+export interface ReportGroupBlock {
+  key: string;
+  label: string;
+  rows: InventoryReportRow[];
+  totals: Record<InventoryReportMetric, number>;
+}
+
+function sumMetrics(rows: InventoryReportRow[]): Record<InventoryReportMetric, number> {
+  const out = Object.fromEntries(REPORT_METRICS.map((m) => [m, 0])) as Record<InventoryReportMetric, number>;
+  for (const r of rows) for (const m of REPORT_METRICS) out[m] += r[m];
+  return out;
+}
+
+/** Fold flat rows into group blocks (product / category) with subtotals; keeps API order inside a block. */
+export function groupReportRows(rows: InventoryReportRow[], grouping: ReportGrouping): ReportGroupBlock[] {
+  if (grouping === "none") return [{ key: "all", label: "", rows, totals: sumMetrics(rows) }];
+  const blocks = new Map<string, ReportGroupBlock>();
+  for (const r of rows) {
+    const key = grouping === "product" ? `p${r.product_id ?? r.key}` : `c${r.category_id ?? r.key}`;
+    const label = (grouping === "product" ? r.product_title : r.category_name) ?? "—";
+    let block = blocks.get(key);
+    if (!block) {
+      block = { key, label, rows: [], totals: sumMetrics([]) };
+      blocks.set(key, block);
+    }
+    block.rows.push(r);
+  }
+  for (const block of blocks.values()) block.totals = sumMetrics(block.rows);
+  return [...blocks.values()].sort((a, b) => b.totals.sold - a.totals.sold || a.label.localeCompare(b.label));
+}
+
+/** Move an item inside an ordered list (drag-and-drop helper). */
+export function moveItem<T>(list: T[], from: number, to: number): T[] {
+  if (from === to || from < 0 || to < 0 || from >= list.length || to >= list.length) return list;
+  const next = [...list];
+  const [item] = next.splice(from, 1);
+  next.splice(to, 0, item);
+  return next;
+}
+
+export function csvCell(value: string | number | null | undefined): string {
+  const text = value == null ? "" : String(value);
+  return /[",\n\r]/.test(text) ? `"${text.replace(/"/g, '""')}"` : text;
+}
+
+export function buildCsv(rows: (string | number | null | undefined)[][]): string {
+  return rows.map((r) => r.map(csvCell).join(",")).join("\r\n");
+}
+
+export function downloadTextFile(filename: string, content: string, mime = "text/csv;charset=utf-8"): void {
+  const blob = new Blob(["\ufeff", content], { type: mime });
+  const url = URL.createObjectURL(blob);
+  const link = document.createElement("a");
+  link.href = url;
+  link.download = filename;
+  document.body.appendChild(link);
+  link.click();
+  document.body.removeChild(link);
+  URL.revokeObjectURL(url);
 }

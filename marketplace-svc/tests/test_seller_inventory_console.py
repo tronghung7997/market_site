@@ -310,6 +310,7 @@ async def test_export_multi_scope_masked_csv_txt_and_preview(client):
     assert preview["total"] == 23 + 3 + 5
     assert preview["row_limit"] == 50_000
     assert preview["columns"] == ["product", "variant", "id", "status", "data", "order", "created_at"]
+    assert preview["headers"]["variant"] == "Variation" and preview["rows"][0]["status"] == "ready"
     assert len(preview["rows"]) == 5
     assert "••••••" in preview["rows"][0]["data"] and "|pw" not in preview["rows"][0]["data"]
 
@@ -325,9 +326,18 @@ async def test_export_multi_scope_masked_csv_txt_and_preview(client):
     )
     assert csv_resp.status_code == 200
     assert "attachment" in csv_resp.headers["content-disposition"]
-    rows = list(csv.reader(io.StringIO(csv_resp.text)))
-    assert rows[0] == ["Package", "ID", "Status"]      # data column dropped by id_only
+    assert csv_resp.text.startswith("\ufeff")          # BOM so Excel reads UTF-8 headers
+    rows = list(csv.reader(io.StringIO(csv_resp.text.lstrip("\ufeff"))))
+    assert rows[0] == ["Variation", "ID", "Status"]    # data column dropped by id_only
     assert len(rows) == 1 + 3 + 5
+
+    vi_resp = await client.get(
+        f"/seller/inventory/export?variant_ids={f['variants']['uid']}&format=csv&columns=index,variant,status,data&locale=vi",
+        headers=h,
+    )
+    vi_rows = list(csv.reader(io.StringIO(vi_resp.text.lstrip("\ufeff"))))
+    assert vi_rows[0] == ["STT", "Phân loại", "Trạng thái", "Nội dung"]
+    assert [r[0] for r in vi_rows[1:]] == ["1", "2", "3", "4", "5"] and vi_rows[1][2] == "sẵn sàng"
 
     txt = await client.get(
         f"/seller/inventory/export?product_ids={f['products']['trust']}&format=txt&mask=edges&mask_char=*", headers=h,
@@ -362,6 +372,7 @@ async def test_report_groups_presets_and_csv(client):
     assert by_variant["packages"] == 4        # full, cookie, uid, gmail (paused product still in scope; old inactive)
     full = next(r for r in by_variant["rows"] if r["key"] == str(f["variants"]["full"]))
     assert full["label"] == "Full 2FA" and full["sublabel"] == "Facebook Clone"
+    assert full["product_title"] == "Facebook Clone" and full["category_name"] == "Facebook"
     assert full["added"] == 30 and full["sold"] == 7 and full["error"] == 2 and full["stock"] == 23
     assert full["prev"] == {"added": 0, "sold": 0, "error": 0, "expired": 0, "archived": 0, "stock": 23, "revenue": 0}
     assert by_variant["totals"]["sold"] == 7 and by_variant["prev_totals"]["sold"] == 0
@@ -370,6 +381,8 @@ async def test_report_groups_presets_and_csv(client):
 
     by_cat = (await client.get("/seller/inventory/report?range=this_year&group_by=category", headers=h)).json()
     assert {r["label"]: r["added"] for r in by_cat["rows"]} == {"Facebook": 38, "Email": 25}
+    by_product = (await client.get("/seller/inventory/report?range=this_year&group_by=product", headers=h)).json()
+    assert {r["label"]: r["category_name"] for r in by_product["rows"]} == {"Facebook Clone": "Facebook", "FB Trust": "Facebook", "Gmail US": "Email"}
     assert by_cat["range"]["key"] == "this_year"
 
     low_only = (await client.get("/seller/inventory/report?range=this_month&group_by=variant&low_only=true", headers=h)).json()

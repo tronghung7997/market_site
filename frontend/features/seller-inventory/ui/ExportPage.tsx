@@ -6,6 +6,7 @@ import { Link } from "@/i18n/navigation";
 import { api } from "@/lib/api";
 import { cn } from "@/lib/cn";
 import { useApiErrorMessage } from "@/lib/use-api-error";
+import { useDebounce } from "@/lib/hooks/useDebounce";
 import { useMoney } from "@/lib/money";
 import type {
   InventoryExportColumn, InventoryExportMask, InventoryExportParams, InventoryReportBasis, InventoryReportGroup,
@@ -15,10 +16,13 @@ import { browserTimeZone, DashboardRangePicker, formatIsoDate, percentDelta, typ
 import { Button, Card, Input, Select } from "@/components/ui";
 import { AlertCircle, BarChart, ChevronRight, Download, Eye, Info } from "@/components/Icons";
 import {
-  buildScopeTree, compactScope, DEFAULT_EXPORT_COLUMNS, DEFAULT_REPORT_METRICS, EXPORT_COLUMNS, EXPORT_MASKS, exportFileName,
-  localDayStart, maskSample, REPORT_GROUPS, REPORT_METRICS, RESOURCE_STATUSES, type ExportTab,
+  buildCsv, buildScopeTree, compactScope, DEFAULT_EXPORT_COLUMNS, DEFAULT_REPORT_METRICS, defaultReportColumns,
+  downloadTextFile, EXPORT_COLUMNS, EXPORT_MASKS, exportFileName, groupReportRows, isMetricColumn, localDayStart,
+  maskSample, REPORT_GROUPS, reportColumnsFor, reportGroupingsFor, RESOURCE_STATUSES,
+  type ExportTab, type ReportColumn, type ReportGrouping,
 } from "../model";
 import { useAllInventoryPackages, useInventoryExportPreview, useInventoryReport } from "../useInventory";
+import { ColumnPicker } from "./ColumnPicker";
 import { ScopeTree } from "./ScopeTree";
 
 export interface ExportPageParams {
@@ -57,14 +61,6 @@ function Seg<T extends string>({ value, options, onChange, label, render }: { va
         </button>
       ))}
     </div>
-  );
-}
-
-function Chip({ active, onClick, children }: { active: boolean; onClick: () => void; children: React.ReactNode }) {
-  return (
-    <button type="button" aria-pressed={active} onClick={onClick} className={cn("inline-flex items-center gap-1 rounded-md border px-2 py-1 text-[11.5px] font-medium transition-colors", active ? "border-iris/25 bg-iris-soft text-iris-hi" : "border-line-2 bg-surface text-muted hover:text-fg")}>
-      {children} <span className="text-[10px] opacity-70">{active ? "×" : "+"}</span>
-    </button>
   );
 }
 
@@ -172,8 +168,9 @@ function ReportTab({ scope, packages, threshold }: { scope: ReturnType<typeof co
   const { formatBrowseMoney } = useMoney();
   const [range, setRange] = useState<DashboardRangeParams>({ range: "this_month" });
   const [groupBy, setGroupBy] = useState<InventoryReportGroup>("variant");
+  const [grouping, setGrouping] = useState<ReportGrouping>("none");
   const [basis, setBasis] = useState<InventoryReportBasis>("created");
-  const [metrics, setMetrics] = useState<InventoryReportMetric[]>(DEFAULT_REPORT_METRICS);
+  const [columns, setColumns] = useState<ReportColumn[]>(() => defaultReportColumns("variant"));
   const [compare, setCompare] = useState(true);
   const [lowOnly, setLowOnly] = useState(false);
   const [hasError, setHasError] = useState(false);
@@ -186,12 +183,62 @@ function ReportTab({ scope, packages, threshold }: { scope: ReturnType<typeof co
   const query = useInventoryReport(reportParams);
   const timeGrouped = groupBy === "day" || groupBy === "week";
   const showPrev = compare && !timeGrouped && Boolean(query.data?.prev_totals);
+  const metrics = columns.filter(isMetricColumn);
+  const blocks = useMemo(() => groupReportRows(query.data?.rows ?? [], grouping), [query.data, grouping]);
+  const grouped = grouping !== "none";
 
-  const fmt = (metric: InventoryReportMetric, value: number) => metric === "revenue" ? formatBrowseMoney(value, { locale }) : value.toLocaleString(locale);
-  const rowLabel = (r: InventoryReportRow) => {
-    if (timeGrouped) return formatIsoDate(r.key, locale);
-    return r.label ?? r.key;
+  const changeGroupBy = (next: InventoryReportGroup) => {
+    setGroupBy(next);
+    setGrouping("none");
+    // Keep the seller's metric choice; swap the entity columns for the new grouping.
+    const keptMetrics = columns.filter(isMetricColumn);
+    const base = defaultReportColumns(next).filter((c) => !isMetricColumn(c));
+    setColumns([...base, ...(keptMetrics.length ? keptMetrics : DEFAULT_REPORT_METRICS)]);
   };
+
+  const columnLabel = (c: ReportColumn): string => {
+    if (c === "index") return t("columns.index");
+    if (c === "label") return t(`report.group.${groupBy}`);
+    if (c === "product") return t("report.group.product");
+    if (c === "category") return t("report.group.category");
+    return t(`report.metric.${c}`);
+  };
+  const fmt = (metric: InventoryReportMetric, value: number) => metric === "revenue" ? formatBrowseMoney(value, { locale }) : value.toLocaleString(locale);
+  const rowLabel = (r: InventoryReportRow) => (timeGrouped ? formatIsoDate(r.key, locale) : (r.label ?? r.key));
+  const cellText = (c: ReportColumn, r: InventoryReportRow, index: number): string | number => {
+    if (c === "index") return index;
+    if (c === "label") return rowLabel(r);
+    if (c === "product") return r.product_title ?? "";
+    if (c === "category") return r.category_name ?? "";
+    return r[c];
+  };
+
+  const downloadCsv = () => {
+    if (!query.data) return;
+    const header = columns.map(columnLabel);
+    if (showPrev) for (const m of metrics) header.push(t("report.prevColumn", { metric: t(`report.metric.${m}`) }));
+    const lines: (string | number | null)[][] = [header];
+    let index = 0;
+    const pushTotals = (label: string, totals: Record<InventoryReportMetric, number>, prev?: Record<InventoryReportMetric, number> | null) => {
+      const line = columns.map((c) => (c === "label" ? label : isMetricColumn(c) ? totals[c] : ""));
+      if (showPrev) for (const m of metrics) line.push(prev ? prev[m] : "");
+      lines.push(line);
+    };
+    for (const block of blocks) {
+      if (grouped) pushTotals(`▸ ${block.label} (${t("report.groupSize", { count: block.rows.length })})`, block.totals);
+      for (const r of block.rows) {
+        index += 1;
+        const line = columns.map((c) => cellText(c, r, index));
+        if (showPrev) for (const m of metrics) line.push(r.prev ? r.prev[m] : "");
+        lines.push(line);
+      }
+    }
+    pushTotals(t("report.total", { count: query.data.rows.length }), query.data.totals, query.data.prev_totals);
+    downloadTextFile(exportFileName("report", query.data.packages, query.data.range.from_date, query.data.range.to_date), buildCsv(lines));
+  };
+
+  const groupingOptions = reportGroupingsFor(groupBy);
+  let runningIndex = 0;
 
   return (
     <div className="space-y-4">
@@ -202,20 +249,18 @@ function ReportTab({ scope, packages, threshold }: { scope: ReturnType<typeof co
         <div className="grid gap-4 md:grid-cols-2">
           <div className="space-y-3">
             <Section label={t("report.groupBy")}>
-              <Seg value={groupBy} options={REPORT_GROUPS} onChange={setGroupBy} label={t("report.groupBy")} render={(g) => t(`report.group.${g}`)} />
+              <Seg value={groupBy} options={REPORT_GROUPS} onChange={changeGroupBy} label={t("report.groupBy")} render={(g) => t(`report.group.${g}`)} />
             </Section>
+            {groupingOptions.length > 1 && (
+              <Section label={t("report.subgroup")}>
+                <Seg value={grouping} options={groupingOptions} onChange={setGrouping} label={t("report.subgroup")} render={(g) => t(`report.subgroupOption.${g}`)} />
+              </Section>
+            )}
             {timeGrouped && (
               <Section label={t("report.basis")}>
                 <Seg value={basis} options={["created", "assigned"] as const} onChange={setBasis} label={t("report.basis")} render={(b) => t(`report.basisOption.${b}`)} />
               </Section>
             )}
-            <Section label={t("report.metrics")}>
-              <div className="flex flex-wrap gap-1.5">
-                {REPORT_METRICS.map((m) => (
-                  <Chip key={m} active={metrics.includes(m)} onClick={() => setMetrics((prev) => prev.includes(m) ? (prev.length > 1 ? prev.filter((x) => x !== m) : prev) : [...prev, m])}>{t(`report.metric.${m}`)}</Chip>
-                ))}
-              </div>
-            </Section>
           </div>
           <div className="space-y-3">
             <Section label={t("report.filters")}>
@@ -226,9 +271,19 @@ function ReportTab({ scope, packages, threshold }: { scope: ReturnType<typeof co
             </Section>
           </div>
         </div>
+        <Section label={t("report.columns")}>
+          <ColumnPicker
+            active={columns}
+            available={reportColumnsFor(groupBy)}
+            label={t("report.columns")}
+            render={columnLabel}
+            onChange={(next) => setColumns(next.some(isMetricColumn) ? next : columns)}
+            locked={["label"]}
+          />
+        </Section>
         <div className="flex flex-wrap items-center justify-between gap-2 border-t border-line pt-3">
           <span className="flex items-center gap-1.5 text-[12px] text-muted"><Info size={13} /> {t("report.noContentNote")}</span>
-          <Button size="sm" disabled={!reportParams} onClick={() => reportParams && downloadFile(api.inventoryReportCsvUrl(reportParams))} className="gap-1.5"><Download size={13} /> {t("report.download")}</Button>
+          <Button size="sm" disabled={!query.data || query.data.rows.length === 0} onClick={downloadCsv} className="gap-1.5"><Download size={13} /> {t("report.download")}</Button>
         </div>
       </Card>
 
@@ -247,46 +302,65 @@ function ReportTab({ scope, packages, threshold }: { scope: ReturnType<typeof co
           <div className="p-8 text-center text-[12.5px] text-bad">{apiErrorMessage(query.error, t("loadFailed"))}</div>
         ) : (
           <div className={cn("overflow-x-auto", query.isFetching && "opacity-70")}>
-            <table className="w-full min-w-[720px] table-fixed border-collapse text-left text-[12px]">
+            <table className="w-full table-fixed border-collapse text-left text-[12px]" style={{ minWidth: columns.reduce((w, c) => w + (c === "index" ? 52 : c === "label" ? 240 : isMetricColumn(c) ? 110 : 170), 0) }}>
               <thead>
                 <tr className="border-b border-line bg-raised/20 text-[11px] font-semibold uppercase tracking-wider text-faint">
-                  <th className="px-3 py-2.5">{t(`report.group.${groupBy}`)}</th>
-                  {!timeGrouped && groupBy !== "category" && <th className="w-[180px] px-3 py-2.5">{t(groupBy === "variant" ? "report.group.product" : "report.group.category")}</th>}
-                  {metrics.map((m) => <th key={m} className="w-[104px] px-3 py-2.5 text-right whitespace-nowrap">{t(`report.metric.${m}`)}</th>)}
+                  {columns.map((c) => (
+                    <th key={c} className={cn("px-3 py-2.5 whitespace-nowrap", c === "index" && "w-[52px]", c === "label" && "w-[240px]", isMetricColumn(c) && "w-[110px] text-right", (c === "product" || c === "category") && "w-[170px]")}>{columnLabel(c)}</th>
+                  ))}
                 </tr>
               </thead>
               <tbody className="divide-y divide-line">
                 {query.data.rows.length === 0 && (
-                  <tr><td colSpan={metrics.length + 2} className="px-3 py-8 text-center text-muted">{t("report.noRows")}</td></tr>
+                  <tr><td colSpan={columns.length} className="px-3 py-8 text-center text-muted">{t("report.noRows")}</td></tr>
                 )}
-                {query.data.rows.map((r) => (
-                  <tr key={r.key} className="hover:bg-raised/40">
-                    <td className="max-w-[320px] truncate px-3 py-2 font-medium text-fg" title={rowLabel(r)}>{rowLabel(r)}</td>
-                    {!timeGrouped && groupBy !== "category" && <td className="max-w-[200px] truncate px-3 py-2 text-muted" title={r.sublabel ?? undefined}>{r.sublabel ?? "—"}</td>}
-                    {metrics.map((m) => {
-                      const delta = showPrev && r.prev ? percentDelta(r[m], r.prev[m]) : null;
-                      return (
-                        <td key={m} className={cn("px-3 py-2 text-right font-mono tabular whitespace-nowrap", m === "error" && r[m] > 0 ? "text-warn" : "text-fg")}>
-                          {fmt(m, r[m])}
-                          {showPrev && r.prev && (
-                            <span className={cn("ml-1 text-[10.5px]", delta == null ? "text-faint" : delta >= 0 ? "text-good" : "text-bad")}>
-                              {delta == null ? (r.prev[m] === 0 && r[m] > 0 ? t("report.new") : "") : `${delta >= 0 ? "▲" : "▼"} ${Math.abs(delta)}%`}
-                            </span>
-                          )}
+                {blocks.flatMap((block) => [
+                  ...(grouped ? [(
+                    <tr key={`g-${block.key}`} className="bg-raised/60">
+                      {columns.map((c) => (
+                        <td key={c} className={cn("px-3 py-2 font-semibold text-fg whitespace-nowrap", isMetricColumn(c) && "text-right font-mono tabular")}>
+                          {c === "label" ? <>{block.label} <span className="font-normal text-faint">· {t("report.groupSize", { count: block.rows.length })}</span></> : isMetricColumn(c) ? fmt(c, block.totals[c]) : ""}
                         </td>
-                      );
-                    })}
-                  </tr>
-                ))}
+                      ))}
+                    </tr>
+                  )] : []),
+                  ...block.rows.map((r) => {
+                    runningIndex += 1;
+                    const index = runningIndex;
+                    return (
+                      <tr key={r.key} className="hover:bg-raised/40">
+                        {columns.map((c) => {
+                          if (isMetricColumn(c)) {
+                            const delta = showPrev && r.prev ? percentDelta(r[c], r.prev[c]) : null;
+                            return (
+                              <td key={c} className={cn("px-3 py-2 text-right font-mono tabular whitespace-nowrap", c === "error" && r[c] > 0 ? "text-warn" : "text-fg")}>
+                                {fmt(c, r[c])}
+                                {showPrev && r.prev && (
+                                  <span className={cn("ml-1 text-[10.5px]", delta == null ? "text-faint" : delta >= 0 ? "text-good" : "text-bad")}>
+                                    {delta == null ? (r.prev[c] === 0 && r[c] > 0 ? t("report.new") : "") : `${delta >= 0 ? "▲" : "▼"} ${Math.abs(delta)}%`}
+                                  </span>
+                                )}
+                              </td>
+                            );
+                          }
+                          const text = String(cellText(c, r, index));
+                          return (
+                            <td key={c} className={cn("truncate px-3 py-2", c === "index" ? "font-mono text-faint" : c === "label" ? "font-medium text-fg" : "text-muted", grouped && c === "label" && "pl-6")} title={text}>{text}</td>
+                          );
+                        })}
+                      </tr>
+                    );
+                  }),
+                ])}
               </tbody>
               {query.data.rows.length > 0 && (
                 <tfoot>
                   <tr className="border-t border-line bg-raised/40 font-semibold">
-                    <td className="px-3 py-2 text-fg" colSpan={!timeGrouped && groupBy !== "category" ? 2 : 1}>{t("report.total", { count: query.data.rows.length })}</td>
-                    {metrics.map((m) => (
-                      <td key={m} className="px-3 py-2 text-right font-mono tabular text-fg whitespace-nowrap">
-                        {fmt(m, query.data!.totals[m])}
-                        {showPrev && query.data!.prev_totals && <span className="ml-1 text-[10.5px] font-normal text-faint">/ {fmt(m, query.data!.prev_totals[m])}</span>}
+                    {columns.map((c) => (
+                      <td key={c} className={cn("px-3 py-2 text-fg whitespace-nowrap", isMetricColumn(c) && "text-right font-mono tabular")}>
+                        {c === "label" ? t("report.total", { count: query.data!.rows.length })
+                          : isMetricColumn(c) ? <>{fmt(c, query.data!.totals[c])}{showPrev && query.data!.prev_totals && <span className="ml-1 text-[10.5px] font-normal text-faint">/ {fmt(c, query.data!.prev_totals[c])}</span>}</>
+                          : ""}
                       </td>
                     ))}
                   </tr>
@@ -299,7 +373,6 @@ function ReportTab({ scope, packages, threshold }: { scope: ReturnType<typeof co
     </div>
   );
 }
-
 // ---------------------------------------------------------------------------
 // Goods tab
 // ---------------------------------------------------------------------------
@@ -344,11 +417,14 @@ function GoodsTab({ scope, packages, initialStatus, initialArchived }: {
   const created = goodsBounds(createdPreset, createdFrom, createdTo);
   const assigned = goodsBounds(assignedPreset, assignedFrom, assignedTo);
   const empty = packages.length === 0;
+  const exportColumns = mask === "id_only" ? columns.filter((c) => c !== "data") : columns;
   const exportParams: InventoryExportParams | null = empty ? null : {
     ...scope, statuses, includeArchived, createdFrom: created.from, createdTo: created.to, assignedFrom: assigned.from, assignedTo: assigned.to,
-    mask, maskChar, format, columns: format === "txt" ? undefined : columns,
+    mask, maskChar, format, columns: format === "txt" ? undefined : exportColumns, locale,
   };
-  const preview = useInventoryExportPreview(exportParams, 20);
+  // Debounced so a burst of column reorders costs one preview request, not one per click.
+  const debouncedParams = useDebounce(exportParams, 350);
+  const preview = useInventoryExportPreview(debouncedParams, 20);
   const sample = "clone.vn.2019.0412|Pw#4a8Lk!|GH5T-LQ2A-9F0K|mail4412@hotmail.com";
   const overLimit = preview.data ? preview.data.total > preview.data.row_limit : false;
 
@@ -402,13 +478,13 @@ function GoodsTab({ scope, packages, initialStatus, initialArchived }: {
             <Seg value={format} options={["txt", "csv"] as const} onChange={setFormat} label={t("goods.format")} render={(f) => t(`goods.formatOption.${f}`)} />
           </div>
           {format === "csv" && (
-            <div className="flex flex-wrap gap-1.5">
-              {EXPORT_COLUMNS.map((c) => (
-                <Chip key={c} active={columns.includes(c) && !(mask === "id_only" && c === "data")} onClick={() => { if (mask === "id_only" && c === "data") return; setColumns((prev) => prev.includes(c) ? (prev.length > 1 ? prev.filter((x) => x !== c) : prev) : [...prev, c]); }}>
-                  {t(`goods.column.${c}`)}
-                </Chip>
-              ))}
-            </div>
+            <ColumnPicker
+              active={exportColumns}
+              available={mask === "id_only" ? EXPORT_COLUMNS.filter((c) => c !== "data") : EXPORT_COLUMNS}
+              label={t("goods.formatColumns")}
+              render={(c) => t(`goods.column.${c}`)}
+              onChange={(next) => setColumns(next.length ? next : columns)}
+            />
           )}
         </Section>
 
@@ -449,7 +525,7 @@ function GoodsTab({ scope, packages, initialStatus, initialArchived }: {
             <table className="w-full border-collapse text-left text-[12px]">
               <thead>
                 <tr className="border-b border-line bg-raised/20 text-[11px] font-semibold uppercase tracking-wider text-faint">
-                  {preview.data.columns.map((c) => <th key={c} className="px-3 py-2 whitespace-nowrap">{t(`goods.column.${c}`)}</th>)}
+                  {preview.data.columns.map((c) => <th key={c} className="px-3 py-2 whitespace-nowrap">{preview.data!.headers[c] ?? t(`goods.column.${c}`)}</th>)}
                 </tr>
               </thead>
               <tbody className="divide-y divide-line">

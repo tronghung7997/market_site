@@ -32,15 +32,31 @@ PACKAGE_STOCK_TABS = ("all", "low", "out", "error", "inactive")
 RESOURCE_SORTS = ("newest", "oldest")
 EXPORT_MASKS = ("none", "middle", "edges", "id_only")
 EXPORT_COLUMNS = (
-    "category", "product", "variant", "id", "status", "data", "order",
+    "index", "category", "product", "variant", "id", "status", "data", "order",
     "created_at", "assigned_at", "expires_at", "price",
 )
 DEFAULT_EXPORT_COLUMNS = ("product", "variant", "id", "status", "data", "order", "created_at")
+# CSV headers follow the UI locale the seller is using, not the server's.
 EXPORT_HEADERS = {
-    "category": "Category", "product": "Product", "variant": "Package", "id": "ID",
-    "status": "Status", "data": "Data", "order": "Order", "created_at": "Created At",
-    "assigned_at": "Delivered At", "expires_at": "Expires At", "price": "Price",
+    "en": {
+        "index": "No.", "category": "Category", "product": "Product", "variant": "Variation", "id": "ID",
+        "status": "Status", "data": "Content", "order": "Order", "created_at": "Restocked at",
+        "assigned_at": "Delivered at", "expires_at": "Expires at", "price": "Price",
+    },
+    "vi": {
+        "index": "STT", "category": "Danh mục", "product": "Sản phẩm", "variant": "Phân loại", "id": "ID",
+        "status": "Trạng thái", "data": "Nội dung", "order": "Đơn hàng", "created_at": "Ngày nạp",
+        "assigned_at": "Ngày giao", "expires_at": "Hết hạn", "price": "Giá",
+    },
 }
+STATUS_LABELS = {
+    "en": {"available": "ready", "assigned": "sold", "error": "error", "expired": "expired", "archived": "hidden"},
+    "vi": {"available": "sẵn sàng", "assigned": "đã bán", "error": "lỗi", "expired": "hết hạn", "archived": "đã ẩn"},
+}
+
+
+def export_locale(raw: str | None) -> str:
+    return "vi" if (raw or "").lower().startswith("vi") else "en"
 REPORT_GROUPS = ("category", "product", "variant", "day", "week")
 REPORT_METRICS = ("added", "sold", "error", "expired", "archived", "stock", "revenue")
 REPORT_BASES = ("created", "assigned")
@@ -538,15 +554,20 @@ def _export_select():
     )
 
 
-def _export_row(row, columns: list[str], mask: str, mask_char: str) -> dict:
+def _export_row(row, columns: list[str], mask: str, mask_char: str, *, index: int = 0, locale: str = "en") -> dict:
     (rid, rstatus, data, order_id, created_at, assigned_at, expires_at, archived,
      vid, vname, price, pid, ptitle, cat_name) = row
+    labels = STATUS_LABELS[locale]
+    status_label = labels[rstatus.value]
+    if archived:
+        status_label = f"{labels['archived']} ({status_label})"
     values = {
+        "index": index,
         "category": cat_name,
         "product": f"{ptitle} (#{pid})",
         "variant": f"{vname} (#{vid})",
         "id": rid,
-        "status": ("archived:" if archived else "") + rstatus.value,
+        "status": status_label,
         "data": "" if mask == "id_only" else mask_data(data, mask, mask_char),
         "order": order_id or "",
         "created_at": created_at.isoformat() if created_at else "",
@@ -570,7 +591,7 @@ def normalize_columns(columns: list[str] | None, mask: str) -> list[str]:
 
 async def export_preview(
     seller_id: int, db: AsyncSession, *, variant_ids: list[int], limit: int,
-    columns: list[str], mask: str, mask_char: str, **resource_filters,
+    columns: list[str], mask: str, mask_char: str, locale: str = "en", **resource_filters,
 ) -> dict:
     row_limit = await get_export_row_limit(db)
     if not variant_ids:
@@ -581,24 +602,27 @@ async def export_preview(
         _export_select().where(*filters).order_by(Resource.variant_id, Resource.id).limit(limit)
     )).all()
     return {
-        "rows": [_export_row(r, columns, mask, mask_char) for r in rows],
+        "rows": [_export_row(r, columns, mask, mask_char, index=i, locale=locale) for i, r in enumerate(rows, start=1)],
         "total": total,
         "packages": len(variant_ids),
         "row_limit": row_limit,
         "columns": columns,
+        "headers": {c: EXPORT_HEADERS[locale][c] for c in columns},
     }
 
 
 async def export_stream(
     db: AsyncSession, *, variant_ids: list[int], fmt: str, columns: list[str],
-    mask: str, mask_char: str, row_limit: int, **resource_filters,
+    mask: str, mask_char: str, row_limit: int, locale: str = "en", **resource_filters,
 ) -> AsyncIterator[str]:
     filters = _resource_filters(variant_ids, **resource_filters) if variant_ids else [literal(False)]
 
     async def generate() -> AsyncIterator[str]:
         if fmt == "csv":
             out = io.StringIO()
-            csv.writer(out).writerow([EXPORT_HEADERS[c] for c in columns])
+            # UTF-8 BOM so Excel opens Vietnamese headers correctly.
+            out.write("\ufeff")
+            csv.writer(out).writerow([EXPORT_HEADERS[locale][c] for c in columns])
             yield out.getvalue()
         cursor = 0
         emitted = 0
@@ -610,14 +634,14 @@ async def export_stream(
             if not batch:
                 break
             for row in batch:
-                record = _export_row(row, columns, mask, mask_char)
+                emitted += 1
+                record = _export_row(row, columns, mask, mask_char, index=emitted, locale=locale)
                 if fmt == "txt":
                     yield f"{record.get('data', '')}\n"
                 else:
                     out = io.StringIO()
                     csv.writer(out).writerow([record[c] for c in columns])
                     yield out.getvalue()
-                emitted += 1
             cursor = batch[-1][0]
 
     return generate()
@@ -643,16 +667,20 @@ async def _report_entity_rows(
     if group_by == "category":
         key_cols = [Category.id, Category.name]
         select_cols = [Category.id, Category.name, cast(literal(None), String)]
+        ctx_cols = [cast(literal(None), String), cast(literal(None), String), Category.id, Category.name]
     elif group_by == "product":
-        key_cols = [Product.id, Product.title, Category.name]
-        select_cols = key_cols
+        key_cols = [Product.id, Product.title, Category.id, Category.name]
+        select_cols = [Product.id, Product.title, Category.name]
+        ctx_cols = [Product.id, Product.title, Category.id, Category.name]
     else:
-        key_cols = [ProductVariant.id, ProductVariant.name, Product.title]
-        select_cols = key_cols
+        key_cols = [ProductVariant.id, ProductVariant.name, Product.id, Product.title, Category.id, Category.name]
+        select_cols = [ProductVariant.id, ProductVariant.name, Product.title]
+        ctx_cols = [Product.id, Product.title, Category.id, Category.name]
     live = Resource.is_archived == False  # noqa: E712
     res_rows = (await db.execute(
         select(
             *select_cols,
+            *ctx_cols,
             func.count(Resource.id).filter(Resource.created_at >= start, Resource.created_at < end).label("added"),
             func.count(Resource.id).filter(Resource.assigned_at >= start, Resource.assigned_at < end).label("sold"),
             func.count(Resource.id).filter(
@@ -694,9 +722,10 @@ async def _report_entity_rows(
     )).all()
     revenue = {k: int(v) for k, v in rev_rows}
     out: dict[tuple, dict] = {}
-    for key_id, label, sublabel, added, sold, error, expired, archived, stock in res_rows:
+    for key_id, label, sublabel, pid, ptitle, cid, cname, added, sold, error, expired, archived, stock in res_rows:
         out[(key_id,)] = {
             "key": str(key_id), "label": label, "sublabel": sublabel,
+            "product_id": pid, "product_title": ptitle, "category_id": cid, "category_name": cname,
             "added": int(added), "sold": int(sold), "error": int(error), "expired": int(expired),
             "archived": int(archived), "stock": int(stock), "revenue": revenue.get(key_id, 0),
         }
@@ -743,6 +772,7 @@ async def _report_time_rows(
         r = by_day.get(cur)
         out[(cur,)] = {
             "key": cur.isoformat(), "label": cur.isoformat(), "sublabel": None,
+            "product_id": None, "product_title": None, "category_id": None, "category_name": None,
             "added": int(r[1]) if r else 0, "sold": int(r[2]) if r else 0,
             "error": int(r[3]) if r else 0, "expired": int(r[4]) if r else 0,
             "archived": int(r[5]) if r else 0, "stock": 0, "revenue": revenue.get(cur, 0),

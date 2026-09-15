@@ -222,7 +222,7 @@
     "product": "Sản phẩm",
     "category": "Danh mục",
     "status": "Trạng thái",
-    "variants": "Biến thể",
+    "variants": "Phân loại",
     "stock": "Tồn kho",
     "actions": "Thao tác",
     "viewPurchasePage": "Xem trang mua",
@@ -246,7 +246,7 @@
     "noMatchingProducts": "Không tìm thấy sản phẩm phù hợp",
     "clearFilters": "Xoá bộ lọc",
     "quickRestockTitle": "Nạp kho nhanh",
-    "selectVariant": "Chọn gói biến thể",
+    "selectVariant": "Chọn phân loại",
     "pasteResourcesHint": "Dán dữ liệu tài nguyên (mỗi dòng 1 item)",
     "uploadFile": "Hoặc tải lên file .txt / .csv",
     "recognizedLines": "Đã nhận diện {count} dòng",
@@ -258,7 +258,7 @@
     "allServiceTypes": "Tất cả dịch vụ",
     "downloadSampleTemplate": "Tải file mẫu (.txt / .csv)",
     "saveChanges": "Lưu thay đổi",
-    "variantName": "Tên gói biến thể",
+    "variantName": "Tên phân loại",
     "deliveryMode": "Chế độ giao hàng",
     "stockCurrent": "Tồn kho: {count} item",
     "orderCountShort": "{count} đơn",
@@ -308,12 +308,12 @@
     "productsPageStockCondition": "Tồn kho & tình trạng",
     "productsPageInventoryTitle": "Xem chi tiết và quản lý kho hàng cho sản phẩm này",
     "paginationProducts": "Hiển thị {from}–{to} trong tổng số {total} sản phẩm",
-    "variantsLoadFailed": "Không thể tải danh sách gói sản phẩm",
-    "variantRequired": "Vui lòng chọn gói biến thể",
+    "variantsLoadFailed": "Không thể tải danh sách phân loại",
+    "variantRequired": "Vui lòng chọn phân loại",
     "resourcesRequired": "Vui lòng nhập ít nhất 1 dòng tài nguyên hợp lệ",
-    "noVariantsForRestock": "Sản phẩm này chưa có gói biến thể nào để nạp kho.",
-    "variantsAvailable": "{count} gói có sẵn:",
-    "variantSelectionHint": "Bấm để chọn gói cần nạp",
+    "noVariantsForRestock": "Sản phẩm này chưa có phân loại nào để nạp kho.",
+    "variantsAvailable": "{count} phân loại có sẵn:",
+    "variantSelectionHint": "Bấm để chọn phân loại cần nạp",
     "stockOutCount": "Hết kho ({count})",
     "stockLowCount": "Sắp hết ({count})",
     "stockCountItems": "Tồn: {count} mục",
@@ -326,7 +326,7 @@
     "fromFile": "từ file {name}",
     "firstLineSample": "Mẫu dòng 1: {value}",
     "itemsCount": "{count} mục",
-    "packagesCount": "{count} gói",
+    "packagesCount": "{count} phân loại",
     "previous": "Trước",
     "next": "Sau",
     "editShort": "Sửa",
@@ -336,14 +336,14 @@
     "delete": "Xoá",
     "variantNamePlaceholder": "VD: Gói 1 tháng / ACC 2FA Live",
     "creating": "Đang tạo…",
-    "createVariant": "Tạo gói",
+    "createVariant": "Tạo phân loại",
     "orderAcceptFailed": "Không thể tiếp nhận đơn hàng",
     "ordersNoExport": "Không có đơn hàng nào để xuất.",
     "ordersTotalCount": "{count} đơn tổng cộng",
     "exportCsvPlain": "Xuất CSV",
     "ordersNoMatchHint": "Thử thay đổi từ khoá tìm kiếm hoặc chuyển tab bộ lọc.",
     "orderCode": "Mã đơn",
-    "productAndVariant": "Sản phẩm & gói biến thể",
+    "productAndVariant": "Sản phẩm & phân loại",
     "statusAndDispute": "Tình trạng / khiếu nại",
     "editProductTitle": "Chỉnh sửa sản phẩm",
     "editProductShort": "Sửa SP",
@@ -366,7 +366,7 @@
     "submittedResponse": "Giải trình bạn đã gửi:",
     "deliveryRequired": "Vui lòng nhập dữ liệu tài nguyên cần bàn giao",
     "deliveryFailed": "Không thể giao đơn hàng",
-    "variantLabel": "Gói biến thể:",
+    "variantLabel": "Phân loại:",
     "defaultVariant": "Mặc định",
     "deliveryRequirement": "Yêu cầu giao:",
     "bulkUpload": "Hỗ trợ nạp hàng loạt (1.000–5.000 dòng):",
@@ -385,7 +385,7 @@
     "buyerLabel": "Khách mua:",
     "totalPayment": "Tổng thanh toán:",
     "createdTime": "Thời gian tạo:",
-    "variantAndQuantity": "Gói & số lượng:",
+    "variantAndQuantity": "Phân loại & số lượng:",
     "escrowDuration": "Thời gian giữ tiền (Escrow):",
     "orderProgress": "Tiến độ đơn hàng:",
     "deliveredLines": "Dữ liệu đã bàn giao ({count} dòng):",
@@ -502,10 +502,10 @@
     "refundFailed": "Hoàn tiền cho các tài khoản đã chọn thất bại.",
     "replaceFailed": "Đổi các tài khoản đã chọn thất bại.",
     "inventoryOutOfStockTitle": "Kho đã hết hàng thay thế (0 có sẵn)",
-    "inventoryOutOfStockDesc": "Biến thể này hiện không còn tài khoản nào trong kho để cấp đổi cho khách. Hãy bấm Nhập hàng để bổ sung.",
+    "inventoryOutOfStockDesc": "Phân loại này hiện không còn tài khoản nào trong kho để cấp đổi cho khách. Hãy bấm Nhập hàng để bổ sung.",
     "inventoryLowStockTitle": "Kho không đủ số lượng (chỉ còn {available}/{need} acc)",
     "inventoryLowStockDesc": "Bạn đang chọn đổi cho {need} tài khoản nhưng trong kho chỉ còn {available} tài khoản.",
-    "restockThisVariant": "Nhập hàng biến thể này",
+    "restockThisVariant": "Nhập hàng phân loại này",
     "restockProduct": "Nhập hàng cho sản phẩm",
     "openInventory": "Mở kho hàng",
     "refreshStock": "Cập nhật kho",
@@ -903,8 +903,8 @@
     "serviceTypePayment": "Thanh toán",
     "serviceTypeTakedown": "Takedown",
     "serviceTypeOther": "Khác",
-    "selfServeHint": "Bạn tự thêm biến thể + giá + kho hàng ngay sau khi tạo.",
-    "adminSetupHint": "Loại này thường được vận hành qua nhà cung cấp do quản trị viên cấu hình, không dùng Biến thể. Sau khi tạo, vào tab \"Vận hành\" để xem sản phẩm đã sẵn sàng bán chưa.",
+    "selfServeHint": "Bạn tự thêm phân loại + giá + kho hàng ngay sau khi tạo.",
+    "adminSetupHint": "Loại này thường được vận hành qua nhà cung cấp do quản trị viên cấu hình, không dùng Phân loại. Sau khi tạo, vào tab \"Vận hành\" để xem sản phẩm đã sẵn sàng bán chưa.",
     "escrowDaysLabel": "Thời gian ký quỹ (ngày)",
     "highlightLabel": "Dòng nổi bật",
     "highlightHint": "Hiển thị trên ảnh sản phẩm",
@@ -923,10 +923,10 @@
     "createProduct": "Tạo sản phẩm",
     "createProductFailed": "Không thể tạo sản phẩm",
     "productFallback": "Sản phẩm #{id}",
-    "variantCount": "{count} biến thể",
+    "variantCount": "{count} phân loại",
     "viewLanguage": "Xem bản {language}",
     "editInfoTab": "Thông tin",
-    "variantsTab": "Biến thể",
+    "variantsTab": "Phân loại",
     "operationsTab": "Vận hành",
     "commonInfo": "Thông tin chung",
     "appliesAllLanguages": "Áp dụng cho mọi ngôn ngữ",
@@ -947,7 +947,7 @@
     "escrowLabel": "Ký quỹ",
     "customerContentHint": "Chỉ hiển thị cho khách đang xem bản {language}",
     "appliesBothLanguages": "Áp dụng cho cả bản VI và EN",
-    "adminEditHint": "Admin sửa nội dung/trạng thái trên sản phẩm của bất kỳ seller. Biến thể & kho vẫn do seller quản lý.",
+    "adminEditHint": "Admin sửa nội dung/trạng thái trên sản phẩm của bất kỳ seller. Phân loại & kho vẫn do seller quản lý.",
     "contentLanguageTitle": "Ngôn ngữ nội dung",
     "interfaceLanguage": "Giao diện: {language}",
     "editingLanguage": "Đang sửa: {language}",
@@ -973,7 +973,7 @@
     "previewFrom": "Từ",
     "previewEscrow": "Ký quỹ bảo vệ người mua · {days} ngày",
     "operationsConfig": "Cấu hình vận hành",
-    "operationsSummary": "Sản phẩm này dùng chiến lược giá {strategy} — không bán qua Biến thể. Bạn tự cấu hình giá ở tab Vận hành; nhà cung cấp do quản trị viên gán.",
+    "operationsSummary": "Sản phẩm này dùng chiến lược giá {strategy} — không bán qua Phân loại. Bạn tự cấu hình giá ở tab Vận hành; nhà cung cấp do quản trị viên gán.",
     "providerNotAssigned": "Chưa gắn nhà cung cấp",
     "notReadyToSell": "Chưa sẵn sàng bán",
     "setupIncomplete": "Cấu hình chưa hoàn tất — liên hệ quản trị viên.",
@@ -1003,7 +1003,7 @@
       "pipelineTitle": "Pipeline bàn giao",
       "strategyTitle": "Chiến lược giá",
       "paramsTitle": "Tham số chiến lược",
-      "fixedSummary": "Giá cố định theo biến thể — không cần cấu hình thêm.",
+      "fixedSummary": "Giá cố định theo phân loại — không cần cấu hình thêm.",
       "providerTitle": "Nhà cung cấp",
       "selectProvider": "Chọn nhà cung cấp",
       "selectYourProvider": "Chọn backend của bạn",
@@ -1032,7 +1032,7 @@
       "statsSuccess": "Tỷ lệ thành công",
       "statsDisputes": "Khiếu nại",
       "guideTitle": "Hướng dẫn",
-      "guideFixed": "Khi khách mua, hệ thống sẽ lấy giá từ biến thể, trừ tiền ví và giao hàng tự động.",
+      "guideFixed": "Khi khách mua, hệ thống sẽ lấy giá từ phân loại, trừ tiền ví và giao hàng tự động.",
       "guideConfig": "Khi khách mua, hệ thống sẽ tính giá theo tuỳ chọn khách chọn, trừ tiền ví và giao hàng tự động.",
       "guideCredit": "Khi khách mua gói credit, hệ thống sẽ cấp API key và tự trừ credit theo từng request.",
       "guideTask": "Khi khách đặt tác vụ, đội vận hành sẽ xử lý thủ công và giao kết quả.",
@@ -1040,7 +1040,7 @@
       "strategy": {
         "fixed": {
           "label": "Cố định",
-          "description": "Giá đặt trên từng biến thể — khách chọn biến thể và số lượng.",
+          "description": "Giá đặt trên từng phân loại — khách chọn phân loại và số lượng.",
           "formula": "Giá = variant.price × số lượng"
         },
         "config": {
@@ -1120,7 +1120,7 @@
         }
       },
       "guide": {
-        "fixed": "Khi khách mua, hệ thống sẽ lấy giá từ biến thể, trừ tiền ví và giao hàng tự động.",
+        "fixed": "Khi khách mua, hệ thống sẽ lấy giá từ phân loại, trừ tiền ví và giao hàng tự động.",
         "config": "Khi khách mua, hệ thống sẽ tính giá theo tuỳ chọn khách chọn, trừ tiền ví và giao hàng tự động.",
         "credit": "Khi khách mua gói credit, hệ thống sẽ cấp API key và tự trừ credit theo từng request.",
         "task": "Khi khách đặt tác vụ, đội vận hành sẽ xử lý thủ công và giao kết quả."
@@ -1359,7 +1359,7 @@
   },
   "sellerInventory": {
     "title": "Kho hàng",
-    "subtitle": "{packages} gói · {products} sản phẩm · {available} tài nguyên sẵn sàng · ngưỡng sắp hết ≤ {threshold}",
+    "subtitle": "{packages} phân loại · {products} sản phẩm · {available} tài nguyên sẵn sàng · ngưỡng sắp hết ≤ {threshold}",
     "loadFailed": "Không tải được kho hàng",
     "retry": "Thử lại",
     "refresh": "Làm mới",
@@ -1371,13 +1371,13 @@
       "export": "Xuất hàng"
     },
     "empty": {
-      "title": "Chưa có gói nào quản lý kho",
-      "hint": "Kho hàng chỉ theo dõi gói giao tự động của sản phẩm giá cố định. Tạo sản phẩm và thêm gói để bắt đầu nạp hàng.",
+      "title": "Chưa có phân loại nào quản lý kho",
+      "hint": "Kho hàng chỉ theo dõi phân loại giao tự động của sản phẩm giá cố định. Tạo sản phẩm và thêm phân loại để bắt đầu nạp hàng.",
       "cta": "Tạo sản phẩm"
     },
     "noMatch": {
-      "title": "Không có gói nào khớp bộ lọc",
-      "hint": "Thử bỏ bớt bộ lọc hoặc bật hiện gói ngừng bán."
+      "title": "Không có phân loại nào khớp bộ lọc",
+      "hint": "Thử bỏ bớt bộ lọc hoặc bật hiện phân loại ngừng bán."
     },
     "strip": {
       "label": "Tổng hợp kho",
@@ -1388,14 +1388,14 @@
       "out": "Hết hàng",
       "outHint": "cần nạp ngay",
       "error": "Có lỗi",
-      "errorHint": "gói có tài nguyên thu hồi",
+      "errorHint": "phân loại có tài nguyên thu hồi",
       "inactive": "Ngừng bán",
-      "inactiveHint": "gói đã tắt bán",
+      "inactiveHint": "phân loại đã tắt bán",
       "sold": "Đã bán",
       "soldHint": "30 ngày qua"
     },
     "filters": {
-      "searchPlaceholder": "Tìm sản phẩm, gói hoặc #id…",
+      "searchPlaceholder": "Tìm sản phẩm, phân loại hoặc #id…",
       "category": "Danh mục",
       "allCategories": "Tất cả danh mục",
       "productStatus": "Trạng thái sản phẩm",
@@ -1406,7 +1406,7 @@
       },
       "sort": "Sắp xếp",
       "groupByProduct": "Gộp theo sản phẩm",
-      "hideInactive": "Ẩn gói ngừng bán"
+      "hideInactive": "Ẩn phân loại ngừng bán"
     },
     "sort": {
       "available_asc": "Sẵn sàng ít nhất",
@@ -1423,26 +1423,26 @@
       "out": "Hết"
     },
     "table": {
-      "colPackage": "Sản phẩm / Gói",
+      "colPackage": "Sản phẩm / Phân loại",
       "colPrice": "Giá",
       "colAvailable": "Sẵn sàng",
       "colSold": "Đã bán 30n",
       "colError": "Lỗi",
       "colLastRestock": "Nạp gần nhất",
       "colStatus": "Trạng thái",
-      "selectAll": "Chọn tất cả gói trên trang",
-      "selectRow": "Chọn gói {name}",
-      "selectGroup": "Chọn mọi gói của {name}",
+      "selectAll": "Chọn tất cả phân loại trên trang",
+      "selectRow": "Chọn phân loại {name}",
+      "selectGroup": "Chọn mọi phân loại của {name}",
       "collapse": "Thu gọn",
       "expand": "Mở rộng",
       "autoDelivery": "giao tự động",
-      "packagesCount": "{count} gói",
+      "packagesCount": "{count} phân loại",
       "editProduct": "Sửa SP",
       "restock": "Nạp",
       "open": "Mở"
     },
     "bulk": {
-      "selected": "Đã chọn {count} gói",
+      "selected": "Đã chọn {count} phân loại",
       "export": "Xuất hàng",
       "report": "Báo cáo",
       "deactivate": "Ngừng bán",
@@ -1463,25 +1463,25 @@
       "confirmRestoreHint": "Dòng sẵn sàng sẽ quay lại bán ngay."
     },
     "notice": {
-      "activated": "Đã bật bán {count} gói",
-      "deactivated": "Đã ngừng bán {count} gói",
-      "skipped": "{count} gói bị bỏ qua",
-      "bulkFailed": "Không cập nhật được trạng thái gói"
+      "activated": "Đã bật bán {count} phân loại",
+      "deactivated": "Đã ngừng bán {count} phân loại",
+      "skipped": "{count} phân loại bị bỏ qua",
+      "bulkFailed": "Không cập nhật được trạng thái phân loại"
     },
     "pager": {
       "products": "Sản phẩm {from}–{to} / {total}",
-      "packages": "Gói {from}–{to} / {total}",
-      "inactiveHidden": "{count} gói ngừng bán đang ẩn · hiện",
-      "inactiveShown": "{count} gói ngừng bán đang hiện (mờ) · ẩn"
+      "packages": "Phân loại {from}–{to} / {total}",
+      "inactiveHidden": "{count} phân loại ngừng bán đang ẩn · hiện",
+      "inactiveShown": "{count} phân loại ngừng bán đang hiện (mờ) · ẩn"
     },
     "package": {
-      "loadFailed": "Không tải được gói",
+      "loadFailed": "Không tải được phân loại",
       "backToInventory": "Về kho hàng",
-      "idLabel": "gói #{id}",
+      "idLabel": "phân loại #{id}",
       "selling": "Đang bán",
       "notSelling": "Ngừng bán",
-      "activated": "Gói đã bật bán",
-      "deactivated": "Gói đã ngừng bán — vẫn giữ tài nguyên và lịch sử",
+      "activated": "Phân loại đã bật bán",
+      "deactivated": "Phân loại đã ngừng bán — vẫn giữ tài nguyên và lịch sử",
       "editProduct": "Sửa SP",
       "viewStore": "Trang mua",
       "export": "Xuất",
@@ -1497,22 +1497,22 @@
       }
     },
     "switcher": {
-      "prev": "Gói trước",
-      "next": "Gói sau",
-      "position": "{index} / {total} gói",
-      "searchPlaceholder": "Tìm gói trong mọi sản phẩm…",
+      "prev": "Phân loại trước",
+      "next": "Phân loại sau",
+      "position": "{index} / {total} phân loại",
+      "searchPlaceholder": "Tìm phân loại trong mọi sản phẩm…",
       "sameProduct": "Cùng sản phẩm · {product}",
       "recent": "Mở gần đây",
-      "loading": "Đang tải danh sách gói…",
-      "noMatch": "Không tìm thấy gói"
+      "loading": "Đang tải danh sách phân loại…",
+      "noMatch": "Không tìm thấy phân loại"
     },
     "restock": {
-      "title": "Nạp hàng vào gói",
+      "title": "Nạp hàng vào phân loại",
       "template": "File mẫu",
       "upload": "Tải file .txt / .csv",
       "close": "Đóng",
       "rule": "Mỗi dòng là 1 tài nguyên bàn giao, ví dụ",
-      "expectedFields": "gói này thường có {count} trường",
+      "expectedFields": "phân loại này thường có {count} trường",
       "placeholder": "Mỗi dòng một tài nguyên\nuser1|pass1|2fa\nuser2|pass2|2fa\nLICENSE-KEY-03",
       "stat": {
         "recognized": "Nhận diện",
@@ -1522,7 +1522,7 @@
         "skipped": "bỏ qua",
         "lines": "dòng {lines}"
       },
-      "malformedHint": "Gói này dùng {expected} trường ngăn bằng | — {count} dòng có số trường khác. Vẫn nạp được, nhưng nên kiểm tra lại.",
+      "malformedHint": "Phân loại này dùng {expected} trường ngăn bằng | — {count} dòng có số trường khác. Vẫn nạp được, nhưng nên kiểm tra lại.",
       "tooMany": "Tối đa {max} dòng mỗi lần nạp — hãy tách file.",
       "dedupe": "Dòng trùng trong file hoặc đã có trong kho sẽ tự bỏ qua.",
       "cancel": "Huỷ",
@@ -1587,7 +1587,7 @@
       "copyFailed": "Không sao chép được",
       "loadFailed": "Không tải được tài nguyên",
       "empty": "Không có dòng nào",
-      "emptyHint": "Đổi bộ lọc hoặc nạp thêm hàng vào gói.",
+      "emptyHint": "Đổi bộ lọc hoặc nạp thêm hàng vào phân loại.",
       "pager": "Hiển thị {from}–{to} / {total} dòng",
       "pagerEmpty": "0 dòng",
       "jumpTo": "Đến trang",
@@ -1624,18 +1624,18 @@
         "report": "Báo cáo tồn kho",
         "goods": "Xuất hàng"
       },
-      "noScope": "Chọn ít nhất một gói ở cột Phạm vi."
+      "noScope": "Chọn ít nhất một phân loại ở cột Phạm vi."
     },
     "scope": {
       "title": "Phạm vi",
-      "total": "{count} gói",
-      "searchPlaceholder": "Tìm danh mục, sản phẩm, gói…",
-      "selected": "Đã chọn: {categories} danh mục · {products} sản phẩm · {packages} gói",
+      "total": "{count} phân loại",
+      "searchPlaceholder": "Tìm danh mục, sản phẩm, phân loại…",
+      "selected": "Đã chọn: {categories} danh mục · {products} sản phẩm · {packages} phân loại",
       "selectAll": "Chọn tất cả",
       "clear": "Bỏ chọn",
-      "includeInactive": "Gồm cả gói ngừng bán",
-      "noMatch": "Không có gói nào khớp",
-      "catCount": "{products} SP · {packages} gói"
+      "includeInactive": "Gồm cả phân loại ngừng bán",
+      "noMatch": "Không có phân loại nào khớp",
+      "catCount": "{products} SP · {packages} phân loại"
     },
     "report": {
       "time": "Thời gian",
@@ -1643,7 +1643,7 @@
       "group": {
         "category": "Danh mục",
         "product": "Sản phẩm",
-        "variant": "Gói",
+        "variant": "Phân loại",
         "day": "Ngày",
         "week": "Tuần"
       },
@@ -1664,17 +1664,26 @@
       },
       "filters": "Bộ lọc riêng",
       "compare": "So với kỳ trước",
-      "lowOnly": "Chỉ gói sắp hết / hết hàng (≤ {threshold})",
+      "lowOnly": "Chỉ phân loại sắp hết / hết hàng (≤ {threshold})",
       "hasError": "Có tài nguyên lỗi trong kỳ",
       "noActivity": "Không phát sinh giao dịch trong kỳ",
       "noActivityHint": "(hàng tồn đọng)",
       "noContentNote": "Báo cáo chỉ gồm số liệu tổng hợp — không chứa nội dung tài nguyên.",
       "download": "Tải CSV",
       "preview": "Xem trước",
-      "previewTitle": "Xem trước · {packages} gói · {from} → {to}",
+      "previewTitle": "Xem trước · {packages} phân loại · {from} → {to}",
       "noRows": "Không có dòng nào khớp bộ lọc trong kỳ này.",
       "total": "Tổng · {count} dòng",
-      "new": "mới"
+      "new": "mới",
+      "columns": "Cột & thứ tự",
+      "subgroup": "Gộp theo",
+      "subgroupOption": {
+        "none": "Không gộp",
+        "product": "Sản phẩm",
+        "category": "Danh mục"
+      },
+      "groupSize": "{count} dòng",
+      "prevColumn": "{metric} (kỳ trước)"
     },
     "goods": {
       "statuses": "Trạng thái tài nguyên",
@@ -1707,7 +1716,7 @@
       "column": {
         "category": "Danh mục",
         "product": "Sản phẩm",
-        "variant": "Gói",
+        "variant": "Phân loại",
         "id": "ID",
         "status": "Trạng thái",
         "data": "Nội dung",
@@ -1715,10 +1724,11 @@
         "created_at": "Ngày nạp",
         "assigned_at": "Ngày giao",
         "expires_at": "Hết hạn",
-        "price": "Giá"
+        "price": "Giá",
+        "index": "STT"
       },
       "rows": "dòng",
-      "packages": "{count} gói",
+      "packages": "{count} phân loại",
       "limit": "giới hạn {limit} dòng/lần",
       "estimating": "Đang ước lượng…",
       "download": "Xuất file",
@@ -1726,6 +1736,14 @@
       "pickStatus": "Chọn ít nhất một trạng thái.",
       "previewTitle": "Xem trước 20 dòng đầu",
       "previewEmpty": "Không có dòng nào khớp."
+    },
+    "columns": {
+      "index": "STT",
+      "hint": "Kéo thả hoặc dùng ‹ › để đổi thứ tự cột; bấm × để bỏ, + để thêm.",
+      "moveLeft": "Đưa cột {column} sang trái",
+      "moveRight": "Đưa cột {column} sang phải",
+      "remove": "Bỏ cột {column}",
+      "add": "Thêm cột {column}"
     }
   },
   "errors": {
@@ -3213,7 +3231,7 @@
   },
   "adminSellerConfig": {
     "thresholdTitle": "Ngưỡng sắp hết hàng",
-    "thresholdHint": "Gói có số tài nguyên sẵn sàng ≤ ngưỡng này được gắn nhãn \"Sắp hết\". Áp dụng chung cho trang Sản phẩm, Kho hàng, việc cần làm trên Tổng quan của seller.",
+    "thresholdHint": "Phân loại có số tài nguyên sẵn sàng ≤ ngưỡng này được gắn nhãn \"Sắp hết\". Áp dụng chung cho trang Sản phẩm, Kho hàng, việc cần làm trên Tổng quan của seller.",
     "thresholdLabel": "Số tài nguyên",
     "thresholdRange": "{min} – {max} · mặc định {fallback}",
     "limitTitle": "Giới hạn xuất kho mỗi lần",

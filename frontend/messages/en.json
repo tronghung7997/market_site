@@ -1359,7 +1359,7 @@
   },
   "sellerInventory": {
     "title": "Inventory",
-    "subtitle": "{packages} packages · {products} products · {available} units ready · low stock ≤ {threshold}",
+    "subtitle": "{packages} variations · {products} products · {available} units ready · low stock ≤ {threshold}",
     "loadFailed": "Could not load inventory",
     "retry": "Retry",
     "refresh": "Refresh",
@@ -1371,13 +1371,13 @@
       "export": "Export stock"
     },
     "empty": {
-      "title": "No inventory-managed packages yet",
-      "hint": "Inventory only tracks auto-delivery packages of fixed-price products. Create a product and add a package to start stocking.",
+      "title": "No inventory-managed variations yet",
+      "hint": "Inventory only tracks auto-delivery variations of fixed-price products. Create a product and add a variation to start stocking.",
       "cta": "Create product"
     },
     "noMatch": {
-      "title": "No packages match these filters",
-      "hint": "Loosen the filters or show inactive packages."
+      "title": "No variations match these filters",
+      "hint": "Loosen the filters or show inactive variations."
     },
     "strip": {
       "label": "Inventory summary",
@@ -1388,14 +1388,14 @@
       "out": "Out of stock",
       "outHint": "restock now",
       "error": "With errors",
-      "errorHint": "packages holding returned units",
+      "errorHint": "variations holding returned units",
       "inactive": "Not selling",
-      "inactiveHint": "packages switched off",
+      "inactiveHint": "variations switched off",
       "sold": "Sold",
       "soldHint": "last 30 days"
     },
     "filters": {
-      "searchPlaceholder": "Search product, package or #id…",
+      "searchPlaceholder": "Search product, variation or #id…",
       "category": "Category",
       "allCategories": "All categories",
       "productStatus": "Product status",
@@ -1406,7 +1406,7 @@
       },
       "sort": "Sort",
       "groupByProduct": "Group by product",
-      "hideInactive": "Hide inactive packages"
+      "hideInactive": "Hide inactive variations"
     },
     "sort": {
       "available_asc": "Fewest ready first",
@@ -1423,26 +1423,26 @@
       "out": "Out"
     },
     "table": {
-      "colPackage": "Product / Package",
+      "colPackage": "Product / Variation",
       "colPrice": "Price",
       "colAvailable": "Ready",
       "colSold": "Sold 30d",
       "colError": "Errors",
       "colLastRestock": "Last restock",
       "colStatus": "Status",
-      "selectAll": "Select every package on this page",
-      "selectRow": "Select package {name}",
-      "selectGroup": "Select every package of {name}",
+      "selectAll": "Select every variation on this page",
+      "selectRow": "Select variation {name}",
+      "selectGroup": "Select every variation of {name}",
       "collapse": "Collapse",
       "expand": "Expand",
       "autoDelivery": "auto delivery",
-      "packagesCount": "{count} packages",
+      "packagesCount": "{count} variations",
       "editProduct": "Edit product",
       "restock": "Restock",
       "open": "Open"
     },
     "bulk": {
-      "selected": "{count} packages selected",
+      "selected": "{count} variations selected",
       "export": "Export stock",
       "report": "Report",
       "deactivate": "Stop selling",
@@ -1463,25 +1463,25 @@
       "confirmRestoreHint": "Ready rows go back on sale immediately."
     },
     "notice": {
-      "activated": "{count} packages now selling",
-      "deactivated": "{count} packages stopped selling",
-      "skipped": "{count} packages skipped",
-      "bulkFailed": "Could not update package status"
+      "activated": "{count} variations now selling",
+      "deactivated": "{count} variations stopped selling",
+      "skipped": "{count} variations skipped",
+      "bulkFailed": "Could not update variation status"
     },
     "pager": {
       "products": "Products {from}–{to} of {total}",
-      "packages": "Packages {from}–{to} of {total}",
-      "inactiveHidden": "{count} inactive packages hidden · show",
-      "inactiveShown": "{count} inactive packages shown (dimmed) · hide"
+      "packages": "Variations {from}–{to} of {total}",
+      "inactiveHidden": "{count} inactive variations hidden · show",
+      "inactiveShown": "{count} inactive variations shown (dimmed) · hide"
     },
     "package": {
-      "loadFailed": "Could not load package",
+      "loadFailed": "Could not load variation",
       "backToInventory": "Back to inventory",
-      "idLabel": "package #{id}",
+      "idLabel": "variation #{id}",
       "selling": "Selling",
       "notSelling": "Not selling",
-      "activated": "Package is selling again",
-      "deactivated": "Package stopped selling — stock and history are kept",
+      "activated": "Variation is selling again",
+      "deactivated": "Variation stopped selling — stock and history are kept",
       "editProduct": "Edit product",
       "viewStore": "Store page",
       "export": "Export",
@@ -1497,22 +1497,22 @@
       }
     },
     "switcher": {
-      "prev": "Previous package",
-      "next": "Next package",
-      "position": "{index} / {total} packages",
-      "searchPlaceholder": "Search packages across every product…",
+      "prev": "Previous variation",
+      "next": "Next variation",
+      "position": "{index} / {total} variations",
+      "searchPlaceholder": "Search variations across every product…",
       "sameProduct": "Same product · {product}",
       "recent": "Recently opened",
-      "loading": "Loading packages…",
-      "noMatch": "No package found"
+      "loading": "Loading variations…",
+      "noMatch": "No variation found"
     },
     "restock": {
-      "title": "Restock package",
+      "title": "Restock variation",
       "template": "Template",
       "upload": "Upload .txt / .csv",
       "close": "Close",
       "rule": "One line per delivered unit, e.g.",
-      "expectedFields": "this package usually has {count} fields",
+      "expectedFields": "this variation usually has {count} fields",
       "placeholder": "One unit per line\nuser1|pass1|2fa\nuser2|pass2|2fa\nLICENSE-KEY-03",
       "stat": {
         "recognized": "Recognized",
@@ -1522,7 +1522,7 @@
         "skipped": "skipped",
         "lines": "lines {lines}"
       },
-      "malformedHint": "This package uses {expected} |-separated fields — {count} lines differ. They can still be added, but double-check them.",
+      "malformedHint": "This variation uses {expected} |-separated fields — {count} lines differ. They can still be added, but double-check them.",
       "tooMany": "At most {max} lines per restock — split the file.",
       "dedupe": "Duplicate lines and units already in stock are skipped automatically.",
       "cancel": "Cancel",
@@ -1587,7 +1587,7 @@
       "copyFailed": "Could not copy",
       "loadFailed": "Could not load units",
       "empty": "No rows",
-      "emptyHint": "Change the filters or restock the package.",
+      "emptyHint": "Change the filters or restock the variation.",
       "pager": "Showing {from}–{to} of {total} rows",
       "pagerEmpty": "0 rows",
       "jumpTo": "Go to page",
@@ -1624,18 +1624,18 @@
         "report": "Stock report",
         "goods": "Export stock"
       },
-      "noScope": "Pick at least one package in the Scope column."
+      "noScope": "Pick at least one variation in the Scope column."
     },
     "scope": {
       "title": "Scope",
-      "total": "{count} packages",
-      "searchPlaceholder": "Search category, product, package…",
-      "selected": "Selected: {categories} categories · {products} products · {packages} packages",
+      "total": "{count} variations",
+      "searchPlaceholder": "Search category, product, variation…",
+      "selected": "Selected: {categories} categories · {products} products · {packages} variations",
       "selectAll": "Select all",
       "clear": "Clear",
-      "includeInactive": "Include inactive packages",
-      "noMatch": "No package matches",
-      "catCount": "{products} products · {packages} packages"
+      "includeInactive": "Include inactive variations",
+      "noMatch": "No variation matches",
+      "catCount": "{products} products · {packages} variations"
     },
     "report": {
       "time": "Period",
@@ -1643,7 +1643,7 @@
       "group": {
         "category": "Category",
         "product": "Product",
-        "variant": "Package",
+        "variant": "Variation",
         "day": "Day",
         "week": "Week"
       },
@@ -1664,17 +1664,26 @@
       },
       "filters": "Extra filters",
       "compare": "Compare with previous period",
-      "lowOnly": "Only low / out-of-stock packages (≤ {threshold})",
+      "lowOnly": "Only low / out-of-stock variations (≤ {threshold})",
       "hasError": "Had returned units in the period",
       "noActivity": "No movement in the period",
       "noActivityHint": "(dead stock)",
       "noContentNote": "Reports contain aggregates only — never unit content.",
       "download": "Download CSV",
       "preview": "Preview",
-      "previewTitle": "Preview · {packages} packages · {from} → {to}",
+      "previewTitle": "Preview · {packages} variations · {from} → {to}",
       "noRows": "No rows match the filters in this period.",
       "total": "Total · {count} rows",
-      "new": "new"
+      "new": "new",
+      "columns": "Columns & order",
+      "subgroup": "Group by",
+      "subgroupOption": {
+        "none": "No grouping",
+        "product": "Product",
+        "category": "Category"
+      },
+      "groupSize": "{count} rows",
+      "prevColumn": "{metric} (previous)"
     },
     "goods": {
       "statuses": "Unit status",
@@ -1707,7 +1716,7 @@
       "column": {
         "category": "Category",
         "product": "Product",
-        "variant": "Package",
+        "variant": "Variation",
         "id": "ID",
         "status": "Status",
         "data": "Content",
@@ -1715,10 +1724,11 @@
         "created_at": "Restocked",
         "assigned_at": "Delivered",
         "expires_at": "Expires",
-        "price": "Price"
+        "price": "Price",
+        "index": "No."
       },
       "rows": "rows",
-      "packages": "{count} packages",
+      "packages": "{count} variations",
       "limit": "limit {limit} rows per export",
       "estimating": "Estimating…",
       "download": "Export file",
@@ -1726,6 +1736,14 @@
       "pickStatus": "Pick at least one status.",
       "previewTitle": "Preview · first 20 rows",
       "previewEmpty": "No rows match."
+    },
+    "columns": {
+      "index": "No.",
+      "hint": "Drag and drop or use ‹ › to reorder columns; × removes, + adds.",
+      "moveLeft": "Move {column} left",
+      "moveRight": "Move {column} right",
+      "remove": "Remove {column}",
+      "add": "Add {column}"
     }
   },
   "errors": {
@@ -3213,7 +3231,7 @@
   },
   "adminSellerConfig": {
     "thresholdTitle": "Low-stock threshold",
-    "thresholdHint": "A package with ready units ≤ this number is labelled \"Low stock\". Shared by the seller Products page, Inventory page and the overview action strip.",
+    "thresholdHint": "A variation with ready units ≤ this number is labelled \"Low stock\". Shared by the seller Products page, Inventory page and the overview action strip.",
     "thresholdLabel": "Units",
     "thresholdRange": "{min} – {max} · default {fallback}",
     "limitTitle": "Export row limit",

@@ -1214,7 +1214,7 @@ export interface BulkResourceActionInput {
 
 export type InventoryExportMask = "none" | "middle" | "edges" | "id_only";
 export type InventoryExportColumn =
-  | "category" | "product" | "variant" | "id" | "status" | "data" | "order"
+  | "index" | "category" | "product" | "variant" | "id" | "status" | "data" | "order"
   | "created_at" | "assigned_at" | "expires_at" | "price";
 export type InventoryResourceStatus = "available" | "assigned" | "error" | "expired";
 
@@ -1236,6 +1236,8 @@ export interface InventoryExportParams extends InventoryScope {
   maskChar?: string;
   format?: "csv" | "txt";
   columns?: InventoryExportColumn[];
+  /** UI locale — drives CSV header language server-side. */
+  locale?: string;
 }
 
 export interface InventoryExportPreview {
@@ -1244,6 +1246,7 @@ export interface InventoryExportPreview {
   packages: number;
   row_limit: number;
   columns: InventoryExportColumn[];
+  headers: Record<InventoryExportColumn, string>;
 }
 
 export type InventoryReportGroup = "category" | "product" | "variant" | "day" | "week";
@@ -1267,6 +1270,10 @@ export interface InventoryReportRow {
   key: string;
   label: string | null;
   sublabel: string | null;
+  product_id: number | null;
+  product_title: string | null;
+  category_id: number | null;
+  category_name: string | null;
   added: number;
   sold: number;
   error: number;

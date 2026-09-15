@@ -4,6 +4,7 @@ import type {
   AdminReviewList,
   SellerReview,
   SellerReviewList,
+  PublicReviewList,
 } from "./types";
 import type { PaginatedDisputes } from "./types";
 import type { PaginatedAdminProducts, PaginatedInventoryVariants, PaginatedSellerProducts } from "./types";
@@ -504,7 +505,7 @@ export const api = {
     return `/api/seller/inventory/report?${q}`;
   },
   adminSellerConfig: () => request<SellerRuntimeConfig>("/admin/seller-config", {}, true),
-  updateAdminSellerConfig: (body: { low_stock_threshold?: number; inventory_export_row_limit?: number }) =>
+  updateAdminSellerConfig: (body: Partial<Pick<SellerRuntimeConfig, "low_stock_threshold" | "inventory_export_row_limit" | "review_window_days" | "auto_review_days" | "auto_review_enabled">>) =>
     request<SellerRuntimeConfig>("/admin/seller-config", { method: "PATCH", body: JSON.stringify(body) }, true),
   deleteResource: (resourceId: number) =>
     request<void>(`/seller/resources/${resourceId}`, { method: "DELETE" }, true),
@@ -758,8 +759,10 @@ export const api = {
 
   submitReview: (orderId: number, rating: number, comment?: string) =>
     request<Review>(`/orders/${orderId}/review`, { method: "POST", body: JSON.stringify({ rating, comment: comment || null }) }, true),
-  productReviews: (productId: number) =>
-    request<Review[]>(`/products/${productId}/reviews`),
+  productReviews: (productId: number, params: { page?: number; perPage?: number } = {}) => {
+    const q = new URLSearchParams({ page: String(params.page ?? 1), per_page: String(params.perPage ?? 10) });
+    return request<PublicReviewList>(`/products/${productId}/reviews?${q}`);
+  },
   sellerReviews: (params: { productId?: number; unrepliedOnly?: boolean; page?: number; perPage?: number } = {}) => {
     const q = new URLSearchParams({ page: String(params.page ?? 1), per_page: String(params.perPage ?? 20) });
     if (params.productId) q.set("product_id", String(params.productId));

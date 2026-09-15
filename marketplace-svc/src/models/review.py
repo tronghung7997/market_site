@@ -21,6 +21,10 @@ class Review(Base):
     seller_reply: Mapped[str | None] = mapped_column(Text, nullable=True)
     seller_replied_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True), nullable=True)
 
+    # Written by the auto-review job (5★, no comment) when the buyer never
+    # rated within the configured number of days after purchase.
+    is_auto: Mapped[bool] = mapped_column(Boolean, nullable=False, default=False, server_default="false")
+
     # Admin moderation: a hidden review leaves the storefront and the
     # product's rating, but the row (and the buyer's "reviewed" state) stays.
     is_hidden: Mapped[bool] = mapped_column(Boolean, nullable=False, default=False, server_default="false")

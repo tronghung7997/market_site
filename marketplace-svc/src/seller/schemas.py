@@ -140,6 +140,9 @@ class SellerDashboardResponse(BaseModel):
 class SellerRuntimeConfigResponse(BaseModel):
     low_stock_threshold: int
     inventory_export_row_limit: int
+    review_window_days: int
+    auto_review_days: int
+    auto_review_enabled: bool
     updated_at: str | None = None
     updated_by_id: int | None = None
 
@@ -147,3 +150,6 @@ class SellerRuntimeConfigResponse(BaseModel):
 class SellerRuntimeConfigUpdate(BaseModel):
     low_stock_threshold: int | None = Field(default=None, ge=1, le=1_000)
     inventory_export_row_limit: int | None = Field(default=None, ge=100, le=500_000)
+    review_window_days: int | None = Field(default=None, ge=1, le=365)
+    auto_review_days: int | None = Field(default=None, ge=1, le=90)
+    auto_review_enabled: bool | None = None

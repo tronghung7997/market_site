@@ -2159,7 +2159,9 @@
       "step3": "Hết {days} ngày, hoặc khi bạn bấm “Xác nhận”, tiền mới chuyển cho người bán.",
       "note": "Khiếu nại chỉ mở được trong thời gian ký quỹ.",
       "policyLink": "Xem chính sách"
-    }
+    },
+    "reviewAuto": "đánh giá tự động",
+    "reviewsPage": "{from}–{to} / {total} đánh giá"
   },
   "chat": {
     "inbox": "Tin nhắn",
@@ -3196,7 +3198,13 @@
     "retry": "Thử lại",
     "reset": "Đặt lại",
     "save": "Lưu",
-    "saving": "Đang lưu…"
+    "saving": "Đang lưu…",
+    "reviewWindowTitle": "Thời hạn đánh giá của người mua",
+    "reviewWindowHint": "Người mua được đánh giá ngay khi nhận hàng và còn được đánh giá thêm chừng này ngày sau khi hết ký quỹ. Quá hạn, nút Đánh giá biến mất.",
+    "autoReviewTitle": "Tự động đánh giá 5★",
+    "autoReviewHint": "Đơn đã giao mà người mua không đánh giá sau chừng này ngày kể từ lúc mua sẽ được hệ thống chấm 5★ (không nhận xét, gắn nhãn “Tự động”). Đơn hoàn tiền / có khiếu nại không áp dụng. Chạy mỗi giờ.",
+    "autoReviewEnabled": "Bật tự động đánh giá",
+    "daysLabel": "Số ngày"
   },
   "adminMail": {
     "title": "Mail đi",
@@ -3547,6 +3555,7 @@
     "moderateFailed": "Không cập nhật được đánh giá",
     "hideConfirmTitle": "Ẩn đánh giá này?",
     "hideConfirmBody": "Đánh giá sẽ biến mất khỏi trang mua và điểm sản phẩm được tính lại. Người mua vẫn được ghi nhận là đã đánh giá. Bạn có thể hiện lại sau.",
-    "hideReasonPlaceholder": "Lý do (tuỳ chọn, chỉ admin thấy)"
+    "hideReasonPlaceholder": "Lý do (tuỳ chọn, chỉ admin thấy)",
+    "auto": "Tự động"
   }
 }

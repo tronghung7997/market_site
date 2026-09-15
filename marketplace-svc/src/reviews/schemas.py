@@ -19,8 +19,22 @@ class ReviewResponse(BaseModel):
     variant_name: str | None = None
     seller_reply: str | None = None
     seller_replied_at: datetime | None = None
+    is_auto: bool = False
 
     model_config = {"from_attributes": True}
+
+
+class ReviewSummary(BaseModel):
+    average: float | None = None
+    counts: dict[int, int]
+
+
+class PublicReviewList(BaseModel):
+    items: list[ReviewResponse]
+    total: int
+    page: int
+    per_page: int
+    summary: ReviewSummary
 
 
 class SellerReviewReply(BaseModel):

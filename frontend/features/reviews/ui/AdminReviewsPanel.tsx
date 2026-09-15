@@ -86,6 +86,7 @@ function AdminReviewRow({ review, productId }: { review: AdminReview; productId:
         {review.variant_name && <span className="text-faint">· {review.variant_name}</span>}
         <span className="text-faint">· {formatDate(review.created_at, locale)}</span>
         <span className="font-mono text-[11px] text-faint">#{review.order_id}</span>
+        {review.is_auto && <Tag tone="neutral">{t("auto")}</Tag>}
         {review.is_hidden ? <Tag tone="warn"><EyeOff size={10} /> {t("hidden")}</Tag> : <Tag tone="good"><Eye size={10} /> {t("visible")}</Tag>}
         <span className="ml-auto flex items-center gap-1.5">
           {review.is_hidden ? (

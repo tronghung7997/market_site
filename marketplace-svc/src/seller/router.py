@@ -75,4 +75,7 @@ async def update_admin_seller_config(
         actor_id=admin.id,
         low_stock_threshold=body.low_stock_threshold,
         inventory_export_row_limit=body.inventory_export_row_limit,
+        review_window_days=body.review_window_days,
+        auto_review_days=body.auto_review_days,
+        auto_review_enabled=body.auto_review_enabled,
     )

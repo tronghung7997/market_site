@@ -20,12 +20,14 @@ async def create_review(
     return await service.create_review(order_id, account.id, body.rating, body.comment, db)
 
 
-@router.get("/products/{product_id}/reviews", response_model=list[schemas.ReviewResponse])
+@router.get("/products/{product_id}/reviews", response_model=schemas.PublicReviewList)
 async def product_reviews(
     product_id: int,
+    page: int = Query(1, ge=1),
+    per_page: int = Query(service.PUBLIC_REVIEW_PAGE_SIZE, ge=1, le=50),
     db: AsyncSession = Depends(get_session),
 ):
-    return await service.get_product_reviews(product_id, db)
+    return await service.get_product_reviews(product_id, db, page=page, per_page=per_page)
 
 
 # --- seller ---------------------------------------------------------------------

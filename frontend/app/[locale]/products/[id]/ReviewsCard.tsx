@@ -4,8 +4,9 @@ import { useLocale, useTranslations } from "next-intl";
 import { useEffect, useState } from "react";
 import { api } from "@/lib/api";
 import { formatDate } from "@/lib/utils";
-import type { ProductDetail, Review } from "@/lib/types";
-import { Card, Spinner, Tag } from "@/components/ui";
+import type { ProductDetail, PublicReviewList } from "@/lib/types";
+import { cn } from "@/lib/cn";
+import { Card, Pagination, Spinner, Tag } from "@/components/ui";
 import { Star, Verified } from "@/components/Icons";
 import { SectionHead } from "./sections";
 import { SellerReplyBlock } from "@/features/reviews";
@@ -27,19 +28,28 @@ export default function ReviewsCard({ product }: { product: ProductDetail }) {
   );
 }
 
+const REVIEWS_PER_PAGE = 10;
+
 function ReviewsBody({ productId, sellerName }: { productId: number; sellerName: string | null }) {
   const t = useTranslations("products");
   const locale = useLocale();
-  const [reviews, setReviews] = useState<Review[]>([]);
+  const [page, setPage] = useState(1);
+  const [data, setData] = useState<PublicReviewList | null>(null);
   const [loading, setLoading] = useState(true);
 
   useEffect(() => {
-    api.productReviews(productId).then(setReviews).catch(() => {}).finally(() => setLoading(false));
-  }, [productId]);
+    let cancelled = false;
+    setLoading(true);
+    api.productReviews(productId, { page, perPage: REVIEWS_PER_PAGE })
+      .then((res) => { if (!cancelled) setData(res); })
+      .catch(() => {})
+      .finally(() => { if (!cancelled) setLoading(false); });
+    return () => { cancelled = true; };
+  }, [productId, page]);
 
-  if (loading) return <div className="py-4"><Spinner /></div>;
+  if (!data && loading) return <div className="py-4"><Spinner /></div>;
 
-  if (reviews.length === 0) {
+  if (!data || data.total === 0) {
     return (
       <div className="py-10 text-center">
         <span className="inline-grid place-items-center h-11 w-11 rounded-full bg-raised border border-line text-faint mb-3">
@@ -50,11 +60,9 @@ function ReviewsBody({ productId, sellerName }: { productId: number; sellerName:
     );
   }
 
-  const avg = reviews.reduce((s, r) => s + r.rating, 0) / reviews.length;
-  const dist = [5, 4, 3, 2, 1].map((star) => ({
-    star,
-    count: reviews.filter((r) => r.rating === star).length,
-  }));
+  const avg = data.summary.average ?? 0;
+  const dist = ([5, 4, 3, 2, 1] as const).map((star) => ({ star, count: data.summary.counts[String(star) as "5"] ?? 0 }));
+  const totalPages = Math.max(1, Math.ceil(data.total / REVIEWS_PER_PAGE));
 
   return (
     <div className="space-y-6">
@@ -66,11 +74,11 @@ function ReviewsBody({ productId, sellerName }: { productId: number; sellerName:
               <Star key={s} size={14} className={s <= Math.round(avg) ? "text-warn fill-warn" : "text-line-2"} />
             ))}
           </div>
-          <div className="text-[12px] text-faint mt-1.5 whitespace-nowrap">{t("reviewsCount", { count: reviews.length })}</div>
+          <div className="text-[12px] text-faint mt-1.5 whitespace-nowrap">{t("reviewsCount", { count: data.total })}</div>
         </div>
         <div className="flex-1 space-y-1.5 max-w-xs">
           {dist.map(({ star, count }) => {
-            const pct = Math.round((count / reviews.length) * 100);
+            const pct = Math.round((count / data.total) * 100);
             return (
               <div key={star} className="flex items-center gap-2 text-[11.5px]">
                 <span className="w-3 text-faint tabular-nums">{star}</span>
@@ -84,8 +92,8 @@ function ReviewsBody({ productId, sellerName }: { productId: number; sellerName:
         </div>
       </div>
 
-      <div className="space-y-0 divide-y divide-line">
-        {reviews.map((r) => (
+      <div className={cn("space-y-0 divide-y divide-line transition-opacity", loading && "opacity-60")} aria-busy={loading}>
+        {data.items.map((r) => (
           <div key={r.id} className="py-4 first:pt-0">
             <div className="flex items-start gap-3">
               <span className="grid place-items-center h-9 w-9 shrink-0 rounded-full bg-iris-soft text-iris text-[12px] font-semibold border border-iris/15">
@@ -93,10 +101,11 @@ function ReviewsBody({ productId, sellerName }: { productId: number; sellerName:
               </span>
               <div className="flex-1 min-w-0">
                 <div className="flex items-center justify-between gap-2 flex-wrap">
-                  <div className="flex items-center gap-2">
+                  <div className="flex items-center gap-2 flex-wrap">
                     <span className="text-[13px] font-medium">{t("buyer", { id: r.buyer_id })}</span>
                     <Tag tone="good"><Verified size={10} /> {t("purchased")}</Tag>
                     {r.variant_name && <span className="text-[11.5px] text-faint truncate max-w-[200px]">· {r.variant_name}</span>}
+                    {r.is_auto && <span className="text-[11px] text-faint">· {t("reviewAuto")}</span>}
                   </div>
                   <span className="text-[11px] text-faint">{formatDate(r.created_at, locale)}</span>
                 </div>
@@ -112,6 +121,13 @@ function ReviewsBody({ productId, sellerName }: { productId: number; sellerName:
           </div>
         ))}
       </div>
+
+      {totalPages > 1 && (
+        <div className="flex items-center justify-between border-t border-line pt-4 text-[12px] text-muted">
+          <span>{t("reviewsPage", { from: (page - 1) * REVIEWS_PER_PAGE + 1, to: Math.min(page * REVIEWS_PER_PAGE, data.total), total: data.total })}</span>
+          <Pagination page={page} totalPages={totalPages} onChange={setPage} />
+        </div>
+      )}
     </div>
   );
 }

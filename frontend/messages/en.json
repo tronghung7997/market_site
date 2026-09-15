@@ -2159,7 +2159,9 @@
       "step3": "After {days} days, or when you press “Confirm”, the money is released to the seller.",
       "note": "Claims can only be opened while escrow is active.",
       "policyLink": "Read the policy"
-    }
+    },
+    "reviewAuto": "automatic review",
+    "reviewsPage": "{from}–{to} of {total} reviews"
   },
   "chat": {
     "inbox": "Messages",
@@ -3196,7 +3198,13 @@
     "retry": "Retry",
     "reset": "Reset",
     "save": "Save",
-    "saving": "Saving…"
+    "saving": "Saving…",
+    "reviewWindowTitle": "Buyer review window",
+    "reviewWindowHint": "Buyers can review as soon as goods are delivered and for this many more days after escrow ends. After that the Review button disappears.",
+    "autoReviewTitle": "Automatic 5★ review",
+    "autoReviewHint": "Delivered orders the buyer never rated get a 5★ (no comment, tagged “Auto”) this many days after purchase. Refunded / disputed orders are skipped. Runs hourly.",
+    "autoReviewEnabled": "Enable auto review",
+    "daysLabel": "Days"
   },
   "adminMail": {
     "title": "Outbound mail",
@@ -3547,6 +3555,7 @@
     "moderateFailed": "Could not update the review",
     "hideConfirmTitle": "Hide this review?",
     "hideConfirmBody": "It disappears from the product page and the rating is recomputed. The buyer still counts as having reviewed. You can show it again later.",
-    "hideReasonPlaceholder": "Reason (optional, admin-only)"
+    "hideReasonPlaceholder": "Reason (optional, admin-only)",
+    "auto": "Auto"
   }
 }

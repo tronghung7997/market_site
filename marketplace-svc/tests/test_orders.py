@@ -1285,7 +1285,8 @@ async def test_review_opens_on_delivery_and_closes_after_window(client):
     # Storefront list shows which package the buyer rated.
     product_id = row["product_id"] or (await client.get(f"/orders/{order_id}", headers=buyer_headers)).json()["product_id"]
     reviews = (await client.get(f"/products/{product_id}/reviews")).json()
-    assert reviews[0]["variant_name"] == "Instant Var"
+    assert reviews["items"][0]["variant_name"] == "Instant Var"
+    assert reviews["total"] == 1 and reviews["summary"] == {"average": 4.0, "counts": {"1": 0, "2": 0, "3": 0, "4": 1, "5": 0}}
 
     # A manual order that is still waiting on the seller is not reviewable.
     pending = await client.post("/orders", json={"variant_id": manual_variant_id, "quantity": 1}, headers=buyer_headers)
@@ -1331,7 +1332,7 @@ async def test_seller_reply_and_admin_hide_review(client):
     replied = await client.put(f"/seller/reviews/{review['id']}/reply", json={"body": "Sorry — fixed now"}, headers=seller_headers)
     assert replied.status_code == 200, replied.text
     assert replied.json()["seller_reply"] == "Sorry — fixed now"
-    public = (await client.get(f"/products/{product_id}/reviews")).json()
+    public = (await client.get(f"/products/{product_id}/reviews")).json()["items"]
     assert public[0]["seller_reply"] == "Sorry — fixed now" and public[0]["seller_replied_at"]
     assert (await client.get("/seller/reviews", params={"product_id": product_id}, headers=seller_headers)).json()["unreplied"] == 0
 
@@ -1347,7 +1348,7 @@ async def test_seller_reply_and_admin_hide_review(client):
     hidden = await client.patch(f"/admin/reviews/{review['id']}/visibility", json={"hidden": True, "reason": "spam"}, headers=admin_headers)
     assert hidden.status_code == 200, hidden.text
     assert hidden.json()["is_hidden"] is True and hidden.json()["hidden_reason"] == "spam"
-    assert (await client.get(f"/products/{product_id}/reviews")).json() == []
+    assert (await client.get(f"/products/{product_id}/reviews")).json()["items"] == []
     detail = (await client.get(f"/products/{product_id}")).json()
     assert detail["rating_count"] == 0 and detail["rating_avg"] is None
     row = next(o for o in (await client.get("/orders", headers=buyer_headers)).json()["items"] if o["id"] == order_id)
@@ -1364,3 +1365,88 @@ async def test_seller_reply_and_admin_hide_review(client):
     # Seller can withdraw the reply.
     cleared = (await client.delete(f"/seller/reviews/{review['id']}/reply", headers=seller_headers)).json()
     assert cleared["seller_reply"] is None
+
+
+@pytest.mark.asyncio
+async def test_review_window_is_admin_configurable(client):
+    """The 30-day default lives in seller-config; shrinking it closes old
+    orders, widening it reopens them."""
+    from datetime import datetime, timedelta, timezone
+
+    buyer_token, _, admin_token, instant_variant_id, _ = await setup_buyable_product(client)
+    buyer_headers = {"Authorization": f"Bearer {buyer_token}"}
+    admin_headers = {"Authorization": f"Bearer {admin_token}"}
+    cfg = (await client.get("/admin/seller-config", headers=admin_headers)).json()
+    assert (cfg["review_window_days"], cfg["auto_review_days"], cfg["auto_review_enabled"]) == (30, 7, True)
+
+    order_id = (await client.post("/orders", json={"variant_id": instant_variant_id, "quantity": 1}, headers=buyer_headers)).json()["id"]
+    async with SessionLocal() as db:
+        await db.execute(update(Order).where(Order.id == order_id).values(
+            escrow_expires_at=datetime.now(timezone.utc) - timedelta(days=10),
+        ))
+        await db.commit()
+
+    def can_review(items):
+        return next(o for o in items if o["id"] == order_id)["capabilities"]["can_review"]
+
+    assert can_review((await client.get("/orders", headers=buyer_headers)).json()["items"]) is True
+    assert (await client.patch("/admin/seller-config", json={"review_window_days": 5}, headers=admin_headers)).status_code == 200
+    assert can_review((await client.get("/orders", headers=buyer_headers)).json()["items"]) is False
+    assert (await client.post(f"/orders/{order_id}/review", json={"rating": 5}, headers=buyer_headers)).json()["error_code"] == "REVIEW_WINDOW_CLOSED"
+    assert (await client.patch("/admin/seller-config", json={"review_window_days": 400}, headers=admin_headers)).status_code == 422
+    await client.patch("/admin/seller-config", json={"review_window_days": 60}, headers=admin_headers)
+    assert (await client.post(f"/orders/{order_id}/review", json={"rating": 5}, headers=buyer_headers)).status_code == 201
+
+
+@pytest.mark.asyncio
+async def test_auto_review_after_configured_days(client):
+    """Unreviewed delivered orders get a 5★ after `auto_review_days`; refunded,
+    disputed, already-reviewed and too-recent orders are left alone, and the
+    toggle switches the job off."""
+    from datetime import datetime, timedelta, timezone
+
+    from src.reviews.service import auto_review_stale_orders
+
+    buyer_token, seller_token, admin_token, instant_variant_id, _ = await setup_buyable_product(client)
+    buyer_headers = {"Authorization": f"Bearer {buyer_token}"}
+    admin_headers = {"Authorization": f"Bearer {admin_token}"}
+    # Fixture stocks 3 accounts; this test places 4 orders.
+    await client.post(f"/seller/variants/{instant_variant_id}/resources", json={"items": ["uid4|pass4", "uid5|pass5"]},
+                      headers={"Authorization": f"Bearer {seller_token}"})
+
+    async def place():
+        return (await client.post("/orders", json={"variant_id": instant_variant_id, "quantity": 1}, headers=buyer_headers)).json()["id"]
+
+    stale = await place()
+    reviewed_already = await place()
+    disputed = await place()
+    fresh = await place()
+    await client.post(f"/orders/{reviewed_already}/review", json={"rating": 3}, headers=buyer_headers)
+    assert (await client.post(f"/orders/{disputed}/dispute", json={"reason": "broken"}, headers=buyer_headers)).status_code in (200, 201)
+    old = datetime.now(timezone.utc) - timedelta(days=8)
+    async with SessionLocal() as db:
+        await db.execute(update(Order).where(Order.id.in_([stale, reviewed_already, disputed])).values(created_at=old))
+        await db.commit()
+
+    async with SessionLocal() as db:
+        assert await auto_review_stale_orders(db) == [stale]
+        assert await auto_review_stale_orders(db) == []  # idempotent
+
+    product_id = (await client.get(f"/orders/{stale}", headers=buyer_headers)).json()["product_id"]
+    public = (await client.get(f"/products/{product_id}/reviews")).json()
+    auto = next(r for r in public["items"] if r["order_id"] == stale)
+    assert auto["rating"] == 5 and auto["comment"] is None and auto["is_auto"] is True
+    assert public["summary"]["counts"]["5"] == 1 and public["summary"]["counts"]["3"] == 1
+    row = next(o for o in (await client.get("/orders", headers=buyer_headers)).json()["items"] if o["id"] == stale)
+    assert row["has_review"] is True and row["capabilities"]["can_review"] is False
+    assert next(o for o in (await client.get("/orders", headers=buyer_headers)).json()["items"] if o["id"] == fresh)["has_review"] is False
+
+    # Toggle off → the fresh order never gets auto-reviewed even when stale.
+    await client.patch("/admin/seller-config", json={"auto_review_enabled": False}, headers=admin_headers)
+    async with SessionLocal() as db:
+        await db.execute(update(Order).where(Order.id == fresh).values(created_at=old))
+        await db.commit()
+        assert await auto_review_stale_orders(db) == []
+    await client.patch("/admin/seller-config", json={"auto_review_enabled": True, "auto_review_days": 3}, headers=admin_headers)
+    async with SessionLocal() as db:
+        assert await auto_review_stale_orders(db) == [fresh]

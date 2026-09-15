@@ -12,31 +12,33 @@ from src.models.account import Account
 from src.models.order import Order, OrderStatus
 from src.models.product import Product, ProductVariant
 from src.models.review import Review
+from src.seller.settings import get_auto_review_policy, get_review_window_days
 
 # Buyers rate what they received, not the escrow outcome: a review opens the
 # moment the goods are in hand (delivered) and stays open through completion.
-# It closes 30 days after the protection window ends so old orders cannot be
-# review-bombed long after the fact. Refunded/cancelled orders never open.
+# It closes `review_window_days` (admin setting, default 30) after the
+# protection window ends so old orders cannot be review-bombed long after the
+# fact. Refunded/cancelled orders never open.
 REVIEWABLE_STATUSES = {OrderStatus.delivered, OrderStatus.completed}
-REVIEW_WINDOW_DAYS = 30
+PUBLIC_REVIEW_PAGE_SIZE = 10
 
 
-def review_deadline(order: Order) -> datetime | None:
+def review_deadline(order: Order, window_days: int) -> datetime | None:
     anchor = order.escrow_expires_at or order.created_at
     if anchor is None:
         return None
     if anchor.tzinfo is None:
         anchor = anchor.replace(tzinfo=timezone.utc)
-    return anchor + timedelta(days=REVIEW_WINDOW_DAYS)
+    return anchor + timedelta(days=window_days)
 
 
-def review_window_open(order: Order, now: datetime | None = None) -> bool:
-    deadline = review_deadline(order)
+def review_window_open(order: Order, window_days: int, now: datetime | None = None) -> bool:
+    deadline = review_deadline(order, window_days)
     return deadline is None or (now or datetime.now(timezone.utc)) <= deadline
 
 
-def can_review_order(order: Order, now: datetime | None = None) -> bool:
-    return order.status in REVIEWABLE_STATUSES and review_window_open(order, now)
+def can_review_order(order: Order, window_days: int, now: datetime | None = None) -> bool:
+    return order.status in REVIEWABLE_STATUSES and review_window_open(order, window_days, now)
 
 
 async def create_review(
@@ -49,7 +51,7 @@ async def create_review(
         raise api_error(ErrorCode.NOT_ORDER_OWNER, status.HTTP_403_FORBIDDEN)
     if order.status not in REVIEWABLE_STATUSES:
         raise api_error(ErrorCode.REVIEW_NOT_ELIGIBLE, status.HTTP_400_BAD_REQUEST)
-    if not review_window_open(order):
+    if not review_window_open(order, await get_review_window_days(db)):
         raise api_error(ErrorCode.REVIEW_WINDOW_CLOSED, status.HTTP_400_BAD_REQUEST)
 
     existing = await db.execute(select(Review).where(Review.order_id == order_id))
@@ -95,17 +97,32 @@ async def refresh_product_rating(product_id: int, db: AsyncSession) -> None:
         product.rating_count = count or 0
 
 
-async def get_product_reviews(product_id: int, db: AsyncSession) -> list[dict]:
-    """Newest first; each row carries the purchased variant name so the
-    storefront can show *which* package the buyer is rating."""
-    result = await db.execute(
+async def get_product_reviews(product_id: int, db: AsyncSession, *, page: int = 1, per_page: int = PUBLIC_REVIEW_PAGE_SIZE) -> dict:
+    """Visible reviews, newest first, one page at a time, plus the star
+    breakdown over *all* visible reviews so the summary never depends on the
+    page being shown. Each row carries the purchased variant name."""
+    visible = [Review.product_id == product_id, Review.is_hidden == False]  # noqa: E712
+    breakdown = (await db.execute(
+        select(Review.rating, func.count()).where(*visible).group_by(Review.rating)
+    )).all()
+    counts = {star: 0 for star in range(1, 6)}
+    for rating, n in breakdown:
+        counts[int(rating)] = int(n)
+    total = sum(counts.values())
+    average = (sum(star * n for star, n in counts.items()) / total) if total else None
+    rows = (await db.execute(
         select(Review, ProductVariant.name)
         .join(Order, Order.id == Review.order_id)
         .outerjoin(ProductVariant, ProductVariant.id == Order.variant_id)
-        .where(Review.product_id == product_id, Review.is_hidden == False)  # noqa: E712
-        .order_by(Review.created_at.desc())
-    )
-    return [_review_dict(review, variant_name) for review, variant_name in result.all()]
+        .where(*visible)
+        .order_by(Review.created_at.desc(), Review.id.desc())
+        .offset((page - 1) * per_page).limit(per_page)
+    )).all()
+    return {
+        "items": [_review_dict(review, variant_name) for review, variant_name in rows],
+        "total": total, "page": page, "per_page": per_page,
+        "summary": {"average": round(average, 2) if average is not None else None, "counts": counts},
+    }
 
 
 def _review_dict(review: Review, variant_name: str | None) -> dict:
@@ -121,6 +138,7 @@ def _review_dict(review: Review, variant_name: str | None) -> dict:
         "seller_reply": review.seller_reply,
         "seller_replied_at": review.seller_replied_at,
         "is_hidden": review.is_hidden,
+        "is_auto": review.is_auto,
     }
 
 
@@ -254,3 +272,52 @@ async def set_review_visibility(
     await db.commit()
     await db.refresh(review)
     return review
+
+
+# --- auto review ----------------------------------------------------------------
+
+async def auto_review_stale_orders(db: AsyncSession, *, now: datetime | None = None, limit: int = 500) -> list[int]:
+    """Give unreviewed orders an automatic 5★ once `auto_review_days` have
+    passed since purchase. Only delivered/completed orders that never had a
+    dispute qualify; refunded, cancelled and in-progress orders are skipped.
+    Returns the order ids that were reviewed."""
+    from src.models.order import Dispute
+
+    enabled, days = await get_auto_review_policy(db)
+    if not enabled:
+        return []
+    cutoff = (now or datetime.now(timezone.utc)) - timedelta(days=days)
+    stale = list((await db.execute(
+        select(Order)
+        .where(
+            Order.status.in_(list(REVIEWABLE_STATUSES)),
+            Order.created_at <= cutoff,
+            ~select(Review.id).where(Review.order_id == Order.id).exists(),
+            ~select(Dispute.id).where(Dispute.order_id == Order.id).exists(),
+        )
+        .order_by(Order.created_at)
+        .limit(limit)
+    )).scalars())
+    touched_products: set[int] = set()
+    reviewed: list[int] = []
+    for order in stale:
+        product_id = order.product_id
+        if product_id is None and order.variant_id is not None:
+            variant = await db.get(ProductVariant, order.variant_id)
+            product_id = variant.product_id if variant else None
+        if product_id is None:
+            continue
+        db.add(Review(order_id=order.id, buyer_id=order.buyer_id, product_id=product_id, rating=5, comment=None, is_auto=True))
+        touched_products.add(product_id)
+        reviewed.append(order.id)
+    if not reviewed:
+        return []
+    await db.flush()
+    for product_id in touched_products:
+        await refresh_product_rating(product_id, db)
+    await log_event(
+        db, "info", f"Auto 5★ review for {len(reviewed)} order(s) after {days} days",
+        metadata={"event": "review.auto", "order_ids": reviewed[:100], "count": len(reviewed), "days": days, "source": "scheduler"},
+    )
+    await db.commit()
+    return reviewed

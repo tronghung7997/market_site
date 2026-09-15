@@ -29,6 +29,7 @@ from src.models.pricing_config import PricingConfig
 from src.models.provider import Provider
 from src.models.resource import Resource, ResourceStatus
 from src.orders.constants import MAX_ORDER_QUANTITY
+from src.sellers.service import approved_business_names, resolve_seller_ref, seller_refs_by_id
 from src.pricing.engine import inventory_managed_sql, product_pricing_override, resolve_pricing
 from src.products.covers import catalog_items, default_cover_id, images_payload, public_images
 from src.seller.settings import get_low_stock_threshold
@@ -454,7 +455,7 @@ async def _category_subtree_ids(category_id: int, db: AsyncSession) -> list[int]
 async def list_products(
     db: AsyncSession,
     category_id: int | None = None,
-    seller_id: int | None = None,
+    seller: str | None = None,
     search: str | None = None,
     in_stock: bool = False,
     fulfillment: str | None = None,
@@ -479,8 +480,13 @@ async def list_products(
     filters = [Product.status == ProductStatus.active]
     if category_id:
         filters.append(Product.category_id.in_(await _category_subtree_ids(category_id, db)))
-    if seller_id:
-        filters.append(Product.seller_id == seller_id)
+    if seller:
+        # Public seller filter takes the seller's key / handle-key (or a legacy
+        # id); an unknown ref is simply an empty page, never an enumeration hint.
+        seller_account = await resolve_seller_ref(seller, db)
+        if seller_account is None:
+            return {"items": [], "total": 0, "page": page, "per_page": per_page}
+        filters.append(Product.seller_id == seller_account.id)
 
     variant_stats = (
         select(
@@ -576,10 +582,12 @@ async def list_products(
     variants_by_product = await _variants_by_product(
         [product.id for product in products], db, locale=locale, public=True,
     )
+    seller_refs = await seller_refs_by_id({p.seller_id for p in products}, db)
     return {
         "items": [
             {
-                **_product_list_dict(p, locale=locale),
+                **_product_list_dict(p, locale=locale, public=True),
+                **seller_refs.get(p.seller_id, {}),
                 "variants": variants_by_product.get(p.id, []),
             }
             for p in products
@@ -1011,7 +1019,7 @@ async def get_product_detail(
     category = await db.get(Category, product.category_id)
 
     if localize:
-        base = _product_dict(product, locale=locale)
+        base = _product_dict(product, locale=locale, public=public)
         category_name = (
             resolve_category_fields(category, locale)["name"] if category else None
         )
@@ -1025,10 +1033,15 @@ async def get_product_detail(
             product_id, db, include_inactive=include_inactive_variants, locale=None,
         )
 
+    seller_refs = (await seller_refs_by_id([product.seller_id], db)).get(product.seller_id, {}) if public else {}
+    # Same display rule as the seller page: approved business name first,
+    # email local part only as the fallback (Q4: mandatory shop name later).
+    business_name = (await approved_business_names([product.seller_id], db)).get(product.seller_id)
     return {
         **base,
+        **seller_refs,
         "variants": variants,
-        "seller_name": seller.email.split("@", 1)[0] if seller else None,
+        "seller_name": business_name or (seller.email.split("@", 1)[0] if seller else None),
         "seller_email": seller.email if seller else None,
         "category_name": category_name,
         "category_slug": category.slug if category else None,
@@ -1486,7 +1499,7 @@ async def list_all_products_admin(
     }
 
 
-def _product_list_dict(product: Product, *, locale: str | None = DEFAULT_LOCALE) -> dict:
+def _product_list_dict(product: Product, *, locale: str | None = DEFAULT_LOCALE, public: bool = False) -> dict:
     """Bản GỌN cho item danh sách — không description/specs/features/warranty
     (nặng, chỉ trang chi tiết cần), không commission_rate (không phát ra API
     public). Thêm trường ở đây thì thêm cả ProductListItemBase bên schemas.
@@ -1508,7 +1521,10 @@ def _product_list_dict(product: Product, *, locale: str | None = DEFAULT_LOCALE)
         meta = {}
     images = public_images(product.images)
     return {
-        "id": product.id, "seller_id": product.seller_id, "category_id": product.category_id,
+        "id": product.id, "category_id": product.category_id,
+        # Storefront payloads carry seller_key/seller_handle/seller_path (added by
+        # the caller) instead of the sequential account id.
+        **({} if public else {"seller_id": product.seller_id}),
         **_public_ref_fields(product),
         "title": title, "images": images,
         "cover_id": None if images is None else images["cover_id"],
@@ -1558,7 +1574,7 @@ def _management_variant_translations(variant: ProductVariant) -> dict[str, dict]
     return translations
 
 
-def _product_dict(product: Product, *, locale: str | None = DEFAULT_LOCALE) -> dict:
+def _product_dict(product: Product, *, locale: str | None = DEFAULT_LOCALE, public: bool = False) -> dict:
     if locale is not None:
         localized = resolve_product_fields(product, locale)
         text = {
@@ -1585,7 +1601,8 @@ def _product_dict(product: Product, *, locale: str | None = DEFAULT_LOCALE) -> d
         }
     images = public_images(product.images)
     return {
-        "id": product.id, "seller_id": product.seller_id, "category_id": product.category_id,
+        "id": product.id, "category_id": product.category_id,
+        **({} if public else {"seller_id": product.seller_id}),
         **_public_ref_fields(product),
         **text,
         "images": images,

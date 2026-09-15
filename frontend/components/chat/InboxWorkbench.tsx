@@ -453,7 +453,7 @@ export default function InboxWorkbench({
                       ) : isSellerCounterpart ? (
                         <>
                           <Link
-                            href={sellerPath({ account_id: room.counterpart.id })}
+                            href={sellerPath({ public_key: room.counterpart.id })}
                             className="font-medium text-iris hover:underline truncate max-w-[160px]"
                             title={t("viewSeller")}
                           >
@@ -750,7 +750,7 @@ export default function InboxWorkbench({
                 </p>
                 {isSellerCounterpart && !roomIsSupport && (
                   <Link
-                    href={sellerPath({ account_id: room.counterpart.id })}
+                    href={sellerPath({ public_key: room.counterpart.id })}
                     className="mt-1.5 inline-flex items-center gap-1 text-[11px] font-medium text-iris hover:underline"
                   >
                     <span>{t("viewSeller")}</span>

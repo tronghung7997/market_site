@@ -8,7 +8,8 @@
  * lets the product page redirect it to the canonical URL.
  *
  * Categories: `/categories/{slug}` (category slugs are unique in the DB).
- * Sellers: still `/sellers/{account_id}` until the seller public key lands.
+ * Sellers: `/sellers/{handle}-{key}` (or `/sellers/{key}` while the shop has
+ * no business name); legacy `/sellers/{account_id}` still resolves and redirects.
  */
 
 export const PUBLIC_KEY_PATTERN = /^[0-9a-z]{8}$/;
@@ -27,7 +28,12 @@ export type CategoryRef = {
 };
 
 export type SellerRef = {
-  account_id: number;
+  public_key?: string | null;
+  /** Slug of the business name; absent until the shop has one. */
+  handle?: string | null;
+  canonical_path?: string | null;
+  /** Legacy fallback only (old cached payloads). */
+  account_id?: number | null;
 };
 
 export function productPath(product: ProductRef): string {
@@ -45,7 +51,17 @@ export function categoryPath(category: CategoryRef): string {
 }
 
 export function sellerPath(seller: SellerRef): string {
-  return `/sellers/${seller.account_id}`;
+  if (seller.canonical_path) return seller.canonical_path;
+  if (seller.public_key) {
+    const handle = seller.handle?.trim();
+    return handle ? `/sellers/${handle}-${seller.public_key}` : `/sellers/${seller.public_key}`;
+  }
+  return `/sellers/${seller.account_id ?? ""}`;
+}
+
+/** True when the route param already is the seller's canonical URL segment. */
+export function sellerParamIsCanonical(param: string, seller: SellerRef): boolean {
+  return sellerPath(seller) === `/sellers/${param}`;
 }
 
 /** `/products/12` or `/categories/3` — an old id-based link. */

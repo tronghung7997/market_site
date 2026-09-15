@@ -22,7 +22,7 @@ async def list_product_covers():
 @router.get("/products", response_model=schemas.ProductListPageResponse)
 async def list_products(
     category_id: int | None = Query(None, description="Lọc theo danh mục VÀ toàn bộ danh mục con"),
-    seller_id: int | None = Query(None),
+    seller: str | None = Query(None, min_length=1, max_length=200, description="Lọc theo nhà bán: {handle}-{key} hoặc key"),
     search: str | None = Query(None, min_length=1, max_length=100),
     in_stock: bool = Query(False),
     fulfillment: Literal["instant"] | None = Query(None),
@@ -37,7 +37,7 @@ async def list_products(
     return await service.list_products(
         db,
         category_id=category_id,
-        seller_id=seller_id,
+        seller=seller,
         search=search,
         in_stock=in_stock,
         fulfillment=fulfillment,

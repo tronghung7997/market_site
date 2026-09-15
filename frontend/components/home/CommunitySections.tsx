@@ -21,7 +21,7 @@ export function TrustedSellers({ sellers }: { sellers: SellerSummary[] }) {
       <SectionHead title={t("trustedSellersTitle")} sub={t("trustedSellersSubtitle")} />
       <div className="grid gap-2.5 sm:gap-4 grid-cols-2 sm:grid-cols-3 lg:grid-cols-6">
         {sellers.map((s) => (
-          <Link key={s.account_id} href={sellerPath(s)}>
+          <Link key={s.public_key} href={sellerPath(s)}>
             <Card interactive className="p-3 sm:p-4 h-full text-center">
               <span className="mx-auto grid place-items-center h-9 w-9 sm:h-11 sm:w-11 rounded-full bg-iris-soft text-iris border border-iris/15">
                 <Store size={15} />

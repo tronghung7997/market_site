@@ -54,7 +54,9 @@ class ChatMessageResponse(BaseModel):
 
 
 class SafeCounterpart(BaseModel):
-    id: int
+    """The other side of a room, by public key — never the account id or
+    email. ``"marketplace"`` stands in for the support desk."""
+    id: str
     label: str
     role: str
 

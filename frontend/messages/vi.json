@@ -7,7 +7,9 @@
     "categoryTitle": "{name} — GMMO",
     "categoryDescription": "Sản phẩm trong {name}.",
     "productTitle": "{title} — GMMO",
-    "productDescription": "Mua {title}, giao hàng có ký quỹ bảo vệ."
+    "productDescription": "Mua {title}, giao hàng có ký quỹ bảo vệ.",
+    "sellerTitle": "{name} — Nhà bán trên GMMO",
+    "sellerDescription": "Sản phẩm và đánh giá của {name} trên GMMO."
   },
   "nav": {
     "promo": "Nguồn tài khoản & proxy đã xác minh · 195+ quốc gia · giao ngay, ký quỹ bảo vệ người mua",
@@ -2986,7 +2988,8 @@
     "tier_new": "Người bán mới",
     "tier_verified": "Đã xác minh",
     "tier_trusted": "Uy tín",
-    "tier_enterprise": "Đối tác doanh nghiệp"
+    "tier_enterprise": "Đối tác doanh nghiệp",
+    "productsLoadError": "Chưa tải được sản phẩm của nhà bán này."
   },
   "notifications": {
     "buyerDeliveredUnconfirmed": "{count} đơn cần bạn xác nhận đã nhận hàng",

@@ -60,3 +60,14 @@ def test_review_response_has_no_sequential_ids():
     assert "buyer_id" not in ReviewResponse.model_fields
     assert "order_id" not in ReviewResponse.model_fields
     assert "reviewer_label" in ReviewResponse.model_fields
+
+
+def test_seller_summary_has_no_account_id():
+    from src.sellers.schemas import SellerSummary
+    from src.sellers.service import seller_handle, seller_public_ref
+
+    assert "account_id" not in SellerSummary.model_fields
+    assert seller_handle(None) is None and seller_handle("   ") is None
+    assert seller_handle("Orbit Store — Proxy & VPN!") == "orbit-store-proxy-vpn"
+    assert seller_public_ref("9k3m2p7q", None) == {"public_key": "9k3m2p7q", "handle": None, "canonical_path": "/sellers/9k3m2p7q"}
+    assert seller_public_ref("9k3m2p7q", "Orbit Store")["canonical_path"] == "/sellers/orbit-store-9k3m2p7q"

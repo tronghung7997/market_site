@@ -184,7 +184,8 @@ export const api = {
   // Backend luôn phân trang; categoryId lọc theo cả nhánh danh mục.
   products: (opts: {
     categoryId?: number;
-    sellerId?: number;
+    /** Seller `{handle}-{key}` or bare key. */
+    seller?: string;
     search?: string;
     inStock?: boolean;
     fulfillment?: "instant";
@@ -197,7 +198,7 @@ export const api = {
   } = {}) => {
     const q = new URLSearchParams();
     if (opts.categoryId) q.set("category_id", String(opts.categoryId));
-    if (opts.sellerId) q.set("seller_id", String(opts.sellerId));
+    if (opts.seller) q.set("seller", opts.seller);
     if (opts.search) q.set("search", opts.search);
     if (opts.inStock) q.set("in_stock", "true");
     if (opts.fulfillment) q.set("fulfillment", opts.fulfillment);
@@ -209,8 +210,8 @@ export const api = {
     const qs = q.toString();
     return request<PaginatedProducts>(`/products${qs ? `?${qs}` : ""}`, { signal: opts.signal });
   },
-  productsBySeller: (sellerId: number) =>
-    request<PaginatedProducts>(`/products?seller_id=${sellerId}`),
+  productsBySeller: (sellerRef: string) =>
+    request<PaginatedProducts>(`/products?seller=${encodeURIComponent(sellerRef)}&per_page=100`),
   /** `ref` is `{slug}-{key}`, a bare key, or a legacy numeric id. */
   product: (ref: string | number) => request<ProductDetail>(`/products/${encodeURIComponent(String(ref))}`),
 
@@ -663,7 +664,8 @@ export const api = {
   adminTopup: (accountId: number, amount: number) =>
     request<Wallet>("/wallet/topup", { method: "POST", body: JSON.stringify({ account_id: accountId, amount }) }, true),
   topSellers: (limit = 6) => request<SellerSummary[]>(`/sellers/top?limit=${limit}`),
-  sellerProfile: (id: number) => request<SellerProfile>(`/sellers/${id}`),
+  /** `ref` is `{handle}-{key}`, a bare key, or a legacy account id. */
+  sellerProfile: (ref: string | number) => request<SellerProfile>(`/sellers/${encodeURIComponent(String(ref))}`),
   sellerDispute: (orderId: number) => request<Dispute>(`/seller/orders/${orderId}/dispute`, {}, true),
   sellerRespondDispute: (disputeId: number, sellerNote: string) =>
     request<Dispute>(`/seller/disputes/${disputeId}/respond`, { method: "POST", body: JSON.stringify({ seller_note: sellerNote }) }, true),

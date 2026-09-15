@@ -1,6 +1,6 @@
 import type { MetadataRoute } from "next";
 import { fetchPublicJson, isGoogleIndexingEnabled, localePath, siteOrigin } from "@/lib/seo";
-import { categoryPath, productPath } from "@/lib/routes";
+import { categoryPath, productPath, sellerPath } from "@/lib/routes";
 
 type CategoryNode = { id: number; slug: string; children?: CategoryNode[] };
 type ProductRow = { id: number; slug: string; public_key: string; canonical_path?: string | null };
@@ -65,6 +65,18 @@ export default async function sitemap(): Promise<MetadataRoute.Sitemap> {
     }
     page += 1;
     if (batch.items.length === 0) break;
+  }
+
+  const sellers = await fetchPublicJson<{ public_key: string; handle: string | null; canonical_path: string }[]>("/sellers/top?limit=20", "vi");
+  for (const seller of sellers ?? []) {
+    for (const locale of locales) {
+      entries.push({
+        url: `${origin}${localePath(locale, sellerPath(seller))}`,
+        lastModified: now,
+        changeFrequency: "weekly",
+        priority: 0.5,
+      });
+    }
   }
 
   return entries;

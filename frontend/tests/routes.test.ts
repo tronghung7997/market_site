@@ -8,6 +8,7 @@ import {
   productKeyFromParam,
   productParamIsCanonical,
   productPath,
+  sellerParamIsCanonical,
   sellerPath,
 } from "../lib/routes.ts";
 
@@ -32,8 +33,13 @@ describe("categoryPath / sellerPath", () => {
     assert.equal(categoryPath({ id: 3 }), "/categories/3");
   });
 
-  it("still links sellers by account id until the seller key phase", () => {
+  it("links sellers by handle-key, bare key, or the legacy account id", () => {
+    assert.equal(sellerPath({ canonical_path: "/sellers/orbit-store-9k3m2p7q" }), "/sellers/orbit-store-9k3m2p7q");
+    assert.equal(sellerPath({ public_key: "9k3m2p7q", handle: "orbit-store" }), "/sellers/orbit-store-9k3m2p7q");
+    assert.equal(sellerPath({ public_key: "9k3m2p7q", handle: null }), "/sellers/9k3m2p7q");
     assert.equal(sellerPath({ account_id: 9 }), "/sellers/9");
+    assert.equal(sellerParamIsCanonical("orbit-store-9k3m2p7q", { public_key: "9k3m2p7q", handle: "orbit-store" }), true);
+    assert.equal(sellerParamIsCanonical("9", { public_key: "9k3m2p7q", handle: "orbit-store" }), false);
   });
 });
 

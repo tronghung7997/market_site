@@ -2,7 +2,7 @@ import { fetchPublicJson } from "@/lib/seo";
 import { unstable_cache } from "next/cache";
 import { flattenCategories } from "@/lib/categories";
 import { matchCategoryParam } from "@/lib/routes";
-import type { Category, PaginatedProducts, Product, ProductCatalogSummary, ProductDetail, SellerSummary } from "@/lib/types";
+import type { Category, PaginatedProducts, Product, ProductCatalogSummary, ProductDetail, SellerProfile, SellerSummary } from "@/lib/types";
 
 export type HomeCatalog = {
   categories: Category[];
@@ -43,6 +43,13 @@ export type CategoryBrowseQuery = {
   maxVnd?: string;
   sub?: string;
   page?: string;
+};
+
+export type SellerPageCatalog = {
+  seller: SellerProfile | null;
+  products: Product[];
+  categories: Category[];
+  error: string | null;
 };
 
 export type ProductPageCatalog = {
@@ -184,5 +191,26 @@ export async function loadProductPage(locale: string, productRef: string): Promi
     related,
     pricingStrategy: product.pricing_strategy ?? "fixed",
     error: null,
+  };
+}
+
+/**
+ * `sellerRef` is the route param: `{handle}-{key}`, a bare key, or a legacy
+ * account id. The page redirects to `canonical_path` when they differ.
+ */
+export async function loadSellerPage(locale: string, sellerRef: string): Promise<SellerPageCatalog> {
+  const seller = await fetchPublicJson<SellerProfile>(`/sellers/${encodeURIComponent(sellerRef)}`, locale);
+  if (!seller) {
+    return { seller: null, products: [], categories: [], error: "missing" };
+  }
+  const [products, categories] = await Promise.all([
+    fetchPublicJson<PaginatedProducts>(`/products?seller=${encodeURIComponent(seller.public_key)}&per_page=100`, locale),
+    fetchPublicJson<Category[]>("/categories", locale),
+  ]);
+  return {
+    seller,
+    products: products?.items ?? [],
+    categories: categories ?? [],
+    error: products ? null : "load",
   };
 }

@@ -241,7 +241,12 @@ class ProductListItemBase(BaseModel):
     Public list/detail also expose additive ``locale`` / ``available_locales``
     after server-side i18n resolve (Agent B catalog contract)."""
     id: int
-    seller_id: int
+    # Management payloads only; storefront rows carry the seller's public
+    # identity below instead (see _drop_hidden_seller_id).
+    seller_id: int | None = None
+    seller_key: str | None = None
+    seller_handle: str | None = None
+    seller_path: str | None = None
     category_id: int
     slug: str
     public_key: str
@@ -279,6 +284,13 @@ class ProductListItemBase(BaseModel):
         if self.canonical_path is None:
             self.canonical_path = canonical_path("/products", self.slug, self.public_key)
         return self
+
+    @model_serializer(mode="wrap")
+    def _drop_hidden_seller_id(self, handler):
+        data = handler(self)
+        if isinstance(data, dict) and data.get("seller_id") is None:
+            data.pop("seller_id", None)
+        return data
 
 
 class ProductListItemResponse(ProductListItemBase):

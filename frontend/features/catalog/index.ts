@@ -4,6 +4,7 @@ export {
   loadCategoryPage,
   loadHomeCatalog,
   loadProductPage,
+  loadSellerPage,
 } from "./data/load-public";
 export type {
   CategoryHubCatalog,
@@ -11,4 +12,5 @@ export type {
   CategoryPageCatalog,
   HomeCatalog,
   ProductPageCatalog,
+  SellerPageCatalog,
 } from "./data/load-public";

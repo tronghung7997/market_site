@@ -40,7 +40,8 @@ export interface ChatConversation {
     cancel_reason: string | null;
   } | null;
   dispute?: ChatDisputeContext | null;
-  counterpart: { id: number; label: string; role: "buyer" | "seller" | "admin" };
+  /** `id` is the counterpart's public key ("marketplace" for the support desk). */
+  counterpart: { id: string; label: string; role: "buyer" | "seller" | "admin" };
   last_message: ChatMessage | null;
   unread_count: number;
   can_send: boolean;
@@ -76,7 +77,12 @@ export interface Category {
  *  commission_rate chỉ có ở AdminProductDetail (không phát ra API public). */
 export interface Product {
   id: number;
-  seller_id: number;
+  /** Management payloads only; storefront rows carry the seller's public identity instead. */
+  seller_id?: number;
+  seller_key?: string | null;
+  seller_handle?: string | null;
+  /** `/sellers/{handle}-{key}` — build links with `sellerPath()`. */
+  seller_path?: string | null;
   category_id: number;
   title: string;
   /** URL slug, generated from the Vietnamese title and editable by the seller. */
@@ -367,7 +373,10 @@ export interface DisputeInfo {
 }
 
 export interface SellerSummary {
-  account_id: number;
+  /** Opaque public identity; the account id is never exposed. */
+  public_key: string;
+  handle: string | null;
+  canonical_path: string;
   display_name: string;
   business_name: string | null;
   completed_order_count: number;

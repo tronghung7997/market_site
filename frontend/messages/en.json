@@ -7,7 +7,9 @@
     "categoryTitle": "{name} — GMMO",
     "categoryDescription": "Products in {name}.",
     "productTitle": "{title} — GMMO",
-    "productDescription": "Buy {title} with escrow-protected delivery."
+    "productDescription": "Buy {title} with escrow-protected delivery.",
+    "sellerTitle": "{name} — Seller on GMMO",
+    "sellerDescription": "Products and ratings of {name} on GMMO."
   },
   "nav": {
     "promo": "Verified accounts & proxies · 195+ countries · instant delivery with buyer-protected escrow",
@@ -2986,7 +2988,8 @@
     "tier_new": "New seller",
     "tier_verified": "Verified",
     "tier_trusted": "Trusted",
-    "tier_enterprise": "Enterprise partner"
+    "tier_enterprise": "Enterprise partner",
+    "productsLoadError": "Could not load this seller's products right now."
   },
   "notifications": {
     "buyerDeliveredUnconfirmed": "{count} orders need your confirmation of receipt",

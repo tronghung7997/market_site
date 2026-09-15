@@ -10,15 +10,39 @@ Revision ID: dp1a2b3c4d5e6
 Revises: dm1a2b3c4d5e6
 Create Date: 2026-09-15
 """
+import re
+import secrets
+import unicodedata
+
 from alembic import op
 import sqlalchemy as sa
-
-from src.i18n.slug import new_public_key, slugify_text
 
 revision = "dp1a2b3c4d5e6"
 down_revision = "dm1a2b3c4d5e6"
 branch_labels = None
 depends_on = None
+
+# Inlined copies of src/i18n/slug.py helpers: a migration must keep producing
+# the same rows even if the application module changes later.
+_ALPHABET = "0123456789abcdefghijklmnopqrstuvwxyz"
+_NON_SLUG_RE = re.compile(r"[^a-z0-9]+")
+
+
+def new_public_key() -> str:
+    while True:
+        key = "".join(secrets.choice(_ALPHABET) for _ in range(8))
+        if not key.isdigit():
+            return key
+
+
+def slugify_text(value, *, max_length: int = 140) -> str:
+    text = (value or "").replace("đ", "d").replace("Đ", "D")
+    text = unicodedata.normalize("NFKD", text)
+    text = "".join(ch for ch in text if not unicodedata.combining(ch))
+    text = _NON_SLUG_RE.sub("-", text.lower()).strip("-")
+    if len(text) > max_length:
+        text = text[:max_length].rstrip("-")
+    return text or "product"
 
 
 def upgrade() -> None:

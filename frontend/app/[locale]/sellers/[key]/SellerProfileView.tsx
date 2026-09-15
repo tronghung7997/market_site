@@ -1,19 +1,17 @@
 "use client";
 
 import { Link } from "@/i18n/navigation";
-import { useParams } from "next/navigation";
-import { useEffect, useMemo, useState, type ReactNode } from "react";
+import { useMemo, useState, type ReactNode } from "react";
 import { useLocale, useTranslations } from "next-intl";
-import { api } from "@/lib/api";
-import { useApiErrorMessage } from "@/lib/use-api-error";
 import { useMoney } from "@/lib/money";
 import { effectiveMinPrice, isAdapterFulfilled } from "@/lib/pricing-display";
 import { flattenCategories } from "@/lib/categories";
 import { formatDate } from "@/lib/utils";
-import type { Category, Product, SellerProfile } from "@/lib/types";
-import { productPath } from "@/lib/routes";
+import type { Product } from "@/lib/types";
+import type { SellerPageCatalog } from "@/features/catalog";
+import { productPath, sellerPath } from "@/lib/routes";
 import { productStockState } from "@/lib/stock";
-import { Card, Spinner, Tag } from "@/components/ui";
+import { Card, Tag } from "@/components/ui";
 import { Check, ChevronRight, Package, Shield, Star, Verified, X } from "@/components/Icons";
 import StartSellerInquiryDialog from "@/components/chat/StartSellerInquiryDialog";
 
@@ -53,19 +51,16 @@ function tileAccent(id: number): string {
 
 const TIER_KEYS = ["new", "verified", "trusted", "enterprise"] as const;
 
-export default function SellerProfilePage() {
+/** Rendered by the server page with the seller, products and category tree
+ *  already loaded (and cached), so the HTML ships complete for SEO. */
+export default function SellerProfileView({ initial }: { initial: SellerPageCatalog }) {
   const t = useTranslations("sellers");
-  const apiErrorMessage = useApiErrorMessage();
   const locale = useLocale();
   const { formatBrowseMoney } = useMoney();
   const numberLocale = locale === "vi" ? "vi-VN" : "en-US";
-  const { id } = useParams<{ id: string }>();
-  const [seller, setSeller] = useState<SellerProfile | null>(null);
-  const [products, setProducts] = useState<Product[]>([]);
-  const [categories, setCategories] = useState<Category[]>([]);
+  const { seller, products, categories } = initial;
+  const error = initial.error === "load" ? t("productsLoadError") : null;
   const [activeCategory, setActiveCategory] = useState<number | null>(null);
-  const [loading, setLoading] = useState(true);
-  const [error, setError] = useState<string | null>(null);
 
   const stockLabel = (state: StockState) => {
     switch (state) {
@@ -84,26 +79,6 @@ export default function SellerProfilePage() {
     const key = tier && (TIER_KEYS as readonly string[]).includes(tier) ? tier : "new";
     return t(`tier_${key}` as "tier_new");
   };
-
-  useEffect(() => {
-    (async () => {
-      try {
-        const sellerId = Number(id);
-        const [s, list, c] = await Promise.all([
-          api.sellerProfile(sellerId),
-          api.productsBySeller(sellerId),
-          api.categories().catch(() => []),
-        ]);
-        setSeller(s);
-        setCategories(c);
-        setProducts(list.items);
-      } catch (e) {
-        setError(apiErrorMessage(e, t("notFound")));
-      } finally {
-        setLoading(false);
-      }
-    })();
-  }, [apiErrorMessage, id, t]);
 
   const sellerCategories = useMemo(() => {
     if (!categories.length || !products.length) return [];
@@ -127,17 +102,10 @@ export default function SellerProfilePage() {
     [products],
   );
 
-  if (loading) {
+  if (!seller) {
     return (
       <div className="w-full mx-auto max-w-[1200px] px-6 py-16">
-        <Spinner />
-      </div>
-    );
-  }
-  if (error || !seller) {
-    return (
-      <div className="w-full mx-auto max-w-[1200px] px-6 py-16">
-        <Card className="p-6 text-bad text-sm">{error ?? t("notFound")}</Card>
+        <Card className="p-6 text-bad text-sm">{t("notFound")}</Card>
       </div>
     );
   }
@@ -200,7 +168,7 @@ export default function SellerProfilePage() {
                 )}
               </div>
               <div className="mt-3">
-                <StartSellerInquiryDialog sellerId={seller.account_id} sellerName={displayName} products={products} />
+                <StartSellerInquiryDialog sellerHref={sellerPath(seller)} sellerName={displayName} products={products} />
               </div>
             </div>
           </div>
@@ -269,6 +237,7 @@ export default function SellerProfilePage() {
 
           <div className="min-w-0">
             <h2 className="font-serif text-[18px] tracking-tight mb-4">{t("productsForSale", { count: visibleProducts.length })}</h2>
+            {error && <Card className="mb-4 p-4 text-bad text-sm">{error}</Card>}
             {visibleProducts.length === 0 ? (
               <Card className="p-6 text-muted text-sm">
                 {products.length === 0 ? t("noProducts") : t("noProductsInCategory")}

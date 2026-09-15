@@ -17,6 +17,10 @@ export const queryKeys = {
 
   // Products
   products: () => ["products"] as const,
+  sellerReviews: (params?: Record<string, unknown>) =>
+    params ? (["seller-reviews", params] as const) : (["seller-reviews"] as const),
+  adminReviews: (params?: Record<string, unknown>) =>
+    params ? (["admin-reviews", params] as const) : (["admin-reviews"] as const),
   productDetail: (id: number) => ["product", id] as const,
 
   // Disputes

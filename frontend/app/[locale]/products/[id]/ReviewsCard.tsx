@@ -8,6 +8,7 @@ import type { ProductDetail, Review } from "@/lib/types";
 import { Card, Spinner, Tag } from "@/components/ui";
 import { Star, Verified } from "@/components/Icons";
 import { SectionHead } from "./sections";
+import { SellerReplyBlock } from "@/features/reviews";
 
 export default function ReviewsCard({ product }: { product: ProductDetail }) {
   const t = useTranslations("products");
@@ -20,13 +21,13 @@ export default function ReviewsCard({ product }: { product: ProductDetail }) {
           : undefined}
       />
       <div className="p-5">
-        <ReviewsBody productId={product.id} />
+        <ReviewsBody productId={product.id} sellerName={product.seller_name} />
       </div>
     </Card>
   );
 }
 
-function ReviewsBody({ productId }: { productId: number }) {
+function ReviewsBody({ productId, sellerName }: { productId: number; sellerName: string | null }) {
   const t = useTranslations("products");
   const locale = useLocale();
   const [reviews, setReviews] = useState<Review[]>([]);
@@ -105,6 +106,7 @@ function ReviewsBody({ productId }: { productId: number }) {
                   ))}
                 </div>
                 {r.comment && <p className="text-[13px] text-muted leading-relaxed mt-2">{r.comment}</p>}
+                {r.seller_reply && <SellerReplyBlock body={r.seller_reply} repliedAt={r.seller_replied_at} sellerName={sellerName} />}
               </div>
             </div>
           </div>

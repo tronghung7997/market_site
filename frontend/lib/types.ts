@@ -853,6 +853,39 @@ export interface Review {
   created_at: string;
   /** Package the reviewer bought — shown next to the "purchased" badge. */
   variant_name?: string | null;
+  /** Public answer from the seller, if any. */
+  seller_reply?: string | null;
+  seller_replied_at?: string | null;
+}
+
+/** Seller console row: the seller's own product reviews, hidden ones flagged. */
+export interface SellerReview extends Review {
+  product_title: string | null;
+  is_hidden: boolean;
+}
+
+export interface SellerReviewList {
+  items: SellerReview[];
+  total: number;
+  /** Visible reviews still waiting for a seller reply. */
+  unreplied: number;
+  page: number;
+  per_page: number;
+}
+
+export interface AdminReview extends SellerReview {
+  buyer_email: string | null;
+  seller_id: number | null;
+  hidden_reason: string | null;
+  hidden_at: string | null;
+  hidden_by_id: number | null;
+}
+
+export interface AdminReviewList {
+  items: AdminReview[];
+  total: number;
+  page: number;
+  per_page: number;
 }
 
 export interface SellerProduct extends Product {

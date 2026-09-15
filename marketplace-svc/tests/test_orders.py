@@ -1307,3 +1307,60 @@ async def test_review_opens_on_delivery_and_closes_after_window(client):
     closed = await client.post(f"/orders/{late_id}/review", json={"rating": 5}, headers=buyer_headers)
     assert closed.status_code == 400
     assert closed.json()["error_code"] == "REVIEW_WINDOW_CLOSED"
+
+
+@pytest.mark.asyncio
+async def test_seller_reply_and_admin_hide_review(client):
+    """Seller answers in public (one editable reply); admin can hide a review,
+    which drops it from the storefront and the rating but keeps the order
+    marked as reviewed. A foreign seller cannot touch it."""
+    buyer_token, seller_token, admin_token, instant_variant_id, _ = await setup_buyable_product(client)
+    buyer_headers = {"Authorization": f"Bearer {buyer_token}"}
+    seller_headers = {"Authorization": f"Bearer {seller_token}"}
+    admin_headers = {"Authorization": f"Bearer {admin_token}"}
+
+    order_id = (await client.post("/orders", json={"variant_id": instant_variant_id, "quantity": 1}, headers=buyer_headers)).json()["id"]
+    product_id = (await client.get(f"/orders/{order_id}", headers=buyer_headers)).json()["product_id"]
+    review = (await client.post(f"/orders/{order_id}/review", json={"rating": 2, "comment": "slow"}, headers=buyer_headers)).json()
+
+    # Seller inbox: one unreplied review on their product.
+    inbox = (await client.get("/seller/reviews", params={"product_id": product_id}, headers=seller_headers)).json()
+    assert inbox["total"] == 1 and inbox["unreplied"] == 1
+    assert inbox["items"][0]["variant_name"] == "Instant Var"
+
+    replied = await client.put(f"/seller/reviews/{review['id']}/reply", json={"body": "Sorry — fixed now"}, headers=seller_headers)
+    assert replied.status_code == 200, replied.text
+    assert replied.json()["seller_reply"] == "Sorry — fixed now"
+    public = (await client.get(f"/products/{product_id}/reviews")).json()
+    assert public[0]["seller_reply"] == "Sorry — fixed now" and public[0]["seller_replied_at"]
+    assert (await client.get("/seller/reviews", params={"product_id": product_id}, headers=seller_headers)).json()["unreplied"] == 0
+
+    # Another seller cannot reply to / see it.
+    await register_and_login(client, "rev_other_seller@example.com")
+    await make_seller("rev_other_seller@example.com")
+    other = {"Authorization": f"Bearer {await register_and_login(client, 'rev_other_seller@example.com')}"}
+    assert (await client.put(f"/seller/reviews/{review['id']}/reply", json={"body": "x"}, headers=other)).status_code == 404
+    assert (await client.get("/seller/reviews", headers=other)).json()["total"] == 0
+    assert (await client.put(f"/seller/reviews/{review['id']}/reply", json={"body": "x"}, headers=buyer_headers)).status_code == 403
+
+    # Admin hides it: gone from storefront + rating, still "reviewed" for the buyer.
+    hidden = await client.patch(f"/admin/reviews/{review['id']}/visibility", json={"hidden": True, "reason": "spam"}, headers=admin_headers)
+    assert hidden.status_code == 200, hidden.text
+    assert hidden.json()["is_hidden"] is True and hidden.json()["hidden_reason"] == "spam"
+    assert (await client.get(f"/products/{product_id}/reviews")).json() == []
+    detail = (await client.get(f"/products/{product_id}")).json()
+    assert detail["rating_count"] == 0 and detail["rating_avg"] is None
+    row = next(o for o in (await client.get("/orders", headers=buyer_headers)).json()["items"] if o["id"] == order_id)
+    assert row["has_review"] is True and row["capabilities"]["can_review"] is False
+    assert (await client.get("/seller/reviews", params={"product_id": product_id}, headers=seller_headers)).json()["items"][0]["is_hidden"] is True
+    assert (await client.get("/admin/reviews", params={"hidden": "true"}, headers=admin_headers)).json()["total"] == 1
+    assert (await client.patch(f"/admin/reviews/{review['id']}/visibility", json={"hidden": True}, headers=seller_headers)).status_code == 403
+
+    # Restore.
+    shown = (await client.patch(f"/admin/reviews/{review['id']}/visibility", json={"hidden": False}, headers=admin_headers)).json()
+    assert shown["is_hidden"] is False and shown["hidden_reason"] is None
+    assert (await client.get(f"/products/{product_id}")).json()["rating_count"] == 1
+
+    # Seller can withdraw the reply.
+    cleared = (await client.delete(f"/seller/reviews/{review['id']}/reply", headers=seller_headers)).json()
+    assert cleared["seller_reply"] is None

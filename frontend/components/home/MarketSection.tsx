@@ -174,7 +174,7 @@ export function MarketSection({ products, initialTotal, cats, flatCats, active, 
   const [instantOnly, setInstantOnly] = useState(false);
   const [priceTier, setPriceTier] = useState<PriceTier>("all");
   const [sort, setSort] = useState<SortKey>("bestseller");
-  const [view, setView] = useState<"table" | "grid">("table");
+  const [view, setView] = useState<"table" | "grid">("grid");
   const [showAll, setShowAll] = useState(false);
   const [catalogProducts, setCatalogProducts] = useState(products);
   const [catalogTotal, setCatalogTotal] = useState(initialTotal);
@@ -182,6 +182,14 @@ export function MarketSection({ products, initialTotal, cats, flatCats, active, 
   const [catalogLoading, setCatalogLoading] = useState(false);
   const [catalogError, setCatalogError] = useState(false);
   const initialRender = useRef(true);
+  // Results area: lock its height while a request is in flight so the page
+  // never jumps, then release it with a transition once the new set is in.
+  const resultsRef = useRef<HTMLDivElement>(null);
+  const [lockedHeight, setLockedHeight] = useState<number | null>(null);
+  const [resultsGen, setResultsGen] = useState(0);
+  // Whether the *loaded* set is a filtered one — the collapsed preview must
+  // not expand the moment a filter is toggled, only when its results land.
+  const [resultsFiltered, setResultsFiltered] = useState(false);
 
   // Price tiers in VND, mirroring the category page (1 $ / 2 $ when browsing in USD).
   const rate = fxRate && fxRate > 0 ? fxRate : 25000;
@@ -217,16 +225,22 @@ export function MarketSection({ products, initialTotal, cats, flatCats, active, 
     initialRender.current = false;
     const controller = new AbortController();
     const timer = window.setTimeout(() => {
+      if (resultsRef.current) setLockedHeight(resultsRef.current.offsetHeight);
       setCatalogLoading(true);
       setCatalogError(false);
       api.products(queryOpts(1, controller.signal)).then((result) => {
         setCatalogProducts(result.items);
         setCatalogTotal(result.total);
         setCatalogPage(1);
+        setResultsFiltered(isFiltering);
+        setResultsGen((g) => g + 1);
       }).catch((requestError: unknown) => {
         if (!(requestError instanceof DOMException && requestError.name === "AbortError")) setCatalogError(true);
       }).finally(() => {
-        if (!controller.signal.aborted) setCatalogLoading(false);
+        if (controller.signal.aborted) return;
+        setCatalogLoading(false);
+        // A tick later, let min-height ease down to the new content height.
+        window.setTimeout(() => setLockedHeight(null), 20);
       });
     }, q ? 250 : 0);
     return () => {
@@ -258,8 +272,8 @@ export function MarketSection({ products, initialTotal, cats, flatCats, active, 
   };
 
   const filtered = catalogProducts;
-  const visible = (showAll || isFiltering) ? filtered : filtered.slice(0, COLLAPSED_LIMIT);
-  const canExpand = !showAll && !isFiltering && filtered.length > COLLAPSED_LIMIT;
+  const visible = (showAll || resultsFiltered) ? filtered : filtered.slice(0, COLLAPSED_LIMIT);
+  const canExpand = !showAll && !resultsFiltered && filtered.length > COLLAPSED_LIMIT;
   const canLoadMore = filtered.length < catalogTotal;
 
   // Tier labels follow the browsing currency (the category page's messages hard-code "$").
@@ -271,7 +285,7 @@ export function MarketSection({ products, initialTotal, cats, flatCats, active, 
   };
 
   return (
-    <section id="market" className="w-full mx-auto max-w-[1200px] px-6 py-6 lg:py-8 scroll-mt-20">
+    <section id="market" className="w-full mx-auto max-w-[1200px] px-6 py-5 lg:py-6 scroll-mt-20">
       <SectionHead
         title={t("allProducts")}
         sub={summary ? t("marketSummary", { products: initialTotal, packages: summary.variants }) : t("marketSubtitle")}
@@ -335,7 +349,10 @@ export function MarketSection({ products, initialTotal, cats, flatCats, active, 
             <FacetChip key={tier} active={priceTier === tier} onClick={() => setPriceTier(tier)}>{priceTierLabel[tier]}</FacetChip>
           ))}
           <span className="ml-auto flex items-center gap-3 text-[12.5px] text-muted">
-            {catalogLoading ? <Spinner /> : <span>{t("showingCount", { shown: visible.length, total: catalogTotal })}</span>}
+            <span className="inline-flex items-center gap-1.5 tabular">
+              <span className={cn("h-3 w-3 rounded-full border-[1.5px] border-line border-t-iris animate-spin transition-opacity duration-150", catalogLoading ? "opacity-100" : "opacity-0")} aria-hidden />
+              {t("showingCount", { shown: visible.length, total: catalogTotal })}
+            </span>
             {isFiltering && (
               <button type="button" onClick={clearFilters} className="inline-flex items-center gap-1 font-medium text-iris hover:text-iris-hi">
                 <X size={12} /> {tc("clearAllFilters")}
@@ -355,8 +372,15 @@ export function MarketSection({ products, initialTotal, cats, flatCats, active, 
         </Card>
       )}
 
-      {/* Results keep their place while a new page loads: fade instead of swap. */}
-      <div aria-busy={catalogLoading} className={cn("transition-opacity duration-200", catalogLoading && "opacity-60")}>
+      {/* Results keep their place while a new set loads: the area holds its
+          height and dims, then the new set fades in and the height eases. */}
+      <div
+        ref={resultsRef}
+        aria-busy={catalogLoading}
+        style={{ minHeight: lockedHeight ?? undefined }}
+        className={cn("transition-[opacity,min-height] duration-300 ease-out", catalogLoading && "opacity-50")}
+      >
+      <div key={resultsGen} className="animate-fade-in">
       {/* Table — desktop; cards below md */}
       {!loading && visible.length > 0 && view === "table" && (
         <Card className="hidden md:block overflow-hidden">
@@ -427,12 +451,12 @@ export function MarketSection({ products, initialTotal, cats, flatCats, active, 
             const fulfillment = fulfillmentFromProduct(p);
             return (
               <Link key={p.id} href={productPath(p)} className="group">
-                <Card className="p-0 h-full flex flex-col overflow-hidden transition-all duration-150 group-hover:shadow-card-lg group-hover:-translate-y-0.5">
+                <Card className="p-0 h-full flex flex-col overflow-hidden transition-shadow duration-200 group-hover:shadow-card-lg">
                   <div className="p-3.5 sm:p-4">
                     <div className="flex items-start gap-3">
-                      <ProductCover coverId={parseCoverId(p)} title={p.title} className="h-10 w-10 shrink-0" />
+                      <ProductCover coverId={parseCoverId(p)} title={p.title} className="h-14 w-14 shrink-0 rounded-xl" />
                       <div className="min-w-0 flex-1">
-                        <div className="font-medium text-[13.5px] leading-snug line-clamp-2">{p.title}</div>
+                        <div className="font-medium text-[14px] leading-snug line-clamp-2">{p.title}</div>
                         <div className="mt-1 flex flex-wrap items-center gap-x-1.5 text-[12px] text-faint">
                           <span>{catName(p.category_id)}</span><span>·</span><RatingInline product={p} t={t} />
                         </div>
@@ -477,6 +501,7 @@ export function MarketSection({ products, initialTotal, cats, flatCats, active, 
         </div>
       )}
 
+      </div>
       </div>
 
       {(canExpand || canLoadMore) && (

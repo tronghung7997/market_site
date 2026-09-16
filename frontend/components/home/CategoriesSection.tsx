@@ -29,7 +29,7 @@ export function CategoriesSection({ cats, countFor, onBrowse }: {
   const hidden = parents.length - shown.length;
 
   return (
-    <section className="w-full mx-auto max-w-[1200px] px-6 py-6 lg:py-8">
+    <section className="w-full mx-auto max-w-[1200px] px-6 py-5 lg:py-6">
       <div className="flex items-end justify-between gap-4">
         <SectionHead title={t("categories")} sub={t("categoriesSub")} />
         <Link href="/categories" className="mb-4 hidden items-center gap-1 text-[13px] font-medium text-iris hover:text-iris-hi sm:inline-flex">

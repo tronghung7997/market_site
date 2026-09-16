@@ -4,8 +4,11 @@
  * Owns display-currency preference + runtime money config.
  * Preference is independent of i18n locale (Booking-style).
  *
- * Cookie `display_currency` is the source of truth (SSR-safe).
- * localStorage is a mirror only.
+ * Cookie `display_currency` is the source of truth (SSR-safe). It is seeded
+ * by proxy.ts from the visitor's country on first visit (VN → VND, else USD;
+ * admin default only when no country header) and overwritten when the user
+ * toggles; localStorage is a
+ * mirror only.
  *
  * Important: never persist FALLBACK/provisional defaults into the cookie.
  * If SSR money-config fails, wait for the client retry before writing a
@@ -239,10 +242,10 @@ export function CurrencyProvider({
   const fxRate = config.display_fx_rate;
 
   const value = useMemo<MoneyContextValue>(() => {
-    // When toggle disabled, force default (or VND if USD rate missing).
-    const effective: DisplayCurrency = config.allow_user_toggle
-      ? currency
-      : config.display_currency_default;
+    // Toggle off only hides the switcher and rejects setCurrency; the
+    // stored/geo-seeded preference still applies so a VN visitor sees VND
+    // even when the admin default is USD.
+    const effective: DisplayCurrency = currency;
 
     const history = (
       amountVnd: number,

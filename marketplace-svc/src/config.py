@@ -84,6 +84,8 @@ class Settings(BaseSettings):
     # Empty keeps the allowlist disabled for local development and rollout.
     admin_allowed_ips: str = ""
     affiliate_click_ip_limit: int = 30
+    # Storefront search (/search, /search/suggest) requests per client IP per minute.
+    search_ip_rate_limit: int = 120
     provider_webhook_ip_limit: int = 120
     # Used to build the callback_url a seller_task_webhook provider POSTs back to.
     backend_base_url: str = "http://localhost:8001"

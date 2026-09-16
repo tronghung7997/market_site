@@ -188,7 +188,7 @@ Mọi route ứng dụng đều có locale prefix (`/en` hoặc `/vi`).
 
 | Role | Route chính |
 |---|---|
-| Buyer | `/[locale]`, `/[locale]/categories`, `/[locale]/products/[id]`, `/[locale]/orders`, `/[locale]/wallet`, `/[locale]/transactions`, `/[locale]/messages` |
+| Buyer | `/[locale]`, `/[locale]/categories`, `/[locale]/search`, `/[locale]/products/[id]`, `/[locale]/orders`, `/[locale]/wallet`, `/[locale]/transactions`, `/[locale]/messages` |
 | Seller | `/[locale]/seller/*` |
 | Admin | `/[locale]/admin/*` |
 

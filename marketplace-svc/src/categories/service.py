@@ -1,8 +1,10 @@
 from fastapi import HTTPException
 from sqlalchemy import select
 from sqlalchemy.ext.asyncio import AsyncSession
+from sqlalchemy.orm import aliased
 
 from src.i18n.catalog import DEFAULT_LOCALE, merge_i18n_locale, resolve_category_fields
+from src.i18n.search_text import normalize_query, search_terms
 from src.models.category import Category
 
 
@@ -118,3 +120,40 @@ async def category_subtree_ids(category_ids, db: AsyncSession) -> list[int]:
             out.append(current)
             stack.extend(children.get(current, []))
     return out
+
+
+async def search_categories(db: AsyncSession, query: str, *, locale: str = DEFAULT_LOCALE, limit: int = 5) -> list[dict]:
+    """Ranked active categories whose name (any locale) or slug matches.
+
+    One indexed query on ``categories.search_text``; the parent name rides
+    along so the UI can show "Facebook · Mạng xã hội" without a tree walk.
+    """
+    query = normalize_query(query)
+    if not query:
+        return []
+    terms = search_terms(query)
+    parent = aliased(Category)
+    stmt = (
+        select(Category, parent)
+        .outerjoin(parent, parent.id == Category.parent_id)
+        .where(Category.is_active, terms.match(Category.search_text))
+        .order_by(
+            terms.rank(Category.search_text).asc(),
+            terms.similarity(Category.search_text).desc(),
+            Category.sort_order.asc(),
+            Category.id.asc(),
+        )
+        .limit(limit)
+    )
+    hits: list[dict] = []
+    for category, parent_row in (await db.execute(stmt)).all():
+        hits.append({
+            "id": category.id,
+            "name": resolve_category_fields(category, locale)["name"],
+            "slug": category.slug,
+            "icon": category.icon,
+            "parent_id": category.parent_id,
+            "parent_name": resolve_category_fields(parent_row, locale)["name"] if parent_row is not None else None,
+            "parent_slug": parent_row.slug if parent_row is not None else None,
+        })
+    return hits

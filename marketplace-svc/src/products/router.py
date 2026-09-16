@@ -28,7 +28,7 @@ async def list_products(
     fulfillment: Literal["instant"] | None = Query(None),
     min_price: int | None = Query(None, ge=0),
     max_price: int | None = Query(None, ge=0),
-    sort: Literal["newest", "bestseller", "rating", "price_asc", "price_desc"] = Query("newest"),
+    sort: Literal["relevance", "newest", "bestseller", "rating", "price_asc", "price_desc"] = Query("newest"),
     page: int = Query(1, ge=1),
     per_page: int = Query(50, ge=1, le=100),
     locale: str = Depends(get_request_locale),

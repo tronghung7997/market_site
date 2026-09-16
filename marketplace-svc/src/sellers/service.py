@@ -1,6 +1,7 @@
-from sqlalchemy import func, select
+from sqlalchemy import exists, func, select
 from sqlalchemy.ext.asyncio import AsyncSession
 
+from src.i18n.search_text import normalize_query, search_terms
 from src.i18n.slug import canonical_path, parse_public_ref, slugify_text
 from src.models.account import Account, ApplicationStatus, SellerApplication
 from src.models.order import Order, OrderStatus
@@ -170,3 +171,46 @@ async def get_seller_profile(seller_id: int, db: AsyncSession) -> dict | None:
     bio = bio_result.scalar_one_or_none()
 
     return {**summaries[0], "bio": bio, "member_since": account.created_at}
+
+
+async def search_sellers(db: AsyncSession, query: str, *, limit: int = 4) -> list[dict]:
+    """Ranked public seller cards whose approved business name matches.
+
+    Only shops that are active, hold the seller role and currently list at
+    least one active product are visible — the same set ``/sellers/top``
+    draws from, so search never reveals dormant or unapproved accounts.
+    Emails are never searched. Uses the trigram index on
+    ``immutable_unaccent(lower(business_name))``.
+    """
+    query = normalize_query(query)
+    if not query:
+        return []
+    terms = search_terms(query)
+    corpus = func.immutable_unaccent(func.lower(SellerApplication.business_name))
+    has_active_product = exists().where(
+        Product.seller_id == Account.id, Product.status == ProductStatus.active,
+    )
+    stmt = (
+        select(SellerApplication.account_id, SellerApplication.created_at)
+        .join(Account, Account.id == SellerApplication.account_id)
+        .where(
+            SellerApplication.status == ApplicationStatus.approved,
+            Account.is_active == True,  # noqa: E712
+            Account.roles.any("seller"),
+            has_active_product,
+            terms.match(corpus),
+        )
+        .order_by(
+            terms.rank(corpus).asc(),
+            terms.similarity(corpus).desc(),
+            SellerApplication.created_at.desc(),
+        )
+        .limit(limit * 3)
+    )
+    ordered_ids: list[int] = []
+    for account_id, _ in (await db.execute(stmt)).all():
+        if account_id not in ordered_ids:
+            ordered_ids.append(account_id)
+        if len(ordered_ids) >= limit:
+            break
+    return await _build_seller_summaries(ordered_ids, db)

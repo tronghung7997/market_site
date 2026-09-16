@@ -28,6 +28,7 @@ import NotificationBell from "./NotificationBell";
 import MessageShortcut from "./chat/MessageShortcut";
 import CurrencyToggle from "./CurrencyToggle";
 import { Button } from "./ui";
+import { HeaderSearch, SearchProvider } from "@/features/search";
 
 function LocaleSwitcher({
   locale,
@@ -79,6 +80,14 @@ function LocaleSwitcher({
 }
 
 export default function TopNav() {
+  return (
+    <SearchProvider>
+      <TopNavBar />
+    </SearchProvider>
+  );
+}
+
+function TopNavBar() {
   const { account, logout } = useAuth();
   const pathname = usePathname();
   const router = useRouter();
@@ -183,7 +192,11 @@ export default function TopNav() {
             })}
             <Link href="/solutions" className="px-2.5 py-1.5 rounded-lg text-[13px] font-medium text-muted hover:text-fg hover:bg-raised transition-colors whitespace-nowrap">{t("solutions")}</Link>
           </nav>
-          <div className="flex-1" />
+          {/* Global search: a field-shaped trigger on md+, an icon below. The
+              palette itself (⌘K) is mounted once by SearchProvider. */}
+          <div className="flex min-w-0 flex-1 items-center justify-center md:justify-end lg:justify-center">
+            <HeaderSearch />
+          </div>
           {!isAdminRoute && allowLocaleToggle && (
             <LocaleSwitcher
               locale={locale}

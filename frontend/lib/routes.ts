@@ -16,7 +16,8 @@ export const PUBLIC_KEY_PATTERN = /^[0-9a-z]{8}$/;
 const NUMERIC_PARAM = /^\d+$/;
 
 export type ProductRef = {
-  id: number;
+  /** Legacy fallback only; storefront search hits carry no row id at all. */
+  id?: number | null;
   slug?: string | null;
   public_key?: string | null;
   canonical_path?: string | null;
@@ -42,7 +43,7 @@ export function productPath(product: ProductRef): string {
     const slug = product.slug?.trim();
     return slug ? `/products/${slug}-${product.public_key}` : `/products/${product.public_key}`;
   }
-  return `/products/${product.id}`;
+  return product.id != null ? `/products/${product.id}` : "/products";
 }
 
 export function categoryPath(category: CategoryRef): string {

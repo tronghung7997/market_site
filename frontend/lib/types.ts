@@ -1819,3 +1819,52 @@ export interface SellerApplication {
   reject_reason: string | null;
   created_at: string;
 }
+
+// ---------------------------------------------------------------------------
+// Storefront search (GET /search/suggest, GET /search)
+// ---------------------------------------------------------------------------
+
+/** Slim product row for the command palette. No sequential ids: `canonical_path` is the link. */
+export interface SearchProductHit {
+  public_key: string;
+  slug: string;
+  canonical_path: string;
+  title: string;
+  highlight_text: string | null;
+  cover_id: string | null;
+  service_type: string | null;
+  category_id: number;
+  category_slug: string;
+  category_name: string;
+  seller_name: string | null;
+  seller_path: string | null;
+  /** Storefront "from" price in ledger units; null when nothing is priced yet. */
+  price_from: number | null;
+  sold_count: number;
+  rating_avg: number | null;
+  rating_count: number;
+}
+
+export interface SearchCategoryHit {
+  id: number;
+  name: string;
+  slug: string;
+  icon: string | null;
+  parent_id: number | null;
+  parent_name: string | null;
+  parent_slug: string | null;
+}
+
+export interface SearchSuggest {
+  query: string;
+  products: SearchProductHit[];
+  categories: SearchCategoryHit[];
+  sellers: SellerSummary[];
+}
+
+export interface SearchResult {
+  query: string;
+  products: PaginatedProducts;
+  categories: SearchCategoryHit[];
+  sellers: SellerSummary[];
+}

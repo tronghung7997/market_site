@@ -202,6 +202,37 @@ export const ExternalLink = (p: IconProps) => (
 
 
 /** Brand mark — an aperture/gateway hexagon. Serious, premium. */
+export const CornerDownLeft = (p: IconProps) => (
+  <svg {...s(p)}><path d="M20 4v7a4 4 0 0 1-4 4H4" /><path d="m9 10-5 5 5 5" /></svg>
+);
+export const ArrowUp = (p: IconProps) => (
+  <svg {...s(p)}><path d="M12 19V5" /><path d="m5 12 7-7 7 7" /></svg>
+);
+export const ArrowDown = (p: IconProps) => (
+  <svg {...s(p)}><path d="M12 5v14" /><path d="m19 12-7 7-7-7" /></svg>
+);
+export const Hash = (p: IconProps) => (
+  <svg {...s(p)}><path d="M4 9h16" /><path d="M4 15h16" /><path d="M10 3 8 21" /><path d="M16 3l-2 18" /></svg>
+);
+export const AtSign = (p: IconProps) => (
+  <svg {...s(p)}><circle cx="12" cy="12" r="4" /><path d="M16 8v5a3 3 0 0 0 6 0v-1a10 10 0 1 0-4 8" /></svg>
+);
+export const Command = (p: IconProps) => (
+  <svg {...s(p)}><path d="M15 6v12a3 3 0 1 0 3-3H6a3 3 0 1 0 3 3V6a3 3 0 1 0-3 3h12a3 3 0 1 0-3-3" /></svg>
+);
+export const Terminal = (p: IconProps) => (
+  <svg {...s(p)}><path d="m4 17 6-6-6-6" /><path d="M12 19h8" /></svg>
+);
+export const Languages = (p: IconProps) => (
+  <svg {...s(p)}><path d="m5 8 6 6" /><path d="m4 14 6-6 2-3" /><path d="M2 5h12" /><path d="M7 2h1" /><path d="m22 22-5-10-5 10" /><path d="M14 18h6" /></svg>
+);
+export const Home = (p: IconProps) => (
+  <svg {...s(p)}><path d="m3 11 9-8 9 8" /><path d="M5 10v10a1 1 0 0 0 1 1h4v-6h4v6h4a1 1 0 0 0 1-1V10" /></svg>
+);
+export const Sparkles = (p: IconProps) => (
+  <svg {...s(p)}><path d="M12 3v4" /><path d="M12 17v4" /><path d="M3 12h4" /><path d="M17 12h4" /><path d="m12 7 1.6 3.4L17 12l-3.4 1.6L12 17l-1.6-3.4L7 12l3.4-1.6Z" /><path d="M5 5l1 1" /><path d="M18 18l1 1" /></svg>
+);
+
 export function Logo({ withName = true }: { withName?: boolean }) {
   return (
     <span className="flex items-center gap-2.5">

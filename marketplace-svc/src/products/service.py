@@ -20,6 +20,7 @@ from src.i18n.catalog import (
     resolve_product_specs,
     resolve_variant_fields,
 )
+from src.i18n.search_text import SearchTerms, normalize_query, search_terms
 from src.i18n.slug import canonical_path, new_public_key, parse_public_ref, slugify_text
 from src.models.account import Account
 from src.models.category import Category
@@ -452,42 +453,15 @@ async def _category_subtree_ids(category_id: int, db: AsyncSession) -> list[int]
     return out
 
 
-async def list_products(
-    db: AsyncSession,
-    category_id: int | None = None,
-    seller: str | None = None,
-    search: str | None = None,
-    in_stock: bool = False,
-    fulfillment: str | None = None,
-    min_price: int | None = None,
-    max_price: int | None = None,
-    sort: str = "newest",
-    page: int = 1,
-    per_page: int = 50,
-    locale: str = DEFAULT_LOCALE,
-) -> dict:
-    """Danh sách sản phẩm đang bán — item bản GỌN kèm gói + tồn kho.
 
-    - Số query CỐ ĐỊNH (đếm + trang sản phẩm + gói IN + tồn kho GROUP BY) bất
-      kể bao nhiêu sản phẩm/gói — bản cũ 1 + N + N×gói query, 1000 sản phẩm là
-      ~3.000 query một request.
-    - category_id lọc theo CẢ NHÁNH (danh mục + con cháu) ngay tại DB — đúng
-      ngữ nghĩa subtreeIds() client dùng để lọc tay trước đây.
-    - Luôn phân trang server-side để một request public không thể kéo toàn bộ
-      catalog và tồn kho. Envelope giữ khuôn {items, total, page, per_page}.
-    - ``locale`` resolves title/highlight/variant names server-side (EN default).
+def _browse_price_columns():
+    """``(variant_stats, browse_price)`` shared by every public product list.
+
+    ``variant_stats`` is a per-product subquery (min active variant price,
+    sellable stock, instant-delivery flag); ``browse_price`` is the "from"
+    price the storefront shows: cheapest variant, else the strategy-derived
+    price for config/credit products, else 0.
     """
-    filters = [Product.status == ProductStatus.active]
-    if category_id:
-        filters.append(Product.category_id.in_(await _category_subtree_ids(category_id, db)))
-    if seller:
-        # Public seller filter takes the seller's key / handle-key (or a legacy
-        # id); an unknown ref is simply an empty page, never an enumeration hint.
-        seller_account = await resolve_seller_ref(seller, db)
-        if seller_account is None:
-            return {"items": [], "total": 0, "page": page, "per_page": per_page}
-        filters.append(Product.seller_id == seller_account.id)
-
     variant_stats = (
         select(
             ProductVariant.product_id.label("product_id"),
@@ -537,23 +511,68 @@ async def list_products(
         else_=base_price,
     )
     browse_price = func.coalesce(variant_stats.c.min_price, dynamic_price, 0)
+    return variant_stats, browse_price
+
+
+def _relevance_order(terms: SearchTerms) -> tuple:
+    """Prefix > word start > substring > fuzzy, then closeness, then popularity."""
+    return (
+        terms.rank(Product.search_text).asc(),
+        terms.similarity(Product.search_text).desc(),
+        Product.sold_count.desc(),
+        Product.id.desc(),
+    )
+
+
+async def list_products(
+    db: AsyncSession,
+    category_id: int | None = None,
+    seller: str | None = None,
+    search: str | None = None,
+    in_stock: bool = False,
+    fulfillment: str | None = None,
+    min_price: int | None = None,
+    max_price: int | None = None,
+    sort: str = "newest",
+    page: int = 1,
+    per_page: int = 50,
+    locale: str = DEFAULT_LOCALE,
+) -> dict:
+    """Danh sách sản phẩm đang bán — item bản GỌN kèm gói + tồn kho.
+
+    - Số query CỐ ĐỊNH (đếm + trang sản phẩm + gói IN + tồn kho GROUP BY) bất
+      kể bao nhiêu sản phẩm/gói — bản cũ 1 + N + N×gói query, 1000 sản phẩm là
+      ~3.000 query một request.
+    - category_id lọc theo CẢ NHÁNH (danh mục + con cháu) ngay tại DB — đúng
+      ngữ nghĩa subtreeIds() client dùng để lọc tay trước đây.
+    - Luôn phân trang server-side để một request public không thể kéo toàn bộ
+      catalog và tồn kho. Envelope giữ khuôn {items, total, page, per_page}.
+    - ``locale`` resolves title/highlight/variant names server-side (EN default).
+    - ``search`` is accent/case-insensitive and typo-tolerant (see
+      ``src.i18n.search_text``); ``sort="relevance"`` ranks by match quality
+      and falls back to ``newest`` when there is no search term.
+    """
+    filters = [Product.status == ProductStatus.active]
+    if category_id:
+        filters.append(Product.category_id.in_(await _category_subtree_ids(category_id, db)))
+    if seller:
+        # Public seller filter takes the seller's key / handle-key (or a legacy
+        # id); an unknown ref is simply an empty page, never an enumeration hint.
+        seller_account = await resolve_seller_ref(seller, db)
+        if seller_account is None:
+            return {"items": [], "total": 0, "page": page, "per_page": per_page}
+        filters.append(Product.seller_id == seller_account.id)
+
+    variant_stats, browse_price = _browse_price_columns()
     managed = inventory_managed_sql()
 
     query = select(Product).outerjoin(variant_stats, variant_stats.c.product_id == Product.id)
-    if search and search.strip():
-        locale_title = func.nullif(Product.i18n[locale]["title"].astext, "")
-        locale_highlight = func.nullif(Product.i18n[locale]["highlight_text"].astext, "")
-        if locale == "vi":
-            locale_title = func.coalesce(locale_title, func.nullif(Product.i18n["en"]["title"].astext, ""))
-            locale_highlight = func.coalesce(
-                locale_highlight,
-                func.nullif(Product.i18n["en"]["highlight_text"].astext, ""),
-            )
-        term = f"%{search.strip()}%"
-        filters.append(or_(
-            func.coalesce(locale_title, Product.title).ilike(term),
-            func.coalesce(locale_highlight, Product.highlight_text, "").ilike(term),
-        ))
+    # Accent/case-insensitive, typo-tolerant match over every locale's title
+    # and highlight (products.search_text, GIN trigram index).
+    search_query = normalize_query(search)
+    terms = search_terms(search_query) if search_query else None
+    if terms is not None:
+        filters.append(terms.match(Product.search_text))
     if in_stock:
         filters.append(or_(managed == False, func.coalesce(variant_stats.c.stock_count, 0) > 0))  # noqa: E712
     if fulfillment == "instant":
@@ -563,7 +582,9 @@ async def list_products(
     if max_price is not None:
         filters.extend((browse_price > 0, browse_price <= max_price))
 
-    if sort == "bestseller":
+    if sort == "relevance" and terms is not None:
+        order_by = _relevance_order(terms)
+    elif sort == "bestseller":
         order_by = (Product.sold_count.desc(), Product.id.desc())
     elif sort == "rating":
         order_by = (func.coalesce(Product.rating_avg, 0).desc(), Product.rating_count.desc(), Product.id.desc())
@@ -596,6 +617,54 @@ async def list_products(
         "page": page,
         "per_page": per_page,
     }
+
+
+async def suggest_products(db: AsyncSession, query: str, *, locale: str = DEFAULT_LOCALE, limit: int = 6) -> list[dict]:
+    """Slim, ranked product hits for the command palette / typeahead.
+
+    One indexed query (plus the seller-ref lookup): no count, no variants.
+    Each hit carries only what a result row needs — public identity,
+    localized title, cover, category, seller label and the "from" price the
+    catalog grid would show. Only active products are visible.
+    """
+    query = normalize_query(query)
+    if not query:
+        return []
+    terms = search_terms(query)
+    variant_stats, browse_price = _browse_price_columns()
+    stmt = (
+        select(Product, Category, browse_price.label("price_from"))
+        .join(Category, Category.id == Product.category_id)
+        .outerjoin(variant_stats, variant_stats.c.product_id == Product.id)
+        .where(Product.status == ProductStatus.active, terms.match(Product.search_text))
+        .order_by(*_relevance_order(terms))
+        .limit(limit)
+    )
+    rows = (await db.execute(stmt)).all()
+    seller_refs = await seller_refs_by_id({product.seller_id for product, _, _ in rows}, db)
+    hits: list[dict] = []
+    for product, category, price_from in rows:
+        localized = resolve_product_fields(product, locale)
+        category_name = resolve_category_fields(category, locale)["name"]
+        images = public_images(product.images)
+        seller = seller_refs.get(product.seller_id, {})
+        hits.append({
+            **_public_ref_fields(product),
+            "title": localized["title"],
+            "highlight_text": localized["highlight_text"],
+            "cover_id": None if images is None else images["cover_id"],
+            "service_type": product.service_type,
+            "category_id": category.id,
+            "category_slug": category.slug,
+            "category_name": category_name,
+            "seller_name": seller.get("seller_name"),
+            "seller_path": seller.get("seller_path"),
+            "price_from": int(price_from) if price_from else None,
+            "sold_count": product.sold_count,
+            "rating_avg": product.rating_avg,
+            "rating_count": product.rating_count,
+        })
+    return hits
 
 
 async def get_product_catalog_summary(db: AsyncSession) -> dict:

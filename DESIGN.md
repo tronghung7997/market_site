@@ -280,6 +280,16 @@ Status meaning is global. Do not remap green/amber/red by role. Labels and icons
 
 A frequent, primary workflow belongs on a route, not inside a modal. Data dialogs require a sticky header/toolbar where useful, an obvious `40×40px` close target, focus trap, Escape support, and a mobile full-screen/collapsed composition.
 
+### Command palette (global search)
+
+The header search field is a trigger; the search surface is the command palette (`features/search`, opened by `⌘K` / `Ctrl K`, the header field, or the mobile search icon) and the `/search` results route.
+
+- Anchored near the top (`10vh`) at medium dialog width (`max-w-2xl`), full-screen on mobile; overlay uses `ink-panel` at low opacity, panel uses `surface`, `line`, `shadow-card-lg`, `12px` radius.
+- One input row (`56px`), a scope chip for `#` categories / `@` sellers / `>` commands, and grouped `listbox` rows of `44px` minimum: leading cover/monogram/icon badge, label, secondary line, trailing mono price, `↵` hint on the highlighted row.
+- Keyboard first: `↑↓` move, `Home/End` jump, `↵` opens, `Esc` closes, `Backspace` on an empty input clears the scope. `aria-activedescendant` on the `combobox` input; rows are `role="option"`.
+- States: skeleton rows while the first response loads, previous results stay during refetch, explicit "no matches" copy, inline error with retry, "See all results" row is always the last item when a term is present.
+- The palette never becomes a workflow: it opens products, categories, sellers, pages and a handful of role-gated commands. Filtering, sorting and pagination live on `/search`.
+
 ---
 
 ## 10. Data-heavy interface contract

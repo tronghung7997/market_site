@@ -27,6 +27,8 @@ const PUBLIC_GET_PATHS: RegExp[] = [
   /^products\/[^/]+\/pricing-options$/,
   /^sellers\/top$/,
   /^sellers\/\d+$/,
+  /^search$/,
+  /^search\/suggest$/,
   /^money\/config$/,
   /^public\/site-pages(\/[^/]+)?$/,
 ];

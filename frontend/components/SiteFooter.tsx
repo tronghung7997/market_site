@@ -3,8 +3,11 @@
 import { useTranslations } from "next-intl";
 import { Link, usePathname } from "@/i18n/navigation";
 import { Logo, Shield } from "./Icons";
+import type { SitePageLink } from "@/lib/types";
 
-export default function SiteFooter() {
+/* `pages` là danh sách trang admin cấu hình (site_pages) — layout server fetch
+   rồi truyền xuống để footer không phải gọi API ở client. */
+export default function SiteFooter({ pages = [] }: { pages?: SitePageLink[] }) {
   const t = useTranslations("footer");
   const pathname = usePathname();
 
@@ -22,11 +25,7 @@ export default function SiteFooter() {
     {
       title: t("help"),
       links: [
-        { label: t("docs"), href: null },
-        { label: t("faq"), href: null },
-        { label: t("policy"), href: "/legal/escrow" },
-        { label: t("terms"), href: "/legal/terms" },
-        { label: t("privacy"), href: "/legal/privacy" },
+        ...pages.map((page) => ({ label: page.title, href: `/legal/${page.slug}` })),
         { label: t("contact"), href: null },
       ],
     },
@@ -52,7 +51,7 @@ export default function SiteFooter() {
               const label = typeof item === "string" ? item : item.label;
               const href = typeof item === "string" ? null : item.href;
               return (
-                <li key={label}>
+                <li key={href ?? label}>
                   {href ? (
                     <Link href={href} className="text-[13px] text-muted hover:text-fg">{label}</Link>
                   ) : (

@@ -1,5 +1,6 @@
 "use client";
 
+import { useEffect } from "react";
 import MDEditor from "@uiw/react-md-editor";
 import "@uiw/react-md-editor/markdown-editor.css";
 import {
@@ -26,6 +27,10 @@ export default function MDRichEditor({
 }: {
   value: string; onChange: (value: string) => void; placeholder?: string;
 }) {
+  /* Lệnh fullscreen của lib set body.style.overflow = "hidden" và chỉ trả
+     lại khi thoát fullscreen. Nếu editor bị unmount lúc đang fullscreen
+     (đổi tab, đổi chế độ xem) thì cả trang bị khoá cuộn — dọn ở đây. */
+  useEffect(() => () => { document.body.style.overflow = ""; }, []);
   return (
     <div className="proxora-md-editor" data-color-mode="light">
       <MDEditor

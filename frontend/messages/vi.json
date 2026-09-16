@@ -174,15 +174,9 @@
     "consulting": "Tư vấn giải pháp",
     "sla": "Cam kết SLA",
     "invoice": "Hoá đơn VAT",
-    "docs": "Tài liệu",
-    "faq": "Câu hỏi thường gặp",
-    "policy": "Chính sách ký quỹ",
     "contact": "Liên hệ",
     "copyright": "© {year} GMMO.",
-    "legal": "Giá đã gồm phí nền tảng · Tuân thủ pháp luật Việt Nam",
-    "linksUnavailableHint": "Các trang này sẽ sớm được bổ sung",
-    "terms": "Điều khoản",
-    "privacy": "Quyền riêng tư"
+    "legal": "Giá đã gồm phí nền tảng · Tuân thủ pháp luật Việt Nam"
   },
   "seller": {
     "applyTitle": "Đăng ký làm nhà bán hàng",
@@ -3329,21 +3323,9 @@
     "backHome": "Về chợ"
   },
   "legal": {
-    "termsTitle": "Điều khoản sử dụng",
-    "termsDesc": "Quy tắc khi dùng marketplace này.",
-    "termsP1": "Chợ này bán hàng số và dịch vụ chạy qua nhà cung cấp. Tạo tài khoản nghĩa là bạn đồng ý thanh toán vào ký quỹ, nhận đúng mô tả, và không dùng hàng đã mua để gian lận.",
-    "termsP2": "Seller chịu trách nhiệm nội dung listing và giao hàng. Nền tảng giữ tiền trong cửa sổ bảo hành của listing và có thể hoàn hoặc giữ tiền khi khiếu nại được chấp nhận.",
-    "termsP3": "Chúng tôi có thể khóa tài khoản vi phạm, gồm lạm dụng chargeback, credential stuffing, hoặc bán dữ liệu ăn cắp.",
-    "privacyTitle": "Quyền riêng tư",
-    "privacyDesc": "Cách marketplace xử lý dữ liệu tài khoản.",
-    "privacyP1": "Chúng tôi lưu email và hash mật khẩu lúc đăng ký, cookie phiên, lịch sử đơn, và bút toán ví cần để vận hành chợ.",
-    "privacyP2": "Cookie phiên là HttpOnly, không ghi vào localStorage. Chúng tôi không bán dữ liệu cá nhân. Cổng thanh toán chỉ nhận thông tin cần để nạp hoặc rút.",
-    "privacyP3": "Muốn xem hoặc xóa dữ liệu tài khoản, đăng nhập rồi liên hệ hỗ trợ từ email đã đăng ký.",
-    "escrowTitle": "Chính sách ký quỹ",
-    "escrowDesc": "Ký quỹ bảo vệ người mua hoạt động thế nào.",
-    "escrowP1": "Khi thanh toán, tiền nằm trong ký quỹ đến khi bạn xác nhận đã nhận hàng, hoặc hết cửa sổ ký quỹ mà không có khiếu nại mở.",
-    "escrowP2": "Nếu hàng giao không đúng listing, mở khiếu nại kèm bằng chứng trước khi hết hạn. Khiếu nại được chấp nhận có thể hoàn tiền hoặc đổi hàng.",
-    "escrowP3": "Thời gian ký quỹ gắn trên từng sản phẩm. Hàng giao ngay và dịch vụ nhà cung cấp dùng cùng cơ chế giữ rồi giải ngân cho seller."
+    "updatedAt": "Cập nhật lần cuối: {date}",
+    "navPages": "Chính sách",
+    "onThisPage": "Trong trang này"
   },
   "adminSettings": {
     "tabDisplay": "Hiển thị & ngôn ngữ",

@@ -109,6 +109,8 @@ Do not leak provider payloads throughout feature services. Normalize them into a
 
 Operational mail knobs (`provider`, `mail_from`, `mail_from_name`, `worker_enabled`) live in singleton `mail_runtime_config` (env is bootstrap/reset only), using the shared `runtime_config.ProcessConfigCache`. Subject/body copy lives in `mail_templates` (template+locale), seeded from the code catalog; admin may edit copy but cannot add template ids. Provider secrets (`RESEND_API_KEY`, SMTP password) stay in env and are never returned by admin APIs — only boolean configured flags. Admin HTTP for mail config, templates, send-test, and outbox listing lives in `mail.router`; adapters remain behind `mail.factory`.
 
+`site_pages` owns the admin-editable footer/legal pages (`site_pages` table, one row per slug with vi/en markdown). Built-in slugs are seeded by migration from `site_pages.defaults` and can be reset but not deleted; admin may add further slugs. Public reads (`/public/site-pages`, `/public/site-pages/{slug}`) go through a `ProcessConfigCache`; the storefront renders the markdown with raw HTML disabled.
+
 ## 4. Dependency rules
 
 - `main.py` may import routers to compose the application.

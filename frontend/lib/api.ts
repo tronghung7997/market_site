@@ -6,7 +6,7 @@ import type {
   SellerReviewList,
   PublicReviewList,
 } from "./types";
-import type { PaginatedDisputes } from "./types";
+import type { PaginatedDisputes, SitePageAdmin, SitePageCreate, SitePageUpdate } from "./types";
 import type { PaginatedAdminProducts, PaginatedInventoryVariants, PaginatedSellerProducts } from "./types";
 import type {
   BulkResourceActionInput, InventoryExportParams, InventoryExportPreview, InventoryPackageBulkStatusResult,
@@ -960,6 +960,19 @@ export const api = {
       method: "POST",
       body: JSON.stringify(body),
     }, true),
+
+  adminSitePages: () => request<{ items: SitePageAdmin[] }>("/admin/site-pages", {}, true),
+  adminCreateSitePage: (body: SitePageCreate) =>
+    request<SitePageAdmin>("/admin/site-pages", { method: "POST", body: JSON.stringify(body) }, true),
+  adminUpdateSitePage: (slug: string, body: SitePageUpdate) =>
+    request<SitePageAdmin>(`/admin/site-pages/${encodeURIComponent(slug)}`, {
+      method: "PATCH",
+      body: JSON.stringify(body),
+    }, true),
+  adminResetSitePage: (slug: string) =>
+    request<SitePageAdmin>(`/admin/site-pages/${encodeURIComponent(slug)}/reset`, { method: "POST" }, true),
+  adminDeleteSitePage: (slug: string) =>
+    request<void>(`/admin/site-pages/${encodeURIComponent(slug)}`, { method: "DELETE" }, true),
 
   adminResetMoneyConfigToEnv: () =>
     request<{

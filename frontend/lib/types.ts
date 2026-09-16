@@ -581,6 +581,35 @@ export interface MailTemplateRow {
   updated_by_id?: number | null;
 }
 
+export interface SitePageLink {
+  slug: string;
+  title: string;
+}
+
+export interface SitePagePublic {
+  slug: string;
+  title: string;
+  body: string;
+  updated_at?: string | null;
+}
+
+export interface SitePageAdmin {
+  slug: string;
+  sort_order: number;
+  show_in_footer: boolean;
+  title_vi: string;
+  title_en: string;
+  body_vi: string;
+  body_en: string;
+  is_system: boolean;
+  customized: boolean;
+  updated_at?: string | null;
+  updated_by_id?: number | null;
+}
+
+export type SitePageCreate = Omit<SitePageAdmin, "is_system" | "customized" | "updated_at" | "updated_by_id">;
+export type SitePageUpdate = Partial<Omit<SitePageCreate, "slug">>;
+
 export interface MailTemplatePreview {
   template: string;
   locale: string;

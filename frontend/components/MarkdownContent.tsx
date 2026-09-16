@@ -2,6 +2,7 @@
 
 import Markdown from "markdown-to-jsx";
 import { cn } from "@/lib/cn";
+import { headingSlug } from "@/lib/heading-slug";
 
 /* Seller gõ Enter là muốn xuống dòng, nhưng chuẩn markdown coi 1 newline là
    soft break — "dòng 1\ndòng 2" bị nối thành một dòng. markdown-to-jsx không
@@ -48,7 +49,7 @@ export function MarkdownContent({ children, className }: { children: string; cla
         className,
       )}
     >
-      <Markdown options={{ disableParsingRawHTML: true, forceBlock: true }}>{withHardBreaks(children)}</Markdown>
+      <Markdown options={{ disableParsingRawHTML: true, forceBlock: true, slugify: headingSlug }}>{withHardBreaks(children)}</Markdown>
     </div>
   );
 }

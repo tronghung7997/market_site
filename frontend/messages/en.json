@@ -174,15 +174,9 @@
     "consulting": "Solution consulting",
     "sla": "SLA commitment",
     "invoice": "VAT invoice",
-    "docs": "Documentation",
-    "faq": "Frequently asked questions",
-    "policy": "Escrow policy",
     "contact": "Contact",
     "copyright": "© {year} GMMO.",
-    "legal": "Prices include platform fees · Complies with applicable law",
-    "linksUnavailableHint": "More pages coming soon",
-    "terms": "Terms of use",
-    "privacy": "Privacy"
+    "legal": "Prices include platform fees · Complies with applicable law"
   },
   "seller": {
     "applyTitle": "Become a seller",
@@ -3329,21 +3323,9 @@
     "backHome": "Back to marketplace"
   },
   "legal": {
-    "termsTitle": "Terms of use",
-    "termsDesc": "Rules for using this marketplace.",
-    "termsP1": "This marketplace lists digital goods and provider-backed services. Creating an account means you agree to pay into escrow, receive the described delivery, and not use purchased items for fraud or abuse.",
-    "termsP2": "Sellers are responsible for the accuracy of their listings and for fulfilling orders. The platform holds payment in escrow for the listing's warranty window and may reverse or withhold funds when a dispute is upheld.",
-    "termsP3": "We may suspend accounts that violate these terms, including chargeback abuse, credential stuffing, or resale of stolen data.",
-    "privacyTitle": "Privacy",
-    "privacyDesc": "How this marketplace handles account data.",
-    "privacyP1": "We store the email and password hash you register with, session cookies, order history, and wallet ledger entries needed to operate the marketplace.",
-    "privacyP2": "The session cookie is HttpOnly and is not written to localStorage. We do not sell personal data. Payment rail providers receive only what they need to complete a deposit or withdrawal.",
-    "privacyP3": "To review or delete your account data, sign in and contact support from the registered email.",
-    "escrowTitle": "Escrow policy",
-    "escrowDesc": "How buyer-protected escrow works.",
-    "escrowP1": "When you pay, funds stay in escrow until you confirm delivery or the listing's escrow window ends without an open dispute.",
-    "escrowP2": "If the delivered item does not match the listing, open a dispute with evidence before the window closes. Upheld disputes can refund or replace the order.",
-    "escrowP3": "Escrow length is set on each product. Instant stock and provider-backed services follow the same hold, then release to the seller."
+    "updatedAt": "Last updated: {date}",
+    "navPages": "Policies",
+    "onThisPage": "On this page"
   },
   "adminSettings": {
     "tabDisplay": "Display & language",

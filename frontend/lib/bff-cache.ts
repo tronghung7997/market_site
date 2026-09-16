@@ -28,6 +28,7 @@ const PUBLIC_GET_PATHS: RegExp[] = [
   /^sellers\/top$/,
   /^sellers\/\d+$/,
   /^money\/config$/,
+  /^public\/site-pages(\/[^/]+)?$/,
 ];
 
 const CATALOG_WRITE_PATHS: RegExp[] = [
@@ -36,6 +37,7 @@ const CATALOG_WRITE_PATHS: RegExp[] = [
   /^admin\/products(\/|$)/,
   /^admin\/categories(\/|$)/,
   /^admin\/seller-config(\/|$)/,
+  /^admin\/site-pages(\/|$)/,
 ];
 
 const UNSAFE_METHODS = new Set(["POST", "PUT", "PATCH", "DELETE"]);

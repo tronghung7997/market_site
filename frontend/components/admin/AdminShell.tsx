@@ -33,6 +33,7 @@ const NAV_GROUPS: { label: string; items: NavItem[] }[] = [
       { href: "/admin/deposits", label: "Nạp tiền", icon: Plus },
       { href: "/admin/withdrawals", label: "Rút tiền", icon: Wallet },
       { href: "/admin/display-settings", label: "Cài đặt", icon: Sliders },
+      { href: "/admin/site-pages", label: "Trang nội dung", icon: FileText },
       { href: "/admin/providers", label: "Nhà cung cấp", icon: Activity },
       { href: "/admin/tasks", label: "Tác vụ", icon: ClipboardList },
       { href: "/admin/alerts", label: "Cảnh báo", icon: Bell },

@@ -1,7 +1,8 @@
 import "../globals.css";
 import type { Metadata } from "next";
 import type { ReactNode } from "react";
-import { pageMetadata, siteOrigin } from "@/lib/seo";
+import { fetchPublicJson, pageMetadata, siteOrigin } from "@/lib/seo";
+import type { SitePageLink } from "@/lib/types";
 import { signedBackendFetch } from "@/lib/bff-request-signing";
 import { Suspense } from "react";
 import { Newsreader, Be_Vietnam_Pro, JetBrains_Mono } from "next/font/google";
@@ -95,6 +96,8 @@ export default async function RootLayout({ children, params }: { children: React
   const jar = await cookies();
   const cookieCurrency = parseDisplayCurrency(jar.get("display_currency")?.value);
   const initialConfig = await loadMoneyConfig();
+  // Admin-configured footer pages; null on backend hiccup → footer shows no page links.
+  const footerPages = (await fetchPublicJson<SitePageLink[]>("/public/site-pages", locale)) ?? [];
   const initialCurrency: DisplayCurrency =
     cookieCurrency ??
     initialConfig?.display_currency_default ??
@@ -121,7 +124,7 @@ export default async function RootLayout({ children, params }: { children: React
                   </a>
                   <ChromeGate><TopNav /></ChromeGate>
                   <main id="main-content" className="flex-1 flex flex-col">{children}</main>
-                  <ChromeGate><SiteFooter /></ChromeGate>
+                  <ChromeGate><SiteFooter pages={footerPages} /></ChromeGate>
                 </TooltipProvider>
               </CurrencyProvider>
             </QueryProvider>

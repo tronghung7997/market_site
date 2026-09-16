@@ -6,6 +6,7 @@ from sqlalchemy.dialects.postgresql import JSONB
 from sqlalchemy.orm import Mapped, mapped_column
 
 from src.database import Base
+from src.orders.codes import new_order_code
 
 
 class OrderStatus(str, PyEnum):
@@ -42,6 +43,8 @@ class Order(Base):
     )
 
     id: Mapped[int] = mapped_column(primary_key=True)
+    # Buyer/seller-facing order number (ORD-XXXXXXXX); the id stays internal.
+    order_code: Mapped[str] = mapped_column(String(16), unique=True, nullable=False, default=new_order_code)
     buyer_id: Mapped[int] = mapped_column(ForeignKey("accounts.id"), nullable=False)
     seller_id: Mapped[int] = mapped_column(ForeignKey("accounts.id"), nullable=False)
     variant_id: Mapped[int | None] = mapped_column(ForeignKey("product_variants.id"), nullable=True)

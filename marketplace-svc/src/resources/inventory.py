@@ -112,8 +112,8 @@ ParentCategory = aliased(Category)
 
 
 def _package_row(row, low_stock: int) -> dict:
-    (pid, ptitle, pstatus, images, service_type, cat_id, cat_name, cat_parent_id, cat_parent_name,
-     vid, vname, price, delivery_mode, is_active,
+    (pid, pkey, ptitle, pstatus, images, service_type, cat_id, cat_name, cat_parent_id, cat_parent_name,
+     vid, vkey, vname, price, delivery_mode, is_active,
      available, assigned, error, expired, archived, sold_30d, last_restock_at) = row
     available = int(available or 0)
     cover_id = None
@@ -129,6 +129,7 @@ def _package_row(row, low_stock: int) -> dict:
         stock_state = "in_stock"
     return {
         "product_id": pid,
+        "product_key": pkey,
         "product_title": ptitle,
         "product_status": pstatus.value if hasattr(pstatus, "value") else str(pstatus),
         "cover_id": cover_id,
@@ -138,6 +139,7 @@ def _package_row(row, low_stock: int) -> dict:
         "category_parent_id": cat_parent_id,
         "category_parent_name": cat_parent_name,
         "variant_id": vid,
+        "variant_key": vkey,
         "variant_name": vname,
         "price": int(price),
         "delivery_mode": delivery_mode.value if hasattr(delivery_mode, "value") else delivery_mode,
@@ -155,12 +157,14 @@ def _package_row(row, low_stock: int) -> dict:
 
 def _package_columns(stats):
     return (
-        Product.id.label("product_id"), Product.title.label("product_title"),
+        Product.id.label("product_id"), Product.public_key.label("product_key"),
+        Product.title.label("product_title"),
         Product.status.label("product_status"), Product.images.label("images"),
         Product.service_type.label("service_type"),
         Category.id.label("category_id"), Category.name.label("category_name"),
         ParentCategory.id.label("category_parent_id"), ParentCategory.name.label("category_parent_name"),
-        ProductVariant.id.label("variant_id"), ProductVariant.name.label("variant_name"),
+        ProductVariant.id.label("variant_id"), ProductVariant.public_key.label("variant_key"),
+        ProductVariant.name.label("variant_name"),
         ProductVariant.price.label("price"), ProductVariant.delivery_mode.label("delivery_mode"),
         ProductVariant.is_active.label("is_active"),
         func.coalesce(stats.c.available, 0).label("available"),
@@ -195,6 +199,10 @@ def _search_filter(search: str | None):
         raw = raw[1:]
     if raw.isdigit():
         clauses.extend([Product.id == int(raw), ProductVariant.id == int(raw)])
+    else:
+        # Public keys are what sellers now see in URLs and labels.
+        key = raw.lower()
+        clauses.extend([Product.public_key == key, ProductVariant.public_key == key])
     return or_(*clauses)
 
 
@@ -352,6 +360,21 @@ async def list_packages(
     }
 
 
+async def resolve_variant_ref(ref: str, db: AsyncSession) -> int:
+    """`/seller/inventory/{ref}` accepts the public key (what the UI links to)
+    or the legacy numeric id. Raises 404 when neither matches."""
+    raw = ref.strip()
+    if raw.isdigit():
+        variant_id = int(raw)
+    else:
+        variant_id = await db.scalar(
+            select(ProductVariant.id).where(ProductVariant.public_key == raw.lower())
+        )
+    if not variant_id:
+        raise api_error(ErrorCode.VARIANT_NOT_FOUND, http_status.HTTP_404_NOT_FOUND)
+    return variant_id
+
+
 async def _owned_variant(variant_id: int, seller_id: int, db: AsyncSession) -> tuple[ProductVariant, Product]:
     variant = await db.get(ProductVariant, variant_id)
     if not variant:
@@ -384,7 +407,8 @@ async def get_package(variant_id: int, seller_id: int, db: AsyncSession) -> dict
         "expected_field_count": field_count,
         "siblings": [
             {
-                "variant_id": s["variant_id"], "variant_name": s["variant_name"],
+                "variant_id": s["variant_id"], "variant_key": s["variant_key"],
+                "variant_name": s["variant_name"],
                 "available": s["available"], "is_active": s["is_active"],
                 "delivery_mode": s["delivery_mode"], "price": s["price"],
             }

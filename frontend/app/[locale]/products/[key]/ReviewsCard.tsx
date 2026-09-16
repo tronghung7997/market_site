@@ -123,12 +123,12 @@ function ReviewsBody({ productId, sellerName }: { productId: number; sellerName:
           <div key={r.id} className="py-4 first:pt-0">
             <div className="flex items-start gap-3">
               <span className="grid place-items-center h-9 w-9 shrink-0 rounded-full bg-iris-soft text-iris text-[12px] font-semibold border border-iris/15">
-                U{r.buyer_id}
+                {r.reviewer_label.replace(/\*/g, "").charAt(0).toUpperCase() || "U"}
               </span>
               <div className="flex-1 min-w-0">
                 <div className="flex items-center justify-between gap-2 flex-wrap">
                   <div className="flex items-center gap-2 flex-wrap">
-                    <span className="text-[13px] font-medium">{t("buyer", { id: r.buyer_id })}</span>
+                    <span className="text-[13px] font-medium">{r.reviewer_label}</span>
                     <Tag tone="good"><Verified size={10} /> {t("purchased")}</Tag>
                     {r.variant_name && <span className="text-[11.5px] text-faint truncate max-w-[200px]">· {r.variant_name}</span>}
                     {r.is_auto && <span className="text-[11px] text-faint">· {t("reviewAuto")}</span>}

@@ -7,7 +7,9 @@
     "categoryTitle": "{name} — GMMO",
     "categoryDescription": "Products in {name}.",
     "productTitle": "{title} — GMMO",
-    "productDescription": "Buy {title} with escrow-protected delivery."
+    "productDescription": "Buy {title} with escrow-protected delivery.",
+    "sellerTitle": "{name} — Seller on GMMO",
+    "sellerDescription": "Products and ratings of {name} on GMMO."
   },
   "nav": {
     "promo": "Verified accounts & proxies · 195+ countries · instant delivery with buyer-protected escrow",
@@ -151,7 +153,9 @@
     "recentOrdersTitle": "Recent orders",
     "recentOrdersSubtitle": "Continue tracking your orders",
     "viewAllOrders": "View all orders",
-    "orderFallback": "Order #{id}"
+    "orderFallback": "Order #{id}",
+    "inStockShort": "In stock",
+    "lowStock": "Low stock"
   },
   "footer": {
     "escrow": "Buyer-protected escrow",
@@ -1308,7 +1312,7 @@
       "soldHint": "last 30 days"
     },
     "filters": {
-      "searchPlaceholder": "Search product, variation or #id…",
+      "searchPlaceholder": "Search product or variation…",
       "category": "Category",
       "allCategories": "All categories",
       "productStatus": "Product status",
@@ -1390,7 +1394,6 @@
     "package": {
       "loadFailed": "Could not load variation",
       "backToInventory": "Back to inventory",
-      "idLabel": "variation #{id}",
       "selling": "Selling",
       "notSelling": "Not selling",
       "activated": "Variation is selling again",
@@ -1465,7 +1468,7 @@
         "archived": "Hidden"
       },
       "export": "Export",
-      "searchPlaceholder": "Search content, #order or ID…",
+      "searchPlaceholder": "Search content or order code (ORD-…)…",
       "dateLabel": "Restocked",
       "date": {
         "all": "Restocked: any time",
@@ -2000,7 +2003,8 @@
     "emptyFilterHint": "Try removing a filter or choosing another price range.",
     "paginationSummary": "Showing {from}–{to} of {total} products",
     "previewCount": "{count} featured products",
-    "previewHint": "Open the category to browse the complete catalog."
+    "previewHint": "Open the category to browse the complete catalog.",
+    "lowStock": "Low stock"
   },
   "products": {
     "notFound": "Product not found",
@@ -2170,7 +2174,11 @@
     "reviewsFilterStar": "Show only {star}-star reviews",
     "reviewsFilteredBy": "Showing {count} {star}-star reviews",
     "reviewsFilterClear": "Show all",
-    "reviewsNoneForStar": "No {star}-star reviews yet."
+    "reviewsNoneForStar": "No {star}-star reviews yet.",
+    "instantReady": "Instant · in stock",
+    "instantLow": "Instant · only a few left",
+    "inStockLabel": "In stock",
+    "lowStockLabel": "Low stock"
   },
   "chat": {
     "inbox": "Messages",
@@ -2327,9 +2335,10 @@
     "accountAlreadyClaimed": "Already disputed",
     "accountRefunded": "Refunded",
     "accountRefundedAmount": "Refunded {amount}",
-    "accountReplaced": "Replaced → #{id}",
+    "accountReplaced": "Replaced → {id}",
     "accountReplacedUnknown": "Replaced",
-    "accountReplacement": "Replacement for #{id}",
+    "accountReplacement": "Replacement for {id}",
+    "accountReplacementUnknown": "Replacement account",
     "accountFromNotification": "From notification",
     "copyLiveHint": "Refunded and replaced originals stay in this list for history. Copy/download only includes live accounts.",
     "addToDispute": "Add to dispute",
@@ -3099,7 +3108,8 @@
     "tier_new": "New seller",
     "tier_verified": "Verified",
     "tier_trusted": "Trusted",
-    "tier_enterprise": "Enterprise partner"
+    "tier_enterprise": "Enterprise partner",
+    "productsLoadError": "Could not load this seller's products right now."
   },
   "notifications": {
     "buyerDeliveredUnconfirmed": "{count} orders need your confirmation of receipt",
@@ -3652,6 +3662,7 @@
     "sellerEmpty": "No reviews for this product yet.",
     "noUnreplied": "No reviews waiting for a reply.",
     "buyer": "Buyer #{id}",
+    "buyerUnknown": "Buyer",
     "hiddenByAdmin": "Hidden by admin",
     "awaitingReply": "Awaiting reply",
     "noComment": "Star rating only, no comment.",

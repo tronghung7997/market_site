@@ -7,7 +7,7 @@ import { useVariantTerm } from "@/lib/variant-term";
 import { cn } from "@/lib/cn";
 import { useApiErrorMessage } from "@/lib/use-api-error";
 import { useMoney } from "@/lib/money";
-import type { SellerProduct, Variant } from "@/lib/types";
+import type { SellerProduct, SellerVariant } from "@/lib/types";
 import {
   downloadRestockTemplate,
   mergeRestockText,
@@ -36,7 +36,7 @@ function RestockForm({ product, onClose }: { product: SellerProduct; onClose: ()
   const { formatBrowseMoney } = useMoney();
   const apiErrorMessage = useApiErrorMessage();
   const invalidate = useInvalidateSellerProducts();
-  const [variants, setVariants] = useState<Variant[]>([]);
+  const [variants, setVariants] = useState<SellerVariant[]>([]);
   const [selectedVariantId, setSelectedVariantId] = useState<number | null>(null);
   const [loadingVariants, setLoadingVariants] = useState(true);
   const [textData, setTextData] = useState("");
@@ -52,7 +52,9 @@ function RestockForm({ product, onClose }: { product: SellerProduct; onClose: ()
     api.sellerProduct(product.id)
       .then((detail) => {
         if (cancelled) return;
-        const eligible = restockableVariants(detail.variants || []);
+        // Seller detail always carries the exact count; the type is loose because
+        // the same Variant shape serves the storefront, where it is omitted.
+        const eligible = restockableVariants(detail.variants || []).map((v) => ({ ...v, stock_count: v.stock_count ?? 0 }));
         setVariants(eligible);
         if (eligible.length > 0) {
           setSelectedVariantId([...eligible].sort((a, b) => a.stock_count - b.stock_count)[0].id);
@@ -103,7 +105,6 @@ function RestockForm({ product, onClose }: { product: SellerProduct; onClose: ()
         <div className="min-w-0">
           <div className="flex items-center gap-1.5">
             <span className="rounded bg-iris-soft px-1.5 py-0.5 text-[10px] font-bold uppercase tracking-wider text-iris">{t("quickRestockTitle")}</span>
-            <span className="font-mono text-[11px] text-faint">#{product.id}</span>
           </div>
           <DialogTitle className="truncate text-[13.5px] font-bold text-fg">{product.title}</DialogTitle>
           <DialogDescription className="sr-only">{t("pasteResourcesHint")}</DialogDescription>

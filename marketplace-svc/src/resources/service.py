@@ -12,6 +12,7 @@ from src.exceptions import ErrorCode, NotOwner, ResourceUnavailable, api_error
 from src.logging import current_request_id
 from src.models.product import DeliveryMode, Product, ProductStatus, ProductVariant
 from src.models.resource import Resource, ResourceStatus
+from src.orders.codes import parse_order_ref
 from src.pricing.engine import inventory_managed_sql
 
 INVENTORY_LOW_STOCK = 5
@@ -26,6 +27,11 @@ def _resource_search_clause(search: str | None):
     if q.isdigit():
         n = int(q)
         return or_(Resource.id == n, Resource.order_id == n, Resource.data.ilike(f"%{q}%"))
+    parsed = parse_order_ref(q.lstrip("#"))
+    if parsed is not None and parsed[0] == "code":
+        # Sellers see order codes, so "#ORD-…" / "ord-…" finds the sold rows.
+        from src.models.order import Order
+        return Resource.order_id.in_(select(Order.id).where(Order.order_code == parsed[1]))
     return Resource.data.ilike(f"%{q}%")
 
 
@@ -72,6 +78,26 @@ async def bulk_add_resources(variant_id: int, seller_id: int, items: list[str], 
         "skipped_duplicate": len(cleaned) - len(unique_items),
         "skipped_existing": len(unique_items) - len(new_items),
     }
+
+
+async def with_order_codes(resources: list[Resource], db: AsyncSession) -> list[dict]:
+    """Serialize resources with the public code of the order they were sold on:
+    the seller console links and labels orders by code, never by id."""
+    from src.models.order import Order
+    order_ids = {r.order_id for r in resources if r.order_id is not None}
+    codes: dict[int, str] = {}
+    if order_ids:
+        rows = await db.execute(select(Order.id, Order.order_code).where(Order.id.in_(order_ids)))
+        codes = dict(rows.all())
+    return [
+        {
+            "id": r.id, "variant_id": r.variant_id, "status": r.status, "data": r.data,
+            "order_id": r.order_id, "order_code": codes.get(r.order_id) if r.order_id is not None else None,
+            "assigned_at": r.assigned_at, "expires_at": r.expires_at, "created_at": r.created_at,
+            "refund_amount_cap": r.refund_amount_cap, "is_archived": r.is_archived,
+        }
+        for r in resources
+    ]
 
 
 async def list_resources(
@@ -666,6 +692,7 @@ async def mark_resource_error(resource_id: int, seller_id: int, db: AsyncSession
     if resource.seller_id != seller_id:
         raise NotOwner()
     resource.status = ResourceStatus.error
+    variant = await db.get(ProductVariant, resource.variant_id)
     await upsert_incident(
         db,
         fingerprint=fp_resource(resource_id, "resource_error"),
@@ -673,7 +700,8 @@ async def mark_resource_error(resource_id: int, seller_id: int, db: AsyncSession
         severity="warning",
         target_type="seller",
         target_id=seller_id,
-        message=f"Tài nguyên #{resource_id} được báo lỗi bởi nhà bán",
+        message="Một tài nguyên trong kho được báo lỗi bởi nhà bán",
+        href=f"/seller/inventory/{variant.public_key}?status=error" if variant else None,
     )
     await db.commit()
     await db.refresh(resource)

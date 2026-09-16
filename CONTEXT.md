@@ -24,7 +24,7 @@ A prototype under `frontend/app/[locale]/prototype/chat/` is visual exploration,
 - **Read cursor:** `last_read_message_id` for one participant. Opening the newest conversation page advances it to the latest returned message and unread counts are calculated from it. Transcript pages contain the newest 50 messages and use `before_id`/`next_cursor` keyset pagination for older messages.
 - **Client message ID:** Client-generated UUID used as an idempotency key within a conversation.
 - **Read-only conversation:** A conversation that cannot accept messages. Order conversations become effectively read-only when the order is cancelled or refunded.
-- **Safe counterpart:** The API response exposes an ID, display label, and context role rather than a raw email field. Current seller-label fallback may derive a label from the local part of the seller email; changing this requires an explicit privacy decision and tests.
+- **Safe counterpart:** The API response exposes the counterpart's public key (`accounts.public_key`, `"marketplace"` for the support desk), a display label, and a context role — never the sequential account id or a raw email field. Current seller-label fallback may derive a label from the local part of the seller email; changing this requires an explicit privacy decision and tests.
 
 ## Implemented invariants
 

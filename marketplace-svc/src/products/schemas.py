@@ -1,7 +1,8 @@
 from datetime import datetime
 from typing import Literal
 
-from pydantic import BaseModel, Field, field_validator, model_validator
+from src.i18n.slug import SLUG_PATTERN, canonical_path
+from pydantic import BaseModel, Field, field_validator, model_serializer, model_validator
 
 from src.products.covers import parse_cover_id, public_images
 from src.security.input_limits import bounded_mapping
@@ -26,6 +27,9 @@ class ProductCreate(BaseModel):
     # omit it and keep the historical VI behavior; the bilingual workbench
     # sends the seller-selected language explicitly.
     content_locale: Literal["en", "vi"] = "vi"
+    # Optional URL text override. The public key stays the lookup handle, so a
+    # custom slug never has to be unique and can be changed later.
+    slug: str | None = Field(default=None, min_length=1, max_length=140, pattern=SLUG_PATTERN)
     description: str | None = Field(default=None, max_length=20000)
     cover_id: CoverId | None = None
     escrow_days: int = Field(default=2, ge=0, le=90)
@@ -60,6 +64,9 @@ class ProductCreate(BaseModel):
 class ProductContentUpdate(BaseModel):
     title: str | None = Field(default=None, min_length=1, max_length=255)
     content_locale: Literal["en", "vi"] | None = None
+    # Optional URL text override. The public key stays the lookup handle, so a
+    # custom slug never has to be unique and can be changed later.
+    slug: str | None = Field(default=None, min_length=1, max_length=140, pattern=SLUG_PATTERN)
     category_id: int | None = None
     description: str | None = Field(default=None, max_length=20000)
     cover_id: CoverId | None = None
@@ -120,6 +127,10 @@ class ProductResponse(BaseModel):
     id: int
     seller_id: int
     category_id: int
+    slug: str
+    public_key: str
+    # /products/{slug}-{public_key}; filled from slug+key when built from ORM rows.
+    canonical_path: str | None = None
     title: str
     description: str | None
     images: dict | None
@@ -152,6 +163,12 @@ class ProductResponse(BaseModel):
             self.cover_id = parse_cover_id(self.images)
         return self
 
+    @model_validator(mode="after")
+    def populate_canonical_path(self):
+        if self.canonical_path is None:
+            self.canonical_path = canonical_path("/products", self.slug, self.public_key)
+        return self
+
 
 class VariantCreate(BaseModel):
     name: str = Field(min_length=1, max_length=255)
@@ -180,6 +197,9 @@ class VariantTranslationUpdate(BaseModel):
 
 class VariantResponse(BaseModel):
     id: int
+    # Seller-facing identity (/seller/inventory/{public_key}); storefront
+    # payloads carry it too but never need it.
+    public_key: str | None = None
     product_id: int
     name: str
     price: int
@@ -187,7 +207,13 @@ class VariantResponse(BaseModel):
     sla_hours: int
     sort_order: int
     is_active: bool
-    stock_count: int = 0
+    # Exact count is management-only (seller/admin). Public product payloads
+    # omit it (see _drop_hidden_stock) and carry the bucketed signal instead.
+    stock_count: int | None = None
+    # Buyer-facing inventory signal: in_stock / low / out for instant packages,
+    # manual for made-to-order. max_quantity caps the order form.
+    stock_state: str | None = None
+    max_quantity: int | None = None
     duration_days: int | None = None
     # Management detail responses expose raw locale buckets so sellers can
     # edit a translation without storefront fallback masking missing content.
@@ -195,6 +221,15 @@ class VariantResponse(BaseModel):
     primary_locale: str | None = None
 
     model_config = {"from_attributes": True}
+
+    @model_serializer(mode="wrap")
+    def _drop_hidden_stock(self, handler):
+        """Storefront variants have no exact count: leave the key out entirely
+        rather than emitting ``stock_count: null``."""
+        data = handler(self)
+        if isinstance(data, dict) and data.get("stock_count") is None:
+            data.pop("stock_count", None)
+        return data
 
 
 class ProductListItemBase(BaseModel):
@@ -209,8 +244,17 @@ class ProductListItemBase(BaseModel):
     Public list/detail also expose additive ``locale`` / ``available_locales``
     after server-side i18n resolve (Agent B catalog contract)."""
     id: int
-    seller_id: int
+    # Management payloads only; storefront rows carry the seller's public
+    # identity below instead (see _drop_hidden_seller_id).
+    seller_id: int | None = None
+    seller_key: str | None = None
+    seller_handle: str | None = None
+    seller_path: str | None = None
     category_id: int
+    slug: str
+    public_key: str
+    # /products/{slug}-{public_key}; filled from slug+key when built from ORM rows.
+    canonical_path: str | None = None
     title: str
     images: dict | None
     cover_id: str | None = None
@@ -237,6 +281,19 @@ class ProductListItemBase(BaseModel):
         if self.cover_id is None:
             self.cover_id = parse_cover_id(self.images)
         return self
+
+    @model_validator(mode="after")
+    def populate_canonical_path(self):
+        if self.canonical_path is None:
+            self.canonical_path = canonical_path("/products", self.slug, self.public_key)
+        return self
+
+    @model_serializer(mode="wrap")
+    def _drop_hidden_seller_id(self, handler):
+        data = handler(self)
+        if isinstance(data, dict) and data.get("seller_id") is None:
+            data.pop("seller_id", None)
+        return data
 
 
 class ProductListItemResponse(ProductListItemBase):
@@ -359,6 +416,8 @@ class ProductDetailResponse(ProductListItemResponse):
     primary_locale: str | None = None
     seller_name: str | None = None
     category_name: str | None = None
+    # For the breadcrumb link: categories are addressed by slug on the storefront.
+    category_slug: str | None = None
 
 
 class AdminProductDetailResponse(ProductDetailResponse):

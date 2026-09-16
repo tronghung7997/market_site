@@ -31,16 +31,19 @@ export interface ChatConversation {
   id: string;
   kind: "product_inquiry" | "order" | "support";
   status: "open" | "resolved" | "closed" | "blocked" | "read_only";
-  product: { id: number; title: string; image: string | null } | null;
+  product: { id: number; title: string; image: string | null; slug?: string | null; public_key?: string | null } | null;
   order: {
     id: number;
+    /** Buyer/seller-facing order number. */
+    code?: string | null;
     status: string;
     quantity: number;
     total_amount: number;
     cancel_reason: string | null;
   } | null;
   dispute?: ChatDisputeContext | null;
-  counterpart: { id: number; label: string; role: "buyer" | "seller" | "admin" };
+  /** `id` is the counterpart's public key ("marketplace" for the support desk). */
+  counterpart: { id: string; label: string; role: "buyer" | "seller" | "admin" };
   last_message: ChatMessage | null;
   unread_count: number;
   can_send: boolean;
@@ -76,9 +79,20 @@ export interface Category {
  *  commission_rate chỉ có ở AdminProductDetail (không phát ra API public). */
 export interface Product {
   id: number;
-  seller_id: number;
+  /** Management payloads only; storefront rows carry the seller's public identity instead. */
+  seller_id?: number;
+  seller_key?: string | null;
+  seller_handle?: string | null;
+  /** `/sellers/{handle}-{key}` — build links with `sellerPath()`. */
+  seller_path?: string | null;
   category_id: number;
   title: string;
+  /** URL slug, generated from the Vietnamese title and editable by the seller. */
+  slug: string;
+  /** 8-char base36 key that identifies the product in public URLs. */
+  public_key: string;
+  /** `/products/{slug}-{public_key}` — build links with `productPath()`. */
+  canonical_path?: string | null;
   images: Record<string, unknown> | null;
   cover_id?: string | null;
   escrow_days: number;
@@ -138,6 +152,8 @@ export interface ProductCatalogSummary {
 
 export interface Variant {
   id: number;
+  /** Seller-facing identity: /seller/inventory/{public_key}. */
+  public_key?: string | null;
   product_id: number;
   name: string;
   price: number;
@@ -145,11 +161,19 @@ export interface Variant {
   sla_hours: number;
   sort_order: number;
   is_active: boolean;
-  stock_count: number;
+  /** Exact units — seller/admin payloads only. Absent on the storefront. */
+  stock_count?: number;
+  /** Storefront inventory signal; see lib/stock.ts. */
+  stock_state?: "in_stock" | "low" | "out" | "manual" | null;
+  /** Largest quantity the order form may submit for this package. */
+  max_quantity?: number | null;
   duration_days: number | null;
   translations?: Partial<Record<ProductLocale, { name?: string | null }>> | null;
   primary_locale?: ProductLocale | null;
 }
+
+/** Management variant row (seller/admin endpoints): the exact count is always there. */
+export type SellerVariant = Variant & { stock_count: number };
 
 export interface ProductDetail extends Product {
   description: string | null;
@@ -161,6 +185,8 @@ export interface ProductDetail extends Product {
   variants: Variant[];
   seller_name: string | null;
   category_name: string | null;
+  /** Storefront category URL segment — `categoryPath()` falls back to the id. */
+  category_slug?: string | null;
 }
 
 /** GET /admin/products/{id} — như ProductDetail nhưng kèm commission_rate
@@ -199,10 +225,16 @@ export interface Transaction {
   reference_id: string | null;
   created_at: string;
   order_status?: string | null;
+  /** Order behind the row, by public code; what the UI shows instead of `order-{id}`. */
+  order_code?: string | null;
+  /** Customer-facing reference (order code + suffix, or provider deposit ref); null when there is none to show. */
+  reference_label?: string | null;
 }
 
 export interface Order {
   id: number;
+  /** Buyer/seller-facing order number (ORD-XXXXXXXX): what the UI shows and links. */
+  order_code: string;
   buyer_id: number;
   seller_id: number;
   // Exactly one of these is set: variant_id for stock/manual orders, product_id
@@ -220,12 +252,21 @@ export interface Order {
   cancel_reason?: string | null;
   created_at: string;
   product_title?: string | null;
+  /** Public URL parts of the ordered product, for "view product" links. */
+  product_slug?: string | null;
+  product_key?: string | null;
+  variant_key?: string | null;
   pricing_strategy?: string | null;
   delivery_mode?: string | null;
   sla_hours?: number | null;
   variant_name?: string | null;
+  /** Seller view: masked (`bu***@gmail.com`); admin view: full; absent for buyers. */
   buyer_email?: string | null;
+  /** Admin view only; buyers get seller_name/seller_path instead. */
   seller_email?: string | null;
+  seller_name?: string | null;
+  seller_path?: string | null;
+  buyer_key?: string | null;
   has_review?: boolean;
   has_dispute?: boolean;
   dispute_status?: string | null;
@@ -348,7 +389,10 @@ export interface DisputeInfo {
 }
 
 export interface SellerSummary {
-  account_id: number;
+  /** Opaque public identity; the account id is never exposed. */
+  public_key: string;
+  handle: string | null;
+  canonical_path: string;
   display_name: string;
   business_name: string | null;
   completed_order_count: number;
@@ -659,6 +703,7 @@ export interface AdminOrderDetail extends Order {
 export interface Dispute {
   id: number;
   order_id: number;
+  order_code?: string | null;
   buyer_id: number;
   reason: string;
   evidence_type?: string | null;
@@ -715,6 +760,7 @@ export interface DisputeTimelineEvent {
 
 export interface AdminDisputeOrder {
   id: number;
+  order_code?: string | null;
   buyer_id: number;
   seller_id: number;
   variant_id: number | null;
@@ -809,6 +855,7 @@ export interface SellerDashboardPoint {
 
 export interface SellerDashboardTopProduct {
   id: number;
+  public_key?: string | null;
   title: string;
   service_type: string | null;
   status: string;
@@ -845,9 +892,9 @@ export interface SellerDashboard {
 
 export interface Review {
   id: number;
-  order_id: number;
-  buyer_id: number;
   product_id: number;
+  /** Masked reviewer handle ("ng***n"); the API no longer exposes buyer/order ids. */
+  reviewer_label: string;
   rating: number;
   comment: string | null;
   created_at: string;
@@ -878,6 +925,10 @@ export interface PublicReviewList {
 
 /** Seller console row: the seller's own product reviews, hidden ones flagged. */
 export interface SellerReview extends Review {
+  /** Seller/admin rows keep the ids — the seller fulfilled that order. */
+  order_id: number;
+  order_code?: string | null;
+  buyer_id: number;
   product_title: string | null;
   is_hidden: boolean;
 }
@@ -954,7 +1005,8 @@ export interface SellerOrderCounts {
 export interface SellerOrderQuery {
   tab?: SellerOrderTab;
   search?: string;
-  product_id?: number;
+  /** Product public key, or a legacy numeric id (the API accepts both). */
+  product?: string;
   kind?: SellerOrderKind;
   date_from?: string;
   date_to?: string;
@@ -965,7 +1017,7 @@ export interface SellerOrderQuery {
 
 export interface PaginatedSellerOrders extends PaginatedOrderResponse {
   counts: SellerOrderCounts;
-  products: { id: number; title: string }[];
+  products: { id: number; public_key?: string | null; title: string }[];
 }
 
 export interface PaginatedSellerProducts {
@@ -1077,6 +1129,7 @@ export interface Resource {
   status: string; // available | assigned | expired | error
   data: string;
   order_id: number | null;
+  order_code?: string | null;
   assigned_at: string | null;
   expires_at: string | null;
   created_at: string;
@@ -1156,6 +1209,7 @@ export type InventoryStockState = "in_stock" | "low" | "out" | "inactive";
 
 export interface InventoryPackage {
   product_id: number;
+  product_key?: string | null;
   product_title: string;
   product_status: string;
   cover_id: string | null;
@@ -1165,6 +1219,7 @@ export interface InventoryPackage {
   category_parent_id: number | null;
   category_parent_name: string | null;
   variant_id: number;
+  variant_key?: string | null;
   variant_name: string;
   price: number;
   delivery_mode: string | null;
@@ -1211,6 +1266,7 @@ export interface InventoryPackagesResponse {
 
 export interface InventoryPackageSibling {
   variant_id: number;
+  variant_key?: string | null;
   variant_name: string;
   available: number;
   is_active: boolean;
@@ -1647,6 +1703,7 @@ export interface AffiliateTimeseriesPoint {
 export interface AffiliateCommissionRow {
   id: number;
   order_id: number;
+  order_code?: string | null;
   buyer_account_id: number;
   rate_percent: number;
   amount: number;

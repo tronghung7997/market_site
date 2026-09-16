@@ -9,7 +9,9 @@ import { useVariantTermFor } from "@/lib/variant-term";
 import { effectiveMinPrice } from "@/lib/pricing-display";
 import { fulfillmentFromProduct, fulfillmentTagKey, fulfillmentTagValues, fulfillmentTone } from "@/lib/fulfillment";
 import { parseCoverId } from "@/lib/product-covers";
+import { productStockState } from "@/lib/stock";
 import type { Product } from "@/lib/types";
+import { productPath } from "@/lib/routes";
 import { Card, Tag } from "@/components/ui";
 import { Star } from "@/components/Icons";
 import { ProductCover } from "@/components/products/ProductCover";
@@ -33,12 +35,14 @@ export default function ProductTile({
   const mp = effectiveMinPrice(p);
   const variantCount = (p.variants ?? []).length;
   const term = termFor(p.service_type);
-  const stockCount = (p.variants ?? []).reduce((s, v) => s + (v.stock_count ?? 0), 0);
-  const isOutOfStock = (p.variants ?? []).length > 0 && stockCount === 0;
+  const stock = productStockState(p.variants);
+  const isOutOfStock = stock === "out";
+  const isLow = stock === "low";
+  const inStock = stock === "in_stock" || isLow;
 
   if (layout === "list") {
     return (
-      <Link href={`/products/${p.id}`} className="block group">
+      <Link href={productPath(p)} className="block group">
         <Card interactive className="p-3.5 sm:p-4 flex flex-col sm:flex-row sm:items-center justify-between gap-3 sm:gap-4 transition-all">
           <div className="flex items-start sm:items-center gap-3 min-w-0 flex-1">
             <ProductCover coverId={parseCoverId(p)} title={p.title} className="h-11 w-11 sm:h-12 sm:w-12 shrink-0 rounded-xl shadow-xs" />
@@ -62,10 +66,10 @@ export default function ProductTile({
                 <Tag tone={fulfillmentTone(fulfillment.kind)}>{tp(fulfillmentTagKey(fulfillment), fulfillmentTagValues(fulfillment))}</Tag>
                 {isOutOfStock ? (
                   <Tag tone="bad">{tc("outOfStock")}</Tag>
-                ) : stockCount > 0 ? (
-                  <span className="text-good flex items-center gap-1 font-medium">
-                    <span className="inline-block w-1.5 h-1.5 rounded-full bg-good" />
-                    {tc("inStock")}
+                ) : inStock ? (
+                  <span className={`${isLow ? "text-warn" : "text-good"} flex items-center gap-1 font-medium`}>
+                    <span className={`inline-block w-1.5 h-1.5 rounded-full ${isLow ? "bg-warn" : "bg-good"}`} />
+                    {isLow ? tc("lowStock") : tc("inStock")}
                   </span>
                 ) : null}
               </div>
@@ -90,7 +94,7 @@ export default function ProductTile({
   // Detailed density: Larger card with highlight text and prominent action row
   if (density === "detailed") {
     return (
-      <Link href={`/products/${p.id}`} className="h-full block group">
+      <Link href={productPath(p)} className="h-full block group">
         <Card interactive className="p-4 sm:p-5 h-full flex flex-col justify-between transition-all hover:border-iris/40 shadow-xs hover:shadow-card">
           <div>
             <div className="flex items-start gap-3.5">
@@ -118,10 +122,10 @@ export default function ProductTile({
               {variantCount > 1 && <span>{t("packages", { count: variantCount, ...term })}</span>}
               {isOutOfStock ? (
                 <Tag tone="bad">{tc("outOfStock")}</Tag>
-              ) : stockCount > 0 ? (
-                <span className="text-good flex items-center gap-1 font-medium">
-                  <span className="inline-block w-1.5 h-1.5 rounded-full bg-good" />
-                  {tc("inStock")}
+              ) : inStock ? (
+                <span className={`${isLow ? "text-warn" : "text-good"} flex items-center gap-1 font-medium`}>
+                  <span className={`inline-block w-1.5 h-1.5 rounded-full ${isLow ? "bg-warn" : "bg-good"}`} />
+                  {isLow ? tc("lowStock") : tc("inStock")}
                 </span>
               ) : null}
               <Tag tone={fulfillmentTone(fulfillment.kind)}>
@@ -147,7 +151,7 @@ export default function ProductTile({
   }
 
   return (
-    <Link href={`/products/${p.id}`} className="h-full block group">
+    <Link href={productPath(p)} className="h-full block group">
       <Card interactive className="p-3.5 h-full flex flex-col transition-all">
         <div className="flex items-start gap-2.5">
           <ProductCover coverId={parseCoverId(p)} title={p.title} className="h-10 w-10 shrink-0 rounded-xl" />

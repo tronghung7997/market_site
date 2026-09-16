@@ -71,7 +71,7 @@ function ResourceDetailBody({ resource, variantId, onClose, onNotice }: { resour
       <div className="flex items-center gap-2 border-b border-line bg-raised/50 px-4 py-3">
         <Tag tone={status.tone}>{t(`resource.status.${status.key}`)}</Tag>
         <DialogTitle className="text-[13.5px] font-bold text-fg">
-          {t("resource.detailTitle")} <span className="font-mono text-[12px] font-normal text-faint">#{resource.id}</span>
+          {t("resource.detailTitle")}
         </DialogTitle>
       </div>
       <DialogDescription className="sr-only">{t("resource.detailTitle")}</DialogDescription>
@@ -79,7 +79,7 @@ function ResourceDetailBody({ resource, variantId, onClose, onNotice }: { resour
       <div className="space-y-4 p-4 text-xs">
         {status.key === "returned" && (
           <div className="rounded-xl border border-warn/30 bg-warn-soft/80 p-3 text-warn-hi">
-            <p className="flex items-center gap-1.5 text-xs font-semibold"><AlertCircle size={14} /> {t("resource.returnedTitle", { id: resource.order_id ?? 0 })}</p>
+            <p className="flex items-center gap-1.5 text-xs font-semibold"><AlertCircle size={14} /> {t("resource.returnedTitle", { id: resource.order_code ?? "…" })}</p>
             <p className="mt-1 text-[11.5px] leading-relaxed text-muted">{t("resource.returnedHint")}</p>
           </div>
         )}
@@ -88,7 +88,7 @@ function ResourceDetailBody({ resource, variantId, onClose, onNotice }: { resour
           <div>
             <span className="text-faint">{t("resource.orderRef")}</span>
             <div className="mt-0.5">
-              {resource.order_id ? <Link href={`/seller/orders/${resource.order_id}`} className="font-mono font-bold text-iris hover:underline">#{resource.order_id}</Link> : <span className="text-muted">{t("resource.notDelivered")}</span>}
+              {resource.order_id ? <Link href={`/seller/orders/${resource.order_code ?? resource.order_id}`} className="font-mono font-bold text-iris hover:underline">{resource.order_code ?? t("resource.orderRef")}</Link> : <span className="text-muted">{t("resource.notDelivered")}</span>}
             </div>
           </div>
           {resource.assigned_at && <div><span className="text-faint">{t("resource.assignedAt")}</span><div className="mt-0.5 font-mono font-medium text-fg">{formatDateTime(resource.assigned_at, locale)}</div></div>}

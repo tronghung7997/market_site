@@ -26,6 +26,7 @@ from src.tasks.service import update_task
 from src.usage.service import charge_usage, refund_usage
 from sqlalchemy import select
 from sqlalchemy.ext.asyncio import AsyncSession
+from src.orders.refs import OrderRef
 
 logger = structlog.get_logger()
 
@@ -315,9 +316,9 @@ async def provider_task_webhook(
 # ---------------------------------------------------------------------------
 
 
-@router.post("/orders/{order_id}/gateway-key/rotate")
+@router.post("/orders/{order_ref}/gateway-key/rotate")
 async def rotate_gateway_key(
-    order_id: int,
+    order_id: OrderRef,
     account: Account = Depends(get_current_account),
     db: AsyncSession = Depends(get_session),
 ):

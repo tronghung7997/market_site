@@ -1434,8 +1434,11 @@ async def test_auto_review_after_configured_days(client):
 
     product_id = (await client.get(f"/orders/{stale}", headers=buyer_headers)).json()["product_id"]
     public = (await client.get(f"/products/{product_id}/reviews")).json()
-    auto = next(r for r in public["items"] if r["order_id"] == stale)
-    assert auto["rating"] == 5 and auto["comment"] is None and auto["is_auto"] is True
+    # Public rows carry no order_id / buyer_id (sequential ids leak volume);
+    # the auto review is the one flagged is_auto.
+    assert all("order_id" not in r and "buyer_id" not in r for r in public["items"])
+    auto = next(r for r in public["items"] if r["is_auto"])
+    assert auto["rating"] == 5 and auto["comment"] is None and auto["reviewer_label"]
     assert public["summary"]["counts"]["5"] == 1 and public["summary"]["counts"]["3"] == 1
     only3 = (await client.get(f"/products/{product_id}/reviews", params={"rating": 3})).json()
     assert [r["rating"] for r in only3["items"]] == [3] and only3["total"] == 1 and only3["rating"] == 3

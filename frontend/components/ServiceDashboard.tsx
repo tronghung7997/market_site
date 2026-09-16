@@ -4,8 +4,10 @@ import Link from "next/link";
 import { useLocale, useTranslations } from "next-intl";
 import { useEffect, useState } from "react";
 import { api } from "@/lib/api";
+import { lineLabel } from "@/lib/order-ref";
 import { useApiErrorMessage } from "@/lib/use-api-error";
 import type { DashboardData, DashboardResource, DashboardTask, GatewayCallLogItem, UsageRecordItem } from "@/lib/types";
+import { productPath } from "@/lib/routes";
 import { Banner, Button, Card, Spinner, Tag } from "@/components/ui";
 import { Info } from "@/components/Icons";
 
@@ -384,7 +386,7 @@ function EndpointDashboard({ data, onRefresh, viewerRole }: { data: DashboardDat
               icon={<Info size={15} />}
               title={t("outOfCreditTitle")}
               action={data.product_id ? (
-                <Link href={`/products/${data.product_id}`}>
+                <Link href={productPath({ id: data.product_id })}>
                   <Button size="sm" variant="secondary">{t("buyMorePack")}</Button>
                 </Link>
               ) : undefined}
@@ -397,7 +399,7 @@ function EndpointDashboard({ data, onRefresh, viewerRole }: { data: DashboardDat
               icon={<Info size={15} />}
               title={t("lowCreditTitle")}
               action={data.product_id ? (
-                <Link href={`/products/${data.product_id}`}>
+                <Link href={productPath({ id: data.product_id })}>
                   <Button size="sm" variant="secondary">{t("buyMorePack")}</Button>
                 </Link>
               ) : undefined}
@@ -505,8 +507,8 @@ function TakedownDashboard({ data }: { data: DashboardData }) {
                 </tr>
               </thead>
               <tbody>
-                {tasks.map((task) => (
-                  <TaskRow key={task.id} task={task} />
+                {tasks.map((task, index) => (
+                  <TaskRow key={task.id} task={task} index={index + 1} />
                 ))}
               </tbody>
             </table>
@@ -517,13 +519,14 @@ function TakedownDashboard({ data }: { data: DashboardData }) {
   );
 }
 
-function TaskRow({ task }: { task: DashboardTask }) {
+function TaskRow({ task, index }: { task: DashboardTask; index: number }) {
   const t = useTranslations("orders");
   const tos = useTranslations("status.order");
   const st = taskStatusMeta(task.status, t, tos);
   return (
     <tr className="border-b border-line/50">
-      <td className="py-2 pr-3 font-mono text-faint">#{task.id}</td>
+      {/* Position in this order's task list — task row ids stay internal. */}
+      <td className="py-2 pr-3 font-mono text-faint">{lineLabel(index)}</td>
       <td className="py-2 pr-3">{task.platform}</td>
       <td className="py-2 pr-3 max-w-[200px] truncate">
         <span className="font-mono text-[11px]">{task.target_url}</span>

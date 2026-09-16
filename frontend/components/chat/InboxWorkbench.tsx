@@ -9,6 +9,7 @@ import { cn } from "@/lib/cn";
 import { useMoney } from "@/lib/money";
 import { api } from "@/lib/api";
 import type { ChatConversation, ChatConversationList, ChatMessage } from "@/lib/types";
+import { productPath, sellerPath } from "@/lib/routes";
 import { queryKeys } from "@/lib/query-keys";
 import { useAdminSupportConversations, useChatConversation, useChatConversations, useSendChatMessage } from "@/hooks/use-chat";
 import { useChatEvents } from "@/hooks/use-chat-events";
@@ -34,13 +35,13 @@ function contextLabel(
   tos: ReturnType<typeof useTranslations<"status.order">>,
 ) {
   if (room.kind === "support") {
-    return room.order ? `${t("marketplaceSupport")} · ${t("order")} #${room.order.id}` : t("marketplaceSupport");
+    return room.order?.code ? `${t("marketplaceSupport")} · ${t("order")} #${room.order.code}` : t("marketplaceSupport");
   }
   if (room.kind !== "order") return t("preSale");
   if (!room.order) return t("orderChat");
   const statusKey = `${room.order.status}.label`;
   const status = tos.has(statusKey) ? tos(statusKey) : room.order.status;
-  return `${t("order")} #${room.order.id} · ${status}`;
+  return room.order.code ? `${t("order")} #${room.order.code} · ${status}` : `${t("orderChat")} · ${status}`;
 }
 
 function RoomIcon({ kind, size = 15 }: { kind: ChatConversation["kind"]; size?: number }) {
@@ -224,7 +225,7 @@ export default function InboxWorkbench({
   const title = room?.product?.title ?? room?.counterpart.label;
   const roomContext = room ? contextLabel(room, t, tos) : null;
   const isSellerCounterpart = room?.counterpart.role === "seller";
-  const orderHref = orderWorkspaceHref(room?.counterpart.role ?? "seller", room?.order?.id, { admin: adminMode });
+  const orderHref = orderWorkspaceHref(room?.counterpart.role ?? "seller", adminMode ? room?.order?.id : room?.order?.code, { admin: adminMode });
   const readOnlyReason = room?.order?.status === "refunded"
     ? t("readOnlyRefunded")
     : room?.order?.status === "cancelled"
@@ -411,7 +412,7 @@ export default function InboxWorkbench({
                     <div className="flex items-center gap-2">
                       {room.product ? (
                         <Link
-                          href={`/products/${room.product.id}`}
+                          href={productPath(room.product)}
                           className="group flex min-w-0 max-w-full items-center gap-1 text-[13.5px] font-bold text-fg transition-colors hover:text-iris"
                           title={room.product.title}
                         >
@@ -440,7 +441,7 @@ export default function InboxWorkbench({
                             <>
                               <span className="text-line-2 shrink-0">•</span>
                               <span className="tabular font-medium text-faint shrink-0">
-                                {t("order")} #{room.order.id}
+                                {t("order")} #{room.order.code ?? "…"}
                               </span>
                               <span className="text-line-2 shrink-0">•</span>
                               <span className="font-mono text-faint shrink-0">
@@ -452,7 +453,7 @@ export default function InboxWorkbench({
                       ) : isSellerCounterpart ? (
                         <>
                           <Link
-                            href={`/sellers/${room.counterpart.id}`}
+                            href={sellerPath({ public_key: room.counterpart.id })}
                             className="font-medium text-iris hover:underline truncate max-w-[160px]"
                             title={t("viewSeller")}
                           >
@@ -515,7 +516,7 @@ export default function InboxWorkbench({
                           <ShieldCheck size={13} />
                         </span>
                         <h3 className="text-[12.5px] font-bold text-fg">
-                          {t("disputeContextTitle")} · {t("order")} #{room.order?.id}
+                          {t("disputeContextTitle")} · {t("order")} #{room.order?.code ?? "…"}
                         </h3>
                       </div>
                       <span className="rounded-full border border-warn/30 bg-warn-soft px-2 py-0.5 text-[10.5px] font-bold text-warn">
@@ -674,7 +675,7 @@ export default function InboxWorkbench({
                     />
                     <div className="min-w-0 flex-1">
                       <Link
-                        href={`/products/${room.product.id}`}
+                        href={productPath(room.product)}
                         className="group block truncate text-[12.5px] font-semibold text-fg hover:text-iris transition-colors"
                         title={room.product.title}
                       >
@@ -690,7 +691,7 @@ export default function InboxWorkbench({
                 <div className="rounded-xl border border-line bg-surface p-3 shadow-2xs">
                   <div className="flex items-center justify-between border-b border-line pb-2">
                     <span className="text-[10.5px] font-bold uppercase tracking-wider text-faint">
-                      {t("order")} #{room.order.id}
+                      {t("order")} #{room.order.code ?? "…"}
                     </span>
                     <Link
                       href={orderHref}
@@ -749,7 +750,7 @@ export default function InboxWorkbench({
                 </p>
                 {isSellerCounterpart && !roomIsSupport && (
                   <Link
-                    href={`/sellers/${room.counterpart.id}`}
+                    href={sellerPath({ public_key: room.counterpart.id })}
                     className="mt-1.5 inline-flex items-center gap-1 text-[11px] font-medium text-iris hover:underline"
                   >
                     <span>{t("viewSeller")}</span>

@@ -20,8 +20,9 @@ export default function SellerInventoryPackagePage() {
 }
 
 function PackageRoute() {
+  // `variantId` is the package's public key (old numeric links still resolve).
   const params = useParams<{ variantId: string }>();
-  const variantId = Number(params.variantId);
+  const variantRef = params.variantId?.trim() ?? "";
   const router = useRouter();
   const pathname = usePathname();
   const searchParams = useSearchParams();
@@ -29,6 +30,6 @@ function PackageRoute() {
   const onFiltersChange = useCallback((next: ResourceFilters) => {
     router.replace(`${pathname}${resourceFiltersToSearch(next)}`, { scroll: false });
   }, [pathname, router]);
-  if (!Number.isInteger(variantId) || variantId <= 0) return <PackagePageSkeleton />;
-  return <PackagePage variantId={variantId} filters={filters} onFiltersChange={onFiltersChange} />;
+  if (!variantRef) return <PackagePageSkeleton />;
+  return <PackagePage variantRef={variantRef} filters={filters} onFiltersChange={onFiltersChange} />;
 }

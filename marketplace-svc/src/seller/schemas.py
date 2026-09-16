@@ -83,6 +83,7 @@ class DashboardPoint(BaseModel):
 
 class DashboardTopProduct(BaseModel):
     id: int
+    public_key: str | None = None
     title: str
     service_type: str | None
     status: str

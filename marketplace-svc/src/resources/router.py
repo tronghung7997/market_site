@@ -13,6 +13,7 @@ from src.models.account import Account
 from src.models.resource import ResourceStatus
 
 from . import inventory, schemas, service
+from src.orders.refs import OrderRef
 
 router = APIRouter(tags=["resources"])
 
@@ -56,7 +57,7 @@ async def list_res(
         per_page=per_page,
     )
     response.headers["X-Total-Count"] = str(total)
-    return items
+    return await service.with_order_codes(items, db)
 
 
 @router.get("/seller/inventory/summary", response_model=schemas.InventorySummaryResponse)
@@ -212,8 +213,8 @@ async def internal_release(body: schemas.InternalReleaseRequest, db: AsyncSessio
     return {"status": "released"}
 
 
-@router.get("/orders/{order_id}/resources", response_model=list[schemas.ResourceResponse])
-async def order_res(order_id: int, account: Account = Depends(get_current_account), db: AsyncSession = Depends(get_session)):
+@router.get("/orders/{order_ref}/resources", response_model=list[schemas.ResourceResponse])
+async def order_res(order_id: OrderRef, account: Account = Depends(get_current_account), db: AsyncSession = Depends(get_session)):
     return await service.order_resources(order_id, account.id, db)
 
 
@@ -308,12 +309,13 @@ async def inventory_packages(
     )
 
 
-@router.get("/seller/inventory/packages/{variant_id}", response_model=schemas.InventoryPackageDetail)
+@router.get("/seller/inventory/packages/{variant_ref}", response_model=schemas.InventoryPackageDetail)
 async def inventory_package(
-    variant_id: int,
+    variant_ref: str,
     account: Account = Depends(require_role("seller")),
     db: AsyncSession = Depends(get_session),
 ):
+    variant_id = await inventory.resolve_variant_ref(variant_ref, db)
     return await inventory.get_package(variant_id, account.id, db)
 
 

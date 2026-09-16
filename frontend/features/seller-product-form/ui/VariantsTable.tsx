@@ -4,6 +4,7 @@ import { useState } from "react";
 import { useLocale, useTranslations } from "next-intl";
 import { Link } from "@/i18n/navigation";
 import { cn } from "@/lib/cn";
+import { sellerInventoryPath } from "@/lib/routes";
 import { useVariantTerm, type VariantTerm } from "@/lib/variant-term";
 import { useMoney } from "@/lib/money";
 import type { ProductLocale } from "@/lib/types";
@@ -66,7 +67,7 @@ export function VariantsTable({
   variants, stats, lowStockThreshold, contentLocale, primaryLocale, pending, serviceType,
   onAdd, onUpdate, onSetActive, onReorder,
 }: {
-  variants: (WorkbenchVariant & { id: number })[];
+  variants: (WorkbenchVariant & { id: number; public_key?: string | null })[];
   stats?: Record<number, VariantStats>;
   lowStockThreshold: number;
   contentLocale: ProductLocale;
@@ -154,14 +155,14 @@ export function VariantsTable({
                   <td className="cursor-grab px-2 py-2.5 text-center text-faint" title={t("dragHint")}>⋮⋮</td>
                   <td className="px-2 py-2.5">
                     <div className="truncate font-medium text-fg" title={v.name}>{v.name}</div>
-                    <div className="text-[11px] text-faint">{instant ? t("deliveryInstant") : t("deliveryManualSla", { hours: v.sla_hours ?? 24 })} · <span className="font-mono">#{v.id}</span></div>
+                    <div className="text-[11px] text-faint">{instant ? t("deliveryInstant") : t("deliveryManualSla", { hours: v.sla_hours ?? 24 })}</div>
                   </td>
                   <td className="px-2 py-2.5 text-right font-mono whitespace-nowrap">{formatCheckoutMoney(v.price)}</td>
                   <td className="px-2 py-2.5 whitespace-nowrap">
                     {instant ? (
                       <>
                         <span className={cn("font-mono font-semibold", stockTone)}>{v.stock_count.toLocaleString(locale)}</span>
-                        <Link href={`/seller/inventory/${v.id}`} className="ml-2 text-[11.5px] text-iris hover:underline">{t("restock")}</Link>
+                        <Link href={sellerInventoryPath({ variant_id: v.id, variant_key: v.public_key })} className="ml-2 text-[11.5px] text-iris hover:underline">{t("restock")}</Link>
                       </>
                     ) : <span className="text-[11.5px] text-faint">{t("slaTag", { hours: v.sla_hours ?? 24 })}</span>}
                   </td>
@@ -172,7 +173,7 @@ export function VariantsTable({
                   <td className="px-2 py-2.5">
                     <div className="flex justify-end gap-0.5">
                       <button type="button" onClick={() => setEditing(v.id)} title={t("edit")} aria-label={t("edit")} className="inline-flex h-7 w-7 items-center justify-center rounded-md text-muted hover:bg-raised hover:text-fg"><Edit2 size={13} /></button>
-                      <Link href={`/seller/inventory/${v.id}`} title={t("openInventory")} aria-label={t("openInventory")} className="inline-flex h-7 w-7 items-center justify-center rounded-md text-muted hover:bg-raised hover:text-fg"><Rows size={13} /></Link>
+                      <Link href={sellerInventoryPath({ variant_id: v.id, variant_key: v.public_key })} title={t("openInventory")} aria-label={t("openInventory")} className="inline-flex h-7 w-7 items-center justify-center rounded-md text-muted hover:bg-raised hover:text-fg"><Rows size={13} /></Link>
                       <button type="button" disabled={pending} onClick={() => void onSetActive(v.id, !active)} title={active ? t("stop") : t("resume")} aria-label={active ? t("stop") : t("resume")} className="inline-flex h-7 w-7 items-center justify-center rounded-md text-muted hover:bg-raised hover:text-fg disabled:opacity-40">
                         {active ? <EyeOff size={13} /> : <Eye size={13} />}
                       </button>

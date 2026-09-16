@@ -2,17 +2,22 @@
 
 import { useTranslations } from "next-intl";
 import type { DeliveryResourceMark } from "@/lib/dispute-case";
+import { lineLabel } from "@/lib/order-ref";
 
 export function DeliveryAccountBadge({
   mark,
   highlighted,
   formatRefund,
+  lineOf,
 }: {
   mark?: DeliveryResourceMark;
   highlighted?: boolean;
   formatRefund?: (amount: number) => string;
+  /** resource id → 1-based stock line, so chips point at "#03" rather than a row id. */
+  lineOf?: Record<number, number>;
 }) {
   const t = useTranslations("orders");
+  const lineRef = (id: number | null | undefined) => (id != null && lineOf?.[id] ? lineLabel(lineOf[id]) : null);
   const chips: Array<{ key: string; className: string; label: string }> = [];
   if (highlighted) {
     chips.push({
@@ -30,18 +35,18 @@ export function DeliveryAccountBadge({
         : t("accountRefunded"),
     });
   } else if (mark?.kind === "replaced") {
+    const target = lineRef(mark.replacementId);
     chips.push({
       key: "replaced",
       className: "bg-iris-soft text-iris-hi",
-      label: mark.replacementId
-        ? t("accountReplaced", { id: mark.replacementId })
-        : t("accountReplacedUnknown"),
+      label: target ? t("accountReplaced", { id: target }) : t("accountReplacedUnknown"),
     });
   } else if (mark?.kind === "replacement") {
+    const original = lineRef(mark.originalId);
     chips.push({
       key: "replacement",
       className: "bg-iris-soft text-iris-hi",
-      label: t("accountReplacement", { id: mark.originalId }),
+      label: original ? t("accountReplacement", { id: original }) : t("accountReplacementUnknown"),
     });
   } else if (mark?.kind === "claimed") {
     chips.push({

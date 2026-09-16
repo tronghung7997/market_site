@@ -54,7 +54,9 @@ class ChatMessageResponse(BaseModel):
 
 
 class SafeCounterpart(BaseModel):
-    id: int
+    """The other side of a room, by public key — never the account id or
+    email. ``"marketplace"`` stands in for the support desk."""
+    id: str
     label: str
     role: str
 
@@ -63,10 +65,15 @@ class ChatProduct(BaseModel):
     id: int
     title: str
     image: str | None = None
+    # Public URL ref; inbox links use /products/{slug}-{public_key}.
+    slug: str | None = None
+    public_key: str | None = None
 
 
 class ChatOrderContext(BaseModel):
     id: int
+    # Buyer/seller-facing order number for labels and links.
+    code: str | None = None
     status: str
     quantity: int
     total_amount: int

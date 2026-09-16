@@ -32,7 +32,7 @@ export default function SellerHistoryRow({ order: o }: { order: Order }) {
         <Monogram text={o.product_title ?? "??"} className="h-8 w-8 text-[12px] text-faint shrink-0" />
         <div className="min-w-0 flex-1">
           <div className="flex items-center gap-2 min-w-0">
-            <span className="text-[13px] font-medium truncate">{o.product_title ?? t("orderNumber", { id: o.id })}</span>
+            <span className="text-[13px] font-medium truncate">{o.product_title ?? t("orderNumber", { id: o.order_code })}</span>
             <Tag tone={st.tone}>{st.label}</Tag>
             {o.status === "completed" && o.has_review && (
               <span className="inline-flex items-center gap-0.5 text-[11px] text-warn shrink-0">
@@ -41,7 +41,7 @@ export default function SellerHistoryRow({ order: o }: { order: Order }) {
             )}
           </div>
           <p className="text-[11.5px] text-faint mt-0.5 truncate">
-            {t("orderNumber", { id: o.id })} · {formatDate(o.created_at, locale)}
+            {t("orderNumber", { id: o.order_code })} · {formatDate(o.created_at, locale)}
             {o.buyer_email && <> · {o.buyer_email}</>}
           </p>
         </div>

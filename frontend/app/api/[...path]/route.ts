@@ -1,5 +1,7 @@
 import { NextRequest, NextResponse } from "next/server";
+import { revalidateTag } from "next/cache";
 import { signedHeaders } from "@/lib/bff-request-signing";
+import { CATALOG_CACHE_TAG, catalogWritePath, publicCacheControl } from "@/lib/bff-cache";
 import { adminRequestAllowed, isAdminApiPath } from "@/lib/admin-access";
 import {
   ACCESS_COOKIE,
@@ -122,7 +124,11 @@ async function rotateRefresh(request: NextRequest, refreshToken: string): Promis
   }
 }
 
-async function passthroughUpstream(upstream: Response, extra?: (response: NextResponse) => void) {
+async function passthroughUpstream(
+  upstream: Response,
+  extra?: (response: NextResponse) => void,
+  cacheControl: string | null = null,
+) {
   const responseHeaders = new Headers(upstream.headers);
   for (const name of ["set-cookie", "content-length", "connection", "content-encoding", "transfer-encoding", "server"]) {
     responseHeaders.delete(name);
@@ -157,7 +163,9 @@ async function passthroughUpstream(upstream: Response, extra?: (response: NextRe
     extra?.(response);
     return response;
   }
-  responseHeaders.set("Cache-Control", "no-store");
+  // Anonymous public catalog reads may sit in a shared cache for a minute;
+  // everything else (personalised or mutating) stays no-store.
+  responseHeaders.set("Cache-Control", cacheControl ?? "no-store");
   const response = new NextResponse(upstream.body, {
     status: upstream.status,
     headers: responseHeaders,
@@ -282,7 +290,18 @@ async function proxy(request: NextRequest, segments: string[]) {
     return await passthroughUpstream(upstream, clearAuthCookies);
   }
 
-  const response = await passthroughUpstream(upstream);
+  if (catalogWritePath(request.method, path, upstream.status)) {
+    // A seller/admin just changed the catalog: drop the SSR catalog cache so
+    // the next storefront render shows it instead of waiting out the TTL.
+    revalidateTag(CATALOG_CACHE_TAG, "max");
+  }
+  const cacheControl = publicCacheControl({
+    method: request.method,
+    path,
+    status: upstream.status,
+    authenticated: Boolean(access || refreshCookie),
+  });
+  const response = await passthroughUpstream(upstream, undefined, cacheControl);
   if (upstream.status === 401) clearAuthCookies(response);
   return response;
 }

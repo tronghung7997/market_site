@@ -4,7 +4,12 @@ from pydantic import BaseModel
 
 
 class SellerSummary(BaseModel):
-    account_id: int
+    """Public seller card. The sequential account id is deliberately absent:
+    ``public_key`` is the only identifier, ``canonical_path`` the storefront URL."""
+    public_key: str
+    # Slug of the approved business name; None until the shop has a name.
+    handle: str | None = None
+    canonical_path: str
     display_name: str
     business_name: str | None
     completed_order_count: int

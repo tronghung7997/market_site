@@ -34,6 +34,7 @@ async def test_order_parties_share_one_scoped_conversation(client):
     assert buyer_room.json()["kind"] == "order"
     assert buyer_room.json()["order"] == {
         "id": order.json()["id"],
+        "code": order.json()["order_code"],
         "status": order.json()["status"],
         "quantity": 1,
         "total_amount": 1000,

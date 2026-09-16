@@ -5,6 +5,7 @@ import { useSearchParams } from "next/navigation";
 import { useLocale, useTranslations } from "next-intl";
 import { useEffect, useMemo, useRef, useState, useTransition } from "react";
 import { flattenCategories } from "@/lib/categories";
+import { categoryPath, matchCategoryParam } from "@/lib/routes";
 import { useMoney } from "@/lib/money";
 import { Button, Card, Tag } from "@/components/ui";
 import { Bolt, Check, ChevronLeft, ChevronRight, Grid, Rows, Search, ShieldCheck, Star, X } from "@/components/Icons";
@@ -50,8 +51,14 @@ export function CategoryBrowseView({
   const paramMax = searchParams?.get("max") || "";
   const rawView = searchParams?.get("view");
   const paramView: "grid" | "list" = rawView === "list" ? "list" : "grid";
-  const rawSub = Number(searchParams?.get("sub"));
-  const paramSub = Number.isFinite(rawSub) && rawSub > 0 ? rawSub : null;
+  // `?sub=` holds the child slug; old links may still carry the numeric id.
+  const flatCats = useMemo(() => flattenCategories(cats), [cats]);
+  const category = flatCats.find((c) => c.id === categoryId) ?? null;
+  const parent = category?.parent_id != null ? flatCats.find((c) => c.id === category.parent_id) ?? null : null;
+  const siblings = parent?.children ?? [];
+  const children = category?.children ?? [];
+  const subFromParam = (raw: string | null | undefined) => matchCategoryParam(raw, children)?.slug ?? null;
+  const paramSub = subFromParam(searchParams?.get("sub"));
   const rawPage = Number(searchParams?.get("page") || "1");
   const paramPage = Number.isFinite(rawPage) && rawPage > 0 ? Math.floor(rawPage) : 1;
 
@@ -63,7 +70,7 @@ export function CategoryBrowseView({
   const [customMin, setCustomMin] = useState(paramMin);
   const [customMax, setCustomMax] = useState(paramMax);
   const [viewMode, setViewMode] = useState<"grid" | "list">(paramView);
-  const [subFilter, setSubFilter] = useState<number | null>(paramSub);
+  const [subFilter, setSubFilter] = useState<string | null>(paramSub);
   const [currentPage, setCurrentPage] = useState<number>(paramPage);
 
   // Sync FROM URL (browser back/forward, external navigation, non-q filter changes).
@@ -71,7 +78,7 @@ export function CategoryBrowseView({
   useEffect(() => {
     const nextView = searchParams?.get("view");
     const nextPage = Number(searchParams?.get("page") || "1");
-    const nextSub = Number(searchParams?.get("sub"));
+    const nextSub = subFromParam(searchParams?.get("sub"));
 
     if (!isTypingRef.current) {
       setQ(searchParams?.get("q") || "");
@@ -83,15 +90,9 @@ export function CategoryBrowseView({
     setCustomMin(searchParams?.get("min") || "");
     setCustomMax(searchParams?.get("max") || "");
     setViewMode(nextView === "list" ? "list" : "grid");
-    setSubFilter(Number.isFinite(nextSub) && nextSub > 0 ? nextSub : null);
+    setSubFilter(nextSub);
     setCurrentPage(Number.isFinite(nextPage) && nextPage > 0 ? Math.floor(nextPage) : 1);
   }, [searchParams]);
-
-  const flatCats = useMemo(() => flattenCategories(cats), [cats]);
-  const category = flatCats.find((c) => c.id === categoryId) ?? null;
-  const parent = category?.parent_id != null ? flatCats.find((c) => c.id === category.parent_id) ?? null : null;
-  const siblings = parent?.children ?? [];
-  const children = category?.children ?? [];
 
   // Update URL search parameters when filters change
   const syncToUrl = (updates: Record<string, string | null>) => {
@@ -199,7 +200,7 @@ export function CategoryBrowseView({
         {parent && (
           <>
             <ChevronRight size={12} className="text-faint shrink-0" />
-            <Link href={`/categories/${parent.id}`} className="hover:text-fg transition-colors shrink-0">{parent.name}</Link>
+            <Link href={categoryPath(parent)} className="hover:text-fg transition-colors shrink-0">{parent.name}</Link>
           </>
         )}
         <ChevronRight size={12} className="text-faint shrink-0" />
@@ -236,7 +237,7 @@ export function CategoryBrowseView({
             {t("siblingsTitle")}
           </span>
           <Link
-            href={`/categories/${parent.id}`}
+            href={categoryPath(parent)}
             className="px-3 py-1 rounded-full bg-surface border border-line text-muted hover:text-fg hover:border-line-2 shrink-0 transition-colors"
           >
             ← {parent.name}
@@ -246,7 +247,7 @@ export function CategoryBrowseView({
             return (
               <Link
                 key={sib.id}
-                href={`/categories/${sib.id}`}
+                href={categoryPath(sib)}
                 className={`px-3.5 py-1 rounded-full shrink-0 font-medium transition-all ${
                   isCurrent
                     ? "bg-iris text-white shadow-sm"
@@ -279,15 +280,15 @@ export function CategoryBrowseView({
             {t("allCategories")}
           </button>
           {children.map((c) => {
-            const isSelected = subFilter === c.id;
+            const isSelected = subFilter === c.slug;
             return (
               <button
                 key={c.id}
                 type="button"
                 onClick={() => {
-                  const nextSub = isSelected ? null : c.id;
+                  const nextSub = isSelected ? null : c.slug;
                   setSubFilter(nextSub);
-                  syncToUrl({ sub: nextSub ? String(nextSub) : null, page: "1" });
+                  syncToUrl({ sub: nextSub, page: "1" });
                   setCurrentPage(1);
                 }}
                 className={`h-8 px-3.5 rounded-full text-[12.5px] font-medium transition-all shrink-0 cursor-pointer flex items-center gap-1.5 ${

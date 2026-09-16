@@ -108,7 +108,7 @@ export function ResourceTable({
     }
   };
 
-  const exportHref = `/seller/inventory/export?tab=goods&variants=${pkg.variant_id}${filters.status !== "all" && filters.status !== "archived" ? `&status=${filters.status}` : ""}${filters.status === "archived" ? "&archived=1" : ""}`;
+  const exportHref = `/seller/inventory/export?tab=goods&variants=${pkg.variant_key ?? pkg.variant_id}${filters.status !== "all" && filters.status !== "archived" ? `&status=${filters.status}` : ""}${filters.status === "archived" ? "&archived=1" : ""}`;
 
   return (
     <div className="space-y-3">
@@ -194,7 +194,7 @@ export function ResourceTable({
                 <th className="w-9 px-3 py-2.5">
                   <input type="checkbox" aria-label={t("resource.selectPage")} checked={allPageSelected} disabled={rows.length === 0} ref={(el) => { if (el) el.indeterminate = pageSelected > 0 && !allPageSelected; }} onChange={(e) => setSelected((prev) => { const next = new Set(prev); rows.forEach((r) => (e.target.checked ? next.add(r.id) : next.delete(r.id))); return next; })} className="h-3.5 w-3.5 rounded border-line-2 text-iris" />
                 </th>
-                <th className="w-[72px] px-2 py-2.5">ID</th>
+                <th className="w-[56px] px-2 py-2.5">#</th>
                 <th className="w-[120px] px-2 py-2.5">{t("resource.colStatus")}</th>
                 <th className="px-2 py-2.5">{t("resource.colData")}</th>
                 <th className="w-[72px] px-2 py-2.5">{t("resource.colOrder")}</th>
@@ -229,20 +229,22 @@ export function ResourceTable({
                   <p className="font-medium text-fg">{t("resource.empty")}</p>
                   <p className="text-[11px] text-faint">{t("resource.emptyHint")}</p>
                 </td></tr>
-              ) : rows.map((r) => {
+              ) : rows.map((r, index) => {
                 const st = resourceStatusTone(r);
+                // Running number within the current listing; stock row ids stay internal.
+                const rowNo = (filters.page - 1) * filters.perPage + index + 1;
                 const isSelected = selected.has(r.id) || allMatching;
                 return (
                   <tr key={r.id} onClick={() => setDetail(r)} className={cn("cursor-pointer transition-colors hover:bg-raised/40", isSelected && "bg-iris-soft/20")}>
                     <td className="px-3 py-2" onClick={(e) => e.stopPropagation()}>
-                      <input type="checkbox" aria-label={t("resource.selectRow", { id: r.id })} checked={isSelected} disabled={allMatching} onChange={() => setSelected((prev) => { const next = new Set(prev); if (next.has(r.id)) next.delete(r.id); else next.add(r.id); return next; })} className="h-3.5 w-3.5 rounded border-line-2 text-iris" />
+                      <input type="checkbox" aria-label={t("resource.selectRow", { id: rowNo })} checked={isSelected} disabled={allMatching} onChange={() => setSelected((prev) => { const next = new Set(prev); if (next.has(r.id)) next.delete(r.id); else next.add(r.id); return next; })} className="h-3.5 w-3.5 rounded border-line-2 text-iris" />
                     </td>
-                    <td className="px-2 py-2 font-mono text-[11.5px] text-faint">{r.id}</td>
+                    <td className="px-2 py-2 font-mono text-[11.5px] text-faint">{rowNo}</td>
                     <td className="px-2 py-2">
                       <span className={cn("inline-flex items-center rounded-md border px-1.5 py-0.5 text-[10.5px] font-medium leading-none", st.tone === "good" && "border-good/25 bg-good-soft text-good", st.tone === "bad" && "border-bad/25 bg-bad-soft text-bad", st.tone === "warn" && "border-warn/25 bg-warn-soft text-warn", st.tone === "neutral" && "border-line-2 bg-surface text-muted")}>
                         {t(`resource.status.${st.key}`)}
                       </span>
-                      {st.key === "returned" && <div className="mt-0.5 text-[10.5px] text-warn-hi">{t("resource.returnedShort", { id: r.order_id ?? 0 })}</div>}
+                      {st.key === "returned" && <div className="mt-0.5 text-[10.5px] text-warn-hi">{t("resource.returnedShort", { id: r.order_code ?? "…" })}</div>}
                     </td>
                     <td className="px-2 py-2 font-mono text-[12px] text-fg">
                       <div className="flex items-center gap-1">
@@ -253,7 +255,7 @@ export function ResourceTable({
                       </div>
                     </td>
                     <td className="px-2 py-2" onClick={(e) => e.stopPropagation()}>
-                      {r.order_id ? <Link href={`/seller/orders/${r.order_id}`} className="font-mono text-[11.5px] text-iris hover:underline">#{r.order_id}</Link> : <span className="text-faint">—</span>}
+                      {r.order_id ? <Link href={`/seller/orders/${r.order_code ?? r.order_id}`} className="font-mono text-[11.5px] text-iris hover:underline">{r.order_code ?? "—"}</Link> : <span className="text-faint">—</span>}
                     </td>
                     <td className="px-2 py-2 font-mono text-[11px] text-muted whitespace-nowrap" title={formatDateTime(r.created_at, locale)}>{shortDateTime(r.created_at, locale)}</td>
                     <td className="px-2 py-2 font-mono text-[11px] text-muted whitespace-nowrap" title={r.assigned_at ? formatDateTime(r.assigned_at, locale) : undefined}>{shortDateTime(r.assigned_at, locale)}</td>

@@ -6,11 +6,12 @@ import { queryKeys } from "@/lib/query-keys";
 
 export const REVIEW_PAGE_SIZE = 20;
 
-export function useSellerReviews(params: { productId?: number; unrepliedOnly?: boolean; page?: number }) {
+export function useSellerReviews({ enabled = true, ...params }: { productId?: number; unrepliedOnly?: boolean; page?: number; enabled?: boolean }) {
   const query = { ...params, perPage: REVIEW_PAGE_SIZE };
   return useQuery({
     queryKey: queryKeys.sellerReviews({ ...query }),
     queryFn: () => api.sellerReviews(query),
+    enabled,
     placeholderData: (previous) => previous,
     staleTime: 15_000,
   });

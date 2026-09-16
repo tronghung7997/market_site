@@ -15,7 +15,7 @@ export function OrdersToolbar({
   onReset,
 }: {
   filters: SellerOrdersFilters;
-  products: { id: number; title: string }[];
+  products: { id: number; public_key?: string | null; title: string }[];
   onChange: (patch: Partial<SellerOrdersFilters>) => void;
   onReset: () => void;
 }) {
@@ -53,13 +53,13 @@ export function OrdersToolbar({
         {products.length > 0 && (
           <div className="relative w-44 sm:w-52">
             <Select
-              value={filters.productId ?? "all"}
-              onChange={(e) => onChange({ productId: e.target.value === "all" ? null : Number(e.target.value), page: 1 })}
+              value={filters.product ?? "all"}
+              onChange={(e) => onChange({ product: e.target.value === "all" ? null : e.target.value, page: 1 })}
               aria-label={t("allProducts")}
               className="h-8.5 w-full truncate rounded-lg bg-surface pl-7 pr-6 text-xs"
             >
               <option value="all">{t("allProducts")}</option>
-              {products.map((p) => <option key={p.id} value={p.id}>{p.title}</option>)}
+              {products.map((p) => <option key={p.id} value={p.public_key ?? String(p.id)}>{p.title}</option>)}
             </Select>
             <ListFilter size={12} className="pointer-events-none absolute left-2.5 top-2.5 text-muted" />
           </div>

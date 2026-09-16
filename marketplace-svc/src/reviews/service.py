@@ -43,7 +43,7 @@ def can_review_order(order: Order, window_days: int, now: datetime | None = None
 
 async def create_review(
     order_id: int, buyer_id: int, rating: int, comment: str | None, db: AsyncSession
-) -> Review:
+) -> dict:
     order = await db.get(Order, order_id)
     if not order:
         raise api_error(ErrorCode.ORDER_NOT_FOUND, status.HTTP_404_NOT_FOUND)
@@ -61,9 +61,9 @@ async def create_review(
     # Stock/manual orders retain a variant; adapter orders retain product_id.
     # Both are commercial product purchases and are reviewable after settlement.
     product_id = order.product_id
-    if product_id is None and order.variant_id is not None:
-        variant = await db.get(ProductVariant, order.variant_id)
-        product_id = variant.product_id if variant else None
+    variant = await db.get(ProductVariant, order.variant_id) if order.variant_id is not None else None
+    if product_id is None and variant is not None:
+        product_id = variant.product_id
     if product_id is None:
         raise api_error(ErrorCode.VARIANT_NOT_FOUND, status.HTTP_400_BAD_REQUEST)
 
@@ -81,7 +81,8 @@ async def create_review(
 
     await db.commit()
     await db.refresh(review)
-    return review
+    buyer = await db.get(Account, buyer_id)
+    return _review_dict(review, variant.name if variant else None, buyer.email if buyer else None)
 
 
 async def refresh_product_rating(product_id: int, db: AsyncSession) -> None:
@@ -117,26 +118,38 @@ async def get_product_reviews(
     if rating is not None:
         filters.append(Review.rating == rating)
     rows = (await db.execute(
-        select(Review, ProductVariant.name)
+        select(Review, ProductVariant.name, Account.email)
         .join(Order, Order.id == Review.order_id)
         .outerjoin(ProductVariant, ProductVariant.id == Order.variant_id)
+        .outerjoin(Account, Account.id == Review.buyer_id)
         .where(*filters)
         .order_by(Review.created_at.desc(), Review.id.desc())
         .offset((page - 1) * per_page).limit(per_page)
     )).all()
     return {
-        "items": [_review_dict(review, variant_name) for review, variant_name in rows],
+        "items": [_review_dict(review, variant_name, email) for review, variant_name, email in rows],
         "total": counts[rating] if rating is not None else all_visible, "page": page, "per_page": per_page,
         "rating": rating,
         "summary": {"average": round(average, 2) if average is not None else None, "counts": counts},
     }
 
 
-def _review_dict(review: Review, variant_name: str | None) -> dict:
+def mask_reviewer(email: str | None) -> str:
+    """"nguyenvan@x" -> "ng***n"; never the account id, never the full address."""
+    local = (email or "").split("@", 1)[0]
+    if len(local) < 3:
+        return "***"
+    return f"{local[:2]}***{local[-1]}"
+
+
+def _review_dict(review: Review, variant_name: str | None, email: str | None = None) -> dict:
+    """Full row. The public response model drops order_id / buyer_id; the
+    seller and admin models keep them (they own the order anyway)."""
     return {
         "id": review.id,
         "order_id": review.order_id,
         "buyer_id": review.buyer_id,
+        "reviewer_label": mask_reviewer(email),
         "product_id": review.product_id,
         "rating": review.rating,
         "comment": review.comment,
@@ -167,10 +180,11 @@ async def list_seller_reviews(
         )
     ) or 0)
     query = (
-        select(Review, ProductVariant.name, Product.title)
+        select(Review, ProductVariant.name, Product.title, Account.email, Order.order_code)
         .join(Product, Product.id == Review.product_id)
         .join(Order, Order.id == Review.order_id)
         .outerjoin(ProductVariant, ProductVariant.id == Order.variant_id)
+        .outerjoin(Account, Account.id == Review.buyer_id)
         .where(*filters)
     )
     if unreplied_only:
@@ -179,7 +193,7 @@ async def list_seller_reviews(
         query.order_by(Review.created_at.desc(), Review.id.desc()).offset((page - 1) * per_page).limit(per_page)
     )).all()
     return {
-        "items": [{**_review_dict(review, variant_name), "product_title": title} for review, variant_name, title in rows],
+        "items": [{**_review_dict(review, variant_name, email), "product_title": title, "order_code": order_code} for review, variant_name, title, email, order_code in rows],
         "total": total, "unreplied": unreplied, "page": page, "per_page": per_page,
     }
 
@@ -192,30 +206,43 @@ async def _seller_owned_review(review_id: int, seller_id: int, db: AsyncSession)
     return review
 
 
-async def reply_to_review(review_id: int, seller_id: int, body: str, db: AsyncSession) -> Review:
+async def get_seller_review(review_id: int, db: AsyncSession) -> dict:
+    row = (await db.execute(
+        select(Review, ProductVariant.name, Product.title, Account.email, Order.order_code)
+        .join(Product, Product.id == Review.product_id)
+        .join(Order, Order.id == Review.order_id)
+        .outerjoin(ProductVariant, ProductVariant.id == Order.variant_id)
+        .outerjoin(Account, Account.id == Review.buyer_id)
+        .where(Review.id == review_id)
+    )).first()
+    if not row:
+        raise api_error(ErrorCode.REVIEW_NOT_FOUND, status.HTTP_404_NOT_FOUND)
+    review, variant_name, title, email, order_code = row
+    return {**_review_dict(review, variant_name, email), "product_title": title, "order_code": order_code}
+
+
+async def reply_to_review(review_id: int, seller_id: int, body: str, db: AsyncSession) -> dict:
     """Set or overwrite the seller's public reply."""
     review = await _seller_owned_review(review_id, seller_id, db)
     review.seller_reply = body.strip()
     review.seller_replied_at = datetime.now(timezone.utc)
     await db.commit()
-    await db.refresh(review)
-    return review
+    return await get_seller_review(review_id, db)
 
 
-async def delete_review_reply(review_id: int, seller_id: int, db: AsyncSession) -> Review:
+async def delete_review_reply(review_id: int, seller_id: int, db: AsyncSession) -> dict:
     review = await _seller_owned_review(review_id, seller_id, db)
     review.seller_reply = None
     review.seller_replied_at = None
     await db.commit()
-    await db.refresh(review)
-    return review
+    return await get_seller_review(review_id, db)
 
 
 # --- admin: list + hide -------------------------------------------------------
 
 def _admin_query(*filters):
     return (
-        select(Review, ProductVariant.name, Product.title, Product.seller_id, Account.email)
+        select(Review, ProductVariant.name, Product.title, Product.seller_id, Account.email, Order.order_code)
         .join(Product, Product.id == Review.product_id)
         .join(Order, Order.id == Review.order_id)
         .join(Account, Account.id == Review.buyer_id)
@@ -224,9 +251,9 @@ def _admin_query(*filters):
     )
 
 
-def _admin_row(review: Review, variant_name: str | None, title: str, seller_id: int, email: str) -> dict:
+def _admin_row(review: Review, variant_name: str | None, title: str, seller_id: int, email: str, order_code: str | None = None) -> dict:
     return {
-        **_review_dict(review, variant_name), "product_title": title, "seller_id": seller_id,
+        **_review_dict(review, variant_name, email), "product_title": title, "seller_id": seller_id, "order_code": order_code,
         "buyer_email": email, "hidden_reason": review.hidden_reason, "hidden_at": review.hidden_at,
         "hidden_by_id": review.hidden_by_id,
     }

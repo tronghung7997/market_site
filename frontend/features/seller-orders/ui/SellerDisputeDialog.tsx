@@ -90,7 +90,7 @@ function DisputeBody({ order, onClose }: { order: Order; onClose: () => void }) 
             )}>
               {isOpenCase ? t("disputeDetailTitle") : t("disputeHistoryTitle")}
             </span>
-            <span className="font-mono text-xs text-faint">{t("orderNumber", { id: order.id })}</span>
+            <span className="font-mono text-xs text-faint">{t("orderNumber", { id: order.order_code })}</span>
             {hasClaimed && (
               <span className="shrink-0 rounded border border-warn/30 bg-warn-soft/70 px-1.5 py-0.5 font-mono text-[10px] text-warn">
                 {t("claim_batch", { count: dispute?.claimed_resource_ids?.length ?? 0 })}

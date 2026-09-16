@@ -14,9 +14,10 @@ export default function SellerOrderDetailPage() {
 }
 
 function SellerOrderDetailRoute() {
-  const { id } = useParams<{ id: string }>();
+  // `code` is the ORD-XXXXXXXX order number; old numeric links still resolve.
+  const { code } = useParams<{ code: string }>();
   const searchParams = useSearchParams();
-  const orderId = Number(id);
   const highlight = useMemo(() => parseHighlightedResourceIds(searchParams.get("resources")), [searchParams]);
-  return <SellerOrderDetail orderId={orderId} highlightResourceIds={highlight} />;
+  const lines = useMemo(() => parseHighlightedResourceIds(searchParams.get("lines")), [searchParams]);
+  return <SellerOrderDetail orderRef={code} highlightResourceIds={highlight} highlightLines={lines} />;
 }

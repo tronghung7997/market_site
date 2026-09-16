@@ -35,7 +35,7 @@ export default function TransactionList({ txs, showHeader = true }: { txs: Trans
     }
     // Ledger type is still "deposit" for both rails; pick badge from backend note.
     if (tx.type === "deposit") {
-      const blob = `${tx.description ?? ""} ${tx.reference_id ?? ""}`.toLowerCase();
+      const blob = `${tx.description ?? ""} ${tx.reference_id ?? ""} ${tx.reference_label ?? ""} ${tx.order_code ?? ""}`.toLowerCase();
       const usdtKey = "txTypes.deposit_usdt" as const;
       const bankKey = "txTypes.deposit_bank" as const;
       if (blob.includes("usdt") || blob.includes("nowpayments")) {
@@ -132,9 +132,9 @@ export default function TransactionList({ txs, showHeader = true }: { txs: Trans
                     <div className="mt-1 flex min-w-0 flex-wrap items-center gap-x-2 gap-y-0.5 text-[11px] text-faint sm:gap-3 sm:text-[11.5px]">
                       <span>{date.toLocaleDateString(loc, { day: "2-digit", month: "2-digit", year: "numeric" })}</span>
                       <span>{date.toLocaleTimeString(loc, { hour: "2-digit", minute: "2-digit", second: "2-digit" })}</span>
-                      {tx.reference_id && (
+                      {tx.reference_label && (
                         <span className="basis-full truncate font-mono sm:basis-auto">
-                          Ref: {tx.reference_id}
+                          Ref: {tx.reference_label}
                         </span>
                       )}
                     </div>

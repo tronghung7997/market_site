@@ -93,7 +93,7 @@ export function ScopeTree({
                 {open ? <ChevronDown size={12} className="text-faint" /> : <ChevronRight size={12} className="text-faint" />}
                 <TriCheckbox state={checkState(ids, selected)} onChange={(c) => toggleIds(ids, c)} label={product.title} disabled={ids.length === 0} />
                 <span className="min-w-0 flex-1 truncate text-fg">
-                  {product.title} <span className="font-mono text-[11px] text-faint">#{product.id}</span>
+                  {product.title}
                   {product.status !== "active" && <span className="ml-1 text-[11px] text-faint">· {t("state.productPaused")}</span>}
                 </span>
                 <span className="font-mono text-[11px] text-faint">{available.toLocaleString(locale)}</span>
@@ -104,7 +104,7 @@ export function ScopeTree({
                   <label key={pkg.variant_id} style={{ paddingLeft: indent + 42 }} className={cn("flex items-center gap-2 py-1.5 pr-3 text-[12px] hover:bg-raised/60", !ok && "opacity-50")}>
                     <TriCheckbox state={selected.has(pkg.variant_id) ? "all" : "none"} onChange={(c) => toggleIds([pkg.variant_id], c)} label={pkg.variant_name} disabled={!ok} />
                     <span className="min-w-0 flex-1 truncate text-fg">
-                      {pkg.variant_name} <span className="font-mono text-[11px] text-faint">#{pkg.variant_id}</span>
+                      {pkg.variant_name}
                       {!pkg.is_active && <span className="ml-1 text-[11px] text-faint">· {t("state.inactive")}</span>}
                     </span>
                     <span className={cn("font-mono text-[11px]", pkg.available === 0 ? "text-bad" : "text-faint")}>{pkg.available.toLocaleString(locale)}</span>

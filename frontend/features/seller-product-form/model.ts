@@ -286,6 +286,9 @@ export function buildPreviewProduct(input: PreviewProductInput): ProductDetail {
   const cleanSpecs = Object.fromEntries(Object.entries(input.specs).filter(([key, value]) => key.trim() && value.trim()));
   return {
     id: input.id,
+    // Preview only — no public key yet, so links fall back to the id.
+    slug: "",
+    public_key: "",
     seller_id: 0,
     category_id: input.categoryId,
     category_name: input.categoryName || null,

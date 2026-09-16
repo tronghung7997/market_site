@@ -133,7 +133,7 @@ export default function OrderResult({ order: initial, onRebuy, fulfillment }: { 
           </span>
         </span>
         <div>
-          <div className="text-[13.5px] font-medium">{tc("orderNumber", { id: order.id })}</div>
+          <div className="text-[13.5px] font-medium">{tc("orderNumber", { id: order.order_code })}</div>
           <Tag tone={st.tone}>{st.label}</Tag>
         </div>
       </div>

@@ -513,6 +513,7 @@ async def get_affiliate_stats(
         commissions.append({
             "id": c.id,
             "order_id": c.order_id,
+            "order_code": order.order_code if order else None,
             "buyer_account_id": c.buyer_account_id,
             "rate_percent": c.rate_percent,
             "amount": c.amount,

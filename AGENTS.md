@@ -29,6 +29,7 @@
 - FastAPI and SQLAlchemy code is asynchronous. PostgreSQL is the system of record. Redis is currently used for best-effort gateway/rate-limit behavior, not as a primary datastore.
 - Buyer, seller, and admin access must be enforced by the backend even when the frontend hides an action.
 - Database schema changes require an Alembic revision. Never replace a migration with startup-time schema mutation.
+- Buyer- and seller-facing surfaces (page URLs, labels, notifications, mails, chat titles) never show sequential row ids. Use the public identifiers: product `slug-public_key`, category slug, seller `handle-public_key`, variant `public_key` (`/seller/inventory/{key}`), order `order_code` (`ORD-…`), and 1-based stock lines (`#01`) for delivered accounts. Build links with `frontend/lib/routes.ts` / `lib/order-ref.ts`; keep numeric ids in JSON payloads and admin pages only.
 
 ## Working method
 

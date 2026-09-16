@@ -76,7 +76,7 @@ function DeliverForm({ order, onClose, onDelivered }: { order: Order; onClose: (
             {t("deliverModalTitle")}
           </span>
           <DialogTitle className="mt-0.5 truncate text-[14px] font-bold text-fg">
-            {t("orderNumber", { id: order.id })} &bull; {order.product_title}
+            {t("orderNumber", { id: order.order_code })} &bull; {order.product_title}
           </DialogTitle>
           <DialogDescription className="sr-only">{t("deliveryCustomerHint")}</DialogDescription>
         </div>

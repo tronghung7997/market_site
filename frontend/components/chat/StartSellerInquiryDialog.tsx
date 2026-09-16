@@ -12,11 +12,12 @@ import { MessageCircle, X } from "@/components/Icons";
 import { Button, Field, Textarea } from "@/components/ui";
 
 export default function StartSellerInquiryDialog({
-  sellerId,
+  sellerHref,
   sellerName,
   products,
 }: {
-  sellerId: number;
+  /** Storefront path of the seller page, used as the post-login return URL. */
+  sellerHref: string;
   sellerName: string;
   products: Product[];
 }) {
@@ -33,7 +34,7 @@ export default function StartSellerInquiryDialog({
   const [error, setError] = useState<string | null>(null);
 
   const start = () => {
-    if (!account) return router.push(`/login?next=/sellers/${sellerId}`);
+    if (!account) return router.push(`/login?next=${encodeURIComponent(sellerHref)}`);
     setError(null);
     setOpen(true);
   };

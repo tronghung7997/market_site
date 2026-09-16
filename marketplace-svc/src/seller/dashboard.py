@@ -308,7 +308,7 @@ async def _top_products(seller_id: int, rng: DashboardRange, db: AsyncSession, l
     )
     rows = (await db.execute(
         select(
-            Product.id, Product.title, Product.service_type, Product.status,
+            Product.id, Product.public_key, Product.title, Product.service_type, Product.status,
             Product.rating_avg, Product.rating_count,
             per_product.c.orders, per_product.c.gross,
             func.coalesce(net_per_product.c.net, 0),
@@ -323,7 +323,7 @@ async def _top_products(seller_id: int, rng: DashboardRange, db: AsyncSession, l
     )).all()
     low_stock = await get_low_stock_threshold(db)
     out = []
-    for pid, title, service_type, status_value, rating_avg, rating_count, orders, gross, net, total_stock, managed in rows:
+    for pid, key, title, service_type, status_value, rating_avg, rating_count, orders, gross, net, total_stock, managed in rows:
         managed = bool(managed)
         if not managed:
             stock_state = "not_managed"
@@ -334,7 +334,7 @@ async def _top_products(seller_id: int, rng: DashboardRange, db: AsyncSession, l
         else:
             stock_state = "in_stock"
         out.append({
-            "id": pid, "title": title, "service_type": service_type,
+            "id": pid, "public_key": key, "title": title, "service_type": service_type,
             "status": status_value.value if hasattr(status_value, "value") else str(status_value),
             "orders": int(orders), "gross": int(gross), "net": int(net),
             "inventory_managed": managed, "total_stock": int(total_stock), "stock_state": stock_state,

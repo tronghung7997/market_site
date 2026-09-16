@@ -129,6 +129,8 @@ describe("Seller Workbench Logic", () => {
   it("hydrates the edit workbench from localized product and pricing data", () => {
     const draft = hydrateSellerProductDraft({
       id: 74,
+      slug: "api-credits",
+      public_key: "k7m2p9qa",
       seller_id: 22,
       category_id: 9,
       title: "API credits",

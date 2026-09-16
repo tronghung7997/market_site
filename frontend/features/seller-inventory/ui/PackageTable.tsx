@@ -4,6 +4,7 @@ import { useLocale, useTranslations } from "next-intl";
 import { useState } from "react";
 import { Link } from "@/i18n/navigation";
 import { cn } from "@/lib/cn";
+import { sellerInventoryPath, sellerProductPath } from "@/lib/routes";
 import { useMoney } from "@/lib/money";
 import { daysAgo } from "@/lib/utils";
 import type { InventoryPackage, InventoryPackageSort } from "@/lib/types";
@@ -86,12 +87,11 @@ export function PackageTable({
           <div className="flex items-center gap-3">
             {!indent && <ProductCover coverId={parseCoverId({ cover_id: pkg.cover_id })} title={pkg.product_title} className="h-8 w-8 shrink-0 rounded-lg" />}
             <div className="min-w-0">
-              <Link href={`/seller/inventory/${pkg.variant_id}`} className="block max-w-[320px] truncate text-[13px] font-medium text-fg hover:text-iris" title={pkg.variant_name}>
+              <Link href={sellerInventoryPath(pkg)} className="block max-w-[320px] truncate text-[13px] font-medium text-fg hover:text-iris" title={pkg.variant_name}>
                 {pkg.variant_name}
               </Link>
               <div className="mt-0.5 flex flex-wrap items-center gap-x-2 text-[11px] text-faint">
-                <span className="font-mono">#{pkg.variant_id}</span>
-                {!indent && <span className="truncate">{pkg.product_title} <span className="font-mono">#{pkg.product_id}</span></span>}
+                {!indent && <span className="truncate">{pkg.product_title}</span>}
                 <span>{t("table.autoDelivery")}</span>
               </div>
             </div>
@@ -121,10 +121,10 @@ export function PackageTable({
         </td>
         <td className="px-2 py-2.5">
           <div className="flex items-center justify-end gap-0.5 whitespace-nowrap">
-            <Link href={`/seller/inventory/${pkg.variant_id}?restock=1`} className={cn("inline-flex h-7 items-center gap-1 rounded-lg border border-line-2 bg-raised px-2 text-[11.5px] font-medium text-fg hover:border-faint", inactive && "pointer-events-none")}>
+            <Link href={sellerInventoryPath(pkg, "restock=1")} className={cn("inline-flex h-7 items-center gap-1 rounded-lg border border-line-2 bg-raised px-2 text-[11.5px] font-medium text-fg hover:border-faint", inactive && "pointer-events-none")}>
               <Plus size={12} /> {t("table.restock")}
             </Link>
-            <Link href={`/seller/inventory/${pkg.variant_id}`} className="inline-flex h-7 items-center gap-0.5 rounded-lg px-1.5 text-[11.5px] text-muted hover:bg-surface hover:text-fg">
+            <Link href={sellerInventoryPath(pkg)} className="inline-flex h-7 items-center gap-0.5 rounded-lg px-1.5 text-[11.5px] text-muted hover:bg-surface hover:text-fg">
               {t("table.open")} <ChevronRight size={12} />
             </Link>
           </div>
@@ -148,8 +148,7 @@ export function PackageTable({
               {open ? <ChevronDown size={14} /> : <ChevronRight size={14} />}
             </button>
             <ProductCover coverId={parseCoverId({ cover_id: group.coverId })} title={group.productTitle} className="h-6 w-6 shrink-0 rounded-md text-[10px]" />
-            <Link href={`/seller/products/${group.productId}`} className="truncate text-[13px] font-semibold text-fg hover:text-iris" title={group.productTitle}>{group.productTitle}</Link>
-            <span className="shrink-0 font-mono text-[11px] text-faint">#{group.productId}</span>
+            <Link href={sellerProductPath({ id: group.productId, public_key: group.productKey })} className="truncate text-[13px] font-semibold text-fg hover:text-iris" title={group.productTitle}>{group.productTitle}</Link>
             {group.productStatus !== "active" && <Tag tone="neutral">{t("state.productPaused")}</Tag>}
             <span className="truncate text-[11.5px] text-faint">{categoryPath(group.packages[0])}</span>
           </div>
@@ -163,7 +162,7 @@ export function PackageTable({
         <td colSpan={2} />
         <td className="px-2 py-2">
           <div className="flex justify-end">
-            <Link href={`/seller/products/${group.productId}`} className="inline-flex h-7 items-center gap-1 rounded-lg px-2 text-[11.5px] text-muted hover:bg-surface hover:text-fg whitespace-nowrap">
+            <Link href={sellerProductPath({ id: group.productId, public_key: group.productKey })} className="inline-flex h-7 items-center gap-1 rounded-lg px-2 text-[11.5px] text-muted hover:bg-surface hover:text-fg whitespace-nowrap">
               <Edit2 size={12} /> {t("table.editProduct")}
             </Link>
           </div>

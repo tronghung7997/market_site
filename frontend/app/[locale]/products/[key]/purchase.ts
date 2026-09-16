@@ -1,23 +1,22 @@
 /** Pure purchase decision helpers — no React, no i18n strings (keys only). */
 
 import type { Variant } from "@/lib/types";
-import { MAX_ORDER_QUANTITY } from "../../../../lib/order-limits.ts";
+import { variantMaxQuantity, variantOutOfStock } from "../../../../lib/stock.ts";
 
+/** Priced, and not a dried-up instant package. Uses the storefront
+ *  `stock_state`; falls back to `stock_count` on management payloads. */
 export const purchasable = (v: Variant): boolean =>
-  v.price > 0 && (v.delivery_mode !== "instant" || v.stock_count > 0);
+  v.price > 0 && !variantOutOfStock(v);
 
-export const outOfStock = (v: Variant): boolean =>
-  v.delivery_mode === "instant" && v.stock_count <= 0;
+export const outOfStock = (v: Variant): boolean => variantOutOfStock(v);
 
 export function pickDefaultVariant(variants: Variant[]): Variant | null {
   return variants.find(purchasable) ?? variants.find((v) => v.price > 0) ?? variants[0] ?? null;
 }
 
+/** Order-form ceiling: the API's `max_quantity` (already capped server-side). */
 export function maxQtyFor(v: Variant | null): number {
-  if (!v) return MAX_ORDER_QUANTITY;
-  return v.delivery_mode === "instant"
-    ? Math.min(MAX_ORDER_QUANTITY, Math.max(1, v.stock_count))
-    : MAX_ORDER_QUANTITY;
+  return variantMaxQuantity(v);
 }
 
 export function clampQty(n: number, v: Variant | null): number {

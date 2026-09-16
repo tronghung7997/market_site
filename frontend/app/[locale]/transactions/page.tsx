@@ -9,6 +9,7 @@ import { useAuth } from "@/lib/auth";
 import { useMoney } from "@/lib/money";
 import { useWalletBalance, useWalletTransactions } from "@/hooks/use-wallet";
 import type { Transaction } from "@/lib/types";
+import { productPath } from "@/lib/routes";
 import {
   Button,
   Card,
@@ -66,16 +67,17 @@ function isPending(tx: Transaction): boolean {
   );
 }
 
-function extractOrderId(tx: Transaction): number | null {
-  if (tx.reference_id) {
-    const match = tx.reference_id.match(/order[_-](\d+)/i) || tx.reference_id.match(/^(\d+)$/);
-    if (match) return parseInt(match[1], 10);
-  }
-  if (tx.description) {
-    const match = tx.description.match(/đơn\s*(?:hàng\s*)?#?(\d+)/i) || tx.description.match(/order\s*#?(\d+)/i);
-    if (match) return parseInt(match[1], 10);
-  }
-  return null;
+/** Order behind a ledger row — the public code the API resolves for us. The
+ *  UI never shows or links the numeric id. */
+function extractOrderCode(tx: Transaction): string | null {
+  return tx.order_code ?? null;
+}
+
+/** What the row shows as its reference: the order code (with any dispute
+ *  suffix) or the provider's deposit reference. Internal `order-12` /
+ *  `deposit-7` ids stay in the payload for support, never on screen. */
+function referenceLabel(tx: Transaction): string | null {
+  return tx.reference_label ?? null;
 }
 
 function typeLabel(tx: Transaction, t: ReturnType<typeof useTranslations>): string {
@@ -145,7 +147,7 @@ export default function TransactionsPage() {
       if (provider !== "all" && providerFor(tx) !== provider) return false;
       if (
         needle &&
-        !`${tx.description ?? ""} ${tx.reference_id ?? ""} ${providerFor(tx)} ${tx.type}`
+        !`${tx.description ?? ""} ${tx.reference_id ?? ""} ${tx.reference_label ?? ""} ${tx.order_code ?? ""} ${providerFor(tx)} ${tx.type}`
           .toLowerCase()
           .includes(needle)
       ) {
@@ -180,11 +182,11 @@ export default function TransactionsPage() {
   };
 
   // Query order details when a transaction associated with an order is opened
-  const selectedOrderId = selectedTx ? extractOrderId(selectedTx) : null;
+  const selectedOrderCode = selectedTx ? extractOrderCode(selectedTx) : null;
   const orderQuery = useQuery({
-    queryKey: ["transaction-order-detail", selectedOrderId],
-    queryFn: () => (selectedOrderId ? api.getOrder(selectedOrderId) : null),
-    enabled: !!selectedOrderId && ready,
+    queryKey: ["transaction-order-detail", selectedOrderCode],
+    queryFn: () => (selectedOrderCode ? api.getOrder(selectedOrderCode) : null),
+    enabled: !!selectedOrderCode && ready,
     staleTime: 60_000,
   });
   const relatedOrder = orderQuery.data ?? null;
@@ -510,7 +512,7 @@ export default function TransactionsPage() {
                 const isOutgoing = tx.direction === "out";
                 const sign = isIncoming ? "+" : isOutgoing ? "−" : "";
                 const isCopied = copiedId === `desk-${tx.id}`;
-                const orderId = extractOrderId(tx);
+                const orderCode = extractOrderCode(tx);
 
                 return (
                   <tr
@@ -562,16 +564,16 @@ export default function TransactionsPage() {
                             <p className="max-w-[240px] truncate font-semibold text-fg">
                               {typeLabel(tx, t)}
                             </p>
-                            {orderId && (
+                            {orderCode && (
                               <button
                                 onClick={(e) => {
                                   e.stopPropagation();
-                                  router.push(`/orders?search=%23${orderId}`);
+                                  router.push(`/orders?order=${encodeURIComponent(orderCode)}`);
                                 }}
                                 className="inline-flex items-center gap-1 rounded bg-iris-soft/80 px-1.5 py-0.2 font-mono text-[10.5px] font-semibold text-iris hover:bg-iris hover:text-white transition-colors"
                                 title={t("viewOrder")}
                               >
-                                #{orderId} ↗
+                                {orderCode} ↗
                               </button>
                             )}
                           </div>
@@ -593,16 +595,16 @@ export default function TransactionsPage() {
 
                     {/* Reference ID + Copy */}
                     <td className="px-4 py-4">
-                      {tx.reference_id ? (
+                      {referenceLabel(tx) ? (
                         <div
                           onClick={(e) => {
                             e.stopPropagation();
-                            handleCopy(tx.reference_id!, `desk-${tx.id}`);
+                            handleCopy(referenceLabel(tx)!, `desk-${tx.id}`);
                           }}
                           className="group/ref inline-flex items-center gap-1.5 rounded bg-raised px-2 py-1 font-mono text-[11.5px] text-muted transition-colors hover:bg-iris-soft hover:text-iris"
                           title="Click to copy"
                         >
-                          <span className="max-w-[130px] truncate">{tx.reference_id}</span>
+                          <span className="max-w-[130px] truncate">{referenceLabel(tx)}</span>
                           {isCopied ? (
                             <Check className="h-3 w-3 text-good" />
                           ) : (
@@ -610,7 +612,7 @@ export default function TransactionsPage() {
                           )}
                         </div>
                       ) : (
-                        <span className="font-mono text-[11.5px] text-faint">#{tx.id}</span>
+                        <span className="font-mono text-[11.5px] text-faint">—</span>
                       )}
                     </td>
 
@@ -657,7 +659,7 @@ export default function TransactionsPage() {
             const isIncoming = tx.direction === "in";
             const isOutgoing = tx.direction === "out";
             const sign = isIncoming ? "+" : isOutgoing ? "−" : "";
-            const orderId = extractOrderId(tx);
+            const orderCode = extractOrderCode(tx);
 
             return (
               <div
@@ -689,9 +691,9 @@ export default function TransactionsPage() {
                       <p className="truncate font-semibold text-fg text-[13.5px]">
                         {typeLabel(tx, t)}
                       </p>
-                      {orderId && (
+                      {orderCode && (
                         <span className="rounded bg-iris-soft px-1.5 py-0.2 font-mono text-[10px] font-bold text-iris">
-                          #{orderId}
+                          {orderCode}
                         </span>
                       )}
                     </div>
@@ -702,9 +704,9 @@ export default function TransactionsPage() {
                       <span>•</span>
                       <span className="font-medium text-muted">{providerFor(tx)}</span>
                     </div>
-                    {tx.reference_id && (
+                    {referenceLabel(tx) && (
                       <div className="mt-1 font-mono text-[11px] text-faint truncate">
-                        Ref: {tx.reference_id}
+                        Ref: {referenceLabel(tx)}
                       </div>
                     )}
                   </div>
@@ -793,9 +795,6 @@ export default function TransactionsPage() {
                   >
                     {statusLabel(selectedTx, t).label}
                   </Tag>
-                  <span className="font-mono text-[11.5px] text-faint">
-                    ID #{selectedTx.id}
-                  </span>
                 </div>
                 <DialogTitle className="mt-2 text-[20px] font-bold text-fg">
                   {typeLabel(selectedTx, t)}
@@ -829,7 +828,7 @@ export default function TransactionsPage() {
               </div>
 
               {/* Related Order & Product Section (if transaction is linked to an order) */}
-              {selectedOrderId ? (
+              {selectedOrderCode ? (
                 <div className="my-4 rounded-xl border border-iris/25 bg-iris-soft/30 p-4">
                   <div className="flex items-center justify-between gap-2">
                     <div className="flex items-center gap-1.5 text-[12.5px] font-semibold text-iris">
@@ -837,7 +836,7 @@ export default function TransactionsPage() {
                       <span>{t("orderInfo")}</span>
                     </div>
                     <span className="rounded bg-surface px-2 py-0.5 font-mono text-[11px] font-bold text-iris border border-iris/20">
-                      #{selectedOrderId}
+                      {selectedOrderCode}
                     </span>
                   </div>
 
@@ -869,7 +868,8 @@ export default function TransactionsPage() {
                           size="sm"
                           onClick={() => {
                             setSelectedTx(null);
-                            router.push(`/products/${relatedOrder.product_id}`);
+                            if (relatedOrder.product_id == null) return;
+                            router.push(productPath({ id: relatedOrder.product_id, slug: relatedOrder.product_slug, public_key: relatedOrder.product_key }));
                           }}
                           className="gap-1.5 text-[12px] font-medium shadow-xs"
                         >
@@ -883,12 +883,12 @@ export default function TransactionsPage() {
                         size="sm"
                         onClick={() => {
                           setSelectedTx(null);
-                          router.push(`/orders?search=%23${selectedOrderId}`);
+                          router.push(`/orders?order=${encodeURIComponent(selectedOrderCode)}`);
                         }}
                         className="gap-1.5 text-[12px] font-medium"
                       >
                         <Receipt className="h-3.5 w-3.5" />
-                        {t("viewOrder")} #{selectedOrderId} ↗
+                        {t("viewOrder")} {selectedOrderCode} ↗
                       </Button>
                     </div>
                   </div>
@@ -904,13 +904,13 @@ export default function TransactionsPage() {
 
                 <div className="flex items-center justify-between pt-2.5">
                   <span className="text-faint">{t("reference")}</span>
-                  {selectedTx.reference_id ? (
+                  {referenceLabel(selectedTx) ? (
                     <div className="flex items-center gap-1.5">
                       <span className="font-mono text-[12px] text-fg">
-                        {selectedTx.reference_id}
+                        {referenceLabel(selectedTx)}
                       </span>
                       <button
-                        onClick={() => handleCopy(selectedTx.reference_id!, "dialog-ref")}
+                        onClick={() => handleCopy(referenceLabel(selectedTx)!, "dialog-ref")}
                         className="rounded p-1 text-faint hover:bg-raised hover:text-fg"
                       >
                         {copiedId === "dialog-ref" ? (
@@ -930,7 +930,7 @@ export default function TransactionsPage() {
                   <span className="font-mono text-[12px] text-muted">{selectedTx.type}</span>
                 </div>
 
-                {selectedTx.description && !selectedOrderId && (
+                {selectedTx.description && !selectedOrderCode && (
                   <div className="pt-2.5">
                     <div className="text-faint mb-1">{t("note")}</div>
                     <div className="rounded-lg bg-raised/70 p-2.5 text-[12.5px] leading-relaxed text-muted">

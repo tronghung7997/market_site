@@ -7,12 +7,14 @@ import { useLocale, useTranslations } from "next-intl";
 import { useMoney } from "@/lib/money";
 import { parseCoverId } from "@/lib/product-covers";
 import type { Product } from "@/lib/types";
+import { productPath } from "@/lib/routes";
+import { productStockState } from "@/lib/stock";
 import { Card, Spinner } from "@/components/ui";
 import { ProductCover } from "@/components/products/ProductCover";
 
-export function PriceBoard({ products, catName, stock, minPrice, loading }: {
+export function PriceBoard({ products, catName, minPrice, loading }: {
   products: Product[]; catName: (id: number) => string;
-  stock: (p: Product) => number; minPrice: (p: Product) => number; loading: boolean;
+  minPrice: (p: Product) => number; loading: boolean;
 }) {
   const t = useTranslations("home");
   const locale = useLocale();
@@ -31,17 +33,18 @@ export function PriceBoard({ products, catName, stock, minPrice, loading }: {
       <div className="divide-y divide-line">
         {loading && <div className="px-4 py-10"><Spinner /></div>}
         {!loading && products.slice(0, 5).map((p) => (
-          <Link key={p.id} href={`/products/${p.id}`} className="flex items-center gap-3 px-4 py-3 hover:bg-raised transition-colors">
+          <Link key={p.id} href={productPath(p)} className="flex items-center gap-3 px-4 py-3 hover:bg-raised transition-colors">
             <ProductCover coverId={parseCoverId(p)} title={p.title} className="h-8 w-8 rounded-md" />
             <span className="min-w-0 flex-1">
               <span className="block text-[13px] font-medium truncate">{p.title}</span>
               <span className="block text-[11.5px] text-faint">{catName(p.category_id)}</span>
             </span>
-            {stock(p) > 0 ? (
-              <span className="text-[11px] text-good font-medium">● {stock(p)}</span>
-            ) : (
-              <span className="text-[11px] text-warn">{t("onRequest")}</span>
-            )}
+            {(() => {
+              const state = productStockState(p.variants);
+              if (state === "in_stock") return <span className="text-[11px] text-good font-medium">● {t("inStockShort")}</span>;
+              if (state === "low") return <span className="text-[11px] text-warn font-medium">● {t("lowStock")}</span>;
+              return <span className="text-[11px] text-warn">{t("onRequest")}</span>;
+            })()}
             <span className="font-mono text-[13px] font-semibold tabular w-[92px] text-right">{formatBrowseMoney(minPrice(p), { locale })}</span>
           </Link>
         ))}

@@ -10,6 +10,7 @@ from src.models.account import Account
 
 from . import schemas, service
 from .events import stream
+from src.orders.refs import OrderRef
 
 router = APIRouter(prefix="/chat", tags=["chat"])
 
@@ -50,9 +51,9 @@ async def find_product_inquiry(
     return await service.find_product_inquiry(account, product_id, db)
 
 
-@router.post("/orders/{order_id}", response_model=schemas.ConversationDetail)
+@router.post("/orders/{order_ref}", response_model=schemas.ConversationDetail)
 async def get_or_create_order_conversation(
-    order_id: int,
+    order_id: OrderRef,
     response: Response,
     account: Account = Depends(get_current_account),
     db: AsyncSession = Depends(get_session),
@@ -62,9 +63,9 @@ async def get_or_create_order_conversation(
     return result
 
 
-@router.post("/orders/{order_id}/support", response_model=schemas.ConversationDetail)
+@router.post("/orders/{order_ref}/support", response_model=schemas.ConversationDetail)
 async def open_support_conversation(
-    order_id: int,
+    order_id: OrderRef,
     response: Response,
     account: Account = Depends(get_current_account),
     db: AsyncSession = Depends(get_session),

@@ -95,8 +95,8 @@ export function SellerOrdersTable({
             return (
               <tr key={o.id} className={cn("transition-colors hover:bg-raised/40", awaiting && "bg-bad-soft/10")}>
                 <td className="px-3 py-3 align-top">
-                  <Link href={`/seller/orders/${o.id}`} className="font-mono text-[12.5px] font-bold text-fg hover:text-iris">
-                    #{o.id}
+                  <Link href={`/seller/orders/${o.order_code}`} className="font-mono text-[12.5px] font-bold text-fg hover:text-iris">
+                    #{o.order_code}
                   </Link>
                   <div className="mt-0.5 whitespace-nowrap text-[10.5px] text-faint" title={o.created_at}>
                     {formatDate(o.created_at, locale)}
@@ -108,11 +108,11 @@ export function SellerOrdersTable({
                     <ProductCover coverId={parseCoverId(o)} title={o.product_title || "??"} className="mt-0.5 h-8 w-8 shrink-0 rounded-lg" />
                     <div className="min-w-0 flex-1">
                       <Link
-                        href={`/seller/orders/${o.id}`}
+                        href={`/seller/orders/${o.order_code}`}
                         className="block truncate text-[13px] font-semibold leading-snug text-fg hover:text-iris"
                         title={o.product_title || ""}
                       >
-                        {o.product_title || t("orderNumber", { id: o.id })}
+                        {o.product_title || t("orderNumber", { id: o.order_code })}
                       </Link>
                       <div className="mt-1 flex flex-wrap items-center gap-1.5 text-[11px] text-muted">
                         {o.variant_name && <span className="truncate" title={o.variant_name}>{o.variant_name}</span>}
@@ -136,7 +136,6 @@ export function SellerOrdersTable({
                   </div>
                   {o.buyer_email && (
                     <div className="mt-1 flex items-center gap-2">
-                      <CopyButton text={o.buyer_email} label="Email" className="text-[10.5px]" />
                       <OrderChatButton
                         orderId={o.id}
                         appearance="link"
@@ -195,7 +194,7 @@ export function SellerOrdersTable({
                       </Button>
                     )}
                     <Link
-                      href={`/seller/orders/${o.id}`}
+                      href={`/seller/orders/${o.order_code}`}
                       className="inline-flex h-7 items-center justify-center gap-1 rounded-lg px-2 text-[11px] text-muted hover:bg-surface hover:text-fg"
                     >
                       {t("orderDetail")} <ChevronRight size={12} />

@@ -90,10 +90,10 @@ function SellerReviewRow({ review, productId }: { review: SellerReview; productI
     <div className={cn("space-y-2.5 px-4 py-3.5", review.is_hidden && "opacity-60")}>
       <div className="flex flex-wrap items-center gap-x-2 gap-y-1 text-[12px]">
         <ReviewStars rating={review.rating} />
-        <span className="font-medium text-fg">{t("buyer", { id: review.buyer_id })}</span>
+        <span className="font-medium text-fg">{review.reviewer_label || t("buyerUnknown")}</span>
         {review.variant_name && <span className="text-faint">· {review.variant_name}</span>}
         <span className="text-faint">· {formatDate(review.created_at, locale)}</span>
-        <span className="font-mono text-[11px] text-faint">#{review.order_id}</span>
+        {review.order_code && <span className="font-mono text-[11px] text-faint">#{review.order_code}</span>}
         {review.is_auto && <Tag tone="neutral">{t("auto")}</Tag>}
         {review.is_hidden && <Tag tone="neutral"><EyeOff size={10} /> {t("hiddenByAdmin")}</Tag>}
         {!review.is_hidden && !review.seller_reply && <Tag tone="warn">{t("awaitingReply")}</Tag>}

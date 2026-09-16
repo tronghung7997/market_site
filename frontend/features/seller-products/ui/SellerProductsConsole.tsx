@@ -78,7 +78,9 @@ export function SellerProductsConsole({
   const describeBulk = (result: SellerProductBulkStatusResult, status: "active" | "paused") => {
     const done = tp(status === "active" ? "bulkActivated" : "bulkPaused", { count: result.updated.length });
     if (result.skipped.length === 0) return { tone: "good" as const, text: done };
-    const reasons = result.skipped.map((s) => `#${s.id} (${tp(`skip.${s.reason}`)})`).join(", ");
+    // Name skipped rows by title: sellers never see product row ids.
+    const titles = new Map((query.data?.items ?? []).map((row) => [row.id, row.title]));
+    const reasons = result.skipped.map((s) => `${titles.get(s.id) ?? "…"} (${tp(`skip.${s.reason}`)})`).join(", ");
     return { tone: "warn" as const, text: `${done} · ${tp("bulkSkipped", { count: result.skipped.length })}: ${reasons}` };
   };
 

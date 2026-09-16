@@ -4,6 +4,7 @@
  *  hàng gần đây (chỉ buyer đã đăng nhập). */
 
 import { Link } from "@/i18n/navigation";
+import { sellerPath } from "@/lib/routes";
 import { useLocale, useTranslations } from "next-intl";
 import { useMoney } from "@/lib/money";
 import { orderStatus } from "@/lib/order-status";
@@ -20,7 +21,7 @@ export function TrustedSellers({ sellers }: { sellers: SellerSummary[] }) {
       <SectionHead title={t("trustedSellersTitle")} sub={t("trustedSellersSubtitle")} />
       <div className="grid gap-2.5 sm:gap-4 grid-cols-2 sm:grid-cols-3 lg:grid-cols-6">
         {sellers.map((s) => (
-          <Link key={s.account_id} href={`/sellers/${s.account_id}`}>
+          <Link key={s.public_key} href={sellerPath(s)}>
             <Card interactive className="p-3 sm:p-4 h-full text-center">
               <span className="mx-auto grid place-items-center h-9 w-9 sm:h-11 sm:w-11 rounded-full bg-iris-soft text-iris border border-iris/15">
                 <Store size={15} />
@@ -69,11 +70,11 @@ export function RecentOrders({ orders }: { orders: Order[] }) {
               <Link key={o.id} href="/orders">
                 <Card interactive className="p-3 sm:p-4 h-full">
                   <div className="flex items-center justify-between gap-2">
-                    <span className="font-mono text-[11px] sm:text-[11.5px] text-faint">#{o.id}</span>
+                    <span className="font-mono text-[11px] sm:text-[11.5px] text-faint">#{o.order_code}</span>
                     <Tag tone={st.tone}>{st.label}</Tag>
                   </div>
                   <div className="mt-1.5 sm:mt-2 text-[12.5px] sm:text-[13.5px] font-medium truncate">
-                    {o.product_title ?? o.variant_name ?? t("orderFallback", { id: o.id })}
+                    {o.product_title ?? o.variant_name ?? t("orderFallback", { id: o.order_code })}
                   </div>
                   <div className="mt-1.5 sm:mt-2 font-mono text-[13px] sm:text-[14px] font-semibold tabular">
                     {money.text}

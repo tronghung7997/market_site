@@ -170,7 +170,7 @@ export function CreateProductPage() {
         }
         setPackages(nextPackages);
       } else {
-        const pricing = buildDynamicPricingPlan(workModel, core.b1, core.b2, core.b3, core.selectedProvider?.adapter_type);
+        const pricing = core.buildPricingPlan();
         await api.updateSellerPricing(productId, { pricing_strategy: pricing.strategy, pricing_params: pricing.params, provider_id: core.selectedProviderId || null });
       }
 

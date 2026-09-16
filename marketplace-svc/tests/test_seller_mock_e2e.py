@@ -123,7 +123,8 @@ async def test_seller_to_admin_to_buyer_with_mock_gateway_and_task(client, monke
         "/seller/orders", headers={"Authorization": f"Bearer {seller_token}"},
     )
     assert seller_orders.status_code == 200, seller_orders.text
-    assert any(row["id"] == placed.json()["id"] for row in seller_orders.json())
+    # /seller/orders is a paginated console listing ({items, total, counts, …}).
+    assert any(row["id"] == placed.json()["id"] for row in seller_orders.json()["items"])
     await provision_pending_order(placed.json()["id"])
     buyer_dashboard = await client.get(
         f"/orders/{placed.json()['id']}/dashboard",

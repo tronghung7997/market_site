@@ -72,7 +72,32 @@ export function AdvancedFields({
           {!core.providerManagedByAdmin && core.compatibleProviders.length === 0 && (
             <Button size="sm" variant="secondary" onClick={() => router.push("/seller/providers")}>{tf("createCompatibleIntegration")}</Button>
           )}
-          {core.workModel === "B1" && core.isDproxyProduct && (
+          {core.workModel === "B1" && core.dproxyMultiPlan && (
+            <div className="space-y-3 rounded-lg border border-iris/25 bg-iris-soft/20 p-3">
+              <div>
+                <p className="text-[13px] font-semibold">{tf("dproxyPlansTitle", { count: core.dproxyPackages.length })}</p>
+                <p className="mt-1 text-[12px] text-muted">{tf("dproxyPlansHelp")}</p>
+              </div>
+              <div className="overflow-x-auto rounded-lg border border-line bg-surface">
+                <table className="w-full text-[12.5px]">
+                  <thead className="bg-raised/60 text-left text-[11px] font-semibold uppercase tracking-wider text-faint">
+                    <tr><th className="px-3 py-2">{tf("dproxyType")}</th><th className="px-3 py-2">{tf("dproxyNetwork")}</th><th className="px-3 py-2">{tf("dproxyDays")}</th><th className="px-3 py-2">{tf("dproxySalePrice", { currency })}</th></tr>
+                  </thead>
+                  <tbody>
+                    {core.dproxyPackages.map((pkg, index) => (
+                      <tr key={`${pkg.type}|${pkg.network}|${pkg.days}`} className="border-t border-line">
+                        <td className="px-3 py-1.5">{dproxyTypeLabel(pkg.type, interfaceLocale === "en" ? "en" : "vi")}</td>
+                        <td className="px-3 py-1.5">{dproxyNetworkLabel(pkg.network, interfaceLocale === "en" ? "en" : "vi")}</td>
+                        <td className="px-3 py-1.5 font-mono">{pkg.days}</td>
+                        <td className="px-3 py-1.5 w-[220px]"><SellerPriceInput amountVnd={pkg.price} onAmountVndChange={(price) => core.updateDproxyPackagePrice(index, price)} /></td>
+                      </tr>
+                    ))}
+                  </tbody>
+                </table>
+              </div>
+            </div>
+          )}
+          {core.workModel === "B1" && core.isDproxyProduct && !core.dproxyMultiPlan && (
             <div className="space-y-3 rounded-lg border border-iris/25 bg-iris-soft/20 p-3">
               <div>
                 <p className="text-[13px] font-semibold">{tf("dproxySetupTitle")}</p>

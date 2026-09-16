@@ -13,8 +13,10 @@ import {
   type WorkModelB,
   applyDproxySinglePlan,
   buildDynamicPricingLabels,
+  buildDynamicPricingPlan,
   buyerContentToTranslation,
 } from "@/features/seller-workbench/logic";
+import { type DproxySalePackage, dproxyParamsFromPackages, packagesFromDproxyParams } from "@/lib/dproxy-plan";
 import { categoryOptions, type ServiceType } from "./model";
 
 /** What the operations endpoint knows about the product's provider. */
@@ -93,6 +95,10 @@ export function useProductFormCore(interfaceLocale: ProductLocale, options: { lo
   // managed providers (e.g. the DProxy M2M partner) are absent from
   // sellerProviders, so this is the only way the form can name them.
   const [operationsProvider, setOperationsProvider] = useState<OperationsProvider | null>(null);
+  // DProxy plans the admin mapped for this product (`plan_prices` in the
+  // pricing params). One plan → the B1 single-package UI; several → the
+  // seller prices each plan and the tuple set stays exactly as mapped.
+  const [dproxyPackages, setDproxyPackages] = useState<DproxySalePackage[]>([]);
 
   useEffect(() => {
     api.categories().then(setCategories).catch(() => setCategoriesError(true));
@@ -128,13 +134,33 @@ export function useProductFormCore(interfaceLocale: ProductLocale, options: { lo
     && !compatibleProviders.some((provider) => provider.id === selectedProviderId),
   );
   const isDproxyProduct = selectedProvider?.adapter_type === "dproxy";
+  const dproxyMultiPlan = isDproxyProduct && dproxyPackages.length > 1;
 
-  // A DProxy product sells exactly one package: collapse the B1 grid to a
-  // single type/network/duration as soon as the provider is known.
+  // A single-plan DProxy product collapses the B1 grid to one
+  // type/network/duration as soon as the provider is known. Multi-plan
+  // products keep the admin's tuple set — collapsing would send a tuple the
+  // upstream has no plan for and the save is (rightly) rejected.
   useEffect(() => {
-    if (!isDproxyProduct || b1.isSingleUnit) return;
+    if (!isDproxyProduct || dproxyMultiPlan || b1.isSingleUnit) return;
     setB1(applyDproxySinglePlan(b1, {}));
-  }, [isDproxyProduct]); // eslint-disable-line react-hooks/exhaustive-deps
+  }, [isDproxyProduct, dproxyMultiPlan]); // eslint-disable-line react-hooks/exhaustive-deps
+
+  /** Load the plan list from an existing product's pricing params. */
+  const hydrateDproxyPackages = useCallback((params: Record<string, unknown> | null | undefined) => {
+    setDproxyPackages(packagesFromDproxyParams(params));
+  }, []);
+
+  const updateDproxyPackagePrice = useCallback((index: number, price: number) => {
+    setDproxyPackages((current) => current.map((item, i) => (i === index ? { ...item, price } : item)));
+  }, []);
+
+  /** The pricing payload for a provider-backed (route B) product. */
+  const buildPricingPlan = useCallback(() => {
+    if (dproxyMultiPlan) {
+      return { strategy: "config" as const, params: dproxyParamsFromPackages(dproxyPackages) };
+    }
+    return buildDynamicPricingPlan(workModel, b1, b2, b3, selectedProvider?.adapter_type);
+  }, [b1, b2, b3, dproxyMultiPlan, dproxyPackages, selectedProvider?.adapter_type, workModel]);
 
   const backend: BackendState = selectedProvider
     ? { status: "approved", name: selectedProvider.name, providerType: selectedProvider.adapter_type }
@@ -153,6 +179,7 @@ export function useProductFormCore(interfaceLocale: ProductLocale, options: { lo
     categoryId, setCategoryId, serviceType, setServiceType, coverId, setCoverId, escrowDays, setEscrowDays,
     workModel, setWorkModel, b1, setB1, b2, setB2, b3, setB3, selectedProviderId, setSelectedProviderId,
     operationsProvider, setOperationsProvider, providerManagedByAdmin, isDproxyProduct,
+    dproxyPackages, dproxyMultiPlan, hydrateDproxyPackages, updateDproxyPackagePrice, buildPricingPlan,
     translationPayload,
   };
 }

@@ -732,6 +732,8 @@
       "b2Description": "API requests",
       "b3Title": "Task list",
       "b3Description": "Price per URL",
+      "dproxyPlansTitle": "This DProxy product sells {count} packages",
+      "dproxyPlansHelp": "The administrator mapped each package to DProxy. You only set the buyer price per proxy for each package; type, country and duration cannot be changed here.",
       "dproxySetupTitle": "A DProxy product sells exactly one package",
       "dproxySetupHelp": "Buyers do not mix type, country, and duration. Pick the package below and enter the price they pay for one proxy.",
       "dproxySellerPricingHelp": "The administrator mapped this package to DProxy. You only set the final buyer price; type, country, and duration cannot be changed here.",

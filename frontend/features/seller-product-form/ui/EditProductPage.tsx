@@ -5,6 +5,7 @@ import { useLocale, useTranslations } from "next-intl";
 import { useQuery } from "@tanstack/react-query";
 import { Link } from "@/i18n/navigation";
 import { api } from "@/lib/api";
+import { packagesFromDproxyParams } from "@/lib/dproxy-plan";
 import { useVariantTerm } from "@/lib/variant-term";
 import { cn } from "@/lib/cn";
 import { queryKeys } from "@/lib/query-keys";
@@ -85,6 +86,7 @@ export function EditProductPage({ productRef }: { productRef: string }) {
   const snapshot = formSnapshot({
     content: core.content, primaryLocale: core.primaryLocale, categoryId: core.categoryId, serviceType: core.serviceType, coverId: core.coverId, escrowDays: core.escrowDays,
     workModel: core.workModel, b1: core.b1, b2: core.b2, b3: core.b3, providerId: core.selectedProviderId, variantNames,
+    dproxyPackages: core.dproxyPackages,
   });
   const dirty = savedSnapshot !== "" && snapshot !== savedSnapshot;
 
@@ -118,6 +120,7 @@ export function EditProductPage({ productRef }: { productRef: string }) {
       core.setB2(hydrated.b2);
       core.setB3(hydrated.b3);
       core.setOperationsProvider(productOperations?.provider ?? null);
+      core.hydrateDproxyPackages(productOperations?.pricing?.params ?? detail.pricing_params);
       if (productOperations?.provider?.id) core.setSelectedProviderId(productOperations.provider.id);
       setVariants(detail.variants.map((v) => ({
         id: v.id, public_key: v.public_key, name: v.name, price: v.price, delivery_mode: v.delivery_mode === "manual" ? "manual" : "instant", stock_count: v.stock_count ?? 0, sla_hours: v.sla_hours, is_active: v.is_active,
@@ -128,6 +131,7 @@ export function EditProductPage({ productRef }: { productRef: string }) {
         serviceType: (SERVICE_TYPES.includes(detail.service_type as ServiceType) ? detail.service_type : "other"),
         coverId: parseCoverId(detail) ?? (detail.service_type === "proxy" ? "proxy" : "account"), escrowDays: detail.escrow_days,
         workModel: hydrated.workModel, b1: hydrated.b1, b2: hydrated.b2, b3: hydrated.b3, providerId: productOperations?.provider?.id ?? core.selectedProviderId, variantNames: names,
+        dproxyPackages: packagesFromDproxyParams(productOperations?.pricing?.params ?? detail.pricing_params),
       }));
     } catch (reason) {
       setError(apiErrorMessage(reason, tw("productLoadFailed")));
@@ -236,7 +240,7 @@ export function EditProductPage({ productRef }: { productRef: string }) {
       await api.updateProductTranslation(productId, core.primaryLocale, core.translationPayload(core.primaryLocale, archetype === "B"));
       if (core.content[core.secondaryLocale].title.trim()) await api.updateProductTranslation(productId, core.secondaryLocale, core.translationPayload(core.secondaryLocale, archetype === "B"));
       if (archetype === "B") {
-        const pricing = buildDynamicPricingPlan(core.workModel, core.b1, core.b2, core.b3, core.selectedProvider?.adapter_type);
+        const pricing = core.buildPricingPlan();
         // An admin-managed provider is reported by operations, not chosen here;
         // re-sending it would fail validation (or rebind) on a harmless save.
         const providerPatch = core.selectedProviderId && core.selectedProviderId !== core.operationsProvider?.id

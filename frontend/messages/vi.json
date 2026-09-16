@@ -732,6 +732,8 @@
       "b2Description": "Lượt gọi API",
       "b3Title": "Danh sách việc",
       "b3Description": "Tính theo URL",
+      "dproxyPlansTitle": "Sản phẩm DProxy bán {count} gói",
+      "dproxyPlansHelp": "Admin đã map từng gói với DProxy. Bạn chỉ nhập giá khách trả cho 1 proxy của mỗi gói; loại, quốc gia và thời hạn không thể đổi tại đây.",
       "dproxySetupTitle": "Sản phẩm DProxy bán đúng 1 gói",
       "dproxySetupHelp": "Khách không chọn tổ hợp loại/quốc gia/thời hạn. Chọn gói bên dưới rồi nhập giá họ trả cho 1 proxy.",
       "dproxySellerPricingHelp": "Admin đã map gói với DProxy. Bạn chỉ cần nhập giá cuối cùng mà buyer trả; loại, quốc gia và thời hạn không thể đổi tại đây.",

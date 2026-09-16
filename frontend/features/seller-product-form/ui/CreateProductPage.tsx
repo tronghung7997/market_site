@@ -59,6 +59,7 @@ export function CreateProductPage() {
   const [saving, setSaving] = useState(false);
   const [error, setError] = useState<string | null>(null);
   const [createdProductId, setCreatedProductId] = useState<number | null>(null);
+  const [createdProductKey, setCreatedProductKey] = useState<string | null>(null);
 
   useEffect(() => { core.setWorkModel(workModel); }, [workModel]); // eslint-disable-line react-hooks/exhaustive-deps
   useEffect(() => {
@@ -134,6 +135,7 @@ export function CreateProductPage() {
         const created = await api.createProduct(productData);
         productId = created.id;
         setCreatedProductId(productId);
+        setCreatedProductKey(created.public_key ?? null);
       } else {
         await api.updateProduct(productId, productData);
       }
@@ -179,7 +181,7 @@ export function CreateProductPage() {
         }
         await api.updateSellerProductStatus(productId, "active");
       }
-      router.push(`/seller/products/${productId}`);
+      router.push(`/seller/products/${createdProductKey ?? productId}`);
     } catch (reason) {
       setError(apiErrorMessage(reason, tf("saveFailed")));
     } finally {

@@ -617,6 +617,7 @@ async def _enrich_orders(orders: list[Order], db: AsyncSession, *, viewer: str =
             "product_title": product.title if product else None,
             "product_slug": product.slug if product else None,
             "product_key": product.public_key if product else None,
+            "variant_key": variant.public_key if variant else None,
             "pricing_strategy": strategy,
             "delivery_mode": delivery_mode,
             "sla_hours": variant.sla_hours if variant else None,

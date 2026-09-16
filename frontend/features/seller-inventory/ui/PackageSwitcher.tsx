@@ -2,6 +2,7 @@
 
 import { useLocale, useTranslations } from "next-intl";
 import { useEffect, useMemo, useRef, useState } from "react";
+import { createPortal } from "react-dom";
 import { useRouter } from "@/i18n/navigation";
 import { cn } from "@/lib/cn";
 import { sellerInventoryPath } from "@/lib/routes";
@@ -44,12 +45,32 @@ export function PackageSwitcher({ pkg }: { pkg: InventoryPackageDetail }) {
   const [recent, setRecent] = useState<number[]>([]);
   const rootRef = useRef<HTMLDivElement>(null);
   const inputRef = useRef<HTMLInputElement>(null);
+  const triggerRef = useRef<HTMLButtonElement>(null);
+  const popoverRef = useRef<HTMLDivElement>(null);
+  // The header card clips overflow, so the list is portalled to <body> and
+  // pinned under the trigger; it follows scroll/resize while open.
+  const [anchor, setAnchor] = useState<{ top: number; left: number } | null>(null);
+  useEffect(() => {
+    if (!open) { setAnchor(null); return; }
+    const place = () => {
+      const rect = triggerRef.current?.getBoundingClientRect();
+      if (rect) setAnchor({ top: rect.bottom + 6, left: rect.left });
+    };
+    place();
+    window.addEventListener("scroll", place, true);
+    window.addEventListener("resize", place);
+    return () => { window.removeEventListener("scroll", place, true); window.removeEventListener("resize", place); };
+  }, [open]);
   const all = useAllInventoryPackages(open);
 
   useEffect(() => { setRecent(readRecent().filter((id) => id !== pkg.variant_id)); }, [pkg.variant_id]);
   useEffect(() => {
     if (!open) return;
-    const onDown = (e: MouseEvent) => { if (rootRef.current && !rootRef.current.contains(e.target as Node)) setOpen(false); };
+    const onDown = (e: MouseEvent) => {
+      const target = e.target as Node;
+      if (rootRef.current?.contains(target) || popoverRef.current?.contains(target)) return;
+      setOpen(false);
+    };
     const onKey = (e: KeyboardEvent) => { if (e.key === "Escape") setOpen(false); };
     document.addEventListener("mousedown", onDown);
     document.addEventListener("keydown", onKey);
@@ -95,6 +116,7 @@ export function PackageSwitcher({ pkg }: { pkg: InventoryPackageDetail }) {
   return (
     <div ref={rootRef} className="relative flex flex-wrap items-center gap-2">
       <button
+        ref={triggerRef}
         type="button"
         aria-haspopup="listbox"
         aria-expanded={open}
@@ -111,8 +133,13 @@ export function PackageSwitcher({ pkg }: { pkg: InventoryPackageDetail }) {
       </span>
       {siblings.length > 0 && <span className="text-[11.5px] text-faint">{t("switcher.position", { index: index + 1, total: siblings.length })}</span>}
 
-      {open && (
-        <div role="listbox" className="absolute left-0 top-11 z-30 w-[380px] max-w-[calc(100vw-2rem)] rounded-xl border border-line bg-surface p-2 shadow-card-lg">
+      {open && anchor && createPortal(
+        <div
+          ref={popoverRef}
+          role="listbox"
+          style={{ position: "fixed", top: anchor.top, left: anchor.left }}
+          className="z-[80] w-[380px] max-w-[calc(100vw-2rem)] rounded-xl border border-line bg-surface p-2 shadow-card-lg"
+        >
           <div className="relative mb-1.5">
             <Search size={13} className="pointer-events-none absolute left-2.5 top-2.5 text-muted" />
             <input
@@ -142,7 +169,8 @@ export function PackageSwitcher({ pkg }: { pkg: InventoryPackageDetail }) {
               )}
             </div>
           )}
-        </div>
+        </div>,
+        document.body,
       )}
     </div>
   );

@@ -403,7 +403,7 @@ export function EditProductPage({ productRef }: { productRef: string }) {
                 <div><div className="text-[11px] text-faint">{t("edit.stats.rating")}</div><div className="font-mono text-[18px] font-semibold text-fg">{product.rating_avg != null ? product.rating_avg.toFixed(1) : "—"}{product.rating_count > 0 && <span className="ml-1 text-[11px] font-normal text-muted">({product.rating_count})</span>}</div></div>
               </div>
               {variants.length > 0 && (
-                <Link href={`/seller/inventory/export?tab=report&variants=${variants.map((v) => v.id).join(",")}`} className="mt-3 inline-block text-[12px] text-iris hover:underline">{t("edit.stats.reportLink")}</Link>
+                <Link href={`/seller/inventory/export?tab=report&variants=${variants.map((v) => v.public_key ?? v.id).join(",")}`} className="mt-3 inline-block text-[12px] text-iris hover:underline">{t("edit.stats.reportLink")}</Link>
               )}
             </Card>
           )}

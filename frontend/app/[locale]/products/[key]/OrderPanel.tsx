@@ -4,6 +4,7 @@ import { useRouter } from "@/i18n/navigation";
 import { useLocale, useTranslations } from "next-intl";
 import type { ReactNode } from "react";
 import { useMoney } from "@/lib/money";
+import { productPath } from "@/lib/routes";
 import { useAuth } from "@/lib/auth";
 import { useVariantTerm } from "@/lib/variant-term";
 import { cn } from "@/lib/cn";
@@ -50,7 +51,7 @@ export default function OrderPanel({ product, purchase, fulfillment }: {
   const showOosHint = !!account && !!selected && outOfStock(selected);
 
   const onCtaClick = () => {
-    if (cta.intent === "login") router.push(`/login?next=/products/${product.id}`);
+    if (cta.intent === "login") router.push(`/login?next=${encodeURIComponent(productPath(product))}`);
     else if (cta.intent === "confirm") purchase.openConfirm();
   };
 

@@ -59,6 +59,8 @@ class OrderResponse(BaseModel):
     # Public product ref for links: /products/{product_slug}-{product_key}.
     product_slug: str | None = None
     product_key: str | None = None
+    # Seller inventory link for the sold package: /seller/inventory/{variant_key}.
+    variant_key: str | None = None
     pricing_strategy: str | None = None
     delivery_mode: str | None = None
     sla_hours: int | None = None

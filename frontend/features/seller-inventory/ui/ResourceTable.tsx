@@ -244,7 +244,7 @@ export function ResourceTable({
                       <span className={cn("inline-flex items-center rounded-md border px-1.5 py-0.5 text-[10.5px] font-medium leading-none", st.tone === "good" && "border-good/25 bg-good-soft text-good", st.tone === "bad" && "border-bad/25 bg-bad-soft text-bad", st.tone === "warn" && "border-warn/25 bg-warn-soft text-warn", st.tone === "neutral" && "border-line-2 bg-surface text-muted")}>
                         {t(`resource.status.${st.key}`)}
                       </span>
-                      {st.key === "returned" && <div className="mt-0.5 text-[10.5px] text-warn-hi">{t("resource.returnedShort", { id: r.order_id ?? 0 })}</div>}
+                      {st.key === "returned" && <div className="mt-0.5 text-[10.5px] text-warn-hi">{t("resource.returnedShort", { id: r.order_code ?? "…" })}</div>}
                     </td>
                     <td className="px-2 py-2 font-mono text-[12px] text-fg">
                       <div className="flex items-center gap-1">

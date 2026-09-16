@@ -2,6 +2,7 @@
 
 import { useCallback, useEffect, useRef, useState } from "react";
 import { useRouter } from "next/navigation";
+import { usePathname } from "@/i18n/navigation";
 import { useLocale, useTranslations } from "next-intl";
 import { api } from "@/lib/api";
 import { useApiErrorMessage } from "@/lib/use-api-error";
@@ -35,6 +36,7 @@ function FormShell({ title, children }: { title: string; children: React.ReactNo
 
 export default function DynamicOrderForm({ productId, product, onOrderCreated }: Props) {
   const router = useRouter();
+  const pathname = usePathname();
   const { account } = useAuth();
   const locale = useLocale();
   const t = useTranslations("products");
@@ -156,7 +158,8 @@ export default function DynamicOrderForm({ productId, product, onOrderCreated }:
   };
 
   const handleSubmit = async () => {
-    if (!account) { router.push(`/login?next=/products/${productId}`); return; }
+    // Come back to this (canonical, id-free) product page after login.
+    if (!account) { router.push(`/login?next=${encodeURIComponent(pathname)}`); return; }
     setShowConfirm(true);
   };
 

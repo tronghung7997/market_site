@@ -268,7 +268,7 @@ async def _enqueue_dispute_opened(db: AsyncSession, dispute: Dispute, order: Ord
         payload={
             "order_id": order.order_code,
             "reason": _truncate_reason(dispute.reason),
-            "action_url": frontend_url("vi", "/seller/orders"),
+            "action_url": frontend_url("vi", f"/seller/orders/{order.order_code}"),
         },
     )
 
@@ -294,7 +294,7 @@ async def _enqueue_dispute_resolved(db: AsyncSession, dispute: Dispute, order: O
         template="dispute_resolved",
         account_id=order.seller_id,
         idempotency_key=f"dispute_resolved:{dispute.id}:{order.seller_id}",
-        payload={**payload, "action_url": frontend_url("vi", "/seller/orders")},
+        payload={**payload, "action_url": frontend_url("vi", f"/seller/orders/{order.order_code}")},
     )
 
 

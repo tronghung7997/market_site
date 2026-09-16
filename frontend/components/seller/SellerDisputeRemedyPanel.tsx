@@ -3,6 +3,7 @@
 import { useEffect, useState } from "react";
 import { useLocale, useTranslations } from "next-intl";
 import { api } from "@/lib/api";
+import { sellerInventoryPath, sellerInventoryProductQuery } from "@/lib/routes";
 import { useApiErrorMessage } from "@/lib/use-api-error";
 import { useDebounce } from "@/lib/hooks/useDebounce";
 import { cn } from "@/lib/cn";
@@ -400,7 +401,7 @@ export function SellerDisputeRemedyPanel({
                 <div className="flex items-center gap-2 shrink-0">
                   {order?.variant_id ? (
                     <Link
-                      href={`/seller/inventory?variant=${order.variant_id}`}
+                      href={order.variant_id ? sellerInventoryPath({ variant_id: order.variant_id, variant_key: order.variant_key }, "restock=1") : "/seller/inventory"}
                       target="_blank"
                       className="inline-flex items-center gap-1.5 h-7.5 px-3 rounded-lg bg-iris hover:bg-iris/90 text-white font-semibold text-xs transition-colors shadow-xs"
                     >
@@ -410,7 +411,7 @@ export function SellerDisputeRemedyPanel({
                     </Link>
                   ) : order?.product_id ? (
                     <Link
-                      href={`/seller/inventory?product=${order.product_id}`}
+                      href={order.product_id ? sellerInventoryProductQuery({ id: order.product_id, public_key: order.product_key }) : "/seller/inventory"}
                       target="_blank"
                       className="inline-flex items-center gap-1.5 h-7.5 px-3 rounded-lg bg-iris hover:bg-iris/90 text-white font-semibold text-xs transition-colors shadow-xs"
                     >

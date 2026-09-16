@@ -255,6 +255,7 @@ export interface Order {
   /** Public URL parts of the ordered product, for "view product" links. */
   product_slug?: string | null;
   product_key?: string | null;
+  variant_key?: string | null;
   pricing_strategy?: string | null;
   delivery_mode?: string | null;
   sla_hours?: number | null;

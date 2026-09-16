@@ -17,7 +17,7 @@ export default function OrderDetailRedirect() {
 
   useEffect(() => {
     if (!code) return;
-    router.replace(ORDER_REF.test(code) ? `/orders?search=${encodeURIComponent(`#${code}`)}` : "/orders");
+    router.replace(ORDER_REF.test(code) ? `/orders?order=${encodeURIComponent(code)}` : "/orders");
   }, [code, router]);
 
   return (

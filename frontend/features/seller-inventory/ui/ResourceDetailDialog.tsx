@@ -79,7 +79,7 @@ function ResourceDetailBody({ resource, variantId, onClose, onNotice }: { resour
       <div className="space-y-4 p-4 text-xs">
         {status.key === "returned" && (
           <div className="rounded-xl border border-warn/30 bg-warn-soft/80 p-3 text-warn-hi">
-            <p className="flex items-center gap-1.5 text-xs font-semibold"><AlertCircle size={14} /> {t("resource.returnedTitle", { id: resource.order_id ?? 0 })}</p>
+            <p className="flex items-center gap-1.5 text-xs font-semibold"><AlertCircle size={14} /> {t("resource.returnedTitle", { id: resource.order_code ?? "…" })}</p>
             <p className="mt-1 text-[11.5px] leading-relaxed text-muted">{t("resource.returnedHint")}</p>
           </div>
         )}

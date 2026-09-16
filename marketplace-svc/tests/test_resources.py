@@ -581,7 +581,7 @@ async def test_resource_default_page_is_bounded_and_export_streams_all(client):
     assert forbidden.status_code == 403
 
     too_big = await client.get(
-        f"/seller/variants/{variant_id}/resources?per_page=200",
+        f"/seller/variants/{variant_id}/resources?per_page=600",
         headers=headers,
     )
     assert too_big.status_code == 422

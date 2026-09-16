@@ -22,6 +22,11 @@ os.environ.setdefault("DEFAULT_AFFILIATE_COMMISSION_PERCENT", "5.0")
 os.environ["ENABLE_DEMO_TOPUP"] = "true"
 os.environ["MAIL_PROVIDER"] = "log"
 os.environ["MAIL_WORKER_ENABLED"] = "false"
+# A developer .env may carry real mail credentials; the mail-config tests assert
+# the unconfigured state, so blank them for the suite.
+os.environ["RESEND_API_KEY"] = ""
+os.environ["SMTP_HOST"] = ""
+os.environ["SMTP_PASSWORD"] = ""
 os.environ["SEPAY_BANK_CODE"] = "MBBank"
 os.environ["SEPAY_BANK_ACCOUNT_NUMBER"] = "0123456789"
 os.environ["SEPAY_BANK_ACCOUNT_NAME"] = "CONG TY TNHH TEST"

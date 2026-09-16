@@ -39,6 +39,18 @@
     "logBadge": "Log"
   },
   "home": {
+    "marketSummary": "{products} products · {packages} variations — filter, compare package prices and buy",
+    "packagesAndPrices": "Packages & prices",
+    "stockAndDelivery": "Delivery & stock",
+    "seller": "Seller",
+    "buy": "Buy",
+    "sortLabel": "Sort",
+    "clearSearch": "Clear search",
+    "showingCount": "Showing {shown} / {total}",
+    "browsingCategory": "Browsing {name} (including sub-categories).",
+    "noRatingYet": "No ratings yet",
+    "escrowDays": "{count}-day escrow",
+    "loadMore": "Load more ({count} remaining)",
     "heroRating": "4.9/5 from 1,200+ businesses",
     "heroTitle": "Digital accounts & data,",
     "heroEmphasis": "delivered fast for business.",

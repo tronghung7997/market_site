@@ -73,7 +73,7 @@ const loadCachedCatalogSummary = unstable_cache(
 export async function loadHomeCatalog(locale: string): Promise<HomeCatalog> {
   const [categories, products, summary, topSellers] = await Promise.all([
     fetchPublicJson<Category[]>("/categories", locale),
-    fetchPublicJson<PaginatedProducts>("/products?page=1&per_page=24", locale),
+    fetchPublicJson<PaginatedProducts>("/products?page=1&per_page=24&sort=bestseller", locale),
     loadCachedCatalogSummary(locale).catch(() => null),
     fetchPublicJson<SellerSummary[]>("/sellers/top?limit=6", locale),
   ]);

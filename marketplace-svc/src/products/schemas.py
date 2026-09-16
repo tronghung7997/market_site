@@ -250,6 +250,7 @@ class ProductListItemBase(BaseModel):
     seller_key: str | None = None
     seller_handle: str | None = None
     seller_path: str | None = None
+    seller_name: str | None = None
     category_id: int
     slug: str
     public_key: str

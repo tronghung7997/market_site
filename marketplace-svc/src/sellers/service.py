@@ -47,22 +47,26 @@ async def approved_business_names(account_ids: list[int], db: AsyncSession) -> d
 
 
 async def seller_refs_by_id(account_ids: list[int] | set[int], db: AsyncSession) -> dict[int, dict]:
-    """``{account_id: {seller_key, seller_handle, seller_path}}`` for embedding
-    in public product / chat payloads instead of the raw ``seller_id``."""
+    """``{account_id: {seller_key, seller_handle, seller_path, seller_name}}``
+    for embedding in public product / chat payloads instead of the raw
+    ``seller_id``. ``seller_name`` is the approved business name, else the
+    email local part (the same label the product detail page shows)."""
     ids = list({i for i in account_ids if i})
     if not ids:
         return {}
-    keys = dict((await db.execute(
-        select(Account.id, Account.public_key).where(Account.id.in_(ids))
-    )).all())
+    rows = (await db.execute(
+        select(Account.id, Account.public_key, Account.email).where(Account.id.in_(ids))
+    )).all()
     names = await approved_business_names(ids, db)
     out: dict[int, dict] = {}
-    for account_id, key in keys.items():
-        ref = seller_public_ref(key, names.get(account_id))
+    for account_id, key, email in rows:
+        business_name = names.get(account_id)
+        ref = seller_public_ref(key, business_name)
         out[account_id] = {
             "seller_key": ref["public_key"],
             "seller_handle": ref["handle"],
             "seller_path": ref["canonical_path"],
+            "seller_name": business_name or (email.split("@", 1)[0] if email else None),
         }
     return out
 

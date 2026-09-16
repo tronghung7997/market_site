@@ -102,16 +102,7 @@ function HomeInner({ initial }: { initial: HomeCatalog }) {
         </div>
       </section>
 
-      <section className="border-b border-line bg-surface">
-        <div className="w-full mx-auto max-w-[1200px] px-6 grid grid-cols-2 md:grid-cols-4 divide-x divide-line">
-          {[[t("activeProducts"), `${initial.summary?.products ?? initial.total}`], [t("packages"), initial.summary ? `${initial.summary.variants}` : "—"], [t("availableStock"), initial.summary ? `${initial.summary.available_stock}` : "—"], [t("escrowTime"), t("days", { count: 3 })]].map(([label, val], i) => (
-            <div key={i} className="px-5 py-4">
-              <div className="font-mono text-[26px] font-semibold tabular">{val}</div>
-              <div className="text-[12.5px] text-muted mt-1">{label}</div>
-            </div>
-          ))}
-        </div>
-      </section>
+      <FeaturedSection featured={featured} catName={catName} minPrice={minPrice} />
 
       {cats.length > 0 && (
         <section className="w-full mx-auto max-w-[1200px] px-6 py-6 lg:py-8">
@@ -147,9 +138,9 @@ function HomeInner({ initial }: { initial: HomeCatalog }) {
         minPrice={minPrice}
         loading={loading}
         error={error}
+        summary={initial.summary ? { variants: initial.summary.variants, categoryCount } : null}
       />
 
-      <FeaturedSection featured={featured} catName={catName} minPrice={minPrice} />
       <TrustedSellers sellers={initial.topSellers} />
       {account && <RecentOrders orders={recentOrders} />}
       <HowItWorks />

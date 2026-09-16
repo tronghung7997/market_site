@@ -39,6 +39,18 @@
     "logBadge": "Giao dịch"
   },
   "home": {
+    "marketSummary": "{products} sản phẩm · {packages} phân loại — lọc, so giá từng gói và mua ngay",
+    "packagesAndPrices": "Phân loại & giá",
+    "stockAndDelivery": "Giao & kho",
+    "seller": "Nhà bán",
+    "buy": "Mua",
+    "sortLabel": "Sắp xếp",
+    "clearSearch": "Xoá tìm kiếm",
+    "showingCount": "Hiển thị {shown} / {total}",
+    "browsingCategory": "Đang xem danh mục {name} (gồm danh mục con).",
+    "noRatingYet": "Chưa có đánh giá",
+    "escrowDays": "Ký quỹ {count} ngày",
+    "loadMore": "Tải thêm ({count} sản phẩm nữa)",
     "heroRating": "4.9/5 từ 1.200+ doanh nghiệp",
     "heroTitle": "Tài khoản & dữ liệu số,",
     "heroEmphasis": "cấp nhanh cho doanh nghiệp.",

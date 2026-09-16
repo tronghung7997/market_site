@@ -55,7 +55,7 @@ export function SellerOverviewError({ message, onRetry }: { message: string; onR
 function QuickActions() {
   const t = useTranslations("seller");
   return (
-    <div className="flex flex-wrap gap-2">
+    <div className="flex shrink-0 items-center gap-2">
       <Link href="/seller/products/new">
         <Button size="sm"><Plus size={14} /> {t("newProduct")}</Button>
       </Link>

@@ -1,6 +1,7 @@
 import type { Metadata } from "next";
 import { getLocale, getTranslations } from "next-intl/server";
-import { loadSearchPage, parseSearchFilters, SearchResultsView } from "@/features/search";
+import { parseSearchFilters, SearchResultsView } from "@/features/search";
+import { loadSearchPage } from "@/features/search/data/load-search-page";
 import { pageMetadata } from "@/lib/seo";
 
 type SearchParams = Promise<Record<string, string | string[] | undefined>>;

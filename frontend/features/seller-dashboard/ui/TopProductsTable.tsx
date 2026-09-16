@@ -28,7 +28,7 @@ export function TopProductsTable({ data }: { data: SellerDashboard }) {
   const rows = data.top_products;
 
   return (
-    <Card className="p-5 pb-2">
+    <Card className="h-full p-5 pb-2">
       <div className="mb-3 flex items-center justify-between">
         <h3 className="flex items-center gap-2 text-[13px] font-semibold">
           <TrendingUp size={14} className="text-faint" /> {t("topTitle")}

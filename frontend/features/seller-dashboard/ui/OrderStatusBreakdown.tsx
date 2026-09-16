@@ -35,7 +35,7 @@ export function OrderStatusBreakdown({ data }: { data: SellerDashboard }) {
   }));
 
   return (
-    <Card className="flex flex-col gap-4 p-5">
+    <Card className="flex h-full flex-col gap-4 p-5">
       <div className="flex items-center justify-between">
         <h3 className="flex items-center gap-2 text-[13px] font-semibold">
           <Clock size={14} className="text-faint" /> {t("statusTitle")}

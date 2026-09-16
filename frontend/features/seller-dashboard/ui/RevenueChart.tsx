@@ -31,7 +31,7 @@ export function RevenueChart({ data }: { data: SellerDashboard }) {
   const tickEvery = Math.max(1, Math.ceil(points.length / 8));
 
   return (
-    <Card className="p-5">
+    <Card className="flex h-full flex-col p-5">
       <div className="mb-4 flex flex-wrap items-center justify-between gap-2">
         <h3 className="flex items-center gap-2 text-[13px] font-semibold">
           <BarIcon size={14} className="text-faint" /> {weekly ? t("chartTitleWeek") : t("chartTitleDay")}
@@ -45,7 +45,7 @@ export function RevenueChart({ data }: { data: SellerDashboard }) {
           </span>
         </div>
       </div>
-      <div className="h-[220px]">
+      <div className="min-h-[220px] flex-1">
         {empty ? (
           <div className="grid h-full place-items-center text-[13px] text-muted">{t("chartEmpty")}</div>
         ) : (

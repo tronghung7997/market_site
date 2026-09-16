@@ -48,7 +48,7 @@ async def test_dispute_resolution_writes_logs(client):
     oid = order.json()["id"]
     await client.post(f"/orders/{oid}/dispute", headers={"Authorization": f"Bearer {buyer}"}, json={"reason": "bad"})
     disputes = await client.get("/admin/disputes", headers={"Authorization": f"Bearer {admin}"})
-    did = disputes.json()[0]["id"]
+    did = disputes.json()["items"][0]["id"]
     await client.post(f"/admin/disputes/{did}/refund", headers={"Authorization": f"Bearer {admin}"}, json={"admin_note": "ok"})
 
     from src.database import SessionLocal

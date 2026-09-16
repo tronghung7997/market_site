@@ -516,7 +516,7 @@ async def test_commission_via_dispute_reject(client):
 
     disputes = await client.get("/admin/disputes",
                                 headers={"Authorization": f"Bearer {admin_token}"})
-    dispute_id = disputes.json()[0]["id"]
+    dispute_id = disputes.json()["items"][0]["id"]
 
     await client.post(f"/admin/disputes/{dispute_id}/reject", json={"admin_note": "rejected"},
                       headers={"Authorization": f"Bearer {admin_token}"})

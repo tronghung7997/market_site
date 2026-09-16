@@ -110,8 +110,8 @@ export function SellerOverview({
           <div className="grid gap-4 lg:grid-cols-5">
             <div className="lg:col-span-3"><TopProductsTable data={data} /></div>
             <div className="flex flex-col gap-4 lg:col-span-2">
-              <InventoryCard data={data} />
-              <CustomersCard data={data} />
+              <InventoryCard data={data} className="flex-1" />
+              <CustomersCard data={data} className="flex-1" />
             </div>
           </div>
         </div>

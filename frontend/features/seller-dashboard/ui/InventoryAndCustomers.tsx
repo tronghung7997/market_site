@@ -18,12 +18,12 @@ function Figure({ value, label, tone }: { value: string; label: string; tone?: "
   );
 }
 
-export function InventoryCard({ data }: { data: SellerDashboard }) {
+export function InventoryCard({ data, className }: { data: SellerDashboard; className?: string }) {
   const t = useTranslations("sellerDashboard");
   const locale = useLocale();
   const inv = data.inventory;
   return (
-    <Card className="p-5">
+    <Card className={cn("p-5", className)}>
       <div className="mb-4 flex items-center justify-between">
         <h3 className="flex items-center gap-2 text-[13px] font-semibold">
           <Rows size={14} className="text-faint" /> {t("inventoryTitle")}
@@ -44,13 +44,13 @@ export function InventoryCard({ data }: { data: SellerDashboard }) {
   );
 }
 
-export function CustomersCard({ data }: { data: SellerDashboard }) {
+export function CustomersCard({ data, className }: { data: SellerDashboard; className?: string }) {
   const t = useTranslations("sellerDashboard");
   const locale = useLocale();
   const { customers: c, reviews: r } = data;
   const returningPct = c.unique_buyers > 0 ? Math.round((c.returning_buyers / c.unique_buyers) * 100) : null;
   return (
-    <Card className="p-5">
+    <Card className={cn("p-5", className)}>
       <h3 className="mb-4 flex items-center gap-2 text-[13px] font-semibold">
         <Users size={14} className="text-faint" /> {t("customersTitle")}
       </h3>

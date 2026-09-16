@@ -9,7 +9,8 @@ import { Newsreader, Be_Vietnam_Pro, JetBrains_Mono } from "next/font/google";
 import { hasLocale, NextIntlClientProvider } from "next-intl";
 import { getTranslations, setRequestLocale } from "next-intl/server";
 import { notFound } from "next/navigation";
-import { cookies } from "next/headers";
+import { cookies, headers } from "next/headers";
+import { geoDefaultsFromHeaders } from "@/lib/geo-defaults";
 import { AuthProvider } from "@/lib/auth";
 import { QueryProvider } from "@/lib/query-provider";
 import {
@@ -91,15 +92,19 @@ export default async function RootLayout({ children, params }: { children: React
   setRequestLocale(locale);
   const tc = await getTranslations({ locale, namespace: "common" });
 
-  // Cookie preference wins; otherwise admin/ENV default from server config.
+  // Cookie preference wins; then the visitor's country (proxy.ts seeds the
+  // cookie on this same response, so read the header here to keep first paint
+  // consistent); otherwise admin/ENV default from server config.
   // null initialConfig → client retries; first paint still uses FALLBACK defaults.
   const jar = await cookies();
   const cookieCurrency = parseDisplayCurrency(jar.get("display_currency")?.value);
+  const geoCurrency = geoDefaultsFromHeaders(await headers())?.currency;
   const initialConfig = await loadMoneyConfig();
   // Admin-configured footer pages; null on backend hiccup → footer shows no page links.
   const footerPages = (await fetchPublicJson<SitePageLink[]>("/public/site-pages", locale)) ?? [];
   const initialCurrency: DisplayCurrency =
     cookieCurrency ??
+    geoCurrency ??
     initialConfig?.display_currency_default ??
     MONEY_CONFIG_FALLBACK.display_currency_default;
 

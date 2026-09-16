@@ -85,6 +85,8 @@ export interface Product {
   seller_handle?: string | null;
   /** `/sellers/{handle}-{key}` — build links with `sellerPath()`. */
   seller_path?: string | null;
+  /** Storefront rows: approved business name, else the seller's email local part. */
+  seller_name?: string | null;
   category_id: number;
   title: string;
   /** URL slug, generated from the Vietnamese title and editable by the seller. */

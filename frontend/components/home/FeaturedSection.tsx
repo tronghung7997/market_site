@@ -30,7 +30,7 @@ export function FeaturedSection({ featured, catName, minPrice }: {
   if (featured.length === 0) return null;
   return (
     <section className="border-y border-line bg-surface">
-      <div className="w-full mx-auto max-w-[1200px] px-6 py-6 lg:py-8">
+      <div className="w-full mx-auto max-w-[1200px] px-6 py-5 lg:py-6">
         <SectionHead title={t("featuredTitle")} sub={t("featuredSubtitle")} />
         {/* [&>*]:min-w-0 — grid item mặc định min-width:auto, nên phần text
             `truncate` (nowrap) bên trong đẩy cả cột rộng ra thay vì bị cắt,

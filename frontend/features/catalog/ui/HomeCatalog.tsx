@@ -9,17 +9,15 @@ import { effectiveMinPrice } from "@/lib/pricing-display";
 import { flattenCategories, subtreeIds } from "@/lib/categories";
 import { useAuth } from "@/lib/auth";
 import type { Order } from "@/lib/types";
-import { categoryPath } from "@/lib/routes";
 import { stockRank } from "@/lib/stock";
-import { Button, Card, Spinner } from "@/components/ui";
+import { Button, Spinner } from "@/components/ui";
 import { ArrowRight, Check } from "@/components/Icons";
-import { categoryCoverId, ProductCover } from "@/features/product-covers";
 import { PriceBoard } from "@/components/home/PriceBoard";
 import { MarketSection } from "@/components/home/MarketSection";
 import { FeaturedSection } from "@/components/home/FeaturedSection";
+import { CategoriesSection } from "@/components/home/CategoriesSection";
 import { RecentOrders, TrustedSellers } from "@/components/home/CommunitySections";
 import { CtaBanner, FaqSection, HowItWorks, Testimonials, WhyUs } from "@/components/home/StaticSections";
-import { SectionHead } from "@/components/home/SectionHead";
 import type { HomeCatalog } from "../data/load-public";
 
 export function HomeCatalogView({ initial }: { initial: HomeCatalog }) {
@@ -102,44 +100,21 @@ function HomeInner({ initial }: { initial: HomeCatalog }) {
         </div>
       </section>
 
-      <section className="border-b border-line bg-surface">
-        <div className="w-full mx-auto max-w-[1200px] px-6 grid grid-cols-2 md:grid-cols-4 divide-x divide-line">
-          {[[t("activeProducts"), `${initial.summary?.products ?? initial.total}`], [t("packages"), initial.summary ? `${initial.summary.variants}` : "—"], [t("availableStock"), initial.summary ? `${initial.summary.available_stock}` : "—"], [t("escrowTime"), t("days", { count: 3 })]].map(([label, val], i) => (
-            <div key={i} className="px-5 py-4">
-              <div className="font-mono text-[26px] font-semibold tabular">{val}</div>
-              <div className="text-[12.5px] text-muted mt-1">{label}</div>
-            </div>
-          ))}
-        </div>
-      </section>
+      <FeaturedSection featured={featured} catName={catName} minPrice={minPrice} />
 
-      {cats.length > 0 && (
-        <section className="w-full mx-auto max-w-[1200px] px-6 py-6 lg:py-8">
-          <SectionHead title={t("categories")} sub={t("categoriesSub")} />
-          <div className="grid gap-2.5 sm:gap-4 grid-cols-2 sm:[grid-template-columns:repeat(auto-fill,minmax(220px,1fr))]">
-            {flatCats
-              .map((c) => ({ c, count: categoryCount(c.id) }))
-              .filter((x) => x.count == null || x.count > 0)
-              .map(({ c, count }) => (
-                <Link key={c.id} href={categoryPath(c)} className="block">
-                  <Card interactive className="p-3 sm:p-5 h-full">
-                    <ProductCover
-                      coverId={categoryCoverId(c)}
-                      title={c.name}
-                      className="h-8 w-8 sm:h-10 sm:w-10 rounded-lg"
-                    />
-                    <div className="mt-2.5 sm:mt-4 font-medium text-[13.5px] sm:text-[15px]">{c.name}</div>
-                    {count != null && <div className="text-[11.5px] sm:text-[12.5px] text-muted mt-0.5">{common("products", { count })}</div>}
-                  </Card>
-                </Link>
-              ))}
-          </div>
-        </section>
-      )}
+      <CategoriesSection
+        cats={cats}
+        countFor={categoryCount}
+        onBrowse={(id) => {
+          setActive(id);
+          document.getElementById("market")?.scrollIntoView({ behavior: "smooth", block: "start" });
+        }}
+      />
 
       <MarketSection
         products={products}
         initialTotal={initial.total}
+        cats={cats}
         flatCats={flatCats}
         active={active}
         setActive={setActive}
@@ -147,9 +122,9 @@ function HomeInner({ initial }: { initial: HomeCatalog }) {
         minPrice={minPrice}
         loading={loading}
         error={error}
+        summary={initial.summary ? { variants: initial.summary.variants, categoryCount } : null}
       />
 
-      <FeaturedSection featured={featured} catName={catName} minPrice={minPrice} />
       <TrustedSellers sellers={initial.topSellers} />
       {account && <RecentOrders orders={recentOrders} />}
       <HowItWorks />

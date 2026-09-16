@@ -1,7 +1,9 @@
 """GET /seller/dashboard — the seller overview analytics contract."""
 from datetime import date, datetime, timedelta, timezone
+import zoneinfo
 
 import pytest
+from fastapi import HTTPException
 from sqlalchemy import select
 
 from src.config import settings
@@ -44,7 +46,27 @@ async def _seed_orders(client):
     return buyer, seller, release.amount
 
 
+@pytest.mark.no_db
 class TestSellerDashboardRange:
+    @pytest.mark.parametrize("tz", ["Asia/Saigon", "Asia/Ho_Chi_Minh", "UTC", "America/New_York"])
+    def test_timezone_without_system_tzdata(self, tz):
+        # Slim runtimes may have no OS timezone database; use the packaged data.
+        original_path = zoneinfo.TZPATH
+        zoneinfo.ZoneInfo.clear_cache()
+        zoneinfo.reset_tzpath(())
+        try:
+            rng = resolve_range("30d", tz, None, None, today=date(2026, 9, 14))
+            assert rng.days == 30
+            assert rng.tz == tz
+            expected_offset = -4 if tz == "America/New_York" else 0 if tz == "UTC" else 7
+            assert rng.start.utcoffset() == timedelta(hours=expected_offset)
+            with pytest.raises(HTTPException) as exc:
+                resolve_range("30d", "Mars/Olympus", None, None)
+            assert exc.value.status_code == 400
+        finally:
+            zoneinfo.reset_tzpath(original_path)
+            zoneinfo.ZoneInfo.clear_cache()
+
     def test_presets_end_today_in_local_tz(self):
         today = date(2026, 9, 14)
         rng = resolve_range("7d", TZ, None, None, today=today)
@@ -65,13 +87,14 @@ class TestSellerDashboardRange:
 
 
 @pytest.mark.asyncio
-async def test_dashboard_aggregates_money_orders_and_products(client):
+@pytest.mark.parametrize("tz", [TZ, "Asia/Saigon"])
+async def test_dashboard_aggregates_money_orders_and_products(client, tz):
     buyer, seller, released = await _seed_orders(client)
     fee_percent = settings.platform_fee_percent
     expected_fee = int(1000 * fee_percent / 100)
     assert released == 1000 - expected_fee
 
-    resp = await client.get("/seller/dashboard", params={"range": "30d", "tz": TZ}, headers=seller)
+    resp = await client.get("/seller/dashboard", params={"range": "30d", "tz": tz}, headers=seller)
     assert resp.status_code == 200, resp.text
     body = resp.json()
 

@@ -128,6 +128,8 @@ uv run uvicorn src.main:app --reload --port 8001
 
 Backend mặc định không bật API docs. Chỉ bật `API_DOCS_ENABLED=true` trong local development nếu cần.
 
+Backend cài dependency `tzdata` để dashboard và báo cáo inventory đọc được múi giờ trình duyệt (bao gồm `Asia/Saigon`) ngay cả khi hệ điều hành không có timezone database.
+
 ### 3. Chạy frontend
 
 Ở terminal khác:

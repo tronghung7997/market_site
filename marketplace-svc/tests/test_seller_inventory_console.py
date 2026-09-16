@@ -373,11 +373,12 @@ async def test_export_row_limit_from_admin_config(client):
 
 
 @pytest.mark.asyncio
-async def test_report_groups_presets_and_csv(client):
+@pytest.mark.parametrize("tz", ["Asia/Ho_Chi_Minh", "Asia/Saigon"])
+async def test_report_groups_presets_and_csv(client, tz):
     f = await _fixture(client)
     h = _auth(f["token"])
     by_variant = (await client.get(
-        "/seller/inventory/report?range=30d&tz=Asia/Ho_Chi_Minh&group_by=variant", headers=h,
+        f"/seller/inventory/report?range=30d&tz={tz}&group_by=variant", headers=h,
     )).json()
     assert by_variant["packages"] == 4        # full, cookie, uid, gmail (paused product still in scope; old inactive)
     full = next(r for r in by_variant["rows"] if r["key"] == str(f["variants"]["full"]))
@@ -398,7 +399,7 @@ async def test_report_groups_presets_and_csv(client):
     low_only = (await client.get("/seller/inventory/report?range=this_month&group_by=variant&low_only=true", headers=h)).json()
     assert {r["key"] for r in low_only["rows"]} == {str(f["variants"]["cookie"]), str(f["variants"]["uid"])}
 
-    daily = (await client.get("/seller/inventory/report?range=7d&tz=Asia/Ho_Chi_Minh&group_by=day&basis=assigned", headers=h)).json()
+    daily = (await client.get(f"/seller/inventory/report?range=7d&tz={tz}&group_by=day&basis=assigned", headers=h)).json()
     assert len(daily["rows"]) == 7 and sum(r["sold"] for r in daily["rows"]) == 7
     assert daily["prev_totals"] is None
 

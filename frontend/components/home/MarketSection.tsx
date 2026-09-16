@@ -16,7 +16,7 @@ import { useMoney } from "@/lib/money";
 import { useVariantTermFor, type VariantTerm } from "@/lib/variant-term";
 import { api } from "@/lib/api";
 import { cn } from "@/lib/cn";
-import { categoryCoverId, parseCoverId } from "@/lib/product-covers";
+import { parseCoverId } from "@/lib/product-covers";
 import type { Category, Product, Variant } from "@/lib/types";
 import { productPath } from "@/lib/routes";
 import { productStockState, variantStockState } from "@/lib/stock";
@@ -25,6 +25,7 @@ import { Button, Card, Input, Select, Spinner, Tag } from "@/components/ui";
 import { ProductCover } from "@/components/products/ProductCover";
 import { Bolt, Grid, Rows, Search, Shield, Star, Verified, X } from "@/components/Icons";
 import { SectionHead } from "./SectionHead";
+import { CategoryPicker } from "./CategoryPicker";
 
 const COLLAPSED_LIMIT = 8;
 const PAGE_SIZE = 24;
@@ -145,9 +146,11 @@ function SellerCell({ product, linked = true }: { product: Product; linked?: boo
     : inner;
 }
 
-export function MarketSection({ products, initialTotal, flatCats, active, setActive, catName, minPrice, loading, error, summary }: {
+export function MarketSection({ products, initialTotal, cats, flatCats, active, setActive, catName, minPrice, loading, error, summary }: {
   products: Product[];
   initialTotal: number;
+  /** Category tree for the picker. */
+  cats: Category[];
   flatCats: Category[];
   active: number | null;
   setActive: (id: number | null) => void;
@@ -258,7 +261,6 @@ export function MarketSection({ products, initialTotal, flatCats, active, setAct
   const visible = (showAll || isFiltering) ? filtered : filtered.slice(0, COLLAPSED_LIMIT);
   const canExpand = !showAll && !isFiltering && filtered.length > COLLAPSED_LIMIT;
   const canLoadMore = filtered.length < catalogTotal;
-  const activeCategory = active != null ? flatCats.find((c) => c.id === active) ?? null : null;
 
   // Tier labels follow the browsing currency (the category page's messages hard-code "$").
   const priceTierLabel: Record<PriceTier, string> = {
@@ -296,6 +298,13 @@ export function MarketSection({ products, initialTotal, flatCats, active, setAct
               </button>
             )}
           </div>
+          <CategoryPicker
+            cats={cats}
+            active={active}
+            onChange={setActive}
+            countFor={(id) => summary?.categoryCount(id) ?? null}
+            total={initialTotal}
+          />
           <Select
             value={sort}
             onChange={(e) => setSort(e.target.value as SortKey)}
@@ -318,23 +327,6 @@ export function MarketSection({ products, initialTotal, flatCats, active, setAct
           </div>
         </div>
 
-        {flatCats.length > 0 && (
-          <div className="flex gap-2 overflow-x-auto pb-0.5 [scrollbar-width:none] [&::-webkit-scrollbar]:hidden">
-            <FacetChip active={active == null} onClick={() => setActive(null)}>{t("all")}</FacetChip>
-            {flatCats.map((c) => {
-              const count = summary?.categoryCount(c.id) ?? null;
-              if (count === 0) return null;
-              return (
-                <FacetChip key={c.id} active={active === c.id} onClick={() => setActive(active === c.id ? null : c.id)}>
-                  <ProductCover coverId={categoryCoverId(c)} title={c.name} className="h-4 w-4 rounded" />
-                  {c.name}
-                  {count != null && <span className={cn("font-mono text-[11px]", active === c.id ? "text-surface/70" : "text-faint")}>{count}</span>}
-                </FacetChip>
-              );
-            })}
-          </div>
-        )}
-
         <div className="flex flex-wrap items-center gap-2 border-t border-line pt-3">
           <FacetChip active={instantOnly} tone="good" onClick={() => setInstantOnly((v) => !v)}><Bolt size={12} /> {tc("instantOnly")}</FacetChip>
           <FacetChip active={inStockOnly} tone="good" onClick={() => setInStockOnly((v) => !v)}>{t("inStockOnly")}</FacetChip>
@@ -351,9 +343,6 @@ export function MarketSection({ products, initialTotal, flatCats, active, setAct
             )}
           </span>
         </div>
-        {activeCategory && (
-          <p className="text-[12px] text-faint">{t("browsingCategory", { name: activeCategory.name })}</p>
-        )}
       </Card>
 
       {(loading || (catalogLoading && filtered.length === 0)) && <Spinner label={t("loadingMarket")} />}
@@ -366,6 +355,8 @@ export function MarketSection({ products, initialTotal, flatCats, active, setAct
         </Card>
       )}
 
+      {/* Results keep their place while a new page loads: fade instead of swap. */}
+      <div aria-busy={catalogLoading} className={cn("transition-opacity duration-200", catalogLoading && "opacity-60")}>
       {/* Table — desktop; cards below md */}
       {!loading && visible.length > 0 && view === "table" && (
         <Card className="hidden md:block overflow-hidden">
@@ -375,7 +366,7 @@ export function MarketSection({ products, initialTotal, flatCats, active, setAct
                 <tr className="text-[11px] uppercase tracking-wide text-faint border-b border-line bg-raised/40">
                   <th className="font-medium px-4 py-2.5 w-[30%]">{t("product")}</th>
                   <th className="font-medium px-3 py-2.5">{t("packagesAndPrices")}</th>
-                  <th className="font-medium px-3 py-2.5 w-[130px]">{t("stockAndDelivery")}</th>
+                  <th className="font-medium px-3 py-2.5 w-[170px]">{t("stockAndDelivery")}</th>
                   <th className="font-medium px-3 py-2.5 w-[150px] hidden lg:table-cell">{t("seller")}</th>
                   <th className="font-medium px-3 py-2.5 w-[96px] text-right">{t("fromPrice")}</th>
                   <th className="px-4 py-2.5 w-[88px]"></th>
@@ -396,6 +387,8 @@ export function MarketSection({ products, initialTotal, flatCats, active, setAct
                               <span>{catName(p.category_id)}</span>
                               <span>·</span>
                               <RatingInline product={p} t={t} />
+                              <span>·</span>
+                              <span className="inline-flex items-center gap-1 whitespace-nowrap"><Shield size={11} /> {t("escrowDays", { count: p.escrow_days })}</span>
                             </span>
                           </span>
                         </Link>
@@ -404,10 +397,9 @@ export function MarketSection({ products, initialTotal, flatCats, active, setAct
                         <PackageChips variants={variants} term={termFor(p.service_type)} formatPrice={formatPrice} t={t} />
                       </td>
                       <td className="px-3 py-3">
-                        <div className="flex flex-col items-start gap-1.5">
+                        <div className="flex flex-col items-start gap-1 [&>*]:whitespace-nowrap">
                           <Tag tone={fulfillmentTone(fulfillment.kind)}>{tp(fulfillmentTagKey(fulfillment), fulfillmentTagValues(fulfillment))}</Tag>
                           <StockBadge product={p} t={t} />
-                          <span className="inline-flex items-center gap-1 text-[11px] text-faint"><Shield size={11} /> {t("escrowDays", { count: p.escrow_days })}</span>
                         </div>
                       </td>
                       <td className="px-3 py-3 hidden lg:table-cell"><SellerCell product={p} /></td>
@@ -430,11 +422,11 @@ export function MarketSection({ products, initialTotal, flatCats, active, setAct
       {/* Cards — grid view, and always on small screens */}
       {!loading && visible.length > 0 && (
         <div className={cn("grid gap-2.5 sm:gap-4 grid-cols-1 sm:grid-cols-2 lg:grid-cols-3", view === "table" && "md:hidden")}>
-          {visible.map((p, i) => {
+          {visible.map((p) => {
             const variants = p.variants ?? [];
             const fulfillment = fulfillmentFromProduct(p);
             return (
-              <Link key={p.id} href={productPath(p)} className="animate-rise group" style={{ animationDelay: `${i * 30}ms` }}>
+              <Link key={p.id} href={productPath(p)} className="group">
                 <Card className="p-0 h-full flex flex-col overflow-hidden transition-all duration-150 group-hover:shadow-card-lg group-hover:-translate-y-0.5">
                   <div className="p-3.5 sm:p-4">
                     <div className="flex items-start gap-3">
@@ -484,6 +476,8 @@ export function MarketSection({ products, initialTotal, flatCats, active, setAct
           })}
         </div>
       )}
+
+      </div>
 
       {(canExpand || canLoadMore) && (
         <div className="text-center mt-4">

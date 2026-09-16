@@ -93,6 +93,9 @@
   .animate-seal { animation: seal-in 0.5s cubic-bezier(0.22, 0.61, 0.36, 1) both; }
   @keyframes rise { from { opacity: 0; transform: translateY(8px); } to { opacity: 1; transform: translateY(0); } }
   .animate-rise { animation: rise 0.45s cubic-bezier(0.22, 0.61, 0.36, 1) both; }
+  /* Popovers / menus: short settle, no bounce. */
+  @keyframes pop-in { from { opacity: 0; transform: translateY(-4px) scale(0.98); } to { opacity: 1; transform: translateY(0) scale(1); } }
+  .animate-pop { animation: pop-in 0.16s cubic-bezier(0.22, 0.61, 0.36, 1) both; }
 
   /* Trạng thái "tác vụ đang chạy" — vòng quay quanh badge + shimmer
      trên skeleton chờ dữ liệu bàn giao. */

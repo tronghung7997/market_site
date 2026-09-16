@@ -39,6 +39,13 @@
     "logBadge": "Log"
   },
   "home": {
+    "categoryPickerLabel": "Category:",
+    "clearCategory": "Clear category",
+    "searchCategories": "Search categories…",
+    "noCategoryMatch": "No matching category",
+    "allCategoriesLink": "All {count} categories",
+    "browseCategory": "Browse {name} below",
+    "moreCategories": "{count} more categories",
     "marketSummary": "{products} products · {packages} variations — filter, compare package prices and buy",
     "packagesAndPrices": "Packages & prices",
     "stockAndDelivery": "Delivery & stock",

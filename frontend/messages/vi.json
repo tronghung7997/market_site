@@ -39,6 +39,13 @@
     "logBadge": "Giao dịch"
   },
   "home": {
+    "categoryPickerLabel": "Danh mục:",
+    "clearCategory": "Bỏ chọn danh mục",
+    "searchCategories": "Tìm danh mục…",
+    "noCategoryMatch": "Không có danh mục khớp",
+    "allCategoriesLink": "Tất cả {count} danh mục",
+    "browseCategory": "Xem sản phẩm {name} ngay bên dưới",
+    "moreCategories": "Xem thêm {count} danh mục",
     "marketSummary": "{products} sản phẩm · {packages} phân loại — lọc, so giá từng gói và mua ngay",
     "packagesAndPrices": "Phân loại & giá",
     "stockAndDelivery": "Giao & kho",

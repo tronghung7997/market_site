@@ -3,6 +3,7 @@
 import { useLocale, useTranslations } from "next-intl";
 import { Link } from "@/i18n/navigation";
 import { useMoney } from "@/lib/money";
+import { sellerProductPath } from "@/lib/routes";
 import type { SellerDashboard, SellerDashboardTopProduct } from "@/lib/types";
 import { Card, Tag } from "@/components/ui";
 import { ChevronRight, Star, TrendingUp } from "@/components/Icons";
@@ -55,7 +56,7 @@ export function TopProductsTable({ data }: { data: SellerDashboard }) {
                 <tr key={p.id} className="hover:bg-raised/40">
                   <td className="py-2.5 pr-3">
                     <Link
-                      href={`/seller/products/${p.id}`}
+                      href={sellerProductPath(p)}
                       className="block max-w-[260px] truncate font-medium text-fg hover:text-iris"
                       title={p.title}
                     >

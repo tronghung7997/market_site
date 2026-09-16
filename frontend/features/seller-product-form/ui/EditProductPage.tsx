@@ -45,13 +45,16 @@ import { FormHeader } from "./FormHeader";
 
 type EditTab = FormSection | "reviews";
 const TABS: EditTab[] = ["basics", "variants", "content", "advanced", "reviews"];
-type SavedVariant = WorkbenchVariant & { id: number };
+type SavedVariant = WorkbenchVariant & { id: number; public_key?: string | null };
 type LocalizedVariantNames = Record<number, Record<ProductLocale, string>>;
 
 const STATUS_TONE: Record<string, "good" | "warn" | "bad" | "neutral"> = { active: "good", paused: "warn", suspended: "bad", draft: "neutral" };
 const STATUS_KEY: Record<string, "activeStatus" | "pausedStatus" | "suspendedStatus" | "draftStatus"> = { active: "activeStatus", paused: "pausedStatus", suspended: "suspendedStatus", draft: "draftStatus" };
 
-export function EditProductPage({ productId }: { productId: number }) {
+/** `productRef` is the route segment: the product's public key (what every
+ *  seller link carries) or a legacy numeric id. The numeric id every write
+ *  call needs comes from the loaded detail. */
+export function EditProductPage({ productRef }: { productRef: string }) {
   const interfaceLocale = useLocale() as ProductLocale;
   const t = useTranslations("sellerProductForm");
   const tf = useTranslations("seller.newProductFlow");
@@ -69,6 +72,7 @@ export function EditProductPage({ productId }: { productId: number }) {
   const [error, setError] = useState<string | null>(null);
   const [notice, setNotice] = useState<string | null>(null);
   const [product, setProduct] = useState<ProductDetail | null>(null);
+  const productId = product?.id ?? 0;
   const [operations, setOperations] = useState<ProductOperations | null>(null);
   const [variants, setVariants] = useState<SavedVariant[]>([]);
   const [variantNames, setVariantNames] = useState<LocalizedVariantNames>({});
@@ -85,11 +89,12 @@ export function EditProductPage({ productId }: { productId: number }) {
   const dirty = savedSnapshot !== "" && snapshot !== savedSnapshot;
 
   const loadData = useCallback(async (showSpinner = true) => {
-    if (!Number.isFinite(productId) || productId <= 0) return;
+    if (!productRef.trim()) return;
     if (showSpinner) setLoading(true);
     setError(null);
     try {
-      const [detail, productOperations] = await Promise.all([api.sellerProduct(productId), api.productOperations(productId).catch(() => null)]);
+      const detail = await api.sellerProduct(productRef);
+      const productOperations = await api.productOperations(detail.id).catch(() => null);
       const hydrated = hydrateSellerProductDraft(detail);
       const names: LocalizedVariantNames = {};
       for (const variant of detail.variants) {
@@ -114,7 +119,7 @@ export function EditProductPage({ productId }: { productId: number }) {
       core.setB3(hydrated.b3);
       if (productOperations?.provider?.id) core.setSelectedProviderId(productOperations.provider.id);
       setVariants(detail.variants.map((v) => ({
-        id: v.id, name: v.name, price: v.price, delivery_mode: v.delivery_mode === "manual" ? "manual" : "instant", stock_count: v.stock_count ?? 0, sla_hours: v.sla_hours, is_active: v.is_active,
+        id: v.id, public_key: v.public_key, name: v.name, price: v.price, delivery_mode: v.delivery_mode === "manual" ? "manual" : "instant", stock_count: v.stock_count ?? 0, sla_hours: v.sla_hours, is_active: v.is_active,
       })));
       setVariantNames(names);
       setSavedSnapshot(formSnapshot({
@@ -128,7 +133,7 @@ export function EditProductPage({ productId }: { productId: number }) {
     } finally {
       if (showSpinner) setLoading(false);
     }
-  }, [productId]); // eslint-disable-line react-hooks/exhaustive-deps
+  }, [productRef]); // eslint-disable-line react-hooks/exhaustive-deps
 
   useEffect(() => { void loadData(); }, [loadData]);
 
@@ -140,11 +145,11 @@ export function EditProductPage({ productId }: { productId: number }) {
     if (core.compatibleProviders[0]) core.setSelectedProviderId(core.compatibleProviders[0].id);
   }, [archetype, core.compatibleProviders, core.selectedProviderId, product]); // eslint-disable-line react-hooks/exhaustive-deps
 
-  const reviewsQuery = useSellerReviews({ productId, page: 1 });
+  const reviewsQuery = useSellerReviews({ productId: productId || undefined, page: 1, enabled: productId > 0 });
   const statsQuery = useQuery({
     queryKey: queryKeys.sellerInventoryReport({ range: "30d", productIds: [productId], groupBy: "variant", includeInactive: true }),
     queryFn: () => api.inventoryReport({ range: "30d", tz: browserTimeZone(), productIds: [productId], groupBy: "variant", includeInactive: true, compare: false }),
-    enabled: archetype === "A" && variants.length > 0,
+    enabled: productId > 0 && archetype === "A" && variants.length > 0,
     staleTime: 60_000,
   });
   const variantStats = useMemo(() => {
@@ -177,7 +182,7 @@ export function EditProductPage({ productId }: { productId: number }) {
 
   const addVariant = (draft: VariantDraft) => withVariantPending(async () => {
     const created = await api.createVariant(productId, { ...draft, content_locale: core.contentLocale, sort_order: variants.length });
-    setVariants((current) => [...current, { id: created.id, name: created.name, price: created.price, delivery_mode: created.delivery_mode === "manual" ? "manual" : "instant", stock_count: created.stock_count ?? 0, sla_hours: created.sla_hours, is_active: created.is_active }]);
+    setVariants((current) => [...current, { id: created.id, public_key: created.public_key, name: created.name, price: created.price, delivery_mode: created.delivery_mode === "manual" ? "manual" : "instant", stock_count: created.stock_count ?? 0, sla_hours: created.sla_hours, is_active: created.is_active }]);
     setVariantNames((current) => ({ ...current, [created.id]: { vi: core.contentLocale === "vi" ? created.name : "", en: core.contentLocale === "en" ? created.name : "" } }));
   });
 
@@ -313,7 +318,7 @@ export function EditProductPage({ productId }: { productId: number }) {
         tags={(
           <>
             <Tag tone={STATUS_TONE[product.status] ?? "neutral"}>{ts(STATUS_KEY[product.status] ?? "draftStatus")}</Tag>
-            <span className="font-mono text-[12px] text-faint">#{product.id}</span>
+
             {dirty && <Tag tone="warn">{t("edit.unsaved")}</Tag>}
           </>
         )}

@@ -1101,7 +1101,7 @@ async def _variants_by_product(
         stock_state, max_quantity = _public_stock(v.delivery_mode, stock_by_variant.get(v.id, 0))
         exact_stock = {} if public else {"stock_count": stock_by_variant.get(v.id, 0)}
         out[v.product_id].append({
-            "id": v.id, "product_id": v.product_id, "name": name, "price": v.price,
+            "id": v.id, "public_key": v.public_key, "product_id": v.product_id, "name": name, "price": v.price,
             "delivery_mode": v.delivery_mode.value, "sla_hours": v.sla_hours,
             "duration_days": v.duration_days,
             "sort_order": v.sort_order, "is_active": v.is_active,

@@ -209,7 +209,7 @@ async def sla_check_job() -> None:
                     severity="warning",
                     target_type="seller",
                     target_id=order.seller_id,
-                    message=f"Đơn #{order.id} đã huỷ do nhà bán không giao đúng hạn",
+                    message=f"Đơn {order.order_code} đã huỷ do nhà bán không giao đúng hạn",
                 )
                 await db.commit()
                 logger.warning("sla_breach", order_id=order.id, seller_id=order.seller_id)
@@ -466,9 +466,12 @@ async def resource_expire_job() -> None:
             if count <= 3:
                 variant = await db.get(ProductVariant, vid)
                 seller_id = 0
+                product = None
                 if variant is not None:
                     product = await db.get(Product, variant.product_id) if variant.product_id else None
                     seller_id = product.seller_id if product else 0
+                # Sellers see package names and keys, never variant row ids.
+                label = f"{product.title} · {variant.name}" if product and variant else (variant.name if variant else "?")
                 await upsert_incident(
                     db,
                     fingerprint=fp_variant(vid, "resource_low"),
@@ -476,7 +479,8 @@ async def resource_expire_job() -> None:
                     severity="warning",
                     target_type="seller",
                     target_id=seller_id or vid,
-                    message=f"Gói #{vid} chỉ còn {count} tài nguyên sẵn sàng",
+                    message=f"Gói {label} chỉ còn {count} tài nguyên sẵn sàng",
+                    href=f"/seller/inventory/{variant.public_key}" if variant else None,
                 )
 
         await db.commit()

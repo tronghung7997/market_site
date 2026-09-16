@@ -197,7 +197,7 @@ export default function SellerWithdrawalsPage() {
                     <div className="min-w-0 flex-1">
                       <div className="font-mono text-[14px] font-semibold tabular">{formatBrowseMoney(r.amount, { locale })}</div>
                       <div className="text-[11.5px] text-faint mt-0.5">
-                        {formatDate(r.created_at)} · #{r.id}
+                        {formatDate(r.created_at)}
                       </div>
                       {r.status === "rejected" && r.reject_reason && (
                         <div className="text-[12px] text-muted mt-1">

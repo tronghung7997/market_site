@@ -85,6 +85,8 @@ class ProductVariant(Base):
 
     id: Mapped[int] = mapped_column(primary_key=True)
     product_id: Mapped[int] = mapped_column(ForeignKey("products.id"), nullable=False)
+    # Seller inventory URL identity: /seller/inventory/{public_key}; never the row id.
+    public_key: Mapped[str] = mapped_column(String(12), unique=True, nullable=False, default=new_public_key)
     name: Mapped[str] = mapped_column(String(255), nullable=False)
     price: Mapped[int] = mapped_column(Integer, nullable=False)
     delivery_mode: Mapped[DeliveryMode] = mapped_column(Enum(DeliveryMode), default=DeliveryMode.instant)

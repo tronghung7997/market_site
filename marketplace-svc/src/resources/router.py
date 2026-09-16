@@ -57,7 +57,7 @@ async def list_res(
         per_page=per_page,
     )
     response.headers["X-Total-Count"] = str(total)
-    return items
+    return await service.with_order_codes(items, db)
 
 
 @router.get("/seller/inventory/summary", response_model=schemas.InventorySummaryResponse)
@@ -309,12 +309,13 @@ async def inventory_packages(
     )
 
 
-@router.get("/seller/inventory/packages/{variant_id}", response_model=schemas.InventoryPackageDetail)
+@router.get("/seller/inventory/packages/{variant_ref}", response_model=schemas.InventoryPackageDetail)
 async def inventory_package(
-    variant_id: int,
+    variant_ref: str,
     account: Account = Depends(require_role("seller")),
     db: AsyncSession = Depends(get_session),
 ):
+    variant_id = await inventory.resolve_variant_ref(variant_ref, db)
     return await inventory.get_package(variant_id, account.id, db)
 
 

@@ -32,11 +32,11 @@ export function useInventoryPackages(filters: InventoryFilters) {
   });
 }
 
-export function useInventoryPackage(variantId: number | null) {
+export function useInventoryPackage(variantRef: string | null) {
   return useQuery({
-    queryKey: queryKeys.sellerInventoryPackage(variantId ?? 0),
-    queryFn: () => api.inventoryPackage(variantId as number),
-    enabled: variantId != null && variantId > 0,
+    queryKey: queryKeys.sellerInventoryPackage(variantRef ?? ""),
+    queryFn: () => api.inventoryPackage(variantRef as string),
+    enabled: !!variantRef,
     staleTime: 15_000,
   });
 }
@@ -82,7 +82,8 @@ export function useInvalidateInventory() {
     queryClient.invalidateQueries({ queryKey: queryKeys.sellerProducts() }),
     queryClient.invalidateQueries({ queryKey: ["seller-dashboard"] }),
     queryClient.invalidateQueries({ queryKey: queryKeys.actionItems() }),
-    variantId ? queryClient.invalidateQueries({ queryKey: queryKeys.sellerInventoryPackage(variantId) }) : Promise.resolve(),
+    // Package pages are cached by route ref (key or legacy id), so refresh them all.
+    variantId ? queryClient.invalidateQueries({ queryKey: ["seller-inventory", "package"] }) : Promise.resolve(),
   ]);
 }
 

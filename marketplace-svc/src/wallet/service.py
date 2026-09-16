@@ -1,3 +1,4 @@
+import re
 from datetime import datetime, timezone
 
 from fastapi import HTTPException
@@ -243,6 +244,40 @@ async def clawback_affiliate_commission(
     return recovered
 
 
+_ORDER_REF = re.compile(r"^order-(\d+)(.*)$")
+
+
+def _order_id_from_reference(reference_id: str | None) -> int | None:
+    """Order behind a ledger reference: ``order-{id}[suffix]`` for purchase /
+    release / refund rows, a bare ``{id}`` for affiliate commissions."""
+    if not reference_id:
+        return None
+    match = _ORDER_REF.match(reference_id)
+    if match:
+        return int(match.group(1))
+    if reference_id.isdigit():
+        return int(reference_id)
+    return None
+
+
+def _reference_label(reference_id: str | None, order_codes: dict[int, str]) -> str | None:
+    """What the buyer/seller sees as the reference: the order code (plus any
+    dispute suffix) or the payment provider's reference for deposits. Internal
+    row ids (deposit intents, withdraw requests) never surface."""
+    if not reference_id:
+        return None
+    match = _ORDER_REF.match(reference_id)
+    if match:
+        code = order_codes.get(int(match.group(1)))
+        return f"{code}{match.group(2)}" if code else None
+    if reference_id.isdigit():
+        return order_codes.get(int(reference_id))
+    if reference_id.startswith("deposit-"):
+        _, _, tail = reference_id.removeprefix("deposit-").partition("-")
+        return tail or None
+    return None
+
+
 async def get_transactions(account_id: int, db: AsyncSession) -> list[dict]:
     wallet = await get_wallet_by_account(account_id, db)
     result = await db.execute(
@@ -250,35 +285,31 @@ async def get_transactions(account_id: int, db: AsyncSession) -> list[dict]:
     )
     txs = list(result.scalars().all())
 
-    # purchase_hold rows point at their order via reference_id="order-{id}" — resolve the
-    # order's current status so the UI can show something more accurate than "held" forever.
-    order_ids: set[int] = set()
-    for t in txs:
-        if t.type == TransactionType.purchase_hold and t.reference_id and t.reference_id.startswith("order-"):
-            try:
-                order_ids.add(int(t.reference_id.removeprefix("order-")))
-            except ValueError:
-                pass
+    # Rows point at their order via reference_id — resolve the order's code (what
+    # the UI shows) and, for purchase_hold rows, its current status so the UI can
+    # show something more accurate than "held" forever.
+    order_ids = {oid for t in txs if (oid := _order_id_from_reference(t.reference_id)) is not None}
 
     order_status: dict[int, str] = {}
+    order_codes: dict[int, str] = {}
     if order_ids:
         from src.models.order import Order
-        rows = await db.execute(select(Order.id, Order.status).where(Order.id.in_(order_ids)))
-        order_status = {oid: st.value for oid, st in rows.all()}
+        rows = await db.execute(select(Order.id, Order.status, Order.order_code).where(Order.id.in_(order_ids)))
+        for oid, st, code in rows.all():
+            order_status[oid] = st.value
+            order_codes[oid] = code
 
     out = []
     for t in txs:
-        status = None
-        if t.type == TransactionType.purchase_hold and t.reference_id and t.reference_id.startswith("order-"):
-            try:
-                status = order_status.get(int(t.reference_id.removeprefix("order-")))
-            except ValueError:
-                pass
+        order_id = _order_id_from_reference(t.reference_id)
+        status = order_status.get(order_id) if (order_id is not None and t.type == TransactionType.purchase_hold) else None
         out.append({
             "id": t.id, "type": t.type, "amount": t.amount,
             "direction": TRANSACTION_DIRECTION[t.type].value,
             "description": t.description,
             "reference_id": t.reference_id, "created_at": t.created_at, "order_status": status,
+            "order_code": order_codes.get(order_id) if order_id is not None else None,
+            "reference_label": _reference_label(t.reference_id, order_codes),
         })
     return out
 

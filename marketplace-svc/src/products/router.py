@@ -72,11 +72,14 @@ async def get_product(
     return await service.get_product_detail(product.id, db, locale=locale, public=True)
 
 
-@router.get("/seller/products/{product_id}/detail", response_model=schemas.ProductDetailResponse)
-async def get_own_product(product_id: int, account: Account = Depends(require_role("seller")), db: AsyncSession = Depends(get_session)):
+@router.get("/seller/products/{product_ref}/detail", response_model=schemas.ProductDetailResponse)
+async def get_own_product(product_ref: str, account: Account = Depends(require_role("seller")), db: AsyncSession = Depends(get_session)):
     """Như /products/{id} nhưng kèm cả gói đã tắt — trang quản lý cần thấy chúng
-    để bật lại được."""
-    return await service.get_own_product_detail(product_id, account.id, db)
+    để bật lại được. Nhận public key (URL /seller/products/{key}) hoặc id cũ."""
+    product = await service.resolve_product_ref(product_ref, db)
+    if product is None:
+        raise api_error(ErrorCode.PRODUCT_NOT_FOUND, status.HTTP_404_NOT_FOUND)
+    return await service.get_own_product_detail(product.id, account.id, db)
 
 
 @router.get("/seller/products", response_model=schemas.SellerProductListResponse)

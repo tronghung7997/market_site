@@ -103,8 +103,10 @@ export function InventoryConsole({
   const refreshing = query.isFetching;
   const brandNew = counts.all === 0 && !hasActiveInventoryFilters(filters) && filters.hideInactive;
   const selectedIds = [...selected];
-  const exportHref = selectedIds.length ? `/seller/inventory/export?tab=goods&variants=${selectedIds.join(",")}` : "/seller/inventory/export?tab=goods";
-  const reportHref = selectedIds.length ? `/seller/inventory/export?tab=report&variants=${selectedIds.join(",")}` : "/seller/inventory/export?tab=report";
+  // Export links carry package keys, not row ids (the export page matches either).
+  const selectedRefs = selectedIds.map((id) => data.items.find((p) => p.variant_id === id)?.variant_key ?? String(id));
+  const exportHref = selectedRefs.length ? `/seller/inventory/export?tab=goods&variants=${selectedRefs.join(",")}` : "/seller/inventory/export?tab=goods";
+  const reportHref = selectedRefs.length ? `/seller/inventory/export?tab=report&variants=${selectedRefs.join(",")}` : "/seller/inventory/export?tab=report";
 
   return (
     <div className="space-y-5 animate-fade">

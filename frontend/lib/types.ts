@@ -152,6 +152,8 @@ export interface ProductCatalogSummary {
 
 export interface Variant {
   id: number;
+  /** Seller-facing identity: /seller/inventory/{public_key}. */
+  public_key?: string | null;
   product_id: number;
   name: string;
   price: number;
@@ -223,6 +225,10 @@ export interface Transaction {
   reference_id: string | null;
   created_at: string;
   order_status?: string | null;
+  /** Order behind the row, by public code; what the UI shows instead of `order-{id}`. */
+  order_code?: string | null;
+  /** Customer-facing reference (order code + suffix, or provider deposit ref); null when there is none to show. */
+  reference_label?: string | null;
 }
 
 export interface Order {
@@ -848,6 +854,7 @@ export interface SellerDashboardPoint {
 
 export interface SellerDashboardTopProduct {
   id: number;
+  public_key?: string | null;
   title: string;
   service_type: string | null;
   status: string;
@@ -997,7 +1004,8 @@ export interface SellerOrderCounts {
 export interface SellerOrderQuery {
   tab?: SellerOrderTab;
   search?: string;
-  product_id?: number;
+  /** Product public key, or a legacy numeric id (the API accepts both). */
+  product?: string;
   kind?: SellerOrderKind;
   date_from?: string;
   date_to?: string;
@@ -1008,7 +1016,7 @@ export interface SellerOrderQuery {
 
 export interface PaginatedSellerOrders extends PaginatedOrderResponse {
   counts: SellerOrderCounts;
-  products: { id: number; title: string }[];
+  products: { id: number; public_key?: string | null; title: string }[];
 }
 
 export interface PaginatedSellerProducts {
@@ -1120,6 +1128,7 @@ export interface Resource {
   status: string; // available | assigned | expired | error
   data: string;
   order_id: number | null;
+  order_code?: string | null;
   assigned_at: string | null;
   expires_at: string | null;
   created_at: string;
@@ -1199,6 +1208,7 @@ export type InventoryStockState = "in_stock" | "low" | "out" | "inactive";
 
 export interface InventoryPackage {
   product_id: number;
+  product_key?: string | null;
   product_title: string;
   product_status: string;
   cover_id: string | null;
@@ -1208,6 +1218,7 @@ export interface InventoryPackage {
   category_parent_id: number | null;
   category_parent_name: string | null;
   variant_id: number;
+  variant_key?: string | null;
   variant_name: string;
   price: number;
   delivery_mode: string | null;
@@ -1254,6 +1265,7 @@ export interface InventoryPackagesResponse {
 
 export interface InventoryPackageSibling {
   variant_id: number;
+  variant_key?: string | null;
   variant_name: string;
   available: number;
   is_active: boolean;
@@ -1661,6 +1673,7 @@ export interface AffiliateTimeseriesPoint {
 export interface AffiliateCommissionRow {
   id: number;
   order_id: number;
+  order_code?: string | null;
   buyer_account_id: number;
   rate_percent: number;
   amount: number;

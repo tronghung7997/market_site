@@ -1312,7 +1312,7 @@
       "soldHint": "last 30 days"
     },
     "filters": {
-      "searchPlaceholder": "Search product, variation or #id…",
+      "searchPlaceholder": "Search product or variation…",
       "category": "Category",
       "allCategories": "All categories",
       "productStatus": "Product status",
@@ -1394,7 +1394,6 @@
     "package": {
       "loadFailed": "Could not load variation",
       "backToInventory": "Back to inventory",
-      "idLabel": "variation #{id}",
       "selling": "Selling",
       "notSelling": "Not selling",
       "activated": "Variation is selling again",
@@ -1469,7 +1468,7 @@
         "archived": "Hidden"
       },
       "export": "Export",
-      "searchPlaceholder": "Search content, #order or ID…",
+      "searchPlaceholder": "Search content or order code (ORD-…)…",
       "dateLabel": "Restocked",
       "date": {
         "all": "Restocked: any time",
@@ -2332,9 +2331,10 @@
     "accountAlreadyClaimed": "Already disputed",
     "accountRefunded": "Refunded",
     "accountRefundedAmount": "Refunded {amount}",
-    "accountReplaced": "Replaced → #{id}",
+    "accountReplaced": "Replaced → {id}",
     "accountReplacedUnknown": "Replaced",
-    "accountReplacement": "Replacement for #{id}",
+    "accountReplacement": "Replacement for {id}",
+    "accountReplacementUnknown": "Replacement account",
     "accountFromNotification": "From notification",
     "copyLiveHint": "Refunded and replaced originals stay in this list for history. Copy/download only includes live accounts.",
     "addToDispute": "Add to dispute",

@@ -101,6 +101,7 @@ class ResourceResponse(BaseModel):
     status: str
     data: str
     order_id: int | None = None
+    order_code: str | None = None
     assigned_at: datetime | None = None
     expires_at: datetime | None = None
     created_at: datetime
@@ -164,6 +165,7 @@ class AdminResourceListResponse(BaseModel):
 
 class InventoryPackage(BaseModel):
     product_id: int
+    product_key: str | None = None
     product_title: str
     product_status: str
     cover_id: str | None = None
@@ -173,6 +175,7 @@ class InventoryPackage(BaseModel):
     category_parent_id: int | None = None
     category_parent_name: str | None = None
     variant_id: int
+    variant_key: str | None = None
     variant_name: str
     price: int
     delivery_mode: str | None = None
@@ -219,6 +222,7 @@ class InventoryPackagesResponse(BaseModel):
 
 class InventoryPackageSibling(BaseModel):
     variant_id: int
+    variant_key: str | None = None
     variant_name: str
     available: int
     is_active: bool

@@ -35,13 +35,13 @@ function contextLabel(
   tos: ReturnType<typeof useTranslations<"status.order">>,
 ) {
   if (room.kind === "support") {
-    return room.order ? `${t("marketplaceSupport")} · ${t("order")} #${room.order.code ?? room.order.id}` : t("marketplaceSupport");
+    return room.order?.code ? `${t("marketplaceSupport")} · ${t("order")} #${room.order.code}` : t("marketplaceSupport");
   }
   if (room.kind !== "order") return t("preSale");
   if (!room.order) return t("orderChat");
   const statusKey = `${room.order.status}.label`;
   const status = tos.has(statusKey) ? tos(statusKey) : room.order.status;
-  return `${t("order")} #${room.order.code ?? room.order.id} · ${status}`;
+  return room.order.code ? `${t("order")} #${room.order.code} · ${status}` : `${t("orderChat")} · ${status}`;
 }
 
 function RoomIcon({ kind, size = 15 }: { kind: ChatConversation["kind"]; size?: number }) {
@@ -225,7 +225,7 @@ export default function InboxWorkbench({
   const title = room?.product?.title ?? room?.counterpart.label;
   const roomContext = room ? contextLabel(room, t, tos) : null;
   const isSellerCounterpart = room?.counterpart.role === "seller";
-  const orderHref = orderWorkspaceHref(room?.counterpart.role ?? "seller", adminMode ? room?.order?.id : (room?.order?.code ?? room?.order?.id), { admin: adminMode });
+  const orderHref = orderWorkspaceHref(room?.counterpart.role ?? "seller", adminMode ? room?.order?.id : room?.order?.code, { admin: adminMode });
   const readOnlyReason = room?.order?.status === "refunded"
     ? t("readOnlyRefunded")
     : room?.order?.status === "cancelled"
@@ -441,7 +441,7 @@ export default function InboxWorkbench({
                             <>
                               <span className="text-line-2 shrink-0">•</span>
                               <span className="tabular font-medium text-faint shrink-0">
-                                {t("order")} #{room.order.code ?? room.order.id}
+                                {t("order")} #{room.order.code ?? "…"}
                               </span>
                               <span className="text-line-2 shrink-0">•</span>
                               <span className="font-mono text-faint shrink-0">
@@ -516,7 +516,7 @@ export default function InboxWorkbench({
                           <ShieldCheck size={13} />
                         </span>
                         <h3 className="text-[12.5px] font-bold text-fg">
-                          {t("disputeContextTitle")} · {t("order")} #{room.order?.id}
+                          {t("disputeContextTitle")} · {t("order")} #{room.order?.code ?? "…"}
                         </h3>
                       </div>
                       <span className="rounded-full border border-warn/30 bg-warn-soft px-2 py-0.5 text-[10.5px] font-bold text-warn">
@@ -691,7 +691,7 @@ export default function InboxWorkbench({
                 <div className="rounded-xl border border-line bg-surface p-3 shadow-2xs">
                   <div className="flex items-center justify-between border-b border-line pb-2">
                     <span className="text-[10.5px] font-bold uppercase tracking-wider text-faint">
-                      {t("order")} #{room.order.code ?? room.order.id}
+                      {t("order")} #{room.order.code ?? "…"}
                     </span>
                     <Link
                       href={orderHref}

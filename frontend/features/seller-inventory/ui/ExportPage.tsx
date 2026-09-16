@@ -27,17 +27,18 @@ import { ScopeTree } from "./ScopeTree";
 
 export interface ExportPageParams {
   tab: ExportTab;
-  variantIds: number[];
+  /** `?variants=` — package public keys (legacy numeric ids still match). */
+  variantRefs: string[];
   status: InventoryResourceStatus | null;
   archived: boolean;
 }
 
 export function parseExportParams(search: URLSearchParams): ExportPageParams {
-  const ids = (search.get("variants") ?? "").split(",").map(Number).filter((n) => Number.isInteger(n) && n > 0);
+  const refs = (search.get("variants") ?? "").split(",").map((part) => part.trim()).filter(Boolean);
   const status = search.get("status");
   return {
     tab: search.get("tab") === "goods" ? "goods" : "report",
-    variantIds: ids,
+    variantRefs: refs,
     status: status && (RESOURCE_STATUSES as string[]).includes(status) ? (status as InventoryResourceStatus) : null,
     archived: search.get("archived") === "1",
   };
@@ -96,16 +97,16 @@ export function ExportPage({ params, onTabChange }: { params: ExportPageParams; 
   useEffect(() => {
     if (!all.data || seeded) return;
     const active = all.data.items.filter((p) => p.is_active).map((p) => p.variant_id);
-    if (params.variantIds.length > 0) {
-      const wanted = new Set(params.variantIds);
-      const hit = all.data.items.filter((p) => wanted.has(p.variant_id));
+    if (params.variantRefs.length > 0) {
+      const wanted = new Set(params.variantRefs);
+      const hit = all.data.items.filter((p) => (p.variant_key != null && wanted.has(p.variant_key)) || wanted.has(String(p.variant_id)));
       if (hit.some((p) => !p.is_active)) setIncludeInactive(true);
       setSelected(new Set(hit.map((p) => p.variant_id)));
     } else {
       setSelected(new Set(active));
     }
     setSeeded(true);
-  }, [all.data, params.variantIds, seeded]);
+  }, [all.data, params.variantRefs, seeded]);
 
   const onIncludeInactive = (next: boolean) => {
     setIncludeInactive(next);

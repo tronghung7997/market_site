@@ -79,6 +79,7 @@ async def upsert_incident(
     target_type: str,
     target_id: int,
     message: str,
+    href: str | None = None,
 ) -> Alert:
     """Atomic INSERT ... ON CONFLICT DO UPDATE for active fingerprint.
 
@@ -97,6 +98,7 @@ async def upsert_incident(
         target_type=target_type,
         target_id=target_id,
         message=message,
+        href=href,
         fingerprint=fingerprint,
         is_active=True,
         first_seen_at=now,
@@ -111,6 +113,7 @@ async def upsert_incident(
             "last_seen_at": now,
             "occurrence_count": table.c.occurrence_count + 1,
             "message": stmt.excluded.message,
+            "href": stmt.excluded.href,
             "severity": stmt.excluded.severity,
             "target_type": stmt.excluded.target_type,
             "target_id": stmt.excluded.target_id,

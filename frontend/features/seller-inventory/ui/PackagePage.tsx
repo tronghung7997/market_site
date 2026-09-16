@@ -7,7 +7,7 @@ import { cn } from "@/lib/cn";
 import { useApiErrorMessage } from "@/lib/use-api-error";
 import { daysAgo } from "@/lib/utils";
 import type { RestockResult } from "@/lib/types";
-import { productPath } from "@/lib/routes";
+import { productPath, sellerInventoryProductQuery, sellerProductPath } from "@/lib/routes";
 import { parseCoverId, ProductCover } from "@/features/product-covers";
 import { Button, Card, Tag } from "@/components/ui";
 import { AlertCircle, AlertTriangle, CheckCircle2, ChevronRight, Download, Edit2, ExternalLink, Plus, X } from "@/components/Icons";
@@ -29,18 +29,19 @@ export function PackagePageSkeleton() {
 }
 
 export function PackagePage({
-  variantId,
+  variantRef,
   filters,
   onFiltersChange,
 }: {
-  variantId: number;
+  /** Route segment: the package's public key (legacy numeric ids still resolve). */
+  variantRef: string;
   filters: ResourceFilters;
   onFiltersChange: (next: ResourceFilters) => void;
 }) {
   const t = useTranslations("sellerInventory");
   const locale = useLocale();
   const apiErrorMessage = useApiErrorMessage();
-  const query = useInventoryPackage(variantId);
+  const query = useInventoryPackage(variantRef);
   const status = useBulkPackageStatus();
   const [notice, setNotice] = useState<{ tone: "good" | "bad" | "warn"; text: string } | null>(null);
 
@@ -100,7 +101,7 @@ export function PackagePage({
       <nav aria-label="breadcrumb" className="flex flex-wrap items-center gap-1.5 text-[12px] text-muted">
         <Link href="/seller/inventory" className="text-iris hover:underline">{t("title")}</Link>
         <ChevronRight size={12} className="text-faint" />
-        <Link href={`/seller/inventory?search=${encodeURIComponent(`#${pkg.product_id}`)}`} className="truncate text-iris hover:underline">{pkg.product_title}</Link>
+        <Link href={sellerInventoryProductQuery({ id: pkg.product_id, public_key: pkg.product_key })} className="truncate text-iris hover:underline">{pkg.product_title}</Link>
         <ChevronRight size={12} className="text-faint" />
         <span className="truncate text-fg">{pkg.variant_name}</span>
       </nav>
@@ -110,10 +111,7 @@ export function PackagePage({
           <ProductCover coverId={parseCoverId({ cover_id: pkg.cover_id })} title={pkg.product_title} className="h-10 w-10 shrink-0 rounded-xl" />
           <div className="min-w-0 flex-1 space-y-1.5">
             <div className="flex flex-wrap items-center gap-x-2 text-[11.5px] text-faint">
-              <Link href={`/seller/products/${pkg.product_id}`} className="hover:text-iris">{pkg.product_title}</Link>
-              <span className="font-mono">#{pkg.product_id}</span>
-              <span>·</span>
-              <span className="font-mono">{t("package.idLabel", { id: pkg.variant_id })}</span>
+              <Link href={sellerProductPath({ id: pkg.product_id, public_key: pkg.product_key })} className="hover:text-iris">{pkg.product_title}</Link>
               <span>·</span>
               <span>{pkg.category_name}</span>
               {pkg.product_status !== "active" && <Tag tone="neutral">{t("state.productPaused")}</Tag>}
@@ -127,9 +125,9 @@ export function PackagePage({
           </div>
           <div className="flex flex-wrap items-center gap-2">
             <Switch checked={pkg.is_active} onChange={(next) => void toggleActive(next)} label={pkg.is_active ? t("package.selling") : t("package.notSelling")} />
-            <Link href={`/seller/products/${pkg.product_id}`}><Button size="sm" variant="ghost" className="h-8 gap-1 text-xs"><Edit2 size={13} /> {t("package.editProduct")}</Button></Link>
-            <Link href={productPath({ id: pkg.product_id })} target="_blank"><Button size="sm" variant="ghost" className="h-8 gap-1 text-xs"><ExternalLink size={13} /> {t("package.viewStore")}</Button></Link>
-            <Link href={`/seller/inventory/export?tab=goods&variants=${pkg.variant_id}`}><Button size="sm" variant="secondary" className="h-8 gap-1 text-xs"><Download size={13} /> {t("package.export")}</Button></Link>
+            <Link href={sellerProductPath({ id: pkg.product_id, public_key: pkg.product_key })}><Button size="sm" variant="ghost" className="h-8 gap-1 text-xs"><Edit2 size={13} /> {t("package.editProduct")}</Button></Link>
+            <Link href={productPath({ id: pkg.product_id, public_key: pkg.product_key })} target="_blank"><Button size="sm" variant="ghost" className="h-8 gap-1 text-xs"><ExternalLink size={13} /> {t("package.viewStore")}</Button></Link>
+            <Link href={`/seller/inventory/export?tab=goods&variants=${pkg.variant_key ?? pkg.variant_id}`}><Button size="sm" variant="secondary" className="h-8 gap-1 text-xs"><Download size={13} /> {t("package.export")}</Button></Link>
             <Button size="sm" variant={filters.restock ? "secondary" : "primary"} onClick={() => onFiltersChange({ ...filters, restock: !filters.restock })} className="h-8 gap-1 text-xs">
               {filters.restock ? <><X size={13} /> {t("package.closeRestock")}</> : <><Plus size={13} /> {t("package.restock")}</>}
             </Button>

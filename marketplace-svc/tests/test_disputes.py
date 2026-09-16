@@ -493,13 +493,20 @@ async def test_refunding_every_claimed_resource_auto_closes_case_and_order(clien
     remaining = (await client.get(f"/orders/{order_id}/resources", headers=buyer_headers)).json()
     assert {row["id"] for row in remaining} == set(resource_ids)
     assert {row["status"] for row in remaining} == {"error"}
+    order_code = listed_order["order_code"]
+    # Notifications name the order by code and the accounts by stock line —
+    # neither the order id nor resource row ids ever appear.
+    lines = sorted(index + 1 for index, row in enumerate(remaining) if row["id"] in resource_ids)
     buyer_inbox = await client.get("/orders/action-items", headers=buyer_headers)
-    buyer_alerts = [item for item in buyer_inbox.json() if item.get("href", "").startswith(f"/orders?order_id={order_id}")]
+    buyer_alerts = [item for item in buyer_inbox.json() if item.get("href", "").startswith(f"/orders?order={order_code}")]
     assert buyer_alerts, buyer_inbox.json()
-    assert all(str(resource_id) in buyer_alerts[0]["href"] for resource_id in resource_ids)
-    assert f"#{resource_ids[0]}" in buyer_alerts[0]["label"]
+    assert buyer_alerts[0]["href"].endswith("&lines=" + ",".join(str(line) for line in lines))
+    assert f"Đơn {order_code}" in buyer_alerts[0]["label"]
+    assert f"dòng {lines[0]}" in buyer_alerts[0]["label"]
+    assert f"#{order_id}" not in buyer_alerts[0]["label"]
+    assert all(f"#{resource_id}" not in buyer_alerts[0]["label"] for resource_id in resource_ids)
     seller_inbox = await client.get("/seller/action-items", headers=seller_headers)
-    seller_alerts = [item for item in seller_inbox.json() if item.get("href", "").startswith(f"/seller/orders?order_id={order_id}")]
+    seller_alerts = [item for item in seller_inbox.json() if item.get("href", "").startswith(f"/seller/orders?order={order_code}")]
     assert seller_alerts, seller_inbox.json()
     async with SessionLocal() as db:
         order = await db.get(Order, order_id)
@@ -944,8 +951,13 @@ async def test_seller_can_pick_specific_replacement_accounts(client):
     assert [row["id"] for row in live] == [chosen]
     assert after["delivered_data"] == live[0]["data"]
     inbox = await client.get("/orders/action-items", headers=buyer_headers)
-    hrefs = [item["href"] for item in inbox.json() if "resources=" in item.get("href", "")]
-    assert any(str(claimed[0]["id"]) in href and str(chosen) in href for href in hrefs), inbox.json()
+    hrefs = [item["href"] for item in inbox.json() if "lines=" in item.get("href", "")]
+    line_of = {row["id"]: index + 1 for index, row in enumerate(assigned)}
+    assert any(
+        href.startswith(f"/orders?order={after['order_code']}")
+        and href.endswith(f"&lines={line_of[claimed[0]['id']]},{line_of[chosen]}")
+        for href in hrefs
+    ), inbox.json()
 
 
 @pytest.mark.asyncio

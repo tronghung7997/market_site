@@ -72,6 +72,7 @@ async def seller_orders(
     tab: str = Query("all", pattern="^(all|disputed|action_required|escrow|completed|cancelled)$"),
     search: str | None = Query(None, max_length=200),
     product_id: int | None = Query(None, ge=1),
+    product: str | None = Query(None, max_length=64, description="Product public key (what seller URLs carry); overrides product_id"),
     kind: str | None = Query(None, pattern="^(instant|manual|api|task|proxy)$"),
     date_from: str | None = Query(None),
     date_to: str | None = Query(None),
@@ -81,7 +82,7 @@ async def seller_orders(
 ):
     return await service.list_seller_orders(
         account.id, db,
-        tab=tab, search=search, product_id=product_id, kind=kind,
+        tab=tab, search=search, product_id=product_id, product_key=product, kind=kind,
         date_from=date_from, date_to=date_to, sort=sort, page=page, per_page=per_page,
     )
 

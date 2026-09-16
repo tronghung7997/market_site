@@ -83,6 +83,7 @@ export function hasActiveInventoryFilters(f: InventoryFilters): boolean {
 
 export interface PackageGroup {
   productId: number;
+  productKey: string | null;
   productTitle: string;
   productStatus: string;
   categoryName: string;
@@ -191,7 +192,7 @@ export function groupPackages(items: InventoryPackage[]): PackageGroup[] {
     let group = byProduct.get(pkg.product_id);
     if (!group) {
       group = {
-        productId: pkg.product_id, productTitle: pkg.product_title, productStatus: pkg.product_status,
+        productId: pkg.product_id, productKey: pkg.product_key ?? null, productTitle: pkg.product_title, productStatus: pkg.product_status,
         categoryName: pkg.category_name, coverId: pkg.cover_id, available: 0, sold30d: 0, error: 0, packages: [],
       };
       byProduct.set(pkg.product_id, group);

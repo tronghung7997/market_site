@@ -18,5 +18,6 @@ function SellerOrderDetailRoute() {
   const { code } = useParams<{ code: string }>();
   const searchParams = useSearchParams();
   const highlight = useMemo(() => parseHighlightedResourceIds(searchParams.get("resources")), [searchParams]);
-  return <SellerOrderDetail orderRef={code} highlightResourceIds={highlight} />;
+  const lines = useMemo(() => parseHighlightedResourceIds(searchParams.get("lines")), [searchParams]);
+  return <SellerOrderDetail orderRef={code} highlightResourceIds={highlight} highlightLines={lines} />;
 }

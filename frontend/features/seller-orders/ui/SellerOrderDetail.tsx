@@ -1,15 +1,17 @@
 "use client";
 
 import { useLocale, useTranslations } from "next-intl";
-import { useState } from "react";
+import { useMemo, useState } from "react";
 import { Link } from "@/i18n/navigation";
 import { cn } from "@/lib/cn";
+import { resourceLineMap } from "@/lib/order-ref";
+import { sellerInventoryProductQuery, sellerProductPath } from "@/lib/routes";
 import { useVariantTerm } from "@/lib/variant-term";
 import { useMoney } from "@/lib/money";
 import { useApiErrorMessage } from "@/lib/use-api-error";
 import { displayOrderStatus } from "@/lib/order-status";
 import { formatDate, formatDateTime } from "@/lib/utils";
-import { deliveryResourceMarks, isDisputeReadyToAccept } from "@/lib/dispute-case";
+import { deliveryResourceMarks, isDisputeReadyToAccept, resourceLabelMap } from "@/lib/dispute-case";
 import type { Order } from "@/lib/types";
 import { Button, Card, CopyButton, Spinner, Tag } from "@/components/ui";
 import { AlertCircle, Check, ChevronLeft, Download, Edit2, Package, Rows } from "@/components/Icons";
@@ -50,10 +52,13 @@ export function SellerOrderDetailSkeleton() {
 export function SellerOrderDetail({
   orderRef,
   highlightResourceIds = [],
+  highlightLines = [],
 }: {
   /** Route param: the ORD-XXXXXXXX code (legacy numeric ids still resolve). */
   orderRef: string;
   highlightResourceIds?: number[];
+  /** 1-based stock lines from a notification link (`?lines=1,3`). */
+  highlightLines?: number[];
 }) {
   const t = useTranslations("seller");
   const to = useTranslations("sellerOrders");
@@ -71,6 +76,18 @@ export function SellerOrderDetail({
   const [deliverOpen, setDeliverOpen] = useState(false);
   const [disputeOpen, setDisputeOpen] = useState(false);
   const [actionError, setActionError] = useState<string | null>(null);
+  // Highlights come as resource ids (in-app) or 1-based stock lines
+  // (notification links never carry row ids); both resolve here. Declared
+  // before the early returns so the hook order never changes.
+  const resourceRows = resourcesQuery.data;
+  const lineOf = useMemo(() => resourceLineMap(resourceRows ?? []), [resourceRows]);
+  // Timeline chips name accounts by credential preview (never by row id).
+  const resourceLabels = useMemo(() => resourceLabelMap(resourceRows ?? []), [resourceRows]);
+  const highlightedIds = useMemo(() => {
+    const ids = new Set(highlightResourceIds);
+    (resourceRows ?? []).forEach((r, index) => { if (highlightLines.includes(index + 1)) ids.add(r.id); });
+    return ids;
+  }, [highlightLines, highlightResourceIds, resourceRows]);
 
   if (orderQuery.isPending) return <SellerOrderDetailSkeleton />;
   if (orderQuery.isError || !order) {
@@ -238,7 +255,7 @@ export function SellerOrderDetail({
               <div className="max-h-64 space-y-1 overflow-y-auto">
                 {resources.map((r) => {
                   const mark = marks[r.id];
-                  const highlighted = highlightResourceIds.includes(r.id);
+                  const highlighted = highlightedIds.has(r.id);
                   const inactive = r.status === "error" || mark?.kind === "refunded" || mark?.kind === "replaced";
                   return (
                     <div key={r.id} className={cn(
@@ -248,7 +265,7 @@ export function SellerOrderDetail({
                     )}>
                       <span className={cn("truncate", inactive && "text-muted line-through")}>{r.data}</span>
                       <div className="flex shrink-0 items-center gap-1">
-                        <DeliveryAccountBadge mark={mark} highlighted={highlighted} formatRefund={formatBrowseMoney} />
+                        <DeliveryAccountBadge mark={mark} highlighted={highlighted} formatRefund={formatBrowseMoney} lineOf={lineOf} />
                         {!mark && (
                           <Tag tone={r.status === "assigned" ? "good" : r.status === "error" ? "bad" : "neutral"} className="text-[9px]">
                             {t("availableStatus")}
@@ -282,6 +299,7 @@ export function SellerOrderDetail({
                 }
                 statusTone={isDisputeReadyToAccept(caseRecord) ? "iris" : isOpenCase ? "warn" : "neutral"}
                 formatRefund={formatBrowseMoney}
+                resourceLabels={resourceLabels}
                 viewerRole="seller"
               />
             </Card>
@@ -294,13 +312,13 @@ export function SellerOrderDetail({
             <div className="text-[11px] font-semibold uppercase tracking-wider text-faint">{to("productShortcuts")}</div>
             {order.product_id ? (
               <>
-                <Link href={`/seller/products/${order.product_id}`} className="flex items-center gap-2 text-fg hover:text-iris">
+                <Link href={sellerProductPath({ id: order.product_id, public_key: order.product_key })} className="flex items-center gap-2 text-fg hover:text-iris">
                   <Edit2 size={13} className="text-iris" /> {t("editProductShort")}
                 </Link>
-                <Link href={`/seller/inventory?product=${order.product_id}`} className="flex items-center gap-2 text-fg hover:text-iris">
+                <Link href={sellerInventoryProductQuery({ id: order.product_id, public_key: order.product_key })} className="flex items-center gap-2 text-fg hover:text-iris">
                   <Rows size={13} className="text-iris" /> {t("manageInventory")}
                 </Link>
-                <Link href={`/seller/orders?product_id=${order.product_id}`} className="flex items-center gap-2 text-fg hover:text-iris">
+                <Link href={`/seller/orders?product=${encodeURIComponent(order.product_key ?? String(order.product_id))}`} className="flex items-center gap-2 text-fg hover:text-iris">
                   <Package size={13} className="text-iris" /> {to("ordersOfProduct")}
                 </Link>
               </>

@@ -5,6 +5,7 @@
 import { useLocale, useTranslations } from "next-intl";
 import { useEffect, useState } from "react";
 import { api } from "@/lib/api";
+import { lineLabel } from "@/lib/order-ref";
 import { useApiErrorMessage } from "@/lib/use-api-error";
 import { useMoney } from "@/lib/money";
 import { cn } from "@/lib/cn";
@@ -85,9 +86,9 @@ export function OrderResources({ orderId }: { orderId: number }) {
     <Disclosure label={t("showResources")} labelOpen={t("hideResources")} open={open} onToggle={toggle}>
       <div className="mt-2.5 space-y-1.5">
         {loaded && resources.length === 0 && <p className="text-[12px] text-faint">{t("noResources")}</p>}
-        {resources.map((r) => (
+        {resources.map((r, index) => (
           <div key={r.id} className="flex items-center gap-3 text-[12.5px] px-3 py-2 rounded-lg bg-raised border border-line">
-            <span className="font-mono text-faint">#{r.id}</span>
+            <span className="font-mono text-faint">{lineLabel(index + 1)}</span>
             <Tag tone={tone(r.status)}>{label(r.status)}</Tag>
             <span className="ml-auto text-muted">{fmtExpiry(r.expires_at)}</span>
           </div>

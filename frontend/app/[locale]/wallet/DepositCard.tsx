@@ -371,7 +371,6 @@ export default function DepositCard({ deposits, onChanged }: {
                               <span className="text-[12.5px] font-semibold text-fg">
                                 {isUsdtDeposit ? "USDT" : "SePay"}
                               </span>
-                              <span className="text-[10.5px] text-muted">#{deposit.id}</span>
                             </div>
                             <p className="mt-0.5 text-[11px] text-muted">
                               {timeLeft ? t("depositWaiting", { time: timeLeft }) : t("depositExpiring")}

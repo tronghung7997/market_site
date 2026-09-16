@@ -315,7 +315,7 @@ export const api = {
       method: "POST", body: JSON.stringify({ ids, status }),
     }, true),
   // Như api.product() nhưng kèm cả biến thể đã tắt — trang quản lý cần thấy chúng để bật lại.
-  sellerProduct: (id: number, init: RequestInit = {}) => request<ProductDetail>(`/seller/products/${id}/detail`, init, true),
+  sellerProduct: (ref: string | number, init: RequestInit = {}) => request<ProductDetail>(`/seller/products/${encodeURIComponent(String(ref))}/detail`, init, true),
   sellerStats: () => request<SellerStats>("/seller/stats", {}, true),
   sellerDashboard: (params: { range: SellerDashboardRangeKey; tz: string; from?: string; to?: string }) => {
     const q = new URLSearchParams({ range: params.range, tz: params.tz });
@@ -486,8 +486,8 @@ export const api = {
     if (params.view) q.set("view", params.view);
     return request<InventoryPackagesResponse>(`/seller/inventory/packages?${q}`, {}, true);
   },
-  inventoryPackage: (variantId: number) =>
-    request<InventoryPackageDetail>(`/seller/inventory/packages/${variantId}`, {}, true),
+  inventoryPackage: (variantRef: string | number) =>
+    request<InventoryPackageDetail>(`/seller/inventory/packages/${encodeURIComponent(String(variantRef))}`, {}, true),
   bulkPackageStatus: (variantIds: number[], isActive: boolean) =>
     request<InventoryPackageBulkStatusResult>("/seller/inventory/packages/bulk-status", {
       method: "POST",

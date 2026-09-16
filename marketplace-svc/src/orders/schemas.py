@@ -186,6 +186,7 @@ class SellerOrderCounts(BaseModel):
 
 class SellerOrderProductFacet(BaseModel):
     id: int
+    public_key: str | None = None
     title: str
 
 

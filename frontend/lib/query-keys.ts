@@ -78,7 +78,8 @@ export const queryKeys = {
   // Seller inventory console — prefix ["seller-inventory"] invalidates every view.
   sellerInventory: (params?: Record<string, unknown> | null) =>
     params == null ? ["seller-inventory"] as const : ["seller-inventory", "packages", params] as const,
-  sellerInventoryPackage: (variantId: number) => ["seller-inventory", "package", variantId] as const,
+  // Keyed by the route ref (public key, or a legacy id) — one cache entry per URL.
+  sellerInventoryPackage: (variantRef: string) => ["seller-inventory", "package", variantRef] as const,
   sellerInventoryResources: (variantId: number, params: Record<string, unknown>) =>
     ["seller-inventory", "resources", variantId, params] as const,
   sellerInventoryAll: () => ["seller-inventory", "all-packages"] as const,

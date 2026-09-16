@@ -97,3 +97,23 @@ export function matchCategoryParam<T extends CategoryRef>(param: string | null |
   }
   return candidates.find((c) => c.slug === trimmed) ?? null;
 }
+
+/**
+ * Seller console routes. Like the storefront they carry public keys, never
+ * row ids, so nothing a seller sees (URL bar, notifications, copied links)
+ * reveals how many products or packages exist. The id fallbacks only cover
+ * cached payloads written before keys existed.
+ */
+export function sellerProductPath(product: { id: number; public_key?: string | null }): string {
+  return `/seller/products/${product.public_key ?? product.id}`;
+}
+
+export function sellerInventoryPath(pkg: { variant_id: number; variant_key?: string | null }, query?: string): string {
+  const base = `/seller/inventory/${pkg.variant_key ?? pkg.variant_id}`;
+  return query ? `${base}?${query}` : base;
+}
+
+/** `/seller/inventory?product={key}` — the inventory console searches that product. */
+export function sellerInventoryProductQuery(product: { id: number; public_key?: string | null }): string {
+  return `/seller/inventory?product=${encodeURIComponent(product.public_key ?? String(product.id))}`;
+}

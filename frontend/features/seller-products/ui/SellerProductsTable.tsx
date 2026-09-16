@@ -6,7 +6,7 @@ import { cn } from "@/lib/cn";
 import { useVariantTermFor } from "@/lib/variant-term";
 import { useMoney } from "@/lib/money";
 import type { SellerProduct, SellerProductSort } from "@/lib/types";
-import { productPath } from "@/lib/routes";
+import { productPath, sellerInventoryProductQuery, sellerProductPath } from "@/lib/routes";
 import { inventoryStockState, isInventoryManagedProduct, nextSellerProductStatus } from "@/features/seller-inventory";
 import { parseCoverId, ProductCover } from "@/features/product-covers";
 import { Button, Tag } from "@/components/ui";
@@ -111,7 +111,7 @@ export function SellerProductsTable({
                   <div className="flex items-center gap-3">
                     <ProductCover coverId={parseCoverId(p)} title={p.title} className="h-9 w-9 shrink-0 rounded-lg" />
                     <div className="min-w-0">
-                      <Link href={`/seller/products/${p.id}`} className="block max-w-[260px] truncate text-[13.5px] font-medium text-fg transition-colors hover:text-iris" title={p.title}>
+                      <Link href={sellerProductPath(p)} className="block max-w-[260px] truncate text-[13.5px] font-medium text-fg transition-colors hover:text-iris" title={p.title}>
                         {p.title}
                       </Link>
                       <div className="mt-0.5 flex items-center gap-2 text-[11px] text-faint">
@@ -120,9 +120,8 @@ export function SellerProductsTable({
                             <Bolt size={11} /> {p.service_type}
                           </span>
                         )}
-                        <span className="font-mono">#{p.id}</span>
                         {managed && (
-                          <Link href={`/seller/inventory?product=${p.id}`} className="inline-flex items-center gap-0.5 text-faint hover:text-iris" title={t("productsPageInventoryTitle")}>
+                          <Link href={sellerInventoryProductQuery(p)} className="inline-flex items-center gap-0.5 text-faint hover:text-iris" title={t("productsPageInventoryTitle")}>
                             {t("variantCount", { count: p.variant_count, ...termFor(p.service_type) })} <ChevronRight size={11} />
                           </Link>
                         )}
@@ -189,7 +188,7 @@ export function SellerProductsTable({
                     <Link href={productPath(p)} title={t("viewPurchasePage")} className="inline-flex h-7 w-7 items-center justify-center rounded-lg text-muted hover:bg-surface hover:text-fg">
                       <Eye size={14} />
                     </Link>
-                    <Link href={`/seller/products/${p.id}`} title={t("edit")} className="inline-flex h-7 w-7 items-center justify-center rounded-lg text-iris hover:bg-iris-soft hover:text-iris-hi">
+                    <Link href={sellerProductPath(p)} title={t("edit")} className="inline-flex h-7 w-7 items-center justify-center rounded-lg text-iris hover:bg-iris-soft hover:text-iris-hi">
                       <Edit2 size={14} />
                     </Link>
                   </div>

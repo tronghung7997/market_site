@@ -21,20 +21,22 @@ export default function SellerInventoryPage() {
 
 /* Filters live in the URL (tab, search, category, sort, grouped/flat, hide
    inactive, page) so reload / back / shared links all land on the same view.
-   Legacy deep links: `?variant=ID` (notifications, products table) opens the
-   package page with the restock panel; `?product=ID` searches that product. */
+   Deep links: `?variant=KEY` (notifications, products table) opens the
+   package page with the restock panel; `?product=KEY` searches that product. */
 function SellerInventoryRoute() {
   const router = useRouter();
   const pathname = usePathname();
   const searchParams = useSearchParams();
-  const legacyVariant = Number(searchParams.get("variant")) || null;
-  const legacyProduct = Number(searchParams.get("product")) || null;
+  // Both accept the public key (current links) or a numeric id (old links).
+  const legacyVariant = searchParams.get("variant")?.trim() || null;
+  const legacyProduct = searchParams.get("product")?.trim() || null;
 
   useEffect(() => {
     if (legacyVariant) {
-      router.replace(`/seller/inventory/${legacyVariant}?restock=1`);
+      router.replace(`/seller/inventory/${encodeURIComponent(legacyVariant)}?restock=1`);
     } else if (legacyProduct) {
-      router.replace(`${pathname}?search=${encodeURIComponent(`#${legacyProduct}`)}&products=all`);
+      const term = /^\d+$/.test(legacyProduct) ? `#${legacyProduct}` : legacyProduct;
+      router.replace(`${pathname}?search=${encodeURIComponent(term)}&products=all`);
     }
   }, [legacyVariant, legacyProduct, pathname, router]);
 

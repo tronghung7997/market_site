@@ -313,7 +313,6 @@ export function SellerDisputeRemedyPanel({
                 onChange={() => toggle(resource.id, pending)}
                 className="h-3.5 w-3.5 shrink-0 accent-iris"
               />
-              <span className="shrink-0 font-mono text-[10.5px] text-faint">#{resource.id}</span>
               <span className="min-w-0 flex-1 truncate font-mono text-fg">{resource.data}</span>
               {resource.refund_amount_cap != null && (
                 <span className="shrink-0 font-mono text-[10.5px] text-muted">{formatRefund(resource.refund_amount_cap)}</span>
@@ -477,7 +476,6 @@ export function SellerDisputeRemedyPanel({
                   {fifoPreview.map((row, index) => (
                     <div key={row.id} className="flex items-center gap-2 px-2.5 py-1.5 text-[11.5px]">
                       <span className="w-5 shrink-0 text-right font-mono text-[10.5px] text-faint">{index + 1}.</span>
-                      <span className="shrink-0 font-mono text-[10.5px] text-faint">#{row.id}</span>
                       <span className="min-w-0 flex-1 truncate font-mono text-fg">{row.data}</span>
                       {row.created_at && (
                         <span className="shrink-0 text-[10.5px] text-faint">{t("fifoStockedAt", { date: new Date(row.created_at).toLocaleDateString(locale) })}</span>
@@ -509,7 +507,6 @@ export function SellerDisputeRemedyPanel({
                   {stockItems.map((row) => (
                     <label key={row.id} className={cn("flex cursor-pointer items-center gap-2 px-2.5 py-2 hover:bg-raised/60", picked.has(row.id) && "bg-iris-soft/20")}>
                       <input type="checkbox" checked={picked.has(row.id)} onChange={() => togglePick(row.id)} className="h-3.5 w-3.5 accent-iris" />
-                      <span className="font-mono text-[10.5px] text-faint">#{row.id}</span>
                       <span className="min-w-0 flex-1 truncate font-mono text-fg">{row.data}</span>
                     </label>
                   ))}

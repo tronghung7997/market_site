@@ -22,6 +22,7 @@ import {
   resourceLabelMap,
   resourceWarrantyGeneration,
 } from "@/lib/dispute-case";
+import { lineLabel, resourceLineMap } from "@/lib/order-ref";
 import { DeliveryAccountBadge } from "@/components/orders/DeliveryAccountBadge";
 import { canOpenDispute, displayOrderStatus, hasOpenDispute } from "@/lib/order-status";
 import { useVariantTermFor } from "@/lib/variant-term";
@@ -62,6 +63,7 @@ export default function OrderDetailsModal({
   onPlate,
   onDisputeChanged,
   highlightResourceIds = [],
+  highlightLines = [],
   lockDismiss = false,
   open = true,
   initialTab,
@@ -79,6 +81,8 @@ export default function OrderDetailsModal({
   onPlate: (orderId: number) => void;
   onDisputeChanged: (order: Order, outcome: "withdrawn") => void;
   highlightResourceIds?: number[];
+  /** 1-based stock lines to highlight (what notifications link to). */
+  highlightLines?: number[];
   lockDismiss?: boolean;
   open?: boolean;
   /** Land on a specific tab (the orders list's "Đánh giá" link opens straight on review). */
@@ -162,8 +166,6 @@ export default function OrderDetailsModal({
   }, [hasCase, o.id, disputeRevision]);
 
   const accountMarks = useMemo(() => deliveryResourceMarks(caseRecord), [caseRecord]);
-  const highlightIds = useMemo(() => new Set(highlightResourceIds), [highlightResourceIds]);
-
   const items: ParsedItem[] = useMemo(() => {
     if (resources.length === 0) return parsedItems;
     return resources.map((resource, idx) => {
@@ -180,6 +182,16 @@ export default function OrderDetailsModal({
     });
   }, [parsedItems, resources]);
 
+  // Highlights arrive as resource ids (in-app) or as line numbers (notification
+  // links, which never carry row ids); both resolve to the same set here.
+  const highlightIds = useMemo(() => {
+    const ids = new Set(highlightResourceIds);
+    for (const item of items) {
+      if (item.resourceId != null && highlightLines.includes(item.id)) ids.add(item.resourceId);
+    }
+    return ids;
+  }, [highlightResourceIds, highlightLines, items]);
+
   const isServiceDelivery = useMemo(() => {
     if (items.length === 0) return false;
     const configCount = items.filter((it) => it.isConfigOrInstruction).length;
@@ -187,7 +199,7 @@ export default function OrderDetailsModal({
   }, [items]);
 
   const [activeTab, setActiveTab] = useState<"data" | "proxy" | "service" | "escrow" | "review" | "dispute">(
-    initialTab ?? (highlightResourceIds.length > 0 ? "data" : o.has_dispute ? "dispute" : "data"),
+    initialTab ?? (highlightResourceIds.length > 0 || highlightLines.length > 0 ? "data" : o.has_dispute ? "dispute" : "data"),
   );
   const [itemSearch, setItemSearch] = useState("");
   const [itemPage, setItemPage] = useState(1);
@@ -222,12 +234,14 @@ export default function OrderDetailsModal({
     const q = itemSearch.toLowerCase().replace(/^#/, "");
     return items.filter((it) => {
       if (it.raw.toLowerCase().includes(itemSearch.toLowerCase())) return true;
-      if (it.resourceId != null && String(it.resourceId).includes(q)) return true;
+      // "#03" / "3" finds stock line 3 (line numbers are what the UI shows).
+      if (/^\d+$/.test(q) && Number(q) === it.id) return true;
       return false;
     });
   }, [items, itemSearch]);
 
   const deliveryLabels = useMemo(() => resourceLabelMap(resources), [resources]);
+  const deliveryLines = useMemo(() => resourceLineMap(resources), [resources]);
 
   const selectableFilteredResourceIds = useMemo(
     () => filteredItems.flatMap((item) => {
@@ -255,10 +269,10 @@ export default function OrderDetailsModal({
   }, [filteredItems, itemPage]);
 
   useEffect(() => {
-    if (highlightResourceIds.length === 0 || items.length === 0) return;
+    if (highlightIds.size === 0 || items.length === 0) return;
     const index = items.findIndex((item) => item.resourceId != null && highlightIds.has(item.resourceId));
     if (index >= 0) setItemPage(Math.floor(index / itemsPerPage) + 1);
-  }, [highlightIds, highlightResourceIds.length, items, itemsPerPage]);
+  }, [highlightIds, items, itemsPerPage]);
 
   const totalItemPages = Math.max(1, Math.ceil(filteredItems.length / itemsPerPage));
 
@@ -577,7 +591,7 @@ export default function OrderDetailsModal({
                             )}
                             {item.resourceId ? (
                               <span className="font-mono text-[10.5px] font-bold text-iris bg-iris-soft px-1.5 py-0.5 rounded shrink-0">
-                                #{item.resourceId}
+                                {lineLabel(item.id)}
                               </span>
                             ) : showRowIndex ? (
                               <span className="font-mono text-[10.5px] text-faint shrink-0">
@@ -588,8 +602,9 @@ export default function OrderDetailsModal({
                               mark={mark}
                               highlighted={highlighted}
                               formatRefund={formatBrowseMoney}
+                              lineOf={deliveryLines}
                             />
-                            {item.resourceId && itemSearch.replace(/^#/, "") === String(item.resourceId) && !highlighted && (
+                            {item.resourceId && itemSearch.replace(/^#/, "") === String(item.id).padStart(2, "0") && !highlighted && (
                               <span className="shrink-0 rounded-md bg-iris-soft px-1.5 py-0.5 text-[10.5px] font-semibold text-iris-hi">
                                 {t("accountFromTimeline")}
                               </span>
@@ -708,7 +723,8 @@ export default function OrderDetailsModal({
               layout="panel"
               resourceLabels={deliveryLabels}
               onResourceClick={(resourceId) => {
-                setItemSearch(`#${resourceId}`);
+                const line = items.find((item) => item.resourceId === resourceId)?.id;
+                setItemSearch(line ? lineLabel(line) : "");
                 setItemPage(1);
                 setActiveTab("data");
               }}

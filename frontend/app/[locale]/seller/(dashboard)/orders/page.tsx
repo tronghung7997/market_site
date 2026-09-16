@@ -4,7 +4,7 @@ import { Suspense, useCallback, useEffect, useMemo } from "react";
 import { usePathname, useRouter } from "@/i18n/navigation";
 import { useSearchParams } from "next/navigation";
 import {
-  deepLinkedOrderId,
+  deepLinkedOrderRef,
   ordersFiltersToSearch,
   parseOrdersFilters,
   SellerOrdersConsole,
@@ -22,7 +22,7 @@ export default function SellerOrdersPage() {
 
 /* Filters live in the URL so tabs, product/kind/date filters, sort and page
    survive reloads and the back button. Notification links that target one
-   order (`?order_id=`, `?search=%2312&resources=`) go to the detail route. */
+   order (`?order=ORD-…&lines=`, legacy `?order_id=`) go to the detail route. */
 function SellerOrdersRoute() {
   const router = useRouter();
   const pathname = usePathname();
@@ -30,14 +30,19 @@ function SellerOrdersRoute() {
   const params = useMemo(() => new URLSearchParams(searchParams.toString()), [searchParams]);
   const filters = useMemo(() => parseOrdersFilters(params), [params]);
 
-  const detailHref = useCallback((id: number | string, source: URLSearchParams) => {
-    const resources = source.get("resources");
-    return `/seller/orders/${id}${resources ? `?resources=${encodeURIComponent(resources)}` : ""}`;
+  const detailHref = useCallback((ref: string, source: URLSearchParams) => {
+    const carried = new URLSearchParams();
+    for (const key of ["resources", "lines"] as const) {
+      const value = source.get(key);
+      if (value) carried.set(key, value);
+    }
+    const query = carried.toString();
+    return `/seller/orders/${encodeURIComponent(ref)}${query ? `?${query}` : ""}`;
   }, []);
 
   useEffect(() => {
-    const id = deepLinkedOrderId(params);
-    if (id) router.replace(detailHref(id, params));
+    const ref = deepLinkedOrderRef(params);
+    if (ref) router.replace(detailHref(ref, params));
   }, [detailHref, params, router]);
 
   useEffect(() => {
@@ -47,12 +52,12 @@ function SellerOrdersRoute() {
       try {
         const url = new URL(href, window.location.origin);
         if (!url.pathname.includes("/seller/orders")) return;
-        const id = deepLinkedOrderId(url.searchParams);
-        if (!id) return;
+        const ref = deepLinkedOrderRef(url.searchParams);
+        if (!ref) return;
         // The bell already rewrote this page's URL to the deep link; restore
         // the list URL so the back button lands on the list, not on a redirect.
         window.history.replaceState(null, "", `${window.location.pathname}${ordersFiltersToSearch(filters)}`);
-        router.push(detailHref(id, url.searchParams));
+        router.push(detailHref(ref, url.searchParams));
       } catch {
         // ignore malformed hrefs
       }

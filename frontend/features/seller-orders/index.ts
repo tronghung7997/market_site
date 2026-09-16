@@ -1,6 +1,6 @@
 export {
   DEFAULT_FILTERS,
-  deepLinkedOrderId,
+  deepLinkedOrderRef,
   ordersFiltersToSearch,
   parseOrdersFilters,
   type SellerOrdersFilters,

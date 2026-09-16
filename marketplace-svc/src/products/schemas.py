@@ -197,6 +197,9 @@ class VariantTranslationUpdate(BaseModel):
 
 class VariantResponse(BaseModel):
     id: int
+    # Seller-facing identity (/seller/inventory/{public_key}); storefront
+    # payloads carry it too but never need it.
+    public_key: str | None = None
     product_id: int
     name: str
     price: int

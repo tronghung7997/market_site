@@ -105,7 +105,6 @@ function RestockForm({ product, onClose }: { product: SellerProduct; onClose: ()
         <div className="min-w-0">
           <div className="flex items-center gap-1.5">
             <span className="rounded bg-iris-soft px-1.5 py-0.5 text-[10px] font-bold uppercase tracking-wider text-iris">{t("quickRestockTitle")}</span>
-            <span className="font-mono text-[11px] text-faint">#{product.id}</span>
           </div>
           <DialogTitle className="truncate text-[13.5px] font-bold text-fg">{product.title}</DialogTitle>
           <DialogDescription className="sr-only">{t("pasteResourcesHint")}</DialogDescription>

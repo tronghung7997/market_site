@@ -39,6 +39,7 @@ import DisputeModal from "./DisputeModal";
 import OrderDetailsModal from "./OrderDetailsModal";
 import { PER_PAGE_OPTIONS, useOrderFilters } from "./OrderFilters";
 import { parseHighlightedResourceIds } from "@/lib/dispute-case";
+import { matchesOrderRef } from "@/lib/order-ref";
 
 export default function OrdersPage() {
   const t = useTranslations("orders");
@@ -52,7 +53,7 @@ export default function OrdersPage() {
   const searchParams = useSearchParams();
   const isOrderDeepLink =
     Boolean(searchParams.get("order_id") || searchParams.get("order")) ||
-    Boolean(searchParams.get("resources"));
+    Boolean(searchParams.get("resources") || searchParams.get("lines"));
   const initialSearch = isOrderDeepLink ? "" : (searchParams.get("search") ?? "");
 
   const filters = useOrderFilters(
@@ -94,20 +95,24 @@ export default function OrdersPage() {
     () => parseHighlightedResourceIds(searchParams.get("resources")),
     [searchParams],
   );
+  const highlightLines = useMemo(
+    () => parseHighlightedResourceIds(searchParams.get("lines")),
+    [searchParams],
+  );
   const autoOpened = useRef(false);
-  const targetOrderIdFromUrl = useMemo(() => {
-    const rawOrderId = Number(searchParams.get("order_id") || searchParams.get("order"));
-    if (Number.isInteger(rawOrderId) && rawOrderId > 0) return rawOrderId;
-    const resources = searchParams.get("resources");
-    const rawSearch = (searchParams.get("search") || "").replace(/^#/, "").trim();
-    const searchId = Number(rawSearch);
-    if (resources && Number.isInteger(searchId) && searchId > 0) return searchId;
-    if (searchParams.get("search")?.startsWith("#") && Number.isInteger(searchId) && searchId > 0) return searchId;
-    return 0;
+  // Deep links carry the order code (`?order=ORD-…`); legacy numeric ids and
+  // `?search=#12` still resolve so old notifications keep working.
+  const targetOrderRefFromUrl = useMemo(() => {
+    const raw = (searchParams.get("order") || searchParams.get("order_id") || "").trim();
+    if (raw) return raw;
+    const search = (searchParams.get("search") || "").trim();
+    if (search.startsWith("#") && search.length > 1) return search.slice(1);
+    if (searchParams.get("resources") || searchParams.get("lines")) return search.replace(/^#/, "");
+    return "";
   }, [searchParams]);
-  const initialTargetOrderId = useRef<number>(0);
-  if (initialTargetOrderId.current === 0 && targetOrderIdFromUrl > 0) {
-    initialTargetOrderId.current = targetOrderIdFromUrl;
+  const initialTargetOrderRef = useRef<string>("");
+  if (initialTargetOrderRef.current === "" && targetOrderRefFromUrl) {
+    initialTargetOrderRef.current = targetOrderRefFromUrl;
   }
 
   useEffect(() => {
@@ -120,7 +125,8 @@ export default function OrdersPage() {
     else if (!isOrderDeepLink) sp.delete("search");
 
     if (selectedOrder) {
-      sp.set("order_id", String(selectedOrder.id));
+      sp.set("order", selectedOrder.order_code);
+      sp.delete("order_id");
     } else if (autoOpened.current) {
       sp.delete("order_id");
       sp.delete("order");
@@ -167,6 +173,7 @@ export default function OrdersPage() {
   );
 
   const [extraHighlightResourceIds, setExtraHighlightResourceIds] = useState<number[]>([]);
+  const [extraHighlightLines, setExtraHighlightLines] = useState<number[]>([]);
 
   useEffect(() => {
     if (authLoading) return;
@@ -175,20 +182,20 @@ export default function OrdersPage() {
 
   useEffect(() => {
     if (autoOpened.current || authLoading || !account) return;
-    const effectiveId = initialTargetOrderId.current || targetOrderIdFromUrl;
-    if (effectiveId > 0) {
-      const match = orders.find((row) => row.id === effectiveId);
+    const effectiveRef = initialTargetOrderRef.current || targetOrderRefFromUrl;
+    if (effectiveRef) {
+      const match = orders.find((row) => matchesOrderRef(row, effectiveRef));
       if (match) {
         autoOpened.current = true;
         setSelectedOrder(match);
       } else if (!loading) {
         autoOpened.current = true;
-        api.getOrder(effectiveId).then((fetched) => {
+        api.getOrder(effectiveRef).then((fetched) => {
           if (fetched) setSelectedOrder(fetched);
         }).catch(() => {});
       }
     }
-  }, [account, authLoading, loading, orders, targetOrderIdFromUrl]);
+  }, [account, authLoading, loading, orders, targetOrderRefFromUrl]);
 
   useEffect(() => {
     const handleNotificationClick = async (event: Event) => {
@@ -204,20 +211,26 @@ export default function OrdersPage() {
           url.pathname.endsWith("/orders");
         if (!isOrdersPage) return;
 
-        const targetId =
-          Number(url.searchParams.get("order_id") || url.searchParams.get("order")) ||
-          Number((url.searchParams.get("search") || "").replace(/^#/, "").trim());
+        const targetRef = (
+          url.searchParams.get("order") ||
+          url.searchParams.get("order_id") ||
+          (url.searchParams.get("search") || "").replace(/^#/, "")
+        ).trim();
         const resourcesParam = url.searchParams.get("resources");
         if (resourcesParam) {
           setExtraHighlightResourceIds(parseHighlightedResourceIds(resourcesParam));
         }
+        const linesParam = url.searchParams.get("lines");
+        if (linesParam) {
+          setExtraHighlightLines(parseHighlightedResourceIds(linesParam));
+        }
 
-        if (Number.isInteger(targetId) && targetId > 0) {
-          const match = orders.find((row) => row.id === targetId);
+        if (targetRef) {
+          const match = orders.find((row) => matchesOrderRef(row, targetRef));
           if (match) {
             setSelectedOrder(match);
           } else {
-            const fetched = await api.getOrder(targetId);
+            const fetched = await api.getOrder(targetRef);
             if (fetched) setSelectedOrder(fetched);
           }
         }
@@ -378,10 +391,10 @@ export default function OrdersPage() {
     setTimeout(() => setCopiedOrderId(null), 2000);
   };
 
-  const handleCopyCode = (id: number) => {
-    navigator.clipboard.writeText(`#${id}`);
-    setCopiedCodeId(id);
-    showToast(t("copiedOrderCode"));
+  const handleCopyCode = (o: Order) => {
+    navigator.clipboard.writeText(o.order_code);
+    setCopiedCodeId(o.id);
+    showToast(t("copiedOrderCode", { code: o.order_code }));
     setTimeout(() => setCopiedCodeId(null), 2000);
   };
 
@@ -397,10 +410,11 @@ export default function OrdersPage() {
   };
 
   const handleCloseOrderModal = useCallback(() => {
-    const currentId = selectedOrder?.id;
+    const current = selectedOrder;
     setSelectedOrder(null);
     setModalTab(undefined);
     setExtraHighlightResourceIds([]);
+    setExtraHighlightLines([]);
     if (typeof window !== "undefined") {
       const sp = new URLSearchParams(window.location.search);
       let changed = false;
@@ -412,13 +426,11 @@ export default function OrdersPage() {
         sp.delete("order");
         changed = true;
       }
-      if (sp.has("resources")) {
+      if (sp.has("resources") || sp.has("lines")) {
         sp.delete("resources");
-        if (
-          currentId &&
-          sp.has("search") &&
-          (sp.get("search") === String(currentId) || sp.get("search") === `#${currentId}`)
-        ) {
+        sp.delete("lines");
+        const search = sp.get("search");
+        if (current && search && matchesOrderRef(current, search.replace(/^#/, ""))) {
           sp.delete("search");
         }
         changed = true;
@@ -454,6 +466,7 @@ export default function OrdersPage() {
         <OrderDetailsModal
           order={selectedOrder}
           highlightResourceIds={extraHighlightResourceIds.length > 0 ? extraHighlightResourceIds : highlightResourceIds}
+          highlightLines={extraHighlightLines.length > 0 ? extraHighlightLines : highlightLines}
           onClose={handleCloseOrderModal}
           open={disputeTarget === null}
           lockDismiss={disputeTarget !== null}
@@ -1059,8 +1072,8 @@ export default function OrdersPage() {
                       </button>
                       <button
                         type="button"
-                        title={copiedCodeId === o.id ? t("copiedOrderCode", { code: `#${o.id}` }) : t("copyOrderCode")}
-                        onClick={() => handleCopyCode(o.id)}
+                        title={copiedCodeId === o.id ? t("copiedOrderCode", { code: o.order_code }) : t("copyOrderCode")}
+                        onClick={() => handleCopyCode(o)}
                         className="p-1 rounded-md text-muted hover:text-fg hover:bg-raised transition-colors cursor-pointer"
                       >
                         {copiedCodeId === o.id ? (
@@ -1337,7 +1350,7 @@ export default function OrdersPage() {
                             title={copiedCodeId === o.id ? t("copiedOrderCode") : t("copyOrderCode")}
                             onClick={(e) => {
                               e.stopPropagation();
-                              handleCopyCode(o.id);
+                              handleCopyCode(o);
                             }}
                             className="p-1 rounded text-muted hover:text-fg hover:bg-raised transition-colors cursor-pointer"
                           >

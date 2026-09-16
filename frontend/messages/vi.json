@@ -1312,7 +1312,7 @@
       "soldHint": "30 ngày qua"
     },
     "filters": {
-      "searchPlaceholder": "Tìm sản phẩm, phân loại hoặc #id…",
+      "searchPlaceholder": "Tìm sản phẩm hoặc phân loại…",
       "category": "Danh mục",
       "allCategories": "Tất cả danh mục",
       "productStatus": "Trạng thái sản phẩm",
@@ -1394,7 +1394,6 @@
     "package": {
       "loadFailed": "Không tải được phân loại",
       "backToInventory": "Về kho hàng",
-      "idLabel": "phân loại #{id}",
       "selling": "Đang bán",
       "notSelling": "Ngừng bán",
       "activated": "Phân loại đã bật bán",
@@ -1469,7 +1468,7 @@
         "archived": "Đã ẩn"
       },
       "export": "Xuất",
-      "searchPlaceholder": "Tìm nội dung, #đơn hoặc ID…",
+      "searchPlaceholder": "Tìm nội dung hoặc mã đơn (ORD-…)…",
       "dateLabel": "Ngày nạp",
       "date": {
         "all": "Ngày nạp: tất cả",
@@ -2332,9 +2331,10 @@
     "accountAlreadyClaimed": "Đã khiếu nại",
     "accountRefunded": "Đã hoàn tiền",
     "accountRefundedAmount": "Đã hoàn {amount}",
-    "accountReplaced": "Đã đổi → #{id}",
+    "accountReplaced": "Đã đổi → {id}",
     "accountReplacedUnknown": "Đã đổi",
-    "accountReplacement": "Thay thế cho #{id}",
+    "accountReplacement": "Thay thế cho {id}",
+    "accountReplacementUnknown": "Tài khoản thay thế",
     "accountFromNotification": "Từ thông báo",
     "copyLiveHint": "Acc đã hoàn hoặc đã đổi vẫn hiện ở đây để đối chiếu. Sao chép/tải chỉ gồm acc còn hiệu lực.",
     "addToDispute": "Thêm vào khiếu nại",

@@ -657,7 +657,7 @@ async def ensure_support_conversation(
         product_id=order.product_id,
         requester_id=account.id,
         requester_role=requester_role,
-        subject=f"Dispute #{dispute.id} · Order #{order.id}",
+        subject=f"Dispute · Order {order.order_code}",
         created_by_id=account.id,
     )
     db.add(conversation)

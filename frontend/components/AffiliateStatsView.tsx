@@ -250,7 +250,7 @@ export function AffiliateStatsView({
               <tbody>
                 {commissions.map((c) => (
                   <tr key={c.id} className="border-b border-slate-100 last:border-0 hover:bg-slate-50 transition-colors">
-                    <td className="px-5 py-2.5 font-mono text-slate-400">#{c.order_id}</td>
+                    <td className="px-5 py-2.5 font-mono text-slate-400">{c.order_code ?? "—"}</td>
                     <td className="px-5 py-2.5">{c.product_title || "—"}</td>
                     <td className="px-5 py-2.5 text-right tabular-nums text-muted">{c.rate_percent}%</td>
                     <td className="px-5 py-2.5 text-right tabular-nums">{c.order_total != null ? formatMoney(c.order_total) : "—"}</td>

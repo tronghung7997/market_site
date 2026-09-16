@@ -4,6 +4,7 @@ import Link from "next/link";
 import { useLocale, useTranslations } from "next-intl";
 import { useEffect, useState } from "react";
 import { api } from "@/lib/api";
+import { lineLabel } from "@/lib/order-ref";
 import { useApiErrorMessage } from "@/lib/use-api-error";
 import type { DashboardData, DashboardResource, DashboardTask, GatewayCallLogItem, UsageRecordItem } from "@/lib/types";
 import { productPath } from "@/lib/routes";
@@ -506,8 +507,8 @@ function TakedownDashboard({ data }: { data: DashboardData }) {
                 </tr>
               </thead>
               <tbody>
-                {tasks.map((task) => (
-                  <TaskRow key={task.id} task={task} />
+                {tasks.map((task, index) => (
+                  <TaskRow key={task.id} task={task} index={index + 1} />
                 ))}
               </tbody>
             </table>
@@ -518,13 +519,14 @@ function TakedownDashboard({ data }: { data: DashboardData }) {
   );
 }
 
-function TaskRow({ task }: { task: DashboardTask }) {
+function TaskRow({ task, index }: { task: DashboardTask; index: number }) {
   const t = useTranslations("orders");
   const tos = useTranslations("status.order");
   const st = taskStatusMeta(task.status, t, tos);
   return (
     <tr className="border-b border-line/50">
-      <td className="py-2 pr-3 font-mono text-faint">#{task.id}</td>
+      {/* Position in this order's task list — task row ids stay internal. */}
+      <td className="py-2 pr-3 font-mono text-faint">{lineLabel(index)}</td>
       <td className="py-2 pr-3">{task.platform}</td>
       <td className="py-2 pr-3 max-w-[200px] truncate">
         <span className="font-mono text-[11px]">{task.target_url}</span>

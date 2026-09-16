@@ -161,7 +161,7 @@ async def _raise_operational_alert(
                     target_type="seller",
                     target_id=order.seller_id,
                     message=(
-                        f"Đơn #{order_id} giao thất bại: nhà cung cấp đã hết tiền "
+                        f"Đơn {order.order_code} giao thất bại: nhà cung cấp đã hết tiền "
                         f"và đã tạm dừng bán. Khách đã được hoàn tiền — nạp lại rồi "
                         f"cập nhật số dư để tiếp tục bán."
                     ),
@@ -844,6 +844,7 @@ async def list_seller_orders(
     tab: str = "all",
     search: str | None = None,
     product_id: int | None = None,
+    product_key: str | None = None,
     kind: str | None = None,
     date_from: str | None = None,
     date_to: str | None = None,
@@ -853,6 +854,14 @@ async def list_seller_orders(
 ) -> dict:
     """Seller console listing: server-side tabs/filters/sort/pagination plus
     store-wide tab counts so the console header never depends on the page."""
+    if product_key:
+        # Seller URLs carry the product's public key, never its row id; a
+        # numeric value is an old bookmarked `?product_id=` link.
+        ref = product_key.strip()
+        if ref.isdigit():
+            product_id = int(ref)
+        else:
+            product_id = await db.scalar(select(Product.id).where(Product.public_key == ref.lower())) or -1
     base = (
         select(Order.id)
         .select_from(Order)
@@ -934,7 +943,7 @@ async def list_seller_orders(
     }
 
     product_rows = (await db.execute(
-        select(Product.id, Product.title)
+        select(Product.id, Product.public_key, Product.title)
         .where(Product.id.in_(
             select(_seller_order_product_id())
             .select_from(Order)
@@ -947,7 +956,7 @@ async def list_seller_orders(
     return {
         "items": items, "total": total, "page": page, "per_page": per_page,
         "counts": counts,
-        "products": [{"id": pid, "title": title} for pid, title in product_rows],
+        "products": [{"id": pid, "public_key": key, "title": title} for pid, key, title in product_rows],
     }
 
 

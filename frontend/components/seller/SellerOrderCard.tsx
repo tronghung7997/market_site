@@ -203,7 +203,6 @@ function SellerDisputeActions({ dispute, onChanged }: { dispute: Dispute; onChan
         {resources.map((resource) => (
           <label key={resource.id} className="flex items-center gap-2 rounded-lg border border-line bg-surface px-2.5 py-2 text-[11.5px]">
             <input type="checkbox" checked={selected.has(resource.id)} disabled={!!resource.action} onChange={() => toggle(resource.id)} className="h-4 w-4 accent-iris" />
-            <span className="font-mono text-iris">#{resource.id}</span>
             <span className="min-w-0 flex-1 truncate font-mono text-fg">{resource.data}</span>
             <span className={resource.action ? "text-good" : "text-warn"}>{resource.action ? t("claimResolved") : t("claimPending")}</span>
           </label>

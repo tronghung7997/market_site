@@ -16,6 +16,7 @@ import {
 } from "lucide-react";
 import { Search } from "@/components/Icons";
 import { api } from "@/lib/api";
+import { lineLabel, resourceLineMap } from "@/lib/order-ref";
 import { useApiErrorMessage } from "@/lib/use-api-error";
 import { fulfillmentFromOrder } from "@/lib/fulfillment";
 import { MAX_WARRANTY_CLAIM_GENERATION, resourcePreview, resourceWarrantyGeneration } from "@/lib/dispute-case";
@@ -155,11 +156,13 @@ export default function DisputeModal({
     }
   }, [fulfillmentKind, issueIds, mode, selectedIssue]);
 
+  const lines = useMemo(() => resourceLineMap(resources), [resources]);
+
   const filteredClaimable = useMemo(() => {
     const q = accountQuery.trim().toLowerCase().replace(/^#/, "");
     if (!q) return claimableRows;
     return claimableRows.filter((row) => {
-      if (String(row.id).includes(q)) return true;
+      if (/^\d+$/.test(q) && lines[row.id] === Number(q)) return true;
       const preview = resourcePreview(row.data)?.toLowerCase() ?? "";
       return preview.includes(q) || row.data.toLowerCase().includes(q);
     });
@@ -282,7 +285,7 @@ export default function DisputeModal({
             <span>{appendToExisting ? t("addClaimTitle", { count: selectedIds.length }) : t("disputeFormTitle")}</span>
           </DialogTitle>
           <div className="flex items-center gap-2 text-[12px] text-muted mt-1">
-            <span className="font-mono text-iris font-semibold">#{orderId}</span>
+            <span className="font-mono text-iris font-semibold">#{orderRecord?.order_code ?? "…"}</span>
             {variantName && (
               <>
                 <span>•</span>
@@ -357,10 +360,10 @@ export default function DisputeModal({
                           checked={checked}
                           onChange={() => toggleResource(row.id)}
                           className="h-4 w-4 shrink-0 accent-iris"
-                          aria-label={t("selectAccount", { id: row.id })}
+                          aria-label={t("selectAccount", { id: lines[row.id] ?? "" })}
                         />
                         <span className="font-mono text-[10.5px] font-bold text-iris bg-iris-soft px-1.5 py-0.5 rounded shrink-0">
-                          #{row.id}
+                          {lines[row.id] ? lineLabel(lines[row.id]) : "•"}
                         </span>
                         <span className="font-mono text-fg truncate">{preview}</span>
                       </label>

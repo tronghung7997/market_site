@@ -129,23 +129,26 @@ test("resolution notes skip placeholder dashes and known admin outcomes are mapp
   assert.equal(disputeTimelineCopyKey("case_opened", "seller"), "disputeEvents.case_opened");
 });
 
-test("warranty chips mark the first replacement hop", () => {
+test("warranty chips show credential previews, never row ids", () => {
   assert.equal(
     formatDisputeAccountChip({
       resourceId: 12,
+      resourceLabel: "old_user",
       replacementId: 88,
+      replacementLabel: "new_user",
       warranty: true,
       warrantyMark: "(warranty)",
     }),
-    "#12 → #88 (warranty)",
+    "old_user → new_user (warranty)",
   );
   assert.equal(
     formatDisputeAccountChip({
       resourceId: 88,
+      resourceLabel: "new_user",
       warranty: true,
       warrantyMark: "(warranty)",
     }),
-    "#88 (warranty)",
+    "new_user (warranty)",
   );
   assert.equal(
     formatDisputeAccountChip({
@@ -153,7 +156,7 @@ test("warranty chips mark the first replacement hop", () => {
       replacementId: 99,
       warranty: false,
     }),
-    "#88 → #99",
+    "••• → •••",
   );
 });
 

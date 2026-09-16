@@ -33,18 +33,30 @@ MARKETPLACE_LABEL = "Marketplace"
 _ESCALATE_MESSAGE_NS = uuid.UUID("6b1f0c2e-4d3a-4f5b-9c8d-7e6f5a4b3c2d")
 
 
-def _resource_id_preview(ids: list[int], limit: int = _REMEDY_ALERT_ID_LIMIT) -> str:
-    labels = [f"#{resource_id}" for resource_id in ids[:limit]]
-    extra = len(ids) - limit
+def _line_preview(lines: list[int], limit: int = _REMEDY_ALERT_ID_LIMIT) -> str:
+    """`dòng 1, 2, +3` — stock lines as the buyer sees them, never row ids."""
+    labels = [str(line) for line in lines[:limit]]
+    extra = len(lines) - limit
     if extra > 0:
         labels.append(f"+{extra}")
-    return ", ".join(labels)
+    return "dòng " + ", ".join(labels)
 
 
-def _remedy_alert_href(order_id: int, resource_ids: list[int], *, seller: bool) -> str:
-    shown = ",".join(str(resource_id) for resource_id in resource_ids[:_REMEDY_ALERT_HREF_ID_LIMIT])
+def _remedy_alert_href(order: Order, lines: list[int], *, seller: bool) -> str:
+    """Deep link by order code plus 1-based stock lines to highlight; the
+    frontend maps lines back to resources once it has loaded the order."""
+    shown = ",".join(str(line) for line in lines[:_REMEDY_ALERT_HREF_ID_LIMIT])
     path = "/seller/orders" if seller else "/orders"
-    return f"{path}?order_id={order_id}&resources={shown}"
+    return f"{path}?order={order.order_code}&lines={shown}"
+
+
+async def _order_line_numbers(order_id: int, db: AsyncSession) -> dict[int, int]:
+    """resource id → 1-based position in the order's stock list (sorted by
+    id, the order GET /orders/{ref}/resources returns)."""
+    rows = (await db.execute(
+        select(Resource.id).where(Resource.order_id == order_id).order_by(Resource.id)
+    )).scalars().all()
+    return {resource_id: index + 1 for index, resource_id in enumerate(rows)}
 
 
 async def _refresh_order_delivered_data(order: Order, db: AsyncSession) -> None:
@@ -70,26 +82,26 @@ async def _notify_resource_remedy(
 ) -> None:
     from src.alerts.service import add_alert
 
-    original_ids = [resource.id for resource in originals]
-    replacement_ids = [resource.id for resource in replacements]
-    highlight_ids = original_ids + replacement_ids
-    preview = _resource_id_preview(original_ids, _REMEDY_ALERT_ID_LIMIT)
+    line_of = await _order_line_numbers(order.id, db)
+    original_lines = [line_of[r.id] for r in originals if r.id in line_of]
+    replacement_lines = [line_of[r.id] for r in replacements if r.id in line_of]
+    highlight_lines = original_lines + replacement_lines
+    preview = _line_preview(original_lines, _REMEDY_ALERT_ID_LIMIT)
+    code = order.order_code
     if action == "refund":
-        buyer_message = (
-            f"Đơn #{order.id}: seller hoàn {len(original_ids)} tài khoản ({preview})."
-        )
-        seller_message = (
-            f"Đơn #{order.id}: đã hoàn {len(original_ids)} tài khoản cho buyer ({preview})."
-        )
+        buyer_message = f"Đơn {code}: seller hoàn {len(originals)} tài khoản ({preview})."
+        seller_message = f"Đơn {code}: đã hoàn {len(originals)} tài khoản cho buyer ({preview})."
     else:
         pairs = ", ".join(
-            f"#{original.id} → #{replacement.id}"
+            f"{line_of.get(original.id, '?')} → {line_of.get(replacement.id, '?')}"
             for original, replacement in zip(originals, replacements, strict=True)
         )
         if len(pairs) > 180:
-            pairs = _resource_id_preview(original_ids, _REMEDY_ALERT_ID_LIMIT)
-        buyer_message = f"Đơn #{order.id}: seller đổi {len(original_ids)} tài khoản ({pairs})."
-        seller_message = f"Đơn #{order.id}: đã đổi {len(original_ids)} tài khoản cho buyer ({pairs})."
+            pairs = _line_preview(original_lines, _REMEDY_ALERT_ID_LIMIT)
+        else:
+            pairs = f"dòng {pairs}"
+        buyer_message = f"Đơn {code}: seller đổi {len(originals)} tài khoản ({pairs})."
+        seller_message = f"Đơn {code}: đã đổi {len(originals)} tài khoản cho buyer ({pairs})."
     await add_alert(
         db,
         type_="buyer_dispute_resource_resolved",
@@ -97,7 +109,7 @@ async def _notify_resource_remedy(
         target_type="buyer",
         target_id=order.buyer_id,
         message=buyer_message,
-        href=_remedy_alert_href(order.id, highlight_ids, seller=False),
+        href=_remedy_alert_href(order, highlight_lines, seller=False),
     )
     await add_alert(
         db,
@@ -106,7 +118,7 @@ async def _notify_resource_remedy(
         target_type="seller",
         target_id=order.seller_id,
         message=seller_message,
-        href=_remedy_alert_href(order.id, highlight_ids, seller=True),
+        href=_remedy_alert_href(order, highlight_lines, seller=True),
     )
 
 

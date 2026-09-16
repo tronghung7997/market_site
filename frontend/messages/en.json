@@ -3542,6 +3542,7 @@
     "sellerEmpty": "No reviews for this product yet.",
     "noUnreplied": "No reviews waiting for a reply.",
     "buyer": "Buyer #{id}",
+    "buyerUnknown": "Buyer",
     "hiddenByAdmin": "Hidden by admin",
     "awaitingReply": "Awaiting reply",
     "noComment": "Star rating only, no comment.",

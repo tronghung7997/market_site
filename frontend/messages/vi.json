@@ -3542,6 +3542,7 @@
     "sellerEmpty": "Chưa có đánh giá nào cho sản phẩm này.",
     "noUnreplied": "Không còn đánh giá nào chờ trả lời.",
     "buyer": "Người mua #{id}",
+    "buyerUnknown": "Người mua",
     "hiddenByAdmin": "Admin đã ẩn",
     "awaitingReply": "Chưa trả lời",
     "noComment": "Khách chỉ chấm sao, không viết nhận xét.",

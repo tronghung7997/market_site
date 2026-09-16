@@ -5,6 +5,7 @@ import type {
   SellerReview,
   SellerReviewList,
   PublicReviewList,
+  SearchSuggest,
 } from "./types";
 import type { PaginatedDisputes, SitePageAdmin, SitePageCreate, SitePageUpdate } from "./types";
 import type { PaginatedAdminProducts, PaginatedInventoryVariants, PaginatedSellerProducts } from "./types";
@@ -193,7 +194,7 @@ export const api = {
     fulfillment?: "instant";
     minPrice?: number;
     maxPrice?: number;
-    sort?: "newest" | "bestseller" | "rating" | "price_asc" | "price_desc";
+    sort?: "relevance" | "newest" | "bestseller" | "rating" | "price_asc" | "price_desc";
     page?: number;
     perPage?: number;
     signal?: AbortSignal;
@@ -212,6 +213,9 @@ export const api = {
     const qs = q.toString();
     return request<PaginatedProducts>(`/products${qs ? `?${qs}` : ""}`, { signal: opts.signal });
   },
+  /** Typeahead for the command palette: a few ranked hits per group, cached briefly server-side. */
+  searchSuggest: (q: string, opts: { signal?: AbortSignal } = {}) =>
+    request<SearchSuggest>(`/search/suggest?q=${encodeURIComponent(q)}`, { signal: opts.signal }),
   productsBySeller: (sellerRef: string) =>
     request<PaginatedProducts>(`/products?seller=${encodeURIComponent(sellerRef)}&per_page=100`),
   /** `ref` is `{slug}-{key}`, a bare key, or a legacy numeric id. */

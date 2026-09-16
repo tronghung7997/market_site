@@ -17,6 +17,9 @@ export const queryKeys = {
 
   // Products
   products: () => ["products"] as const,
+  // Storefront search — typeahead keyed by locale + normalised query.
+  searchSuggest: (locale: string, q: string) => ["search", "suggest", locale, q] as const,
+  categoriesTree: () => ["categories"] as const,
   sellerReviews: (params?: Record<string, unknown>) =>
     params ? (["seller-reviews", params] as const) : (["seller-reviews"] as const),
   adminReviews: (params?: Record<string, unknown>) =>

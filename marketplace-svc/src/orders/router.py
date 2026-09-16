@@ -15,6 +15,7 @@ from src.models.service_task import ServiceTask
 from src.usage.service import get_usage_summary
 
 from . import schemas, service
+from src.orders.refs import OrderRef
 
 router = APIRouter(tags=["orders"])
 
@@ -54,34 +55,51 @@ async def order_stats(account: Account = Depends(get_current_account), db: Async
     return await service.buyer_order_stats(account.id, db)
 
 
-@router.get("/orders/{order_id}", response_model=schemas.OrderResponse)
-async def get_order(order_id: int, account: Account = Depends(get_current_account), db: AsyncSession = Depends(get_session)):
+@router.get("/orders/{order_ref}", response_model=schemas.OrderResponse)
+async def get_order(order_id: OrderRef, account: Account = Depends(get_current_account), db: AsyncSession = Depends(get_session)):
     return await service.get_order(order_id, account.id, db)
 
 
-@router.post("/orders/{order_id}/confirm", response_model=schemas.OrderResponse)
-async def confirm_order(order_id: int, account: Account = Depends(get_current_account), db: AsyncSession = Depends(get_session)):
+@router.post("/orders/{order_ref}/confirm", response_model=schemas.OrderResponse)
+async def confirm_order(order_id: OrderRef, account: Account = Depends(get_current_account), db: AsyncSession = Depends(get_session)):
     return await service.confirm_order(order_id, account.id, db)
 
 
-@router.get("/seller/orders", response_model=list[schemas.OrderResponse])
-async def seller_orders(account: Account = Depends(get_seller_account), db: AsyncSession = Depends(get_session)):
-    return await service.list_seller_orders(account.id, db)
+@router.get("/seller/orders", response_model=schemas.PaginatedSellerOrderResponse)
+async def seller_orders(
+    account: Account = Depends(get_seller_account),
+    db: AsyncSession = Depends(get_session),
+    tab: str = Query("all", pattern="^(all|disputed|action_required|escrow|completed|cancelled)$"),
+    search: str | None = Query(None, max_length=200),
+    product_id: int | None = Query(None, ge=1),
+    product: str | None = Query(None, max_length=64, description="Product public key (what seller URLs carry); overrides product_id"),
+    kind: str | None = Query(None, pattern="^(instant|manual|api|task|proxy)$"),
+    date_from: str | None = Query(None),
+    date_to: str | None = Query(None),
+    sort: str = Query("newest", pattern="^(newest|oldest|amount_desc|amount_asc)$"),
+    page: int = Query(1, ge=1),
+    per_page: int = Query(20, ge=1, le=100),
+):
+    return await service.list_seller_orders(
+        account.id, db,
+        tab=tab, search=search, product_id=product_id, product_key=product, kind=kind,
+        date_from=date_from, date_to=date_to, sort=sort, page=page, per_page=per_page,
+    )
 
 
-@router.post("/seller/orders/{order_id}/accept", response_model=schemas.OrderResponse)
-async def accept(order_id: int, account: Account = Depends(get_seller_account), db: AsyncSession = Depends(get_session)):
+@router.post("/seller/orders/{order_ref}/accept", response_model=schemas.OrderResponse)
+async def accept(order_id: OrderRef, account: Account = Depends(get_seller_account), db: AsyncSession = Depends(get_session)):
     return await service.accept_order(order_id, account.id, db)
 
 
-@router.post("/seller/orders/{order_id}/deliver", response_model=schemas.OrderResponse)
-async def deliver(order_id: int, body: schemas.ManualDeliverRequest, account: Account = Depends(get_seller_account), db: AsyncSession = Depends(get_session)):
+@router.post("/seller/orders/{order_ref}/deliver", response_model=schemas.OrderResponse)
+async def deliver(order_id: OrderRef, body: schemas.ManualDeliverRequest, account: Account = Depends(get_seller_account), db: AsyncSession = Depends(get_session)):
     return await service.deliver_order(order_id, account.id, body.data, db)
 
 
-@router.get("/orders/{order_id}/dashboard")
+@router.get("/orders/{order_ref}/dashboard")
 async def order_dashboard(
-    order_id: int,
+    order_id: OrderRef,
     account: Account = Depends(get_current_account),
     db: AsyncSession = Depends(get_session),
 ):

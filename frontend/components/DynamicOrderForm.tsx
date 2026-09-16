@@ -2,6 +2,7 @@
 
 import { useCallback, useEffect, useRef, useState } from "react";
 import { useRouter } from "next/navigation";
+import { usePathname } from "@/i18n/navigation";
 import { useLocale, useTranslations } from "next-intl";
 import { api } from "@/lib/api";
 import { useApiErrorMessage } from "@/lib/use-api-error";
@@ -10,6 +11,7 @@ import { useMoney } from "@/lib/money";
 import { MAX_ORDER_QUANTITY } from "@/lib/order-limits";
 import type { CalculateResult, Order, PricingField, PricingOptions, ProductDetail } from "@/lib/types";
 import { Banner, Button, Card, Input, Select, Tag, Textarea } from "@/components/ui";
+import { EscrowHelp } from "@/components/products/EscrowHelp";
 import { Info, Shield } from "@/components/Icons";
 
 interface Props {
@@ -34,6 +36,7 @@ function FormShell({ title, children }: { title: string; children: React.ReactNo
 
 export default function DynamicOrderForm({ productId, product, onOrderCreated }: Props) {
   const router = useRouter();
+  const pathname = usePathname();
   const { account } = useAuth();
   const locale = useLocale();
   const t = useTranslations("products");
@@ -182,7 +185,8 @@ export default function DynamicOrderForm({ productId, product, onOrderCreated }:
   };
 
   const handleSubmit = async () => {
-    if (!account) { router.push(`/login?next=/products/${productId}`); return; }
+    // Come back to this (canonical, id-free) product page after login.
+    if (!account) { router.push(`/login?next=${encodeURIComponent(pathname)}`); return; }
     setShowConfirm(true);
   };
 
@@ -373,7 +377,7 @@ export default function DynamicOrderForm({ productId, product, onOrderCreated }:
 
           <p className="text-[11.5px] text-faint leading-relaxed text-center">
             <Shield size={11} className="inline -mt-0.5 mr-0.5 text-good" />
-            {t("escrowNote", { days: product.escrow_days })}
+            {t("escrowNote", { days: product.escrow_days })} <EscrowHelp days={product.escrow_days} className="align-middle" />
           </p>
         </div>
       </Card>

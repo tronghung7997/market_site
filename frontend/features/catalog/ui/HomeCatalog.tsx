@@ -9,6 +9,8 @@ import { effectiveMinPrice } from "@/lib/pricing-display";
 import { flattenCategories, subtreeIds } from "@/lib/categories";
 import { useAuth } from "@/lib/auth";
 import type { Order } from "@/lib/types";
+import { categoryPath } from "@/lib/routes";
+import { stockRank } from "@/lib/stock";
 import { Button, Card, Spinner } from "@/components/ui";
 import { ArrowRight, Check } from "@/components/Icons";
 import { categoryCoverId, ProductCover } from "@/features/product-covers";
@@ -52,7 +54,6 @@ function HomeInner({ initial }: { initial: HomeCatalog }) {
 
   const flatCats = useMemo(() => flattenCategories(cats), [cats]);
   const catName = (id: number) => flatCats.find((c) => c.id === id)?.name ?? "—";
-  const stock = (p: typeof products[number]) => (p.variants ?? []).reduce((s, v) => s + (v.stock_count ?? 0), 0);
   const minPrice = (p: typeof products[number]) => effectiveMinPrice(p);
   const categoryCount = (categoryId: number) => {
     if (!initial.summary) return null;
@@ -64,7 +65,10 @@ function HomeInner({ initial }: { initial: HomeCatalog }) {
     );
   };
 
-  const featured = [...products].sort((a, b) => stock(b) - stock(a)).slice(0, 3);
+  // Most available first, then best sellers — no exact stock numbers on the storefront.
+  const featured = [...products]
+    .sort((a, b) => stockRank(b.variants) - stockRank(a.variants) || b.sold_count - a.sold_count)
+    .slice(0, 3);
 
   return (
     <div>
@@ -94,7 +98,7 @@ function HomeInner({ initial }: { initial: HomeCatalog }) {
             </div>
           </div>
 
-          <PriceBoard products={products} catName={catName} stock={stock} minPrice={minPrice} loading={loading} />
+          <PriceBoard products={products} catName={catName} minPrice={minPrice} loading={loading} />
         </div>
       </section>
 
@@ -117,7 +121,7 @@ function HomeInner({ initial }: { initial: HomeCatalog }) {
               .map((c) => ({ c, count: categoryCount(c.id) }))
               .filter((x) => x.count == null || x.count > 0)
               .map(({ c, count }) => (
-                <Link key={c.id} href={`/categories/${c.id}`} className="block">
+                <Link key={c.id} href={categoryPath(c)} className="block">
                   <Card interactive className="p-3 sm:p-5 h-full">
                     <ProductCover
                       coverId={categoryCoverId(c)}
@@ -140,7 +144,6 @@ function HomeInner({ initial }: { initial: HomeCatalog }) {
         active={active}
         setActive={setActive}
         catName={catName}
-        stock={stock}
         minPrice={minPrice}
         loading={loading}
         error={error}

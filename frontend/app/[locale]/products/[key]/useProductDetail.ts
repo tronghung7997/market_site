@@ -1,0 +1,83 @@
+/** Data của trang sản phẩm — một hook gói trọn 3 lần fetch: chi tiết sản phẩm,
+ *  pricing strategy (quyết định form đặt hàng nào), và sản phẩm liên quan.
+ *  Interface: chỉ dữ liệu ra, không lộ useEffect nào cho page. */
+
+import { useEffect, useState } from "react";
+import { useTranslations } from "next-intl";
+import { api } from "@/lib/api";
+import { useApiErrorMessage } from "@/lib/use-api-error";
+import type { Product, ProductDetail } from "@/lib/types";
+import type { ProductPageCatalog } from "@/features/catalog";
+import { productKeyFromParam } from "@/lib/routes";
+
+/** Does the server-loaded product belong to this route param (key, or legacy id)? */
+function matchesRef(product: ProductDetail, ref: string): boolean {
+  const key = productKeyFromParam(ref);
+  return key ? product.public_key === key : String(product.id) === ref;
+}
+
+export interface ProductDetailState {
+  product: ProductDetail | null;
+  related: Product[];
+  /** null = đang tải; "fixed" = flow variant; khác = DynamicOrderForm. */
+  pricingStrategy: string | null;
+  loading: boolean;
+  error: string | null;
+}
+
+export function useProductDetail(ref: string, initial?: ProductPageCatalog | null): ProductDetailState {
+  const t = useTranslations("products");
+  const apiErrorMessage = useApiErrorMessage();
+  const [product, setProduct] = useState<ProductDetail | null>(initial?.product ?? null);
+  const [related, setRelated] = useState<Product[]>(initial?.related ?? []);
+  const [pricingStrategy, setPricingStrategy] = useState<string | null>(initial?.pricingStrategy ?? null);
+  const [loading, setLoading] = useState(!initial?.product);
+  const [error, setError] = useState<string | null>(initial?.error && !initial.product ? initial.error : null);
+
+  useEffect(() => {
+    if (initial?.product && matchesRef(initial.product, ref)) {
+      setProduct(initial.product);
+      setRelated(initial.related);
+      setPricingStrategy(initial.pricingStrategy);
+      setLoading(false);
+      setError(null);
+      return;
+    }
+    setLoading(true);
+    (async () => {
+      try {
+        const p = await api.product(ref);
+        setProduct(p);
+        try {
+          const opts = await api.pricingOptions(p.id);
+          setPricingStrategy(opts.strategy);
+        } catch {
+          setPricingStrategy("fixed"); // fallback to fixed/variant flow
+        }
+        if (p.category_id) {
+          try {
+            // Chỉ cần 3 tile gợi ý — lấy 1 trang nhỏ nhất đủ lọc trùng, đừng
+            // kéo cả danh mục về (1000 sản phẩm chung danh mục = payload phí).
+            const page1 = await api.products({ categoryId: p.category_id, page: 1, perPage: 24 });
+            const seen = new Set<string>();
+            setRelated(page1.items.filter((r) => {
+              if (r.id === p.id) return false;
+              // Trùng tên với sản phẩm đang xem → buyer tưởng trang tự lặp lại chính nó.
+              if (r.title === p.title) return false;
+              if (r.title.length < 3) return false;
+              if (seen.has(r.title)) return false;
+              seen.add(r.title);
+              return true;
+            }).slice(0, 3));
+          } catch { /* ignore */ }
+        }
+      } catch (error) {
+        setError(apiErrorMessage(error, t("notFound")));
+      } finally {
+        setLoading(false);
+      }
+    })();
+  }, [apiErrorMessage, ref, initial, t]);
+
+  return { product, related, pricingStrategy, loading, error };
+}

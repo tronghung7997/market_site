@@ -1,12 +1,15 @@
 "use client";
 
 import { Link } from "@/i18n/navigation";
+import { useVariantTermFor } from "@/lib/variant-term";
+import { AdminReviewsPanel } from "@/features/reviews";
 import { useTranslations } from "next-intl";
 import { useParams, usePathname, useRouter, useSearchParams } from "next/navigation";
 import { useEffect, useState } from "react";
 import { api, vnd } from "@/lib/api";
 import { useApiErrorMessage } from "@/lib/use-api-error";
 import type { AdminProductDetail as AdminProductDetailData, Category, ProductLocale, ProductOperations, ProductPricingLabels, Provider } from "@/lib/types";
+import { productPath } from "@/lib/routes";
 import { Button, Banner, Card, Field, Input, Select, Spinner, Tag, Textarea } from "@/components/ui";
 import { ArrowRight, Check, Edit2, Eye, Info, Sliders, Users } from "@/components/Icons";
 import { STRATEGY_INFO, STRATEGY_FORMULAS, ADAPTER_INFO } from "@/lib/pricing-config";
@@ -51,6 +54,7 @@ export default function AdminProductDetail() {
   const apiErrorMessage = useApiErrorMessage();
   const t = useTranslations("seller");
   const tp = useTranslations("products");
+  const termFor = useVariantTermFor();
   const { id, locale: interfaceLocaleParam } = useParams<{ id: string; locale: string }>();
   const router = useRouter();
   const pathname = usePathname();
@@ -245,14 +249,15 @@ export default function AdminProductDetail() {
   // "hoạt động" dù sản phẩm đang bị chặn bán.
   const fulfillmentReady = !ops.needs_setup;
   const buyerFulfillment = fulfillmentFromProduct(product);
+  const term = termFor(product.service_type);
   const pipelineMap: Record<string, { label: string; active: boolean }[]> = {
     fixed: buyerFulfillment.kind === "sla" ? [
-      { label: tp("pipeline.pickVariant"), active: true },
+      { label: tp("pipeline.pickVariant", { ...term }), active: true },
       { label: tp("pipeline.fixedPrice"), active: true },
       { label: tp("pipeline.waitSeller"), active: fulfillmentReady },
       { label: tp("pipeline.deliverSla"), active: fulfillmentReady },
     ] : [
-      { label: tp("pipeline.pickVariant"), active: true },
+      { label: tp("pipeline.pickVariant", { ...term }), active: true },
       { label: tp("pipeline.fixedPrice"), active: true },
       { label: tp("pipeline.takeFromStock"), active: fulfillmentReady },
       { label: tp("pipeline.deliverNow"), active: fulfillmentReady },
@@ -303,7 +308,7 @@ export default function AdminProductDetail() {
         </div>
         <div className="flex flex-wrap items-center gap-2">
           {dirty && <Button size="sm" disabled={saving} onClick={handleSave}>{saving ? "Đang lưu..." : "Lưu cấu hình vận hành"}</Button>}
-          <Link href={`/products/${id}`} locale={contentLocale}>
+          <Link href={productPath(product)} locale={contentLocale}>
             <Button size="sm" variant="secondary"><Eye size={14} /> {t("viewLanguage", { language: productLanguageName(contentLocale, interfaceLocale) })}</Button>
           </Link>
         </div>
@@ -677,6 +682,14 @@ export default function AdminProductDetail() {
           <AdminProductMetric label="Trạng thái nhà cung cấp" value={healthLabel} tone={health === "healthy" ? "good" : health === "degraded" ? "warn" : "bad"} />
         </div>
       </Card>
+      </section>
+
+      <section className="space-y-4" aria-labelledby="reviews-heading">
+        <div>
+          <h2 id="reviews-heading" className="text-[16px] font-semibold text-fg">Đánh giá của khách</h2>
+          <p className="text-[12px] text-muted">Ẩn đánh giá vi phạm khỏi trang mua — tiền và đơn hàng không bị ảnh hưởng; có thể hiện lại bất kỳ lúc nào.</p>
+        </div>
+        <AdminReviewsPanel productId={product.id} />
       </section>
     </div>
   );

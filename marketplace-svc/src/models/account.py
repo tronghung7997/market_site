@@ -6,6 +6,7 @@ from sqlalchemy.dialects.postgresql import ARRAY
 from sqlalchemy.orm import Mapped, mapped_column
 
 from src.database import Base
+from src.i18n.slug import new_public_key
 
 
 class AccountRole(str, PyEnum):
@@ -26,6 +27,8 @@ class Account(Base):
 
     id: Mapped[int] = mapped_column(primary_key=True)
     email: Mapped[str] = mapped_column(String(255), unique=True, nullable=False)
+    # Opaque public identity (seller URLs, chat counterparts). Never the id.
+    public_key: Mapped[str] = mapped_column(String(12), unique=True, nullable=False, default=new_public_key)
     password_hash: Mapped[str] = mapped_column(String(255), nullable=False)
     roles: Mapped[list[str]] = mapped_column(ARRAY(String), default=["buyer"])
     is_active: Mapped[bool] = mapped_column(default=True)

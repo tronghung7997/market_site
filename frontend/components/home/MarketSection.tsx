@@ -9,10 +9,13 @@ import { Link } from "@/i18n/navigation";
 import { useEffect, useRef, useState } from "react";
 import { useLocale, useTranslations } from "next-intl";
 import { useMoney } from "@/lib/money";
+import { useVariantTermFor } from "@/lib/variant-term";
 import { api } from "@/lib/api";
 import { cn } from "@/lib/cn";
 import { categoryCoverId, parseCoverId } from "@/lib/product-covers";
 import type { Category, Product } from "@/lib/types";
+import { productPath } from "@/lib/routes";
+import { productStockState } from "@/lib/stock";
 import { fulfillmentFromProduct, fulfillmentTagKey, fulfillmentTagValues, fulfillmentTone } from "@/lib/fulfillment";
 import { Button, Card, Input, Spinner, Tag } from "@/components/ui";
 import { ProductCover } from "@/components/products/ProductCover";
@@ -41,20 +44,20 @@ export function ChevronIcon({ open }: { open: boolean }) {
   );
 }
 
-export function MarketSection({ products, initialTotal, flatCats, active, setActive, catName, stock, minPrice, loading, error }: {
+export function MarketSection({ products, initialTotal, flatCats, active, setActive, catName, minPrice, loading, error }: {
   products: Product[];
   initialTotal: number;
   flatCats: Category[];
   active: number | null;
   setActive: (id: number | null) => void;
   catName: (id: number) => string;
-  stock: (p: Product) => number;
   minPrice: (p: Product) => number;
   loading: boolean;
   error: string | null;
 }) {
   const t = useTranslations("home");
   const tp = useTranslations("products");
+  const termFor = useVariantTermFor();
   const locale = useLocale();
   const { formatBrowseMoney } = useMoney();
   const [q, setQ] = useState("");
@@ -201,18 +204,19 @@ export function MarketSection({ products, initialTotal, flatCats, active, setAct
             </thead>
             <tbody>
               {visible.map((p) => {
-                const inStock = stock(p) > 0;
+                const stockState = productStockState(p.variants);
+                const inStock = stockState === "in_stock" || stockState === "low";
                 const hasPackages = (p.variants?.length ?? 0) > 0;
                 return (
                   <tr key={p.id} className="border-b border-line last:border-0 hover:bg-raised transition-colors">
                     <td className="px-5 py-3">
-                      <Link href={`/products/${p.id}`} className="flex items-center gap-3">
+                      <Link href={productPath(p)} className="flex items-center gap-3">
                         <ProductCover coverId={parseCoverId(p)} title={p.title} />
                         <span className="min-w-0">
                           <span className="block font-medium text-[13.5px] truncate">{p.title}</span>
                           <span className="flex items-center gap-1.5 text-[12px] text-faint">
                             <Tag tone={fulfillmentTone(fulfillmentFromProduct(p).kind)}>{tp(fulfillmentTagKey(fulfillmentFromProduct(p)), fulfillmentTagValues(fulfillmentFromProduct(p)))}</Tag>
-                            {hasPackages ? t("packageCount", { count: p.variants?.length ?? 0 }) : t("configuredToOrder")} <Verified size={11} className="text-iris" />
+                            {hasPackages ? t("packageCount", { count: p.variants?.length ?? 0, ...termFor(p.service_type) }) : t("configuredToOrder")} <Verified size={11} className="text-iris" />
                             {p.rating_avg != null && p.rating_avg > 0 && <><Star size={11} className="text-warn fill-warn" /> {p.rating_avg.toFixed(1)}</>}
                             {p.sold_count > 0 && <span>· {t("sold", { count: p.sold_count })}</span>}
                           </span>
@@ -220,11 +224,11 @@ export function MarketSection({ products, initialTotal, flatCats, active, setAct
                       </Link>
                     </td>
                     <td className="px-3 py-3 text-[13px] text-muted hidden sm:table-cell">{catName(p.category_id)}</td>
-                    <td className="px-3 py-3">{inStock ? <Tag tone="good">● {stock(p)}</Tag> : <Tag tone="warn">{t("onRequest")}</Tag>}</td>
+                    <td className="px-3 py-3">{inStock ? <Tag tone={stockState === "low" ? "warn" : "good"}>● {stockState === "low" ? t("lowStock") : t("inStockShort")}</Tag> : <Tag tone="warn">{t("onRequest")}</Tag>}</td>
                     <td className="px-3 py-3 text-[13px] text-muted hidden md:table-cell">{t("days", { count: p.escrow_days })}</td>
                     <td className="px-3 py-3 text-right font-mono text-[13.5px] font-semibold tabular">{formatBrowseMoney(minPrice(p), { locale })}</td>
                     <td className="px-5 py-3 text-right">
-                      <Link href={`/products/${p.id}`}><Button size="sm" variant="secondary">{t("view")}</Button></Link>
+                      <Link href={productPath(p)}><Button size="sm" variant="secondary">{t("view")}</Button></Link>
                     </td>
                   </tr>
                 );
@@ -236,10 +240,11 @@ export function MarketSection({ products, initialTotal, flatCats, active, setAct
       ) : (
         <div className="grid gap-2.5 sm:gap-4 grid-cols-2 sm:[grid-template-columns:repeat(auto-fill,minmax(280px,1fr))]">
           {visible.map((p, i) => {
-            const inStock = stock(p) > 0;
+            const stockState = productStockState(p.variants);
+            const inStock = stockState === "in_stock" || stockState === "low";
             const hasPackages = (p.variants?.length ?? 0) > 0;
             return (
-              <Link key={p.id} href={`/products/${p.id}`} className="animate-rise" style={{ animationDelay: `${i * 40}ms` }}>
+              <Link key={p.id} href={productPath(p)} className="animate-rise" style={{ animationDelay: `${i * 40}ms` }}>
                 <Card interactive className="p-3 sm:p-4 h-full">
                   <div className="flex items-start gap-2 sm:gap-3">
                     <ProductCover coverId={parseCoverId(p)} title={p.title} className="h-8 w-8 sm:h-10 sm:w-10" />
@@ -251,7 +256,7 @@ export function MarketSection({ products, initialTotal, flatCats, active, setAct
                       <div className="text-[11px] sm:text-[12px] text-faint mt-0.5 truncate">{catName(p.category_id)}</div>
                       <div className="mt-2 sm:mt-3 flex items-center gap-1.5 sm:gap-2 flex-wrap">
                         <Tag tone={fulfillmentTone(fulfillmentFromProduct(p).kind)}>{tp(fulfillmentTagKey(fulfillmentFromProduct(p)), fulfillmentTagValues(fulfillmentFromProduct(p)))}</Tag>
-                        {inStock ? <Tag tone="good">● {t("inStock", { count: stock(p) })}</Tag> : <Tag tone="warn">{hasPackages ? t("outOfStock") : t("onRequest")}</Tag>}
+                        {inStock ? <Tag tone={stockState === "low" ? "warn" : "good"}>● {stockState === "low" ? t("lowStock") : t("inStockShort")}</Tag> : <Tag tone="warn">{hasPackages ? t("outOfStock") : t("onRequest")}</Tag>}
                         <Tag tone="neutral"><Shield size={11} /> {p.escrow_days}d</Tag>
                       </div>
                     </div>

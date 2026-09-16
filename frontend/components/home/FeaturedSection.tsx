@@ -6,9 +6,11 @@
 import { Link } from "@/i18n/navigation";
 import { useLocale, useTranslations } from "next-intl";
 import { useMoney } from "@/lib/money";
+import { useVariantTermFor } from "@/lib/variant-term";
 import { cn } from "@/lib/cn";
 import { parseCoverId } from "@/lib/product-covers";
 import type { Product } from "@/lib/types";
+import { productPath } from "@/lib/routes";
 import { fulfillmentFromProduct, fulfillmentTagKey, fulfillmentTagValues, fulfillmentTone } from "@/lib/fulfillment";
 import { Card, Tag } from "@/components/ui";
 import { ProductCover } from "@/components/products/ProductCover";
@@ -22,6 +24,7 @@ export function FeaturedSection({ featured, catName, minPrice }: {
 }) {
   const t = useTranslations("home");
   const tp = useTranslations("products");
+  const termFor = useVariantTermFor();
   const locale = useLocale();
   const { formatBrowseMoney } = useMoney();
   if (featured.length === 0) return null;
@@ -36,8 +39,9 @@ export function FeaturedSection({ featured, catName, minPrice }: {
           {featured.map((p) => {
             const mp = minPrice(p);
             const variants = p.variants ?? [];
+            const term = termFor(p.service_type);
             return (
-              <Link key={p.id} href={`/products/${p.id}`} className="group">
+              <Link key={p.id} href={productPath(p)} className="group">
                 <Card className="p-0 flex flex-col h-full overflow-hidden transition-all duration-150 group-hover:shadow-card-lg group-hover:-translate-y-0.5">
                   {/* Header */}
                   <div className="px-3 pt-3 pb-2.5 sm:px-5 sm:pt-5 sm:pb-4">
@@ -75,7 +79,7 @@ export function FeaturedSection({ featured, catName, minPrice }: {
                         </div>
                       ))}
                       {variants.length > 3 && (
-                        <div className="text-[11.5px] text-faint pb-1 hidden sm:block">{t("morePackages", { count: variants.length - 3 })}</div>
+                        <div className="text-[11.5px] text-faint pb-1 hidden sm:block">{t("morePackages", { count: variants.length - 3, ...term })}</div>
                       )}
                     </div>
                   </div>
@@ -89,7 +93,7 @@ export function FeaturedSection({ featured, catName, minPrice }: {
                       </div>
                     </div>
                     <span className="inline-flex items-center gap-1 sm:gap-1.5 text-[11px] sm:text-[12.5px] font-medium text-iris group-hover:text-iris-hi transition-colors">
-                      <span className="hidden sm:inline">{t("choosePackage")}</span> <ArrowRight size={14} />
+                      <span className="hidden sm:inline">{t("choosePackage", { ...term })}</span> <ArrowRight size={14} />
                     </span>
                   </div>
                 </Card>

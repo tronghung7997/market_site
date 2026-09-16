@@ -177,10 +177,12 @@ export function formatDisputeAccountChip(input: {
   warranty?: boolean;
   warrantyMark?: string;
 }): string {
-  const left = `#${input.resourceId}${input.resourceLabel ? ` ${input.resourceLabel}` : ""}`;
+  // Row ids never surface: the chip is the credential preview (or a bullet
+  // while it is still loading), plus the warranty mark.
+  const left = input.resourceLabel || "•••";
   const mark = input.warranty && input.warrantyMark ? ` ${input.warrantyMark}` : "";
   if (input.replacementId) {
-    const right = `#${input.replacementId}${input.replacementLabel ? ` ${input.replacementLabel}` : ""}`;
+    const right = input.replacementLabel || "•••";
     return `${left} → ${right}${mark}`;
   }
   return `${left}${mark}`;

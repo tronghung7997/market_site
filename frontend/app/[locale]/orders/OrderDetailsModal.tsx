@@ -22,8 +22,10 @@ import {
   resourceLabelMap,
   resourceWarrantyGeneration,
 } from "@/lib/dispute-case";
+import { lineLabel, resourceLineMap } from "@/lib/order-ref";
 import { DeliveryAccountBadge } from "@/components/orders/DeliveryAccountBadge";
 import { canOpenDispute, displayOrderStatus, hasOpenDispute } from "@/lib/order-status";
+import { useVariantTermFor } from "@/lib/variant-term";
 import { formatDate, formatDateTime } from "@/lib/utils";
 import { useMoney } from "@/lib/money";
 import { api } from "@/lib/api";
@@ -61,8 +63,10 @@ export default function OrderDetailsModal({
   onPlate,
   onDisputeChanged,
   highlightResourceIds = [],
+  highlightLines = [],
   lockDismiss = false,
   open = true,
+  initialTab,
 }: {
   order: Order;
   onClose: () => void;
@@ -77,10 +81,15 @@ export default function OrderDetailsModal({
   onPlate: (orderId: number) => void;
   onDisputeChanged: (order: Order, outcome: "withdrawn") => void;
   highlightResourceIds?: number[];
+  /** 1-based stock lines to highlight (what notifications link to). */
+  highlightLines?: number[];
   lockDismiss?: boolean;
   open?: boolean;
+  /** Land on a specific tab (the orders list's "Đánh giá" link opens straight on review). */
+  initialTab?: "review";
 }) {
   const t = useTranslations("orders");
+  const termFor = useVariantTermFor();
   const tc = useTranslations("common");
   const tcur = useTranslations("currency");
   const locale = useLocale();
@@ -157,8 +166,6 @@ export default function OrderDetailsModal({
   }, [hasCase, o.id, disputeRevision]);
 
   const accountMarks = useMemo(() => deliveryResourceMarks(caseRecord), [caseRecord]);
-  const highlightIds = useMemo(() => new Set(highlightResourceIds), [highlightResourceIds]);
-
   const items: ParsedItem[] = useMemo(() => {
     if (resources.length === 0) return parsedItems;
     return resources.map((resource, idx) => {
@@ -175,6 +182,16 @@ export default function OrderDetailsModal({
     });
   }, [parsedItems, resources]);
 
+  // Highlights arrive as resource ids (in-app) or as line numbers (notification
+  // links, which never carry row ids); both resolve to the same set here.
+  const highlightIds = useMemo(() => {
+    const ids = new Set(highlightResourceIds);
+    for (const item of items) {
+      if (item.resourceId != null && highlightLines.includes(item.id)) ids.add(item.resourceId);
+    }
+    return ids;
+  }, [highlightResourceIds, highlightLines, items]);
+
   const isServiceDelivery = useMemo(() => {
     if (items.length === 0) return false;
     const configCount = items.filter((it) => it.isConfigOrInstruction).length;
@@ -182,7 +199,7 @@ export default function OrderDetailsModal({
   }, [items]);
 
   const [activeTab, setActiveTab] = useState<"data" | "proxy" | "service" | "escrow" | "review" | "dispute">(
-    highlightResourceIds.length > 0 ? "data" : o.has_dispute ? "dispute" : "data",
+    initialTab ?? (highlightResourceIds.length > 0 || highlightLines.length > 0 ? "data" : o.has_dispute ? "dispute" : "data"),
   );
   const [itemSearch, setItemSearch] = useState("");
   const [itemPage, setItemPage] = useState(1);
@@ -202,7 +219,9 @@ export default function OrderDetailsModal({
   const canSelectAccounts = canDispute || canAppendClaims;
   const canConfirm = o.status === "delivered" && !hasOpenDispute(o)
     && (o.capabilities?.can_confirm ?? true);
-  const canReview = o.capabilities?.can_review ?? (o.status === "completed" && !reviewDone);
+  // Reviews open the moment goods are delivered — confirming (releasing escrow) is not required.
+  const canReview = !reviewDone && !o.has_review
+    && (o.capabilities?.can_review ?? ["delivered", "completed"].includes(o.status));
 
   useEffect(() => {
     if (!canConfirm) setAskConfirm(false);
@@ -215,12 +234,14 @@ export default function OrderDetailsModal({
     const q = itemSearch.toLowerCase().replace(/^#/, "");
     return items.filter((it) => {
       if (it.raw.toLowerCase().includes(itemSearch.toLowerCase())) return true;
-      if (it.resourceId != null && String(it.resourceId).includes(q)) return true;
+      // "#03" / "3" finds stock line 3 (line numbers are what the UI shows).
+      if (/^\d+$/.test(q) && Number(q) === it.id) return true;
       return false;
     });
   }, [items, itemSearch]);
 
   const deliveryLabels = useMemo(() => resourceLabelMap(resources), [resources]);
+  const deliveryLines = useMemo(() => resourceLineMap(resources), [resources]);
 
   const selectableFilteredResourceIds = useMemo(
     () => filteredItems.flatMap((item) => {
@@ -248,10 +269,10 @@ export default function OrderDetailsModal({
   }, [filteredItems, itemPage]);
 
   useEffect(() => {
-    if (highlightResourceIds.length === 0 || items.length === 0) return;
+    if (highlightIds.size === 0 || items.length === 0) return;
     const index = items.findIndex((item) => item.resourceId != null && highlightIds.has(item.resourceId));
     if (index >= 0) setItemPage(Math.floor(index / itemsPerPage) + 1);
-  }, [highlightIds, highlightResourceIds.length, items, itemsPerPage]);
+  }, [highlightIds, items, itemsPerPage]);
 
   const totalItemPages = Math.max(1, Math.ceil(filteredItems.length / itemsPerPage));
 
@@ -321,19 +342,19 @@ export default function OrderDetailsModal({
             <div className="min-w-0">
               <div className="flex items-center gap-2 flex-wrap">
                 <h2 className="text-[16px] sm:text-[17px] font-bold text-fg tracking-tight break-words">
-                  {o.product_title ?? tc("orderNumber", { id: o.id })}
+                  {o.product_title ?? tc("orderNumber", { id: o.order_code })}
                 </h2>
                 <Tag tone={st.tone}>{st.label}</Tag>
               </div>
               <div className="flex items-center gap-2 text-[12px] text-muted mt-1 flex-wrap">
-                <span className="font-mono font-bold text-iris">#{o.id}</span>
+                <span className="font-mono font-bold text-iris">#{o.order_code}</span>
                 <span>•</span>
                 <span className="whitespace-nowrap">{formatDateTime(o.created_at, locale)}</span>
                 {o.variant_name && (
                   <>
                     <span>•</span>
                     <span className="font-medium text-fg bg-raised px-2 py-0.5 rounded-md border border-line break-all">
-                      {t("packageNamed", { name: o.variant_name })}
+                      {t("packageNamed", { name: o.variant_name, ...termFor(o.service_type) })}
                     </span>
                   </>
                 )}
@@ -570,7 +591,7 @@ export default function OrderDetailsModal({
                             )}
                             {item.resourceId ? (
                               <span className="font-mono text-[10.5px] font-bold text-iris bg-iris-soft px-1.5 py-0.5 rounded shrink-0">
-                                #{item.resourceId}
+                                {lineLabel(item.id)}
                               </span>
                             ) : showRowIndex ? (
                               <span className="font-mono text-[10.5px] text-faint shrink-0">
@@ -581,8 +602,9 @@ export default function OrderDetailsModal({
                               mark={mark}
                               highlighted={highlighted}
                               formatRefund={formatBrowseMoney}
+                              lineOf={deliveryLines}
                             />
-                            {item.resourceId && itemSearch.replace(/^#/, "") === String(item.resourceId) && !highlighted && (
+                            {item.resourceId && itemSearch.replace(/^#/, "") === String(item.id).padStart(2, "0") && !highlighted && (
                               <span className="shrink-0 rounded-md bg-iris-soft px-1.5 py-0.5 text-[10.5px] font-semibold text-iris-hi">
                                 {t("accountFromTimeline")}
                               </span>
@@ -701,7 +723,8 @@ export default function OrderDetailsModal({
               layout="panel"
               resourceLabels={deliveryLabels}
               onResourceClick={(resourceId) => {
-                setItemSearch(`#${resourceId}`);
+                const line = items.find((item) => item.resourceId === resourceId)?.id;
+                setItemSearch(line ? lineLabel(line) : "");
                 setItemPage(1);
                 setActiveTab("data");
               }}
@@ -781,8 +804,13 @@ export default function OrderDetailsModal({
             <div className="rounded-xl border border-line bg-surface p-4 space-y-3">
               <div className="flex items-center justify-between">
                 <span className="font-semibold text-fg text-[13.5px]">{t("reviewSeller")}</span>
-                <Star size={16} className="text-amber-500 fill-amber-500" />
+                <Star size={16} className="text-warn fill-warn" />
               </div>
+              <ul className="space-y-1 text-[11.5px] text-muted">
+                {[t("reviewHow1"), t("reviewHow2"), t("reviewHow3")].map((line, i) => (
+                  <li key={i} className="flex items-start gap-1.5"><Check size={12} className="mt-0.5 shrink-0 text-good" />{line}</li>
+                ))}
+              </ul>
               {canReview ? <ReviewForm
                 orderId={o.id}
                 onDone={(ok, msg) => {

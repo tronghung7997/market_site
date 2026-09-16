@@ -39,6 +39,8 @@ class GatewayAccessInfo(BaseModel):
 
 class OrderResponse(BaseModel):
     id: int
+    # Buyer/seller-facing order number; the only reference the UI shows or links.
+    order_code: str
     buyer_id: int
     seller_id: int
     variant_id: int | None = None
@@ -54,15 +56,28 @@ class OrderResponse(BaseModel):
     cancel_reason: str | None = None
     created_at: datetime
     product_title: str | None = None
+    # Public product ref for links: /products/{product_slug}-{product_key}.
+    product_slug: str | None = None
+    product_key: str | None = None
+    # Seller inventory link for the sold package: /seller/inventory/{variant_key}.
+    variant_key: str | None = None
     pricing_strategy: str | None = None
     delivery_mode: str | None = None
     sla_hours: int | None = None
     variant_name: str | None = None
+    # Counterparty exposure depends on the viewer (see _enrich_orders):
+    # buyers get seller_name/seller_path and no seller_email; sellers get a
+    # masked buyer_email plus buyer_key; admins get both emails in full.
     buyer_email: str | None = None
     seller_email: str | None = None
+    seller_name: str | None = None
+    seller_path: str | None = None
+    buyer_key: str | None = None
     has_review: bool = False
     has_dispute: bool = False
     dispute_status: str | None = None
+    # Open dispute with no seller reply yet — the seller console's "handle now" signal.
+    dispute_awaiting_seller: bool = False
     service_type: str | None = None
     fulfillment: "FulfillmentInfo | None" = None
     settlement: "SettlementInfo | None" = None
@@ -159,6 +174,27 @@ class PaginatedOrderResponse(BaseModel):
     total: int
     page: int
     per_page: int
+
+
+class SellerOrderCounts(BaseModel):
+    all: int
+    disputed: int
+    action_required: int
+    escrow: int
+    completed: int
+    cancelled: int
+    disputes_awaiting_seller: int
+
+
+class SellerOrderProductFacet(BaseModel):
+    id: int
+    public_key: str | None = None
+    title: str
+
+
+class PaginatedSellerOrderResponse(PaginatedOrderResponse):
+    counts: SellerOrderCounts
+    products: list[SellerOrderProductFacet]
 
 
 class OrderStatsResponse(BaseModel):

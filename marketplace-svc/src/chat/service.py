@@ -32,7 +32,7 @@ from src.models.product import Product, ProductStatus
 from src.products.covers import parse_cover_id
 
 MARKETPLACE_LABEL = "Marketplace"
-MARKETPLACE_COUNTERPART_ID = 0
+MARKETPLACE_COUNTERPART_KEY = "marketplace"
 
 
 def _has_role(account: Account, role: str) -> bool:
@@ -81,20 +81,14 @@ async def _summary(
     participant: ChatParticipant,
 ) -> ConversationSummary:
     product = await db.get(Product, conversation.product_id) if conversation.product_id else None
+    counterpart_id: int | None
     if conversation.kind == ConversationKind.SUPPORT:
         if participant.context_role == ContextRole.ADMIN:
             counterpart_id = conversation.requester_id or 0
             counterpart_role = conversation.requester_role or ContextRole.BUYER
-            requester = await db.get(Account, counterpart_id) if counterpart_id else None
-            counterpart_label = (
-                requester.email.split("@", 1)[0]
-                if requester and requester.email
-                else f"#{counterpart_id}"
-            )
         else:
-            counterpart_id = MARKETPLACE_COUNTERPART_ID
+            counterpart_id = None
             counterpart_role = ContextRole.ADMIN
-            counterpart_label = MARKETPLACE_LABEL
     else:
         counterpart_id = (
             conversation.seller_id if participant.context_role == ContextRole.BUYER else conversation.buyer_id
@@ -102,7 +96,20 @@ async def _summary(
         counterpart_role = (
             ContextRole.SELLER if participant.context_role == ContextRole.BUYER else ContextRole.BUYER
         )
-        counterpart_label = f"Khách hàng #{counterpart_id or 0}"
+    counterpart_account = await db.get(Account, counterpart_id) if counterpart_id else None
+    # Public key on the wire; the sequential id never leaves the server.
+    counterpart_key = counterpart_account.public_key if counterpart_account else MARKETPLACE_COUNTERPART_KEY
+    if conversation.kind == ConversationKind.SUPPORT:
+        if participant.context_role == ContextRole.ADMIN:
+            counterpart_label = (
+                counterpart_account.email.split("@", 1)[0]
+                if counterpart_account and counterpart_account.email
+                else f"#{counterpart_key}"
+            )
+        else:
+            counterpart_label = MARKETPLACE_LABEL
+    else:
+        counterpart_label = f"Khách hàng #{counterpart_key}"
     if counterpart_role == ContextRole.SELLER and conversation.kind != ConversationKind.SUPPORT:
         business_name = await db.scalar(
             select(SellerApplication.business_name)
@@ -113,11 +120,9 @@ async def _summary(
             .order_by(SellerApplication.id.desc())
             .limit(1)
         )
-        if not business_name:
-            seller_account = await db.get(Account, counterpart_id) if counterpart_id else None
-            if seller_account and seller_account.email:
-                business_name = seller_account.email.split("@", 1)[0]
-        counterpart_label = business_name or f"Gian hàng #{counterpart_id or 0}"
+        if not business_name and counterpart_account and counterpart_account.email:
+            business_name = counterpart_account.email.split("@", 1)[0]
+        counterpart_label = business_name or f"Gian hàng #{counterpart_key}"
     last_message = (
         await db.get(ChatMessage, conversation.last_message_id)
         if conversation.last_message_id
@@ -211,10 +216,11 @@ async def _summary(
         id=conversation.id,
         kind=conversation.kind,
         status=effective_status,
-        product=ChatProduct(id=product.id, title=product.title, image=image) if product else None,
+        product=ChatProduct(id=product.id, title=product.title, image=image, slug=product.slug, public_key=product.public_key) if product else None,
         order=(
             ChatOrderContext(
                 id=order.id,
+                code=order.order_code,
                 status=order_status or "",
                 quantity=order.quantity,
                 total_amount=order.total_amount,
@@ -225,7 +231,7 @@ async def _summary(
         ),
         dispute=dispute_ctx,
         counterpart=SafeCounterpart(
-            id=counterpart_id or 0,
+            id=counterpart_key,
             label=counterpart_label,
             role=counterpart_role,
         ),
@@ -441,7 +447,7 @@ async def list_conversations(
         await db.execute(
             select(
                 ChatConversation, ChatParticipant, Product, Order, last_message,
-                counterpart.email, business_name.label("business_name"), Dispute,
+                counterpart.email, counterpart.public_key, business_name.label("business_name"), Dispute,
                 unread.label("unread"), claimed.label("claimed"), replaced.label("replaced"),
                 refunded.label("refunded"), refund_total.label("refund_total"),
             )
@@ -457,20 +463,20 @@ async def list_conversations(
         )
     ).all()
     items = []
-    for room, member, product, order, message, email, shop_name, dispute, unread_n, claims, replacements, refunds, refund_amount in rows:
+    for room, member, product, order, message, email, cp_key, shop_name, dispute, unread_n, claims, replacements, refunds, refund_amount in rows:
         order_status = str(order.status.value if order and hasattr(order.status, "value") else order.status or "") if order else None
         terminal = room.kind != ConversationKind.SUPPORT and order_status in {"cancelled", "refunded"}
         effective_status = ConversationStatus.READ_ONLY if terminal else room.status
         if room.kind == ConversationKind.SUPPORT and member.context_role != ContextRole.ADMIN:
-            cp_id, cp_role, cp_label = 0, ContextRole.ADMIN, MARKETPLACE_LABEL
+            cp_key, cp_role, cp_label = MARKETPLACE_COUNTERPART_KEY, ContextRole.ADMIN, MARKETPLACE_LABEL
         else:
-            cp_id = room.requester_id if room.kind == ConversationKind.SUPPORT else (room.seller_id if member.context_role == ContextRole.BUYER else room.buyer_id)
+            cp_key = cp_key or MARKETPLACE_COUNTERPART_KEY
             cp_role = room.requester_role if room.kind == ConversationKind.SUPPORT else (ContextRole.SELLER if member.context_role == ContextRole.BUYER else ContextRole.BUYER)
             if cp_role == ContextRole.BUYER and room.kind != ConversationKind.SUPPORT:
-                cp_label = f"Khách hàng #{cp_id or 0}"
+                cp_label = f"Khách hàng #{cp_key}"
             else:
                 cp_label = shop_name if cp_role == ContextRole.SELLER and room.kind != ConversationKind.SUPPORT else None
-                cp_label = cp_label or (email.split("@", 1)[0] if email else f"#{cp_id or 0}")
+                cp_label = cp_label or (email.split("@", 1)[0] if email else f"#{cp_key}")
         dispute_ctx = ChatDisputeContext(
             id=dispute.id, status=dispute.status.value, reason=dispute.reason,
             review_requested_at=dispute.review_requested_at, claimed_count=int(claims or 0),
@@ -480,9 +486,9 @@ async def list_conversations(
         ) if dispute else None
         items.append(ConversationSummary(
             id=room.id, kind=room.kind, status=effective_status,
-            product=ChatProduct(id=product.id, title=product.title, image=parse_cover_id(product.images)) if product else None,
-            order=ChatOrderContext(id=order.id, status=order_status or "", quantity=order.quantity, total_amount=order.total_amount, cancel_reason=order.cancel_reason) if order else None,
-            dispute=dispute_ctx, counterpart=SafeCounterpart(id=cp_id or 0, label=cp_label, role=cp_role),
+            product=ChatProduct(id=product.id, title=product.title, image=parse_cover_id(product.images), slug=product.slug, public_key=product.public_key) if product else None,
+            order=ChatOrderContext(id=order.id, code=order.order_code, status=order_status or "", quantity=order.quantity, total_amount=order.total_amount, cancel_reason=order.cancel_reason) if order else None,
+            dispute=dispute_ctx, counterpart=SafeCounterpart(id=cp_key, label=cp_label, role=cp_role),
             last_message=_message_dto(message) if message else None, unread_count=int(unread_n or 0),
             can_send=effective_status == ConversationStatus.OPEN,
             read_only_reason=(order.cancel_reason if terminal and order else None) or (None if effective_status == ConversationStatus.OPEN else "Cuộc trò chuyện hiện chỉ đọc."),
@@ -651,7 +657,7 @@ async def ensure_support_conversation(
         product_id=order.product_id,
         requester_id=account.id,
         requester_role=requester_role,
-        subject=f"Dispute #{dispute.id} · Order #{order.id}",
+        subject=f"Dispute · Order {order.order_code}",
         created_by_id=account.id,
     )
     db.add(conversation)
@@ -827,6 +833,7 @@ async def list_support_conversations(account: Account, db: AsyncSession) -> Conv
             select(
                 ChatConversation,
                 Account.email,
+                Account.public_key,
                 Product,
                 last_message,
                 Order,
@@ -861,6 +868,7 @@ async def list_support_conversations(account: Account, db: AsyncSession) -> Conv
     for (
         room,
         requester_email,
+        requester_key,
         product,
         message,
         order,
@@ -898,6 +906,8 @@ async def list_support_conversations(account: Account, db: AsyncSession) -> Conv
                         id=product.id,
                         title=product.title,
                         image=parse_cover_id(product.images),
+                        slug=product.slug,
+                        public_key=product.public_key,
                     )
                     if product
                     else None
@@ -905,6 +915,7 @@ async def list_support_conversations(account: Account, db: AsyncSession) -> Conv
                 order=(
                     ChatOrderContext(
                         id=order.id,
+                        code=order.order_code,
                         status=order_status or "",
                         quantity=order.quantity,
                         total_amount=order.total_amount,
@@ -915,11 +926,11 @@ async def list_support_conversations(account: Account, db: AsyncSession) -> Conv
                 ),
                 dispute=dispute_ctx,
                 counterpart=SafeCounterpart(
-                    id=room.requester_id or 0,
+                    id=requester_key or MARKETPLACE_COUNTERPART_KEY,
                     label=(
                         requester_email.split("@", 1)[0]
                         if requester_email
-                        else f"#{room.requester_id or 0}"
+                        else f"#{requester_key or MARKETPLACE_COUNTERPART_KEY}"
                     ),
                     role=room.requester_role or ContextRole.BUYER,
                 ),

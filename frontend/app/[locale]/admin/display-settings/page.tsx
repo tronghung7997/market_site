@@ -14,6 +14,7 @@ import { useLocale, useTranslations } from "next-intl";
 import { api } from "@/lib/api";
 import { useApiErrorMessage } from "@/lib/use-api-error";
 import { MailSettingsPanel } from "@/features/admin-mail";
+import { SellerConfigPanel } from "@/features/admin-seller-config";
 import { usePathname, useRouter } from "@/i18n/navigation";
 import type {
   DepositRailConfigAdmin,
@@ -166,7 +167,7 @@ function railStatus(
   return { tone: "bad", label: t("railOff") };
 }
 
-type SettingsTab = "display" | "deposits" | "mail";
+type SettingsTab = "display" | "deposits" | "mail" | "seller";
 
 function AdminMoneyAndDepositPage() {
   const apiErrorMessage = useApiErrorMessage();
@@ -177,7 +178,7 @@ function AdminMoneyAndDepositPage() {
   const router = useRouter();
   const pathname = usePathname();
   const rawTab = searchParams.get("tab");
-  const tab: SettingsTab = rawTab === "mail" || rawTab === "deposits" ? rawTab : "display";
+  const tab: SettingsTab = rawTab === "mail" || rawTab === "deposits" || rawTab === "seller" ? rawTab : "display";
 
   const setTab = (next: SettingsTab) => {
     const params = new URLSearchParams(searchParams.toString());
@@ -372,9 +373,10 @@ function AdminMoneyAndDepositPage() {
     { id: "display", label: tTabs("tabDisplay") },
     { id: "deposits", label: tTabs("tabDeposits") },
     { id: "mail", label: tTabs("tabMail") },
+    { id: "seller", label: tTabs("tabSeller") },
   ];
 
-  if (tab !== "mail" && loading) {
+  if (tab !== "mail" && tab !== "seller" && loading) {
     return (
       <div className="grid place-items-center py-16">
         <Spinner />
@@ -418,6 +420,7 @@ function AdminMoneyAndDepositPage() {
       </div>
 
       {tab === "mail" && <MailSettingsPanel />}
+      {tab === "seller" && <SellerConfigPanel />}
 
       {tab === "display" && (
       <section className="overflow-hidden rounded-card border border-line bg-card shadow-card">

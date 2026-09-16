@@ -1,8 +1,19 @@
 import type {
-  Account, ActionItem, AdminDepositIntent, AdminDepositLedgerQuery, AdminDepositLedgerResponse, AdminDepositTransaction, AdminDisputeDetail, AdminOrderDetail, AdminProduct, AdminResourceListResponse, AffiliateStats, AffiliateSummary, CalculateResult, Category, ChargeUsageResult, ChatConversationDetail, ChatConversationList, ChatMessage, DashboardData, DepositIntent, DepositMethods, DepositReconcileResult, DepositRailConfigAdmin, DepositRailConfigUpdate, Dispute, SePayWebhookEventRow, AdminAccountWallet, FundOverview, AccountAdminRow, PaginatedAccounts, LogEntry, MailConfigAdmin, MailConfigUpdate, MailOutboxList, MailSendTestResponse, MailTemplatePreview, MailTemplateRow, MoneyConfigAdmin, MoneyConfigPublic, MoneyConfigUpdate, Order, OrderStats, PaginatedAffiliateSummary, PaginatedOrderResponse, PaginatedProducts, PricingField, PricingOptions, ProductDetail, AdminProductDetail, Product, ProductLocale, ProductOperations, ProductTranslation, ProxyState, ProxyRotateResult, ProxyWhitelistResult, Review, SellerApplication, SellerProduct, SellerStats, ServiceTask, TikTokLookupResponse, Transaction, Variant, Wallet, WithdrawRequest, Provider, ProviderHealth, Alert, Resource, ResourceSummary, ResourceSellerFacet, InventoryVariant, SellerSummary, SellerProfile, SellerDisputeResource, SellerDisputeResourceList, SellerReplacementResourceList, BulkResourceActionResult,
+  Account, ActionItem, AdminDepositIntent, AdminDepositLedgerQuery, AdminDepositLedgerResponse, AdminDepositTransaction, AdminDisputeDetail, AdminOrderDetail, AdminProduct, AdminResourceListResponse, AffiliateStats, AffiliateSummary, CalculateResult, Category, ChargeUsageResult, ChatConversationDetail, ChatConversationList, ChatMessage, DashboardData, DepositIntent, DepositMethods, DepositReconcileResult, DepositRailConfigAdmin, DepositRailConfigUpdate, Dispute, SePayWebhookEventRow, AdminAccountWallet, FundOverview, AccountAdminRow, PaginatedAccounts, LogEntry, MailConfigAdmin, MailConfigUpdate, MailOutboxList, MailSendTestResponse, MailTemplatePreview, MailTemplateRow, MoneyConfigAdmin, MoneyConfigPublic, MoneyConfigUpdate, Order, OrderStats, PaginatedAffiliateSummary, PaginatedOrderResponse, PaginatedProducts, PricingField, PricingOptions, ProductDetail, AdminProductDetail, Product, ProductLocale, ProductOperations, ProductTranslation, ProxyState, ProxyRotateResult, ProxyWhitelistResult, Review, SellerApplication, SellerDashboard, SellerDashboardRangeKey, SellerOrderQuery, PaginatedSellerOrders, SellerProduct, SellerProductBulkStatusResult, SellerProductSort, SellerStats, ServiceTask, TikTokLookupResponse, FacebookLookupResponse, Transaction, Variant, Wallet, WithdrawRequest, Provider, ProviderHealth, Alert, Resource, ResourceSummary, ResourceSellerFacet, InventoryVariant, SellerSummary, SellerProfile, SellerDisputeResource, SellerDisputeResourceList, SellerReplacementResourceList, BulkResourceActionResult,
+  AdminReview,
+  AdminReviewList,
+  SellerReview,
+  SellerReviewList,
+  PublicReviewList,
 } from "./types";
 import type { PaginatedDisputes } from "./types";
 import type { PaginatedAdminProducts, PaginatedInventoryVariants, PaginatedSellerProducts } from "./types";
+import type {
+  BulkResourceActionInput, InventoryExportParams, InventoryExportPreview, InventoryPackageBulkStatusResult,
+  InventoryPackageDetail, InventoryPackagesResponse, InventoryPackageSort, InventoryProductStatusFilter,
+  InventoryReportParams, InventoryReportResponse, InventoryStockTab, RestockPreview, RestockResult,
+  SellerResourceQuery, SellerRuntimeConfig,
+} from "./types";
 import {
   ApiError,
   NETWORK_ERROR_MESSAGE,
@@ -61,6 +72,46 @@ async function request<T>(path: string, init: RequestInit = {}, auth: boolean | 
   return body as T;
 }
 
+function inventoryExportQuery(params: InventoryExportParams) {
+  const q = new URLSearchParams();
+  if (params.variantIds?.length) q.set("variant_ids", params.variantIds.join(","));
+  if (params.productIds?.length) q.set("product_ids", params.productIds.join(","));
+  if (params.categoryIds?.length) q.set("category_ids", params.categoryIds.join(","));
+  if (params.includeInactive) q.set("include_inactive", "true");
+  if (params.statuses?.length) q.set("statuses", params.statuses.join(","));
+  if (params.includeArchived) q.set("include_archived", "true");
+  if (params.createdFrom) q.set("created_from", params.createdFrom);
+  if (params.createdTo) q.set("created_to", params.createdTo);
+  if (params.assignedFrom) q.set("assigned_from", params.assignedFrom);
+  if (params.assignedTo) q.set("assigned_to", params.assignedTo);
+  if (params.mask && params.mask !== "none") q.set("mask", params.mask);
+  if (params.maskChar && params.maskChar !== "•") q.set("mask_char", params.maskChar);
+  if (params.format) q.set("format", params.format);
+  if (params.columns?.length) q.set("columns", params.columns.join(","));
+  if (params.locale) q.set("locale", params.locale);
+  return q;
+}
+
+function inventoryReportQuery(params: InventoryReportParams) {
+  const q = new URLSearchParams({ range: params.range });
+  if (params.variantIds?.length) q.set("variant_ids", params.variantIds.join(","));
+  if (params.productIds?.length) q.set("product_ids", params.productIds.join(","));
+  if (params.categoryIds?.length) q.set("category_ids", params.categoryIds.join(","));
+  if (params.includeInactive) q.set("include_inactive", "true");
+  if (params.range === "custom" && params.from && params.to) {
+    q.set("from", params.from);
+    q.set("to", params.to);
+  }
+  if (params.tz) q.set("tz", params.tz);
+  if (params.groupBy) q.set("group_by", params.groupBy);
+  if (params.basis) q.set("basis", params.basis);
+  if (params.compare === false) q.set("compare", "false");
+  if (params.lowOnly) q.set("low_only", "true");
+  if (params.hasError) q.set("has_error", "true");
+  if (params.noActivity) q.set("no_activity", "true");
+  return q;
+}
+
 export const api = {
   register: (email: string, password: string, referralCode?: string) => {
     const body: Record<string, string> = { email, password };
@@ -85,6 +136,8 @@ export const api = {
   me: () => request<Account>("/me", {}, "silent"),
   tiktokLookup: (value: string) =>
     request<TikTokLookupResponse>(`/internal/tiktok?url=${encodeURIComponent(value)}`),
+  facebookLookup: (value: string, signal?: AbortSignal) =>
+    request<FacebookLookupResponse>(`/internal/facebook?url=${encodeURIComponent(value)}`, { signal }),
 
   chatConversations: (perspective: "buyer" | "seller" | "all" = "all") =>
     request<ChatConversationList>(`/chat/conversations?perspective=${perspective}`, {}, true),
@@ -103,11 +156,11 @@ export const api = {
     }, true),
   findProductInquiry: (productId: number) =>
     request<ChatConversationDetail>(`/chat/inquiries/by-product/${productId}`, {}, true),
-  getOrCreateOrderChat: (orderId: number) =>
+  getOrCreateOrderChat: (orderId: string | number) =>
     request<ChatConversationDetail>(`/chat/orders/${orderId}`, { method: "POST" }, true),
-  openMarketplaceChat: (orderId: number) =>
+  openMarketplaceChat: (orderId: string | number) =>
     request<ChatConversationDetail>(`/chat/orders/${orderId}/support`, { method: "POST" }, true),
-  escalateMarketplaceReview: (orderId: number, note: string, idempotencyKey?: string) =>
+  escalateMarketplaceReview: (orderId: string | number, note: string, idempotencyKey?: string) =>
     request<Dispute>(`/orders/${orderId}/dispute/escalate`, {
       method: "POST",
       body: JSON.stringify({
@@ -133,7 +186,8 @@ export const api = {
   // Backend luôn phân trang; categoryId lọc theo cả nhánh danh mục.
   products: (opts: {
     categoryId?: number;
-    sellerId?: number;
+    /** Seller `{handle}-{key}` or bare key. */
+    seller?: string;
     search?: string;
     inStock?: boolean;
     fulfillment?: "instant";
@@ -146,7 +200,7 @@ export const api = {
   } = {}) => {
     const q = new URLSearchParams();
     if (opts.categoryId) q.set("category_id", String(opts.categoryId));
-    if (opts.sellerId) q.set("seller_id", String(opts.sellerId));
+    if (opts.seller) q.set("seller", opts.seller);
     if (opts.search) q.set("search", opts.search);
     if (opts.inStock) q.set("in_stock", "true");
     if (opts.fulfillment) q.set("fulfillment", opts.fulfillment);
@@ -158,9 +212,10 @@ export const api = {
     const qs = q.toString();
     return request<PaginatedProducts>(`/products${qs ? `?${qs}` : ""}`, { signal: opts.signal });
   },
-  productsBySeller: (sellerId: number) =>
-    request<PaginatedProducts>(`/products?seller_id=${sellerId}`),
-  product: (id: number) => request<ProductDetail>(`/products/${id}`),
+  productsBySeller: (sellerRef: string) =>
+    request<PaginatedProducts>(`/products?seller=${encodeURIComponent(sellerRef)}&per_page=100`),
+  /** `ref` is `{slug}-{key}`, a bare key, or a legacy numeric id. */
+  product: (ref: string | number) => request<ProductDetail>(`/products/${encodeURIComponent(String(ref))}`),
 
   wallet: () => request<Wallet>("/wallet", {}, true),
   transactions: () => request<Transaction[]>("/wallet/transactions", {}, true),
@@ -179,24 +234,25 @@ export const api = {
     return request<PaginatedOrderResponse>(`/orders${qs ? `?${qs}` : ""}`, {}, true);
   },
   orderStats: () => request<OrderStats>("/orders/stats", {}, true),
-  getOrder: (orderId: number) => request<Order>(`/orders/${orderId}`, {}, true),
+  /** `orderId` may be the numeric id or the ORD-XXXXXXXX code. */
+  getOrder: (orderId: string | number) => request<Order>(`/orders/${orderId}`, {}, true),
   createOrder: (variantId: number, quantity: number) =>
     request<Order>("/orders", { method: "POST", body: JSON.stringify({ variant_id: variantId, quantity }) }, true),
 
-  confirmOrder: (orderId: number) =>
+  confirmOrder: (orderId: string | number) =>
     request<Order>(`/orders/${orderId}/confirm`, { method: "POST" }, true),
-  openDispute: (orderId: number, reason: string, evidenceType?: string, evidence?: Record<string, string>, resourceIds?: number[]) =>
+  openDispute: (orderId: string | number, reason: string, evidenceType?: string, evidence?: Record<string, string>, resourceIds?: number[]) =>
     request<Dispute>(`/orders/${orderId}/dispute`, {
       method: "POST",
       body: JSON.stringify({ reason, evidence_type: evidenceType ?? null, evidence: evidence ?? null, resource_ids: resourceIds ?? null, idempotency_key: resourceIds?.length ? newIdempotencyKey() : null }),
     }, true),
-  appendDisputeClaims: (orderId: number, reason: string, resourceIds: number[]) =>
+  appendDisputeClaims: (orderId: string | number, reason: string, resourceIds: number[]) =>
     request<Dispute>(`/orders/${orderId}/dispute/claims`, {
       method: "POST",
       body: JSON.stringify({ reason, resource_ids: resourceIds, idempotency_key: newIdempotencyKey() }),
     }, true),
   openDisputeBatched: async (
-    orderId: number,
+    orderId: string | number,
     reason: string,
     evidenceType?: string,
     evidence?: Record<string, string>,
@@ -210,18 +266,18 @@ export const api = {
     }
     return dispute;
   },
-  buyerDisputeMessage: (orderId: number, body: string) =>
+  buyerDisputeMessage: (orderId: string | number, body: string) =>
     request<Dispute>(`/orders/${orderId}/dispute/messages`, { method: "POST", body: JSON.stringify({ body, idempotency_key: newIdempotencyKey() }) }, true),
-  acceptDisputeResolution: (orderId: number) =>
+  acceptDisputeResolution: (orderId: string | number) =>
     request<Dispute>(`/orders/${orderId}/dispute/accept`, { method: "POST" }, true),
-  withdrawDispute: (orderId: number) =>
+  withdrawDispute: (orderId: string | number) =>
     request<Dispute>(`/orders/${orderId}/dispute/withdraw`, { method: "POST" }, true),
-  orderDispute: (orderId: number) => request<Dispute>(`/orders/${orderId}/dispute`, {}, true),
+  orderDispute: (orderId: string | number) => request<Dispute>(`/orders/${orderId}/dispute`, {}, true),
 
-  orderProxyState: (orderId: number) => request<ProxyState>(`/orders/${orderId}/proxy`, {}, true),
-  rotateOrderProxy: (orderId: number) =>
+  orderProxyState: (orderId: string | number) => request<ProxyState>(`/orders/${orderId}/proxy`, {}, true),
+  rotateOrderProxy: (orderId: string | number) =>
     request<ProxyRotateResult>(`/orders/${orderId}/proxy/rotate`, { method: "POST" }, true),
-  setOrderProxyWhitelist: (orderId: number, ips: string[]) =>
+  setOrderProxyWhitelist: (orderId: string | number, ips: string[]) =>
     request<ProxyWhitelistResult>(
       `/orders/${orderId}/proxy/whitelist`,
       { method: "PUT", body: JSON.stringify({ ips }) },
@@ -241,7 +297,9 @@ export const api = {
     search?: string;
     status?: string;
     category?: string;
+    categoryIds?: number[];
     serviceType?: string;
+    sort?: SellerProductSort;
     page?: number;
     perPage?: number;
   } = {}) => {
@@ -249,13 +307,33 @@ export const api = {
     if (params.search?.trim()) q.set("search", params.search.trim());
     if (params.status && params.status !== "all") q.set("status", params.status);
     if (params.category) q.set("category", params.category);
+    if (params.categoryIds?.length) q.set("category_ids", params.categoryIds.join(","));
     if (params.serviceType) q.set("service_type", params.serviceType);
+    if (params.sort && params.sort !== "newest") q.set("sort", params.sort);
     return request<PaginatedSellerProducts>(`/seller/products?${q}`, {}, true);
   },
+  bulkUpdateSellerProductStatus: (ids: number[], status: "active" | "paused") =>
+    request<SellerProductBulkStatusResult>("/seller/products/bulk-status", {
+      method: "POST", body: JSON.stringify({ ids, status }),
+    }, true),
   // Như api.product() nhưng kèm cả biến thể đã tắt — trang quản lý cần thấy chúng để bật lại.
-  sellerProduct: (id: number, init: RequestInit = {}) => request<ProductDetail>(`/seller/products/${id}/detail`, init, true),
+  sellerProduct: (ref: string | number, init: RequestInit = {}) => request<ProductDetail>(`/seller/products/${encodeURIComponent(String(ref))}/detail`, init, true),
   sellerStats: () => request<SellerStats>("/seller/stats", {}, true),
-  sellerOrders: () => request<Order[]>("/seller/orders", {}, true),
+  sellerDashboard: (params: { range: SellerDashboardRangeKey; tz: string; from?: string; to?: string }) => {
+    const q = new URLSearchParams({ range: params.range, tz: params.tz });
+    if (params.from) q.set("from", params.from);
+    if (params.to) q.set("to", params.to);
+    return request<SellerDashboard>(`/seller/dashboard?${q}`, {}, true);
+  },
+  sellerOrders: (params: SellerOrderQuery = {}) => {
+    const q = new URLSearchParams();
+    for (const [key, value] of Object.entries(params)) {
+      if (value === undefined || value === null || value === "" || value === "all") continue;
+      q.set(key, String(value));
+    }
+    const query = q.toString();
+    return request<PaginatedSellerOrders>(`/seller/orders${query ? `?${query}` : ""}`, {}, true);
+  },
   createProduct: (data: Record<string, unknown>) =>
     request<Product>("/seller/products", { method: "POST", body: JSON.stringify(data) }, true),
   updateProduct: (id: number, data: Record<string, unknown>) =>
@@ -281,27 +359,30 @@ export const api = {
   deleteVariant: (variantId: number) =>
     request<void>(`/seller/variants/${variantId}`, { method: "DELETE" }, true),
   addResources: (variantId: number, items: string[]) =>
-    request<{ count: number }>(`/seller/variants/${variantId}/resources`, {
+    request<RestockResult>(`/seller/variants/${variantId}/resources`, {
       method: "POST",
       body: JSON.stringify({ items }),
     }, true),
-  sellerVariantResources: async (
-    variantId: number,
-    opts: { page?: number; perPage?: number; status?: string; search?: string; archivedOnly?: boolean; signal?: AbortSignal } = {},
-  ) => {
+  restockPreview: (variantId: number, items: string[]) =>
+    request<RestockPreview>(`/seller/variants/${variantId}/resources/preview`, {
+      method: "POST",
+      body: JSON.stringify({ items }),
+    }, true),
+  sellerVariantResources: async (variantId: number, opts: SellerResourceQuery = {}) => {
     const q = new URLSearchParams({
       page: String(opts.page ?? 1),
       per_page: String(opts.perPage ?? 25),
     });
-    if (opts.status && opts.status !== "all") {
+    if (opts.status === "archived") {
+      q.set("archived_only", "true");
+    } else if (opts.status && opts.status !== "all") {
       q.set("status", opts.status);
     }
-    if (opts.search?.trim()) {
-      q.set("search", opts.search.trim());
-    }
-    if (opts.archivedOnly) {
-      q.set("archived_only", "true");
-    }
+    if (opts.search?.trim()) q.set("search", opts.search.trim());
+    if (opts.createdFrom) q.set("created_from", opts.createdFrom);
+    if (opts.createdTo) q.set("created_to", opts.createdTo);
+    if (opts.hasOrder === true || opts.hasOrder === false) q.set("has_order", String(opts.hasOrder));
+    if (opts.sort && opts.sort !== "newest") q.set("sort", opts.sort);
     const path = `/seller/variants/${variantId}/resources?${q}`;
     const headers: Record<string, string> = { "Accept-Language": browserLocale() };
     let res: Response;
@@ -370,16 +451,72 @@ export const api = {
     request<Resource>(`/seller/resources/${resourceId}/restore`, {
       method: "POST",
     }, true),
-  bulkResourceAction: (variantId: number, action: "archive" | "restore" | "delete", resourceIds: number[]) =>
+  bulkResourceAction: (variantId: number, input: BulkResourceActionInput) =>
     request<BulkResourceActionResult>(`/seller/variants/${variantId}/resources/bulk-action`, {
       method: "POST",
-      body: JSON.stringify({ action, resource_ids: resourceIds }),
+      body: JSON.stringify({
+        action: input.action,
+        resource_ids: input.resourceIds ?? [],
+        all_matching: Boolean(input.allMatching),
+        status: input.status && input.status !== "all" && input.status !== "archived" ? input.status : undefined,
+        archived_only: input.status === "archived",
+        search: input.search?.trim() || undefined,
+        created_from: input.createdFrom || undefined,
+        created_to: input.createdTo || undefined,
+        has_order: input.hasOrder === true || input.hasOrder === false ? input.hasOrder : undefined,
+      }),
     }, true),
+  // --- Inventory console (package-level) ---
+  inventoryPackages: (params: {
+    search?: string;
+    categoryIds?: number[];
+    productStatus?: InventoryProductStatusFilter;
+    stock?: InventoryStockTab;
+    includeInactive?: boolean;
+    sort?: InventoryPackageSort;
+    view?: "grouped" | "flat";
+    page?: number;
+    perPage?: number;
+  } = {}) => {
+    const q = new URLSearchParams({ page: String(params.page ?? 1), per_page: String(params.perPage ?? 20) });
+    if (params.search?.trim()) q.set("search", params.search.trim());
+    if (params.categoryIds?.length) q.set("category_ids", params.categoryIds.join(","));
+    if (params.productStatus && params.productStatus !== "active") q.set("product_status", params.productStatus);
+    if (params.stock && params.stock !== "all") q.set("stock", params.stock);
+    if (params.includeInactive) q.set("include_inactive", "true");
+    if (params.sort) q.set("sort", params.sort);
+    if (params.view) q.set("view", params.view);
+    return request<InventoryPackagesResponse>(`/seller/inventory/packages?${q}`, {}, true);
+  },
+  inventoryPackage: (variantRef: string | number) =>
+    request<InventoryPackageDetail>(`/seller/inventory/packages/${encodeURIComponent(String(variantRef))}`, {}, true),
+  bulkPackageStatus: (variantIds: number[], isActive: boolean) =>
+    request<InventoryPackageBulkStatusResult>("/seller/inventory/packages/bulk-status", {
+      method: "POST",
+      body: JSON.stringify({ variant_ids: variantIds, is_active: isActive }),
+    }, true),
+  inventoryExportPreview: (params: InventoryExportParams, limit = 20) => {
+    const q = inventoryExportQuery(params);
+    q.set("preview", String(limit));
+    return request<InventoryExportPreview>(`/seller/inventory/export?${q}`, {}, true);
+  },
+  inventoryExportUrl: (params: InventoryExportParams) =>
+    `/api/seller/inventory/export?${inventoryExportQuery(params)}`,
+  inventoryReport: (params: InventoryReportParams) =>
+    request<InventoryReportResponse>(`/seller/inventory/report?${inventoryReportQuery(params)}`, {}, true),
+  inventoryReportCsvUrl: (params: InventoryReportParams) => {
+    const q = inventoryReportQuery(params);
+    q.set("format", "csv");
+    return `/api/seller/inventory/report?${q}`;
+  },
+  adminSellerConfig: () => request<SellerRuntimeConfig>("/admin/seller-config", {}, true),
+  updateAdminSellerConfig: (body: Partial<Pick<SellerRuntimeConfig, "low_stock_threshold" | "inventory_export_row_limit" | "review_window_days" | "auto_review_days" | "auto_review_enabled">>) =>
+    request<SellerRuntimeConfig>("/admin/seller-config", { method: "PATCH", body: JSON.stringify(body) }, true),
   deleteResource: (resourceId: number) =>
     request<void>(`/seller/resources/${resourceId}`, { method: "DELETE" }, true),
-  sellerAcceptOrder: (orderId: number) =>
+  sellerAcceptOrder: (orderId: string | number) =>
     request<Order>(`/seller/orders/${orderId}/accept`, { method: "POST" }, true),
-  sellerDeliverOrder: (orderId: number, data: string) =>
+  sellerDeliverOrder: (orderId: string | number, data: string) =>
     request<Order>(`/seller/orders/${orderId}/deliver`, { method: "POST", body: JSON.stringify({ data }) }, true),
 
   productOperations: (id: number) => request<ProductOperations>(`/products/${id}/operations`, {}, true),
@@ -427,7 +564,7 @@ export const api = {
   adminUpdateSellerTier: (id: number, sellerTier: string) =>
     request<AccountAdminRow>(`/admin/accounts/${id}/tier`, { method: "PATCH", body: JSON.stringify({ seller_tier: sellerTier }) }, true),
   adminOrders: () => request<Order[]>("/admin/orders", {}, true),
-  adminOrderDetail: (orderId: number) => request<AdminOrderDetail>(`/admin/orders/${orderId}`, {}, true),
+  adminOrderDetail: (orderId: string | number) => request<AdminOrderDetail>(`/admin/orders/${orderId}`, {}, true),
   adminAlerts: () => request<Alert[]>("/admin/alerts", {}, true),
   dismissAlert: (id: number) => request<Alert>(`/admin/alerts/${id}/dismiss`, { method: "POST" }, true),
   dismissSellerAlert: (id: number) => request<Alert>(`/seller/alerts/${id}/dismiss`, { method: "POST" }, true),
@@ -530,8 +667,9 @@ export const api = {
   adminTopup: (accountId: number, amount: number) =>
     request<Wallet>("/wallet/topup", { method: "POST", body: JSON.stringify({ account_id: accountId, amount }) }, true),
   topSellers: (limit = 6) => request<SellerSummary[]>(`/sellers/top?limit=${limit}`),
-  sellerProfile: (id: number) => request<SellerProfile>(`/sellers/${id}`),
-  sellerDispute: (orderId: number) => request<Dispute>(`/seller/orders/${orderId}/dispute`, {}, true),
+  /** `ref` is `{handle}-{key}`, a bare key, or a legacy account id. */
+  sellerProfile: (ref: string | number) => request<SellerProfile>(`/sellers/${encodeURIComponent(String(ref))}`),
+  sellerDispute: (orderId: string | number) => request<Dispute>(`/seller/orders/${orderId}/dispute`, {}, true),
   sellerRespondDispute: (disputeId: number, sellerNote: string) =>
     request<Dispute>(`/seller/disputes/${disputeId}/respond`, { method: "POST", body: JSON.stringify({ seller_note: sellerNote }) }, true),
   sellerDisputeResources: (
@@ -625,15 +763,36 @@ export const api = {
   submitSellerProvider: (id: number) =>
     request<Provider>(`/seller/providers/${id}/submit`, { method: "POST" }, true),
 
-  submitReview: (orderId: number, rating: number, comment?: string) =>
+  submitReview: (orderId: string | number, rating: number, comment?: string) =>
     request<Review>(`/orders/${orderId}/review`, { method: "POST", body: JSON.stringify({ rating, comment: comment || null }) }, true),
-  productReviews: (productId: number) =>
-    request<Review[]>(`/products/${productId}/reviews`),
+  productReviews: (productId: number, params: { page?: number; perPage?: number; rating?: number | null } = {}) => {
+    const q = new URLSearchParams({ page: String(params.page ?? 1), per_page: String(params.perPage ?? 5) });
+    if (params.rating) q.set("rating", String(params.rating));
+    return request<PublicReviewList>(`/products/${productId}/reviews?${q}`);
+  },
+  sellerReviews: (params: { productId?: number; unrepliedOnly?: boolean; page?: number; perPage?: number } = {}) => {
+    const q = new URLSearchParams({ page: String(params.page ?? 1), per_page: String(params.perPage ?? 20) });
+    if (params.productId) q.set("product_id", String(params.productId));
+    if (params.unrepliedOnly) q.set("unreplied_only", "true");
+    return request<SellerReviewList>(`/seller/reviews?${q}`, {}, true);
+  },
+  sellerReplyReview: (reviewId: number, body: string) =>
+    request<SellerReview>(`/seller/reviews/${reviewId}/reply`, { method: "PUT", body: JSON.stringify({ body }) }, true),
+  sellerDeleteReviewReply: (reviewId: number) =>
+    request<SellerReview>(`/seller/reviews/${reviewId}/reply`, { method: "DELETE" }, true),
+  adminReviews: (params: { productId?: number; hidden?: boolean; page?: number; perPage?: number } = {}) => {
+    const q = new URLSearchParams({ page: String(params.page ?? 1), per_page: String(params.perPage ?? 20) });
+    if (params.productId) q.set("product_id", String(params.productId));
+    if (params.hidden != null) q.set("hidden", String(params.hidden));
+    return request<AdminReviewList>(`/admin/reviews?${q}`, {}, true);
+  },
+  adminSetReviewVisibility: (reviewId: number, hidden: boolean, reason?: string) =>
+    request<AdminReview>(`/admin/reviews/${reviewId}/visibility`, { method: "PATCH", body: JSON.stringify({ hidden, reason: reason || null }) }, true),
 
-  orderDashboard: (orderId: number) => request<DashboardData>(`/orders/${orderId}/dashboard`, {}, true),
-  chargeUsage: (orderId: number, endpoint: string, units = 1) =>
+  orderDashboard: (orderId: string | number) => request<DashboardData>(`/orders/${orderId}/dashboard`, {}, true),
+  chargeUsage: (orderId: string | number, endpoint: string, units = 1) =>
     request<ChargeUsageResult>(`/orders/${orderId}/usage`, { method: "POST", body: JSON.stringify({ endpoint, units }) }, true),
-  orderResources: (orderId: number) => request<Resource[]>(`/orders/${orderId}/resources`, {}, true),
+  orderResources: (orderId: string | number) => request<Resource[]>(`/orders/${orderId}/resources`, {}, true),
   markResourceError: (resourceId: number) => request<Resource>(`/seller/resources/${resourceId}/error`, { method: "POST" }, true),
   adminResources: (params: { status?: string; seller_id?: number; search?: string; page?: number; per_page?: number } = {}) => {
     const q = new URLSearchParams();

@@ -31,16 +31,19 @@ export interface ChatConversation {
   id: string;
   kind: "product_inquiry" | "order" | "support";
   status: "open" | "resolved" | "closed" | "blocked" | "read_only";
-  product: { id: number; title: string; image: string | null } | null;
+  product: { id: number; title: string; image: string | null; slug?: string | null; public_key?: string | null } | null;
   order: {
     id: number;
+    /** Buyer/seller-facing order number. */
+    code?: string | null;
     status: string;
     quantity: number;
     total_amount: number;
     cancel_reason: string | null;
   } | null;
   dispute?: ChatDisputeContext | null;
-  counterpart: { id: number; label: string; role: "buyer" | "seller" | "admin" };
+  /** `id` is the counterpart's public key ("marketplace" for the support desk). */
+  counterpart: { id: string; label: string; role: "buyer" | "seller" | "admin" };
   last_message: ChatMessage | null;
   unread_count: number;
   can_send: boolean;
@@ -76,9 +79,20 @@ export interface Category {
  *  commission_rate chỉ có ở AdminProductDetail (không phát ra API public). */
 export interface Product {
   id: number;
-  seller_id: number;
+  /** Management payloads only; storefront rows carry the seller's public identity instead. */
+  seller_id?: number;
+  seller_key?: string | null;
+  seller_handle?: string | null;
+  /** `/sellers/{handle}-{key}` — build links with `sellerPath()`. */
+  seller_path?: string | null;
   category_id: number;
   title: string;
+  /** URL slug, generated from the Vietnamese title and editable by the seller. */
+  slug: string;
+  /** 8-char base36 key that identifies the product in public URLs. */
+  public_key: string;
+  /** `/products/{slug}-{public_key}` — build links with `productPath()`. */
+  canonical_path?: string | null;
   images: Record<string, unknown> | null;
   cover_id?: string | null;
   escrow_days: number;
@@ -138,6 +152,8 @@ export interface ProductCatalogSummary {
 
 export interface Variant {
   id: number;
+  /** Seller-facing identity: /seller/inventory/{public_key}. */
+  public_key?: string | null;
   product_id: number;
   name: string;
   price: number;
@@ -145,11 +161,19 @@ export interface Variant {
   sla_hours: number;
   sort_order: number;
   is_active: boolean;
-  stock_count: number;
+  /** Exact units — seller/admin payloads only. Absent on the storefront. */
+  stock_count?: number;
+  /** Storefront inventory signal; see lib/stock.ts. */
+  stock_state?: "in_stock" | "low" | "out" | "manual" | null;
+  /** Largest quantity the order form may submit for this package. */
+  max_quantity?: number | null;
   duration_days: number | null;
   translations?: Partial<Record<ProductLocale, { name?: string | null }>> | null;
   primary_locale?: ProductLocale | null;
 }
+
+/** Management variant row (seller/admin endpoints): the exact count is always there. */
+export type SellerVariant = Variant & { stock_count: number };
 
 export interface ProductDetail extends Product {
   description: string | null;
@@ -161,6 +185,8 @@ export interface ProductDetail extends Product {
   variants: Variant[];
   seller_name: string | null;
   category_name: string | null;
+  /** Storefront category URL segment — `categoryPath()` falls back to the id. */
+  category_slug?: string | null;
 }
 
 /** GET /admin/products/{id} — như ProductDetail nhưng kèm commission_rate
@@ -199,10 +225,16 @@ export interface Transaction {
   reference_id: string | null;
   created_at: string;
   order_status?: string | null;
+  /** Order behind the row, by public code; what the UI shows instead of `order-{id}`. */
+  order_code?: string | null;
+  /** Customer-facing reference (order code + suffix, or provider deposit ref); null when there is none to show. */
+  reference_label?: string | null;
 }
 
 export interface Order {
   id: number;
+  /** Buyer/seller-facing order number (ORD-XXXXXXXX): what the UI shows and links. */
+  order_code: string;
   buyer_id: number;
   seller_id: number;
   // Exactly one of these is set: variant_id for stock/manual orders, product_id
@@ -220,15 +252,26 @@ export interface Order {
   cancel_reason?: string | null;
   created_at: string;
   product_title?: string | null;
+  /** Public URL parts of the ordered product, for "view product" links. */
+  product_slug?: string | null;
+  product_key?: string | null;
+  variant_key?: string | null;
   pricing_strategy?: string | null;
   delivery_mode?: string | null;
   sla_hours?: number | null;
   variant_name?: string | null;
+  /** Seller view: masked (`bu***@gmail.com`); admin view: full; absent for buyers. */
   buyer_email?: string | null;
+  /** Admin view only; buyers get seller_name/seller_path instead. */
   seller_email?: string | null;
+  seller_name?: string | null;
+  seller_path?: string | null;
+  buyer_key?: string | null;
   has_review?: boolean;
   has_dispute?: boolean;
   dispute_status?: string | null;
+  /** Open dispute with no seller reply yet — "handle now" in the seller console. */
+  dispute_awaiting_seller?: boolean;
   service_type?: string | null;
   fulfillment?: { kind: "instant" | "manual" | "api" | "task" | "proxy"; status: string } | null;
   settlement?: { status: "escrow_held" | "released" | "refunded" } | null;
@@ -346,7 +389,10 @@ export interface DisputeInfo {
 }
 
 export interface SellerSummary {
-  account_id: number;
+  /** Opaque public identity; the account id is never exposed. */
+  public_key: string;
+  handle: string | null;
+  canonical_path: string;
   display_name: string;
   business_name: string | null;
   completed_order_count: number;
@@ -657,6 +703,7 @@ export interface AdminOrderDetail extends Order {
 export interface Dispute {
   id: number;
   order_id: number;
+  order_code?: string | null;
   buyer_id: number;
   reason: string;
   evidence_type?: string | null;
@@ -713,6 +760,7 @@ export interface DisputeTimelineEvent {
 
 export interface AdminDisputeOrder {
   id: number;
+  order_code?: string | null;
   buyer_id: number;
   seller_id: number;
   variant_id: number | null;
@@ -756,29 +804,220 @@ export interface SellerStats {
   total_revenue: number;
 }
 
+export type SellerDashboardRangeKey =
+  | "7d" | "30d" | "90d"
+  | "today" | "this_week" | "this_month" | "this_quarter" | "this_year"
+  | "custom";
+
+export interface SellerDashboardRange {
+  key: SellerDashboardRangeKey;
+  tz: string;
+  from_date: string;
+  to_date: string;
+  compare_from_date: string;
+  compare_to_date: string;
+  days: number;
+  bucket: "day" | "week";
+}
+
+export interface SellerDashboardMoney {
+  gross: number;
+  gross_prev: number;
+  net_released: number;
+  net_released_prev: number;
+  platform_fee: number;
+  refunded: number;
+  refunded_orders: number;
+  escrow_held: number;
+  escrow_orders: number;
+  pending_withdrawals: number;
+  wallet: { available: number; pending: number; locked: number };
+}
+
+export interface SellerDashboardOrders {
+  total: number;
+  total_prev: number;
+  completed_prev: number;
+  by_status: Record<string, number>;
+  completion_rate: number | null;
+  dispute_count: number;
+  dispute_rate: number | null;
+  avg_order_value: number | null;
+}
+
+export interface SellerDashboardPoint {
+  date: string;
+  orders: number;
+  gross: number;
+  net: number;
+  refunded: number;
+}
+
+export interface SellerDashboardTopProduct {
+  id: number;
+  public_key?: string | null;
+  title: string;
+  service_type: string | null;
+  status: string;
+  orders: number;
+  gross: number;
+  net: number;
+  inventory_managed: boolean;
+  total_stock: number;
+  stock_state: "in_stock" | "low" | "out" | "not_managed";
+  rating_avg: number | null;
+  rating_count: number;
+}
+
+export interface SellerDashboardInventory {
+  product_count: number;
+  active_count: number;
+  managed_products: number;
+  total_stock: number;
+  low_stock: number;
+  out_of_stock: number;
+}
+
+export interface SellerDashboard {
+  range: SellerDashboardRange;
+  money: SellerDashboardMoney;
+  orders: SellerDashboardOrders;
+  timeseries: SellerDashboardPoint[];
+  top_products: SellerDashboardTopProduct[];
+  inventory: SellerDashboardInventory;
+  customers: { unique_buyers: number; new_buyers: number; returning_buyers: number };
+  reviews: { rating_avg: number | null; rating_count: number; count_in_range: number };
+  action_items: Pick<ActionItem, "key" | "severity" | "label" | "count" | "href">[];
+}
+
 export interface Review {
   id: number;
-  order_id: number;
-  buyer_id: number;
   product_id: number;
+  /** Masked reviewer handle ("ng***n"); the API no longer exposes buyer/order ids. */
+  reviewer_label: string;
   rating: number;
   comment: string | null;
   created_at: string;
+  /** Package the reviewer bought — shown next to the "purchased" badge. */
+  variant_name?: string | null;
+  /** Public answer from the seller, if any. */
+  seller_reply?: string | null;
+  seller_replied_at?: string | null;
+  /** Written by the auto-review job (5★, no comment) when the buyer never rated. */
+  is_auto?: boolean;
+}
+
+export interface ReviewSummary {
+  average: number | null;
+  counts: Record<"1" | "2" | "3" | "4" | "5", number>;
+}
+
+export interface PublicReviewList {
+  items: Review[];
+  /** Count after the star filter — drives pagination. */
+  total: number;
+  page: number;
+  per_page: number;
+  rating: number | null;
+  /** Star breakdown over all visible reviews, independent of the page shown. */
+  summary: ReviewSummary;
+}
+
+/** Seller console row: the seller's own product reviews, hidden ones flagged. */
+export interface SellerReview extends Review {
+  /** Seller/admin rows keep the ids — the seller fulfilled that order. */
+  order_id: number;
+  order_code?: string | null;
+  buyer_id: number;
+  product_title: string | null;
+  is_hidden: boolean;
+}
+
+export interface SellerReviewList {
+  items: SellerReview[];
+  total: number;
+  /** Visible reviews still waiting for a seller reply. */
+  unreplied: number;
+  page: number;
+  per_page: number;
+}
+
+export interface AdminReview extends SellerReview {
+  buyer_email: string | null;
+  seller_id: number | null;
+  hidden_reason: string | null;
+  hidden_at: string | null;
+  hidden_by_id: number | null;
+}
+
+export interface AdminReviewList {
+  items: AdminReview[];
+  total: number;
+  page: number;
+  per_page: number;
 }
 
 export interface SellerProduct extends Product {
   category_name: string | null;
   variant_count: number;
   total_stock: number;
+  /** Active-package price span; null when there is no active package. */
+  price_min: number | null;
+  price_max: number | null;
 }
 
 export interface SellerProductCounts {
   all: number;
   active: number;
   paused: number;
+  draft: number;
+  suspended: number;
   low_stock: number;
   out_of_stock: number;
   total_stock: number;
+  /** Stock at or below this (and above 0) counts as low — same rule as the tabs. */
+  low_stock_threshold: number;
+}
+
+export type SellerProductTab = "all" | "active" | "paused" | "draft" | "low_stock" | "out_of_stock";
+export type SellerProductSort =
+  | "newest" | "oldest" | "title" | "stock_asc" | "stock_desc" | "sold_desc" | "rating_desc" | "price_asc" | "price_desc";
+
+export interface SellerProductBulkStatusResult {
+  updated: number[];
+  skipped: { id: number; reason: "not_found" | "not_owner" | "suspended" }[];
+}
+
+export type SellerOrderTab = "all" | "disputed" | "action_required" | "escrow" | "completed" | "cancelled";
+export type SellerOrderKind = "instant" | "manual" | "api" | "task" | "proxy";
+export type SellerOrderSort = "newest" | "oldest" | "amount_desc" | "amount_asc";
+
+export interface SellerOrderCounts {
+  all: number;
+  disputed: number;
+  action_required: number;
+  escrow: number;
+  completed: number;
+  cancelled: number;
+  disputes_awaiting_seller: number;
+}
+
+export interface SellerOrderQuery {
+  tab?: SellerOrderTab;
+  search?: string;
+  /** Product public key, or a legacy numeric id (the API accepts both). */
+  product?: string;
+  kind?: SellerOrderKind;
+  date_from?: string;
+  date_to?: string;
+  sort?: SellerOrderSort;
+  page?: number;
+  per_page?: number;
+}
+
+export interface PaginatedSellerOrders extends PaginatedOrderResponse {
+  counts: SellerOrderCounts;
+  products: { id: number; public_key?: string | null; title: string }[];
 }
 
 export interface PaginatedSellerProducts {
@@ -788,6 +1027,8 @@ export interface PaginatedSellerProducts {
   per_page: number;
   counts: SellerProductCounts;
   categories: string[];
+  /** Parent → child facet over the seller's whole catalogue, with product counts. */
+  category_facet: InventoryCategoryFacet[];
   service_types: string[];
 }
 
@@ -888,6 +1129,7 @@ export interface Resource {
   status: string; // available | assigned | expired | error
   data: string;
   order_id: number | null;
+  order_code?: string | null;
   assigned_at: string | null;
   expires_at: string | null;
   created_at: string;
@@ -920,7 +1162,8 @@ export interface SellerDisputeResourceList {
 }
 
 export interface SellerReplacementResourceList {
-  items: Array<{ id: number; data: string }>;
+  /** Oldest stock first — the order "replace from stock" hands accounts out. */
+  items: Array<{ id: number; data: string; created_at?: string | null }>;
   ids?: number[];
   total: number;
   page: number;
@@ -955,6 +1198,230 @@ export interface PaginatedInventoryVariants {
   page: number;
   per_page: number;
   counts: InventoryCounts;
+}
+
+// --- Seller inventory console (package-level) -----------------------------
+
+export type InventoryStockTab = "all" | "low" | "out" | "error" | "inactive";
+export type InventoryPackageSort = "available_asc" | "available_desc" | "title" | "last_restock" | "sold_desc";
+export type InventoryProductStatusFilter = "active" | "paused" | "all";
+export type InventoryStockState = "in_stock" | "low" | "out" | "inactive";
+
+export interface InventoryPackage {
+  product_id: number;
+  product_key?: string | null;
+  product_title: string;
+  product_status: string;
+  cover_id: string | null;
+  service_type: string | null;
+  category_id: number;
+  category_name: string;
+  category_parent_id: number | null;
+  category_parent_name: string | null;
+  variant_id: number;
+  variant_key?: string | null;
+  variant_name: string;
+  price: number;
+  delivery_mode: string | null;
+  is_active: boolean;
+  available: number;
+  assigned: number;
+  error: number;
+  expired: number;
+  archived: number;
+  sold_30d: number;
+  last_restock_at: string | null;
+  stock_state: InventoryStockState;
+}
+
+export interface InventoryPackageCounts {
+  all: number;
+  low: number;
+  out: number;
+  error: number;
+  inactive: number;
+  available_total: number;
+  sold_30d: number;
+  products: number;
+}
+
+export interface InventoryCategoryFacet {
+  id: number;
+  name: string;
+  parent_id: number | null;
+  parent_name: string | null;
+  count: number;
+}
+
+export interface InventoryPackagesResponse {
+  items: InventoryPackage[];
+  total: number;
+  page: number;
+  per_page: number;
+  view: "grouped" | "flat";
+  counts: InventoryPackageCounts;
+  categories: InventoryCategoryFacet[];
+  low_stock_threshold: number;
+}
+
+export interface InventoryPackageSibling {
+  variant_id: number;
+  variant_key?: string | null;
+  variant_name: string;
+  available: number;
+  is_active: boolean;
+  delivery_mode: string | null;
+  price: number;
+}
+
+export interface InventoryPackageDetail extends InventoryPackage {
+  low_stock_threshold: number;
+  expected_field_count: number | null;
+  siblings: InventoryPackageSibling[];
+}
+
+export interface InventoryPackageBulkStatusResult {
+  updated: number[];
+  skipped: { id: number; reason: "not_found" | "not_owner" | string }[];
+  is_active: boolean;
+}
+
+export interface RestockPreview {
+  total_lines: number;
+  duplicate_in_file: number;
+  existing_in_stock: number;
+  to_add: number;
+  expected_field_count: number | null;
+  malformed: { line: number; fields: number }[];
+  malformed_total: number;
+}
+
+export interface RestockResult {
+  count: number;
+  skipped_duplicate: number;
+  skipped_existing: number;
+}
+
+export type ResourceStatusFilter = "all" | "available" | "assigned" | "error" | "expired" | "archived";
+export type ResourceSort = "newest" | "oldest";
+
+export interface SellerResourceQuery {
+  page?: number;
+  perPage?: number;
+  status?: ResourceStatusFilter;
+  search?: string;
+  createdFrom?: string;
+  createdTo?: string;
+  hasOrder?: boolean | null;
+  sort?: ResourceSort;
+  signal?: AbortSignal;
+}
+
+export interface BulkResourceActionInput {
+  action: "archive" | "restore";
+  resourceIds?: number[];
+  allMatching?: boolean;
+  status?: ResourceStatusFilter;
+  search?: string;
+  createdFrom?: string;
+  createdTo?: string;
+  hasOrder?: boolean | null;
+}
+
+export type InventoryExportMask = "none" | "middle" | "edges" | "id_only";
+export type InventoryExportColumn =
+  | "index" | "category" | "product" | "variant" | "id" | "status" | "data" | "order"
+  | "created_at" | "assigned_at" | "expires_at" | "price";
+export type InventoryResourceStatus = "available" | "assigned" | "error" | "expired";
+
+export interface InventoryScope {
+  variantIds?: number[];
+  productIds?: number[];
+  categoryIds?: number[];
+  includeInactive?: boolean;
+}
+
+export interface InventoryExportParams extends InventoryScope {
+  statuses?: InventoryResourceStatus[];
+  includeArchived?: boolean;
+  createdFrom?: string;
+  createdTo?: string;
+  assignedFrom?: string;
+  assignedTo?: string;
+  mask?: InventoryExportMask;
+  maskChar?: string;
+  format?: "csv" | "txt";
+  columns?: InventoryExportColumn[];
+  /** UI locale — drives CSV header language server-side. */
+  locale?: string;
+}
+
+export interface InventoryExportPreview {
+  rows: Record<InventoryExportColumn, string | number>[];
+  total: number;
+  packages: number;
+  row_limit: number;
+  columns: InventoryExportColumn[];
+  headers: Record<InventoryExportColumn, string>;
+}
+
+export type InventoryReportGroup = "category" | "product" | "variant" | "day" | "week";
+export type InventoryReportMetric = "added" | "sold" | "error" | "expired" | "archived" | "stock" | "revenue";
+export type InventoryReportBasis = "created" | "assigned";
+
+export interface InventoryReportParams extends InventoryScope {
+  range: SellerDashboardRangeKey;
+  from?: string;
+  to?: string;
+  tz?: string;
+  groupBy?: InventoryReportGroup;
+  basis?: InventoryReportBasis;
+  compare?: boolean;
+  lowOnly?: boolean;
+  hasError?: boolean;
+  noActivity?: boolean;
+}
+
+export interface InventoryReportRow {
+  key: string;
+  label: string | null;
+  sublabel: string | null;
+  product_id: number | null;
+  product_title: string | null;
+  category_id: number | null;
+  category_name: string | null;
+  category_parent_name: string | null;
+  added: number;
+  sold: number;
+  error: number;
+  expired: number;
+  archived: number;
+  stock: number;
+  revenue: number;
+  prev: Record<InventoryReportMetric, number> | null;
+}
+
+export interface InventoryReportResponse {
+  range: SellerDashboardRange;
+  group_by: InventoryReportGroup;
+  basis: InventoryReportBasis;
+  packages: number;
+  rows: InventoryReportRow[];
+  totals: Record<InventoryReportMetric, number>;
+  prev_totals: Record<InventoryReportMetric, number> | null;
+  low_stock_threshold: number;
+}
+
+export interface SellerRuntimeConfig {
+  low_stock_threshold: number;
+  inventory_export_row_limit: number;
+  /** Days after the protection window ends during which a buyer may still review. */
+  review_window_days: number;
+  /** Days after purchase before an unreviewed order gets an automatic 5★. */
+  auto_review_days: number;
+  auto_review_enabled: boolean;
+  updated_at: string | null;
+  updated_by_id: number | null;
 }
 
 export interface AdminResource {
@@ -1045,6 +1512,35 @@ export interface TikTokLookupResponse {
   meta: {
     source: string | null;
     fetched_at: string | null;
+  };
+}
+
+export type FacebookEntityType = "Profile" | "Page" | "Group" | "Event" | "Unknown";
+
+export interface FacebookEntity {
+  id: string;
+  type: FacebookEntityType;
+  username: string | null;
+  name: string | null;
+  avatar: string | null;
+  url: string;
+  description: string | null;
+  likes: number | null;
+  members: number | null;
+  privacy: string | null;
+  old_page_id: string | null;
+}
+
+export interface FacebookLookupResponse {
+  success: true;
+  platform: "facebook";
+  query: { input: string; handle: string; kind: string };
+  entity: FacebookEntity;
+  meta: {
+    source: string | null;
+    data_status: string | null;
+    cached: boolean;
+    fetched_at: string;
   };
 }
 
@@ -1207,6 +1703,7 @@ export interface AffiliateTimeseriesPoint {
 export interface AffiliateCommissionRow {
   id: number;
   order_id: number;
+  order_code?: string | null;
   buyer_account_id: number;
   rate_percent: number;
   amount: number;

@@ -1,8 +1,9 @@
 "use client";
 
 import { useEffect, useState } from "react";
-import { useTranslations } from "next-intl";
+import { useLocale, useTranslations } from "next-intl";
 import { api } from "@/lib/api";
+import { sellerInventoryPath, sellerInventoryProductQuery } from "@/lib/routes";
 import { useApiErrorMessage } from "@/lib/use-api-error";
 import { useDebounce } from "@/lib/hooks/useDebounce";
 import { cn } from "@/lib/cn";
@@ -13,6 +14,11 @@ import { summarizeDisputeCase } from "@/lib/dispute-case";
 import { Button, Input, Spinner, Textarea } from "@/components/ui";
 
 const PAGE_SIZE = 100;
+/** Hand-picking a specific stock account for a warranty swap is parked for
+ *  now: replacements always take the oldest stock (earliest restock) first,
+ *  the same FIFO rule normal sales follow. Flip to re-enable the picker. */
+const ALLOW_PICK_REPLACEMENT = false;
+const FIFO_PREVIEW_LIMIT = 20;
 
 export function SellerDisputeRemedyPanel({
   disputeId,
@@ -28,6 +34,7 @@ export function SellerDisputeRemedyPanel({
   onChanged: () => void | Promise<void>;
 }) {
   const t = useTranslations("seller");
+  const locale = useLocale();
   const apiErrorMessage = useApiErrorMessage();
 
   const [search, setSearch] = useState("");
@@ -49,6 +56,7 @@ export function SellerDisputeRemedyPanel({
   const [stockItems, setStockItems] = useState<Array<{ id: number; data: string }>>([]);
   const [stockMatchTotal, setStockMatchTotal] = useState(0);
   const [picked, setPicked] = useState<Set<number>>(new Set());
+  const [fifoPreview, setFifoPreview] = useState<Array<{ id: number; data: string; created_at?: string | null }>>([]);
   const [note, setNote] = useState("");
   const [submitting, setSubmitting] = useState(false);
   const [error, setError] = useState<string | null>(null);
@@ -133,6 +141,16 @@ export function SellerDisputeRemedyPanel({
   useEffect(() => {
     setStockPage(1);
   }, [debouncedStockSearch]);
+
+  // What "replace from stock" will actually hand out: the N oldest accounts.
+  useEffect(() => {
+    if (action !== "replace" || replaceMode !== "stock" || selected.size === 0) { setFifoPreview([]); return; }
+    let cancelled = false;
+    void api.sellerDisputeReplacements(disputeId, { page: 1, per_page: Math.min(selected.size, FIFO_PREVIEW_LIMIT) })
+      .then((resp) => { if (!cancelled) setFifoPreview(resp.items); })
+      .catch(() => { if (!cancelled) setFifoPreview([]); });
+    return () => { cancelled = true; };
+  }, [action, replaceMode, disputeId, selected.size, stockTotal]);
 
   const toggle = (id: number, enabled: boolean) => {
     if (!enabled) return;
@@ -296,7 +314,6 @@ export function SellerDisputeRemedyPanel({
                 onChange={() => toggle(resource.id, pending)}
                 className="h-3.5 w-3.5 shrink-0 accent-iris"
               />
-              <span className="shrink-0 font-mono text-[10.5px] text-faint">#{resource.id}</span>
               <span className="min-w-0 flex-1 truncate font-mono text-fg">{resource.data}</span>
               {resource.refund_amount_cap != null && (
                 <span className="shrink-0 font-mono text-[10.5px] text-muted">{formatRefund(resource.refund_amount_cap)}</span>
@@ -384,7 +401,7 @@ export function SellerDisputeRemedyPanel({
                 <div className="flex items-center gap-2 shrink-0">
                   {order?.variant_id ? (
                     <Link
-                      href={`/seller/inventory?variant=${order.variant_id}`}
+                      href={order.variant_id ? sellerInventoryPath({ variant_id: order.variant_id, variant_key: order.variant_key }, "restock=1") : "/seller/inventory"}
                       target="_blank"
                       className="inline-flex items-center gap-1.5 h-7.5 px-3 rounded-lg bg-iris hover:bg-iris/90 text-white font-semibold text-xs transition-colors shadow-xs"
                     >
@@ -394,7 +411,7 @@ export function SellerDisputeRemedyPanel({
                     </Link>
                   ) : order?.product_id ? (
                     <Link
-                      href={`/seller/inventory?product=${order.product_id}`}
+                      href={order.product_id ? sellerInventoryProductQuery({ id: order.product_id, public_key: order.product_key }) : "/seller/inventory"}
                       target="_blank"
                       className="inline-flex items-center gap-1.5 h-7.5 px-3 rounded-lg bg-iris hover:bg-iris/90 text-white font-semibold text-xs transition-colors shadow-xs"
                     >
@@ -429,22 +446,51 @@ export function SellerDisputeRemedyPanel({
               </div>
             )}
 
-            <label className="flex items-start gap-2 text-[12px] text-fg">
-              <input type="radio" className="mt-0.5 accent-iris" checked={replaceMode === "stock"} onChange={() => setReplaceMode("stock")} />
-              <span>
+            {ALLOW_PICK_REPLACEMENT ? (
+              <>
+                <label className="flex items-start gap-2 text-[12px] text-fg">
+                  <input type="radio" className="mt-0.5 accent-iris" checked={replaceMode === "stock"} onChange={() => setReplaceMode("stock")} />
+                  <span>
+                    <span className="font-semibold">{t("replaceFromStock")}</span>
+                    <span className="block text-[11px] text-muted">{t("replaceFromStockHint", { count: stockTotal })}</span>
+                  </span>
+                </label>
+                <label className="flex items-start gap-2 text-[12px] text-fg">
+                  <input type="radio" className="mt-0.5 accent-iris" checked={replaceMode === "pick"} onChange={() => setReplaceMode("pick")} />
+                  <span>
+                    <span className="font-semibold">{t("replacePickAccounts")}</span>
+                    <span className="block text-[11px] text-muted">{t("replacePickAccountsHint")}</span>
+                  </span>
+                </label>
+              </>
+            ) : (
+              <div className="text-[12px] text-fg">
                 <span className="font-semibold">{t("replaceFromStock")}</span>
                 <span className="block text-[11px] text-muted">{t("replaceFromStockHint", { count: stockTotal })}</span>
-              </span>
-            </label>
-            <label className="flex items-start gap-2 text-[12px] text-fg">
-              <input type="radio" className="mt-0.5 accent-iris" checked={replaceMode === "pick"} onChange={() => setReplaceMode("pick")} />
-              <span>
-                <span className="font-semibold">{t("replacePickAccounts")}</span>
-                <span className="block text-[11px] text-muted">{t("replacePickAccountsHint")}</span>
-              </span>
-            </label>
+              </div>
+            )}
 
-            {replaceMode === "pick" && (
+            {replaceMode === "stock" && selected.size > 0 && fifoPreview.length > 0 && (
+              <div className="space-y-1.5 pt-1">
+                <p className="text-[11px] font-medium text-muted">{t("fifoPreviewTitle", { count: Math.min(selected.size, stockTotal) })}</p>
+                <div className="max-h-40 overflow-y-auto rounded-lg border border-line divide-y divide-line/50">
+                  {fifoPreview.map((row, index) => (
+                    <div key={row.id} className="flex items-center gap-2 px-2.5 py-1.5 text-[11.5px]">
+                      <span className="w-5 shrink-0 text-right font-mono text-[10.5px] text-faint">{index + 1}.</span>
+                      <span className="min-w-0 flex-1 truncate font-mono text-fg">{row.data}</span>
+                      {row.created_at && (
+                        <span className="shrink-0 text-[10.5px] text-faint">{t("fifoStockedAt", { date: new Date(row.created_at).toLocaleDateString(locale) })}</span>
+                      )}
+                    </div>
+                  ))}
+                </div>
+                {selected.size > fifoPreview.length && stockTotal > fifoPreview.length && (
+                  <p className="text-[10.5px] text-faint">{t("fifoPreviewMore", { count: Math.min(selected.size, stockTotal) - fifoPreview.length })}</p>
+                )}
+              </div>
+            )}
+
+            {ALLOW_PICK_REPLACEMENT && replaceMode === "pick" && (
               <div className="space-y-2 pt-1">
                 <div className="flex flex-wrap items-center gap-2">
                   <Input
@@ -462,7 +508,6 @@ export function SellerDisputeRemedyPanel({
                   {stockItems.map((row) => (
                     <label key={row.id} className={cn("flex cursor-pointer items-center gap-2 px-2.5 py-2 hover:bg-raised/60", picked.has(row.id) && "bg-iris-soft/20")}>
                       <input type="checkbox" checked={picked.has(row.id)} onChange={() => togglePick(row.id)} className="h-3.5 w-3.5 accent-iris" />
-                      <span className="font-mono text-[10.5px] text-faint">#{row.id}</span>
                       <span className="min-w-0 flex-1 truncate font-mono text-fg">{row.data}</span>
                     </label>
                   ))}

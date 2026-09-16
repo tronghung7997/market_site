@@ -16,7 +16,7 @@ import {
   parseRestockFileContent,
   restockTemplateContent,
   restockableVariants,
-} from "../features/seller-inventory/index.ts";
+} from "../features/seller-inventory/logic.ts";
 
 test("dynamic pricing products are not classified by variant stock", () => {
   const product = { pricing_strategy: "config", total_stock: 0 };

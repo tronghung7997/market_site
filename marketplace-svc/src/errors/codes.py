@@ -22,6 +22,7 @@ class ErrorCode(str, Enum):
     SELF_PURCHASE = "SELF_PURCHASE"
     PROVIDER_NOT_CONFIGURED = "PROVIDER_NOT_CONFIGURED"
     INVALID_PRODUCT_CONFIG = "INVALID_PRODUCT_CONFIG"
+    DASHBOARD_RANGE_INVALID = "DASHBOARD_RANGE_INVALID"
     ORDER_QUANTITY_LIMIT = "ORDER_QUANTITY_LIMIT"
     ORDER_NOT_FOUND = "ORDER_NOT_FOUND"
     NOT_ORDER_OWNER = "NOT_ORDER_OWNER"
@@ -38,7 +39,10 @@ class ErrorCode(str, Enum):
     CHAT_INVALID_PERSPECTIVE = "CHAT_INVALID_PERSPECTIVE"
     CHAT_ROLE_UNAVAILABLE = "CHAT_ROLE_UNAVAILABLE"
     ORDER_NOT_COMPLETED = "ORDER_NOT_COMPLETED"
+    REVIEW_NOT_ELIGIBLE = "REVIEW_NOT_ELIGIBLE"
+    REVIEW_WINDOW_CLOSED = "REVIEW_WINDOW_CLOSED"
     REVIEW_ALREADY_EXISTS = "REVIEW_ALREADY_EXISTS"
+    REVIEW_NOT_FOUND = "REVIEW_NOT_FOUND"
     ORDER_NOT_PENDING = "ORDER_NOT_PENDING"
     ORDER_NOT_PROCESSING = "ORDER_NOT_PROCESSING"
     DISPUTE_NOT_FOUND = "DISPUTE_NOT_FOUND"
@@ -107,6 +111,7 @@ MESSAGES_EN: dict[ErrorCode, str] = {
     ErrorCode.SELF_PURCHASE: "You cannot purchase your own product",
     ErrorCode.PROVIDER_NOT_CONFIGURED: "This product is not ready to accept orders",
     ErrorCode.INVALID_PRODUCT_CONFIG: "The selected product configuration is invalid",
+    ErrorCode.DASHBOARD_RANGE_INVALID: "The selected date range is invalid",
     ErrorCode.ORDER_QUANTITY_LIMIT: "This product supports a maximum of {max} unit per order",
     ErrorCode.ORDER_NOT_FOUND: "Order not found",
     ErrorCode.NOT_ORDER_OWNER: "This is not your order",
@@ -124,7 +129,10 @@ MESSAGES_EN: dict[ErrorCode, str] = {
     ErrorCode.CHAT_INVALID_PERSPECTIVE: "Invalid conversation view",
     ErrorCode.CHAT_ROLE_UNAVAILABLE: "Your account cannot use this conversation view",
     ErrorCode.ORDER_NOT_COMPLETED: "This order is not completed yet",
+    ErrorCode.REVIEW_NOT_ELIGIBLE: "You can review this order once it has been delivered",
+    ErrorCode.REVIEW_WINDOW_CLOSED: "The review window for this order has closed",
     ErrorCode.REVIEW_ALREADY_EXISTS: "You have already reviewed this order",
+    ErrorCode.REVIEW_NOT_FOUND: "Review not found",
     ErrorCode.ORDER_NOT_PENDING: "This order is not waiting for seller acceptance",
     ErrorCode.ORDER_NOT_PROCESSING: "This order is not awaiting delivery",
     ErrorCode.DISPUTE_NOT_FOUND: "Dispute not found",

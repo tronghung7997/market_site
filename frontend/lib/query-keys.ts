@@ -17,6 +17,10 @@ export const queryKeys = {
 
   // Products
   products: () => ["products"] as const,
+  sellerReviews: (params?: Record<string, unknown>) =>
+    params ? (["seller-reviews", params] as const) : (["seller-reviews"] as const),
+  adminReviews: (params?: Record<string, unknown>) =>
+    params ? (["admin-reviews", params] as const) : (["admin-reviews"] as const),
   productDetail: (id: number) => ["product", id] as const,
 
   // Disputes
@@ -59,4 +63,29 @@ export const queryKeys = {
   adminAffiliates: (params?: Record<string, unknown>) => ["admin-affiliates", params ?? null] as const,
   adminAffiliateDetail: (id: number, params?: Record<string, unknown>) =>
     ["admin-affiliate", id, params ?? null] as const,
+
+  // Seller overview
+  sellerDashboard: (params: Record<string, unknown>) => ["seller-dashboard", params] as const,
+
+  // Seller orders console — prefix ["seller-orders"] invalidates list + detail.
+  sellerOrders: (params?: Record<string, unknown> | null) =>
+    params == null ? ["seller-orders"] as const : ["seller-orders", "list", params] as const,
+  sellerOrderDetail: (id: string | number) => ["seller-orders", "detail", String(id)] as const,
+  sellerDispute: (orderId: string | number) => ["seller-orders", "dispute", String(orderId)] as const,
+  sellerOrderResources: (orderId: string | number) => ["seller-orders", "resources", String(orderId)] as const,
+
+  // Seller products console
+  // Seller inventory console — prefix ["seller-inventory"] invalidates every view.
+  sellerInventory: (params?: Record<string, unknown> | null) =>
+    params == null ? ["seller-inventory"] as const : ["seller-inventory", "packages", params] as const,
+  // Keyed by the route ref (public key, or a legacy id) — one cache entry per URL.
+  sellerInventoryPackage: (variantRef: string) => ["seller-inventory", "package", variantRef] as const,
+  sellerInventoryResources: (variantId: number, params: Record<string, unknown>) =>
+    ["seller-inventory", "resources", variantId, params] as const,
+  sellerInventoryAll: () => ["seller-inventory", "all-packages"] as const,
+  sellerInventoryReport: (params: Record<string, unknown>) => ["seller-inventory", "report", params] as const,
+  sellerInventoryExportPreview: (params: Record<string, unknown>) => ["seller-inventory", "export-preview", params] as const,
+  adminSellerConfig: () => ["admin-seller-config"] as const,
+  sellerProducts: (params?: Record<string, unknown> | null) =>
+    params == null ? ["seller-products"] as const : ["seller-products", "list", params] as const,
 } as const;

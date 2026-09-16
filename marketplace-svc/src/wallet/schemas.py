@@ -49,6 +49,10 @@ class TransactionResponse(BaseModel):
     reference_id: str | None
     created_at: datetime
     order_status: str | None = None
+    # Buyer/seller-facing reference: the order code (or provider reference for
+    # deposits). reference_id keeps the internal form for idempotency/debugging.
+    order_code: str | None = None
+    reference_label: str | None = None
 
     model_config = {"from_attributes": True}
 

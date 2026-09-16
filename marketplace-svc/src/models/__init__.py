@@ -35,6 +35,7 @@ from src.models.mail_template import MailTemplate
 from src.models.wallet import Transaction, TransactionType, Wallet, WithdrawRequest, WithdrawStatus
 from src.models.display_money_config import DisplayMoneyConfig
 from src.models.deposit_rail_config import DepositRailConfig
+from src.models.seller_runtime_config import SellerRuntimeConfig
 
 __all__ = [
     "Account", "AccountRole", "ApplicationStatus", "PasswordResetToken", "SellerApplication",
@@ -59,4 +60,5 @@ __all__ = [
     "NowpaymentsIpnEvent", "PayosWebhookEvent", "SePayWebhookEvent",
     "DisplayMoneyConfig",
     "DepositRailConfig",
+    "SellerRuntimeConfig",
 ]

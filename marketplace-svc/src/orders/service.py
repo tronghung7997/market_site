@@ -3,7 +3,7 @@ from datetime import datetime, timedelta, timezone
 
 import structlog
 from fastapi import status
-from sqlalchemy import func, or_, select
+from sqlalchemy import case, func, or_, select
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from src.adapters.compatibility import check_compatibility
@@ -18,6 +18,8 @@ from src.models.provider import Provider
 from src.models.resource import Resource
 from src.models.product import DeliveryMode, Product, ProductStatus, ProductVariant
 from src.models.review import Review
+from src.reviews.service import can_review_order
+from src.seller.settings import get_review_window_days
 from src.models.service_task import ServiceTask
 from src.pricing.engine import quote_product, resolve_pricing
 from src.pricing.factory import get_pricing_strategy
@@ -30,6 +32,8 @@ from src.wallet.service import deduct_credit, escrow_settlement, refund_escrow, 
 from src.disputes.service import orders_with_appendable_claims
 from src.exceptions import ErrorCode, api_error
 from src.money.service import get_effective_rate
+from src.orders.codes import mask_email, parse_order_ref
+from src.sellers.service import approved_business_names, seller_refs_by_id
 
 logger = structlog.get_logger()
 
@@ -158,7 +162,7 @@ async def _raise_operational_alert(
                     target_type="seller",
                     target_id=order.seller_id,
                     message=(
-                        f"Đơn #{order_id} giao thất bại: nhà cung cấp đã hết tiền "
+                        f"Đơn {order.order_code} giao thất bại: nhà cung cấp đã hết tiền "
                         f"và đã tạm dừng bán. Khách đã được hoàn tiền — nạp lại rồi "
                         f"cập nhật số dư để tiếp tục bán."
                     ),
@@ -506,8 +510,14 @@ async def confirm_order(order_id: int, buyer_id: int, db: AsyncSession) -> Order
     return order
 
 
-async def _enrich_orders(orders: list[Order], db: AsyncSession) -> list[dict]:
+async def _enrich_orders(orders: list[Order], db: AsyncSession, *, viewer: str = "admin") -> list[dict]:
     """Orders ORM → dicts with product/variant names + buyer/seller emails for display.
+
+    ``viewer`` decides how much of the counterparty is exposed:
+    - ``buyer``: no ``seller_email``; gets ``seller_name`` / ``seller_path``
+      (the shop, reachable through order chat) instead;
+    - ``seller``: ``buyer_email`` masked (``bu***@gmail.com``) + ``buyer_key``;
+    - ``admin``: everything.
 
     Gom lookup theo IN thay vì query từng đơn — list admin/seller từng mất
     ~6 query × N đơn (2.3s với 80 đơn), giờ cố định 5 query bất kể N.
@@ -533,23 +543,30 @@ async def _enrich_orders(orders: list[Order], db: AsyncSession) -> list[dict]:
     if account_ids:
         rows = await db.execute(select(Account).where(Account.id.in_(account_ids)))
         accounts = {a.id: a for a in rows.scalars()}
+    seller_ids = {o.seller_id for o in orders}
+    seller_names = await approved_business_names(list(seller_ids), db) if viewer == "buyer" else {}
+    seller_refs = await seller_refs_by_id(seller_ids, db) if viewer == "buyer" else {}
 
     order_ids = [o.id for o in orders]
     reviewed = set(
         (await db.execute(select(Review.order_id).where(Review.order_id.in_(order_ids)))).scalars()
     )
+    review_window_days = await get_review_window_days(db)
     dispute_rows = (await db.execute(
-        select(Dispute.order_id, Dispute.status, Dispute.created_at, Dispute.review_requested_at)
+        select(Dispute.order_id, Dispute.status, Dispute.created_at, Dispute.review_requested_at, Dispute.seller_note)
         .where(Dispute.order_id.in_(order_ids))
         .order_by(Dispute.created_at.desc())
     )).all()
     latest_dispute_status: dict[int, str] = {}
     review_requested_orders: set[int] = set()
-    for order_id, dispute_status, _created_at, review_requested_at in dispute_rows:
+    awaiting_seller_orders: set[int] = set()
+    for order_id, dispute_status, _created_at, review_requested_at, seller_note in dispute_rows:
         if order_id not in latest_dispute_status:
             latest_dispute_status[order_id] = dispute_status.value
             if dispute_status == DisputeStatus.open and review_requested_at:
                 review_requested_orders.add(order_id)
+            if dispute_status == DisputeStatus.open and not seller_note:
+                awaiting_seller_orders.add(order_id)
     open_disputes = {order_id for order_id, status_value in latest_dispute_status.items() if status_value == DisputeStatus.open.value}
     appendable_claim_orders = await orders_with_appendable_claims(list(open_disputes), db)
     task_rows = (await db.execute(
@@ -592,7 +609,8 @@ async def _enrich_orders(orders: list[Order], db: AsyncSession) -> list[dict]:
         within_escrow = not order.escrow_expires_at or datetime.now(timezone.utc) <= order.escrow_expires_at
         is_terminal_refund = order.status in {OrderStatus.refunded, OrderStatus.cancelled}
         out.append({
-            "id": order.id, "buyer_id": order.buyer_id, "seller_id": order.seller_id,
+            "id": order.id, "order_code": order.order_code,
+            "buyer_id": order.buyer_id, "seller_id": order.seller_id,
             "variant_id": order.variant_id, "product_id": order.product_id,
             "quantity": order.quantity,
             "total_amount": order.total_amount, "status": order.status,
@@ -602,16 +620,19 @@ async def _enrich_orders(orders: list[Order], db: AsyncSession) -> list[dict]:
             "cancel_reason": order.cancel_reason,
             "created_at": order.created_at,
             "product_title": product.title if product else None,
+            "product_slug": product.slug if product else None,
+            "product_key": product.public_key if product else None,
+            "variant_key": variant.public_key if variant else None,
             "pricing_strategy": strategy,
             "delivery_mode": delivery_mode,
             "sla_hours": variant.sla_hours if variant else None,
             "service_type": service_type,
             "variant_name": variant.name if variant else None,
-            "buyer_email": buyer.email if buyer else None,
-            "seller_email": seller.email if seller else None,
+            **_counterparty_fields(viewer, buyer, seller, seller_names.get(order.seller_id), seller_refs.get(order.seller_id, {})),
             "has_review": order.id in reviewed,
             "has_dispute": is_open_dispute,
             "dispute_status": latest_dispute_status.get(order.id),
+            "dispute_awaiting_seller": order.id in awaiting_seller_orders,
             "fulfillment": {"kind": fulfillment_kind, "status": fulfillment_status},
             "settlement": {"status": "released" if order.status == OrderStatus.completed else "refunded" if is_terminal_refund else "escrow_held"},
             "protection": {"status": "dispute_open" if is_open_dispute else "active" if order.status == OrderStatus.delivered else "closed"},
@@ -624,7 +645,7 @@ async def _enrich_orders(orders: list[Order], db: AsyncSession) -> list[dict]:
                     and order.id in appendable_claim_orders
                 ),
                 "can_request_review": is_open_dispute and order.id not in review_requested_orders,
-                "can_review": order.status == OrderStatus.completed and order.id not in reviewed and product is not None,
+                "can_review": can_review_order(order, review_window_days) and order.id not in reviewed and product is not None,
                 "can_chat": not is_terminal_refund,
                 "can_view_proxy": fulfillment_kind == "proxy" and fulfillment_status in {"delivered", "completed"},
             },
@@ -633,9 +654,38 @@ async def _enrich_orders(orders: list[Order], db: AsyncSession) -> list[dict]:
     return out
 
 
-async def _enrich_order(order: Order, db: AsyncSession) -> dict:
+async def _enrich_order(order: Order, db: AsyncSession, *, viewer: str = "admin") -> dict:
     """Order ORM → dict with product/variant names + buyer/seller emails for display."""
-    return (await _enrich_orders([order], db))[0]
+    return (await _enrich_orders([order], db, viewer=viewer))[0]
+
+
+def _counterparty_fields(viewer: str, buyer: Account | None, seller: Account | None, seller_business_name: str | None, seller_ref: dict) -> dict:
+    if viewer == "buyer":
+        return {
+            "buyer_email": buyer.email if buyer else None,
+            "seller_email": None,
+            "seller_name": seller_business_name or (seller.email.split("@", 1)[0] if seller else None),
+            "seller_path": seller_ref.get("seller_path"),
+        }
+    if viewer == "seller":
+        return {
+            "buyer_email": mask_email(buyer.email) if buyer else None,
+            "buyer_key": buyer.public_key if buyer else None,
+            "seller_email": seller.email if seller else None,
+        }
+    return {
+        "buyer_email": buyer.email if buyer else None,
+        "seller_email": seller.email if seller else None,
+    }
+
+
+def _order_ref_condition(term: str):
+    """``#212`` / ``212`` -> id match, ``ORD-XXXXXXXX`` (any case, optional prefix) -> code match."""
+    parsed = parse_order_ref(term)
+    if parsed is None:
+        return Order.id == -1
+    kind, value = parsed
+    return Order.id == int(value) if kind == "id" else Order.order_code == value
 
 
 async def list_buyer_orders(
@@ -665,12 +715,8 @@ async def list_buyer_orders(
 
     if search:
         search_clean = search.strip()
-        if search_clean.startswith("#"):
-            id_part = search_clean.lstrip("#").strip()
-            if id_part.isdigit():
-                q = q.where(Order.id == int(id_part))
-            else:
-                q = q.where(Order.id == -1)
+        if search_clean.startswith("#") or (not search_clean.isdigit() and parse_order_ref(search_clean) is not None):
+            q = q.where(_order_ref_condition(search_clean.lstrip("#").strip()))
         else:
             product_match = select(Product.id).where(Product.title.ilike(f"%{search_clean}%"))
             variant_match = select(ProductVariant.id).where(ProductVariant.name.ilike(f"%{search_clean}%"))
@@ -720,7 +766,7 @@ async def list_buyer_orders(
 
     q = q.offset((page - 1) * per_page).limit(per_page)
     result = await db.execute(q)
-    items = await _enrich_orders(list(result.scalars().all()), db)
+    items = await _enrich_orders(list(result.scalars().all()), db, viewer="buyer")
 
     return {"items": items, "total": total, "page": page, "per_page": per_page}
 
@@ -755,11 +801,169 @@ async def buyer_order_stats(buyer_id: int, db: AsyncSession) -> dict:
     }
 
 
-async def list_seller_orders(seller_id: int, db: AsyncSession) -> list[dict]:
-    result = await db.execute(
-        select(Order).where(Order.seller_id == seller_id).order_by(Order.created_at.desc())
+SELLER_ORDER_TABS = ("all", "disputed", "action_required", "escrow", "completed", "cancelled")
+SELLER_ORDER_KINDS = ("instant", "manual", "api", "task", "proxy")
+SELLER_ORDER_SORTS = ("newest", "oldest", "amount_desc", "amount_asc")
+
+
+def _open_dispute_order_ids():
+    return select(Dispute.order_id).where(Dispute.status == DisputeStatus.open)
+
+
+def _seller_tab_filter(tab: str):
+    """One clause per console tab. Disputes are an overlay, so `escrow` means
+    delivered AND not disputed, and `disputed` catches both the legacy
+    `disputed` status and an open dispute on a delivered order."""
+    open_disputed = or_(Order.status == OrderStatus.disputed, Order.id.in_(_open_dispute_order_ids()))
+    if tab == "disputed":
+        return open_disputed
+    if tab == "action_required":
+        return Order.status.in_((OrderStatus.pending, OrderStatus.processing))
+    if tab == "escrow":
+        return (Order.status == OrderStatus.delivered) & ~Order.id.in_(_open_dispute_order_ids())
+    if tab == "completed":
+        return Order.status == OrderStatus.completed
+    if tab == "cancelled":
+        return Order.status.in_((OrderStatus.cancelled, OrderStatus.refunded))
+    return None
+
+
+def _seller_order_product_id():
+    return func.coalesce(Order.product_id, ProductVariant.product_id)
+
+
+def _fulfillment_kind_sql():
+    """SQL twin of the kind resolution in `_enrich_orders` — keep in sync."""
+    return case(
+        (Product.pricing_strategy == "task", "task"),
+        (Product.service_type == "proxy", "proxy"),
+        (Product.pricing_strategy == "credit", "api"),
+        (ProductVariant.delivery_mode == DeliveryMode.manual, "manual"),
+        else_="instant",
     )
-    return await _enrich_orders(list(result.scalars().all()), db)
+
+
+async def list_seller_orders(
+    seller_id: int,
+    db: AsyncSession,
+    *,
+    tab: str = "all",
+    search: str | None = None,
+    product_id: int | None = None,
+    product_key: str | None = None,
+    kind: str | None = None,
+    date_from: str | None = None,
+    date_to: str | None = None,
+    sort: str = "newest",
+    page: int = 1,
+    per_page: int = 20,
+) -> dict:
+    """Seller console listing: server-side tabs/filters/sort/pagination plus
+    store-wide tab counts so the console header never depends on the page."""
+    if product_key:
+        # Seller URLs carry the product's public key, never its row id; a
+        # numeric value is an old bookmarked `?product_id=` link.
+        ref = product_key.strip()
+        if ref.isdigit():
+            product_id = int(ref)
+        else:
+            product_id = await db.scalar(select(Product.id).where(Product.public_key == ref.lower())) or -1
+    base = (
+        select(Order.id)
+        .select_from(Order)
+        .outerjoin(ProductVariant, ProductVariant.id == Order.variant_id)
+        .outerjoin(Product, Product.id == _seller_order_product_id())
+        .where(Order.seller_id == seller_id)
+    )
+
+    filters = []
+    tab_clause = _seller_tab_filter(tab if tab in SELLER_ORDER_TABS else "all")
+    if tab_clause is not None:
+        filters.append(tab_clause)
+    if product_id:
+        filters.append(_seller_order_product_id() == product_id)
+    if kind in SELLER_ORDER_KINDS:
+        filters.append(_fulfillment_kind_sql() == kind)
+    if search and search.strip():
+        term = search.strip()
+        if term.startswith("#") or (not term.isdigit() and parse_order_ref(term) is not None):
+            filters.append(_order_ref_condition(term.lstrip("#").strip()))
+        else:
+            buyer_match = select(Account.id).where(Account.email.ilike(f"%{term}%"))
+            conditions = [
+                Product.title.ilike(f"%{term}%"),
+                ProductVariant.name.ilike(f"%{term}%"),
+                Order.buyer_id.in_(buyer_match),
+            ]
+            if term.isdigit():
+                conditions.append(Order.id == int(term))
+            filters.append(or_(*conditions))
+    for raw, clause in ((date_from, "from"), (date_to, "to")):
+        if not raw:
+            continue
+        try:
+            dt = datetime.fromisoformat(raw)
+        except ValueError:
+            continue
+        if dt.tzinfo is None:
+            dt = dt.replace(tzinfo=timezone.utc)
+        filters.append(Order.created_at >= dt if clause == "from" else Order.created_at < dt + timedelta(days=1))
+
+    filtered = base.where(*filters)
+    total = int((await db.execute(select(func.count()).select_from(filtered.subquery()))).scalar() or 0)
+
+    order_by = {
+        "oldest": (Order.created_at.asc(), Order.id.asc()),
+        "amount_desc": (Order.total_amount.desc(), Order.created_at.desc()),
+        "amount_asc": (Order.total_amount.asc(), Order.created_at.desc()),
+    }.get(sort, (Order.created_at.desc(), Order.id.desc()))
+    page_ids = list((await db.execute(
+        filtered.order_by(*order_by).offset((page - 1) * per_page).limit(per_page)
+    )).scalars())
+    orders = []
+    if page_ids:
+        rows = (await db.execute(select(Order).where(Order.id.in_(page_ids)))).scalars().all()
+        by_id = {o.id: o for o in rows}
+        orders = [by_id[i] for i in page_ids if i in by_id]
+    items = await _enrich_orders(orders, db, viewer="seller")
+
+    scope = select(Order.id, Order.status).where(Order.seller_id == seller_id).subquery()
+    open_ids = _open_dispute_order_ids()
+    count_row = (await db.execute(select(
+        func.count(scope.c.id),
+        func.coalesce(func.sum(case((or_(scope.c.status == OrderStatus.disputed, scope.c.id.in_(open_ids)), 1), else_=0)), 0),
+        func.coalesce(func.sum(case((scope.c.status.in_((OrderStatus.pending, OrderStatus.processing)), 1), else_=0)), 0),
+        func.coalesce(func.sum(case(((scope.c.status == OrderStatus.delivered) & ~scope.c.id.in_(open_ids), 1), else_=0)), 0),
+        func.coalesce(func.sum(case((scope.c.status == OrderStatus.completed, 1), else_=0)), 0),
+        func.coalesce(func.sum(case((scope.c.status.in_((OrderStatus.cancelled, OrderStatus.refunded)), 1), else_=0)), 0),
+    ))).one()
+    awaiting = int((await db.execute(
+        select(func.count(Dispute.id))
+        .join(Order, Order.id == Dispute.order_id)
+        .where(Order.seller_id == seller_id, Dispute.status == DisputeStatus.open, Dispute.seller_note.is_(None))
+    )).scalar() or 0)
+    counts = {
+        "all": int(count_row[0]), "disputed": int(count_row[1]), "action_required": int(count_row[2]),
+        "escrow": int(count_row[3]), "completed": int(count_row[4]), "cancelled": int(count_row[5]),
+        "disputes_awaiting_seller": awaiting,
+    }
+
+    product_rows = (await db.execute(
+        select(Product.id, Product.public_key, Product.title)
+        .where(Product.id.in_(
+            select(_seller_order_product_id())
+            .select_from(Order)
+            .outerjoin(ProductVariant, ProductVariant.id == Order.variant_id)
+            .where(Order.seller_id == seller_id)
+        ))
+        .order_by(Product.title)
+    )).all()
+
+    return {
+        "items": items, "total": total, "page": page, "per_page": per_page,
+        "counts": counts,
+        "products": [{"id": pid, "public_key": key, "title": title} for pid, key, title in product_rows],
+    }
 
 
 async def list_all_orders(db: AsyncSession) -> list[dict]:
@@ -773,7 +977,7 @@ async def get_order(order_id: int, account_id: int, db: AsyncSession) -> dict:
         raise api_error(ErrorCode.ORDER_NOT_FOUND, status.HTTP_404_NOT_FOUND)
     if order.buyer_id != account_id and order.seller_id != account_id:
         raise api_error(ErrorCode.NOT_ORDER_OWNER, status.HTTP_403_FORBIDDEN)
-    return await _enrich_order(order, db)
+    return await _enrich_order(order, db, viewer="buyer" if order.buyer_id == account_id else "seller")
 
 
 async def accept_order(order_id: int, seller_id: int, db: AsyncSession) -> Order:

@@ -486,20 +486,27 @@ async def test_refunding_every_claimed_resource_auto_closes_case_and_order(clien
     assert refunded.status_code == 200, refunded.text
     assert refunded.json()["status"] == "resolved_refund"
     listed = await client.get("/seller/orders", headers=seller_headers)
-    listed_order = next(row for row in listed.json() if row["id"] == order_id)
+    listed_order = next(row for row in listed.json()["items"] if row["id"] == order_id)
     assert listed_order["status"] == "refunded"
     assert listed_order["has_dispute"] is False
     assert listed_order["dispute_status"] == "resolved_refund"
     remaining = (await client.get(f"/orders/{order_id}/resources", headers=buyer_headers)).json()
     assert {row["id"] for row in remaining} == set(resource_ids)
     assert {row["status"] for row in remaining} == {"error"}
+    order_code = listed_order["order_code"]
+    # Notifications name the order by code and the accounts by stock line —
+    # neither the order id nor resource row ids ever appear.
+    lines = sorted(index + 1 for index, row in enumerate(remaining) if row["id"] in resource_ids)
     buyer_inbox = await client.get("/orders/action-items", headers=buyer_headers)
-    buyer_alerts = [item for item in buyer_inbox.json() if item.get("href", "").startswith(f"/orders?order_id={order_id}")]
+    buyer_alerts = [item for item in buyer_inbox.json() if item.get("href", "").startswith(f"/orders?order={order_code}")]
     assert buyer_alerts, buyer_inbox.json()
-    assert all(str(resource_id) in buyer_alerts[0]["href"] for resource_id in resource_ids)
-    assert f"#{resource_ids[0]}" in buyer_alerts[0]["label"]
+    assert buyer_alerts[0]["href"].endswith("&lines=" + ",".join(str(line) for line in lines))
+    assert f"Đơn {order_code}" in buyer_alerts[0]["label"]
+    assert f"dòng {lines[0]}" in buyer_alerts[0]["label"]
+    assert f"#{order_id}" not in buyer_alerts[0]["label"]
+    assert all(f"#{resource_id}" not in buyer_alerts[0]["label"] for resource_id in resource_ids)
     seller_inbox = await client.get("/seller/action-items", headers=seller_headers)
-    seller_alerts = [item for item in seller_inbox.json() if item.get("href", "").startswith(f"/seller/orders?order_id={order_id}")]
+    seller_alerts = [item for item in seller_inbox.json() if item.get("href", "").startswith(f"/seller/orders?order={order_code}")]
     assert seller_alerts, seller_inbox.json()
     async with SessionLocal() as db:
         order = await db.get(Order, order_id)
@@ -944,8 +951,13 @@ async def test_seller_can_pick_specific_replacement_accounts(client):
     assert [row["id"] for row in live] == [chosen]
     assert after["delivered_data"] == live[0]["data"]
     inbox = await client.get("/orders/action-items", headers=buyer_headers)
-    hrefs = [item["href"] for item in inbox.json() if "resources=" in item.get("href", "")]
-    assert any(str(claimed[0]["id"]) in href and str(chosen) in href for href in hrefs), inbox.json()
+    hrefs = [item["href"] for item in inbox.json() if "lines=" in item.get("href", "")]
+    line_of = {row["id"]: index + 1 for index, row in enumerate(assigned)}
+    assert any(
+        href.startswith(f"/orders?order={after['order_code']}")
+        and href.endswith(f"&lines={line_of[claimed[0]['id']]},{line_of[chosen]}")
+        for href in hrefs
+    ), inbox.json()
 
 
 @pytest.mark.asyncio
@@ -1442,3 +1454,50 @@ async def test_admin_reject_timeline_does_not_imply_a_buyer_refund(client):
     assert outcomes[0]["body"] == "Credentials work as described."
     assert "refund_amount" not in outcomes[0] or not outcomes[0].get("refund_amount")
     assert payload["refunded_amount"] == 0
+
+
+@pytest.mark.asyncio
+async def test_replace_from_stock_hands_out_oldest_account_first(client):
+    """Warranty swaps follow FIFO: the listing is oldest-stock-first (with
+    created_at so the console can show it) and an auto replace takes row #1."""
+    from datetime import datetime, timedelta, timezone
+
+    from sqlalchemy import update as sa_update
+
+    from src.database import SessionLocal
+    from src.models.resource import Resource
+
+    buyer_token, _, order_id = await create_delivered_order(client, quantity=1, stock_count=4)
+    buyer_headers = {"Authorization": f"Bearer {buyer_token}"}
+    seller_token = await register_and_login(client, "disp_seller@example.com")
+    seller_headers = {"Authorization": f"Bearer {seller_token}"}
+    claimed = (await client.get(f"/orders/{order_id}/resources", headers=buyer_headers)).json()
+    opened = await client.post(
+        f"/orders/{order_id}/dispute",
+        json={"reason": "Account failed", "resource_ids": [claimed[0]["id"]]},
+        headers=buyer_headers,
+    )
+    dispute_id = opened.json()["id"]
+    stock = (await client.get(f"/seller/disputes/{dispute_id}/replacement-resources", headers=seller_headers)).json()
+    assert stock["total"] == 3
+    # Make the *highest* id the oldest stock so id order and age order differ.
+    oldest_id = stock["items"][-1]["id"]
+    async with SessionLocal() as db:
+        await db.execute(sa_update(Resource).where(Resource.id == oldest_id).values(
+            created_at=datetime.now(timezone.utc) - timedelta(days=30),
+        ))
+        await db.commit()
+
+    listed = (await client.get(f"/seller/disputes/{dispute_id}/replacement-resources", headers=seller_headers)).json()
+    assert listed["items"][0]["id"] == oldest_id
+    assert listed["items"][0]["created_at"]
+    ids_only = (await client.get(f"/seller/disputes/{dispute_id}/replacement-resources?ids_only=true", headers=seller_headers)).json()
+    assert ids_only["ids"][0] == oldest_id
+
+    replaced = await client.post(
+        f"/seller/disputes/{dispute_id}/resources/action",
+        json={"resource_ids": [claimed[0]["id"]], "action": "replace", "idempotency_key": "fifo-replace-001"},
+        headers=seller_headers,
+    )
+    assert replaced.status_code == 200, replaced.text
+    assert replaced.json()["actions"][0]["replacement_resource_id"] == oldest_id

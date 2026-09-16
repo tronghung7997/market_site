@@ -13,6 +13,7 @@ class ClickRequest(BaseModel):
 class CommissionRow(BaseModel):
     id: int
     order_id: int
+    order_code: str | None = None
     buyer_account_id: int
     rate_percent: float
     amount: int

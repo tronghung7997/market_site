@@ -5,6 +5,7 @@ from sqlalchemy.ext.asyncio import AsyncSession
 
 from src.auth.dependencies import require_role
 from src.database import get_session
+from src.exceptions import ErrorCode, api_error
 from src.i18n.deps import get_request_locale
 from src.models.account import Account
 
@@ -21,7 +22,7 @@ async def list_product_covers():
 @router.get("/products", response_model=schemas.ProductListPageResponse)
 async def list_products(
     category_id: int | None = Query(None, description="Lọc theo danh mục VÀ toàn bộ danh mục con"),
-    seller_id: int | None = Query(None),
+    seller: str | None = Query(None, min_length=1, max_length=200, description="Lọc theo nhà bán: {handle}-{key} hoặc key"),
     search: str | None = Query(None, min_length=1, max_length=100),
     in_stock: bool = Query(False),
     fulfillment: Literal["instant"] | None = Query(None),
@@ -36,7 +37,7 @@ async def list_products(
     return await service.list_products(
         db,
         category_id=category_id,
-        seller_id=seller_id,
+        seller=seller,
         search=search,
         in_stock=in_stock,
         fulfillment=fulfillment,
@@ -54,28 +55,43 @@ async def product_catalog_summary(db: AsyncSession = Depends(get_session)):
     return await service.get_product_catalog_summary(db)
 
 
-@router.get("/products/{product_id}", response_model=schemas.ProductDetailResponse)
+@router.get("/products/{product_ref}", response_model=schemas.ProductDetailResponse)
 async def get_product(
-    product_id: int,
+    product_ref: str,
     locale: str = Depends(get_request_locale),
     db: AsyncSession = Depends(get_session),
 ):
-    return await service.get_product_detail(product_id, db, locale=locale, public=True)
+    """Public detail by ``{slug}-{public_key}``, bare key, or legacy integer id.
+
+    The integer form stays so old bookmarks, chat history and indexed pages
+    resolve; the frontend redirects them to ``canonical_path``. Unparseable
+    refs and unknown keys both answer 404 without revealing which."""
+    product = await service.resolve_product_ref(product_ref, db)
+    if product is None:
+        raise api_error(ErrorCode.PRODUCT_NOT_FOUND, status.HTTP_404_NOT_FOUND)
+    return await service.get_product_detail(product.id, db, locale=locale, public=True)
 
 
-@router.get("/seller/products/{product_id}/detail", response_model=schemas.ProductDetailResponse)
-async def get_own_product(product_id: int, account: Account = Depends(require_role("seller")), db: AsyncSession = Depends(get_session)):
+@router.get("/seller/products/{product_ref}/detail", response_model=schemas.ProductDetailResponse)
+async def get_own_product(product_ref: str, account: Account = Depends(require_role("seller")), db: AsyncSession = Depends(get_session)):
     """Như /products/{id} nhưng kèm cả gói đã tắt — trang quản lý cần thấy chúng
-    để bật lại được."""
-    return await service.get_own_product_detail(product_id, account.id, db)
+    để bật lại được. Nhận public key (URL /seller/products/{key}) hoặc id cũ."""
+    product = await service.resolve_product_ref(product_ref, db)
+    if product is None:
+        raise api_error(ErrorCode.PRODUCT_NOT_FOUND, status.HTTP_404_NOT_FOUND)
+    return await service.get_own_product_detail(product.id, account.id, db)
 
 
 @router.get("/seller/products", response_model=schemas.SellerProductListResponse)
 async def seller_products(
     search: str | None = None,
-    status: Literal["active", "paused", "low_stock", "out_of_stock"] | None = Query(None),
+    status: Literal["active", "paused", "draft", "low_stock", "out_of_stock"] | None = Query(None),
     category: str | None = None,
+    category_ids: str | None = Query(None, description="Comma-separated category ids; a parent means its whole branch"),
     service_type: str | None = None,
+    sort: Literal[
+        "newest", "oldest", "title", "stock_asc", "stock_desc", "sold_desc", "rating_desc", "price_asc", "price_desc",
+    ] = Query("newest"),
     page: int = Query(1, ge=1),
     per_page: int = Query(50, ge=1, le=100),
     account: Account = Depends(require_role("seller")),
@@ -83,8 +99,25 @@ async def seller_products(
 ):
     return await service.list_seller_products(
         account.id, db, search=search, status=status, category=category,
-        service_type=service_type, page=page, per_page=per_page,
+        category_ids=_id_list(category_ids),
+        service_type=service_type, sort=sort, page=page, per_page=per_page,
     )
+
+
+def _id_list(raw: str | None) -> list[int] | None:
+    if not raw:
+        return None
+    out = [int(part) for part in (piece.strip() for piece in raw.split(",")) if part.isdigit()]
+    return out or None
+
+
+@router.post("/seller/products/bulk-status", response_model=schemas.SellerProductBulkStatusResponse)
+async def bulk_update_own_product_status(
+    body: schemas.SellerProductBulkStatusRequest,
+    account: Account = Depends(require_role("seller")),
+    db: AsyncSession = Depends(get_session),
+):
+    return await service.bulk_update_seller_product_status(body.ids, account.id, body.status, db)
 
 
 @router.get("/seller/stats")

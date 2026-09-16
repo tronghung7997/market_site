@@ -1,3 +1,5 @@
+import { variantPurchasable } from "./stock.ts";
+
 export type FulfillmentKind = "instant" | "sla" | "api" | "task" | "proxy";
 
 export type FulfillmentInfo = {
@@ -9,6 +11,7 @@ type VariantHint = {
   delivery_mode?: string | null;
   sla_hours?: number | null;
   stock_count?: number;
+  stock_state?: string | null;
   is_active?: boolean;
 };
 
@@ -34,8 +37,8 @@ export function fulfillmentFromProduct(product: {
   const variants = (product.variants ?? []).filter((variant) => variant.is_active !== false);
   const instant = variants.filter((variant) => variant.delivery_mode !== "manual");
   const manual = variants.filter((variant) => variant.delivery_mode === "manual");
-  const instantStock = instant.reduce((sum, variant) => sum + (variant.stock_count ?? 0), 0);
-  if (instant.length > 0 && (instantStock > 0 || manual.length === 0)) return { kind: "instant" };
+  const instantAvailable = instant.some(variantPurchasable);
+  if (instant.length > 0 && (instantAvailable || manual.length === 0)) return { kind: "instant" };
   if (manual.length > 0) return { kind: "sla", hours: manual[0]?.sla_hours || 24 };
   return { kind: "instant" };
 }

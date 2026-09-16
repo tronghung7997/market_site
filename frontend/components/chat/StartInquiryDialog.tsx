@@ -2,7 +2,7 @@
 
 import { useState } from "react";
 import { useTranslations } from "next-intl";
-import { useRouter } from "@/i18n/navigation";
+import { usePathname, useRouter } from "@/i18n/navigation";
 import { useAuth } from "@/lib/auth";
 import { ApiError, api } from "@/lib/api";
 import { useApiErrorMessage } from "@/lib/use-api-error";
@@ -21,6 +21,7 @@ export default function StartInquiryDialog({
 }) {
   const t = useTranslations("chat");
   const router = useRouter();
+  const pathname = usePathname();
   const apiErrorMessage = useApiErrorMessage();
   const { account } = useAuth();
   const create = useCreateInquiry();
@@ -29,7 +30,7 @@ export default function StartInquiryDialog({
   const [checking, setChecking] = useState(false);
 
   const start = async () => {
-    if (!account) return router.push(`/login?next=/products/${productId}`);
+    if (!account) return router.push(`/login?next=${encodeURIComponent(pathname)}`);
     setChecking(true);
     try {
       const room = await api.findProductInquiry(productId);

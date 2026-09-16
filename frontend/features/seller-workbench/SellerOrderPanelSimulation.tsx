@@ -4,6 +4,7 @@ import { useState } from "react";
 import { useLocale, useTranslations } from "next-intl";
 import { cn } from "@/lib/cn";
 import { useMoney } from "@/lib/money";
+import { useVariantTerm } from "@/lib/variant-term";
 import { Button, Tag } from "@/components/ui";
 import { ProductCover } from "@/components/products/ProductCover";
 import { type WorkbenchVariant } from "./index.ts";
@@ -14,17 +15,20 @@ export function SellerOrderPanelSimulation({
   coverId,
   escrowDays,
   variants,
+  serviceType,
 }: {
   title: string;
   categoryName?: string;
   coverId?: string | null;
   escrowDays: number;
   variants: WorkbenchVariant[];
+  serviceType?: string | null;
 }) {
   const locale = useLocale() as "en" | "vi";
   const t = useTranslations("seller.workbench");
   const tp = useTranslations("products");
   const { formatCheckoutMoney } = useMoney();
+  const term = useVariantTerm(serviceType);
   const [selectedIdx, setSelectedIdx] = useState(0);
   const [qty, setQty] = useState(1);
 
@@ -82,7 +86,7 @@ export function SellerOrderPanelSimulation({
 
       <fieldset className="space-y-2">
         <legend className="mb-2 text-[11px] font-semibold uppercase tracking-wider text-faint">
-          {tp("choosePackage", { count: activeVariants.length })}
+          {tp("choosePackage", { count: activeVariants.length, ...term })}
         </legend>
         {activeVariants.map((variant, index) => {
           const active = index === selectedIdx;

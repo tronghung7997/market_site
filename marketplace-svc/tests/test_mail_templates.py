@@ -142,6 +142,36 @@ def test_default_render_still_matches_catalog():
     assert "https://site.test/reset" in html_body
 
 
+@pytest.mark.no_db
+def test_html_layout_renders_button_from_label_line_in_order():
+    _, _, html_body = render(
+        "password_reset",
+        "vi",
+        {"action_url": "https://site.test/reset?t=1&x=<y>"},
+        copy=("S", "Intro <b>\n\nĐặt lại mật khẩu:\n{action_url}\n\nOutro"),
+        brand="GMMO <Ops>",
+        site_url="https://gmmo.test/",
+    )
+    assert "GMMO &lt;Ops&gt;" in html_body
+    assert 'href="https://gmmo.test/"' in html_body
+    assert ">gmmo.test<" in html_body
+    button = '>Đặt lại mật khẩu</a>'
+    assert button in html_body
+    assert 'href="https://site.test/reset?t=1&amp;x=&lt;y&gt;"' in html_body
+    assert "Đặt lại mật khẩu:" not in html_body
+    assert "Intro &lt;b&gt;" in html_body
+    assert html_body.index("Intro") < html_body.index(button) < html_body.index("Outro")
+    assert "dán liên kết này vào trình duyệt" in html_body
+
+
+@pytest.mark.no_db
+def test_html_layout_without_action_url_has_no_button():
+    _, _, html_body = render("admin_test", "en", {}, copy=("S", "Just text\n\nSecond paragraph"))
+    assert "<table role=\"presentation\" cellpadding=\"0\" cellspacing=\"0\" border=\"0\" style=\"margin:4px" not in html_body
+    assert html_body.count("<p style=\"margin:0 0 16px") == 2
+    assert "paste this link" not in html_body
+
+
 @pytest.mark.asyncio
 async def test_send_test_and_worker_use_admin_copy_with_cold_cache(client, recording_mail):
     """Admin copy must be read from DB on send paths, not only from the TTL cache."""

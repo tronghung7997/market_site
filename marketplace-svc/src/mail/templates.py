@@ -64,7 +64,7 @@ DEFAULT_TEMPLATES: dict[str, dict[str, dict[str, str]]] = {
             "subject": "Reset your Marketplace password",
             "body": (
                 "We received a request to reset your password.\n\n"
-                "Use this link within 30 minutes:\n{action_url}\n\n"
+                "The link is valid for 30 minutes.\n\nReset password:\n{action_url}\n\n"
                 "If you did not request this, ignore this email."
             ),
         },
@@ -72,7 +72,7 @@ DEFAULT_TEMPLATES: dict[str, dict[str, dict[str, str]]] = {
             "subject": "Đặt lại mật khẩu Marketplace",
             "body": (
                 "Chúng tôi nhận được yêu cầu đặt lại mật khẩu của bạn.\n\n"
-                "Dùng liên kết này trong 30 phút:\n{action_url}\n\n"
+                "Liên kết có hiệu lực trong 30 phút.\n\nĐặt lại mật khẩu:\n{action_url}\n\n"
                 "Nếu bạn không yêu cầu, hãy bỏ qua email này."
             ),
         },
@@ -82,21 +82,21 @@ DEFAULT_TEMPLATES: dict[str, dict[str, dict[str, str]]] = {
             "subject": "Your Marketplace password was changed",
             "body": (
                 "Your password was changed successfully.\n\n"
-                "If this was not you, reset it immediately:\n{action_url}"
+                "If this was not you, reset it immediately.\n\nReset password:\n{action_url}"
             ),
         },
         "vi": {
             "subject": "Mật khẩu Marketplace đã được đổi",
             "body": (
                 "Mật khẩu của bạn đã được đổi thành công.\n\n"
-                "Nếu không phải bạn, hãy đặt lại ngay:\n{action_url}"
+                "Nếu không phải bạn, hãy đặt lại mật khẩu ngay.\n\nĐặt lại mật khẩu:\n{action_url}"
             ),
         },
     },
     "seller_application_approved": {
         "en": {
             "subject": "Your seller application was approved",
-            "body": "You can now list products on Marketplace.\n\nOpen the seller workspace:\n{action_url}",
+            "body": "You can now list products on Marketplace.\n\nOpen seller workspace:\n{action_url}",
         },
         "vi": {
             "subject": "Đơn đăng ký bán hàng đã được duyệt",
@@ -106,11 +106,11 @@ DEFAULT_TEMPLATES: dict[str, dict[str, dict[str, str]]] = {
     "seller_application_rejected": {
         "en": {
             "subject": "Your seller application was not approved",
-            "body": "Reason: {reason}\n\nYou can review the note and apply again:\n{action_url}",
+            "body": "Reason: {reason}\n\nYou can review the note and apply again.\n\nView application:\n{action_url}",
         },
         "vi": {
             "subject": "Đơn đăng ký bán hàng chưa được duyệt",
-            "body": "Lý do: {reason}\n\nBạn có thể xem ghi chú và nộp lại:\n{action_url}",
+            "body": "Lý do: {reason}\n\nBạn có thể xem ghi chú và nộp lại.\n\nXem đơn đăng ký:\n{action_url}",
         },
     },
     "provider_approved": {
@@ -128,14 +128,14 @@ DEFAULT_TEMPLATES: dict[str, dict[str, dict[str, str]]] = {
             "subject": "Your provider was not approved",
             "body": (
                 "“{provider_name}” was not approved.\nReason: {reason}\n\n"
-                "Fix the configuration and resubmit:\n{action_url}"
+                "Fix the configuration and resubmit.\n\nOpen providers:\n{action_url}"
             ),
         },
         "vi": {
             "subject": "Nhà cung cấp chưa được duyệt",
             "body": (
                 "“{provider_name}” chưa được duyệt.\nLý do: {reason}\n\n"
-                "Sửa cấu hình và gửi lại:\n{action_url}"
+                "Sửa cấu hình và gửi lại.\n\nMở nhà cung cấp:\n{action_url}"
             ),
         },
     },
@@ -180,7 +180,7 @@ DEFAULT_TEMPLATES: dict[str, dict[str, dict[str, str]]] = {
                 "A buyer opened a dispute on order #{order_id}.\n"
                 "Reason: {reason}\n\n"
                 "Please respond in the seller workspace. Silence can be decided against you.\n\n"
-                "Open orders:\n{action_url}"
+                "Open the order:\n{action_url}"
             ),
         },
         "vi": {
@@ -189,7 +189,7 @@ DEFAULT_TEMPLATES: dict[str, dict[str, dict[str, str]]] = {
                 "Người mua đã mở khiếu nại trên đơn #{order_id}.\n"
                 "Lý do: {reason}\n\n"
                 "Hãy phản hồi trong khu vực người bán. Im lặng có thể bất lợi cho bạn.\n\n"
-                "Mở đơn hàng:\n{action_url}"
+                "Xem đơn hàng:\n{action_url}"
             ),
         },
     },
@@ -213,19 +213,19 @@ DEFAULT_TEMPLATES: dict[str, dict[str, dict[str, str]]] = {
     },
     "admin_test": {
         "en": {
-            "subject": "Proxora mail test",
+            "subject": "Test email",
             "body": (
                 "This is a test email from the admin mail settings page.\n"
                 "If you received it, outbound mail is working.\n\n"
-                "Open the site:\n{action_url}"
+                "Open site:\n{action_url}"
             ),
         },
         "vi": {
-            "subject": "Mail thử Proxora",
+            "subject": "Email thử nghiệm",
             "body": (
                 "Đây là email thử từ trang cài đặt mail quản trị.\n"
                 "Nếu bạn nhận được thư này, gửi mail đi đang hoạt động.\n\n"
-                "Mở trang:\n{action_url}"
+                "Mở trang web:\n{action_url}"
             ),
         },
     },
@@ -297,20 +297,102 @@ def apply_placeholders(text: str, values: dict[str, str]) -> str:
     return _PLACEHOLDER_RE.sub(_replace, text)
 
 
-def _to_html(text: str, action_url: str) -> str:
-    escaped = html.escape(text).replace("\n", "<br>\n")
+_FONT = "-apple-system,BlinkMacSystemFont,'Segoe UI',Roboto,Helvetica,Arial,sans-serif"
+_ACCENT = "#4f46e5"
+_INK = "#1f2937"
+_MUTED = "#6b7280"
+_RULE = "#e5e7eb"
+
+_HTML_COPY = {
+    "vi": {
+        "cta": "Mở liên kết",
+        "fallback": "Nếu nút không hoạt động, dán liên kết này vào trình duyệt:",
+        "footer": "Bạn nhận được email này vì có tài khoản tại {brand}. Đây là email tự động, vui lòng không trả lời.",
+    },
+    "en": {
+        "cta": "Open link",
+        "fallback": "If the button does not work, paste this link into your browser:",
+        "footer": "You received this email because you have an account at {brand}. This is an automated message, please do not reply.",
+    },
+}
+
+
+def _paragraph(chunk: str, action_url: str) -> str:
+    escaped = html.escape(chunk).replace("\n", "<br>")
     if action_url:
         safe_href = html.escape(action_url, quote=True)
         escaped = escaped.replace(
             html.escape(action_url),
-            f'<a href="{safe_href}">{html.escape(action_url)}</a>',
+            f'<a href="{safe_href}" style="color:{_ACCENT};">{html.escape(action_url)}</a>',
         )
+    return f'<p style="margin:0 0 16px;font-size:15px;line-height:1.6;color:{_INK};">{escaped}</p>'
+
+
+def _button(label: str, action_url: str, copy: dict[str, str]) -> str:
+    safe_href = html.escape(action_url, quote=True)
     return (
-        "<!doctype html><html><body "
-        'style="font-family:Georgia,serif;background:#f6f5f1;color:#16151a;padding:24px;">'
-        '<div style="max-width:520px;margin:0 auto;background:#fff;border:1px solid #e6e4dc;padding:24px;">'
-        f"{escaped}"
-        "</div></body></html>"
+        '<table role="presentation" cellpadding="0" cellspacing="0" border="0" style="margin:4px 0 20px;">'
+        f'<tr><td style="border-radius:8px;background:{_ACCENT};">'
+        f'<a href="{safe_href}" style="display:inline-block;padding:12px 24px;font-family:{_FONT};'
+        'font-size:15px;font-weight:600;color:#ffffff;text-decoration:none;border-radius:8px;">'
+        f"{html.escape(label)}</a></td></tr></table>"
+        f'<p style="margin:0 0 4px;font-size:12px;line-height:1.5;color:{_MUTED};">{copy["fallback"]}</p>'
+        f'<p style="margin:0 0 20px;font-size:12px;line-height:1.5;word-break:break-all;">'
+        f'<a href="{safe_href}" style="color:{_ACCENT};">{html.escape(action_url)}</a></p>'
+    )
+
+
+def _blocks(text: str, action_url: str, copy: dict[str, str]) -> str:
+    """Paragraphs in order; a paragraph whose last line is exactly the action URL becomes a button.
+
+    The line right above the URL (ending with ':') is used as the button label so admins can
+    change the label from the plain-text template without any markup.
+    """
+    out: list[str] = []
+    for chunk in re.split(r"\n\s*\n", text.strip("\n")):
+        if not chunk.strip():
+            continue
+        lines = chunk.split("\n")
+        if action_url and lines[-1].strip() == action_url:
+            label = copy["cta"]
+            rest = lines[:-1]
+            if rest and rest[-1].strip().endswith(":"):
+                label = rest[-1].strip().rstrip(":").strip() or label
+                rest = rest[:-1]
+            if any(line.strip() for line in rest):
+                out.append(_paragraph("\n".join(rest), action_url))
+            out.append(_button(label, action_url, copy))
+        else:
+            out.append(_paragraph(chunk, action_url))
+    return "".join(out)
+
+
+def _to_html(text: str, action_url: str, *, locale: str, brand: str, site_url: str) -> str:
+    copy = _HTML_COPY[_locale(locale)]
+    safe_brand = html.escape(brand)
+    safe_site = html.escape(site_url, quote=True)
+    site_label = html.escape(re.sub(r"^https?://", "", site_url).rstrip("/"))
+    footer = html.escape(copy["footer"].format(brand=brand))
+    return (
+        "<!doctype html>"
+        '<html><head><meta charset="utf-8">'
+        '<meta name="viewport" content="width=device-width,initial-scale=1"></head>'
+        f'<body style="margin:0;padding:0;background:#f4f5f7;font-family:{_FONT};">'
+        '<table role="presentation" width="100%" cellpadding="0" cellspacing="0" border="0" style="background:#f4f5f7;">'
+        '<tr><td align="center" style="padding:32px 16px;">'
+        '<table role="presentation" width="100%" cellpadding="0" cellspacing="0" border="0" style="max-width:560px;">'
+        f'<tr><td style="padding:0 8px 16px;">'
+        f'<a href="{safe_site}" style="font-size:20px;font-weight:700;color:{_ACCENT};text-decoration:none;letter-spacing:-0.01em;">{safe_brand}</a>'
+        "</td></tr>"
+        '<tr><td style="background:#ffffff;border:1px solid '
+        f'{_RULE};border-radius:12px;padding:32px 32px 16px;">'
+        f"{_blocks(text, action_url, copy)}"
+        "</td></tr>"
+        f'<tr><td style="padding:20px 8px 0;font-size:12px;line-height:1.6;color:{_MUTED};">'
+        f'<p style="margin:0 0 6px;">{footer}</p>'
+        f'<p style="margin:0;"><a href="{safe_site}" style="color:{_MUTED};">{site_label}</a></p>'
+        "</td></tr>"
+        "</table></td></tr></table></body></html>"
     )
 
 
@@ -319,6 +401,9 @@ def render(
     locale: str,
     payload: dict[str, Any] | None,
     copy: tuple[str, str] | None = None,
+    *,
+    brand: str = "Proxora",
+    site_url: str = "http://localhost:3000",
 ) -> tuple[str, str, str]:
     if template not in KNOWN_TEMPLATES:
         raise UnknownMailTemplate(template)
@@ -327,4 +412,5 @@ def render(
     values = placeholder_context(loc, payload)
     subject = apply_placeholders(subject_src, values)
     text = apply_placeholders(body_src, values)
-    return subject, text, _to_html(text, values["action_url"])
+    html_body = _to_html(text, values["action_url"], locale=loc, brand=brand, site_url=site_url)
+    return subject, text, html_body

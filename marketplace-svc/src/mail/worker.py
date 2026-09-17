@@ -55,6 +55,8 @@ async def _persist_send_outcome(
         subject, text, html_body = render(
             row.template, row.locale, row.payload,
             copy=lookup_copy(row.template, row.locale, copies),
+            brand=runtime.mail_from_name,
+            site_url=settings.frontend_base_url,
         )
         await adapter.send(
             MailMessage(

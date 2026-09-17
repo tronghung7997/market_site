@@ -10,7 +10,9 @@ import type {
   MailOutboxRow,
   MailProvider,
 } from "@/lib/types";
-import { Button, Input, Select, Spinner, Tag } from "@/components/ui";
+import { Button, Field, InlineNotice, Input, Select, Spinner, Tag } from "@/components/ui";
+import { AlertCircle, CheckCircle2, Info } from "@/components/Icons";
+import { cn } from "@/lib/cn";
 
 import { MailTemplateEditor } from "./MailTemplateEditor";
 
@@ -30,8 +32,16 @@ const MAIL_TEMPLATE_IDS = [
   "admin_test",
 ] as const;
 
-function secretTone(ok: boolean): "good" | "warn" {
-  return ok ? "good" : "warn";
+const PROVIDER_ORDER: readonly MailProvider[] = ["smtp", "resend", "log"];
+
+type Notice = { tone: "good" | "bad"; text: string } | null;
+
+function NoticeLine({ notice }: { notice: Notice }) {
+  if (!notice) return null;
+  const Icon = notice.tone === "good" ? CheckCircle2 : AlertCircle;
+  return (
+    <InlineNotice tone={notice.tone} icon={<Icon className="h-3.5 w-3.5" />}>{notice.text}</InlineNotice>
+  );
 }
 
 export function MailSettingsPanel() {
@@ -41,13 +51,14 @@ export function MailSettingsPanel() {
   const [cfg, setCfg] = useState<MailConfigAdmin | null>(null);
   const [provider, setProvider] = useState<MailProvider>("log");
   const [mailFrom, setMailFrom] = useState("");
-  const [mailFromName, setMailFromName] = useState("Proxora");
+  const [mailFromName, setMailFromName] = useState("");
   const [workerEnabled, setWorkerEnabled] = useState(true);
   const [loading, setLoading] = useState(true);
+  const [loadErr, setLoadErr] = useState("");
   const [saving, setSaving] = useState(false);
+  const [saveNotice, setSaveNotice] = useState<Notice>(null);
   const [testing, setTesting] = useState(false);
-  const [msg, setMsg] = useState("");
-  const [err, setErr] = useState("");
+  const [testNotice, setTestNotice] = useState<Notice>(null);
   const [testTo, setTestTo] = useState("");
   const [rows, setRows] = useState<MailOutboxRow[]>([]);
   const [total, setTotal] = useState(0);
@@ -91,12 +102,12 @@ export function MailSettingsPanel() {
 
   const load = useCallback(async () => {
     setLoading(true);
-    setErr("");
+    setLoadErr("");
     try {
       const data = await api.adminMailConfig();
       apply(data);
     } catch (e) {
-      setErr(apiErrorMessage(e, t("loadFail")));
+      setLoadErr(apiErrorMessage(e, t("loadFail")));
     } finally {
       setLoading(false);
     }
@@ -148,13 +159,10 @@ export function MailSettingsPanel() {
     );
   }, [cfg, provider, mailFrom, mailFromName, workerEnabled]);
 
-  // Mirrors backend mail_ready(): `log` never needs a from-address.
-  const selectedReady = provider === "log" || Boolean(
-    mailFrom.trim()
-    && (
-      (provider === "resend" && cfg?.resend_api_key_configured)
-      || (provider === "smtp" && cfg?.smtp_host_configured)
-    )
+  const serverHas = (code: MailProvider) => (
+    code === "log"
+    || (code === "smtp" && Boolean(cfg?.smtp_host_configured))
+    || (code === "resend" && Boolean(cfg?.resend_api_key_configured))
   );
 
   const save = async () => {
@@ -165,30 +173,33 @@ export function MailSettingsPanel() {
     if (mailFromName !== cfg.mail_from_name) body.mail_from_name = mailFromName;
     if (workerEnabled !== cfg.worker_enabled) body.worker_enabled = workerEnabled;
     setSaving(true);
-    setMsg("");
-    setErr("");
+    setSaveNotice(null);
     try {
       const next = await api.adminUpdateMailConfig(body);
       apply(next);
-      setMsg(t("saved"));
+      setSaveNotice({ tone: "good", text: t("saved") });
     } catch (e) {
-      setErr(apiErrorMessage(e, t("saveFail")));
+      setSaveNotice({ tone: "bad", text: apiErrorMessage(e, t("saveFail")) });
     } finally {
       setSaving(false);
     }
   };
 
+  const discard = () => {
+    if (cfg) apply(cfg);
+    setSaveNotice(null);
+  };
+
   const reset = async () => {
     if (!window.confirm(t("resetConfirm"))) return;
     setSaving(true);
-    setMsg("");
-    setErr("");
+    setSaveNotice(null);
     try {
       const next = await api.adminResetMailConfigToEnv();
       apply(next);
-      setMsg(t("resetDone"));
+      setSaveNotice({ tone: "good", text: t("resetDone") });
     } catch (e) {
-      setErr(apiErrorMessage(e, t("resetFail")));
+      setSaveNotice({ tone: "bad", text: apiErrorMessage(e, t("resetFail")) });
     } finally {
       setSaving(false);
     }
@@ -196,19 +207,17 @@ export function MailSettingsPanel() {
 
   const sendTest = async () => {
     setTesting(true);
-    setMsg("");
-    setErr("");
+    setTestNotice(null);
     try {
       const loc = locale === "en" ? "en" : "vi";
       const result = await api.adminSendTestMail(testTo.trim(), loc);
-      setMsg(
-        result.logged_only
-          ? t("testLogged", { status: result.status })
-          : t("testSent", { status: result.status }),
-      );
+      setTestNotice({
+        tone: "good",
+        text: result.logged_only ? t("testLogged") : t("testSent", { to: testTo.trim() }),
+      });
       await loadList(offset);
     } catch (e) {
-      setErr(apiErrorMessage(e, t("testFail")));
+      setTestNotice({ tone: "bad", text: apiErrorMessage(e, t("testFail")) });
       await loadList(offset);
     } finally {
       setTesting(false);
@@ -238,8 +247,43 @@ export function MailSettingsPanel() {
     );
   }
 
-  const mode = cfg?.effective_mode ?? "unconfigured";
-  const modeTone = mode === "unconfigured" ? "warn" : "neutral";
+  if (!cfg) {
+    return (
+      <div className="rounded-card border border-bad/25 bg-bad-soft px-4 py-3 text-[13px] text-bad" role="alert">
+        <p>{loadErr || t("loadFail")}</p>
+        <Button size="sm" variant="secondary" className="mt-2" onClick={() => void load()}>
+          {t("refresh")}
+        </Button>
+      </div>
+    );
+  }
+
+  const savedMode = cfg.effective_mode;
+  const savedReady = cfg.effective_ready;
+  const statusTone: "good" | "warn" | "neutral" = !savedReady
+    ? "warn"
+    : savedMode === "log" ? "neutral" : "good";
+  const statusTitle = !savedReady
+    ? t("status.notReady")
+    : savedMode === "log"
+      ? t("status.logOnly")
+      : t("status.sendingVia", { channel: t(`providers.${savedMode}`) });
+  const statusDetail = !savedReady
+    ? (cfg.provider === "log"
+      ? t("status.reasonNone")
+      : !cfg.mail_from.trim()
+        ? t("status.reasonFrom")
+        : cfg.provider === "smtp" ? t("status.reasonSmtpHost") : t("status.reasonResendKey"))
+    : savedMode === "log"
+      ? t("status.logOnlyDetail")
+      : `${cfg.mail_from_name} <${cfg.mail_from}>`;
+
+  const testBlockedReason = dirty
+    ? t("testBlockedDirty")
+    : !savedReady
+      ? t("testBlockedNotReady")
+      : "";
+
   const pageStart = total === 0 ? 0 : offset + 1;
   const pageEnd = Math.min(offset + rows.length, total);
   const timeFormatter = new Intl.DateTimeFormat(locale, {
@@ -249,166 +293,219 @@ export function MailSettingsPanel() {
   const formatTime = (value: string | null) => value ? timeFormatter.format(new Date(value)) : "—";
 
   return (
-    <div className="space-y-3.5">
-      <section className="overflow-hidden rounded-card border border-line bg-card shadow-card">
-        <div className="grid gap-0 lg:grid-cols-2">
-          <div className="min-w-0 border-b border-line p-4 lg:border-b-0 lg:border-r">
-            <div className="flex flex-wrap items-center justify-between gap-2">
-              <h2 className="text-[14px] font-semibold tracking-tight text-fg">{t("title")}</h2>
-              <Tag tone={modeTone}>{t(`mode.${mode}`)}</Tag>
+    <div className="space-y-4">
+      {/* Status + test send: answers "is mail working right now?" before anything else. */}
+      <section className="rounded-card border border-line bg-card shadow-card">
+        <div className="grid gap-4 p-4 lg:grid-cols-[minmax(0,1fr)_minmax(0,22rem)] lg:gap-6">
+          <div className="min-w-0">
+            <div className="flex flex-wrap items-center gap-2">
+              <Tag tone={statusTone}>{statusTitle}</Tag>
+              {!cfg.worker_enabled && <Tag tone="warn">{t("status.workerOff")}</Tag>}
+              {dirty && <Tag tone="iris">{t("status.unsaved")}</Tag>}
             </div>
-            <p className="mt-0.5 text-[12px] leading-snug text-muted">{t("hint")}</p>
+            <p className="mt-2 text-[15px] font-medium leading-snug text-fg">{statusDetail}</p>
+            {savedReady && savedMode === "smtp" && cfg.smtp_host && (
+              <p className="mt-1 break-all font-mono text-[12px] text-muted">{cfg.smtp_host}:{cfg.smtp_port}</p>
+            )}
+          </div>
 
-            <fieldset className="mt-3">
-              <legend className="text-[11px] font-semibold uppercase tracking-wider text-muted">
-                {t("provider")}
-              </legend>
-              <div className="mt-1.5 inline-flex flex-wrap gap-1" role="group">
-                {(["log", "smtp", "resend"] as const).map((code) => (
-                  <Button
-                    key={code}
-                    type="button"
-                    size="sm"
-                    variant={provider === code ? "primary" : "ghost"}
-                    aria-pressed={provider === code}
-                    onClick={() => setProvider(code)}
-                  >
-                    {t(`providers.${code}`)}
-                  </Button>
-                ))}
-              </div>
-            </fieldset>
-
-            <label className="mt-3 block">
-              <span className="block text-[11px] font-semibold uppercase tracking-wider text-muted">
-                {t("fromName")}
-              </span>
+          <div className="min-w-0 lg:border-l lg:border-line lg:pl-6">
+            <h2 className="text-[13px] font-semibold text-fg">{t("testTitle")}</h2>
+            
+            <div className="mt-2 flex gap-2">
               <Input
-                id="mail-from-name"
-                name="mail_from_name"
-                value={mailFromName}
-                onChange={(e) => setMailFromName(e.target.value)}
-                className="mt-1 h-9"
-              />
-            </label>
-            <label className="mt-2.5 block">
-              <span className="block text-[11px] font-semibold uppercase tracking-wider text-muted">
-                {t("fromEmail")}
-              </span>
-              <Input
-                id="mail-from-email"
-                name="mail_from"
+                id="mail-test-to"
+                name="test_to"
                 type="email"
-                value={mailFrom}
-                onChange={(e) => setMailFrom(e.target.value)}
-                placeholder="noreply@mail.example.com"
-                className="mt-1 h-9 font-mono"
+                value={testTo}
+                onChange={(e) => setTestTo(e.target.value)}
+                placeholder={t("testPlaceholder")}
+                aria-label={t("testTitle")}
+                className="h-9 min-w-0 flex-1"
+                disabled={Boolean(testBlockedReason)}
               />
-            </label>
+              <Button
+                size="md"
+                className="h-9"
+                onClick={() => void sendTest()}
+                disabled={testing || Boolean(testBlockedReason) || !testTo.trim()}
+              >
+                {testing ? t("sending") : t("sendTest")}
+              </Button>
+            </div>
+            <div className="mt-2 min-h-[1.25rem]">
+              {testBlockedReason ? (
+                <p className="flex items-start gap-1.5 text-[12px] leading-snug text-muted">
+                  <Info className="mt-0.5 h-3.5 w-3.5 shrink-0" />
+                  <span>{testBlockedReason}</span>
+                </p>
+              ) : (
+                <NoticeLine notice={testNotice} />
+              )}
+            </div>
+          </div>
+        </div>
+      </section>
 
-            <div className="mt-3 flex items-center justify-between gap-3 border-t border-line pt-3">
-              <div className="min-w-0">
-                <div className="text-[13px] font-medium text-fg">{t("worker")}</div>
-                <p className="mt-0.5 text-[11px] leading-snug text-muted">{t("workerHint")}</p>
-              </div>
-              <Input
+      {/* Setup: three real steps, in the order a new admin has to do them. */}
+      <section className="rounded-card border border-line bg-card shadow-card">
+        <div className="border-b border-line px-4 py-3">
+          <h2 className="text-[14px] font-semibold tracking-tight text-fg">{t("setupTitle")}</h2>
+          <p className="mt-0.5 text-[12px] leading-snug text-muted">{t("setupHint")}</p>
+        </div>
+
+        <ol className="divide-y divide-line">
+          <li className="grid gap-3 px-4 py-4 md:grid-cols-[13rem_minmax(0,1fr)] md:gap-6">
+            <div>
+              <h3 className="text-[13px] font-semibold text-fg">
+                <span className="mr-2 font-mono text-[12px] text-faint">1</span>
+                {t("step.channel")}
+              </h3>
+              
+            </div>
+            <div role="radiogroup" aria-label={t("step.channel")} className="overflow-hidden rounded-lg border border-line">
+              {PROVIDER_ORDER.map((code) => {
+                const selected = provider === code;
+                const available = serverHas(code);
+                const inputId = `mail-provider-${code}`;
+                return (
+                  <label
+                    key={code}
+                    htmlFor={inputId}
+                    className={cn(
+                      "flex cursor-pointer items-start gap-3 border-b border-line px-3 py-3 transition-colors last:border-b-0",
+                      selected ? "bg-iris-soft" : "bg-surface hover:bg-raised",
+                    )}
+                  >
+                    <input
+                      id={inputId}
+                      type="radio"
+                      name="mail_provider"
+                      value={code}
+                      checked={selected}
+                      onChange={() => setProvider(code)}
+                      className="mt-1 h-4 w-4 shrink-0 accent-iris"
+                    />
+                    <span className="min-w-0 flex-1">
+                      <span className="flex flex-wrap items-center gap-2">
+                        <span className={cn("text-[13px] font-medium", selected ? "text-iris-hi" : "text-fg")}>
+                          {t(`providers.${code}`)}
+                        </span>
+                        {code !== "log" && (
+                          <Tag tone={available ? "good" : "warn"}>
+                            {available ? t("channel.serverReady") : t("channel.serverMissing")}
+                          </Tag>
+                        )}
+                      </span>
+                      <span className="mt-0.5 block text-[12px] leading-snug text-muted">
+                        {t(`channel.${code}`)}
+                      </span>
+                      {code === "smtp" && cfg.smtp_host && (
+                        <span className="mt-1 block break-all font-mono text-[11.5px] text-muted">
+                          {cfg.smtp_host}:{cfg.smtp_port}
+                          {" · "}
+                          {cfg.smtp_credentials_configured ? t("channel.smtpAuthSet") : t("channel.smtpAuthNone")}
+                        </span>
+                      )}
+                      {code !== "log" && !available && (
+                        <span className="mt-1 block text-[12px] leading-snug text-warn">
+                          {t(`channel.${code}Fix`)}
+                        </span>
+                      )}
+                    </span>
+                  </label>
+                );
+              })}
+            </div>
+          </li>
+
+          <li className="grid gap-3 px-4 py-4 md:grid-cols-[13rem_minmax(0,1fr)] md:gap-6">
+            <div>
+              <h3 className="text-[13px] font-semibold text-fg">
+                <span className="mr-2 font-mono text-[12px] text-faint">2</span>
+                {t("step.sender")}
+              </h3>
+              <p className="mt-1 text-[12px] leading-snug text-muted">{t("step.senderHint")}</p>
+            </div>
+            <div className="grid gap-3 sm:grid-cols-[minmax(0,12rem)_minmax(0,1fr)]">
+              <Field label={t("fromName")}>
+                <Input
+                  id="mail-from-name"
+                  name="mail_from_name"
+                  value={mailFromName}
+                  onChange={(e) => setMailFromName(e.target.value)}
+                  placeholder="GMMO"
+                  className="h-9"
+                />
+              </Field>
+              <Field
+                label={t("fromEmail")}
+                hint={t("fromEmailHint")}
+                error={provider !== "log" && !mailFrom.trim() ? t("fromEmailRequired") : undefined}
+              >
+                <Input
+                  id="mail-from-email"
+                  name="mail_from"
+                  type="email"
+                  value={mailFrom}
+                  onChange={(e) => setMailFrom(e.target.value)}
+                  placeholder="noreply@gmmo.info"
+                  className="h-9 font-mono"
+                  aria-invalid={provider !== "log" && !mailFrom.trim()}
+                />
+              </Field>
+            </div>
+          </li>
+
+          <li className="grid gap-3 px-4 py-4 md:grid-cols-[13rem_minmax(0,1fr)] md:gap-6">
+            <div>
+              <h3 className="text-[13px] font-semibold text-fg">
+                <span className="mr-2 font-mono text-[12px] text-faint">3</span>
+                {t("step.worker")}
+              </h3>
+            </div>
+            <label htmlFor="mail-worker-enabled" className="flex cursor-pointer items-start gap-3">
+              <input
                 id="mail-worker-enabled"
                 name="worker_enabled"
                 type="checkbox"
                 checked={workerEnabled}
                 disabled={saving}
-                aria-label={t("worker")}
                 onChange={(e) => setWorkerEnabled(e.target.checked)}
-                className="h-4 w-4 accent-iris"
+                className="mt-0.5 h-4 w-4 shrink-0 accent-iris"
               />
-            </div>
-          </div>
+              <span>
+                <span className="block text-[13px] font-medium text-fg">{t("worker")}</span>
+                <span className="mt-0.5 block text-[12px] leading-snug text-muted">{t("workerHint")}</span>
+              </span>
+            </label>
+          </li>
+        </ol>
 
-          <div className="flex min-w-0 flex-col p-4">
-            <h2 className="text-[14px] font-semibold tracking-tight text-fg">{t("secretsTitle")}</h2>
-            <p className="mt-0.5 text-[12px] leading-snug text-muted">{t("secretsHint")}</p>
-            <dl className="mt-3 space-y-2 text-[13px]">
-              <div className="flex items-center justify-between gap-2">
-                <dt className="text-muted">{t("resendKey")}</dt>
-                <dd>
-                  <Tag tone={secretTone(Boolean(cfg?.resend_api_key_configured))}>
-                    {cfg?.resend_api_key_configured ? t("configured") : t("missing")}
-                  </Tag>
-                </dd>
-              </div>
-              <div className="flex items-center justify-between gap-2">
-                <dt className="text-muted">{t("smtpHost")}</dt>
-                <dd className="font-mono text-[12px] text-fg">
-                  {cfg?.smtp_host ? `${cfg.smtp_host}:${cfg.smtp_port}` : t("missing")}
-                </dd>
-              </div>
-              <div className="flex items-center justify-between gap-2">
-                <dt className="text-muted">{t("smtpAuth")}</dt>
-                <dd>
-                  <Tag tone={secretTone(Boolean(cfg?.smtp_credentials_configured))}>
-                    {cfg?.smtp_credentials_configured ? t("configured") : t("missing")}
-                  </Tag>
-                </dd>
-              </div>
-              <div className="flex items-start justify-between gap-2">
-                <dt className="text-muted">{t("frontendBase")}</dt>
-                <dd className="max-w-[60%] break-all text-right font-mono text-[12px] text-fg">
-                  {cfg?.frontend_base_url}
-                </dd>
-              </div>
-            </dl>
-
-            <div className="mt-4 border-t border-line pt-3">
-              <h3 className="text-[13px] font-medium text-fg">{t("testTitle")}</h3>
-              <p className="mt-0.5 text-[11px] leading-snug text-muted">{t("testHint")}</p>
-              {dirty && (
-                <p className="mt-1 text-[11px] text-warn" role="status">{t("saveBeforeTest")}</p>
-              )}
-              <div className="mt-2 flex flex-wrap gap-2">
-                <Input
-                  id="mail-test-to"
-                  name="test_to"
-                  type="email"
-                  value={testTo}
-                  onChange={(e) => setTestTo(e.target.value)}
-                  placeholder={t("testPlaceholder")}
-                  className="h-9 min-w-0 flex-1"
-                />
-                <Button
-                  size="sm"
-                  variant="secondary"
-                  onClick={() => void sendTest()}
-                  disabled={testing || dirty || !testTo.trim() || !selectedReady}
-                >
-                  {testing ? t("sending") : t("sendTest")}
-                </Button>
-              </div>
-            </div>
-          </div>
-        </div>
-
-        {(msg || err) && (
-          <div className="space-y-1 border-t border-line px-4 py-2.5">
-            {msg && (
-              <p className="rounded-md border border-good/25 bg-good-soft px-2.5 py-1.5 text-[12px] text-good" role="status">
-                {msg}
-              </p>
-            )}
-            {err && (
-              <p className="rounded-md border border-bad/25 bg-bad-soft px-2.5 py-1.5 text-[12px] text-bad" role="alert">
-                {err}
-              </p>
+        <div className="flex flex-col gap-3 border-t border-line px-4 py-3 sm:flex-row sm:items-center sm:justify-between">
+          <div className="min-w-0 flex-1">
+            <NoticeLine notice={saveNotice} />
+            {!saveNotice && (
+              <button
+                type="button"
+                onClick={() => void reset()}
+                disabled={saving}
+                className="text-[12px] text-muted underline-offset-2 hover:text-fg hover:underline disabled:opacity-50"
+              >
+                {t("reset")}
+              </button>
             )}
           </div>
-        )}
-
-        <div className="flex flex-wrap items-center justify-end gap-2 border-t border-line px-4 py-2.5">
-          <Button size="sm" variant="secondary" onClick={() => void reset()} disabled={saving}>
-            {t("reset")}
-          </Button>
-          <Button size="sm" onClick={() => void save()} disabled={saving || !dirty}>
-            {saving ? t("saving") : t("save")}
-          </Button>
+          <div className="flex shrink-0 gap-2">
+            {dirty && (
+              <Button size="sm" variant="ghost" onClick={discard} disabled={saving}>
+                {t("discard")}
+              </Button>
+            )}
+            <Button size="sm" onClick={() => void save()} disabled={saving || !dirty || (provider !== "log" && !mailFrom.trim())}>
+              {saving ? t("saving") : t("save")}
+            </Button>
+          </div>
         </div>
       </section>
 
@@ -515,7 +612,7 @@ export function MailSettingsPanel() {
                 rows.map((row) => (
                   <tr key={row.id} className="border-b border-line last:border-0">
                     <td className="py-2 pr-3 font-mono tabular-nums">{row.id}</td>
-                    <td className="py-2 pr-3 font-mono text-[12px]">{row.template}</td>
+                    <td className="py-2 pr-3 text-[12px]">{t(`tplNames.${row.template}`)}</td>
                     <td className="py-2 pr-3">{row.to_email}</td>
                     <td className="py-2 pr-3">
                       <Tag
@@ -571,7 +668,7 @@ export function MailSettingsPanel() {
                 <div className="flex items-start justify-between gap-3">
                   <div className="min-w-0">
                     <p className="font-mono text-[11px] tabular-nums text-muted">#{row.id}</p>
-                    <p className="mt-0.5 break-words font-mono text-[12px] font-medium text-fg">{row.template}</p>
+                    <p className="mt-0.5 break-words text-[13px] font-medium text-fg">{t(`tplNames.${row.template}`)}</p>
                   </div>
                   <Tag
                     tone={

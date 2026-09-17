@@ -198,6 +198,58 @@ export function Monogram({ text, className }: { text: string; className?: string
   );
 }
 
+/** Binary on/off control for settings rows. Label is for assistive tech; put the visible label beside it. */
+export function Switch({
+  checked, onChange, disabled, label, className,
+}: { checked: boolean; onChange: (next: boolean) => void; disabled?: boolean; label: string; className?: string }) {
+  return (
+    <button
+      type="button"
+      role="switch"
+      aria-checked={checked}
+      aria-label={label}
+      disabled={disabled}
+      onClick={() => onChange(!checked)}
+      className={cn(
+        "relative h-6 w-10 shrink-0 rounded-full border transition-colors duration-150 cursor-pointer",
+        "focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-iris/40",
+        "disabled:opacity-50 disabled:cursor-not-allowed",
+        checked ? "bg-iris border-iris" : "bg-line-2 border-line-2",
+        className,
+      )}
+    >
+      <span
+        className={cn(
+          "absolute left-0.5 top-0.5 h-[18px] w-[18px] rounded-full bg-white shadow-sm transition-transform duration-150",
+          checked && "translate-x-4",
+        )}
+      />
+    </button>
+  );
+}
+
+const NOTICE_TONES = {
+  good: "text-good",
+  bad: "text-bad",
+  warn: "text-warn",
+  neutral: "text-muted",
+} as const;
+
+/** One-line feedback next to an action (saved / failed / why a control is locked). */
+export function InlineNotice({
+  tone = "neutral", icon, children, className,
+}: { tone?: keyof typeof NOTICE_TONES; icon?: ReactNode; children: ReactNode; className?: string }) {
+  return (
+    <p
+      role={tone === "bad" ? "alert" : "status"}
+      className={cn("flex items-start gap-1.5 text-[12.5px] leading-snug", NOTICE_TONES[tone], className)}
+    >
+      {icon && <span className="mt-0.5 shrink-0">{icon}</span>}
+      <span>{children}</span>
+    </p>
+  );
+}
+
 /** Small copy button; label flips for 1.6s after copy. Defaults come from common i18n. */
 export function CopyButton({
   text, label, copiedLabel, className,

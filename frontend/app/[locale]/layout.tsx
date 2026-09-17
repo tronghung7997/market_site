@@ -6,7 +6,8 @@ import type { SitePageLink } from "@/lib/types";
 import { Suspense } from "react";
 import { Newsreader, Be_Vietnam_Pro, JetBrains_Mono } from "next/font/google";
 import { hasLocale, NextIntlClientProvider } from "next-intl";
-import { getTranslations, setRequestLocale } from "next-intl/server";
+import { getMessages, getTranslations, setRequestLocale } from "next-intl/server";
+import { storefrontMessages } from "@/i18n/client-messages";
 import { notFound } from "next/navigation";
 import { cookies, headers } from "next/headers";
 import { geoDefaultsFromHeaders, pairedCurrencyForLocale } from "@/lib/geo-defaults";
@@ -111,11 +112,12 @@ export default async function RootLayout({ children, params }: { children: React
   const cookieCurrency = parseDisplayCurrency(jar.get("display_currency")?.value);
   const geoCurrency = geoDefaultsFromHeaders(await headers())?.currency;
   // Three independent reads, one wait — not three serial round-trips.
-  const [initialConfig, clarityId, footerPages] = await Promise.all([
+  const [initialConfig, clarityId, footerPages, messages] = await Promise.all([
     loadMoneyConfig(locale),
     loadClarityProjectId(locale),
     // Admin-configured footer pages; null on backend hiccup → footer shows no page links.
     fetchPublicJson<SitePageLink[]>("/public/site-pages", locale).then((pages) => pages ?? []),
+    getMessages(),
   ]);
   // Visitor preference: explicit cookie → country → the locale's paired
   // currency (vi ↔ VND) → nothing (provider falls back to the admin default).
@@ -127,7 +129,9 @@ export default async function RootLayout({ children, params }: { children: React
   return (
     <html lang={locale} className={`${newsreader.variable} ${beVietnam.variable} ${jbMono.variable}`}>
       <body className="min-h-screen flex flex-col">
-        <NextIntlClientProvider>
+        {/* Storefront scope only — seller/admin layouts re-provide their own
+            namespaces (see i18n/client-messages.ts). */}
+        <NextIntlClientProvider messages={storefrontMessages(messages)}>
           <AuthProvider>
             <QueryProvider>
               <CurrencyProvider

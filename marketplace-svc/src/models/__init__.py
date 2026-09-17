@@ -38,6 +38,7 @@ from src.models.deposit_rail_config import DepositRailConfig
 from src.models.seller_runtime_config import SellerRuntimeConfig
 from src.models.site_analytics_config import SiteAnalyticsConfig
 from src.models.site_page import SitePage
+from src.models.search import SearchQueryLog, SearchSynonym
 
 __all__ = [
     "Account", "AccountRole", "ApplicationStatus", "PasswordResetToken", "SellerApplication",
@@ -64,4 +65,5 @@ __all__ = [
     "DepositRailConfig",
     "SellerRuntimeConfig", "SiteAnalyticsConfig",
     "SitePage",
+    "SearchQueryLog", "SearchSynonym",
 ]

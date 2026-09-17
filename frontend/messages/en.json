@@ -3278,6 +3278,7 @@
       "deposits": "Deposits",
       "mail": "Mail",
       "seller": "Sellers",
+      "search": "Search",
       "analytics": "Analytics"
     }
   },
@@ -3458,6 +3459,47 @@
     "discard": "Discard",
     "save": "Save changes",
     "saving": "Saving…"
+  },
+  "adminSearch": {
+    "queries": {
+      "title": "What visitors search for",
+      "summary": "{count} queries in {days} days · {zero} with no results",
+      "summaryZero": "{count} queries with no results in {days} days",
+      "range": "Time range",
+      "days": "{days} days",
+      "zeroOnly": "No-result queries only",
+      "empty": "No searches yet.",
+      "colQuery": "Query",
+      "colSearches": "Searches",
+      "colZero": "No results",
+      "colLast": "Last",
+      "noResults": "Nothing found",
+      "addSynonym": "Add synonym",
+      "loadFail": "Could not load statistics"
+    },
+    "synonyms": {
+      "title": "Synonyms",
+      "hint": "Typing any term in a group finds products containing the others. E.g. fb → facebook.",
+      "empty": "No groups yet.",
+      "edit": "Edit",
+      "delete": "Delete",
+      "editing": "Editing: {group}",
+      "newGroup": "New group",
+      "groupKey": "Group name",
+      "groupKeyHint": "Usually the full word, e.g. facebook.",
+      "terms": "Terms",
+      "termsHint": "Comma-separated. Accents and case are ignored.",
+      "cancel": "Cancel",
+      "add": "Add group",
+      "save": "Save group",
+      "saving": "Saving…",
+      "saved": "Saved group {group}",
+      "saveFail": "Could not save",
+      "deleteConfirm": "Delete group {group}?",
+      "deleted": "Deleted group {group}",
+      "deleteFail": "Could not delete",
+      "loadFail": "Could not load synonyms"
+    }
   },
   "adminMail": {
     "status": {
@@ -3921,6 +3963,15 @@
       "switchLocale": "Switch to Tiếng Việt"
     },
     "page": {
+      "emptyTipSpelling": "Check the spelling",
+      "emptyTipShorter": "Try a shorter keyword",
+      "emptyTipAbbrev": "Use the full name instead of an abbreviation",
+      "emptyClearFilters": "Clear filters and search again",
+      "browseHeading": "Start from a category",
+      "browseInsteadHeading": "Or browse by category",
+      "allCategoriesLink": "All categories",
+      "bestsellersHeading": "Selling now",
+      "bestsellersAll": "See all",
       "title": "Search",
       "metaTitle": "Search results for “{q}”",
       "metaDescription": "Products, categories and sellers on GMMO matching “{q}”.",

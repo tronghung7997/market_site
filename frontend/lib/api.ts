@@ -1,4 +1,6 @@
 import type {
+  SearchQueryStat,
+  SearchSynonymGroup,
   Account, ActionItem, AdminDepositIntent, AdminDepositLedgerQuery, AdminDepositLedgerResponse, AdminDepositTransaction, AdminDisputeDetail, AdminOrderDetail, AdminProduct, AdminResourceListResponse, AffiliateStats, AffiliateSummary, CalculateResult, Category, ChargeUsageResult, ChatConversationDetail, ChatConversationList, ChatMessage, DashboardData, DepositIntent, DepositMethods, DepositReconcileResult, DepositRailConfigAdmin, DepositRailConfigUpdate, Dispute, SePayWebhookEventRow, AdminAccountWallet, FundOverview, AccountAdminRow, PaginatedAccounts, LogEntry, MailConfigAdmin, MailConfigUpdate, MailOutboxList, MailSendTestResponse, MailTemplatePreview, MailTemplateRow, MoneyConfigAdmin, MoneyConfigPublic, MoneyConfigUpdate, Order, OrderStats, PaginatedAffiliateSummary, PaginatedOrderResponse, PaginatedProducts, PricingField, PricingOptions, ProductDetail, AdminProductDetail, Product, ProductLocale, ProductOperations, ProductTranslation, ProxyState, ProxyRotateResult, ProxyWhitelistResult, Review, SellerApplication, SellerDashboard, SellerDashboardRangeKey, SellerOrderQuery, PaginatedSellerOrders, SellerProduct, SellerProductBulkStatusResult, SellerProductSort, SellerStats, ServiceTask, TikTokLookupResponse, FacebookLookupResponse, Transaction, Variant, Wallet, WithdrawRequest, Provider, ProviderHealth, Alert, Resource, ResourceSummary, ResourceSellerFacet, InventoryVariant, SellerSummary, SellerProfile, SellerDisputeResource, SellerDisputeResourceList, SellerReplacementResourceList, BulkResourceActionResult,
   AdminReview,
   AdminReviewList,
@@ -967,6 +969,19 @@ export const api = {
       method: "POST",
       body: JSON.stringify(body),
     }, true),
+  adminSearchQueries: (params: { days?: number; limit?: number; zero_only?: boolean } = {}) => {
+    const qs = new URLSearchParams();
+    if (params.days) qs.set("days", String(params.days));
+    if (params.limit) qs.set("limit", String(params.limit));
+    if (params.zero_only) qs.set("zero_only", "true");
+    const suffix = qs.toString();
+    return request<{ days: number; items: SearchQueryStat[] }>(`/admin/search/queries${suffix ? `?${suffix}` : ""}`, {}, true);
+  },
+  adminSearchSynonyms: () => request<{ items: SearchSynonymGroup[] }>("/admin/search/synonyms", {}, true),
+  adminUpsertSearchSynonyms: (body: SearchSynonymGroup) =>
+    request<SearchSynonymGroup>("/admin/search/synonyms", { method: "PUT", body: JSON.stringify(body) }, true),
+  adminDeleteSearchSynonyms: (groupKey: string) =>
+    request<void>(`/admin/search/synonyms/${encodeURIComponent(groupKey)}`, { method: "DELETE" }, true),
 
   adminSitePages: () => request<{ items: SitePageAdmin[] }>("/admin/site-pages", {}, true),
   adminCreateSitePage: (body: SitePageCreate) =>

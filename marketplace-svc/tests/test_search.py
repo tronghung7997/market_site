@@ -114,8 +114,12 @@ async def test_suggest_matches_categories_with_parent_and_sellers_by_business_na
 async def test_suggest_is_typo_tolerant_and_ranks_prefix_first(client):
     seeded = await _seed_catalog(client)
 
+    # "facebok" ≈ "facebook": the product with it in the title ranks above the
+    # one that only sits in the Facebook category.
     fuzzy = await client.get("/search/suggest", params={"q": "facebok"})
-    assert [p["public_key"] for p in fuzzy.json()["products"]] == [seeded["fb"]["public_key"]]
+    keys = [p["public_key"] for p in fuzzy.json()["products"]]
+    assert keys[0] == seeded["fb"]["public_key"]
+    assert seeded["proxy"]["public_key"] not in keys
 
     # "proxy" is a title prefix for the proxy product; category "Proxy & VPN" too.
     ranked = await client.get("/search/suggest", params={"q": "proxy"})
@@ -275,3 +279,105 @@ async def test_search_rate_limit_returns_429(client, monkeypatch):
     assert resp.status_code == 429
     assert resp.json()["error_code"] == "RATE_LIMITED"
     assert resp.headers["retry-after"] == "60"
+
+
+async def _add_variant(client, token, product_id: int, name: str) -> int:
+    resp = await client.post(f"/seller/products/{product_id}/variants", json={
+        "name": name, "price": 15000, "delivery_mode": "manual", "sla_hours": 8,
+    }, headers=_auth(token))
+    assert resp.status_code == 201, resp.text
+    return resp.json()["id"]
+
+
+@pytest.mark.asyncio
+async def test_products_are_found_by_variant_name_and_category(client):
+    seeded = await _seed_catalog(client)
+    await _add_variant(client, seeded["seller_token"], seeded["proxy"]["id"], "Gói 30 ngày xoay IP")
+
+    by_variant = await client.get("/search/suggest", params={"q": "gói 30 ngày"})
+    assert [p["public_key"] for p in by_variant.json()["products"]] == [seeded["proxy"]["public_key"]]
+
+    # "facebook" is only in the category name for the TikTok product; the
+    # product with it in the title still ranks first.
+    by_category = await client.get("/search", params={"q": "facebook"})
+    keys = [p["public_key"] for p in by_category.json()["products"]["items"]]
+    assert keys[0] == seeded["fb"]["public_key"]
+    assert seeded["tiktok"]["public_key"] in keys
+    assert seeded["proxy"]["public_key"] not in keys
+
+
+@pytest.mark.asyncio
+async def test_variant_edits_and_deactivation_keep_the_corpus_in_sync(client):
+    seeded = await _seed_catalog(client)
+    token = seeded["seller_token"]
+    variant_id = await _add_variant(client, token, seeded["proxy"]["id"], "Gói Premium")
+    assert (await client.get("/search/suggest", params={"q": "premium"})).json()["products"]
+    renamed = await client.patch(f"/seller/variants/{variant_id}", json={"name": "Gói Basic"}, headers=_auth(token))
+    assert renamed.status_code == 200, renamed.text
+    search_service._suggest_cache.invalidate()
+    assert not (await client.get("/search/suggest", params={"q": "premium"})).json()["products"]
+    assert (await client.get("/search/suggest", params={"q": "basic"})).json()["products"]
+
+
+@pytest.mark.asyncio
+async def test_multi_word_queries_match_in_any_order(client):
+    seeded = await _seed_catalog(client)
+    in_order = await client.get("/search/suggest", params={"q": "facebook 2015"})
+    reversed_order = await client.get("/search/suggest", params={"q": "2015 facebook"})
+    expected = [seeded["fb"]["public_key"]]
+    assert [p["public_key"] for p in in_order.json()["products"]] == expected
+    assert [p["public_key"] for p in reversed_order.json()["products"]] == expected
+    # Every word has to be present: an unrelated extra word yields nothing.
+    assert not (await client.get("/search/suggest", params={"q": "facebook xoay"})).json()["products"]
+
+
+@pytest.mark.asyncio
+async def test_synonyms_expand_abbreviations_and_are_admin_editable(client):
+    seeded = await _seed_catalog(client)
+    admin = _auth(seeded["admin_token"])
+
+    # The suite truncates the seeded synonyms; without any, "fb" finds nothing.
+    assert not (await client.get("/search/suggest", params={"q": "fb 2015"})).json()["products"]
+
+    put = await client.put("/admin/search/synonyms", json={"group_key": "Facebook", "terms": ["Facebook", "FB", "fb"]}, headers=admin)
+    assert put.status_code == 200, put.text
+    assert put.json() == {"group_key": "facebook", "terms": ["facebook", "fb"]}
+
+    hits = await client.get("/search/suggest", params={"q": "fb 2015"})
+    assert [p["public_key"] for p in hits.json()["products"]] == [seeded["fb"]["public_key"]]
+
+    listed = await client.get("/admin/search/synonyms", headers=admin)
+    assert listed.json()["items"] == [{"group_key": "facebook", "terms": ["facebook", "fb"]}]
+
+    assert (await client.delete("/admin/search/synonyms/facebook", headers=admin)).status_code == 204
+    assert (await client.delete("/admin/search/synonyms/facebook", headers=admin)).status_code == 404
+    assert not (await client.get("/search/suggest", params={"q": "fb 2015"})).json()["products"]
+
+    forbidden = await client.get("/admin/search/synonyms", headers=_auth(seeded["seller_token"]))
+    assert forbidden.status_code == 403
+
+
+@pytest.mark.asyncio
+async def test_results_page_queries_are_logged_for_admins(client):
+    import asyncio
+
+    seeded = await _seed_catalog(client)
+    await client.get("/search", params={"q": "facebook"})
+    await client.get("/search", params={"q": "Facebook"})
+    await client.get("/search", params={"q": "khong co gi dau"})
+    await client.get("/search", params={"q": "khong co gi dau", "page": 2})  # later pages are not logged
+    await client.get("/search/suggest", params={"q": "zzz"})  # zero-hit typeahead is logged too
+    await asyncio.sleep(0.2)
+
+    stats = await client.get("/admin/search/queries", params={"days": 7}, headers=_auth(seeded["admin_token"]))
+    assert stats.status_code == 200, stats.text
+    items = {row["query"].lower(): row for row in stats.json()["items"]}
+    assert items["facebook"]["searches"] == 2
+    assert items["facebook"]["zero_results"] == 0
+    assert items["khong co gi dau"] == {**items["khong co gi dau"], "searches": 1, "zero_results": 1}
+    assert "zzz" not in items  # suggest entries are kept out of the page report
+
+    zero_only = await client.get("/admin/search/queries", params={"zero_only": True}, headers=_auth(seeded["admin_token"]))
+    assert [row["query"] for row in zero_only.json()["items"]] == ["khong co gi dau"]
+
+    assert (await client.get("/admin/search/queries", headers=_auth(seeded["seller_token"]))).status_code == 403

@@ -6,7 +6,9 @@ Category ids are part of the existing public ``/categories`` contract and
 stay (the storefront filters by ``category_id``).
 """
 
-from pydantic import BaseModel
+from datetime import datetime
+
+from pydantic import BaseModel, Field
 
 from src.products.schemas import ProductListPageResponse
 from src.sellers.schemas import SellerSummary
@@ -58,3 +60,30 @@ class SearchResponse(BaseModel):
     products: ProductListPageResponse
     categories: list[SearchCategoryHit]
     sellers: list[SellerSummary]
+
+
+class SearchQueryStat(BaseModel):
+    """One distinct query over the reporting window."""
+    query: str
+    searches: int
+    zero_results: int
+    last_searched_at: datetime
+
+
+class SearchQueryStatsResponse(BaseModel):
+    days: int
+    items: list[SearchQueryStat]
+
+
+class SearchSynonymGroup(BaseModel):
+    group_key: str
+    terms: list[str]
+
+
+class SearchSynonymsResponse(BaseModel):
+    items: list[SearchSynonymGroup]
+
+
+class SearchSynonymGroupUpsert(BaseModel):
+    group_key: str = Field(min_length=1, max_length=80)
+    terms: list[str] = Field(min_length=1, max_length=20)

@@ -1,7 +1,7 @@
 from collections import defaultdict
 
 from fastapi import status as http_status
-from sqlalchemy import Float, and_, case, cast, func, or_, select
+from sqlalchemy import ColumnElement, Float, and_, case, cast, func, or_, select
 from sqlalchemy.dialects.postgresql import JSONB, JSONPATH
 from sqlalchemy.ext.asyncio import AsyncSession
 from sqlalchemy.orm import aliased
@@ -514,11 +514,32 @@ def _browse_price_columns():
     return variant_stats, browse_price
 
 
+SEARCH_COUNT_CAP = 1000
+
+
+def _own_title_text() -> ColumnElement:
+    """The product's own titles/highlights, folded like ``search_text``. Used
+    for ranking only (no index): a hit in the title outranks the same hit in a
+    variant name, the category or the description."""
+    return func.immutable_unaccent(func.lower(func.concat_ws(
+        " ",
+        func.coalesce(Product.title, ""),
+        func.coalesce(Product.i18n["vi"]["title"].astext, ""),
+        func.coalesce(Product.i18n["en"]["title"].astext, ""),
+        func.coalesce(Product.highlight_text, ""),
+        func.coalesce(Product.i18n["vi"]["highlight_text"].astext, ""),
+        func.coalesce(Product.i18n["en"]["highlight_text"].astext, ""),
+    )))
+
+
 def _relevance_order(terms: SearchTerms) -> tuple:
-    """Prefix > word start > substring > fuzzy, then closeness, then popularity."""
+    """Title match quality, then whole-corpus match quality, then closeness,
+    then popularity."""
+    own = _own_title_text()
     return (
+        terms.rank(own).asc(),
         terms.rank(Product.search_text).asc(),
-        terms.similarity(Product.search_text).desc(),
+        terms.similarity(own).desc(),
         Product.sold_count.desc(),
         Product.id.desc(),
     )
@@ -595,9 +616,14 @@ async def list_products(
     else:
         order_by = (Product.created_at.desc(), Product.id.desc())
 
-    total = await db.scalar(select(func.count(Product.id)).select_from(Product).outerjoin(
+    counted = select(Product.id).select_from(Product).outerjoin(
         variant_stats, variant_stats.c.product_id == Product.id,
-    ).where(*filters)) or 0
+    ).where(*filters)
+    if terms is not None:
+        # A keyword search never needs an exact total beyond what anyone pages
+        # through; capping keeps trigram-heavy counts off the hot path.
+        counted = counted.limit(SEARCH_COUNT_CAP)
+    total = await db.scalar(select(func.count()).select_from(counted.subquery())) or 0
     query = query.where(*filters).order_by(*order_by).offset((page - 1) * per_page).limit(per_page)
     products = list((await db.execute(query)).scalars())
     variants_by_product = await _variants_by_product(

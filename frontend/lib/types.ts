@@ -1875,3 +1875,15 @@ export interface SearchResult {
   categories: SearchCategoryHit[];
   sellers: SellerSummary[];
 }
+
+export interface SearchQueryStat {
+  query: string;
+  searches: number;
+  zero_results: number;
+  last_searched_at: string;
+}
+
+export interface SearchSynonymGroup {
+  group_key: string;
+  terms: string[];
+}

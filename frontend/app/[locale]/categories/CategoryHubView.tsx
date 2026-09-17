@@ -31,7 +31,7 @@ export function CategoryHubView({ initial }: { initial: CategoryHubCatalog }) {
   const isTypingRef = useRef(false);
 
   const cats = initial.categories;
-  const products = initial.products;
+  const shelvesById = initial.shelves;
   const error = initial.error ? t("loadError") : null;
 
   // Initialize query from URL search params if present
@@ -97,10 +97,9 @@ export function CategoryHubView({ initial }: { initial: CategoryHubCatalog }) {
     [cats, flatCats],
   );
 
-  const productsOf = (c: Category): Product[] => {
-    const ids = new Set(subtreeIds(c));
-    return products.filter((p) => ids.has(p.category_id));
-  };
+  // Shelf items arrive grouped per top-level branch (sub-categories folded in).
+  const productsOf = (c: Category): Product[] => shelvesById[c.id]?.items ?? [];
+  const branchTotal = (c: Category): number => shelvesById[c.id]?.total ?? 0;
 
   const queryLower = q.trim().toLowerCase();
 
@@ -120,9 +119,9 @@ export function CategoryHubView({ initial }: { initial: CategoryHubCatalog }) {
   };
 
   const totalMatchCount = useMemo(() => {
-    if (!queryLower) return products.length;
+    if (!queryLower) return initial.total;
     return topCats.reduce((sum, cat) => sum + matchingProductsOf(cat).length, 0);
-  }, [topCats, queryLower, products]);
+  }, [topCats, queryLower, initial.total]);
 
   // Find subcategories that directly match query
   const directSubMatches = useMemo(() => {
@@ -147,10 +146,10 @@ export function CategoryHubView({ initial }: { initial: CategoryHubCatalog }) {
         if (selectedTopCat !== null && c.id !== selectedTopCat) return false;
         return items.length > 0 && matchesCategory(c, items);
       })
-      .sort((a, b) => b.items.length - a.items.length);
+      .sort((a, b) => branchTotal(b.c) - branchTotal(a.c));
   }, [topCats, selectedTopCat, queryLower]);
 
-  const empty = topCats.filter((c) => productsOf(c).length === 0);
+  const empty = topCats.filter((c) => branchTotal(c) === 0);
 
   return (
     <div className="w-full mx-auto max-w-[1240px] px-4 sm:px-6 py-6 sm:py-8">
@@ -304,8 +303,9 @@ export function CategoryHubView({ initial }: { initial: CategoryHubCatalog }) {
       <div className="space-y-6 mt-6">
         {shelves.map(({ c, items }) => {
           const children = c.children ?? [];
+          // Branch-wide "from" price from the API; the loaded items are the fallback.
           const minPrices = items.map((p) => effectiveMinPrice(p)).filter((v) => v > 0);
-          const fromPrice = minPrices.length ? Math.min(...minPrices) : 0;
+          const fromPrice = shelvesById[c.id]?.price_from ?? (minPrices.length ? Math.min(...minPrices) : 0);
 
           // When query active, show items matching query first
           const matchingItems = queryLower ? matchingProductsOf(c) : items;
@@ -332,7 +332,7 @@ export function CategoryHubView({ initial }: { initial: CategoryHubCatalog }) {
                       <ChevronRight size={15} className="text-faint group-hover:text-iris-hi group-hover:translate-x-0.5 transition-all shrink-0" />
                     </Link>
                     <div className="flex items-center gap-2 text-[12.5px] text-muted mt-0.5">
-                      <span>{t("previewCount", { count: items.length })}</span>
+                      <span>{t("previewCount", { count: branchTotal(c) })}</span>
                       {fromPrice > 0 && (
                         <>
                           <span className="text-faint">·</span>

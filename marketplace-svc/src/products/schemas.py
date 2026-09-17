@@ -303,6 +303,20 @@ class ProductListItemResponse(ProductListItemBase):
     variants: list[VariantResponse] = []
 
 
+class CategoryShelfResponse(BaseModel):
+    """One top-level category on the /categories hub: best sellers of the
+    whole branch plus the branch's size and "from" price."""
+    category_id: int
+    total: int
+    price_from: int | None
+    items: list[ProductListItemResponse]
+
+
+class CategoryShelvesResponse(BaseModel):
+    shelves: list[CategoryShelfResponse]
+    total: int
+
+
 class ProductListPageResponse(BaseModel):
     """Phong bì phân trang GET /products, cùng khuôn orders."""
     items: list[ProductListItemResponse]

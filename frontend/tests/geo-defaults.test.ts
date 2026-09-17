@@ -49,3 +49,10 @@ test("GEO_COUNTRY_OVERRIDE applies outside production only", () => {
     "USD",
   );
 });
+
+test("locale pairing: vi readers default to VND, other locales defer to the admin default", async () => {
+  const { pairedCurrencyForLocale } = await import("../lib/geo-defaults.ts");
+  assert.equal(pairedCurrencyForLocale("vi"), "VND");
+  assert.equal(pairedCurrencyForLocale("en"), null);
+  assert.equal(pairedCurrencyForLocale(null), null);
+});

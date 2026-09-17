@@ -2,7 +2,7 @@ import { fetchPublicJson } from "@/lib/seo";
 import { unstable_cache } from "next/cache";
 import { flattenCategories } from "@/lib/categories";
 import { matchCategoryParam } from "@/lib/routes";
-import type { Category, PaginatedProducts, Product, ProductCatalogSummary, ProductDetail, SellerProfile, SellerSummary } from "@/lib/types";
+import type { Category, CategoryShelf, CategoryShelvesResponse, PaginatedProducts, Product, ProductCatalogSummary, ProductDetail, SellerProfile, SellerSummary } from "@/lib/types";
 
 export type HomeCatalog = {
   categories: Category[];
@@ -15,7 +15,9 @@ export type HomeCatalog = {
 
 export type CategoryHubCatalog = {
   categories: Category[];
-  products: Product[];
+  /** Keyed by top-level category id. */
+  shelves: Record<number, CategoryShelf>;
+  /** Active products across the catalog. */
   total: number;
   error: string | null;
 };
@@ -90,15 +92,23 @@ export async function loadHomeCatalog(locale: string): Promise<HomeCatalog> {
   };
 }
 
+/** Hub shelves come pre-grouped from the API (8 best sellers per top-level
+ *  branch + branch totals) instead of the first 100 products grouped in the
+ *  browser — a fraction of the payload and every shelf is complete. */
 export async function loadCategoryHub(locale: string): Promise<CategoryHubCatalog> {
-  const [categories, products] = await Promise.all([
+  const [categories, shelves] = await Promise.all([
     fetchPublicJson<Category[]>("/categories", locale),
-    fetchPublicJson<PaginatedProducts>("/products?page=1&per_page=100", locale),
+    fetchPublicJson<CategoryShelvesResponse>("/products/shelves?per_shelf=8", locale),
   ]);
-  if (!categories || !products) {
-    return { categories: categories ?? [], products: [], total: 0, error: "load" };
+  if (!categories || !shelves) {
+    return { categories: categories ?? [], shelves: {}, total: 0, error: "load" };
   }
-  return { categories, products: products.items, total: products.total, error: null };
+  return {
+    categories,
+    shelves: Object.fromEntries(shelves.shelves.map((shelf) => [shelf.category_id, shelf])),
+    total: shelves.total,
+    error: null,
+  };
 }
 
 export async function loadCategoryPage(

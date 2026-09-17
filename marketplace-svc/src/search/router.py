@@ -3,11 +3,13 @@ from typing import Literal
 from fastapi import APIRouter, Depends, Query, Request, status
 from sqlalchemy.ext.asyncio import AsyncSession
 
+from src.auth.dependencies import require_role
 from src.config import settings
 from src.database import get_session
 from src.exceptions import ErrorCode, api_error
 from src.i18n.deps import get_request_locale
 from src.i18n.search_text import MAX_QUERY_LENGTH
+from src.models.account import Account
 from src.rate_limit import check_rate_limit
 from src.security.client_ip import client_ip
 
@@ -84,3 +86,45 @@ async def search_page(
         )
     except service.SearchTimeout:
         raise api_error(ErrorCode.SEARCH_TIMEOUT, status.HTTP_504_GATEWAY_TIMEOUT)
+
+
+@router.get("/admin/search/queries", response_model=schemas.SearchQueryStatsResponse)
+async def admin_search_queries(
+    days: int = Query(30, ge=1, le=service.QUERY_STATS_MAX_DAYS),
+    limit: int = Query(50, ge=1, le=200),
+    zero_only: bool = Query(False),
+    _: Account = Depends(require_role("admin")),
+    db: AsyncSession = Depends(get_session),
+):
+    """What people searched for on the results page, most frequent first."""
+    return await service.query_stats(db, days=days, limit=limit, zero_only=zero_only)
+
+
+@router.get("/admin/search/synonyms", response_model=schemas.SearchSynonymsResponse)
+async def admin_search_synonyms(
+    _: Account = Depends(require_role("admin")),
+    db: AsyncSession = Depends(get_session),
+):
+    return await service.list_synonyms(db)
+
+
+@router.put("/admin/search/synonyms", response_model=schemas.SearchSynonymGroup)
+async def admin_upsert_synonym_group(
+    body: schemas.SearchSynonymGroupUpsert,
+    _: Account = Depends(require_role("admin")),
+    db: AsyncSession = Depends(get_session),
+):
+    try:
+        return await service.upsert_synonym_group(db, body.group_key, body.terms)
+    except ValueError:
+        raise api_error(ErrorCode.SEARCH_SYNONYM_INVALID, status.HTTP_422_UNPROCESSABLE_ENTITY)
+
+
+@router.delete("/admin/search/synonyms/{group_key}", status_code=status.HTTP_204_NO_CONTENT)
+async def admin_delete_synonym_group(
+    group_key: str,
+    _: Account = Depends(require_role("admin")),
+    db: AsyncSession = Depends(get_session),
+):
+    if not await service.delete_synonym_group(db, group_key):
+        raise api_error(ErrorCode.SEARCH_SYNONYM_NOT_FOUND, status.HTTP_404_NOT_FOUND)

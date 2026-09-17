@@ -85,6 +85,8 @@ class ErrorCode(str, Enum):
     AUTH_RATE_LIMITED = "AUTH_RATE_LIMITED"
     RATE_LIMITED = "RATE_LIMITED"
     SEARCH_TIMEOUT = "SEARCH_TIMEOUT"
+    SEARCH_SYNONYM_INVALID = "SEARCH_SYNONYM_INVALID"
+    SEARCH_SYNONYM_NOT_FOUND = "SEARCH_SYNONYM_NOT_FOUND"
     PASSWORD_RESET_INVALID = "PASSWORD_RESET_INVALID"
     DISPUTE_INVALID_REFUND_AMOUNT = "DISPUTE_INVALID_REFUND_AMOUNT"
     DISPUTE_REPLACEMENT_UNAVAILABLE = "DISPUTE_REPLACEMENT_UNAVAILABLE"
@@ -176,6 +178,8 @@ MESSAGES_EN: dict[ErrorCode, str] = {
     ErrorCode.AUTH_RATE_LIMITED: "Too many attempts. Please try again later",
     ErrorCode.RATE_LIMITED: "Too many requests. Please slow down and try again",
     ErrorCode.SEARCH_TIMEOUT: "Search took too long. Please refine your query and try again",
+    ErrorCode.SEARCH_SYNONYM_INVALID: "A synonym group needs a name and at least one term",
+    ErrorCode.SEARCH_SYNONYM_NOT_FOUND: "Synonym group not found",
     ErrorCode.PASSWORD_RESET_INVALID: "This reset link is invalid or has expired",
     ErrorCode.DISPUTE_INVALID_REFUND_AMOUNT: "Refund amount must be greater than zero and less than the order total",
     ErrorCode.DISPUTE_REPLACEMENT_UNAVAILABLE: "Only automatically delivered orders with inventory can be replaced",

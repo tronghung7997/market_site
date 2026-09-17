@@ -117,8 +117,10 @@ async def clean_db(request):
     # Process-local config caches survive TRUNCATE; wipe them so tests never
     # observe a previous case's display_money / deposit_rail public payload.
     from src.runtime_config import clear_all_process_config_caches
+    from src.search.service import reset_synonyms_snapshot
 
     clear_all_process_config_caches()
+    reset_synonyms_snapshot()
     async with engine.begin() as conn:
         result = await conn.execute(
             text(

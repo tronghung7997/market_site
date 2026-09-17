@@ -25,6 +25,8 @@ import SiteFooter from "@/components/SiteFooter";
 import ChromeGate from "@/components/ChromeGate";
 import RouteProgress from "@/components/RouteProgress";
 import ReferralCapture from "@/components/ReferralCapture";
+import ClarityTag from "@/components/ClarityTag";
+import { isValidClarityId } from "@/lib/clarity";
 import { TooltipProvider } from "@/components/ui/tooltip";
 import { routing } from "@/i18n/routing";
 
@@ -56,6 +58,23 @@ async function loadMoneyConfig(): Promise<MoneyConfig | null> {
       // Default true when API is older / missing the field — safer (hints stay on).
       show_fx_hints: body.show_fx_hints !== false,
     };
+  } catch {
+    return null;
+  }
+}
+
+/**
+ * Admin-managed third-party tag ids (Settings › Analytics). Short cache so a
+ * toggle in the admin shows up for visitors within a minute; null on failure
+ * simply renders no tag.
+ */
+async function loadClarityProjectId(): Promise<string | null> {
+  try {
+    const res = await signedBackendFetch("/public/analytics-config", { next: { revalidate: 60 } });
+    if (!res.ok) return null;
+    const body = (await res.json()) as { clarity_project_id?: unknown };
+    const id = typeof body.clarity_project_id === "string" ? body.clarity_project_id : "";
+    return isValidClarityId(id) ? id : null;
   } catch {
     return null;
   }
@@ -100,6 +119,7 @@ export default async function RootLayout({ children, params }: { children: React
   const cookieCurrency = parseDisplayCurrency(jar.get("display_currency")?.value);
   const geoCurrency = geoDefaultsFromHeaders(await headers())?.currency;
   const initialConfig = await loadMoneyConfig();
+  const clarityId = await loadClarityProjectId();
   // Admin-configured footer pages; null on backend hiccup → footer shows no page links.
   const footerPages = (await fetchPublicJson<SitePageLink[]>("/public/site-pages", locale)) ?? [];
   const initialCurrency: DisplayCurrency =
@@ -121,6 +141,7 @@ export default async function RootLayout({ children, params }: { children: React
                 <TooltipProvider>
                   <RouteProgress />
                   <Suspense fallback={null}><ReferralCapture /></Suspense>
+                  {clarityId && <ClarityTag projectId={clarityId} />}
                   <a
                     href="#main-content"
                     className="sr-only focus:not-sr-only focus:fixed focus:left-4 focus:top-4 focus:z-[100] focus:rounded-lg focus:bg-iris focus:px-3 focus:py-2 focus:text-[13px] focus:font-medium focus:text-surface"

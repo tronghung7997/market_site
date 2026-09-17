@@ -5,11 +5,11 @@ import { useSearchParams } from "next/navigation";
 import { useTranslations } from "next-intl";
 import { MailSettingsPanel } from "@/features/admin-mail";
 import { SellerConfigPanel } from "@/features/admin-seller-config";
-import { DepositRailsPanel, DisplaySettingsPanel } from "@/features/admin-site-settings";
+import { AnalyticsSettingsPanel, DepositRailsPanel, DisplaySettingsPanel } from "@/features/admin-site-settings";
 import { cn } from "@/lib/cn";
 import { Spinner } from "@/components/ui";
 
-const TABS = ["display", "deposits", "mail", "seller"] as const;
+const TABS = ["display", "deposits", "mail", "seller", "analytics"] as const;
 type SettingsTab = (typeof TABS)[number];
 
 const PANELS: Record<SettingsTab, () => React.JSX.Element> = {
@@ -17,6 +17,7 @@ const PANELS: Record<SettingsTab, () => React.JSX.Element> = {
   deposits: DepositRailsPanel,
   mail: MailSettingsPanel,
   seller: SellerConfigPanel,
+  analytics: AnalyticsSettingsPanel,
 };
 
 function parseTab(raw: string | null): SettingsTab {

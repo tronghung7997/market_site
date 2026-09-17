@@ -25,7 +25,7 @@ import { isIsoDate, RANGE_PRESETS } from "../seller-dashboard/model.ts";
 export const PACKAGE_PAGE_SIZE = 20;
 export const STOCK_TABS: InventoryStockTab[] = ["all", "low", "out", "error", "inactive"];
 export const PACKAGE_SORTS: InventoryPackageSort[] = ["available_asc", "available_desc", "title", "last_restock", "sold_desc"];
-export const PRODUCT_STATUS_FILTERS: InventoryProductStatusFilter[] = ["active", "paused", "all"];
+export const PRODUCT_STATUS_FILTERS: InventoryProductStatusFilter[] = ["all", "active", "paused"];
 
 export interface InventoryFilters {
   tab: InventoryStockTab;
@@ -40,7 +40,7 @@ export interface InventoryFilters {
 }
 
 export const DEFAULT_INVENTORY_FILTERS: InventoryFilters = {
-  tab: "all", search: "", categoryIds: [], productStatus: "active", sort: "available_asc",
+  tab: "all", search: "", categoryIds: [], productStatus: "all", sort: "available_asc",
   grouped: true, hideInactive: true, page: 1,
 };
 
@@ -55,7 +55,7 @@ export function parseInventoryFilters(search: URLSearchParams): InventoryFilters
     tab: pickEnum(search.get("tab"), STOCK_TABS, "all"),
     search: search.get("search") ?? "",
     categoryIds: [...new Set(categoryIds)],
-    productStatus: pickEnum(search.get("products"), PRODUCT_STATUS_FILTERS, "active"),
+    productStatus: pickEnum(search.get("products"), PRODUCT_STATUS_FILTERS, DEFAULT_INVENTORY_FILTERS.productStatus),
     sort: pickEnum(search.get("sort"), PACKAGE_SORTS, "available_asc"),
     grouped: search.get("view") !== "flat",
     hideInactive: search.get("inactive") !== "show",
@@ -68,7 +68,7 @@ export function inventoryFiltersToSearch(f: InventoryFilters): string {
   if (f.tab !== "all") q.set("tab", f.tab);
   if (f.search.trim()) q.set("search", f.search.trim());
   if (f.categoryIds.length) q.set("category", f.categoryIds.join(","));
-  if (f.productStatus !== "active") q.set("products", f.productStatus);
+  if (f.productStatus !== DEFAULT_INVENTORY_FILTERS.productStatus) q.set("products", f.productStatus);
   if (f.sort !== "available_asc") q.set("sort", f.sort);
   if (!f.grouped) q.set("view", "flat");
   if (!f.hideInactive) q.set("inactive", "show");
@@ -78,7 +78,7 @@ export function inventoryFiltersToSearch(f: InventoryFilters): string {
 }
 
 export function hasActiveInventoryFilters(f: InventoryFilters): boolean {
-  return f.tab !== "all" || f.search.trim() !== "" || f.categoryIds.length > 0 || f.productStatus !== "active";
+  return f.tab !== "all" || f.search.trim() !== "" || f.categoryIds.length > 0 || f.productStatus !== DEFAULT_INVENTORY_FILTERS.productStatus;
 }
 
 export interface PackageGroup {

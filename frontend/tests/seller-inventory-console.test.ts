@@ -6,6 +6,7 @@ import {
   checkState,
   compactScope,
   groupPackages,
+  hasActiveInventoryFilters,
   inventoryFiltersToSearch,
   maskResourceData,
   maskSample,
@@ -28,10 +29,22 @@ function pkg(over: Partial<InventoryPackage>): InventoryPackage {
   };
 }
 
+test("inventory opens all product statuses and preserves explicit status filters", () => {
+  const defaults = parseInventoryFilters(new URLSearchParams());
+  assert.equal(defaults.productStatus, "all");
+  assert.equal(hasActiveInventoryFilters(defaults), false);
+  for (const productStatus of ["active", "paused"] as const) {
+    const filtered = { ...defaults, productStatus };
+    assert.equal(hasActiveInventoryFilters(filtered), true);
+    assert.equal(inventoryFiltersToSearch(filtered), `?products=${productStatus}`);
+    assert.deepEqual(parseInventoryFilters(new URLSearchParams(inventoryFiltersToSearch(filtered))), filtered);
+  }
+});
+
 test("inventory filters round-trip through the URL and ignore junk", () => {
   const f = parseInventoryFilters(new URLSearchParams("tab=low&search=fb&category=3&products=all&sort=sold_desc&view=flat&inactive=show&page=4"));
   assert.deepEqual(f, { tab: "low", search: "fb", categoryIds: [3], productStatus: "all", sort: "sold_desc", grouped: false, hideInactive: false, page: 4 });
-  assert.equal(inventoryFiltersToSearch(f), "?tab=low&search=fb&category=3&products=all&sort=sold_desc&view=flat&inactive=show&page=4");
+  assert.equal(inventoryFiltersToSearch(f), "?tab=low&search=fb&category=3&sort=sold_desc&view=flat&inactive=show&page=4");
   assert.deepEqual(parseInventoryFilters(new URLSearchParams("tab=nope&category=abc&sort=x&page=0")), DEFAULT_INVENTORY_FILTERS);
   assert.equal(inventoryFiltersToSearch(DEFAULT_INVENTORY_FILTERS), "");
 });

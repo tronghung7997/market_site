@@ -130,6 +130,8 @@ Backend mặc định không bật API docs. Chỉ bật `API_DOCS_ENABLED=true`
 
 Backend cài dependency `tzdata` để dashboard và báo cáo inventory đọc được múi giờ trình duyệt (bao gồm `Asia/Saigon`) ngay cả khi hệ điều hành không có timezone database.
 
+Trang kho seller mặc định hiển thị cả sản phẩm đang bán và tạm dừng để seller tiếp tục quản lý, nạp và xuất kho khi ngừng bán. Bộ lọc trạng thái sản phẩm vẫn cho phép chọn riêng từng nhóm.
+
 ### 3. Chạy frontend
 
 Ở terminal khác:

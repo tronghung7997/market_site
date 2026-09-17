@@ -200,6 +200,29 @@ async def test_packages_filters_category_status_and_inactive_tab(client):
 
 
 @pytest.mark.asyncio
+async def test_paused_shop_can_list_and_restock_inventory(client):
+    f = await _fixture(client)
+    h = _auth(f["token"])
+    for product_id in f["products"].values():
+        response = await client.put(f"/seller/products/{product_id}/status", json={"status": "paused"}, headers=h)
+        assert response.status_code == 200
+
+    response = await client.get("/seller/inventory/packages?product_status=all&view=flat", headers=h)
+    assert response.status_code == 200
+    body = response.json()
+    assert body["total"] == 4
+    assert body["counts"]["available_total"] == 56
+    assert all(row["product_status"] == "paused" for row in body["items"])
+
+    vid = f["variants"]["gmail"]
+    await _stock(client, f["token"], vid, ["paused-restock|json"])
+    detail = await client.get(f"/seller/inventory/packages/{vid}", headers=h)
+    assert detail.status_code == 200
+    assert detail.json()["available"] == 26
+    assert detail.json()["product_status"] == "paused"
+
+
+@pytest.mark.asyncio
 async def test_package_detail_siblings_and_bulk_status(client):
     f = await _fixture(client)
     h = _auth(f["token"])

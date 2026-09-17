@@ -3938,6 +3938,15 @@
       "switchLocale": "Switch to Tiếng Việt"
     },
     "page": {
+      "emptyTipSpelling": "Check the spelling",
+      "emptyTipShorter": "Try a shorter keyword",
+      "emptyTipAbbrev": "Use the full name instead of an abbreviation",
+      "emptyClearFilters": "Clear filters and search again",
+      "browseHeading": "Start from a category",
+      "browseInsteadHeading": "Or browse by category",
+      "allCategoriesLink": "All categories",
+      "bestsellersHeading": "Selling now",
+      "bestsellersAll": "See all",
       "title": "Search",
       "metaTitle": "Search results for “{q}”",
       "metaDescription": "Products, categories and sellers on GMMO matching “{q}”.",

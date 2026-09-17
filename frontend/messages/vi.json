@@ -3938,6 +3938,15 @@
       "switchLocale": "Chuyển sang English"
     },
     "page": {
+      "emptyTipSpelling": "Kiểm tra chính tả",
+      "emptyTipShorter": "Thử từ khoá ngắn hơn",
+      "emptyTipAbbrev": "Dùng tên đầy đủ thay vì viết tắt",
+      "emptyClearFilters": "Bỏ bộ lọc và tìm lại",
+      "browseHeading": "Bắt đầu từ một danh mục",
+      "browseInsteadHeading": "Hoặc duyệt theo danh mục",
+      "allCategoriesLink": "Tất cả danh mục",
+      "bestsellersHeading": "Đang được mua nhiều",
+      "bestsellersAll": "Xem tất cả",
       "title": "Tìm kiếm",
       "metaTitle": "Kết quả tìm kiếm cho “{q}”",
       "metaDescription": "Sản phẩm, danh mục và nhà bán trên GMMO khớp với “{q}”.",

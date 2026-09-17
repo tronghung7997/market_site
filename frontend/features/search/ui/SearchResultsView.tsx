@@ -6,12 +6,12 @@ import { Link, useRouter } from "@/i18n/navigation";
 import { cn } from "@/lib/cn";
 import { categoryPath, sellerPath } from "@/lib/routes";
 import { categoryCoverId } from "@/lib/product-covers";
-import type { SearchCategoryHit, SellerSummary } from "@/lib/types";
+import type { Category, Product, SearchCategoryHit, SellerSummary } from "@/lib/types";
 import { Button, Card, Monogram, Pagination, Select, Tag } from "@/components/ui";
-import { ChevronRight, Search, Star, X } from "@/components/Icons";
+import { ArrowRight, ChevronRight, Search, Star, X } from "@/components/Icons";
 import { ProductCover } from "@/features/product-covers";
 import ProductTile from "@/components/ProductTile";
-import type { SearchPageData } from "../data/load-search-page";
+import type { SearchFallback, SearchPageData } from "../data/load-search-page";
 import { SEARCH_PAGE_SIZE, SEARCH_SORTS, searchPageHref, type SearchFilters, type SearchSort } from "../model";
 
 function CategoryHitRow({ hit, active, onNarrow, narrowLabel }: {
@@ -71,13 +71,69 @@ function SellerHitRow({ seller }: { seller: SellerSummary }) {
   );
 }
 
+function BrowseFallback({
+  fallback, heading, onPick,
+}: { fallback: SearchFallback; heading: string; onPick: (query: string) => void }) {
+  const t = useTranslations("search.page");
+  const categories = fallback.categories.slice(0, 12);
+  return (
+    <div className="space-y-8">
+      {categories.length > 0 && (
+        <section aria-labelledby="search-browse-categories">
+          <h2 id="search-browse-categories" className="text-[15px] font-semibold text-fg">{heading}</h2>
+          <ul className="mt-3 flex flex-wrap gap-2">
+            {categories.map((category: Category) => (
+              <li key={category.id}>
+                <Link
+                  href={categoryPath(category)}
+                  className="inline-flex h-9 items-center gap-2 rounded-lg border border-line bg-surface px-3 text-[13px] font-medium text-fg transition-colors hover:border-iris/40 hover:bg-iris-soft hover:text-iris-hi"
+                >
+                  {category.name}
+                  <ChevronRight size={13} className="text-faint" />
+                </Link>
+              </li>
+            ))}
+            <li>
+              <Link href="/categories" className="inline-flex h-9 items-center gap-1 px-2 text-[13px] font-medium text-iris-hi hover:underline">
+                {t("allCategoriesLink")}
+                <ArrowRight size={13} />
+              </Link>
+            </li>
+          </ul>
+        </section>
+      )}
+      {fallback.products.length > 0 && (
+        <section aria-labelledby="search-browse-bestsellers">
+          <div className="flex items-end justify-between gap-3">
+            <h2 id="search-browse-bestsellers" className="text-[15px] font-semibold text-fg">{t("bestsellersHeading")}</h2>
+            <Link href="/products?sort=bestseller" className="inline-flex items-center gap-1 text-[13px] font-medium text-iris-hi hover:underline">
+              {t("bestsellersAll")}
+              <ArrowRight size={13} />
+            </Link>
+          </div>
+          <div className="mt-3 grid grid-cols-1 items-stretch gap-4 sm:grid-cols-2 sm:gap-5 lg:grid-cols-3">
+            {fallback.products.map((product: Product) => (
+              <ProductTile key={product.public_key} product={product} />
+            ))}
+          </div>
+        </section>
+      )}
+      {categories.length === 0 && fallback.products.length === 0 && (
+        <Link href="/categories" className="inline-flex">
+          <Button variant="secondary" size="md" onClick={() => onPick("")}>{t("browseCategories")}</Button>
+        </Link>
+      )}
+    </div>
+  );
+}
+
 export function SearchResultsView({ initial }: { initial: SearchPageData }) {
   const t = useTranslations("search.page");
   const tc = useTranslations("categories");
   const tcommon = useTranslations("common");
   const router = useRouter();
   const [isPending, startTransition] = useTransition();
-  const { filters, result, error } = initial;
+  const { filters, result, fallback, error } = initial;
   const [draft, setDraft] = useState(filters.q);
   const inputRef = useRef<HTMLInputElement>(null);
 
@@ -124,7 +180,7 @@ export function SearchResultsView({ initial }: { initial: SearchPageData }) {
         <h1 className="font-serif text-[26px] font-semibold leading-tight tracking-tight text-fg sm:text-[32px]">
           {hasQuery ? t("heading", { q: filters.q }) : t("headingEmpty")}
         </h1>
-        {hasQuery && result && (
+        {hasQuery && result && total + categories.length + sellers.length > 0 && (
           <p className="mt-1 text-[13.5px] text-muted" aria-live="polite">
             {t("summary", { products: total, categories: categories.length, sellers: sellers.length })}
           </p>
@@ -145,7 +201,7 @@ export function SearchResultsView({ initial }: { initial: SearchPageData }) {
             aria-label={t("inputLabel")}
             maxLength={80}
             enterKeyHint="search"
-            className="h-10 w-full rounded-lg border border-line bg-surface pl-10 pr-10 text-sm text-fg placeholder:text-faint transition-colors focus:border-iris focus:outline-none"
+            className="h-10 w-full rounded-lg border border-line bg-surface pl-10 pr-10 text-sm text-fg placeholder:text-faint transition-colors focus:border-iris focus:outline-none [&::-webkit-search-cancel-button]:hidden [&::-webkit-search-decoration]:hidden"
           />
           {draft && (
             <button
@@ -209,10 +265,8 @@ export function SearchResultsView({ initial }: { initial: SearchPageData }) {
       )}
 
       {/* States */}
-      {!hasQuery && (
-        <Card className="px-6 py-12 text-center">
-          <p className="text-[14px] text-muted">{t("emptyQuery")}</p>
-        </Card>
+      {!hasQuery && fallback && (
+        <BrowseFallback fallback={fallback} heading={t("browseHeading")} onPick={(q) => navigate({ q })} />
       )}
 
       {hasQuery && error && (
@@ -254,20 +308,33 @@ export function SearchResultsView({ initial }: { initial: SearchPageData }) {
           )}
 
           <section aria-busy={isPending} className={cn("min-w-0 transition-opacity duration-150", isPending && "opacity-60")}>
-            <div className="mb-3 flex items-center justify-between gap-3">
-              <h2 className="text-[15px] font-semibold text-fg">{t("productsHeading")}</h2>
-              {total > 0 && (
+            {products.length > 0 && (
+              <div className="mb-3 flex items-center justify-between gap-3">
+                <h2 className="text-[15px] font-semibold text-fg">{t("productsHeading")}</h2>
                 <span className="text-[12.5px] text-muted tabular">{t("showing", { from, to, total })}</span>
-              )}
-            </div>
+              </div>
+            )}
             {products.length === 0 ? (
-              <Card className="px-6 py-12 text-center">
-                <p className="text-[14px] font-medium text-fg">{t("empty", { q: filters.q })}</p>
-                <p className="mt-1 text-[13px] text-muted">{t("emptyHint")}</p>
-                <Link href="/categories" className="mt-4 inline-flex">
-                  <Button variant="secondary" size="md">{t("browseCategories")}</Button>
-                </Link>
-              </Card>
+              <div className="space-y-8">
+                <div className="rounded-card border border-dashed border-line-2 bg-surface px-5 py-6 sm:px-6">
+                  <p className="text-[15px] font-medium text-fg">{t("empty", { q: filters.q })}</p>
+                  <p className="mt-1.5 text-[13px] text-muted">
+                    {[t("emptyTipSpelling"), t("emptyTipShorter"), t("emptyTipAbbrev")].join(" · ")}
+                  </p>
+                  {(activeCategory || filters.inStock || filters.instant) && (
+                    <button
+                      type="button"
+                      onClick={() => navigate({ categoryId: null, inStock: false, instant: false })}
+                      className="mt-3 inline-flex items-center gap-1 text-[13px] font-medium text-iris-hi hover:underline"
+                    >
+                      <X size={12} />{t("emptyClearFilters")}
+                    </button>
+                  )}
+                </div>
+                {fallback && (
+                  <BrowseFallback fallback={fallback} heading={t("browseInsteadHeading")} onPick={(q) => navigate({ q })} />
+                )}
+              </div>
             ) : (
               <>
                 <div className="grid grid-cols-1 items-stretch gap-4 sm:grid-cols-2 sm:gap-5 lg:grid-cols-3">

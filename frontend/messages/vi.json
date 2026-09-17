@@ -3277,7 +3277,8 @@
       "display": "Hiển thị",
       "deposits": "Nạp tiền",
       "mail": "Mail",
-      "seller": "Người bán"
+      "seller": "Người bán",
+      "search": "Tìm kiếm"
     }
   },
   "adminSellerConfig": {
@@ -3433,6 +3434,47 @@
     "discard": "Huỷ",
     "save": "Lưu thay đổi",
     "saving": "Đang lưu…"
+  },
+  "adminSearch": {
+    "queries": {
+      "title": "Khách tìm gì",
+      "summary": "{count} từ khoá trong {days} ngày · {zero} không ra kết quả",
+      "summaryZero": "{count} từ khoá không ra kết quả trong {days} ngày",
+      "range": "Khoảng thời gian",
+      "days": "{days} ngày",
+      "zeroOnly": "Chỉ từ khoá không ra kết quả",
+      "empty": "Chưa có lượt tìm nào.",
+      "colQuery": "Từ khoá",
+      "colSearches": "Lượt",
+      "colZero": "0 kết quả",
+      "colLast": "Gần nhất",
+      "noResults": "Không ra gì",
+      "addSynonym": "Thêm từ đồng nghĩa",
+      "loadFail": "Không tải được thống kê"
+    },
+    "synonyms": {
+      "title": "Từ đồng nghĩa",
+      "hint": "Gõ bất kỳ từ nào trong nhóm đều tìm ra sản phẩm có các từ còn lại. Ví dụ: fb → facebook.",
+      "empty": "Chưa có nhóm nào.",
+      "edit": "Sửa",
+      "delete": "Xoá",
+      "editing": "Đang sửa: {group}",
+      "newGroup": "Nhóm mới",
+      "groupKey": "Tên nhóm",
+      "groupKeyHint": "Thường là từ đầy đủ, ví dụ facebook.",
+      "terms": "Các từ",
+      "termsHint": "Cách nhau bằng dấu phẩy. Không dấu, không phân biệt hoa thường.",
+      "cancel": "Huỷ",
+      "add": "Thêm nhóm",
+      "save": "Lưu nhóm",
+      "saving": "Đang lưu…",
+      "saved": "Đã lưu nhóm {group}",
+      "saveFail": "Không lưu được",
+      "deleteConfirm": "Xoá nhóm {group}?",
+      "deleted": "Đã xoá nhóm {group}",
+      "deleteFail": "Không xoá được",
+      "loadFail": "Không tải được từ đồng nghĩa"
+    }
   },
   "adminMail": {
     "status": {

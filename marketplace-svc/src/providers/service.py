@@ -125,6 +125,16 @@ async def update_provider(
     if "config" in updates and updates["config"]:
         updates["config"] = encrypt_config(updates["config"])
 
+    if "seller_id" in updates and updates["seller_id"] is not None:
+        from src.models.account import Account
+
+        owner = await db.get(Account, updates["seller_id"])
+        if owner is None or "seller" not in (owner.roles or []):
+            raise HTTPException(status_code=400, detail="seller_id không phải tài khoản seller")
+        # Nguồn admin giao cho seller vẫn là hạ tầng đã duyệt — không rơi về
+        # hàng chờ duyệt như provider seller tự đăng ký.
+        updates.setdefault("review_status", "approved")
+
     changed = sorted(updates.keys())
     for key, value in updates.items():
         setattr(provider, key, value)

@@ -28,6 +28,9 @@ class ProviderUpdateRequest(BaseModel):
     config: dict | None = None
     fallback_provider_id: int | None = None
     is_active: bool | None = None
+    # Giao nguồn hàng cho một seller (seller đó thấy nó ở /seller/sources và
+    # chỉ sản phẩm của họ gắn được). null = thu hồi về hạ tầng admin.
+    seller_id: int | None = None
 
 
 class ProviderResponse(BaseModel):

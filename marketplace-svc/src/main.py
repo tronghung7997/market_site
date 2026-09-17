@@ -28,6 +28,7 @@ from src.site_pages.router import router as site_pages_router
 from src.pricing.router import router as pricing_router
 from src.products.router import router as products_router
 from src.providers.router import router as providers_router
+from src.suppliers.router import router as supplier_sources_router
 from src.tasks.router import router as tasks_router
 from src.resources.router import router as resources_router
 from src.resources.proxy_router import router as proxy_router
@@ -176,6 +177,7 @@ app.include_router(notifications_router)
 app.include_router(orders_router)
 app.include_router(disputes_router)
 app.include_router(providers_router)
+app.include_router(supplier_sources_router)
 app.include_router(pricing_router)
 app.include_router(tasks_router)
 app.include_router(alerts_router)

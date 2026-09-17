@@ -11,13 +11,14 @@
 """
 from __future__ import annotations
 
+import unicodedata
 from dataclasses import dataclass
 from datetime import datetime, timezone
 from decimal import Decimal
 
 import structlog
 from fastapi import status
-from sqlalchemy import select
+from sqlalchemy import delete, insert, select
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from src.adapters.factory import get_adapter, get_adapter_for_test
@@ -33,7 +34,7 @@ from src.alerts.service import emit_incident, fp_provider, fp_variant, upsert_in
 from src.exceptions import ErrorCode, api_error
 from src.models.product import Product, ProductVariant
 from src.models.provider import Provider
-from src.models.supplier_listing import SupplierListing
+from src.models.supplier_listing import SupplierCatalogItem, SupplierListing
 from src.providers.credit import report_out_of_credit
 
 logger = structlog.get_logger()
@@ -176,6 +177,47 @@ async def precheck_external_purchase(
 
 
 # ----------------------------------------------------------------------
+# Snapshot catalog (để duyệt/nhập ở UI)
+# ----------------------------------------------------------------------
+
+def fold_text(s: str) -> str:
+    """Bỏ dấu + hạ chữ — cùng quy tắc với adapters/igbm._fold."""
+    s = unicodedata.normalize("NFD", s or "")
+    s = "".join(ch for ch in s if unicodedata.category(ch) != "Mn")
+    return s.replace("đ", "d").replace("Đ", "d").lower().strip()
+
+
+async def replace_catalog_snapshot(
+    provider_id: int, catalog: list[UpstreamListing], db: AsyncSession,
+) -> int:
+    """Ghi đè toàn bộ snapshot của provider bằng catalog vừa kéo. Xoá-rồi-chèn
+    thay vì upsert từng dòng: catalog ~3.000 SKU, một lượt/10 phút, và SKU bị
+    gỡ phải biến mất khỏi bảng duyệt chứ không nằm lại với số cũ."""
+    await db.execute(delete(SupplierCatalogItem).where(SupplierCatalogItem.provider_id == provider_id))
+    now = datetime.now(timezone.utc)
+    rows = [
+        {
+            "provider_id": provider_id,
+            "external_id": up.external_id,
+            "name": up.name,
+            "name_norm": fold_text(up.name + " " + " ".join(up.category_path)),
+            "cost_price": up.cost_price,
+            "amount": up.amount,
+            "min_qty": up.min_qty,
+            "max_qty": up.max_qty,
+            "format_hint": up.format_hint,
+            "group_name": (up.category_path[0] if up.category_path else "")[:255],
+            "category_path": list(up.category_path),
+            "synced_at": now,
+        }
+        for up in catalog
+    ]
+    for start in range(0, len(rows), 500):
+        await db.execute(insert(SupplierCatalogItem), rows[start:start + 500])
+    return len(rows)
+
+
+# ----------------------------------------------------------------------
 # Đồng bộ catalog
 # ----------------------------------------------------------------------
 
@@ -185,6 +227,7 @@ class SyncReport:
     updated: int = 0
     delisted: int = 0
     low_margin: int = 0
+    catalog_items: int = 0
     error: str | None = None
 
 
@@ -195,8 +238,6 @@ async def sync_provider_listings(provider: Provider, db: AsyncSession) -> SyncRe
     listings = list((await db.execute(
         select(SupplierListing).where(SupplierListing.provider_id == provider.id)
     )).scalars())
-    if not listings:
-        return report
 
     try:
         # get_adapter_for_test: không check is_active — provider bị tắt vì hết
@@ -213,6 +254,8 @@ async def sync_provider_listings(provider: Provider, db: AsyncSession) -> SyncRe
     if report.error:
         for listing in listings:
             listing.sync_error = report.error[:255]
+        if not listings:
+            return report
         await upsert_incident(
             db, fingerprint=fp_provider(provider.id, ALERT_SYNC_FAILED), type_=ALERT_SYNC_FAILED,
             severity="warning", target_type="provider", target_id=provider.id,
@@ -221,6 +264,7 @@ async def sync_provider_listings(provider: Provider, db: AsyncSession) -> SyncRe
         return report
 
     by_id = {up.external_id: up for up in catalog}
+    report.catalog_items = await replace_catalog_snapshot(provider.id, catalog, db)
     min_margin = _min_margin_pct(provider)
     variant_ids = [lst.variant_id for lst in listings]
     variants = {

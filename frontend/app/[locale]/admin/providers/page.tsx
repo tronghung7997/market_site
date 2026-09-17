@@ -1238,6 +1238,26 @@ function ProviderEditPanel({
   const [config, setConfig] = useState<Record<string, unknown>>(provider.config ?? {});
   const [fallbackId, setFallbackId] = useState<number | null>(provider.fallback_provider_id);
   const [isActive, setIsActive] = useState(provider.is_active);
+  // Seller sở hữu (nguồn hàng giao cho seller): nhập email → tra id qua
+  // /admin/accounts lúc lưu. Rỗng = hạ tầng admin, không seller nào thấy.
+  const [ownerEmail, setOwnerEmail] = useState("");
+  const [ownerLoaded, setOwnerLoaded] = useState(false);
+  useEffect(() => {
+    if (provider.seller_id == null) { setOwnerLoaded(true); return; }
+    api.adminAccounts({ per_page: 200 })
+      .then((page) => setOwnerEmail(page.items.find((a) => a.id === provider.seller_id)?.email ?? String(provider.seller_id)))
+      .catch(() => setOwnerEmail(String(provider.seller_id)))
+      .finally(() => setOwnerLoaded(true));
+  }, [provider.seller_id]);
+  const resolveOwner = async (): Promise<number | null> => {
+    const email = ownerEmail.trim();
+    if (!email) return null;
+    if (/^\d+$/.test(email)) return Number(email);
+    const page = await api.adminAccounts({ search: email, per_page: 20 });
+    const hit = page.items.find((a) => a.email.toLowerCase() === email.toLowerCase());
+    if (!hit) throw new Error(`Không tìm thấy tài khoản ${email}`);
+    return hit.id;
+  };
   const [saving, setSaving] = useState(false);
   const [testing, setTesting] = useState(false);
   const [testResult, setTestResult] = useState<Record<string, unknown> | null>(null);
@@ -1256,6 +1276,7 @@ function ProviderEditPanel({
         config,
         fallback_provider_id: fallbackId,
         is_active: isActive,
+        seller_id: await resolveOwner(),
       });
       const continueToProducts = adapterType === "dproxy" && tab === "api" && Object.keys((config.plan_ids as Record<string, string>) ?? {}).length > 0;
       setSuccess(continueToProducts ? "Đã lưu gói. Tiếp theo: gắn sản phẩm và nhập giá khách trả." : "Đã lưu thành công!");
@@ -1380,6 +1401,16 @@ function ProviderEditPanel({
                     <option key={p.id} value={p.id}>{p.name}</option>
                   ))}
                 </Select>
+              </Field>
+
+              <Field label="Seller sở hữu (nguồn hàng giao cho gian hàng)" hint="Email seller. Seller này thấy provider ở Nguồn hàng và chỉ sản phẩm của họ gắn được. Để trống = hạ tầng chung của admin.">
+                <Input
+                  name="provider-owner-email"
+                  value={ownerEmail}
+                  disabled={!ownerLoaded}
+                  onChange={(e) => setOwnerEmail(e.target.value)}
+                  placeholder="seller@example.com"
+                />
               </Field>
 
               <div className="flex items-center gap-3">

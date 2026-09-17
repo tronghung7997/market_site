@@ -168,10 +168,12 @@ async def main(sync: bool) -> None:
 
         provider = await db.scalar(select(Provider).where(Provider.name == PROVIDER_NAME))
         if provider is None:
+            # seller_id = giao nguồn cho seller nội bộ → seller thấy ở
+            # /seller/sources và chỉ sản phẩm của seller đó gắn được.
             provider = Provider(
                 name=PROVIDER_NAME, type="account", adapter_type="igbm",
                 config=encrypt_config(PROVIDER_CONFIG), priority=1,
-                is_active=True, review_status="approved",
+                is_active=True, review_status="approved", seller_id=seller_id,
             )
             db.add(provider)
             await db.flush()
@@ -179,6 +181,7 @@ async def main(sync: bool) -> None:
         else:
             provider.adapter_type = "igbm"
             provider.review_status = "approved"
+            provider.seller_id = seller_id
             if LIVE or RESET_CONFIG:
                 provider.config = encrypt_config(PROVIDER_CONFIG)
                 provider.is_active = True

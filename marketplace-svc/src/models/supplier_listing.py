@@ -61,3 +61,30 @@ class SupplierListing(Base):
         if self.upstream_max is not None:
             n = min(n, self.upstream_max)
         return n
+
+
+class SupplierCatalogItem(Base):
+    """Snapshot một SKU trong catalog nhà cung cấp (job sync ghi đè toàn bộ
+    mỗi lượt). Chỉ để duyệt/tìm/nhập — tồn kho bán được vẫn đọc từ
+    SupplierListing (cache theo gói, cập nhật cả lúc precheck/mua)."""
+
+    __tablename__ = "supplier_catalog_items"
+    __table_args__ = (
+        UniqueConstraint("provider_id", "external_id", name="uq_supplier_catalog_items_provider_external"),
+    )
+
+    id: Mapped[int] = mapped_column(primary_key=True)
+    provider_id: Mapped[int] = mapped_column(ForeignKey("providers.id", ondelete="CASCADE"), nullable=False)
+    external_id: Mapped[str] = mapped_column(String(100), nullable=False)
+    name: Mapped[str] = mapped_column(Text, nullable=False)
+    # Tên bỏ dấu + hạ chữ để tìm không phân biệt dấu (không cần extension).
+    name_norm: Mapped[str] = mapped_column(Text, nullable=False, default="")
+    cost_price: Mapped[int] = mapped_column(Integer, nullable=False, default=0)
+    amount: Mapped[int] = mapped_column(Integer, nullable=False, default=0)
+    min_qty: Mapped[int] = mapped_column(Integer, nullable=False, default=1)
+    max_qty: Mapped[int | None] = mapped_column(Integer, nullable=True)
+    format_hint: Mapped[str | None] = mapped_column(Text, nullable=True)
+    # Nhóm gốc (category_path[0]) tách cột để lọc/đếm nhanh.
+    group_name: Mapped[str] = mapped_column(String(255), nullable=False, default="")
+    category_path: Mapped[list] = mapped_column(JSONB, nullable=False, server_default="[]", default=list)
+    synced_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), server_default=func.now())

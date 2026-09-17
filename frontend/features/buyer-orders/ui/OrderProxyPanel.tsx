@@ -3,7 +3,7 @@
 /** Panel proxy gắn trên đơn đã giao: tấm địa chỉ cố định (key xoay), IP đang
  *  ra, đổi IP có cooldown, whitelist IP, và biên nhận bàn giao gốc thu gọn.
  *  Tự hỏi backend đơn này có proxy-state không — đơn thường thì render null.
- *  Interface: { orderId, deliveredData?, onDelivered?, onPlate? }. */
+ *  Interface: { orderId, deliveredData?, onDelivered?, onPlate?, onAvailability? }. */
 
 import { useLocale, useTranslations } from "next-intl";
 import { useCallback, useEffect, useState } from "react";
@@ -26,11 +26,14 @@ import { Check, Info, Plug } from "@/components/Icons";
 // Stops the moment status leaves "offline" (recovered, expired, or errored).
 const OFFLINE_POLL_MS = 20_000;
 
-export default function OrderProxyPanel({ orderId, deliveredData, onDelivered, onPlate }: {
+export default function OrderProxyPanel({ orderId, deliveredData, onDelivered, onPlate, onAvailability }: {
   orderId: number;
   deliveredData?: string | null;
   onDelivered?: (orderId: number, deliveredData: string) => void;
   onPlate?: (orderId: number) => void;
+  /** Tells the parent whether this order has proxy state at all, so it can
+   *  fall back to the generic dashboard for legacy proxy orders. */
+  onAvailability?: (applicable: boolean) => void;
 }) {
   const t = useTranslations("orders");
   const locale = useLocale();
@@ -47,10 +50,12 @@ export default function OrderProxyPanel({ orderId, deliveredData, onDelivered, o
       const s = await api.orderProxyState(orderId);
       setState(s);
       setCooldown(s.cooldown_remaining_seconds);
+      onAvailability?.(true);
     } catch {
       setApplicable(false);
+      onAvailability?.(false);
     }
-  }, [orderId]);
+  }, [orderId, onAvailability]);
 
   useEffect(() => { load(); }, [load]);
 
@@ -169,7 +174,9 @@ export default function OrderProxyPanel({ orderId, deliveredData, onDelivered, o
         <ProxyWhitelistBox orderId={orderId} state={state} onSaved={(s) => setState(s)} onDelivered={onDelivered} />
       )}
 
-      {hasPlate && deliveredData && (
+      {/* With a plate the receipt is history (collapsed). Without one, the
+          receipt IS the credential set (host/port/user/pass) — keep it open. */}
+      {deliveredData && (hasPlate ? (
         <div className="px-3.5 pb-3">
           <Disclosure label={t("proxyRaw")} labelOpen={t("proxyRawHide")} open={showRaw} onToggle={() => setShowRaw((v) => !v)}>
             <div className="mt-2">
@@ -178,7 +185,15 @@ export default function OrderProxyPanel({ orderId, deliveredData, onDelivered, o
             </div>
           </Disclosure>
         </div>
-      )}
+      ) : (
+        <div className="border-t border-line px-3.5 py-3">
+          <div className="mb-1.5 flex items-center justify-between gap-2">
+            <span className="text-[10.5px] uppercase tracking-wider text-faint">{t("deliveredData")}</span>
+            <CopyButton text={deliveredData} />
+          </div>
+          <pre className="font-mono text-[12px] bg-raised border border-line rounded-lg p-2.5 whitespace-pre-wrap break-all">{deliveredData}</pre>
+        </div>
+      ))}
     </div>
   );
 }

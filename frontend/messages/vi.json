@@ -1269,6 +1269,55 @@
     "ordersOfProduct": "Đơn của sản phẩm này",
     "productUnavailable": "Sản phẩm không còn tồn tại."
   },
+  "buyerOrders": {
+    "tabsLabel": "Lọc theo trạng thái",
+    "tab": {
+      "all": "Tất cả",
+      "active": "Đang xử lý",
+      "awaiting_confirm": "Chờ xác nhận",
+      "disputed": "Khiếu nại",
+      "deleted": "Huỷ / hoàn tiền"
+    },
+    "hint": {
+      "all": "toàn bộ đơn",
+      "active": "đang giao hoặc giữ tiền",
+      "awaiting_confirm": "",
+      "disputed": "đang chờ người bán xử lý",
+      "deleted": "tiền đã về ví"
+    },
+    "awaitingUrgent": "{count} đơn chờ bạn kiểm tra",
+    "awaitingNone": "không có đơn chờ",
+    "spent": "Đã chi",
+    "spentHint": "không tính đơn hoàn tiền",
+    "dateRange": "Khoảng thời gian",
+    "preset": {
+      "all": "Tất cả",
+      "today": "Hôm nay",
+      "7d": "7 ngày",
+      "30d": "30 ngày"
+    },
+    "sortLabel": "Sắp xếp",
+    "sort": {
+      "newest": "Mới nhất",
+      "oldest": "Cũ nhất",
+      "amount_desc": "Tiền cao → thấp",
+      "amount_asc": "Tiền thấp → cao"
+    },
+    "resultSummary": "{total} đơn khớp bộ lọc",
+    "staleWarning": "Không làm mới được — đang hiển thị dữ liệu cũ.",
+    "loadFailed": "Không tải được danh sách đơn hàng.",
+    "retry": "Thử lại",
+    "refresh": "Làm mới",
+    "seller": "Người bán",
+    "chat": "Nhắn tin",
+    "viewProduct": "Xem sản phẩm",
+    "actions": "Thao tác",
+    "detail": "Chi tiết",
+    "viewDispute": "Xem khiếu nại",
+    "emptyHint": "Đơn bạn mua sẽ xuất hiện ở đây cùng dữ liệu bàn giao và bảo hành.",
+    "orderNotFoundTitle": "Không tìm thấy đơn hàng",
+    "orderNotFoundBody": "Không có đơn {ref} trong tài khoản này, hoặc liên kết đã cũ."
+  },
   "sellerProducts": {
     "tabsLabel": "Lọc sản phẩm",
     "tab": {
@@ -2609,6 +2658,9 @@
     "qtyWithLines": "x{count} ({lines} dòng)",
     "escrowInsurance": "Bảo hiểm Escrow",
     "escrowAuto": "Bảo hiểm tự động",
+    "escrowPaused": "Tạm giữ — đang khiếu nại",
+    "escrowReleased": "Đã chuyển cho người bán",
+    "escrowNone": "Không giữ tiền",
     "disputeProduct": "Khiếu nại sản phẩm",
     "disputeThisPackage": "Khiếu nại gói này",
     "disputeThisOrder": "Khiếu nại đơn",
@@ -2618,6 +2670,9 @@
     "tabDispute": "Khiếu nại",
     "tabEscrow": "Ký quỹ",
     "tabReview": "Đánh giá",
+    "tabApiAccess": "Truy cập API",
+    "tabTaskProgress": "Tiến độ",
+    "tabHandover": "Bàn giao",
     "disputeViewCase": "Xem dòng thời gian khiếu nại",
     "disputeTabHint": "Mỗi dòng là một bước: buyer khiếu nại acc nào, rồi seller hoàn hoặc đổi acc nào.",
     "disputeSummaryAria": "Tóm tắt tài khoản trong khiếu nại",

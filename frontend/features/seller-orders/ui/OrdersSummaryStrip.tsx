@@ -16,7 +16,10 @@ const SEGMENTS: { tab: SellerOrderTab; icon: typeof Inbox; tone: "bad" | "warn" 
 ];
 
 const TONE_TEXT = { bad: "text-bad", warn: "text-warn", iris: "text-iris-hi", good: "text-good", neutral: "text-fg" } as const;
-const TONE_RING = { bad: "ring-bad/40", warn: "ring-warn/40", iris: "ring-iris/40", good: "ring-good/40", neutral: "ring-line-2" } as const;
+// Selected segment = tinted cell + a 2px accent bar along the bottom edge (a
+// tab underline). An inset ring fought the cell borders and the card's rounded
+// corners and read as a misaligned box.
+const TONE_BAR = { bad: "after:bg-bad", warn: "after:bg-warn", iris: "after:bg-iris", good: "after:bg-good", neutral: "after:bg-fg" } as const;
 
 /** One segmented summary that doubles as the tab bar: counts are store-wide,
  *  clicking a segment filters the list. */
@@ -46,12 +49,12 @@ export function OrdersSummaryStrip({
               aria-selected={selected}
               onClick={() => onSelect(selected && tab !== "all" ? "all" : tab)}
               className={cn(
-                "flex flex-col gap-1 px-4 py-3 text-left transition-colors hover:bg-raised/60",
+                "relative flex flex-col gap-1 px-4 py-3 text-left transition-colors hover:bg-raised/60",
                 i > 0 && "border-t border-line sm:border-t-0 lg:border-l",
                 i % 2 === 1 && "border-l border-line sm:border-l-0",
                 i % 3 !== 0 && "sm:border-l sm:border-line",
                 i >= 3 && "sm:border-t sm:border-line lg:border-t-0",
-                selected && cn("bg-raised/50 ring-2 ring-inset", TONE_RING[tone]),
+                selected && cn("bg-raised/60 after:absolute after:inset-x-0 after:bottom-0 after:h-0.5", TONE_BAR[tone]),
               )}
             >
               <span className={cn("flex items-center gap-1.5 text-[11.5px] font-medium", muted ? "text-faint" : TONE_TEXT[tone])}>

@@ -166,6 +166,36 @@ async def test_order_stats_include_cancelled_and_refunded_orders(client):
     stats = await client.get("/orders/stats", headers=headers)
     assert stats.status_code == 200
     assert stats.json()["cancelled_or_refunded"] == 1
+    # Money came back, so it is not "spent".
+    assert stats.json()["total_spend"] == 0
+
+
+@pytest.mark.asyncio
+async def test_order_stats_and_tabs_split_awaiting_confirm_from_disputed(client):
+    buyer_token, _, _, instant_vid, _ = await setup_buyable_product(client)
+    headers = {"Authorization": f"Bearer {buyer_token}"}
+    first = (await client.post("/orders", json={"variant_id": instant_vid, "quantity": 1}, headers=headers)).json()
+    second = (await client.post("/orders", json={"variant_id": instant_vid, "quantity": 1}, headers=headers)).json()
+    assert first["status"] == second["status"] == "delivered"
+
+    stats = (await client.get("/orders/stats", headers=headers)).json()
+    assert stats["active"] == 2
+    assert stats["awaiting_confirm"] == 2
+    assert stats["disputed"] == 0
+    assert stats["total_spend"] == 2000
+
+    resp = await client.post(f"/orders/{second['id']}/dispute", json={"reason": "not working"}, headers=headers)
+    assert resp.status_code == 201
+
+    stats = (await client.get("/orders/stats", headers=headers)).json()
+    assert stats["active"] == 2          # commercially still delivered
+    assert stats["awaiting_confirm"] == 1  # the disputed one needs no confirmation
+    assert stats["disputed"] == 1
+
+    awaiting = (await client.get("/orders", params={"status": "awaiting_confirm"}, headers=headers)).json()
+    assert [o["id"] for o in awaiting["items"]] == [first["id"]]
+    disputed = (await client.get("/orders", params={"status": "disputed"}, headers=headers)).json()
+    assert [o["id"] for o in disputed["items"]] == [second["id"]]
 
 
 @pytest.mark.asyncio

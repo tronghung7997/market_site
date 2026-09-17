@@ -200,6 +200,7 @@ class PaginatedSellerOrderResponse(PaginatedOrderResponse):
 class OrderStatsResponse(BaseModel):
     total: int
     active: int
+    awaiting_confirm: int
     disputed: int
     cancelled_or_refunded: int
     total_spend: int

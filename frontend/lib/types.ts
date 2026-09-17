@@ -1585,6 +1585,8 @@ export interface FacebookLookupResponse {
 export interface OrderStats {
   total: number;
   active: number;
+  /** Delivered, still in escrow, no open dispute — the buyer's to-do. */
+  awaiting_confirm: number;
   disputed: number;
   cancelled_or_refunded: number;
   total_spend: number;

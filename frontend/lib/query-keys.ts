@@ -11,6 +11,10 @@ export const queryKeys = {
     accountId == null
       ? (filters == null ? ["orders"] as const : ["orders", filters] as const)
       : ["orders", accountId, filters ?? null] as const,
+  /** Everything the buyer console caches for one account (lists + by-ref detail). */
+  ordersScope: (accountId: number | null | undefined) => ["orders", accountId ?? null] as const,
+  /** One order fetched by code/legacy id for a deep link that is not on the current page. */
+  orderByRef: (ref: string, accountId?: number | null) => ["orders", accountId ?? null, "detail", ref] as const,
   orderDetail: (id: number) => ["order", id] as const,
   orderStats: (accountId?: number | null) =>
     accountId == null ? ["order-stats"] as const : ["order-stats", accountId] as const,

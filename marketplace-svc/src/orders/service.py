@@ -702,20 +702,17 @@ async def list_buyer_orders(
 ) -> dict:
     q = select(Order).where(Order.buyer_id == buyer_id)
 
-    if status == "active":
-        q = q.where(Order.status.in_(["pending", "processing", "delivered"]))
-    elif status == "disputed":
-        q = q.where(Order.id.in_(
-            select(Dispute.order_id).where(Dispute.status == DisputeStatus.open)
-        ))
-    elif status == "deleted":
-        q = q.where(Order.status.in_(["cancelled", "refunded"]))
+    tab_clause = _buyer_tab_filter(status)
+    if tab_clause is not None:
+        q = q.where(tab_clause)
     elif status and status in OrderStatus.__members__:
         q = q.where(Order.status == OrderStatus(status))
 
     if search:
         search_clean = search.strip()
-        if search_clean.startswith("#") or (not search_clean.isdigit() and parse_order_ref(search_clean) is not None):
+        explicit_ref = search_clean.startswith("#") or search_clean.upper().startswith("ORD-")
+        if explicit_ref:
+            # `#…` / `ORD-…` is an exact lookup by code or legacy id.
             q = q.where(_order_ref_condition(search_clean.lstrip("#").strip()))
         else:
             product_match = select(Product.id).where(Product.title.ilike(f"%{search_clean}%"))
@@ -728,8 +725,10 @@ async def list_buyer_orders(
                 Order.variant_id.in_(variant_match),
                 Order.variant_id.in_(product_via_variant),
             ]
-            if search_clean.isdigit():
-                conditions.append(Order.id == int(search_clean))
+            # A bare token that happens to look like a code (any 8 alphanumerics,
+            # e.g. "facebook") still searches titles — the code match is added, not exclusive.
+            if search_clean.isdigit() or parse_order_ref(search_clean) is not None:
+                conditions.append(_order_ref_condition(search_clean))
 
             q = q.where(or_(*conditions))
 
@@ -772,33 +771,47 @@ async def list_buyer_orders(
 
 
 async def buyer_order_stats(buyer_id: int, db: AsyncSession) -> dict:
-    base = select(Order).where(Order.buyer_id == buyer_id)
-    total = (await db.execute(select(func.count()).select_from(base.subquery()))).scalar() or 0
-    active = (await db.execute(
-        select(func.count()).select_from(
-            base.where(Order.status.in_(["pending", "processing", "delivered"])).subquery()
-        )
-    )).scalar() or 0
-    disputed = (await db.execute(
-        select(func.count()).select_from(
-            base.where(Order.id.in_(select(Dispute.order_id).where(Dispute.status == DisputeStatus.open))).subquery()
-        )
-    )).scalar() or 0
-    cancelled_or_refunded = (await db.execute(
-        select(func.count()).select_from(
-            base.where(Order.status.in_(["cancelled", "refunded"])).subquery()
-        )
-    )).scalar() or 0
-    total_spend = (await db.execute(
-        select(func.coalesce(func.sum(Order.total_amount), 0)).where(Order.buyer_id == buyer_id)
-    )).scalar() or 0
+    """One round trip: every tab count plus spend as filtered aggregates.
+    Spend only counts money that actually left the buyer — cancelled and
+    refunded orders returned their funds, so they are excluded."""
+    settled = ~Order.status.in_((OrderStatus.cancelled, OrderStatus.refunded))
+    row = (await db.execute(
+        select(
+            func.count(Order.id).label("total"),
+            func.count(Order.id).filter(_buyer_tab_filter("active")).label("active"),
+            func.count(Order.id).filter(_buyer_tab_filter("awaiting_confirm")).label("awaiting_confirm"),
+            func.count(Order.id).filter(_buyer_tab_filter("disputed")).label("disputed"),
+            func.count(Order.id).filter(_buyer_tab_filter("deleted")).label("cancelled_or_refunded"),
+            func.coalesce(func.sum(Order.total_amount).filter(settled), 0).label("total_spend"),
+        ).where(Order.buyer_id == buyer_id)
+    )).one()
     return {
-        "total": total,
-        "active": active,
-        "disputed": disputed,
-        "cancelled_or_refunded": cancelled_or_refunded,
-        "total_spend": total_spend,
+        "total": row.total,
+        "active": row.active,
+        "awaiting_confirm": row.awaiting_confirm,
+        "disputed": row.disputed,
+        "cancelled_or_refunded": row.cancelled_or_refunded,
+        "total_spend": int(row.total_spend),
     }
+
+
+BUYER_ORDER_TABS = ("active", "awaiting_confirm", "disputed", "deleted")
+
+
+def _buyer_tab_filter(tab: str | None):
+    """Buyer list tabs. Mirrors the seller console: an open dispute is an
+    overlay on a delivered order, so `awaiting_confirm` means delivered AND
+    not disputed, and `disputed` also catches the legacy `disputed` status."""
+    open_disputed = or_(Order.status == OrderStatus.disputed, Order.id.in_(_open_dispute_order_ids()))
+    if tab == "active":
+        return Order.status.in_((OrderStatus.pending, OrderStatus.processing, OrderStatus.delivered))
+    if tab == "awaiting_confirm":
+        return (Order.status == OrderStatus.delivered) & ~Order.id.in_(_open_dispute_order_ids())
+    if tab == "disputed":
+        return open_disputed
+    if tab == "deleted":
+        return Order.status.in_((OrderStatus.cancelled, OrderStatus.refunded))
+    return None
 
 
 SELLER_ORDER_TABS = ("all", "disputed", "action_required", "escrow", "completed", "cancelled")

@@ -51,6 +51,13 @@ async def test_order_code_is_the_public_reference(client):
     assert [o["id"] for o in buyer_list["items"]] == [order["id"]]
     seller_list = (await client.get("/seller/orders", params={"search": code.lower()}, headers=_auth(seller_token))).json()
     assert [o["id"] for o in seller_list["items"]] == [order["id"]]
+    # A bare code (no `#`) still matches, and an 8-letter product word is not
+    # mistaken for a code: "OrderTes" is a prefix of the title "Order Test".
+    bare = (await client.get("/orders", params={"search": code.lower()}, headers=_auth(buyer_token))).json()
+    assert [o["id"] for o in bare["items"]] == [order["id"]]
+    by_title = (await client.get("/orders", params={"search": "Order Te"}, headers=_auth(buyer_token))).json()
+    assert [o["id"] for o in by_title["items"]] == [order["id"]]
+    assert (await client.get("/orders", params={"search": "#zzzzzzzz"}, headers=_auth(buyer_token))).json()["items"] == []
 
     # Confirm by code; the chat room carries the code too.
     confirmed = await client.post(f"/orders/{code}/confirm", headers=_auth(buyer_token))

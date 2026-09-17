@@ -1269,6 +1269,55 @@
     "ordersOfProduct": "Orders of this product",
     "productUnavailable": "This product no longer exists."
   },
+  "buyerOrders": {
+    "tabsLabel": "Filter by status",
+    "tab": {
+      "all": "All",
+      "active": "In progress",
+      "awaiting_confirm": "Awaiting confirmation",
+      "disputed": "Disputed",
+      "deleted": "Cancelled / refunded"
+    },
+    "hint": {
+      "all": "every order",
+      "active": "being delivered or in escrow",
+      "awaiting_confirm": "",
+      "disputed": "waiting on the seller",
+      "deleted": "money back in your wallet"
+    },
+    "awaitingUrgent": "{count} for you to check",
+    "awaitingNone": "nothing waiting",
+    "spent": "Spent",
+    "spentHint": "excludes refunded orders",
+    "dateRange": "Date range",
+    "preset": {
+      "all": "All time",
+      "today": "Today",
+      "7d": "7 days",
+      "30d": "30 days"
+    },
+    "sortLabel": "Sort",
+    "sort": {
+      "newest": "Newest",
+      "oldest": "Oldest",
+      "amount_desc": "Amount: high → low",
+      "amount_asc": "Amount: low → high"
+    },
+    "resultSummary": "{total} orders match the filters",
+    "staleWarning": "Could not refresh — showing cached data.",
+    "loadFailed": "Could not load your orders.",
+    "retry": "Retry",
+    "refresh": "Refresh",
+    "seller": "Seller",
+    "chat": "Message",
+    "viewProduct": "View product",
+    "actions": "Actions",
+    "detail": "Details",
+    "viewDispute": "View dispute",
+    "emptyHint": "Orders you buy show up here with their delivery data and warranty.",
+    "orderNotFoundTitle": "Order not found",
+    "orderNotFoundBody": "There is no order {ref} on this account, or the link is stale."
+  },
   "sellerProducts": {
     "tabsLabel": "Filter products",
     "tab": {
@@ -2609,6 +2658,9 @@
     "qtyWithLines": "x{count} ({lines} lines)",
     "escrowInsurance": "Escrow protection",
     "escrowAuto": "Automatic protection",
+    "escrowPaused": "Held — dispute open",
+    "escrowReleased": "Released to the seller",
+    "escrowNone": "No escrow",
     "disputeProduct": "Product dispute",
     "disputeThisPackage": "Dispute this package",
     "disputeThisOrder": "Dispute this order",
@@ -2618,6 +2670,9 @@
     "tabDispute": "Dispute",
     "tabEscrow": "Escrow",
     "tabReview": "Review",
+    "tabApiAccess": "API access",
+    "tabTaskProgress": "Progress",
+    "tabHandover": "Hand-over",
     "disputeViewCase": "View dispute timeline",
     "disputeTabHint": "Each row is one step: which accounts the buyer claimed, then which the seller refunded or replaced.",
     "disputeSummaryAria": "Dispute account summary",

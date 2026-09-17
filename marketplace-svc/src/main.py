@@ -58,6 +58,7 @@ from src.sellers.router import router as sellers_router
 from src.usage.router import router as usage_router
 from src.wallet.router import router as wallet_router
 from src.money.router import router as money_router
+from src.analytics.router import router as analytics_router
 from src.security.bff_request_signing import requires_bff_signature, verify_bff_request_signature
 
 # offline
@@ -162,6 +163,7 @@ app.include_router(seller_router)
 app.include_router(sellers_router)
 app.include_router(wallet_router)
 app.include_router(money_router)
+app.include_router(analytics_router)
 app.include_router(payments_router)
 app.include_router(mail_router)
 app.include_router(categories_router)

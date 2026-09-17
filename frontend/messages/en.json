@@ -3277,7 +3277,8 @@
       "display": "Display",
       "deposits": "Deposits",
       "mail": "Mail",
-      "seller": "Sellers"
+      "seller": "Sellers",
+      "analytics": "Analytics"
     }
   },
   "adminSellerConfig": {
@@ -3304,6 +3305,30 @@
     "autoReviewHint": "Delivered orders the buyer never rated get a 5★ (no comment, tagged “Auto”) this many days after purchase. Refunded / disputed orders are skipped. Runs once a day.",
     "autoReviewEnabled": "Enable auto review",
     "daysLabel": "Days"
+  },
+  "adminAnalytics": {
+    "title": "Behaviour analytics",
+    "hint": "Third-party tags the storefront loads for visitors. Never loaded on admin pages.",
+    "statusOn": "Clarity on",
+    "statusOff": "Clarity off",
+    "unsaved": "Unsaved changes",
+    "clarityTitle": "Microsoft Clarity",
+    "clarityHint": "Session recordings, heatmaps and rage-click reports for the buyer and seller pages. Free, no traffic limit; recordings keep ~30 days.",
+    "projectIdLabel": "Project ID",
+    "projectIdHelp": "Create a project at clarity.microsoft.com, then paste the ID from Settings › Overview (6–20 letters or digits). Leave blank to turn tracking off.",
+    "projectIdInvalid": "Project ID must be 6–20 letters or digits.",
+    "privacyNote": "Clarity masks all text and inputs by default. Keep it that way — order pages show account credentials.",
+    "clearId": "Clear",
+    "openClarity": "Open Clarity dashboard",
+    "loadFail": "Could not load analytics settings.",
+    "retry": "Retry",
+    "saved": "Analytics settings saved. Visitors pick up the change within a minute.",
+    "saveFail": "Could not save analytics settings.",
+    "discard": "Discard",
+    "save": "Save changes",
+    "saving": "Saving…",
+    "updatedAt": "Updated {at}",
+    "neverUpdated": "Not configured yet"
   },
   "adminDisplay": {
     "title": "Display",

@@ -3277,7 +3277,8 @@
       "display": "Hiển thị",
       "deposits": "Nạp tiền",
       "mail": "Mail",
-      "seller": "Người bán"
+      "seller": "Người bán",
+      "analytics": "Phân tích"
     }
   },
   "adminSellerConfig": {
@@ -3304,6 +3305,30 @@
     "autoReviewHint": "Đơn đã giao mà người mua không đánh giá sau chừng này ngày kể từ lúc mua sẽ được hệ thống chấm 5★ (không nhận xét, gắn nhãn “Tự động”). Đơn hoàn tiền / có khiếu nại không áp dụng. Chạy mỗi ngày một lần.",
     "autoReviewEnabled": "Bật tự động đánh giá",
     "daysLabel": "Số ngày"
+  },
+  "adminAnalytics": {
+    "title": "Phân tích hành vi",
+    "hint": "Các mã theo dõi bên thứ ba mà trang bán hàng nạp cho khách. Không bao giờ nạp trên trang admin.",
+    "statusOn": "Clarity đang bật",
+    "statusOff": "Clarity đang tắt",
+    "unsaved": "Chưa lưu",
+    "clarityTitle": "Microsoft Clarity",
+    "clarityHint": "Ghi lại phiên truy cập, heatmap và báo cáo rage-click cho các trang người mua / người bán. Miễn phí, không giới hạn lưu lượng; bản ghi lưu ~30 ngày.",
+    "projectIdLabel": "Project ID",
+    "projectIdHelp": "Tạo project tại clarity.microsoft.com rồi dán ID từ Settings › Overview (6–20 ký tự chữ hoặc số). Để trống để tắt theo dõi.",
+    "projectIdInvalid": "Project ID phải gồm 6–20 ký tự chữ hoặc số.",
+    "privacyNote": "Clarity mặc định che toàn bộ chữ và ô nhập. Giữ nguyên như vậy — trang đơn hàng hiển thị thông tin đăng nhập tài khoản.",
+    "clearId": "Xoá",
+    "openClarity": "Mở dashboard Clarity",
+    "loadFail": "Không tải được cài đặt phân tích.",
+    "retry": "Thử lại",
+    "saved": "Đã lưu cài đặt phân tích. Khách truy cập nhận thay đổi trong vòng một phút.",
+    "saveFail": "Không lưu được cài đặt phân tích.",
+    "discard": "Huỷ thay đổi",
+    "save": "Lưu thay đổi",
+    "saving": "Đang lưu…",
+    "updatedAt": "Cập nhật {at}",
+    "neverUpdated": "Chưa cấu hình"
   },
   "adminDisplay": {
     "title": "Hiển thị",

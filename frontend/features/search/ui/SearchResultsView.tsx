@@ -106,7 +106,7 @@ function BrowseFallback({
         <section aria-labelledby="search-browse-bestsellers">
           <div className="flex items-end justify-between gap-3">
             <h2 id="search-browse-bestsellers" className="text-[15px] font-semibold text-fg">{t("bestsellersHeading")}</h2>
-            <Link href="/products?sort=bestseller" className="inline-flex items-center gap-1 text-[13px] font-medium text-iris-hi hover:underline">
+            <Link href="/#market" className="inline-flex items-center gap-1 text-[13px] font-medium text-iris-hi hover:underline">
               {t("bestsellersAll")}
               <ArrowRight size={13} />
             </Link>

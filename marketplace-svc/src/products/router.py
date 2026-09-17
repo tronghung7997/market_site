@@ -50,6 +50,15 @@ async def list_products(
     )
 
 
+@router.get("/products/shelves", response_model=schemas.CategoryShelvesResponse)
+async def product_shelves(
+    per_shelf: int = Query(8, ge=1, le=24),
+    locale: str = Depends(get_request_locale),
+    db: AsyncSession = Depends(get_session),
+):
+    return await service.list_category_shelves(db, per_shelf=per_shelf, locale=locale)
+
+
 @router.get("/products/catalog-summary", response_model=schemas.ProductCatalogSummaryResponse)
 async def product_catalog_summary(db: AsyncSession = Depends(get_session)):
     return await service.get_product_catalog_summary(db)

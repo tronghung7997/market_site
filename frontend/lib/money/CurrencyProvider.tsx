@@ -142,7 +142,8 @@ export function CurrencyProvider({
 }: {
   children: ReactNode;
   /**
-   * From cookie on the server so SSR matches client first paint.
+   * Trusted visitor preference resolved on the server (cookie → country →
+   * locale pairing) so SSR matches client first paint; undefined when none.
    * initialConfig: resolved MoneyConfig from SSR, or null if SSR fetch failed
    * (client must retry). Omit/undefined treated like null for retry.
    */
@@ -176,10 +177,11 @@ export function CurrencyProvider({
       return;
     }
 
-    // No stored preference (true first visit).
+    // No stored preference (true first visit). The server already resolved
+    // country / locale pairing into `initialCurrency`; only when it had no
+    // opinion does the admin default apply. Either is trusted → write cookie.
     if (ssrConfig != null) {
-      // Trusted server default — safe to write cookie.
-      const def = ssrConfig.display_currency_default;
+      const def = initialCurrency ?? ssrConfig.display_currency_default;
       setCurrencyState(def);
       persistCurrency(def);
       return;
@@ -188,7 +190,7 @@ export function CurrencyProvider({
     // SSR failed: keep provisional FALLBACK currency in memory only.
     // Do NOT write cookie — client retry will apply real default (e.g. VND).
     setCurrencyState(seedDefault);
-  }, [ssrConfig, seedDefault]);
+  }, [ssrConfig, seedDefault, initialCurrency]);
 
   // Fetch when SSR did not supply config (failure / not loaded). Preference
   // still never comes from API — only rate + flags. First-visit default
@@ -210,8 +212,9 @@ export function CurrencyProvider({
         // First visit without any stored preference: apply recovered default.
         // Do not check only cookie — we intentionally skipped writing FALLBACK.
         if (readStoredCurrency() == null) {
-          setCurrencyState(next.display_currency_default);
-          persistCurrency(next.display_currency_default);
+          const def = initialCurrency ?? next.display_currency_default;
+          setCurrencyState(def);
+          persistCurrency(def);
         }
       } catch {
         if (!cancelled) {
@@ -225,7 +228,7 @@ export function CurrencyProvider({
     return () => {
       cancelled = true;
     };
-  }, [ssrConfig]);
+  }, [ssrConfig, initialCurrency]);
 
   const setCurrency = useCallback(
     (c: DisplayCurrency) => {

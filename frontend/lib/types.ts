@@ -138,6 +138,22 @@ export interface ProductPricingLabels {
   package_labels?: Record<string, string>;
 }
 
+/** One top-level category on the /categories hub (GET /products/shelves). */
+export interface CategoryShelf {
+  category_id: number;
+  /** Active products in the whole branch (sub-categories included). */
+  total: number;
+  /** Cheapest "from" price in the branch, VND; null when nothing is priced. */
+  price_from: number | null;
+  /** Best sellers of the branch, capped server-side. */
+  items: Product[];
+}
+
+export interface CategoryShelvesResponse {
+  shelves: CategoryShelf[];
+  total: number;
+}
+
 export interface PaginatedProducts {
   items: Product[];
   total: number;

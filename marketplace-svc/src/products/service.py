@@ -645,6 +645,100 @@ async def list_products(
     }
 
 
+async def list_category_shelves(
+    db: AsyncSession,
+    *,
+    per_shelf: int = 8,
+    locale: str = DEFAULT_LOCALE,
+) -> dict:
+    """One shelf per top-level category for the /categories hub: the N best
+    sellers of the whole branch, the branch's product count and its "from"
+    price — in three fixed queries, however many categories or products.
+
+    Replaces the hub pulling ``/products?per_page=100`` and grouping client
+    side, which capped every shelf at whatever happened to be in the first
+    100 rows and shipped the full payload to the browser.
+    """
+    rows = (await db.execute(
+        select(Category.id, Category.parent_id, Category.sort_order)
+        .where(Category.is_active)
+        .order_by(Category.sort_order, Category.id)
+    )).all()
+    children: dict[int | None, list[int]] = defaultdict(list)
+    for cid, pid, _ in rows:
+        children[pid].append(cid)
+    top_ids = children.get(None, [])
+    if not top_ids:
+        return {"shelves": [], "total": 0}
+
+    # category_id → its top-level ancestor, as a CASE so the DB can partition by it.
+    top_of: dict[int, int] = {}
+    for top in top_ids:
+        stack = [top]
+        while stack:
+            cid = stack.pop()
+            top_of[cid] = top
+            stack.extend(children.get(cid, []))
+    top_expr = case(top_of, value=Product.category_id).label("top_id")
+
+    variant_stats, browse_price = _browse_price_columns()
+    active = Product.status == ProductStatus.active
+    ranked = (
+        select(
+            Product.id.label("product_id"),
+            top_expr,
+            func.row_number().over(
+                partition_by=top_expr, order_by=(Product.sold_count.desc(), Product.id.desc()),
+            ).label("rank"),
+        )
+        .where(active, Product.category_id.in_(list(top_of)))
+        .subquery()
+    )
+    picked = (await db.execute(
+        select(ranked.c.product_id, ranked.c.top_id)
+        .where(ranked.c.rank <= per_shelf)
+        .order_by(ranked.c.top_id, ranked.c.rank)
+    )).all()
+    stats = (await db.execute(
+        select(
+            top_expr,
+            func.count(Product.id).label("total"),
+            func.min(browse_price).filter(browse_price > 0).label("price_from"),
+        )
+        .select_from(Product)
+        .outerjoin(variant_stats, variant_stats.c.product_id == Product.id)
+        .where(active, Product.category_id.in_(list(top_of)))
+        .group_by(top_expr)
+    )).all()
+
+    product_ids = [pid for pid, _ in picked]
+    products = {p.id: p for p in (await db.execute(select(Product).where(Product.id.in_(product_ids)))).scalars()} if product_ids else {}
+    variants_by_product = await _variants_by_product(product_ids, db, locale=locale, public=True)
+    seller_refs = await seller_refs_by_id({p.seller_id for p in products.values()}, db)
+
+    items_by_top: dict[int, list[dict]] = defaultdict(list)
+    for pid, top in picked:
+        product = products.get(pid)
+        if product is None:
+            continue
+        items_by_top[top].append({
+            **_product_list_dict(product, locale=locale, public=True),
+            **seller_refs.get(product.seller_id, {}),
+            "variants": variants_by_product.get(pid, []),
+        })
+    stats_by_top = {top: (total, price_from) for top, total, price_from in stats}
+    shelves = []
+    for top in top_ids:
+        total, price_from = stats_by_top.get(top, (0, None))
+        shelves.append({
+            "category_id": top,
+            "total": total,
+            "price_from": int(price_from) if price_from else None,
+            "items": items_by_top.get(top, []),
+        })
+    return {"shelves": shelves, "total": sum(total for total, _ in stats_by_top.values())}
+
+
 async def suggest_products(db: AsyncSession, query: str, *, locale: str = DEFAULT_LOCALE, limit: int = 6) -> list[dict]:
     """Slim, ranked product hits for the command palette / typeahead.
 

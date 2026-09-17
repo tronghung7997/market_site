@@ -1,4 +1,5 @@
 import pytest
+from sqlalchemy import update
 
 from src.database import SessionLocal
 from src.models.pricing_config import PricingConfig
@@ -387,6 +388,41 @@ async def test_list_items_are_slim_but_detail_is_full(client):
     assert detail["description"].startswith("Mô tả rất dài")
     assert detail["specs"] == {"format": "ID|PASS"}
     assert "commission_rate" not in detail
+
+
+@pytest.mark.asyncio
+async def test_category_shelves_group_best_sellers_per_top_level_branch(client):
+    """/products/shelves: one shelf per top-level category, items from the
+    whole branch (sub-categories included), capped at per_shelf, with the
+    branch's product count and cheapest price."""
+    seller_token, admin_token, cat_id = await setup_seller_with_category(client)
+    admin = {"Authorization": f"Bearer {admin_token}"}
+    seller = {"Authorization": f"Bearer {seller_token}"}
+    sub = (await client.post("/admin/categories", json={"name": "ProdSub", "slug": "prodsub", "parent_id": cat_id}, headers=admin)).json()["id"]
+    other = (await client.post("/admin/categories", json={"name": "Empty", "slug": "empty-cat"}, headers=admin)).json()["id"]
+
+    async def make(title, category_id, price, sold=0):
+        created = await client.post("/seller/products", json={"category_id": category_id, "title": title, "status": "active"}, headers=seller)
+        pid = created.json()["id"]
+        await client.post(f"/seller/products/{pid}/variants", json={"name": "Gói", "price": price}, headers=seller)
+        if sold:
+            async with SessionLocal() as db:
+                await db.execute(update(Product).where(Product.id == pid).values(sold_count=sold))
+                await db.commit()
+        return pid
+
+    top_pid = await make("Top seller", cat_id, 5000, sold=50)
+    sub_pid = await make("In sub", sub, 1000, sold=10)
+    await make("Third", cat_id, 3000)
+
+    body = (await client.get("/products/shelves", params={"per_shelf": 2})).json()
+    shelves = {shelf["category_id"]: shelf for shelf in body["shelves"]}
+    assert body["total"] == 3
+    assert shelves[cat_id]["total"] == 3
+    assert shelves[cat_id]["price_from"] == 1000
+    assert [item["id"] for item in shelves[cat_id]["items"]] == [top_pid, sub_pid]  # best sellers, branch-wide, capped
+    assert shelves[other] == {"category_id": other, "total": 0, "price_from": None, "items": []}
+    assert sub not in shelves  # sub-categories fold into their parent shelf
 
 
 @pytest.mark.asyncio

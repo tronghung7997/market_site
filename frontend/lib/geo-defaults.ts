@@ -46,3 +46,11 @@ export function geoDefaultsFromHeaders(
   const override = env.NODE_ENV !== "production" ? env[GEO_COUNTRY_OVERRIDE_ENV] : undefined;
   return geoDefaultsForCountry(override || headers.get(GEO_COUNTRY_HEADER));
 }
+
+/**
+ * The currency a locale is paired with when nothing else decided it: Vietnamese
+ * readers see VND. Other locales return null so the admin default applies.
+ */
+export function pairedCurrencyForLocale(locale: string | null | undefined): DisplayCurrency | null {
+  return locale === "vi" ? "VND" : null;
+}

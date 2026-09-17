@@ -28,12 +28,13 @@ from src.models.product import DeliveryMode, Product, ProductStatus, ProductVari
 from src.models.order import Order, OrderStatus
 from src.models.pricing_config import PricingConfig
 from src.models.provider import Provider
-from src.models.resource import Resource, ResourceStatus
+from src.models.resource import Resource
 from src.orders.constants import MAX_ORDER_QUANTITY
 from src.sellers.service import approved_business_names, resolve_seller_ref, seller_refs_by_id
 from src.pricing.engine import inventory_managed_sql, product_pricing_override, resolve_pricing
 from src.products.covers import catalog_items, default_cover_id, images_payload, public_images
 from src.seller.settings import get_low_stock_threshold
+from src.suppliers.stock import sellable_stock_by_variant
 
 # Cột duy nhất của ProductVariant cho phép null — xem update_variant.
 NULLABLE_VARIANT_FIELDS = {"duration_days"}
@@ -462,18 +463,17 @@ def _browse_price_columns():
     price the storefront shows: cheapest variant, else the strategy-derived
     price for config/credit products, else 0.
     """
+    # Tồn kho = kho seller + catalog nhà cung cấp (src/suppliers/stock.py) —
+    # một định nghĩa cho storefront, seller inventory và tổng quan admin.
+    stock = sellable_stock_by_variant()
     variant_stats = (
         select(
             ProductVariant.product_id.label("product_id"),
             func.min(ProductVariant.price).filter(ProductVariant.price > 0).label("min_price"),
-            func.count(Resource.id).filter(and_(
-                Resource.status == ResourceStatus.available,
-                Resource.order_id.is_(None),
-                Resource.is_archived == False,  # noqa: E712
-            )).label("stock_count"),
+            func.coalesce(func.sum(stock.c.stock), 0).label("stock_count"),
             func.bool_or(ProductVariant.delivery_mode == DeliveryMode.instant).label("has_instant"),
         )
-        .outerjoin(Resource, Resource.variant_id == ProductVariant.id)
+        .outerjoin(stock, stock.c.variant_id == ProductVariant.id)
         .where(ProductVariant.is_active == True)  # noqa: E712
         .group_by(ProductVariant.product_id)
         .subquery()
@@ -796,17 +796,15 @@ async def get_product_catalog_summary(db: AsyncSession) -> dict:
         .join(Product, Product.id == ProductVariant.product_id)
         .where(active_products, ProductVariant.is_active == True)  # noqa: E712
     ) or 0
+    stock = sellable_stock_by_variant()
     available_stock = await db.scalar(
-        select(func.count(Resource.id))
-        .join(ProductVariant, ProductVariant.id == Resource.variant_id)
+        select(func.coalesce(func.sum(stock.c.stock), 0))
+        .join(ProductVariant, ProductVariant.id == stock.c.variant_id)
         .join(Product, Product.id == ProductVariant.product_id)
         .where(
             active_products,
             ProductVariant.is_active == True,  # noqa: E712
             ProductVariant.delivery_mode == DeliveryMode.instant,
-            Resource.status == ResourceStatus.available,
-            Resource.order_id.is_(None),
-            Resource.is_archived == False,  # noqa: E712
         )
     ) or 0
     category_rows = (await db.execute(
@@ -846,18 +844,14 @@ def _seller_search_filters(seller_id: int, search: str | None) -> list:
 
 
 def _available_stock_by_product():
+    stock = sellable_stock_by_variant()
     return (
         select(
             ProductVariant.product_id.label("product_id"),
-            func.count(Resource.id).label("stock"),
+            func.sum(stock.c.stock).label("stock"),
         )
-        .join(Resource, Resource.variant_id == ProductVariant.id)
-        .where(
-            ProductVariant.delivery_mode == DeliveryMode.instant,
-            Resource.status == ResourceStatus.available,
-            Resource.order_id.is_(None),
-            Resource.is_archived == False,  # noqa: E712
-        )
+        .join(stock, stock.c.variant_id == ProductVariant.id)
+        .where(ProductVariant.delivery_mode == DeliveryMode.instant)
         .group_by(ProductVariant.product_id)
         .subquery()
     )
@@ -1266,17 +1260,11 @@ async def _variants_by_product(
     instant_ids = [v.id for v in variants if v.delivery_mode == DeliveryMode.instant]
     stock_by_variant: dict[int, int] = {}
     if instant_ids:
+        stock = sellable_stock_by_variant()
         rows = await db.execute(
-            select(Resource.variant_id, func.count(Resource.id))
-            .where(
-                Resource.variant_id.in_(instant_ids),
-                Resource.status == ResourceStatus.available,
-                Resource.order_id.is_(None),
-                Resource.is_archived == False,  # noqa: E712
-            )
-            .group_by(Resource.variant_id)
+            select(stock.c.variant_id, stock.c.stock).where(stock.c.variant_id.in_(instant_ids))
         )
-        stock_by_variant = dict(rows.all())
+        stock_by_variant = {vid: int(n or 0) for vid, n in rows.all()}
 
     out: dict[int, list[dict]] = defaultdict(list)
     for v in variants:

@@ -28,6 +28,7 @@ export const ADAPTER_INFO: Record<string, { label: string; description: string }
   seller_gateway: { label: "Gateway seller", description: "Mỗi lần buyer gọi, nền tảng forward qua API thật của seller và trừ credit — buyer không thấy base_url/api_key thật." },
   seller_task_webhook: { label: "Webhook tác vụ seller", description: "Gửi tác vụ cho backend seller xử lý tự động, seller báo kết quả qua webhook thay vì admin xử lý tay." },
   dproxy: { label: "DProxy", description: "Khi khách mua, hệ thống tự mua đúng 1 proxy từ DProxy và giao ngay. Mỗi sản phẩm bán đúng 1 gói." },
+  igbm: { label: "igbm (shop tài khoản)", description: "Mỗi gói gắn 1 SKU catalog igbm; khi khách mua, hệ thống mua đúng số lượng và giao từng dòng tài khoản." },
 };
 
 export const PARAM_LABELS: Record<string, string> = {

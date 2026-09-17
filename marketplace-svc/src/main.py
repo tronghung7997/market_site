@@ -35,6 +35,7 @@ from src.reviews.router import router as reviews_router
 from src.payments.router import router as payments_router
 from src.mail.router import router as mail_router
 from src.mail.worker import mail_outbox_send_job
+from src.suppliers.sync import supplier_sync_job
 from src.scheduler import (
     deposit_expire_job,
     deposit_reconcile_job,
@@ -89,6 +90,7 @@ scheduler.add_job(dproxy_reconciliation_job, "interval", minutes=15, id="dproxy_
 scheduler.add_job(deposit_reconcile_job, "interval", minutes=5, id="deposit_reconcile")
 scheduler.add_job(deposit_expire_job, "interval", minutes=10, id="deposit_expire")
 scheduler.add_job(provider_credit_low_job, "interval", minutes=15, id="provider_credit_low")
+scheduler.add_job(supplier_sync_job, "interval", minutes=10, id="supplier_sync")
 # Operational log retention (gateway/provider call logs, log_entries, resolved alerts).
 scheduler.add_job(gateway_call_log_cleanup_job, "interval", hours=6, id="gateway_call_log_cleanup")
 scheduler.add_job(chat_message_retention_job, "interval", hours=6, id="chat_message_retention")

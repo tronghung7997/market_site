@@ -1039,6 +1039,10 @@
         "dproxy": {
           "label": "DProxy",
           "description": "Cấp phát proxy riêng cho từng đơn."
+        },
+        "igbm": {
+          "label": "igbm (shop tài khoản)",
+          "description": "Mua theo đơn từ catalog igbm, giao từng dòng tài khoản."
         }
       },
       "pipeline": {

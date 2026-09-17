@@ -1039,6 +1039,10 @@
         "dproxy": {
           "label": "DProxy",
           "description": "A dedicated proxy is provisioned for each order."
+        },
+        "igbm": {
+          "label": "igbm (account shop)",
+          "description": "Bought per order from the igbm catalog; each unit is delivered as one credential line."
         }
       },
       "pipeline": {

@@ -13,6 +13,7 @@ from src.adapters.factory import get_adapter_for_test
 from src.auth.dependencies import require_min_seller_tier, require_role
 from src.database import get_session
 from src.models.account import Account
+from src.models.provider import Provider
 
 from . import schemas, service
 
@@ -258,6 +259,32 @@ async def test_provider(
     db: AsyncSession = Depends(get_session),
 ):
     return await _run_provider_test(provider_id, db)
+
+
+@router.post("/admin/providers/{provider_id}/sync-catalog")
+async def sync_provider_catalog(
+    provider_id: int,
+    _: Account = Depends(require_role("admin")),
+    db: AsyncSession = Depends(get_session),
+):
+    """"Đồng bộ ngay" cho provider catalog (external_stock): cập nhật giá
+    vốn/tồn kho của mọi gói đã gắn SKU, không đợi job 10 phút. Read-only phía
+    nhà cung cấp, không tốn tiền."""
+    from src.adapters.registry import get_spec
+    from src.suppliers.service import sync_provider_listings
+
+    provider = await db.get(Provider, provider_id)
+    if provider is None:
+        raise HTTPException(status_code=404, detail="Provider not found")
+    spec = get_spec(provider.adapter_type)
+    if spec is None or not spec.external_stock:
+        raise HTTPException(status_code=400, detail="Provider này không có catalog để đồng bộ")
+    report = await sync_provider_listings(provider, db)
+    await db.commit()
+    return {
+        "provider_id": report.provider_id, "updated": report.updated,
+        "delisted": report.delisted, "low_margin": report.low_margin, "error": report.error,
+    }
 
 
 @router.put("/admin/providers/{provider_id}/credit", response_model=schemas.ProviderResponse)

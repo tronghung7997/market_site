@@ -4217,6 +4217,11 @@
     "skipForNow": "Bỏ qua, thêm sau",
     "searchSeller": "Tìm seller thường theo email hoặc tên cửa hàng…",
     "noInternalYet": "Chưa có seller nội bộ nào — tìm seller có sẵn hoặc tạo mới bên dưới.",
+    "attnAutoPaused": "{n} phân loại ở {name} tự tắt sau nhiều lần mua lỗi — kiểm tra rồi bật lại",
+    "productAutoPaused": "{n} tự tắt",
+    "autoPaused": "Tự tắt",
+    "resume": "Bật lại",
+    "autoPausedReason": "Tự tắt sau {n} lần mua lỗi liên tiếp: {reason}",
     "backToList": "Về danh sách nguồn"
   }
 }

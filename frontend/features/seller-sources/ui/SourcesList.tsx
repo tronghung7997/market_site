@@ -39,6 +39,7 @@ function attentionItems(rows: SupplierSource[], t: T): { key: string; text: stri
     const base = `${s.id}`;
     if (s.listing_error_count > 0) out.push({ key: `${s.id}-err`, tone: "warn", href: base, text: t("attnDelisted", { n: s.listing_error_count, name: s.name }) });
     if (s.listing_low_margin_count > 0) out.push({ key: `${s.id}-low`, tone: "bad", href: base, text: t("attnLowMargin", { n: s.listing_low_margin_count, name: s.name }) });
+    if (s.listing_auto_paused_count > 0) out.push({ key: `${s.id}-auto`, tone: "warn", href: base, text: t("attnAutoPaused", { n: s.listing_auto_paused_count, name: s.name }) });
     if (lowBalance(s)) out.push({ key: `${s.id}-bal`, tone: "warn", href: base, text: t("attnLowBalance", { name: s.name, balance: (balanceOf(s) ?? 0).toLocaleString() }) });
     if (!s.is_active) out.push({ key: `${s.id}-off`, tone: "warn", href: base, text: t("attnPaused", { name: s.name }) });
   }

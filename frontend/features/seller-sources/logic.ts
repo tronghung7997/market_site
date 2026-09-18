@@ -46,6 +46,7 @@ export type ListingGroup = {
   /** số phân loại bị gỡ / lãi thấp → hiện cảnh báo trên dòng sản phẩm */
   delisted: number;
   lowMargin: number;
+  autoPaused: number;
   active: number;
 };
 
@@ -56,12 +57,13 @@ export function groupListings(rows: SourceListing[]): ListingGroup[] {
     if (!g) {
       g = {
         product_id: r.product_id, product_title: r.product_title, product_status: r.product_status,
-        public_key: r.public_key, seller_id: r.seller_id, rows: [], delisted: 0, lowMargin: 0, active: 0,
+        public_key: r.public_key, seller_id: r.seller_id, rows: [], delisted: 0, lowMargin: 0, autoPaused: 0, active: 0,
       };
       map.set(r.product_id, g);
     }
     g.rows.push(r);
     if (r.sync_error) g.delisted += 1;
+    else if (r.auto_paused_at) g.autoPaused += 1;
     else if (!r.margin_ok) g.lowMargin += 1;
     if (r.variant_active && !r.sync_error && r.margin_ok) g.active += 1;
   }
@@ -69,7 +71,7 @@ export function groupListings(rows: SourceListing[]): ListingGroup[] {
 }
 
 export function needsAttention(r: SourceListing): boolean {
-  return Boolean(r.sync_error) || !r.margin_ok;
+  return Boolean(r.sync_error) || Boolean(r.auto_paused_at) || !r.margin_ok;
 }
 
 /* ------------------------------------------------------------------ */

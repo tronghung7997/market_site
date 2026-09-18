@@ -1930,6 +1930,7 @@ export interface SupplierSource {
   listing_count: number;
   listing_error_count: number;
   listing_low_margin_count: number;
+  listing_auto_paused_count: number;
   product_count: number;
   attention_count: number;
   last_test_result: Record<string, unknown> | null;
@@ -2076,6 +2077,11 @@ export interface SourceListing {
   format_hint: string | null;
   synced_at: string | null;
   sync_error: string | null;
+  /** cầu dao: số lần mua lỗi liên tiếp; auto_paused_at ≠ null = gói bị tự tắt */
+  fail_streak: number;
+  last_fail_at: string | null;
+  last_fail_reason: string | null;
+  auto_paused_at: string | null;
   category_path: string[];
 }
 

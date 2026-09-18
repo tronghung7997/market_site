@@ -2,440 +2,74 @@
 
 import { useCallback, useEffect, useMemo, useState } from "react";
 import { useLocale, useTranslations } from "next-intl";
+import { useSearchParams } from "next/navigation";
 import { Link } from "@/i18n/navigation";
 import { api } from "@/lib/api";
 import { useApiErrorMessage } from "@/lib/use-api-error";
 import { useMoney } from "@/lib/money/CurrencyProvider";
-import type {
-  Category, SourceArea, SourceCatalogItem, SourceCatalogPage, SourceImportItem, SourceListing, SupplierSource,
-} from "@/lib/types";
-import { Button, Card, Field, Input, Select, Spinner, Tag, Textarea } from "@/components/ui";
-import { AlertTriangle, ChevronLeft, ChevronRight, RefreshCw, Search, Trash, X } from "@/components/Icons";
+import type { SourceArea, SourceCatalogItem, SourceListing, SupplierSource } from "@/lib/types";
+import { Button, Input, Select, Spinner, Switch, Tag } from "@/components/ui";
+import { AlertTriangle, ChevronDown, ChevronLeft, ChevronRight, Plus, RefreshCw, Search } from "@/components/Icons";
 import { Dialog, DialogContent, DialogHeader, DialogTitle, DialogFooter } from "@/components/ui/dialog";
 import { cn } from "@/lib/cn";
-import { suggestPrice } from "../logic";
+import { groupListings, needsAttention, type ListingGroup } from "../logic";
+import { AddProductsDrawer, type ExistingProduct } from "./AddProductsDrawer";
+import { relTime } from "./SourcesList";
 
-type TabKey = "catalog" | "listings";
+type Filter = "all" | "selling" | "attention" | "paused";
 
 export function SourceWorkspace({ area, sourceId }: { area: SourceArea; sourceId: number }) {
   const t = useTranslations("sellerSources");
+  const locale = useLocale();
+  const { formatLedgerMoney } = useMoney();
   const apiErrorMessage = useApiErrorMessage();
+  const params = useSearchParams();
   const base = area === "admin" ? "/admin/sources" : "/seller/sources";
+  const productBase = area === "admin" ? "/admin/products" : "/seller/products";
+
   const [source, setSource] = useState<SupplierSource | null>(null);
-  const [tab, setTab] = useState<TabKey>("catalog");
-  const [error, setError] = useState("");
-  const [syncing, setSyncing] = useState(false);
-  const [syncMsg, setSyncMsg] = useState("");
-  const [refreshKey, setRefreshKey] = useState(0);
-
-  const loadSource = useCallback(async () => {
-    try {
-      const all = await api.sources.list(area);
-      setSource(all.find((s) => s.id === sourceId) ?? null);
-    } catch (e) {
-      setError(apiErrorMessage(e));
-    }
-  }, [area, sourceId, apiErrorMessage]);
-  useEffect(() => { void loadSource(); }, [loadSource]);
-
-  const sync = async () => {
-    setSyncing(true);
-    setSyncMsg("");
-    try {
-      const r = await api.sources.sync(area, sourceId);
-      setSyncMsg(r.error ? `${t("syncFailed")}: ${r.error}` : t("syncDone", { items: r.catalog_items, updated: r.updated, delisted: r.delisted, low: r.low_margin }));
-      setRefreshKey((k) => k + 1);
-      await loadSource();
-    } catch (e) {
-      setSyncMsg(apiErrorMessage(e));
-    } finally {
-      setSyncing(false);
-    }
-  };
-
-  return (
-    <div className="space-y-4">
-      <div className="flex flex-wrap items-start gap-3">
-        <div className="min-w-0 flex-1">
-          <Link href={base} className="text-[12px] text-muted hover:text-fg inline-flex items-center gap-1">
-            <ChevronLeft className="h-3.5 w-3.5" />{t("title")}
-          </Link>
-          <h1 className="text-lg font-bold text-fg truncate">{source?.name ?? "…"}</h1>
-          {source && (
-            <p className="text-[12.5px] text-muted">
-              {t("headerMeta", { catalog: source.catalog_count, listings: source.listing_count, margin: source.min_margin_pct })}
-              {area === "admin" && ` · ${source.seller_email ?? t("unassigned")}`}
-            </p>
-          )}
-        </div>
-        <Button size="sm" variant="secondary" onClick={sync} disabled={syncing}>
-          <RefreshCw className="h-3.5 w-3.5" />{syncing ? t("syncing") : t("syncNow")}
-        </Button>
-      </div>
-      {syncMsg && <p className="text-[12.5px] text-muted">{syncMsg}</p>}
-      {error && <p className="text-[13px] text-bad" role="alert">{error}</p>}
-
-      <div className="flex gap-1 border-b border-line">
-        {(["catalog", "listings"] as TabKey[]).map((k) => (
-          <button
-            key={k} type="button" onClick={() => setTab(k)}
-            className={cn("px-3 py-2 text-[13px] font-medium border-b-2 -mb-px", tab === k ? "border-iris text-fg" : "border-transparent text-muted hover:text-fg")}
-          >
-            {k === "catalog" ? t("tabCatalog") : t("tabListings")}
-          </button>
-        ))}
-      </div>
-
-      {source && tab === "catalog" && (
-        <CatalogBrowser area={area} source={source} refreshKey={refreshKey} onImported={() => { setRefreshKey((k) => k + 1); void loadSource(); }} />
-      )}
-      {source && tab === "listings" && (
-        <ListingsTable area={area} source={source} refreshKey={refreshKey} onChanged={() => void loadSource()} />
-      )}
-    </div>
-  );
-}
-
-/* ------------------------------------------------------------------ */
-/* Catalog                                                             */
-/* ------------------------------------------------------------------ */
-
-function CatalogBrowser({ area, source, refreshKey, onImported }: {
-  area: SourceArea; source: SupplierSource; refreshKey: number; onImported: () => void;
-}) {
-  const t = useTranslations("sellerSources");
-  const locale = useLocale();
-  const { formatLedgerMoney } = useMoney();
-  const apiErrorMessage = useApiErrorMessage();
-  const [q, setQ] = useState("");
-  const [group, setGroup] = useState("");
-  const [inStock, setInStock] = useState(true);
-  const [maxCost, setMaxCost] = useState("");
-  const [sort, setSort] = useState<"stock" | "cost_asc" | "cost_desc" | "name">("stock");
-  const [page, setPage] = useState(1);
-  const [data, setData] = useState<SourceCatalogPage | null>(null);
-  const [loading, setLoading] = useState(false);
-  const [error, setError] = useState("");
-  const [selected, setSelected] = useState<Map<string, SourceCatalogItem>>(new Map());
-  const [importOpen, setImportOpen] = useState(false);
-
-  useEffect(() => {
-    const handle = setTimeout(async () => {
-      setLoading(true);
-      try {
-        setData(await api.sources.catalog(area, source.id, {
-          q, group, in_stock: inStock, max_cost: maxCost ? Number(maxCost) : null, page, per_page: 50, sort,
-        }));
-        setError("");
-      } catch (e) {
-        setError(apiErrorMessage(e));
-      } finally {
-        setLoading(false);
-      }
-    }, 250);
-    return () => clearTimeout(handle);
-  }, [area, source.id, q, group, inStock, maxCost, page, sort, refreshKey, apiErrorMessage]);
-
-  const toggle = (item: SourceCatalogItem) => {
-    setSelected((prev) => {
-      const next = new Map(prev);
-      if (next.has(item.external_id)) next.delete(item.external_id); else next.set(item.external_id, item);
-      return next;
-    });
-  };
-  const totalPages = data ? Math.max(1, Math.ceil(data.total / data.per_page)) : 1;
-
-  return (
-    <div className="grid gap-4 lg:grid-cols-[220px_minmax(0,1fr)]">
-      <aside className="space-y-1">
-        <p className="px-2 text-[11px] uppercase tracking-wider text-faint">{t("groups")}</p>
-        <button type="button" onClick={() => { setGroup(""); setPage(1); }}
-          className={cn("w-full text-left rounded-md px-2 py-1.5 text-[13px]", group === "" ? "bg-iris-soft text-iris-hi font-medium" : "text-muted hover:bg-surface")}>
-          {t("allGroups")}
-        </button>
-        {data?.groups.map((g) => (
-          <button key={g.name} type="button" onClick={() => { setGroup(g.name); setPage(1); }}
-            className={cn("w-full flex items-center gap-2 rounded-md px-2 py-1.5 text-[13px]", group === g.name ? "bg-iris-soft text-iris-hi font-medium" : "text-muted hover:bg-surface")}>
-            <span className="truncate flex-1">{g.name}</span>
-            <span className="font-mono text-[11px] text-faint">{g.count}</span>
-          </button>
-        ))}
-        {data && data.groups.length === 0 && <p className="px-2 text-[12px] text-faint">{t("noCatalog")}</p>}
-      </aside>
-
-      <div className="space-y-3 min-w-0">
-        <div className="flex flex-wrap gap-2 items-center">
-          <div className="relative flex-1 min-w-[200px]">
-            <Search className="absolute left-2.5 top-1/2 -translate-y-1/2 h-4 w-4 text-faint" />
-            <Input id="src-q" className="pl-8 h-9" placeholder={t("searchPlaceholder")} value={q} onChange={(e) => { setQ(e.target.value); setPage(1); }} />
-          </div>
-          <Input id="src-maxcost" className="h-9 w-32 font-mono" type="number" min={0} step={1000} placeholder={t("maxCost")} value={maxCost} onChange={(e) => { setMaxCost(e.target.value); setPage(1); }} />
-          <Select id="src-sort" className="h-9 w-40" value={sort} onChange={(e) => setSort(e.target.value as typeof sort)}>
-            <option value="stock">{t("sortStock")}</option>
-            <option value="cost_asc">{t("sortCostAsc")}</option>
-            <option value="cost_desc">{t("sortCostDesc")}</option>
-            <option value="name">{t("sortName")}</option>
-          </Select>
-          <label className="flex items-center gap-1.5 text-[13px] text-muted">
-            <input id="src-instock" type="checkbox" checked={inStock} onChange={(e) => { setInStock(e.target.checked); setPage(1); }} />
-            {t("inStockOnly")}
-          </label>
-        </div>
-        {error && <p className="text-[13px] text-bad" role="alert">{error}</p>}
-
-        <div className="overflow-x-auto rounded-lg border border-line bg-card">
-          <table className="w-full text-[13px]">
-            <thead className="bg-surface text-[11px] uppercase tracking-wider text-faint">
-              <tr>
-                <th className="w-8 p-2"></th>
-                <th className="p-2 text-left">{t("sku")}</th>
-                <th className="p-2 text-right">{t("cost")}</th>
-                <th className="p-2 text-right">{t("suggested")}</th>
-                <th className="p-2 text-right">{t("stock")}</th>
-                <th className="p-2 text-left">{t("status")}</th>
-              </tr>
-            </thead>
-            <tbody>
-              {loading && !data && <tr><td colSpan={6} className="p-6 text-center"><Spinner /></td></tr>}
-              {data?.items.map((it) => {
-                const on = selected.has(it.external_id);
-                return (
-                  <tr key={it.external_id} onClick={() => toggle(it)} className={cn("border-t border-line cursor-pointer hover:bg-surface", on && "bg-iris-soft/40")}>
-                    <td className="p-2 align-top"><input type="checkbox" checked={on} onChange={() => toggle(it)} onClick={(e) => e.stopPropagation()} aria-label={it.external_id} /></td>
-                    <td className="p-2 align-top">
-                      <div className="text-fg">{it.name}</div>
-                      <div className="text-[11px] text-faint font-mono">
-                        #{it.external_id} · {it.category_path.join(" › ")}
-                        {it.format_hint && <span className="ml-1">· {it.format_hint}</span>}
-                      </div>
-                    </td>
-                    <td className="p-2 align-top text-right font-mono tabular-nums">{formatLedgerMoney(it.cost_price, locale)}</td>
-                    <td className="p-2 align-top text-right font-mono tabular-nums text-muted">{formatLedgerMoney(suggestPrice(it.cost_price, Math.max(source.min_margin_pct, 30)), locale)}</td>
-                    <td className={cn("p-2 align-top text-right font-mono tabular-nums", it.amount === 0 ? "text-bad" : it.amount < 50 ? "text-warn" : "text-good")}>{it.amount.toLocaleString()}</td>
-                    <td className="p-2 align-top">
-                      {it.attached.length > 0
-                        ? <Tag tone="iris">{t("attachedN", { n: it.attached.length })}</Tag>
-                        : <span className="text-[12px] text-faint">—</span>}
-                    </td>
-                  </tr>
-                );
-              })}
-              {data && data.items.length === 0 && <tr><td colSpan={6} className="p-6 text-center text-muted">{t("noMatch")}</td></tr>}
-            </tbody>
-          </table>
-        </div>
-        {data && (
-          <div className="flex items-center gap-2 text-[12.5px] text-muted">
-            <span>{t("pageInfo", { shown: data.items.length, total: data.total })}</span>
-            <span className="flex-1" />
-            <Button size="sm" variant="ghost" disabled={page <= 1} onClick={() => setPage((p) => p - 1)}><ChevronLeft className="h-4 w-4" /></Button>
-            <span className="font-mono">{page}/{totalPages}</span>
-            <Button size="sm" variant="ghost" disabled={page >= totalPages} onClick={() => setPage((p) => p + 1)}><ChevronRight className="h-4 w-4" /></Button>
-          </div>
-        )}
-      </div>
-
-      {selected.size > 0 && (
-        <div className="fixed inset-x-0 bottom-0 z-20 border-t border-line bg-card/95 backdrop-blur px-4 py-3 lg:left-[240px]">
-          <div className="mx-auto flex max-w-5xl items-center gap-3">
-            <span className="text-[13px] font-medium text-fg">{t("selectedN", { n: selected.size })}</span>
-            <Button size="sm" variant="ghost" onClick={() => setSelected(new Map())}><X className="h-3.5 w-3.5" />{t("clear")}</Button>
-            <span className="flex-1" />
-            <Button size="sm" onClick={() => setImportOpen(true)}>{t("importSelected")}</Button>
-          </div>
-        </div>
-      )}
-
-      {importOpen && (
-        <ImportDialog
-          area={area} source={source} items={[...selected.values()]}
-          onClose={() => setImportOpen(false)}
-          onDone={() => { setImportOpen(false); setSelected(new Map()); onImported(); }}
-        />
-      )}
-    </div>
-  );
-}
-
-/* ------------------------------------------------------------------ */
-/* Import dialog                                                       */
-/* ------------------------------------------------------------------ */
-
-type Draft = SourceImportItem & { cost_price: number; name: string };
-
-function cleanTitle(name: string): string {
-  // "H30. Clone Ngoại TUT..." → bỏ mã đầu dòng của shop; giữ phần mô tả.
-  return name.replace(/^[A-Z]{1,3}\d{1,4}\.\s*/i, "").replace(/\s{2,}/g, " ").trim();
-}
-
-function ImportDialog({ area, source, items, onClose, onDone }: {
-  area: SourceArea; source: SupplierSource; items: SourceCatalogItem[]; onClose: () => void; onDone: () => void;
-}) {
-  const t = useTranslations("sellerSources");
-  const locale = useLocale();
-  const { formatLedgerMoney } = useMoney();
-  const apiErrorMessage = useApiErrorMessage();
-  const [categories, setCategories] = useState<Category[]>([]);
-  const [margin, setMargin] = useState(String(Math.max(source.min_margin_pct, 30)));
-  const [status, setStatus] = useState<"draft" | "active">("draft");
-  const [warranty, setWarranty] = useState("");
-  const [drafts, setDrafts] = useState<Draft[]>(() => items.map((it) => ({
-    external_id: it.external_id, category_id: 0, title: cleanTitle(it.name), variant_name: t("defaultVariant"),
-    price: suggestPrice(it.cost_price, Math.max(source.min_margin_pct, 30)), cost_price: it.cost_price, name: it.name,
-  })));
-  const [saving, setSaving] = useState(false);
-  const [error, setError] = useState("");
-  const [result, setResult] = useState<{ ok: number; titles: string[] } | null>(null);
-
-  useEffect(() => { api.categories().then(setCategories).catch(() => setCategories([])); }, []);
-
-  const categoryOptions = useMemo(() => {
-    // GET /categories trả cây (children lồng nhau) — làm phẳng kèm thụt đầu dòng.
-    const out: { id: number; label: string }[] = [];
-    const walk = (list: Category[], depth: number) => {
-      for (const c of [...list].sort((a, b) => a.sort_order - b.sort_order)) {
-        out.push({ id: c.id, label: `${"— ".repeat(depth)}${c.name}` });
-        if (c.children?.length) walk(c.children, depth + 1);
-      }
-    };
-    walk(categories, 0);
-    return out;
-  }, [categories]);
-
-  const applyMargin = () => {
-    const m = Number(margin) || 0;
-    setDrafts((ds) => ds.map((d) => ({ ...d, price: suggestPrice(d.cost_price, m) })));
-  };
-  const setAllCategory = (id: number) => setDrafts((ds) => ds.map((d) => ({ ...d, category_id: id })));
-  const update = (i: number, patch: Partial<Draft>) => setDrafts((ds) => ds.map((d, j) => (j === i ? { ...d, ...patch } : d)));
-
-  const save = async () => {
-    if (drafts.some((d) => !d.category_id)) { setError(t("needCategory")); return; }
-    setSaving(true);
-    setError("");
-    try {
-      const created = await api.sources.import(area, source.id, drafts.map((d) => ({
-        external_id: d.external_id, category_id: d.category_id, title: d.title, variant_name: d.variant_name,
-        price: d.price, status, warranty_text: warranty || undefined,
-      })), area === "admin" ? source.seller_id : undefined);
-      setResult({ ok: created.length, titles: created.map((c) => c.product_title) });
-    } catch (e) {
-      setError(apiErrorMessage(e));
-    } finally {
-      setSaving(false);
-    }
-  };
-
-  return (
-    <Dialog open onOpenChange={(o) => { if (!o && !saving) (result ? onDone : onClose)(); }}>
-      <DialogContent className="max-w-3xl border-line bg-surface p-5 text-fg max-h-[90vh] overflow-y-auto">
-        <DialogHeader>
-          <DialogTitle className="text-[15px] font-bold">{t("importTitle", { n: items.length })}</DialogTitle>
-        </DialogHeader>
-        {result ? (
-          <div className="space-y-2 text-[13px]">
-            <p className="text-good font-medium">{t("importDone", { n: result.ok })}</p>
-            <ul className="list-disc pl-5 text-muted">{result.titles.map((x, i) => <li key={i}>{x}</li>)}</ul>
-            <p className="text-[12px] text-faint">{status === "draft" ? t("importDraftHint") : t("importActiveHint")}</p>
-          </div>
-        ) : (
-          <div className="space-y-4">
-            <div className="grid gap-3 sm:grid-cols-4">
-              <Field label={t("marginPct")}>
-                <div className="flex gap-1">
-                  <Input id="imp-margin" type="number" min={0} className="h-9 font-mono" value={margin} onChange={(e) => setMargin(e.target.value)} />
-                  <Button size="sm" variant="secondary" type="button" onClick={applyMargin}>{t("apply")}</Button>
-                </div>
-              </Field>
-              <Field label={t("categoryAll")}>
-                <Select id="imp-cat-all" className="h-9" defaultValue="" onChange={(e) => setAllCategory(Number(e.target.value))}>
-                  <option value="">{t("choose")}</option>
-                  {categoryOptions.map((c) => <option key={c.id} value={c.id}>{c.label}</option>)}
-                </Select>
-              </Field>
-              <Field label={t("statusAfterImport")}>
-                <Select id="imp-status" className="h-9" value={status} onChange={(e) => setStatus(e.target.value as "draft" | "active")}>
-                  <option value="draft">{t("statusDraft")}</option>
-                  <option value="active">{t("statusActive")}</option>
-                </Select>
-              </Field>
-              <Field label={t("warranty")}>
-                <Input id="imp-warranty" className="h-9" value={warranty} onChange={(e) => setWarranty(e.target.value)} placeholder={t("warrantyPlaceholder")} />
-              </Field>
-            </div>
-            <p className="text-[12px] text-faint">{t("minMarginHint", { margin: source.min_margin_pct })}</p>
-
-            <div className="space-y-3">
-              {drafts.map((d, i) => {
-                const marginNow = d.cost_price > 0 && d.price ? ((d.price - d.cost_price) / d.cost_price) * 100 : 0;
-                const low = d.cost_price > 0 && marginNow < source.min_margin_pct;
-                return (
-                  <div key={d.external_id} className="rounded-lg border border-line p-3 space-y-2">
-                    <p className="text-[11px] text-faint font-mono">#{d.external_id} · {d.name} · {t("cost")} {formatLedgerMoney(d.cost_price, locale)}</p>
-                    <div className="grid gap-2 sm:grid-cols-[minmax(0,2fr)_minmax(0,1fr)]">
-                      <Input id={`imp-title-${i}`} value={d.title ?? ""} onChange={(e) => update(i, { title: e.target.value })} placeholder={t("titlePlaceholder")} />
-                      <Select id={`imp-cat-${i}`} value={d.category_id || ""} onChange={(e) => update(i, { category_id: Number(e.target.value) })}>
-                        <option value="">{t("chooseCategory")}</option>
-                        {categoryOptions.map((c) => <option key={c.id} value={c.id}>{c.label}</option>)}
-                      </Select>
-                    </div>
-                    <div className="grid gap-2 sm:grid-cols-[minmax(0,1fr)_140px_auto] items-center">
-                      <Input id={`imp-var-${i}`} value={d.variant_name ?? ""} onChange={(e) => update(i, { variant_name: e.target.value })} placeholder={t("variantPlaceholder")} />
-                      <Input id={`imp-price-${i}`} type="number" min={0} step={500} className="font-mono" value={d.price ?? 0} onChange={(e) => update(i, { price: Number(e.target.value) })} />
-                      <span className={cn("text-[12px] font-mono tabular-nums", low ? "text-warn" : "text-muted")}>
-                        {low && <AlertTriangle className="inline h-3.5 w-3.5 mr-1" />}{t("marginNow", { pct: marginNow.toFixed(0) })}
-                      </span>
-                    </div>
-                  </div>
-                );
-              })}
-            </div>
-            {error && <p className="text-[13px] text-bad" role="alert">{error}</p>}
-          </div>
-        )}
-        <DialogFooter className="mt-2 flex-row justify-end gap-2">
-          {result ? (
-            <Button size="sm" onClick={onDone}>{t("close")}</Button>
-          ) : (
-            <>
-              <Button size="sm" variant="ghost" onClick={onClose} disabled={saving}>{t("cancel")}</Button>
-              <Button size="sm" onClick={save} disabled={saving}>{saving ? t("importing") : t("importN", { n: drafts.length })}</Button>
-            </>
-          )}
-        </DialogFooter>
-      </DialogContent>
-    </Dialog>
-  );
-}
-
-/* ------------------------------------------------------------------ */
-/* Listings                                                            */
-/* ------------------------------------------------------------------ */
-
-function ListingsTable({ area, source, refreshKey, onChanged }: {
-  area: SourceArea; source: SupplierSource; refreshKey: number; onChanged: () => void;
-}) {
-  const t = useTranslations("sellerSources");
-  const locale = useLocale();
-  const { formatLedgerMoney } = useMoney();
-  const apiErrorMessage = useApiErrorMessage();
   const [rows, setRows] = useState<SourceListing[] | null>(null);
   const [error, setError] = useState("");
+  const [notice, setNotice] = useState("");
+  const [syncing, setSyncing] = useState(false);
+  const [q, setQ] = useState("");
+  const [filter, setFilter] = useState<Filter>(params.get("filter") === "attention" ? "attention" : "all");
+  const [collapsed, setCollapsed] = useState<Set<number>>(new Set());
   const [editing, setEditing] = useState<Record<number, string>>({});
-  const [margin, setMargin] = useState(String(Math.max(source.min_margin_pct, 30)));
+  const [margin, setMargin] = useState("30");
   const [busy, setBusy] = useState(false);
+  const [drawer, setDrawer] = useState<{ presetProductId: number | null } | null>(params.get("add") ? { presetProductId: null } : null);
   const [confirmDetach, setConfirmDetach] = useState<SourceListing | null>(null);
-  const productBase = area === "admin" ? "/admin/products" : "/seller/products";
+  const [changeSku, setChangeSku] = useState<SourceListing | null>(null);
 
   const load = useCallback(async () => {
     try {
-      setRows(await api.sources.listings(area, source.id));
+      const [all, listings] = await Promise.all([api.sources.list(area), api.sources.listings(area, sourceId)]);
+      const s = all.find((x) => x.id === sourceId) ?? null;
+      setSource(s);
+      setRows(listings);
+      if (s) setMargin((m) => (m === "30" ? String(Math.max(s.min_margin_pct, 30)) : m));
       setError("");
     } catch (e) {
       setError(apiErrorMessage(e));
     }
-  }, [area, source.id, apiErrorMessage]);
-  useEffect(() => { void load(); }, [load, refreshKey]);
+  }, [area, sourceId, apiErrorMessage]);
+  useEffect(() => { void load(); }, [load]);
+
+  const patchRow = (updated: SourceListing) => setRows((rs) => rs?.map((r) => (r.listing_id === updated.listing_id ? updated : r)) ?? null);
+
+  const sync = async () => {
+    setSyncing(true);
+    try {
+      const r = await api.sources.sync(area, sourceId);
+      setNotice(r.error ? `${t("syncFailed")}: ${r.error}` : t("syncDone", { items: r.catalog_items, updated: r.updated, delisted: r.delisted, low: r.low_margin }));
+      await load();
+    } catch (e) {
+      setError(apiErrorMessage(e));
+    } finally {
+      setSyncing(false);
+    }
+  };
 
   const savePrice = async (row: SourceListing) => {
     const raw = editing[row.listing_id];
@@ -444,18 +78,26 @@ function ListingsTable({ area, source, refreshKey, onChanged }: {
     setEditing((e) => { const n = { ...e }; delete n[row.listing_id]; return n; });
     if (!Number.isFinite(price) || price === row.price) return;
     try {
-      const updated = await api.sources.updateListing(area, row.listing_id, { price });
-      setRows((rs) => rs?.map((r) => (r.listing_id === row.listing_id ? updated : r)) ?? null);
-      onChanged();
+      patchRow(await api.sources.updateListing(area, row.listing_id, { price }));
+      setNotice(t("priceSaved"));
     } catch (e) {
       setError(apiErrorMessage(e));
     }
   };
 
-  const toggleActive = async (row: SourceListing) => {
+  const toggleActive = async (row: SourceListing, next: boolean) => {
     try {
-      const updated = await api.sources.updateListing(area, row.listing_id, { is_active: !row.variant_active });
-      setRows((rs) => rs?.map((r) => (r.listing_id === row.listing_id ? updated : r)) ?? null);
+      patchRow(await api.sources.updateListing(area, row.listing_id, { is_active: next }));
+    } catch (e) {
+      setError(apiErrorMessage(e));
+    }
+  };
+
+  const moveTo = async (row: SourceListing, productId: number) => {
+    try {
+      await api.sources.updateListing(area, row.listing_id, { product_id: productId });
+      await load();
+      setNotice(t("moved"));
     } catch (e) {
       setError(apiErrorMessage(e));
     }
@@ -464,18 +106,15 @@ function ListingsTable({ area, source, refreshKey, onChanged }: {
   const reprice = async (onlyBelowMin: boolean) => {
     setBusy(true);
     try {
-      const r = await api.sources.reprice(area, source.id, { margin_pct: Number(margin) || 0, only_below_min: onlyBelowMin });
-      setError("");
+      const r = await api.sources.reprice(area, sourceId, { margin_pct: Number(margin) || 0, only_below_min: onlyBelowMin });
+      setNotice(t("repriced", { n: r.changed.length }));
       await load();
-      onChanged();
-      setRepriceMsg(t("repriced", { n: r.changed.length }));
     } catch (e) {
       setError(apiErrorMessage(e));
     } finally {
       setBusy(false);
     }
   };
-  const [repriceMsg, setRepriceMsg] = useState("");
 
   const detach = async () => {
     if (!confirmDetach) return;
@@ -484,7 +123,6 @@ function ListingsTable({ area, source, refreshKey, onChanged }: {
       await api.sources.detach(area, confirmDetach.listing_id);
       setConfirmDetach(null);
       await load();
-      onChanged();
     } catch (e) {
       setError(apiErrorMessage(e));
     } finally {
@@ -492,89 +130,143 @@ function ListingsTable({ area, source, refreshKey, onChanged }: {
     }
   };
 
-  const lowCount = rows?.filter((r) => !r.margin_ok).length ?? 0;
-  const errCount = rows?.filter((r) => r.sync_error).length ?? 0;
+  const groups = useMemo(() => {
+    if (!rows) return [];
+    const needle = q.trim().toLowerCase();
+    const keep = (r: SourceListing) => {
+      if (filter === "selling" && !(r.variant_active && !needsAttention(r))) return false;
+      if (filter === "attention" && !needsAttention(r)) return false;
+      if (filter === "paused" && r.variant_active) return false;
+      if (needle && !`${r.product_title} ${r.variant_name} ${r.external_id} ${r.external_name ?? ""}`.toLowerCase().includes(needle)) return false;
+      return true;
+    };
+    return groupListings(rows.filter(keep));
+  }, [rows, q, filter]);
+
+  const counts = useMemo(() => ({
+    all: rows?.length ?? 0,
+    selling: rows?.filter((r) => r.variant_active && !needsAttention(r)).length ?? 0,
+    attention: rows?.filter(needsAttention).length ?? 0,
+    paused: rows?.filter((r) => !r.variant_active).length ?? 0,
+  }), [rows]);
+  const lowCount = rows?.filter((r) => !r.margin_ok && !r.sync_error).length ?? 0;
+  const allProducts = useMemo(() => groupListings(rows ?? []), [rows]);
+  const existing: ExistingProduct[] = useMemo(
+    () => allProducts.map((g) => ({ product_id: g.product_id, product_title: g.product_title, variant_count: g.rows.length })),
+    [allProducts],
+  );
+
+  const toggleCollapse = (id: number) => setCollapsed((s) => { const n = new Set(s); if (n.has(id)) n.delete(id); else n.add(id); return n; });
 
   return (
-    <div className="space-y-3">
-      <Card className="p-3 flex flex-wrap items-center gap-2">
-        <span className="text-[13px] text-muted">{t("bulkMargin")}</span>
-        <Input id="lst-margin" type="number" min={0} className="h-9 w-24 font-mono" value={margin} onChange={(e) => setMargin(e.target.value)} />
-        <span className="text-[13px] text-muted">%</span>
-        <Button size="sm" variant="secondary" disabled={busy || !rows?.length} onClick={() => reprice(false)}>{t("applyAll")}</Button>
-        <Button size="sm" variant="secondary" disabled={busy || lowCount === 0} onClick={() => reprice(true)}>{t("applyBelowMin", { n: lowCount })}</Button>
-        {repriceMsg && <span className="text-[12.5px] text-muted">{repriceMsg}</span>}
-        <span className="flex-1" />
-        {errCount > 0 && <Tag tone="warn"><AlertTriangle className="h-3 w-3" />{t("syncErrors", { n: errCount })}</Tag>}
-      </Card>
+    <div className="space-y-4">
+      <div className="flex flex-wrap items-start gap-3">
+        <div className="min-w-0 flex-1">
+          <Link href={base} className="inline-flex items-center gap-1 text-[12px] text-muted hover:text-fg">
+            <ChevronLeft className="h-3.5 w-3.5" />{area === "admin" ? t("adminTitle") : t("title")}
+          </Link>
+          <h1 className="truncate text-lg font-bold text-fg">{source?.name ?? "…"}</h1>
+          {source && (
+            <p className="text-[12.5px] text-muted">
+              {t("detailMeta", { products: allProducts.length, variants: rows?.length ?? 0, synced: relTime(source.catalog_synced_at, t) })}
+              {area === "admin" && ` · ${source.seller_email ?? t("unassigned")}`}
+            </p>
+          )}
+        </div>
+        <Button size="sm" variant="secondary" onClick={sync} disabled={syncing}>
+          <RefreshCw className={cn("h-3.5 w-3.5", syncing && "animate-spin")} />{syncing ? t("syncing") : t("syncNow")}
+        </Button>
+        <Button size="sm" onClick={() => setDrawer({ presetProductId: null })} disabled={!source}>
+          <Plus className="h-3.5 w-3.5" />{t("addProducts")}
+        </Button>
+      </div>
+      {notice && <p className="text-[12.5px] text-good">{notice}</p>}
       {error && <p className="text-[13px] text-bad" role="alert">{error}</p>}
+
+      <div className="flex flex-wrap items-center gap-2">
+        <div className="relative w-full min-w-[200px] sm:w-64">
+          <Search className="absolute left-2.5 top-1/2 h-4 w-4 -translate-y-1/2 text-faint" />
+          <Input id="lst-q" className="h-9 pl-8" placeholder={t("searchListings")} value={q} onChange={(e) => setQ(e.target.value)} />
+        </div>
+        {(["all", "selling", "attention", "paused"] as Filter[]).map((f) => (
+          <button key={f} type="button" onClick={() => setFilter(f)}
+            className={cn("inline-flex h-8 items-center gap-1.5 rounded-full border px-3 text-[12.5px] font-medium",
+              filter === f ? "border-fg bg-fg text-card" : "border-line bg-card text-muted hover:text-fg")}>
+            {t(`filter_${f}`)}
+            <span className={cn("font-mono text-[11px]", f === "attention" && counts.attention > 0 && filter !== f ? "text-warn" : "opacity-70")}>{counts[f]}</span>
+          </button>
+        ))}
+        <div className="ml-auto flex items-center gap-1.5 text-[12.5px] text-muted">
+          <label htmlFor="lst-margin">{t("applyMargin")}</label>
+          <Input id="lst-margin" type="number" min={0} className="h-8 w-16 font-mono" value={margin} onChange={(e) => setMargin(e.target.value)} />
+          <span>%</span>
+          <Button size="sm" variant="secondary" disabled={busy || !rows?.length} onClick={() => reprice(false)}>{t("applyAll")}</Button>
+          <Button size="sm" variant="secondary" disabled={busy || lowCount === 0} onClick={() => reprice(true)}>{t("applyLow", { n: lowCount })}</Button>
+        </div>
+      </div>
 
       <div className="overflow-x-auto rounded-lg border border-line bg-card">
         <table className="w-full text-[13px]">
           <thead className="bg-surface text-[11px] uppercase tracking-wider text-faint">
             <tr>
-              <th className="p-2 text-left">{t("product")}</th>
-              <th className="p-2 text-left">{t("sku")}</th>
-              <th className="p-2 text-right">{t("cost")}</th>
-              <th className="p-2 text-right">{t("price")}</th>
-              <th className="p-2 text-right">{t("margin")}</th>
-              <th className="p-2 text-right">{t("stock")}</th>
-              <th className="p-2 text-left">{t("sync")}</th>
-              <th className="p-2"></th>
+              <th className="p-2.5 text-left">{t("productVariant")}</th>
+              <th className="p-2.5 text-right">{t("cost")}</th>
+              <th className="p-2.5 text-right">{t("price")}</th>
+              <th className="p-2.5 text-right">{t("margin")}</th>
+              <th className="p-2.5 text-right">{t("stock")}</th>
+              <th className="p-2.5 text-left">{t("status")}</th>
+              <th className="p-2.5 text-right">{t("sell")}</th>
             </tr>
           </thead>
           <tbody>
-            {rows === null && <tr><td colSpan={8} className="p-6 text-center"><Spinner /></td></tr>}
-            {rows?.map((r) => (
-              <tr key={r.listing_id} className={cn("border-t border-line", !r.variant_active && "opacity-60")}>
-                <td className="p-2 align-top">
-                  <Link href={`${productBase}/${r.public_key}`} className="text-fg hover:text-iris">{r.product_title}</Link>
-                  <div className="text-[11px] text-faint">
-                    {r.variant_name} · <Tag tone={r.product_status === "active" ? "good" : "neutral"}>{r.product_status}</Tag>
-                    {!r.variant_active && <Tag tone="neutral" className="ml-1">{t("variantOff")}</Tag>}
-                  </div>
-                </td>
-                <td className="p-2 align-top max-w-[260px]">
-                  <div className="text-[12px] text-muted truncate" title={r.external_name ?? ""}>{r.external_name ?? "—"}</div>
-                  <div className="text-[11px] font-mono text-faint">#{r.external_id}</div>
-                </td>
-                <td className="p-2 align-top text-right font-mono tabular-nums">{formatLedgerMoney(r.cost_price, locale)}</td>
-                <td className="p-2 align-top text-right">
-                  <input
-                    id={`lst-price-${r.listing_id}`}
-                    className="h-8 w-28 rounded-md border border-line bg-surface px-2 text-right font-mono text-[13px] tabular-nums focus:border-iris"
-                    type="number" min={0} step={500}
-                    value={editing[r.listing_id] ?? r.price}
-                    onChange={(e) => setEditing((s) => ({ ...s, [r.listing_id]: e.target.value }))}
-                    onBlur={() => savePrice(r)}
-                    onKeyDown={(e) => { if (e.key === "Enter") (e.target as HTMLInputElement).blur(); }}
-                  />
-                </td>
-                <td className={cn("p-2 align-top text-right font-mono tabular-nums", r.margin_ok ? "text-good" : "text-warn")}>
-                  {r.margin_pct == null ? "—" : `${r.margin_pct}%`}
-                  {!r.margin_ok && <AlertTriangle className="inline h-3.5 w-3.5 ml-1" />}
-                </td>
-                <td className={cn("p-2 align-top text-right font-mono tabular-nums", r.sellable === 0 ? "text-bad" : r.sellable < 50 ? "text-warn" : "text-good")}>{r.sellable.toLocaleString()}</td>
-                <td className="p-2 align-top text-[12px]">
-                  {r.sync_error
-                    ? <Tag tone={r.sync_error === "delisted" ? "bad" : "warn"}>{r.sync_error === "delisted" ? t("delisted") : r.sync_error}</Tag>
-                    : <span className="text-faint">{r.synced_at ? new Date(r.synced_at).toLocaleTimeString(locale) : "—"}</span>}
-                </td>
-                <td className="p-2 align-top text-right whitespace-nowrap">
-                  <Button size="sm" variant="ghost" onClick={() => toggleActive(r)}>{r.variant_active ? t("pause") : t("resume")}</Button>
-                  <Button size="sm" variant="ghost" onClick={() => setConfirmDetach(r)} aria-label={t("detach")}><Trash className="h-4 w-4" /></Button>
-                </td>
-              </tr>
+            {rows === null && <tr><td colSpan={7} className="p-6 text-center"><Spinner /></td></tr>}
+            {groups.map((g) => (
+              <ProductRows
+                key={g.product_id} g={g} open={!collapsed.has(g.product_id)} onToggle={() => toggleCollapse(g.product_id)}
+                productHref={`${productBase}/${g.public_key}`} others={allProducts.filter((p) => p.product_id !== g.product_id)}
+                editing={editing} setEditing={setEditing} savePrice={savePrice} toggleActive={toggleActive}
+                onAddVariant={() => setDrawer({ presetProductId: g.product_id })}
+                onMove={moveTo} onChangeSku={setChangeSku} onDetach={setConfirmDetach}
+                format={(n: number) => formatLedgerMoney(n, locale)}
+              />
             ))}
-            {rows && rows.length === 0 && <tr><td colSpan={8} className="p-6 text-center text-muted">{t("noListings")}</td></tr>}
+            {rows && rows.length === 0 && (
+              <tr><td colSpan={7} className="p-8 text-center text-muted">
+                {t("noListings")}
+                <div className="mt-3"><Button size="sm" onClick={() => setDrawer({ presetProductId: null })}><Plus className="h-3.5 w-3.5" />{t("addProducts")}</Button></div>
+              </td></tr>
+            )}
+            {rows && rows.length > 0 && groups.length === 0 && <tr><td colSpan={7} className="p-6 text-center text-muted">{t("noMatch")}</td></tr>}
           </tbody>
         </table>
       </div>
+      <p className="text-[12px] text-faint">{t("tableHint")}</p>
+
+      {drawer && source && (
+        <AddProductsDrawer
+          area={area} source={source} existing={existing} presetProductId={drawer.presetProductId}
+          onClose={() => setDrawer(null)}
+          onDone={(n) => { setDrawer(null); setNotice(t("importDone", { n })); void load(); }}
+        />
+      )}
+
+      {changeSku && (
+        <ChangeSkuDialog
+          area={area} sourceId={sourceId} row={changeSku} onClose={() => setChangeSku(null)}
+          onPick={async (item) => {
+            try {
+              patchRow(await api.sources.updateListing(area, changeSku.listing_id, { external_id: item.external_id }));
+              setChangeSku(null);
+              setNotice(t("skuChanged"));
+            } catch (e) { setError(apiErrorMessage(e)); }
+          }}
+        />
+      )}
 
       <Dialog open={confirmDetach !== null} onOpenChange={(o) => { if (!o && !busy) setConfirmDetach(null); }}>
         <DialogContent className="max-w-sm border-line bg-surface p-5 text-fg">
           <DialogHeader><DialogTitle className="text-[15px] font-bold">{t("detachTitle")}</DialogTitle></DialogHeader>
-          <p className="text-[12.5px] text-muted">{t("detachBody", { name: confirmDetach?.product_title ?? "" })}</p>
+          <p className="text-[12.5px] text-muted">{t("detachBody", { name: confirmDetach ? `${confirmDetach.product_title} · ${confirmDetach.variant_name}` : "" })}</p>
           <DialogFooter className="mt-2 flex-row justify-end gap-2">
             <Button size="sm" variant="ghost" onClick={() => setConfirmDetach(null)} disabled={busy}>{t("cancel")}</Button>
             <Button size="sm" variant="danger" onClick={detach} disabled={busy}>{t("detach")}</Button>
@@ -582,5 +274,153 @@ function ListingsTable({ area, source, refreshKey, onChanged }: {
         </DialogContent>
       </Dialog>
     </div>
+  );
+}
+
+/* ------------------------------------------------------------------ */
+/* Một sản phẩm = dòng đầu (mở/thu) + các dòng phân loại               */
+/* ------------------------------------------------------------------ */
+
+function ProductRows({ g, open, onToggle, productHref, others, editing, setEditing, savePrice, toggleActive, onAddVariant, onMove, onChangeSku, onDetach, format }: {
+  g: ListingGroup; open: boolean; onToggle: () => void; productHref: string; others: ListingGroup[];
+  editing: Record<number, string>; setEditing: React.Dispatch<React.SetStateAction<Record<number, string>>>;
+  savePrice: (r: SourceListing) => void; toggleActive: (r: SourceListing, next: boolean) => void;
+  onAddVariant: () => void; onMove: (r: SourceListing, productId: number) => void;
+  onChangeSku: (r: SourceListing) => void; onDetach: (r: SourceListing) => void;
+  format: (n: number) => string;
+}) {
+  const t = useTranslations("sellerSources");
+  const status = g.delisted > 0
+    ? <Tag tone="warn">{t("productDelisted", { n: g.delisted })}</Tag>
+    : g.lowMargin > 0 ? <Tag tone="bad">{t("productLowMargin", { n: g.lowMargin })}</Tag>
+    : g.product_status !== "active" ? <Tag tone="neutral">{t(`pstatus_${g.product_status}`)}</Tag>
+    : g.active === 0 ? <Tag tone="neutral">{t("allPaused")}</Tag>
+    : <Tag tone="good">{t("selling")}</Tag>;
+  return (
+    <>
+      <tr className="border-t border-line bg-surface/70">
+        <td className="p-2" colSpan={5}>
+          <div className="flex flex-wrap items-center gap-2">
+            <button type="button" onClick={onToggle} className="inline-flex items-center gap-1.5 text-fg" aria-expanded={open}>
+              {open ? <ChevronDown className="h-4 w-4 text-muted" /> : <ChevronRight className="h-4 w-4 text-muted" />}
+              <span className="font-semibold">{g.product_title}</span>
+            </button>
+            <span className="text-[12px] text-faint">{t("variantsN", { n: g.rows.length })}</span>
+          </div>
+        </td>
+        <td className="p-2">{status}</td>
+        <td className="p-2 text-right whitespace-nowrap">
+          <Button size="sm" variant="ghost" onClick={onAddVariant}><Plus className="h-3.5 w-3.5" />{t("variant")}</Button>
+          <Link href={productHref}><Button size="sm" variant="ghost">{t("productPage")}</Button></Link>
+        </td>
+      </tr>
+      {open && g.rows.map((r) => {
+        const delisted = Boolean(r.sync_error);
+        const low = !delisted && !r.margin_ok;
+        return (
+          <tr key={r.listing_id} className={cn("border-t border-line/60", delisted && "bg-warn-soft/40", low && "bg-bad-soft/30", !r.variant_active && !delisted && !low && "opacity-60")}>
+            <td className="p-2 pl-9">
+              <div className="text-fg">{r.variant_name}</div>
+              <div className="text-[11px] text-faint">
+                <span className="font-mono">#{r.external_id}</span>{r.external_name && <span className="ml-1 truncate">· {r.external_name}</span>}
+              </div>
+            </td>
+            <td className="p-2 text-right font-mono tabular-nums text-muted">{delisted ? "—" : format(r.cost_price)}</td>
+            <td className="p-2 text-right">
+              <input
+                id={`lst-price-${r.listing_id}`}
+                className="h-8 w-24 rounded-md border border-line bg-card px-2 text-right font-mono text-[13px] tabular-nums focus:border-iris"
+                type="number" min={0} step={500}
+                value={editing[r.listing_id] ?? r.price}
+                onChange={(e) => setEditing((s) => ({ ...s, [r.listing_id]: e.target.value }))}
+                onBlur={() => savePrice(r)}
+                onKeyDown={(e) => { if (e.key === "Enter") (e.target as HTMLInputElement).blur(); }}
+                aria-label={t("price")}
+              />
+            </td>
+            <td className={cn("p-2 text-right font-mono tabular-nums font-semibold", delisted ? "text-faint" : r.margin_ok ? "text-good" : "text-bad")}>
+              {r.margin_pct == null || delisted ? "—" : `${Math.round(r.margin_pct)}%`}
+            </td>
+            <td className={cn("p-2 text-right font-mono tabular-nums", r.sellable === 0 ? "text-bad" : r.sellable < 50 ? "text-warn" : "text-fg")}>{delisted ? "—" : r.sellable.toLocaleString()}</td>
+            <td className="p-2">
+              {delisted ? <Tag tone="warn"><AlertTriangle className="h-3 w-3" />{t("delisted")}</Tag>
+                : low ? <Tag tone="bad">{t("lowMarginTag")}</Tag>
+                : r.variant_active ? <Tag tone="good">{t("selling")}</Tag>
+                : <Tag tone="neutral">{t("paused")}</Tag>}
+            </td>
+            <td className="p-2 text-right whitespace-nowrap">
+              <div className="inline-flex items-center gap-1.5">
+                {delisted && <Button size="sm" variant="secondary" onClick={() => onChangeSku(r)}>{t("changeSku")}</Button>}
+                <Select id={`lst-more-${r.listing_id}`} className="h-8 w-[34px] px-1 text-[12px]" value="" aria-label={t("more")}
+                  onChange={(e) => {
+                    const v = e.target.value;
+                    if (v === "sku") onChangeSku(r);
+                    else if (v === "detach") onDetach(r);
+                    else if (v.startsWith("move:")) onMove(r, Number(v.slice(5)));
+                  }}>
+                  <option value="">⋯</option>
+                  {others.map((o) => <option key={o.product_id} value={`move:${o.product_id}`}>{t("moveToProduct", { title: o.product_title })}</option>)}
+                  <option value="sku">{t("changeSku")}</option>
+                  <option value="detach">{t("detach")}</option>
+                </Select>
+                <Switch checked={r.variant_active} onChange={(next) => toggleActive(r, next)} label={t("sell")} />
+              </div>
+            </td>
+          </tr>
+        );
+      })}
+    </>
+  );
+}
+
+/* ------------------------------------------------------------------ */
+/* Đổi SKU cho một phân loại (khi nguồn gỡ SKU cũ)                     */
+/* ------------------------------------------------------------------ */
+
+function ChangeSkuDialog({ area, sourceId, row, onClose, onPick }: {
+  area: SourceArea; sourceId: number; row: SourceListing; onClose: () => void; onPick: (item: SourceCatalogItem) => void;
+}) {
+  const t = useTranslations("sellerSources");
+  const locale = useLocale();
+  const { formatLedgerMoney } = useMoney();
+  const [q, setQ] = useState(row.external_name ? row.external_name.split(" ").slice(0, 2).join(" ") : "");
+  const [items, setItems] = useState<SourceCatalogItem[]>([]);
+  const [loading, setLoading] = useState(false);
+
+  useEffect(() => {
+    const h = setTimeout(async () => {
+      setLoading(true);
+      try {
+        setItems((await api.sources.catalog(area, sourceId, { q, in_stock: true, per_page: 12 })).items);
+      } finally { setLoading(false); }
+    }, 200);
+    return () => clearTimeout(h);
+  }, [area, sourceId, q]);
+
+  return (
+    <Dialog open onOpenChange={(o) => { if (!o) onClose(); }}>
+      <DialogContent className="max-w-lg border-line bg-surface p-5 text-fg">
+        <DialogHeader><DialogTitle className="text-[15px] font-bold">{t("changeSkuTitle", { name: row.variant_name })}</DialogTitle></DialogHeader>
+        <div className="relative">
+          <Search className="absolute left-2.5 top-1/2 h-4 w-4 -translate-y-1/2 text-faint" />
+          <Input id="sku-q" className="h-9 pl-8" value={q} onChange={(e) => setQ(e.target.value)} placeholder={t("searchPlaceholder")} autoFocus />
+        </div>
+        <div className="max-h-72 divide-y divide-line overflow-y-auto rounded-md border border-line">
+          {loading && items.length === 0 && <div className="p-4 text-center"><Spinner /></div>}
+          {items.map((it) => (
+            <button key={it.external_id} type="button" onClick={() => onPick(it)} className="flex w-full items-center gap-3 px-3 py-2 text-left text-[13px] hover:bg-card">
+              <span className="min-w-0 flex-1">
+                <span className="block truncate text-fg">{it.name}</span>
+                <span className="text-[11px] text-faint"><span className="font-mono">#{it.external_id}</span> · {it.group_name}</span>
+              </span>
+              <span className="font-mono text-[12px] tabular-nums text-muted">{formatLedgerMoney(it.cost_price, locale)}</span>
+              <span className="font-mono text-[12px] tabular-nums text-good">{it.amount.toLocaleString()}</span>
+            </button>
+          ))}
+          {!loading && items.length === 0 && <p className="p-4 text-center text-[13px] text-muted">{t("noMatch")}</p>}
+        </div>
+        <DialogFooter className="mt-1 flex-row justify-end"><Button size="sm" variant="ghost" onClick={onClose}>{t("cancel")}</Button></DialogFooter>
+      </DialogContent>
+    </Dialog>
   );
 }

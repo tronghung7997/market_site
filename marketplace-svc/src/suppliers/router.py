@@ -24,16 +24,21 @@ class SourceSummary(BaseModel):
     id: int
     name: str
     adapter_type: str
+    kind: Literal["catalog", "server"] = "catalog"
     is_active: bool
     review_status: str
     seller_id: int | None
     seller_email: str | None
+    seller_is_internal: bool = False
     min_margin_pct: float
     low_balance_vnd: int | float | str | None = None
     catalog_count: int
     catalog_synced_at: datetime | None
     listing_count: int
     listing_error_count: int
+    listing_low_margin_count: int = 0
+    product_count: int = 0
+    attention_count: int = 0
     last_test_result: dict | None = None
     last_tested_at: datetime | None = None
 
@@ -49,6 +54,9 @@ class ImportItem(BaseModel):
     warranty_text: str | None = Field(default=None, max_length=8000)
     service_type: str | None = Field(default=None, max_length=50)
     escrow_days: int | None = Field(default=None, ge=0, le=90)
+    # Gộp: thêm vào sản phẩm có sẵn, hoặc các item cùng group_key → 1 sản phẩm mới
+    product_id: int | None = None
+    group_key: str | None = Field(default=None, max_length=64)
 
 
 class ImportRequest(BaseModel):
@@ -67,6 +75,25 @@ class ListingUpdate(BaseModel):
     variant_name: str | None = Field(default=None, max_length=255)
     external_id: str | None = Field(default=None, max_length=100)
     is_active: bool | None = None
+    product_id: int | None = None   # chuyển phân loại sang sản phẩm khác
+
+
+class NewSeller(BaseModel):
+    email: str = Field(min_length=3, max_length=255)
+    business_name: str = Field(min_length=1, max_length=255)
+
+
+class SourceCreate(BaseModel):
+    adapter_type: str
+    name: str = Field(min_length=1, max_length=255)
+    config: dict = {}
+    seller_id: int | None = None
+    new_seller: NewSeller | None = None
+
+
+class SourceTestRequest(BaseModel):
+    adapter_type: str
+    config: dict = {}
 
 
 class RepriceRequest(BaseModel):
@@ -163,5 +190,30 @@ def _routes(prefix: str, role: str):
     return r
 
 
+# --- wizard "Thêm nguồn" (admin) — khai báo TRƯỚC /admin/sources/{provider_id}
+admin_extra = APIRouter(prefix="/admin/sources")
+
+
+@admin_extra.get("/kinds")
+async def source_kinds(_: Account = Depends(require_role("admin"))):
+    return sources.list_source_kinds()
+
+
+@admin_extra.get("/sellers")
+async def seller_candidates(_: Account = Depends(require_role("admin")), db: AsyncSession = Depends(get_session)):
+    return await sources.list_seller_candidates(db)
+
+
+@admin_extra.post("/test")
+async def test_config(body: SourceTestRequest, _: Account = Depends(require_role("admin")), db: AsyncSession = Depends(get_session)):
+    return await sources.test_source_config(body.adapter_type, body.config, db)
+
+
+@admin_extra.post("", status_code=201)
+async def create_source(body: SourceCreate, admin: Account = Depends(require_role("admin")), db: AsyncSession = Depends(get_session)):
+    return await sources.create_source(body.model_dump(), db, actor_id=admin.id)
+
+
 router.include_router(_routes("/seller/sources", "seller"))
+router.include_router(admin_extra)
 router.include_router(_routes("/admin/sources", "admin"))

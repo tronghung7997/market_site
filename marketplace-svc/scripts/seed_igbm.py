@@ -133,6 +133,8 @@ async def _get_or_create_seller(db) -> int:
         if "seller" not in (account.roles or []):
             account.roles = [*(account.roles or []), "seller"]
         print(f"= seller #{account.id}: {SELLER_EMAIL}")
+    # Seller nội bộ: mở khu "Nguồn cung" bên seller (accounts.is_internal).
+    account.is_internal = True
     await db.flush()
     # Thiếu ví thì escrow_release/refund 404 và kẹt cả batch job (bài học seed TopProxy).
     if await db.scalar(select(Wallet).where(Wallet.account_id == account.id)) is None:

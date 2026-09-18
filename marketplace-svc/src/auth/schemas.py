@@ -58,6 +58,7 @@ class AccountResponse(BaseModel):
     email: str
     roles: list[str]
     seller_tier: str
+    is_internal: bool = False
 
     model_config = {"from_attributes": True}
 
@@ -68,6 +69,7 @@ class AccountAdminRow(BaseModel):
     roles: list[str]
     is_active: bool
     seller_tier: str
+    is_internal: bool = False
     created_at: datetime
 
     model_config = {"from_attributes": True}
@@ -86,3 +88,7 @@ class UpdateRolesRequest(BaseModel):
 
 class UpdateSellerTierRequest(BaseModel):
     seller_tier: str
+
+
+class UpdateInternalRequest(BaseModel):
+    is_internal: bool

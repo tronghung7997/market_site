@@ -5,7 +5,7 @@ import { useTranslations } from "next-intl";
 import { useEffect, useRef } from "react";
 import { useAuth } from "@/lib/auth";
 import { cn } from "@/lib/cn";
-import { Activity, BarChart, Edit2, Inbox, Layers, MessageCircle, Package, Store, Rows, Wallet } from "@/components/Icons";
+import { BarChart, Edit2, Inbox, Layers, MessageCircle, Package, Store, Rows, Wallet } from "@/components/Icons";
 import { Spinner } from "@/components/ui";
 import type { ReactNode } from "react";
 
@@ -22,8 +22,9 @@ export default function SellerLayout({ children }: { children: ReactNode }) {
     { href: "/seller/orders", label: t("orders"), icon: Inbox },
     { href: "/messages", label: t("messages"), icon: MessageCircle },
     { href: "/seller/withdrawals", label: t("withdrawals"), icon: Wallet },
-    { href: "/seller/sources", label: t("sources"), icon: Layers },
-    { href: "/seller/providers", label: t("providers"), icon: Activity },
+    // Khu "Nguồn cung" chỉ dành cho seller nội bộ (admin bật cờ is_internal);
+    // "Kết nối server" cũng nằm trong đó, seller thường không thấy gì về nguồn.
+    ...(account?.is_internal ? [{ href: "/seller/sources", label: t("sources"), icon: Layers }] : []),
   ];
 
   useEffect(() => {

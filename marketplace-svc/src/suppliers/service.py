@@ -265,6 +265,14 @@ async def sync_provider_listings(provider: Provider, db: AsyncSession) -> SyncRe
 
     by_id = {up.external_id: up for up in catalog}
     report.catalog_items = await replace_catalog_snapshot(provider.id, catalog, db)
+    # Số dư nhà cung cấp hiện ở bảng Nguồn hàng — cập nhật cùng nhịp với catalog
+    # (read-only, không tốn tiền) thay vì chờ admin bấm Test.
+    try:
+        health = await adapter.check_health()
+        provider.last_test_result = {"health": health, "provision_test": None, "source": "sync"}
+        provider.last_tested_at = datetime.now(timezone.utc)
+    except Exception:  # noqa: BLE001 — số dư chỉ là thông tin phụ, không chặn sync
+        pass
     min_margin = _min_margin_pct(provider)
     variant_ids = [lst.variant_id for lst in listings]
     variants = {

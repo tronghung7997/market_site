@@ -226,3 +226,130 @@ async def test_admin_import_needs_owner_when_source_unassigned(client, mock_igbm
         assert (await db.get(Product, resp.json()[0]["product_id"])).seller_id == seller_id
         assert await db.scalar(select(SupplierCatalogItem).where(SupplierCatalogItem.external_id == "32749")) is not None
         assert await db.scalar(select(ProductVariant).where(ProductVariant.id == resp.json()[0]["variant_id"])) is not None
+
+
+# ----------------------------------------------------------------------
+# Gộp nhiều SKU thành một sản phẩm nhiều phân loại; chuyển phân loại
+# ----------------------------------------------------------------------
+
+@pytest.mark.asyncio
+async def test_import_groups_skus_into_one_product_and_moves_variant(client, mock_igbm):
+    ctx = await _setup(client)
+    await _assign_to_seller(ctx)
+    await client.post(f"/seller/sources/{ctx['provider_id']}/sync", headers=_h(ctx["seller"]))
+    cat_id = ctx["product"]["category_id"]
+
+    resp = await client.post(f"/seller/sources/{ctx['provider_id']}/import", json={"items": [
+        {"external_id": "32749", "category_id": cat_id, "title": "Hotmail", "variant_name": "Trusted",
+         "group_key": "g1", "status": "active"},
+        {"external_id": "157393", "category_id": cat_id, "variant_name": "Proxy 30 ngày", "group_key": "g1",
+         "price": 5000},
+        # thêm phân loại vào sản phẩm có sẵn của ctx
+        {"external_id": "59917", "category_id": cat_id, "variant_name": "Gmail 2FA",
+         "product_id": ctx["product"]["id"], "price": 5000},
+    ]}, headers=_h(ctx["seller"]))
+    assert resp.status_code == 201, resp.text
+    created = resp.json()
+    assert created[0]["product_id"] == created[1]["product_id"]
+    assert created[0]["product_title"] == "Hotmail"
+    assert created[2]["product_id"] == ctx["product"]["id"]
+
+    rows = (await client.get(f"/seller/sources/{ctx['provider_id']}/listings", headers=_h(ctx["seller"]))).json()
+    by_product: dict[int, list] = {}
+    for r in rows:
+        by_product.setdefault(r["product_id"], []).append(r["variant_name"])
+    assert sorted(by_product[created[0]["product_id"]]) == ["Proxy 30 ngày", "Trusted"]
+    assert "Gmail 2FA" in by_product[ctx["product"]["id"]]
+
+    # Chuyển "Gmail 2FA" sang sản phẩm Hotmail.
+    listing_id = created[2]["listing_id"]
+    resp = await client.patch(f"/seller/sources/listings/{listing_id}",
+                              json={"product_id": created[0]["product_id"]}, headers=_h(ctx["seller"]))
+    assert resp.status_code == 200 and resp.json()["product_id"] == created[0]["product_id"]
+
+    # Sản phẩm của seller khác → 404.
+    other = await register_and_login(client, "ig_other2@example.com")
+    await make_seller("ig_other2@example.com")
+    resp = await client.post("/seller/products", json={
+        "category_id": cat_id, "title": "Của người khác", "description": "x", "pricing_strategy": "fixed",
+    }, headers=_h(other))
+    if resp.status_code == 201:
+        resp = await client.patch(f"/seller/sources/listings/{listing_id}",
+                                  json={"product_id": resp.json()["id"]}, headers=_h(ctx["seller"]))
+        assert resp.status_code == 404
+
+
+# ----------------------------------------------------------------------
+# Wizard admin: kinds → test config → tạo nguồn + giao/tạo seller nội bộ
+# ----------------------------------------------------------------------
+
+@pytest.mark.asyncio
+async def test_admin_wizard_creates_source_with_new_internal_seller(client, mock_igbm):
+    ctx = await _setup(client)
+    admin = _h(ctx["admin"])
+    from tests.test_igbm_adapter import MOCK_KEY
+
+    kinds = (await client.get("/admin/sources/kinds", headers=admin)).json()
+    igbm = next(k for k in kinds if k["adapter_type"] == "igbm")
+    assert igbm["kind"] == "catalog" and any(f["key"] == "api_key" and f["secret"] for f in igbm["fields"])
+
+    # Test config chưa lưu: key sai → không ok; key đúng → ok + số dư.
+    bad = (await client.post("/admin/sources/test", json={
+        "adapter_type": "igbm", "config": {"base_url": "http://igbm.test", "api_key": "wrong"},
+    }, headers=admin)).json()
+    assert bad["ok"] is False
+    good = (await client.post("/admin/sources/test", json={
+        "adapter_type": "igbm", "config": {"base_url": "http://igbm.test", "api_key": MOCK_KEY},
+    }, headers=admin)).json()
+    assert good["ok"] is True and "balance_vnd" in good["health"]
+
+    resp = await client.post("/admin/sources", json={
+        "adapter_type": "igbm", "name": "Shop tài khoản B",
+        "config": {"base_url": "http://igbm.test", "api_key": MOCK_KEY, "min_margin_pct": 10},
+        "new_seller": {"email": "Internal-B@example.com", "business_name": "Cửa hàng B"},
+    }, headers=admin)
+    assert resp.status_code == 201, resp.text
+    body = resp.json()
+    assert body["kind"] == "catalog" and body["catalog_items"] == 11 and body["seller_email"] == "internal-b@example.com"
+
+    sellers = (await client.get("/admin/sources/sellers", headers=admin)).json()
+    me = next(s for s in sellers if s["id"] == body["seller_id"])
+    assert me["is_internal"] and me["business_name"] == "Cửa hàng B" and me["source_count"] == 1
+    assert sellers[0]["is_internal"]  # nội bộ xếp trước
+
+    # Nguồn xuất hiện trong danh sách admin với seller nội bộ; email trùng → 400.
+    rows = (await client.get("/admin/sources", headers=admin)).json()
+    row = next(r for r in rows if r["id"] == body["provider_id"])
+    assert row["seller_is_internal"] and row["catalog_count"] == 11
+    resp = await client.post("/admin/sources", json={
+        "adapter_type": "igbm", "name": "Trùng", "config": {"base_url": "http://igbm.test", "api_key": MOCK_KEY},
+        "new_seller": {"email": "internal-b@example.com", "business_name": "B"},
+    }, headers=admin)
+    assert resp.status_code == 400
+
+
+@pytest.mark.asyncio
+async def test_internal_flag_gates_seller_and_is_set_when_assigning(client, mock_igbm):
+    ctx = await _setup(client)
+    admin = _h(ctx["admin"])
+    me = (await client.get("/me", headers=_h(ctx["seller"]))).json()
+    assert me["is_internal"] is False
+    seller_id = await _assign_to_seller(ctx)
+
+    resp = await client.patch(f"/admin/accounts/{seller_id}/internal", json={"is_internal": True}, headers=admin)
+    assert resp.status_code == 200 and resp.json()["is_internal"] is True
+    assert (await client.get("/me", headers=_h(ctx["seller"]))).json()["is_internal"] is True
+
+    # Giao nguồn qua wizard cho seller có sẵn cũng bật cờ.
+    other = await register_and_login(client, "ig_plain@example.com")
+    await make_seller("ig_plain@example.com")
+    other_id = (await client.get("/me", headers=_h(other))).json()["id"]
+    from tests.test_igbm_adapter import MOCK_KEY
+    resp = await client.post("/admin/sources", json={
+        "adapter_type": "igbm", "name": "Shop C", "config": {"base_url": "http://igbm.test", "api_key": MOCK_KEY},
+        "seller_id": other_id,
+    }, headers=admin)
+    assert resp.status_code == 201, resp.text
+    assert (await client.get("/me", headers=_h(other))).json()["is_internal"] is True
+    mine = (await client.get("/seller/sources", headers=_h(other))).json()
+    assert [s["name"] for s in mine] == ["Shop C"] and mine[0]["kind"] == "catalog"

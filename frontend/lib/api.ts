@@ -13,6 +13,7 @@ import type { PaginatedDisputes, SitePageAdmin, SitePageCreate, SitePageUpdate }
 import type {
   SourceArea, SourceCatalogPage, SourceCatalogQuery, SourceImportItem, SourceImportResult, SourceListing,
   SourceRepriceResult, SourceSyncResult, SupplierSource,
+  SourceKind, SourceSellerCandidate, SourceCreateRequest, SourceCreateResult, SourceTestResult,
 } from "./types";
 import type { PaginatedAdminProducts, PaginatedInventoryVariants, PaginatedSellerProducts } from "./types";
 import type {
@@ -572,6 +573,10 @@ export const api = {
     const qs = q.toString();
     return request<PaginatedAccounts>(`/admin/accounts${qs ? `?${qs}` : ""}`, {}, true);
   },
+  adminUpdateInternal: (id: number, isInternal: boolean) =>
+    request<AccountAdminRow>(`/admin/accounts/${id}/internal`, {
+      method: "PATCH", body: JSON.stringify({ is_internal: isInternal }),
+    }, true),
   adminUpdateRoles: (id: number, roles: string[]) =>
     request<AccountAdminRow>(`/admin/accounts/${id}/roles`, { method: "PATCH", body: JSON.stringify({ roles }) }, true),
   adminUpdateSellerTier: (id: number, sellerTier: string) =>
@@ -804,7 +809,15 @@ export const api = {
       }, true),
     reprice: (area: SourceArea, id: number, body: { margin_pct: number; round_to?: number; listing_ids?: number[]; only_below_min?: boolean }) =>
       request<SourceRepriceResult>(`/${area}/sources/${id}/reprice`, { method: "POST", body: JSON.stringify(body) }, true),
-    updateListing: (area: SourceArea, listingId: number, body: { price?: number; variant_name?: string; external_id?: string; is_active?: boolean }) =>
+    kinds: () => request<SourceKind[]>(`/admin/sources/kinds`, {}, true),
+    sellers: () => request<SourceSellerCandidate[]>(`/admin/sources/sellers`, {}, true),
+    test: (adapterType: string, config: Record<string, string | number>) =>
+      request<SourceTestResult>(`/admin/sources/test`, {
+        method: "POST", body: JSON.stringify({ adapter_type: adapterType, config }),
+      }, true),
+    create: (body: SourceCreateRequest) =>
+      request<SourceCreateResult>(`/admin/sources`, { method: "POST", body: JSON.stringify(body) }, true),
+    updateListing: (area: SourceArea, listingId: number, body: { price?: number; variant_name?: string; external_id?: string; is_active?: boolean; product_id?: number }) =>
       request<SourceListing>(`/${area}/sources/listings/${listingId}`, { method: "PATCH", body: JSON.stringify(body) }, true),
     detach: (area: SourceArea, listingId: number) =>
       request<void>(`/${area}/sources/listings/${listingId}`, { method: "DELETE" }, true),

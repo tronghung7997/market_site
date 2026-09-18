@@ -82,13 +82,59 @@ def _owner_seller_id(provider: Provider, scope: SourceScope, requested: int | No
 # Danh sách nguồn
 # ----------------------------------------------------------------------
 
+SOURCE_KINDS: dict[str, dict] = {
+    # Các loại nguồn admin thêm được từ wizard "Thêm nguồn". Thêm nhà cung cấp
+    # mới = thêm adapter + một dòng ở đây (label, mô tả, ô config cần điền).
+    "igbm": {
+        "label": "Acc Station (igbm.net)", "kind": "catalog",
+        "description": "Kho tài khoản & key, hàng nghìn SKU. Mua theo từng đơn, giao ngay.",
+        "fields": [
+            {"key": "base_url", "label": "Base URL", "default": "https://igbm.net"},
+            {"key": "api_key", "label": "API key", "secret": True},
+            {"key": "low_balance_vnd", "label": "Báo khi số dư dưới (đ)", "default": 200000, "type": "number"},
+            {"key": "min_margin_pct", "label": "Lãi tối thiểu để được bán (%)", "default": 10, "type": "number"},
+        ],
+    },
+    "topproxy": {
+        "label": "TopProxy", "kind": "server",
+        "description": "Server proxy datacenter, cấp IP theo gói và thời hạn.",
+        "fields": [
+            {"key": "base_url", "label": "Base URL"},
+            {"key": "api_key", "label": "API key", "secret": True},
+        ],
+    },
+    "dproxy": {
+        "label": "DProxy", "kind": "server",
+        "description": "Proxy dân cư xoay, mua theo loại / mạng / số ngày.",
+        "fields": [
+            {"key": "base_url", "label": "Base URL"},
+            {"key": "api_key", "label": "API key", "secret": True},
+        ],
+    },
+}
+
+
+def source_kind(adapter_type: str) -> str:
+    spec = get_spec(adapter_type)
+    if spec is not None and spec.external_stock:
+        return "catalog"
+    return SOURCE_KINDS.get(adapter_type, {}).get("kind", "server")
+
+
+def list_source_kinds() -> list[dict]:
+    return [{"adapter_type": k, **v} for k, v in SOURCE_KINDS.items()]
+
+
 async def list_sources(scope: SourceScope, db: AsyncSession) -> list[dict]:
+    """Nguồn = provider catalog (external_stock) hoặc provider đã giao cho
+    seller (server proxy…). Seller chỉ thấy nguồn giao cho mình."""
     stmt = select(Provider).order_by(Provider.id)
     if not scope.is_admin:
         stmt = stmt.where(Provider.seller_id == scope.seller_id)
     providers = [
         p for p in (await db.execute(stmt)).scalars()
-        if (spec := get_spec(p.adapter_type)) and spec.external_stock
+        if get_spec(p.adapter_type) is not None
+        and (get_spec(p.adapter_type).external_stock or p.seller_id is not None)
     ]
     if not providers:
         return []
@@ -102,37 +148,49 @@ async def list_sources(scope: SourceScope, db: AsyncSession) -> list[dict]:
         .where(SupplierCatalogItem.provider_id.in_(ids)).group_by(SupplierCatalogItem.provider_id)
     )).all())
     listing_stmt = (
-        select(SupplierListing.provider_id, func.count(SupplierListing.id),
-               func.count(SupplierListing.id).filter(SupplierListing.sync_error.isnot(None)))
+        select(SupplierListing.provider_id, SupplierListing.sync_error, SupplierListing.cost_price,
+               ProductVariant.price, Product.id)
+        .join(ProductVariant, ProductVariant.id == SupplierListing.variant_id)
+        .join(Product, Product.id == ProductVariant.product_id)
         .where(SupplierListing.provider_id.in_(ids))
     )
     if not scope.is_admin:
-        listing_stmt = (
-            listing_stmt.join(ProductVariant, ProductVariant.id == SupplierListing.variant_id)
-            .join(Product, Product.id == ProductVariant.product_id)
-            .where(Product.seller_id == scope.seller_id)
-        )
-    listing_counts = {row[0]: (row[1], row[2]) for row in (await db.execute(
-        listing_stmt.group_by(SupplierListing.provider_id)
-    )).all()}
-    sellers = {}
+        listing_stmt = listing_stmt.where(Product.seller_id == scope.seller_id)
+    listing_rows = (await db.execute(listing_stmt)).all()
+    product_stmt = (
+        select(Product.provider_id, func.count(Product.id))
+        .where(Product.provider_id.in_(ids))
+    )
+    if not scope.is_admin:
+        product_stmt = product_stmt.where(Product.seller_id == scope.seller_id)
+    product_counts = dict((await db.execute(product_stmt.group_by(Product.provider_id))).all())
+    sellers: dict[int, Account] = {}
     seller_ids = {p.seller_id for p in providers if p.seller_id}
     if seller_ids:
-        sellers = {a.id: a.email for a in (await db.execute(
+        sellers = {a.id: a for a in (await db.execute(
             select(Account).where(Account.id.in_(seller_ids))
         )).scalars()}
     out = []
     for p in providers:
-        n, n_err = listing_counts.get(p.id, (0, 0))
+        min_margin = _min_margin_pct(p)
+        mine = [r for r in listing_rows if r[0] == p.id]
+        n_err = sum(1 for r in mine if r[1] is not None)
+        n_low = sum(1 for r in mine if r[1] is None and not margin_ok(r[3], r[2], min_margin))
+        seller = sellers.get(p.seller_id)
         out.append({
             "id": p.id, "name": p.name, "adapter_type": p.adapter_type,
+            "kind": source_kind(p.adapter_type),
             "is_active": p.is_active, "review_status": p.review_status,
-            "seller_id": p.seller_id, "seller_email": sellers.get(p.seller_id),
-            "min_margin_pct": _min_margin_pct(p),
+            "seller_id": p.seller_id, "seller_email": seller.email if seller else None,
+            "seller_is_internal": bool(seller.is_internal) if seller else False,
+            "min_margin_pct": min_margin,
             "low_balance_vnd": (p.config or {}).get("low_balance_vnd"),
             "catalog_count": int(catalog_counts.get(p.id, 0)),
             "catalog_synced_at": catalog_synced.get(p.id),
-            "listing_count": int(n), "listing_error_count": int(n_err),
+            "listing_count": len(mine), "listing_error_count": n_err,
+            "listing_low_margin_count": n_low,
+            "product_count": int(product_counts.get(p.id, 0)),
+            "attention_count": n_err + n_low,
             "last_test_result": p.last_test_result,
             "last_tested_at": p.last_tested_at,
         })
@@ -268,10 +326,17 @@ async def import_items(
     provider: Provider, scope: SourceScope, items: list[dict], db: AsyncSession, *,
     owner_seller_id: int | None = None,
 ) -> list[dict]:
-    """Mỗi item → 1 Product (fixed, provider này) + 1 gói + 1 listing.
+    """Nhập SKU thành sản phẩm. Mỗi item = một PHÂN LOẠI (gói) nối tới một SKU.
+
+    Gộp nhiều SKU vào một sản phẩm bằng một trong hai cách:
+    - `product_id`: thêm phân loại vào sản phẩm có sẵn (cùng seller);
+    - `group_key`: các item cùng key → một sản phẩm mới; item đầu tiên của
+      nhóm cho tên/danh mục/mô tả sản phẩm.
+    Không có cả hai → mỗi item một sản phẩm riêng (như trước).
 
     item: external_id, category_id, title, variant_name, price, status
-          ("draft"|"active"), description?, warranty_text?, service_type?
+          ("draft"|"active"), description?, warranty_text?, service_type?,
+          product_id?, group_key?
     """
     from src.products.service import create_product, create_variant
 
@@ -280,27 +345,43 @@ async def import_items(
         raise api_error(ErrorCode.PROVIDER_NOT_APPROVED, status.HTTP_400_BAD_REQUEST)
     min_margin = _min_margin_pct(provider)
     created: list[dict] = []
+    new_products: dict[str, Product] = {}   # group_key → product vừa tạo
     for spec in items:
         item = await _catalog_item(provider.id, str(spec["external_id"]), db)
-        category = await db.get(Category, int(spec["category_id"]))
-        if category is None:
-            raise api_error(ErrorCode.INVALID_PRODUCT_CONFIG, status.HTTP_400_BAD_REQUEST,
-                            detail=f"Danh mục #{spec['category_id']} không tồn tại")
         price = int(spec.get("price") or suggest_price(item.cost_price, max(min_margin, 30)))
-        title = (spec.get("title") or item.name).strip()[:255]
-        product = await create_product(seller_id, {
-            "category_id": category.id, "title": title,
-            "description": spec.get("description") or (
-                f"Giao ngay sau thanh toán.\n\nĐịnh dạng: {item.format_hint}" if item.format_hint else None
-            ),
-            "warranty_text": spec.get("warranty_text"),
-            "escrow_days": int(spec.get("escrow_days") or 1),
-            "status": ProductStatus(spec.get("status") or "draft"),
-            "service_type": spec.get("service_type") or guess_service_type(item.category_path or []),
-            "provider_id": provider.id, "pricing_strategy": "fixed",
-        }, db)
+        product: Product | None = None
+        if spec.get("product_id"):
+            product = await db.get(Product, int(spec["product_id"]))
+            if product is None or product.seller_id != seller_id:
+                raise api_error(ErrorCode.PRODUCT_NOT_FOUND, status.HTTP_404_NOT_FOUND)
+            if product.provider_id not in (None, provider.id):
+                raise api_error(ErrorCode.INVALID_PRODUCT_CONFIG, status.HTTP_400_BAD_REQUEST,
+                                detail="Sản phẩm đang dùng nguồn khác")
+            product.provider_id = provider.id
+            product.pricing_strategy = "fixed"
+        elif spec.get("group_key") and spec["group_key"] in new_products:
+            product = new_products[spec["group_key"]]
+        if product is None:
+            category = await db.get(Category, int(spec["category_id"]))
+            if category is None:
+                raise api_error(ErrorCode.INVALID_PRODUCT_CONFIG, status.HTTP_400_BAD_REQUEST,
+                                detail=f"Danh mục #{spec['category_id']} không tồn tại")
+            title = (spec.get("title") or item.name).strip()[:255]
+            product = await create_product(seller_id, {
+                "category_id": category.id, "title": title,
+                "description": spec.get("description") or (
+                    f"Giao ngay sau thanh toán.\n\nĐịnh dạng: {item.format_hint}" if item.format_hint else None
+                ),
+                "warranty_text": spec.get("warranty_text"),
+                "escrow_days": int(spec.get("escrow_days") or 1),
+                "status": ProductStatus(spec.get("status") or "draft"),
+                "service_type": spec.get("service_type") or guess_service_type(item.category_path or []),
+                "provider_id": provider.id, "pricing_strategy": "fixed",
+            }, db)
+            if spec.get("group_key"):
+                new_products[spec["group_key"]] = product
         variant = await create_variant(product.id, seller_id, {
-            "name": (spec.get("variant_name") or "1 tài khoản").strip()[:255],
+            "name": (spec.get("variant_name") or item.name or "1 tài khoản").strip()[:255],
             "price": price, "delivery_mode": DeliveryMode.instant.value,
         }, db)
         listing = await attach_listing(
@@ -310,7 +391,7 @@ async def import_items(
         await db.commit()
         created.append({
             "product_id": product.id, "product_title": product.title, "public_key": product.public_key,
-            "variant_id": variant.id, "price": price, "listing_id": listing.id,
+            "variant_id": variant.id, "variant_name": variant.name, "price": price, "listing_id": listing.id,
             "margin_ok": margin_ok(price, item.cost_price, min_margin),
         })
     return created
@@ -354,9 +435,21 @@ async def _scoped_listing(listing_id: int, scope: SourceScope, db: AsyncSession)
 async def update_listing(
     listing_id: int, scope: SourceScope, db: AsyncSession, *,
     price: int | None = None, variant_name: str | None = None, external_id: str | None = None,
-    is_active: bool | None = None,
+    is_active: bool | None = None, product_id: int | None = None,
 ) -> dict:
     listing, variant, product = await _scoped_listing(listing_id, scope, db)
+    if product_id is not None and product_id != product.id:
+        # Chuyển phân loại sang sản phẩm khác của cùng seller, cùng nguồn.
+        target = await db.get(Product, int(product_id))
+        if target is None or target.seller_id != product.seller_id:
+            raise api_error(ErrorCode.PRODUCT_NOT_FOUND, status.HTTP_404_NOT_FOUND)
+        if target.provider_id not in (None, listing.provider_id):
+            raise api_error(ErrorCode.INVALID_PRODUCT_CONFIG, status.HTTP_400_BAD_REQUEST,
+                            detail="Sản phẩm đích đang dùng nguồn khác")
+        target.provider_id = listing.provider_id
+        target.pricing_strategy = "fixed"
+        variant.product_id = target.id
+        product = target
     if price is not None:
         if price < 0:
             raise api_error(ErrorCode.INVALID_PRODUCT_CONFIG, status.HTTP_400_BAD_REQUEST)
@@ -407,7 +500,7 @@ async def list_listings(provider: Provider, scope: SourceScope, db: AsyncSession
         .join(ProductVariant, ProductVariant.id == SupplierListing.variant_id)
         .join(Product, Product.id == ProductVariant.product_id)
         .where(SupplierListing.provider_id == provider.id)
-        .order_by(Product.id.desc(), ProductVariant.sort_order, ProductVariant.id)
+        .order_by(Product.id.desc(), ProductVariant.sort_order, ProductVariant.id)  # nhóm theo sản phẩm
     )
     if not scope.is_admin:
         stmt = stmt.where(Product.seller_id == scope.seller_id)
@@ -449,4 +542,112 @@ async def sync_now(provider: Provider, db: AsyncSession) -> dict:
     return {
         "provider_id": report.provider_id, "updated": report.updated, "delisted": report.delisted,
         "low_margin": report.low_margin, "catalog_items": report.catalog_items, "error": report.error,
+    }
+
+
+# ----------------------------------------------------------------------
+# Wizard "Thêm nguồn" (admin): kiểm tra config → tạo provider → giao seller
+# ----------------------------------------------------------------------
+
+async def test_source_config(adapter_type: str, config: dict, db: AsyncSession) -> dict:
+    """Chạy check_health với config CHƯA lưu — admin thấy số dư trước khi bấm
+    Tiếp tục. Không tạo provider, không tốn tiền."""
+    spec = get_spec(adapter_type)
+    if spec is None or adapter_type not in SOURCE_KINDS:
+        raise api_error(ErrorCode.INVALID_PRODUCT_CONFIG, status.HTTP_400_BAD_REQUEST,
+                        detail="Loại nguồn không hỗ trợ")
+    if spec.validate_config is not None:
+        await spec.validate_config(config)
+    from src.security.crypto import encrypt_config
+
+    # Adapter đọc secret ở dạng đã mã hoá (như khi lấy từ DB) → mã hoá tạm.
+    adapter = spec.cls(encrypt_config(dict(config)), db=db, provider_id=None, seller_owned=False)
+    health = await adapter.check_health()
+    return {"health": health, "ok": health.get("status") in ("healthy", "warning")}
+
+
+async def list_seller_candidates(db: AsyncSession) -> list[dict]:
+    """Seller để giao nguồn: nội bộ xếp trước."""
+    rows = (await db.execute(
+        select(Account).where(Account.roles.any("seller"), Account.is_active.is_(True))
+        .order_by(Account.is_internal.desc(), Account.id)
+    )).scalars().all()
+    ids = [a.id for a in rows]
+    counts = dict((await db.execute(
+        select(Provider.seller_id, func.count(Provider.id))
+        .where(Provider.seller_id.in_(ids)).group_by(Provider.seller_id)
+    )).all()) if ids else {}
+    from src.sellers.service import approved_business_names
+    names = await approved_business_names(ids, db)
+    return [{
+        "id": a.id, "email": a.email, "is_internal": bool(a.is_internal),
+        "business_name": names.get(a.id), "source_count": int(counts.get(a.id, 0)),
+    } for a in rows]
+
+
+async def create_internal_seller(email: str, business_name: str, db: AsyncSession, *, actor_id: int | None) -> Account:
+    """Tài khoản seller nội bộ mới: role seller, cờ is_internal, tên cửa hàng
+    đã duyệt, mật khẩu ngẫu nhiên + email đặt lại mật khẩu."""
+    import secrets
+    from src.auth.service import register_account, request_password_reset
+    from src.exceptions import DuplicateEmail
+    from src.models.account import ApplicationStatus, SellerApplication
+
+    try:
+        account = await register_account(email.strip().lower(), secrets.token_urlsafe(24), db)
+    except DuplicateEmail:
+        raise api_error(ErrorCode.INVALID_PRODUCT_CONFIG, status.HTTP_400_BAD_REQUEST,
+                        detail="Email đã có tài khoản — chọn từ danh sách thay vì tạo mới")
+    account.roles = ["buyer", "seller"]
+    account.is_internal = True
+    db.add(SellerApplication(
+        account_id=account.id, business_name=business_name.strip()[:255],
+        description="Seller nội bộ (sàn vận hành)", status=ApplicationStatus.approved,
+    ))
+    await db.flush()
+    await request_password_reset(account.email, "vi", db)
+    return account
+
+
+async def create_source(data: dict, db: AsyncSession, *, actor_id: int | None) -> dict:
+    """Một bước cho cả ba việc trước đây phải làm ở ba màn: tạo provider
+    (approved, active), giao cho seller (có sẵn hoặc tạo mới, tự bật cờ nội
+    bộ), rồi đồng bộ catalog nếu là nguồn catalog.
+
+    data: adapter_type, name, config, seller_id | new_seller{email, business_name}
+    """
+    from src.providers.service import create_provider
+
+    adapter_type = data["adapter_type"]
+    if adapter_type not in SOURCE_KINDS:
+        raise api_error(ErrorCode.INVALID_PRODUCT_CONFIG, status.HTTP_400_BAD_REQUEST,
+                        detail="Loại nguồn không hỗ trợ")
+    seller: Account | None = None
+    if data.get("new_seller"):
+        ns = data["new_seller"]
+        seller = await create_internal_seller(ns["email"], ns["business_name"], db, actor_id=actor_id)
+    elif data.get("seller_id"):
+        seller = await db.get(Account, int(data["seller_id"]))
+        if seller is None or "seller" not in seller.roles:
+            raise api_error(ErrorCode.INVALID_PRODUCT_CONFIG, status.HTTP_400_BAD_REQUEST,
+                            detail="seller_id không phải tài khoản seller")
+        if not seller.is_internal:
+            seller.is_internal = True
+    provider = await create_provider({
+        "name": data["name"].strip()[:255], "adapter_type": adapter_type,
+        "config": dict(data.get("config") or {}), "is_active": True, "priority": 1,
+    }, db, actor_id=actor_id)
+    provider.review_status = "approved"
+    provider.seller_id = seller.id if seller else None
+    await db.commit()
+    report = None
+    if source_kind(adapter_type) == "catalog":
+        report = await sync_provider_listings(provider, db)
+        await db.commit()
+    return {
+        "provider_id": provider.id, "name": provider.name, "adapter_type": adapter_type,
+        "kind": source_kind(adapter_type),
+        "seller_id": seller.id if seller else None, "seller_email": seller.email if seller else None,
+        "catalog_items": report.catalog_items if report else 0,
+        "sync_error": report.error if report else None,
     }

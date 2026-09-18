@@ -23,6 +23,7 @@ from src.observability.sentry import init_sentry
 from src.notifications.router import router as notifications_router
 from src.orders.router import router as orders_router
 from src.ops.router import router as ops_router
+from src.analytics.router import router as analytics_router
 from src.search.router import router as search_router
 from src.site_pages.router import router as site_pages_router
 from src.pricing.router import router as pricing_router
@@ -162,6 +163,7 @@ app.include_router(seller_router)
 app.include_router(sellers_router)
 app.include_router(wallet_router)
 app.include_router(money_router)
+app.include_router(analytics_router)
 app.include_router(payments_router)
 app.include_router(mail_router)
 app.include_router(categories_router)

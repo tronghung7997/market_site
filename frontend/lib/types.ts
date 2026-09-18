@@ -1443,6 +1443,14 @@ export interface InventoryReportResponse {
   low_stock_threshold: number;
 }
 
+/** Admin-managed third-party analytics tag ids, edited in Settings › Analytics. */
+export interface SiteAnalyticsConfig {
+  /** Microsoft Clarity project id; null = tag not rendered. */
+  clarity_project_id: string | null;
+  updated_at: string | null;
+  updated_by_id: number | null;
+}
+
 export interface SellerRuntimeConfig {
   low_stock_threshold: number;
   inventory_export_row_limit: number;

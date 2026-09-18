@@ -15,7 +15,7 @@ import type {
   BulkResourceActionInput, InventoryExportParams, InventoryExportPreview, InventoryPackageBulkStatusResult,
   InventoryPackageDetail, InventoryPackagesResponse, InventoryPackageSort, InventoryProductStatusFilter,
   InventoryReportParams, InventoryReportResponse, InventoryStockTab, RestockPreview, RestockResult,
-  SellerResourceQuery, SellerRuntimeConfig,
+  SellerResourceQuery, SellerRuntimeConfig, SiteAnalyticsConfig,
 } from "./types";
 import {
   ApiError,
@@ -515,6 +515,9 @@ export const api = {
     q.set("format", "csv");
     return `/api/seller/inventory/report?${q}`;
   },
+  adminAnalyticsConfig: () => request<SiteAnalyticsConfig>("/admin/analytics-config", {}, true),
+  updateAdminAnalyticsConfig: (body: Pick<SiteAnalyticsConfig, "clarity_project_id">) =>
+    request<SiteAnalyticsConfig>("/admin/analytics-config", { method: "PATCH", body: JSON.stringify(body) }, true),
   adminSellerConfig: () => request<SellerRuntimeConfig>("/admin/seller-config", {}, true),
   updateAdminSellerConfig: (body: Partial<Pick<SellerRuntimeConfig, "low_stock_threshold" | "inventory_export_row_limit" | "review_window_days" | "auto_review_days" | "auto_review_enabled">>) =>
     request<SellerRuntimeConfig>("/admin/seller-config", { method: "PATCH", body: JSON.stringify(body) }, true),

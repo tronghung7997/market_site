@@ -21,17 +21,20 @@ if (
   throw new Error("Production API_URL must not target localhost");
 }
 
+// Microsoft Clarity load-balances across *.clarity.ms and beacons to c.bing.com.
+const clarityOrigins = "https://*.clarity.ms https://c.bing.com";
+
 const contentSecurityPolicy = [
   "default-src 'self'",
   "base-uri 'self'",
   "form-action 'self'",
   "frame-ancestors 'none'",
   "object-src 'none'",
-  `script-src 'self' 'unsafe-inline'${isProduction ? "" : " 'unsafe-eval'"}`,
+  `script-src 'self' 'unsafe-inline' ${clarityOrigins}${isProduction ? "" : " 'unsafe-eval'"}`,
   "style-src 'self' 'unsafe-inline'",
   "img-src 'self' data: blob: https:",
   "font-src 'self' data:",
-  `connect-src 'self'${isProduction ? "" : " ws: http://localhost:8001"}`,
+  `connect-src 'self' ${clarityOrigins}${isProduction ? "" : " ws: http://localhost:8001"}`,
 ].join("; ");
 
 const nextConfig = {

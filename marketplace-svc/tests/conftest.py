@@ -15,6 +15,7 @@ os.environ["AUTH_RATE_LIMIT_ENABLED"] = "false"
 # Sign-up email verification is exercised explicitly in test_auth_verification.py;
 # every other test creates throwaway accounts that never open a mailbox.
 os.environ["EMAIL_VERIFICATION_REQUIRED"] = "false"
+os.environ["MFA_FEATURE_ENABLED"] = "true"  # test_auth_security covers the off state explicitly
 os.environ["REQUIRE_ADMIN_2FA"] = "false"
 os.environ["REQUIRE_2FA_FOR_WITHDRAWAL"] = "false"
 os.environ["TURNSTILE_SECRET_KEY"] = ""

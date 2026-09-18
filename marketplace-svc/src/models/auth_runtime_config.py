@@ -17,10 +17,14 @@ class AuthRuntimeConfig(Base):
     require_email_verification: Mapped[bool] = mapped_column(Boolean, nullable=False, default=True, server_default="true")
     # Lifetime of the link mailed at sign-up / on resend.
     verification_link_hours: Mapped[int] = mapped_column(Integer, nullable=False, default=24, server_default="24")
+    # Master switch for TOTP two-factor. Off = nobody can enable it, sign-in
+    # never asks for a code (even for accounts that enabled it earlier), and
+    # the two policies below are ignored.
+    mfa_feature_enabled: Mapped[bool] = mapped_column(Boolean, nullable=False, default=False, server_default="false")
     # Admin accounts must have TOTP enabled before any /admin API works.
-    require_admin_2fa: Mapped[bool] = mapped_column(Boolean, nullable=False, default=True, server_default="true")
+    require_admin_2fa: Mapped[bool] = mapped_column(Boolean, nullable=False, default=False, server_default="false")
     # Withdrawals need a TOTP code (and therefore 2FA enabled on the account).
-    require_2fa_for_withdrawal: Mapped[bool] = mapped_column(Boolean, nullable=False, default=True, server_default="true")
+    require_2fa_for_withdrawal: Mapped[bool] = mapped_column(Boolean, nullable=False, default=False, server_default="false")
     # Cloudflare Turnstile site key (public). Empty = captcha off. The secret
     # stays in env (TURNSTILE_SECRET_KEY).
     turnstile_site_key: Mapped[str] = mapped_column(String(128), nullable=False, default="", server_default="")

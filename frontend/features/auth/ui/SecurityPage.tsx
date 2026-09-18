@@ -58,7 +58,9 @@ export function SecurityPage() {
         </div>
       )}
       <div className="flex flex-col gap-5">
-        <TwoFactorSection enabled={Boolean(account.totp_enabled)} autoStart={wantsSetup || Boolean(account.mfa_setup_required)} onChanged={refresh} />
+        {account.mfa_available && (
+          <TwoFactorSection enabled={Boolean(account.totp_enabled)} autoStart={wantsSetup || Boolean(account.mfa_setup_required)} onChanged={refresh} />
+        )}
         <ChangePasswordSection />
         <ChangeEmailSection currentEmail={account.email} />
         <SessionsSection />

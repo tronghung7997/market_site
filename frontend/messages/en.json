@@ -1806,6 +1806,7 @@
     "MFA_ALREADY_ENABLED": "Two-factor authentication is already enabled.",
     "MFA_NOT_ENABLED": "Two-factor authentication is not enabled.",
     "MFA_TOKEN_INVALID": "This sign-in attempt has expired. Please sign in again.",
+    "MFA_FEATURE_DISABLED": "Two-factor authentication is not available on this marketplace right now.",
     "CAPTCHA_REQUIRED": "Please complete the verification challenge.",
     "CAPTCHA_FAILED": "Verification challenge failed. Please try again.",
     "CONTENT_BLOCKED": "Your message contains contact details or links that are not allowed. Please keep the conversation on the marketplace.",
@@ -3500,7 +3501,11 @@
     "turnstileHint": "Bot check on sign-up, sign-in and password recovery. Paste the site key from the Cloudflare dashboard; the matching secret must be set on the server (TURNSTILE_SECRET_KEY). Empty = off.",
     "turnstileLabel": "Site key",
     "turnstileSecretOk": "Server secret is configured — the widget shows as soon as a site key is saved.",
-    "turnstileSecretMissing": "TURNSTILE_SECRET_KEY is not set on the server; the site key alone does nothing."
+    "turnstileSecretMissing": "TURNSTILE_SECRET_KEY is not set on the server; the site key alone does nothing.",
+    "mfaTitle": "Two-factor authentication (TOTP)",
+    "mfaHint": "Master switch. Off: nobody can set up an authenticator app, sign-in never asks for a code (even on accounts that set one up earlier), and the two rules below are ignored. Turn on when you are ready to roll it out.",
+    "mfaLabel": "Two-factor is available on the marketplace",
+    "mfaPolicyNeedsSwitch": "Takes effect only while two-factor is available."
   },
   "security": {
     "title": "Account security",

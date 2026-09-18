@@ -43,8 +43,9 @@ async def _enforce_captcha(token: str | None, request: Request, db: AsyncSession
 
 
 async def _issue_or_challenge(account: Account, db: AsyncSession, *, kind: str):
-    """Session for accounts without 2FA; a short-lived challenge otherwise."""
-    if account.totp_enabled_at is not None:
+    """Session for accounts without 2FA; a short-lived challenge otherwise.
+    With the marketplace-wide switch off, nobody is challenged."""
+    if account.totp_enabled_at is not None and await auth_settings.mfa_feature_enabled(db):
         return schemas.MfaChallengeResponse(mfa_token=mfa.issue_mfa_token(account.id, kind=kind))
     issued = await sessions.issue_session(account, db)
     return schemas.TokenResponse(access_token=issued.access_token, refresh_token=issued.refresh_token)
@@ -91,6 +92,7 @@ async def _authenticate_with_limits(
     return await service.authenticate(
         body.email, body.password, db,
         kind=kind, ip=_peer_ip(request), user_agent=_user_agent(request),
+        mfa_active=await auth_settings.mfa_feature_enabled(db),
     )
 
 
@@ -265,6 +267,7 @@ async def logout_all(
 @router.get("/me", response_model=schemas.AccountResponse)
 async def me(account=Depends(get_current_account), db: AsyncSession = Depends(get_session)):
     resp = schemas.AccountResponse.model_validate(account)
+    resp.mfa_available = await auth_settings.mfa_feature_enabled(db)
     resp.mfa_setup_required = (
         "admin" in (account.roles or [])
         and account.totp_enabled_at is None
@@ -277,7 +280,11 @@ async def me(account=Depends(get_current_account), db: AsyncSession = Depends(ge
 async def public_auth_config(db: AsyncSession = Depends(get_session)):
     cfg = await auth_settings.get_auth_settings(db)
     site_key = cfg["turnstile_site_key"] if turnstile.secret_configured() else ""
-    return {"turnstile_site_key": site_key, "require_email_verification": cfg["require_email_verification"]}
+    return {
+        "turnstile_site_key": site_key,
+        "require_email_verification": cfg["require_email_verification"],
+        "mfa_enabled": cfg["mfa_feature_enabled"],
+    }
 
 
 # ── Signed-in account security ───────────────────────────────────────────────
@@ -307,12 +314,18 @@ async def change_email(
     return None
 
 
+async def _require_mfa_feature(db: AsyncSession) -> None:
+    if not await auth_settings.mfa_feature_enabled(db):
+        raise api_error(ErrorCode.MFA_FEATURE_DISABLED, status.HTTP_403_FORBIDDEN)
+
+
 @router.post("/auth/2fa/setup", response_model=schemas.TotpSetupResponse)
 async def totp_setup(
     body: schemas.TotpSetupRequest,
     account: Account = Depends(get_current_account),
     db: AsyncSession = Depends(get_session),
 ):
+    await _require_mfa_feature(db)
     return await service.start_totp_setup(account, body.password, db)
 
 
@@ -322,6 +335,7 @@ async def totp_enable(
     account: Account = Depends(get_current_account),
     db: AsyncSession = Depends(get_session),
 ):
+    await _require_mfa_feature(db)
     await _enforce_auth_limit(f"auth:mfa:account:{account.id}", settings.auth_mfa_account_limit)
     return {"backup_codes": await service.confirm_totp_setup(account, body.code, db)}
 

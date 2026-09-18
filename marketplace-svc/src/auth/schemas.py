@@ -75,6 +75,9 @@ class AccountResponse(BaseModel):
     seller_tier: str
     email_verified: bool = True
     totp_enabled: bool = False
+    # Marketplace-wide switch: when off the security page hides 2FA and
+    # sign-in never asks for a code.
+    mfa_available: bool = False
     # Admin whose console is locked until they enable TOTP (policy on).
     mfa_setup_required: bool = False
 
@@ -137,6 +140,7 @@ class ResendVerificationRequest(BaseModel):
 class AuthRuntimeConfigResponse(BaseModel):
     require_email_verification: bool
     verification_link_hours: int
+    mfa_feature_enabled: bool
     require_admin_2fa: bool
     require_2fa_for_withdrawal: bool
     turnstile_site_key: str
@@ -149,6 +153,7 @@ class AuthRuntimeConfigResponse(BaseModel):
 class AuthRuntimeConfigUpdate(BaseModel):
     require_email_verification: bool | None = None
     verification_link_hours: int | None = Field(default=None, ge=1, le=168)
+    mfa_feature_enabled: bool | None = None
     require_admin_2fa: bool | None = None
     require_2fa_for_withdrawal: bool | None = None
     turnstile_site_key: str | None = Field(default=None, max_length=128)
@@ -157,6 +162,7 @@ class AuthRuntimeConfigUpdate(BaseModel):
 class PublicAuthConfig(BaseModel):
     turnstile_site_key: str
     require_email_verification: bool
+    mfa_enabled: bool
 
 
 class ChangePasswordRequest(BaseModel):

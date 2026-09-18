@@ -18,7 +18,7 @@ _CONFIG_ID = 1
 VERIFICATION_LINK_HOURS_RANGE = (1, 168)
 _EDITABLE = (
     "require_email_verification", "verification_link_hours",
-    "require_admin_2fa", "require_2fa_for_withdrawal", "turnstile_site_key",
+    "mfa_feature_enabled", "require_admin_2fa", "require_2fa_for_withdrawal", "turnstile_site_key",
 )
 
 _cache: ProcessConfigCache[dict] = ProcessConfigCache("auth_runtime")
@@ -28,6 +28,7 @@ def _payload(row: AuthRuntimeConfig) -> dict:
     return {
         "require_email_verification": bool(row.require_email_verification),
         "verification_link_hours": int(row.verification_link_hours),
+        "mfa_feature_enabled": bool(row.mfa_feature_enabled),
         "require_admin_2fa": bool(row.require_admin_2fa),
         "require_2fa_for_withdrawal": bool(row.require_2fa_for_withdrawal),
         "turnstile_site_key": row.turnstile_site_key or "",
@@ -45,6 +46,7 @@ async def ensure_seeded(db: AsyncSession) -> AuthRuntimeConfig:
         .values(
             id=_CONFIG_ID,
             require_email_verification=bool(settings.email_verification_required),
+            mfa_feature_enabled=bool(settings.mfa_feature_enabled),
             require_admin_2fa=bool(settings.require_admin_2fa),
             require_2fa_for_withdrawal=bool(settings.require_2fa_for_withdrawal),
         )
@@ -79,6 +81,7 @@ async def update_auth_settings(
     actor_id: int,
     require_email_verification: bool | None = None,
     verification_link_hours: int | None = None,
+    mfa_feature_enabled: bool | None = None,
     require_admin_2fa: bool | None = None,
     require_2fa_for_withdrawal: bool | None = None,
     turnstile_site_key: str | None = None,
@@ -87,6 +90,8 @@ async def update_auth_settings(
     old = _payload(row)
     if require_email_verification is not None:
         row.require_email_verification = bool(require_email_verification)
+    if mfa_feature_enabled is not None:
+        row.mfa_feature_enabled = bool(mfa_feature_enabled)
     if require_admin_2fa is not None:
         row.require_admin_2fa = bool(require_admin_2fa)
     if require_2fa_for_withdrawal is not None:
@@ -122,12 +127,18 @@ async def update_auth_settings(
     return _payload(row)
 
 
+async def mfa_feature_enabled(db: AsyncSession) -> bool:
+    return bool((await get_auth_settings(db))["mfa_feature_enabled"])
+
+
 async def admin_2fa_required(db: AsyncSession) -> bool:
-    return bool((await get_auth_settings(db))["require_admin_2fa"])
+    cfg = await get_auth_settings(db)
+    return bool(cfg["mfa_feature_enabled"] and cfg["require_admin_2fa"])
 
 
 async def withdrawal_2fa_required(db: AsyncSession) -> bool:
-    return bool((await get_auth_settings(db))["require_2fa_for_withdrawal"])
+    cfg = await get_auth_settings(db)
+    return bool(cfg["mfa_feature_enabled"] and cfg["require_2fa_for_withdrawal"])
 
 
 async def turnstile_site_key(db: AsyncSession) -> str:

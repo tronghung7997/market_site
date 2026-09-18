@@ -269,6 +269,7 @@ async def authenticate(
     kind: str = "login",
     ip: str | None = None,
     user_agent: str | None = None,
+    mfa_active: bool = True,
 ) -> Account:
     """Verify credentials and write a login-history row for the account.
 
@@ -294,7 +295,7 @@ async def authenticate(
             reason="invalid_credentials",
         )
         raise api_error(ErrorCode.INVALID_CREDENTIALS, status.HTTP_401_UNAUTHORIZED)
-    if account.totp_enabled_at is not None:
+    if account.totp_enabled_at is not None and mfa_active:
         # Password stage passed; the session is only issued after the TOTP step.
         _record_login_event(db, account.id, kind=kind, outcome="mfa_pending", ip=ip, user_agent=user_agent)
         await db.commit()

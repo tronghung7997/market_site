@@ -1806,6 +1806,7 @@
     "MFA_ALREADY_ENABLED": "Xác thực 2 lớp đã được bật.",
     "MFA_NOT_ENABLED": "Xác thực 2 lớp chưa được bật.",
     "MFA_TOKEN_INVALID": "Phiên đăng nhập này đã hết hạn. Vui lòng đăng nhập lại.",
+    "MFA_FEATURE_DISABLED": "Xác thực 2 lớp hiện chưa được bật trên sàn.",
     "CAPTCHA_REQUIRED": "Vui lòng hoàn thành bước xác minh.",
     "CAPTCHA_FAILED": "Xác minh không thành công. Vui lòng thử lại.",
     "CONTENT_BLOCKED": "Tin nhắn chứa thông tin liên hệ hoặc đường link không được phép. Vui lòng trao đổi ngay trên sàn.",
@@ -3500,7 +3501,11 @@
     "turnstileHint": "Chống bot ở đăng ký, đăng nhập, quên mật khẩu. Dán site key từ Cloudflare; secret tương ứng phải đặt trên server (TURNSTILE_SECRET_KEY). Để trống = tắt.",
     "turnstileLabel": "Site key",
     "turnstileSecretOk": "Server đã có secret — widget hiện ngay khi lưu site key.",
-    "turnstileSecretMissing": "Server chưa đặt TURNSTILE_SECRET_KEY; chỉ site key thì chưa có tác dụng."
+    "turnstileSecretMissing": "Server chưa đặt TURNSTILE_SECRET_KEY; chỉ site key thì chưa có tác dụng.",
+    "mfaTitle": "Xác thực 2 lớp (TOTP)",
+    "mfaHint": "Công tắc tổng. Tắt: không ai bật được ứng dụng xác thực, đăng nhập không hỏi mã (kể cả tài khoản đã bật trước đó), và 2 quy tắc bên dưới không có tác dụng. Bật khi sẵn sàng triển khai.",
+    "mfaLabel": "Cho phép dùng xác thực 2 lớp trên sàn",
+    "mfaPolicyNeedsSwitch": "Chỉ có tác dụng khi công tắc xác thực 2 lớp đang bật."
   },
   "security": {
     "title": "Bảo mật tài khoản",

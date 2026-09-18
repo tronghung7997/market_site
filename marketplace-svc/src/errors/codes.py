@@ -22,6 +22,7 @@ class ErrorCode(str, Enum):
     MFA_ALREADY_ENABLED = "MFA_ALREADY_ENABLED"
     MFA_NOT_ENABLED = "MFA_NOT_ENABLED"
     MFA_TOKEN_INVALID = "MFA_TOKEN_INVALID"
+    MFA_FEATURE_DISABLED = "MFA_FEATURE_DISABLED"
     CAPTCHA_REQUIRED = "CAPTCHA_REQUIRED"
     CAPTCHA_FAILED = "CAPTCHA_FAILED"
     ADMIN_LOGIN_REQUIRED = "ADMIN_LOGIN_REQUIRED"
@@ -128,6 +129,7 @@ MESSAGES_EN: dict[ErrorCode, str] = {
     ErrorCode.MFA_ALREADY_ENABLED: "Two-factor authentication is already enabled",
     ErrorCode.MFA_NOT_ENABLED: "Two-factor authentication is not enabled",
     ErrorCode.MFA_TOKEN_INVALID: "This sign-in attempt has expired. Please sign in again",
+    ErrorCode.MFA_FEATURE_DISABLED: "Two-factor authentication is not available on this marketplace right now",
     ErrorCode.CAPTCHA_REQUIRED: "Please complete the verification challenge",
     ErrorCode.CAPTCHA_FAILED: "Verification challenge failed. Please try again",
     ErrorCode.ADMIN_LOGIN_REQUIRED: "Administrator accounts must use the private admin sign-in",

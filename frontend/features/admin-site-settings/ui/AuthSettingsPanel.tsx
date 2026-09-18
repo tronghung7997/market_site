@@ -8,14 +8,16 @@ import { queryKeys } from "@/lib/query-keys";
 import { useApiErrorMessage } from "@/lib/use-api-error";
 import type { AuthRuntimeConfig } from "@/lib/types";
 import { Input } from "@/components/ui";
+import { cn } from "@/lib/cn";
 import { SettingsFooter, SettingsLoadError, SettingsLoading, SettingsRow } from "./SettingsRow";
 
 const HOURS_RANGE = { min: 1, max: 168 };
 
-type Form = { require: boolean; hours: string; adminMfa: boolean; withdrawMfa: boolean; turnstile: string };
+type Form = { require: boolean; hours: string; mfa: boolean; adminMfa: boolean; withdrawMfa: boolean; turnstile: string };
 const toForm = (cfg: AuthRuntimeConfig): Form => ({
   require: cfg.require_email_verification,
   hours: String(cfg.verification_link_hours),
+  mfa: cfg.mfa_feature_enabled,
   adminMfa: cfg.require_admin_2fa,
   withdrawMfa: cfg.require_2fa_for_withdrawal,
   turnstile: cfg.turnstile_site_key,
@@ -58,17 +60,25 @@ export function AuthSettingsPanel() {
         <Input inputMode="numeric" value={form.hours} onChange={(e) => update({ hours: e.target.value.replace(/\D/g, "") })} aria-invalid={!hoursOk} className="mt-1 h-9 w-full text-right font-mono text-[13px] tabular-nums" />
         <span className="mt-1 block text-[11px] text-faint">{t("range", { min: HOURS_RANGE.min, max: HOURS_RANGE.max })}</span>
       </SettingsRow>
-      <SettingsRow title={t("adminMfaTitle")} hint={t("adminMfaHint")}>
+      <SettingsRow title={t("mfaTitle")} hint={t("mfaHint")}>
         <span className="mt-1 flex cursor-pointer items-center gap-2 text-[12.5px] text-fg">
-          <input type="checkbox" checked={form.adminMfa} onChange={(e) => update({ adminMfa: e.target.checked })} className="h-3.5 w-3.5 rounded border-line-2 text-iris" />
-          {t("adminMfaLabel")}
+          <input type="checkbox" checked={form.mfa} onChange={(e) => update({ mfa: e.target.checked })} className="h-3.5 w-3.5 rounded border-line-2 text-iris" />
+          {t("mfaLabel")}
         </span>
       </SettingsRow>
+      <SettingsRow title={t("adminMfaTitle")} hint={t("adminMfaHint")}>
+        <span className={cn("mt-1 flex cursor-pointer items-center gap-2 text-[12.5px] text-fg", !form.mfa && "opacity-50")}>
+          <input type="checkbox" checked={form.adminMfa} disabled={!form.mfa} onChange={(e) => update({ adminMfa: e.target.checked })} className="h-3.5 w-3.5 rounded border-line-2 text-iris" />
+          {t("adminMfaLabel")}
+        </span>
+        {!form.mfa && <span className="mt-1 block text-[11px] text-faint">{t("mfaPolicyNeedsSwitch")}</span>}
+      </SettingsRow>
       <SettingsRow title={t("withdrawMfaTitle")} hint={t("withdrawMfaHint")}>
-        <span className="mt-1 flex cursor-pointer items-center gap-2 text-[12.5px] text-fg">
-          <input type="checkbox" checked={form.withdrawMfa} onChange={(e) => update({ withdrawMfa: e.target.checked })} className="h-3.5 w-3.5 rounded border-line-2 text-iris" />
+        <span className={cn("mt-1 flex cursor-pointer items-center gap-2 text-[12.5px] text-fg", !form.mfa && "opacity-50")}>
+          <input type="checkbox" checked={form.withdrawMfa} disabled={!form.mfa} onChange={(e) => update({ withdrawMfa: e.target.checked })} className="h-3.5 w-3.5 rounded border-line-2 text-iris" />
           {t("withdrawMfaLabel")}
         </span>
+        {!form.mfa && <span className="mt-1 block text-[11px] text-faint">{t("mfaPolicyNeedsSwitch")}</span>}
       </SettingsRow>
       <SettingsRow title={t("turnstileTitle")} hint={t("turnstileHint")} label={t("turnstileLabel")}>
         <Input value={form.turnstile} onChange={(e) => update({ turnstile: e.target.value.trim() })} placeholder="0x4AAAAAAA…" className="mt-1 h-9 w-full font-mono text-[12.5px]" />
@@ -86,6 +96,7 @@ export function AuthSettingsPanel() {
         onSave={() => save.mutate({
           require_email_verification: form.require,
           verification_link_hours: hoursNum,
+          mfa_feature_enabled: form.mfa,
           require_admin_2fa: form.adminMfa,
           require_2fa_for_withdrawal: form.withdrawMfa,
           turnstile_site_key: form.turnstile,

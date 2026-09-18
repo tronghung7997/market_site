@@ -6,6 +6,8 @@ export interface Account {
   /** false until the owner opens the confirmation link; gates buying/deposits/withdrawals. */
   email_verified?: boolean;
   totp_enabled?: boolean;
+  /** Marketplace-wide 2FA switch; when false the security page hides 2FA. */
+  mfa_available?: boolean;
   /** Admin whose console is shut until they enable TOTP (policy on). */
   mfa_setup_required?: boolean;
   affiliate_code?: string;
@@ -15,6 +17,7 @@ export interface Account {
 export interface AuthRuntimeConfig {
   require_email_verification: boolean;
   verification_link_hours: number;
+  mfa_feature_enabled: boolean;
   require_admin_2fa: boolean;
   require_2fa_for_withdrawal: boolean;
   turnstile_site_key: string;
@@ -1984,6 +1987,7 @@ export type LoginResult = { token_type: string; mfa_required?: false } | { mfa_r
 export interface PublicAuthConfig {
   turnstile_site_key: string;
   require_email_verification: boolean;
+  mfa_enabled: boolean;
 }
 
 export interface TotpSetup {

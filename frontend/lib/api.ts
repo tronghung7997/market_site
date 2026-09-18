@@ -152,7 +152,7 @@ export const api = {
   adminVerifyEmail: (id: number) =>
     request<AccountAdminRow>(`/admin/accounts/${id}/verify-email`, { method: "POST" }, true),
   adminAuthConfig: () => request<AuthRuntimeConfig>("/admin/auth-config", {}, true),
-  updateAdminAuthConfig: (body: Partial<Pick<AuthRuntimeConfig, "require_email_verification" | "verification_link_hours" | "require_admin_2fa" | "require_2fa_for_withdrawal" | "turnstile_site_key">>) =>
+  updateAdminAuthConfig: (body: Partial<Pick<AuthRuntimeConfig, "require_email_verification" | "verification_link_hours" | "mfa_feature_enabled" | "require_admin_2fa" | "require_2fa_for_withdrawal" | "turnstile_site_key">>) =>
     request<AuthRuntimeConfig>("/admin/auth-config", { method: "PATCH", body: JSON.stringify(body) }, true),
   forgotPassword: (email: string, locale: string, captchaToken?: string) =>
     request<{ message: string }>("/auth/forgot-password", {

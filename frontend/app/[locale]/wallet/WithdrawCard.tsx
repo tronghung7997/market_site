@@ -116,7 +116,7 @@ export function WithdrawCard({ wallet, onChanged }: {
             disabled={loading}
           />
         </div>
-        {account?.totp_enabled && (
+        {account?.mfa_available && account?.totp_enabled && (
           <div>
             <label className="block text-[11px] uppercase tracking-wider text-faint font-medium mb-1.5">
               {t("withdrawTotp")}

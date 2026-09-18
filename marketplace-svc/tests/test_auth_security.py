@@ -224,3 +224,39 @@ async def test_turnstile_enforced_only_when_site_key_and_secret_exist(client, mo
     assert login.status_code == 200
     forgot = await client.post("/auth/forgot-password", json={"email": "sec_cap2@example.com", "locale": "vi"})
     assert forgot.status_code == 400
+
+
+@pytest.mark.asyncio
+async def test_mfa_switch_off_disables_setup_challenge_and_policies(client):
+    """The marketplace-wide switch ships off: nobody can enable TOTP, an
+    account that already has it signs in with the password alone, and the
+    admin/withdrawal policies are inert until the switch is on."""
+    admin_token = await _admin(client)
+    token = await register_and_login(client, "sec_switch@example.com")
+    secret, _ = await _enable_totp(client, token)
+
+    off = await client.patch(
+        "/admin/auth-config",
+        json={"mfa_feature_enabled": False, "require_admin_2fa": True, "require_2fa_for_withdrawal": True},
+        headers=_auth(admin_token),
+    )
+    assert off.status_code == 200 and off.json()["mfa_feature_enabled"] is False
+    assert (await client.get("/public/auth-config")).json()["mfa_enabled"] is False
+
+    # Password alone signs in, even though the account has TOTP configured.
+    plain = await client.post("/auth/login", json={"email": "sec_switch@example.com", "password": PW})
+    assert plain.status_code == 200 and plain.json().get("access_token")
+    me = (await client.get("/me", headers=_auth(plain.json()["access_token"]))).json()
+    assert me["mfa_available"] is False and me["totp_enabled"] is True
+
+    # Nobody can start a setup, and the admin policy does not lock the console.
+    setup = await client.post("/auth/2fa/setup", json={"password": PW}, headers=_auth(token))
+    assert setup.status_code == 403 and setup.json()["error_code"] == "MFA_FEATURE_DISABLED"
+    assert (await client.get("/admin/accounts", headers=_auth(admin_token))).status_code == 200
+    assert (await client.get("/me", headers=_auth(admin_token))).json()["mfa_setup_required"] is False
+
+    # Switch back on: the stored policy bites immediately.
+    await client.patch("/admin/auth-config", json={"mfa_feature_enabled": True}, headers=_auth(admin_token))
+    assert (await client.get("/admin/accounts", headers=_auth(admin_token))).status_code == 403
+    challenge = await client.post("/auth/login", json={"email": "sec_switch@example.com", "password": PW})
+    assert challenge.json()["mfa_required"] is True

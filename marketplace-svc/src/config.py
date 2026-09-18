@@ -58,9 +58,11 @@ class Settings(BaseSettings):
     # Seed for auth_runtime_config.require_email_verification (admin-editable afterwards).
     email_verification_required: bool = True
     auth_verify_resend_account_limit: int = 5
-    # Seeds for auth_runtime_config; admin-editable afterwards.
-    require_admin_2fa: bool = True
-    require_2fa_for_withdrawal: bool = True
+    # Seeds for auth_runtime_config; admin-editable afterwards. Two-factor
+    # ships dormant: the admin flips it on in Settings › Accounts.
+    mfa_feature_enabled: bool = False
+    require_admin_2fa: bool = False
+    require_2fa_for_withdrawal: bool = False
     auth_mfa_account_limit: int = 10
     # Cloudflare Turnstile server secret. Empty = captcha verification off.
     turnstile_secret_key: str = ""

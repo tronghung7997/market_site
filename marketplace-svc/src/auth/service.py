@@ -12,7 +12,7 @@ from src.config import settings
 from src.audit.service import log_event
 from src.exceptions import DuplicateEmail, ErrorCode, api_error
 from src.logging import current_request_id
-from src.models.account import Account, PasswordResetToken
+from src.models.account import Account, EmailVerificationToken, PasswordResetToken
 from src.models.login_event import LoginEvent
 from src.models.wallet import Wallet
 from src.auth.utils import generate_unique_affiliate_code
@@ -65,12 +65,110 @@ def decode_access_token(token: str, *, path: str | None = None) -> dict:
         raise HTTPException(status_code=status.HTTP_401_UNAUTHORIZED, detail="Token không hợp lệ")
 
 
+def hash_verify_token(raw: str) -> str:
+    return hashlib.sha256(raw.encode("utf-8")).hexdigest()
+
+
+async def issue_email_verification(account: Account, db: AsyncSession, *, locale: str = "vi") -> None:
+    """Replace any unused link for the account and mail a fresh one. Flushes, never commits."""
+    from src.auth.settings import verification_link_hours
+    from src.mail.service import enqueue_mail, verify_email_url
+
+    loc = locale if locale in {"vi", "en"} else "vi"
+    await db.execute(
+        delete(EmailVerificationToken).where(
+            EmailVerificationToken.account_id == account.id,
+            EmailVerificationToken.used_at.is_(None),
+        )
+    )
+    raw = secrets.token_urlsafe(32)
+    token_hash = hash_verify_token(raw)
+    now = datetime.now(timezone.utc)
+    db.add(EmailVerificationToken(
+        account_id=account.id,
+        token_hash=token_hash,
+        expires_at=now + timedelta(hours=await verification_link_hours(db)),
+    ))
+    await db.flush()
+    await enqueue_mail(
+        db,
+        template="email_verify",
+        account_id=account.id,
+        idempotency_key=f"email_verify:{account.id}:{token_hash}",
+        payload={"action_url": verify_email_url(loc, raw)},
+        locale=loc,
+    )
+
+
+async def verify_email(raw_token: str, db: AsyncSession) -> Account:
+    now = datetime.now(timezone.utc)
+    token = await db.scalar(
+        select(EmailVerificationToken).where(EmailVerificationToken.token_hash == hash_verify_token(raw_token))
+    )
+    if token is None or token.used_at is not None or token.expires_at < now:
+        raise api_error(ErrorCode.VERIFY_TOKEN_INVALID, status.HTTP_400_BAD_REQUEST)
+    account = await db.get(Account, token.account_id, with_for_update=True)
+    if account is None or not account.is_active:
+        raise api_error(ErrorCode.VERIFY_TOKEN_INVALID, status.HTTP_400_BAD_REQUEST)
+    token.used_at = now
+    if account.email_verified_at is None:
+        account.email_verified_at = now
+        await log_event(
+            db, "info", f"Email verified for account {account.id}",
+            request_id=current_request_id(),
+            metadata={
+                "event": "email_verified",
+                "actor_id": account.id,
+                "actor_type": "buyer",
+                "subject_type": "account",
+                "subject_id": account.id,
+                "outcome": "success",
+                "source": "public",
+            },
+        )
+    await db.commit()
+    await db.refresh(account)
+    return account
+
+
+async def resend_email_verification(account: Account, db: AsyncSession, *, locale: str = "vi") -> None:
+    if account.email_verified_at is not None:
+        raise api_error(ErrorCode.EMAIL_ALREADY_VERIFIED, status.HTTP_400_BAD_REQUEST)
+    await issue_email_verification(account, db, locale=locale)
+    await db.commit()
+
+
+async def admin_mark_email_verified(account_id: int, db: AsyncSession, *, actor_id: int) -> Account:
+    account = await db.get(Account, account_id, with_for_update=True)
+    if not account:
+        raise HTTPException(status_code=404, detail="Không tìm thấy tài khoản")
+    if account.email_verified_at is None:
+        account.email_verified_at = datetime.now(timezone.utc)
+        await log_event(
+            db, "warning", f"Email marked verified by admin for account {account_id}",
+            request_id=current_request_id(),
+            metadata={
+                "event": "email_verified_by_admin",
+                "actor_id": actor_id,
+                "actor_type": "admin",
+                "subject_type": "account",
+                "subject_id": account_id,
+                "outcome": "success",
+                "source": "admin",
+            },
+        )
+        await db.commit()
+        await db.refresh(account)
+    return account
+
+
 async def register_account(
     email: str,
     password: str,
     db: AsyncSession,
     referral_code: str | None = None,
     registration_ip: str | None = None,
+    locale: str = "vi",
 ) -> Account:
     from src.audit.service import log_event
     from src.logging import current_request_id
@@ -97,6 +195,7 @@ async def register_account(
     await db.flush()
     wallet = Wallet(account_id=account.id)
     db.add(wallet)
+    await issue_email_verification(account, db, locale=locale)
     await log_event(
         db, "info", f"Account registered {account.id}",
         request_id=current_request_id(),

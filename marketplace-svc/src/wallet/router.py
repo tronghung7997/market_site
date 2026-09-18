@@ -1,7 +1,7 @@
 from fastapi import APIRouter, Depends, HTTPException
 from sqlalchemy.ext.asyncio import AsyncSession
 
-from src.auth.dependencies import get_current_account, require_role
+from src.auth.dependencies import get_current_account, require_role, require_verified_email
 from src.config import settings
 from src.database import get_session
 from src.models.account import Account
@@ -55,7 +55,12 @@ async def transactions(account: Account = Depends(get_current_account), db: Asyn
 
 
 @router.post("/wallet/withdraw", response_model=schemas.WithdrawRequestResponse)
-async def withdraw(body: schemas.WithdrawRequestCreate, account: Account = Depends(require_role("seller")), db: AsyncSession = Depends(get_session)):
+async def withdraw(
+    body: schemas.WithdrawRequestCreate,
+    account: Account = Depends(require_role("seller")),
+    _verified: Account = Depends(require_verified_email),
+    db: AsyncSession = Depends(get_session),
+):
     return await service.request_withdraw(
         account.id, body.amount, db,
         bank_bin=body.bank_bin, bank_name=body.bank_name,

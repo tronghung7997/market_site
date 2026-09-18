@@ -134,6 +134,19 @@ export default function AdminAccountsPage() {
     }
   };
 
+  const [verifyingId, setVerifyingId] = React.useState<number | null>(null);
+  const verifyEmail = async (row: AccountAdminRow) => {
+    setVerifyingId(row.id); setErr(null);
+    try {
+      const updated = await api.adminVerifyEmail(row.id);
+      setData((d) => d ? { ...d, items: d.items.map((u) => u.id === row.id ? updated : u) } : d);
+    } catch (e) {
+      setErr(apiErrorMessage(e, "Không đánh dấu được"));
+    } finally {
+      setVerifyingId(null);
+    }
+  };
+
   // ─── Panel "Đăng nhập" — lịch sử IP / thiết bị của một user ───
   const [loginFor, setLoginFor] = React.useState<AccountAdminRow | null>(null);
   const [loginEvents, setLoginEvents] = React.useState<LoginEvent[] | null>(null);
@@ -235,7 +248,20 @@ export default function AdminAccountsPage() {
                           )}
                         </td>
                         <td className="px-5 py-3 whitespace-nowrap">
-                          {row.is_active ? <Tag tone="good">Hoạt động</Tag> : <Tag tone="bad">Đã khóa</Tag>}
+                          <div className="flex items-center gap-1.5">
+                            {row.is_active ? <Tag tone="good">Hoạt động</Tag> : <Tag tone="bad">Đã khóa</Tag>}
+                            {row.email_verified ? null : (
+                              <button
+                                type="button"
+                                onClick={() => verifyEmail(row)}
+                                disabled={verifyingId === row.id}
+                                title="Bấm để đánh dấu email đã xác minh (admin xác nhận tay)"
+                                className="cursor-pointer disabled:opacity-50"
+                              >
+                                <Tag tone="warn">{verifyingId === row.id ? "…" : "Chưa xác minh email"}</Tag>
+                              </button>
+                            )}
+                          </div>
                         </td>
                         <td className="px-5 py-3 text-right whitespace-nowrap">
                           {lockFor?.id === row.id ? (

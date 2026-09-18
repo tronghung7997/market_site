@@ -7,6 +7,7 @@ class RegisterRequest(BaseModel):
     email: EmailStr
     password: str = Field(min_length=8, max_length=128)
     referral_code: str | None = Field(default=None, max_length=16)
+    locale: str = Field(default="vi", max_length=8)
 
     @field_validator("password")
     @classmethod
@@ -58,6 +59,7 @@ class AccountResponse(BaseModel):
     email: str
     roles: list[str]
     seller_tier: str
+    email_verified: bool = True
 
     model_config = {"from_attributes": True}
 
@@ -67,6 +69,7 @@ class AccountAdminRow(BaseModel):
     email: str
     roles: list[str]
     is_active: bool
+    email_verified: bool = True
     seller_tier: str
     created_at: datetime
 
@@ -103,3 +106,23 @@ class LoginEventRow(BaseModel):
     created_at: datetime
 
     model_config = {"from_attributes": True}
+
+
+class VerifyEmailRequest(BaseModel):
+    token: str = Field(min_length=20, max_length=256)
+
+
+class ResendVerificationRequest(BaseModel):
+    locale: str = Field(default="vi", max_length=8)
+
+
+class AuthRuntimeConfigResponse(BaseModel):
+    require_email_verification: bool
+    verification_link_hours: int
+    updated_at: datetime | None = None
+    updated_by_id: int | None = None
+
+
+class AuthRuntimeConfigUpdate(BaseModel):
+    require_email_verification: bool | None = None
+    verification_link_hours: int | None = Field(default=None, ge=1, le=168)

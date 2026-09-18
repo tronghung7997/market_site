@@ -3,8 +3,17 @@ export interface Account {
   email: string;
   roles: string[];
   seller_tier?: string;
+  /** false until the owner opens the confirmation link; gates buying/deposits/withdrawals. */
+  email_verified?: boolean;
   affiliate_code?: string;
   referred_by_id?: number | null;
+}
+
+export interface AuthRuntimeConfig {
+  require_email_verification: boolean;
+  verification_link_hours: number;
+  updated_at: string | null;
+  updated_by_id: number | null;
 }
 
 export interface ChatMessage {
@@ -1878,6 +1887,7 @@ export interface AccountAdminRow {
   email: string;
   roles: string[];
   is_active: boolean;
+  email_verified: boolean;
   seller_tier: string;
   created_at: string;
 }

@@ -7,6 +7,7 @@ import re
 from typing import Any
 
 KNOWN_TEMPLATES = frozenset({
+    "email_verify",
     "password_reset",
     "password_changed",
     "seller_application_approved",
@@ -21,6 +22,7 @@ KNOWN_TEMPLATES = frozenset({
 })
 
 PLACEHOLDERS: dict[str, tuple[str, ...]] = {
+    "email_verify": ("action_url",),
     "password_reset": ("action_url",),
     "password_changed": ("action_url",),
     "seller_application_approved": ("action_url",),
@@ -59,6 +61,26 @@ _OUTCOMES = {
 
 # Default subject/body. `{name}` is replaced from the safe context at send time.
 DEFAULT_TEMPLATES: dict[str, dict[str, dict[str, str]]] = {
+    "email_verify": {
+        "en": {
+            "subject": "Confirm your GMMO email address",
+            "body": (
+                "Welcome to GMMO. Confirm this email address to unlock buying, "
+                "deposits and withdrawals.\n\n"
+                "The link is valid for 24 hours.\n\nConfirm email:\n{action_url}\n\n"
+                "If you did not create this account, ignore this email."
+            ),
+        },
+        "vi": {
+            "subject": "Xác nhận email tài khoản GMMO",
+            "body": (
+                "Chào mừng bạn đến với GMMO. Xác nhận địa chỉ email này để mua hàng, "
+                "nạp và rút tiền.\n\n"
+                "Liên kết có hiệu lực trong 24 giờ.\n\nXác nhận email:\n{action_url}\n\n"
+                "Nếu bạn không tạo tài khoản này, hãy bỏ qua email."
+            ),
+        },
+    },
     "password_reset": {
         "en": {
             "subject": "Reset your Marketplace password",

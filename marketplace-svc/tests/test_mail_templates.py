@@ -43,7 +43,7 @@ async def test_mail_templates_seed_patch_reset_and_preview(client):
     listing = await client.get("/admin/mail-templates", headers=headers)
     assert listing.status_code == 200, listing.text
     items = listing.json()["items"]
-    assert len(items) == 22
+    assert len(items) == 24  # 12 templates × vi/en (email_verify added with sign-up verification)
     row = next(item for item in items if item["template"] == "admin_test" and item["locale"] == "en")
     assert row["customized"] is False
     assert "{action_url}" in row["body"]
@@ -108,6 +108,10 @@ async def test_send_uses_admin_template_and_escapes_html(client, recording_mail)
         headers=headers,
     )
     assert patched.status_code == 200, patched.text
+    # The admin's own sign-up queued an email_verify mail; drain it first so
+    # the assertions below only see the template under test.
+    await process_mail_outbox()
+    recording_mail.sent.clear()
 
     async with SessionLocal() as db:
         await enqueue_mail(
@@ -211,5 +215,5 @@ async def test_send_test_and_worker_use_admin_copy_with_cold_cache(client, recor
         )
         await db.commit()
     catalog._cache.invalidate()
-    assert await process_mail_outbox() == 1
+    assert await process_mail_outbox() >= 1
     assert recording_mail.sent[-1].subject == "Custom test subject"

@@ -29,6 +29,10 @@ def forgot_password_url(locale: str) -> str:
     return frontend_url(locale, "/forgot-password")
 
 
+def verify_email_url(locale: str, raw_token: str) -> str:
+    return frontend_url(locale, f"/verify-email?token={quote(raw_token, safe='')}")
+
+
 async def enqueue_mail(
     db: AsyncSession,
     *,

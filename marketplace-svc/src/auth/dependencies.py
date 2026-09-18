@@ -61,3 +61,17 @@ async def verify_internal_key(
 
         security_event("internal_key_rejected", level="warning", path=request.url.path)
         raise HTTPException(status_code=status.HTTP_403_FORBIDDEN, detail="Khoá nội bộ không hợp lệ")
+
+
+async def require_verified_email(
+    account: Account = Depends(get_current_account),
+    db: AsyncSession = Depends(get_session),
+) -> Account:
+    """Money-moving actions need a confirmed mailbox when the admin policy says so."""
+    from src.auth.settings import email_verification_required
+    from src.errors.codes import ErrorCode
+    from src.errors.exceptions import api_error
+
+    if account.email_verified_at is None and await email_verification_required(db):
+        raise api_error(ErrorCode.EMAIL_NOT_VERIFIED, status.HTTP_403_FORBIDDEN)
+    return account

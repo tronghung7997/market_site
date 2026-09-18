@@ -96,6 +96,7 @@ export const queryKeys = {
   adminAnalyticsConfig: () => ["admin-analytics-config"] as const,
   adminAffiliateConfig: () => ["admin-affiliate-config"] as const,
   adminContentFilter: () => ["admin-content-filter"] as const,
+  adminAuthConfig: () => ["admin-auth-config"] as const,
   adminLoginEvents: (accountId: number) => ["admin-login-events", accountId] as const,
   sellerProducts: (params?: Record<string, unknown> | null) =>
     params == null ? ["seller-products"] as const : ["seller-products", "list", params] as const,

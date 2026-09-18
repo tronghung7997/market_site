@@ -1,4 +1,5 @@
-from src.models.account import Account, AccountRole, ApplicationStatus, PasswordResetToken, SellerApplication
+from src.models.account import Account, AccountRole, ApplicationStatus, EmailVerificationToken, PasswordResetToken, SellerApplication
+from src.models.auth_runtime_config import AuthRuntimeConfig
 from src.models.affiliate import AffiliateClick, AffiliateCommission, AffiliateFund, AffiliateFundEntry
 from src.models.affiliate_runtime_config import AffiliateRuntimeConfig
 from src.models.auth_session import AuthRefreshToken, AuthSession
@@ -44,7 +45,8 @@ from src.models.site_page import SitePage
 from src.models.search import SearchQueryLog, SearchSynonym
 
 __all__ = [
-    "Account", "AccountRole", "ApplicationStatus", "PasswordResetToken", "SellerApplication",
+    "Account", "AccountRole", "ApplicationStatus", "EmailVerificationToken", "PasswordResetToken", "SellerApplication",
+    "AuthRuntimeConfig",
     "AffiliateClick", "AffiliateCommission", "AffiliateFund", "AffiliateFundEntry", "AffiliateRuntimeConfig",
     "AuthRefreshToken", "AuthSession",
     "Alert",

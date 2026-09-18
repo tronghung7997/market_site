@@ -55,6 +55,9 @@ class Settings(BaseSettings):
     auth_forgot_account_limit: int = 5
     auth_reset_ip_limit: int = 20
     password_reset_ttl_minutes: int = 30
+    # Seed for auth_runtime_config.require_email_verification (admin-editable afterwards).
+    email_verification_required: bool = True
+    auth_verify_resend_account_limit: int = 5
     # Buyer response window after a seller has offered a dispute resolution.
     # Applies across delivery strategies until per-product policies are added.
     dispute_resolution_timeout_hours: int = 24

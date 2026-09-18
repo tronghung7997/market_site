@@ -13,6 +13,7 @@ from src.security.client_ip import request_client_ip
 from src.security.events import security_event
 
 from . import schemas, service, sessions
+from . import settings as auth_settings
 from .dependencies import get_current_account, require_role
 
 router = APIRouter(tags=["auth"])
@@ -88,8 +89,28 @@ async def register(
         db,
         referral_code=body.referral_code,
         registration_ip=_peer_ip(request),
+        locale=body.locale,
     )
     return account
+
+
+@router.post("/auth/verify-email", response_model=schemas.AccountResponse)
+async def verify_email(body: schemas.VerifyEmailRequest, db: AsyncSession = Depends(get_session)):
+    return await service.verify_email(body.token, db)
+
+
+@router.post("/auth/verify-email/resend", status_code=status.HTTP_204_NO_CONTENT)
+async def resend_verification(
+    body: schemas.ResendVerificationRequest,
+    account: Account = Depends(get_current_account),
+    db: AsyncSession = Depends(get_session),
+):
+    await _enforce_auth_limit(
+        f"auth:verify-resend:account:{account.id}",
+        settings.auth_verify_resend_account_limit,
+    )
+    await service.resend_email_verification(account, db, locale=body.locale)
+    return None
 
 
 @router.post("/auth/login", response_model=schemas.TokenResponse)
@@ -247,6 +268,35 @@ async def admin_login_events(
     if await db.get(Account, account_id) is None:
         raise HTTPException(status_code=404, detail="Không tìm thấy tài khoản")
     return await service.list_login_events(account_id, db, limit=limit)
+
+
+@router.post("/admin/accounts/{account_id}/verify-email", response_model=schemas.AccountAdminRow)
+async def admin_verify_email(
+    account_id: int,
+    admin: Account = Depends(require_role("admin")),
+    db: AsyncSession = Depends(get_session),
+):
+    return await service.admin_mark_email_verified(account_id, db, actor_id=admin.id)
+
+
+@router.get("/admin/auth-config", response_model=schemas.AuthRuntimeConfigResponse)
+async def admin_auth_config(
+    _: Account = Depends(require_role("admin")),
+    db: AsyncSession = Depends(get_session),
+):
+    return await auth_settings.get_auth_settings(db)
+
+
+@router.patch("/admin/auth-config", response_model=schemas.AuthRuntimeConfigResponse)
+async def admin_update_auth_config(
+    body: schemas.AuthRuntimeConfigUpdate,
+    admin: Account = Depends(require_role("admin")),
+    db: AsyncSession = Depends(get_session),
+):
+    try:
+        return await auth_settings.update_auth_settings(db, actor_id=admin.id, **body.model_dump(exclude_unset=True))
+    except ValueError as exc:
+        raise HTTPException(status_code=422, detail=str(exc)) from exc
 
 
 @router.patch("/admin/accounts/{account_id}/tier", response_model=schemas.AccountAdminRow)

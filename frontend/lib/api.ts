@@ -16,7 +16,7 @@ import type {
   InventoryPackageDetail, InventoryPackagesResponse, InventoryPackageSort, InventoryProductStatusFilter,
   InventoryReportParams, InventoryReportResponse, InventoryStockTab, RestockPreview, RestockResult,
   SellerResourceQuery, SellerRuntimeConfig, SiteAnalyticsConfig,
-  LoginEvent, AffiliateRuntimeConfig, PublicAffiliateConfig, ContentFilterConfig, ContentFilterTestResult,
+  LoginEvent, AffiliateRuntimeConfig, PublicAffiliateConfig, ContentFilterConfig, ContentFilterTestResult, AuthRuntimeConfig,
 } from "./types";
 import {
   ApiError,
@@ -117,8 +117,8 @@ function inventoryReportQuery(params: InventoryReportParams) {
 }
 
 export const api = {
-  register: (email: string, password: string, referralCode?: string) => {
-    const body: Record<string, string> = { email, password };
+  register: (email: string, password: string, referralCode?: string, locale = "vi") => {
+    const body: Record<string, string> = { email, password, locale };
     if (referralCode) body.referral_code = referralCode;
     return request<Account>("/auth/register", { method: "POST", body: JSON.stringify(body) });
   },
@@ -127,6 +127,15 @@ export const api = {
   adminLogin: (email: string, password: string) =>
     request<{ token_type: string }>("/auth/admin/login", { method: "POST", body: JSON.stringify({ email, password }) }),
   logout: () => request<void>("/auth/session", { method: "DELETE" }),
+  verifyEmail: (token: string) =>
+    request<Account>("/auth/verify-email", { method: "POST", body: JSON.stringify({ token }) }),
+  resendVerification: (locale: string) =>
+    request<void>("/auth/verify-email/resend", { method: "POST", body: JSON.stringify({ locale }) }, true),
+  adminVerifyEmail: (id: number) =>
+    request<AccountAdminRow>(`/admin/accounts/${id}/verify-email`, { method: "POST" }, true),
+  adminAuthConfig: () => request<AuthRuntimeConfig>("/admin/auth-config", {}, true),
+  updateAdminAuthConfig: (body: Partial<Pick<AuthRuntimeConfig, "require_email_verification" | "verification_link_hours">>) =>
+    request<AuthRuntimeConfig>("/admin/auth-config", { method: "PATCH", body: JSON.stringify(body) }, true),
   forgotPassword: (email: string, locale: string) =>
     request<{ message: string }>("/auth/forgot-password", {
       method: "POST",

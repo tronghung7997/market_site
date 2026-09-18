@@ -1,7 +1,7 @@
 from fastapi import APIRouter, Depends, HTTPException, Query, Request
 from sqlalchemy.ext.asyncio import AsyncSession
 
-from src.auth.dependencies import get_current_account, require_role
+from src.auth.dependencies import get_current_account, require_role, require_verified_email
 from src.database import get_session
 from src.models.account import Account
 from src.payments import nowpayments_client, payos_client, rail_config, schemas, sepay_client, service
@@ -22,7 +22,7 @@ async def deposit_methods(db: AsyncSession = Depends(get_session)):
 @router.post("/wallet/deposits", response_model=schemas.DepositResponse, status_code=201)
 async def create_deposit(
     body: schemas.DepositCreateRequest,
-    account: Account = Depends(get_current_account),
+    account: Account = Depends(require_verified_email),
     db: AsyncSession = Depends(get_session),
 ):
     return await service.create_deposit(

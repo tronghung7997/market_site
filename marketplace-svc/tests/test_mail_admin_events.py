@@ -131,7 +131,7 @@ async def test_dispute_opened_mails_seller_resolved_mails_both(client):
     assert opened_mail[0].to_email == "disp_seller@example.com"
 
     disputes = await client.get("/admin/disputes", headers={"Authorization": f"Bearer {admin_token}"})
-    dispute_id = disputes.json()[-1]["id"]
+    dispute_id = disputes.json()["items"][0]["id"]
     resolved = await client.post(
         f"/admin/disputes/{dispute_id}/refund",
         json={"admin_note": "Confirmed broken"},

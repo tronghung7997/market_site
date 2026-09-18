@@ -12,6 +12,9 @@ class ErrorCode(str, Enum):
     RESOURCE_UNAVAILABLE = "RESOURCE_UNAVAILABLE"
     NOT_OWNER = "NOT_OWNER"
     DUPLICATE_EMAIL = "DUPLICATE_EMAIL"
+    EMAIL_NOT_VERIFIED = "EMAIL_NOT_VERIFIED"
+    VERIFY_TOKEN_INVALID = "VERIFY_TOKEN_INVALID"
+    EMAIL_ALREADY_VERIFIED = "EMAIL_ALREADY_VERIFIED"
     ADMIN_LOGIN_REQUIRED = "ADMIN_LOGIN_REQUIRED"
     ADMIN_ONLY = "ADMIN_ONLY"
     QUOTA_EXCEEDED = "QUOTA_EXCEEDED"
@@ -106,6 +109,9 @@ MESSAGES_EN: dict[ErrorCode, str] = {
     ),
     ErrorCode.NOT_OWNER: "You do not have permission to act on this resource",
     ErrorCode.DUPLICATE_EMAIL: "This email is already registered",
+    ErrorCode.EMAIL_NOT_VERIFIED: "Please confirm your email address before continuing",
+    ErrorCode.VERIFY_TOKEN_INVALID: "This confirmation link is invalid or has expired",
+    ErrorCode.EMAIL_ALREADY_VERIFIED: "This email address is already confirmed",
     ErrorCode.ADMIN_LOGIN_REQUIRED: "Administrator accounts must use the private admin sign-in",
     ErrorCode.ADMIN_ONLY: "This sign-in is restricted to administrator accounts",
     ErrorCode.QUOTA_EXCEEDED: "Request quota for this package is exhausted — purchase a new package",

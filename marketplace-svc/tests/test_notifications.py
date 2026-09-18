@@ -99,7 +99,7 @@ async def test_seller_action_items_open_dispute_no_note(client):
     assert items["seller_open_disputes"]["href"] == "/seller/orders?tab=disputed"
 
     disputes = await client.get("/admin/disputes", headers={"Authorization": f"Bearer {admin_token}"})
-    dispute_id = disputes.json()[-1]["id"]
+    dispute_id = disputes.json()["items"][-1]["id"]
     respond = await client.post(f"/seller/disputes/{dispute_id}/respond", json={"seller_note": "Đã kiểm tra"},
                                 headers={"Authorization": f"Bearer {seller_token}"})
     assert respond.status_code == 200

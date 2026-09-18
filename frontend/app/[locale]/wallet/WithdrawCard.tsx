@@ -1,6 +1,8 @@
 "use client";
 
 import { useLocale, useTranslations } from "next-intl";
+import { useQuery } from "@tanstack/react-query";
+import { queryKeys } from "@/lib/query-keys";
 import { useState } from "react";
 import { api } from "@/lib/api";
 import { ApiError } from "@/lib/api-error";
@@ -42,11 +44,21 @@ export function WithdrawCard({ wallet, onChanged }: {
   const [err, setErr] = useState("");
 
   const available = wallet?.available_balance ?? 0;
+  // Admin's withdrawal rules (Settings › Fees & holds): minimum and fee, quoted before the seller commits.
+  const feeConfig = useQuery({ queryKey: queryKeys.feeConfig(), queryFn: api.feeConfig, staleTime: 60_000 });
+  const minAmount = feeConfig.data?.withdraw_min_amount ?? 0;
+  const feeFixed = feeConfig.data?.withdraw_fee_fixed ?? 0;
+  const feePercent = feeConfig.data?.withdraw_fee_percent ?? 0;
+  const feeAmount = amount > 0 ? Math.max(0, Math.min(amount, feeFixed + Math.floor(amount * feePercent / 100))) : 0;
+  const netAmount = amount - feeAmount;
+  const hasFee = feeFixed > 0 || feePercent > 0;
+  const belowMin = amount > 0 && (amount < minAmount || netAmount <= 0);
 
   const handleWithdraw = async () => {
     const value = amount;
     if (value <= 0) { setErr(t("withdrawErrAmount")); return; }
     if (value > available) { setErr(t("withdrawErrBalance")); return; }
+    if (belowMin) { setErr(t("withdrawErrMin", { min: formatBrowseMoney(minAmount, { locale }) })); return; }
     if (!bankName.trim() || !bankAccountNumber.trim() || !bankAccountHolder.trim()) {
       setErr(t("withdrawErrBank"));
       return;
@@ -156,8 +168,19 @@ export function WithdrawCard({ wallet, onChanged }: {
             amountVnd={amount}
             onAmountVndChange={(value) => { setAmount(value); setErr(""); }}
             disabled={loading}
-            invalid={amount > available}
+            invalid={amount > available || belowMin}
           />
+          {(minAmount > 0 || hasFee) && (
+            <div className="mt-2 space-y-0.5 text-[12px] text-muted">
+              {minAmount > 0 && <p>{t("withdrawMin", { min: formatBrowseMoney(minAmount, { locale }) })}</p>}
+              {hasFee && (
+                <p>
+                  {t("withdrawFeeRule", { fixed: formatBrowseMoney(feeFixed, { locale }), percent: feePercent })}
+                  {amount > 0 && <> · <span className="text-fg">{t("withdrawNet", { fee: formatBrowseMoney(feeAmount, { locale }), net: formatBrowseMoney(netAmount, { locale }) })}</span></>}
+                </p>
+              )}
+            </div>
+          )}
         </div>
         {err && (
           <div className="p-2.5 rounded-lg bg-bad-soft text-bad text-[12px]">{err}</div>
@@ -167,7 +190,7 @@ export function WithdrawCard({ wallet, onChanged }: {
           size="md"
           block
           onClick={handleWithdraw}
-          disabled={loading || !amount || withdrawalsFrozen}
+          disabled={loading || !amount || withdrawalsFrozen || belowMin}
         >
           {loading ? t("withdrawSubmitting") : t("withdrawSubmit")}
         </Button>
@@ -193,6 +216,7 @@ export function WithdrawHistory({ withdrawals }: { withdrawals: WithdrawRequest[
               <div className="font-mono font-medium tabular">{formatBrowseMoney(w.amount, { locale })}</div>
               <div className="text-[11px] text-faint">
                 {formatDate(w.created_at, locale)}
+                {(w.fee_amount ?? 0) > 0 && <> · {t("withdrawHistoryNet", { fee: formatBrowseMoney(w.fee_amount ?? 0, { locale }), net: formatBrowseMoney(w.net_amount ?? w.amount - (w.fee_amount ?? 0), { locale }) })}</>}
               </div>
             </div>
             <Tag tone={WITHDRAW_TONE[w.status] ?? "neutral"}>

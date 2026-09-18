@@ -39,10 +39,11 @@ export function SettingsRow({ title, hint, label, stacked = false, children }: {
         <h3 className="text-[13.5px] font-semibold text-fg">{title}</h3>
         <p className="mt-0.5 text-[12.5px] leading-relaxed text-muted">{hint}</p>
       </div>
-      <label className={cn("block", !stacked && "max-w-[640px]")}>
+      {/* A div, not a label: rows often hold several inputs (VI/EN, per-category tables). */}
+      <div className={cn("block", !stacked && "max-w-[640px]")}>
         {label && <span className="mb-1 block text-[12px] font-medium text-muted">{label}</span>}
         {children}
-      </label>
+      </div>
     </div>
   );
 }

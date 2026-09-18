@@ -150,6 +150,9 @@ async def create_product(seller_id: int, data: dict, db: AsyncSession) -> Produc
     payload["i18n"][PRIMARY_LOCALE_KEY] = content_locale
     payload["public_key"] = await _unused_public_key(db)
     payload["slug"] = payload.get("slug") or slugify_text(payload.get("title"))
+    if payload.get("escrow_days") is None:
+        from src.fees.settings import get_fee_settings
+        payload["escrow_days"] = int((await get_fee_settings(db))["escrow_default_days"])
     product = Product(seller_id=seller_id, **payload)
     db.add(product)
     await db.commit()

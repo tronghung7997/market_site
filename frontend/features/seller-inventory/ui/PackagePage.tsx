@@ -87,11 +87,13 @@ export function PackagePage({
   };
 
   const onRestocked = (result: RestockResult) => {
+    const market = result.skipped_market ?? 0;
     const skipped = result.skipped_duplicate + result.skipped_existing;
     setNotice({
-      tone: skipped > 0 ? "warn" : "good",
+      tone: market > 0 ? "bad" : skipped > 0 ? "warn" : "good",
       text: t("restock.done", { count: result.count.toLocaleString(locale) })
-        + (skipped > 0 ? ` · ${t("restock.doneSkipped", { duplicate: result.skipped_duplicate, existing: result.skipped_existing })}` : ""),
+        + (skipped > 0 ? ` · ${t("restock.doneSkipped", { duplicate: result.skipped_duplicate, existing: result.skipped_existing })}` : "")
+        + (market > 0 ? ` · ${t("restock.doneMarket", { count: market })}` : ""),
     });
     onFiltersChange({ ...filters, restock: false, page: 1 });
   };

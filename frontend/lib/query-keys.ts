@@ -99,6 +99,9 @@ export const queryKeys = {
   adminAuthConfig: () => ["admin-auth-config"] as const,
   siteStatus: () => ["site-status"] as const,
   adminSiteStatus: () => ["admin-site-status"] as const,
+  adminLedgerRuns: () => ["admin-ledger-runs"] as const,
+  adminFeeConfig: () => ["admin-fee-config"] as const,
+  feeConfig: () => ["fee-config"] as const,
   adminLoginEvents: (accountId: number) => ["admin-login-events", accountId] as const,
   sellerProducts: (params?: Record<string, unknown> | null) =>
     params == null ? ["seller-products"] as const : ["seller-products", "list", params] as const,

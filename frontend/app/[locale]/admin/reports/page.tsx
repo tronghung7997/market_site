@@ -3,6 +3,7 @@
 import { useEffect, useMemo, useState } from "react";
 import { api, vnd } from "@/lib/api";
 import { Card, Spinner, Tag } from "@/components/ui";
+import { LedgerReconcilePanel } from "@/features/admin-ledger";
 import { Activity, FileText, TrendingUp, Users } from "@/components/Icons";
 import type { Order } from "@/lib/types";
 
@@ -105,6 +106,9 @@ export default function AdminReportsPage() {
           ))}
         </div>
       </Card>
+
+      {/* Books check (A3.4) */}
+      <LedgerReconcilePanel />
 
       {/* Upcoming reports — extensibility */}
       <div>

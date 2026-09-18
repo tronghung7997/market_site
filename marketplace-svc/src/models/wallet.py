@@ -26,6 +26,9 @@ class TransactionType(str, PyEnum):
     # Không sửa quá khứ — ghi nhận chênh lệch để sổ cộng ra đúng số dư từ đây.
     adjustment_credit = "adjustment_credit"
     adjustment_debit = "adjustment_debit"
+    # Phí rút tiền (Cài đặt › Phí & giữ tiền): trích từ phần đã khoá khi admin
+    # duyệt, chuyển sang ví sàn dưới dạng platform_fee tham chiếu withdraw-<id>.
+    withdraw_fee = "withdraw_fee"
 
 
 class TransactionDirection(str, PyEnum):
@@ -57,6 +60,7 @@ TRANSACTION_DIRECTION: dict[str, TransactionDirection] = {
     # Tiền đã rời available từ lúc withdraw_lock; dòng này chỉ rút khỏi
     # locked_balance. Tính nó là tiền ra nữa là đếm hai lần.
     TransactionType.withdraw: TransactionDirection.neutral,
+    TransactionType.withdraw_fee: TransactionDirection.neutral,
 }
 
 
@@ -131,4 +135,8 @@ class WithdrawRequest(Base):
     payout_reference: Mapped[str | None] = mapped_column(String(100), nullable=True)
     paid_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True), nullable=True)
     reject_reason: Mapped[str | None] = mapped_column(String(500), nullable=True)
+    # Phí rút chốt lúc tạo yêu cầu (admin đổi biểu phí sau đó không ảnh hưởng
+    # lệnh cũ); net_amount = amount − fee_amount là số tiền thực chuyển.
+    fee_amount: Mapped[int] = mapped_column(Integer, nullable=False, default=0, server_default="0")
+    net_amount: Mapped[int | None] = mapped_column(Integer, nullable=True)
     created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), server_default=func.now())

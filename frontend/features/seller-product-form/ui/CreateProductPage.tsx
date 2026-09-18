@@ -48,7 +48,7 @@ export function CreateProductPage() {
   const apiErrorMessage = useApiErrorMessage();
   const { account } = useAuth();
   const canUseProviders = canUseSellerProviders(account?.seller_tier);
-  const core = useProductFormCore(interfaceLocale, { loadProviders: canUseProviders });
+  const core = useProductFormCore(interfaceLocale, { loadProviders: canUseProviders, defaultEscrowFromAdmin: true });
   const term = useVariantTerm(core.serviceType);
 
   const [receiveMode, setReceiveMode] = useState<ReceiveMode>("instant");

@@ -32,7 +32,8 @@ class ProductCreate(BaseModel):
     slug: str | None = Field(default=None, min_length=1, max_length=140, pattern=SLUG_PATTERN)
     description: str | None = Field(default=None, max_length=20000)
     cover_id: CoverId | None = None
-    escrow_days: int = Field(default=2, ge=0, le=90)
+    # None → the admin's default hold (Settings › Fees & holds).
+    escrow_days: int | None = Field(default=None, ge=0, le=90)
     status: Literal["draft", "active"] = "draft"
     service_type: str = Field(default="other", max_length=50)
     features: list[str] | None = Field(default=None, max_length=50)

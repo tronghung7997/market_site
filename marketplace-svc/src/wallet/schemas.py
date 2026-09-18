@@ -107,6 +107,8 @@ class WithdrawRequestResponse(BaseModel):
     payout_reference: str | None = None
     paid_at: datetime | None = None
     reject_reason: str | None = None
+    fee_amount: int = 0
+    net_amount: int | None = None
     created_at: datetime
 
     model_config = {"from_attributes": True}

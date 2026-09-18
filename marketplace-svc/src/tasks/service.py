@@ -5,6 +5,8 @@ from sqlalchemy import select
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from src.models.order import Order, OrderStatus
+from src.models.account import Account
+from src.fees.service import escrow_days_for
 from src.models.product import Product
 from src.models.service_task import ServiceTask, ServiceTaskStatus
 from src.wallet.service import refund_escrow
@@ -158,7 +160,12 @@ async def _sync_order_status(task: ServiceTask, db: AsyncSession) -> str | None:
                 order.total_amount -= refund
         order.status = OrderStatus.delivered
         product = await db.get(Product, order.product_id) if order.product_id else None
-        escrow_days = product.escrow_days if product else _DEFAULT_ESCROW_DAYS
+        seller = await db.get(Account, order.seller_id)
+        escrow_days = await escrow_days_for(
+            db, seller_tier=seller.seller_tier if seller else "new",
+            product_escrow_days=product.escrow_days if product else _DEFAULT_ESCROW_DAYS,
+            category_id=product.category_id if product else None,
+        )
         order.escrow_expires_at = datetime.now(timezone.utc) + timedelta(days=escrow_days)
 
     return order.status.value

@@ -314,7 +314,7 @@ async def test_restock_preview_and_skip_counters(client):
         "malformed_total": 1,
     }
     added = await _stock(client, h["Authorization"].split()[1], vid, items)
-    assert added == {"count": 3, "skipped_duplicate": 1, "skipped_existing": 1}
+    assert added == {"count": 3, "skipped_duplicate": 1, "skipped_existing": 1, "skipped_market": 0}
 
 
 # ---------------------------------------------------------------------------

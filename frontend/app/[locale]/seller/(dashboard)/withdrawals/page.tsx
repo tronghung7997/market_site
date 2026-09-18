@@ -7,7 +7,7 @@ import { useApiErrorMessage } from "@/lib/use-api-error";
 import { cn } from "@/lib/cn";
 import { useMoney } from "@/lib/money";
 import { formatDate } from "@/lib/utils";
-import type { Wallet, WithdrawRequest } from "@/lib/types";
+import type { FeeConfigPublic, Wallet, WithdrawRequest } from "@/lib/types";
 import { Button, Card, Input, Spinner, Tag } from "@/components/ui";
 import { DisplayCurrencyInput } from "@/components/DisplayCurrencyInput";
 import { Wallet as WalletIcon } from "@/components/Icons";
@@ -34,10 +34,13 @@ export default function SellerWithdrawalsPage() {
     enterprise: t("withdrawTierEnterprise"),
   };
 
+  // Admin's withdrawal rules (Settings › Fees & holds): minimum and fee, shown before the seller commits.
+  const [feeCfg, setFeeCfg] = useState<FeeConfigPublic | null>(null);
   const load = useCallback(async () => {
-    const [w, list] = await Promise.all([api.wallet(), api.myWithdrawals()]);
+    const [w, list, cfg] = await Promise.all([api.wallet(), api.myWithdrawals(), api.feeConfig().catch(() => null)]);
     setWallet(w);
     setReqs(list);
+    setFeeCfg(cfg);
     setLoading(false);
   }, []);
 
@@ -51,6 +54,13 @@ export default function SellerWithdrawalsPage() {
   const valid = parsed > 0;
   const overBalance = valid && parsed > wallet.available_balance;
   const overLimit = valid && limit !== null && parsed > limit;
+  const minAmount = feeCfg?.withdraw_min_amount ?? 0;
+  const feeFixed = feeCfg?.withdraw_fee_fixed ?? 0;
+  const feePercent = feeCfg?.withdraw_fee_percent ?? 0;
+  const hasFee = feeFixed > 0 || feePercent > 0;
+  const feeAmount = valid ? Math.max(0, Math.min(parsed, feeFixed + Math.floor(parsed * feePercent / 100))) : 0;
+  const netAmount = parsed - feeAmount;
+  const belowMin = valid && (parsed < minAmount || netAmount <= 0);
 
   /* Rút được nhiều nhất: chặn bởi số dư, và bởi hạn mức mỗi lần của cấp. */
   const maxOut = limit === null ? wallet.available_balance : Math.min(wallet.available_balance, limit);
@@ -58,7 +68,7 @@ export default function SellerWithdrawalsPage() {
   const bankValid = bankName.trim().length >= 2 && bankAccountNumber.trim().length >= 4 && bankAccountHolder.trim().length >= 2;
 
   const submit = async () => {
-    if (!valid || overBalance || overLimit || !bankValid) return;
+    if (!valid || overBalance || overLimit || belowMin || !bankValid) return;
     setBusy(true);
     setErr("");
     setOk("");
@@ -127,7 +137,7 @@ export default function SellerWithdrawalsPage() {
               <DisplayCurrencyInput
                 amountVnd={amount}
                 onAmountVndChange={setAmount}
-                invalid={overBalance || overLimit}
+                invalid={overBalance || overLimit || belowMin}
               />
               <div className="flex items-center justify-between gap-3 mt-1.5">
                 <p className="text-[11.5px] text-faint">
@@ -153,6 +163,18 @@ export default function SellerWithdrawalsPage() {
               </div>
             </div>
 
+            {(minAmount > 0 || hasFee) && (
+              <div className="rounded-lg bg-raised px-3 py-2 text-[12px] text-muted space-y-0.5">
+                {minAmount > 0 && <p>{t("withdrawMinRule", { min: formatBrowseMoney(minAmount, { locale }) })}</p>}
+                {hasFee && <p>{t("withdrawFeeRule", { fixed: formatBrowseMoney(feeFixed, { locale }), percent: feePercent })}</p>}
+                {hasFee && valid && !belowMin && (
+                  <p className="text-fg font-medium">{t("withdrawNetPreview", { fee: formatBrowseMoney(feeAmount, { locale }), net: formatBrowseMoney(netAmount, { locale }) })}</p>
+                )}
+              </div>
+            )}
+            {belowMin && !overBalance && (
+              <p className="text-[12px] text-bad">{t("withdrawBelowMin", { min: formatBrowseMoney(minAmount, { locale }) })}</p>
+            )}
             {overBalance && (
               <p className="text-[12px] text-bad">
                 {t("withdrawOverBalance", { amount: formatBrowseMoney(wallet.available_balance, { locale }) })}
@@ -172,7 +194,7 @@ export default function SellerWithdrawalsPage() {
             <Button
               block
               onClick={submit}
-              disabled={busy || !valid || overBalance || overLimit || !bankValid}
+              disabled={busy || !valid || overBalance || overLimit || belowMin || !bankValid}
             >
               {busy ? t("submittingWithdraw") : t("submitWithdrawal")}
             </Button>
@@ -198,6 +220,7 @@ export default function SellerWithdrawalsPage() {
                       <div className="font-mono text-[14px] font-semibold tabular">{formatBrowseMoney(r.amount, { locale })}</div>
                       <div className="text-[11.5px] text-faint mt-0.5">
                         {formatDate(r.created_at)}
+                        {(r.fee_amount ?? 0) > 0 && <> · {t("withdrawHistoryNet", { fee: formatBrowseMoney(r.fee_amount ?? 0, { locale }), net: formatBrowseMoney(r.net_amount ?? r.amount - (r.fee_amount ?? 0), { locale }) })}</>}
                       </div>
                       {r.status === "rejected" && r.reject_reason && (
                         <div className="text-[12px] text-muted mt-1">

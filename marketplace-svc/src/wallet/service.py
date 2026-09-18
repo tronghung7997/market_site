@@ -1,18 +1,20 @@
 import re
 from datetime import datetime, timezone
 
-from fastapi import HTTPException
+from fastapi import HTTPException, status
 from sqlalchemy import func, select
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from src.audit.service import log_event
-from src.exceptions import InsufficientCredit
+from src.exceptions import ErrorCode, InsufficientCredit, api_error
 from src.logging import current_request_id
 from src.models.account import Account
 from src.models.order import Order, OrderStatus
 from src.models.wallet import (
     TRANSACTION_DIRECTION, Transaction, TransactionType, Wallet, WithdrawRequest, WithdrawStatus,
 )
+from src.fees.service import withdraw_fee_amount
+from src.fees.settings import get_fee_settings
 from src.sellers.tiers import withdraw_limit
 
 
@@ -361,12 +363,18 @@ async def request_withdraw(
             status_code=400,
             detail=f"Vượt hạn mức rút tiền theo cấp độ người bán (tối đa {limit:,}đ/lần)".replace(",", "."),
         )
+    fee_cfg = await get_fee_settings(db)
+    if amount < int(fee_cfg["withdraw_min_amount"]):
+        raise api_error(ErrorCode.WITHDRAW_BELOW_MINIMUM, status.HTTP_400_BAD_REQUEST)
+    fee_amount = withdraw_fee_amount(amount, fee_cfg)
+    if amount - fee_amount <= 0:
+        raise api_error(ErrorCode.WITHDRAW_BELOW_MINIMUM, status.HTTP_400_BAD_REQUEST)
     # Khoá tiền ngay lúc gửi yêu cầu — tránh bug seller gửi nhiều yêu cầu rút
     # vượt quá số dư thực trước khi admin duyệt request nào.
     wallet.available_balance -= amount
     wallet.locked_balance += amount
     req = WithdrawRequest(
-        account_id=account_id, amount=amount,
+        account_id=account_id, amount=amount, fee_amount=fee_amount, net_amount=amount - fee_amount,
         bank_bin=bank_bin, bank_name=bank_name,
         bank_account_number=bank_account_number, bank_account_holder=bank_account_holder,
     )
@@ -379,7 +387,7 @@ async def request_withdraw(
     await log_event(
         db, "info", f"Yêu cầu rút #{req.id} — {amount:,}đ (account {account_id}, đã khoá tiền)".replace(",", "."),
         request_id=current_request_id(),
-        metadata={"event": "withdraw_requested", "withdraw_id": req.id, "account_id": account_id, "amount": amount},
+        metadata={"event": "withdraw_requested", "withdraw_id": req.id, "account_id": account_id, "amount": amount, "fee_amount": fee_amount},
     )
     await db.commit()
     await db.refresh(req)
@@ -395,6 +403,7 @@ def _withdraw_dict(req: WithdrawRequest, email: str | None) -> dict:
         "bank_account_holder": req.bank_account_holder,
         "payout_reference": req.payout_reference, "paid_at": req.paid_at,
         "reject_reason": req.reject_reason,
+        "fee_amount": req.fee_amount, "net_amount": req.net_amount if req.net_amount is not None else req.amount - req.fee_amount,
     }
 
 
@@ -420,14 +429,28 @@ async def approve_withdrawal(req_id: int, db: AsyncSession) -> WithdrawRequest:
     # locked, KHÔNG đụng available_balance nữa.
     wallet.locked_balance -= req.amount
     req.status = WithdrawStatus.approved
+    fee = int(req.fee_amount or 0)
+    net = req.amount - fee
+    # Chỉ phần thực chuyển là tiền rời sàn; phí ở lại trong ví sàn (account 1).
     db.add(Transaction(
         wallet_id=wallet.id, type=TransactionType.withdraw,
-        amount=req.amount, description="Withdrawal approved", reference_id=f"withdraw-{req.id}",
+        amount=net, description="Withdrawal approved", reference_id=f"withdraw-{req.id}",
     ))
+    if fee > 0:
+        db.add(Transaction(
+            wallet_id=wallet.id, type=TransactionType.withdraw_fee,
+            amount=fee, description="Phí rút tiền", reference_id=f"withdraw-{req.id}",
+        ))
+        platform_wallet = await get_wallet_by_account(1, db, for_update=True)
+        platform_wallet.available_balance += fee
+        db.add(Transaction(
+            wallet_id=platform_wallet.id, type=TransactionType.platform_fee,
+            amount=fee, description="Withdrawal fee", reference_id=f"withdraw-{req.id}",
+        ))
     await log_event(
         db, "info", f"Yêu cầu rút #{req.id} được DUYỆT ({req.amount:,}đ, account {req.account_id})".replace(",", "."),
         request_id=current_request_id(),
-        metadata={"event": "withdraw_approved", "withdraw_id": req.id, "account_id": req.account_id, "amount": req.amount},
+        metadata={"event": "withdraw_approved", "withdraw_id": req.id, "account_id": req.account_id, "amount": req.amount, "fee_amount": fee, "net_amount": net},
     )
     from src.mail.service import enqueue_mail, frontend_url
     await enqueue_mail(
@@ -435,7 +458,7 @@ async def approve_withdrawal(req_id: int, db: AsyncSession) -> WithdrawRequest:
         template="withdrawal_approved",
         account_id=req.account_id,
         idempotency_key=f"withdrawal_approved:{req.id}",
-        payload={"amount": req.amount, "action_url": frontend_url("vi", "/seller/withdrawals")},
+        payload={"amount": net, "action_url": frontend_url("vi", "/seller/withdrawals")},
     )
     await db.commit()
     await db.refresh(req)

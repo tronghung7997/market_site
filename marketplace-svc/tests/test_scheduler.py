@@ -116,6 +116,12 @@ async def test_escrow_release_credits_affiliate_commission(client):
         json={"amount": 1_000_000, "note": "test budget"},
         headers={"Authorization": f"Bearer {admin_token}"},
     )
+    # Commission is a share of the platform fee, so both must be non-zero
+    # (explicit here: the env may seed either at 0).
+    fee = await client.patch("/admin/fee-config", json={"platform_fee_percent": 10}, headers={"Authorization": f"Bearer {admin_token}"})
+    assert fee.status_code == 200, fee.text
+    aff_cfg = await client.patch("/admin/affiliate-config", json={"commission_percent_of_fee": 50}, headers={"Authorization": f"Bearer {admin_token}"})
+    assert aff_cfg.status_code == 200, aff_cfg.text
 
     order = await client.post("/orders", json={"variant_id": variant.json()["id"], "quantity": 1},
                               headers={"Authorization": f"Bearer {buyer_token}"})

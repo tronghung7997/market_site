@@ -93,6 +93,7 @@ class BulkResourceResponse(BaseModel):
     count: int
     skipped_duplicate: int = 0
     skipped_existing: int = 0
+    skipped_market: int = 0
 
 
 class ResourceResponse(BaseModel):

@@ -29,6 +29,7 @@ class ErrorCode(str, Enum):
     ORDERS_FROZEN = "ORDERS_FROZEN"
     DEPOSITS_FROZEN = "DEPOSITS_FROZEN"
     WITHDRAWALS_FROZEN = "WITHDRAWALS_FROZEN"
+    WITHDRAW_BELOW_MINIMUM = "WITHDRAW_BELOW_MINIMUM"
     ADMIN_LOGIN_REQUIRED = "ADMIN_LOGIN_REQUIRED"
     ADMIN_ONLY = "ADMIN_ONLY"
     QUOTA_EXCEEDED = "QUOTA_EXCEEDED"
@@ -83,6 +84,7 @@ class ErrorCode(str, Enum):
     INVENTORY_NOT_INSTANT = "INVENTORY_NOT_INSTANT"
     RESOURCE_NOT_FOUND = "RESOURCE_NOT_FOUND"
     RESOURCE_NOT_EDITABLE = "RESOURCE_NOT_EDITABLE"
+    RESOURCE_DUPLICATE = "RESOURCE_DUPLICATE"
     RESOURCE_EMPTY = "RESOURCE_EMPTY"
     RESOURCE_NOT_DELETABLE = "RESOURCE_NOT_DELETABLE"
     CATEGORY_NOT_FOUND = "CATEGORY_NOT_FOUND"
@@ -140,6 +142,7 @@ MESSAGES_EN: dict[ErrorCode, str] = {
     ErrorCode.ORDERS_FROZEN: "Purchases are temporarily paused. Please try again later",
     ErrorCode.DEPOSITS_FROZEN: "Deposits are temporarily paused. Please try again later",
     ErrorCode.WITHDRAWALS_FROZEN: "Withdrawals are temporarily paused. Please try again later",
+    ErrorCode.WITHDRAW_BELOW_MINIMUM: "Amount is below the minimum withdrawal after fees",
     ErrorCode.ADMIN_LOGIN_REQUIRED: "Administrator accounts must use the private admin sign-in",
     ErrorCode.ADMIN_ONLY: "This sign-in is restricted to administrator accounts",
     ErrorCode.QUOTA_EXCEEDED: "Request quota for this package is exhausted — purchase a new package",
@@ -194,6 +197,7 @@ MESSAGES_EN: dict[ErrorCode, str] = {
     ErrorCode.INVENTORY_NOT_INSTANT: "Only instant-delivery packages use inventory resources",
     ErrorCode.RESOURCE_NOT_FOUND: "Resource not found",
     ErrorCode.RESOURCE_NOT_EDITABLE: "Only in-stock resources can be edited",
+    ErrorCode.RESOURCE_DUPLICATE: "This item already exists on the marketplace (listed or sold before)",
     ErrorCode.RESOURCE_EMPTY: "Resource content cannot be empty",
     ErrorCode.RESOURCE_NOT_DELETABLE: "Only available resources can be deleted",
     ErrorCode.CATEGORY_NOT_FOUND: "Category not found",

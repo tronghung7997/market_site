@@ -21,7 +21,14 @@ def withdraw_limit(tier: str) -> int | None:
     return _WITHDRAW_LIMIT.get(tier, _WITHDRAW_LIMIT["new"])
 
 
+def fee_discount_pp(tier: str) -> int:
+    """Percentage points a tier shaves off the platform fee."""
+    return _FEE_DISCOUNT_PP.get(tier, 0)
+
+
 def platform_fee_percent(tier: str) -> int:
+    """Env-based fallback only (tests / scripts). Order settlement uses
+    `fees.service.platform_fee_percent_for`, which reads the admin config."""
     base = settings.platform_fee_percent
     return max(0, base - _FEE_DISCOUNT_PP.get(tier, 0))
 

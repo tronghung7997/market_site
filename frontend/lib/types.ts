@@ -462,6 +462,9 @@ export interface WithdrawRequest {
   payout_reference?: string | null;
   paid_at?: string | null;
   reject_reason?: string | null;
+  /** Withdrawal fee locked in at request time; net_amount = amount − fee_amount is what gets paid out. */
+  fee_amount?: number;
+  net_amount?: number | null;
   created_at: string;
 }
 
@@ -1386,6 +1389,8 @@ export interface RestockResult {
   count: number;
   skipped_duplicate: number;
   skipped_existing: number;
+  /** Rows that already exist elsewhere on the marketplace (other package, other seller, or sold). */
+  skipped_market: number;
 }
 
 export type ResourceStatusFilter = "all" | "available" | "assigned" | "error" | "expired" | "archived";
@@ -2232,3 +2237,41 @@ export type SiteStatusUpdate = Partial<Omit<SiteStatusAdmin, "announcement_versi
   clear_maintenance_until?: boolean;
   clear_announcement_window?: boolean;
 };
+
+// --- Ledger reconciliation (Admin › Reports) ---
+export type LedgerFinding = {
+  kind: "wallet_available" | "wallet_locked" | "order_hold" | "order_refund" | "order_settlement" | "order_release_early" | "platform";
+  target_type: "wallet" | "order" | "platform";
+  target_id: number;
+  expected: number;
+  actual: number;
+  delta: number;
+  detail: string;
+};
+export type LedgerRun = {
+  id: number;
+  ran_at: string;
+  duration_ms: number;
+  trigger: "schedule" | "manual";
+  ok: boolean;
+  wallets_checked: number;
+  orders_checked: number;
+  mismatch_count: number;
+  totals: Partial<Record<"available" | "locked" | "escrow_open" | "held_total" | "money_in" | "money_out" | "net_in", number>>;
+  findings: LedgerFinding[];
+};
+
+// --- Fees & holds (Settings › Fees & holds) ---
+export type FeeConfigPublic = {
+  platform_fee_percent: number;
+  category_fee_percent: Record<string, number>;
+  escrow_default_days: number;
+  escrow_min_days: number;
+  category_escrow_min_days: Record<string, number>;
+  withdraw_min_amount: number;
+  withdraw_fee_fixed: number;
+  withdraw_fee_percent: number;
+};
+export type FeeConfigAdmin = FeeConfigPublic & { updated_at: string | null; updated_by_id: number | null };
+export type FeeConfigUpdate = Partial<FeeConfigPublic>;
+export type WithdrawQuote = { amount: number; fee_amount: number; net_amount: number; min_amount: number; fee_fixed: number; fee_percent: number };

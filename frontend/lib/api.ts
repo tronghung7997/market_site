@@ -22,7 +22,7 @@ import type {
   InventoryReportParams, InventoryReportResponse, InventoryStockTab, RestockPreview, RestockResult,
   SellerResourceQuery, SellerRuntimeConfig, SiteAnalyticsConfig,
   LoginEvent, AffiliateRuntimeConfig, PublicAffiliateConfig, ContentFilterConfig, ContentFilterTestResult, AuthRuntimeConfig,
-  LoginResult, PublicAuthConfig, TotpSetup, SiteStatusPublic, SiteStatusAdmin, SiteStatusUpdate,
+  LoginResult, PublicAuthConfig, TotpSetup, SiteStatusPublic, SiteStatusAdmin, SiteStatusUpdate, LedgerRun, FeeConfigPublic, FeeConfigAdmin, FeeConfigUpdate, WithdrawQuote,
 } from "./types";
 import {
   ApiError,
@@ -138,6 +138,13 @@ export const api = {
   publicAuthConfig: () => request<PublicAuthConfig>("/public/auth-config"),
   publicSiteStatus: () => request<SiteStatusPublic>("/public/site-status"),
   adminSiteStatus: () => request<SiteStatusAdmin>("/admin/site-status", {}, true),
+  adminLedgerRuns: () => request<LedgerRun[]>("/admin/ledger/reconcile-runs", {}, true),
+  feeConfig: () => request<FeeConfigPublic>("/public/fee-config"),
+  withdrawQuote: (amount: number) => request<WithdrawQuote>(`/wallet/withdraw-quote?amount=${amount}`, {}, true),
+  adminFeeConfig: () => request<FeeConfigAdmin>("/admin/fee-config", {}, true),
+  updateAdminFeeConfig: (body: FeeConfigUpdate) =>
+    request<FeeConfigAdmin>("/admin/fee-config", { method: "PATCH", body: JSON.stringify(body) }, true),
+  runAdminLedgerReconcile: () => request<LedgerRun>("/admin/ledger/reconcile-runs", { method: "POST" }, true),
   updateAdminSiteStatus: (body: SiteStatusUpdate) =>
     request<SiteStatusAdmin>("/admin/site-status", { method: "PATCH", body: JSON.stringify(body) }, true),
   changePassword: (currentPassword: string, newPassword: string, locale: string) =>

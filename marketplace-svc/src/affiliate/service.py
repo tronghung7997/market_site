@@ -11,7 +11,7 @@ from src.models.affiliate import AffiliateClick, AffiliateCommission, AffiliateF
 from src.models.category import Category
 from src.models.order import Order
 from src.models.product import Product, ProductVariant
-from src.sellers.tiers import platform_fee_percent
+from src.fees.service import order_fee_percent
 from src.wallet.service import clawback_affiliate_commission, credit_affiliate_commission, escrow_settlement
 
 from .settings import get_affiliate_settings
@@ -151,7 +151,7 @@ async def apply_affiliate_commission(order: Order, db: AsyncSession) -> None:
         return
 
     seller = await db.get(Account, order.seller_id)
-    fee_percent = platform_fee_percent(seller.seller_tier if seller else "new")
+    fee_percent = await order_fee_percent(order, seller.seller_tier if seller else "new", db)
     _remaining, fee_base = escrow_settlement(order.total_amount, order.refunded_amount, fee_percent)
     amount = round(fee_base * rate / 100)
     if amount <= 0:

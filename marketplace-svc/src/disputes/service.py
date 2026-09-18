@@ -22,8 +22,7 @@ from src.models.order import (
 from src.models.product import DeliveryMode, Product, ProductVariant
 from src.models.resource import Resource, ResourceStatus
 from src.resources.service import claim_resources
-from src.sellers.tiers import escrow_days as tier_escrow_days
-from src.sellers.tiers import platform_fee_percent
+from src.fees.service import escrow_days_for, order_fee_percent
 from src.wallet.service import escrow_settlement, refund_escrow, release_escrow
 from src.exceptions import ErrorCode, api_error
 
@@ -323,7 +322,7 @@ async def _finalize_dispute(
     order.status = OrderStatus.refunded if fully_refunded else OrderStatus.completed
 
     seller = await db.get(Account, order.seller_id)
-    fee_percent = platform_fee_percent(seller.seller_tier if seller else "new")
+    fee_percent = await order_fee_percent(order, seller.seller_tier if seller else "new", db)
     remaining_amount, platform_fee = escrow_settlement(
         order.total_amount, order.refunded_amount, fee_percent
     )
@@ -1699,7 +1698,7 @@ async def withdraw_dispute(order_id: int, buyer_id: int, db: AsyncSession) -> di
     should_settle = not order.escrow_expires_at or order.escrow_expires_at <= now
     if order.status == OrderStatus.delivered and should_settle:
         seller = await db.get(Account, order.seller_id)
-        fee_percent = platform_fee_percent(seller.seller_tier if seller else "new")
+        fee_percent = await order_fee_percent(order, seller.seller_tier if seller else "new", db)
         remaining_amount, platform_fee = escrow_settlement(
             order.total_amount, order.refunded_amount, fee_percent
         )
@@ -1879,7 +1878,7 @@ async def reject_dispute(dispute_id: int, admin_note: str, db: AsyncSession, *, 
     order.status = OrderStatus.completed
 
     seller = await db.get(Account, order.seller_id)
-    fee_percent = platform_fee_percent(seller.seller_tier if seller else "new")
+    fee_percent = await order_fee_percent(order, seller.seller_tier if seller else "new", db)
     remaining_amount, platform_fee = escrow_settlement(
         order.total_amount, order.refunded_amount, fee_percent
     )
@@ -1923,7 +1922,7 @@ async def partial_refund_dispute(dispute_id: int, admin_note: str, refund_amount
     )
 
     seller = await db.get(Account, order.seller_id)
-    fee_percent = platform_fee_percent(seller.seller_tier if seller else "new")
+    fee_percent = await order_fee_percent(order, seller.seller_tier if seller else "new", db)
     remaining_amount, platform_fee = escrow_settlement(
         order.total_amount, order.refunded_amount, fee_percent
     )
@@ -1985,7 +1984,8 @@ async def replace_dispute(dispute_id: int, admin_note: str, db: AsyncSession, *,
     base_escrow_days = product.escrow_days if product else 2
     seller = await db.get(Account, order.seller_id)
     order.escrow_expires_at = datetime.now(timezone.utc) + timedelta(
-        days=tier_escrow_days(seller.seller_tier if seller else "new", base_escrow_days)
+        days=await escrow_days_for(db, seller_tier=seller.seller_tier if seller else "new",
+                                   product_escrow_days=base_escrow_days, category_id=product.category_id if product else None)
     )
     order.status = OrderStatus.delivered
 

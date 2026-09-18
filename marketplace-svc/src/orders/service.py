@@ -26,7 +26,7 @@ from src.pricing.factory import get_pricing_strategy
 from src.resources.service import claim_resources
 from src.audit.service import log_event, query_logs
 from src.logging import current_request_id
-from src.sellers.tiers import escrow_days as tier_escrow_days, platform_fee_percent
+from src.fees.service import escrow_days_for, order_fee_percent
 from src.usage.service import create_balance_for_order, get_usage_summary
 from src.wallet.service import deduct_credit, escrow_settlement, refund_escrow, release_escrow
 from src.disputes.service import orders_with_appendable_claims
@@ -105,7 +105,8 @@ async def create_order(buyer_id: int, variant_id: int, quantity: int, db: AsyncS
             quantity=quantity, total_amount=total, status=OrderStatus.delivered,
             display_fx_rate_snapshot=fx_snapshot,
             escrow_expires_at=datetime.now(timezone.utc) + timedelta(
-                days=tier_escrow_days(seller.seller_tier if seller else "new", product.escrow_days)
+                days=await escrow_days_for(db, seller_tier=seller.seller_tier if seller else "new",
+                                           product_escrow_days=product.escrow_days, category_id=product.category_id)
             ),
         )
         db.add(order)
@@ -227,7 +228,8 @@ async def _apply_provision_result(
             order.delivered_data = provision_result.data
             seller = await db.get(Account, product.seller_id)
             order.escrow_expires_at = datetime.now(timezone.utc) + timedelta(
-                days=tier_escrow_days(seller.seller_tier if seller else "new", product.escrow_days)
+                days=await escrow_days_for(db, seller_tier=seller.seller_tier if seller else "new",
+                                           product_escrow_days=product.escrow_days, category_id=product.category_id)
             )
             strategy_name, strategy_params = await resolve_pricing(product, db)
             if strategy_name == "credit":
@@ -514,7 +516,7 @@ async def confirm_order(order_id: int, buyer_id: int, db: AsyncSession) -> Order
         raise api_error(ErrorCode.DISPUTE_ALREADY_OPEN, status.HTTP_400_BAD_REQUEST)
     order.status = OrderStatus.completed
     seller = await db.get(Account, order.seller_id)
-    fee_percent = platform_fee_percent(seller.seller_tier if seller else "new")
+    fee_percent = await order_fee_percent(order, seller.seller_tier if seller else "new", db)
     remaining_amount, platform_fee = escrow_settlement(
         order.total_amount, order.refunded_amount, fee_percent
     )
@@ -1085,7 +1087,8 @@ async def deliver_order(order_id: int, seller_id: int, data: str, db: AsyncSessi
     order.status = OrderStatus.delivered
     order.delivered_data = data
     order.escrow_expires_at = datetime.now(timezone.utc) + timedelta(
-        days=tier_escrow_days(seller.seller_tier if seller else "new", base_escrow_days)
+        days=await escrow_days_for(db, seller_tier=seller.seller_tier if seller else "new",
+                                   product_escrow_days=base_escrow_days, category_id=product.category_id if product else None)
     )
     await log_event(db, "info", f"Order {order.id} delivered manually", request_id=current_request_id(),
                     metadata={"event": "order_delivered_manual", "order_id": order.id})

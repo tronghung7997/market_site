@@ -75,7 +75,7 @@ export const INITIAL_B3: B3TaskState = {
  *  content per locale, classification, protection days and the dynamic
  *  (provider-backed) pricing state. Variants live with each page since one
  *  keeps local drafts and the other talks to the server row by row. */
-export function useProductFormCore(interfaceLocale: ProductLocale, options: { loadProviders: boolean }) {
+export function useProductFormCore(interfaceLocale: ProductLocale, options: { loadProviders: boolean; defaultEscrowFromAdmin?: boolean }) {
   const [categories, setCategories] = useState<Category[]>([]);
   const [categoriesError, setCategoriesError] = useState(false);
   const [providers, setProviders] = useState<Provider[]>([]);
@@ -103,6 +103,12 @@ export function useProductFormCore(interfaceLocale: ProductLocale, options: { lo
   useEffect(() => {
     api.categories().then(setCategories).catch(() => setCategoriesError(true));
   }, []);
+
+  // New products start from the admin's default hold (Settings › Fees & holds).
+  useEffect(() => {
+    if (!options.defaultEscrowFromAdmin) return;
+    api.feeConfig().then((cfg) => setEscrowDays(cfg.escrow_default_days)).catch(() => {});
+  }, [options.defaultEscrowFromAdmin]);
 
   useEffect(() => {
     if (!options.loadProviders) { setProviders([]); return; }

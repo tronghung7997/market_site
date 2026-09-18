@@ -5,13 +5,14 @@ from datetime import datetime
 
 from fastapi import status
 from sqlalchemy import and_, case, func, or_, select
+from sqlalchemy.exc import IntegrityError
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from src.audit.service import log_event
 from src.exceptions import ErrorCode, NotOwner, ResourceUnavailable, api_error
 from src.logging import current_request_id
 from src.models.product import DeliveryMode, Product, ProductStatus, ProductVariant
-from src.models.resource import Resource, ResourceStatus
+from src.models.resource import Resource, ResourceStatus, resource_data_hash
 from src.orders.codes import parse_order_ref
 from src.pricing.engine import inventory_managed_sql
 
@@ -39,9 +40,11 @@ def _fixed_strategy_sql():
     return inventory_managed_sql()
 
 
-async def bulk_add_resources(variant_id: int, seller_id: int, items: list[str], db: AsyncSession) -> dict:
-    """Returns {"count", "skipped_duplicate", "skipped_existing"} — the two
-    skip counters let the console explain why 5 pasted lines became 3 rows."""
+async def bulk_add_resources(variant_id: int, seller_id: int, items: list[str], db: AsyncSession, *, _retry: bool = True) -> dict:
+    """Returns {"count", "skipped_duplicate", "skipped_existing", "skipped_market"}:
+    duplicates inside the paste, rows this variant already holds, and rows
+    that exist anywhere else on the marketplace (another package, another
+    seller, or sold before) — the console explains each bucket separately."""
     # Serialize uploads per variant so two concurrent requests cannot both pass
     # the duplicate check and sell the same credential twice.
     variant = (await db.execute(
@@ -59,24 +62,45 @@ async def bulk_add_resources(variant_id: int, seller_id: int, items: list[str], 
         raise api_error(ErrorCode.INVENTORY_NOT_INSTANT, status.HTTP_400_BAD_REQUEST)
 
     cleaned = [item.strip() for item in items if item.strip()]
-    unique_items = list(dict.fromkeys(cleaned))
-    if not unique_items:
+    # Two lines that only differ in line endings / padding are the same key.
+    by_hash: dict[str, str] = {}
+    for item in cleaned:
+        by_hash.setdefault(resource_data_hash(item), item)
+    if not by_hash:
         await db.commit()
-        return {"count": 0, "skipped_duplicate": 0, "skipped_existing": 0}
-    existing = set((await db.execute(
-        select(Resource.data).where(
-            Resource.variant_id == variant_id,
-            Resource.data.in_(unique_items),
-        )
-    )).scalars())
-    new_items = [item for item in unique_items if item not in existing]
+        return {"count": 0, "skipped_duplicate": 0, "skipped_existing": 0, "skipped_market": 0}
+    taken = (await db.execute(
+        select(Resource.data_hash, Resource.variant_id).where(Resource.data_hash.in_(list(by_hash)))
+    )).all()
+    in_variant = {h for h, vid in taken if vid == variant_id}
+    elsewhere = {h for h, vid in taken if vid != variant_id}
+    new_items = [item for h, item in by_hash.items() if h not in in_variant and h not in elsewhere]
     for item in new_items:
         db.add(Resource(variant_id=variant_id, seller_id=seller_id, data=item))
-    await db.commit()
+    if elsewhere:
+        # Somebody tried to list stock that is already on the marketplace —
+        # worth a trace even when it is an honest re-upload.
+        await log_event(
+            db, "warning",
+            f"Seller #{seller_id} uploaded {len(elsewhere)} resource(s) already present on the marketplace",
+            request_id=current_request_id(),
+            metadata={"event": "resource_duplicate_upload", "seller_id": seller_id, "variant_id": variant_id, "count": len(elsewhere)},
+        )
+    try:
+        await db.commit()
+    except IntegrityError:
+        # Lost a race with an upload to another package (the per-variant lock
+        # above only serialises uploads to this one): recheck once, then the
+        # remaining clash is a real duplicate.
+        await db.rollback()
+        if _retry:
+            return await bulk_add_resources(variant_id, seller_id, items, db, _retry=False)
+        raise api_error(ErrorCode.RESOURCE_DUPLICATE, status.HTTP_409_CONFLICT) from None
     return {
         "count": len(new_items),
-        "skipped_duplicate": len(cleaned) - len(unique_items),
-        "skipped_existing": len(unique_items) - len(new_items),
+        "skipped_duplicate": len(cleaned) - len(by_hash),
+        "skipped_existing": len(in_variant),
+        "skipped_market": len(elsewhere),
     }
 
 
@@ -189,6 +213,17 @@ async def _verify_resource_ownership(resource: Resource, seller_id: int, db: Asy
     raise NotOwner()
 
 
+async def _assert_not_on_market(data: str, db: AsyncSession, *, except_id: int) -> None:
+    """Editing a row into a value that already exists anywhere else is the same
+    duplicate as uploading it; the unique index would reject it with a bare
+    500 otherwise."""
+    clash = await db.scalar(
+        select(Resource.id).where(Resource.data_hash == resource_data_hash(data), Resource.id != except_id).limit(1)
+    )
+    if clash is not None:
+        raise api_error(ErrorCode.RESOURCE_DUPLICATE, status.HTTP_409_CONFLICT)
+
+
 async def update_resource_data(resource_id: int, seller_id: int, data: str, db: AsyncSession) -> Resource:
     """Sửa nội dung một tài nguyên còn trong kho hoặc đã thu hồi lỗi."""
     resource = await db.get(Resource, resource_id)
@@ -199,6 +234,7 @@ async def update_resource_data(resource_id: int, seller_id: int, data: str, db: 
         raise api_error(ErrorCode.RESOURCE_NOT_EDITABLE, status.HTTP_400_BAD_REQUEST)
     if not data.strip():
         raise api_error(ErrorCode.RESOURCE_EMPTY, status.HTTP_400_BAD_REQUEST)
+    await _assert_not_on_market(data, db, except_id=resource.id)
     resource.data = data.strip()
     await db.commit()
     await db.refresh(resource)
@@ -221,6 +257,7 @@ async def restock_resource(
         raise api_error(ErrorCode.RESOURCE_NOT_EDITABLE, status.HTTP_400_BAD_REQUEST)
     if not data.strip():
         raise api_error(ErrorCode.RESOURCE_EMPTY, status.HTTP_400_BAD_REQUEST)
+    await _assert_not_on_market(data, db, except_id=resource.id)
     resource.data = data.strip()
     resource.status = ResourceStatus.available
     resource.order_id = None

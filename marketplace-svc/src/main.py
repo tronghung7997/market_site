@@ -47,6 +47,7 @@ from src.scheduler import (
     auto_review_job,
     escrow_release_job,
     gateway_call_log_cleanup_job,
+    ledger_reconcile_job,
     chat_message_retention_job,
     provider_credit_low_job,
     provision_sweep_job,
@@ -67,6 +68,8 @@ from src.security.client_ip import request_client_ip
 from src.site_status import pausable
 from src.site_status.gate import maintenance_gate
 from src.site_status.router import router as site_status_router
+from src.ledger.router import router as ledger_router
+from src.fees.router import router as fees_router
 
 # offline
 from fastapi.openapi.docs import (
@@ -101,6 +104,8 @@ scheduler.add_job(supplier_sync_job, "interval", minutes=settings.supplier_sync_
 scheduler.add_job(gateway_call_log_cleanup_job, "interval", hours=6, id="gateway_call_log_cleanup")
 scheduler.add_job(chat_message_retention_job, "interval", hours=6, id="chat_message_retention")
 scheduler.add_job(mail_outbox_send_job, "interval", seconds=20, id="mail_outbox")
+# Books check every night at 03:30 server time, after the day's settlements.
+scheduler.add_job(ledger_reconcile_job, "cron", hour=3, minute=30, id="ledger_reconcile")
 
 
 @asynccontextmanager
@@ -176,6 +181,8 @@ async def require_bff_signature(request: Request, call_next):
 
 app.include_router(auth_router)
 app.include_router(site_status_router)
+app.include_router(ledger_router)
+app.include_router(fees_router)
 app.include_router(content_filter_router)
 app.include_router(seller_router)
 app.include_router(sellers_router)

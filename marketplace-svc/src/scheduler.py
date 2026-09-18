@@ -17,7 +17,7 @@ from src.models.product import Product, ProductVariant
 from src.models.provider import Provider, ProviderHealth
 from src.models.resource import Resource, ResourceStatus
 from src.providers.service import apply_scores
-from src.sellers.tiers import platform_fee_percent
+from src.fees.service import order_fee_percent
 from src.wallet.service import escrow_settlement, refund_escrow, release_escrow
 from src.disputes.service import resolve_abandoned_dispute, resolve_dispute_after_response_timeout
 from src.chat.retention import CHAT_RETENTION_BATCH_SIZE, purge_expired_messages
@@ -50,7 +50,7 @@ async def escrow_release_job() -> None:
                 if order.status != OrderStatus.delivered:
                     continue
                 seller = await db.get(Account, order.seller_id)
-                fee_percent = platform_fee_percent(seller.seller_tier if seller else "new")
+                fee_percent = await order_fee_percent(order, seller.seller_tier if seller else "new", db)
                 remaining_amount, platform_fee = escrow_settlement(
                     order.total_amount, order.refunded_amount, fee_percent
                 )
@@ -1011,3 +1011,15 @@ async def auto_review_job() -> None:
         except Exception as e:
             await db.rollback()
             logger.error("auto_review_failed", error=str(e))
+
+
+async def ledger_reconcile_job() -> None:
+    """Nightly books check (A3.4): recompute every balance from the
+    transaction log and raise `ledger_mismatch` incidents for anything that
+    does not add up. Read-mostly; safe to run during maintenance."""
+    from src.ledger.service import run_and_record
+    try:
+        async with SessionLocal() as db:
+            await run_and_record(db, trigger="schedule")
+    except Exception as e:  # noqa: BLE001
+        logger.error("ledger_reconcile_failed", error=str(e))

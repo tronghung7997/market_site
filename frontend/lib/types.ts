@@ -806,6 +806,9 @@ export interface Dispute {
   escrow_expires_at?: string | null;
   abandon_after_at?: string | null;
   review_requested_at?: string | null;
+  /** A4.5: the seller must react before this, or the case is refunded automatically. */
+  seller_deadline_at?: string | null;
+  seller_responded_at?: string | null;
   resolved_at: string | null;
   product_title?: string | null;
   variant_name?: string | null;
@@ -879,6 +882,9 @@ export interface AdminDisputeDetail {
   resolution_deadline_at?: string | null;
   abandon_after_at?: string | null;
   review_requested_at?: string | null;
+  /** A4.5: the seller must react before this, or the case is refunded automatically. */
+  seller_deadline_at?: string | null;
+  seller_responded_at?: string | null;
   resolved_at: string | null;
   order: AdminDisputeOrder;
   resources: ResourceInfo[];
@@ -2271,6 +2277,7 @@ export type FeeConfigPublic = {
   withdraw_min_amount: number;
   withdraw_fee_fixed: number;
   withdraw_fee_percent: number;
+  dispute_seller_response_hours: number;
 };
 export type FeeConfigAdmin = FeeConfigPublic & { updated_at: string | null; updated_by_id: number | null };
 export type FeeConfigUpdate = Partial<FeeConfigPublic>;

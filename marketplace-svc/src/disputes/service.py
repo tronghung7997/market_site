@@ -197,6 +197,19 @@ def compute_abandon_after_at(
     return start + timedelta(hours=hours)
 
 
+def _mark_seller_responded(dispute: Dispute, *, now: datetime | None = None) -> None:
+    """First concrete seller reaction (note, remedy, escalation) stops the
+    seller-deadline clock for good; later silence is the buyer-window's job."""
+    if dispute.seller_responded_at is None:
+        dispute.seller_responded_at = now or datetime.now(timezone.utc)
+
+
+async def _seller_deadline_for_new_case(db: AsyncSession, *, now: datetime) -> datetime | None:
+    from src.fees.settings import get_fee_settings
+    hours = int((await get_fee_settings(db))["dispute_seller_response_hours"])
+    return now + timedelta(hours=hours) if hours > 0 else None
+
+
 def _clear_resolution_deadline(dispute: Dispute) -> None:
     dispute.resolution_offered_at = None
     dispute.resolution_deadline_at = None
@@ -268,6 +281,10 @@ async def _enqueue_dispute_opened(db: AsyncSession, dispute: Dispute, order: Ord
         payload={
             "order_id": order.order_code,
             "reason": _truncate_reason(dispute.reason),
+            "deadline": (
+                dispute.seller_deadline_at.astimezone(timezone(timedelta(hours=7))).strftime("%H:%M %d/%m/%Y")
+                if dispute.seller_deadline_at else "—"
+            ),
             "action_url": frontend_url("vi", f"/seller/orders/{order.order_code}"),
         },
     )
@@ -387,6 +404,7 @@ async def create_dispute(
     dispute = Dispute(
         order_id=order_id, buyer_id=buyer_id, reason=reason,
         evidence_type=evidence_type, evidence=evidence,
+        seller_deadline_at=await _seller_deadline_for_new_case(db, now=datetime.now(timezone.utc)),
     )
     db.add(dispute)
     await db.flush()
@@ -588,6 +606,8 @@ async def mark_marketplace_review_requested(
     dispute.review_requested_at = datetime.now(timezone.utc)
     _clear_resolution_deadline(dispute)
     role = "seller" if account.id == order.seller_id else "buyer"
+    if role == "seller":
+        _mark_seller_responded(dispute)
     db.add(
         DisputeMessage(
             dispute_id=dispute.id,
@@ -625,6 +645,7 @@ async def mark_marketplace_review_requested(
 
 _PLACEHOLDER_ADMIN_NOTES = frozenset({"", "—", "-", "–", "−"})
 _TERMINAL_TIMELINE_EVENTS = frozenset({
+    "seller_timeout_refund",
     "buyer_accepted",
     "buyer_withdrew",
     "resolution_timeout",
@@ -647,6 +668,7 @@ _STATUS_TIMELINE_EVENT = {
     DisputeStatus.withdrawn_by_buyer: "buyer_withdrew",
 }
 _BUYER_REFUND_EVENTS = frozenset({
+    "seller_timeout_refund",
     "admin_refund",
     "admin_partial_refund",
     "seller_full_refund",
@@ -822,6 +844,8 @@ async def _enrich_dispute(dispute: Dispute, db: AsyncSession) -> dict:
             has_resource_remedy=bool(actions),
             review_requested=bool(dispute.review_requested_at),
         ),
+        "seller_deadline_at": dispute.seller_deadline_at,
+        "seller_responded_at": dispute.seller_responded_at,
         "review_requested_at": dispute.review_requested_at,
         "resolved_at": dispute.resolved_at,
         "product_title": product.title if product else None,
@@ -878,6 +902,7 @@ async def _dispute_list_page(
         "resolution_deadline_at": dispute.resolution_deadline_at,
         "escrow_expires_at": order.escrow_expires_at, "abandon_after_at": None,
         "review_requested_at": dispute.review_requested_at, "resolved_at": dispute.resolved_at,
+        "seller_deadline_at": dispute.seller_deadline_at, "seller_responded_at": dispute.seller_responded_at,
         "product_title": title, "variant_name": variant_name, "buyer_email": email,
         "order_amount": order.total_amount, "refunded_amount": order.refunded_amount,
     } for dispute, order, title, variant_name, email in rows]
@@ -955,6 +980,8 @@ async def get_dispute_detail(dispute_id: int, db: AsyncSession) -> dict:
             review_requested=bool(dispute.review_requested_at),
         ),
         "review_requested_at": dispute.review_requested_at,
+        "seller_deadline_at": dispute.seller_deadline_at,
+        "seller_responded_at": dispute.seller_responded_at,
         "resolved_at": dispute.resolved_at,
         "order": order_info,
         "resources": resources,
@@ -975,6 +1002,7 @@ async def seller_respond_dispute(dispute_id: int, seller_id: int, seller_note: s
         db, seller_note, actor_id=seller_id, context="dispute_seller_note", subject_id=str(dispute.id),
     )
     dispute.seller_note = seller_note
+    _mark_seller_responded(dispute)
     # Resource-backed instant disputes need an actual remedy for every claim;
     # a note alone must never unlock automatic settlement. Proxy/task disputes
     # have no account-resource remedy, so their concrete seller response opens
@@ -1108,6 +1136,7 @@ async def seller_resolve_resources(
     order = await db.get(Order, dispute.order_id, with_for_update=True)
     if not order or order.seller_id != seller_id:
         raise api_error(ErrorCode.NOT_OWNER, status.HTTP_403_FORBIDDEN)
+    _mark_seller_responded(dispute)
     prior = list(
         (
             await db.execute(
@@ -1822,6 +1851,65 @@ async def resolve_dispute_after_response_timeout(
             "deadline_at": deadline_at.isoformat(),
         },
     )
+
+
+async def resolve_dispute_after_seller_timeout(
+    dispute: Dispute,
+    order: Order,
+    db: AsyncSession,
+    *,
+    now: datetime | None = None,
+) -> int:
+    """Seller never reacted before the deadline: refund the buyer in full.
+
+    Returns the amount refunded. Marketplace review pauses this clock like the
+    others; any seller action clears it via seller_responded_at."""
+    current_time = now or datetime.now(timezone.utc)
+    if (
+        dispute.status != DisputeStatus.open
+        or dispute.review_requested_at
+        or dispute.seller_responded_at
+        or not dispute.seller_deadline_at
+        or dispute.seller_deadline_at > current_time
+    ):
+        raise ValueError("Dispute is not eligible for seller-timeout refund")
+    remaining = order.total_amount - order.refunded_amount
+    if remaining:
+        await refund_escrow(order.id, order.buyer_id, remaining, db, reference_suffix=f":dispute:{dispute.id}:seller-timeout")
+    await _finalize_dispute(
+        dispute,
+        order,
+        db,
+        status_value=DisputeStatus.resolved_refund,
+        actor_id=1,
+        actor_role="admin",
+        event_type="seller_timeout_refund",
+        body="Seller did not respond before the deadline; the buyer was refunded in full.",
+    )
+    await log_event(
+        db,
+        "warning",
+        f"Dispute {dispute.id} refunded: seller missed the response deadline",
+        metadata={
+            "event": "dispute_seller_timeout",
+            "order_id": order.id,
+            "dispute_id": dispute.id,
+            "seller_id": order.seller_id,
+            "deadline_at": dispute.seller_deadline_at.isoformat(),
+            "amount": remaining,
+        },
+    )
+    from src.alerts.service import add_alert
+    await add_alert(
+        db,
+        type_="dispute_seller_timeout",
+        severity="warning",
+        target_type="order",
+        target_id=order.id,
+        message=f"Đơn #{order.id}: seller #{order.seller_id} im lặng quá hạn khiếu nại — đã hoàn {remaining:,} ₫ cho người mua".replace(",", "."),
+        href=f"/admin/disputes?dispute={dispute.id}",
+    )
+    return remaining
 
 
 async def refund_dispute(dispute_id: int, admin_note: str, db: AsyncSession, *, admin_id: int) -> Dispute:

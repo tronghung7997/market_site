@@ -2529,6 +2529,8 @@
     "withdrawDisputeSuccess": "Đã rút khiếu nại. Đơn sẽ hoàn tất theo hạn escrow ban đầu.",
     "withdrawDisputeCompleted": "Đã rút khiếu nại. Hạn escrow đã qua nên đơn đã được hoàn tất.",
     "disputeResolutionDeadline": "Hạn phản hồi của buyer: {date}. Nếu không có phản hồi, case sẽ được tự động xử lý.",
+    "disputeSellerDeadline": "Người bán phải phản hồi trước {date}. Quá hạn, bạn được hoàn toàn bộ tiền tự động.",
+    "disputeSellerDeadlineSeller": "Bạn phải phản hồi trước {date}. Quá hạn không phản hồi, hệ thống tự hoàn toàn bộ tiền cho người mua và khiếu nại tính là bạn thua.",
     "disputeAbandonDeadline": "Nếu seller chưa xử lý acc và bạn không thao tác thêm, phần tiền còn lại sẽ về seller vào {date}.",
     "disputeAbandonDeadlineSeller": "Nếu buyer không claim thêm và seller chưa xử lý acc, phần tiền còn lại sẽ về bạn vào {date}.",
     "disputeEscrowPaused": "Hạn escrow ban đầu: {date}. Đơn tạm dừng hoàn tất trong khi khiếu nại còn mở.",
@@ -2546,6 +2548,7 @@
       "buyer_withdrew": "Buyer đã rút khiếu nại",
       "resolution_timeout": "Tự đóng vì buyer không phản hồi hạn xử lý",
       "resolution_abandoned": "Tự đóng vì không có thao tác sau hạn ký quỹ",
+      "seller_timeout_refund": "Tự hoàn toàn bộ tiền cho bạn vì seller không phản hồi đúng hạn",
       "seller_full_refund": "Seller đã hoàn toàn bộ đơn",
       "admin_refund": "GMMO đã hoàn phần ký quỹ còn lại cho bạn",
       "admin_partial_refund": "GMMO đã hoàn một phần",
@@ -2555,6 +2558,7 @@
       "case_resolved": "Khiếu nại đã kết thúc"
     },
     "disputeEventsSeller": {
+      "seller_timeout_refund": "Hệ thống đã hoàn toàn bộ tiền cho buyer vì bạn không phản hồi đúng hạn",
       "admin_refund": "GMMO đã hoàn phần ký quỹ còn lại cho buyer",
       "admin_partial_refund": "GMMO đã hoàn một phần cho buyer; phần ký quỹ còn lại được giải ngân cho bạn",
       "admin_reject": "GMMO từ chối khiếu nại — phần ký quỹ còn lại được giải ngân cho bạn",
@@ -3677,6 +3681,13 @@
     "withdrawFeeTitle": "Phí rút",
     "withdrawFeeHint": "Phí cố định + phần trăm trên số tiền rút, trừ vào số tiền chuyển cho seller và cộng vào ví sàn khi duyệt.",
     "withdrawFeeExample": "Ví dụ rút {amount}: phí {fee}, chuyển {net}.",
+    "disputeSection": "Khiếu nại",
+    "disputeSectionHint": "Luật xử lý khi có khiếu nại. Hạn mở khiếu nại = số ngày giữ tiền ở mục trên.",
+    "disputeSellerHoursTitle": "Hạn seller phản hồi",
+    "disputeSellerHoursHint": "Tính từ lúc buyer mở khiếu nại. Seller không phản hồi (trả lời, đổi/hoàn hàng, chuyển GMMO xử lý) trong khoảng này thì hệ thống tự hoàn toàn bộ tiền cho buyer và tính seller thua. 0 = tắt.",
+    "hoursLabel": "Số giờ",
+    "disputeSellerHoursOff": "Đang tắt — khiếu nại chờ đến khi có người xử lý.",
+    "disputeSellerHoursNote": "Job kiểm tra mỗi 15 phút; seller nhận email kèm hạn khi khiếu nại mở.",
     "auditNote": "Mỗi lần lưu ghi nhật ký ai đổi, lúc nào, giá trị cũ → mới (sự kiện fee_runtime_config_changed)."
   },
   "adminSystem": {

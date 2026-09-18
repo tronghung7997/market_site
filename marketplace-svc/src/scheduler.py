@@ -131,6 +131,44 @@ async def dispute_resolution_timeout_job() -> None:
                 )
 
 
+async def dispute_seller_timeout_job() -> None:
+    """Refund cases the seller ignored past their response deadline (A4.5)."""
+    from src.disputes.service import resolve_dispute_after_seller_timeout
+    async with SessionLocal() as db:
+        now = datetime.now(timezone.utc)
+        result = await db.execute(
+            select(Order)
+            .join(Dispute, Dispute.order_id == Order.id)
+            .where(
+                Dispute.status == DisputeStatus.open,
+                Dispute.review_requested_at.is_(None),
+                Dispute.seller_responded_at.is_(None),
+                Dispute.seller_deadline_at.is_not(None),
+                Dispute.seller_deadline_at <= now,
+            )
+            .with_for_update(skip_locked=True)
+        )
+        orders = list(result.scalars().all())
+        for order in orders:
+            order_id = order.id
+            try:
+                dispute = await db.scalar(
+                    select(Dispute)
+                    .where(Dispute.order_id == order.id, Dispute.status == DisputeStatus.open)
+                    .with_for_update()
+                )
+                if not dispute:
+                    continue
+                amount = await resolve_dispute_after_seller_timeout(dispute, order, db, now=now)
+                await db.commit()
+                logger.info("dispute_seller_timeout", dispute_id=dispute.id, order_id=order_id, amount=amount)
+            except ValueError:
+                await db.rollback()
+            except Exception as e:
+                await db.rollback()
+                logger.error("dispute_seller_timeout_failed", order_id=order_id, error=str(e))
+
+
 async def dispute_abandonment_job() -> None:
     """Close untouched open cases after escrow expiry plus buyer silence."""
     async with SessionLocal() as db:

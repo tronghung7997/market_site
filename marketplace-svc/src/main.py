@@ -43,6 +43,7 @@ from src.scheduler import (
     deposit_reconcile_job,
     dispute_abandonment_job,
     dispute_resolution_timeout_job,
+    dispute_seller_timeout_job,
     dproxy_reconciliation_job,
     auto_review_job,
     escrow_release_job,
@@ -87,6 +88,7 @@ scheduler.add_job(pausable(escrow_release_job), "interval", minutes=30, id="escr
 scheduler.add_job(auto_review_job, "interval", hours=24, id="auto_review")
 scheduler.add_job(pausable(dispute_resolution_timeout_job), "interval", minutes=15, id="dispute_resolution_timeout")
 scheduler.add_job(pausable(dispute_abandonment_job), "interval", minutes=15, id="dispute_abandonment")
+scheduler.add_job(pausable(dispute_seller_timeout_job), "interval", minutes=15, id="dispute_seller_timeout")
 scheduler.add_job(pausable(sla_check_job), "interval", minutes=10, id="sla_check")
 # Provider-health polling is deliberately paused: its current probes can
 # report an untested/billable provider as healthy, while persisting 96 rows per

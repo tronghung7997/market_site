@@ -13,6 +13,7 @@ import { SettingsFooter, SettingsLoadError, SettingsLoading, SettingsRow, Settin
 
 const PERCENT = { min: 0, max: 100 };
 const DAYS = { min: 0, max: 90 };
+const HOURS = { min: 0, max: 720 };
 const EXAMPLE_ORDER = 1_000_000;
 const EXAMPLE_WITHDRAW = 2_000_000;
 
@@ -25,6 +26,7 @@ type Form = {
   withdrawMin: string;
   withdrawFeeFixed: string;
   withdrawFeePercent: string;
+  disputeSellerHours: string;
 };
 
 const toForm = (cfg: FeeConfigAdmin): Form => ({
@@ -36,6 +38,7 @@ const toForm = (cfg: FeeConfigAdmin): Form => ({
   withdrawMin: String(cfg.withdraw_min_amount),
   withdrawFeeFixed: String(cfg.withdraw_fee_fixed),
   withdrawFeePercent: String(cfg.withdraw_fee_percent),
+  disputeSellerHours: String(cfg.dispute_seller_response_hours),
 });
 
 const num = (v: string) => (v.trim() === "" ? NaN : Number(v));
@@ -89,7 +92,8 @@ export function FeeSettingsPanel() {
   const withdrawMinOk = form.withdrawMin.trim() !== "" && Number.isInteger(num(form.withdrawMin)) && num(form.withdrawMin) >= 0;
   const withdrawFixedOk = form.withdrawFeeFixed.trim() !== "" && Number.isInteger(num(form.withdrawFeeFixed)) && num(form.withdrawFeeFixed) >= 0;
   const withdrawPercentOk = inRange(form.withdrawFeePercent, PERCENT, false);
-  const valid = feeOk && categoryFeeOk && escrowDefaultOk && escrowMinOk && categoryEscrowOk && withdrawMinOk && withdrawFixedOk && withdrawPercentOk;
+  const disputeHoursOk = inRange(form.disputeSellerHours, HOURS);
+  const valid = feeOk && categoryFeeOk && escrowDefaultOk && escrowMinOk && categoryEscrowOk && withdrawMinOk && withdrawFixedOk && withdrawPercentOk && disputeHoursOk;
   const dirty = JSON.stringify(form) !== JSON.stringify(toForm(query.data));
 
   const exampleFee = feeOk ? Math.floor(EXAMPLE_ORDER * num(form.feePercent) / 100) : 0;
@@ -107,6 +111,7 @@ export function FeeSettingsPanel() {
     withdraw_min_amount: num(form.withdrawMin),
     withdraw_fee_fixed: num(form.withdrawFeeFixed),
     withdraw_fee_percent: num(form.withdrawFeePercent),
+    dispute_seller_response_hours: num(form.disputeSellerHours),
   });
 
   const categoryTable = (
@@ -175,6 +180,13 @@ export function FeeSettingsPanel() {
           <span className="mt-1 block text-[12px] text-faint">
             {t("withdrawFeeExample", { amount: vnd(EXAMPLE_WITHDRAW), fee: vnd(exampleWithdrawFee), net: vnd(EXAMPLE_WITHDRAW - exampleWithdrawFee) })}
           </span>
+        </SettingsRow>
+      </SettingsSection>
+
+      <SettingsSection title={t("disputeSection")} description={t("disputeSectionHint")}>
+        <SettingsRow title={t("disputeSellerHoursTitle")} hint={t("disputeSellerHoursHint")} label={t("hoursLabel")}>
+          <Input inputMode="numeric" value={form.disputeSellerHours} onChange={(e) => update({ disputeSellerHours: digits(e.target.value) })} aria-invalid={!disputeHoursOk} className={cell} />
+          <span className="mt-1 block text-[12px] text-faint">{num(form.disputeSellerHours) === 0 ? t("disputeSellerHoursOff") : t("disputeSellerHoursNote")}</span>
         </SettingsRow>
       </SettingsSection>
 

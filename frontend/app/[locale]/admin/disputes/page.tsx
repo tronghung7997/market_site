@@ -70,6 +70,7 @@ const EVENT_LABELS: Record<string, string> = {
   dispute_warranty_extended: "Gia hạn bảo hành",
   dispute_resolution_timeout: "Tự đóng — buyer không phản hồi",
   dispute_abandoned: "Tự đóng — không thao tác sau hạn ký quỹ",
+  dispute_seller_timeout: "Hoàn tiền — seller không phản hồi đúng hạn",
   dispute_marketplace_review: "Chờ review GMMO",
 };
 

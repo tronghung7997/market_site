@@ -14,6 +14,7 @@ router = APIRouter(tags=["fees"])
 _PUBLIC_KEYS = (
     "platform_fee_percent", "category_fee_percent", "escrow_default_days", "escrow_min_days",
     "category_escrow_min_days", "withdraw_min_amount", "withdraw_fee_fixed", "withdraw_fee_percent",
+    "dispute_seller_response_hours",
 )
 
 

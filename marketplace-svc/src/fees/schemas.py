@@ -12,6 +12,7 @@ class FeeRuntimeConfigResponse(BaseModel):
     withdraw_min_amount: int
     withdraw_fee_fixed: int
     withdraw_fee_percent: float
+    dispute_seller_response_hours: int
     updated_at: datetime | None = None
     updated_by_id: int | None = None
 
@@ -25,6 +26,7 @@ class FeeRuntimeConfigUpdate(BaseModel):
     withdraw_min_amount: int | None = Field(default=None, ge=0)
     withdraw_fee_fixed: int | None = Field(default=None, ge=0)
     withdraw_fee_percent: float | None = Field(default=None, ge=0, le=100)
+    dispute_seller_response_hours: int | None = Field(default=None, ge=0, le=720)
 
 
 class PublicFeeConfig(BaseModel):
@@ -37,6 +39,7 @@ class PublicFeeConfig(BaseModel):
     withdraw_min_amount: int
     withdraw_fee_fixed: int
     withdraw_fee_percent: float
+    dispute_seller_response_hours: int
 
 
 class WithdrawQuote(BaseModel):

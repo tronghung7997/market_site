@@ -72,6 +72,7 @@ export const DISPUTE_TIMELINE_EVENT_KEYS = [
   "buyer_withdrew",
   "resolution_timeout",
   "resolution_abandoned",
+  "seller_timeout_refund",
   "seller_full_refund",
   "admin_refund",
   "admin_partial_refund",
@@ -93,6 +94,7 @@ export function isPlaceholderResolutionNote(note: string | null | undefined): bo
 }
 
 const SELLER_TIMELINE_COPY = new Set([
+  "seller_timeout_refund",
   "admin_refund",
   "admin_partial_refund",
   "admin_reject",

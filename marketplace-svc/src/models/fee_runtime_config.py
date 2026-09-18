@@ -30,6 +30,9 @@ class FeeRuntimeConfig(Base):
     withdraw_min_amount: Mapped[int] = mapped_column(Integer, nullable=False, default=0, server_default="0")
     withdraw_fee_fixed: Mapped[int] = mapped_column(Integer, nullable=False, default=0, server_default="0")
     withdraw_fee_percent: Mapped[float] = mapped_column(Float, nullable=False, default=0.0, server_default="0")
+    # Hours a seller has to react to a fresh dispute before it is decided
+    # against them (full refund). 0 = no deadline.
+    dispute_seller_response_hours: Mapped[int] = mapped_column(Integer, nullable=False, default=24, server_default="24")
     updated_at: Mapped[datetime] = mapped_column(
         DateTime(timezone=True), server_default=func.now(), onupdate=func.now(),
     )

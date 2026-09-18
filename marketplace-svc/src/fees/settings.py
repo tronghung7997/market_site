@@ -21,7 +21,9 @@ AMOUNT_RANGE = (0, 1_000_000_000)
 _EDITABLE = (
     "platform_fee_percent", "category_fee_percent", "escrow_default_days", "escrow_min_days",
     "category_escrow_min_days", "withdraw_min_amount", "withdraw_fee_fixed", "withdraw_fee_percent",
+    "dispute_seller_response_hours",
 )
+HOURS_RANGE = (0, 720)
 
 _cache: ProcessConfigCache[dict] = ProcessConfigCache("fee_runtime")
 
@@ -47,6 +49,7 @@ def _payload(row: FeeRuntimeConfig) -> dict:
         "withdraw_min_amount": int(row.withdraw_min_amount),
         "withdraw_fee_fixed": int(row.withdraw_fee_fixed),
         "withdraw_fee_percent": float(row.withdraw_fee_percent),
+        "dispute_seller_response_hours": int(row.dispute_seller_response_hours),
         "updated_at": row.updated_at.isoformat() if row.updated_at else None,
         "updated_by_id": row.updated_by_id,
     }
@@ -58,7 +61,10 @@ async def ensure_seeded(db: AsyncSession) -> FeeRuntimeConfig:
         return row
     await db.execute(
         pg_insert(FeeRuntimeConfig)
-        .values(id=_CONFIG_ID, platform_fee_percent=float(settings.platform_fee_percent))
+        .values(
+            id=_CONFIG_ID, platform_fee_percent=float(settings.platform_fee_percent),
+            dispute_seller_response_hours=int(settings.dispute_seller_response_hours),
+        )
         .on_conflict_do_nothing(index_elements=["id"])
     )
     await db.flush()
@@ -107,6 +113,7 @@ async def update_fee_settings(
     withdraw_min_amount: int | None = None,
     withdraw_fee_fixed: int | None = None,
     withdraw_fee_percent: float | None = None,
+    dispute_seller_response_hours: int | None = None,
 ) -> dict:
     row = await ensure_seeded(db)
     old = _payload(row)
@@ -132,6 +139,9 @@ async def update_fee_settings(
     if withdraw_fee_percent is not None:
         _check("withdraw_fee_percent", withdraw_fee_percent, PERCENT_RANGE)
         row.withdraw_fee_percent = float(withdraw_fee_percent)
+    if dispute_seller_response_hours is not None:
+        _check("dispute_seller_response_hours", dispute_seller_response_hours, HOURS_RANGE)
+        row.dispute_seller_response_hours = int(dispute_seller_response_hours)
     row.updated_by_id = actor_id
     # Read the editable fields before flush: `updated_at` is server-generated
     # (onupdate) and expires on flush, which an async session cannot lazy-load.

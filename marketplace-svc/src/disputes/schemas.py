@@ -135,6 +135,8 @@ class DisputeResponse(BaseModel):
     escrow_expires_at: datetime | None = None
     abandon_after_at: datetime | None = None
     review_requested_at: datetime | None = None
+    seller_deadline_at: datetime | None = None
+    seller_responded_at: datetime | None = None
     resolved_at: datetime | None
     product_title: str | None = None
     variant_name: str | None = None
@@ -202,6 +204,8 @@ class DisputeResponseFull(BaseModel):
     resolution_deadline_at: datetime | None = None
     abandon_after_at: datetime | None = None
     review_requested_at: datetime | None = None
+    seller_deadline_at: datetime | None = None
+    seller_responded_at: datetime | None = None
     resolved_at: datetime | None
     order: DisputeOrderInfo
     resources: list[DisputeResourceInfo]

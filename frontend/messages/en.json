@@ -2529,6 +2529,8 @@
     "withdrawDisputeSuccess": "Dispute withdrawn. The order will complete at its original escrow deadline.",
     "withdrawDisputeCompleted": "Dispute withdrawn. The escrow deadline had passed, so the order is now completed.",
     "disputeResolutionDeadline": "Buyer response deadline: {date}. If there is no response, the case will be settled automatically.",
+    "disputeSellerDeadline": "The seller must respond before {date}. If they don't, you are refunded in full automatically.",
+    "disputeSellerDeadlineSeller": "You must respond before {date}. If you don't, the buyer is refunded in full automatically and the case counts against you.",
     "disputeAbandonDeadline": "If this case stays open without a seller remedy and you take no further action, remaining escrow is released to the seller on {date}.",
     "disputeAbandonDeadlineSeller": "If the buyer does not add another claim and no seller remedy is issued, remaining escrow is released to you on {date}.",
     "disputeEscrowPaused": "Original escrow deadline: {date}. Escrow completion is paused while this dispute is open.",
@@ -2546,6 +2548,7 @@
       "buyer_withdrew": "Buyer withdrew the dispute",
       "resolution_timeout": "Closed automatically after the buyer response deadline",
       "resolution_abandoned": "Closed automatically after no further buyer action",
+      "seller_timeout_refund": "Refunded in full because the seller missed the response deadline",
       "seller_full_refund": "Seller refunded the full order",
       "admin_refund": "GMMO refunded the remaining escrow to you",
       "admin_partial_refund": "GMMO issued a partial refund",
@@ -2555,6 +2558,7 @@
       "case_resolved": "Dispute resolved"
     },
     "disputeEventsSeller": {
+      "seller_timeout_refund": "The buyer was refunded in full because you missed the response deadline",
       "admin_refund": "GMMO refunded remaining escrow to the buyer",
       "admin_partial_refund": "GMMO refunded part of the order to the buyer; remaining escrow is released to you",
       "admin_reject": "GMMO rejected the claim — remaining escrow is released to you",
@@ -3677,6 +3681,13 @@
     "withdrawFeeTitle": "Withdrawal fee",
     "withdrawFeeHint": "Fixed amount + percentage of the request, deducted from the payout and credited to the platform wallet on approval.",
     "withdrawFeeExample": "Example withdrawal {amount}: fee {fee}, payout {net}.",
+    "disputeSection": "Disputes",
+    "disputeSectionHint": "Rules applied once a dispute is open. The window to open one equals the escrow hold above.",
+    "disputeSellerHoursTitle": "Seller response deadline",
+    "disputeSellerHoursHint": "Counted from the moment the buyer opens the case. If the seller does nothing (reply, replace/refund, escalate to GMMO) within this window, the buyer is refunded in full and the case counts against the seller. 0 = off.",
+    "hoursLabel": "Hours",
+    "disputeSellerHoursOff": "Off — cases wait until someone acts.",
+    "disputeSellerHoursNote": "Checked every 15 minutes; the seller's dispute email states the deadline.",
     "auditNote": "Every save is logged with who, when and old → new values (event fee_runtime_config_changed)."
   },
   "adminSystem": {

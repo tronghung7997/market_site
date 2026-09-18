@@ -56,6 +56,12 @@ export function DisputeCaseView({
         )}
       </div>
 
+      {dispute.status === "open" && dispute.seller_deadline_at && !dispute.seller_responded_at && !dispute.review_requested_at && (
+        <p className="rounded-lg border border-bad/30 bg-bad-soft/50 px-3 py-2 text-[12px] font-medium text-bad">
+          {t(viewerRole === "seller" ? "disputeSellerDeadlineSeller" : "disputeSellerDeadline", { date: formatDateTime(dispute.seller_deadline_at, locale) })}
+        </p>
+      )}
+
       {dispute.status === "open" && dispute.resolution_deadline_at && (
         <p className="rounded-lg border border-iris/25 bg-iris-soft/35 px-3 py-2 text-[12px] text-fg">
           {t("disputeResolutionDeadline", { date: formatDateTime(dispute.resolution_deadline_at, locale) })}

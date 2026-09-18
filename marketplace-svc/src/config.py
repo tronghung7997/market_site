@@ -74,6 +74,10 @@ class Settings(BaseSettings):
     # buyer-response deadline) settles remaining escrow to the seller once
     # this many hours pass without further buyer activity.
     dispute_abandon_grace_hours: int = 24
+    # Seed for fee_runtime_config.dispute_seller_response_hours: a seller who
+    # has not reacted to a new dispute within this window loses it (full
+    # refund to the buyer). 0 disables. Admin-editable in Settings › Fees & holds.
+    dispute_seller_response_hours: int = 24
     # Outbound transactional mail (SMTP or HTTPS). Inbound ports are not required.
     mail_provider: Literal["log", "smtp", "resend"] = "log"
     mail_from: str = ""

@@ -107,6 +107,12 @@ class Dispute(Base):
     resolution_deadline_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True), nullable=True)
     review_requested_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True), nullable=True)
     resolved_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True), nullable=True)
+    # Seller's first-reaction deadline (Settings › Fees & holds). Any seller
+    # action — note, remedy, escalation — stamps seller_responded_at; a case
+    # still untouched past the deadline is refunded to the buyer by the
+    # dispute_seller_timeout_job.
+    seller_deadline_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True), nullable=True)
+    seller_responded_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True), nullable=True)
 
 
 class DisputeClaimResource(Base):

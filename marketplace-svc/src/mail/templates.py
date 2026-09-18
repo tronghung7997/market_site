@@ -35,7 +35,7 @@ PLACEHOLDERS: dict[str, tuple[str, ...]] = {
     "provider_rejected": ("provider_name", "reason", "action_url"),
     "withdrawal_approved": ("amount", "action_url"),
     "withdrawal_rejected": ("amount", "reason", "action_url"),
-    "dispute_opened": ("order_id", "reason", "action_url"),
+    "dispute_opened": ("order_id", "reason", "deadline", "action_url"),
     "dispute_resolved": ("order_id", "outcome", "admin_note", "action_url"),
     "admin_test": ("action_url",),
 }
@@ -244,7 +244,8 @@ DEFAULT_TEMPLATES: dict[str, dict[str, dict[str, str]]] = {
             "body": (
                 "A buyer opened a dispute on order #{order_id}.\n"
                 "Reason: {reason}\n\n"
-                "Please respond in the seller workspace. Silence can be decided against you.\n\n"
+                "Please respond in the seller workspace before {deadline}. "
+                "If nobody reacts by then, the buyer is refunded automatically.\n\n"
                 "Open the order:\n{action_url}"
             ),
         },
@@ -253,7 +254,8 @@ DEFAULT_TEMPLATES: dict[str, dict[str, dict[str, str]]] = {
             "body": (
                 "Người mua đã mở khiếu nại trên đơn #{order_id}.\n"
                 "Lý do: {reason}\n\n"
-                "Hãy phản hồi trong khu vực người bán. Im lặng có thể bất lợi cho bạn.\n\n"
+                "Hãy phản hồi trong khu vực người bán trước {deadline}. "
+                "Quá hạn không phản hồi, hệ thống tự hoàn tiền cho người mua.\n\n"
                 "Xem đơn hàng:\n{action_url}"
             ),
         },

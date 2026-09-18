@@ -164,7 +164,6 @@ function TopNavBar() {
   return (
     <>
       {/* Promo strip — yields to an admin announcement when one is live */}
-      <AnnouncementBar />
       {!announcementLive && (
         <div className="bg-ink-panel text-white/85 text-[12.5px]">
           <div className="mx-auto max-w-[1200px] px-6 min-h-9 py-1.5 flex items-center gap-2 justify-center sm:justify-start">
@@ -174,8 +173,10 @@ function TopNavBar() {
         </div>
       )}
 
-      {/* Nav */}
-      <header className="sticky top-0 z-40 bg-surface/85 backdrop-blur-md border-b border-line">
+      {/* Nav — the announcement sticks together with it so it never scrolls away */}
+      <div className="sticky top-0 z-40">
+      <AnnouncementBar />
+      <header className="bg-surface/85 backdrop-blur-md border-b border-line">
         {/* px/gap hẹp lại ở màn nhỏ: logo + nút Nạp tiền + avatar vốn đã sát mép,
             giữ nguyên px-6/gap-6 thì tràn vài px và kéo cả trang trôi ngang. */}
         <div className="mx-auto max-w-[1200px] px-4 sm:px-6 h-16 flex items-center gap-3 sm:gap-6">
@@ -392,6 +393,7 @@ function TopNavBar() {
           </nav>
         )}
       </header>
+      </div>
     </>
   );
 }

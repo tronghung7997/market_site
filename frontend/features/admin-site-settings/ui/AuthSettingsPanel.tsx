@@ -9,6 +9,7 @@ import { useApiErrorMessage } from "@/lib/use-api-error";
 import type { AuthRuntimeConfig } from "@/lib/types";
 import { Input } from "@/components/ui";
 import { cn } from "@/lib/cn";
+import { useToast } from "@/components/toast";
 import { SettingsFooter, SettingsLoadError, SettingsLoading, SettingsRow } from "./SettingsRow";
 
 const HOURS_RANGE = { min: 1, max: 168 };
@@ -30,14 +31,14 @@ export function AuthSettingsPanel() {
   const queryClient = useQueryClient();
   const query = useQuery({ queryKey: queryKeys.adminAuthConfig(), queryFn: api.adminAuthConfig });
   const [form, setForm] = useState<Form | null>(null);
-  const [msg, setMsg] = useState<{ tone: "good" | "bad"; text: string } | null>(null);
+  const toast = useToast();
 
   useEffect(() => { if (query.data) setForm(toForm(query.data)); }, [query.data]);
 
   const save = useMutation({
     mutationFn: (body: Parameters<typeof api.updateAdminAuthConfig>[0]) => api.updateAdminAuthConfig(body),
-    onSuccess: (data) => { queryClient.setQueryData(queryKeys.adminAuthConfig(), data); setMsg({ tone: "good", text: t("saved") }); },
-    onError: (err) => setMsg({ tone: "bad", text: apiErrorMessage(err, t("saveFailed")) }),
+    onSuccess: (data) => { queryClient.setQueryData(queryKeys.adminAuthConfig(), data); toast.success(t("saved")); },
+    onError: (err) => toast.error(apiErrorMessage(err, t("saveFailed"))),
   });
 
   if (query.isPending || !form) return <SettingsLoading />;
@@ -46,9 +47,10 @@ export function AuthSettingsPanel() {
   const hoursNum = Number(form.hours);
   const hoursOk = Number.isInteger(hoursNum) && hoursNum >= HOURS_RANGE.min && hoursNum <= HOURS_RANGE.max;
   const dirty = JSON.stringify(form) !== JSON.stringify(toForm(query.data));
-  const update = (patch: Partial<Form>) => { setForm((f) => (f ? { ...f, ...patch } : f)); setMsg(null); };
+  const update = (patch: Partial<Form>) => { setForm((f) => (f ? { ...f, ...patch } : f)); };
 
   return (
+    <div className="max-w-[960px] space-y-4">
     <section className="overflow-hidden rounded-card border border-line bg-card shadow-card">
       <SettingsRow title={t("verifyTitle")} hint={t("verifyHint")}>
         <span className="mt-1 flex cursor-pointer items-center gap-2 text-[12.5px] text-fg">
@@ -86,13 +88,13 @@ export function AuthSettingsPanel() {
           {query.data.turnstile_secret_configured ? t("turnstileSecretOk") : t("turnstileSecretMissing")}
         </span>
       </SettingsRow>
+      </section>
       <SettingsFooter
         updatedAt={query.data.updated_at}
-        message={msg}
         dirty={dirty}
         valid={hoursOk}
         saving={save.isPending}
-        onReset={() => { setForm(toForm(query.data)); setMsg(null); }}
+        onReset={() => { setForm(toForm(query.data)); }}
         onSave={() => save.mutate({
           require_email_verification: form.require,
           verification_link_hours: hoursNum,
@@ -102,6 +104,6 @@ export function AuthSettingsPanel() {
           turnstile_site_key: form.turnstile,
         })}
       />
-    </section>
+    </div>
   );
 }

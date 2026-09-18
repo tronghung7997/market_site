@@ -8,6 +8,7 @@ import { queryKeys } from "@/lib/query-keys";
 import { useApiErrorMessage } from "@/lib/use-api-error";
 import type { ContentFilterConfig, ContentFilterTestResult } from "@/lib/types";
 import { Button, Input, Tag, Textarea } from "@/components/ui";
+import { useToast } from "@/components/toast";
 import { SettingsFooter, SettingsLoadError, SettingsLoading, SettingsRow } from "./SettingsRow";
 
 const MAX_KEYWORDS = 200;
@@ -45,7 +46,7 @@ export function ContentFilterPanel() {
   const queryClient = useQueryClient();
   const query = useQuery({ queryKey: queryKeys.adminContentFilter(), queryFn: api.adminContentFilter });
   const [form, setForm] = useState<Form | null>(null);
-  const [msg, setMsg] = useState<{ tone: "good" | "bad"; text: string } | null>(null);
+  const toast = useToast();
   const [sample, setSample] = useState("");
   const [sampleResult, setSampleResult] = useState<ContentFilterTestResult | null>(null);
 
@@ -59,14 +60,14 @@ export function ContentFilterPanel() {
       queryClient.setQueryData(queryKeys.adminContentFilter(), data);
       setForm(toForm(data));
       setSampleResult(null);
-      setMsg({ tone: "good", text: t("saved") });
+      toast.success(t("saved"));
     },
-    onError: (err) => setMsg({ tone: "bad", text: apiErrorMessage(err, t("saveFailed")) }),
+    onError: (err) => toast.error(apiErrorMessage(err, t("saveFailed"))),
   });
   const test = useMutation({
     mutationFn: (text: string) => api.testAdminContentFilter(text),
     onSuccess: setSampleResult,
-    onError: (err) => setMsg({ tone: "bad", text: apiErrorMessage(err, t("testFailed")) }),
+    onError: (err) => toast.error(apiErrorMessage(err, t("testFailed"))),
   });
 
   if (query.isPending || !form) return <SettingsLoading />;
@@ -77,10 +78,11 @@ export function ContentFilterPanel() {
   const maskOk = form.maskChar.length === 1 && form.maskChar.trim() !== "";
   const valid = keywordsOk && maskOk;
   const dirty = JSON.stringify({ ...form, keywordsText: keywords }) !== JSON.stringify({ ...toForm(query.data), keywordsText: query.data.keywords });
-  const update = (patch: Partial<Form>) => { setForm((f) => (f ? { ...f, ...patch } : f)); setMsg(null); };
+  const update = (patch: Partial<Form>) => { setForm((f) => (f ? { ...f, ...patch } : f)); };
   const checkbox = "h-3.5 w-3.5 rounded border-line-2 text-iris";
 
   return (
+    <div className="max-w-[960px] space-y-4">
     <section className="overflow-hidden rounded-card border border-line bg-card shadow-card">
       <SettingsRow title={t("enabledTitle")} hint={t("enabledHint")}>
         <span className="mt-1 flex cursor-pointer items-center gap-2 text-[12.5px] text-fg">
@@ -152,13 +154,13 @@ export function ContentFilterPanel() {
           )}
         </div>
       </SettingsRow>
+      </section>
       <SettingsFooter
         updatedAt={query.data.updated_at}
-        message={msg}
         dirty={dirty}
         valid={valid}
         saving={save.isPending}
-        onReset={() => { setForm(toForm(query.data)); setMsg(null); }}
+        onReset={() => { setForm(toForm(query.data)); }}
         onSave={() => save.mutate({
           enabled: form.enabled,
           action: form.action,
@@ -168,6 +170,6 @@ export function ContentFilterPanel() {
           mask_char: form.maskChar,
         })}
       />
-    </section>
+    </div>
   );
 }

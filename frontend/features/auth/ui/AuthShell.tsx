@@ -35,9 +35,9 @@ export function AuthShell({
   const admin = variant === "admin";
 
   return (
-    <div className={cn("flex-1 aura", admin && "min-h-screen")}>
-      <div className="mx-auto grid w-full max-w-[1120px] min-h-[calc(100vh-3.5rem)] grid-cols-1 gap-10 px-4 py-10 sm:px-6 lg:grid-cols-[minmax(0,5fr)_minmax(0,6fr)] lg:items-center lg:gap-16 lg:py-16">
-        <aside className="flex flex-col gap-8 lg:gap-12">
+    <div className="flex-1 aura">
+      <div className={cn("mx-auto grid w-full max-w-[1040px] grid-cols-1 gap-8 px-4 py-8 sm:px-6 lg:grid-cols-[minmax(0,5fr)_minmax(0,6fr)] lg:gap-12 lg:py-12", admin ? "min-h-screen lg:items-center" : "lg:items-start")}>
+        <aside className="flex flex-col gap-6 lg:gap-8 lg:pt-2">
           <Link href="/" className="inline-flex w-fit items-center" aria-label="GMMO">
             <Logo />
           </Link>
@@ -46,7 +46,7 @@ export function AuthShell({
               {admin ? t("adminStatement") : t("statement")}
             </p>
             {!admin && (
-              <ul className="mt-9 max-w-[420px] divide-y divide-line border-y border-line text-[14px] leading-relaxed text-muted">
+              <ul className="mt-7 max-w-[420px] divide-y divide-line border-y border-line text-[14px] leading-relaxed text-muted">
                 <li className="py-3.5"><span className="font-medium text-fg">{t("fact1Title")}</span> — {t("fact1")}</li>
                 <li className="py-3.5"><span className="font-medium text-fg">{t("fact2Title")}</span> — {t("fact2")}</li>
                 <li className="py-3.5"><span className="font-medium text-fg">{t("fact3Title")}</span> — {t("fact3")}</li>

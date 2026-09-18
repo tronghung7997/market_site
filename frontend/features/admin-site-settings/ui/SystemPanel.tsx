@@ -8,8 +8,10 @@ import { queryKeys } from "@/lib/query-keys";
 import { useApiErrorMessage } from "@/lib/use-api-error";
 import type { SiteStatusAdmin, SiteStatusUpdate } from "@/lib/types";
 import { Button, Input, Tag, Textarea } from "@/components/ui";
+import { ChevronRight } from "@/components/Icons";
+import { useToast } from "@/components/toast";
 import { cn } from "@/lib/cn";
-import { SettingsFooter, SettingsLoadError, SettingsLoading, SettingsRow } from "./SettingsRow";
+import { SettingsFooter, SettingsLoadError, SettingsLoading, SettingsRow, SettingsSection } from "./SettingsRow";
 
 type Form = {
   maintenance: boolean; msgVi: string; msgEn: string; until: string;
@@ -39,7 +41,16 @@ function toForm(s: SiteStatusAdmin): Form {
   };
 }
 
-const checkbox = "h-3.5 w-3.5 rounded border-line-2 text-iris";
+const checkbox = "h-4 w-4 rounded border-line-2 text-iris";
+
+function Toggle({ checked, onChange, label, danger = false }: { checked: boolean; onChange: (v: boolean) => void; label: string; danger?: boolean }) {
+  return (
+    <span className={cn("flex cursor-pointer items-center gap-2.5 text-[13px]", checked ? (danger ? "font-semibold text-bad" : "font-medium text-fg") : "text-fg")}>
+      <input type="checkbox" checked={checked} onChange={(e) => onChange(e.target.checked)} className={checkbox} />
+      {label}
+    </span>
+  );
+}
 
 /** Admin › Settings › System: maintenance mode, money kill-switches, announcement bar. */
 export function SystemPanel() {
@@ -49,7 +60,7 @@ export function SystemPanel() {
   const queryClient = useQueryClient();
   const query = useQuery({ queryKey: queryKeys.adminSiteStatus(), queryFn: api.adminSiteStatus });
   const [form, setForm] = useState<Form | null>(null);
-  const [msg, setMsg] = useState<{ tone: "good" | "bad"; text: string } | null>(null);
+  const toast = useToast();
 
   useEffect(() => { if (query.data) setForm(toForm(query.data)); }, [query.data]);
 
@@ -58,16 +69,16 @@ export function SystemPanel() {
     onSuccess: (data) => {
       queryClient.setQueryData(queryKeys.adminSiteStatus(), data);
       void queryClient.invalidateQueries({ queryKey: queryKeys.siteStatus() });
-      setMsg({ tone: "good", text: t("saved") });
+      toast.success(t("saved"));
     },
-    onError: (err) => setMsg({ tone: "bad", text: apiErrorMessage(err, t("saveFailed")) }),
+    onError: (err) => toast.error(apiErrorMessage(err, t("saveFailed"))),
   });
 
   if (query.isPending || !form) return <SettingsLoading />;
   if (query.isError) return <SettingsLoadError message={apiErrorMessage(query.error, t("loadFailed"))} onRetry={() => void query.refetch()} />;
 
   const dirty = JSON.stringify(form) !== JSON.stringify(toForm(query.data));
-  const update = (patch: Partial<Form>) => { setForm((f) => (f ? { ...f, ...patch } : f)); setMsg(null); };
+  const update = (patch: Partial<Form>) => setForm((f) => (f ? { ...f, ...patch } : f));
   const anyFrozen = form.withdrawals && form.deposits && form.orders;
   const live = query.data;
   const activeFlags = [
@@ -96,8 +107,10 @@ export function SystemPanel() {
       : { clear_announcement_window: true }),
   });
 
+  const previewText = (locale === "vi" ? form.annVi : form.annEn) || form.annVi || form.annEn;
+
   return (
-    <div className="space-y-4">
+    <div className="max-w-[960px] space-y-4">
       {activeFlags.length > 0 && (
         <div className="flex flex-wrap items-center gap-2 rounded-card border border-bad/25 bg-bad-soft px-4 py-3 text-[13px] text-bad" role="status">
           <span className="font-semibold">{t("activeNow")}</span>
@@ -105,8 +118,7 @@ export function SystemPanel() {
         </div>
       )}
 
-      <section className="overflow-hidden rounded-card border border-line bg-card shadow-card">
-        <div className="border-b border-line bg-raised/40 px-4 py-2.5 text-[12px] font-semibold uppercase tracking-wider text-muted">{t("freezeSection")}</div>
+      <SettingsSection title={t("freezeSection")} description={t("freezeSectionHint")}>
         <SettingsRow title={t("freezeAllTitle")} hint={t("freezeAllHint")}>
           <Button size="sm" variant={anyFrozen ? "secondary" : "danger"} onClick={() => update({ withdrawals: !anyFrozen, deposits: !anyFrozen, orders: !anyFrozen })}>
             {anyFrozen ? t("unfreezeAll") : t("freezeAll")}
@@ -118,78 +130,105 @@ export function SystemPanel() {
           ["orders", t("freezeOrdersTitle"), t("freezeOrdersHint"), t("freezeOrdersLabel")],
         ] as const).map(([key, title, hint, label]) => (
           <SettingsRow key={key} title={title} hint={hint}>
-            <span className="mt-1 flex cursor-pointer items-center gap-2 text-[12.5px] text-fg">
-              <input type="checkbox" checked={form[key]} onChange={(e) => update({ [key]: e.target.checked } as Partial<Form>)} className={checkbox} />
-              {label}
-            </span>
+            <Toggle checked={form[key]} onChange={(v) => update({ [key]: v } as Partial<Form>)} label={label} danger />
           </SettingsRow>
         ))}
-        <SettingsRow title={t("freezeReasonTitle")} hint={t("freezeReasonHint")} label={t("freezeReasonLabel")}>
-          <Input value={form.reason} onChange={(e) => update({ reason: e.target.value })} maxLength={500} className="mt-1 h-9 w-full text-[12.5px]" placeholder={t("freezeReasonPlaceholder")} />
+        <SettingsRow title={t("freezeReasonTitle")} hint={t("freezeReasonHint")}>
+          <Input value={form.reason} onChange={(e) => update({ reason: e.target.value })} maxLength={500} className="h-10 w-full text-[13px]" placeholder={t("freezeReasonPlaceholder")} />
         </SettingsRow>
-      </section>
+      </SettingsSection>
 
-      <section className="overflow-hidden rounded-card border border-line bg-card shadow-card">
-        <div className="border-b border-line bg-raised/40 px-4 py-2.5 text-[12px] font-semibold uppercase tracking-wider text-muted">{t("maintenanceSection")}</div>
+      <SettingsSection title={t("maintenanceSection")}>
         <SettingsRow title={t("maintenanceTitle")} hint={t("maintenanceHint")}>
-          <span className={cn("mt-1 flex cursor-pointer items-center gap-2 text-[12.5px]", form.maintenance ? "font-semibold text-bad" : "text-fg")}>
-            <input type="checkbox" checked={form.maintenance} onChange={(e) => update({ maintenance: e.target.checked })} className={checkbox} />
-            {t("maintenanceLabel")}
-          </span>
+          <Toggle checked={form.maintenance} onChange={(v) => update({ maintenance: v })} label={t("maintenanceLabel")} danger />
         </SettingsRow>
-        <SettingsRow title={t("maintenanceMessageTitle")} hint={t("maintenanceMessageHint")}>
-          <div className="mt-1 space-y-2">
-            <Textarea value={form.msgVi} onChange={(e) => update({ msgVi: e.target.value })} rows={2} maxLength={2000} className="w-full text-[12.5px]" placeholder={t("maintenanceMessagePhVi")} />
-            <Textarea value={form.msgEn} onChange={(e) => update({ msgEn: e.target.value })} rows={2} maxLength={2000} className="w-full text-[12.5px]" placeholder={t("maintenanceMessagePhEn")} />
+        <SettingsRow title={t("maintenanceMessageTitle")} hint={t("maintenanceMessageHint")} stacked>
+          <div className="grid gap-3 md:grid-cols-2">
+            <span className="block">
+              <span className="mb-1 block text-[12px] font-medium text-muted">{t("langVi")}</span>
+              <Textarea value={form.msgVi} onChange={(e) => update({ msgVi: e.target.value })} rows={3} maxLength={2000} className="w-full text-[13.5px] leading-relaxed" placeholder={t("maintenanceMessagePhVi")} />
+            </span>
+            <span className="block">
+              <span className="mb-1 block text-[12px] font-medium text-muted">{t("langEn")}</span>
+              <Textarea value={form.msgEn} onChange={(e) => update({ msgEn: e.target.value })} rows={3} maxLength={2000} className="w-full text-[13.5px] leading-relaxed" placeholder={t("maintenanceMessagePhEn")} />
+            </span>
           </div>
         </SettingsRow>
         <SettingsRow title={t("maintenanceUntilTitle")} hint={t("maintenanceUntilHint")} label={t("localTime")}>
-          <Input type="datetime-local" value={form.until} onChange={(e) => update({ until: e.target.value })} className="mt-1 h-9 w-full text-[12.5px]" />
+          <Input type="datetime-local" value={form.until} onChange={(e) => update({ until: e.target.value })} className="h-10 w-full max-w-[280px] text-[13px]" />
         </SettingsRow>
-      </section>
+      </SettingsSection>
 
-      <section className="overflow-hidden rounded-card border border-line bg-card shadow-card">
-        <div className="border-b border-line bg-raised/40 px-4 py-2.5 text-[12px] font-semibold uppercase tracking-wider text-muted">{t("announcementSection")}</div>
-        <SettingsRow title={t("annTitle")} hint={t("annHint")}>
-          <span className="mt-1 flex cursor-pointer items-center gap-2 text-[12.5px] text-fg">
-            <input type="checkbox" checked={form.annOn} onChange={(e) => update({ annOn: e.target.checked })} className={checkbox} />
-            {t("annLabel")}
-          </span>
-          <div className="mt-2 flex flex-wrap gap-1.5">
+      <SettingsSection title={t("announcementSection")} description={t("annHint")}>
+        <SettingsRow title={t("annTitle")} hint={t("annToggleHint")}>
+          <Toggle checked={form.annOn} onChange={(v) => update({ annOn: v })} label={t("annLabel")} />
+        </SettingsRow>
+        <SettingsRow title={t("annLevelTitle")} hint={t("annLevelHint")}>
+          <div className="flex flex-wrap gap-2">
             {(["info", "warn", "danger"] as const).map((lvl) => (
-              <button key={lvl} type="button" onClick={() => update({ annLevel: lvl })}
-                className={cn("rounded-full border px-2.5 py-1 text-[11.5px] font-medium transition-colors",
+              <button key={lvl} type="button" onClick={() => update({ annLevel: lvl })} aria-pressed={form.annLevel === lvl}
+                className={cn("rounded-lg border px-3 py-1.5 text-[12.5px] font-medium transition-colors",
                   form.annLevel === lvl
-                    ? lvl === "info" ? "border-iris/40 bg-iris-soft text-iris-hi" : lvl === "warn" ? "border-warn/40 bg-warn-soft text-warn" : "border-bad/40 bg-bad-soft text-bad"
+                    ? lvl === "info" ? "border-iris bg-iris text-surface" : lvl === "warn" ? "border-warn bg-warn text-surface" : "border-bad bg-bad text-surface"
                     : "border-line text-muted hover:text-fg")}>
                 {t(`level_${lvl}`)}
               </button>
             ))}
           </div>
         </SettingsRow>
-        <SettingsRow title={t("annTextTitle")} hint={t("annTextHint")}>
-          <div className="mt-1 space-y-2">
-            <Input value={form.annVi} onChange={(e) => update({ annVi: e.target.value })} maxLength={300} className="h-9 w-full text-[12.5px]" placeholder={t("annTextPhVi")} />
-            <Input value={form.annEn} onChange={(e) => update({ annEn: e.target.value })} maxLength={300} className="h-9 w-full text-[12.5px]" placeholder={t("annTextPhEn")} />
-            <Input value={form.annLink} onChange={(e) => update({ annLink: e.target.value })} maxLength={500} className="h-9 w-full font-mono text-[12px]" placeholder={t("annLinkPh")} />
+        <SettingsRow title={t("annTextTitle")} hint={t("annTextHint")} stacked>
+          <div className="grid gap-3 md:grid-cols-2">
+            <span className="block">
+              <span className="mb-1 block text-[12px] font-medium text-muted">{t("langVi")}</span>
+              <Textarea value={form.annVi} onChange={(e) => update({ annVi: e.target.value })} rows={2} maxLength={300} className="w-full text-[14px] leading-relaxed" placeholder={t("annTextPhVi")} />
+            </span>
+            <span className="block">
+              <span className="mb-1 block text-[12px] font-medium text-muted">{t("langEn")}</span>
+              <Textarea value={form.annEn} onChange={(e) => update({ annEn: e.target.value })} rows={2} maxLength={300} className="w-full text-[14px] leading-relaxed" placeholder={t("annTextPhEn")} />
+            </span>
           </div>
+          {previewText && (
+            <div className="mt-3">
+              <span className="mb-1 block text-[12px] font-medium text-muted">{t("annPreview")}</span>
+              <div className={cn("flex items-center gap-2.5 rounded-lg px-4 py-2.5 text-[13.5px] font-medium text-surface",
+                form.annLevel === "info" ? "bg-iris" : form.annLevel === "warn" ? "bg-warn" : "bg-bad")}>
+                <span className="min-w-0 flex-1">{previewText}</span>
+                {form.annLink && <span className="rounded-full bg-surface/15 px-2.5 py-0.5 text-[12.5px]">{t("annLinkPreview")}</span>}
+              </div>
+            </div>
+          )}
         </SettingsRow>
-        <SettingsRow title={t("annWindowTitle")} hint={t("annWindowHint")} label={t("localTime")}>
-          <div className="mt-1 grid gap-2">
-            <Input type="datetime-local" value={form.annFrom} onChange={(e) => update({ annFrom: e.target.value })} className="h-9 w-full text-[12.5px]" aria-label={t("annFrom")} />
-            <Input type="datetime-local" value={form.annTo} onChange={(e) => update({ annTo: e.target.value })} className="h-9 w-full text-[12.5px]" aria-label={t("annTo")} />
-          </div>
-        </SettingsRow>
-        <SettingsFooter
-          updatedAt={live.updated_at}
-          message={msg}
-          dirty={dirty}
-          valid={!form.maintenance || Boolean(form.msgVi || form.msgEn) || true}
-          saving={save.isPending}
-          onReset={() => { setForm(toForm(live)); setMsg(null); }}
-          onSave={onSave}
-        />
-      </section>
+        <details className="group border-t border-line">
+          <summary className="flex cursor-pointer list-none items-center gap-2 px-5 py-3 text-[13px] font-medium text-muted hover:text-fg [&::-webkit-details-marker]:hidden">
+            <ChevronRight size={14} className="transition-transform group-open:rotate-90" />
+            {t("annAdvanced")}
+          </summary>
+          <SettingsRow title={t("annLinkTitle")} hint={t("annLinkHint")}>
+            <Input value={form.annLink} onChange={(e) => update({ annLink: e.target.value })} maxLength={500} className="h-10 w-full font-mono text-[12.5px]" placeholder={t("annLinkPh")} />
+          </SettingsRow>
+          <SettingsRow title={t("annWindowTitle")} hint={t("annWindowHint")}>
+            <div className="grid gap-3 sm:grid-cols-2">
+              <span className="block">
+                <span className="mb-1 block text-[12px] font-medium text-muted">{t("annFrom")}</span>
+                <Input type="datetime-local" value={form.annFrom} onChange={(e) => update({ annFrom: e.target.value })} className="h-10 w-full text-[13px]" />
+              </span>
+              <span className="block">
+                <span className="mb-1 block text-[12px] font-medium text-muted">{t("annTo")}</span>
+                <Input type="datetime-local" value={form.annTo} onChange={(e) => update({ annTo: e.target.value })} className="h-10 w-full text-[13px]" />
+              </span>
+            </div>
+          </SettingsRow>
+        </details>
+      </SettingsSection>
+
+      <SettingsFooter
+        updatedAt={live.updated_at}
+        dirty={dirty}
+        valid
+        saving={save.isPending}
+        onReset={() => setForm(toForm(live))}
+        onSave={onSave}
+      />
       <p className="text-[11.5px] text-faint">{t("timezoneNote", { zone: Intl.DateTimeFormat(locale).resolvedOptions().timeZone })}</p>
     </div>
   );

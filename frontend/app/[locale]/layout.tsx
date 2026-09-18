@@ -29,6 +29,7 @@ import { MaintenanceGate } from "@/features/site-status";
 import ClarityTag from "@/components/ClarityTag";
 import { isValidClarityId } from "@/lib/clarity";
 import { TooltipProvider } from "@/components/ui/tooltip";
+import { ToastProvider } from "@/components/toast";
 import { routing } from "@/i18n/routing";
 
 /**
@@ -141,6 +142,7 @@ export default async function RootLayout({ children, params }: { children: React
                 initialConfig={initialConfig}
               >
                 <TooltipProvider>
+                <ToastProvider>
                   <RouteProgress />
                   <Suspense fallback={null}><ReferralCapture /></Suspense>
                   {clarityId && <ClarityTag projectId={clarityId} />}
@@ -156,6 +158,7 @@ export default async function RootLayout({ children, params }: { children: React
                     <ChromeGate fallback={children}><MaintenanceGate>{children}</MaintenanceGate></ChromeGate>
                   </main>
                   <ChromeGate><SiteFooter pages={footerPages} /></ChromeGate>
+                </ToastProvider>
                 </TooltipProvider>
               </CurrencyProvider>
             </QueryProvider>

@@ -8,6 +8,7 @@ import { queryKeys } from "@/lib/query-keys";
 import { useApiErrorMessage } from "@/lib/use-api-error";
 import type { AffiliateRuntimeConfig } from "@/lib/types";
 import { Input } from "@/components/ui";
+import { useToast } from "@/components/toast";
 import { SettingsFooter, SettingsLoadError, SettingsLoading, SettingsRow } from "./SettingsRow";
 
 const PERCENT_RANGE = { min: 0, max: 100 };
@@ -50,7 +51,7 @@ export function AffiliateSettingsPanel() {
   const queryClient = useQueryClient();
   const query = useQuery({ queryKey: queryKeys.adminAffiliateConfig(), queryFn: api.adminAffiliateConfig });
   const [form, setForm] = useState<Form | null>(null);
-  const [msg, setMsg] = useState<{ tone: "good" | "bad"; text: string } | null>(null);
+  const toast = useToast();
 
   useEffect(() => {
     if (query.data) setForm(toForm(query.data));
@@ -60,9 +61,9 @@ export function AffiliateSettingsPanel() {
     mutationFn: (body: Parameters<typeof api.updateAdminAffiliateConfig>[0]) => api.updateAdminAffiliateConfig(body),
     onSuccess: (data) => {
       queryClient.setQueryData(queryKeys.adminAffiliateConfig(), data);
-      setMsg({ tone: "good", text: t("saved") });
+      toast.success(t("saved"));
     },
-    onError: (err) => setMsg({ tone: "bad", text: apiErrorMessage(err, t("saveFailed")) }),
+    onError: (err) => toast.error(apiErrorMessage(err, t("saveFailed"))),
   });
 
   if (query.isPending || !form) return <SettingsLoading />;
@@ -74,10 +75,11 @@ export function AffiliateSettingsPanel() {
   const perDayOk = inRange(form.perDay, PER_DAY_RANGE);
   const valid = percentOk && attributionOk && earningOk && perDayOk;
   const dirty = JSON.stringify(form) !== JSON.stringify(toForm(query.data));
-  const update = (patch: Partial<Form>) => { setForm((f) => (f ? { ...f, ...patch } : f)); setMsg(null); };
+  const update = (patch: Partial<Form>) => { setForm((f) => (f ? { ...f, ...patch } : f)); };
   const digits = (v: string) => v.replace(/\D/g, "");
 
   return (
+    <div className="max-w-[960px] space-y-4">
     <section className="overflow-hidden rounded-card border border-line bg-card shadow-card">
       <SettingsRow title={t("enabledTitle")} hint={t("enabledHint")}>
         <span className="mt-1 flex cursor-pointer items-center gap-2 text-[12.5px] text-fg">
@@ -104,13 +106,13 @@ export function AffiliateSettingsPanel() {
         <Input inputMode="numeric" value={form.perDay} onChange={(e) => update({ perDay: digits(e.target.value) })} aria-invalid={!perDayOk} className={numericClass} />
         <span className="mt-1 block text-[11px] text-faint">{t("range", { min: PER_DAY_RANGE.min, max: PER_DAY_RANGE.max })}</span>
       </SettingsRow>
+      </section>
       <SettingsFooter
         updatedAt={query.data.updated_at}
-        message={msg}
         dirty={dirty}
         valid={valid}
         saving={save.isPending}
-        onReset={() => { setForm(toForm(query.data)); setMsg(null); }}
+        onReset={() => { setForm(toForm(query.data)); }}
         onSave={() => save.mutate({
           enabled: form.enabled,
           commission_percent_of_fee: Number(form.percent),
@@ -119,6 +121,6 @@ export function AffiliateSettingsPanel() {
           max_commissions_per_day: Number(form.perDay),
         })}
       />
-    </section>
+    </div>
   );
 }

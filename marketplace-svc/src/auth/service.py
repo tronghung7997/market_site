@@ -258,8 +258,13 @@ _VALID_TIERS = {"new", "verified", "trusted", "enterprise"}
 async def list_accounts(db: AsyncSession, search: str | None = None, page: int = 1, per_page: int = 20) -> dict:
     from sqlalchemy import func
 
-    base = select(Account)
-    count_q = select(func.count(Account.id))
+    # Synthetic trust-seed reviewers are not user accounts: they cannot log in,
+    # hold no wallet and exist only to satisfy the order->review foreign key.
+    # Listing them here would corrupt the admin's user count and invite a role
+    # or tier change on a row that must stay inert (see src/trust_seed).
+    real_accounts = Account.is_seeded.is_(False)
+    base = select(Account).where(real_accounts)
+    count_q = select(func.count(Account.id)).where(real_accounts)
     if search:
         base = base.where(Account.email.ilike(f"%{search}%"))
         count_q = count_q.where(Account.email.ilike(f"%{search}%"))

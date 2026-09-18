@@ -1,6 +1,4 @@
 import type {
-  SearchQueryStat,
-  SearchSynonymGroup,
   Account, ActionItem, AdminDepositIntent, AdminDepositLedgerQuery, AdminDepositLedgerResponse, AdminDepositTransaction, AdminDisputeDetail, AdminOrderDetail, AdminProduct, AdminResourceListResponse, AffiliateStats, AffiliateSummary, CalculateResult, Category, ChargeUsageResult, ChatConversationDetail, ChatConversationList, ChatMessage, DashboardData, DepositIntent, DepositMethods, DepositReconcileResult, DepositRailConfigAdmin, DepositRailConfigUpdate, Dispute, SePayWebhookEventRow, AdminAccountWallet, FundOverview, AccountAdminRow, PaginatedAccounts, LogEntry, MailConfigAdmin, MailConfigUpdate, MailOutboxList, MailSendTestResponse, MailTemplatePreview, MailTemplateRow, MoneyConfigAdmin, MoneyConfigPublic, MoneyConfigUpdate, Order, OrderStats, PaginatedAffiliateSummary, PaginatedOrderResponse, PaginatedProducts, PricingField, PricingOptions, ProductDetail, AdminProductDetail, Product, ProductLocale, ProductOperations, ProductTranslation, ProxyState, ProxyRotateResult, ProxyWhitelistResult, Review, SellerApplication, SellerDashboard, SellerDashboardRangeKey, SellerOrderQuery, PaginatedSellerOrders, SellerProduct, SellerProductBulkStatusResult, SellerProductSort, SellerStats, ServiceTask, TikTokLookupResponse, FacebookLookupResponse, Transaction, Variant, Wallet, WithdrawRequest, Provider, ProviderHealth, Alert, Resource, ResourceSummary, ResourceSellerFacet, InventoryVariant, SellerSummary, SellerProfile, SellerDisputeResource, SellerDisputeResourceList, SellerReplacementResourceList, BulkResourceActionResult,
   AdminReview,
   AdminReviewList,
@@ -8,6 +6,8 @@ import type {
   SellerReviewList,
   PublicReviewList,
   SearchSuggest,
+  SearchQueryStat,
+  SearchSynonymGroup,
 } from "./types";
 import type { PaginatedDisputes, SitePageAdmin, SitePageCreate, SitePageUpdate } from "./types";
 import type { PaginatedAdminProducts, PaginatedInventoryVariants, PaginatedSellerProducts } from "./types";
@@ -16,6 +16,10 @@ import type {
   InventoryPackageDetail, InventoryPackagesResponse, InventoryPackageSort, InventoryProductStatusFilter,
   InventoryReportParams, InventoryReportResponse, InventoryStockTab, RestockPreview, RestockResult,
   SellerResourceQuery, SellerRuntimeConfig, SiteAnalyticsConfig,
+} from "./types";
+import type {
+  AiConnectionTestResult, AiPromptTemplate, AiProviderConfig, AiUsageSummary,
+  TrustSeedApplyResponse, TrustSeedBatch, TrustSeedGenerateResponse, TrustSeedSummary,
 } from "./types";
 import {
   ApiError,
@@ -518,6 +522,48 @@ export const api = {
   adminAnalyticsConfig: () => request<SiteAnalyticsConfig>("/admin/analytics-config", {}, true),
   updateAdminAnalyticsConfig: (body: Pick<SiteAnalyticsConfig, "clarity_project_id">) =>
     request<SiteAnalyticsConfig>("/admin/analytics-config", { method: "PATCH", body: JSON.stringify(body) }, true),
+  // ── Shared AI seam (admin) ───────────────────────────────────────────────
+  adminAiConfig: () => request<AiProviderConfig>("/admin/ai/config", {}, true),
+  updateAdminAiConfig: (
+    // api_key is write-only: "" clears the stored secret, omitted keeps it.
+    body: Partial<Omit<AiProviderConfig, "api_key_configured" | "updated_at" | "updated_by_id">> & { api_key?: string },
+  ) => request<AiProviderConfig>("/admin/ai/config", { method: "PATCH", body: JSON.stringify(body) }, true),
+  testAdminAiConnection: () =>
+    request<AiConnectionTestResult>("/admin/ai/config/test", { method: "POST" }, true),
+  adminAiPrompts: () => request<AiPromptTemplate[]>("/admin/ai/prompts", {}, true),
+  adminAiUsage: (days = 7) => request<AiUsageSummary>(`/admin/ai/usage?days=${days}`, {}, true),
+  updateAdminAiPrompt: (task: string, locale: string, body: { system_prompt: string; user_prompt: string }) =>
+    request<AiPromptTemplate>(
+      `/admin/ai/prompts/${encodeURIComponent(task)}/${encodeURIComponent(locale)}`,
+      { method: "PUT", body: JSON.stringify(body) }, true,
+    ),
+
+  // ── Trust seed (admin) ───────────────────────────────────────────────────
+  trustSeedGenerate: (body: {
+    product_id: number; count: number;
+    distribution?: Record<number, number> | null;
+    locale?: string; system_override?: string | null; user_override?: string | null;
+    extra_instructions?: string;
+  }) => request<TrustSeedGenerateResponse>("/admin/trust-seed/generate", { method: "POST", body: JSON.stringify(body) }, true),
+  trustSeedApply: (body: {
+    product_id: number;
+    items: { rating: number; comment: string | null; seller_reply: string | null }[];
+    date_from: string; date_to: string;
+    source?: "ai" | "manual"; model?: string | null; locale?: string;
+    prompt_snapshot?: string | null; options_snapshot?: Record<string, unknown> | null;
+    bump_sold_count?: boolean;
+  }) => request<TrustSeedApplyResponse>("/admin/trust-seed/apply", { method: "POST", body: JSON.stringify(body) }, true),
+  trustSeedBatches: (productId?: number) =>
+    request<TrustSeedBatch[]>(
+      `/admin/trust-seed/batches${productId ? `?product_id=${productId}` : ""}`, {}, true,
+    ),
+  trustSeedPurge: (batchId: number) =>
+    request<{ batch_id: number; product_id: number; removed_reviews: number }>(
+      `/admin/trust-seed/batches/${batchId}`, { method: "DELETE" }, true,
+    ),
+  trustSeedSummary: (productId: number) =>
+    request<TrustSeedSummary>(`/admin/trust-seed/products/${productId}/summary`, {}, true),
+
   adminSellerConfig: () => request<SellerRuntimeConfig>("/admin/seller-config", {}, true),
   updateAdminSellerConfig: (body: Partial<Pick<SellerRuntimeConfig, "low_stock_threshold" | "inventory_export_row_limit" | "review_window_days" | "auto_review_days" | "auto_review_enabled">>) =>
     request<SellerRuntimeConfig>("/admin/seller-config", { method: "PATCH", body: JSON.stringify(body) }, true),

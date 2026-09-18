@@ -39,6 +39,8 @@ from src.models.seller_runtime_config import SellerRuntimeConfig
 from src.models.site_analytics_config import SiteAnalyticsConfig
 from src.models.site_page import SitePage
 from src.models.search import SearchQueryLog, SearchSynonym
+from src.models.ai_config import AiPromptTemplate, AiProviderConfig, AiUsageLog
+from src.models.trust_seed import TrustSeedBatch
 
 __all__ = [
     "Account", "AccountRole", "ApplicationStatus", "PasswordResetToken", "SellerApplication",
@@ -66,4 +68,6 @@ __all__ = [
     "SellerRuntimeConfig", "SiteAnalyticsConfig",
     "SitePage",
     "SearchQueryLog", "SearchSynonym",
+    "AiPromptTemplate", "AiProviderConfig", "AiUsageLog",
+    "TrustSeedBatch",
 ]

@@ -119,26 +119,29 @@ async def product_operations(
         provider_active=provider_info["is_active"] if provider_info else True,
     )
 
-    # Stats from orders
+    # Stats from orders. Seeded demo orders are excluded everywhere: they would
+    # otherwise inflate revenue and flatter the provider success rate that
+    # pricing decisions are based on.
     delivered_statuses = [OrderStatus.delivered, OrderStatus.completed]
+    real_orders = Order.is_seeded.is_(False)
     total_orders = await db.scalar(
-        select(func.count(Order.id)).where(Order.product_id == product_id)
+        select(func.count(Order.id)).where(Order.product_id == product_id, real_orders)
     ) or 0
     revenue = await db.scalar(
         select(func.coalesce(func.sum(Order.total_amount), 0)).where(
-            Order.product_id == product_id,
+            Order.product_id == product_id, real_orders,
             Order.status.in_(delivered_statuses),
         )
     ) or 0
     success_count = await db.scalar(
         select(func.count(Order.id)).where(
-            Order.product_id == product_id,
+            Order.product_id == product_id, real_orders,
             Order.status.in_(delivered_statuses),
         )
     ) or 0
     disputes = await db.scalar(
         select(func.count(Order.id)).where(
-            Order.product_id == product_id,
+            Order.product_id == product_id, real_orders,
             Order.id.in_(select(Dispute.order_id).where(Dispute.status == DisputeStatus.open)),
         )
     ) or 0
@@ -180,11 +183,14 @@ async def provider_products(
     delivered_statuses = [OrderStatus.delivered, OrderStatus.completed]
     for p in products:
         order_count = await db.scalar(
-            select(func.count(Order.id)).where(Order.product_id == p.id)
+            select(func.count(Order.id)).where(
+                Order.product_id == p.id, Order.is_seeded.is_(False)
+            )
         ) or 0
         revenue = await db.scalar(
             select(func.coalesce(func.sum(Order.total_amount), 0)).where(
                 Order.product_id == p.id,
+                Order.is_seeded.is_(False),
                 Order.status.in_(delivered_statuses),
             )
         ) or 0

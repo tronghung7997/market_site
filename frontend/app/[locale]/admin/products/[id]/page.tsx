@@ -2,7 +2,7 @@
 
 import { Link } from "@/i18n/navigation";
 import { useVariantTermFor } from "@/lib/variant-term";
-import { AdminReviewsPanel } from "@/features/reviews";
+import { AdminReviewsPanel, TrustSeedPanel } from "@/features/reviews";
 import { useTranslations } from "next-intl";
 import { useParams, usePathname, useRouter, useSearchParams } from "next/navigation";
 import { useEffect, useState } from "react";
@@ -690,6 +690,16 @@ export default function AdminProductDetail() {
           <p className="text-[12px] text-muted">Ẩn đánh giá vi phạm khỏi trang mua — tiền và đơn hàng không bị ảnh hưởng; có thể hiện lại bất kỳ lúc nào.</p>
         </div>
         <AdminReviewsPanel productId={product.id} />
+      </section>
+
+      <section className="space-y-4" aria-labelledby="trust-seed-heading">
+        <div>
+          <h2 id="trust-seed-heading" className="text-[16px] font-semibold text-fg">Đánh giá mồi</h2>
+          <p className="text-[12px] text-muted">
+            Tạo đánh giá demo cho sản phẩm mới. Dữ liệu được đánh dấu riêng, không tính vào doanh thu hay tỷ lệ khiếu nại của người bán, và xoá lại được toàn bộ.
+          </p>
+        </div>
+        <TrustSeedPanel productId={product.id} />
       </section>
     </div>
   );

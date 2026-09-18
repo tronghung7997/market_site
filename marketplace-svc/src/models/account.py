@@ -1,7 +1,7 @@
 from datetime import datetime
 from enum import Enum as PyEnum
 
-from sqlalchemy import DateTime, Enum, ForeignKey, String, func, text
+from sqlalchemy import Boolean, DateTime, Enum, ForeignKey, String, func, text
 from sqlalchemy.dialects.postgresql import ARRAY
 from sqlalchemy.orm import Mapped, mapped_column
 
@@ -42,6 +42,11 @@ class Account(Base):
     )
     referred_by_id: Mapped[int | None] = mapped_column(ForeignKey("accounts.id"), nullable=True)
     registration_ip: Mapped[str | None] = mapped_column(String(45), nullable=True)
+    # Synthetic reviewer identity created by the trust-seed console. Cannot log
+    # in (no usable password hash, is_active=false), receives no mail, and is
+    # excluded from admin account lists, user counts and affiliate flows. Only
+    # ever surfaces publicly through reviews.service.mask_reviewer().
+    is_seeded: Mapped[bool] = mapped_column(Boolean, nullable=False, default=False, server_default="false")
     created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), server_default=func.now())
     updated_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), server_default=func.now(), onupdate=func.now())
 

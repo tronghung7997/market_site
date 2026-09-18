@@ -49,6 +49,11 @@ WEEKLY_BUCKET_FROM_DAYS = 93
 GROSS_STATUSES = (
     OrderStatus.delivered, OrderStatus.completed, OrderStatus.disputed, OrderStatus.refunded,
 )
+# Admin-seeded demo orders carry no money and must never reach a seller's
+# revenue, order counts, escrow snapshot or dispute rate — the last one feeds
+# tiering, so diluting it would hand out privileges for manufactured volume.
+# Every Order query in this module filters on it.
+REAL_ORDERS = Order.is_seeded.is_(False)
 ESCROW_STATUSES = (OrderStatus.delivered, OrderStatus.disputed)
 ALL_STATUSES = [s.value for s in OrderStatus]
 
@@ -174,7 +179,7 @@ async def _order_totals(seller_id: int, start: datetime, end: datetime, db: Asyn
             func.coalesce(func.sum(case((Order.refunded_amount > 0, 1), else_=0)), 0),
             func.coalesce(func.sum(case((Order.status.in_(GROSS_STATUSES), 1), else_=0)), 0),
             func.coalesce(func.sum(case((Order.status == OrderStatus.completed, 1), else_=0)), 0),
-        ).where(Order.seller_id == seller_id, Order.created_at >= start, Order.created_at < end)
+        ).where(Order.seller_id == seller_id, REAL_ORDERS, Order.created_at >= start, Order.created_at < end)
     )).one()
     return {
         "total": int(row[0]), "gross": int(row[1]), "refunded": int(row[2]),
@@ -192,7 +197,7 @@ async def _status_counts(seller_id: int, rng: DashboardRange, db: AsyncSession) 
     effective = case((open_dispute, OrderStatus.disputed.value), else_=cast(Order.status, String)).label("effective")
     rows = (await db.execute(
         select(effective, func.count(Order.id))
-        .where(Order.seller_id == seller_id, Order.created_at >= rng.start, Order.created_at < rng.end)
+        .where(Order.seller_id == seller_id, REAL_ORDERS, Order.created_at >= rng.start, Order.created_at < rng.end)
         .group_by(effective)
     )).all()
     counts = {s: 0 for s in ALL_STATUSES}
@@ -227,7 +232,7 @@ async def _escrow_snapshot(seller_id: int, db: AsyncSession) -> tuple[int, int]:
         select(
             func.coalesce(func.sum(Order.total_amount - Order.refunded_amount), 0),
             func.count(Order.id),
-        ).where(Order.seller_id == seller_id, Order.status.in_(ESCROW_STATUSES))
+        ).where(Order.seller_id == seller_id, REAL_ORDERS, Order.status.in_(ESCROW_STATUSES))
     )).one()
     return int(row[0]), int(row[1])
 
@@ -241,7 +246,7 @@ async def _timeseries(seller_id: int, wallet_id: int, rng: DashboardRange, db: A
             func.coalesce(func.sum(case((Order.status.in_(GROSS_STATUSES), Order.total_amount), else_=0)), 0),
             func.coalesce(func.sum(case((Order.status.in_(GROSS_STATUSES), Order.refunded_amount), else_=0)), 0),
         )
-        .where(Order.seller_id == seller_id, Order.created_at >= rng.start, Order.created_at < rng.end)
+        .where(Order.seller_id == seller_id, REAL_ORDERS, Order.created_at >= rng.start, Order.created_at < rng.end)
         .group_by("bucket")
     )).all()
     tx_bucket = _local_bucket(Transaction.created_at, rng)
@@ -274,7 +279,7 @@ async def _top_products(seller_id: int, rng: DashboardRange, db: AsyncSession, l
         )
         .select_from(Order)
         .outerjoin(ProductVariant, ProductVariant.id == Order.variant_id)
-        .where(Order.seller_id == seller_id, Order.created_at >= rng.start, Order.created_at < rng.end)
+        .where(Order.seller_id == seller_id, REAL_ORDERS, Order.created_at >= rng.start, Order.created_at < rng.end)
         .group_by(product_id)
         .subquery()
     )
@@ -347,13 +352,13 @@ async def _top_products(seller_id: int, rng: DashboardRange, db: AsyncSession, l
 async def _customers(seller_id: int, rng: DashboardRange, db: AsyncSession) -> dict:
     first_order = (
         select(Order.buyer_id, func.min(Order.created_at).label("first_at"))
-        .where(Order.seller_id == seller_id)
+        .where(Order.seller_id == seller_id, REAL_ORDERS)
         .group_by(Order.buyer_id)
         .subquery()
     )
     in_range_buyers = (
         select(Order.buyer_id)
-        .where(Order.seller_id == seller_id, Order.created_at >= rng.start, Order.created_at < rng.end)
+        .where(Order.seller_id == seller_id, REAL_ORDERS, Order.created_at >= rng.start, Order.created_at < rng.end)
         .distinct()
         .subquery()
     )
@@ -406,7 +411,7 @@ async def get_seller_dashboard(seller_id: int, rng: DashboardRange, db: AsyncSes
     dispute_count = int(await db.scalar(
         select(func.count(Dispute.id))
         .join(Order, Order.id == Dispute.order_id)
-        .where(Order.seller_id == seller_id, Dispute.created_at >= rng.start, Dispute.created_at < rng.end)
+        .where(Order.seller_id == seller_id, REAL_ORDERS, Dispute.created_at >= rng.start, Dispute.created_at < rng.end)
     ) or 0)
 
     total = current["total"]

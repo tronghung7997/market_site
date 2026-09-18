@@ -1443,12 +1443,118 @@ export interface InventoryReportResponse {
   low_stock_threshold: number;
 }
 
-/** Admin-managed third-party analytics tag ids, edited in Settings › Analytics. */
 export interface SiteAnalyticsConfig {
   /** Microsoft Clarity project id; null = tag not rendered. */
   clarity_project_id: string | null;
   updated_at: string | null;
   updated_by_id: number | null;
+}
+
+/** Admin-tunable AI provider. Which vendor answers is configuration, not code:
+ *  any OpenAI-compatible host (OpenAI, DeepSeek, Groq, OpenRouter, Ollama…) is
+ *  reachable by editing base_url + model + key. */
+export interface AiProviderConfig {
+  provider_kind: "openai_compatible" | "gemini_native";
+  base_url: string;
+  model: string;
+  /** Tried in order when the primary model is overloaded or retired. */
+  fallback_models: string[];
+  /** The key itself is never sent to the browser — only whether one is stored. */
+  api_key_configured: boolean;
+  temperature: number;
+  timeout_seconds: number;
+  max_retries: number;
+  /** 0 = no ceiling. */
+  daily_token_budget: number;
+  is_enabled: boolean;
+  updated_at: string | null;
+  updated_by_id: number | null;
+}
+
+export interface AiConnectionTestResult {
+  ok: boolean;
+  model: string | null;
+  latency_ms: number | null;
+  /** True when a fallback answered — early warning that the default is failing. */
+  used_fallback: boolean;
+  error_kind: string | null;
+  message: string;
+}
+
+export interface AiPromptTemplate {
+  task: string;
+  locale: string;
+  system_prompt: string;
+  user_prompt: string;
+  updated_at: string | null;
+  updated_by_id: number | null;
+}
+
+export interface AiUsageRow {
+  task: string;
+  calls: number;
+  tokens: number;
+  failures: number;
+}
+
+export interface AiUsageSummary {
+  days: number;
+  items: AiUsageRow[];
+  /** 0 = no ceiling configured. */
+  daily_token_budget: number;
+  /** Trailing 24h, matching the window the budget check enforces. */
+  tokens_used_today: number;
+}
+
+export interface TrustSeedDraft {
+  index: number;
+  rating: number;
+  comment: string | null;
+  seller_reply: string | null;
+  /** Non-empty blocks apply; the server re-checks regardless. */
+  problems: string[];
+}
+
+export interface TrustSeedGenerateResponse {
+  product_id: number;
+  product_title: string;
+  model: string;
+  used_fallback: boolean;
+  locale: string;
+  requested_count: number;
+  distribution: Record<string, number>;
+  /** Exact product facts sent to the model — shown so an admin can audit it. */
+  product_context: string;
+  drafts: TrustSeedDraft[];
+}
+
+export interface TrustSeedApplyResponse {
+  batch_id: number;
+  product_id: number;
+  review_count: number;
+  rating_avg: number | null;
+  rating_count: number;
+}
+
+export interface TrustSeedBatch {
+  id: number;
+  product_id: number;
+  status: "applied" | "purged";
+  review_count: number;
+  source: "ai" | "manual";
+  model: string | null;
+  locale: string;
+  created_by_id: number;
+  created_at: string | null;
+  purged_at: string | null;
+}
+
+export interface TrustSeedSummary {
+  product_id: number;
+  seeded_reviews: number;
+  total_visible_reviews: number;
+  real_reviews: number;
+  seed_pool_size: number;
 }
 
 export interface SellerRuntimeConfig {

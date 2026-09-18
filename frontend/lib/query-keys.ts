@@ -88,8 +88,13 @@ export const queryKeys = {
   sellerInventoryAll: () => ["seller-inventory", "all-packages"] as const,
   sellerInventoryReport: (params: Record<string, unknown>) => ["seller-inventory", "report", params] as const,
   sellerInventoryExportPreview: (params: Record<string, unknown>) => ["seller-inventory", "export-preview", params] as const,
-  adminAnalyticsConfig: () => ["admin-analytics-config"] as const,
   adminSellerConfig: () => ["admin-seller-config"] as const,
+  adminAnalyticsConfig: () => ["admin-analytics-config"] as const,
+  adminAiConfig: () => ["admin-ai-config"] as const,
+  adminAiPrompts: () => ["admin-ai-prompts"] as const,
+  adminAiUsage: (days: number) => ["admin-ai-usage", days] as const,
+  trustSeedBatches: (productId?: number) => ["trust-seed-batches", productId ?? null] as const,
+  trustSeedSummary: (productId: number) => ["trust-seed-summary", productId] as const,
   sellerProducts: (params?: Record<string, unknown> | null) =>
     params == null ? ["seller-products"] as const : ["seller-products", "list", params] as const,
 } as const;

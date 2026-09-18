@@ -6,7 +6,9 @@ import { api } from "@/lib/api";
 import { useApiErrorMessage } from "@/lib/use-api-error";
 import type { DepositRailConfigAdmin, DepositRailConfigUpdate } from "@/lib/types";
 import { cn } from "@/lib/cn";
-import { Button, Field, InlineNotice, Input, Spinner, Switch, Tag } from "@/components/ui";
+import { Button, Field, Input, Spinner, Switch, Tag } from "@/components/ui";
+import { useToast } from "@/components/toast";
+import { SettingsFooter } from "./SettingsRow";
 import { AlertCircle, CheckCircle2 } from "@/components/Icons";
 
 type RailKey = "sepay" | "nowpayments";
@@ -72,7 +74,7 @@ export function DepositRailsPanel() {
   const [loading, setLoading] = useState(true);
   const [loadErr, setLoadErr] = useState("");
   const [saving, setSaving] = useState(false);
-  const [notice, setNotice] = useState<{ tone: "good" | "bad"; text: string } | null>(null);
+  const toast = useToast();
 
   const load = useCallback(async () => {
     setLoading(true);
@@ -120,13 +122,12 @@ export function DepositRailsPanel() {
   const save = async () => {
     if (!rail || !dirty || problems.length > 0) return;
     setSaving(true);
-    setNotice(null);
     try {
       setRail(await api.updateDepositRailConfig(draft));
       setDraft({});
-      setNotice({ tone: "good", text: t("saved") });
+      toast.success(t("saved"));
     } catch (e) {
-      setNotice({ tone: "bad", text: apiErrorMessage(e, t("saveFail")) });
+      toast.error(apiErrorMessage(e, t("saveFail")));
     } finally {
       setSaving(false);
     }
@@ -135,13 +136,12 @@ export function DepositRailsPanel() {
   const reset = async () => {
     if (!window.confirm(t("resetConfirm"))) return;
     setSaving(true);
-    setNotice(null);
     try {
       setRail(await api.resetDepositRailConfig());
       setDraft({});
-      setNotice({ tone: "good", text: t("resetDone") });
+      toast.success(t("resetDone"));
     } catch (e) {
-      setNotice({ tone: "bad", text: apiErrorMessage(e, t("resetFail")) });
+      toast.error(apiErrorMessage(e, t("resetFail")));
     } finally {
       setSaving(false);
     }
@@ -340,41 +340,19 @@ export function DepositRailsPanel() {
         {railCard("nowpayments")}
       </div>
 
-      <div className="flex flex-col gap-3 rounded-card border border-line bg-card px-4 py-3 shadow-card sm:flex-row sm:items-center sm:justify-between">
-        <div className="min-w-0 flex-1 space-y-1">
-          {notice && (
-            <InlineNotice
-              tone={notice.tone}
-              icon={notice.tone === "good" ? <CheckCircle2 className="h-3.5 w-3.5" /> : <AlertCircle className="h-3.5 w-3.5" />}
-            >
-              {notice.text}
-            </InlineNotice>
-          )}
-          {!notice && problems.length > 0 && problems.map((p) => (
-            <InlineNotice key={p} tone="bad" icon={<AlertCircle className="h-3.5 w-3.5" />}>{p}</InlineNotice>
-          ))}
-          {!notice && problems.length === 0 && (
-            <button
-              type="button"
-              onClick={() => void reset()}
-              disabled={saving}
-              className="text-[12px] text-muted underline-offset-2 hover:text-fg hover:underline disabled:opacity-50"
-            >
-              {t("reset")}
-            </button>
-          )}
-        </div>
-        <div className="flex shrink-0 gap-2">
-          {dirty && (
-            <Button size="sm" variant="ghost" onClick={() => { setDraft({}); setNotice(null); }} disabled={saving}>
-              {t("discard")}
-            </Button>
-          )}
-          <Button size="sm" onClick={() => void save()} disabled={saving || !dirty || problems.length > 0}>
-            {saving ? t("saving") : t("save")}
-          </Button>
-        </div>
-      </div>
+      <SettingsFooter
+        dirty={dirty}
+        valid
+        problems={problems}
+        saving={saving}
+        onReset={() => setDraft({})}
+        onSave={() => void save()}
+        extra={(
+          <button type="button" onClick={() => void reset()} disabled={saving} className="text-muted underline-offset-2 hover:text-fg hover:underline disabled:opacity-50">
+            {t("reset")}
+          </button>
+        )}
+      />
     </div>
   );
 }

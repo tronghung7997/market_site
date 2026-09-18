@@ -1,25 +1,24 @@
 "use client";
 
 import { useEffect, useState } from "react";
-import { useLocale, useTranslations } from "next-intl";
+import { useTranslations } from "next-intl";
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
 import { api } from "@/lib/api";
 import { queryKeys } from "@/lib/query-keys";
 import { useApiErrorMessage } from "@/lib/use-api-error";
-import { formatDateTime } from "@/lib/utils";
 import { isValidClarityId } from "@/lib/clarity";
-import { Button, InlineNotice, Input, Spinner, Tag } from "@/components/ui";
-import { AlertCircle, CheckCircle2 } from "@/components/Icons";
+import { Button, Input, Spinner, Tag } from "@/components/ui";
+import { useToast } from "@/components/toast";
+import { SettingsFooter } from "./SettingsRow";
 
 /** Admin › Settings › Analytics: third-party tags the storefront renders. */
 export function AnalyticsSettingsPanel() {
   const t = useTranslations("adminAnalytics");
-  const locale = useLocale();
   const apiErrorMessage = useApiErrorMessage();
   const queryClient = useQueryClient();
   const query = useQuery({ queryKey: queryKeys.adminAnalyticsConfig(), queryFn: api.adminAnalyticsConfig });
   const [clarityId, setClarityId] = useState("");
-  const [notice, setNotice] = useState<{ tone: "good" | "bad"; text: string } | null>(null);
+  const toast = useToast();
 
   useEffect(() => {
     if (query.data) setClarityId(query.data.clarity_project_id ?? "");
@@ -29,16 +28,16 @@ export function AnalyticsSettingsPanel() {
     mutationFn: (id: string | null) => api.updateAdminAnalyticsConfig({ clarity_project_id: id }),
     onSuccess: (data) => {
       queryClient.setQueryData(queryKeys.adminAnalyticsConfig(), data);
-      setNotice({ tone: "good", text: t("saved") });
+      toast.success(t("saved"));
     },
-    onError: (err) => setNotice({ tone: "bad", text: apiErrorMessage(err, t("saveFail")) }),
+    onError: (err) => toast.error(apiErrorMessage(err, t("saveFail"))),
   });
 
   const trimmed = clarityId.trim().toLowerCase();
   const idOk = trimmed === "" || isValidClarityId(trimmed);
   const saved = query.data?.clarity_project_id ?? "";
   const dirty = query.data ? trimmed !== saved : false;
-  const discard = () => { setClarityId(saved); setNotice(null); };
+  const discard = () => setClarityId(saved);
 
   if (query.isPending) return <div className="grid place-items-center py-16"><Spinner /></div>;
   if (query.isError) {
@@ -61,29 +60,29 @@ export function AnalyticsSettingsPanel() {
       </section>
 
       <section className="rounded-card border border-line bg-card shadow-card">
-        <div className="border-b border-line px-4 py-3">
-          <h2 className="text-[14px] font-semibold tracking-tight text-fg">{t("title")}</h2>
+        <div className="border-b border-line bg-raised/40 px-5 py-3">
+          <h2 className="text-[13.5px] font-semibold text-fg">{t("title")}</h2>
         </div>
 
-        <div className="grid gap-3 px-4 py-4 md:grid-cols-[13rem_minmax(0,1fr)] md:gap-6">
+        <div className="grid gap-3 px-5 py-4 md:grid-cols-[minmax(0,1fr)_minmax(0,2fr)] md:gap-x-10">
           <div>
             <h3 className="text-[13px] font-semibold text-fg">{t("clarityTitle")}</h3>
             <p className="mt-1 text-[12px] leading-snug text-muted">{t("clarityHint")}</p>
           </div>
           <div>
             <label className="block">
-              <span className="block text-[11px] font-semibold uppercase tracking-wider text-muted">{t("projectIdLabel")}</span>
+              <span className="mb-1 block text-[12px] font-medium text-muted">{t("projectIdLabel")}</span>
               <div className="mt-1 flex items-center gap-2">
                 <Input
                   value={clarityId}
-                  onChange={(e) => { setClarityId(e.target.value); setNotice(null); }}
+                  onChange={(e) => setClarityId(e.target.value)}
                   autoComplete="off"
                   spellCheck={false}
                   aria-invalid={!idOk}
                   className="h-9 w-full max-w-xs font-mono text-[13px]"
                 />
                 {clarityId && (
-                  <Button size="sm" variant="ghost" onClick={() => { setClarityId(""); setNotice(null); }} disabled={save.isPending}>
+                  <Button size="sm" variant="ghost" onClick={() => setClarityId("")} disabled={save.isPending}>
                     {t("clearId")}
                   </Button>
                 )}
@@ -106,31 +105,16 @@ export function AnalyticsSettingsPanel() {
           </div>
         </div>
 
-        <div className="flex flex-col gap-3 border-t border-line px-4 py-3 sm:flex-row sm:items-center sm:justify-between">
-          <div className="min-w-0 flex-1">
-            {notice ? (
-              <InlineNotice
-                tone={notice.tone}
-                icon={notice.tone === "good" ? <CheckCircle2 className="h-3.5 w-3.5" /> : <AlertCircle className="h-3.5 w-3.5" />}
-              >
-                {notice.text}
-              </InlineNotice>
-            ) : (
-              <span className="text-[11.5px] text-faint">
-                {query.data.updated_at ? t("updatedAt", { at: formatDateTime(query.data.updated_at, locale) }) : t("neverUpdated")}
-              </span>
-            )}
-          </div>
-          <div className="flex shrink-0 gap-2">
-            {dirty && (
-              <Button size="sm" variant="ghost" onClick={discard} disabled={save.isPending}>{t("discard")}</Button>
-            )}
-            <Button size="sm" disabled={!dirty || !idOk || save.isPending} onClick={() => save.mutate(trimmed || null)}>
-              {save.isPending ? t("saving") : t("save")}
-            </Button>
-          </div>
-        </div>
       </section>
+
+      <SettingsFooter
+        updatedAt={query.data.updated_at}
+        dirty={dirty}
+        valid={idOk}
+        saving={save.isPending}
+        onReset={discard}
+        onSave={() => save.mutate(trimmed || null)}
+      />
     </div>
   );
 }

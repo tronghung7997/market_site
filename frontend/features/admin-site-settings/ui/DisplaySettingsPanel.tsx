@@ -7,8 +7,9 @@ import { useApiErrorMessage } from "@/lib/use-api-error";
 import type { MoneyConfigAdmin } from "@/lib/types";
 import { formatBrowseMoney, formatLedgerMoney, type DisplayCurrency } from "@/lib/money";
 import { cn } from "@/lib/cn";
-import { Button, InlineNotice, Spinner, Switch, Tag } from "@/components/ui";
-import { AlertCircle, CheckCircle2 } from "@/components/Icons";
+import { Button, Spinner, Switch, Tag } from "@/components/ui";
+import { useToast } from "@/components/toast";
+import { SettingsFooter } from "./SettingsRow";
 
 const PREVIEW_AMOUNT_VND = 50_000;
 
@@ -20,12 +21,12 @@ function SettingRow({
   title, hint, control, first,
 }: { title: string; hint: string; control: React.ReactNode; first?: boolean }) {
   return (
-    <div className={cn("flex items-center justify-between gap-4 py-3", !first && "border-t border-line")}>
+    <div className={cn("flex items-start gap-3 py-3", !first && "border-t border-line")}>
+      <span className="mt-px shrink-0">{control}</span>
       <div className="min-w-0">
         <div className="text-[13px] font-medium text-fg">{title}</div>
         <p className="mt-0.5 text-[12px] leading-snug text-muted">{hint}</p>
       </div>
-      {control}
     </div>
   );
 }
@@ -43,7 +44,7 @@ export function DisplaySettingsPanel() {
   const [loading, setLoading] = useState(true);
   const [loadErr, setLoadErr] = useState("");
   const [saving, setSaving] = useState(false);
-  const [notice, setNotice] = useState<{ tone: "good" | "bad"; text: string } | null>(null);
+  const toast = useToast();
 
   const apply = (data: MoneyConfigAdmin) => {
     setMoney(data);
@@ -91,11 +92,10 @@ export function DisplaySettingsPanel() {
 
   const save = async () => {
     if (!money || rate == null || !rateInRange) {
-      setNotice({ tone: "bad", text: t("rateInvalid", { min: money?.rate_min.toLocaleString() ?? "", max: money?.rate_max.toLocaleString() ?? "" }) });
+      toast.error(t("rateInvalid", { min: money?.rate_min.toLocaleString() ?? "", max: money?.rate_max.toLocaleString() ?? "" }));
       return;
     }
     setSaving(true);
-    setNotice(null);
     try {
       await api.adminUpdateMoneyConfig({
         display_fx_rate: rate,
@@ -105,9 +105,9 @@ export function DisplaySettingsPanel() {
         show_fx_hints: showFxHints,
       });
       apply(await api.adminMoneyConfig());
-      setNotice({ tone: "good", text: t("saved") });
+      toast.success(t("saved"));
     } catch (e) {
-      setNotice({ tone: "bad", text: apiErrorMessage(e, t("saveFail")) });
+      toast.error(apiErrorMessage(e, t("saveFail")));
     } finally {
       setSaving(false);
     }
@@ -115,13 +115,11 @@ export function DisplaySettingsPanel() {
 
   const discard = () => {
     if (money) apply(money);
-    setNotice(null);
   };
 
   const useServerRate = () => {
     if (money?.env_rate == null) return;
     setRateDigits(String(money.env_rate));
-    setNotice(null);
   };
 
   if (loading) {
@@ -174,14 +172,14 @@ export function DisplaySettingsPanel() {
         <p className="mt-1 text-[12px] text-muted">{t("summary.ledgerNote")}</p>
       </section>
 
-      <section className="rounded-card border border-line bg-card shadow-card">
-        <div className="border-b border-line px-4 py-3">
-          <h2 className="text-[14px] font-semibold tracking-tight text-fg">{t("title")}</h2>
+      <section className="overflow-hidden rounded-card border border-line bg-card shadow-card">
+        <div className="border-b border-line bg-raised/40 px-5 py-3">
+          <h2 className="text-[13.5px] font-semibold text-fg">{t("title")}</h2>
           <p className="mt-0.5 text-[12px] leading-snug text-muted">{t("hint")}</p>
         </div>
 
         <div className="divide-y divide-line">
-          <div className="grid gap-3 px-4 py-4 md:grid-cols-[13rem_minmax(0,1fr)] md:gap-6">
+          <div className="grid gap-3 px-5 py-4 md:grid-cols-[minmax(0,1fr)_minmax(0,2fr)] md:gap-x-10">
             <div>
               <h3 className="text-[13px] font-semibold text-fg">{t("currency.title")}</h3>
               <p className="mt-1 text-[12px] leading-snug text-muted">{t("currency.hint")}</p>
@@ -238,7 +236,7 @@ export function DisplaySettingsPanel() {
             </div>
           </div>
 
-          <div className="grid gap-3 px-4 py-4 md:grid-cols-[13rem_minmax(0,1fr)] md:gap-6">
+          <div className="grid gap-3 px-5 py-4 md:grid-cols-[minmax(0,1fr)_minmax(0,2fr)] md:gap-x-10">
             <div>
               <h3 className="text-[13px] font-semibold text-fg">{t("rate.title")}</h3>
               <p className="mt-1 text-[12px] leading-snug text-muted">{t("rate.hint")}</p>
@@ -294,7 +292,7 @@ export function DisplaySettingsPanel() {
             </div>
           </div>
 
-          <div className="grid gap-3 px-4 py-4 md:grid-cols-[13rem_minmax(0,1fr)] md:gap-6">
+          <div className="grid gap-3 px-5 py-4 md:grid-cols-[minmax(0,1fr)_minmax(0,2fr)] md:gap-x-10">
             <div>
               <h3 className="text-[13px] font-semibold text-fg">{t("language.title")}</h3>
               <p className="mt-1 text-[12px] leading-snug text-muted">{t("language.hint")}</p>
@@ -315,29 +313,15 @@ export function DisplaySettingsPanel() {
           </div>
         </div>
 
-        <div className="flex flex-col gap-3 border-t border-line px-4 py-3 sm:flex-row sm:items-center sm:justify-between">
-          <div className="min-w-0 flex-1">
-            {notice && (
-              <InlineNotice
-                tone={notice.tone}
-                icon={notice.tone === "good" ? <CheckCircle2 className="h-3.5 w-3.5" /> : <AlertCircle className="h-3.5 w-3.5" />}
-              >
-                {notice.text}
-              </InlineNotice>
-            )}
-          </div>
-          <div className="flex shrink-0 gap-2">
-            {dirty && (
-              <Button size="sm" variant="ghost" onClick={discard} disabled={saving}>
-                {t("discard")}
-              </Button>
-            )}
-            <Button size="sm" onClick={() => void save()} disabled={saving || !dirty}>
-              {saving ? t("saving") : t("save")}
-            </Button>
-          </div>
-        </div>
       </section>
+
+      <SettingsFooter
+        dirty={dirty}
+        valid={rateInRange}
+        saving={saving}
+        onReset={discard}
+        onSave={() => void save()}
+      />
     </div>
   );
 }

@@ -75,7 +75,7 @@ export function ToastProvider({ children }: { children: ReactNode }) {
     <ToastContext.Provider value={api}>
       {children}
       {mounted && createPortal(
-        <div className="pointer-events-none fixed inset-x-4 top-4 z-[9999] flex flex-col items-end gap-2 sm:inset-x-auto sm:right-5 sm:top-5" aria-live="polite" aria-relevant="additions">
+        <div className="pointer-events-none fixed inset-x-4 top-20 z-[9999] flex flex-col items-end gap-2 sm:inset-x-auto sm:right-5 sm:top-[84px]" aria-live="polite" aria-relevant="additions">
           <AnimatePresence initial={false}>
             {items.map((item) => <ToastCard key={item.id} item={item} onClose={() => dismiss(item.id)} />)}
           </AnimatePresence>

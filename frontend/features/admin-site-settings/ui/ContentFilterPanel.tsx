@@ -9,7 +9,7 @@ import { useApiErrorMessage } from "@/lib/use-api-error";
 import type { ContentFilterConfig, ContentFilterTestResult } from "@/lib/types";
 import { Button, Input, Tag, Textarea } from "@/components/ui";
 import { useToast } from "@/components/toast";
-import { SettingsFooter, SettingsLoadError, SettingsLoading, SettingsRow } from "./SettingsRow";
+import { SettingsFooter, SettingsLoadError, SettingsLoading, SettingsRow, SettingsToggle } from "./SettingsRow";
 
 const MAX_KEYWORDS = 200;
 
@@ -79,25 +79,21 @@ export function ContentFilterPanel() {
   const valid = keywordsOk && maskOk;
   const dirty = JSON.stringify({ ...form, keywordsText: keywords }) !== JSON.stringify({ ...toForm(query.data), keywordsText: query.data.keywords });
   const update = (patch: Partial<Form>) => { setForm((f) => (f ? { ...f, ...patch } : f)); };
-  const checkbox = "h-3.5 w-3.5 rounded border-line-2 text-iris";
 
   return (
-    <div className="max-w-[960px] space-y-4">
+    <div className="space-y-4">
     <section className="overflow-hidden rounded-card border border-line bg-card shadow-card">
       <SettingsRow title={t("enabledTitle")} hint={t("enabledHint")}>
-        <span className="mt-1 flex cursor-pointer items-center gap-2 text-[12.5px] text-fg">
-          <input type="checkbox" checked={form.enabled} onChange={(e) => update({ enabled: e.target.checked })} className={checkbox} />
-          {t("enabledLabel")}
-        </span>
+        <SettingsToggle checked={form.enabled} onChange={(v) => update({ enabled: v })} label={t("enabledLabel")} />
       </SettingsRow>
       <SettingsRow title={t("actionTitle")} hint={t("actionHint")}>
-        <div className="mt-1 space-y-1.5 text-[12.5px] text-fg">
-          <span className="flex cursor-pointer items-center gap-2">
-            <input type="radio" name="cf-action" checked={form.action === "block"} onChange={() => update({ action: "block" })} className={checkbox} />
+        <div className="space-y-2 text-[13px] text-fg">
+          <span className="flex cursor-pointer items-center gap-2.5">
+            <input type="radio" name="cf-action" checked={form.action === "block"} onChange={() => update({ action: "block" })} className="h-4 w-4 accent-iris" />
             {t("actionBlock")}
           </span>
-          <span className="flex cursor-pointer items-center gap-2">
-            <input type="radio" name="cf-action" checked={form.action === "mask"} onChange={() => update({ action: "mask" })} className={checkbox} />
+          <span className="flex cursor-pointer items-center gap-2.5">
+            <input type="radio" name="cf-action" checked={form.action === "mask"} onChange={() => update({ action: "mask" })} className="h-4 w-4 accent-iris" />
             {t("actionMask")}
           </span>
           {form.action === "mask" && (
@@ -119,15 +115,9 @@ export function ContentFilterPanel() {
         />
       </SettingsRow>
       <SettingsRow title={t("patternsTitle")} hint={t("patternsHint")}>
-        <div className="mt-1 space-y-1.5 text-[12.5px] text-fg">
-          <span className="flex cursor-pointer items-center gap-2">
-            <input type="checkbox" checked={form.blockPhones} onChange={(e) => update({ blockPhones: e.target.checked })} className={checkbox} />
-            {t("blockPhones")}
-          </span>
-          <span className="flex cursor-pointer items-center gap-2">
-            <input type="checkbox" checked={form.blockLinks} onChange={(e) => update({ blockLinks: e.target.checked })} className={checkbox} />
-            {t("blockLinks")}
-          </span>
+        <div className="space-y-2.5">
+          <SettingsToggle checked={form.blockPhones} onChange={(v) => update({ blockPhones: v })} label={t("blockPhones")} />
+          <SettingsToggle checked={form.blockLinks} onChange={(v) => update({ blockLinks: v })} label={t("blockLinks")} />
         </div>
       </SettingsRow>
       <SettingsRow title={t("testTitle")} hint={t("testHint")}>

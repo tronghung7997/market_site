@@ -7,7 +7,8 @@ import { useApiErrorMessage } from "@/lib/use-api-error";
 import type { SearchQueryStat, SearchSynonymGroup } from "@/lib/types";
 import { cn } from "@/lib/cn";
 import { Button, Field, InlineNotice, Input, Spinner, Tag } from "@/components/ui";
-import { AlertCircle, CheckCircle2 } from "@/components/Icons";
+import { useToast } from "@/components/toast";
+import { AlertCircle } from "@/components/Icons";
 
 const DAY_OPTIONS = [7, 30, 90] as const;
 
@@ -36,7 +37,7 @@ export function SearchSettingsPanel() {
   const [termsInput, setTermsInput] = useState("");
   const [editing, setEditing] = useState<string | null>(null);
   const [saving, setSaving] = useState(false);
-  const [notice, setNotice] = useState<{ tone: "good" | "bad"; text: string } | null>(null);
+  const toast = useToast();
 
   const loadQueries = useCallback(async () => {
     setQueriesErr("");
@@ -69,14 +70,12 @@ export function SearchSettingsPanel() {
     setEditing(group.group_key);
     setGroupKey(group.group_key);
     setTermsInput(group.terms.join(", "));
-    setNotice(null);
   };
 
   const startFromQuery = (query: string) => {
     setEditing(null);
     setGroupKey("");
     setTermsInput(query.toLowerCase());
-    setNotice(null);
     document.getElementById("synonym-group-key")?.focus();
   };
 
@@ -89,7 +88,6 @@ export function SearchSettingsPanel() {
   const save = async () => {
     if (!canSave) return;
     setSaving(true);
-    setNotice(null);
     try {
       const saved = await api.adminUpsertSearchSynonyms({ group_key: groupKey.trim(), terms });
       if (editing && editing !== saved.group_key) {
@@ -97,9 +95,9 @@ export function SearchSettingsPanel() {
       }
       await loadGroups();
       resetForm();
-      setNotice({ tone: "good", text: t("synonyms.saved", { group: saved.group_key }) });
+      toast.success(t("synonyms.saved", { group: saved.group_key }));
     } catch (e) {
-      setNotice({ tone: "bad", text: apiErrorMessage(e, t("synonyms.saveFail")) });
+      toast.error(apiErrorMessage(e, t("synonyms.saveFail")));
     } finally {
       setSaving(false);
     }
@@ -108,14 +106,13 @@ export function SearchSettingsPanel() {
   const remove = async (key: string) => {
     if (!window.confirm(t("synonyms.deleteConfirm", { group: key }))) return;
     setSaving(true);
-    setNotice(null);
     try {
       await api.adminDeleteSearchSynonyms(key);
       await loadGroups();
       if (editing === key) resetForm();
-      setNotice({ tone: "good", text: t("synonyms.deleted", { group: key }) });
+      toast.success(t("synonyms.deleted", { group: key }));
     } catch (e) {
-      setNotice({ tone: "bad", text: apiErrorMessage(e, t("synonyms.deleteFail")) });
+      toast.error(apiErrorMessage(e, t("synonyms.deleteFail")));
     } finally {
       setSaving(false);
     }
@@ -302,14 +299,6 @@ export function SearchSettingsPanel() {
                   </span>
                 ))}
               </div>
-            )}
-            {notice && (
-              <InlineNotice
-                tone={notice.tone}
-                icon={notice.tone === "good" ? <CheckCircle2 className="h-3.5 w-3.5" /> : <AlertCircle className="h-3.5 w-3.5" />}
-              >
-                {notice.text}
-              </InlineNotice>
             )}
             <div className="flex justify-end gap-2">
               {(editing || groupKey || termsInput) && (

@@ -9,7 +9,7 @@ import { useApiErrorMessage } from "@/lib/use-api-error";
 import type { AffiliateRuntimeConfig } from "@/lib/types";
 import { Input } from "@/components/ui";
 import { useToast } from "@/components/toast";
-import { SettingsFooter, SettingsLoadError, SettingsLoading, SettingsRow } from "./SettingsRow";
+import { SettingsFooter, SettingsLoadError, SettingsLoading, SettingsRow, SettingsToggle } from "./SettingsRow";
 
 const PERCENT_RANGE = { min: 0, max: 100 };
 const ATTRIBUTION_RANGE = { min: 1, max: 365 };
@@ -79,13 +79,10 @@ export function AffiliateSettingsPanel() {
   const digits = (v: string) => v.replace(/\D/g, "");
 
   return (
-    <div className="max-w-[960px] space-y-4">
+    <div className="space-y-4">
     <section className="overflow-hidden rounded-card border border-line bg-card shadow-card">
       <SettingsRow title={t("enabledTitle")} hint={t("enabledHint")}>
-        <span className="mt-1 flex cursor-pointer items-center gap-2 text-[12.5px] text-fg">
-          <input type="checkbox" checked={form.enabled} onChange={(e) => update({ enabled: e.target.checked })} className="h-3.5 w-3.5 rounded border-line-2 text-iris" />
-          {t("enabledLabel")}
-        </span>
+        <SettingsToggle checked={form.enabled} onChange={(v) => update({ enabled: v })} label={t("enabledLabel")} />
       </SettingsRow>
       <SettingsRow title={t("percentTitle")} hint={t("percentHint")} label={t("percentLabel")}>
         <div className="mt-1 flex items-center gap-2">

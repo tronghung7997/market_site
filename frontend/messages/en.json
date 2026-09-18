@@ -3427,7 +3427,8 @@
     "saving": "Saving…",
     "unsaved": "Unsaved changes — press Save to apply",
     "unsavedInvalid": "Some fields are invalid — fix them before saving",
-    "allSaved": "All saved · updated {at}"
+    "allSaved": "All saved · updated {at}",
+    "allSavedNoTime": "All changes saved"
   },
   "adminAffiliateConfig": {
     "enabledTitle": "Affiliate programme",
@@ -3575,6 +3576,7 @@
   },
   "siteStatus": {
     "announcementLink": "Details",
+    "dismiss": "Hide notice",
     "maintenanceTitle": "We're doing maintenance",
     "maintenanceDefault": "GMMO is briefly offline while we work on the system. Your balance and orders are safe.",
     "maintenanceUntil": "Expected back around {at}",
@@ -3635,7 +3637,7 @@
     "maintenanceUntilHint": "Optional. Shown to visitors as \"expected back around …\". Does not switch maintenance off by itself.",
     "announcementSection": "Announcement bar",
     "annTitle": "Announcement",
-    "annHint": "A solid-colour line at the very top of the storefront that sticks with the menu bar and replaces the promo strip. Visitors cannot close it — it only goes away when you switch it off here.",
+    "annHint": "A solid-colour line at the very top of the storefront that sticks with the menu bar and replaces the promo strip. Visitors can hide it until the next page load; long text scrolls like a ticker.",
     "annLabel": "Show the announcement",
     "level_info": "Info",
     "level_warn": "Warning",
@@ -4009,6 +4011,9 @@
     "tplPreviewFail": "Could not preview",
     "tplCustom": "Edited",
     "tplNames": {
+      "email_verify": "Verify email",
+      "email_change_confirm": "Confirm email change",
+      "email_change_notice": "Email change notice (old address)",
       "password_reset": "Password reset",
       "password_changed": "Password changed",
       "seller_application_approved": "Seller approved",

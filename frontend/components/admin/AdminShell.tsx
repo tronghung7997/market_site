@@ -8,6 +8,7 @@ import {
   Activity, ArrowRight, BarChart, Bell, ChevronLeft, ClipboardList, FileText,
   Grid, Inbox, LogOut, Menu, MessageCircle, Package, Plus, Receipt, Shield, Sliders, TrendingUp, Users, Verified, Wallet, Layers } from "@/components/Icons";
 import NotificationBell from "@/components/NotificationBell";
+import { SystemStatusBanner } from "@/features/admin-site-settings";
 
 type NavItem = { href: string; label: string; icon: (p: { size?: number }) => ReactNode };
 
@@ -210,8 +211,10 @@ export default function AdminShell({ children }: { children: ReactNode }) {
 
       {/* ============ MAIN COLUMN ============ */}
       <div className="flex-1 min-w-0 flex flex-col">
-        {/* Topbar */}
-        <header className="sticky top-0 z-30 h-16 shrink-0 bg-surface/85 backdrop-blur-md border-b border-line">
+        {/* Topbar — the red "something is switched off" strip rides above it */}
+        <div className="sticky top-0 z-30 shrink-0">
+        <SystemStatusBanner />
+        <header className="h-16 bg-surface/85 backdrop-blur-md border-b border-line">
           <div className="h-full px-6 flex items-center gap-4">
             <button
               onClick={() => setMobileOpen(true)}
@@ -250,6 +253,7 @@ export default function AdminShell({ children }: { children: ReactNode }) {
             </span>
           </div>
         </header>
+        </div>
 
         {/* Page header + content */}
         <main className="flex-1 px-6 py-6">

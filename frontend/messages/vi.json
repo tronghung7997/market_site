@@ -3427,7 +3427,8 @@
     "saving": "Đang lưu…",
     "unsaved": "Có thay đổi chưa lưu — bấm Lưu để áp dụng",
     "unsavedInvalid": "Có ô nhập chưa hợp lệ — sửa rồi mới lưu được",
-    "allSaved": "Đã lưu · cập nhật lúc {at}"
+    "allSaved": "Đã lưu · cập nhật lúc {at}",
+    "allSavedNoTime": "Mọi thay đổi đã được lưu"
   },
   "adminAffiliateConfig": {
     "enabledTitle": "Chương trình tiếp thị liên kết",
@@ -3575,6 +3576,7 @@
   },
   "siteStatus": {
     "announcementLink": "Chi tiết",
+    "dismiss": "Ẩn thông báo",
     "maintenanceTitle": "Sàn đang bảo trì",
     "maintenanceDefault": "GMMO tạm ngưng ít phút để xử lý hệ thống. Số dư và đơn hàng của bạn không bị ảnh hưởng.",
     "maintenanceUntil": "Dự kiến hoạt động lại khoảng {at}",
@@ -3635,7 +3637,7 @@
     "maintenanceUntilHint": "Tuỳ chọn. Hiện cho khách dạng \"dự kiến hoạt động lại khoảng …\". Không tự tắt bảo trì.",
     "announcementSection": "Banner thông báo",
     "annTitle": "Thông báo",
-    "annHint": "Một dòng màu đậm trên cùng website, dính theo thanh menu, thay cho dải quảng cáo. Khách không tắt được — chỉ ẩn khi bạn tắt ở đây.",
+    "annHint": "Một dòng màu đậm trên cùng website, dính theo thanh menu, thay cho dải quảng cáo. Khách có thể tạm ẩn, tải lại trang sẽ thấy lại; nội dung dài thì chữ tự chạy.",
     "annLabel": "Hiện thông báo",
     "level_info": "Thông tin",
     "level_warn": "Cảnh báo",
@@ -4009,6 +4011,9 @@
     "tplPreviewFail": "Không xem trước được",
     "tplCustom": "Đã sửa",
     "tplNames": {
+      "email_verify": "Xác minh email",
+      "email_change_confirm": "Xác nhận đổi email",
+      "email_change_notice": "Báo đổi email (email cũ)",
       "password_reset": "Đặt lại mật khẩu",
       "password_changed": "Đã đổi mật khẩu",
       "seller_application_approved": "Duyệt đơn bán",

@@ -8,9 +8,8 @@ import { queryKeys } from "@/lib/query-keys";
 import { useApiErrorMessage } from "@/lib/use-api-error";
 import type { AuthRuntimeConfig } from "@/lib/types";
 import { Input } from "@/components/ui";
-import { cn } from "@/lib/cn";
 import { useToast } from "@/components/toast";
-import { SettingsFooter, SettingsLoadError, SettingsLoading, SettingsRow } from "./SettingsRow";
+import { SettingsFooter, SettingsLoadError, SettingsLoading, SettingsRow, SettingsToggle } from "./SettingsRow";
 
 const HOURS_RANGE = { min: 1, max: 168 };
 
@@ -50,36 +49,24 @@ export function AuthSettingsPanel() {
   const update = (patch: Partial<Form>) => { setForm((f) => (f ? { ...f, ...patch } : f)); };
 
   return (
-    <div className="max-w-[960px] space-y-4">
+    <div className="space-y-4">
     <section className="overflow-hidden rounded-card border border-line bg-card shadow-card">
       <SettingsRow title={t("verifyTitle")} hint={t("verifyHint")}>
-        <span className="mt-1 flex cursor-pointer items-center gap-2 text-[12.5px] text-fg">
-          <input type="checkbox" checked={form.require} onChange={(e) => update({ require: e.target.checked })} className="h-3.5 w-3.5 rounded border-line-2 text-iris" />
-          {t("verifyLabel")}
-        </span>
+        <SettingsToggle checked={form.require} onChange={(v) => update({ require: v })} label={t("verifyLabel")} />
       </SettingsRow>
       <SettingsRow title={t("hoursTitle")} hint={t("hoursHint")} label={t("hoursLabel")}>
         <Input inputMode="numeric" value={form.hours} onChange={(e) => update({ hours: e.target.value.replace(/\D/g, "") })} aria-invalid={!hoursOk} className="mt-1 h-9 w-full text-right font-mono text-[13px] tabular-nums" />
         <span className="mt-1 block text-[11px] text-faint">{t("range", { min: HOURS_RANGE.min, max: HOURS_RANGE.max })}</span>
       </SettingsRow>
       <SettingsRow title={t("mfaTitle")} hint={t("mfaHint")}>
-        <span className="mt-1 flex cursor-pointer items-center gap-2 text-[12.5px] text-fg">
-          <input type="checkbox" checked={form.mfa} onChange={(e) => update({ mfa: e.target.checked })} className="h-3.5 w-3.5 rounded border-line-2 text-iris" />
-          {t("mfaLabel")}
-        </span>
+        <SettingsToggle checked={form.mfa} onChange={(v) => update({ mfa: v })} label={t("mfaLabel")} />
       </SettingsRow>
       <SettingsRow title={t("adminMfaTitle")} hint={t("adminMfaHint")}>
-        <span className={cn("mt-1 flex cursor-pointer items-center gap-2 text-[12.5px] text-fg", !form.mfa && "opacity-50")}>
-          <input type="checkbox" checked={form.adminMfa} disabled={!form.mfa} onChange={(e) => update({ adminMfa: e.target.checked })} className="h-3.5 w-3.5 rounded border-line-2 text-iris" />
-          {t("adminMfaLabel")}
-        </span>
+        <SettingsToggle checked={form.adminMfa} disabled={!form.mfa} onChange={(v) => update({ adminMfa: v })} label={t("adminMfaLabel")} />
         {!form.mfa && <span className="mt-1 block text-[11px] text-faint">{t("mfaPolicyNeedsSwitch")}</span>}
       </SettingsRow>
       <SettingsRow title={t("withdrawMfaTitle")} hint={t("withdrawMfaHint")}>
-        <span className={cn("mt-1 flex cursor-pointer items-center gap-2 text-[12.5px] text-fg", !form.mfa && "opacity-50")}>
-          <input type="checkbox" checked={form.withdrawMfa} disabled={!form.mfa} onChange={(e) => update({ withdrawMfa: e.target.checked })} className="h-3.5 w-3.5 rounded border-line-2 text-iris" />
-          {t("withdrawMfaLabel")}
-        </span>
+        <SettingsToggle checked={form.withdrawMfa} disabled={!form.mfa} onChange={(v) => update({ withdrawMfa: v })} label={t("withdrawMfaLabel")} />
         {!form.mfa && <span className="mt-1 block text-[11px] text-faint">{t("mfaPolicyNeedsSwitch")}</span>}
       </SettingsRow>
       <SettingsRow title={t("turnstileTitle")} hint={t("turnstileHint")} label={t("turnstileLabel")}>

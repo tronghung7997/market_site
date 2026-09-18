@@ -11,6 +11,8 @@ import type {
   MailProvider,
 } from "@/lib/types";
 import { Button, Field, InlineNotice, Input, Select, Spinner, Tag } from "@/components/ui";
+import { useToast } from "@/components/toast";
+import { SettingsFooter, SettingsToggle } from "@/features/admin-site-settings";
 import { AlertCircle, CheckCircle2, Info } from "@/components/Icons";
 import { cn } from "@/lib/cn";
 
@@ -56,7 +58,7 @@ export function MailSettingsPanel() {
   const [loading, setLoading] = useState(true);
   const [loadErr, setLoadErr] = useState("");
   const [saving, setSaving] = useState(false);
-  const [saveNotice, setSaveNotice] = useState<Notice>(null);
+  const toast = useToast();
   const [testing, setTesting] = useState(false);
   const [testNotice, setTestNotice] = useState<Notice>(null);
   const [testTo, setTestTo] = useState("");
@@ -173,13 +175,12 @@ export function MailSettingsPanel() {
     if (mailFromName !== cfg.mail_from_name) body.mail_from_name = mailFromName;
     if (workerEnabled !== cfg.worker_enabled) body.worker_enabled = workerEnabled;
     setSaving(true);
-    setSaveNotice(null);
     try {
       const next = await api.adminUpdateMailConfig(body);
       apply(next);
-      setSaveNotice({ tone: "good", text: t("saved") });
+      toast.success(t("saved"));
     } catch (e) {
-      setSaveNotice({ tone: "bad", text: apiErrorMessage(e, t("saveFail")) });
+      toast.error(apiErrorMessage(e, t("saveFail")));
     } finally {
       setSaving(false);
     }
@@ -187,19 +188,17 @@ export function MailSettingsPanel() {
 
   const discard = () => {
     if (cfg) apply(cfg);
-    setSaveNotice(null);
   };
 
   const reset = async () => {
     if (!window.confirm(t("resetConfirm"))) return;
     setSaving(true);
-    setSaveNotice(null);
     try {
       const next = await api.adminResetMailConfigToEnv();
       apply(next);
-      setSaveNotice({ tone: "good", text: t("resetDone") });
+      toast.success(t("resetDone"));
     } catch (e) {
-      setSaveNotice({ tone: "bad", text: apiErrorMessage(e, t("resetFail")) });
+      toast.error(apiErrorMessage(e, t("resetFail")));
     } finally {
       setSaving(false);
     }
@@ -347,15 +346,16 @@ export function MailSettingsPanel() {
         </div>
       </section>
 
-      {/* Setup: three real steps, in the order a new admin has to do them. */}
+      {/* Setup: three real steps, in the order a new admin has to do them. The save bar sticks only while this block is on screen. */}
+      <div className="space-y-4">
       <section className="rounded-card border border-line bg-card shadow-card">
-        <div className="border-b border-line px-4 py-3">
-          <h2 className="text-[14px] font-semibold tracking-tight text-fg">{t("setupTitle")}</h2>
+        <div className="border-b border-line bg-raised/40 px-5 py-3">
+          <h2 className="text-[13.5px] font-semibold text-fg">{t("setupTitle")}</h2>
           <p className="mt-0.5 text-[12px] leading-snug text-muted">{t("setupHint")}</p>
         </div>
 
         <ol className="divide-y divide-line">
-          <li className="grid gap-3 px-4 py-4 md:grid-cols-[13rem_minmax(0,1fr)] md:gap-6">
+          <li className="grid gap-3 px-5 py-4 md:grid-cols-[minmax(0,1fr)_minmax(0,2fr)] md:gap-x-10">
             <div>
               <h3 className="text-[13px] font-semibold text-fg">
                 <span className="mr-2 font-mono text-[12px] text-faint">1</span>
@@ -419,7 +419,7 @@ export function MailSettingsPanel() {
             </div>
           </li>
 
-          <li className="grid gap-3 px-4 py-4 md:grid-cols-[13rem_minmax(0,1fr)] md:gap-6">
+          <li className="grid gap-3 px-5 py-4 md:grid-cols-[minmax(0,1fr)_minmax(0,2fr)] md:gap-x-10">
             <div>
               <h3 className="text-[13px] font-semibold text-fg">
                 <span className="mr-2 font-mono text-[12px] text-faint">2</span>
@@ -457,57 +457,34 @@ export function MailSettingsPanel() {
             </div>
           </li>
 
-          <li className="grid gap-3 px-4 py-4 md:grid-cols-[13rem_minmax(0,1fr)] md:gap-6">
+          <li className="grid gap-3 px-5 py-4 md:grid-cols-[minmax(0,1fr)_minmax(0,2fr)] md:gap-x-10">
             <div>
               <h3 className="text-[13px] font-semibold text-fg">
                 <span className="mr-2 font-mono text-[12px] text-faint">3</span>
                 {t("step.worker")}
               </h3>
             </div>
-            <label htmlFor="mail-worker-enabled" className="flex cursor-pointer items-start gap-3">
-              <input
-                id="mail-worker-enabled"
-                name="worker_enabled"
-                type="checkbox"
-                checked={workerEnabled}
-                disabled={saving}
-                onChange={(e) => setWorkerEnabled(e.target.checked)}
-                className="mt-0.5 h-4 w-4 shrink-0 accent-iris"
-              />
-              <span>
-                <span className="block text-[13px] font-medium text-fg">{t("worker")}</span>
-                <span className="mt-0.5 block text-[12px] leading-snug text-muted">{t("workerHint")}</span>
-              </span>
-            </label>
+            <div>
+              <SettingsToggle checked={workerEnabled} onChange={setWorkerEnabled} disabled={saving} label={t("worker")} />
+              <p className="mt-1.5 text-[12px] leading-snug text-muted">{t("workerHint")}</p>
+            </div>
           </li>
         </ol>
 
-        <div className="flex flex-col gap-3 border-t border-line px-4 py-3 sm:flex-row sm:items-center sm:justify-between">
-          <div className="min-w-0 flex-1">
-            <NoticeLine notice={saveNotice} />
-            {!saveNotice && (
-              <button
-                type="button"
-                onClick={() => void reset()}
-                disabled={saving}
-                className="text-[12px] text-muted underline-offset-2 hover:text-fg hover:underline disabled:opacity-50"
-              >
-                {t("reset")}
-              </button>
-            )}
-          </div>
-          <div className="flex shrink-0 gap-2">
-            {dirty && (
-              <Button size="sm" variant="ghost" onClick={discard} disabled={saving}>
-                {t("discard")}
-              </Button>
-            )}
-            <Button size="sm" onClick={() => void save()} disabled={saving || !dirty || (provider !== "log" && !mailFrom.trim())}>
-              {saving ? t("saving") : t("save")}
-            </Button>
-          </div>
-        </div>
       </section>
+      <SettingsFooter
+        dirty={dirty}
+        valid={provider === "log" || Boolean(mailFrom.trim())}
+        saving={saving}
+        onReset={discard}
+        onSave={() => void save()}
+        extra={(
+          <button type="button" onClick={() => void reset()} disabled={saving} className="text-muted underline-offset-2 hover:text-fg hover:underline disabled:opacity-50">
+            {t("reset")}
+          </button>
+        )}
+      />
+      </div>
 
       <MailTemplateEditor />
 

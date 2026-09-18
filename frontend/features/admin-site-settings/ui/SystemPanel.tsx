@@ -7,11 +7,11 @@ import { api } from "@/lib/api";
 import { queryKeys } from "@/lib/query-keys";
 import { useApiErrorMessage } from "@/lib/use-api-error";
 import type { SiteStatusAdmin, SiteStatusUpdate } from "@/lib/types";
-import { Button, Input, Tag, Textarea } from "@/components/ui";
+import { Button, Input, Textarea } from "@/components/ui";
 import { ChevronRight } from "@/components/Icons";
 import { useToast } from "@/components/toast";
 import { cn } from "@/lib/cn";
-import { SettingsFooter, SettingsLoadError, SettingsLoading, SettingsRow, SettingsSection } from "./SettingsRow";
+import { SettingsFooter, SettingsLoadError, SettingsLoading, SettingsRow, SettingsSection, SettingsToggle } from "./SettingsRow";
 
 type Form = {
   maintenance: boolean; msgVi: string; msgEn: string; until: string;
@@ -41,16 +41,6 @@ function toForm(s: SiteStatusAdmin): Form {
   };
 }
 
-const checkbox = "h-4 w-4 rounded border-line-2 text-iris";
-
-function Toggle({ checked, onChange, label, danger = false }: { checked: boolean; onChange: (v: boolean) => void; label: string; danger?: boolean }) {
-  return (
-    <span className={cn("flex cursor-pointer items-center gap-2.5 text-[13px]", checked ? (danger ? "font-semibold text-bad" : "font-medium text-fg") : "text-fg")}>
-      <input type="checkbox" checked={checked} onChange={(e) => onChange(e.target.checked)} className={checkbox} />
-      {label}
-    </span>
-  );
-}
 
 /** Admin › Settings › System: maintenance mode, money kill-switches, announcement bar. */
 export function SystemPanel() {
@@ -81,12 +71,6 @@ export function SystemPanel() {
   const update = (patch: Partial<Form>) => setForm((f) => (f ? { ...f, ...patch } : f));
   const anyFrozen = form.withdrawals && form.deposits && form.orders;
   const live = query.data;
-  const activeFlags = [
-    live.maintenance_enabled && t("flagMaintenance"),
-    live.withdrawals_frozen && t("flagWithdrawals"),
-    live.deposits_frozen && t("flagDeposits"),
-    live.orders_frozen && t("flagOrders"),
-  ].filter(Boolean) as string[];
 
   const onSave = () => save.mutate({
     maintenance_enabled: form.maintenance,
@@ -110,14 +94,7 @@ export function SystemPanel() {
   const previewText = (locale === "vi" ? form.annVi : form.annEn) || form.annVi || form.annEn;
 
   return (
-    <div className="max-w-[960px] space-y-4">
-      {activeFlags.length > 0 && (
-        <div className="flex flex-wrap items-center gap-2 rounded-card border border-bad/25 bg-bad-soft px-4 py-3 text-[13px] text-bad" role="status">
-          <span className="font-semibold">{t("activeNow")}</span>
-          {activeFlags.map((f) => <Tag key={f} tone="bad">{f}</Tag>)}
-        </div>
-      )}
-
+    <div className="space-y-4">
       <SettingsSection title={t("freezeSection")} description={t("freezeSectionHint")}>
         <SettingsRow title={t("freezeAllTitle")} hint={t("freezeAllHint")}>
           <Button size="sm" variant={anyFrozen ? "secondary" : "danger"} onClick={() => update({ withdrawals: !anyFrozen, deposits: !anyFrozen, orders: !anyFrozen })}>
@@ -130,7 +107,7 @@ export function SystemPanel() {
           ["orders", t("freezeOrdersTitle"), t("freezeOrdersHint"), t("freezeOrdersLabel")],
         ] as const).map(([key, title, hint, label]) => (
           <SettingsRow key={key} title={title} hint={hint}>
-            <Toggle checked={form[key]} onChange={(v) => update({ [key]: v } as Partial<Form>)} label={label} danger />
+            <SettingsToggle checked={form[key]} onChange={(v) => update({ [key]: v } as Partial<Form>)} label={label} danger />
           </SettingsRow>
         ))}
         <SettingsRow title={t("freezeReasonTitle")} hint={t("freezeReasonHint")}>
@@ -140,7 +117,7 @@ export function SystemPanel() {
 
       <SettingsSection title={t("maintenanceSection")}>
         <SettingsRow title={t("maintenanceTitle")} hint={t("maintenanceHint")}>
-          <Toggle checked={form.maintenance} onChange={(v) => update({ maintenance: v })} label={t("maintenanceLabel")} danger />
+          <SettingsToggle checked={form.maintenance} onChange={(v) => update({ maintenance: v })} label={t("maintenanceLabel")} danger />
         </SettingsRow>
         <SettingsRow title={t("maintenanceMessageTitle")} hint={t("maintenanceMessageHint")} stacked>
           <div className="grid gap-3 md:grid-cols-2">
@@ -161,7 +138,7 @@ export function SystemPanel() {
 
       <SettingsSection title={t("announcementSection")} description={t("annHint")}>
         <SettingsRow title={t("annTitle")} hint={t("annToggleHint")}>
-          <Toggle checked={form.annOn} onChange={(v) => update({ annOn: v })} label={t("annLabel")} />
+          <SettingsToggle checked={form.annOn} onChange={(v) => update({ annOn: v })} label={t("annLabel")} />
         </SettingsRow>
         <SettingsRow title={t("annLevelTitle")} hint={t("annLevelHint")}>
           <div className="flex flex-wrap gap-2">

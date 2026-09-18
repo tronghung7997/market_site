@@ -109,8 +109,12 @@
     background-size: 200% 100%;
     animation: shimmer-x 1.8s linear infinite;
   }
+  /* Thanh thông báo dài hơn màn hình: chữ trôi đều từ phải sang trái, lặp vô hạn. */
+  @keyframes announcement-marquee { from { transform: translateX(0); } to { transform: translateX(var(--marquee-shift)); } }
+  .announcement-marquee { animation: announcement-marquee linear infinite; }
   @media (prefers-reduced-motion: reduce) {
     .animate-seal, .animate-rise, .animate-pop, .animate-shimmer, .animate-spin-ring { animation: none; }
+    .announcement-marquee { animation: none; }
   }
 
   /* ============================================================

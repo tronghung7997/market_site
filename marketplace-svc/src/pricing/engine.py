@@ -61,7 +61,32 @@ def inventory_managed_sql():
 
 
 async def resolve_pricing(product: Product, db: AsyncSession) -> tuple[str, dict]:
-    """3-tier fallback: product-level -> pricing_configs[service_type] -> fixed."""
+    """3-tier fallback: product-level -> pricing_configs[service_type] -> fixed.
+
+    Với `fixed`, giá nằm trên ProductVariant chứ không trong JSON params —
+    engine tự nạp `params["variants"]` để FixedPricing.validate/quote và
+    pricing-options dùng được qua cùng một đường (luồng adapter cho sản phẩm
+    fixed: seller_pool, nhà cung cấp catalog `external_stock`). Trước đây
+    params rỗng nên mọi quote fixed qua engine đều rớt INVALID_PRODUCT_CONFIG.
+    """
+    strategy, params = await _resolve_pricing_raw(product, db)
+    if strategy == "fixed" and "variants" not in params:
+        params = {**params, "variants": await fixed_variant_params(product.id, db)}
+    return strategy, params
+
+
+async def fixed_variant_params(product_id: int, db: AsyncSession) -> list[dict]:
+    from src.models.product import ProductVariant
+
+    rows = (await db.execute(
+        select(ProductVariant)
+        .where(ProductVariant.product_id == product_id, ProductVariant.is_active == True)  # noqa: E712
+        .order_by(ProductVariant.sort_order, ProductVariant.id)
+    )).scalars()
+    return [{"id": v.id, "label": v.name, "price": v.price} for v in rows]
+
+
+async def _resolve_pricing_raw(product: Product, db: AsyncSession) -> tuple[str, dict]:
     override = product_pricing_override(product)
     if override is not None:
         return override

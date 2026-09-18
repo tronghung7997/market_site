@@ -10,6 +10,11 @@ import type {
   SearchSuggest,
 } from "./types";
 import type { PaginatedDisputes, SitePageAdmin, SitePageCreate, SitePageUpdate } from "./types";
+import type {
+  SourceArea, SourceCatalogPage, SourceCatalogQuery, SourceImportItem, SourceImportResult, SourceListing,
+  SourceRepriceResult, SourceSyncResult, SupplierSource,
+  SourceKind, SourceSellerCandidate, SourceCreateRequest, SourceCreateResult, SourceTestResult,
+} from "./types";
 import type { PaginatedAdminProducts, PaginatedInventoryVariants, PaginatedSellerProducts } from "./types";
 import type {
   BulkResourceActionInput, InventoryExportParams, InventoryExportPreview, InventoryPackageBulkStatusResult,
@@ -568,6 +573,10 @@ export const api = {
     const qs = q.toString();
     return request<PaginatedAccounts>(`/admin/accounts${qs ? `?${qs}` : ""}`, {}, true);
   },
+  adminUpdateInternal: (id: number, isInternal: boolean) =>
+    request<AccountAdminRow>(`/admin/accounts/${id}/internal`, {
+      method: "PATCH", body: JSON.stringify({ is_internal: isInternal }),
+    }, true),
   adminUpdateRoles: (id: number, roles: string[]) =>
     request<AccountAdminRow>(`/admin/accounts/${id}/roles`, { method: "PATCH", body: JSON.stringify({ roles }) }, true),
   adminUpdateSellerTier: (id: number, sellerTier: string) =>
@@ -771,6 +780,48 @@ export const api = {
     request<{ health: Record<string, unknown>; provision_test: Record<string, unknown> | null; provision_test_skipped_reason?: string | null }>(`/seller/providers/${id}/test`, { method: "POST" }, true),
   submitSellerProvider: (id: number) =>
     request<Provider>(`/seller/providers/${id}/submit`, { method: "POST" }, true),
+
+  // Nguồn hàng — cùng handler cho seller (/seller/sources) và admin (/admin/sources).
+  sources: {
+    list: (area: SourceArea) => request<SupplierSource[]>(`/${area}/sources`, {}, true),
+    catalog: (area: SourceArea, id: number, query: SourceCatalogQuery = {}) => {
+      const qs = new URLSearchParams();
+      if (query.q) qs.set("q", query.q);
+      if (query.group) qs.set("group", query.group);
+      if (query.in_stock === false) qs.set("in_stock", "false");
+      if (query.max_cost != null) qs.set("max_cost", String(query.max_cost));
+      if (query.page) qs.set("page", String(query.page));
+      if (query.per_page) qs.set("per_page", String(query.per_page));
+      if (query.sort) qs.set("sort", query.sort);
+      const suffix = qs.toString();
+      return request<SourceCatalogPage>(`/${area}/sources/${id}/catalog${suffix ? `?${suffix}` : ""}`, {}, true);
+    },
+    sync: (area: SourceArea, id: number) =>
+      request<SourceSyncResult>(`/${area}/sources/${id}/sync`, { method: "POST" }, true),
+    listings: (area: SourceArea, id: number) => request<SourceListing[]>(`/${area}/sources/${id}/listings`, {}, true),
+    import: (area: SourceArea, id: number, items: SourceImportItem[], ownerSellerId?: number | null) =>
+      request<SourceImportResult[]>(`/${area}/sources/${id}/import`, {
+        method: "POST", body: JSON.stringify({ items, owner_seller_id: ownerSellerId ?? null }),
+      }, true),
+    attach: (area: SourceArea, id: number, variantId: number, externalId: string) =>
+      request<{ listing_id: number; variant_id: number; external_id: string }>(`/${area}/sources/${id}/attach`, {
+        method: "POST", body: JSON.stringify({ variant_id: variantId, external_id: externalId }),
+      }, true),
+    reprice: (area: SourceArea, id: number, body: { margin_pct: number; round_to?: number; listing_ids?: number[]; only_below_min?: boolean }) =>
+      request<SourceRepriceResult>(`/${area}/sources/${id}/reprice`, { method: "POST", body: JSON.stringify(body) }, true),
+    kinds: () => request<SourceKind[]>(`/admin/sources/kinds`, {}, true),
+    sellers: () => request<SourceSellerCandidate[]>(`/admin/sources/sellers`, {}, true),
+    test: (adapterType: string, config: Record<string, string | number>) =>
+      request<SourceTestResult>(`/admin/sources/test`, {
+        method: "POST", body: JSON.stringify({ adapter_type: adapterType, config }),
+      }, true),
+    create: (body: SourceCreateRequest) =>
+      request<SourceCreateResult>(`/admin/sources`, { method: "POST", body: JSON.stringify(body) }, true),
+    updateListing: (area: SourceArea, listingId: number, body: { price?: number; variant_name?: string; external_id?: string; is_active?: boolean; product_id?: number }) =>
+      request<SourceListing>(`/${area}/sources/listings/${listingId}`, { method: "PATCH", body: JSON.stringify(body) }, true),
+    detach: (area: SourceArea, listingId: number) =>
+      request<void>(`/${area}/sources/listings/${listingId}`, { method: "DELETE" }, true),
+  },
 
   submitReview: (orderId: string | number, rating: number, comment?: string) =>
     request<Review>(`/orders/${orderId}/review`, { method: "POST", body: JSON.stringify({ rating, comment: comment || null }) }, true),

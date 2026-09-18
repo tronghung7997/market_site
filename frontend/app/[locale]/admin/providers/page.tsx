@@ -30,6 +30,7 @@ const ADAPTER_COLORS: Record<string, string> = {
   topproxy: "bg-iris-soft text-iris-hi border-iris/25",
   scrapecreators: "bg-iris-soft text-iris-hi border-iris/25",
   dproxy: "bg-iris-soft text-iris-hi border-iris/25",
+  igbm: "bg-iris-soft text-iris-hi border-iris/25",
 };
 
 const ADAPTER_DESCRIPTIONS: Record<string, { label: string; desc: string; icon: string }> = {
@@ -41,9 +42,10 @@ const ADAPTER_DESCRIPTIONS: Record<string, { label: string; desc: string; icon: 
   seller_gateway: { label: "Gateway seller", desc: "Forward từng request qua API thật của seller, buyer không thấy credential", icon: "M8 9l3 3-3 3m5 0h3M5 21h14a2 2 0 002-2V5a2 2 0 00-2-2H5a2 2 0 00-2 2v14a2 2 0 002 2z" },
   seller_task_webhook: { label: "Webhook tác vụ seller", desc: "Gửi tác vụ cho backend seller, nhận kết quả qua webhook", icon: "M8 7h12m0 0l-4-4m4 4l-4 4M16 17H4m0 0l4 4m-4-4l4-4" },
   dproxy: { label: "DProxy", desc: "Khi khách mua, hệ thống mua đúng gói buyer đã chọn từ DProxy và giao 1 proxy tự động.", icon: "M4 4v5h.582m15.356 2A8.001 8.001 0 004.582 9m0 0H9m11 11v-5h-.581m0 0a8.003 8.003 0 01-15.357-2m15.357 2H15" },
+  igbm: { label: "igbm (shop tài khoản)", desc: "Mỗi gói gắn 1 SKU trong catalog igbm.net; khi khách mua, hệ thống mua đúng số lượng và giao từng dòng tài khoản. Tồn kho/giá vốn đồng bộ tự động.", icon: "M16 11V7a4 4 0 00-8 0v4M5 9h14l1 12H4L5 9z" },
 };
 
-const ADAPTER_OPTIONS = ["mock", "seller_pool", "manual", "topproxy", "scrapecreators", "seller_gateway", "seller_task_webhook", "dproxy"];
+const ADAPTER_OPTIONS = ["mock", "seller_pool", "manual", "topproxy", "scrapecreators", "seller_gateway", "seller_task_webhook", "dproxy", "igbm"];
 
 const HEALTH_MAP: Record<string, { color: string; label: string }> = {
   healthy: { color: "var(--color-good)", label: "Lành mạnh" },
@@ -881,7 +883,7 @@ function AdapterConnectionFields({
     );
   }
 
-  if (adapterType === "topproxy" || adapterType === "scrapecreators" || adapterType === "seller_gateway") {
+  if (adapterType === "topproxy" || adapterType === "scrapecreators" || adapterType === "seller_gateway" || adapterType === "igbm") {
     return (
       <div className="space-y-4">
         <div className="rounded-lg bg-iris-soft/50 border border-iris/20 p-3">
@@ -1236,6 +1238,26 @@ function ProviderEditPanel({
   const [config, setConfig] = useState<Record<string, unknown>>(provider.config ?? {});
   const [fallbackId, setFallbackId] = useState<number | null>(provider.fallback_provider_id);
   const [isActive, setIsActive] = useState(provider.is_active);
+  // Seller sở hữu (nguồn hàng giao cho seller): nhập email → tra id qua
+  // /admin/accounts lúc lưu. Rỗng = hạ tầng admin, không seller nào thấy.
+  const [ownerEmail, setOwnerEmail] = useState("");
+  const [ownerLoaded, setOwnerLoaded] = useState(false);
+  useEffect(() => {
+    if (provider.seller_id == null) { setOwnerLoaded(true); return; }
+    api.adminAccounts({ per_page: 200 })
+      .then((page) => setOwnerEmail(page.items.find((a) => a.id === provider.seller_id)?.email ?? String(provider.seller_id)))
+      .catch(() => setOwnerEmail(String(provider.seller_id)))
+      .finally(() => setOwnerLoaded(true));
+  }, [provider.seller_id]);
+  const resolveOwner = async (): Promise<number | null> => {
+    const email = ownerEmail.trim();
+    if (!email) return null;
+    if (/^\d+$/.test(email)) return Number(email);
+    const page = await api.adminAccounts({ search: email, per_page: 20 });
+    const hit = page.items.find((a) => a.email.toLowerCase() === email.toLowerCase());
+    if (!hit) throw new Error(`Không tìm thấy tài khoản ${email}`);
+    return hit.id;
+  };
   const [saving, setSaving] = useState(false);
   const [testing, setTesting] = useState(false);
   const [testResult, setTestResult] = useState<Record<string, unknown> | null>(null);
@@ -1254,6 +1276,7 @@ function ProviderEditPanel({
         config,
         fallback_provider_id: fallbackId,
         is_active: isActive,
+        seller_id: await resolveOwner(),
       });
       const continueToProducts = adapterType === "dproxy" && tab === "api" && Object.keys((config.plan_ids as Record<string, string>) ?? {}).length > 0;
       setSuccess(continueToProducts ? "Đã lưu gói. Tiếp theo: gắn sản phẩm và nhập giá khách trả." : "Đã lưu thành công!");
@@ -1378,6 +1401,16 @@ function ProviderEditPanel({
                     <option key={p.id} value={p.id}>{p.name}</option>
                   ))}
                 </Select>
+              </Field>
+
+              <Field label="Seller sở hữu (nguồn hàng giao cho gian hàng)" hint="Email seller. Seller này thấy provider ở Nguồn hàng và chỉ sản phẩm của họ gắn được. Để trống = hạ tầng chung của admin.">
+                <Input
+                  name="provider-owner-email"
+                  value={ownerEmail}
+                  disabled={!ownerLoaded}
+                  onChange={(e) => setOwnerEmail(e.target.value)}
+                  placeholder="seller@example.com"
+                />
               </Field>
 
               <div className="flex items-center gap-3">
@@ -1651,7 +1684,7 @@ function ProviderCard({
   // mock/seller_pool/manual không cần API thật — chỉ topproxy/scrapecreators/dproxy
   // mới cần api_key + base_url, thiếu 1 trong 2 là chưa dùng được dù đã tạo.
   const needsApiSetup =
-    (provider.adapter_type === "topproxy" || provider.adapter_type === "scrapecreators" || provider.adapter_type === "dproxy")
+    (provider.adapter_type === "topproxy" || provider.adapter_type === "scrapecreators" || provider.adapter_type === "dproxy" || provider.adapter_type === "igbm")
     && (!provider.config?.api_key || !provider.config?.base_url);
 
   return (
@@ -1906,7 +1939,7 @@ export default function AdminProvidersPage() {
     // đưa thẳng vào tab đó để test kết nối ngay, khỏi phải tự tìm nút Cấu hình
     // lần nữa. Loại còn lại (mock/seller_pool/manual) không cần API nên việc
     // tiếp theo có ích nhất là gắn sản phẩm luôn.
-    const needsApiSetup = created.adapter_type === "topproxy" || created.adapter_type === "scrapecreators" || created.adapter_type === "dproxy";
+    const needsApiSetup = created.adapter_type === "topproxy" || created.adapter_type === "scrapecreators" || created.adapter_type === "dproxy" || created.adapter_type === "igbm";
     setEditProviderInitialTab(needsApiSetup ? "api" : "products");
     setEditProvider(expanded);
   };

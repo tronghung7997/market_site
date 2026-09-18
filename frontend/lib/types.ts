@@ -3,6 +3,8 @@ export interface Account {
   email: string;
   roles: string[];
   seller_tier?: string;
+  /** Seller nội bộ (sàn vận hành) — mở khu Nguồn cung. */
+  is_internal?: boolean;
   affiliate_code?: string;
   referred_by_id?: number | null;
 }
@@ -1824,6 +1826,7 @@ export interface AccountAdminRow {
   roles: string[];
   is_active: boolean;
   seller_tier: string;
+  is_internal?: boolean;
   created_at: string;
 }
 
@@ -1904,4 +1907,188 @@ export interface SearchQueryStat {
 export interface SearchSynonymGroup {
   group_key: string;
   terms: string[];
+}
+
+// --- Nguồn hàng (supplier sources) — src/suppliers/sources.py -----------------
+export type SourceArea = "seller" | "admin";
+
+export interface SupplierSource {
+  id: number;
+  name: string;
+  adapter_type: string;
+  /** catalog = kho SKU mua theo đơn; server = proxy/server cấp theo gói */
+  kind: "catalog" | "server";
+  is_active: boolean;
+  review_status: string;
+  seller_id: number | null;
+  seller_email: string | null;
+  seller_is_internal: boolean;
+  min_margin_pct: number;
+  low_balance_vnd: number | string | null;
+  catalog_count: number;
+  catalog_synced_at: string | null;
+  listing_count: number;
+  listing_error_count: number;
+  listing_low_margin_count: number;
+  product_count: number;
+  attention_count: number;
+  last_test_result: Record<string, unknown> | null;
+  last_tested_at: string | null;
+}
+
+export interface SourceKindField {
+  key: string;
+  label: string;
+  default?: string | number;
+  secret?: boolean;
+  type?: "number" | "text";
+}
+
+export interface SourceKind {
+  adapter_type: string;
+  label: string;
+  kind: "catalog" | "server";
+  description: string;
+  fields: SourceKindField[];
+}
+
+export interface SourceSellerCandidate {
+  id: number;
+  email: string;
+  is_internal: boolean;
+  business_name: string | null;
+  source_count: number;
+}
+
+export interface SourceCreateRequest {
+  adapter_type: string;
+  name: string;
+  config: Record<string, string | number>;
+  seller_id?: number | null;
+  new_seller?: { email: string; business_name: string } | null;
+}
+
+export interface SourceCreateResult {
+  provider_id: number;
+  name: string;
+  adapter_type: string;
+  kind: "catalog" | "server";
+  seller_id: number | null;
+  seller_email: string | null;
+  catalog_items: number;
+  sync_error: string | null;
+}
+
+export interface SourceTestResult {
+  ok: boolean;
+  health: { status?: string; message?: string; balance_vnd?: number };
+}
+
+export interface SourceCatalogAttached {
+  variant_id: number;
+  variant_name: string;
+  price: number;
+  product_id: number;
+  product_title: string;
+}
+
+export interface SourceCatalogItem {
+  external_id: string;
+  name: string;
+  cost_price: number;
+  amount: number;
+  min_qty: number;
+  max_qty: number | null;
+  format_hint: string | null;
+  group_name: string;
+  category_path: string[];
+  synced_at: string;
+  attached: SourceCatalogAttached[];
+}
+
+export interface SourceCatalogPage {
+  items: SourceCatalogItem[];
+  total: number;
+  page: number;
+  per_page: number;
+  groups: { name: string; count: number }[];
+  min_margin_pct: number;
+}
+
+export interface SourceCatalogQuery {
+  q?: string;
+  group?: string;
+  in_stock?: boolean;
+  max_cost?: number | null;
+  page?: number;
+  per_page?: number;
+  sort?: "stock" | "cost_asc" | "cost_desc" | "name";
+}
+
+export interface SourceImportItem {
+  external_id: string;
+  category_id: number;
+  title?: string;
+  variant_name?: string;
+  price?: number;
+  status?: "draft" | "active";
+  description?: string;
+  warranty_text?: string;
+  service_type?: string;
+  /** Thêm phân loại vào sản phẩm có sẵn */
+  product_id?: number | null;
+  /** Các item cùng key → một sản phẩm mới */
+  group_key?: string | null;
+}
+
+export interface SourceImportResult {
+  product_id: number;
+  product_title: string;
+  public_key: string;
+  variant_id: number;
+  price: number;
+  listing_id: number;
+  margin_ok: boolean;
+}
+
+export interface SourceListing {
+  listing_id: number;
+  provider_id: number;
+  product_id: number;
+  product_title: string;
+  product_status: string;
+  public_key: string;
+  seller_id: number;
+  variant_id: number;
+  variant_public_key: string;
+  variant_name: string;
+  variant_active: boolean;
+  price: number;
+  external_id: string;
+  external_name: string | null;
+  cost_price: number;
+  margin_pct: number | null;
+  margin_ok: boolean;
+  upstream_amount: number;
+  sellable: number;
+  upstream_min: number;
+  upstream_max: number | null;
+  format_hint: string | null;
+  synced_at: string | null;
+  sync_error: string | null;
+  category_path: string[];
+}
+
+export interface SourceSyncResult {
+  provider_id: number;
+  updated: number;
+  delisted: number;
+  low_margin: number;
+  catalog_items: number;
+  error: string | null;
+}
+
+export interface SourceRepriceResult {
+  changed: { listing_id: number; variant_id: number; old_price: number; new_price: number }[];
+  min_margin_pct: number;
 }

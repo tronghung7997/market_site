@@ -31,7 +31,7 @@ async def _get_product(product_id: int, db: AsyncSession) -> Product:
 # cấp thượng nguồn từ adapter_type — "topproxy" trả về nhãn trung tính.
 # Frontend chỉ cần biết hành vi (1 đơn = 1 proxy), không cần biết nguồn.
 # Endpoint admin/seller vẫn thấy adapter_type thật.
-_PUBLIC_ADAPTER_ALIASES = {"topproxy": "auto_proxy"}
+_PUBLIC_ADAPTER_ALIASES = {"topproxy": "auto_proxy", "igbm": "auto_account"}
 
 
 @router.get("/products/{product_id}/pricing-options", response_model=schemas.PricingOptionsResponse)

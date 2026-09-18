@@ -10,6 +10,7 @@ chữ ký khởi tạo chung — xem adapters/base.py) + thêm MỘT entry Adapt
 - providers/schemas.py   → seller_registrable (SELLER_ALLOWED_ADAPTER_TYPES)
 - adapters/compatibility → strategies (ADAPTER_STRATEGY_COMPAT)
 - adapters/factory.py    → cls (instantiate)
+- products/service.py, orders/service.py, suppliers/* → external_stock
 
 Capability gắn với IMPLEMENTATION (provisions_over_network,
 provision_has_purchase_side_effect) nằm trên class adapter chứ không nằm đây —
@@ -23,6 +24,7 @@ from dataclasses import dataclass
 
 from src.adapters.base import ProviderAdapter
 from src.adapters.dproxy import DProxyAdapter, validate_dproxy_config
+from src.adapters.igbm import IgbmAdapter, validate_igbm_config
 from src.adapters.manual import ManualAdapter
 from src.adapters.mock import MockAdapter
 from src.adapters.real_api import RealApiAdapter
@@ -56,6 +58,12 @@ class AdapterSpec:
       là giả mạo được kết quả task).
     - `validate_config`: hook async kiểm tra config lúc admin/seller lưu —
       None = không cần kiểm tra gì thêm ngoài schema chung.
+    - `external_stock`: tồn kho KHÔNG nằm trong bảng `resources` mà là cache
+      catalog thượng nguồn (`supplier_listings`, adapters/supplier.py). Hệ quả
+      ở ba nơi: storefront đếm tồn từ listing (src/suppliers/stock.py), đơn
+      `fixed` đi qua adapter thay vì claim_resources, và job đồng bộ catalog
+      (src/suppliers/sync.py) chạy cho provider này. Adapter phải là
+      CatalogSupplierAdapter.
     - `validate_pricing_params`: hook đồng bộ (strategy, pricing_params) chạy
       khi gắn/sửa cấu hình giá của SẢN PHẨM. Tầng dưới `strategies`: strategies
       trả lời "adapter này đi được với chiến lược nào", hook này trả lời "các
@@ -72,6 +80,7 @@ class AdapterSpec:
     mints_gateway_key: bool = False
     seller_registrable: bool = False
     requires_webhook_secret: bool = False
+    external_stock: bool = False
     validate_config: Callable[[dict], Awaitable[None]] | None = None
     validate_pricing_params: Callable[[str | None, dict], None] | None = None
 
@@ -139,6 +148,16 @@ ADAPTERS: dict[str, AdapterSpec] = {
         strategies=frozenset({"credit", "config"}),
         max_quantity_per_order=1,
         validate_config=validate_dproxy_config,
+    ),
+    # Shop tài khoản/key mua-theo-đơn (igbm.net) — xem
+    # docs/superpowers/specs/2026-09-17-igbm-reseller-research.md. Gói = một
+    # SKU thượng nguồn (supplier_listings) nên chỉ đi với "fixed"; mua N trả N
+    # dòng → không giới hạn quantity, tồn kho lấy từ cache catalog.
+    "igbm": AdapterSpec(
+        IgbmAdapter,
+        strategies=frozenset({"fixed"}),
+        external_stock=True,
+        validate_config=validate_igbm_config,
     ),
 }
 

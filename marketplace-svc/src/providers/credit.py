@@ -51,6 +51,7 @@ async def report_out_of_credit(provider_id: int, db: AsyncSession) -> None:
         return
 
     name = provider.name
+    adapter_type = provider.adapter_type
     was_active = provider.is_active
     if was_active:
         provider.is_active = False
@@ -69,7 +70,13 @@ async def report_out_of_credit(provider_id: int, db: AsyncSession) -> None:
         target_id=provider_id,
         message=(
             f"Nhà cung cấp {name} đã HẾT TIỀN — đã tạm dừng bán. "
-            f"Nạp Xu trên topproxy.vn rồi cập nhật số dư ở /admin/providers để bán lại."
+            + (
+                "Nạp Xu trên topproxy.vn rồi cập nhật số dư ở /admin/providers để bán lại."
+                if adapter_type == "topproxy"
+                # Nhà cung cấp có API số dư thật (catalog supplier): không có sổ Xu
+                # ước tính, chỉ cần nạp rồi bật lại provider.
+                else "Nạp tiền vào tài khoản nhà cung cấp rồi bật lại provider ở /admin/providers."
+            )
         ),
     )
     logger.error("provider_out_of_credit", provider_id=provider_id, was_active=was_active)

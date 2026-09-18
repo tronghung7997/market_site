@@ -28,6 +28,7 @@ from src.site_pages.router import router as site_pages_router
 from src.pricing.router import router as pricing_router
 from src.products.router import router as products_router
 from src.providers.router import router as providers_router
+from src.suppliers.router import router as supplier_sources_router
 from src.tasks.router import router as tasks_router
 from src.resources.router import router as resources_router
 from src.resources.proxy_router import router as proxy_router
@@ -35,6 +36,7 @@ from src.reviews.router import router as reviews_router
 from src.payments.router import router as payments_router
 from src.mail.router import router as mail_router
 from src.mail.worker import mail_outbox_send_job
+from src.suppliers.sync import supplier_sync_job
 from src.scheduler import (
     deposit_expire_job,
     deposit_reconcile_job,
@@ -89,6 +91,7 @@ scheduler.add_job(dproxy_reconciliation_job, "interval", minutes=15, id="dproxy_
 scheduler.add_job(deposit_reconcile_job, "interval", minutes=5, id="deposit_reconcile")
 scheduler.add_job(deposit_expire_job, "interval", minutes=10, id="deposit_expire")
 scheduler.add_job(provider_credit_low_job, "interval", minutes=15, id="provider_credit_low")
+scheduler.add_job(supplier_sync_job, "interval", minutes=10, id="supplier_sync")
 # Operational log retention (gateway/provider call logs, log_entries, resolved alerts).
 scheduler.add_job(gateway_call_log_cleanup_job, "interval", hours=6, id="gateway_call_log_cleanup")
 scheduler.add_job(chat_message_retention_job, "interval", hours=6, id="chat_message_retention")
@@ -174,6 +177,7 @@ app.include_router(notifications_router)
 app.include_router(orders_router)
 app.include_router(disputes_router)
 app.include_router(providers_router)
+app.include_router(supplier_sources_router)
 app.include_router(pricing_router)
 app.include_router(tasks_router)
 app.include_router(alerts_router)

@@ -93,6 +93,7 @@ SOURCE_KINDS: dict[str, dict] = {
             {"key": "api_key", "label": "API key", "secret": True},
             {"key": "low_balance_vnd", "label": "Báo khi số dư dưới (đ)", "default": 200000, "type": "number"},
             {"key": "min_margin_pct", "label": "Lãi tối thiểu để được bán (%)", "default": 10, "type": "number"},
+            {"key": "auto_pause_after_failures", "label": "Tự tắt gói sau N lần mua lỗi liên tiếp", "default": 3, "type": "number"},
         ],
     },
     "topproxy": {
@@ -149,7 +150,7 @@ async def list_sources(scope: SourceScope, db: AsyncSession) -> list[dict]:
     )).all())
     listing_stmt = (
         select(SupplierListing.provider_id, SupplierListing.sync_error, SupplierListing.cost_price,
-               ProductVariant.price, Product.id)
+               ProductVariant.price, Product.id, SupplierListing.auto_paused_at)
         .join(ProductVariant, ProductVariant.id == SupplierListing.variant_id)
         .join(Product, Product.id == ProductVariant.product_id)
         .where(SupplierListing.provider_id.in_(ids))
@@ -176,6 +177,7 @@ async def list_sources(scope: SourceScope, db: AsyncSession) -> list[dict]:
         mine = [r for r in listing_rows if r[0] == p.id]
         n_err = sum(1 for r in mine if r[1] is not None)
         n_low = sum(1 for r in mine if r[1] is None and not margin_ok(r[3], r[2], min_margin))
+        n_paused = sum(1 for r in mine if r[5] is not None)
         seller = sellers.get(p.seller_id)
         out.append({
             "id": p.id, "name": p.name, "adapter_type": p.adapter_type,
@@ -189,8 +191,9 @@ async def list_sources(scope: SourceScope, db: AsyncSession) -> list[dict]:
             "catalog_synced_at": catalog_synced.get(p.id),
             "listing_count": len(mine), "listing_error_count": n_err,
             "listing_low_margin_count": n_low,
+            "listing_auto_paused_count": n_paused,
             "product_count": int(product_counts.get(p.id, 0)),
-            "attention_count": n_err + n_low,
+            "attention_count": n_err + n_low + n_paused,
             "last_test_result": p.last_test_result,
             "last_tested_at": p.last_tested_at,
         })
@@ -458,6 +461,10 @@ async def update_listing(
         variant.name = variant_name.strip()[:255]
     if is_active is not None:
         variant.is_active = bool(is_active)
+        if is_active:
+            # Seller bật lại sau khi cầu dao tắt gói → cho cơ hội mới.
+            listing.fail_streak = 0
+            listing.auto_paused_at = None
     if external_id is not None and external_id != listing.external_product_id:
         item = await _catalog_item(listing.provider_id, external_id, db)
         listing.external_product_id = item.external_id
@@ -490,6 +497,8 @@ def _listing_row(listing: SupplierListing, variant: ProductVariant, product: Pro
         "upstream_amount": listing.upstream_amount, "sellable": listing.sellable_units(),
         "upstream_min": listing.upstream_min, "upstream_max": listing.upstream_max,
         "format_hint": listing.format_hint, "synced_at": listing.synced_at, "sync_error": listing.sync_error,
+        "fail_streak": listing.fail_streak or 0, "last_fail_at": listing.last_fail_at,
+        "last_fail_reason": listing.last_fail_reason, "auto_paused_at": listing.auto_paused_at,
         "category_path": (listing.extra or {}).get("category_path", []),
     }
 

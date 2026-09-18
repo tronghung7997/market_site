@@ -91,7 +91,7 @@ scheduler.add_job(dproxy_reconciliation_job, "interval", minutes=15, id="dproxy_
 scheduler.add_job(deposit_reconcile_job, "interval", minutes=5, id="deposit_reconcile")
 scheduler.add_job(deposit_expire_job, "interval", minutes=10, id="deposit_expire")
 scheduler.add_job(provider_credit_low_job, "interval", minutes=15, id="provider_credit_low")
-scheduler.add_job(supplier_sync_job, "interval", minutes=10, id="supplier_sync")
+scheduler.add_job(supplier_sync_job, "interval", minutes=settings.supplier_sync_interval_minutes, id="supplier_sync")
 # Operational log retention (gateway/provider call logs, log_entries, resolved alerts).
 scheduler.add_job(gateway_call_log_cleanup_job, "interval", hours=6, id="gateway_call_log_cleanup")
 scheduler.add_job(chat_message_retention_job, "interval", hours=6, id="chat_message_retention")

@@ -44,6 +44,12 @@ class SupplierListing(Base):
     # None = đồng bộ OK. "delisted" = SKU biến mất khỏi catalog; chuỗi khác =
     # lỗi lần sync gần nhất (giữ cache cũ, không xoá).
     sync_error: Mapped[str | None] = mapped_column(String(255), nullable=True)
+    # Cầu dao: mua lỗi liên tiếp N lần → gói tự tắt (auto_paused_at) cho tới
+    # khi seller bật lại. Reset về 0 khi mua thành công.
+    fail_streak: Mapped[int] = mapped_column(Integer, nullable=False, default=0, server_default="0")
+    last_fail_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True), nullable=True)
+    last_fail_reason: Mapped[str | None] = mapped_column(String(255), nullable=True)
+    auto_paused_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True), nullable=True)
     # Dữ liệu phụ theo từng nguồn (đường dẫn danh mục thượng nguồn…) — không
     # có cột riêng để nguồn thứ hai không phải sửa schema.
     extra: Mapped[dict] = mapped_column(JSONB, nullable=False, server_default="{}", default=dict)

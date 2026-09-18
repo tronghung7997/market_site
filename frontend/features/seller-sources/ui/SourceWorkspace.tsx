@@ -292,6 +292,7 @@ function ProductRows({ g, open, onToggle, productHref, others, editing, setEditi
   const t = useTranslations("sellerSources");
   const status = g.delisted > 0
     ? <Tag tone="warn">{t("productDelisted", { n: g.delisted })}</Tag>
+    : g.autoPaused > 0 ? <Tag tone="warn">{t("productAutoPaused", { n: g.autoPaused })}</Tag>
     : g.lowMargin > 0 ? <Tag tone="bad">{t("productLowMargin", { n: g.lowMargin })}</Tag>
     : g.product_status !== "active" ? <Tag tone="neutral">{t(`pstatus_${g.product_status}`)}</Tag>
     : g.active === 0 ? <Tag tone="neutral">{t("allPaused")}</Tag>
@@ -316,14 +317,16 @@ function ProductRows({ g, open, onToggle, productHref, others, editing, setEditi
       </tr>
       {open && g.rows.map((r) => {
         const delisted = Boolean(r.sync_error);
-        const low = !delisted && !r.margin_ok;
+        const autoPaused = !delisted && Boolean(r.auto_paused_at);
+        const low = !delisted && !autoPaused && !r.margin_ok;
         return (
-          <tr key={r.listing_id} className={cn("border-t border-line/60", delisted && "bg-warn-soft/40", low && "bg-bad-soft/30", !r.variant_active && !delisted && !low && "opacity-60")}>
+          <tr key={r.listing_id} className={cn("border-t border-line/60", (delisted || autoPaused) && "bg-warn-soft/40", low && "bg-bad-soft/30", !r.variant_active && !delisted && !low && !autoPaused && "opacity-60")}>
             <td className="p-2 pl-9">
               <div className="text-fg">{r.variant_name}</div>
               <div className="text-[11px] text-faint">
                 <span className="font-mono">#{r.external_id}</span>{r.external_name && <span className="ml-1 truncate">· {r.external_name}</span>}
               </div>
+              {autoPaused && <div className="mt-0.5 text-[11.5px] text-warn">{t("autoPausedReason", { n: r.fail_streak, reason: r.last_fail_reason ?? "" })}</div>}
             </td>
             <td className="p-2 text-right font-mono tabular-nums text-muted">{delisted ? "—" : format(r.cost_price)}</td>
             <td className="p-2 text-right">
@@ -344,6 +347,7 @@ function ProductRows({ g, open, onToggle, productHref, others, editing, setEditi
             <td className={cn("p-2 text-right font-mono tabular-nums", r.sellable === 0 ? "text-bad" : r.sellable < 50 ? "text-warn" : "text-fg")}>{delisted ? "—" : r.sellable.toLocaleString()}</td>
             <td className="p-2">
               {delisted ? <Tag tone="warn"><AlertTriangle className="h-3 w-3" />{t("delisted")}</Tag>
+                : autoPaused ? <Tag tone="warn"><AlertTriangle className="h-3 w-3" />{t("autoPaused")}</Tag>
                 : low ? <Tag tone="bad">{t("lowMarginTag")}</Tag>
                 : r.variant_active ? <Tag tone="good">{t("selling")}</Tag>
                 : <Tag tone="neutral">{t("paused")}</Tag>}
@@ -351,6 +355,7 @@ function ProductRows({ g, open, onToggle, productHref, others, editing, setEditi
             <td className="p-2 text-right whitespace-nowrap">
               <div className="inline-flex items-center gap-1.5">
                 {delisted && <Button size="sm" variant="secondary" onClick={() => onChangeSku(r)}>{t("changeSku")}</Button>}
+                {autoPaused && <Button size="sm" variant="secondary" onClick={() => toggleActive(r, true)}>{t("resume")}</Button>}
                 <Select id={`lst-more-${r.listing_id}`} className="h-8 w-[34px] px-1 text-[12px]" value="" aria-label={t("more")}
                   onChange={(e) => {
                     const v = e.target.value;

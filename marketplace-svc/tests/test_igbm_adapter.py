@@ -475,3 +475,57 @@ async def test_admin_sync_catalog_endpoint(client, mock_igbm):
     resp = await client.post(f"/admin/providers/{ctx['provider_id']}/sync-catalog",
                              headers={"Authorization": f"Bearer {ctx['admin']}"})
     assert resp.status_code == 400
+
+
+@pytest.mark.asyncio
+async def test_three_consecutive_purchase_failures_auto_pause_variant(client, mock_igbm, monkeypatch):
+    """Cầu dao theo gói: 3 đơn mua lỗi liên tiếp (SKU hết hàng phía nhà cung
+    cấp, precheck bị bỏ qua để tới được adapter) → gói tự tắt + cảnh báo;
+    seller bật lại → streak về 0."""
+    from src.orders.service import provision_pending_order
+    from src.models.product import ProductVariant
+    from src.models.supplier_listing import SupplierListing
+
+    ctx = await _setup(client, sku="133947", upstream_amount=50)
+    monkeypatch.setattr("src.orders.service.spawn_provision", lambda _id: None)
+
+    async def _no_precheck(*_a, **_k):
+        return None
+    monkeypatch.setattr("src.orders.service.precheck_external_purchase", _no_precheck)
+
+    for i in range(3):
+        # Gói còn active cho tới lần lỗi thứ 3 (tồn cache bị adapter set 0 sau
+        # lần 1 nên đặt lại để đơn tạo được).
+        async with SessionLocal() as db:
+            lst = await db.scalar(select(SupplierListing).where(SupplierListing.variant_id == ctx["variant"]["id"]))
+            lst.upstream_amount = 50
+            await db.commit()
+        resp = await client.post("/orders", json={"variant_id": ctx["variant"]["id"], "quantity": 1},
+                                 headers={"Authorization": f"Bearer {ctx['buyer']}"})
+        assert resp.status_code == 201, (i, resp.text)
+        await provision_pending_order(resp.json()["id"])
+        async with SessionLocal() as db:
+            lst = await db.scalar(select(SupplierListing).where(SupplierListing.variant_id == ctx["variant"]["id"]))
+            variant = await db.get(ProductVariant, ctx["variant"]["id"])
+            assert lst.fail_streak == i + 1
+            assert variant.is_active is (i < 2)
+            assert (lst.auto_paused_at is not None) is (i == 2)
+
+    async with SessionLocal() as db:
+        alert = await db.scalar(select(Alert).where(Alert.type == "supplier_auto_paused"))
+        assert alert is not None and "TỰ TẮT" in alert.message and alert.severity == "warning"
+        provider = await db.get(Provider, ctx["provider_id"])
+        assert provider.is_active is True  # lỗi cấp gói, không tắt provider
+
+    # Nguồn báo "cần xử lý"; seller bật lại gói → streak reset.
+    rows = (await client.get("/admin/sources", headers={"Authorization": f"Bearer {ctx['admin']}"})).json()
+    src = next(r for r in rows if r["id"] == ctx["provider_id"])
+    assert src["listing_auto_paused_count"] == 1 and src["attention_count"] >= 1
+    listings = (await client.get(f"/admin/sources/{ctx['provider_id']}/listings",
+                                 headers={"Authorization": f"Bearer {ctx['admin']}"})).json()
+    row = listings[0]
+    assert row["fail_streak"] == 3 and row["auto_paused_at"] and "hết hàng" in row["last_fail_reason"]
+    resp = await client.patch(f"/admin/sources/listings/{row['listing_id']}", json={"is_active": True},
+                              headers={"Authorization": f"Bearer {ctx['admin']}"})
+    assert resp.status_code == 200
+    assert resp.json()["fail_streak"] == 0 and resp.json()["auto_paused_at"] is None and resp.json()["variant_active"]

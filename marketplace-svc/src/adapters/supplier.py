@@ -132,7 +132,65 @@ class CatalogSupplierAdapter(RealApiAdapter):
     # Provision — dùng chung
     # ------------------------------------------------------------------
 
+    # Ngưỡng cầu dao: mua lỗi liên tiếp N lần → tự tắt gói (provider config
+    # `auto_pause_after_failures`, 0 = tắt cầu dao).
+    DEFAULT_AUTO_PAUSE_AFTER = 3
+
+    def auto_pause_after(self) -> int:
+        try:
+            raw = self.config.get("auto_pause_after_failures")
+            return int(self.DEFAULT_AUTO_PAUSE_AFTER if raw in (None, "") else raw)
+        except (TypeError, ValueError):
+            return self.DEFAULT_AUTO_PAUSE_AFTER
+
     async def provision(self, order_id: int, user_config: dict) -> ProvisionResult:
+        result = await self._purchase_flow(order_id, user_config)
+        await self._record_outcome(order_id, user_config.get("variant_id"), result)
+        return result
+
+    async def _record_outcome(self, order_id: int, variant_id, result: ProvisionResult) -> None:
+        """Cầu dao theo GÓI: thành công → reset streak; lỗi thuộc về gói/SKU
+        (hết hàng, SKU sai, tham số bị từ chối, mua mơ hồ…) → +1; đủ ngưỡng →
+        tắt gói + cảnh báo. Lỗi cấp provider (hết tiền, key sai) không tính —
+        orders/service đã tắt cả provider cho các ca đó."""
+        if variant_id is None or self.db is None:
+            return
+        listing = await self.db.scalar(select(SupplierListing).where(SupplierListing.variant_id == variant_id))
+        if listing is None:
+            return
+        if result.success:
+            if listing.fail_streak:
+                listing.fail_streak = 0
+                listing.last_fail_reason = None
+            return
+        if result.provider_out_of_credit or (result.error or "").startswith("Nhà cung cấp từ chối API key"):
+            return
+        threshold = self.auto_pause_after()
+        listing.fail_streak = (listing.fail_streak or 0) + 1
+        listing.last_fail_at = datetime.now(timezone.utc)
+        listing.last_fail_reason = (result.error or "unknown")[:255]
+        if threshold <= 0 or listing.fail_streak < threshold or listing.auto_paused_at is not None:
+            return
+        variant = await self.db.get(ProductVariant, listing.variant_id)
+        if variant is None:
+            return
+        variant.is_active = False
+        listing.auto_paused_at = listing.last_fail_at
+        product = await self.db.get(Product, variant.product_id)
+        from src.alerts.service import fp_variant, upsert_incident
+        await upsert_incident(
+            self.db, fingerprint=fp_variant(variant.id, "supplier_auto_paused"), type_="supplier_auto_paused",
+            severity="warning", target_type="variant", target_id=variant.id,
+            message=(
+                f"Gói '{variant.name}' của '{product.title if product else '?'}' đã TỰ TẮT sau "
+                f"{listing.fail_streak} lần mua lỗi liên tiếp (đơn gần nhất #{order_id}): "
+                f"{listing.last_fail_reason}. Kiểm tra SKU rồi bật lại ở Nguồn cung."
+            ),
+        )
+        logger.warning("supplier_listing_auto_paused", provider_id=self.provider_id,
+                       variant_id=variant.id, streak=listing.fail_streak, reason=listing.last_fail_reason)
+
+    async def _purchase_flow(self, order_id: int, user_config: dict) -> ProvisionResult:
         variant_id = user_config.get("variant_id")
         quantity = int(user_config.get("quantity", 1) or 1)
         if variant_id is None:

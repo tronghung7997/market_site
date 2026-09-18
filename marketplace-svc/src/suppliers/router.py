@@ -37,6 +37,7 @@ class SourceSummary(BaseModel):
     listing_count: int
     listing_error_count: int
     listing_low_margin_count: int = 0
+    listing_auto_paused_count: int = 0
     product_count: int = 0
     attention_count: int = 0
     last_test_result: dict | None = None

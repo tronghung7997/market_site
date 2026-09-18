@@ -4217,6 +4217,11 @@
     "skipForNow": "Skip for now",
     "searchSeller": "Search regular sellers by email or store name…",
     "noInternalYet": "No internal sellers yet — search an existing seller or create one below.",
+    "attnAutoPaused": "{n} variants at {name} auto-paused after repeated purchase failures — check and resume",
+    "productAutoPaused": "{n} auto-paused",
+    "autoPaused": "Auto-paused",
+    "resume": "Resume",
+    "autoPausedReason": "Auto-paused after {n} consecutive failed purchases: {reason}",
     "backToList": "Back to sources"
   }
 }

@@ -24,6 +24,8 @@ const REQUEST_HEADER_ALLOWLIST = new Set([
   // Login history / audit trail on the backend; never trusted for auth.
   "user-agent",
 ]);
+// Endpoints whose success body carries session tokens that become cookies here.
+const LOGIN_PATHS = new Set(["auth/login", "auth/admin/login", "auth/login/2fa"]);
 // Set by this server only (the browser's copy is dropped by the allowlist),
 // and honoured by FastAPI solely because the request is BFF-signed.
 const CLIENT_IP_HEADER = "x-client-ip";
@@ -263,8 +265,17 @@ async function proxy(request: NextRequest, segments: string[]) {
     );
   }
 
-  if ((path === "auth/login" || path === "auth/admin/login") && upstream.ok) {
-    const login = await upstream.json() as { access_token?: string; refresh_token?: string; token_type?: string };
+  if (LOGIN_PATHS.has(path) && upstream.ok) {
+    const login = await upstream.json() as {
+      access_token?: string; refresh_token?: string; token_type?: string; mfa_required?: boolean; mfa_token?: string;
+    };
+    // Password accepted but a TOTP code is still needed: no session yet, hand
+    // the short-lived challenge to the browser as-is.
+    if (login.mfa_required && login.mfa_token) {
+      const response = NextResponse.json({ mfa_required: true, mfa_token: login.mfa_token });
+      response.headers.set("Cache-Control", "no-store");
+      return response;
+    }
     const tokens = tokensFromLoginPayload(login);
     if (!tokens) {
       return NextResponse.json(
@@ -277,7 +288,7 @@ async function proxy(request: NextRequest, segments: string[]) {
     return response;
   }
 
-  if (upstream.status === 401 && refreshCookie && path !== "auth/login" && path !== "auth/admin/login") {
+  if (upstream.status === 401 && refreshCookie && !LOGIN_PATHS.has(path)) {
     const rotated = await rotateRefresh(request, refreshCookie);
     if (rotated) {
       const retryHeaders = copyAllowlistedHeaders(request);

@@ -5,6 +5,9 @@ export interface Account {
   seller_tier?: string;
   /** false until the owner opens the confirmation link; gates buying/deposits/withdrawals. */
   email_verified?: boolean;
+  totp_enabled?: boolean;
+  /** Admin whose console is shut until they enable TOTP (policy on). */
+  mfa_setup_required?: boolean;
   affiliate_code?: string;
   referred_by_id?: number | null;
 }
@@ -12,6 +15,10 @@ export interface Account {
 export interface AuthRuntimeConfig {
   require_email_verification: boolean;
   verification_link_hours: number;
+  require_admin_2fa: boolean;
+  require_2fa_for_withdrawal: boolean;
+  turnstile_site_key: string;
+  turnstile_secret_configured: boolean;
   updated_at: string | null;
   updated_by_id: number | null;
 }
@@ -1888,6 +1895,7 @@ export interface AccountAdminRow {
   roles: string[];
   is_active: boolean;
   email_verified: boolean;
+  totp_enabled: boolean;
   seller_tier: string;
   created_at: string;
 }
@@ -1969,4 +1977,16 @@ export interface SearchQueryStat {
 export interface SearchSynonymGroup {
   group_key: string;
   terms: string[];
+}
+
+export type LoginResult = { token_type: string; mfa_required?: false } | { mfa_required: true; mfa_token: string };
+
+export interface PublicAuthConfig {
+  turnstile_site_key: string;
+  require_email_verification: boolean;
+}
+
+export interface TotpSetup {
+  secret: string;
+  otpauth_uri: string;
 }

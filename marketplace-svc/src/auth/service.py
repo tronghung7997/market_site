@@ -111,7 +111,30 @@ async def verify_email(raw_token: str, db: AsyncSession) -> Account:
     if account is None or not account.is_active:
         raise api_error(ErrorCode.VERIFY_TOKEN_INVALID, status.HTTP_400_BAD_REQUEST)
     token.used_at = now
-    if account.email_verified_at is None:
+    if token.new_email:
+        # Email change: the new address is proven; make it the login email.
+        taken = await db.scalar(select(Account.id).where(Account.email == token.new_email, Account.id != account.id))
+        if taken:
+            raise api_error(ErrorCode.DUPLICATE_EMAIL, status.HTTP_409_CONFLICT)
+        old_email = account.email
+        account.email = token.new_email
+        account.email_verified_at = now
+        await log_event(
+            db, "warning", f"Email changed for account {account.id}",
+            request_id=current_request_id(),
+            metadata={
+                "event": "email_changed",
+                "actor_id": account.id,
+                "actor_type": "buyer",
+                "subject_type": "account",
+                "subject_id": account.id,
+                "outcome": "success",
+                "source": "public",
+                "old_email": old_email,
+                "new_email": token.new_email,
+            },
+        )
+    elif account.email_verified_at is None:
         account.email_verified_at = now
         await log_event(
             db, "info", f"Email verified for account {account.id}",
@@ -271,6 +294,11 @@ async def authenticate(
             reason="invalid_credentials",
         )
         raise api_error(ErrorCode.INVALID_CREDENTIALS, status.HTTP_401_UNAUTHORIZED)
+    if account.totp_enabled_at is not None:
+        # Password stage passed; the session is only issued after the TOTP step.
+        _record_login_event(db, account.id, kind=kind, outcome="mfa_pending", ip=ip, user_agent=user_agent)
+        await db.commit()
+        return account
     _record_login_event(db, account.id, kind=kind, outcome="success", ip=ip, user_agent=user_agent)
     security_event(
         "auth_login_success",
@@ -552,3 +580,220 @@ async def update_seller_tier(
     await db.commit()
     await db.refresh(account)
     return account
+
+
+# ── Signed-in account security ───────────────────────────────────────────────
+
+async def change_password(
+    account: Account,
+    current_password: str,
+    new_password: str,
+    db: AsyncSession,
+    *,
+    keep_session_id=None,
+    locale: str = "vi",
+) -> None:
+    """Rotate the password, sign out every other device, notify by mail."""
+    from src.auth.sessions import revoke_all_sessions
+    from src.mail.service import enqueue_mail, forgot_password_url
+    from src.security.events import security_event
+
+    if not verify_password(current_password, account.password_hash):
+        raise api_error(ErrorCode.PASSWORD_INCORRECT, status.HTTP_400_BAD_REQUEST)
+    loc = locale if locale in {"vi", "en"} else "vi"
+    account.password_hash = hash_password(new_password)
+    await revoke_all_sessions(account.id, db, keep_session_id=keep_session_id)
+    await enqueue_mail(
+        db,
+        template="password_changed",
+        account_id=account.id,
+        idempotency_key=f"password_changed:{account.id}:{secrets.token_hex(8)}",
+        payload={"action_url": forgot_password_url(loc)},
+        locale=loc,
+    )
+    await log_event(
+        db, "warning", f"Password changed for account {account.id}",
+        request_id=current_request_id(),
+        metadata={
+            "event": "password_changed",
+            "actor_id": account.id,
+            "actor_type": "buyer",
+            "subject_type": "account",
+            "subject_id": account.id,
+            "outcome": "success",
+            "source": "public",
+        },
+    )
+    security_event("password_changed", level="info", account_id=account.id)
+    await db.commit()
+
+
+async def request_email_change(
+    account: Account,
+    new_email: str,
+    password: str,
+    db: AsyncSession,
+    *,
+    locale: str = "vi",
+) -> None:
+    """Mail a confirmation link to the new address and a heads-up to the old one.
+    The address only changes when the new mailbox clicks the link."""
+    from src.auth.settings import verification_link_hours
+    from src.mail.service import enqueue_mail, forgot_password_url, verify_email_url
+
+    if not verify_password(password, account.password_hash):
+        raise api_error(ErrorCode.PASSWORD_INCORRECT, status.HTTP_400_BAD_REQUEST)
+    new_email = new_email.strip()
+    if new_email.casefold() == account.email.casefold():
+        raise HTTPException(status_code=400, detail="Email mới trùng email hiện tại")
+    if await db.scalar(select(Account.id).where(Account.email == new_email)):
+        raise api_error(ErrorCode.DUPLICATE_EMAIL, status.HTTP_409_CONFLICT)
+    loc = locale if locale in {"vi", "en"} else "vi"
+    await db.execute(
+        delete(EmailVerificationToken).where(
+            EmailVerificationToken.account_id == account.id,
+            EmailVerificationToken.used_at.is_(None),
+        )
+    )
+    raw = secrets.token_urlsafe(32)
+    token_hash = hash_verify_token(raw)
+    db.add(EmailVerificationToken(
+        account_id=account.id,
+        token_hash=token_hash,
+        new_email=new_email,
+        expires_at=datetime.now(timezone.utc) + timedelta(hours=await verification_link_hours(db)),
+    ))
+    await db.flush()
+    await enqueue_mail(
+        db,
+        template="email_change_confirm",
+        to_email=new_email,
+        idempotency_key=f"email_change_confirm:{account.id}:{token_hash}",
+        payload={"action_url": verify_email_url(loc, raw)},
+        locale=loc,
+    )
+    await enqueue_mail(
+        db,
+        template="email_change_notice",
+        account_id=account.id,
+        idempotency_key=f"email_change_notice:{account.id}:{token_hash}",
+        payload={"new_email": new_email, "action_url": forgot_password_url(loc)},
+        locale=loc,
+    )
+    await log_event(
+        db, "info", f"Email change requested for account {account.id}",
+        request_id=current_request_id(),
+        metadata={
+            "event": "email_change_requested",
+            "actor_id": account.id,
+            "actor_type": "buyer",
+            "subject_type": "account",
+            "subject_id": account.id,
+            "outcome": "success",
+            "source": "public",
+            "new_email": new_email,
+        },
+    )
+    await db.commit()
+
+
+async def start_totp_setup(account: Account, password: str, db: AsyncSession) -> dict:
+    from src.auth import mfa
+
+    if not verify_password(password, account.password_hash):
+        raise api_error(ErrorCode.PASSWORD_INCORRECT, status.HTTP_400_BAD_REQUEST)
+    if account.totp_enabled_at is not None:
+        raise api_error(ErrorCode.MFA_ALREADY_ENABLED, status.HTTP_400_BAD_REQUEST)
+    secret = mfa.new_secret()
+    mfa.store_pending_secret(account, secret)
+    await db.commit()
+    return {"secret": secret, "otpauth_uri": mfa.provisioning_uri(secret, account.email)}
+
+
+async def confirm_totp_setup(account: Account, code: str, db: AsyncSession) -> list[str]:
+    from src.auth import mfa
+
+    if account.totp_enabled_at is not None:
+        raise api_error(ErrorCode.MFA_ALREADY_ENABLED, status.HTTP_400_BAD_REQUEST)
+    if not account.totp_secret or not mfa.verify_totp(account, code):
+        raise api_error(ErrorCode.MFA_CODE_INVALID, status.HTTP_400_BAD_REQUEST)
+    codes = mfa.generate_backup_codes()
+    mfa.enable(account, codes)
+    await log_event(
+        db, "warning", f"Two-factor enabled for account {account.id}",
+        request_id=current_request_id(),
+        metadata={
+            "event": "mfa_enabled",
+            "actor_id": account.id,
+            "actor_type": "buyer",
+            "subject_type": "account",
+            "subject_id": account.id,
+            "outcome": "success",
+            "source": "public",
+        },
+    )
+    await db.commit()
+    return codes
+
+
+async def disable_totp(account: Account, password: str, code: str, db: AsyncSession) -> None:
+    from src.auth import mfa
+
+    if not verify_password(password, account.password_hash):
+        raise api_error(ErrorCode.PASSWORD_INCORRECT, status.HTTP_400_BAD_REQUEST)
+    if account.totp_enabled_at is None:
+        raise api_error(ErrorCode.MFA_NOT_ENABLED, status.HTTP_400_BAD_REQUEST)
+    if not mfa.verify_code(account, code):
+        raise api_error(ErrorCode.MFA_CODE_INVALID, status.HTTP_400_BAD_REQUEST)
+    mfa.disable(account)
+    await log_event(
+        db, "warning", f"Two-factor disabled for account {account.id}",
+        request_id=current_request_id(),
+        metadata={
+            "event": "mfa_disabled",
+            "actor_id": account.id,
+            "actor_type": "buyer",
+            "subject_type": "account",
+            "subject_id": account.id,
+            "outcome": "success",
+            "source": "public",
+        },
+    )
+    await db.commit()
+
+
+async def regenerate_backup_codes(account: Account, code: str, db: AsyncSession) -> list[str]:
+    from src.auth import mfa
+
+    if account.totp_enabled_at is None:
+        raise api_error(ErrorCode.MFA_NOT_ENABLED, status.HTTP_400_BAD_REQUEST)
+    if not mfa.verify_totp(account, code):
+        raise api_error(ErrorCode.MFA_CODE_INVALID, status.HTTP_400_BAD_REQUEST)
+    codes = mfa.generate_backup_codes()
+    account.totp_backup_hashes = [mfa._hash_backup(c) for c in codes]
+    await db.commit()
+    return codes
+
+
+async def complete_mfa_login(mfa_token: str, code: str, db: AsyncSession, *, ip: str | None, user_agent: str | None) -> tuple[Account, str]:
+    """Second step of sign-in: swap a valid challenge token + TOTP/backup code
+    for a real session. Returns (account, kind) so the router can apply the
+    admin-only rule for the admin entrance."""
+    from src.auth import mfa
+    from src.security.events import security_event
+
+    decoded = mfa.decode_mfa_token(mfa_token)
+    if decoded is None:
+        raise api_error(ErrorCode.MFA_TOKEN_INVALID, status.HTTP_401_UNAUTHORIZED)
+    account_id, kind = decoded
+    account = await db.get(Account, account_id, with_for_update=True)
+    if account is None or not account.is_active or account.totp_enabled_at is None:
+        raise api_error(ErrorCode.MFA_TOKEN_INVALID, status.HTTP_401_UNAUTHORIZED)
+    if not mfa.verify_code(account, code):
+        _record_login_event(db, account.id, kind=kind, outcome="mfa_failed", ip=ip, user_agent=user_agent)
+        await db.commit()
+        security_event("auth_mfa_failed", level="warning", account_id=account.id)
+        raise api_error(ErrorCode.MFA_CODE_INVALID, status.HTTP_400_BAD_REQUEST)
+    _record_login_event(db, account.id, kind=kind, outcome="success", ip=ip, user_agent=user_agent)
+    security_event("auth_login_success", level="info", account_id=account.id, mfa=True)
+    return account, kind

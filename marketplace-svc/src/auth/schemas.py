@@ -8,6 +8,7 @@ class RegisterRequest(BaseModel):
     password: str = Field(min_length=8, max_length=128)
     referral_code: str | None = Field(default=None, max_length=16)
     locale: str = Field(default="vi", max_length=8)
+    captcha_token: str | None = Field(default=None, max_length=4096)
 
     @field_validator("password")
     @classmethod
@@ -20,11 +21,24 @@ class RegisterRequest(BaseModel):
 class LoginRequest(BaseModel):
     email: EmailStr
     password: str = Field(max_length=128)
+    captcha_token: str | None = Field(default=None, max_length=4096)
+
+
+class MfaChallengeResponse(BaseModel):
+    """Password accepted; the session is issued by POST /auth/login/2fa."""
+    mfa_required: bool = True
+    mfa_token: str
+
+
+class MfaLoginRequest(BaseModel):
+    mfa_token: str = Field(min_length=20, max_length=1024)
+    code: str = Field(min_length=6, max_length=16)
 
 
 class ForgotPasswordRequest(BaseModel):
     email: EmailStr
     locale: str = Field(default="vi", max_length=8)
+    captcha_token: str | None = Field(default=None, max_length=4096)
 
 
 class ResetPasswordRequest(BaseModel):
@@ -60,6 +74,9 @@ class AccountResponse(BaseModel):
     roles: list[str]
     seller_tier: str
     email_verified: bool = True
+    totp_enabled: bool = False
+    # Admin whose console is locked until they enable TOTP (policy on).
+    mfa_setup_required: bool = False
 
     model_config = {"from_attributes": True}
 
@@ -70,6 +87,7 @@ class AccountAdminRow(BaseModel):
     roles: list[str]
     is_active: bool
     email_verified: bool = True
+    totp_enabled: bool = False
     seller_tier: str
     created_at: datetime
 
@@ -119,6 +137,11 @@ class ResendVerificationRequest(BaseModel):
 class AuthRuntimeConfigResponse(BaseModel):
     require_email_verification: bool
     verification_link_hours: int
+    require_admin_2fa: bool
+    require_2fa_for_withdrawal: bool
+    turnstile_site_key: str
+    # Whether the env secret exists — the site key alone does nothing.
+    turnstile_secret_configured: bool = False
     updated_at: datetime | None = None
     updated_by_id: int | None = None
 
@@ -126,3 +149,52 @@ class AuthRuntimeConfigResponse(BaseModel):
 class AuthRuntimeConfigUpdate(BaseModel):
     require_email_verification: bool | None = None
     verification_link_hours: int | None = Field(default=None, ge=1, le=168)
+    require_admin_2fa: bool | None = None
+    require_2fa_for_withdrawal: bool | None = None
+    turnstile_site_key: str | None = Field(default=None, max_length=128)
+
+
+class PublicAuthConfig(BaseModel):
+    turnstile_site_key: str
+    require_email_verification: bool
+
+
+class ChangePasswordRequest(BaseModel):
+    current_password: str = Field(max_length=128)
+    new_password: str = Field(min_length=8, max_length=128)
+    locale: str = Field(default="vi", max_length=8)
+
+    @field_validator("new_password")
+    @classmethod
+    def password_fits_bcrypt(cls, value: str) -> str:
+        if len(value.encode("utf-8")) > 72:
+            raise ValueError("Mật khẩu không được vượt quá 72 byte")
+        return value
+
+
+class ChangeEmailRequest(BaseModel):
+    new_email: EmailStr
+    password: str = Field(max_length=128)
+    locale: str = Field(default="vi", max_length=8)
+
+
+class TotpSetupRequest(BaseModel):
+    password: str = Field(max_length=128)
+
+
+class TotpSetupResponse(BaseModel):
+    secret: str
+    otpauth_uri: str
+
+
+class TotpCodeRequest(BaseModel):
+    code: str = Field(min_length=6, max_length=16)
+
+
+class TotpDisableRequest(BaseModel):
+    password: str = Field(max_length=128)
+    code: str = Field(min_length=6, max_length=16)
+
+
+class BackupCodesResponse(BaseModel):
+    backup_codes: list[str]

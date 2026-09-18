@@ -146,7 +146,9 @@ async def revoke_session(session: AuthSession, db: AsyncSession) -> None:
     await deny_jti(session.access_jti, access_exp)
 
 
-async def revoke_all_sessions(account_id: int, db: AsyncSession) -> None:
+async def revoke_all_sessions(account_id: int, db: AsyncSession, *, keep_session_id=None) -> None:
+    """Revoke every live session of the account; `keep_session_id` spares the
+    caller's own browser (password change from a signed-in page)."""
     now = datetime.now(timezone.utc)
     result = await db.execute(
         select(AuthSession).where(
@@ -154,7 +156,7 @@ async def revoke_all_sessions(account_id: int, db: AsyncSession) -> None:
             AuthSession.revoked_at.is_(None),
         )
     )
-    sessions = list(result.scalars().all())
+    sessions = [row for row in result.scalars().all() if keep_session_id is None or row.id != keep_session_id]
     family_ids = {row.family_id for row in sessions}
     for row in sessions:
         row.revoked_at = now

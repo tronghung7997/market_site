@@ -3,6 +3,9 @@
 import { useLocale, useTranslations } from "next-intl";
 import { useState } from "react";
 import { api } from "@/lib/api";
+import { ApiError } from "@/lib/api-error";
+import { useAuth } from "@/lib/auth";
+import { Link } from "@/i18n/navigation";
 import { useApiErrorMessage } from "@/lib/use-api-error";
 import { useMoney } from "@/lib/money";
 import { formatDate } from "@/lib/utils";
@@ -25,7 +28,10 @@ export function WithdrawCard({ wallet, onChanged }: {
   const apiErrorMessage = useApiErrorMessage();
   const locale = useLocale();
   const { formatBrowseMoney } = useMoney();
+  const { account } = useAuth();
   const [amount, setAmount] = useState(0);
+  const [totpCode, setTotpCode] = useState("");
+  const [needsTotpSetup, setNeedsTotpSetup] = useState(false);
   const [bankName, setBankName] = useState("");
   const [bankAccountNumber, setBankAccountNumber] = useState("");
   const [bankAccountHolder, setBankAccountHolder] = useState("");
@@ -51,12 +57,15 @@ export function WithdrawCard({ wallet, onChanged }: {
         bank_name: bankName.trim(),
         bank_account_number: bankAccountNumber.trim(),
         bank_account_holder: bankAccountHolder.trim(),
+        totp_code: totpCode.trim() || undefined,
       });
       setAmount(0);
+      setTotpCode("");
       setMsg(t("withdrawSuccess"));
       await onChanged();
       setTimeout(() => setMsg(""), 4000);
     } catch (e) {
+      if (e instanceof ApiError && e.errorCode === "MFA_SETUP_REQUIRED") setNeedsTotpSetup(true);
       setErr(t("withdrawFail", { error: apiErrorMessage(e, "—") }));
     } finally {
       setLoading(false);
@@ -107,6 +116,29 @@ export function WithdrawCard({ wallet, onChanged }: {
             disabled={loading}
           />
         </div>
+        {account?.totp_enabled && (
+          <div>
+            <label className="block text-[11px] uppercase tracking-wider text-faint font-medium mb-1.5">
+              {t("withdrawTotp")}
+            </label>
+            <Input
+              placeholder="123456"
+              inputMode="numeric"
+              autoComplete="one-time-code"
+              value={totpCode}
+              onChange={(e) => { setTotpCode(e.target.value.replace(/[^0-9a-zA-Z-]/g, "").slice(0, 16)); setErr(""); }}
+              disabled={loading}
+              className="font-mono tracking-[0.2em] max-w-[200px]"
+            />
+            <p className="mt-1 text-[11px] text-faint">{t("withdrawTotpHint")}</p>
+          </div>
+        )}
+        {needsTotpSetup && (
+          <div className="p-2.5 rounded-lg bg-warn-soft text-warn text-[12px]">
+            {t("withdrawTotpSetup")}{" "}
+            <Link href="/account/security?setup=2fa" className="font-medium underline">{t("withdrawTotpSetupLink")}</Link>
+          </div>
+        )}
         <div>
           <div className="flex items-baseline justify-between mb-1.5">
             <span className="text-[11px] uppercase tracking-wider text-faint font-medium">{t("withdrawAmount")}</span>

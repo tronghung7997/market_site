@@ -10,9 +10,11 @@ from src.models.account import Account
 from src.config import settings
 from src.rate_limit import check_rate_limit
 from src.security.client_ip import request_client_ip
+from src.security import turnstile
 from src.security.events import security_event
 
 from . import schemas, service, sessions
+from . import mfa
 from . import settings as auth_settings
 from .dependencies import get_current_account, require_role
 
@@ -27,6 +29,25 @@ def _peer_ip(request: Request) -> str:
 
 def _user_agent(request: Request) -> str | None:
     return request.headers.get("user-agent") or None
+
+
+async def _enforce_captcha(token: str | None, request: Request, db: AsyncSession) -> None:
+    """Turnstile is enforced only when the admin site key AND env secret exist."""
+    if not turnstile.secret_configured() or not await auth_settings.turnstile_site_key(db):
+        return
+    if not token:
+        raise api_error(ErrorCode.CAPTCHA_REQUIRED, status.HTTP_400_BAD_REQUEST)
+    if not await turnstile.verify_token(token, remote_ip=_peer_ip(request)):
+        security_event("captcha_failed", level="warning", path=request.url.path)
+        raise api_error(ErrorCode.CAPTCHA_FAILED, status.HTTP_400_BAD_REQUEST)
+
+
+async def _issue_or_challenge(account: Account, db: AsyncSession, *, kind: str):
+    """Session for accounts without 2FA; a short-lived challenge otherwise."""
+    if account.totp_enabled_at is not None:
+        return schemas.MfaChallengeResponse(mfa_token=mfa.issue_mfa_token(account.id, kind=kind))
+    issued = await sessions.issue_session(account, db)
+    return schemas.TokenResponse(access_token=issued.access_token, refresh_token=issued.refresh_token)
 
 
 def _email_bucket(email: str) -> str:
@@ -83,6 +104,7 @@ async def register(
         f"auth:register:ip:{_peer_ip(request)}",
         settings.auth_register_ip_limit,
     )
+    await _enforce_captcha(body.captcha_token, request, db)
     account = await service.register_account(
         body.email,
         body.password,
@@ -113,25 +135,26 @@ async def resend_verification(
     return None
 
 
-@router.post("/auth/login", response_model=schemas.TokenResponse)
+@router.post("/auth/login", response_model=schemas.TokenResponse | schemas.MfaChallengeResponse)
 async def login(
     body: schemas.LoginRequest,
     request: Request,
     db: AsyncSession = Depends(get_session),
 ):
+    await _enforce_captcha(body.captcha_token, request, db)
     account = await _authenticate_with_limits(body, request, db)
     if "admin" in account.roles:
         raise api_error(ErrorCode.ADMIN_LOGIN_REQUIRED, status.HTTP_403_FORBIDDEN)
-    issued = await sessions.issue_session(account, db)
-    return schemas.TokenResponse(access_token=issued.access_token, refresh_token=issued.refresh_token)
+    return await _issue_or_challenge(account, db, kind="login")
 
 
-@router.post("/auth/admin/login", response_model=schemas.TokenResponse)
+@router.post("/auth/admin/login", response_model=schemas.TokenResponse | schemas.MfaChallengeResponse)
 async def admin_login(
     body: schemas.LoginRequest,
     request: Request,
     db: AsyncSession = Depends(get_session),
 ):
+    await _enforce_captcha(body.captcha_token, request, db)
     account = await _authenticate_with_limits(body, request, db, kind="admin_login")
     if "admin" not in account.roles:
         security_event(
@@ -141,6 +164,26 @@ async def admin_login(
             reason="admin_role_required",
         )
         raise api_error(ErrorCode.ADMIN_ONLY, status.HTTP_403_FORBIDDEN)
+    return await _issue_or_challenge(account, db, kind="admin_login")
+
+
+@router.post("/auth/login/2fa", response_model=schemas.TokenResponse)
+async def login_mfa(
+    body: schemas.MfaLoginRequest,
+    request: Request,
+    db: AsyncSession = Depends(get_session),
+):
+    decoded = mfa.decode_mfa_token(body.mfa_token)
+    if decoded is None:
+        raise api_error(ErrorCode.MFA_TOKEN_INVALID, status.HTTP_401_UNAUTHORIZED)
+    await _enforce_auth_limit(f"auth:mfa:account:{decoded[0]}", settings.auth_mfa_account_limit)
+    account, kind = await service.complete_mfa_login(
+        body.mfa_token, body.code, db, ip=_peer_ip(request), user_agent=_user_agent(request),
+    )
+    if kind == "admin_login" and "admin" not in account.roles:
+        raise api_error(ErrorCode.ADMIN_ONLY, status.HTTP_403_FORBIDDEN)
+    if kind != "admin_login" and "admin" in account.roles:
+        raise api_error(ErrorCode.ADMIN_LOGIN_REQUIRED, status.HTTP_403_FORBIDDEN)
     issued = await sessions.issue_session(account, db)
     return schemas.TokenResponse(access_token=issued.access_token, refresh_token=issued.refresh_token)
 
@@ -159,6 +202,7 @@ async def forgot_password(
         f"auth:forgot:account:{_email_bucket(body.email)}",
         settings.auth_forgot_account_limit,
     )
+    await _enforce_captcha(body.captcha_token, request, db)
     message = await service.request_password_reset(body.email, body.locale, db)
     return schemas.PasswordResetAck(message=message)
 
@@ -219,8 +263,88 @@ async def logout_all(
 
 
 @router.get("/me", response_model=schemas.AccountResponse)
-async def me(account=Depends(get_current_account)):
-    return account
+async def me(account=Depends(get_current_account), db: AsyncSession = Depends(get_session)):
+    resp = schemas.AccountResponse.model_validate(account)
+    resp.mfa_setup_required = (
+        "admin" in (account.roles or [])
+        and account.totp_enabled_at is None
+        and await auth_settings.admin_2fa_required(db)
+    )
+    return resp
+
+
+@router.get("/public/auth-config", response_model=schemas.PublicAuthConfig)
+async def public_auth_config(db: AsyncSession = Depends(get_session)):
+    cfg = await auth_settings.get_auth_settings(db)
+    site_key = cfg["turnstile_site_key"] if turnstile.secret_configured() else ""
+    return {"turnstile_site_key": site_key, "require_email_verification": cfg["require_email_verification"]}
+
+
+# ── Signed-in account security ───────────────────────────────────────────────
+
+@router.post("/auth/change-password", status_code=status.HTTP_204_NO_CONTENT)
+async def change_password(
+    body: schemas.ChangePasswordRequest,
+    request: Request,
+    account: Account = Depends(get_current_account),
+    db: AsyncSession = Depends(get_session),
+):
+    await service.change_password(
+        account, body.current_password, body.new_password, db,
+        keep_session_id=getattr(request.state, "auth_session_id", None), locale=body.locale,
+    )
+    return None
+
+
+@router.post("/auth/change-email", status_code=status.HTTP_204_NO_CONTENT)
+async def change_email(
+    body: schemas.ChangeEmailRequest,
+    account: Account = Depends(get_current_account),
+    db: AsyncSession = Depends(get_session),
+):
+    await _enforce_auth_limit(f"auth:verify-resend:account:{account.id}", settings.auth_verify_resend_account_limit)
+    await service.request_email_change(account, str(body.new_email), body.password, db, locale=body.locale)
+    return None
+
+
+@router.post("/auth/2fa/setup", response_model=schemas.TotpSetupResponse)
+async def totp_setup(
+    body: schemas.TotpSetupRequest,
+    account: Account = Depends(get_current_account),
+    db: AsyncSession = Depends(get_session),
+):
+    return await service.start_totp_setup(account, body.password, db)
+
+
+@router.post("/auth/2fa/enable", response_model=schemas.BackupCodesResponse)
+async def totp_enable(
+    body: schemas.TotpCodeRequest,
+    account: Account = Depends(get_current_account),
+    db: AsyncSession = Depends(get_session),
+):
+    await _enforce_auth_limit(f"auth:mfa:account:{account.id}", settings.auth_mfa_account_limit)
+    return {"backup_codes": await service.confirm_totp_setup(account, body.code, db)}
+
+
+@router.post("/auth/2fa/disable", status_code=status.HTTP_204_NO_CONTENT)
+async def totp_disable(
+    body: schemas.TotpDisableRequest,
+    account: Account = Depends(get_current_account),
+    db: AsyncSession = Depends(get_session),
+):
+    await _enforce_auth_limit(f"auth:mfa:account:{account.id}", settings.auth_mfa_account_limit)
+    await service.disable_totp(account, body.password, body.code, db)
+    return None
+
+
+@router.post("/auth/2fa/backup-codes", response_model=schemas.BackupCodesResponse)
+async def totp_backup_codes(
+    body: schemas.TotpCodeRequest,
+    account: Account = Depends(get_current_account),
+    db: AsyncSession = Depends(get_session),
+):
+    await _enforce_auth_limit(f"auth:mfa:account:{account.id}", settings.auth_mfa_account_limit)
+    return {"backup_codes": await service.regenerate_backup_codes(account, body.code, db)}
 
 
 @router.get("/admin/accounts", response_model=schemas.PaginatedAccounts)
@@ -284,7 +408,7 @@ async def admin_auth_config(
     _: Account = Depends(require_role("admin")),
     db: AsyncSession = Depends(get_session),
 ):
-    return await auth_settings.get_auth_settings(db)
+    return {**await auth_settings.get_auth_settings(db), "turnstile_secret_configured": turnstile.secret_configured()}
 
 
 @router.patch("/admin/auth-config", response_model=schemas.AuthRuntimeConfigResponse)
@@ -294,9 +418,10 @@ async def admin_update_auth_config(
     db: AsyncSession = Depends(get_session),
 ):
     try:
-        return await auth_settings.update_auth_settings(db, actor_id=admin.id, **body.model_dump(exclude_unset=True))
+        updated = await auth_settings.update_auth_settings(db, actor_id=admin.id, **body.model_dump(exclude_unset=True))
     except ValueError as exc:
         raise HTTPException(status_code=422, detail=str(exc)) from exc
+    return {**updated, "turnstile_secret_configured": turnstile.secret_configured()}
 
 
 @router.patch("/admin/accounts/{account_id}/tier", response_model=schemas.AccountAdminRow)

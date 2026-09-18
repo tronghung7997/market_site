@@ -15,6 +15,15 @@ class ErrorCode(str, Enum):
     EMAIL_NOT_VERIFIED = "EMAIL_NOT_VERIFIED"
     VERIFY_TOKEN_INVALID = "VERIFY_TOKEN_INVALID"
     EMAIL_ALREADY_VERIFIED = "EMAIL_ALREADY_VERIFIED"
+    PASSWORD_INCORRECT = "PASSWORD_INCORRECT"
+    MFA_REQUIRED = "MFA_REQUIRED"
+    MFA_CODE_INVALID = "MFA_CODE_INVALID"
+    MFA_SETUP_REQUIRED = "MFA_SETUP_REQUIRED"
+    MFA_ALREADY_ENABLED = "MFA_ALREADY_ENABLED"
+    MFA_NOT_ENABLED = "MFA_NOT_ENABLED"
+    MFA_TOKEN_INVALID = "MFA_TOKEN_INVALID"
+    CAPTCHA_REQUIRED = "CAPTCHA_REQUIRED"
+    CAPTCHA_FAILED = "CAPTCHA_FAILED"
     ADMIN_LOGIN_REQUIRED = "ADMIN_LOGIN_REQUIRED"
     ADMIN_ONLY = "ADMIN_ONLY"
     QUOTA_EXCEEDED = "QUOTA_EXCEEDED"
@@ -112,6 +121,15 @@ MESSAGES_EN: dict[ErrorCode, str] = {
     ErrorCode.EMAIL_NOT_VERIFIED: "Please confirm your email address before continuing",
     ErrorCode.VERIFY_TOKEN_INVALID: "This confirmation link is invalid or has expired",
     ErrorCode.EMAIL_ALREADY_VERIFIED: "This email address is already confirmed",
+    ErrorCode.PASSWORD_INCORRECT: "The current password is incorrect",
+    ErrorCode.MFA_REQUIRED: "Enter the code from your authenticator app",
+    ErrorCode.MFA_CODE_INVALID: "That code is not valid. Check your authenticator app and try again",
+    ErrorCode.MFA_SETUP_REQUIRED: "Two-factor authentication must be enabled on your account first",
+    ErrorCode.MFA_ALREADY_ENABLED: "Two-factor authentication is already enabled",
+    ErrorCode.MFA_NOT_ENABLED: "Two-factor authentication is not enabled",
+    ErrorCode.MFA_TOKEN_INVALID: "This sign-in attempt has expired. Please sign in again",
+    ErrorCode.CAPTCHA_REQUIRED: "Please complete the verification challenge",
+    ErrorCode.CAPTCHA_FAILED: "Verification challenge failed. Please try again",
     ErrorCode.ADMIN_LOGIN_REQUIRED: "Administrator accounts must use the private admin sign-in",
     ErrorCode.ADMIN_ONLY: "This sign-in is restricted to administrator accounts",
     ErrorCode.QUOTA_EXCEEDED: "Request quota for this package is exhausted — purchase a new package",

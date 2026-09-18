@@ -250,6 +250,7 @@ export default function AdminAccountsPage() {
                         <td className="px-5 py-3 whitespace-nowrap">
                           <div className="flex items-center gap-1.5">
                             {row.is_active ? <Tag tone="good">Hoạt động</Tag> : <Tag tone="bad">Đã khóa</Tag>}
+                            {row.totp_enabled && <Tag tone="iris">2FA</Tag>}
                             {row.email_verified ? null : (
                               <button
                                 type="button"

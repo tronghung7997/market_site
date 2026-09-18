@@ -23,6 +23,8 @@ if (
 
 // Microsoft Clarity load-balances across *.clarity.ms and beacons to c.bing.com.
 const clarityOrigins = "https://*.clarity.ms https://c.bing.com";
+// Cloudflare Turnstile (sign-up / sign-in captcha) renders in an iframe from this origin.
+const turnstileOrigin = "https://challenges.cloudflare.com";
 
 const contentSecurityPolicy = [
   "default-src 'self'",
@@ -30,11 +32,12 @@ const contentSecurityPolicy = [
   "form-action 'self'",
   "frame-ancestors 'none'",
   "object-src 'none'",
-  `script-src 'self' 'unsafe-inline' ${clarityOrigins}${isProduction ? "" : " 'unsafe-eval'"}`,
+  `script-src 'self' 'unsafe-inline' ${clarityOrigins} ${turnstileOrigin}${isProduction ? "" : " 'unsafe-eval'"}`,
+  `frame-src ${turnstileOrigin}`,
   "style-src 'self' 'unsafe-inline'",
   "img-src 'self' data: blob: https:",
   "font-src 'self' data:",
-  `connect-src 'self' ${clarityOrigins}${isProduction ? "" : " ws: http://localhost:8001"}`,
+  `connect-src 'self' ${clarityOrigins} ${turnstileOrigin}${isProduction ? "" : " ws: http://localhost:8001"}`,
 ].join("; ");
 
 const nextConfig = {

@@ -15,6 +15,9 @@ os.environ["AUTH_RATE_LIMIT_ENABLED"] = "false"
 # Sign-up email verification is exercised explicitly in test_auth_verification.py;
 # every other test creates throwaway accounts that never open a mailbox.
 os.environ["EMAIL_VERIFICATION_REQUIRED"] = "false"
+os.environ["REQUIRE_ADMIN_2FA"] = "false"
+os.environ["REQUIRE_2FA_FOR_WITHDRAWAL"] = "false"
+os.environ["TURNSTILE_SECRET_KEY"] = ""
 os.environ.setdefault("JWT_SECRET", "test-secret-key-at-least-32-bytes-long-000")
 os.environ.setdefault("INTERNAL_API_KEY", "test-internal-key-at-least-32-bytes-long")
 os.environ.setdefault("BFF_REQUEST_SIGNING_SECRET", "test-bff-signing-secret-at-least-32-bytes")

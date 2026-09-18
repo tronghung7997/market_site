@@ -5,6 +5,7 @@ import { useSearchParams } from "next/navigation";
 import { useTranslations } from "next-intl";
 import { Link, useRouter } from "@/i18n/navigation";
 import { api } from "@/lib/api";
+import { ApiError } from "@/lib/api-error";
 import { useAuth } from "@/lib/auth";
 import { PASSWORD_MAX_LENGTH } from "@/lib/auth-validation";
 import { authenticatedLoginRedirect, safeInternalRedirect } from "@/lib/safe-redirect";
@@ -14,11 +15,12 @@ import { validateEmail } from "../model/password";
 import { AuthNotice } from "./AuthNotice";
 import { AuthShell } from "./AuthShell";
 import { PasswordInput } from "./PasswordInput";
+import { TurnstileWidget, useCaptchaGate } from "./TurnstileWidget";
 
 export function LoginForm({ variant = "storefront" }: { variant?: "storefront" | "admin" }) {
   const t = useTranslations("auth");
   const apiErrorMessage = useApiErrorMessage();
-  const { account, loading, login, adminLogin } = useAuth();
+  const { account, loading, login, loginMfa, adminLogin } = useAuth();
   const router = useRouter();
   const searchParams = useSearchParams();
   const admin = variant === "admin";
@@ -35,6 +37,13 @@ export function LoginForm({ variant = "storefront" }: { variant?: "storefront" |
   const [fieldErrors, setFieldErrors] = useState<{ email?: string; password?: string }>({});
   const [error, setError] = useState<string | null>(searchParams.get("expired") ? t("sessionExpired") : null);
   const [busy, setBusy] = useState(false);
+  const [captchaToken, setCaptchaToken] = useState<string | null>(null);
+  const [captchaReset, setCaptchaReset] = useState(0);
+  const captcha = useCaptchaGate(captchaToken);
+  // Second step: the password was accepted and a TOTP / backup code is needed.
+  const [mfaToken, setMfaToken] = useState<string | null>(null);
+  const [mfaCode, setMfaCode] = useState("");
+  const [useBackup, setUseBackup] = useState(false);
   const justVerified = searchParams.get("verified") === "1";
   const justReset = searchParams.get("reset") === "1";
 
@@ -59,16 +68,46 @@ export function LoginForm({ variant = "storefront" }: { variant?: "storefront" |
     setBusy(true);
     setError(null);
     try {
-      if (admin) {
-        await adminLogin(email.trim(), password);
-        router.replace(next ?? "/admin");
-      } else {
-        await login(email.trim(), password);
-        const me = await api.me();
-        router.replace(authenticatedLoginRedirect(next, me.roles));
+      const challenge = admin
+        ? await adminLogin(email.trim(), password, captchaToken ?? undefined)
+        : await login(email.trim(), password, captchaToken ?? undefined);
+      if (challenge) {
+        setMfaToken(challenge);
+        return;
       }
+      await finishSignIn();
     } catch (err) {
       setError(apiErrorMessage(err, t("loginFailed")));
+      setCaptchaToken(null);
+      setCaptchaReset((k) => k + 1);
+    } finally {
+      setBusy(false);
+    }
+  };
+
+  const finishSignIn = async () => {
+    if (admin) {
+      router.replace(next ?? "/admin");
+      return;
+    }
+    const me = await api.me();
+    router.replace(authenticatedLoginRedirect(next, me.roles));
+  };
+
+  const submitMfa = async (e: React.FormEvent) => {
+    e.preventDefault();
+    if (!mfaToken) return;
+    const code = mfaCode.trim();
+    if (!code) { setError(t("mfaCodeRequired")); return; }
+    setBusy(true);
+    setError(null);
+    try {
+      await loginMfa(mfaToken, code);
+      await finishSignIn();
+    } catch (err) {
+      setError(apiErrorMessage(err, t("loginFailed")));
+      // An expired challenge sends the user back to the password step.
+      if (err instanceof ApiError && err.errorCode === "MFA_TOKEN_INVALID") { setMfaToken(null); setMfaCode(""); }
     } finally {
       setBusy(false);
     }
@@ -79,6 +118,38 @@ export function LoginForm({ variant = "storefront" }: { variant?: "storefront" |
   }
 
   const registerHref = next ? `/register?next=${encodeURIComponent(next)}` : "/register";
+
+  if (mfaToken) {
+    return (
+      <AuthShell variant={variant} title={t("mfaTitle")} subtitle={useBackup ? t("mfaBackupSubtitle") : t("mfaSubtitle")}>
+        <form onSubmit={submitMfa} className="flex flex-col gap-4" noValidate>
+          <Field label={useBackup ? t("mfaBackupLabel") : t("mfaCodeLabel")}>
+            <Input
+              value={mfaCode}
+              onChange={(e) => setMfaCode(useBackup ? e.target.value : e.target.value.replace(/\D/g, "").slice(0, 6))}
+              inputMode={useBackup ? "text" : "numeric"}
+              autoComplete="one-time-code"
+              placeholder={useBackup ? "xxxxx-xxxxx" : "123456"}
+              className="font-mono text-[18px] tracking-[0.25em]"
+              autoFocus
+            />
+          </Field>
+          {error && <AuthNotice tone="bad">{error}</AuthNotice>}
+          <Button type="submit" block size="lg" disabled={busy || !mfaCode.trim()} className="mt-1">
+            {busy ? t("signingIn") : t("mfaSubmit")}
+          </Button>
+          <div className="flex items-center justify-between text-[12.5px]">
+            <button type="button" className="font-medium text-iris-hi hover:underline" onClick={() => { setUseBackup((v) => !v); setMfaCode(""); setError(null); }}>
+              {useBackup ? t("mfaUseApp") : t("mfaUseBackup")}
+            </button>
+            <button type="button" className="text-muted hover:text-fg hover:underline" onClick={() => { setMfaToken(null); setMfaCode(""); setError(null); }}>
+              {t("mfaBack")}
+            </button>
+          </div>
+        </form>
+      </AuthShell>
+    );
+  }
 
   return (
     <AuthShell
@@ -116,8 +187,9 @@ export function LoginForm({ variant = "storefront" }: { variant?: "storefront" |
             <Link href="/forgot-password" className="text-[12px] font-medium text-iris-hi hover:underline">{t("forgotPassword")}</Link>
           )}
         />
+        <TurnstileWidget onToken={setCaptchaToken} resetKey={captchaReset} />
         {error && <AuthNotice tone="bad">{error}</AuthNotice>}
-        <Button type="submit" block size="lg" disabled={busy} className="mt-1">
+        <Button type="submit" block size="lg" disabled={busy || !captcha.ready} className="mt-1">
           {busy ? (admin ? t("adminSigningIn") : t("signingIn")) : (admin ? t("adminLoginTitle") : t("loginTitle"))}
         </Button>
       </form>

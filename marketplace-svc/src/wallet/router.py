@@ -1,7 +1,7 @@
 from fastapi import APIRouter, Depends, HTTPException
 from sqlalchemy.ext.asyncio import AsyncSession
 
-from src.auth.dependencies import get_current_account, require_role, require_verified_email
+from src.auth.dependencies import get_current_account, require_role, require_verified_email, require_withdrawal_mfa
 from src.config import settings
 from src.database import get_session
 from src.models.account import Account
@@ -61,6 +61,7 @@ async def withdraw(
     _verified: Account = Depends(require_verified_email),
     db: AsyncSession = Depends(get_session),
 ):
+    await require_withdrawal_mfa(account, body.totp_code, db)
     return await service.request_withdraw(
         account.id, body.amount, db,
         bank_bin=body.bank_bin, bank_name=body.bank_name,

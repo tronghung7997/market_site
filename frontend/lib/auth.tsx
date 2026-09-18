@@ -10,9 +10,11 @@ import type { Account } from "./types";
 interface AuthState {
   account: Account | null;
   loading: boolean;
-  login: (email: string, password: string) => Promise<void>;
-  adminLogin: (email: string, password: string) => Promise<void>;
-  register: (email: string, password: string, referralCode?: string, locale?: string) => Promise<void>;
+  /** Resolves with the MFA challenge token when a TOTP code is still needed; undefined when signed in. */
+  login: (email: string, password: string, captchaToken?: string) => Promise<string | undefined>;
+  loginMfa: (mfaToken: string, code: string) => Promise<void>;
+  adminLogin: (email: string, password: string, captchaToken?: string) => Promise<string | undefined>;
+  register: (email: string, password: string, referralCode?: string, locale?: string, captchaToken?: string) => Promise<void>;
   logout: () => void;
   refresh: () => Promise<void>;
 }
@@ -54,18 +56,26 @@ export function AuthProvider({ children }: { children: ReactNode }) {
     return () => window.removeEventListener("auth:session-expired", handleExpired);
   }, [pathname, router]);
 
-  const login = async (email: string, password: string) => {
-    await api.login(email, password);
+  const login = async (email: string, password: string, captchaToken?: string) => {
+    const result = await api.login(email, password, captchaToken);
+    if (result.mfa_required) return result.mfa_token;
     await refresh();
   };
 
-  const adminLogin = async (email: string, password: string) => {
-    await api.adminLogin(email, password);
+  const adminLogin = async (email: string, password: string, captchaToken?: string) => {
+    const result = await api.adminLogin(email, password, captchaToken);
+    if (result.mfa_required) return result.mfa_token;
     await refresh();
   };
 
-  const register = async (email: string, password: string, referralCode?: string, locale?: string) => {
-    await api.register(email, password, referralCode, locale);
+  const loginMfa = async (mfaToken: string, code: string) => {
+    await api.loginMfa(mfaToken, code);
+    await refresh();
+  };
+
+  const register = async (email: string, password: string, referralCode?: string, locale?: string, captchaToken?: string) => {
+    await api.register(email, password, referralCode, locale, captchaToken);
+    // A brand-new account has no TOTP yet, so this always signs in directly.
     await login(email, password);
   };
 
@@ -75,7 +85,7 @@ export function AuthProvider({ children }: { children: ReactNode }) {
   };
 
   return (
-    <AuthContext.Provider value={{ account, loading, login, adminLogin, register, logout, refresh }}>
+    <AuthContext.Provider value={{ account, loading, login, loginMfa, adminLogin, register, logout, refresh }}>
       {children}
     </AuthContext.Provider>
   );

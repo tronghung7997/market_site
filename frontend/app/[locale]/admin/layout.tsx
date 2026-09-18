@@ -3,6 +3,7 @@ import { NextIntlClientProvider } from "next-intl";
 import { getMessages } from "next-intl/server";
 import { PRIVATE_ROBOTS } from "@/lib/seo";
 import { AdminAuthFrame } from "@/features/admin-console";
+import { AdminMfaGate } from "@/features/auth";
 
 export const metadata = PRIVATE_ROBOTS;
 
@@ -11,6 +12,7 @@ export const metadata = PRIVATE_ROBOTS;
 export default async function AdminLayout({ children }: { children: ReactNode }) {
   return (
     <NextIntlClientProvider messages={await getMessages()}>
+      <AdminMfaGate />
       <AdminAuthFrame>{children}</AdminAuthFrame>
     </NextIntlClientProvider>
   );

@@ -28,11 +28,40 @@ async def get_current_account(
 
 
 def require_role(role: str):
-    async def checker(account: Account = Depends(get_current_account)) -> Account:
+    async def checker(
+        account: Account = Depends(get_current_account),
+        db: AsyncSession = Depends(get_session),
+    ) -> Account:
         if role not in account.roles:
             raise HTTPException(status_code=status.HTTP_403_FORBIDDEN, detail=f"Yêu cầu quyền {role}")
+        if role == "admin" and account.totp_enabled_at is None:
+            # Console stays shut until the admin enables TOTP (policy-driven).
+            # The 2FA setup endpoints themselves only need get_current_account.
+            from src.auth.settings import admin_2fa_required
+            from src.errors.codes import ErrorCode
+            from src.errors.exceptions import api_error
+
+            if await admin_2fa_required(db):
+                raise api_error(ErrorCode.MFA_SETUP_REQUIRED, status.HTTP_403_FORBIDDEN)
         return account
     return checker
+
+
+async def require_withdrawal_mfa(account: Account, code: str | None, db: AsyncSession) -> None:
+    """Withdrawals need a live TOTP/backup code when the admin policy says so."""
+    from src.auth import mfa
+    from src.auth.settings import withdrawal_2fa_required
+    from src.errors.codes import ErrorCode
+    from src.errors.exceptions import api_error
+
+    if not await withdrawal_2fa_required(db):
+        return
+    if account.totp_enabled_at is None:
+        raise api_error(ErrorCode.MFA_SETUP_REQUIRED, status.HTTP_403_FORBIDDEN)
+    if not code:
+        raise api_error(ErrorCode.MFA_REQUIRED, status.HTTP_400_BAD_REQUEST)
+    if not mfa.verify_code(account, code):
+        raise api_error(ErrorCode.MFA_CODE_INVALID, status.HTTP_400_BAD_REQUEST)
 
 
 def require_min_seller_tier(min_tier: str):

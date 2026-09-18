@@ -9,6 +9,7 @@ import { Button, Field, Input } from "@/components/ui";
 import { validateEmail } from "../model/password";
 import { AuthNotice } from "./AuthNotice";
 import { AuthShell } from "./AuthShell";
+import { TurnstileWidget, useCaptchaGate } from "./TurnstileWidget";
 
 export function ForgotPasswordForm() {
   const t = useTranslations("auth");
@@ -19,6 +20,9 @@ export function ForgotPasswordForm() {
   const [error, setError] = useState<string | null>(null);
   const [sentTo, setSentTo] = useState<string | null>(null);
   const [busy, setBusy] = useState(false);
+  const [captchaToken, setCaptchaToken] = useState<string | null>(null);
+  const [captchaReset, setCaptchaReset] = useState(0);
+  const captcha = useCaptchaGate(captchaToken);
 
   const submit = async (e: FormEvent) => {
     e.preventDefault();
@@ -27,10 +31,12 @@ export function ForgotPasswordForm() {
     setBusy(true);
     setError(null);
     try {
-      await api.forgotPassword(email.trim(), locale);
+      await api.forgotPassword(email.trim(), locale, captchaToken ?? undefined);
       setSentTo(email.trim());
     } catch (err) {
       setError(apiErrorMessage(err, t("forgotFailed")));
+      setCaptchaToken(null);
+      setCaptchaReset((k) => k + 1);
     } finally {
       setBusy(false);
     }
@@ -64,8 +70,9 @@ export function ForgotPasswordForm() {
             autoFocus
           />
         </Field>
+        <TurnstileWidget onToken={setCaptchaToken} resetKey={captchaReset} />
         {error && <AuthNotice tone="bad">{error}</AuthNotice>}
-        <Button type="submit" block size="lg" disabled={busy} className="mt-1">
+        <Button type="submit" block size="lg" disabled={busy || !captcha.ready} className="mt-1">
           {busy ? t("forgotSubmitting") : t("forgotSubmit")}
         </Button>
       </form>

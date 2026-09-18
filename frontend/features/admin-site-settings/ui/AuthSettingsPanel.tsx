@@ -12,8 +12,14 @@ import { SettingsFooter, SettingsLoadError, SettingsLoading, SettingsRow } from 
 
 const HOURS_RANGE = { min: 1, max: 168 };
 
-type Form = { require: boolean; hours: string };
-const toForm = (cfg: AuthRuntimeConfig): Form => ({ require: cfg.require_email_verification, hours: String(cfg.verification_link_hours) });
+type Form = { require: boolean; hours: string; adminMfa: boolean; withdrawMfa: boolean; turnstile: string };
+const toForm = (cfg: AuthRuntimeConfig): Form => ({
+  require: cfg.require_email_verification,
+  hours: String(cfg.verification_link_hours),
+  adminMfa: cfg.require_admin_2fa,
+  withdrawMfa: cfg.require_2fa_for_withdrawal,
+  turnstile: cfg.turnstile_site_key,
+});
 
 /** Admin › Settings › Accounts: sign-up policy. */
 export function AuthSettingsPanel() {
@@ -52,6 +58,24 @@ export function AuthSettingsPanel() {
         <Input inputMode="numeric" value={form.hours} onChange={(e) => update({ hours: e.target.value.replace(/\D/g, "") })} aria-invalid={!hoursOk} className="mt-1 h-9 w-full text-right font-mono text-[13px] tabular-nums" />
         <span className="mt-1 block text-[11px] text-faint">{t("range", { min: HOURS_RANGE.min, max: HOURS_RANGE.max })}</span>
       </SettingsRow>
+      <SettingsRow title={t("adminMfaTitle")} hint={t("adminMfaHint")}>
+        <span className="mt-1 flex cursor-pointer items-center gap-2 text-[12.5px] text-fg">
+          <input type="checkbox" checked={form.adminMfa} onChange={(e) => update({ adminMfa: e.target.checked })} className="h-3.5 w-3.5 rounded border-line-2 text-iris" />
+          {t("adminMfaLabel")}
+        </span>
+      </SettingsRow>
+      <SettingsRow title={t("withdrawMfaTitle")} hint={t("withdrawMfaHint")}>
+        <span className="mt-1 flex cursor-pointer items-center gap-2 text-[12.5px] text-fg">
+          <input type="checkbox" checked={form.withdrawMfa} onChange={(e) => update({ withdrawMfa: e.target.checked })} className="h-3.5 w-3.5 rounded border-line-2 text-iris" />
+          {t("withdrawMfaLabel")}
+        </span>
+      </SettingsRow>
+      <SettingsRow title={t("turnstileTitle")} hint={t("turnstileHint")} label={t("turnstileLabel")}>
+        <Input value={form.turnstile} onChange={(e) => update({ turnstile: e.target.value.trim() })} placeholder="0x4AAAAAAA…" className="mt-1 h-9 w-full font-mono text-[12.5px]" />
+        <span className="mt-1 block text-[11px] text-faint">
+          {query.data.turnstile_secret_configured ? t("turnstileSecretOk") : t("turnstileSecretMissing")}
+        </span>
+      </SettingsRow>
       <SettingsFooter
         updatedAt={query.data.updated_at}
         message={msg}
@@ -59,7 +83,13 @@ export function AuthSettingsPanel() {
         valid={hoursOk}
         saving={save.isPending}
         onReset={() => { setForm(toForm(query.data)); setMsg(null); }}
-        onSave={() => save.mutate({ require_email_verification: form.require, verification_link_hours: hoursNum })}
+        onSave={() => save.mutate({
+          require_email_verification: form.require,
+          verification_link_hours: hoursNum,
+          require_admin_2fa: form.adminMfa,
+          require_2fa_for_withdrawal: form.withdrawMfa,
+          turnstile_site_key: form.turnstile,
+        })}
       />
     </section>
   );

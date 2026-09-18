@@ -1,8 +1,8 @@
 from datetime import datetime
 from enum import Enum as PyEnum
 
-from sqlalchemy import DateTime, Enum, ForeignKey, String, func, text
-from sqlalchemy.dialects.postgresql import ARRAY
+from sqlalchemy import DateTime, Enum, ForeignKey, String, Text, func, text
+from sqlalchemy.dialects.postgresql import ARRAY, JSONB
 from sqlalchemy.orm import Mapped, mapped_column
 
 from src.database import Base
@@ -45,12 +45,22 @@ class Account(Base):
     # NULL until the owner clicks the link we mailed them. Accounts that
     # existed before verification was introduced were backfilled as verified.
     email_verified_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True), nullable=True)
+    # TOTP two-factor: secret is encrypted at rest (security.crypto). A secret
+    # with NULL enabled_at is a pending setup the user has not confirmed yet.
+    totp_secret: Mapped[str | None] = mapped_column(Text, nullable=True)
+    totp_enabled_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True), nullable=True)
+    # sha256 hashes of unused one-time backup codes.
+    totp_backup_hashes: Mapped[list[str] | None] = mapped_column(JSONB, nullable=True)
     created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), server_default=func.now())
     updated_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), server_default=func.now(), onupdate=func.now())
 
     @property
     def email_verified(self) -> bool:
         return self.email_verified_at is not None
+
+    @property
+    def totp_enabled(self) -> bool:
+        return self.totp_enabled_at is not None
 
 
 class EmailVerificationToken(Base):
@@ -61,6 +71,9 @@ class EmailVerificationToken(Base):
     id: Mapped[int] = mapped_column(primary_key=True)
     account_id: Mapped[int] = mapped_column(ForeignKey("accounts.id", ondelete="CASCADE"), nullable=False, index=True)
     token_hash: Mapped[str] = mapped_column(String(64), unique=True, nullable=False)
+    # Set when the link confirms a *new* address (email change); NULL for the
+    # sign-up confirmation of the current address.
+    new_email: Mapped[str | None] = mapped_column(String(255), nullable=True)
     expires_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), nullable=False)
     used_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True), nullable=True)
     created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), server_default=func.now())

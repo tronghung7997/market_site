@@ -58,6 +58,13 @@ class Settings(BaseSettings):
     # Seed for auth_runtime_config.require_email_verification (admin-editable afterwards).
     email_verification_required: bool = True
     auth_verify_resend_account_limit: int = 5
+    # Seeds for auth_runtime_config; admin-editable afterwards.
+    require_admin_2fa: bool = True
+    require_2fa_for_withdrawal: bool = True
+    auth_mfa_account_limit: int = 10
+    # Cloudflare Turnstile server secret. Empty = captcha verification off.
+    turnstile_secret_key: str = ""
+    turnstile_verify_timeout_seconds: float = 5.0
     # Buyer response window after a seller has offered a dispute resolution.
     # Applies across delivery strategies until per-product policies are added.
     dispute_resolution_timeout_hours: int = 24

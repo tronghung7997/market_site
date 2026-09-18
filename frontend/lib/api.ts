@@ -17,6 +17,7 @@ import type {
   InventoryReportParams, InventoryReportResponse, InventoryStockTab, RestockPreview, RestockResult,
   SellerResourceQuery, SellerRuntimeConfig, SiteAnalyticsConfig,
   LoginEvent, AffiliateRuntimeConfig, PublicAffiliateConfig, ContentFilterConfig, ContentFilterTestResult, AuthRuntimeConfig,
+  LoginResult, PublicAuthConfig, TotpSetup,
 } from "./types";
 import {
   ApiError,
@@ -117,15 +118,32 @@ function inventoryReportQuery(params: InventoryReportParams) {
 }
 
 export const api = {
-  register: (email: string, password: string, referralCode?: string, locale = "vi") => {
+  register: (email: string, password: string, referralCode?: string, locale = "vi", captchaToken?: string) => {
     const body: Record<string, string> = { email, password, locale };
     if (referralCode) body.referral_code = referralCode;
+    if (captchaToken) body.captcha_token = captchaToken;
     return request<Account>("/auth/register", { method: "POST", body: JSON.stringify(body) });
   },
-  login: (email: string, password: string) =>
-    request<{ token_type: string }>("/auth/login", { method: "POST", body: JSON.stringify({ email, password }) }),
-  adminLogin: (email: string, password: string) =>
-    request<{ token_type: string }>("/auth/admin/login", { method: "POST", body: JSON.stringify({ email, password }) }),
+  login: (email: string, password: string, captchaToken?: string) =>
+    request<LoginResult>("/auth/login", { method: "POST", body: JSON.stringify({ email, password, captcha_token: captchaToken ?? null }) }),
+  adminLogin: (email: string, password: string, captchaToken?: string) =>
+    request<LoginResult>("/auth/admin/login", { method: "POST", body: JSON.stringify({ email, password, captcha_token: captchaToken ?? null }) }),
+  loginMfa: (mfaToken: string, code: string) =>
+    request<{ token_type: string }>("/auth/login/2fa", { method: "POST", body: JSON.stringify({ mfa_token: mfaToken, code }) }),
+  publicAuthConfig: () => request<PublicAuthConfig>("/public/auth-config"),
+  changePassword: (currentPassword: string, newPassword: string, locale: string) =>
+    request<void>("/auth/change-password", { method: "POST", body: JSON.stringify({ current_password: currentPassword, new_password: newPassword, locale }) }, true),
+  changeEmail: (newEmail: string, password: string, locale: string) =>
+    request<void>("/auth/change-email", { method: "POST", body: JSON.stringify({ new_email: newEmail, password, locale }) }, true),
+  totpSetup: (password: string) =>
+    request<TotpSetup>("/auth/2fa/setup", { method: "POST", body: JSON.stringify({ password }) }, true),
+  totpEnable: (code: string) =>
+    request<{ backup_codes: string[] }>("/auth/2fa/enable", { method: "POST", body: JSON.stringify({ code }) }, true),
+  totpDisable: (password: string, code: string) =>
+    request<void>("/auth/2fa/disable", { method: "POST", body: JSON.stringify({ password, code }) }, true),
+  totpBackupCodes: (code: string) =>
+    request<{ backup_codes: string[] }>("/auth/2fa/backup-codes", { method: "POST", body: JSON.stringify({ code }) }, true),
+  logoutAll: () => request<void>("/auth/logout-all", { method: "POST" }, true),
   logout: () => request<void>("/auth/session", { method: "DELETE" }),
   verifyEmail: (token: string) =>
     request<Account>("/auth/verify-email", { method: "POST", body: JSON.stringify({ token }) }),
@@ -134,12 +152,12 @@ export const api = {
   adminVerifyEmail: (id: number) =>
     request<AccountAdminRow>(`/admin/accounts/${id}/verify-email`, { method: "POST" }, true),
   adminAuthConfig: () => request<AuthRuntimeConfig>("/admin/auth-config", {}, true),
-  updateAdminAuthConfig: (body: Partial<Pick<AuthRuntimeConfig, "require_email_verification" | "verification_link_hours">>) =>
+  updateAdminAuthConfig: (body: Partial<Pick<AuthRuntimeConfig, "require_email_verification" | "verification_link_hours" | "require_admin_2fa" | "require_2fa_for_withdrawal" | "turnstile_site_key">>) =>
     request<AuthRuntimeConfig>("/admin/auth-config", { method: "PATCH", body: JSON.stringify(body) }, true),
-  forgotPassword: (email: string, locale: string) =>
+  forgotPassword: (email: string, locale: string, captchaToken?: string) =>
     request<{ message: string }>("/auth/forgot-password", {
       method: "POST",
-      body: JSON.stringify({ email, locale }),
+      body: JSON.stringify({ email, locale, captcha_token: captchaToken ?? null }),
     }),
   resetPassword: (token: string, password: string, locale: string) =>
     request<{ message: string }>("/auth/reset-password", {
@@ -609,7 +627,7 @@ export const api = {
   approveWithdrawal: (id: number) => request<WithdrawRequest>(`/admin/withdrawals/${id}/approve`, { method: "POST" }, true),
   rejectWithdrawal: (id: number, reason: string) =>
     request<WithdrawRequest>(`/admin/withdrawals/${id}/reject`, { method: "POST", body: JSON.stringify({ reason }) }, true),
-  requestWithdraw: (amount: number, bank: { bank_name: string; bank_account_number: string; bank_account_holder: string; bank_bin?: string }) =>
+  requestWithdraw: (amount: number, bank: { bank_name: string; bank_account_number: string; bank_account_holder: string; bank_bin?: string; totp_code?: string }) =>
     request<WithdrawRequest>("/wallet/withdraw", { method: "POST", body: JSON.stringify({ amount, ...bank }) }, true),
   markWithdrawalPaid: (id: number, payoutReference: string) =>
     request<WithdrawRequest>(`/admin/withdrawals/${id}/paid`, { method: "POST", body: JSON.stringify({ payout_reference: payoutReference }) }, true),

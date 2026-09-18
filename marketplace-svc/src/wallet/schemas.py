@@ -82,6 +82,8 @@ class WithdrawRequestCreate(BaseModel):
     bank_account_number: str = Field(min_length=4, max_length=50)
     bank_account_holder: str = Field(min_length=2, max_length=100)
     bank_bin: str | None = Field(default=None, max_length=20)
+    # TOTP or backup code; required when the admin policy demands 2FA for withdrawals.
+    totp_code: str | None = Field(default=None, max_length=16)
 
 
 class WithdrawMarkPaidRequest(BaseModel):

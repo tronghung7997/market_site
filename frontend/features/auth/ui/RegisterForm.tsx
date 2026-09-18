@@ -14,6 +14,7 @@ import { validateEmail, validateNewPassword } from "../model/password";
 import { AuthNotice } from "./AuthNotice";
 import { AuthShell } from "./AuthShell";
 import { PasswordInput } from "./PasswordInput";
+import { TurnstileWidget, useCaptchaGate } from "./TurnstileWidget";
 
 type Errors = { email?: string; password?: string; confirm?: string; terms?: string };
 
@@ -33,6 +34,9 @@ export function RegisterForm() {
   const [fieldErrors, setFieldErrors] = useState<Errors>({});
   const [error, setError] = useState<string | null>(null);
   const [busy, setBusy] = useState(false);
+  const [captchaToken, setCaptchaToken] = useState<string | null>(null);
+  const [captchaReset, setCaptchaReset] = useState(0);
+  const captcha = useCaptchaGate(captchaToken);
   const clear = (key: keyof Errors) => setFieldErrors((c) => ({ ...c, [key]: undefined }));
 
   const submit = async (e: React.FormEvent) => {
@@ -54,12 +58,14 @@ export function RegisterForm() {
     setBusy(true);
     setError(null);
     try {
-      await register(email.trim(), password, getCookie("aff_ref") ?? undefined, locale);
+      await register(email.trim(), password, getCookie("aff_ref") ?? undefined, locale, captchaToken ?? undefined);
       const params = new URLSearchParams({ sent: "1" });
       if (next) params.set("next", next);
       router.push(`/verify-email?${params.toString()}`);
     } catch (err) {
       setError(apiErrorMessage(err, t("registerFailed")));
+      setCaptchaToken(null);
+      setCaptchaReset((k) => k + 1);
     } finally {
       setBusy(false);
     }
@@ -124,8 +130,9 @@ export function RegisterForm() {
           </label>
           {fieldErrors.terms && <span className="text-[12px] text-bad" role="alert">{fieldErrors.terms}</span>}
         </div>
+        <TurnstileWidget onToken={setCaptchaToken} resetKey={captchaReset} />
         {error && <AuthNotice tone="bad">{error}</AuthNotice>}
-        <Button type="submit" block size="lg" disabled={busy} className="mt-1">
+        <Button type="submit" block size="lg" disabled={busy || !captcha.ready} className="mt-1">
           {busy ? t("creating") : t("registerTitle")}
         </Button>
       </form>

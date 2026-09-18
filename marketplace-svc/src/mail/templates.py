@@ -8,6 +8,8 @@ from typing import Any
 
 KNOWN_TEMPLATES = frozenset({
     "email_verify",
+    "email_change_confirm",
+    "email_change_notice",
     "password_reset",
     "password_changed",
     "seller_application_approved",
@@ -23,6 +25,8 @@ KNOWN_TEMPLATES = frozenset({
 
 PLACEHOLDERS: dict[str, tuple[str, ...]] = {
     "email_verify": ("action_url",),
+    "email_change_confirm": ("action_url",),
+    "email_change_notice": ("new_email", "action_url"),
     "password_reset": ("action_url",),
     "password_changed": ("action_url",),
     "seller_application_approved": ("action_url",),
@@ -38,6 +42,7 @@ PLACEHOLDERS: dict[str, tuple[str, ...]] = {
 
 _CONTEXT_KEYS = (
     "action_url",
+    "new_email",
     "reason",
     "order_id",
     "amount",
@@ -78,6 +83,44 @@ DEFAULT_TEMPLATES: dict[str, dict[str, dict[str, str]]] = {
                 "nạp và rút tiền.\n\n"
                 "Liên kết có hiệu lực trong 24 giờ.\n\nXác nhận email:\n{action_url}\n\n"
                 "Nếu bạn không tạo tài khoản này, hãy bỏ qua email."
+            ),
+        },
+    },
+    "email_change_confirm": {
+        "en": {
+            "subject": "Confirm your new GMMO email address",
+            "body": (
+                "You asked to use this address for your GMMO account.\n\n"
+                "Confirm it with the link below (valid for 24 hours). Nothing changes until you do.\n\n"
+                "Confirm new email:\n{action_url}\n\n"
+                "If you did not request this, ignore this email."
+            ),
+        },
+        "vi": {
+            "subject": "Xác nhận email mới cho tài khoản GMMO",
+            "body": (
+                "Bạn yêu cầu dùng địa chỉ này cho tài khoản GMMO.\n\n"
+                "Bấm link dưới để xác nhận (hiệu lực 24 giờ). Email đăng nhập chỉ đổi sau khi bạn xác nhận.\n\n"
+                "Xác nhận email mới:\n{action_url}\n\n"
+                "Nếu bạn không yêu cầu, hãy bỏ qua email này."
+            ),
+        },
+    },
+    "email_change_notice": {
+        "en": {
+            "subject": "A new email address was requested for your GMMO account",
+            "body": (
+                "Someone signed in to your account and asked to change its email to {new_email}.\n\n"
+                "If this was you, confirm it from the new mailbox. If not, reset your password now.\n\n"
+                "Reset password:\n{action_url}"
+            ),
+        },
+        "vi": {
+            "subject": "Có yêu cầu đổi email cho tài khoản GMMO của bạn",
+            "body": (
+                "Ai đó đã đăng nhập tài khoản của bạn và yêu cầu đổi email sang {new_email}.\n\n"
+                "Nếu là bạn, hãy xác nhận từ hộp thư mới. Nếu không phải, đặt lại mật khẩu ngay.\n\n"
+                "Đặt lại mật khẩu:\n{action_url}"
             ),
         },
     },
@@ -306,6 +349,7 @@ def placeholder_context(locale: str, payload: dict[str, Any] | None) -> dict[str
         "outcome": outcome,
         "admin_note": _s(data, "admin_note"),
         "provider_name": _s(data, "provider_name"),
+        "new_email": _s(data, "new_email"),
     }
 
 

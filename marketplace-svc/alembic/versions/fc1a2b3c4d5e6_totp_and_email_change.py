@@ -1,15 +1,15 @@
 """TOTP two-factor, email change links, admin/withdrawal 2FA policy, Turnstile key
 
-Revision ID: eh1a2b3c4d5e6
-Revises: eg1a2b3c4d5e6
+Revision ID: fc1a2b3c4d5e6
+Revises: fb1a2b3c4d5e6
 Create Date: 2026-09-18
 """
 from alembic import op
 import sqlalchemy as sa
 from sqlalchemy.dialects import postgresql
 
-revision = "eh1a2b3c4d5e6"
-down_revision = "eg1a2b3c4d5e6"
+revision = "fc1a2b3c4d5e6"
+down_revision = "fb1a2b3c4d5e6"
 branch_labels = None
 depends_on = None
 

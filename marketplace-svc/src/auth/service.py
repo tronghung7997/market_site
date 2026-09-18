@@ -798,3 +798,28 @@ async def complete_mfa_login(mfa_token: str, code: str, db: AsyncSession, *, ip:
     _record_login_event(db, account.id, kind=kind, outcome="success", ip=ip, user_agent=user_agent)
     security_event("auth_login_success", level="info", account_id=account.id, mfa=True)
     return account, kind
+async def update_internal(
+    account_id: int, is_internal: bool, db: AsyncSession, *, actor_id: int | None = None,
+) -> Account:
+    """Bật/tắt cờ seller nội bộ. Bật đồng thời cấp role seller nếu chưa có —
+    admin không phải làm hai bước."""
+    account = await db.get(Account, account_id)
+    if not account:
+        raise HTTPException(status_code=404, detail="Không tìm thấy tài khoản")
+    if "admin" in account.roles:
+        raise HTTPException(status_code=400, detail="Tài khoản admin không thể là seller nội bộ")
+    if is_internal and "seller" not in account.roles:
+        account.roles = [*account.roles, "seller"]
+    account.is_internal = is_internal
+    await log_event(
+        db, "warning", f"Internal flag {'set' if is_internal else 'cleared'} for account {account_id}",
+        request_id=current_request_id(),
+        metadata={
+            "event": "auth_internal_changed", "actor_id": actor_id, "actor_type": "admin",
+            "subject_type": "account", "subject_id": account_id, "outcome": "success",
+            "source": "admin", "is_internal": is_internal,
+        },
+    )
+    await db.commit()
+    await db.refresh(account)
+    return account

@@ -446,3 +446,13 @@ async def admin_update_seller_tier(
     db: AsyncSession = Depends(get_session),
 ):
     return await service.update_seller_tier(account_id, body.seller_tier, db, actor_id=admin.id)
+
+
+@router.patch("/admin/accounts/{account_id}/internal", response_model=schemas.AccountAdminRow)
+async def admin_update_internal(
+    account_id: int,
+    body: schemas.UpdateInternalRequest,
+    admin: Account = Depends(require_role("admin")),
+    db: AsyncSession = Depends(get_session),
+):
+    return await service.update_internal(account_id, body.is_internal, db, actor_id=admin.id)

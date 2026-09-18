@@ -4,7 +4,7 @@ import * as React from "react";
 import { motion } from "motion/react";
 import type { AccountAdminRow } from "@/lib/types";
 import { useAuth } from "@/lib/auth";
-import { Button, Card, Input, Spinner, Tag } from "@/components/ui";
+import { Button, Card, Input, Spinner, Switch, Tag } from "@/components/ui";
 import { SearchInput, Pagination, SlidePanel } from "@/components/admin";
 import { MoneyInput } from "@/components/MoneyInput";
 import { api, vnd } from "@/lib/api";
@@ -159,6 +159,19 @@ export default function AdminAccountsPage() {
     }
   };
 
+  const [internalSavingId, setInternalSavingId] = React.useState<number | null>(null);
+  const toggleInternal = async (row: AccountAdminRow) => {
+    setInternalSavingId(row.id); setErr(null);
+    try {
+      const updated = await api.adminUpdateInternal(row.id, !row.is_internal);
+      setData((d) => d ? { ...d, items: d.items.map((u) => u.id === row.id ? updated : u) } : d);
+    } catch (e) {
+      setErr(apiErrorMessage(e, "Cập nhật seller nội bộ thất bại"));
+    } finally {
+      setInternalSavingId(null);
+    }
+  };
+
   const changeTier = async (row: AccountAdminRow, tier: string) => {
     setTierSavingId(row.id); setErr(null);
     try {
@@ -195,6 +208,7 @@ export default function AdminAccountsPage() {
                     <th className="px-5 py-2.5 font-medium">Email</th>
                     <th className="px-5 py-2.5 font-medium">Vai trò</th>
                     <th className="px-5 py-2.5 font-medium">Cấp độ người bán</th>
+                    <th className="px-5 py-2.5 font-medium" title="Seller do sàn vận hành: thấy khu Nguồn cung, được giao nguồn hàng">Nội bộ</th>
                     <th className="px-5 py-2.5 font-medium">Trạng thái</th>
                     <th className="px-5 py-2.5 font-medium w-24" />
                   </tr>
@@ -245,6 +259,21 @@ export default function AdminAccountsPage() {
                             </select>
                           ) : (
                             <span className="text-slate-300">—</span>
+                          )}
+                        </td>
+                        <td className="px-5 py-3">
+                          {roles.includes("admin") ? (
+                            <span className="text-slate-300">—</span>
+                          ) : (
+                            <label className="inline-flex items-center gap-2 text-[12px] text-slate-600">
+                              <Switch
+                                checked={Boolean(row.is_internal)}
+                                disabled={internalSavingId === row.id}
+                                onChange={() => toggleInternal(row)}
+                                label="Seller nội bộ"
+                              />
+                              {row.is_internal ? "Seller nội bộ" : ""}
+                            </label>
                           )}
                         </td>
                         <td className="px-5 py-3 whitespace-nowrap">
@@ -311,7 +340,7 @@ export default function AdminAccountsPage() {
                     );
                   })}
                   {data.items.length === 0 && (
-                    <tr><td colSpan={5} className="px-5 py-12 text-center text-slate-500">Không tìm thấy tài khoản nào.</td></tr>
+                    <tr><td colSpan={6} className="px-5 py-12 text-center text-slate-500">Không tìm thấy tài khoản nào.</td></tr>
                   )}
                 </tbody>
               </table>

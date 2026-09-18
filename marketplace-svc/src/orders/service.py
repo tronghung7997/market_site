@@ -31,6 +31,7 @@ from src.usage.service import create_balance_for_order, get_usage_summary
 from src.wallet.service import deduct_credit, escrow_settlement, refund_escrow, release_escrow
 from src.disputes.service import orders_with_appendable_claims
 from src.exceptions import ErrorCode, api_error
+from src.suppliers.service import precheck_external_purchase, provider_has_external_stock
 from src.money.service import get_effective_rate
 from src.orders.codes import mask_email, parse_order_ref
 from src.sellers.service import approved_business_names, seller_refs_by_id
@@ -83,6 +84,15 @@ async def create_order(buyer_id: int, variant_id: int, quantity: int, db: AsyncS
         raise api_error(ErrorCode.PRODUCT_UNAVAILABLE, status.HTTP_400_BAD_REQUEST)
     if product.seller_id == buyer_id:
         raise api_error(ErrorCode.SELF_PURCHASE, status.HTTP_400_BAD_REQUEST)
+
+    # Gói bán lại từ catalog nhà cung cấp (provider external_stock, xem
+    # adapters/registry.py): hàng không nằm trong `resources` để claim, phải
+    # đi qua adapter mua-theo-đơn. Cùng payload {variant_id, quantity} của
+    # chiến lược `fixed`, nên chuyển thẳng sang luồng adapter.
+    if await provider_has_external_stock(product.provider_id, db):
+        return await create_order_with_adapter(
+            buyer_id, product.id, {"variant_id": variant_id, "quantity": quantity}, db,
+        )
 
     total = variant.price * quantity
     fx_snapshot = await get_effective_rate(db)
@@ -313,10 +323,19 @@ async def create_order_with_adapter(
             max=quantity_spec.max_quantity_per_order,
         )
 
+    # Nhà cung cấp catalog: hỏi tồn kho/giá realtime TRƯỚC khi trừ ví — hết
+    # hàng hay vừa tăng giá quá margin thì từ chối ngay (409), không tạo đơn
+    # rồi hoàn tiền (src/suppliers/service.py).
+    if quantity_spec and quantity_spec.external_stock:
+        await precheck_external_purchase(product, user_config.get("variant_id"), q.quantity, db)
+
     order = Order(
         buyer_id=buyer_id,
         seller_id=product.seller_id,
         product_id=product_id,
+        # Chiến lược `fixed` có variant_id trong user_config — ghi lên đơn để
+        # buyer/seller thấy tên gói như đơn kho thường.
+        variant_id=user_config.get("variant_id") if strategy_name == "fixed" else None,
         quantity=q.quantity,
         total_amount=total_amount,
         status=OrderStatus.pending,

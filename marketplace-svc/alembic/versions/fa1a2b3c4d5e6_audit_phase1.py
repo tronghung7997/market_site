@@ -7,7 +7,7 @@
 - ``affiliate_commissions.fee_base_amount``: the fee a commission was computed on.
 - ``site_pages``: seed the refund and dispute policy pages.
 
-Revision ID: ef1a2b3c4d5e6
+Revision ID: fa1a2b3c4d5e6
 Revises: eb1a2b3c4d5e6
 Create Date: 2026-09-18
 """
@@ -17,7 +17,7 @@ from sqlalchemy.dialects import postgresql
 
 from src.site_pages.defaults import DEFAULT_PAGES
 
-revision = "ef1a2b3c4d5e6"
+revision = "fa1a2b3c4d5e6"
 down_revision = "eb1a2b3c4d5e6"
 branch_labels = None
 depends_on = None

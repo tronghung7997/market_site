@@ -32,6 +32,8 @@ class Account(Base):
     password_hash: Mapped[str] = mapped_column(String(255), nullable=False)
     roles: Mapped[list[str]] = mapped_column(ARRAY(String), default=["buyer"])
     is_active: Mapped[bool] = mapped_column(default=True)
+    # Seller nội bộ (sàn vận hành): thấy khu Nguồn cung, được admin giao nguồn hàng.
+    is_internal: Mapped[bool] = mapped_column(default=False, server_default="false", nullable=False)
     seller_tier: Mapped[SellerTier] = mapped_column(Enum(SellerTier), default=SellerTier.new, nullable=False)
     affiliate_code: Mapped[str] = mapped_column(
         String(8),

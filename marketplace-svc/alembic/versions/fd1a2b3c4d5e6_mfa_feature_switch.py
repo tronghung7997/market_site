@@ -1,14 +1,14 @@
 """Marketplace-wide two-factor switch (ships off) and dormant 2FA policies
 
-Revision ID: ei1a2b3c4d5e6
-Revises: eh1a2b3c4d5e6
+Revision ID: fd1a2b3c4d5e6
+Revises: fc1a2b3c4d5e6
 Create Date: 2026-09-18
 """
 from alembic import op
 import sqlalchemy as sa
 
-revision = "ei1a2b3c4d5e6"
-down_revision = "eh1a2b3c4d5e6"
+revision = "fd1a2b3c4d5e6"
+down_revision = "fc1a2b3c4d5e6"
 branch_labels = None
 depends_on = None
 

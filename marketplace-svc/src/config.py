@@ -133,6 +133,9 @@ class Settings(BaseSettings):
     deposit_max_amount: int = 100_000_000
     deposit_max_pending_per_account: int = 3
     deposit_expire_minutes: int = 30
+    # Đồng bộ catalog nhà cung cấp mua-theo-đơn (igbm…). Tồn/giá lúc checkout
+    # vẫn được hỏi realtime (precheck) nên chu kỳ dài không gây bán quá tồn.
+    supplier_sync_interval_minutes: int = 240
     # Lệnh đã expired/cancelled nhưng CHƯA thấy tiền vẫn được đối soát lại
     # trong cửa sổ này — webhook có thể bị nuốt trong lúc backend outage và
     # expire job chạy trước khi PayOS kịp báo (review 24/07 #2).
@@ -257,6 +260,7 @@ class Settings(BaseSettings):
             "auth_forgot_account_limit",
             "auth_reset_ip_limit",
             "password_reset_ttl_minutes",
+            "supplier_sync_interval_minutes",
             "dispute_resolution_timeout_hours",
             "dispute_abandon_grace_hours",
             "jwt_expire_minutes",

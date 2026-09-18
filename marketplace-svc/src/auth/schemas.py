@@ -80,6 +80,7 @@ class AccountResponse(BaseModel):
     mfa_available: bool = False
     # Admin whose console is locked until they enable TOTP (policy on).
     mfa_setup_required: bool = False
+    is_internal: bool = False
 
     model_config = {"from_attributes": True}
 
@@ -92,6 +93,7 @@ class AccountAdminRow(BaseModel):
     email_verified: bool = True
     totp_enabled: bool = False
     seller_tier: str
+    is_internal: bool = False
     created_at: datetime
 
     model_config = {"from_attributes": True}
@@ -204,3 +206,7 @@ class TotpDisableRequest(BaseModel):
 
 class BackupCodesResponse(BaseModel):
     backup_codes: list[str]
+
+
+class UpdateInternalRequest(BaseModel):
+    is_internal: bool

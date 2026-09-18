@@ -6,8 +6,7 @@ import { useAuth } from "@/lib/auth";
 import { cn } from "@/lib/cn";
 import {
   Activity, ArrowRight, BarChart, Bell, ChevronLeft, ClipboardList, FileText,
-  Grid, Inbox, LogOut, Menu, MessageCircle, Package, Plus, Receipt, Shield, Sliders, TrendingUp, Users, Verified, Wallet,
-} from "@/components/Icons";
+  Grid, Inbox, LogOut, Menu, MessageCircle, Package, Plus, Receipt, Shield, Sliders, TrendingUp, Users, Verified, Wallet, Layers } from "@/components/Icons";
 import NotificationBell from "@/components/NotificationBell";
 
 type NavItem = { href: string; label: string; icon: (p: { size?: number }) => ReactNode };
@@ -35,6 +34,7 @@ const NAV_GROUPS: { label: string; items: NavItem[] }[] = [
       { href: "/admin/display-settings", label: "Cài đặt", icon: Sliders },
       { href: "/admin/site-pages", label: "Trang nội dung", icon: FileText },
       { href: "/admin/providers", label: "Nhà cung cấp", icon: Activity },
+      { href: "/admin/sources", label: "Nguồn hàng", icon: Layers },
       { href: "/admin/tasks", label: "Tác vụ", icon: ClipboardList },
       { href: "/admin/alerts", label: "Cảnh báo", icon: Bell },
       { href: "/admin/reports", label: "Báo cáo", icon: FileText },

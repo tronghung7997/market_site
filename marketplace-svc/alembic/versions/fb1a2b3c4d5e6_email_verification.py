@@ -3,15 +3,15 @@
 Existing accounts are backfilled as verified at their creation time so the
 new purchase/deposit/withdraw gate never locks out a current customer.
 
-Revision ID: eg1a2b3c4d5e6
-Revises: ef1a2b3c4d5e6
+Revision ID: fb1a2b3c4d5e6
+Revises: fa1a2b3c4d5e6
 Create Date: 2026-09-18
 """
 from alembic import op
 import sqlalchemy as sa
 
-revision = "eg1a2b3c4d5e6"
-down_revision = "ef1a2b3c4d5e6"
+revision = "fb1a2b3c4d5e6"
+down_revision = "fa1a2b3c4d5e6"
 branch_labels = None
 depends_on = None
 

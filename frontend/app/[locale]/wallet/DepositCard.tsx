@@ -4,6 +4,7 @@ import { useLocale, useTranslations } from "next-intl";
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import Image from "next/image";
 import { QRCodeSVG } from "qrcode.react";
+import { FrozenNotice, useFlowFrozen } from "@/features/site-status";
 import { api } from "@/lib/api";
 import { useApiErrorMessage } from "@/lib/use-api-error";
 import { cn } from "@/lib/cn";
@@ -174,8 +175,9 @@ export default function DepositCard({ deposits, onChanged }: {
       (maxUsd == null || (amountUsd != null && amountUsd <= maxUsd)));
   const amountInRange = meetsMin && meetsMax;
 
+  const depositsFrozen = useFlowFrozen("deposits");
   const canCreate =
-    anyRail && amountInRange && !loading && methodsState.status === "ready";
+    anyRail && amountInRange && !loading && methodsState.status === "ready" && !depositsFrozen;
 
   const formatMinLabel = useMemo(() => {
     if (minUsd != null) return formatUsdAmount(minUsd, locale);
@@ -592,6 +594,7 @@ export default function DepositCard({ deposits, onChanged }: {
                 </div>
               </div>
 
+              <FrozenNotice flow="deposits" className="mb-3" />
               <Button
                 variant="primary"
                 size="md"

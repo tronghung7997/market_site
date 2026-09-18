@@ -25,6 +25,10 @@ class ErrorCode(str, Enum):
     MFA_FEATURE_DISABLED = "MFA_FEATURE_DISABLED"
     CAPTCHA_REQUIRED = "CAPTCHA_REQUIRED"
     CAPTCHA_FAILED = "CAPTCHA_FAILED"
+    MAINTENANCE = "MAINTENANCE"
+    ORDERS_FROZEN = "ORDERS_FROZEN"
+    DEPOSITS_FROZEN = "DEPOSITS_FROZEN"
+    WITHDRAWALS_FROZEN = "WITHDRAWALS_FROZEN"
     ADMIN_LOGIN_REQUIRED = "ADMIN_LOGIN_REQUIRED"
     ADMIN_ONLY = "ADMIN_ONLY"
     QUOTA_EXCEEDED = "QUOTA_EXCEEDED"
@@ -132,6 +136,10 @@ MESSAGES_EN: dict[ErrorCode, str] = {
     ErrorCode.MFA_FEATURE_DISABLED: "Two-factor authentication is not available on this marketplace right now",
     ErrorCode.CAPTCHA_REQUIRED: "Please complete the verification challenge",
     ErrorCode.CAPTCHA_FAILED: "Verification challenge failed. Please try again",
+    ErrorCode.MAINTENANCE: "The marketplace is under maintenance. Please try again shortly",
+    ErrorCode.ORDERS_FROZEN: "Purchases are temporarily paused. Please try again later",
+    ErrorCode.DEPOSITS_FROZEN: "Deposits are temporarily paused. Please try again later",
+    ErrorCode.WITHDRAWALS_FROZEN: "Withdrawals are temporarily paused. Please try again later",
     ErrorCode.ADMIN_LOGIN_REQUIRED: "Administrator accounts must use the private admin sign-in",
     ErrorCode.ADMIN_ONLY: "This sign-in is restricted to administrator accounts",
     ErrorCode.QUOTA_EXCEEDED: "Request quota for this package is exhausted — purchase a new package",

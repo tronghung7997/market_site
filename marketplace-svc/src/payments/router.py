@@ -1,6 +1,7 @@
 from fastapi import APIRouter, Depends, HTTPException, Query, Request
 from sqlalchemy.ext.asyncio import AsyncSession
 
+from src.site_status import require_deposits_open
 from src.auth.dependencies import get_current_account, require_role, require_verified_email
 from src.database import get_session
 from src.models.account import Account
@@ -25,6 +26,7 @@ async def create_deposit(
     account: Account = Depends(require_verified_email),
     db: AsyncSession = Depends(get_session),
 ):
+    await require_deposits_open(db)
     return await service.create_deposit(
         account.id,
         body.amount,

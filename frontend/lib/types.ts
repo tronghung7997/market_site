@@ -2187,3 +2187,48 @@ export interface SourceRepriceResult {
   changed: { listing_id: number; variant_id: number; old_price: number; new_price: number }[];
   min_margin_pct: number;
 }
+
+export interface SiteAnnouncement {
+  level: "info" | "warn" | "danger";
+  text_vi: string;
+  text_en: string;
+  link_url: string;
+  version: number;
+}
+
+export interface SiteStatusPublic {
+  maintenance_enabled: boolean;
+  maintenance_message_vi: string;
+  maintenance_message_en: string;
+  maintenance_until: string | null;
+  withdrawals_frozen: boolean;
+  deposits_frozen: boolean;
+  orders_frozen: boolean;
+  announcement: SiteAnnouncement | null;
+}
+
+export interface SiteStatusAdmin {
+  maintenance_enabled: boolean;
+  maintenance_message_vi: string;
+  maintenance_message_en: string;
+  maintenance_until: string | null;
+  withdrawals_frozen: boolean;
+  deposits_frozen: boolean;
+  orders_frozen: boolean;
+  freeze_reason: string;
+  announcement_enabled: boolean;
+  announcement_level: "info" | "warn" | "danger";
+  announcement_text_vi: string;
+  announcement_text_en: string;
+  announcement_link_url: string;
+  announcement_starts_at: string | null;
+  announcement_ends_at: string | null;
+  announcement_version: number;
+  updated_at: string | null;
+  updated_by_id: number | null;
+}
+
+export type SiteStatusUpdate = Partial<Omit<SiteStatusAdmin, "announcement_version" | "updated_at" | "updated_by_id">> & {
+  clear_maintenance_until?: boolean;
+  clear_announcement_window?: boolean;
+};

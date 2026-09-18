@@ -4,6 +4,7 @@ import { useRouter } from "@/i18n/navigation";
 import { useLocale, useTranslations } from "next-intl";
 import type { ReactNode } from "react";
 import { useMoney } from "@/lib/money";
+import { FrozenNotice, useFlowFrozen } from "@/features/site-status";
 import { productPath } from "@/lib/routes";
 import { useAuth } from "@/lib/auth";
 import { useVariantTerm } from "@/lib/variant-term";
@@ -43,6 +44,7 @@ export default function OrderPanel({ product, purchase, fulfillment }: {
   const { account } = useAuth();
   const term = useVariantTerm(product.service_type);
   const { selected, qty, total, order, placing, placeError, showConfirm } = purchase;
+  const ordersFrozen = useFlowFrozen("orders");
 
   const instant = selected?.delivery_mode === "instant";
   const contact = panelMode(selected) === "contact";
@@ -159,8 +161,9 @@ export default function OrderPanel({ product, purchase, fulfillment }: {
                 </div>
 
                 {placeError && <p className="text-bad text-[12.5px]" role="alert">{placeError}</p>}
+                <FrozenNotice flow="orders" />
 
-                <Button size="lg" block disabled={cta.disabled} onClick={onCtaClick}>
+                <Button size="lg" block disabled={cta.disabled || ordersFrozen} onClick={onCtaClick}>
                   {t(cta.labelKey)}
                 </Button>
                 {showOosHint && (

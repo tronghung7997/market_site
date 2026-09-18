@@ -12,6 +12,7 @@ import { formatDate } from "@/lib/utils";
 import type { Wallet, WithdrawRequest } from "@/lib/types";
 import { Button, Card, Input, Tag } from "@/components/ui";
 import { DisplayCurrencyInput } from "@/components/DisplayCurrencyInput";
+import { FrozenNotice, useFlowFrozen } from "@/features/site-status";
 
 const WITHDRAW_TONE: Record<string, "good" | "bad" | "warn" | "iris" | "neutral"> = {
   pending: "warn",
@@ -29,6 +30,7 @@ export function WithdrawCard({ wallet, onChanged }: {
   const locale = useLocale();
   const { formatBrowseMoney } = useMoney();
   const { account } = useAuth();
+  const withdrawalsFrozen = useFlowFrozen("withdrawals");
   const [amount, setAmount] = useState(0);
   const [totpCode, setTotpCode] = useState("");
   const [needsTotpSetup, setNeedsTotpSetup] = useState(false);
@@ -78,6 +80,7 @@ export function WithdrawCard({ wallet, onChanged }: {
         <h3 className="text-[13px] font-semibold">{t("withdrawTitle")}</h3>
       </div>
       <div className="p-5 space-y-3">
+        <FrozenNotice flow="withdrawals" />
         {msg && (
           <div className="p-2.5 rounded-lg bg-good-soft text-good text-[12px]">✓ {msg}</div>
         )}
@@ -164,7 +167,7 @@ export function WithdrawCard({ wallet, onChanged }: {
           size="md"
           block
           onClick={handleWithdraw}
-          disabled={loading || !amount}
+          disabled={loading || !amount || withdrawalsFrozen}
         >
           {loading ? t("withdrawSubmitting") : t("withdrawSubmit")}
         </Button>

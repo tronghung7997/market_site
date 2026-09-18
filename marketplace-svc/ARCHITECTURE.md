@@ -121,6 +121,8 @@ Operational mail knobs (`provider`, `mail_from`, `mail_from_name`, `worker_enabl
 
 `auth` records every login attempt against an existing account, and every admin lock/unlock, in `login_events` (IP, user agent, outcome). `PATCH /admin/accounts/{id}/status` flips `is_active` and revokes all sessions on lock. The end-user IP is `security.client_ip.request_client_ip`: the BFF forwards it as `X-Client-IP`, honoured only on a BFF-signed request; `RequestIdMiddleware` binds it into the log context so `audit.log_event` stamps `ip` on every business event.
 
+`site_status` owns the operational switches in `site_runtime_config` (Settings › System): maintenance mode, the three money kill-switches and the announcement bar. `maintenance_gate` is an app-wide dependency answering 503 `MAINTENANCE` to every non-admin caller except health, `/public/*`, payment webhooks, provider callbacks, the gateway and the sign-in/2FA endpoints; `pausable()` wraps the money-moving scheduler jobs (escrow release, dispute timeouts, SLA refunds, provisioning, DProxy reconciliation) so they skip while maintenance is on. `require_orders_open / require_deposits_open / require_withdrawals_open` are called by the owning routers. `/public/site-status` exposes the flags plus the live announcement (never the internal freeze reason); every flip is an audit row.
+
 `site_pages` owns the admin-editable footer/legal pages (`site_pages` table, one row per slug with vi/en markdown). Built-in slugs are seeded by migration from `site_pages.defaults` and can be reset but not deleted; admin may add further slugs. Public reads (`/public/site-pages`, `/public/site-pages/{slug}`) go through a `ProcessConfigCache`; the storefront renders the markdown with raw HTML disabled.
 
 ## 4. Dependency rules

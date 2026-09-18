@@ -14,6 +14,7 @@ import {
 import { ArrowRight, Check, RotateCw } from "lucide-react";
 
 import { api } from "@/lib/api";
+import { SystemStatusBanner } from "@/features/admin-site-settings";
 import { Card } from "@/components/ui/card";
 import { OrderStatusBadge } from "@/components/admin/status-badge";
 import { vnd } from "@/lib/utils/format";
@@ -198,6 +199,7 @@ export default function AdminOverview() {
 
   return (
     <div className="animate-rise grid gap-6 lg:grid-cols-[1fr_310px]">
+      <div className="lg:col-span-2 empty:hidden"><SystemStatusBanner /></div>
       {/* ══════════ Cột chính ══════════ */}
       <div className="min-w-0 space-y-6">
         {/* Đơn cần chú ý — kẹt lâu nhất lên đầu, không phải "gần đây nhất" */}

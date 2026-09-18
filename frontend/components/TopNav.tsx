@@ -26,6 +26,7 @@ import {
   X,
 } from "./Icons";
 import NotificationBell from "./NotificationBell";
+import { AnnouncementBar, useSiteStatus } from "@/features/site-status";
 import MessageShortcut from "./chat/MessageShortcut";
 import CurrencyToggle from "./CurrencyToggle";
 import { Button } from "./ui";
@@ -118,6 +119,8 @@ function TopNavBar() {
   // bất kỳ đâu invalidate ["wallet"] là con số này tự nhảy, không cần đổi
   // trang như bản cũ (trước đây refetch theo pathname để chữa stale).
   const { data: wallet } = useWalletBalance(!!account);
+  const { data: siteStatus } = useSiteStatus();
+  const announcementLive = Boolean(siteStatus?.announcement);
   const balance = account ? wallet?.available_balance ?? null : null;
   const { formatBrowseMoney, allowLocaleToggle, allowToggle } = useMoney();
   const [menuOpen, setMenuOpen] = useState(false);
@@ -160,13 +163,16 @@ function TopNavBar() {
 
   return (
     <>
-      {/* Promo strip */}
-      <div className="bg-ink-panel text-white/85 text-[12.5px]">
-        <div className="mx-auto max-w-[1200px] px-6 min-h-9 py-1.5 flex items-center gap-2 justify-center sm:justify-start">
-          <Bolt size={13} className="text-iris-hi" />
-          <span>{t("promo")}</span>
+      {/* Promo strip — yields to an admin announcement when one is live */}
+      <AnnouncementBar />
+      {!announcementLive && (
+        <div className="bg-ink-panel text-white/85 text-[12.5px]">
+          <div className="mx-auto max-w-[1200px] px-6 min-h-9 py-1.5 flex items-center gap-2 justify-center sm:justify-start">
+            <Bolt size={13} className="text-iris-hi" />
+            <span>{t("promo")}</span>
+          </div>
         </div>
-      </div>
+      )}
 
       {/* Nav */}
       <header className="sticky top-0 z-40 bg-surface/85 backdrop-blur-md border-b border-line">

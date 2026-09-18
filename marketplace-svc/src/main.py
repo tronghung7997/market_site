@@ -2,7 +2,7 @@ from contextlib import asynccontextmanager
 
 import structlog
 from apscheduler.schedulers.asyncio import AsyncIOScheduler
-from fastapi import FastAPI, Header, HTTPException, Request
+from fastapi import Depends, FastAPI, Header, HTTPException, Request
 from fastapi.responses import JSONResponse
 from starlette.middleware.cors import CORSMiddleware
 
@@ -64,6 +64,9 @@ from src.money.router import router as money_router
 from src.analytics.router import router as analytics_router
 from src.security.bff_request_signing import requires_bff_signature, verify_bff_request_signature
 from src.security.client_ip import request_client_ip
+from src.site_status import pausable
+from src.site_status.gate import maintenance_gate
+from src.site_status.router import router as site_status_router
 
 # offline
 from fastapi.openapi.docs import (
@@ -77,19 +80,19 @@ setup_logging()
 init_sentry()
 
 scheduler = AsyncIOScheduler()
-scheduler.add_job(escrow_release_job, "interval", minutes=30, id="escrow_release")
+scheduler.add_job(pausable(escrow_release_job), "interval", minutes=30, id="escrow_release")
 scheduler.add_job(auto_review_job, "interval", hours=24, id="auto_review")
-scheduler.add_job(dispute_resolution_timeout_job, "interval", minutes=15, id="dispute_resolution_timeout")
-scheduler.add_job(dispute_abandonment_job, "interval", minutes=15, id="dispute_abandonment")
-scheduler.add_job(sla_check_job, "interval", minutes=10, id="sla_check")
+scheduler.add_job(pausable(dispute_resolution_timeout_job), "interval", minutes=15, id="dispute_resolution_timeout")
+scheduler.add_job(pausable(dispute_abandonment_job), "interval", minutes=15, id="dispute_abandonment")
+scheduler.add_job(pausable(sla_check_job), "interval", minutes=10, id="sla_check")
 # Provider-health polling is deliberately paused: its current probes can
 # report an untested/billable provider as healthy, while persisting 96 rows per
 # provider per day without retention. Keep manual provider tests available;
 # re-enable this only with a trustworthy signal model and bounded retention.
 scheduler.add_job(resource_expire_job, "interval", minutes=15, id="resource_expire")
-scheduler.add_job(provision_sweep_job, "interval", minutes=2, id="provision_sweep")
+scheduler.add_job(pausable(provision_sweep_job), "interval", minutes=2, id="provision_sweep")
 scheduler.add_job(task_webhook_sla_job, "interval", minutes=30, id="task_webhook_sla")
-scheduler.add_job(dproxy_reconciliation_job, "interval", minutes=15, id="dproxy_reconciliation")
+scheduler.add_job(pausable(dproxy_reconciliation_job), "interval", minutes=15, id="dproxy_reconciliation")
 scheduler.add_job(deposit_reconcile_job, "interval", minutes=5, id="deposit_reconcile")
 scheduler.add_job(deposit_expire_job, "interval", minutes=10, id="deposit_expire")
 scheduler.add_job(provider_credit_low_job, "interval", minutes=15, id="provider_credit_low")
@@ -118,6 +121,8 @@ async def lifespan(app):
 
 
 app = FastAPI(
+    # Maintenance mode: 503 for everyone but admins/operational paths (site_status.gate).
+    dependencies=[Depends(maintenance_gate)],
     title=settings.service_name,
     lifespan=lifespan,
     docs_url=None,
@@ -170,6 +175,7 @@ async def require_bff_signature(request: Request, call_next):
     return await call_next(request)
 
 app.include_router(auth_router)
+app.include_router(site_status_router)
 app.include_router(content_filter_router)
 app.include_router(seller_router)
 app.include_router(sellers_router)

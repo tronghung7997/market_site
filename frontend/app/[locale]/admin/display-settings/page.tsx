@@ -5,16 +5,17 @@ import { useSearchParams } from "next/navigation";
 import { useTranslations } from "next-intl";
 import { MailSettingsPanel } from "@/features/admin-mail";
 import { SellerConfigPanel } from "@/features/admin-seller-config";
-import { AffiliateSettingsPanel, AnalyticsSettingsPanel, AuthSettingsPanel, ContentFilterPanel, DepositRailsPanel, DisplaySettingsPanel } from "@/features/admin-site-settings";
+import { AffiliateSettingsPanel, AnalyticsSettingsPanel, AuthSettingsPanel, ContentFilterPanel, DepositRailsPanel, DisplaySettingsPanel, SystemPanel } from "@/features/admin-site-settings";
 import { SearchSettingsPanel } from "@/features/admin-search";
 import { cn } from "@/lib/cn";
 import { Spinner } from "@/components/ui";
 
-const TABS = ["display", "accounts", "deposits", "mail", "seller", "affiliate", "contentFilter", "search", "analytics"] as const;
+const TABS = ["display", "system", "accounts", "deposits", "mail", "seller", "affiliate", "contentFilter", "search", "analytics"] as const;
 type SettingsTab = (typeof TABS)[number];
 
 const PANELS: Record<SettingsTab, () => React.JSX.Element> = {
   display: DisplaySettingsPanel,
+  system: SystemPanel,
   accounts: AuthSettingsPanel,
   deposits: DepositRailsPanel,
   mail: MailSettingsPanel,

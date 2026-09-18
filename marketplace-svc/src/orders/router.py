@@ -3,6 +3,7 @@ from sqlalchemy import select
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from src.adapters.factory import get_adapter
+from src.site_status import require_orders_open
 from src.auth.dependencies import get_current_account, get_seller_account, require_role, require_verified_email
 from src.database import get_session
 from src.errors.codes import ErrorCode
@@ -22,6 +23,7 @@ router = APIRouter(tags=["orders"])
 
 @router.post("/orders", response_model=schemas.OrderResponse, status_code=status.HTTP_201_CREATED)
 async def create_order(body: schemas.OrderCreate, account: Account = Depends(require_verified_email), db: AsyncSession = Depends(get_session)):
+    await require_orders_open(db)
     if body.variant_id:
         return await service.create_order(account.id, body.variant_id, body.quantity, db)
     else:

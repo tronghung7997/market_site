@@ -22,7 +22,7 @@ import type {
   InventoryReportParams, InventoryReportResponse, InventoryStockTab, RestockPreview, RestockResult,
   SellerResourceQuery, SellerRuntimeConfig, SiteAnalyticsConfig,
   LoginEvent, AffiliateRuntimeConfig, PublicAffiliateConfig, ContentFilterConfig, ContentFilterTestResult, AuthRuntimeConfig,
-  LoginResult, PublicAuthConfig, TotpSetup,
+  LoginResult, PublicAuthConfig, TotpSetup, SiteStatusPublic, SiteStatusAdmin, SiteStatusUpdate,
 } from "./types";
 import {
   ApiError,
@@ -136,6 +136,10 @@ export const api = {
   loginMfa: (mfaToken: string, code: string) =>
     request<{ token_type: string }>("/auth/login/2fa", { method: "POST", body: JSON.stringify({ mfa_token: mfaToken, code }) }),
   publicAuthConfig: () => request<PublicAuthConfig>("/public/auth-config"),
+  publicSiteStatus: () => request<SiteStatusPublic>("/public/site-status"),
+  adminSiteStatus: () => request<SiteStatusAdmin>("/admin/site-status", {}, true),
+  updateAdminSiteStatus: (body: SiteStatusUpdate) =>
+    request<SiteStatusAdmin>("/admin/site-status", { method: "PATCH", body: JSON.stringify(body) }, true),
   changePassword: (currentPassword: string, newPassword: string, locale: string) =>
     request<void>("/auth/change-password", { method: "POST", body: JSON.stringify({ current_password: currentPassword, new_password: newPassword, locale }) }, true),
   changeEmail: (newEmail: string, password: string, locale: string) =>

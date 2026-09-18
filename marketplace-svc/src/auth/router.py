@@ -9,6 +9,7 @@ from src.errors.exceptions import api_error
 from src.models.account import Account
 from src.config import settings
 from src.rate_limit import check_rate_limit
+from src.security.client_ip import request_client_ip
 from src.security.events import security_event
 
 from . import schemas, service, sessions
@@ -18,9 +19,13 @@ router = APIRouter(tags=["auth"])
 
 
 def _peer_ip(request: Request) -> str:
-    # Do not trust spoofable forwarding headers here. The edge limiter should
-    # use the verified client IP; this application bucket uses the TCP peer.
-    return request.client.host if request.client else "unknown"
+    # End-user IP: the BFF-forwarded value on a signed request, else the TCP
+    # peer / trusted-proxy chain. Spoofable headers are never read directly.
+    return request_client_ip(request)
+
+
+def _user_agent(request: Request) -> str | None:
+    return request.headers.get("user-agent") or None
 
 
 def _email_bucket(email: str) -> str:
@@ -53,13 +58,18 @@ async def _authenticate_with_limits(
     body: schemas.LoginRequest,
     request: Request,
     db: AsyncSession,
+    *,
+    kind: str = "login",
 ) -> Account:
     await _enforce_auth_limit(f"auth:login:ip:{_peer_ip(request)}", settings.auth_login_ip_limit)
     await _enforce_auth_limit(
         f"auth:login:account:{_email_bucket(body.email)}",
         settings.auth_login_account_limit,
     )
-    return await service.authenticate(body.email, body.password, db)
+    return await service.authenticate(
+        body.email, body.password, db,
+        kind=kind, ip=_peer_ip(request), user_agent=_user_agent(request),
+    )
 
 
 @router.post("/auth/register", response_model=schemas.AccountResponse, status_code=status.HTTP_201_CREATED)
@@ -101,7 +111,7 @@ async def admin_login(
     request: Request,
     db: AsyncSession = Depends(get_session),
 ):
-    account = await _authenticate_with_limits(body, request, db)
+    account = await _authenticate_with_limits(body, request, db, kind="admin_login")
     if "admin" not in account.roles:
         security_event(
             "admin_login_rejected",
@@ -211,6 +221,32 @@ async def admin_update_roles(
     db: AsyncSession = Depends(get_session),
 ):
     return await service.update_roles(account_id, body.roles, admin.id, db)
+
+
+@router.patch("/admin/accounts/{account_id}/status", response_model=schemas.AccountAdminRow)
+async def admin_set_account_status(
+    account_id: int,
+    body: schemas.UpdateAccountStatusRequest,
+    request: Request,
+    admin: Account = Depends(require_role("admin")),
+    db: AsyncSession = Depends(get_session),
+):
+    return await service.set_account_active(
+        account_id, body.is_active, db,
+        actor_id=admin.id, reason=body.reason, ip=_peer_ip(request),
+    )
+
+
+@router.get("/admin/accounts/{account_id}/login-events", response_model=list[schemas.LoginEventRow])
+async def admin_login_events(
+    account_id: int,
+    _: Account = Depends(require_role("admin")),
+    db: AsyncSession = Depends(get_session),
+    limit: int = Query(50, ge=1, le=200),
+):
+    if await db.get(Account, account_id) is None:
+        raise HTTPException(status_code=404, detail="Không tìm thấy tài khoản")
+    return await service.list_login_events(account_id, db, limit=limit)
 
 
 @router.patch("/admin/accounts/{account_id}/tier", response_model=schemas.AccountAdminRow)

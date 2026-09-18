@@ -26,16 +26,35 @@ def test_order_quantity_accepts_bulk_orders_up_to_global_limit():
         OrderCreate(variant_id=1, quantity=MAX_ORDER_QUANTITY + 1)
 
 
+@pytest.fixture(autouse=True)
+def _restore_platform_fee():
+    """`setup_affiliate_order` raises the platform fee so commissions (a share
+    of the fee) are non-zero; put it back so other order tests keep fee = 0."""
+    from src.config import settings
+
+    original = settings.platform_fee_percent
+    yield
+    settings.platform_fee_percent = original
+
+
 async def setup_affiliate_order(
     client, product_rate=None, category_rate=None, use_referral=True, fund_amount=1_000_000,
 ):
     """Create admin/seller/product+variant+resources, an affiliate, a referred buyer with credit.
 
+    Platform fee is 10 % and the default referrer share is 50 % of that fee,
+    so a 10 000 order earns 1 000 fee → 500 commission at the default rate.
     Returns (admin_token, seller_token, buyer_token, variant_id, affiliate_id, code).
     """
+    from src.config import settings
+
+    settings.platform_fee_percent = 10
     admin_token = await register_and_login(client, "aff_admin@example.com")
     await make_admin("aff_admin@example.com")
     admin_token = await register_and_login(client, "aff_admin@example.com")
+    cfg = await client.patch("/admin/affiliate-config", json={"commission_percent_of_fee": 50},
+                             headers={"Authorization": f"Bearer {admin_token}"})
+    assert cfg.status_code == 200, cfg.text
 
     cat_payload = {"name": "AffCat", "slug": "affcat"}
     if category_rate is not None:
@@ -83,7 +102,7 @@ async def setup_affiliate_order(
     buyer_token = buyer_login.json()["access_token"]
     buyer_me = await client.get("/me", headers={"Authorization": f"Bearer {buyer_token}"})
     buyer_id = buyer_me.json()["id"]
-    await client.post("/wallet/topup", json={"account_id": buyer_id, "amount": 100000},
+    await client.post("/wallet/topup", json={"reason": "test topup", "account_id": buyer_id, "amount": 100000},
                       headers={"Authorization": f"Bearer {admin_token}"})
     if fund_amount:
         await client.post(
@@ -133,7 +152,7 @@ async def setup_buyable_product(client):
     buyer_me = await client.get("/me", headers={"Authorization": f"Bearer {buyer_token}"})
     buyer_id = buyer_me.json()["id"]
 
-    await client.post("/wallet/topup", json={"account_id": buyer_id, "amount": 100000},
+    await client.post("/wallet/topup", json={"reason": "test topup", "account_id": buyer_id, "amount": 100000},
                       headers={"Authorization": f"Bearer {admin_token}"})
 
     return buyer_token, seller_token, admin_token, instant_variant_id, manual_variant_id
@@ -500,7 +519,7 @@ async def setup_adapter_product(client):
     buyer_me = await client.get("/me", headers={"Authorization": f"Bearer {buyer_token}"})
     buyer_id = buyer_me.json()["id"]
 
-    await client.post("/wallet/topup", json={"account_id": buyer_id, "amount": 500000},
+    await client.post("/wallet/topup", json={"reason": "test topup", "account_id": buyer_id, "amount": 500000},
                       headers={"Authorization": f"Bearer {admin_token}"})
 
     return buyer_token, seller_token, admin_token, product_id
@@ -652,8 +671,9 @@ async def test_commission_default_rate_on_completion(client):
         )
         assert comm is not None
         assert comm.affiliate_account_id == affiliate_id
-        # default 5% of 10000 = 500
-        assert comm.rate_percent == 5.0
+        # default 50 % of the 1 000 platform fee = 500
+        assert comm.rate_percent == 50.0
+        assert comm.fee_base_amount == 1000
         assert comm.amount == 500
 
         affiliate_wallet = await db.scalar(select(Wallet).where(Wallet.account_id == affiliate_id))
@@ -676,7 +696,7 @@ async def test_commission_uses_category_rate(client):
         )
         assert comm is not None
         assert comm.rate_percent == 10.0
-        assert comm.amount == 1000
+        assert comm.amount == 100  # 10 % of the 1 000 fee
 
 
 @pytest.mark.asyncio
@@ -697,7 +717,7 @@ async def test_commission_product_rate_wins_over_category(client):
         )
         assert comm is not None
         assert comm.rate_percent == 7.0
-        assert comm.amount == 700
+        assert comm.amount == 70  # 7 % of the 1 000 fee
 
 
 @pytest.mark.asyncio

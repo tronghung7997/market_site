@@ -57,7 +57,7 @@ async def setup_credit_product(client, package_size=5, credit_price=100):
     buyer_token = await register_and_login(client, "usage_buyer@example.com")
     buyer_me = await client.get("/me", headers={"Authorization": f"Bearer {buyer_token}"})
     buyer_id = buyer_me.json()["id"]
-    await client.post("/wallet/topup", json={"account_id": buyer_id, "amount": 500000},
+    await client.post("/wallet/topup", json={"reason": "test topup", "account_id": buyer_id, "amount": 500000},
                       headers={"Authorization": f"Bearer {admin_token}"})
 
     return admin_token, seller_token, buyer_token, product_id

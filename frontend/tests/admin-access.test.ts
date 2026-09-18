@@ -1,7 +1,7 @@
 import assert from "node:assert/strict";
 import test from "node:test";
 
-import { adminRequestAllowed } from "../lib/admin-access.ts";
+import { adminRequestAllowed, clientIpFromHeaders } from "../lib/admin-access.ts";
 
 function withAdminEnv(
   env: { ADMIN_ALLOWED_IPS?: string; ADMIN_CLIENT_IP_HEADER?: string },
@@ -62,5 +62,17 @@ test("default header is x-real-ip and ignores client X-Forwarded-For", () => {
       adminRequestAllowed(new Headers({ "x-real-ip": "203.0.113.10" })),
       true,
     );
+  });
+});
+
+test("clientIpFromHeaders reads the configured edge header and ignores the rest", () => {
+  withAdminEnv({ ADMIN_CLIENT_IP_HEADER: "x-real-ip" }, () => {
+    assert.equal(clientIpFromHeaders(new Headers({ "x-real-ip": "203.0.113.9" })), "203.0.113.9");
+    assert.equal(clientIpFromHeaders(new Headers({ "x-client-ip": "203.0.113.9" })), null);
+    assert.equal(clientIpFromHeaders(new Headers()), null);
+    assert.equal(clientIpFromHeaders(new Headers({ "x-real-ip": "not-an-ip" })), null);
+  });
+  withAdminEnv({ ADMIN_CLIENT_IP_HEADER: "x-forwarded-for" }, () => {
+    assert.equal(clientIpFromHeaders(new Headers({ "x-forwarded-for": "1.1.1.1, 203.0.113.9" })), "203.0.113.9");
   });
 });

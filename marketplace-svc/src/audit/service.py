@@ -10,6 +10,7 @@ from src.models.alert import Alert
 from src.models.log_entry import LogEntry
 from src.models.provider import ProviderCallLog
 from src.models.usage import GatewayCallLog
+from src.security.client_ip import current_client_ip
 
 _COMMON_AUDIT_KEYS = (
     "event", "actor_id", "actor_type", "subject_type", "subject_id", "outcome", "source",
@@ -29,6 +30,12 @@ async def log_event(
     call sites remain compatible — metadata is stored as provided.
     """
     meta = dict(metadata) if metadata else None
+    # Every business event carries the end-user IP of the request that caused
+    # it (bound by the signature middleware); scheduler jobs have none.
+    ip = current_client_ip()
+    if ip is not None:
+        meta = meta or {}
+        meta.setdefault("ip", ip)
     # Bound request_id to VARCHAR(36) so a bad correlation id cannot fail the
     # business transaction that owns this insert.
     safe_request_id = request_id

@@ -96,6 +96,7 @@ class ErrorCode(str, Enum):
     DISPUTE_RESOURCE_NOT_CLAIMABLE = "DISPUTE_RESOURCE_NOT_CLAIMABLE"
     CHAT_SUPPORT_REQUIRES_DISPUTE = "CHAT_SUPPORT_REQUIRES_DISPUTE"
     CHAT_SUPPORT_REQUIRES_REVIEW = "CHAT_SUPPORT_REQUIRES_REVIEW"
+    CONTENT_BLOCKED = "CONTENT_BLOCKED"
 
 
 MESSAGES_EN: dict[ErrorCode, str] = {
@@ -194,5 +195,9 @@ MESSAGES_EN: dict[ErrorCode, str] = {
     ErrorCode.CHAT_SUPPORT_REQUIRES_DISPUTE: "Marketplace chat is available while a dispute is open",
     ErrorCode.CHAT_SUPPORT_REQUIRES_REVIEW: (
         "Open Marketplace chat with a note so admin can pause auto-settlement"
+    ),
+    ErrorCode.CONTENT_BLOCKED: (
+        "Your message contains contact details or links that are not allowed. "
+        "Please keep the conversation on the marketplace"
     ),
 }

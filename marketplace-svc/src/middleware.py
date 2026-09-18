@@ -55,6 +55,14 @@ def _account_id_from_scope(scope: Scope) -> int | None:
     return None
 
 
+def _client_ip_from_scope(scope: Scope) -> str | None:
+    state = scope.get("state")
+    if state is None:
+        return None
+    value = state.get("client_ip") if isinstance(state, dict) else getattr(state, "client_ip", None)
+    return value if isinstance(value, str) and value else None
+
+
 class RequestIdMiddleware:
     """Pure ASGI middleware: validate request IDs and always emit one access event.
 
@@ -81,6 +89,10 @@ class RequestIdMiddleware:
             request_id=request_id,
             service="marketplace-svc",
         )
+        # Set by the (outer) BFF signature middleware; see security.client_ip.
+        client_ip = _client_ip_from_scope(scope)
+        if client_ip:
+            structlog.contextvars.bind_contextvars(client_ip=client_ip)
 
         start = time.monotonic()
         status_code = 500

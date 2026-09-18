@@ -8,8 +8,10 @@ from src.config import settings
 from src.database import get_session
 from src.models.account import Account
 from src.rate_limit import check_rate_limit
+from src.security.client_ip import request_client_ip
 
 from . import schemas, service
+from .settings import get_affiliate_settings, update_affiliate_settings
 
 router = APIRouter(tags=["affiliate"])
 
@@ -20,7 +22,7 @@ async def click(
     request: Request,
     db: AsyncSession = Depends(get_session),
 ):
-    ip = request.client.host if request.client else None
+    ip = request_client_ip(request)
     ip_bucket = ip or "unknown"
     code_bucket = hashlib.sha256(body.code.strip().lower().encode()).hexdigest()
     if not await check_rate_limit(
@@ -101,3 +103,30 @@ async def admin_fund_topup(
     db: AsyncSession = Depends(get_session),
 ):
     return await service.topup_fund(body.amount, admin.id, db, note=body.note)
+
+
+@router.get("/public/affiliate-config", response_model=schemas.PublicAffiliateConfig)
+async def public_affiliate_config(db: AsyncSession = Depends(get_session)):
+    """What the storefront needs to honour the admin's attribution window."""
+    cfg = await get_affiliate_settings(db)
+    return {"enabled": cfg["enabled"], "attribution_days": cfg["attribution_days"]}
+
+
+@router.get("/admin/affiliate-config", response_model=schemas.AffiliateRuntimeConfigResponse)
+async def admin_affiliate_config(
+    _: Account = Depends(require_role("admin")),
+    db: AsyncSession = Depends(get_session),
+):
+    return await get_affiliate_settings(db)
+
+
+@router.patch("/admin/affiliate-config", response_model=schemas.AffiliateRuntimeConfigResponse)
+async def admin_update_affiliate_config(
+    body: schemas.AffiliateRuntimeConfigUpdate,
+    admin: Account = Depends(require_role("admin")),
+    db: AsyncSession = Depends(get_session),
+):
+    try:
+        return await update_affiliate_settings(db, actor_id=admin.id, **body.model_dump(exclude_unset=True))
+    except ValueError as exc:
+        raise HTTPException(status_code=422, detail=str(exc)) from exc

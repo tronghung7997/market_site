@@ -199,7 +199,7 @@ async def test_order_captures_fx_snapshot(client):
     buyer_id = buyer_me.json()["id"]
     await client.post(
         "/wallet/topup",
-        json={"account_id": buyer_id, "amount": 200_000},
+        json={"reason": "test topup", "account_id": buyer_id, "amount": 200_000},
         headers=admin_h,
     )
 

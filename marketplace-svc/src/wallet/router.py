@@ -16,6 +16,7 @@ router = APIRouter(tags=["wallet"])
 async def get_wallet(account: Account = Depends(get_current_account), db: AsyncSession = Depends(get_session)):
     wallet = await service.get_wallet_by_account(account.id, db)
     resp = schemas.WalletResponse.model_validate(wallet)
+    resp.escrow_paid, resp.escrow_incoming = await service.escrow_snapshot(account.id, db)
     if "seller" in (account.roles or []):
         tier = account.seller_tier or "new"
         resp.withdraw_policy = schemas.WithdrawPolicy(
@@ -32,7 +33,7 @@ async def topup(
 ):
     return await service.topup(
         body.account_id, body.amount, db,
-        actor_id=admin.id, source="admin", event="manual_topup",
+        actor_id=admin.id, source="admin", event="manual_topup", reason=body.reason,
     )
 
 
@@ -104,12 +105,15 @@ async def admin_account_wallet(
     if not account:
         raise HTTPException(status_code=404, detail="Không tìm thấy tài khoản")
     wallet = await db.scalar(select(Wallet).where(Wallet.account_id == account_id))
+    escrow_paid, escrow_incoming = await service.escrow_snapshot(account_id, db)
     return {
         "account_id": account_id,
         "email": account.email,
         "available_balance": wallet.available_balance if wallet else 0,
         "locked_balance": wallet.locked_balance if wallet else 0,
         "pending_balance": wallet.pending_balance if wallet else 0,
+        "escrow_paid": escrow_paid,
+        "escrow_incoming": escrow_incoming,
     }
 
 

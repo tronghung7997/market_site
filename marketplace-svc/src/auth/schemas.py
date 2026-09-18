@@ -86,3 +86,20 @@ class UpdateRolesRequest(BaseModel):
 
 class UpdateSellerTierRequest(BaseModel):
     seller_tier: str
+
+
+class UpdateAccountStatusRequest(BaseModel):
+    is_active: bool
+    reason: str | None = Field(default=None, max_length=500)
+
+
+class LoginEventRow(BaseModel):
+    id: int
+    kind: str
+    outcome: str
+    ip: str | None
+    user_agent: str | None
+    actor_id: int | None
+    created_at: datetime
+
+    model_config = {"from_attributes": True}

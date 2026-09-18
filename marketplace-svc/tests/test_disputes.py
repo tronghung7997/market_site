@@ -92,7 +92,7 @@ async def create_delivered_order(client, *, quantity: int = 1, stock_count: int 
 
     buyer_token = await register_and_login(client, "disp_buyer@example.com")
     buyer_me = await client.get("/me", headers={"Authorization": f"Bearer {buyer_token}"})
-    await client.post("/wallet/topup", json={"account_id": buyer_me.json()["id"], "amount": max(50000, quantity * 1000)},
+    await client.post("/wallet/topup", json={"reason": "test topup", "account_id": buyer_me.json()["id"], "amount": max(50000, quantity * 1000)},
                       headers={"Authorization": f"Bearer {admin_token}"})
 
     order = await client.post("/orders", json={"variant_id": variant.json()["id"], "quantity": quantity},

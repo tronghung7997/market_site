@@ -16,6 +16,7 @@ import type {
   InventoryPackageDetail, InventoryPackagesResponse, InventoryPackageSort, InventoryProductStatusFilter,
   InventoryReportParams, InventoryReportResponse, InventoryStockTab, RestockPreview, RestockResult,
   SellerResourceQuery, SellerRuntimeConfig, SiteAnalyticsConfig,
+  LoginEvent, AffiliateRuntimeConfig, PublicAffiliateConfig, ContentFilterConfig, ContentFilterTestResult,
 } from "./types";
 import {
   ApiError,
@@ -673,8 +674,21 @@ export const api = {
     request<AdminAccountWallet>(`/admin/accounts/${accountId}/wallet`, {}, true),
   adminAccountTransactions: (accountId: number) =>
     request<Transaction[]>(`/admin/accounts/${accountId}/transactions`, {}, true),
-  adminTopup: (accountId: number, amount: number) =>
-    request<Wallet>("/wallet/topup", { method: "POST", body: JSON.stringify({ account_id: accountId, amount }) }, true),
+  adminTopup: (accountId: number, amount: number, reason: string) =>
+    request<Wallet>("/wallet/topup", { method: "POST", body: JSON.stringify({ account_id: accountId, amount, reason }) }, true),
+  adminSetAccountStatus: (id: number, isActive: boolean, reason?: string) =>
+    request<AccountAdminRow>(`/admin/accounts/${id}/status`, { method: "PATCH", body: JSON.stringify({ is_active: isActive, reason: reason || null }) }, true),
+  adminLoginEvents: (id: number, limit = 50) =>
+    request<LoginEvent[]>(`/admin/accounts/${id}/login-events?limit=${limit}`, {}, true),
+  adminAffiliateConfig: () => request<AffiliateRuntimeConfig>("/admin/affiliate-config", {}, true),
+  updateAdminAffiliateConfig: (body: Partial<Pick<AffiliateRuntimeConfig, "enabled" | "commission_percent_of_fee" | "attribution_days" | "earning_days" | "max_commissions_per_day">>) =>
+    request<AffiliateRuntimeConfig>("/admin/affiliate-config", { method: "PATCH", body: JSON.stringify(body) }, true),
+  publicAffiliateConfig: () => request<PublicAffiliateConfig>("/public/affiliate-config"),
+  adminContentFilter: () => request<ContentFilterConfig>("/admin/content-filter", {}, true),
+  updateAdminContentFilter: (body: Partial<Pick<ContentFilterConfig, "enabled" | "action" | "keywords" | "block_phone_numbers" | "block_links" | "mask_char">>) =>
+    request<ContentFilterConfig>("/admin/content-filter", { method: "PATCH", body: JSON.stringify(body) }, true),
+  testAdminContentFilter: (text: string) =>
+    request<ContentFilterTestResult>("/admin/content-filter/test", { method: "POST", body: JSON.stringify({ text }) }, true),
   topSellers: (limit = 6) => request<SellerSummary[]>(`/sellers/top?limit=${limit}`),
   /** `ref` is `{handle}-{key}`, a bare key, or a legacy account id. */
   sellerProfile: (ref: string | number) => request<SellerProfile>(`/sellers/${encodeURIComponent(String(ref))}`),

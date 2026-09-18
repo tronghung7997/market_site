@@ -7,6 +7,7 @@ from sqlalchemy.ext.asyncio import AsyncSession
 
 from src.audit.service import log_event, query_logs
 from src.config import settings
+from src.content_filter import screen_text
 from src.logging import current_request_id
 from src.models.account import Account
 from src.models.order import (
@@ -382,6 +383,7 @@ async def create_dispute(
         raise api_error(ErrorCode.DISPUTE_ONLY_DELIVERED, status.HTTP_400_BAD_REQUEST)
     if order.escrow_expires_at and datetime.now(timezone.utc) > order.escrow_expires_at:
         raise api_error(ErrorCode.DISPUTE_ESCROW_EXPIRED, status.HTTP_400_BAD_REQUEST)
+    reason = await screen_text(db, reason, actor_id=buyer_id, context="dispute_reason", subject_id=str(order_id))
 
     dispute = Dispute(
         order_id=order_id, buyer_id=buyer_id, reason=reason,
@@ -970,6 +972,9 @@ async def seller_respond_dispute(dispute_id: int, seller_id: int, seller_note: s
     order = await db.get(Order, dispute.order_id, with_for_update=True)
     if not order or order.seller_id != seller_id:
         raise api_error(ErrorCode.NOT_OWNER, status.HTTP_403_FORBIDDEN)
+    seller_note = await screen_text(
+        db, seller_note, actor_id=seller_id, context="dispute_seller_note", subject_id=str(dispute.id),
+    )
     dispute.seller_note = seller_note
     # Resource-backed instant disputes need an actual remedy for every claim;
     # a note alone must never unlock automatic settlement. Proxy/task disputes
@@ -1073,6 +1078,7 @@ async def append_buyer_message(
         )
     )
     if not prior:
+        body = await screen_text(db, body, actor_id=buyer_id, context="dispute_message", subject_id=str(dispute.id))
         db.add(
             DisputeMessage(
                 dispute_id=dispute.id,

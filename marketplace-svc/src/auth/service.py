@@ -13,6 +13,7 @@ from src.audit.service import log_event
 from src.exceptions import DuplicateEmail, ErrorCode, api_error
 from src.logging import current_request_id
 from src.models.account import Account, PasswordResetToken
+from src.models.login_event import LoginEvent
 from src.models.wallet import Wallet
 from src.auth.utils import generate_unique_affiliate_code
 
@@ -114,11 +115,55 @@ async def register_account(
     return account
 
 
-async def authenticate(email: str, password: str, db: AsyncSession) -> Account:
+LOGIN_EVENT_UA_MAX = 255
+
+
+def _record_login_event(
+    db: AsyncSession,
+    account_id: int,
+    *,
+    kind: str,
+    outcome: str,
+    ip: str | None,
+    user_agent: str | None,
+    actor_id: int | None = None,
+) -> None:
+    """Append one row of login history to the caller's transaction."""
+    db.add(LoginEvent(
+        account_id=account_id,
+        kind=kind,
+        outcome=outcome,
+        ip=(ip or None) and ip[:45],
+        user_agent=(user_agent or None) and user_agent[:LOGIN_EVENT_UA_MAX],
+        actor_id=actor_id,
+    ))
+
+
+async def authenticate(
+    email: str,
+    password: str,
+    db: AsyncSession,
+    *,
+    kind: str = "login",
+    ip: str | None = None,
+    user_agent: str | None = None,
+) -> Account:
+    """Verify credentials and write a login-history row for the account.
+
+    Failed attempts against an existing account are recorded too (so an
+    admin can see a password-guessing run); unknown emails leave no trace.
+    """
     from src.security.events import principal_fingerprint, security_event
 
     account = await db.scalar(select(Account).where(Account.email == email))
     if not account or not account.is_active or not verify_password(password, account.password_hash):
+        if account is not None:
+            _record_login_event(
+                db, account.id, kind=kind,
+                outcome="inactive" if not account.is_active else "invalid_credentials",
+                ip=ip, user_agent=user_agent,
+            )
+            await db.commit()
         # Single external reason; internal telemetry uses generic invalid_credentials.
         security_event(
             "auth_login_failed",
@@ -127,11 +172,76 @@ async def authenticate(email: str, password: str, db: AsyncSession) -> Account:
             reason="invalid_credentials",
         )
         raise api_error(ErrorCode.INVALID_CREDENTIALS, status.HTTP_401_UNAUTHORIZED)
+    _record_login_event(db, account.id, kind=kind, outcome="success", ip=ip, user_agent=user_agent)
     security_event(
         "auth_login_success",
         level="info",
         account_id=account.id,
     )
+    return account
+
+
+async def list_login_events(account_id: int, db: AsyncSession, *, limit: int = 50) -> list[LoginEvent]:
+    rows = await db.execute(
+        select(LoginEvent)
+        .where(LoginEvent.account_id == account_id)
+        .order_by(LoginEvent.created_at.desc(), LoginEvent.id.desc())
+        .limit(limit)
+    )
+    return list(rows.scalars().all())
+
+
+async def set_account_active(
+    account_id: int,
+    is_active: bool,
+    db: AsyncSession,
+    *,
+    actor_id: int,
+    reason: str | None = None,
+    ip: str | None = None,
+) -> Account:
+    """Lock or unlock an account. Locking revokes every live session so the
+    user is thrown out immediately, not at token expiry."""
+    from src.auth.sessions import revoke_all_sessions
+    from src.security.events import security_event
+
+    account = await db.get(Account, account_id, with_for_update=True)
+    if not account:
+        raise HTTPException(status_code=404, detail="Không tìm thấy tài khoản")
+    if account_id == actor_id and not is_active:
+        raise HTTPException(status_code=400, detail="Không thể tự khóa tài khoản của chính mình")
+    if account.is_active == is_active:
+        return account
+    account.is_active = is_active
+    if not is_active:
+        await revoke_all_sessions(account_id, db)
+    _record_login_event(
+        db, account_id, kind="unlocked" if is_active else "locked", outcome="success",
+        ip=ip, user_agent=None, actor_id=actor_id,
+    )
+    await log_event(
+        db, "warning",
+        f"Account {account_id} {'unlocked' if is_active else 'locked'}",
+        request_id=current_request_id(),
+        metadata={
+            "event": "account_unlocked" if is_active else "account_locked",
+            "actor_id": actor_id,
+            "actor_type": "admin",
+            "subject_type": "account",
+            "subject_id": account_id,
+            "outcome": "success",
+            "source": "admin",
+            "reason": (reason or "").strip()[:500] or None,
+        },
+    )
+    security_event(
+        "account_unlocked" if is_active else "account_locked",
+        level="warning",
+        account_id=account_id,
+        actor_id=actor_id,
+    )
+    await db.commit()
+    await db.refresh(account)
     return account
 
 

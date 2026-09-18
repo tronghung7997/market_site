@@ -114,7 +114,7 @@ async def setup_credit_gateway_product(client, *, extra_pricing_params=None, pro
     buyer_token = await register_and_login(client, buyer_email)
     buyer_me = await client.get("/me", headers={"Authorization": f"Bearer {buyer_token}"})
     buyer_id = buyer_me.json()["id"]
-    await client.post("/wallet/topup", json={"account_id": buyer_id, "amount": 500000},
+    await client.post("/wallet/topup", json={"reason": "test topup", "account_id": buyer_id, "amount": 500000},
                       headers={"Authorization": f"Bearer {admin_token}"})
 
     return buyer_token, admin_token, product_id
@@ -411,7 +411,7 @@ async def setup_task_webhook_product(client):
     buyer_token = await register_and_login(client, "twh_buyer@example.com")
     buyer_me = await client.get("/me", headers={"Authorization": f"Bearer {buyer_token}"})
     buyer_id = buyer_me.json()["id"]
-    await client.post("/wallet/topup", json={"account_id": buyer_id, "amount": 500000},
+    await client.post("/wallet/topup", json={"reason": "test topup", "account_id": buyer_id, "amount": 500000},
                       headers={"Authorization": f"Bearer {admin_token}"})
 
     return buyer_token, provider_id, product_id, webhook_secret
@@ -1204,7 +1204,7 @@ class TestSellerOwnedProviderSSRFGuardAtCallTime:
         buyer_token = await register_and_login(client, buyer_email)
         buyer_me = await client.get("/me", headers={"Authorization": f"Bearer {buyer_token}"})
         buyer_id = buyer_me.json()["id"]
-        await client.post("/wallet/topup", json={"account_id": buyer_id, "amount": 500000},
+        await client.post("/wallet/topup", json={"reason": "test topup", "account_id": buyer_id, "amount": 500000},
                           headers={"Authorization": f"Bearer {admin_token}"})
 
         order_id = await _buy_and_deliver(client, buyer_token, product_id, 3, monkeypatch)

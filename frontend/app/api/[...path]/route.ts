@@ -2,7 +2,7 @@ import { NextRequest, NextResponse } from "next/server";
 import { revalidateTag } from "next/cache";
 import { signedHeaders } from "@/lib/bff-request-signing";
 import { CATALOG_CACHE_TAG, catalogWritePath, publicCacheControl } from "@/lib/bff-cache";
-import { adminRequestAllowed, isAdminApiPath } from "@/lib/admin-access";
+import { adminRequestAllowed, clientIpFromHeaders, isAdminApiPath } from "@/lib/admin-access";
 import {
   ACCESS_COOKIE,
   ACCESS_MAX_AGE_SECONDS,
@@ -21,7 +21,12 @@ const REQUEST_HEADER_ALLOWLIST = new Set([
   "accept",
   "accept-language",
   "content-type",
+  // Login history / audit trail on the backend; never trusted for auth.
+  "user-agent",
 ]);
+// Set by this server only (the browser's copy is dropped by the allowlist),
+// and honoured by FastAPI solely because the request is BFF-signed.
+const CLIENT_IP_HEADER = "x-client-ip";
 
 function accessCookieOptions() {
   return authCookieOptions(ACCESS_MAX_AGE_SECONDS, IS_PRODUCTION);
@@ -79,6 +84,8 @@ function copyAllowlistedHeaders(request: NextRequest): Headers {
   for (const [name, value] of request.headers) {
     if (REQUEST_HEADER_ALLOWLIST.has(name.toLowerCase())) headers.set(name, value);
   }
+  const clientIp = clientIpFromHeaders(request.headers);
+  if (clientIp) headers.set(CLIENT_IP_HEADER, clientIp);
   return headers;
 }
 

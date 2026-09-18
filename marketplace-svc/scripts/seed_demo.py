@@ -774,7 +774,7 @@ async def main():
                     vid = vr.json()["id"]
                     await c.post(f"/seller/variants/{vid}/resources", headers=seller, json={"items": items})
 
-        await c.post("/wallet/topup", headers=admin, json={"account_id": buyer_id, "amount": 5_000_000})
+        await c.post("/wallet/topup", headers=admin, json={"account_id": buyer_id, "amount": 5_000_000, "reason": "Demo seed"})
 
         # ----- Providers, Pricing Configs, Provider Products -----
         conn = await asyncpg.connect(DB)

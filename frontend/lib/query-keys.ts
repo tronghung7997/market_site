@@ -94,6 +94,9 @@ export const queryKeys = {
   sellerInventoryExportPreview: (params: Record<string, unknown>) => ["seller-inventory", "export-preview", params] as const,
   adminSellerConfig: () => ["admin-seller-config"] as const,
   adminAnalyticsConfig: () => ["admin-analytics-config"] as const,
+  adminAffiliateConfig: () => ["admin-affiliate-config"] as const,
+  adminContentFilter: () => ["admin-content-filter"] as const,
+  adminLoginEvents: (accountId: number) => ["admin-login-events", accountId] as const,
   sellerProducts: (params?: Record<string, unknown> | null) =>
     params == null ? ["seller-products"] as const : ["seller-products", "list", params] as const,
 } as const;

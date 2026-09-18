@@ -230,6 +230,10 @@ export interface Wallet {
   balance: number;
   updated_at: string;
   withdraw_policy?: WithdrawPolicy | null;
+  /** Paid by this account for orders not yet settled (buyer side of escrow). */
+  escrow_paid: number;
+  /** Owed to this account from orders not yet settled (seller side of escrow). */
+  escrow_incoming: number;
 }
 
 export interface Transaction {
@@ -738,6 +742,20 @@ export interface AdminAccountWallet {
   available_balance: number;
   locked_balance: number;
   pending_balance: number;
+  escrow_paid: number;
+  escrow_incoming: number;
+}
+
+export interface LoginEvent {
+  id: number;
+  /** login | admin_login | locked | unlocked */
+  kind: string;
+  /** success | invalid_credentials | inactive */
+  outcome: string;
+  ip: string | null;
+  user_agent: string | null;
+  actor_id: number | null;
+  created_at: string;
 }
 
 export interface AdminOrderDetail extends Order {
@@ -1762,10 +1780,47 @@ export interface AffiliateCommissionRow {
   order_code?: string | null;
   buyer_account_id: number;
   rate_percent: number;
+  /** Platform fee the rate was applied to; null for legacy rows. */
+  fee_base_amount?: number | null;
   amount: number;
   created_at: string;
   product_title: string | null;
   order_total: number | null;
+}
+
+export interface AffiliateRuntimeConfig {
+  enabled: boolean;
+  /** Referrer's share of the platform fee on each settled order (0–100). */
+  commission_percent_of_fee: number;
+  /** Days the `?ref=` cookie keeps attributing a sign-up. */
+  attribution_days: number;
+  /** Days after the referred user's sign-up that still earn; 0 = lifetime. */
+  earning_days: number;
+  max_commissions_per_day: number;
+  updated_at: string | null;
+  updated_by_id: number | null;
+}
+
+export interface PublicAffiliateConfig {
+  enabled: boolean;
+  attribution_days: number;
+}
+
+export interface ContentFilterConfig {
+  enabled: boolean;
+  action: "block" | "mask";
+  keywords: string[];
+  block_phone_numbers: boolean;
+  block_links: boolean;
+  mask_char: string;
+  updated_at: string | null;
+  updated_by_id: number | null;
+}
+
+export interface ContentFilterTestResult {
+  blocked: boolean;
+  text: string;
+  matches: string[];
 }
 
 export interface ReferredUserRow {

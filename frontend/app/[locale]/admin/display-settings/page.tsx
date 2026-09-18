@@ -5,12 +5,12 @@ import { useSearchParams } from "next/navigation";
 import { useTranslations } from "next-intl";
 import { MailSettingsPanel } from "@/features/admin-mail";
 import { SellerConfigPanel } from "@/features/admin-seller-config";
-import { AnalyticsSettingsPanel, DepositRailsPanel, DisplaySettingsPanel } from "@/features/admin-site-settings";
+import { AffiliateSettingsPanel, AnalyticsSettingsPanel, ContentFilterPanel, DepositRailsPanel, DisplaySettingsPanel } from "@/features/admin-site-settings";
 import { SearchSettingsPanel } from "@/features/admin-search";
 import { cn } from "@/lib/cn";
 import { Spinner } from "@/components/ui";
 
-const TABS = ["display", "deposits", "mail", "seller", "search", "analytics"] as const;
+const TABS = ["display", "deposits", "mail", "seller", "affiliate", "contentFilter", "search", "analytics"] as const;
 type SettingsTab = (typeof TABS)[number];
 
 const PANELS: Record<SettingsTab, () => React.JSX.Element> = {
@@ -18,6 +18,8 @@ const PANELS: Record<SettingsTab, () => React.JSX.Element> = {
   deposits: DepositRailsPanel,
   mail: MailSettingsPanel,
   seller: SellerConfigPanel,
+  affiliate: AffiliateSettingsPanel,
+  contentFilter: ContentFilterPanel,
   search: SearchSettingsPanel,
   analytics: AnalyticsSettingsPanel,
 };

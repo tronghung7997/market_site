@@ -307,13 +307,20 @@ async def test_admin_affiliate_detail_matches_me(client):
 
 
 @pytest.mark.asyncio
-async def test_affiliate_me_shows_commission_after_order_completion(client):
-    """After a referred buyer completes an order, /affiliate/me reflects the commission."""
+async def test_affiliate_me_shows_commission_after_order_completion(client, monkeypatch):
+    """After a referred buyer completes an order, /affiliate/me reflects the
+    commission: 50 % (admin config) of the 10 % platform fee on 10 000 = 500."""
+    from src.config import settings
     from tests.conftest import make_admin, make_seller, register_and_login
 
+    monkeypatch.setattr(settings, "platform_fee_percent", 10)
     admin_token = await register_and_login(client, "aff_me2_admin@example.com")
     await make_admin("aff_me2_admin@example.com")
     admin_token = await register_and_login(client, "aff_me2_admin@example.com")
+    cfg = await client.patch("/admin/affiliate-config", json={"commission_percent_of_fee": 50},
+                             headers={"Authorization": f"Bearer {admin_token}"})
+    assert cfg.status_code == 200, cfg.text
+    assert cfg.json()["commission_percent_of_fee"] == 50
     await client.post("/admin/categories", json={"name": "MeCat2", "slug": "mecat2"},
                       headers={"Authorization": f"Bearer {admin_token}"})
     cats = await client.get("/categories")
@@ -352,7 +359,7 @@ async def test_affiliate_me_shows_commission_after_order_completion(client):
     })
     buyer_token = buyer_login.json()["access_token"]
     buyer_me = await client.get("/me", headers={"Authorization": f"Bearer {buyer_token}"})
-    await client.post("/wallet/topup", json={"account_id": buyer_me.json()["id"], "amount": 100000},
+    await client.post("/wallet/topup", json={"reason": "test topup", "account_id": buyer_me.json()["id"], "amount": 100000},
                       headers={"Authorization": f"Bearer {admin_token}"})
     await client.post(
         "/admin/affiliate-fund/topup",
@@ -373,6 +380,7 @@ async def test_affiliate_me_shows_commission_after_order_completion(client):
     assert data["totals"]["revenue"] == 10000
     assert len(data["commissions"]) == 1
     assert data["commissions"][0]["amount"] == 500
+    assert data["commissions"][0]["fee_base_amount"] == 1000
     assert data["commissions"][0]["product_title"] == "MeProd2"
 
     fund = await client.get("/admin/affiliate-fund", headers={"Authorization": f"Bearer {admin_token}"})
@@ -453,13 +461,17 @@ async def test_update_affiliate_code_requires_admin(client):
 
 
 @pytest.mark.asyncio
-async def test_commission_via_dispute_reject(client):
+async def test_commission_via_dispute_reject(client, monkeypatch):
     """Commission is credited when an admin rejects a dispute, completing the order."""
+    from src.config import settings
     from tests.conftest import make_admin, make_seller, register_and_login
 
+    monkeypatch.setattr(settings, "platform_fee_percent", 10)
     admin_token = await register_and_login(client, "disp_admin@example.com")
     await make_admin("disp_admin@example.com")
     admin_token = await register_and_login(client, "disp_admin@example.com")
+    await client.patch("/admin/affiliate-config", json={"commission_percent_of_fee": 50},
+                       headers={"Authorization": f"Bearer {admin_token}"})
     await client.post("/admin/categories", json={"name": "DispCat", "slug": "dispcat"},
                       headers={"Authorization": f"Bearer {admin_token}"})
     cats = await client.get("/categories")
@@ -494,7 +506,7 @@ async def test_commission_via_dispute_reject(client):
     })
     buyer_token = buyer_login.json()["access_token"]
     buyer_me = await client.get("/me", headers={"Authorization": f"Bearer {buyer_token}"})
-    await client.post("/wallet/topup", json={"account_id": buyer_me.json()["id"], "amount": 100000},
+    await client.post("/wallet/topup", json={"reason": "test topup", "account_id": buyer_me.json()["id"], "amount": 100000},
                       headers={"Authorization": f"Bearer {admin_token}"})
     await client.post(
         "/admin/affiliate-fund/topup",

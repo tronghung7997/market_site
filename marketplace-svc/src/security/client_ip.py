@@ -145,3 +145,34 @@ def client_ip(request: Request) -> str:
                 return original
 
     return peer
+
+
+# Header the same-origin BFF stamps with the browser's IP (resolved at the
+# edge). Only honoured when the request carried a valid BFF signature, which
+# proves the header was set by our own server and not by the caller.
+BFF_CLIENT_IP_HEADER = "x-client-ip"
+
+
+def request_client_ip(request: Request) -> str:
+    """Best-effort *end-user* IP for audit trails, login history and per-user
+    rate-limit buckets.
+
+    Behind the BFF every request shares the BFF's TCP peer, so `client_ip`
+    alone would put the whole site in one bucket. A verified BFF request may
+    carry `X-Client-IP`; anything else falls back to the trusted-proxy logic.
+    """
+    if getattr(request.state, "bff_verified", False):
+        raw = request.headers.get(BFF_CLIENT_IP_HEADER)
+        if raw:
+            normalized = _normalize_hop(raw)
+            if normalized:
+                return normalized
+    return client_ip(request)
+
+
+def current_client_ip() -> str | None:
+    """The IP bound by the signature middleware for this request, if any."""
+    import structlog
+
+    value = structlog.contextvars.get_contextvars().get("client_ip")
+    return value if isinstance(value, str) else None

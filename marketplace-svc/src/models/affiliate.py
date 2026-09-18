@@ -30,6 +30,9 @@ class AffiliateCommission(Base):
     affiliate_account_id: Mapped[int] = mapped_column(ForeignKey("accounts.id"), nullable=False, index=True)
     buyer_account_id: Mapped[int] = mapped_column(ForeignKey("accounts.id"), nullable=False)
     rate_percent: Mapped[float] = mapped_column(Float, nullable=False)
+    # Platform fee the rate was applied to (NULL for rows written when
+    # commission was still a share of the order total).
+    fee_base_amount: Mapped[int | None] = mapped_column(Integer, nullable=True)
     amount: Mapped[int] = mapped_column(Integer, nullable=False)
     clawed_back_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True), nullable=True)
     created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), server_default=func.now())

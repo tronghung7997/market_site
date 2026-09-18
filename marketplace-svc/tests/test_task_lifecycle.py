@@ -70,7 +70,7 @@ async def setup_takedown_product(client, suffix=""):
     buyer_token = await register_and_login(client, buyer_email)
     buyer_me = await client.get("/me", headers={"Authorization": f"Bearer {buyer_token}"})
     buyer_id = buyer_me.json()["id"]
-    await client.post("/wallet/topup", json={"account_id": buyer_id, "amount": 1000000},
+    await client.post("/wallet/topup", json={"reason": "test topup", "account_id": buyer_id, "amount": 1000000},
                       headers={"Authorization": f"Bearer {admin_token}"})
 
     return buyer_token, admin_token, product_id, buyer_id

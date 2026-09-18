@@ -2,13 +2,14 @@ import re
 from datetime import datetime, timezone
 
 from fastapi import HTTPException
-from sqlalchemy import select
+from sqlalchemy import func, select
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from src.audit.service import log_event
 from src.exceptions import InsufficientCredit
 from src.logging import current_request_id
 from src.models.account import Account
+from src.models.order import Order, OrderStatus
 from src.models.wallet import (
     TRANSACTION_DIRECTION, Transaction, TransactionType, Wallet, WithdrawRequest, WithdrawStatus,
 )
@@ -72,6 +73,24 @@ async def backfill_missing_wallets(db: AsyncSession) -> list[int]:
     return missing_ids
 
 
+ESCROW_OPEN_STATUSES = (
+    OrderStatus.pending, OrderStatus.processing, OrderStatus.delivered, OrderStatus.disputed,
+)
+
+
+async def escrow_snapshot(account_id: int, db: AsyncSession) -> tuple[int, int]:
+    """(paid, incoming): money this account has in escrow as buyer and as
+    seller, i.e. `total - refunded` over every order not yet settled."""
+    held = func.coalesce(func.sum(Order.total_amount - Order.refunded_amount), 0)
+    paid = await db.scalar(
+        select(held).where(Order.buyer_id == account_id, Order.status.in_(ESCROW_OPEN_STATUSES))
+    )
+    incoming = await db.scalar(
+        select(held).where(Order.seller_id == account_id, Order.status.in_(ESCROW_OPEN_STATUSES))
+    )
+    return int(paid or 0), int(incoming or 0)
+
+
 async def topup(
     account_id: int,
     amount: int,
@@ -80,13 +99,24 @@ async def topup(
     actor_id: int | None = None,
     source: str = "admin",
     event: str = "manual_topup",
+    reason: str | None = None,
 ) -> Wallet:
-    """Credit a wallet. `source`/`event` distinguish admin manual vs demo funding."""
+    """Credit a wallet. `source`/`event` distinguish admin manual vs demo funding.
+
+    A manual admin credit must carry a `reason`; it is copied into the ledger
+    description and the audit row so the money is never anonymous.
+    """
     if amount <= 0:
         raise HTTPException(status_code=400, detail="Số tiền phải lớn hơn 0")
+    reason = (reason or "").strip() or None
+    if source == "admin" and not reason:
+        raise HTTPException(status_code=422, detail="Cần ghi lý do khi cộng tiền thủ công")
     wallet = await get_wallet_by_account(account_id, db, for_update=True)
     wallet.available_balance += amount
-    description = "Demo topup" if event == "demo_topup" else "Admin topup"
+    if event == "demo_topup":
+        description = "Demo topup"
+    else:
+        description = f"Admin topup — {reason}" if reason else "Admin topup"
     tx = Transaction(wallet_id=wallet.id, type=TransactionType.topup, amount=amount, description=description)
     db.add(tx)
     await log_event(
@@ -101,6 +131,7 @@ async def topup(
             "outcome": "success",
             "source": source,
             "amount": amount,
+            "reason": reason,
         },
     )
     await db.commit()
@@ -170,7 +201,6 @@ async def refund_escrow(
 ) -> None:
     if amount <= 0:
         raise HTTPException(status_code=400, detail="Số tiền hoàn phải lớn hơn 0")
-    from src.models.order import Order
     order = await db.get(Order, order_id, with_for_update=True)
     if not order or order.buyer_id != buyer_id or amount > order.total_amount - order.refunded_amount:
         raise HTTPException(status_code=400, detail="Số tiền hoàn vượt quá số dư ký quỹ")

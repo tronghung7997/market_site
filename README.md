@@ -39,6 +39,7 @@ Browser
 - Browser không gọi FastAPI trực tiếp và không nhận access token sau login.
 - BFF lưu access JWT trong cookie `dx_session` và refresh token trong `dx_refresh` (HTTP-only), thêm `Authorization`, và HMAC-sign mọi request sang FastAPI bằng `BFF_REQUEST_SIGNING_SECRET`.
 - `/internal/*` không được public qua catch-all BFF.
+- BFF forward IP người dùng (đọc từ header của edge proxy, `ADMIN_CLIENT_IP_HEADER`, mặc định `x-real-ip`) sang FastAPI qua `X-Client-IP`; backend chỉ tin header này trên request đã ký. IP này dùng cho rate-limit đăng nhập, lịch sử đăng nhập (`login_events`) và cột `ip` trong audit log.
 - Scheduled jobs hiện chạy trong process backend; danh sách chính xác nằm trong `marketplace-svc/src/main.py`.
 - Transactional mail ghi `mail_outbox` cùng transaction domain; worker gửi outbound (log / SMTP / Resend). Server không cần mở inbound. Nhiều host chặn SMTP — production nên dùng Resend (HTTPS :443).
 

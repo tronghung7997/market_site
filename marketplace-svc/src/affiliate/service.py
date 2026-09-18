@@ -11,7 +11,10 @@ from src.models.affiliate import AffiliateClick, AffiliateCommission, AffiliateF
 from src.models.category import Category
 from src.models.order import Order
 from src.models.product import Product, ProductVariant
-from src.wallet.service import clawback_affiliate_commission, credit_affiliate_commission
+from src.sellers.tiers import platform_fee_percent
+from src.wallet.service import clawback_affiliate_commission, credit_affiliate_commission, escrow_settlement
+
+from .settings import get_affiliate_settings
 
 
 CLICK_DEDUP_WINDOW = timedelta(hours=24)
@@ -92,12 +95,17 @@ async def record_click(
 
 
 async def apply_affiliate_commission(order: Order, db: AsyncSession) -> None:
-    """Credit affiliate commission for a completed order, in the caller's transaction.
+    """Pay the referrer their share of the *platform fee* on a settled order.
 
-    Called at every point Order.status transitions to `completed`. Must run
-    BEFORE the caller's `db.commit()` so the commission + wallet credit share
-    the same transaction as the status change.
+    Called inside the settlement transaction (escrow release / buyer confirm
+    / dispute settlement); idempotent per order. The rate comes from the
+    admin config unless the product or its category overrides it; either way
+    it is applied to the fee the marketplace actually earned, never to the
+    order total, so a 0 % fee order pays nothing.
     """
+    config = await get_affiliate_settings(db)
+    if not config["enabled"]:
+        return
     buyer = await db.get(Account, order.buyer_id)
     if not buyer or buyer.referred_by_id is None:
         return
@@ -109,6 +117,11 @@ async def apply_affiliate_commission(order: Order, db: AsyncSession) -> None:
         or affiliate.id == order.seller_id
     ):
         return
+    earning_days = int(config["earning_days"])
+    if earning_days > 0 and buyer.created_at is not None:
+        cutoff = buyer.created_at + timedelta(days=earning_days)
+        if (order.created_at or datetime.now(timezone.utc)) > cutoff:
+            return
 
     existing = await db.scalar(
         select(AffiliateCommission.id).where(AffiliateCommission.order_id == order.id)
@@ -133,12 +146,14 @@ async def apply_affiliate_commission(order: Order, db: AsyncSession) -> None:
             if category and category.commission_rate is not None:
                 rate = category.commission_rate
     if rate is None:
-        rate = settings.default_affiliate_commission_percent
+        rate = float(config["commission_percent_of_fee"])
     if rate <= 0 or rate > 100:
         return
 
-    commission_base = order.total_amount - order.refunded_amount
-    amount = round(commission_base * rate / 100)
+    seller = await db.get(Account, order.seller_id)
+    fee_percent = platform_fee_percent(seller.seller_tier if seller else "new")
+    _remaining, fee_base = escrow_settlement(order.total_amount, order.refunded_amount, fee_percent)
+    amount = round(fee_base * rate / 100)
     if amount <= 0:
         return
 
@@ -160,7 +175,7 @@ async def apply_affiliate_commission(order: Order, db: AsyncSession) -> None:
         )
         or 0
     )
-    if recent >= settings.affiliate_max_commissions_per_day:
+    if recent >= int(config["max_commissions_per_day"]):
         return
 
     fund = await _lock_fund(db)
@@ -173,6 +188,7 @@ async def apply_affiliate_commission(order: Order, db: AsyncSession) -> None:
             affiliate_account_id=affiliate.id,
             buyer_account_id=buyer.id,
             rate_percent=rate,
+            fee_base_amount=fee_base,
             amount=amount,
         )
     )
@@ -516,6 +532,7 @@ async def get_affiliate_stats(
             "order_code": order.order_code if order else None,
             "buyer_account_id": c.buyer_account_id,
             "rate_percent": c.rate_percent,
+            "fee_base_amount": c.fee_base_amount,
             "amount": c.amount,
             "created_at": c.created_at,
             "product_title": product_title,

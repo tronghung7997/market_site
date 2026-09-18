@@ -15,7 +15,7 @@ async def test_get_wallet_zero_balance(client):
 @pytest.mark.asyncio
 async def test_topup_requires_admin(client):
     token = await register_and_login(client, "wallet2@example.com")
-    resp = await client.post("/wallet/topup", json={"account_id": 1, "amount": 10000},
+    resp = await client.post("/wallet/topup", json={"reason": "test topup", "account_id": 1, "amount": 10000},
                              headers={"Authorization": f"Bearer {token}"})
     assert resp.status_code == 403
 
@@ -30,7 +30,7 @@ async def test_admin_topup_success(client):
     await make_admin("walletadmin@example.com")
     admin_token = await register_and_login(client, "walletadmin@example.com")
 
-    resp = await client.post("/wallet/topup", json={"account_id": buyer_id, "amount": 50000},
+    resp = await client.post("/wallet/topup", json={"reason": "test topup", "account_id": buyer_id, "amount": 50000},
                              headers={"Authorization": f"Bearer {admin_token}"})
     assert resp.status_code == 200
     assert resp.json()["balance"] == 50000
@@ -54,7 +54,7 @@ async def _seller_with_balance(client, email, amount):
     admin_token = await register_and_login(client, "walletadmin2@example.com")
     await make_admin("walletadmin2@example.com")
     admin_token = await register_and_login(client, "walletadmin2@example.com")
-    await client.post("/wallet/topup", json={"account_id": seller_id, "amount": amount},
+    await client.post("/wallet/topup", json={"reason": "test topup", "account_id": seller_id, "amount": amount},
                       headers={"Authorization": f"Bearer {admin_token}"})
     return seller_token, admin_token
 
@@ -169,7 +169,7 @@ async def test_transactions_expose_direction(client):
     admin_token = await register_and_login(client, "wallet_dir_admin@example.com")
 
     me = (await client.get("/me", headers={"Authorization": f"Bearer {token}"})).json()
-    await client.post("/wallet/topup", json={"account_id": me["id"], "amount": 50_000},
+    await client.post("/wallet/topup", json={"reason": "test topup", "account_id": me["id"], "amount": 50_000},
                       headers={"Authorization": f"Bearer {admin_token}"})
 
     txs = (await client.get("/wallet/transactions",

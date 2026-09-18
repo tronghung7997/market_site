@@ -8,6 +8,7 @@ from starlette.middleware.cors import CORSMiddleware
 
 from src.alerts.router import router as alerts_router
 from src.audit.router import router as audit_router
+from src.content_filter.router import router as content_filter_router
 from src.affiliate.router import router as affiliate_router
 from src.auth.router import router as auth_router
 from src.categories.router import router as categories_router
@@ -60,6 +61,7 @@ from src.wallet.router import router as wallet_router
 from src.money.router import router as money_router
 from src.analytics.router import router as analytics_router
 from src.security.bff_request_signing import requires_bff_signature, verify_bff_request_signature
+from src.security.client_ip import request_client_ip
 
 # offline
 from fastapi.openapi.docs import (
@@ -156,9 +158,16 @@ async def require_bff_signature(request: Request, call_next):
                 path=request.url.path,
             )
             return JSONResponse(status_code=exc.status_code, content={"detail": exc.detail})
+        # Only a signed request may vouch for the end-user IP it forwards.
+        request.state.bff_verified = True
+    # Resolved once per request; RequestIdMiddleware (inner) binds it into the
+    # log context so audit rows and login history can read it without every
+    # service threading `Request` through its signature.
+    request.state.client_ip = request_client_ip(request)
     return await call_next(request)
 
 app.include_router(auth_router)
+app.include_router(content_filter_router)
 app.include_router(seller_router)
 app.include_router(sellers_router)
 app.include_router(wallet_router)

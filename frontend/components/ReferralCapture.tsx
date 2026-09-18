@@ -27,14 +27,28 @@ function alreadyClickedRecently(code: string): boolean {
   }
 }
 
+// Fallback when the config request fails; the admin value normally wins.
+const DEFAULT_ATTRIBUTION_DAYS = 30;
+
 export default function ReferralCapture() {
   const searchParams = useSearchParams();
 
   useEffect(() => {
     const ref = searchParams.get("ref");
     if (!ref) return;
-    setCookie("aff_ref", ref, 365);
-    if (alreadyClickedRecently(ref)) return;
+    let cancelled = false;
+    // Cookie lifetime is the admin's attribution window (Settings › Affiliate),
+    // fetched only on a `?ref=` landing so ordinary page views pay nothing.
+    setCookie("aff_ref", ref, DEFAULT_ATTRIBUTION_DAYS);
+    api
+      .publicAffiliateConfig()
+      .then((cfg) => {
+        if (cancelled) return;
+        if (!cfg.enabled) return;
+        setCookie("aff_ref", ref, Math.max(1, cfg.attribution_days));
+      })
+      .catch(() => {});
+    if (alreadyClickedRecently(ref)) return () => { cancelled = true; };
     const visitorId = getOrCreateVisitorId();
     api
       .affiliateClick(ref, visitorId)
@@ -46,6 +60,7 @@ export default function ReferralCapture() {
         }
       })
       .catch(() => {});
+    return () => { cancelled = true; };
   }, [searchParams]);
 
   return null;

@@ -82,6 +82,16 @@ export default function WalletPage() {
                 {t("locked", { amount: formatBrowseMoney(wallet!.locked_balance, { locale }) })}
               </p>
             )}
+            {(wallet?.escrow_paid ?? 0) > 0 && (
+              <p className="mt-1 text-[12px] text-faint">
+                {t("escrowPaid", { amount: formatBrowseMoney(wallet!.escrow_paid, { locale }) })}
+              </p>
+            )}
+            {isSeller && (wallet?.escrow_incoming ?? 0) > 0 && (
+              <p className="mt-1 text-[12px] text-faint">
+                {t("escrowIncoming", { amount: formatBrowseMoney(wallet!.escrow_incoming, { locale }) })}
+              </p>
+            )}
           </Card>
 
           <DepositCard deposits={deposits} onChanged={onChanged} />

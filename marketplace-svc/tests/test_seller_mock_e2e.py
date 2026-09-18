@@ -87,7 +87,7 @@ async def test_seller_to_admin_to_buyer_with_mock_gateway_and_task(client, monke
     seller_token = await _seller_token(client, "e2e-seller@example.com")
     buyer_token = await register_and_login(client, "e2e-buyer@example.com")
     buyer = await client.get("/me", headers={"Authorization": f"Bearer {buyer_token}"})
-    await client.post("/wallet/topup", json={"account_id": buyer.json()["id"], "amount": 10_000}, headers={"Authorization": f"Bearer {admin_token}"})
+    await client.post("/wallet/topup", json={"reason": "test topup", "account_id": buyer.json()["id"], "amount": 10_000}, headers={"Authorization": f"Bearer {admin_token}"})
 
     # 1) Seller saves a direct gateway, tests it, then explicitly submits it.
     gateway = await client.post(

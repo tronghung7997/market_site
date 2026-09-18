@@ -7,7 +7,7 @@ once the row exists.
 """
 from __future__ import annotations
 
-SYSTEM_SLUGS: tuple[str, ...] = ("terms", "warranty", "escrow", "privacy")
+SYSTEM_SLUGS: tuple[str, ...] = ("terms", "warranty", "refund", "escrow", "dispute", "privacy")
 
 _TERMS_VI = """\
 ## 1. Chấp nhận điều khoản
@@ -377,6 +377,136 @@ We share data only with payment partners, infrastructure providers required to o
 To view, correct or delete your account data, sign in and contact **Support chat** from your registered email. Some transaction data may be retained for legal and accounting reasons.
 """
 
+_REFUND_VI = """\
+## 1. Khi nào được hoàn tiền
+
+- **Hàng lỗi trong thời hạn ký quỹ**: tài khoản/proxy/dữ liệu không đúng mô tả, không đăng nhập được, không dùng được — và bạn đã **mở khiếu nại trong đơn hàng trước khi hết hạn ký quỹ**.
+- **Người bán không giao hàng** đúng thời hạn giao (SLA) ghi trên gói: hệ thống tự hủy đơn và hoàn tiền về ví.
+- **Người bán chủ động hoàn**: trong khiếu nại, người bán có thể chọn hoàn tiền cho từng tài khoản bị lỗi thay vì đổi hàng.
+- **Sàn quyết định hoàn**: khi khiếu nại được chuyển lên GMMO và đội ngũ sàn xác định lỗi thuộc về người bán.
+
+## 2. Hoàn một phần và hoàn toàn bộ
+
+- Mua nhiều tài khoản, lỗi một số: chỉ hoàn **đúng phần bị lỗi** (theo giá từng tài khoản trong đơn). Các tài khoản còn lại vẫn thuộc về bạn và vẫn được bảo hành đến hết thời hạn ký quỹ.
+- Lỗi toàn bộ: hoàn 100% giá trị đơn.
+- Tiền hoàn về **ví GMMO** (số dư khả dụng) ngay khi khiếu nại được giải quyết, không hoàn về ngân hàng/ví crypto. Bạn có thể dùng tiếp hoặc tạo lệnh rút theo quy định rút tiền.
+
+## 3. Không hoàn tiền khi
+
+- Đã hết thời hạn ký quỹ mà không có khiếu nại — tiền đã giải ngân cho người bán.
+- Tài khoản chết do cách sử dụng của người mua (thiết bị, IP, đổi thông tin quá sớm, vi phạm chính sách nền tảng) — xem **Chính sách bảo hành**.
+- Người mua đổi ý, mua nhầm loại, hoặc yêu cầu hoàn sau khi đã đổi thông tin bảo mật của tài khoản.
+- Khiếu nại không có bằng chứng, hoặc bằng chứng không khớp với tài khoản đã giao.
+- Số dư nạp vào ví: tiền đã nạp không được rút ra lại ngoài các trường hợp lỗi từ phía sàn.
+
+## 4. Thời gian xử lý
+
+- Người bán có thời hạn phản hồi khiếu nại theo cấu hình của sàn; quá hạn không phản hồi, hệ thống xử theo hướng có lợi cho người mua.
+- Khiếu nại đã chuyển lên GMMO được xử lý trong giờ làm việc, thường trong **24 giờ**.
+- Kết quả (hoàn tiền / đổi hàng / từ chối) được ghi trong đơn hàng và lịch sử giao dịch của ví.
+
+## 5. Gian lận hoàn tiền
+
+Người mua nhận hàng rồi báo lỗi sai sự thật để đòi tiền sẽ bị **khoá tài khoản và thu hồi số dư**. Sàn lưu toàn bộ lịch sử chat, bằng chứng và thao tác của hai bên để đối chiếu.
+"""
+
+_REFUND_EN = """\
+## 1. When a refund applies
+
+- **Faulty goods within the escrow window**: the account/proxy/data does not match its description, cannot be logged into or used — and you **opened a dispute inside the order before escrow expired**.
+- **Seller did not deliver** within the package's delivery SLA: the system cancels the order and refunds your wallet.
+- **Seller-initiated refund**: inside a dispute the seller may refund individual faulty items instead of replacing them.
+- **Marketplace decision**: when a dispute is escalated to GMMO and our team finds the seller at fault.
+
+## 2. Partial and full refunds
+
+- Bought several accounts, some faulty: only the **faulty share** is refunded (at the per-item price of the order). The remaining accounts stay yours and remain covered until escrow expires.
+- Everything faulty: 100 % of the order is refunded.
+- Refunds go to your **GMMO wallet** (available balance) as soon as the case is resolved, never to a bank or crypto address. You can spend it or create a withdrawal under the withdrawal rules.
+
+## 3. No refund when
+
+- Escrow expired with no dispute — the money has been released to the seller.
+- The account died because of how it was used (device, IP, changing details too early, violating the platform's policy) — see the **Warranty policy**.
+- Change of mind, wrong variant purchased, or a refund request after you changed the account's security details.
+- A dispute without evidence, or evidence that does not match the delivered item.
+- Deposited balance: money you topped up cannot be withdrawn again except for errors on our side.
+
+## 4. Processing time
+
+- Sellers must answer a dispute within the marketplace's configured deadline; no answer means the case is settled in the buyer's favour.
+- Cases escalated to GMMO are handled during business hours, normally within **24 hours**.
+- The outcome (refund / replacement / rejection) is recorded in the order and in your wallet history.
+
+## 5. Refund abuse
+
+Buyers who receive working goods and file false claims to get money back will have their **account locked and balance forfeited**. The marketplace keeps the full chat history, evidence and actions of both sides for review.
+"""
+
+_DISPUTE_VI = """\
+## 1. Mở khiếu nại
+
+- Vào **Đơn hàng → chọn đơn → Khiếu nại**. Chọn các tài khoản/gói bị lỗi, ghi rõ lý do và đính kèm bằng chứng (ảnh màn hình, video, thông báo lỗi).
+- Khiếu nại chỉ mở được khi đơn đã giao và **còn trong thời hạn ký quỹ**. Ngay khi mở, tiền ký quỹ của đơn bị giữ lại, không giải ngân cho người bán.
+- Mỗi đơn có một khiếu nại đang mở; bạn có thể bổ sung thêm tài khoản lỗi vào cùng khiếu nại.
+
+## 2. Người bán phản hồi
+
+- Người bán nhận thông báo và phải phản hồi trong thời hạn quy định: **đổi hàng** hoặc **hoàn tiền** cho từng tài khoản bị lỗi, hoặc phản hồi bằng bằng chứng nếu cho rằng hàng không lỗi.
+- Hai bên trao đổi trực tiếp trong khung chat của khiếu nại. **Mọi trao đổi phải diễn ra trên sàn**; tin nhắn chứa thông tin liên hệ ngoài (Zalo, Telegram, số điện thoại…) sẽ bị chặn.
+- Sau khi người bán đưa ra phương án, người mua có thời hạn để **chấp nhận** hoặc **bổ sung khiếu nại**. Không phản hồi đúng hạn, hệ thống tự chốt theo phương án đã đưa.
+
+## 3. Chuyển lên GMMO
+
+- Nếu hai bên không thống nhất, người mua hoặc người bán có thể **chuyển khiếu nại lên GMMO** kèm ghi chú. Từ lúc này đồng hồ tự động dừng lại, đội ngũ sàn xem toàn bộ hồ sơ: mô tả sản phẩm, dữ liệu đã giao, bằng chứng và lịch sử chat của hai bên.
+- Sàn có thể quyết định: hoàn toàn bộ, hoàn một phần, đổi hàng, gia hạn bảo hành, hoặc từ chối khiếu nại. Quyết định của sàn là **quyết định cuối cùng**.
+- Người bán không phản hồi quá thời hạn quy định bị **xử thua**: tiền ký quỹ hoàn cho người mua.
+
+## 4. Kết thúc khiếu nại
+
+- Người mua chấp nhận phương án, hoặc sàn ra quyết định → khiếu nại đóng, phần ký quỹ còn lại (nếu có) được giải ngân cho người bán trừ phí sàn.
+- Kết quả được ghi vào lịch sử đơn hàng và ví của cả hai bên.
+- Người mua có thể **rút khiếu nại** trước khi người bán đưa ra phương án; việc rút không kéo dài thời hạn ký quỹ.
+
+## 5. Quy tắc chung
+
+- Bằng chứng phải là ảnh/video gốc, không chỉnh sửa; sàn có thể yêu cầu quay màn hình thao tác đăng nhập.
+- Khiếu nại sai sự thật (từ bất kỳ bên nào) dẫn đến khoá tài khoản.
+- Tỷ lệ bị khiếu nại ảnh hưởng trực tiếp đến cấp độ và quyền lợi của người bán trên sàn.
+"""
+
+_DISPUTE_EN = """\
+## 1. Opening a dispute
+
+- Go to **Orders → open the order → Dispute**. Select the faulty items, describe the problem and attach evidence (screenshots, video, error messages).
+- A dispute can only be opened on a delivered order **within its escrow window**. The moment it is opened, the order's escrow is frozen and not released to the seller.
+- Each order has one open case; you can add more faulty items to the same case.
+
+## 2. Seller response
+
+- The seller is notified and must respond within the marketplace deadline: **replace** or **refund** each faulty item, or answer with evidence if they believe the goods are fine.
+- Both sides talk inside the dispute chat. **All communication stays on the marketplace**; messages containing off-platform contact details (Zalo, Telegram, phone numbers …) are blocked.
+- Once the seller offers a remedy, the buyer has a deadline to **accept** or **add claims**. No answer in time settles the case on the offered remedy.
+
+## 3. Escalating to GMMO
+
+- If the parties disagree, either side can **escalate to GMMO** with a note. The clocks pause and our team reviews the whole file: product description, delivered data, evidence and the chat history of both sides.
+- GMMO may decide: full refund, partial refund, replacement, warranty extension, or rejection. The marketplace decision is **final**.
+- A seller who does not respond within the deadline **loses the case** and escrow is refunded to the buyer.
+
+## 4. Closing a dispute
+
+- The buyer accepts the remedy, or GMMO decides → the case closes and any remaining escrow is released to the seller minus the platform fee.
+- The outcome is written to the order history and to both wallets.
+- The buyer may **withdraw** a dispute before the seller offers a remedy; withdrawing never extends the escrow window.
+
+## 5. General rules
+
+- Evidence must be original, unedited images/video; the marketplace may ask for a screen recording of the login attempt.
+- False claims from either side lead to an account lock.
+- Dispute rate directly affects a seller's tier and privileges on the marketplace.
+"""
+
 # slug -> row seed. sort_order is the footer order.
 _RAW_PAGES: dict[str, dict] = {
     "terms": {
@@ -393,12 +523,26 @@ _RAW_PAGES: dict[str, dict] = {
         "body_vi": _WARRANTY_VI,
         "body_en": _WARRANTY_EN,
     },
+    "refund": {
+        "sort_order": 25,
+        "title_vi": "Chính sách hoàn tiền",
+        "title_en": "Refund policy",
+        "body_vi": _REFUND_VI,
+        "body_en": _REFUND_EN,
+    },
     "escrow": {
         "sort_order": 30,
         "title_vi": "Chính sách ký quỹ",
         "title_en": "Escrow policy",
         "body_vi": _ESCROW_VI,
         "body_en": _ESCROW_EN,
+    },
+    "dispute": {
+        "sort_order": 35,
+        "title_vi": "Chính sách khiếu nại",
+        "title_en": "Dispute policy",
+        "body_vi": _DISPUTE_VI,
+        "body_en": _DISPUTE_EN,
     },
     "privacy": {
         "sort_order": 40,

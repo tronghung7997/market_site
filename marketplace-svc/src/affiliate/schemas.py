@@ -16,6 +16,7 @@ class CommissionRow(BaseModel):
     order_code: str | None = None
     buyer_account_id: int
     rate_percent: float
+    fee_base_amount: int | None = None
     amount: int
     created_at: datetime
     product_title: str | None = None
@@ -105,3 +106,26 @@ class AffiliateCodeResponse(BaseModel):
     affiliate_code: str
 
     model_config = {"from_attributes": True}
+
+
+class AffiliateRuntimeConfigResponse(BaseModel):
+    enabled: bool
+    commission_percent_of_fee: float
+    attribution_days: int
+    earning_days: int
+    max_commissions_per_day: int
+    updated_at: datetime | None = None
+    updated_by_id: int | None = None
+
+
+class AffiliateRuntimeConfigUpdate(BaseModel):
+    enabled: bool | None = None
+    commission_percent_of_fee: float | None = Field(default=None, ge=0, le=100)
+    attribution_days: int | None = Field(default=None, ge=1, le=365)
+    earning_days: int | None = Field(default=None, ge=0, le=3650)
+    max_commissions_per_day: int | None = Field(default=None, ge=1, le=10_000)
+
+
+class PublicAffiliateConfig(BaseModel):
+    enabled: bool
+    attribution_days: int

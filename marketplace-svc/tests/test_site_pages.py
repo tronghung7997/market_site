@@ -24,7 +24,7 @@ async def _admin(client, email: str):
 async def test_public_links_and_page_with_locale_fallback(client, seeded):
     links = await client.get("/public/site-pages", headers={"Accept-Language": "vi"})
     assert links.status_code == 200, links.text
-    assert [row["slug"] for row in links.json()] == ["terms", "warranty", "escrow", "privacy"]
+    assert [row["slug"] for row in links.json()] == ["terms", "warranty", "refund", "escrow", "dispute", "privacy"]
     assert links.json()[0]["title"] == "Điều khoản sử dụng"
 
     en = await client.get("/public/site-pages/warranty", headers={"Accept-Language": "en"})

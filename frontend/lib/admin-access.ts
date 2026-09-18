@@ -41,7 +41,13 @@ function configuredAdminIps(): Set<string> | null {
   return addresses;
 }
 
-function clientIpFromHeaders(headers: Headers): string | null {
+/**
+ * End-user IP as reported by the trusted edge proxy (`ADMIN_CLIENT_IP_HEADER`,
+ * default `x-real-ip`). Null when the edge did not set it (local dev) — the
+ * backend then falls back to the TCP peer. Shared by the admin network gate
+ * and the BFF, which forwards it to FastAPI as `X-Client-IP`.
+ */
+export function clientIpFromHeaders(headers: Headers): string | null {
   const headerName = (process.env.ADMIN_CLIENT_IP_HEADER || "x-real-ip").toLowerCase();
   if (!/^[a-z0-9-]+$/.test(headerName)) return null;
   const raw = headers.get(headerName);

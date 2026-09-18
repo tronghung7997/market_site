@@ -18,12 +18,12 @@ export async function fetchAllFilteredOrders(filters: SellerOrdersFilters): Prom
 
 export function ordersToCsv(orders: Order[], includeDeliveredData: boolean): string {
   const headers = [
-    "Order_ID", "Created_At", "Product", "Variant", "Quantity", "Amount_VND", "Status",
+    "Order_Code", "Created_At", "Product", "Variant", "Quantity", "Amount_VND", "Status",
     "Fulfillment", "Buyer_Email", "Dispute_Status",
     ...(includeDeliveredData ? ["Delivered_Data"] : []),
   ];
   const lines = orders.map((o) => [
-    o.id, o.created_at, o.product_title, o.variant_name, o.quantity, o.total_amount, o.status,
+    o.order_code ?? o.id, o.created_at, o.product_title, o.variant_name, o.quantity, o.total_amount, o.status,
     o.fulfillment?.kind ?? "", o.buyer_email, o.dispute_status ?? "",
     ...(includeDeliveredData ? [o.delivered_data] : []),
   ].map(csvCell).join(","));

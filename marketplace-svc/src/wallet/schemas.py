@@ -1,6 +1,6 @@
 from datetime import datetime
 
-from pydantic import BaseModel, Field, computed_field
+from pydantic import BaseModel, Field, computed_field, field_validator
 
 
 class WithdrawPolicy(BaseModel):
@@ -22,6 +22,11 @@ class WalletResponse(BaseModel):
     locked_balance: int
     updated_at: datetime
     withdraw_policy: WithdrawPolicy | None = None
+    # Money of this account currently held in escrow, derived from open
+    # orders (not a wallet column): what a buyer has paid for undelivered /
+    # unconfirmed orders, and what a seller is waiting to receive.
+    escrow_paid: int = 0
+    escrow_incoming: int = 0
 
     model_config = {"from_attributes": True}
 
@@ -35,6 +40,17 @@ class WalletResponse(BaseModel):
 class TopupRequest(BaseModel):
     account_id: int
     amount: int = Field(ge=1)
+    # Why money is being created by hand — shown in the ledger row and the
+    # audit log so a manual credit is never anonymous.
+    reason: str = Field(min_length=3, max_length=500)
+
+    @field_validator("reason")
+    @classmethod
+    def strip_reason(cls, value: str) -> str:
+        value = value.strip()
+        if len(value) < 3:
+            raise ValueError("reason must be at least 3 characters")
+        return value
 
 
 class TransactionResponse(BaseModel):

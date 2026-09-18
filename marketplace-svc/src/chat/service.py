@@ -5,6 +5,7 @@ from sqlalchemy import and_, case, func, or_, select
 from sqlalchemy.ext.asyncio import AsyncSession
 from sqlalchemy.orm import aliased
 
+from src.content_filter import screen_text
 from src.exceptions import ErrorCode, api_error
 
 from src.chat.enums import ContextRole, ConversationKind, ConversationStatus
@@ -291,6 +292,7 @@ async def create_inquiry(
         raise api_error(ErrorCode.CHAT_PRODUCT_UNAVAILABLE, status.HTTP_404_NOT_FOUND)
     if product.seller_id == account.id:
         raise api_error(ErrorCode.CHAT_SELF_INQUIRY, status.HTTP_400_BAD_REQUEST)
+    body = await screen_text(db, body, actor_id=account.id, context="chat_inquiry", subject_id=str(product.id))
 
     # Serialise get-or-create on the product row. The unique index is the final
     # guard; this lock lets the losing request observe and reuse the committed room.
@@ -577,6 +579,12 @@ async def send_message(
             conversation.status = ConversationStatus.READ_ONLY
             await db.commit()
             raise api_error(ErrorCode.CHAT_READ_ONLY, status.HTTP_409_CONFLICT)
+    # Buyer ↔ seller text must stay on the marketplace; talking to Marketplace
+    # support (or as admin) is exempt.
+    if conversation.kind != ConversationKind.SUPPORT and participant.context_role != ContextRole.ADMIN:
+        body = await screen_text(
+            db, body, actor_id=account.id, context="chat_message", subject_id=str(conversation_id),
+        )
     existing = await db.scalar(
         select(ChatMessage).where(
             ChatMessage.conversation_id == conversation_id,

@@ -109,7 +109,7 @@ async def test_escrow_release_credits_affiliate_commission(client):
     })
     buyer_token = buyer_login.json()["access_token"]
     buyer_me = await client.get("/me", headers={"Authorization": f"Bearer {buyer_token}"})
-    await client.post("/wallet/topup", json={"account_id": buyer_me.json()["id"], "amount": 100000},
+    await client.post("/wallet/topup", json={"reason": "test topup", "account_id": buyer_me.json()["id"], "amount": 100000},
                       headers={"Authorization": f"Bearer {admin_token}"})
     await client.post(
         "/admin/affiliate-fund/topup",

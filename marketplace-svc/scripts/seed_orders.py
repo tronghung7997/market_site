@@ -35,7 +35,7 @@ async def main():
         seller_id = await conn.fetchval("SELECT id FROM accounts WHERE email=$1", "seller@dxtrade.example.com")
 
         # Top up buyer wallet generously
-        await c.post("/wallet/topup", headers=admin, json={"account_id": buyer_id, "amount": 10_000_000})
+        await c.post("/wallet/topup", headers=admin, json={"account_id": buyer_id, "amount": 10_000_000, "reason": "Demo seed"})
 
         # Restock seller resources for instant variants
         for vid in [1, 2, 4, 5, 8, 9]:
@@ -244,7 +244,7 @@ async def main():
                 print(f"  Order #{oid}: VPS Cloud Standard — completed")
 
         # ─── 3. Admin orders (admin as buyer) ───
-        await c.post("/wallet/topup", headers=admin, json={"account_id": admin_id, "amount": 5_000_000})
+        await c.post("/wallet/topup", headers=admin, json={"account_id": admin_id, "amount": 5_000_000, "reason": "Demo seed"})
         if tg_variants:
             v = tg_variants[0]
             r = await c.post("/orders", headers=admin, json={"variant_id": v["id"], "quantity": 2})

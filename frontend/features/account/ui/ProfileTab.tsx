@@ -6,7 +6,7 @@ import { useLocale, useTranslations } from "next-intl";
 import { usePathname, useRouter } from "@/i18n/navigation";
 import { api } from "@/lib/api";
 import { useAuth } from "@/lib/auth";
-import { useMoney, type DisplayCurrency } from "@/lib/money";
+import { useMoney } from "@/lib/money";
 import { useApiErrorMessage } from "@/lib/use-api-error";
 import type { ProfileUpdate } from "@/lib/types";
 import { Input } from "@/components/ui";
@@ -18,8 +18,9 @@ type Form = { display_name: string; phone: string; telegram_username: string };
 const phoneOk = (v: string) => v.trim() === "" || /^\+?[0-9]{8,15}$/.test(v.replace(/[^0-9+]/g, ""));
 const telegramOk = (v: string) => v.trim() === "" || /^[A-Za-z0-9_]{5,32}$/.test(v.trim().replace(/^@/, ""));
 
-/** Who you are + how the site should look for you. Language and currency only
- *  appear when the admin allows visitors to switch them (Cài đặt › Hiển thị). */
+/** Who you are + the language the site speaks to you in. Currency follows the
+ *  language (vi → VND, en → USD); the switch only appears when the admin lets
+ *  visitors change language (Cài đặt › Hiển thị). */
 export function ProfileTab() {
   const t = useTranslations("account");
   const toast = useToast();
@@ -28,7 +29,7 @@ export function ProfileTab() {
   const locale = useLocale() as "vi" | "en";
   const router = useRouter();
   const pathname = usePathname();
-  const { currency, setCurrency, allowToggle, allowLocaleToggle } = useMoney();
+  const { allowLocaleToggle } = useMoney();
 
   const baseline = React.useMemo<Form>(() => ({
     display_name: account?.display_name ?? "",
@@ -50,17 +51,12 @@ export function ProfileTab() {
   const changeLocale = (next: "vi" | "en") => {
     if (next === locale) return;
     document.cookie = `NEXT_LOCALE=${next};path=/;max-age=31536000;SameSite=Lax`;
-    void api.updateMe({ preferred_locale: next }).catch(() => {});
+    void api.updateMe({ preferred_locale: next, preferred_currency: next === "vi" ? "VND" : "USD" }).catch(() => {});
     router.replace(`${pathname}?tab=profile`, { locale: next });
-  };
-  const changeCurrency = (next: DisplayCurrency) => {
-    if (next === currency) return;
-    setCurrency(next);
-    api.updateMe({ preferred_currency: next }).then(() => toast.success(t("currencySaved", { currency: next })), (e) => toast.error(apiErrorMessage(e, t("saveFailed"))));
   };
 
   if (!account) return null;
-  const showPrefs = allowLocaleToggle || allowToggle;
+  const showPrefs = allowLocaleToggle;
 
   return (
     <div className="space-y-5">
@@ -98,11 +94,6 @@ export function ProfileTab() {
             {allowLocaleToggle && (
               <Row label={t("language")} hint={t("languageHint")}>
                 <Segmented value={locale} label={t("language")} onChange={changeLocale} options={[{ value: "vi", label: "Tiếng Việt" }, { value: "en", label: "English" }]} />
-              </Row>
-            )}
-            {allowToggle && (
-              <Row label={t("currency")} hint={t("currencyHint")}>
-                <Segmented value={currency} label={t("currency")} onChange={changeCurrency} options={[{ value: "VND", label: "VND ₫" }, { value: "USD", label: "USD $" }]} />
               </Row>
             )}
           </div>

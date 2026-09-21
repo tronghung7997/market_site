@@ -9,8 +9,7 @@ import { hasLocale, NextIntlClientProvider } from "next-intl";
 import { getMessages, getTranslations, setRequestLocale } from "next-intl/server";
 import { storefrontMessages } from "@/i18n/client-messages";
 import { notFound } from "next/navigation";
-import { cookies, headers } from "next/headers";
-import { geoDefaultsFromHeaders, pairedCurrencyForLocale } from "@/lib/geo-defaults";
+import { pairedCurrencyForLocale } from "@/lib/geo-defaults";
 import { AuthProvider } from "@/lib/auth";
 import { QueryProvider } from "@/lib/query-provider";
 import {
@@ -107,13 +106,7 @@ export default async function RootLayout({ children, params }: { children: React
   setRequestLocale(locale);
   const tc = await getTranslations({ locale, namespace: "common" });
 
-  // Cookie preference wins; then the visitor's country (proxy.ts seeds the
-  // cookie on this same response, so read the header here to keep first paint
-  // consistent); otherwise admin/ENV default from server config.
   // null initialConfig → client retries; first paint still uses FALLBACK defaults.
-  const jar = await cookies();
-  const cookieCurrency = parseDisplayCurrency(jar.get("display_currency")?.value);
-  const geoCurrency = geoDefaultsFromHeaders(await headers())?.currency;
   // Three independent reads, one wait — not three serial round-trips.
   const [initialConfig, clarityId, footerPages, messages] = await Promise.all([
     loadMoneyConfig(locale),
@@ -126,8 +119,9 @@ export default async function RootLayout({ children, params }: { children: React
   // currency (vi ↔ VND) → nothing (provider falls back to the admin default).
   // Passing only a *trusted* preference means the client never persists a
   // provisional value when the config fetch failed.
-  const preferredCurrency: DisplayCurrency | undefined =
-    cookieCurrency ?? geoCurrency ?? pairedCurrencyForLocale(locale) ?? undefined;
+  // Currency pairs with the language (vi → VND, en → USD); cookie/geo only
+  // still decide the locale itself (proxy.ts).
+  const preferredCurrency: DisplayCurrency | undefined = pairedCurrencyForLocale(locale);
 
   return (
     <html lang={locale} className={`${newsreader.variable} ${beVietnam.variable} ${jbMono.variable}`}>

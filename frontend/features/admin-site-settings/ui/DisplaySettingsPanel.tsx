@@ -220,19 +220,10 @@ export function DisplaySettingsPanel() {
                   );
                 })}
               </div>
-              <SettingRow
-                title={t("currency.allowToggle")}
-                hint={t("currency.allowToggleHint")}
-                control={(
-                  <Switch
-                    checked={allowCurrencyToggle}
-                    onChange={setAllowCurrencyToggle}
-                    disabled={saving}
-                    label={t("currency.allowToggle")}
-                  />
-                )}
-                first
-              />
+              {/* The per-user currency switch is retired: currency pairs with
+                  the language (vi → VND, en → USD). The flag stays in the API
+                  for older clients but nothing reads it any more. */}
+              <p className="px-1 pt-3 text-[12.5px] text-muted">{t("currency.followsLanguage")}</p>
             </div>
           </div>
 

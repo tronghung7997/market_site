@@ -44,6 +44,8 @@ import {
   type HistoricalMoneyResult,
 } from "./format";
 import { getCookie, setCookie } from "@/lib/utils/cookies";
+import { useLocale } from "next-intl";
+import { pairedCurrencyForLocale } from "@/lib/geo-defaults";
 
 type LocaleOpts = { locale?: string };
 
@@ -150,6 +152,7 @@ export function CurrencyProvider({
   initialCurrency?: DisplayCurrency;
   initialConfig?: MoneyConfig | null;
 }) {
+  const activeLocale = useLocale();
   const ssrConfig = initialConfig ?? null;
   const seedDefault =
     ssrConfig?.display_currency_default ??
@@ -230,25 +233,30 @@ export function CurrencyProvider({
     };
   }, [ssrConfig, initialCurrency]);
 
+  // Currency follows the language (vi → VND, en → USD); the stored/geo
+  // preference and the admin default only matter until the locale is known,
+  // and the user-facing toggle is retired. setCurrency is kept for callers
+  // but is a no-op unless it matches the language pairing.
+  const localeCurrency = pairedCurrencyForLocale(activeLocale);
   const setCurrency = useCallback(
     (c: DisplayCurrency) => {
-      if (!config.allow_user_toggle && c !== currency) {
-        // Flag off: ignore toggle (stay on current / default).
-        return;
-      }
+      if (c !== localeCurrency) return;
       setCurrencyState(c);
       persistCurrency(c);
     },
-    [config.allow_user_toggle, currency],
+    [localeCurrency],
   );
+  useEffect(() => {
+    if (currency !== localeCurrency) {
+      setCurrencyState(localeCurrency);
+      persistCurrency(localeCurrency);
+    }
+  }, [currency, localeCurrency]);
 
   const fxRate = config.display_fx_rate;
 
   const value = useMemo<MoneyContextValue>(() => {
-    // Toggle off only hides the switcher and rejects setCurrency; the
-    // stored/geo-seeded preference still applies so a VN visitor sees VND
-    // even when the admin default is USD.
-    const effective: DisplayCurrency = currency;
+    const effective: DisplayCurrency = localeCurrency;
 
     const history = (
       amountVnd: number,
@@ -266,7 +274,8 @@ export function CurrencyProvider({
       config,
       configReady,
       fxRate,
-      allowToggle: config.allow_user_toggle,
+      // Retired: currency is paired with the language, never switched alone.
+      allowToggle: false,
       allowLocaleToggle: config.allow_locale_toggle,
       showFxHints: config.show_fx_hints,
       formatLedgerMoney: (amountVnd, locale = "en") =>

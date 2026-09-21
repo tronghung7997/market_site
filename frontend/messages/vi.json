@@ -3613,7 +3613,7 @@
     "prefsTitle": "Ngôn ngữ & tiền tệ",
     "prefsHint": "Áp dụng ngay cho trình duyệt này và được ghi nhớ trên tài khoản.",
     "language": "Ngôn ngữ",
-    "languageHint": "Giao diện, email và thông báo.",
+    "languageHint": "Tiếng Việt hiển thị giá bằng VND, English hiển thị bằng USD. Ví và giao dịch luôn tính bằng VND.",
     "currency": "Tiền tệ hiển thị",
     "currencyHint": "Chỉ đổi cách hiển thị giá; ví và giao dịch vẫn tính bằng VND.",
     "currencySaved": "Đã chuyển hiển thị sang {currency}",
@@ -3993,7 +3993,8 @@
       "USD": "USD",
       "USDHint": "Hiện giá quy đổi, vẫn trừ VND khi mua.",
       "allowToggle": "Cho khách đổi VND / USD",
-      "allowToggleHint": "Hiện nút đổi trên thanh điều hướng."
+      "allowToggleHint": "Hiện nút đổi trên thanh điều hướng.",
+      "followsLanguage": "Tiền tệ hiển thị đi theo ngôn ngữ: Tiếng Việt xem giá VND, English xem giá USD. Không còn nút đổi tiền tệ riêng."
     },
     "rate": {
       "title": "Tỷ giá",

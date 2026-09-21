@@ -51,6 +51,8 @@ export function geoDefaultsFromHeaders(
  * The currency a locale is paired with when nothing else decided it: Vietnamese
  * readers see VND. Other locales return null so the admin default applies.
  */
-export function pairedCurrencyForLocale(locale: string | null | undefined): DisplayCurrency | null {
-  return locale === "vi" ? "VND" : null;
+/** Display currency is a function of the language (decision 2026-09-21):
+ *  Vietnamese reads VND, English reads USD. No per-user override. */
+export function pairedCurrencyForLocale(locale: string | null | undefined): DisplayCurrency {
+  return locale === "vi" ? "VND" : "USD";
 }

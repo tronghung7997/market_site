@@ -3613,7 +3613,7 @@
     "prefsTitle": "Language & currency",
     "prefsHint": "Applies to this browser right away and is remembered on your account.",
     "language": "Language",
-    "languageHint": "Interface, emails and notifications.",
+    "languageHint": "Vietnamese shows prices in VND, English in USD. Your wallet and orders are always kept in VND.",
     "currency": "Display currency",
     "currencyHint": "Only changes how prices are shown; your wallet and orders stay in VND.",
     "currencySaved": "Now showing prices in {currency}",
@@ -3993,7 +3993,8 @@
       "USD": "USD",
       "USDHint": "Converted display; still charged in VND.",
       "allowToggle": "Let visitors switch VND / USD",
-      "allowToggleHint": "Shows a switch in the navigation bar."
+      "allowToggleHint": "Shows a switch in the navigation bar.",
+      "followsLanguage": "Display currency follows the language: Vietnamese shows VND, English shows USD. There is no separate currency switch any more."
     },
     "rate": {
       "title": "Exchange rate",

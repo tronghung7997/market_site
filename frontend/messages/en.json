@@ -1333,7 +1333,12 @@
   "sellerProducts": {
     "tierCap": "{tier} tier: {active}/{max} products on sale",
     "tierCapReached": "limit reached — pause some or upgrade your tier to list more",
-    "tierName": {"new": "New", "verified": "Verified", "trusted": "Trusted", "enterprise": "Enterprise"},
+    "tierName": {
+      "new": "New",
+      "verified": "Verified",
+      "trusted": "Trusted",
+      "enterprise": "Enterprise"
+    },
     "tabsLabel": "Filter products",
     "tab": {
       "all": "All",
@@ -2183,7 +2188,30 @@
     "paginationSummary": "Showing {from}–{to} of {total} products",
     "previewCount": "{count} featured products",
     "previewHint": "Open the category to browse the complete catalog.",
-    "lowStock": "Low stock"
+    "lowStock": "Low stock",
+    "clearSearch": "Clear search",
+    "searchSummary": "{count} products match “{q}”",
+    "directMatchShort": "Subcategories:",
+    "directoryLabel": "Product categories",
+    "comingSoonTag": "Coming soon",
+    "noProductsYet": "No products are on sale yet.",
+    "noProductsYetHint": "Sellers will list soon — check back later.",
+    "matchCount": "{count} matching products",
+    "siblingsLabel": "Related categories",
+    "allOf": "All {name}",
+    "subcategoriesLabel": "Subcategories",
+    "viewModeLabel": "View mode",
+    "filtersLabel": "Filter",
+    "priceLabel": "Price range",
+    "clearFiltersCount": "Clear {count} filters",
+    "priceCustomHint": "Enter the price range you want:",
+    "railLabel": "Category navigation",
+    "allProducts": "All products",
+    "hubSummary": "{cats} categories · {products} products for sale",
+    "moreInCategory": "{count} more products in {name}",
+    "productsLoadError": "Could not load products. Check your connection and try again.",
+    "retry": "Try again",
+    "updating": "Updating…"
   },
   "products": {
     "notFound": "Product not found",

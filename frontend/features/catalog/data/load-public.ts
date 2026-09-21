@@ -2,6 +2,8 @@ import { fetchPublicJson } from "@/lib/seo";
 import { unstable_cache } from "next/cache";
 import { flattenCategories } from "@/lib/categories";
 import { matchCategoryParam } from "@/lib/routes";
+import { browseQueryToListOpts, listOptsToSearchParams } from "./browse-query";
+import type { CategoryBrowseQuery, ProductListOpts } from "./browse-query";
 import type { Category, CategoryShelf, CategoryShelvesResponse, PaginatedProducts, Product, ProductCatalogSummary, ProductDetail, SellerProfile, SellerSummary } from "@/lib/types";
 
 export type HomeCatalog = {
@@ -22,30 +24,24 @@ export type CategoryHubCatalog = {
   error: string | null;
 };
 
+export type CategoryShelfTotals = Record<number, { total: number; price_from: number | null }>;
+
 export type CategoryPageCatalog = {
   categories: Category[];
+  /** Branch totals keyed by top-level category id, for the category rail. */
+  shelfTotals: CategoryShelfTotals;
   /** The category the route param resolved to (by slug, or legacy id); null = unknown. */
   category: Category | null;
   /** Slug of the sub-category filter in effect, if any. */
   sub: string | null;
-  products: Product[];
-  total: number;
-  page: number;
-  perPage: number;
+  /** The `/products` request the first page was rendered from; the client
+   *  hook reuses `result` for that exact shape and fetches for any other. */
+  listOpts: ProductListOpts | null;
+  result: PaginatedProducts | null;
   error: string | null;
 };
 
-export type CategoryBrowseQuery = {
-  q?: string;
-  sort?: string;
-  stock?: string;
-  instant?: string;
-  price?: string;
-  minVnd?: string;
-  maxVnd?: string;
-  sub?: string;
-  page?: string;
-};
+export type { CategoryBrowseQuery } from "./browse-query";
 
 export type SellerPageCatalog = {
   seller: SellerProfile | null;
@@ -117,56 +113,33 @@ export async function loadCategoryPage(
   categoryRef: string,
   query: CategoryBrowseQuery = {},
 ): Promise<CategoryPageCatalog> {
-  const requestedPage = Number(query.page);
-  const page = Number.isInteger(requestedPage) && requestedPage > 0 ? requestedPage : 1;
-  const categories = await fetchPublicJson<Category[]>("/categories", locale);
+  const [categories, shelves] = await Promise.all([
+    fetchPublicJson<Category[]>("/categories", locale),
+    fetchPublicJson<CategoryShelvesResponse>("/products/shelves?per_shelf=1", locale),
+  ]);
+  const shelfTotals: CategoryShelfTotals = Object.fromEntries(
+    (shelves?.shelves ?? []).map((shelf) => [shelf.category_id, { total: shelf.total, price_from: shelf.price_from }]),
+  );
+  const base = { categories: categories ?? [], shelfTotals, sub: null, listOpts: null, result: null };
   if (!categories) {
-    return { categories: [], category: null, sub: null, products: [], total: 0, page, perPage: 24, error: "load" };
+    return { ...base, category: null, error: "load" };
   }
   const category = matchCategoryParam(categoryRef, flattenCategories(categories));
   if (!category) {
-    return { categories, category: null, sub: null, products: [], total: 0, page, perPage: 24, error: null };
+    return { ...base, category: null, error: null };
   }
   // `?sub=` narrows to one descendant; accepts a slug (current links) or an id (old links).
   const descendants = flattenCategories(category.children ?? []);
   const subCategory = matchCategoryParam(query.sub, descendants);
-  const effectiveCategoryId = subCategory?.id ?? category.id;
-  const params = new URLSearchParams({
-    category_id: String(effectiveCategoryId),
-    page: String(page),
-    per_page: "24",
-  });
-  if (query.q?.trim()) params.set("search", query.q.trim());
-  if (query.stock === "1") params.set("in_stock", "true");
-  if (query.instant === "1") params.set("fulfillment", "instant");
-  if (["bestseller", "rating", "price_asc", "price_desc"].includes(query.sort ?? "")) {
-    params.set("sort", query.sort!);
-  }
-  if (query.price === "under1") params.set("max_price", "24999");
-  if (query.price === "1to2") {
-    params.set("min_price", "25000");
-    params.set("max_price", "50000");
-  }
-  if (query.price === "above2") params.set("min_price", "50001");
-  if (query.price === "custom") {
-    const minVnd = Number(query.minVnd);
-    const maxVnd = Number(query.maxVnd);
-    if (Number.isFinite(minVnd) && minVnd >= 0) params.set("min_price", String(Math.round(minVnd)));
-    if (Number.isFinite(maxVnd) && maxVnd >= 0) params.set("max_price", String(Math.round(maxVnd)));
-  }
-  const products = await fetchPublicJson<PaginatedProducts>(`/products?${params}`, locale);
-  if (!products) {
-    return { categories, category, sub: subCategory?.slug ?? null, products: [], total: 0, page, perPage: 24, error: "load" };
-  }
+  const listOpts = browseQueryToListOpts(query, subCategory?.id ?? category.id);
+  const result = await fetchPublicJson<PaginatedProducts>(`/products?${listOptsToSearchParams(listOpts)}`, locale);
   return {
-    categories,
+    ...base,
     category,
     sub: subCategory?.slug ?? null,
-    products: products.items,
-    total: products.total,
-    page: products.page,
-    perPage: products.per_page,
-    error: null,
+    listOpts,
+    result,
+    error: result ? null : "load",
   };
 }
 

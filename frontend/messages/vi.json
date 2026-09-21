@@ -1333,7 +1333,12 @@
   "sellerProducts": {
     "tierCap": "Hạng {tier}: đang bán {active}/{max} sản phẩm",
     "tierCapReached": "đã đạt giới hạn, tạm dừng bớt hoặc nâng hạng để bật thêm",
-    "tierName": {"new": "Mới", "verified": "Đã xác minh", "trusted": "Uy tín", "enterprise": "Doanh nghiệp"},
+    "tierName": {
+      "new": "Mới",
+      "verified": "Đã xác minh",
+      "trusted": "Uy tín",
+      "enterprise": "Doanh nghiệp"
+    },
     "tabsLabel": "Lọc sản phẩm",
     "tab": {
       "all": "Tất cả",
@@ -2183,7 +2188,30 @@
     "paginationSummary": "Hiển thị {from}–{to} trên tổng số {total} sản phẩm",
     "previewCount": "{count} sản phẩm nổi bật",
     "previewHint": "Mở danh mục để xem toàn bộ sản phẩm.",
-    "lowStock": "Sắp hết"
+    "lowStock": "Sắp hết",
+    "clearSearch": "Xóa tìm kiếm",
+    "searchSummary": "{count} sản phẩm khớp “{q}”",
+    "directMatchShort": "Danh mục con:",
+    "directoryLabel": "Danh mục sản phẩm",
+    "comingSoonTag": "Sắp có hàng",
+    "noProductsYet": "Chưa có sản phẩm nào đang bán.",
+    "noProductsYetHint": "Nhà bán sẽ sớm mở hàng — quay lại sau nhé.",
+    "matchCount": "{count} sản phẩm khớp",
+    "siblingsLabel": "Danh mục cùng nhóm",
+    "allOf": "Tất cả {name}",
+    "subcategoriesLabel": "Danh mục con",
+    "viewModeLabel": "Kiểu hiển thị",
+    "filtersLabel": "Lọc",
+    "priceLabel": "Mức giá",
+    "clearFiltersCount": "Xóa {count} bộ lọc",
+    "priceCustomHint": "Nhập khoảng giá bạn muốn:",
+    "railLabel": "Điều hướng danh mục",
+    "allProducts": "Tất cả sản phẩm",
+    "hubSummary": "{cats} danh mục · {products} sản phẩm đang bán",
+    "moreInCategory": "Còn {count} sản phẩm nữa trong {name}",
+    "productsLoadError": "Không tải được sản phẩm. Kiểm tra kết nối rồi thử lại.",
+    "retry": "Thử lại",
+    "updating": "Đang cập nhật…"
   },
   "products": {
     "notFound": "Không tìm thấy",

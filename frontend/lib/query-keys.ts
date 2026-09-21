@@ -21,6 +21,8 @@ export const queryKeys = {
 
   // Products
   products: () => ["products"] as const,
+  /** Storefront category browse — one entry per list request shape. */
+  categoryProducts: (opts: Record<string, unknown>) => ["products", "browse", opts] as const,
   // Storefront search — typeahead keyed by locale + normalised query.
   searchSuggest: (locale: string, q: string) => ["search", "suggest", locale, q] as const,
   categoriesTree: () => ["categories"] as const,

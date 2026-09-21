@@ -136,7 +136,12 @@ async def generate(
             },
         )
     except AiError as exc:
-        raise TrustSeedError(f"ai_{exc.kind}", str(exc)) from exc
+        # Admin-facing text: the plain message (AiError.__str__ prefixes the
+        # kind for logs), plus where to fix the two configuration cases.
+        message = exc.args[0] if exc.args else str(exc)
+        if exc.kind in ("disabled", "not_configured"):
+            message = f"{message} — bật và điền khoá ở Cài đặt › AI."
+        raise TrustSeedError(f"ai_{exc.kind}", message) from exc
 
     raw = result.data if isinstance(result.data, list) else []
     drafts: list[dict] = []

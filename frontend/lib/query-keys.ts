@@ -104,6 +104,11 @@ export const queryKeys = {
   adminFeeConfig: () => ["admin-fee-config"] as const,
   feeConfig: () => ["fee-config"] as const,
   adminLoginEvents: (accountId: number) => ["admin-login-events", accountId] as const,
+  adminAiConfig: () => ["admin-ai-config"] as const,
+  adminAiPrompts: () => ["admin-ai-prompts"] as const,
+  adminAiUsage: (days: number) => ["admin-ai-usage", days] as const,
+  trustSeedBatches: (productId?: number) => ["trust-seed-batches", productId ?? null] as const,
+  trustSeedSummary: (productId: number) => ["trust-seed-summary", productId] as const,
   sellerProducts: (params?: Record<string, unknown> | null) =>
     params == null ? ["seller-products"] as const : ["seller-products", "list", params] as const,
 } as const;

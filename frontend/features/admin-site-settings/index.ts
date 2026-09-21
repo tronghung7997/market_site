@@ -6,5 +6,6 @@ export { ContentFilterPanel } from "./ui/ContentFilterPanel";
 export { AuthSettingsPanel } from "./ui/AuthSettingsPanel";
 export { SystemPanel } from "./ui/SystemPanel";
 export { FeeSettingsPanel } from "./ui/FeeSettingsPanel";
+export { AiSettingsPanel } from "./ui/AiSettingsPanel";
 export { SystemStatusBanner } from "./ui/SystemStatusBanner";
 export { SettingsFooter, SettingsLoadError, SettingsLoading, SettingsRow, SettingsSection, SettingsToggle } from "./ui/SettingsRow";

@@ -28,6 +28,15 @@ class Review(Base):
     # Admin moderation: a hidden review leaves the storefront and the
     # product's rating, but the row (and the buyer's "reviewed" state) stays.
     is_hidden: Mapped[bool] = mapped_column(Boolean, nullable=False, default=False, server_default="false")
+
+    # Written by the admin trust-seed console rather than a real buyer. Public
+    # storefront reads treat it like any other visible review (that is the
+    # point), but it is excluded from seller performance and every financial
+    # report, and a whole batch can be reversed via trust_seed_batch_id.
+    is_seeded: Mapped[bool] = mapped_column(Boolean, nullable=False, default=False, server_default="false")
+    trust_seed_batch_id: Mapped[int | None] = mapped_column(
+        ForeignKey("trust_seed_batches.id", ondelete="SET NULL"), nullable=True, index=True,
+    )
     hidden_reason: Mapped[str | None] = mapped_column(Text, nullable=True)
     hidden_by_id: Mapped[int | None] = mapped_column(ForeignKey("accounts.id"), nullable=True)
     hidden_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True), nullable=True)

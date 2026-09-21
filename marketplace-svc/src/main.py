@@ -24,8 +24,10 @@ from src.observability.sentry import init_sentry
 from src.notifications.router import router as notifications_router
 from src.orders.router import router as orders_router
 from src.ops.router import router as ops_router
+from src.ai.router import router as ai_router
 from src.search.router import router as search_router
 from src.site_pages.router import router as site_pages_router
+from src.trust_seed.router import router as trust_seed_router
 from src.pricing.router import router as pricing_router
 from src.products.router import router as products_router
 from src.providers.router import router as providers_router
@@ -218,6 +220,8 @@ app.include_router(proxy_router)
 app.include_router(ops_router)
 app.include_router(site_pages_router)
 app.include_router(search_router)
+app.include_router(ai_router)
+app.include_router(trust_seed_router)
 
 
 @app.get("/health")

@@ -1175,17 +1175,23 @@ async def get_seller_stats(seller_id: int, db: AsyncSession) -> dict:
             Product.seller_id == seller_id, Product.status == ProductStatus.active
         )
     ) or 0
+    # Admin-seeded demo orders never moved money, so they are excluded from
+    # every count and total here (see src/trust_seed).
     total_orders = await db.scalar(
-        select(func.count(Order.id)).where(Order.seller_id == seller_id)
+        select(func.count(Order.id)).where(
+            Order.seller_id == seller_id, Order.is_seeded.is_(False)
+        )
     ) or 0
     pending_orders = await db.scalar(
         select(func.count(Order.id)).where(
-            Order.seller_id == seller_id, Order.status == OrderStatus.pending
+            Order.seller_id == seller_id, Order.is_seeded.is_(False),
+            Order.status == OrderStatus.pending,
         )
     ) or 0
     total_revenue = await db.scalar(
         select(func.sum(Order.total_amount)).where(
-            Order.seller_id == seller_id, Order.status.in_([OrderStatus.delivered, OrderStatus.completed])
+            Order.seller_id == seller_id, Order.is_seeded.is_(False),
+            Order.status.in_([OrderStatus.delivered, OrderStatus.completed]),
         )
     ) or 0
 
@@ -1641,7 +1647,7 @@ async def list_all_products_admin(
             pid: cnt for pid, cnt in (
                 await db.execute(
                     select(Order.product_id, func.count(Order.id))
-                    .where(Order.product_id.in_(metric_ids))
+                    .where(Order.product_id.in_(metric_ids), Order.is_seeded.is_(False))
                     .group_by(Order.product_id)
                 )
             ).all() if pid in metric_ids
@@ -1652,6 +1658,7 @@ async def list_all_products_admin(
                     select(Order.product_id, func.sum(Order.total_amount))
                     .where(
                         Order.product_id.in_(metric_ids),
+                        Order.is_seeded.is_(False),
                         Order.status.in_([OrderStatus.delivered, OrderStatus.completed]),
                     )
                     .group_by(Order.product_id)

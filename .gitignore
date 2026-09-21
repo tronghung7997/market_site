@@ -28,3 +28,9 @@ scratch
 frontend/CLAUDE.md
 skills-lock.json
 /frontend/frontend.env
+
+# Ad-hoc environment backups taken during E2E/debug sessions. These are full
+# dev env dumps containing real provider credentials; they must never be
+# committed, and the untracked-but-not-ignored state made `git add -A` risky.
+*.env.bak-*
+.env.bak-*

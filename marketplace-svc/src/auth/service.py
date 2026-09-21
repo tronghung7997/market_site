@@ -510,7 +510,11 @@ async def list_accounts(
     from sqlalchemy import case, func, literal_column
     from src.models.login_event import LoginEvent
 
-    filters = []
+    # Synthetic trust-seed reviewers are not user accounts: they cannot log in,
+    # hold no wallet and exist only to satisfy the order->review foreign key.
+    # Listing them would corrupt the user count and invite a role/tier change
+    # on a row that must stay inert (see src/trust_seed).
+    filters = [Account.is_seeded.is_(False)]
     if search and search.strip():
         filters.append(Account.email.ilike(f"%{search.strip()}%"))
     if role in {"buyer", "seller", "admin"}:
@@ -561,7 +565,7 @@ async def list_accounts(
         func.sum(case((Account.totp_enabled_at.is_not(None), 1), else_=0)),
         func.sum(case((Account.is_internal.is_(True), 1), else_=0)),
         func.sum(case((Account.created_at >= func.now() - literal_column("interval '7 days'"), 1), else_=0)),
-    ))).one()
+    ).where(Account.is_seeded.is_(False)))).one()
     keys = ("all", "buyers", "sellers", "admins", "locked", "unverified", "twofa", "internal", "new_7d")
     summary = {k: int(v or 0) for k, v in zip(keys, summary_row)}
     return {"items": items, "total": total, "page": page, "per_page": per_page, "summary": summary}

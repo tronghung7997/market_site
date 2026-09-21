@@ -1,7 +1,7 @@
 from datetime import datetime
 from enum import Enum as PyEnum
 
-from sqlalchemy import DateTime, Enum, ForeignKey, String, Text, func, text
+from sqlalchemy import Boolean, DateTime, Enum, ForeignKey, String, Text, func, text
 from sqlalchemy.dialects.postgresql import ARRAY, JSONB
 from sqlalchemy.orm import Mapped, mapped_column
 
@@ -53,6 +53,11 @@ class Account(Base):
     totp_enabled_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True), nullable=True)
     # sha256 hashes of unused one-time backup codes.
     totp_backup_hashes: Mapped[list[str] | None] = mapped_column(JSONB, nullable=True)
+    # Synthetic reviewer identity created by the trust-seed console. Cannot log
+    # in (no usable password hash, is_active=false), receives no mail, and is
+    # excluded from admin account lists, user counts and affiliate flows. Only
+    # ever surfaces publicly through reviews.service.mask_reviewer().
+    is_seeded: Mapped[bool] = mapped_column(Boolean, nullable=False, default=False, server_default="false")
     created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), server_default=func.now())
     updated_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), server_default=func.now(), onupdate=func.now())
 

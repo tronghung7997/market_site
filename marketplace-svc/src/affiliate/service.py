@@ -567,6 +567,9 @@ async def _get_referred_users(
             func.count(Order.id).label("order_count"),
             func.coalesce(func.sum(Order.total_amount), 0).label("total_spent"),
         )
+        # Seeded demo orders spent no money and belong to accounts that cannot
+        # be referred, so they must not appear as referral spend.
+        .where(Order.is_seeded.is_(False))
         .group_by(Order.buyer_id)
         .subquery()
     )

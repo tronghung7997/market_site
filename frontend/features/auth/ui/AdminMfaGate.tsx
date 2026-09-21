@@ -17,7 +17,7 @@ export function AdminMfaGate() {
   useEffect(() => {
     if (loading || !account?.mfa_setup_required) return;
     if (pathname?.includes("/admin/login")) return;
-    router.replace("/account/security?setup=2fa");
+    router.replace("/account?tab=security&setup=2fa");
   }, [account, loading, pathname, router]);
   return null;
 }

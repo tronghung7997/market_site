@@ -149,3 +149,65 @@ async def reject_application(
     await db.commit()
     await db.refresh(app)
     return app
+
+
+async def get_seller_profile(account: Account, db: AsyncSession) -> dict:
+    """Shop identity for the /account › Người bán tab."""
+    from src.sellers.service import seller_public_ref
+
+    app = await db.scalar(
+        select(SellerApplication)
+        .where(SellerApplication.account_id == account.id, SellerApplication.status == ApplicationStatus.approved)
+        .order_by(SellerApplication.created_at.desc())
+        .limit(1)
+    )
+    # Sellers granted the role directly (internal / seeded) have no
+    # application yet: hand back an empty profile so they can fill one in.
+    ref = seller_public_ref(account.public_key, app.business_name if app else None)
+    return {
+        "business_name": app.business_name if app else "",
+        "description": app.description if app else None,
+        "contact": app.contact if app else None,
+        "handle": ref["handle"],
+        "canonical_path": ref["canonical_path"],
+        "seller_tier": account.seller_tier.value if hasattr(account.seller_tier, "value") else account.seller_tier,
+    }
+
+
+async def update_seller_profile(account: Account, data: dict, db: AsyncSession) -> dict:
+    """Sellers edit their shop name/bio without re-approval (product decision
+    2026-09-21). Renaming changes the storefront handle; the public key in the
+    URL keeps old links resolving."""
+    from src.audit.service import log_event
+    from src.logging import current_request_id
+
+    app = await db.scalar(
+        select(SellerApplication)
+        .where(SellerApplication.account_id == account.id, SellerApplication.status == ApplicationStatus.approved)
+        .order_by(SellerApplication.created_at.desc())
+        .limit(1)
+    )
+    if app is None:
+        name = (data.get("business_name") or "").strip()
+        if not name:
+            raise HTTPException(status_code=400, detail="Đặt tên gian hàng trước")
+        app = SellerApplication(account_id=account.id, business_name=name, status=ApplicationStatus.approved)
+        db.add(app)
+        await db.flush()
+    before = {"business_name": app.business_name, "description": app.description, "contact": app.contact}
+    for key, value in data.items():
+        if key == "business_name":
+            if value is None or not value.strip():
+                continue
+            app.business_name = value.strip()
+        else:
+            setattr(app, key, (value or "").strip() or None)
+    after = {"business_name": app.business_name, "description": app.description, "contact": app.contact}
+    if after != before:
+        await log_event(
+            db, "info", f"Seller profile updated by account {account.id}",
+            request_id=current_request_id(),
+            metadata={"event": "seller_profile_updated", "actor_id": account.id, "application_id": app.id, "before": before, "after": after},
+        )
+    await db.commit()
+    return await get_seller_profile(account, db)

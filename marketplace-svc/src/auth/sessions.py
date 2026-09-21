@@ -40,7 +40,9 @@ def _refresh_expiry(now: datetime) -> datetime:
     return now + timedelta(days=settings.jwt_refresh_expire_days)
 
 
-async def issue_session(account: Account, db: AsyncSession) -> IssuedTokens:
+async def issue_session(
+    account: Account, db: AsyncSession, *, ip: str | None = None, user_agent: str | None = None,
+) -> IssuedTokens:
     now = datetime.now(timezone.utc)
     session_id = uuid4()
     family_id = uuid4()
@@ -56,6 +58,8 @@ async def issue_session(account: Account, db: AsyncSession) -> IssuedTokens:
         refresh_token_hash=refresh_hash,
         expires_at=expires_at,
         last_used_at=now,
+        ip=ip,
+        user_agent=(user_agent or None) and user_agent[:255],
     )
     db.add(session)
     await db.flush()
@@ -221,3 +225,13 @@ async def resolve_account_from_access_token(
     if not account or not account.is_active:
         raise HTTPException(status_code=status.HTTP_401_UNAUTHORIZED, detail="Không tìm thấy tài khoản")
     return account, session
+
+
+async def list_active_sessions(account_id: int, db: AsyncSession) -> list[AuthSession]:
+    now = datetime.now(timezone.utc)
+    rows = await db.execute(
+        select(AuthSession)
+        .where(AuthSession.account_id == account_id, AuthSession.revoked_at.is_(None), AuthSession.expires_at > now)
+        .order_by(AuthSession.last_used_at.desc().nullslast(), AuthSession.created_at.desc())
+    )
+    return list(rows.scalars().all())

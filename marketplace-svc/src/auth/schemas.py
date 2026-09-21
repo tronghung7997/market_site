@@ -1,4 +1,6 @@
+import re
 from datetime import datetime
+from uuid import UUID
 
 from pydantic import BaseModel, EmailStr, Field, field_validator
 
@@ -81,6 +83,94 @@ class AccountResponse(BaseModel):
     # Admin whose console is locked until they enable TOTP (policy on).
     mfa_setup_required: bool = False
     is_internal: bool = False
+    # Self-service profile (see ProfileUpdate).
+    display_name: str | None = None
+    phone: str | None = None
+    telegram_username: str | None = None
+    preferred_locale: str | None = None
+    preferred_currency: str | None = None
+    notification_prefs: dict[str, bool] = {}
+    created_at: datetime | None = None
+
+    model_config = {"from_attributes": True}
+
+
+NOTIFICATION_PREF_KEYS = ("orders", "disputes", "wallet", "marketing")
+
+
+class ProfileUpdate(BaseModel):
+    """PATCH /me — only the fields sent change; "" clears an optional one."""
+
+    display_name: str | None = Field(default=None, max_length=80)
+    phone: str | None = Field(default=None, max_length=32)
+    telegram_username: str | None = Field(default=None, max_length=64)
+    preferred_locale: str | None = Field(default=None, max_length=5)
+    preferred_currency: str | None = Field(default=None, max_length=3)
+    notification_prefs: dict[str, bool] | None = None
+
+    @field_validator("display_name", "phone", "telegram_username", mode="before")
+    @classmethod
+    def _strip(cls, value: object) -> object:
+        return value.strip() if isinstance(value, str) else value
+
+    @field_validator("phone")
+    @classmethod
+    def _phone(cls, value: str | None) -> str | None:
+        if not value:
+            return None
+        digits = re.sub(r"[^0-9+]", "", value)
+        if not re.fullmatch(r"\+?[0-9]{8,15}", digits):
+            raise ValueError("Số điện thoại không hợp lệ")
+        return value
+
+    @field_validator("telegram_username")
+    @classmethod
+    def _telegram(cls, value: str | None) -> str | None:
+        if not value:
+            return None
+        value = value.lstrip("@")
+        if not re.fullmatch(r"[A-Za-z0-9_]{5,32}", value):
+            raise ValueError("Tên Telegram gồm 5–32 ký tự chữ, số, gạch dưới")
+        return value
+
+    @field_validator("preferred_locale")
+    @classmethod
+    def _locale(cls, value: str | None) -> str | None:
+        if not value:
+            return None
+        if value not in ("vi", "en"):
+            raise ValueError("Ngôn ngữ không hỗ trợ")
+        return value
+
+    @field_validator("preferred_currency")
+    @classmethod
+    def _currency(cls, value: str | None) -> str | None:
+        if not value:
+            return None
+        value = value.upper()
+        if value not in ("VND", "USD"):
+            raise ValueError("Tiền tệ không hỗ trợ")
+        return value
+
+    @field_validator("notification_prefs")
+    @classmethod
+    def _prefs(cls, value: dict[str, bool] | None) -> dict[str, bool] | None:
+        if value is None:
+            return None
+        unknown = set(value) - set(NOTIFICATION_PREF_KEYS)
+        if unknown:
+            raise ValueError(f"Loại thông báo không hợp lệ: {', '.join(sorted(unknown))}")
+        return value
+
+
+class SessionRow(BaseModel):
+    id: UUID
+    created_at: datetime
+    last_used_at: datetime | None
+    expires_at: datetime
+    ip: str | None
+    user_agent: str | None
+    is_current: bool = False
 
     model_config = {"from_attributes": True}
 

@@ -22,6 +22,23 @@ class SellerApplicationResponse(BaseModel):
     model_config = {"from_attributes": True}
 
 
+class SellerProfileResponse(BaseModel):
+    """The seller's own shop identity (approved application + public ref)."""
+
+    business_name: str
+    description: str | None
+    contact: str | None
+    handle: str | None
+    canonical_path: str
+    seller_tier: str
+
+
+class SellerProfileUpdate(BaseModel):
+    business_name: str | None = Field(default=None, min_length=2, max_length=255)
+    description: str | None = Field(default=None, max_length=1000)
+    contact: str | None = Field(default=None, max_length=255)
+
+
 class RejectRequest(BaseModel):
     reason: str = Field(min_length=1, max_length=500)
 

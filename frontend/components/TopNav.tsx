@@ -20,8 +20,8 @@ import {
   Percent,
   Plus,
   Shield,
-  ShieldCheck,
   Store,
+  User,
   Wallet,
   X,
 } from "./Icons";
@@ -110,7 +110,7 @@ function TopNavBar() {
     { href: "/orders", label: t("orders"), icon: Package, auth: true },
     { href: "/transactions", label: t("transactions"), icon: ArrowLeftRight, auth: true },
     { href: "/affiliate", label: t("affiliate"), icon: Percent, auth: true },
-    { href: "/account/security", label: t("security"), icon: ShieldCheck, auth: true },
+    { href: "/account", label: t("account"), icon: User, auth: true },
     { href: "/seller", label: t("seller"), icon: Store, role: "seller" },
     { href: "/seller/apply", label: t("becomeSeller"), icon: Store, auth: true, hideIfRole: "seller" },
     { href: "/admin", label: t("admin"), icon: Shield, role: "admin" },
@@ -206,7 +206,9 @@ function TopNavBar() {
           <div className="flex min-w-0 flex-1 items-center justify-center md:justify-end lg:justify-center">
             <HeaderSearch />
           </div>
-          {!isAdminRoute && allowLocaleToggle && (
+          {/* Language / currency live under Tài khoản › Hồ sơ once signed in;
+              the header keeps them only for visitors who have nowhere else. */}
+          {!isAdminRoute && !account && allowLocaleToggle && (
             <LocaleSwitcher
               locale={locale}
               onChange={changeLocale}
@@ -214,8 +216,7 @@ function TopNavBar() {
               className="hidden lg:inline-flex"
             />
           )}
-          {/* Currency independent of locale — shown when admin enables toggle. */}
-          <CurrencyToggle className="hidden lg:inline-flex" />
+          {!account && <CurrencyToggle className="hidden lg:inline-flex" />}
           {account ? (
             <div className="flex items-center gap-2 sm:gap-2.5 shrink-0">
               <Link href="/wallet" title={t("walletBalance")}
@@ -375,13 +376,13 @@ function TopNavBar() {
               );
             })}
             <Link href="/solutions" className="block px-2.5 py-2.5 rounded-lg text-[14px] font-medium text-muted hover:text-fg hover:bg-raised transition-colors">{t("solutions")}</Link>
-            {!isAdminRoute && allowLocaleToggle && (
+            {!isAdminRoute && !account && allowLocaleToggle && (
               <div className="mt-1 flex items-center justify-between border-t border-line pt-3 px-2.5">
                 <span className="text-[11px] font-semibold uppercase tracking-[0.12em] text-faint">{languageLabel}</span>
                 <LocaleSwitcher locale={locale} onChange={changeLocale} label={languageLabel} />
               </div>
             )}
-            {allowToggle && (
+            {!account && allowToggle && (
               <>
                 <div className="mt-1 flex items-center justify-between border-t border-line pt-3 px-2.5">
                   <span className="text-[11px] font-semibold uppercase tracking-[0.12em] text-faint">{tc("label")}</span>

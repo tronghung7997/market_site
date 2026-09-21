@@ -33,6 +33,19 @@ def verify_email_url(locale: str, raw_token: str) -> str:
     return frontend_url(locale, f"/verify-email?token={quote(raw_token, safe='')}")
 
 
+# Template → notification_prefs key. Templates missing here are mandatory.
+MAIL_CATEGORY: dict[str, str] = {
+    "withdrawal_approved": "wallet",
+    "withdrawal_rejected": "wallet",
+    "dispute_opened": "disputes",
+    "dispute_resolved": "disputes",
+    "seller_application_approved": "orders",
+    "seller_application_rejected": "orders",
+    "provider_approved": "orders",
+    "provider_rejected": "orders",
+}
+
+
 async def enqueue_mail(
     db: AsyncSession,
     *,
@@ -50,6 +63,7 @@ async def enqueue_mail(
     """
     if template not in KNOWN_TEMPLATES:
         raise UnknownMailTemplate(template)
+    category = MAIL_CATEGORY.get(template)
 
     loc = locale if locale in {"vi", "en"} else "vi"
     resolved_email = to_email
@@ -59,6 +73,10 @@ async def enqueue_mail(
         if account is None:
             raise ValueError(f"mail enqueue: account {account_id} not found")
         if not account.is_active:
+            return None
+        # Per-category opt-out from /account › Thông báo. Security and
+        # account mails have no category and always go out.
+        if category and (account.notification_prefs or {}).get(category) is False:
             return None
         resolved_email = account.email
         resolved_account_id = account.id

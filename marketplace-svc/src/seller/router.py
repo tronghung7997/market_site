@@ -22,6 +22,20 @@ async def my_application(account: Account = Depends(get_current_account), db: As
     return await service.get_latest_application(account.id, db)
 
 
+@router.get("/seller/profile", response_model=schemas.SellerProfileResponse)
+async def seller_profile(account: Account = Depends(require_role("seller")), db: AsyncSession = Depends(get_session)):
+    return await service.get_seller_profile(account, db)
+
+
+@router.patch("/seller/profile", response_model=schemas.SellerProfileResponse)
+async def update_seller_profile(
+    body: schemas.SellerProfileUpdate,
+    account: Account = Depends(require_role("seller")),
+    db: AsyncSession = Depends(get_session),
+):
+    return await service.update_seller_profile(account, body.model_dump(exclude_unset=True), db)
+
+
 @router.get("/admin/seller-applications", response_model=list[schemas.SellerApplicationResponse])
 async def list_apps(_: Account = Depends(require_role("admin")), db: AsyncSession = Depends(get_session)):
     return await service.list_applications(db)

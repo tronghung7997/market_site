@@ -2,14 +2,12 @@
 
 import { useEffect, useState, type ReactNode } from "react";
 import { QRCodeSVG } from "qrcode.react";
-import { useSearchParams } from "next/navigation";
 import { useLocale, useTranslations } from "next-intl";
-import { useRouter } from "@/i18n/navigation";
 import { api } from "@/lib/api";
 import { useAuth } from "@/lib/auth";
 import { PASSWORD_MIN_LENGTH } from "@/lib/auth-validation";
 import { useApiErrorMessage } from "@/lib/use-api-error";
-import { Button, Field, Input, Spinner, Tag } from "@/components/ui";
+import { Button, Field, Input, Tag } from "@/components/ui";
 import { Copy, ShieldCheck } from "@/components/Icons";
 import { validateEmail, validateNewPassword } from "../model/password";
 import { AuthNotice } from "./AuthNotice";
@@ -17,7 +15,7 @@ import { PasswordInput } from "./PasswordInput";
 
 type Msg = { tone: "good" | "bad" | "info"; text: string } | null;
 
-function Section({ title, hint, children, aside }: { title: string; hint: string; children: ReactNode; aside?: ReactNode }) {
+export function Section({ title, hint, children, aside }: { title: string; hint: string; children: ReactNode; aside?: ReactNode }) {
   return (
     <section className="rounded-card border border-line bg-card p-5 shadow-card sm:p-6">
       <div className="mb-4 flex flex-wrap items-start justify-between gap-3">
@@ -32,46 +30,9 @@ function Section({ title, hint, children, aside }: { title: string; hint: string
   );
 }
 
-/** `/account/security`: password, email, two-factor and sessions for the signed-in account. */
-export function SecurityPage() {
-  const t = useTranslations("security");
-  const { account, loading, refresh } = useAuth();
-  const router = useRouter();
-  const searchParams = useSearchParams();
-  const wantsSetup = searchParams.get("setup") === "2fa";
-
-  useEffect(() => {
-    if (!loading && !account) router.replace("/login?next=/account/security");
-  }, [account, loading, router]);
-
-  if (loading || !account) return <div className="grid flex-1 place-items-center py-24"><Spinner /></div>;
-
-  return (
-    <div className="mx-auto w-full max-w-[760px] px-4 py-8 sm:px-6 lg:py-12">
-      <header className="mb-6">
-        <h1 className="font-serif text-[26px] font-semibold tracking-tight text-fg sm:text-[30px]">{t("title")}</h1>
-        <p className="mt-1 text-[13.5px] text-muted">{t("subtitle", { email: account.email })}</p>
-      </header>
-      {account.mfa_setup_required && (
-        <div className="mb-5">
-          <AuthNotice tone="info">{t("adminMustEnable")}</AuthNotice>
-        </div>
-      )}
-      <div className="flex flex-col gap-5">
-        {account.mfa_available && (
-          <TwoFactorSection enabled={Boolean(account.totp_enabled)} autoStart={wantsSetup || Boolean(account.mfa_setup_required)} onChanged={refresh} />
-        )}
-        <ChangePasswordSection />
-        <ChangeEmailSection currentEmail={account.email} />
-        <SessionsSection />
-      </div>
-    </div>
-  );
-}
-
 // ── Password ────────────────────────────────────────────────────────────────
 
-function ChangePasswordSection() {
+export function ChangePasswordSection() {
   const t = useTranslations("security");
   const ta = useTranslations("auth");
   const locale = useLocale();
@@ -123,7 +84,7 @@ function ChangePasswordSection() {
 
 // ── Email ───────────────────────────────────────────────────────────────────
 
-function ChangeEmailSection({ currentEmail }: { currentEmail: string }) {
+export function ChangeEmailSection({ currentEmail }: { currentEmail: string }) {
   const t = useTranslations("security");
   const ta = useTranslations("auth");
   const locale = useLocale();
@@ -168,7 +129,7 @@ function ChangeEmailSection({ currentEmail }: { currentEmail: string }) {
 
 // ── Two-factor ──────────────────────────────────────────────────────────────
 
-function TwoFactorSection({ enabled, autoStart, onChanged }: { enabled: boolean; autoStart: boolean; onChanged: () => Promise<void> }) {
+export function TwoFactorSection({ enabled, autoStart, onChanged }: { enabled: boolean; autoStart: boolean; onChanged: () => Promise<void> }) {
   const t = useTranslations("security");
   const apiErrorMessage = useApiErrorMessage();
   const [step, setStep] = useState<"idle" | "password" | "scan" | "done" | "disable" | "regen">(autoStart && !enabled ? "password" : "idle");
@@ -365,7 +326,7 @@ function TwoFactorSection({ enabled, autoStart, onChanged }: { enabled: boolean;
 
 // ── Sessions ────────────────────────────────────────────────────────────────
 
-function SessionsSection() {
+export function SessionsSection() {
   const t = useTranslations("security");
   const { logout } = useAuth();
   const apiErrorMessage = useApiErrorMessage();

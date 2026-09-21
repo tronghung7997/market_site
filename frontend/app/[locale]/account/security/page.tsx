@@ -1,13 +1,12 @@
-"use client";
+import { redirect } from "@/i18n/navigation";
 
-import { Suspense } from "react";
-import { SecurityPage } from "@/features/auth";
-import { Spinner } from "@/components/ui";
-
-export default function AccountSecurityPage() {
-  return (
-    <Suspense fallback={<div className="grid flex-1 place-items-center py-24"><Spinner /></div>}>
-      <SecurityPage />
-    </Suspense>
-  );
+/** Kept for old links and mails: security now lives on the account page. */
+export default async function AccountSecurityPage({ params, searchParams }: {
+  params: Promise<{ locale: string }>;
+  searchParams: Promise<Record<string, string | string[] | undefined>>;
+}) {
+  const { locale } = await params;
+  const sp = await searchParams;
+  const setup = sp.setup === "2fa" ? "&setup=2fa" : "";
+  redirect({ href: `/account?tab=security${setup}`, locale });
 }

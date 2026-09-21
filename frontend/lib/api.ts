@@ -12,6 +12,7 @@ import type {
 import type { PaginatedDisputes, SitePageAdmin, SitePageCreate, SitePageUpdate } from "./types";
 import type { CategoryAdminListResponse, CategoryCreateInput, CategoryUpdateInput } from "./types";
 import type { AffiliateSort } from "./types";
+import type { AuthSessionRow, MySellerProfile, ProfileUpdate } from "./types";
 import type {
   SourceArea, SourceCatalogPage, SourceCatalogQuery, SourceImportItem, SourceImportResult, SourceListing,
   SourceRepriceResult, SourceSyncResult, SupplierSource,
@@ -187,6 +188,13 @@ export const api = {
       body: JSON.stringify({ token, password, locale }),
     }),
   me: () => request<Account>("/me", {}, "silent"),
+  updateMe: (data: ProfileUpdate) => request<Account>("/me", { method: "PATCH", body: JSON.stringify(data) }, true),
+  mySessions: () => request<AuthSessionRow[]>("/me/sessions", {}, true),
+  revokeSession: (id: string) => request<void>(`/me/sessions/${id}`, { method: "DELETE" }, true),
+  myLoginEvents: (limit = 30) => request<LoginEvent[]>(`/me/login-events?limit=${limit}`, {}, true),
+  mySellerProfile: () => request<MySellerProfile>("/seller/profile", {}, true),
+  updateMySellerProfile: (data: { business_name?: string; description?: string; contact?: string }) =>
+    request<MySellerProfile>("/seller/profile", { method: "PATCH", body: JSON.stringify(data) }, true),
   tiktokLookup: (value: string) =>
     request<TikTokLookupResponse>(`/internal/tiktok?url=${encodeURIComponent(value)}`),
   facebookLookup: (value: string, signal?: AbortSignal) =>

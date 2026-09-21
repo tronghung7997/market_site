@@ -151,7 +151,7 @@ export function WithdrawCard({ wallet, onChanged }: {
         {needsTotpSetup && (
           <div className="p-2.5 rounded-lg bg-warn-soft text-warn text-[12px]">
             {t("withdrawTotpSetup")}{" "}
-            <Link href="/account/security?setup=2fa" className="font-medium underline">{t("withdrawTotpSetupLink")}</Link>
+            <Link href="/account?tab=security&setup=2fa" className="font-medium underline">{t("withdrawTotpSetupLink")}</Link>
           </div>
         )}
         <div>

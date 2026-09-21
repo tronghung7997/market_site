@@ -58,6 +58,16 @@ class Account(Base):
     # excluded from admin account lists, user counts and affiliate flows. Only
     # ever surfaces publicly through reviews.service.mask_reviewer().
     is_seeded: Mapped[bool] = mapped_column(Boolean, nullable=False, default=False, server_default="false")
+    # Self-service profile (alembic fn…). Contacts are for support and
+    # notifications only — never shown to other users.
+    display_name: Mapped[str | None] = mapped_column(String(80), nullable=True)
+    phone: Mapped[str | None] = mapped_column(String(32), nullable=True)
+    telegram_username: Mapped[str | None] = mapped_column(String(64), nullable=True)
+    preferred_locale: Mapped[str | None] = mapped_column(String(5), nullable=True)
+    preferred_currency: Mapped[str | None] = mapped_column(String(3), nullable=True)
+    # {"orders": bool, "disputes": bool, "wallet": bool, "marketing": bool};
+    # a missing key means opted in. Security mail ignores this.
+    notification_prefs: Mapped[dict] = mapped_column(JSONB, nullable=False, default=dict, server_default="{}")
     created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), server_default=func.now())
     updated_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), server_default=func.now(), onupdate=func.now())
 

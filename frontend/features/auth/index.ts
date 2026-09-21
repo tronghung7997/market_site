@@ -5,5 +5,6 @@ export { ResetPasswordForm } from "./ui/ResetPasswordForm";
 export { VerifyEmailPanel } from "./ui/VerifyEmailPanel";
 export { EmailVerificationBanner } from "./ui/EmailVerificationBanner";
 export { passwordStrength, validateEmail, validateNewPassword } from "./model/password";
-export { SecurityPage } from "./ui/SecurityPage";
+export { Section as SecuritySection, ChangePasswordSection, ChangeEmailSection, TwoFactorSection, SessionsSection } from "./ui/SecuritySections";
 export { AdminMfaGate } from "./ui/AdminMfaGate";
+export { AuthNotice } from "./ui/AuthNotice";

@@ -1,3 +1,34 @@
+export type NotificationPrefKey = "orders" | "disputes" | "wallet" | "marketing";
+
+export interface ProfileUpdate {
+  display_name?: string;
+  phone?: string;
+  telegram_username?: string;
+  preferred_locale?: "vi" | "en" | "";
+  preferred_currency?: "VND" | "USD" | "";
+  notification_prefs?: Partial<Record<NotificationPrefKey, boolean>>;
+}
+
+export interface AuthSessionRow {
+  id: string;
+  created_at: string;
+  last_used_at: string | null;
+  expires_at: string;
+  ip: string | null;
+  user_agent: string | null;
+  is_current: boolean;
+}
+
+/** The seller's own editable shop identity (GET/PATCH /seller/profile). */
+export interface MySellerProfile {
+  business_name: string;
+  description: string | null;
+  contact: string | null;
+  handle: string | null;
+  canonical_path: string;
+  seller_tier: string;
+}
+
 export interface Account {
   id: number;
   email: string;
@@ -13,6 +44,15 @@ export interface Account {
   /** Seller nội bộ (sàn vận hành) — mở khu Nguồn cung. */
   is_internal?: boolean;
   affiliate_code?: string;
+  /** Self-service profile (/account). */
+  display_name?: string | null;
+  phone?: string | null;
+  telegram_username?: string | null;
+  preferred_locale?: "vi" | "en" | null;
+  preferred_currency?: "VND" | "USD" | null;
+  /** Missing key = opted in. Security mail ignores this. */
+  notification_prefs?: Partial<Record<NotificationPrefKey, boolean>>;
+  created_at?: string;
   referred_by_id?: number | null;
 }
 

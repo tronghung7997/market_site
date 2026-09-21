@@ -1,4 +1,5 @@
 import hashlib
+from uuid import UUID
 
 from fastapi import APIRouter, Depends, HTTPException, Query, Request, status
 from sqlalchemy.ext.asyncio import AsyncSession
@@ -42,12 +43,15 @@ async def _enforce_captcha(token: str | None, request: Request, db: AsyncSession
         raise api_error(ErrorCode.CAPTCHA_FAILED, status.HTTP_400_BAD_REQUEST)
 
 
-async def _issue_or_challenge(account: Account, db: AsyncSession, *, kind: str):
+async def _issue_or_challenge(account: Account, db: AsyncSession, *, kind: str, request: Request | None = None):
     """Session for accounts without 2FA; a short-lived challenge otherwise.
     With the marketplace-wide switch off, nobody is challenged."""
     if account.totp_enabled_at is not None and await auth_settings.mfa_feature_enabled(db):
         return schemas.MfaChallengeResponse(mfa_token=mfa.issue_mfa_token(account.id, kind=kind))
-    issued = await sessions.issue_session(account, db)
+    issued = await sessions.issue_session(
+        account, db,
+        ip=_peer_ip(request) if request else None, user_agent=_user_agent(request) if request else None,
+    )
     return schemas.TokenResponse(access_token=issued.access_token, refresh_token=issued.refresh_token)
 
 
@@ -147,7 +151,7 @@ async def login(
     account = await _authenticate_with_limits(body, request, db)
     if "admin" in account.roles:
         raise api_error(ErrorCode.ADMIN_LOGIN_REQUIRED, status.HTTP_403_FORBIDDEN)
-    return await _issue_or_challenge(account, db, kind="login")
+    return await _issue_or_challenge(account, db, kind="login", request=request)
 
 
 @router.post("/auth/admin/login", response_model=schemas.TokenResponse | schemas.MfaChallengeResponse)
@@ -166,7 +170,7 @@ async def admin_login(
             reason="admin_role_required",
         )
         raise api_error(ErrorCode.ADMIN_ONLY, status.HTTP_403_FORBIDDEN)
-    return await _issue_or_challenge(account, db, kind="admin_login")
+    return await _issue_or_challenge(account, db, kind="admin_login", request=request)
 
 
 @router.post("/auth/login/2fa", response_model=schemas.TokenResponse)
@@ -186,7 +190,7 @@ async def login_mfa(
         raise api_error(ErrorCode.ADMIN_ONLY, status.HTTP_403_FORBIDDEN)
     if kind != "admin_login" and "admin" in account.roles:
         raise api_error(ErrorCode.ADMIN_LOGIN_REQUIRED, status.HTTP_403_FORBIDDEN)
-    issued = await sessions.issue_session(account, db)
+    issued = await sessions.issue_session(account, db, ip=_peer_ip(request), user_agent=_user_agent(request))
     return schemas.TokenResponse(access_token=issued.access_token, refresh_token=issued.refresh_token)
 
 
@@ -274,6 +278,66 @@ async def me(account=Depends(get_current_account), db: AsyncSession = Depends(ge
         and await auth_settings.admin_2fa_required(db)
     )
     return resp
+
+
+@router.patch("/me", response_model=schemas.AccountResponse)
+async def update_me(
+    body: schemas.ProfileUpdate,
+    account=Depends(get_current_account),
+    db: AsyncSession = Depends(get_session),
+):
+    """Self-service profile. Contacts/preferences only — email and password
+    have their own verified flows."""
+    data = body.model_dump(exclude_unset=True)
+    prefs = data.pop("notification_prefs", None)
+    for key, value in data.items():
+        setattr(account, key, value)
+    if prefs is not None:
+        account.notification_prefs = {**(account.notification_prefs or {}), **prefs}
+    await db.commit()
+    await db.refresh(account)
+    return await me(account, db)
+
+
+@router.get("/me/sessions", response_model=list[schemas.SessionRow])
+async def my_sessions(
+    request: Request,
+    account=Depends(get_current_account),
+    db: AsyncSession = Depends(get_session),
+):
+    current = getattr(request.state, "auth_session_id", None)
+    rows = await sessions.list_active_sessions(account.id, db)
+    out = []
+    for row in rows:
+        item = schemas.SessionRow.model_validate(row)
+        item.is_current = current is not None and row.id == current
+        out.append(item)
+    return out
+
+
+@router.delete("/me/sessions/{session_id}", status_code=status.HTTP_204_NO_CONTENT)
+async def revoke_my_session(
+    session_id: UUID,
+    account=Depends(get_current_account),
+    db: AsyncSession = Depends(get_session),
+):
+    from src.models.auth_session import AuthSession
+
+    session = await db.get(AuthSession, session_id)
+    if session is None or session.account_id != account.id:
+        raise HTTPException(status_code=404, detail="Không tìm thấy phiên đăng nhập")
+    await sessions.revoke_session(session, db)
+    await db.commit()
+    return None
+
+
+@router.get("/me/login-events", response_model=list[schemas.LoginEventRow])
+async def my_login_events(
+    account=Depends(get_current_account),
+    db: AsyncSession = Depends(get_session),
+    limit: int = Query(30, ge=1, le=100),
+):
+    return await service.list_login_events(account.id, db, limit=limit)
 
 
 @router.get("/public/auth-config", response_model=schemas.PublicAuthConfig)

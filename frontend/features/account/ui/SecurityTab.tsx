@@ -11,25 +11,49 @@ import { useApiErrorMessage } from "@/lib/use-api-error";
 import type { AuthSessionRow, LoginEvent } from "@/lib/types";
 import { Button, Spinner, Tag } from "@/components/ui";
 import { useToast } from "@/components/toast";
-import { AuthNotice, ChangeEmailSection, ChangePasswordSection, SessionsSection, TwoFactorSection } from "@/features/auth";
+import { AuthNotice, ChangeEmailSection, ChangePasswordSection, TwoFactorSection } from "@/features/auth";
 import { describeDevice, Panel, relativeTime } from "./shared";
 
-/** Password, email, 2FA (existing sections) plus devices and sign-in history. */
+/** Ordered by how often people come here: password first, then 2FA (which
+ *  jumps to the top when they were sent to set it up), email, then the
+ *  review-only blocks — devices with "sign out everywhere" next to the list,
+ *  and sign-in history last. */
 export function SecurityTab({ autoStart2fa }: { autoStart2fa: boolean }) {
   const t = useTranslations("security");
   const { account, refresh } = useAuth();
   if (!account) return null;
+  const twoFactorFirst = account.mfa_available && (autoStart2fa || Boolean(account.mfa_setup_required));
+  const twoFactor = account.mfa_available ? (
+    <TwoFactorSection enabled={Boolean(account.totp_enabled)} autoStart={autoStart2fa || Boolean(account.mfa_setup_required)} onChanged={refresh} />
+  ) : null;
   return (
     <div className="space-y-5">
       {account.mfa_setup_required && <AuthNotice tone="info">{t("adminMustEnable")}</AuthNotice>}
-      {account.mfa_available && (
-        <TwoFactorSection enabled={Boolean(account.totp_enabled)} autoStart={autoStart2fa || Boolean(account.mfa_setup_required)} onChanged={refresh} />
-      )}
-      <DevicesPanel />
+      {twoFactorFirst && twoFactor}
       <ChangePasswordSection />
+      {!twoFactorFirst && twoFactor}
       <ChangeEmailSection currentEmail={account.email} />
+      <DevicesPanel />
       <LoginHistoryPanel />
-      <SessionsSection />
+    </div>
+  );
+}
+
+function SignOutEverywhere() {
+  const t = useTranslations("security");
+  const toast = useToast();
+  const apiErrorMessage = useApiErrorMessage();
+  const { logout } = useAuth();
+  const [busy, setBusy] = React.useState(false);
+  const run = async () => {
+    setBusy(true);
+    try { await api.logoutAll(); logout(); }
+    catch (err) { toast.error(apiErrorMessage(err, t("sessionsFailed"))); setBusy(false); }
+  };
+  return (
+    <div className="mt-3 flex flex-wrap items-center gap-3 border-t border-line pt-3">
+      <Button variant="secondary" size="sm" disabled={busy} onClick={run}>{busy ? t("saving") : t("sessionsSignOutAll")}</Button>
+      <span className="text-[12px] text-faint">{t("sessionsHint")}</span>
     </div>
   );
 }
@@ -73,6 +97,7 @@ function DevicesPanel() {
           ))}
         </ul>
       )}
+      <SignOutEverywhere />
     </Panel>
   );
 }

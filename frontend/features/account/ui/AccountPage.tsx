@@ -53,11 +53,13 @@ export function AccountPage() {
   if (loading || !account) return <div className="grid flex-1 place-items-center py-24"><Spinner /></div>;
 
   const items: { key: AccountTab; label: string; icon: typeof User; hidden?: boolean }[] = [
+    // Daily things first (profile, the shop for sellers), then the
+    // occasional security/notification chores, then referrals.
     { key: "profile", label: t("tabProfile"), icon: User },
+    { key: "seller", label: t("tabSeller"), icon: Store, hidden: !isSeller },
     { key: "security", label: t("tabSecurity"), icon: ShieldCheck },
     { key: "notifications", label: t("tabNotifications"), icon: Bell },
     { key: "referral", label: t("tabReferral"), icon: Percent },
-    { key: "seller", label: t("tabSeller"), icon: Store, hidden: !isSeller },
   ];
   const activeTab = tab === "seller" && !isSeller ? "profile" : tab;
 

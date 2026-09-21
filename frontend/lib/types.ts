@@ -94,6 +94,60 @@ export interface Category {
   children: Category[];
 }
 
+/** Admin directory row (GET /admin/categories): hidden categories included, no nesting. */
+export interface CategoryAdminRow {
+  id: number;
+  name: string;
+  name_en: string | null;
+  slug: string;
+  icon: string | null;
+  parent_id: number | null;
+  sort_order: number;
+  is_active: boolean;
+  commission_rate: number | null;
+  child_count: number;
+  /** Products directly in this category / in the whole branch. */
+  product_count: number;
+  active_product_count: number;
+  branch_product_count: number;
+  branch_active_product_count: number;
+  seller_count: number;
+}
+
+export interface CategoryAdminSummary {
+  total: number;
+  roots: number;
+  active: number;
+  hidden: number;
+  /** Categories whose whole branch has no product. */
+  empty: number;
+}
+
+export interface CategoryAdminListResponse {
+  items: CategoryAdminRow[];
+  summary: CategoryAdminSummary;
+}
+
+export interface CategoryCreateInput {
+  name: string;
+  name_en?: string | null;
+  slug: string;
+  icon?: string | null;
+  parent_id?: number | null;
+  commission_rate?: number | null;
+}
+
+/** `parent_id: null` moves to the root; leave it out to keep the parent. */
+export interface CategoryUpdateInput {
+  name?: string;
+  name_en?: string | null;
+  slug?: string;
+  icon?: string | null;
+  parent_id?: number | null;
+  is_active?: boolean;
+  commission_rate?: number | null;
+}
+
 /** Item danh sách sản phẩm (GET /products, /seller/products) — bản GỌN.
  *  description/specs/features/warranty_text chỉ có ở ProductDetail (trang chi
  *  tiết mới cần, mô tả markdown dài nhân N sản phẩm là payload phình vô ích);

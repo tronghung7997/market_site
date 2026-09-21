@@ -227,6 +227,7 @@ async def list_all_products(
     provider: str | None = None,
     service_type: str | None = None,
     has_provider: bool | None = Query(None),
+    category_id: int | None = Query(None, description="Danh mục và toàn bộ danh mục con (kể cả đã ẩn)"),
     sort_by: Literal[
         "created_at", "title", "status", "service_type", "seller_email",
         "provider_name", "order_count", "revenue",
@@ -239,7 +240,7 @@ async def list_all_products(
 ):
     return await service.list_all_products_admin(
         db, search=search, status=status, seller=seller, provider=provider,
-        service_type=service_type, has_provider=has_provider,
+        service_type=service_type, has_provider=has_provider, category_id=category_id,
         sort_by=sort_by, sort_dir=sort_dir, page=page, per_page=per_page,
     )
 

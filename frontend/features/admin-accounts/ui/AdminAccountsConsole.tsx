@@ -45,7 +45,7 @@ function StatTile({ icon: Icon, label, value, sub, tone = "neutral", active, onC
       type="button"
       onClick={onClick}
       className={cn(
-        "flex items-center gap-3 rounded-card border bg-card px-4 py-3 text-left shadow-card transition-colors",
+        "flex h-full min-h-[72px] items-center gap-3 rounded-card border bg-card px-4 py-3 text-left shadow-card transition-colors",
         onClick ? "hover:border-line-2" : "cursor-default",
         active ? "border-iris ring-1 ring-iris/30" : "border-line",
       )}

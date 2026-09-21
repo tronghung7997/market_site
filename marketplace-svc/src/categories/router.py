@@ -19,9 +19,22 @@ async def list_categories(
     return await service.list_categories_tree(db, locale=locale)
 
 
+@router.get("/admin/categories", response_model=schemas.CategoryAdminListResponse)
+async def list_categories_admin(_: Account = Depends(require_role("admin")), db: AsyncSession = Depends(get_session)):
+    return await service.list_categories_admin(db)
+
+
 @router.post("/admin/categories", response_model=schemas.CategoryResponse, status_code=status.HTTP_201_CREATED)
 async def create_category(body: schemas.CategoryCreate, _: Account = Depends(require_role("admin")), db: AsyncSession = Depends(get_session)):
-    return await service.create_category(body.name, body.slug, body.icon, body.parent_id, body.sort_order, db, commission_rate=body.commission_rate)
+    return await service.create_category(
+        body.name, body.slug, body.icon, body.parent_id, body.sort_order, db,
+        commission_rate=body.commission_rate, name_en=body.name_en,
+    )
+
+
+@router.post("/admin/categories/reorder", status_code=status.HTTP_204_NO_CONTENT)
+async def reorder_categories(body: schemas.CategoryReorder, _: Account = Depends(require_role("admin")), db: AsyncSession = Depends(get_session)):
+    await service.reorder_categories(body.ids, db)
 
 
 @router.patch("/admin/categories/{cat_id}", response_model=schemas.CategoryResponse)

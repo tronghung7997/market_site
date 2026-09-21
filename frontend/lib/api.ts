@@ -10,6 +10,7 @@ import type {
   SearchSynonymGroup,
 } from "./types";
 import type { PaginatedDisputes, SitePageAdmin, SitePageCreate, SitePageUpdate } from "./types";
+import type { CategoryAdminListResponse, CategoryCreateInput, CategoryUpdateInput } from "./types";
 import type {
   SourceArea, SourceCatalogPage, SourceCatalogQuery, SourceImportItem, SourceImportResult, SourceListing,
   SourceRepriceResult, SourceSyncResult, SupplierSource,
@@ -228,12 +229,17 @@ export const api = {
     }, true),
 
   categories: () => request<Category[]>("/categories"),
-  createCategory: (data: Record<string, unknown>) =>
+  /** Every category (hidden ones too) with product counts — admin console only. */
+  adminCategories: () => request<CategoryAdminListResponse>("/admin/categories", {}, true),
+  createCategory: (data: CategoryCreateInput) =>
     request<Category>("/admin/categories", { method: "POST", body: JSON.stringify(data) }, true),
-  updateCategory: (id: number, data: Record<string, unknown>) =>
+  updateCategory: (id: number, data: CategoryUpdateInput) =>
     request<Category>(`/admin/categories/${id}`, { method: "PATCH", body: JSON.stringify(data) }, true),
   deleteCategory: (id: number) =>
     request<void>(`/admin/categories/${id}`, { method: "DELETE" }, true),
+  /** Sibling ids in the wanted order. */
+  reorderCategories: (ids: number[]) =>
+    request<void>("/admin/categories/reorder", { method: "POST", body: JSON.stringify({ ids }) }, true),
   // Backend luôn phân trang; categoryId lọc theo cả nhánh danh mục.
   products: (opts: {
     categoryId?: number;
@@ -631,12 +637,15 @@ export const api = {
     provider?: string;
     serviceType?: string;
     hasProvider?: boolean;
+    /** Category and its whole branch, hidden sub-categories included. */
+    categoryId?: number;
     sortBy?: string;
     sortDir?: "asc" | "desc";
     page?: number;
     perPage?: number;
   } = {}) => {
     const q = new URLSearchParams({ page: String(params.page ?? 1), per_page: String(params.perPage ?? 50) });
+    if (params.categoryId) q.set("category_id", String(params.categoryId));
     if (params.search?.trim()) q.set("search", params.search.trim());
     if (params.status && params.status !== "all") q.set("status", params.status);
     if (params.seller) q.set("seller", params.seller);

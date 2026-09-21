@@ -2,7 +2,7 @@
 /* Hallmark · component: admin products console · theme: project Proxora (slate canvas · iris accent) · P4 H5 E4 S4 R4 V4 */
 
 import * as React from "react";
-import { useRouter } from "next/navigation";
+import { useRouter, useSearchParams } from "next/navigation";
 import { useQuery } from "@tanstack/react-query";
 import {
   ColumnDef,
@@ -22,9 +22,10 @@ import {
 } from "lucide-react";
 
 import { api, vnd } from "@/lib/api";
-import { Banner, Card, Tag } from "@/components/ui";
+import { Banner, Card, Spinner, Tag } from "@/components/ui";
 import { useDebounce } from "@/lib/hooks/useDebounce";
 import { FacetSelect } from "@/components/admin";
+import { queryKeys } from "@/lib/query-keys";
 import { ProductStatusBadge, StatusBadge } from "@/components/admin/status-badge";
 import { SERVICE_LABELS } from "@/lib/labels";
 import type { AdminProduct } from "@/lib/types";
@@ -210,11 +211,19 @@ const columns: ColumnDef<AdminProduct>[] = [
   },
 ];
 
-export default function AdminProductsPage() {
+function AdminProductsConsole() {
   const router = useRouter();
+  const searchParams = useSearchParams();
 
   // Filter & pagination state
   const [status, setStatus] = React.useState("all");
+  // Deep link from Admin › Danh mục ("Xem sản phẩm trong nhánh"): ?category_id=ID
+  const [categoryId, setCategoryId] = React.useState<number | null>(() => {
+    const raw = Number(searchParams.get("category_id"));
+    return Number.isInteger(raw) && raw > 0 ? raw : null;
+  });
+  const categoryDir = useQuery({ queryKey: queryKeys.adminCategories(), queryFn: api.adminCategories, enabled: categoryId !== null, staleTime: 60_000 });
+  const categoryName = categoryId !== null ? categoryDir.data?.items.find((c) => c.id === categoryId)?.name ?? `#${categoryId}` : null;
   const [sellerKey, setSellerKey] = React.useState<string | null>(null);
   const [providerKey, setProviderKey] = React.useState<string | null>(null);
   const [serviceKey, setServiceKey] = React.useState<string | null>(null);
@@ -229,7 +238,7 @@ export default function AdminProductsPage() {
 
   React.useEffect(() => {
     setPagination((p) => ({ ...p, pageIndex: 0 }));
-  }, [status, sellerKey, providerKey, serviceKey, debouncedSearch, sorting]);
+  }, [status, sellerKey, providerKey, serviceKey, categoryId, debouncedSearch, sorting]);
 
   const sortBy = sorting[0]?.id;
   const sortDir = sorting[0] ? (sorting[0].desc ? "desc" : "asc") : undefined;
@@ -237,13 +246,14 @@ export default function AdminProductsPage() {
   const queryResult = useQuery({
     queryKey: [
       "admin", "products", "table", pagination.pageIndex, pagination.pageSize,
-      debouncedSearch, status, sellerKey, providerKey, serviceKey, sortBy, sortDir,
+      debouncedSearch, status, sellerKey, providerKey, serviceKey, categoryId, sortBy, sortDir,
     ] as const,
     queryFn: () => api.adminProducts({
       page: pagination.pageIndex + 1,
       perPage: pagination.pageSize,
       search: debouncedSearch,
       status,
+      categoryId: categoryId ?? undefined,
       seller: sellerKey ?? undefined,
       provider: providerKey ?? undefined,
       serviceType: serviceKey ?? undefined,
@@ -351,6 +361,7 @@ export default function AdminProductsPage() {
     sellerKey !== null ||
     providerKey !== null ||
     serviceKey !== null ||
+    categoryId !== null ||
     search.trim() !== "";
 
   const clearFilters = () => {
@@ -358,6 +369,7 @@ export default function AdminProductsPage() {
     setSellerKey(null);
     setProviderKey(null);
     setServiceKey(null);
+    setCategoryId(null);
     setSearch("");
   };
 
@@ -441,6 +453,19 @@ export default function AdminProductsPage() {
             value={serviceKey}
             onChange={setServiceKey}
           />
+          {categoryId !== null && (
+            <span className="inline-flex h-9 items-center gap-1.5 rounded-lg border border-indigo-200 bg-indigo-50 pl-3 pr-1.5 text-[12.5px] font-medium text-indigo-700">
+              Danh mục: {categoryName}
+              <button
+                type="button"
+                onClick={() => setCategoryId(null)}
+                aria-label="Bỏ lọc danh mục"
+                className="grid h-6 w-6 place-items-center rounded-md text-indigo-500 transition-colors hover:bg-indigo-100 hover:text-indigo-800"
+              >
+                <X size={13} />
+              </button>
+            </span>
+          )}
           <div className="relative min-w-[180px] max-w-xs flex-1">
             <Search size={15} className="absolute left-3 top-1/2 -translate-y-1/2 text-slate-400 pointer-events-none" />
             <input
@@ -647,5 +672,14 @@ export default function AdminProductsPage() {
         )}
       </Card>
     </div>
+  );
+}
+
+export default function AdminProductsPage() {
+  // useSearchParams (category deep link) needs a Suspense boundary for prerender.
+  return (
+    <React.Suspense fallback={<div className="grid place-items-center py-16"><Spinner /></div>}>
+      <AdminProductsConsole />
+    </React.Suspense>
   );
 }

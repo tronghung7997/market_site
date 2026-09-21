@@ -8,7 +8,7 @@ from sqlalchemy.orm import aliased
 
 from src.adapters.compatibility import check_compatibility, setup_status
 from src.adapters.registry import get_spec
-from src.categories.service import category_subtree_ids
+from src.categories.service import category_subtree_ids, category_subtree_ids_any
 from src.exceptions import ErrorCode, NotOwner, api_error
 from src.i18n.catalog import (
     DEFAULT_LOCALE,
@@ -1527,6 +1527,7 @@ async def list_all_products_admin(
     provider: str | None = None,
     service_type: str | None = None,
     has_provider: bool | None = None,
+    category_id: int | None = None,
     sort_by: str | None = None,
     sort_dir: str = "desc",
     page: int = 1,
@@ -1552,6 +1553,8 @@ async def list_all_products_admin(
         filters.append(Product.provider_id.is_not(None))
     elif has_provider is False:
         filters.append(Product.provider_id.is_(None))
+    if category_id:
+        filters.append(Product.category_id.in_(await category_subtree_ids_any(category_id, db)))
 
     configs: dict[str, str] = {}
     for c in (

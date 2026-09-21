@@ -13,6 +13,7 @@ def _normalize_icon(value: object) -> str | None:
 
 class CategoryCreate(BaseModel):
     name: str = Field(min_length=1, max_length=100)
+    name_en: str | None = Field(default=None, max_length=100)
     slug: str = Field(min_length=1, max_length=100)
     icon: str | None = None
     parent_id: int | None = None
@@ -27,8 +28,12 @@ class CategoryCreate(BaseModel):
 
 class CategoryUpdate(BaseModel):
     name: str | None = Field(default=None, min_length=1, max_length=100)
+    # English storefront name (i18n.en.name); "" clears it so EN falls back to legacy.
+    name_en: str | None = Field(default=None, max_length=100)
     slug: str | None = Field(default=None, min_length=1, max_length=100)
     icon: str | None = None
+    # Present-and-null moves the category to the root (exclude_unset tells the two apart).
+    parent_id: int | None = None
     sort_order: int | None = Field(default=None, ge=-1000, le=10000)
     is_active: bool | None = None
     commission_rate: float | None = Field(default=None, ge=0, le=100)
@@ -57,3 +62,35 @@ class CategoryResponse(BaseModel):
 
 class CategoryTreeResponse(CategoryResponse):
     children: list["CategoryTreeResponse"] = []
+
+
+class CategoryAdminRow(CategoryResponse):
+    """Admin directory row: every category (hidden ones too) with what hangs off it."""
+
+    name_en: str | None = None
+    # Direct children / products, then the whole branch (this node + descendants).
+    child_count: int
+    product_count: int
+    active_product_count: int
+    branch_product_count: int
+    branch_active_product_count: int
+    seller_count: int
+
+
+class CategoryAdminSummary(BaseModel):
+    total: int
+    roots: int
+    active: int
+    hidden: int
+    empty: int
+
+
+class CategoryAdminListResponse(BaseModel):
+    items: list[CategoryAdminRow]
+    summary: CategoryAdminSummary
+
+
+class CategoryReorder(BaseModel):
+    """Sibling ids in the wanted order; each gets sort_order = its index."""
+
+    ids: list[int] = Field(min_length=1, max_length=500)

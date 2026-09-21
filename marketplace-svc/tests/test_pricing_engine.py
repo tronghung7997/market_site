@@ -177,3 +177,45 @@ async def test_calculate_invalid_config_400(client):
         "platform": "facebook", "target_urls": "",
     }})
     assert resp.status_code == 400
+
+
+@pytest.mark.asyncio
+async def test_config_pricing_plan_shape_cloud_products(client):
+    """`plan_options` + `duration_options[{months}]` (the seeded VPS/cloud
+    shape) must price and list options instead of 500ing on `days`."""
+    from src.pricing.config_pricing import ConfigPricing
+
+    params = {
+        "base_price": 150000,
+        "plan_options": [
+            {"key": "basic", "label": "Basic", "multiplier": 1.0},
+            {"key": "pro", "label": "Pro", "multiplier": 4.33},
+        ],
+        "duration_options": [
+            {"months": 1, "label": "1 tháng", "multiplier": 1.0},
+            {"months": 12, "label": "12 tháng", "multiplier": 10.0},
+        ],
+        "volume_tiers": [],
+    }
+    s = ConfigPricing()
+    fields = {f["field"]: f for f in s.get_options(params)}
+    assert set(fields) == {"plan", "months", "quantity"}
+    assert [c["value"] for c in fields["months"]["choices"]] == [1, 12]
+
+    assert s.validate(params, {"plan": "pro", "months": "12", "quantity": 2})
+    assert s.quote(params, {"plan": "pro", "months": "12", "quantity": 2}).amount == round(150000 * 4.33 * 10 * 2)
+    assert s.quote(params, {"plan": "basic", "months": 1, "quantity": 1}).amount == 150000
+    assert not s.validate(params, {"plan": "gold", "months": 1, "quantity": 1})
+    assert not s.validate(params, {"plan": "basic", "months": 2, "quantity": 1})
+    assert not s.validate(params, {"plan": "basic", "months": 1, "quantity": 0})
+
+    pid = await make_product(
+        seller_email="cloud_seller@example.com", title="VPS", service_type="cloud",
+        pricing_strategy="config", pricing_params=params,
+    )
+    resp = await client.get(f"/products/{pid}/pricing-options")
+    assert resp.status_code == 200, resp.text
+    assert {f["field"] for f in resp.json()["fields"]} == {"plan", "months", "quantity"}
+    resp = await client.post(f"/products/{pid}/calculate", json={"user_config": {"plan": "basic", "months": "12", "quantity": 1}})
+    assert resp.status_code == 200, resp.text
+    assert resp.json()["amount"] == 1_500_000

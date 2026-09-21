@@ -54,13 +54,69 @@ def humanize_code(code) -> str:
     return " ".join(w[:1].upper() + w[1:] for w in words)
 
 
+def plan_options_map(params: dict) -> dict[str, dict]:
+    """`plan_options: [{key, label, multiplier}]` → key → option (the
+    "gói × kỳ hạn" shape used by cloud/VPS-style products)."""
+    raw = params.get("plan_options")
+    if not isinstance(raw, list):
+        return {}
+    out: dict[str, dict] = {}
+    for item in raw:
+        if not isinstance(item, dict):
+            continue
+        key = str(item.get("key") or "").strip()
+        mult = item.get("multiplier", 1.0)
+        if not key or isinstance(mult, bool) or not isinstance(mult, (int, float)) or mult <= 0:
+            continue
+        out[key] = {"label": str(item.get("label") or humanize_code(key)), "multiplier": float(mult)}
+    return out
+
+
+def month_options_map(params: dict) -> dict[int, dict]:
+    """`duration_options: [{months, label, multiplier}]` → months → option.
+    Empty when the durations are the proxy-style `{days}` entries."""
+    raw = params.get("duration_options")
+    if not isinstance(raw, list):
+        return {}
+    out: dict[int, dict] = {}
+    for item in raw:
+        if not isinstance(item, dict) or "months" not in item:
+            continue
+        months = item.get("months")
+        mult = item.get("multiplier", months)
+        if isinstance(months, bool) or not isinstance(months, int) or months <= 0:
+            continue
+        if isinstance(mult, bool) or not isinstance(mult, (int, float)) or mult <= 0:
+            continue
+        out[months] = {"label": str(item.get("label") or f"{months} tháng"), "multiplier": float(mult)}
+    return out
+
+
 class ConfigPricing(PricingStrategy):
-    """Config-based pricing: base_price x type_mult x network_mult x (days/30) x quantity."""
+    """Config-based pricing.
+
+    Two shapes share the strategy name because both are "pick options, we
+    multiply":
+
+    - proxy: base_price × type_mult × network_mult × (days/30) × quantity, or
+      an explicit `plan_prices` table keyed `type|network|days`;
+    - plan: base_price × plan.multiplier × duration.multiplier × quantity,
+      declared with `plan_options` + `duration_options[{months}]` (cloud/VPS).
+    """
 
     name = "config"
 
+    @staticmethod
+    def _is_plan_shape(params: dict) -> bool:
+        return bool(plan_options_map(params)) and "type_mult" not in params
+
     def normalize_user_config(self, params: dict, user_config: dict) -> dict:
         cfg = dict(user_config)
+        if self._is_plan_shape(params):
+            # Select values arrive as strings from the form.
+            if isinstance(cfg.get("months"), str) and cfg["months"].isdigit():
+                cfg["months"] = int(cfg["months"])
+            return cfg
         prices = plan_prices_map(params)
         raw_key = cfg.get("plan_key")
         parsed = parse_plan_price_key(raw_key) if raw_key is not None and raw_key != "" else None
@@ -74,7 +130,36 @@ class ConfigPricing(PricingStrategy):
             cfg["plan_key"] = f"{cfg['type']}|{cfg['network']}|{cfg['days']}"
         return cfg
 
+    def _plan_options(self, params: dict, field_labels: dict) -> list[dict]:
+        plans = plan_options_map(params)
+        months = month_options_map(params)
+        fields: list[dict] = [{
+            "field": "plan",
+            "type": "radio" if len(plans) <= 4 else "select",
+            "label": field_labels.get("plan", "Gói"),
+            "required": True,
+            "choices": [{"value": k, "label": v["label"]} for k, v in plans.items()],
+        }]
+        if months:
+            fields.append({
+                "field": "months",
+                "type": "select",
+                "label": field_labels.get("months", "Thời hạn"),
+                "required": True,
+                "choices": [{"value": m, "label": v["label"]} for m, v in months.items()],
+            })
+        fields.append({
+            "field": "quantity",
+            "type": "number",
+            "label": field_labels.get("quantity", "Số lượng"),
+            "required": True,
+            "min": 1,
+        })
+        return fields
+
     def get_options(self, params: dict) -> list[dict]:
+        if self._is_plan_shape(params):
+            return self._plan_options(params, params.get("field_labels", {}))
         # field_labels/type_display/network_display là lớp hiển thị tuỳ chọn —
         # key máy (gửi cho adapter/nhà cung cấp thật, xem RealApiAdapter.provision)
         # không đổi dù có hay không có các dict này. Thiếu thì fallback về đúng
@@ -162,6 +247,11 @@ class ConfigPricing(PricingStrategy):
     def _subtotal(self, params: dict, user_config: dict) -> tuple[int, int]:
         cfg = self.normalize_user_config(params, user_config)
         quantity = cfg["quantity"]
+        if self._is_plan_shape(params):
+            plan = plan_options_map(params)[cfg["plan"]]
+            months = month_options_map(params)
+            duration_mult = months[cfg["months"]]["multiplier"] if months else 1.0
+            return round(params["base_price"] * plan["multiplier"] * duration_mult * quantity), quantity
         prices = plan_prices_map(params)
         if prices:
             key = f"{cfg['type']}|{cfg['network']}|{cfg['days']}"
@@ -177,6 +267,20 @@ class ConfigPricing(PricingStrategy):
 
     def validate(self, params: dict, user_config: dict) -> bool:
         cfg = self.normalize_user_config(params, user_config)
+        if self._is_plan_shape(params):
+            quantity = cfg.get("quantity")
+            if not isinstance(quantity, int) or isinstance(quantity, bool) or quantity < 1:
+                return False
+            if cfg.get("plan") not in plan_options_map(params):
+                return False
+            months = month_options_map(params)
+            if months:
+                picked = cfg.get("months")
+                if isinstance(picked, str) and picked.isdigit():
+                    picked = int(picked)
+                if picked not in months:
+                    return False
+            return True
         required = ["type", "network", "days", "quantity"]
         if not all(k in cfg for k in required):
             return False

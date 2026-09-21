@@ -105,15 +105,18 @@ function TopNavBar() {
       ? t("sellerRole")
       : t("buyerRole");
 
+  // Ordered by what people open most: the workspace they came for (shop /
+  // console) on top, then the buyer activity they check daily, then the
+  // occasional settings-type links.
   const accountLinks = [
-    { href: "/messages", label: t("messages"), icon: MessageCircle, auth: true },
-    { href: "/orders", label: t("orders"), icon: Package, auth: true },
-    { href: "/transactions", label: t("transactions"), icon: ArrowLeftRight, auth: true },
-    { href: "/affiliate", label: t("affiliate"), icon: Percent, auth: true },
-    { href: "/account", label: t("account"), icon: User, auth: true },
-    { href: "/seller", label: t("seller"), icon: Store, role: "seller" },
-    { href: "/seller/apply", label: t("becomeSeller"), icon: Store, auth: true, hideIfRole: "seller" },
-    { href: "/admin", label: t("admin"), icon: Shield, role: "admin" },
+    { href: "/seller", label: t("seller"), icon: Store, role: "seller", group: "workspace" },
+    { href: "/admin", label: t("admin"), icon: Shield, role: "admin", group: "workspace" },
+    { href: "/orders", label: t("orders"), icon: Package, auth: true, group: "activity" },
+    { href: "/messages", label: t("messages"), icon: MessageCircle, auth: true, group: "activity" },
+    { href: "/transactions", label: t("transactions"), icon: ArrowLeftRight, auth: true, group: "activity" },
+    { href: "/account", label: t("account"), icon: User, auth: true, group: "settings" },
+    { href: "/affiliate", label: t("affiliate"), icon: Percent, auth: true, group: "settings" },
+    { href: "/seller/apply", label: t("becomeSeller"), icon: Store, auth: true, hideIfRole: "seller", group: "settings" },
   ];
   // Số dư đọc từ query cache dùng chung với trang Ví — mua hàng/nạp/rút ở
   // bất kỳ đâu invalidate ["wallet"] là con số này tự nhảy, không cần đổi
@@ -296,9 +299,12 @@ function TopNavBar() {
                             (!l.role || account?.roles.includes(l.role)) &&
                             (!l.hideIfRole || !account?.roles.includes(l.hideIfRole))
                         )
-                        .map((l) => {
+                        .map((l, idx, visible) => {
                           const IconComp = l.icon;
-                          const isTransactions = l.href === "/transactions";
+                          // The workspace link is the one a seller/admin opens
+                          // the menu for — it gets the emphasis, the rest stay quiet.
+                          const isWorkspace = l.group === "workspace";
+                          const startsGroup = idx > 0 && visible[idx - 1].group !== l.group;
                           return (
                             <Link
                               key={l.href}
@@ -306,7 +312,8 @@ function TopNavBar() {
                               onClick={() => setMenuOpen(false)}
                               className={cn(
                                 "flex items-center gap-2.5 px-2.5 py-1.5 rounded-lg text-[12.5px] font-medium transition-colors group",
-                                isTransactions
+                                startsGroup && "mt-1.5 border-t border-line pt-2.5 rounded-t-none",
+                                isWorkspace
                                   ? "text-fg bg-raised/70 hover:bg-raised"
                                   : "text-muted hover:text-fg hover:bg-raised"
                               )}
@@ -314,7 +321,7 @@ function TopNavBar() {
                               <span
                                 className={cn(
                                   "grid place-items-center h-6 w-6 rounded-md transition-colors shrink-0",
-                                  isTransactions
+                                  isWorkspace
                                     ? "bg-iris-soft text-iris"
                                     : "text-faint group-hover:text-fg"
                                 )}
@@ -322,11 +329,7 @@ function TopNavBar() {
                                 <IconComp size={15} />
                               </span>
                               <span className="flex-1 truncate">{l.label}</span>
-                              {isTransactions && (
-                                <span className="text-[9.5px] font-mono font-bold uppercase tracking-wider text-iris bg-iris-soft px-1.5 py-0.5 rounded">
-                                  {t("logBadge")}
-                                </span>
-                              )}
+                              {isWorkspace && <ChevronRight size={13} className="text-faint group-hover:text-fg" />}
                             </Link>
                           );
                         })}

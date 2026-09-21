@@ -113,8 +113,9 @@ export function CategoryHubView({ initial }: { initial: CategoryHubCatalog }) {
         }
         return { c, children, items, total, matching, fromPrice: shelf?.price_from ?? null };
       })
-      .filter((g) => g.matching.length > 0)
-      .sort((a, b) => b.total - a.total);
+      // Keep the admin's order (Admin › Danh mục, sort_order) — the API already
+      // returns the tree that way; the rail on the left uses the same order.
+      .filter((g) => g.matching.length > 0);
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [topCats, shelvesById, queryLower]);
 

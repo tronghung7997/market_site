@@ -22,7 +22,9 @@ import type { HomeCatalog } from "../data/load-public";
 
 export function HomeCatalogView({ initial }: { initial: HomeCatalog }) {
   return (
-    <Suspense fallback={<Spinner />}>
+    // The shell (header/footer) streams before this subtree finishes rendering;
+    // reserve the viewport so the footer does not jump when the content lands.
+    <Suspense fallback={<div className="flex min-h-[70vh] items-center justify-center"><Spinner /></div>}>
       <HomeInner initial={initial} />
     </Suspense>
   );

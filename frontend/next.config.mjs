@@ -66,11 +66,6 @@ const nextConfig = {
         destination: "/:locale/admin/display-settings",
         permanent: false,
       },
-      {
-        source: "/favicon.ico",
-        destination: "/icon.svg",
-        permanent: false,
-      },
     ];
   },
   async headers() {
@@ -88,7 +83,18 @@ const nextConfig = {
         value: "max-age=31536000; includeSubDomains",
       });
     }
-    return [{ source: "/:path*", headers }];
+    // Static brand assets under `public/` otherwise ship `max-age=0`, which
+    // made the CDN revalidate every cover image and the favicon against the
+    // origin on each page view.
+    const staticAssetCache = {
+      key: "Cache-Control",
+      value: "public, max-age=86400, stale-while-revalidate=604800",
+    };
+    return [
+      { source: "/:path*", headers },
+      { source: "/covers/:path*", headers: [staticAssetCache] },
+      { source: "/favicon.ico", headers: [staticAssetCache] },
+    ];
   },
 };
 

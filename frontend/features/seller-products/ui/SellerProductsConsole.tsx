@@ -124,6 +124,12 @@ export function SellerProductsConsole({
             {t("productCount", { count: counts.all })} · {tp("stockSummary", { count: counts.total_stock.toLocaleString(locale) })}
             {counts.suspended > 0 && <span className="text-bad"> · {tp("suspendedNote", { count: counts.suspended })}</span>}
           </p>
+          {counts.max_active_products != null && (
+            <p className={cn("mt-0.5 text-[12.5px]", counts.active >= counts.max_active_products ? "font-medium text-warn" : "text-muted")}>
+              {tp("tierCap", { tier: tp(`tierName.${counts.tier}`), active: counts.active, max: counts.max_active_products })}
+              {counts.active >= counts.max_active_products && <> — {tp("tierCapReached")}</>}
+            </p>
+          )}
         </div>
         <Link href="/seller/products/new">
           <Button size="md" className="gap-1.5 shadow-sm"><Plus size={15} /> {t("createNew")}</Button>

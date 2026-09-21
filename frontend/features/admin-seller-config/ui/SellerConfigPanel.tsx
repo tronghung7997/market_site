@@ -9,6 +9,7 @@ import { useApiErrorMessage } from "@/lib/use-api-error";
 import { Button, Input, Spinner } from "@/components/ui";
 import { useToast } from "@/components/toast";
 import { SettingsFooter, SettingsRow, SettingsToggle } from "@/features/admin-site-settings";
+import { SellerTierTable, tierFormValid, tierPatch, toTierForm, type TierForm } from "./SellerTierPanel";
 
 const THRESHOLD_RANGE = { min: 1, max: 1_000, fallback: 20 };
 const LIMIT_RANGE = { min: 100, max: 500_000, fallback: 50_000 };
@@ -22,6 +23,13 @@ export function SellerConfigPanel() {
   const apiErrorMessage = useApiErrorMessage();
   const queryClient = useQueryClient();
   const query = useQuery({ queryKey: queryKeys.adminSellerConfig(), queryFn: api.adminSellerConfig });
+  const tierQuery = useQuery({ queryKey: queryKeys.adminSellerTierConfig(), queryFn: api.adminSellerTierConfig });
+  const [tierForm, setTierForm] = useState<TierForm | null>(null);
+  useEffect(() => { if (tierQuery.data) setTierForm(toTierForm(tierQuery.data.tiers)); }, [tierQuery.data]);
+  const saveTiers = useMutation({
+    mutationFn: (patch: Parameters<typeof api.updateAdminSellerTierConfig>[0]) => api.updateAdminSellerTierConfig(patch),
+    onSuccess: (data) => queryClient.setQueryData(queryKeys.adminSellerTierConfig(), data),
+  });
   const [threshold, setThreshold] = useState("");
   const [limit, setLimit] = useState("");
   const [reviewWindow, setReviewWindow] = useState("");
@@ -64,14 +72,18 @@ export function SellerConfigPanel() {
     || reviewWindowNum !== query.data.review_window_days || autoDaysNum !== query.data.auto_review_days
     || autoEnabled !== query.data.auto_review_enabled
   ) : false;
+  const savedTiers = tierQuery.data ? toTierForm(tierQuery.data.tiers) : null;
+  const tiersDirty = savedTiers ? JSON.stringify(tierForm) !== JSON.stringify(savedTiers) : false;
+  const tiersOk = tierForm ? tierFormValid(tierForm) : true;
   const resetForm = () => {
+    if (savedTiers) setTierForm(savedTiers);
     if (!query.data) return;
     setThreshold(String(query.data.low_stock_threshold)); setLimit(String(query.data.inventory_export_row_limit));
     setReviewWindow(String(query.data.review_window_days)); setAutoDays(String(query.data.auto_review_days));
     setAutoEnabled(query.data.auto_review_enabled);
   };
 
-  if (query.isPending) return <div className="grid place-items-center py-16"><Spinner /></div>;
+  if (query.isPending || tierQuery.isPending || !tierForm) return <div className="grid place-items-center py-16"><Spinner /></div>;
   if (query.isError) {
     return (
       <section className="rounded-card border border-line bg-card p-4 shadow-card text-[12.5px] text-bad">
@@ -107,13 +119,22 @@ export function SellerConfigPanel() {
         </div>
       </SettingsRow>
     </section>
+      {tierForm && <SellerTierTable form={tierForm} onChange={setTierForm} />}
       <SettingsFooter
         updatedAt={query.data.updated_at}
-        dirty={dirty}
-        valid={allOk}
-        saving={save.isPending}
+        dirty={dirty || tiersDirty}
+        valid={allOk && tiersOk}
+        saving={save.isPending || saveTiers.isPending}
         onReset={resetForm}
-        onSave={() => save.mutate({ low_stock_threshold: thresholdNum, inventory_export_row_limit: limitNum, review_window_days: reviewWindowNum, auto_review_days: autoDaysNum, auto_review_enabled: autoEnabled })}
+        onSave={async () => {
+          // Each block saves only if it changed; the toast comes from the main mutation.
+          if (tiersDirty && savedTiers && tierForm) {
+            try { await saveTiers.mutateAsync(tierPatch(tierForm, savedTiers)); }
+            catch (err) { toast.error(apiErrorMessage(err, t("saveFailed"))); return; }
+          }
+          if (dirty) save.mutate({ low_stock_threshold: thresholdNum, inventory_export_row_limit: limitNum, review_window_days: reviewWindowNum, auto_review_days: autoDaysNum, auto_review_enabled: autoEnabled });
+          else toast.success(t("tiersSaved"));
+        }}
       />
     </div>
   );

@@ -95,8 +95,21 @@ class AccountAdminRow(BaseModel):
     seller_tier: str
     is_internal: bool = False
     created_at: datetime
+    last_login_at: datetime | None = None
 
     model_config = {"from_attributes": True}
+
+
+class AccountsSummary(BaseModel):
+    all: int = 0
+    buyers: int = 0
+    sellers: int = 0
+    admins: int = 0
+    locked: int = 0
+    unverified: int = 0
+    twofa: int = 0
+    internal: int = 0
+    new_7d: int = 0
 
 
 class PaginatedAccounts(BaseModel):
@@ -104,6 +117,7 @@ class PaginatedAccounts(BaseModel):
     total: int
     page: int
     per_page: int
+    summary: AccountsSummary = AccountsSummary()
 
 
 class UpdateRolesRequest(BaseModel):

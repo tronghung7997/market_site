@@ -6,7 +6,7 @@ from src.auth.dependencies import get_current_account, require_role, require_ver
 from src.config import settings
 from src.database import get_session
 from src.models.account import Account
-from src.sellers.tiers import withdraw_limit
+from src.sellers.tier_config import rule_for
 
 from . import schemas, service
 
@@ -21,7 +21,7 @@ async def get_wallet(account: Account = Depends(get_current_account), db: AsyncS
     if "seller" in (account.roles or []):
         tier = account.seller_tier or "new"
         resp.withdraw_policy = schemas.WithdrawPolicy(
-            tier=tier, limit_per_request=withdraw_limit(tier),
+            tier=tier, limit_per_request=(await rule_for(db, tier)).withdraw_limit_per_request,
         )
     return resp
 

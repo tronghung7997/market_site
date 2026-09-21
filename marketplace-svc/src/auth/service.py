@@ -12,6 +12,7 @@ from src.config import settings
 from src.audit.service import log_event
 from src.exceptions import DuplicateEmail, ErrorCode, api_error
 from src.logging import current_request_id
+from src.auth import schemas
 from src.models.account import Account, EmailVerificationToken, PasswordResetToken
 from src.models.login_event import LoginEvent
 from src.models.wallet import Wallet
@@ -493,19 +494,77 @@ _VALID_ROLES = {"buyer", "seller", "admin"}
 _VALID_TIERS = {"new", "verified", "trusted", "enterprise"}
 
 
-async def list_accounts(db: AsyncSession, search: str | None = None, page: int = 1, per_page: int = 20) -> dict:
-    from sqlalchemy import func
+async def list_accounts(
+    db: AsyncSession,
+    search: str | None = None,
+    page: int = 1,
+    per_page: int = 20,
+    *,
+    role: str | None = None,
+    status: str | None = None,
+    sort: str = "newest",
+) -> dict:
+    """Admin directory. `role` = buyer|seller|admin, `status` = active|locked|
+    unverified|2fa|internal. Rows carry the last successful sign-in so the
+    console can show "last seen" without a second request per row."""
+    from sqlalchemy import case, func, literal_column
+    from src.models.login_event import LoginEvent
 
-    base = select(Account)
-    count_q = select(func.count(Account.id))
-    if search:
-        base = base.where(Account.email.ilike(f"%{search}%"))
-        count_q = count_q.where(Account.email.ilike(f"%{search}%"))
-    total = await db.scalar(count_q) or 0
-    rows = await db.execute(
-        base.order_by(Account.id).offset((page - 1) * per_page).limit(per_page)
+    filters = []
+    if search and search.strip():
+        filters.append(Account.email.ilike(f"%{search.strip()}%"))
+    if role in {"buyer", "seller", "admin"}:
+        filters.append(Account.roles.any(role))
+    if status == "active":
+        filters.append(Account.is_active.is_(True))
+    elif status == "locked":
+        filters.append(Account.is_active.is_(False))
+    elif status == "unverified":
+        filters.append(Account.email_verified_at.is_(None))
+    elif status == "2fa":
+        filters.append(Account.totp_enabled_at.is_not(None))
+    elif status == "internal":
+        filters.append(Account.is_internal.is_(True))
+
+    last_login = (
+        select(LoginEvent.account_id, func.max(LoginEvent.created_at).label("at"))
+        .where(LoginEvent.outcome == "success")
+        .group_by(LoginEvent.account_id)
+        .subquery()
     )
-    return {"items": list(rows.scalars().all()), "total": int(total), "page": page, "per_page": per_page}
+    total = int(await db.scalar(select(func.count(Account.id)).where(*filters)) or 0)
+    order = {
+        "oldest": (Account.id.asc(),),
+        "email": (Account.email.asc(),),
+        "last_login": (last_login.c.at.desc().nulls_last(), Account.id.desc()),
+    }.get(sort, (Account.id.desc(),))
+    rows = (await db.execute(
+        select(Account, last_login.c.at)
+        .outerjoin(last_login, last_login.c.account_id == Account.id)
+        .where(*filters)
+        .order_by(*order)
+        .offset((page - 1) * per_page).limit(per_page)
+    )).all()
+    items = []
+    for account, seen_at in rows:
+        row = schemas.AccountAdminRow.model_validate(account).model_dump()
+        row["last_login_at"] = seen_at
+        items.append(row)
+
+    summary_row = (await db.execute(select(
+        func.count(Account.id),
+        func.sum(case((Account.roles.any("buyer"), 1), else_=0)),
+        func.sum(case((Account.roles.any("seller"), 1), else_=0)),
+        func.sum(case((Account.roles.any("admin"), 1), else_=0)),
+        func.sum(case((Account.is_active.is_(False), 1), else_=0)),
+        func.sum(case((Account.email_verified_at.is_(None), 1), else_=0)),
+        func.sum(case((Account.totp_enabled_at.is_not(None), 1), else_=0)),
+        func.sum(case((Account.is_internal.is_(True), 1), else_=0)),
+        func.sum(case((Account.created_at >= func.now() - literal_column("interval '7 days'"), 1), else_=0)),
+    ))).one()
+    keys = ("all", "buyers", "sellers", "admins", "locked", "unverified", "twofa", "internal", "new_7d")
+    summary = {k: int(v or 0) for k, v in zip(keys, summary_row)}
+    return {"items": items, "total": total, "page": page, "per_page": per_page, "summary": summary}
 
 
 async def update_roles(account_id: int, roles: list[str], requester_id: int, db: AsyncSession) -> Account:

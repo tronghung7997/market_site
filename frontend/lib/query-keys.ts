@@ -93,6 +93,7 @@ export const queryKeys = {
   sellerInventoryReport: (params: Record<string, unknown>) => ["seller-inventory", "report", params] as const,
   sellerInventoryExportPreview: (params: Record<string, unknown>) => ["seller-inventory", "export-preview", params] as const,
   adminSellerConfig: () => ["admin-seller-config"] as const,
+  adminSellerTierConfig: () => ["admin-seller-tier-config"] as const,
   adminAnalyticsConfig: () => ["admin-analytics-config"] as const,
   adminAffiliateConfig: () => ["admin-affiliate-config"] as const,
   adminContentFilter: () => ["admin-content-filter"] as const,

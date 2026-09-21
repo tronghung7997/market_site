@@ -11,7 +11,8 @@ from sqlalchemy.ext.asyncio import AsyncSession
 from src.fees.settings import get_fee_settings
 from src.models.order import Order
 from src.models.product import Product, ProductVariant
-from src.sellers.tiers import escrow_days as tier_escrow_days, fee_discount_pp
+from src.sellers.tier_config import rule_for
+from src.sellers.tiers import escrow_days as tier_escrow_days
 
 
 def _lookup(mapping: dict, category_id: int | None) -> float | None:
@@ -27,7 +28,7 @@ async def platform_fee_percent_for(db: AsyncSession, *, seller_tier: str, catego
     base = _lookup(cfg["category_fee_percent"], category_id)
     if base is None:
         base = float(cfg["platform_fee_percent"])
-    return max(0.0, base - fee_discount_pp(seller_tier))
+    return max(0.0, base - (await rule_for(db, seller_tier)).fee_discount_pp)
 
 
 async def escrow_days_for(db: AsyncSession, *, seller_tier: str, product_escrow_days: int, category_id: int | None) -> int:
@@ -35,7 +36,8 @@ async def escrow_days_for(db: AsyncSession, *, seller_tier: str, product_escrow_
     cfg = await get_fee_settings(db)
     floor = _lookup(cfg["category_escrow_min_days"], category_id)
     floor_days = int(floor) if floor is not None else int(cfg["escrow_min_days"])
-    return max(tier_escrow_days(seller_tier, product_escrow_days), floor_days)
+    reduction = (await rule_for(db, seller_tier)).escrow_reduction_days
+    return max(tier_escrow_days(seller_tier, product_escrow_days, reduction_days=reduction), floor_days)
 
 
 async def order_category_id(order: Order, db: AsyncSession) -> int | None:

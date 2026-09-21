@@ -22,7 +22,7 @@ import type {
   InventoryReportParams, InventoryReportResponse, InventoryStockTab, RestockPreview, RestockResult,
   SellerResourceQuery, SellerRuntimeConfig, SiteAnalyticsConfig,
   LoginEvent, AffiliateRuntimeConfig, PublicAffiliateConfig, ContentFilterConfig, ContentFilterTestResult, AuthRuntimeConfig,
-  LoginResult, PublicAuthConfig, TotpSetup, SiteStatusPublic, SiteStatusAdmin, SiteStatusUpdate, LedgerRun, FeeConfigPublic, FeeConfigAdmin, FeeConfigUpdate, WithdrawQuote,
+  LoginResult, PublicAuthConfig, TotpSetup, SiteStatusPublic, SiteStatusAdmin, SiteStatusUpdate, LedgerRun, FeeConfigPublic, FeeConfigAdmin, FeeConfigUpdate, WithdrawQuote, SellerTierRule, SellerTierRulePatch, SellerTierName,
 } from "./types";
 import {
   ApiError,
@@ -565,6 +565,10 @@ export const api = {
   adminSellerConfig: () => request<SellerRuntimeConfig>("/admin/seller-config", {}, true),
   updateAdminSellerConfig: (body: Partial<Pick<SellerRuntimeConfig, "low_stock_threshold" | "inventory_export_row_limit" | "review_window_days" | "auto_review_days" | "auto_review_enabled">>) =>
     request<SellerRuntimeConfig>("/admin/seller-config", { method: "PATCH", body: JSON.stringify(body) }, true),
+  adminSellerTierConfig: () => request<{ tiers: SellerTierRule[] }>("/admin/seller-tier-config", {}, true),
+  updateAdminSellerTierConfig: (tiers: Partial<Record<SellerTierName, SellerTierRulePatch>>) =>
+    request<{ tiers: SellerTierRule[] }>("/admin/seller-tier-config", { method: "PATCH", body: JSON.stringify({ tiers }) }, true),
+  sellerTiers: () => request<{ tiers: SellerTierRule[] }>("/public/seller-tiers"),
   deleteResource: (resourceId: number) =>
     request<void>(`/seller/resources/${resourceId}`, { method: "DELETE" }, true),
   sellerAcceptOrder: (orderId: string | number) =>
@@ -604,9 +608,12 @@ export const api = {
     request<Product>(`/admin/products/${id}`, { method: "PATCH", body: JSON.stringify(data) }, true),
   adminUpdateProductTranslation: (id: number, locale: ProductLocale, data: ProductTranslation) =>
     request<Product>(`/admin/products/${id}/translations/${locale}`, { method: "PATCH", body: JSON.stringify(data) }, true),
-  adminAccounts: (params?: { search?: string; page?: number; per_page?: number }) => {
+  adminAccounts: (params?: { search?: string; role?: string; status?: string; sort?: string; page?: number; per_page?: number }) => {
     const q = new URLSearchParams();
     if (params?.search) q.set("search", params.search);
+    if (params?.role) q.set("role", params.role);
+    if (params?.status) q.set("status", params.status);
+    if (params?.sort) q.set("sort", params.sort);
     if (params?.page) q.set("page", String(params.page));
     if (params?.per_page) q.set("per_page", String(params.per_page));
     const qs = q.toString();

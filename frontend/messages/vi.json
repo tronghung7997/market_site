@@ -1330,6 +1330,9 @@
     "orderNotFoundBody": "Không có đơn {ref} trong tài khoản này, hoặc liên kết đã cũ."
   },
   "sellerProducts": {
+    "tierCap": "Hạng {tier}: đang bán {active}/{max} sản phẩm",
+    "tierCapReached": "đã đạt giới hạn, tạm dừng bớt hoặc nâng hạng để bật thêm",
+    "tierName": {"new": "Mới", "verified": "Đã xác minh", "trusted": "Uy tín", "enterprise": "Doanh nghiệp"},
     "tabsLabel": "Lọc sản phẩm",
     "tab": {
       "all": "Tất cả",
@@ -1376,7 +1379,8 @@
     "skip": {
       "not_found": "không tồn tại",
       "not_owner": "không phải của bạn",
-      "suspended": "bị khoá"
+      "suspended": "bị khoá",
+      "tier_limit": "vượt giới hạn hạng người bán"
     }
   },
   "sellerInventory": {
@@ -1858,6 +1862,7 @@
     "RESOURCE_NOT_DELETABLE": "Chỉ có thể xoá tài nguyên đang ở trạng thái sẵn sàng",
     "CATEGORY_NOT_FOUND": "Không tìm thấy danh mục",
     "PRODUCT_SUSPENDED": "Sản phẩm đang bị đình chỉ và seller không thể tự thay đổi trạng thái",
+    "PRODUCT_LIMIT_REACHED": "Hạng người bán của bạn chỉ được bán tối đa {limit} sản phẩm cùng lúc. Tạm dừng bớt sản phẩm hoặc nâng hạng để đăng thêm.",
     "PRODUCT_TITLE_EMPTY": "Tên sản phẩm không được để trống",
     "VARIANT_FIXED_ONLY": "Chỉ sản phẩm giá cố định mới sử dụng biến thể",
     "VARIANT_HAS_HISTORY": "Không thể chuyển sang giao thủ công khi gói vẫn có lịch sử tài nguyên",
@@ -3759,6 +3764,26 @@
     "timezoneNote": "Giờ nhập theo múi giờ trình duyệt của bạn ({zone})."
   },
   "adminSellerConfig": {
+    "tiersTitle": "Hạng người bán",
+    "tiersHint": "Admin gán hạng ở Tài khoản; mỗi hạng được bao nhiêu là chỉnh ở đây. Để trống ô giới hạn = không giới hạn. Áp dụng ngay khi lưu (hàng đang bán vượt mức không bị gỡ, chỉ chặn bật thêm).",
+    "tiersSaved": "Đã lưu hạng người bán",
+    "colTier": "Hạng",
+    "colMaxProducts": "Sản phẩm đang bán tối đa",
+    "colWithdrawLimit": "Rút tối đa mỗi lần (VND)",
+    "colFeeDiscount": "Giảm phí sàn",
+    "colEscrowReduction": "Giảm ngày giữ tiền",
+    "tier_new": "Mới",
+    "tier_verified": "Đã xác minh",
+    "tier_trusted": "Uy tín",
+    "tier_enterprise": "Doanh nghiệp",
+    "tierHint_new": "Mặc định khi vừa được duyệt bán",
+    "tierHint_verified": "Đã xác minh danh tính",
+    "tierHint_trusted": "Bán tốt, ít khiếu nại — được dùng API",
+    "tierHint_enterprise": "Đối tác lớn",
+    "unlimited": "Không giới hạn",
+    "points": "điểm %",
+    "daysUnit": "ngày",
+    "tiersNote": "Giảm phí tính bằng điểm phần trăm trừ vào phí sàn (phí 10% − 2 điểm = 8%). Giảm ngày giữ tiền không bao giờ xuống dưới mức giữ tối thiểu ở tab Phí & giữ tiền. Mỗi lần lưu ghi nhật ký giá trị cũ → mới.",
     "thresholdTitle": "Ngưỡng sắp hết hàng",
     "thresholdHint": "Phân loại có số tài nguyên sẵn sàng ≤ ngưỡng này được gắn nhãn \"Sắp hết\". Áp dụng chung cho trang Sản phẩm, Kho hàng, việc cần làm trên Tổng quan của seller.",
     "thresholdLabel": "Số tài nguyên",

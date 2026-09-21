@@ -1072,7 +1072,28 @@ export interface SellerProductCounts {
   total_stock: number;
   /** Stock at or below this (and above 0) counts as low — same rule as the tabs. */
   low_stock_threshold: number;
+  /** Seller tier and its cap on products on sale at once (null = unlimited). */
+  tier: SellerTierName;
+  max_active_products: number | null;
 }
+
+export type SellerTierName = "new" | "verified" | "trusted" | "enterprise";
+export type SellerTierRule = {
+  tier: SellerTierName;
+  max_active_products: number | null;
+  withdraw_limit_per_request: number | null;
+  fee_discount_pp: number;
+  escrow_reduction_days: number;
+  updated_at: string | null;
+  updated_by_id: number | null;
+};
+/** A field left out is untouched; a cap sent as null becomes unlimited. */
+export type SellerTierRulePatch = {
+  max_active_products?: number | null;
+  withdraw_limit_per_request?: number | null;
+  fee_discount_pp?: number | null;
+  escrow_reduction_days?: number | null;
+};
 
 export type SellerProductTab = "all" | "active" | "paused" | "draft" | "low_stock" | "out_of_stock";
 export type SellerProductSort =
@@ -1915,6 +1936,20 @@ export interface AccountAdminRow {
   seller_tier: string;
   is_internal?: boolean;
   created_at: string;
+  /** Last successful sign-in (from login_events); null = never. */
+  last_login_at?: string | null;
+}
+
+export interface AccountsSummary {
+  all: number;
+  buyers: number;
+  sellers: number;
+  admins: number;
+  locked: number;
+  unverified: number;
+  twofa: number;
+  internal: number;
+  new_7d: number;
 }
 
 export interface PaginatedAccounts {
@@ -1922,6 +1957,7 @@ export interface PaginatedAccounts {
   total: number;
   page: number;
   per_page: number;
+  summary?: AccountsSummary;
 }
 
 export interface SellerApplication {

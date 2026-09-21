@@ -71,6 +71,7 @@ from src.site_status.gate import maintenance_gate
 from src.site_status.router import router as site_status_router
 from src.ledger.router import router as ledger_router
 from src.fees.router import router as fees_router
+from src.sellers.tier_router import router as seller_tier_router
 
 # offline
 from fastapi.openapi.docs import (
@@ -185,6 +186,7 @@ app.include_router(auth_router)
 app.include_router(site_status_router)
 app.include_router(ledger_router)
 app.include_router(fees_router)
+app.include_router(seller_tier_router)
 app.include_router(content_filter_router)
 app.include_router(seller_router)
 app.include_router(sellers_router)

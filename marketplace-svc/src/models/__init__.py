@@ -8,6 +8,7 @@ from src.models.category import Category
 from src.models.chat import ChatConversation, ChatMessage, ChatParticipant
 from src.models.fee_runtime_config import FeeRuntimeConfig
 from src.models.ledger_reconcile_run import LedgerReconcileRun
+from src.models.seller_tier_config import SellerTierConfig
 from src.models.log_entry import LogEntry
 from src.models.login_event import LoginEvent
 from src.models.content_filter_config import ContentFilterConfig
@@ -56,6 +57,7 @@ __all__ = [
     "Alert",
     "FeeRuntimeConfig",
     "LedgerReconcileRun",
+    "SellerTierConfig",
     "Category",
     "ChatConversation", "ChatMessage", "ChatParticipant",
     "LogEntry", "LoginEvent", "ContentFilterConfig",

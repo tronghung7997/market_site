@@ -25,6 +25,7 @@ from src.i18n.slug import canonical_path, new_public_key, parse_public_ref, slug
 from src.models.account import Account
 from src.models.category import Category
 from src.models.product import DeliveryMode, Product, ProductStatus, ProductVariant
+from src.sellers.tier_config import rule_for
 from src.models.order import Order, OrderStatus
 from src.models.pricing_config import PricingConfig
 from src.models.provider import Provider
@@ -142,6 +143,25 @@ def list_product_covers() -> dict:
     return {"items": catalog_items()}
 
 
+async def active_product_allowance(seller_id: int, db: AsyncSession) -> tuple[int, int | None, str]:
+    """(active_count, max_allowed, tier) for the seller's tier. Internal
+    (platform-run) sellers are never capped: their catalogue is the admin's."""
+    seller = await db.get(Account, seller_id)
+    tier = (getattr(seller.seller_tier, "value", None) or str(seller.seller_tier)) if seller else "new"
+    active = int(await db.scalar(
+        select(func.count(Product.id)).where(Product.seller_id == seller_id, Product.status == ProductStatus.active)
+    ) or 0)
+    if seller is not None and getattr(seller, "is_internal", False):
+        return active, None, tier
+    return active, (await rule_for(db, tier)).max_active_products, tier
+
+
+async def _assert_can_activate(seller_id: int, db: AsyncSession, *, adding: int = 1) -> None:
+    active, limit, _tier = await active_product_allowance(seller_id, db)
+    if limit is not None and active + adding > limit:
+        raise api_error(ErrorCode.PRODUCT_LIMIT_REACHED, http_status.HTTP_409_CONFLICT, limit=limit)
+
+
 async def create_product(seller_id: int, data: dict, db: AsyncSession) -> Product:
     payload = dict(data)
     content_locale = payload.pop("content_locale", "vi")
@@ -153,6 +173,8 @@ async def create_product(seller_id: int, data: dict, db: AsyncSession) -> Produc
     if payload.get("escrow_days") is None:
         from src.fees.settings import get_fee_settings
         payload["escrow_days"] = int((await get_fee_settings(db))["escrow_default_days"])
+    if payload.get("status") == "active":
+        await _assert_can_activate(seller_id, db)
     product = Product(seller_id=seller_id, **payload)
     db.add(product)
     await db.commit()
@@ -224,6 +246,8 @@ async def update_seller_product_status(
         raise NotOwner()
     if product.status == ProductStatus.suspended:
         raise api_error(ErrorCode.PRODUCT_SUSPENDED, http_status.HTTP_409_CONFLICT)
+    if status == "active" and product.status != ProductStatus.active:
+        await _assert_can_activate(seller_id, db)
     product.status = ProductStatus(status)
     await db.commit()
     await db.refresh(product)
@@ -988,6 +1012,9 @@ async def list_seller_products(
         "suspended": int(count_row[7] or 0),
         "low_stock_threshold": low_stock,
     }
+    _active_now, max_active, tier = await active_product_allowance(seller_id, db)
+    counts["tier"] = tier
+    counts["max_active_products"] = max_active
     tab = (status or "all").strip().lower()
     page_filters = []
     if tab == "active":
@@ -1115,6 +1142,11 @@ async def bulk_update_seller_product_status(
     by_id = {p.id: p for p in rows}
     updated: list[int] = []
     skipped: list[dict] = []
+    # Activating: only as many as the tier still allows; the rest are reported.
+    headroom: int | None = None
+    if status == "active":
+        active, limit, _tier = await active_product_allowance(seller_id, db)
+        headroom = None if limit is None else max(0, limit - active)
     for pid in wanted:
         product = by_id.get(pid)
         if not product:
@@ -1123,7 +1155,11 @@ async def bulk_update_seller_product_status(
             skipped.append({"id": pid, "reason": "not_owner"})
         elif product.status == ProductStatus.suspended:
             skipped.append({"id": pid, "reason": "suspended"})
+        elif status == "active" and product.status != ProductStatus.active and headroom is not None and headroom <= 0:
+            skipped.append({"id": pid, "reason": "tier_limit"})
         else:
+            if status == "active" and product.status != ProductStatus.active and headroom is not None:
+                headroom -= 1
             product.status = ProductStatus(status)
             updated.append(pid)
     await db.commit()

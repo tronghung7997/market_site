@@ -359,6 +359,9 @@ class SellerProductCounts(BaseModel):
     out_of_stock: int
     total_stock: int
     low_stock_threshold: int
+    # Seller tier and its cap on products on sale at once (None = unlimited).
+    tier: str = "new"
+    max_active_products: int | None = None
 
 
 class SellerProductBulkStatusRequest(BaseModel):
@@ -368,7 +371,7 @@ class SellerProductBulkStatusRequest(BaseModel):
 
 class SellerProductBulkSkipped(BaseModel):
     id: int
-    reason: Literal["not_found", "not_owner", "suspended"]
+    reason: Literal["not_found", "not_owner", "suspended", "tier_limit"]
 
 
 class SellerProductBulkStatusResponse(BaseModel):

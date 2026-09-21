@@ -89,6 +89,7 @@ class ErrorCode(str, Enum):
     RESOURCE_NOT_DELETABLE = "RESOURCE_NOT_DELETABLE"
     CATEGORY_NOT_FOUND = "CATEGORY_NOT_FOUND"
     PRODUCT_SUSPENDED = "PRODUCT_SUSPENDED"
+    PRODUCT_LIMIT_REACHED = "PRODUCT_LIMIT_REACHED"
     PRODUCT_TITLE_EMPTY = "PRODUCT_TITLE_EMPTY"
     VARIANT_FIXED_ONLY = "VARIANT_FIXED_ONLY"
     VARIANT_HAS_HISTORY = "VARIANT_HAS_HISTORY"
@@ -202,6 +203,7 @@ MESSAGES_EN: dict[ErrorCode, str] = {
     ErrorCode.RESOURCE_NOT_DELETABLE: "Only available resources can be deleted",
     ErrorCode.CATEGORY_NOT_FOUND: "Category not found",
     ErrorCode.PRODUCT_SUSPENDED: "This product is suspended and cannot be changed by the seller",
+    ErrorCode.PRODUCT_LIMIT_REACHED: "Your seller tier allows at most {limit} products on sale at once",
     ErrorCode.PRODUCT_TITLE_EMPTY: "Product name cannot be empty",
     ErrorCode.VARIANT_FIXED_ONLY: "Only fixed-price products use variants",
     ErrorCode.VARIANT_HAS_HISTORY: "Cannot switch to manual delivery while this package still has resource history",

@@ -15,7 +15,7 @@ from src.models.wallet import (
 )
 from src.fees.service import withdraw_fee_amount
 from src.fees.settings import get_fee_settings
-from src.sellers.tiers import withdraw_limit
+from src.sellers.tier_config import rule_for
 
 
 def escrow_settlement(total_amount: int, refunded_amount: int, fee_percent: float) -> tuple[int, int]:
@@ -357,7 +357,7 @@ async def request_withdraw(
     if wallet.available_balance < amount:
         raise InsufficientCredit()
     account = await db.get(Account, account_id)
-    limit = withdraw_limit(account.seller_tier if account else "new")
+    limit = (await rule_for(db, account.seller_tier if account else "new")).withdraw_limit_per_request
     if limit is not None and amount > limit:
         raise HTTPException(
             status_code=400,

@@ -11,6 +11,7 @@ import type {
 } from "./types";
 import type { PaginatedDisputes, SitePageAdmin, SitePageCreate, SitePageUpdate } from "./types";
 import type { CategoryAdminListResponse, CategoryCreateInput, CategoryUpdateInput } from "./types";
+import type { AffiliateSort } from "./types";
 import type {
   SourceArea, SourceCatalogPage, SourceCatalogQuery, SourceImportItem, SourceImportResult, SourceListing,
   SourceRepriceResult, SourceSyncResult, SupplierSource,
@@ -1049,11 +1050,13 @@ export const api = {
     const qs = q.toString();
     return request<AffiliateStats>(`/affiliate/me${qs ? `?${qs}` : ""}`, {}, true);
   },
-  adminAffiliates: (params?: { search?: string; page?: number; per_page?: number }) => {
+  adminAffiliates: (params?: { search?: string; page?: number; per_page?: number; sort?: AffiliateSort; active_only?: boolean }) => {
     const q = new URLSearchParams();
     if (params?.search) q.set("search", params.search);
     if (params?.page) q.set("page", String(params.page));
     if (params?.per_page) q.set("per_page", String(params.per_page));
+    if (params?.sort) q.set("sort", params.sort);
+    if (params?.active_only) q.set("active_only", "true");
     const qs = q.toString();
     return request<PaginatedAffiliateSummary>(`/admin/affiliates${qs ? `?${qs}` : ""}`, {}, true);
   },

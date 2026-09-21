@@ -2,7 +2,7 @@ import ipaddress
 from datetime import date, datetime, timedelta, timezone
 
 from fastapi import HTTPException
-from sqlalchemy import func, literal_column, select
+from sqlalchemy import func, literal_column, or_, select
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from src.config import settings
@@ -338,15 +338,22 @@ async def update_affiliate_code(account_id: int, new_code: str, db: AsyncSession
     return account
 
 
+AFFILIATE_SORTS = ("commission", "clicks", "signups", "orders", "newest", "email")
+
+
 async def list_affiliates_admin(
     db: AsyncSession,
     search: str | None = None,
     page: int = 1,
     per_page: int = 20,
+    sort: str = "commission",
+    active_only: bool = False,
 ) -> dict:
     """Paginated list of accounts with aggregated affiliate stats.
 
     Uses subqueries per aggregate to avoid cartesian-product sum inflation.
+    ``active_only`` keeps accounts with at least one click, sign-up or paid
+    commission; ``summary`` is over the whole (searched) set, not the page.
     """
     clicks_subq = (
         select(
@@ -392,14 +399,43 @@ async def list_affiliates_admin(
     )
     if search:
         query = query.where(Account.email.ilike(f"%{search}%"))
+    if active_only:
+        query = query.where(
+            or_(clicks_subq.c.clicks > 0, signups_subq.c.signups > 0, comm_subq.c.orders > 0)
+        )
 
-    count_q = select(func.count(Account.id))
-    if search:
-        count_q = count_q.where(Account.email.ilike(f"%{search}%"))
-    total = await db.scalar(count_q) or 0
+    base = query.subquery()
+    summary_row = (await db.execute(
+        select(
+            func.count(base.c.id),
+            func.count(base.c.id).filter(or_(base.c.clicks > 0, base.c.signups > 0, base.c.orders > 0)),
+            func.coalesce(func.sum(base.c.clicks), 0),
+            func.coalesce(func.sum(base.c.signups), 0),
+            func.coalesce(func.sum(base.c.orders), 0),
+            func.coalesce(func.sum(base.c.commission), 0),
+        )
+    )).one()
+    total = int(summary_row[0] or 0)
+    summary = {
+        "accounts": total,
+        "active": int(summary_row[1] or 0),
+        "clicks": int(summary_row[2] or 0),
+        "signups": int(summary_row[3] or 0),
+        "orders": int(summary_row[4] or 0),
+        "commission": int(summary_row[5] or 0),
+    }
+
+    order_by = {
+        "commission": (base.c.commission.desc(), base.c.orders.desc(), base.c.clicks.desc(), base.c.id.asc()),
+        "clicks": (base.c.clicks.desc(), base.c.id.asc()),
+        "signups": (base.c.signups.desc(), base.c.id.asc()),
+        "orders": (base.c.orders.desc(), base.c.id.asc()),
+        "newest": (base.c.id.desc(),),
+        "email": (base.c.email.asc(),),
+    }.get(sort) or (base.c.commission.desc(), base.c.id.asc())
 
     rows = await db.execute(
-        query.order_by(Account.id).offset((page - 1) * per_page).limit(per_page)
+        select(base).order_by(*order_by).offset((page - 1) * per_page).limit(per_page)
     )
     items = [
         {
@@ -413,7 +449,7 @@ async def list_affiliates_admin(
         }
         for r in rows.all()
     ]
-    return {"items": items, "total": int(total), "page": page, "per_page": per_page}
+    return {"items": items, "total": total, "page": page, "per_page": per_page, "summary": summary}
 
 
 def _parse_range(date_from: str | None, date_to: str | None) -> tuple[datetime | None, datetime | None]:
@@ -542,6 +578,7 @@ async def get_affiliate_stats(
     return {
         "code": code,
         "link": link,
+        "email": account.email if account else None,
         "totals": totals,
         "timeseries": timeseries,
         "commissions": commissions,

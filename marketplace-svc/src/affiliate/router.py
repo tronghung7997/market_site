@@ -1,4 +1,5 @@
 import hashlib
+from typing import Literal
 
 from fastapi import APIRouter, Depends, HTTPException, Query, Request, status
 from sqlalchemy.ext.asyncio import AsyncSession
@@ -60,8 +61,12 @@ async def admin_list_affiliates(
     search: str | None = Query(None),
     page: int = Query(1, ge=1),
     per_page: int = Query(20, ge=1, le=100),
+    sort: Literal["commission", "clicks", "signups", "orders", "newest", "email"] = Query("commission"),
+    active_only: bool = Query(False, description="Chỉ tài khoản đã có nhấp / đăng ký / hoa hồng"),
 ):
-    return await service.list_affiliates_admin(db, search=search, page=page, per_page=per_page)
+    return await service.list_affiliates_admin(
+        db, search=search, page=page, per_page=per_page, sort=sort, active_only=active_only,
+    )
 
 
 @router.get("/admin/affiliates/{account_id}", response_model=schemas.AffiliateStatsResponse)
@@ -109,7 +114,11 @@ async def admin_fund_topup(
 async def public_affiliate_config(db: AsyncSession = Depends(get_session)):
     """What the storefront needs to honour the admin's attribution window."""
     cfg = await get_affiliate_settings(db)
-    return {"enabled": cfg["enabled"], "attribution_days": cfg["attribution_days"]}
+    return {
+        "enabled": cfg["enabled"],
+        "attribution_days": cfg["attribution_days"],
+        "earning_days": cfg["earning_days"],
+    }
 
 
 @router.get("/admin/affiliate-config", response_model=schemas.AffiliateRuntimeConfigResponse)

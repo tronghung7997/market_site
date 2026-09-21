@@ -51,6 +51,8 @@ class ReferredUserRow(BaseModel):
 class AffiliateStatsResponse(BaseModel):
     code: str
     link: str
+    # Whose stats these are — the admin detail page shows it in the header.
+    email: str | None = None
     totals: AffiliateTotals
     timeseries: list[TimeseriesPoint]
     commissions: list[CommissionRow]
@@ -69,11 +71,21 @@ class AffiliateSummaryRow(BaseModel):
     model_config = {"from_attributes": True}
 
 
+class AffiliateListSummary(BaseModel):
+    accounts: int
+    active: int
+    clicks: int
+    signups: int
+    orders: int
+    commission: int
+
+
 class PaginatedAffiliateSummary(BaseModel):
     items: list[AffiliateSummaryRow]
     total: int
     page: int
     per_page: int
+    summary: AffiliateListSummary
 
 
 class FundEntryRow(BaseModel):
@@ -128,4 +140,7 @@ class AffiliateRuntimeConfigUpdate(BaseModel):
 
 class PublicAffiliateConfig(BaseModel):
     enabled: bool
+    # Days after a referred sign-up that still earn (0 = lifetime); the fee
+    # split itself stays admin-only (test_audit_phase1 pins that).
+    earning_days: int = 0
     attribution_days: int

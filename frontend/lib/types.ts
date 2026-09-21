@@ -2018,6 +2018,8 @@ export interface AffiliateRuntimeConfig {
 export interface PublicAffiliateConfig {
   enabled: boolean;
   attribution_days: number;
+  /** Days after a referred sign-up that still earn; 0 = lifetime. */
+  earning_days: number;
 }
 
 export interface ContentFilterConfig {
@@ -2048,6 +2050,7 @@ export interface ReferredUserRow {
 export interface AffiliateStats {
   code: string;
   link: string;
+  email?: string | null;
   totals: AffiliateTotals;
   timeseries: AffiliateTimeseriesPoint[];
   commissions: AffiliateCommissionRow[];
@@ -2064,12 +2067,26 @@ export interface AffiliateSummary {
   commission: number;
 }
 
+export interface AffiliateListSummary {
+  /** Accounts matching the current search/filter (not just this page). */
+  accounts: number;
+  /** …of which have at least one click, sign-up or paid commission. */
+  active: number;
+  clicks: number;
+  signups: number;
+  orders: number;
+  commission: number;
+}
+
 export interface PaginatedAffiliateSummary {
   items: AffiliateSummary[];
   total: number;
   page: number;
   per_page: number;
+  summary: AffiliateListSummary;
 }
+
+export type AffiliateSort = "commission" | "clicks" | "signups" | "orders" | "newest" | "email";
 
 export interface FundEntry {
   id: number;

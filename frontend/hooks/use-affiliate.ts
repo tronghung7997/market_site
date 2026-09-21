@@ -1,6 +1,7 @@
 import { useQuery } from "@tanstack/react-query";
 import { api } from "@/lib/api";
 import { queryKeys } from "@/lib/query-keys";
+import type { AffiliateSort } from "@/lib/types";
 
 export function useAffiliateMe(params?: { date_from?: string; date_to?: string }) {
   return useQuery({
@@ -13,10 +14,11 @@ export function useAffiliateMe(params?: { date_from?: string; date_to?: string }
   });
 }
 
-export function useAdminAffiliates(params?: { search?: string; page?: number; per_page?: number }) {
+export function useAdminAffiliates(params?: { search?: string; page?: number; per_page?: number; sort?: AffiliateSort; active_only?: boolean }) {
   return useQuery({
     queryKey: queryKeys.adminAffiliates(params),
     queryFn: () => api.adminAffiliates(params),
+    placeholderData: (prev) => prev,
   });
 }
 

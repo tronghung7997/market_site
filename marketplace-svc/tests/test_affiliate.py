@@ -538,3 +538,32 @@ async def test_commission_via_dispute_reject(client, monkeypatch):
         assert comm is not None
         assert comm.affiliate_account_id == affiliate_id
         assert comm.amount == 500
+
+
+@pytest.mark.asyncio
+async def test_admin_affiliates_sort_filter_and_summary(client):
+    admin_token = await register_and_login(client, "aff_sort_admin@example.com")
+    await make_admin("aff_sort_admin@example.com")
+    admin_token = await register_and_login(client, "aff_sort_admin@example.com")
+    headers = {"Authorization": f"Bearer {admin_token}"}
+
+    await client.post("/auth/register", json={"email": "aff_sort_ref@example.com", "password": "StrongPass123!"})
+    referrer = next(i for i in (await client.get("/admin/affiliates", params={"search": "aff_sort_ref"}, headers=headers)).json()["items"])
+    # One click + one sign-up under the referrer → "active".
+    await client.post("/affiliate/click", json={"code": referrer["affiliate_code"]})
+    await client.post("/auth/register", json={"email": "aff_sort_kid@example.com", "password": "StrongPass123!", "referral_code": referrer["affiliate_code"]})
+
+    resp = await client.get("/admin/affiliates", params={"active_only": "true", "search": "aff_sort"}, headers=headers)
+    assert resp.status_code == 200, resp.text
+    data = resp.json()
+    assert [i["email"] for i in data["items"]] == ["aff_sort_ref@example.com"]
+    assert data["summary"]["active"] == 1 and data["summary"]["clicks"] == 1
+    assert data["summary"]["accounts"] == 1  # summary follows the active filter
+
+    resp = await client.get("/admin/affiliates", params={"sort": "clicks", "search": "aff_sort"}, headers=headers)
+    items = resp.json()["items"]
+    assert items[0]["email"] == "aff_sort_ref@example.com" and items[0]["clicks"] == 1
+    assert resp.json()["summary"]["accounts"] == len(items) >= 2
+
+    bad = await client.get("/admin/affiliates", params={"sort": "bogus"}, headers=headers)
+    assert bad.status_code == 422

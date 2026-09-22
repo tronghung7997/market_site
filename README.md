@@ -224,7 +224,7 @@ Nguồn đầy đủ: `marketplace-svc/.env.example` và `marketplace-svc/src/co
 | `MAIL_WORKER_ENABLED`, `MAIL_MAX_ATTEMPTS` | Worker seed + trần retry; `MAIL_MAX_ATTEMPTS` chỉ env |
 | `EMAIL_VERIFICATION_REQUIRED` | Seed cho `auth_runtime_config` (mặc định `true`): tài khoản mới phải bấm link xác nhận email trước khi mua/nạp/rút; admin đổi ở `/admin/display-settings?tab=accounts` |
 | `MFA_FEATURE_ENABLED`, `REQUIRE_ADMIN_2FA`, `REQUIRE_2FA_FOR_WITHDRAWAL` | Seed cho `auth_runtime_config` (mặc định đều `false`): công tắc tổng 2FA TOTP, admin phải bật TOTP mới vào console, rút tiền cần mã TOTP. Admin bật/tắt ở tab Tài khoản; 2 quy tắc chỉ có tác dụng khi công tắc tổng bật |
-| `TURNSTILE_SECRET_KEY` | Secret Cloudflare Turnstile (server-only). Chỉ có tác dụng khi admin đã dán site key ở tab Tài khoản; để trống = tắt captcha |
+| `TURNSTILE_SECRET_KEY` | Secret Cloudflare Turnstile (server-only). Chỉ có tác dụng khi admin đã dán site key ở tab Tài khoản; để trống = tắt captcha. Áp cho đăng ký / đăng nhập / quên mật khẩu; đăng nhập admin không dùng captcha (mạng nội bộ không tới được Cloudflare) |
 | `DISPUTE_RESOLUTION_TIMEOUT_HOURS` | Thời gian buyer phản hồi sau remedy/response của seller; mặc định 24 giờ, hết hạn case tự settle |
 | `DISPUTE_ABANDON_GRACE_HOURS` | Sau hết hạn escrow, không có claim batch mới trong bấy nhiêu giờ thì case chưa remedy tự settle remaining cho seller; chat không gia hạn đồng hồ này; mặc định 24 |
 

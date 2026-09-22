@@ -80,8 +80,9 @@ export function TurnstileWidget({ onToken, resetKey = 0 }: { onToken: (token: st
 }
 
 /** True once the config is known and a challenge token is needed before submit. */
-export function useCaptchaGate(token: string | null): { required: boolean; ready: boolean } {
+export function useCaptchaGate(token: string | null, { enabled = true }: { enabled?: boolean } = {}): { required: boolean; ready: boolean } {
   const { data, isPending } = usePublicAuthConfig();
+  if (!enabled) return { required: false, ready: true };
   const required = Boolean(data?.turnstile_site_key);
   return { required, ready: isPending ? false : !required || Boolean(token) };
 }

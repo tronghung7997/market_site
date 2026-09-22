@@ -224,6 +224,10 @@ async def test_turnstile_enforced_only_when_site_key_and_secret_exist(client, mo
     assert login.status_code == 200
     forgot = await client.post("/auth/forgot-password", json={"email": "sec_cap2@example.com", "locale": "vi"})
     assert forgot.status_code == 400
+    # Admin console is exempt: internal network cannot reach Cloudflare.
+    await make_admin("sec_cap2@example.com")
+    admin_login = await client.post("/auth/admin/login", json={"email": "sec_cap2@example.com", "password": PW})
+    assert admin_login.status_code == 200, admin_login.text
 
 
 @pytest.mark.asyncio

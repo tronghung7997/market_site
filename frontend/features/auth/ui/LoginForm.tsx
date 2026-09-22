@@ -39,7 +39,8 @@ export function LoginForm({ variant = "storefront" }: { variant?: "storefront" |
   const [busy, setBusy] = useState(false);
   const [captchaToken, setCaptchaToken] = useState<string | null>(null);
   const [captchaReset, setCaptchaReset] = useState(0);
-  const captcha = useCaptchaGate(captchaToken);
+  // Admin sign-in skips Turnstile (internal network, no Cloudflare reach).
+  const captcha = useCaptchaGate(admin ? null : captchaToken, { enabled: !admin });
   // Second step: the password was accepted and a TOTP / backup code is needed.
   const [mfaToken, setMfaToken] = useState<string | null>(null);
   const [mfaCode, setMfaCode] = useState("");
@@ -187,7 +188,7 @@ export function LoginForm({ variant = "storefront" }: { variant?: "storefront" |
             <Link href="/forgot-password" className="text-[12px] font-medium text-iris-hi hover:underline">{t("forgotPassword")}</Link>
           )}
         />
-        <TurnstileWidget onToken={setCaptchaToken} resetKey={captchaReset} />
+        {!admin && <TurnstileWidget onToken={setCaptchaToken} resetKey={captchaReset} />}
         {error && <AuthNotice tone="bad">{error}</AuthNotice>}
         <Button type="submit" block size="lg" disabled={busy || !captcha.ready} className="mt-1">
           {busy ? (admin ? t("adminSigningIn") : t("signingIn")) : (admin ? t("adminLoginTitle") : t("loginTitle"))}

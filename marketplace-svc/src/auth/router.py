@@ -160,7 +160,9 @@ async def admin_login(
     request: Request,
     db: AsyncSession = Depends(get_session),
 ):
-    await _enforce_captcha(body.captcha_token, request, db)
+    # No Turnstile on the admin console: it is reached from an internal
+    # network that cannot load Cloudflare, and it is already IP-allowlisted
+    # and rate-limited (decision 2026-09-22).
     account = await _authenticate_with_limits(body, request, db, kind="admin_login")
     if "admin" not in account.roles:
         security_event(

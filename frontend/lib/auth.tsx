@@ -74,9 +74,10 @@ export function AuthProvider({ children }: { children: ReactNode }) {
   };
 
   const register = async (email: string, password: string, referralCode?: string, locale?: string, captchaToken?: string) => {
+    // /auth/register issues the first session itself (the BFF sets the
+    // cookies); a follow-up /auth/login would need a fresh captcha token.
     await api.register(email, password, referralCode, locale, captchaToken);
-    // A brand-new account has no TOTP yet, so this always signs in directly.
-    await login(email, password);
+    await refresh();
   };
 
   const logout = () => {

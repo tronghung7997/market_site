@@ -95,6 +95,16 @@ class AccountResponse(BaseModel):
     model_config = {"from_attributes": True}
 
 
+class RegisterResponse(AccountResponse):
+    """A fresh account plus its first session: sign-up is one request, so the
+    Turnstile token is spent once and the browser is signed in immediately
+    (no TOTP can exist yet). The BFF turns the tokens into cookies."""
+
+    access_token: str
+    refresh_token: str
+    token_type: str = "bearer"
+
+
 NOTIFICATION_PREF_KEYS = ("orders", "disputes", "wallet", "marketing")
 
 

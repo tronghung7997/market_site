@@ -25,7 +25,8 @@ const REQUEST_HEADER_ALLOWLIST = new Set([
   "user-agent",
 ]);
 // Endpoints whose success body carries session tokens that become cookies here.
-const LOGIN_PATHS = new Set(["auth/login", "auth/admin/login", "auth/login/2fa"]);
+// Responses that carry a session; /auth/register issues one so sign-up is a single captcha-checked request.
+const LOGIN_PATHS = new Set(["auth/login", "auth/admin/login", "auth/login/2fa", "auth/register"]);
 // Set by this server only (the browser's copy is dropped by the allowlist),
 // and honoured by FastAPI solely because the request is BFF-signed.
 const CLIENT_IP_HEADER = "x-client-ip";

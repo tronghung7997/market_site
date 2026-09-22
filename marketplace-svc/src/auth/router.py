@@ -100,7 +100,7 @@ async def _authenticate_with_limits(
     )
 
 
-@router.post("/auth/register", response_model=schemas.AccountResponse, status_code=status.HTTP_201_CREATED)
+@router.post("/auth/register", response_model=schemas.RegisterResponse, status_code=status.HTTP_201_CREATED)
 async def register(
     body: schemas.RegisterRequest,
     request: Request,
@@ -119,7 +119,14 @@ async def register(
         registration_ip=_peer_ip(request),
         locale=body.locale,
     )
-    return account
+    # Sign the new account in right away: a second /auth/login would need a
+    # second captcha token, which the widget only hands out once per render.
+    issued = await sessions.issue_session(account, db, ip=_peer_ip(request), user_agent=_user_agent(request))
+    return schemas.RegisterResponse(
+        **schemas.AccountResponse.model_validate(account).model_dump(),
+        access_token=issued.access_token,
+        refresh_token=issued.refresh_token,
+    )
 
 
 @router.post("/auth/verify-email", response_model=schemas.AccountResponse)

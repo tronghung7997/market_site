@@ -18,6 +18,10 @@ async def test_register_success(client):
     assert "id" in data
     assert "buyer" in data["roles"]
     assert "password" not in data
+    # Sign-up issues the first session so the captcha is spent exactly once.
+    assert data["access_token"] and data["refresh_token"]
+    me = await client.get("/me", headers={"Authorization": f"Bearer {data['access_token']}"})
+    assert me.status_code == 200 and me.json()["email"] == "test@example.com"
 
 
 @pytest.mark.asyncio

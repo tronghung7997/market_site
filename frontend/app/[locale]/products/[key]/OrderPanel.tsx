@@ -69,7 +69,7 @@ export default function OrderPanel({ product, purchase, fulfillment }: {
           </Tag>
         ) : undefined}
       >
-        {order ? <OrderResult order={order} onRebuy={purchase.rebuy} fulfillment={fulfillment} /> : (
+        {order ? <OrderResult order={order} onRebuy={purchase.rebuy} fulfillment={fulfillment} deliveryMode={selected?.delivery_mode} slaHours={selected?.sla_hours} /> : (
           <div className="space-y-4">
             <fieldset>
               <legend className="text-[11px] font-semibold text-faint uppercase tracking-wider mb-2">

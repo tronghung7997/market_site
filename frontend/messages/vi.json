@@ -2320,6 +2320,8 @@
     "gatewayCallUrl": "Địa chỉ gọi",
     "orderAutoUpdate": "Trang tự cập nhật khi xong — bạn không cần tải lại. Nếu quá 15 phút không lấy được hàng, tiền sẽ tự hoàn về ví.",
     "orderSellerSla": "Người bán sẽ giao trong thời hạn SLA.",
+    "orderSellerSlaHours": "Người bán sẽ giao trong vòng {hours} giờ. Bạn sẽ nhận thông báo khi hàng được bàn giao.",
+    "orderSellerSlaNote": "Quá hạn mà chưa giao, đơn tự huỷ và tiền hoàn về ví. Tiền chỉ chuyển cho người bán sau khi bạn xác nhận hoặc hết hạn giữ tiền.",
     "orderProviderFailed": "Nhà cung cấp không cấp được hàng",
     "orderRefundedWallet": "Đã hoàn tiền về ví",
     "orderWasRefunded": "Đơn đã được hoàn tiền.",

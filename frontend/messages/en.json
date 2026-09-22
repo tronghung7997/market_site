@@ -2320,6 +2320,8 @@
     "gatewayCallUrl": "Call URL",
     "orderAutoUpdate": "This page updates when ready — no need to refresh. If fulfilment takes more than 15 minutes, funds return to your wallet automatically.",
     "orderSellerSla": "The seller will deliver within their SLA.",
+    "orderSellerSlaHours": "The seller will deliver within {hours} hours. You will be notified when the goods are handed over.",
+    "orderSellerSlaNote": "If the deadline passes without delivery, the order is cancelled and refunded to your wallet. The seller is paid only after you confirm or the hold expires.",
     "orderProviderFailed": "The provider could not fulfil this order",
     "orderRefundedWallet": "Refunded to wallet",
     "orderWasRefunded": "This order was refunded.",

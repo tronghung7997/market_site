@@ -87,12 +87,21 @@ function ProvisionSteps({ elapsed, workingLabel, nextLabel }: { elapsed: string;
   );
 }
 
-export default function OrderResult({ order: initial, onRebuy, fulfillment }: { order: Order; onRebuy: () => void; fulfillment?: string | null }) {
+export default function OrderResult({ order: initial, onRebuy, fulfillment, deliveryMode, slaHours }: {
+  order: Order; onRebuy: () => void; fulfillment?: string | null;
+  /** From the variant the buyer picked; the create response does not carry them. */
+  deliveryMode?: string | null; slaHours?: number | null;
+}) {
   const t = useTranslations("products");
   const tc = useTranslations("common");
   const locale = useLocale();
   const { formatOrderHistoryMoney } = useMoney();
-  const viaProvider = initial.product_id != null;
+  // Every order carries product_id now, so "waiting on a provider" is:
+  // adapter orders (no variant) or non-manual variants still pending.
+  // A manual variant is the seller's job within their SLA — no spinner,
+  // no 15-minute refund promise.
+  const manual = (initial.delivery_mode ?? deliveryMode) === "manual";
+  const viaProvider = !manual && (initial.variant_id == null || initial.product_id != null);
   const kind = fulfillmentFromStrategy(fulfillment).kind;
   const order = useOrderPolling(initial, viaProvider);
   const amountText = formatOrderHistoryMoney(
@@ -156,7 +165,10 @@ export default function OrderResult({ order: initial, onRebuy, fulfillment }: { 
             <p className="text-[11.5px] text-faint">{t("orderAutoUpdate")}</p>
           </div>
         ) : (
-          <p className="text-[12.5px] text-muted">{t("orderSellerSla")}</p>
+          <div className="space-y-2">
+            <p className="text-[12.5px] text-muted">{t("orderSellerSlaHours", { hours: initial.sla_hours ?? slaHours ?? 24 })}</p>
+            <p className="text-[11.5px] text-faint">{t("orderSellerSlaNote")}</p>
+          </div>
         )
       ) : failed ? (
         <div className="space-y-3.5">

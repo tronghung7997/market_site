@@ -23,7 +23,6 @@ import SiteFooter from "@/components/SiteFooter";
 import ChromeGate from "@/components/ChromeGate";
 import RouteProgress from "@/components/RouteProgress";
 import ReferralCapture from "@/components/ReferralCapture";
-import { EmailVerificationBanner } from "@/features/auth";
 import { MaintenanceGate } from "@/features/site-status";
 import ClarityTag from "@/components/ClarityTag";
 import { isValidClarityId } from "@/lib/clarity";
@@ -147,7 +146,6 @@ export default async function RootLayout({ children, params }: { children: React
                     {tc("skipToContent")}
                   </a>
                   <ChromeGate><TopNav /></ChromeGate>
-                  <ChromeGate><EmailVerificationBanner /></ChromeGate>
                   <main id="main-content" className="flex-1 flex flex-col">
                     <ChromeGate fallback={children}><MaintenanceGate>{children}</MaintenanceGate></ChromeGate>
                   </main>

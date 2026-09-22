@@ -56,7 +56,10 @@ class Settings(BaseSettings):
     auth_reset_ip_limit: int = 20
     password_reset_ttl_minutes: int = 30
     # Seed for auth_runtime_config.require_email_verification (admin-editable afterwards).
-    email_verification_required: bool = True
+    # Seeds auth_runtime_config.require_email_verification once; admins flip
+    # it at Cài đặt › Tài khoản. Off by default (decision 2026-09-22): an
+    # unverified mailbox still buys, deposits and withdraws.
+    email_verification_required: bool = False
     auth_verify_resend_account_limit: int = 5
     # Seeds for auth_runtime_config; admin-editable afterwards. Two-factor
     # ships dormant: the admin flips it on in Settings › Accounts.

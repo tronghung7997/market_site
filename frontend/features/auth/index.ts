@@ -3,7 +3,6 @@ export { RegisterForm } from "./ui/RegisterForm";
 export { ForgotPasswordForm } from "./ui/ForgotPasswordForm";
 export { ResetPasswordForm } from "./ui/ResetPasswordForm";
 export { VerifyEmailPanel } from "./ui/VerifyEmailPanel";
-export { EmailVerificationBanner } from "./ui/EmailVerificationBanner";
 export { passwordStrength, validateEmail, validateNewPassword } from "./model/password";
 export { Section as SecuritySection, ChangePasswordSection, ChangeEmailSection, TwoFactorSection, SessionsSection } from "./ui/SecuritySections";
 export { AdminMfaGate } from "./ui/AdminMfaGate";

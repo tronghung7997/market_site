@@ -30,11 +30,14 @@ export function initials(name: string | null | undefined, email: string): string
 export function AccountPage() {
   const t = useTranslations("account");
   const locale = useLocale();
-  const { account, loading } = useAuth();
+  const { account, loading, refresh } = useAuth();
   const router = useRouter();
   const searchParams = useSearchParams();
   const [tab, setTab] = React.useState<AccountTab>(() => parseTab(searchParams.get("tab")));
   const isSeller = Boolean(account?.roles.includes("seller"));
+  // The auth context is loaded once per app boot; re-read /me here so a
+  // verification done in another tab (or by admin) shows without a reload.
+  React.useEffect(() => { void refresh(); }, [refresh]);
 
   React.useEffect(() => {
     if (!loading && !account) router.replace(`/login?next=/account${tab !== "profile" ? `?tab=${tab}` : ""}`);

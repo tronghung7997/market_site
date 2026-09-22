@@ -9,7 +9,8 @@ import { useAuth } from "@/lib/auth";
 import { useMoney } from "@/lib/money";
 import { useApiErrorMessage } from "@/lib/use-api-error";
 import type { ProfileUpdate } from "@/lib/types";
-import { Input } from "@/components/ui";
+import { Button, Input } from "@/components/ui";
+import { CheckCircle2 } from "@/components/Icons";
 import { useToast } from "@/components/toast";
 import { Panel, Row, SaveBar, Segmented } from "./shared";
 
@@ -41,6 +42,12 @@ export function ProfileTab() {
   const dirty = JSON.stringify(form) !== JSON.stringify(baseline);
   const problem = !phoneOk(form.phone) ? t("phoneInvalid") : !telegramOk(form.telegram_username) ? t("telegramInvalid") : form.display_name.trim().length > 80 ? t("nameTooLong") : undefined;
 
+  const resend = useMutation({
+    mutationFn: () => api.resendVerification(locale),
+    onSuccess: () => toast.success(t("resendSent", { email: account?.email ?? "" })),
+    onError: (e) => toast.error(apiErrorMessage(e, t("resendFailed"))),
+  });
+
   const save = useMutation({
     mutationFn: (patch: ProfileUpdate) => api.updateMe(patch),
     onSuccess: async () => { await refresh(); toast.success(t("saved")); },
@@ -65,8 +72,16 @@ export function ProfileTab() {
           <Row label={t("displayName")} hint={t("displayNameHint")}>
             <Input value={form.display_name} onChange={(e) => setForm({ ...form, display_name: e.target.value })} maxLength={80} placeholder={t("displayNamePlaceholder")} />
           </Row>
-          <Row label={t("email")} hint={t("emailHint")}>
-            <Input value={account.email} readOnly className="bg-raised/60 text-muted" />
+          <Row label={t("email")} hint={account.email_verified ? t("emailHint") : undefined}>
+            <div className="flex flex-wrap items-center gap-2">
+              <Input value={account.email} readOnly className="min-w-0 flex-1 bg-raised/60 text-muted" />
+              {account.email_verified ? (
+                <span className="inline-flex items-center gap-1 text-[12.5px] font-medium text-good"><CheckCircle2 size={14} /> {t("emailVerified")}</span>
+              ) : (
+                <Button size="sm" variant="secondary" disabled={resend.isPending} onClick={() => resend.mutate()}>{resend.isPending ? t("resendSending") : t("resendVerification")}</Button>
+              )}
+            </div>
+            {!account.email_verified && <p className="mt-1 text-[12px] text-warn">{t("emailUnverifiedHint")}</p>}
           </Row>
           <Row label={t("phone")} hint={t("phoneHint")} error={phoneOk(form.phone) ? undefined : t("phoneInvalid")}>
             <Input value={form.phone} onChange={(e) => setForm({ ...form, phone: e.target.value })} inputMode="tel" maxLength={32} placeholder="0901 234 567" />

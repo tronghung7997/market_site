@@ -31,7 +31,10 @@ async def _get_product(product_id: int, db: AsyncSession) -> Product:
 # cấp thượng nguồn từ adapter_type — "topproxy" trả về nhãn trung tính.
 # Frontend chỉ cần biết hành vi (1 đơn = 1 proxy), không cần biết nguồn.
 # Endpoint admin/seller vẫn thấy adapter_type thật.
-_PUBLIC_ADAPTER_ALIASES = {"topproxy": "auto_proxy", "igbm": "auto_account"}
+_PUBLIC_ADAPTER_ALIASES = {"topproxy": "auto_proxy", "dproxy": "auto_proxy", "igbm": "auto_account"}
+# Lý do "chưa bán được" từ check_compatibility nhắc tên adapter — buyer chỉ
+# cần biết là tạm chưa mua được.
+_PUBLIC_NOT_READY_REASON = "Sản phẩm đang được cấu hình lại, vui lòng quay lại sau."
 
 
 @router.get("/products/{product_id}/pricing-options", response_model=schemas.PricingOptionsResponse)
@@ -55,12 +58,15 @@ async def pricing_options(
     )
 
     raw_adapter_type = provider.adapter_type if provider else None
+    not_ready_reason = setup["needs_setup_reason"]
+    if not_ready_reason and provider is not None and provider.is_active:
+        not_ready_reason = _PUBLIC_NOT_READY_REASON
     return schemas.PricingOptionsResponse(
         strategy=strategy_name,
         fields=fields,
         base_info=params,
         ready=not setup["needs_setup"],
-        not_ready_reason=setup["needs_setup_reason"],
+        not_ready_reason=not_ready_reason,
         adapter_type=_PUBLIC_ADAPTER_ALIASES.get(raw_adapter_type, raw_adapter_type),
     )
 

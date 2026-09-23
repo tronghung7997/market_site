@@ -12,6 +12,7 @@ import { Dialog, DialogContent, DialogTitle } from "@/components/ui/dialog";
 import { cn } from "@/lib/cn";
 import {
   autoGroup, marginOf, pruneEmpty, suggestPrice, type DraftProduct, type DraftVariant, type GroupMode,
+  sourceRef,
 } from "../logic";
 
 export type ExistingProduct = { product_id: number; product_title: string; variant_count: number };
@@ -95,7 +96,7 @@ function PickStep({ area, source, margin, setMargin, selected, setSelected, onNe
     const handle = setTimeout(async () => {
       setLoading(true);
       try {
-        setData(await api.sources.catalog(area, source.id, { q, group, in_stock: inStock, page, per_page: 40, sort: "stock" }));
+        setData(await api.sources.catalog(area, sourceRef(area, source), { q, group, in_stock: inStock, page, per_page: 40, sort: "stock" }));
         setError("");
       } catch (e) {
         setError(apiErrorMessage(e));
@@ -104,7 +105,7 @@ function PickStep({ area, source, margin, setMargin, selected, setSelected, onNe
       }
     }, 200);
     return () => clearTimeout(handle);
-  }, [area, source.id, q, group, inStock, page, apiErrorMessage]);
+  }, [area, source.id, source.public_key, q, group, inStock, page, apiErrorMessage]);
 
   const toggle = (item: SourceCatalogItem) => setSelected((prev) => {
     const next = new Map(prev);
@@ -317,7 +318,7 @@ function GroupStep({ area, source, items, marginPct, existing, presetProductId, 
           group_key: isNew ? v.target : null,
         };
       });
-      const created = await api.sources.import(area, source.id, payload, area === "admin" ? source.seller_id : undefined);
+      const created = await api.sources.import(area, sourceRef(area, source), payload, area === "admin" ? source.seller_id : undefined);
       onDone(created.length);
     } catch (e) {
       setError(apiErrorMessage(e));

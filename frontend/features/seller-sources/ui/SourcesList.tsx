@@ -10,6 +10,7 @@ import type { SourceArea, SupplierSource } from "@/lib/types";
 import { Button, Card, Spinner, Tag } from "@/components/ui";
 import { AlertTriangle, ArrowRight, Layers, Plus, RefreshCw, Activity } from "@/components/Icons";
 import { cn } from "@/lib/cn";
+import { sourceRef } from "../logic";
 
 type T = (k: string, v?: Record<string, string | number>) => string;
 
@@ -33,10 +34,10 @@ function lowBalance(s: SupplierSource): boolean {
 }
 
 /** Việc cần xử lý trên các nguồn — hiện trên đầu cả hai khu. */
-function attentionItems(rows: SupplierSource[], t: T): { key: string; text: string; href: string; tone: "warn" | "bad" }[] {
+function attentionItems(rows: SupplierSource[], t: T, area: SourceArea): { key: string; text: string; href: string; tone: "warn" | "bad" }[] {
   const out: { key: string; text: string; href: string; tone: "warn" | "bad" }[] = [];
   for (const s of rows) {
-    const base = `${s.id}`;
+    const base = sourceRef(area, s);
     if (s.listing_error_count > 0) out.push({ key: `${s.id}-err`, tone: "warn", href: base, text: t("attnDelisted", { n: s.listing_error_count, name: s.name }) });
     if (s.listing_low_margin_count > 0) out.push({ key: `${s.id}-low`, tone: "bad", href: base, text: t("attnLowMargin", { n: s.listing_low_margin_count, name: s.name }) });
     if (s.listing_auto_paused_count > 0) out.push({ key: `${s.id}-auto`, tone: "warn", href: base, text: t("attnAutoPaused", { n: s.listing_auto_paused_count, name: s.name }) });
@@ -76,7 +77,7 @@ export function SourcesList({ area }: { area: SourceArea }) {
     }
   };
 
-  const attention = rows ? attentionItems(rows, t) : [];
+  const attention = rows ? attentionItems(rows, t, area) : [];
 
   return (
     <div className="space-y-4">
@@ -142,7 +143,7 @@ function SellerCard({ s, syncing, onSync, base }: { s: SupplierSource; syncing: 
   const locale = useLocale();
   const { formatLedgerMoney } = useMoney();
   const balance = balanceOf(s);
-  const manageHref = s.kind === "server" ? `/seller/providers` : `${base}/${s.id}`;
+  const manageHref = s.kind === "server" ? `/seller/providers` : `${base}/${sourceRef("seller", s)}`;
   return (
     <Card className="p-4 flex flex-col gap-3">
       <div className="flex items-start justify-between gap-2">
@@ -167,7 +168,7 @@ function SellerCard({ s, syncing, onSync, base }: { s: SupplierSource; syncing: 
       </dl>
       <div className="flex flex-wrap gap-2">
         {s.kind === "catalog" && (
-          <Link href={`${base}/${s.id}?add=1`}><Button size="sm"><Plus className="h-3.5 w-3.5" />{t("addProducts")}</Button></Link>
+          <Link href={`${base}/${sourceRef("seller", s)}?add=1`}><Button size="sm"><Plus className="h-3.5 w-3.5" />{t("addProducts")}</Button></Link>
         )}
         <Link href={manageHref}><Button size="sm" variant="secondary">{t("manageN", { n: s.kind === "catalog" ? s.listing_count : s.product_count })}<ArrowRight className="h-3.5 w-3.5" /></Button></Link>
         {s.kind === "catalog" && (
@@ -204,7 +205,7 @@ function AdminTable({ rows, syncing, onSync, base }: { rows: SupplierSource[]; s
             return (
               <tr key={s.id} className={cn("border-t border-line", !s.seller_id && "bg-warn-soft/30")}>
                 <td className="p-2.5 align-top">
-                  <Link href={`${base}/${s.id}`} className="font-medium text-fg hover:text-iris">{s.name}</Link>
+                  <Link href={`${base}/${sourceRef("admin", s)}`} className="font-medium text-fg hover:text-iris">{s.name}</Link>
                   <div className="mt-0.5 flex flex-wrap items-center gap-1.5 text-[11.5px] text-faint">
                     <KindTag kind={s.kind} />
                     <span className="font-mono">{s.adapter_type}</span>
@@ -235,7 +236,7 @@ function AdminTable({ rows, syncing, onSync, base }: { rows: SupplierSource[]; s
                       <RefreshCw className={cn("h-3.5 w-3.5", syncing === s.id && "animate-spin")} />
                     </Button>
                   )}
-                  <Link href={s.kind === "server" ? `/admin/providers` : `${base}/${s.id}`}><Button size="sm" variant="secondary">{t("open")}</Button></Link>
+                  <Link href={s.kind === "server" ? `/admin/providers` : `${base}/${sourceRef("admin", s)}`}><Button size="sm" variant="secondary">{t("open")}</Button></Link>
                 </td>
               </tr>
             );

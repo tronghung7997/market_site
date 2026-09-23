@@ -229,6 +229,9 @@ export const Languages = (p: IconProps) => (
 export const Home = (p: IconProps) => (
   <svg {...s(p)}><path d="m3 11 9-8 9 8" /><path d="M5 10v10a1 1 0 0 0 1 1h4v-6h4v6h4a1 1 0 0 0 1-1V10" /></svg>
 );
+export const Tag = (p: IconProps) => (
+  <svg {...s(p)}><path d="M20.6 13.4 13.4 20.6a2 2 0 0 1-2.8 0L3 13V3h10l7.6 7.6a2 2 0 0 1 0 2.8Z" /><path d="M7.5 7.5h.01" /></svg>
+);
 export const Sparkles = (p: IconProps) => (
   <svg {...s(p)}><path d="M12 3v4" /><path d="M12 17v4" /><path d="M3 12h4" /><path d="M17 12h4" /><path d="m12 7 1.6 3.4L17 12l-3.4 1.6L12 17l-1.6-3.4L7 12l3.4-1.6Z" /><path d="M5 5l1 1" /><path d="M18 18l1 1" /></svg>
 );

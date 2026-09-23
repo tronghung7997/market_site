@@ -73,6 +73,29 @@ async def test_settlement_uses_admin_fee_and_category_override(client):
 
 
 @pytest.mark.asyncio
+async def test_internal_seller_settles_at_zero_fee(client):
+    """Seller nội bộ (sàn vận hành): toàn bộ tiền về ví seller nội bộ, không
+    trích phí sàn — seller thường vẫn bị trích như cũ."""
+    from src.models.account import Account
+
+    buyer_token, seller_token, admin_token, instant_vid, _ = await setup_buyable_product(client)
+    assert (await client.patch("/admin/fee-config", json={"platform_fee_percent": 10}, headers=_auth(admin_token))).status_code == 200
+    async with SessionLocal() as db:
+        seller = await db.scalar(select(Account).where(Account.email == "ord_seller@example.com"))
+        seller.is_internal = True
+        await db.commit()
+
+    before = await _platform_balance()
+    order = await client.post("/orders", json={"variant_id": instant_vid, "quantity": 1}, headers=_auth(buyer_token))
+    assert (await client.post(f"/orders/{order.json()['id']}/confirm", headers=_auth(buyer_token))).status_code == 200
+    assert await _platform_balance() == before
+    seller_wallet = (await client.get("/wallet", headers=_auth(seller_token))).json()
+    assert seller_wallet["available_balance"] == 1000
+    async with SessionLocal() as db:
+        assert (await reconcile_ledger(db)).ok
+
+
+@pytest.mark.asyncio
 async def test_escrow_floor_and_default_hold_for_new_products(client):
     buyer_token, seller_token, admin_token, instant_vid, _ = await setup_buyable_product(client)
     async with SessionLocal() as db:

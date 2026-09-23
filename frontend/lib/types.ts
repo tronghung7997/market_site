@@ -510,6 +510,110 @@ export interface ProxyRotateResult {
   delivered_data: string | null;
 }
 
+/* Buyer proxy console (`/me/proxies`) — docs/proxy-dashboard-api.md.
+ * A line never names its upstream source: there is deliberately no
+ * provider/adapter field. */
+export type ProxyIpType = "residential" | "mobile" | "datacenter";
+export type ProxyRotation = "static" | "rotating" | "rotating_key";
+export type ProxyProtocol = "HTTP" | "SOCKS5";
+export type ProxyLineStatus = "allocated" | "offline" | "expired" | "released" | "error";
+export type ProxyTagTone = "iris" | "good" | "warn" | "neutral" | "ink";
+
+export interface ProxyLine {
+  /** Public line id `ORD-XXXXXXXX#01` — never a row id. */
+  id: string;
+  order_code: string;
+  line_no: number;
+  product_title: string;
+  /** Plan label as sold, e.g. "Residential · Việt Nam · 7 ngày". */
+  variant_name: string;
+  ip_type: ProxyIpType;
+  rotation: ProxyRotation;
+  protocol: ProxyProtocol;
+  network: string;
+  country: string | null;
+  /** Connection address; for rotating keys the fixed gateway. */
+  host: string;
+  port: number;
+  /** null for rotating keys that authenticate by whitelisted IP. */
+  username: string | null;
+  password: string | null;
+  public_ip: string | null;
+  status: ProxyLineStatus;
+  created_at: string;
+  expires_at: string;
+  rotation_available: boolean;
+  cooldown_seconds: number | null;
+  last_rotated_at: string | null;
+  whitelist_supported: boolean;
+  whitelist_ips: string | null;
+  socks5_port: number | null;
+  /** Capability flags the backend does not support yet — always false/null
+   *  today; the console does not offer these actions. */
+  credentials_editable: boolean;
+  replaceable: boolean;
+  renew_mode: null;
+  plan_days: number | null;
+  tag_ids: string[];
+  note: string;
+}
+
+export interface ProxyLineSummary {
+  all: number;
+  running: number;
+  soon: number;
+  problem: number;
+}
+
+/** Counts under the current filters; each dimension ignores its own selection. */
+export interface ProxyLineFacets {
+  status: ProxyLineSummary;
+  ip_type: Record<"residential" | "mobile" | "datacenter", number>;
+  rotation: Record<"static" | "rotating" | "rotating_key", number>;
+  expires: Record<"24h" | "3d" | "7d" | "expired", number>;
+  /** Tag id → count, plus `__none__` for untagged lines. */
+  tags: Record<string, number>;
+}
+
+export interface ProxyLineListResponse {
+  items: ProxyLine[];
+  total: number;
+  page: number;
+  per_page: number;
+  /** Every line of the buyer, unfiltered. */
+  summary: ProxyLineSummary;
+  facets: ProxyLineFacets;
+}
+
+/** Query string of `GET /me/proxies`; list values are comma-joined. */
+export interface ProxyLineQuery {
+  status?: "running" | "soon" | "problem";
+  q?: string;
+  tags?: string[];
+  ip_type?: ProxyIpType[];
+  rotation?: ProxyRotation[];
+  expires?: "24h" | "3d" | "7d" | "expired";
+  sort?: "expiry_asc" | "expiry_desc" | "newest" | "line";
+  page?: number;
+  per_page?: number;
+}
+
+export interface ProxyTag {
+  id: string;
+  name: string;
+  tone: ProxyTagTone;
+  created_at: string;
+  /** Lines carrying this tag, account-wide. */
+  count: number;
+}
+
+export interface ProxyTagAssignRequest {
+  line_ids: string[];
+  add: string[];
+  remove: string[];
+  mode: "merge" | "replace";
+}
+
 export interface ResourceInfo {
   id: number;
   status: string;
@@ -1911,8 +2015,8 @@ export interface PricingOptions {
   base_info: { product_title: string; service_type: string } | null;
   ready: boolean;
   not_ready_reason: string | null;
-  // Buyer-safe hint for adapter-specific purchase UX (e.g. "dproxy" always
-  // delivers exactly 1 proxy — see components/DynamicOrderForm.tsx).
+  // Buyer-safe alias, never the upstream name: "auto_proxy" (always exactly 1
+  // proxy per order), "auto_account" — see components/DynamicOrderForm.tsx.
   adapter_type: string | null;
 }
 
@@ -2268,6 +2372,8 @@ export type SourceArea = "seller" | "admin";
 
 export interface SupplierSource {
   id: number;
+  /** URL identity on seller surfaces (see features/seller-sources/logic.ts::sourceRef). */
+  public_key: string;
   name: string;
   adapter_type: string;
   /** catalog = kho SKU mua theo đơn; proxy = nhà cung cấp proxy có catalog gói; server = còn lại */
@@ -2382,6 +2488,10 @@ export interface SourceOffer {
   external_id: string | null;
   external_name: string | null;
   unmapped: boolean;
+  // Mapped, but the plan is gone from the last synced upstream catalog.
+  plan_missing?: boolean;
+  // Last synced upstream availability (store/quote); null = unknown.
+  upstream_available?: boolean | null;
 }
 
 export interface SourcePlanImportItem {

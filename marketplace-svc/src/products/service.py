@@ -162,7 +162,7 @@ async def _assert_can_activate(seller_id: int, db: AsyncSession, *, adding: int 
         raise api_error(ErrorCode.PRODUCT_LIMIT_REACHED, http_status.HTTP_409_CONFLICT, limit=limit)
 
 
-async def create_product(seller_id: int, data: dict, db: AsyncSession) -> Product:
+async def create_product(seller_id: int, data: dict, db: AsyncSession, *, commit: bool = True) -> Product:
     payload = dict(data)
     content_locale = payload.pop("content_locale", "vi")
     payload["images"] = _images_for_create(payload)
@@ -177,6 +177,10 @@ async def create_product(seller_id: int, data: dict, db: AsyncSession) -> Produc
         await _assert_can_activate(seller_id, db)
     product = Product(seller_id=seller_id, **payload)
     db.add(product)
+    if not commit:
+        # Caller gộp nhiều thao tác vào một transaction (nhập gói ở /admin/sources).
+        await db.flush()
+        return product
     await db.commit()
     await db.refresh(product)
     return product
@@ -1423,7 +1427,7 @@ def _validate_pricing_params_for_provider(
             raise api_error(ErrorCode.PRODUCT_PRICING_INCOMPATIBLE, http_status.HTTP_400_BAD_REQUEST)
 
 
-async def update_product_operations(product_id: int, data: dict, db: AsyncSession) -> Product:
+async def update_product_operations(product_id: int, data: dict, db: AsyncSession, *, commit: bool = True) -> Product:
     """Admin gắn provider + chiến lược giá cho một sản phẩm.
 
     Validate TRƯỚC khi setattr: tính "effective" provider/strategy từ `data`
@@ -1450,12 +1454,24 @@ async def update_product_operations(product_id: int, data: dict, db: AsyncSessio
     if compat.level == "block":
         raise api_error(ErrorCode.PRODUCT_PRICING_INCOMPATIBLE, http_status.HTTP_400_BAD_REQUEST)
     _validate_pricing_params_for_provider(provider, effective_strategy, effective_params)
+    await _enforce_proxy_margins(provider, effective_strategy, effective_params, db)
 
     for key, value in data.items():
         setattr(product, key, value)
+    if not commit:
+        await db.flush()
+        return product
     await db.commit()
     await db.refresh(product)
     return product
+
+
+async def _enforce_proxy_margins(provider: Provider | None, strategy: str | None, params: dict | None, db: AsyncSession) -> None:
+    """Giá bán gói proxy phải trên giá vốn thượng nguồn × (1 + lãi tối thiểu
+    của nguồn) — chặn ở MỌI đường lưu giá, không chỉ /admin/sources."""
+    from src.suppliers.proxy_sources import enforce_offer_margins
+
+    await enforce_offer_margins(provider, strategy, params, db)
 
 
 async def update_seller_pricing(product_id: int, seller_id: int, data: dict, db: AsyncSession) -> Product:
@@ -1490,6 +1506,7 @@ async def update_seller_pricing(product_id: int, seller_id: int, data: dict, db:
     if compat.level == "block":
         raise api_error(ErrorCode.PRODUCT_PRICING_INCOMPATIBLE, http_status.HTTP_400_BAD_REQUEST)
     _validate_pricing_params_for_provider(provider, effective_strategy, effective_params)
+    await _enforce_proxy_margins(provider, effective_strategy, effective_params, db)
 
     for key, value in data.items():
         setattr(product, key, value)

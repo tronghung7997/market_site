@@ -6,6 +6,7 @@ scripts/mock_dproxy.py qua ASGITransport. Nhập gói tạo sản phẩm pricing
 cấu trúc DProxyAdapter/TopProxyAdapter đang provision, nên luồng đơn không đổi.
 """
 import importlib
+import math
 
 import httpx
 import pytest
@@ -15,7 +16,7 @@ from src.adapters import real_api as real_api_module
 from src.adapters.topproxy import STATIC_PLAN_LABELS, xoay_cost_for_days
 from src.adapters.topproxy_costs import static_cost_xu
 from src.database import SessionLocal
-from src.models.product import Product
+from src.models.product import Product, ProductStatus
 from src.models.provider import Provider
 from src.models.supplier_listing import SupplierCatalogItem
 from tests.conftest import make_admin, make_seller, register_and_login
@@ -132,9 +133,11 @@ async def test_import_topproxy_plans_builds_config_pricing_and_offers(client):
     f7 = next(o for o in offers if o["plan_key"] == "SOCKS5|FPT|7")
     assert f7["cost_price"] == static_cost_xu("FPT", 7) != static_cost_xu("FPT", 30)
 
-    # Sửa giá → dưới margin tối thiểu bị đánh dấu; gỡ gói cuối → sản phẩm về nháp.
+    # Sửa giá dưới vốn + lãi tối thiểu → chặn cứng; gỡ gói cuối → sản phẩm về nháp.
     resp = await client.patch(f"/admin/sources/{pid}/offers", json={"product_id": v["product_id"], "plan_key": v["plan_key"], "price": 15000}, headers=_h(admin))
-    assert resp.status_code == 200 and resp.json()["margin_ok"] is False
+    assert resp.status_code == 400 and "thấp hơn mức tối thiểu" in resp.text
+    resp = await client.post(f"/admin/sources/{pid}/offers/reprice", json={"margin_pct": 5}, headers=_h(admin))
+    assert resp.status_code == 400
     us = next(o for o in offers if o["plan_key"] == "SOCKS5|US|30")
     resp = await client.post(f"/admin/sources/{pid}/offers/remove", json={"product_id": us["product_id"], "plan_key": us["plan_key"]}, headers=_h(admin))
     assert resp.status_code == 204
@@ -192,7 +195,11 @@ async def test_dproxy_source_syncs_plans_and_import_writes_plan_ids(client, mock
     async with SessionLocal() as db:
         items = (await db.execute(select(SupplierCatalogItem).where(SupplierCatalogItem.provider_id == pid))).scalars().all()
         plan = next(i for i in items if i.extra.get("duration_days"))
-        assert plan.amount == -1 and plan.extra["currency"]
+        # Tồn lấy từ /store/quote; giá USD quy đổi VND theo tỷ giá hiển thị.
+        assert plan.amount == 100 and plan.extra["available"] is True
+        assert plan.extra["currency"] == "USD" and plan.extra["proxy_type"] == "residential"
+        rate = plan.extra.get("fx_rate")
+        assert rate and plan.cost_price == math.ceil(plan.extra["price"] * rate)
 
     resp = await client.post(f"/admin/sources/{pid}/import-plans", json={"items": [
         {"external_id": plan.external_id, "type": "residential", "network": "VN", "days": plan.extra["duration_days"],
@@ -212,11 +219,11 @@ async def test_dproxy_source_syncs_plans_and_import_writes_plan_ids(client, mock
     assert offers[0]["external_id"] == plan.external_id and offers[0]["unmapped"] is False
     assert offers[0]["label"] == f"Dân cư xoay · Việt Nam · {plan.extra['duration_days']} ngày"
 
-    # Seller được giao nguồn thấy nguồn + gói của mình; seller khác 404.
+    # Seller thường không vào được khu Nguồn cung (backend, không chỉ UI).
     other = await register_and_login(client, "px_other@example.com")
     await make_seller("px_other@example.com")
     other = await register_and_login(client, "px_other@example.com")
-    assert (await client.get(f"/seller/sources/{pid}/offers", headers=_h(other))).status_code == 404
+    assert (await client.get(f"/seller/sources/{pid}/offers", headers=_h(other))).status_code == 403
 
 
 @pytest.mark.no_db
@@ -229,3 +236,162 @@ def test_formula_products_are_listed_as_offers():
     assert len(prices) == 8 and prices["HTTP|Viettel|30"] == 100_000 and prices["SOCKS5|FPT|7"] == round(100_000 * 1.2 * 0.9 * 7 / 30)
     assert effective_prices(params) == (prices, True)
     assert effective_prices({"plan_prices": {"HTTP|Viettel|30": 1}}) == ({"HTTP|Viettel|30": 1}, False)
+
+
+# ---------------------------------------------------------------------------
+# DProxy go-live rules
+# ---------------------------------------------------------------------------
+
+
+async def _dproxy_source(client, admin, *, seller_email="dpi@example.com", config=None):
+    """Nguồn DProxy giao cho một seller ĐĂNG NHẬP ĐƯỢC (wizard bật cờ nội bộ)."""
+    token = await register_and_login(client, seller_email)
+    await make_seller(seller_email)
+    token = await register_and_login(client, seller_email)
+    seller_id = (await client.get("/me", headers=_h(token))).json()["id"]
+    resp = await client.post("/admin/sources", json={
+        "adapter_type": "dproxy", "name": f"DProxy {seller_email}",
+        "config": {"base_url": "https://dproxy.test", "api_key": "mock-dproxy-token", "auth_type": "bearer",
+                   "channel": "proxora", "min_margin_pct": 10, **(config or {})},
+        "seller_id": seller_id,
+    }, headers=_h(admin))
+    assert resp.status_code == 201, resp.text
+    pid = resp.json()["provider_id"]
+    async with SessionLocal() as db:
+        items = {i.external_id: i for i in (await db.execute(
+            select(SupplierCatalogItem).where(SupplierCatalogItem.provider_id == pid)
+        )).scalars().all()}
+    return pid, token, seller_id, items
+
+
+RES_VN_7 = "1906e1af-70df-4a53-8874-53b8e5a51935"
+RES_VIETTEL_7 = "22222222-2222-4222-8222-222222222222"
+
+
+def _plan_item(items, plan_id, *, network="VN", price=150000, **extra):
+    item = items[plan_id]
+    return {"external_id": plan_id, "type": item.extra["proxy_type"], "network": network,
+            "days": item.extra["duration_days"], "price": price, **extra}
+
+
+@pytest.mark.asyncio
+async def test_dproxy_import_is_atomic_and_blocks_prices_below_margin(client, mock_dproxy):
+    admin, cat_id = await _admin_and_category(client)
+    pid, _, _, items = await _dproxy_source(client, admin)
+    cost = items[RES_VN_7].cost_price
+    below = math.floor(cost * 1.05)
+    resp = await client.post(f"/admin/sources/{pid}/import-plans", json={"items": [
+        _plan_item(items, RES_VN_7, title="Dân cư", category_id=cat_id, group_key="g"),
+        _plan_item(items, RES_VIETTEL_7, network="viettel", price=below, group_key="g"),
+    ]}, headers=_h(admin))
+    assert resp.status_code == 400 and "thấp hơn mức tối thiểu" in resp.text
+    async with SessionLocal() as db:
+        assert (await db.execute(select(Product).where(Product.provider_id == pid))).scalars().all() == []
+        assert "plan_ids" not in (await db.get(Provider, pid)).config
+
+
+@pytest.mark.asyncio
+async def test_dproxy_plan_duration_is_fixed(client, mock_dproxy):
+    admin, cat_id = await _admin_and_category(client)
+    pid, _, _, items = await _dproxy_source(client, admin)
+    spec = _plan_item(items, RES_VN_7, title="Dân cư", category_id=cat_id)
+    spec["days"] = 30  # gói 7 ngày
+    resp = await client.post(f"/admin/sources/{pid}/import-plans", json={"items": [spec]}, headers=_h(admin))
+    assert resp.status_code == 400 and "thời hạn cố định" in resp.text
+
+
+@pytest.mark.asyncio
+async def test_dproxy_plan_key_collision_is_a_conflict_not_an_overwrite(client, mock_dproxy):
+    admin, cat_id = await _admin_and_category(client)
+    pid, _, _, items = await _dproxy_source(client, admin)
+    ok = await client.post(f"/admin/sources/{pid}/import-plans", json={"items": [
+        _plan_item(items, RES_VN_7, title="Dân cư VN", category_id=cat_id),
+    ]}, headers=_h(admin))
+    assert ok.status_code == 201, ok.text
+    # Gói thượng nguồn KHÁC nhưng cùng mã residential|VN|7 → 409.
+    resp = await client.post(f"/admin/sources/{pid}/import-plans", json={"items": [
+        _plan_item(items, RES_VIETTEL_7, network="VN", title="Khác", category_id=cat_id),
+    ]}, headers=_h(admin))
+    assert resp.status_code == 409
+    async with SessionLocal() as db:
+        assert (await db.get(Provider, pid)).config["plan_ids"] == {"residential|VN|7": RES_VN_7}
+
+
+@pytest.mark.asyncio
+async def test_dproxy_import_keeps_legacy_single_plan_products_mapped(client, mock_dproxy):
+    admin, cat_id = await _admin_and_category(client)
+    pid, _, seller_id, items = await _dproxy_source(client, admin, config={"plan_id": RES_VN_7})
+    async with SessionLocal() as db:
+        legacy = Product(seller_id=seller_id, category_id=cat_id, title="Legacy", slug="legacy",
+                         public_key="lgcy0001", status=ProductStatus.active, service_type="proxy", provider_id=pid,
+                         pricing_strategy="config",
+                         pricing_params={"plan_prices": {"residential|VN|7": items[RES_VN_7].cost_price * 2}})
+        db.add(legacy)
+        await db.commit()
+    resp = await client.post(f"/admin/sources/{pid}/import-plans", json={"items": [
+        _plan_item(items, RES_VIETTEL_7, network="viettel", title="Viettel", category_id=cat_id),
+    ]}, headers=_h(admin))
+    assert resp.status_code == 201, resp.text
+    async with SessionLocal() as db:
+        config = (await db.get(Provider, pid)).config
+        assert "plan_id" not in config
+        assert config["plan_ids"] == {"residential|VN|7": RES_VN_7, "residential|viettel|7": RES_VIETTEL_7}
+
+
+@pytest.mark.asyncio
+async def test_margin_is_enforced_on_the_admin_product_operations_path_too(client, mock_dproxy):
+    admin, cat_id = await _admin_and_category(client)
+    pid, _, _, items = await _dproxy_source(client, admin)
+    created = (await client.post(f"/admin/sources/{pid}/import-plans", json={"items": [
+        _plan_item(items, RES_VN_7, title="Dân cư", category_id=cat_id),
+    ]}, headers=_h(admin))).json()
+    product_id = created[0]["product_id"]
+    resp = await client.put(f"/admin/products/{product_id}/operations", json={
+        "pricing_params": {"plan_prices": {"residential|VN|7": 1000}},
+    }, headers=_h(admin))
+    assert resp.status_code == 400 and "thấp hơn mức tối thiểu" in resp.text
+
+
+@pytest.mark.asyncio
+async def test_internal_seller_manages_offers_but_cannot_edit_the_admin_config(client, mock_dproxy):
+    admin, cat_id = await _admin_and_category(client)
+    pid, seller, _, items = await _dproxy_source(client, admin)
+    assert (await client.get("/me", headers=_h(seller))).json()["is_internal"] is True
+    assert (await client.get(f"/seller/sources/{pid}/offers", headers=_h(seller))).status_code == 200
+    resp = await client.post(f"/seller/sources/{pid}/import-plans", json={"items": [
+        _plan_item(items, RES_VN_7, title="Dân cư", category_id=cat_id),
+    ]}, headers=_h(seller))
+    assert resp.status_code == 201, resp.text
+    resp = await client.put(f"/seller/providers/{pid}", json={"name": "hijack"}, headers=_h(seller))
+    assert resp.status_code == 403
+    # Endpoint của nguồn catalog (listing/SKU) không áp cho nguồn proxy.
+    assert (await client.get(f"/admin/sources/{pid}/listings", headers=_h(admin))).status_code == 400
+
+
+@pytest.mark.asyncio
+async def test_admin_cannot_give_platform_funded_products_to_a_regular_seller(client, mock_dproxy):
+    admin, cat_id = await _admin_and_category(client)
+    pid, _, _, items = await _dproxy_source(client, admin)
+    plain = await register_and_login(client, "px_plain@example.com")
+    await make_seller("px_plain@example.com")
+    plain_id = (await client.get("/me", headers=_h(plain))).json()["id"]
+    resp = await client.post(f"/admin/sources/{pid}/import-plans", json={
+        "items": [_plan_item(items, RES_VN_7, title="Dân cư", category_id=cat_id)], "owner_seller_id": plain_id,
+    }, headers=_h(admin))
+    assert resp.status_code == 400 and "seller nội bộ" in resp.text
+
+
+@pytest.mark.asyncio
+async def test_seller_area_addresses_a_source_by_public_key(client, mock_dproxy):
+    admin, _cat = await _admin_and_category(client)
+    pid, seller, _, _ = await _dproxy_source(client, admin)
+    rows = (await client.get("/seller/sources", headers=_h(seller))).json()
+    key = rows[0]["public_key"]
+    assert key and not key.isdigit() and rows[0]["id"] == pid
+    assert (await client.get(f"/seller/sources/{key}/offers", headers=_h(seller))).status_code == 200
+    # Key của nguồn người khác → 404, không lộ sự tồn tại.
+    other_pid, _, _, _ = await _dproxy_source(client, admin, seller_email="dpi2@example.com")
+    async with SessionLocal() as db:
+        other_key = (await db.get(Provider, other_pid)).public_key
+    assert (await client.get(f"/seller/sources/{other_key}/offers", headers=_h(seller))).status_code == 404
+    assert (await client.get("/seller/sources/zzzzzzzz/offers", headers=_h(seller))).status_code == 404

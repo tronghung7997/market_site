@@ -31,6 +31,7 @@ const MAIL_TEMPLATE_IDS = [
   "withdrawal_rejected",
   "dispute_opened",
   "dispute_resolved",
+  "ops_incident",
   "admin_test",
 ] as const;
 

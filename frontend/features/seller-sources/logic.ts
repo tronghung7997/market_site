@@ -4,6 +4,11 @@ import type { SourceCatalogItem, SourceListing } from "@/lib/types";
 
 /** Giá bán gợi ý = vốn × (1 + margin%), làm tròn LÊN bội số `roundTo` —
  *  cùng công thức với backend `sources.suggest_price`. */
+/** URL/API ref of a source: sellers see the public key, never the row id. */
+export function sourceRef(area: "admin" | "seller", source: { id: number; public_key: string }): string {
+  return area === "seller" ? source.public_key : String(source.id);
+}
+
 export function suggestPrice(costPrice: number, marginPct: number, roundTo = 1000): number {
   if (costPrice <= 0) return 0;
   const step = Math.max(Math.trunc(roundTo) || 1, 1);

@@ -38,7 +38,8 @@
     "sellerMessages": "Tin nhắn gian hàng",
     "buyerRole": "Người mua",
     "sellerRole": "Người bán",
-    "logBadge": "Giao dịch"
+    "logBadge": "Giao dịch",
+    "proxies": "Proxy của tôi"
   },
   "home": {
     "categoryPickerLabel": "Danh mục:",
@@ -1901,7 +1902,16 @@
     "LOOKUP_INVALID_INPUT": "Link hoặc username không hợp lệ. Kiểm tra lại đường dẫn.",
     "LOOKUP_NOT_FOUND": "Không tìm thấy đối tượng này trên Facebook.",
     "LOOKUP_RATE_LIMITED": "Bạn tra cứu quá nhanh. Đợi một chút rồi thử lại.",
-    "LOOKUP_UNAVAILABLE": "Dịch vụ tra cứu tạm thời không khả dụng. Vui lòng thử lại sau."
+    "LOOKUP_UNAVAILABLE": "Dịch vụ tra cứu tạm thời không khả dụng. Vui lòng thử lại sau.",
+    "PROXY_PRICE_BELOW_MARGIN": "Gói {plan}: giá {price, number}đ thấp hơn mức tối thiểu {floor, number}đ (vốn {cost, number}đ + lãi {margin}%)",
+    "PROXY_PLAN_CONFLICT": "Mã gói {plan} đã gắn với một gói thượng nguồn khác — đổi loại/nhà mạng hoặc gỡ gói cũ trước",
+    "PROXY_PLAN_FIXED_DURATION": "Gói {plan} có thời hạn cố định {days} ngày",
+    "PROXY_PLAN_NOT_RETAIL": "Gói {plan} cấp nhiều proxy mỗi lượt mua nên chưa bán lẻ được",
+    "PROXY_PLAN_INACTIVE": "Gói {plan} đang tắt ở thượng nguồn",
+    "PROXY_SOURCE_OWNER_NOT_INTERNAL": "Sản phẩm của nguồn proxy phải thuộc seller nội bộ đang giữ nguồn",
+    "PROXY_TAG_NOT_FOUND": "Không tìm thấy tag",
+    "PROXY_TAG_DUPLICATE": "Đã có tag trùng tên",
+    "PROXY_TAG_INVALID": "Tên tag trống hoặc đã đạt tối đa {max} tag"
   },
   "common": {
     "loading": "Đang tải…",
@@ -4326,7 +4336,8 @@
       "withdrawal_rejected": "Từ chối rút tiền",
       "dispute_opened": "Mở khiếu nại",
       "dispute_resolved": "Xử lý khiếu nại",
-      "admin_test": "Mail thử"
+      "admin_test": "Mail thử",
+      "ops_incident": "Cảnh báo vận hành"
     }
   },
   "sellerProductForm": {
@@ -4878,7 +4889,10 @@
     "plansSelected": "{n} gói đã chọn",
     "importPlans": "Thêm {n} gói",
     "ownerSeller": "Seller sở hữu sản phẩm",
-    "existingProductOfSource": "Sản phẩm có sẵn của nguồn này"
+    "existingProductOfSource": "Sản phẩm có sẵn của nguồn này",
+    "planMissing": "Gói không còn trong catalog thượng nguồn",
+    "upstreamSoldOut": "Thượng nguồn đang hết hàng",
+    "creditLeft": "Hạn mức còn {amount} USD"
   },
   "adminAi": {
     "title": "Nhà cung cấp AI",
@@ -5005,5 +5019,256 @@
     "purgeFail": "Không xoá được lô đánh giá.",
     "regenerateRow": "Tạo lại dòng",
     "regeneratingRow": "Đang tạo…"
+  },
+  "buyerProxies": {
+    "title": "Proxy của tôi",
+    "subtitle": "Mọi proxy bạn đã mua, gom từ tất cả đơn · gắn tag, đổi IP, whitelist và xuất hàng loạt",
+    "importTags": "Nhập tag từ CSV",
+    "buyMore": "Mua thêm proxy",
+    "searchPlaceholder": "Tìm IP, port, mã đơn, tag, ghi chú…",
+    "sortLabel": "Sắp xếp",
+    "sort": {
+      "expiry_asc": "Hết hạn sớm nhất",
+      "expiry_desc": "Hết hạn muộn nhất",
+      "newest": "Mua gần nhất",
+      "line": "Theo đơn · dòng"
+    },
+    "clearFilters": "Xoá lọc",
+    "resultSummary": "Hiển thị {shown} / {total} proxy khớp bộ lọc",
+    "showing": "{from}–{to} / {total}",
+    "perPageAria": "Số dòng mỗi trang",
+    "applying": "Đang áp dụng…",
+    "selectPage": "Chọn tất cả dòng trên trang",
+    "selectLine": "Chọn {id}",
+    "copyConnection": "Sao chép host:port:user:pass",
+    "passwordHidden": "Mật khẩu đã ẩn",
+    "exitIp": "IP ra",
+    "col": {
+      "line": "Đơn · dòng",
+      "proxy": "Proxy",
+      "kind": "Loại · nhà mạng",
+      "tags": "Tag · ghi chú",
+      "status": "Trạng thái · còn lại",
+      "actions": "Thao tác"
+    },
+    "kind": {
+      "residential_static": "Dân cư tĩnh",
+      "residential_rotating": "Dân cư xoay",
+      "mobile": "Mobile/4G",
+      "datacenter": "Datacenter",
+      "rotating_key": "Key xoay"
+    },
+    "state": {
+      "running": "Đang chạy",
+      "soon": "Sắp hết hạn",
+      "offline": "Tạm ngoại tuyến",
+      "expired": "Hết hạn",
+      "error": "Lỗi cấp",
+      "offlineHint": "Hệ thống đang chờ khôi phục, proxy của bạn vẫn được giữ."
+    },
+    "term": {
+      "today": "Hôm nay",
+      "days": "{n} ngày"
+    },
+    "action": {
+      "rotate": "Đổi IP",
+      "rotateCooldown": "Đổi IP ({s}s)",
+      "rotateUnsupported": "Loại proxy này không đổi IP",
+      "details": "Chi tiết",
+      "addTag": "Thêm tag"
+    },
+    "strip": {
+      "tabsLabel": "Lọc theo trạng thái",
+      "tab": {
+        "all": "Tổng proxy",
+        "running": "Đang chạy",
+        "soon": "Sắp hết hạn ≤ 3 ngày",
+        "problem": "Hết hạn / lỗi"
+      },
+      "hint": {
+        "all": "trên mọi đơn",
+        "running": "{pct} % tổng số",
+        "soon": "hết hạn trong 3 ngày tới",
+        "problem": "ngoại tuyến, lỗi hoặc hết hạn"
+      },
+      "ofTotal": "khớp bộ lọc · trên {total} tổng"
+    },
+    "rail": {
+      "label": "Bộ lọc",
+      "tags": "Tag",
+      "manageTags": "Quản lý",
+      "untagged": "Chưa gắn tag",
+      "expiry": "Hết hạn trong",
+      "expiryAll": "Mọi thời hạn",
+      "ipType": "Loại IP",
+      "ipTypeAll": "Mọi loại IP",
+      "rotation": "Đổi IP",
+      "rotationAll": "Mọi kiểu"
+    },
+    "expiry": {
+      "24h": "≤ 24 giờ",
+      "3d": "≤ 3 ngày",
+      "7d": "≤ 7 ngày",
+      "expired": "Đã hết hạn"
+    },
+    "bulk": {
+      "label": "Thao tác với proxy đã chọn",
+      "selected": "Đã chọn {n}",
+      "selectAllFiltered": "chọn cả {n} khớp lọc",
+      "tag": "Gắn tag",
+      "rotate": "Đổi IP",
+      "rotateN": "Đổi IP ({n})",
+      "whitelist": "Whitelist IP",
+      "whitelistN": "Whitelist IP ({n})",
+      "export": "Xuất",
+      "clear": "Bỏ chọn",
+      "selectingAll": "đang chọn…"
+    },
+    "tags": {
+      "assignTitle": "Gắn tag cho {n} proxy",
+      "assignHint": "Một proxy mang được nhiều tag. Ô nửa tick nghĩa là chỉ một phần proxy đã chọn có tag đó.",
+      "tab": {
+        "pick": "Chọn tag",
+        "import": "Nhập CSV"
+      },
+      "searchOrCreate": "Tìm hoặc tạo tag mới…",
+      "create": "Tạo",
+      "listLabel": "Danh sách tag",
+      "noMatch": "Không có tag nào khớp — nhập tên rồi bấm Tạo.",
+      "onLines": "{n} / {total}",
+      "modeLabel": "Cách áp dụng",
+      "mode": {
+        "merge": {
+          "title": "Thêm vào tag hiện có",
+          "body": "Giữ tag cũ của từng proxy, chỉ thêm / bỏ tag bạn vừa tick."
+        },
+        "replace": {
+          "title": "Thay toàn bộ tag",
+          "body": "Xoá tag cũ, proxy chỉ còn các tag đang tick."
+        }
+      },
+      "importLabel": "Danh sách proxy và tag",
+      "importHint": "Mỗi dòng: host:port hoặc host:port:user:pass, dấu phẩy rồi tag; nhiều tag phân cách bằng |. Tag chưa có sẽ được tạo. Dòng không khớp proxy của bạn được báo, không bị bỏ qua im lặng.",
+      "importMatched": "Khớp {n} proxy",
+      "importUnknown": "{n} dòng không khớp proxy nào",
+      "apply": "Áp dụng cho {n}",
+      "manageTitle": "Quản lý tag",
+      "manageHint": "Đổi tên, đổi màu hoặc xoá. Xoá tag chỉ gỡ nhãn, không ảnh hưởng proxy.",
+      "newName": "Tên tag mới",
+      "rename": "Đổi tên tag {name}",
+      "usage": "{n} proxy",
+      "delete": "Xoá tag {name}",
+      "confirmDelete": "Xoá?",
+      "none": "Chưa có tag nào.",
+      "tone": "Màu tag",
+      "tones": {
+        "iris": "Chàm",
+        "good": "Xanh",
+        "warn": "Vàng",
+        "neutral": "Xám",
+        "ink": "Đen"
+      },
+      "importLoading": "Đang tải toàn bộ proxy để đối chiếu…"
+    },
+    "export": {
+      "title": "Xuất {n} proxy",
+      "hint": "Xuất đúng danh sách đang chọn. Mật khẩu có trong file — giữ file cẩn thận.",
+      "format": "Định dạng",
+      "formats": {
+        "host_port_user_pass": "host:port:user:pass (mỗi dòng một proxy)",
+        "user_pass_at_host": "user:pass@host:port",
+        "host_port": "host:port (không kèm tài khoản)",
+        "csv": "CSV — kèm loại, hết hạn, tag, ghi chú",
+        "json": "JSON"
+      },
+      "preview": "Xem trước",
+      "more": "còn {n} dòng nữa",
+      "download": "Tải .{ext}"
+    },
+    "whitelist": {
+      "label": "Whitelist IP",
+      "title": "Whitelist IP cho {n} proxy",
+      "hint": "Key xoay chỉ trả lời IP bạn khai báo. Nhập IP mạng của máy sẽ dùng proxy (xem tại api.ipify.org).",
+      "skipped": "{n} proxy đã chọn không dùng whitelist IP và sẽ được bỏ qua.",
+      "ipLabel": "IPv4 được phép",
+      "invalid": "IPv4 không hợp lệ.",
+      "oneIp": "Mỗi key nhận đúng 1 IP; để trống để gỡ.",
+      "cooldown": "{n} key đang trong thời gian chờ — IP được lưu, áp dụng ở lần đổi IP kế tiếp.",
+      "activate": "Kích hoạt",
+      "update": "Cập nhật",
+      "clear": "Gỡ whitelist",
+      "active": "Đã kích hoạt",
+      "pending": "Chưa khai báo",
+      "none": "Chưa có IP"
+    },
+    "details": {
+      "bought": "mua {date}",
+      "address": "Địa chỉ proxy",
+      "gateway": "Địa chỉ proxy · cố định",
+      "protocol": "Giao thức",
+      "username": "Username",
+      "password": "Password",
+      "show": "Hiện mật khẩu",
+      "hide": "Ẩn mật khẩu",
+      "auth": "Xác thực",
+      "authByIp": "Theo IP whitelist, không cần user/pass",
+      "location": "Vị trí",
+      "rotateExplain": "Đổi IP yêu cầu nhà cung cấp cấp IP mới; giữa hai lần đổi chờ {s} giây.",
+      "lastRotated": "đổi lần cuối {at}",
+      "term": "Thời hạn",
+      "expires": "Hết hạn",
+      "note": "Ghi chú riêng",
+      "notePlaceholder": "Ví dụ: Nick 01–10, máy ảo LD-03…",
+      "noteHint": "Chỉ bạn thấy. Tìm kiếm cũng quét ghi chú.",
+      "escrow": "Tiền của đơn {order} được ký quỹ; proxy hỏng không tự khôi phục có thể mở tranh chấp theo dòng.",
+      "openOrder": "Xem đơn",
+      "twoPorts": "cùng một key, dùng cổng nào cũng được",
+      "noteSaving": "Đang lưu ghi chú…"
+    },
+    "empty": {
+      "title": "Bạn chưa có proxy nào",
+      "hint": "Mua proxy ở chợ — sau khi giao, mọi dòng sẽ hiện ở đây để bạn gắn tag và quản lý.",
+      "filteredTitle": "Không có proxy khớp bộ lọc",
+      "filteredHint": "Thử bỏ một điều kiện hoặc xoá tìm kiếm."
+    },
+    "notice": {
+      "copied": "Đã sao chép chuỗi kết nối",
+      "rotateDone": "Đổi IP xong {ok} proxy · bỏ qua {skipped}",
+      "rotateDoneNone": "Không đổi được IP nào — {skipped} proxy đang chờ hoặc không hỗ trợ",
+      "tagsApplied": "Đã cập nhật tag cho {n} proxy",
+      "tagsImported": "Đã nhập tag cho {n} proxy",
+      "whitelistApplied": "Đã kích hoạt whitelist cho {n} key",
+      "whitelistSaved": "Đã lưu IP cho {n} key, áp dụng ngay {applied} — số còn lại áp dụng sau thời gian chờ",
+      "noteSaved": "Đã lưu ghi chú",
+      "rotateFailed": "{n} proxy lỗi khi đổi IP",
+      "copyFailed": "Trình duyệt không cho sao chép — hãy chọn và sao chép thủ công",
+      "loadFailed": "Không tải được danh sách proxy",
+      "tagFailed": "Không lưu được tag",
+      "whitelistFailed": "Không cập nhật được whitelist ({n} proxy lỗi)",
+      "whitelistFailedPart": "{n} proxy lỗi",
+      "whitelistCleared": "Đã gỡ whitelist cho {n} proxy",
+      "noteFailed": "Không lưu được ghi chú",
+      "lineNotFound": "Không tìm thấy proxy này trong tài khoản của bạn"
+    },
+    "clearSearch": "Xoá tìm kiếm",
+    "removeFilter": "Bỏ lọc {name}",
+    "loading": "Đang tải…",
+    "retry": "Thử lại",
+    "tagsLoadError": "Không tải được danh sách tag.",
+    "error": {
+      "title": "Không tải được danh sách proxy",
+      "hint": "Kiểm tra kết nối rồi thử lại."
+    },
+    "ipType": {
+      "residential": "Dân cư",
+      "mobile": "Mobile/4G",
+      "datacenter": "Datacenter"
+    },
+    "rotation": {
+      "static": "IP tĩnh",
+      "rotating": "Đổi IP được",
+      "rotating_key": "Key xoay"
+    },
+    "noAddress": "Chưa có địa chỉ — bấm Đổi IP để lấy proxy đầu tiên"
   }
 }

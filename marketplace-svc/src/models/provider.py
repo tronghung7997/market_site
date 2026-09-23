@@ -5,12 +5,16 @@ from sqlalchemy.dialects.postgresql import JSON
 from sqlalchemy.orm import Mapped, mapped_column
 
 from src.database import Base
+from src.i18n.slug import new_public_key
 
 
 class Provider(Base):
     __tablename__ = "providers"
 
     id: Mapped[int] = mapped_column(primary_key=True)
+    # URL identity on seller surfaces (/seller/sources/{public_key}) — sellers
+    # never see the sequential row id. Admin pages keep the numeric id.
+    public_key: Mapped[str] = mapped_column(String(12), unique=True, nullable=False, default=new_public_key)
     name: Mapped[str] = mapped_column(String(100), nullable=False)
     type: Mapped[str] = mapped_column(String(100), nullable=False)
     config: Mapped[dict] = mapped_column(JSON, nullable=False)

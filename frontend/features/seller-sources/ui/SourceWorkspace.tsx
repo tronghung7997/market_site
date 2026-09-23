@@ -16,10 +16,11 @@ import { groupListings, needsAttention, type ListingGroup } from "../logic";
 import { AddProductsDrawer, type ExistingProduct } from "./AddProductsDrawer";
 import { ProxySourceWorkspace } from "./ProxySourceWorkspace";
 import { relTime } from "./SourcesList";
+import { sourceRef } from "../logic";
 
 type Filter = "all" | "selling" | "attention" | "paused";
 
-export function SourceWorkspace({ area, sourceId }: { area: SourceArea; sourceId: number }) {
+export function SourceWorkspace({ area, sourceRef: ref }: { area: SourceArea; sourceRef: string }) {
   const t = useTranslations("sellerSources");
   const locale = useLocale();
   const { formatLedgerMoney } = useMoney();
@@ -46,17 +47,17 @@ export function SourceWorkspace({ area, sourceId }: { area: SourceArea; sourceId
   const load = useCallback(async () => {
     try {
       const all = await api.sources.list(area);
-      const s = all.find((x) => x.id === sourceId) ?? null;
+      const s = all.find((x) => sourceRef(area, x) === ref) ?? null;
       setSource(s);
       // Nguồn proxy có workspace riêng (gói đang bán thay cho listings).
-      const listings = s?.kind === "proxy" ? [] : await api.sources.listings(area, sourceId);
+      const listings = s?.kind === "proxy" ? [] : await api.sources.listings(area, ref);
       setRows(listings);
       if (s) setMargin((m) => (m === "30" ? String(Math.max(s.min_margin_pct, 30)) : m));
       setError("");
     } catch (e) {
       setError(apiErrorMessage(e));
     }
-  }, [area, sourceId, apiErrorMessage]);
+  }, [area, ref, apiErrorMessage]);
   useEffect(() => { void load(); }, [load]);
 
   const patchRow = (updated: SourceListing) => setRows((rs) => rs?.map((r) => (r.listing_id === updated.listing_id ? updated : r)) ?? null);
@@ -64,7 +65,7 @@ export function SourceWorkspace({ area, sourceId }: { area: SourceArea; sourceId
   const sync = async () => {
     setSyncing(true);
     try {
-      const r = await api.sources.sync(area, sourceId);
+      const r = await api.sources.sync(area, ref);
       setNotice(r.error ? `${t("syncFailed")}: ${r.error}` : t("syncDone", { items: r.catalog_items, updated: r.updated, delisted: r.delisted, low: r.low_margin }));
       await load();
     } catch (e) {
@@ -109,7 +110,7 @@ export function SourceWorkspace({ area, sourceId }: { area: SourceArea; sourceId
   const reprice = async (onlyBelowMin: boolean) => {
     setBusy(true);
     try {
-      const r = await api.sources.reprice(area, sourceId, { margin_pct: Number(margin) || 0, only_below_min: onlyBelowMin });
+      const r = await api.sources.reprice(area, ref, { margin_pct: Number(margin) || 0, only_below_min: onlyBelowMin });
       setNotice(t("repriced", { n: r.changed.length }));
       await load();
     } catch (e) {
@@ -257,7 +258,7 @@ export function SourceWorkspace({ area, sourceId }: { area: SourceArea; sourceId
 
       {changeSku && (
         <ChangeSkuDialog
-          area={area} sourceId={sourceId} row={changeSku} onClose={() => setChangeSku(null)}
+          area={area} sourceRef={ref} row={changeSku} onClose={() => setChangeSku(null)}
           onPick={async (item) => {
             try {
               patchRow(await api.sources.updateListing(area, changeSku.listing_id, { external_id: item.external_id }));
@@ -387,8 +388,8 @@ function ProductRows({ g, open, onToggle, productHref, others, editing, setEditi
 /* Đổi SKU cho một phân loại (khi nguồn gỡ SKU cũ)                     */
 /* ------------------------------------------------------------------ */
 
-function ChangeSkuDialog({ area, sourceId, row, onClose, onPick }: {
-  area: SourceArea; sourceId: number; row: SourceListing; onClose: () => void; onPick: (item: SourceCatalogItem) => void;
+function ChangeSkuDialog({ area, sourceRef: ref, row, onClose, onPick }: {
+  area: SourceArea; sourceRef: string; row: SourceListing; onClose: () => void; onPick: (item: SourceCatalogItem) => void;
 }) {
   const t = useTranslations("sellerSources");
   const locale = useLocale();
@@ -401,11 +402,11 @@ function ChangeSkuDialog({ area, sourceId, row, onClose, onPick }: {
     const h = setTimeout(async () => {
       setLoading(true);
       try {
-        setItems((await api.sources.catalog(area, sourceId, { q, in_stock: true, per_page: 12 })).items);
+        setItems((await api.sources.catalog(area, ref, { q, in_stock: true, per_page: 12 })).items);
       } finally { setLoading(false); }
     }, 200);
     return () => clearTimeout(h);
-  }, [area, sourceId, q]);
+  }, [area, ref, q]);
 
   return (
     <Dialog open onOpenChange={(o) => { if (!o) onClose(); }}>

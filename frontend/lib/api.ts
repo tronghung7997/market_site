@@ -1,5 +1,5 @@
 import type {
-  Account, ActionItem, AdminDepositIntent, AdminDepositLedgerQuery, AdminDepositLedgerResponse, AdminDepositTransaction, AdminDisputeDetail, AdminOrderDetail, AdminProduct, AdminResourceListResponse, AffiliateStats, AffiliateSummary, CalculateResult, Category, ChargeUsageResult, ChatConversationDetail, ChatConversationList, ChatMessage, DashboardData, DepositIntent, DepositMethods, DepositReconcileResult, DepositRailConfigAdmin, DepositRailConfigUpdate, Dispute, SePayWebhookEventRow, AdminAccountWallet, FundOverview, AccountAdminRow, PaginatedAccounts, LogEntry, MailConfigAdmin, MailConfigUpdate, MailOutboxList, MailSendTestResponse, MailTemplatePreview, MailTemplateRow, MoneyConfigAdmin, MoneyConfigPublic, MoneyConfigUpdate, Order, OrderStats, PaginatedAffiliateSummary, PaginatedOrderResponse, PaginatedProducts, PricingField, PricingOptions, ProductDetail, AdminProductDetail, Product, ProductLocale, ProductOperations, ProductTranslation, ProxyState, ProxyRotateResult, ProxyWhitelistResult, Review, SellerApplication, SellerDashboard, SellerDashboardRangeKey, SellerOrderQuery, PaginatedSellerOrders, SellerProduct, SellerProductBulkStatusResult, SellerProductSort, SellerStats, ServiceTask, TikTokLookupResponse, FacebookLookupResponse, Transaction, Variant, Wallet, WithdrawRequest, Provider, ProviderHealth, Alert, Resource, ResourceSummary, ResourceSellerFacet, InventoryVariant, SellerSummary, SellerProfile, SellerDisputeResource, SellerDisputeResourceList, SellerReplacementResourceList, BulkResourceActionResult,
+  Account, ActionItem, AdminDepositIntent, AdminDepositLedgerQuery, AdminDepositLedgerResponse, AdminDepositTransaction, AdminDisputeDetail, AdminOrderDetail, AdminProduct, AdminResourceListResponse, AffiliateStats, AffiliateSummary, CalculateResult, Category, ChargeUsageResult, ChatConversationDetail, ChatConversationList, ChatMessage, DashboardData, DepositIntent, DepositMethods, DepositReconcileResult, DepositRailConfigAdmin, DepositRailConfigUpdate, Dispute, SePayWebhookEventRow, AdminAccountWallet, FundOverview, AccountAdminRow, PaginatedAccounts, LogEntry, MailConfigAdmin, MailConfigUpdate, MailOutboxList, MailSendTestResponse, MailTemplatePreview, MailTemplateRow, MoneyConfigAdmin, MoneyConfigPublic, MoneyConfigUpdate, Order, OrderStats, PaginatedAffiliateSummary, PaginatedOrderResponse, PaginatedProducts, PricingField, PricingOptions, ProductDetail, AdminProductDetail, Product, ProductLocale, ProductOperations, ProductTranslation, ProxyState, ProxyRotateResult, ProxyWhitelistResult, ProxyLine, ProxyLineListResponse, ProxyLineQuery, ProxyTag, ProxyTagAssignRequest, ProxyTagTone, Review, SellerApplication, SellerDashboard, SellerDashboardRangeKey, SellerOrderQuery, PaginatedSellerOrders, SellerProduct, SellerProductBulkStatusResult, SellerProductSort, SellerStats, ServiceTask, TikTokLookupResponse, FacebookLookupResponse, Transaction, Variant, Wallet, WithdrawRequest, Provider, ProviderHealth, Alert, Resource, ResourceSummary, ResourceSellerFacet, InventoryVariant, SellerSummary, SellerProfile, SellerDisputeResource, SellerDisputeResourceList, SellerReplacementResourceList, BulkResourceActionResult,
   AdminReview,
   AdminReviewList,
   SellerReview,
@@ -352,6 +352,36 @@ export const api = {
       { method: "PUT", body: JSON.stringify({ ips }) },
       true,
     ),
+
+  // Buyer proxy console — every delivered proxy line across the account's orders.
+  // Rotate / whitelist stay per order (`rotateOrderProxy`, `setOrderProxyWhitelist`).
+  myProxies: {
+    list: (query: ProxyLineQuery = {}) => {
+      const qs = new URLSearchParams();
+      if (query.status) qs.set("status", query.status);
+      if (query.q) qs.set("q", query.q);
+      if (query.tags?.length) qs.set("tags", query.tags.join(","));
+      if (query.ip_type?.length) qs.set("ip_type", query.ip_type.join(","));
+      if (query.rotation?.length) qs.set("rotation", query.rotation.join(","));
+      if (query.expires) qs.set("expires", query.expires);
+      if (query.sort) qs.set("sort", query.sort);
+      if (query.page) qs.set("page", String(query.page));
+      if (query.per_page) qs.set("per_page", String(query.per_page));
+      const suffix = qs.toString();
+      return request<ProxyLineListResponse>(`/me/proxies${suffix ? `?${suffix}` : ""}`, {}, true);
+    },
+    tags: () => request<ProxyTag[]>("/me/proxy-tags", {}, true),
+    createTag: (name: string, tone: ProxyTagTone) =>
+      request<ProxyTag>("/me/proxy-tags", { method: "POST", body: JSON.stringify({ name, tone }) }, true),
+    updateTag: (id: string, patch: { name?: string; tone?: ProxyTagTone }) =>
+      request<ProxyTag>(`/me/proxy-tags/${encodeURIComponent(id)}`, { method: "PATCH", body: JSON.stringify(patch) }, true),
+    deleteTag: (id: string) =>
+      request<void>(`/me/proxy-tags/${encodeURIComponent(id)}`, { method: "DELETE" }, true),
+    assignTags: (body: ProxyTagAssignRequest) =>
+      request<{ updated: number }>("/me/proxies/tags", { method: "POST", body: JSON.stringify(body) }, true),
+    setNote: (lineId: string, note: string) =>
+      request<ProxyLine>("/me/proxies/note", { method: "PATCH", body: JSON.stringify({ line_id: lineId, note }) }, true),
+  },
 
   sellerApply: (data: { business_name: string; description?: string; contact?: string }) =>
     request<SellerApplication>("/seller/apply", { method: "POST", body: JSON.stringify(data) }, true),
@@ -907,7 +937,7 @@ export const api = {
   // Nguồn hàng — cùng handler cho seller (/seller/sources) và admin (/admin/sources).
   sources: {
     list: (area: SourceArea) => request<SupplierSource[]>(`/${area}/sources`, {}, true),
-    catalog: (area: SourceArea, id: number, query: SourceCatalogQuery = {}) => {
+    catalog: (area: SourceArea, id: number | string, query: SourceCatalogQuery = {}) => {
       const qs = new URLSearchParams();
       if (query.q) qs.set("q", query.q);
       if (query.group) qs.set("group", query.group);
@@ -919,30 +949,30 @@ export const api = {
       const suffix = qs.toString();
       return request<SourceCatalogPage>(`/${area}/sources/${id}/catalog${suffix ? `?${suffix}` : ""}`, {}, true);
     },
-    sync: (area: SourceArea, id: number) =>
+    sync: (area: SourceArea, id: number | string) =>
       request<SourceSyncResult>(`/${area}/sources/${id}/sync`, { method: "POST" }, true),
-    listings: (area: SourceArea, id: number) => request<SourceListing[]>(`/${area}/sources/${id}/listings`, {}, true),
-    import: (area: SourceArea, id: number, items: SourceImportItem[], ownerSellerId?: number | null) =>
+    listings: (area: SourceArea, id: number | string) => request<SourceListing[]>(`/${area}/sources/${id}/listings`, {}, true),
+    import: (area: SourceArea, id: number | string, items: SourceImportItem[], ownerSellerId?: number | null) =>
       request<SourceImportResult[]>(`/${area}/sources/${id}/import`, {
         method: "POST", body: JSON.stringify({ items, owner_seller_id: ownerSellerId ?? null }),
       }, true),
-    attach: (area: SourceArea, id: number, variantId: number, externalId: string) =>
+    attach: (area: SourceArea, id: number | string, variantId: number, externalId: string) =>
       request<{ listing_id: number; variant_id: number; external_id: string }>(`/${area}/sources/${id}/attach`, {
         method: "POST", body: JSON.stringify({ variant_id: variantId, external_id: externalId }),
       }, true),
-    reprice: (area: SourceArea, id: number, body: { margin_pct: number; round_to?: number; listing_ids?: number[]; only_below_min?: boolean }) =>
+    reprice: (area: SourceArea, id: number | string, body: { margin_pct: number; round_to?: number; listing_ids?: number[]; only_below_min?: boolean }) =>
       request<SourceRepriceResult>(`/${area}/sources/${id}/reprice`, { method: "POST", body: JSON.stringify(body) }, true),
     // Nguồn proxy: gói đang bán (pricing config) thay cho listings.
-    offers: (area: SourceArea, id: number) => request<SourceOffer[]>(`/${area}/sources/${id}/offers`, {}, true),
-    importPlans: (area: SourceArea, id: number, items: SourcePlanImportItem[], ownerSellerId?: number | null) =>
+    offers: (area: SourceArea, id: number | string) => request<SourceOffer[]>(`/${area}/sources/${id}/offers`, {}, true),
+    importPlans: (area: SourceArea, id: number | string, items: SourcePlanImportItem[], ownerSellerId?: number | null) =>
       request<SourcePlanImportResult[]>(`/${area}/sources/${id}/import-plans`, {
         method: "POST", body: JSON.stringify({ items, owner_seller_id: ownerSellerId ?? null }),
       }, true),
-    updateOffer: (area: SourceArea, id: number, body: { product_id: number; plan_key: string; price: number }) =>
+    updateOffer: (area: SourceArea, id: number | string, body: { product_id: number; plan_key: string; price: number }) =>
       request<SourceOffer>(`/${area}/sources/${id}/offers`, { method: "PATCH", body: JSON.stringify(body) }, true),
-    removeOffer: (area: SourceArea, id: number, body: { product_id: number; plan_key: string }) =>
+    removeOffer: (area: SourceArea, id: number | string, body: { product_id: number; plan_key: string }) =>
       request<void>(`/${area}/sources/${id}/offers/remove`, { method: "POST", body: JSON.stringify(body) }, true),
-    repriceOffers: (area: SourceArea, id: number, body: { margin_pct: number; round_to?: number }) =>
+    repriceOffers: (area: SourceArea, id: number | string, body: { margin_pct: number; round_to?: number }) =>
       request<{ updated: number; skipped: number }>(`/${area}/sources/${id}/offers/reprice`, { method: "POST", body: JSON.stringify(body) }, true),
     kinds: () => request<SourceKind[]>(`/admin/sources/kinds`, {}, true),
     sellers: () => request<SourceSellerCandidate[]>(`/admin/sources/sellers`, {}, true),

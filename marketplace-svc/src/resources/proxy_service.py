@@ -7,14 +7,18 @@ has its own claim/release semantics). A ProxyAllocation row is not a
 Resource row.
 """
 from datetime import datetime, timezone
+from decimal import ROUND_HALF_UP, Decimal
 
 import structlog
 from sqlalchemy import select
+from sqlalchemy.dialects.postgresql import insert as pg_insert
 from sqlalchemy.exc import IntegrityError
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from src.adapters.base import ProxyAssignment
-from src.models.proxy_allocation import ProxyAllocation, ProxyAllocationSource, ProxyAllocationStatus
+from src.models.proxy_allocation import (
+    ProxyAllocation, ProxyAllocationSource, ProxyAllocationStatus, UpstreamRevocation,
+)
 
 logger = structlog.get_logger()
 
@@ -109,30 +113,65 @@ async def bind_first_available_assignment(
     return None
 
 
+async def find_allocation_by_external_id(
+    provider_id: int | None, external_id: str, db: AsyncSession,
+) -> ProxyAllocation | None:
+    if provider_id is None:
+        return None
+    return await db.scalar(
+        select(ProxyAllocation).where(
+            ProxyAllocation.provider_id == provider_id, ProxyAllocation.external_id == external_id,
+        )
+    )
+
+
 async def bind_purchased_assignment(
-    provider_id: int, order_id: int, assignment: ProxyAssignment, db: AsyncSession,
+    provider_id: int, order_id: int, assignment: ProxyAssignment, db: AsyncSession, *,
+    partner_order_id: str | None = None, upstream_order_id: str | None = None,
+    cost_usd: Decimal | None = None,
 ) -> ProxyAllocation:
     """Bind a FRESHLY-PURCHASED assignment (config-strategy provision path,
-    see DProxyAdapter._provision_via_purchase) to `order_id`. Unlike
-    `bind_first_available_assignment`, there is no candidate list to search
-    — the assignment was just bought exclusively for this order, so this
-    only ever inserts once. Caller is responsible for the idempotency check
-    (never call this a second time for an order that already has a
-    binding — a second purchase would buy a proxy nobody gets billed for
-    delivery of). No IntegrityError handling: a duplicate external_id here
-    would mean the supplier's purchase endpoint returned an id we already
-    hold, which should never happen for a "buy me a new one" call — unlike
-    bind_first_available_assignment there's no fallback candidate to retry
-    with, so this just lets it propagate."""
+    see DProxyAdapter._provision_via_purchase) to `order_id`. Caller is
+    responsible for the idempotency check and for refusing an external_id
+    that another order already holds (the live API has been seen handing
+    back an existing assignment) — UNIQUE(provider_id, external_id) is only
+    the last line of defence here.
+
+    Chốt `partner_order_id` đã dùng để mua (thu hồi đọc lại đúng id này) và
+    giá vốn thượng nguồn, quy đổi VND theo tỷ giá hiển thị lúc giao."""
     allocation = ProxyAllocation(
         provider_id=provider_id, order_id=order_id, external_id=assignment.external_id,
         source=ProxyAllocationSource.purchase.value,
+        partner_order_id=partner_order_id, upstream_order_id=upstream_order_id,
+        upstream_cost_usd=cost_usd,
     )
+    if cost_usd is not None:
+        from src.money.service import get_effective_rate
+
+        rate = await get_effective_rate(db)
+        if rate:
+            allocation.upstream_cost_vnd = int((cost_usd * rate).quantize(Decimal("1"), rounding=ROUND_HALF_UP))
     _apply_assignment(allocation, assignment)
     allocation.status = ProxyAllocationStatus.allocated
     db.add(allocation)
     await db.flush()
     return allocation
+
+
+async def enqueue_upstream_revocation(
+    provider_id: int, order_id: int, partner_order_id: str, reason: str, db: AsyncSession,
+) -> None:
+    """Xếp một lệnh partner-dispute vào outbox, TRONG transaction của caller
+    (hoàn tiền / huỷ đơn). Không commit, không gọi mạng: lệnh chỉ tồn tại khi
+    transaction đó commit, và `upstream_revocation_job` gửi nó sau. Gọi lại
+    cho cùng (provider, partner_order_id) là no-op."""
+    stmt = pg_insert(UpstreamRevocation.__table__).values(
+        provider_id=provider_id, order_id=order_id, partner_order_id=partner_order_id,
+        reason=reason[:64], status="pending", attempts=0,
+    ).on_conflict_do_nothing(constraint="uq_upstream_revocations_partner_order")
+    await db.execute(stmt)
+    await db.flush()
+    logger.info("upstream_revocation_queued", provider_id=provider_id, order_id=order_id, reason=reason)
 
 
 async def revoke_order_proxy(order_id: int, provider_id: int | None, db: AsyncSession) -> bool | None:

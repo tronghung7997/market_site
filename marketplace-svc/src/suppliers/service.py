@@ -11,8 +11,9 @@
 """
 from __future__ import annotations
 
+import math
 import unicodedata
-from dataclasses import dataclass
+from dataclasses import dataclass, replace
 from datetime import datetime, timezone
 from decimal import Decimal
 
@@ -233,6 +234,28 @@ class SyncReport:
     error: str | None = None
 
 
+async def _with_vnd_cost(catalog: list[UpstreamListing], db: AsyncSession) -> list[UpstreamListing]:
+    """Gói proxy báo giá bằng USD (DProxy live) → giá vốn VND theo tỷ giá hiển
+    thị của sàn (Settings › Tiền tệ), làm tròn LÊN để biên lãi không bao giờ
+    bị tính lạc quan. Chưa có tỷ giá → giữ 0 (không biết vốn, không chặn giá).
+    Số gốc giữ trong attributes (currency, price) và tỷ giá dùng lưu cùng."""
+    rate = None
+    out: list[UpstreamListing] = []
+    for up in catalog:
+        attrs = dict(up.attributes or {})
+        price = attrs.get("price")
+        if up.cost_price <= 0 and str(attrs.get("currency") or "").upper() == "USD" and isinstance(price, (int, float)) and price > 0:
+            if rate is None:
+                from src.money.service import get_effective_rate
+
+                rate = await get_effective_rate(db) or 0
+            if rate:
+                attrs["fx_rate"] = rate
+                up = replace(up, cost_price=int(math.ceil(float(price) * rate)), attributes=attrs)
+        out.append(up)
+    return out
+
+
 async def sync_provider_listings(provider: Provider, db: AsyncSession) -> SyncReport:
     """Một provider: kéo catalog, cập nhật mọi listing. Không commit — caller
     commit (job hoặc endpoint admin)."""
@@ -248,7 +271,7 @@ async def sync_provider_listings(provider: Provider, db: AsyncSession) -> SyncRe
         if isinstance(adapter, ProxyPlanCatalog) and not isinstance(adapter, CatalogSupplierAdapter):
             # Nguồn proxy: chỉ có catalog GÓI (không tồn kho, không listing) —
             # snapshot xong là hết việc; lỗi mạng/auth báo như catalog thường.
-            catalog = await adapter.fetch_plan_catalog()
+            catalog = await _with_vnd_cost(await adapter.fetch_plan_catalog(), db)
             report.catalog_items = await replace_catalog_snapshot(provider.id, catalog, db)
             try:
                 health = await adapter.check_health()
@@ -270,7 +293,10 @@ async def sync_provider_listings(provider: Provider, db: AsyncSession) -> SyncRe
     if report.error:
         for listing in listings:
             listing.sync_error = report.error[:255]
-        if not listings:
+        spec = get_spec(provider.adapter_type)
+        # Nguồn proxy không có listing nhưng có sản phẩm đang bán theo catalog
+        # gói — đồng bộ hỏng (key sai, thượng nguồn sập) phải lên alert.
+        if not listings and not (spec and spec.proxy_source):
             return report
         await upsert_incident(
             db, fingerprint=fp_provider(provider.id, ALERT_SYNC_FAILED), type_=ALERT_SYNC_FAILED,

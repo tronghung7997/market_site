@@ -114,12 +114,14 @@ export default function DynamicOrderForm({ productId, product, onOrderCreated }:
   // đây là khoá phía frontend để buyer không bao giờ thấy lỗi đó — luôn ép
   // package_size=1 bất kể field gốc cho phép gì. Xem
   // docs/superpowers/plans/2026-07-22-dproxy-consolidated-review.md P0#1.
-  const isDproxy = options?.adapter_type === "dproxy";
-  const isDproxyM2m = isDproxy && options?.strategy === "config";
-  // "auto_proxy" là nhãn public của adapter proxy mua-theo-đơn (backend che
-  // tên nguồn thật — xem _PUBLIC_ADAPTER_ALIASES, src/pricing/router.py).
-  // Cùng ràng buộc 1 allocation/đơn với DProxy nên dùng chung khoá số lượng.
-  const isSingleUnit = isDproxy || options?.adapter_type === "auto_proxy";
+  // "auto_proxy" là nhãn public của mọi adapter proxy giao tự động (backend
+  // che tên nguồn thật — xem _PUBLIC_ADAPTER_ALIASES, src/pricing/router.py).
+  // Strategy phân biệt hai kiểu bán: `credit` = cấp từ kho proxy có sẵn (luôn
+  // đổi IP được, package_size cố định 1), `config` = mua theo gói.
+  const isAutoProxy = options?.adapter_type === "auto_proxy";
+  const isPoolProxy = isAutoProxy && options?.strategy === "credit";
+  const isPlanProxy = isAutoProxy && options?.strategy === "config";
+  const isSingleUnit = isAutoProxy;
   // Với strategy "credit" (mua gói request), "package_size" TỰ NÓ đã là số
   // lượng thật (đã chọn trong DynamicField ở trên) — backend chỉ cấp phát
   // đúng bằng package_size và bỏ qua hoàn toàn quantity riêng
@@ -129,11 +131,8 @@ export default function DynamicOrderForm({ productId, product, onOrderCreated }:
   // gây hiểu lầm buyer mua được "2 x gói". Ẩn nó đi, giống cách đã ẩn với
   // task/isSingleUnit.
   const isCredit = options?.strategy === "credit";
-  // Toàn bộ phần TRẤN AN + nhãn thân thiện dưới đây trước kia gắn vào
-  // `isDproxy`, nên sản phẩm auto_proxy (TopProxy) tuy cũng giao tự động và
-  // cũng tự hoàn tiền khi cấp phát hỏng lại rơi vào nhánh "chung": tiêu đề
-  // "Cấu hình đơn hàng" và một Tag in ra tên strategy máy. Điều kiện đúng là
-  // "đơn này có được giao tự động không", tức `isSingleUnit`.
+  // Phần TRẤN AN + nhãn thân thiện dưới đây áp cho mọi đơn giao tự động
+  // (`isSingleUnit`), không riêng một nguồn nào.
   const isAutoDelivered = isSingleUnit;
 
   // Mỗi lượt tính giá mang một số thứ tự; chỉ lượt MỚI NHẤT được ghi kết quả.
@@ -157,7 +156,7 @@ export default function DynamicOrderForm({ productId, product, onOrderCreated }:
     }
     setCalculating(true);
     try {
-      const merged = { ...cfg, quantity: isSingleUnit ? 1 : q, ...(isDproxy ? { package_size: 1 } : {}) };
+      const merged = { ...cfg, quantity: isSingleUnit ? 1 : q, ...(isPoolProxy ? { package_size: 1 } : {}) };
       const result = await api.calculatePrice(productId, merged);
       if (seq !== calcSeqRef.current) return;
       setCalc(result);
@@ -171,7 +170,7 @@ export default function DynamicOrderForm({ productId, product, onOrderCreated }:
     } finally {
       if (seq === calcSeqRef.current) setCalculating(false);
     }
-  }, [apiErrorMessage, productId, options, isDproxy, isSingleUnit, t, locale]);
+  }, [apiErrorMessage, productId, options, isPoolProxy, isSingleUnit, t, locale]);
 
   useEffect(() => {
     if (!options) return;
@@ -194,7 +193,7 @@ export default function DynamicOrderForm({ productId, product, onOrderCreated }:
     setPlacing(true);
     setPlaceError(null);
     try {
-      const finalConfig = { ...config, quantity: isSingleUnit ? 1 : qty, ...(isDproxy ? { package_size: 1 } : {}) };
+      const finalConfig = { ...config, quantity: isSingleUnit ? 1 : qty, ...(isPoolProxy ? { package_size: 1 } : {}) };
       const order = await api.createOrderWithConfig(productId, finalConfig, isSingleUnit ? 1 : qty);
       setShowConfirm(false);
       onOrderCreated(order);
@@ -245,7 +244,7 @@ export default function DynamicOrderForm({ productId, product, onOrderCreated }:
   // trá hình (CreditPricing._subtotal đọc đúng field này) — ẩn luôn, số
   // lượng luôn là 1 và không hiển thị cho buyer chỉnh.
   const visibleFields = options.fields.filter(
-    (f) => f.field !== "quantity" && !(isDproxy && f.field === "package_size"),
+    (f) => f.field !== "quantity" && !(isPoolProxy && f.field === "package_size"),
   );
 
   return (
@@ -259,7 +258,7 @@ export default function DynamicOrderForm({ productId, product, onOrderCreated }:
             {options.strategy === "credit" && <Tag tone="iris">{t("fulfillment.api")}</Tag>}
             {options.strategy === "task" && <Tag tone="warn">{t("fulfillment.task")}</Tag>}
             {isAutoDelivered && <Tag tone="good">{t("autoDelivered")}</Tag>}
-            {isDproxy && !isDproxyM2m && <Tag tone="iris">{t("ipRotatable")}</Tag>}
+            {isPoolProxy && <Tag tone="iris">{t("ipRotatable")}</Tag>}
           </div>
         </div>
 
@@ -276,7 +275,7 @@ export default function DynamicOrderForm({ productId, product, onOrderCreated }:
             const packageOnly = Boolean(packageField);
             const collapsed = packageOnly
               ? (packageField?.choices?.length ?? 0) <= 1
-              : isDproxyM2m && visibleFields.length > 0 && visibleFields.every((f) => (f.choices?.length ?? 0) <= 1);
+              : isPlanProxy && visibleFields.length > 0 && visibleFields.every((f) => (f.choices?.length ?? 0) <= 1);
             if (collapsed) {
               const summaryFields = packageField ? [packageField] : visibleFields;
               return (
@@ -427,7 +426,7 @@ export default function DynamicOrderForm({ productId, product, onOrderCreated }:
                     <span className="text-muted">{t("confirmDelivery")}</span>
                     <span className="font-medium">{t("deliveryAutoSeconds")}</span>
                   </div>
-                  {isDproxy && !isDproxyM2m && (
+                  {isPoolProxy && (
                     <div className="flex justify-between">
                       <span className="text-muted">{t("ipRotation")}</span>
                       <span className="font-medium">{t("supported")}</span>

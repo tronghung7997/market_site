@@ -24,7 +24,7 @@ from src.models.order import (
 from src.models.product import DeliveryMode, Product, ProductStatus, ProductVariant, ServiceType
 from src.models.pricing_config import PricingConfig
 from src.models.provider import Provider, ProviderCallLog, ProviderHealth
-from src.models.proxy_allocation import ProxyAllocation, ProxyAllocationStatus
+from src.models.proxy_allocation import ProxyAllocation, ProxyAllocationStatus, ProxyAllocationTag, ProxyTag, UpstreamRevocation
 from src.models.resource import Resource, ResourceStatus
 from src.models.service_task import ServiceTask, ServiceTaskStatus
 from src.models.usage import GatewayCallLog, OrderBalance, UsageRecord, UsageRecordStatus
@@ -68,7 +68,7 @@ __all__ = [
     "DeliveryMode", "Product", "ProductStatus", "ProductVariant", "ServiceType",
     "PricingConfig",
     "Provider", "ProviderCallLog", "ProviderHealth",
-    "ProxyAllocation", "ProxyAllocationStatus",
+    "ProxyAllocation", "ProxyAllocationStatus", "ProxyAllocationTag", "ProxyTag", "UpstreamRevocation",
     "Resource", "ResourceStatus",
     "ServiceTask", "ServiceTaskStatus",
     "OrderBalance", "UsageRecord", "UsageRecordStatus", "GatewayCallLog",

@@ -54,13 +54,31 @@ def _not_found():
     return api_error(ErrorCode.PROVIDER_NOT_CONFIGURED, status.HTTP_404_NOT_FOUND, detail="Không tìm thấy nguồn hàng")
 
 
-async def get_source(provider_id: int, scope: SourceScope, db: AsyncSession) -> Provider:
-    provider = await db.get(Provider, provider_id)
+async def get_source(provider_id: int | str, scope: SourceScope, db: AsyncSession) -> Provider:
+    """Nguồn theo ref trên URL: `public_key` (UI seller dùng — không lộ id
+    tuần tự) hoặc id số (trang admin, client cũ). Quyền sở hữu kiểm như nhau."""
+    ref = str(provider_id)
+    if ref.isdigit():
+        provider = await db.get(Provider, int(ref))
+    else:
+        provider = await db.scalar(select(Provider).where(Provider.public_key == ref))
     spec = get_spec(provider.adapter_type) if provider else None
     if provider is None or spec is None or not (spec.external_stock or spec.proxy_source):
         raise _not_found()
     if not scope.is_admin and provider.seller_id != scope.seller_id:
         raise _not_found()
+    return provider
+
+
+async def get_catalog_source(provider_id: int | str, scope: SourceScope, db: AsyncSession) -> Provider:
+    """Như get_source nhưng CHỈ nguồn catalog (tồn kho thượng nguồn, bán theo
+    listing). Nguồn proxy bán theo bảng gói — các endpoint listing/import SKU
+    không được chạm vào nó."""
+    provider = await get_source(provider_id, scope, db)
+    spec = get_spec(provider.adapter_type)
+    if spec is None or not spec.external_stock:
+        raise api_error(ErrorCode.INVALID_PRODUCT_CONFIG, status.HTTP_400_BAD_REQUEST,
+                        detail="Nguồn proxy quản lý theo bảng gói, không theo listing")
     return provider
 
 
@@ -115,7 +133,7 @@ SOURCE_KINDS: dict[str, dict] = {
     },
     "dproxy": {
         "label": "DProxy (M2M)", "kind": "proxy",
-        "description": "Dân cư / datacenter xoay theo gói (plan) thượng nguồn, mua từng đơn qua partner-purchase, đổi IP có cooldown.",
+        "description": "Dân cư / mobile / datacenter theo gói (plan) thượng nguồn, giá USD, mua từng đơn qua partner-purchase. Đổi IP chỉ bật khi node được giao hỗ trợ.",
         "fields": [
             {"key": "base_url", "label": "Base URL", "default": "https://api.dproxy.info"},
             {"key": "api_key", "label": "API key", "secret": True},
@@ -124,6 +142,7 @@ SOURCE_KINDS: dict[str, dict] = {
             {"key": "auth_header", "label": "Tên header (khi kiểu header)", "default": "X-API-Key"},
             {"key": "channel", "label": "Channel", "default": "proxora"},
             {"key": "min_margin_pct", "label": "Lãi tối thiểu để được bán (%)", "default": 10, "type": "number"},
+            {"key": "low_credit_usd", "label": "Báo khi hạn mức còn dưới (USD)", "default": 10, "type": "number"},
         ],
     },
 }
@@ -196,7 +215,7 @@ async def list_sources(scope: SourceScope, db: AsyncSession) -> list[dict]:
         n_paused = sum(1 for r in mine if r[5] is not None)
         seller = sellers.get(p.seller_id)
         out.append({
-            "id": p.id, "name": p.name, "adapter_type": p.adapter_type,
+            "id": p.id, "public_key": p.public_key, "name": p.name, "adapter_type": p.adapter_type,
             "kind": source_kind(p.adapter_type),
             "is_active": p.is_active, "review_status": p.review_status,
             "seller_id": p.seller_id, "seller_email": seller.email if seller else None,

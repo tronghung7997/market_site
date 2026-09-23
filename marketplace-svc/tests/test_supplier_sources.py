@@ -8,6 +8,7 @@ import pytest
 from sqlalchemy import select, update
 
 from src.database import SessionLocal
+from src.models.account import Account
 from src.models.product import Product, ProductVariant
 from src.models.provider import Provider
 from src.models.supplier_listing import SupplierCatalogItem, SupplierListing
@@ -39,6 +40,8 @@ async def _assign_to_seller(ctx):
     async with SessionLocal() as db:
         seller_id = (await db.scalar(select(Product.seller_id).where(Product.id == ctx["product"]["id"])))
         await db.execute(update(Provider).where(Provider.id == ctx["provider_id"]).values(seller_id=seller_id))
+        # Nguồn chỉ thuộc seller nội bộ (wizard / PUT providers bật cờ này).
+        await db.execute(update(Account).where(Account.id == seller_id).values(is_internal=True))
         await db.commit()
         return seller_id
 
@@ -46,8 +49,8 @@ async def _assign_to_seller(ctx):
 @pytest.mark.asyncio
 async def test_seller_sees_only_assigned_sources_and_admin_sees_all(client, mock_igbm):
     ctx = await _setup(client)
-    # Chưa giao → seller không thấy, admin thấy.
-    assert (await client.get("/seller/sources", headers=_h(ctx["seller"]))).json() == []
+    # Chưa giao (seller thường) → khu Nguồn cung bị chặn, admin thấy.
+    assert (await client.get("/seller/sources", headers=_h(ctx["seller"]))).status_code == 403
     admin_view = (await client.get("/admin/sources", headers=_h(ctx["admin"]))).json()
     assert [s["id"] for s in admin_view] == [ctx["provider_id"]]
     assert admin_view[0]["listing_count"] == 1 and admin_view[0]["catalog_count"] == 0
@@ -59,9 +62,10 @@ async def test_seller_sees_only_assigned_sources_and_admin_sees_all(client, mock
     other = await register_and_login(client, "ig_other@example.com")
     await make_seller("ig_other@example.com")
     other = await register_and_login(client, "ig_other@example.com")
-    assert (await client.get("/seller/sources", headers=_h(other))).json() == []
+    # Seller thường: khu Nguồn cung bị chặn ở backend, không chỉ ẩn trên UI.
+    assert (await client.get("/seller/sources", headers=_h(other))).status_code == 403
     resp = await client.get(f"/seller/sources/{ctx['provider_id']}/catalog", headers=_h(other))
-    assert resp.status_code == 404
+    assert resp.status_code == 403
 
 
 @pytest.mark.asyncio
@@ -74,6 +78,8 @@ async def test_admin_assigns_source_to_seller_via_provider_update(client, mock_i
     assert resp.status_code == 200, resp.text
     assert resp.json()["seller_id"] == seller_id and resp.json()["review_status"] == "approved"
     assert len((await client.get("/seller/sources", headers=_h(ctx["seller"]))).json()) == 1
+    # Giao nguồn sàn trả tiền = seller thành seller nội bộ (như wizard).
+    assert (await client.get("/me", headers=_h(ctx["seller"]))).json()["is_internal"] is True
     # Không phải seller → 400
     resp = await client.put(f"/admin/providers/{ctx['provider_id']}", json={"seller_id": ctx["buyer_id"]},
                             headers=_h(ctx["admin"]))
@@ -204,7 +210,7 @@ async def test_listings_update_reprice_attach_detach(client, mock_igbm):
     other_tok = await register_and_login(client, "ig_other2@example.com")
     resp = await client.patch(f"/seller/sources/listings/{row['listing_id']}", json={"price": 1},
                               headers=_h(other_tok))
-    assert resp.status_code == 404
+    assert resp.status_code == 403  # seller thường không vào được Nguồn cung
 
 
 @pytest.mark.asyncio

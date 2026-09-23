@@ -12,6 +12,7 @@ import { useSearchParams } from "next/navigation";
 import { Link } from "@/i18n/navigation";
 import { api } from "@/lib/api";
 import { cn } from "@/lib/cn";
+import { sellerProductPath } from "@/lib/routes";
 import { useApiErrorMessage } from "@/lib/use-api-error";
 import { useMoney } from "@/lib/money/CurrencyProvider";
 import type { Category, SourceArea, SourceCatalogItem, SourceOffer, SourcePlanImportItem, SourceSellerCandidate, SupplierSource } from "@/lib/types";
@@ -19,6 +20,7 @@ import { Button, Input, Select, Spinner, Tag } from "@/components/ui";
 import { Dialog, DialogContent, DialogTitle } from "@/components/ui/dialog";
 import { AlertTriangle, ChevronLeft, Plus, RefreshCw, Search, Trash, X } from "@/components/Icons";
 import { relTime } from "./SourcesList";
+import { sourceRef } from "../logic";
 
 const PROTOCOLS = ["HTTP", "SOCKS5"];
 const DPROXY_TYPES = ["residential", "datacenter", "mobile"];
@@ -35,7 +37,9 @@ export function ProxySourceWorkspace({ area, source, onSourceChange }: { area: S
   const apiErrorMessage = useApiErrorMessage();
   const params = useSearchParams();
   const base = area === "admin" ? "/admin/sources" : "/seller/sources";
-  const productBase = area === "admin" ? "/admin/products" : "/seller/products";
+  // Admin pages may carry row ids; the seller surface uses the product's public key.
+  const productHref = (o: SourceOffer) =>
+    area === "admin" ? `/admin/products/${o.product_id}` : sellerProductPath({ id: o.product_id, public_key: o.product_key });
 
   const [offers, setOffers] = useState<SourceOffer[] | null>(null);
   const [error, setError] = useState("");
@@ -50,18 +54,18 @@ export function ProxySourceWorkspace({ area, source, onSourceChange }: { area: S
 
   const load = useCallback(async () => {
     try {
-      setOffers(await api.sources.offers(area, source.id));
+      setOffers(await api.sources.offers(area, sourceRef(area, source)));
       setError("");
     } catch (e) {
       setError(apiErrorMessage(e));
     }
-  }, [area, source.id, apiErrorMessage]);
+  }, [area, source.id, source.public_key, apiErrorMessage]);
   useEffect(() => { void load(); }, [load]);
 
   const sync = async () => {
     setSyncing(true);
     try {
-      const r = await api.sources.sync(area, source.id);
+      const r = await api.sources.sync(area, sourceRef(area, source));
       setNotice(r.error ? `${t("syncFailed")}: ${r.error}` : t("plansSynced", { n: r.catalog_items }));
       await onSourceChange();
       await load();
@@ -80,7 +84,7 @@ export function ProxySourceWorkspace({ area, source, onSourceChange }: { area: S
     setEditing((e) => { const n = { ...e }; delete n[key(o)]; return n; });
     if (!Number.isFinite(price) || price <= 0 || price === o.price) return;
     try {
-      const updated = await api.sources.updateOffer(area, source.id, { product_id: o.product_id, plan_key: o.plan_key, price });
+      const updated = await api.sources.updateOffer(area, sourceRef(area, source), { product_id: o.product_id, plan_key: o.plan_key, price });
       setOffers((rows) => rows?.map((r) => (key(r) === key(updated) ? updated : r)) ?? null);
       setNotice(t("priceSaved"));
     } catch (e) {
@@ -92,7 +96,7 @@ export function ProxySourceWorkspace({ area, source, onSourceChange }: { area: S
     if (!confirmRemove) return;
     setBusy(true);
     try {
-      await api.sources.removeOffer(area, source.id, { product_id: confirmRemove.product_id, plan_key: confirmRemove.plan_key });
+      await api.sources.removeOffer(area, sourceRef(area, source), { product_id: confirmRemove.product_id, plan_key: confirmRemove.plan_key });
       setConfirmRemove(null);
       await load();
       await onSourceChange();
@@ -106,7 +110,7 @@ export function ProxySourceWorkspace({ area, source, onSourceChange }: { area: S
   const reprice = async () => {
     setBusy(true);
     try {
-      const r = await api.sources.repriceOffers(area, source.id, { margin_pct: Number(margin) || 0 });
+      const r = await api.sources.repriceOffers(area, sourceRef(area, source), { margin_pct: Number(margin) || 0 });
       setNotice(t("offersRepriced", { n: r.updated, skipped: r.skipped }));
       await load();
     } catch (e) {
@@ -128,8 +132,11 @@ export function ProxySourceWorkspace({ area, source, onSourceChange }: { area: S
     }
     return [...m.values()];
   }, [offers]);
-  const lowCount = (offers ?? []).filter((o) => !o.margin_ok || o.unmapped).length;
-  const health = (source.last_test_result as { health?: { status?: string; message?: string } } | null)?.health;
+  const lowCount = (offers ?? []).filter((o) => !o.margin_ok || o.unmapped || o.plan_missing).length;
+  const health = (source.last_test_result as {
+    health?: { status?: string; message?: string; credit?: { available_spending_usd?: number; credit_limit_usd?: number | null } | null };
+  } | null)?.health;
+  const credit = health?.credit;
 
   return (
     <div className="space-y-4">
@@ -142,6 +149,9 @@ export function ProxySourceWorkspace({ area, source, onSourceChange }: { area: S
           <p className="text-[12.5px] text-muted">
             {t("proxyMeta", { plans: source.catalog_count, products: products.length, offers: offers?.length ?? 0, synced: relTime(source.catalog_synced_at, t) })}
             {area === "admin" && ` · ${source.seller_email ?? t("unassigned")}`}
+            {credit?.available_spending_usd != null && (
+              <> · <span className="font-mono tabular-nums">{t("creditLeft", { amount: credit.available_spending_usd.toFixed(2) })}</span></>
+            )}
             {health?.status && (
               <> · <span className={cn(health.status === "healthy" ? "text-good" : health.status === "warning" ? "text-warn" : "text-bad")}>{health.message ?? health.status}</span></>
             )}
@@ -191,11 +201,11 @@ export function ProxySourceWorkspace({ area, source, onSourceChange }: { area: S
             )}
             {visible.map((o) => {
               const k = key(o);
-              const attention = !o.margin_ok || o.unmapped;
+              const attention = !o.margin_ok || o.unmapped || o.plan_missing;
               return (
                 <tr key={k} className={cn("border-t border-line", attention && "bg-warn-soft/30")}>
                   <td className="p-2.5 align-top">
-                    <Link href={`${productBase}/${o.product_id}`} className="font-medium text-fg hover:text-iris">{o.product_title}</Link>
+                    <Link href={productHref(o)} className="font-medium text-fg hover:text-iris">{o.product_title}</Link>
                     <span className="mt-0.5 block"><Tag tone={o.product_status === "active" ? "good" : "neutral"}>{o.product_status}</Tag></span>
                   </td>
                   <td className="p-2.5 align-top">
@@ -203,7 +213,10 @@ export function ProxySourceWorkspace({ area, source, onSourceChange }: { area: S
                     <span className="block font-mono text-[11px] text-faint">{o.plan_key}</span>
                   </td>
                   <td className="p-2.5 align-top text-[12px] text-muted">
-                    {o.unmapped ? <span className="text-warn"><AlertTriangle className="mr-1 inline h-3.5 w-3.5" />{t("unmappedPlan")}</span> : (o.external_name ?? o.external_id ?? "—")}
+                    {o.unmapped ? <span className="text-warn"><AlertTriangle className="mr-1 inline h-3.5 w-3.5" />{t("unmappedPlan")}</span>
+                      : o.plan_missing ? <span className="text-warn"><AlertTriangle className="mr-1 inline h-3.5 w-3.5" />{t("planMissing")}</span>
+                      : (o.external_name ?? o.external_id ?? "—")}
+                    {o.upstream_available === false && <span className="mt-0.5 block text-warn">{t("upstreamSoldOut")}</span>}
                   </td>
                   <td className="p-2.5 text-right align-top font-mono tabular-nums text-muted">{o.cost_price != null ? formatLedgerMoney(o.cost_price, locale) : "—"}</td>
                   <td className="p-2.5 text-right align-top">
@@ -280,10 +293,10 @@ function AddPlansDrawer({ area, source, products, margin, onClose, onDone }: {
   const [ownerId, setOwnerId] = useState("");
 
   useEffect(() => {
-    api.sources.catalog(area, source.id, { in_stock: false, per_page: 200, sort: "name" }).then((p) => setItems(p.items)).catch((e) => setError(apiErrorMessage(e)));
+    api.sources.catalog(area, sourceRef(area, source), { in_stock: false, per_page: 200, sort: "name" }).then((p) => setItems(p.items)).catch((e) => setError(apiErrorMessage(e)));
     api.categories().then(setCategories).catch(() => setCategories([]));
     if (needsOwner) api.sources.sellers().then(setSellers).catch(() => setSellers([]));
-  }, [area, source.id, apiErrorMessage, needsOwner]);
+  }, [area, source.id, source.public_key, apiErrorMessage, needsOwner]);
 
   const flatCategories = useMemo(() => {
     const out: { id: number; name: string }[] = [];
@@ -298,11 +311,14 @@ function AddPlansDrawer({ area, source, products, margin, onClose, onDone }: {
   }, [categories]);
 
   const add = (item: SourceCatalogItem) => {
-    const extra = item.extra as { duration_days?: number; mode?: string; loaiproxy?: string };
+    const extra = item.extra as { duration_days?: number; mode?: string; loaiproxy?: string; proxy_type?: string };
     const days = Number(extra.duration_days) || 30;
     setRows((rs) => [...rs, {
       _id: `${item.external_id}:${Date.now()}:${rs.length}`, item,
-      external_id: item.external_id, type: isTop ? "HTTP" : "", network: isTop ? (extra.mode === "xoay" ? "xoay" : item.external_id) : "",
+      external_id: item.external_id,
+      // DProxy: loại lấy từ proxies_type_id của gói; quốc gia/nhà mạng gói không khai → admin điền.
+      type: isTop ? "HTTP" : (extra.proxy_type ?? ""),
+      network: isTop ? (extra.mode === "xoay" ? "xoay" : item.external_id) : "",
       days, price: suggestPrice(item.cost_price, margin), network_label: isTop && extra.mode !== "xoay" ? item.name.split(" · ").pop() : undefined,
     }]);
   };
@@ -326,7 +342,7 @@ function AddPlansDrawer({ area, source, products, margin, onClose, onDone }: {
           ? { group_key: "new", ...(idx === 0 ? { title: title.trim(), category_id: Number(categoryId), status } : {}) }
           : { product_id: target }),
       }));
-      const created = await api.sources.importPlans(area, source.id, payload, needsOwner && target === "new" ? Number(ownerId) : null);
+      const created = await api.sources.importPlans(area, sourceRef(area, source), payload, needsOwner && target === "new" ? Number(ownerId) : null);
       await onDone(created.length);
     } catch (e) {
       setError(apiErrorMessage(e));
@@ -396,7 +412,15 @@ function AddPlansDrawer({ area, source, products, margin, onClose, onDone }: {
                             : <Input value={r.network} onChange={(e) => patch(r._id, { network: e.target.value })} placeholder="VN" className="h-8 w-20 font-mono text-[12px]" />}
                           {!isTop && <Input value={r.network_label ?? ""} onChange={(e) => patch(r._id, { network_label: e.target.value })} placeholder={t("networkLabelPh")} className="mt-1 h-8 w-28 text-[12px]" />}
                         </td>
-                        <td className="py-2 pr-2"><Input type="number" min={1} value={r.days ?? ""} onChange={(e) => patch(r._id, { days: Number(e.target.value) })} className="h-8 w-20 font-mono text-[12px]" /></td>
+                        <td className="py-2 pr-2">
+                          {/* Gói DProxy có thời hạn cố định — lệnh mua không nhận số ngày. */}
+                          <Input
+                            type="number" min={1} value={r.days ?? ""}
+                            readOnly={!isTop && Boolean((r.item.extra as { duration_days?: number }).duration_days)}
+                            onChange={(e) => patch(r._id, { days: Number(e.target.value) })}
+                            className="h-8 w-20 font-mono text-[12px] read-only:bg-raised read-only:text-muted"
+                          />
+                        </td>
                         <td className="py-2 pr-2 text-right"><Input type="number" min={1000} step={1000} value={r.price ?? ""} onChange={(e) => patch(r._id, { price: Number(e.target.value) })} className="h-8 w-28 text-right font-mono text-[12px]" /></td>
                         <td className="py-2 text-right"><button type="button" onClick={() => removeRow(r._id)} aria-label={t("cancel")} className="rounded p-1 text-faint hover:text-bad"><X className="h-4 w-4" /></button></td>
                       </tr>

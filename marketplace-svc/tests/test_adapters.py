@@ -121,6 +121,9 @@ def _make_provider(
     p.fallback_provider_id = fallback_provider_id
     p.config = config or {}
     p.review_status = review_status
+    # Admin-owned, like a real row created from /admin/providers — a bare
+    # MagicMock attribute would read as "seller-owned" to the factory.
+    p.seller_id = None
     return p
 
 

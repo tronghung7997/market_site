@@ -17,7 +17,7 @@ phẩm; buyer chỉ thấy tên gói của mình, không thấy nguồn.
 """
 from __future__ import annotations
 
-from fastapi import status
+from fastapi import HTTPException, status
 from sqlalchemy import select
 from sqlalchemy.ext.asyncio import AsyncSession
 
@@ -76,17 +76,12 @@ def cost_for(provider: Provider, item: SupplierCatalogItem | None, proxy_type: s
             cost = xoay_cost_for_days(days)
             return cost[1] if cost else None
         return static_cost_xu(network, days)
-    if item is None:
+    if item is None or item.cost_price <= 0:
         return None
-    extra = item.extra or {}
-    per_plan = item.cost_price
-    try:
-        count = max(1, int(extra.get("proxy_count") or 1))
-    except (TypeError, ValueError):
-        count = 1
-    plan_days = int(extra.get("duration_days") or 0) or days
-    # Gói DProxy có kỳ hạn cố định; nếu admin bán kỳ hạn khác thì quy đổi tuyến tính để ước lượng.
-    return round(per_plan / count * (days / plan_days)) if plan_days else round(per_plan / count)
+    # Gói DProxy: MỘT lệnh mua = MỘT proxy, đúng thời hạn của gói (lệnh mua
+    # không có tham số số ngày). Nhập gói đã chặn days ≠ duration_days và
+    # proxy_count ≠ 1, nên giá vốn của offer chính là giá vốn của gói.
+    return item.cost_price
 
 
 # ----------------------------------------------------------------------
@@ -157,6 +152,10 @@ def _offer_rows(provider: Provider, product: Product, catalog: dict[str, Supplie
             "margin_ok": margin_ok(price, cost, min_margin) if cost else True,
             "external_id": ext, "external_name": item.name if item else None,
             "unmapped": bool(provider.adapter_type == "dproxy" and not ext),
+            # Đã map nhưng gói không còn trong catalog đồng bộ gần nhất —
+            # thượng nguồn gỡ/đổi gói, đơn mới sẽ bị từ chối.
+            "plan_missing": bool(provider.adapter_type == "dproxy" and ext and item is None),
+            "upstream_available": (item.extra or {}).get("available") if item else None,
             # Giá suy từ công thức cũ — sửa một dòng sẽ chuyển cả sản phẩm sang bảng giá cố định.
             "from_formula": from_formula,
         })
@@ -205,6 +204,20 @@ def _validate_item(provider: Provider, item: SupplierCatalogItem, spec: dict) ->
         if proxy_type not in _STATIC_TYPES:
             raise api_error(ErrorCode.INVALID_PRODUCT_CONFIG, status.HTTP_400_BAD_REQUEST,
                             detail=f"TopProxy chỉ nhận giao thức {', '.join(sorted(_STATIC_TYPES))}")
+    if provider.adapter_type == "dproxy":
+        proxy_type = proxy_type or str(extra.get("proxy_type") or "").strip()
+        plan_days = int(extra.get("duration_days") or 0)
+        if extra.get("is_active") is False:
+            raise api_error(ErrorCode.PROXY_PLAN_INACTIVE, status.HTTP_400_BAD_REQUEST,
+                            detail=f"Gói {item.name} đang tắt ở thượng nguồn", plan=item.name)
+        if int(extra.get("proxy_count") or 1) != 1 or int(extra.get("min_quantity") or 1) > 1:
+            # Một đơn giao đúng MỘT proxy — gói nhiều proxy/lượt mua không bán lẻ được.
+            raise api_error(ErrorCode.PROXY_PLAN_NOT_RETAIL, status.HTTP_400_BAD_REQUEST,
+                            detail=f"Gói {item.name} cấp nhiều proxy mỗi lượt mua — chưa bán lẻ được", plan=item.name)
+        if plan_days and days != plan_days:
+            # Lệnh mua không nhận số ngày: bán kỳ hạn khác gói là hứa sai hạn.
+            raise api_error(ErrorCode.PROXY_PLAN_FIXED_DURATION, status.HTTP_400_BAD_REQUEST,
+                            detail=f"Gói {item.name} có thời hạn cố định {plan_days} ngày", plan=item.name, days=plan_days)
     if not proxy_type or not network or days < 1:
         raise api_error(ErrorCode.INVALID_PRODUCT_CONFIG, status.HTTP_400_BAD_REQUEST,
                         detail="Mỗi gói cần loại, nhà mạng/quốc gia và số ngày >= 1")
@@ -213,18 +226,119 @@ def _validate_item(provider: Provider, item: SupplierCatalogItem, spec: dict) ->
     return proxy_type, network, days
 
 
+DEFAULT_OFFER_DESCRIPTION = "Giao tự động ngay sau thanh toán. Thông tin kết nối nằm trong chi tiết đơn hàng."
+
+
+def require_margin(key: str, price: int, cost: int | None, min_margin: float) -> None:
+    """Chặn CỨNG giá bán dưới vốn × (1 + lãi tối thiểu) khi biết giá vốn.
+    Không biết vốn (chưa đồng bộ catalog / chưa có tỷ giá) → không chặn —
+    bảng gói hiện "chưa có giá vốn" để admin thấy."""
+    if cost and not margin_ok(price, cost, min_margin):
+        floor = suggest_price(cost, min_margin, 1)
+        raise api_error(
+            ErrorCode.PROXY_PRICE_BELOW_MARGIN, status.HTTP_400_BAD_REQUEST,
+            detail=(f"Gói {key}: giá bán {price:,}đ thấp hơn mức tối thiểu {floor:,}đ "
+                    f"(vốn {cost:,}đ + lãi {min_margin:g}%)"),
+            plan=key, price=price, floor=floor, cost=cost, margin=min_margin,
+        )
+
+
+async def enforce_offer_margins(provider: Provider | None, strategy: str | None, params: dict | None, db: AsyncSession) -> None:
+    """Cửa chặn biên lãi cho MỌI đường lưu giá sản phẩm proxy (admin
+    operations, seller pricing, /admin/sources). Chỉ áp cho nguồn proxy với
+    pricing `config` có bảng plan_prices."""
+    if provider is None or strategy != "config" or not is_proxy_source(provider):
+        return
+    prices = plan_prices_map(params or {})
+    if not prices:
+        return
+    catalog = await _catalog_by_id(provider.id, db)
+    min_margin = _min_margin_pct(provider)
+    for key, price in prices.items():
+        parsed = parse_plan_price_key(key)
+        if parsed is None:
+            continue
+        ext = catalog_external_id(provider, *parsed)
+        require_margin(key, int(price), cost_for(provider, catalog.get(ext) if ext else None, *parsed), min_margin)
+
+
+async def _merge_plan_ids(provider: Provider, patch: dict[str, str], db: AsyncSession, *, actor_id: int | None) -> None:
+    """Ghi ma trận plan của PROVIDER DProxy (dùng chung cho mọi sản phẩm của
+    nguồn). Khoá dòng provider để hai lần nhập song song không ghi đè nhau;
+    một key đã map tới plan KHÁC là xung đột (409) chứ không ghi đè im lặng —
+    sản phẩm đang bán key đó sẽ giao sai gói. Provider còn dùng `plan_id` đơn
+    (cấu hình cũ) thì mọi key của sản phẩm hiện có được map sang plan đó
+    trước, để chúng không mất plan khi chuyển sang ma trận."""
+    from src.adapters.dproxy import validate_dproxy_config
+    from src.audit.service import log_event
+
+    locked = await db.get(Provider, provider.id, with_for_update=True, populate_existing=True)
+    config = dict(locked.config or {})
+    plan_ids = dict(config.get("plan_ids") or {})
+    for key, plan in patch.items():
+        current = plan_ids.get(key)
+        if current is not None and str(current) != str(plan):
+            raise api_error(
+                ErrorCode.PROXY_PLAN_CONFLICT, status.HTTP_409_CONFLICT,
+                detail=f"Gói {key} đang map tới plan khác ({current}) — đổi mã loại/nhà mạng hoặc gỡ gói cũ trước",
+                plan=key,
+            )
+    legacy = config.get("plan_id")
+    if legacy and not plan_ids:
+        products = (await db.execute(
+            select(Product).where(Product.provider_id == locked.id, Product.pricing_strategy == "config")
+        )).scalars().all()
+        for product in products:
+            for key in plan_prices_map(product.pricing_params or {}):
+                plan_ids.setdefault(key, str(legacy))
+    before = dict(plan_ids)
+    plan_ids.update(patch)
+    if plan_ids == before and not legacy:
+        return
+    config["plan_ids"] = plan_ids
+    config.pop("plan_id", None)
+    try:
+        await validate_dproxy_config(config)
+    except HTTPException as e:
+        raise api_error(ErrorCode.INVALID_PRODUCT_CONFIG, status.HTTP_400_BAD_REQUEST, detail=str(e.detail)) from None
+    locked.config = config
+    await db.flush()
+    await log_event(
+        db, "warning", f"Provider {locked.id} plan_ids updated from sources",
+        metadata={"event": "provider_plan_ids_changed", "provider_id": locked.id, "actor_id": actor_id,
+                  "added": {k: v for k, v in patch.items() if before.get(k) != v},
+                  "migrated_legacy_plan_id": bool(legacy)},
+    )
+
+
 async def import_plans(
     provider: Provider, scope: SourceScope, items: list[dict], db: AsyncSession, *,
-    owner_seller_id: int | None = None,
+    owner_seller_id: int | None = None, actor_id: int | None = None,
 ) -> list[dict]:
     """Mỗi item = một GÓI ĐANG BÁN (một key `type|network|days` với giá bán)
     nối tới một dòng catalog. Gộp nhiều gói vào một sản phẩm bằng
     `product_id` (sản phẩm có sẵn của cùng seller, cùng nguồn) hoặc
     `group_key` (các item cùng key → một sản phẩm mới).
 
+    Tất cả hoặc không gì cả: một gói lỗi (sai kỳ hạn, dưới biên lãi, xung
+    đột plan) thì không sản phẩm nào được tạo và plan_ids không đổi.
+
     item: external_id, type, network, days, price, title?, category_id?,
           type_label?, network_label?, status?, description?, product_id?, group_key?
     """
+    try:
+        created = await _import_plans(provider, scope, items, db, owner_seller_id=owner_seller_id, actor_id=actor_id)
+    except Exception:
+        await db.rollback()
+        raise
+    await db.commit()
+    return created
+
+
+async def _import_plans(
+    provider: Provider, scope: SourceScope, items: list[dict], db: AsyncSession, *,
+    owner_seller_id: int | None, actor_id: int | None,
+) -> list[dict]:
     from src.products.service import create_product, update_product_operations
 
     _require_proxy(provider)
@@ -232,6 +346,8 @@ async def import_plans(
     # chỉ sản phẩm MỚI mới cần nguồn đã giao seller (hoặc admin chỉ định).
     needs_owner = any(not spec.get("product_id") for spec in items)
     seller_id = _owner_seller_id(provider, scope, owner_seller_id) if needs_owner else None
+    if seller_id is not None:
+        await _require_internal_owner(provider, seller_id, db)
     if provider.review_status != "approved":
         raise api_error(ErrorCode.PROVIDER_NOT_APPROVED, status.HTTP_400_BAD_REQUEST)
     catalog = await _catalog_by_id(provider.id, db)
@@ -248,18 +364,24 @@ async def import_plans(
                             detail=f"Gói {spec['external_id']} không có trong catalog đã đồng bộ — bấm Đồng bộ ngay")
         proxy_type, network, days = _validate_item(provider, item, spec)
         key = _plan_key(proxy_type, network, days)
+        if provider.adapter_type == "dproxy" and plan_ids_patch.get(key) not in (None, item.external_id):
+            raise api_error(ErrorCode.PROXY_PLAN_CONFLICT, status.HTTP_409_CONFLICT,
+                            detail=f"Hai gói thượng nguồn khác nhau cùng mã {key}", plan=key)
         cost = cost_for(provider, item, proxy_type, network, days)
         price = int(spec.get("price") or (suggest_price(cost, max(min_margin, 30)) if cost else 0))
         if price <= 0:
             raise api_error(ErrorCode.INVALID_PRODUCT_CONFIG, status.HTTP_400_BAD_REQUEST, detail=f"Gói {key}: cần giá bán > 0")
+        require_margin(key, price, cost, min_margin)
 
         product: Product | None = None
         if spec.get("product_id"):
             product = touched.get(int(spec["product_id"])) or await db.get(Product, int(spec["product_id"]))
             if product is None or (not scope.is_admin and product.seller_id != scope.seller_id):
                 raise api_error(ErrorCode.PRODUCT_NOT_FOUND, status.HTTP_404_NOT_FOUND)
-            if product.provider_id not in (None, provider.id):
-                raise api_error(ErrorCode.INVALID_PRODUCT_CONFIG, status.HTTP_400_BAD_REQUEST, detail="Sản phẩm đang dùng nguồn khác")
+            if product.provider_id != provider.id:
+                # Chỉ gộp vào sản phẩm ĐÃ thuộc nguồn này — gắn nguồn tiền
+                # của sàn vào sản phẩm của một seller khác là chuyển lãi ra ngoài.
+                raise api_error(ErrorCode.INVALID_PRODUCT_CONFIG, status.HTTP_400_BAD_REQUEST, detail="Sản phẩm không thuộc nguồn này")
         elif spec.get("group_key") and spec["group_key"] in new_products:
             product = new_products[spec["group_key"]]
         if product is None:
@@ -270,11 +392,11 @@ async def import_plans(
             product = await create_product(seller_id, {
                 "category_id": category.id,
                 "title": (spec.get("title") or item.name).strip()[:255],
-                "description": spec.get("description") or "Giao ngay sau thanh toán. Quản lý, đổi IP và gia hạn tại Proxy của tôi.",
+                "description": spec.get("description") or DEFAULT_OFFER_DESCRIPTION,
                 "escrow_days": int(spec.get("escrow_days") or 1),
                 "status": ProductStatus(spec.get("status") or "draft"),
                 "service_type": "proxy", "provider_id": provider.id, "pricing_strategy": "config",
-            }, db)
+            }, db, commit=False)
             if spec.get("group_key"):
                 new_products[spec["group_key"]] = product
         touched[product.id] = product
@@ -287,8 +409,8 @@ async def import_plans(
                 params.pop(k, None)
         prices[key] = price
         params["plan_prices"] = prices
-        params.setdefault("type_display", {})
-        params.setdefault("network_display", {})
+        params["type_display"] = dict(params.get("type_display") or {})
+        params["network_display"] = dict(params.get("network_display") or {})
         if spec.get("type_label"):
             params["type_display"][proxy_type] = str(spec["type_label"])[:80]
         if spec.get("network_label"):
@@ -306,19 +428,27 @@ async def import_plans(
 
     if plan_ids_patch:
         # DProxy: ma trận plan là của PROVIDER — ghi trước để validate sản phẩm đi qua.
-        config = dict(provider.config or {})
-        plan_ids = dict(config.get("plan_ids") or {})
-        plan_ids.update(plan_ids_patch)
-        config["plan_ids"] = plan_ids
-        config.pop("plan_id", None)
-        provider.config = config
-        await db.flush()
+        await _merge_plan_ids(provider, plan_ids_patch, db, actor_id=actor_id)
     for product in touched.values():
         await update_product_operations(product.id, {
             "provider_id": provider.id, "pricing_strategy": "config", "pricing_params": product.pricing_params,
-        }, db)
-    await db.commit()
+        }, db, commit=False)
     return created
+
+
+async def _require_internal_owner(provider: Provider, seller_id: int, db: AsyncSession) -> None:
+    """Sản phẩm của nguồn proxy tiêu tiền của SÀN ở thượng nguồn — chủ sở hữu
+    phải là seller NỘI BỘ đang giữ nguồn (hoặc được admin chỉ định), không
+    bao giờ là một seller thường."""
+    from src.models.account import Account
+
+    owner = await db.get(Account, seller_id)
+    if owner is None or "seller" not in (owner.roles or []) or not owner.is_internal:
+        raise api_error(ErrorCode.PROXY_SOURCE_OWNER_NOT_INTERNAL, status.HTTP_400_BAD_REQUEST,
+                        detail="Chủ sở hữu sản phẩm của nguồn proxy phải là seller nội bộ")
+    if provider.seller_id is not None and provider.seller_id != seller_id:
+        raise api_error(ErrorCode.INVALID_PRODUCT_CONFIG, status.HTTP_400_BAD_REQUEST,
+                        detail="Nguồn đã giao cho seller nội bộ khác")
 
 
 # ----------------------------------------------------------------------
@@ -348,6 +478,12 @@ async def update_offer(provider: Provider, scope: SourceScope, product_id: int, 
             params.pop(k, None)
     if price <= 0:
         raise api_error(ErrorCode.INVALID_PRODUCT_CONFIG, status.HTTP_400_BAD_REQUEST, detail="Giá bán phải > 0")
+    parsed = parse_plan_price_key(plan_key)
+    if parsed is not None:
+        catalog = await _catalog_by_id(provider.id, db)
+        ext = catalog_external_id(provider, *parsed)
+        require_margin(plan_key, int(price), cost_for(provider, catalog.get(ext) if ext else None, *parsed),
+                       _min_margin_pct(provider))
     prices[plan_key] = int(price)
     params["plan_prices"] = prices
     await update_product_operations(product.id, {"pricing_params": params}, db)
@@ -376,7 +512,10 @@ async def remove_offer(provider: Provider, scope: SourceScope, product_id: int, 
         await update_product_operations(product.id, {"pricing_params": params}, db)
     else:
         product.pricing_params = params
-        product.status = ProductStatus.draft
+        # Hết gói để bán: sản phẩm đang bán về nháp. Sản phẩm admin đã đình
+        # chỉ giữ nguyên đình chỉ — gỡ gói không phải cách gỡ đình chỉ.
+        if product.status == ProductStatus.active:
+            product.status = ProductStatus.draft
     await db.commit()
 
 
@@ -385,6 +524,10 @@ async def reprice_offers(provider: Provider, scope: SourceScope, db: AsyncSessio
     from src.products.service import update_product_operations
 
     _require_proxy(provider)
+    min_margin = _min_margin_pct(provider)
+    if margin_pct < min_margin:
+        raise api_error(ErrorCode.INVALID_PRODUCT_CONFIG, status.HTTP_400_BAD_REQUEST,
+                        detail=f"Lãi {margin_pct:g}% thấp hơn lãi tối thiểu {min_margin:g}% của nguồn")
     catalog = await _catalog_by_id(provider.id, db)
     stmt = select(Product).where(Product.provider_id == provider.id, Product.pricing_strategy == "config")
     if not scope.is_admin:

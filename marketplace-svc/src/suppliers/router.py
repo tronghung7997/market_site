@@ -5,7 +5,7 @@ from __future__ import annotations
 from datetime import datetime
 from typing import Literal
 
-from fastapi import APIRouter, Depends, Query
+from fastapi import APIRouter, Depends, HTTPException, Query, status
 from pydantic import BaseModel, Field
 from sqlalchemy.ext.asyncio import AsyncSession
 
@@ -22,6 +22,7 @@ router = APIRouter(tags=["supplier-sources"])
 
 class SourceSummary(BaseModel):
     id: int
+    public_key: str
     name: str
     adapter_type: str
     kind: Literal["catalog", "proxy", "server"] = "catalog"
@@ -148,7 +149,13 @@ def _routes(prefix: str, role: str):
     r = APIRouter(prefix=prefix)
 
     def scope_of(account: Account) -> SourceScope:
-        return SourceScope(seller_id=None if role == "admin" else account.id)
+        if role == "admin":
+            return SourceScope(seller_id=None)
+        # Khu "Nguồn cung" chỉ dành cho seller NỘI BỘ (sàn vận hành) — seller
+        # thường không thấy trên UI và cũng không gọi được API.
+        if not account.is_internal:
+            raise HTTPException(status_code=status.HTTP_403_FORBIDDEN, detail="Chỉ seller nội bộ dùng được Nguồn cung")
+        return SourceScope(seller_id=account.id)
 
     @r.get("", response_model=list[SourceSummary])
     async def list_sources(account: Account = Depends(require_role(role)), db: AsyncSession = Depends(get_session)):
@@ -156,7 +163,7 @@ def _routes(prefix: str, role: str):
 
     @r.get("/{provider_id}/catalog")
     async def browse(
-        provider_id: int,
+        provider_id: str,
         q: str = "", group: str = "", in_stock: bool = True,
         max_cost: int | None = Query(default=None, ge=0),
         page: int = Query(default=1, ge=1), per_page: int = Query(default=50, ge=1, le=200),
@@ -171,23 +178,23 @@ def _routes(prefix: str, role: str):
         )
 
     @r.post("/{provider_id}/sync")
-    async def sync(provider_id: int, account: Account = Depends(require_role(role)), db: AsyncSession = Depends(get_session)):
+    async def sync(provider_id: str, account: Account = Depends(require_role(role)), db: AsyncSession = Depends(get_session)):
         provider = await sources.get_source(provider_id, scope_of(account), db)
         return await sources.sync_now(provider, db)
 
     @r.get("/{provider_id}/listings")
-    async def listings(provider_id: int, account: Account = Depends(require_role(role)), db: AsyncSession = Depends(get_session)):
+    async def listings(provider_id: str, account: Account = Depends(require_role(role)), db: AsyncSession = Depends(get_session)):
         scope = scope_of(account)
-        provider = await sources.get_source(provider_id, scope, db)
+        provider = await sources.get_catalog_source(provider_id, scope, db)
         return await sources.list_listings(provider, scope, db)
 
     @r.post("/{provider_id}/import", status_code=201)
     async def import_items(
-        provider_id: int, body: ImportRequest,
+        provider_id: str, body: ImportRequest,
         account: Account = Depends(require_role(role)), db: AsyncSession = Depends(get_session),
     ):
         scope = scope_of(account)
-        provider = await sources.get_source(provider_id, scope, db)
+        provider = await sources.get_catalog_source(provider_id, scope, db)
         return await sources.import_items(
             provider, scope, [i.model_dump() for i in body.items], db,
             owner_seller_id=body.owner_seller_id if scope.is_admin else None,
@@ -195,21 +202,21 @@ def _routes(prefix: str, role: str):
 
     @r.post("/{provider_id}/attach", status_code=201)
     async def attach(
-        provider_id: int, body: AttachRequest,
+        provider_id: str, body: AttachRequest,
         account: Account = Depends(require_role(role)), db: AsyncSession = Depends(get_session),
     ):
         scope = scope_of(account)
-        provider = await sources.get_source(provider_id, scope, db)
+        provider = await sources.get_catalog_source(provider_id, scope, db)
         listing = await sources.attach_existing_variant(provider, scope, body.variant_id, body.external_id, db)
         return {"listing_id": listing.id, "variant_id": listing.variant_id, "external_id": listing.external_product_id}
 
     @r.post("/{provider_id}/reprice")
     async def reprice(
-        provider_id: int, body: RepriceRequest,
+        provider_id: str, body: RepriceRequest,
         account: Account = Depends(require_role(role)), db: AsyncSession = Depends(get_session),
     ):
         scope = scope_of(account)
-        provider = await sources.get_source(provider_id, scope, db)
+        provider = await sources.get_catalog_source(provider_id, scope, db)
         return await sources.reprice_listings(
             provider, scope, db, margin_pct=body.margin_pct, round_to=body.round_to,
             listing_ids=body.listing_ids, only_below_min=body.only_below_min,
@@ -218,26 +225,26 @@ def _routes(prefix: str, role: str):
     # --- nguồn proxy: gói đang bán (pricing config) -----------------------
 
     @r.get("/{provider_id}/offers")
-    async def offers(provider_id: int, account: Account = Depends(require_role(role)), db: AsyncSession = Depends(get_session)):
+    async def offers(provider_id: str, account: Account = Depends(require_role(role)), db: AsyncSession = Depends(get_session)):
         scope = scope_of(account)
         provider = await sources.get_source(provider_id, scope, db)
         return await proxy_sources.list_offers(provider, scope, db)
 
     @r.post("/{provider_id}/import-plans", status_code=201)
     async def import_plans(
-        provider_id: int, body: PlanImportRequest,
+        provider_id: str, body: PlanImportRequest,
         account: Account = Depends(require_role(role)), db: AsyncSession = Depends(get_session),
     ):
         scope = scope_of(account)
         provider = await sources.get_source(provider_id, scope, db)
         return await proxy_sources.import_plans(
             provider, scope, [i.model_dump() for i in body.items], db,
-            owner_seller_id=body.owner_seller_id if scope.is_admin else None,
+            owner_seller_id=body.owner_seller_id if scope.is_admin else None, actor_id=account.id,
         )
 
     @r.patch("/{provider_id}/offers")
     async def update_offer(
-        provider_id: int, body: OfferUpdate,
+        provider_id: str, body: OfferUpdate,
         account: Account = Depends(require_role(role)), db: AsyncSession = Depends(get_session),
     ):
         scope = scope_of(account)
@@ -246,7 +253,7 @@ def _routes(prefix: str, role: str):
 
     @r.post("/{provider_id}/offers/remove", status_code=204)
     async def remove_offer(
-        provider_id: int, body: OfferRemove,
+        provider_id: str, body: OfferRemove,
         account: Account = Depends(require_role(role)), db: AsyncSession = Depends(get_session),
     ):
         scope = scope_of(account)
@@ -255,7 +262,7 @@ def _routes(prefix: str, role: str):
 
     @r.post("/{provider_id}/offers/reprice")
     async def reprice_offers(
-        provider_id: int, body: OfferRepriceRequest,
+        provider_id: str, body: OfferRepriceRequest,
         account: Account = Depends(require_role(role)), db: AsyncSession = Depends(get_session),
     ):
         scope = scope_of(account)

@@ -1,5 +1,9 @@
 # DProxy M2M implementation handoff
 
+> **Superseded (2026-09-23):** the live API differs from what this brief
+> assumed (no `status`, null `order_id`, `assignment_id` present). Current
+> state, live probe and go-live checklist: `docs/dproxy-go-live-plan.md`.
+
 Last updated: 2026-09-08 (Asia/Ho_Chi_Minh)
 
 This document is the continuation brief for another coding agent. It describes

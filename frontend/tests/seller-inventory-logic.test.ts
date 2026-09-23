@@ -5,7 +5,13 @@ import {
   LatestRequestGate,
   RESOURCE_LINE_MAX_LENGTH,
   chunkRestockItems,
+  formatByteSize,
+  isAbortError,
+  isRestockHeaderLine,
+  jsonByteLength,
+  restockFieldCount,
   runInRestockBatches,
+  splitRestockSource,
   runRestockBatches,
   summarizeRestockPreview,
   tooLongRestockLines,
@@ -184,7 +190,7 @@ test("restock sends unique lines batch by batch and sums the counters", async ()
   const result = await runRestockBatches(items, async (batch) => {
     sent.push(batch);
     return { count: batch.length - (batch.includes("b") ? 1 : 0), skipped_duplicate: 0, skipped_existing: batch.includes("b") ? 1 : 0, skipped_market: batch.includes("c") ? 1 : 0 };
-  }, (next) => progress.push(next));
+  }, { onProgress: (next) => progress.push(next) });
   assert.deepEqual(sent.flat(), ["a", "b", "c"]);
   assert.deepEqual(result, { count: 2, skipped_duplicate: 1, skipped_existing: 1, skipped_market: 1 });
   assert.deepEqual(progress.at(-1), { done: 3, total: 3, added: 2 });
@@ -200,7 +206,7 @@ test("restock failure keeps progress of committed batches and rethrows the error
       calls += 1;
       if (calls === 2) throw boom;
       return { count: batch.length, skipped_duplicate: 0, skipped_existing: 0, skipped_market: 0 };
-    }, (next) => { last = next; }),
+    }, { onProgress: (next) => { last = next; } }),
     (error) => error === boom,
   );
   assert.equal(calls, 2);
@@ -268,4 +274,73 @@ test("restock rethrows too-large for a single line and any other error as-is", a
     (error) => error === boom,
   );
   assert.equal(calls, 1, "non-size errors are not retried");
+});
+
+test("restock JSON byte sizing matches the real encoding", () => {
+  const samples = [
+    "",
+    "plain|ascii|line",
+    'quote"and\\backslash',
+    "tab\tnew\nline\rbell\u0007",
+    "Mail khôi phục|Tiếng Việt",
+    "emoji 😀|pair",
+    "lone \ud83d surrogate",
+    "\u2028 separators \u2029",
+    JSON.stringify({ url: "https://www.tiktok.com", cookies: [{ name: "a", value: "b" }] }),
+  ];
+  for (const sample of samples) {
+    assert.equal(jsonByteLength(sample), Buffer.byteLength(JSON.stringify(sample)), sample);
+  }
+});
+
+test("restock field count matches splitting on the pipe", () => {
+  for (const line of ["", "one", "a|b", "a||b|", "|lead|trail|"]) {
+    assert.equal(restockFieldCount(line), line.split("|").length, line);
+  }
+});
+
+test("restock recognizes a column header and keeps credential-looking lines", () => {
+  assert.equal(isRestockHeaderLine("Username|Password|Mail|Mail pass|Mail khôi phục|Cookies", "u|p|m|mp|r|c"), true);
+  assert.equal(isRestockHeaderLine("UID|Pass|2FA|Email"), true);
+  assert.equal(isRestockHeaderLine("tài khoản|mật khẩu|ghi chú"), true);
+  assert.equal(isRestockHeaderLine("user1|pass1|2fa"), false, "digits make it stock");
+  assert.equal(isRestockHeaderLine("uid1001|pass123|2fa_code|email@domain.com"), false);
+  assert.equal(isRestockHeaderLine("LICENSE-KEY-EXAMPLE-9901"), false, "single field is never a header");
+  assert.equal(isRestockHeaderLine("hello|world"), false, "labels must name credential columns");
+  assert.equal(isRestockHeaderLine("Username|Password|Mail", "u|p"), false, "field count must match the next line");
+  assert.equal(isRestockHeaderLine("Link|https://x.io"), false);
+});
+
+test("restock splits a detected header off an upload", () => {
+  assert.deepEqual(splitRestockSource("Username|Password\r\nalice|s3cret\r\n\r\nbob|hunter2\n"), {
+    header: "Username|Password",
+    items: ["alice|s3cret", "bob|hunter2"],
+  });
+  assert.deepEqual(splitRestockSource("alice|s3cret\nbob|hunter2"), { header: null, items: ["alice|s3cret", "bob|hunter2"] });
+  assert.deepEqual(splitRestockSource(""), { header: null, items: [] });
+});
+
+test("restock stops before the next batch once aborted and reports saved progress", async () => {
+  const items = Array.from({ length: 6 }, (_, i) => `line${i}|` + "x".repeat(700_000));
+  const controller = new AbortController();
+  let calls = 0;
+  let last: RestockProgress | null = null;
+  await assert.rejects(
+    runRestockBatches(items, async (batch) => {
+      calls += 1;
+      if (calls === 1) controller.abort();
+      return { count: batch.length, skipped_duplicate: 0, skipped_existing: 0, skipped_market: 0 };
+    }, { signal: controller.signal, onProgress: (next) => { last = next; } }),
+    (error) => isAbortError(error),
+  );
+  assert.equal(calls, 1, "the batch in flight finishes, no new batch starts");
+  const reached = last as RestockProgress | null;
+  assert.ok(reached && reached.done > 0 && reached.done < 6);
+});
+
+test("restock file sizes read like a file manager", () => {
+  assert.equal(formatByteSize(512, "en"), "512 B");
+  assert.equal(formatByteSize(1_306_497, "en"), "1.2 MB");
+  assert.equal(formatByteSize(1_306_497, "vi"), "1,2 MB");
+  assert.equal(formatByteSize(9_721_322, "vi"), "9,3 MB");
 });

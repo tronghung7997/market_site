@@ -458,6 +458,7 @@
     "inventoryOut": "{count} hết hàng",
     "inventoryLow": "{count} sắp hết",
     "inventoryAdding": "Đang thêm…",
+    "inventoryAddingProgress": "Đang nạp {done}/{total}…",
     "cancel": "Huỷ",
     "inventoryAddFailed": "Không nạp được hàng, thử lại.",
     "loading": "Đang tải…",
@@ -1566,7 +1567,24 @@
       "partialFailed": "Đã xử lý {done}/{total} dòng ({added} dòng mới vào kho) thì dừng: {error} Bấm nạp lại — dòng đã vào kho sẽ tự bỏ qua.",
       "done": "Đã nạp {count} dòng vào kho",
       "doneSkipped": "bỏ qua {duplicate} trùng trong file, {existing} đã có trong kho",
-      "doneMarket": "{count} dòng bị từ chối vì đã tồn tại trên sàn (gói khác, seller khác hoặc đã bán) — mỗi tài khoản chỉ được bán một lần"
+      "doneMarket": "{count} dòng bị từ chối vì đã tồn tại trên sàn (gói khác, seller khác hoặc đã bán) — mỗi tài khoản chỉ được bán một lần",
+      "sourcesLabel": "File đã chọn",
+      "reading": "Đang đọc {name}…",
+      "readFailed": "Không đọc được file {name}. Kiểm tra lại file .txt/.csv (UTF-8).",
+      "fileLines": "{count} dòng",
+      "removeFile": "Bỏ {name}",
+      "pastedSource": "Nội dung dán",
+      "placeholderMore": "Hoặc dán thêm dòng tại đây",
+      "headerSkipped": "Đã bỏ dòng tiêu đề",
+      "headerKept": "Đang giữ dòng tiêu đề làm hàng",
+      "keepHeader": "Giữ làm hàng",
+      "skipHeader": "Bỏ dòng này",
+      "checking": "Đang đối chiếu với kho… {done}/{total} dòng",
+      "progressLabel": "Tiến độ nạp hàng",
+      "uploadProgress": "Đã xử lý {done}/{total} dòng · {percent}% · {added} dòng mới",
+      "stop": "Dừng sau lô này",
+      "stopping": "Đang dừng sau lô hiện tại…",
+      "stopped": "Đã dừng: {added} dòng mới vào kho ({done}/{total} dòng đã xử lý). Bấm nạp lại để nạp phần còn lại — dòng đã vào kho sẽ tự bỏ qua."
     },
     "resource": {
       "tabsLabel": "Trạng thái tài nguyên",
@@ -1770,7 +1788,11 @@
       "overLimit": "Kết quả vượt giới hạn {limit} dòng — file sẽ bị cắt. Thu hẹp phạm vi hoặc chia nhiều lần.",
       "pickStatus": "Chọn ít nhất một trạng thái.",
       "previewTitle": "Xem trước 20 dòng đầu",
-      "previewEmpty": "Không có dòng nào khớp."
+      "previewEmpty": "Không có dòng nào khớp.",
+      "preparing": "Đang chuẩn bị file…",
+      "downloading": "Đang tải {size}…",
+      "cancelDownload": "Huỷ tải",
+      "downloadFailed": "Không tải được file xuất"
     },
     "columns": {
       "index": "STT",
@@ -1787,7 +1809,10 @@
       "searchPlaceholder": "Tìm danh mục…",
       "hint": "Tick danh mục cha = chọn cả nhánh",
       "empty": "Chưa có danh mục"
-    }
+    },
+    "loading": "Đang tải kho hàng…",
+    "refreshing": "Đang cập nhật dữ liệu…",
+    "staleData": "Đang hiển thị dữ liệu cũ — chưa tải lại được."
   },
   "errors": {
     "NETWORK": "Không thể kết nối tới máy chủ. Vui lòng kiểm tra mạng và thử lại.",

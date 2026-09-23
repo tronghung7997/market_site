@@ -7,8 +7,9 @@ import { Link } from "@/i18n/navigation";
 import { cn } from "@/lib/cn";
 import { useApiErrorMessage } from "@/lib/use-api-error";
 import { useDebounce } from "@/lib/hooks/useDebounce";
+import { useDelayedFlag } from "@/lib/hooks/useDelayedFlag";
 import type { InventoryPackageSort, InventoryProductStatusFilter } from "@/lib/types";
-import { Button, Card, Input, Pagination, Select } from "@/components/ui";
+import { ActivityBar, Button, Card, Input, Pagination, Select, Skeleton } from "@/components/ui";
 import { AlertCircle, AlertTriangle, BarChart, CheckCircle2, Download, Package, Plus, RefreshCw, Search, X } from "@/components/Icons";
 import {
   DEFAULT_INVENTORY_FILTERS, hasActiveInventoryFilters, PACKAGE_PAGE_SIZE, PACKAGE_SORTS, PRODUCT_STATUS_FILTERS,
@@ -19,22 +20,59 @@ import { CategoryTreeSelect } from "./CategoryTreeSelect";
 import { InventorySummaryStrip } from "./InventorySummaryStrip";
 import { PackageTable } from "./PackageTable";
 
-export function InventoryConsoleSkeleton() {
+/** Package rows while the first page loads: cover, title lines, numbers. */
+export function PackageRowsSkeleton({ rows = 8 }: { rows?: number }) {
   return (
-    <div className="animate-pulse space-y-4" aria-busy="true">
-      <div className="flex items-center justify-between">
-        <div className="space-y-1.5"><div className="h-6 w-40 rounded bg-raised" /><div className="h-3.5 w-64 rounded bg-raised" /></div>
-        <div className="h-9 w-48 rounded-lg bg-raised" />
-      </div>
-      <div className="h-[84px] rounded-xl border border-line bg-raised" />
-      <div className="h-96 rounded-xl border border-line bg-raised" />
+    <div className="divide-y divide-line">
+      {Array.from({ length: rows }).map((_, i) => (
+        <div key={i} className="flex items-center gap-3 px-3 py-3">
+          <Skeleton className="h-3.5 w-3.5 rounded" />
+          <Skeleton className="h-8 w-8 shrink-0 rounded-lg" />
+          <div className="min-w-0 flex-1 space-y-1.5">
+            <Skeleton className={cn("h-3.5", i % 3 === 0 ? "w-2/5" : i % 3 === 1 ? "w-1/2" : "w-1/3")} />
+            <Skeleton className="h-3 w-1/4" />
+          </div>
+          <Skeleton className="hidden h-3.5 w-14 sm:block" />
+          <Skeleton className="h-3.5 w-10" />
+          <Skeleton className="hidden h-5 w-16 rounded-md md:block" />
+          <Skeleton className="hidden h-7 w-24 rounded-lg lg:block" />
+        </div>
+      ))}
     </div>
   );
 }
 
-export function Switch({ checked, onChange, label, hint }: { checked: boolean; onChange: (next: boolean) => void; label: string; hint?: string }) {
+export function InventoryConsoleSkeleton() {
+  const t = useTranslations("sellerInventory");
   return (
-    <button type="button" role="switch" aria-checked={checked} onClick={() => onChange(!checked)} className="inline-flex items-center gap-2 text-[12.5px] text-fg">
+    <div className="space-y-5" aria-busy="true">
+      <span role="status" className="sr-only">{t("loading")}</span>
+      <div className="flex flex-col justify-between gap-3 sm:flex-row sm:items-center">
+        <div className="space-y-2"><Skeleton className="h-5 w-40" /><Skeleton className="h-3.5 w-72 max-w-full" /></div>
+        <div className="flex gap-2"><Skeleton className="h-8 w-24 rounded-lg" /><Skeleton className="h-8 w-24 rounded-lg" /><Skeleton className="h-8 w-24 rounded-lg" /></div>
+      </div>
+      <Card className="overflow-hidden p-0">
+        <div className="grid grid-cols-2 sm:grid-cols-3 lg:grid-cols-6">
+          {Array.from({ length: 6 }).map((_, i) => (
+            <div key={i} className="flex flex-col gap-2 border-line px-4 py-3 [&:not(:first-child)]:sm:border-l">
+              <Skeleton className="h-3 w-16" /><Skeleton className="h-5 w-12" /><Skeleton className="h-2.5 w-20" />
+            </div>
+          ))}
+        </div>
+      </Card>
+      <Card className="overflow-hidden p-0">
+        <div className="flex flex-wrap items-center gap-2 border-b border-line bg-raised/30 p-3">
+          <Skeleton className="h-9 min-w-[200px] flex-1 rounded-lg" /><Skeleton className="h-9 w-40 rounded-lg" /><Skeleton className="h-9 w-44 rounded-lg" />
+        </div>
+        <PackageRowsSkeleton />
+      </Card>
+    </div>
+  );
+}
+
+export function Switch({ checked, onChange, label, hint, busy }: { checked: boolean; onChange: (next: boolean) => void; label: string; hint?: string; busy?: boolean }) {
+  return (
+    <button type="button" role="switch" aria-checked={checked} aria-busy={busy || undefined} disabled={busy} onClick={() => onChange(!checked)} className="inline-flex items-center gap-2 text-[12.5px] text-fg disabled:cursor-wait disabled:opacity-70">
       <span className={cn("relative inline-block h-[18px] w-[30px] rounded-full transition-colors", checked ? "bg-iris" : "bg-line-2")}>
         <span className={cn("absolute top-0.5 h-3.5 w-3.5 rounded-full bg-white shadow-xs transition-all", checked ? "left-[14px]" : "left-0.5")} />
       </span>
@@ -56,6 +94,7 @@ export function InventoryConsole({
   const apiErrorMessage = useApiErrorMessage();
   const query = useInventoryPackages(filters);
   const bulk = useBulkPackageStatus();
+  const [bulkAction, setBulkAction] = useState<"activate" | "deactivate" | null>(null);
   const [search, setSearch] = useState(filters.search);
   const debounced = useDebounce(search, 250);
   const [selected, setSelected] = useState<Set<number>>(new Set());
@@ -71,6 +110,7 @@ export function InventoryConsole({
 
   const handleBulk = async (isActive: boolean) => {
     const ids = [...selected];
+    setBulkAction(isActive ? "activate" : "deactivate");
     try {
       const result = await bulk.mutateAsync({ ids, isActive });
       setSelected(new Set());
@@ -82,11 +122,18 @@ export function InventoryConsole({
       });
     } catch (err) {
       setNotice({ tone: "bad", text: apiErrorMessage(err, t("notice.bulkFailed")) });
+    } finally {
+      setBulkAction(null);
     }
   };
 
+  const refreshing = query.isFetching;
+  const dimmed = useDelayedFlag(refreshing && !query.isPending);
+  // Typed but not yet applied (debounce) or applied and still loading.
+  const searching = search.trim() !== filters.search.trim() || (refreshing && filters.search.trim() !== "");
+
   if (query.isPending) return <InventoryConsoleSkeleton />;
-  if (query.isError) {
+  if (query.isError && !query.data) {
     return (
       <Card className="p-10 text-center">
         <AlertCircle size={32} className="mx-auto mb-2 text-bad" />
@@ -100,7 +147,7 @@ export function InventoryConsole({
   const data = query.data;
   const counts = data.counts;
   const totalPages = Math.max(1, Math.ceil(data.total / PACKAGE_PAGE_SIZE));
-  const refreshing = query.isFetching;
+  const staleError = query.isError;
   const brandNew = counts.all === 0 && !hasActiveInventoryFilters(filters) && filters.hideInactive;
   const selectedIds = [...selected];
   // Export links carry package keys, not row ids (the export page matches either).
@@ -157,11 +204,22 @@ export function InventoryConsole({
             </div>
           )}
 
-          <Card className={cn("overflow-hidden p-0 transition-opacity", refreshing && "opacity-70")} aria-busy={refreshing}>
+          {staleError && (
+            <div role="alert" className="flex flex-wrap items-center justify-between gap-2 rounded-lg border border-warn/25 bg-warn-soft px-3 py-2 text-xs font-medium text-warn">
+              <span className="flex items-center gap-1.5"><AlertTriangle size={14} className="shrink-0" /> {t("staleData")} {apiErrorMessage(query.error)}</span>
+              <Button size="sm" variant="secondary" loading={refreshing} onClick={() => void query.refetch()} className="h-7 text-[12px]">{t("retry")}</Button>
+            </div>
+          )}
+
+          <Card className="relative overflow-hidden p-0" aria-busy={refreshing}>
+            <ActivityBar active={refreshing} label={t("refreshing")} />
             <div className="flex flex-wrap items-center gap-2 border-b border-line bg-raised/30 p-3">
               <div className="relative min-w-[200px] flex-1">
                 <span className="pointer-events-none absolute left-3 top-2.5 text-muted" aria-hidden><Search size={14} /></span>
                 <Input value={search} onChange={(e) => setSearch(e.target.value)} placeholder={t("filters.searchPlaceholder")} aria-label={t("filters.searchPlaceholder")} className="h-9 rounded-lg pl-9 pr-8 text-xs" />
+                {searching && (
+                  <span aria-hidden className="absolute right-9 top-1/2 h-3 w-3 -translate-y-1/2 animate-spin rounded-full border-[1.5px] border-iris border-t-transparent" />
+                )}
                 {search && (
                   <Button size="sm" variant="ghost" onClick={() => setSearch("")} aria-label={t("clear")} className="absolute right-1 top-1 h-7 w-7 p-0 text-muted hover:text-fg"><X size={13} /></Button>
                 )}
@@ -196,12 +254,13 @@ export function InventoryConsole({
                 <span className="font-semibold text-fg">{t("bulk.selected", { count: selected.size })}</span>
                 <Link href={exportHref}><Button size="sm" variant="secondary" className="h-7 gap-1 text-[12px]"><Download size={12} /> {t("bulk.export")}</Button></Link>
                 <Link href={reportHref}><Button size="sm" variant="secondary" className="h-7 gap-1 text-[12px]"><BarChart size={12} /> {t("bulk.report")}</Button></Link>
-                <Button size="sm" variant="secondary" disabled={bulk.isPending} onClick={() => void handleBulk(false)} className="h-7 gap-1 text-[12px]"><Pause size={12} /> {t("bulk.deactivate")}</Button>
-                <Button size="sm" variant="secondary" disabled={bulk.isPending} onClick={() => void handleBulk(true)} className="h-7 gap-1 text-[12px]"><Play size={12} /> {t("bulk.activate")}</Button>
+                <Button size="sm" variant="secondary" loading={bulkAction === "deactivate"} disabled={bulk.isPending} onClick={() => void handleBulk(false)} className="h-7 gap-1 text-[12px]">{bulkAction !== "deactivate" && <Pause size={12} />} {t("bulk.deactivate")}</Button>
+                <Button size="sm" variant="secondary" loading={bulkAction === "activate"} disabled={bulk.isPending} onClick={() => void handleBulk(true)} className="h-7 gap-1 text-[12px]">{bulkAction !== "activate" && <Play size={12} />} {t("bulk.activate")}</Button>
                 <Button size="sm" variant="ghost" onClick={() => setSelected(new Set())} className="h-7 text-[12px] text-muted">{t("clearSelection")}</Button>
               </div>
             )}
 
+            <div className={cn("transition-opacity duration-200", dimmed && "pointer-events-none opacity-55")}>
             {data.items.length === 0 ? (
               <div className="p-8 text-center">
                 <Package size={32} className="mx-auto mb-2 text-faint" />
@@ -220,6 +279,7 @@ export function InventoryConsole({
                 onSelect={(ids, checked) => setSelected((prev) => { const next = new Set(prev); ids.forEach((id) => (checked ? next.add(id) : next.delete(id))); return next; })}
               />
             )}
+            </div>
 
             <div className="flex flex-wrap items-center justify-between gap-2 border-t border-line bg-raised/20 p-3 text-xs">
               <span className="text-[12px] text-muted">

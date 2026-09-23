@@ -24,21 +24,73 @@ const BTN_SIZES = {
 } as const;
 
 export function Button({
-  variant = "primary", size = "md", block, className, children, ...props
+  variant = "primary", size = "md", block, loading, className, children, disabled, ...props
 }: ButtonHTMLAttributes<HTMLButtonElement> & {
   variant?: keyof typeof BTN_VARIANTS; size?: keyof typeof BTN_SIZES; block?: boolean;
+  /** Mutation in flight: blocks repeat clicks and shows an inline spinner. */
+  loading?: boolean;
 }) {
   return (
     <button
       className={cn(
         "inline-flex items-center justify-center rounded-lg font-medium transition-colors duration-150 cursor-pointer",
         "disabled:opacity-50 disabled:pointer-events-none whitespace-nowrap",
+        loading && "disabled:opacity-80 cursor-wait",
         BTN_VARIANTS[variant], BTN_SIZES[size], block && "w-full", className,
       )}
+      disabled={disabled || loading}
+      aria-busy={loading || undefined}
       {...props}
     >
+      {loading && <span aria-hidden className="h-3 w-3 shrink-0 animate-spin rounded-full border-[1.5px] border-current border-t-transparent" />}
       {children}
     </button>
+  );
+}
+
+/** Layout-shaped placeholder while the first response loads. */
+export function Skeleton({ className }: { className?: string }) {
+  return (
+    <span aria-hidden className={cn("relative block overflow-hidden rounded-md bg-raised", className)}>
+      <span className="absolute inset-0 animate-shimmer" />
+    </span>
+  );
+}
+
+/**
+ * Hairline indeterminate bar pinned to the top edge of a data surface while it
+ * refreshes in the background. It fades in after 150 ms so fast responses never
+ * flash, and disappears immediately. The parent must be `relative`.
+ */
+export function ActivityBar({ active, label }: { active: boolean; label: string }) {
+  return (
+    <div
+      aria-hidden={!active}
+      className={cn(
+        "pointer-events-none absolute inset-x-0 top-0 z-10 h-0.5 overflow-hidden bg-iris/15",
+        active ? "opacity-100 transition-opacity delay-150 duration-200" : "opacity-0",
+      )}
+    >
+      {active && <span className="block h-full w-1/4 rounded-full bg-iris animate-activity" />}
+      <span role="status" className="sr-only">{active ? label : ""}</span>
+    </div>
+  );
+}
+
+/** Determinate progress for a long mutation (upload, batch import, download). */
+export function ProgressBar({ value, max, label, className }: { value: number; max: number; label: string; className?: string }) {
+  const ratio = max > 0 ? Math.min(1, Math.max(0, value / max)) : 0;
+  return (
+    <div
+      role="progressbar"
+      aria-label={label}
+      aria-valuemin={0}
+      aria-valuemax={max}
+      aria-valuenow={value}
+      className={cn("h-1.5 overflow-hidden rounded-full bg-raised", className)}
+    >
+      <div className="h-full origin-left rounded-full bg-iris transition-transform duration-200 ease-out" style={{ transform: `scaleX(${ratio})` }} />
+    </div>
   );
 }
 

@@ -325,6 +325,16 @@ export function maskResourceData(data: string, token = "••••••"): st
   return data.length > 2 ? `${data.slice(0, 2)}${token}` : token;
 }
 
+/** A single-line table cell never shows more than ~200 characters, but laying
+ * out the whole value does cost: 100 cookie-sized rows (~1 MB of text) took
+ * ~850 ms per layout. Cells render a clipped copy; the full value stays in the
+ * detail dialog, copy button and export. */
+export const CELL_TEXT_MAX = 240;
+
+export function clipForCell(value: string, max = CELL_TEXT_MAX): string {
+  return value.length > max ? `${value.slice(0, max)}…` : value;
+}
+
 export function fieldCount(line: string): number {
   return line.split("|").length;
 }

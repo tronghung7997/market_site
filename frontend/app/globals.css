@@ -109,11 +109,16 @@
     background-size: 200% 100%;
     animation: shimmer-x 1.8s linear infinite;
   }
+  /* Background activity on a data surface (refetch, preview): a short
+     segment sweeping a hairline track. Reduced motion shows a static bar. */
+  @keyframes activity-slide { from { transform: translateX(-100%); } to { transform: translateX(400%); } }
+  .animate-activity { animation: activity-slide 1.1s cubic-bezier(0.4, 0, 0.2, 1) infinite; }
   /* Thanh thông báo dài hơn màn hình: chữ trôi đều từ phải sang trái, lặp vô hạn. */
   @keyframes announcement-marquee { from { transform: translateX(0); } to { transform: translateX(var(--marquee-shift)); } }
   .announcement-marquee { animation: announcement-marquee linear infinite; }
   @media (prefers-reduced-motion: reduce) {
     .animate-seal, .animate-rise, .animate-pop, .animate-shimmer, .animate-spin-ring { animation: none; }
+    .animate-activity { animation: none; width: 100%; opacity: 0.5; }
     .announcement-marquee { animation: none; }
   }
 

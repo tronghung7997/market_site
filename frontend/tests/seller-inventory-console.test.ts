@@ -8,6 +8,7 @@ import {
   groupPackages,
   hasActiveInventoryFilters,
   inventoryFiltersToSearch,
+  clipForCell,
   maskResourceData,
   maskSample,
   parseInventoryFilters,
@@ -188,4 +189,13 @@ test("category tree: parent ticks its branch and compacts back to the parent id"
   assert.deepEqual(compactCategorySelection(tree, new Set([7, 9])), [7, 9]);
   assert.deepEqual(categorySelectionLabel(tree, [1, 9]), ["Mạng xã hội", "Dịch vụ Cloud"]);
   assert.deepEqual(categorySelectionLabel(tree, [6]), ["Telegram"]);
+});
+
+test("table cells clip long stock lines but keep short ones intact", () => {
+  assert.equal(clipForCell("user|pass"), "user|pass");
+  const cookie = "u|p|" + "c".repeat(10_000);
+  const clipped = clipForCell(cookie);
+  assert.equal(clipped.length, 241);
+  assert.ok(clipped.startsWith("u|p|ccc") && clipped.endsWith("…"));
+  assert.equal(clipForCell(cookie, 1_000).length, 1_001);
 });

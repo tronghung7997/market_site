@@ -458,6 +458,7 @@
     "inventoryOut": "{count} out of stock",
     "inventoryLow": "{count} low stock",
     "inventoryAdding": "Adding…",
+    "inventoryAddingProgress": "Adding {done}/{total}…",
     "cancel": "Cancel",
     "inventoryAddFailed": "Could not add inventory. Please try again.",
     "loading": "Loading…",
@@ -1566,7 +1567,24 @@
       "partialFailed": "Processed {done}/{total} lines ({added} new in stock) before stopping: {error} Run it again — lines already in stock are skipped.",
       "done": "Added {count} lines to stock",
       "doneSkipped": "skipped {duplicate} duplicates in file, {existing} already in stock",
-      "doneMarket": "{count} rows rejected because they already exist on the marketplace (another package, another seller, or sold before) — each item can only be sold once"
+      "doneMarket": "{count} rows rejected because they already exist on the marketplace (another package, another seller, or sold before) — each item can only be sold once",
+      "sourcesLabel": "Selected files",
+      "reading": "Reading {name}…",
+      "readFailed": "Could not read {name}. Check that it is a UTF-8 .txt/.csv file.",
+      "fileLines": "{count, plural, one {# line} other {# lines}}",
+      "removeFile": "Remove {name}",
+      "pastedSource": "Pasted text",
+      "placeholderMore": "Or paste more lines here",
+      "headerSkipped": "Header line skipped",
+      "headerKept": "Header line kept as stock",
+      "keepHeader": "Keep as stock",
+      "skipHeader": "Skip it",
+      "checking": "Checking against stock… {done}/{total} lines",
+      "progressLabel": "Restock progress",
+      "uploadProgress": "Processed {done}/{total} lines · {percent}% · {added} new",
+      "stop": "Stop after this batch",
+      "stopping": "Stopping after the current batch…",
+      "stopped": "Stopped: {added} new lines saved ({done}/{total} processed). Run it again to add the rest — saved lines are skipped."
     },
     "resource": {
       "tabsLabel": "Unit status",
@@ -1770,7 +1788,11 @@
       "overLimit": "The result exceeds the {limit}-row limit — the file will be cut. Narrow the scope or export in batches.",
       "pickStatus": "Pick at least one status.",
       "previewTitle": "Preview · first 20 rows",
-      "previewEmpty": "No rows match."
+      "previewEmpty": "No rows match.",
+      "preparing": "Preparing file…",
+      "downloading": "Downloading {size}…",
+      "cancelDownload": "Cancel download",
+      "downloadFailed": "Could not download the export"
     },
     "columns": {
       "index": "No.",
@@ -1787,7 +1809,10 @@
       "searchPlaceholder": "Search categories…",
       "hint": "Tick a parent to select its whole branch",
       "empty": "No categories"
-    }
+    },
+    "loading": "Loading inventory…",
+    "refreshing": "Refreshing data…",
+    "staleData": "Showing older data — the refresh failed."
   },
   "errors": {
     "NETWORK": "Unable to reach the server. Check your connection and try again.",

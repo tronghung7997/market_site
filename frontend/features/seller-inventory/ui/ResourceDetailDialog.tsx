@@ -112,24 +112,24 @@ function ResourceDetailBody({ resource, variantId, onClose, onNotice }: { resour
       <div className="flex flex-wrap items-center justify-between gap-2 border-t border-line bg-raised/50 p-3">
         <div className="flex items-center gap-1.5">
           {resource.is_archived ? (
-            <Button size="sm" variant="ghost" disabled={busy} onClick={() => void run(() => restore.mutateAsync(resource.id), "resource.restored", "resource.restoreFailed")} className="h-8 gap-1 text-xs text-iris">
-              <RotateCcw size={13} /> {t("resource.restore")}
+            <Button size="sm" variant="ghost" loading={restore.isPending} disabled={busy} onClick={() => void run(() => restore.mutateAsync(resource.id), "resource.restored", "resource.restoreFailed")} className="h-8 gap-1 text-xs text-iris">
+              {!restore.isPending && <RotateCcw size={13} />} {t("resource.restore")}
             </Button>
           ) : archivable && (
-            <Button size="sm" variant="ghost" disabled={busy} onClick={() => void run(() => archive.mutateAsync(resource.id), "resource.archived", "resource.archiveFailed")} className="h-8 gap-1 text-xs text-muted hover:text-bad">
-              <EyeOff size={13} /> {t("resource.archive")}
+            <Button size="sm" variant="ghost" loading={archive.isPending} disabled={busy} onClick={() => void run(() => archive.mutateAsync(resource.id), "resource.archived", "resource.archiveFailed")} className="h-8 gap-1 text-xs text-muted hover:text-bad">
+              {!archive.isPending && <EyeOff size={13} />} {t("resource.archive")}
             </Button>
           )}
         </div>
         <div className="flex items-center gap-2">
-          <Button size="sm" variant="ghost" onClick={onClose}>{t("resource.close")}</Button>
+          <Button size="sm" variant="ghost" onClick={onClose} disabled={busy}>{t("resource.close")}</Button>
           {restockable && (
-            <Button size="sm" disabled={busy || !data.trim()} onClick={() => void run(() => restockOne.mutateAsync({ id: resource.id, data: data.trim() }), "resource.restockedOne", "resource.saveFailed")} className={cn("gap-1 bg-good text-white hover:bg-good/90")}>
-              <RotateCcw size={13} /> {t("resource.restockOne")}
+            <Button size="sm" loading={restockOne.isPending} disabled={busy || !data.trim()} onClick={() => void run(() => restockOne.mutateAsync({ id: resource.id, data: data.trim() }), "resource.restockedOne", "resource.saveFailed")} className={cn("gap-1 bg-good text-white hover:bg-good/90")}>
+              {!restockOne.isPending && <RotateCcw size={13} />} {t("resource.restockOne")}
             </Button>
           )}
           {editable && (
-            <Button size="sm" disabled={busy || !data.trim() || data.trim() === resource.data} onClick={() => void run(() => update.mutateAsync({ id: resource.id, data: data.trim() }), "resource.saved", "resource.saveFailed")}>
+            <Button size="sm" loading={update.isPending} disabled={busy || !data.trim() || data.trim() === resource.data} onClick={() => void run(() => update.mutateAsync({ id: resource.id, data: data.trim() }), "resource.saved", "resource.saveFailed")}>
               {t("resource.save")}
             </Button>
           )}

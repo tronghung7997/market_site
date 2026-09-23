@@ -227,7 +227,7 @@ The codebase currently has overlapping primitive systems:
 
 Until consolidation is complete:
 
-- Prefer `@/components/ui` for Button, Card, Tag, Field, Input, Textarea, Select, Banner, Pagination, and Spinner.
+- Prefer `@/components/ui` for Button, Card, Tag, Field, Input, Textarea, Select, Banner, Pagination, Spinner, Skeleton, ActivityBar, and ProgressBar.
 - Direct imports from `@/components/ui/dialog` and `@/components/ui/tooltip` are allowed for Radix behavior.
 - Do not use split-directory Button/Card/Input/Select/Textarea/Badge as visual precedent until they consume semantic Proxora tokens.
 - Do not add a third primitive implementation.
@@ -322,12 +322,13 @@ Row
 
 Every data-bearing view supports the states relevant to it:
 
-- Loading: skeleton/layout-shaped placeholder; avoid a spinner as the only full-page structure.
+- Loading: skeleton/layout-shaped placeholder built from `Skeleton`; avoid a spinner as the only full-page structure.
 - Empty: explain what is empty and provide the next valid action.
 - Error: identify what failed and how to retry or recover.
 - Permission denied: do not masquerade as an empty list.
-- Partial/stale data: preserve existing data and show refresh/retry context.
-- Disabled/loading action: prevent duplicate mutation and announce progress.
+- Partial/stale data: preserve existing data and show refresh/retry context. A background refetch shows `ActivityBar` on the surface and dims only the data (after ~150 ms), never the toolbar the user is typing in; a failed refetch keeps the data with a retry banner.
+- Disabled/loading action: prevent duplicate mutation and announce progress. Use `Button loading`; a long batch (upload, import, download) shows a `ProgressBar` or a byte count, and offers stop/cancel when the work is resumable.
+- Heavy client work stays off the critical path: never render megabytes of text into a textarea or table cell (show a file chip or a clipped cell), and let large lists render from a deferred value.
 - Success: prefer visible state change; use a toast only when success is otherwise invisible.
 
 Do not ship a success-only static composition.

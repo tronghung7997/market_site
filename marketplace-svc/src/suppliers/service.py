@@ -13,7 +13,7 @@ from __future__ import annotations
 
 import math
 import unicodedata
-from dataclasses import dataclass
+from dataclasses import dataclass, replace
 from datetime import datetime, timezone
 from decimal import Decimal
 
@@ -26,6 +26,7 @@ from src.adapters.factory import get_adapter, get_adapter_for_test
 from src.adapters.registry import get_spec
 from src.adapters.supplier import (
     CatalogSupplierAdapter,
+    ProxyPlanCatalog,
     SupplierAuthError,
     SupplierContractError,
     SupplierUnavailableError,
@@ -245,6 +246,7 @@ async def replace_catalog_snapshot(
             "format_hint": up.format_hint,
             "group_name": (up.category_path[0] if up.category_path else "")[:255],
             "category_path": list(up.category_path),
+            "extra": dict(up.attributes or {}),
             "synced_at": now,
         }
         for up in catalog
@@ -269,6 +271,28 @@ class SyncReport:
     error: str | None = None
 
 
+async def _with_vnd_cost(catalog: list[UpstreamListing], db: AsyncSession) -> list[UpstreamListing]:
+    """Gói proxy báo giá bằng USD (DProxy live) → giá vốn VND theo tỷ giá hiển
+    thị của sàn (Settings › Tiền tệ), làm tròn LÊN để biên lãi không bao giờ
+    bị tính lạc quan. Chưa có tỷ giá → giữ 0 (không biết vốn, không chặn giá).
+    Số gốc giữ trong attributes (currency, price) và tỷ giá dùng lưu cùng."""
+    rate = None
+    out: list[UpstreamListing] = []
+    for up in catalog:
+        attrs = dict(up.attributes or {})
+        price = attrs.get("price")
+        if up.cost_price <= 0 and str(attrs.get("currency") or "").upper() == "USD" and isinstance(price, (int, float)) and price > 0:
+            if rate is None:
+                from src.money.service import get_effective_rate
+
+                rate = await get_effective_rate(db) or 0
+            if rate:
+                attrs["fx_rate"] = rate
+                up = replace(up, cost_price=int(math.ceil(float(price) * rate)), attributes=attrs)
+        out.append(up)
+    return out
+
+
 async def sync_provider_listings(provider: Provider, db: AsyncSession) -> SyncReport:
     """Một provider: kéo catalog, cập nhật mọi listing. Không commit — caller
     commit (job hoặc endpoint admin)."""
@@ -281,6 +305,18 @@ async def sync_provider_listings(provider: Provider, db: AsyncSession) -> SyncRe
         # get_adapter_for_test: không check is_active — provider bị tắt vì hết
         # tiền vẫn cần cập nhật tồn/giá để admin quyết định bật lại.
         adapter = await get_adapter_for_test(provider.id, db)
+        if isinstance(adapter, ProxyPlanCatalog) and not isinstance(adapter, CatalogSupplierAdapter):
+            # Nguồn proxy: chỉ có catalog GÓI (không tồn kho, không listing) —
+            # snapshot xong là hết việc; lỗi mạng/auth báo như catalog thường.
+            catalog = await _with_vnd_cost(await adapter.fetch_plan_catalog(), db)
+            report.catalog_items = await replace_catalog_snapshot(provider.id, catalog, db)
+            try:
+                health = await adapter.check_health()
+                provider.last_test_result = {"health": health, "provision_test": None, "source": "sync"}
+                provider.last_tested_at = datetime.now(timezone.utc)
+            except Exception:  # noqa: BLE001 — health chỉ là thông tin phụ
+                pass
+            return report
         if not isinstance(adapter, CatalogSupplierAdapter):
             report.error = f"adapter {provider.adapter_type} không phải catalog supplier"
             return report
@@ -289,10 +325,15 @@ async def sync_provider_listings(provider: Provider, db: AsyncSession) -> SyncRe
         report.error = f"API key bị từ chối: {e}"
     except (SupplierUnavailableError, SupplierContractError, ValueError) as e:
         report.error = str(e)
+    except Exception as e:  # noqa: BLE001 — adapter proxy ném lỗi riêng (DProxy*Error…) → báo như lỗi đồng bộ
+        report.error = f"{type(e).__name__}: {e}"
     if report.error:
         for listing in listings:
             listing.sync_error = report.error[:255]
-        if not listings:
+        spec = get_spec(provider.adapter_type)
+        # Nguồn proxy không có listing nhưng có sản phẩm đang bán theo catalog
+        # gói — đồng bộ hỏng (key sai, thượng nguồn sập) phải lên alert.
+        if not listings and not (spec and spec.proxy_source):
             return report
         await upsert_incident(
             db, fingerprint=fp_provider(provider.id, ALERT_SYNC_FAILED), type_=ALERT_SYNC_FAILED,
@@ -361,7 +402,7 @@ async def sync_all_external_providers(db: AsyncSession) -> list[SyncReport]:
     reports: list[SyncReport] = []
     for provider in providers:
         spec = get_spec(provider.adapter_type)
-        if not spec or not spec.external_stock:
+        if not spec or not (spec.external_stock or spec.proxy_source):
             continue
         reports.append(await sync_provider_listings(provider, db))
     return reports

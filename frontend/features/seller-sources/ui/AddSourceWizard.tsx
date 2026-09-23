@@ -7,7 +7,7 @@ import { api } from "@/lib/api";
 import { useApiErrorMessage } from "@/lib/use-api-error";
 import { useMoney } from "@/lib/money/CurrencyProvider";
 import type { SourceKind, SourceSellerCandidate, SourceTestResult } from "@/lib/types";
-import { Banner, Button, Card, Field, Input, Spinner, Tag } from "@/components/ui";
+import { Banner, Button, Card, Field, Input, Select, Spinner, Tag } from "@/components/ui";
 import { AlertTriangle, ArrowRight, Check, CheckCircle2, ChevronLeft, ChevronRight, Info, Plug, ShieldCheck, X } from "@/components/Icons";
 import { cn } from "@/lib/cn";
 
@@ -39,11 +39,14 @@ export function AddSourceWizard() {
   const [saving, setSaving] = useState(false);
   const [error, setError] = useState("");
 
-  const pickKind = (k: SourceKind) => {
+  const defaultName = (k: SourceKind) => k.label.replace(/\s*\(.*\)$/, "");
+
+  const pickKind = (k: SourceKind, all: SourceKind[] | null = kinds) => {
     setAdapter(k.adapter_type);
     setTest(null);
     setConfig(Object.fromEntries(k.fields.map((f) => [f.key, f.default != null ? String(f.default) : ""])));
-    setName((n) => n || k.label.replace(/\s*\(.*\)$/, ""));
+    // Giữ tên người dùng tự gõ; tên mặc định của loại trước thì đổi theo loại mới.
+    setName((n) => (!n || (all ?? []).some((o) => defaultName(o) === n) ? defaultName(k) : n));
   };
 
   useEffect(() => {
@@ -51,7 +54,7 @@ export function AddSourceWizard() {
       .then(([k, s]) => {
         setKinds(k);
         setSellers(s);
-        if (k.length) pickKind(k[0]);
+        if (k.length) pickKind(k[0], k);
       })
       .catch((e) => setError(apiErrorMessage(e)));
     // eslint-disable-next-line react-hooks/exhaustive-deps
@@ -92,7 +95,12 @@ export function AddSourceWizard() {
         seller_id: storeChoice !== "new" ? Number(storeChoice) : null,
         new_seller: storeChoice === "new" ? { email: storeEmail.trim(), business_name: (storeName || name).trim() } : null,
       });
-      router.push(r.kind === "catalog" ? `/admin/sources/${r.provider_id}?tab=catalog&created=1` : "/admin/sources");
+      router.push(
+        r.kind === "catalog" ? `/admin/sources/${r.provider_id}?tab=catalog&created=1`
+          : r.kind === "proxy" ? `/admin/sources/${r.provider_id}?add=1`
+          : r.kind === "gateway" ? `/admin/sources/${r.provider_id}?tab=packages&created=1`
+          : "/admin/sources",
+      );
     } catch (e) {
       setError(apiErrorMessage(e));
       setSaving(false);
@@ -164,12 +172,19 @@ export function AddSourceWizard() {
               <div className="space-y-4">
                 {mainFields.map((f) => (
                   <Field key={f.key} label={f.label} hint={f.secret ? `${f.hint ?? ""} ${t("wizard.secretHint")}`.trim() : f.hint}>
-                    <Input
-                      id={`wiz-${f.key}`} type={f.secret ? "password" : f.type === "number" ? "number" : "text"} autoComplete="off"
-                      className={cn(f.type === "number" && "font-mono")}
-                      value={config[f.key] ?? ""}
-                      onChange={(e) => { setConfig((c) => ({ ...c, [f.key]: e.target.value })); setTest(null); }}
-                    />
+                    {f.type === "select" ? (
+                      <Select id={`wiz-${f.key}`} value={config[f.key] ?? ""}
+                        onChange={(e) => { setConfig((c) => ({ ...c, [f.key]: e.target.value })); setTest(null); }}>
+                        {(f.options ?? []).map((o) => <option key={o.value} value={o.value}>{o.label}</option>)}
+                      </Select>
+                    ) : (
+                      <Input
+                        id={`wiz-${f.key}`} type={f.secret ? "password" : f.type === "number" ? "number" : "text"} autoComplete="off"
+                        className={cn(f.type === "number" && "font-mono")}
+                        value={config[f.key] ?? ""}
+                        onChange={(e) => { setConfig((c) => ({ ...c, [f.key]: e.target.value })); setTest(null); }}
+                      />
+                    )}
                   </Field>
                 ))}
                 {advancedFields.length > 0 && (
@@ -201,6 +216,9 @@ export function AddSourceWizard() {
                   test.ok ? (
                     <div role="status" className="rounded-lg border border-good/25 bg-good-soft p-4">
                       <p className="flex items-center gap-2 text-[14px] font-semibold text-good"><CheckCircle2 size={17} />{t("wizard.testOk")}</p>
+                      {kind.kind === "gateway" ? (
+                        <p className="mt-1.5 text-[13px] text-fg">{test.health.message}</p>
+                      ) : (
                       <dl className="mt-3 grid grid-cols-3 gap-4">
                         <div>
                           <dt className="text-[12px] text-muted">{t("wizard.balance")}</dt>
@@ -221,6 +239,7 @@ export function AddSourceWizard() {
                           </>
                         )}
                       </dl>
+                      )}
                     </div>
                   ) : (
                     <Banner tone="bad" icon={<AlertTriangle size={15} />} title={t("wizard.testFailed")}>
@@ -231,10 +250,10 @@ export function AddSourceWizard() {
                 <Field label={t("wizard.name")} hint={t("wizard.nameHint")}>
                   <Input id="wiz-name" className="max-w-sm" value={name} onChange={(e) => setName(e.target.value)} />
                 </Field>
-                {kind.kind === "catalog" && (
+                {(kind.kind === "catalog" || kind.kind === "gateway") && (
                   <div className="flex items-start gap-2.5 rounded-lg border border-dashed border-line-2 bg-raised px-3.5 py-3 text-[12.5px] leading-relaxed text-muted">
                     <ShieldCheck size={16} className="mt-0.5 shrink-0" />
-                    <p>{t("wizard.defaults")}</p>
+                    <p>{kind.kind === "gateway" ? t("wizard.defaultsGateway") : t("wizard.defaults")}</p>
                   </div>
                 )}
               </div>
@@ -301,7 +320,7 @@ export function AddSourceWizard() {
             {step === 1 ? (
               <Button onClick={() => setStep(2)} disabled={!step1Ok}>{t("wizard.next")}<ArrowRight size={15} /></Button>
             ) : (
-              <Button onClick={create} disabled={!step2Ok || saving}>{saving ? t("wizard.creating") : t("wizard.create")}<ArrowRight size={15} /></Button>
+              <Button onClick={create} disabled={!step2Ok || saving}>{saving ? t("wizard.creating") : t(kind?.kind === "gateway" ? "wizard.createGateway" : "wizard.create")}<ArrowRight size={15} /></Button>
             )}
           </div>
         </Card>

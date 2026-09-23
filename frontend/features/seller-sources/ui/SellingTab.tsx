@@ -14,7 +14,7 @@ import {
 import { Dialog, DialogContent, DialogFooter, DialogHeader, DialogTitle } from "@/components/ui/dialog";
 import { cn } from "@/lib/cn";
 import {
-  blockReason, countListings, fixPrice, groupListings, listingState, marginOf, needsAction,
+  blockReason, countListings, fixPrice, groupListings, listingState, marginOf, needsAction, sourceRef,
   type ListingState,
 } from "../logic";
 import { RepriceDialog } from "./RepriceDialog";
@@ -100,7 +100,7 @@ export function SellingTab({ area, source, rows, reload, setRows, goTab }: {
     setRepricing(true);
     setError("");
     try {
-      setPreview(await api.sources.reprice(area, source.id, { dry_run: true }));
+      setPreview(await api.sources.reprice(area, sourceRef(area, source), { dry_run: true }));
     } catch (e) {
       setError(apiErrorMessage(e));
     } finally {
@@ -110,7 +110,7 @@ export function SellingTab({ area, source, rows, reload, setRows, goTab }: {
   const applyRule = async () => {
     setRepricing(true);
     try {
-      const r = await api.sources.reprice(area, source.id, {});
+      const r = await api.sources.reprice(area, sourceRef(area, source), {});
       setPreview(null);
       setNotice(t("selling.repriced", { n: r.changed.length }));
       await reload();
@@ -376,7 +376,7 @@ export function SellingTab({ area, source, rows, reload, setRows, goTab }: {
 
       {changeSku && (
         <ChangeSkuDialog
-          area={area} sourceId={source.id} row={changeSku} onClose={() => setChangeSku(null)}
+          area={area} sourceRef={sourceRef(area, source)} row={changeSku} onClose={() => setChangeSku(null)}
           onPick={async (item) => {
             if (await patch(changeSku, { external_id: item.external_id }, t("selling.skuChanged"))) setChangeSku(null);
           }}
@@ -455,8 +455,8 @@ function MoveDialog({ row, targets, onClose, onMove }: {
   );
 }
 
-function ChangeSkuDialog({ area, sourceId, row, onClose, onPick }: {
-  area: SourceArea; sourceId: number; row: SourceListing; onClose: () => void; onPick: (item: SourceCatalogItem) => void;
+function ChangeSkuDialog({ area, sourceRef: ref, row, onClose, onPick }: {
+  area: SourceArea; sourceRef: string; row: SourceListing; onClose: () => void; onPick: (item: SourceCatalogItem) => void;
 }) {
   const t = useTranslations("sellerSources");
   const locale = useLocale();
@@ -469,14 +469,14 @@ function ChangeSkuDialog({ area, sourceId, row, onClose, onPick }: {
   useEffect(() => {
     const h = setTimeout(async () => {
       try {
-        setItems((await api.sources.catalog(area, sourceId, { q, in_stock: true, per_page: 12 })).items);
+        setItems((await api.sources.catalog(area, ref, { q, in_stock: true, per_page: 12 })).items);
         setError("");
       } catch (e) {
         setError(apiErrorMessage(e));
       }
     }, 200);
     return () => clearTimeout(h);
-  }, [area, sourceId, q, apiErrorMessage]);
+  }, [area, ref, q, apiErrorMessage]);
 
   return (
     <Dialog open onOpenChange={(o) => { if (!o) onClose(); }}>

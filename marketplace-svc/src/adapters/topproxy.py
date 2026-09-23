@@ -40,6 +40,7 @@ from fastapi import HTTPException
 from src.adapters.base import ProvisionResult, ProxyAssignment, RotatableProxyAdapter
 from src.adapters.call_log import record_provider_call
 from src.adapters.real_api import RealApiAdapter
+from src.adapters.supplier import ProxyPlanCatalog, UpstreamListing
 from src.adapters.topproxy_costs import static_cost_xu, xoay_cost_xu
 from src.config import settings
 from src.providers.credit import debit_estimated_cost
@@ -76,6 +77,17 @@ _XOAY_UNIT_BY_PATH = {
     _XOAY_WEEK_PATH: "week",
     _XOAY_MONTH_PATH: "month",
 }
+
+
+def xoay_cost_for_days(days: int) -> tuple[str, int] | None:
+    """(đơn vị, giá vốn Xu) cho một key xoay `days` ngày — cùng cách chọn đơn vị
+    với lệnh mua (`_xoay_endpoint`), để /admin/sources tính margin đúng."""
+    endpoint = _xoay_endpoint(days)
+    if endpoint is None:
+        return None
+    unit = _XOAY_UNIT_BY_PATH[endpoint[0]]
+    cost = xoay_cost_xu(unit, endpoint[1])
+    return (unit, cost) if cost is not None else None
 _DEFAULT_XOAY_GET_URL = "https://proxyxoay.shop/api/get.php"
 
 # Giá trị `loaiproxy` hợp lệ theo tài liệu apiv2 — cũng chính là các key máy
@@ -355,7 +367,32 @@ async def validate_topproxy_config(config: dict) -> None:
         )
 
 
-class TopProxyAdapter(RealApiAdapter, RotatableProxyAdapter):
+# Nhãn admin cho từng `loaiproxy` (docs/topproxy-catalog.md §2) — TopProxy
+# không có API catalog nên đây là "catalog tĩnh" của adapter.
+STATIC_PLAN_LABELS: dict[str, tuple[str, str]] = {
+    # loaiproxy → (nhóm, tên hiển thị)
+    "Viettel": ("Dân cư tĩnh", "Dân cư tĩnh share · Viettel"),
+    "FPT": ("Dân cư tĩnh", "Dân cư tĩnh share · FPT"),
+    "VNPT": ("Dân cư tĩnh", "Dân cư tĩnh share · VNPT"),
+    "DatacenterA": ("Datacenter VN", "Datacenter VN · dùng riêng"),
+    "DatacenterB": ("Datacenter VN", "Datacenter VN · share 1"),
+    "DatacenterC": ("Datacenter VN", "Datacenter VN · share 3"),
+    "US": ("Datacenter US", "Datacenter US · San Jose"),
+    "4Gvinaphone": ("4G di động", "4G Vinaphone (SIM thật)"),
+    "GoiViettel": ("Gói số lượng lớn", "Gói 90 proxy Viettel"),
+    "GoiVNPT": ("Gói số lượng lớn", "Gói 96 proxy VNPT"),
+    "GoiFPT": ("Gói số lượng lớn", "Gói 96 proxy FPT"),
+    "GoiDATACENTER": ("Gói số lượng lớn", "Gói 100 proxy Datacenter"),
+}
+_XOAY_PLAN_LABELS: dict[str, tuple[str, int]] = {
+    # unit → (tên, số ngày một đơn vị)
+    "day": ("Key xoay · theo ngày", 1),
+    "week": ("Key xoay · theo tuần", 7),
+    "month": ("Key xoay · theo tháng", 30),
+}
+
+
+class TopProxyAdapter(RealApiAdapter, RotatableProxyAdapter, ProxyPlanCatalog):
     # provision() gọi muaproxy.php/apimua*.php — TRỪ XU THẬT. Nút Test không được gọi.
     provision_has_purchase_side_effect = True
 
@@ -943,6 +980,34 @@ class TopProxyAdapter(RealApiAdapter, RotatableProxyAdapter):
             cooldown_seconds=None, last_rotated_at=None, rotate_path=None,
             network=network, proxy_type=proxy_type or row.get("type"),
         )
+
+    # ------------------------------------------------------------------
+    # Catalog gói cho /admin/sources
+    # ------------------------------------------------------------------
+
+    async def fetch_plan_catalog(self) -> list[UpstreamListing]:
+        """TopProxy không có API catalog: trả bảng tĩnh theo `mode` của provider
+        với giá vốn 30 ngày (tĩnh) / một đơn vị (xoay) từ topproxy_costs. Không
+        gọi mạng, không tốn Xu; tồn kho không đếm được (amount = -1)."""
+        out: list[UpstreamListing] = []
+        if self.mode == "xoay":
+            for unit, (name, days) in _XOAY_PLAN_LABELS.items():
+                cost = xoay_cost_xu(unit, 1) or 0
+                out.append(UpstreamListing(
+                    external_id=f"xoay:{unit}", name=name, cost_price=cost, amount=-1,
+                    format_hint="key xoay · cổng cố định · whitelist 1 IP", category_path=("Key xoay",),
+                    attributes={"mode": "xoay", "unit": unit, "duration_days": days, "cost_basis_days": days},
+                ))
+            return out
+        for loaiproxy, (group, name) in STATIC_PLAN_LABELS.items():
+            cost = static_cost_xu(loaiproxy, 30) or 0
+            out.append(UpstreamListing(
+                external_id=loaiproxy, name=name, cost_price=cost, amount=-1,
+                format_hint="ip:port:user:pass", category_path=(group,),
+                attributes={"mode": "static", "loaiproxy": loaiproxy, "duration_days": 30, "cost_basis_days": 30,
+                            "protocols": ["HTTP", "SOCKS5"], "package": loaiproxy.startswith("Goi")},
+            ))
+        return out
 
     # ------------------------------------------------------------------
     # Health / usage / revoke

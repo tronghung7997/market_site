@@ -30,7 +30,7 @@ function listing(over: Partial<SourceListing> = {}): SourceListing {
 function item(over: Partial<SourceCatalogItem> = {}): SourceCatalogItem {
   return {
     external_id: "1", name: "H201. Clone Name Random | Reg 3-7 Ngày", cost_price: 3360, amount: 50, min_qty: 1,
-    max_qty: null, format_hint: null, group_name: "Facebook", category_path: ["Facebook"], synced_at: "", attached: [],
+    max_qty: null, format_hint: null, group_name: "Facebook", category_path: ["Facebook"], synced_at: "", extra: {}, attached: [],
     ...over,
   };
 }

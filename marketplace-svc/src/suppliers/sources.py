@@ -30,6 +30,7 @@ from src.models.order import Order, OrderStatus
 from src.models.product import DeliveryMode, Product, ProductStatus, ProductVariant
 from src.models.provider import Provider
 from src.models.supplier_listing import SupplierCatalogItem, SupplierListing, SupplierPurchase
+from src.suppliers import gateway_sources
 from src.suppliers.service import (
     DEFAULT_MIN_MARGIN_PCT,
     DEFAULT_ROUND_TO,
@@ -59,13 +60,31 @@ def _not_found():
     return api_error(ErrorCode.PROVIDER_NOT_CONFIGURED, status.HTTP_404_NOT_FOUND, detail="Không tìm thấy nguồn hàng")
 
 
-async def get_source(provider_id: int, scope: SourceScope, db: AsyncSession) -> Provider:
-    provider = await db.get(Provider, provider_id)
+async def get_source(provider_id: int | str, scope: SourceScope, db: AsyncSession) -> Provider:
+    """Nguồn theo ref trên URL: `public_key` (UI seller dùng — không lộ id
+    tuần tự) hoặc id số (trang admin, client cũ). Quyền sở hữu kiểm như nhau."""
+    ref = str(provider_id)
+    if ref.isdigit():
+        provider = await db.get(Provider, int(ref))
+    else:
+        provider = await db.scalar(select(Provider).where(Provider.public_key == ref))
     spec = get_spec(provider.adapter_type) if provider else None
-    if provider is None or spec is None or not spec.external_stock:
+    if provider is None or spec is None or not (spec.external_stock or spec.proxy_source or spec.gateway_source):
         raise _not_found()
     if not scope.is_admin and provider.seller_id != scope.seller_id:
         raise _not_found()
+    return provider
+
+
+async def get_catalog_source(provider_id: int | str, scope: SourceScope, db: AsyncSession) -> Provider:
+    """Như get_source nhưng CHỈ nguồn catalog (tồn kho thượng nguồn, bán theo
+    listing). Nguồn proxy bán theo bảng gói — các endpoint listing/import SKU
+    không được chạm vào nó."""
+    provider = await get_source(provider_id, scope, db)
+    spec = get_spec(provider.adapter_type)
+    if spec is None or not spec.external_stock:
+        raise api_error(ErrorCode.INVALID_PRODUCT_CONFIG, status.HTTP_400_BAD_REQUEST,
+                        detail="Nguồn proxy quản lý theo bảng gói, không theo listing")
     return provider
 
 
@@ -101,20 +120,47 @@ SOURCE_KINDS: dict[str, dict] = {
             {"key": "base_url", "label": "Máy chủ API", "default": "https://igbm.net", "advanced": True},
         ],
     },
+    # Nguồn PROXY: catalog gói (plan) đồng bộ như catalog SKU, sản phẩm bán theo
+    # pricing `config` (src/suppliers/proxy_sources.py). Một tài khoản TopProxy
+    # dùng chung key cho cả tĩnh lẫn xoay nhưng phải tách hai nguồn theo `mode`
+    # vì provision khác hẳn nhau.
     "topproxy": {
-        "label": "TopProxy", "kind": "server",
-        "description": "Server proxy datacenter, cấp IP theo gói và thời hạn.",
+        "label": "TopProxy · proxy tĩnh", "kind": "proxy",
+        "description": "Dân cư tĩnh Viettel/FPT/VNPT, datacenter, US, 4G. Cấp IP theo loại và số ngày; đổi bảo mật, gia hạn, thay IP.",
         "fields": [
-            {"key": "base_url", "label": "Base URL"},
+            {"key": "base_url", "label": "Base URL", "default": "https://topproxy.vn"},
             {"key": "api_key", "label": "API key", "secret": True},
+            {"key": "mode", "label": "Chế độ", "default": "static", "type": "select",
+             "options": [{"value": "static", "label": "Proxy tĩnh (apiv2)"}, {"value": "xoay", "label": "Key xoay (proxyxoay)"}]},
+            {"key": "xoay_get_url", "label": "URL lấy proxy cho key xoay (chỉ chế độ xoay)", "default": "https://proxyxoay.shop/api/get.php"},
+            {"key": "low_balance_vnd", "label": "Báo khi sổ Xu ước tính dưới (đ)", "default": 200000, "type": "number"},
+            {"key": "min_margin_pct", "label": "Lãi tối thiểu để được bán (%)", "default": 10, "type": "number"},
         ],
     },
     "dproxy": {
-        "label": "DProxy", "kind": "server",
-        "description": "Proxy dân cư xoay, mua theo loại / mạng / số ngày.",
+        "label": "DProxy (M2M)", "kind": "proxy",
+        "description": "Dân cư / mobile / datacenter theo gói (plan) thượng nguồn, giá USD, mua từng đơn qua partner-purchase. Đổi IP chỉ bật khi node được giao hỗ trợ.",
         "fields": [
-            {"key": "base_url", "label": "Base URL"},
+            {"key": "base_url", "label": "Base URL", "default": "https://api.dproxy.info"},
             {"key": "api_key", "label": "API key", "secret": True},
+            {"key": "auth_type", "label": "Kiểu xác thực", "default": "header", "type": "select",
+             "options": [{"value": "header", "label": "Header X-API-Key"}, {"value": "bearer", "label": "Authorization: Bearer"}]},
+            {"key": "auth_header", "label": "Tên header (khi kiểu header)", "default": "X-API-Key"},
+            {"key": "channel", "label": "Channel", "default": "proxora"},
+            {"key": "min_margin_pct", "label": "Lãi tối thiểu để được bán (%)", "default": 10, "type": "number"},
+            {"key": "low_credit_usd", "label": "Báo khi hạn mức còn dưới (USD)", "default": 10, "type": "number"},
+        ],
+    },
+    # API bán theo gói request qua gateway — src/suppliers/gateway_sources.py.
+    "ghlab_fb": {
+        "label": "FB Data API (lookup.ghlab.info)", "kind": "gateway",
+        "description": "Lấy chi tiết bài viết, trang, hồ sơ Facebook theo link. Bán theo gói request, khách gọi qua API key của sàn.",
+        "fields": [
+            {"key": "api_key", "label": "API key", "secret": True,
+             "hint": "Key đi theo tham số ?api_key= như tài liệu của nguồn."},
+            {"key": "test_url", "label": "Link Facebook để gọi thử", "default": gateway_sources.DEFAULT_TEST_URL,
+             "hint": "Kiểm tra = gọi thật 1 request (nguồn có thể tính phí)."},
+            {"key": "base_url", "label": "Máy chủ API", "default": "https://lookup.ghlab.info", "advanced": True},
         ],
     },
 }
@@ -130,7 +176,7 @@ CATALOG_DEFAULTS: dict = {
 # Khoá cấu hình seller nội bộ được sửa (luật giá + ngưỡng). Kết nối, tên,
 # bật/tắt, seller sở hữu: chỉ admin.
 SELLER_SETTING_KEYS = ("markup_pct", "round_to", "follow_cost", "min_margin_pct",
-                       "auto_pause_after_failures", "low_balance_vnd")
+                       "auto_pause_after_failures", "low_balance_vnd", *gateway_sources.GATEWAY_SETTING_KEYS)
 ADMIN_SETTING_KEYS = ("name", "base_url", "api_key", "is_active", "seller_id")
 
 
@@ -138,6 +184,10 @@ def source_kind(adapter_type: str) -> str:
     spec = get_spec(adapter_type)
     if spec is not None and spec.external_stock:
         return "catalog"
+    if spec is not None and spec.proxy_source:
+        return "proxy"
+    if spec is not None and spec.gateway_source:
+        return "gateway"
     return SOURCE_KINDS.get(adapter_type, {}).get("kind", "server")
 
 
@@ -153,8 +203,8 @@ async def list_sources(scope: SourceScope, db: AsyncSession) -> list[dict]:
         stmt = stmt.where(Provider.seller_id == scope.seller_id)
     providers = [
         p for p in (await db.execute(stmt)).scalars()
-        if get_spec(p.adapter_type) is not None
-        and (get_spec(p.adapter_type).external_stock or p.seller_id is not None)
+        if (spec := get_spec(p.adapter_type)) is not None
+        and (spec.external_stock or spec.proxy_source or spec.gateway_source or p.seller_id is not None)
     ]
     if not providers:
         return []
@@ -191,6 +241,8 @@ async def list_sources(scope: SourceScope, db: AsyncSession) -> list[dict]:
             select(Account).where(Account.id.in_(seller_ids))
         )).scalars()}
     stats = await _purchase_stats(ids, scope, db, days=7)
+    gw_ids = [p.id for p in providers if source_kind(p.adapter_type) == "gateway"]
+    gw_stats = await gateway_sources.gateway_stats(gw_ids, db, seller_id=scope.seller_id)
     names = await _business_names(list(seller_ids), db)
     out = []
     for p in providers:
@@ -205,7 +257,7 @@ async def list_sources(scope: SourceScope, db: AsyncSession) -> list[dict]:
         sync_error = next((r[1] for r in mine if r[1] and r[1] != "delisted"), None)
         seller = sellers.get(p.seller_id)
         out.append({
-            "id": p.id, "name": p.name, "adapter_type": p.adapter_type,
+            "id": p.id, "public_key": p.public_key, "name": p.name, "adapter_type": p.adapter_type,
             "kind": source_kind(p.adapter_type),
             "is_active": p.is_active, "review_status": p.review_status,
             "seller_id": p.seller_id, "seller_email": seller.email if seller else None,
@@ -219,6 +271,7 @@ async def list_sources(scope: SourceScope, db: AsyncSession) -> list[dict]:
             ),
             "sync_error": sync_error,
             "stats_7d": stats.get(p.id, _empty_stats()),
+            "gateway_stats": gw_stats.get(p.id),
             "low_balance_vnd": (p.config or {}).get("low_balance_vnd"),
             "catalog_count": int(catalog_counts.get(p.id, 0)),
             "catalog_synced_at": catalog_synced.get(p.id),
@@ -244,7 +297,8 @@ async def browse_catalog(
 ) -> dict:
     base = select(SupplierCatalogItem).where(SupplierCatalogItem.provider_id == provider.id)
     if in_stock:
-        base = base.where(SupplierCatalogItem.amount > 0)
+        # amount < 0 = nguồn không báo tồn (proxy) — vẫn là "bán được".
+        base = base.where(SupplierCatalogItem.amount != 0)
     if group:
         base = base.where(SupplierCatalogItem.group_name == group)
     if max_cost is not None:
@@ -274,7 +328,7 @@ async def browse_catalog(
     groups = [
         {"name": g, "count": int(n)} for g, n in (await db.execute(
             select(SupplierCatalogItem.group_name, func.count(SupplierCatalogItem.id))
-            .where(SupplierCatalogItem.provider_id == provider.id, SupplierCatalogItem.amount > 0)
+            .where(SupplierCatalogItem.provider_id == provider.id, SupplierCatalogItem.amount != 0)
             .group_by(SupplierCatalogItem.group_name)
             .order_by(func.count(SupplierCatalogItem.id).desc())
         )).all()
@@ -307,6 +361,7 @@ async def browse_catalog(
             "amount": it.amount, "min_qty": it.min_qty, "max_qty": it.max_qty,
             "format_hint": it.format_hint, "group_name": it.group_name,
             "category_path": it.category_path, "synced_at": it.synced_at,
+            "extra": it.extra or {},
             "attached": attached.get(it.external_id, []),
         } for it in items],
         "total": int(total), "page": page, "per_page": per_page,
@@ -640,6 +695,10 @@ async def test_source_config(adapter_type: str, config: dict, db: AsyncSession) 
     from src.security.crypto import encrypt_config
 
     # Adapter đọc secret ở dạng đã mã hoá (như khi lấy từ DB) → mã hoá tạm.
+    if spec.gateway_source:
+        adapter = spec.cls(encrypt_config({**gateway_sources.GATEWAY_DEFAULTS, **config}), db=db,
+                           provider_id=None, seller_owned=False)
+        return {**await gateway_sources.test_gateway_config(adapter, config), "catalog": None}
     adapter = spec.cls(encrypt_config(dict(config)), db=db, provider_id=None, seller_owned=False)
     health = await adapter.check_health()
     ok = health.get("status") in ("healthy", "warning")
@@ -724,6 +783,8 @@ async def create_source(data: dict, db: AsyncSession, *, actor_id: int | None) -
     config = dict(data.get("config") or {})
     if source_kind(adapter_type) == "catalog":
         config = {**CATALOG_DEFAULTS, **config}
+    elif source_kind(adapter_type) == "gateway":
+        config = {**gateway_sources.GATEWAY_DEFAULTS, **config}
     provider = await create_provider({
         "name": data["name"].strip()[:255], "adapter_type": adapter_type,
         "config": config, "is_active": True, "priority": 1,
@@ -732,7 +793,7 @@ async def create_source(data: dict, db: AsyncSession, *, actor_id: int | None) -
     provider.seller_id = seller.id if seller else None
     await db.commit()
     report = None
-    if source_kind(adapter_type) == "catalog":
+    if source_kind(adapter_type) in ("catalog", "proxy"):
         report = await sync_provider_listings(provider, db)
         await db.commit()
     return {
@@ -905,6 +966,9 @@ async def get_settings(provider: Provider, scope: SourceScope, db: AsyncSession)
                    "is_internal": bool(seller.is_internal)} if seller else None,
         "can_manage_connection": scope.is_admin,
         "base_url": None, "api_key_hint": None,
+        "timeout_seconds": _int_or(cfg.get("timeout_seconds"), 5),
+        "max_attempts": _int_or(cfg.get("max_attempts"), 3),
+        "rate_limit_per_minute": _int_or(cfg.get("rate_limit_per_minute"), 0) or None,
     }
     if scope.is_admin:
         out["base_url"] = cfg.get("base_url")
@@ -967,6 +1031,12 @@ async def test_saved_source(provider: Provider, db: AsyncSession) -> dict:
     from src.adapters.factory import get_adapter_for_test
 
     adapter = await get_adapter_for_test(provider.id, db)
+    if source_kind(provider.adapter_type) == "gateway":
+        result = await gateway_sources.test_gateway_config(adapter, provider.config or {})
+        provider.last_test_result = {"health": result["health"], "provision_test": None, "source": "settings"}
+        provider.last_tested_at = datetime.now(timezone.utc)
+        await db.commit()
+        return {**result, "tested_at": provider.last_tested_at}
     health = await adapter.check_health()
     provider.last_test_result = {"health": health, "provision_test": None, "source": "settings"}
     provider.last_tested_at = datetime.now(timezone.utc)

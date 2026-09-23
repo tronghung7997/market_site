@@ -9,6 +9,7 @@ from sqlalchemy import select
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from src.fees.settings import get_fee_settings
+from src.models.account import Account
 from src.models.order import Order
 from src.models.product import Product, ProductVariant
 from src.sellers.tier_config import rule_for
@@ -53,7 +54,15 @@ async def order_category_id(order: Order, db: AsyncSession) -> int | None:
 
 async def order_fee_percent(order: Order, seller_tier: str, db: AsyncSession) -> float:
     """The fee percentage an order settles at: its product's category rule
-    (or the platform default) minus the seller's tier discount."""
+    (or the platform default) minus the seller's tier discount.
+
+    Internal (platform-run) sellers settle at 0%: the platform already owns
+    the whole sale, and a fee would only move money between two platform
+    accounts. Affiliate commission is a share of this fee, so it is 0 on
+    internal-seller orders too (src/affiliate/service.py)."""
+    seller = await db.get(Account, order.seller_id) if order.seller_id is not None else None
+    if seller is not None and seller.is_internal:
+        return 0.0
     return await platform_fee_percent_for(db, seller_tier=seller_tier, category_id=await order_category_id(order, db))
 
 

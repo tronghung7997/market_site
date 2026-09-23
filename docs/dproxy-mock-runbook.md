@@ -1,6 +1,7 @@
 # Mock DProxy runbook
 
 Live API (`api.dproxy.info`) and the M2M partner-purchase contract: [`dproxy/api.md`](./dproxy/api.md). Snapshot: [`dproxy/openapi.json`](./dproxy/openapi.json).
+Live probe 2026-09-23 + go-live checklist: [`dproxy-go-live-plan.md`](./dproxy-go-live-plan.md).
 
 `marketplace-svc/scripts/mock_dproxy.py` is a stateful HTTP fake for local and
 E2E testing. It exposes the DProxy-shaped endpoints to marketplace code and a
@@ -114,12 +115,23 @@ Available global modes:
 | `purchase_duplicate_409` | DProxy KHÔNG replay, trùng id → 409 | retry sau timeout → huỷ + refund + alert có `partner_order_id` để đối soát |
 | `purchase_not_idempotent` | trùng id → mua thêm, `order_id` mới | chỉ dùng để chứng minh mock/adapter phát hiện được — sàn giao 1, alert |
 | `purchase_slow_then_ok` | fulfill nhưng phản hồi sau `MOCK_DPROXY_SLOW_SECONDS` (8s) | với `timeout_seconds` < 8: timeout → pending → sweep replay → giao 1 proxy |
-| `dispute_500` | partner-dispute sập | refund vẫn thành công, alert ghi "KHÔNG gửi được partner-dispute" |
+| `dispute_500` | partner-dispute sập | refund vẫn thành công; lệnh nằm trong outbox `upstream_revocations`, thử lại với backoff, hết lượt → alert `upstream_revoke_failed` |
+| `purchase_live_minimal` | shape live 2026-09-23: `order_id: null`, không `status`, có `assignment_id` | giao bình thường, allocation giữ `assignment_id` + `partner_order_id` |
+| `purchase_stale_assignment` | live với gói hết hàng: 200 success + assignment CÓ SẴN đã hết hạn | huỷ + hoàn tiền, xếp partner-dispute, alert critical |
+| `quote_unavailable` | `/store/quote` báo hết hàng | từ chối TRƯỚC khi mua (lần mua đầu), alert warning |
 
 Cũng có `POST /api/v1/customer/marketplace/partner-dispute`,
-`GET .../marketplace/orders`, `GET .../marketplace/credit-summary` (shape của
-hai cái sau là GIẢ ĐỊNH — OpenAPI để `{}`). `/_mock/state` trả thêm
-`orders`, `purchase_calls` (kèm `Idempotency-Key`) và `disputes` để soi.
+`GET .../marketplace/orders` (shape GIẢ ĐỊNH — live đang trả rỗng),
+`GET .../marketplace/credit-summary` (shape live: `available_spending_usd`,
+`credit_limit_usd`, `current_debt_usd`, `is_credit_active`; mỗi lệnh mua cộng
+công nợ theo giá gói, dispute trừ lại) và `POST /api/v1/store/quote`.
+`/_mock/state` trả thêm `orders`, `purchase_calls` (kèm `Idempotency-Key`),
+`disputes` và `credit` để soi. `PUT /_mock/credit` đặt hạn mức/công nợ:
+
+```bash
+curl -sS -X PUT http://127.0.0.1:9201/_mock/credit -H "$CONTROL" \
+  -H 'Content-Type: application/json' -d '{"current_debt_usd": 96}'
+```
 
 Example:
 
@@ -159,7 +171,8 @@ Tất cả các case dưới đã có test tự động — chạy tuần tự (
 ```bash
 cd marketplace-svc
 uv run pytest -q tests/test_mock_dproxy.py tests/test_dproxy_adapter.py \
-  tests/test_dproxy_orders.py tests/test_dproxy_m2m_lifecycle.py tests/test_dproxy_reconciliation.py
+  tests/test_dproxy_orders.py tests/test_dproxy_m2m_lifecycle.py tests/test_dproxy_reconciliation.py \
+  tests/test_dproxy_live_contract.py tests/test_proxy_sources.py
 ```
 
 Muốn xem tận mắt trên UI với mock: chạy mock, tạo provider trỏ
@@ -169,13 +182,15 @@ Muốn xem tận mắt trên UI với mock: chạy mock, tạo provider trỏ
 | # | Tình huống | Làm | Kiểm tra |
 |---|---|---|---|
 | 1 | Mua thành công | mode `normal`, buyer mua | đơn `delivered`, `/_mock/state.order_count` +1, `orders` có `proxora-development-<id>` |
-| 2 | Hết credit | mode `purchase_402`, mua | đơn `cancelled` + ví hoàn, `/admin/alerts` có `provision_operational` với `partner_order_id` |
+| 2 | Hết credit | mode `purchase_402`, mua | đơn `cancelled` + ví hoàn, provider bị TẮT, `/admin/alerts` có `provider_out_of_credit`; đơn kế tiếp bị từ chối trước khi trừ ví |
 | 3 | DProxy sập lúc mua | mode `purchase_500`, mua | đơn `pending`; đổi `normal` → sweep (≤2 phút) giao xong, `purchase_calls` cùng một `partner_order_id` |
-| 4 | Quá hạn 15 phút | giữ `purchase_500` 15 phút (hoặc sửa `created_at` trong DB) | đơn `cancelled`, alert `provision_stuck` ghi "đã gửi partner-dispute", `/_mock/state.disputes` có id |
+| 4 | Quá hạn 15 phút | giữ `purchase_500` 15 phút (hoặc sửa `created_at` trong DB) | đơn `cancelled`, alert `provision_stuck` ghi "đã xếp partner-dispute"; ≤2 phút sau `upstream_revocation_job` gửi, `/_mock/state.disputes` có id |
 | 5 | Timeout sau khi fulfill | provider `timeout_seconds: 3`, mode `purchase_slow_then_ok`, mua | lần 1 timeout ×3 → `pending`; sweep replay → `delivered`, `assignment_count` chỉ +1 |
-| 6 | Hoàn tiền dispute | sau #1 buyer mở dispute, admin refund | `disputes` có id, assignment tương ứng `status=revoked`, allocation `released` |
-| 7 | Đối soát định kỳ | sau #1 chờ job `dproxy_reconciliation` (15 phút) | allocation vẫn `allocated`, KHÔNG có alert `dproxy_allocation_disappeared` |
-| 8 | Key không đọc inventory | mode `list_403`, bấm Test provider | status unhealthy nhưng bảng plan vẫn load để map |
+| 6 | Hoàn tiền dispute | sau #1 buyer mở dispute, admin refund | allocation `released` ngay; ≤2 phút sau `disputes` có id, assignment `status=revoked`, `upstream_revocations.status=done` |
+| 7 | Đối soát định kỳ | sau #1 chờ job `dproxy_reconciliation` (15 phút) | allocation vẫn `allocated` (IP/rotation làm mới theo `assignment_id`), KHÔNG có alert `dproxy_allocation_disappeared` |
+| 8 | Key không đọc inventory | mode `list_403`, bấm Test provider | status `warning` (provider đã map plan) — vẫn bán được, không bật đổi IP; bảng plan vẫn load |
+| 9 | Gói hết hàng kiểu live | mode `purchase_stale_assignment`, mua | đơn `cancelled`, alert critical ghi "hết hạn", `upstream_revocations` có dòng `purchase_violation` |
+| 10 | Sắp hết hạn mức | `PUT /_mock/credit {"current_debt_usd": 95}` rồi chờ `dproxy_credit_check` (30 phút) | alert `provider_low_credit`; `{"current_debt_usd": 100}` → provider tắt + `provider_out_of_credit` |
 
 ## Full marketplace scenario after DProxyAdapter lands
 

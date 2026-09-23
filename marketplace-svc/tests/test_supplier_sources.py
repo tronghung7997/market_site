@@ -8,6 +8,7 @@ import pytest
 from sqlalchemy import select, update
 
 from src.database import SessionLocal
+from src.models.account import Account
 from src.models.product import Product, ProductVariant
 from src.models.provider import Provider
 from src.models.order import Order, OrderStatus
@@ -40,6 +41,8 @@ async def _assign_to_seller(ctx):
     async with SessionLocal() as db:
         seller_id = (await db.scalar(select(Product.seller_id).where(Product.id == ctx["product"]["id"])))
         await db.execute(update(Provider).where(Provider.id == ctx["provider_id"]).values(seller_id=seller_id))
+        # Nguồn chỉ thuộc seller nội bộ (wizard / PUT providers bật cờ này).
+        await db.execute(update(Account).where(Account.id == seller_id).values(is_internal=True))
         await db.commit()
         return seller_id
 
@@ -47,8 +50,8 @@ async def _assign_to_seller(ctx):
 @pytest.mark.asyncio
 async def test_seller_sees_only_assigned_sources_and_admin_sees_all(client, mock_igbm):
     ctx = await _setup(client)
-    # Chưa giao → seller không thấy, admin thấy.
-    assert (await client.get("/seller/sources", headers=_h(ctx["seller"]))).json() == []
+    # Chưa giao (seller thường) → khu Nguồn cung bị chặn, admin thấy.
+    assert (await client.get("/seller/sources", headers=_h(ctx["seller"]))).status_code == 403
     admin_view = (await client.get("/admin/sources", headers=_h(ctx["admin"]))).json()
     assert [s["id"] for s in admin_view] == [ctx["provider_id"]]
     assert admin_view[0]["listing_count"] == 1 and admin_view[0]["catalog_count"] == 0
@@ -60,9 +63,10 @@ async def test_seller_sees_only_assigned_sources_and_admin_sees_all(client, mock
     other = await register_and_login(client, "ig_other@example.com")
     await make_seller("ig_other@example.com")
     other = await register_and_login(client, "ig_other@example.com")
-    assert (await client.get("/seller/sources", headers=_h(other))).json() == []
+    # Seller thường: khu Nguồn cung bị chặn ở backend, không chỉ ẩn trên UI.
+    assert (await client.get("/seller/sources", headers=_h(other))).status_code == 403
     resp = await client.get(f"/seller/sources/{ctx['provider_id']}/catalog", headers=_h(other))
-    assert resp.status_code == 404
+    assert resp.status_code == 403
 
 
 @pytest.mark.asyncio
@@ -75,6 +79,8 @@ async def test_admin_assigns_source_to_seller_via_provider_update(client, mock_i
     assert resp.status_code == 200, resp.text
     assert resp.json()["seller_id"] == seller_id and resp.json()["review_status"] == "approved"
     assert len((await client.get("/seller/sources", headers=_h(ctx["seller"]))).json()) == 1
+    # Giao nguồn sàn trả tiền = seller thành seller nội bộ (như wizard).
+    assert (await client.get("/me", headers=_h(ctx["seller"]))).json()["is_internal"] is True
     # Không phải seller → 400
     resp = await client.put(f"/admin/providers/{ctx['provider_id']}", json={"seller_id": ctx["buyer_id"]},
                             headers=_h(ctx["admin"]))
@@ -211,7 +217,7 @@ async def test_listings_update_reprice_attach_detach(client, mock_igbm):
     other_tok = await register_and_login(client, "ig_other2@example.com")
     resp = await client.patch(f"/seller/sources/listings/{row['listing_id']}", json={"price": 1},
                               headers=_h(other_tok))
-    assert resp.status_code == 404
+    assert resp.status_code == 403  # seller thường không vào được Nguồn cung
 
 
 @pytest.mark.asyncio
@@ -366,6 +372,17 @@ async def test_internal_flag_gates_seller_and_is_set_when_assigning(client, mock
 # Luật giá của nguồn, giá đặt tay, xem trước đổi giá
 # ----------------------------------------------------------------------
 
+async def _other_internal_seller(client, email: str) -> str:
+    """Seller nội bộ KHÁC chủ nguồn — để kiểm tra "nguồn của người khác → 404"
+    (seller thường bị chặn sớm hơn bằng 403, xem test cuối file)."""
+    await register_and_login(client, email)
+    await make_seller(email)
+    async with SessionLocal() as db:
+        await db.execute(update(Account).where(Account.email == email).values(is_internal=True))
+        await db.commit()
+    return await register_and_login(client, email)
+
+
 async def _set_config(provider_id: int, **values):
     async with SessionLocal() as db:
         provider = await db.get(Provider, provider_id)
@@ -434,9 +451,7 @@ async def test_reprice_dry_run_previews_without_saving(client, mock_igbm):
     assert resp.json()["dry_run"] is False and await _variant_price(ctx["variant"]["id"]) == 4000
 
     # Seller khác không xem trước được nguồn không phải của mình.
-    other = await register_and_login(client, "ig_other3@example.com")
-    await make_seller("ig_other3@example.com")
-    other = await register_and_login(client, "ig_other3@example.com")
+    other = await _other_internal_seller(client, "ig_other3@example.com")
     resp = await client.post(f"/seller/sources/{ctx['provider_id']}/reprice", json={"dry_run": True},
                              headers=_h(other))
     assert resp.status_code == 404
@@ -481,9 +496,7 @@ async def test_settings_scope_and_validation(client, mock_igbm):
         resp = await client.patch(f"/seller/sources/{pid}/settings", json=payload, headers=_h(ctx["seller"]))
         assert resp.status_code == 422, payload
     # Seller khác: 404; buyer: 403.
-    other = await register_and_login(client, "ig_other4@example.com")
-    await make_seller("ig_other4@example.com")
-    other = await register_and_login(client, "ig_other4@example.com")
+    other = await _other_internal_seller(client, "ig_other4@example.com")
     assert (await client.get(f"/seller/sources/{pid}/settings", headers=_h(other))).status_code == 404
     assert (await client.get(f"/seller/sources/{pid}/settings", headers=_h(ctx["buyer"]))).status_code == 403
 
@@ -586,10 +599,20 @@ async def test_purchase_log_records_cost_and_failures(client, mock_igbm, monkeyp
     assert mine[0]["stats_7d"]["profit"] == 2400 and mine[0]["stats_7d"]["failed"] == 1
 
     # Seller khác: 404. Buyer: 403. Tham số lạ: 422.
-    other = await register_and_login(client, "ig_other5@example.com")
-    await make_seller("ig_other5@example.com")
-    other = await register_and_login(client, "ig_other5@example.com")
+    other = await _other_internal_seller(client, "ig_other5@example.com")
     assert (await client.get(f"/seller/sources/{ctx['provider_id']}/purchases", headers=_h(other))).status_code == 404
     assert (await client.get(f"/seller/sources/{ctx['provider_id']}/purchases", headers=buyer)).status_code == 403
     assert (await client.get(f"/seller/sources/{ctx['provider_id']}/purchases", params={"days": 3},
                              headers=_h(ctx["seller"]))).status_code == 422
+
+
+@pytest.mark.asyncio
+async def test_plain_seller_cannot_use_source_endpoints(client, mock_igbm):
+    ctx = await _setup(client)
+    await _assign_to_seller(ctx)
+    plain = await register_and_login(client, "ig_plain2@example.com")
+    await make_seller("ig_plain2@example.com")
+    plain = await register_and_login(client, "ig_plain2@example.com")
+    for path in ("purchases", "settings"):
+        resp = await client.get(f"/seller/sources/{ctx['provider_id']}/{path}", headers=_h(plain))
+        assert resp.status_code == 403, path

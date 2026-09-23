@@ -5,5 +5,5 @@ import { SourceWorkspace } from "@/features/seller-sources";
 
 export default function SellerSourcePage({ params }: { params: Promise<{ id: string }> }) {
   const { id } = use(params);
-  return <SourceWorkspace area="seller" sourceId={Number(id)} />;
+  return <SourceWorkspace area="seller" sourceRef={id} />;
 }

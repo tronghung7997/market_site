@@ -10,7 +10,7 @@ import type { SourceArea, SupplierSource } from "@/lib/types";
 import { Banner, Button, Card, Tag } from "@/components/ui";
 import { AlertTriangle, ArrowRight, CheckCircle2, Pause, Plus, RefreshCw, Store } from "@/components/Icons";
 import { cn } from "@/lib/cn";
-import { balanceDays, blockedCount, lowBalance } from "../logic";
+import { balanceDays, blockedCount, lowBalance, sourceRef } from "../logic";
 import { relTime } from "./shared";
 
 type Todo = { key: string; title: string; detail: string; href: string; action: string; tone: "warn" | "bad" };
@@ -36,16 +36,17 @@ export function SourcesList({ area }: { area: SourceArea }) {
   const todos: Todo[] = [];
   for (const s of rows ?? []) {
     if (s.kind !== "catalog") continue;
+    const ref = sourceRef(area, s);
     if (s.sync_error) {
       todos.push({
-        key: `${s.id}-sync`, tone: "warn", href: `${base}/${s.id}`, action: t("list.todoSyncAction"),
+        key: `${s.id}-sync`, tone: "warn", href: `${base}/${ref}`, action: t("list.todoSyncAction"),
         title: t("list.todoSync", { name: s.name }), detail: t("list.todoSyncDetail", { error: s.sync_error }),
       });
     }
     const blocked = blockedCount(s);
     if (blocked > 0) {
       todos.push({
-        key: `${s.id}-blocked`, tone: "warn", href: `${base}/${s.id}`, action: t("list.todoBlockedAction", { n: blocked }),
+        key: `${s.id}-blocked`, tone: "warn", href: `${base}/${ref}`, action: t("list.todoBlockedAction", { n: blocked }),
         title: t("list.todoBlocked", { name: s.name, n: blocked }),
         detail: t("list.todoBlockedDetail", {
           low: s.listing_low_margin_count, delisted: s.listing_error_count, paused: s.listing_auto_paused_count,
@@ -54,13 +55,13 @@ export function SourcesList({ area }: { area: SourceArea }) {
     }
     if (lowBalance(s)) {
       todos.push({
-        key: `${s.id}-balance`, tone: "warn", href: `${base}/${s.id}?tab=settings`, action: t("list.todoBalanceAction"),
+        key: `${s.id}-balance`, tone: "warn", href: `${base}/${ref}?tab=settings`, action: t("list.todoBalanceAction"),
         title: t("list.todoBalance", { name: s.name }), detail: t("list.todoBalanceDetail"),
       });
     }
     if (!s.is_active) {
       todos.push({
-        key: `${s.id}-paused`, tone: "bad", href: `${base}/${s.id}?tab=settings`, action: t("list.todoPausedAction"),
+        key: `${s.id}-paused`, tone: "bad", href: `${base}/${ref}?tab=settings`, action: t("list.todoPausedAction"),
         title: t("list.todoPaused", { name: s.name }), detail: t("list.todoPausedDetail"),
       });
     }
@@ -116,7 +117,7 @@ export function SourcesList({ area }: { area: SourceArea }) {
         </Card>
       ) : rows ? (
         <div className="grid gap-4 md:grid-cols-2">
-          {[...rows].sort((a, b) => Number(b.kind === "catalog") - Number(a.kind === "catalog")).map((s) => (
+          {[...rows].sort((a, b) => Number(b.kind !== "server") - Number(a.kind !== "server")).map((s) => (
             <SourceCard key={s.id} s={s} area={area} base={base} />
           ))}
         </div>
@@ -131,7 +132,7 @@ function SourceCard({ s, area, base }: { s: SupplierSource; area: SourceArea; ba
   const locale = useLocale();
   const { formatLedgerMoney } = useMoney();
   const catalog = s.kind === "catalog";
-  const href = catalog ? `${base}/${s.id}` : area === "admin" ? "/admin/providers" : "/seller/providers";
+  const href = s.kind !== "server" ? `${base}/${sourceRef(area, s)}` : area === "admin" ? "/admin/providers" : "/seller/providers";
   const low = lowBalance(s);
   const days = balanceDays(s.balance_vnd, s.stats_7d?.cost ?? 0);
   const blocked = blockedCount(s);
@@ -149,37 +150,59 @@ function SourceCard({ s, area, base }: { s: SupplierSource; area: SourceArea; ba
       <div className="flex items-start justify-between gap-3">
         <div className="min-w-0">
           <p className="truncate text-[16px] font-semibold text-fg group-hover:text-iris-hi">{s.name}</p>
-          <p className="text-[12.5px] text-muted">{catalog ? t("kind.catalog") : t("kind.server")} · <span className="font-mono">{s.adapter_type}</span></p>
+          <p className="text-[12.5px] text-muted">{t(`kind.${s.kind}`)} · <span className="font-mono">{s.adapter_type}</span></p>
         </div>
         {status}
       </div>
-      <dl className="grid grid-cols-3 gap-3 border-y border-line py-3">
-        <div className="min-w-0">
-          <dt className="text-[12px] text-muted">{t("list.balance")}</dt>
-          <dd className={cn("font-mono text-[16px] font-semibold tabular-nums", low ? "text-warn" : "text-fg")}>
-            {s.balance_vnd === null ? "—" : formatLedgerMoney(s.balance_vnd, locale)}
-          </dd>
-          <dd className="text-[12px] text-muted">{days === null ? t("list.balanceUnknownPace") : t("list.balanceDays", { n: days })}</dd>
-        </div>
-        <div className="min-w-0">
-          <dt className="text-[12px] text-muted">{t("list.selling")}</dt>
-          <dd className="font-mono text-[16px] font-semibold tabular-nums text-fg">{catalog ? s.active_listing_count : s.product_count}</dd>
-          <dd className={cn("text-[12px]", blocked > 0 ? "text-warn" : "text-muted")}>
-            {catalog ? (blocked > 0 ? t("list.blockedN", { n: blocked }) : t("list.variantsUnit")) : t("list.productsUnit")}
-          </dd>
-        </div>
-        <div className="min-w-0">
-          <dt className="text-[12px] text-muted">{t("list.profit7d")}</dt>
-          <dd className="font-mono text-[16px] font-semibold tabular-nums text-fg">{formatLedgerMoney(s.stats_7d?.profit ?? 0, locale)}</dd>
-          <dd className="text-[12px] text-muted">{t("list.units7d", { n: s.stats_7d?.units ?? 0 })}</dd>
-        </div>
-      </dl>
+      {s.kind === "gateway" ? (
+        <dl className="grid grid-cols-3 gap-3 border-y border-line py-3">
+          <div className="min-w-0">
+            <dt className="text-[12px] text-muted">{t("gateway.requests24h")}</dt>
+            <dd className="font-mono text-[16px] font-semibold tabular-nums text-fg">{(s.gateway_stats?.requests_24h ?? 0).toLocaleString(locale)}</dd>
+            <dd className={cn("text-[12px]", (s.gateway_stats?.errors_24h ?? 0) > 0 ? "text-warn" : "text-muted")}>
+              {t("gateway.errorsShort", { n: s.gateway_stats?.errors_24h ?? 0 })}
+            </dd>
+          </div>
+          <div className="min-w-0">
+            <dt className="text-[12px] text-muted">{t("gateway.activeKeys")}</dt>
+            <dd className="font-mono text-[16px] font-semibold tabular-nums text-fg">{(s.gateway_stats?.active_keys ?? 0).toLocaleString(locale)}</dd>
+            <dd className="text-[12px] text-muted">{t("gateway.activeKeysSub")}</dd>
+          </div>
+          <div className="min-w-0">
+            <dt className="text-[12px] text-muted">{t("list.profit7d")}</dt>
+            <dd className="font-mono text-[16px] font-semibold tabular-nums text-fg">{formatLedgerMoney(s.gateway_stats?.profit_7d ?? 0, locale)}</dd>
+            <dd className="text-[12px] text-muted">{t("gateway.sales7d", { amount: formatLedgerMoney(s.gateway_stats?.sales_7d ?? 0, locale) })}</dd>
+          </div>
+        </dl>
+      ) : (
+        <dl className="grid grid-cols-3 gap-3 border-y border-line py-3">
+          <div className="min-w-0">
+            <dt className="text-[12px] text-muted">{t("list.balance")}</dt>
+            <dd className={cn("font-mono text-[16px] font-semibold tabular-nums", low ? "text-warn" : "text-fg")}>
+              {s.balance_vnd === null ? "—" : formatLedgerMoney(s.balance_vnd, locale)}
+            </dd>
+            <dd className="text-[12px] text-muted">{days === null ? t("list.balanceUnknownPace") : t("list.balanceDays", { n: days })}</dd>
+          </div>
+          <div className="min-w-0">
+            <dt className="text-[12px] text-muted">{t("list.selling")}</dt>
+            <dd className="font-mono text-[16px] font-semibold tabular-nums text-fg">{catalog ? s.active_listing_count : s.product_count}</dd>
+            <dd className={cn("text-[12px]", blocked > 0 ? "text-warn" : "text-muted")}>
+              {catalog ? (blocked > 0 ? t("list.blockedN", { n: blocked }) : t("list.variantsUnit")) : t("list.productsUnit")}
+            </dd>
+          </div>
+          <div className="min-w-0">
+            <dt className="text-[12px] text-muted">{t("list.profit7d")}</dt>
+            <dd className="font-mono text-[16px] font-semibold tabular-nums text-fg">{formatLedgerMoney(s.stats_7d?.profit ?? 0, locale)}</dd>
+            <dd className="text-[12px] text-muted">{t("list.units7d", { n: s.stats_7d?.units ?? 0 })}</dd>
+          </div>
+        </dl>
+      )}
       <div className="flex flex-wrap items-center justify-between gap-2 text-[12.5px] text-muted">
         <span className="inline-flex min-w-0 items-center gap-1.5">
           <Store size={14} />
           {store ? <span className="min-w-0 truncate">{t("list.soldAs", { store })}</span> : <Tag tone="warn">{t("list.noStore")}</Tag>}
         </span>
-        <span>{catalog ? t("list.synced", { when: relTime(s.catalog_synced_at, t) }) : t("list.checked", { when: relTime(s.last_tested_at, t) })}</span>
+        <span>{s.kind === "catalog" || s.kind === "proxy" ? t("list.synced", { when: relTime(s.catalog_synced_at, t) }) : t("list.checked", { when: relTime(s.last_tested_at, t) })}</span>
       </div>
     </Link>
   );

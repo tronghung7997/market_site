@@ -190,6 +190,7 @@ async def get_usage_summary(order_id: int, db: AsyncSession) -> dict | None:
                 "id": c.id, "endpoint": c.endpoint, "status_code": c.status_code,
                 "latency_ms": c.latency_ms, "request_payload": c.request_payload,
                 "response_snippet": c.response_snippet, "error": c.error,
+                "units_charged": c.units_charged, "units_remaining": c.units_remaining,
                 "created_at": c.created_at,
             }
             for c in gateway_calls

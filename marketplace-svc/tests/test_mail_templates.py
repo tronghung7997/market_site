@@ -43,7 +43,7 @@ async def test_mail_templates_seed_patch_reset_and_preview(client):
     listing = await client.get("/admin/mail-templates", headers=headers)
     assert listing.status_code == 200, listing.text
     items = listing.json()["items"]
-    assert len(items) == 28  # 14 templates × vi/en (email_verify, email_change_confirm/notice added)
+    assert len(items) == 30  # 15 templates × vi/en (ops_incident added)
     row = next(item for item in items if item["template"] == "admin_test" and item["locale"] == "en")
     assert row["customized"] is False
     assert "{action_url}" in row["body"]

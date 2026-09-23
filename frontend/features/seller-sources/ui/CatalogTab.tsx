@@ -9,7 +9,7 @@ import type { Category, SourceArea, SourceCatalogItem, SourceCatalogPage, Source
 import { Banner, Button, Input, Pagination, Select, Switch, Tag } from "@/components/ui";
 import { AlertTriangle, Check, Info, Search } from "@/components/Icons";
 import { cn } from "@/lib/cn";
-import { existingProducts, marginOf, planPlacement, suggestPrice, type DraftProduct, type DraftVariant } from "../logic";
+import { existingProducts, marginOf, planPlacement, sourceRef, suggestPrice, type DraftProduct, type DraftVariant } from "../logic";
 import { FilterChip } from "./shared";
 
 const PER_PAGE = 30;
@@ -47,7 +47,7 @@ export function CatalogTab({ area, source, listings, onImported }: {
     const handle = setTimeout(async () => {
       setLoading(true);
       try {
-        setData(await api.sources.catalog(area, source.id, { q, group, in_stock: inStock, page, per_page: PER_PAGE, sort: "stock" }));
+        setData(await api.sources.catalog(area, sourceRef(area, source), { q, group, in_stock: inStock, page, per_page: PER_PAGE, sort: "stock" }));
         setError("");
       } catch (e) {
         setError(apiErrorMessage(e));
@@ -56,7 +56,7 @@ export function CatalogTab({ area, source, listings, onImported }: {
       }
     }, 200);
     return () => clearTimeout(handle);
-  }, [area, source.id, q, group, inStock, page, apiErrorMessage]);
+  }, [area, source.id, source.public_key, q, group, inStock, page, apiErrorMessage]);
 
   useEffect(() => { api.categories().then(setCategories).catch(() => setCategories([])); }, []);
 
@@ -135,7 +135,7 @@ export function CatalogTab({ area, source, listings, onImported }: {
           group_key: isNew ? v.target : null,
         };
       });
-      const created = await api.sources.import(area, source.id, items, area === "admin" ? source.seller_id : undefined);
+      const created = await api.sources.import(area, sourceRef(area, source), items, area === "admin" ? source.seller_id : undefined);
       setSelected(new Map());
       setPlan({ products: [], variants: [] });
       await onImported(created.length);

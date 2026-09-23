@@ -96,6 +96,9 @@ class SupplierCatalogItem(Base):
     # Nhóm gốc (category_path[0]) tách cột để lọc/đếm nhanh.
     group_name: Mapped[str] = mapped_column(String(255), nullable=False, default="")
     category_path: Mapped[list] = mapped_column(JSONB, nullable=False, server_default="[]", default=list)
+    # Thuộc tính máy của gói/SKU (UpstreamListing.attributes) — proxy dùng để
+    # dựng tham số giá lúc nhập: duration_days, loaiproxy, currency…
+    extra: Mapped[dict] = mapped_column(JSONB, nullable=False, server_default="{}", default=dict)
     synced_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), server_default=func.now())
 
 

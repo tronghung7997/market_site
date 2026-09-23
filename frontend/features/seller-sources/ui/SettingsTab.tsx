@@ -6,7 +6,7 @@ import { api } from "@/lib/api";
 import { useApiErrorMessage } from "@/lib/use-api-error";
 import { useMoney } from "@/lib/money/CurrencyProvider";
 import type { SourceArea, SourceRepriceResult, SourceSellerCandidate, SourceSettings, SourceTestResult } from "@/lib/types";
-import { Banner, Button, Card, Input, Select, Spinner, Tag } from "@/components/ui";
+import { Banner, Button, Card, Input, Select, Spinner, Switch, Tag } from "@/components/ui";
 import { AlertTriangle, CheckCircle2, Info, Key, Pause, Plug, RefreshCw, Store } from "@/components/Icons";
 import { Dialog, DialogContent, DialogFooter, DialogHeader, DialogTitle } from "@/components/ui/dialog";
 import { cn } from "@/lib/cn";
@@ -18,7 +18,9 @@ const ROUND_OPTIONS = [100, 500, 1000, 5000, 10000] as const;
 
 /** Mọi cấu hình của một nguồn ở một chỗ. Seller nội bộ sửa luật giá và
  *  ngưỡng an toàn; kết nối, cửa hàng bán, tạm dừng chỉ admin thấy. */
-export function SettingsTab({ area, sourceId, onSaved }: { area: SourceArea; sourceId: number; onSaved: () => Promise<void> }) {
+export function SettingsTab({ area, sourceRef: ref, onSaved, kind = "catalog" }: {
+  area: SourceArea; sourceRef: string; onSaved: () => Promise<void>; kind?: "catalog" | "gateway";
+}) {
   const t = useTranslations("sellerSources");
   const apiErrorMessage = useApiErrorMessage();
   const [settings, setSettings] = useState<SourceSettings | null>(null);
@@ -26,13 +28,13 @@ export function SettingsTab({ area, sourceId, onSaved }: { area: SourceArea; sou
 
   const load = async () => {
     try {
-      setSettings(await api.sources.settings(area, sourceId));
+      setSettings(await api.sources.settings(area, ref));
       setError("");
     } catch (e) {
       setError(apiErrorMessage(e));
     }
   };
-  useEffect(() => { void load(); /* eslint-disable-next-line react-hooks/exhaustive-deps */ }, [area, sourceId]);
+  useEffect(() => { void load(); /* eslint-disable-next-line react-hooks/exhaustive-deps */ }, [area, ref]);
 
   const saved = async (next: SourceSettings) => {
     setSettings(next);
@@ -46,17 +48,23 @@ export function SettingsTab({ area, sourceId, onSaved }: { area: SourceArea; sou
 
   return (
     <div className="space-y-4 pt-4">
-      {settings.can_manage_connection && <ConnectionSection area={area} s={settings} onSaved={saved} />}
-      <PriceRuleSection area={area} s={settings} onSaved={saved} />
-      <SafetySection area={area} s={settings} onSaved={saved} />
-      {settings.can_manage_connection && <StoreSection area={area} s={settings} onSaved={saved} />}
-      {settings.can_manage_connection && <PauseSection area={area} s={settings} onSaved={saved} />}
+      {settings.can_manage_connection && <ConnectionSection area={area} sref={ref} s={settings} onSaved={saved} />}
+      {kind === "gateway" ? (
+        <CallSection area={area} sref={ref} s={settings} onSaved={saved} />
+      ) : (
+        <>
+          <PriceRuleSection area={area} sref={ref} s={settings} onSaved={saved} />
+          <SafetySection area={area} sref={ref} s={settings} onSaved={saved} />
+        </>
+      )}
+      {settings.can_manage_connection && <StoreSection area={area} sref={ref} s={settings} onSaved={saved} />}
+      {settings.can_manage_connection && <PauseSection area={area} sref={ref} s={settings} onSaved={saved} />}
       {!settings.can_manage_connection && <p className="flex items-center gap-1.5 text-[12.5px] text-muted"><Info size={14} />{t("settings.sellerNote")}</p>}
     </div>
   );
 }
 
-type SectionProps = { area: SourceArea; s: SourceSettings; onSaved: (next: SourceSettings) => Promise<void> };
+type SectionProps = { area: SourceArea; sref: string; s: SourceSettings; onSaved: (next: SourceSettings) => Promise<void> };
 
 function Section({ title, description, adminOnly, danger, children }: {
   title: string; description: string; adminOnly?: boolean; danger?: boolean; children: ReactNode;
@@ -76,7 +84,7 @@ function Section({ title, description, adminOnly, danger, children }: {
   );
 }
 
-function useSave(area: SourceArea, id: number, onSaved: SectionProps["onSaved"]) {
+function useSave(area: SourceArea, ref: string, onSaved: SectionProps["onSaved"]) {
   const t = useTranslations("sellerSources");
   const apiErrorMessage = useApiErrorMessage();
   const [busy, setBusy] = useState(false);
@@ -85,7 +93,7 @@ function useSave(area: SourceArea, id: number, onSaved: SectionProps["onSaved"])
     setBusy(true);
     setMsg(null);
     try {
-      await onSaved(await api.sources.updateSettings(area, id, body));
+      await onSaved(await api.sources.updateSettings(area, ref, body));
       setMsg({ tone: "good", text: okText ?? t("settings.saved") });
       return true;
     } catch (e) {
@@ -105,12 +113,12 @@ function SaveMsg({ msg }: { msg: { tone: "good" | "bad"; text: string } | null }
 
 /* ------------------------------------------------------------------ */
 
-function ConnectionSection({ area, s, onSaved }: SectionProps) {
+function ConnectionSection({ area, sref, s, onSaved }: SectionProps) {
   const t = useTranslations("sellerSources");
   const locale = useLocale();
   const { formatLedgerMoney } = useMoney();
   const apiErrorMessage = useApiErrorMessage();
-  const { busy, msg, save } = useSave(area, s.id, onSaved);
+  const { busy, msg, save } = useSave(area, sref, onSaved);
   const [name, setName] = useState(s.name);
   const [newKey, setNewKey] = useState<string | null>(null);
   const [baseUrl, setBaseUrl] = useState(s.base_url ?? "");
@@ -188,13 +196,13 @@ function ConnectionSection({ area, s, onSaved }: SectionProps) {
   );
 }
 
-function PriceRuleSection({ area, s, onSaved }: SectionProps) {
+function PriceRuleSection({ area, sref, s, onSaved }: SectionProps) {
   const t = useTranslations("sellerSources");
   const locale = useLocale();
   const { formatLedgerMoney } = useMoney();
   const apiErrorMessage = useApiErrorMessage();
   const money = (n: number) => formatLedgerMoney(n, locale);
-  const { busy, msg, setMsg, save } = useSave(area, s.id, onSaved);
+  const { busy, msg, setMsg, save } = useSave(area, sref, onSaved);
   const [markup, setMarkup] = useState(String(s.markup_pct));
   const [roundTo, setRoundTo] = useState(s.round_to);
   const [follow, setFollow] = useState(s.follow_cost);
@@ -211,7 +219,7 @@ function PriceRuleSection({ area, s, onSaved }: SectionProps) {
     setPreviewing(true);
     setMsg(null);
     try {
-      setPreview(await api.sources.reprice(area, s.id, { margin_pct: pct, round_to: roundTo, dry_run: true }));
+      setPreview(await api.sources.reprice(area, sref, { margin_pct: pct, round_to: roundTo, dry_run: true }));
     } catch (e) {
       setMsg({ tone: "bad", text: apiErrorMessage(e) });
     } finally {
@@ -223,9 +231,9 @@ function PriceRuleSection({ area, s, onSaved }: SectionProps) {
     try {
       const ok = await save({ markup_pct: pct, round_to: roundTo, follow_cost: follow });
       if (ok && preview && preview.changed.length > 0) {
-        const r = await api.sources.reprice(area, s.id, {});
+        const r = await api.sources.reprice(area, sref, {});
         setMsg({ tone: "good", text: t("settings.ruleApplied", { n: r.changed.length }) });
-        await onSaved(await api.sources.settings(area, s.id));
+        await onSaved(await api.sources.settings(area, sref));
       }
       setPreview(null);
     } catch (e) {
@@ -285,9 +293,9 @@ function PriceRuleSection({ area, s, onSaved }: SectionProps) {
   );
 }
 
-function SafetySection({ area, s, onSaved }: SectionProps) {
+function SafetySection({ area, sref, s, onSaved }: SectionProps) {
   const t = useTranslations("sellerSources");
-  const { busy, msg, save } = useSave(area, s.id, onSaved);
+  const { busy, msg, save } = useSave(area, sref, onSaved);
   const [minMargin, setMinMargin] = useState(String(s.min_margin_pct));
   const [autoPause, setAutoPause] = useState(String(s.auto_pause_after_failures));
   const [lowBalance, setLowBalance] = useState(String(s.low_balance_vnd));
@@ -326,10 +334,58 @@ function SafetySection({ area, s, onSaved }: SectionProps) {
   );
 }
 
-function StoreSection({ area, s, onSaved }: SectionProps) {
+function CallSection({ area, sref, s, onSaved }: SectionProps) {
+  const t = useTranslations("sellerSources");
+  const { busy, msg, save } = useSave(area, sref, onSaved);
+  const [timeout, setTimeoutS] = useState(String(s.timeout_seconds));
+  const [retry, setRetry] = useState(s.max_attempts > 1);
+  const [rate, setRate] = useState(String(s.rate_limit_per_minute ?? ""));
+  const tNum = Number(timeout);
+  const rNum = Number(rate);
+  const valid = Number.isInteger(tNum) && tNum >= 5 && tNum <= 120 && Number.isInteger(rNum) && rNum >= 1 && rNum <= 600;
+  const changed = tNum !== s.timeout_seconds || retry !== (s.max_attempts > 1) || rNum !== (s.rate_limit_per_minute ?? 0);
+  return (
+    <Section title={t("settings.callTitle")} description={t("settings.callDesc")}>
+      <div className="flex flex-wrap items-center justify-between gap-3">
+        <label htmlFor="set-timeout" className="min-w-0 flex-1">
+          <span className="block text-[13.5px] font-medium text-fg">{t("settings.timeout")}</span>
+          <span className="block text-[12.5px] text-muted">{t("settings.timeoutHint")}</span>
+        </label>
+        <span className="flex items-center gap-2">
+          <Input id="set-timeout" type="number" min={5} max={120} className="h-9 w-24 text-right font-mono" value={timeout} onChange={(e) => setTimeoutS(e.target.value)} />
+          <span className="w-14 text-[13px] text-muted">{t("settings.seconds")}</span>
+        </span>
+      </div>
+      <div className="flex flex-wrap items-center justify-between gap-3 border-t border-line pt-4">
+        <div className="min-w-0 flex-1">
+          <span className="block text-[13.5px] font-medium text-fg">{t("settings.retry")}</span>
+          <span className="block text-[12.5px] text-muted">{t("settings.retryHint")}</span>
+        </div>
+        <Switch checked={retry} onChange={setRetry} label={t("settings.retry")} />
+      </div>
+      <div className="flex flex-wrap items-center justify-between gap-3 border-t border-line pt-4">
+        <label htmlFor="set-rate" className="min-w-0 flex-1">
+          <span className="block text-[13.5px] font-medium text-fg">{t("settings.rate")}</span>
+          <span className="block text-[12.5px] text-muted">{t("settings.rateHint")}</span>
+        </label>
+        <span className="flex items-center gap-2">
+          <Input id="set-rate" type="number" min={1} max={600} className="h-9 w-24 text-right font-mono" value={rate} onChange={(e) => setRate(e.target.value)} />
+          <span className="w-14 text-[13px] text-muted">{t("settings.perMinute")}</span>
+        </span>
+      </div>
+      <div className="flex items-center gap-3">
+        <Button disabled={!changed || !valid || busy} onClick={() => save({ timeout_seconds: tNum, max_attempts: retry ? 3 : 1, rate_limit_per_minute: rNum })}>{t("save")}</Button>
+        {!valid && <span className="text-[12.5px] text-bad">{t("settings.callInvalid")}</span>}
+      </div>
+      <SaveMsg msg={msg} />
+    </Section>
+  );
+}
+
+function StoreSection({ area, sref, s, onSaved }: SectionProps) {
   const t = useTranslations("sellerSources");
   const apiErrorMessage = useApiErrorMessage();
-  const { busy, msg, save } = useSave(area, s.id, onSaved);
+  const { busy, msg, save } = useSave(area, sref, onSaved);
   const [candidates, setCandidates] = useState<SourceSellerCandidate[] | null>(null);
   const [pick, setPick] = useState<string>("");
   const [loadError, setLoadError] = useState("");
@@ -376,12 +432,14 @@ function StoreSection({ area, s, onSaved }: SectionProps) {
   );
 }
 
-function PauseSection({ area, s, onSaved }: SectionProps) {
+function PauseSection({ area, sref, s, onSaved }: SectionProps) {
   const t = useTranslations("sellerSources");
-  const { busy, msg, save } = useSave(area, s.id, onSaved);
+  const { busy, msg, save } = useSave(area, sref, onSaved);
   const [confirming, setConfirming] = useState(false);
+  const gateway = s.kind === "gateway";
+  const pauseDesc = t(gateway ? "settings.pauseDescGateway" : "settings.pauseDesc");
   return (
-    <Section title={s.is_active ? t("settings.pauseTitle") : t("settings.resumeTitle")} description={s.is_active ? t("settings.pauseDesc") : t("settings.resumeDesc")} adminOnly danger={s.is_active}>
+    <Section title={s.is_active ? t("settings.pauseTitle") : t("settings.resumeTitle")} description={s.is_active ? pauseDesc : t(gateway ? "settings.resumeDescGateway" : "settings.resumeDesc")} adminOnly danger={s.is_active}>
       <div>
         {s.is_active ? (
           <Button variant="danger" onClick={() => setConfirming(true)} disabled={busy}><Pause size={15} />{t("settings.pause")}</Button>
@@ -393,7 +451,7 @@ function PauseSection({ area, s, onSaved }: SectionProps) {
       <Dialog open={confirming} onOpenChange={(o) => { if (!o && !busy) setConfirming(false); }}>
         <DialogContent className="max-w-sm border-line bg-panel p-5 text-fg">
           <DialogHeader><DialogTitle className="text-[15px] font-semibold">{t("settings.pauseConfirmTitle", { name: s.name })}</DialogTitle></DialogHeader>
-          <p className="text-[13px] leading-relaxed text-muted">{t("settings.pauseDesc")}</p>
+          <p className="text-[13px] leading-relaxed text-muted">{pauseDesc}</p>
           <DialogFooter className="mt-2 flex-row justify-end gap-2">
             <Button variant="ghost" onClick={() => setConfirming(false)} disabled={busy}>{t("cancel")}</Button>
             <Button variant="danger" disabled={busy} onClick={async () => { if (await save({ is_active: false }, t("settings.paused"))) setConfirming(false); }}>

@@ -2,6 +2,11 @@
 
 import type { SourceCatalogItem, SourceListing, SupplierSource } from "@/lib/types";
 
+/** URL/API ref of a source: sellers see the public key, never the row id. */
+export function sourceRef(area: "admin" | "seller", source: { id: number; public_key: string }): string {
+  return area === "seller" ? source.public_key : String(source.id);
+}
+
 /** Giá bán gợi ý = vốn × (1 + margin%), làm tròn LÊN bội số `roundTo` —
  *  cùng công thức với backend `suppliers.service.suggest_price`. */
 export function suggestPrice(costPrice: number, marginPct: number, roundTo = 1000): number {

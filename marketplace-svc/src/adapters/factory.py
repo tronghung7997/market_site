@@ -2,6 +2,7 @@ from sqlalchemy.ext.asyncio import AsyncSession
 
 from src.adapters.base import ProviderAdapter
 from src.adapters.registry import get_spec
+from src.models.account import Account
 from src.models.provider import Provider
 
 MAX_FALLBACK_DEPTH = 3
@@ -36,7 +37,7 @@ async def get_adapter(provider_id: int, db: AsyncSession) -> ProviderAdapter:
             )
 
         if provider.is_active:
-            return _instantiate(provider, db)
+            return _instantiate(provider, db, seller_owned=await _seller_owned(provider, db))
 
         # Inactive — try fallback
         if provider.fallback_provider_id is not None:
@@ -64,7 +65,7 @@ async def get_binding_adapter(provider_id: int, db: AsyncSession) -> ProviderAda
     provider = await db.get(Provider, provider_id)
     if provider is None:
         raise ValueError(f"Provider {provider_id} not found")
-    return _instantiate(provider, db)
+    return _instantiate(provider, db, seller_owned=await _seller_owned(provider, db))
 
 
 async def get_adapter_for_test(provider_id: int, db: AsyncSession) -> ProviderAdapter:
@@ -79,10 +80,32 @@ async def get_adapter_for_test(provider_id: int, db: AsyncSession) -> ProviderAd
     provider = await db.get(Provider, provider_id)
     if provider is None:
         raise ValueError(f"Provider {provider_id} not found")
-    return _instantiate(provider, db)
+    return _instantiate(provider, db, seller_owned=await _seller_owned(provider, db))
 
 
-def _instantiate(provider: Provider, db: AsyncSession) -> ProviderAdapter:
+async def _seller_owned(provider: Provider, db: AsyncSession) -> bool:
+    """Config của provider có phải do SELLER tự khai (không tin được → gọi ra
+    ngoài qua SSRF guard: https:443, IP public, không proxy env) hay không.
+
+    - Không có seller → admin khai → tin.
+    - Adapter seller tự đăng ký được (seller_registrable) → luôn coi là của
+      seller, kể cả khi chủ là tài khoản nội bộ.
+    - Adapter chỉ admin cấu hình được (dproxy, topproxy, igbm…) gán cho seller
+      NỘI BỘ qua /admin/sources: config vẫn do admin viết, seller nội bộ chỉ là
+      chủ sở hữu hàng — không áp guard, nếu không lệnh mua thật trên
+      production sẽ đi qua guard dành cho config không tin được (mất proxy
+      env, chặn mock http:// ở staging) chỉ vì tài khoản đứng tên.
+    """
+    if provider.seller_id is None:
+        return False
+    spec = get_spec(provider.adapter_type)
+    if spec is not None and spec.seller_registrable:
+        return True
+    owner = await db.get(Account, provider.seller_id)
+    return not (owner is not None and owner.is_internal)
+
+
+def _instantiate(provider: Provider, db: AsyncSession, *, seller_owned: bool) -> ProviderAdapter:
     spec = get_spec(provider.adapter_type)
     if spec is None:
         raise ValueError(f"Unknown adapter_type: {provider.adapter_type!r}")
@@ -90,7 +113,7 @@ def _instantiate(provider: Provider, db: AsyncSession) -> ProviderAdapter:
     # seller_gateway delivers the platform-minted gateway key itself. Unlike
     # supplier adapters, it has no separate /provision handshake to invent.
     config = dict(provider.config or {})
-    if provider.adapter_type == "seller_gateway":
+    if provider.adapter_type == "seller_gateway" or spec.gateway_source:
         config["skip_provision_handshake"] = True
 
     # Chữ ký chung cho MỌI adapter (adapters/base.py) — thêm adapter mới không
@@ -99,5 +122,5 @@ def _instantiate(provider: Provider, db: AsyncSession) -> ProviderAdapter:
         config,
         db=db,
         provider_id=provider.id,
-        seller_owned=provider.seller_id is not None,
+        seller_owned=seller_owned,
     )

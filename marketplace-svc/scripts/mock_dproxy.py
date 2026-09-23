@@ -80,6 +80,14 @@ FailureMode = Literal[
     "purchase_pending_status",
     # partner-dispute lỗi 5xx.
     "dispute_500",
+    # Shape live 2026-09-23: `order_id: null`, không có `status`; node mới
+    # vẫn có `assignment_id`.
+    "purchase_live_minimal",
+    # Live 2026-09-23 với gói hết hàng: 200 success nhưng trả lại assignment
+    # CÓ SẴN #1 của tài khoản, đã hết hạn — adapter phải từ chối.
+    "purchase_stale_assignment",
+    # /store/quote báo gói hết hàng (available=false, count=0).
+    "quote_unavailable",
 ]
 SLOW_SECONDS = float(os.environ.get("MOCK_DPROXY_SLOW_SECONDS", "8"))
 
@@ -103,6 +111,19 @@ class PartnerDisputeRequest(BaseModel):
     PartnerDisputeRequest."""
     partner_order_id: str
     reason: str | None = None
+
+
+class QuoteRequest(BaseModel):
+    """POST /api/v1/store/quote — OpenAPI ProxySalesQuoteRequest."""
+    plan_id: str
+    quantity: int = Field(default=1, ge=1, le=1000)
+    duration_days: int | None = None
+
+
+class MockCreditRequest(BaseModel):
+    credit_limit_usd: float | None = None
+    current_debt_usd: float | None = None
+    is_credit_active: bool | None = None
 
 
 class MockPlansRequest(BaseModel):
@@ -256,7 +277,7 @@ _DEFAULT_PLANS = [
         "is_active": True,
         "min_quantity": 1,
         "max_quantity": 1000,
-        "proxies_type_id": 3,
+        "proxies_type_id": 2,
         "country_id": 1,
         "service_type_id": None,
         "ip_version_id": None,
@@ -273,7 +294,7 @@ _DEFAULT_PLANS = [
         "is_active": True,
         "min_quantity": 1,
         "max_quantity": 1000,
-        "proxies_type_id": 2,
+        "proxies_type_id": 4,
         "country_id": 2,
         "service_type_id": None,
         "ip_version_id": None,
@@ -291,6 +312,8 @@ _purchase_calls: list[dict] = []
 _slow_served: set[str] = set()
 _mode: FailureMode = "normal"
 _plans: list[dict] = []
+# credit-summary live: hạn mức trả sau, mỗi lệnh mua cộng công nợ theo giá gói.
+_credit: dict = {}
 _next_index = 4  # 1-3 are the fixed reset_state() pool; purchases start after.
 
 
@@ -312,6 +335,8 @@ def reset_state() -> None:
     _disputes.clear()
     _purchase_calls.clear()
     _slow_served.clear()
+    _credit.clear()
+    _credit.update({"credit_limit_usd": 100.0, "current_debt_usd": 0.0, "is_credit_active": True})
     for index in range(1, 4):
         assignment = _new_assignment(index)
         _assignments[assignment["id"]] = assignment
@@ -389,7 +414,7 @@ th,td{text-align:left;padding:11px;border-bottom:1px solid #27314a;vertical-alig
 code{color:#b9c5ff}#msg{min-height:22px;margin:10px 0}#msg.err{color:#ff7b86}#msg.busy{color:#e3b341}</style></head><body><main>
 <h1>Mock DProxy</h1><div class="muted">DProxy-compatible inventory & rotation service · API key: <code>""" + json.dumps(API_KEY)[1:-1] + """</code></div>
 <div class="bar"><button onclick="resetState()">Reset</button><select id="mode" onchange="setMode(this.value)">
-<option>normal</option><option>list_empty</option><option>list_500</option><option>list_malformed</option><option>rotate_500</option><option>rotate_malformed</option>
+<option>normal</option><option>list_empty</option><option>list_500</option><option>list_malformed</option><option>rotate_500</option><option>rotate_malformed</option><option>purchase_live_minimal</option><option>purchase_stale_assignment</option><option>quote_unavailable</option><option>purchase_402</option><option>purchase_500</option>
 </select><button onclick="load()">Refresh</button></div><div id="msg"></div>
 <table><thead><tr><th>Assignment</th><th>Proxy</th><th>Public IP</th><th>Status</th><th>Expires</th><th>Thao tác</th></tr></thead><tbody id="rows"></tbody></table>
 <script>
@@ -479,6 +504,25 @@ async def partner_purchase(body: PartnerPurchaseRequest, request: Request):
     except ValueError:
         raise HTTPException(status_code=422, detail="plan_id must be a UUID") from None
 
+    if _mode == "purchase_stale_assignment":
+        # Không tạo đơn, không cộng công nợ — đúng như live quan sát được.
+        stale = _assignments["00000000-0000-4000-8000-000000000001"]
+        plan = next((p for p in _plans if p["id"] == body.plan_id), None)
+        return {
+            "success": True,
+            "data": {
+                "success": True, "order_id": None, "partner_order_id": body.partner_order_id,
+                "channel": body.channel, "plan_name": plan["name"] if plan else None, "quantity": 1,
+                "total_cost_usd": plan["price"] if plan else None,
+                "proxies": [{
+                    "assignment_id": stale["id"], "ip": stale["proxies"]["ip_public"],
+                    "port": stale["proxies"]["port"], "username": stale["username"],
+                    "password": stale["password"],
+                    "expires_at": _iso(_utcnow() - timedelta(days=70)),
+                }],
+            },
+        }
+
     existing = _orders.get(body.partner_order_id)
     if existing is not None:
         if _mode == "purchase_duplicate_409":
@@ -512,28 +556,34 @@ async def partner_purchase(body: PartnerPurchaseRequest, request: Request):
     if _mode == "purchase_not_idempotent" and existing is not None:
         # Đơn thứ hai cho cùng partner_order_id — order_id KHÁC.
         order_uuid = str(uuid5(NAMESPACE_URL, f"mock-dproxy:{body.partner_order_id}:{index}"))
-    payload = {
+    data = {
         "success": True,
-        "data": {
-            # The supplier contract exposes an order UUID, not an assignment
-            # UUID. Keep them deliberately distinct so local E2E cannot hide
-            # an invalid identity assumption in the marketplace adapter.
-            "order_id": order_uuid,
-            "partner_order_id": body.partner_order_id,
-            "status": "pending" if _mode == "purchase_pending_status" else "fulfilled",
-            "quantity": 1,
-            "proxies": [{
-                "ip": ip,
-                "port": port,
-                "username": username,
-                "password": password,
-                "formatted_string": formatted,
-                "socks5_url": f"socks5://{username}:{password}@{ip}:{port}",
-                "expires_at": assignment["expired_at"],
-            }],
-            "export_text": formatted,
-        },
+        # Order UUID khác assignment UUID — giữ tách bạch để E2E không che
+        # một giả định identity sai trong adapter.
+        "order_id": order_uuid,
+        "partner_order_id": body.partner_order_id,
+        "channel": body.channel,
+        "plan_name": plan["name"],
+        "status": "pending" if _mode == "purchase_pending_status" else "fulfilled",
+        "quantity": 1,
+        "total_cost_usd": plan["price"],
+        "proxies": [{
+            "assignment_id": assignment["id"],
+            "ip": ip,
+            "port": port,
+            "username": username,
+            "password": password,
+            "formatted_string": formatted,
+            "socks5_url": f"socks5://{username}:{password}@{ip}:{port}",
+            "expires_at": assignment["expired_at"],
+        }],
+        "export_text": formatted,
     }
+    if _mode == "purchase_live_minimal":
+        data["order_id"] = None
+        data.pop("status")
+    payload = {"success": True, "data": data}
+    _credit["current_debt_usd"] = round(_credit["current_debt_usd"] + float(plan["price"]), 4)
     _orders[body.partner_order_id] = payload
     _order_assignment[body.partner_order_id] = assignment["id"]
     if _mode == "purchase_slow_then_ok" and body.partner_order_id not in _slow_served:
@@ -564,6 +614,9 @@ async def partner_dispute(body: PartnerDisputeRequest, request: Request):
         "order_id": order["data"]["order_id"], "at": _iso(_utcnow()),
     })
     order["data"]["status"] = "disputed"
+    if not already:
+        cost = float(order["data"].get("total_cost_usd") or 0)
+        _credit["current_debt_usd"] = round(max(_credit["current_debt_usd"] - cost, 0.0), 4)
     return {
         "success": True,
         "data": {
@@ -597,9 +650,44 @@ async def list_marketplace_orders(request: Request, channel: str | None = None, 
 
 @app.get("/api/v1/customer/marketplace/credit-summary")
 async def credit_summary(request: Request):
-    """Shape giả định — OpenAPI để {}."""
+    """Shape live 2026-09-23 (OpenAPI để {})."""
     _check_api_auth(request)
-    return {"success": True, "data": {"credit_limit": 1000.0, "used": float(len(_orders)), "currency": "USD"}}
+    limit = float(_credit["credit_limit_usd"])
+    debt = float(_credit["current_debt_usd"])
+    return {"success": True, "data": {
+        "user_id": "00000000-0000-4000-8000-00000000c0de",
+        "balance_usd": 0.0,
+        "credit_limit_usd": limit,
+        "available_spending_usd": round(max(limit - debt, 0.0), 4) if _credit["is_credit_active"] else 0.0,
+        "current_debt_usd": debt,
+        "is_credit_active": bool(_credit["is_credit_active"]),
+    }}
+
+
+@app.post("/api/v1/store/quote")
+async def store_quote(body: QuoteRequest, request: Request):
+    """Báo giá, không tạo đơn (ProxySalesQuoteResponse). Live: duration_days
+    không đổi giá."""
+    _check_api_auth(request)
+    plan = next((p for p in _plans if p["id"] == body.plan_id), None)
+    if plan is None:
+        raise HTTPException(status_code=404, detail="Không tìm thấy gói proxy đã chọn.")
+    available = _mode != "quote_unavailable"
+    unit = float(plan["price"]) / max(int(plan.get("proxy_count") or 1), 1)
+    duration = body.duration_days or int(plan["duration_days"])
+    return {
+        "available": available,
+        "available_count": 100 if available else 0,
+        "quantity": body.quantity,
+        "unit_price": unit,
+        "total_price": unit * body.quantity,
+        "currency": plan.get("currency") or "USD",
+        "duration_days": duration,
+        "expires_at": _iso(_utcnow() + timedelta(days=duration)),
+        "selected_proxy_ids": [],
+        "plan": _public_plan(plan),
+        "selection": {"plan_id": plan["id"], "quantity": body.quantity, "duration_days": duration},
+    }
 
 
 @app.post("/api/v1/proxies/user/{assignment_id}/rotate")
@@ -672,7 +760,17 @@ async def mock_state(x_mock_control_key: str | None = Header(default=None)) -> d
         "orders": {pid: o["data"]["order_id"] for pid, o in _orders.items()},
         "purchase_calls": list(_purchase_calls),
         "disputes": list(_disputes),
+        "credit": dict(_credit),
     }
+
+
+@app.put("/_mock/credit")
+async def mock_credit(body: MockCreditRequest, x_mock_control_key: str | None = Header(default=None)) -> dict:
+    """Đặt hạn mức / công nợ để giả lập sắp hết hoặc hết credit."""
+    _check_control_auth(x_mock_control_key)
+    for key, value in body.model_dump(exclude_none=True).items():
+        _credit[key] = value
+    return {"ok": True, "credit": dict(_credit)}
 
 
 @app.put("/_mock/plans")

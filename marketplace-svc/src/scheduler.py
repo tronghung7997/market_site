@@ -276,33 +276,30 @@ PROVISION_DEADLINE_SECONDS = 15 * 60
 
 
 async def _dispute_dproxy_deadline_order(order: Order, provider: Provider, db) -> str:
-    """Best-effort partner-dispute cho đơn DProxy quá hạn provision. Trả về
-    đoạn nối vào alert message — không raise: refund đã ghi vào session,
-    thu hồi hỏng chỉ đổi nội dung cảnh báo cho admin đối soát tay."""
+    """Xếp partner-dispute cho đơn DProxy quá hạn provision, CÙNG transaction
+    hoàn tiền (upstream_revocation_job gửi sau commit — không gọi HTTP khi
+    đang giữ FOR UPDATE trên đơn). Trả về đoạn nối vào alert message."""
     from src.adapters.dproxy import DProxyAdapter
     from src.adapters.factory import get_binding_adapter
+    from src.pricing.engine import resolve_pricing
+    from src.resources.proxy_service import enqueue_upstream_revocation, get_order_proxy_allocation
 
     try:
         adapter = await get_binding_adapter(provider.id, db)
     except Exception as e:  # noqa: BLE001
         return f" — không dựng được adapter DProxy để thu hồi ({e})"
-    if not isinstance(adapter, DProxyAdapter) or not adapter.is_purchase_config(order.user_config or {}):
+    if not isinstance(adapter, DProxyAdapter):
         return ""
-    partner_order_id = adapter.partner_order_id_for(order.id)
-    try:
-        ok = await adapter.dispute_purchase(partner_order_id, reason="provision deadline refund")
-    except Exception as e:  # noqa: BLE001 — auth/unavailable/anything
-        logger.warning("dproxy_deadline_dispute_failed", order_id=order.id, error=str(e))
-        return (
-            f" — KHÔNG gửi được partner-dispute cho partner_order_id={partner_order_id} ({e}); "
-            f"đối soát marketplace/orders bên DProxy, nếu đã fulfill thì dispute tay"
-        )
-    if ok:
-        return f" — đã gửi partner-dispute partner_order_id={partner_order_id}"
-    return (
-        f" — DProxy từ chối partner-dispute partner_order_id={partner_order_id}; "
-        f"đối soát marketplace/orders bên DProxy"
+    strategy_name, _ = await resolve_pricing(await db.get(Product, order.product_id), db)
+    if not adapter.is_purchase_config({**(order.user_config or {}), "pricing_strategy": strategy_name}):
+        return ""
+    allocation = await get_order_proxy_allocation(order.id, db)
+    partner_order_id = (
+        allocation.partner_order_id if allocation is not None and allocation.partner_order_id
+        else adapter.partner_order_id_for(order.id)
     )
+    await enqueue_upstream_revocation(provider.id, order.id, partner_order_id, "provision_deadline", db)
+    return f" — đã xếp partner-dispute partner_order_id={partner_order_id} (outbox upstream_revocations)"
 
 
 async def provision_sweep_job() -> None:
@@ -690,6 +687,23 @@ async def dproxy_reconciliation_job() -> None:
     async with SessionLocal() as db:
         now = datetime.now(timezone.utc)
 
+        # Hết hạn theo đồng hồ cho node MUA qua M2M chạy TRƯỚC và cho MỌI
+        # provider DProxy, kể cả provider đang tắt (hết credit / rollback) và
+        # khi lệnh list bên dưới hỏng — không thì đơn đã hết hạn cứ hiện "còn
+        # hạn" cho tới khi provider được bật lại.
+        dproxy_ids = select(Provider.id).where(Provider.adapter_type == "dproxy")
+        expired_purchases = list((await db.execute(
+            select(ProxyAllocation).where(
+                ProxyAllocation.provider_id.in_(dproxy_ids),
+                ProxyAllocation.source == ProxyAllocationSource.purchase.value,
+                ProxyAllocation.status.in_([ProxyAllocationStatus.allocated, ProxyAllocationStatus.offline]),
+                ProxyAllocation.expires_at <= now,
+            )
+        )).scalars().all())
+        for allocation in expired_purchases:
+            allocation.status = ProxyAllocationStatus.expired
+        await db.commit()
+
         providers = list((await db.execute(
             select(Provider).where(Provider.adapter_type == "dproxy", Provider.is_active)
         )).scalars().all())
@@ -758,11 +772,31 @@ async def dproxy_reconciliation_job() -> None:
                     ),
                 )
 
-            # Chỉ binding từ POOL: external_id của allocation mua qua M2M là
-            # order UUID của DProxy, không bao giờ có trong /proxies/user —
-            # đối chiếu theo list sẽ "mất tích" 3 lượt rồi flip sang `error`
-            # + alert critical cho MỌI đơn M2M. Nhóm đó chỉ hết hạn theo
-            # đồng hồ (bên dưới); DProxy chưa có API tra cứu node theo đơn.
+            # Binding MUA qua M2M: node có trong /proxies/user dưới đúng
+            # assignment_id (live 2026-09-23) → làm mới IP/đổi IP/online. Bản
+            # ghi cũ giữ order UUID thì không bao giờ khớp — vắng mặt KHÔNG
+            # được đếm là "mất tích" (không flip `error`), chỉ hết hạn theo
+            # đồng hồ ở đầu job.
+            purchased_live = list((await db.execute(
+                select(ProxyAllocation).where(
+                    ProxyAllocation.provider_id == provider.id,
+                    ProxyAllocation.source == ProxyAllocationSource.purchase.value,
+                    ProxyAllocation.status.in_([ProxyAllocationStatus.allocated, ProxyAllocationStatus.offline]),
+                )
+            )).scalars().all())
+            for allocation in purchased_live:
+                match = by_external_id.get(allocation.external_id)
+                if match is None:
+                    continue
+                _apply_assignment(allocation, match)
+                allocation.consecutive_misses = 0
+                if match.expires_at <= now:
+                    allocation.status = ProxyAllocationStatus.expired
+                elif match.online:
+                    allocation.status = ProxyAllocationStatus.allocated
+                else:
+                    allocation.status = ProxyAllocationStatus.offline
+
             bindings = list((await db.execute(
                 select(ProxyAllocation).where(
                     ProxyAllocation.provider_id == provider.id,
@@ -772,17 +806,6 @@ async def dproxy_reconciliation_job() -> None:
                     ),
                 )
             )).scalars().all())
-
-            purchased = list((await db.execute(
-                select(ProxyAllocation).where(
-                    ProxyAllocation.provider_id == provider.id,
-                    ProxyAllocation.source == ProxyAllocationSource.purchase.value,
-                    ProxyAllocation.status == ProxyAllocationStatus.allocated,
-                    ProxyAllocation.expires_at <= now,
-                )
-            )).scalars().all())
-            for allocation in purchased:
-                allocation.status = ProxyAllocationStatus.expired
 
             for allocation in bindings:
                 match = by_external_id.get(allocation.external_id)
@@ -831,7 +854,7 @@ async def dproxy_reconciliation_job() -> None:
             logger.info(
                 "dproxy_reconciliation", provider_id=provider.id, total=len(assignments),
                 usable=sum(1 for a in assignments if a.is_usable(now=now)), bound=len(bindings),
-                purchased_expired=len(purchased),
+                purchased_refreshed=sum(1 for a in purchased_live if a.external_id in by_external_id),
                 rotation_capable=sum(1 for a in assignments if a.rotation_available),
             )
 
@@ -1061,3 +1084,147 @@ async def ledger_reconcile_job() -> None:
             await run_and_record(db, trigger="schedule")
     except Exception as e:  # noqa: BLE001
         logger.error("ledger_reconcile_failed", error=str(e))
+
+
+UPSTREAM_REVOKE_MAX_ATTEMPTS = 10
+UPSTREAM_REVOKE_MAX_BACKOFF_MINUTES = 60
+
+
+async def upstream_revocation_job() -> None:
+    """Gửi các lệnh partner-dispute đã xếp trong outbox `upstream_revocations`
+    (hoàn tiền dispute, huỷ đơn quá hạn provision, DProxy giao sai).
+
+    Mỗi dòng một transaction ngắn, lock SKIP LOCKED — nhiều worker cùng chạy
+    không gửi trùng. Kết quả:
+    - revoked / not_found → done (not_found = DProxy không có đơn, ví dụ lệnh
+      mua chưa từng tới được họ);
+    - rejected (4xx) → failed + alert critical ngay, admin đối soát tay;
+    - lỗi mạng/5xx/auth → thử lại với backoff lũy thừa, quá
+      UPSTREAM_REVOKE_MAX_ATTEMPTS → failed + alert critical.
+    """
+    from src.adapters.dproxy import DProxyAdapter
+    from src.adapters.factory import get_binding_adapter
+    from src.models.proxy_allocation import UpstreamRevocation, UpstreamRevocationStatus
+
+    async with SessionLocal() as db:
+        now = datetime.now(timezone.utc)
+        ids = list((await db.execute(
+            select(UpstreamRevocation.id).where(
+                UpstreamRevocation.status == UpstreamRevocationStatus.pending.value,
+                UpstreamRevocation.next_attempt_at <= now,
+            ).order_by(UpstreamRevocation.id).limit(50)
+        )).scalars().all())
+
+    for row_id in ids:
+        async with SessionLocal() as db:
+            row = await db.scalar(
+                select(UpstreamRevocation).where(
+                    UpstreamRevocation.id == row_id,
+                    UpstreamRevocation.status == UpstreamRevocationStatus.pending.value,
+                ).with_for_update(skip_locked=True)
+            )
+            if row is None:
+                continue
+            row.attempts += 1
+            outcome: str | None = None
+            error: str | None = None
+            try:
+                adapter = await get_binding_adapter(row.provider_id, db)
+                if not isinstance(adapter, DProxyAdapter):
+                    raise ValueError(f"provider {row.provider_id} không phải DProxy")
+                outcome = await adapter.dispute_purchase(row.partner_order_id, reason=row.reason)
+            except Exception as e:  # noqa: BLE001 — mọi lỗi đều là "thử lại sau"
+                error = f"{type(e).__name__}: {e}"[:255]
+
+            now = datetime.now(timezone.utc)
+            row.outcome = outcome or "error"
+            row.last_error = error
+            failed_message: str | None = None
+            if outcome in ("revoked", "not_found"):
+                row.status = UpstreamRevocationStatus.done.value
+                row.done_at = now
+                if outcome == "not_found":
+                    logger.warning("upstream_revocation_not_found", order_id=row.order_id,
+                                   partner_order_id=row.partner_order_id, reason=row.reason)
+            elif outcome == "rejected":
+                row.status = UpstreamRevocationStatus.failed.value
+                failed_message = "DProxy từ chối partner-dispute"
+            elif row.attempts >= UPSTREAM_REVOKE_MAX_ATTEMPTS:
+                row.status = UpstreamRevocationStatus.failed.value
+                failed_message = f"hết {row.attempts} lần thử ({error})"
+            else:
+                backoff = min(2 ** row.attempts, UPSTREAM_REVOKE_MAX_BACKOFF_MINUTES)
+                row.next_attempt_at = now + timedelta(minutes=backoff)
+
+            if failed_message:
+                await upsert_incident(
+                    db,
+                    fingerprint=fp_order(row.order_id, "upstream_revoke_failed"),
+                    type_="upstream_revoke_failed",
+                    severity="critical",
+                    target_type="order",
+                    target_id=row.order_id,
+                    message=(
+                        f"Đơn #{row.order_id}: KHÔNG thu hồi được proxy ở DProxy ({failed_message}). "
+                        f"Buyer đã được hoàn tiền — dispute tay partner_order_id={row.partner_order_id} "
+                        f"và kiểm tra credit-summary."
+                    ),
+                )
+            await db.commit()
+            logger.info("upstream_revocation_attempt", revocation_id=row_id, outcome=row.outcome,
+                        status=row.status, attempts=row.attempts)
+
+
+DPROXY_DEFAULT_LOW_CREDIT_USD = 10.0
+
+
+async def dproxy_credit_check_job() -> None:
+    """Theo dõi hạn mức trả sau của từng tài khoản DProxy (credit-summary).
+
+    - `available_spending_usd` <= 0 hoặc `is_credit_active` = false → không
+      lệnh mua nào thành công được nữa: tắt provider + alert critical
+      (report_out_of_credit), giống TopProxy hết Xu.
+    - dưới `config.low_credit_usd` (mặc định 10 USD) → alert warning để nạp /
+      thanh toán công nợ trước khi chạm đáy.
+    Provider đang tắt vẫn được kiểm để admin thấy số liệu khi quyết định bật lại.
+    """
+    from src.adapters.dproxy import DProxyAdapter
+    from src.adapters.factory import get_binding_adapter
+    from src.providers.credit import ALERT_LOW_CREDIT, report_out_of_credit
+
+    async with SessionLocal() as db:
+        providers = list((await db.execute(
+            select(Provider).where(Provider.adapter_type == "dproxy")
+        )).scalars().all())
+        for provider in providers:
+            try:
+                adapter = await get_binding_adapter(provider.id, db)
+                if not isinstance(adapter, DProxyAdapter):
+                    continue
+                credit = await adapter.credit_summary()
+            except Exception as e:  # noqa: BLE001 — health/reconciliation báo lỗi kết nối
+                logger.info("dproxy_credit_check_skipped", provider_id=provider.id, error=str(e))
+                continue
+            available = credit["available_spending_usd"]
+            try:
+                threshold = float((provider.config or {}).get("low_credit_usd") or DPROXY_DEFAULT_LOW_CREDIT_USD)
+            except (TypeError, ValueError):
+                threshold = DPROXY_DEFAULT_LOW_CREDIT_USD
+            if provider.is_active and (available <= 0 or not credit["is_credit_active"]):
+                await report_out_of_credit(provider.id, db)
+                continue
+            if available < threshold:
+                await upsert_incident(
+                    db,
+                    fingerprint=fp_provider(provider.id, ALERT_LOW_CREDIT),
+                    type_=ALERT_LOW_CREDIT,
+                    severity="warning",
+                    target_type="provider",
+                    target_id=provider.id,
+                    message=(
+                        f"Nhà cung cấp {provider.name}: hạn mức DProxy còn {available:.2f} USD "
+                        f"(ngưỡng {threshold:.2f} USD, công nợ {credit.get('current_debt_usd') or 0:.2f} USD) — "
+                        f"thanh toán công nợ / nâng hạn mức trước khi hết."
+                    ),
+                )
+                await db.commit()

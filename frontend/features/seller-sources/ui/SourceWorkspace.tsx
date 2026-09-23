@@ -11,7 +11,9 @@ import type { SourceArea, SourceListing, SupplierSource } from "@/lib/types";
 import { Banner, Button, Spinner, Tag } from "@/components/ui";
 import { AlertTriangle, CheckCircle2, ChevronLeft, Pause, RefreshCw } from "@/components/Icons";
 import { cn } from "@/lib/cn";
-import { balanceDays, countListings, lowBalance } from "../logic";
+import { balanceDays, countListings, lowBalance, sourceRef } from "../logic";
+import { GatewayWorkspace } from "./GatewayWorkspace";
+import { ProxySourceWorkspace } from "./ProxySourceWorkspace";
 import { CatalogTab } from "./CatalogTab";
 import { PurchasesTab } from "./PurchasesTab";
 import { SellingTab } from "./SellingTab";
@@ -27,7 +29,7 @@ function parseTab(raw: string | null): WorkspaceTab {
 
 /** Một nguồn = một trang, 4 tab: Đang bán · Kho · Đơn mua · Cài đặt. Tab nằm
  *  trên URL (?tab=) để link từ danh sách / thông báo mở đúng chỗ. */
-export function SourceWorkspace({ area, sourceId }: { area: SourceArea; sourceId: number }) {
+export function SourceWorkspace({ area, sourceRef: ref }: { area: SourceArea; sourceRef: string }) {
   const t = useTranslations("sellerSources");
   const locale = useLocale();
   const { formatLedgerMoney } = useMoney();
@@ -47,8 +49,10 @@ export function SourceWorkspace({ area, sourceId }: { area: SourceArea; sourceId
 
   const load = useCallback(async () => {
     try {
-      const [all, listings] = await Promise.all([api.sources.list(area), api.sources.listings(area, sourceId)]);
-      const s = all.find((x) => x.id === sourceId) ?? null;
+      const all = await api.sources.list(area);
+      const s = all.find((x) => sourceRef(area, x) === ref) ?? null;
+      // Nguồn proxy có workspace riêng (bảng gói thay cho listing).
+      const listings = s && s.kind === "catalog" ? await api.sources.listings(area, ref) : [];
       setSource(s);
       setMissing(s === null);
       setRows(listings);
@@ -56,7 +60,7 @@ export function SourceWorkspace({ area, sourceId }: { area: SourceArea; sourceId
     } catch (e) {
       setError(apiErrorMessage(e));
     }
-  }, [area, sourceId, apiErrorMessage]);
+  }, [area, ref, apiErrorMessage]);
   useEffect(() => { void load(); }, [load]);
 
   const goTab = (next: WorkspaceTab, extra?: Record<string, string>) => {
@@ -68,7 +72,7 @@ export function SourceWorkspace({ area, sourceId }: { area: SourceArea; sourceId
     setSyncing(true);
     setNotice("");
     try {
-      const r = await api.sources.sync(area, sourceId);
+      const r = await api.sources.sync(area, ref);
       if (r.error) setError(`${t("workspace.syncFailed")}: ${r.error}`);
       else setNotice(t("workspace.syncDone", { items: r.catalog_items, updated: r.updated, repriced: r.repriced, delisted: r.delisted }));
       await load();
@@ -87,6 +91,9 @@ export function SourceWorkspace({ area, sourceId }: { area: SourceArea; sourceId
       </div>
     );
   }
+
+  if (source?.kind === "proxy") return <ProxySourceWorkspace area={area} source={source} onSourceChange={load} />;
+  if (source?.kind === "gateway") return <GatewayWorkspace area={area} source={source} onSourceChange={load} />;
 
   const counts = rows ? countListings(rows) : null;
   const products = rows ? new Set(rows.filter((r) => r.variant_active).map((r) => r.product_id)).size : 0;
@@ -183,8 +190,8 @@ export function SourceWorkspace({ area, sourceId }: { area: SourceArea; sourceId
         {source && rows && tab === "catalog" && (
           <CatalogTab area={area} source={source} listings={rows} onImported={async (n) => { setNotice(t("catalog.done", { n })); await load(); }} />
         )}
-        {source && tab === "orders" && <PurchasesTab area={area} sourceId={source.id} initialResult={params.get("result")} />}
-        {source && tab === "settings" && <SettingsTab area={area} sourceId={source.id} onSaved={load} />}
+        {source && tab === "orders" && <PurchasesTab area={area} sourceRef={ref} initialResult={params.get("result")} />}
+        {source && tab === "settings" && <SettingsTab area={area} sourceRef={ref} onSaved={load} />}
       </div>
     </div>
   );

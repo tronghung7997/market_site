@@ -16,7 +16,7 @@ type Days = NonNullable<SourcePurchaseQuery["days"]>;
 
 /** Mỗi đơn khách mua → một lần sàn mua lại từ nguồn: khách trả, nguồn trừ,
  *  lời, và đơn lỗi đã hoàn tiền cho khách hay chưa. */
-export function PurchasesTab({ area, sourceId, initialResult }: { area: SourceArea; sourceId: number; initialResult: string | null }) {
+export function PurchasesTab({ area, sourceRef: ref, initialResult }: { area: SourceArea; sourceRef: string; initialResult: string | null }) {
   const t = useTranslations("sellerSources");
   const locale = useLocale();
   const { formatLedgerMoney } = useMoney();
@@ -36,7 +36,7 @@ export function PurchasesTab({ area, sourceId, initialResult }: { area: SourceAr
     const h = setTimeout(async () => {
       setLoading(true);
       try {
-        setData(await api.sources.purchases(area, sourceId, { days, result, q: q.trim(), page, per_page: 50 }));
+        setData(await api.sources.purchases(area, ref, { days, result, q: q.trim(), page, per_page: 50 }));
         setError("");
       } catch (e) {
         setError(apiErrorMessage(e));
@@ -45,7 +45,7 @@ export function PurchasesTab({ area, sourceId, initialResult }: { area: SourceAr
       }
     }, 200);
     return () => clearTimeout(h);
-  }, [area, sourceId, days, result, q, page, reloadKey, apiErrorMessage]);
+  }, [area, ref, days, result, q, page, reloadKey, apiErrorMessage]);
 
   const s = data?.summary;
   const windowLabel = t(`orders.window${days}`);

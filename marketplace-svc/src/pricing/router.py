@@ -169,6 +169,46 @@ async def product_operations(
     }
 
 
+async def _owned_proxy_product(product_id: int, account: Account, db: AsyncSession) -> tuple[Product, Provider]:
+    from src.suppliers.proxy_sources import is_proxy_source
+
+    product = await db.get(Product, product_id)
+    if not product or ("admin" not in account.roles and product.seller_id != account.id):
+        # Như /operations: không để lộ sản phẩm của seller khác có tồn tại.
+        raise api_error(ErrorCode.PRODUCT_NOT_FOUND, 404)
+    provider = await db.get(Provider, product.provider_id) if product.provider_id else None
+    if provider is None or not is_proxy_source(provider) or product.pricing_strategy != "config":
+        raise api_error(ErrorCode.INVALID_PRODUCT_CONFIG, 400, detail="Sản phẩm không bán gói proxy theo nguồn")
+    return product, provider
+
+
+@router.get("/products/{product_id}/proxy-plans")
+async def product_proxy_plans(
+    product_id: int,
+    account: Account = Depends(get_current_account),
+    db: AsyncSession = Depends(get_session),
+):
+    """Gói đang bán của sản phẩm proxy + giá vốn/lãi — bảng sửa giá ở trang sửa sản phẩm."""
+    from src.suppliers.proxy_sources import product_plans
+
+    product, provider = await _owned_proxy_product(product_id, account, db)
+    return await product_plans(provider, product, db)
+
+
+@router.post("/products/{product_id}/proxy-plans/quote")
+async def quote_product_proxy_plans(
+    product_id: int,
+    body: schemas.ProxyPlanQuoteRequest,
+    account: Account = Depends(get_current_account),
+    db: AsyncSession = Depends(get_session),
+):
+    """Giá vốn/giá sàn cho các gói seller đang soạn — không ghi gì."""
+    from src.suppliers.proxy_sources import quote_plans
+
+    product, provider = await _owned_proxy_product(product_id, account, db)
+    return await quote_plans(provider, product, [p.model_dump() for p in body.plans], db)
+
+
 @router.get("/admin/providers/{provider_id}/products")
 async def provider_products(
     provider_id: int,

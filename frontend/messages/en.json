@@ -777,7 +777,8 @@
       "integrationReadyTitle": "Integration ready: {name}",
       "integrationReadyBody": "Pricing and fulfillment have been selected automatically for this integration.",
       "integrationRequiredTitle": "A matching integration is required before publishing",
-      "integrationRequiredBody": "You can save the draft now. After testing and approval, return and select the integration to publish."
+      "integrationRequiredBody": "You can save the draft now. After testing and approval, return and select the integration to publish.",
+      "proxyPlansElsewhere": "Sale prices are set per plan in the “Plans & pricing” tab."
     },
     "workbench": {
       "checkInfo": "Title and description are complete in the primary language",
@@ -847,7 +848,8 @@
       "productLoadFailed": "Could not load product",
       "productNotFound": "Product not found.",
       "durationDays": "{count} days",
-      "creditPackageSize": "{count} requests"
+      "creditPackageSize": "{count} requests",
+      "completePlanPrice": "Set a valid sale price for this plan"
     },
     "newProductTitle": "Create new product",
     "productName": "Product name *",
@@ -1942,6 +1944,7 @@
     "PROXY_PLAN_FIXED_DURATION": "Plan {plan} has a fixed duration of {days} days",
     "PROXY_PLAN_NOT_RETAIL": "Plan {plan} delivers several proxies per purchase and cannot be sold per unit",
     "PROXY_PLAN_INACTIVE": "Plan {plan} is disabled upstream",
+    "PROXY_PLAN_UNSUPPORTED": "Plan {plan} cannot be bought from this source",
     "PROXY_SOURCE_OWNER_NOT_INTERNAL": "Products of a proxy source must belong to the internal seller that holds it",
     "PROXY_TAG_NOT_FOUND": "Tag not found",
     "PROXY_TAG_DUPLICATE": "A tag with this name already exists",
@@ -4600,6 +4603,86 @@
       "empty": "No {terms} yet. Click “Add {term}” to begin.",
       "footer": "Stopping a {term} keeps its stock and history — nothing is deleted. Restock / inspect each {term} at",
       "inventoryLink": "Inventory"
+    },
+    "proxyPlans": {
+      "title": "Plans & prices",
+      "intro": "Each row is a plan buyers can pick at checkout, with its cost taken from the source's price list.",
+      "minMargin": "Minimum margin {pct}%",
+      "protocols": "Protocols {list}: buyers choose at checkout, one shared price.",
+      "formulaTitle": "Prices still follow the old formula",
+      "formulaBody": "One daily rate is multiplied by the number of days, so long plans carry an unusually high margin. Check each plan below, then click “Save changes” to switch to a price per plan.",
+      "summary": {
+        "count": "Plans on sale",
+        "from": "From",
+        "margin": "Margin",
+        "marginRange": "{min}% – {max}%",
+        "issues": "Needs attention",
+        "issuesNone": "None",
+        "issuesCount": "{count, plural, one {# plan} other {# plans}}",
+        "marginSingle": "{pct}%"
+      },
+      "quick": {
+        "label": "Price by margin",
+        "apply": "Apply to {count} plans",
+        "undo": "Undo {count} changes",
+        "hint": "Sale price = cost × (1 + margin), rounded up to the nearest 100 VND (under 20,000 VND) or 1,000 VND. Nothing is saved until you click “Save changes”.",
+        "tooLow": "Margin must be at least {pct}%."
+      },
+      "col": {
+        "duration": "Duration",
+        "cost": "Cost",
+        "price": "Sale price",
+        "margin": "Margin",
+        "perDay": "Per day",
+        "actions": "Actions"
+      },
+      "days": "{count, plural, one {# day} other {# days}}",
+      "perDayShort": "{price}/day",
+      "groupCount": "{count, plural, one {# plan} other {# plans}}",
+      "tagNew": "New",
+      "was": "Was",
+      "margin": {
+        "ok": "+{pct}%",
+        "low": "+{pct}% · below minimum"
+      },
+      "issue": {
+        "below_floor": "Minimum {price}",
+        "missing_price": "Enter a sale price",
+        "unsupported": "The source cannot sell this plan — remove the row"
+      },
+      "costUnknown": "No cost yet",
+      "remove": "Remove plan {label}",
+      "removeLast": "A product needs at least one plan",
+      "add": {
+        "title": "Add a duration",
+        "network": "Type / location",
+        "days": "Days",
+        "submit": "Add plan",
+        "adding": "Looking up cost…",
+        "hint": "New plans are prefilled at a {pct}% margin; you can change the price.",
+        "invalidDays": "Days must be a whole number of 1 or more.",
+        "duplicate": "Plan {label} is already in the table.",
+        "unsupported": "The source cannot sell plan {label}.",
+        "failed": "Could not look up the cost of this plan."
+      },
+      "mappedByAdmin": "Plans of this source are mapped to upstream plans by an admin. To sell more plans, go to Sources.",
+      "empty": "This product has no plans yet. An admin needs to map plans under Sources.",
+      "emptyCanAdd": "This product has no plans yet — add the first duration below.",
+      "loading": "Loading plans…",
+      "loadFailed": "Could not load plans",
+      "loadFailedHint": "Costs and prices are not available yet. Try again, or reload the page.",
+      "retry": "Try again",
+      "blockSave": "{count, plural, one {# plan needs} other {# plans need}} attention (rows in red) before saving.",
+      "saveBar": {
+        "label": "Save plans",
+        "changes": "{count, plural, one {# unsaved change} other {# unsaved changes}}",
+        "other": "Unsaved changes in other tabs",
+        "blocked": "{count, plural, one {# plan needs} other {# plans need}} attention before saving",
+        "undo": "Undo",
+        "save": "Save changes",
+        "saving": "Saving…"
+      },
+      "introLadder": "This source uses tiered pricing: longer plans cost less per day — so each duration needs its own price."
     }
   },
   "reviews": {

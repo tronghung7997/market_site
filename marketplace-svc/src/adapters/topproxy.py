@@ -322,6 +322,19 @@ def validate_topproxy_pricing_params(strategy: str | None, params: dict) -> None
             ),
         )
 
+    # Bảng gói `type|network|days`: `type` cũng gửi thẳng thành `type` của
+    # TopProxy. Nhà mạng + giá vốn kiểm theo mode provider ở
+    # suppliers/proxy_sources.enforce_offer_margins (hàm này không biết mode).
+    from src.pricing.config_pricing import parse_plan_price_key
+
+    for key in (params.get("plan_prices") or {}):
+        parsed = parse_plan_price_key(key)
+        if parsed is None or parsed[0] not in _STATIC_TYPES:
+            raise HTTPException(
+                status_code=400,
+                detail=f"TopProxy: gói {key!r} không hợp lệ — cần `HTTP|SOCKS5` | mã loại | số ngày >= 1",
+            )
+
     # Kỳ hạn: mode "xoay" mua theo ngày/tuần/tháng nên days nào >= 1 cũng map
     # được; chỉ chặn days <= 0 — provision() trả "Số ngày sử dụng không hợp lệ".
     for option in params.get("duration_options") or []:

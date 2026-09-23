@@ -1,5 +1,6 @@
 "use client";
 
+import { useState } from "react";
 import { useLocale, useTranslations } from "next-intl";
 import { cn } from "@/lib/cn";
 import { useMoney } from "@/lib/money";
@@ -16,6 +17,15 @@ import {
   calculateB3Price,
 } from "./index.ts";
 
+/** Plan-priced proxy product (TopProxy/DProxy): the buyer picks protocol ×
+ *  plan × duration and pays that plan's own price. Structural so this
+ *  feature does not depend on the product form's editor types. */
+export type PlanPreview = {
+  rows: { id: string; types: string[]; network: string; networkLabel: string; days: number; price: number; valid: boolean }[];
+  fieldLabels: Record<string, string>;
+  typeLabels: Record<string, string>;
+};
+
 export function SellerDynamicOrderSimulation({
   title,
   categoryName,
@@ -29,6 +39,7 @@ export function SellerDynamicOrderSimulation({
   onB1Change,
   onB2Change,
   onB3Change,
+  planPreview,
 }: {
   title: string;
   categoryName?: string;
@@ -42,6 +53,7 @@ export function SellerDynamicOrderSimulation({
   onB1Change?: (value: B1ConfigState) => void;
   onB2Change?: (value: B2CreditState) => void;
   onB3Change?: (value: B3TaskState) => void;
+  planPreview?: PlanPreview | null;
 }) {
   const locale = useLocale() as "en" | "vi";
   const t = useTranslations("seller.workbench");
@@ -102,7 +114,10 @@ export function SellerDynamicOrderSimulation({
 
       {identity}
 
-      {workModel === "B1" && (
+      {workModel === "B1" && planPreview && (
+        <PlanPickerPreview preview={planPreview} locale={locale} backendReady={backendReady} backendReason={backendReason} />
+      )}
+      {workModel === "B1" && !planPreview && (
         <ConfigPreview
           value={b1}
           locale={locale}
@@ -133,6 +148,52 @@ export function SellerDynamicOrderSimulation({
       <p className="pt-1 text-center text-[11.5px] text-faint">
         {escrowDays > 0 ? t("escrowProtected", { days: escrowDays }) : t("escrowNone")}
       </p>
+    </div>
+  );
+}
+
+function PlanPickerPreview({ preview, locale, backendReady, backendReason }: {
+  preview: PlanPreview;
+  locale: "en" | "vi";
+  backendReady: boolean;
+  backendReason: string | null;
+}) {
+  const t = useTranslations("seller.workbench");
+  const tp = useTranslations("products");
+  const [pick, setPick] = useState<{ type?: string; network?: string; days?: number }>({});
+  const rows = preview.rows;
+  const types = [...new Set(rows.flatMap((row) => row.types))];
+  const type = pick.type && types.includes(pick.type) ? pick.type : types[0];
+  const byType = rows.filter((row) => row.types.includes(type));
+  const networks = [...new Map(byType.map((row) => [row.network, row.networkLabel])).entries()];
+  const network = pick.network && networks.some(([code]) => code === pick.network) ? pick.network : networks[0]?.[0];
+  const durations = byType.filter((row) => row.network === network);
+  const row = durations.find((item) => item.days === pick.days) ?? durations[0];
+  const vi = locale === "vi";
+  const canBuy = backendReady && Boolean(row?.valid);
+  return (
+    <div className="space-y-3 text-[12px]">
+      {types.length > 1 && (
+        <FieldLabel label={(vi && preview.fieldLabels.type) || t("proxyType")}>
+          <Select value={type} onChange={(event) => setPick({ ...pick, type: event.target.value })}>
+            {types.map((item) => <option key={item} value={item}>{preview.typeLabels[item] || item}</option>)}
+          </Select>
+        </FieldLabel>
+      )}
+      <div className="grid grid-cols-2 gap-2">
+        <FieldLabel label={(vi && preview.fieldLabels.network) || t("network")}>
+          <Select value={network} onChange={(event) => setPick({ ...pick, network: event.target.value })}>
+            {networks.map(([code, label]) => <option key={code} value={code}>{label}</option>)}
+          </Select>
+        </FieldLabel>
+        <FieldLabel label={t("duration")}>
+          <Select value={row?.days} onChange={(event) => setPick({ ...pick, days: Number(event.target.value) })}>
+            {durations.map((item) => <option key={item.id} value={item.days}>{t("durationDays", { count: item.days })}</option>)}
+          </Select>
+        </FieldLabel>
+      </div>
+      <Total amount={row && row.price > 0 ? row.price : null} locale={locale} />
+      <BuyState canBuy={canBuy} label={tp("buyProxy")} reason={backendReason || t("completePlanPrice")} />
     </div>
   );
 }

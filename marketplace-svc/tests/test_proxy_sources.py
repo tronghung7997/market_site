@@ -395,3 +395,130 @@ async def test_seller_area_addresses_a_source_by_public_key(client, mock_dproxy)
         other_key = (await db.get(Provider, other_pid)).public_key
     assert (await client.get(f"/seller/sources/{other_key}/offers", headers=_h(seller))).status_code == 404
     assert (await client.get("/seller/sources/zzzzzzzz/offers", headers=_h(seller))).status_code == 404
+
+
+# ----------------------------------------------------------------------
+# Bảng gói trong trang sửa sản phẩm — seller sửa giá từng gói như variant
+# ----------------------------------------------------------------------
+
+async def _topproxy_product_for_seller(client, admin, cat_id, *, seller_email="tps@example.com"):
+    token = await register_and_login(client, seller_email)
+    await make_seller(seller_email)
+    token = await register_and_login(client, seller_email)
+    seller_id = (await client.get("/me", headers=_h(token))).json()["id"]
+    resp = await client.post("/admin/sources", json={
+        "adapter_type": "topproxy", "name": "TopProxy seller",
+        "config": {"base_url": "http://127.0.0.1:9", "api_key": "tp-key", "mode": "static", "min_margin_pct": 10},
+        "seller_id": seller_id,
+    }, headers=_h(admin))
+    assert resp.status_code == 201, resp.text
+    pid = resp.json()["provider_id"]
+    # Cấu hình CÔNG THỨC như seed_topproxy.py (giá tuyến tính theo ngày).
+    async with SessionLocal() as db:
+        product = Product(
+            seller_id=seller_id, category_id=cat_id, title="Proxy Datacenter Việt Nam", status=ProductStatus.active,
+            service_type="proxy", provider_id=pid, pricing_strategy="config", pricing_params={
+                "base_price": 36000, "type_mult": {"HTTP": 1, "SOCKS5": 1},
+                "network_mult": {"DatacenterA": 3.5, "DatacenterC": 1.0},
+                "network_display": {"DatacenterA": "Dùng riêng", "DatacenterC": "Share 3"},
+                "field_labels": {"network": "Mức chia sẻ"},
+                "duration_options": [{"days": 3, "label": "3 ngày"}, {"days": 30, "label": "30 ngày"}],
+            },
+        )
+        db.add(product)
+        await db.commit()
+        return token, pid, product.id
+
+
+@pytest.mark.asyncio
+async def test_seller_sees_every_topproxy_plan_with_cost_and_margin(client):
+    admin, cat_id = await _admin_and_category(client)
+    seller, _pid, product_id = await _topproxy_product_for_seller(client, admin, cat_id)
+
+    body = (await client.get(f"/products/{product_id}/proxy-plans", headers=_h(seller))).json()
+    assert body["from_formula"] is True and body["can_add"] is True and body["min_margin_pct"] == 10
+    assert body["protocols"] == ["HTTP", "SOCKS5"]
+    assert body["networks"] == [{"code": "DatacenterA", "label": "Dùng riêng"}, {"code": "DatacenterC", "label": "Share 3"}]
+    rows = {r["plan_key"]: r for r in body["plans"]}
+    assert len(rows) == 8
+    private30 = rows["HTTP|DatacenterA|30"]
+    # Giá công thức 36.000 × 3.5 = 126.000đ trên vốn bậc 30 ngày 1.600 Xu/ngày.
+    assert private30["price"] == 126_000 and private30["cost_price"] == 48_000 == static_cost_xu("DatacenterA", 30)
+    assert private30["margin_pct"] == 162.5 and private30["floor_price"] == 53_000 and private30["supported"]
+    assert rows["SOCKS5|DatacenterC|3"]["cost_price"] == static_cost_xu("DatacenterC", 3)
+
+    # Kỳ hạn chưa bán: báo vốn theo bậc thang của ĐÚNG số ngày đó.
+    quote = (await client.post(f"/products/{product_id}/proxy-plans/quote", json={"plans": [
+        {"type": "HTTP", "network": "DatacenterA", "days": 14, "price": 40000},
+    ]}, headers=_h(seller))).json()
+    assert quote[0]["cost_price"] == 35_840 and quote[0]["floor_price"] == 40_000 and quote[0]["margin_ok"]
+
+
+@pytest.mark.asyncio
+async def test_proxy_plans_are_private_to_the_owner(client):
+    admin, cat_id = await _admin_and_category(client)
+    _seller, _pid, product_id = await _topproxy_product_for_seller(client, admin, cat_id)
+    other = await register_and_login(client, "other-seller@example.com")
+    await make_seller("other-seller@example.com")
+    other = await register_and_login(client, "other-seller@example.com")
+    for resp in (
+        await client.get(f"/products/{product_id}/proxy-plans", headers=_h(other)),
+        await client.post(f"/products/{product_id}/proxy-plans/quote", json={"plans": [
+            {"type": "HTTP", "network": "DatacenterA", "days": 7}]}, headers=_h(other)),
+    ):
+        assert resp.status_code == 404
+    assert (await client.get(f"/products/{product_id}/proxy-plans")).status_code == 401
+    assert (await client.get(f"/products/{product_id}/proxy-plans", headers=_h(admin))).status_code == 200
+
+
+@pytest.mark.asyncio
+async def test_seller_saves_plan_prices_and_the_margin_floor_holds(client):
+    from src.products.service import suggest_products
+
+    admin, cat_id = await _admin_and_category(client)
+    seller, _pid, product_id = await _topproxy_product_for_seller(client, admin, cat_id)
+    display = {"network_display": {"DatacenterA": "Dùng riêng"}, "field_labels": {"network": "Mức chia sẻ"}}
+
+    async def save(plan_prices):
+        return await client.put(f"/seller/products/{product_id}/pricing", json={
+            "pricing_strategy": "config", "pricing_params": {**display, "plan_prices": plan_prices},
+        }, headers=_h(seller))
+
+    resp = await save({"HTTP|DatacenterA|30": 50_000, "SOCKS5|DatacenterA|30": 50_000})
+    assert resp.status_code == 400 and resp.json()["error_code"] == "PROXY_PRICE_BELOW_MARGIN"
+    resp = await save({"HTTP|Random|30": 90_000})     # không phải loaiproxy tĩnh
+    assert resp.status_code == 400 and resp.json()["error_code"] == "PROXY_PLAN_UNSUPPORTED"
+    resp = await save({"HTTPS|DatacenterA|30": 90_000})
+    assert resp.status_code == 400
+
+    prices = {"HTTP|DatacenterA|3": 13_000, "SOCKS5|DatacenterA|3": 13_000,
+              "HTTP|DatacenterA|30": 72_000, "SOCKS5|DatacenterA|30": 72_000}
+    resp = await save(prices)
+    assert resp.status_code == 200, resp.text
+
+    body = (await client.get(f"/products/{product_id}/proxy-plans", headers=_h(seller))).json()
+    assert body["from_formula"] is False and {r["plan_key"]: r["price"] for r in body["plans"]} == prices
+    # Buyer: cùng bảng gói, không còn giá tuyến tính 126.000đ.
+    options = (await client.get(f"/products/{product_id}/pricing-options")).json()
+    assert {c["value"] for c in options["fields"][0]["choices"]} == set(prices)
+    calc = await client.post(f"/products/{product_id}/calculate", json={"user_config": {"plan_key": "SOCKS5|DatacenterA|30", "quantity": 1}})
+    assert calc.json()["amount"] == 72_000
+    # Giá "từ" của storefront = gói rẻ nhất (trước đây sản phẩm chỉ có bảng gói hiện 0/"báo giá").
+    async with SessionLocal() as db:
+        hits = await suggest_products(db, "datacenter")
+    assert next(h for h in hits if h["title"] == "Proxy Datacenter Việt Nam")["price_from"] == 13_000
+
+
+@pytest.mark.asyncio
+async def test_dproxy_product_plans_come_from_the_admin_mapping(client, mock_dproxy):
+    admin, cat_id = await _admin_and_category(client)
+    pid, seller, _, items = await _dproxy_source(client, admin)
+    resp = await client.post(f"/seller/sources/{pid}/import-plans", json={"items": [
+        _plan_item(items, RES_VN_7, title="Dân cư", category_id=cat_id),
+    ]}, headers=_h(seller))
+    assert resp.status_code == 201, resp.text
+    product_id = resp.json()[0]["product_id"]
+    body = (await client.get(f"/products/{product_id}/proxy-plans", headers=_h(seller))).json()
+    assert body["can_add"] is False and body["protocols"] == [] and len(body["plans"]) == 1
+    row = body["plans"][0]
+    assert row["supported"] and row["cost_price"] == items[RES_VN_7].cost_price and row["price"] == 150000

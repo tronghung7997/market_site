@@ -9,7 +9,8 @@ vào sau mỗi lần nạp.
 
 ĐÂY LÀ ƯỚC TÍNH, KHÔNG PHẢI KẾ TOÁN. Nó sẽ trôi số vì:
 - gia hạn/mua tay trực tiếp trên web không đi qua hệ thống này,
-- TopProxy đổi giá hoặc kết thúc khuyến mãi (4G và key xoay đang ×0.5),
+- TopProxy đổi giá hoặc kết thúc khuyến mãi (4G: `_PROMO_FACTOR`; key xoay:
+  `_XOAY_COST_PER_UNIT` đã là giá sau KM ×0.5),
 mà mình không có cách nào biết. Admin nhập lại số dư thật định kỳ để đồng bộ.
 
 Giá theo BẬC THANG: mua càng dài thì đơn giá/ngày càng rẻ. Mỗi bảng là danh
@@ -33,11 +34,18 @@ _LADDERS: dict[str, list[tuple[int, int]]] = {
     "us": [
         (1, 480), (5, 400), (10, 320), (20, 240), (30, 160),
     ],
-    # ĐANG KHUYẾN MÃI ×0.5 — hết KM phải nhân đôi lại (catalog §2G ghi chú).
+    # Giá NIÊM YẾT — web nhân thêm hệ số khuyến mãi (_PROMO_FACTOR) lúc tính.
     "mobile_4g": [
         (1, 2500), (5, 2000), (10, 1500), (20, 1300), (30, 1000),
         (45, 900), (60, 800), (90, 700), (120, 600),
     ],
+}
+
+# Hệ số `giamgia` mà hàm tính giá trên web áp SAU bảng bậc thang
+# (?home=muaproxy4g: `ngay × gia × 0.5`, đối chiếu 2026-09-23). Trước đây bảng
+# 4G bị coi là đã giảm giá nên vốn ước tính gấp đôi thật. Hết KM → xoá dòng.
+_PROMO_FACTOR: dict[str, float] = {
+    "mobile_4g": 0.5,
 }
 
 # `loaiproxy` (khớp apiv2) → bảng bậc thang.
@@ -60,7 +68,7 @@ _PACKAGE_COST_PER_30_DAYS: dict[str, int] = {
     "GoiDATACENTER": 480_000,
 }
 
-# Key xoay (catalog §2F) — cũng đang khuyến mãi ×0.5.
+# Key xoay (catalog §2F) — giá ĐÃ nhân khuyến mãi ×0.5 (web: 5.000/ngày × 0.5).
 _XOAY_COST_PER_UNIT: dict[str, int] = {
     "day": 2_500,
     "week": 14_000,
@@ -88,7 +96,7 @@ def static_cost_xu(loaiproxy: str, days: int) -> int | None:
     ladder_name = _STATIC_LADDER_BY_LOAIPROXY.get(loaiproxy)
     if ladder_name is None:
         return None
-    return _rate_from_ladder(_LADDERS[ladder_name], days) * days
+    return round(_rate_from_ladder(_LADDERS[ladder_name], days) * days * _PROMO_FACTOR.get(ladder_name, 1))
 
 
 def xoay_cost_xu(unit: str, thoigian: int) -> int | None:

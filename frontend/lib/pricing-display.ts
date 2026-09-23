@@ -26,6 +26,12 @@ function minOfMult(mult: unknown): number {
 }
 
 function configMinPrice(params: Record<string, unknown>): number {
+  // Bảng gói (proxy) thắng công thức — cùng quy tắc với browse_price ở backend.
+  const plans = params.plan_prices;
+  if (plans && typeof plans === "object" && !Array.isArray(plans)) {
+    const prices = Object.values(plans as Record<string, unknown>).filter((v): v is number => typeof v === "number" && v > 0);
+    if (prices.length) return Math.min(...prices);
+  }
   const base = typeof params.base_price === "number" ? params.base_price : 0;
   if (base <= 0) return 0;
   const durations = Array.isArray(params.duration_options)

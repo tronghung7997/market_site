@@ -47,6 +47,7 @@ class ErrorCode(str, Enum):
     PROXY_PLAN_FIXED_DURATION = "PROXY_PLAN_FIXED_DURATION"
     PROXY_PLAN_NOT_RETAIL = "PROXY_PLAN_NOT_RETAIL"
     PROXY_PLAN_INACTIVE = "PROXY_PLAN_INACTIVE"
+    PROXY_PLAN_UNSUPPORTED = "PROXY_PLAN_UNSUPPORTED"
     PROXY_SOURCE_OWNER_NOT_INTERNAL = "PROXY_SOURCE_OWNER_NOT_INTERNAL"
     PROXY_TAG_NOT_FOUND = "PROXY_TAG_NOT_FOUND"
     PROXY_TAG_DUPLICATE = "PROXY_TAG_DUPLICATE"
@@ -172,6 +173,7 @@ MESSAGES_EN: dict[ErrorCode, str] = {
     ErrorCode.PROXY_PLAN_FIXED_DURATION: "Upstream plan {plan} has a fixed duration of {days} days",
     ErrorCode.PROXY_PLAN_NOT_RETAIL: "Upstream plan {plan} delivers several proxies per purchase and cannot be sold per unit",
     ErrorCode.PROXY_PLAN_INACTIVE: "Upstream plan {plan} is disabled upstream",
+    ErrorCode.PROXY_PLAN_UNSUPPORTED: "Plan {plan} cannot be bought from this source",
     ErrorCode.PROXY_SOURCE_OWNER_NOT_INTERNAL: "Products of a proxy source must belong to the internal seller that holds it",
     ErrorCode.PROXY_TAG_NOT_FOUND: "Tag not found",
     ErrorCode.PROXY_TAG_DUPLICATE: "A tag with this name already exists",

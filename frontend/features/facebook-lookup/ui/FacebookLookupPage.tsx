@@ -43,7 +43,7 @@ function RecentChip({ item, onPick }: { item: RecentLookup; onPick: (input: stri
   return (
     <button type="button" onClick={() => onPick(item.input)} title={item.input} className="inline-flex max-w-[220px] items-center gap-1.5 rounded-full border border-line bg-surface px-2.5 py-1 text-[12px] text-muted transition-colors hover:border-iris/40 hover:text-fg">
       <Icon size={11} className="shrink-0 text-faint" />
-      <span className="truncate">{item.name ?? item.id}</span>
+      <span className="min-w-0 truncate">{item.name ?? item.id}</span>
     </button>
   );
 }
@@ -88,7 +88,7 @@ function Result({ result }: { result: FacebookLookupResponse }) {
           </div>
           <div className="mt-2.5 flex min-w-0 items-center gap-2 text-[11.5px] text-faint">
             <span className="shrink-0">{t("result.permanentLink")}</span>
-            <a href={permanent} target="_blank" rel="noreferrer" className="truncate font-mono text-muted hover:text-iris-hi">{permanent.replace(/^https:\/\/www\./, "")}</a>
+            <a href={permanent} target="_blank" rel="noreferrer" className="min-w-0 truncate font-mono text-muted hover:text-iris-hi">{permanent.replace(/^https:\/\/www\./, "")}</a>
           </div>
         </div>
 
@@ -114,7 +114,7 @@ function Result({ result }: { result: FacebookLookupResponse }) {
 
         <div className="flex flex-wrap items-center justify-between gap-x-4 gap-y-1.5 border-t border-line pt-3 text-[11.5px] text-faint">
           <div className="flex min-w-0 flex-wrap items-center gap-x-3 gap-y-1">
-            <span className="truncate">{t("result.queried", { handle: result.query.handle })}</span>
+            <span className="min-w-0 truncate">{t("result.queried", { handle: result.query.handle })}</span>
             <span className="inline-flex items-center gap-1"><Check size={11} className="text-good" />{t("result.fetchedAt", { date: new Intl.DateTimeFormat(locale, { dateStyle: "medium", timeStyle: "short" }).format(new Date(meta.fetched_at)) })}</span>
             {meta.cached && <Tag tone="neutral">{t("result.cached")}</Tag>}
           </div>
@@ -204,7 +204,7 @@ export function FacebookLookupPage() {
             <div className="mt-1.5 min-h-[18px] text-[12px] leading-relaxed" aria-live="polite">
               {showPreview
                 ? target
-                  ? <span className="inline-flex max-w-full items-center gap-1.5 text-muted"><span className="shrink-0 text-faint">{t("preview.willLookup")}</span><Tag tone="iris">{t(`preview.kind.${target.kind}`)}</Tag><span className="truncate font-mono text-fg">{target.url.replace(/^https:\/\/www\./, "")}</span></span>
+                  ? <span className="inline-flex max-w-full items-center gap-1.5 text-muted"><span className="shrink-0 text-faint">{t("preview.willLookup")}</span><Tag tone="iris">{t(`preview.kind.${target.kind}`)}</Tag><span className="min-w-0 truncate font-mono text-fg">{target.url.replace(/^https:\/\/www\./, "")}</span></span>
                   : <span className="text-warn">{t("preview.invalid")}</span>
                 : <span className="text-faint">{t("input.hint")}</span>}
             </div>

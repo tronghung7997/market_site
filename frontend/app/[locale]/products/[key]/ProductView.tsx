@@ -61,7 +61,7 @@ export default function ProductView({ initial, productRef }: { initial: ProductP
             <ChevronRight size={12} className="text-faint shrink-0" />
           </>
         )}
-        <span className="text-faint truncate">{product.title}</span>
+        <span className="text-faint min-w-0 truncate">{product.title}</span>
       </nav>
 
       <div className="lg:grid lg:grid-cols-[minmax(0,1fr)_380px] lg:grid-rows-[auto_1fr] lg:gap-7">

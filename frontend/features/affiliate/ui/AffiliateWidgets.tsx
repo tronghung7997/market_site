@@ -73,7 +73,7 @@ export function ReferralLinkCard({ link, code, attributionDays, className }: {
       <h2 className="text-[13.5px] font-semibold text-fg">{t("linkTitle")}</h2>
       <div className="mt-3 flex flex-wrap items-stretch gap-2">
         <div className="flex min-w-0 flex-1 items-center rounded-lg border border-line bg-surface px-3 font-mono text-[14px] text-fg">
-          <span className="truncate" title={link}>{pretty}</span>
+          <span className="min-w-0 truncate" title={link}>{pretty}</span>
         </div>
         <Button onClick={copy} className="shrink-0">
           {copied ? <Check size={15} /> : <Copy size={15} />}

@@ -270,9 +270,9 @@ export function AdminCategoriesConsole() {
                           <div className="min-w-0">
                             <div className="flex flex-wrap items-center gap-1.5">
                               {path.length > 0 && (
-                                <span className="truncate text-[12px] text-faint">{path.map((p) => p.name).join(" › ")} ›</span>
+                                <span className="min-w-0 truncate text-[12px] text-faint">{path.map((p) => p.name).join(" › ")} ›</span>
                               )}
-                              <span className={cn("truncate font-medium", node.is_active ? "text-fg" : "text-muted")}>{node.name}</span>
+                              <span className={cn("min-w-0 truncate font-medium", node.is_active ? "text-fg" : "text-muted")}>{node.name}</span>
                               {!node.is_active && <Tag tone="neutral">Đã ẩn</Tag>}
                               {node.is_active && ancestorHidden && <Tag tone="warn">Cha đang ẩn</Tag>}
                             </div>

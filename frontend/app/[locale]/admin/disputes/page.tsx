@@ -133,7 +133,7 @@ const columns: ColumnDef<Dispute>[] = [
           title="Lọc theo người mua này"
           className="group/party flex max-w-[160px] items-center gap-1 text-slate-600 hover:text-indigo-700 transition-colors"
         >
-          <span className="truncate">{label}</span>
+          <span className="min-w-0 truncate">{label}</span>
           <ListFilter
             size={11}
             className="shrink-0 text-indigo-500 opacity-0 group-hover/party:opacity-100 transition-opacity"

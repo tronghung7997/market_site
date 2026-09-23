@@ -75,7 +75,7 @@ export function AccountPage() {
         <div className="min-w-0 flex-1">
           <h1 className="truncate font-serif text-[26px] tracking-tight text-fg">{account.display_name?.trim() || account.email}</h1>
           <p className="mt-0.5 flex flex-wrap items-center gap-x-2 gap-y-1 text-[13px] text-muted">
-            {account.display_name?.trim() && <span className="truncate">{account.email}</span>}
+            {account.display_name?.trim() && <span className="min-w-0 truncate">{account.email}</span>}
             {account.email_verified ? <Tag tone="good">{t("emailVerified")}</Tag> : <Tag tone="warn">{t("emailUnverified")}</Tag>}
             {account.totp_enabled && <Tag tone="iris">2FA</Tag>}
             {account.created_at && <span className="text-faint">{t("memberSince", { date: formatDate(account.created_at, locale) })}</span>}

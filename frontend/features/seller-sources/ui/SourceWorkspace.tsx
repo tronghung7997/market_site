@@ -99,7 +99,7 @@ export function SourceWorkspace({ area, sourceId }: { area: SourceArea; sourceId
         <div className="min-w-0">
           <Link href={base} className="inline-flex items-center gap-1 text-[12.5px] text-muted hover:text-fg"><ChevronLeft size={14} />{t("title")}</Link>
           <div className="mt-0.5 flex flex-wrap items-center gap-2.5">
-            <h1 className="truncate font-serif text-2xl font-semibold text-fg">{source?.name ?? "…"}</h1>
+            <h1 className="min-w-0 truncate font-serif text-2xl font-semibold text-fg">{source?.name ?? "…"}</h1>
             {source && <Tag tone="iris">{t("kind.catalog")} · {source.adapter_type}</Tag>}
           </div>
           {source && (

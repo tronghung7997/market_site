@@ -75,7 +75,7 @@ export function CategoryPicker({ cats, active, onChange, countFor, total }: {
         {activeCat ? (
           <>
             <ProductCover coverId={categoryCoverId(activeCat)} title={activeCat.name} className="h-5 w-5 rounded" />
-            <span className="truncate">{activeCat.name}</span>
+            <span className="min-w-0 truncate">{activeCat.name}</span>
             <span className="font-mono text-[11.5px] text-iris">{countFor(activeCat.id) ?? ""}</span>
           </>
         ) : (

@@ -119,7 +119,7 @@ const columns: ColumnDef<AdminResource>[] = [
         title="Lọc theo người bán này"
         className="group/party flex max-w-[170px] items-center gap-1 text-slate-500 hover:text-indigo-700 transition-colors"
       >
-        <span className="truncate">
+        <span className="min-w-0 truncate">
           {row.original.seller_email ?? `#${row.original.seller_id}`}
         </span>
         <ListFilter

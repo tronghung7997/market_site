@@ -77,7 +77,7 @@ export function ProductIdentity({ product }: { product: ProductDetail }) {
         </span>
         <div className="min-w-0 flex-1">
           <div className="flex items-center gap-1.5 flex-wrap">
-            <Link href={sellerPath({ public_key: product.seller_key, handle: product.seller_handle, canonical_path: product.seller_path, account_id: product.seller_id })} className="text-[13px] font-medium hover:underline truncate">
+            <Link href={sellerPath({ public_key: product.seller_key, handle: product.seller_handle, canonical_path: product.seller_path, account_id: product.seller_id })} className="text-[13px] font-medium hover:underline min-w-0 truncate">
               {sellerName}
             </Link>
             <Tag tone="good"><Verified size={10} /> {t("verified")}</Tag>

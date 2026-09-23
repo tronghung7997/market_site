@@ -235,7 +235,7 @@ export function CategoryHubView({ initial }: { initial: CategoryHubCatalog }) {
                           <ProductCover coverId={categoryCoverId(c)} title={c.name} className="h-9 w-9 rounded-lg" />
                           <div className="min-w-0">
                             <Link href={categoryPath(c)} className="group inline-flex items-center gap-1 max-w-full">
-                              <h2 id={`group-${c.id}`} className="font-serif text-[20px] leading-tight font-semibold text-fg group-hover:text-iris-hi transition-colors truncate">
+                              <h2 id={`group-${c.id}`} className="font-serif text-[20px] leading-tight font-semibold text-fg group-hover:text-iris-hi transition-colors min-w-0 truncate">
                                 {c.name}
                               </h2>
                               <ChevronRight size={15} className="text-faint group-hover:text-iris-hi group-hover:translate-x-0.5 transition-all shrink-0" />

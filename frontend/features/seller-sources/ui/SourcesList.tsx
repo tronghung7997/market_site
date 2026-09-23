@@ -177,7 +177,7 @@ function SourceCard({ s, area, base }: { s: SupplierSource; area: SourceArea; ba
       <div className="flex flex-wrap items-center justify-between gap-2 text-[12.5px] text-muted">
         <span className="inline-flex min-w-0 items-center gap-1.5">
           <Store size={14} />
-          {store ? <span className="truncate">{t("list.soldAs", { store })}</span> : <Tag tone="warn">{t("list.noStore")}</Tag>}
+          {store ? <span className="min-w-0 truncate">{t("list.soldAs", { store })}</span> : <Tag tone="warn">{t("list.noStore")}</Tag>}
         </span>
         <span>{catalog ? t("list.synced", { when: relTime(s.catalog_synced_at, t) }) : t("list.checked", { when: relTime(s.last_tested_at, t) })}</span>
       </div>

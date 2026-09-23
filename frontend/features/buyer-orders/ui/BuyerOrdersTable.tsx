@@ -145,7 +145,7 @@ const OrderRow = memo(function OrderRow({
         {o.status === "delivered" && !disputed && o.escrow_expires_at && (
           <p className="mt-1 flex items-center gap-1 text-[10.5px] text-muted">
             <ShieldCheck size={11} className="shrink-0 text-good" />
-            <span className="truncate">{t("escrowUntil", { date: formatDate(o.escrow_expires_at, locale) })}</span>
+            <span className="min-w-0 truncate">{t("escrowUntil", { date: formatDate(o.escrow_expires_at, locale) })}</span>
           </p>
         )}
         {st.hint && (

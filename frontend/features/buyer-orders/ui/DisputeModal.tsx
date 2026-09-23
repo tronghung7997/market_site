@@ -289,7 +289,7 @@ export default function DisputeModal({
             {variantName && (
               <>
                 <span>•</span>
-                <span className="truncate">{variantName}</span>
+                <span className="min-w-0 truncate">{variantName}</span>
               </>
             )}
           </div>
@@ -365,7 +365,7 @@ export default function DisputeModal({
                         <span className="font-mono text-[10.5px] font-bold text-iris bg-iris-soft px-1.5 py-0.5 rounded shrink-0">
                           {lines[row.id] ? lineLabel(lines[row.id]) : "•"}
                         </span>
-                        <span className="font-mono text-fg truncate">{preview}</span>
+                        <span className="font-mono text-fg min-w-0 truncate">{preview}</span>
                       </label>
                     );
                   })}

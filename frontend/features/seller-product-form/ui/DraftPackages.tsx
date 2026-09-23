@@ -94,7 +94,7 @@ export function DraftPackages({
               {deliveryMode === "instant" ? (
                 <button type="button" onClick={() => toggleStock(pkg.clientId)} aria-expanded={stockOpen} className={cn("inline-flex h-9 items-center justify-between gap-2 rounded-lg border px-2.5 text-[12.5px]", stockOpen ? "border-iris text-fg" : "border-line-2 text-muted hover:border-faint hover:text-fg")}>
                   <span className={cn("font-mono font-semibold", total === 0 ? "text-bad" : "text-good")}>{total.toLocaleString()}</span>
-                  <span className="truncate">{total === 0 ? t("addStock") : t("stockLines")}</span>
+                  <span className="min-w-0 truncate">{total === 0 ? t("addStock") : t("stockLines")}</span>
                   {stockOpen ? <ChevronUp size={13} /> : <ChevronDown size={13} />}
                 </button>
               ) : (

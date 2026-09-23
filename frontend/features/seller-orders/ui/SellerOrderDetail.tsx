@@ -176,7 +176,7 @@ export function SellerOrderDetail({
             <div className="min-w-0">
               <span className="text-faint">{t("buyerLabel")}</span>
               <div className="mt-0.5 flex items-center gap-1.5 font-mono font-medium text-fg">
-                <span className="truncate" title={order.buyer_email || ""}>{order.buyer_email || "—"}</span>
+                <span className="min-w-0 truncate" title={order.buyer_email || ""}>{order.buyer_email || "—"}</span>
               </div>
             </div>
             <div>
@@ -263,7 +263,7 @@ export function SellerOrderDetail({
                       highlighted ? "border-iris bg-iris-soft/40" : "border-line bg-raised",
                       inactive && "opacity-70",
                     )}>
-                      <span className={cn("truncate", inactive && "text-muted line-through")}>{r.data}</span>
+                      <span className={cn("min-w-0 truncate", inactive && "text-muted line-through")}>{r.data}</span>
                       <div className="flex shrink-0 items-center gap-1">
                         <DeliveryAccountBadge mark={mark} highlighted={highlighted} formatRefund={formatBrowseMoney} lineOf={lineOf} />
                         {!mark && (

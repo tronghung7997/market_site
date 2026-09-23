@@ -55,7 +55,7 @@ function SellerHitRow({ seller }: { seller: SellerSummary }) {
         <Monogram text={seller.display_name} />
         <div className="min-w-0 flex-1">
           <div className="flex items-center gap-1.5">
-            <span className="truncate text-[13.5px] font-medium text-fg group-hover:text-iris-hi">{seller.display_name}</span>
+            <span className="min-w-0 truncate text-[13.5px] font-medium text-fg group-hover:text-iris-hi">{seller.display_name}</span>
             <Tag tone={seller.seller_tier === "new" ? "neutral" : "iris"}>{ts(`tier_${seller.seller_tier}`)}</Tag>
           </div>
           <div className="flex items-center gap-2 text-[12px] text-muted">

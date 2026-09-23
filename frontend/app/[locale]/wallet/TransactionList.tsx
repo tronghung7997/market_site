@@ -133,7 +133,7 @@ export default function TransactionList({ txs, showHeader = true }: { txs: Trans
                       <span>{date.toLocaleDateString(loc, { day: "2-digit", month: "2-digit", year: "numeric" })}</span>
                       <span>{date.toLocaleTimeString(loc, { hour: "2-digit", minute: "2-digit", second: "2-digit" })}</span>
                       {tx.reference_label && (
-                        <span className="basis-full truncate font-mono sm:basis-auto">
+                        <span className="basis-full min-w-0 truncate font-mono sm:basis-auto">
                           Ref: {tx.reference_label}
                         </span>
                       )}

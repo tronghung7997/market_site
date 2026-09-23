@@ -58,7 +58,7 @@ export function CustomerPreviewDialog({
                 <span className="shrink-0">{tc("marketplace")}</span>
                 <ChevronRight size={12} className="shrink-0 text-faint" />
                 {product.category_name && (<><span className="shrink-0">{product.category_name}</span><ChevronRight size={12} className="shrink-0 text-faint" /></>)}
-                <span className="truncate text-faint">{product.title || t("untitled")}</span>
+                <span className="min-w-0 truncate text-faint">{product.title || t("untitled")}</span>
               </nav>
               <div className={cn(device === "desktop" && "lg:grid lg:grid-cols-[minmax(0,1fr)_380px] lg:grid-rows-[auto_1fr] lg:gap-7")}>
                 <section className="min-w-0 pointer-events-none">

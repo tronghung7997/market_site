@@ -1749,7 +1749,7 @@
         "none": "No masking",
         "middle": "Mask middle fields",
         "edges": "Keep first / last 4 chars",
-        "id_only": "ID + status only"
+        "id_only": "Line no. + status only"
       },
       "maskHint": {
         "none": "export verbatim",
@@ -1770,7 +1770,7 @@
         "category": "Category",
         "product": "Product",
         "variant": "Variation",
-        "id": "ID",
+        "id": "Line",
         "status": "Status",
         "data": "Content",
         "order": "Order",

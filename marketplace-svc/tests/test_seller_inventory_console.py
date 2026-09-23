@@ -361,7 +361,7 @@ async def test_export_multi_scope_masked_csv_txt_and_preview(client):
     assert "attachment" in csv_resp.headers["content-disposition"]
     assert csv_resp.text.startswith("\ufeff")          # BOM so Excel reads UTF-8 headers
     rows = list(csv.reader(io.StringIO(csv_resp.text.lstrip("\ufeff"))))
-    assert rows[0] == ["Variation", "ID", "Status"]    # data column dropped by id_only
+    assert rows[0] == ["Variation", "Line", "Status"]  # data column dropped by id_only
     assert len(rows) == 1 + 3 + 5
 
     vi_resp = await client.get(
@@ -384,6 +384,32 @@ async def test_export_multi_scope_masked_csv_txt_and_preview(client):
         f"/seller/inventory/export?variant_ids={f['variants']['full']}&preview=1", headers=_auth(other),
     )).json()
     assert foreign["packages"] == 0 and foreign["total"] == 0
+
+
+@pytest.mark.asyncio
+async def test_export_uses_public_identifiers_not_row_ids(client):
+    f = await _fixture(client)
+    h = _auth(f["token"])
+    vid = f["variants"]["uid"]
+    package = (await client.get(f"/seller/inventory/packages/{vid}", headers=h)).json()
+    preview = (await client.get(
+        f"/seller/inventory/export?variant_ids={vid}&preview=10&columns=product,variant,id,order", headers=h,
+    )).json()
+    rows = preview["rows"]
+    assert preview["headers"]["id"] == "Line"
+    # Stock lines are numbered within the package in restock order, like #01 on orders.
+    assert [r["id"] for r in rows] == ["#01", "#02", "#03", "#04", "#05"]
+    assert all(r["variant"].endswith(f"({package['variant_key']})") for r in rows)
+    assert all(r["product"].endswith(f"({package['product_key']})") for r in rows)
+    assert all("(#" not in r["variant"] and "(#" not in r["product"] for r in rows)
+    assert all(r["order"] == "" for r in rows)  # unsold; sold rows carry the ORD- code
+
+    csv_resp = await client.get(
+        f"/seller/inventory/export?variant_ids={vid}&format=csv&columns=id,variant&mask=id_only&locale=vi", headers=h,
+    )
+    csv_rows = list(csv.reader(io.StringIO(csv_resp.text.lstrip("\ufeff"))))
+    assert csv_rows[0] == ["Dòng", "Trạng thái", "Phân loại"]  # id_only always adds status
+    assert [r[0] for r in csv_rows[1:]] == ["#01", "#02", "#03", "#04", "#05"]
 
 
 @pytest.mark.asyncio

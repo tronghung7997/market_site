@@ -1749,7 +1749,7 @@
         "none": "Không che",
         "middle": "Che trường giữa",
         "edges": "Giữ 4 ký tự đầu / cuối",
-        "id_only": "Chỉ ID + trạng thái"
+        "id_only": "Chỉ số dòng + trạng thái"
       },
       "maskHint": {
         "none": "xuất nguyên văn",
@@ -1770,7 +1770,7 @@
         "category": "Danh mục",
         "product": "Sản phẩm",
         "variant": "Phân loại",
-        "id": "ID",
+        "id": "Dòng",
         "status": "Trạng thái",
         "data": "Nội dung",
         "order": "Đơn hàng",

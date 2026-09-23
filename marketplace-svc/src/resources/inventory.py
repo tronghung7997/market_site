@@ -41,12 +41,12 @@ DEFAULT_EXPORT_COLUMNS = ("product", "variant", "id", "status", "data", "order",
 # CSV headers follow the UI locale the seller is using, not the server's.
 EXPORT_HEADERS = {
     "en": {
-        "index": "No.", "category": "Category", "product": "Product", "variant": "Variation", "id": "ID",
+        "index": "No.", "category": "Category", "product": "Product", "variant": "Variation", "id": "Line",
         "status": "Status", "data": "Content", "order": "Order", "created_at": "Restocked at",
         "assigned_at": "Delivered at", "expires_at": "Expires at", "price": "Price",
     },
     "vi": {
-        "index": "STT", "category": "Danh mục", "product": "Sản phẩm", "variant": "Phân loại", "id": "ID",
+        "index": "STT", "category": "Danh mục", "product": "Sản phẩm", "variant": "Phân loại", "id": "Dòng",
         "status": "Trạng thái", "data": "Nội dung", "order": "Đơn hàng", "created_at": "Ngày nạp",
         "assigned_at": "Ngày giao", "expires_at": "Hết hạn", "price": "Giá",
     },
@@ -578,24 +578,38 @@ def _resource_filters(
     return filters
 
 
-def _export_select():
+def _export_select(variant_ids: list[int]):
+    """Export rows carry only seller-facing identifiers: the stock line is its
+    1-based position in the package (restock order, stable across exports), the
+    package/product by public key and the order by its ORD- code — never row ids."""
+    numbered = (
+        select(
+            Resource.id.label("rid"),
+            func.row_number().over(partition_by=Resource.variant_id, order_by=Resource.id).label("line_no"),
+        )
+        .where(Resource.variant_id.in_(variant_ids))
+        .subquery()
+    )
     return (
         select(
-            Resource.id, Resource.status, Resource.data, Resource.order_id,
+            Resource.id, numbered.c.line_no, Resource.status, Resource.data, Order.order_code,
             Resource.created_at, Resource.assigned_at, Resource.expires_at, Resource.is_archived,
-            ProductVariant.id, ProductVariant.name, ProductVariant.price,
-            Product.id, Product.title, Category.name, ParentCategory.name,
+            ProductVariant.public_key, ProductVariant.name, ProductVariant.price,
+            Product.public_key, Product.title, Category.name, ParentCategory.name,
         )
+        .join(numbered, numbered.c.rid == Resource.id)
         .join(ProductVariant, ProductVariant.id == Resource.variant_id)
         .join(Product, Product.id == ProductVariant.product_id)
         .join(Category, Category.id == Product.category_id)
         .outerjoin(ParentCategory, ParentCategory.id == Category.parent_id)
+        .outerjoin(Order, Order.id == Resource.order_id)
     )
 
 
 def _export_row(row, columns: list[str], mask: str, mask_char: str, *, index: int = 0, locale: str = "en") -> dict:
-    (rid, rstatus, data, order_id, created_at, assigned_at, expires_at, archived,
-     vid, vname, price, pid, ptitle, cat_name, cat_parent) = row
+    (_rid, line_no, rstatus, data, order_code,
+     created_at, assigned_at, expires_at, archived,
+     variant_key, vname, price, product_key, ptitle, cat_name, cat_parent) = row
     labels = STATUS_LABELS[locale]
     status_label = labels[rstatus.value]
     if archived:
@@ -603,12 +617,12 @@ def _export_row(row, columns: list[str], mask: str, mask_char: str, *, index: in
     values = {
         "index": index,
         "category": f"{cat_parent} › {cat_name}" if cat_parent else cat_name,
-        "product": f"{ptitle} (#{pid})",
-        "variant": f"{vname} (#{vid})",
-        "id": rid,
+        "product": f"{ptitle} ({product_key})" if product_key else ptitle,
+        "variant": f"{vname} ({variant_key})" if variant_key else vname,
+        "id": f"#{line_no:02d}",
         "status": status_label,
         "data": "" if mask == "id_only" else mask_data(data, mask, mask_char),
-        "order": order_id or "",
+        "order": order_code or "",
         "created_at": created_at.isoformat() if created_at else "",
         "assigned_at": assigned_at.isoformat() if assigned_at else "",
         "expires_at": expires_at.isoformat() if expires_at else "",
@@ -638,7 +652,7 @@ async def export_preview(
     filters = _resource_filters(variant_ids, **resource_filters)
     total = int(await db.scalar(select(func.count()).select_from(Resource).where(*filters)) or 0)
     rows = (await db.execute(
-        _export_select().where(*filters).order_by(Resource.variant_id, Resource.id).limit(limit)
+        _export_select(variant_ids).where(*filters).order_by(Resource.variant_id, Resource.id).limit(limit)
     )).all()
     return {
         "rows": [_export_row(r, columns, mask, mask_char, index=i, locale=locale) for i, r in enumerate(rows, start=1)],
@@ -667,7 +681,7 @@ async def export_stream(
         emitted = 0
         while emitted < row_limit:
             batch = (await db.execute(
-                _export_select().where(*filters, Resource.id > cursor)
+                _export_select(variant_ids).where(*filters, Resource.id > cursor)
                 .order_by(Resource.id).limit(min(1_000, row_limit - emitted))
             )).all()
             if not batch:

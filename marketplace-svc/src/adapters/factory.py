@@ -113,7 +113,7 @@ def _instantiate(provider: Provider, db: AsyncSession, *, seller_owned: bool) ->
     # seller_gateway delivers the platform-minted gateway key itself. Unlike
     # supplier adapters, it has no separate /provision handshake to invent.
     config = dict(provider.config or {})
-    if provider.adapter_type == "seller_gateway":
+    if provider.adapter_type == "seller_gateway" or spec.gateway_source:
         config["skip_provision_handshake"] = True
 
     # Chữ ký chung cho MỌI adapter (adapters/base.py) — thêm adapter mới không

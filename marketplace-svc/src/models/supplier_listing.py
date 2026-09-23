@@ -1,6 +1,6 @@
 from datetime import datetime
 
-from sqlalchemy import DateTime, ForeignKey, Integer, String, Text, UniqueConstraint, func
+from sqlalchemy import Boolean, DateTime, ForeignKey, Integer, String, Text, UniqueConstraint, func
 from sqlalchemy.dialects.postgresql import JSONB
 from sqlalchemy.orm import Mapped, mapped_column
 
@@ -50,6 +50,9 @@ class SupplierListing(Base):
     last_fail_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True), nullable=True)
     last_fail_reason: Mapped[str | None] = mapped_column(String(255), nullable=True)
     auto_paused_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True), nullable=True)
+    # Giá bán do seller gõ tay → luật giá của nguồn (config.markup_pct) không
+    # bao giờ ghi đè, kể cả khi bật "tự đổi giá theo vốn".
+    price_manual: Mapped[bool] = mapped_column(Boolean, nullable=False, default=False, server_default="false")
     # Dữ liệu phụ theo từng nguồn (đường dẫn danh mục thượng nguồn…) — không
     # có cột riêng để nguồn thứ hai không phải sửa schema.
     extra: Mapped[dict] = mapped_column(JSONB, nullable=False, server_default="{}", default=dict)
@@ -97,3 +100,27 @@ class SupplierCatalogItem(Base):
     # dựng tham số giá lúc nhập: duration_days, loaiproxy, currency…
     extra: Mapped[dict] = mapped_column(JSONB, nullable=False, server_default="{}", default=dict)
     synced_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), server_default=func.now())
+
+
+class SupplierPurchase(Base):
+    """Một lần adapter catalog mua (hoặc thử mua) hàng thượng nguồn cho một
+    đơn — số tiền nguồn trừ, mã giao dịch, lý do lỗi. Chỉ để hiện tab "Đơn
+    mua từ nguồn" và tính lời theo vốn thật; đơn trước khi có bảng này không
+    có dòng (UI ước tính theo giá vốn hiện tại)."""
+
+    __tablename__ = "supplier_purchases"
+    __table_args__ = (UniqueConstraint("order_id", name="uq_supplier_purchases_order"),)
+
+    id: Mapped[int] = mapped_column(primary_key=True)
+    order_id: Mapped[int] = mapped_column(ForeignKey("orders.id"), nullable=False)
+    provider_id: Mapped[int] = mapped_column(ForeignKey("providers.id"), nullable=False)
+    variant_id: Mapped[int | None] = mapped_column(ForeignKey("product_variants.id"), nullable=True)
+    external_product_id: Mapped[str | None] = mapped_column(String(100), nullable=True)
+    quantity: Mapped[int] = mapped_column(Integer, nullable=False)
+    # VND nguồn đã trừ; 0 khi mua lỗi.
+    cost_total: Mapped[int] = mapped_column(Integer, nullable=False, default=0, server_default="0")
+    trans_id: Mapped[str | None] = mapped_column(String(100), nullable=True)
+    ok: Mapped[bool] = mapped_column(Boolean, nullable=False)
+    # Lý do nguyên văn (admin/seller nội bộ thấy, buyer không).
+    error: Mapped[str | None] = mapped_column(String(255), nullable=True)
+    created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), server_default=func.now())

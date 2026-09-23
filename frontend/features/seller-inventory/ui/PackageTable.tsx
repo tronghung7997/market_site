@@ -91,7 +91,7 @@ export function PackageTable({
                 {pkg.variant_name}
               </Link>
               <div className="mt-0.5 flex flex-wrap items-center gap-x-2 text-[11px] text-faint">
-                {!indent && <span className="truncate">{pkg.product_title}</span>}
+                {!indent && <span className="min-w-0 truncate">{pkg.product_title}</span>}
                 <span>{t("table.autoDelivery")}</span>
               </div>
             </div>
@@ -148,9 +148,9 @@ export function PackageTable({
               {open ? <ChevronDown size={14} /> : <ChevronRight size={14} />}
             </button>
             <ProductCover coverId={parseCoverId({ cover_id: group.coverId })} title={group.productTitle} className="h-6 w-6 shrink-0 rounded-md text-[10px]" />
-            <Link href={sellerProductPath({ id: group.productId, public_key: group.productKey })} className="truncate text-[13px] font-semibold text-fg hover:text-iris" title={group.productTitle}>{group.productTitle}</Link>
+            <Link href={sellerProductPath({ id: group.productId, public_key: group.productKey })} className="min-w-0 truncate text-[13px] font-semibold text-fg hover:text-iris" title={group.productTitle}>{group.productTitle}</Link>
             {group.productStatus !== "active" && <Tag tone="neutral">{t("state.productPaused")}</Tag>}
-            <span className="truncate text-[11.5px] text-faint">{categoryPath(group.packages[0])}</span>
+            <span className="min-w-0 truncate text-[11.5px] text-faint">{categoryPath(group.packages[0])}</span>
           </div>
         </td>
         <td className="px-2 py-2 whitespace-nowrap">

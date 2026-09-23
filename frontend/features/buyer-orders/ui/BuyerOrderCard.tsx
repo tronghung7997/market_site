@@ -75,8 +75,8 @@ export const BuyerOrderCard = memo(function BuyerOrderCard({
         <dd className="min-w-0 flex items-center gap-2">
           {o.seller_name ? (
             o.seller_path
-              ? <Link href={o.seller_path} className="truncate font-medium text-fg hover:text-iris">{o.seller_name}</Link>
-              : <span className="truncate font-medium text-fg">{o.seller_name}</span>
+              ? <Link href={o.seller_path} className="min-w-0 truncate font-medium text-fg hover:text-iris">{o.seller_name}</Link>
+              : <span className="min-w-0 truncate font-medium text-fg">{o.seller_name}</span>
           ) : <span className="text-faint">&mdash;</span>}
           {canChat && (
             <OrderChatButton orderId={o.id} appearance="link" label={tb("chat")} iconSize={11} className="inline-flex shrink-0 items-center gap-0.5 text-[11px] text-iris hover:underline disabled:opacity-60" />

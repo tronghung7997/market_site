@@ -59,7 +59,9 @@ class RealApiAdapter(ProviderAdapter):
 
     def _headers(self, idempotency_key: str | None = None) -> dict:
         headers = {"Content-Type": "application/json"}
-        if self.api_key:
+        # config.auth_query_param: key đi trong query string (?api_key=…)
+        # thay vì header — xem _auth_params.
+        if self.api_key and not self.config.get("auth_query_param"):
             header_name = self.config.get("auth_header") or "Authorization"
             scheme = self.config.get("auth_scheme")
             scheme = "Bearer " if scheme is None else scheme
@@ -67,6 +69,22 @@ class RealApiAdapter(ProviderAdapter):
         if idempotency_key:
             headers["Idempotency-Key"] = idempotency_key
         return headers
+
+    def _auth_params(self, params: dict | None) -> dict | None:
+        """Query params đi ra nguồn. Với config.auth_query_param, key của sàn
+        được gắn SAU params của buyer nên buyer không ghi đè được nó."""
+        name = self.config.get("auth_query_param")
+        if not name or not self.api_key:
+            return params
+        return {**(params or {}), name: self.api_key}
+
+    def _max_attempts(self) -> int:
+        """config.max_attempts = 1 cho nguồn tính phí mỗi lần gọi: gọi lại
+        sau timeout là trả tiền nguồn 2–3 lần cho cùng một request."""
+        try:
+            return max(1, min(int(self.config.get("max_attempts") or _MAX_ATTEMPTS), _MAX_ATTEMPTS))
+        except (TypeError, ValueError):
+            return _MAX_ATTEMPTS
 
     async def _request_with_retry(
         self,
@@ -103,7 +121,8 @@ class RealApiAdapter(ProviderAdapter):
             transport=transport,
             trust_env=False if self.seller_owned else True,
         ) as client:
-            for attempt in range(_MAX_ATTEMPTS):
+            attempts = self._max_attempts()
+            for attempt in range(attempts):
                 started = time.perf_counter()
                 status_code: int | None = None
                 error: str | None = None
@@ -136,7 +155,7 @@ class RealApiAdapter(ProviderAdapter):
 
                 if resp is not None and resp.status_code < 500:
                     return resp
-                if attempt < _MAX_ATTEMPTS - 1:
+                if attempt < attempts - 1:
                     await asyncio.sleep(0.5 * (2 ** attempt))
         assert last_error is not None
         raise last_error
@@ -206,7 +225,7 @@ class RealApiAdapter(ProviderAdapter):
             order_id=order_id,
             idempotency_key=idempotency_key,
             headers=self._headers(idempotency_key),
-            params=params,
+            params=self._auth_params(params),
             json=json_body,
         )
 

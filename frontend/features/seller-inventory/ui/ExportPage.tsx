@@ -1,27 +1,28 @@
 "use client";
 
 import { useLocale, useTranslations } from "next-intl";
-import { useEffect, useMemo, useState } from "react";
+import { useEffect, useMemo, useRef, useState } from "react";
 import { Link } from "@/i18n/navigation";
-import { api } from "@/lib/api";
 import { cn } from "@/lib/cn";
 import { useApiErrorMessage } from "@/lib/use-api-error";
 import { useDebounce } from "@/lib/hooks/useDebounce";
+import { useDelayedFlag } from "@/lib/hooks/useDelayedFlag";
 import { useMoney } from "@/lib/money";
 import type {
   InventoryExportColumn, InventoryExportMask, InventoryExportParams, InventoryReportBasis, InventoryReportGroup,
   InventoryReportMetric, InventoryReportParams, InventoryReportRow, InventoryResourceStatus,
 } from "@/lib/types";
 import { browserTimeZone, DashboardRangePicker, formatIsoDate, percentDelta, type DashboardRangeParams } from "@/features/seller-dashboard";
-import { Button, Card, Input, Select } from "@/components/ui";
+import { ActivityBar, Button, Card, Input, Select, Skeleton } from "@/components/ui";
 import { AlertCircle, BarChart, ChevronRight, Download, Eye, Info } from "@/components/Icons";
 import {
   buildCsv, buildScopeTree, categoryPath, compactScope, DEFAULT_EXPORT_COLUMNS, DEFAULT_REPORT_METRICS, defaultReportColumns,
   downloadTextFile, EXPORT_COLUMNS, EXPORT_MASKS, exportFileName, groupReportRows, isMetricColumn, localDayStart,
-  maskSample, REPORT_GROUPS, reportColumnsFor, reportGroupingsFor, RESOURCE_STATUSES,
+  clipForCell, maskSample, REPORT_GROUPS, reportColumnsFor, reportGroupingsFor, RESOURCE_STATUSES,
   type ExportTab, type ReportColumn, type ReportGrouping,
 } from "../model";
-import { useAllInventoryPackages, useInventoryExportPreview, useInventoryReport } from "../useInventory";
+import { formatByteSize, isAbortError } from "../logic";
+import { downloadInventoryExport, useAllInventoryPackages, useInventoryExportPreview, useInventoryReport } from "../useInventory";
 import { ColumnPicker } from "./ColumnPicker";
 import { ScopeTree } from "./ScopeTree";
 
@@ -65,21 +66,24 @@ function Seg<T extends string>({ value, options, onChange, label, render }: { va
   );
 }
 
-function downloadFile(href: string) {
-  const link = document.createElement("a");
-  link.href = href;
-  link.download = "";
-  document.body.appendChild(link);
-  link.click();
-  document.body.removeChild(link);
-}
-
 export function ExportPageSkeleton() {
+  const t = useTranslations("sellerInventory");
   return (
-    <div className="animate-pulse space-y-4" aria-busy="true">
-      <div className="h-3.5 w-48 rounded bg-raised" />
-      <div className="h-7 w-72 rounded bg-raised" />
-      <div className="grid gap-4 lg:grid-cols-[360px_minmax(0,1fr)]"><div className="h-[520px] rounded-xl border border-line bg-raised" /><div className="h-[520px] rounded-xl border border-line bg-raised" /></div>
+    <div className="space-y-4" aria-busy="true">
+      <span role="status" className="sr-only">{t("loading")}</span>
+      <Skeleton className="h-3.5 w-48" />
+      <Skeleton className="h-7 w-72 max-w-full rounded-lg" />
+      <div className="grid grid-cols-1 gap-4 lg:grid-cols-[360px_minmax(0,1fr)]">
+        <Card className="space-y-3 p-4">
+          <Skeleton className="h-8 w-full rounded-lg" />
+          {Array.from({ length: 9 }).map((_, i) => <Skeleton key={i} className={cn("h-4", i % 3 === 0 ? "w-3/4" : "ml-4 w-2/3")} />)}
+        </Card>
+        <Card className="space-y-3 p-4">
+          <Skeleton className="h-8 w-60 rounded-lg" />
+          <Skeleton className="h-20 w-full rounded-lg" />
+          <div className="space-y-2 pt-2">{["w-full", "w-11/12", "w-full", "w-4/5", "w-full"].map((w, i) => <Skeleton key={i} className={cn("h-5", w)} />)}</div>
+        </Card>
+      </div>
     </div>
   );
 }
@@ -148,7 +152,7 @@ export function ExportPage({ params, onTabChange }: { params: ExportPageParams; 
         </div>
       </div>
 
-      <div className="grid gap-4 lg:grid-cols-[360px_minmax(0,1fr)] lg:items-start">
+      <div className="grid grid-cols-1 gap-4 lg:grid-cols-[360px_minmax(0,1fr)] lg:items-start">
         <ScopeTree tree={tree} selected={selected} onChange={setSelected} includeInactive={includeInactive} onIncludeInactive={onIncludeInactive} />
         {params.tab === "report"
           ? <ReportTab scope={scope} packages={selectedPackages.length} threshold={all.data.lowStockThreshold} />
@@ -182,6 +186,7 @@ function ReportTab({ scope, packages, threshold }: { scope: ReturnType<typeof co
     groupBy, basis, compare, lowOnly, hasError, noActivity,
   };
   const query = useInventoryReport(reportParams);
+  const reportDimmed = useDelayedFlag(query.isFetching && !query.isPending);
   const timeGrouped = groupBy === "day" || groupBy === "week";
   const showPrev = compare && !timeGrouped && Boolean(query.data?.prev_totals);
   const metrics = columns.filter(isMetricColumn);
@@ -249,7 +254,10 @@ function ReportTab({ scope, packages, threshold }: { scope: ReturnType<typeof co
     <div className="space-y-4">
       <Card className="space-y-4 p-4">
         <Section label={t("report.time")}>
-          <DashboardRangePicker params={range} resolved={query.data?.range ?? null} onChange={setRange} />
+          {/* The shared picker's preset row is wider than a phone; scroll it here. */}
+          <div className="-mx-1 max-w-full overflow-x-auto px-1 pb-1">
+            <DashboardRangePicker params={range} resolved={query.data?.range ?? null} onChange={setRange} />
+          </div>
         </Section>
         <div className="grid gap-4 md:grid-cols-2">
           <div className="space-y-3">
@@ -292,7 +300,8 @@ function ReportTab({ scope, packages, threshold }: { scope: ReturnType<typeof co
         </div>
       </Card>
 
-      <Card className="overflow-hidden p-0">
+      <Card className="relative overflow-hidden p-0" aria-busy={query.isFetching}>
+        <ActivityBar active={query.isFetching && !query.isPending} label={t("refreshing")} />
         <div className="flex flex-wrap items-center justify-between gap-2 border-b border-line bg-raised/40 px-4 py-2.5 text-[12px]">
           <span className="font-semibold text-fg">
             {query.data ? t("report.previewTitle", { packages: query.data.packages, from: formatIsoDate(query.data.range.from_date, locale), to: formatIsoDate(query.data.range.to_date, locale) }) : t("report.preview")}
@@ -302,11 +311,11 @@ function ReportTab({ scope, packages, threshold }: { scope: ReturnType<typeof co
         {empty ? (
           <p className="p-8 text-center text-[12.5px] text-muted">{t("export.noScope")}</p>
         ) : query.isPending ? (
-          <div className="animate-pulse space-y-2 p-4">{[0, 1, 2, 3].map((i) => <div key={i} className="h-5 rounded bg-raised" />)}</div>
+          <div className="space-y-2 p-4" aria-hidden>{["w-full", "w-11/12", "w-full", "w-4/5"].map((w, i) => <Skeleton key={i} className={cn("h-5", w)} />)}</div>
         ) : query.isError ? (
           <div className="p-8 text-center text-[12.5px] text-bad">{apiErrorMessage(query.error, t("loadFailed"))}</div>
         ) : (
-          <div className={cn("overflow-x-auto", query.isFetching && "opacity-70")}>
+          <div className={cn("overflow-x-auto transition-opacity duration-200", reportDimmed && "pointer-events-none opacity-55")}>
             <table className="w-full table-fixed border-collapse text-left text-[12px]" style={{ minWidth: columns.reduce((w, c) => w + (c === "index" ? 52 : c === "label" ? 240 : isMetricColumn(c) ? 110 : 170), 0) }}>
               <thead>
                 <tr className="border-b border-line bg-raised/20 text-[11px] font-semibold uppercase tracking-wider text-faint">
@@ -430,6 +439,39 @@ function GoodsTab({ scope, packages, initialStatus, initialArchived }: {
   // Debounced so a burst of column reorders costs one preview request, not one per click.
   const debouncedParams = useDebounce(exportParams, 350);
   const preview = useInventoryExportPreview(debouncedParams, 20);
+  const previewDimmed = useDelayedFlag(preview.isFetching && !preview.isPending);
+  const [download, setDownload] = useState<{ received: number } | null>(null);
+  const [downloadError, setDownloadError] = useState<string | null>(null);
+  const downloadRef = useRef<AbortController | null>(null);
+  useEffect(() => () => downloadRef.current?.abort(), []);
+
+  const startDownload = async () => {
+    if (!exportParams || download) return;
+    const controller = new AbortController();
+    downloadRef.current = controller;
+    setDownloadError(null);
+    setDownload({ received: 0 });
+    try {
+      // A 50 MB export arrives in ~800 chunks; repainting this page for each one
+      // is what made the download feel sticky. ~6 updates a second is enough.
+      let shownAt = 0;
+      await downloadInventoryExport(exportParams, {
+        signal: controller.signal,
+        locale,
+        onProgress: (received) => {
+          const now = performance.now();
+          if (now - shownAt < 160) return;
+          shownAt = now;
+          setDownload({ received });
+        },
+      });
+    } catch (err) {
+      if (!isAbortError(err)) setDownloadError(apiErrorMessage(err, t("goods.downloadFailed")));
+    } finally {
+      downloadRef.current = null;
+      setDownload(null);
+    }
+  };
   const sample = "clone.vn.2019.0412|Pw#4a8Lk!|GH5T-LQ2A-9F0K|mail4412@hotmail.com";
   const overLimit = preview.data ? preview.data.total > preview.data.row_limit : false;
 
@@ -502,17 +544,31 @@ function GoodsTab({ scope, packages, initialStatus, initialArchived }: {
               </>
             ) : <span className="text-muted">{t("goods.estimating")}</span>}
           </span>
-          <Button size="sm" disabled={!exportParams || statuses.length === 0 || !preview.data || preview.data.total === 0} onClick={() => exportParams && downloadFile(api.inventoryExportUrl(exportParams))} className="gap-1.5">
-            <Download size={13} /> {t("goods.download")}
-          </Button>
+          <span className="flex items-center gap-2">
+            {download && (
+              <Button size="sm" variant="ghost" onClick={() => downloadRef.current?.abort()} className="text-muted">{t("goods.cancelDownload")}</Button>
+            )}
+            <Button size="sm" loading={download !== null} disabled={!exportParams || statuses.length === 0 || !preview.data || preview.data.total === 0} onClick={() => void startDownload()} className="gap-1.5">
+              {download ? (
+                <span className="font-mono tabular">{download.received > 0 ? t("goods.downloading", { size: formatByteSize(download.received, locale) }) : t("goods.preparing")}</span>
+              ) : <><Download size={13} /> {t("goods.download")}</>}
+            </Button>
+          </span>
         </div>
+        {download && (
+          <div className="relative h-0.5 overflow-hidden rounded-full" aria-hidden>
+            <ActivityBar active label={t("goods.preparing")} />
+          </div>
+        )}
+        {downloadError && <p role="alert" className="rounded-lg border border-bad/20 bg-bad-soft p-2 text-xs font-medium text-bad">{downloadError}</p>}
         {overLimit && (
           <p className="flex items-center gap-1.5 text-[12px] text-warn"><AlertCircle size={13} /> {t("goods.overLimit", { limit: preview.data!.row_limit.toLocaleString(locale) })}</p>
         )}
         {statuses.length === 0 && <p className="text-[12px] text-warn">{t("goods.pickStatus")}</p>}
       </Card>
 
-      <Card className="overflow-hidden p-0">
+      <Card className="relative overflow-hidden p-0" aria-busy={preview.isFetching}>
+        <ActivityBar active={preview.isFetching && !preview.isPending} label={t("refreshing")} />
         <div className="flex flex-wrap items-center justify-between gap-2 border-b border-line bg-raised/40 px-4 py-2.5 text-[12px]">
           <span className="flex items-center gap-1.5 font-semibold text-fg"><Eye size={13} /> {t("goods.previewTitle")}</span>
           {preview.data && <span className="font-mono text-[11px] text-faint">{exportFileName("goods", preview.data.packages, undefined, undefined, format)}</span>}
@@ -520,13 +576,13 @@ function GoodsTab({ scope, packages, initialStatus, initialArchived }: {
         {empty ? (
           <p className="p-8 text-center text-[12.5px] text-muted">{t("export.noScope")}</p>
         ) : preview.isPending ? (
-          <div className="animate-pulse space-y-2 p-4">{[0, 1, 2, 3].map((i) => <div key={i} className="h-5 rounded bg-raised" />)}</div>
+          <div className="space-y-2 p-4" aria-hidden>{["w-full", "w-11/12", "w-full", "w-4/5"].map((w, i) => <Skeleton key={i} className={cn("h-5", w)} />)}</div>
         ) : preview.isError ? (
           <div className="p-8 text-center text-[12.5px] text-bad">{apiErrorMessage(preview.error, t("loadFailed"))}</div>
         ) : preview.data.rows.length === 0 ? (
           <p className="p-8 text-center text-[12.5px] text-muted">{t("goods.previewEmpty")}</p>
         ) : (
-          <div className={cn("overflow-x-auto", preview.isFetching && "opacity-70")}>
+          <div className={cn("overflow-x-auto transition-opacity duration-200", previewDimmed && "pointer-events-none opacity-55")}>
             <table className="w-full border-collapse text-left text-[12px]">
               <thead>
                 <tr className="border-b border-line bg-raised/20 text-[11px] font-semibold uppercase tracking-wider text-faint">
@@ -537,7 +593,7 @@ function GoodsTab({ scope, packages, initialStatus, initialArchived }: {
                 {preview.data.rows.map((row, i) => (
                   <tr key={i}>
                     {preview.data!.columns.map((c) => (
-                      <td key={c} className={cn("max-w-[360px] truncate px-3 py-1.5 font-mono text-[11.5px]", c === "data" ? "text-fg" : "text-muted")} title={String(row[c] ?? "")}>{String(row[c] ?? "")}</td>
+                      <td key={c} className={cn("max-w-[360px] truncate px-3 py-1.5 font-mono text-[11.5px]", c === "data" ? "text-fg" : "text-muted")} title={clipForCell(String(row[c] ?? ""), 1_000)}>{clipForCell(String(row[c] ?? ""))}</td>
                     ))}
                   </tr>
                 ))}

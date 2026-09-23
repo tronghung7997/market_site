@@ -9,21 +9,39 @@ import { daysAgo } from "@/lib/utils";
 import type { RestockResult } from "@/lib/types";
 import { productPath, sellerInventoryProductQuery, sellerProductPath } from "@/lib/routes";
 import { parseCoverId, ProductCover } from "@/features/product-covers";
-import { Button, Card, Tag } from "@/components/ui";
+import { Button, Card, Skeleton, Tag } from "@/components/ui";
 import { AlertCircle, AlertTriangle, CheckCircle2, ChevronRight, Download, Edit2, ExternalLink, Plus, X } from "@/components/Icons";
 import type { ResourceFilters } from "../model";
 import { useBulkPackageStatus, useInventoryPackage } from "../useInventory";
 import { Switch } from "./InventoryConsole";
+import { ResourceRowsSkeleton } from "./ResourceTable";
 import { PackageSwitcher, rememberRecentPackage } from "./PackageSwitcher";
 import { RestockPanel } from "./RestockPanel";
 import { ResourceTable } from "./ResourceTable";
 
 export function PackagePageSkeleton() {
+  const t = useTranslations("sellerInventory");
   return (
-    <div className="animate-pulse space-y-4" aria-busy="true">
-      <div className="h-3.5 w-64 rounded bg-raised" />
-      <div className="h-[120px] rounded-xl border border-line bg-raised" />
-      <div className="h-96 rounded-xl border border-line bg-raised" />
+    <div className="space-y-4" aria-busy="true">
+      <span role="status" className="sr-only">{t("loading")}</span>
+      <Skeleton className="h-3.5 w-72 max-w-full" />
+      <Card className="overflow-hidden p-0">
+        <div className="flex flex-wrap items-center gap-3 border-b border-line p-4">
+          <Skeleton className="h-10 w-10 shrink-0 rounded-xl" />
+          <div className="min-w-0 flex-1 space-y-2"><Skeleton className="h-3 w-48" /><Skeleton className="h-7 w-64 max-w-full rounded-lg" /></div>
+          <div className="flex flex-wrap gap-2"><Skeleton className="h-8 w-24 rounded-lg" /><Skeleton className="h-8 w-20 rounded-lg" /><Skeleton className="h-8 w-28 rounded-lg" /></div>
+        </div>
+        <div className="grid grid-cols-3 divide-x divide-line sm:grid-cols-6">
+          {Array.from({ length: 6 }).map((_, i) => (
+            <div key={i} className="space-y-1.5 px-4 py-2.5"><Skeleton className="h-2.5 w-14" /><Skeleton className="h-4 w-10" /></div>
+          ))}
+        </div>
+      </Card>
+      <div className="flex flex-wrap items-center justify-between gap-2">
+        <Skeleton className="h-8 w-[420px] max-w-full rounded-lg" /><Skeleton className="h-8 w-20 rounded-lg" />
+      </div>
+      <Skeleton className="h-12 w-full rounded-xl" />
+      <div className="overflow-hidden rounded-xl border border-line bg-surface"><ResourceRowsSkeleton /></div>
     </div>
   );
 }
@@ -44,8 +62,14 @@ export function PackagePage({
   const query = useInventoryPackage(variantRef);
   const status = useBulkPackageStatus();
   const [notice, setNotice] = useState<{ tone: "good" | "bad" | "warn"; text: string } | null>(null);
+  // Optimistic selling switch: shows the requested state until the refetched
+  // package agrees, and snaps back if the request fails.
+  const [pendingActive, setPendingActive] = useState<boolean | null>(null);
 
   useEffect(() => { if (query.data) rememberRecentPackage(query.data.variant_id); }, [query.data]);
+  useEffect(() => {
+    if (pendingActive !== null && query.data?.is_active === pendingActive && !status.isPending) setPendingActive(null);
+  }, [pendingActive, query.data?.is_active, status.isPending]);
   useEffect(() => {
     if (!notice) return;
     const handle = setTimeout(() => setNotice(null), 6000);
@@ -53,7 +77,7 @@ export function PackagePage({
   }, [notice]);
 
   if (query.isPending) return <PackagePageSkeleton />;
-  if (query.isError) {
+  if (query.isError && !query.data) {
     return (
       <Card className="p-10 text-center">
         <AlertCircle size={32} className="mx-auto mb-2 text-bad" />
@@ -78,13 +102,16 @@ export function PackagePage({
   ];
 
   const toggleActive = async (isActive: boolean) => {
+    setPendingActive(isActive);
     try {
       await status.mutateAsync({ ids: [pkg.variant_id], isActive });
       setNotice({ tone: "good", text: t(isActive ? "package.activated" : "package.deactivated") });
     } catch (err) {
+      setPendingActive(null);
       setNotice({ tone: "bad", text: apiErrorMessage(err, t("notice.bulkFailed")) });
     }
   };
+  const selling = pendingActive ?? pkg.is_active;
 
   const onRestocked = (result: RestockResult) => {
     const market = result.skipped_market ?? 0;
@@ -100,12 +127,19 @@ export function PackagePage({
 
   return (
     <div className="space-y-4 animate-fade">
+      {query.isError && (
+        <div role="alert" className="flex flex-wrap items-center justify-between gap-2 rounded-lg border border-warn/25 bg-warn-soft px-3 py-2 text-xs font-medium text-warn">
+          <span className="flex items-center gap-1.5"><AlertTriangle size={14} className="shrink-0" /> {t("staleData")} {apiErrorMessage(query.error)}</span>
+          <Button size="sm" variant="secondary" loading={query.isFetching} onClick={() => void query.refetch()} className="h-7 text-[12px]">{t("retry")}</Button>
+        </div>
+      )}
+
       <nav aria-label="breadcrumb" className="flex flex-wrap items-center gap-1.5 text-[12px] text-muted">
         <Link href="/seller/inventory" className="text-iris hover:underline">{t("title")}</Link>
         <ChevronRight size={12} className="text-faint" />
-        <Link href={sellerInventoryProductQuery({ id: pkg.product_id, public_key: pkg.product_key })} className="truncate text-iris hover:underline">{pkg.product_title}</Link>
+        <Link href={sellerInventoryProductQuery({ id: pkg.product_id, public_key: pkg.product_key })} className="min-w-0 truncate text-iris hover:underline">{pkg.product_title}</Link>
         <ChevronRight size={12} className="text-faint" />
-        <span className="truncate text-fg">{pkg.variant_name}</span>
+        <span className="min-w-0 truncate text-fg">{pkg.variant_name}</span>
       </nav>
 
       <Card className="overflow-hidden p-0">
@@ -118,7 +152,7 @@ export function PackagePage({
               <span>{pkg.category_name}</span>
               {pkg.product_status !== "active" && <Tag tone="neutral">{t("state.productPaused")}</Tag>}
             </div>
-            <div className="flex flex-wrap items-center gap-2">
+            <div className="flex min-w-0 flex-wrap items-center gap-2">
               <PackageSwitcher pkg={pkg} />
               <Tag tone="iris">{t("table.autoDelivery")}</Tag>
               {pkg.stock_state === "out" && <Tag tone="bad">{t("state.out")}</Tag>}
@@ -126,7 +160,7 @@ export function PackagePage({
             </div>
           </div>
           <div className="flex flex-wrap items-center gap-2">
-            <Switch checked={pkg.is_active} onChange={(next) => void toggleActive(next)} label={pkg.is_active ? t("package.selling") : t("package.notSelling")} />
+            <Switch checked={selling} busy={status.isPending} onChange={(next) => void toggleActive(next)} label={selling ? t("package.selling") : t("package.notSelling")} />
             <Link href={sellerProductPath({ id: pkg.product_id, public_key: pkg.product_key })}><Button size="sm" variant="ghost" className="h-8 gap-1 text-xs"><Edit2 size={13} /> {t("package.editProduct")}</Button></Link>
             <Link href={productPath({ id: pkg.product_id, public_key: pkg.product_key })} target="_blank"><Button size="sm" variant="ghost" className="h-8 gap-1 text-xs"><ExternalLink size={13} /> {t("package.viewStore")}</Button></Link>
             <Link href={`/seller/inventory/export?tab=goods&variants=${pkg.variant_key ?? pkg.variant_id}`}><Button size="sm" variant="secondary" className="h-8 gap-1 text-xs"><Download size={13} /> {t("package.export")}</Button></Link>

@@ -193,6 +193,10 @@ async def order_dashboard(
         # nằm thẳng trong delivered_data.
         dashboard["delivered_data"] = order.delivered_data
         dashboard["balance"] = await get_usage_summary(order_id, db)
+        # Endpoint bán được (tên, method, tham số, giá) cho trang "API của tôi"
+        # — không bao giờ lộ đường dẫn/khoá thật của nguồn.
+        from src.suppliers.gateway_sources import buyer_endpoints
+        dashboard["api"] = await buyer_endpoints(order, db)
 
     elif service_type == "takedown":
         # Get related tasks

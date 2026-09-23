@@ -20,7 +20,7 @@ from src.models.order import (
     OrderStatus,
 )
 from src.models.product import DeliveryMode, Product, ProductVariant
-from src.models.resource import Resource, ResourceStatus
+from src.models.resource import Resource, ResourceStatus, resource_data_hash, resource_search_key
 from src.resources.service import claim_resources
 from src.fees.service import escrow_days_for, order_fee_percent
 from src.wallet.service import escrow_settlement, refund_escrow, release_escrow
@@ -257,8 +257,8 @@ def _resource_search_clause(search: str | None):
     term = (search or "").strip().lstrip("#")
     if not term:
         return None
-    escaped = term.replace("\\", "\\\\").replace("%", "\\%").replace("_", "\\_")
-    data_match = Resource.data.ilike(f"%{escaped}%", escape="\\")
+    # Content is encrypted at rest: exact match on the first field or the whole line.
+    data_match = or_(Resource.data_lookup == resource_search_key(term), Resource.data_hash == resource_data_hash(term))
     if term.isdigit():
         return or_(Resource.id == int(term), data_match)
     return data_match

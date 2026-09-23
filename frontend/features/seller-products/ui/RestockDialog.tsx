@@ -1,6 +1,6 @@
 "use client";
 
-import { useTranslations } from "next-intl";
+import { useLocale, useTranslations } from "next-intl";
 import { useEffect, useMemo, useState } from "react";
 import { api } from "@/lib/api";
 import { useVariantTerm } from "@/lib/variant-term";
@@ -9,11 +9,13 @@ import { useApiErrorMessage } from "@/lib/use-api-error";
 import { useMoney } from "@/lib/money";
 import type { SellerProduct, SellerVariant } from "@/lib/types";
 import {
+  addResourcesInBatches,
   downloadRestockTemplate,
   mergeRestockText,
   parseResourceItems,
   parseRestockFileContent,
   restockableVariants,
+  type RestockProgress,
 } from "@/features/seller-inventory";
 import { parseCoverId, ProductCover } from "@/features/product-covers";
 import { Button, Input, Spinner, Tag, Textarea } from "@/components/ui";
@@ -32,6 +34,7 @@ export function RestockDialog({ product, onClose }: { product: SellerProduct | n
 
 function RestockForm({ product, onClose }: { product: SellerProduct; onClose: () => void }) {
   const t = useTranslations("seller");
+  const locale = useLocale();
   const term = useVariantTerm(product.service_type);
   const { formatBrowseMoney } = useMoney();
   const apiErrorMessage = useApiErrorMessage();
@@ -43,6 +46,7 @@ function RestockForm({ product, onClose }: { product: SellerProduct; onClose: ()
   const [uploadedFileName, setUploadedFileName] = useState<string | null>(null);
   const [autoDedupe, setAutoDedupe] = useState(true);
   const [submitting, setSubmitting] = useState(false);
+  const [progress, setProgress] = useState<RestockProgress | null>(null);
   const [error, setError] = useState<string | null>(null);
   const [successCount, setSuccessCount] = useState<number | null>(null);
 
@@ -87,14 +91,17 @@ function RestockForm({ product, onClose }: { product: SellerProduct; onClose: ()
     setSubmitting(true);
     setError(null);
     try {
-      const result = await api.addResources(selectedVariantId, parsedItems);
+      const result = await addResourcesInBatches(selectedVariantId, parsedItems, { onProgress: setProgress });
       setSuccessCount(result.count);
       await invalidate();
       setTimeout(onClose, 1200);
     } catch (err: unknown) {
+      // Batches before the failure are committed; refresh the stock counts.
+      void invalidate();
       setError(apiErrorMessage(err, t("inventoryAddFailed")));
     } finally {
       setSubmitting(false);
+      setProgress(null);
     }
   };
 
@@ -220,8 +227,8 @@ function RestockForm({ product, onClose }: { product: SellerProduct; onClose: ()
 
       <div className="flex shrink-0 items-center justify-end gap-2 border-t border-line bg-raised/50 p-3">
         <Button size="sm" variant="ghost" onClick={onClose} disabled={submitting}>{t("cancel")}</Button>
-        <Button size="sm" onClick={handleRestock} disabled={submitting || parsedItems.length === 0 || !selectedVariantId || variants.length === 0} className="gap-1.5">
-          {submitting ? <span>{t("inventoryAdding")}</span> : <><Plus size={14} /><span>{t("confirmRestock")}</span></>}
+        <Button size="sm" onClick={handleRestock} loading={submitting} disabled={parsedItems.length === 0 || !selectedVariantId || variants.length === 0} className="gap-1.5">
+          {submitting ? <span className="font-mono tabular">{progress && progress.total > 0 ? t("inventoryAddingProgress", { done: progress.done.toLocaleString(locale), total: progress.total.toLocaleString(locale) }) : t("inventoryAdding")}</span> : <><Plus size={14} /><span>{t("confirmRestock")}</span></>}
         </Button>
       </div>
     </DialogContent>

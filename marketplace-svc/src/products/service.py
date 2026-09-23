@@ -1301,9 +1301,10 @@ async def _variants_by_product(
     gói (IN product_ids) + đếm Resource available GROUP BY variant_id. Dùng
     chung cho list lẫn detail để hai nơi không lệch số.
 
-    ``public=True`` (storefront) drops the exact ``stock_count``: buyers get
-    the bucketed ``stock_state`` + ``max_quantity`` only, so competitors
-    cannot read a seller's inventory off the product page."""
+    ``public=True`` (storefront) shows the exact ``stock_count`` only for
+    instant packages (buyers see "còn N"); made-to-order packages have no
+    stock to count. ``stock_state`` + ``max_quantity`` stay for the order
+    form."""
     if not product_ids:
         return {}
     variant_filter = [ProductVariant.product_id.in_(product_ids)]
@@ -1334,7 +1335,10 @@ async def _variants_by_product(
             "primary_locale": (v.i18n or {}).get(PRIMARY_LOCALE_KEY, "vi"),
         }
         stock_state, max_quantity = _public_stock(v.delivery_mode, stock_by_variant.get(v.id, 0))
-        exact_stock = {} if public else {"stock_count": stock_by_variant.get(v.id, 0)}
+        exact_stock = (
+            {"stock_count": stock_by_variant.get(v.id, 0)}
+            if not public or v.delivery_mode == DeliveryMode.instant else {}
+        )
         out[v.product_id].append({
             "id": v.id, "public_key": v.public_key, "product_id": v.product_id, "name": name, "price": v.price,
             "delivery_mode": v.delivery_mode.value, "sla_hours": v.sla_hours,

@@ -13,6 +13,7 @@ import type { CalculateResult, Order, PricingField, PricingOptions, ProductDetai
 import { Banner, Button, Card, Input, Select, Tag, Textarea } from "@/components/ui";
 import { EscrowHelp } from "@/components/products/EscrowHelp";
 import { Info, Shield } from "@/components/Icons";
+import { cn } from "@/lib/cn";
 
 interface Props {
   productId: number;
@@ -300,6 +301,16 @@ export default function DynamicOrderForm({ productId, product, onOrderCreated }:
                   locale={locale}
                   fieldLabels={((options.base_info as Record<string, unknown> | null)?.field_labels as Record<string, string> | undefined) ?? {}}
                   onChange={(next) => updateField(packageField.field, next)}
+                />
+              );
+            }
+            const creditPackages = isCredit ? visibleFields.find((f) => f.field === "package_size" && f.choices?.some((c) => c.price != null)) : undefined;
+            if (creditPackages) {
+              return (
+                <CreditPackagePicker
+                  field={creditPackages}
+                  value={config[creditPackages.field]}
+                  onChange={(next) => updateField(creditPackages.field, next)}
                 />
               );
             }
@@ -731,4 +742,53 @@ function DynamicField({
     default:
       return null;
   }
+}
+
+
+/** Gói request có giá riêng (nguồn API): thẻ chọn thay cho dropdown — thấy
+ *  ngay giá mỗi request và gói nào rẻ hơn. */
+function CreditPackagePicker({ field, value, onChange }: {
+  field: PricingField; value: unknown; onChange: (next: string | number) => void;
+}) {
+  const t = useTranslations("products");
+  const locale = useLocale();
+  const { formatCheckoutMoney } = useMoney();
+  const choices = field.choices ?? [];
+  const maxPer = Math.max(...choices.map((c) => c.per_unit ?? 0));
+  return (
+    <fieldset className="space-y-2">
+      <legend className="mb-1.5 text-[11px] uppercase tracking-wider text-faint">{t("requestPackageLegend")}</legend>
+      {choices.map((c) => {
+        const on = String(c.value) === String(value);
+        const save = c.per_unit && maxPer > 0 ? Math.round((1 - c.per_unit / maxPer) * 100) : 0;
+        return (
+          <label
+            key={String(c.value)}
+            className={cn(
+              "flex cursor-pointer items-center justify-between gap-3 rounded-lg border px-3.5 py-3 transition-colors",
+              on ? "border-iris bg-iris-soft" : "border-line-2 bg-surface hover:border-faint",
+            )}
+          >
+            <input type="radio" name={field.field} className="sr-only" checked={on} onChange={() => onChange(c.value)} />
+            <span className="min-w-0">
+              <span className="flex flex-wrap items-center gap-1.5 text-[13.5px] font-medium text-fg">
+                {c.label}
+                {save >= 5 && <Tag tone="good">{t("packageSaves", { pct: save })}</Tag>}
+              </span>
+              <span className="block text-[12px] text-muted">
+                <span className="whitespace-nowrap">{t("packageRequests", { n: Number(c.value).toLocaleString(locale) })}</span>
+                {c.per_unit != null && (
+                  <>
+                    {" · "}
+                    <span className="whitespace-nowrap">{t("packagePerRequest", { price: formatCheckoutMoney(Math.round(c.per_unit), { locale }) })}</span>
+                  </>
+                )}
+              </span>
+            </span>
+            {c.price != null && <span className="shrink-0 font-mono text-[14px] font-semibold tabular text-fg">{formatCheckoutMoney(c.price, { locale })}</span>}
+          </label>
+        );
+      })}
+    </fieldset>
+  );
 }

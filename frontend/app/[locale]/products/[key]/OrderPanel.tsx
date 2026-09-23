@@ -100,9 +100,12 @@ export default function OrderPanel({ product, purchase, fulfillment }: {
                           {v.delivery_mode === "instant" ? (
                             oos
                               ? <span className="text-bad font-medium">{t("outOfStock")}</span>
-                              : v.stock_state === "low"
-                                ? <span className="flex items-center gap-1 text-warn"><Bolt size={10} /> {t("instantLow")}</span>
-                                : <span className="flex items-center gap-1 text-good"><Bolt size={10} /> {t("instantReady")}</span>
+                              : <span className={cn("flex items-center gap-1", v.stock_state === "low" ? "text-warn" : "text-good")}>
+                                  <Bolt size={10} />
+                                  {v.stock_count != null
+                                    ? t("instantStock", { count: v.stock_count.toLocaleString(locale) })
+                                    : v.stock_state === "low" ? t("instantLow") : t("instantReady")}
+                                </span>
                           ) : (
                             <span className="flex items-center gap-1 text-warn"><Clock size={10} /> {t("deliverInHours", { hours: v.sla_hours })}</span>
                           )}

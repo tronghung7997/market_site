@@ -11,6 +11,8 @@ from src.database import get_session
 from src.logging import current_request_id
 from src.models.account import Account
 from src.models.resource import ResourceStatus
+from src.rate_limit import check_rate_limit
+from src.exceptions import ErrorCode, api_error
 
 from . import inventory, schemas, service
 from src.orders.refs import OrderRef
@@ -24,7 +26,12 @@ async def bulk_add(variant_id: int, body: schemas.BulkResourceCreate, account: A
     return schemas.BulkResourceResponse(**result)
 
 
-@router.get("/seller/variants/{variant_id}/resources", response_model=list[schemas.ResourceResponse])
+# Revealing stock content one line at a time is normal console use; a script
+# walking the whole inventory through it is not (bulk access goes via export).
+REVEAL_LIMIT_PER_MINUTE = 120
+
+
+@router.get("/seller/variants/{variant_id}/resources", response_model=list[schemas.SellerResourceRow])
 async def list_res(
     variant_id: int,
     response: Response,
@@ -93,6 +100,12 @@ async def export_resources(
         variant_id, account.id, db, format=format, status_filter=resource_status,
         search=search, archived_only=archived_only,
     )
+    await log_event(
+        db, "info", f"Seller exported variant #{variant_id} resources",
+        request_id=current_request_id(),
+        metadata={"event": "seller_inventory_exported", "actor_id": account.id, "subject_type": "variant", "subject_id": variant_id, "format": format},
+    )
+    await db.commit()
     filename = f"inventory_variant_{variant_id}.{format}"
     return StreamingResponse(
         stream,
@@ -101,37 +114,48 @@ async def export_resources(
     )
 
 
-@router.patch("/seller/resources/{resource_id}", response_model=schemas.ResourceResponse)
+@router.get("/seller/resources/{resource_id}/data", response_model=schemas.ResourceReveal)
+async def reveal_res(resource_id: int, account: Account = Depends(require_role("seller")), db: AsyncSession = Depends(get_session)):
+    if not await check_rate_limit(f"resource-reveal:{account.id}", limit=REVEAL_LIMIT_PER_MINUTE, window_seconds=60, fail_open=False):
+        raise api_error(ErrorCode.RATE_LIMITED, status.HTTP_429_TOO_MANY_REQUESTS, headers={"Retry-After": "60"})
+    return await service.reveal_resource(resource_id, account.id, db)
+
+
+async def _seller_row(resource, db: AsyncSession) -> dict:
+    return (await service.with_order_codes([resource], db))[0]
+
+
+@router.patch("/seller/resources/{resource_id}", response_model=schemas.SellerResourceRow)
 async def update_res(resource_id: int, body: schemas.ResourceUpdate, account: Account = Depends(require_role("seller")), db: AsyncSession = Depends(get_session)):
-    return await service.update_resource_data(resource_id, account.id, body.data, db)
+    return await _seller_row(await service.update_resource_data(resource_id, account.id, body.data, db), db)
 
 
-@router.post("/seller/resources/{resource_id}/restock", response_model=schemas.ResourceResponse)
+@router.post("/seller/resources/{resource_id}/restock", response_model=schemas.SellerResourceRow)
 async def restock_res(
     resource_id: int,
     body: schemas.ResourceRestock,
     account: Account = Depends(require_role("seller")),
     db: AsyncSession = Depends(get_session),
 ):
-    return await service.restock_resource(resource_id, account.id, db, data=body.data)
+    return await _seller_row(await service.restock_resource(resource_id, account.id, db, data=body.data), db)
 
 
-@router.post("/seller/resources/{resource_id}/archive", response_model=schemas.ResourceResponse)
+@router.post("/seller/resources/{resource_id}/archive", response_model=schemas.SellerResourceRow)
 async def archive_res(
     resource_id: int,
     account: Account = Depends(require_role("seller")),
     db: AsyncSession = Depends(get_session),
 ):
-    return await service.archive_resource(resource_id, account.id, db)
+    return await _seller_row(await service.archive_resource(resource_id, account.id, db), db)
 
 
-@router.post("/seller/resources/{resource_id}/restore", response_model=schemas.ResourceResponse)
+@router.post("/seller/resources/{resource_id}/restore", response_model=schemas.SellerResourceRow)
 async def restore_res(
     resource_id: int,
     account: Account = Depends(require_role("seller")),
     db: AsyncSession = Depends(get_session),
 ):
-    return await service.restore_resource(resource_id, account.id, db)
+    return await _seller_row(await service.restore_resource(resource_id, account.id, db), db)
 
 
 @router.post("/seller/variants/{variant_id}/resources/bulk-action", response_model=schemas.BulkResourceActionResult)
@@ -218,9 +242,9 @@ async def order_res(order_id: OrderRef, account: Account = Depends(get_current_a
     return await service.order_resources(order_id, account.id, db)
 
 
-@router.post("/seller/resources/{resource_id}/error", response_model=schemas.ResourceResponse)
+@router.post("/seller/resources/{resource_id}/error", response_model=schemas.SellerResourceRow)
 async def mark_error(resource_id: int, account: Account = Depends(require_role("seller")), db: AsyncSession = Depends(get_session)):
-    return await service.mark_resource_error(resource_id, account.id, db)
+    return await _seller_row(await service.mark_resource_error(resource_id, account.id, db), db)
 
 
 @router.get("/admin/resources", response_model=schemas.AdminResourceListResponse)
@@ -375,6 +399,16 @@ async def inventory_export(
             locale=lang, **filters,
         )
     row_limit = await inventory.get_export_row_limit(db)
+    # Export is the bulk path to stock content: record who took what and how.
+    await log_event(
+        db, "info", f"Seller exported inventory ({len(scope)} packages)",
+        request_id=current_request_id(),
+        metadata={
+            "event": "seller_inventory_exported", "actor_id": account.id, "subject_type": "inventory",
+            "packages": len(scope), "format": format, "mask": mask, "statuses": status_list,
+        },
+    )
+    await db.commit()
     stream = await inventory.export_stream(
         db, variant_ids=scope, fmt=format, columns=cols, mask=mask, mask_char=mask_char, row_limit=row_limit,
         locale=lang, **filters,

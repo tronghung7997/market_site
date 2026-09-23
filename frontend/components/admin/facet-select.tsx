@@ -193,7 +193,7 @@ export function FacetSelect({
                     i === highlight ? "bg-slate-50" : ""
                   } ${o.key === value ? "font-medium text-indigo-700" : "text-slate-700"}`}
                 >
-                  <span className="truncate">{o.label}</span>
+                  <span className="min-w-0 truncate">{o.label}</span>
                   <span className="shrink-0 tabular-nums text-[11px] text-slate-400">
                     {o.count.toLocaleString("vi-VN")}
                   </span>

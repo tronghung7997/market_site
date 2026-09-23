@@ -12,11 +12,22 @@ from src.audit.service import log_event
 from src.exceptions import ErrorCode, NotOwner, ResourceUnavailable, api_error
 from src.logging import current_request_id
 from src.models.product import DeliveryMode, Product, ProductStatus, ProductVariant
-from src.models.resource import Resource, ResourceStatus, resource_data_hash
+from src.models.resource import Resource, ResourceStatus, resource_data_hash, resource_search_key
 from src.orders.codes import parse_order_ref
 from src.pricing.engine import inventory_managed_sql
+from src.resources.schemas import RESOURCE_DATA_MAX_LENGTH
 
 INVENTORY_LOW_STOCK = 5
+
+
+def _content_match(term: str):
+    """Content is encrypted, so search is exact: the first `|` field (username /
+    UID / licence key, case-insensitive) or a whole pasted line, both through
+    keyed digests."""
+    key = resource_search_key(term)
+    if not key:
+        return None
+    return or_(Resource.data_lookup == key, Resource.data_hash == resource_data_hash(term))
 
 
 def _resource_search_clause(search: str | None):
@@ -27,13 +38,13 @@ def _resource_search_clause(search: str | None):
         return Resource.order_id == int(q[1:])
     if q.isdigit():
         n = int(q)
-        return or_(Resource.id == n, Resource.order_id == n, Resource.data.ilike(f"%{q}%"))
+        return or_(Resource.id == n, Resource.order_id == n, _content_match(q))
     parsed = parse_order_ref(q.lstrip("#"))
     if parsed is not None and parsed[0] == "code":
         # Sellers see order codes, so "#ORD-…" / "ord-…" finds the sold rows.
         from src.models.order import Order
         return Resource.order_id.in_(select(Order.id).where(Order.order_code == parsed[1]))
-    return Resource.data.ilike(f"%{q}%")
+    return _content_match(q)
 
 
 def _fixed_strategy_sql():
@@ -62,6 +73,12 @@ async def bulk_add_resources(variant_id: int, seller_id: int, items: list[str], 
         raise api_error(ErrorCode.INVENTORY_NOT_INSTANT, status.HTTP_400_BAD_REQUEST)
 
     cleaned = [item.strip() for item in items if item.strip()]
+    for line, item in enumerate(cleaned, start=1):
+        if len(item) > RESOURCE_DATA_MAX_LENGTH:
+            raise api_error(
+                ErrorCode.RESOURCE_TOO_LONG, status.HTTP_422_UNPROCESSABLE_CONTENT,
+                line=line, max=RESOURCE_DATA_MAX_LENGTH,
+            )
     # Two lines that only differ in line endings / padding are the same key.
     by_hash: dict[str, str] = {}
     for item in cleaned:
@@ -105,9 +122,10 @@ async def bulk_add_resources(variant_id: int, seller_id: int, items: list[str], 
 
 
 async def with_order_codes(resources: list[Resource], db: AsyncSession) -> list[dict]:
-    """Serialize resources with the public code of the order they were sold on:
-    the seller console links and labels orders by code, never by id."""
+    """Serialize resources for the seller console: the public code of the order
+    they were sold on (never the id) and a masked preview instead of content."""
     from src.models.order import Order
+    from src.resources.inventory import preview_data
     order_ids = {r.order_id for r in resources if r.order_id is not None}
     codes: dict[int, str] = {}
     if order_ids:
@@ -115,7 +133,7 @@ async def with_order_codes(resources: list[Resource], db: AsyncSession) -> list[
         codes = dict(rows.all())
     return [
         {
-            "id": r.id, "variant_id": r.variant_id, "status": r.status, "data": r.data,
+            "id": r.id, "variant_id": r.variant_id, "status": r.status, "data_preview": preview_data(r.data),
             "order_id": r.order_id, "order_code": codes.get(r.order_id) if r.order_id is not None else None,
             "assigned_at": r.assigned_at, "expires_at": r.expires_at, "created_at": r.created_at,
             "refund_amount_cap": r.refund_amount_cap, "is_archived": r.is_archived,
@@ -195,6 +213,26 @@ def seller_resource_filters(
     elif has_order is False:
         filters.append(Resource.order_id.is_(None))
     return filters
+
+
+async def reveal_resource(resource_id: int, seller_id: int, db: AsyncSession) -> dict:
+    """Full content of one stock line for its seller, recorded in the audit log."""
+    resource = await db.get(Resource, resource_id)
+    if not resource:
+        raise api_error(ErrorCode.RESOURCE_NOT_FOUND, status.HTTP_404_NOT_FOUND)
+    await _verify_resource_ownership(resource, seller_id, db)
+    await log_event(
+        db,
+        "info",
+        f"Seller revealed resource #{resource_id}",
+        request_id=current_request_id(),
+        metadata={
+            "event": "seller_resource_revealed", "actor_id": seller_id,
+            "subject_type": "resource", "subject_id": resource_id, "variant_id": resource.variant_id,
+        },
+    )
+    await db.commit()
+    return {"id": resource.id, "data": resource.data}
 
 
 async def _verify_resource_ownership(resource: Resource, seller_id: int, db: AsyncSession) -> None:

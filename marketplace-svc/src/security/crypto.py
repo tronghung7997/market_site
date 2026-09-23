@@ -1,5 +1,7 @@
 import base64
 import hashlib
+import hmac
+from functools import lru_cache
 
 from cryptography.fernet import Fernet, InvalidToken
 
@@ -18,10 +20,33 @@ def using_default_encryption_key() -> bool:
 
 
 def _fernet() -> Fernet:
+    return _fernet_for(settings.encryption_key)
+
+
+@lru_cache(maxsize=4)
+def _fernet_for(secret: str) -> Fernet:
     # Fernet requires a 32-byte urlsafe-base64 key; derive one deterministically
-    # from the configured (arbitrary-length) encryption_key string.
-    key = hashlib.sha256(settings.encryption_key.encode()).digest()
+    # from the configured (arbitrary-length) encryption_key string. Cached: stock
+    # lists decrypt hundreds of rows per request.
+    key = hashlib.sha256(secret.encode()).digest()
     return Fernet(base64.urlsafe_b64encode(key))
+
+
+@lru_cache(maxsize=8)
+def _subkey(secret: str, purpose: str) -> bytes:
+    return hmac.new(hashlib.sha256(secret.encode()).digest(), purpose.encode(), hashlib.sha256).digest()
+
+
+def keyed_digest(purpose: str, value: str, *, secret: str | None = None) -> str:
+    """HMAC-SHA256 under a per-purpose subkey of the encryption key: equality
+    lookups (duplicate detection, exact search) without storing a plain hash
+    that could be brute-forced back to a short password."""
+    key = _subkey(settings.encryption_key if secret is None else secret, purpose)
+    return hmac.new(key, value.encode("utf-8"), hashlib.sha256).hexdigest()
+
+
+# Every Fernet token starts with the version byte 0x80, i.e. "gAAAAA" in base64.
+FERNET_PREFIX = "gAAAAA"
 
 
 def encrypt_str(plaintext: str) -> str:

@@ -1476,10 +1476,11 @@ async def test_public_variants_expose_stock_state_and_max_quantity(client):
         resp = await client.post(f"/seller/products/{body['id']}/variants", json=variant, headers=headers)
         assert resp.status_code == 201, resp.text
     variants = {v["name"]: v for v in (await client.get(body["canonical_path"])).json()["variants"]}
-    # Exact counts stay off the storefront; seller detail still has them.
-    assert all("stock_count" not in v for v in variants.values())
+    # Storefront shows the exact count for instant packages only.
+    assert variants["Instant"]["stock_count"] == 0 and "stock_count" not in variants["Manual"]
     listed = (await client.get(f"/products?category_id={cat_id}")).json()["items"]
-    assert all("stock_count" not in v for row in listed for v in row["variants"])
+    listed_variants = {v["name"]: v for row in listed for v in row["variants"]}
+    assert listed_variants["Instant"]["stock_count"] == 0 and "stock_count" not in listed_variants["Manual"]
     seller_view = (await client.get(f"/seller/products/{body['id']}/detail", headers=headers)).json()
     assert all(v["stock_count"] == 0 for v in seller_view["variants"])
     assert variants["Instant"]["stock_state"] == "out"

@@ -42,8 +42,10 @@ function SellerInventoryRoute() {
 
   const filters = useMemo(() => parseInventoryFilters(new URLSearchParams(searchParams.toString())), [searchParams]);
   const onFiltersChange = useCallback((next: InventoryFilters) => {
-    router.replace(`${pathname}${inventoryFiltersToSearch(next)}`, { scroll: false });
-  }, [pathname, router]);
+    // History API, not router.replace: Next syncs useSearchParams from it, so a
+    // filter or page change re-renders at once without a server round trip.
+    window.history.replaceState(null, "", `${window.location.pathname}${inventoryFiltersToSearch(next)}`);
+  }, []);
 
   if (legacyVariant || legacyProduct) return <InventoryConsoleSkeleton />;
   return <InventoryConsole filters={filters} onFiltersChange={onFiltersChange} />;

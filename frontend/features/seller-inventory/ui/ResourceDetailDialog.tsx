@@ -6,12 +6,12 @@ import { Link } from "@/i18n/navigation";
 import { cn } from "@/lib/cn";
 import { useApiErrorMessage } from "@/lib/use-api-error";
 import { formatDateTime } from "@/lib/utils";
-import type { Resource } from "@/lib/types";
-import { Button, CopyButton, Tag, Textarea } from "@/components/ui";
+import type { Resource, SellerResourceRow } from "@/lib/types";
+import { Button, CopyButton, Skeleton, Tag, Textarea } from "@/components/ui";
 import { Dialog, DialogContent, DialogDescription, DialogTitle } from "@/components/ui/dialog";
-import { AlertCircle, EyeOff, RotateCcw } from "@/components/Icons";
+import { AlertCircle, EyeOff, RotateCcw, ShieldCheck } from "@/components/Icons";
 import { canArchiveInventoryResource, canEditInventoryResource, canRestockInventoryResource, isDefectiveReturnResource } from "../logic";
-import { useResourceMutations } from "../useInventory";
+import { useResourceMutations, useRevealedResource } from "../useInventory";
 
 export function resourceStatusTone(r: Pick<Resource, "status" | "order_id" | "is_archived">): { tone: "good" | "neutral" | "warn" | "bad"; key: "available" | "assigned" | "returned" | "error" | "expired" | "archived" } {
   if (r.is_archived) return { tone: "neutral", key: "archived" };
@@ -28,7 +28,7 @@ export function ResourceDetailDialog({
   onClose,
   onNotice,
 }: {
-  resource: Resource | null;
+  resource: SellerResourceRow | null;
   variantId: number;
   onClose: () => void;
   onNotice: (tone: "good" | "bad", text: string) => void;
@@ -40,14 +40,18 @@ export function ResourceDetailDialog({
   );
 }
 
-function ResourceDetailBody({ resource, variantId, onClose, onNotice }: { resource: Resource; variantId: number; onClose: () => void; onNotice: (tone: "good" | "bad", text: string) => void }) {
+function ResourceDetailBody({ resource, variantId, onClose, onNotice }: { resource: SellerResourceRow; variantId: number; onClose: () => void; onNotice: (tone: "good" | "bad", text: string) => void }) {
   const t = useTranslations("sellerInventory");
   const locale = useLocale();
   const apiErrorMessage = useApiErrorMessage();
   const { update, restockOne, archive, restore } = useResourceMutations(variantId);
-  const [data, setData] = useState(resource.data);
+  // Opening the row is the explicit "view" action: the full line is fetched
+  // now (audited server-side) and never kept once the dialog closes.
+  const reveal = useRevealedResource(resource.id);
+  const original = reveal.data?.data ?? null;
+  const [data, setData] = useState("");
   const [error, setError] = useState<string | null>(null);
-  useEffect(() => { setData(resource.data); }, [resource.data]);
+  useEffect(() => { if (original !== null) setData(original); }, [original]);
 
   const status = resourceStatusTone(resource);
   const editable = canEditInventoryResource(resource.status, resource.order_id) && !resource.is_archived;
@@ -98,13 +102,24 @@ function ResourceDetailBody({ resource, variantId, onClose, onNotice }: { resour
         <div className="space-y-1.5">
           <div className="flex items-center justify-between">
             <label htmlFor="resource-detail-content" className="font-semibold text-fg">{editable ? t("resource.editContent") : t("resource.content")}</label>
-            <CopyButton text={data} />
+            {original !== null && <CopyButton text={data} />}
           </div>
-          {editable ? (
+          {reveal.isPending ? (
+            <div aria-busy="true" className="space-y-2 rounded-xl border border-line bg-raised/50 p-3">
+              <span role="status" className="sr-only">{t("resource.revealing")}</span>
+              <Skeleton className="h-3.5 w-11/12" /><Skeleton className="h-3.5 w-4/5" /><Skeleton className="h-3.5 w-2/3" />
+            </div>
+          ) : reveal.isError ? (
+            <div role="alert" className="flex flex-wrap items-center justify-between gap-2 rounded-xl border border-bad/20 bg-bad-soft p-3 text-xs font-medium text-bad">
+              <span className="min-w-0">{apiErrorMessage(reveal.error, t("resource.revealFailed"))}</span>
+              <Button size="sm" variant="secondary" onClick={() => void reveal.refetch()} className="h-7 text-[12px]">{t("retry")}</Button>
+            </div>
+          ) : editable ? (
             <Textarea id="resource-detail-content" rows={5} value={data} onChange={(e) => setData(e.target.value)} className="bg-surface font-mono text-xs leading-relaxed" />
           ) : (
-            <div className="max-h-40 overflow-y-auto break-all rounded-xl border border-line bg-raised/50 p-3 font-mono text-xs select-all">{resource.data}</div>
+            <div className="max-h-40 overflow-y-auto break-all rounded-xl border border-line bg-raised/50 p-3 font-mono text-xs select-all">{original}</div>
           )}
+          <p className="flex items-center gap-1.5 text-[11px] text-faint"><ShieldCheck size={12} /> {t("resource.revealNote")}</p>
         </div>
         {error && <p role="alert" className="rounded-lg border border-bad/20 bg-bad-soft p-2.5 text-xs font-medium text-bad">{error}</p>}
       </div>
@@ -112,24 +127,24 @@ function ResourceDetailBody({ resource, variantId, onClose, onNotice }: { resour
       <div className="flex flex-wrap items-center justify-between gap-2 border-t border-line bg-raised/50 p-3">
         <div className="flex items-center gap-1.5">
           {resource.is_archived ? (
-            <Button size="sm" variant="ghost" disabled={busy} onClick={() => void run(() => restore.mutateAsync(resource.id), "resource.restored", "resource.restoreFailed")} className="h-8 gap-1 text-xs text-iris">
-              <RotateCcw size={13} /> {t("resource.restore")}
+            <Button size="sm" variant="ghost" loading={restore.isPending} disabled={busy} onClick={() => void run(() => restore.mutateAsync(resource.id), "resource.restored", "resource.restoreFailed")} className="h-8 gap-1 text-xs text-iris">
+              {!restore.isPending && <RotateCcw size={13} />} {t("resource.restore")}
             </Button>
           ) : archivable && (
-            <Button size="sm" variant="ghost" disabled={busy} onClick={() => void run(() => archive.mutateAsync(resource.id), "resource.archived", "resource.archiveFailed")} className="h-8 gap-1 text-xs text-muted hover:text-bad">
-              <EyeOff size={13} /> {t("resource.archive")}
+            <Button size="sm" variant="ghost" loading={archive.isPending} disabled={busy} onClick={() => void run(() => archive.mutateAsync(resource.id), "resource.archived", "resource.archiveFailed")} className="h-8 gap-1 text-xs text-muted hover:text-bad">
+              {!archive.isPending && <EyeOff size={13} />} {t("resource.archive")}
             </Button>
           )}
         </div>
         <div className="flex items-center gap-2">
-          <Button size="sm" variant="ghost" onClick={onClose}>{t("resource.close")}</Button>
+          <Button size="sm" variant="ghost" onClick={onClose} disabled={busy}>{t("resource.close")}</Button>
           {restockable && (
-            <Button size="sm" disabled={busy || !data.trim()} onClick={() => void run(() => restockOne.mutateAsync({ id: resource.id, data: data.trim() }), "resource.restockedOne", "resource.saveFailed")} className={cn("gap-1 bg-good text-white hover:bg-good/90")}>
-              <RotateCcw size={13} /> {t("resource.restockOne")}
+            <Button size="sm" loading={restockOne.isPending} disabled={busy || original === null || !data.trim()} onClick={() => void run(() => restockOne.mutateAsync({ id: resource.id, data: data.trim() }), "resource.restockedOne", "resource.saveFailed")} className={cn("gap-1 bg-good text-white hover:bg-good/90")}>
+              {!restockOne.isPending && <RotateCcw size={13} />} {t("resource.restockOne")}
             </Button>
           )}
           {editable && (
-            <Button size="sm" disabled={busy || !data.trim() || data.trim() === resource.data} onClick={() => void run(() => update.mutateAsync({ id: resource.id, data: data.trim() }), "resource.saved", "resource.saveFailed")}>
+            <Button size="sm" loading={update.isPending} disabled={busy || original === null || !data.trim() || data.trim() === original} onClick={() => void run(() => update.mutateAsync({ id: resource.id, data: data.trim() }), "resource.saved", "resource.saveFailed")}>
               {t("resource.save")}
             </Button>
           )}

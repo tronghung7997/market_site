@@ -19,7 +19,7 @@ import type { Category, SourceArea, SourceCatalogItem, SourceOffer, SourcePlanIm
 import { Button, Input, Select, Spinner, Tag } from "@/components/ui";
 import { Dialog, DialogContent, DialogTitle } from "@/components/ui/dialog";
 import { AlertTriangle, ChevronLeft, Plus, RefreshCw, Search, Trash, X } from "@/components/Icons";
-import { relTime } from "./SourcesList";
+import { relTime } from "./shared";
 import { sourceRef } from "../logic";
 
 const PROTOCOLS = ["HTTP", "SOCKS5"];
@@ -464,7 +464,7 @@ function AddPlansDrawer({ area, source, products, margin, onClose, onDone }: {
                         <option value="">{t("category")}…</option>
                         {flatCategories.map((c) => <option key={c.id} value={c.id}>{c.name}</option>)}
                       </Select>
-                      <Select value={status} onChange={(e) => setStatus(e.target.value as "draft" | "active")} aria-label={t("status")} className="h-9 text-[13px]">
+                      <Select value={status} onChange={(e) => setStatus(e.target.value as "draft" | "active")} aria-label={t("colStatus")} className="h-9 text-[13px]">
                         <option value="draft">{t("statusDraft")}</option><option value="active">{t("statusActive")}</option>
                       </Select>
                     </div>

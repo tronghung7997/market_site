@@ -28,6 +28,9 @@ class Settings(BaseSettings):
     jwt_expire_minutes: int = 15
     jwt_refresh_expire_days: int = 7
     max_request_body_bytes: int = 1_048_576
+    # Seller restock (bulk add + preview) carries cookie-sized lines; only those
+    # routes get the larger cap, everything else keeps max_request_body_bytes.
+    restock_max_request_body_bytes: int = 20_971_520
     affiliate_max_commissions_per_day: int = 100
     internal_api_key: str
     bff_request_signing_secret: str
@@ -273,6 +276,7 @@ class Settings(BaseSettings):
             "jwt_expire_minutes",
             "jwt_refresh_expire_days",
             "max_request_body_bytes",
+            "restock_max_request_body_bytes",
             "affiliate_max_commissions_per_day",
             "smtp_port",
             "mail_max_attempts",

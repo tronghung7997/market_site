@@ -41,7 +41,7 @@ export function ConfirmDialog({
         {children}
         <DialogFooter className="mt-2 flex-row justify-end gap-2">
           <Button size="sm" variant="ghost" onClick={onCancel} disabled={pending}>{cancelLabel}</Button>
-          <Button size="sm" variant={tone === "danger" ? "danger" : "primary"} onClick={onConfirm} disabled={pending}>{confirmLabel}</Button>
+          <Button size="sm" variant={tone === "danger" ? "danger" : "primary"} onClick={onConfirm} loading={pending}>{confirmLabel}</Button>
         </DialogFooter>
       </DialogContent>
     </Dialog>

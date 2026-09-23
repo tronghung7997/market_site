@@ -885,7 +885,7 @@ export default function AdminDepositsPage() {
                       <span className={cn("grid h-5 min-w-5 place-items-center rounded px-1 text-[8px] font-bold", provider.markClass)}>
                         {provider.mark}
                       </span>
-                      <span className="truncate text-[12.5px] font-medium text-fg" title={d.account_email ?? ""}>
+                      <span className="min-w-0 truncate text-[12.5px] font-medium text-fg" title={d.account_email ?? ""}>
                         {d.account_email ?? `User #${d.account_id}`}
                       </span>
                     </div>

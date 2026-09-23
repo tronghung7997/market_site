@@ -1,20 +1,21 @@
 "use client";
 
 import { useLocale, useTranslations } from "next-intl";
-import { useEffect, useState } from "react";
+import { memo, useCallback, useDeferredValue, useEffect, useRef, useState } from "react";
 import { Link } from "@/i18n/navigation";
 import { cn } from "@/lib/cn";
 import { useApiErrorMessage } from "@/lib/use-api-error";
 import { useDebounce } from "@/lib/hooks/useDebounce";
+import { useDelayedFlag } from "@/lib/hooks/useDelayedFlag";
 import { formatDateTime } from "@/lib/utils";
-import type { InventoryPackageDetail, Resource, ResourceSort, ResourceStatusFilter } from "@/lib/types";
-import { Button, Input, Pagination, Select } from "@/components/ui";
-import { AlertCircle, Copy, Check, Download, Eye, EyeOff, Package, RotateCcw, Search, X } from "@/components/Icons";
+import type { InventoryPackageDetail, ResourceSort, ResourceStatusFilter, SellerResourceRow } from "@/lib/types";
+import { ActivityBar, Button, Input, Pagination, Select, Skeleton } from "@/components/ui";
+import { AlertCircle, AlertTriangle, Copy, Check, Download, EyeOff, Package, RotateCcw, Search, ShieldCheck, X } from "@/components/Icons";
 import {
-  hasOrderValue, maskResourceData, RESOURCE_DATE_PRESETS, RESOURCE_PAGE_SIZES, RESOURCE_STATUS_TABS, resourceDateBounds,
+  clipForCell, hasOrderValue, RESOURCE_DATE_PRESETS, RESOURCE_PAGE_SIZES, RESOURCE_STATUS_TABS, resourceDateBounds,
   type ResourceDatePreset, type ResourceFilters, type ResourceOrderFilter,
 } from "../model";
-import { useBulkResourceAction, useInventoryResources } from "../useInventory";
+import { revealResourceData, useBulkResourceAction, useInventoryResources } from "../useInventory";
 import { ConfirmDialog } from "./ConfirmDialog";
 import { ResourceDetailDialog, resourceStatusTone } from "./ResourceDetailDialog";
 
@@ -29,10 +30,77 @@ function tabCount(pkg: InventoryPackageDetail, tab: ResourceStatusFilter): numbe
   }
 }
 
+const NO_ROWS: SellerResourceRow[] = [];
+const ROW_SKELETON_WIDTHS = ["w-3/4", "w-2/3", "w-4/5", "w-1/2", "w-3/5", "w-2/3"];
+
+/** Stock rows while the first page loads (div grid: also used outside the table). */
+export function ResourceRowsSkeleton({ rows = 6 }: { rows?: number }) {
+  return (
+    <div className="divide-y divide-line">
+      {Array.from({ length: rows }).map((_, i) => (
+        <div key={i} className="flex items-center gap-3 px-3 py-2.5">
+          <Skeleton className="h-3.5 w-3.5 rounded" />
+          <Skeleton className="h-3.5 w-8" />
+          <Skeleton className="h-4 w-16 rounded-md" />
+          <Skeleton className={cn("h-3.5 flex-1", ROW_SKELETON_WIDTHS[i % ROW_SKELETON_WIDTHS.length])} />
+          <Skeleton className="hidden h-3.5 w-16 sm:block" />
+          <Skeleton className="hidden h-3.5 w-16 md:block" />
+        </div>
+      ))}
+    </div>
+  );
+}
+
 function shortDateTime(iso: string | null, locale: string): string {
   if (!iso) return "—";
   return new Date(iso).toLocaleString(locale === "vi" ? "vi-VN" : "en-US", { day: "numeric", month: "numeric", hour: "2-digit", minute: "2-digit", hour12: false });
 }
+
+const ResourceRow = memo(function ResourceRow({ resource: r, rowNo, selected, selectionLocked, copied, copying, onOpen, onToggle, onCopy }: {
+  resource: SellerResourceRow;
+  rowNo: number;
+  selected: boolean;
+  selectionLocked: boolean;
+  copying: boolean;
+  copied: boolean;
+  onOpen: (resource: SellerResourceRow) => void;
+  onToggle: (id: number) => void;
+  onCopy: (resource: SellerResourceRow) => Promise<void>;
+}) {
+  const t = useTranslations("sellerInventory");
+  const locale = useLocale();
+  const st = resourceStatusTone(r);
+  return (
+    <tr onClick={() => onOpen(r)} className={cn("cursor-pointer transition-colors hover:bg-raised/40", selected && "bg-iris-soft/20")}>
+      <td className="px-3 py-2" onClick={(e) => e.stopPropagation()}>
+        <input type="checkbox" aria-label={t("resource.selectRow", { id: rowNo })} checked={selected} disabled={selectionLocked} onChange={() => onToggle(r.id)} className="h-3.5 w-3.5 rounded border-line-2 text-iris" />
+      </td>
+      <td className="px-2 py-2 font-mono text-[11.5px] text-faint">{rowNo}</td>
+      <td className="px-2 py-2">
+        <span className={cn("inline-flex items-center rounded-md border px-1.5 py-0.5 text-[10.5px] font-medium leading-none", st.tone === "good" && "border-good/25 bg-good-soft text-good", st.tone === "bad" && "border-bad/25 bg-bad-soft text-bad", st.tone === "warn" && "border-warn/25 bg-warn-soft text-warn", st.tone === "neutral" && "border-line-2 bg-surface text-muted")}>
+          {t(`resource.status.${st.key}`)}
+        </span>
+        {st.key === "returned" && <div className="mt-0.5 text-[10.5px] text-warn-hi">{t("resource.returnedShort", { id: r.order_code ?? "…" })}</div>}
+      </td>
+      <td className="px-2 py-2 font-mono text-[12px] text-fg">
+        <div className="flex items-center gap-1">
+          <span className="min-w-0 flex-1 truncate">{clipForCell(r.data_preview)}</span>
+          <button type="button" disabled={copying} aria-busy={copying || undefined} onClick={(e) => { e.stopPropagation(); void onCopy(r); }} aria-label={t("resource.copy")} className={cn("inline-flex h-6 w-6 shrink-0 items-center justify-center rounded disabled:cursor-wait", copied ? "bg-good-soft text-good" : "text-faint hover:bg-raised hover:text-iris")}>
+            {copying ? <span aria-hidden className="h-3 w-3 animate-spin rounded-full border-[1.5px] border-iris border-t-transparent" /> : copied ? <Check size={12} /> : <Copy size={12} />}
+          </button>
+        </div>
+      </td>
+      <td className="px-2 py-2" onClick={(e) => e.stopPropagation()}>
+        {r.order_id ? <Link href={`/seller/orders/${r.order_code ?? r.order_id}`} className="font-mono text-[11.5px] text-iris hover:underline">{r.order_code ?? "—"}</Link> : <span className="text-faint">—</span>}
+      </td>
+      <td className="px-2 py-2 font-mono text-[11px] text-muted whitespace-nowrap" title={formatDateTime(r.created_at, locale)}>{shortDateTime(r.created_at, locale)}</td>
+      <td className="px-2 py-2 font-mono text-[11px] text-muted whitespace-nowrap" title={r.assigned_at ? formatDateTime(r.assigned_at, locale) : undefined}>{shortDateTime(r.assigned_at, locale)}</td>
+      <td className="px-2 py-2 text-right">
+        <button type="button" onClick={(e) => { e.stopPropagation(); onOpen(r); }} aria-label={t("resource.detailTitle")} className="inline-flex h-6 w-6 items-center justify-center rounded text-faint hover:bg-raised hover:text-fg">⋯</button>
+      </td>
+    </tr>
+  );
+});
 
 export function ResourceTable({
   pkg,
@@ -50,10 +118,10 @@ export function ResourceTable({
   const apiErrorMessage = useApiErrorMessage();
   const [search, setSearch] = useState(filters.search);
   const debounced = useDebounce(search, 250);
-  const [masked, setMasked] = useState(true);
   const [selected, setSelected] = useState<Set<number>>(new Set());
   const [allMatching, setAllMatching] = useState(false);
-  const [detail, setDetail] = useState<Resource | null>(null);
+  const [detail, setDetail] = useState<SellerResourceRow | null>(null);
+  const [copyingId, setCopyingId] = useState<number | null>(null);
   const [copiedId, setCopiedId] = useState<number | null>(null);
   const [confirm, setConfirm] = useState<{ action: "archive" | "restore"; count: number } | null>(null);
   const [jump, setJump] = useState("");
@@ -73,22 +141,44 @@ export function ResourceTable({
     createdFrom: bounds.createdFrom, createdTo: bounds.createdTo, hasOrder: hasOrderValue(filters.order), sort: filters.sort,
   };
   const query = useInventoryResources(pkg.variant_id, queryParams);
-  const rows = query.data?.items ?? [];
+  const refreshing = query.isFetching && !query.isPending;
+  const dimmed = useDelayedFlag(refreshing);
+  const searching = search.trim() !== filters.search.trim() || (refreshing && filters.search.trim() !== "");
+  const rows = query.data?.items ?? NO_ROWS;
+  // A fresh page (e.g. 100 just-restocked rows) renders in the background and
+  // yields to input instead of blocking the main thread in one long task.
+  const visibleRows = useDeferredValue(rows);
   const total = query.data?.total ?? 0;
   const totalPages = Math.max(1, Math.ceil(total / filters.perPage));
   const pageSelected = rows.filter((r) => selected.has(r.id)).length;
   const allPageSelected = rows.length > 0 && pageSelected === rows.length;
   const effectiveCount = allMatching ? total : selected.size;
 
-  const copy = async (r: Resource) => {
+  // Stable handlers so memoized rows skip re-rendering when only other rows change.
+  const onNoticeRef = useRef(onNotice);
+  onNoticeRef.current = onNotice;
+  // The list only has masked previews: copying fetches the one line (audited).
+  // ClipboardItem takes the pending text so Safari keeps the click's gesture.
+  const copy = useCallback(async (r: SellerResourceRow) => {
+    setCopyingId(r.id);
     try {
-      await navigator.clipboard.writeText(r.data);
+      const text = revealResourceData(r.id);
+      if (typeof ClipboardItem !== "undefined" && navigator.clipboard.write) {
+        await navigator.clipboard.write([new ClipboardItem({ "text/plain": text.then((data) => new Blob([data], { type: "text/plain" })) })]);
+      } else {
+        await navigator.clipboard.writeText(await text);
+      }
       setCopiedId(r.id);
       setTimeout(() => setCopiedId((c) => (c === r.id ? null : c)), 1600);
-    } catch {
-      onNotice("bad", t("resource.copyFailed"));
+    } catch (err) {
+      onNoticeRef.current("bad", apiErrorMessage(err, t("resource.copyFailed")));
+    } finally {
+      setCopyingId((c) => (c === r.id ? null : c));
     }
-  };
+  }, [t, apiErrorMessage]);
+  const toggleRow = useCallback((id: number) => {
+    setSelected((prev) => { const next = new Set(prev); if (next.has(id)) next.delete(id); else next.add(id); return next; });
+  }, []);
 
   const runBulk = async () => {
     if (!confirm) return;
@@ -141,6 +231,7 @@ export function ResourceTable({
         <div className="relative min-w-[200px] flex-1">
           <Search size={13} className="pointer-events-none absolute left-2.5 top-1/2 -translate-y-1/2 text-muted" />
           <Input value={search} onChange={(e) => setSearch(e.target.value)} placeholder={t("resource.searchPlaceholder")} aria-label={t("resource.searchPlaceholder")} className="h-8 bg-surface pl-8 pr-7 text-xs" />
+          {searching && <span aria-hidden className="absolute right-7 top-1/2 h-3 w-3 -translate-y-1/2 animate-spin rounded-full border-[1.5px] border-iris border-t-transparent" />}
           {search && <button type="button" onClick={() => setSearch("")} aria-label={t("clear")} className="absolute right-2 top-1/2 -translate-y-1/2 text-muted hover:text-fg"><X size={12} /></button>}
         </div>
         <Select value={filters.datePreset} onChange={(e) => patch({ datePreset: e.target.value as ResourceDatePreset, page: 1, ...(e.target.value !== "custom" ? { from: "", to: "" } : {}) })} aria-label={t("resource.dateLabel")} className="h-8 w-40 bg-surface text-xs">
@@ -162,9 +253,7 @@ export function ResourceTable({
           <option value="newest">{t("resource.sort.newest")}</option>
           <option value="oldest">{t("resource.sort.oldest")}</option>
         </Select>
-        <Button size="sm" variant="secondary" onClick={() => setMasked((m) => !m)} aria-pressed={masked} className="ml-auto h-8 gap-1.5 text-xs">
-          {masked ? <Eye size={13} /> : <EyeOff size={13} />} {masked ? t("resource.reveal") : t("resource.mask")}
-        </Button>
+        <span className="ml-auto inline-flex items-center gap-1.5 text-[11.5px] text-faint"><ShieldCheck size={12} /> {t("resource.maskedNote")}</span>
       </div>
 
       {(selected.size > 0 || allMatching) && (
@@ -186,8 +275,16 @@ export function ResourceTable({
         </div>
       )}
 
-      <div className={cn("relative overflow-hidden rounded-xl border border-line bg-surface", query.isFetching && "opacity-80")} aria-busy={query.isFetching}>
-        <div className="overflow-x-auto">
+      {query.isError && query.data && (
+        <div role="alert" className="flex flex-wrap items-center justify-between gap-2 rounded-lg border border-warn/25 bg-warn-soft px-3 py-2 text-xs font-medium text-warn">
+          <span className="flex items-center gap-1.5"><AlertTriangle size={14} className="shrink-0" /> {t("staleData")} {apiErrorMessage(query.error)}</span>
+          <Button size="sm" variant="secondary" loading={query.isFetching} onClick={() => void query.refetch()} className="h-7 text-[12px]">{t("retry")}</Button>
+        </div>
+      )}
+
+      <div className="relative overflow-hidden rounded-xl border border-line bg-surface" aria-busy={query.isFetching}>
+        <ActivityBar active={refreshing} label={t("refreshing")} />
+        <div className={cn("overflow-x-auto transition-opacity duration-200", dimmed && "pointer-events-none opacity-55")}>
           <table className="w-full min-w-[820px] table-fixed border-collapse text-left text-xs">
             <thead>
               <tr className="border-b border-line bg-raised/40 text-[11px] font-semibold uppercase tracking-wider text-faint">
@@ -206,18 +303,18 @@ export function ResourceTable({
             <tbody className="divide-y divide-line text-[12px]">
               {query.isPending ? (
                 Array.from({ length: 6 }).map((_, i) => (
-                  <tr key={i} className="animate-pulse">
-                    <td className="px-3 py-2.5"><div className="h-3.5 w-3.5 rounded bg-raised" /></td>
-                    <td className="px-2 py-2.5"><div className="h-3.5 w-10 rounded bg-raised" /></td>
-                    <td className="px-2 py-2.5"><div className="h-4 w-16 rounded bg-raised" /></td>
-                    <td className="px-2 py-2.5"><div className="h-3.5 w-3/4 rounded bg-raised" /></td>
-                    <td className="px-2 py-2.5"><div className="h-3.5 w-8 rounded bg-raised" /></td>
-                    <td className="px-2 py-2.5"><div className="h-3.5 w-16 rounded bg-raised" /></td>
-                    <td className="px-2 py-2.5"><div className="h-3.5 w-16 rounded bg-raised" /></td>
+                  <tr key={i} aria-hidden>
+                    <td className="px-3 py-2.5"><Skeleton className="h-3.5 w-3.5 rounded" /></td>
+                    <td className="px-2 py-2.5"><Skeleton className="h-3.5 w-8" /></td>
+                    <td className="px-2 py-2.5"><Skeleton className="h-4 w-16 rounded-md" /></td>
+                    <td className="px-2 py-2.5"><Skeleton className={cn("h-3.5", ROW_SKELETON_WIDTHS[i])} /></td>
+                    <td className="px-2 py-2.5"><Skeleton className="h-3.5 w-8" /></td>
+                    <td className="px-2 py-2.5"><Skeleton className="h-3.5 w-16" /></td>
+                    <td className="px-2 py-2.5"><Skeleton className="h-3.5 w-16" /></td>
                     <td />
                   </tr>
                 ))
-              ) : query.isError ? (
+              ) : query.isError && !query.data ? (
                 <tr><td colSpan={8} className="py-10 text-center text-bad">
                   <AlertCircle size={22} className="mx-auto mb-1" />
                   <p className="mb-2">{apiErrorMessage(query.error, t("resource.loadFailed"))}</p>
@@ -227,50 +324,29 @@ export function ResourceTable({
                 <tr><td colSpan={8} className="py-12 text-center text-muted">
                   <Package size={26} className="mx-auto mb-2 text-faint" />
                   <p className="font-medium text-fg">{t("resource.empty")}</p>
-                  <p className="text-[11px] text-faint">{t("resource.emptyHint")}</p>
+                  <p className="text-[11px] text-faint">{filters.search.trim() ? t("resource.emptySearchHint") : t("resource.emptyHint")}</p>
                 </td></tr>
-              ) : rows.map((r, index) => {
-                const st = resourceStatusTone(r);
-                // Running number within the current listing; stock row ids stay internal.
-                const rowNo = (filters.page - 1) * filters.perPage + index + 1;
-                const isSelected = selected.has(r.id) || allMatching;
-                return (
-                  <tr key={r.id} onClick={() => setDetail(r)} className={cn("cursor-pointer transition-colors hover:bg-raised/40", isSelected && "bg-iris-soft/20")}>
-                    <td className="px-3 py-2" onClick={(e) => e.stopPropagation()}>
-                      <input type="checkbox" aria-label={t("resource.selectRow", { id: rowNo })} checked={isSelected} disabled={allMatching} onChange={() => setSelected((prev) => { const next = new Set(prev); if (next.has(r.id)) next.delete(r.id); else next.add(r.id); return next; })} className="h-3.5 w-3.5 rounded border-line-2 text-iris" />
-                    </td>
-                    <td className="px-2 py-2 font-mono text-[11.5px] text-faint">{rowNo}</td>
-                    <td className="px-2 py-2">
-                      <span className={cn("inline-flex items-center rounded-md border px-1.5 py-0.5 text-[10.5px] font-medium leading-none", st.tone === "good" && "border-good/25 bg-good-soft text-good", st.tone === "bad" && "border-bad/25 bg-bad-soft text-bad", st.tone === "warn" && "border-warn/25 bg-warn-soft text-warn", st.tone === "neutral" && "border-line-2 bg-surface text-muted")}>
-                        {t(`resource.status.${st.key}`)}
-                      </span>
-                      {st.key === "returned" && <div className="mt-0.5 text-[10.5px] text-warn-hi">{t("resource.returnedShort", { id: r.order_code ?? "…" })}</div>}
-                    </td>
-                    <td className="px-2 py-2 font-mono text-[12px] text-fg">
-                      <div className="flex items-center gap-1">
-                        <span className="min-w-0 flex-1 truncate" title={masked ? undefined : r.data}>{masked ? maskResourceData(r.data) : r.data}</span>
-                        <button type="button" onClick={(e) => { e.stopPropagation(); void copy(r); }} aria-label={t("resource.copy")} className={cn("inline-flex h-6 w-6 shrink-0 items-center justify-center rounded", copiedId === r.id ? "bg-good-soft text-good" : "text-faint hover:bg-raised hover:text-iris")}>
-                          {copiedId === r.id ? <Check size={12} /> : <Copy size={12} />}
-                        </button>
-                      </div>
-                    </td>
-                    <td className="px-2 py-2" onClick={(e) => e.stopPropagation()}>
-                      {r.order_id ? <Link href={`/seller/orders/${r.order_code ?? r.order_id}`} className="font-mono text-[11.5px] text-iris hover:underline">{r.order_code ?? "—"}</Link> : <span className="text-faint">—</span>}
-                    </td>
-                    <td className="px-2 py-2 font-mono text-[11px] text-muted whitespace-nowrap" title={formatDateTime(r.created_at, locale)}>{shortDateTime(r.created_at, locale)}</td>
-                    <td className="px-2 py-2 font-mono text-[11px] text-muted whitespace-nowrap" title={r.assigned_at ? formatDateTime(r.assigned_at, locale) : undefined}>{shortDateTime(r.assigned_at, locale)}</td>
-                    <td className="px-2 py-2 text-right">
-                      <button type="button" onClick={(e) => { e.stopPropagation(); setDetail(r); }} aria-label={t("resource.detailTitle")} className="inline-flex h-6 w-6 items-center justify-center rounded text-faint hover:bg-raised hover:text-fg">⋯</button>
-                    </td>
-                  </tr>
-                );
-              })}
+              ) : visibleRows.map((r, index) => (
+                <ResourceRow
+                  key={r.id}
+                  resource={r}
+                  // Running number within the current listing; stock row ids stay internal.
+                  rowNo={(filters.page - 1) * filters.perPage + index + 1}
+                  selected={selected.has(r.id) || allMatching}
+                  selectionLocked={allMatching}
+                  copying={copyingId === r.id}
+                  copied={copiedId === r.id}
+                  onOpen={setDetail}
+                  onToggle={toggleRow}
+                  onCopy={copy}
+                />
+              ))}
             </tbody>
           </table>
         </div>
         <div className="flex flex-wrap items-center justify-between gap-2 border-t border-line bg-raised/20 px-3 py-2 text-[12px] text-muted">
           <span>
-            {total > 0
+            {query.isPending ? <Skeleton className="h-3 w-40" /> : total > 0
               ? t("resource.pager", { from: ((filters.page - 1) * filters.perPage + 1).toLocaleString(locale), to: Math.min(filters.page * filters.perPage, total).toLocaleString(locale), total: total.toLocaleString(locale) })
               : t("resource.pagerEmpty")}
           </span>

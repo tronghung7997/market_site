@@ -46,7 +46,7 @@ from src.models.seller_runtime_config import SellerRuntimeConfig
 from src.models.site_analytics_config import SiteAnalyticsConfig
 from src.models.site_page import SitePage
 from src.models.site_runtime_config import SiteRuntimeConfig
-from src.models.supplier_listing import SupplierCatalogItem, SupplierListing
+from src.models.supplier_listing import SupplierCatalogItem, SupplierListing, SupplierPurchase
 from src.models.search import SearchQueryLog, SearchSynonym
 from src.models.ai_config import AiPromptTemplate, AiProviderConfig, AiUsageLog
 from src.models.trust_seed import TrustSeedBatch
@@ -81,7 +81,7 @@ __all__ = [
     "SellerRuntimeConfig", "SiteAnalyticsConfig",
     "SitePage", "SiteRuntimeConfig",
     "SearchQueryLog", "SearchSynonym",
-    "SupplierCatalogItem", "SupplierListing",
+    "SupplierCatalogItem", "SupplierListing", "SupplierPurchase",
     "AiPromptTemplate", "AiProviderConfig", "AiUsageLog",
     "TrustSeedBatch",
 ]

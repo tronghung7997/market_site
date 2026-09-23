@@ -33,6 +33,22 @@ async def mint_gateway_key(order: Order) -> str:
     return plaintext
 
 
+def replace_gateway_key(delivered_data: str | None, new_key: str) -> str | None:
+    """Swap the key inside delivered_data (``gateway_key=…`` and the key
+    segment of ``gateway_url=…/gw/<key>/…``) after a rotation. Anything the
+    format doesn't recognise is left as it was."""
+    if not delivered_data:
+        return delivered_data
+    old_key = None
+    for line in delivered_data.splitlines():
+        label, sep, value = line.partition("=")
+        if sep and label.strip() == "gateway_key":
+            old_key = value.strip()
+    if not old_key:
+        return delivered_data
+    return delivered_data.replace(old_key, new_key)
+
+
 async def resolve_order_by_gateway_key(plaintext: str, db: AsyncSession) -> Order:
     key_hash = hashlib.sha256(plaintext.encode()).hexdigest()
     order = await db.scalar(select(Order).where(Order.gateway_key_hash == key_hash))

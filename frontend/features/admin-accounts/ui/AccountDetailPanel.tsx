@@ -62,7 +62,7 @@ export function AccountDetailPanel({ row, isSelf, onClose, onUpdated }: {
             <AccountAvatar email={row.email} locked={!row.is_active} size="lg" />
             <div className="min-w-0 flex-1">
               <div className="flex flex-wrap items-center gap-2">
-                <h2 className="truncate text-[15px] font-semibold text-fg">{row.email}</h2>
+                <h2 className="min-w-0 truncate text-[15px] font-semibold text-fg">{row.email}</h2>
                 {isSelf && <span className="text-[11.5px] text-faint">(bạn)</span>}
               </div>
               <div className="mt-1 flex flex-wrap items-center gap-1.5">

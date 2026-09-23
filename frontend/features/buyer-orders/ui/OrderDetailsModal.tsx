@@ -869,9 +869,9 @@ export default function OrderDetailsModal({
               </div>
             </div>
           )}
-          <div className="flex items-center justify-between gap-3">
+          <div className="flex flex-wrap items-center justify-between gap-3">
             {canChat ? <OrderChatButton orderId={o.id} /> : <span />}
-            <div className="flex items-center gap-2">
+            <div className="ml-auto flex flex-wrap items-center justify-end gap-2">
               <Button variant="secondary" size="md" onClick={onClose} disabled={confirming}>
                 {tc("close")}
               </Button>

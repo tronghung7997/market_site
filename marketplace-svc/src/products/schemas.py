@@ -208,8 +208,8 @@ class VariantResponse(BaseModel):
     sla_hours: int
     sort_order: int
     is_active: bool
-    # Exact count is management-only (seller/admin). Public product payloads
-    # omit it (see _drop_hidden_stock) and carry the bucketed signal instead.
+    # Exact count: always for seller/admin; on the storefront only for instant
+    # packages (manual ones omit it, see _drop_hidden_stock).
     stock_count: int | None = None
     # Buyer-facing inventory signal: in_stock / low / out for instant packages,
     # manual for made-to-order. max_quantity caps the order form.
@@ -225,8 +225,8 @@ class VariantResponse(BaseModel):
 
     @model_serializer(mode="wrap")
     def _drop_hidden_stock(self, handler):
-        """Storefront variants have no exact count: leave the key out entirely
-        rather than emitting ``stock_count: null``."""
+        """Made-to-order storefront variants have no count: leave the key out
+        entirely rather than emitting ``stock_count: null``."""
         data = handler(self)
         if isinstance(data, dict) and data.get("stock_count") is None:
             data.pop("stock_count", None)

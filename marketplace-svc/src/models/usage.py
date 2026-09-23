@@ -106,4 +106,8 @@ class GatewayCallLog(Base):
     # record of it.
     response_snippet: Mapped[str | None] = mapped_column(Text, nullable=True)
     error: Mapped[str | None] = mapped_column(Text, nullable=True)
+    # Request đã trừ cho lần gọi này (0 = không trừ / đã hoàn) và số còn lại
+    # sau đó. NULL cho dòng ghi trước khi có cột.
+    units_charged: Mapped[int | None] = mapped_column(Integer, nullable=True)
+    units_remaining: Mapped[int | None] = mapped_column(Integer, nullable=True)
     created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), server_default=func.now(), index=True)

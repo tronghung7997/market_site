@@ -199,6 +199,18 @@ export const Upload = (p: IconProps) => (
 export const ExternalLink = (p: IconProps) => (
   <svg {...s(p)}><path d="M18 13v6a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2V8a2 2 0 0 1 2-2h6" /><polyline points="15 3 21 3 21 9" /><line x1="10" y1="14" x2="21" y2="3" /></svg>
 );
+export const More = (p: IconProps) => (
+  <svg {...s(p)}><circle cx="5" cy="12" r="1.1" /><circle cx="12" cy="12" r="1.1" /><circle cx="19" cy="12" r="1.1" /></svg>
+);
+export const Unlink = (p: IconProps) => (
+  <svg {...s(p)}><path d="M9.5 14.5 7 17a3.5 3.5 0 0 1-5-5l2.5-2.5" /><path d="M14.5 9.5 17 7a3.5 3.5 0 0 1 5 5l-2.5 2.5" /><path d="m4 4 16 16" /></svg>
+);
+export const Pause = (p: IconProps) => (
+  <svg {...s(p)}><path d="M9 5v14" /><path d="M15 5v14" /></svg>
+);
+export const Key = (p: IconProps) => (
+  <svg {...s(p)}><circle cx="8" cy="15" r="4" /><path d="m11 12 9-9" /><path d="m17 6 3 3" /><path d="m15 8 2 2" /></svg>
+);
 
 
 /** Brand mark — an aperture/gateway hexagon. Serious, premium. */

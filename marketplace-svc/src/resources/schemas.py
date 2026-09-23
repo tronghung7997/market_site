@@ -6,6 +6,9 @@ from src.orders.constants import MAX_ORDER_QUANTITY
 
 
 RESTOCK_MAX_ITEMS = 5_000
+# One stock line (e.g. user|pass|mail|cookies JSON). Shared by bulk add, edit
+# and restock so anything that can be uploaded can also be edited later.
+RESOURCE_DATA_MAX_LENGTH = 20_000
 
 
 class BulkResourceCreate(BaseModel):
@@ -32,11 +35,11 @@ class RestockPreviewResponse(BaseModel):
 
 
 class ResourceUpdate(BaseModel):
-    data: str = Field(min_length=1, max_length=8000)
+    data: str = Field(min_length=1, max_length=RESOURCE_DATA_MAX_LENGTH)
 
 
 class ResourceRestock(BaseModel):
-    data: str = Field(min_length=1, max_length=8000)
+    data: str = Field(min_length=1, max_length=RESOURCE_DATA_MAX_LENGTH)
 
 
 class BulkResourceAction(BaseModel):
@@ -110,6 +113,27 @@ class ResourceResponse(BaseModel):
     is_archived: bool = False
 
     model_config = {"from_attributes": True}
+
+
+class SellerResourceRow(BaseModel):
+    """A stock row in the seller console. Content is only a masked preview; the
+    full line comes from the audited, rate-limited reveal endpoint."""
+    id: int
+    variant_id: int
+    status: str
+    data_preview: str
+    order_id: int | None = None
+    order_code: str | None = None
+    assigned_at: datetime | None = None
+    expires_at: datetime | None = None
+    created_at: datetime
+    refund_amount_cap: int | None = None
+    is_archived: bool = False
+
+
+class ResourceReveal(BaseModel):
+    id: int
+    data: str
 
 
 class ResourceStatusSummary(BaseModel):

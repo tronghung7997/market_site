@@ -173,7 +173,7 @@ export function AdminAccountsConsole() {
                           <AccountAvatar email={row.email} locked={!row.is_active} />
                           <div className="min-w-0">
                             <div className="flex items-center gap-1.5">
-                              <span className={cn("truncate font-medium", row.is_active ? "text-fg" : "text-muted line-through decoration-bad/50")}>{row.email}</span>
+                              <span className={cn("min-w-0 truncate font-medium", row.is_active ? "text-fg" : "text-muted line-through decoration-bad/50")}>{row.email}</span>
                               {isSelf && <span className="shrink-0 text-[11px] text-faint">(bạn)</span>}
                             </div>
                             <div className="mt-0.5 flex items-center gap-1.5 text-[11.5px] text-faint">

@@ -105,7 +105,7 @@ const columns: ColumnDef<AdminProduct>[] = [
         </div>
         <div className="min-w-0">
           <div className="font-medium text-[13.5px] truncate max-w-[240px] flex items-center gap-1.5">
-            <span className="truncate">{row.original.title}</span>
+            <span className="min-w-0 truncate">{row.original.title}</span>
             {row.original.needs_setup && <Tag tone="bad">Cần thiết lập</Tag>}
             {!row.original.needs_setup && row.original.demo_mode && <Tag tone="iris">Demo</Tag>}
           </div>
@@ -131,7 +131,7 @@ const columns: ColumnDef<AdminProduct>[] = [
           title="Lọc theo người bán này"
           className="group/party flex max-w-[170px] items-center gap-1 text-[12px] text-slate-500 hover:text-indigo-700 transition-colors"
         >
-          <span className="truncate">{row.original.seller_email}</span>
+          <span className="min-w-0 truncate">{row.original.seller_email}</span>
           <ListFilter
             size={11}
             className="shrink-0 text-indigo-500 opacity-0 group-hover/party:opacity-100 transition-opacity"

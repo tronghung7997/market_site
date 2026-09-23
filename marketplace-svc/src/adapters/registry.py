@@ -64,6 +64,9 @@ class AdapterSpec:
       `fixed` đi qua adapter thay vì claim_resources, và job đồng bộ catalog
       (src/suppliers/sync.py) chạy cho provider này. Adapter phải là
       CatalogSupplierAdapter.
+    - `gateway_source`: API bán theo gói request qua gateway, quản lý ở
+      /admin/sources như một nguồn (gói + giá, endpoint, nhật ký request) —
+      src/suppliers/gateway_sources.py. Adapter phải là RealApiAdapter.
     - `proxy_source`: nhà cung cấp PROXY quản lý được ở /admin/sources như một
       "nguồn hàng": có catalog gói (plan) đồng bộ vào `supplier_catalog_items`
       và bảng "sản phẩm đang bán" tính từ pricing `config` của product, nhưng
@@ -88,6 +91,7 @@ class AdapterSpec:
     requires_webhook_secret: bool = False
     external_stock: bool = False
     proxy_source: bool = False
+    gateway_source: bool = False
     validate_config: Callable[[dict], Awaitable[None]] | None = None
     validate_pricing_params: Callable[[str | None, dict], None] | None = None
 
@@ -167,6 +171,19 @@ ADAPTERS: dict[str, AdapterSpec] = {
         strategies=frozenset({"fixed"}),
         external_stock=True,
         validate_config=validate_igbm_config,
+    ),
+    # API tra cứu Facebook của lookup.ghlab.info bán theo gói request qua
+    # gateway (/gw/{key}/fb_collect) dưới tên một seller nội bộ — quản lý ở
+    # /admin/sources (tab Gói bán / Endpoint / Request / Cài đặt, xem
+    # src/suppliers/gateway_sources.py). Cùng RealApiAdapter với
+    # scrapecreators; khác ở config: key đi qua ?api_key=, endpoint có method,
+    # không tự gọi lại, lỗi nguồn không trừ request của khách.
+    "ghlab_fb": AdapterSpec(
+        RealApiAdapter,
+        strategies=frozenset({"credit"}),
+        gateway_forward=True,
+        mints_gateway_key=True,
+        gateway_source=True,
     ),
 }
 

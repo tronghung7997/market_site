@@ -362,7 +362,7 @@ export function EditProductPage({ productRef }: { productRef: string }) {
         title={(
           <span className="flex items-center gap-2.5">
             <ProductCover coverId={core.coverId} title={core.activeContent.title} className="h-8 w-8 rounded-lg" />
-            <span className="truncate">{core.primaryContent.title.trim() || ts("editProductTitle")}</span>
+            <span className="min-w-0 truncate">{core.primaryContent.title.trim() || ts("editProductTitle")}</span>
           </span>
         )}
         tags={(

@@ -1,4 +1,5 @@
 export * from "./logic.ts";
+export { addResourcesInBatches } from "./useInventory";
 // --- Inventory console (2026-09 rebuild) ------------------------------------
 export {
   DEFAULT_INVENTORY_FILTERS,

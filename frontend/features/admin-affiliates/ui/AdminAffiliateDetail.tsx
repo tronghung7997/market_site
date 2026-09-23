@@ -77,7 +77,7 @@ export function AdminAffiliateDetail({ id }: { id: number }) {
                 )}
               </div>
               <div className="mt-1 flex flex-wrap items-center gap-2 text-[12.5px]">
-                <span className="truncate font-mono text-muted">{data.link}</span>
+                <span className="min-w-0 truncate font-mono text-muted">{data.link}</span>
                 <button type="button" onClick={copyLink} className={cn("inline-flex items-center gap-1 rounded-md px-1.5 py-0.5 text-[12px] font-medium transition-colors", copied ? "text-good" : "text-iris-hi hover:bg-iris-soft")}>
                   {copied ? <Check size={12} /> : <Copy size={12} />}{copied ? "Đã sao chép" : "Sao chép"}
                 </button>

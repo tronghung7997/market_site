@@ -2284,7 +2284,7 @@
     "choosePackage": "Choose {term} · {count}",
     "outOfStock": "Out of stock",
     "instantDelivery": "Instant",
-    "instantStock": "Instant · Stock {count}",
+    "instantStock": "Instant · {count} in stock",
     "deliverInHours": "Delivered in {hours}h",
     "contact": "Contact",
     "contactBlurb": "Custom package — agree configuration and price with the seller before ordering.",

@@ -2284,7 +2284,7 @@
     "choosePackage": "Chọn {term} · {count}",
     "outOfStock": "Hết hàng",
     "instantDelivery": "Giao ngay",
-    "instantStock": "Giao ngay · Kho {count}",
+    "instantStock": "Giao ngay · còn {count}",
     "deliverInHours": "Giao trong {hours}h",
     "contact": "Liên hệ",
     "contactBlurb": "Gói theo yêu cầu — thoả thuận cấu hình và giá trực tiếp với người bán trước khi đặt.",

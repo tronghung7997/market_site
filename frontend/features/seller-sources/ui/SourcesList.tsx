@@ -132,7 +132,7 @@ function KindTag({ kind }: { kind: SupplierSource["kind"] }) {
   return (
     <Tag tone="iris">
       {kind === "catalog" ? <Layers className="h-3 w-3" /> : <Activity className="h-3 w-3" />}
-      {kind === "catalog" ? t("kindCatalog") : t("kindServer")}
+      {kind === "catalog" ? t("kindCatalog") : kind === "proxy" ? t("kindProxy") : t("kindServer")}
     </Tag>
   );
 }
@@ -142,7 +142,7 @@ function SellerCard({ s, syncing, onSync, base }: { s: SupplierSource; syncing: 
   const locale = useLocale();
   const { formatLedgerMoney } = useMoney();
   const balance = balanceOf(s);
-  const manageHref = s.kind === "catalog" ? `${base}/${s.id}` : `/seller/providers`;
+  const manageHref = s.kind === "server" ? `/seller/providers` : `${base}/${s.id}`;
   return (
     <Card className="p-4 flex flex-col gap-3">
       <div className="flex items-start justify-between gap-2">
@@ -150,7 +150,7 @@ function SellerCard({ s, syncing, onSync, base }: { s: SupplierSource; syncing: 
           <p className="font-semibold text-fg truncate">{s.name}</p>
           <p className="mt-0.5 flex flex-wrap items-center gap-1.5 text-[12px] text-muted">
             <KindTag kind={s.kind} />
-            {s.kind === "catalog" ? `${t("synced")} ${relTime(s.catalog_synced_at, t)}` : `${t("checked")} ${relTime(s.last_tested_at, t)}`}
+            {s.kind !== "server" ? `${t("synced")} ${relTime(s.catalog_synced_at, t)}` : `${t("checked")} ${relTime(s.last_tested_at, t)}`}
           </p>
         </div>
         <Tag tone={s.is_active ? "good" : "bad"}>{s.is_active ? t("active") : t("paused")}</Tag>
@@ -235,7 +235,7 @@ function AdminTable({ rows, syncing, onSync, base }: { rows: SupplierSource[]; s
                       <RefreshCw className={cn("h-3.5 w-3.5", syncing === s.id && "animate-spin")} />
                     </Button>
                   )}
-                  <Link href={s.kind === "catalog" ? `${base}/${s.id}` : `/admin/providers`}><Button size="sm" variant="secondary">{t("open")}</Button></Link>
+                  <Link href={s.kind === "server" ? `/admin/providers` : `${base}/${s.id}`}><Button size="sm" variant="secondary">{t("open")}</Button></Link>
                 </td>
               </tr>
             );

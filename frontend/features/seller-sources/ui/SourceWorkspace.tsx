@@ -14,6 +14,7 @@ import { Dialog, DialogContent, DialogHeader, DialogTitle, DialogFooter } from "
 import { cn } from "@/lib/cn";
 import { groupListings, needsAttention, type ListingGroup } from "../logic";
 import { AddProductsDrawer, type ExistingProduct } from "./AddProductsDrawer";
+import { ProxySourceWorkspace } from "./ProxySourceWorkspace";
 import { relTime } from "./SourcesList";
 
 type Filter = "all" | "selling" | "attention" | "paused";
@@ -44,9 +45,11 @@ export function SourceWorkspace({ area, sourceId }: { area: SourceArea; sourceId
 
   const load = useCallback(async () => {
     try {
-      const [all, listings] = await Promise.all([api.sources.list(area), api.sources.listings(area, sourceId)]);
+      const all = await api.sources.list(area);
       const s = all.find((x) => x.id === sourceId) ?? null;
       setSource(s);
+      // Nguồn proxy có workspace riêng (gói đang bán thay cho listings).
+      const listings = s?.kind === "proxy" ? [] : await api.sources.listings(area, sourceId);
       setRows(listings);
       if (s) setMargin((m) => (m === "30" ? String(Math.max(s.min_margin_pct, 30)) : m));
       setError("");
@@ -157,6 +160,8 @@ export function SourceWorkspace({ area, sourceId }: { area: SourceArea; sourceId
   );
 
   const toggleCollapse = (id: number) => setCollapsed((s) => { const n = new Set(s); if (n.has(id)) n.delete(id); else n.add(id); return n; });
+
+  if (source?.kind === "proxy") return <ProxySourceWorkspace area={area} source={source} onSourceChange={load} />;
 
   return (
     <div className="space-y-4">

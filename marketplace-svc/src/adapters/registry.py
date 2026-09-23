@@ -64,6 +64,12 @@ class AdapterSpec:
       `fixed` đi qua adapter thay vì claim_resources, và job đồng bộ catalog
       (src/suppliers/sync.py) chạy cho provider này. Adapter phải là
       CatalogSupplierAdapter.
+    - `proxy_source`: nhà cung cấp PROXY quản lý được ở /admin/sources như một
+      "nguồn hàng": có catalog gói (plan) đồng bộ vào `supplier_catalog_items`
+      và bảng "sản phẩm đang bán" tính từ pricing `config` của product, nhưng
+      KHÔNG có tồn kho thượng nguồn kiểu `external_stock` (đơn vẫn provision
+      qua adapter như trước; xem src/suppliers/proxy_sources.py). Adapter phải
+      là ProxyPlanCatalog.
     - `validate_pricing_params`: hook đồng bộ (strategy, pricing_params) chạy
       khi gắn/sửa cấu hình giá của SẢN PHẨM. Tầng dưới `strategies`: strategies
       trả lời "adapter này đi được với chiến lược nào", hook này trả lời "các
@@ -81,6 +87,7 @@ class AdapterSpec:
     seller_registrable: bool = False
     requires_webhook_secret: bool = False
     external_stock: bool = False
+    proxy_source: bool = False
     validate_config: Callable[[dict], Awaitable[None]] | None = None
     validate_pricing_params: Callable[[str | None, dict], None] | None = None
 
@@ -102,6 +109,7 @@ ADAPTERS: dict[str, AdapterSpec] = {
         strategies=frozenset({"config"}),
         max_quantity_per_order=1,
         gateway_forward=True,
+        proxy_source=True,
         validate_config=validate_topproxy_config,
         validate_pricing_params=validate_topproxy_pricing_params,
     ),
@@ -147,6 +155,7 @@ ADAPTERS: dict[str, AdapterSpec] = {
         DProxyAdapter,
         strategies=frozenset({"credit", "config"}),
         max_quantity_per_order=1,
+        proxy_source=True,
         validate_config=validate_dproxy_config,
     ),
     # Shop tài khoản/key mua-theo-đơn (igbm.net) — xem

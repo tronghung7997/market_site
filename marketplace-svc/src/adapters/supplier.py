@@ -69,6 +69,21 @@ class UpstreamListing:
     # Đường dẫn danh mục thượng nguồn (["Facebook", "Clone Việt…"]) — chỉ để
     # admin nhận diện, lưu vào SupplierListing.extra.
     category_path: tuple[str, ...] = ()
+    # Thuộc tính máy của SKU/gói (proxy: duration_days, loaiproxy, currency…)
+    # — snapshot vào SupplierCatalogItem.extra để bước nhập sản phẩm dựng
+    # tham số giá mà không phải gọi lại thượng nguồn. `amount` < 0 nghĩa là
+    # nguồn KHÔNG báo tồn (proxy server), khác với 0 = hết hàng.
+    attributes: dict = field(default_factory=dict)
+
+
+class ProxyPlanCatalog:
+    """Capability mixin: nhà cung cấp proxy công bố được danh sách GÓI (plan)
+    để /admin/sources đồng bộ và nhập thành sản phẩm. Khác
+    CatalogSupplierAdapter ở chỗ không có tồn kho và không mua theo SKU —
+    provision vẫn đi qua ProviderAdapter.provision() với pricing `config`."""
+
+    async def fetch_plan_catalog(self) -> list["UpstreamListing"]:  # pragma: no cover - interface
+        raise NotImplementedError
 
 
 # Phân loại lỗi mua — adapter con map msg/mã của nguồn về đây, tầng chung

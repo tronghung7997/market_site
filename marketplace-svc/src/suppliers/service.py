@@ -25,6 +25,7 @@ from src.adapters.factory import get_adapter, get_adapter_for_test
 from src.adapters.registry import get_spec
 from src.adapters.supplier import (
     CatalogSupplierAdapter,
+    ProxyPlanCatalog,
     SupplierAuthError,
     SupplierContractError,
     SupplierUnavailableError,
@@ -208,6 +209,7 @@ async def replace_catalog_snapshot(
             "format_hint": up.format_hint,
             "group_name": (up.category_path[0] if up.category_path else "")[:255],
             "category_path": list(up.category_path),
+            "extra": dict(up.attributes or {}),
             "synced_at": now,
         }
         for up in catalog
@@ -243,6 +245,18 @@ async def sync_provider_listings(provider: Provider, db: AsyncSession) -> SyncRe
         # get_adapter_for_test: không check is_active — provider bị tắt vì hết
         # tiền vẫn cần cập nhật tồn/giá để admin quyết định bật lại.
         adapter = await get_adapter_for_test(provider.id, db)
+        if isinstance(adapter, ProxyPlanCatalog) and not isinstance(adapter, CatalogSupplierAdapter):
+            # Nguồn proxy: chỉ có catalog GÓI (không tồn kho, không listing) —
+            # snapshot xong là hết việc; lỗi mạng/auth báo như catalog thường.
+            catalog = await adapter.fetch_plan_catalog()
+            report.catalog_items = await replace_catalog_snapshot(provider.id, catalog, db)
+            try:
+                health = await adapter.check_health()
+                provider.last_test_result = {"health": health, "provision_test": None, "source": "sync"}
+                provider.last_tested_at = datetime.now(timezone.utc)
+            except Exception:  # noqa: BLE001 — health chỉ là thông tin phụ
+                pass
+            return report
         if not isinstance(adapter, CatalogSupplierAdapter):
             report.error = f"adapter {provider.adapter_type} không phải catalog supplier"
             return report
@@ -251,6 +265,8 @@ async def sync_provider_listings(provider: Provider, db: AsyncSession) -> SyncRe
         report.error = f"API key bị từ chối: {e}"
     except (SupplierUnavailableError, SupplierContractError, ValueError) as e:
         report.error = str(e)
+    except Exception as e:  # noqa: BLE001 — adapter proxy ném lỗi riêng (DProxy*Error…) → báo như lỗi đồng bộ
+        report.error = f"{type(e).__name__}: {e}"
     if report.error:
         for listing in listings:
             listing.sync_error = report.error[:255]
@@ -317,7 +333,7 @@ async def sync_all_external_providers(db: AsyncSession) -> list[SyncReport]:
     reports: list[SyncReport] = []
     for provider in providers:
         spec = get_spec(provider.adapter_type)
-        if not spec or not spec.external_stock:
+        if not spec or not (spec.external_stock or spec.proxy_source):
             continue
         reports.append(await sync_provider_listings(provider, db))
     return reports

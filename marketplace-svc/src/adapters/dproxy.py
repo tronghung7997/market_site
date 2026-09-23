@@ -25,6 +25,7 @@ from fastapi import HTTPException
 
 from src.adapters.base import ProvisionResult, ProxyAssignment, RotatableProxyAdapter
 from src.adapters.real_api import RealApiAdapter
+from src.adapters.supplier import ProxyPlanCatalog, UpstreamListing
 from src.config import settings
 
 logger = structlog.get_logger()
@@ -352,7 +353,7 @@ async def validate_dproxy_config(config: dict) -> None:
         )
 
 
-class DProxyAdapter(RealApiAdapter, RotatableProxyAdapter):
+class DProxyAdapter(RealApiAdapter, RotatableProxyAdapter, ProxyPlanCatalog):
     # provision() mua/bind một proxy thật ở thượng nguồn — nút Test không được gọi.
     provision_has_purchase_side_effect = True
 
@@ -456,6 +457,56 @@ class DProxyAdapter(RealApiAdapter, RotatableProxyAdapter):
             if isinstance(item, dict) and isinstance(item.get("id"), str) and isinstance(item.get("name"), str)
         ]
         return {"plans": plans or None}
+
+    async def fetch_plan_catalog(self) -> list[UpstreamListing]:
+        """Gói M2M (`GET /api/v1/store/plans`, `ProxySalesPlanResponse`) chuẩn
+        hoá cho /admin/sources. Giá vốn = `price` khi `currency` là VND; tiền
+        khác giữ 0 và để nguyên ở attributes để admin tự quy đổi. DProxy không
+        báo tồn theo gói → amount = -1 ("không đếm")."""
+        resp = await self._request_with_retry(
+            "GET", _CATALOG_PATH, operation="fetch_plan_catalog", headers=self._headers(),
+        )
+        if resp.status_code in (401, 403):
+            raise DProxyAuthError(f"HTTP {resp.status_code}")
+        if resp.status_code >= 400:
+            raise DProxyUnavailableError(f"HTTP {resp.status_code}")
+        try:
+            body = resp.json()
+        except ValueError as e:
+            raise DProxyContractError("Catalog không phải JSON hợp lệ") from e
+        if not isinstance(body, list):
+            raise DProxyContractError("Catalog gói không phải mảng JSON")
+        out: list[UpstreamListing] = []
+        for item in body:
+            if not isinstance(item, dict) or not isinstance(item.get("id"), str) or not isinstance(item.get("name"), str):
+                continue
+            currency = str(item.get("currency") or "VND").upper()
+            try:
+                price = int(round(float(item.get("price") or 0)))
+            except (TypeError, ValueError):
+                price = 0
+            try:
+                duration = int(item.get("duration_days") or 0)
+            except (TypeError, ValueError):
+                duration = 0
+            attrs = {
+                "duration_days": duration,
+                "proxy_count": item.get("proxy_count"),
+                "currency": currency,
+                "price": item.get("price"),
+                "country": item.get("country") or item.get("country_code") or item.get("country_name"),
+                "proxy_type": item.get("proxy_type") or item.get("proxies_type") or item.get("type"),
+                "is_active": item.get("is_active"),
+            }
+            label = item["name"] if not duration else f"{item['name']} · {duration} ngày"
+            out.append(UpstreamListing(
+                external_id=item["id"], name=label,
+                cost_price=price if currency == "VND" else 0, amount=-1,
+                min_qty=1, max_qty=100, format_hint="ip:port:user:pass",
+                category_path=("DProxy", str(attrs["country"] or "")) if attrs["country"] else ("DProxy",),
+                attributes={k: v for k, v in attrs.items() if v is not None},
+            ))
+        return out
 
     async def purchase_assignment(
         self, *, plan_id: str, partner_order_id: str, order_id: int,

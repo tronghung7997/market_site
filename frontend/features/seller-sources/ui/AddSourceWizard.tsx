@@ -7,7 +7,7 @@ import { api } from "@/lib/api";
 import { useApiErrorMessage } from "@/lib/use-api-error";
 import { useMoney } from "@/lib/money/CurrencyProvider";
 import type { SourceCreateResult, SourceKind, SourceSellerCandidate, SourceTestResult } from "@/lib/types";
-import { Button, Card, Field, Input, Spinner, Tag } from "@/components/ui";
+import { Button, Card, Field, Input, Spinner, Tag, Select } from "@/components/ui";
 import { ArrowRight, Check, CheckCircle2, ChevronLeft, Plus, X } from "@/components/Icons";
 import { cn } from "@/lib/cn";
 
@@ -153,7 +153,7 @@ export function AddSourceWizard() {
                       {k.label}
                     </span>
                     <span className="mt-1 block text-[12px] text-muted">{k.description}</span>
-                    <Tag tone="iris" className="mt-2">{k.kind === "catalog" ? t("kindCatalog") : t("kindServer")}</Tag>
+                    <Tag tone="iris" className="mt-2">{k.kind === "catalog" ? t("kindCatalog") : k.kind === "proxy" ? t("kindProxy") : t("kindServer")}</Tag>
                   </button>
                 ))}
               </div>
@@ -163,11 +163,17 @@ export function AddSourceWizard() {
                 </Field>
                 {kind.fields.map((f) => (
                   <Field key={f.key} label={f.label} hint={f.secret ? t("wizSecretHint") : undefined}>
-                    <Input
-                      id={`wiz-${f.key}`} type={f.secret ? "password" : f.type === "number" ? "number" : "text"}
-                      className={cn(f.type === "number" && "font-mono")} autoComplete="off"
-                      value={config[f.key] ?? ""} onChange={(e) => { setConfig((c) => ({ ...c, [f.key]: e.target.value })); setTest(null); }}
-                    />
+                    {f.type === "select" ? (
+                      <Select id={`wiz-${f.key}`} value={config[f.key] ?? ""} onChange={(e) => { setConfig((c) => ({ ...c, [f.key]: e.target.value })); setTest(null); }}>
+                        {(f.options ?? []).map((o) => <option key={o.value} value={o.value}>{o.label}</option>)}
+                      </Select>
+                    ) : (
+                      <Input
+                        id={`wiz-${f.key}`} type={f.secret ? "password" : f.type === "number" ? "number" : "text"}
+                        className={cn(f.type === "number" && "font-mono")} autoComplete="off"
+                        value={config[f.key] ?? ""} onChange={(e) => { setConfig((c) => ({ ...c, [f.key]: e.target.value })); setTest(null); }}
+                      />
+                    )}
                   </Field>
                 ))}
               </div>
@@ -243,14 +249,14 @@ export function AddSourceWizard() {
                   <p className="text-[15px] font-bold text-fg">{t("createdTitle", { name: result.name })}</p>
                   <p className="text-[13px] text-muted">
                     {result.seller_email ? t("createdAssigned", { email: result.seller_email }) : t("createdUnassigned")}
-                    {result.kind === "catalog" && (result.sync_error ? ` · ${t("syncFailed")}: ${result.sync_error}` : ` · ${t("createdCatalog", { n: result.catalog_items })}`)}
+                    {result.kind !== "server" && (result.sync_error ? ` · ${t("syncFailed")}: ${result.sync_error}` : ` · ${t(result.kind === "proxy" ? "createdPlans" : "createdCatalog", { n: result.catalog_items })}`)}
                   </p>
                 </div>
               </div>
               <div className="flex flex-wrap gap-2 border-t border-line pt-4">
-                {result.kind === "catalog" ? (
+                {result.kind !== "server" ? (
                   <>
-                    <Button size="sm" onClick={() => router.push(`/admin/sources/${result.provider_id}?add=1`)}><Plus className="h-3.5 w-3.5" />{t("pickProductsNow")}</Button>
+                    <Button size="sm" onClick={() => router.push(`/admin/sources/${result.provider_id}?add=1`)}><Plus className="h-3.5 w-3.5" />{t(result.kind === "proxy" ? "pickPlansNow" : "pickProductsNow")}</Button>
                     <Link href={`/admin/sources/${result.provider_id}`}><Button size="sm" variant="secondary">{t("skipForNow")}</Button></Link>
                   </>
                 ) : (

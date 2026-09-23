@@ -2270,8 +2270,8 @@ export interface SupplierSource {
   id: number;
   name: string;
   adapter_type: string;
-  /** catalog = kho SKU mua theo đơn; server = proxy/server cấp theo gói */
-  kind: "catalog" | "server";
+  /** catalog = kho SKU mua theo đơn; proxy = nhà cung cấp proxy có catalog gói; server = còn lại */
+  kind: "catalog" | "proxy" | "server";
   is_active: boolean;
   review_status: string;
   seller_id: number | null;
@@ -2296,13 +2296,14 @@ export interface SourceKindField {
   label: string;
   default?: string | number;
   secret?: boolean;
-  type?: "number" | "text";
+  type?: "number" | "text" | "select";
+  options?: { value: string; label: string }[];
 }
 
 export interface SourceKind {
   adapter_type: string;
   label: string;
-  kind: "catalog" | "server";
+  kind: "catalog" | "proxy" | "server";
   description: string;
   fields: SourceKindField[];
 }
@@ -2327,7 +2328,7 @@ export interface SourceCreateResult {
   provider_id: number;
   name: string;
   adapter_type: string;
-  kind: "catalog" | "server";
+  kind: "catalog" | "proxy" | "server";
   seller_id: number | null;
   seller_email: string | null;
   catalog_items: number;
@@ -2358,7 +2359,56 @@ export interface SourceCatalogItem {
   group_name: string;
   category_path: string[];
   synced_at: string;
+  /** Thuộc tính máy của gói (proxy): duration_days, loaiproxy, mode, currency, proxy_count… */
+  extra: Record<string, unknown>;
   attached: SourceCatalogAttached[];
+}
+
+/** Một gói proxy đang bán = một key `type|network|days` trong pricing config của sản phẩm. */
+export interface SourceOffer {
+  product_id: number;
+  product_title: string;
+  product_key: string | null;
+  product_status: string;
+  plan_key: string;
+  type: string;
+  network: string;
+  days: number;
+  label: string;
+  price: number;
+  cost_price: number | null;
+  margin_pct: number | null;
+  margin_ok: boolean;
+  external_id: string | null;
+  external_name: string | null;
+  unmapped: boolean;
+}
+
+export interface SourcePlanImportItem {
+  external_id: string;
+  type?: string;
+  network?: string;
+  days?: number;
+  price?: number;
+  type_label?: string;
+  network_label?: string;
+  title?: string;
+  category_id?: number;
+  status?: "draft" | "active";
+  description?: string;
+  escrow_days?: number;
+  product_id?: number;
+  group_key?: string;
+}
+
+export interface SourcePlanImportResult {
+  product_id: number;
+  product_title: string;
+  public_key: string | null;
+  plan_key: string;
+  price: number;
+  cost_price: number | null;
+  margin_ok: boolean;
 }
 
 export interface SourceCatalogPage {

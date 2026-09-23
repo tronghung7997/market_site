@@ -15,7 +15,7 @@ import type { AffiliateSort } from "./types";
 import type { AuthSessionRow, MySellerProfile, ProfileUpdate } from "./types";
 import type {
   SourceArea, SourceCatalogPage, SourceCatalogQuery, SourceImportItem, SourceImportResult, SourceListing,
-  SourceRepriceResult, SourceSyncResult, SupplierSource,
+  SourceRepriceResult, SourceSyncResult, SupplierSource, SourceOffer, SourcePlanImportItem, SourcePlanImportResult,
   SourceKind, SourceSellerCandidate, SourceCreateRequest, SourceCreateResult, SourceTestResult,
 } from "./types";
 import type { PaginatedAdminProducts, PaginatedInventoryVariants, PaginatedSellerProducts } from "./types";
@@ -932,6 +932,18 @@ export const api = {
       }, true),
     reprice: (area: SourceArea, id: number, body: { margin_pct: number; round_to?: number; listing_ids?: number[]; only_below_min?: boolean }) =>
       request<SourceRepriceResult>(`/${area}/sources/${id}/reprice`, { method: "POST", body: JSON.stringify(body) }, true),
+    // Nguồn proxy: gói đang bán (pricing config) thay cho listings.
+    offers: (area: SourceArea, id: number) => request<SourceOffer[]>(`/${area}/sources/${id}/offers`, {}, true),
+    importPlans: (area: SourceArea, id: number, items: SourcePlanImportItem[], ownerSellerId?: number | null) =>
+      request<SourcePlanImportResult[]>(`/${area}/sources/${id}/import-plans`, {
+        method: "POST", body: JSON.stringify({ items, owner_seller_id: ownerSellerId ?? null }),
+      }, true),
+    updateOffer: (area: SourceArea, id: number, body: { product_id: number; plan_key: string; price: number }) =>
+      request<SourceOffer>(`/${area}/sources/${id}/offers`, { method: "PATCH", body: JSON.stringify(body) }, true),
+    removeOffer: (area: SourceArea, id: number, body: { product_id: number; plan_key: string }) =>
+      request<void>(`/${area}/sources/${id}/offers/remove`, { method: "POST", body: JSON.stringify(body) }, true),
+    repriceOffers: (area: SourceArea, id: number, body: { margin_pct: number; round_to?: number }) =>
+      request<{ updated: number; skipped: number }>(`/${area}/sources/${id}/offers/reprice`, { method: "POST", body: JSON.stringify(body) }, true),
     kinds: () => request<SourceKind[]>(`/admin/sources/kinds`, {}, true),
     sellers: () => request<SourceSellerCandidate[]>(`/admin/sources/sellers`, {}, true),
     test: (adapterType: string, config: Record<string, string | number>) =>

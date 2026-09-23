@@ -12,7 +12,7 @@ from sqlalchemy.ext.asyncio import AsyncSession
 from src.auth.dependencies import require_role
 from src.database import get_session
 from src.models.account import Account
-from src.suppliers import sources
+from src.suppliers import proxy_sources, sources
 from src.suppliers.sources import SourceScope
 
 router = APIRouter(tags=["supplier-sources"])
@@ -24,7 +24,7 @@ class SourceSummary(BaseModel):
     id: int
     name: str
     adapter_type: str
-    kind: Literal["catalog", "server"] = "catalog"
+    kind: Literal["catalog", "proxy", "server"] = "catalog"
     is_active: bool
     review_status: str
     seller_id: int | None
@@ -95,6 +95,44 @@ class SourceCreate(BaseModel):
 class SourceTestRequest(BaseModel):
     adapter_type: str
     config: dict = {}
+
+
+class PlanImportItem(BaseModel):
+    external_id: str = Field(min_length=1, max_length=100)
+    type: str = Field(default="", max_length=40)
+    network: str = Field(default="", max_length=40)
+    days: int | None = Field(default=None, ge=1, le=365)
+    price: int | None = Field(default=None, ge=0)
+    type_label: str | None = Field(default=None, max_length=80)
+    network_label: str | None = Field(default=None, max_length=80)
+    title: str | None = Field(default=None, max_length=255)
+    category_id: int | None = None
+    status: Literal["draft", "active"] = "draft"
+    description: str | None = Field(default=None, max_length=20000)
+    escrow_days: int | None = Field(default=None, ge=0, le=90)
+    product_id: int | None = None
+    group_key: str | None = Field(default=None, max_length=64)
+
+
+class PlanImportRequest(BaseModel):
+    items: list[PlanImportItem] = Field(min_length=1, max_length=100)
+    owner_seller_id: int | None = None
+
+
+class OfferUpdate(BaseModel):
+    product_id: int
+    plan_key: str = Field(min_length=3, max_length=120)
+    price: int = Field(ge=1)
+
+
+class OfferRemove(BaseModel):
+    product_id: int
+    plan_key: str = Field(min_length=3, max_length=120)
+
+
+class OfferRepriceRequest(BaseModel):
+    margin_pct: float = Field(ge=0, le=1000)
+    round_to: int = Field(default=1000, ge=1, le=1_000_000)
 
 
 class RepriceRequest(BaseModel):
@@ -176,6 +214,53 @@ def _routes(prefix: str, role: str):
             provider, scope, db, margin_pct=body.margin_pct, round_to=body.round_to,
             listing_ids=body.listing_ids, only_below_min=body.only_below_min,
         )
+
+    # --- nguồn proxy: gói đang bán (pricing config) -----------------------
+
+    @r.get("/{provider_id}/offers")
+    async def offers(provider_id: int, account: Account = Depends(require_role(role)), db: AsyncSession = Depends(get_session)):
+        scope = scope_of(account)
+        provider = await sources.get_source(provider_id, scope, db)
+        return await proxy_sources.list_offers(provider, scope, db)
+
+    @r.post("/{provider_id}/import-plans", status_code=201)
+    async def import_plans(
+        provider_id: int, body: PlanImportRequest,
+        account: Account = Depends(require_role(role)), db: AsyncSession = Depends(get_session),
+    ):
+        scope = scope_of(account)
+        provider = await sources.get_source(provider_id, scope, db)
+        return await proxy_sources.import_plans(
+            provider, scope, [i.model_dump() for i in body.items], db,
+            owner_seller_id=body.owner_seller_id if scope.is_admin else None,
+        )
+
+    @r.patch("/{provider_id}/offers")
+    async def update_offer(
+        provider_id: int, body: OfferUpdate,
+        account: Account = Depends(require_role(role)), db: AsyncSession = Depends(get_session),
+    ):
+        scope = scope_of(account)
+        provider = await sources.get_source(provider_id, scope, db)
+        return await proxy_sources.update_offer(provider, scope, body.product_id, body.plan_key, db, price=body.price)
+
+    @r.post("/{provider_id}/offers/remove", status_code=204)
+    async def remove_offer(
+        provider_id: int, body: OfferRemove,
+        account: Account = Depends(require_role(role)), db: AsyncSession = Depends(get_session),
+    ):
+        scope = scope_of(account)
+        provider = await sources.get_source(provider_id, scope, db)
+        await proxy_sources.remove_offer(provider, scope, body.product_id, body.plan_key, db)
+
+    @r.post("/{provider_id}/offers/reprice")
+    async def reprice_offers(
+        provider_id: int, body: OfferRepriceRequest,
+        account: Account = Depends(require_role(role)), db: AsyncSession = Depends(get_session),
+    ):
+        scope = scope_of(account)
+        provider = await sources.get_source(provider_id, scope, db)
+        return await proxy_sources.reprice_offers(provider, scope, db, margin_pct=body.margin_pct, round_to=body.round_to)
 
     @r.patch("/listings/{listing_id}")
     async def update_listing(

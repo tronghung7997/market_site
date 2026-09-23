@@ -57,7 +57,7 @@ def _not_found():
 async def get_source(provider_id: int, scope: SourceScope, db: AsyncSession) -> Provider:
     provider = await db.get(Provider, provider_id)
     spec = get_spec(provider.adapter_type) if provider else None
-    if provider is None or spec is None or not spec.external_stock:
+    if provider is None or spec is None or not (spec.external_stock or spec.proxy_source):
         raise _not_found()
     if not scope.is_admin and provider.seller_id != scope.seller_id:
         raise _not_found()
@@ -96,20 +96,34 @@ SOURCE_KINDS: dict[str, dict] = {
             {"key": "auto_pause_after_failures", "label": "Tự tắt gói sau N lần mua lỗi liên tiếp", "default": 3, "type": "number"},
         ],
     },
+    # Nguồn PROXY: catalog gói (plan) đồng bộ như catalog SKU, sản phẩm bán theo
+    # pricing `config` (src/suppliers/proxy_sources.py). Một tài khoản TopProxy
+    # dùng chung key cho cả tĩnh lẫn xoay nhưng phải tách hai nguồn theo `mode`
+    # vì provision khác hẳn nhau.
     "topproxy": {
-        "label": "TopProxy", "kind": "server",
-        "description": "Server proxy datacenter, cấp IP theo gói và thời hạn.",
+        "label": "TopProxy · proxy tĩnh", "kind": "proxy",
+        "description": "Dân cư tĩnh Viettel/FPT/VNPT, datacenter, US, 4G. Cấp IP theo loại và số ngày; đổi bảo mật, gia hạn, thay IP.",
         "fields": [
-            {"key": "base_url", "label": "Base URL"},
+            {"key": "base_url", "label": "Base URL", "default": "https://topproxy.vn"},
             {"key": "api_key", "label": "API key", "secret": True},
+            {"key": "mode", "label": "Chế độ", "default": "static", "type": "select",
+             "options": [{"value": "static", "label": "Proxy tĩnh (apiv2)"}, {"value": "xoay", "label": "Key xoay (proxyxoay)"}]},
+            {"key": "xoay_get_url", "label": "URL lấy proxy cho key xoay (chỉ chế độ xoay)", "default": "https://proxyxoay.shop/api/get.php"},
+            {"key": "low_balance_vnd", "label": "Báo khi sổ Xu ước tính dưới (đ)", "default": 200000, "type": "number"},
+            {"key": "min_margin_pct", "label": "Lãi tối thiểu để được bán (%)", "default": 10, "type": "number"},
         ],
     },
     "dproxy": {
-        "label": "DProxy", "kind": "server",
-        "description": "Proxy dân cư xoay, mua theo loại / mạng / số ngày.",
+        "label": "DProxy (M2M)", "kind": "proxy",
+        "description": "Dân cư / datacenter xoay theo gói (plan) thượng nguồn, mua từng đơn qua partner-purchase, đổi IP có cooldown.",
         "fields": [
-            {"key": "base_url", "label": "Base URL"},
+            {"key": "base_url", "label": "Base URL", "default": "https://api.dproxy.info"},
             {"key": "api_key", "label": "API key", "secret": True},
+            {"key": "auth_type", "label": "Kiểu xác thực", "default": "header", "type": "select",
+             "options": [{"value": "header", "label": "Header X-API-Key"}, {"value": "bearer", "label": "Authorization: Bearer"}]},
+            {"key": "auth_header", "label": "Tên header (khi kiểu header)", "default": "X-API-Key"},
+            {"key": "channel", "label": "Channel", "default": "proxora"},
+            {"key": "min_margin_pct", "label": "Lãi tối thiểu để được bán (%)", "default": 10, "type": "number"},
         ],
     },
 }
@@ -119,6 +133,8 @@ def source_kind(adapter_type: str) -> str:
     spec = get_spec(adapter_type)
     if spec is not None and spec.external_stock:
         return "catalog"
+    if spec is not None and spec.proxy_source:
+        return "proxy"
     return SOURCE_KINDS.get(adapter_type, {}).get("kind", "server")
 
 
@@ -134,8 +150,8 @@ async def list_sources(scope: SourceScope, db: AsyncSession) -> list[dict]:
         stmt = stmt.where(Provider.seller_id == scope.seller_id)
     providers = [
         p for p in (await db.execute(stmt)).scalars()
-        if get_spec(p.adapter_type) is not None
-        and (get_spec(p.adapter_type).external_stock or p.seller_id is not None)
+        if (spec := get_spec(p.adapter_type)) is not None
+        and (spec.external_stock or spec.proxy_source or p.seller_id is not None)
     ]
     if not providers:
         return []
@@ -211,7 +227,8 @@ async def browse_catalog(
 ) -> dict:
     base = select(SupplierCatalogItem).where(SupplierCatalogItem.provider_id == provider.id)
     if in_stock:
-        base = base.where(SupplierCatalogItem.amount > 0)
+        # amount < 0 = nguồn không báo tồn (proxy) — vẫn là "bán được".
+        base = base.where(SupplierCatalogItem.amount != 0)
     if group:
         base = base.where(SupplierCatalogItem.group_name == group)
     if max_cost is not None:
@@ -241,7 +258,7 @@ async def browse_catalog(
     groups = [
         {"name": g, "count": int(n)} for g, n in (await db.execute(
             select(SupplierCatalogItem.group_name, func.count(SupplierCatalogItem.id))
-            .where(SupplierCatalogItem.provider_id == provider.id, SupplierCatalogItem.amount > 0)
+            .where(SupplierCatalogItem.provider_id == provider.id, SupplierCatalogItem.amount != 0)
             .group_by(SupplierCatalogItem.group_name)
             .order_by(func.count(SupplierCatalogItem.id).desc())
         )).all()
@@ -274,6 +291,7 @@ async def browse_catalog(
             "amount": it.amount, "min_qty": it.min_qty, "max_qty": it.max_qty,
             "format_hint": it.format_hint, "group_name": it.group_name,
             "category_path": it.category_path, "synced_at": it.synced_at,
+            "extra": it.extra or {},
             "attached": attached.get(it.external_id, []),
         } for it in items],
         "total": int(total), "page": page, "per_page": per_page,
@@ -650,7 +668,7 @@ async def create_source(data: dict, db: AsyncSession, *, actor_id: int | None) -
     provider.seller_id = seller.id if seller else None
     await db.commit()
     report = None
-    if source_kind(adapter_type) == "catalog":
+    if source_kind(adapter_type) in ("catalog", "proxy"):
         report = await sync_provider_listings(provider, db)
         await db.commit()
     return {

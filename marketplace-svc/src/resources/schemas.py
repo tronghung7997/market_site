@@ -115,6 +115,27 @@ class ResourceResponse(BaseModel):
     model_config = {"from_attributes": True}
 
 
+class SellerResourceRow(BaseModel):
+    """A stock row in the seller console. Content is only a masked preview; the
+    full line comes from the audited, rate-limited reveal endpoint."""
+    id: int
+    variant_id: int
+    status: str
+    data_preview: str
+    order_id: int | None = None
+    order_code: str | None = None
+    assigned_at: datetime | None = None
+    expires_at: datetime | None = None
+    created_at: datetime
+    refund_amount_cap: int | None = None
+    is_archived: bool = False
+
+
+class ResourceReveal(BaseModel):
+    id: int
+    data: str
+
+
 class ResourceStatusSummary(BaseModel):
     available: int
     assigned: int

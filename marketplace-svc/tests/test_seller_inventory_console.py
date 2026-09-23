@@ -76,9 +76,10 @@ async def _mark(variant_id, data_prefix, *, status=None, assigned_at=None, creat
             values["created_at"] = created_at
         if archived is not None:
             values["is_archived"] = archived
-        await db.execute(
-            update(Resource).where(Resource.variant_id == variant_id, Resource.data.like(f"{data_prefix}%")).values(**values)
-        )
+        # Content is encrypted at rest: match the prefix on decrypted rows, not in SQL.
+        rows = (await db.execute(select(Resource.id, Resource.data).where(Resource.variant_id == variant_id))).all()
+        ids = [row_id for row_id, data in rows if data.startswith(data_prefix)]
+        await db.execute(update(Resource).where(Resource.id.in_(ids)).values(**values))
         await db.commit()
 
 

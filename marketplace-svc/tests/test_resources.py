@@ -9,6 +9,16 @@ from src.config import settings
 INTERNAL_HEADERS = {"X-Internal-Key": settings.internal_api_key}
 
 
+async def revealed(client, rows, headers) -> list[str]:
+    """Full content of listed rows: the list only carries masked previews."""
+    out = []
+    for row in rows:
+        resp = await client.get(f"/seller/resources/{row['id']}/data", headers=headers)
+        assert resp.status_code == 200, resp.text
+        out.append(resp.json()["data"])
+    return out
+
+
 async def setup_variant(client):
     admin_token = await register_and_login(client, "res_admin@example.com")
     await make_admin("res_admin@example.com")
@@ -70,7 +80,7 @@ async def test_bulk_add_deduplicates_payload_and_existing_variant_resources(clie
     resources = await client.get(
         f"/seller/variants/{variant_id}/resources", headers=headers,
     )
-    assert sorted(item["data"] for item in resources.json()) == [
+    assert sorted(await revealed(client, resources.json(), headers)) == [
         "new|credential", "other|credential", "same|credential",
     ]
 
@@ -91,7 +101,7 @@ async def test_bulk_add_normalizes_whitespace_and_ignores_blank_lines(client):
     resources = await client.get(
         f"/seller/variants/{variant_id}/resources", headers=headers,
     )
-    assert [item["data"] for item in resources.json()] == ["normalized|credential"]
+    assert await revealed(client, resources.json(), headers) == ["normalized|credential"]
 
 
 @pytest.mark.asyncio
@@ -207,7 +217,7 @@ async def test_concurrent_bulk_add_serializes_duplicate_credentials(client):
     resources = await client.get(
         f"/seller/variants/{variant_id}/resources", headers=headers,
     )
-    assert [item["data"] for item in resources.json()] == ["concurrent|credential"]
+    assert await revealed(client, resources.json(), headers) == ["concurrent|credential"]
 
 
 @pytest.mark.asyncio
@@ -454,7 +464,8 @@ async def test_inventory_summary_counts_archived_resources_separately(client):
         f"/seller/variants/{variant_id}/resources",
         headers=headers,
     )).json()
-    archived_id = next(resource["id"] for resource in resources if resource["data"] == "archived|resource")
+    contents = await revealed(client, resources, headers)
+    archived_id = next(resource["id"] for resource, data in zip(resources, contents) if data == "archived|resource")
     archived = await client.post(f"/seller/resources/{archived_id}/archive", headers=headers)
     assert archived.status_code == 200, archived.text
 
@@ -536,7 +547,8 @@ async def test_update_available_resource(client):
     resp = await client.patch(f"/seller/resources/{res['id']}", json={"data": "  new|pass  "},
                               headers={"Authorization": f"Bearer {seller_token}"})
     assert resp.status_code == 200, resp.text
-    assert resp.json()["data"] == "new|pass"
+    assert "data" not in resp.json() and resp.json()["data_preview"] == "new|••••••"
+    assert await revealed(client, [resp.json()], {"Authorization": f"Bearer {seller_token}"}) == ["new|pass"]
 
 
 @pytest.mark.asyncio
@@ -741,7 +753,8 @@ async def test_list_resources_filtering_by_status_and_search(client):
     assert error_list.json()[0]["id"] == err_res["id"]
 
     # Search by data text
-    search_res = await client.get(f"/seller/variants/{variant_id}/resources", params={"search": assigned_res["data"]}, headers=headers)
+    [assigned_data] = await revealed(client, [assigned_res], headers)
+    search_res = await client.get(f"/seller/variants/{variant_id}/resources", params={"search": assigned_data}, headers=headers)
     assert search_res.status_code == 200
     assert any(r["id"] == assigned_res["id"] for r in search_res.json())
 
@@ -756,7 +769,7 @@ async def test_list_resources_filtering_by_status_and_search(client):
         headers=headers,
     )
     assert exported.status_code == 200
-    listed_data = {row["data"] for row in search_order.json()}
+    listed_data = set(await revealed(client, search_order.json(), headers))
     exported_data = {line for line in exported.text.strip().splitlines() if line}
     assert exported_data == listed_data
 
@@ -802,7 +815,7 @@ async def test_restock_and_archive_resource(client):
     data = restocked.json()
     assert data["status"] == "available"
     assert data["order_id"] is None
-    assert data["data"] == "fixed|acc|1"
+    assert await revealed(client, [data], headers) == ["fixed|acc|1"]
     assert data["is_archived"] is False
 
     # Archive r2
@@ -859,3 +872,75 @@ async def test_restock_and_archive_resource(client):
     assert public_variant["stock_state"] == "out"
     assert public_variant["max_quantity"] == 0
     assert public_variant["stock_count"] == 0
+
+
+@pytest.mark.asyncio
+async def test_seller_list_carries_masked_previews_and_reveal_is_audited(client):
+    from sqlalchemy import select
+    from src.database import SessionLocal
+    from src.models.log_entry import LogEntry
+
+    seller_token, variant_id = await setup_variant(client)
+    headers = {"Authorization": f"Bearer {seller_token}"}
+    secret_line = "alice|Hunter2!secret|2FA-SEED|alice@mail.test"
+    await client.post(f"/seller/variants/{variant_id}/resources", json={"items": [secret_line]}, headers=headers)
+
+    listed = await client.get(f"/seller/variants/{variant_id}/resources", headers=headers)
+    assert listed.status_code == 200
+    [row] = listed.json()
+    assert "data" not in row
+    assert row["data_preview"] == "alice|••••••|••••••|alice@mail.test"
+    assert "Hunter2" not in listed.text and "2FA-SEED" not in listed.text
+
+    shown = await client.get(f"/seller/resources/{row['id']}/data", headers=headers)
+    assert shown.status_code == 200
+    assert shown.json() == {"id": row["id"], "data": secret_line}
+    async with SessionLocal() as db:
+        events = (await db.execute(select(LogEntry))).scalars().all()
+    reveal_events = [e for e in events if (e.metadata_ or {}).get("event") == "seller_resource_revealed"]
+    assert len(reveal_events) == 1 and reveal_events[0].metadata_["subject_id"] == row["id"]
+    assert secret_line not in reveal_events[0].message
+
+
+@pytest.mark.asyncio
+async def test_reveal_rejects_other_sellers_buyers_and_missing_rows(client):
+    seller_token, variant_id = await setup_variant(client)
+    await client.post(f"/seller/variants/{variant_id}/resources", json={"items": ["own|secret"]},
+                      headers={"Authorization": f"Bearer {seller_token}"})
+    [row] = (await client.get(f"/seller/variants/{variant_id}/resources",
+                              headers={"Authorization": f"Bearer {seller_token}"})).json()
+
+    other = await register_and_login(client, "reveal_other@example.com")
+    await make_seller("reveal_other@example.com")
+    other = await register_and_login(client, "reveal_other@example.com")
+    assert (await client.get(f"/seller/resources/{row['id']}/data", headers={"Authorization": f"Bearer {other}"})).status_code == 403
+
+    buyer = await register_and_login(client, "reveal_buyer@example.com")
+    assert (await client.get(f"/seller/resources/{row['id']}/data", headers={"Authorization": f"Bearer {buyer}"})).status_code == 403
+
+    missing = await client.get("/seller/resources/999999/data", headers={"Authorization": f"Bearer {seller_token}"})
+    assert missing.status_code == 404
+
+
+@pytest.mark.asyncio
+async def test_reveal_is_rate_limited_per_seller(client, monkeypatch):
+    from src.resources import router as resources_router
+
+    seller_token, variant_id = await setup_variant(client)
+    headers = {"Authorization": f"Bearer {seller_token}"}
+    await client.post(f"/seller/variants/{variant_id}/resources", json={"items": ["rl|secret"]}, headers=headers)
+    [row] = (await client.get(f"/seller/variants/{variant_id}/resources", headers=headers)).json()
+
+    calls = {"n": 0}
+
+    async def fake_limit(key, *, limit, window_seconds, fail_open=True):
+        assert key.startswith("resource-reveal:") and fail_open is False
+        calls["n"] += 1
+        return calls["n"] <= 2
+
+    monkeypatch.setattr(resources_router, "check_rate_limit", fake_limit)
+    assert (await client.get(f"/seller/resources/{row['id']}/data", headers=headers)).status_code == 200
+    assert (await client.get(f"/seller/resources/{row['id']}/data", headers=headers)).status_code == 200
+    limited = await client.get(f"/seller/resources/{row['id']}/data", headers=headers)
+    assert limited.status_code == 429
+    assert limited.json()["error_code"] == "RATE_LIMITED"

@@ -24,7 +24,7 @@ from src.exceptions import ErrorCode, NotOwner, api_error
 from src.models.category import Category
 from src.models.order import Order
 from src.models.product import DeliveryMode, Product, ProductStatus, ProductVariant
-from src.models.resource import Resource, ResourceStatus
+from src.models.resource import Resource, ResourceStatus, resource_data_hash
 from src.pricing.engine import inventory_managed_sql
 from src.seller.dashboard import GROSS_STATUSES, RANGE_KEY_PATTERN, DashboardRange, resolve_range
 from src.seller.settings import get_export_row_limit, get_low_stock_threshold
@@ -471,9 +471,12 @@ async def preview_restock(variant_id: int, seller_id: int, items: list[str], db:
     duplicate_in_file = len(cleaned) - len(unique)
     existing: set[str] = set()
     if unique:
-        existing = set((await db.execute(
-            select(Resource.data).where(Resource.variant_id == variant_id, Resource.data.in_(unique))
+        # Content is encrypted; compare keyed digests (same normalisation as bulk add).
+        by_hash = {resource_data_hash(item): item for item in unique}
+        taken = set((await db.execute(
+            select(Resource.data_hash).where(Resource.variant_id == variant_id, Resource.data_hash.in_(list(by_hash)))
         )).scalars())
+        existing = {item for digest, item in by_hash.items() if digest in taken}
     expected = await expected_field_count(variant_id, db)
     if expected is None and unique:
         expected = Counter(_field_count(i) for i in unique).most_common(1)[0][0]
@@ -500,6 +503,16 @@ async def preview_restock(variant_id: int, seller_id: int, items: list[str], db:
 # ---------------------------------------------------------------------------
 # Export (multi-scope, masked)
 # ---------------------------------------------------------------------------
+
+PREVIEW_MAX = 240
+
+
+def preview_data(data: str) -> str:
+    """Masked, clipped preview of a stock line for list responses: first and
+    last field visible, the middle masked (secrets are never in list payloads)."""
+    masked = mask_data(data, "middle")
+    return masked if len(masked) <= PREVIEW_MAX else f"{masked[:PREVIEW_MAX]}…"
+
 
 def mask_data(data: str, mode: str, mask_char: str = "•") -> str:
     token = mask_char * 6

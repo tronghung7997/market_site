@@ -1347,6 +1347,15 @@ export interface Resource {
   is_archived?: boolean;
 }
 
+/** Seller console stock row: content only as a server-masked preview; the
+ * full line is fetched per row (audited) through `api.revealResource`. */
+export type SellerResourceRow = Omit<Resource, "data"> & { data_preview: string };
+
+export interface ResourceReveal {
+  id: number;
+  data: string;
+}
+
 export interface BulkResourceActionResult {
   action: string;
   count: number;

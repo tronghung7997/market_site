@@ -228,7 +228,7 @@ Nguồn đầy đủ: `marketplace-svc/.env.example` và `marketplace-svc/src/co
 | `DISPUTE_RESOLUTION_TIMEOUT_HOURS` | Thời gian buyer phản hồi sau remedy/response của seller; mặc định 24 giờ, hết hạn case tự settle |
 | `DISPUTE_ABANDON_GRACE_HOURS` | Sau hết hạn escrow, không có claim batch mới trong bấy nhiêu giờ thì case chưa remedy tự settle remaining cho seller; chat không gia hạn đồng hồ này; mặc định 24 |
 
-Payment/provider variables là server-only. Không đặt credential trong `NEXT_PUBLIC_*`, tài liệu, log hoặc client response. Không đổi trực tiếp `ENCRYPTION_KEY` của môi trường có dữ liệu; dùng quy trình rotate trong `marketplace-svc/scripts/rotate_encryption_key.py` sau khi backup và dry-run.
+Payment/provider variables là server-only. Không đặt credential trong `NEXT_PUBLIC_*`, tài liệu, log hoặc client response. Không đổi trực tiếp `ENCRYPTION_KEY` của môi trường có dữ liệu: key này mã hoá cả credential nhà cung cấp lẫn toàn bộ nội dung kho hàng (`resources.data`) và là khoá HMAC chống trùng/tìm kiếm của kho — đổi key mà không rotate thì mọi hàng trong kho không đọc được. Dùng quy trình rotate trong `marketplace-svc/scripts/rotate_encryption_key.py` (mã hoá lại provider và kho trong cùng một transaction) sau khi backup và dry-run. Backup tạo trước migration `fx…` vẫn chứa kho hàng ở dạng nguyên văn.
 
 ### Frontend/BFF
 

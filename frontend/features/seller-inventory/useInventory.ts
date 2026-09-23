@@ -164,6 +164,24 @@ export function useBulkResourceAction(variantId: number) {
   });
 }
 
+/** Full content of one stock line, fetched only when the seller opens it. The
+ * key sits outside the ["seller-inventory"] prefix so list refreshes never
+ * re-reveal (each reveal is audited), and it is dropped once the view closes. */
+export function useRevealedResource(resourceId: number) {
+  return useQuery({
+    queryKey: ["seller-resource-reveal", resourceId],
+    queryFn: () => api.revealResource(resourceId),
+    staleTime: Infinity,
+    gcTime: 0,
+    retry: false,
+    refetchOnWindowFocus: false,
+  });
+}
+
+export function revealResourceData(resourceId: number): Promise<string> {
+  return api.revealResource(resourceId).then((row) => row.data);
+}
+
 export function useResourceMutations(variantId: number) {
   const invalidate = useInvalidateInventory();
   const update = useMutation({

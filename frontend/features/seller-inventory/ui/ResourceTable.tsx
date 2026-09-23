@@ -8,14 +8,14 @@ import { useApiErrorMessage } from "@/lib/use-api-error";
 import { useDebounce } from "@/lib/hooks/useDebounce";
 import { useDelayedFlag } from "@/lib/hooks/useDelayedFlag";
 import { formatDateTime } from "@/lib/utils";
-import type { InventoryPackageDetail, Resource, ResourceSort, ResourceStatusFilter } from "@/lib/types";
+import type { InventoryPackageDetail, ResourceSort, ResourceStatusFilter, SellerResourceRow } from "@/lib/types";
 import { ActivityBar, Button, Input, Pagination, Select, Skeleton } from "@/components/ui";
-import { AlertCircle, AlertTriangle, Copy, Check, Download, Eye, EyeOff, Package, RotateCcw, Search, X } from "@/components/Icons";
+import { AlertCircle, AlertTriangle, Copy, Check, Download, EyeOff, Package, RotateCcw, Search, ShieldCheck, X } from "@/components/Icons";
 import {
-  clipForCell, hasOrderValue, maskResourceData, RESOURCE_DATE_PRESETS, RESOURCE_PAGE_SIZES, RESOURCE_STATUS_TABS, resourceDateBounds,
+  clipForCell, hasOrderValue, RESOURCE_DATE_PRESETS, RESOURCE_PAGE_SIZES, RESOURCE_STATUS_TABS, resourceDateBounds,
   type ResourceDatePreset, type ResourceFilters, type ResourceOrderFilter,
 } from "../model";
-import { useBulkResourceAction, useInventoryResources } from "../useInventory";
+import { revealResourceData, useBulkResourceAction, useInventoryResources } from "../useInventory";
 import { ConfirmDialog } from "./ConfirmDialog";
 import { ResourceDetailDialog, resourceStatusTone } from "./ResourceDetailDialog";
 
@@ -30,7 +30,7 @@ function tabCount(pkg: InventoryPackageDetail, tab: ResourceStatusFilter): numbe
   }
 }
 
-const NO_ROWS: Resource[] = [];
+const NO_ROWS: SellerResourceRow[] = [];
 const ROW_SKELETON_WIDTHS = ["w-3/4", "w-2/3", "w-4/5", "w-1/2", "w-3/5", "w-2/3"];
 
 /** Stock rows while the first page loads (div grid: also used outside the table). */
@@ -56,16 +56,16 @@ function shortDateTime(iso: string | null, locale: string): string {
   return new Date(iso).toLocaleString(locale === "vi" ? "vi-VN" : "en-US", { day: "numeric", month: "numeric", hour: "2-digit", minute: "2-digit", hour12: false });
 }
 
-const ResourceRow = memo(function ResourceRow({ resource: r, rowNo, selected, selectionLocked, masked, copied, onOpen, onToggle, onCopy }: {
-  resource: Resource;
+const ResourceRow = memo(function ResourceRow({ resource: r, rowNo, selected, selectionLocked, copied, copying, onOpen, onToggle, onCopy }: {
+  resource: SellerResourceRow;
   rowNo: number;
   selected: boolean;
   selectionLocked: boolean;
-  masked: boolean;
+  copying: boolean;
   copied: boolean;
-  onOpen: (resource: Resource) => void;
+  onOpen: (resource: SellerResourceRow) => void;
   onToggle: (id: number) => void;
-  onCopy: (resource: Resource) => Promise<void>;
+  onCopy: (resource: SellerResourceRow) => Promise<void>;
 }) {
   const t = useTranslations("sellerInventory");
   const locale = useLocale();
@@ -84,9 +84,9 @@ const ResourceRow = memo(function ResourceRow({ resource: r, rowNo, selected, se
       </td>
       <td className="px-2 py-2 font-mono text-[12px] text-fg">
         <div className="flex items-center gap-1">
-          <span className="min-w-0 flex-1 truncate" title={masked ? undefined : clipForCell(r.data, 1_000)}>{clipForCell(masked ? maskResourceData(r.data) : r.data)}</span>
-          <button type="button" onClick={(e) => { e.stopPropagation(); void onCopy(r); }} aria-label={t("resource.copy")} className={cn("inline-flex h-6 w-6 shrink-0 items-center justify-center rounded", copied ? "bg-good-soft text-good" : "text-faint hover:bg-raised hover:text-iris")}>
-            {copied ? <Check size={12} /> : <Copy size={12} />}
+          <span className="min-w-0 flex-1 truncate">{clipForCell(r.data_preview)}</span>
+          <button type="button" disabled={copying} aria-busy={copying || undefined} onClick={(e) => { e.stopPropagation(); void onCopy(r); }} aria-label={t("resource.copy")} className={cn("inline-flex h-6 w-6 shrink-0 items-center justify-center rounded disabled:cursor-wait", copied ? "bg-good-soft text-good" : "text-faint hover:bg-raised hover:text-iris")}>
+            {copying ? <span aria-hidden className="h-3 w-3 animate-spin rounded-full border-[1.5px] border-iris border-t-transparent" /> : copied ? <Check size={12} /> : <Copy size={12} />}
           </button>
         </div>
       </td>
@@ -118,10 +118,10 @@ export function ResourceTable({
   const apiErrorMessage = useApiErrorMessage();
   const [search, setSearch] = useState(filters.search);
   const debounced = useDebounce(search, 250);
-  const [masked, setMasked] = useState(true);
   const [selected, setSelected] = useState<Set<number>>(new Set());
   const [allMatching, setAllMatching] = useState(false);
-  const [detail, setDetail] = useState<Resource | null>(null);
+  const [detail, setDetail] = useState<SellerResourceRow | null>(null);
+  const [copyingId, setCopyingId] = useState<number | null>(null);
   const [copiedId, setCopiedId] = useState<number | null>(null);
   const [confirm, setConfirm] = useState<{ action: "archive" | "restore"; count: number } | null>(null);
   const [jump, setJump] = useState("");
@@ -157,15 +157,25 @@ export function ResourceTable({
   // Stable handlers so memoized rows skip re-rendering when only other rows change.
   const onNoticeRef = useRef(onNotice);
   onNoticeRef.current = onNotice;
-  const copy = useCallback(async (r: Resource) => {
+  // The list only has masked previews: copying fetches the one line (audited).
+  // ClipboardItem takes the pending text so Safari keeps the click's gesture.
+  const copy = useCallback(async (r: SellerResourceRow) => {
+    setCopyingId(r.id);
     try {
-      await navigator.clipboard.writeText(r.data);
+      const text = revealResourceData(r.id);
+      if (typeof ClipboardItem !== "undefined" && navigator.clipboard.write) {
+        await navigator.clipboard.write([new ClipboardItem({ "text/plain": text.then((data) => new Blob([data], { type: "text/plain" })) })]);
+      } else {
+        await navigator.clipboard.writeText(await text);
+      }
       setCopiedId(r.id);
       setTimeout(() => setCopiedId((c) => (c === r.id ? null : c)), 1600);
-    } catch {
-      onNoticeRef.current("bad", t("resource.copyFailed"));
+    } catch (err) {
+      onNoticeRef.current("bad", apiErrorMessage(err, t("resource.copyFailed")));
+    } finally {
+      setCopyingId((c) => (c === r.id ? null : c));
     }
-  }, [t]);
+  }, [t, apiErrorMessage]);
   const toggleRow = useCallback((id: number) => {
     setSelected((prev) => { const next = new Set(prev); if (next.has(id)) next.delete(id); else next.add(id); return next; });
   }, []);
@@ -243,9 +253,7 @@ export function ResourceTable({
           <option value="newest">{t("resource.sort.newest")}</option>
           <option value="oldest">{t("resource.sort.oldest")}</option>
         </Select>
-        <Button size="sm" variant="secondary" onClick={() => setMasked((m) => !m)} aria-pressed={masked} className="ml-auto h-8 gap-1.5 text-xs">
-          {masked ? <Eye size={13} /> : <EyeOff size={13} />} {masked ? t("resource.reveal") : t("resource.mask")}
-        </Button>
+        <span className="ml-auto inline-flex items-center gap-1.5 text-[11.5px] text-faint"><ShieldCheck size={12} /> {t("resource.maskedNote")}</span>
       </div>
 
       {(selected.size > 0 || allMatching) && (
@@ -316,7 +324,7 @@ export function ResourceTable({
                 <tr><td colSpan={8} className="py-12 text-center text-muted">
                   <Package size={26} className="mx-auto mb-2 text-faint" />
                   <p className="font-medium text-fg">{t("resource.empty")}</p>
-                  <p className="text-[11px] text-faint">{t("resource.emptyHint")}</p>
+                  <p className="text-[11px] text-faint">{filters.search.trim() ? t("resource.emptySearchHint") : t("resource.emptyHint")}</p>
                 </td></tr>
               ) : visibleRows.map((r, index) => (
                 <ResourceRow
@@ -326,7 +334,7 @@ export function ResourceTable({
                   rowNo={(filters.page - 1) * filters.perPage + index + 1}
                   selected={selected.has(r.id) || allMatching}
                   selectionLocked={allMatching}
-                  masked={masked}
+                  copying={copyingId === r.id}
                   copied={copiedId === r.id}
                   onOpen={setDetail}
                   onToggle={toggleRow}

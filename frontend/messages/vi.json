@@ -484,8 +484,8 @@
     "closedDisputeLabel": "Kết quả khiếu nại",
     "closedDisputeHint": "Case đã đóng. Timeline dưới đây là toàn bộ thao tác của buyer và seller.",
     "claimedAccountsTitle": "Tài khoản bị khiếu nại · còn {count}",
-    "searchClaimedAccounts": "Tìm acc khiếu nại theo ID hoặc username",
-    "searchStockAccounts": "Tìm acc trong kho theo ID hoặc username",
+    "searchClaimedAccounts": "Tìm acc khiếu nại theo ID hoặc đúng username",
+    "searchStockAccounts": "Tìm acc trong kho theo ID hoặc đúng username",
     "showingClaimedAccounts": "Đang hiển thị {from}–{to} trên {total}",
     "pageOf": "{page} / {pages}",
     "claimedAccountsHintShort": "Chọn acc đang khiếu nại để hoàn tiền hoặc đổi",
@@ -1605,7 +1605,7 @@
         "archived": "Đã ẩn"
       },
       "export": "Xuất",
-      "searchPlaceholder": "Tìm nội dung hoặc mã đơn (ORD-…)…",
+      "searchPlaceholder": "Tìm đúng tài khoản (trường đầu) hoặc mã đơn ORD-…",
       "dateLabel": "Ngày nạp",
       "date": {
         "all": "Ngày nạp: tất cả",
@@ -1627,8 +1627,6 @@
         "newest": "Mới nhất",
         "oldest": "Cũ nhất"
       },
-      "reveal": "Hiện dữ liệu",
-      "mask": "Che dữ liệu",
       "selectPage": "Chọn tất cả dòng trên trang",
       "selectRow": "Chọn tài nguyên #{id}",
       "colStatus": "Trạng thái",
@@ -1668,7 +1666,12 @@
       "archiveFailed": "Không ẩn được",
       "restored": "Đã khôi phục tài nguyên",
       "restoreFailed": "Không khôi phục được",
-      "restockedOne": "Đã nạp lại tài nguyên"
+      "restockedOne": "Đã nạp lại tài nguyên",
+      "maskedNote": "Nội dung đã được che · bấm vào dòng để xem đầy đủ",
+      "revealing": "Đang tải nội dung…",
+      "revealFailed": "Không tải được nội dung dòng này",
+      "revealNote": "Nội dung đầy đủ chỉ tải khi bạn mở dòng này, và mỗi lần xem đều được ghi lại.",
+      "emptySearchHint": "Tìm theo nội dung cần gõ đúng và đủ trường đầu tiên (username / UID / key), không phân biệt hoa thường."
     },
     "export": {
       "title": "Xuất kho & báo cáo",
@@ -1931,7 +1934,8 @@
     "LOOKUP_INVALID_INPUT": "Link hoặc username không hợp lệ. Kiểm tra lại đường dẫn.",
     "LOOKUP_NOT_FOUND": "Không tìm thấy đối tượng này trên Facebook.",
     "LOOKUP_RATE_LIMITED": "Bạn tra cứu quá nhanh. Đợi một chút rồi thử lại.",
-    "LOOKUP_UNAVAILABLE": "Dịch vụ tra cứu tạm thời không khả dụng. Vui lòng thử lại sau."
+    "LOOKUP_UNAVAILABLE": "Dịch vụ tra cứu tạm thời không khả dụng. Vui lòng thử lại sau.",
+    "RATE_LIMITED": "Bạn thao tác quá nhanh. Vui lòng chờ một chút rồi thử lại"
   },
   "common": {
     "loading": "Đang tải…",

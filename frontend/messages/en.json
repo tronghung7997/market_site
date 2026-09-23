@@ -484,8 +484,8 @@
     "closedDisputeLabel": "Dispute outcome",
     "closedDisputeHint": "This case is closed. The timeline below is the record of buyer and seller actions.",
     "claimedAccountsTitle": "Affected accounts · {count} pending",
-    "searchClaimedAccounts": "Search claimed accounts by ID or username",
-    "searchStockAccounts": "Search available stock by ID or username",
+    "searchClaimedAccounts": "Search claimed accounts by ID or exact username",
+    "searchStockAccounts": "Search available stock by ID or exact username",
     "showingClaimedAccounts": "Showing {from}–{to} of {total}",
     "pageOf": "{page} / {pages}",
     "claimedAccountsHintShort": "Select the claimed accounts to refund or replace",
@@ -1605,7 +1605,7 @@
         "archived": "Hidden"
       },
       "export": "Export",
-      "searchPlaceholder": "Search content or order code (ORD-…)…",
+      "searchPlaceholder": "Exact account (first field) or order ORD-…",
       "dateLabel": "Restocked",
       "date": {
         "all": "Restocked: any time",
@@ -1627,8 +1627,6 @@
         "newest": "Newest first",
         "oldest": "Oldest first"
       },
-      "reveal": "Reveal data",
-      "mask": "Mask data",
       "selectPage": "Select every row on this page",
       "selectRow": "Select unit #{id}",
       "colStatus": "Status",
@@ -1668,7 +1666,12 @@
       "archiveFailed": "Could not hide",
       "restored": "Unit restored",
       "restoreFailed": "Could not restore",
-      "restockedOne": "Unit restocked"
+      "restockedOne": "Unit restocked",
+      "maskedNote": "Content is masked · open a line to see it in full",
+      "revealing": "Loading content…",
+      "revealFailed": "Could not load this line",
+      "revealNote": "The full content is only loaded when you open a line, and every view is recorded.",
+      "emptySearchHint": "Content search matches the whole first field (username / UID / key), case-insensitive."
     },
     "export": {
       "title": "Export & reports",
@@ -1931,7 +1934,8 @@
     "LOOKUP_INVALID_INPUT": "That link or username is not valid. Check the address.",
     "LOOKUP_NOT_FOUND": "We could not find this on Facebook.",
     "LOOKUP_RATE_LIMITED": "Too many lookups in a row. Wait a moment and try again.",
-    "LOOKUP_UNAVAILABLE": "The lookup service is temporarily unavailable. Please try again later."
+    "LOOKUP_UNAVAILABLE": "The lookup service is temporarily unavailable. Please try again later.",
+    "RATE_LIMITED": "Too many requests. Please slow down and try again"
   },
   "common": {
     "loading": "Loading…",

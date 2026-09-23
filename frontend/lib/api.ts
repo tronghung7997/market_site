@@ -1,5 +1,5 @@
 import type {
-  Account, ActionItem, AdminDepositIntent, AdminDepositLedgerQuery, AdminDepositLedgerResponse, AdminDepositTransaction, AdminDisputeDetail, AdminOrderDetail, AdminProduct, AdminResourceListResponse, AffiliateStats, AffiliateSummary, CalculateResult, Category, ChargeUsageResult, ChatConversationDetail, ChatConversationList, ChatMessage, DashboardData, DepositIntent, DepositMethods, DepositReconcileResult, DepositRailConfigAdmin, DepositRailConfigUpdate, Dispute, SePayWebhookEventRow, AdminAccountWallet, FundOverview, AccountAdminRow, PaginatedAccounts, LogEntry, MailConfigAdmin, MailConfigUpdate, MailOutboxList, MailSendTestResponse, MailTemplatePreview, MailTemplateRow, MoneyConfigAdmin, MoneyConfigPublic, MoneyConfigUpdate, Order, OrderStats, PaginatedAffiliateSummary, PaginatedOrderResponse, PaginatedProducts, PricingField, PricingOptions, ProductDetail, AdminProductDetail, Product, ProductLocale, ProductOperations, ProductTranslation, ProxyState, ProxyRotateResult, ProxyWhitelistResult, Review, SellerApplication, SellerDashboard, SellerDashboardRangeKey, SellerOrderQuery, PaginatedSellerOrders, SellerProduct, SellerProductBulkStatusResult, SellerProductSort, SellerStats, ServiceTask, TikTokLookupResponse, FacebookLookupResponse, Transaction, Variant, Wallet, WithdrawRequest, Provider, ProviderHealth, Alert, Resource, ResourceSummary, ResourceSellerFacet, InventoryVariant, SellerSummary, SellerProfile, SellerDisputeResource, SellerDisputeResourceList, SellerReplacementResourceList, BulkResourceActionResult,
+  Account, ActionItem, AdminDepositIntent, AdminDepositLedgerQuery, AdminDepositLedgerResponse, AdminDepositTransaction, AdminDisputeDetail, AdminOrderDetail, AdminProduct, AdminResourceListResponse, AffiliateStats, AffiliateSummary, CalculateResult, Category, ChargeUsageResult, ChatConversationDetail, ChatConversationList, ChatMessage, DashboardData, DepositIntent, DepositMethods, DepositReconcileResult, DepositRailConfigAdmin, DepositRailConfigUpdate, Dispute, SePayWebhookEventRow, AdminAccountWallet, FundOverview, AccountAdminRow, PaginatedAccounts, LogEntry, MailConfigAdmin, MailConfigUpdate, MailOutboxList, MailSendTestResponse, MailTemplatePreview, MailTemplateRow, MoneyConfigAdmin, MoneyConfigPublic, MoneyConfigUpdate, Order, OrderStats, PaginatedAffiliateSummary, PaginatedOrderResponse, PaginatedProducts, PricingField, PricingOptions, ProductDetail, AdminProductDetail, Product, ProductLocale, ProductOperations, ProductTranslation, ProxyState, ProxyRotateResult, ProxyWhitelistResult, Review, SellerApplication, SellerDashboard, SellerDashboardRangeKey, SellerOrderQuery, PaginatedSellerOrders, SellerProduct, SellerProductBulkStatusResult, SellerProductSort, SellerStats, ServiceTask, TikTokLookupResponse, FacebookLookupResponse, Transaction, Variant, Wallet, WithdrawRequest, Provider, ProviderHealth, Alert, Resource, ResourceReveal, ResourceSummary, ResourceSellerFacet, InventoryVariant, SellerResourceRow, SellerSummary, SellerProfile, SellerDisputeResource, SellerDisputeResourceList, SellerReplacementResourceList, BulkResourceActionResult,
   AdminReview,
   AdminReviewList,
   SellerReview,
@@ -474,7 +474,7 @@ export const api = {
       });
     }
     return {
-      items: Array.isArray(body) ? body as Resource[] : [],
+      items: Array.isArray(body) ? body as SellerResourceRow[] : [],
       total: Number(res.headers.get("X-Total-Count") ?? (Array.isArray(body) ? body.length : 0)),
     };
   },
@@ -505,19 +505,22 @@ export const api = {
     if (params.archivedOnly) q.set("archived_only", "true");
     return `/api/seller/variants/${variantId}/resources/export?${q}`;
   },
+  /** Full content of one of the seller's stock lines; audited and rate limited. */
+  revealResource: (resourceId: number) =>
+    request<ResourceReveal>(`/seller/resources/${resourceId}/data`, {}, true),
   updateResource: (resourceId: number, data: string) =>
-    request<Resource>(`/seller/resources/${resourceId}`, { method: "PATCH", body: JSON.stringify({ data }) }, true),
+    request<SellerResourceRow>(`/seller/resources/${resourceId}`, { method: "PATCH", body: JSON.stringify({ data }) }, true),
   restockResource: (resourceId: number, data: string) =>
-    request<Resource>(`/seller/resources/${resourceId}/restock`, {
+    request<SellerResourceRow>(`/seller/resources/${resourceId}/restock`, {
       method: "POST",
       body: JSON.stringify({ data }),
     }, true),
   archiveResource: (resourceId: number) =>
-    request<Resource>(`/seller/resources/${resourceId}/archive`, {
+    request<SellerResourceRow>(`/seller/resources/${resourceId}/archive`, {
       method: "POST",
     }, true),
   restoreResource: (resourceId: number) =>
-    request<Resource>(`/seller/resources/${resourceId}/restore`, {
+    request<SellerResourceRow>(`/seller/resources/${resourceId}/restore`, {
       method: "POST",
     }, true),
   bulkResourceAction: (variantId: number, input: BulkResourceActionInput) =>
@@ -976,7 +979,7 @@ export const api = {
   chargeUsage: (orderId: string | number, endpoint: string, units = 1) =>
     request<ChargeUsageResult>(`/orders/${orderId}/usage`, { method: "POST", body: JSON.stringify({ endpoint, units }) }, true),
   orderResources: (orderId: string | number) => request<Resource[]>(`/orders/${orderId}/resources`, {}, true),
-  markResourceError: (resourceId: number) => request<Resource>(`/seller/resources/${resourceId}/error`, { method: "POST" }, true),
+  markResourceError: (resourceId: number) => request<SellerResourceRow>(`/seller/resources/${resourceId}/error`, { method: "POST" }, true),
   adminResources: (params: { status?: string; seller_id?: number; search?: string; page?: number; per_page?: number } = {}) => {
     const q = new URLSearchParams();
     if (params.status) q.set("status", params.status);

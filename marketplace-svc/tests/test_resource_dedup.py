@@ -1,4 +1,5 @@
 """A3.2 — one credential can only exist once on the whole marketplace."""
+import hashlib
 import importlib.util
 from pathlib import Path
 
@@ -57,7 +58,9 @@ async def test_same_item_is_rejected_across_packages_and_sellers(client):
     assert second.status_code == 201, second.text
     assert second.json() == {"count": 1, "skipped_duplicate": 0, "skipped_existing": 0, "skipped_market": 1}
     listed = (await client.get(f"/seller/variants/{variant_b}/resources", headers=_auth(token_b))).json()
-    assert [r["data"] for r in listed] == ["acc3|pw"]
+    assert len(listed) == 1 and listed[0]["data_preview"] == "acc3|••••••"
+    shown = await client.get(f"/seller/resources/{listed[0]['id']}/data", headers=_auth(token_b))
+    assert shown.json()["data"] == "acc3|pw"
 
     # Editing / restocking into a value that lives elsewhere is refused the same way.
     edit = await client.patch(f"/seller/resources/{listed[0]['id']}", json={"data": "acc2|pw"}, headers=_auth(token_b))
@@ -115,8 +118,8 @@ async def test_migration_backfill_matches_python_digest_and_resolves_legacy_dupl
 
     ids = [r[0] for r in rows]
     assert len(rekeyed) == 2 and len(archived) == 1
-    # SQL digest == Python digest, line endings ignored.
-    assert rows[0][2] == resource_data_hash("dup|key") and rows[3][2] == resource_data_hash("solo|key")
+    # The fg backfill wrote plain sha256 of the normalised content (fx later re-keys it as HMAC).
+    assert rows[0][2] == hashlib.sha256(b"dup|key").hexdigest() and rows[3][2] == hashlib.sha256(b"solo|key").hexdigest()
     # Later copies: unique salted digests; the unsold one archived, the sold one untouched.
     assert rows[1][2] != rows[0][2] and rows[2][2] != rows[0][2] and rows[1][2] != rows[2][2]
     assert rows[1][3] is True and rows[2][3] is False and rows[0][3] is False

@@ -15,6 +15,7 @@ from src.models.product import DeliveryMode, Product, ProductStatus, ProductVari
 from src.models.resource import Resource, ResourceStatus, resource_data_hash
 from src.orders.codes import parse_order_ref
 from src.pricing.engine import inventory_managed_sql
+from src.resources.schemas import RESOURCE_DATA_MAX_LENGTH
 
 INVENTORY_LOW_STOCK = 5
 
@@ -62,6 +63,12 @@ async def bulk_add_resources(variant_id: int, seller_id: int, items: list[str], 
         raise api_error(ErrorCode.INVENTORY_NOT_INSTANT, status.HTTP_400_BAD_REQUEST)
 
     cleaned = [item.strip() for item in items if item.strip()]
+    for line, item in enumerate(cleaned, start=1):
+        if len(item) > RESOURCE_DATA_MAX_LENGTH:
+            raise api_error(
+                ErrorCode.RESOURCE_TOO_LONG, status.HTTP_422_UNPROCESSABLE_CONTENT,
+                line=line, max=RESOURCE_DATA_MAX_LENGTH,
+            )
     # Two lines that only differ in line endings / padding are the same key.
     by_hash: dict[str, str] = {}
     for item in cleaned:

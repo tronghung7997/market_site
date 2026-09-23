@@ -7,7 +7,15 @@ import { useApiErrorMessage } from "@/lib/use-api-error";
 import type { InventoryPackageDetail, RestockPreview, RestockResult } from "@/lib/types";
 import { Button, Input, Textarea } from "@/components/ui";
 import { AlertTriangle, Check, CheckCircle2, Download, Upload, X } from "@/components/Icons";
-import { downloadRestockTemplate, mergeRestockText, parseResourceItems, parseRestockFileContent } from "../logic";
+import {
+  RESOURCE_LINE_MAX_LENGTH,
+  downloadRestockTemplate,
+  mergeRestockText,
+  parseResourceItems,
+  parseRestockFileContent,
+  tooLongRestockLines,
+  type RestockProgress,
+} from "../logic";
 import { useRestock, useRestockPreview } from "../useInventory";
 
 const MAX_LINES = 5000;
@@ -34,16 +42,22 @@ export function RestockPanel({ pkg, onClose, onDone }: { pkg: InventoryPackageDe
   const [fileName, setFileName] = useState<string | null>(null);
   const [error, setError] = useState<string | null>(null);
   const [previewData, setPreviewData] = useState<RestockPreview | null>(null);
+  const [previewError, setPreviewError] = useState<string | null>(null);
+  const [progress, setProgress] = useState<RestockProgress | null>(null);
   // Raw lines (duplicates kept) so the server preview can report them; the
   // add endpoint de-duplicates on its own and echoes the skip counters back.
   const items = useMemo(() => parseResourceItems(text, false), [text]);
   const tooMany = items.length > MAX_LINES;
+  const tooLong = useMemo(() => tooLongRestockLines(items), [items]);
 
   // Live server preview: duplicates already in stock + field-count check.
   useEffect(() => {
-    if (items.length === 0 || tooMany) { setPreviewData(null); return; }
+    if (items.length === 0 || tooMany) { setPreviewData(null); setPreviewError(null); return; }
     const handle = setTimeout(() => {
-      preview.mutate(items, { onSuccess: setPreviewData, onError: () => setPreviewData(null) });
+      preview.mutate(items, {
+        onSuccess: (data) => { setPreviewData(data); setPreviewError(null); },
+        onError: (err) => { setPreviewData(null); setPreviewError(apiErrorMessage(err, t("restock.failed"))); },
+      });
     }, 400);
     return () => clearTimeout(handle);
     // eslint-disable-next-line react-hooks/exhaustive-deps
@@ -63,16 +77,25 @@ export function RestockPanel({ pkg, onClose, onDone }: { pkg: InventoryPackageDe
   };
 
   const submit = async () => {
-    if (items.length === 0 || tooMany) return;
+    if (items.length === 0 || tooMany || tooLong.length > 0) return;
     setError(null);
+    let reached: RestockProgress | null = null;
     try {
-      const result = await restock.mutateAsync(items);
+      const result = await restock.mutateAsync({ items, onProgress: (next) => { reached = next; setProgress(next); } });
       setText("");
       setFileName(null);
       setPreviewData(null);
+      setPreviewError(null);
       onDone(result);
     } catch (err) {
-      setError(apiErrorMessage(err, t("restock.failed")));
+      const message = apiErrorMessage(err, t("restock.failed"));
+      const saved = reached as RestockProgress | null;
+      // Earlier batches are committed; the text stays so a retry sends only what is missing.
+      setError(saved && saved.done > 0
+        ? t("restock.partialFailed", { done: saved.done.toLocaleString(locale), total: saved.total.toLocaleString(locale), added: saved.added.toLocaleString(locale), error: message })
+        : message);
+    } finally {
+      setProgress(null);
     }
   };
 
@@ -125,17 +148,23 @@ export function RestockPanel({ pkg, onClose, onDone }: { pkg: InventoryPackageDe
           {t("restock.malformedHint", { expected, count: previewData.malformed_total })}
         </p>
       )}
+      {tooLong.length > 0 && (
+        <p role="alert" className="rounded-lg border border-bad/20 bg-bad-soft p-2 text-xs font-medium text-bad">
+          {t("restock.tooLong", { lines: tooLong.slice(0, 5).join(", "), count: tooLong.length, max: RESOURCE_LINE_MAX_LENGTH.toLocaleString(locale) })}
+        </p>
+      )}
       {tooMany && (
         <p role="alert" className="rounded-lg border border-bad/20 bg-bad-soft p-2 text-xs font-medium text-bad">{t("restock.tooMany", { max: MAX_LINES.toLocaleString(locale) })}</p>
       )}
+      {previewError && !error && <p role="alert" className="rounded-lg border border-bad/20 bg-bad-soft p-2 text-xs font-medium text-bad">{previewError}</p>}
       {error && <p role="alert" className="rounded-lg border border-bad/20 bg-bad-soft p-2 text-xs font-medium text-bad">{error}</p>}
 
       <div className="flex flex-wrap items-center justify-between gap-3">
         <span className="text-[11.5px] text-faint">{t("restock.dedupe")}</span>
         <div className="flex items-center gap-2">
           <Button size="sm" variant="ghost" onClick={onClose}>{t("restock.cancel")}</Button>
-          <Button size="sm" onClick={() => void submit()} disabled={restock.isPending || items.length === 0 || tooMany || toAdd === 0} className="gap-1.5">
-            {restock.isPending ? <>{t("restock.submitting")}</> : <><Check size={13} /> {t("restock.submit", { count: toAdd.toLocaleString(locale) })}</>}
+          <Button size="sm" onClick={() => void submit()} disabled={restock.isPending || items.length === 0 || tooMany || tooLong.length > 0 || toAdd === 0} className="gap-1.5">
+            {restock.isPending ? <>{progress && progress.total > 0 ? t("restock.progress", { done: progress.done.toLocaleString(locale), total: progress.total.toLocaleString(locale) }) : t("restock.submitting")}</> : <><Check size={13} /> {t("restock.submit", { count: toAdd.toLocaleString(locale) })}</>}
           </Button>
         </div>
       </div>

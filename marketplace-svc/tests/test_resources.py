@@ -95,6 +95,75 @@ async def test_bulk_add_normalizes_whitespace_and_ignores_blank_lines(client):
 
 
 @pytest.mark.asyncio
+async def test_bulk_add_accepts_long_lines_up_to_the_shared_cap(client):
+    from src.resources.schemas import RESOURCE_DATA_MAX_LENGTH
+
+    seller_token, variant_id = await setup_variant(client)
+    headers = {"Authorization": f"Bearer {seller_token}"}
+    at_cap = "u|p|" + "c" * (RESOURCE_DATA_MAX_LENGTH - 4)
+
+    added = await client.post(
+        f"/seller/variants/{variant_id}/resources", json={"items": [at_cap]}, headers=headers,
+    )
+    assert added.status_code == 201
+    assert added.json()["count"] == 1
+
+    rows = await client.get(f"/seller/variants/{variant_id}/resources", headers=headers)
+    resource_id = rows.json()[0]["id"]
+    # Anything that can be uploaded can also be edited afterwards.
+    edited = await client.patch(
+        f"/seller/resources/{resource_id}", json={"data": at_cap[:-1] + "x"}, headers=headers,
+    )
+    assert edited.status_code == 200
+
+
+@pytest.mark.asyncio
+async def test_bulk_add_rejects_a_line_over_the_cap_without_saving_any(client):
+    from src.resources.schemas import RESOURCE_DATA_MAX_LENGTH
+
+    seller_token, variant_id = await setup_variant(client)
+    headers = {"Authorization": f"Bearer {seller_token}"}
+    resp = await client.post(
+        f"/seller/variants/{variant_id}/resources",
+        json={"items": ["ok|line", "x" * (RESOURCE_DATA_MAX_LENGTH + 1)]},
+        headers=headers,
+    )
+    assert resp.status_code == 422
+    body = resp.json()
+    assert body["error_code"] == "RESOURCE_TOO_LONG"
+    assert body["params"] == {"line": 2, "max": RESOURCE_DATA_MAX_LENGTH}
+    rows = await client.get(f"/seller/variants/{variant_id}/resources", headers=headers)
+    assert rows.json() == []
+
+
+@pytest.mark.asyncio
+async def test_restock_routes_accept_bodies_over_the_global_cap(client):
+    seller_token, variant_id = await setup_variant(client)
+    headers = {"Authorization": f"Bearer {seller_token}"}
+    # ~1.5 MB: over the 1 MB global cap, under the 20 MB restock cap.
+    items = [f"user{i}|pass|" + "c" * 10_000 for i in range(150)]
+
+    preview = await client.post(
+        f"/seller/variants/{variant_id}/resources/preview", json={"items": items}, headers=headers,
+    )
+    assert preview.status_code == 200
+    assert preview.json()["to_add"] == 150
+
+    added = await client.post(
+        f"/seller/variants/{variant_id}/resources", json={"items": items}, headers=headers,
+    )
+    assert added.status_code == 201
+    assert added.json()["count"] == 150
+
+    rows = await client.get(f"/seller/variants/{variant_id}/resources", headers=headers)
+    other = await client.patch(
+        f"/seller/resources/{rows.json()[0]['id']}", json={"data": "x" * 1_200_000}, headers=headers,
+    )
+    assert other.status_code == 413
+    assert other.json()["error_code"] == "REQUEST_TOO_LARGE"
+
+
+@pytest.mark.asyncio
 async def test_bulk_add_rejects_a_different_seller(client):
     seller_token, variant_id = await setup_variant(client)
     other_token = await register_and_login(client, "res_other@example.com")

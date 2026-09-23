@@ -86,6 +86,7 @@ class ErrorCode(str, Enum):
     RESOURCE_NOT_EDITABLE = "RESOURCE_NOT_EDITABLE"
     RESOURCE_DUPLICATE = "RESOURCE_DUPLICATE"
     RESOURCE_EMPTY = "RESOURCE_EMPTY"
+    RESOURCE_TOO_LONG = "RESOURCE_TOO_LONG"
     RESOURCE_NOT_DELETABLE = "RESOURCE_NOT_DELETABLE"
     CATEGORY_NOT_FOUND = "CATEGORY_NOT_FOUND"
     PRODUCT_SUSPENDED = "PRODUCT_SUSPENDED"
@@ -104,6 +105,7 @@ class ErrorCode(str, Enum):
     INVALID_CREDENTIALS = "INVALID_CREDENTIALS"
     AUTH_RATE_LIMITED = "AUTH_RATE_LIMITED"
     RATE_LIMITED = "RATE_LIMITED"
+    REQUEST_TOO_LARGE = "REQUEST_TOO_LARGE"
     SEARCH_TIMEOUT = "SEARCH_TIMEOUT"
     SEARCH_SYNONYM_INVALID = "SEARCH_SYNONYM_INVALID"
     SEARCH_SYNONYM_NOT_FOUND = "SEARCH_SYNONYM_NOT_FOUND"
@@ -200,6 +202,7 @@ MESSAGES_EN: dict[ErrorCode, str] = {
     ErrorCode.RESOURCE_NOT_EDITABLE: "Only in-stock resources can be edited",
     ErrorCode.RESOURCE_DUPLICATE: "This item already exists on the marketplace (listed or sold before)",
     ErrorCode.RESOURCE_EMPTY: "Resource content cannot be empty",
+    ErrorCode.RESOURCE_TOO_LONG: "Line {line} is longer than {max} characters",
     ErrorCode.RESOURCE_NOT_DELETABLE: "Only available resources can be deleted",
     ErrorCode.CATEGORY_NOT_FOUND: "Category not found",
     ErrorCode.PRODUCT_SUSPENDED: "This product is suspended and cannot be changed by the seller",
@@ -218,6 +221,7 @@ MESSAGES_EN: dict[ErrorCode, str] = {
     ErrorCode.INVALID_CREDENTIALS: "Email or password is incorrect",
     ErrorCode.AUTH_RATE_LIMITED: "Too many attempts. Please try again later",
     ErrorCode.RATE_LIMITED: "Too many requests. Please slow down and try again",
+    ErrorCode.REQUEST_TOO_LARGE: "Request is larger than the {max_mb} MB limit. Split it into smaller batches",
     ErrorCode.SEARCH_TIMEOUT: "Search took too long. Please refine your query and try again",
     ErrorCode.SEARCH_SYNONYM_INVALID: "A synonym group needs a name and at least one term",
     ErrorCode.SEARCH_SYNONYM_NOT_FOUND: "Synonym group not found",

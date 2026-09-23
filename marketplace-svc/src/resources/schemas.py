@@ -6,6 +6,9 @@ from src.orders.constants import MAX_ORDER_QUANTITY
 
 
 RESTOCK_MAX_ITEMS = 5_000
+# One stock line (e.g. user|pass|mail|cookies JSON). Shared by bulk add, edit
+# and restock so anything that can be uploaded can also be edited later.
+RESOURCE_DATA_MAX_LENGTH = 20_000
 
 
 class BulkResourceCreate(BaseModel):
@@ -32,11 +35,11 @@ class RestockPreviewResponse(BaseModel):
 
 
 class ResourceUpdate(BaseModel):
-    data: str = Field(min_length=1, max_length=8000)
+    data: str = Field(min_length=1, max_length=RESOURCE_DATA_MAX_LENGTH)
 
 
 class ResourceRestock(BaseModel):
-    data: str = Field(min_length=1, max_length=8000)
+    data: str = Field(min_length=1, max_length=RESOURCE_DATA_MAX_LENGTH)
 
 
 class BulkResourceAction(BaseModel):

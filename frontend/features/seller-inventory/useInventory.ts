@@ -2,6 +2,7 @@
 
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
 import { api } from "@/lib/api";
+import { ApiError } from "@/lib/api-error";
 import { queryKeys } from "@/lib/query-keys";
 import type {
   BulkResourceActionInput,
@@ -10,6 +11,14 @@ import type {
   InventoryReportParams,
   SellerResourceQuery,
 } from "@/lib/types";
+import {
+  RESOURCE_LINE_MAX_LENGTH,
+  runInRestockBatches,
+  runRestockBatches,
+  summarizeRestockPreview,
+  tooLongRestockLines,
+  type RestockProgress,
+} from "./logic";
 import { PACKAGE_PAGE_SIZE, type InventoryFilters } from "./model";
 
 export function useInventoryPackages(filters: InventoryFilters) {
@@ -95,16 +104,45 @@ export function useBulkPackageStatus() {
   });
 }
 
+/**
+ * Bulk add in request-sized batches (see `runRestockBatches`). Over-long lines
+ * are rejected up front, before any batch is saved, with the same coded error
+ * the backend would return — but with line numbers from the whole upload.
+ */
+export async function addResourcesInBatches(
+  variantId: number,
+  items: readonly string[],
+  onProgress?: (progress: RestockProgress) => void,
+) {
+  const tooLong = tooLongRestockLines(items);
+  if (tooLong.length > 0) {
+    throw new ApiError(
+      422,
+      `Line ${tooLong[0]} is longer than ${RESOURCE_LINE_MAX_LENGTH} characters`,
+      "RESOURCE_TOO_LONG",
+      { line: tooLong[0], max: RESOURCE_LINE_MAX_LENGTH },
+    );
+  }
+  return runRestockBatches(items, (batch) => api.addResources(variantId, batch), onProgress);
+}
+
 export function useRestock(variantId: number) {
   const invalidate = useInvalidateInventory();
   return useMutation({
-    mutationFn: (items: string[]) => api.addResources(variantId, items),
+    mutationFn: ({ items, onProgress }: { items: string[]; onProgress?: (progress: RestockProgress) => void }) =>
+      addResourcesInBatches(variantId, items, onProgress),
+    // Also after a partial failure: earlier batches are already in stock.
     onSettled: () => void invalidate(variantId),
   });
 }
 
 export function useRestockPreview(variantId: number) {
-  return useMutation({ mutationFn: (items: string[]) => api.restockPreview(variantId, items) });
+  return useMutation({
+    mutationFn: async (items: string[]) => {
+      const batches = await runInRestockBatches([...new Set(items)], (batch) => api.restockPreview(variantId, batch));
+      return summarizeRestockPreview(items, batches);
+    },
+  });
 }
 
 export function useBulkResourceAction(variantId: number) {

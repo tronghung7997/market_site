@@ -9,6 +9,7 @@ import { useApiErrorMessage } from "@/lib/use-api-error";
 import { useMoney } from "@/lib/money";
 import type { SellerProduct, SellerVariant } from "@/lib/types";
 import {
+  addResourcesInBatches,
   downloadRestockTemplate,
   mergeRestockText,
   parseResourceItems,
@@ -87,11 +88,13 @@ function RestockForm({ product, onClose }: { product: SellerProduct; onClose: ()
     setSubmitting(true);
     setError(null);
     try {
-      const result = await api.addResources(selectedVariantId, parsedItems);
+      const result = await addResourcesInBatches(selectedVariantId, parsedItems);
       setSuccessCount(result.count);
       await invalidate();
       setTimeout(onClose, 1200);
     } catch (err: unknown) {
+      // Batches before the failure are committed; refresh the stock counts.
+      void invalidate();
       setError(apiErrorMessage(err, t("inventoryAddFailed")));
     } finally {
       setSubmitting(false);

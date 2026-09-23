@@ -10,7 +10,7 @@ import { useAuth } from "@/lib/auth";
 import { canUseSellerProviders } from "@/lib/seller-tier";
 import type { ProductLocale, ProductTranslation, Variant } from "@/lib/types";
 import { Button, Tag } from "@/components/ui";
-import { parseResourceItems } from "@/features/seller-inventory";
+import { addResourcesInBatches, parseResourceItems } from "@/features/seller-inventory";
 import {
   buildDynamicPricingPlan,
   buyerContentToTranslation,
@@ -161,7 +161,7 @@ export function CreateProductPage() {
           let stockText = pkg.stockText;
           let uploadedFileName = pkg.uploadedFileName;
           if (deliveryMode === "instant" && pendingItems.length > 0) {
-            const result = await api.addResources(variantId, pendingItems);
+            const result = await addResourcesInBatches(variantId, pendingItems);
             committedStock += result.count;
             stockText = "";
             uploadedFileName = null;

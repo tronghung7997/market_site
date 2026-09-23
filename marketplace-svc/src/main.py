@@ -151,7 +151,15 @@ app.add_middleware(
         "X-Request-ID",
     ],
 )
-app.add_middleware(BodySizeLimitMiddleware, max_bytes=settings.max_request_body_bytes)
+app.add_middleware(
+    BodySizeLimitMiddleware,
+    max_bytes=settings.max_request_body_bytes,
+    overrides=[
+        # Seller restock: bulk add + its preview. The console sends ~2 MB batches and
+        # re-splits on REQUEST_TOO_LARGE, so this is headroom, not the batch size.
+        ("POST", r"/seller/variants/\d+/resources(?:/preview)?", settings.restock_max_request_body_bytes),
+    ],
+)
 app.add_middleware(AdminIpAllowlistMiddleware)
 app.add_middleware(
     SecurityHeadersMiddleware,

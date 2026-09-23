@@ -1,8 +1,9 @@
 /**
- * Buyer-facing stock helpers. Public product payloads no longer carry exact
- * counts — only `stock_state` (in_stock / low / out / manual) and
- * `max_quantity`. Seller/admin payloads still have `stock_count`, so every
- * helper falls back to it when the state is missing.
+ * Buyer-facing stock helpers. Public product payloads carry `stock_state`
+ * (in_stock / low / out / manual) and `max_quantity`, plus the exact
+ * `stock_count` for instant packages (shown as "còn N"). Seller/admin
+ * payloads always have `stock_count`, so every helper falls back to it when
+ * the state is missing.
  */
 
 import { MAX_ORDER_QUANTITY } from "./order-limits.ts";

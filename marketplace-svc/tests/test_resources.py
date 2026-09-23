@@ -786,7 +786,7 @@ async def test_restock_and_archive_resource(client):
         for variant in product["variants"]
         if variant["id"] == variant_id
     )
-    # Storefront payloads carry only the bucketed state, never the exact count.
+    # Storefront shows the exact count of an instant package next to its state.
     assert public_variant["stock_state"] == "out"
     assert public_variant["max_quantity"] == 0
-    assert "stock_count" not in public_variant
+    assert public_variant["stock_count"] == 0

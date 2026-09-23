@@ -13,6 +13,7 @@ import {
 } from "@/components/Icons";
 import { Dialog, DialogContent, DialogFooter, DialogHeader, DialogTitle } from "@/components/ui/dialog";
 import { cn } from "@/lib/cn";
+import { sellerProductPath } from "@/lib/routes";
 import {
   blockReason, countListings, fixPrice, groupListings, listingState, marginOf, needsAction, sourceRef,
   type ListingState,
@@ -34,7 +35,9 @@ export function SellingTab({ area, source, rows, reload, setRows, goTab }: {
   const { formatLedgerMoney } = useMoney();
   const apiErrorMessage = useApiErrorMessage();
   const money = (n: number) => formatLedgerMoney(n, locale);
-  const productBase = area === "admin" ? "/admin/products" : "/seller/products";
+  // Trang admin đọc id số; khu seller dùng public_key (không lộ row id).
+  const productHref = (g: { product_id: number; public_key: string }) =>
+    area === "admin" ? `/admin/products/${g.product_id}` : sellerProductPath({ id: g.product_id, public_key: g.public_key });
 
   const [q, setQ] = useState("");
   const [filter, setFilter] = useState<Filter>("all");
@@ -266,7 +269,7 @@ export function SellingTab({ area, source, rows, reload, setRows, goTab }: {
                           {t("selling.groupMeta", { n: g.rows.length })}{g.group_name ? ` · ${t("selling.groupOf", { group: g.group_name })}` : ""}
                         </span>
                         {g.product_status !== "active" && <Tag tone="neutral">{t(`productStatus.${g.product_status}`)}</Tag>}
-                        <Link href={`${productBase}/${g.public_key}`} className="ml-auto inline-flex items-center gap-1 text-[12.5px] font-medium text-iris-hi hover:text-iris">
+                        <Link href={productHref(g)} className="ml-auto inline-flex items-center gap-1 text-[12.5px] font-medium text-iris-hi hover:text-iris">
                           {g.product_status === "draft" ? t("selling.finishDraft") : t("selling.editProduct")}<ExternalLink size={13} />
                         </Link>
                       </div>

@@ -163,7 +163,7 @@ function PackagesTab({ area, sref, onSaved }: { area: SourceArea; sref: string; 
     || costNum !== data.cost_per_request || title.trim() !== (data.product?.title ?? "") || categoryId !== (data.product?.category_id ?? 0);
   const selling = data.product?.status === "active";
   const productHref = data.product
-    ? area === "admin" ? `/admin/products/${data.product.public_key}` : sellerProductPath({ id: data.product.id, public_key: data.product.public_key })
+    ? area === "admin" ? `/admin/products/${data.product.id}` : sellerProductPath({ id: data.product.id, public_key: data.product.public_key })
     : null;
 
   const save = async (publish?: boolean) => {

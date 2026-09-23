@@ -16,11 +16,13 @@ from src.models.alert import Alert
 from src.models.order import Order, OrderStatus
 from src.models.proxy_allocation import ProxyAllocation, ProxyAllocationSource, ProxyAllocationStatus
 from src.orders.service import provision_pending_order
+from src.models.proxy_allocation import UpstreamRevocation
 from src.scheduler import (
     DPROXY_MISSING_GRACE_ROUNDS,
     PROVISION_DEADLINE_SECONDS,
     dproxy_reconciliation_job,
     provision_sweep_job,
+    upstream_revocation_job,
 )
 from src.security.crypto import encrypt_str
 
@@ -140,6 +142,9 @@ async def test_admin_full_refund_sends_partner_dispute_and_releases_binding(clie
         headers={"Authorization": f"Bearer {admin_token}"},
     )
     assert resp.status_code == 200, resp.text
+    # partner-dispute được XẾP cùng transaction hoàn tiền, gửi sau commit.
+    assert _dispute_calls(calls) == []
+    await upstream_revocation_job()
 
     disputes = _dispute_calls(calls)
     assert len(disputes) == 1
@@ -168,12 +173,16 @@ async def test_refund_still_succeeds_when_partner_dispute_fails(client, monkeypa
         headers={"Authorization": f"Bearer {admin_token}"},
     )
     assert resp.status_code == 200, resp.text
-    assert len(_dispute_calls(calls)) == 3  # retried, then gave up
+    assert _dispute_calls(calls) == []
+    await upstream_revocation_job()
+    assert len(_dispute_calls(calls)) == 3  # retried inside one attempt, row stays queued
     async with SessionLocal() as db:
         order = await db.get(Order, order_id)
         assert order.status == OrderStatus.refunded
         allocation = await db.scalar(select(ProxyAllocation).where(ProxyAllocation.order_id == order_id))
         assert allocation.status == ProxyAllocationStatus.released
+        row = await db.scalar(select(UpstreamRevocation).where(UpstreamRevocation.order_id == order_id))
+        assert row.status == "pending" and row.attempts == 1
 
 
 @pytest.mark.asyncio
@@ -218,6 +227,8 @@ async def test_provision_deadline_refund_sends_partner_dispute(client, monkeypat
 
     calls = _patch_dproxy_http(monkeypatch, _resp(200, {"success": True, "data": {"status": "disputed"}}))
     await provision_sweep_job()
+    assert _dispute_calls(calls) == []  # không gọi HTTP khi đang giữ lock đơn
+    await upstream_revocation_job()
 
     disputes = _dispute_calls(calls)
     assert len(disputes) == 1
@@ -228,11 +239,11 @@ async def test_provision_deadline_refund_sends_partner_dispute(client, monkeypat
         alert = await db.scalar(select(Alert).where(Alert.type == "provision_stuck", Alert.target_id == order_id))
         assert alert is not None
         assert f"{PREFIX}{order_id}" in alert.message
-        assert "đã gửi partner-dispute" in alert.message
+        assert "đã xếp partner-dispute" in alert.message
 
 
 @pytest.mark.asyncio
-async def test_provision_deadline_alert_says_when_dispute_could_not_be_sent(client, monkeypatch):
+async def test_provision_deadline_dispute_stays_queued_while_dproxy_is_down(client, monkeypatch):
     buyer_token, _, product_id, _ = await setup_dproxy_config_product(client, suffix="_deadline_m2m_down")
     order_id = await _place_config_order(client, buyer_token, product_id, monkeypatch)
     async with SessionLocal() as db:
@@ -245,13 +256,16 @@ async def test_provision_deadline_alert_says_when_dispute_could_not_be_sent(clie
 
     _patch_dproxy_http(monkeypatch, _resp(503))
     await provision_sweep_job()
+    await upstream_revocation_job()
 
     async with SessionLocal() as db:
         order = await db.get(Order, order_id)
         assert order.status == OrderStatus.cancelled
         alert = await db.scalar(select(Alert).where(Alert.type == "provision_stuck", Alert.target_id == order_id))
-        assert "KHÔNG gửi được partner-dispute" in alert.message
         assert f"{PREFIX}{order_id}" in alert.message
+        row = await db.scalar(select(UpstreamRevocation).where(UpstreamRevocation.order_id == order_id))
+        assert row.reason == "provision_deadline"
+        assert row.status == "pending" and row.attempts == 1
 
 
 # ---------------------------------------------------------------------------
@@ -291,8 +305,17 @@ async def test_catalog_is_loaded_even_when_inventory_read_is_forbidden(monkeypat
     vẫn cần catalog để map plan — health không được chặn nó."""
     _patch_dproxy_http(monkeypatch, [_resp(200, PLANS), _resp(403)])
     health = await _adapter(plan_ids={"residential|VN|7": PLAN_ID}).check_health()
-    assert health["status"] == "unhealthy"
+    # Key chỉ có quyền M2M vẫn bán được — cảnh báo, không chặn wizard.
+    assert health["status"] == "warning"
+    assert health["purchase_ready"] is True
     assert health["plans"][0]["id"] == PLAN_ID
+
+
+@pytest.mark.asyncio
+async def test_inventory_forbidden_without_plan_mapping_is_unhealthy(monkeypatch):
+    _patch_dproxy_http(monkeypatch, [_resp(200, PLANS), _resp(403)])
+    health = await _adapter().check_health()
+    assert health["status"] == "unhealthy"
 
 
 @pytest.mark.asyncio

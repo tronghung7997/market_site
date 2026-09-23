@@ -35,6 +35,7 @@ from src.suppliers.router import router as supplier_sources_router
 from src.tasks.router import router as tasks_router
 from src.resources.router import router as resources_router
 from src.resources.proxy_router import router as proxy_router
+from src.proxies.router import router as proxies_router
 from src.reviews.router import router as reviews_router
 from src.payments.router import router as payments_router
 from src.mail.router import router as mail_router
@@ -46,6 +47,7 @@ from src.scheduler import (
     dispute_abandonment_job,
     dispute_resolution_timeout_job,
     dispute_seller_timeout_job,
+    dproxy_credit_check_job,
     dproxy_reconciliation_job,
     auto_review_job,
     escrow_release_job,
@@ -57,6 +59,7 @@ from src.scheduler import (
     resource_expire_job,
     sla_check_job,
     task_webhook_sla_job,
+    upstream_revocation_job,
 )
 from src.errors.handlers import register_error_handlers
 from src.security.crypto import using_default_encryption_key
@@ -101,6 +104,8 @@ scheduler.add_job(resource_expire_job, "interval", minutes=15, id="resource_expi
 scheduler.add_job(pausable(provision_sweep_job), "interval", minutes=2, id="provision_sweep")
 scheduler.add_job(task_webhook_sla_job, "interval", minutes=30, id="task_webhook_sla")
 scheduler.add_job(pausable(dproxy_reconciliation_job), "interval", minutes=15, id="dproxy_reconciliation")
+scheduler.add_job(upstream_revocation_job, "interval", minutes=2, id="upstream_revocation")
+scheduler.add_job(dproxy_credit_check_job, "interval", minutes=30, id="dproxy_credit_check")
 scheduler.add_job(deposit_reconcile_job, "interval", minutes=5, id="deposit_reconcile")
 scheduler.add_job(deposit_expire_job, "interval", minutes=10, id="deposit_expire")
 scheduler.add_job(provider_credit_low_job, "interval", minutes=15, id="provider_credit_low")
@@ -225,6 +230,7 @@ if settings.debug_routes_enabled:
 app.include_router(usage_router)
 app.include_router(gateway_router)
 app.include_router(proxy_router)
+app.include_router(proxies_router)
 app.include_router(ops_router)
 app.include_router(site_pages_router)
 app.include_router(search_router)

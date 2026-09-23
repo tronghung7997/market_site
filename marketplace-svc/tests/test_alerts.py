@@ -240,3 +240,33 @@ async def test_alert_response_includes_lifecycle_fields(client):
     assert "last_seen_at" in row
     assert "occurrence_count" in row
     assert row["occurrence_count"] >= 1
+
+
+@pytest.mark.asyncio
+async def test_new_critical_incident_emails_every_active_admin_once(client):
+    from src.models.mail import MailOutbox
+
+    await register_and_login(client, "ops_admin1@example.com")
+    await make_admin("ops_admin1@example.com")
+    await register_and_login(client, "ops_admin2@example.com")
+    await make_admin("ops_admin2@example.com")
+    await register_and_login(client, "ops_buyer@example.com")
+
+    async with SessionLocal() as db:
+        for _ in range(2):
+            await upsert_incident(
+                db, fingerprint="order:77:upstream_revoke_failed", type_="upstream_revoke_failed",
+                severity="critical", target_type="order", target_id=77, message="Không thu hồi được proxy",
+            )
+        await upsert_incident(
+            db, fingerprint="order:78:provision_stuck", type_="provision_stuck",
+            severity="warning", target_type="order", target_id=78, message="chỉ cảnh báo",
+        )
+        await db.commit()
+
+    async with SessionLocal() as db:
+        mails = (await db.execute(select(MailOutbox).where(MailOutbox.template == "ops_incident"))).scalars().all()
+        recipients = sorted(m.to_email for m in mails)
+    assert recipients == ["ops_admin1@example.com", "ops_admin2@example.com"]
+    assert all("upstream_revoke_failed" in m.payload["reason"] for m in mails)
+    assert all(m.payload["action_url"].endswith("/vi/admin/alerts") for m in mails)

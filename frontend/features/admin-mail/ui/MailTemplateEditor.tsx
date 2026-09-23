@@ -15,7 +15,7 @@ const TEMPLATE_GROUPS: ReadonlyArray<{ id: string; templates: readonly string[] 
   { id: "seller", templates: ["seller_application_approved", "seller_application_rejected", "provider_approved", "provider_rejected"] },
   { id: "wallet", templates: ["withdrawal_approved", "withdrawal_rejected"] },
   { id: "dispute", templates: ["dispute_opened", "dispute_resolved"] },
-  { id: "other", templates: ["admin_test"] },
+  { id: "other", templates: ["ops_incident", "admin_test"] },
 ];
 
 const LOCALES = ["vi", "en"] as const;

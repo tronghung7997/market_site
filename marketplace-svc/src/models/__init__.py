@@ -24,7 +24,7 @@ from src.models.order import (
 from src.models.product import DeliveryMode, Product, ProductStatus, ProductVariant, ServiceType
 from src.models.pricing_config import PricingConfig
 from src.models.provider import Provider, ProviderCallLog, ProviderHealth
-from src.models.proxy_allocation import ProxyAllocation, ProxyAllocationStatus
+from src.models.proxy_allocation import ProxyAllocation, ProxyAllocationStatus, ProxyAllocationTag, ProxyTag, UpstreamRevocation
 from src.models.resource import Resource, ResourceStatus
 from src.models.service_task import ServiceTask, ServiceTaskStatus
 from src.models.usage import GatewayCallLog, OrderBalance, UsageRecord, UsageRecordStatus
@@ -46,7 +46,7 @@ from src.models.seller_runtime_config import SellerRuntimeConfig
 from src.models.site_analytics_config import SiteAnalyticsConfig
 from src.models.site_page import SitePage
 from src.models.site_runtime_config import SiteRuntimeConfig
-from src.models.supplier_listing import SupplierCatalogItem, SupplierListing
+from src.models.supplier_listing import SupplierCatalogItem, SupplierListing, SupplierPurchase
 from src.models.search import SearchQueryLog, SearchSynonym
 from src.models.ai_config import AiPromptTemplate, AiProviderConfig, AiUsageLog
 from src.models.trust_seed import TrustSeedBatch
@@ -68,7 +68,7 @@ __all__ = [
     "DeliveryMode", "Product", "ProductStatus", "ProductVariant", "ServiceType",
     "PricingConfig",
     "Provider", "ProviderCallLog", "ProviderHealth",
-    "ProxyAllocation", "ProxyAllocationStatus",
+    "ProxyAllocation", "ProxyAllocationStatus", "ProxyAllocationTag", "ProxyTag", "UpstreamRevocation",
     "Resource", "ResourceStatus",
     "ServiceTask", "ServiceTaskStatus",
     "OrderBalance", "UsageRecord", "UsageRecordStatus", "GatewayCallLog",
@@ -81,7 +81,7 @@ __all__ = [
     "SellerRuntimeConfig", "SiteAnalyticsConfig",
     "SitePage", "SiteRuntimeConfig",
     "SearchQueryLog", "SearchSynonym",
-    "SupplierCatalogItem", "SupplierListing",
+    "SupplierCatalogItem", "SupplierListing", "SupplierPurchase",
     "AiPromptTemplate", "AiProviderConfig", "AiUsageLog",
     "TrustSeedBatch",
 ]

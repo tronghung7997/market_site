@@ -1,9 +1,14 @@
 /** Pure helpers for the supplier-sources feature (no React). */
 
-import type { SourceCatalogItem, SourceListing } from "@/lib/types";
+import type { SourceCatalogItem, SourceListing, SupplierSource } from "@/lib/types";
+
+/** URL/API ref of a source: sellers see the public key, never the row id. */
+export function sourceRef(area: "admin" | "seller", source: { id: number; public_key: string }): string {
+  return area === "seller" ? source.public_key : String(source.id);
+}
 
 /** Giá bán gợi ý = vốn × (1 + margin%), làm tròn LÊN bội số `roundTo` —
- *  cùng công thức với backend `sources.suggest_price`. */
+ *  cùng công thức với backend `suppliers.service.suggest_price`. */
 export function suggestPrice(costPrice: number, marginPct: number, roundTo = 1000): number {
   if (costPrice <= 0) return 0;
   const step = Math.max(Math.trunc(roundTo) || 1, 1);
@@ -33,7 +38,44 @@ export function variantNameFrom(name: string, group: string): string {
 }
 
 /* ------------------------------------------------------------------ */
-/* Bảng "Sản phẩm của nguồn": nhóm phân loại theo sản phẩm             */
+/* Trạng thái một phân loại: chỉ 3 trạng thái người dùng cần hiểu        */
+/* ------------------------------------------------------------------ */
+
+export type ListingState = "selling" | "blocked" | "off";
+/** Lý do hệ thống chặn bán — mỗi lý do có đúng một cách sửa. */
+export type BlockReason = "delisted" | "lowMargin" | "autoPaused" | "outOfStock";
+
+export function blockReason(r: SourceListing): BlockReason | null {
+  if (r.sync_error === "delisted") return "delisted";
+  if (r.auto_paused_at) return "autoPaused";
+  if (!r.variant_active) return null;
+  if (!r.margin_ok) return "lowMargin";
+  if (r.sellable <= 0) return "outOfStock";
+  return null;
+}
+
+/** "off" gồm cả phân loại của sản phẩm chưa đăng (nháp / tạm dừng):
+ *  người mua chưa thấy nên không tính là đang bán. */
+export function listingState(r: SourceListing): ListingState {
+  if (blockReason(r)) return "blocked";
+  return r.variant_active && r.product_status === "active" ? "selling" : "off";
+}
+
+/** Chặn cần người xử lý (hết hàng ở nguồn thì tự bán lại, không cần làm gì). */
+export function needsAction(r: SourceListing): boolean {
+  const reason = blockReason(r);
+  return reason !== null && reason !== "outOfStock";
+}
+
+/** Giá tối thiểu để hết bị chặn vì lãi thấp, và giá theo luật nếu cao hơn. */
+export function fixPrice(r: SourceListing, minMarginPct: number, rule: { markup_pct: number; round_to: number }): number {
+  const byRule = suggestPrice(r.cost_price, rule.markup_pct, rule.round_to);
+  const floor = suggestPrice(r.cost_price, minMarginPct, rule.round_to);
+  return Math.max(byRule, floor);
+}
+
+/* ------------------------------------------------------------------ */
+/* Bảng "Đang bán": nhóm phân loại theo sản phẩm                        */
 /* ------------------------------------------------------------------ */
 
 export type ListingGroup = {
@@ -41,13 +83,8 @@ export type ListingGroup = {
   product_title: string;
   product_status: string;
   public_key: string;
-  seller_id: number;
+  group_name: string;
   rows: SourceListing[];
-  /** số phân loại bị gỡ / lãi thấp → hiện cảnh báo trên dòng sản phẩm */
-  delisted: number;
-  lowMargin: number;
-  autoPaused: number;
-  active: number;
 };
 
 export function groupListings(rows: SourceListing[]): ListingGroup[] {
@@ -57,25 +94,44 @@ export function groupListings(rows: SourceListing[]): ListingGroup[] {
     if (!g) {
       g = {
         product_id: r.product_id, product_title: r.product_title, product_status: r.product_status,
-        public_key: r.public_key, seller_id: r.seller_id, rows: [], delisted: 0, lowMargin: 0, autoPaused: 0, active: 0,
+        public_key: r.public_key, group_name: r.group_name, rows: [],
       };
       map.set(r.product_id, g);
     }
     g.rows.push(r);
-    if (r.sync_error) g.delisted += 1;
-    else if (r.auto_paused_at) g.autoPaused += 1;
-    else if (!r.margin_ok) g.lowMargin += 1;
-    if (r.variant_active && !r.sync_error && r.margin_ok) g.active += 1;
   }
   return [...map.values()];
 }
 
-export function needsAttention(r: SourceListing): boolean {
-  return Boolean(r.sync_error) || Boolean(r.auto_paused_at) || !r.margin_ok;
+export type ListingCounts = Record<"all" | ListingState, number>;
+
+export function countListings(rows: SourceListing[]): ListingCounts {
+  const out: ListingCounts = { all: rows.length, selling: 0, blocked: 0, off: 0 };
+  for (const r of rows) out[listingState(r)] += 1;
+  return out;
 }
 
 /* ------------------------------------------------------------------ */
-/* Drawer "Thêm sản phẩm" — bước 2: xếp SKU vào sản phẩm               */
+/* Nguồn: số dư đủ bao lâu, việc cần làm                               */
+/* ------------------------------------------------------------------ */
+
+/** Số ngày bán được với số dư hiện tại, theo mức tiêu 7 ngày qua. */
+export function balanceDays(balance: number | null, cost7d: number): number | null {
+  if (balance === null || cost7d <= 0) return null;
+  return Math.floor(balance / (cost7d / 7));
+}
+
+export function lowBalance(s: Pick<SupplierSource, "balance_vnd" | "low_balance_vnd">): boolean {
+  const threshold = Number(s.low_balance_vnd ?? 0);
+  return s.balance_vnd !== null && threshold > 0 && s.balance_vnd < threshold;
+}
+
+export function blockedCount(s: SupplierSource): number {
+  return s.listing_error_count + s.listing_low_margin_count + s.listing_auto_paused_count;
+}
+
+/* ------------------------------------------------------------------ */
+/* Tab "Kho": SKU được chọn sẽ nằm ở đâu                                */
 /* ------------------------------------------------------------------ */
 
 export type DraftVariant = {
@@ -86,60 +142,55 @@ export type DraftVariant = {
   price: number;
   cost_price: number;
   amount: number;
-  /** đích: "new:<key>" hoặc "existing:<product_id>" */
+  /** đích: "new:<nhóm>" hoặc "existing:<product_id>" */
   target: string;
 };
 
 export type DraftProduct = {
-  key: string;           // "new:<n>"
+  key: string;           // "new:<nhóm>"
   title: string;
   category_id: number;
   group: string;
 };
 
-export type GroupMode = "auto" | "single" | "one";
+export type ExistingProduct = { product_id: number; product_title: string; group_name: string; variant_names: string[] };
 
-/** Gợi ý gộp: auto = theo nhóm catalog; single = mỗi SKU một sản phẩm;
- *  one = tất cả vào một sản phẩm. Trả về danh sách sản phẩm mới + target
- *  cho từng SKU (SKU đã có target existing:* giữ nguyên). */
-export function autoGroup(
-  items: SourceCatalogItem[], mode: GroupMode, marginPct: number, prev?: DraftVariant[],
-): { products: DraftProduct[]; variants: DraftVariant[] } {
-  const prevBy = new Map((prev ?? []).map((v) => [v.external_id, v]));
-  const products: DraftProduct[] = [];
-  const keyByGroup = new Map<string, string>();
-  const variants: DraftVariant[] = items.map((it, i) => {
-    const old = prevBy.get(it.external_id);
-    const price = old?.price ?? suggestPrice(it.cost_price, marginPct);
-    const group = it.group_name || it.category_path[0] || "";
-    let target: string;
-    if (mode === "single") {
-      const key = `new:${i}`;
-      products.push({ key, title: cleanTitle(it.name), category_id: 0, group });
-      target = key;
-    } else if (mode === "one") {
-      if (products.length === 0) products.push({ key: "new:0", title: group || cleanTitle(it.name), category_id: 0, group });
-      target = "new:0";
-    } else {
-      let key = keyByGroup.get(group);
-      if (!key) {
-        key = `new:${products.length}`;
-        keyByGroup.set(group, key);
-        products.push({ key, title: group || cleanTitle(it.name), category_id: 0, group });
-      }
-      target = key;
-    }
-    return {
-      external_id: it.external_id, name: it.name, group,
-      variant_name: mode === "single" ? old?.variant_name ?? "1 tài khoản" : old?.variant_name ?? variantNameFrom(it.name, group),
-      price, cost_price: it.cost_price, amount: it.amount, target,
-    };
-  });
-  return { products, variants };
+export function existingProducts(rows: SourceListing[]): ExistingProduct[] {
+  return groupListings(rows).map((g) => ({
+    product_id: g.product_id, product_title: g.product_title, group_name: g.group_name,
+    variant_names: g.rows.map((r) => r.variant_name),
+  }));
 }
 
-/** Sản phẩm mới không còn SKU nào → bỏ khỏi danh sách. */
-export function pruneEmpty(products: DraftProduct[], variants: DraftVariant[]): DraftProduct[] {
-  const used = new Set(variants.map((v) => v.target));
-  return products.filter((p) => used.has(p.key));
+/** Xếp SKU đã tick: nhóm nào đã có sản phẩm đang bán → thêm phân loại vào
+ *  sản phẩm đó; nhóm chưa có → một sản phẩm mới cho cả nhóm. Tên/giá/đích
+ *  người dùng đã sửa (`prev`) được giữ. */
+export function planPlacement(
+  items: SourceCatalogItem[], existing: ExistingProduct[], rule: { markup_pct: number; round_to: number },
+  prev: { products: DraftProduct[]; variants: DraftVariant[] } = { products: [], variants: [] },
+): { products: DraftProduct[]; variants: DraftVariant[] } {
+  const prevVariants = new Map(prev.variants.map((v) => [v.external_id, v]));
+  const prevProducts = new Map(prev.products.map((p) => [p.key, p]));
+  const byGroup = new Map<string, number>();
+  for (const e of existing) if (e.group_name && !byGroup.has(e.group_name)) byGroup.set(e.group_name, e.product_id);
+
+  const variants: DraftVariant[] = items.map((it) => {
+    const group = it.group_name || it.category_path[0] || "";
+    const old = prevVariants.get(it.external_id);
+    const match = byGroup.get(group);
+    return {
+      external_id: it.external_id, name: it.name, group,
+      variant_name: old?.variant_name ?? variantNameFrom(it.name, group),
+      price: old?.price ?? suggestPrice(it.cost_price, rule.markup_pct, rule.round_to),
+      cost_price: it.cost_price, amount: it.amount,
+      target: old?.target ?? (match ? `existing:${match}` : `new:${group}`),
+    };
+  });
+  const products: DraftProduct[] = [];
+  for (const v of variants) {
+    if (!v.target.startsWith("new:") || products.some((p) => p.key === v.target)) continue;
+    const kept = prevProducts.get(v.target);
+    products.push(kept ?? { key: v.target, title: v.group || cleanTitle(v.name), category_id: 0, group: v.group });
+  }
+  return { products, variants };
 }

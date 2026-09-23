@@ -11,9 +11,11 @@ from src.adapters.dproxy import (
     DProxyAdapter,
     DProxyAuthError,
     DProxyContractError,
+    DProxyPurchaseRejected,
+    DProxyPurchaseViolation,
     DProxyUnavailableError,
     _parse_assignment,
-    _parse_purchase_assignment,
+    _parse_purchase,
     expected_rotate_path,
     validate_dproxy_config,
 )
@@ -22,6 +24,7 @@ from src.security.crypto import encrypt_str
 FUTURE = (datetime.now(timezone.utc) + timedelta(days=5)).isoformat()
 PAST = (datetime.now(timezone.utc) - timedelta(days=1)).isoformat()
 EXT_ID = "cab68c1a-707c-4148-a326-e69e99c870db"
+ASSIGNMENT_ID = "e032e17f-5231-4c35-90fb-a9976103b31b"
 PLAN_ID = "1906e1af-70df-4a53-8874-53b8e5a51935"
 
 
@@ -205,11 +208,36 @@ class TestParseAssignment:
         assert [p for p in (_parse_assignment(i) for i in []) if p is not None] == []
 
 
-class TestParsePurchaseAssignment:
+def _live_purchase_sample(**proxy_overrides) -> dict:
+    """Shape live 2026-09-23 (probe bằng key thật): data.success lồng,
+    order_id null, KHÔNG có status, assignment_id + total_cost_usd."""
+    proxy = {
+        "assignment_id": ASSIGNMENT_ID,
+        "ip": "115.77.31.221",
+        "port": 20160,
+        "username": "u_23_x",
+        "password": "secret",
+        "formatted_string": "115.77.31.221:20160:u_23_x:secret",
+        "socks5_url": "socks5://u_23_x:secret@115.77.31.221:20160",
+        "expires_at": FUTURE,
+    }
+    proxy.update(proxy_overrides)
+    return {
+        "success": True,
+        "data": {
+            "success": True, "order_id": None, "partner_order_id": "THM-ORDER-123456",
+            "channel": "proxora", "plan_name": "Datacenter", "quantity": 1, "total_cost_usd": 0.1,
+            "proxies": [proxy], "export_text": proxy["formatted_string"],
+        },
+    }
+
+
+class TestParsePurchase:
     def test_documented_m2m_response_parses(self):
-        assignment = _parse_purchase_assignment(_purchase_sample())
-        assert assignment is not None
+        purchase = _parse_purchase(_purchase_sample())
+        assignment = purchase.assignment
         assert assignment.external_id == EXT_ID
+        assert purchase.upstream_order_id == EXT_ID
         assert assignment.host == "171.246.96.55"
         assert assignment.port == 20002
         assert assignment.username == "u_c8da7228_8"
@@ -217,20 +245,64 @@ class TestParsePurchaseAssignment:
         assert assignment.rotation_available is False
         assert assignment.rotate_path is None
 
+    def test_live_shape_without_status_or_order_id_uses_assignment_id(self):
+        purchase = _parse_purchase(_live_purchase_sample(), expected_partner_order_id="THM-ORDER-123456")
+        assert purchase.assignment.external_id == ASSIGNMENT_ID
+        assert purchase.upstream_order_id is None
+        assert str(purchase.cost_usd) == "0.1"
+
+    def test_assignment_id_wins_over_order_id(self):
+        body = _live_purchase_sample()
+        body["data"]["order_id"] = EXT_ID
+        purchase = _parse_purchase(body)
+        assert purchase.assignment.external_id == ASSIGNMENT_ID
+        assert purchase.upstream_order_id == EXT_ID
+
+    def test_expired_proxy_is_a_violation_even_with_success_true(self):
+        # Live trả lại một assignment có sẵn đã hết hạn cho gói hết hàng.
+        body = _live_purchase_sample(expires_at=PAST)
+        with pytest.raises(DProxyPurchaseViolation, match="hết hạn"):
+            _parse_purchase(body, min_expires_at=datetime.now(timezone.utc))
+
+    def test_proxy_shorter_than_sold_duration_is_a_violation(self):
+        body = _live_purchase_sample(expires_at=FUTURE)  # 5 ngày
+        with pytest.raises(DProxyPurchaseViolation):
+            _parse_purchase(body, min_expires_at=datetime.now(timezone.utc) + timedelta(days=29))
+
+    def test_no_identity_at_all_is_a_violation(self):
+        body = _live_purchase_sample()
+        body["data"]["proxies"][0].pop("assignment_id")
+        with pytest.raises(DProxyPurchaseViolation, match="assignment_id"):
+            _parse_purchase(body)
+
+    @pytest.mark.parametrize("status", ["pending", "failed"])
+    def test_explicit_non_fulfilled_status_is_a_violation(self, status):
+        body = _purchase_sample()
+        body["data"]["status"] = status
+        with pytest.raises(DProxyPurchaseViolation):
+            _parse_purchase(body)
+
+    def test_nested_success_false_is_a_violation(self):
+        body = _live_purchase_sample()
+        body["data"]["success"] = False
+        with pytest.raises(DProxyPurchaseViolation):
+            _parse_purchase(body)
+
     @pytest.mark.parametrize("body", [None, {}, {"success": False}, {"success": True, "data": {}}])
     def test_incomplete_or_unsuccessful_response_is_rejected(self, body):
-        assert _parse_purchase_assignment(body) is None
+        with pytest.raises(DProxyPurchaseViolation):
+            _parse_purchase(body)
 
     def test_more_than_one_proxy_is_rejected_by_single_assignment_contract(self):
         body = _purchase_sample()
         body["data"]["quantity"] = 2
         body["data"]["proxies"].append(dict(body["data"]["proxies"][0]))
-        assert _parse_purchase_assignment(body) is None
+        with pytest.raises(DProxyPurchaseViolation):
+            _parse_purchase(body)
 
     def test_response_for_a_different_partner_order_is_rejected(self):
-        assert _parse_purchase_assignment(
-            _purchase_sample(), expected_partner_order_id="another-order",
-        ) is None
+        with pytest.raises(DProxyPurchaseViolation, match="partner_order_id"):
+            _parse_purchase(_purchase_sample(), expected_partner_order_id="another-order")
 
 
 def test_expected_rotate_path_matches_sample_contract():
@@ -390,12 +462,12 @@ class TestPartnerPurchase:
         mock = AsyncMock(return_value=_resp(200, response_body))
         monkeypatch.setattr(httpx.AsyncClient, "request", mock)
 
-        assignment = await adapter.purchase_assignment(
+        purchase = await adapter.purchase_assignment(
             plan_id=PLAN_ID, partner_order_id="THM-987654", order_id=987654,
         )
 
-        assert assignment.external_id == EXT_ID
-        assert assignment.host == "171.246.96.55"
+        assert purchase.assignment.external_id == EXT_ID
+        assert purchase.assignment.host == "171.246.96.55"
         assert mock.call_args.args[0] == "POST"
         assert mock.call_args.args[1].endswith("/api/v1/customer/marketplace/partner-purchase")
         assert mock.call_args.kwargs["json"] == {
@@ -416,10 +488,119 @@ class TestPartnerPurchase:
             httpx.AsyncClient, "request",
             AsyncMock(return_value=_resp(200, _purchase_sample())),
         )
-        with pytest.raises(DProxyContractError):
+        with pytest.raises(DProxyPurchaseViolation):
             await adapter.purchase_assignment(
                 plan_id=PLAN_ID, partner_order_id="wrong-order", order_id=12,
             )
+
+    @pytest.mark.asyncio
+    @pytest.mark.parametrize("status,detail", [(404, "Không tìm thấy gói proxy đã chọn."), (402, None)])
+    async def test_4xx_is_a_rejection_not_a_retry(self, monkeypatch, status, detail):
+        adapter = _adapter()
+        mock = AsyncMock(return_value=_resp(status, {"detail": detail} if detail else {}))
+        monkeypatch.setattr(httpx.AsyncClient, "request", mock)
+        with pytest.raises(DProxyPurchaseRejected) as info:
+            await adapter.purchase_assignment(plan_id=PLAN_ID, partner_order_id="p-1", order_id=1)
+        assert info.value.status_code == status
+        assert mock.await_count == 1
+
+    @pytest.mark.parametrize("status,detail,expected", [
+        (402, None, True),
+        (409, "Hạn mức tín dụng không đủ", True),
+        (400, "Insufficient credit balance", True),
+        (409, "No proxy nodes available for this plan", False),
+        (404, "Không tìm thấy gói proxy đã chọn.", False),
+    ])
+    def test_out_of_credit_rejections_pause_the_provider(self, status, detail, expected):
+        result = _adapter()._purchase_failure(DProxyPurchaseRejected(status, detail), 7)
+        assert result.success is False
+        assert result.provider_out_of_credit is expected
+        assert result.operational_severity == "critical"
+
+
+class TestQuoteAndCredit:
+    @pytest.fixture(autouse=True)
+    def _no_sleep(self, monkeypatch):
+        monkeypatch.setattr("src.adapters.real_api.asyncio.sleep", AsyncMock())
+
+    @pytest.mark.asyncio
+    async def test_quote_reads_live_availability(self, monkeypatch):
+        body = {"available": False, "available_count": 0, "quantity": 1, "unit_price": 0.1,
+                "total_price": 0.1, "currency": "USD", "duration_days": 30}
+        mock = AsyncMock(return_value=_resp(200, body))
+        monkeypatch.setattr(httpx.AsyncClient, "request", mock)
+        quote = await _adapter().quote_plan(PLAN_ID)
+        assert quote == {"available": False, "available_count": 0, "unit_price": 0.1, "currency": "USD"}
+        assert mock.call_args.args[0] == "POST"
+        assert mock.call_args.args[1].endswith("/api/v1/store/quote")
+        assert mock.call_args.kwargs["json"] == {"plan_id": PLAN_ID, "quantity": 1}
+
+    @pytest.mark.asyncio
+    @pytest.mark.parametrize("response", [_resp(403, {"detail": "no"}), _resp(200, {"weird": True})])
+    async def test_quote_failure_is_advisory_none(self, monkeypatch, response):
+        monkeypatch.setattr(httpx.AsyncClient, "request", AsyncMock(return_value=response))
+        assert await _adapter().quote_plan(PLAN_ID) is None
+
+    @pytest.mark.asyncio
+    async def test_credit_summary_live_shape(self, monkeypatch):
+        body = {"success": True, "data": {
+            "user_id": "u", "balance_usd": 0.0, "credit_limit_usd": 100.0, "available_spending_usd": 100.0,
+            "current_debt_usd": 0.0, "is_credit_active": True,
+        }}
+        monkeypatch.setattr(httpx.AsyncClient, "request", AsyncMock(return_value=_resp(200, body)))
+        credit = await _adapter().credit_summary()
+        assert credit == {
+            "balance_usd": 0.0, "credit_limit_usd": 100.0, "available_spending_usd": 100.0,
+            "current_debt_usd": 0.0, "is_credit_active": True,
+        }
+
+    @pytest.mark.asyncio
+    async def test_credit_summary_without_available_is_a_contract_error(self, monkeypatch):
+        monkeypatch.setattr(httpx.AsyncClient, "request",
+                            AsyncMock(return_value=_resp(200, {"success": True, "data": {"used": 1}})))
+        with pytest.raises(DProxyContractError):
+            await _adapter().credit_summary()
+
+    @pytest.mark.asyncio
+    @pytest.mark.parametrize("status,outcome", [(200, "revoked"), (404, "not_found"), (409, "rejected")])
+    async def test_dispute_outcomes(self, monkeypatch, status, outcome):
+        monkeypatch.setattr(httpx.AsyncClient, "request", AsyncMock(return_value=_resp(status, {})))
+        assert await _adapter().dispute_purchase("p-1") == outcome
+
+    @pytest.mark.asyncio
+    async def test_dispute_5xx_raises_for_retry(self, monkeypatch):
+        monkeypatch.setattr(httpx.AsyncClient, "request", AsyncMock(return_value=_resp(503, {})))
+        with pytest.raises(DProxyUnavailableError):
+            await _adapter().dispute_purchase("p-1")
+
+
+class TestFetchPlanCatalog:
+    @pytest.fixture(autouse=True)
+    def _no_sleep(self, monkeypatch):
+        monkeypatch.setattr("src.adapters.real_api.asyncio.sleep", AsyncMock())
+
+    @pytest.mark.asyncio
+    async def test_live_plans_keep_usd_and_type_from_proxies_type_id(self, monkeypatch):
+        plans = [
+            {"id": "02a80f8f-300f-443d-a5b5-19e7788b5e72", "name": "Datacenter", "proxy_count": 1,
+             "duration_days": 30, "price": 0.1, "currency": "USD", "is_active": True, "min_quantity": 1,
+             "max_quantity": 1000, "proxies_type_id": 4, "country_id": None},
+            {"id": PLAN_ID, "name": "Residential Proxy", "proxy_count": 1, "duration_days": 30, "price": 1.0,
+             "currency": "USD", "is_active": True, "proxies_type_id": 1, "country_id": None},
+        ]
+        responses = [
+            _resp(200, plans),
+            _resp(200, {"available": False, "available_count": 0, "unit_price": 0.1, "currency": "USD"}),
+            _resp(200, {"available": True, "available_count": 475, "unit_price": 1.0, "currency": "USD"}),
+        ]
+        monkeypatch.setattr(httpx.AsyncClient, "request", AsyncMock(side_effect=responses))
+        items = await _adapter().fetch_plan_catalog()
+        dc, res = items
+        assert dc.cost_price == 0 and res.cost_price == 0  # USD → quy đổi ở tầng sync
+        assert dc.attributes["currency"] == "USD" and dc.attributes["price"] == 0.1
+        assert dc.attributes["proxy_type"] == "datacenter" and res.attributes["proxy_type"] == "residential"
+        assert dc.amount == 0 and res.amount == 475
+        assert dc.category_path == ("DProxy", "datacenter")
 
 
 class TestListCatalog:

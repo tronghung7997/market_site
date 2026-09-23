@@ -165,6 +165,8 @@ async def record_gateway_call_log(
     request_payload: dict | None = None,
     response_body: bytes | None = None,
     error: str | None = None,
+    units_charged: int | None = None,
+    units_remaining: int | None = None,
 ) -> None:
     """Persist one buyer-facing gateway call on its own session — mirrors
     adapters/call_log.py::record_provider_call. Never raises: a history
@@ -192,6 +194,8 @@ async def record_gateway_call_log(
                     request_payload=request_preview,
                     response_snippet=response_snippet,
                     error=error_text,
+                    units_charged=units_charged,
+                    units_remaining=units_remaining,
                 )
             )
             await session.commit()

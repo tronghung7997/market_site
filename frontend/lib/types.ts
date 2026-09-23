@@ -510,6 +510,110 @@ export interface ProxyRotateResult {
   delivered_data: string | null;
 }
 
+/* Buyer proxy console (`/me/proxies`) — docs/proxy-dashboard-api.md.
+ * A line never names its upstream source: there is deliberately no
+ * provider/adapter field. */
+export type ProxyIpType = "residential" | "mobile" | "datacenter";
+export type ProxyRotation = "static" | "rotating" | "rotating_key";
+export type ProxyProtocol = "HTTP" | "SOCKS5";
+export type ProxyLineStatus = "allocated" | "offline" | "expired" | "released" | "error";
+export type ProxyTagTone = "iris" | "good" | "warn" | "neutral" | "ink";
+
+export interface ProxyLine {
+  /** Public line id `ORD-XXXXXXXX#01` — never a row id. */
+  id: string;
+  order_code: string;
+  line_no: number;
+  product_title: string;
+  /** Plan label as sold, e.g. "Residential · Việt Nam · 7 ngày". */
+  variant_name: string;
+  ip_type: ProxyIpType;
+  rotation: ProxyRotation;
+  protocol: ProxyProtocol;
+  network: string;
+  country: string | null;
+  /** Connection address; for rotating keys the fixed gateway. */
+  host: string;
+  port: number;
+  /** null for rotating keys that authenticate by whitelisted IP. */
+  username: string | null;
+  password: string | null;
+  public_ip: string | null;
+  status: ProxyLineStatus;
+  created_at: string;
+  expires_at: string;
+  rotation_available: boolean;
+  cooldown_seconds: number | null;
+  last_rotated_at: string | null;
+  whitelist_supported: boolean;
+  whitelist_ips: string | null;
+  socks5_port: number | null;
+  /** Capability flags the backend does not support yet — always false/null
+   *  today; the console does not offer these actions. */
+  credentials_editable: boolean;
+  replaceable: boolean;
+  renew_mode: null;
+  plan_days: number | null;
+  tag_ids: string[];
+  note: string;
+}
+
+export interface ProxyLineSummary {
+  all: number;
+  running: number;
+  soon: number;
+  problem: number;
+}
+
+/** Counts under the current filters; each dimension ignores its own selection. */
+export interface ProxyLineFacets {
+  status: ProxyLineSummary;
+  ip_type: Record<"residential" | "mobile" | "datacenter", number>;
+  rotation: Record<"static" | "rotating" | "rotating_key", number>;
+  expires: Record<"24h" | "3d" | "7d" | "expired", number>;
+  /** Tag id → count, plus `__none__` for untagged lines. */
+  tags: Record<string, number>;
+}
+
+export interface ProxyLineListResponse {
+  items: ProxyLine[];
+  total: number;
+  page: number;
+  per_page: number;
+  /** Every line of the buyer, unfiltered. */
+  summary: ProxyLineSummary;
+  facets: ProxyLineFacets;
+}
+
+/** Query string of `GET /me/proxies`; list values are comma-joined. */
+export interface ProxyLineQuery {
+  status?: "running" | "soon" | "problem";
+  q?: string;
+  tags?: string[];
+  ip_type?: ProxyIpType[];
+  rotation?: ProxyRotation[];
+  expires?: "24h" | "3d" | "7d" | "expired";
+  sort?: "expiry_asc" | "expiry_desc" | "newest" | "line";
+  page?: number;
+  per_page?: number;
+}
+
+export interface ProxyTag {
+  id: string;
+  name: string;
+  tone: ProxyTagTone;
+  created_at: string;
+  /** Lines carrying this tag, account-wide. */
+  count: number;
+}
+
+export interface ProxyTagAssignRequest {
+  line_ids: string[];
+  add: string[];
+  remove: string[];
+  mode: "merge" | "replace";
+}
+
 export interface ResourceInfo {
   id: number;
   status: string;
@@ -1907,7 +2011,8 @@ export interface PricingField {
   required?: boolean;
   // credit's package_size choices thật sự là number (khớp isinstance(x, int) backend
   // đòi hỏi) — không phải lúc nào cũng string như tên field gợi ý.
-  choices?: { value: string | number; label: string }[];
+  /** credit: gói có giá riêng (nguồn API) mang `price` + `per_unit` */
+  choices?: { value: string | number; label: string; price?: number; per_unit?: number }[];
   min?: number;
   max?: number;
   default?: string | number;
@@ -1920,8 +2025,8 @@ export interface PricingOptions {
   base_info: { product_title: string; service_type: string } | null;
   ready: boolean;
   not_ready_reason: string | null;
-  // Buyer-safe hint for adapter-specific purchase UX (e.g. "dproxy" always
-  // delivers exactly 1 proxy — see components/DynamicOrderForm.tsx).
+  // Buyer-safe alias, never the upstream name: "auto_proxy" (always exactly 1
+  // proxy per order), "auto_account" — see components/DynamicOrderForm.tsx.
   adapter_type: string | null;
 }
 
@@ -1973,6 +2078,9 @@ export interface GatewayCallLogItem {
   request_payload: Record<string, unknown> | null;
   response_snippet: string | null;
   error: string | null;
+  /** request đã trừ cho lần gọi (0 = không trừ/đã hoàn); null với dòng cũ */
+  units_charged?: number | null;
+  units_remaining?: number | null;
   created_at: string;
 }
 
@@ -2018,6 +2126,36 @@ export interface DashboardData {
   delivered_data?: string;
   /** Chỉ có khi service_type=endpoint và order đã strategy=credit + delivered. */
   balance?: UsageBalance | null;
+  /** service_type=endpoint: endpoint bán được + quy tắc trừ request */
+  api?: { endpoints: GatewayEndpoint[]; charge_only_success: boolean } | null;
+}
+
+export interface GatewayEndpointParam {
+  name: string;
+  type: string;
+  required: boolean;
+  description: string;
+}
+
+export interface GatewayEndpoint {
+  name: string;
+  method: string;
+  units: number;
+  summary: string;
+  params: GatewayEndpointParam[];
+  sample_body: Record<string, unknown>;
+  /** chỉ admin */
+  path?: string;
+}
+
+export interface GatewayTryResult {
+  status_code: number | null;
+  latency_ms: number;
+  body: string;
+  truncated: boolean;
+  units_charged?: number;
+  units_remaining?: number;
+  content_type?: string;
 }
 
 export interface AffiliateTotals {
@@ -2277,17 +2415,33 @@ export type SourceArea = "seller" | "admin";
 
 export interface SupplierSource {
   id: number;
+  /** URL identity on seller surfaces (see features/seller-sources/logic.ts::sourceRef). */
+  public_key: string;
   name: string;
   adapter_type: string;
-  /** catalog = kho SKU mua theo đơn; server = proxy/server cấp theo gói */
-  kind: "catalog" | "server";
+  /** catalog = kho SKU mua theo đơn; proxy = nhà cung cấp proxy có catalog gói; server = còn lại */
+  kind: "catalog" | "proxy" | "gateway" | "server";
   is_active: boolean;
   review_status: string;
   seller_id: number | null;
   seller_email: string | null;
   seller_is_internal: boolean;
+  seller_business_name: string | null;
   min_margin_pct: number;
   low_balance_vnd: number | string | null;
+  /** luật giá: giá bán = vốn × (1 + markup%), làm tròn lên round_to */
+  markup_pct: number;
+  round_to: number;
+  follow_cost: boolean;
+  /** số dư tài khoản bên nguồn lần kiểm tra/đồng bộ gần nhất */
+  balance_vnd: number | null;
+  /** phân loại đang bán được (không bị chặn, không tắt) */
+  active_listing_count: number;
+  /** lỗi đồng bộ gần nhất (không phải SKU bị gỡ) — nguồn vẫn bán theo dữ liệu cũ */
+  sync_error: string | null;
+  stats_7d: SourcePurchaseSummary;
+  /** nguồn API: request 24h, key còn request, doanh thu / lời 7 ngày */
+  gateway_stats: GatewayStats | null;
   catalog_count: number;
   catalog_synced_at: string | null;
   listing_count: number;
@@ -2305,13 +2459,17 @@ export interface SourceKindField {
   label: string;
   default?: string | number;
   secret?: boolean;
-  type?: "number" | "text";
+  type?: "number" | "text" | "select";
+  options?: { value: string; label: string }[];
+  hint?: string;
+  /** ẩn sau "Nâng cao" trong wizard */
+  advanced?: boolean;
 }
 
 export interface SourceKind {
   adapter_type: string;
   label: string;
-  kind: "catalog" | "server";
+  kind: "catalog" | "proxy" | "gateway" | "server";
   description: string;
   fields: SourceKindField[];
 }
@@ -2336,7 +2494,7 @@ export interface SourceCreateResult {
   provider_id: number;
   name: string;
   adapter_type: string;
-  kind: "catalog" | "server";
+  kind: "catalog" | "proxy" | "gateway" | "server";
   seller_id: number | null;
   seller_email: string | null;
   catalog_items: number;
@@ -2346,6 +2504,9 @@ export interface SourceCreateResult {
 export interface SourceTestResult {
   ok: boolean;
   health: { status?: string; message?: string; balance_vnd?: number };
+  /** nguồn catalog: số mặt hàng đọc được lúc kiểm tra */
+  catalog?: { total: number; in_stock: number } | null;
+  tested_at?: string;
 }
 
 export interface SourceCatalogAttached {
@@ -2367,7 +2528,60 @@ export interface SourceCatalogItem {
   group_name: string;
   category_path: string[];
   synced_at: string;
+  /** Thuộc tính máy của gói (proxy): duration_days, loaiproxy, mode, currency, proxy_count… */
+  extra: Record<string, unknown>;
   attached: SourceCatalogAttached[];
+}
+
+/** Một gói proxy đang bán = một key `type|network|days` trong pricing config của sản phẩm. */
+export interface SourceOffer {
+  product_id: number;
+  product_title: string;
+  product_key: string | null;
+  product_status: string;
+  plan_key: string;
+  type: string;
+  network: string;
+  days: number;
+  label: string;
+  price: number;
+  cost_price: number | null;
+  margin_pct: number | null;
+  margin_ok: boolean;
+  external_id: string | null;
+  external_name: string | null;
+  unmapped: boolean;
+  // Mapped, but the plan is gone from the last synced upstream catalog.
+  plan_missing?: boolean;
+  // Last synced upstream availability (store/quote); null = unknown.
+  upstream_available?: boolean | null;
+}
+
+export interface SourcePlanImportItem {
+  external_id: string;
+  type?: string;
+  network?: string;
+  days?: number;
+  price?: number;
+  type_label?: string;
+  network_label?: string;
+  title?: string;
+  category_id?: number;
+  status?: "draft" | "active";
+  description?: string;
+  escrow_days?: number;
+  product_id?: number;
+  group_key?: string;
+}
+
+export interface SourcePlanImportResult {
+  product_id: number;
+  product_title: string;
+  public_key: string | null;
+  plan_key: string;
+  price: number;
+  cost_price: number | null;
+  margin_ok: boolean;
 }
 
 export interface SourceCatalogPage {
@@ -2446,6 +2660,12 @@ export interface SourceListing {
   last_fail_reason: string | null;
   auto_paused_at: string | null;
   category_path: string[];
+  /** nhóm gốc bên nguồn (Facebook, Gmail…) */
+  group_name: string;
+  /** giá gõ tay → luật giá không ghi đè */
+  price_manual: boolean;
+  /** giá theo luật của nguồn với giá vốn hiện tại */
+  rule_price: number | null;
 }
 
 export interface SourceSyncResult {
@@ -2453,13 +2673,202 @@ export interface SourceSyncResult {
   updated: number;
   delisted: number;
   low_margin: number;
+  repriced: number;
   catalog_items: number;
   error: string | null;
 }
 
+export interface SourceRepriceChange {
+  listing_id: number;
+  variant_id: number;
+  product_title: string;
+  variant_name: string;
+  cost_price: number;
+  old_price: number;
+  new_price: number;
+}
+
 export interface SourceRepriceResult {
-  changed: { listing_id: number; variant_id: number; old_price: number; new_price: number }[];
+  changed: SourceRepriceChange[];
+  unchanged: number;
+  skipped_manual: { listing_id: number; product_title: string; variant_name: string; price: number; margin_ok: boolean }[];
+  margin_pct: number;
+  round_to: number;
   min_margin_pct: number;
+  dry_run: boolean;
+}
+
+export interface SourceRepriceRequest {
+  margin_pct?: number;
+  round_to?: number;
+  listing_ids?: number[];
+  only_below_min?: boolean;
+  dry_run?: boolean;
+  include_manual?: boolean;
+}
+
+export interface SourceListingUpdate {
+  price?: number;
+  variant_name?: string;
+  external_id?: string;
+  is_active?: boolean;
+  product_id?: number;
+  /** false → trả về luật giá */
+  price_manual?: boolean;
+}
+
+export interface SourcePurchaseSummary {
+  orders: number;
+  ok: number;
+  failed: number;
+  pending: number;
+  units: number;
+  /** khách trả (đã trừ hoàn) của đơn giao thành công */
+  paid: number;
+  /** tiền nguồn đã trừ */
+  cost: number;
+  profit: number;
+  refunded: number;
+}
+
+export type SourcePurchaseResult = "ok" | "failed" | "pending";
+
+export interface SourcePurchase {
+  order_id: number;
+  order_code: string;
+  created_at: string;
+  product_title: string | null;
+  variant_name: string | null;
+  quantity: number;
+  total_amount: number;
+  paid: number;
+  refunded: number;
+  cost: number;
+  /** đơn cũ chưa có dòng mua → vốn ước tính theo giá vốn hiện tại */
+  cost_estimated: boolean;
+  profit: number;
+  result: SourcePurchaseResult;
+  error: string | null;
+  trans_id: string | null;
+}
+
+export interface SourcePurchasePage {
+  summary: SourcePurchaseSummary;
+  counts: { all: number; ok: number; failed: number; pending: number };
+  days: 1 | 7 | 30;
+  items: SourcePurchase[];
+  total: number;
+  page: number;
+  per_page: number;
+}
+
+export interface SourcePurchaseQuery {
+  days?: 1 | 7 | 30;
+  result?: "all" | SourcePurchaseResult;
+  q?: string;
+  page?: number;
+  per_page?: number;
+}
+
+export interface SourceSettings {
+  id: number;
+  name: string;
+  adapter_type: string;
+  kind: "catalog" | "proxy" | "gateway" | "server";
+  is_active: boolean;
+  markup_pct: number;
+  round_to: number;
+  follow_cost: boolean;
+  min_margin_pct: number;
+  auto_pause_after_failures: number;
+  low_balance_vnd: number;
+  balance_vnd: number | null;
+  last_test_result: Record<string, unknown> | null;
+  last_tested_at: string | null;
+  seller: { id: number; email: string; business_name: string | null; is_internal: boolean } | null;
+  /** admin: thấy/sửa kết nối, tên, bật-tắt, cửa hàng */
+  can_manage_connection: boolean;
+  base_url: string | null;
+  api_key_hint: string | null;
+  timeout_seconds: number;
+  max_attempts: number;
+  rate_limit_per_minute: number | null;
+}
+
+export interface SourceSettingsUpdate {
+  markup_pct?: number;
+  round_to?: number;
+  follow_cost?: boolean;
+  min_margin_pct?: number;
+  auto_pause_after_failures?: number;
+  low_balance_vnd?: number;
+  name?: string;
+  base_url?: string;
+  api_key?: string;
+  is_active?: boolean;
+  seller_id?: number;
+  timeout_seconds?: number;
+  max_attempts?: number;
+  rate_limit_per_minute?: number;
+}
+
+export interface GatewayStats {
+  requests_24h: number;
+  ok_24h: number;
+  errors_24h: number;
+  active_keys: number;
+  sales_7d: number;
+  profit_7d: number;
+}
+
+export interface GatewayPackage {
+  label: string;
+  size: number;
+  price: number;
+  active: boolean;
+  per_request?: number;
+  profit_per_request?: number | null;
+}
+
+export interface GatewayOverview {
+  product: { id: number; public_key: string; title: string; category_id: number; status: string } | null;
+  packages: GatewayPackage[];
+  cost_per_request: number;
+  endpoints: GatewayEndpoint[];
+  charge_only_success: boolean;
+  timeout_seconds: number;
+  rate_limit_per_minute: number | null;
+}
+
+export interface GatewayPackagesUpdate {
+  packages?: { label: string; size: number; price: number; active: boolean }[];
+  cost_per_request?: number;
+  title?: string;
+  category_id?: number;
+  publish?: boolean;
+}
+
+export interface GatewayRequestRow {
+  id: number;
+  created_at: string;
+  order_code: string;
+  key_prefix: string | null;
+  endpoint: string;
+  status_code: number | null;
+  latency_ms: number;
+  error: string | null;
+  units_charged: number | null;
+  units_remaining: number | null;
+  ok: boolean;
+}
+
+export interface GatewayRequestPage {
+  summary: { requests: number; ok: number; errors: number; charged: number; avg_latency_ms: number | null; max_latency_ms: number | null; active_keys: number };
+  items: GatewayRequestRow[];
+  total: number;
+  page: number;
+  per_page: number;
+  hours: number;
 }
 
 export interface SiteAnnouncement {

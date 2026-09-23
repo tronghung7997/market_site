@@ -42,6 +42,15 @@ class ErrorCode(str, Enum):
     INVALID_PRODUCT_CONFIG = "INVALID_PRODUCT_CONFIG"
     DASHBOARD_RANGE_INVALID = "DASHBOARD_RANGE_INVALID"
     ORDER_QUANTITY_LIMIT = "ORDER_QUANTITY_LIMIT"
+    PROXY_PRICE_BELOW_MARGIN = "PROXY_PRICE_BELOW_MARGIN"
+    PROXY_PLAN_CONFLICT = "PROXY_PLAN_CONFLICT"
+    PROXY_PLAN_FIXED_DURATION = "PROXY_PLAN_FIXED_DURATION"
+    PROXY_PLAN_NOT_RETAIL = "PROXY_PLAN_NOT_RETAIL"
+    PROXY_PLAN_INACTIVE = "PROXY_PLAN_INACTIVE"
+    PROXY_SOURCE_OWNER_NOT_INTERNAL = "PROXY_SOURCE_OWNER_NOT_INTERNAL"
+    PROXY_TAG_NOT_FOUND = "PROXY_TAG_NOT_FOUND"
+    PROXY_TAG_DUPLICATE = "PROXY_TAG_DUPLICATE"
+    PROXY_TAG_INVALID = "PROXY_TAG_INVALID"
     ORDER_NOT_FOUND = "ORDER_NOT_FOUND"
     NOT_ORDER_OWNER = "NOT_ORDER_OWNER"
     ORDER_NOT_DELIVERED = "ORDER_NOT_DELIVERED"
@@ -158,6 +167,15 @@ MESSAGES_EN: dict[ErrorCode, str] = {
     ErrorCode.INVALID_PRODUCT_CONFIG: "The selected product configuration is invalid",
     ErrorCode.DASHBOARD_RANGE_INVALID: "The selected date range is invalid",
     ErrorCode.ORDER_QUANTITY_LIMIT: "This product supports a maximum of {max} unit per order",
+    ErrorCode.PROXY_PRICE_BELOW_MARGIN: "Plan {plan}: price {price} is below the minimum {floor} (cost {cost} + {margin}% margin)",
+    ErrorCode.PROXY_PLAN_CONFLICT: "Plan code {plan} already maps to another upstream plan",
+    ErrorCode.PROXY_PLAN_FIXED_DURATION: "Upstream plan {plan} has a fixed duration of {days} days",
+    ErrorCode.PROXY_PLAN_NOT_RETAIL: "Upstream plan {plan} delivers several proxies per purchase and cannot be sold per unit",
+    ErrorCode.PROXY_PLAN_INACTIVE: "Upstream plan {plan} is disabled upstream",
+    ErrorCode.PROXY_SOURCE_OWNER_NOT_INTERNAL: "Products of a proxy source must belong to the internal seller that holds it",
+    ErrorCode.PROXY_TAG_NOT_FOUND: "Tag not found",
+    ErrorCode.PROXY_TAG_DUPLICATE: "A tag with this name already exists",
+    ErrorCode.PROXY_TAG_INVALID: "Tag name is empty or the tag limit ({max}) is reached",
     ErrorCode.ORDER_NOT_FOUND: "Order not found",
     ErrorCode.NOT_ORDER_OWNER: "This is not your order",
     ErrorCode.ORDER_NOT_DELIVERED: "This order has not been delivered yet",

@@ -19,6 +19,12 @@ export const queryKeys = {
   orderStats: (accountId?: number | null) =>
     accountId == null ? ["order-stats"] as const : ["order-stats", accountId] as const,
 
+  // Buyer proxy console — prefix ["proxies", accountId] covers lines + tags.
+  proxiesScope: (accountId: number | null | undefined) => ["proxies", accountId ?? null] as const,
+  proxyLines: (params: Record<string, unknown>, accountId: number | null | undefined) =>
+    ["proxies", accountId ?? null, "lines", params] as const,
+  proxyTags: (accountId: number | null | undefined) => ["proxies", accountId ?? null, "tags"] as const,
+
   // Products
   products: () => ["products"] as const,
   /** Storefront category browse — one entry per list request shape. */

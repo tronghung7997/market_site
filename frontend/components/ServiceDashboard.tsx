@@ -6,8 +6,9 @@ import { useEffect, useState } from "react";
 import { api } from "@/lib/api";
 import { lineLabel } from "@/lib/order-ref";
 import { useApiErrorMessage } from "@/lib/use-api-error";
-import type { DashboardData, DashboardResource, DashboardTask, GatewayCallLogItem, UsageRecordItem } from "@/lib/types";
+import type { DashboardData, DashboardResource, DashboardTask, GatewayCallLogItem, GatewayTryResult, UsageRecordItem } from "@/lib/types";
 import { productPath } from "@/lib/routes";
+import { cn } from "@/lib/cn";
 import { Banner, Button, Card, Spinner, Tag } from "@/components/ui";
 import { Info } from "@/components/Icons";
 
@@ -236,15 +237,24 @@ function GatewayCallRow({
     <div className="rounded-lg bg-surface border border-line overflow-hidden">
       <button
         onClick={onToggle}
-        className="w-full flex items-center gap-3 text-[12px] px-3 py-1.5 text-left hover:bg-raised transition-colors"
+        className="w-full flex flex-wrap items-center gap-x-3 gap-y-1 text-[12px] px-3 py-1.5 text-left hover:bg-raised transition-colors"
       >
-        <span className="font-mono text-faint">{fmtDate(call.created_at)}</span>
-        <span className="font-medium">{call.endpoint}</span>
-        <span className="text-faint">{call.latency_ms}ms</span>
-        <Tag tone={statusCodeTone(call.status_code)} className="ml-auto">
-          {call.status_code ?? t("connectionError")}
-        </Tag>
-        <span className="text-faint text-[11px]">{open ? t("collapse") : t("details")}</span>
+        <span className="flex min-w-0 flex-wrap items-center gap-x-3">
+          <span className="font-mono text-faint">{fmtDate(call.created_at)}</span>
+          <span className="font-medium">{call.endpoint}</span>
+          <span className="text-faint">{call.latency_ms}ms</span>
+        </span>
+        <span className="ml-auto flex shrink-0 items-center gap-3 whitespace-nowrap">
+          <Tag tone={statusCodeTone(call.status_code)}>
+            {call.status_code ?? t("connectionError")}
+          </Tag>
+          {call.units_charged != null && (
+            <span className={cn("font-mono text-[11px]", call.units_charged > 0 ? "text-good" : "text-faint")}>
+              {call.units_charged > 0 ? `−${call.units_charged}` : t("apiNotCharged")}
+            </span>
+          )}
+          <span className="text-faint text-[11px]">{open ? t("collapse") : t("details")}</span>
+        </span>
       </button>
       {open && (
         <div className="px-3 pb-2.5 space-y-2 border-t border-line pt-2">
@@ -305,6 +315,23 @@ function parseGatewayDelivery(raw: string | null | undefined): { key: string | n
   return { key, callUrl };
 }
 
+function codeSamples(url: string, method: string, body: Record<string, unknown>) {
+  const json = JSON.stringify(body);
+  return {
+    curl: `curl -X ${method} \\\n  '${url}' \\\n  -H 'Content-Type: application/json' \\\n  -d '${json}'`,
+    python: `import requests\n\nresp = requests.${method.toLowerCase()}(\n    "${url}",\n    json=${json},\n    timeout=40,\n)\nprint(resp.status_code, resp.json())`,
+    javascript: `const resp = await fetch("${url}", {\n  method: "${method}",\n  headers: { "Content-Type": "application/json" },\n  body: JSON.stringify(${json}),\n});\nconsole.log(resp.status, await resp.json());`,
+  };
+}
+
+function prettyJson(raw: string): string {
+  try {
+    return JSON.stringify(JSON.parse(raw), null, 2);
+  } catch {
+    return raw;
+  }
+}
+
 function EndpointDashboard({ data, onRefresh, viewerRole }: { data: DashboardData; onRefresh: () => void; viewerRole: "buyer" | "seller" }) {
   const locale = useLocale();
   const t = useTranslations("orders");
@@ -312,45 +339,86 @@ function EndpointDashboard({ data, onRefresh, viewerRole }: { data: DashboardDat
   const numberLocale = locale === "en" ? "en-US" : "vi-VN";
   const balance = data.balance;
   const { key: apiKey, callUrl } = parseGatewayDelivery(data.delivered_data);
-  const [simulating, setSimulating] = useState(false);
-  const [simError, setSimError] = useState<string | null>(null);
+  const endpoints = data.api?.endpoints ?? [];
   const [openCallId, setOpenCallId] = useState<number | null>(null);
+  const [lang, setLang] = useState<"curl" | "python" | "javascript">("curl");
+  const [tryUrl, setTryUrl] = useState(() => {
+    const sample = endpoints[0]?.sample_body?.url;
+    return typeof sample === "string" ? sample : "";
+  });
+  const [trying, setTrying] = useState(false);
+  const [tryResult, setTryResult] = useState<GatewayTryResult | null>(null);
+  const [tryError, setTryError] = useState("");
+  const [confirmRotate, setConfirmRotate] = useState(false);
+  const [rotating, setRotating] = useState(false);
+  const [newKey, setNewKey] = useState<string | null>(null);
+  const [rotateError, setRotateError] = useState("");
 
-  const simulate = async () => {
-    setSimulating(true);
-    setSimError(null);
+  const urlFor = (name: string) => (callUrl ? callUrl.replace("<endpoint>", name) : "");
+  const sampleUrl = (name: string) => (apiKey ? urlFor(name).replace(apiKey, "$GMMO_KEY") : urlFor(name));
+
+  const runTry = async (endpoint: string) => {
+    setTrying(true);
+    setTryError("");
+    setTryResult(null);
     try {
-      await api.chargeUsage(data.order_id, "profile", 1);
+      setTryResult(await api.gatewayTry(data.order_id, endpoint, { url: tryUrl.trim() }));
       onRefresh();
     } catch (e) {
-      setSimError(apiErrorMessage(e, t("simulateFailed")));
-      onRefresh(); // vẫn refresh để thấy bản ghi bị từ chối trong lịch sử
+      setTryError(apiErrorMessage(e, t("apiTryFailed")));
     } finally {
-      setSimulating(false);
+      setTrying(false);
+    }
+  };
+
+  const rotate = async () => {
+    setRotating(true);
+    setRotateError("");
+    try {
+      const r = await api.rotateGatewayKey(data.order_id);
+      setNewKey(r.gateway_key);
+      setConfirmRotate(false);
+      onRefresh();
+    } catch (e) {
+      setRotateError(apiErrorMessage(e, t("apiRotateFailed")));
+    } finally {
+      setRotating(false);
     }
   };
 
   return (
     <div className="space-y-4">
+      {data.api?.charge_only_success && (
+        <Banner tone="good" icon={<Info size={15} />}>{t("apiChargeOnlySuccess")}</Banner>
+      )}
+
       {(apiKey || callUrl) && (
-        <div className="bg-raised border border-line rounded-lg p-3 space-y-2.5">
+        <div className="space-y-3 rounded-lg border border-line bg-raised p-3">
           {apiKey && (
             <div>
-              <div className="text-[11px] text-faint mb-1">API Key</div>
+              <div className="mb-1 flex items-center justify-between gap-2">
+                <span className="text-[11px] text-faint">API Key</span>
+                {viewerRole === "buyer" && (
+                  <Button size="sm" variant="ghost" onClick={() => setConfirmRotate(true)}>{t("apiRotate")}</Button>
+                )}
+              </div>
               <MaskedValue value={apiKey} />
             </div>
           )}
-          {callUrl && (
-            <div>
-              <div className="text-[11px] text-faint mb-1">{t("callUrl")}</div>
-              <MaskedValue
-                value={callUrl}
-                display={apiKey ? callUrl.replace(apiKey, maskSecret(apiKey)) : callUrl}
-                copyValue={callUrl}
-              />
-              <pre className="mt-2 font-mono text-[11px] bg-base border border-line rounded-md p-2 overflow-x-auto whitespace-pre-wrap break-all">
-                {`curl -sS "${callUrl.replace("<endpoint>", "search")}"`}
-              </pre>
+          {confirmRotate && (
+            <div role="alertdialog" aria-labelledby="rotate-title" className="space-y-2 rounded-lg border border-bad/25 bg-bad-soft p-3">
+              <p id="rotate-title" className="text-[13px] font-semibold text-bad">{t("apiRotateTitle")}</p>
+              <p className="text-[12.5px] text-fg">{t("apiRotateBody")}</p>
+              <div className="flex gap-2">
+                <Button size="sm" variant="danger" onClick={rotate} disabled={rotating}>{rotating ? t("apiRotating") : t("apiRotateConfirm")}</Button>
+                <Button size="sm" variant="ghost" onClick={() => setConfirmRotate(false)} disabled={rotating}>{t("cancel")}</Button>
+              </div>
+              {rotateError && <p role="alert" className="text-[12px] text-bad">{rotateError}</p>}
+            </div>
+          )}
+          {newKey && (
+            <div role="status" className="space-y-1.5 rounded-lg border border-good/25 bg-good-soft p-3">
+              <p className="text-[13px] font-semibold text-good">{t("apiRotated")}</p>
             </div>
           )}
         </div>
@@ -363,101 +431,127 @@ function EndpointDashboard({ data, onRefresh, viewerRole }: { data: DashboardDat
       ) : (
         <>
           <div>
-            <div className="flex items-end justify-between mb-1.5">
+            <div className="mb-1.5 flex items-end justify-between">
               <span className="text-[12px] text-muted">{t("requestBalance")}</span>
               <span className="font-mono text-[13px] font-semibold tabular">
-                {balance.units_used.toLocaleString(numberLocale)} / {balance.units_total.toLocaleString(numberLocale)}
+                {t("apiRemainingOf", { left: balance.units_remaining.toLocaleString(numberLocale), total: balance.units_total.toLocaleString(numberLocale) })}
               </span>
             </div>
             <UsageProgressBar used={balance.units_used} total={balance.units_total} />
-            <div className="flex items-center justify-between mt-1">
-              <span className="text-[11px] text-faint">
-                {t("requestsRemaining", { count: balance.units_remaining.toLocaleString(numberLocale) })}
-              </span>
-              {balance.expires_at && (
-                <span className="text-[11px] text-faint">{t("expiresLabel")} {fmtDate(balance.expires_at, locale)}</span>
-              )}
-            </div>
+            {balance.expires_at && (
+              <p className="mt-1 text-right text-[11px] text-faint">{t("expiresLabel")} {fmtDate(balance.expires_at, locale)}</p>
+            )}
           </div>
 
           {balance.units_remaining <= 0 ? (
             <Banner
-              tone="bad"
-              icon={<Info size={15} />}
-              title={t("outOfCreditTitle")}
+              tone="bad" icon={<Info size={15} />} title={t("outOfCreditTitle")}
               action={data.product_id ? (
-                <Link href={productPath({ id: data.product_id })}>
-                  <Button size="sm" variant="secondary">{t("buyMorePack")}</Button>
-                </Link>
+                <Link href={productPath({ id: data.product_id })}><Button size="sm" variant="secondary">{t("buyMorePack")}</Button></Link>
               ) : undefined}
             >
-              {t("outOfCreditBody")}
+              {t("apiOutOfCreditBody")}
             </Banner>
           ) : balance.units_used / balance.units_total >= LOW_BALANCE_THRESHOLD && (
             <Banner
-              tone="warn"
-              icon={<Info size={15} />}
-              title={t("lowCreditTitle")}
+              tone="warn" icon={<Info size={15} />} title={t("lowCreditTitle")}
               action={data.product_id ? (
-                <Link href={productPath({ id: data.product_id })}>
-                  <Button size="sm" variant="secondary">{t("buyMorePack")}</Button>
-                </Link>
+                <Link href={productPath({ id: data.product_id })}><Button size="sm" variant="secondary">{t("buyMorePack")}</Button></Link>
               ) : undefined}
             >
               {t("lowCreditBody", { count: balance.units_remaining.toLocaleString(numberLocale) })}
             </Banner>
           )}
-
-          {/* Chỉ chủ đơn (buyer) mới gọi được POST /orders/{id}/usage — seller xem
-              cùng dashboard này nhưng bấm nút sẽ luôn nhận 403 (usage/service.py::
-              charge_usage_as chỉ cho buyer_id hoặc admin). Ẩn hẳn thay vì hiện một
-              nút luôn báo lỗi. */}
-          {viewerRole === "buyer" && (
-            <div className="flex items-center gap-2">
-              <button
-                onClick={simulate}
-                disabled={simulating}
-                className="inline-flex items-center gap-1.5 px-3 py-1.5 text-[12px] font-medium rounded-md bg-raised border border-line hover:border-line-2 transition-colors disabled:opacity-50"
-              >
-                {simulating ? t("simulating") : t("simulateRequest")}
-              </button>
-              <span className="text-[11px] text-faint">
-                {t("simulateHint")}
-              </span>
-            </div>
-          )}
-          {simError && <p className="text-[12px] text-bad">{simError}</p>}
-
-          {balance.records.length > 0 && (
-            <div>
-              <h4 className="text-[12.5px] font-medium text-muted mb-2">{t("recentRequestHistory")}</h4>
-              <div className="space-y-1.5">
-                {balance.records.map((r) => (
-                  <UsageRecordRow key={r.id} record={r} />
-                ))}
-              </div>
-            </div>
-          )}
-
-          {balance.gateway_calls && balance.gateway_calls.length > 0 && (
-            <div>
-              <h4 className="text-[12.5px] font-medium text-muted mb-2">
-                {t("recentGatewayCalls")}
-                <span className="font-normal text-faint ml-1.5">{t("retainedDays")}</span>
-              </h4>
-              <div className="space-y-1.5">
-                {balance.gateway_calls.map((c) => (
-                  <GatewayCallRow
-                    key={c.id}
-                    call={c}
-                    open={openCallId === c.id}
-                    onToggle={() => setOpenCallId((id) => (id === c.id ? null : c.id))}
-                  />
-                ))}
-              </div>
-            </div>
-          )}
         </>
+      )}
+
+      {endpoints.length > 0 ? endpoints.map((e) => {
+        const samples = codeSamples(sampleUrl(e.name), e.method, e.sample_body);
+        return (
+          <div key={e.name} className="space-y-3 rounded-lg border border-line p-3">
+            <p className="flex flex-wrap items-center gap-2">
+              <span className="font-mono text-[14px] font-semibold text-fg">{e.name}</span>
+              <Tag tone="iris">{e.method}</Tag>
+              <span className="text-[12px] text-muted">{t("apiUnitsPerCall", { n: e.units })}</span>
+            </p>
+            {e.summary && <p className="text-[12.5px] text-muted">{e.summary}</p>}
+            {callUrl && (
+              <MaskedValue value={urlFor(e.name)} display={apiKey ? urlFor(e.name).replace(apiKey, maskSecret(apiKey)) : urlFor(e.name)} copyValue={urlFor(e.name)} />
+            )}
+            <div role="tablist" aria-label={t("apiCodeLanguage")} className="flex gap-1.5">
+              {(["curl", "python", "javascript"] as const).map((l) => (
+                <button key={l} type="button" role="tab" aria-selected={lang === l} onClick={() => setLang(l)}
+                  className={cn("h-8 rounded-lg border px-3 text-[12.5px] font-medium", lang === l ? "border-fg bg-fg text-card" : "border-line-2 bg-card text-muted hover:text-fg")}>
+                  {l === "curl" ? "curl" : l === "python" ? "Python" : "JavaScript"}
+                </button>
+              ))}
+            </div>
+            <div className="relative">
+              <pre className="overflow-x-auto rounded-lg bg-ink-panel px-3 py-2.5 font-mono text-[11.5px] leading-relaxed text-white/90">{samples[lang]}</pre>
+              <div className="absolute right-2 top-2"><CopyButton text={samples[lang]} /></div>
+            </div>
+            <ul className="space-y-1 text-[12px]">
+              {e.params.map((p) => (
+                <li key={p.name}><span className="font-mono font-semibold text-fg">{p.name}</span> <span className="text-muted">· {p.required ? t("apiRequired") : t("apiOptional")} · {p.description}</span></li>
+              ))}
+            </ul>
+            {viewerRole === "buyer" && balance && balance.units_remaining > 0 && (
+              <form className="space-y-2 border-t border-line pt-3" onSubmit={(ev) => { ev.preventDefault(); void runTry(e.name); }}>
+                <label htmlFor={`try-${e.name}`} className="block text-[12.5px] font-medium text-fg">
+                  {t("apiTry")} <span className="font-normal text-muted">· {t("apiTryHint")}</span>
+                </label>
+                <div className="flex flex-wrap gap-2">
+                  <input id={`try-${e.name}`} type="url" required value={tryUrl} onChange={(ev) => setTryUrl(ev.target.value)}
+                    placeholder="https://www.facebook.com/…"
+                    className="h-9 min-w-0 flex-1 rounded-lg border border-line-2 bg-surface px-3 text-[13px] focus:border-iris focus:outline-none" />
+                  <Button size="sm" type="submit" disabled={trying || !tryUrl.trim()}>{trying ? t("apiTrying") : t("apiTrySend")}</Button>
+                </div>
+                {tryError && <p role="alert" className="text-[12px] text-bad">{tryError}</p>}
+                {tryResult && (
+                  <div className="space-y-1.5">
+                    <p className="flex flex-wrap items-center gap-2 text-[12px] text-muted">
+                      <Tag tone={statusCodeTone(tryResult.status_code)}>{tryResult.status_code ?? t("connectionError")}</Tag>
+                      {(tryResult.latency_ms / 1000).toFixed(1)}s
+                      {tryResult.units_charged !== undefined && <span>· {tryResult.units_charged > 0 ? t("apiCharged", { n: tryResult.units_charged }) : t("apiNotCharged")}</span>}
+                      {tryResult.units_remaining !== undefined && <span>· {t("requestsRemaining", { count: tryResult.units_remaining.toLocaleString(numberLocale) })}</span>}
+                    </p>
+                    <pre className="max-h-72 overflow-auto rounded-lg bg-ink-panel px-3 py-2.5 font-mono text-[11.5px] leading-relaxed text-white/90">
+                      {prettyJson(tryResult.body)}{tryResult.truncated ? "\n…" : ""}
+                    </pre>
+                  </div>
+                )}
+              </form>
+            )}
+          </div>
+        );
+      }) : callUrl && (
+        <pre className="overflow-x-auto whitespace-pre-wrap break-all rounded-md border border-line bg-base p-2 font-mono text-[11px]">
+          {`curl -sS "${apiKey ? callUrl.replace(apiKey, "$GMMO_KEY") : callUrl}"`}
+        </pre>
+      )}
+
+      {balance && balance.gateway_calls && balance.gateway_calls.length > 0 && (
+        <div>
+          <h4 className="mb-2 text-[12.5px] font-medium text-muted">
+            {t("recentGatewayCalls")}
+            <span className="ml-1.5 font-normal text-faint">{t("retainedDays")}</span>
+          </h4>
+          <div className="space-y-1.5">
+            {balance.gateway_calls.map((c) => (
+              <GatewayCallRow key={c.id} call={c} open={openCallId === c.id}
+                onToggle={() => setOpenCallId((id) => (id === c.id ? null : c.id))} />
+            ))}
+          </div>
+        </div>
+      )}
+
+      {balance && balance.records.length > 0 && (
+        <details>
+          <summary className="cursor-pointer text-[12.5px] font-medium text-muted">{t("recentRequestHistory")}</summary>
+          <div className="mt-2 space-y-1.5">
+            {balance.records.map((r) => <UsageRecordRow key={r.id} record={r} />)}
+          </div>
+        </details>
       )}
     </div>
   );

@@ -112,6 +112,7 @@ function TopNavBar() {
     { href: "/seller", label: t("seller"), icon: Store, role: "seller", group: "workspace" },
     { href: "/admin", label: t("admin"), icon: Shield, role: "admin", group: "workspace" },
     { href: "/orders", label: t("orders"), icon: Package, auth: true, group: "activity" },
+    { href: "/proxies", label: t("proxies"), icon: Globe, auth: true, group: "activity" },
     { href: "/messages", label: t("messages"), icon: MessageCircle, auth: true, group: "activity" },
     { href: "/transactions", label: t("transactions"), icon: ArrowLeftRight, auth: true, group: "activity" },
     { href: "/account", label: t("account"), icon: User, auth: true, group: "settings" },

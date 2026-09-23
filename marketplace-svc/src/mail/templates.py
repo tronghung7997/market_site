@@ -21,6 +21,7 @@ KNOWN_TEMPLATES = frozenset({
     "dispute_opened",
     "dispute_resolved",
     "admin_test",
+    "ops_incident",
 })
 
 PLACEHOLDERS: dict[str, tuple[str, ...]] = {
@@ -38,6 +39,7 @@ PLACEHOLDERS: dict[str, tuple[str, ...]] = {
     "dispute_opened": ("order_id", "reason", "deadline", "action_url"),
     "dispute_resolved": ("order_id", "outcome", "admin_note", "action_url"),
     "admin_test": ("action_url",),
+    "ops_incident": ("reason", "action_url"),
 }
 
 _CONTEXT_KEYS = (
@@ -275,6 +277,24 @@ DEFAULT_TEMPLATES: dict[str, dict[str, dict[str, str]]] = {
                 "Đơn #{order_id} đã được xử lý: {outcome}.\n"
                 "Ghi chú quản trị: {admin_note}\n\n"
                 "Xem đơn hàng:\n{action_url}"
+            ),
+        },
+    },
+    "ops_incident": {
+        "en": {
+            "subject": "Critical operations alert",
+            "body": (
+                "A critical incident was raised on the marketplace and needs an operator.\n\n"
+                "{reason}\n\n"
+                "Open the alerts console:\n{action_url}"
+            ),
+        },
+        "vi": {
+            "subject": "Cảnh báo vận hành nghiêm trọng",
+            "body": (
+                "Sàn vừa ghi nhận một sự cố nghiêm trọng cần người vận hành xử lý.\n\n"
+                "{reason}\n\n"
+                "Mở trang cảnh báo:\n{action_url}"
             ),
         },
     },

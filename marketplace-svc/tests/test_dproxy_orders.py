@@ -192,6 +192,10 @@ async def setup_dproxy_config_product(client, *, suffix=""):
                 "datacenter|US|30": PLAN_ID,
             },
             "channel": "proxora",
+            # Các test dưới xếp response theo thứ tự lệnh gọi; hai lệnh đọc
+            # phụ (quote trước khi mua, list sau khi mua) có test riêng ở
+            # tests/test_dproxy_live_contract.py.
+            "precheck_availability": False, "enrich_rotation": False,
         },
         "priority": 1,
     }, headers={"Authorization": f"Bearer {admin_token}"})
@@ -553,10 +557,12 @@ class TestDProxyConfigStrategyProvisioning:
             assert order.status == OrderStatus.cancelled
 
     @pytest.mark.asyncio
+    # 402 / hết hạn mức tắt cả provider (alert cấp provider) — xem
+    # tests/test_dproxy_live_contract.py::test_out_of_credit_pauses_provider_and_next_order_is_not_charged.
     @pytest.mark.parametrize("status,detail", [
-        (402, "Insufficient credit balance"),
         (409, "partner_order_id already exists"),
         (422, "Unknown plan_id"),
+        (404, "Không tìm thấy gói proxy đã chọn."),
     ])
     async def test_purchase_4xx_refunds_buyer_and_raises_operational_alert(
         self, client, monkeypatch, status, detail,

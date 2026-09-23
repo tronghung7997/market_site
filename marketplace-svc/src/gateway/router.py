@@ -2,19 +2,16 @@ import hashlib
 import hmac
 import json
 import re
-import time
 
 import structlog
 from fastapi import APIRouter, Depends, HTTPException, Request, Response
+from pydantic import BaseModel, Field
 
-from src.adapters.factory import get_adapter
-from src.adapters.real_api import RealApiAdapter
-from src.adapters.registry import get_spec
 from src.auth.dependencies import get_current_account, require_role
 from src.config import settings
 from src.database import get_session
-from src.gateway.call_history import record_gateway_call_log
-from src.gateway.service import mint_gateway_key, resolve_order_by_gateway_key
+from src.gateway.forward import forward_call, load_gateway_adapter, resolve_endpoint
+from src.gateway.service import mint_gateway_key, replace_gateway_key, resolve_order_by_gateway_key
 from src.logging import current_request_id
 from src.models.account import Account
 from src.models.order import Order, OrderStatus
@@ -23,7 +20,6 @@ from src.models.service_task import ServiceTask, ServiceTaskStatus
 from src.rate_limit import check_rate_limit
 from src.security.crypto import decrypt_str
 from src.tasks.service import update_task
-from src.usage.service import charge_usage, refund_usage
 from sqlalchemy import select
 from sqlalchemy.ext.asyncio import AsyncSession
 from src.orders.refs import OrderRef
@@ -43,7 +39,7 @@ router = APIRouter(tags=["gateway"])
 _ENDPOINT_RE = re.compile(r"^[A-Za-z0-9_-]{1,64}$")
 
 _MAX_REQUEST_BODY_BYTES = 256 * 1024
-_MAX_RESPONSE_BYTES = 2 * 1024 * 1024
+_TRY_PREVIEW_BYTES = 64 * 1024
 
 # Best-effort abuse guard (src/rate_limit.py — Redis fixed-window, fails
 # open). Not configurable per-provider yet; a flat default here beats no
@@ -59,25 +55,6 @@ def _opaque_bucket(value: str) -> str:
     return hashlib.sha256(value.encode()).hexdigest()
 
 
-def _resolve_seller_path(provider: Provider, endpoint: str) -> str:
-    """The generic half of the gateway: translate a NEUTRAL endpoint name
-    (what pricing_params.endpoint_rates and buyers both key off) to whatever
-    path shape this specific seller's backend actually uses, via
-    provider.config.endpoint_map — e.g. {"search": "/api/v2/search",
-    "scrape": "/scrape-v3/run"}. A provider with no endpoint_map at all falls
-    back to the original /v1/{endpoint} convention (scripts/mock_seller.py's
-    shape) so existing providers keep working unchanged. A provider WITH an
-    endpoint_map that doesn't list this endpoint is a deliberate "not
-    supported" rather than a silent fallback — the seller declared their
-    surface, an unlisted name isn't a guess we should make for them."""
-    endpoint_map = (provider.config or {}).get("endpoint_map")
-    if not endpoint_map:
-        return f"/v1/{endpoint}"
-    if endpoint not in endpoint_map:
-        raise HTTPException(status_code=404, detail=f"Provider không hỗ trợ endpoint '{endpoint}'")
-    return endpoint_map[endpoint]
-
-
 @router.api_route("/gw/{gateway_key}/{endpoint:path}", methods=["GET", "POST", "PUT", "DELETE"])
 async def gateway_forward(
     gateway_key: str,
@@ -91,7 +68,7 @@ async def gateway_forward(
     calls this once per request, platform pre-charges the order's usage
     balance (per-endpoint rate — see resolve_endpoint_units), forwards to the
     seller's real backend through provider.config.endpoint_map (see
-    _resolve_seller_path), and refunds the unit if the forward never actually
+    resolve_endpoint in src/gateway/forward.py), and refunds the unit if the forward never actually
     landed. Every attempt is traced in provider_call_logs via RealApiAdapter's
     existing retry/logging — nothing new to build there, this route only adds
     the buyer-facing side of it.
@@ -128,32 +105,6 @@ async def gateway_forward(
     if order.status not in (OrderStatus.delivered, OrderStatus.completed):
         raise HTTPException(status_code=403, detail="Đơn hàng này không còn ở trạng thái dùng được qua gateway")
 
-    # Resolve through the SNAPSHOT taken at provisioning time, not the
-    # product's current provider_id — re-linking the product to a different
-    # provider after the order was sold must not silently redirect an
-    # already-sold gateway key to a different seller (see Order.provider_id).
-    if not order.provider_id:
-        raise HTTPException(status_code=400, detail="Đơn hàng này chưa được cấp phát qua gateway")
-
-    provider = await db.get(Provider, order.provider_id)
-    provider_spec = get_spec(provider.adapter_type) if provider else None
-    if provider_spec is None or not provider_spec.gateway_forward:
-        raise HTTPException(status_code=400, detail="Sản phẩm này không hỗ trợ gọi qua gateway")
-
-    adapter = await get_adapter(order.provider_id, db)
-    # Phòng thủ cấu trúc (không phải so tên): forward cần adapter.call() —
-    # một spec khai gateway_forward=True cho class không có call() là lỗi
-    # đăng ký, chặn ở đây thay vì AttributeError giữa chừng.
-    if not isinstance(adapter, RealApiAdapter):
-        raise HTTPException(status_code=400, detail="Sản phẩm này không hỗ trợ gọi qua gateway")
-
-    # Path translation happens BEFORE charging — an endpoint this seller
-    # doesn't support (404 from _resolve_seller_path) must never cost the
-    # buyer a unit.
-    seller_path = _resolve_seller_path(provider, endpoint)
-
-    request_id = current_request_id()
-
     body = None
     if request.method in ("POST", "PUT"):
         raw = await request.body()
@@ -165,72 +116,63 @@ async def gateway_forward(
             except ValueError:
                 raise HTTPException(status_code=400, detail="Body phải là JSON hợp lệ")
 
-    # Pre-auth trước khi gọi ra ngoài — seller backend không phải lúc nào cũng
-    # đáng tin (chưa được vet kỹ như provider admin-curate), tính tiền trước
-    # tránh buyer bị forward miễn phí nếu adapter/router có bug; refund lại
-    # nếu request không thực sự tới được seller hoặc trả lời quá khổ (bên dưới).
-    # units=None: charge_usage tự tính từ endpoint_rates/default_rate của
-    # balance NGAY SAU KHI đã khoá dòng — KHÔNG tách một lệnh đọc riêng
-    # trước đó (xem docstring charge_usage: từng làm vậy, phá mất tính đúng
-    # của khoá FOR UPDATE).
-    charge_result = await charge_usage(order.id, endpoint, None, db, request_id=request_id)
-    units = charge_result["units_charged"]
-
-    # Buyer-facing history — separate call, own session, best-effort.
-    # Query/body are sanitized + bounded inside record_gateway_call_log;
-    # never assume buyer-supplied payloads are safe to store raw.
-    request_payload = {
-        "query": dict(request.query_params),
-        **({"body": body} if body is not None else {}),
-    }
-    started = time.perf_counter()
-
-    try:
-        resp = await adapter.call(
-            order.id, seller_path,
-            method=request.method,
-            params=dict(request.query_params),
-            json_body=body,
-        )
-    except Exception as e:
-        latency_ms = int((time.perf_counter() - started) * 1000)
-        await refund_usage(order.id, units, db, request_id=request_id, endpoint=endpoint)
-        # Do not log raw exception text to structlog — may contain host secrets.
-        logger.error(
-            "gateway_forward_failed",
-            order_id=order.id,
-            endpoint=endpoint,
-            error_type=type(e).__name__,
-        )
-        await record_gateway_call_log(
-            order_id=order.id, endpoint=endpoint, latency_ms=latency_ms,
-            request_payload=request_payload, error=str(e),
-        )
-        raise HTTPException(status_code=502, detail="Không thể kết nối nhà cung cấp") from e
-
-    latency_ms = int((time.perf_counter() - started) * 1000)
-
-    if len(resp.content) > _MAX_RESPONSE_BYTES:
-        await refund_usage(order.id, units, db, request_id=request_id, endpoint=endpoint)
-        logger.error("gateway_response_too_large", order_id=order.id, endpoint=endpoint, size=len(resp.content))
-        await record_gateway_call_log(
-            order_id=order.id, endpoint=endpoint, latency_ms=latency_ms, status_code=resp.status_code,
-            request_payload=request_payload, error="Phản hồi từ nhà cung cấp quá lớn",
-        )
-        raise HTTPException(status_code=502, detail="Phản hồi từ nhà cung cấp quá lớn")
-
-    await record_gateway_call_log(
-        order_id=order.id, endpoint=endpoint, latency_ms=latency_ms, status_code=resp.status_code,
-        request_payload=request_payload, response_body=resp.content,
+    # Endpoint resolution, charge, forward, refund and history live in
+    # src/gateway/forward.py so the buyer's "Gọi thử" button runs the exact
+    # same path (see try_gateway_call below).
+    result = await forward_call(
+        order, endpoint, method=request.method, query=dict(request.query_params), body=body,
+        db=db, request_id=current_request_id(),
     )
-
     # Whitelist header pass-through — không forward Set-Cookie hay header nội
     # bộ của seller ra cho buyer.
-    return Response(
-        content=resp.content,
-        status_code=resp.status_code,
-        media_type=resp.headers.get("content-type", "application/json"),
+    return Response(content=result.content, status_code=result.status_code, media_type=result.media_type)
+
+
+class GatewayTryRequest(BaseModel):
+    endpoint: str = Field(pattern=r"^[A-Za-z0-9_-]{1,64}$")
+    body: dict | None = None
+
+
+@router.post("/orders/{order_ref}/gateway/try")
+async def try_gateway_call(
+    order_id: OrderRef,
+    payload: GatewayTryRequest,
+    request: Request,
+    account: Account = Depends(get_current_account),
+    db: AsyncSession = Depends(get_session),
+):
+    """The API console's "Gọi thử": the buyer sends one real call from the
+    order page (signed-in session, no key needed). Same charge/refund rules
+    as /gw/{key}/… — it IS a real request against the buyer's balance."""
+    order = await db.get(Order, order_id)
+    if not order or order.buyer_id != account.id:
+        raise HTTPException(status_code=404, detail="Không tìm thấy đơn hàng")
+    if order.status not in (OrderStatus.delivered, OrderStatus.completed):
+        raise HTTPException(status_code=403, detail="Đơn hàng này không còn ở trạng thái dùng được qua gateway")
+    if not await check_rate_limit(
+        f"gw-try:{order.id}", limit=settings.gateway_key_rate_limit,
+        window_seconds=_GATEWAY_RATE_WINDOW_SECONDS, fail_open=False,
+    ):
+        raise HTTPException(status_code=429, detail="Gọi quá nhanh — thử lại sau ít phút")
+    raw_body = json.dumps(payload.body or {}).encode()
+    if len(raw_body) > _MAX_REQUEST_BODY_BYTES:
+        raise HTTPException(status_code=413, detail="Request body quá lớn")
+    provider, _adapter = await load_gateway_adapter(order, db)
+    route = resolve_endpoint(provider, payload.endpoint)
+    result = await forward_call(
+        order, payload.endpoint, method=route.method or "POST", query={}, body=payload.body,
+        db=db, request_id=current_request_id(),
     )
+    text = result.content[:_TRY_PREVIEW_BYTES].decode("utf-8", errors="replace")
+    return {
+        "status_code": result.status_code,
+        "latency_ms": result.latency_ms,
+        "units_charged": result.units_charged,
+        "units_remaining": result.units_remaining,
+        "content_type": result.media_type,
+        "body": text,
+        "truncated": len(result.content) > _TRY_PREVIEW_BYTES,
+    }
 
 
 @router.post("/webhooks/providers/{provider_id}/tasks/{external_task_id}")
@@ -335,6 +277,9 @@ async def rotate_gateway_key(
     old_prefix = order.gateway_key_prefix
     new_key = await mint_gateway_key(order)
     new_prefix = order.gateway_key_prefix
+    # delivered_data là nơi trang đơn đọc key — không cập nhật thì buyer vẫn
+    # thấy (và copy) key cũ đã hết hiệu lực.
+    order.delivered_data = replace_gateway_key(order.delivered_data, new_key)
     await log_event(
         db, "info", f"Gateway key rotated for order {order_id}",
         request_id=current_request_id(),

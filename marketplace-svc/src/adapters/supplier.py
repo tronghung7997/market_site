@@ -34,7 +34,7 @@ from src.adapters.real_api import RealApiAdapter
 from src.models.order import Order
 from src.models.product import Product, ProductVariant
 from src.models.resource import Resource, ResourceStatus, resource_data_hash, salted_resource_hash
-from src.models.supplier_listing import SupplierListing
+from src.models.supplier_listing import SupplierListing, SupplierPurchase
 
 logger = structlog.get_logger()
 
@@ -69,6 +69,21 @@ class UpstreamListing:
     # Đường dẫn danh mục thượng nguồn (["Facebook", "Clone Việt…"]) — chỉ để
     # admin nhận diện, lưu vào SupplierListing.extra.
     category_path: tuple[str, ...] = ()
+    # Thuộc tính máy của SKU/gói (proxy: duration_days, loaiproxy, currency…)
+    # — snapshot vào SupplierCatalogItem.extra để bước nhập sản phẩm dựng
+    # tham số giá mà không phải gọi lại thượng nguồn. `amount` < 0 nghĩa là
+    # nguồn KHÔNG báo tồn (proxy server), khác với 0 = hết hàng.
+    attributes: dict = field(default_factory=dict)
+
+
+class ProxyPlanCatalog:
+    """Capability mixin: nhà cung cấp proxy công bố được danh sách GÓI (plan)
+    để /admin/sources đồng bộ và nhập thành sản phẩm. Khác
+    CatalogSupplierAdapter ở chỗ không có tồn kho và không mua theo SKU —
+    provision vẫn đi qua ProviderAdapter.provision() với pricing `config`."""
+
+    async def fetch_plan_catalog(self) -> list["UpstreamListing"]:  # pragma: no cover - interface
+        raise NotImplementedError
 
 
 # Phân loại lỗi mua — adapter con map msg/mã của nguồn về đây, tầng chung
@@ -146,7 +161,34 @@ class CatalogSupplierAdapter(RealApiAdapter):
     async def provision(self, order_id: int, user_config: dict) -> ProvisionResult:
         result = await self._purchase_flow(order_id, user_config)
         await self._record_outcome(order_id, user_config.get("variant_id"), result)
+        await self._log_purchase(order_id, user_config, result)
         return result
+
+    async def _log_purchase(self, order_id: int, user_config: dict, result: ProvisionResult) -> None:
+        """Một dòng `supplier_purchases` cho tab "Đơn mua từ nguồn". Ghi cùng
+        transaction với đơn (commit/rollback theo đơn). Giao lại từ Resource
+        đã có (sweeper chạy lại) thì dòng cũ vẫn đúng — không ghi thêm."""
+        if self.db is None or self.provider_id is None:
+            return
+        meta = result.metadata or {}
+        if meta.get("redelivered"):
+            return
+        existing = await self.db.scalar(select(SupplierPurchase).where(SupplierPurchase.order_id == order_id))
+        if existing is not None:
+            return
+        variant_id = user_config.get("variant_id")
+        listing = None
+        if variant_id is not None:
+            listing = await self.db.scalar(select(SupplierListing).where(SupplierListing.variant_id == variant_id))
+        self.db.add(SupplierPurchase(
+            order_id=order_id, provider_id=self.provider_id, variant_id=variant_id,
+            external_product_id=meta.get("external_product_id") or (listing.external_product_id if listing else None),
+            quantity=int(user_config.get("quantity", 1) or 1),
+            cost_total=int(meta.get("cost_total") or 0) if result.success else 0,
+            trans_id=(str(meta["trans_id"])[:100] if meta.get("trans_id") else None),
+            ok=bool(result.success),
+            error=None if result.success else (result.error or "unknown")[:255],
+        ))
 
     async def _record_outcome(self, order_id: int, variant_id, result: ProvisionResult) -> None:
         """Cầu dao theo GÓI: thành công → reset streak; lỗi thuộc về gói/SKU

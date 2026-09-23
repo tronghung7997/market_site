@@ -132,7 +132,32 @@ async def upsert_incident(
         # the pre-update occurrence_count / timestamps.
         await db.refresh(alert)
     assert alert is not None
+    if alert.severity == "critical" and alert.occurrence_count == 1:
+        await _mail_admins(db, alert)
     return alert
+
+
+async def _mail_admins(db: AsyncSession, alert: Alert) -> None:
+    """Sự cố CRITICAL mới (lần đầu của fingerprint) → email mọi admin đang
+    hoạt động qua mail outbox (SES). Chỉ lần đầu: lặp lại chỉ tăng
+    occurrence_count trên /admin/alerts, không spam hộp thư. Chạy trong
+    SAVEPOINT của transaction caller — mail hỏng không bao giờ làm mất sự cố."""
+    from src.models.account import Account
+    from src.mail.service import enqueue_mail, frontend_url
+
+    try:
+        async with db.begin_nested():
+            admins = (await db.execute(
+                select(Account.id).where(Account.roles.any("admin"), Account.is_active.is_(True))
+            )).scalars().all()
+            for admin_id in admins:
+                await enqueue_mail(
+                    db, template="ops_incident", idempotency_key=f"ops-incident-{alert.id}-{admin_id}",
+                    account_id=admin_id,
+                    payload={"reason": f"[{alert.type}] {alert.message}", "action_url": frontend_url("vi", "/admin/alerts")},
+                )
+    except Exception as e:  # noqa: BLE001 — best effort, sự cố đã ghi
+        logger.warning("ops_incident_mail_failed", alert_id=alert.id, error=str(e))
 
 
 async def emit_incident(

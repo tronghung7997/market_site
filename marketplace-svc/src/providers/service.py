@@ -131,6 +131,18 @@ async def update_provider(
         owner = await db.get(Account, updates["seller_id"])
         if owner is None or "seller" not in (owner.roles or []):
             raise HTTPException(status_code=400, detail="seller_id không phải tài khoản seller")
+        spec = get_spec(next_adapter_type)
+        if (spec is None or not spec.seller_registrable) and not owner.is_internal:
+            # Nguồn chỉ admin cấu hình được (sàn trả tiền ở thượng nguồn) chỉ
+            # thuộc về seller NỘI BỘ — giống wizard /admin/sources, giao nguồn
+            # cho một seller là bật cờ nội bộ cho tài khoản đó (có audit).
+            owner.is_internal = True
+            await log_event(
+                db, "warning", f"Account {owner.id} marked internal by provider assignment",
+                request_id=current_request_id(),
+                metadata={"event": "account_internal_flag_set", "account_id": owner.id,
+                          "provider_id": provider_id, "actor_id": actor_id, "source": "provider_assignment"},
+            )
         # Nguồn admin giao cho seller vẫn là hạ tầng đã duyệt — không rơi về
         # hàng chờ duyệt như provider seller tự đăng ký.
         updates.setdefault("review_status", "approved")
@@ -204,8 +216,19 @@ async def get_seller_provider(seller_id: int, provider_id: int, db: AsyncSession
     return provider
 
 
+def _require_seller_managed(provider: Provider) -> None:
+    """Provider do ADMIN cấu hình rồi giao cho seller nội bộ (/admin/sources:
+    dproxy, topproxy, igbm…) — seller chỉ xem/test, mọi thay đổi đi qua admin.
+    Config của nó được tin như config admin (không qua SSRF guard, xem
+    adapters/factory.py::_seller_owned), nên seller không được sửa."""
+    spec = get_spec(provider.adapter_type)
+    if spec is None or not spec.seller_registrable:
+        raise HTTPException(status_code=403, detail="Nguồn này do admin quản lý — liên hệ admin để thay đổi")
+
+
 async def update_seller_provider(seller_id: int, provider_id: int, updates: dict, db: AsyncSession) -> Provider:
     provider = await get_seller_provider(seller_id, provider_id, db)
+    _require_seller_managed(provider)
 
     if "config" in updates:
         if provider.review_status == "approved":
@@ -271,6 +294,7 @@ async def record_seller_provider_test(
 
 async def submit_seller_provider(seller_id: int, provider_id: int, db: AsyncSession) -> Provider:
     provider = await get_seller_provider(seller_id, provider_id, db)
+    _require_seller_managed(provider)
     if provider.review_status != "tested":
         raise HTTPException(status_code=409, detail="Hãy test kết nối thành công trước khi gửi duyệt")
     provider.review_status = "pending_review"

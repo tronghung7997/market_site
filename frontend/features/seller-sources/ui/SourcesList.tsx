@@ -7,51 +7,20 @@ import { api } from "@/lib/api";
 import { useApiErrorMessage } from "@/lib/use-api-error";
 import { useMoney } from "@/lib/money/CurrencyProvider";
 import type { SourceArea, SupplierSource } from "@/lib/types";
-import { Button, Card, Spinner, Tag } from "@/components/ui";
-import { AlertTriangle, ArrowRight, Layers, Plus, RefreshCw, Activity } from "@/components/Icons";
+import { Banner, Button, Card, Tag } from "@/components/ui";
+import { AlertTriangle, ArrowRight, CheckCircle2, Pause, Plus, RefreshCw, Store } from "@/components/Icons";
 import { cn } from "@/lib/cn";
+import { balanceDays, blockedCount, lowBalance, sourceRef } from "../logic";
+import { relTime } from "./shared";
 
-type T = (k: string, v?: Record<string, string | number>) => string;
+type Todo = { key: string; title: string; detail: string; href: string; action: string; tone: "warn" | "bad" };
 
-export function relTime(iso: string | null, t: T): string {
-  if (!iso) return t("neverSynced");
-  const mins = Math.max(0, Math.round((Date.now() - new Date(iso).getTime()) / 60000));
-  if (mins < 1) return t("justNow");
-  if (mins < 60) return t("minutesAgo", { n: mins });
-  return t("hoursAgo", { n: Math.round(mins / 60) });
-}
-
-function balanceOf(s: SupplierSource): number | null {
-  const health = (s.last_test_result as { health?: { balance_vnd?: number } } | null)?.health;
-  return typeof health?.balance_vnd === "number" ? health.balance_vnd : null;
-}
-
-function lowBalance(s: SupplierSource): boolean {
-  const b = balanceOf(s);
-  const th = Number(s.low_balance_vnd ?? 0);
-  return b !== null && th > 0 && b < th;
-}
-
-/** Việc cần xử lý trên các nguồn — hiện trên đầu cả hai khu. */
-function attentionItems(rows: SupplierSource[], t: T): { key: string; text: string; href: string; tone: "warn" | "bad" }[] {
-  const out: { key: string; text: string; href: string; tone: "warn" | "bad" }[] = [];
-  for (const s of rows) {
-    const base = `${s.id}`;
-    if (s.listing_error_count > 0) out.push({ key: `${s.id}-err`, tone: "warn", href: base, text: t("attnDelisted", { n: s.listing_error_count, name: s.name }) });
-    if (s.listing_low_margin_count > 0) out.push({ key: `${s.id}-low`, tone: "bad", href: base, text: t("attnLowMargin", { n: s.listing_low_margin_count, name: s.name }) });
-    if (s.listing_auto_paused_count > 0) out.push({ key: `${s.id}-auto`, tone: "warn", href: base, text: t("attnAutoPaused", { n: s.listing_auto_paused_count, name: s.name }) });
-    if (lowBalance(s)) out.push({ key: `${s.id}-bal`, tone: "warn", href: base, text: t("attnLowBalance", { name: s.name, balance: (balanceOf(s) ?? 0).toLocaleString() }) });
-    if (!s.is_active) out.push({ key: `${s.id}-off`, tone: "warn", href: base, text: t("attnPaused", { name: s.name }) });
-  }
-  return out;
-}
-
+/** Nơi sàn lấy hàng: mỗi nguồn một thẻ, đầu trang chỉ còn việc cần làm. */
 export function SourcesList({ area }: { area: SourceArea }) {
   const t = useTranslations("sellerSources");
   const apiErrorMessage = useApiErrorMessage();
   const [rows, setRows] = useState<SupplierSource[] | null>(null);
   const [error, setError] = useState("");
-  const [syncing, setSyncing] = useState<number | null>(null);
   const base = area === "admin" ? "/admin/sources" : "/seller/sources";
 
   const load = async () => {
@@ -64,184 +33,177 @@ export function SourcesList({ area }: { area: SourceArea }) {
   };
   useEffect(() => { void load(); /* eslint-disable-next-line react-hooks/exhaustive-deps */ }, [area]);
 
-  const sync = async (id: number) => {
-    setSyncing(id);
-    try {
-      await api.sources.sync(area, id);
-      await load();
-    } catch (e) {
-      setError(apiErrorMessage(e));
-    } finally {
-      setSyncing(null);
+  const todos: Todo[] = [];
+  for (const s of rows ?? []) {
+    if (s.kind !== "catalog") continue;
+    const ref = sourceRef(area, s);
+    if (s.sync_error) {
+      todos.push({
+        key: `${s.id}-sync`, tone: "warn", href: `${base}/${ref}`, action: t("list.todoSyncAction"),
+        title: t("list.todoSync", { name: s.name }), detail: t("list.todoSyncDetail", { error: s.sync_error }),
+      });
     }
-  };
-
-  const attention = rows ? attentionItems(rows, t) : [];
+    const blocked = blockedCount(s);
+    if (blocked > 0) {
+      todos.push({
+        key: `${s.id}-blocked`, tone: "warn", href: `${base}/${ref}`, action: t("list.todoBlockedAction", { n: blocked }),
+        title: t("list.todoBlocked", { name: s.name, n: blocked }),
+        detail: t("list.todoBlockedDetail", {
+          low: s.listing_low_margin_count, delisted: s.listing_error_count, paused: s.listing_auto_paused_count,
+        }),
+      });
+    }
+    if (lowBalance(s)) {
+      todos.push({
+        key: `${s.id}-balance`, tone: "warn", href: `${base}/${ref}?tab=settings`, action: t("list.todoBalanceAction"),
+        title: t("list.todoBalance", { name: s.name }), detail: t("list.todoBalanceDetail"),
+      });
+    }
+    if (!s.is_active) {
+      todos.push({
+        key: `${s.id}-paused`, tone: "bad", href: `${base}/${ref}?tab=settings`, action: t("list.todoPausedAction"),
+        title: t("list.todoPaused", { name: s.name }), detail: t("list.todoPausedDetail"),
+      });
+    }
+  }
 
   return (
-    <div className="space-y-4">
-      <div className="flex flex-wrap items-start gap-3">
-        <div className="min-w-0 flex-1">
-          {area !== "admin" && <h1 className="text-lg font-bold text-fg">{t("title")}</h1>}
-          <p className="mt-1 text-[13px] text-muted max-w-2xl">{area === "admin" ? t("adminIntro") : t("intro")}</p>
+    <div className="space-y-5">
+      <div className="flex flex-wrap items-start justify-between gap-3">
+        <div className="min-w-0 max-w-2xl">
+          {area === "seller" && <h1 className="font-serif text-2xl font-semibold text-fg">{t("title")}</h1>}
+          <p className="mt-1 text-[13.5px] leading-relaxed text-muted">{area === "admin" ? t("list.adminIntro") : t("list.sellerIntro")}</p>
         </div>
         {area === "admin" && (
-          <Link href={`${base}/new`}><Button size="sm"><Plus className="h-3.5 w-3.5" />{t("addSource")}</Button></Link>
+          <Link href={`${base}/new`}><Button><Plus size={15} />{t("list.addSource")}</Button></Link>
         )}
       </div>
-      {error && <p className="text-[13px] text-bad" role="alert">{error}</p>}
 
-      {attention.length > 0 && (
-        <Card className="p-3 sm:p-4">
-          <p className="flex items-center gap-2 text-[13px] font-semibold text-fg">
-            <AlertTriangle className="h-4 w-4 text-warn" />{t("attention")} <Tag tone="warn">{attention.length}</Tag>
-          </p>
-          <ul className="mt-2 divide-y divide-line">
-            {attention.map((a) => (
-              <li key={a.key} className="flex items-center justify-between gap-3 py-2 text-[13px]">
-                <span className={cn(a.tone === "bad" ? "text-bad" : "text-fg")}>{a.text}</span>
-                <Link href={`${base}/${a.href}?filter=attention`} className="shrink-0">
-                  <Button size="sm" variant="secondary">{t("handle")}</Button>
-                </Link>
+      {error && (
+        <Banner tone="bad" icon={<AlertTriangle size={15} />} action={<Button size="sm" variant="secondary" onClick={load}><RefreshCw size={14} />{t("retry")}</Button>}>
+          {error}
+        </Banner>
+      )}
+
+      {todos.length > 0 && (
+        <section aria-labelledby="sources-todo" className="overflow-hidden rounded-card border border-warn/30 bg-card">
+          <h2 id="sources-todo" className="flex items-center gap-2 bg-warn-soft px-4 py-2.5 text-[14px] font-semibold text-fg">
+            <AlertTriangle size={16} className="text-warn" />{t("list.todoTitle")}<Tag tone="warn">{todos.length}</Tag>
+          </h2>
+          <ul className="divide-y divide-line">
+            {todos.map((todo) => (
+              <li key={todo.key} className="flex flex-wrap items-center justify-between gap-3 px-4 py-3">
+                <div className="min-w-0">
+                  <p className={cn("text-[13.5px] font-medium", todo.tone === "bad" ? "text-bad" : "text-fg")}>{todo.title}</p>
+                  <p className="text-[12.5px] text-muted">{todo.detail}</p>
+                </div>
+                <Link href={todo.href}><Button size="sm" variant="secondary">{todo.action}<ArrowRight size={14} /></Button></Link>
               </li>
             ))}
           </ul>
-        </Card>
+        </section>
       )}
 
-      {rows === null ? <Spinner /> : rows.length === 0 ? (
-        <Card className="p-6 text-center text-[13px] text-muted">
-          {area === "admin" ? t("emptyAdmin") : t("emptySeller")}
-        </Card>
-      ) : area === "admin" ? (
-        <AdminTable rows={rows} syncing={syncing} onSync={sync} base={base} />
-      ) : (
-        <div className="grid gap-3 md:grid-cols-2">
-          {rows.map((s) => <SellerCard key={s.id} s={s} syncing={syncing === s.id} onSync={() => sync(s.id)} base={base} />)}
+      {rows === null && !error ? (
+        <div className="grid gap-4 md:grid-cols-2" aria-busy="true" aria-label={t("loading")}>
+          {[0, 1].map((i) => <div key={i} className="h-52 animate-pulse rounded-card border border-line bg-surface" />)}
         </div>
-      )}
-      {area !== "admin" && rows && rows.length > 0 && <p className="text-[12px] text-faint">{t("askAdminForMore")}</p>}
+      ) : rows && rows.length === 0 ? (
+        <Card className="p-8 text-center">
+          <p className="text-[14px] font-medium text-fg">{area === "admin" ? t("list.emptyAdmin") : t("list.emptySeller")}</p>
+          {area === "admin" && (
+            <Link href={`${base}/new`} className="mt-4 inline-block"><Button><Plus size={15} />{t("list.addSource")}</Button></Link>
+          )}
+        </Card>
+      ) : rows ? (
+        <div className="grid gap-4 md:grid-cols-2">
+          {[...rows].sort((a, b) => Number(b.kind !== "server") - Number(a.kind !== "server")).map((s) => (
+            <SourceCard key={s.id} s={s} area={area} base={base} />
+          ))}
+        </div>
+      ) : null}
+      {area === "seller" && rows && rows.length > 0 && <p className="text-[12.5px] text-muted">{t("list.askAdmin")}</p>}
     </div>
   );
 }
 
-/* ------------------------------------------------------------------ */
-
-function KindTag({ kind }: { kind: SupplierSource["kind"] }) {
-  const t = useTranslations("sellerSources");
-  return (
-    <Tag tone="iris">
-      {kind === "catalog" ? <Layers className="h-3 w-3" /> : <Activity className="h-3 w-3" />}
-      {kind === "catalog" ? t("kindCatalog") : t("kindServer")}
-    </Tag>
-  );
-}
-
-function SellerCard({ s, syncing, onSync, base }: { s: SupplierSource; syncing: boolean; onSync: () => void; base: string }) {
+function SourceCard({ s, area, base }: { s: SupplierSource; area: SourceArea; base: string }) {
   const t = useTranslations("sellerSources");
   const locale = useLocale();
   const { formatLedgerMoney } = useMoney();
-  const balance = balanceOf(s);
-  const manageHref = s.kind === "catalog" ? `${base}/${s.id}` : `/seller/providers`;
+  const catalog = s.kind === "catalog";
+  const href = s.kind !== "server" ? `${base}/${sourceRef(area, s)}` : area === "admin" ? "/admin/providers" : "/seller/providers";
+  const low = lowBalance(s);
+  const days = balanceDays(s.balance_vnd, s.stats_7d?.cost ?? 0);
+  const blocked = blockedCount(s);
+  const status = !s.is_active
+    ? <Tag tone="neutral"><Pause size={12} />{t("status.paused")}</Tag>
+    : low ? <Tag tone="warn"><AlertTriangle size={12} />{t("status.lowBalance")}</Tag>
+    : <Tag tone="good"><CheckCircle2 size={12} />{t("status.running")}</Tag>;
+  const store = s.seller_business_name ?? s.seller_email;
+
   return (
-    <Card className="p-4 flex flex-col gap-3">
-      <div className="flex items-start justify-between gap-2">
+    <Link
+      href={href}
+      className="group flex min-w-0 flex-col gap-4 rounded-card border border-line bg-card p-5 shadow-card transition-colors hover:border-line-2 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-iris/40"
+    >
+      <div className="flex items-start justify-between gap-3">
         <div className="min-w-0">
-          <p className="font-semibold text-fg truncate">{s.name}</p>
-          <p className="mt-0.5 flex flex-wrap items-center gap-1.5 text-[12px] text-muted">
-            <KindTag kind={s.kind} />
-            {s.kind === "catalog" ? `${t("synced")} ${relTime(s.catalog_synced_at, t)}` : `${t("checked")} ${relTime(s.last_tested_at, t)}`}
-          </p>
+          <p className="truncate text-[16px] font-semibold text-fg group-hover:text-iris-hi">{s.name}</p>
+          <p className="text-[12.5px] text-muted">{t(`kind.${s.kind}`)} · <span className="font-mono">{s.adapter_type}</span></p>
         </div>
-        <Tag tone={s.is_active ? "good" : "bad"}>{s.is_active ? t("active") : t("paused")}</Tag>
+        {status}
       </div>
-      <dl className="grid grid-cols-3 gap-2 text-[12px]">
-        <div><dt className="text-faint">{t("selling")}</dt><dd className="font-mono tabular-nums text-fg text-[15px] font-semibold">{s.kind === "catalog" ? s.listing_count : s.product_count}</dd></div>
-        <div><dt className="text-faint">{t("attention")}</dt><dd className={cn("font-mono tabular-nums text-[15px] font-semibold", s.attention_count > 0 ? "text-warn" : "text-fg")}>{s.attention_count}</dd></div>
-        <div>
-          <dt className="text-faint">{t("balance")}</dt>
-          <dd className={cn("font-mono tabular-nums text-[15px] font-semibold", lowBalance(s) ? "text-warn" : "text-fg")}>
-            {balance === null ? "—" : formatLedgerMoney(balance, locale)}
-          </dd>
-        </div>
-      </dl>
-      <div className="flex flex-wrap gap-2">
-        {s.kind === "catalog" && (
-          <Link href={`${base}/${s.id}?add=1`}><Button size="sm"><Plus className="h-3.5 w-3.5" />{t("addProducts")}</Button></Link>
-        )}
-        <Link href={manageHref}><Button size="sm" variant="secondary">{t("manageN", { n: s.kind === "catalog" ? s.listing_count : s.product_count })}<ArrowRight className="h-3.5 w-3.5" /></Button></Link>
-        {s.kind === "catalog" && (
-          <Button size="sm" variant="ghost" onClick={onSync} disabled={syncing} className="ml-auto">
-            <RefreshCw className="h-3.5 w-3.5" />{syncing ? t("syncing") : t("syncNow")}
-          </Button>
-        )}
+      {s.kind === "gateway" ? (
+        <dl className="grid grid-cols-3 gap-3 border-y border-line py-3">
+          <div className="min-w-0">
+            <dt className="text-[12px] text-muted">{t("gateway.requests24h")}</dt>
+            <dd className="font-mono text-[16px] font-semibold tabular-nums text-fg">{(s.gateway_stats?.requests_24h ?? 0).toLocaleString(locale)}</dd>
+            <dd className={cn("text-[12px]", (s.gateway_stats?.errors_24h ?? 0) > 0 ? "text-warn" : "text-muted")}>
+              {t("gateway.errorsShort", { n: s.gateway_stats?.errors_24h ?? 0 })}
+            </dd>
+          </div>
+          <div className="min-w-0">
+            <dt className="text-[12px] text-muted">{t("gateway.activeKeys")}</dt>
+            <dd className="font-mono text-[16px] font-semibold tabular-nums text-fg">{(s.gateway_stats?.active_keys ?? 0).toLocaleString(locale)}</dd>
+            <dd className="text-[12px] text-muted">{t("gateway.activeKeysSub")}</dd>
+          </div>
+          <div className="min-w-0">
+            <dt className="text-[12px] text-muted">{t("list.profit7d")}</dt>
+            <dd className="font-mono text-[16px] font-semibold tabular-nums text-fg">{formatLedgerMoney(s.gateway_stats?.profit_7d ?? 0, locale)}</dd>
+            <dd className="text-[12px] text-muted">{t("gateway.sales7d", { amount: formatLedgerMoney(s.gateway_stats?.sales_7d ?? 0, locale) })}</dd>
+          </div>
+        </dl>
+      ) : (
+        <dl className="grid grid-cols-3 gap-3 border-y border-line py-3">
+          <div className="min-w-0">
+            <dt className="text-[12px] text-muted">{t("list.balance")}</dt>
+            <dd className={cn("font-mono text-[16px] font-semibold tabular-nums", low ? "text-warn" : "text-fg")}>
+              {s.balance_vnd === null ? "—" : formatLedgerMoney(s.balance_vnd, locale)}
+            </dd>
+            <dd className="text-[12px] text-muted">{days === null ? t("list.balanceUnknownPace") : t("list.balanceDays", { n: days })}</dd>
+          </div>
+          <div className="min-w-0">
+            <dt className="text-[12px] text-muted">{t("list.selling")}</dt>
+            <dd className="font-mono text-[16px] font-semibold tabular-nums text-fg">{catalog ? s.active_listing_count : s.product_count}</dd>
+            <dd className={cn("text-[12px]", blocked > 0 ? "text-warn" : "text-muted")}>
+              {catalog ? (blocked > 0 ? t("list.blockedN", { n: blocked }) : t("list.variantsUnit")) : t("list.productsUnit")}
+            </dd>
+          </div>
+          <div className="min-w-0">
+            <dt className="text-[12px] text-muted">{t("list.profit7d")}</dt>
+            <dd className="font-mono text-[16px] font-semibold tabular-nums text-fg">{formatLedgerMoney(s.stats_7d?.profit ?? 0, locale)}</dd>
+            <dd className="text-[12px] text-muted">{t("list.units7d", { n: s.stats_7d?.units ?? 0 })}</dd>
+          </div>
+        </dl>
+      )}
+      <div className="flex flex-wrap items-center justify-between gap-2 text-[12.5px] text-muted">
+        <span className="inline-flex min-w-0 items-center gap-1.5">
+          <Store size={14} />
+          {store ? <span className="min-w-0 truncate">{t("list.soldAs", { store })}</span> : <Tag tone="warn">{t("list.noStore")}</Tag>}
+        </span>
+        <span>{s.kind === "catalog" || s.kind === "proxy" ? t("list.synced", { when: relTime(s.catalog_synced_at, t) }) : t("list.checked", { when: relTime(s.last_tested_at, t) })}</span>
       </div>
-    </Card>
-  );
-}
-
-function AdminTable({ rows, syncing, onSync, base }: { rows: SupplierSource[]; syncing: number | null; onSync: (id: number) => void; base: string }) {
-  const t = useTranslations("sellerSources");
-  const locale = useLocale();
-  const { formatLedgerMoney } = useMoney();
-  return (
-    <div className="overflow-x-auto rounded-lg border border-line bg-card">
-      <table className="w-full text-[13px]">
-        <thead className="bg-surface text-[11px] uppercase tracking-wider text-faint">
-          <tr>
-            <th className="p-2.5 text-left">{t("source")}</th>
-            <th className="p-2.5 text-left">{t("assignedTo")}</th>
-            <th className="p-2.5 text-right">{t("balance")}</th>
-            <th className="p-2.5 text-right">{t("selling")}</th>
-            <th className="p-2.5 text-left">{t("synced")}</th>
-            <th className="p-2.5 text-left">{t("status")}</th>
-            <th className="p-2.5"></th>
-          </tr>
-        </thead>
-        <tbody>
-          {rows.map((s) => {
-            const balance = balanceOf(s);
-            return (
-              <tr key={s.id} className={cn("border-t border-line", !s.seller_id && "bg-warn-soft/30")}>
-                <td className="p-2.5 align-top">
-                  <Link href={`${base}/${s.id}`} className="font-medium text-fg hover:text-iris">{s.name}</Link>
-                  <div className="mt-0.5 flex flex-wrap items-center gap-1.5 text-[11.5px] text-faint">
-                    <KindTag kind={s.kind} />
-                    <span className="font-mono">{s.adapter_type}</span>
-                    {s.kind === "catalog" && <span>· {s.catalog_count.toLocaleString()} SKU</span>}
-                  </div>
-                </td>
-                <td className="p-2.5 align-top">
-                  {s.seller_email ? (
-                    <>
-                      <div className="text-fg truncate max-w-[220px]">{s.seller_email}</div>
-                      {s.seller_is_internal && <Tag tone="iris">{t("internalSeller")}</Tag>}
-                    </>
-                  ) : <Tag tone="warn">{t("unassigned")}</Tag>}
-                </td>
-                <td className="p-2.5 align-top text-right font-mono tabular-nums">
-                  {balance === null ? <span className="text-faint">—</span> : formatLedgerMoney(balance, locale)}
-                  {lowBalance(s) && <div><Tag tone="warn"><AlertTriangle className="h-3 w-3" />{t("lowBalance")}</Tag></div>}
-                </td>
-                <td className="p-2.5 align-top text-right font-mono tabular-nums">
-                  {s.kind === "catalog" ? s.listing_count : s.product_count}
-                  {s.attention_count > 0 && <div className="text-[11px] text-warn">{t("attnN", { n: s.attention_count })}</div>}
-                </td>
-                <td className="p-2.5 align-top text-muted">{s.kind === "catalog" ? relTime(s.catalog_synced_at, t) : relTime(s.last_tested_at, t)}</td>
-                <td className="p-2.5 align-top"><Tag tone={s.is_active ? "good" : "neutral"}>{s.is_active ? t("active") : t("paused")}</Tag></td>
-                <td className="p-2.5 align-top text-right whitespace-nowrap">
-                  {s.kind === "catalog" && (
-                    <Button size="sm" variant="ghost" onClick={() => onSync(s.id)} disabled={syncing === s.id} aria-label={t("syncNow")}>
-                      <RefreshCw className={cn("h-3.5 w-3.5", syncing === s.id && "animate-spin")} />
-                    </Button>
-                  )}
-                  <Link href={s.kind === "catalog" ? `${base}/${s.id}` : `/admin/providers`}><Button size="sm" variant="secondary">{t("open")}</Button></Link>
-                </td>
-              </tr>
-            );
-          })}
-        </tbody>
-      </table>
-    </div>
+    </Link>
   );
 }

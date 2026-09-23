@@ -15,26 +15,32 @@ snapshot `supplier_catalog_items` + cache `supplier_listings`.
 """
 from __future__ import annotations
 
-import math
 from dataclasses import dataclass
+from datetime import datetime, timedelta, timezone
 
 from fastapi import status
-from sqlalchemy import func, select
+from sqlalchemy import and_, func, or_, select
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from src.adapters.registry import get_spec
 from src.exceptions import ErrorCode, api_error
 from src.models.account import Account
 from src.models.category import Category
+from src.models.order import Order, OrderStatus
 from src.models.product import DeliveryMode, Product, ProductStatus, ProductVariant
 from src.models.provider import Provider
-from src.models.supplier_listing import SupplierCatalogItem, SupplierListing
+from src.models.supplier_listing import SupplierCatalogItem, SupplierListing, SupplierPurchase
+from src.suppliers import gateway_sources
 from src.suppliers.service import (
+    DEFAULT_MIN_MARGIN_PCT,
+    DEFAULT_ROUND_TO,
     _min_margin_pct,
     apply_upstream,
     attach_listing,
     fold_text,
     margin_ok,
+    price_rule,
+    suggest_price,
     sync_provider_listings,
 )
 
@@ -54,13 +60,31 @@ def _not_found():
     return api_error(ErrorCode.PROVIDER_NOT_CONFIGURED, status.HTTP_404_NOT_FOUND, detail="Không tìm thấy nguồn hàng")
 
 
-async def get_source(provider_id: int, scope: SourceScope, db: AsyncSession) -> Provider:
-    provider = await db.get(Provider, provider_id)
+async def get_source(provider_id: int | str, scope: SourceScope, db: AsyncSession) -> Provider:
+    """Nguồn theo ref trên URL: `public_key` (UI seller dùng — không lộ id
+    tuần tự) hoặc id số (trang admin, client cũ). Quyền sở hữu kiểm như nhau."""
+    ref = str(provider_id)
+    if ref.isdigit():
+        provider = await db.get(Provider, int(ref))
+    else:
+        provider = await db.scalar(select(Provider).where(Provider.public_key == ref))
     spec = get_spec(provider.adapter_type) if provider else None
-    if provider is None or spec is None or not spec.external_stock:
+    if provider is None or spec is None or not (spec.external_stock or spec.proxy_source or spec.gateway_source):
         raise _not_found()
     if not scope.is_admin and provider.seller_id != scope.seller_id:
         raise _not_found()
+    return provider
+
+
+async def get_catalog_source(provider_id: int | str, scope: SourceScope, db: AsyncSession) -> Provider:
+    """Như get_source nhưng CHỈ nguồn catalog (tồn kho thượng nguồn, bán theo
+    listing). Nguồn proxy bán theo bảng gói — các endpoint listing/import SKU
+    không được chạm vào nó."""
+    provider = await get_source(provider_id, scope, db)
+    spec = get_spec(provider.adapter_type)
+    if spec is None or not spec.external_stock:
+        raise api_error(ErrorCode.INVALID_PRODUCT_CONFIG, status.HTTP_400_BAD_REQUEST,
+                        detail="Nguồn proxy quản lý theo bảng gói, không theo listing")
     return provider
 
 
@@ -88,37 +112,82 @@ SOURCE_KINDS: dict[str, dict] = {
     "igbm": {
         "label": "Acc Station (igbm.net)", "kind": "catalog",
         "description": "Kho tài khoản & key, hàng nghìn SKU. Mua theo từng đơn, giao ngay.",
+        # Wizard chỉ hỏi kết nối; luật giá + ngưỡng an toàn lấy CATALOG_DEFAULTS,
+        # sửa sau ở tab Cài đặt của nguồn.
         "fields": [
-            {"key": "base_url", "label": "Base URL", "default": "https://igbm.net"},
-            {"key": "api_key", "label": "API key", "secret": True},
-            {"key": "low_balance_vnd", "label": "Báo khi số dư dưới (đ)", "default": 200000, "type": "number"},
-            {"key": "min_margin_pct", "label": "Lãi tối thiểu để được bán (%)", "default": 10, "type": "number"},
-            {"key": "auto_pause_after_failures", "label": "Tự tắt gói sau N lần mua lỗi liên tiếp", "default": 3, "type": "number"},
+            {"key": "api_key", "label": "API key", "secret": True,
+             "hint": "Lấy ở igbm.net → Tài liệu API."},
+            {"key": "base_url", "label": "Máy chủ API", "default": "https://igbm.net", "advanced": True},
         ],
     },
+    # Nguồn PROXY: catalog gói (plan) đồng bộ như catalog SKU, sản phẩm bán theo
+    # pricing `config` (src/suppliers/proxy_sources.py). Một tài khoản TopProxy
+    # dùng chung key cho cả tĩnh lẫn xoay nhưng phải tách hai nguồn theo `mode`
+    # vì provision khác hẳn nhau.
     "topproxy": {
-        "label": "TopProxy", "kind": "server",
-        "description": "Server proxy datacenter, cấp IP theo gói và thời hạn.",
+        "label": "TopProxy · proxy tĩnh", "kind": "proxy",
+        "description": "Dân cư tĩnh Viettel/FPT/VNPT, datacenter, US, 4G. Cấp IP theo loại và số ngày; đổi bảo mật, gia hạn, thay IP.",
         "fields": [
-            {"key": "base_url", "label": "Base URL"},
+            {"key": "base_url", "label": "Base URL", "default": "https://topproxy.vn"},
             {"key": "api_key", "label": "API key", "secret": True},
+            {"key": "mode", "label": "Chế độ", "default": "static", "type": "select",
+             "options": [{"value": "static", "label": "Proxy tĩnh (apiv2)"}, {"value": "xoay", "label": "Key xoay (proxyxoay)"}]},
+            {"key": "xoay_get_url", "label": "URL lấy proxy cho key xoay (chỉ chế độ xoay)", "default": "https://proxyxoay.shop/api/get.php"},
+            {"key": "low_balance_vnd", "label": "Báo khi sổ Xu ước tính dưới (đ)", "default": 200000, "type": "number"},
+            {"key": "min_margin_pct", "label": "Lãi tối thiểu để được bán (%)", "default": 10, "type": "number"},
         ],
     },
     "dproxy": {
-        "label": "DProxy", "kind": "server",
-        "description": "Proxy dân cư xoay, mua theo loại / mạng / số ngày.",
+        "label": "DProxy (M2M)", "kind": "proxy",
+        "description": "Dân cư / mobile / datacenter theo gói (plan) thượng nguồn, giá USD, mua từng đơn qua partner-purchase. Đổi IP chỉ bật khi node được giao hỗ trợ.",
         "fields": [
-            {"key": "base_url", "label": "Base URL"},
+            {"key": "base_url", "label": "Base URL", "default": "https://api.dproxy.info"},
             {"key": "api_key", "label": "API key", "secret": True},
+            {"key": "auth_type", "label": "Kiểu xác thực", "default": "header", "type": "select",
+             "options": [{"value": "header", "label": "Header X-API-Key"}, {"value": "bearer", "label": "Authorization: Bearer"}]},
+            {"key": "auth_header", "label": "Tên header (khi kiểu header)", "default": "X-API-Key"},
+            {"key": "channel", "label": "Channel", "default": "proxora"},
+            {"key": "min_margin_pct", "label": "Lãi tối thiểu để được bán (%)", "default": 10, "type": "number"},
+            {"key": "low_credit_usd", "label": "Báo khi hạn mức còn dưới (USD)", "default": 10, "type": "number"},
+        ],
+    },
+    # API bán theo gói request qua gateway — src/suppliers/gateway_sources.py.
+    "ghlab_fb": {
+        "label": "FB Data API (lookup.ghlab.info)", "kind": "gateway",
+        "description": "Lấy chi tiết bài viết, trang, hồ sơ Facebook theo link. Bán theo gói request, khách gọi qua API key của sàn.",
+        "fields": [
+            {"key": "api_key", "label": "API key", "secret": True,
+             "hint": "Key đi theo tham số ?api_key= như tài liệu của nguồn."},
+            {"key": "test_url", "label": "Link Facebook để gọi thử", "default": gateway_sources.DEFAULT_TEST_URL,
+             "hint": "Kiểm tra = gọi thật 1 request (nguồn có thể tính phí)."},
+            {"key": "base_url", "label": "Máy chủ API", "default": "https://lookup.ghlab.info", "advanced": True},
         ],
     },
 }
+
+
+# Cấu hình mặc định cho nguồn catalog mới tạo từ wizard. Nguồn cũ không có
+# follow_cost → giữ hành vi cũ (không tự đổi giá) cho tới khi admin bật.
+CATALOG_DEFAULTS: dict = {
+    "markup_pct": 30, "round_to": DEFAULT_ROUND_TO, "follow_cost": True,
+    "min_margin_pct": int(DEFAULT_MIN_MARGIN_PCT), "auto_pause_after_failures": 3, "low_balance_vnd": 200_000,
+}
+
+# Khoá cấu hình seller nội bộ được sửa (luật giá + ngưỡng). Kết nối, tên,
+# bật/tắt, seller sở hữu: chỉ admin.
+SELLER_SETTING_KEYS = ("markup_pct", "round_to", "follow_cost", "min_margin_pct",
+                       "auto_pause_after_failures", "low_balance_vnd", *gateway_sources.GATEWAY_SETTING_KEYS)
+ADMIN_SETTING_KEYS = ("name", "base_url", "api_key", "is_active", "seller_id")
 
 
 def source_kind(adapter_type: str) -> str:
     spec = get_spec(adapter_type)
     if spec is not None and spec.external_stock:
         return "catalog"
+    if spec is not None and spec.proxy_source:
+        return "proxy"
+    if spec is not None and spec.gateway_source:
+        return "gateway"
     return SOURCE_KINDS.get(adapter_type, {}).get("kind", "server")
 
 
@@ -134,8 +203,8 @@ async def list_sources(scope: SourceScope, db: AsyncSession) -> list[dict]:
         stmt = stmt.where(Provider.seller_id == scope.seller_id)
     providers = [
         p for p in (await db.execute(stmt)).scalars()
-        if get_spec(p.adapter_type) is not None
-        and (get_spec(p.adapter_type).external_stock or p.seller_id is not None)
+        if (spec := get_spec(p.adapter_type)) is not None
+        and (spec.external_stock or spec.proxy_source or spec.gateway_source or p.seller_id is not None)
     ]
     if not providers:
         return []
@@ -150,7 +219,7 @@ async def list_sources(scope: SourceScope, db: AsyncSession) -> list[dict]:
     )).all())
     listing_stmt = (
         select(SupplierListing.provider_id, SupplierListing.sync_error, SupplierListing.cost_price,
-               ProductVariant.price, Product.id, SupplierListing.auto_paused_at)
+               ProductVariant.price, Product.id, SupplierListing.auto_paused_at, ProductVariant.is_active)
         .join(ProductVariant, ProductVariant.id == SupplierListing.variant_id)
         .join(Product, Product.id == ProductVariant.product_id)
         .where(SupplierListing.provider_id.in_(ids))
@@ -171,21 +240,38 @@ async def list_sources(scope: SourceScope, db: AsyncSession) -> list[dict]:
         sellers = {a.id: a for a in (await db.execute(
             select(Account).where(Account.id.in_(seller_ids))
         )).scalars()}
+    stats = await _purchase_stats(ids, scope, db, days=7)
+    gw_ids = [p.id for p in providers if source_kind(p.adapter_type) == "gateway"]
+    gw_stats = await gateway_sources.gateway_stats(gw_ids, db, seller_id=scope.seller_id)
+    names = await _business_names(list(seller_ids), db)
     out = []
     for p in providers:
         min_margin = _min_margin_pct(p)
+        rule = price_rule(p)
         mine = [r for r in listing_rows if r[0] == p.id]
-        n_err = sum(1 for r in mine if r[1] is not None)
-        n_low = sum(1 for r in mine if r[1] is None and not margin_ok(r[3], r[2], min_margin))
+        # sync_error "delisted" = nguồn gỡ SKU (chặn bán); chuỗi khác = lần
+        # đồng bộ gần nhất lỗi (giữ cache cũ, vẫn bán) → báo ở cấp nguồn.
+        n_err = sum(1 for r in mine if r[1] == "delisted")
+        n_low = sum(1 for r in mine if r[1] != "delisted" and r[5] is None and r[6] and not margin_ok(r[3], r[2], min_margin))
         n_paused = sum(1 for r in mine if r[5] is not None)
+        sync_error = next((r[1] for r in mine if r[1] and r[1] != "delisted"), None)
         seller = sellers.get(p.seller_id)
         out.append({
-            "id": p.id, "name": p.name, "adapter_type": p.adapter_type,
+            "id": p.id, "public_key": p.public_key, "name": p.name, "adapter_type": p.adapter_type,
             "kind": source_kind(p.adapter_type),
             "is_active": p.is_active, "review_status": p.review_status,
             "seller_id": p.seller_id, "seller_email": seller.email if seller else None,
             "seller_is_internal": bool(seller.is_internal) if seller else False,
+            "seller_business_name": names.get(p.seller_id) if p.seller_id else None,
             "min_margin_pct": min_margin,
+            "markup_pct": rule.markup_pct, "round_to": rule.round_to, "follow_cost": rule.follow_cost,
+            "balance_vnd": _balance_of(p),
+            "active_listing_count": sum(
+                1 for r in mine if r[1] != "delisted" and r[5] is None and r[6] and margin_ok(r[3], r[2], min_margin)
+            ),
+            "sync_error": sync_error,
+            "stats_7d": stats.get(p.id, _empty_stats()),
+            "gateway_stats": gw_stats.get(p.id),
             "low_balance_vnd": (p.config or {}).get("low_balance_vnd"),
             "catalog_count": int(catalog_counts.get(p.id, 0)),
             "catalog_synced_at": catalog_synced.get(p.id),
@@ -211,7 +297,8 @@ async def browse_catalog(
 ) -> dict:
     base = select(SupplierCatalogItem).where(SupplierCatalogItem.provider_id == provider.id)
     if in_stock:
-        base = base.where(SupplierCatalogItem.amount > 0)
+        # amount < 0 = nguồn không báo tồn (proxy) — vẫn là "bán được".
+        base = base.where(SupplierCatalogItem.amount != 0)
     if group:
         base = base.where(SupplierCatalogItem.group_name == group)
     if max_cost is not None:
@@ -241,7 +328,7 @@ async def browse_catalog(
     groups = [
         {"name": g, "count": int(n)} for g, n in (await db.execute(
             select(SupplierCatalogItem.group_name, func.count(SupplierCatalogItem.id))
-            .where(SupplierCatalogItem.provider_id == provider.id, SupplierCatalogItem.amount > 0)
+            .where(SupplierCatalogItem.provider_id == provider.id, SupplierCatalogItem.amount != 0)
             .group_by(SupplierCatalogItem.group_name)
             .order_by(func.count(SupplierCatalogItem.id).desc())
         )).all()
@@ -274,6 +361,7 @@ async def browse_catalog(
             "amount": it.amount, "min_qty": it.min_qty, "max_qty": it.max_qty,
             "format_hint": it.format_hint, "group_name": it.group_name,
             "category_path": it.category_path, "synced_at": it.synced_at,
+            "extra": it.extra or {},
             "attached": attached.get(it.external_id, []),
         } for it in items],
         "total": int(total), "page": page, "per_page": per_page,
@@ -284,15 +372,6 @@ async def browse_catalog(
 # ----------------------------------------------------------------------
 # Nhập / gắn / sửa / gỡ
 # ----------------------------------------------------------------------
-
-def suggest_price(cost_price: int, margin_pct: float, round_to: int = 1000) -> int:
-    """Giá bán gợi ý = vốn × (1 + margin), làm tròn LÊN bội số round_to."""
-    if cost_price <= 0:
-        return 0
-    raw = cost_price * (1 + margin_pct / 100)
-    step = max(int(round_to or 1), 1)
-    return int(math.ceil(raw / step) * step)
-
 
 def guess_service_type(category_path: list[str] | tuple[str, ...]) -> str:
     text = fold_text(" ".join(category_path))
@@ -347,11 +426,13 @@ async def import_items(
     if provider.review_status != "approved":
         raise api_error(ErrorCode.PROVIDER_NOT_APPROVED, status.HTTP_400_BAD_REQUEST)
     min_margin = _min_margin_pct(provider)
+    rule = price_rule(provider)
     created: list[dict] = []
     new_products: dict[str, Product] = {}   # group_key → product vừa tạo
     for spec in items:
         item = await _catalog_item(provider.id, str(spec["external_id"]), db)
-        price = int(spec.get("price") or suggest_price(item.cost_price, max(min_margin, 30)))
+        rule_price = suggest_price(item.cost_price, rule.markup_pct, rule.round_to)
+        price = int(spec.get("price") or rule_price)
         product: Product | None = None
         if spec.get("product_id"):
             product = await db.get(Product, int(spec["product_id"]))
@@ -391,6 +472,8 @@ async def import_items(
             db, provider_id=provider.id, variant_id=variant.id, external_product_id=item.external_id,
             upstream=_upstream_from_item(item), external_name=item.name,
         )
+        # Giá khác luật lúc nhập = seller cố ý đặt giá riêng.
+        listing.price_manual = price != rule_price
         await db.commit()
         created.append({
             "product_id": product.id, "product_title": product.title, "public_key": product.public_key,
@@ -438,9 +521,12 @@ async def _scoped_listing(listing_id: int, scope: SourceScope, db: AsyncSession)
 async def update_listing(
     listing_id: int, scope: SourceScope, db: AsyncSession, *,
     price: int | None = None, variant_name: str | None = None, external_id: str | None = None,
-    is_active: bool | None = None, product_id: int | None = None,
+    is_active: bool | None = None, product_id: int | None = None, price_manual: bool | None = None,
 ) -> dict:
+    """`price` → giá đặt tay (luật giá không ghi đè nữa). `price_manual=False`
+    → trả phân loại về luật giá: đặt ngay giá theo luật."""
     listing, variant, product = await _scoped_listing(listing_id, scope, db)
+    provider = await db.get(Provider, listing.provider_id)
     if product_id is not None and product_id != product.id:
         # Chuyển phân loại sang sản phẩm khác của cùng seller, cùng nguồn.
         target = await db.get(Product, int(product_id))
@@ -456,7 +542,9 @@ async def update_listing(
     if price is not None:
         if price < 0:
             raise api_error(ErrorCode.INVALID_PRODUCT_CONFIG, status.HTTP_400_BAD_REQUEST)
-        variant.price = int(price)
+        if int(price) != variant.price:
+            variant.price = int(price)
+            listing.price_manual = True
     if variant_name is not None and variant_name.strip():
         variant.name = variant_name.strip()[:255]
     if is_active is not None:
@@ -470,9 +558,15 @@ async def update_listing(
         listing.external_product_id = item.external_id
         listing.external_name = item.name
         apply_upstream(listing, _upstream_from_item(item))
+    if price_manual is False:
+        rule = price_rule(provider)
+        listing.price_manual = False
+        if listing.cost_price > 0:
+            variant.price = suggest_price(listing.cost_price, rule.markup_pct, rule.round_to)
+    elif price_manual is True:
+        listing.price_manual = True
     await db.commit()
-    provider = await db.get(Provider, listing.provider_id)
-    return _listing_row(listing, variant, product, _min_margin_pct(provider))
+    return _listing_row(listing, variant, product, _min_margin_pct(provider), price_rule(provider))
 
 
 async def detach_listing(listing_id: int, scope: SourceScope, db: AsyncSession) -> None:
@@ -482,9 +576,12 @@ async def detach_listing(listing_id: int, scope: SourceScope, db: AsyncSession) 
     await db.commit()
 
 
-def _listing_row(listing: SupplierListing, variant: ProductVariant, product: Product, min_margin: float) -> dict:
+def _listing_row(
+    listing: SupplierListing, variant: ProductVariant, product: Product, min_margin: float, rule=None,
+) -> dict:
     cost = listing.cost_price
     margin_pct = round((variant.price - cost) / cost * 100, 1) if cost > 0 else None
+    path = (listing.extra or {}).get("category_path", [])
     return {
         "listing_id": listing.id, "provider_id": listing.provider_id,
         "product_id": product.id, "product_title": product.title, "product_status": product.status.value,
@@ -499,7 +596,10 @@ def _listing_row(listing: SupplierListing, variant: ProductVariant, product: Pro
         "format_hint": listing.format_hint, "synced_at": listing.synced_at, "sync_error": listing.sync_error,
         "fail_streak": listing.fail_streak or 0, "last_fail_at": listing.last_fail_at,
         "last_fail_reason": listing.last_fail_reason, "auto_paused_at": listing.auto_paused_at,
-        "category_path": (listing.extra or {}).get("category_path", []),
+        "category_path": path,
+        "group_name": path[0] if path else "",
+        "price_manual": bool(listing.price_manual),
+        "rule_price": suggest_price(cost, rule.markup_pct, rule.round_to) if rule is not None and cost > 0 else None,
     }
 
 
@@ -514,35 +614,59 @@ async def list_listings(provider: Provider, scope: SourceScope, db: AsyncSession
     if not scope.is_admin:
         stmt = stmt.where(Product.seller_id == scope.seller_id)
     min_margin = _min_margin_pct(provider)
-    return [_listing_row(lst, v, p, min_margin) for lst, v, p in (await db.execute(stmt)).all()]
+    rule = price_rule(provider)
+    return [_listing_row(lst, v, p, min_margin, rule) for lst, v, p in (await db.execute(stmt)).all()]
 
 
 async def reprice_listings(
     provider: Provider, scope: SourceScope, db: AsyncSession, *,
-    margin_pct: float, round_to: int = 1000, listing_ids: list[int] | None = None,
-    only_below_min: bool = False,
+    margin_pct: float | None = None, round_to: int | None = None, listing_ids: list[int] | None = None,
+    only_below_min: bool = False, dry_run: bool = False, include_manual: bool = False,
 ) -> dict:
-    """Áp giá bán = vốn × (1+margin) cho nhiều gói một lượt. `only_below_min`
-    = chỉ sửa gói đang dưới ngưỡng margin của provider (đang bị chặn bán)."""
+    """Áp giá bán = vốn × (1+margin) cho nhiều phân loại một lượt. Không
+    truyền margin/round_to → dùng luật giá của nguồn.
+
+    - `only_below_min`: chỉ sửa phân loại đang dưới ngưỡng lãi (bị chặn bán).
+    - Phân loại "đặt tay" được giữ nguyên (trả về ở `skipped_manual`) trừ khi
+      `include_manual` hoặc được chỉ định đích danh qua `listing_ids`.
+    - `dry_run`: chỉ trả về danh sách thay đổi để UI hiện xem trước."""
+    rule = price_rule(provider)
+    pct = rule.markup_pct if margin_pct is None else margin_pct
+    step = rule.round_to if round_to is None else round_to
     rows = await list_listings(provider, scope, db)
     min_margin = _min_margin_pct(provider)
-    changed = []
+    changed, skipped_manual = [], []
+    unchanged = 0
     for row in rows:
         if listing_ids is not None and row["listing_id"] not in listing_ids:
             continue
         if only_below_min and row["margin_ok"]:
             continue
-        if row["cost_price"] <= 0:
+        if row["cost_price"] <= 0 or row["sync_error"] == "delisted":
             continue
-        new_price = suggest_price(row["cost_price"], margin_pct, round_to)
+        if row["price_manual"] and not include_manual and listing_ids is None:
+            skipped_manual.append({"listing_id": row["listing_id"], "product_title": row["product_title"],
+                                   "variant_name": row["variant_name"], "price": row["price"],
+                                   "margin_ok": row["margin_ok"]})
+            continue
+        new_price = suggest_price(row["cost_price"], pct, step)
         if new_price == row["price"]:
+            unchanged += 1
+            continue
+        changed.append({"listing_id": row["listing_id"], "variant_id": row["variant_id"],
+                        "product_title": row["product_title"], "variant_name": row["variant_name"],
+                        "cost_price": row["cost_price"], "old_price": row["price"], "new_price": new_price})
+        if dry_run:
             continue
         variant = await db.get(ProductVariant, row["variant_id"])
         variant.price = new_price
-        changed.append({"listing_id": row["listing_id"], "variant_id": variant.id,
-                        "old_price": row["price"], "new_price": new_price})
-    await db.commit()
-    return {"changed": changed, "min_margin_pct": min_margin}
+        if listing_ids is not None:
+            listing = await db.get(SupplierListing, row["listing_id"])
+            listing.price_manual = False
+    if not dry_run:
+        await db.commit()
+    return {"changed": changed, "unchanged": unchanged, "skipped_manual": skipped_manual,
+            "margin_pct": pct, "round_to": step, "min_margin_pct": min_margin, "dry_run": dry_run}
 
 
 async def sync_now(provider: Provider, db: AsyncSession) -> dict:
@@ -550,7 +674,8 @@ async def sync_now(provider: Provider, db: AsyncSession) -> dict:
     await db.commit()
     return {
         "provider_id": report.provider_id, "updated": report.updated, "delisted": report.delisted,
-        "low_margin": report.low_margin, "catalog_items": report.catalog_items, "error": report.error,
+        "low_margin": report.low_margin, "repriced": report.repriced,
+        "catalog_items": report.catalog_items, "error": report.error,
     }
 
 
@@ -570,9 +695,22 @@ async def test_source_config(adapter_type: str, config: dict, db: AsyncSession) 
     from src.security.crypto import encrypt_config
 
     # Adapter đọc secret ở dạng đã mã hoá (như khi lấy từ DB) → mã hoá tạm.
+    if spec.gateway_source:
+        adapter = spec.cls(encrypt_config({**gateway_sources.GATEWAY_DEFAULTS, **config}), db=db,
+                           provider_id=None, seller_owned=False)
+        return {**await gateway_sources.test_gateway_config(adapter, config), "catalog": None}
     adapter = spec.cls(encrypt_config(dict(config)), db=db, provider_id=None, seller_owned=False)
     health = await adapter.check_health()
-    return {"health": health, "ok": health.get("status") in ("healthy", "warning")}
+    ok = health.get("status") in ("healthy", "warning")
+    catalog = None
+    if ok and spec.external_stock:
+        # Số mặt hàng để admin thấy ngay nguồn có gì (một request đọc catalog).
+        try:
+            items = await adapter.fetch_catalog()
+            catalog = {"total": len(items), "in_stock": sum(1 for it in items if it.amount > 0)}
+        except Exception:  # noqa: BLE001 — chỉ là thông tin thêm
+            catalog = None
+    return {"health": health, "ok": ok, "catalog": catalog}
 
 
 async def list_seller_candidates(db: AsyncSession) -> list[dict]:
@@ -642,15 +780,20 @@ async def create_source(data: dict, db: AsyncSession, *, actor_id: int | None) -
                             detail="seller_id không phải tài khoản seller")
         if not seller.is_internal:
             seller.is_internal = True
+    config = dict(data.get("config") or {})
+    if source_kind(adapter_type) == "catalog":
+        config = {**CATALOG_DEFAULTS, **config}
+    elif source_kind(adapter_type) == "gateway":
+        config = {**gateway_sources.GATEWAY_DEFAULTS, **config}
     provider = await create_provider({
         "name": data["name"].strip()[:255], "adapter_type": adapter_type,
-        "config": dict(data.get("config") or {}), "is_active": True, "priority": 1,
+        "config": config, "is_active": True, "priority": 1,
     }, db, actor_id=actor_id)
     provider.review_status = "approved"
     provider.seller_id = seller.id if seller else None
     await db.commit()
     report = None
-    if source_kind(adapter_type) == "catalog":
+    if source_kind(adapter_type) in ("catalog", "proxy"):
         report = await sync_provider_listings(provider, db)
         await db.commit()
     return {
@@ -660,3 +803,243 @@ async def create_source(data: dict, db: AsyncSession, *, actor_id: int | None) -
         "catalog_items": report.catalog_items if report else 0,
         "sync_error": report.error if report else None,
     }
+
+
+# ----------------------------------------------------------------------
+# Số liệu phụ cho bảng nguồn
+# ----------------------------------------------------------------------
+
+def _balance_of(provider: Provider) -> int | None:
+    health = (provider.last_test_result or {}).get("health") or {}
+    value = health.get("balance_vnd")
+    return int(value) if isinstance(value, (int, float)) else None
+
+
+async def _business_names(account_ids: list[int], db: AsyncSession) -> dict[int, str]:
+    from src.sellers.service import approved_business_names
+
+    return await approved_business_names(account_ids, db) if account_ids else {}
+
+
+# ----------------------------------------------------------------------
+# Đơn mua từ nguồn (tab "Đơn mua")
+# ----------------------------------------------------------------------
+
+PURCHASE_WINDOWS = (1, 7, 30)
+
+
+def _empty_stats() -> dict:
+    return {"orders": 0, "ok": 0, "failed": 0, "pending": 0, "units": 0,
+            "paid": 0, "cost": 0, "profit": 0, "refunded": 0}
+
+
+async def _purchase_rows(provider_ids: list[int], scope: SourceScope, db: AsyncSession, *, days: int) -> list[dict]:
+    """Mọi đơn của các nguồn trong `days` ngày gần nhất, đã phân loại kết
+    quả. Nguồn của đơn = dòng supplier_purchases (đơn từ nay về sau) hoặc
+    sản phẩm đang gắn nguồn (đơn cũ, chưa có dòng mua)."""
+    since = datetime.now(timezone.utc) - timedelta(days=days)
+    stmt = (
+        select(Order, SupplierPurchase, ProductVariant.name, Product.title, Product.provider_id,
+               SupplierListing.cost_price)
+        .outerjoin(SupplierPurchase, SupplierPurchase.order_id == Order.id)
+        .outerjoin(ProductVariant, ProductVariant.id == Order.variant_id)
+        .outerjoin(Product, Product.id == Order.product_id)
+        .outerjoin(SupplierListing, SupplierListing.variant_id == Order.variant_id)
+        .where(
+            Order.created_at >= since,
+            Order.is_seeded.is_(False),
+            or_(
+                SupplierPurchase.provider_id.in_(provider_ids),
+                and_(SupplierPurchase.id.is_(None), Product.provider_id.in_(provider_ids)),
+            ),
+        )
+        .order_by(Order.created_at.desc(), Order.id.desc())
+    )
+    if not scope.is_admin:
+        stmt = stmt.where(Order.seller_id == scope.seller_id)
+    out = []
+    for order, purchase, variant_name, product_title, product_provider_id, listing_cost in (await db.execute(stmt)).all():
+        if purchase is not None:
+            result = "ok" if purchase.ok else "failed"
+        elif order.status in (OrderStatus.pending, OrderStatus.processing):
+            result = "pending"
+        elif order.status == OrderStatus.cancelled:
+            result = "failed"
+        else:
+            result = "ok"
+        paid = max(order.total_amount - (order.refunded_amount or 0), 0) if result == "ok" else 0
+        refunded = order.total_amount if result == "failed" else (order.refunded_amount or 0)
+        cost_estimated = False
+        cost = 0
+        if result == "ok":
+            if purchase is not None:
+                cost = purchase.cost_total
+            elif listing_cost:
+                cost, cost_estimated = int(listing_cost) * order.quantity, True
+        out.append({
+            "provider_id": purchase.provider_id if purchase is not None else product_provider_id,
+            "order_id": order.id, "order_code": order.order_code, "created_at": order.created_at,
+            "product_title": product_title, "variant_name": variant_name, "quantity": order.quantity,
+            "total_amount": order.total_amount, "paid": paid, "refunded": refunded,
+            "cost": cost, "cost_estimated": cost_estimated, "profit": paid - cost if result == "ok" else 0,
+            "result": result,
+            "error": (purchase.error if purchase is not None and not purchase.ok else None)
+            or (order.cancel_reason if result == "failed" else None),
+            "trans_id": purchase.trans_id if purchase is not None else None,
+        })
+    return out
+
+
+def _summarize(rows: list[dict]) -> dict:
+    s = _empty_stats()
+    for r in rows:
+        s["orders"] += 1
+        s[r["result"]] += 1
+        s["refunded"] += r["refunded"]
+        if r["result"] == "ok":
+            s["units"] += r["quantity"]
+            s["paid"] += r["paid"]
+            s["cost"] += r["cost"]
+            s["profit"] += r["profit"]
+    return s
+
+
+async def _purchase_stats(provider_ids: list[int], scope: SourceScope, db: AsyncSession, *, days: int) -> dict[int, dict]:
+    rows = await _purchase_rows(provider_ids, scope, db, days=days)
+    by_provider: dict[int, list[dict]] = {}
+    for r in rows:
+        by_provider.setdefault(r["provider_id"], []).append(r)
+    return {pid: _summarize(rs) for pid, rs in by_provider.items()}
+
+
+async def list_purchases(
+    provider: Provider, scope: SourceScope, db: AsyncSession, *,
+    days: int = 1, result: str = "all", q: str = "", page: int = 1, per_page: int = 50,
+) -> dict:
+    days = days if days in PURCHASE_WINDOWS else 1
+    rows = await _purchase_rows([provider.id], scope, db, days=days)
+    summary = _summarize(rows)
+    counts = {"all": len(rows), "ok": summary["ok"], "failed": summary["failed"], "pending": summary["pending"]}
+    if result in ("ok", "failed", "pending"):
+        rows = [r for r in rows if r["result"] == result]
+    needle = q.strip().lower()
+    if needle:
+        rows = [r for r in rows if needle in (r["order_code"] or "").lower() or needle in (r["trans_id"] or "").lower()]
+    per_page = max(1, min(per_page, 200))
+    page = max(1, page)
+    items = rows[(page - 1) * per_page: page * per_page]
+    for r in items:
+        r.pop("provider_id", None)
+    return {"summary": summary, "counts": counts, "days": days, "items": items,
+            "total": len(rows), "page": page, "per_page": per_page}
+
+
+# ----------------------------------------------------------------------
+# Cài đặt nguồn (tab "Cài đặt")
+# ----------------------------------------------------------------------
+
+def _key_hint(provider: Provider) -> str | None:
+    from src.security.crypto import decrypt_config
+
+    try:
+        key = decrypt_config(provider.config or {}).get("api_key")
+    except Exception:  # noqa: BLE001 — key hỏng: chỉ không hiện gợi ý
+        return None
+    return key[-4:] if isinstance(key, str) and len(key) >= 8 else None
+
+
+async def get_settings(provider: Provider, scope: SourceScope, db: AsyncSession) -> dict:
+    cfg = provider.config or {}
+    rule = price_rule(provider)
+    seller = await db.get(Account, provider.seller_id) if provider.seller_id else None
+    names = await _business_names([seller.id], db) if seller else {}
+    out = {
+        "id": provider.id, "name": provider.name, "adapter_type": provider.adapter_type,
+        "kind": source_kind(provider.adapter_type), "is_active": provider.is_active,
+        "markup_pct": rule.markup_pct, "round_to": rule.round_to, "follow_cost": rule.follow_cost,
+        "min_margin_pct": _min_margin_pct(provider),
+        "auto_pause_after_failures": _int_or(cfg.get("auto_pause_after_failures"), 3),
+        "low_balance_vnd": _int_or(cfg.get("low_balance_vnd"), 200_000),
+        "balance_vnd": _balance_of(provider),
+        "last_test_result": provider.last_test_result, "last_tested_at": provider.last_tested_at,
+        "seller": {"id": seller.id, "email": seller.email, "business_name": names.get(seller.id),
+                   "is_internal": bool(seller.is_internal)} if seller else None,
+        "can_manage_connection": scope.is_admin,
+        "base_url": None, "api_key_hint": None,
+        "timeout_seconds": _int_or(cfg.get("timeout_seconds"), 5),
+        "max_attempts": _int_or(cfg.get("max_attempts"), 3),
+        "rate_limit_per_minute": _int_or(cfg.get("rate_limit_per_minute"), 0) or None,
+    }
+    if scope.is_admin:
+        out["base_url"] = cfg.get("base_url")
+        out["api_key_hint"] = _key_hint(provider)
+    return out
+
+
+def _int_or(value, default: int) -> int:
+    try:
+        return int(value) if value not in (None, "") else default
+    except (TypeError, ValueError):
+        return default
+
+
+async def update_settings(
+    provider: Provider, scope: SourceScope, data: dict, db: AsyncSession, *, actor_id: int | None,
+) -> dict:
+    """data: chỉ những khoá client gửi. Seller nội bộ sửa được luật giá +
+    ngưỡng; kết nối / tên / bật-tắt / seller sở hữu là việc của admin."""
+    from src.providers.service import update_provider
+
+    admin_keys = [k for k in ADMIN_SETTING_KEYS if k in data]
+    if admin_keys and not scope.is_admin:
+        raise api_error(ErrorCode.NOT_OWNER, status.HTTP_403_FORBIDDEN,
+                        detail="Chỉ quản trị viên được đổi kết nối, tên hoặc cửa hàng của nguồn")
+    updates: dict = {}
+    config = dict(provider.config or {})
+    config_changed = False
+    for key in SELLER_SETTING_KEYS:
+        if key in data and data[key] is not None:
+            config[key] = data[key]
+            config_changed = True
+    if data.get("base_url"):
+        config["base_url"] = data["base_url"].strip()
+        config_changed = True
+    if data.get("api_key"):
+        config["api_key"] = data["api_key"].strip()
+        config_changed = True
+    if config_changed:
+        updates["config"] = config
+    if data.get("name"):
+        updates["name"] = data["name"].strip()[:255]
+    if "is_active" in data and data["is_active"] is not None:
+        updates["is_active"] = bool(data["is_active"])
+    if data.get("seller_id"):
+        seller = await db.get(Account, int(data["seller_id"]))
+        if seller is None or "seller" not in (seller.roles or []):
+            raise api_error(ErrorCode.INVALID_PRODUCT_CONFIG, status.HTTP_400_BAD_REQUEST,
+                            detail="seller_id không phải tài khoản seller")
+        if not seller.is_internal:
+            seller.is_internal = True
+        updates["seller_id"] = seller.id
+    if updates:
+        provider = await update_provider(provider.id, updates, db, actor_id=actor_id)
+    return await get_settings(provider, scope, db)
+
+
+async def test_saved_source(provider: Provider, db: AsyncSession) -> dict:
+    """Nút "Kiểm tra kết nối" ở tab Cài đặt: đọc số dư bằng config đã lưu."""
+    from src.adapters.factory import get_adapter_for_test
+
+    adapter = await get_adapter_for_test(provider.id, db)
+    if source_kind(provider.adapter_type) == "gateway":
+        result = await gateway_sources.test_gateway_config(adapter, provider.config or {})
+        provider.last_test_result = {"health": result["health"], "provision_test": None, "source": "settings"}
+        provider.last_tested_at = datetime.now(timezone.utc)
+        await db.commit()
+        return {**result, "tested_at": provider.last_tested_at}
+    health = await adapter.check_health()
+    provider.last_test_result = {"health": health, "provision_test": None, "source": "settings"}
+    provider.last_tested_at = datetime.now(timezone.utc)
+    await db.commit()
+    return {"health": health, "ok": health.get("status") in ("healthy", "warning"),
+            "tested_at": provider.last_tested_at}

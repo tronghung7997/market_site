@@ -248,6 +248,12 @@ async def _apply_provision_result(
                         f"gateway_key={gateway_key}\n"
                         f"gateway_url={settings.backend_base_url}/gw/{gateway_key}/<endpoint>"
                     )
+            # Dòng proxy (DProxy/TopProxy): chốt loại buyer thấy trên dashboard
+            # /proxies từ gói đã bán — src/proxies/kinds.py. Không phải đơn
+            # proxy thì không có allocation, hàm tự bỏ qua.
+            from src.proxies.service import snapshot_line_kind
+
+            await snapshot_line_kind(order, product, resolved_provider_id, db)
             await log_event(
                 db, "info", f"Order {order.id} provisioned via adapter", request_id=rid,
                 metadata={"event": "order_provisioned", "order_id": order.id,
@@ -331,6 +337,15 @@ async def create_order_with_adapter(
     if quantity_spec and quantity_spec.external_stock:
         await precheck_external_purchase(product, user_config.get("variant_id"), q.quantity, db)
 
+    # Provider đã bị tắt (hết credit, health check fail) và không có fallback:
+    # từ chối TRƯỚC khi trừ ví. Trước đây đơn vẫn bị trừ tiền rồi mới hoàn
+    # khi get_adapter raise — buyer thấy tiền đi rồi về, còn nguồn hết tiền
+    # thì mỗi lượt mua lại là một vòng trừ-hoàn.
+    try:
+        await get_adapter(product.provider_id, db)
+    except ValueError:
+        raise api_error(ErrorCode.PRODUCT_UNAVAILABLE, status.HTTP_400_BAD_REQUEST) from None
+
     order = Order(
         buyer_id=buyer_id,
         seller_id=product.seller_id,
@@ -405,7 +420,9 @@ async def create_order_with_adapter(
         return order
 
     try:
-        provision_config = {**user_config, "service_type": product.service_type}
+        provision_config = {
+            **user_config, "service_type": product.service_type, "pricing_strategy": strategy_name,
+        }
         provision_result = await adapter.provision(order.id, provision_config)
     except Exception as e:
         await refund_escrow(order.id, buyer_id, total_amount, db)
@@ -454,7 +471,11 @@ async def provision_pending_order(order_id: int) -> None:
 
         try:
             adapter = await get_adapter(product.provider_id, db)
-            provision_config = {**(order.user_config or {}), "service_type": product.service_type}
+            strategy_name, _ = await resolve_pricing(product, db)
+            provision_config = {
+                **(order.user_config or {}), "service_type": product.service_type,
+                "pricing_strategy": strategy_name,
+            }
             provision_result = await adapter.provision(order.id, provision_config)
         except Exception as e:
             # Leave the order at `pending` — the sweeper retries, and only gives up

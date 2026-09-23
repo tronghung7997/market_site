@@ -245,7 +245,7 @@ export function CategoryBrowseView({
           </>
         )}
         <ChevronRight size={12} className="text-faint shrink-0" />
-        <span className="text-fg font-medium truncate" aria-current="page">{headline.name}</span>
+        <span className="text-fg font-medium min-w-0 truncate" aria-current="page">{headline.name}</span>
       </nav>
 
       {/* Header */}

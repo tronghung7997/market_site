@@ -159,7 +159,7 @@ export default function AdminShell({ children }: { children: ReactNode }) {
                     <span className={cn("shrink-0", active ? "text-[var(--side-accent)]" : "")}>
                       <item.icon size={18} />
                     </span>
-                    {!collapsed && <span className="truncate">{item.label}</span>}
+                    {!collapsed && <span className="min-w-0 truncate">{item.label}</span>}
                   </Link>
                 );
               })}
@@ -235,7 +235,7 @@ export default function AdminShell({ children }: { children: ReactNode }) {
             <nav className="flex items-center gap-1.5 text-[13px] min-w-0">
               <span className="text-faint">Quản trị</span>
               <span className="text-faint">/</span>
-              <span className="font-medium text-fg truncate">{title}</span>
+              <span className="font-medium text-fg min-w-0 truncate">{title}</span>
             </nav>
 
             <div className="flex-1" />

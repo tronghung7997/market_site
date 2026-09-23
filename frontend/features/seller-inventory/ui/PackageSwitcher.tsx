@@ -114,7 +114,7 @@ export function PackageSwitcher({ pkg }: { pkg: InventoryPackageDetail }) {
   );
 
   return (
-    <div ref={rootRef} className="relative flex flex-wrap items-center gap-2">
+    <div ref={rootRef} className="relative flex min-w-0 max-w-full flex-wrap items-center gap-2">
       <button
         ref={triggerRef}
         type="button"
@@ -123,8 +123,8 @@ export function PackageSwitcher({ pkg }: { pkg: InventoryPackageDetail }) {
         onClick={() => setOpen((o) => !o)}
         className={cn("inline-flex h-9 max-w-full items-center gap-2 rounded-lg border bg-surface px-3 text-left transition-colors hover:border-faint", open ? "border-iris ring-2 ring-iris/20" : "border-line-2")}
       >
-        <span className="truncate text-[15px] font-bold text-fg" title={pkg.variant_name}>{pkg.variant_name}</span>
-        <span className="font-mono text-[12.5px] text-muted">{formatBrowseMoney(pkg.price, { locale })}</span>
+        <span className="min-w-0 truncate text-[15px] font-bold text-fg" title={pkg.variant_name}>{pkg.variant_name}</span>
+        <span className="shrink-0 font-mono text-[12.5px] text-muted">{formatBrowseMoney(pkg.price, { locale })}</span>
         <ChevronDown size={14} className="shrink-0 text-muted" />
       </button>
       <span className="inline-flex overflow-hidden rounded-lg border border-line-2">

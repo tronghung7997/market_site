@@ -314,7 +314,7 @@ export default function InboxWorkbench({
                     <span className="flex items-center justify-between gap-1.5">
                       <span
                         className={cn(
-                          "truncate text-[13px] font-semibold",
+                          "min-w-0 truncate text-[13px] font-semibold",
                           isSelected ? "text-iris-hi" : "text-fg",
                         )}
                       >
@@ -341,7 +341,7 @@ export default function InboxWorkbench({
                         {isSupport ? t("marketplaceChat") : isOrder ? `${t("order")}` : t("preSale")}
                       </span>
                       {itemIsSeller && item.product?.title && (
-                        <span className="truncate text-faint">· {item.counterpart.label}</span>
+                        <span className="min-w-0 truncate text-faint">· {item.counterpart.label}</span>
                       )}
                     </div>
 
@@ -416,11 +416,11 @@ export default function InboxWorkbench({
                           className="group flex min-w-0 max-w-full items-center gap-1 text-[13.5px] font-bold text-fg transition-colors hover:text-iris"
                           title={room.product.title}
                         >
-                          <span className="truncate">{room.product.title}</span>
+                          <span className="min-w-0 truncate">{room.product.title}</span>
                           <ExternalLink size={11} className="shrink-0 text-iris opacity-60 group-hover:opacity-100" />
                         </Link>
                       ) : (
-                        <h2 className="truncate text-[13.5px] font-bold text-fg">{title}</h2>
+                        <h2 className="min-w-0 truncate text-[13.5px] font-bold text-fg">{title}</h2>
                       )}
                       {room.dispute && (
                         <span className="hidden sm:inline-flex shrink-0 items-center rounded-md border border-warn/30 bg-warn-soft px-1.5 py-0.5 text-[10.5px] font-semibold text-warn">

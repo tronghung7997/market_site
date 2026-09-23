@@ -103,9 +103,9 @@ export function PackagePage({
       <nav aria-label="breadcrumb" className="flex flex-wrap items-center gap-1.5 text-[12px] text-muted">
         <Link href="/seller/inventory" className="text-iris hover:underline">{t("title")}</Link>
         <ChevronRight size={12} className="text-faint" />
-        <Link href={sellerInventoryProductQuery({ id: pkg.product_id, public_key: pkg.product_key })} className="truncate text-iris hover:underline">{pkg.product_title}</Link>
+        <Link href={sellerInventoryProductQuery({ id: pkg.product_id, public_key: pkg.product_key })} className="min-w-0 truncate text-iris hover:underline">{pkg.product_title}</Link>
         <ChevronRight size={12} className="text-faint" />
-        <span className="truncate text-fg">{pkg.variant_name}</span>
+        <span className="min-w-0 truncate text-fg">{pkg.variant_name}</span>
       </nav>
 
       <Card className="overflow-hidden p-0">
@@ -118,7 +118,7 @@ export function PackagePage({
               <span>{pkg.category_name}</span>
               {pkg.product_status !== "active" && <Tag tone="neutral">{t("state.productPaused")}</Tag>}
             </div>
-            <div className="flex flex-wrap items-center gap-2">
+            <div className="flex min-w-0 flex-wrap items-center gap-2">
               <PackageSwitcher pkg={pkg} />
               <Tag tone="iris">{t("table.autoDelivery")}</Tag>
               {pkg.stock_state === "out" && <Tag tone="bad">{t("state.out")}</Tag>}

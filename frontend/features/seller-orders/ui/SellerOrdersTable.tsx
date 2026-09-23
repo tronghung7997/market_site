@@ -115,7 +115,7 @@ export function SellerOrdersTable({
                         {o.product_title || t("orderNumber", { id: o.order_code })}
                       </Link>
                       <div className="mt-1 flex flex-wrap items-center gap-1.5 text-[11px] text-muted">
-                        {o.variant_name && <span className="truncate" title={o.variant_name}>{o.variant_name}</span>}
+                        {o.variant_name && <span className="min-w-0 truncate" title={o.variant_name}>{o.variant_name}</span>}
                         <span className="rounded border border-line bg-raised px-1.5 py-0.5 font-mono text-[10.5px] font-semibold text-fg">
                           x{o.quantity.toLocaleString()}
                         </span>

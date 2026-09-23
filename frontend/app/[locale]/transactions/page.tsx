@@ -688,7 +688,7 @@ export default function TransactionsPage() {
                   </span>
                   <div className="min-w-0">
                     <div className="flex items-center gap-1.5">
-                      <p className="truncate font-semibold text-fg text-[13.5px]">
+                      <p className="min-w-0 truncate font-semibold text-fg text-[13.5px]">
                         {typeLabel(tx, t)}
                       </p>
                       {orderCode && (

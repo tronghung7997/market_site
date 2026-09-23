@@ -47,14 +47,14 @@ export function ProductRow({
 
       <div className="min-w-0 flex-1">
         <div className="flex items-center gap-2 min-w-0">
-          <span className="truncate text-[14px] font-medium text-fg group-hover:text-iris-hi transition-colors">
+          <span className="min-w-0 truncate text-[14px] font-medium text-fg group-hover:text-iris-hi transition-colors">
             {p.title}
           </span>
           {stock === "out" && <Tag tone="bad">{tc("outOfStock")}</Tag>}
           {stock === "low" && <Tag tone="warn">{tc("lowStock")}</Tag>}
         </div>
         <div className="mt-0.5 flex items-center gap-x-2 text-[12px] text-muted min-w-0">
-          {context && <span className="truncate text-fg/70">{context}</span>}
+          {context && <span className="min-w-0 truncate text-fg/70">{context}</span>}
           {p.rating_avg != null && p.rating_count > 0 && (
             <span className="inline-flex items-center gap-0.5 shrink-0">
               <Star size={11} className="text-warn fill-warn" />
@@ -64,7 +64,7 @@ export function ProductRow({
           )}
           {p.sold_count > 0 && <span className="shrink-0">{t("sold", { count: p.sold_count })}</span>}
           {variantCount > 1 && <span className="shrink-0 hidden sm:inline">{t("packages", { count: variantCount, ...term })}</span>}
-          {p.highlight_text && <span className="hidden md:inline truncate text-faint">{p.highlight_text}</span>}
+          {p.highlight_text && <span className="hidden md:inline min-w-0 truncate text-faint">{p.highlight_text}</span>}
         </div>
       </div>
 

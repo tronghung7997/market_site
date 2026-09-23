@@ -100,7 +100,7 @@ function PackageChips({ variants, term, formatPrice, t, max = PACKAGE_PREVIEW }:
               state === "out" ? "border-line bg-raised/60 text-faint line-through" : "border-line bg-raised/40 text-muted",
             )}
           >
-            <span className="truncate">{v.name}</span>
+            <span className="min-w-0 truncate">{v.name}</span>
             <span className={cn("font-mono font-semibold tabular", state === "out" ? "text-faint" : "text-iris-hi")}>
               {v.price > 0 ? formatPrice(v.price) : t("quote")}
             </span>
@@ -137,7 +137,7 @@ function SellerCell({ product, linked = true }: { product: Product; linked?: boo
   const inner = (
     <span className="inline-flex min-w-0 items-center gap-2">
       <span className="grid h-6 w-6 shrink-0 place-items-center rounded-md border border-iris/20 bg-iris-soft text-[10px] font-semibold text-iris-hi">{name.slice(0, 2).toUpperCase()}</span>
-      <span className="truncate text-[12.5px] font-medium text-fg">{name}</span>
+      <span className="min-w-0 truncate text-[12.5px] font-medium text-fg">{name}</span>
       <Verified size={11} className="shrink-0 text-iris" />
     </span>
   );

@@ -113,7 +113,7 @@ function PartyCell({
       title={filterLabel}
       className="group/party flex max-w-[170px] items-center gap-1 text-slate-600 hover:text-indigo-700 transition-colors"
     >
-      <span className="truncate">{email ?? `#${id}`}</span>
+      <span className="min-w-0 truncate">{email ?? `#${id}`}</span>
       <ListFilter
         size={11}
         className="shrink-0 text-indigo-500 opacity-0 group-hover/party:opacity-100 transition-opacity"

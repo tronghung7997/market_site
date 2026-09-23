@@ -413,7 +413,7 @@ function ThreadHeader({ role, flow, onBack }: { role: PrototypeRole; flow: Proto
       <Avatar flow={flow} compact />
       <div className="min-w-0 flex-1">
         <div className="flex items-center gap-2">
-          <h2 className="truncate text-[13.5px] font-semibold">{conversation.title}</h2>
+          <h2 className="min-w-0 truncate text-[13.5px] font-semibold">{conversation.title}</h2>
           <span className={cn("hidden rounded-full border px-2 py-0.5 text-[9px] font-bold uppercase tracking-wide sm:inline", flowBadgeClass(flow))}>
             {FLOW_META[flow].label}
           </span>

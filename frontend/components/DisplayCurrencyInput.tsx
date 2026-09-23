@@ -1,6 +1,7 @@
 "use client";
 
 import { useEffect, useRef, useState } from "react";
+import { useLocale } from "next-intl";
 import { Input } from "@/components/ui";
 import {
   effectiveMoneyInputCurrency,
@@ -15,12 +16,17 @@ export function DisplayCurrencyInput({
   onAmountVndChange,
   disabled,
   invalid,
+  groupDigits,
 }: {
   amountVnd: number;
   onAmountVndChange: (amountVnd: number) => void;
   disabled?: boolean;
   invalid?: boolean;
+  /** Show "72.000" instead of "72000" while the field is not being edited. */
+  groupDigits?: boolean;
 }) {
+  const locale = useLocale();
+  const [focused, setFocused] = useState(false);
   const money = useMoney();
   const currency = effectiveMoneyInputCurrency(money.currency, money.fxRate);
   const [draft, setDraft] = useState(() => vndToMoneyInput(amountVnd, currency, money.fxRate));
@@ -52,9 +58,12 @@ export function DisplayCurrencyInput({
         type="text"
         inputMode={currency === "USD" ? "decimal" : "numeric"}
         autoComplete="off"
-        value={draft}
+        value={groupDigits && !focused && currency === "VND" && /^\d+$/.test(draft)
+          ? new Intl.NumberFormat(locale === "vi" ? "vi-VN" : "en-US").format(Number(draft))
+          : draft}
         onChange={(event) => update(event.target.value)}
-        onBlur={() => setDraft(vndToMoneyInput(amountVnd, currency, money.fxRate))}
+        onFocus={() => setFocused(true)}
+        onBlur={() => { setFocused(false); setDraft(vndToMoneyInput(amountVnd, currency, money.fxRate)); }}
         placeholder="0"
         disabled={disabled}
         aria-invalid={invalid || undefined}

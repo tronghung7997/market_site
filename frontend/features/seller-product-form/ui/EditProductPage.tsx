@@ -5,7 +5,6 @@ import { useLocale, useTranslations } from "next-intl";
 import { useQuery } from "@tanstack/react-query";
 import { Link } from "@/i18n/navigation";
 import { api } from "@/lib/api";
-import { packagesFromDproxyParams } from "@/lib/dproxy-plan";
 import { useVariantTerm } from "@/lib/variant-term";
 import { cn } from "@/lib/cn";
 import { queryKeys } from "@/lib/query-keys";
@@ -38,6 +37,8 @@ import { SECTION_DOM_ID, scrollToJump } from "../jump";
 import { BasicsFields } from "./BasicsFields";
 import { ContentFields } from "./ContentFields";
 import { AdvancedFields } from "./AdvancedFields";
+import { ProxyPlansPanel } from "./ProxyPlansPanel";
+import { editorFromPlans, rowIssue, summarize, type ProxyPlanEditor } from "../proxy-plans";
 import { VariantsTable, type VariantDraft, type VariantStats } from "./VariantsTable";
 import { ReadinessCard } from "./ReadinessCard";
 import { CustomerGlance } from "./CustomerGlance";
@@ -46,6 +47,11 @@ import { FormHeader } from "./FormHeader";
 
 type EditTab = FormSection | "reviews";
 const TABS: EditTab[] = ["basics", "variants", "content", "advanced", "reviews"];
+
+/** Plan ids + prices — what makes the proxy plan table "unsaved". */
+function planSnapshot(editor: ProxyPlanEditor | null) {
+  return editor ? editor.rows.map((row) => [row.id, row.price]) : null;
+}
 type SavedVariant = WorkbenchVariant & { id: number; public_key?: string | null };
 type LocalizedVariantNames = Record<number, Record<ProductLocale, string>>;
 
@@ -80,15 +86,38 @@ export function EditProductPage({ productRef }: { productRef: string }) {
   const [savedSnapshot, setSavedSnapshot] = useState("");
   const [lastSavedAt, setLastSavedAt] = useState<Date | null>(null);
   const [previewOpen, setPreviewOpen] = useState(false);
+  // Proxy-source products (TopProxy/DProxy): plan table with upstream costs.
+  const [planLoad, setPlanLoad] = useState<"idle" | "loading" | "error" | "ready">("idle");
 
   const archetype = product?.pricing_strategy && product.pricing_strategy !== "fixed" ? "B" : "A";
 
   const snapshot = formSnapshot({
     content: core.content, primaryLocale: core.primaryLocale, categoryId: core.categoryId, serviceType: core.serviceType, coverId: core.coverId, escrowDays: core.escrowDays,
     workModel: core.workModel, b1: core.b1, b2: core.b2, b3: core.b3, providerId: core.selectedProviderId, variantNames,
-    dproxyPackages: core.dproxyPackages,
+    proxyPlans: planSnapshot(core.proxyPlans),
   });
   const dirty = savedSnapshot !== "" && snapshot !== savedSnapshot;
+
+  /** Plans are part of the saved snapshot, so they load with the product. */
+  const loadProxyPlans = async (detail: ProductDetail, operations: ProductOperations | null): Promise<ProxyPlanEditor | null> => {
+    const adapter = operations?.provider?.adapter_type;
+    if (detail.pricing_strategy !== "config" || (adapter !== "topproxy" && adapter !== "dproxy")) {
+      core.setProxyPlans(null);
+      setPlanLoad("idle");
+      return null;
+    }
+    setPlanLoad("loading");
+    try {
+      const editor = editorFromPlans(await api.productProxyPlans(detail.id), operations?.pricing?.params ?? detail.pricing_params);
+      core.setProxyPlans(editor);
+      setPlanLoad("ready");
+      return editor;
+    } catch {
+      core.setProxyPlans(null);
+      setPlanLoad("error");
+      return null;
+    }
+  };
 
   const loadData = useCallback(async (showSpinner = true) => {
     if (!productRef.trim()) return;
@@ -120,7 +149,7 @@ export function EditProductPage({ productRef }: { productRef: string }) {
       core.setB2(hydrated.b2);
       core.setB3(hydrated.b3);
       core.setOperationsProvider(productOperations?.provider ?? null);
-      core.hydrateDproxyPackages(productOperations?.pricing?.params ?? detail.pricing_params);
+      const proxyEditor = await loadProxyPlans(detail, productOperations);
       if (productOperations?.provider?.id) core.setSelectedProviderId(productOperations.provider.id);
       setVariants(detail.variants.map((v) => ({
         id: v.id, public_key: v.public_key, name: v.name, price: v.price, delivery_mode: v.delivery_mode === "manual" ? "manual" : "instant", stock_count: v.stock_count ?? 0, sla_hours: v.sla_hours, is_active: v.is_active,
@@ -131,7 +160,7 @@ export function EditProductPage({ productRef }: { productRef: string }) {
         serviceType: (SERVICE_TYPES.includes(detail.service_type as ServiceType) ? detail.service_type : "other"),
         coverId: parseCoverId(detail) ?? (detail.service_type === "proxy" ? "proxy" : "account"), escrowDays: detail.escrow_days,
         workModel: hydrated.workModel, b1: hydrated.b1, b2: hydrated.b2, b3: hydrated.b3, providerId: productOperations?.provider?.id ?? core.selectedProviderId, variantNames: names,
-        dproxyPackages: packagesFromDproxyParams(productOperations?.pricing?.params ?? detail.pricing_params),
+        proxyPlans: planSnapshot(proxyEditor),
       }));
     } catch (reason) {
       setError(apiErrorMessage(reason, tw("productLoadFailed")));
@@ -168,9 +197,10 @@ export function EditProductPage({ productRef }: { productRef: string }) {
   }));
   const primaryVariantComplete = archetype === "B" || variants.every((v) => Boolean(variantNames[v.id]?.[core.primaryLocale].trim()));
   const contentComplete = hasCompleteLocalizedContent(core.content, core.primaryLocale);
+  const planSummary = core.proxyPlans ? summarize(core.proxyPlans.rows, core.proxyPlans.meta.min_margin_pct) : null;
   const evaluation = archetype === "A"
     ? evaluateRouteAChecklist({ title: core.primaryContent.title, description: core.primaryContent.description, variants, escrowDays: core.escrowDays, contentLanguageComplete: contentComplete && primaryVariantComplete })
-    : evaluateRouteBChecklist({ title: core.primaryContent.title, description: core.primaryContent.description, workModel: core.workModel, priceValid: (core.workModel === "B1" && core.b1.basePrice > 0) || (core.workModel === "B2" && core.b2.creditPrice > 0) || (core.workModel === "B3" && core.b3.basePrice > 0), backend: core.backend, escrowDays: core.escrowDays, contentLanguageComplete: contentComplete });
+    : evaluateRouteBChecklist({ title: core.primaryContent.title, description: core.primaryContent.description, workModel: core.workModel, priceValid: planSummary ? planSummary.count > 0 && planSummary.issues === 0 : (core.workModel === "B1" && core.b1.basePrice > 0) || (core.workModel === "B2" && core.b2.creditPrice > 0) || (core.workModel === "B3" && core.b3.basePrice > 0), backend: core.backend, escrowDays: core.escrowDays, contentLanguageComplete: contentComplete });
 
   const jump = (target: ChecklistJump) => {
     setTab(target.section);
@@ -226,6 +256,11 @@ export function EditProductPage({ productRef }: { productRef: string }) {
     if (!core.primaryContent.title.trim() || !core.categoryId) {
       setError(tf("requiredFields"));
       jump({ section: "basics", field: !core.primaryContent.title.trim() ? "product-title" : "product-category" });
+      return;
+    }
+    if (planSummary && planSummary.issues > 0) {
+      setError(t("proxyPlans.blockSave", { count: planSummary.issues }));
+      setTab("variants");
       return;
     }
     setSaving(true);
@@ -288,7 +323,7 @@ export function EditProductPage({ productRef }: { productRef: string }) {
     id: v.id, product_id: productId, name: v.name, price: v.price, delivery_mode: v.delivery_mode, sla_hours: v.sla_hours ?? 24, sort_order: index, is_active: v.is_active !== false, stock_count: v.stock_count, duration_days: null,
   }));
   const activeVariants = previewVariants.filter((v) => v.is_active);
-  const minPrice = activeVariants.filter((v) => v.price > 0).reduce<number | null>((min, v) => (min == null || v.price < min ? v.price : min), null);
+  const minPrice = planSummary ? planSummary.minPrice : activeVariants.filter((v) => v.price > 0).reduce<number | null>((min, v) => (min == null || v.price < min ? v.price : min), null);
   const previewProduct = buildPreviewProduct({
     id: productId, title: core.activeContent.title, categoryId: core.categoryId, categoryName: core.catOptions.find((o) => o.id === core.categoryId)?.name ?? product.category_name ?? "",
     serviceType: core.serviceType, coverId: core.coverId, escrowDays: core.escrowDays, highlightText: core.activeContent.highlightText, description: core.activeContent.description,
@@ -303,9 +338,14 @@ export function EditProductPage({ productRef }: { productRef: string }) {
   const totals = statsQuery.data?.totals;
   const timeFmt = new Intl.DateTimeFormat(interfaceLocale === "vi" ? "vi-VN" : "en-US", { day: "2-digit", month: "2-digit", hour: "2-digit", minute: "2-digit" });
 
+  const planPreview = core.proxyPlans ? {
+    rows: core.proxyPlans.rows.map((row) => ({ ...row, valid: rowIssue(row, core.proxyPlans!.meta.min_margin_pct) == null })),
+    fieldLabels: (core.proxyPlans.baseParams.field_labels as Record<string, string> | undefined) ?? {},
+    typeLabels: (core.proxyPlans.baseParams.type_display as Record<string, string> | undefined) ?? {},
+  } : null;
   const orderPanel = archetype === "A"
     ? <SellerOrderPanelSimulation title={core.activeContent.title} categoryName={catLabel} coverId={core.coverId} escrowDays={core.escrowDays} variants={displayVariants} serviceType={core.serviceType} />
-    : <SellerDynamicOrderSimulation title={core.activeContent.title} categoryName={catLabel} coverId={core.coverId} escrowDays={core.escrowDays} workModel={core.workModel} b1={core.b1} b2={core.b2} b3={core.b3} backend={core.backend} onB1Change={core.setB1} onB2Change={core.setB2} onB3Change={core.setB3} />;
+    : <SellerDynamicOrderSimulation title={core.activeContent.title} categoryName={catLabel} coverId={core.coverId} escrowDays={core.escrowDays} workModel={core.workModel} b1={core.b1} b2={core.b2} b3={core.b3} backend={core.backend} onB1Change={core.setB1} onB2Change={core.setB2} onB3Change={core.setB3} planPreview={planPreview} />;
 
   const headerMeta = [
     catLabel || null,
@@ -357,6 +397,11 @@ export function EditProductPage({ productRef }: { productRef: string }) {
           <button key={key} type="button" role="tab" aria-selected={tab === key} onClick={() => setTab(key)} className={cn("-mb-px border-b-2 px-3.5 py-2.5 text-[13px] font-medium transition-colors", tab === key ? "border-iris text-fg" : "border-transparent text-muted hover:text-fg")}>
             {t(`sections.${key}`, { ...term })}
             {key === "variants" && archetype === "A" && <span className="ml-1.5 rounded-full bg-raised px-1.5 py-0.5 font-mono text-[10.5px] text-muted">{variants.length}</span>}
+            {key === "variants" && planSummary && (
+              <span className={cn("ml-1.5 rounded-full px-1.5 py-0.5 font-mono text-[10.5px]", planSummary.issues > 0 ? "bg-bad-soft text-bad" : "bg-raised text-muted")}>
+                {planSummary.issues > 0 ? planSummary.issues : planSummary.count}
+              </span>
+            )}
             {key === "reviews" && (reviewsQuery.data?.unreplied ?? 0) > 0 && <span className="ml-1.5 rounded-full bg-warn-soft px-1.5 py-0.5 font-mono text-[10.5px] text-warn">{reviewsQuery.data?.unreplied}</span>}
           </button>
         ))}
@@ -382,6 +427,17 @@ export function EditProductPage({ productRef }: { productRef: string }) {
                   onUpdate={updateVariant}
                   onSetActive={setVariantActive}
                   onReorder={reorderVariants}
+                />
+              ) : planLoad !== "idle" ? (
+                <ProxyPlansPanel
+                  productId={productId}
+                  editor={core.proxyPlans}
+                  onChange={core.setProxyPlans}
+                  loadState={planLoad === "ready" ? "ready" : planLoad}
+                  onRetry={() => { if (product) void loadProxyPlans(product, operations); }}
+                  dirty={dirty}
+                  saving={saving}
+                  onSave={() => void save(false)}
                 />
               ) : (
                 <Card className="p-5">
@@ -417,7 +473,7 @@ export function EditProductPage({ productRef }: { productRef: string }) {
               )}
             </Card>
           )}
-          <CustomerGlance title={core.activeContent.title} categoryLabel={catLabel} coverId={core.coverId} deliveryLabel={deliveryLabel} escrowDays={core.escrowDays} highlightText={core.activeContent.highlightText} minPrice={minPrice} variantCount={activeVariants.length} onPreview={() => setPreviewOpen(true)} serviceType={core.serviceType} />
+          <CustomerGlance title={core.activeContent.title} categoryLabel={catLabel} coverId={core.coverId} deliveryLabel={deliveryLabel} escrowDays={core.escrowDays} highlightText={core.activeContent.highlightText} minPrice={minPrice} variantCount={planSummary ? planSummary.count : activeVariants.length} onPreview={() => setPreviewOpen(true)} serviceType={core.serviceType} />
         </aside>
       </div>
 

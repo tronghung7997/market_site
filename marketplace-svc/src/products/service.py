@@ -533,11 +533,20 @@ def _browse_price_columns():
         ), Float),
         1.0,
     )
+    # Bảng gói `plan_prices` (proxy) thắng công thức: giá "từ" = gói rẻ nhất.
+    plan_entries = func.jsonb_each_text(
+        case((func.jsonb_typeof(params["plan_prices"]) == "object", params["plan_prices"]), else_=cast("{}", JSONB)),
+    ).table_valued("key", "value").render_derived()
+    plan_min = (
+        select(func.min(cast(plan_entries.c.value, Float)))
+        .select_from(plan_entries)
+        .scalar_subquery()
+    )
     dynamic_price = case(
         (Product.pricing_strategy == "credit", credit_price * package_size),
         (
             Product.pricing_strategy == "config",
-            func.round(base_price * type_multiplier * network_multiplier * duration_days / 30.0),
+            func.coalesce(plan_min, func.round(base_price * type_multiplier * network_multiplier * duration_days / 30.0)),
         ),
         else_=base_price,
     )

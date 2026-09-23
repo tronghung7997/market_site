@@ -1,4 +1,4 @@
-from pydantic import BaseModel, field_validator
+from pydantic import BaseModel, Field, field_validator
 
 from src.security.input_limits import bounded_mapping
 
@@ -30,3 +30,14 @@ class CalculateResponse(BaseModel):
     amount: int
     original_amount: int | None = None
     discount_pct: float | None = None
+
+
+class ProxyPlanDraft(BaseModel):
+    type: str = Field(min_length=1, max_length=40)
+    network: str = Field(min_length=1, max_length=60)
+    days: int = Field(ge=1, le=3650)
+    price: int | None = Field(default=None, ge=0, le=1_000_000_000)
+
+
+class ProxyPlanQuoteRequest(BaseModel):
+    plans: list[ProxyPlanDraft] = Field(min_length=1, max_length=200)

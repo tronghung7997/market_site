@@ -2035,6 +2035,36 @@ export interface ProductOperations {
   stats: { total_orders: number; revenue: number; success_rate: number; disputes: number };
 }
 
+/** Một gói của sản phẩm proxy (`type|network|days`) kèm giá vốn — trang sửa sản phẩm. */
+export interface ProxyPlanRow {
+  plan_key: string;
+  type: string;
+  network: string;
+  days: number;
+  network_label: string;
+  price: number | null;
+  cost_price: number | null;
+  /** Giá thấp nhất lưu được (vốn × (1 + lãi tối thiểu), làm tròn lên 1.000đ). */
+  floor_price: number | null;
+  margin_pct: number | null;
+  margin_ok: boolean;
+  /** false = nguồn không mua được gói này (lưu sẽ bị chặn). */
+  supported: boolean;
+}
+
+export interface ProxyProductPlans {
+  adapter: string;
+  min_margin_pct: number;
+  /** Giá đang suy từ công thức cũ; lưu lại sẽ chuyển hẳn sang bảng gói. */
+  from_formula: boolean;
+  /** TopProxy: thêm kỳ hạn mới được. DProxy: gói do admin map. */
+  can_add: boolean;
+  /** Giao thức cùng giá (TopProxy HTTP/SOCKS5) — gộp thành một dòng. */
+  protocols: string[];
+  networks: { code: string; label: string }[];
+  plans: ProxyPlanRow[];
+}
+
 export interface DashboardResource {
   /** "res-<id>" (Resource kiểu cũ) hoặc "alloc-<id>" (proxy mua qua adapter).
    *  Có tiền tố vì hai bảng đánh id độc lập, gộp lại dễ trùng. */

@@ -776,7 +776,8 @@
       "integrationReadyTitle": "Tích hợp sẵn sàng: {name}",
       "integrationReadyBody": "Loại giá và cách bàn giao đã được chọn tự động theo tích hợp này.",
       "integrationRequiredTitle": "Cần một tích hợp đúng loại trước khi mở bán",
-      "integrationRequiredBody": "Bạn có thể lưu bản nháp ngay. Sau khi tích hợp được test và duyệt, quay lại chọn nó để mở bán."
+      "integrationRequiredBody": "Bạn có thể lưu bản nháp ngay. Sau khi tích hợp được test và duyệt, quay lại chọn nó để mở bán.",
+      "proxyPlansElsewhere": "Giá bán được đặt riêng cho từng gói ở tab “Gói & giá”."
     },
     "workbench": {
       "checkInfo": "Đã có tên và mô tả bằng ngôn ngữ chính",
@@ -846,7 +847,8 @@
       "productLoadFailed": "Không thể tải sản phẩm",
       "productNotFound": "Không tìm thấy sản phẩm.",
       "durationDays": "{count} ngày",
-      "creditPackageSize": "Gói {count} lượt"
+      "creditPackageSize": "Gói {count} lượt",
+      "completePlanPrice": "Đặt giá bán hợp lệ cho gói này"
     },
     "newProductTitle": "Tạo sản phẩm mới",
     "productName": "Tên sản phẩm *",
@@ -1908,6 +1910,7 @@
     "PROXY_PLAN_FIXED_DURATION": "Gói {plan} có thời hạn cố định {days} ngày",
     "PROXY_PLAN_NOT_RETAIL": "Gói {plan} cấp nhiều proxy mỗi lượt mua nên chưa bán lẻ được",
     "PROXY_PLAN_INACTIVE": "Gói {plan} đang tắt ở thượng nguồn",
+    "PROXY_PLAN_UNSUPPORTED": "Gói {plan} không mua được ở nguồn này",
     "PROXY_SOURCE_OWNER_NOT_INTERNAL": "Sản phẩm của nguồn proxy phải thuộc seller nội bộ đang giữ nguồn",
     "PROXY_TAG_NOT_FOUND": "Không tìm thấy tag",
     "PROXY_TAG_DUPLICATE": "Đã có tag trùng tên",
@@ -4540,6 +4543,86 @@
       "empty": "Chưa có {term} nào. Bấm “Thêm {term}” để bắt đầu.",
       "footer": "Ngừng bán giữ nguyên kho và lịch sử — không có thao tác xoá. Nạp / xem tài nguyên từng {term} tại",
       "inventoryLink": "Kho hàng"
+    },
+    "proxyPlans": {
+      "title": "Gói & giá bán",
+      "intro": "Mỗi dòng là một gói buyer chọn được khi mua, với giá vốn lấy từ bảng giá của nguồn.",
+      "minMargin": "Lãi tối thiểu {pct}%",
+      "protocols": "Giao thức {list}: buyer tự chọn khi mua, dùng chung một giá.",
+      "formulaTitle": "Giá đang tính theo công thức cũ",
+      "formulaBody": "Hệ thống đang lấy một đơn giá mỗi ngày nhân với số ngày, nên gói dài có lãi cao bất thường. Kiểm tra giá từng gói bên dưới rồi bấm “Lưu thay đổi” để chuyển sang giá riêng cho từng gói.",
+      "summary": {
+        "count": "Gói đang bán",
+        "from": "Giá từ",
+        "margin": "Lãi",
+        "marginRange": "{min}% – {max}%",
+        "issues": "Cần xử lý",
+        "issuesNone": "Không có",
+        "issuesCount": "{count} gói",
+        "marginSingle": "{pct}%"
+      },
+      "quick": {
+        "label": "Đặt nhanh giá theo lãi",
+        "apply": "Áp dụng cho {count} gói",
+        "undo": "Hoàn tác {count} thay đổi",
+        "hint": "Giá bán = giá vốn × (1 + lãi), làm tròn lên hàng trăm (gói dưới 20.000đ) hoặc hàng nghìn. Chưa lưu cho tới khi bấm “Lưu thay đổi”.",
+        "tooLow": "Lãi phải từ {pct}% trở lên."
+      },
+      "col": {
+        "duration": "Thời hạn",
+        "cost": "Giá vốn",
+        "price": "Giá bán",
+        "margin": "Lãi",
+        "perDay": "Giá / ngày",
+        "actions": "Thao tác"
+      },
+      "days": "{count} ngày",
+      "perDayShort": "{price}/ngày",
+      "groupCount": "{count} gói",
+      "tagNew": "Mới",
+      "was": "Trước:",
+      "margin": {
+        "ok": "+{pct}%",
+        "low": "+{pct}% · dưới mức tối thiểu"
+      },
+      "issue": {
+        "below_floor": "Tối thiểu {price}",
+        "missing_price": "Nhập giá bán",
+        "unsupported": "Nguồn không bán gói này — hãy xoá dòng"
+      },
+      "costUnknown": "Chưa có giá vốn",
+      "remove": "Xoá gói {label}",
+      "removeLast": "Sản phẩm cần ít nhất một gói",
+      "add": {
+        "title": "Thêm thời hạn",
+        "network": "Loại / khu vực",
+        "days": "Số ngày",
+        "submit": "Thêm gói",
+        "adding": "Đang tính giá vốn…",
+        "hint": "Gói mới được điền sẵn giá theo lãi {pct}%, bạn sửa lại được.",
+        "invalidDays": "Số ngày phải là số nguyên từ 1 trở lên.",
+        "duplicate": "Gói {label} đã có trong bảng.",
+        "unsupported": "Nguồn không bán gói {label}.",
+        "failed": "Không tính được giá vốn cho gói này."
+      },
+      "mappedByAdmin": "Gói của nguồn này do admin nối với gói thượng nguồn. Muốn bán thêm gói, vào mục Nguồn hàng.",
+      "empty": "Sản phẩm chưa có gói nào. Admin cần nối gói ở mục Nguồn hàng.",
+      "emptyCanAdd": "Sản phẩm chưa có gói nào — thêm thời hạn đầu tiên ở bên dưới.",
+      "loading": "Đang tải bảng gói…",
+      "loadFailed": "Không tải được bảng gói",
+      "loadFailedHint": "Giá vốn và giá bán chưa hiện được. Thử lại, hoặc tải lại trang.",
+      "retry": "Thử lại",
+      "blockSave": "Còn {count} gói cần xử lý (xem các dòng tô đỏ) trước khi lưu.",
+      "saveBar": {
+        "label": "Lưu bảng gói",
+        "changes": "{count} thay đổi chưa lưu",
+        "other": "Có thay đổi chưa lưu ở các tab khác",
+        "blocked": "Còn {count} gói cần xử lý trước khi lưu",
+        "undo": "Hoàn tác",
+        "save": "Lưu thay đổi",
+        "saving": "Đang lưu…"
+      },
+      "introLadder": "Nguồn này tính giá bậc thang: mua càng dài, vốn mỗi ngày càng rẻ — nên mỗi thời hạn cần một giá riêng."
     }
   },
   "reviews": {

@@ -1,6 +1,6 @@
 "use client";
 
-import { useTranslations } from "next-intl";
+import { useLocale, useTranslations } from "next-intl";
 import { useMoney } from "@/lib/money";
 import { useVariantTerm } from "@/lib/variant-term";
 import { Card } from "@/components/ui";
@@ -26,6 +26,7 @@ export function CustomerGlance({
   const t = useTranslations("sellerProductForm.glance");
   const term = useVariantTerm(serviceType);
   const { formatCheckoutMoney } = useMoney();
+  const locale = useLocale();
   const meta = [categoryLabel || t("noCategory"), deliveryLabel, t("protection", { days: escrowDays })].filter(Boolean).join(" · ");
   return (
     <Card className="p-4">
@@ -40,7 +41,7 @@ export function CustomerGlance({
       {highlightText.trim() && <div className="mt-1.5 text-[12px] text-iris-hi">{highlightText}</div>}
       <div className="mt-2.5 text-[17px] font-bold text-iris-hi">
         {minPrice != null && minPrice > 0
-          ? t("from", { price: formatCheckoutMoney(minPrice) })
+          ? t("from", { price: formatCheckoutMoney(minPrice, { locale }) })
           : <span className="text-[12.5px] font-medium text-faint">{t("noPrice")}</span>}
         {variantCount > 1 && <span className="ml-1.5 text-[11.5px] font-normal text-faint">· {t("variants", { count: variantCount, ...term })}</span>}
       </div>

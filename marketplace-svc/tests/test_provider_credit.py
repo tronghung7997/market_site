@@ -40,6 +40,11 @@ class TestCostTable:
         # 1 ngày dùng riêng = 2.800 Xu; sản phẩm #31 bán 4.200đ → biên +50%.
         assert static_cost_xu("DatacenterA", 1) == 2800
 
+    @pytest.mark.parametrize("days,expected", [(3, 3_750), (7, 7_000), (14, 10_500), (30, 15_000)])
+    def test_4g_applies_the_promo_factor_after_the_list_ladder(self, days, expected):
+        # Web ?home=muaproxy4g: ngay × gia(bậc niêm yết) × giamgia 0.5.
+        assert static_cost_xu("4Gvinaphone", days) == expected
+
     def test_package_products_priced_per_30_days(self):
         assert static_cost_xu("GoiDATACENTER", 30) == 480_000
 

@@ -11,12 +11,11 @@ import {
   type BackendState,
   type BuyerContentDraft,
   type WorkModelB,
-  applyDproxySinglePlan,
   buildDynamicPricingLabels,
   buildDynamicPricingPlan,
   buyerContentToTranslation,
 } from "@/features/seller-workbench/logic";
-import { type DproxySalePackage, dproxyParamsFromPackages, packagesFromDproxyParams } from "@/lib/dproxy-plan";
+import { type ProxyPlanEditor, paramsFromEditor } from "./proxy-plans";
 import { categoryOptions, type ServiceType } from "./model";
 
 /** What the operations endpoint knows about the product's provider. */
@@ -95,10 +94,10 @@ export function useProductFormCore(interfaceLocale: ProductLocale, options: { lo
   // managed providers (e.g. the DProxy M2M partner) are absent from
   // sellerProviders, so this is the only way the form can name them.
   const [operationsProvider, setOperationsProvider] = useState<OperationsProvider | null>(null);
-  // DProxy plans the admin mapped for this product (`plan_prices` in the
-  // pricing params). One plan → the B1 single-package UI; several → the
-  // seller prices each plan and the tuple set stays exactly as mapped.
-  const [dproxyPackages, setDproxyPackages] = useState<DproxySalePackage[]>([]);
+  // Proxy-source products (TopProxy/DProxy) are priced plan by plan like
+  // variants: one row per plan with its upstream cost. Null until the edit
+  // page loads them (only an existing product has plans to edit).
+  const [proxyPlans, setProxyPlans] = useState<ProxyPlanEditor | null>(null);
 
   useEffect(() => {
     api.categories().then(setCategories).catch(() => setCategoriesError(true));
@@ -139,34 +138,13 @@ export function useProductFormCore(interfaceLocale: ProductLocale, options: { lo
     operationsProvider && operationsProvider.id === selectedProviderId
     && !compatibleProviders.some((provider) => provider.id === selectedProviderId),
   );
-  const isDproxyProduct = selectedProvider?.adapter_type === "dproxy";
-  const dproxyMultiPlan = isDproxyProduct && dproxyPackages.length > 1;
-
-  // A single-plan DProxy product collapses the B1 grid to one
-  // type/network/duration as soon as the provider is known. Multi-plan
-  // products keep the admin's tuple set — collapsing would send a tuple the
-  // upstream has no plan for and the save is (rightly) rejected.
-  useEffect(() => {
-    if (!isDproxyProduct || dproxyMultiPlan || b1.isSingleUnit) return;
-    setB1(applyDproxySinglePlan(b1, {}));
-  }, [isDproxyProduct, dproxyMultiPlan]); // eslint-disable-line react-hooks/exhaustive-deps
-
-  /** Load the plan list from an existing product's pricing params. */
-  const hydrateDproxyPackages = useCallback((params: Record<string, unknown> | null | undefined) => {
-    setDproxyPackages(packagesFromDproxyParams(params));
-  }, []);
-
-  const updateDproxyPackagePrice = useCallback((index: number, price: number) => {
-    setDproxyPackages((current) => current.map((item, i) => (i === index ? { ...item, price } : item)));
-  }, []);
+  const isProxySourceProduct = selectedProvider?.adapter_type === "dproxy" || selectedProvider?.adapter_type === "topproxy";
 
   /** The pricing payload for a provider-backed (route B) product. */
   const buildPricingPlan = useCallback(() => {
-    if (dproxyMultiPlan) {
-      return { strategy: "config" as const, params: dproxyParamsFromPackages(dproxyPackages) };
-    }
+    if (proxyPlans) return { strategy: "config" as const, params: paramsFromEditor(proxyPlans) };
     return buildDynamicPricingPlan(workModel, b1, b2, b3, selectedProvider?.adapter_type);
-  }, [b1, b2, b3, dproxyMultiPlan, dproxyPackages, selectedProvider?.adapter_type, workModel]);
+  }, [b1, b2, b3, proxyPlans, selectedProvider?.adapter_type, workModel]);
 
   const backend: BackendState = selectedProvider
     ? { status: "approved", name: selectedProvider.name, providerType: selectedProvider.adapter_type }
@@ -174,9 +152,11 @@ export function useProductFormCore(interfaceLocale: ProductLocale, options: { lo
 
   const translationPayload = useCallback((locale: ProductLocale, dynamic: boolean): ProductTranslation => {
     const payload: ProductTranslation = content[locale].title.trim() ? buyerContentToTranslation(content[locale]) : {};
-    if (dynamic) payload.pricing_labels = buildDynamicPricingLabels(workModel, locale, b1, b2, b3);
+    // Proxy plans keep the labels already on the product (e.g. "Mức chia sẻ",
+    // "Dùng riêng"); the generic B1 labels would rename them to "Nhà mạng".
+    if (dynamic && !proxyPlans) payload.pricing_labels = buildDynamicPricingLabels(workModel, locale, b1, b2, b3);
     return payload;
-  }, [b1, b2, b3, content, workModel]);
+  }, [b1, b2, b3, content, proxyPlans, workModel]);
 
   return {
     categories, categoriesError, catOptions, providers, compatibleProviders, selectedProvider, backend,
@@ -184,8 +164,8 @@ export function useProductFormCore(interfaceLocale: ProductLocale, options: { lo
     content, setContent, activeContent, primaryContent, updateContent,
     categoryId, setCategoryId, serviceType, setServiceType, coverId, setCoverId, escrowDays, setEscrowDays,
     workModel, setWorkModel, b1, setB1, b2, setB2, b3, setB3, selectedProviderId, setSelectedProviderId,
-    operationsProvider, setOperationsProvider, providerManagedByAdmin, isDproxyProduct,
-    dproxyPackages, dproxyMultiPlan, hydrateDproxyPackages, updateDproxyPackagePrice, buildPricingPlan,
+    operationsProvider, setOperationsProvider, providerManagedByAdmin, isProxySourceProduct,
+    proxyPlans, setProxyPlans, buildPricingPlan,
     translationPayload,
   };
 }

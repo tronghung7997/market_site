@@ -259,7 +259,96 @@ async def enforce_offer_margins(provider: Provider | None, strategy: str | None,
         if parsed is None:
             continue
         ext = catalog_external_id(provider, *parsed)
-        require_margin(key, int(price), cost_for(provider, catalog.get(ext) if ext else None, *parsed), min_margin)
+        cost = cost_for(provider, catalog.get(ext) if ext else None, *parsed)
+        if provider.adapter_type == "topproxy" and (cost is None or not _topproxy_plan_supported(provider, *parsed)):
+            # TopProxy không có catalog để đối chiếu: gói không tra được giá
+            # vốn là gói lệnh mua sẽ bị từ chối (loaiproxy/giao thức sai).
+            raise api_error(ErrorCode.PROXY_PLAN_UNSUPPORTED, status.HTTP_400_BAD_REQUEST,
+                            detail=f"Gói {key} không mua được ở nguồn này", plan=key)
+        require_margin(key, int(price), cost, min_margin)
+
+
+def _topproxy_plan_supported(provider: Provider, proxy_type: str, network: str, days: int) -> bool:
+    if days < 1 or proxy_type not in _STATIC_TYPES:
+        return False
+    if (provider.config or {}).get("mode") == "xoay":
+        return xoay_cost_for_days(days) is not None
+    return network in STATIC_LOAIPROXY
+
+
+# ----------------------------------------------------------------------
+# Bảng gói trong trang sửa sản phẩm (seller)
+# ----------------------------------------------------------------------
+
+def _plan_row(provider: Provider, catalog: dict[str, SupplierCatalogItem], params: dict,
+              proxy_type: str, network: str, days: int, price: int | None, min_margin: float) -> dict:
+    ext = catalog_external_id(provider, proxy_type, network, days)
+    cost = cost_for(provider, catalog.get(ext) if ext else None, proxy_type, network, days)
+    supported = _topproxy_plan_supported(provider, proxy_type, network, days) if provider.adapter_type == "topproxy" else bool(ext)
+    network_display = params.get("network_display") or {}
+    return {
+        "plan_key": _plan_key(proxy_type, network, days), "type": proxy_type, "network": network, "days": days,
+        "network_label": network_display.get(network) or humanize_code(network),
+        "price": price, "cost_price": cost,
+        # Giá thấp nhất lưu được: vốn × (1 + lãi tối thiểu), làm tròn lên 1.000đ.
+        "floor_price": suggest_price(cost, min_margin, 1000) if cost else None,
+        "margin_pct": round((price - cost) / cost * 100, 1) if cost and price else None,
+        "margin_ok": margin_ok(price, cost, min_margin) if cost and price else True,
+        "supported": supported and (cost is not None or provider.adapter_type != "topproxy"),
+    }
+
+
+async def product_plans(provider: Provider, product: Product, db: AsyncSession) -> dict:
+    """Mọi gói đang bán của MỘT sản phẩm proxy kèm giá vốn — trang sửa sản
+    phẩm cho seller sửa giá từng gói như sửa variant. Sản phẩm cấu hình theo
+    công thức cũ trả bảng tương đương (`from_formula`); lưu lại là chuyển hẳn
+    sang plan_prices."""
+    _require_proxy(provider)
+    params = product.pricing_params or {}
+    prices, from_formula = effective_prices(params)
+    catalog = await _catalog_by_id(provider.id, db)
+    min_margin = _min_margin_pct(provider)
+    rows = []
+    for key, price in prices.items():
+        parsed = parse_plan_price_key(key)
+        if parsed is not None:
+            rows.append(_plan_row(provider, catalog, params, *parsed, price, min_margin))
+    networks = list(dict.fromkeys(r["network"] for r in rows))
+    return {
+        "adapter": provider.adapter_type,
+        "min_margin_pct": min_margin,
+        "from_formula": from_formula,
+        # TopProxy mua được mọi số ngày (giá vốn tra bậc thang) → seller thêm
+        # kỳ hạn mới được. DProxy: gói là do admin map với plan thượng nguồn.
+        "can_add": provider.adapter_type == "topproxy",
+        # HTTP/SOCKS5 cùng giá ở TopProxy — trang sửa gộp thành một dòng.
+        "protocols": sorted({r["type"] for r in rows} & _STATIC_TYPES) if provider.adapter_type == "topproxy" else [],
+        "networks": [{"code": n, "label": next(r["network_label"] for r in rows if r["network"] == n)} for n in networks],
+        "plans": rows,
+    }
+
+
+async def quote_plans(provider: Provider, product: Product, plans: list[dict], db: AsyncSession) -> list[dict]:
+    """Giá vốn + giá sàn cho các gói seller đang soạn (chưa lưu)."""
+    _require_proxy(provider)
+    params = product.pricing_params or {}
+    catalog = await _catalog_by_id(provider.id, db)
+    min_margin = _min_margin_pct(provider)
+    out = []
+    for spec in plans[:200]:
+        proxy_type = str(spec.get("type") or "").strip()
+        network = str(spec.get("network") or "").strip()
+        try:
+            days = int(spec.get("days") or 0)
+        except (TypeError, ValueError):
+            days = 0
+        if not proxy_type or not network or days < 1 or "|" in proxy_type or "|" in network:
+            raise api_error(ErrorCode.INVALID_PRODUCT_CONFIG, status.HTTP_400_BAD_REQUEST,
+                            detail="Mỗi gói cần loại, nhà mạng và số ngày >= 1")
+        price = spec.get("price")
+        price = int(price) if isinstance(price, int) and not isinstance(price, bool) and price > 0 else None
+        out.append(_plan_row(provider, catalog, params, proxy_type, network, days, price, min_margin))
+    return out
 
 
 async def _merge_plan_ids(provider: Provider, patch: dict[str, str], db: AsyncSession, *, actor_id: int | None) -> None:

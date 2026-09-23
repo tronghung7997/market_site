@@ -298,6 +298,7 @@ export default function DynamicOrderForm({ productId, product, onOrderCreated }:
                   field={packageField}
                   value={config[packageField.field]}
                   locale={locale}
+                  fieldLabels={((options.base_info as Record<string, unknown> | null)?.field_labels as Record<string, string> | undefined) ?? {}}
                   onChange={(next) => updateField(packageField.field, next)}
                 />
               );
@@ -551,14 +552,20 @@ function DproxyPackagePicker({
   field,
   value,
   locale,
+  fieldLabels,
   onChange,
 }: {
   field: PricingField;
   value: unknown;
   locale: string;
+  /** Seller's labels (e.g. "Mức chia sẻ"); Vietnamese-only, so EN keeps the defaults. */
+  fieldLabels: Record<string, string>;
   onChange: (value: string) => void;
 }) {
   const choices = parseDproxyPackageChoices(field);
+  const vi = locale !== "en";
+  const typeLabel = vi ? fieldLabels.type || "Loại proxy" : "Proxy type";
+  const networkLabel = vi ? fieldLabels.network || "Khu vực / mạng" : "Location";
   const selected = choices.find((choice) => choice.value === String(value)) ?? choices[0];
   if (!selected) return null;
 
@@ -584,13 +591,13 @@ function DproxyPackagePicker({
       </div>
       <div className="divide-y divide-line rounded-lg border border-line bg-surface px-3">
         <div className="grid grid-cols-[104px_minmax(0,1fr)] items-center gap-3 py-3">
-          <label htmlFor="dproxy-package-type" className="text-[12px] font-medium text-muted">{locale === "en" ? "Proxy type" : "Loại proxy"}</label>
+          <label htmlFor="dproxy-package-type" className="text-[12px] font-medium text-muted">{typeLabel}</label>
           <Select id="dproxy-package-type" name="dproxy-package-type" value={selected.type} onChange={(event) => selectClosest({ type: event.target.value })}>
             {typeOptions.map(([optionValue, optionLabel]) => <option key={optionValue} value={optionValue}>{optionLabel}</option>)}
           </Select>
         </div>
         <div className="grid grid-cols-[104px_minmax(0,1fr)] items-center gap-3 py-3">
-          <label htmlFor="dproxy-package-network" className="text-[12px] font-medium leading-snug text-muted">{locale === "en" ? "Location" : "Khu vực / mạng"}</label>
+          <label htmlFor="dproxy-package-network" className="text-[12px] font-medium leading-snug text-muted">{networkLabel}</label>
           <Select id="dproxy-package-network" name="dproxy-package-network" value={selected.network} onChange={(event) => selectClosest({ network: event.target.value })}>
             {networkOptions.map(([optionValue, optionLabel]) => <option key={optionValue} value={optionValue}>{optionLabel}</option>)}
           </Select>

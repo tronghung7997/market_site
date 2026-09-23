@@ -12,6 +12,7 @@ import { Button, Input, Select, Spinner, Switch, Tag } from "@/components/ui";
 import { AlertTriangle, ChevronDown, ChevronLeft, ChevronRight, Plus, RefreshCw, Search } from "@/components/Icons";
 import { Dialog, DialogContent, DialogHeader, DialogTitle, DialogFooter } from "@/components/ui/dialog";
 import { cn } from "@/lib/cn";
+import { sellerProductPath } from "@/lib/routes";
 import { groupListings, needsAttention, type ListingGroup } from "../logic";
 import { AddProductsDrawer, type ExistingProduct } from "./AddProductsDrawer";
 import { relTime } from "./SourcesList";
@@ -25,7 +26,9 @@ export function SourceWorkspace({ area, sourceId }: { area: SourceArea; sourceId
   const apiErrorMessage = useApiErrorMessage();
   const params = useSearchParams();
   const base = area === "admin" ? "/admin/sources" : "/seller/sources";
-  const productBase = area === "admin" ? "/admin/products" : "/seller/products";
+  // Trang admin đọc id số; khu seller dùng public_key (không lộ row id).
+  const productHref = (g: ListingGroup) =>
+    area === "admin" ? `/admin/products/${g.product_id}` : sellerProductPath({ id: g.product_id, public_key: g.public_key });
 
   const [source, setSource] = useState<SupplierSource | null>(null);
   const [rows, setRows] = useState<SourceListing[] | null>(null);
@@ -223,7 +226,7 @@ export function SourceWorkspace({ area, sourceId }: { area: SourceArea; sourceId
             {groups.map((g) => (
               <ProductRows
                 key={g.product_id} g={g} open={!collapsed.has(g.product_id)} onToggle={() => toggleCollapse(g.product_id)}
-                productHref={`${productBase}/${g.public_key}`} others={allProducts.filter((p) => p.product_id !== g.product_id)}
+                productHref={productHref(g)} others={allProducts.filter((p) => p.product_id !== g.product_id)}
                 editing={editing} setEditing={setEditing} savePrice={savePrice} toggleActive={toggleActive}
                 onAddVariant={() => setDrawer({ presetProductId: g.product_id })}
                 onMove={moveTo} onChangeSku={setChangeSku} onDetach={setConfirmDetach}

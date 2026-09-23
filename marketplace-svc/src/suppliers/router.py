@@ -5,7 +5,7 @@ from __future__ import annotations
 from datetime import datetime
 from typing import Literal
 
-from fastapi import APIRouter, Depends, Query
+from fastapi import APIRouter, Depends, HTTPException, Query
 from pydantic import BaseModel, Field
 from sqlalchemy.ext.asyncio import AsyncSession
 
@@ -30,7 +30,16 @@ class SourceSummary(BaseModel):
     seller_id: int | None
     seller_email: str | None
     seller_is_internal: bool = False
+    seller_business_name: str | None = None
     min_margin_pct: float
+    markup_pct: float = 30
+    round_to: int = 1000
+    follow_cost: bool = False
+    balance_vnd: int | None = None
+    active_listing_count: int = 0
+    # lỗi đồng bộ gần nhất (không phải "delisted") — nguồn vẫn bán theo cache cũ
+    sync_error: str | None = None
+    stats_7d: dict = {}
     low_balance_vnd: int | float | str | None = None
     catalog_count: int
     catalog_synced_at: datetime | None
@@ -77,6 +86,8 @@ class ListingUpdate(BaseModel):
     external_id: str | None = Field(default=None, max_length=100)
     is_active: bool | None = None
     product_id: int | None = None   # chuyển phân loại sang sản phẩm khác
+    # False → trả về luật giá của nguồn (đặt lại giá theo luật ngay)
+    price_manual: bool | None = None
 
 
 class NewSeller(BaseModel):
@@ -98,10 +109,30 @@ class SourceTestRequest(BaseModel):
 
 
 class RepriceRequest(BaseModel):
-    margin_pct: float = Field(ge=0, le=1000)
-    round_to: int = Field(default=1000, ge=1, le=1_000_000)
+    # Bỏ trống → luật giá đang lưu của nguồn.
+    margin_pct: float | None = Field(default=None, ge=0, le=1000)
+    round_to: int | None = Field(default=None, ge=1, le=1_000_000)
     listing_ids: list[int] | None = None
     only_below_min: bool = False
+    dry_run: bool = False
+    include_manual: bool = False
+
+
+class SettingsUpdate(BaseModel):
+    # seller nội bộ + admin
+    markup_pct: float | None = Field(default=None, ge=0, le=1000)
+    round_to: Literal[1, 100, 500, 1000, 5000, 10000] | None = None
+    follow_cost: bool | None = None
+    # 0 không có nghĩa "không chặn" ở _min_margin_pct (rơi về mặc định) → ≥ 1.
+    min_margin_pct: float | None = Field(default=None, ge=1, le=500)
+    auto_pause_after_failures: int | None = Field(default=None, ge=0, le=100)
+    low_balance_vnd: int | None = Field(default=None, ge=0, le=1_000_000_000)
+    # chỉ admin
+    name: str | None = Field(default=None, min_length=1, max_length=255)
+    base_url: str | None = Field(default=None, min_length=8, max_length=255, pattern=r"^https?://")
+    api_key: str | None = Field(default=None, min_length=4, max_length=512)
+    is_active: bool | None = None
+    seller_id: int | None = None
 
 
 # --- handlers dùng chung -------------------------------------------------
@@ -175,6 +206,41 @@ def _routes(prefix: str, role: str):
         return await sources.reprice_listings(
             provider, scope, db, margin_pct=body.margin_pct, round_to=body.round_to,
             listing_ids=body.listing_ids, only_below_min=body.only_below_min,
+            dry_run=body.dry_run, include_manual=body.include_manual,
+        )
+
+    @r.get("/{provider_id}/purchases")
+    async def purchases(
+        provider_id: int,
+        days: int = Query(default=1, description="1 | 7 | 30"),
+        result: Literal["all", "ok", "failed", "pending"] = "all",
+        q: str = Query(default="", max_length=100),
+        page: int = Query(default=1, ge=1), per_page: int = Query(default=50, ge=1, le=200),
+        account: Account = Depends(require_role(role)), db: AsyncSession = Depends(get_session),
+    ):
+        if days not in sources.PURCHASE_WINDOWS:
+            raise HTTPException(status_code=422, detail="days phải là 1, 7 hoặc 30")
+        scope = scope_of(account)
+        provider = await sources.get_source(provider_id, scope, db)
+        return await sources.list_purchases(
+            provider, scope, db, days=days, result=result, q=q, page=page, per_page=per_page,
+        )
+
+    @r.get("/{provider_id}/settings")
+    async def get_settings(provider_id: int, account: Account = Depends(require_role(role)),
+                           db: AsyncSession = Depends(get_session)):
+        scope = scope_of(account)
+        provider = await sources.get_source(provider_id, scope, db)
+        return await sources.get_settings(provider, scope, db)
+
+    @r.patch("/{provider_id}/settings")
+    async def update_settings(provider_id: int, body: SettingsUpdate,
+                              account: Account = Depends(require_role(role)),
+                              db: AsyncSession = Depends(get_session)):
+        scope = scope_of(account)
+        provider = await sources.get_source(provider_id, scope, db)
+        return await sources.update_settings(
+            provider, scope, body.model_dump(exclude_unset=True), db, actor_id=account.id,
         )
 
     @r.patch("/listings/{listing_id}")
@@ -208,6 +274,13 @@ async def seller_candidates(_: Account = Depends(require_role("admin")), db: Asy
 @admin_extra.post("/test")
 async def test_config(body: SourceTestRequest, _: Account = Depends(require_role("admin")), db: AsyncSession = Depends(get_session)):
     return await sources.test_source_config(body.adapter_type, body.config, db)
+
+
+@admin_extra.post("/{provider_id}/test")
+async def test_saved(provider_id: int, _: Account = Depends(require_role("admin")),
+                     db: AsyncSession = Depends(get_session)):
+    provider = await sources.get_source(provider_id, SourceScope(seller_id=None), db)
+    return await sources.test_saved_source(provider, db)
 
 
 @admin_extra.post("", status_code=201)

@@ -11,6 +11,7 @@
 """
 from __future__ import annotations
 
+import math
 import unicodedata
 from dataclasses import dataclass
 from datetime import datetime, timezone
@@ -60,6 +61,42 @@ def margin_ok(sell_price: int, cost_price: int, min_margin_pct: float) -> bool:
     if cost_price <= 0:
         return True
     return sell_price >= cost_price * (1 + min_margin_pct / 100)
+
+
+# Luật giá của một nguồn (provider config): giá bán = vốn × (1 + markup%),
+# làm tròn LÊN bội số round_to. `follow_cost` = khi đồng bộ thấy giá vốn đổi,
+# tự đặt lại giá bán theo luật cho mọi phân loại không "đặt tay".
+DEFAULT_MARKUP_PCT = 30.0
+DEFAULT_ROUND_TO = 1000
+
+
+@dataclass(frozen=True)
+class PriceRule:
+    markup_pct: float
+    round_to: int
+    follow_cost: bool
+
+
+def price_rule(provider: Provider) -> PriceRule:
+    cfg = provider.config or {}
+    try:
+        markup = float(cfg.get("markup_pct")) if cfg.get("markup_pct") not in (None, "") else DEFAULT_MARKUP_PCT
+    except (TypeError, ValueError):
+        markup = DEFAULT_MARKUP_PCT
+    try:
+        round_to = max(int(cfg.get("round_to") or DEFAULT_ROUND_TO), 1)
+    except (TypeError, ValueError):
+        round_to = DEFAULT_ROUND_TO
+    return PriceRule(markup_pct=markup, round_to=round_to, follow_cost=bool(cfg.get("follow_cost")))
+
+
+def suggest_price(cost_price: int, margin_pct: float, round_to: int = DEFAULT_ROUND_TO) -> int:
+    """Giá bán gợi ý = vốn × (1 + margin), làm tròn LÊN bội số round_to."""
+    if cost_price <= 0:
+        return 0
+    raw = cost_price * (1 + margin_pct / 100)
+    step = max(int(round_to or 1), 1)
+    return int(math.ceil(raw / step) * step)
 
 
 def apply_upstream(listing: SupplierListing, up: UpstreamListing) -> None:
@@ -227,6 +264,7 @@ class SyncReport:
     updated: int = 0
     delisted: int = 0
     low_margin: int = 0
+    repriced: int = 0
     catalog_items: int = 0
     error: str | None = None
 
@@ -274,6 +312,7 @@ async def sync_provider_listings(provider: Provider, db: AsyncSession) -> SyncRe
     except Exception:  # noqa: BLE001 — số dư chỉ là thông tin phụ, không chặn sync
         pass
     min_margin = _min_margin_pct(provider)
+    rule = price_rule(provider)
     variant_ids = [lst.variant_id for lst in listings]
     variants = {
         v.id: v for v in (await db.execute(
@@ -299,6 +338,11 @@ async def sync_provider_listings(provider: Provider, db: AsyncSession) -> SyncRe
         apply_upstream(listing, up)
         report.updated += 1
         variant = variants.get(listing.variant_id)
+        if variant is not None and rule.follow_cost and not listing.price_manual and up.cost_price > 0:
+            target = suggest_price(up.cost_price, rule.markup_pct, rule.round_to)
+            if target != variant.price:
+                variant.price = target
+                report.repriced += 1
         if variant is not None and variant.is_active and not margin_ok(variant.price, up.cost_price, min_margin):
             report.low_margin += 1
             await upsert_incident(

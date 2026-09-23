@@ -16,6 +16,7 @@ import type { AuthSessionRow, MySellerProfile, ProfileUpdate } from "./types";
 import type {
   SourceArea, SourceCatalogPage, SourceCatalogQuery, SourceImportItem, SourceImportResult, SourceListing,
   SourceRepriceResult, SourceSyncResult, SupplierSource,
+  SourceRepriceRequest, SourcePurchasePage, SourcePurchaseQuery, SourceSettings, SourceSettingsUpdate, SourceListingUpdate,
   SourceKind, SourceSellerCandidate, SourceCreateRequest, SourceCreateResult, SourceTestResult,
 } from "./types";
 import type { PaginatedAdminProducts, PaginatedInventoryVariants, PaginatedSellerProducts } from "./types";
@@ -930,8 +931,23 @@ export const api = {
       request<{ listing_id: number; variant_id: number; external_id: string }>(`/${area}/sources/${id}/attach`, {
         method: "POST", body: JSON.stringify({ variant_id: variantId, external_id: externalId }),
       }, true),
-    reprice: (area: SourceArea, id: number, body: { margin_pct: number; round_to?: number; listing_ids?: number[]; only_below_min?: boolean }) =>
+    reprice: (area: SourceArea, id: number, body: SourceRepriceRequest) =>
       request<SourceRepriceResult>(`/${area}/sources/${id}/reprice`, { method: "POST", body: JSON.stringify(body) }, true),
+    purchases: (area: SourceArea, id: number, query: SourcePurchaseQuery = {}) => {
+      const qs = new URLSearchParams();
+      if (query.days) qs.set("days", String(query.days));
+      if (query.result && query.result !== "all") qs.set("result", query.result);
+      if (query.q) qs.set("q", query.q);
+      if (query.page) qs.set("page", String(query.page));
+      if (query.per_page) qs.set("per_page", String(query.per_page));
+      const suffix = qs.toString();
+      return request<SourcePurchasePage>(`/${area}/sources/${id}/purchases${suffix ? `?${suffix}` : ""}`, {}, true);
+    },
+    settings: (area: SourceArea, id: number) => request<SourceSettings>(`/${area}/sources/${id}/settings`, {}, true),
+    updateSettings: (area: SourceArea, id: number, body: SourceSettingsUpdate) =>
+      request<SourceSettings>(`/${area}/sources/${id}/settings`, { method: "PATCH", body: JSON.stringify(body) }, true),
+    testSaved: (id: number) =>
+      request<SourceTestResult>(`/admin/sources/${id}/test`, { method: "POST" }, true),
     kinds: () => request<SourceKind[]>(`/admin/sources/kinds`, {}, true),
     sellers: () => request<SourceSellerCandidate[]>(`/admin/sources/sellers`, {}, true),
     test: (adapterType: string, config: Record<string, string | number>) =>
@@ -940,7 +956,7 @@ export const api = {
       }, true),
     create: (body: SourceCreateRequest) =>
       request<SourceCreateResult>(`/admin/sources`, { method: "POST", body: JSON.stringify(body) }, true),
-    updateListing: (area: SourceArea, listingId: number, body: { price?: number; variant_name?: string; external_id?: string; is_active?: boolean; product_id?: number }) =>
+    updateListing: (area: SourceArea, listingId: number, body: SourceListingUpdate) =>
       request<SourceListing>(`/${area}/sources/listings/${listingId}`, { method: "PATCH", body: JSON.stringify(body) }, true),
     detach: (area: SourceArea, listingId: number) =>
       request<void>(`/${area}/sources/listings/${listingId}`, { method: "DELETE" }, true),

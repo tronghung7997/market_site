@@ -2277,8 +2277,20 @@ export interface SupplierSource {
   seller_id: number | null;
   seller_email: string | null;
   seller_is_internal: boolean;
+  seller_business_name: string | null;
   min_margin_pct: number;
   low_balance_vnd: number | string | null;
+  /** luật giá: giá bán = vốn × (1 + markup%), làm tròn lên round_to */
+  markup_pct: number;
+  round_to: number;
+  follow_cost: boolean;
+  /** số dư tài khoản bên nguồn lần kiểm tra/đồng bộ gần nhất */
+  balance_vnd: number | null;
+  /** phân loại đang bán được (không bị chặn, không tắt) */
+  active_listing_count: number;
+  /** lỗi đồng bộ gần nhất (không phải SKU bị gỡ) — nguồn vẫn bán theo dữ liệu cũ */
+  sync_error: string | null;
+  stats_7d: SourcePurchaseSummary;
   catalog_count: number;
   catalog_synced_at: string | null;
   listing_count: number;
@@ -2297,6 +2309,9 @@ export interface SourceKindField {
   default?: string | number;
   secret?: boolean;
   type?: "number" | "text";
+  hint?: string;
+  /** ẩn sau "Nâng cao" trong wizard */
+  advanced?: boolean;
 }
 
 export interface SourceKind {
@@ -2337,6 +2352,9 @@ export interface SourceCreateResult {
 export interface SourceTestResult {
   ok: boolean;
   health: { status?: string; message?: string; balance_vnd?: number };
+  /** nguồn catalog: số mặt hàng đọc được lúc kiểm tra */
+  catalog?: { total: number; in_stock: number } | null;
+  tested_at?: string;
 }
 
 export interface SourceCatalogAttached {
@@ -2437,6 +2455,12 @@ export interface SourceListing {
   last_fail_reason: string | null;
   auto_paused_at: string | null;
   category_path: string[];
+  /** nhóm gốc bên nguồn (Facebook, Gmail…) */
+  group_name: string;
+  /** giá gõ tay → luật giá không ghi đè */
+  price_manual: boolean;
+  /** giá theo luật của nguồn với giá vốn hiện tại */
+  rule_price: number | null;
 }
 
 export interface SourceSyncResult {
@@ -2444,13 +2468,137 @@ export interface SourceSyncResult {
   updated: number;
   delisted: number;
   low_margin: number;
+  repriced: number;
   catalog_items: number;
   error: string | null;
 }
 
+export interface SourceRepriceChange {
+  listing_id: number;
+  variant_id: number;
+  product_title: string;
+  variant_name: string;
+  cost_price: number;
+  old_price: number;
+  new_price: number;
+}
+
 export interface SourceRepriceResult {
-  changed: { listing_id: number; variant_id: number; old_price: number; new_price: number }[];
+  changed: SourceRepriceChange[];
+  unchanged: number;
+  skipped_manual: { listing_id: number; product_title: string; variant_name: string; price: number; margin_ok: boolean }[];
+  margin_pct: number;
+  round_to: number;
   min_margin_pct: number;
+  dry_run: boolean;
+}
+
+export interface SourceRepriceRequest {
+  margin_pct?: number;
+  round_to?: number;
+  listing_ids?: number[];
+  only_below_min?: boolean;
+  dry_run?: boolean;
+  include_manual?: boolean;
+}
+
+export interface SourceListingUpdate {
+  price?: number;
+  variant_name?: string;
+  external_id?: string;
+  is_active?: boolean;
+  product_id?: number;
+  /** false → trả về luật giá */
+  price_manual?: boolean;
+}
+
+export interface SourcePurchaseSummary {
+  orders: number;
+  ok: number;
+  failed: number;
+  pending: number;
+  units: number;
+  /** khách trả (đã trừ hoàn) của đơn giao thành công */
+  paid: number;
+  /** tiền nguồn đã trừ */
+  cost: number;
+  profit: number;
+  refunded: number;
+}
+
+export type SourcePurchaseResult = "ok" | "failed" | "pending";
+
+export interface SourcePurchase {
+  order_id: number;
+  order_code: string;
+  created_at: string;
+  product_title: string | null;
+  variant_name: string | null;
+  quantity: number;
+  total_amount: number;
+  paid: number;
+  refunded: number;
+  cost: number;
+  /** đơn cũ chưa có dòng mua → vốn ước tính theo giá vốn hiện tại */
+  cost_estimated: boolean;
+  profit: number;
+  result: SourcePurchaseResult;
+  error: string | null;
+  trans_id: string | null;
+}
+
+export interface SourcePurchasePage {
+  summary: SourcePurchaseSummary;
+  counts: { all: number; ok: number; failed: number; pending: number };
+  days: 1 | 7 | 30;
+  items: SourcePurchase[];
+  total: number;
+  page: number;
+  per_page: number;
+}
+
+export interface SourcePurchaseQuery {
+  days?: 1 | 7 | 30;
+  result?: "all" | SourcePurchaseResult;
+  q?: string;
+  page?: number;
+  per_page?: number;
+}
+
+export interface SourceSettings {
+  id: number;
+  name: string;
+  adapter_type: string;
+  kind: "catalog" | "server";
+  is_active: boolean;
+  markup_pct: number;
+  round_to: number;
+  follow_cost: boolean;
+  min_margin_pct: number;
+  auto_pause_after_failures: number;
+  low_balance_vnd: number;
+  balance_vnd: number | null;
+  last_test_result: Record<string, unknown> | null;
+  last_tested_at: string | null;
+  seller: { id: number; email: string; business_name: string | null; is_internal: boolean } | null;
+  /** admin: thấy/sửa kết nối, tên, bật-tắt, cửa hàng */
+  can_manage_connection: boolean;
+  base_url: string | null;
+  api_key_hint: string | null;
+}
+
+export interface SourceSettingsUpdate {
+  markup_pct?: number;
+  round_to?: number;
+  follow_cost?: boolean;
+  min_margin_pct?: number;
+  auto_pause_after_failures?: number;
+  low_balance_vnd?: number;
+  name?: string;
+  base_url?: string;
+  api_key?: string;
+  is_active?: boolean;
+  seller_id?: number;
 }
 
 export interface SiteAnnouncement {

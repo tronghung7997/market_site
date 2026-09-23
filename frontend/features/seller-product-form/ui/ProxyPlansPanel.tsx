@@ -8,6 +8,7 @@ import { AlertTriangle, Info, Plus, RotateCcw, Trash } from "@/components/Icons"
 import { api } from "@/lib/api";
 import { cn } from "@/lib/cn";
 import { useMoney } from "@/lib/money";
+import { dproxyTypeLabel } from "@/lib/dproxy-plan";
 import { useApiErrorMessage } from "@/lib/use-api-error";
 import {
   type PlanDraftRow,
@@ -70,6 +71,7 @@ function PlansEditor({ productId, editor, onChange, dirty, saving, onSave }: {
   productId: number; editor: ProxyPlanEditor; onChange: (next: ProxyPlanEditor) => void; dirty: boolean; saving: boolean; onSave: () => void;
 }) {
   const t = useTranslations("sellerProductForm.proxyPlans");
+  const locale = useLocale();
   const formatCheckoutMoney = useFormatMoney();
   const minMargin = editor.meta.min_margin_pct;
   const [marginInput, setMarginInput] = useState(String(Math.max(minMargin, 50)));
@@ -94,6 +96,15 @@ function PlansEditor({ productId, editor, onChange, dirty, saving, onSave }: {
   const undo = () => onChange(resetEditor(editor));
   const changes = changeCount(editor);
   const pricedCount = editor.rows.filter((row) => row.cost).length;
+  const typeDisplay = (editor.baseParams.type_display as Record<string, string> | undefined) ?? {};
+  // Rows keep their type only when protocols are not merged (DProxy: the
+  // type is the IP type) — two "3 days" rows must say which is which.
+  const typeLabelOf = (row: PlanDraftRow) => {
+    if (editor.meta.protocols.length) return null;
+    const code = row.types[0];
+    const label = typeDisplay[code];
+    return label && label !== code ? label : dproxyTypeLabel(code, locale === "en" ? "en" : "vi");
+  };
 
   return (
     <Card className="p-0">
@@ -189,7 +200,7 @@ function PlansEditor({ productId, editor, onChange, dirty, saving, onSave }: {
                 ) : null}
                 {group.rows.map((row) => (
                   <PlanTableRow
-                    key={row.id} row={row} minMargin={minMargin} groupLabel={group.label}
+                    key={row.id} row={row} typeLabel={typeLabelOf(row)} minMargin={minMargin} groupLabel={group.label}
                     canRemove={editor.rows.length > 1} onPrice={(price) => setPrice(row.id, price)} onRemove={() => remove(row.id)}
                   />
                 ))}
@@ -206,7 +217,7 @@ function PlansEditor({ productId, editor, onChange, dirty, saving, onSave }: {
                 <ul className="divide-y divide-line">
                   {group.rows.map((row) => (
                     <PlanCardRow
-                      key={row.id} row={row} minMargin={minMargin} groupLabel={group.label}
+                      key={row.id} row={row} typeLabel={typeLabelOf(row)} minMargin={minMargin} groupLabel={group.label}
                       canRemove={editor.rows.length > 1} onPrice={(price) => setPrice(row.id, price)} onRemove={() => remove(row.id)}
                     />
                   ))}
@@ -249,7 +260,7 @@ function SummaryCell({ label, value, tone, plain }: { label: string; value: stri
   );
 }
 
-type RowProps = { row: PlanDraftRow; minMargin: number; groupLabel: string; canRemove: boolean; onPrice: (price: number) => void; onRemove: () => void };
+type RowProps = { row: PlanDraftRow; typeLabel: string | null; minMargin: number; groupLabel: string; canRemove: boolean; onPrice: (price: number) => void; onRemove: () => void };
 
 function useRowView(row: PlanDraftRow, minMargin: number) {
   const t = useTranslations("sellerProductForm.proxyPlans");
@@ -270,7 +281,7 @@ function useRowView(row: PlanDraftRow, minMargin: number) {
   return { t, formatCheckoutMoney, issue, issueText, daysLabel, marginTag, was };
 }
 
-function PlanTableRow({ row, minMargin, groupLabel, canRemove, onPrice, onRemove }: RowProps) {
+function PlanTableRow({ row, typeLabel, minMargin, groupLabel, canRemove, onPrice, onRemove }: RowProps) {
   const { t, formatCheckoutMoney, issue, issueText, daysLabel, marginTag, was } = useRowView(row, minMargin);
   const errorId = `plan-${row.id}-issue`;
   return (
@@ -280,10 +291,11 @@ function PlanTableRow({ row, minMargin, groupLabel, canRemove, onPrice, onRemove
           {daysLabel}
           {row.savedPrice == null && <Tag tone="iris">{t("tagNew")}</Tag>}
         </div>
+        {typeLabel && <div className="mt-0.5 text-[12px] text-muted">{typeLabel}</div>}
         {was && <div className="mt-1 text-[12px] text-faint">{was}</div>}
       </td>
       <td className="px-3 py-3 text-right font-mono tabular-nums text-muted">
-        {row.cost != null ? formatCheckoutMoney(row.cost) : <span className="text-[12px] text-faint">{t("costUnknown")}</span>}
+        {row.cost != null ? formatCheckoutMoney(row.cost) : <span className="font-sans text-[12px] text-faint">{t("costUnknown")}</span>}
       </td>
       <td className="px-3 py-2">
         <div aria-describedby={issueText ? errorId : undefined}>
@@ -294,13 +306,13 @@ function PlanTableRow({ row, minMargin, groupLabel, canRemove, onPrice, onRemove
       <td className="px-3 py-3">{marginTag}</td>
       <td className="px-3 py-3 text-right font-mono text-[12.5px] tabular-nums text-muted">{row.price > 0 ? formatCheckoutMoney(perDay(row.price, row.days)) : "—"}</td>
       <td className="px-3 py-2 text-right">
-        <RemoveButton canRemove={canRemove} label={t("remove", { label: `${groupLabel} · ${daysLabel}` })} lastLabel={t("removeLast")} onRemove={onRemove} />
+        <RemoveButton canRemove={canRemove} label={t("remove", { label: [groupLabel, typeLabel, daysLabel].filter(Boolean).join(" · ") })} lastLabel={t("removeLast")} onRemove={onRemove} />
       </td>
     </tr>
   );
 }
 
-function PlanCardRow({ row, minMargin, groupLabel, canRemove, onPrice, onRemove }: RowProps) {
+function PlanCardRow({ row, typeLabel, minMargin, groupLabel, canRemove, onPrice, onRemove }: RowProps) {
   const { t, formatCheckoutMoney, issue, issueText, daysLabel, marginTag, was } = useRowView(row, minMargin);
   return (
     <li className={cn("space-y-2 px-4 py-3", issue && "bg-bad-soft/40")}>
@@ -309,12 +321,13 @@ function PlanCardRow({ row, minMargin, groupLabel, canRemove, onPrice, onRemove 
           <div className="flex flex-wrap items-center gap-1.5 text-[14px] font-medium text-fg">
             {daysLabel}{row.savedPrice == null && <Tag tone="iris">{t("tagNew")}</Tag>}
           </div>
+          {typeLabel && <p className="text-[12px] text-muted">{typeLabel}</p>}
           <p className="mt-0.5 text-[12.5px] tabular-nums text-muted">
             {t("col.cost")} {row.cost != null ? formatCheckoutMoney(row.cost) : "—"}
             {row.price > 0 && <> · {t("perDayShort", { price: formatCheckoutMoney(perDay(row.price, row.days)) })}</>}
           </p>
         </div>
-        <div className="flex shrink-0 items-center gap-1">{marginTag}<RemoveButton canRemove={canRemove} label={t("remove", { label: `${groupLabel} · ${daysLabel}` })} lastLabel={t("removeLast")} onRemove={onRemove} /></div>
+        <div className="flex shrink-0 items-center gap-1">{marginTag}<RemoveButton canRemove={canRemove} label={t("remove", { label: [groupLabel, typeLabel, daysLabel].filter(Boolean).join(" · ") })} lastLabel={t("removeLast")} onRemove={onRemove} /></div>
       </div>
       <label className="block text-[12px] font-medium text-muted">
         <span className="mb-1 block">{t("col.price")}</span>

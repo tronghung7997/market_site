@@ -15,7 +15,7 @@ from src.models.resource import Resource
 from src.models.service_task import ServiceTask
 from src.usage.service import get_usage_summary
 
-from . import schemas, service
+from . import admin_case, schemas, service
 from src.orders.refs import OrderRef
 
 router = APIRouter(tags=["orders"])
@@ -228,6 +228,43 @@ async def order_dashboard(
 @router.get("/admin/orders", response_model=list[schemas.OrderResponse])
 async def admin_orders(_: Account = Depends(require_role("admin")), db: AsyncSession = Depends(get_session)):
     return await service.list_all_orders(db)
+
+
+@router.get("/admin/orders/{order_id}/case", response_model=schemas.AdminOrderCase)
+async def admin_order_case(order_id: int, _: Account = Depends(require_role("admin")), db: AsyncSession = Depends(get_session)):
+    """The admin order page: money trail, lines, case, tasks, parties, story, actions."""
+    return await admin_case.admin_order_case(order_id, db)
+
+
+@router.post("/admin/orders/{order_id}/release", status_code=204)
+async def admin_release_order(order_id: int, body: schemas.AdminOrderNote,
+                              admin: Account = Depends(require_role("admin")), db: AsyncSession = Depends(get_session)):
+    await admin_case.release_order(order_id, admin, body.note, db)
+
+
+@router.post("/admin/orders/{order_id}/refund", status_code=204)
+async def admin_refund_order(order_id: int, body: schemas.AdminOrderRefund,
+                             admin: Account = Depends(require_role("admin")), db: AsyncSession = Depends(get_session)):
+    await admin_case.refund_order(order_id, admin, body.note, body.buyer_message, db)
+
+
+@router.post("/admin/orders/{order_id}/extend-escrow", status_code=204)
+async def admin_extend_escrow(order_id: int, body: schemas.AdminOrderExtendEscrow,
+                              admin: Account = Depends(require_role("admin")), db: AsyncSession = Depends(get_session)):
+    await admin_case.extend_escrow(order_id, admin, body.days, body.note, db)
+
+
+@router.post("/admin/orders/{order_id}/retry-provision", status_code=202)
+async def admin_retry_provision(order_id: int, body: schemas.AdminOrderRetry | None = None,
+                                admin: Account = Depends(require_role("admin")), db: AsyncSession = Depends(get_session)):
+    await admin_case.retry_provision(order_id, admin, body.note if body else None, db)
+    return {"status": "queued"}
+
+
+@router.post("/admin/orders/{order_id}/notes", status_code=201)
+async def admin_order_note(order_id: int, body: schemas.AdminOrderNote,
+                           admin: Account = Depends(require_role("admin")), db: AsyncSession = Depends(get_session)):
+    return await admin_case.add_note(order_id, admin, body.note, db)
 
 
 @router.get("/admin/orders/{order_id}", response_model=schemas.AdminOrderDetailResponse)

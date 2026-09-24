@@ -2,6 +2,7 @@
 
 import * as React from "react";
 import { createPortal } from "react-dom";
+import { useSearchParams } from "next/navigation";
 import { AnimatePresence, motion } from "motion/react";
 
 import { api } from "@/lib/api";
@@ -96,8 +97,10 @@ export default function AdminDepositsPage() {
   const [statusFilter, setStatusFilter] = React.useState("all");
   const [providerFilter, setProviderFilter] = React.useState("all");
   const [attentionOnly, setAttentionOnly] = React.useState(false);
-  const [searchInput, setSearchInput] = React.useState("");
-  const [search, setSearch] = React.useState("");
+  // ?q=<payment code | id> pre-fills the search (deep link from alerts/logs).
+  const linkedQuery = useSearchParams().get("q") ?? "";
+  const [searchInput, setSearchInput] = React.useState(linkedQuery);
+  const [search, setSearch] = React.useState(linkedQuery);
   const [page, setPage] = React.useState(0);
 
   // Reconcile states

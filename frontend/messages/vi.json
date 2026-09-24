@@ -1836,6 +1836,7 @@
     "DISPUTE_ESCROW_EXPIRED": "Thời gian ký quỹ đã hết hạn",
     "DISPUTE_ALREADY_OPEN": "Đơn hàng này đã có khiếu nại",
     "ORDER_NOT_FOUND": "Không tìm thấy đơn hàng",
+    "ORDER_ACTION_NOT_ALLOWED": "Thao tác này không áp dụng được cho đơn ở trạng thái hiện tại",
     "NOT_ORDER_OWNER": "Đây không phải đơn hàng của bạn",
     "PRODUCT_NOT_FOUND": "Không tìm thấy sản phẩm",
     "VARIANT_NOT_FOUND": "Không tìm thấy gói sản phẩm",

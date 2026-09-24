@@ -571,6 +571,22 @@ async def list_accounts(
     return {"items": items, "total": total, "page": page, "per_page": per_page, "summary": summary}
 
 
+async def get_account_row(db: AsyncSession, account_id: int) -> dict:
+    """One directory row by id — deep links (alerts, logs, disputes) open an
+    account that is not on the current list page."""
+    from sqlalchemy import func
+    from src.models.login_event import LoginEvent
+
+    account = await db.get(Account, account_id)
+    if account is None or account.is_seeded:
+        raise HTTPException(status_code=404, detail="Không tìm thấy tài khoản")
+    row = schemas.AccountAdminRow.model_validate(account).model_dump()
+    row["last_login_at"] = await db.scalar(
+        select(func.max(LoginEvent.created_at)).where(LoginEvent.account_id == account_id, LoginEvent.outcome == "success")
+    )
+    return row
+
+
 async def update_roles(account_id: int, roles: list[str], requester_id: int, db: AsyncSession) -> Account:
     cleaned = sorted({r for r in roles})
     invalid = [r for r in cleaned if r not in _VALID_ROLES]

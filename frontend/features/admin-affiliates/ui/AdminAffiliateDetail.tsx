@@ -90,7 +90,7 @@ export function AdminAffiliateDetail({ id }: { id: number }) {
           <ActivityChart series={data.timeseries} formatMoney={vnd} />
           <div className="grid gap-4 xl:grid-cols-2">
             <ReferredUsersPanel users={data.referred_users} formatMoney={vnd} />
-            <CommissionsPanel rows={data.commissions} formatMoney={vnd} orderHref={(c) => `/${locale}/admin/orders?order=${c.order_id}`} />
+            <CommissionsPanel rows={data.commissions} formatMoney={vnd} orderHref={(c) => `/${locale}/admin/orders/${c.order_id}`} />
           </div>
         </div>
       )}

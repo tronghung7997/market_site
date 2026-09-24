@@ -1427,6 +1427,31 @@ export interface Alert {
   created_at: string;
 }
 
+/** A concrete record an admin alert is about, with the admin page that opens it. */
+export interface AlertRef {
+  kind: "order" | "dispute" | "account" | "provider" | "product" | "variant" | "resource" | "deposit" | "report" | string;
+  id: number;
+  label: string;
+  detail: string | null;
+  href: string | null;
+  /** Why this record is listed: "người bán", "người mua", "chủ nguồn"… */
+  role?: string | null;
+}
+
+export interface AdminAlert extends Alert {
+  first_seen_at: string | null;
+  last_seen_at: string | null;
+  occurrence_count: number;
+  resolved_at: string | null;
+  admin_resolved_at: string | null;
+  admin_resolved_by: string | null;
+  admin_note: string | null;
+  /** "ops" = operator incident; "user" = a seller/buyer notice shown for oversight. */
+  audience: "ops" | "user";
+  href: string | null;
+  refs: AlertRef[];
+}
+
 export interface ActionItem {
   key: string;
   severity: "info" | "warning" | "critical";
@@ -3016,3 +3041,153 @@ export type FeeConfigPublic = {
 export type FeeConfigAdmin = FeeConfigPublic & { updated_at: string | null; updated_by_id: number | null };
 export type FeeConfigUpdate = Partial<FeeConfigPublic>;
 export type WithdrawQuote = { amount: number; fee_amount: number; net_amount: number; min_amount: number; fee_fixed: number; fee_percent: number };
+
+// ── Admin dispute case file (GET /admin/disputes/{id}/case) ────────────────
+export interface AdminCaseParty {
+  id: number;
+  name: string;
+  email: string;
+  is_internal: boolean;
+  is_active: boolean;
+  tier: string;
+  created_at: string;
+  href: string;
+}
+
+export interface AdminCaseLine {
+  id: number;
+  /** 1-based delivery line, "#01" — the number buyer and seller see. */
+  line: string;
+  status: string;
+  expires_at: string | null;
+  state: "claimed" | "replaced" | "refunded" | "replacement" | "ok";
+  claimed: boolean;
+  warranty_claimable: boolean;
+  replacement_resource_id: number | null;
+  refund_amount: number;
+}
+
+export interface AdminCaseSignal {
+  code: string;
+  tone: "good" | "info" | "warn" | "bad";
+  text: string;
+}
+
+export type AdminCaseAction = "refund" | "partial_refund" | "reject" | "replace" | "extend_warranty";
+
+export interface AdminDisputeCase extends Dispute {
+  order: {
+    id: number;
+    order_code: string | null;
+    status: string | null;
+    quantity: number;
+    total_amount: number;
+    refunded_amount: number;
+    created_at: string | null;
+    escrow_expires_at: string | null;
+    product_id: number | null;
+    product_title: string | null;
+    variant_name: string | null;
+    warranty_text: string | null;
+    delivered_data: string | null;
+    href: string;
+    product_href: string | null;
+  };
+  buyer: AdminCaseParty | null;
+  seller: AdminCaseParty | null;
+  buyer_record: {
+    paid_orders: number;
+    other_disputes: number;
+    disputes_90d: number;
+    won: number;
+    rejected: number;
+    dispute_rate: number;
+    recent: { id: number; status: string; created_at: string; order_code: string; href: string }[];
+  };
+  seller_record: {
+    paid_orders_90d: number;
+    disputes_90d: number;
+    open_disputes: number;
+    timeouts_90d: number;
+    lost_90d: number;
+    dispute_rate_90d: number;
+    avg_response_hours: number | null;
+  };
+  money: {
+    order_total: number;
+    refunded: number;
+    remaining_refundable: number;
+    unit_price: number;
+    fee_percent: number;
+    seller_payout_if_closed: number;
+    platform_fee_if_closed: number;
+  };
+  lines: AdminCaseLine[];
+  conversations: { id: string; requester: "buyer" | "seller"; href: string }[];
+  signals: AdminCaseSignal[];
+  recommendation: { action: AdminCaseAction | "review" | "wait" | "none"; text: string; amount: number | null };
+}
+
+export interface AdminLogEntry {
+  id: number;
+  service: string;
+  level: string;
+  request_id: string | null;
+  job_id: string | null;
+  message: string;
+  metadata: Record<string, unknown> | null;
+  created_at: string;
+  actor: AlertRef | null;
+  refs: AlertRef[];
+}
+
+// ── Admin order page (GET /admin/orders/{id}/case) ─────────────────────────
+export interface AdminOrderLedgerRow {
+  id: number;
+  type: string;
+  label: string;
+  amount: number;
+  account_id: number;
+  account_label: string;
+  /** "người mua" | "người bán" | "sàn" | "affiliate" */
+  role: string;
+  reference_id: string | null;
+  created_at: string;
+}
+
+export type AdminOrderActionKey = "release" | "refund" | "extend_escrow" | "retry_provision" | "revoke_gateway_key" | "note";
+
+export interface AdminOrderCase extends Order {
+  order_status: string;
+  updated_at: string | null;
+  refunded_amount: number;
+  user_config: Record<string, unknown> | null;
+  product_href: string | null;
+  provider: { id: number; name: string; is_active: boolean; href: string } | null;
+  buyer: AdminCaseParty | null;
+  seller: AdminCaseParty | null;
+  buyer_record: AdminDisputeCase["buyer_record"];
+  seller_record: AdminDisputeCase["seller_record"];
+  money: {
+    total: number;
+    refunded: number;
+    remaining: number;
+    released_to_seller: number;
+    platform_fee: number;
+    fee_percent: number;
+    projected_seller_payout: number | null;
+    projected_platform_fee: number | null;
+    /** held | released | refunded | awaiting_delivery | settled */
+    escrow_state: string;
+    escrow_expires_at: string | null;
+    escrow_overdue: boolean;
+  };
+  ledger: AdminOrderLedgerRow[];
+  lines: { id: number; line: string; status: string; expires_at: string | null; claimed: boolean }[];
+  disputes: { id: number; status: string; reason: string; created_at: string; resolved_at: string | null; href: string }[];
+  tasks: { id: number; platform: string; status: string; assignee: string | null; created_at: string; updated_at: string | null }[];
+  usage: UsageBalance | null;
+  events: AdminLogEntry[];
+  notes: AdminLogEntry[];
+  actions: { key: AdminOrderActionKey; enabled: boolean; reason: string | null }[];
+}

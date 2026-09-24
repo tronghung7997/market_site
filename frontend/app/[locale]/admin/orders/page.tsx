@@ -2,7 +2,8 @@
 /* Hallmark · component: admin orders console · theme: project Proxora (slate canvas · iris accent) · P4 H5 E4 S4 R4 V4 */
 
 import * as React from "react";
-import { useSearchParams } from "next/navigation";
+import { usePathname, useSearchParams } from "next/navigation";
+import { useRouter } from "@/i18n/navigation";
 import { useQuery } from "@tanstack/react-query";
 import { useDebounce } from "@/lib/hooks/useDebounce";
 import {
@@ -23,12 +24,11 @@ import {
   X,
 } from "lucide-react";
 import { api, vnd } from "@/lib/api";
-import { useApiErrorMessage } from "@/lib/use-api-error";
-import { Banner, Card, Spinner } from "@/components/ui";
-import { FacetSelect, SlidePanel, buildFacetOptions } from "@/components/admin";
+import { Banner, Card } from "@/components/ui";
+import { FacetSelect, buildFacetOptions } from "@/components/admin";
 import { OrderStatusBadge } from "@/components/admin/status-badge";
 import { Tooltip } from "@/components/ui/tooltip";
-import type { Order, AdminOrderDetail, UsageBalance } from "@/lib/types";
+import type { Order } from "@/lib/types";
 
 const DEFAULT_PAGE_SIZE = 20;
 
@@ -48,38 +48,6 @@ const STATUS_TABS: {
   { key: "disputed", label: "Khiếu nại", statuses: ["disputed"], color: "bg-red-400" },
   { key: "refunded", label: "Hoàn tiền", statuses: ["refunded"], color: "bg-rose-300" },
 ];
-
-// Event labels for timeline
-const EVENT_LABELS: Record<string, string> = {
-  order_placed: "Đặt hàng",
-  order_confirmed: "Xác nhận",
-  order_delivered_manual: "Giao hàng (thủ công)",
-  resources_assigned: "Cấp phát tài nguyên",
-  dispute_opened: "Mở khiếu nại",
-  dispute_refunded: "Hoàn tiền khiếu nại",
-  dispute_rejected: "Từ chối khiếu nại",
-};
-
-const RESOURCE_STATUS_STYLES: Record<string, string> = {
-  assigned: "bg-indigo-50 text-indigo-700 border-indigo-200",
-  expired: "bg-red-50 text-red-700 border-red-200",
-  error: "bg-red-50 text-red-700 border-red-200",
-};
-
-const DISPUTE_STYLES: Record<string, string> = {
-  open: "bg-amber-50 text-amber-700 border-amber-200",
-  resolved_refund: "bg-red-50 text-red-700 border-red-200",
-  resolved_reject: "bg-emerald-50 text-emerald-700 border-emerald-200",
-};
-
-const DISPUTE_LABELS: Record<string, string> = {
-  open: "Đang mở",
-  resolved_refund: "Hoàn tiền",
-  resolved_reject: "Từ chối",
-  resolved_timeout: "Tự hoàn tất (buyer im)",
-  withdrawn_by_buyer: "Buyer rút khiếu nại",
-  resolved_abandoned: "Tự hoàn tất (bỏ cuộc)",
-};
 
 // Cột số căn phải (header lẫn cell)
 const RIGHT_COLS = new Set(["quantity", "total_amount"]);
@@ -248,302 +216,70 @@ function SortHeader({
   );
 }
 
-// Order Detail Panel Content
-const USAGE_STATUS_STYLES: Record<string, string> = {
-  ok: "bg-emerald-50 text-emerald-700 border-emerald-200",
-  rejected_quota: "bg-red-50 text-red-700 border-red-200",
-  rejected_expired: "bg-amber-50 text-amber-700 border-amber-200",
-};
-
-function UsageSection({ orderId, usage: initial }: { orderId: number; usage: UsageBalance }) {
-  const apiErrorMessage = useApiErrorMessage();
-  const [usage, setUsage] = React.useState(initial);
-  const [simulating, setSimulating] = React.useState(false);
-  const [simError, setSimError] = React.useState<string | null>(null);
-
-  const refresh = async () => {
-    try {
-      const detail = await api.adminOrderDetail(orderId);
-      if (detail.usage) setUsage(detail.usage);
-    } catch { /* giữ nguyên dữ liệu cũ nếu refetch lỗi */ }
-  };
-
-  const simulate = async () => {
-    setSimulating(true);
-    setSimError(null);
-    try {
-      await api.chargeUsage(orderId, "profile", 1);
-      await refresh();
-    } catch (e) {
-      setSimError(apiErrorMessage(e, "Không giả lập được request"));
-      await refresh();
-    } finally {
-      setSimulating(false);
-    }
-  };
-
-  const pct = usage.units_total > 0 ? Math.min(100, Math.round((usage.units_used / usage.units_total) * 100)) : 0;
-
-  return (
-    <section>
-      <h3 className="text-[12px] font-semibold text-slate-500 uppercase tracking-wide mb-3">
-        Số dư request
-      </h3>
-      <Card className="p-3 space-y-3 text-[13px]">
-        <div>
-          <div className="flex items-end justify-between mb-1.5">
-            <span className="text-slate-500 text-[11.5px]">Đã dùng / Tổng</span>
-            <span className="font-mono font-semibold tabular-nums">
-              {usage.units_used.toLocaleString("vi-VN")} / {usage.units_total.toLocaleString("vi-VN")}
-            </span>
-          </div>
-          <div className="h-2 rounded-full bg-slate-100 overflow-hidden">
-            <div
-              className={`h-full rounded-full transition-all ${pct >= 100 ? "bg-red-500" : pct >= 80 ? "bg-amber-500" : "bg-emerald-500"}`}
-              style={{ width: `${pct}%` }}
-            />
-          </div>
-        </div>
-
-        {usage.units_remaining <= 0 ? (
-          <Banner tone="bad">Đã hết số request trong gói này.</Banner>
-        ) : usage.units_used / usage.units_total >= 0.8 && (
-          <Banner tone="warn">Sắp hết — chỉ còn {usage.units_remaining.toLocaleString("vi-VN")} request.</Banner>
-        )}
-
-        <div className="flex items-center gap-2">
-          <button
-            onClick={simulate}
-            disabled={simulating}
-            className="inline-flex items-center gap-1.5 px-3 py-1.5 text-[12px] font-medium rounded-md bg-slate-100 border border-slate-200 hover:border-slate-300 transition-colors disabled:opacity-50"
-          >
-            {simulating ? "Đang gửi…" : "Giả lập 1 request"}
-          </button>
-          <span className="text-[11px] text-slate-400">Công cụ debug — chưa có nhà cung cấp thật gọi vào đây.</span>
-        </div>
-        {simError && <p className="text-[12px] text-red-600">{simError}</p>}
-
-        {usage.records.length > 0 && (
-          <div className="overflow-x-auto">
-            <table className="w-full text-[12px]">
-              <thead>
-                <tr className="text-left text-slate-500 border-b border-slate-200">
-                  <th className="px-3 py-2 font-medium">Lúc</th>
-                  <th className="px-3 py-2 font-medium">Endpoint</th>
-                  <th className="px-3 py-2 font-medium">Trừ</th>
-                  <th className="px-3 py-2 font-medium">Kết quả</th>
-                </tr>
-              </thead>
-              <tbody>
-                {usage.records.map((r) => (
-                  <tr key={r.id} className="border-b border-slate-100 last:border-0">
-                    <td className="px-3 py-2 text-slate-500">{new Date(r.created_at).toLocaleString("vi-VN")}</td>
-                    <td className="px-3 py-2 font-mono">{r.endpoint}</td>
-                    <td className="px-3 py-2 tabular-nums">−{r.units}</td>
-                    <td className="px-3 py-2">
-                      <span className={`inline-flex items-center rounded-md border px-1.5 py-0.5 text-[11px] font-medium ${USAGE_STATUS_STYLES[r.status] ?? "bg-slate-100 text-slate-600 border-slate-200"}`}>
-                        {r.status === "ok" ? "Thành công" : r.status === "rejected_quota" ? "Hết credit" : "Hết hạn"}
-                      </span>
-                    </td>
-                  </tr>
-                ))}
-              </tbody>
-            </table>
-          </div>
-        )}
-      </Card>
-    </section>
-  );
-}
-
-function OrderDetailContent({ orderId }: { orderId: number }) {
-  const [detail, setDetail] = React.useState<AdminOrderDetail | null>(null);
-  const [loading, setLoading] = React.useState(true);
-
-  React.useEffect(() => {
-    setLoading(true);
-    api
-      .adminOrderDetail(orderId)
-      .then(setDetail)
-      .catch(() => setDetail(null))
-      .finally(() => setLoading(false));
-  }, [orderId]);
-
-  if (loading) return <Spinner />;
-  if (!detail) return <p className="text-[13px] text-slate-500 p-5">Không thể tải thông tin đơn hàng.</p>;
-
-  return (
-    <div className="space-y-6">
-      {/* Order Info */}
-      <section>
-        <h3 className="text-[12px] font-semibold text-slate-500 uppercase tracking-wide mb-3">
-          Thông tin đơn hàng
-        </h3>
-        <div className="grid grid-cols-2 gap-3 text-[13px]">
-          <div>
-            <p className="text-slate-500 text-[11.5px]">Sản phẩm</p>
-            <p className="font-medium">{detail.product_title ?? `Variant #${detail.variant_id}`}</p>
-            {detail.variant_name && <p className="text-[11.5px] text-slate-400">{detail.variant_name}</p>}
-          </div>
-          <div>
-            <p className="text-slate-500 text-[11.5px]">Tổng cộng</p>
-            <p className="font-mono font-semibold">{vnd(detail.total_amount)}</p>
-          </div>
-          <div>
-            <p className="text-slate-500 text-[11.5px]">Người mua</p>
-            <p>{detail.buyer_email ?? `#${detail.buyer_id}`}</p>
-          </div>
-          <div>
-            <p className="text-slate-500 text-[11.5px]">Người bán</p>
-            <p>{detail.seller_email ?? `#${detail.seller_id}`}</p>
-          </div>
-          <div>
-            <p className="text-slate-500 text-[11.5px]">Trạng thái</p>
-            <OrderStatusBadge status={detail.status} />
-          </div>
-          <div>
-            <p className="text-slate-500 text-[11.5px]">Số lượng</p>
-            <p className="font-mono">{detail.quantity}</p>
-          </div>
-        </div>
-      </section>
-
-      {/* Timeline */}
-      {detail.timeline.length > 0 && (
-        <section>
-          <h3 className="text-[12px] font-semibold text-slate-500 uppercase tracking-wide mb-3">
-            Dòng thời gian
-          </h3>
-          <div className="relative pl-5">
-            <div className="absolute left-[7px] top-1 bottom-1 w-px bg-slate-200" />
-            {detail.timeline.map((evt, i) => {
-              const isLast = i === detail.timeline.length - 1;
-              return (
-                <div key={i} className="relative pb-4 last:pb-0">
-                  <div
-                    className={`absolute -left-5 top-[5px] w-[10px] h-[10px] rounded-full border-2 ${
-                      isLast ? "bg-indigo-500 border-indigo-500" : "bg-white border-slate-200"
-                    }`}
-                  />
-                  <p className={`text-[13px] font-medium ${isLast ? "text-slate-900" : "text-slate-500"}`}>
-                    {EVENT_LABELS[evt.event] || evt.event}
-                  </p>
-                  <p className="text-[11.5px] text-slate-400">
-                    {new Date(evt.timestamp).toLocaleString("vi-VN")}
-                  </p>
-                </div>
-              );
-            })}
-          </div>
-        </section>
-      )}
-
-      {/* Resources */}
-      {detail.resources.length > 0 && (
-        <section>
-          <h3 className="text-[12px] font-semibold text-slate-500 uppercase tracking-wide mb-3">
-            Tài nguyên ({detail.resources.length})
-          </h3>
-          <div className="overflow-x-auto">
-            <table className="w-full text-[12px]">
-              <thead>
-                <tr className="text-left text-slate-500 border-b border-slate-200">
-                  <th className="px-3 py-2 font-medium">ID</th>
-                  <th className="px-3 py-2 font-medium">Trạng thái</th>
-                  <th className="px-3 py-2 font-medium">Hết hạn</th>
-                </tr>
-              </thead>
-              <tbody>
-                {detail.resources.map((r) => (
-                  <tr key={r.id} className="border-b border-slate-100 last:border-0">
-                    <td className="px-3 py-2 font-mono">#{r.id}</td>
-                    <td className="px-3 py-2">
-                      <span className={`inline-flex items-center rounded-md border px-1.5 py-0.5 text-[11px] font-medium ${RESOURCE_STATUS_STYLES[r.status] ?? "bg-slate-100 text-slate-600 border-slate-200"}`}>
-                        {r.status}
-                      </span>
-                    </td>
-                    <td className="px-3 py-2 text-slate-500">
-                      {r.expires_at ? new Date(r.expires_at).toLocaleDateString("vi-VN") : "—"}
-                    </td>
-                  </tr>
-                ))}
-              </tbody>
-            </table>
-          </div>
-        </section>
-      )}
-
-      {/* Usage / số dư request — chỉ có với sản phẩm dạng credit (endpoint) */}
-      {detail.usage && <UsageSection orderId={detail.id} usage={detail.usage} />}
-
-      {/* Dispute */}
-      {detail.dispute && (
-        <section>
-          <h3 className="text-[12px] font-semibold text-slate-500 uppercase tracking-wide mb-3">
-            Khiếu nại
-          </h3>
-          <Card className="p-3 space-y-2 text-[13px]">
-            <div>
-              <p className="text-slate-500 text-[11.5px]">Lý do</p>
-              <p>{detail.dispute.reason}</p>
-            </div>
-            <div className="flex gap-4">
-              <div>
-                <p className="text-slate-500 text-[11.5px]">Trạng thái</p>
-                <span className={`inline-flex items-center rounded-md border px-1.5 py-0.5 text-[11px] font-medium ${DISPUTE_STYLES[detail.dispute.status] ?? ""}`}>
-                  {DISPUTE_LABELS[detail.dispute.status] ?? detail.dispute.status}
-                </span>
-              </div>
-              {detail.dispute.resolved_at && (
-                <div>
-                  <p className="text-slate-500 text-[11.5px]">Giải quyết lúc</p>
-                  <p className="text-[12px]">{new Date(detail.dispute.resolved_at).toLocaleString("vi-VN")}</p>
-                </div>
-              )}
-            </div>
-            {detail.dispute.admin_note && (
-              <div>
-                <p className="text-slate-500 text-[11.5px]">Ghi chú admin</p>
-                <p className="text-[12px] italic">{detail.dispute.admin_note}</p>
-              </div>
-            )}
-          </Card>
-        </section>
-      )}
-    </div>
-  );
-}
+// Read by features/admin-order (OrderPage) to decide how "back" works.
+const ORDER_LIST_MARK = "admin-orders:opened-from-list";
 
 export default function AdminOrdersPage() {
   const searchParams = useSearchParams();
+  const pathname = usePathname();
+  const router = useRouter();
 
-  // Filter & pagination state
-  const [status, setStatus] = React.useState("all");
-  const [sellerId, setSellerId] = React.useState<string | null>(null);
-  const [buyerId, setBuyerId] = React.useState<string | null>(null);
-  const [search, setSearch] = React.useState("");
-  const [sorting, setSorting] = React.useState<SortingState>([]);
-  const [pagination, setPagination] = React.useState({
-    pageIndex: 0,
-    pageSize: DEFAULT_PAGE_SIZE,
+  // Filter, sort and page live in the URL: opening an order and pressing
+  // Back returns to exactly this view instead of an unfiltered page 1.
+  const [status, setStatus] = React.useState(() => searchParams.get("s") ?? "all");
+  const [sellerId, setSellerId] = React.useState<string | null>(() => searchParams.get("seller"));
+  const [buyerId, setBuyerId] = React.useState<string | null>(() => searchParams.get("buyer"));
+  const [search, setSearch] = React.useState(() => searchParams.get("q") ?? "");
+  const [sorting, setSorting] = React.useState<SortingState>(() => {
+    const [id, dir] = (searchParams.get("sort") ?? "").split(":");
+    return id ? [{ id, desc: dir === "desc" }] : [];
   });
-  const [selectedOrderId, setSelectedOrderId] = React.useState<number | null>(null);
+  const [pagination, setPagination] = React.useState(() => ({
+    pageIndex: Math.max(0, (Number(searchParams.get("p")) || 1) - 1),
+    pageSize: DEFAULT_PAGE_SIZE,
+  }));
 
   const debouncedSearch = useDebounce(search, 300);
 
-  // Reset page when filters change
+  // Reset to page 1 only when a filter actually changes — not on mount (or
+  // React's dev double-mount), which must keep the page restored from the URL.
+  const filterKey = JSON.stringify([status, sellerId, buyerId, debouncedSearch.trim()]);
+  const lastFilterKey = React.useRef(filterKey);
   React.useEffect(() => {
+    if (lastFilterKey.current === filterKey) return;
+    lastFilterKey.current = filterKey;
     setPagination((p) => ({ ...p, pageIndex: 0 }));
-  }, [status, sellerId, buyerId, debouncedSearch]);
+  }, [filterKey]);
 
-  // Handle ?highlight=X query param
   React.useEffect(() => {
-    const highlight = searchParams.get("highlight");
-    if (highlight) {
-      const id = parseInt(highlight, 10);
-      if (!isNaN(id)) setSelectedOrderId(id);
+    const q = new URLSearchParams();
+    if (status !== "all") q.set("s", status);
+    if (sellerId) q.set("seller", sellerId);
+    if (buyerId) q.set("buyer", buyerId);
+    if (debouncedSearch.trim()) q.set("q", debouncedSearch.trim());
+    if (sorting[0]) q.set("sort", `${sorting[0].id}:${sorting[0].desc ? "desc" : "asc"}`);
+    if (pagination.pageIndex > 0) q.set("p", String(pagination.pageIndex + 1));
+    const qs = q.toString();
+    window.history.replaceState(window.history.state, "", qs ? `${pathname}?${qs}` : pathname);
+  }, [status, sellerId, buyerId, debouncedSearch, sorting, pagination.pageIndex, pathname]);
+
+  // Old deep links (?highlight=ID) now open the order page.
+  React.useEffect(() => {
+    const id = Number(searchParams.get("highlight") ?? searchParams.get("order"));
+    if (Number.isSafeInteger(id) && id > 0) router.replace(`/admin/orders/${id}`);
+  }, [searchParams, router]);
+
+  const openOrder = (id: number, event: React.MouseEvent) => {
+    try {
+      // Lets the order page's "back" return here (filters, page, scroll) via history.
+      sessionStorage.setItem(ORDER_LIST_MARK, JSON.stringify({ id, url: `${window.location.pathname}${window.location.search}` }));
+    } catch { /* storage blocked: back falls back to the plain list */ }
+    if (event.metaKey || event.ctrlKey) {
+      window.open(`${pathname}/${id}`, "_blank", "noopener");
+      return;
     }
-  }, [searchParams]);
+    router.push(`/admin/orders/${id}`);
+  };
 
   // Fetch all orders via admin endpoint (returns flat Order[])
   const queryResult = useQuery({
@@ -647,11 +383,15 @@ export default function AdminOrdersPage() {
   const totalPages = Math.max(1, Math.ceil(total / pagination.pageSize));
 
   // Bảo hiểm khi dữ liệu co lại còn ít trang hơn trang hiện tại
+  // Only once data is in: before that there is "1 page" and a page restored
+  // from the URL would be thrown away.
+  const loaded = queryResult.data !== undefined;
   React.useEffect(() => {
+    if (!loaded) return;
     setPagination((p) =>
       p.pageIndex > 0 && p.pageIndex >= totalPages ? { ...p, pageIndex: 0 } : p
     );
-  }, [totalPages]);
+  }, [totalPages, loaded]);
 
   const tableMeta = React.useMemo<OrdersTableMeta>(
     () => ({
@@ -881,7 +621,7 @@ export default function AdminOrdersPage() {
                     table.getRowModel().rows.map((row) => (
                       <tr
                         key={row.id}
-                        onClick={() => setSelectedOrderId(row.original.id)}
+                        onClick={(e) => openOrder(row.original.id, e)}
                         className="cursor-pointer border-b border-slate-100 transition-colors last:border-0 hover:bg-slate-50"
                       >
                         {row.getVisibleCells().map((cell) => (
@@ -956,16 +696,7 @@ export default function AdminOrdersPage() {
       </Card>
 
       {/* Detail Panel */}
-      <SlidePanel
-        isOpen={selectedOrderId !== null}
-        onClose={() => setSelectedOrderId(null)}
-        title={`Đơn hàng ${allOrders.find((o) => o.id === selectedOrderId)?.order_code ?? `#${selectedOrderId}`} (#${selectedOrderId})`}
-        width="lg"
-      >
-        {selectedOrderId !== null && (
-          <OrderDetailContent orderId={selectedOrderId} />
-        )}
-      </SlidePanel>
+
     </div>
   );
 }

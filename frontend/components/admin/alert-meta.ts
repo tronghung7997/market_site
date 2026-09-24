@@ -28,6 +28,10 @@ export const ALERT_TYPE_LABELS: Record<string, string> = {
   dproxy_duplicate_external_id: "DProxy — tồn kho trùng lặp",
   dproxy_allocation_disappeared: "DProxy — proxy biến mất khỏi nhà cung cấp",
   ops_one_shot_done: "Tác vụ vận hành đã chạy xong",
+  dispute_seller_timeout: "Người bán im lặng quá hạn khiếu nại",
+  seller_application_approved: "Đơn đăng ký bán được duyệt",
+  buyer_dispute_resource_resolved: "Khiếu nại được xử lý (người mua)",
+  seller_dispute_resource_resolved: "Khiếu nại được xử lý (người bán)",
 };
 
 export function alertTypeLabel(type: string): string {

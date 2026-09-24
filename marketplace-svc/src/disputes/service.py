@@ -1943,7 +1943,8 @@ async def refund_dispute(dispute_id: int, admin_note: str, db: AsyncSession, *, 
     from src.affiliate.service import clawback_commission_for_order
     await clawback_commission_for_order(order, db)
     await log_event(db, "info", f"Dispute {dispute_id} refunded", request_id=current_request_id(),
-                    metadata={"event": "dispute_refunded", "order_id": order.id, "amount": remaining_amount})
+                    metadata={"event": "dispute_refunded", "order_id": order.id, "dispute_id": dispute_id,
+                              "actor_id": admin_id, "actor_type": "admin", "subject_type": "dispute", "subject_id": dispute_id, "amount": remaining_amount})
     await _enqueue_dispute_resolved(db, dispute, order)
     await db.commit()
     await db.refresh(dispute)
@@ -1975,7 +1976,8 @@ async def reject_dispute(dispute_id: int, admin_note: str, db: AsyncSession, *, 
     from src.affiliate.service import apply_affiliate_commission
     await apply_affiliate_commission(order, db)
     await log_event(db, "info", f"Dispute {dispute_id} rejected", request_id=current_request_id(),
-                    metadata={"event": "dispute_rejected", "order_id": order.id, "amount": remaining_amount})
+                    metadata={"event": "dispute_rejected", "order_id": order.id, "dispute_id": dispute_id,
+                              "actor_id": admin_id, "actor_type": "admin", "subject_type": "dispute", "subject_id": dispute_id, "amount": remaining_amount})
     await _enqueue_dispute_resolved(db, dispute, order)
     await db.commit()
     await db.refresh(dispute)
@@ -2019,7 +2021,8 @@ async def partial_refund_dispute(dispute_id: int, admin_note: str, refund_amount
     from src.affiliate.service import apply_affiliate_commission
     await apply_affiliate_commission(order, db)
     await log_event(db, "info", f"Dispute {dispute_id} partially refunded", request_id=current_request_id(),
-                    metadata={"event": "dispute_partial_refunded", "order_id": order.id, "refund_amount": refund_amount})
+                    metadata={"event": "dispute_partial_refunded", "order_id": order.id, "dispute_id": dispute_id,
+                              "actor_id": admin_id, "actor_type": "admin", "subject_type": "dispute", "subject_id": dispute_id, "refund_amount": refund_amount})
     await _enqueue_dispute_resolved(db, dispute, order)
     await db.commit()
     await db.refresh(dispute)
@@ -2084,7 +2087,8 @@ async def replace_dispute(dispute_id: int, admin_note: str, db: AsyncSession, *,
     )
 
     await log_event(db, "info", f"Dispute {dispute_id} resolved via replacement", request_id=current_request_id(),
-                    metadata={"event": "dispute_replaced", "order_id": order.id})
+                    metadata={"event": "dispute_replaced", "order_id": order.id, "dispute_id": dispute_id,
+                              "actor_id": admin_id, "actor_type": "admin", "subject_type": "dispute", "subject_id": dispute_id})
     await _enqueue_dispute_resolved(db, dispute, order)
     await db.commit()
     await db.refresh(dispute)
@@ -2112,7 +2116,8 @@ async def extend_warranty_dispute(dispute_id: int, admin_note: str, extra_days: 
     )
 
     await log_event(db, "info", f"Dispute {dispute_id} resolved via warranty extension", request_id=current_request_id(),
-                    metadata={"event": "dispute_warranty_extended", "order_id": order.id, "extra_days": extra_days})
+                    metadata={"event": "dispute_warranty_extended", "order_id": order.id, "dispute_id": dispute_id,
+                              "actor_id": admin_id, "actor_type": "admin", "subject_type": "dispute", "subject_id": dispute_id, "extra_days": extra_days})
     await _enqueue_dispute_resolved(db, dispute, order)
     await db.commit()
     await db.refresh(dispute)

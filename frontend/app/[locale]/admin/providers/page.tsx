@@ -2,6 +2,7 @@
 
 import { Fragment, useEffect, useState, useCallback, useMemo } from "react";
 import { createPortal } from "react-dom";
+import { useSearchParams } from "next/navigation";
 import { api } from "@/lib/api";
 import { useApiErrorMessage } from "@/lib/use-api-error";
 import { Banner, Card, Spinner, Tag, Button, Field, Input, Select, Textarea } from "@/components/ui";
@@ -1875,6 +1876,8 @@ function ProviderReviewModal({
 
 export default function AdminProvidersPage() {
   const apiErrorMessage = useApiErrorMessage();
+  // ?provider=<id> opens that provider's panel (deep link from alerts/logs).
+  const linkedProviderId = Number(useSearchParams().get("provider")) || null;
   const [providers, setProviders] = useState<ExpandedProvider[]>([]);
   const [loading, setLoading] = useState(true);
   const [editProvider, setEditProvider] = useState<ExpandedProvider | null>(null);
@@ -1884,6 +1887,12 @@ export default function AdminProvidersPage() {
   const [testResult, setTestResult] = useState<{ id: number; data: Record<string, unknown> } | null>(null);
   const [linkedCount, setLinkedCount] = useState<number | null>(null);
   const [reviewProvider, setReviewProvider] = useState<ExpandedProvider | null>(null);
+
+  useEffect(() => {
+    if (!linkedProviderId || loading) return;
+    const hit = providers.find((p) => p.id === linkedProviderId);
+    if (hit) setEditProvider((current) => current ?? hit);
+  }, [linkedProviderId, loading, providers]);
 
   useEffect(() => {
     api.providers()

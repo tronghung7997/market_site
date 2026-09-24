@@ -2,6 +2,7 @@
 /* Hallmark · component: admin resources console · theme: project Proxora (slate canvas · iris accent) · P4 H4 E4 S4 R4 V4 */
 
 import * as React from "react";
+import { useSearchParams } from "next/navigation";
 import { Link } from "@/i18n/navigation";
 import { useQuery } from "@tanstack/react-query";
 import {
@@ -145,7 +146,7 @@ const columns: ColumnDef<AdminResource>[] = [
     cell: ({ row }) =>
       row.original.order_id ? (
         <Link
-          href={`/admin/orders?highlight=${row.original.order_id}`}
+          href={`/admin/orders/${row.original.order_id}`}
           className="font-mono text-indigo-600 hover:underline"
           onClick={(e) => e.stopPropagation()}
         >
@@ -185,7 +186,9 @@ const columns: ColumnDef<AdminResource>[] = [
 export default function AdminResourcesPage() {
   const [status, setStatus] = React.useState("all");
   const [sellerKey, setSellerKey] = React.useState<string | null>(null);
-  const [search, setSearch] = React.useState("");
+  // ?q=<id or text> pre-fills the search (deep link from alerts/logs).
+  const linkedQuery = useSearchParams().get("q") ?? "";
+  const [search, setSearch] = React.useState(linkedQuery);
   const [page, setPage] = React.useState(1);
   const [sorting, setSorting] = React.useState<SortingState>([]);
   const debouncedSearch = useDebounce(search, 300);

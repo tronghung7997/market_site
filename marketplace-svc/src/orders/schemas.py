@@ -204,3 +204,52 @@ class OrderStatsResponse(BaseModel):
     disputed: int
     cancelled_or_refunded: int
     total_spend: int
+
+
+# ── Admin order page (GET /admin/orders/{id}/case) ──────────────────────────
+
+class AdminOrderCase(OrderResponse):
+    order_status: str
+    updated_at: datetime | None = None
+    refunded_amount: int = 0
+    user_config: dict | None = None
+    product_href: str | None = None
+    provider: dict | None = None
+    buyer: dict | None = None
+    seller: dict | None = None
+    buyer_record: dict
+    seller_record: dict
+    money: dict
+    ledger: list[dict]
+    lines: list[dict]
+    disputes: list[dict]
+    tasks: list[dict]
+    usage: dict | None = None
+    events: list[dict]
+    notes: list[dict]
+    actions: list[dict]
+
+
+class AdminOrderNote(BaseModel):
+    note: str = Field(min_length=3, max_length=2000)
+
+    @field_validator("note")
+    @classmethod
+    def meaningful(cls, value: str) -> str:
+        value = value.strip()
+        if len(value) < 3:
+            raise ValueError("note is required")
+        return value
+
+
+class AdminOrderRefund(AdminOrderNote):
+    # White-label reason the buyer reads on the order; defaults to a generic one.
+    buyer_message: str | None = Field(default=None, max_length=500)
+
+
+class AdminOrderExtendEscrow(AdminOrderNote):
+    days: int = Field(ge=1, le=30)
+
+
+class AdminOrderRetry(BaseModel):
+    note: str | None = Field(default=None, max_length=2000)

@@ -206,7 +206,7 @@ async def run_and_record(db: AsyncSession, *, trigger: str = "schedule") -> Ledg
     for f in report.findings[:MAX_ALERTS_PER_RUN]:
         fingerprint = f"ledger:{f.target_type}:{f.target_id}"
         live_fingerprints.add(fingerprint)
-        href = f"/admin/orders?order={f.target_id}" if f.target_type == "order" else "/admin/reports"
+        href = f"/admin/orders/{f.target_id}" if f.target_type == "order" else "/admin/reports"
         await upsert_incident(
             db, fingerprint=fingerprint, type_=ALERT_TYPE, severity="critical",
             target_type=f.target_type, target_id=f.target_id, message=_describe(f), href=href,

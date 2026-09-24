@@ -475,7 +475,7 @@ export default function AdminOverview() {
                     {attention.map((o) => (
                       <tr key={o.id} className="border-b border-slate-100 transition-colors last:border-0 hover:bg-slate-50">
                         <td className="whitespace-nowrap px-4 py-2.5">
-                          <Link href={`/admin/orders?highlight=${o.id}`} className="font-mono text-indigo-600 hover:underline">
+                          <Link href={`/admin/orders/${o.id}`} className="font-mono text-indigo-600 hover:underline">
                             {o.order_code}
                           </Link>
                         </td>

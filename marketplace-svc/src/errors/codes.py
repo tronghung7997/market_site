@@ -53,6 +53,7 @@ class ErrorCode(str, Enum):
     PROXY_TAG_DUPLICATE = "PROXY_TAG_DUPLICATE"
     PROXY_TAG_INVALID = "PROXY_TAG_INVALID"
     ORDER_NOT_FOUND = "ORDER_NOT_FOUND"
+    ORDER_ACTION_NOT_ALLOWED = "ORDER_ACTION_NOT_ALLOWED"
     NOT_ORDER_OWNER = "NOT_ORDER_OWNER"
     ORDER_NOT_DELIVERED = "ORDER_NOT_DELIVERED"
     DISPUTE_ONLY_DELIVERED = "DISPUTE_ONLY_DELIVERED"
@@ -179,6 +180,7 @@ MESSAGES_EN: dict[ErrorCode, str] = {
     ErrorCode.PROXY_TAG_DUPLICATE: "A tag with this name already exists",
     ErrorCode.PROXY_TAG_INVALID: "Tag name is empty or the tag limit ({max}) is reached",
     ErrorCode.ORDER_NOT_FOUND: "Order not found",
+    ErrorCode.ORDER_ACTION_NOT_ALLOWED: "This action is not available for the order in its current state",
     ErrorCode.NOT_ORDER_OWNER: "This is not your order",
     ErrorCode.ORDER_NOT_DELIVERED: "This order has not been delivered yet",
     ErrorCode.DISPUTE_ONLY_DELIVERED: "You can only open a dispute on a delivered order",

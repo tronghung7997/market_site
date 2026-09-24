@@ -58,6 +58,9 @@ async def query_logs(
     since: datetime | None = None,
     until: datetime | None = None,
     before_id: int | None = None,
+    account_id: int | None = None,
+    dispute_id: int | None = None,
+    event: str | None = None,
 ) -> list[LogEntry]:
     if limit < 1 or limit > 200:
         raise HTTPException(status_code=422, detail="limit must be between 1 and 200")
@@ -75,6 +78,13 @@ async def query_logs(
         stmt = stmt.where(LogEntry.level == level)
     if order_id is not None:
         stmt = stmt.where(LogEntry.metadata_["order_id"].astext == str(order_id))
+    if account_id is not None:
+        from .admin_logs import account_clause
+        stmt = stmt.where(account_clause(account_id))
+    if dispute_id is not None:
+        stmt = stmt.where(LogEntry.metadata_["dispute_id"].as_string() == str(dispute_id))
+    if event:
+        stmt = stmt.where(LogEntry.metadata_["event"].as_string() == event)
     if since is not None:
         stmt = stmt.where(LogEntry.created_at >= since)
     if until is not None:

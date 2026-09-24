@@ -1,6 +1,6 @@
 from datetime import datetime
 
-from sqlalchemy import DateTime, Integer, String, Text, func
+from sqlalchemy import DateTime, ForeignKey, Integer, String, Text, func
 from sqlalchemy.orm import Mapped, mapped_column
 
 from src.database import Base
@@ -29,3 +29,9 @@ class Alert(Base):
     occurrence_count: Mapped[int] = mapped_column(Integer, nullable=False, default=1, server_default="1")
     resolved_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True), nullable=True)
     created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), server_default=func.now())
+    # Admin inbox state, separate from is_active: resolving a seller/buyer
+    # alert in the admin console must not hide it from its owner. A recurring
+    # incident (upsert_incident) reopens it.
+    admin_resolved_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True), nullable=True)
+    admin_resolved_by_id: Mapped[int | None] = mapped_column(ForeignKey("accounts.id"), nullable=True)
+    admin_note: Mapped[str | None] = mapped_column(Text, nullable=True)

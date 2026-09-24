@@ -1836,6 +1836,7 @@
     "DISPUTE_ESCROW_EXPIRED": "The escrow window for this order has expired",
     "DISPUTE_ALREADY_OPEN": "This order already has an open dispute",
     "ORDER_NOT_FOUND": "Order not found",
+    "ORDER_ACTION_NOT_ALLOWED": "This action is not available for the order in its current state",
     "NOT_ORDER_OWNER": "This is not your order",
     "PRODUCT_NOT_FOUND": "Product not found",
     "VARIANT_NOT_FOUND": "Product package not found",

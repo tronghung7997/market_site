@@ -2,6 +2,7 @@
 /* Hallmark · component: admin alerts inbox console · theme: project Proxora (slate canvas · iris accent) · P4 H5 E4 S5 R4 V4 */
 
 import * as React from "react";
+import { useSearchParams } from "next/navigation";
 import { Link } from "@/i18n/navigation";
 import { useQuery, useQueryClient } from "@tanstack/react-query";
 import { Check, RotateCw, Search, X } from "lucide-react";
@@ -10,25 +11,8 @@ import { api } from "@/lib/api";
 import { useDebounce } from "@/lib/hooks/useDebounce";
 import { Banner, Card } from "@/components/ui";
 import { ConfirmModal, FacetSelect, buildFacetOptions } from "@/components/admin";
+import { ALERT_SEVERITY_META, ALERT_SEVERITY_ORDER, alertTypeLabel } from "@/components/admin/alert-meta";
 import type { Alert } from "@/lib/types";
-
-// Nhãn tiếng Việt cho TOÀN BỘ loại cảnh báo backend tạo ra
-// (scheduler.py, disputes, payments, resources — 13 loại).
-const TYPE_LABELS: Record<string, string> = {
-  provider_down: "Nguồn hàng ngừng hoạt động",
-  sla_breach: "Người bán trễ hạn giao (SLA)",
-  provision_stuck: "Đơn không provision được",
-  resource_low: "Tồn kho sắp hết",
-  resource_error: "Tài nguyên bị báo lỗi",
-  dispute_opened: "Khiếu nại mới",
-  task_webhook_timeout: "Người bán không phản hồi webhook",
-  dproxy_auth_error: "DProxy — lỗi xác thực",
-  dproxy_unavailable: "DProxy — không phản hồi",
-  dproxy_contract_error: "DProxy — API thay đổi bất thường",
-  dproxy_duplicate_external_id: "DProxy — tồn kho trùng lặp",
-  dproxy_allocation_disappeared: "DProxy — proxy biến mất khỏi nhà cung cấp",
-  deposit_anomaly: "Nạp tiền bất thường",
-};
 
 // Đối tượng liên quan → nhãn + trang admin để xử lý
 const TARGET_META: Record<string, { label: string; href: (id: number) => string }> = {
@@ -40,13 +24,8 @@ const TARGET_META: Record<string, { label: string; href: (id: number) => string 
   deposit: { label: "lệnh nạp", href: () => "/admin/deposits" },
 };
 
-// Một hệ màu duy nhất: mức độ nghiêm trọng (đồng bộ với trang Nhật ký)
-const SEVERITY_META: Record<string, { label: string; color: string; rank: number }> = {
-  critical: { label: "Nghiêm trọng", color: "bg-red-600", rank: 0 },
-  warning: { label: "Cảnh báo", color: "bg-amber-400", rank: 1 },
-  info: { label: "Thông tin", color: "bg-slate-300", rank: 2 },
-};
-const SEVERITY_ORDER = ["critical", "warning", "info"];
+const SEVERITY_META = ALERT_SEVERITY_META;
+const SEVERITY_ORDER = ALERT_SEVERITY_ORDER;
 
 const SEVERITY_TABS = [
   { key: "all", label: "Tất cả" },
@@ -57,7 +36,9 @@ export default function AdminAlertsPage() {
   const queryClient = useQueryClient();
 
   const [severity, setSeverity] = React.useState("all");
-  const [typeKey, setTypeKey] = React.useState<string | null>(null);
+  // Tổng quan mở thẳng một loại cảnh báo qua ?type=…
+  const searchParams = useSearchParams();
+  const [typeKey, setTypeKey] = React.useState<string | null>(() => searchParams.get("type"));
   const [search, setSearch] = React.useState("");
   const [dismissing, setDismissing] = React.useState<Set<number>>(new Set());
   const [bulkModal, setBulkModal] = React.useState(false);
@@ -83,7 +64,7 @@ export default function AdminAlertsPage() {
     return alerts.filter(
       (a) =>
         a.message.toLowerCase().includes(q) ||
-        (TYPE_LABELS[a.type] ?? a.type).toLowerCase().includes(q)
+        alertTypeLabel(a.type).toLowerCase().includes(q)
     );
   }, [alerts, debouncedSearch]);
 
@@ -94,7 +75,7 @@ export default function AdminAlertsPage() {
         alerts,
         typeKey,
         (a) => a.type,
-        (a) => TYPE_LABELS[a.type] ?? a.type
+        (a) => alertTypeLabel(a.type)
       ),
     [searchScope, alerts, typeKey]
   );
@@ -364,7 +345,7 @@ export default function AdminAlertsPage() {
                     <div className="min-w-0 flex-1">
                       <div className="flex flex-wrap items-baseline gap-x-2">
                         <span className="text-[13px] font-medium text-slate-900">
-                          {TYPE_LABELS[a.type] ?? a.type}
+                          {alertTypeLabel(a.type)}
                         </span>
                         <span className="text-[11.5px] text-slate-400">
                           {new Date(a.created_at).toLocaleString("vi-VN", {

@@ -5,8 +5,8 @@
 import { Link } from "@/i18n/navigation";
 import { useTranslations } from "next-intl";
 import { useEffect, useRef, useState } from "react";
-import { Card, Spinner } from "@/components/ui";
-import { ChevronRight } from "@/components/Icons";
+import { Banner, Card, Spinner } from "@/components/ui";
+import { ChevronRight, Eye } from "@/components/Icons";
 import DynamicOrderForm from "@/components/DynamicOrderForm";
 import { useProductDetail } from "./useProductDetail";
 import { usePurchase } from "./usePurchase";
@@ -17,12 +17,14 @@ import MobileBuyBar from "./MobileBuyBar";
 import ReviewsCard from "./ReviewsCard";
 import { DescriptionCard, ProductIdentity, RelatedProducts, SpecsPlate, WarrantyCard } from "./sections";
 import type { ProductPageCatalog } from "@/features/catalog";
-import { categoryPath } from "@/lib/routes";
+import { categoryPath, sellerProductPath } from "@/lib/routes";
+
+const STATUS_KEYS = { draft: 1, paused: 1, suspended: 1, active: 1 };
 
 export default function ProductView({ initial, productRef }: { initial: ProductPageCatalog; productRef: string }) {
   const t = useTranslations("products");
   const tc = useTranslations("common");
-  const { product, related, pricingStrategy, loading, error } = useProductDetail(productRef, initial);
+  const { product, related, pricingStrategy, loading, error, preview } = useProductDetail(productRef, initial);
   const purchase = usePurchase(product);
   const useDynamicForm = pricingStrategy != null && pricingStrategy !== "fixed";
 
@@ -52,6 +54,24 @@ export default function ProductView({ initial, productRef }: { initial: ProductP
 
   return (
     <div className="w-full mx-auto max-w-[1200px] px-4 sm:px-6 py-5 sm:py-6">
+      {preview && (
+        <Banner
+          tone="warn"
+          icon={<Eye size={15} />}
+          title={t("preview.title")}
+          className="mb-4"
+          action={
+            <Link
+              href={preview === "admin" ? `/admin/products/${product.id}` : sellerProductPath(product)}
+              className="text-[12.5px] font-medium underline underline-offset-2"
+            >
+              {t("preview.manage")}
+            </Link>
+          }
+        >
+          {t("preview.body", { status: t(`preview.status.${product.status in STATUS_KEYS ? product.status : "draft"}`) })}
+        </Banner>
+      )}
       <nav aria-label={tc("breadcrumb")} className="flex items-center gap-1.5 text-[12.5px] text-muted mb-4">
         <Link href="/" className="hover:text-fg transition-colors shrink-0">{tc("marketplace")}</Link>
         <ChevronRight size={12} className="text-faint shrink-0" />
@@ -70,7 +90,10 @@ export default function ProductView({ initial, productRef }: { initial: ProductP
         </section>
 
         <aside className="mt-5 lg:mt-0 lg:col-start-2 lg:row-start-1 lg:row-span-2 min-w-0">
-          <div ref={panelRef} className="lg:sticky lg:top-20 scroll-mt-20">
+          {/* Xem trước: khung đặt hàng chỉ để nhìn — backend cũng từ chối đơn
+              cho sản phẩm chưa mở bán. */}
+          <div ref={panelRef} inert={preview != null} aria-disabled={preview != null || undefined}
+            className={`lg:sticky lg:top-20 scroll-mt-20${preview ? " opacity-60 select-none" : ""}`}>
             {useDynamicForm ? (
               purchase.order ? (
                 <PanelShell title={t("orderPanel")}>
@@ -94,7 +117,7 @@ export default function ProductView({ initial, productRef }: { initial: ProductP
         </div>
       </div>
 
-      {!purchase.order && (
+      {!purchase.order && !preview && (
         <MobileBuyBar
           visible={!panelInView}
           total={barTotal}

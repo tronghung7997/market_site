@@ -81,6 +81,35 @@ async def get_product(
     return await service.get_product_detail(product.id, db, locale=locale, public=True)
 
 
+@router.get("/seller/products/{product_ref}/preview", response_model=schemas.ProductDetailResponse)
+async def preview_own_product(
+    product_ref: str,
+    locale: str = Depends(get_request_locale),
+    account: Account = Depends(require_role("seller")),
+    db: AsyncSession = Depends(get_session),
+):
+    """Trang mua của chính sản phẩm mình kể cả khi đang nháp / tạm dừng / bị
+    khoá — để seller xem trước. Sản phẩm của người khác trả 404 như public."""
+    product = await service.resolve_product_ref(product_ref, db)
+    if product is None or product.seller_id != account.id:
+        raise api_error(ErrorCode.PRODUCT_NOT_FOUND, status.HTTP_404_NOT_FOUND)
+    return await service.get_product_detail(product.id, db, locale=locale, public=True, allow_hidden=True)
+
+
+@router.get("/admin/products/{product_ref}/preview", response_model=schemas.ProductDetailResponse)
+async def admin_preview_product(
+    product_ref: str,
+    locale: str = Depends(get_request_locale),
+    _: Account = Depends(require_role("admin")),
+    db: AsyncSession = Depends(get_session),
+):
+    """Trang mua của bất kỳ sản phẩm nào, kể cả đang ẩn khỏi chợ."""
+    product = await service.resolve_product_ref(product_ref, db)
+    if product is None:
+        raise api_error(ErrorCode.PRODUCT_NOT_FOUND, status.HTTP_404_NOT_FOUND)
+    return await service.get_product_detail(product.id, db, locale=locale, public=True, allow_hidden=True)
+
+
 @router.get("/seller/products/{product_ref}/detail", response_model=schemas.ProductDetailResponse)
 async def get_own_product(product_ref: str, account: Account = Depends(require_role("seller")), db: AsyncSession = Depends(get_session)):
     """Như /products/{id} nhưng kèm cả gói đã tắt — trang quản lý cần thấy chúng
@@ -264,10 +293,33 @@ async def admin_get_product(
 async def admin_update_product(
     product_id: int,
     body: schemas.ProductUpdate,
+    account: Account = Depends(require_role("admin")),
+    db: AsyncSession = Depends(get_session),
+):
+    return await service.admin_update_product(
+        product_id, body.model_dump(exclude_unset=True), db, actor_id=account.id,
+    )
+
+
+@router.post("/admin/products/bulk", response_model=schemas.AdminProductBulkResponse)
+async def admin_bulk_update_products(
+    body: schemas.AdminProductBulkRequest,
+    account: Account = Depends(require_role("admin")),
+    db: AsyncSession = Depends(get_session),
+):
+    return await service.admin_bulk_update_products(
+        body.ids, body.action, db,
+        actor_id=account.id, category_id=body.category_id, reason=body.reason,
+    )
+
+
+@router.get("/admin/products/{product_id}/activity", response_model=list[schemas.AdminProductActivityItem])
+async def admin_product_activity(
+    product_id: int,
     _: Account = Depends(require_role("admin")),
     db: AsyncSession = Depends(get_session),
 ):
-    return await service.admin_update_product(product_id, body.model_dump(exclude_unset=True), db)
+    return await service.admin_product_activity(product_id, db)
 
 
 @router.patch(
@@ -278,11 +330,11 @@ async def admin_update_product_translation(
     product_id: int,
     locale: Literal["en", "vi"],
     body: schemas.ProductTranslationUpdate,
-    _: Account = Depends(require_role("admin")),
+    account: Account = Depends(require_role("admin")),
     db: AsyncSession = Depends(get_session),
 ):
     return await service.update_product_translation(
-        product_id, locale, body.model_dump(exclude_unset=True), db,
+        product_id, locale, body.model_dump(exclude_unset=True), db, admin_actor_id=account.id,
     )
 
 
@@ -297,5 +349,12 @@ async def update_product_operations(
 
 
 @router.post("/admin/products/{product_id}/suspend", response_model=schemas.ProductResponse)
-async def suspend_product(product_id: int, _: Account = Depends(require_role("admin")), db: AsyncSession = Depends(get_session)):
-    return await service.suspend_product(product_id, db)
+async def suspend_product(
+    product_id: int,
+    body: schemas.AdminProductSuspendRequest | None = None,
+    account: Account = Depends(require_role("admin")),
+    db: AsyncSession = Depends(get_session),
+):
+    return await service.suspend_product(
+        product_id, db, actor_id=account.id, reason=body.reason if body else None,
+    )

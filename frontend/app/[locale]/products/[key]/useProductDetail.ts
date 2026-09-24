@@ -5,6 +5,7 @@
 import { useEffect, useState } from "react";
 import { useTranslations } from "next-intl";
 import { api } from "@/lib/api";
+import { useAuth } from "@/lib/auth";
 import { useApiErrorMessage } from "@/lib/use-api-error";
 import type { Product, ProductDetail } from "@/lib/types";
 import type { ProductPageCatalog } from "@/features/catalog";
@@ -23,6 +24,15 @@ export interface ProductDetailState {
   pricingStrategy: string | null;
   loading: boolean;
   error: string | null;
+  /** Sản phẩm đang ẩn khỏi chợ, chủ sản phẩm / admin đang xem bản xem trước. */
+  preview: "admin" | "seller" | null;
+}
+
+/** Ai được xem trước sản phẩm đang ẩn: admin trước, rồi seller (backend kiểm chủ). */
+function previewRole(roles: string[] | undefined): "admin" | "seller" | null {
+  if (roles?.includes("admin")) return "admin";
+  if (roles?.includes("seller")) return "seller";
+  return null;
 }
 
 export function useProductDetail(ref: string, initial?: ProductPageCatalog | null): ProductDetailState {
@@ -33,6 +43,9 @@ export function useProductDetail(ref: string, initial?: ProductPageCatalog | nul
   const [pricingStrategy, setPricingStrategy] = useState<string | null>(initial?.pricingStrategy ?? null);
   const [loading, setLoading] = useState(!initial?.product);
   const [error, setError] = useState<string | null>(initial?.error && !initial.product ? initial.error : null);
+  const [preview, setPreview] = useState<"admin" | "seller" | null>(null);
+  const { account, loading: authLoading } = useAuth();
+  const role = previewRole(account?.roles);
 
   useEffect(() => {
     if (initial?.product && matchesRef(initial.product, ref)) {
@@ -46,8 +59,20 @@ export function useProductDetail(ref: string, initial?: ProductPageCatalog | nul
     setLoading(true);
     (async () => {
       try {
-        const p = await api.product(ref);
+        let p: ProductDetail;
+        try {
+          p = await api.product(ref);
+          setPreview(null);
+        } catch (publicError) {
+          // Khách thấy 404; chủ sản phẩm / admin được xem bản xem trước.
+          // Phiên đăng nhập chưa tải xong thì chờ — effect chạy lại khi xong.
+          if (!role && authLoading) return;
+          if (!role) throw publicError;
+          p = await api.productPreview(ref, role).catch(() => { throw publicError; });
+          setPreview(role);
+        }
         setProduct(p);
+        setError(null);
         try {
           const opts = await api.pricingOptions(p.id);
           setPricingStrategy(opts.strategy);
@@ -71,13 +96,13 @@ export function useProductDetail(ref: string, initial?: ProductPageCatalog | nul
             }).slice(0, 3));
           } catch { /* ignore */ }
         }
+        setLoading(false);
       } catch (error) {
         setError(apiErrorMessage(error, t("notFound")));
-      } finally {
         setLoading(false);
       }
     })();
-  }, [apiErrorMessage, ref, initial, t]);
+  }, [apiErrorMessage, ref, initial, t, role, authLoading]);
 
-  return { product, related, pricingStrategy, loading, error };
+  return { product, related, pricingStrategy, loading, error, preview };
 }

@@ -100,7 +100,44 @@ class SellerProductStatusUpdate(BaseModel):
 class ProductUpdate(ProductContentUpdate):
     """Admin edit schema; admins may also change lifecycle status."""
 
-    status: str | None = None
+    status: Literal["active", "draft", "paused", "suspended"] | None = None
+
+
+class AdminProductBulkRequest(BaseModel):
+    """Một thao tác cho nhiều sản phẩm từ bảng /admin/products."""
+
+    ids: list[int] = Field(min_length=1, max_length=100)
+    action: Literal["activate", "pause", "suspend", "draft", "set_category"]
+    category_id: int | None = None
+    reason: str | None = Field(default=None, max_length=500)
+
+    @model_validator(mode="after")
+    def category_for_move(self):
+        if self.action == "set_category" and self.category_id is None:
+            raise ValueError("category_id is required for set_category")
+        return self
+
+
+class AdminProductBulkSkipped(BaseModel):
+    id: int
+    reason: Literal["not_found", "unchanged", "needs_setup"]
+
+
+class AdminProductBulkResponse(BaseModel):
+    updated: list[int]
+    skipped: list[AdminProductBulkSkipped]
+
+
+class AdminProductSuspendRequest(BaseModel):
+    reason: str | None = Field(default=None, max_length=500)
+
+
+class AdminProductActivityItem(BaseModel):
+    id: int
+    event: str | None
+    actor_email: str | None
+    created_at: datetime
+    details: dict
 
 
 class ProductTranslationUpdate(BaseModel):

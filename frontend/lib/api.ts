@@ -12,6 +12,7 @@ import type {
 import type { PaginatedDisputes, SitePageAdmin, SitePageCreate, SitePageUpdate } from "./types";
 import type { CategoryAdminListResponse, CategoryCreateInput, CategoryUpdateInput } from "./types";
 import type { AffiliateSort } from "./types";
+import type { AdminProductActivity, AdminProductBulkAction, AdminProductBulkResult } from "./types";
 import type { AuthSessionRow, MySellerProfile, ProfileUpdate } from "./types";
 import type {
   SourceArea, SourceCatalogPage, SourceCatalogQuery, SourceImportItem, SourceImportResult, SourceListing,
@@ -287,6 +288,9 @@ export const api = {
     request<PaginatedProducts>(`/products?seller=${encodeURIComponent(sellerRef)}&per_page=100`),
   /** `ref` is `{slug}-{key}`, a bare key, or a legacy numeric id. */
   product: (ref: string | number) => request<ProductDetail>(`/products/${encodeURIComponent(String(ref))}`),
+  /** Trang mua của sản phẩm đang ẩn (nháp / tạm dừng / khoá) — chỉ chủ sản phẩm hoặc admin. */
+  productPreview: (ref: string, as: "admin" | "seller") =>
+    request<ProductDetail>(`/${as}/products/${encodeURIComponent(ref)}/preview`, {}, true),
 
   wallet: () => request<Wallet>("/wallet", {}, true),
   transactions: () => request<Transaction[]>("/wallet/transactions", {}, true),
@@ -708,6 +712,11 @@ export const api = {
   adminProduct: (id: number) => request<AdminProductDetail>(`/admin/products/${id}`, {}, true),
   adminUpdateProduct: (id: number, data: Record<string, unknown>) =>
     request<Product>(`/admin/products/${id}`, { method: "PATCH", body: JSON.stringify(data) }, true),
+  adminBulkProducts: (data: { ids: number[]; action: AdminProductBulkAction; category_id?: number; reason?: string }) =>
+    request<AdminProductBulkResult>("/admin/products/bulk", { method: "POST", body: JSON.stringify(data) }, true),
+  adminSuspendProduct: (id: number, reason?: string) =>
+    request<Product>(`/admin/products/${id}/suspend`, { method: "POST", body: JSON.stringify({ reason: reason || null }) }, true),
+  adminProductActivity: (id: number) => request<AdminProductActivity[]>(`/admin/products/${id}/activity`, {}, true),
   adminUpdateProductTranslation: (id: number, locale: ProductLocale, data: ProductTranslation) =>
     request<Product>(`/admin/products/${id}/translations/${locale}`, { method: "PATCH", body: JSON.stringify(data) }, true),
   adminAccounts: (params?: { search?: string; role?: string; status?: string; sort?: string; page?: number; per_page?: number }) => {

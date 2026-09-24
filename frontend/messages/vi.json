@@ -2441,7 +2441,18 @@
     "requestPackageLegend": "Chọn gói request",
     "packageSaves": "Rẻ hơn {pct}%",
     "packageRequests": "{n} request",
-    "packagePerRequest": "≈ {price}/request"
+    "packagePerRequest": "≈ {price}/request",
+    "preview": {
+      "title": "Bản xem trước",
+      "body": "Sản phẩm đang {status} — khách không thấy trang này và chưa mua được. Khung đặt hàng chỉ để xem.",
+      "manage": "Về trang quản lý",
+      "status": {
+        "draft": "ở dạng nháp",
+        "paused": "tạm dừng bán",
+        "suspended": "bị khoá",
+        "active": "đang bán"
+      }
+    }
   },
   "chat": {
     "inbox": "Tin nhắn",

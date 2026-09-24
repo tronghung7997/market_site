@@ -426,6 +426,33 @@ async def test_category_shelves_group_best_sellers_per_top_level_branch(client):
 
 
 @pytest.mark.asyncio
+async def test_shelves_and_price_sort_survive_config_pricing_without_plan_table(client):
+    """A config-priced proxy with no `plan_prices` table falls back to the
+    formula; the empty-table default must be a JSON object, not the string
+    "{}" (jsonb_each_text used to 500 the hub and every price sort)."""
+    seller_token, _, cat_id = await setup_seller_with_category(client)
+    seller = {"Authorization": f"Bearer {seller_token}"}
+
+    async def make(title, params):
+        pid = (await client.post("/seller/products", json={"category_id": cat_id, "title": title, "status": "active"}, headers=seller)).json()["id"]
+        resp = await client.put(f"/seller/products/{pid}/pricing", json={"pricing_strategy": "config", "pricing_params": params}, headers=seller)
+        assert resp.status_code == 200
+        return pid
+
+    await make("Formula proxy", {"base_price": 60000, "type_mult": {"datacenter": 1.0}, "network_mult": {"viettel": 1.0}})
+    await make("Plan proxy", {"base_price": 90000, "plan_prices": {"a": 45000, "b": 70000}})
+
+    shelves = await client.get("/products/shelves", params={"per_shelf": 4})
+    assert shelves.status_code == 200
+    shelf = next(s for s in shelves.json()["shelves"] if s["category_id"] == cat_id)
+    assert shelf["total"] == 2 and shelf["price_from"] == 45000
+
+    listed = await client.get("/products", params={"sort": "price_asc", "category_id": cat_id})
+    assert listed.status_code == 200
+    assert [item["title"] for item in listed.json()["items"]] == ["Plan proxy", "Formula proxy"]
+
+
+@pytest.mark.asyncio
 async def test_list_products_pagination(client):
     seller_token, _, cat_id = await setup_seller_with_category(client)
     for i in range(3):

@@ -729,8 +729,10 @@ def _browse_price_columns():
         1.0,
     )
     # Bảng gói `plan_prices` (proxy) thắng công thức: giá "từ" = gói rẻ nhất.
+    # Rỗng phải là object SQL thật: `cast("{}", JSONB)` bind qua JSON serializer
+    # thành chuỗi `"{}"` và jsonb_each_text nổ với mọi sản phẩm không có bảng gói.
     plan_entries = func.jsonb_each_text(
-        case((func.jsonb_typeof(params["plan_prices"]) == "object", params["plan_prices"]), else_=cast("{}", JSONB)),
+        case((func.jsonb_typeof(params["plan_prices"]) == "object", params["plan_prices"]), else_=func.jsonb_build_object()),
     ).table_valued("key", "value").render_derived()
     plan_min = (
         select(func.min(cast(plan_entries.c.value, Float)))

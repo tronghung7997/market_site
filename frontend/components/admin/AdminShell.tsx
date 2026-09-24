@@ -26,7 +26,12 @@ type NavHub = {
 // sidebar trỏ tới tab đầu, các trang cùng hub hiện thành thanh tab ở đầu
 // trang. URL từng trang giữ nguyên — link cũ, bookmark, thông báo vẫn đúng.
 const HUBS: NavHub[] = [
-  { key: "overview", label: "Tổng quan", icon: BarChart, tabs: [{ href: "/admin", label: "Tổng quan" }] },
+  {
+    key: "overview", label: "Tổng quan", icon: BarChart, tabs: [
+      { href: "/admin", label: "Tổng quan" },
+      { href: "/admin/analytics", label: "Phân tích kinh doanh" },
+    ],
+  },
   {
     key: "orders", label: "Đơn hàng", icon: Inbox, tabs: [
       { href: "/admin/orders", label: "Đơn hàng & giao dịch" },

@@ -21,6 +21,7 @@
     "@uiw/react-md-editor": "^4.1.1",
     "class-variance-authority": "^0.7.1",
     "clsx": "^2.1.1",
+    "echarts": "^6.1.0",
     "lucide-react": "^1.21.0",
     "markdown-to-jsx": "^9.9.0",
     "motion": "^12.41.0",

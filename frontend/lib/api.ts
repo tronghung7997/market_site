@@ -13,6 +13,7 @@ import type { PaginatedDisputes, SitePageAdmin, SitePageCreate, SitePageUpdate }
 import type { CategoryAdminListResponse, CategoryCreateInput, CategoryUpdateInput } from "./types";
 import type { AffiliateSort } from "./types";
 import type { AdminProductActivity, AdminProductBulkAction, AdminProductBulkResult } from "./types";
+import type { BusinessAnalytics, BusinessAnalyticsQuery, BusinessFilterOptions } from "./types";
 import type { AuthSessionRow, MySellerProfile, ProfileUpdate } from "./types";
 import type {
   SourceArea, SourceCatalogPage, SourceCatalogQuery, SourceImportItem, SourceImportResult, SourceListing,
@@ -681,6 +682,15 @@ export const api = {
   quoteProductProxyPlans: (id: number, plans: { type: string; network: string; days: number; price?: number | null }[]) =>
     request<ProxyPlanRow[]>(`/products/${id}/proxy-plans/quote`, { method: "POST", body: JSON.stringify({ plans }) }, true),
 
+  adminBusinessAnalytics: (params: BusinessAnalyticsQuery, init: RequestInit = {}) => {
+    const q = new URLSearchParams();
+    for (const [key, value] of Object.entries(params)) {
+      if (value === undefined || value === null || value === "") continue;
+      q.set(key, String(value));
+    }
+    return request<BusinessAnalytics>(`/admin/analytics/business?${q}`, init, true);
+  },
+  adminBusinessFilterOptions: () => request<BusinessFilterOptions>("/admin/analytics/business/filters", {}, true),
   adminProducts: (params: {
     search?: string;
     status?: string;

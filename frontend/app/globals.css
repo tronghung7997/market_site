@@ -45,6 +45,31 @@
   --color-warn: #b07814;
   --color-warn-soft: #faf0db;
 
+  /* Chart series (DESIGN.md §4 exception: centralized chart values).
+     Categorical order validated with the dataviz CVD checker against the
+     white surface — assign in this order, never cycled. Slots 3–5 sit below
+     3:1 contrast, so charts using them also ship labels or a table view. */
+  --color-chart-1: #4f46e5;
+  --color-chart-2: #eb6834;
+  --color-chart-3: #1baf7a;
+  --color-chart-4: #eda100;
+  --color-chart-5: #e87ba4;
+  --color-chart-6: #008300;
+  --color-chart-7: #2a78d6;
+  --color-chart-8: #e34948;
+  /* Comparison period: neutral ink so it never reads as another series. */
+  --color-chart-compare: #9aa0ad;
+  /* Sequential (magnitude) — one hue, light → dark. */
+  --color-chart-seq-1: #eef0fe;
+  --color-chart-seq-2: #c9ccfa;
+  --color-chart-seq-3: #9d9cf2;
+  --color-chart-seq-4: #6f66e8;
+  --color-chart-seq-5: #3f35c4;
+  /* Diverging (growth): decline ↔ neutral ↔ growth. */
+  --color-chart-neg: #d24a4a;
+  --color-chart-mid: #e4e5ea;
+  --color-chart-pos: #2a78d6;
+
   /* Soft premium elevation */
   --shadow-card: 0 1px 2px rgba(16, 18, 28, 0.04), 0 6px 20px -8px rgba(16, 18, 28, 0.10);
   --shadow-card-lg: 0 2px 4px rgba(16, 18, 28, 0.05), 0 20px 44px -14px rgba(16, 18, 28, 0.18);
@@ -190,6 +215,9 @@
     50% { opacity: 0.45; transform: scale(0.82); }
   }
   .admin-live-dot { animation: admin-pulse 1.8s ease-in-out infinite; }
+  /* analytics sparklines draw in once, left to right */
+  @keyframes spark-reveal { from { transform: scaleX(0); } to { transform: scaleX(1); } }
+  .spark-reveal { transform-box: fill-box; transform-origin: left center; animation: spark-reveal 0.8s cubic-bezier(0.22, 0.61, 0.36, 1) 0.1s both; }
 }
 
 @media (prefers-reduced-motion: reduce) {

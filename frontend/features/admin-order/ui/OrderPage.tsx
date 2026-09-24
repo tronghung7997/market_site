@@ -400,7 +400,7 @@ export function OrderPage({ id }: { id: number }) {
                         <td className="py-1.5 pr-2 font-mono text-[11.5px] text-faint">{shortDate(r.created_at)}</td>
                         <td className="py-1.5 pr-2 text-fg">{r.label}</td>
                         <td className="py-1.5 pr-2 text-muted">
-                          {r.account_id === 1 ? "Ví sàn" : <Link href={`/admin/accounts?account=${r.account_id}`} className="hover:text-iris-hi hover:underline">{r.account_label}</Link>}
+                          {r.type === "platform_fee" ? "Ví sàn" : <Link href={`/admin/accounts?account=${r.account_id}`} className="hover:text-iris-hi hover:underline">{r.account_label}</Link>}
                           <span className="text-faint"> · {r.role}</span>
                         </td>
                         <td className={cn("py-1.5 text-right font-mono tabular-nums", dir === "in" ? "text-good" : dir === "out" ? "text-fg" : "text-muted")}>

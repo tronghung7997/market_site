@@ -8,6 +8,8 @@ import pytest
 from sqlalchemy import update
 
 from src.database import SessionLocal
+from src.ledger.service import reconcile_ledger
+from src.models.order import Order
 from src.models.product import Product
 from src.models.provider import Provider
 
@@ -171,8 +173,18 @@ async def test_partial_failure_refunds_proportionally(client):
                                   headers={"Authorization": f"Bearer {buyer_token}"})
     data = order_resp.json()
     assert data["status"] == "delivered"
-    # total_amount giảm phần refund để escrow release sau này trả seller đúng phần còn lại
-    assert data["total_amount"] == 300000
+    # total_amount giữ nguyên số tiền đã giữ; phần hoàn nằm ở refunded_amount,
+    # nên release chỉ trả seller 300000 (trước đây trừ hai lần → seller mất thêm 100000).
+    assert data["total_amount"] == 400000
+    async with SessionLocal() as db:
+        assert (await db.get(Order, order["id"])).refunded_amount == 100000
+        assert (await reconcile_ledger(db)).ok
+
+    confirmed = await client.post(f"/orders/{order['id']}/confirm", headers={"Authorization": f"Bearer {buyer_token}"})
+    assert confirmed.status_code == 200, confirmed.text
+    async with SessionLocal() as db:
+        report = await reconcile_ledger(db)
+    assert report.ok, report.findings
 
 
 @pytest.mark.asyncio
@@ -187,9 +199,15 @@ async def test_all_tasks_failed_cancels_and_refunds_fully(client):
                      headers={"Authorization": f"Bearer {admin_token}"})
     resp = await client.put(f"/admin/tasks/{tasks[1]['id']}", json={"status": "failed"},
                             headers={"Authorization": f"Bearer {admin_token}"})
+    assert resp.status_code == 200, resp.text
     assert resp.json()["order_status"] == "cancelled"
 
     assert await get_wallet_balance(client, buyer_token) == balance_before
+    async with SessionLocal() as db:
+        saved = await db.get(Order, order["id"])
+        assert saved.refunded_amount == saved.total_amount == 200000
+        report = await reconcile_ledger(db)
+    assert report.ok, report.findings
 
 
 @pytest.mark.asyncio

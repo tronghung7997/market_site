@@ -116,8 +116,10 @@ async def _sync_order_status(task: ServiceTask, db: AsyncSession) -> str | None:
     Khi MỌI task của order về trạng thái kết thúc (completed/failed):
     - tất cả completed  -> delivered + bắt đầu escrow
     - fail một phần     -> refund tỉ lệ URL fail, phần còn lại delivered;
-                           total_amount giảm đi phần refund để escrow release
-                           sau này chỉ trả seller phần thực làm
+                           refund_escrow cộng vào refunded_amount nên escrow
+                           release sau này chỉ trả seller phần thực làm.
+                           total_amount giữ nguyên = số tiền đã giữ (đối soát
+                           so với purchase_hold); trừ thêm ở đây là trừ hai lần.
     - fail toàn bộ      -> cancelled + refund đủ
 
     `with_for_update=True` trên order: trước đây chỉ 1 admin bấm nút cập
@@ -149,15 +151,13 @@ async def _sync_order_status(task: ServiceTask, db: AsyncSession) -> str | None:
 
     failed = [t for t in tasks if t.status == ServiceTaskStatus.failed]
     if len(failed) == len(tasks):
-        await refund_escrow(order.id, order.buyer_id, order.total_amount, db)
-        order.total_amount = 0
+        await refund_escrow(order.id, order.buyer_id, order.total_amount - order.refunded_amount, db)
         order.status = OrderStatus.cancelled
     else:
         if failed:
             refund = round(order.total_amount * len(failed) / len(tasks))
             if refund:
                 await refund_escrow(order.id, order.buyer_id, refund, db)
-                order.total_amount -= refund
         order.status = OrderStatus.delivered
         product = await db.get(Product, order.product_id) if order.product_id else None
         seller = await db.get(Account, order.seller_id)

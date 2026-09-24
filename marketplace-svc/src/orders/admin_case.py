@@ -117,7 +117,10 @@ async def _ledger(order: Order, db: AsyncSession) -> list[dict]:
     out = []
     for tx, account_id in rows:
         owner = owners.get(account_id)
-        role = ("sàn" if account_id == 1 else "người mua" if account_id == order.buyer_id
+        # The fee lands on account #1 (release_escrow), but that account can
+        # also be the buyer or seller of an order — label by transaction type.
+        role = ("sàn" if tx.type == TransactionType.platform_fee
+                else "người mua" if account_id == order.buyer_id
                 else "người bán" if account_id == order.seller_id else "affiliate")
         out.append({
             "id": tx.id,

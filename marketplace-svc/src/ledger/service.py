@@ -132,18 +132,22 @@ async def _check_orders(db: AsyncSession, report: LedgerReport) -> None:
     )).all()
     report.orders_checked = len(rows)
     open_statuses = set(ESCROW_OPEN_STATUSES)
+    # Same orientation as the wallet checks: expected = what the transaction
+    # log says ("theo sổ"), actual = what the order row stores ("đang lưu").
     for order_id, status, total, refunded, hold, refund, settled in rows:
         hold, refund, settled = int(hold), int(refund), int(settled)
         if total > 0 and hold != total:
-            report.findings.append(Finding("order_hold", "order", order_id, total, hold, f"status {status.value}"))
+            report.findings.append(Finding("order_hold", "order", order_id, hold, total, f"status {status.value}"))
         if refund != refunded:
-            report.findings.append(Finding("order_refund", "order", order_id, refunded, refund, f"status {status.value}"))
+            report.findings.append(Finding("order_refund", "order", order_id, refund, refunded, f"status {status.value}"))
         if status == OrderStatus.completed and settled != total - refunded:
-            report.findings.append(Finding("order_settlement", "order", order_id, total - refunded, settled, "completed"))
+            report.findings.append(Finding("order_settlement", "order", order_id, settled, total - refunded, "completed"))
         elif status in open_statuses and settled != 0:
-            report.findings.append(Finding("order_release_early", "order", order_id, 0, settled, f"status {status.value}"))
-        elif status == OrderStatus.refunded and refunded != total:
-            report.findings.append(Finding("order_refund", "order", order_id, total, refunded, "refunded but not in full"))
+            report.findings.append(Finding("order_release_early", "order", order_id, settled, 0, f"status {status.value}"))
+        elif status == OrderStatus.refunded and refund == refunded and refunded != total:
+            # Only when the row agrees with the log — otherwise the finding
+            # above already covers this order.
+            report.findings.append(Finding("order_refund", "order", order_id, refund, total, "refunded but not in full"))
 
 
 async def _check_platform(db: AsyncSession, report: LedgerReport) -> None:
@@ -184,7 +188,7 @@ def _describe(f: Finding) -> str:
         "order_release_early": "đã giải ngân dù ký quỹ còn mở", "platform": "tổng tiền toàn sàn",
     }[f.kind]
     target = {"wallet": f"Ví #{f.target_id}", "order": f"Đơn #{f.target_id}", "platform": "Toàn sàn"}[f.target_type]
-    return f"{target}: {what} lệch {f.delta:+,} ₫ (sổ {f.expected:,} ₫, thực {f.actual:,} ₫). {f.detail}".strip()
+    return f"{target}: {what} lệch {f.delta:+,} ₫ (theo sổ {f.expected:,} ₫, đang lưu {f.actual:,} ₫). {f.detail}".strip()
 
 
 async def run_and_record(db: AsyncSession, *, trigger: str = "schedule") -> LedgerReconcileRun:

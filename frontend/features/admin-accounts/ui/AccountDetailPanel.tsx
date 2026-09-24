@@ -1,6 +1,7 @@
 "use client";
 
 import * as React from "react";
+import { Link } from "@/i18n/navigation";
 import { useMutation, useQuery } from "@tanstack/react-query";
 import { api, vnd } from "@/lib/api";
 import { cn } from "@/lib/cn";
@@ -72,6 +73,8 @@ export function AccountDetailPanel({ row, isSelf, onClose, onUpdated }: {
               </div>
               <p className="mt-1.5 text-[12px] text-muted">
                 <span className="font-mono">#{row.id}</span> · Tạo {formatDateTime(row.created_at, "vi")} · Đăng nhập gần nhất: {relativeTime(row.last_login_at)}
+                {" · "}
+                <Link href={`/admin/logs?account=${row.id}`} className="font-medium text-iris-hi hover:underline">Nhật ký hoạt động</Link>
               </p>
             </div>
           </div>

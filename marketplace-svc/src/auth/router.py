@@ -448,6 +448,15 @@ async def admin_list_accounts(
     return await service.list_accounts(db, search=search, page=page, per_page=per_page, role=role, status=status, sort=sort)
 
 
+@router.get("/admin/accounts/{account_id}", response_model=schemas.AccountAdminRow)
+async def admin_get_account(
+    account_id: int,
+    _: Account = Depends(require_role("admin")),
+    db: AsyncSession = Depends(get_session),
+):
+    return await service.get_account_row(db, account_id)
+
+
 @router.patch("/admin/accounts/{account_id}/roles", response_model=schemas.AccountAdminRow)
 async def admin_update_roles(
     account_id: int,

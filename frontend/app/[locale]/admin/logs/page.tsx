@@ -3,270 +3,18 @@
 
 import * as React from "react";
 import { Link } from "@/i18n/navigation";
+import { useSearchParams } from "next/navigation";
 import { useQuery } from "@tanstack/react-query";
 import { ChevronDown, RotateCw, Search, X } from "lucide-react";
 import { api, vnd } from "@/lib/api";
 import { useDebounce } from "@/lib/hooks/useDebounce";
 import { Banner, Card } from "@/components/ui";
-import type { LogEntry } from "@/lib/types";
+import type { AdminLogEntry as LogEntry } from "@/lib/types";
+import { EVENT_META, LogEntryDetail, RefChip, actorText, num, refSearchText, type Cat } from "@/features/admin-logs";
 
 const LIMIT = 200;
 
 type Md = Record<string, unknown>;
-type Cat = "order" | "dispute" | "money" | "system" | "security";
-
-// ============================================================
-// Danh mục sự kiện — dịch mọi event backend ghi ra câu tiếng Việt
-// đọc được, kèm nhóm nghiệp vụ để admin lọc theo cách họ tư duy
-// (đơn hàng / khiếu nại / dòng tiền) thay vì theo mã kỹ thuật.
-// ============================================================
-
-const num = (m: Md, k: string): number | undefined =>
-  typeof m[k] === "number" ? (m[k] as number) : undefined;
-const arrLen = (m: Md, k: string): number | undefined =>
-  Array.isArray(m[k]) ? (m[k] as unknown[]).length : undefined;
-
-const money = (m: Md, k = "amount") => {
-  const v = num(m, k);
-  return v != null ? vnd(v) : null;
-};
-
-interface EventMeta {
-  cat: Cat;
-  describe: (m: Md) => string;
-}
-
-const EVENT_META: Record<string, EventMeta> = {
-  // ---- Đơn hàng ----
-  order_placed: {
-    cat: "order",
-    describe: (m) => `Đơn #${num(m, "order_id")} được đặt${money(m) ? ` — ${money(m)}` : ""}`,
-  },
-  resources_assigned: {
-    cat: "order",
-    describe: (m) => `Cấp ${arrLen(m, "resource_ids") ?? ""} tài nguyên cho đơn #${num(m, "order_id")}`,
-  },
-  order_processing: {
-    cat: "order",
-    describe: (m) => `Đơn #${num(m, "order_id")} chờ người bán giao thủ công`,
-  },
-  order_provisioned: {
-    cat: "order",
-    describe: (m) => `Đơn #${num(m, "order_id")} — nguồn hàng cấp thành công`,
-  },
-  order_provision_failed: {
-    cat: "order",
-    describe: (m) => `Đơn #${num(m, "order_id")} — nguồn hàng cấp THẤT BẠI`,
-  },
-  order_adapter_error: {
-    cat: "order",
-    describe: (m) => `Đơn #${num(m, "order_id")} — lỗi kết nối nguồn hàng`,
-  },
-  order_provider_strategy_mismatch: {
-    cat: "order",
-    describe: (m) => `Đơn #${num(m, "order_id")} — cấu hình nguồn hàng không khớp chiến lược giá`,
-  },
-  order_provision_error: {
-    cat: "order",
-    describe: (m) => `Đơn #${num(m, "order_id")} — lỗi provision chạy nền`,
-  },
-  order_confirmed: {
-    cat: "order",
-    describe: (m) => `Người mua xác nhận đơn #${num(m, "order_id")}${money(m) ? ` — ${money(m)}` : ""}`,
-  },
-  order_delivered_manual: {
-    cat: "order",
-    describe: (m) => `Đơn #${num(m, "order_id")} được giao thủ công`,
-  },
-  escrow_released: {
-    cat: "order",
-    describe: (m) => `Giải ngân ký quỹ đơn #${num(m, "order_id")}${money(m) ? ` — ${money(m)}` : ""} cho người bán`,
-  },
-  escrow_release_failed: {
-    cat: "order",
-    describe: (m) => `Giải ngân ký quỹ đơn #${num(m, "order_id")} THẤT BẠI — cần admin kiểm tra`,
-  },
-  sla_refund: {
-    cat: "order",
-    describe: (m) => `Đơn #${num(m, "order_id")} tự hoàn tiền — người bán trễ hạn giao (SLA)`,
-  },
-  sla_refund_failed: {
-    cat: "order",
-    describe: (m) => `Đơn #${num(m, "order_id")} quá hạn SLA nhưng không tự hoàn tiền được`,
-  },
-  provision_deadline_refund: {
-    cat: "order",
-    describe: (m) => `Đơn #${num(m, "order_id")} tự hoàn tiền — nguồn hàng không cấp được trong 15 phút`,
-  },
-  provision_deadline_refund_failed: {
-    cat: "order",
-    describe: (m) => `Đơn #${num(m, "order_id")} quá hạn provision nhưng không tự hoàn tiền được`,
-  },
-  resource_expired: {
-    cat: "order",
-    describe: (m) =>
-      `Tài nguyên #${num(m, "resource_id")} hết hạn${num(m, "order_id") != null ? ` (đơn #${num(m, "order_id")})` : ""}`,
-  },
-  task_webhook_sla_timeout: {
-    cat: "order",
-    describe: (m) => `Đơn #${num(m, "order_id")} — ${num(m, "task_count")} tác vụ quá hạn chờ người bán phản hồi`,
-  },
-
-  // ---- Khiếu nại ----
-  dispute_opened: {
-    cat: "dispute",
-    describe: (m) => `Đơn #${num(m, "order_id")} bị khiếu nại`,
-  },
-  dispute_seller_responded: {
-    cat: "dispute",
-    describe: (m) => `Người bán phản hồi khiếu nại (đơn #${num(m, "order_id")})`,
-  },
-  dispute_refunded: {
-    cat: "dispute",
-    describe: (m) => `Khiếu nại đơn #${num(m, "order_id")} — hoàn toàn bộ${money(m) ? ` ${money(m)}` : " tiền"} cho người mua`,
-  },
-  dispute_partial_refunded: {
-    cat: "dispute",
-    describe: (m) =>
-      `Khiếu nại đơn #${num(m, "order_id")} — hoàn một phần${money(m, "refund_amount") ? ` ${money(m, "refund_amount")}` : ""}`,
-  },
-  dispute_rejected: {
-    cat: "dispute",
-    describe: (m) => `Khiếu nại đơn #${num(m, "order_id")} — từ chối, tiền về người bán`,
-  },
-  dispute_replaced: {
-    cat: "dispute",
-    describe: (m) => `Khiếu nại đơn #${num(m, "order_id")} — xử lý bằng đổi sản phẩm mới`,
-  },
-  dispute_warranty_extended: {
-    cat: "dispute",
-    describe: (m) => `Khiếu nại đơn #${num(m, "order_id")} — gia hạn bảo hành ${num(m, "extra_days")} ngày`,
-  },
-
-  // ---- Dòng tiền ----
-  deposit_created: {
-    cat: "money",
-    describe: (m) => `Lệnh nạp #${num(m, "intent_id")} được tạo — ${money(m)} (tài khoản #${num(m, "account_id")})`,
-  },
-  deposit_paid: {
-    cat: "money",
-    describe: (m) =>
-      `Lệnh nạp #${num(m, "intent_id")} ĐÃ NHẬN ${money(m, "amount") ?? "tiền"}${typeof m.source === "string" ? ` qua ${m.source}` : ""}`,
-  },
-  deposit_cancelled: {
-    cat: "money",
-    describe: (m) => `Lệnh nạp #${num(m, "intent_id")} bị người dùng huỷ`,
-  },
-  deposit_webhook_unknown: {
-    cat: "money",
-    describe: (m) => `Webhook PayOS không khớp lệnh nạp nào (orderCode ${num(m, "order_code")})`,
-  },
-  deposit_expired_sweep: {
-    cat: "money",
-    describe: (m) => `${arrLen(m, "intent_ids") ?? ""} lệnh nạp quá hạn đã chốt hết hạn`,
-  },
-  manual_topup: {
-    cat: "money",
-    describe: (m) =>
-      `Admin nạp tay ${money(m)} vào tài khoản #${num(m, "subject_id") ?? num(m, "account_id")}${num(m, "actor_id") != null ? ` (bởi admin #${num(m, "actor_id")})` : ""}`,
-  },
-  demo_topup: {
-    cat: "money",
-    describe: (m) => `Demo nạp ${money(m)} vào tài khoản #${num(m, "subject_id") ?? num(m, "account_id")}`,
-  },
-  wallet_backfill: {
-    cat: "money",
-    describe: (m) => `Backfill ví / điều chỉnh sổ — tài khoản #${num(m, "account_id") ?? num(m, "subject_id")}`,
-  },
-  withdraw_requested: {
-    cat: "money",
-    describe: (m) => `Yêu cầu rút #${num(m, "withdraw_id")} — ${money(m)} (đã khoá tiền, chờ duyệt)`,
-  },
-  withdraw_approved: {
-    cat: "money",
-    describe: (m) => `Lệnh rút #${num(m, "withdraw_id")} được duyệt — chờ chi ${money(m)}`,
-  },
-  withdraw_rejected: {
-    cat: "money",
-    describe: (m) => `Lệnh rút #${num(m, "withdraw_id")} bị từ chối — hoàn ${money(m)} về ví`,
-  },
-  withdraw_paid: {
-    cat: "money",
-    describe: (m) => `Lệnh rút #${num(m, "withdraw_id")} đã chi ${money(m)}`,
-  },
-
-  // ---- Hệ thống ----
-  provider_down: {
-    cat: "system",
-    describe: (m) => `Nguồn hàng #${num(m, "provider_id")} bị TẮT — lỗi 3 lần kiểm tra liên tiếp`,
-  },
-  internal_resources_acquired: {
-    cat: "system",
-    describe: (m) =>
-      `Dịch vụ nội bộ lấy ${num(m, "quantity") ?? arrLen(m, "resource_ids") ?? ""} tài nguyên (gói #${num(m, "variant_id")})`,
-  },
-  internal_resources_released: {
-    cat: "system",
-    describe: (m) => `Dịch vụ nội bộ trả ${arrLen(m, "resource_ids") ?? ""} tài nguyên`,
-  },
-  task_updated: {
-    cat: "system",
-    describe: (m) =>
-      `Tác vụ #${num(m, "task_id")} đổi trạng thái${typeof m.old_status === "string" ? ` ${m.old_status}` : ""}${typeof m.new_status === "string" ? ` → ${m.new_status}` : ""}`,
-  },
-  affiliate_fund_topup: {
-    cat: "money",
-    describe: (m) => `Admin nạp quỹ affiliate ${money(m)}`,
-  },
-
-  // ---- Bảo mật / đặc quyền ----
-  auth_register: {
-    cat: "security",
-    describe: (m) => `Tài khoản #${num(m, "subject_id") ?? num(m, "actor_id")} đăng ký`,
-  },
-  auth_role_changed: {
-    cat: "security",
-    describe: (m) =>
-      `Admin #${num(m, "actor_id")} đổi vai trò tài khoản #${num(m, "subject_id")}`,
-  },
-  auth_tier_changed: {
-    cat: "security",
-    describe: (m) =>
-      `Admin #${num(m, "actor_id")} đổi cấp seller tài khoản #${num(m, "subject_id")}${typeof m.old_tier === "string" ? ` (${m.old_tier}` : ""}${typeof m.new_tier === "string" ? ` → ${m.new_tier})` : ""}`,
-  },
-  gateway_key_rotated: {
-    cat: "security",
-    describe: (m) => `Buyer xoay gateway key đơn #${num(m, "order_id") ?? num(m, "subject_id")}`,
-  },
-  gateway_key_revoked: {
-    cat: "security",
-    describe: (m) => `Admin thu hồi gateway key đơn #${num(m, "order_id") ?? num(m, "subject_id")}`,
-  },
-  seller_application_submitted: {
-    cat: "security",
-    describe: (m) => `Tài khoản #${num(m, "actor_id")} nộp đơn đăng ký seller #${num(m, "application_id")}`,
-  },
-  seller_application_approved: {
-    cat: "security",
-    describe: (m) => `Admin #${num(m, "actor_id")} duyệt đơn seller #${num(m, "application_id")}`,
-  },
-  seller_application_rejected: {
-    cat: "security",
-    describe: (m) => `Admin #${num(m, "actor_id")} từ chối đơn seller #${num(m, "application_id")}`,
-  },
-  provider_created: {
-    cat: "system",
-    describe: (m) => `Tạo nguồn hàng #${num(m, "provider_id") ?? num(m, "subject_id")}`,
-  },
-  provider_updated: {
-    cat: "system",
-    describe: (m) => `Cập nhật nguồn hàng #${num(m, "provider_id") ?? num(m, "subject_id")}`,
-  },
-  provider_reviewed: {
-    cat: "system",
-    describe: (m) => `Duyệt nguồn hàng #${num(m, "provider_id") ?? num(m, "subject_id")}`,
-  },
-};
 
 const CAT_TABS: { key: string; label: string }[] = [
   { key: "all", label: "Tất cả" },
@@ -319,6 +67,8 @@ const META_KEY_LABELS: Record<string, string> = {
 };
 const MONEY_KEYS = new Set(["amount", "refund_amount"]);
 
+type Trace = { request_id?: string; job_id?: string; account_id?: number; dispute_id?: number };
+
 interface LogRow {
   log: LogEntry;
   event: string;
@@ -362,7 +112,14 @@ export default function AdminLogsPage() {
   const [search, setSearch] = React.useState("");
   // Truy vết chuỗi: lọc phía server theo request (thao tác người dùng)
   // hoặc job (tác vụ nền) — bấm nhãn nguồn trên một dòng để kích hoạt.
-  const [trace, setTrace] = React.useState<{ request_id?: string; job_id?: string } | null>(null);
+  // ?account=<id> / ?dispute=<id> (deep links from account and dispute pages)
+  // open the log scoped to that record.
+  const searchParams = useSearchParams();
+  const [trace, setTrace] = React.useState<Trace | null>(() => {
+    const account = Number(searchParams.get("account")) || undefined;
+    const dispute = Number(searchParams.get("dispute")) || undefined;
+    return account || dispute ? { account_id: account, dispute_id: dispute } : null;
+  });
   const [expandedId, setExpandedId] = React.useState<number | null>(null);
 
   const debouncedSearch = useDebounce(search, 300);
@@ -381,6 +138,8 @@ export default function AdminLogsPage() {
       order_id: trace ? undefined : orderIdSearch,
       request_id: trace?.request_id,
       job_id: trace?.job_id,
+      account_id: trace?.account_id,
+      dispute_id: trace?.dispute_id,
       limit: LIMIT,
     }),
     [trace, orderIdSearch]
@@ -428,6 +187,7 @@ export default function AdminLogsPage() {
       (r) =>
         r.title.toLowerCase().includes(q) ||
         r.log.message.toLowerCase().includes(q) ||
+        refSearchText(r.log).includes(q) ||
         (r.error?.toLowerCase().includes(q) ?? false)
     );
   }, [allRows, debouncedSearch, orderIdSearch]);
@@ -483,7 +243,17 @@ export default function AdminLogsPage() {
     setExpandedId(null);
   };
 
-  const startTrace = (t: { request_id?: string; job_id?: string }) => {
+  /** Name of the scoped record, read from any loaded row that references it. */
+  const traceLabel = (kind: string, id: number): string | null => {
+    for (const r of allRows) {
+      if (kind === "account" && r.log.actor?.id === id) return r.log.actor.label;
+      const hit = r.log.refs.find((ref) => ref.kind === kind && ref.id === id);
+      if (hit) return hit.label;
+    }
+    return null;
+  };
+
+  const startTrace = (t: Trace) => {
     setTrace(t);
     setSearch("");
     setCat("all");
@@ -623,6 +393,16 @@ export default function AdminLogsPage() {
                 </code>
               </>
             )}
+            {trace?.account_id && (
+              <>Đang xem nhật ký của tài khoản{" "}
+                <span className="font-semibold">{traceLabel("account", trace.account_id) ?? `#${trace.account_id}`}</span>
+              </>
+            )}
+            {trace?.dispute_id && (
+              <>Đang xem nhật ký của khiếu nại{" "}
+                <span className="font-semibold">{traceLabel("dispute", trace.dispute_id) ?? `#${trace.dispute_id}`}</span>
+              </>
+            )}
             {trace === null && orderIdSearch !== undefined && (
               <>Đang truy vết đơn <span className="font-mono font-semibold">#{orderIdSearch}</span></>
             )}
@@ -748,6 +528,11 @@ export default function AdminLogsPage() {
                                 {r.error}
                               </span>
                             )}
+                            <span className="mt-1 flex flex-wrap items-center gap-1.5 text-[11.5px] text-faint">
+                              {(r.log.actor || r.log.job_id) && <span>bởi <span className="text-muted">{actorText(r.log)}</span></span>}
+                              {r.log.refs.slice(0, 3).map((ref) => <RefChip key={`${ref.kind}-${ref.id}`} r={ref} compact />)}
+                              {r.log.refs.length > 3 && <span>+{r.log.refs.length - 3}</span>}
+                            </span>
                           </span>
                           <span className="mt-0.5 hidden shrink-0 items-center gap-2 sm:flex">
                             <span className="text-[11px] text-slate-400">
@@ -761,61 +546,7 @@ export default function AdminLogsPage() {
                         </button>
 
                         {expanded && (
-                          <div className="border-t border-slate-100 bg-slate-50/50 px-4 py-3 pl-[76px]">
-                            <p className="mb-2 font-mono text-[11.5px] text-slate-500">{r.log.message}</p>
-                            <dl className="grid grid-cols-1 gap-x-8 gap-y-1 text-[12px] sm:grid-cols-2">
-                              {Object.entries(md)
-                                .filter(([k]) => k !== "event")
-                                .map(([k, v]) => (
-                                  <div key={k} className="flex items-baseline gap-2">
-                                    <dt className="shrink-0 text-slate-400">{META_KEY_LABELS[k] ?? k}</dt>
-                                    <dd className="min-w-0 truncate font-medium text-slate-700">
-                                      {MONEY_KEYS.has(k) && typeof v === "number"
-                                        ? vnd(v)
-                                        : Array.isArray(v)
-                                          ? v.join(", ")
-                                          : String(v)}
-                                    </dd>
-                                  </div>
-                                ))}
-                              {(r.log.request_id ?? r.log.job_id) && (
-                                <div className="flex items-baseline gap-2">
-                                  <dt className="shrink-0 text-slate-400">
-                                    {r.log.request_id ? "Request" : "Job"}
-                                  </dt>
-                                  <dd className="min-w-0 truncate font-mono text-[11px] text-slate-500">
-                                    {r.log.request_id ?? r.log.job_id}
-                                  </dd>
-                                </div>
-                              )}
-                            </dl>
-                            <div className="mt-2.5 flex flex-wrap items-center gap-2">
-                              {r.orderId != null && (
-                                <Link
-                                  href={`/admin/orders?highlight=${r.orderId}`}
-                                  className="inline-flex items-center rounded-lg border border-slate-200 bg-white px-2.5 py-1 text-[12px] font-medium text-indigo-600 transition-colors hover:border-indigo-300"
-                                >
-                                  Xem đơn #{r.orderId}
-                                </Link>
-                              )}
-                              {r.log.request_id && (
-                                <button
-                                  onClick={() => startTrace({ request_id: r.log.request_id! })}
-                                  className="inline-flex items-center rounded-lg border border-slate-200 bg-white px-2.5 py-1 text-[12px] font-medium text-slate-600 transition-colors hover:border-slate-300 hover:text-slate-900"
-                                >
-                                  Truy vết thao tác này
-                                </button>
-                              )}
-                              {r.log.job_id && (
-                                <button
-                                  onClick={() => startTrace({ job_id: r.log.job_id! })}
-                                  className="inline-flex items-center rounded-lg border border-slate-200 bg-white px-2.5 py-1 text-[12px] font-medium text-slate-600 transition-colors hover:border-slate-300 hover:text-slate-900"
-                                >
-                                  Truy vết job này
-                                </button>
-                              )}
-                            </div>
-                          </div>
+                          <LogEntryDetail log={r.log} describe={(l) => toRow(l).title} onTrace={startTrace} />
                         )}
                       </div>
                     );

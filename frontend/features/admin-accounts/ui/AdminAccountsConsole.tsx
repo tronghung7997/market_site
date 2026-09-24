@@ -2,6 +2,7 @@
 
 import * as React from "react";
 import { useQuery, useQueryClient } from "@tanstack/react-query";
+import { usePathname, useSearchParams } from "next/navigation";
 import { api } from "@/lib/api";
 import { useAuth } from "@/lib/auth";
 import { cn } from "@/lib/cn";
@@ -70,13 +71,34 @@ export function AdminAccountsConsole() {
   const [status, setStatus] = React.useState("");
   const [sort, setSort] = React.useState("newest");
   const [page, setPage] = React.useState(1);
-  const [openId, setOpenId] = React.useState<number | null>(null);
+  // ?account=<id> opens that account's panel — deep links from alerts, logs
+  // and disputes land on the person, not on page 1 of the directory.
+  const searchParams = useSearchParams();
+  const pathname = usePathname();
+  const linkedId = Number(searchParams.get("account")) || null;
+  const [openId, setOpenIdState] = React.useState<number | null>(linkedId);
+  React.useEffect(() => { if (linkedId) setOpenIdState(linkedId); }, [linkedId]);
+  const setOpenId = (id: number | null) => {
+    setOpenIdState(id);
+    if (!id && searchParams.get("account")) {
+      const next = new URLSearchParams(searchParams.toString());
+      next.delete("account");
+      const qs = next.toString();
+      window.history.replaceState(null, "", qs ? `${pathname}?${qs}` : pathname);
+    }
+  };
 
   const params = { search: applied || undefined, role: role || undefined, status: status || undefined, sort, page, per_page: PER_PAGE };
   const query = useQuery({ queryKey: ["admin", "accounts", params], queryFn: () => api.adminAccounts(params), placeholderData: (prev) => prev });
   const summary: AccountsSummary | undefined = query.data?.summary;
   const items = query.data?.items ?? [];
-  const openRow = items.find((r) => r.id === openId) ?? null;
+  const listedRow = items.find((r) => r.id === openId) ?? null;
+  const linkedQ = useQuery({
+    queryKey: ["admin", "accounts", "one", openId],
+    queryFn: () => api.adminAccount(openId!),
+    enabled: openId !== null && !listedRow && !query.isLoading,
+  });
+  const openRow = listedRow ?? (linkedQ.data?.id === openId ? linkedQ.data : null);
 
   /** Patch one row everywhere it is cached (list pages share the same shape). */
   const patchRow = (updated: AccountAdminRow) => {

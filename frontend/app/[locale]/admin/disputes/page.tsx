@@ -9,7 +9,7 @@ import {
   getPaginationRowModel,
   useReactTable,
 } from "@tanstack/react-table";
-import { Link } from "@/i18n/navigation";
+import { Link, useRouter } from "@/i18n/navigation";
 import { useSearchParams } from "next/navigation";
 import { ListFilter, Search, X } from "lucide-react";
 import { useDebounce } from "@/lib/hooks/useDebounce";
@@ -21,7 +21,6 @@ import { MoneyInput } from "@/components/MoneyInput";
 import {
   FacetSelect,
   buildFacetOptions,
-  SlidePanel,
   ConfirmModal,
 } from "@/components/admin";
 import { DisputeStatusBadge, OrderStatusBadge } from "@/components/admin/status-badge";
@@ -56,24 +55,6 @@ interface DisputesTableMeta {
   openAction: (id: number, action: DisputeAction) => void;
 }
 
-// Event labels for timeline
-const EVENT_LABELS: Record<string, string> = {
-  order_placed: "Đặt hàng",
-  order_confirmed: "Xác nhận",
-  order_delivered_manual: "Giao hàng (thủ công)",
-  resources_assigned: "Cấp phát tài nguyên",
-  dispute_opened: "Mở khiếu nại",
-  dispute_refunded: "Hoàn tiền khiếu nại",
-  dispute_rejected: "Từ chối khiếu nại",
-  dispute_partial_refunded: "Hoàn tiền một phần",
-  dispute_replaced: "Đổi sản phẩm",
-  dispute_warranty_extended: "Gia hạn bảo hành",
-  dispute_resolution_timeout: "Tự đóng — buyer không phản hồi",
-  dispute_abandoned: "Tự đóng — không thao tác sau hạn ký quỹ",
-  dispute_seller_timeout: "Hoàn tiền — seller không phản hồi đúng hạn",
-  dispute_marketplace_review: "Chờ review GMMO",
-};
-
 function isPendingReview(d: Dispute) {
   return d.status === "open" && Boolean(d.review_requested_at);
 }
@@ -94,7 +75,7 @@ const columns: ColumnDef<Dispute>[] = [
     header: "Đơn",
     cell: ({ row }) => (
       <Link
-        href={`/admin/orders?highlight=${row.original.order_id}`}
+        href={`/admin/orders/${row.original.order_id}`}
         className="text-indigo-600 hover:underline font-mono"
         onClick={(e) => e.stopPropagation()}
       >
@@ -217,278 +198,6 @@ const columns: ColumnDef<Dispute>[] = [
 ];
 
 // Detail Panel Content
-function DisputeDetailContent({
-  disputeId,
-  onAction,
-}: {
-  disputeId: number;
-  onAction: (action: DisputeAction) => void;
-}) {
-  const [detail, setDetail] = React.useState<AdminDisputeDetail | null>(null);
-  const [loading, setLoading] = React.useState(true);
-
-  React.useEffect(() => {
-    setLoading(true);
-    api
-      .adminDisputeDetail(disputeId)
-      .then(setDetail)
-      .catch(() => setDetail(null))
-      .finally(() => setLoading(false));
-  }, [disputeId]);
-
-  if (loading) {
-    return <Spinner />;
-  }
-
-  if (!detail) {
-    return (
-      <p className="text-[13px] text-slate-500 p-5">
-        Không thể tải thông tin khiếu nại.
-      </p>
-    );
-  }
-
-  return (
-    <div className="space-y-6">
-      {/* Dispute Info */}
-      <section>
-        <h3 className="text-[12px] font-semibold text-slate-500 uppercase tracking-wide mb-3">
-          Thông tin khiếu nại
-        </h3>
-        <div className="grid grid-cols-2 gap-3 text-[13px]">
-          <div>
-            <p className="text-slate-500 text-[11.5px]">Lý do</p>
-            <p className="font-medium">{detail.reason}</p>
-          </div>
-          <div>
-            <p className="text-slate-500 text-[11.5px]">Trạng thái</p>
-            <DisputeStatusBadge status={detail.status} />
-            {detail.status === "open" && detail.review_requested_at && (
-              <p className="mt-1 text-[12px] text-fuchsia-700">Chờ review GMMO</p>
-            )}
-          </div>
-          {detail.evidence && Object.keys(detail.evidence).length > 0 && (
-            <div className="col-span-2">
-              <p className="text-slate-500 text-[11.5px]">
-                Bằng chứng — {evidenceTypeLabel(detail.evidence_type)}
-              </p>
-              <div className="mt-1 rounded-lg bg-slate-50 border border-slate-200 px-3 py-2 text-[12px] space-y-0.5">
-                {Object.entries(detail.evidence).map(([key, value]) => (
-                  <p key={key}>
-                    <span className="text-slate-500">{evidenceFieldLabel(detail.evidence_type, key)}: </span>
-                    <span className="font-medium">{value}</span>
-                  </p>
-                ))}
-              </div>
-            </div>
-          )}
-          <div>
-            <p className="text-slate-500 text-[11.5px]">Người mua</p>
-            <p>{detail.order?.buyer_email ?? `#${detail.buyer_id}`}</p>
-          </div>
-          <div>
-            <p className="text-slate-500 text-[11.5px]">Số tiền</p>
-            <p className="font-mono font-semibold">
-              {detail.order?.total_amount != null
-                ? vnd(detail.order.total_amount)
-                : "—"}
-            </p>
-          </div>
-          {detail.review_requested_at && (
-            <div className="col-span-2 rounded-lg border border-fuchsia-200 bg-fuchsia-50 px-3 py-2 text-[12px] text-fuchsia-800">
-              Auto-settlement đang tạm dừng. Chat với các bên tại{" "}
-              <Link href="/admin/support" className="font-medium text-indigo-600 hover:underline">
-                Chat GMMO
-              </Link>
-              . Hoàn hoặc từ chối ở đây để chốt tiền.
-            </div>
-          )}
-          {detail.resolved_at && (
-            <div>
-              <p className="text-slate-500 text-[11.5px]">Giải quyết lúc</p>
-              <p className="text-[12px]">
-                {new Date(detail.resolved_at).toLocaleString("vi-VN")}
-              </p>
-            </div>
-          )}
-          {detail.seller_note && (
-            <div className="col-span-2">
-              <p className="text-slate-500 text-[11.5px]">Phản hồi nhà bán</p>
-              <div className="mt-1 rounded-lg bg-indigo-50 border border-indigo-200 px-3 py-2 text-[12px] text-indigo-800">
-                {detail.seller_note}
-              </div>
-            </div>
-          )}
-          {detail.admin_note && (
-            <div className="col-span-2">
-              <p className="text-slate-500 text-[11.5px]">Ghi chú admin</p>
-              <p className="text-[12px] italic">{detail.admin_note}</p>
-            </div>
-          )}
-        </div>
-      </section>
-
-      {/* Order Info */}
-      {detail.order && (
-        <section>
-          <h3 className="text-[12px] font-semibold text-slate-500 uppercase tracking-wide mb-3">
-            Đơn hàng liên quan
-          </h3>
-          <div className="grid grid-cols-2 gap-3 text-[13px]">
-            <div>
-              <p className="text-slate-500 text-[11.5px]">Mã đơn</p>
-              <Link
-                href={`/admin/orders?highlight=${detail.order.id}`}
-                className="font-mono text-indigo-600 hover:underline"
-              >
-                {detail.order.order_code ?? `#${detail.order.id}`}
-              </Link>
-            </div>
-            <div>
-              <p className="text-slate-500 text-[11.5px]">Sản phẩm</p>
-              <p className="font-medium">
-                {detail.order.product_title ?? `Variant #${detail.order.variant_id}`}
-              </p>
-              {detail.order.variant_name && (
-                <p className="text-[11.5px] text-slate-400">
-                  {detail.order.variant_name}
-                </p>
-              )}
-            </div>
-            <div>
-              <p className="text-slate-500 text-[11.5px]">Người bán</p>
-              <p>{detail.order.seller_email ?? `#${detail.order.seller_id}`}</p>
-            </div>
-            <div>
-              <p className="text-slate-500 text-[11.5px]">Số lượng</p>
-              <p className="font-mono">{detail.order.quantity}</p>
-            </div>
-            <div>
-              <p className="text-slate-500 text-[11.5px]">Trạng thái đơn</p>
-              <OrderStatusBadge status={detail.order.status} />
-            </div>
-            <div>
-              <p className="text-slate-500 text-[11.5px]">Ngày đặt</p>
-              <p>{new Date(detail.order.created_at).toLocaleDateString("vi-VN")}</p>
-            </div>
-            {detail.order.delivered_data && (
-              <div className="col-span-2">
-                <p className="text-slate-500 text-[11.5px]">Dữ liệu giao hàng</p>
-                <pre className="text-[12px] bg-slate-50 px-2 py-1.5 rounded border border-slate-200 overflow-x-auto whitespace-pre-wrap">
-                  {detail.order.delivered_data}
-                </pre>
-              </div>
-            )}
-          </div>
-        </section>
-      )}
-
-      {/* Timeline */}
-      {detail.timeline.length > 0 && (
-        <section>
-          <h3 className="text-[12px] font-semibold text-slate-500 uppercase tracking-wide mb-3">
-            Dòng thời gian
-          </h3>
-          <div className="relative pl-5">
-            <div className="absolute left-[7px] top-1 bottom-1 w-px bg-slate-200" />
-            {detail.timeline.map((evt, i) => {
-              const isLast = i === detail.timeline.length - 1;
-              return (
-                <div key={i} className="relative pb-4 last:pb-0">
-                  <div
-                    className={`absolute -left-5 top-[5px] w-[10px] h-[10px] rounded-full border-2 ${
-                      isLast
-                        ? "bg-indigo-500 border-indigo-500"
-                        : "bg-white border-slate-200"
-                    }`}
-                  />
-                  <p
-                    className={`text-[13px] font-medium ${
-                      isLast ? "text-slate-900" : "text-slate-500"
-                    }`}
-                  >
-                    {EVENT_LABELS[evt.event] || evt.event}
-                  </p>
-                  <p className="text-[11.5px] text-slate-400">
-                    {new Date(evt.timestamp).toLocaleString("vi-VN")}
-                  </p>
-                </div>
-              );
-            })}
-          </div>
-        </section>
-      )}
-
-      {/* Resources */}
-      {detail.resources.length > 0 && (
-        <section>
-          <h3 className="text-[12px] font-semibold text-slate-500 uppercase tracking-wide mb-3">
-            Tài nguyên ({detail.resources.length})
-          </h3>
-          <div className="overflow-x-auto">
-            <table className="w-full text-[12px]">
-              <thead>
-                <tr className="text-left text-slate-500 border-b border-slate-200">
-                  <th className="px-3 py-2 font-medium">ID</th>
-                  <th className="px-3 py-2 font-medium">Trạng thái</th>
-                  <th className="px-3 py-2 font-medium">Hết hạn</th>
-                </tr>
-              </thead>
-              <tbody>
-                {detail.resources.map((r) => (
-                  <tr key={r.id} className="border-b border-slate-100 last:border-0">
-                    <td className="px-3 py-2 font-mono">#{r.id}</td>
-                    <td className="px-3 py-2">
-                      <span
-                        className={`inline-flex items-center rounded-md border px-1.5 py-0.5 text-[11px] font-medium ${
-                          r.status === "assigned"
-                            ? "bg-indigo-50 text-indigo-700 border-indigo-200"
-                            : r.status === "expired"
-                            ? "bg-red-50 text-red-700 border-red-200"
-                            : "bg-slate-100 text-slate-600 border-slate-200"
-                        }`}
-                      >
-                        {r.status}
-                      </span>
-                    </td>
-                    <td className="px-3 py-2 text-slate-500">
-                      {r.expires_at
-                        ? new Date(r.expires_at).toLocaleDateString("vi-VN")
-                        : "—"}
-                    </td>
-                  </tr>
-                ))}
-              </tbody>
-            </table>
-          </div>
-        </section>
-      )}
-
-      {/* Additional resolution actions */}
-      {detail.status === "open" && (
-        <section>
-          <h3 className="text-[12px] font-semibold text-slate-500 uppercase tracking-wide mb-3">
-            Xử lý khác
-          </h3>
-          <div className="flex flex-wrap gap-2">
-            <Button size="sm" variant="secondary" onClick={() => onAction("partial_refund")}>
-              Hoàn tiền một phần
-            </Button>
-            {detail.resources.length > 0 && (
-              <Button size="sm" variant="secondary" onClick={() => onAction("replace")}>
-                Đổi sản phẩm
-              </Button>
-            )}
-            <Button size="sm" variant="secondary" onClick={() => onAction("extend_warranty")}>
-              Gia hạn bảo hành
-            </Button>
-          </div>
-        </section>
-      )}
-    </div>
-  );
-}
-
 export default function AdminDisputesPage() {
   const apiErrorMessage = useApiErrorMessage();
   const searchParams = useSearchParams();
@@ -504,11 +213,15 @@ export default function AdminDisputesPage() {
     pageIndex: 0,
     pageSize: DEFAULT_PAGE_SIZE,
   });
-  const [selectedDisputeId, setSelectedDisputeId] = React.useState<number | null>(linkedDisputeId);
-
+  // A case opens on its own page (/admin/disputes/{id}); old ?dispute_id=
+  // links from mails and alerts are forwarded there.
+  const router = useRouter();
+  const setSelectedDisputeId = React.useCallback((id: number | null) => {
+    if (id !== null) router.push(`/admin/disputes/${id}`);
+  }, [router]);
   React.useEffect(() => {
-    if (linkedDisputeId !== null) setSelectedDisputeId(linkedDisputeId);
-  }, [linkedDisputeId]);
+    if (linkedDisputeId !== null) router.replace(`/admin/disputes/${linkedDisputeId}`);
+  }, [linkedDisputeId, router]);
 
   // Action modal state
   const [actionModal, setActionModal] = React.useState<{
@@ -946,21 +659,6 @@ export default function AdminDisputesPage() {
           </div>
         )}
       </Card>
-
-      {/* Detail Panel */}
-      <SlidePanel
-        isOpen={selectedDisputeId !== null}
-        onClose={() => setSelectedDisputeId(null)}
-        title={`Khiếu nại #${selectedDisputeId}`}
-        width="lg"
-      >
-        {selectedDisputeId !== null && (
-          <DisputeDetailContent
-            disputeId={selectedDisputeId}
-            onAction={(action) => setActionModal({ id: selectedDisputeId, action })}
-          />
-        )}
-      </SlidePanel>
 
       {/* Action Modal */}
       <ConfirmModal

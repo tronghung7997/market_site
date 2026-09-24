@@ -212,3 +212,53 @@ class DisputeResponseFull(BaseModel):
     timeline: list[DisputeTimelineEvent]
 
     model_config = {"from_attributes": True}
+
+
+# ── Admin case file (GET /admin/disputes/{id}/case) ─────────────────────────
+
+class AdminCaseParty(BaseModel):
+    id: int
+    name: str
+    email: str
+    is_internal: bool
+    is_active: bool
+    tier: str
+    created_at: datetime
+    href: str
+
+
+class AdminCaseLine(BaseModel):
+    id: int
+    line: str
+    status: str
+    expires_at: datetime | None = None
+    state: str  # claimed | replaced | refunded | replacement | ok
+    claimed: bool
+    warranty_claimable: bool
+    replacement_resource_id: int | None = None
+    refund_amount: int = 0
+
+
+class AdminCaseSignal(BaseModel):
+    code: str
+    tone: str  # good | info | warn | bad
+    text: str
+
+
+class AdminCaseRecommendation(BaseModel):
+    action: str  # refund | partial_refund | reject | review | wait | none
+    text: str
+    amount: int | None = None
+
+
+class AdminDisputeCase(DisputeResponse):
+    order: dict
+    buyer: AdminCaseParty | None
+    seller: AdminCaseParty | None
+    buyer_record: dict
+    seller_record: dict
+    money: dict
+    lines: list[AdminCaseLine]
+    conversations: list[dict]
+    signals: list[AdminCaseSignal]
+    recommendation: AdminCaseRecommendation

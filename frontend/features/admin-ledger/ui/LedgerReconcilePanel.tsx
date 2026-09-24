@@ -142,7 +142,7 @@ export function LedgerReconcilePanel() {
 function FindingRow({ f }: { f: LedgerFinding }) {
   const t = useTranslations("adminLedger");
   const target = f.target_type === "order"
-    ? <Link href={`/admin/orders?order=${f.target_id}`} className="font-medium text-iris-hi hover:underline">{t("targetOrder", { id: f.target_id })}</Link>
+    ? <Link href={`/admin/orders/${f.target_id}`} className="font-medium text-iris-hi hover:underline">{t("targetOrder", { id: f.target_id })}</Link>
     : f.target_type === "wallet" ? <span className="font-medium text-fg">{t("targetWallet", { id: f.target_id })}</span>
       : <span className="font-medium text-fg">{t("targetPlatform")}</span>;
   return (

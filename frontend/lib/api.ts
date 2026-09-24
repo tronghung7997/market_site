@@ -14,6 +14,7 @@ import type { CategoryAdminListResponse, CategoryCreateInput, CategoryUpdateInpu
 import type { AffiliateSort } from "./types";
 import type { AdminProductActivity, AdminProductBulkAction, AdminProductBulkResult } from "./types";
 import type { BusinessAnalytics, BusinessAnalyticsQuery, BusinessFilterOptions } from "./types";
+import type { AdminAlert, AdminDisputeCase, AdminLogEntry, AdminOrderCase } from "./types";
 import type { AuthSessionRow, MySellerProfile, ProfileUpdate } from "./types";
 import type {
   SourceArea, SourceCatalogPage, SourceCatalogQuery, SourceImportItem, SourceImportResult, SourceListing,
@@ -750,8 +751,25 @@ export const api = {
     request<AccountAdminRow>(`/admin/accounts/${id}/tier`, { method: "PATCH", body: JSON.stringify({ seller_tier: sellerTier }) }, true),
   adminOrders: () => request<Order[]>("/admin/orders", {}, true),
   adminOrderDetail: (orderId: string | number) => request<AdminOrderDetail>(`/admin/orders/${orderId}`, {}, true),
-  adminAlerts: () => request<Alert[]>("/admin/alerts", {}, true),
-  dismissAlert: (id: number) => request<Alert>(`/admin/alerts/${id}/dismiss`, { method: "POST" }, true),
+  adminOrderCase: (orderId: number) => request<AdminOrderCase>(`/admin/orders/${orderId}/case`, {}, true),
+  adminReleaseOrder: (orderId: number, note: string) =>
+    request<void>(`/admin/orders/${orderId}/release`, { method: "POST", body: JSON.stringify({ note }) }, true),
+  adminRefundOrder: (orderId: number, note: string, buyerMessage?: string) =>
+    request<void>(`/admin/orders/${orderId}/refund`, { method: "POST", body: JSON.stringify({ note, buyer_message: buyerMessage || null }) }, true),
+  adminExtendEscrow: (orderId: number, days: number, note: string) =>
+    request<void>(`/admin/orders/${orderId}/extend-escrow`, { method: "POST", body: JSON.stringify({ days, note }) }, true),
+  adminRetryProvision: (orderId: number, note?: string) =>
+    request<{ status: string }>(`/admin/orders/${orderId}/retry-provision`, { method: "POST", body: JSON.stringify({ note: note || null }) }, true),
+  adminRevokeGatewayKey: (orderId: number) =>
+    request<unknown>(`/admin/orders/${orderId}/gateway-key/revoke`, { method: "POST" }, true),
+  adminOrderNote: (orderId: number, note: string) =>
+    request<AdminLogEntry>(`/admin/orders/${orderId}/notes`, { method: "POST", body: JSON.stringify({ note }) }, true),
+  adminAlerts: (status: "open" | "resolved" = "open") => request<AdminAlert[]>(`/admin/alerts?status=${status}`, {}, true),
+  dismissAlert: (id: number) => request<AdminAlert>(`/admin/alerts/${id}/dismiss`, { method: "POST" }, true),
+  resolveAlerts: (ids: number[], note?: string) =>
+    request<AdminAlert[]>("/admin/alerts/resolve", { method: "POST", body: JSON.stringify({ ids, note: note || null }) }, true),
+  reopenAlert: (id: number) => request<AdminAlert>(`/admin/alerts/${id}/reopen`, { method: "POST" }, true),
+  adminAccount: (id: number) => request<AccountAdminRow>(`/admin/accounts/${id}`, {}, true),
   dismissSellerAlert: (id: number) => request<Alert>(`/seller/alerts/${id}/dismiss`, { method: "POST" }, true),
   dismissOwnAlert: (id: number) => request<Alert>(`/me/alerts/${id}/dismiss`, { method: "POST" }, true),
   accountActionItems: () => request<ActionItem[]>("/me/action-items", {}, true),
@@ -761,6 +779,13 @@ export const api = {
   adminDisputes: (page = 1, perPage = 100) =>
     request<PaginatedDisputes>(`/admin/disputes?page=${page}&per_page=${perPage}`, {}, true),
   adminDisputeDetail: (id: number) => request<AdminDisputeDetail>(`/admin/disputes/${id}`, {}, true),
+  adminDisputeCase: (id: number) => request<AdminDisputeCase>(`/admin/disputes/${id}/case`, {}, true),
+  adminLogsFor: (params: { order_id?: number; dispute_id?: number; account_id?: number; event?: string; limit?: number }) => {
+    const q = new URLSearchParams();
+    for (const [k, v] of Object.entries(params)) if (v !== undefined && v !== null && v !== "") q.set(k, String(v));
+    return request<AdminLogEntry[]>(`/admin/logs?${q}`, {}, true);
+  },
+  adminRelatedLogs: (id: number) => request<AdminLogEntry[]>(`/admin/logs/${id}/related`, {}, true),
   refundDispute: (id: number, adminNote: string) =>
     request<Dispute>(`/admin/disputes/${id}/refund`, { method: "POST", body: JSON.stringify({ admin_note: adminNote }) }, true),
   rejectDispute: (id: number, adminNote: string) =>
@@ -1129,6 +1154,9 @@ export const api = {
     request_id?: string;
     job_id?: string;
     order_id?: number;
+    account_id?: number;
+    dispute_id?: number;
+    event?: string;
     level?: string;
     limit?: number;
     before_id?: number;
@@ -1139,13 +1167,16 @@ export const api = {
     if (params.request_id) q.set("request_id", params.request_id);
     if (params.job_id) q.set("job_id", params.job_id);
     if (params.order_id != null) q.set("order_id", String(params.order_id));
+    if (params.account_id != null) q.set("account_id", String(params.account_id));
+    if (params.dispute_id != null) q.set("dispute_id", String(params.dispute_id));
+    if (params.event) q.set("event", params.event);
     if (params.level) q.set("level", params.level);
     if (params.limit) q.set("limit", String(params.limit));
     if (params.before_id != null) q.set("before_id", String(params.before_id));
     if (params.since) q.set("since", params.since);
     if (params.until) q.set("until", params.until);
     const qs = q.toString();
-    return request<LogEntry[]>(`/admin/logs${qs ? `?${qs}` : ""}`, {}, true);
+    return request<AdminLogEntry[]>(`/admin/logs${qs ? `?${qs}` : ""}`, {}, true);
   },
 
   affiliateClick: (code: string, visitorId?: string) =>

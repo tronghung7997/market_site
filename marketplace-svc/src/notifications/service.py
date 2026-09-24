@@ -4,7 +4,8 @@ from sqlalchemy import func, select
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from src.adapters.compatibility import setup_status
-from src.alerts.service import list_active_alerts, list_buyer_alerts, list_seller_alerts
+from src.alerts.admin_view import admin_alert_links, list_admin_open_alerts
+from src.alerts.service import list_buyer_alerts, list_seller_alerts
 from src.chat.enums import ContextRole
 from src.chat.service import unread_message_count
 from src.disputes.service import list_seller_open_disputes
@@ -43,13 +44,6 @@ _INBOX_ALERT_KEYS = {
 }
 
 # Seller-only inbox facts that must not appear in the admin bell.
-_ADMIN_HIDDEN_ALERT_TYPES = {
-    "seller_application_approved",
-    "buyer_dispute_resource_resolved",
-    "seller_dispute_resource_resolved",
-}
-
-
 def _alert_item(alert: Alert, href: str) -> ActionItem:
     return ActionItem(
         key=_INBOX_ALERT_KEYS.get(alert.type, f"alert_{alert.id}"),
@@ -259,9 +253,15 @@ async def admin_action_items(db: AsyncSession) -> list[ActionItem]:
             count=pending_tasks, href="/admin/tasks",
         ))
 
-    for alert in await list_active_alerts(db):
-        if alert.type in _ADMIN_HIDDEN_ALERT_TYPES:
-            continue
-        items.append(_alert_item(alert, _ALERT_HREF.get(alert.type, "/admin/alerts")))
+    open_alerts = await list_admin_open_alerts(db)
+    links = await admin_alert_links(db, open_alerts)
+    for alert in open_alerts:
+        # Admin links point at the concrete record; the stored href is the
+        # seller/buyer page and means nothing to an operator.
+        items.append(ActionItem(
+            key=_INBOX_ALERT_KEYS.get(alert.type, f"alert_{alert.id}"),
+            severity=alert.severity, label=alert.message, count=1,
+            href=links.get(alert.id) or "/admin/alerts", dismissible=True, alert_id=alert.id,
+        ))
 
     return items

@@ -118,6 +118,9 @@ async def upsert_incident(
             "target_type": stmt.excluded.target_type,
             "target_id": stmt.excluded.target_id,
             "type": stmt.excluded.type,
+            # Came back after an admin marked it handled → back in the inbox.
+            "admin_resolved_at": None,
+            "admin_resolved_by_id": None,
         },
     ).returning(table.c.id)
 
@@ -201,11 +204,15 @@ async def list_active_alerts(db: AsyncSession) -> list[Alert]:
 
 
 async def dismiss_alert(alert_id: int, db: AsyncSession) -> Alert:
+    """System-side close (the condition cleared on its own). Leaves both the
+    owner's and the admin inbox; admin actions go through admin_view."""
     alert = await db.get(Alert, alert_id)
     if not alert:
         raise HTTPException(status_code=404, detail="Không tìm thấy cảnh báo")
+    now = datetime.now(timezone.utc)
     alert.is_active = False
-    alert.resolved_at = datetime.now(timezone.utc)
+    alert.resolved_at = now
+    alert.admin_resolved_at = alert.admin_resolved_at or now
     await db.commit()
     await db.refresh(alert)
     return alert

@@ -7,7 +7,7 @@ from src.errors.codes import ErrorCode
 from src.errors.exceptions import api_error
 from src.models.account import Account
 
-from . import schemas, service
+from . import admin_case, schemas, service
 from src.orders.codes import mask_email
 from src.orders.refs import OrderRef
 
@@ -196,6 +196,13 @@ async def list_disputes(
 @router.get("/admin/disputes/{dispute_id}", response_model=schemas.DisputeResponseFull)
 async def get_dispute(dispute_id: int, _: Account = Depends(require_role("admin")), db: AsyncSession = Depends(get_session)):
     return await service.get_dispute_detail(dispute_id, db)
+
+
+@router.get("/admin/disputes/{dispute_id}/case", response_model=schemas.AdminDisputeCase)
+async def get_dispute_case(dispute_id: int, _: Account = Depends(require_role("admin")), db: AsyncSession = Depends(get_session)):
+    """The admin case file: full timeline, per-line state, both parties'
+    record, money at stake, signals and a suggested next step."""
+    return await admin_case.admin_case(dispute_id, db)
 
 
 @router.post("/admin/disputes/{dispute_id}/refund", response_model=schemas.DisputeResponse)

@@ -1912,6 +1912,38 @@ export interface AdminProduct {
   needs_setup: boolean;
   needs_setup_reason: string | null;
   demo_mode: boolean;
+  public_key: string;
+  slug: string;
+  canonical_path?: string | null;
+  /** Chiến lược giá thực tế (kể cả kế thừa từ cấu hình dịch vụ). */
+  strategy_name: string | null;
+  category_id: number;
+  category_name: string | null;
+  /** Giá "từ" buyer thấy trên chợ (VND). */
+  price_from: number;
+  /** null = sản phẩm không quản lý tồn kho (giá động / nguồn API). */
+  stock_count: number | null;
+  variant_count: number;
+  sold_count: number;
+  rating_avg: number | null;
+  rating_count: number;
+  created_at: string;
+  updated_at: string;
+}
+
+export type AdminProductBulkAction = "activate" | "pause" | "suspend" | "draft" | "set_category";
+
+export interface AdminProductBulkResult {
+  updated: number[];
+  skipped: { id: number; reason: "not_found" | "unchanged" | "needs_setup" }[];
+}
+
+export interface AdminProductActivity {
+  id: number;
+  event: string | null;
+  actor_email: string | null;
+  created_at: string;
+  details: Record<string, unknown>;
 }
 
 export interface PaginatedOrderResponse {

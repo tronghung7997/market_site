@@ -22,7 +22,10 @@ from src.i18n.catalog import (
 )
 from src.i18n.search_text import SearchTerms, normalize_query, search_terms
 from src.i18n.slug import canonical_path, new_public_key, parse_public_ref, slugify_text
+from src.audit.service import log_event
+from src.logging import current_request_id
 from src.models.account import Account
+from src.models.log_entry import LogEntry
 from src.models.category import Category
 from src.models.product import DeliveryMode, Product, ProductStatus, ProductVariant
 from src.sellers.tier_config import rule_for
@@ -258,7 +261,9 @@ async def update_seller_product_status(
     return product
 
 
-async def admin_update_product(product_id: int, data: dict, db: AsyncSession) -> Product:
+async def admin_update_product(
+    product_id: int, data: dict, db: AsyncSession, *, actor_id: int | None = None,
+) -> Product:
     """Admin edit of a product's content/status on ANY seller's product.
 
     Ownership is not checked (admin override). Scope is content + status only;
@@ -276,8 +281,15 @@ async def admin_update_product(product_id: int, data: dict, db: AsyncSession) ->
     if data.get("service_type") is not None and data["service_type"] != product.service_type:
         strategy = await _strategy_after_service_type_change(product, data["service_type"], db)
         await _validate_variant_pricing_model(product, strategy, db)
+    changed_fields = sorted(
+        key for key, value in data.items()
+        if value is not None and key not in {"status", "category_id"}
+        and getattr(product, key, None) != value
+    )
     _apply_cover_update(product, data)
     previous_title = product.title
+    previous_status = product.status
+    previous_category = product.category_id
     slug_value = data.pop("slug", None)
     for key, value in data.items():
         if value is not None:
@@ -290,6 +302,21 @@ async def admin_update_product(product_id: int, data: dict, db: AsyncSession) ->
         )
         if has_content_locale:
             product.i18n = {**product.i18n, PRIMARY_LOCALE_KEY: content_locale}
+    if product.status != previous_status:
+        await _log_admin_product_event(
+            db, product, "admin_product_status_changed", actor_id,
+            {"from": previous_status.value, "to": ProductStatus(product.status).value},
+        )
+    if product.category_id != previous_category:
+        await _log_admin_product_event(
+            db, product, "admin_product_category_changed", actor_id,
+            {"from": previous_category, "to": product.category_id},
+        )
+    if changed_fields:
+        await _log_admin_product_event(
+            db, product, "admin_product_content_updated", actor_id,
+            {"fields": changed_fields, "locale": content_locale},
+        )
     await db.commit()
     await db.refresh(product)
     return product
@@ -302,6 +329,7 @@ async def update_product_translation(
     db: AsyncSession,
     *,
     seller_id: int | None = None,
+    admin_actor_id: int | None = None,
 ) -> Product:
     """Update one locale without leaking changes into another locale.
 
@@ -320,6 +348,11 @@ async def update_product_translation(
     ):
         raise api_error(ErrorCode.PRODUCT_TITLE_EMPTY, http_status.HTTP_422_UNPROCESSABLE_CONTENT)
 
+    before = dict((product.i18n or {}).get(locale) or {})
+    changed = sorted(
+        key for key, value in fields.items()
+        if before.get(key, getattr(product, key, None) if locale == "vi" else None) != value
+    )
     product.i18n = merge_i18n_locale(product.i18n, locale, fields)
     if locale == "vi":
         previous_title = product.title
@@ -327,6 +360,11 @@ async def update_product_translation(
             if key in fields:
                 setattr(product, key, fields[key])
         _apply_slug_update(product, {}, previous_title=previous_title)
+    if admin_actor_id is not None and changed:
+        await _log_admin_product_event(
+            db, product, "admin_product_content_updated", admin_actor_id,
+            {"fields": changed, "locale": locale},
+        )
 
     await db.commit()
     await db.refresh(product)
@@ -339,14 +377,171 @@ async def delete_product(product_id: int, seller_id: int, db: AsyncSession) -> N
     await update_seller_product_status(product_id, seller_id, "paused", db)
 
 
-async def suspend_product(product_id: int, db: AsyncSession) -> Product:
+async def suspend_product(
+    product_id: int, db: AsyncSession, *, actor_id: int | None = None, reason: str | None = None,
+) -> Product:
     product = await db.get(Product, product_id)
     if not product:
         raise api_error(ErrorCode.PRODUCT_NOT_FOUND, http_status.HTTP_404_NOT_FOUND)
+    previous = product.status
     product.status = ProductStatus.suspended
+    if previous != product.status:
+        await _log_admin_product_event(
+            db, product, "admin_product_status_changed", actor_id,
+            {"from": previous.value, "to": product.status.value, "reason": reason},
+        )
     await db.commit()
     await db.refresh(product)
     return product
+
+
+async def _log_admin_product_event(
+    db: AsyncSession, product: Product, event: str, actor_id: int | None, details: dict,
+) -> None:
+    """Một dòng audit cho mỗi thao tác admin trên sản phẩm — đọc lại ở tab
+    Lịch sử của trang admin sản phẩm (subject_type/subject_id)."""
+    await log_event(
+        db, "info", f"{event} product={product.id}",
+        request_id=current_request_id(),
+        metadata={
+            "event": event,
+            "actor_id": actor_id,
+            "actor_type": "admin",
+            "subject_type": "product",
+            "subject_id": product.id,
+            "outcome": "success",
+            "source": "admin",
+            **{k: v for k, v in details.items() if v is not None},
+        },
+    )
+
+
+ADMIN_BULK_STATUS = {
+    "activate": ProductStatus.active,
+    "pause": ProductStatus.paused,
+    "suspend": ProductStatus.suspended,
+    "draft": ProductStatus.draft,
+}
+
+
+async def admin_bulk_update_products(
+    ids: list[int],
+    action: str,
+    db: AsyncSession,
+    *,
+    actor_id: int,
+    category_id: int | None = None,
+    reason: str | None = None,
+) -> dict:
+    """Đổi trạng thái / danh mục cho nhiều sản phẩm trong MỘT giao dịch.
+
+    ``action`` đã được schema kiểm (một khoá của ADMIN_BULK_STATUS hoặc
+    ``set_category`` kèm category_id). Mở bán hàng loạt bỏ qua sản phẩm chưa
+    thiết lập xong (needs_setup) thay vì đưa lên chợ một sản phẩm không giao
+    được hàng; id bị bỏ qua được trả về kèm lý do để UI báo lại."""
+    unique_ids = list(dict.fromkeys(ids))
+    # Lịch sử chỉ ghi "hàng loạt" khi thật sự chọn nhiều sản phẩm.
+    is_bulk = True if len(unique_ids) > 1 else None
+    if action == "set_category":
+        await _validate_category_exists(category_id, db)
+
+    rows = (await db.execute(
+        select(Product, Provider.adapter_type, Provider.is_active)
+        .outerjoin(Provider, Product.provider_id == Provider.id)
+        .where(Product.id.in_(unique_ids))
+    )).all()
+    found = {product.id: (product, adapter_type, provider_active) for product, adapter_type, provider_active in rows}
+
+    configs: dict[str, str] = {}
+    if action == "activate":
+        for c in (
+            await db.execute(select(PricingConfig).where(PricingConfig.is_active == True))  # noqa: E712
+        ).scalars():
+            configs.setdefault(c.service_type, c.strategy)
+
+    updated: list[int] = []
+    skipped: list[dict] = []
+    for product_id in unique_ids:
+        entry = found.get(product_id)
+        if entry is None:
+            skipped.append({"id": product_id, "reason": "not_found"})
+            continue
+        product, adapter_type, provider_active = entry
+        if action == "set_category":
+            if product.category_id == category_id:
+                skipped.append({"id": product_id, "reason": "unchanged"})
+                continue
+            previous_category = product.category_id
+            product.category_id = category_id
+            await _log_admin_product_event(
+                db, product, "admin_product_category_changed", actor_id,
+                {"from": previous_category, "to": category_id, "reason": reason, "bulk": is_bulk},
+            )
+            updated.append(product_id)
+            continue
+
+        target = ADMIN_BULK_STATUS[action]
+        if product.status == target:
+            skipped.append({"id": product_id, "reason": "unchanged"})
+            continue
+        if target == ProductStatus.active:
+            strategy = _admin_strategy_name(
+                product.pricing_strategy, product.pricing_params, product.service_type, configs,
+            )
+            setup = setup_status(
+                adapter_type, strategy,
+                provider_active=True if provider_active is None else bool(provider_active),
+            )
+            if setup["needs_setup"]:
+                skipped.append({"id": product_id, "reason": "needs_setup"})
+                continue
+        previous = product.status
+        product.status = target
+        await _log_admin_product_event(
+            db, product, "admin_product_status_changed", actor_id,
+            {"from": previous.value, "to": target.value, "reason": reason, "bulk": is_bulk},
+        )
+        updated.append(product_id)
+
+    await db.commit()
+    return {"updated": updated, "skipped": skipped}
+
+
+_AUDIT_ENVELOPE_KEYS = {"event", "actor_id", "actor_type", "subject_type", "subject_id", "outcome", "source"}
+
+
+async def admin_product_activity(product_id: int, db: AsyncSession, *, limit: int = 50) -> list[dict]:
+    """Thao tác admin đã ghi trên một sản phẩm, mới nhất trước."""
+    if not await db.get(Product, product_id):
+        raise api_error(ErrorCode.PRODUCT_NOT_FOUND, http_status.HTTP_404_NOT_FOUND)
+    entries = list((await db.execute(
+        select(LogEntry)
+        .where(
+            LogEntry.metadata_["subject_type"].astext == "product",
+            LogEntry.metadata_["subject_id"].astext == str(product_id),
+        )
+        .order_by(LogEntry.created_at.desc(), LogEntry.id.desc())
+        .limit(limit)
+    )).scalars())
+    actor_ids = {
+        int(e.metadata_["actor_id"]) for e in entries
+        if isinstance((e.metadata_ or {}).get("actor_id"), int)
+    }
+    emails = dict((await db.execute(
+        select(Account.id, Account.email).where(Account.id.in_(actor_ids))
+    )).all()) if actor_ids else {}
+    out = []
+    for entry in entries:
+        meta = dict(entry.metadata_ or {})
+        meta.pop("ip", None)
+        out.append({
+            "id": entry.id,
+            "event": meta.get("event"),
+            "actor_email": emails.get(meta.get("actor_id")),
+            "created_at": entry.created_at,
+            "details": {k: v for k, v in meta.items() if k not in _AUDIT_ENVELOPE_KEYS},
+        })
+    return out
 
 
 async def create_variant(product_id: int, seller_id: int, data: dict, db: AsyncSession) -> ProductVariant:
@@ -1237,6 +1432,7 @@ async def get_product_detail(
     locale: str = DEFAULT_LOCALE,
     localize: bool = True,
     public: bool = False,
+    allow_hidden: bool = False,
 ) -> dict:
     """Chi tiết sản phẩm.
 
@@ -1251,7 +1447,10 @@ async def get_product_detail(
     product = await db.get(Product, product_id)
     if not product:
         raise api_error(ErrorCode.PRODUCT_NOT_FOUND, http_status.HTTP_404_NOT_FOUND)
-    if public and product.status != ProductStatus.active:
+    # ``allow_hidden``: bản xem trước của chủ sản phẩm / admin — dựng y như
+    # trang mua (public) nhưng không chặn sản phẩm chưa mở bán. Router chịu
+    # trách nhiệm kiểm quyền trước khi bật cờ này.
+    if public and not allow_hidden and product.status != ProductStatus.active:
         # Use 404 so public callers cannot distinguish a hidden product from a
         # nonexistent one or access it directly by its ID.
         raise api_error(ErrorCode.PRODUCT_NOT_FOUND, http_status.HTTP_404_NOT_FOUND)
@@ -1753,11 +1952,38 @@ async def list_all_products_admin(
             ).scalars()
         }
 
+    # Giá "từ", tồn kho, số gói và danh mục cho đúng trang đang xem — cùng
+    # định nghĩa với storefront (_browse_price_columns) để admin thấy đúng
+    # con số buyer thấy.
+    page_ids = [p.id for p in products]
+    variant_stats, browse_price = _browse_price_columns()
+    extras = {
+        row.id: row for row in (await db.execute(
+            select(
+                Product.id,
+                browse_price.label("price_from"),
+                variant_stats.c.stock_count,
+                inventory_managed_sql().label("stock_managed"),
+                Category.name.label("category_name"),
+            )
+            .outerjoin(variant_stats, variant_stats.c.product_id == Product.id)
+            .outerjoin(Category, Category.id == Product.category_id)
+            .where(Product.id.in_(page_ids))
+        )).all()
+    }
+    variant_counts = dict((await db.execute(
+        select(ProductVariant.product_id, func.count(ProductVariant.id))
+        .where(ProductVariant.product_id.in_(page_ids))
+        .group_by(ProductVariant.product_id)
+    )).all())
+
     out = []
     for p in products:
         seller = sellers.get(p.seller_id)
         provider = providers.get(p.provider_id) if p.provider_id else None
         meta = setup_by_id.get(p.id, {})
+        extra = extras.get(p.id)
+        managed = bool(extra.stock_managed) if extra is not None else True
         out.append({
             "id": p.id,
             **_public_ref_fields(p),
@@ -1773,6 +1999,18 @@ async def list_all_products_admin(
             "needs_setup": meta.get("needs_setup", False),
             "needs_setup_reason": meta.get("needs_setup_reason"),
             "demo_mode": meta.get("demo_mode", False),
+            "strategy_name": meta.get("strategy_name"),
+            "category_id": p.category_id,
+            "category_name": extra.category_name if extra is not None else None,
+            "price_from": int(round(extra.price_from or 0)) if extra is not None else 0,
+            # None = sản phẩm không quản lý tồn kho (giá động / nguồn API).
+            "stock_count": int(extra.stock_count or 0) if managed else None,
+            "variant_count": variant_counts.get(p.id, 0),
+            "sold_count": p.sold_count,
+            "rating_avg": p.rating_avg,
+            "rating_count": p.rating_count,
+            "created_at": p.created_at,
+            "updated_at": p.updated_at,
         })
     return {
         "items": out, "total": total, "page": page, "per_page": per_page,

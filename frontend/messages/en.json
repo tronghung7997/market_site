@@ -2441,7 +2441,18 @@
     "requestPackageLegend": "Choose a request package",
     "packageSaves": "{pct}% cheaper",
     "packageRequests": "{n} requests",
-    "packagePerRequest": "≈ {price}/request"
+    "packagePerRequest": "≈ {price}/request",
+    "preview": {
+      "title": "Preview",
+      "body": "This product is {status} — customers cannot see this page or buy it. The order panel is view-only.",
+      "manage": "Back to management",
+      "status": {
+        "draft": "a draft",
+        "paused": "paused",
+        "suspended": "suspended",
+        "active": "on sale"
+      }
+    }
   },
   "chat": {
     "inbox": "Messages",

@@ -3016,3 +3016,138 @@ export type FeeConfigPublic = {
 export type FeeConfigAdmin = FeeConfigPublic & { updated_at: string | null; updated_by_id: number | null };
 export type FeeConfigUpdate = Partial<FeeConfigPublic>;
 export type WithdrawQuote = { amount: number; fee_amount: number; net_amount: number; min_amount: number; fee_fixed: number; fee_percent: number };
+
+// ── Admin business analytics (GET /admin/analytics/business) ──────────────
+export type AnalyticsRangeKey =
+  | "today" | "yesterday" | "this_week" | "last_week" | "this_month" | "last_month"
+  | "this_quarter" | "last_quarter" | "this_year" | "last_year" | "12m"
+  | "7d" | "30d" | "90d" | "custom";
+export type AnalyticsGranularity = "day" | "week" | "month" | "quarter" | "year";
+export type AnalyticsCompare = "previous" | "yoy" | "custom" | "none";
+export type AnalyticsSegment = "all" | "internal" | "external";
+
+export interface BusinessAnalyticsQuery {
+  range: AnalyticsRangeKey;
+  tz: string;
+  from?: string;
+  to?: string;
+  granularity: AnalyticsGranularity | "auto";
+  compare: AnalyticsCompare;
+  compare_from?: string;
+  compare_to?: string;
+  segment: AnalyticsSegment;
+  seller_id?: number;
+  category_id?: number;
+  service_type?: string;
+}
+
+export interface BusinessMoney {
+  orders: number;
+  gmv: number;
+  refunded: number;
+  net_gmv: number;
+  paid_orders: number;
+  completed: number;
+  cancelled: number;
+  open_orders: number;
+  disputed_orders: number;
+  refunded_orders: number;
+  buyers: number;
+  sellers: number;
+  new_buyers: number;
+  new_buyer_gmv: number;
+  internal_gmv: number;
+  platform_fee: number;
+  internal_sales: number;
+  affiliate_cost: number;
+  platform_revenue: number;
+  deposits: number;
+  withdrawals_paid: number;
+  signups: number;
+}
+
+export interface BusinessTotals extends BusinessMoney {
+  withdraw_fees: number;
+}
+
+export interface BusinessPoint extends BusinessMoney {
+  date: string;
+  end_date: string;
+  partial: boolean;
+}
+
+export interface BusinessBreakdown {
+  gmv: number;
+  gmv_prev: number;
+  paid_orders: number;
+  paid_orders_prev: number;
+  refunded: number;
+  refunded_prev: number;
+  disputed_orders: number;
+  orders: number;
+  cancelled: number;
+  buyers: number;
+}
+
+export interface BusinessSellerRow extends BusinessBreakdown {
+  id: number;
+  name: string;
+  email: string | null;
+  is_internal: boolean;
+  tier: string;
+  platform_take: number;
+}
+
+export interface BusinessCategoryRow extends BusinessBreakdown {
+  id: number | null;
+  name: string;
+  parent_id: number | null;
+  platform_take: number;
+}
+
+export interface BusinessConcentration {
+  sellers: number;
+  top1: number;
+  top5: number;
+  top10: number;
+  hhi: number;
+}
+
+export interface BusinessAnalytics {
+  range: {
+    key: AnalyticsRangeKey;
+    tz: string;
+    granularity: AnalyticsGranularity;
+    compare: AnalyticsCompare;
+    from_date: string;
+    to_date: string;
+    days: number;
+    compare_from_date: string | null;
+    compare_to_date: string | null;
+  };
+  filters: { segment: AnalyticsSegment; seller_id: number | null; category_id: number | null; service_type: string | null };
+  totals: BusinessTotals;
+  compare_totals: BusinessTotals | null;
+  series: BusinessPoint[];
+  compare_series: BusinessPoint[];
+  status: Record<string, number>;
+  compare_status: Record<string, number> | null;
+  segments: (BusinessBreakdown & { segment: "internal" | "external"; platform_take: number })[];
+  tiers: (BusinessBreakdown & { tier: string; sellers: number })[];
+  categories: BusinessCategoryRow[];
+  category_tree: { id: number; name: string; parent_id: number | null }[];
+  service_types: (BusinessBreakdown & { service_type: string; platform_take: number })[];
+  top_sellers: BusinessSellerRow[];
+  declining_sellers: BusinessSellerRow[];
+  top_products: (BusinessBreakdown & { id: number | null; title: string; service_type: string; seller_id: number | null })[];
+  heatmap: { dow: number; hour: number; orders: number; gmv: number }[];
+  concentration: BusinessConcentration;
+  compare_concentration: BusinessConcentration | null;
+  new_sellers: number;
+}
+
+export interface BusinessFilterOptions {
+  sellers: { id: number; name: string; email: string; is_internal: boolean; tier: string }[];
+  categories: { id: number; name: string; parent_id: number | null }[];
+  service_types: string[];
+}

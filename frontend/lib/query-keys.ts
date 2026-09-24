@@ -33,6 +33,8 @@ export const queryKeys = {
   searchSuggest: (locale: string, q: string) => ["search", "suggest", locale, q] as const,
   categoriesTree: () => ["categories"] as const,
   adminCategories: () => ["admin", "categories"] as const,
+  adminBusinessAnalytics: (params: Record<string, unknown>) => ["admin", "business-analytics", params] as const,
+  adminBusinessFilterOptions: () => ["admin", "business-analytics", "filters"] as const,
   sellerReviews: (params?: Record<string, unknown>) =>
     params ? (["seller-reviews", params] as const) : (["seller-reviews"] as const),
   adminReviews: (params?: Record<string, unknown>) =>

@@ -281,6 +281,24 @@ async def test_search_rate_limit_returns_429(client, monkeypatch):
     assert resp.headers["retry-after"] == "60"
 
 
+@pytest.mark.asyncio
+async def test_search_throttles_per_forwarded_client_ip(client, monkeypatch):
+    """Behind the BFF every request shares one TCP peer; the bucket must be
+    the end-user IP the signed BFF request carries, not the whole site."""
+    from src.search import router as search_router
+
+    keys: list[str] = []
+
+    async def record(key, **kwargs):
+        keys.append(key)
+        return True
+
+    monkeypatch.setattr(search_router, "check_rate_limit", record)
+    await client.get("/search/suggest", params={"q": "proxy"}, headers={"X-Client-IP": "203.0.113.5"})
+    await client.get("/search/suggest", params={"q": "proxy"}, headers={"X-Client-IP": "198.51.100.8"})
+    assert keys == ["search:203.0.113.5", "search:198.51.100.8"]
+
+
 async def _add_variant(client, token, product_id: int, name: str) -> int:
     resp = await client.post(f"/seller/products/{product_id}/variants", json={
         "name": name, "price": 15000, "delivery_mode": "manual", "sla_hours": 8,

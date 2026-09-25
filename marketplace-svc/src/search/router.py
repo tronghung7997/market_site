@@ -11,7 +11,7 @@ from src.i18n.deps import get_request_locale
 from src.i18n.search_text import MAX_QUERY_LENGTH
 from src.models.account import Account
 from src.rate_limit import check_rate_limit
-from src.security.client_ip import client_ip
+from src.security.client_ip import request_client_ip
 
 from . import schemas, service
 
@@ -25,7 +25,7 @@ async def _throttle(request: Request) -> None:
     search rather than a dead search box (the statement timeout still bounds
     database work)."""
     allowed = await check_rate_limit(
-        f"search:{client_ip(request)}",
+        f"search:{request_client_ip(request)}",
         limit=settings.search_ip_rate_limit,
         window_seconds=_RATE_WINDOW_SECONDS,
     )

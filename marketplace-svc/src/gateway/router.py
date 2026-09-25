@@ -18,6 +18,7 @@ from src.models.order import Order, OrderStatus
 from src.models.provider import Provider
 from src.models.service_task import ServiceTask, ServiceTaskStatus
 from src.rate_limit import check_rate_limit
+from src.security.client_ip import client_ip
 from src.security.crypto import decrypt_str
 from src.tasks.service import update_task
 from sqlalchemy import select
@@ -48,7 +49,9 @@ _GATEWAY_RATE_WINDOW_SECONDS = 60
 
 
 def _peer_ip(request: Request) -> str:
-    return request.client.host if request.client else "unknown"
+    # Callers hit the API host directly (no BFF), so honour X-Forwarded-For
+    # from TRUSTED_PROXY_CIDRS; with none configured this is the TCP peer.
+    return client_ip(request)
 
 
 def _opaque_bucket(value: str) -> str:

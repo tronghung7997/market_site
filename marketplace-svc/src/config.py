@@ -50,13 +50,21 @@ class Settings(BaseSettings):
     debug_routes_enabled: bool = False
     auth_rate_limit_enabled: bool = True
     auth_rate_limit_window_seconds: int = 300
-    auth_login_ip_limit: int = 20
+    # TEMPORARY (2026-09-24): the *_ip limits below are raised ~10x because the
+    # edge does not forward the end-user IP yet (no X-Real-IP), so every
+    # request resolves to the BFF container and the whole site shares one IP
+    # bucket. Per-account/email buckets are unchanged and still stop credential
+    # stuffing on a single account. Restore 20/10/30/10/20 once login history
+    # shows real client IPs.
+    auth_login_ip_limit: int = 300
     auth_login_account_limit: int = 8
-    auth_register_ip_limit: int = 10
-    auth_refresh_account_limit: int = 30
-    auth_forgot_ip_limit: int = 10
+    auth_register_ip_limit: int = 100
+    # Keyed per IP (`auth:refresh:ip:…`) despite the name. A rejected refresh
+    # signs the user out, so this one must never be the site-wide bottleneck.
+    auth_refresh_account_limit: int = 2000
+    auth_forgot_ip_limit: int = 100
     auth_forgot_account_limit: int = 5
-    auth_reset_ip_limit: int = 20
+    auth_reset_ip_limit: int = 200
     password_reset_ttl_minutes: int = 30
     # Seed for auth_runtime_config.require_email_verification (admin-editable afterwards).
     # Seeds auth_runtime_config.require_email_verification once; admins flip
@@ -96,7 +104,7 @@ class Settings(BaseSettings):
     resend_api_key: str = ""
     mail_worker_enabled: bool = True
     mail_max_attempts: int = 8
-    gateway_ip_rate_limit: int = 120
+    gateway_ip_rate_limit: int = 1200  # TEMPORARY, see auth_login_ip_limit
     gateway_key_rate_limit: int = 60
     # Comma-separated IPs/CIDRs of reverse proxies allowed to set X-Forwarded-For.
     # Empty = never trust XFF (rate limits use the direct TCP peer only).
@@ -105,10 +113,10 @@ class Settings(BaseSettings):
     # Exact public IPs allowed to reach /auth/admin/login and /admin/*.
     # Empty keeps the allowlist disabled for local development and rollout.
     admin_allowed_ips: str = ""
-    affiliate_click_ip_limit: int = 30
+    affiliate_click_ip_limit: int = 300  # TEMPORARY, see auth_login_ip_limit
     # Storefront search (/search, /search/suggest) requests per client IP per minute.
-    search_ip_rate_limit: int = 120
-    provider_webhook_ip_limit: int = 120
+    search_ip_rate_limit: int = 1200  # TEMPORARY, see auth_login_ip_limit
+    provider_webhook_ip_limit: int = 600  # TEMPORARY, see auth_login_ip_limit
     # Used to build the callback_url a seller_task_webhook provider POSTs back to.
     backend_base_url: str = "http://localhost:8001"
     default_affiliate_commission_percent: float = 0.0

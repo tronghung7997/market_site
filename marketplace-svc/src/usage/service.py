@@ -99,9 +99,10 @@ async def charge_usage(
         order_id=order_id, request_id=request_id, endpoint=endpoint, units=units,
         status=UsageRecordStatus.ok,
     ))
-    await db.commit()
-    await db.refresh(balance)
-    return {
+    # Values come from the locked row, so they are exact without a re-read. No
+    # refresh after commit: it would open a new transaction, and the gateway
+    # would then hold this pooled connection for the whole upstream call.
+    result = {
         "units_total": balance.units_total,
         "units_used": balance.units_used,
         "units_remaining": balance.units_total - balance.units_used,
@@ -110,6 +111,8 @@ async def charge_usage(
         # same amount if the forward afterward fails.
         "units_charged": units,
     }
+    await db.commit()
+    return result
 
 
 async def refund_usage(

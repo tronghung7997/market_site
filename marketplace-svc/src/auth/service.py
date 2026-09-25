@@ -1,3 +1,4 @@
+import asyncio
 from datetime import datetime, timedelta, timezone
 import hashlib
 import secrets
@@ -32,6 +33,17 @@ def hash_password(password: str) -> str:
 
 def verify_password(plain: str, hashed: str) -> bool:
     return bcrypt.checkpw(plain.encode(), hashed.encode())
+
+
+# bcrypt at the default cost is ~250 ms of CPU per call. Request paths run it in
+# a worker thread (bcrypt releases the GIL) so one sign-in does not stall every
+# other request on the event loop; the sync functions stay for scripts.
+async def hash_password_async(password: str) -> str:
+    return await asyncio.to_thread(hash_password, password)
+
+
+async def verify_password_async(plain: str, hashed: str) -> bool:
+    return await asyncio.to_thread(verify_password, plain, hashed)
 
 
 def create_access_token(
@@ -210,7 +222,7 @@ async def register_account(
             referred_by_id = referrer.id
     account = Account(
         email=email,
-        password_hash=hash_password(password),
+        password_hash=await hash_password_async(password),
         affiliate_code=affiliate_code,
         referred_by_id=referred_by_id,
         registration_ip=registration_ip,
@@ -280,7 +292,7 @@ async def authenticate(
     from src.security.events import principal_fingerprint, security_event
 
     account = await db.scalar(select(Account).where(Account.email == email))
-    if not account or not account.is_active or not verify_password(password, account.password_hash):
+    if not account or not account.is_active or not await verify_password_async(password, account.password_hash):
         if account is not None:
             _record_login_event(
                 db, account.id, kind=kind,
@@ -453,7 +465,7 @@ async def reset_password(
         security_event("password_reset_rejected", level="warning", reason="inactive")
         raise api_error(ErrorCode.PASSWORD_RESET_INVALID, status.HTTP_400_BAD_REQUEST)
 
-    account.password_hash = hash_password(new_password)
+    account.password_hash = await hash_password_async(new_password)
     token.used_at = now
     from src.auth.sessions import revoke_all_sessions
     await revoke_all_sessions(account.id, db)
@@ -678,10 +690,10 @@ async def change_password(
     from src.mail.service import enqueue_mail, forgot_password_url
     from src.security.events import security_event
 
-    if not verify_password(current_password, account.password_hash):
+    if not await verify_password_async(current_password, account.password_hash):
         raise api_error(ErrorCode.PASSWORD_INCORRECT, status.HTTP_400_BAD_REQUEST)
     loc = locale if locale in {"vi", "en"} else "vi"
-    account.password_hash = hash_password(new_password)
+    account.password_hash = await hash_password_async(new_password)
     await revoke_all_sessions(account.id, db, keep_session_id=keep_session_id)
     await enqueue_mail(
         db,
@@ -721,7 +733,7 @@ async def request_email_change(
     from src.auth.settings import verification_link_hours
     from src.mail.service import enqueue_mail, forgot_password_url, verify_email_url
 
-    if not verify_password(password, account.password_hash):
+    if not await verify_password_async(password, account.password_hash):
         raise api_error(ErrorCode.PASSWORD_INCORRECT, status.HTTP_400_BAD_REQUEST)
     new_email = new_email.strip()
     if new_email.casefold() == account.email.casefold():
@@ -780,7 +792,7 @@ async def request_email_change(
 async def start_totp_setup(account: Account, password: str, db: AsyncSession) -> dict:
     from src.auth import mfa
 
-    if not verify_password(password, account.password_hash):
+    if not await verify_password_async(password, account.password_hash):
         raise api_error(ErrorCode.PASSWORD_INCORRECT, status.HTTP_400_BAD_REQUEST)
     if account.totp_enabled_at is not None:
         raise api_error(ErrorCode.MFA_ALREADY_ENABLED, status.HTTP_400_BAD_REQUEST)
@@ -819,7 +831,7 @@ async def confirm_totp_setup(account: Account, code: str, db: AsyncSession) -> l
 async def disable_totp(account: Account, password: str, code: str, db: AsyncSession) -> None:
     from src.auth import mfa
 
-    if not verify_password(password, account.password_hash):
+    if not await verify_password_async(password, account.password_hash):
         raise api_error(ErrorCode.PASSWORD_INCORRECT, status.HTTP_400_BAD_REQUEST)
     if account.totp_enabled_at is None:
         raise api_error(ErrorCode.MFA_NOT_ENABLED, status.HTTP_400_BAD_REQUEST)

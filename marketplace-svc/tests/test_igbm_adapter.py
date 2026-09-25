@@ -316,6 +316,36 @@ async def test_fixed_order_routes_to_adapter_and_delivers(client, mock_igbm, mon
 
 
 @pytest.mark.asyncio
+async def test_precheck_holds_no_db_connection_and_caps_its_timeout(client, mock_igbm, monkeypatch):
+    """The checkout asks the source for live stock/balance before debiting; a
+    slow source must neither pin a pooled connection nor stall for the
+    purchase timeout (30 s)."""
+    from src.database import engine
+
+    ctx = await _setup(client)
+    monkeypatch.setattr("src.orders.service.spawn_provision", lambda _id: None)
+    seen: list[tuple[str, int, float]] = []
+    real_listing, real_balance = IgbmAdapter.fetch_listing, IgbmAdapter.fetch_balance
+
+    async def observing_listing(self, external_id):
+        seen.append(("listing", engine.pool.checkedout(), self.timeout))
+        return await real_listing(self, external_id)
+
+    async def observing_balance(self):
+        seen.append(("balance", engine.pool.checkedout(), self.timeout))
+        return await real_balance(self)
+
+    monkeypatch.setattr(IgbmAdapter, "fetch_listing", observing_listing)
+    monkeypatch.setattr(IgbmAdapter, "fetch_balance", observing_balance)
+
+    resp = await client.post("/orders", json={"variant_id": ctx["variant"]["id"], "quantity": 1},
+                             headers={"Authorization": f"Bearer {ctx['buyer']}"})
+
+    assert resp.status_code == 201, resp.text
+    assert seen == [("listing", 0, 5.0), ("balance", 0, 5.0)]
+
+
+@pytest.mark.asyncio
 async def test_precheck_rejects_out_of_stock_before_charging(client, mock_igbm):
     ctx = await _setup(client, sku="133947", upstream_amount=50)  # cache nói còn 50, thật là 0
     before = await _wallet(client, ctx["buyer"])

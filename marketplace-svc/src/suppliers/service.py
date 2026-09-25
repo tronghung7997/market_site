@@ -150,6 +150,9 @@ async def provider_has_external_stock(provider_id: int | None, db: AsyncSession)
 # Precheck trước khi trừ ví
 # ----------------------------------------------------------------------
 
+_PRECHECK_TIMEOUT_SECONDS = 5.0
+
+
 async def precheck_external_purchase(
     product: Product, variant_id: int | None, quantity: int, db: AsyncSession,
 ) -> SupplierListing:
@@ -157,7 +160,11 @@ async def precheck_external_purchase(
 
     Không tốn tiền, không tạo side effect thượng nguồn. Nếu nhà cung cấp
     không trả lời được (mạng), KHÔNG chặn — adapter sẽ tự thất bại và hoàn
-    tiền sau; chặn ở đây sẽ làm cả shop "hết hàng" mỗi khi nguồn lag."""
+    tiền sau; chặn ở đây sẽ làm cả shop "hết hàng" mỗi khi nguồn lag.
+
+    Transaction: caller must not have written anything yet — the precheck
+    commits the (read-only) transaction before calling the supplier so no
+    pooled connection is held across the upstream requests."""
     if variant_id is None:
         raise api_error(ErrorCode.INVALID_PRODUCT_CONFIG, status.HTTP_400_BAD_REQUEST)
     listing = await listing_for_variant(variant_id, db)
@@ -170,6 +177,14 @@ async def precheck_external_purchase(
     try:
         adapter = await get_adapter(product.provider_id, db)
         if isinstance(adapter, CatalogSupplierAdapter):
+            # A slow source must not hold the checkout: past this cap the
+            # precheck is skipped (see above) and the purchase keeps the
+            # source's own timeout.
+            adapter.timeout = min(adapter.timeout, _PRECHECK_TIMEOUT_SECONDS)
+            # Nothing is written before this precheck (the wallet is debited
+            # after it), so end the read-only transaction: the pooled
+            # connection is free while the supplier answers.
+            await db.commit()
             up = await adapter.fetch_listing(listing.external_product_id)
             if up is None:
                 listing.sync_error = "delisted"

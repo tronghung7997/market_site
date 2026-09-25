@@ -4,7 +4,7 @@ from fastapi import APIRouter, Depends, Response, status
 from fastapi.responses import StreamingResponse
 from sqlalchemy.ext.asyncio import AsyncSession
 
-from src.auth.dependencies import get_current_account, require_role
+from src.auth.dependencies import get_current_account, get_stream_account, require_role
 from src.database import get_session
 from src.models.account import Account
 
@@ -16,7 +16,7 @@ router = APIRouter(prefix="/chat", tags=["chat"])
 
 
 @router.get("/events")
-async def chat_events(account: Account = Depends(get_current_account)):
+async def chat_events(account: Account = Depends(get_stream_account)):
     return StreamingResponse(
         stream(account.id),
         media_type="text/event-stream",

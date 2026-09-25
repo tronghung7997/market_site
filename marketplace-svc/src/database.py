@@ -5,7 +5,24 @@ from sqlalchemy.orm import DeclarativeBase
 
 from src.config import settings
 
-engine = create_async_engine(settings.database_url, echo=False)
+
+def _connect_args() -> dict:
+    if settings.db_idle_in_transaction_timeout_seconds <= 0:
+        return {}
+    timeout_ms = settings.db_idle_in_transaction_timeout_seconds * 1000
+    return {"server_settings": {"idle_in_transaction_session_timeout": str(timeout_ms)}}
+
+
+engine = create_async_engine(
+    settings.database_url,
+    echo=False,
+    pool_size=settings.db_pool_size,
+    max_overflow=settings.db_max_overflow,
+    pool_timeout=settings.db_pool_timeout_seconds,
+    pool_recycle=settings.db_pool_recycle_seconds,
+    pool_pre_ping=True,
+    connect_args=_connect_args(),
+)
 SessionLocal = async_sessionmaker(engine, expire_on_commit=False)
 
 

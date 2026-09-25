@@ -168,6 +168,36 @@ async def test_login_wrong_password(client):
 
 
 @pytest.mark.asyncio
+async def test_password_hashing_runs_off_the_event_loop(client, monkeypatch):
+    import threading
+
+    import bcrypt
+
+    calls: list[tuple[str, threading.Thread]] = []
+    real_hashpw, real_checkpw = bcrypt.hashpw, bcrypt.checkpw
+
+    def spy_hashpw(*args):
+        calls.append(("hash", threading.current_thread()))
+        return real_hashpw(*args)
+
+    def spy_checkpw(*args):
+        calls.append(("check", threading.current_thread()))
+        return real_checkpw(*args)
+
+    monkeypatch.setattr(bcrypt, "hashpw", spy_hashpw)
+    monkeypatch.setattr(bcrypt, "checkpw", spy_checkpw)
+
+    await client.post("/auth/register", json={"email": "thread@example.com", "password": "StrongPass123!"})
+    ok = await client.post("/auth/login", json={"email": "thread@example.com", "password": "StrongPass123!"})
+    bad = await client.post("/auth/login", json={"email": "thread@example.com", "password": "wrong"})
+
+    assert ok.status_code == 200
+    assert bad.status_code == 401
+    assert [kind for kind, _ in calls] == ["hash", "check", "check"]
+    assert all(thread is not threading.main_thread() for _, thread in calls)
+
+
+@pytest.mark.asyncio
 async def test_admin_must_use_dedicated_login(client):
     email = "private-admin@example.com"
     password = "StrongPass123!"

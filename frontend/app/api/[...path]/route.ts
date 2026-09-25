@@ -14,6 +14,7 @@ import {
   type RefreshFailure,
 } from "@/lib/bff-session";
 import { buildUpstreamTarget } from "@/lib/bff-upstream";
+import { createRefreshCoalescer } from "@/lib/bff-refresh-coalescer";
 import { SERVER_API_BASE } from "@/lib/server-api";
 import { bffErrorBody } from "@/lib/bff-error";
 
@@ -116,6 +117,13 @@ type RefreshOutcome =
 
 function refreshFailed(status: number | null, retryAfter: string | null = null): RefreshOutcome {
   return { ok: false, failure: refreshFailureKind(status), retryAfter };
+}
+
+// Concurrent 401s from one page share a single rotation; see bff-refresh-coalescer.
+const coalesceRefresh = createRefreshCoalescer<RefreshOutcome>();
+
+function rotateRefreshOnce(request: NextRequest, refreshToken: string): Promise<RefreshOutcome> {
+  return coalesceRefresh(refreshToken, () => rotateRefresh(request, refreshToken), (outcome) => outcome.ok);
 }
 
 async function rotateRefresh(request: NextRequest, refreshToken: string): Promise<RefreshOutcome> {
@@ -261,7 +269,7 @@ async function proxy(request: NextRequest, segments: string[]) {
         { status: 401 },
       );
     }
-    const rotated = await rotateRefresh(request, refreshCookie);
+    const rotated = await rotateRefreshOnce(request, refreshCookie);
     if (!rotated.ok) {
       if (rotated.failure !== "rejected") return refreshUnavailableResponse(rotated.failure, rotated.retryAfter);
       const failed = NextResponse.json(
@@ -318,7 +326,7 @@ async function proxy(request: NextRequest, segments: string[]) {
   }
 
   if (upstream.status === 401 && refreshCookie && !LOGIN_PATHS.has(path)) {
-    const rotated = await rotateRefresh(request, refreshCookie);
+    const rotated = await rotateRefreshOnce(request, refreshCookie);
     if (rotated.ok) {
       const retryHeaders = copyAllowlistedHeaders(request);
       retryHeaders.set("authorization", `Bearer ${rotated.accessToken}`);

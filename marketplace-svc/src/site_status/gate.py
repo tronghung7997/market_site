@@ -40,11 +40,20 @@ def _is_admin_token(request: Request) -> bool:
     return "admin" in (payload.get("roles") or [])
 
 
-async def maintenance_gate(request: Request, db: AsyncSession = Depends(get_session)) -> None:
+async def maintenance_gate(
+    request: Request,
+    # Function scope: the gate's session closes when the handler returns, so a
+    # cache-miss read here never pins a connection for a long-lived stream.
+    db: AsyncSession = Depends(get_session, scope="function"),
+) -> None:
     path = request.url.path
     if path in _ALWAYS_OPEN_EXACT or path.startswith(_ALWAYS_OPEN_PREFIXES):
         return
-    if not await maintenance_active(db):
+    active = await maintenance_active(db)
+    # Read-only check: hand the connection back now rather than when the
+    # handler returns (a cache miss would otherwise pin a second connection).
+    await db.close()
+    if not active:
         return
     if _is_admin_token(request):
         return

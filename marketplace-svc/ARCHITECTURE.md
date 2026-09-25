@@ -168,6 +168,8 @@ The application operation owns the transaction.
 - Helpers normally flush/return results and let the owner commit.
 - Financial operations use row locks or equivalent concurrency control where required.
 - External network calls are not casually placed inside long database transactions.
+- A pooled connection is held from the first statement until the transaction ends, and a request-scoped `get_session` ends only after the response is sent. Long-lived responses (SSE) authenticate through `auth.dependencies.get_stream_account` (function-scoped session), and app-wide dependencies such as `site_status.maintenance_gate` release their connection before the handler runs.
+- Before an upstream call, end the transaction instead of re-reading: `usage.charge_usage` returns values computed under its row lock and never refreshes after commit (the gateway forwards with no connection held), and `suppliers.precheck_external_purchase` commits the checkout's read-only transaction before asking the supplier, so its callers must not have written yet.
 - Idempotency checks and writes occur in the same protected transaction where correctness requires it.
 - Rollback behavior must leave ledger, inventory, escrow, and provider state recoverable and auditable.
 

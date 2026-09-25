@@ -198,6 +198,37 @@ class TestSellerGateway:
             assert balance.units_used == 1
 
     @pytest.mark.asyncio
+    async def test_forward_call_holds_no_db_connection_during_the_upstream_call(self, client, monkeypatch):
+        """The charge commits before forwarding; nothing may reopen the request's
+        transaction, or every in-flight upstream call pins a pooled connection."""
+        from src.database import engine
+
+        buyer_token, _, product_id = await setup_credit_gateway_product(client)
+        order_id = await _buy_and_deliver(client, buyer_token, product_id, 3, monkeypatch)
+        async with SessionLocal() as db:
+            order = await db.get(Order, order_id)
+            gateway_key = _extract_gateway_key(order.delivered_data)
+
+        checked_out_during_upstream: list[int] = []
+        original_request = httpx.AsyncClient.request
+
+        async def observing_request(self, method, url, *args, **kwargs):
+            if "seller.example.com" not in str(url):
+                return await original_request(self, method, url, *args, **kwargs)
+            checked_out_during_upstream.append(engine.pool.checkedout())
+            return _ok({"echo": "x"})
+
+        monkeypatch.setattr(httpx.AsyncClient, "request", observing_request)
+
+        resp = await client.get(f"/gw/{gateway_key}/search", params={"q": "x"})
+
+        assert resp.status_code == 200, resp.text
+        assert checked_out_during_upstream == [0]
+        async with SessionLocal() as db:
+            balance = await db.scalar(select(OrderBalance).where(OrderBalance.order_id == order_id))
+            assert balance.units_used == 1
+
+    @pytest.mark.asyncio
     async def test_quota_exceeded_after_package_exhausted(self, client, monkeypatch):
         buyer_token, _, product_id = await setup_credit_gateway_product(client)
         order_id = await _buy_and_deliver(client, buyer_token, product_id, 2, monkeypatch)

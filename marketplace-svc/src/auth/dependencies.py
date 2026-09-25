@@ -27,6 +27,21 @@ async def get_current_account(
     return account
 
 
+async def get_stream_account(
+    request: Request,
+    credentials: HTTPAuthorizationCredentials = Security(bearer_scheme),
+    db: AsyncSession = Depends(get_session, scope="function"),
+) -> Account:
+    """`get_current_account` for long-lived responses (SSE).
+
+    A request-scoped session is closed only after the response finishes, which
+    for a stream means when the tab closes — each open tab would pin a pooled
+    connection. This session closes as soon as the handler returns. The account
+    is detached afterwards, so the handler may only use already-loaded columns.
+    """
+    return await get_current_account(request, credentials, db)
+
+
 def require_role(role: str):
     async def checker(
         account: Account = Depends(get_current_account),

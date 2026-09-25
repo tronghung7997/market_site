@@ -22,6 +22,18 @@ class Settings(BaseSettings):
     # Chỉ dùng cho rate-limit gateway (src/rate_limit.py) — best-effort,
     # Redis chết thì gateway vẫn chạy, chỉ mất chặn abuse.
     redis_url: str = "redis://localhost:6379"
+    # One async engine serves web handlers, scheduler jobs and background tasks
+    # in a process. Keep (pool_size + max_overflow) x processes below Postgres
+    # max_connections (100 by default).
+    db_pool_size: int = 10
+    db_max_overflow: int = 20
+    db_pool_timeout_seconds: int = 10
+    db_pool_recycle_seconds: int = 1800
+    # Postgres ends a session left idle inside an open transaction this long
+    # (0 = off): a safety net against a leaked session holding a connection and
+    # row locks. Keep it above the longest provider call made while a
+    # transaction is open (provisioning retries can take a few minutes).
+    db_idle_in_transaction_timeout_seconds: int = 900
     # No usable defaults: every environment must inject unique values.
     jwt_secret: str
     jwt_algorithm: str = "HS256"
@@ -298,9 +310,15 @@ class Settings(BaseSettings):
             "provider_call_log_retention_days",
             "log_entry_retention_days",
             "resolved_alert_retention_days",
+            "db_pool_size",
+            "db_pool_timeout_seconds",
+            "db_pool_recycle_seconds",
         ):
             if getattr(self, field_name) <= 0:
                 raise ValueError(f"{field_name.upper()} must be greater than zero")
+        for field_name in ("db_max_overflow", "db_idle_in_transaction_timeout_seconds"):
+            if getattr(self, field_name) < 0:
+                raise ValueError(f"{field_name.upper()} must not be negative")
 
         # Fail at boot on bad CIDRs — not on the first rate-limited request.
         from src.security.admin_access import parse_admin_allowed_ips

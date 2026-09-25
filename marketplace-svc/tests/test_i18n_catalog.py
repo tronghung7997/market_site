@@ -152,6 +152,52 @@ def test_resolve_structured_product_content_without_changing_price_data():
     assert params["packages"] == [{"size": 1000, "label": "1,000 requests"}]
 
 
+class _PlanTableProduct:
+    """Priced by the admin price grid: labels live in pricing_params."""
+
+    def __init__(self):
+        self.pricing_params = {
+            "plan_prices": {"HTTP|VN|7": 21000, "HTTP|US|30": 90000},
+            "field_labels": {"type": "Giao thức", "network": "Quốc gia"},
+            "type_display": {"HTTP": "HTTP"},
+            "network_display": {"VN": "Việt Nam", "US": "Hoa Kỳ"},
+        }
+        self.i18n = {
+            # Stale labels written before the grid existed.
+            "vi": {"pricing_labels": {"network_display": {"VN": "VN"}, "field_labels": {"type": "Loại proxy"}}},
+            "en": {"pricing_labels": {
+                "field_labels": {"network": "Country"},
+                "network_display": {"VN": "Vietnam", "US": "United States"},
+                "duration_labels": {"7": "7 days", "30": "30 days"},
+            }},
+        }
+
+
+@pytest.mark.no_db
+def test_plan_table_vi_labels_come_from_pricing_params_only():
+    params = resolve_product_pricing_params(_PlanTableProduct(), "vi")
+    assert params["network_display"] == {"VN": "Việt Nam", "US": "Hoa Kỳ"}
+    assert params["field_labels"] == {"type": "Giao thức", "network": "Quốc gia"}
+    assert "duration_labels" not in params, "vi must not fall back to the en bucket"
+
+
+@pytest.mark.no_db
+def test_plan_table_en_overlays_translations_and_duration_labels():
+    params = resolve_product_pricing_params(_PlanTableProduct(), "en")
+    assert params["network_display"] == {"VN": "Vietnam", "US": "United States"}
+    assert params["field_labels"]["network"] == "Country"
+    assert params["field_labels"]["type"] == "Giao thức"
+    assert params["duration_labels"] == {"7": "7 days", "30": "30 days"}
+    assert params["plan_prices"] == {"HTTP|VN|7": 21000, "HTTP|US|30": 90000}
+
+
+@pytest.mark.no_db
+def test_formula_product_keeps_vi_bucket_overlay():
+    p = _FakeProduct()
+    p.i18n["vi"]["pricing_labels"] = {"network_display": {"DatacenterA": "Riêng"}}
+    assert resolve_product_pricing_params(p, "vi")["network_display"]["DatacenterA"] == "Riêng"
+
+
 @pytest.mark.asyncio
 async def test_public_product_list_resolves_en(client):
     admin_token = await register_and_login(client, "i18n_admin@example.com")

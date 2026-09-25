@@ -11,17 +11,21 @@ const LANGUAGE_NAMES: Record<ProductLocale, Record<ProductLocale, string>> = {
   en: { vi: "Vietnamese", en: "English" },
 };
 
+type RequiredFields = { specs?: boolean; pricingLabels?: boolean | Partial<Record<ProductLocale, boolean>> };
+
 function translationState(
   translation: ProductTranslation | null | undefined,
   label: (key: string) => string,
-  required: { specs?: boolean; pricingLabels?: boolean },
+  required: RequiredFields,
+  locale: ProductLocale,
 ) {
+  const pricingLabelsRequired = typeof required.pricingLabels === "object" ? Boolean(required.pricingLabels[locale]) : Boolean(required.pricingLabels);
   const hasAny = translation && Object.values(translation).some((value) => (
     Array.isArray(value) ? value.length > 0 : typeof value === "string" ? value.trim() : Boolean(value)
   ));
   if (!hasAny) return { label: label("translationMissing"), tone: "neutral" as const };
   const structuredComplete = (!required.specs || Boolean(translation?.specs && Object.keys(translation.specs).length > 0))
-    && (!required.pricingLabels || Boolean(translation?.pricing_labels && Object.keys(translation.pricing_labels).length > 0));
+    && (!pricingLabelsRequired || Boolean(translation?.pricing_labels && Object.keys(translation.pricing_labels).length > 0));
   if (translation?.title?.trim() && translation?.description?.trim() && structuredComplete) {
     return { label: label("translationComplete"), tone: "good" as const };
   }
@@ -41,7 +45,8 @@ export function ProductLanguageRail({
   interfaceLocale: ProductLocale;
   activeLocale: ProductLocale;
   translations?: Partial<Record<ProductLocale, ProductTranslation>> | null;
-  requiredFields?: { specs?: boolean; pricingLabels?: boolean };
+  /** `pricingLabels` theo ngôn ngữ: bảng giá giữ nhãn tiếng Việt trong chính nó. */
+  requiredFields?: RequiredFields;
   dirty?: boolean;
   primaryLocale?: ProductLocale;
   onChange: (locale: ProductLocale) => void;
@@ -74,7 +79,7 @@ export function ProductLanguageRail({
           aria-label={t("chooseContentLanguage")}
         >
           {(["vi", "en"] as ProductLocale[]).map((locale) => {
-            const state = translationState(translations?.[locale], t, requiredFields);
+            const state = translationState(translations?.[locale], t, requiredFields, locale);
             const active = locale === activeLocale;
             const isOptionalMissing = primaryLocale != null
               && locale !== primaryLocale

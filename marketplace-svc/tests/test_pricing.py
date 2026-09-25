@@ -270,6 +270,15 @@ class TestConfigPricing:
             "residential|VN|7", "datacenter|US|30",
         }
 
+    def test_plan_prices_labels_use_duration_labels(self):
+        params = {
+            "plan_prices": {"HTTP|VN|7": 21000, "HTTP|VN|30": 60000},
+            "network_display": {"VN": "Vietnam"},
+            "duration_labels": {"7": "7 days"},
+        }
+        labels = {c["value"]: c["label"] for c in self.strategy.get_options(params)[0]["choices"]}
+        assert labels == {"HTTP|VN|7": "HTTP · Vietnam · 7 days", "HTTP|VN|30": "HTTP · Vietnam · 30 ngày"}
+
     def test_normalize_expands_plan_key_for_adapter(self):
         params = {"plan_prices": {"residential|VN|7": 21000}}
         cfg = self.strategy.normalize_user_config(params, {"plan_key": "residential|VN|7", "quantity": 1})

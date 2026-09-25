@@ -923,6 +923,8 @@
     "pricingFieldLabels": "Nhãn trường",
     "pricingProtocolLabels": "Nhãn giao thức",
     "pricingNetworkLabels": "Nhãn mạng",
+    "pricingLabelsInGrid": "Nhãn tiếng Việt của bảng giá sửa ngay trong bảng giá — ở đây chỉ dịch sang ngôn ngữ khác.",
+    "openPriceGrid": "Mở bảng giá",
     "pricingDurationLabels": "Nhãn thời hạn",
     "translationUnsaved": "Chưa lưu",
     "switchLanguageWarning": "Bản {language} có thay đổi chưa lưu. Bỏ các thay đổi này và chuyển ngôn ngữ?",

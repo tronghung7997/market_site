@@ -24,11 +24,12 @@ import { Banner, Button, Card, Field, Input, Monogram, Select, Spinner, Tag, Tex
 import { ArrowRight } from "@/components/Icons";
 import { ConfirmModal } from "@/components/admin";
 import { PricingParamsEditor } from "@/components/PricingParamsEditor";
+import { PricingGridEditor, isGridParams } from "@/features/pricing-grid";
 import { MarkdownEditor } from "@/components/MarkdownEditor";
 import { ListEditor } from "@/components/ListEditor";
 import { ProductPreviewCard } from "@/components/seller/ProductPreviewCard";
 import { ProductLanguageRail, productLanguageName } from "@/components/products/ProductLanguageRail";
-import { ProductPricingLabelsEditor } from "@/components/products/ProductPricingLabelsEditor";
+import { ProductPricingLabelsEditor, hasPlanTable } from "@/components/products/ProductPricingLabelsEditor";
 import { AdminReviewsPanel, TrustSeedPanel } from "@/features/reviews";
 import { bulkResultMessage, describeActivity, statusActionsFor, statusMeta } from "../model";
 
@@ -163,6 +164,12 @@ export function AdminProductEditor({ productId }: { productId: number }) {
   const [features, setFeatures] = React.useState<string[]>([]);
   const [specs, setSpecs] = React.useState<{ key: string; value: string }[]>([]);
   const [pricingLabels, setPricingLabels] = React.useState<ProductPricingLabels>({});
+  // Thứ tự backend phủ nhãn cho buyer tiếng Việt khi sản phẩm còn tính theo
+  // công thức (resolve_product_pricing_params): en rồi vi.
+  const labelOverlays = React.useMemo(
+    () => [product?.translations?.en?.pricing_labels, product?.translations?.vi?.pricing_labels] as (Record<string, unknown> | null | undefined)[],
+    [product],
+  );
   const [contentDirty, setContentDirty] = React.useState(false);
   const [contentSaving, setContentSaving] = React.useState(false);
   const [contentMsg, setContentMsg] = React.useState<{ type: "ok" | "err"; text: string } | null>(null);
@@ -628,7 +635,10 @@ export function AdminProductEditor({ productId }: { productId: number }) {
             interfaceLocale={interfaceLocale}
             activeLocale={contentLocale}
             translations={product.translations}
-            requiredFields={{ specs: Boolean(product.specs), pricingLabels: Boolean(product.pricing_params) }}
+            requiredFields={{
+              specs: Boolean(product.specs),
+              pricingLabels: { vi: Boolean(product.pricing_params) && !hasPlanTable(product.pricing_params), en: Boolean(product.pricing_params) },
+            }}
             dirty={contentDirty}
             onChange={changeContentLocale}
           />
@@ -682,7 +692,7 @@ export function AdminProductEditor({ productId }: { productId: number }) {
                       </div>
                     )}
                   />
-                  <ProductPricingLabelsEditor locale={contentLocale} params={product.pricing_params} value={pricingLabels} onChange={setPricingLabels} onDirty={markContent} />
+                  <ProductPricingLabelsEditor locale={contentLocale} params={product.pricing_params} value={pricingLabels} onChange={setPricingLabels} onDirty={markContent} onOpenPriceGrid={() => setTab("operations")} />
                   <Field label={t("warrantyLabel")}>
                     <Textarea rows={3} value={content.warranty_text} onChange={(e) => { setContent({ ...content, warranty_text: e.target.value }); markContent(); }} />
                   </Field>
@@ -769,7 +779,18 @@ export function AdminProductEditor({ productId }: { productId: number }) {
             {editStrategy !== "fixed" ? (
               <div className="mt-4 space-y-3 border-t border-line pt-4">
                 <p className="text-[12.5px] font-medium text-muted">Tham số chiến lược</p>
-                <PricingParamsEditor adapterType={adapterType} strategy={editStrategy} params={editParams} onChange={(p) => { setEditParams(p); markOps(); }} />
+                {editStrategy === "config" && isGridParams(editParams) ? (
+                  <PricingGridEditor
+                    productId={productId}
+                    adapter={ops.provider?.adapter_type ?? null}
+                    costSourceStale={editProviderId !== (ops.provider?.id ?? null)}
+                    params={editParams}
+                    labelOverlays={labelOverlays}
+                    onChange={(p) => { setEditParams(p); markOps(); }}
+                  />
+                ) : (
+                  <PricingParamsEditor strategy={editStrategy} params={editParams} onChange={(p) => { setEditParams(p); markOps(); }} />
+                )}
               </div>
             ) : (
               <p className="mt-4 rounded-lg bg-raised px-4 py-3 text-[13px] text-muted">Giá lấy từ từng gói do người bán đặt — không cần cấu hình thêm.</p>

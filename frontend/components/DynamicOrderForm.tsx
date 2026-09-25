@@ -559,7 +559,7 @@ function uniquePackageOptions(
   return Array.from(new Map(items.map((item) => [item[key], item[label]])).entries());
 }
 
-function DproxyPackagePicker({
+export function DproxyPackagePicker({
   field,
   value,
   locale,

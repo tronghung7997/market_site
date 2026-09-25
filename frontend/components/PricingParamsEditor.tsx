@@ -1,11 +1,9 @@
 "use client";
 
 import { useState } from "react";
-import { useLocale, useTranslations } from "next-intl";
-import { Button, Banner, Field, Input, Select } from "@/components/ui";
+import { useTranslations } from "next-intl";
+import { Button, Banner, Field, Input } from "@/components/ui";
 import { Info } from "@/components/Icons";
-import { dproxyParamsFromPackages, packagesFromDproxyParams } from "@/lib/dproxy-plan";
-import { DproxyCodeSelect } from "@/components/DproxyCodeSelect";
 
 /* ================================================================
    Editor cho tham số chiến lược giá (config/credit/task) — dùng chung
@@ -179,7 +177,7 @@ function DurationOptionsEditor({ value, onChange }: {
   );
 }
 
-function VolumeTiersEditor({ value, onChange }: {
+export function VolumeTiersEditor({ value, onChange }: {
   value: { min_qty: number; discount: number }[];
   onChange: (v: { min_qty: number; discount: number }[]) => void;
 }) {
@@ -256,64 +254,15 @@ function PackagesEditor({ value, onChange }: {
   );
 }
 
-export function PricingParamsEditor({ strategy, params, onChange, adapterType }: {
+export function PricingParamsEditor({ strategy, params, onChange }: {
   strategy: string;
   params: Record<string, unknown>;
   onChange: (p: Record<string, unknown>) => void;
-  adapterType?: string | null;
 }) {
   const t = useTranslations("seller.operations.editor");
-  const locale = useLocale();
-  const dproxyCopy = locale === "en"
-    ? {
-      title: "Packages the buyer can choose",
-      help: "Add every mapped DProxy package this product sells. Buyers pick a whole package — they cannot mix type, country, and duration.",
-      type: "Proxy type",
-      network: "Country or network",
-      days: "Days",
-      salePrice: "Buyer price (VND)",
-      add: "Add package",
-      remove: "Remove",
-    }
-    : {
-      title: "Gói buyer được chọn",
-      help: "Thêm từng gói DProxy đã map. Buyer chọn nguyên gói, không trộn loại × quốc gia × số ngày.",
-      type: "Loại proxy",
-      network: "Quốc gia hoặc nhà mạng",
-      days: "Số ngày",
-      salePrice: "Giá khách trả (VND)",
-      add: "Thêm gói",
-      remove: "Xoá",
-    };
   const setParam = (key: string, value: unknown) => {
     onChange({ ...params, [key]: value });
   };
-
-  if (strategy === "config" && (adapterType === "dproxy" || Boolean(params.plan_prices))) {
-    const packages = packagesFromDproxyParams(params);
-    const writePackages = (next: typeof packages) => onChange({ ...params, ...dproxyParamsFromPackages(next) });
-    return (
-      <div className="space-y-4">
-        <Banner tone="iris" icon={<Info size={14} />} title={dproxyCopy.title}>
-          {dproxyCopy.help}
-        </Banner>
-        {packages.map((item, index) => (
-          <div key={`${item.type}|${item.network}|${item.days}|${index}`} className="grid grid-cols-1 gap-2 rounded-lg border border-line p-3 sm:grid-cols-[1fr_1fr_96px_1fr_auto]">
-            <DproxyCodeSelect kind="type" name={`pkg-type-${index}`} value={item.type} onChange={(type) => writePackages(packages.map((row, rowIndex) => rowIndex === index ? { ...row, type } : row))} locale={locale === "en" ? "en" : "vi"} />
-            <DproxyCodeSelect kind="network" name={`pkg-network-${index}`} value={item.network} onChange={(network) => writePackages(packages.map((row, rowIndex) => rowIndex === index ? { ...row, network } : row))} locale={locale === "en" ? "en" : "vi"} />
-            <Field label={dproxyCopy.days}>
-              <Input type="number" min={1} value={item.days} onChange={(e) => writePackages(packages.map((row, rowIndex) => rowIndex === index ? { ...row, days: Number(e.target.value) || 0 } : row))} />
-            </Field>
-            <Field label={dproxyCopy.salePrice}>
-              <Input type="number" min={1} value={item.price || ""} onChange={(e) => writePackages(packages.map((row, rowIndex) => rowIndex === index ? { ...row, price: Number(e.target.value) || 0 } : row))} />
-            </Field>
-            <button type="button" className="text-bad text-[12px] self-end pb-2" onClick={() => writePackages(packages.filter((_, rowIndex) => rowIndex !== index))}>{dproxyCopy.remove}</button>
-          </div>
-        ))}
-        <Button size="sm" variant="secondary" onClick={() => writePackages([...packages, { type: "residential", network: "VN", days: 7, price: 0 }])}>{dproxyCopy.add}</Button>
-      </div>
-    );
-  }
 
   if (strategy === "config") {
     const basePrice = Number(params.base_price) || 0;

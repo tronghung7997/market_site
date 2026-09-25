@@ -153,6 +153,11 @@ def resolve_product_specs(product: Any, locale: str) -> dict | None:
     return value if isinstance(value, dict) else None
 
 
+def _has_plan_table(params: dict) -> bool:
+    table = params.get("plan_prices")
+    return isinstance(table, dict) and bool(table)
+
+
 def resolve_product_pricing_params(product: Any, locale: str) -> dict | None:
     """Overlay localized pricing labels without changing pricing semantics.
 
@@ -167,9 +172,17 @@ def resolve_product_pricing_params(product: Any, locale: str) -> dict | None:
     params = deepcopy(raw)
     i18n = getattr(product, "i18n", None) or {}
     labels: dict[str, Any] = {}
+    # A product priced by a plan table (`plan_prices`, edited as the admin
+    # price grid) keeps its Vietnamese labels in pricing_params itself — the
+    # grid is the one place they are edited. Overlaying an old `vi` bucket (or
+    # the `en` fallback) there would show buyers labels the admin cannot see.
+    # Other products keep the fallback chain below.
+    order = _locale_order(locale)
+    if normalize_locale(locale) == "vi" and _has_plan_table(raw):
+        order = []
     # Merge field-level labels through the same fallback chain as text fields.
     # A partially translated locale can therefore fill only what it owns.
-    for loc in reversed(_locale_order(locale)):
+    for loc in reversed(order):
         bucket = i18n.get(loc)
         if not isinstance(bucket, dict):
             continue
@@ -188,6 +201,10 @@ def resolve_product_pricing_params(product: Any, locale: str) -> dict | None:
         if isinstance(value, dict):
             params[key] = {**(params.get(key) or {}), **value}
     duration_labels = labels.get("duration_labels")
+    if isinstance(duration_labels, dict):
+        # Plan tables have no duration_options; ConfigPricing reads this map
+        # for the "N days" part of each package label instead.
+        params["duration_labels"] = {**(params.get("duration_labels") or {}), **duration_labels}
     if isinstance(duration_labels, dict) and isinstance(params.get("duration_options"), list):
         options = []
         for option in params["duration_options"]:

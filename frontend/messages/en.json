@@ -923,6 +923,8 @@
     "pricingFieldLabels": "Field labels",
     "pricingProtocolLabels": "Protocol labels",
     "pricingNetworkLabels": "Network labels",
+    "pricingLabelsInGrid": "Vietnamese labels of the price grid are edited in the grid itself — this panel only holds other languages.",
+    "openPriceGrid": "Open price grid",
     "pricingDurationLabels": "Duration labels",
     "translationUnsaved": "Unsaved",
     "switchLanguageWarning": "The {language} version has unsaved changes. Discard them and switch language?",

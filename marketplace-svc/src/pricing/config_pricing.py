@@ -171,6 +171,7 @@ class ConfigPricing(PricingStrategy):
         fields: list[dict] = []
         prices = plan_prices_map(params)
         if prices:
+            duration_labels = params.get("duration_labels") or {}
             fields.append({
                 "field": "plan_key",
                 "type": "radio",
@@ -182,7 +183,7 @@ class ConfigPricing(PricingStrategy):
                         "label": (
                             f"{type_display.get(parsed[0]) or humanize_code(parsed[0])}"
                             f" · {network_display.get(parsed[1]) or parsed[1]}"
-                            f" · {parsed[2]} ngày"
+                            f" · {duration_labels.get(str(parsed[2])) or f'{parsed[2]} ngày'}"
                         ),
                     }
                     for key, parsed in (

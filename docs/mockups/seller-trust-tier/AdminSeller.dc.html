@@ -1,0 +1,130 @@
+<!doctype html>
+<html lang="vi">
+<head>
+<meta charset="utf-8">
+<title>Admin — hạng của một seller</title>
+<script src="./support.js"></script>
+</head>
+<body>
+<x-dc>
+<helmet>
+<link href="https://fonts.googleapis.com/css2?family=Newsreader:opsz,wght@6..72,500;6..72,600&amp;family=Be+Vietnam+Pro:wght@400;500;600;700&amp;family=JetBrains+Mono:wght@400;500;600&amp;display=swap" rel="stylesheet">
+<style>
+body{margin:0;background:#f5f6f9;color:#14161d;font-family:"Be Vietnam Pro",system-ui,sans-serif}
+a{color:#4338ca;text-decoration:none}a:hover{color:#3730a3;text-decoration:underline}
+.mono{font-family:"JetBrains Mono",ui-monospace,monospace;font-variant-numeric:tabular-nums}
+.serif{font-family:Newsreader,Georgia,serif}
+</style>
+</helmet>
+<div style="width:1280px;height:1200px;box-sizing:border-box;background:#f5f6f9;display:grid;grid-template-columns:232px minmax(0,1fr)">
+  <aside style="background:#0d1018;color:#e7e9f0;padding:20px 14px;display:flex;flex-direction:column;gap:18px">
+    <div class="serif" style="font-size:18px;font-weight:600;padding:0 8px">GMMO <span style="font-family:'Be Vietnam Pro';font-size:11px;color:#8b91a1;font-weight:500">admin</span></div>
+    <nav aria-label="Admin" style="display:flex;flex-direction:column;gap:2px;font-size:13px">
+      <a href="#" style="color:#8b91a1;padding:8px 10px;border-radius:6px">Tổng quan</a>
+      <a href="#" style="color:#8b91a1;padding:8px 10px;border-radius:6px">Đơn hàng</a>
+      <a href="#" style="color:#8b91a1;padding:8px 10px;border-radius:6px">Khiếu nại</a>
+      <a href="#" aria-current="page" style="color:#e7e9f0;padding:8px 10px;border-radius:6px;background:rgba(99,102,241,.16)">Tài khoản</a>
+      <a href="#" style="color:#8b91a1;padding:8px 10px;border-radius:6px">Sản phẩm</a>
+      <a href="#" style="color:#8b91a1;padding:8px 10px;border-radius:6px">Cài đặt</a>
+    </nav>
+  </aside>
+
+  <main style="padding:28px 36px;display:flex;flex-direction:column;gap:20px">
+    <div>
+      <div style="font-size:12px;color:#454954">Tài khoản › #214</div>
+      <div style="display:flex;align-items:center;gap:10px;margin-top:4px">
+        <h1 class="serif" style="margin:0;font-size:24px;font-weight:600">Kho Via Pro</h1>
+        <span style="font-size:12.5px;color:#454954">khovia.pro@gmail.com</span>
+      </div>
+    </div>
+    <nav aria-label="Hồ sơ" style="display:flex;gap:4px;border-bottom:1px solid #e7e8ee">
+      <a href="#" style="padding:10px 14px;font-size:13px;color:#22242c">Tổng quan</a>
+      <a href="#" style="padding:10px 14px;font-size:13px;color:#22242c">Ví</a>
+      <a href="#" style="padding:10px 14px;font-size:13px;color:#22242c">Đơn hàng</a>
+      <a href="#" aria-current="page" style="padding:10px 14px;font-size:13px;font-weight:600;color:#14161d;border-bottom:2px solid #4f46e5;margin-bottom:-1px">Hạng &amp; uy tín</a>
+      <a href="#" style="padding:10px 14px;font-size:13px;color:#22242c">Nhật ký</a>
+    </nav>
+
+    <div style="display:grid;grid-template-columns:minmax(0,1fr) 380px;gap:20px;align-items:start">
+      <section style="background:#ffffff;border:1px solid #e7e8ee;border-radius:12px">
+        <div style="padding:18px 22px;border-bottom:1px solid #e7e8ee;display:flex;align-items:center;gap:20px">
+          <div style="display:flex;flex-direction:column;gap:6px">
+            <div style="font-size:12px;color:#454954">Hạng</div>
+            <span style="align-self:flex-start;border:1px solid rgba(79,70,229,.25);background:#eef0fe;color:#4338ca;border-radius:999px;padding:3px 11px;font-weight:600;font-size:12.5px">Đã xác minh</span>
+            <div style="font-size:11.5px;color:#454954">Tự động · từ 12/08/2026</div>
+          </div>
+          <div style="width:1px;align-self:stretch;background:#e7e8ee"></div>
+          <div style="display:flex;flex-direction:column;gap:4px">
+            <div style="font-size:12px;color:#454954">Điểm uy tín</div>
+            <div class="mono" style="font-size:28px;font-weight:600;line-height:1">72<span style="font-size:13px;color:#454954"> / 100</span></div>
+          </div>
+          <div style="width:1px;align-self:stretch;background:#e7e8ee"></div>
+          <div style="display:flex;flex-direction:column;gap:4px">
+            <div style="font-size:12px;color:#454954">Lên Uy tín</div>
+            <div class="mono" style="font-size:15px;font-weight:600">3 / 6 điều kiện</div>
+            <div style="font-size:11.5px;color:#454954">Thiếu: doanh số, số đơn, điểm</div>
+          </div>
+        </div>
+        <table style="width:100%;border-collapse:collapse;font-size:13px">
+          <thead><tr style="background:#f7f8fa;color:#454954;font-size:12px;text-align:left"><th style="font-weight:500;padding:9px 22px">Chỉ số</th><th style="font-weight:500;padding:9px 12px;text-align:right">Giá trị</th><th style="font-weight:500;padding:9px 12px;text-align:right">Cần (Uy tín)</th><th style="font-weight:500;padding:9px 22px;text-align:right">Điểm</th></tr></thead>
+          <tbody>
+            <tr style="border-top:1px solid #f0f1f5"><td style="padding:10px 22px">Doanh số hoàn tất (trọn đời)</td><td class="mono" style="text-align:right;padding:10px 12px">31.400.000 ₫</td><td class="mono" style="text-align:right;padding:10px 12px;color:#454954">≥ 50.000.000 ₫</td><td style="padding:10px 22px"></td></tr>
+            <tr style="border-top:1px solid #f0f1f5"><td style="padding:10px 22px">Đơn hoàn tất (trọn đời)</td><td class="mono" style="text-align:right;padding:10px 12px">138</td><td class="mono" style="text-align:right;padding:10px 12px;color:#454954">≥ 200</td><td style="padding:10px 22px"></td></tr>
+            <tr style="border-top:1px solid #f0f1f5"><td style="padding:10px 22px">Số ngày bán</td><td class="mono" style="text-align:right;padding:10px 12px">96</td><td class="mono" style="text-align:right;padding:10px 12px;color:#454954">≥ 60</td><td style="padding:10px 22px"></td></tr>
+            <tr style="border-top:1px solid #f0f1f5"><td style="padding:10px 22px">Khiếu nại 90 ngày <span style="color:#454954">(3 / 125 đơn)</span></td><td class="mono" style="text-align:right;padding:10px 12px">2,4%</td><td class="mono" style="text-align:right;padding:10px 12px;color:#454954">≤ 3%</td><td class="mono" style="text-align:right;padding:10px 22px">30 / 40</td></tr>
+            <tr style="border-top:1px solid #f0f1f5"><td style="padding:10px 22px">1 sao 90 ngày <span style="color:#454954">(1 / 32 đánh giá)</span></td><td class="mono" style="text-align:right;padding:10px 12px">3,1%</td><td class="mono" style="text-align:right;padding:10px 12px;color:#454954">≤ 5%</td><td class="mono" style="text-align:right;padding:10px 22px">25 / 30</td></tr>
+            <tr style="border-top:1px solid #f0f1f5"><td style="padding:10px 22px">Doanh số 90 ngày</td><td class="mono" style="text-align:right;padding:10px 12px">12.500.000 ₫</td><td class="mono" style="text-align:right;padding:10px 12px;color:#454954">—</td><td class="mono" style="text-align:right;padding:10px 22px">17 / 30</td></tr>
+          </tbody>
+        </table>
+        <div style="padding:12px 22px;border-top:1px solid #e7e8ee;font-size:12px;color:#454954">Tính lúc 03:00 25/09/2026 · bỏ 6 đơn demo</div>
+      </section>
+
+      <section style="background:#ffffff;border:1px solid #e7e8ee;border-radius:12px;padding:18px 20px;display:flex;flex-direction:column;gap:14px">
+        <h2 style="margin:0;font-size:15px;font-weight:600">Điều chỉnh hạng</h2>
+        <label style="display:flex;flex-direction:column;gap:6px;font-size:12.5px;font-weight:500">Hạng
+          <select style="height:40px;border:1px solid #d6d9e1;border-radius:8px;padding:0 10px;font-family:inherit;font-size:13px;background:#fff"><option>Đã xác minh</option><option>Mới</option><option>Uy tín</option><option>Doanh nghiệp</option></select>
+        </label>
+        <div style="display:flex;justify-content:space-between;align-items:flex-start;gap:12px;border:1px solid #e7e8ee;border-radius:10px;padding:12px">
+          <label for="lock" style="font-size:12.5px"><b>Khóa hạng</b><div style="color:#454954;margin-top:2px;line-height:1.5">Job không tự lên/hạ seller này. Tự bật khi admin đổi hạng tay.</div></label>
+          <button id="lock" role="switch" aria-checked="false" style="width:36px;height:20px;border-radius:999px;border:0;background:#d6d9e1;position:relative;flex-shrink:0"><span style="position:absolute;left:3px;top:3px;width:14px;height:14px;border-radius:999px;background:#fff"></span></button>
+        </div>
+        <label style="display:flex;flex-direction:column;gap:6px;font-size:12.5px;font-weight:500">Lý do (bắt buộc, ghi vào nhật ký)
+          <textarea rows="3" style="border:1px solid #d6d9e1;border-radius:8px;padding:8px 10px;font-family:inherit;font-size:13px;resize:none"></textarea>
+        </label>
+        <div style="display:flex;gap:10px">
+          <button style="flex-grow:1;height:40px;border:0;border-radius:8px;background:#4f46e5;color:#fff;font-family:inherit;font-size:13px;font-weight:600">Lưu hạng</button>
+          <button style="height:40px;padding:0 14px;border:1px solid #d6d9e1;border-radius:8px;background:#fff;font-family:inherit;font-size:13px;font-weight:600">Xét lại ngay</button>
+        </div>
+      </section>
+    </div>
+
+    <section style="background:#ffffff;border:1px solid #e7e8ee;border-radius:12px;padding:18px 22px;display:flex;flex-direction:column;gap:4px">
+      <h2 style="margin:0 0 10px;font-size:15px;font-weight:600">Lịch sử hạng</h2>
+      <sc-for list="{{events}}" as="e" hint-placeholder-count="4">
+        <div style="display:grid;grid-template-columns:130px 14px minmax(0,1fr);gap:14px;align-items:start;padding:8px 0">
+          <div class="mono" style="font-size:12px;color:#454954;padding-top:1px">{{e.at}}</div>
+          <span style="{{e.dot}}"></span>
+          <div style="font-size:13px;line-height:1.5"><b>{{e.title}}</b> <span style="color:#454954">· {{e.by}}</span><div style="font-size:12px;color:#22242c">{{e.detail}}</div></div>
+        </div>
+      </sc-for>
+    </section>
+  </main>
+</div>
+</x-dc>
+<script type="text/x-dc" data-dc-script data-props='{"$preview":{"width":1280,"height":1200}}'>
+class Component extends DCLogic {
+  renderVals() {
+    const dot = (c) => 'width:10px;height:10px;border-radius:999px;margin-top:5px;background:' + c;
+    return {
+      events: [
+        { at: '12/08/2026 03:00', dot: dot('#12925f'), title: 'Lên Đã xác minh', by: 'Hệ thống', detail: 'Đủ 6/6 điều kiện · 21 đơn, khiếu nại 1,9%, điểm 64' },
+        { at: '30/07/2026 10:12', dot: dot('#4f46e5'), title: 'Bỏ khóa hạng', by: 'admin@gmmo.info', detail: 'Hết giai đoạn kiểm tra thủ công' },
+        { at: '19/07/2026 03:00', dot: dot('#9aa0ad'), title: 'Có điểm uy tín đầu tiên: 58', by: 'Hệ thống', detail: 'Đủ 10 đơn hoàn tất trong 90 ngày' },
+        { at: '21/06/2026 15:40', dot: dot('#9aa0ad'), title: 'Được duyệt bán · Mới', by: 'admin@gmmo.info', detail: 'Khóa hạng trong giai đoạn kiểm tra' }
+      ]
+    };
+  }
+}
+</script>
+</body>
+</html>

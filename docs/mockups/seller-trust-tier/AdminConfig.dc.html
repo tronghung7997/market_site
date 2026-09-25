@@ -1,0 +1,201 @@
+<!doctype html>
+<html lang="vi">
+<head>
+<meta charset="utf-8">
+<title>Admin — xét hạng tự động</title>
+<script src="./support.js"></script>
+</head>
+<body>
+<x-dc>
+<helmet>
+<link href="https://fonts.googleapis.com/css2?family=Newsreader:opsz,wght@6..72,500;6..72,600&amp;family=Be+Vietnam+Pro:wght@400;500;600;700&amp;family=JetBrains+Mono:wght@400;500;600&amp;display=swap" rel="stylesheet">
+<style>
+body{margin:0;background:#f5f6f9;color:#14161d;font-family:"Be Vietnam Pro",system-ui,sans-serif}
+a{color:#4338ca;text-decoration:none}a:hover{color:#3730a3;text-decoration:underline}
+.mono{font-family:"JetBrains Mono",ui-monospace,monospace;font-variant-numeric:tabular-nums}
+.serif{font-family:Newsreader,Georgia,serif}
+input{font-family:"JetBrains Mono",ui-monospace,monospace}
+</style>
+</helmet>
+<div style="width:1280px;height:1960px;box-sizing:border-box;background:#f5f6f9;display:grid;grid-template-columns:232px minmax(0,1fr)">
+
+  <aside style="background:#0d1018;color:#e7e9f0;padding:20px 14px;display:flex;flex-direction:column;gap:18px">
+    <div class="serif" style="font-size:18px;font-weight:600;padding:0 8px">GMMO <span style="font-family:'Be Vietnam Pro';font-size:11px;color:#8b91a1;font-weight:500">admin</span></div>
+    <nav aria-label="Admin" style="display:flex;flex-direction:column;gap:2px;font-size:13px">
+      <a href="#" style="color:#8b91a1;padding:8px 10px;border-radius:6px">Tổng quan</a>
+      <a href="#" style="color:#8b91a1;padding:8px 10px;border-radius:6px">Đơn hàng</a>
+      <a href="#" style="color:#8b91a1;padding:8px 10px;border-radius:6px">Khiếu nại</a>
+      <a href="#" style="color:#8b91a1;padding:8px 10px;border-radius:6px">Tài khoản</a>
+      <a href="#" style="color:#8b91a1;padding:8px 10px;border-radius:6px">Sản phẩm</a>
+      <a href="#" style="color:#8b91a1;padding:8px 10px;border-radius:6px">Ví &amp; sổ cái</a>
+      <a href="#" style="color:#8b91a1;padding:8px 10px;border-radius:6px">Phân tích</a>
+      <a href="#" aria-current="page" style="color:#e7e9f0;padding:8px 10px;border-radius:6px;background:rgba(99,102,241,.16)">Cài đặt</a>
+    </nav>
+  </aside>
+
+  <main style="padding:28px 36px 0;display:flex;flex-direction:column;gap:20px;position:relative">
+    <div>
+      <div style="font-size:12px;color:#454954">Cài đặt</div>
+      <h1 class="serif" style="margin:4px 0 0;font-size:24px;font-weight:600">Người bán</h1>
+    </div>
+    <nav aria-label="Người bán" style="display:flex;gap:4px;border-bottom:1px solid #e7e8ee">
+      <a href="#" style="padding:10px 14px;font-size:13px;color:#22242c">Chung</a>
+      <a href="#" style="padding:10px 14px;font-size:13px;color:#22242c">Hạng &amp; quyền lợi</a>
+      <a href="#" aria-current="page" style="padding:10px 14px;font-size:13px;font-weight:600;color:#14161d;border-bottom:2px solid #4f46e5;margin-bottom:-1px">Xét hạng tự động</a>
+    </nav>
+
+    <section style="background:#ffffff;border:1px solid #e7e8ee;border-radius:12px">
+      <div style="padding:16px 22px;border-bottom:1px solid #e7e8ee">
+        <h2 style="margin:0;font-size:15px;font-weight:600">Lịch xét</h2>
+        <p style="margin:4px 0 0;font-size:12.5px;color:#454954">Job chạy 03:00 hằng ngày (giờ Việt Nam). Hạng admin gán tay được khóa, job không đổi.</p>
+      </div>
+      <div style="display:grid;grid-template-columns:repeat(2,minmax(0,1fr))">
+        <div style="padding:16px 22px;border-bottom:1px solid #f0f1f5;border-right:1px solid #f0f1f5;display:flex;justify-content:space-between;align-items:center;gap:16px">
+          <label for="auto" style="font-size:13px"><b>Bật xét hạng tự động</b><div style="font-size:12px;color:#454954;margin-top:2px">Tắt: chỉ tính điểm để hiển thị, không lên/hạ</div></label>
+          <button id="auto" role="switch" aria-checked="true" style="width:40px;height:22px;border-radius:999px;border:0;background:#4f46e5;position:relative;flex-shrink:0"><span style="position:absolute;right:3px;top:3px;width:16px;height:16px;border-radius:999px;background:#fff"></span></button>
+        </div>
+        <div style="padding:16px 22px;border-bottom:1px solid #f0f1f5;display:flex;justify-content:space-between;align-items:center;gap:16px">
+          <label for="win" style="font-size:13px"><b>Cửa sổ tính tỷ lệ</b><div style="font-size:12px;color:#454954;margin-top:2px">Khiếu nại, 1 sao, doanh số trong điểm</div></label>
+          <span style="display:flex;align-items:center;gap:6px"><input id="win" value="90" style="width:64px;height:36px;border:1px solid #d6d9e1;border-radius:8px;text-align:right;padding:0 10px;font-size:13px"><span style="font-size:12px;color:#454954">ngày</span></span>
+        </div>
+        <div style="padding:16px 22px;border-right:1px solid #f0f1f5;display:flex;justify-content:space-between;align-items:center;gap:16px">
+          <label for="min" style="font-size:13px"><b>Số đơn tối thiểu để chấm điểm</b><div style="font-size:12px;color:#454954;margin-top:2px">Ít hơn = “Chưa đủ dữ liệu”</div></label>
+          <span style="display:flex;align-items:center;gap:6px"><input id="min" value="10" style="width:64px;height:36px;border:1px solid #d6d9e1;border-radius:8px;text-align:right;padding:0 10px;font-size:13px"><span style="font-size:12px;color:#454954">đơn</span></span>
+        </div>
+        <div style="padding:16px 22px;display:flex;justify-content:space-between;align-items:center;gap:16px">
+          <label for="grace" style="font-size:13px"><b>Ân hạn trước khi hạ hạng</b><div style="font-size:12px;color:#454954;margin-top:2px">Mỗi lần hạ tối đa 1 bậc</div></label>
+          <span style="display:flex;align-items:center;gap:6px"><input id="grace" value="14" style="width:64px;height:36px;border:1px solid #4f46e5;box-shadow:0 0 0 3px #eef0fe;border-radius:8px;text-align:right;padding:0 10px;font-size:13px"><span style="font-size:12px;color:#454954">ngày</span></span>
+        </div>
+      </div>
+    </section>
+
+    <section style="background:#ffffff;border:1px solid #e7e8ee;border-radius:12px">
+      <div style="padding:16px 22px;border-bottom:1px solid #e7e8ee;display:flex;justify-content:space-between;align-items:flex-end">
+        <div>
+          <h2 style="margin:0;font-size:15px;font-weight:600">Điều kiện theo hạng</h2>
+          <p style="margin:4px 0 0;font-size:12.5px;color:#454954">Đạt tất cả điều kiện của hạng kế tiếp → lên 1 bậc. Dòng có nhãn <b>giữ hạng</b> còn được kiểm tra lại mỗi ngày; không đạt → cảnh báo, hết ân hạn → hạ.</p>
+        </div>
+      </div>
+      <table style="width:100%;border-collapse:collapse;font-size:13px">
+        <thead>
+          <tr style="background:#f7f8fa;color:#454954;font-size:12px;text-align:left">
+            <th style="font-weight:500;padding:10px 22px;width:34%">Điều kiện</th>
+            <th style="font-weight:500;padding:10px 12px">Mới</th>
+            <th style="font-weight:500;padding:10px 12px">Đã xác minh</th>
+            <th style="font-weight:500;padding:10px 12px">Uy tín</th>
+            <th style="font-weight:500;padding:10px 22px 10px 12px">Doanh nghiệp</th>
+          </tr>
+        </thead>
+        <tbody>
+          <tr style="border-top:1px solid #f0f1f5">
+            <td style="padding:12px 22px"><b>Seller đang ở hạng</b></td>
+            <td class="mono" style="padding:12px">31</td><td class="mono" style="padding:12px">12</td><td class="mono" style="padding:12px">3</td><td class="mono" style="padding:12px 22px 12px 12px">1</td>
+          </tr>
+          <tr style="border-top:1px solid #f0f1f5">
+            <td style="padding:12px 22px">Tự lên hạng</td>
+            <td style="padding:12px;color:#454954;font-size:12px">Hạng khởi đầu</td>
+            <td style="padding:12px"><button role="switch" aria-checked="true" aria-label="Tự lên Đã xác minh" style="width:36px;height:20px;border-radius:999px;border:0;background:#4f46e5;position:relative"><span style="position:absolute;right:3px;top:3px;width:14px;height:14px;border-radius:999px;background:#fff"></span></button></td>
+            <td style="padding:12px"><button role="switch" aria-checked="true" aria-label="Tự lên Uy tín" style="width:36px;height:20px;border-radius:999px;border:0;background:#4f46e5;position:relative"><span style="position:absolute;right:3px;top:3px;width:14px;height:14px;border-radius:999px;background:#fff"></span></button></td>
+            <td style="padding:12px 22px 12px 12px"><span style="display:inline-flex;align-items:center;gap:8px"><button role="switch" aria-checked="false" aria-label="Tự lên Doanh nghiệp" style="width:36px;height:20px;border-radius:999px;border:0;background:#d6d9e1;position:relative"><span style="position:absolute;left:3px;top:3px;width:14px;height:14px;border-radius:999px;background:#fff"></span></button><span style="font-size:12px;color:#454954">Chỉ admin gán</span></span></td>
+          </tr>
+          <sc-for list="{{rows}}" as="r" hint-placeholder-count="6">
+            <tr style="border-top:1px solid #f0f1f5">
+              <td style="padding:12px 22px">
+                <div style="display:flex;align-items:center;gap:8px">{{r.label}}
+                  <sc-if value="{{r.keep}}" hint-placeholder-val="{{false}}"><span style="font-size:10.5px;font-weight:600;color:#8a5d0c;background:#faf0db;border-radius:4px;padding:1px 6px">giữ hạng</span></sc-if>
+                </div>
+                <div style="font-size:11.5px;color:#454954;margin-top:2px">{{r.hint}}</div>
+              </td>
+              <td style="padding:12px;color:#454954">—</td>
+              <td style="padding:12px"><span style="display:flex;align-items:center;gap:6px"><input aria-label="{{r.label}} · Đã xác minh" value="{{r.v1}}" style="width:{{r.w}};height:34px;border:1px solid #d6d9e1;border-radius:8px;text-align:right;padding:0 8px;font-size:12.5px"><span style="font-size:12px;color:#454954">{{r.unit}}</span></span></td>
+              <td style="padding:12px"><span style="display:flex;align-items:center;gap:6px"><input aria-label="{{r.label}} · Uy tín" value="{{r.v2}}" style="width:{{r.w}};height:34px;border:1px solid #d6d9e1;border-radius:8px;text-align:right;padding:0 8px;font-size:12.5px"><span style="font-size:12px;color:#454954">{{r.unit}}</span></span></td>
+              <td style="padding:12px 22px 12px 12px"><span style="display:flex;align-items:center;gap:6px"><input aria-label="{{r.label}} · Doanh nghiệp" value="{{r.v3}}" style="width:{{r.w}};height:34px;border:1px solid #d6d9e1;border-radius:8px;text-align:right;padding:0 8px;font-size:12.5px"><span style="font-size:12px;color:#454954">{{r.unit}}</span></span></td>
+            </tr>
+          </sc-for>
+        </tbody>
+      </table>
+      <p style="margin:0;padding:12px 22px;border-top:1px solid #e7e8ee;font-size:12px;color:#454954">Để trống = không xét điều kiện đó. Doanh số và số đơn là tổng trọn đời, chỉ đơn đã hoàn tất, bỏ đơn demo. Quyền lợi của từng hạng chỉnh ở tab Hạng &amp; quyền lợi.</p>
+    </section>
+
+    <section style="background:#ffffff;border:1px solid #e7e8ee;border-radius:12px">
+      <div style="padding:16px 22px;border-bottom:1px solid #e7e8ee;display:flex;justify-content:space-between;align-items:flex-end">
+        <div>
+          <h2 style="margin:0;font-size:15px;font-weight:600">Công thức điểm uy tín</h2>
+          <p style="margin:4px 0 0;font-size:12.5px;color:#454954">Tổng trọng số phải bằng 100. Mỗi thành phần chạy tuyến tính từ 0 đến điểm tối đa.</p>
+        </div>
+        <span class="mono" style="font-size:13px;font-weight:600;color:#0e7a4f">Tổng 100 / 100</span>
+      </div>
+      <div style="display:flex;flex-direction:column">
+        <div style="display:grid;grid-template-columns:200px 150px minmax(0,1fr);gap:16px;align-items:center;padding:14px 22px;border-bottom:1px solid #f0f1f5">
+          <div style="font-size:13px;font-weight:600">Khiếu nại</div>
+          <span style="display:flex;align-items:center;gap:6px"><input aria-label="Điểm tối đa khiếu nại" value="40" style="width:56px;height:34px;border:1px solid #d6d9e1;border-radius:8px;text-align:right;padding:0 8px;font-size:12.5px"><span style="font-size:12px;color:#454954">điểm</span></span>
+          <span style="display:flex;align-items:center;gap:8px;font-size:12.5px;color:#22242c">Đủ điểm khi 0% · về 0 điểm khi tỷ lệ từ <input aria-label="Ngưỡng 0 điểm khiếu nại" value="10" style="width:52px;height:34px;border:1px solid #d6d9e1;border-radius:8px;text-align:right;padding:0 8px;font-size:12.5px"> %</span>
+        </div>
+        <div style="display:grid;grid-template-columns:200px 150px minmax(0,1fr);gap:16px;align-items:center;padding:14px 22px;border-bottom:1px solid #f0f1f5">
+          <div style="font-size:13px;font-weight:600">Đánh giá 1 sao</div>
+          <span style="display:flex;align-items:center;gap:6px"><input aria-label="Điểm tối đa 1 sao" value="30" style="width:56px;height:34px;border:1px solid #d6d9e1;border-radius:8px;text-align:right;padding:0 8px;font-size:12.5px"><span style="font-size:12px;color:#454954">điểm</span></span>
+          <span style="display:flex;align-items:center;gap:8px;font-size:12.5px;color:#22242c">Đủ điểm khi 0% · về 0 điểm khi tỷ lệ từ <input aria-label="Ngưỡng 0 điểm 1 sao" value="20" style="width:52px;height:34px;border:1px solid #d6d9e1;border-radius:8px;text-align:right;padding:0 8px;font-size:12.5px"> %</span>
+        </div>
+        <div style="display:grid;grid-template-columns:200px 150px minmax(0,1fr);gap:16px;align-items:center;padding:14px 22px">
+          <div style="font-size:13px;font-weight:600">Doanh số (GMV) trong cửa sổ</div>
+          <span style="display:flex;align-items:center;gap:6px"><input aria-label="Điểm tối đa doanh số" value="30" style="width:56px;height:34px;border:1px solid #d6d9e1;border-radius:8px;text-align:right;padding:0 8px;font-size:12.5px"><span style="font-size:12px;color:#454954">điểm</span></span>
+          <span style="display:flex;align-items:center;gap:8px;font-size:12.5px;color:#22242c">Thang log · đủ điểm khi đạt <input aria-label="Doanh số đủ điểm" value="100.000.000" style="width:130px;height:34px;border:1px solid #d6d9e1;border-radius:8px;text-align:right;padding:0 8px;font-size:12.5px"> ₫</span>
+        </div>
+      </div>
+      <div style="margin:0 22px 18px;border-radius:10px;background:#f5f6f9;padding:12px 14px;font-size:12.5px;color:#22242c;line-height:1.6">
+        <b>Ví dụ:</b> khiếu nại 2,4% → 40 × (1 − 2,4/10) = <span class="mono">30</span> · 1 sao 3,1% → 30 × (1 − 3,1/20) = <span class="mono">25</span> · doanh số 12,5tr → 30 × log(1+12,5tr)/log(1+100tr) ≈ <span class="mono">17</span> → <b class="mono">72 điểm</b>
+      </div>
+    </section>
+
+    <section style="background:#ffffff;border:1px solid #c9ccfa;border-radius:12px;padding:18px 22px;display:flex;flex-direction:column;gap:14px">
+      <div style="display:flex;justify-content:space-between;align-items:center">
+        <div>
+          <h2 style="margin:0;font-size:15px;font-weight:600">Xem trước tác động</h2>
+          <p style="margin:4px 0 0;font-size:12.5px;color:#454954">Chạy thử cấu hình đang sửa trên dữ liệu hiện tại — chưa đổi hạng của ai.</p>
+        </div>
+        <button style="height:36px;padding:0 14px;border:1px solid #d6d9e1;border-radius:8px;background:#fff;font-family:inherit;font-size:12.5px;font-weight:600">Tính lại</button>
+      </div>
+      <div style="display:grid;grid-template-columns:repeat(3,minmax(0,1fr));gap:12px">
+        <div style="border:1px solid #e7e8ee;border-radius:10px;padding:12px 14px"><div class="mono" style="font-size:22px;font-weight:600;color:#0e7a4f">4</div><div style="font-size:12px;color:#454954;margin-top:2px">sẽ lên hạng</div></div>
+        <div style="border:1px solid #e7e8ee;border-radius:10px;padding:12px 14px"><div class="mono" style="font-size:22px;font-weight:600;color:#8a5d0c">2</div><div style="font-size:12px;color:#454954;margin-top:2px">sẽ vào diện cảnh báo</div></div>
+        <div style="border:1px solid #e7e8ee;border-radius:10px;padding:12px 14px"><div class="mono" style="font-size:22px;font-weight:600;color:#b43a3a">0</div><div style="font-size:12px;color:#454954;margin-top:2px">bị hạ ngay (hết ân hạn)</div></div>
+      </div>
+      <table style="width:100%;border-collapse:collapse;font-size:12.5px">
+        <tbody>
+          <tr style="border-top:1px solid #f0f1f5"><td style="padding:8px 0;font-weight:500">Kho Via Pro</td><td style="color:#454954">Đã xác minh → <b style="color:#0e7a4f">Uy tín</b></td><td class="mono" style="text-align:right">điểm 76</td></tr>
+          <tr style="border-top:1px solid #f0f1f5"><td style="padding:8px 0;font-weight:500">Gmail Sạch</td><td style="color:#454954">Mới → <b style="color:#0e7a4f">Đã xác minh</b></td><td class="mono" style="text-align:right">điểm 68</td></tr>
+          <tr style="border-top:1px solid #f0f1f5"><td style="padding:8px 0;font-weight:500">Proxy Nhanh</td><td style="color:#454954">Uy tín · <b style="color:#8a5d0c">cảnh báo</b> khiếu nại 4,1% &gt; 3%</td><td class="mono" style="text-align:right">điểm 78</td></tr>
+        </tbody>
+      </table>
+      <a href="#" style="font-size:12.5px">Xem đủ 6 seller</a>
+    </section>
+
+    <div style="position:sticky;bottom:0;margin:0 -36px;padding:14px 36px;background:#ffffff;border-top:1px solid #e7e8ee;display:flex;justify-content:space-between;align-items:center">
+      <span style="font-size:13px;color:#22242c"><b>1 thay đổi chưa lưu</b> · ân hạn 7 → 14 ngày. Mỗi lần lưu ghi nhật ký cũ → mới.</span>
+      <span style="display:flex;gap:10px">
+        <button style="height:40px;padding:0 16px;border:1px solid #d6d9e1;border-radius:8px;background:#fff;font-family:inherit;font-size:13px;font-weight:600">Hoàn tác</button>
+        <button style="height:40px;padding:0 18px;border:0;border-radius:8px;background:#4f46e5;color:#fff;font-family:inherit;font-size:13px;font-weight:600">Lưu thay đổi</button>
+      </span>
+    </div>
+  </main>
+</div>
+</x-dc>
+<script type="text/x-dc" data-dc-script data-props='{"$preview":{"width":1280,"height":1960}}'>
+class Component extends DCLogic {
+  renderVals() {
+    const r = (o) => Object.assign({ w: '72px' }, o);
+    return {
+      rows: [
+        r({ label: 'Doanh số hoàn tất tối thiểu', hint: 'Tổng trọn đời', v1: '5.000.000', v2: '50.000.000', v3: '', unit: '₫', w: '118px', keep: false }),
+        r({ label: 'Đơn hoàn tất tối thiểu', hint: 'Tổng trọn đời', v1: '20', v2: '200', v3: '', unit: 'đơn', keep: false }),
+        r({ label: 'Số ngày bán tối thiểu', hint: 'Từ ngày được duyệt bán', v1: '14', v2: '60', v3: '', unit: 'ngày', keep: false }),
+        r({ label: 'Tỷ lệ khiếu nại tối đa', hint: 'Trong cửa sổ 90 ngày', v1: '5', v2: '3', v3: '2', unit: '%', keep: true }),
+        r({ label: 'Tỷ lệ 1 sao tối đa', hint: 'Trong cửa sổ 90 ngày', v1: '10', v2: '5', v3: '3', unit: '%', keep: true }),
+        r({ label: 'Điểm uy tín tối thiểu', hint: 'Bỏ qua khi chưa đủ dữ liệu', v1: '60', v2: '75', v3: '85', unit: 'điểm', keep: true })
+      ]
+    };
+  }
+}
+</script>
+</body>
+</html>

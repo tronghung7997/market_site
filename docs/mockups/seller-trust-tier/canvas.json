@@ -1,0 +1,24 @@
+{
+  "v": 3,
+  "createdOnFiles": {"v": 1, "at": "2026-09-25T10:30:00Z"},
+  "title": "Hạng seller & điểm uy tín",
+  "launch": {"view": "canvas"},
+  "pages": [],
+  "boards": {
+    "Main.dc.html": {"x": 0, "y": 0, "w": 1280, "h": 1640, "title": "Seller · Trang Hạng & uy tín (/seller/tier)"},
+    "SellerStates.dc.html": {"x": 1360, "y": 0, "w": 1280, "h": 1640, "title": "Seller · Thẻ tiến độ trên Tổng quan + các trạng thái"},
+    "SellerMobile.dc.html": {"x": 2720, "y": 0, "w": 390, "h": 1640, "title": "Seller · Mobile 390"},
+    "Buyer.dc.html": {"x": 0, "y": 2100, "w": 1280, "h": 1040, "title": "Buyer · Uy tín seller trên shop & trang sản phẩm"},
+    "AdminConfig.dc.html": {"x": 0, "y": 3560, "w": 1280, "h": 1960, "title": "Admin · Cài đặt › Người bán › Xét hạng tự động"},
+    "AdminSeller.dc.html": {"x": 1360, "y": 3560, "w": 1280, "h": 1200, "title": "Admin · Hồ sơ seller › Hạng & uy tín"}
+  },
+  "order": ["Main.dc.html", "SellerStates.dc.html", "SellerMobile.dc.html", "Buyer.dc.html", "AdminConfig.dc.html", "AdminSeller.dc.html"],
+  "notes": {
+    "rowSeller": {"x": 0, "y": -300, "text": "Seller — mình đang ở đâu, cần gì để lên hạng", "kind": "title1", "maxW": 3110},
+    "rowBuyer": {"x": 0, "y": 1800, "text": "Buyer — nhìn thấy mức uy tín của seller", "kind": "title1", "maxW": 1280},
+    "rowAdmin": {"x": 0, "y": 3260, "text": "Admin — cấu hình điều kiện, công thức, ân hạn", "kind": "title1", "maxW": 2640},
+    "ruleNote": {"x": 3190, "y": 0, "w": 420, "fill": "orange", "size": "m", "text": "Quy tắc đề xuất (số mặc định, admin chỉnh được)\n\n• Điểm uy tín 0–100 = Khiếu nại (40) + Đánh giá 1 sao (30) + Doanh số (30). Tỷ lệ tính trên 90 ngày gần nhất, bỏ đơn demo.\n• Dưới 10 đơn hoàn tất trong 90 ngày → “Chưa đủ dữ liệu”, không chấm điểm.\n• Mỗi hạng có điều kiện: doanh số hoàn tất, số đơn hoàn tất, số ngày bán, khiếu nại tối đa, 1 sao tối đa, điểm tối thiểu.\n• Job chạy 03:00 hằng ngày: đạt đủ → lên 1 bậc.\n• Không còn đạt điều kiện giữ hạng → cảnh báo, 14 ngày ân hạn, hết hạn vẫn không đạt → hạ 1 bậc.\n• Admin gán tay = khóa hạng, job không đụng vào.\n• Doanh nghiệp: chỉ admin gán."},
+    "buyerNote": {"x": 1360, "y": 2100, "w": 420, "fill": "blue", "size": "m", "text": "Buyer thấy: hạng + điểm uy tín + mức khiếu nại/1 sao theo dải (Thấp / Trung bình / Cao), không thấy % chính xác hay doanh số của seller.\n\nCần chốt: có muốn hiện % chính xác cho buyer không?"}
+  },
+  "designSystems": []
+}

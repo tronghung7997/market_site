@@ -1,0 +1,103 @@
+<!doctype html>
+<html lang="vi">
+<head>
+<meta charset="utf-8">
+<title>Hạng & uy tín — mobile</title>
+<script src="./support.js"></script>
+</head>
+<body>
+<x-dc>
+<helmet>
+<link href="https://fonts.googleapis.com/css2?family=Newsreader:opsz,wght@6..72,500;6..72,600&amp;family=Be+Vietnam+Pro:wght@400;500;600;700&amp;family=JetBrains+Mono:wght@400;500;600&amp;display=swap" rel="stylesheet">
+<style>
+body{margin:0;background:#f5f6f9;color:#14161d;font-family:"Be Vietnam Pro",system-ui,sans-serif}
+a{color:#4338ca;text-decoration:none}a:hover{color:#3730a3}
+.mono{font-family:"JetBrains Mono",ui-monospace,monospace;font-variant-numeric:tabular-nums}
+.serif{font-family:Newsreader,Georgia,serif}
+</style>
+</helmet>
+<div style="width:390px;height:1640px;box-sizing:border-box;background:#f5f6f9;display:flex;flex-direction:column">
+  <header style="height:56px;background:#ffffff;border-bottom:1px solid #e7e8ee;display:flex;align-items:center;justify-content:space-between;padding:0 16px;box-sizing:border-box">
+    <span class="serif" style="font-size:18px;font-weight:600">GMMO</span>
+    <button aria-label="Mở menu" style="width:44px;height:44px;border:0;background:transparent;display:grid;place-items:center"><svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="#14161d" stroke-width="2"><path d="M4 7h16M4 12h16M4 17h16"/></svg></button>
+  </header>
+  <nav aria-label="Seller" style="display:flex;gap:2px;border-bottom:1px solid #e7e8ee;background:#ffffff;padding:0 8px;overflow:hidden;white-space:nowrap">
+    <a href="#" style="padding:12px 10px;font-size:13px;color:#22242c">Đơn hàng</a>
+    <a href="#" style="padding:12px 10px;font-size:13px;color:#22242c">Tin nhắn</a>
+    <a href="#" style="padding:12px 10px;font-size:13px;color:#22242c">Rút tiền</a>
+    <a href="#" aria-current="page" style="padding:12px 10px;font-size:13px;font-weight:600;color:#14161d;border-bottom:2px solid #4f46e5">Hạng &amp; uy tín</a>
+  </nav>
+
+  <main style="padding:16px;display:flex;flex-direction:column;gap:14px">
+    <section style="background:#ffffff;border:1px solid #e7e8ee;border-radius:12px;padding:18px;display:flex;flex-direction:column;gap:14px">
+      <div style="display:flex;align-items:center;gap:14px">
+        <div style="position:relative;width:88px;height:88px;flex-shrink:0">
+          <svg width="88" height="88" viewBox="0 0 88 88" aria-hidden="true">
+            <circle cx="44" cy="44" r="37" fill="none" stroke="#e7e8ee" stroke-width="8"/>
+            <circle cx="44" cy="44" r="37" fill="none" stroke="#4f46e5" stroke-width="8" stroke-linecap="round" stroke-dasharray="167.4 232.5" transform="rotate(-90 44 44)"/>
+          </svg>
+          <div style="position:absolute;inset:0;display:grid;place-items:center"><span class="mono" style="font-size:26px;font-weight:600">72</span></div>
+        </div>
+        <div style="display:flex;flex-direction:column;gap:6px">
+          <span style="align-self:flex-start;border:1px solid rgba(79,70,229,.25);background:#eef0fe;color:#4338ca;border-radius:999px;padding:2px 10px;font-weight:600;font-size:12px">Đã xác minh</span>
+          <div class="serif" style="font-size:19px;font-weight:600;line-height:1.25">Còn 3 điều kiện để lên Uy tín</div>
+          <div style="font-size:12px;color:#454954">Điểm cần 75 · cập nhật 03:00</div>
+        </div>
+      </div>
+      <div role="img" aria-label="3 trên 6 điều kiện đạt" style="display:grid;grid-template-columns:repeat(6,minmax(0,1fr));gap:4px">
+        <span style="height:6px;border-radius:999px;background:#12925f"></span><span style="height:6px;border-radius:999px;background:#12925f"></span><span style="height:6px;border-radius:999px;background:#12925f"></span><span style="height:6px;border-radius:999px;background:#e7e8ee"></span><span style="height:6px;border-radius:999px;background:#e7e8ee"></span><span style="height:6px;border-radius:999px;background:#e7e8ee"></span>
+      </div>
+    </section>
+
+    <section style="background:#ffffff;border:1px solid #e7e8ee;border-radius:12px">
+      <h2 style="margin:0;padding:14px 16px;font-size:14px;font-weight:600;border-bottom:1px solid #e7e8ee">Điều kiện lên Uy tín</h2>
+      <sc-for list="{{criteria}}" as="c" hint-placeholder-count="6">
+        <div style="padding:14px 16px;border-bottom:1px solid #f0f1f5;display:flex;flex-direction:column;gap:8px">
+          <div style="display:flex;justify-content:space-between;align-items:center;gap:10px">
+            <span style="display:flex;align-items:center;gap:8px;font-size:13.5px;font-weight:600">
+              <sc-if value="{{c.ok}}" hint-placeholder-val="{{true}}"><span aria-label="Đạt" style="width:20px;height:20px;border-radius:999px;background:#e6f5ee;color:#12925f;display:grid;place-items:center"><svg width="11" height="11" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="3"><path d="M20 6L9 17l-5-5"/></svg></span></sc-if>
+              <sc-if value="{{c.todo}}" hint-placeholder-val="{{false}}"><span aria-label="Chưa đạt" style="width:20px;height:20px;border-radius:999px;border:2px solid #d6d9e1;box-sizing:border-box"></span></sc-if>
+              {{c.label}}
+            </span>
+            <span class="mono" style="font-size:13px;font-weight:600">{{c.value}}</span>
+          </div>
+          <div style="height:6px;border-radius:999px;background:#f0f1f5;overflow:hidden"><div style="{{c.barStyle}}"></div></div>
+          <div style="display:flex;justify-content:space-between;font-size:12px;color:#454954"><span>{{c.right}}</span><span style="{{c.hintStyle}}">{{c.hint}}</span></div>
+        </div>
+      </sc-for>
+    </section>
+
+    <section style="background:#ffffff;border:1px solid #e7e8ee;border-radius:12px;padding:14px 16px;display:flex;flex-direction:column;gap:10px">
+      <h2 style="margin:0;font-size:14px;font-weight:600">Lên Uy tín, bạn được</h2>
+      <div style="display:flex;justify-content:space-between;font-size:13px"><span>Sản phẩm đang bán</span><span class="mono">5 → <b style="color:#12925f">10</b></span></div>
+      <div style="display:flex;justify-content:space-between;font-size:13px"><span>Rút mỗi lần</span><span class="mono">10tr → <b style="color:#12925f">50tr</b></span></div>
+      <div style="display:flex;justify-content:space-between;font-size:13px"><span>Giảm phí sàn</span><span class="mono">1 → <b style="color:#12925f">2 điểm %</b></span></div>
+      <div style="display:flex;justify-content:space-between;font-size:13px"><span>Giữ tiền ngắn hơn</span><span class="mono">0 → <b style="color:#12925f">1 ngày</b></span></div>
+      <div style="display:flex;justify-content:space-between;font-size:13px"><span>Kết nối API</span><span><b style="color:#12925f">Có</b></span></div>
+    </section>
+
+    <a href="#" style="font-size:13px;text-align:center;padding:12px">Xem quy định hạng người bán</a>
+  </main>
+</div>
+</x-dc>
+<script type="text/x-dc" data-dc-script data-props='{"$preview":{"width":390,"height":1640}}'>
+class Component extends DCLogic {
+  renderVals() {
+    const bar = (pct, color) => 'height:100%;border-radius:999px;width:' + pct + '%;background:' + color;
+    const hint = (color) => 'color:' + color;
+    const c = (o) => Object.assign({ todo: !o.ok }, o);
+    return {
+      criteria: [
+        c({ ok: false, label: 'Doanh số hoàn tất', value: '31,4tr ₫', barStyle: bar(63, '#4f46e5'), right: 'Cần 50tr ₫', hint: 'Còn 18,6tr', hintStyle: hint('#4338ca') }),
+        c({ ok: false, label: 'Đơn hoàn tất', value: '138', barStyle: bar(69, '#4f46e5'), right: 'Cần 200', hint: 'Còn 62 đơn', hintStyle: hint('#4338ca') }),
+        c({ ok: true, label: 'Thời gian bán', value: '96 ngày', barStyle: bar(100, '#12925f'), right: 'Cần 60 ngày', hint: 'Đạt', hintStyle: hint('#12925f') }),
+        c({ ok: true, label: 'Khiếu nại 90 ngày', value: '2,4%', barStyle: bar(80, '#b07814'), right: 'Tối đa 3%', hint: 'Sát ngưỡng', hintStyle: hint('#8a5d0c') }),
+        c({ ok: true, label: '1 sao 90 ngày', value: '3,1%', barStyle: bar(62, '#12925f'), right: 'Tối đa 5%', hint: 'Đạt', hintStyle: hint('#12925f') }),
+        c({ ok: false, label: 'Điểm uy tín', value: '72', barStyle: bar(96, '#4f46e5'), right: 'Cần 75', hint: 'Còn 3 điểm', hintStyle: hint('#4338ca') })
+      ]
+    };
+  }
+}
+</script>
+</body>
+</html>

@@ -1,0 +1,162 @@
+<!doctype html>
+<html lang="vi">
+<head>
+<meta charset="utf-8">
+<title>Thẻ tiến độ và trạng thái hạng</title>
+<script src="./support.js"></script>
+</head>
+<body>
+<x-dc>
+<helmet>
+<link href="https://fonts.googleapis.com/css2?family=Newsreader:opsz,wght@6..72,500;6..72,600&amp;family=Be+Vietnam+Pro:wght@400;500;600;700&amp;family=JetBrains+Mono:wght@400;500;600&amp;display=swap" rel="stylesheet">
+<style>
+body{margin:0;background:#f5f6f9;color:#14161d;font-family:"Be Vietnam Pro",system-ui,sans-serif}
+a{color:#4338ca;text-decoration:none}a:hover{color:#3730a3;text-decoration:underline}
+.mono{font-family:"JetBrains Mono",ui-monospace,monospace;font-variant-numeric:tabular-nums}
+.serif{font-family:Newsreader,Georgia,serif}
+</style>
+</helmet>
+<div style="width:1280px;height:1640px;box-sizing:border-box;background:#f5f6f9;padding:40px;display:flex;flex-direction:column;gap:28px">
+
+  <div style="display:flex;flex-direction:column;gap:12px">
+    <div style="font-size:12px;font-weight:600;letter-spacing:.06em;text-transform:uppercase;color:#454954">A · Tổng quan gian hàng — thẻ tiến độ (đầu trang)</div>
+    <div style="background:#ffffff;border:1px solid #e7e8ee;border-radius:12px;padding:18px 22px;display:grid;grid-template-columns:auto minmax(0,1fr) auto auto;gap:24px;align-items:center">
+      <span style="display:inline-flex;align-items:center;gap:6px;border:1px solid rgba(79,70,229,.25);background:#eef0fe;color:#4338ca;border-radius:999px;padding:4px 12px;font-weight:600;font-size:12.5px">
+        <svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5"><path d="M20 6L9 17l-5-5"/></svg>Đã xác minh
+      </span>
+      <div style="display:flex;flex-direction:column;gap:8px">
+        <div style="font-size:14px"><b>Còn 3 điều kiện để lên Uy tín</b> <span style="color:#454954">· doanh số, số đơn, điểm uy tín</span></div>
+        <div role="img" aria-label="3 trên 6 điều kiện đạt" style="display:grid;grid-template-columns:repeat(6,minmax(0,1fr));gap:4px;max-width:420px">
+          <span style="height:6px;border-radius:999px;background:#12925f"></span>
+          <span style="height:6px;border-radius:999px;background:#12925f"></span>
+          <span style="height:6px;border-radius:999px;background:#12925f"></span>
+          <span style="height:6px;border-radius:999px;background:#e7e8ee"></span>
+          <span style="height:6px;border-radius:999px;background:#e7e8ee"></span>
+          <span style="height:6px;border-radius:999px;background:#e7e8ee"></span>
+        </div>
+      </div>
+      <div style="text-align:right">
+        <div style="font-size:11.5px;color:#454954">Điểm uy tín</div>
+        <div class="mono" style="font-size:20px;font-weight:600">72<span style="font-size:13px;color:#454954;font-weight:500"> / cần 75</span></div>
+      </div>
+      <a href="Main.dc.html" style="display:inline-flex;align-items:center;gap:6px;height:40px;padding:0 16px;border:1px solid #d6d9e1;border-radius:8px;font-size:13px;font-weight:600;color:#14161d;background:#ffffff">Xem chi tiết
+        <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M5 12h14M13 6l6 6-6 6"/></svg></a>
+    </div>
+    <div style="display:grid;grid-template-columns:repeat(4,minmax(0,1fr));gap:12px;opacity:.45" aria-hidden="true">
+      <div style="height:84px;border-radius:12px;background:#ffffff;border:1px solid #e7e8ee"></div>
+      <div style="height:84px;border-radius:12px;background:#ffffff;border:1px solid #e7e8ee"></div>
+      <div style="height:84px;border-radius:12px;background:#ffffff;border:1px solid #e7e8ee"></div>
+      <div style="height:84px;border-radius:12px;background:#ffffff;border:1px solid #e7e8ee"></div>
+    </div>
+  </div>
+
+  <div style="display:flex;flex-direction:column;gap:12px">
+    <div style="font-size:12px;font-weight:600;letter-spacing:.06em;text-transform:uppercase;color:#454954">B · Đang bị cảnh báo hạ hạng (thay thẻ A, và nằm đầu trang Hạng &amp; uy tín)</div>
+    <div style="background:#ffffff;border:1px solid #e9c77f;border-radius:12px;overflow:hidden">
+      <div style="background:#faf0db;padding:16px 22px;display:flex;align-items:center;justify-content:space-between;gap:16px">
+        <div style="display:flex;align-items:center;gap:12px">
+          <span style="width:36px;height:36px;border-radius:999px;background:#ffffff;display:grid;place-items:center;flex-shrink:0">
+            <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="#8a5d0c" stroke-width="2"><path d="M12 3l10 18H2z"/><path d="M12 10v5M12 18h.01"/></svg>
+          </span>
+          <div>
+            <div style="font-size:15px;font-weight:600;color:#14161d">Hạng Uy tín đang bị cảnh báo — còn 9 ngày để khắc phục</div>
+            <div style="font-size:12.5px;color:#22242c;margin-top:2px">Bắt đầu 20/09 · xét lần cuối 04/10 lúc 03:00</div>
+          </div>
+        </div>
+        <div style="width:220px;display:flex;flex-direction:column;gap:6px">
+          <div role="img" aria-label="Đã qua 5 trên 14 ngày" style="height:8px;border-radius:999px;background:#ffffff;overflow:hidden"><div style="height:100%;width:36%;background:#b07814;border-radius:999px"></div></div>
+          <div class="mono" style="font-size:11.5px;color:#22242c;text-align:right">ngày 5 / 14</div>
+        </div>
+      </div>
+      <div style="padding:18px 22px;display:grid;grid-template-columns:minmax(0,1fr) minmax(0,1fr);gap:28px">
+        <div style="display:flex;flex-direction:column;gap:12px">
+          <div style="font-size:13px;font-weight:600">Chỉ số chưa đạt mức giữ hạng</div>
+          <div style="display:flex;flex-direction:column;gap:6px">
+            <div style="display:flex;justify-content:space-between;font-size:13px"><span>Tỷ lệ khiếu nại 90 ngày</span><span class="mono"><b style="color:#b43a3a">4,1%</b> / tối đa 3%</span></div>
+            <div style="height:8px;border-radius:999px;background:#f0f1f5;position:relative">
+              <div style="position:absolute;left:0;top:0;bottom:0;width:100%;border-radius:999px;background:#cf4444"></div>
+              <span style="position:absolute;left:73%;top:-3px;width:2px;height:14px;background:#14161d"></span>
+            </div>
+            <div style="font-size:12px;color:#454954">Cần ít hơn 3 khiếu nại mới trong 30 đơn tới, hoặc xử lý dứt điểm 2 khiếu nại đang mở.</div>
+          </div>
+          <div style="display:flex;justify-content:space-between;font-size:13px;padding-top:8px;border-top:1px solid #f0f1f5"><span>Đánh giá 1 sao 90 ngày</span><span class="mono" style="color:#12925f"><b>2,0%</b> · đạt</span></div>
+          <div style="display:flex;justify-content:space-between;font-size:13px"><span>Điểm uy tín</span><span class="mono" style="color:#12925f"><b>78</b> · đạt</span></div>
+        </div>
+        <div style="display:flex;flex-direction:column;gap:10px;font-size:13px;line-height:1.55">
+          <div style="font-weight:600">Nếu đến 04/10 vẫn chưa đạt</div>
+          <div style="color:#22242c">Gian hàng về hạng <b>Đã xác minh</b>: tối đa 5 sản phẩm đang bán (bạn đang bán 8 — không bị gỡ, nhưng không bật thêm được), rút tối đa 10.000.000 ₫/lần, mất quyền kết nối API.</div>
+          <div style="display:flex;gap:10px;margin-top:4px">
+            <a href="#" style="display:inline-flex;align-items:center;height:40px;padding:0 16px;border-radius:8px;background:#4f46e5;color:#ffffff;font-size:13px;font-weight:600">Xử lý 2 khiếu nại đang mở</a>
+            <a href="#" style="display:inline-flex;align-items:center;height:40px;padding:0 16px;border-radius:8px;border:1px solid #d6d9e1;color:#14161d;font-size:13px;font-weight:600">Liên hệ hỗ trợ</a>
+          </div>
+        </div>
+      </div>
+    </div>
+  </div>
+
+  <div style="display:flex;flex-direction:column;gap:12px">
+    <div style="font-size:12px;font-weight:600;letter-spacing:.06em;text-transform:uppercase;color:#454954">C · Các trạng thái khác của thẻ</div>
+    <div style="display:grid;grid-template-columns:repeat(3,minmax(0,1fr));gap:16px">
+
+      <div style="background:#ffffff;border:1px solid #e7e8ee;border-radius:12px;padding:18px 20px;display:flex;flex-direction:column;gap:12px">
+        <div style="display:flex;align-items:center;justify-content:space-between">
+          <span style="border:1px solid #d6d9e1;background:#f0f1f5;color:#22242c;border-radius:999px;padding:3px 10px;font-weight:600;font-size:12px">Mới</span>
+          <span style="font-size:11.5px;color:#454954">Seller vừa được duyệt</span>
+        </div>
+        <div style="font-size:14px;font-weight:600">Chưa đủ dữ liệu để chấm điểm</div>
+        <div style="font-size:12.5px;color:#22242c;line-height:1.55">Điểm uy tín có sau <b>10 đơn hoàn tất</b> trong 90 ngày. Trong lúc đó bạn vẫn lên hạng được nhờ các điều kiện còn lại.</div>
+        <div style="display:flex;flex-direction:column;gap:6px">
+          <div style="height:6px;border-radius:999px;background:#f0f1f5;overflow:hidden"><div style="height:100%;width:40%;background:#4f46e5;border-radius:999px"></div></div>
+          <div class="mono" style="font-size:12px;color:#454954">4 / 10 đơn</div>
+        </div>
+      </div>
+
+      <div style="background:#ffffff;border:1px solid #e7e8ee;border-radius:12px;padding:18px 20px;display:flex;flex-direction:column;gap:12px">
+        <div style="display:flex;align-items:center;justify-content:space-between">
+          <span style="display:inline-flex;align-items:center;gap:5px;border:1px solid rgba(79,70,229,.25);background:#eef0fe;color:#4338ca;border-radius:999px;padding:3px 10px;font-weight:600;font-size:12px">
+            <svg width="11" height="11" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5"><rect x="5" y="11" width="14" height="10" rx="2"/><path d="M8 11V8a4 4 0 018 0v3"/></svg>Uy tín
+          </span>
+          <span style="font-size:11.5px;color:#454954">Admin gán tay</span>
+        </div>
+        <div style="font-size:14px;font-weight:600">Hạng do sàn đặt cho bạn</div>
+        <div style="font-size:12.5px;color:#22242c;line-height:1.55">Hạng này không tự thay đổi theo chỉ số. Điểm uy tín vẫn được tính và hiển thị để bạn theo dõi.</div>
+        <div class="mono" style="font-size:12px;color:#454954">Điểm hiện tại: 81 / 100</div>
+      </div>
+
+      <div style="background:#ffffff;border:1px solid #e7e8ee;border-radius:12px;padding:18px 20px;display:flex;flex-direction:column;gap:12px">
+        <div style="display:flex;align-items:center;justify-content:space-between">
+          <span style="display:inline-flex;align-items:center;gap:5px;border:1px solid rgba(18,146,95,.3);background:#e6f5ee;color:#0e7a4f;border-radius:999px;padding:3px 10px;font-weight:600;font-size:12px">
+            <svg width="11" height="11" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5"><path d="M20 6L9 17l-5-5"/></svg>Uy tín
+          </span>
+          <span style="font-size:11.5px;color:#454954">Đã đạt hạng tự động cao nhất</span>
+        </div>
+        <div style="font-size:14px;font-weight:600">Bạn đang ở hạng cao nhất có thể tự đạt</div>
+        <div style="font-size:12.5px;color:#22242c;line-height:1.55">Hạng Doanh nghiệp do sàn mời. Giữ điểm uy tín từ 75 và khiếu nại dưới 3% để giữ hạng.</div>
+        <div class="mono" style="font-size:12px;color:#454954">Điểm hiện tại: 88 / 100 · giữ hạng cần ≥ 75</div>
+      </div>
+    </div>
+  </div>
+
+  <div style="display:flex;flex-direction:column;gap:12px">
+    <div style="font-size:12px;font-weight:600;letter-spacing:.06em;text-transform:uppercase;color:#454954">D · Thông báo (chuông + email)</div>
+    <div style="width:420px;background:#ffffff;border:1px solid #e7e8ee;border-radius:12px;box-shadow:0 2px 4px rgba(16,18,28,.05),0 20px 44px -14px rgba(16,18,28,.18);overflow:hidden">
+      <div style="padding:12px 16px;border-bottom:1px solid #e7e8ee;font-size:13px;font-weight:600">Thông báo</div>
+      <div style="padding:14px 16px;display:flex;gap:12px;border-bottom:1px solid #f0f1f5;background:#fbfbff">
+        <span style="width:32px;height:32px;border-radius:999px;background:#e6f5ee;color:#12925f;display:grid;place-items:center;flex-shrink:0"><svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5"><path d="M12 19V5M5 12l7-7 7 7"/></svg></span>
+        <div style="font-size:13px;line-height:1.5"><b>Gian hàng đã lên hạng Uy tín.</b> Bạn được bán tối đa 10 sản phẩm, rút 50.000.000 ₫/lần và kết nối API.<div style="font-size:11.5px;color:#454954;margin-top:4px">03:00 · hôm nay</div></div>
+      </div>
+      <div style="padding:14px 16px;display:flex;gap:12px">
+        <span style="width:32px;height:32px;border-radius:999px;background:#faf0db;color:#8a5d0c;display:grid;place-items:center;flex-shrink:0"><svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M12 3l10 18H2z"/><path d="M12 10v5M12 18h.01"/></svg></span>
+        <div style="font-size:13px;line-height:1.5"><b>Cảnh báo hạng Uy tín.</b> Tỷ lệ khiếu nại 4,1% vượt mức 3%. Còn 14 ngày để khắc phục.<div style="font-size:11.5px;color:#454954;margin-top:4px">20/09</div></div>
+      </div>
+    </div>
+  </div>
+</div>
+</x-dc>
+<script type="text/x-dc" data-dc-script data-props='{"$preview":{"width":1280,"height":1640}}'>
+class Component extends DCLogic {
+  renderVals() { return {}; }
+}
+</script>
+</body>
+</html>

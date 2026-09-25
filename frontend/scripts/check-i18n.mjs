@@ -1,5 +1,6 @@
 import { readFileSync, readdirSync, statSync } from "node:fs";
 import { join, relative } from "node:path";
+import { fileURLToPath } from "node:url";
 
 const requiredNamespaces = ["common", "home", "labels", "status", "errors"];
 const messages = Object.fromEntries(["en", "vi"].map((locale) => [
@@ -43,7 +44,7 @@ const SCOPED_COMPONENTS = new Set([
   "components/products/ProductLanguageRail.tsx",
   "components/products/ProductPricingLabelsEditor.tsx",
 ]);
-const root = new URL("..", import.meta.url).pathname;
+const root = fileURLToPath(new URL("..", import.meta.url));
 
 function* sourceFiles(dir) {
   for (const entry of readdirSync(dir)) {

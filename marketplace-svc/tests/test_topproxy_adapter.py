@@ -25,6 +25,9 @@ from src.adapters.topproxy import (
 )
 from src.security.crypto import encrypt_str
 
+# Pure unit tests: no persistence, so skip the per-test database cleanup.
+pytestmark = pytest.mark.no_db
+
 
 def _adapter(mode: str = "static", *, prior_xoay_purchase: bool = False, **extra) -> TopProxyAdapter:
     config = {

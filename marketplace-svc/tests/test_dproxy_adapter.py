@@ -21,6 +21,9 @@ from src.adapters.dproxy import (
 )
 from src.security.crypto import encrypt_str
 
+# Pure unit tests: no persistence, so skip the per-test database cleanup.
+pytestmark = pytest.mark.no_db
+
 FUTURE = (datetime.now(timezone.utc) + timedelta(days=5)).isoformat()
 PAST = (datetime.now(timezone.utc) - timedelta(days=1)).isoformat()
 EXT_ID = "cab68c1a-707c-4148-a326-e69e99c870db"
@@ -380,7 +383,8 @@ def _adapter(**config_overrides) -> DProxyAdapter:
         "plan_id": PLAN_ID,
     }
     config.update(config_overrides)
-    return DProxyAdapter(config, db=None, provider_id=1)
+    # provider_id=None: pure unit test, no Provider row, so no call-log inserts.
+    return DProxyAdapter(config, db=None, provider_id=None)
 
 
 def _resp(status: int, json_body=None) -> httpx.Response:

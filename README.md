@@ -163,7 +163,19 @@ cd marketplace-svc
 uv run pytest -q tests/test_chat_inquiries.py tests/test_chat_orders.py
 ```
 
-Backend suite dùng chung `marketplace_test` và `TRUNCATE` các bảng trước mỗi test. **Không chạy hai tiến trình pytest song song**, kể cả từ agent/worktree khác.
+Backend suite dùng chung `marketplace_test`; trước mỗi test, `clean_db` chỉ `TRUNCATE ... RESTART IDENTITY` các bảng đang có dữ liệu hoặc đã dùng sequence (truncate cả ~70 bảng tốn ~0,5 s/test). **Không chạy hai tiến trình pytest song song**, kể cả từ agent/worktree khác.
+
+Vòng lặp nhanh khi phát triển (không cần chạy cả suite):
+
+```bash
+cd marketplace-svc
+uv run pytest -q tests/test_orders.py -x --ff   # dừng ở lỗi đầu tiên, chạy test vừa fail trước
+uv run pytest -q --lf                           # chỉ chạy lại các test fail ở lần trước
+uv run pytest -q tests/test_auth.py -k refresh  # lọc theo tên test
+uv run pytest -q tests/test_gateway.py --durations=10
+```
+
+Trong test, `tests/conftest.py` hạ bcrypt xuống cost 4 (production vẫn cost 12) và dùng Redis DB 15 (`REDIS_URL` có sẵn trong môi trường, ví dụ CI, được giữ nguyên). Test thuần logic không đụng database đánh dấu `pytestmark = pytest.mark.no_db` để bỏ qua bước dọn database.
 
 Đo các database hot path bằng dữ liệu tổng hợp trong database test:
 

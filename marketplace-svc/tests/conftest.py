@@ -10,6 +10,9 @@ os.environ["DATABASE_URL"] = os.environ.get(
     "TEST_DATABASE_URL",
     "postgresql+asyncpg://marketplace:marketplace@localhost:5432/marketplace_test",
 )
+# Redis DB 15 keeps test rate-limit counters and token denylists away from a
+# developer's working Redis; a REDIS_URL already in the environment (CI) wins.
+os.environ.setdefault("REDIS_URL", "redis://localhost:6379/15")
 os.environ["DEPLOYMENT_ENVIRONMENT"] = "test"
 os.environ["AUTH_RATE_LIMIT_ENABLED"] = "false"
 # Sign-up email verification is exercised explicitly in test_auth_verification.py;
@@ -53,15 +56,27 @@ os.environ["PAYOS_BASE_URL"] = "http://payos.test"
 os.environ["DEPOSIT_MIN_AMOUNT"] = "10000"
 os.environ["DEPOSIT_MAX_AMOUNT"] = "100000000"
 
+import bcrypt
 import httpx
 import pytest
 from httpx import ASGITransport, AsyncClient
 from sqlalchemy import text, update
 
+import src.auth.service as auth_service
 from src.database import SessionLocal, engine
 from src.main import app
 from src.models.account import Account
 from src.security.bff_request_signing import requires_bff_signature
+
+
+def _fast_hash_password(password: str) -> str:
+    """Test-only bcrypt cost 4 (~1 ms) instead of the production default 12
+    (~250 ms). The suite hashes and checks passwords thousands of times;
+    `checkpw` reads the cost from the stored hash, so sign-ins speed up too."""
+    return bcrypt.hashpw(password.encode(), bcrypt.gensalt(rounds=4)).decode()
+
+
+auth_service.hash_password = _fast_hash_password
 
 
 async def register_and_login(client, email, password="StrongPass123!"):
@@ -129,18 +144,49 @@ async def clean_db(request):
     clear_all_process_config_caches()
     reset_synonyms_snapshot()
     async with engine.begin() as conn:
-        result = await conn.execute(
-            text(
-                "SELECT tablename FROM pg_tables "
-                "WHERE schemaname='public' AND tablename != 'alembic_version'"
-            )
-        )
-        tables = [row[0] for row in result.fetchall()]
-        if tables:
+        dirty = await _dirty_tables(conn)
+        if dirty:
             await conn.execute(
-                text(f"TRUNCATE {', '.join(tables)} RESTART IDENTITY CASCADE")
+                text(f"TRUNCATE {', '.join(sorted(dirty))} RESTART IDENTITY CASCADE")
             )
     yield
+
+
+_table_names: list[str] | None = None
+
+# Tables whose owned id sequence has been used since the last reset. A table can
+# be empty again (rolled-back insert, deleted rows) while its ids no longer
+# start at 1, and some tests rely on fresh ids.
+_USED_SEQUENCE_TABLES = text("""
+    SELECT DISTINCT t.relname
+    FROM pg_sequences s
+    JOIN pg_namespace n ON n.nspname = s.schemaname
+    JOIN pg_class sc ON sc.relname = s.sequencename AND sc.relnamespace = n.oid
+    JOIN pg_depend d ON d.objid = sc.oid AND d.deptype IN ('a', 'i')
+    JOIN pg_class t ON t.oid = d.refobjid
+    WHERE s.schemaname = 'public' AND s.last_value IS NOT NULL
+""")
+
+
+async def _dirty_tables(conn) -> set[str]:
+    """Only the tables a previous test touched: TRUNCATE costs a few ms per
+    table even when it is empty, and truncating all ~70 tables before every test
+    dominated the suite's runtime."""
+    global _table_names
+    if _table_names is None:
+        result = await conn.execute(text(
+            "SELECT tablename FROM pg_tables "
+            "WHERE schemaname='public' AND tablename != 'alembic_version'"
+        ))
+        _table_names = [row[0] for row in result.fetchall()]
+    if not _table_names:
+        return set()
+    probe = " UNION ALL ".join(
+        f"SELECT '{name}' WHERE EXISTS (SELECT 1 FROM {name})" for name in _table_names
+    )
+    dirty = {row[0] for row in (await conn.execute(text(probe))).fetchall()}
+    dirty |= {row[0] for row in (await conn.execute(_USED_SEQUENCE_TABLES)).fetchall()}
+    return dirty & set(_table_names)
 
 
 @pytest.fixture

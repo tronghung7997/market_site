@@ -13,6 +13,9 @@ from src.pricing.credit import CreditPricing
 from src.pricing.task import TaskPricing
 from src.pricing.factory import get_pricing_strategy
 
+# Pure unit tests: no persistence, so skip the per-test database cleanup.
+pytestmark = pytest.mark.no_db
+
 
 # ---------------------------------------------------------------------------
 # Fixtures — sample params mimicking pricing_configs.params

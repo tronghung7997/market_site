@@ -36,7 +36,7 @@ These rules extend the repository-root `AGENTS.md` for `marketplace-svc/`.
 
 ## Tests
 
-- Tests use `marketplace_test`, not the development database. `tests/conftest.py` forces `DATABASE_URL` to `TEST_DATABASE_URL` and truncates all application tables before each database test.
+- Tests use `marketplace_test`, not the development database. `tests/conftest.py` forces `DATABASE_URL` to `TEST_DATABASE_URL` and, before each database test, truncates (with identity reset) every table that holds rows or has used its id sequence. It also lowers bcrypt to cost 4 for tests only; production hashing is unchanged.
 - Never run two pytest processes in parallel. Do not use `pytest-xdist`; separate agents/worktrees still share the same default test database.
 - Mark a test `no_db` only when it truly does not touch application persistence.
 - Cover success, validation failure, authentication failure, authorization failure, idempotent retry, and concurrency behavior when relevant.

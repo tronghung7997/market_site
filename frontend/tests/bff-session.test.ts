@@ -7,6 +7,7 @@ import {
   REFRESH_COOKIE,
   REFRESH_MAX_AGE_SECONDS,
   authCookieOptions,
+  refreshFailureKind,
   tokensFromLoginPayload,
 } from "../lib/bff-session.ts";
 
@@ -32,4 +33,14 @@ test("login payload without both tokens is rejected", () => {
     token_type: "bearer",
   });
   assert.deepEqual(tokens, { accessToken: "a", refreshToken: "r", tokenType: "bearer" });
+});
+
+test("only a rejected refresh token ends the session; throttling and outages keep it", () => {
+  assert.equal(refreshFailureKind(401), "rejected");
+  assert.equal(refreshFailureKind(403), "rejected");
+  assert.equal(refreshFailureKind(422), "rejected");
+  assert.equal(refreshFailureKind(429), "rate_limited");
+  assert.equal(refreshFailureKind(500), "unavailable");
+  assert.equal(refreshFailureKind(502), "unavailable");
+  assert.equal(refreshFailureKind(null), "unavailable");
 });

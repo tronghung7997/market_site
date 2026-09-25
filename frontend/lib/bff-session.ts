@@ -32,3 +32,17 @@ export function tokensFromLoginPayload(payload: IssuedAuthTokens): {
     tokenType: payload.token_type ?? "bearer",
   };
 }
+
+/**
+ * Why a refresh-token rotation failed. Only a verdict on the token itself
+ * (`rejected`) may end the session: a throttled or unreachable backend must
+ * leave the cookies alone so the next request simply retries the refresh.
+ * `null` = the backend never answered, or answered 2xx without tokens.
+ */
+export type RefreshFailure = "rejected" | "rate_limited" | "unavailable";
+
+export function refreshFailureKind(status: number | null): RefreshFailure {
+  if (status === 401 || status === 403 || status === 422) return "rejected";
+  if (status === 429) return "rate_limited";
+  return "unavailable";
+}

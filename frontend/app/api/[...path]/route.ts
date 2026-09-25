@@ -9,7 +9,9 @@ import {
   REFRESH_COOKIE,
   REFRESH_MAX_AGE_SECONDS,
   authCookieOptions,
+  refreshFailureKind,
   tokensFromLoginPayload,
+  type RefreshFailure,
 } from "@/lib/bff-session";
 import { buildUpstreamTarget } from "@/lib/bff-upstream";
 import { SERVER_API_BASE } from "@/lib/server-api";
@@ -108,12 +110,17 @@ async function signedFetch(
   });
 }
 
-async function rotateRefresh(request: NextRequest, refreshToken: string): Promise<{
-  accessToken: string;
-  refreshToken: string;
-} | null> {
+type RefreshOutcome =
+  | { ok: true; accessToken: string; refreshToken: string }
+  | { ok: false; failure: RefreshFailure; retryAfter: string | null };
+
+function refreshFailed(status: number | null, retryAfter: string | null = null): RefreshOutcome {
+  return { ok: false, failure: refreshFailureKind(status), retryAfter };
+}
+
+async function rotateRefresh(request: NextRequest, refreshToken: string): Promise<RefreshOutcome> {
   const upstreamTarget = buildUpstreamTarget(["auth", "refresh"], SERVER_API_BASE);
-  if (!upstreamTarget) return null;
+  if (!upstreamTarget) return refreshFailed(null);
   const encoded = new TextEncoder().encode(JSON.stringify({ refresh_token: refreshToken }));
   const body = encoded.buffer.slice(encoded.byteOffset, encoded.byteOffset + encoded.byteLength) as ArrayBuffer;
   const headers = new Headers();
@@ -122,16 +129,36 @@ async function rotateRefresh(request: NextRequest, refreshToken: string): Promis
   if (accept) headers.set("accept", accept);
   if (acceptLanguage) headers.set("accept-language", acceptLanguage);
   headers.set("content-type", "application/json");
+  // Without it the refresh IP bucket is the BFF's own address for every user.
+  const clientIp = clientIpFromHeaders(request.headers);
+  if (clientIp) headers.set(CLIENT_IP_HEADER, clientIp);
   try {
     const upstream = await signedFetch("POST", upstreamTarget.target, headers, body);
-    if (!upstream.ok) return null;
+    if (!upstream.ok) return refreshFailed(upstream.status, upstream.headers.get("retry-after"));
     const payload = await upstream.json() as { access_token?: string; refresh_token?: string };
     const tokens = tokensFromLoginPayload(payload);
-    if (!tokens) return null;
-    return { accessToken: tokens.accessToken, refreshToken: tokens.refreshToken };
+    if (!tokens) return refreshFailed(null);
+    return { ok: true, accessToken: tokens.accessToken, refreshToken: tokens.refreshToken };
   } catch {
-    return null;
+    return refreshFailed(null);
   }
+}
+
+/** A refresh that failed for a reason other than the token being bad: keep
+ * the session cookies so the next request can refresh again. */
+function refreshUnavailableResponse(failure: "rate_limited" | "unavailable", retryAfter: string | null) {
+  const response = failure === "rate_limited"
+    ? NextResponse.json(
+      bffErrorBody("AUTH_RATE_LIMITED", "Too many attempts. Please try again later."),
+      { status: 429 },
+    )
+    : NextResponse.json(
+      bffErrorBody("BACKEND_UNAVAILABLE", "The service is temporarily unavailable. Please try again."),
+      { status: 503 },
+    );
+  if (retryAfter) response.headers.set("Retry-After", retryAfter);
+  response.headers.set("Cache-Control", "no-store");
+  return response;
 }
 
 async function passthroughUpstream(
@@ -235,7 +262,8 @@ async function proxy(request: NextRequest, segments: string[]) {
       );
     }
     const rotated = await rotateRefresh(request, refreshCookie);
-    if (!rotated) {
+    if (!rotated.ok) {
+      if (rotated.failure !== "rejected") return refreshUnavailableResponse(rotated.failure, rotated.retryAfter);
       const failed = NextResponse.json(
         bffErrorBody("SESSION_EXPIRED", "Your session has expired. Please sign in again."),
         { status: 401 },
@@ -291,7 +319,7 @@ async function proxy(request: NextRequest, segments: string[]) {
 
   if (upstream.status === 401 && refreshCookie && !LOGIN_PATHS.has(path)) {
     const rotated = await rotateRefresh(request, refreshCookie);
-    if (rotated) {
+    if (rotated.ok) {
       const retryHeaders = copyAllowlistedHeaders(request);
       retryHeaders.set("authorization", `Bearer ${rotated.accessToken}`);
       try {
@@ -306,6 +334,7 @@ async function proxy(request: NextRequest, segments: string[]) {
         );
       }
     }
+    if (rotated.failure !== "rejected") return refreshUnavailableResponse(rotated.failure, rotated.retryAfter);
     return await passthroughUpstream(upstream, clearAuthCookies);
   }
 

@@ -45,22 +45,25 @@ async def test_patch_me_profile_fields_and_validation(client):
 
 @pytest.mark.asyncio
 async def test_sessions_list_and_revoke(client):
+    # Sign-up issues its own session (the browser keeps it), then each login
+    # adds one: sign-up + device A + device B.
     token_a = await register_and_login(client, "sess@example.com")
     token_b = await register_and_login(client, "sess@example.com")  # second device
     resp = await client.get("/me/sessions", headers=_h(token_b))
     assert resp.status_code == 200, resp.text
     rows = resp.json()
-    assert len(rows) == 2
+    assert len(rows) == 3
     current = [r for r in rows if r["is_current"]]
     assert len(current) == 1
-    other = next(r for r in rows if not r["is_current"])
-    assert "user_agent" in other and "ip" in other
+    device_a = next(r for r in (await client.get("/me/sessions", headers=_h(token_a))).json() if r["is_current"])
+    assert device_a["id"] != current[0]["id"]
+    assert "user_agent" in device_a and "ip" in device_a
 
-    # Revoke the other device: its token stops working, ours still does.
-    assert (await client.delete(f"/me/sessions/{other['id']}", headers=_h(token_b))).status_code == 204
+    # Revoke device A from device B: its token stops working, ours still does.
+    assert (await client.delete(f"/me/sessions/{device_a['id']}", headers=_h(token_b))).status_code == 204
     assert (await client.get("/me", headers=_h(token_a))).status_code == 401
     assert (await client.get("/me", headers=_h(token_b))).status_code == 200
-    assert len((await client.get("/me/sessions", headers=_h(token_b))).json()) == 1
+    assert len((await client.get("/me/sessions", headers=_h(token_b))).json()) == 2
 
     # Cannot touch someone else's session.
     token_c = await register_and_login(client, "sess2@example.com")

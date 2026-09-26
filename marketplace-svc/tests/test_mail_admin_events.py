@@ -5,7 +5,7 @@ from src.database import SessionLocal
 from src.models.mail import MailOutbox
 from tests.conftest import make_admin, register_and_login
 from tests.test_disputes import create_delivered_order
-from tests.test_seller_self_service import _trusted_seller
+from tests.test_seller_self_service import _submit_for_review, _trusted_seller
 
 
 async def _outbox(*templates: str) -> list[MailOutbox]:
@@ -67,6 +67,7 @@ async def test_provider_review_enqueues_mail(client):
     )
     assert created.status_code == 201, created.text
     provider_id = created.json()["id"]
+    await _submit_for_review(client, seller_token, provider_id)
 
     denied = await client.post(
         f"/admin/providers/{provider_id}/reject",

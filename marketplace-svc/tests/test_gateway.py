@@ -18,6 +18,7 @@ from src.database import SessionLocal
 from src.models.order import Order, OrderStatus
 from src.models.product import Product
 from src.models.provider import Provider
+from tests.test_seller_self_service import _submit_for_review
 from src.models.service_task import ServiceTask, ServiceTaskStatus
 from src.models.usage import OrderBalance, UsageRecord, UsageRecordStatus
 from src.orders.service import provision_pending_order
@@ -1211,6 +1212,7 @@ class TestSellerOwnedProviderSSRFGuardAtCallTime:
         }, headers={"Authorization": f"Bearer {seller_token}"})
         assert provider_resp.status_code == 201, provider_resp.text
         provider_id = provider_resp.json()["id"]
+        await _submit_for_review(client, seller_token, provider_id)
         approve_resp = await client.post(f"/admin/providers/{provider_id}/approve", json={},
                                          headers={"Authorization": f"Bearer {admin_token}"})
         assert approve_resp.status_code == 200

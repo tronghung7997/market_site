@@ -35,6 +35,19 @@ async def _mark_pending(provider_id: int) -> None:
         await db.commit()
 
 
+async def _submit_for_review(client, seller_token: str, provider_id: int) -> None:
+    """The seller-side path to admin review: a passing connection test leaves the
+    provider `tested`, then the seller submits it (`pending_review`)."""
+    async with SessionLocal() as db:
+        await db.execute(update(Provider).where(Provider.id == provider_id).values(review_status="tested"))
+        await db.commit()
+    resp = await client.post(
+        f"/seller/providers/{provider_id}/submit", headers={"Authorization": f"Bearer {seller_token}"},
+    )
+    assert resp.status_code == 200, resp.text
+    assert resp.json()["review_status"] == "pending_review"
+
+
 async def _product_for_seller(client, admin_token, seller_token, suffix):
     await client.post("/admin/categories", json={"name": f"SS{suffix}", "slug": f"ss{suffix}"},
                       headers={"Authorization": f"Bearer {admin_token}"})
@@ -197,7 +210,7 @@ class TestApprovalGatesProductAttachment:
             "provider_id": provider_id,
         }, headers={"Authorization": f"Bearer {seller_token}"})
         assert resp.status_code == 400
-        assert "duyệt" in resp.json()["detail"]
+        assert resp.json()["error_code"] == "PROVIDER_NOT_APPROVED"
 
     @pytest.mark.asyncio
     async def test_seller_can_attach_own_provider_once_approved(self, client):
@@ -249,7 +262,7 @@ class TestApprovalGatesProductAttachment:
             "provider_id": provider_id,
         }, headers={"Authorization": f"Bearer {seller_b}"})
         assert resp.status_code == 400
-        assert "seller khác" in resp.json()["detail"] or "chính mình" in resp.json()["detail"]
+        assert resp.json()["error_code"] == "SELLER_PROVIDER_RESTRICTED"
 
     @pytest.mark.asyncio
     async def test_admin_cannot_attach_seller_owned_provider_to_a_different_sellers_product(self, client):

@@ -18,4 +18,7 @@ COPY scripts/ ./scripts/
 RUN apt update && apt install -y curl nano vim
 EXPOSE 8001
 # CMD ["tail","-f","/dev/null"]
-CMD ["sh", "-c", "alembic upgrade head && uvicorn src.main:app --host 0.0.0.0 --port 8001"]
+# WEB_CONCURRENCY = uvicorn worker processes (default 1). Scheduled jobs run on one
+# process only (advisory lock), and chat events reach every worker via Redis.
+# A dedicated job process runs the same image with `python -m src.worker`.
+CMD ["sh", "-c", "alembic upgrade head && uvicorn src.main:app --host 0.0.0.0 --port 8001 --workers ${WEB_CONCURRENCY:-1}"]

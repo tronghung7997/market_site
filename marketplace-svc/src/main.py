@@ -1,3 +1,4 @@
+import asyncio
 from contextlib import asynccontextmanager
 from datetime import datetime, timedelta, timezone
 
@@ -13,6 +14,7 @@ from src.content_filter.router import router as content_filter_router
 from src.affiliate.router import router as affiliate_router
 from src.auth.router import router as auth_router
 from src.categories.router import router as categories_router
+from src.chat.events import run_chat_event_relay
 from src.chat.router import router as chat_router
 from src.config import settings
 from src.debug.router import router as debug_router
@@ -28,6 +30,7 @@ from src.ops.router import router as ops_router
 from src.ai.router import router as ai_router
 from src.search.router import router as search_router
 from src.search.service import flush_query_log
+from src.scheduler_leader import run_scheduler_leader
 from src.site_pages.router import router as site_pages_router
 from src.trust_seed.router import router as trust_seed_router
 from src.pricing.router import router as pricing_router
@@ -150,9 +153,16 @@ async def lifespan(app):
                    "khoá mặc định. Set trước khi thêm provider thật: đổi khoá về sau sẽ "
                    "làm hỏng toàn bộ credential đã lưu.",
         )
-    scheduler.start()
+    # Scheduled jobs run on one process only (Postgres advisory lock, see
+    # scheduler_leader); chat events reach streams held by other processes
+    # through the Redis relay.
+    background = [asyncio.create_task(run_chat_event_relay())]
+    if settings.scheduler_enabled:
+        background.append(asyncio.create_task(run_scheduler_leader(scheduler)))
     yield
-    scheduler.shutdown()
+    for task in background:
+        task.cancel()
+    await asyncio.gather(*background, return_exceptions=True)
     await flush_query_log()
 
 

@@ -37,6 +37,11 @@ class Settings(BaseSettings):
     # Background provisions running at once per process. Each holds the order
     # row lock and up to two pooled connections for the provider call.
     provision_max_concurrency: int = 4
+    # Whether this process competes to run the scheduled jobs. Only the holder of
+    # a Postgres advisory lock runs them (src/scheduler_leader.py), so several
+    # processes may keep this on; set it off on web processes when a dedicated
+    # `python -m src.worker` runs the jobs.
+    scheduler_enabled: bool = True
     # No usable defaults: every environment must inject unique values.
     jwt_secret: str
     jwt_algorithm: str = "HS256"

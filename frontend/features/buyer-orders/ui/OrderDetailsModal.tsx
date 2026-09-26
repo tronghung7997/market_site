@@ -19,6 +19,8 @@ import {
   Bolt,
   ClipboardList,
   FileText,
+  Maximize,
+  Minimize,
 } from "@/components/Icons";
 import {
   deliveryResourceMarks,
@@ -34,6 +36,7 @@ import { fulfillmentFromOrder } from "@/lib/fulfillment";
 import { deliveredDataFileName } from "../model";
 import { useVariantTermFor } from "@/lib/variant-term";
 import { formatDate, formatDateTime } from "@/lib/utils";
+import { cn } from "@/lib/cn";
 import { useMoney } from "@/lib/money";
 import { api } from "@/lib/api";
 import { downloadFromBff } from "@/lib/download";
@@ -62,6 +65,20 @@ interface ParsedItem {
 }
 
 type InspectorTab = "delivery" | "review" | "dispute";
+
+/** Stock lines longer than this (cookies, tokens) show clipped until expanded. */
+const LINE_CLIP = 240;
+const PAGE_SIZE = { compact: 20, expanded: 50 } as const;
+/** Per-viewer convenience: the inspector reopens at the size last chosen. */
+const INSPECTOR_SIZE_KEY = "orders.inspector.expanded";
+
+function readInspectorExpanded(): boolean {
+  try {
+    return window.localStorage.getItem(INSPECTOR_SIZE_KEY) === "1";
+  } catch {
+    return false;
+  }
+}
 type DeliveryKind = "instant" | "manual" | "api" | "task" | "proxy";
 
 /** The API's `fulfillment.kind`, or the same rule derived from the old fields. */
@@ -292,8 +309,30 @@ export default function OrderDetailsModal({
   const [copiedKey, setCopiedKey] = useState<string | number | null>(null);
   const [askConfirm, setAskConfirm] = useState(false);
   const [showReceipt, setShowReceipt] = useState(false);
+  const [expanded, setExpanded] = useState(false);
+  const [openLines, setOpenLines] = useState<Set<number>>(new Set());
 
-  const itemsPerPage = 20;
+  useEffect(() => { setExpanded(readInspectorExpanded()); }, []);
+
+  const itemsPerPage = expanded ? PAGE_SIZE.expanded : PAGE_SIZE.compact;
+  const toggleExpanded = () => {
+    const next = !expanded;
+    // Keep the first visible line on screen across the page-size change.
+    const firstShown = (itemPage - 1) * itemsPerPage;
+    setItemPage(Math.floor(firstShown / (next ? PAGE_SIZE.expanded : PAGE_SIZE.compact)) + 1);
+    setExpanded(next);
+    try {
+      window.localStorage.setItem(INSPECTOR_SIZE_KEY, next ? "1" : "0");
+    } catch { /* storage blocked: the size just is not remembered */ }
+  };
+  const toggleLine = (line: number) => {
+    setOpenLines((current) => {
+      const next = new Set(current);
+      if (next.has(line)) next.delete(line); else next.add(line);
+      return next;
+    });
+  };
+  const sizeFormat = useMemo(() => new Intl.NumberFormat(locale, { maximumFractionDigits: 1 }), [locale]);
   const fulfillmentStatus = o.fulfillment?.status ?? o.status;
   const delivered = ["delivered", "completed"].includes(fulfillmentStatus);
   const kind = deliveryKind(o);
@@ -488,15 +527,32 @@ export default function OrderDetailsModal({
   return (
     <Dialog open={open} onOpenChange={(next) => { if (!next && !lockDismiss) onClose(); }}>
       <DialogContent
-        className="left-0 top-0 flex h-dvh w-screen max-w-none translate-x-0 translate-y-0 flex-col gap-0 overflow-hidden rounded-none border-line bg-surface p-0 shadow-card-lg sm:left-1/2 sm:top-[5dvh] sm:h-[90dvh] sm:w-[calc(100vw-2rem)] sm:max-w-4xl sm:-translate-x-1/2 sm:rounded-2xl data-[state=open]:slide-in-from-top-[0%] data-[state=closed]:slide-out-to-top-[0%] data-[state=open]:zoom-in-100 data-[state=closed]:zoom-out-100"
+        className={cn(
+          "left-0 top-0 flex h-dvh w-screen max-w-none translate-x-0 translate-y-0 flex-col gap-0 overflow-hidden rounded-none border-line bg-surface p-0 shadow-card-lg sm:rounded-2xl data-[state=open]:slide-in-from-top-[0%] data-[state=closed]:slide-out-to-top-[0%] data-[state=open]:zoom-in-100 data-[state=closed]:zoom-out-100",
+          // Phones are always full screen; desktop toggles between the data
+          // dialog size and the whole viewport (minus a 16px gutter).
+          expanded
+            ? "sm:left-4 sm:top-4 sm:h-[calc(100dvh-2rem)] sm:w-[calc(100vw-2rem)]"
+            : "sm:left-1/2 sm:top-[5dvh] sm:h-[90dvh] sm:w-[calc(100vw-2rem)] sm:max-w-4xl sm:-translate-x-1/2",
+        )}
         onPointerDownOutside={(event) => { if (lockDismiss) event.preventDefault(); }}
         onInteractOutside={(event) => { if (lockDismiss) event.preventDefault(); }}
       >
+        <button
+          type="button"
+          onClick={toggleExpanded}
+          aria-pressed={expanded}
+          aria-label={expanded ? t("restoreDialog") : t("expandDialog")}
+          title={expanded ? t("restoreDialog") : t("expandDialog")}
+          className="absolute right-11 top-2.5 z-10 hidden h-8 w-8 items-center justify-center rounded-lg text-muted transition-colors hover:bg-raised hover:text-fg focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-iris sm:inline-flex"
+        >
+          {expanded ? <Minimize size={15} /> : <Maximize size={15} />}
+        </button>
         {/* Fixed-height frame: header + tabs stay put and only the body scrolls,
             so switching tabs never re-centres or resizes the dialog. */}
         <div className="shrink-0 space-y-3 border-b border-line px-4 pt-4 sm:px-6 sm:pt-5">
         {/* Header */}
-        <div className="flex items-start justify-between gap-3 pr-8">
+        <div className="flex items-start justify-between gap-3 pr-8 sm:pr-20">
           <div className="flex items-center gap-3.5 min-w-0">
             <ProductCover
               coverId={parseCoverId(o)}
@@ -594,8 +650,9 @@ export default function OrderDetailsModal({
         </div>
 
 
-          {/* Phones keep the header short: the status tag already says where the order is. */}
-          {!["refunded", "cancelled"].includes(o.status) && (
+          {/* Phones and the expanded view keep the header short (more room for
+              the lines): the status tag already says where the order is. */}
+          {!expanded && !["refunded", "cancelled"].includes(o.status) && (
             <div className="-mt-1 hidden sm:block">
               <StatusTimeline status={fulfillmentStatus} />
             </div>
@@ -608,9 +665,9 @@ export default function OrderDetailsModal({
           </div>
         </div>
 
-        <div className="min-h-0 flex-1 overflow-y-auto px-4 py-4 sm:px-6">
+        <div className="min-h-0 flex-1 overflow-y-auto px-4 sm:px-6">
           {activeTab === "delivery" && (
-            <div className="space-y-3">
+            <div className={cn("space-y-3", !(usesInspector && items.length > 0) && "py-4")}>
               {usesInspector ? (
                 <>
     {orderLines.isPending && orderLines.fetchStatus !== "idle" ? (
@@ -622,7 +679,9 @@ export default function OrderDetailsModal({
       </div>
     ) : items.length > 0 ? (
       <>
-        {/* Search & Action Bar */}
+        {/* Search & bulk actions stay reachable while the list scrolls (desktop;
+            on phones they scroll away so the lines get the small screen). */}
+        <div className="z-20 -mx-4 space-y-2.5 border-b border-line bg-surface px-4 pb-3 pt-4 sm:sticky sm:top-0 sm:-mx-6 sm:px-6">
         <div className="flex flex-col sm:flex-row items-stretch sm:items-center justify-between gap-2.5">
           <div className="relative flex-1 min-w-0">
             <Search size={14} className="absolute left-3 top-1/2 -translate-y-1/2 text-muted pointer-events-none" />
@@ -669,6 +728,21 @@ export default function OrderDetailsModal({
           </div>
         </div>
         {bulkError && <p role="alert" className="text-[11.5px] text-bad">{bulkError}</p>}
+        {selectedResourceIds.size > 0 && (
+          <div className="flex items-center justify-between gap-3 rounded-xl border border-bad/25 bg-bad-soft/30 px-3.5 py-2">
+            <div className="text-[12px] font-semibold text-fg">
+              {t("selectedAccounts", { count: selectedResourceIds.size })}
+            </div>
+            <div className="flex items-center gap-2">
+              <Button size="sm" variant="ghost" onClick={() => setSelectedResourceIds(new Set())}>{tc("cancel")}</Button>
+              <Button size="sm" variant="danger" onClick={openSelectedDispute}>
+                <AlertTriangle size={13} className="mr-1" />
+                {o.has_dispute ? t("addToDispute") : t("openDisputeSelected")}
+              </Button>
+            </div>
+          </div>
+        )}
+        </div>
         {liveLineCount !== lineCount && (
           <p className="text-[11px] text-muted">{t("copyLiveHint")}</p>
         )}
@@ -686,23 +760,8 @@ export default function OrderDetailsModal({
           </div>
         )}
 
-        {selectedResourceIds.size > 0 && (
-          <div className="sticky top-0 z-10 flex items-center justify-between gap-3 rounded-xl border border-bad/25 bg-surface px-3.5 py-2.5 shadow-card">
-            <div className="text-[12px] font-semibold text-fg">
-              {t("selectedAccounts", { count: selectedResourceIds.size })}
-            </div>
-            <div className="flex items-center gap-2">
-              <Button size="sm" variant="ghost" onClick={() => setSelectedResourceIds(new Set())}>{tc("cancel")}</Button>
-              <Button size="sm" variant="danger" onClick={openSelectedDispute}>
-                <AlertTriangle size={13} className="mr-1" />
-                {o.has_dispute ? t("addToDispute") : t("openDisputeSelected")}
-              </Button>
-            </div>
-          </div>
-        )}
-
-        {/* Paginated Resource List (Supports up to 10,000 lines without DOM lag) */}
-        <div className="max-h-[420px] overflow-y-auto rounded-xl border border-line divide-y divide-line bg-canvas">
+        {/* One compact row per line; the dialog body is the only scroll area. */}
+        <div className="rounded-xl border border-line divide-y divide-line bg-canvas">
           {paginatedItems.map((item, idx) => {
             const globalIdx = (itemPage - 1) * itemsPerPage + idx + 1;
             const isCopied = copiedKey === item.id;
@@ -710,39 +769,46 @@ export default function OrderDetailsModal({
             const highlighted = !!item.resourceId && highlightIds.has(item.resourceId);
             const inactive = mark?.kind === "refunded" || mark?.kind === "replaced" || item.resourceStatus === "error";
             const showRowIndex = !item.isConfigOrInstruction && !isServiceDelivery && items.length > 1;
+            const long = item.raw.length > LINE_CLIP;
+            const lineOpen = openLines.has(item.id);
+            const claimable = canSelectAccounts && item.resourceId != null && isDeliveryRowClaimable({
+              resourceStatus: item.resourceStatus,
+              mark,
+              generation: resourceWarrantyGeneration(item.resourceId, caseRecord?.resource_actions),
+            });
             return (
               <div
                 key={item.id}
-                className={`p-3 text-[12px] space-y-2 group transition-colors ${
-                  highlighted ? "bg-iris-soft/40" : "hover:bg-raised/40"
-                } ${inactive ? "opacity-70" : ""}`}
+                className={cn(
+                  "grid grid-cols-[auto_minmax(0,1fr)] items-start gap-x-3 gap-y-2 px-3 py-2.5 text-[12px] transition-colors sm:grid-cols-[auto_minmax(0,1fr)_auto]",
+                  highlighted ? "bg-iris-soft/40" : "hover:bg-raised/40",
+                  inactive && "opacity-70",
+                )}
               >
-                {/* Top meta row: Badges, Checkbox, Actions */}
-                <div className="flex items-center justify-between gap-2 flex-wrap">
-                  <div className="flex items-center gap-2 min-w-0 flex-wrap">
-                    {item.resourceId && (
-                      <input
-                        type="checkbox"
-                        aria-label={t("selectAccount", { id: item.resourceId })}
-                        checked={selectedResourceIds.has(item.resourceId)}
-                        disabled={!canSelectAccounts || !isDeliveryRowClaimable({
-                          resourceStatus: item.resourceStatus,
-                          mark,
-                          generation: resourceWarrantyGeneration(item.resourceId, caseRecord?.resource_actions),
-                        })}
-                        onChange={() => toggleResource(item.resourceId!)}
-                        className="h-4 w-4 shrink-0 accent-iris disabled:opacity-35 cursor-pointer"
-                      />
-                    )}
-                    {item.resourceId ? (
-                      <span className="font-mono text-[10.5px] font-bold text-iris bg-iris-soft px-1.5 py-0.5 rounded shrink-0">
-                        {lineLabel(item.id)}
-                      </span>
-                    ) : showRowIndex ? (
-                      <span className="font-mono text-[10.5px] text-faint shrink-0">
-                        #{String(globalIdx).padStart(2, "0")}
-                      </span>
-                    ) : null}
+                <div className="flex items-center gap-2 pt-px">
+                  {item.resourceId && (
+                    <input
+                      type="checkbox"
+                      aria-label={t("selectAccount", { id: item.resourceId })}
+                      checked={selectedResourceIds.has(item.resourceId)}
+                      disabled={!claimable}
+                      onChange={() => toggleResource(item.resourceId!)}
+                      className="h-4 w-4 shrink-0 accent-iris disabled:opacity-35 cursor-pointer"
+                    />
+                  )}
+                  {item.resourceId ? (
+                    <span className="min-w-9 rounded bg-iris-soft px-1.5 py-0.5 text-center font-mono text-[10.5px] font-bold text-iris tabular">
+                      {lineLabel(item.id)}
+                    </span>
+                  ) : showRowIndex ? (
+                    <span className="min-w-9 text-center font-mono text-[10.5px] text-faint tabular">
+                      #{String(globalIdx).padStart(2, "0")}
+                    </span>
+                  ) : null}
+                </div>
+
+                <div className="min-w-0 space-y-1">
+                  <div className="flex flex-wrap items-center gap-1.5 empty:hidden">
                     <DeliveryAccountBadge
                       mark={mark}
                       highlighted={highlighted}
@@ -755,56 +821,67 @@ export default function OrderDetailsModal({
                       </span>
                     )}
                   </div>
-
-                  <div className="flex items-center gap-1.5 shrink-0 ml-auto">
-                    {/* Dedicated Dispute Button */}
-                    {canSelectAccounts && item.resourceId != null && isDeliveryRowClaimable({
-                      resourceStatus: item.resourceStatus,
-                      mark,
-                      generation: resourceWarrantyGeneration(item.resourceId, caseRecord?.resource_actions),
-                    }) && (
-                      <button
-                        title={t("disputeThisItem")}
-                        onClick={() => {
-                          onOpenDispute(o.id, {
-                            variantName: o.variant_name,
-                            initialReason: t("reasonItemPrefix", { n: globalIdx, raw: item.raw }),
-                            initialEvidence: { username: item.user || item.raw, issue: t("evidenceIssueItem") },
-                            resourceIds: item.resourceId ? [item.resourceId] : undefined,
-                          });
-                        }}
-                        className="rounded-lg px-2 py-1 text-[11px] text-bad hover:bg-bad-soft transition-colors cursor-pointer flex items-center gap-1"
-                      >
-                        <AlertTriangle size={11} />
-                        <span>{mark?.kind === "replacement" ? t("warrantyIssue") : t("itemIssue")}</span>
-                      </button>
+                  <p
+                    className={cn(
+                      "font-mono text-[12px] leading-5 break-all",
+                      inactive ? "text-muted line-through" : "text-fg",
+                      long && lineOpen && "max-h-64 overflow-y-auto rounded-md bg-raised/60 p-2",
                     )}
-
+                  >
+                    {long && !lineOpen ? `${item.raw.slice(0, LINE_CLIP)}…` : item.raw}
+                  </p>
+                  {long && (
                     <button
-                      onClick={() => handleCopySingle(item.id, item.raw)}
-                      className={`rounded-lg px-2.5 py-1 text-[11px] font-semibold transition-colors cursor-pointer flex items-center gap-1 ${
-                        isCopied
-                          ? "bg-good text-white"
-                          : "bg-surface border border-line text-iris hover:bg-iris hover:text-white"
-                      }`}
+                      type="button"
+                      onClick={() => toggleLine(item.id)}
+                      aria-expanded={lineOpen}
+                      className="rounded text-[11px] font-medium text-iris hover:underline focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-iris"
                     >
-                      {isCopied ? <Check size={12} /> : <Copy size={12} />}
-                      <span>{isCopied ? t("copiedShort") : tc("copy")}</span>
+                      {lineOpen
+                        ? t("collapseLine")
+                        : t("showFullLine", { size: `${sizeFormat.format(item.raw.length / 1024)} KB` })}
                     </button>
-                  </div>
+                  )}
                 </div>
 
-                {/* Monospace text box: never cut off, full wrap */}
-                <div className={`rounded-lg bg-canvas border border-line/70 p-2 font-mono text-[12px] break-all select-all ${inactive ? "text-muted line-through" : "text-fg"}`}>
-                  {item.raw}
+                <div className="col-span-2 flex items-center justify-end gap-1.5 sm:col-span-1">
+                  {claimable && (
+                    <button
+                      type="button"
+                      title={t("disputeThisItem")}
+                      onClick={() => {
+                        onOpenDispute(o.id, {
+                          variantName: o.variant_name,
+                          initialReason: t("reasonItemPrefix", { n: globalIdx, raw: item.raw.slice(0, LINE_CLIP) }),
+                          initialEvidence: { username: item.user || item.raw.slice(0, LINE_CLIP), issue: t("evidenceIssueItem") },
+                          resourceIds: item.resourceId ? [item.resourceId] : undefined,
+                        });
+                      }}
+                      className="inline-flex h-7 items-center gap-1 whitespace-nowrap rounded-lg px-2 text-[11px] text-bad transition-colors hover:bg-bad-soft focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-iris"
+                    >
+                      <AlertTriangle size={11} />
+                      <span>{mark?.kind === "replacement" ? t("warrantyIssue") : t("itemIssue")}</span>
+                    </button>
+                  )}
+                  <button
+                    type="button"
+                    onClick={() => handleCopySingle(item.id, item.raw)}
+                    className={cn(
+                      "inline-flex h-7 items-center gap-1 whitespace-nowrap rounded-lg px-2.5 text-[11px] font-semibold transition-colors focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-iris",
+                      isCopied ? "bg-good text-white" : "border border-line bg-surface text-iris hover:bg-iris hover:text-white",
+                    )}
+                  >
+                    {isCopied ? <Check size={12} /> : <Copy size={12} />}
+                    <span>{isCopied ? t("copiedShort") : tc("copy")}</span>
+                  </button>
                 </div>
               </div>
             );
           })}
         </div>
 
-        {/* Pagination Controls */}
-        <div className="flex items-center justify-between text-[12px] text-muted pt-1">
+        {/* Pager stays on screen at the bottom of the scroll area. */}
+        <div className="sticky bottom-0 z-10 -mx-4 flex items-center justify-between border-t border-line bg-surface px-4 py-2.5 text-[12px] text-muted sm:-mx-6 sm:px-6">
           <span>
             {t("showingItems", {
               from: (itemPage - 1) * itemsPerPage + 1,
@@ -883,7 +960,7 @@ export default function OrderDetailsModal({
           )}
 
           {activeTab === "dispute" && hasCase && (
-            <div className="space-y-3">
+            <div className="space-y-3 py-4">
     <p className="text-[12px] text-muted">{t("disputeTabHint")}</p>
     <OrderDispute
       orderId={o.id}
@@ -914,7 +991,7 @@ export default function OrderDetailsModal({
           )}
 
           {activeTab === "review" && showReview && (
-            <div className="space-y-4">
+            <div className="space-y-4 py-4">
     <div className="rounded-xl border border-line bg-surface p-4 space-y-3">
       <div className="flex items-center justify-between">
         <span className="font-semibold text-fg text-[13.5px]">{t("reviewSeller")}</span>

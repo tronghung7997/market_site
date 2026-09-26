@@ -170,6 +170,12 @@ export const ChevronDown = (p: IconProps) => (
 export const ChevronUp = (p: IconProps) => (
   <svg {...s(p)}><path d="m18 15-6-6-6 6" /></svg>
 );
+export const Maximize = (p: IconProps) => (
+  <svg {...s(p)}><path d="M15 3h6v6" /><path d="M9 21H3v-6" /><path d="M21 3l-7 7" /><path d="M3 21l7-7" /></svg>
+);
+export const Minimize = (p: IconProps) => (
+  <svg {...s(p)}><path d="M4 14h6v6" /><path d="M20 10h-6V4" /><path d="M14 10l7-7" /><path d="M3 21l7-7" /></svg>
+);
 export const RotateCcw = (p: IconProps) => (
   <svg {...s(p)}><path d="M3 12a9 9 0 1 0 9-9 9.75 9.75 0 0 0-6.74 2.74L3 8" /><path d="M3 3v5h5" /></svg>
 );

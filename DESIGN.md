@@ -280,6 +280,10 @@ Status meaning is global. Do not remap green/amber/red by role. Labels and icons
 
 A frequent, primary workflow belongs on a route, not inside a modal. Data dialogs require a sticky header/toolbar where useful, an obvious `40×40px` close target, focus trap, Escape support, and a mobile full-screen/collapsed composition.
 
+- A data dialog may offer a desktop expand/restore toggle beside the close control: expanded fills the viewport minus a `16px` gutter, and the choice may be remembered per viewer (local storage). Phones stay full screen.
+- The dialog body is its only scroll region. Toolbars and pagers stick to its edges; never nest a second fixed-height scrolling list inside it.
+- Long values in data rows (tokens, cookies, credentials) render clipped on one or two lines with an explicit "show full" toggle; copy/download always use the full value.
+
 ### Command palette (global search)
 
 The header search field is a trigger; the search surface is the command palette (`features/search`, opened by `⌘K` / `Ctrl K`, the header field, or the mobile search icon) and the `/search` results route.

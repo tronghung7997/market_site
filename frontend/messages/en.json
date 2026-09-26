@@ -2460,7 +2460,10 @@
       }
     },
     "orderLinesDelivered": "{count} lines delivered",
-    "orderLinesPreview": "Previewing {shown} of {total} lines. Download the file or open the order to see all of them."
+    "orderLinesPreview": "Previewing {shown} of {total} lines",
+    "orderOpenAllLines": "View all in your orders",
+    "orderPreviewUnavailable": "Preview unavailable. You can still download or copy the lines.",
+    "orderEscrowNote": "Payment is held in escrow until {date}. Check the goods before confirming receipt."
   },
   "chat": {
     "inbox": "Messages",
@@ -2945,7 +2948,11 @@
     "loadAllLines": "Load all lines",
     "nextLinesPage": "Next page",
     "loadMoreLines": "Load more lines",
-    "dashboardStockLines": "{count} stock lines delivered. View, copy or download them from the delivery list."
+    "dashboardStockLines": "{count} stock lines delivered. View, copy or download them from the delivery list.",
+    "expandDialog": "Expand to full screen",
+    "restoreDialog": "Restore size",
+    "showFullLine": "Show full line · {size}",
+    "collapseLine": "Collapse"
   },
   "wallet": {
     "available": "Available balance",

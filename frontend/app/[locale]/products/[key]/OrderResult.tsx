@@ -9,11 +9,13 @@ import { copyFromBff, downloadFromBff } from "@/lib/download";
 import { useApiErrorMessage } from "@/lib/use-api-error";
 import { useMoney } from "@/lib/money";
 import { queryKeys } from "@/lib/query-keys";
+import { lineLabel } from "@/lib/order-ref";
 import { orderStatus } from "@/lib/order-status";
+import { formatDate } from "@/lib/utils";
 import { fulfillmentFromStrategy } from "@/lib/fulfillment";
 import type { Order } from "@/lib/types";
 import { Button, CopyButton, Tag } from "@/components/ui";
-import { Check, Clock, Copy, Download, X } from "@/components/Icons";
+import { ArrowRight, Check, Clock, Copy, Download, ShieldCheck, X } from "@/components/Icons";
 
 const ORDER_POLL_MS = 3000;
 const ORDER_POLL_TIMEOUT_MS = 15 * 60 * 1000;
@@ -54,33 +56,65 @@ function StockDelivery({ order }: { order: Order }) {
       setBusy(null);
     }
   };
-  const lines = preview.data?.items.map((item) => item.data) ?? [];
+  const rows = preview.data?.items ?? [];
   return (
-    <div className="animate-rise space-y-2">
-      <div className="flex flex-wrap items-center justify-between gap-2">
-        <span className="text-[11px] text-faint uppercase tracking-wider">{t("orderLinesDelivered", { count: count.toLocaleString() })}</span>
-        <div className="flex items-center gap-1.5">
-          <Button size="sm" variant="secondary" disabled={busy !== null} aria-busy={busy === "download"} onClick={() => void run("download")} className="gap-1.5">
-            <Download size={13} /> {busy === "download" ? to("preparingLines") : to("downloadTxt")}
-          </Button>
-          <Button size="sm" variant="secondary" disabled={busy !== null} aria-busy={busy === "copy"} onClick={() => void run("copy")} className="gap-1.5">
-            {copied ? <Check size={13} className="text-good" /> : <Copy size={13} />} {busy === "copy" ? to("preparingLines") : to("copyAll")}
-          </Button>
+    <section aria-label={t("orderLinesDelivered", { count: count.toLocaleString() })} className="animate-rise space-y-3">
+      <div className="overflow-hidden rounded-xl border border-line bg-surface">
+        <div className="border-b border-line bg-raised/50 px-3 py-2 text-[12.5px] font-semibold text-fg">
+          {t("orderLinesDelivered", { count: count.toLocaleString() })}
+        </div>
+        {preview.isPending ? (
+          <div className="space-y-2.5 px-3 py-3" aria-hidden>
+            {[72, 58, 66].map((width) => (
+              <div key={width} className="flex items-center gap-3">
+                <div className="h-3 w-7 rounded bg-line/70 animate-shimmer" />
+                <div className="h-3 rounded bg-line/70 animate-shimmer" style={{ width: `${width}%` }} />
+              </div>
+            ))}
+          </div>
+        ) : preview.isError || rows.length === 0 ? (
+          <p className="px-3 py-3 text-[12px] text-muted">{t("orderPreviewUnavailable")}</p>
+        ) : (
+          <ol className="divide-y divide-line/70">
+            {rows.map((row, index) => (
+              <li key={row.id} className="flex items-center gap-3 px-3 py-1.5 font-mono text-[12px] leading-5">
+                <span className="w-8 shrink-0 text-right text-[11px] text-faint tabular">{lineLabel(row.line_no ?? index + 1)}</span>
+                {/* One clipped line each: a delivered line can be a 20 KB cookie. */}
+                <span className="min-w-0 truncate text-fg">{row.data.slice(0, 200)}</span>
+              </li>
+            ))}
+          </ol>
+        )}
+        <div className="flex flex-wrap items-center justify-between gap-x-3 gap-y-1 border-t border-line px-3 py-2 text-[11.5px]">
+          {rows.length > 0 && (
+            <span className="text-muted">{t("orderLinesPreview", { shown: rows.length, total: count.toLocaleString() })}</span>
+          )}
+          <Link
+            href={`/orders?order=${encodeURIComponent(order.order_code)}`}
+            className="ml-auto inline-flex items-center gap-1 rounded font-medium text-iris hover:underline focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-iris"
+          >
+            {t("orderOpenAllLines")} <ArrowRight size={12} />
+          </Link>
         </div>
       </div>
+
+      <div className="grid grid-cols-2 gap-2">
+        <Button size="sm" disabled={busy !== null} aria-busy={busy === "download"} onClick={() => void run("download")} className="gap-1.5 whitespace-nowrap">
+          <Download size={13} /> {busy === "download" ? to("preparingLines") : to("downloadTxt")}
+        </Button>
+        <Button size="sm" variant="secondary" disabled={busy !== null} aria-busy={busy === "copy"} onClick={() => void run("copy")} className="gap-1.5 whitespace-nowrap">
+          {copied ? <Check size={13} className="text-good" /> : <Copy size={13} />}
+          {busy === "copy" ? to("preparingLines") : copied ? to("copiedAll") : to("copyAll")}
+        </Button>
+      </div>
       {error && <p role="alert" className="text-[11.5px] text-bad">{error}</p>}
-      {preview.isPending ? (
-        <div className="space-y-1.5 rounded-lg border border-line bg-raised p-3" aria-hidden>
-          <div className="h-3 w-3/4 rounded bg-line/70 animate-shimmer" />
-          <div className="h-3 w-1/2 rounded bg-line/70 animate-shimmer" />
-        </div>
-      ) : lines.length > 0 ? (
-        <pre className="max-h-60 overflow-auto font-mono text-[12px] bg-raised border border-line rounded-lg p-3 whitespace-pre-wrap break-all">{lines.join("\n")}</pre>
-      ) : null}
-      {count > lines.length && lines.length > 0 && (
-        <p className="text-[11.5px] text-muted">{t("orderLinesPreview", { shown: lines.length, total: count.toLocaleString() })}</p>
+      {order.escrow_expires_at && (
+        <p className="flex items-start gap-1.5 text-[11.5px] leading-5 text-muted">
+          <ShieldCheck size={14} className="mt-0.5 shrink-0 text-good" />
+          <span>{t("orderEscrowNote", { date: formatDate(order.escrow_expires_at, locale) })}</span>
+        </p>
       )}
-    </div>
+    </section>
   );
 }
 

@@ -2460,7 +2460,10 @@
       }
     },
     "orderLinesDelivered": "Đã bàn giao {count} dòng",
-    "orderLinesPreview": "Đang xem trước {shown} / {total} dòng. Tải file hoặc mở đơn hàng để xem tất cả."
+    "orderLinesPreview": "Xem trước {shown} / {total} dòng",
+    "orderOpenAllLines": "Xem tất cả trong đơn hàng",
+    "orderPreviewUnavailable": "Không tải được bản xem trước. Bạn vẫn có thể tải file hoặc sao chép.",
+    "orderEscrowNote": "Tiền được ký quỹ đến {date}. Hãy kiểm tra hàng trước khi xác nhận đã nhận."
   },
   "chat": {
     "inbox": "Tin nhắn",
@@ -2945,7 +2948,11 @@
     "loadAllLines": "Tải tất cả dòng",
     "nextLinesPage": "Trang sau",
     "loadMoreLines": "Tải thêm dòng",
-    "dashboardStockLines": "Đã bàn giao {count} dòng từ kho. Xem, sao chép hoặc tải file ở danh sách dữ liệu bàn giao."
+    "dashboardStockLines": "Đã bàn giao {count} dòng từ kho. Xem, sao chép hoặc tải file ở danh sách dữ liệu bàn giao.",
+    "expandDialog": "Mở rộng toàn màn hình",
+    "restoreDialog": "Thu nhỏ lại",
+    "showFullLine": "Xem đầy đủ · {size}",
+    "collapseLine": "Thu gọn"
   },
   "wallet": {
     "available": "Số dư khả dụng",

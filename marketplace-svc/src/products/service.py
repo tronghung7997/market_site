@@ -36,7 +36,16 @@ from src.models.resource import Resource
 from src.orders.constants import MAX_ORDER_QUANTITY
 from src.sellers.service import approved_business_names, resolve_seller_ref, seller_refs_by_id
 from src.pricing.engine import inventory_managed_sql, product_pricing_override, resolve_pricing
-from src.products.covers import catalog_items, default_cover_id, images_payload, public_images
+from src.media import service as media_service
+from src.models.media import MediaPurpose
+from src.products.covers import (
+    PRODUCT_GALLERY_MAX,
+    catalog_items,
+    default_cover_id,
+    gallery_snapshots,
+    images_payload,
+    public_images,
+)
 from src.seller.settings import get_low_stock_threshold
 from src.suppliers.stock import sellable_stock_by_variant
 
@@ -133,13 +142,40 @@ def _images_for_create(data: dict) -> dict:
     return images_payload(cover_id or default_cover_id(data.get("service_type")))
 
 
+def _stored_images(product: Product) -> dict:
+    # Legacy URL lists and unknown blobs are dropped on the next write.
+    return dict(product.images) if isinstance(product.images, dict) else {}
+
+
 def _apply_cover_update(product: Product, data: dict) -> None:
     if "cover_id" not in data:
         data.pop("images", None)
         return
     cover_id = data.pop("cover_id")
     data.pop("images", None)
-    product.images = None if cover_id is None else images_payload(cover_id)
+    images = _stored_images(product)
+    images.pop("cover_id", None)
+    if cover_id is not None:
+        images.update(images_payload(cover_id))
+    product.images = images or None
+
+
+async def _apply_gallery(product: Product, gallery: list[str] | None, actor_id: int, db: AsyncSession) -> bool:
+    """Set the product's uploaded images (first = cover). Returns True when the
+    set changed. Runs in the caller's transaction; the product must have an id."""
+    if gallery is None:
+        return False
+    images = _stored_images(product)
+    before = [item.get("id") for item in gallery_snapshots(images)]
+    snaps = await media_service.set_subject_media(
+        db, actor_id=actor_id, purpose=MediaPurpose.product_image, subject_type="product",
+        subject_id=product.id, public_ids=gallery, max_count=PRODUCT_GALLERY_MAX,
+    )
+    images.pop("gallery", None)
+    if snaps:
+        images["gallery"] = snaps
+    product.images = images or None
+    return [snap["id"] for snap in snaps] != before
 
 
 def list_product_covers() -> dict:
@@ -178,8 +214,12 @@ async def create_product(seller_id: int, data: dict, db: AsyncSession, *, commit
         payload["escrow_days"] = int((await get_fee_settings(db))["escrow_default_days"])
     if payload.get("status") == "active":
         await _assert_can_activate(seller_id, db)
+    gallery = payload.pop("gallery", None)
     product = Product(seller_id=seller_id, **payload)
     db.add(product)
+    if gallery:
+        await db.flush()
+        await _apply_gallery(product, gallery, seller_id, db)
     if not commit:
         # Caller gộp nhiều thao tác vào một transaction (nhập gói ở /admin/sources).
         await db.flush()
@@ -225,6 +265,7 @@ async def update_product(product_id: int, seller_id: int, data: dict, db: AsyncS
         strategy = await _strategy_after_service_type_change(product, data["service_type"], db)
         await _validate_variant_pricing_model(product, strategy, db)
     _apply_cover_update(product, data)
+    await _apply_gallery(product, data.pop("gallery", None), seller_id, db)
     previous_title = product.title
     slug_value = data.pop("slug", None)
     for key, value in data.items():
@@ -281,12 +322,16 @@ async def admin_update_product(
     if data.get("service_type") is not None and data["service_type"] != product.service_type:
         strategy = await _strategy_after_service_type_change(product, data["service_type"], db)
         await _validate_variant_pricing_model(product, strategy, db)
+    gallery = data.pop("gallery", None)
     changed_fields = sorted(
         key for key, value in data.items()
         if value is not None and key not in {"status", "category_id"}
         and getattr(product, key, None) != value
     )
     _apply_cover_update(product, data)
+    # Without an actor only images already on the product can be kept or reordered.
+    if await _apply_gallery(product, gallery, actor_id if actor_id is not None else 0, db):
+        changed_fields = sorted({*changed_fields, "gallery"})
     previous_title = product.title
     previous_status = product.status
     previous_category = product.category_id
@@ -1020,7 +1065,8 @@ async def suggest_products(db: AsyncSession, query: str, *, locale: str = DEFAUL
             **_public_ref_fields(product),
             "title": localized["title"],
             "highlight_text": localized["highlight_text"],
-            "cover_id": None if images is None else images["cover_id"],
+            "cover_id": (images or {}).get("cover_id"),
+            "cover_image": (images or {}).get("cover"),
             "service_type": product.service_type,
             "category_id": category.id,
             "category_slug": category.slug,
@@ -2064,7 +2110,7 @@ def _product_list_dict(product: Product, *, locale: str | None = DEFAULT_LOCALE,
         **({} if public else {"seller_id": product.seller_id}),
         **_public_ref_fields(product),
         "title": title, "images": images,
-        "cover_id": None if images is None else images["cover_id"],
+        "cover_id": (images or {}).get("cover_id"),
         "escrow_days": product.escrow_days, "status": product.status.value,
         "service_type": product.service_type,
         "highlight_text": highlight_text, "sold_count": product.sold_count,
@@ -2136,14 +2182,14 @@ def _product_dict(product: Product, *, locale: str | None = DEFAULT_LOCALE, publ
             "translations": translations,
             "primary_locale": (product.i18n or {}).get(PRIMARY_LOCALE_KEY, "vi"),
         }
-    images = public_images(product.images)
+    images = public_images(product.images, gallery=True)
     return {
         "id": product.id, "category_id": product.category_id,
         **({} if public else {"seller_id": product.seller_id}),
         **_public_ref_fields(product),
         **text,
         "images": images,
-        "cover_id": None if images is None else images["cover_id"],
+        "cover_id": (images or {}).get("cover_id"),
         "escrow_days": product.escrow_days, "status": product.status.value,
         "service_type": product.service_type,
         "specs": resolve_product_specs(product, locale) if locale is not None else product.specs,

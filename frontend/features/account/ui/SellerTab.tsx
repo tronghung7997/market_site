@@ -10,10 +10,16 @@ import type { MySellerProfile } from "@/lib/types";
 import { Input, Spinner, Tag, Textarea } from "@/components/ui";
 import { useToast } from "@/components/toast";
 import { ExternalLink } from "@/components/Icons";
+import { ImageUploader, type UploaderImage } from "@/components/media/ImageUploader";
 import { Panel, Row, SaveBar } from "./shared";
 
-type Form = { business_name: string; description: string; contact: string };
-const toForm = (p: MySellerProfile): Form => ({ business_name: p.business_name, description: p.description ?? "", contact: p.contact ?? "" });
+type Form = { business_name: string; description: string; contact: string; logo: UploaderImage[]; banner: UploaderImage[] };
+const toForm = (p: MySellerProfile): Form => ({
+  business_name: p.business_name, description: p.description ?? "", contact: p.contact ?? "",
+  logo: p.logo ? [p.logo] : [], banner: p.banner ? [p.banner] : [],
+});
+const imageChange = (next: UploaderImage[], before: UploaderImage[]) =>
+  next[0]?.id === before[0]?.id ? {} : { value: next[0]?.id ?? null };
 
 /** Shop identity sellers edit themselves (no re-approval) plus their tier and its allowances. */
 export function SellerTab() {
@@ -28,7 +34,15 @@ export function SellerTab() {
   React.useEffect(() => { if (baseline) setForm(baseline); }, [baseline]);
 
   const save = useMutation({
-    mutationFn: (f: Form) => api.updateMySellerProfile({ business_name: f.business_name.trim(), description: f.description.trim(), contact: f.contact.trim() }),
+    mutationFn: (f: Form) => {
+      const logo = imageChange(f.logo, baseline?.logo ?? []);
+      const banner = imageChange(f.banner, baseline?.banner ?? []);
+      return api.updateMySellerProfile({
+        business_name: f.business_name.trim(), description: f.description.trim(), contact: f.contact.trim(),
+        ...("value" in logo ? { logo_id: logo.value } : {}),
+        ...("value" in banner ? { banner_id: banner.value } : {}),
+      });
+    },
     onSuccess: (next) => { queryClient.setQueryData(["me", "seller-profile"], next); toast.success(t("shopSaved")); },
     onError: (e) => toast.error(apiErrorMessage(e, t("saveFailed"))),
   });
@@ -57,6 +71,10 @@ export function SellerTab() {
           <Row label={t("shopContact")} hint={t("shopContactHint")}>
             <Input value={form.contact} onChange={(e) => setForm({ ...form, contact: e.target.value })} maxLength={255} />
           </Row>
+          <div className="grid gap-4 sm:grid-cols-[12rem_minmax(0,1fr)]">
+            <ImageUploader purpose="seller_logo" value={form.logo} onChange={(logo) => setForm({ ...form, logo })} label={t("shopLogo")} hint={t("shopLogoHint")} />
+            <ImageUploader purpose="seller_banner" layout="banner" value={form.banner} onChange={(banner) => setForm({ ...form, banner })} label={t("shopBanner")} hint={t("shopBannerHint")} />
+          </div>
         </div>
         <SaveBar dirty={dirty} valid={!problem} problem={problem} saving={save.isPending} onReset={() => setForm(baseline)} onSave={() => save.mutate(form)} />
       </Panel>

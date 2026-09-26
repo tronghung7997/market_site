@@ -3839,7 +3839,13 @@
     "tierEscrow": "Escrow hold",
     "tierEscrowDays": "{days} days shorter",
     "unlimited": "Unlimited",
-    "tierUnknown": "Tier details unavailable."
+    "tierUnknown": "Tier details unavailable.",
+    "shopLogo": "Shop logo",
+    "shopLogoHint": "Square image shown next to the shop name.",
+    "shopBanner": "Shop banner",
+    "shopBannerHint": "3:1 ratio (e.g. 1920 × 640), shown at the top of the shop page.",
+    "avatar": "Profile photo",
+    "avatarHint": "Square image, centre-cropped to 256 × 256."
   },
   "security": {
     "title": "Account security",
@@ -4566,7 +4572,10 @@
       "highlightPlaceholder": "e.g. Instant delivery · 24h warranty",
       "protection": "Buyer protection",
       "protectionHint": "Funds stay in escrow this many days after delivery; buyers can dispute during that window",
-      "protectionDays": "{days} days"
+      "protectionDays": "{days} days",
+      "gallery": "Product images",
+      "galleryHint": "Up to 8 images. The first one is the cover on product cards; use the arrows to reorder.",
+      "coverFallbackHint": "The icon shows while the product has no images."
     },
     "languages": {
       "editing": "Editing: {language}",
@@ -5796,5 +5805,27 @@
       "rotating_key": "Rotating key"
     },
     "noAddress": "No address yet — use Rotate IP to fetch the first proxy"
+  },
+  "media": {
+    "add": "Add image",
+    "uploading": "Uploading image…",
+    "remove": "Remove image",
+    "replace": "Replace image",
+    "moveEarlier": "Move earlier",
+    "moveLater": "Move later",
+    "cover": "Cover",
+    "count": "{count}/{max} images",
+    "dropHint": "Click to choose, drag and drop or paste images (JPG, PNG, WebP, GIF). Images are resized before upload.",
+    "tooMany": "You can add at most {max} images.",
+    "notImage": "not an image file.",
+    "unreadable": "the browser cannot read this image (e.g. HEIC in Chrome). Convert it to JPG or PNG.",
+    "tooLarge": "image is larger than 10 MB.",
+    "unavailable": "Image unavailable",
+    "close": "Close",
+    "previous": "Previous image",
+    "next": "Next image",
+    "counter": "{current} / {total}",
+    "imageOf": "Image {current} of {total}",
+    "open": "View larger"
   }
 }

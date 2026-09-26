@@ -93,6 +93,7 @@ export function EditProductPage({ productRef }: { productRef: string }) {
 
   const snapshot = formSnapshot({
     content: core.content, primaryLocale: core.primaryLocale, categoryId: core.categoryId, serviceType: core.serviceType, coverId: core.coverId, escrowDays: core.escrowDays,
+    gallery: core.gallery.map((image) => image.id),
     workModel: core.workModel, b1: core.b1, b2: core.b2, b3: core.b3, providerId: core.selectedProviderId, variantNames,
     proxyPlans: planSnapshot(core.proxyPlans),
   });
@@ -143,6 +144,7 @@ export function EditProductPage({ productRef }: { productRef: string }) {
       core.setCategoryId(detail.category_id);
       core.setServiceType((SERVICE_TYPES.includes(detail.service_type as ServiceType) ? detail.service_type : "other") as ServiceType);
       core.setCoverId(parseCoverId(detail) ?? (detail.service_type === "proxy" ? "proxy" : "account"));
+      core.setGallery(detail.images?.gallery ?? []);
       core.setEscrowDays(detail.escrow_days);
       core.setWorkModel(hydrated.workModel);
       core.setB1(hydrated.b1);
@@ -159,6 +161,7 @@ export function EditProductPage({ productRef }: { productRef: string }) {
         content: hydrated.content, primaryLocale: hydrated.primaryLocale, categoryId: detail.category_id,
         serviceType: (SERVICE_TYPES.includes(detail.service_type as ServiceType) ? detail.service_type : "other"),
         coverId: parseCoverId(detail) ?? (detail.service_type === "proxy" ? "proxy" : "account"), escrowDays: detail.escrow_days,
+        gallery: (detail.images?.gallery ?? []).map((image) => image.id),
         workModel: hydrated.workModel, b1: hydrated.b1, b2: hydrated.b2, b3: hydrated.b3, providerId: productOperations?.provider?.id ?? core.selectedProviderId, variantNames: names,
         proxyPlans: planSnapshot(proxyEditor),
       }));
@@ -270,6 +273,7 @@ export function EditProductPage({ productRef }: { productRef: string }) {
       const primary = buyerContentToTranslation(core.primaryContent);
       await api.updateProduct(productId, {
         title: primary.title, content_locale: core.primaryLocale, category_id: core.categoryId, service_type: core.serviceType, cover_id: core.coverId,
+        gallery: core.gallery.map((image) => image.id),
         description: primary.description || null, highlight_text: primary.highlight_text, features: primary.features, specs: primary.specs, warranty_text: primary.warranty_text, escrow_days: core.escrowDays,
       });
       await api.updateProductTranslation(productId, core.primaryLocale, core.translationPayload(core.primaryLocale, archetype === "B"));
@@ -326,7 +330,7 @@ export function EditProductPage({ productRef }: { productRef: string }) {
   const minPrice = planSummary ? planSummary.minPrice : activeVariants.filter((v) => v.price > 0).reduce<number | null>((min, v) => (min == null || v.price < min ? v.price : min), null);
   const previewProduct = buildPreviewProduct({
     id: productId, title: core.activeContent.title, categoryId: core.categoryId, categoryName: core.catOptions.find((o) => o.id === core.categoryId)?.name ?? product.category_name ?? "",
-    serviceType: core.serviceType, coverId: core.coverId, escrowDays: core.escrowDays, highlightText: core.activeContent.highlightText, description: core.activeContent.description,
+    serviceType: core.serviceType, coverId: core.coverId, gallery: core.gallery, escrowDays: core.escrowDays, highlightText: core.activeContent.highlightText, description: core.activeContent.description,
     features: parseFeatureLines(core.activeContent.featuresText), specs: parseSpecLines(core.activeContent.specsText), warrantyText: core.activeContent.warrantyText,
     variants: activeVariants, status: product.status, pricingStrategy: product.pricing_strategy, sellerName: product.seller_name, soldCount: product.sold_count, ratingAvg: product.rating_avg, ratingCount: product.rating_count, locale: core.contentLocale,
   });
@@ -361,7 +365,7 @@ export function EditProductPage({ productRef }: { productRef: string }) {
         backLabel={ts("backToProducts")}
         title={(
           <span className="flex items-center gap-2.5">
-            <ProductCover coverId={core.coverId} title={core.activeContent.title} className="h-8 w-8 rounded-lg" />
+            <ProductCover coverId={core.coverId} image={core.gallery[0]} title={core.activeContent.title} className="h-8 w-8 rounded-lg" />
             <span className="min-w-0 truncate">{core.primaryContent.title.trim() || ts("editProductTitle")}</span>
           </span>
         )}
@@ -473,7 +477,7 @@ export function EditProductPage({ productRef }: { productRef: string }) {
               )}
             </Card>
           )}
-          <CustomerGlance title={core.activeContent.title} categoryLabel={catLabel} coverId={core.coverId} deliveryLabel={deliveryLabel} escrowDays={core.escrowDays} highlightText={core.activeContent.highlightText} minPrice={minPrice} variantCount={planSummary ? planSummary.count : activeVariants.length} onPreview={() => setPreviewOpen(true)} serviceType={core.serviceType} />
+          <CustomerGlance title={core.activeContent.title} categoryLabel={catLabel} coverId={core.coverId} coverImage={core.gallery[0]} deliveryLabel={deliveryLabel} escrowDays={core.escrowDays} highlightText={core.activeContent.highlightText} minPrice={minPrice} variantCount={planSummary ? planSummary.count : activeVariants.length} onPreview={() => setPreviewOpen(true)} serviceType={core.serviceType} />
         </aside>
       </div>
 

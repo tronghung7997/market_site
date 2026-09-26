@@ -2,7 +2,10 @@ from fastapi import HTTPException
 from sqlalchemy import select
 from sqlalchemy.ext.asyncio import AsyncSession
 
+from src.media import service as media_service
+from src.media.service import public_image
 from src.models.account import Account, ApplicationStatus, SellerApplication
+from src.models.media import MediaPurpose
 
 
 async def apply_for_seller(account: Account, business_name: str, description: str | None, contact: str | None, db: AsyncSession) -> SellerApplication:
@@ -171,6 +174,8 @@ async def get_seller_profile(account: Account, db: AsyncSession) -> dict:
         "handle": ref["handle"],
         "canonical_path": ref["canonical_path"],
         "seller_tier": account.seller_tier.value if hasattr(account.seller_tier, "value") else account.seller_tier,
+        "logo": public_image(app.logo) if app else None,
+        "banner": public_image(app.banner) if app else None,
     }
 
 
@@ -195,6 +200,19 @@ async def update_seller_profile(account: Account, data: dict, db: AsyncSession) 
         db.add(app)
         await db.flush()
     before = {"business_name": app.business_name, "description": app.description, "contact": app.contact}
+    images_changed = []
+    for field, purpose in (("logo", MediaPurpose.seller_logo), ("banner", MediaPurpose.seller_banner)):
+        if f"{field}_id" not in data:
+            continue
+        media_id = data.pop(f"{field}_id")
+        snaps = await media_service.set_subject_media(
+            db, actor_id=account.id, purpose=purpose, subject_type="seller_shop",
+            subject_id=account.id, public_ids=[media_id] if media_id else [], max_count=1,
+        )
+        new_value = snaps[0] if snaps else None
+        if (getattr(app, field) or {}).get("id") != (new_value or {}).get("id"):
+            images_changed.append(field)
+        setattr(app, field, new_value)
     for key, value in data.items():
         if key == "business_name":
             if value is None or not value.strip():
@@ -203,11 +221,14 @@ async def update_seller_profile(account: Account, data: dict, db: AsyncSession) 
         else:
             setattr(app, key, (value or "").strip() or None)
     after = {"business_name": app.business_name, "description": app.description, "contact": app.contact}
-    if after != before:
+    if after != before or images_changed:
         await log_event(
             db, "info", f"Seller profile updated by account {account.id}",
             request_id=current_request_id(),
-            metadata={"event": "seller_profile_updated", "actor_id": account.id, "application_id": app.id, "before": before, "after": after},
+            metadata={
+                "event": "seller_profile_updated", "actor_id": account.id, "application_id": app.id,
+                "before": before, "after": after, "images_changed": images_changed,
+            },
         )
     await db.commit()
     return await get_seller_profile(account, db)

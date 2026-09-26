@@ -13,6 +13,7 @@ import { SlidePanel } from "@/components/admin";
 import { useToast } from "@/components/toast";
 import { AlertTriangle, ChevronRight, ExternalLink } from "@/components/Icons";
 import { categoryCoverId, CoverPicker, ProductCover } from "@/features/product-covers";
+import { ImageUploader, type UploaderImage } from "@/components/media/ImageUploader";
 import { descendantIds, pathTo, slugFromName } from "../model";
 
 export type PanelMode = { kind: "create"; parentId: number | null } | { kind: "edit"; id: number };
@@ -23,6 +24,7 @@ type Form = {
   slug: string;
   parentId: string;        // "" = root
   icon: string;            // "" = guess from the name
+  image: UploaderImage[];  // at most one uploaded image; shown instead of the icon
   isActive: boolean;
   commission: string;      // "" = inherit
   feeOverride: string;     // "" = platform default
@@ -34,7 +36,7 @@ const daysOk = (v: string) => v.trim() === "" || (Number.isInteger(Number(v)) &&
 const numOrNull = (v: string) => (v.trim() === "" ? null : Number(v));
 
 function initialForm(row: CategoryAdminRow | null, parentId: number | null, fees: FeeConfigAdmin | undefined): Form {
-  if (!row) return { name: "", nameEn: "", slug: "", parentId: parentId == null ? "" : String(parentId), icon: "", isActive: true, commission: "", feeOverride: "", escrowOverride: "" };
+  if (!row) return { name: "", nameEn: "", slug: "", parentId: parentId == null ? "" : String(parentId), icon: "", image: [], isActive: true, commission: "", feeOverride: "", escrowOverride: "" };
   const fee = fees?.category_fee_percent[String(row.id)];
   const escrow = fees?.category_escrow_min_days[String(row.id)];
   return {
@@ -43,6 +45,7 @@ function initialForm(row: CategoryAdminRow | null, parentId: number | null, fees
     slug: row.slug,
     parentId: row.parent_id == null ? "" : String(row.parent_id),
     icon: row.icon ?? "",
+    image: row.image ? [row.image] : [],
     isActive: row.is_active,
     commission: row.commission_rate == null ? "" : String(row.commission_rate),
     feeOverride: fee == null ? "" : String(fee),
@@ -167,7 +170,7 @@ export function CategoryDetailPanel({ mode, row, rows, fees, onClose, onOpen, on
       if (creating) {
         const body: CategoryCreateInput = {
           name: form.name.trim(), name_en: form.nameEn.trim() || null, slug: form.slug.trim(),
-          icon: form.icon || null, parent_id, commission_rate: numOrNull(form.commission),
+          icon: form.icon || null, image_id: form.image[0]?.id ?? null, parent_id, commission_rate: numOrNull(form.commission),
         };
         const created = await api.createCategory(body);
         if (!form.isActive) await api.updateCategory(created.id, { is_active: false });
@@ -179,6 +182,7 @@ export function CategoryDetailPanel({ mode, row, rows, fees, onClose, onOpen, on
       if (form.nameEn.trim() !== baseline.nameEn) patch.name_en = form.nameEn.trim();
       if (form.slug.trim() !== baseline.slug) patch.slug = form.slug.trim();
       if (form.icon !== baseline.icon) patch.icon = form.icon || null;
+      if (form.image[0]?.id !== baseline.image[0]?.id) patch.image_id = form.image[0]?.id ?? null;
       if (form.parentId !== baseline.parentId) patch.parent_id = parent_id;
       if (form.isActive !== baseline.isActive) patch.is_active = form.isActive;
       if (form.commission !== baseline.commission) patch.commission_rate = numOrNull(form.commission);
@@ -218,7 +222,7 @@ export function CategoryDetailPanel({ mode, row, rows, fees, onClose, onOpen, on
         <div className="space-y-4 pb-20">
           {/* Header */}
           <div className="flex items-start gap-3">
-            <ProductCover coverId={categoryCoverId({ name: form.name || "?", icon: form.icon || null })} title={form.name || "Danh mục"} className="h-12 w-12 shrink-0 rounded-lg" />
+            <ProductCover coverId={categoryCoverId({ name: form.name || "?", icon: form.icon || null })} image={form.image[0]} title={form.name || "Danh mục"} className="h-12 w-12 shrink-0 rounded-lg" />
             <div className="min-w-0 flex-1">
               {parentPath.length > 0 && (
                 <p className="flex flex-wrap items-center gap-1 text-[12px] text-faint">
@@ -280,8 +284,17 @@ export function CategoryDetailPanel({ mode, row, rows, fees, onClose, onOpen, on
             </div>
           </Section>
 
-          <Section title="Hình ảnh" hint="Chọn một cover có sẵn. Để trống thì đoán theo tên danh mục.">
-            <CoverPicker value={form.icon || null} onChange={(id) => update({ icon: id ?? "" })} />
+          <Section title="Hình ảnh" hint="Ảnh tải lên được ưu tiên hiển thị. Không có ảnh thì dùng cover có sẵn; để trống cả hai thì đoán theo tên danh mục.">
+            <div className="space-y-4">
+              <ImageUploader
+                purpose="category_image"
+                value={form.image}
+                onChange={(image) => update({ image })}
+                label="Ảnh danh mục"
+                hint="Ảnh vuông, được cắt giữa và thu về 512 × 512."
+              />
+              <CoverPicker value={form.icon || null} onChange={(id) => update({ icon: id ?? "" })} />
+            </div>
           </Section>
 
           <Section title="Phí & hoa hồng" hint="Để trống là dùng mức chung ở Cài đặt › Phí & giữ tiền. Mức riêng của danh mục cha không tự áp cho danh mục con.">
@@ -328,7 +341,7 @@ export function CategoryDetailPanel({ mode, row, rows, fees, onClose, onOpen, on
                   {children.map((c) => (
                     <li key={c.id}>
                       <button type="button" onClick={() => onOpen({ kind: "edit", id: c.id })} className="flex w-full items-center gap-2.5 px-3 py-2 text-left transition-colors hover:bg-raised/40">
-                        <ProductCover coverId={categoryCoverId(c)} title={c.name} className={cn("h-7 w-7 rounded-md", !c.is_active && "opacity-50 grayscale")} />
+                        <ProductCover coverId={categoryCoverId(c)} image={c.image} title={c.name} className={cn("h-7 w-7 rounded-md", !c.is_active && "opacity-50 grayscale")} />
                         <span className="min-w-0 flex-1">
                           <span className={cn("block truncate text-[13px] font-medium", c.is_active ? "text-fg" : "text-muted")}>{c.name}</span>
                           <span className="block text-[11.5px] text-faint">{c.branch_active_product_count} đang bán{c.child_count > 0 ? ` · ${c.child_count} danh mục con` : ""}</span>

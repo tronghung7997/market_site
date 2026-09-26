@@ -12,6 +12,7 @@ import type { Order, SellerSummary } from "@/lib/types";
 import { Card, Tag } from "@/components/ui";
 import { ArrowRight, Star, Store } from "@/components/Icons";
 import { SectionHead } from "./SectionHead";
+import { MediaImage } from "@/components/media/MediaImage";
 
 export function TrustedSellers({ sellers }: { sellers: SellerSummary[] }) {
   const t = useTranslations("home");
@@ -23,9 +24,13 @@ export function TrustedSellers({ sellers }: { sellers: SellerSummary[] }) {
         {sellers.map((s) => (
           <Link key={s.public_key} href={sellerPath(s)}>
             <Card interactive className="p-3 sm:p-4 h-full text-center">
-              <span className="mx-auto grid place-items-center h-9 w-9 sm:h-11 sm:w-11 rounded-full bg-iris-soft text-iris border border-iris/15">
-                <Store size={15} />
-              </span>
+              {s.logo ? (
+                <MediaImage image={s.logo} alt="" className="mx-auto h-9 w-9 sm:h-11 sm:w-11 rounded-full border border-line" />
+              ) : (
+                <span className="mx-auto grid place-items-center h-9 w-9 sm:h-11 sm:w-11 rounded-full bg-iris-soft text-iris border border-iris/15">
+                  <Store size={15} />
+                </span>
+              )}
               <div className="mt-2 sm:mt-3 font-medium text-[12.5px] sm:text-[13.5px] truncate">
                 {s.display_name}
               </div>

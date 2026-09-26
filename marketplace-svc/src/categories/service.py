@@ -5,12 +5,24 @@ from sqlalchemy.orm import aliased
 
 from src.i18n.catalog import DEFAULT_LOCALE, merge_i18n_locale, resolve_category_fields
 from src.i18n.search_text import normalize_query, search_terms
+from src.media import service as media_service
+from src.media.service import public_image
 from src.models.category import Category
+from src.models.media import MediaPurpose
+
+
+async def _set_image(cat: Category, image_id: str | None, actor_id: int, db: AsyncSession) -> None:
+    snaps = await media_service.set_subject_media(
+        db, actor_id=actor_id, purpose=MediaPurpose.category_image, subject_type="category",
+        subject_id=cat.id, public_ids=[image_id] if image_id else [], max_count=1,
+    )
+    cat.image = snaps[0] if snaps else None
 
 
 async def create_category(
     name: str, slug: str, icon: str | None, parent_id: int | None, sort_order: int, db: AsyncSession,
     commission_rate: float | None = None, name_en: str | None = None,
+    image_id: str | None = None, actor_id: int = 0,
 ) -> Category:
     existing = await db.scalar(select(Category).where(Category.slug == slug))
     if existing:
@@ -38,6 +50,9 @@ async def create_category(
         i18n=i18n,
     )
     db.add(cat)
+    if image_id:
+        await db.flush()
+        await _set_image(cat, image_id, actor_id, db)
     await db.commit()
     await db.refresh(cat)
     return cat
@@ -60,12 +75,14 @@ async def _descendant_ids(cat_id: int, db: AsyncSession) -> set[int]:
     return out
 
 
-async def update_category(cat_id: int, data: dict, db: AsyncSession) -> Category:
+async def update_category(cat_id: int, data: dict, db: AsyncSession, *, actor_id: int = 0) -> Category:
     cat = await db.get(Category, cat_id)
     if not cat:
         raise HTTPException(status_code=404, detail="Không tìm thấy danh mục")
     icon_provided = "icon" in data
     icon_value = data.pop("icon", None)
+    if "image_id" in data:
+        await _set_image(cat, data.pop("image_id"), actor_id, db)
     name_en_provided = "name_en" in data
     name_en = data.pop("name_en", None)
     if "parent_id" in data:
@@ -164,6 +181,7 @@ async def list_categories_admin(db: AsyncSession) -> dict:
             "name_en": en.get("name") or None,
             "slug": c.slug,
             "icon": c.icon,
+            "image": public_image(c.image),
             "parent_id": c.parent_id,
             "sort_order": c.sort_order,
             "is_active": c.is_active,
@@ -209,6 +227,8 @@ async def list_categories_tree(db: AsyncSession, locale: str = DEFAULT_LOCALE) -
                 "name": localized["name"],
                 "slug": c.slug,
                 "icon": c.icon,
+                "image": public_image(c.image),
+            "image": public_image(c.image),
                 "parent_id": c.parent_id,
                 "sort_order": c.sort_order,
                 "is_active": c.is_active,
@@ -281,6 +301,7 @@ async def search_categories(db: AsyncSession, query: str, *, locale: str = DEFAU
             "name": resolve_category_fields(category, locale)["name"],
             "slug": category.slug,
             "icon": category.icon,
+            "image": public_image(category.image),
             "parent_id": category.parent_id,
             "parent_name": resolve_category_fields(parent_row, locale)["name"] if parent_row is not None else None,
             "parent_slug": parent_row.slug if parent_row is not None else None,

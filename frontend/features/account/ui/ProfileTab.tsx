@@ -12,9 +12,10 @@ import type { ProfileUpdate } from "@/lib/types";
 import { Button, Input } from "@/components/ui";
 import { CheckCircle2 } from "@/components/Icons";
 import { useToast } from "@/components/toast";
+import { ImageUploader, type UploaderImage } from "@/components/media/ImageUploader";
 import { Panel, Row, SaveBar, Segmented } from "./shared";
 
-type Form = { display_name: string; phone: string; telegram_username: string };
+type Form = { display_name: string; phone: string; telegram_username: string; avatar: UploaderImage[] };
 
 const phoneOk = (v: string) => v.trim() === "" || /^\+?[0-9]{8,15}$/.test(v.replace(/[^0-9+]/g, ""));
 const telegramOk = (v: string) => v.trim() === "" || /^[A-Za-z0-9_]{5,32}$/.test(v.trim().replace(/^@/, ""));
@@ -36,7 +37,8 @@ export function ProfileTab() {
     display_name: account?.display_name ?? "",
     phone: account?.phone ?? "",
     telegram_username: account?.telegram_username ?? "",
-  }), [account?.display_name, account?.phone, account?.telegram_username]);
+    avatar: account?.avatar ? [account.avatar] : [],
+  }), [account?.display_name, account?.phone, account?.telegram_username, account?.avatar]);
   const [form, setForm] = React.useState<Form>(baseline);
   React.useEffect(() => { setForm(baseline); }, [baseline]);
   const dirty = JSON.stringify(form) !== JSON.stringify(baseline);
@@ -69,6 +71,7 @@ export function ProfileTab() {
     <div className="space-y-5">
       <Panel title={t("profileTitle")} hint={t("profileHint")}>
         <div className="space-y-4">
+          <ImageUploader purpose="avatar" layout="avatar" value={form.avatar} onChange={(avatar) => setForm({ ...form, avatar })} label={t("avatar")} hint={t("avatarHint")} />
           <Row label={t("displayName")} hint={t("displayNameHint")}>
             <Input value={form.display_name} onChange={(e) => setForm({ ...form, display_name: e.target.value })} maxLength={80} placeholder={t("displayNamePlaceholder")} />
           </Row>
@@ -99,7 +102,10 @@ export function ProfileTab() {
           problem={problem}
           saving={save.isPending}
           onReset={() => setForm(baseline)}
-          onSave={() => save.mutate({ display_name: form.display_name.trim(), phone: form.phone.trim(), telegram_username: form.telegram_username.trim() })}
+          onSave={() => save.mutate({
+            display_name: form.display_name.trim(), phone: form.phone.trim(), telegram_username: form.telegram_username.trim(),
+            ...(form.avatar[0]?.id !== baseline.avatar[0]?.id ? { avatar_id: form.avatar[0]?.id ?? null } : {}),
+          })}
         />
       </Panel>
 

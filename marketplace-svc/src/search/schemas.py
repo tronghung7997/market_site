@@ -21,6 +21,8 @@ class SearchProductHit(BaseModel):
     title: str
     highlight_text: str | None = None
     cover_id: str | None = None
+    # First uploaded product image (PublicImage), when the seller added one.
+    cover_image: dict | None = None
     service_type: str | None = None
     category_id: int
     category_slug: str
@@ -40,6 +42,7 @@ class SearchCategoryHit(BaseModel):
     name: str
     slug: str
     icon: str | None = None
+    image: dict | None = None
     parent_id: int | None = None
     parent_name: str | None = None
     parent_slug: str | None = None

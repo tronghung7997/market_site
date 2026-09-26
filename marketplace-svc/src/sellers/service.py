@@ -3,6 +3,7 @@ from sqlalchemy.ext.asyncio import AsyncSession
 
 from src.i18n.search_text import normalize_query, search_terms
 from src.i18n.slug import canonical_path, parse_public_ref, slugify_text
+from src.media.service import public_image
 from src.models.account import Account, ApplicationStatus, SellerApplication
 from src.models.order import Order, OrderStatus
 from src.models.product import Product, ProductStatus
@@ -45,6 +46,24 @@ async def approved_business_names(account_ids: list[int], db: AsyncSession) -> d
     for account_id, business_name in rows:
         names.setdefault(account_id, business_name)
     return names
+
+
+async def approved_shop_images(account_ids: list[int], db: AsyncSession) -> dict[int, tuple[dict | None, dict | None]]:
+    """(logo, banner) PublicImages of each seller's latest approved application."""
+    if not account_ids:
+        return {}
+    rows = (await db.execute(
+        select(SellerApplication.account_id, SellerApplication.logo, SellerApplication.banner)
+        .where(
+            SellerApplication.account_id.in_(account_ids),
+            SellerApplication.status == ApplicationStatus.approved,
+        )
+        .order_by(SellerApplication.created_at.desc())
+    )).all()
+    images: dict[int, tuple[dict | None, dict | None]] = {}
+    for account_id, logo, banner in rows:
+        images.setdefault(account_id, (public_image(logo), public_image(banner)))
+    return images
 
 
 async def seller_refs_by_id(account_ids: list[int] | set[int], db: AsyncSession) -> dict[int, dict]:
@@ -130,6 +149,7 @@ async def _build_seller_summaries(seller_ids: list[int], db: AsyncSession) -> li
         ratings[seller_id] = round(rating_sum / rating_count, 2) if rating_count else None
 
     business_names = await approved_business_names(seller_ids, db)
+    shop_images = await approved_shop_images(seller_ids, db)
 
     # No account_id on the wire: the public key is the seller's only public handle.
     return [
@@ -141,6 +161,8 @@ async def _build_seller_summaries(seller_ids: list[int], db: AsyncSession) -> li
             "rating_avg": ratings.get(seller_id),
             "review_count": review_counts.get(seller_id, 0),
             "seller_tier": tiers.get(seller_id, "new"),
+            "logo": shop_images.get(seller_id, (None, None))[0],
+            "banner": shop_images.get(seller_id, (None, None))[1],
         }
         for seller_id in seller_ids
         if seller_id in display_names

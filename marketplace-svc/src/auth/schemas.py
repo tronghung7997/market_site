@@ -4,6 +4,9 @@ from uuid import UUID
 
 from pydantic import BaseModel, EmailStr, Field, field_validator
 
+from src.media.schemas import MediaId
+from src.media.service import public_image
+
 
 class RegisterRequest(BaseModel):
     email: EmailStr
@@ -90,9 +93,16 @@ class AccountResponse(BaseModel):
     preferred_locale: str | None = None
     preferred_currency: str | None = None
     notification_prefs: dict[str, bool] = {}
+    # Uploaded avatar (PublicImage) or None.
+    avatar: dict | None = None
     created_at: datetime | None = None
 
     model_config = {"from_attributes": True}
+
+    @field_validator("avatar", mode="before")
+    @classmethod
+    def _avatar(cls, value: object) -> dict | None:
+        return public_image(value) if isinstance(value, dict) else None
 
 
 class RegisterResponse(AccountResponse):
@@ -117,6 +127,8 @@ class ProfileUpdate(BaseModel):
     preferred_locale: str | None = Field(default=None, max_length=5)
     preferred_currency: str | None = Field(default=None, max_length=3)
     notification_prefs: dict[str, bool] | None = None
+    # Upload id (POST /media/uploads, purpose avatar); null removes the avatar.
+    avatar_id: MediaId | None = None
 
     @field_validator("display_name", "phone", "telegram_username", mode="before")
     @classmethod

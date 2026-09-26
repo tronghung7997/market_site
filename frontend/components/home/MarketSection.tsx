@@ -404,7 +404,7 @@ export function MarketSection({ products, initialTotal, cats, flatCats, active, 
                     <tr key={p.id} className="border-b border-line last:border-0 hover:bg-raised/50 transition-colors align-top">
                       <td className="px-4 py-3">
                         <Link href={productPath(p)} className="flex items-start gap-3 min-w-0">
-                          <ProductCover coverId={parseCoverId(p)} title={p.title} className="h-10 w-10 shrink-0" />
+                          <ProductCover coverId={parseCoverId(p)} image={p.images?.cover} title={p.title} className="h-10 w-10 shrink-0" />
                           <span className="min-w-0">
                             <span className="block font-medium text-[13.5px] leading-snug line-clamp-2">{p.title}</span>
                             <span className="mt-1 flex flex-wrap items-center gap-x-1.5 gap-y-0.5 text-[12px] text-faint">
@@ -454,7 +454,7 @@ export function MarketSection({ products, initialTotal, cats, flatCats, active, 
                 <Card className="p-0 h-full flex flex-col overflow-hidden transition-shadow duration-200 group-hover:shadow-card-lg">
                   <div className="p-3.5 sm:p-4">
                     <div className="flex items-start gap-3">
-                      <ProductCover coverId={parseCoverId(p)} title={p.title} className="h-14 w-14 shrink-0 rounded-xl" />
+                      <ProductCover coverId={parseCoverId(p)} image={p.images?.cover} title={p.title} className="h-14 w-14 shrink-0 rounded-xl" />
                       <div className="min-w-0 flex-1">
                         <div className="font-medium text-[14px] leading-snug line-clamp-2">{p.title}</div>
                         <div className="mt-1 flex flex-wrap items-center gap-x-1.5 text-[12px] text-faint">

@@ -43,7 +43,7 @@ export function ProductRow({
       href={productPath(p)}
       className="group flex items-center gap-3 sm:gap-4 px-3 sm:px-4 py-3 transition-colors hover:bg-raised/60 focus-visible:bg-raised/60 focus-visible:outline-none"
     >
-      <ProductCover coverId={parseCoverId(p)} title={p.title} className="h-10 w-10 sm:h-11 sm:w-11 rounded-lg" />
+      <ProductCover coverId={parseCoverId(p)} image={p.images?.cover} title={p.title} className="h-10 w-10 sm:h-11 sm:w-11 rounded-lg" />
 
       <div className="min-w-0 flex-1">
         <div className="flex items-center gap-2 min-w-0">

@@ -266,7 +266,7 @@ export function AdminCategoriesConsole() {
                               </span>
                             )
                           )}
-                          <ProductCover coverId={categoryCoverId(node)} title={node.name} className={cn("h-8 w-8 shrink-0 rounded-md", !node.is_active && "opacity-50 grayscale")} />
+                          <ProductCover coverId={categoryCoverId(node)} image={node.image} title={node.name} className={cn("h-8 w-8 shrink-0 rounded-md", !node.is_active && "opacity-50 grayscale")} />
                           <div className="min-w-0">
                             <div className="flex flex-wrap items-center gap-1.5">
                               {path.length > 0 && (

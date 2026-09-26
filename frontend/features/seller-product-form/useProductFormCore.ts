@@ -1,6 +1,7 @@
 "use client";
 
 import { useCallback, useEffect, useMemo, useState } from "react";
+import type { UploaderImage } from "@/components/media/ImageUploader";
 import { api } from "@/lib/api";
 import type { Category, ProductLocale, ProductTranslation, Provider } from "@/lib/types";
 import type { CoverId } from "@/lib/product-covers";
@@ -84,6 +85,8 @@ export function useProductFormCore(interfaceLocale: ProductLocale, options: { lo
   const [categoryId, setCategoryId] = useState(0);
   const [serviceType, setServiceType] = useState<ServiceType>("account");
   const [coverId, setCoverId] = useState<CoverId>("account");
+  // Uploaded product images in display order; the first is the card cover.
+  const [gallery, setGallery] = useState<UploaderImage[]>([]);
   const [escrowDays, setEscrowDays] = useState(3);
   const [workModel, setWorkModel] = useState<WorkModelB>("B2");
   const [b1, setB1] = useState<B1ConfigState>(INITIAL_B1);
@@ -162,7 +165,7 @@ export function useProductFormCore(interfaceLocale: ProductLocale, options: { lo
     categories, categoriesError, catOptions, providers, compatibleProviders, selectedProvider, backend,
     contentLocale, setContentLocale, primaryLocale, setPrimaryLocale, secondaryLocale,
     content, setContent, activeContent, primaryContent, updateContent,
-    categoryId, setCategoryId, serviceType, setServiceType, coverId, setCoverId, escrowDays, setEscrowDays,
+    categoryId, setCategoryId, serviceType, setServiceType, coverId, setCoverId, gallery, setGallery, escrowDays, setEscrowDays,
     workModel, setWorkModel, b1, setB1, b2, setB2, b3, setB3, selectedProviderId, setSelectedProviderId,
     operationsProvider, setOperationsProvider, providerManagedByAdmin, isProxySourceProduct,
     proxyPlans, setProxyPlans, buildPricingPlan,

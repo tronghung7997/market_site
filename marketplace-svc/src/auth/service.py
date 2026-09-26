@@ -914,3 +914,16 @@ async def update_internal(
     await db.commit()
     await db.refresh(account)
     return account
+
+
+async def set_avatar(account: Account, avatar_id: str | None, db: AsyncSession) -> None:
+    """Replace (or with None remove) the account's avatar. Flushes only; the
+    profile update commits."""
+    from src.media import service as media_service
+    from src.models.media import MediaPurpose
+
+    snaps = await media_service.set_subject_media(
+        db, actor_id=account.id, purpose=MediaPurpose.avatar, subject_type="account",
+        subject_id=account.id, public_ids=[avatar_id] if avatar_id else [], max_count=1,
+    )
+    account.avatar = snaps[0] if snaps else None

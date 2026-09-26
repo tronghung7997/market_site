@@ -29,6 +29,8 @@ class Category(Base):
     name: Mapped[str] = mapped_column(String(100), nullable=False)
     slug: Mapped[str] = mapped_column(String(100), unique=True, nullable=False)
     icon: Mapped[str | None] = mapped_column(String(255), nullable=True)
+    # Uploaded image (media snapshot); overrides the allowlisted icon when set.
+    image: Mapped[dict | None] = mapped_column(JSONB, nullable=True)
     parent_id: Mapped[int | None] = mapped_column(ForeignKey("categories.id"), nullable=True)
     sort_order: Mapped[int] = mapped_column(Integer, default=0)
     is_active: Mapped[bool] = mapped_column(default=True)

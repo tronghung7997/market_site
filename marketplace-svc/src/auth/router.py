@@ -299,6 +299,8 @@ async def update_me(
     have their own verified flows."""
     data = body.model_dump(exclude_unset=True)
     prefs = data.pop("notification_prefs", None)
+    if "avatar_id" in data:
+        await service.set_avatar(account, data.pop("avatar_id"), db)
     for key, value in data.items():
         setattr(account, key, value)
     if prefs is not None:

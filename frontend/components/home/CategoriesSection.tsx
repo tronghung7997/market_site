@@ -43,7 +43,7 @@ export function CategoriesSection({ cats, countFor, onBrowse }: {
           return (
             <div key={c.id} className="group rounded-xl border border-line bg-surface p-4 shadow-card transition-all duration-150 hover:-translate-y-0.5 hover:shadow-card-lg">
               <div className="flex items-center gap-3">
-                <ProductCover coverId={categoryCoverId(c)} title={c.name} className="h-10 w-10 rounded-lg" />
+                <ProductCover coverId={categoryCoverId(c)} image={c.image} title={c.name} className="h-10 w-10 rounded-lg" />
                 <div className="min-w-0 flex-1">
                   <Link href={categoryPath(c)} className="block truncate text-[15px] font-medium text-fg hover:text-iris">{c.name}</Link>
                   {count != null && <div className="text-[12px] text-muted">{common("products", { count })}</div>}
@@ -65,7 +65,7 @@ export function CategoriesSection({ cats, countFor, onBrowse }: {
                     return (
                       <Link key={child.id} href={categoryPath(child)}
                         className="inline-flex h-7 items-center gap-1.5 rounded-full border border-line bg-raised/50 px-2.5 text-[12px] text-muted transition-colors hover:border-iris/40 hover:bg-iris-soft hover:text-iris-hi">
-                        <ProductCover coverId={categoryCoverId(child)} title={child.name} className="h-3.5 w-3.5 rounded-sm" />
+                        <ProductCover coverId={categoryCoverId(child)} image={child.image} title={child.name} className="h-3.5 w-3.5 rounded-sm" />
                         {child.name}
                         {childCount != null && <span className="font-mono text-[10.5px] text-faint">{childCount}</span>}
                       </Link>

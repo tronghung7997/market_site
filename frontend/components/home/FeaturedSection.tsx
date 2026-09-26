@@ -48,6 +48,7 @@ export function FeaturedSection({ featured, catName, minPrice }: {
                     <div className="flex items-center gap-2 sm:gap-3">
                       <ProductCover
                         coverId={parseCoverId(p)}
+                        image={p.images?.cover}
                         title={p.title}
                         className="h-8 w-8 sm:h-10 sm:w-10"
                       />

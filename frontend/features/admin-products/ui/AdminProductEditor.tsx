@@ -32,6 +32,7 @@ import { ProductLanguageRail, productLanguageName } from "@/components/products/
 import { ProductPricingLabelsEditor, hasPlanTable } from "@/components/products/ProductPricingLabelsEditor";
 import { AdminReviewsPanel, TrustSeedPanel } from "@/features/reviews";
 import { bulkResultMessage, describeActivity, statusActionsFor, statusMeta } from "../model";
+import { ImageUploader, type UploaderImage } from "@/components/media/ImageUploader";
 
 const TABS = [
   { key: "overview", label: "Tổng quan" },
@@ -171,6 +172,8 @@ export function AdminProductEditor({ productId }: { productId: number }) {
     [product],
   );
   const [contentDirty, setContentDirty] = React.useState(false);
+  // Uploaded product images (language-independent), saved with the content tab.
+  const [gallery, setGallery] = React.useState<UploaderImage[]>([]);
   const [contentSaving, setContentSaving] = React.useState(false);
   const [contentMsg, setContentMsg] = React.useState<{ type: "ok" | "err"; text: string } | null>(null);
 
@@ -203,6 +206,7 @@ export function AdminProductEditor({ productId }: { productId: number }) {
       warranty_text: tr.warranty_text ?? "",
     });
     setFeatures(tr.features ?? []);
+    setGallery(p.images?.gallery ?? []);
     const localizedSpecs = tr.specs ?? (locale === "vi" ? p.specs : null);
     setSpecs(localizedSpecs ? Object.entries(localizedSpecs).map(([key, value]) => ({ key, value: String(value) })) : []);
     setPricingLabels(tr.pricing_labels ?? {});
@@ -318,6 +322,7 @@ export function AdminProductEditor({ productId }: { productId: number }) {
         category_id: content.category_id,
         service_type: content.service_type,
         escrow_days: content.escrow_days,
+        gallery: gallery.map((image) => image.id),
       });
       await api.adminUpdateProductTranslation(productId, contentLocale, {
         title: content.title.trim(),
@@ -647,6 +652,15 @@ export function AdminProductEditor({ productId }: { productId: number }) {
             <div className="min-w-0 space-y-4">
               <Section title={`Nội dung khách thấy · ${productLanguageName(contentLocale, interfaceLocale)}`} hint={t("customerContentHint", { language: contentLocale.toUpperCase() })}>
                 <div className="space-y-4">
+                  <ImageUploader
+                    purpose="product_image"
+                    value={gallery}
+                    onChange={(next) => { setGallery(next); markContent(); }}
+                    max={8}
+                    markCover
+                    label="Ảnh sản phẩm"
+                    hint="Ảnh do người bán tải lên, dùng chung cho mọi ngôn ngữ. Gỡ ảnh vi phạm hoặc thêm ảnh; thay đổi được ghi vào tab Lịch sử."
+                  />
                   <Field label={t("productName")}>
                     <Input value={content.title} onChange={(e) => { setContent({ ...content, title: e.target.value }); markContent(); }} />
                   </Field>

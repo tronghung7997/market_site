@@ -109,7 +109,7 @@ export function SellerProductsTable({
                 </td>
                 <td className="py-3 pl-1 pr-3">
                   <div className="flex items-center gap-3">
-                    <ProductCover coverId={parseCoverId(p)} title={p.title} className="h-9 w-9 shrink-0 rounded-lg" />
+                    <ProductCover coverId={parseCoverId(p)} image={p.images?.cover} title={p.title} className="h-9 w-9 shrink-0 rounded-lg" />
                     <div className="min-w-0">
                       <Link href={sellerProductPath(p)} className="block max-w-[260px] truncate text-[13.5px] font-medium text-fg transition-colors hover:text-iris" title={p.title}>
                         {p.title}

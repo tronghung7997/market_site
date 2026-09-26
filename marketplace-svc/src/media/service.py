@@ -151,8 +151,13 @@ def snapshot(obj: MediaObject) -> dict:
 
 
 def public_image(snap: dict | None) -> dict | None:
-    """Client shape of a public snapshot: absolute-path or CDN URLs."""
-    if not snap or not snap.get("key", "").startswith("pub/"):
+    """Client shape of a public snapshot: absolute-path or CDN URLs. Idempotent:
+    a value that already is a client shape comes back unchanged."""
+    if not isinstance(snap, dict):
+        return None
+    if "url" in snap:
+        return snap
+    if not snap.get("key", "").startswith("pub/"):
         return None
     url = public_url(snap["key"], "full")
     thumb = public_url(snap["key"], "thumb") if snap.get("thumb") else url
@@ -178,7 +183,7 @@ def private_images(snaps: list | None) -> list[dict]:
 async def set_subject_media(
     db: AsyncSession,
     *,
-    actor: Account,
+    actor_id: int,
     purpose: MediaPurpose,
     subject_type: str,
     subject_id: int,
@@ -213,7 +218,7 @@ async def set_subject_media(
             obj.status = MediaStatus.attached.value
             obj.detached_at = None
             continue
-        if obj.status != MediaStatus.pending.value or obj.owner_id != actor.id:
+        if obj.status != MediaStatus.pending.value or obj.owner_id != actor_id:
             raise MediaError(ErrorCode.MEDIA_NOT_ATTACHABLE, 422, id=public_id)
         obj.status = MediaStatus.attached.value
         obj.subject_type = subject_type

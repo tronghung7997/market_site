@@ -14,6 +14,7 @@ import { SecurityTab } from "./SecurityTab";
 import { NotificationsTab } from "./NotificationsTab";
 import { ReferralTab } from "./ReferralTab";
 import { SellerTab } from "./SellerTab";
+import { MediaImage } from "@/components/media/MediaImage";
 
 const TABS = ["profile", "security", "notifications", "referral", "seller"] as const;
 export type AccountTab = (typeof TABS)[number];
@@ -69,8 +70,10 @@ export function AccountPage() {
   return (
     <div className="mx-auto w-full max-w-[1200px] px-4 py-8 sm:px-6">
       <header className="mb-6 flex flex-wrap items-center gap-4">
-        <span className="grid h-14 w-14 shrink-0 place-items-center rounded-full bg-iris-soft font-serif text-[20px] font-semibold text-iris-hi">
-          {initials(account.display_name, account.email)}
+        <span className="grid h-14 w-14 shrink-0 place-items-center overflow-hidden rounded-full bg-iris-soft font-serif text-[20px] font-semibold text-iris-hi">
+          {account.avatar
+            ? <MediaImage image={account.avatar} alt="" className="h-full w-full" fallback={initials(account.display_name, account.email)} />
+            : initials(account.display_name, account.email)}
         </span>
         <div className="min-w-0 flex-1">
           <h1 className="truncate font-serif text-[26px] tracking-tight text-fg">{account.display_name?.trim() || account.email}</h1>

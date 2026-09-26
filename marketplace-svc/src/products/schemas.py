@@ -4,7 +4,8 @@ from typing import Literal
 from src.i18n.slug import SLUG_PATTERN, canonical_path
 from pydantic import BaseModel, Field, field_validator, model_serializer, model_validator
 
-from src.products.covers import parse_cover_id, public_images
+from src.media.schemas import MediaId
+from src.products.covers import PRODUCT_GALLERY_MAX, parse_cover_id, public_images
 from src.security.input_limits import bounded_mapping
 
 CoverId = Literal[
@@ -32,6 +33,8 @@ class ProductCreate(BaseModel):
     slug: str | None = Field(default=None, min_length=1, max_length=140, pattern=SLUG_PATTERN)
     description: str | None = Field(default=None, max_length=20000)
     cover_id: CoverId | None = None
+    # Upload ids (POST /media/uploads, purpose product_image), in display order.
+    gallery: list[MediaId] | None = Field(default=None, max_length=PRODUCT_GALLERY_MAX)
     # None → the admin's default hold (Settings › Fees & holds).
     escrow_days: int | None = Field(default=None, ge=0, le=90)
     status: Literal["draft", "active"] = "draft"
@@ -71,6 +74,9 @@ class ProductContentUpdate(BaseModel):
     category_id: int | None = None
     description: str | None = Field(default=None, max_length=20000)
     cover_id: CoverId | None = None
+    # The complete image list in display order ([] removes every image);
+    # omitted = unchanged. New ids must be the caller's own uploads.
+    gallery: list[MediaId] | None = Field(default=None, max_length=PRODUCT_GALLERY_MAX)
     escrow_days: int | None = Field(default=None, ge=0, le=90)
     service_type: str | None = Field(default=None, max_length=50)
     features: list[str] | None = Field(default=None, max_length=50)
@@ -193,7 +199,7 @@ class ProductResponse(BaseModel):
     @field_validator("images", mode="before")
     @classmethod
     def coerce_images(cls, value):
-        return public_images(value)
+        return public_images(value, gallery=True)
 
     @model_validator(mode="after")
     def populate_cover_id(self):
@@ -464,6 +470,12 @@ class AdminProductListResponse(BaseModel):
 class ProductDetailResponse(ProductListItemResponse):
     """GET /products/{id} và /seller/products/{id}/detail — bản đầy đủ.
     Vẫn KHÔNG có commission_rate; admin lấy qua GET /admin/products/{id}."""
+
+    @field_validator("images", mode="before")
+    @classmethod
+    def coerce_images(cls, value):
+        return public_images(value, gallery=True)
+
     description: str | None
     features: list | None
     specs: dict | None

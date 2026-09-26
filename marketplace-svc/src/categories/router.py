@@ -25,10 +25,11 @@ async def list_categories_admin(_: Account = Depends(require_role("admin")), db:
 
 
 @router.post("/admin/categories", response_model=schemas.CategoryResponse, status_code=status.HTTP_201_CREATED)
-async def create_category(body: schemas.CategoryCreate, _: Account = Depends(require_role("admin")), db: AsyncSession = Depends(get_session)):
+async def create_category(body: schemas.CategoryCreate, account: Account = Depends(require_role("admin")), db: AsyncSession = Depends(get_session)):
     return await service.create_category(
         body.name, body.slug, body.icon, body.parent_id, body.sort_order, db,
         commission_rate=body.commission_rate, name_en=body.name_en,
+        image_id=body.image_id, actor_id=account.id,
     )
 
 
@@ -38,8 +39,8 @@ async def reorder_categories(body: schemas.CategoryReorder, _: Account = Depends
 
 
 @router.patch("/admin/categories/{cat_id}", response_model=schemas.CategoryResponse)
-async def update_category(cat_id: int, body: schemas.CategoryUpdate, _: Account = Depends(require_role("admin")), db: AsyncSession = Depends(get_session)):
-    return await service.update_category(cat_id, body.model_dump(exclude_unset=True), db)
+async def update_category(cat_id: int, body: schemas.CategoryUpdate, account: Account = Depends(require_role("admin")), db: AsyncSession = Depends(get_session)):
+    return await service.update_category(cat_id, body.model_dump(exclude_unset=True), db, actor_id=account.id)
 
 
 @router.delete("/admin/categories/{cat_id}", status_code=status.HTTP_204_NO_CONTENT)

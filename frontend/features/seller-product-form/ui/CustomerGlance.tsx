@@ -5,16 +5,18 @@ import { useMoney } from "@/lib/money";
 import { useVariantTerm } from "@/lib/variant-term";
 import { Card } from "@/components/ui";
 import { ProductCover } from "@/components/products/ProductCover";
+import type { ImageSource } from "@/components/media/MediaImage";
 import { Eye } from "@/components/Icons";
 
 /** Slim "what the buyer sees" card: just the head of the listing. The full
  *  page lives behind the preview button so the sidebar stays short. */
 export function CustomerGlance({
-  title, categoryLabel, coverId, deliveryLabel, escrowDays, highlightText, minPrice, variantCount, onPreview, serviceType,
+  title, categoryLabel, coverId, coverImage, deliveryLabel, escrowDays, highlightText, minPrice, variantCount, onPreview, serviceType,
 }: {
   title: string;
   categoryLabel: string;
   coverId: string | null;
+  coverImage?: ImageSource | null;
   deliveryLabel: string;
   escrowDays: number;
   highlightText: string;
@@ -32,7 +34,7 @@ export function CustomerGlance({
     <Card className="p-4">
       <div className="mb-2 text-[11px] font-bold uppercase tracking-wider text-muted">{t("title")}</div>
       <div className="flex items-center gap-2.5">
-        <ProductCover coverId={coverId} title={title || t("untitled")} className="h-10 w-10 shrink-0 rounded-[10px]" />
+        <ProductCover coverId={coverId} image={coverImage} title={title || t("untitled")} className="h-10 w-10 shrink-0 rounded-[10px]" />
         <div className="min-w-0">
           <div className="truncate text-[14px] font-bold text-fg">{title.trim() || <span className="text-faint">{t("untitled")}</span>}</div>
           <div className="truncate text-[11.5px] text-faint">{meta}</div>

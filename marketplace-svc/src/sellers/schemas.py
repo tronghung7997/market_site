@@ -16,8 +16,11 @@ class SellerSummary(BaseModel):
     rating_avg: float | None
     review_count: int
     seller_tier: str = "new"
+    # Shop logo (PublicImage) or None.
+    logo: dict | None = None
 
 
 class SellerProfile(SellerSummary):
     bio: str | None = None
     member_since: datetime | None = None
+    banner: dict | None = None

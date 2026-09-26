@@ -1,5 +1,7 @@
 from pydantic import BaseModel, Field, field_validator
 
+from src.media.schemas import MediaId
+from src.media.service import public_image
 from src.products.covers import COVER_IDS
 
 
@@ -16,6 +18,8 @@ class CategoryCreate(BaseModel):
     name_en: str | None = Field(default=None, max_length=100)
     slug: str = Field(min_length=1, max_length=100)
     icon: str | None = None
+    # Upload id (POST /media/uploads, purpose category_image); shown instead of the icon.
+    image_id: MediaId | None = None
     parent_id: int | None = None
     sort_order: int = Field(default=0, ge=-1000, le=10000)
     commission_rate: float | None = Field(default=None, ge=0, le=100)
@@ -32,6 +36,8 @@ class CategoryUpdate(BaseModel):
     name_en: str | None = Field(default=None, max_length=100)
     slug: str | None = Field(default=None, min_length=1, max_length=100)
     icon: str | None = None
+    # Present-and-null removes the uploaded image (the icon shows again).
+    image_id: MediaId | None = None
     # Present-and-null moves the category to the root (exclude_unset tells the two apart).
     parent_id: int | None = None
     sort_order: int | None = Field(default=None, ge=-1000, le=10000)
@@ -49,6 +55,7 @@ class CategoryResponse(BaseModel):
     name: str = Field(min_length=1, max_length=100)
     slug: str = Field(min_length=1, max_length=100)
     icon: str | None
+    image: dict | None = None
     parent_id: int | None
     sort_order: int
     is_active: bool
@@ -58,6 +65,11 @@ class CategoryResponse(BaseModel):
     available_locales: list[str] | None = None
 
     model_config = {"from_attributes": True}
+
+    @field_validator("image", mode="before")
+    @classmethod
+    def public_image_shape(cls, value):
+        return public_image(value)
 
 
 class CategoryTreeResponse(CategoryResponse):

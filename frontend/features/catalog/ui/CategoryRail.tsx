@@ -58,7 +58,7 @@ export function CategoryRail({
             return (
               <li key={c.id}>
                 <RailRow href={categoryPath(c)} active={isActive} count={total} muted={total === 0}>
-                  <ProductCover coverId={categoryCoverId(c)} title={c.name} className="h-6 w-6 rounded-md border-0" />
+                  <ProductCover coverId={categoryCoverId(c)} image={c.image} title={c.name} className="h-6 w-6 rounded-md border-0" />
                   <span className="truncate font-medium">{c.name}</span>
                 </RailRow>
                 {isOpen && children.length > 0 && (
@@ -93,7 +93,7 @@ export function CategoryRail({
             return (
               <li key={c.id} className="shrink-0">
                 <Chip href={categoryPath(c)} active={isActive}>
-                  <ProductCover coverId={categoryCoverId(c)} title={c.name} className="h-5 w-5 rounded border-0" />
+                  <ProductCover coverId={categoryCoverId(c)} image={c.image} title={c.name} className="h-5 w-5 rounded border-0" />
                   {c.name}
                   <ChipCount>{total}</ChipCount>
                 </Chip>

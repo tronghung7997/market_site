@@ -7,6 +7,8 @@ export interface ProfileUpdate {
   preferred_locale?: "vi" | "en" | "";
   preferred_currency?: "VND" | "USD" | "";
   notification_prefs?: Partial<Record<NotificationPrefKey, boolean>>;
+  /** Upload id (purpose avatar); null removes the avatar. */
+  avatar_id?: string | null;
 }
 
 export interface AuthSessionRow {
@@ -47,6 +49,15 @@ export interface PrivateImage {
   h: number;
 }
 
+/** `products.images` as served: the allowlisted icon, the first uploaded
+ *  image (`cover`, what cards show) and — on detail/editor payloads only —
+ *  every uploaded image in order. */
+export type ProductImages = {
+  cover_id?: string;
+  cover?: PublicImage;
+  gallery?: PublicImage[];
+};
+
 /** Response of POST /media/uploads. `url` is set for public purposes only. */
 export interface UploadedMedia {
   id: string;
@@ -66,6 +77,8 @@ export interface MySellerProfile {
   handle: string | null;
   canonical_path: string;
   seller_tier: string;
+  logo?: PublicImage | null;
+  banner?: PublicImage | null;
 }
 
 export interface Account {
@@ -91,6 +104,7 @@ export interface Account {
   preferred_currency?: "VND" | "USD" | null;
   /** Missing key = opted in. Security mail ignores this. */
   notification_prefs?: Partial<Record<NotificationPrefKey, boolean>>;
+  avatar?: PublicImage | null;
   created_at?: string;
   referred_by_id?: number | null;
 }
@@ -166,6 +180,8 @@ export interface Category {
   name: string;
   slug: string;
   icon: string | null;
+  /** Uploaded image (admin); shown instead of the icon when set. */
+  image?: PublicImage | null;
   parent_id: number | null;
   sort_order: number;
   is_active: boolean;
@@ -180,6 +196,7 @@ export interface CategoryAdminRow {
   name_en: string | null;
   slug: string;
   icon: string | null;
+  image?: PublicImage | null;
   parent_id: number | null;
   sort_order: number;
   is_active: boolean;
@@ -212,6 +229,8 @@ export interface CategoryCreateInput {
   name_en?: string | null;
   slug: string;
   icon?: string | null;
+  /** Upload id (purpose category_image); null removes the image. */
+  image_id?: string | null;
   parent_id?: number | null;
   commission_rate?: number | null;
 }
@@ -222,6 +241,8 @@ export interface CategoryUpdateInput {
   name_en?: string | null;
   slug?: string;
   icon?: string | null;
+  /** Upload id (purpose category_image); null removes the image. */
+  image_id?: string | null;
   parent_id?: number | null;
   is_active?: boolean;
   commission_rate?: number | null;
@@ -249,7 +270,7 @@ export interface Product {
   public_key: string;
   /** `/products/{slug}-{public_key}` — build links with `productPath()`. */
   canonical_path?: string | null;
-  images: Record<string, unknown> | null;
+  images: ProductImages | null;
   cover_id?: string | null;
   escrow_days: number;
   status: string;
@@ -687,11 +708,14 @@ export interface SellerSummary {
   rating_avg: number | null;
   review_count: number;
   seller_tier: string;
+  /** Shop logo uploaded by the seller. */
+  logo?: PublicImage | null;
 }
 
 export interface SellerProfile extends SellerSummary {
   bio: string | null;
   member_since: string | null;
+  banner?: PublicImage | null;
 }
 
 export interface WithdrawRequest {
@@ -2544,6 +2568,8 @@ export interface SearchProductHit {
   title: string;
   highlight_text: string | null;
   cover_id: string | null;
+  /** First uploaded product image, when the seller added one. */
+  cover_image?: PublicImage | null;
   service_type: string | null;
   category_id: number;
   category_slug: string;
@@ -2562,6 +2588,7 @@ export interface SearchCategoryHit {
   name: string;
   slug: string;
   icon: string | null;
+  image?: PublicImage | null;
   parent_id: number | null;
   parent_name: string | null;
   parent_slug: string | null;

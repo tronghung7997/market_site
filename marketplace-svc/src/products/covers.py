@@ -1,6 +1,12 @@
-"""Allowlisted product cover ids. Sellers pick one; nothing is uploaded."""
+"""Product imagery: an allowlisted cover icon id plus an optional gallery of
+uploaded images (``media``), stored together in ``products.images``."""
 
 from __future__ import annotations
+
+from src.media.service import public_image as media_public_image
+
+# Uploaded images per product (first one is the card cover).
+PRODUCT_GALLERY_MAX = 8
 
 COVER_IDS = frozenset({
     "facebook", "instagram", "tiktok", "youtube", "x",
@@ -68,10 +74,41 @@ def images_payload(cover_id: str) -> dict:
     return {"cover_id": cover_id}
 
 
-def public_images(images: object) -> dict | None:
-    """Canonical read shape. Legacy URL lists and unknown blobs become unset."""
+def gallery_snapshots(images: object) -> list[dict]:
+    """Stored media snapshots of the product gallery (``media.service.snapshot``)."""
+    items = images.get("gallery") if isinstance(images, dict) else None
+    return [item for item in items if isinstance(item, dict)] if isinstance(items, list) else []
+
+
+def _public_gallery(images: dict) -> list[dict]:
+    out: list[dict] = []
+    for item in gallery_snapshots(images):
+        # Idempotent: a payload built earlier already carries client shapes.
+        image = media_public_image(item)
+        if image:
+            out.append(image)
+    return out
+
+
+def public_images(images: object, *, gallery: bool = False) -> dict | None:
+    """Canonical read shape: ``{"cover_id"?, "cover"?, "gallery"?}``.
+
+    ``cover`` is the first uploaded image (what cards show); ``gallery`` (every
+    image, in order) only when asked — lists stay small. Legacy URL lists and
+    unknown blobs become unset."""
+    if not isinstance(images, dict):
+        return None
+    out: dict = {}
     cover_id = parse_cover_id(images)
-    return images_payload(cover_id) if cover_id else None
+    if cover_id:
+        out["cover_id"] = cover_id
+    pictures = _public_gallery(images)
+    cover = pictures[0] if pictures else images.get("cover")
+    if isinstance(cover, dict) and "url" in cover:
+        out["cover"] = cover
+    if gallery and pictures:
+        out["gallery"] = pictures
+    return out or None
 
 
 def catalog_items() -> list[dict]:

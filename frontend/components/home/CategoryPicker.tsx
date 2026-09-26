@@ -74,7 +74,7 @@ export function CategoryPicker({ cats, active, onChange, countFor, total }: {
       >
         {activeCat ? (
           <>
-            <ProductCover coverId={categoryCoverId(activeCat)} title={activeCat.name} className="h-5 w-5 rounded" />
+            <ProductCover coverId={categoryCoverId(activeCat)} image={activeCat.image} title={activeCat.name} className="h-5 w-5 rounded" />
             <span className="min-w-0 truncate">{activeCat.name}</span>
             <span className="font-mono text-[11.5px] text-iris">{countFor(activeCat.id) ?? ""}</span>
           </>
@@ -133,7 +133,7 @@ export function CategoryPicker({ cats, active, onChange, countFor, total }: {
                     depth === 0 ? "pl-2.5 font-medium" : "pl-9 text-muted",
                     selected && "bg-iris-soft/50 text-fg",
                   )}>
-                  <ProductCover coverId={categoryCoverId(cat)} title={cat.name} className={cn("rounded", depth === 0 ? "h-6 w-6" : "h-5 w-5")} />
+                  <ProductCover coverId={categoryCoverId(cat)} image={cat.image} title={cat.name} className={cn("rounded", depth === 0 ? "h-6 w-6" : "h-5 w-5")} />
                   <span className="flex-1 truncate">{cat.name}</span>
                   {count != null && <span className="font-mono text-[11.5px] text-faint">{count}</span>}
                   {selected && <Check size={13} className="text-iris" />}

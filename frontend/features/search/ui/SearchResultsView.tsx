@@ -23,7 +23,7 @@ function CategoryHitRow({ hit, active, onNarrow, narrowLabel }: {
   const t = useTranslations("search.page");
   return (
     <li className="group flex items-center gap-3 rounded-lg px-2 py-2 hover:bg-raised">
-      <ProductCover coverId={categoryCoverId(hit)} title={hit.name} className="h-9 w-9 shrink-0 rounded-lg" />
+      <ProductCover coverId={categoryCoverId(hit)} image={hit.image} title={hit.name} className="h-9 w-9 shrink-0 rounded-lg" />
       <div className="min-w-0 flex-1">
         <Link href={categoryPath(hit)} className="block truncate text-[13.5px] font-medium text-fg hover:text-iris-hi">
           {hit.name}

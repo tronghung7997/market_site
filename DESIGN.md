@@ -213,6 +213,9 @@ Do not create a unique container width, header rhythm, or toolbar composition fo
 - Emoji are not interface icons.
 - Decorative SVG/CSS art is allowed on public marketing surfaces only when it supports the product narrative and is hidden or labelled accessibly.
 - Buyer, seller, and admin workbenches prefer semantic icons over decorative illustration.
+- User-uploaded images render only through `components/media/MediaImage` (lazy, async decode, stored width/height so the layout does not jump, neutral fallback when the file is gone). Pick `thumb` for cards, lists and avatars; `full` for the product gallery and the lightbox.
+- Uploads use `components/media/ImageUploader`: the browser downscales before sending, each tile shows its own progress, the first image of a gallery is tagged as the cover, and reorder/remove are real buttons (arrows) so they work by keyboard and touch. Drag-and-drop and paste are shortcuts, never the only way. A single-image field (logo, banner, avatar, category) shows one tile with replace/remove.
+- Full-size viewing uses `components/media/ImageLightbox` (dark overlay, `40×40px` close, `←/→`, counter). Product cards show the first uploaded image and fall back to the allowlisted cover icon.
 
 ---
 

@@ -108,7 +108,7 @@ function RestockForm({ product, onClose }: { product: SellerProduct; onClose: ()
   return (
     <DialogContent className="flex max-h-[90vh] w-[calc(100vw-1.5rem)] max-w-xl flex-col gap-0 rounded-2xl border-line bg-surface p-0 shadow-card-lg sm:w-full">
       <div className="flex shrink-0 items-center gap-3 border-b border-line bg-raised/50 p-4 pr-12">
-        <ProductCover coverId={parseCoverId(product)} title={product.title} className="h-8 w-8 shrink-0 rounded-lg" />
+        <ProductCover coverId={parseCoverId(product)} image={product.images?.cover} title={product.title} className="h-8 w-8 shrink-0 rounded-lg" />
         <div className="min-w-0">
           <div className="flex items-center gap-1.5">
             <span className="rounded bg-iris-soft px-1.5 py-0.5 text-[10px] font-bold uppercase tracking-wider text-iris">{t("quickRestockTitle")}</span>

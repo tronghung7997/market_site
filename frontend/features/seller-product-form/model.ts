@@ -1,4 +1,5 @@
-import type { Category, ProductDetail, ProductLocale, Variant } from "../../lib/types.ts";
+import type { Category, ProductDetail, ProductImages, ProductLocale, PublicImage, Variant } from "../../lib/types.ts";
+import type { UploaderImage } from "../../components/media/ImageUploader.tsx";
 import type { ChecklistItem, SellableEvaluation } from "../seller-workbench/logic.ts";
 
 /** How the buyer receives the goods. `api`/`task` sit behind "advanced" —
@@ -257,6 +258,19 @@ export function missingCount(evaluation: SellableEvaluation): number {
 
 /* ---------- preview product ---------- */
 
+/** Backend PRODUCT_GALLERY_MAX. */
+export const PRODUCT_GALLERY_MAX = 8;
+
+/** `products.images` for a preview built from the form's gallery. */
+export function previewImages(coverId: string | null, gallery: UploaderImage[]): ProductImages {
+  const pictures: PublicImage[] = gallery.flatMap((image) =>
+    image.url ? [{ id: image.id, url: image.url, thumb_url: image.thumb_url ?? image.url, w: image.w, h: image.h }] : []);
+  return {
+    ...(coverId ? { cover_id: coverId } : {}),
+    ...(pictures.length ? { cover: pictures[0], gallery: pictures } : {}),
+  };
+}
+
 export interface PreviewProductInput {
   id: number;
   title: string;
@@ -264,6 +278,7 @@ export interface PreviewProductInput {
   categoryName: string;
   serviceType: string;
   coverId: string | null;
+  gallery?: UploaderImage[];
   escrowDays: number;
   highlightText: string;
   description: string;
@@ -293,7 +308,7 @@ export function buildPreviewProduct(input: PreviewProductInput): ProductDetail {
     category_id: input.categoryId,
     category_name: input.categoryName || null,
     title: input.title.trim(),
-    images: null,
+    images: previewImages(input.coverId, input.gallery ?? []),
     cover_id: input.coverId,
     escrow_days: input.escrowDays,
     status: input.status,

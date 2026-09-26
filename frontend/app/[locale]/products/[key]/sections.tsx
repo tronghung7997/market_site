@@ -16,6 +16,7 @@ import { productPath, sellerPath } from "@/lib/routes";
 import { Card, Tag } from "@/components/ui";
 import { parseCoverId, ProductCover } from "@/features/product-covers";
 import { EscrowBadge } from "@/components/products/EscrowHelp";
+import { ProductGallery } from "@/components/products/ProductGallery";
 import { Bolt, Check, Star, Verified } from "@/components/Icons";
 import { MarkdownContent } from "@/components/MarkdownContent";
 import StartInquiryDialog from "@/components/chat/StartInquiryDialog";
@@ -37,14 +38,22 @@ export function ProductIdentity({ product }: { product: ProductDetail }) {
   const sellerName = product.seller_name ?? "seller";
   const fulfillment = fulfillmentFromProduct(product);
 
+  const gallery = product.images?.gallery ?? [];
   return (
     <Card className="p-5 sm:p-6">
+      {gallery.length > 0 && (
+        <div className="mb-5">
+          <ProductGallery images={gallery} title={product.title} />
+        </div>
+      )}
       <div className="flex items-start gap-4">
-        <ProductCover
-          coverId={parseCoverId(product)}
-          title={product.title}
-          className="h-14 w-14 rounded-xl"
-        />
+        {gallery.length === 0 && (
+          <ProductCover
+            coverId={parseCoverId(product)}
+            title={product.title}
+            className="h-14 w-14 rounded-xl"
+          />
+        )}
         <div className="min-w-0 flex-1">
       <div className="flex flex-wrap items-center gap-1.5">
         <Tag tone={fulfillmentTone(fulfillment.kind)}>{t(fulfillmentTagKey(fulfillment), fulfillmentTagValues(fulfillment))}</Tag>
@@ -192,7 +201,7 @@ export function RelatedProducts({ items }: { items: Product[] }) {
             <Link key={r.id} href={productPath(r)} className="h-full">
               <Card interactive className="p-4 h-full flex flex-col">
                 <div className="flex items-start gap-2.5">
-                  <ProductCover coverId={parseCoverId(r)} title={r.title} className="h-8 w-8" />
+                  <ProductCover coverId={parseCoverId(r)} image={r.images?.cover} title={r.title} className="h-8 w-8" />
                   <div className="text-[13.5px] font-medium leading-snug line-clamp-2">{r.title}</div>
                 </div>
                 <div className="flex items-center gap-2 mt-1.5 text-[11px] text-faint">

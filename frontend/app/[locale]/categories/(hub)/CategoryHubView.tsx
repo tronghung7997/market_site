@@ -232,7 +232,7 @@ export function CategoryHubView({ initial }: { initial: CategoryHubCatalog }) {
                     <section key={c.id} aria-labelledby={`group-${c.id}`}>
                       <div className="flex items-end justify-between gap-3 mb-3">
                         <div className="flex items-center gap-3 min-w-0">
-                          <ProductCover coverId={categoryCoverId(c)} title={c.name} className="h-9 w-9 rounded-lg" />
+                          <ProductCover coverId={categoryCoverId(c)} image={c.image} title={c.name} className="h-9 w-9 rounded-lg" />
                           <div className="min-w-0">
                             <Link href={categoryPath(c)} className="group inline-flex items-center gap-1 max-w-full">
                               <h2 id={`group-${c.id}`} className="font-serif text-[20px] leading-tight font-semibold text-fg group-hover:text-iris-hi transition-colors min-w-0 truncate">

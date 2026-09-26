@@ -171,7 +171,7 @@ export function CommandPalette({ open, onOpenChange }: { open: boolean; onOpenCh
       group: "products",
       label: hit.title,
       sublabel: [hit.category_name, hit.seller_name].filter(Boolean).join(" · "),
-      leading: <ProductCover coverId={hit.cover_id} title={hit.title} className="h-9 w-9 shrink-0 rounded-lg" />,
+      leading: <ProductCover coverId={hit.cover_id} image={hit.cover_image} title={hit.title} className="h-9 w-9 shrink-0 rounded-lg" />,
       trailing: hit.price_from != null ? (
         <span className="font-mono text-[12.5px] font-medium tabular text-fg">{formatBrowseMoney(hit.price_from, { locale })}</span>
       ) : null,
@@ -187,7 +187,7 @@ export function CommandPalette({ open, onOpenChange }: { open: boolean; onOpenCh
       group,
       label: hit.name,
       sublabel: "parent_name" in hit && hit.parent_name ? hit.parent_name : null,
-      leading: <ProductCover coverId={categoryCoverId(hit)} title={hit.name} className="h-9 w-9 shrink-0 rounded-lg" />,
+      leading: <ProductCover coverId={categoryCoverId(hit)} image={hit.image} title={hit.name} className="h-9 w-9 shrink-0 rounded-lg" />,
       href: categoryPath(hit),
       remember: group === "categories" ? term : undefined,
     }),

@@ -45,7 +45,7 @@ export default function ProductTile({
       <Link href={productPath(p)} className="block group">
         <Card interactive className="p-3.5 sm:p-4 flex flex-col sm:flex-row sm:items-center justify-between gap-3 sm:gap-4 transition-all">
           <div className="flex items-start sm:items-center gap-3 min-w-0 flex-1">
-            <ProductCover coverId={parseCoverId(p)} title={p.title} className="h-11 w-11 sm:h-12 sm:w-12 shrink-0 rounded-xl shadow-xs" />
+            <ProductCover coverId={parseCoverId(p)} image={p.images?.cover} title={p.title} className="h-11 w-11 sm:h-12 sm:w-12 shrink-0 rounded-xl shadow-xs" />
             <div className="min-w-0 flex-1">
               <div className="text-[14px] sm:text-[15px] font-medium leading-snug line-clamp-1 group-hover:text-iris-hi transition-colors">
                 {p.title}
@@ -98,7 +98,7 @@ export default function ProductTile({
         <Card interactive className="p-4 sm:p-5 h-full flex flex-col justify-between transition-all hover:border-iris/40 shadow-xs hover:shadow-card">
           <div>
             <div className="flex items-start gap-3.5">
-              <ProductCover coverId={parseCoverId(p)} title={p.title} className="h-12 w-12 sm:h-13 sm:w-13 shrink-0 rounded-2xl shadow-xs" />
+              <ProductCover coverId={parseCoverId(p)} image={p.images?.cover} title={p.title} className="h-12 w-12 sm:h-13 sm:w-13 shrink-0 rounded-2xl shadow-xs" />
               <div className="min-w-0 flex-1">
                 <h3 className="text-[14.5px] sm:text-[15.5px] font-semibold text-fg leading-snug line-clamp-2 group-hover:text-iris-hi transition-colors">
                   {p.title}
@@ -154,7 +154,7 @@ export default function ProductTile({
     <Link href={productPath(p)} className="h-full block group">
       <Card interactive className="p-3.5 h-full flex flex-col transition-all">
         <div className="flex items-start gap-2.5">
-          <ProductCover coverId={parseCoverId(p)} title={p.title} className="h-10 w-10 shrink-0 rounded-xl" />
+          <ProductCover coverId={parseCoverId(p)} image={p.images?.cover} title={p.title} className="h-10 w-10 shrink-0 rounded-xl" />
           <div className="min-w-0 flex-1">
             <div className="text-[13px] sm:text-[13.5px] font-medium leading-snug line-clamp-2 group-hover:text-iris-hi transition-colors">
               {p.title}

@@ -250,7 +250,7 @@ export function CategoryBrowseView({
 
       {/* Header */}
       <div className="flex items-center gap-3.5 min-w-0">
-        <ProductCover coverId={categoryCoverId(headline)} title={headline.name} className="h-12 w-12 sm:h-14 sm:w-14 rounded-2xl shrink-0 shadow-sm" />
+        <ProductCover coverId={categoryCoverId(headline)} image={headline.image} title={headline.name} className="h-12 w-12 sm:h-14 sm:w-14 rounded-2xl shrink-0 shadow-sm" />
         <div className="min-w-0">
           <h1 className="font-serif text-[24px] sm:text-[28px] leading-tight font-semibold text-fg truncate">
             {headline.name}

@@ -31,6 +31,7 @@ import MessageShortcut from "./chat/MessageShortcut";
 import CurrencyToggle from "./CurrencyToggle";
 import { Button } from "./ui";
 import { HeaderSearch, SearchProvider } from "@/features/search";
+import { MediaImage } from "@/components/media/MediaImage";
 
 function LocaleSwitcher({
   locale,
@@ -238,8 +239,10 @@ function TopNavBar() {
               </Link>
               <div className="relative" ref={menuRef}>
                 <button onClick={() => setMenuOpen((v) => !v)} title={t("accountMenu")} aria-haspopup="menu" aria-expanded={menuOpen}
-                  className="grid place-items-center h-9 w-9 rounded-full border-2 border-iris/30 bg-iris-soft text-iris hover:border-iris/60 transition-colors text-[12px] font-bold uppercase">
-                  {account.email.slice(0, 2)}
+                  className="grid place-items-center h-9 w-9 overflow-hidden rounded-full border-2 border-iris/30 bg-iris-soft text-iris hover:border-iris/60 transition-colors text-[12px] font-bold uppercase">
+                  {account.avatar
+                    ? <MediaImage image={account.avatar} alt="" className="h-full w-full" fallback={account.email.slice(0, 2)} />
+                    : account.email.slice(0, 2)}
                 </button>
                 {menuOpen && (
                   <div
@@ -251,8 +254,10 @@ function TopNavBar() {
                     <div className="p-3 bg-ink-panel">
                       <div className="flex items-center justify-between gap-2 mb-2">
                         <div className="flex items-center gap-2">
-                          <span className="grid place-items-center h-7 w-7 shrink-0 rounded-lg bg-surface/10 border border-line/20 text-iris-soft text-[11px] font-bold uppercase">
-                            {account.email.slice(0, 2)}
+                          <span className="grid place-items-center h-7 w-7 shrink-0 overflow-hidden rounded-lg bg-surface/10 border border-line/20 text-iris-soft text-[11px] font-bold uppercase">
+                            {account.avatar
+                              ? <MediaImage image={account.avatar} alt="" className="h-full w-full" fallback={account.email.slice(0, 2)} />
+                              : account.email.slice(0, 2)}
                           </span>
                           <span className="text-[10.5px] font-semibold text-iris-soft uppercase tracking-wider">
                             {t("yourProfile")}

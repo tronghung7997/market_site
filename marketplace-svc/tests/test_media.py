@@ -200,10 +200,10 @@ async def test_set_subject_media_enforces_owner_purpose_and_limit(client):
     avatar = await _pending("attach-owner@example.com", MediaPurpose.avatar)
     owner = await _account("attach-owner@example.com")
 
-    async def attach(ids, max_count=8, actor=owner, subject_id=1):
+    async def attach(ids, max_count=8, actor=owner.id, subject_id=1):
         async with SessionLocal() as db:
             snaps = await media_service.set_subject_media(
-                db, actor=actor, purpose=MediaPurpose.product_image, subject_type="product",
+                db, actor_id=actor, purpose=MediaPurpose.product_image, subject_type="product",
                 subject_id=subject_id, public_ids=ids, max_count=max_count,
             )
             await db.commit()
@@ -235,7 +235,7 @@ async def test_set_subject_media_enforces_owner_purpose_and_limit(client):
         )).all())
     assert statuses == {mine[0]: "detached", mine[1]: "attached", mine[2]: "attached"}
     other = await _account("attach-other@example.com")
-    assert [s["id"] for s in await attach(mine, actor=other)] == mine
+    assert [s["id"] for s in await attach(mine, actor=other.id)] == mine
 
     # An image attached to one subject cannot be reused on another.
     with pytest.raises(MediaError):
@@ -249,12 +249,12 @@ async def test_garbage_collection_removes_expired_uploads_only(client):
     owner = await _account("gc-owner@example.com")
     async with SessionLocal() as db:
         await media_service.set_subject_media(
-            db, actor=owner, purpose=MediaPurpose.chat_attachment, subject_type="chat_message",
+            db, actor_id=owner.id, purpose=MediaPurpose.chat_attachment, subject_type="chat_message",
             subject_id=7, public_ids=[kept, dropped], max_count=4,
         )
         await media_service.detach_subjects(db, subject_type="chat_message", subject_ids=[7])
         await media_service.set_subject_media(
-            db, actor=owner, purpose=MediaPurpose.chat_attachment, subject_type="chat_message",
+            db, actor_id=owner.id, purpose=MediaPurpose.chat_attachment, subject_type="chat_message",
             subject_id=7, public_ids=[kept], max_count=4,
         )
         old = datetime.now(timezone.utc) - timedelta(days=8)

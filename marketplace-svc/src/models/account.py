@@ -65,6 +65,8 @@ class Account(Base):
     telegram_username: Mapped[str | None] = mapped_column(String(64), nullable=True)
     preferred_locale: Mapped[str | None] = mapped_column(String(5), nullable=True)
     preferred_currency: Mapped[str | None] = mapped_column(String(3), nullable=True)
+    # Uploaded avatar (media snapshot, public).
+    avatar: Mapped[dict | None] = mapped_column(JSONB, nullable=True)
     # {"orders": bool, "disputes": bool, "wallet": bool, "marketing": bool};
     # a missing key means opted in. Security mail ignores this.
     notification_prefs: Mapped[dict] = mapped_column(JSONB, nullable=False, default=dict, server_default="{}")
@@ -121,6 +123,9 @@ class SellerApplication(Base):
     business_name: Mapped[str] = mapped_column(String(255), nullable=False)
     description: Mapped[str] = mapped_column(String(1000), nullable=True)
     contact: Mapped[str] = mapped_column(String(255), nullable=True)
+    # Shop logo / banner (media snapshots, public).
+    logo: Mapped[dict | None] = mapped_column(JSONB, nullable=True)
+    banner: Mapped[dict | None] = mapped_column(JSONB, nullable=True)
     status: Mapped[ApplicationStatus] = mapped_column(Enum(ApplicationStatus), default=ApplicationStatus.pending)
     reject_reason: Mapped[str | None] = mapped_column(String(500), nullable=True)
     created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), server_default=func.now())

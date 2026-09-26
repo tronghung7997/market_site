@@ -3839,7 +3839,13 @@
     "tierEscrow": "Giữ tiền",
     "tierEscrowDays": "rút ngắn {days} ngày",
     "unlimited": "Không giới hạn",
-    "tierUnknown": "Chưa có thông tin hạng."
+    "tierUnknown": "Chưa có thông tin hạng.",
+    "shopLogo": "Logo gian hàng",
+    "shopLogoHint": "Ảnh vuông, hiện cạnh tên shop.",
+    "shopBanner": "Ảnh bìa gian hàng",
+    "shopBannerHint": "Tỉ lệ 3:1 (ví dụ 1920 × 640), hiện ở đầu trang shop.",
+    "avatar": "Ảnh đại diện",
+    "avatarHint": "Ảnh vuông, được cắt giữa và thu về 256 × 256."
   },
   "security": {
     "title": "Bảo mật tài khoản",
@@ -4566,7 +4572,10 @@
       "highlightPlaceholder": "VD: Giao ngay · Bảo hành 24 giờ",
       "protection": "Bảo vệ người mua",
       "protectionHint": "Tiền được giữ ký quỹ bấy nhiêu ngày sau khi giao; khách được khiếu nại trong thời gian này",
-      "protectionDays": "{days} ngày"
+      "protectionDays": "{days} ngày",
+      "gallery": "Ảnh sản phẩm",
+      "galleryHint": "Tối đa 8 ảnh. Ảnh đầu tiên là ảnh bìa trên thẻ sản phẩm; dùng nút mũi tên để đổi thứ tự.",
+      "coverFallbackHint": "Biểu tượng hiển thị khi sản phẩm chưa có ảnh."
     },
     "languages": {
       "editing": "Đang nhập: {language}",
@@ -5796,5 +5805,27 @@
       "rotating_key": "Key xoay"
     },
     "noAddress": "Chưa có địa chỉ — bấm Đổi IP để lấy proxy đầu tiên"
+  },
+  "media": {
+    "add": "Thêm ảnh",
+    "uploading": "Đang tải ảnh lên…",
+    "remove": "Xoá ảnh",
+    "replace": "Đổi ảnh",
+    "moveEarlier": "Đưa lên trước",
+    "moveLater": "Đưa ra sau",
+    "cover": "Ảnh bìa",
+    "count": "{count}/{max} ảnh",
+    "dropHint": "Bấm để chọn, kéo thả hoặc dán ảnh (JPG, PNG, WebP, GIF). Ảnh được thu nhỏ trước khi tải lên.",
+    "tooMany": "Chỉ thêm được tối đa {max} ảnh.",
+    "notImage": "tệp không phải ảnh.",
+    "unreadable": "trình duyệt không đọc được ảnh này (ví dụ HEIC trên Chrome). Hãy đổi sang JPG hoặc PNG.",
+    "tooLarge": "ảnh lớn hơn 10 MB.",
+    "unavailable": "Ảnh không còn",
+    "close": "Đóng",
+    "previous": "Ảnh trước",
+    "next": "Ảnh sau",
+    "counter": "{current} / {total}",
+    "imageOf": "Ảnh {current} trên {total}",
+    "open": "Xem ảnh lớn"
   }
 }

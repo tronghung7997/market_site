@@ -7,11 +7,13 @@ import { useMoney } from "@/lib/money";
 import { effectiveMinPrice, isAdapterFulfilled } from "@/lib/pricing-display";
 import { flattenCategories } from "@/lib/categories";
 import { formatDate } from "@/lib/utils";
+import { cn } from "@/lib/cn";
 import type { Product } from "@/lib/types";
 import type { SellerPageCatalog } from "@/features/catalog";
 import { productPath, sellerPath } from "@/lib/routes";
 import { productStockState } from "@/lib/stock";
 import { Card, Tag } from "@/components/ui";
+import { MediaImage } from "@/components/media/MediaImage";
 import { Check, ChevronRight, Package, Shield, Star, Verified, X } from "@/components/Icons";
 import StartSellerInquiryDialog from "@/components/chat/StartSellerInquiryDialog";
 
@@ -146,13 +148,22 @@ export default function SellerProfileView({ initial }: { initial: SellerPageCata
         <span className="text-muted truncate max-w-[400px]">{displayName}</span>
       </nav>
 
-      <Card className="aura relative overflow-hidden p-6 sm:p-8">
+      <Card className={cn("aura relative overflow-hidden p-6 sm:p-8", seller.banner && "pt-0 sm:pt-0")}>
+        {seller.banner && (
+          <div className="-mx-6 mb-6 h-32 overflow-hidden border-b border-line bg-raised sm:-mx-8 sm:h-48 lg:h-60">
+            <MediaImage image={seller.banner} variant="full" eager alt="" className="h-full w-full" />
+          </div>
+        )}
         <div className="relative flex flex-wrap items-end gap-x-8 gap-y-6">
           <div className="flex items-center gap-4">
             <div className="relative shrink-0 animate-seal">
-              <span className="grid place-items-center h-[64px] w-[64px] rounded-full bg-iris-soft text-iris font-serif text-[22px] font-semibold border-2 border-dashed border-iris/40">
-                {displayName.slice(0, 2).toUpperCase()}
-              </span>
+              {seller.logo ? (
+                <MediaImage image={seller.logo} eager alt={displayName} className="h-[64px] w-[64px] rounded-full border border-line" />
+              ) : (
+                <span className="grid place-items-center h-[64px] w-[64px] rounded-full bg-iris-soft text-iris font-serif text-[22px] font-semibold border-2 border-dashed border-iris/40">
+                  {displayName.slice(0, 2).toUpperCase()}
+                </span>
+              )}
               <span className="absolute -bottom-0.5 -right-0.5 grid place-items-center h-6 w-6 rounded-full bg-iris text-white border-2 border-card">
                 <Verified size={11} />
               </span>
@@ -261,11 +272,15 @@ export default function SellerProfileView({ initial }: { initial: SellerPageCata
                           >
                             {stockLabel(state)}
                           </span>
-                          <span
-                            className={`grid place-items-center h-11 w-11 shrink-0 rounded-lg border font-serif text-[15px] font-semibold ${tileAccent(p.id)}`}
-                          >
-                            {p.title.slice(0, 2).toUpperCase()}
-                          </span>
+                          {p.images?.cover ? (
+                            <MediaImage image={p.images.cover} alt="" className="h-11 w-11 shrink-0 rounded-lg border border-line" />
+                          ) : (
+                            <span
+                              className={`grid place-items-center h-11 w-11 shrink-0 rounded-lg border font-serif text-[15px] font-semibold ${tileAccent(p.id)}`}
+                            >
+                              {p.title.slice(0, 2).toUpperCase()}
+                            </span>
+                          )}
                           <div className="mt-3 min-w-0 pr-16">
                             <div className="font-medium text-[14px] leading-snug line-clamp-2">{p.title}</div>
                           </div>

@@ -4,8 +4,9 @@ import { useTranslations } from "next-intl";
 import type { ProductLocale } from "@/lib/types";
 import { Field, Input, Select, Tag } from "@/components/ui";
 import { SellerCoverPicker } from "@/features/seller-workbench/SellerCoverPicker";
+import { ImageUploader } from "@/components/media/ImageUploader";
 import type { ProductFormCore } from "../useProductFormCore";
-import { protectionOptions } from "../model";
+import { PRODUCT_GALLERY_MAX, protectionOptions } from "../model";
 
 /** Section 1 — name, category (parent › child), cover, highlight and the
  *  buyer-protection window. Everything else is a later section. */
@@ -27,7 +28,19 @@ export function BasicsFields({ core, categoriesDisabled }: { core: ProductFormCo
         </Select>
       </Field>
       <div className="sm:col-span-2">
+        <ImageUploader
+          purpose="product_image"
+          value={core.gallery}
+          onChange={core.setGallery}
+          max={PRODUCT_GALLERY_MAX}
+          markCover
+          label={t("gallery")}
+          hint={t("galleryHint")}
+        />
+      </div>
+      <div className="sm:col-span-2">
         <SellerCoverPicker selectedCoverId={core.coverId} onChange={core.setCoverId} />
+        <p className="mt-1.5 text-[12px] text-faint">{t("coverFallbackHint")}</p>
       </div>
       <Field label={t("highlight")} hint={t("highlightHint")}>
         <Input value={core.activeContent.highlightText} onChange={(e) => core.updateContent("highlightText", e.target.value)} placeholder={t("highlightPlaceholder")} maxLength={160} />

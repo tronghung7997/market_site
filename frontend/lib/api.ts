@@ -207,7 +207,7 @@ export const api = {
       signal,
     }, true),
   mySellerProfile: () => request<MySellerProfile>("/seller/profile", {}, true),
-  updateMySellerProfile: (data: { business_name?: string; description?: string; contact?: string }) =>
+  updateMySellerProfile: (data: { business_name?: string; description?: string; contact?: string; logo_id?: string | null; banner_id?: string | null }) =>
     request<MySellerProfile>("/seller/profile", { method: "PATCH", body: JSON.stringify(data) }, true),
   tiktokLookup: (value: string) =>
     request<TikTokLookupResponse>(`/internal/tiktok?url=${encodeURIComponent(value)}`),

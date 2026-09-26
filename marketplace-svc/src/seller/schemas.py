@@ -2,6 +2,8 @@ from datetime import datetime
 
 from pydantic import BaseModel, Field
 
+from src.media.schemas import MediaId
+
 
 class SellerApplyRequest(BaseModel):
     business_name: str = Field(min_length=1, max_length=255)
@@ -31,12 +33,19 @@ class SellerProfileResponse(BaseModel):
     handle: str | None
     canonical_path: str
     seller_tier: str
+    # Shop images (PublicImage) or None.
+    logo: dict | None = None
+    banner: dict | None = None
 
 
 class SellerProfileUpdate(BaseModel):
     business_name: str | None = Field(default=None, min_length=2, max_length=255)
     description: str | None = Field(default=None, max_length=1000)
     contact: str | None = Field(default=None, max_length=255)
+    # Upload ids (POST /media/uploads, purposes seller_logo / seller_banner);
+    # null removes the image, omitted keeps it.
+    logo_id: MediaId | None = None
+    banner_id: MediaId | None = None
 
 
 class RejectRequest(BaseModel):

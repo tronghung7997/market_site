@@ -2,7 +2,7 @@
 
 import { Link } from "@/i18n/navigation";
 import { useLocale, useTranslations } from "next-intl";
-import { useEffect, useState } from "react";
+import { Fragment, useEffect, useState } from "react";
 import { useQuery, useQueryClient } from "@tanstack/react-query";
 import { api } from "@/lib/api";
 import { copyFromBff, downloadFromBff } from "@/lib/download";
@@ -11,11 +11,11 @@ import { useMoney } from "@/lib/money";
 import { queryKeys } from "@/lib/query-keys";
 import { lineLabel } from "@/lib/order-ref";
 import { orderStatus } from "@/lib/order-status";
-import { formatDate } from "@/lib/utils";
+import { formatDate, formatDateTime } from "@/lib/utils";
 import { fulfillmentFromStrategy } from "@/lib/fulfillment";
 import type { Order } from "@/lib/types";
-import { Button, CopyButton, Tag } from "@/components/ui";
-import { ArrowRight, Check, Clock, Copy, Download, ShieldCheck, X } from "@/components/Icons";
+import { Button, Tag } from "@/components/ui";
+import { ArrowRight, Check, Clock, Copy, Download, Eye, EyeOff, Key, ShieldCheck, X } from "@/components/Icons";
 
 const ORDER_POLL_MS = 3000;
 const ORDER_POLL_TIMEOUT_MS = 15 * 60 * 1000;
@@ -118,6 +118,172 @@ function StockDelivery({ order }: { order: Order }) {
   );
 }
 
+/** `gwk_live_YqHL••••••XjHjw`: enough to recognise the key, not to use it. */
+function maskKey(key: string): string {
+  return key.length > 18 ? `${key.slice(0, 13)}••••••${key.slice(-5)}` : "••••••••";
+}
+
+/** Endpoint names shown in the purchase card; the order's API console lists them all. */
+const ENDPOINT_CHIPS = 6;
+
+const iconButton =
+  "inline-flex h-8 w-8 shrink-0 items-center justify-center rounded-lg text-muted transition-colors hover:bg-raised hover:text-fg focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-iris";
+
+/** Copy a value from an icon button, with a short "copied" state. */
+function CopyIcon({ value, label }: { value: string; label: string }) {
+  const [copied, setCopied] = useState(false);
+  return (
+    <button
+      type="button"
+      aria-label={label}
+      title={label}
+      onClick={() => {
+        navigator.clipboard?.writeText(value).catch(() => {});
+        setCopied(true);
+        setTimeout(() => setCopied(false), 1600);
+      }}
+      className={iconButton}
+    >
+      {copied ? <Check size={14} className="text-good" /> : <Copy size={14} />}
+    </button>
+  );
+}
+
+/** API package just delivered: the key (masked until revealed), the call URL
+ *  (key shown as a placeholder, copied in full), remaining requests and the
+ *  callable endpoints; docs, try-it and call history live on the order. */
+function ApiAccess({ order }: { order: Order }) {
+  const t = useTranslations("products");
+  const tc = useTranslations("common");
+  const locale = useLocale();
+  const access = order.gateway_access!;
+  const [revealed, setRevealed] = useState(false);
+  const dashboard = useQuery({
+    queryKey: ["order-dashboard", order.id] as const,
+    queryFn: () => api.orderDashboard(order.id),
+    staleTime: 30_000,
+  });
+  const balance = dashboard.data?.balance ?? null;
+  const endpoints = dashboard.data?.api?.endpoints ?? [];
+  const number = new Intl.NumberFormat(locale === "en" ? "en-US" : "vi-VN");
+  const shownUrl = access.url.replace(access.key, "{API_KEY}");
+  return (
+    <section aria-label={t("apiAccessTitle")} className="animate-rise space-y-3">
+      <div className="overflow-hidden rounded-xl border border-line bg-surface">
+        <div className="flex items-center justify-between gap-2 border-b border-line bg-raised/50 px-3 py-2">
+          <span className="inline-flex items-center gap-1.5 text-[12.5px] font-semibold text-fg">
+            <Key size={14} className="text-iris" /> {t("apiAccessTitle")}
+          </span>
+          {balance && (
+            <span className="font-mono text-[11.5px] text-muted tabular">
+              {t("apiRequestsLeft", { left: number.format(balance.units_remaining), total: number.format(balance.units_total) })}
+            </span>
+          )}
+        </div>
+        <dl className="divide-y divide-line/70">
+          <div className="px-3 py-2.5">
+            <dt className="text-[11px] text-muted">{t("apiKeyLabel")}</dt>
+            <dd className="mt-1 flex items-center gap-1">
+              <code className="min-w-0 flex-1 truncate font-mono text-[12.5px] text-fg">{revealed ? access.key : maskKey(access.key)}</code>
+              <button
+                type="button"
+                onClick={() => setRevealed((v) => !v)}
+                aria-pressed={revealed}
+                aria-label={revealed ? tc("hide") : tc("show")}
+                title={revealed ? tc("hide") : tc("show")}
+                className={iconButton}
+              >
+                {revealed ? <EyeOff size={14} /> : <Eye size={14} />}
+              </button>
+              <CopyIcon value={access.key} label={t("apiCopyKey")} />
+            </dd>
+          </div>
+          <div className="px-3 py-2.5">
+            <dt className="text-[11px] text-muted">{t("apiCallUrlLabel")}</dt>
+            <dd className="mt-1 flex items-start gap-1">
+              <code className="min-w-0 flex-1 break-words pt-1.5 font-mono text-[12px] leading-5 text-fg">
+                {/* Wrap at path segments, not in the middle of one. */}
+                {shownUrl.split("/").map((part, index, parts) => (
+                  <Fragment key={index}>{part}{index < parts.length - 1 && <>/<wbr /></>}</Fragment>
+                ))}
+              </code>
+              <CopyIcon value={access.url} label={t("apiCopyUrl")} />
+            </dd>
+          </div>
+          {endpoints.length > 0 && (
+            <div className="px-3 py-2.5">
+              <dt className="text-[11px] text-muted">{t("apiEndpointsLabel")}</dt>
+              <dd className="mt-1.5 flex flex-wrap gap-1.5">
+                {endpoints.slice(0, ENDPOINT_CHIPS).map((endpoint) => (
+                  <span key={endpoint.name} className="rounded-md border border-line bg-raised px-1.5 py-0.5 font-mono text-[11px] text-fg">
+                    {endpoint.name}
+                  </span>
+                ))}
+                {endpoints.length > ENDPOINT_CHIPS && (
+                  <span className="rounded-md px-1.5 py-0.5 text-[11px] text-muted">
+                    {t("apiMoreEndpoints", { count: endpoints.length - ENDPOINT_CHIPS })}
+                  </span>
+                )}
+              </dd>
+            </div>
+          )}
+        </dl>
+        <div className="flex justify-end border-t border-line px-3 py-2 text-[11.5px]">
+          <Link
+            href={`/orders?order=${encodeURIComponent(order.order_code)}`}
+            className="inline-flex items-center gap-1 rounded font-medium text-iris hover:underline focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-iris"
+          >
+            {t("apiOpenConsole")} <ArrowRight size={12} />
+          </Link>
+        </div>
+      </div>
+      <p className="flex items-start gap-1.5 text-[11.5px] leading-5 text-muted">
+        <ShieldCheck size={14} className="mt-0.5 shrink-0 text-good" />
+        <span>{t("apiKeySecretNote")}</span>
+      </p>
+    </section>
+  );
+}
+
+const LABELLED_LINE = /^([^:|]{1,28}):\s+(.+)$/;
+const ISO_TIMESTAMP = /^\d{4}-\d{2}-\d{2}T\d{2}:\d{2}/;
+
+/** Short text deliveries (proxy credentials, manual hand-over): "Label: value"
+ *  lines become labelled rows with their own copy, other lines numbered rows. */
+function TextDelivery({ text }: { text: string }) {
+  const t = useTranslations("products");
+  const locale = useLocale();
+  const lines = text.split(/\r?\n/).map((line) => line.trim()).filter(Boolean);
+  // Expiry and similar fields arrive as ISO timestamps: show them as local time.
+  const readable = (value: string) =>
+    ISO_TIMESTAMP.test(value) && !Number.isNaN(Date.parse(value)) ? formatDateTime(value, locale) : value;
+  return (
+    <section aria-label={t("orderHandoffInfo")} className="animate-rise">
+      <div className="overflow-hidden rounded-xl border border-line bg-surface">
+        <div className="flex items-center justify-between gap-2 border-b border-line bg-raised/50 px-3 py-1.5">
+          <span className="text-[12.5px] font-semibold text-fg">{t("orderHandoffInfo")}</span>
+          <CopyIcon value={text} label={t("copyAllDelivered")} />
+        </div>
+        <dl className="divide-y divide-line/70">
+          {lines.slice(0, 12).map((line, index) => {
+            const labelled = LABELLED_LINE.exec(line);
+            const value = labelled ? readable(labelled[2]) : line;
+            return (
+              <div key={index} className="flex items-center gap-3 px-3 py-1.5">
+                <dt className="w-20 shrink-0 truncate text-[11px] text-muted">
+                  {labelled ? labelled[1] : lineLabel(index + 1)}
+                </dt>
+                <dd className="min-w-0 flex-1 truncate font-mono text-[12px] leading-5 text-fg">{value}</dd>
+                <CopyIcon value={value} label={t("copyThisLine")} />
+              </div>
+            );
+          })}
+        </dl>
+      </div>
+    </section>
+  );
+}
+
 function useOrderPolling(initial: Order, enabled: boolean) {
   const queryClient = useQueryClient();
   const [order, setOrder] = useState(initial);
@@ -211,9 +377,7 @@ export default function OrderResult({ order: initial, onRebuy, fulfillment, deli
     order.display_fx_rate_snapshot,
     { locale },
   ).text;
-  const deliveryText = order.gateway_access
-    ? `${t("gatewayKey")}: ${order.gateway_access.key}\n${t("gatewayCallUrl")}: ${order.gateway_access.url}`
-    : order.delivered_data;
+  const deliveryText = order.delivered_data;
 
   const pending = order.status === "pending";
   const failed = order.status === "cancelled" || order.status === "refunded";
@@ -319,14 +483,10 @@ export default function OrderResult({ order: initial, onRebuy, fulfillment, deli
         </div>
       ) : order.delivery_count ? (
         <StockDelivery order={order} />
+      ) : order.gateway_access ? (
+        <ApiAccess order={order} />
       ) : deliveryText ? (
-        <div className="animate-rise">
-          <div className="flex items-center justify-between mb-1">
-            <span className="text-[11px] text-faint uppercase tracking-wider">{t("orderHandoffInfo")}</span>
-            <CopyButton text={deliveryText} label={tc("copy")} copiedLabel={tc("copied")} />
-          </div>
-          <pre className="font-mono text-[12px] bg-raised border border-line rounded-lg p-3 whitespace-pre-wrap break-all">{deliveryText}</pre>
-        </div>
+        <TextDelivery text={deliveryText} />
       ) : (
         <p className="text-[12.5px] text-muted">{t("orderSellerSla")}</p>
       )}

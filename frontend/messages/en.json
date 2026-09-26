@@ -2463,7 +2463,19 @@
     "orderLinesPreview": "Previewing {shown} of {total} lines",
     "orderOpenAllLines": "View all in your orders",
     "orderPreviewUnavailable": "Preview unavailable. You can still download or copy the lines.",
-    "orderEscrowNote": "Payment is held in escrow until {date}. Check the goods before confirming receipt."
+    "orderEscrowNote": "Payment is held in escrow until {date}. Check the goods before confirming receipt.",
+    "apiAccessTitle": "Your API key is ready",
+    "apiRequestsLeft": "{left} / {total} requests",
+    "apiKeyLabel": "API key",
+    "apiCallUrlLabel": "Call URL",
+    "apiEndpointsLabel": "Callable endpoints",
+    "apiCopyKey": "Copy API key",
+    "apiCopyUrl": "Copy call URL (includes the key)",
+    "apiOpenConsole": "Docs, try it and call history",
+    "apiKeySecretNote": "Keep the key secret: anyone with it can spend your requests. If it leaks, rotate it from the order.",
+    "copyAllDelivered": "Copy all",
+    "copyThisLine": "Copy this line",
+    "apiMoreEndpoints": "+{count} more"
   },
   "chat": {
     "inbox": "Messages",

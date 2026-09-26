@@ -2463,7 +2463,19 @@
     "orderLinesPreview": "Xem trước {shown} / {total} dòng",
     "orderOpenAllLines": "Xem tất cả trong đơn hàng",
     "orderPreviewUnavailable": "Không tải được bản xem trước. Bạn vẫn có thể tải file hoặc sao chép.",
-    "orderEscrowNote": "Tiền được ký quỹ đến {date}. Hãy kiểm tra hàng trước khi xác nhận đã nhận."
+    "orderEscrowNote": "Tiền được ký quỹ đến {date}. Hãy kiểm tra hàng trước khi xác nhận đã nhận.",
+    "apiAccessTitle": "API key đã sẵn sàng",
+    "apiRequestsLeft": "{left} / {total} request",
+    "apiKeyLabel": "API key",
+    "apiCallUrlLabel": "Địa chỉ gọi",
+    "apiEndpointsLabel": "Endpoint được gọi",
+    "apiCopyKey": "Sao chép API key",
+    "apiCopyUrl": "Sao chép địa chỉ gọi (kèm key)",
+    "apiOpenConsole": "Tài liệu, gọi thử và lịch sử gọi",
+    "apiKeySecretNote": "Giữ key bí mật: ai có key đều dùng được số request của bạn. Nếu lộ, đổi key ngay trong đơn hàng.",
+    "copyAllDelivered": "Sao chép toàn bộ",
+    "copyThisLine": "Sao chép dòng này",
+    "apiMoreEndpoints": "+{count} endpoint khác"
   },
   "chat": {
     "inbox": "Tin nhắn",

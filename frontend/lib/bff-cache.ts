@@ -42,6 +42,12 @@ const CATALOG_WRITE_PATHS: RegExp[] = [
   /^admin\/site-pages(\/|$)/,
 ];
 
+// Read-only POSTs under the catalog-owning prefixes: busting the catalog
+// cache for them only makes every storefront render refetch for nothing.
+const CATALOG_READ_ONLY_POSTS: RegExp[] = [
+  /^seller\/variants\/[^/]+\/resources\/preview$/,
+];
+
 const UNSAFE_METHODS = new Set(["POST", "PUT", "PATCH", "DELETE"]);
 
 /**
@@ -65,5 +71,6 @@ export function publicCacheControl(params: {
 export function catalogWritePath(method: string, path: string, status: number): boolean {
   if (!UNSAFE_METHODS.has(method)) return false;
   if (status < 200 || status >= 300) return false;
+  if (CATALOG_READ_ONLY_POSTS.some((pattern) => pattern.test(path))) return false;
   return CATALOG_WRITE_PATHS.some((pattern) => pattern.test(path));
 }

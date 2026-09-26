@@ -1,12 +1,34 @@
 import { NextRequest, NextResponse } from "next/server";
 
+import { clientIpFromHeaders } from "@/lib/admin-access";
 import { facebookEntityType, normalizeFacebookTarget } from "@/lib/facebook-lookup";
 import { lookupExpectedOrigin, lookupFromOwnFrontend, resolveLookupEndpoint, sanitizeLookupApiKey, withLookupApiKey } from "@/lib/lookup-gateway";
+import {
+  LOOKUP_GLOBAL_PER_WINDOW,
+  LOOKUP_PER_CLIENT_PER_WINDOW,
+  LOOKUP_RESULT_CACHE_ENTRIES,
+  LOOKUP_RESULT_TTL_MS,
+  LOOKUP_WINDOW_MS,
+  createLookupThrottle,
+  createTtlCache,
+} from "@/lib/lookup-guard";
 
 export const runtime = "nodejs";
 
 const REQUEST_TIMEOUT_MS = 20_000;
 const NO_STORE = { "Cache-Control": "no-store" } as const;
+
+// Paid quota: repeat lookups of one target are served from memory, and new
+// lookups are throttled per client and per process (lib/lookup-guard).
+const allowLookup = createLookupThrottle({
+  perClientLimit: LOOKUP_PER_CLIENT_PER_WINDOW,
+  globalLimit: LOOKUP_GLOBAL_PER_WINDOW,
+  windowMs: LOOKUP_WINDOW_MS,
+});
+const lookupResults = createTtlCache<{ found: true; body: object } | { found: false }>({
+  ttlMs: LOOKUP_RESULT_TTL_MS,
+  maxEntries: LOOKUP_RESULT_CACHE_ENTRIES,
+});
 
 /** Provider row for `/fb-module/find-id`. Everything is optional — the UI is
  *  driven by what actually came back, not by the entity type. */
@@ -68,6 +90,14 @@ export async function GET(request: NextRequest) {
   const target = normalizeFacebookTarget(request.nextUrl.searchParams.get("url") ?? "");
   if (!target) return fail(400, "LOOKUP_INVALID_INPUT");
 
+  const cached = lookupResults.get(target.url);
+  if (cached) return cached.found ? NextResponse.json(cached.body, { headers: NO_STORE }) : fail(404, "LOOKUP_NOT_FOUND");
+  if (!allowLookup(clientIpFromHeaders(request.headers))) return fail(429, "LOOKUP_RATE_LIMITED");
+  const notFound = () => {
+    lookupResults.set(target.url, { found: false });
+    return fail(404, "LOOKUP_NOT_FOUND");
+  };
+
   const apiKey = sanitizeLookupApiKey(process.env.LOOKUP_API_KEY ?? "");
   const endpoint = resolveLookupEndpoint(process.env.FACEBOOK_LOOKUP_API_URL, process.env.TIKTOK_LOOKUP_API_URL, "/api/v1/fb-module/find-id");
   if (!apiKey || !endpoint) return fail(503, "LOOKUP_UNAVAILABLE");
@@ -87,12 +117,12 @@ export async function GET(request: NextRequest) {
   }
 
   const payload = await upstream.json().catch(() => null) as ProviderPayload | null;
-  if (upstream.status === 404) return fail(404, "LOOKUP_NOT_FOUND");
+  if (upstream.status === 404) return notFound();
   if (upstream.status === 429) return fail(429, "LOOKUP_RATE_LIMITED");
   if (upstream.status === 400 || upstream.status === 422) {
     // A target the provider could not resolve on any tier is "not found",
     // everything else on 4xx is our input shape.
-    return /unresolved|not found|does not exist/i.test(providerErrorText(payload)) ? fail(404, "LOOKUP_NOT_FOUND") : fail(400, "LOOKUP_INVALID_INPUT");
+    return /unresolved|not found|does not exist/i.test(providerErrorText(payload)) ? notFound() : fail(400, "LOOKUP_INVALID_INPUT");
   }
   if (!upstream.ok || !payload) {
     console.warn("[facebook-lookup] provider error:", upstream.status, JSON.stringify(payload)?.slice(0, 300));
@@ -100,10 +130,10 @@ export async function GET(request: NextRequest) {
   }
 
   const id = asId(payload.id);
-  if (!id) return fail(404, "LOOKUP_NOT_FOUND");
+  if (!id) return notFound();
 
   const type = facebookEntityType(payload.type);
-  return NextResponse.json({
+  const body = {
     success: true,
     platform: "facebook",
     query: { input: target.url, handle: target.handle, kind: target.kind },
@@ -126,5 +156,7 @@ export async function GET(request: NextRequest) {
       cached: payload.cached === true,
       fetched_at: new Date().toISOString(),
     },
-  }, { headers: NO_STORE });
+  };
+  lookupResults.set(target.url, { found: true, body });
+  return NextResponse.json(body, { headers: NO_STORE });
 }

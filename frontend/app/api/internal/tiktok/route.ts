@@ -6,12 +6,35 @@ import {
   tiktokLookupExpectedOrigin,
   tiktokLookupFromOwnFrontend,
 } from "@/lib/tiktok-lookup";
+import { clientIpFromHeaders } from "@/lib/admin-access";
+import {
+  LOOKUP_GLOBAL_PER_WINDOW,
+  LOOKUP_PER_CLIENT_PER_WINDOW,
+  LOOKUP_RESULT_CACHE_ENTRIES,
+  LOOKUP_RESULT_TTL_MS,
+  LOOKUP_WINDOW_MS,
+  createLookupThrottle,
+  createTtlCache,
+} from "@/lib/lookup-guard";
 
 export const runtime = "nodejs";
 
 const PROVIDER_URL = process.env.TIKTOK_LOOKUP_API_URL;
 const REQUEST_TIMEOUT_MS = 10_000;
 const LOOKUP_ERROR_DETAIL = "Không thể thực hiện tra cứu lúc này. Vui lòng thử lại sau.";
+const NOT_FOUND_DETAIL = "Không tìm thấy profile TikTok này.";
+
+// Paid quota: repeat lookups of one profile are served from memory, and new
+// lookups are throttled per client and per process (lib/lookup-guard).
+const allowLookup = createLookupThrottle({
+  perClientLimit: LOOKUP_PER_CLIENT_PER_WINDOW,
+  globalLimit: LOOKUP_GLOBAL_PER_WINDOW,
+  windowMs: LOOKUP_WINDOW_MS,
+});
+const lookupResults = createTtlCache<{ found: true; body: object } | { found: false }>({
+  ttlMs: LOOKUP_RESULT_TTL_MS,
+  maxEntries: LOOKUP_RESULT_CACHE_ENTRIES,
+});
 
 type ProviderProfile = {
   id?: unknown;
@@ -94,6 +117,16 @@ export async function GET(request: NextRequest) {
   const normalizedUrl = normalizeTikTokProfile(request.nextUrl.searchParams.get("url") ?? "");
   if (!normalizedUrl) return NextResponse.json({ detail: "Nhập username hoặc link profile TikTok hợp lệ." }, { status: 400 });
 
+  const cached = lookupResults.get(normalizedUrl);
+  if (cached) {
+    return cached.found
+      ? NextResponse.json(cached.body, { headers: { "Cache-Control": "no-store" } })
+      : NextResponse.json({ detail: NOT_FOUND_DETAIL }, { status: 404 });
+  }
+  if (!allowLookup(clientIpFromHeaders(request.headers))) {
+    return NextResponse.json({ detail: LOOKUP_ERROR_DETAIL }, { status: 429, headers: { "Cache-Control": "no-store" } });
+  }
+
   const apiKey = sanitizeLookupApiKey(process.env.LOOKUP_API_KEY ?? "");
   if (!apiKey) return NextResponse.json({ detail: LOOKUP_ERROR_DETAIL }, { status: 503 });
   if (!PROVIDER_URL) return NextResponse.json({ detail: LOOKUP_ERROR_DETAIL }, { status: 503 });
@@ -114,11 +147,11 @@ export async function GET(request: NextRequest) {
     return NextResponse.json({ detail: LOOKUP_ERROR_DETAIL }, { status: 502 });
   }
   if (!upstream.ok) {
-    const status = upstream.status === 404 ? 404 : 502;
-    const detail = status === 404
-      ? "Không tìm thấy profile TikTok này."
-      : LOOKUP_ERROR_DETAIL;
-    return NextResponse.json({ detail }, { status });
+    if (upstream.status === 404) {
+      lookupResults.set(normalizedUrl, { found: false });
+      return NextResponse.json({ detail: NOT_FOUND_DETAIL }, { status: 404 });
+    }
+    return NextResponse.json({ detail: LOOKUP_ERROR_DETAIL }, { status: 502 });
   }
 
   const payload = await upstream.json().catch(() => null) as ProviderPayload | null;
@@ -129,7 +162,7 @@ export async function GET(request: NextRequest) {
     return NextResponse.json({ detail: LOOKUP_ERROR_DETAIL }, { status: 502 });
   }
 
-  return NextResponse.json({
+  const body = {
     success: true,
     platform: "tiktok",
     username,
@@ -143,5 +176,7 @@ export async function GET(request: NextRequest) {
       commerce_user: profile.commerce_user === true, tt_seller: profile.tt_seller === true,
     },
     meta: { source: asString(payload.data?.meta?.source), fetched_at: fetchedAt(payload.data?.meta?.fetched_at) },
-  }, { headers: { "Cache-Control": "no-store" } });
+  };
+  lookupResults.set(normalizedUrl, { found: true, body });
+  return NextResponse.json(body, { headers: { "Cache-Control": "no-store" } });
 }

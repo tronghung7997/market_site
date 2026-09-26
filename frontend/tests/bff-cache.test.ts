@@ -33,6 +33,7 @@ describe("BFF catalog invalidation", () => {
 
   it("ignores reads, failures, and unrelated writes", () => {
     assert.equal(catalogWritePath("GET", "seller/products", 200), false);
+    assert.equal(catalogWritePath("POST", "seller/variants/3/resources/preview", 200), false);
     assert.equal(catalogWritePath("PATCH", "seller/products/12", 422), false);
     assert.equal(catalogWritePath("POST", "orders", 201), false);
     assert.equal(catalogWritePath("POST", "auth/login", 200), false);

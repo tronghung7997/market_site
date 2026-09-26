@@ -1,12 +1,33 @@
 "use client";
 
-import { useEffect } from "react";
+import { useEffect, useSyncExternalStore } from "react";
 import { type QueryClient, useQueryClient } from "@tanstack/react-query";
 import { queryKeys } from "@/lib/query-keys";
 
 let source: EventSource | null = null;
 let listeners = 0;
 const clients = new Set<QueryClient>();
+
+// Whether the shared stream is currently open; chat polling slows down while it is.
+let live = false;
+const liveSubscribers = new Set<() => void>();
+
+function setLive(next: boolean) {
+  if (live === next) return;
+  live = next;
+  for (const notify of liveSubscribers) notify();
+}
+
+function subscribeLive(notify: () => void) {
+  liveSubscribers.add(notify);
+  return () => {
+    liveSubscribers.delete(notify);
+  };
+}
+
+export function useChatStreamLive(): boolean {
+  return useSyncExternalStore(subscribeLive, () => live, () => false);
+}
 
 function invalidate(client: QueryClient, conversationId?: string) {
   client.invalidateQueries({ queryKey: queryKeys.chat() });
@@ -40,7 +61,12 @@ export function useChatEvents(enabled: boolean) {
       source?.close();
       source = new EventSource("/api/chat/events");
       source.onmessage = onMessage;
-      source.onopen = () => invalidateAll();
+      source.onopen = () => {
+        setLive(true);
+        invalidateAll();
+      };
+      // Fires when the connection drops (the browser then reconnects).
+      source.onerror = () => setLive(false);
     }
     listeners += 1;
     return () => {
@@ -50,6 +76,7 @@ export function useChatEvents(enabled: boolean) {
         source.close();
         source = null;
         listeners = 0;
+        setLive(false);
       }
     };
   }, [client, enabled]);

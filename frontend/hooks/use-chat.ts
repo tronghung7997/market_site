@@ -2,27 +2,29 @@
 
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
 import { api } from "@/lib/api";
+import { CHAT_POLL_WITHOUT_STREAM_MS, chatRefetchInterval } from "@/lib/chat-polling";
 import { queryKeys } from "@/lib/query-keys";
-
-const CHAT_REFETCH_MS = 8_000;
+import { useChatStreamLive } from "./use-chat-events";
 
 export function useChatConversations(enabled = true) {
+  const streamLive = useChatStreamLive();
   return useQuery({
     queryKey: queryKeys.chatList(),
     queryFn: () => api.chatConversations("all"),
     enabled,
     refetchOnWindowFocus: true,
-    refetchInterval: enabled ? CHAT_REFETCH_MS : false,
+    refetchInterval: chatRefetchInterval(enabled, streamLive),
   });
 }
 
 export function useChatConversation(id: string | null) {
+  const streamLive = useChatStreamLive();
   return useQuery({
     queryKey: queryKeys.chatDetail(id ?? ""),
     queryFn: () => api.chatConversation(id!),
     enabled: !!id,
     refetchOnWindowFocus: true,
-    refetchInterval: id ? CHAT_REFETCH_MS : false,
+    refetchInterval: chatRefetchInterval(!!id, streamLive),
   });
 }
 
@@ -45,7 +47,8 @@ export function useAdminSupportConversations(enabled = true) {
     queryFn: () => api.adminSupportConversations(),
     enabled,
     refetchOnWindowFocus: true,
-    refetchInterval: enabled ? CHAT_REFETCH_MS : false,
+    // Admin consoles do not open the chat stream, so they keep the fast poll.
+    refetchInterval: enabled ? CHAT_POLL_WITHOUT_STREAM_MS : false,
   });
 }
 

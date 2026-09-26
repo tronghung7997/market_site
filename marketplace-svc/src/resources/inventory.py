@@ -79,8 +79,11 @@ def _available_filter():
     )
 
 
-def _variant_stats_subquery(sold_since: datetime):
-    """Per-variant counters over non-archived rows (+ archived separately)."""
+def _variant_stats_subquery(sold_since: datetime, variant_ids):
+    """Per-variant counters over non-archived rows (+ archived separately),
+    for ``variant_ids`` only (ids or a SELECT of ids): the caller's join cannot
+    be pushed into the grouped subquery, so an unscoped call would count every
+    resource on the marketplace."""
     live = Resource.is_archived == False  # noqa: E712
     return (
         select(
@@ -95,6 +98,7 @@ def _variant_stats_subquery(sold_since: datetime):
             ).label("sold_30d"),
             func.max(Resource.created_at).label("last_restock_at"),
         )
+        .where(Resource.variant_id.in_(variant_ids))
         .group_by(Resource.variant_id)
         .subquery()
     )
@@ -222,7 +226,12 @@ async def list_packages(
 ) -> dict:
     low_stock = await get_low_stock_threshold(db)
     now = datetime.now(timezone.utc)
-    stats = _variant_stats_subquery(now - timedelta(days=SOLD_WINDOW_DAYS))
+    seller_variants = (
+        select(ProductVariant.id)
+        .join(Product, Product.id == ProductVariant.product_id)
+        .where(Product.seller_id == seller_id)
+    )
+    stats = _variant_stats_subquery(now - timedelta(days=SOLD_WINDOW_DAYS), seller_variants)
     filters = _scope_filters(seller_id)
     if product_status == "active":
         filters.append(Product.status == ProductStatus.active)
@@ -389,7 +398,8 @@ async def get_package(variant_id: int, seller_id: int, db: AsyncSession) -> dict
     variant, product = await _owned_variant(variant_id, seller_id, db)
     low_stock = await get_low_stock_threshold(db)
     now = datetime.now(timezone.utc)
-    stats = _variant_stats_subquery(now - timedelta(days=SOLD_WINDOW_DAYS))
+    product_variants = select(ProductVariant.id).where(ProductVariant.product_id == product.id)
+    stats = _variant_stats_subquery(now - timedelta(days=SOLD_WINDOW_DAYS), product_variants)
     rows = (await db.execute(
         _package_base(stats, [Product.id == product.id])
         .order_by(ProductVariant.sort_order, ProductVariant.id)

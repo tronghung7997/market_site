@@ -9,6 +9,7 @@ from src.database import SessionLocal
 from src.models.alert import Alert
 from src.models.log_entry import LogEntry
 from src.models.provider import ProviderCallLog
+from src.models.search import SearchQueryLog
 from src.models.usage import GatewayCallLog
 from src.security.client_ip import current_client_ip
 
@@ -161,6 +162,19 @@ async def purge_operational_logs() -> dict[str, int]:
                 LogEntry.id.in_(
                     select(LogEntry.id)
                     .where(LogEntry.created_at < le_cutoff)
+                    .limit(_CLEANUP_BATCH_SIZE)
+                )
+            ),
+        )
+
+        # search_query_log (admin search insights; only recent windows are read)
+        sq_cutoff = now - timedelta(days=settings.search_query_log_retention_days)
+        counts["search_query_log"] = await _delete_in_batches(
+            db,
+            lambda: delete(SearchQueryLog).where(
+                SearchQueryLog.id.in_(
+                    select(SearchQueryLog.id)
+                    .where(SearchQueryLog.created_at < sq_cutoff)
                     .limit(_CLEANUP_BATCH_SIZE)
                 )
             ),

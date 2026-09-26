@@ -616,3 +616,57 @@ async def test_plain_seller_cannot_use_source_endpoints(client, mock_igbm):
     for path in ("purchases", "settings"):
         resp = await client.get(f"/seller/sources/{ctx['provider_id']}/{path}", headers=_h(plain))
         assert resp.status_code == 403, path
+
+
+@pytest.mark.no_db
+def test_scoped_sellable_stock_limits_every_branch_to_the_given_packages():
+    """Postgres cannot push a caller's join into the grouped stock subquery, so a
+    scope must reach the resource count, the supplier listings and the package
+    rows themselves — otherwise every call counts the whole marketplace."""
+    from sqlalchemy.dialects import postgresql
+
+    from src.suppliers.stock import sellable_stock_by_variant
+
+    scoped = str(sellable_stock_by_variant([7, 8]).compile(dialect=postgresql.dialect()))
+    assert "resources.variant_id IN" in scoped
+    assert "supplier_listings.variant_id IN" in scoped
+    assert "product_variants.id IN" in scoped
+
+    unscoped = str(sellable_stock_by_variant().compile(dialect=postgresql.dialect()))
+    assert "resources.variant_id IN" not in unscoped
+
+
+@pytest.mark.asyncio
+async def test_supplier_sync_job_commits_each_provider_on_its_own(monkeypatch):
+    """One session per provider: a failing provider is rolled back alone, and
+    one provider's writes are committed before the next one is fetched."""
+    from src.suppliers import sync as sync_module
+    from src.suppliers.service import SyncReport
+
+    async with SessionLocal() as db:
+        broken = Provider(name="Broken", type="supplier", config={}, adapter_type="igbm")
+        healthy = Provider(name="Healthy", type="supplier", config={}, adapter_type="igbm")
+        db.add_all([broken, healthy])
+        await db.commit()
+        broken_id, healthy_id = broken.id, healthy.id
+
+    committed_before_next: list[str] = []
+
+    async def fake_sync(provider, db):
+        async with SessionLocal() as observer:
+            committed_before_next.append((await observer.get(Provider, broken_id)).name)
+        if provider.id == broken_id:
+            provider.name = "half-written"
+            await db.flush()
+            raise RuntimeError("upstream exploded")
+        provider.name = "synced"
+        return SyncReport(provider_id=provider.id)
+
+    monkeypatch.setattr(sync_module, "sync_provider_listings", fake_sync)
+
+    await sync_module.supplier_sync_job()
+
+    async with SessionLocal() as db:
+        assert (await db.get(Provider, broken_id)).name == "Broken"
+        assert (await db.get(Provider, healthy_id)).name == "synced"
+    assert committed_before_next == ["Broken", "Broken"]

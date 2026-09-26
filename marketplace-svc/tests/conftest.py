@@ -139,10 +139,11 @@ async def clean_db(request):
     # Process-local config caches survive TRUNCATE; wipe them so tests never
     # observe a previous case's display_money / deposit_rail public payload.
     from src.runtime_config import clear_all_process_config_caches
-    from src.search.service import reset_synonyms_snapshot
+    from src.search.service import discard_query_log_buffer, reset_synonyms_snapshot
 
     clear_all_process_config_caches()
     reset_synonyms_snapshot()
+    discard_query_log_buffer()
     async with engine.begin() as conn:
         dirty = await _dirty_tables(conn)
         if dirty:

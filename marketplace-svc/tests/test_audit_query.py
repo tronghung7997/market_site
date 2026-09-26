@@ -101,3 +101,27 @@ async def test_cleanup_spares_active_alerts_and_ledgers():
             select(Alert).where(Alert.is_active.is_(False), Alert.message == "resolved")
         )).scalars().all()
         assert leftover == []
+
+
+@pytest.mark.asyncio
+async def test_purge_drops_search_query_log_past_retention():
+    from datetime import datetime, timedelta, timezone
+
+    from src.config import settings
+    from src.models.search import SearchQueryLog
+
+    now = datetime.now(timezone.utc)
+    async with SessionLocal() as db:
+        db.add_all([
+            SearchQueryLog(query="old query", locale="vi", kind="page", result_count=0,
+                           created_at=now - timedelta(days=settings.search_query_log_retention_days + 1)),
+            SearchQueryLog(query="recent query", locale="vi", kind="page", result_count=3, created_at=now),
+        ])
+        await db.commit()
+
+    counts = await purge_operational_logs()
+
+    assert counts["search_query_log"] == 1
+    async with SessionLocal() as db:
+        remaining = (await db.scalars(select(SearchQueryLog.query))).all()
+    assert remaining == ["recent query"]

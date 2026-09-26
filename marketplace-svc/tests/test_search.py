@@ -5,6 +5,8 @@ visibility rules (only active products / categories / approved sellers with
 stock on the shelf), the empty/short-query behavior, the process cache and
 the timeout mapping. No sequential ids for products or sellers on the wire.
 """
+from datetime import datetime, timezone
+
 import pytest
 from sqlalchemy import select
 
@@ -399,3 +401,39 @@ async def test_results_page_queries_are_logged_for_admins(client):
     assert [row["query"] for row in zero_only.json()["items"]] == ["khong co gi dau"]
 
     assert (await client.get("/admin/search/queries", headers=_auth(seeded["seller_token"]))).status_code == 403
+
+
+@pytest.mark.asyncio
+async def test_query_log_rows_are_buffered_then_written_in_one_batch(client):
+    """Searching must not open a pooled connection per request just to log it:
+    rows wait in the process buffer and land together, with their own time."""
+    from sqlalchemy import func, select
+
+    from src.database import SessionLocal
+    from src.models.search import SearchQueryLog
+    from src.search.service import flush_query_log
+
+    await _seed_catalog(client)
+    before = datetime.now(timezone.utc)
+    for q in ("facebook", "tiktok", "gmail"):
+        assert (await client.get("/search", params={"q": q})).status_code == 200
+
+    async with SessionLocal() as db:
+        assert await db.scalar(select(func.count(SearchQueryLog.id))) == 0
+
+    await flush_query_log()
+
+    async with SessionLocal() as db:
+        rows = list((await db.scalars(select(SearchQueryLog).order_by(SearchQueryLog.id))).all())
+    assert [r.query for r in rows] == ["facebook", "tiktok", "gmail"]
+    assert all(r.kind == "page" and r.created_at >= before for r in rows)
+
+
+@pytest.mark.asyncio
+async def test_query_log_buffer_is_bounded():
+    from src.search import service as search_service
+
+    for i in range(search_service._LOG_MAX_BUFFERED + 50):
+        search_service._log_query("page", f"query {i}", "vi", 1)
+    assert len(search_service._log_buffer) == search_service._LOG_MAX_BUFFERED
+    search_service.discard_query_log_buffer()

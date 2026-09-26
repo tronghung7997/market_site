@@ -1507,3 +1507,162 @@ async def test_auto_review_after_configured_days(client):
     await client.patch("/admin/seller-config", json={"auto_review_enabled": True, "auto_review_days": 3}, headers=admin_headers)
     async with SessionLocal() as db:
         assert await auto_review_stale_orders(db) == [fresh]
+
+
+# ---------------------------------------------------------------------------
+# Settlement jobs lock and re-check each order on its own; provisioning is bounded
+# ---------------------------------------------------------------------------
+
+_STUCK_ORDER_BODY = {
+    "user_config": {"type": "residential", "network": "shared", "days": 30, "quantity": 1},
+    "quantity": 1,
+}
+
+
+async def _stuck_adapter_orders(client, monkeypatch, count: int) -> list[dict]:
+    """`count` adapter orders committed at `pending` with provisioning never run."""
+    buyer_token, _, admin_token, product_id = await setup_adapter_product(client)
+    await _use_real_api_provider(product_id)
+    monkeypatch.setattr("src.orders.service.spawn_provision", lambda _id: None)
+    headers = {"Authorization": f"Bearer {buyer_token}"}
+    buyer_id = (await client.get("/me", headers=headers)).json()["id"]
+    await client.post("/wallet/topup", json={"reason": "test topup", "account_id": buyer_id, "amount": 5_000_000},
+                      headers={"Authorization": f"Bearer {admin_token}"})
+    orders = []
+    for _ in range(count):
+        resp = await client.post("/orders", json={"product_id": product_id, **_STUCK_ORDER_BODY}, headers=headers)
+        assert resp.status_code == 201, resp.text
+        orders.append(resp.json())
+    return orders
+
+
+@pytest.mark.asyncio
+async def test_sweep_does_not_refund_an_order_delivered_while_it_runs(client, monkeypatch):
+    """A provision finishing after the sweep picked its candidates (e.g. one that
+    waited for a provisioning slot) must win: the sweep re-locks each order with
+    `pending` in the WHERE instead of trusting the list it read earlier."""
+    from sqlalchemy import text
+
+    import src.scheduler as scheduler
+
+    first, second = await _stuck_adapter_orders(client, monkeypatch, 2)
+    for order in (first, second):
+        await _age_order(order["id"], 20 * 60)
+
+    real_refund = scheduler.refund_escrow
+
+    async def refund_while_the_other_is_delivered(order_id, buyer_id, amount, db):
+        if order_id == first["id"]:
+            async with SessionLocal() as side:
+                await side.execute(text("SET LOCAL lock_timeout = '2s'"))
+                await side.execute(
+                    update(Order).where(Order.id == second["id"])
+                    .values(status=OrderStatus.delivered, delivered_data="delivered-late")
+                )
+                await side.commit()
+        return await real_refund(order_id, buyer_id, amount, db)
+
+    monkeypatch.setattr(scheduler, "refund_escrow", refund_while_the_other_is_delivered)
+
+    await scheduler.provision_sweep_job()
+
+    async with SessionLocal() as db:
+        assert (await db.get(Order, first["id"])).status == OrderStatus.cancelled
+        assert (await db.get(Order, second["id"])).status == OrderStatus.delivered
+        second_refunds = (await db.scalars(select(Transaction).where(
+            Transaction.type == TransactionType.refund,
+            Transaction.reference_id == f"order-{second['id']}",
+        ))).all()
+        assert second_refunds == []
+
+
+@pytest.mark.asyncio
+async def test_background_provisioning_is_bounded_per_process(client, monkeypatch):
+    import httpx
+
+    from src.orders import service as order_service
+
+    orders = await _stuck_adapter_orders(client, monkeypatch, 3)
+    monkeypatch.setattr(order_service, "_provision_slots", asyncio.Semaphore(2))
+    in_flight = peak = 0
+
+    async def slow_provider(self, method, url, *args, **kwargs):
+        nonlocal in_flight, peak
+        in_flight += 1
+        peak = max(peak, in_flight)
+        await asyncio.sleep(0.05)
+        in_flight -= 1
+        return _ok_provision_response()
+
+    monkeypatch.setattr(httpx.AsyncClient, "request", slow_provider)
+
+    await asyncio.gather(*(order_service.provision_pending_order(o["id"]) for o in orders))
+
+    assert peak == 2
+    async with SessionLocal() as db:
+        assert {(await db.get(Order, o["id"])).status for o in orders} == {OrderStatus.delivered}
+
+
+@pytest.mark.asyncio
+async def test_provisioning_skips_an_order_another_session_holds(client, monkeypatch):
+    import httpx
+
+    from src.orders.service import provision_pending_order
+
+    (order,) = await _stuck_adapter_orders(client, monkeypatch, 1)
+    provider_call = AsyncMock(return_value=_ok_provision_response())
+    monkeypatch.setattr(httpx.AsyncClient, "request", provider_call)
+
+    async with SessionLocal() as holder:
+        await holder.execute(select(Order).where(Order.id == order["id"]).with_for_update())
+        await asyncio.wait_for(provision_pending_order(order["id"]), timeout=5)
+
+    assert provider_call.await_count == 0
+    async with SessionLocal() as db:
+        assert (await db.get(Order, order["id"])).status == OrderStatus.pending
+
+
+# ---------------------------------------------------------------------------
+# sla_check_job — refunds manual-delivery orders not delivered within the variant SLA
+# ---------------------------------------------------------------------------
+
+
+@pytest.mark.asyncio
+async def test_sla_check_refunds_only_orders_past_their_variant_sla(client):
+    from src.scheduler import sla_check_job
+
+    buyer_token, _, _, _, manual_vid = await setup_buyable_product(client)  # manual variant: sla_hours=24
+    headers = {"Authorization": f"Bearer {buyer_token}"}
+    late = (await client.post("/orders", json={"variant_id": manual_vid, "quantity": 1}, headers=headers)).json()
+    on_time = (await client.post("/orders", json={"variant_id": manual_vid, "quantity": 1}, headers=headers)).json()
+    assert late["status"] == on_time["status"] == "pending"
+    await _age_order(late["id"], 25 * 3600)
+    await _age_order(on_time["id"], 23 * 3600)
+    async with SessionLocal() as db:
+        before = (await db.scalar(select(Wallet).where(Wallet.account_id == late["buyer_id"]))).available_balance
+
+    await sla_check_job()
+
+    async with SessionLocal() as db:
+        refunded = await db.get(Order, late["id"])
+        assert refunded.status == OrderStatus.cancelled
+        assert (await db.get(Order, on_time["id"])).status == OrderStatus.pending
+        after = (await db.scalar(select(Wallet).where(Wallet.account_id == late["buyer_id"]))).available_balance
+        assert after == before + refunded.total_amount
+
+
+@pytest.mark.asyncio
+async def test_sla_check_skips_an_order_another_session_holds(client):
+    from src.scheduler import sla_check_job
+
+    buyer_token, _, _, _, manual_vid = await setup_buyable_product(client)
+    headers = {"Authorization": f"Bearer {buyer_token}"}
+    late = (await client.post("/orders", json={"variant_id": manual_vid, "quantity": 1}, headers=headers)).json()
+    await _age_order(late["id"], 25 * 3600)
+
+    async with SessionLocal() as holder:  # e.g. the seller delivering right now
+        await holder.execute(select(Order).where(Order.id == late["id"]).with_for_update())
+        await asyncio.wait_for(sla_check_job(), timeout=5)
+
+    async with SessionLocal() as db:
+        assert (await db.get(Order, late["id"])).status == OrderStatus.pending

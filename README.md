@@ -224,6 +224,8 @@ Nguồn đầy đủ: `marketplace-svc/.env.example` và `marketplace-svc/src/co
 | `REDIS_URL` | Redis URL; mặc định local `redis://localhost:6379` |
 | `DB_POOL_SIZE`, `DB_MAX_OVERFLOW`, `DB_POOL_TIMEOUT_SECONDS`, `DB_POOL_RECYCLE_SECONDS` | Pool kết nối PostgreSQL của mỗi process (mặc định 10 / 20 / 10 s / 1800 s). Web, scheduler và background task dùng chung pool; giữ `(DB_POOL_SIZE + DB_MAX_OVERFLOW) × số process` dưới `max_connections` của PostgreSQL (mặc định 100) |
 | `DB_IDLE_IN_TRANSACTION_TIMEOUT_SECONDS` | PostgreSQL đóng session ngồi yên trong transaction quá thời gian này (mặc định 900 s, `0` = tắt). Lưới an toàn chống rò session giữ connection và row lock; phải lớn hơn lời gọi provider dài nhất khi đang mở transaction |
+| `PROVISION_MAX_CONCURRENCY` | Số lượt provision nền chạy đồng thời mỗi process (mặc định 4). Mỗi lượt giữ row lock của đơn và tối đa 2 connection trong lúc gọi provider; đơn dư chờ lượt, quá 15 phút thì sweep hoàn tiền |
+| `SEARCH_QUERY_LOG_RETENTION_DAYS` | Số ngày giữ `search_query_log` (mặc định 90); log truy vấn được gom trong process và ghi theo lô |
 | `JWT_SECRET` | Bắt buộc, unique, tối thiểu 32 byte |
 | `INTERNAL_API_KEY` | Bắt buộc, khác JWT secret, tối thiểu 32 byte |
 | `BFF_REQUEST_SIGNING_SECRET` | Bắt buộc, tối thiểu 32 byte; cùng giá trị server-only với frontend/BFF để ký hop BFF → FastAPI |

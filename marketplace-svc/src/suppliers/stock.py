@@ -29,12 +29,20 @@ def pool_available_condition():
     )
 
 
-def sellable_stock_by_variant():
+def sellable_stock_by_variant(variant_ids=None):
     """Subquery ``(variant_id, stock)`` — một dòng cho MỌI gói (stock 0 nếu
-    không có hàng), nên caller join thẳng, không cần coalesce."""
+    không có hàng), nên caller join thẳng, không cần coalesce.
+
+    ``variant_ids`` (list of ids or a SELECT of ids) limits the work to those
+    packages. Pass it whenever the caller needs a subset: Postgres cannot push
+    the caller's join condition into the grouped subquery, so without it every
+    call counts the sellable stock of every package on the marketplace."""
+    pool_where = list(pool_available_condition())
+    if variant_ids is not None:
+        pool_where.append(Resource.variant_id.in_(variant_ids))
     pool = (
         select(Resource.variant_id.label("variant_id"), func.count(Resource.id).label("n"))
-        .where(*pool_available_condition())
+        .where(*pool_where)
         .group_by(Resource.variant_id)
         .subquery()
     )
@@ -69,14 +77,18 @@ def sellable_stock_by_variant():
         )
         .join(ProductVariant, ProductVariant.id == SupplierListing.variant_id)
         .join(Provider, Provider.id == SupplierListing.provider_id)
-        .subquery()
     )
-    return (
+    if variant_ids is not None:
+        ext = ext.where(SupplierListing.variant_id.in_(variant_ids))
+    ext = ext.subquery()
+    stock = (
         select(
             ProductVariant.id.label("variant_id"),
             (func.coalesce(pool.c.n, 0) + func.coalesce(ext.c.n, 0)).label("stock"),
         )
         .outerjoin(pool, pool.c.variant_id == ProductVariant.id)
         .outerjoin(ext, ext.c.variant_id == ProductVariant.id)
-        .subquery()
     )
+    if variant_ids is not None:
+        stock = stock.where(ProductVariant.id.in_(variant_ids))
+    return stock.subquery()

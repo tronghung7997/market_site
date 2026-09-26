@@ -191,3 +191,52 @@ async def test_resource_expire_job_marks_expired(client):
     async with SessionLocal() as db:
         r = await db.get(Resource, rid)
         assert r.status == ResourceStatus.expired
+
+
+@pytest.mark.asyncio
+async def test_escrow_release_continues_after_one_order_fails(client, monkeypatch):
+    """A failing order is rolled back on its own; the next due order is still
+    released (the rollback must not leave the loop reading expired objects)."""
+    import src.scheduler as scheduler
+
+    buyer_token, _, _, instant_vid, _ = await setup_buyable_product(client)
+    headers = {"Authorization": f"Bearer {buyer_token}"}
+    ids = []
+    for _ in range(2):
+        resp = await client.post("/orders", json={"variant_id": instant_vid, "quantity": 1}, headers=headers)
+        assert resp.status_code == 201, resp.text
+        ids.append(resp.json()["id"])
+    async with SessionLocal() as db:
+        for order_id in ids:
+            order = await db.get(Order, order_id)
+            assert order.status == OrderStatus.delivered
+            order.escrow_expires_at = datetime.now(timezone.utc) - timedelta(hours=1)
+        await db.commit()
+
+    real_release = scheduler.release_escrow
+
+    async def fail_the_first(order_id, *args, **kwargs):
+        if order_id == ids[0]:
+            raise RuntimeError("seller wallet missing")
+        return await real_release(order_id, *args, **kwargs)
+
+    monkeypatch.setattr(scheduler, "release_escrow", fail_the_first)
+
+    await escrow_release_job()
+
+    async with SessionLocal() as db:
+        assert (await db.get(Order, ids[0])).status == OrderStatus.delivered
+        assert (await db.get(Order, ids[1])).status == OrderStatus.completed
+
+
+@pytest.mark.no_db
+def test_long_interval_jobs_run_soon_after_start():
+    """Interval jobs otherwise wait a full interval (4-24 h) before their first
+    run; a process restarted more often than that would never run them."""
+    from src.main import scheduler
+
+    soon = datetime.now(timezone.utc) + timedelta(hours=1)
+    for job_id in ("auto_review", "supplier_sync", "gateway_call_log_cleanup", "chat_message_retention"):
+        job = scheduler.get_job(job_id)
+        assert job is not None, job_id
+        assert job.next_run_time is not None and job.next_run_time <= soon, job_id

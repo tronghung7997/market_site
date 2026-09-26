@@ -103,19 +103,64 @@ def reset_synonyms_snapshot() -> None:
     _synonyms_loaded_at = 0.0
 
 
-async def _write_query_log(kind: str, query: str, locale: str, result_count: int) -> None:
-    try:
-        async with SessionLocal() as db:
-            db.add(SearchQueryLog(query=query, locale=locale, kind=kind, result_count=result_count))
-            await db.commit()
-    except Exception:  # noqa: BLE001 — logging must never surface to the user
-        logger.warning("search_query_log_failed", kind=kind)
+# Query log rows are buffered in the process and written in one INSERT, a few
+# seconds later or once a batch is full: a task + pooled connection per search
+# competed with real requests for the pool. Rows keep the time of the search.
+# At most a few seconds of rows are lost if the process dies; the buffer is
+# bounded so a flood of searches can never grow memory or slow a search down.
+_LOG_FLUSH_DELAY_SECONDS = 5.0
+_LOG_BATCH_SIZE = 50
+_LOG_MAX_BUFFERED = 1000
+_log_buffer: list[dict] = []
+_log_flush_tasks: set[asyncio.Task] = set()
+_immediate_flush: asyncio.Task | None = None
 
 
 def _log_query(kind: str, query: str, locale: str, result_count: int) -> None:
-    if len(query) < LOG_MIN_CHARS:
+    global _immediate_flush
+    if len(query) < LOG_MIN_CHARS or len(_log_buffer) >= _LOG_MAX_BUFFERED:
         return
-    asyncio.create_task(_write_query_log(kind, query, locale, result_count))
+    _log_buffer.append({
+        "query": query, "locale": locale, "kind": kind, "result_count": result_count,
+        "created_at": datetime.now(timezone.utc),
+    })
+    if len(_log_buffer) >= _LOG_BATCH_SIZE:
+        if _immediate_flush is None or _immediate_flush.done():
+            _immediate_flush = _schedule_flush(0)
+    elif not _log_flush_tasks:
+        _schedule_flush(_LOG_FLUSH_DELAY_SECONDS)
+
+
+def _schedule_flush(delay: float) -> asyncio.Task:
+    async def run() -> None:
+        if delay:
+            await asyncio.sleep(delay)
+        await flush_query_log()
+
+    task = asyncio.create_task(run())
+    _log_flush_tasks.add(task)  # asyncio keeps only a weak reference
+    task.add_done_callback(_log_flush_tasks.discard)
+    return task
+
+
+async def flush_query_log() -> None:
+    """Write the buffered query-log rows now (admin stats read, shutdown)."""
+    if not _log_buffer:
+        return
+    rows = _log_buffer[:]
+    _log_buffer.clear()
+    try:
+        async with SessionLocal() as db:
+            db.add_all([SearchQueryLog(**row) for row in rows])
+            await db.commit()
+    except Exception:  # noqa: BLE001 — logging must never surface to the user
+        logger.warning("search_query_log_failed", rows=len(rows))
+
+
+def discard_query_log_buffer() -> None:
+    """Drop rows not yet written (tests: a truncated database must not receive a
+    previous test's searches)."""
+    _log_buffer.clear()
 
 
 def _is_query_canceled(exc: BaseException) -> bool:
@@ -236,6 +281,7 @@ QUERY_STATS_MAX_DAYS = 90
 
 async def query_stats(db: AsyncSession, *, days: int = 30, limit: int = 50, zero_only: bool = False) -> dict:
     """Distinct results-page queries over the window, most searched first."""
+    await flush_query_log()  # include searches still buffered in this process
     days = max(1, min(days, QUERY_STATS_MAX_DAYS))
     since = datetime.now(timezone.utc) - timedelta(days=days)
     folded = func.lower(SearchQueryLog.query)

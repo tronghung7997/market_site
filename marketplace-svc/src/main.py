@@ -1,4 +1,5 @@
 from contextlib import asynccontextmanager
+from datetime import datetime, timedelta, timezone
 
 import structlog
 from apscheduler.schedulers.asyncio import AsyncIOScheduler
@@ -26,6 +27,7 @@ from src.orders.router import router as orders_router
 from src.ops.router import router as ops_router
 from src.ai.router import router as ai_router
 from src.search.router import router as search_router
+from src.search.service import flush_query_log
 from src.site_pages.router import router as site_pages_router
 from src.trust_seed.router import router as trust_seed_router
 from src.pricing.router import router as pricing_router
@@ -90,8 +92,17 @@ setup_logging()
 init_sentry()
 
 scheduler = AsyncIOScheduler()
+
+
+def _first_run_after(minutes: int) -> datetime:
+    """Interval jobs otherwise first fire one full interval after start, and the
+    job store is in memory: a process restarted more often than 4-24 h would
+    never run them. Long jobs start shortly after boot, staggered."""
+    return datetime.now(timezone.utc) + timedelta(minutes=minutes)
+
+
 scheduler.add_job(pausable(escrow_release_job), "interval", minutes=30, id="escrow_release")
-scheduler.add_job(auto_review_job, "interval", hours=24, id="auto_review")
+scheduler.add_job(auto_review_job, "interval", hours=24, id="auto_review", next_run_time=_first_run_after(10))
 scheduler.add_job(pausable(dispute_resolution_timeout_job), "interval", minutes=15, id="dispute_resolution_timeout")
 scheduler.add_job(pausable(dispute_abandonment_job), "interval", minutes=15, id="dispute_abandonment")
 scheduler.add_job(pausable(dispute_seller_timeout_job), "interval", minutes=15, id="dispute_seller_timeout")
@@ -109,10 +120,19 @@ scheduler.add_job(dproxy_credit_check_job, "interval", minutes=30, id="dproxy_cr
 scheduler.add_job(deposit_reconcile_job, "interval", minutes=5, id="deposit_reconcile")
 scheduler.add_job(deposit_expire_job, "interval", minutes=10, id="deposit_expire")
 scheduler.add_job(provider_credit_low_job, "interval", minutes=15, id="provider_credit_low")
-scheduler.add_job(supplier_sync_job, "interval", minutes=settings.supplier_sync_interval_minutes, id="supplier_sync")
+scheduler.add_job(
+    supplier_sync_job, "interval", minutes=settings.supplier_sync_interval_minutes, id="supplier_sync",
+    next_run_time=_first_run_after(5),
+)
 # Operational log retention (gateway/provider call logs, log_entries, resolved alerts).
-scheduler.add_job(gateway_call_log_cleanup_job, "interval", hours=6, id="gateway_call_log_cleanup")
-scheduler.add_job(chat_message_retention_job, "interval", hours=6, id="chat_message_retention")
+scheduler.add_job(
+    gateway_call_log_cleanup_job, "interval", hours=6, id="gateway_call_log_cleanup",
+    next_run_time=_first_run_after(15),
+)
+scheduler.add_job(
+    chat_message_retention_job, "interval", hours=6, id="chat_message_retention",
+    next_run_time=_first_run_after(20),
+)
 scheduler.add_job(mail_outbox_send_job, "interval", seconds=20, id="mail_outbox")
 # Books check every night at 03:30 server time, after the day's settlements.
 scheduler.add_job(ledger_reconcile_job, "cron", hour=3, minute=30, id="ledger_reconcile")
@@ -133,6 +153,7 @@ async def lifespan(app):
     scheduler.start()
     yield
     scheduler.shutdown()
+    await flush_query_log()
 
 
 app = FastAPI(

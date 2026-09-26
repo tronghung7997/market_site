@@ -448,6 +448,9 @@ async def create_order_with_adapter(
     return order
 
 
+_provision_slots = asyncio.Semaphore(settings.provision_max_concurrency)
+
+
 async def provision_pending_order(order_id: int) -> None:
     """Provision an order that was committed at `pending`, on a fresh session.
 
@@ -458,11 +461,16 @@ async def provision_pending_order(order_id: int) -> None:
     `pending`, both call the provider, and on a rejection both call refund_escrow
     — paying the buyer back twice. The Idempotency-Key protects the provider side
     of a duplicate, not the wallet. The lock costs holding one connection across
-    the provider call, which is acceptable here (background task, one order row)
-    but is why the request path must never call this inline.
+    the provider call, which is why the request path must never call this inline
+    and why at most `PROVISION_MAX_CONCURRENCY` run at once per process: a burst
+    of orders would otherwise hold every pooled connection for the length of
+    the provider calls. An order another session holds is skipped, not waited
+    for — that session is provisioning (or settling) it.
     """
-    async with SessionLocal() as db:
-        order = await db.get(Order, order_id, with_for_update=True)
+    async with _provision_slots, SessionLocal() as db:
+        order = await db.scalar(
+            select(Order).where(Order.id == order_id).with_for_update(skip_locked=True)
+        )
         if order is None or order.status != OrderStatus.pending:
             return
         product = await db.get(Product, order.product_id) if order.product_id else None

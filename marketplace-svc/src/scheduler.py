@@ -1,10 +1,11 @@
 import time
 import uuid
+from collections.abc import AsyncIterator
 from datetime import datetime, timedelta, timezone
 
 import httpx
 import structlog
-from sqlalchemy import select
+from sqlalchemy import Interval, literal_column, select
 
 from src.alerts.service import emit_incident, fp_order, fp_provider, fp_variant, upsert_incident
 from src.audit.service import log_event
@@ -25,66 +26,101 @@ from src.chat.retention import CHAT_RETENTION_BATCH_SIZE, purge_expired_messages
 logger = structlog.get_logger()
 
 
+# Settlement jobs pick due orders by id in small batches and settle each one in
+# its own session under a fresh row lock whose WHERE repeats the whole due
+# condition. Locking a batch up front does not hold: the first per-order commit
+# releases every lock in the batch, and a buyer confirmation, a new dispute or a
+# background provision can change the remaining rows before the loop gets there.
+_DUE_BATCH_SIZE = 200
+
+
+async def _due_order_ids(*conditions) -> AsyncIterator[int]:
+    last_id = 0
+    while True:
+        async with SessionLocal() as db:
+            ids = list((await db.scalars(
+                select(Order.id)
+                .where(Order.id > last_id, *conditions)
+                .order_by(Order.id)
+                .limit(_DUE_BATCH_SIZE)
+            )).all())
+        for order_id in ids:
+            yield order_id
+        if len(ids) < _DUE_BATCH_SIZE:
+            return
+        last_id = ids[-1]
+
+
+async def _lock_due_order(db, order_id: int, *conditions) -> Order | None:
+    """The order, locked, if it still matches `conditions`; None when it no
+    longer does or another session holds it."""
+    return await db.scalar(
+        select(Order)
+        .where(Order.id == order_id, *conditions)
+        .with_for_update(of=Order, skip_locked=True)
+    )
+
+
 async def escrow_release_job() -> None:
-    async with SessionLocal() as db:
-        job_id = str(uuid.uuid4())
-        now = datetime.now(timezone.utc)
-        # skip_locked + re-check status: confirm/dispute may settle the same
-        # delivered row in another session. Without the lock the job would
-        # credit the seller after a refund (purchase_release and refund use
-        # different ledger types, so the unique (type, reference_id) index
-        # does not collide).
-        result = await db.execute(
-            select(Order).where(
-                Order.status == OrderStatus.delivered,
-                Order.escrow_expires_at <= now,
-                ~select(Dispute.id).where(
-                    Dispute.order_id == Order.id,
-                    Dispute.status == DisputeStatus.open,
-                ).exists(),
-            ).with_for_update(skip_locked=True)
-        )
-        orders = list(result.scalars().all())
-        for order in orders:
+    job_id = str(uuid.uuid4())
+    now = datetime.now(timezone.utc)
+    # Each order is re-locked with the full due condition (skip_locked):
+    # confirm/dispute may settle or freeze the same delivered row in another
+    # session. Without the lock the job would credit the seller after a refund
+    # (purchase_release and refund use different ledger types, so the unique
+    # (type, reference_id) index does not collide).
+    due = (
+        Order.status == OrderStatus.delivered,
+        Order.escrow_expires_at <= now,
+        ~select(Dispute.id).where(
+            Dispute.order_id == Order.id,
+            Dispute.status == DisputeStatus.open,
+        ).exists(),
+    )
+    async for order_id in _due_order_ids(*due):
+        async with SessionLocal() as db:
+            order = await _lock_due_order(db, order_id, *due)
+            if order is None:
+                continue
+            seller_id = order.seller_id
             try:
-                if order.status != OrderStatus.delivered:
-                    continue
-                seller = await db.get(Account, order.seller_id)
+                seller = await db.get(Account, seller_id)
                 fee_percent = await order_fee_percent(order, seller.seller_tier if seller else "new", db)
                 remaining_amount, platform_fee = escrow_settlement(
                     order.total_amount, order.refunded_amount, fee_percent
                 )
                 if remaining_amount:
-                    await release_escrow(order.id, order.seller_id, remaining_amount, platform_fee, db)
+                    await release_escrow(order.id, seller_id, remaining_amount, platform_fee, db)
                 order.status = OrderStatus.completed
                 from src.affiliate.service import apply_affiliate_commission
                 await apply_affiliate_commission(order, db)
-                await log_event(db, "info", f"Escrow released for order {order.id}", job_id=job_id,
-                                metadata={"event": "escrow_released", "order_id": order.id, "amount": remaining_amount})
+                await log_event(db, "info", f"Escrow released for order {order_id}", job_id=job_id,
+                                metadata={"event": "escrow_released", "order_id": order_id, "amount": remaining_amount})
                 await db.commit()
-                logger.info("escrow_released", order_id=order.id)
+                logger.info("escrow_released", order_id=order_id)
             except Exception as e:
                 # Một đơn lỗi (vd seller chưa có ví — Account seed thẳng vào DB
                 # không qua register_account() thì thiếu Wallet đi kèm) KHÔNG
-                # được chặn release của các đơn khác trong batch. Trước đây
-                # exception ở đây văng thẳng ra ngoài job, commit() cuối hàm
-                # không bao giờ chạy tới nên MỌI đơn tới hạn (kể cả đơn đã xử
-                # lý xong trong vòng lặp) bị rollback và kẹt vĩnh viễn mỗi 30
-                # phút — đây chính là nguyên nhân đơn #52 kẹt theo đơn #55.
+                # được chặn release của các đơn khác. Trước đây exception ở đây
+                # văng thẳng ra ngoài job, commit() cuối hàm không bao giờ chạy
+                # tới nên MỌI đơn tới hạn (kể cả đơn đã xử lý xong trong vòng
+                # lặp) bị rollback và kẹt vĩnh viễn mỗi 30 phút — đây chính là
+                # nguyên nhân đơn #52 kẹt theo đơn #55. Sau rollback chỉ dùng id
+                # đã giữ sẵn: đọc attribute của object đã expire là lazy-load.
                 await db.rollback()
-                logger.error("escrow_release_failed", order_id=order.id, error=str(e))
-                await log_event(db, "error", f"Escrow release failed for order {order.id}: {e}", job_id=job_id,
-                                metadata={"event": "escrow_release_failed", "order_id": order.id, "seller_id": order.seller_id})
+                logger.error("escrow_release_failed", order_id=order_id, error=str(e))
+                await log_event(db, "error", f"Escrow release failed for order {order_id}: {e}", job_id=job_id,
+                                metadata={"event": "escrow_release_failed", "order_id": order_id, "seller_id": seller_id})
                 await upsert_incident(
                     db,
-                    fingerprint=fp_order(order.id, "escrow_release_failed"),
+                    fingerprint=fp_order(order_id, "escrow_release_failed"),
                     type_="escrow_release_failed",
                     severity="error",
                     target_type="order",
-                    target_id=order.id,
+                    target_id=order_id,
                     message=(
-                        f"Đơn #{order.id} không tự release được escrow — "
-                        f"cần admin kiểm tra ví seller #{order.seller_id}"
+                        f"Đơn #{order_id} không tự release được escrow — "
+                        f"cần admin kiểm tra ví seller #{seller_id}"
                     ),
                 )
                 await db.commit()
@@ -217,32 +253,33 @@ async def dispute_abandonment_job() -> None:
 
 
 async def sla_check_job() -> None:
-    async with SessionLocal() as db:
-        job_id = str(uuid.uuid4())
-        now = datetime.now(timezone.utc)
-        result = await db.execute(
-            select(Order).where(Order.status == OrderStatus.pending).with_for_update(skip_locked=True)
-        )
-        orders = list(result.scalars().all())
-        for order in orders:
-            if order.status != OrderStatus.pending:
-                continue
-            variant = await db.get(ProductVariant, order.variant_id)
-            if not variant:
-                continue
-            from datetime import timedelta
-            deadline = order.created_at + timedelta(hours=variant.sla_hours)
-            if now <= deadline:
+    job_id = str(uuid.uuid4())
+    now = datetime.now(timezone.utc)
+    # Deadline in SQL: only pending variant orders past `sla_hours` are read and
+    # locked, not every pending order (adapter orders have no variant and are
+    # left to provision_sweep_job).
+    sla_deadline = Order.created_at + ProductVariant.sla_hours * literal_column("interval '1 hour'", Interval)
+    breached = (
+        Order.status == OrderStatus.pending,
+        select(ProductVariant.id).where(
+            ProductVariant.id == Order.variant_id,
+            sla_deadline < now,
+        ).exists(),
+    )
+    async for order_id in _due_order_ids(*breached):
+        async with SessionLocal() as db:
+            order = await _lock_due_order(db, order_id, *breached)
+            if order is None:
                 continue
             try:
                 await refund_escrow(order.id, order.buyer_id, order.total_amount, db)
                 order.status = OrderStatus.cancelled
                 order.cancel_reason = "Người bán không giao hàng đúng hạn nên đơn đã được huỷ. Toàn bộ số tiền đã được hoàn về ví của bạn."
-                await log_event(db, "warning", f"Order {order.id} auto-refunded (SLA breach)", job_id=job_id,
-                                metadata={"event": "sla_refund", "order_id": order.id, "seller_id": order.seller_id})
+                await log_event(db, "warning", f"Order {order_id} auto-refunded (SLA breach)", job_id=job_id,
+                                metadata={"event": "sla_refund", "order_id": order_id, "seller_id": order.seller_id})
                 await upsert_incident(
                     db,
-                    fingerprint=fp_order(order.id, "sla_breach"),
+                    fingerprint=fp_order(order_id, "sla_breach"),
                     type_="sla_breach",
                     severity="warning",
                     target_type="seller",
@@ -250,23 +287,23 @@ async def sla_check_job() -> None:
                     message=f"Đơn {order.order_code} đã huỷ do nhà bán không giao đúng hạn",
                 )
                 await db.commit()
-                logger.warning("sla_breach", order_id=order.id, seller_id=order.seller_id)
+                logger.warning("sla_breach", order_id=order_id, seller_id=order.seller_id)
             except Exception as e:
                 # Cùng lỗi thiết kế như escrow_release_job: 1 đơn refund lỗi
                 # (buyer chưa có ví) không được chặn refund/huỷ của các đơn
-                # SLA-breach khác trong batch.
+                # SLA-breach khác.
                 await db.rollback()
-                logger.error("sla_refund_failed", order_id=order.id, error=str(e))
-                await log_event(db, "error", f"SLA auto-refund failed for order {order.id}: {e}", job_id=job_id,
-                                metadata={"event": "sla_refund_failed", "order_id": order.id})
+                logger.error("sla_refund_failed", order_id=order_id, error=str(e))
+                await log_event(db, "error", f"SLA auto-refund failed for order {order_id}: {e}", job_id=job_id,
+                                metadata={"event": "sla_refund_failed", "order_id": order_id})
                 await upsert_incident(
                     db,
-                    fingerprint=fp_order(order.id, "sla_refund_failed"),
+                    fingerprint=fp_order(order_id, "sla_refund_failed"),
                     type_="sla_refund_failed",
                     severity="error",
                     target_type="order",
-                    target_id=order.id,
-                    message=f"Đơn #{order.id} quá hạn SLA nhưng không tự hoàn tiền được — cần admin kiểm tra",
+                    target_id=order_id,
+                    message=f"Đơn #{order_id} quá hạn SLA nhưng không tự hoàn tiền được — cần admin kiểm tra",
                 )
                 await db.commit()
 
@@ -317,35 +354,30 @@ async def provision_sweep_job() -> None:
     """
     from src.orders.service import provision_pending_order
 
-    async with SessionLocal() as db:
-        job_id = str(uuid.uuid4())
-        now = datetime.now(timezone.utc)
-        retry_before = now - timedelta(seconds=PROVISION_RETRY_AFTER_SECONDS)
-        deadline_before = now - timedelta(seconds=PROVISION_DEADLINE_SECONDS)
+    job_id = str(uuid.uuid4())
+    now = datetime.now(timezone.utc)
+    retry_before = now - timedelta(seconds=PROVISION_RETRY_AFTER_SECONDS)
+    deadline_before = now - timedelta(seconds=PROVISION_DEADLINE_SECONDS)
+    stuck = (
+        Order.status == OrderStatus.pending,
+        Order.product_id.isnot(None),
+        Order.variant_id.is_(None),
+    )
+    expired = (*stuck, Order.created_at <= deadline_before)
 
-        # skip_locked: một provision đang in-flight (background task của
-        # create_order_with_adapter, hoặc sweep của WORKER KHÁC — mỗi uvicorn
-        # worker chạy một APScheduler riêng) đang giữ FOR UPDATE trên order.
-        # Không có skip_locked thì UPDATE của nhánh refund bên dưới sẽ đứng
-        # chờ lock, rồi ghi đè `cancelled` + refund lên một đơn vừa được
-        # provision xong — buyer vừa được hoàn tiền vừa cầm proxy, Xu đã tiêu.
-        # Postgres re-check WHERE sau khi có lock nên đơn đã rời `pending`
-        # cũng không lọt vào đây.
-        result = await db.execute(
-            select(Order).where(
-                Order.status == OrderStatus.pending,
-                Order.product_id.isnot(None),
-                Order.variant_id.is_(None),
-                Order.created_at <= retry_before,
-            ).with_for_update(skip_locked=True)
-        )
-        orders = list(result.scalars().all())
-
-        expired = [o for o in orders if o.created_at <= deadline_before]
-        # Ids, not ORM objects: the retries run after this session closes.
-        retryable_ids = [o.id for o in orders if o.created_at > deadline_before]
-
-        for order in expired:
+    # skip_locked: một provision đang in-flight (background task của
+    # create_order_with_adapter, hoặc sweep của WORKER KHÁC — mỗi uvicorn
+    # worker chạy một APScheduler riêng) đang giữ FOR UPDATE trên order.
+    # Không có skip_locked thì UPDATE của nhánh refund bên dưới sẽ đứng
+    # chờ lock, rồi ghi đè `cancelled` + refund lên một đơn vừa được
+    # provision xong — buyer vừa được hoàn tiền vừa cầm proxy, Xu đã tiêu.
+    # Mỗi đơn được khoá lại riêng với điều kiện `pending`, nên đơn đã rời
+    # `pending` (kể cả trong lúc job đang chạy) không lọt vào nhánh refund.
+    async for order_id in _due_order_ids(*expired):
+        async with SessionLocal() as db:
+            order = await _lock_due_order(db, order_id, *expired)
+            if order is None:
+                continue
             try:
                 await refund_escrow(order.id, order.buyer_id, order.total_amount, db)
                 order.status = OrderStatus.cancelled
@@ -390,21 +422,24 @@ async def provision_sweep_job() -> None:
                 # refund lỗi (buyer chưa có ví) không được chặn refund của các
                 # đơn expired khác trong batch.
                 await db.rollback()
-                logger.error("provision_deadline_refund_failed", order_id=order.id, error=str(e))
-                await log_event(db, "error", f"Provision deadline refund failed for order {order.id}: {e}", job_id=job_id,
-                                metadata={"event": "provision_deadline_refund_failed", "order_id": order.id})
+                logger.error("provision_deadline_refund_failed", order_id=order_id, error=str(e))
+                await log_event(db, "error", f"Provision deadline refund failed for order {order_id}: {e}", job_id=job_id,
+                                metadata={"event": "provision_deadline_refund_failed", "order_id": order_id})
                 await upsert_incident(
                     db,
-                    fingerprint=fp_order(order.id, "provision_stuck"),
+                    fingerprint=fp_order(order_id, "provision_stuck"),
                     type_="provision_stuck",
                     severity="error",
                     target_type="order",
-                    target_id=order.id,
-                    message=f"Đơn #{order.id} quá hạn provision nhưng không tự hoàn tiền được — cần admin kiểm tra",
+                    target_id=order_id,
+                    message=f"Đơn #{order_id} quá hạn provision nhưng không tự hoàn tiền được — cần admin kiểm tra",
                 )
                 await db.commit()
 
-    # Retries open their own sessions, so they run after the sweep's own commit.
+    # Retries open their own sessions; provision_pending_order skips an order
+    # another provision is already holding.
+    retryable = (*stuck, Order.created_at <= retry_before, Order.created_at > deadline_before)
+    retryable_ids = [order_id async for order_id in _due_order_ids(*retryable)]
     for order_id in retryable_ids:
         logger.info("provision_retry", order_id=order_id)
         await provision_pending_order(order_id)

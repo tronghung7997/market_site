@@ -34,6 +34,9 @@ class Settings(BaseSettings):
     # row locks. Keep it above the longest provider call made while a
     # transaction is open (provisioning retries can take a few minutes).
     db_idle_in_transaction_timeout_seconds: int = 900
+    # Background provisions running at once per process. Each holds the order
+    # row lock and up to two pooled connections for the provider call.
+    provision_max_concurrency: int = 4
     # No usable defaults: every environment must inject unique values.
     jwt_secret: str
     jwt_algorithm: str = "HS256"
@@ -215,6 +218,7 @@ class Settings(BaseSettings):
     provider_call_log_retention_days: int = 30
     log_entry_retention_days: int = 180
     resolved_alert_retention_days: int = 90
+    search_query_log_retention_days: int = 90
     # Optional Sentry DSN (WP7). Empty = disabled.
     sentry_dsn: str = ""
 
@@ -310,9 +314,11 @@ class Settings(BaseSettings):
             "provider_call_log_retention_days",
             "log_entry_retention_days",
             "resolved_alert_retention_days",
+            "search_query_log_retention_days",
             "db_pool_size",
             "db_pool_timeout_seconds",
             "db_pool_recycle_seconds",
+            "provision_max_concurrency",
         ):
             if getattr(self, field_name) <= 0:
                 raise ValueError(f"{field_name.upper()} must be greater than zero")

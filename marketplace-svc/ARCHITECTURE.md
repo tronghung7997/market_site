@@ -172,6 +172,10 @@ The application operation owns the transaction.
 - Before an upstream call, end the transaction instead of re-reading: `usage.charge_usage` returns values computed under its row lock and never refreshes after commit (the gateway forwards with no connection held), and `suppliers.precheck_external_purchase` commits the checkout's read-only transaction before asking the supplier, so its callers must not have written yet.
 - Idempotency checks and writes occur in the same protected transaction where correctness requires it.
 - Rollback behavior must leave ledger, inventory, escrow, and provider state recoverable and auditable.
+- Settlement jobs (escrow release, SLA refund, provision deadline refund) select due order ids in batches without locks, then settle each order in its own session after re-locking it with the whole due condition in the WHERE (`FOR UPDATE SKIP LOCKED`). A lock taken on a batch up front is released by the first per-order commit, so rows the loop reaches later may already have been confirmed, disputed or provisioned. After a rollback, use ids captured beforehand: the ORM objects are expired.
+- Background provisioning (`orders.provision_pending_order`) runs at most `PROVISION_MAX_CONCURRENCY` at once per process and skips an order another session holds; it still keeps the order lock across the provider call because adapters read and write through the session during `provision`.
+- Aggregates over `resources` or `supplier_listings` take the caller's package scope (`suppliers.stock.sellable_stock_by_variant(variant_ids)`, `resources.inventory._variant_stats_subquery`): Postgres cannot push a caller's join into a grouped subquery, so an unscoped call counts the whole marketplace.
+- `suppliers.sync.supplier_sync_job` uses one session and commit per provider, and `sync_provider_listings` makes every upstream call before its first write.
 
 Tests exercise observable committed outcomes, idempotent retries, and concurrency where relevant.
 

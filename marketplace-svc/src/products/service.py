@@ -681,17 +681,28 @@ async def _category_subtree_ids(category_id: int, db: AsyncSession) -> list[int]
 
 
 
-def _browse_price_columns():
+def _storefront_variant_ids():
+    """Packages the storefront can show: active packages of active products."""
+    return (
+        select(ProductVariant.id)
+        .join(Product, Product.id == ProductVariant.product_id)
+        .where(Product.status == ProductStatus.active, ProductVariant.is_active == True)  # noqa: E712
+    )
+
+
+def _browse_price_columns(variant_scope=None):
     """``(variant_stats, browse_price)`` shared by every public product list.
 
     ``variant_stats`` is a per-product subquery (min active variant price,
     sellable stock, instant-delivery flag); ``browse_price`` is the "from"
     price the storefront shows: cheapest variant, else the strategy-derived
-    price for config/credit products, else 0.
+    price for config/credit products, else 0. ``variant_scope`` limits the
+    stock count to those packages (see ``sellable_stock_by_variant``); callers
+    that only list active products pass ``_storefront_variant_ids()``.
     """
     # Tồn kho = kho seller + catalog nhà cung cấp (src/suppliers/stock.py) —
     # một định nghĩa cho storefront, seller inventory và tổng quan admin.
-    stock = sellable_stock_by_variant()
+    stock = sellable_stock_by_variant(variant_scope)
     variant_stats = (
         select(
             ProductVariant.product_id.label("product_id"),
@@ -821,7 +832,7 @@ async def list_products(
             return {"items": [], "total": 0, "page": page, "per_page": per_page}
         filters.append(Product.seller_id == seller_account.id)
 
-    variant_stats, browse_price = _browse_price_columns()
+    variant_stats, browse_price = _browse_price_columns(_storefront_variant_ids())
     managed = inventory_managed_sql()
 
     query = select(Product).outerjoin(variant_stats, variant_stats.c.product_id == Product.id)
@@ -918,7 +929,7 @@ async def list_category_shelves(
             stack.extend(children.get(cid, []))
     top_expr = case(top_of, value=Product.category_id).label("top_id")
 
-    variant_stats, browse_price = _browse_price_columns()
+    variant_stats, browse_price = _browse_price_columns(_storefront_variant_ids())
     active = Product.status == ProductStatus.active
     ranked = (
         select(
@@ -988,7 +999,7 @@ async def suggest_products(db: AsyncSession, query: str, *, locale: str = DEFAUL
     if not query:
         return []
     terms = search_terms(query)
-    variant_stats, browse_price = _browse_price_columns()
+    variant_stats, browse_price = _browse_price_columns(_storefront_variant_ids())
     stmt = (
         select(Product, Category, browse_price.label("price_from"))
         .join(Category, Category.id == Product.category_id)
@@ -1033,7 +1044,7 @@ async def get_product_catalog_summary(db: AsyncSession) -> dict:
         .join(Product, Product.id == ProductVariant.product_id)
         .where(active_products, ProductVariant.is_active == True)  # noqa: E712
     ) or 0
-    stock = sellable_stock_by_variant()
+    stock = sellable_stock_by_variant(_storefront_variant_ids())
     available_stock = await db.scalar(
         select(func.coalesce(func.sum(stock.c.stock), 0))
         .join(ProductVariant, ProductVariant.id == stock.c.variant_id)
@@ -1080,8 +1091,13 @@ def _seller_search_filters(seller_id: int, search: str | None) -> list:
     return filters
 
 
-def _available_stock_by_product():
-    stock = sellable_stock_by_variant()
+def _available_stock_by_product(seller_id: int):
+    seller_variants = (
+        select(ProductVariant.id)
+        .join(Product, Product.id == ProductVariant.product_id)
+        .where(Product.seller_id == seller_id)
+    )
+    stock = sellable_stock_by_variant(seller_variants)
     return (
         select(
             ProductVariant.product_id.label("product_id"),
@@ -1099,7 +1115,7 @@ async def seller_inventory_counts(seller_id: int, db: AsyncSession) -> dict:
     products page counts (managed = fixed-price inventory products only) but
     without search/tab filters, so the two never disagree on thresholds."""
     low_stock = await get_low_stock_threshold(db)
-    stock = _available_stock_by_product()
+    stock = _available_stock_by_product(seller_id)
     stock_col = func.coalesce(stock.c.stock, 0)
     managed = inventory_managed_sql()
     scope = (
@@ -1145,7 +1161,7 @@ async def list_seller_products(
     giao ngay; seller 1000 sản phẩm là ~4.000 query một lần mở trang."""
     filters = _seller_search_filters(seller_id, search)
     low_stock = await get_low_stock_threshold(db)
-    stock = _available_stock_by_product()
+    stock = _available_stock_by_product(seller_id)
     stock_col = func.coalesce(stock.c.stock, 0)
     managed = inventory_managed_sql()
     price_range = _variant_price_range_by_product()
@@ -1520,10 +1536,8 @@ async def _variants_by_product(
     instant_ids = [v.id for v in variants if v.delivery_mode == DeliveryMode.instant]
     stock_by_variant: dict[int, int] = {}
     if instant_ids:
-        stock = sellable_stock_by_variant()
-        rows = await db.execute(
-            select(stock.c.variant_id, stock.c.stock).where(stock.c.variant_id.in_(instant_ids))
-        )
+        stock = sellable_stock_by_variant(instant_ids)
+        rows = await db.execute(select(stock.c.variant_id, stock.c.stock))
         stock_by_variant = {vid: int(n or 0) for vid, n in rows.all()}
 
     out: dict[int, list[dict]] = defaultdict(list)

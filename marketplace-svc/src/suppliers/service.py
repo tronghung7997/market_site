@@ -308,9 +308,27 @@ async def _with_vnd_cost(catalog: list[UpstreamListing], db: AsyncSession) -> li
     return out
 
 
+async def _read_health(adapter) -> dict | None:
+    """Upstream health/balance, read before any write of the sync so no row
+    lock is held while waiting on the network. None when it fails: health is
+    informational and never blocks a sync."""
+    try:
+        return await adapter.check_health()
+    except Exception:  # noqa: BLE001
+        return None
+
+
+def _record_health(provider: Provider, health: dict | None) -> None:
+    if health is None:
+        return
+    provider.last_test_result = {"health": health, "provision_test": None, "source": "sync"}
+    provider.last_tested_at = datetime.now(timezone.utc)
+
+
 async def sync_provider_listings(provider: Provider, db: AsyncSession) -> SyncReport:
     """Một provider: kéo catalog, cập nhật mọi listing. Không commit — caller
-    commit (job hoặc endpoint admin)."""
+    commit (job hoặc endpoint admin). Every upstream call happens before the
+    first write, so the caller's transaction holds no row lock across them."""
     report = SyncReport(provider_id=provider.id)
     listings = list((await db.execute(
         select(SupplierListing).where(SupplierListing.provider_id == provider.id)
@@ -324,13 +342,9 @@ async def sync_provider_listings(provider: Provider, db: AsyncSession) -> SyncRe
             # Nguồn proxy: chỉ có catalog GÓI (không tồn kho, không listing) —
             # snapshot xong là hết việc; lỗi mạng/auth báo như catalog thường.
             catalog = await _with_vnd_cost(await adapter.fetch_plan_catalog(), db)
+            health = await _read_health(adapter)
             report.catalog_items = await replace_catalog_snapshot(provider.id, catalog, db)
-            try:
-                health = await adapter.check_health()
-                provider.last_test_result = {"health": health, "provision_test": None, "source": "sync"}
-                provider.last_tested_at = datetime.now(timezone.utc)
-            except Exception:  # noqa: BLE001 — health chỉ là thông tin phụ
-                pass
+            _record_health(provider, health)
             return report
         if not isinstance(adapter, CatalogSupplierAdapter):
             report.error = f"adapter {provider.adapter_type} không phải catalog supplier"
@@ -357,16 +371,12 @@ async def sync_provider_listings(provider: Provider, db: AsyncSession) -> SyncRe
         )
         return report
 
-    by_id = {up.external_id: up for up in catalog}
-    report.catalog_items = await replace_catalog_snapshot(provider.id, catalog, db)
     # Số dư nhà cung cấp hiện ở bảng Nguồn hàng — cập nhật cùng nhịp với catalog
     # (read-only, không tốn tiền) thay vì chờ admin bấm Test.
-    try:
-        health = await adapter.check_health()
-        provider.last_test_result = {"health": health, "provision_test": None, "source": "sync"}
-        provider.last_tested_at = datetime.now(timezone.utc)
-    except Exception:  # noqa: BLE001 — số dư chỉ là thông tin phụ, không chặn sync
-        pass
+    health = await _read_health(adapter)
+    by_id = {up.external_id: up for up in catalog}
+    report.catalog_items = await replace_catalog_snapshot(provider.id, catalog, db)
+    _record_health(provider, health)
     min_margin = _min_margin_pct(provider)
     rule = price_rule(provider)
     variant_ids = [lst.variant_id for lst in listings]
@@ -412,12 +422,10 @@ async def sync_provider_listings(provider: Provider, db: AsyncSession) -> SyncRe
     return report
 
 
-async def sync_all_external_providers(db: AsyncSession) -> list[SyncReport]:
-    providers = list((await db.execute(select(Provider))).scalars())
-    reports: list[SyncReport] = []
-    for provider in providers:
-        spec = get_spec(provider.adapter_type)
-        if not spec or not (spec.external_stock or spec.proxy_source):
-            continue
-        reports.append(await sync_provider_listings(provider, db))
-    return reports
+async def synced_provider_ids(db: AsyncSession) -> list[int]:
+    """Providers the catalog sync covers (catalog suppliers and proxy sources)."""
+    providers = list((await db.execute(select(Provider).order_by(Provider.id))).scalars())
+    return [
+        p.id for p in providers
+        if (spec := get_spec(p.adapter_type)) and (spec.external_stock or spec.proxy_source)
+    ]

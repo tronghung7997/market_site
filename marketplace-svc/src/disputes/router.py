@@ -1,10 +1,11 @@
-from fastapi import APIRouter, Depends, Query, status
+from fastapi import APIRouter, Depends, Query, Request, Response, status
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from src.auth.dependencies import get_current_account, require_role
 from src.database import get_session
 from src.errors.codes import ErrorCode
 from src.errors.exceptions import api_error
+from src.media.http import image_response
 from src.models.account import Account
 
 from . import admin_case, schemas, service
@@ -40,7 +41,27 @@ async def create_dispute(order_id: OrderRef, body: schemas.DisputeCreate, accoun
         evidence=body.evidence,
         resource_ids=body.resource_ids,
         idempotency_key=body.idempotency_key,
+        evidence_image_ids=body.evidence_images,
     ))
+
+
+@router.get("/orders/{order_ref}/dispute/evidence/{media_id}", include_in_schema=False)
+async def dispute_evidence_image(
+    order_id: OrderRef, media_id: str, request: Request, v: str = "full",
+    account: Account = Depends(get_current_account), db: AsyncSession = Depends(get_session),
+) -> Response:
+    """Evidence image of a case on this order: its buyer and seller only."""
+    obj = await service.evidence_image_for_party(order_id, account.id, media_id, db)
+    return await image_response(db, request, obj, v)
+
+
+@router.get("/admin/disputes/{dispute_id}/evidence/{media_id}", include_in_schema=False)
+async def admin_dispute_evidence_image(
+    dispute_id: int, media_id: str, request: Request, v: str = "full",
+    _: Account = Depends(require_role("admin")), db: AsyncSession = Depends(get_session),
+) -> Response:
+    obj = await service.evidence_image_for_admin(dispute_id, media_id, db)
+    return await image_response(db, request, obj, v)
 
 
 @router.get("/orders/{order_ref}/dispute", response_model=schemas.DisputeResponse)
@@ -61,7 +82,9 @@ async def seller_get_dispute(order_id: OrderRef, account: Account = Depends(requ
 
 @router.post("/seller/disputes/{dispute_id}/respond", response_model=schemas.DisputeResponse)
 async def seller_respond(dispute_id: int, body: schemas.SellerDisputeRespond, account: Account = Depends(require_role("seller")), db: AsyncSession = Depends(get_session)):
-    return _seller_view(await service.seller_respond_dispute(dispute_id, account.id, body.seller_note, db))
+    return _seller_view(await service.seller_respond_dispute(
+        dispute_id, account.id, body.seller_note, db, attachment_ids=body.attachments,
+    ))
 
 
 @router.post("/orders/{order_ref}/dispute/claims", response_model=schemas.DisputeResponse)
@@ -84,6 +107,7 @@ async def buyer_message(order_id: OrderRef, body: schemas.DisputeMessageCreate, 
         body.body,
         body.idempotency_key,
         db,
+        attachment_ids=body.attachments,
     ))
 
 

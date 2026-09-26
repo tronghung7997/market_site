@@ -26,6 +26,8 @@ const REQUEST_HEADER_ALLOWLIST = new Set([
   "content-type",
   // Login history / audit trail on the backend; never trusted for auth.
   "user-agent",
+  // Revalidation of private images (ETag → 304 after the access check).
+  "if-none-match",
 ]);
 // Endpoints whose success body carries session tokens that become cookies here.
 // Responses that carry a session; /auth/register issues one so sign-up is a single captcha-checked request.

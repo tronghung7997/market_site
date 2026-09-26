@@ -1152,7 +1152,9 @@
     },
     "fifoPreviewTitle": "{count} accounts will be handed out (in restock order):",
     "fifoStockedAt": "stocked {date}",
-    "fifoPreviewMore": "… and the next {count}"
+    "fifoPreviewMore": "… and the next {count}",
+    "disputeAttachImages": "Attach evidence images",
+    "withdrawReceipts": "Transfer receipts"
   },
   "sellerDashboard": {
     "rangeLabel": "Date range",
@@ -2557,7 +2559,10 @@
     "adminResolveDispute": "Resolve Dispute",
     "supportRequester": "Requester",
     "supportProvider": "Support Provider",
-    "disputeStatus": "Dispute Status"
+    "disputeStatus": "Dispute Status",
+    "attachImages": "Attach images",
+    "imageMessage": "[Image]",
+    "imagesTitle": "Images in the message"
   },
   "orders": {
     "title": "Orders",
@@ -2971,7 +2976,13 @@
     "expandDialog": "Expand to full screen",
     "restoreDialog": "Restore size",
     "showFullLine": "Show full line · {size}",
-    "collapseLine": "Collapse"
+    "collapseLine": "Collapse",
+    "evidenceImages": "Evidence images",
+    "evidenceTakenAt": "Taken {time}",
+    "evidenceImagesLabel": "Evidence images",
+    "evidenceImagesHint": "Screenshots of the error, messages… up to 6 images. Send the original files, not edited ones.",
+    "evidenceImagesRequired": "At least one evidence image is required.",
+    "attachImages": "Attach images"
   },
   "wallet": {
     "available": "Available balance",
@@ -3996,7 +4007,11 @@
     "hoursLabel": "Hours",
     "disputeSellerHoursOff": "Off — cases wait until someone acts.",
     "disputeSellerHoursNote": "Checked every 15 minutes; the seller's dispute email states the deadline.",
-    "auditNote": "Every save is logged with who, when and old → new values (event fee_runtime_config_changed)."
+    "auditNote": "Every save is logged with who, when and old → new values (event fee_runtime_config_changed).",
+    "disputeEvidenceTitle": "Require an evidence image",
+    "disputeEvidenceHint": "Buyers must attach at least one image (screenshot of the error, messages…) to open a dispute. Cuts unfounded claims.",
+    "disputeEvidenceOn": "Required",
+    "disputeEvidenceOff": "Optional"
   },
   "adminSystem": {
     "saved": "Settings saved",

@@ -46,7 +46,8 @@ async def image_response(db: AsyncSession, request: Request, obj: MediaObject, v
         url = store.client.presigned_get(
             store.bucket(False), object_key(obj.key_prefix, variant), expires=ttl, now=_presign_moment(ttl),
         )
-        return RedirectResponse(url, status_code=302, headers={"Cache-Control": f"private, max-age={max(ttl // 4, 1)}"})
+        # The redirect itself is re-checked on every view, like app-served bytes.
+        return RedirectResponse(url, status_code=302, headers={"Cache-Control": PRIVATE_CACHE_CONTROL})
     data = await read_variant(db, obj, variant)
     if data is None:
         return not_found()

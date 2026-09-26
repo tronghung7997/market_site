@@ -5,7 +5,10 @@ import { motion } from "motion/react";
 
 import { api, vnd } from "@/lib/api";
 import { useApiErrorMessage } from "@/lib/use-api-error";
-import { Card, Spinner, Button, Textarea } from "@/components/ui";
+import { Card, Spinner, Button, Input, Textarea } from "@/components/ui";
+import { ImageUploader, type UploaderImage } from "@/components/media/ImageUploader";
+import { ImageStrip } from "@/components/media/ImageStrip";
+import { privateImageBase, privateImageSource } from "@/lib/media";
 import { StatsCard, ConfirmModal, WithdrawStatusBadge } from "@/components/admin";
 import type { WithdrawRequest } from "@/lib/types";
 
@@ -16,6 +19,9 @@ export default function AdminWithdrawalsPage() {
   const [confirmId, setConfirmId] = React.useState<number | null>(null);
   const [rejectId, setRejectId] = React.useState<number | null>(null);
   const [rejectReason, setRejectReason] = React.useState("");
+  const [paidId, setPaidId] = React.useState<number | null>(null);
+  const [payoutRef, setPayoutRef] = React.useState("");
+  const [receipts, setReceipts] = React.useState<UploaderImage[]>([]);
   const [busy, setBusy] = React.useState(false);
 
   const load = React.useCallback(() => {
@@ -45,14 +51,15 @@ export default function AdminWithdrawalsPage() {
     }
   };
 
-  const handleMarkPaid = async (id: number) => {
+  const closePaid = () => { setPaidId(null); setPayoutRef(""); setReceipts([]); };
+  const handleMarkPaid = async () => {
     // Mã tham chiếu = số bút toán trên app bank sau khi admin chuyển tay —
-    // bắt buộc để đối soát sao kê về sau.
-    const ref = window.prompt("Mã tham chiếu giao dịch chuyển khoản (bắt buộc):");
-    if (!ref || !ref.trim()) return;
+    // bắt buộc để đối soát sao kê về sau; ảnh biên lai để seller tự đối chiếu.
+    if (paidId === null || !payoutRef.trim()) return;
     setBusy(true);
     try {
-      await api.markWithdrawalPaid(id, ref.trim());
+      await api.markWithdrawalPaid(paidId, payoutRef.trim(), receipts.map((image) => image.id));
+      closePaid();
       load();
     } catch (err) {
       alert(`Đánh dấu đã chi thất bại: ${apiErrorMessage(err, "Unknown error")}`);
@@ -142,7 +149,7 @@ export default function AdminWithdrawalsPage() {
                           </Button>
                         </div>
                       ) : r.status === "approved" ? (
-                        <Button size="sm" variant="primary" disabled={busy} onClick={() => handleMarkPaid(r.id)}>
+                        <Button size="sm" variant="primary" disabled={busy} onClick={() => setPaidId(r.id)}>
                           Đã chi tiền
                         </Button>
                       ) : (
@@ -183,6 +190,14 @@ export default function AdminWithdrawalsPage() {
                           {r.payout_reference && (
                             <div className="text-[11px] text-slate-400 font-mono truncate">Ref: {r.payout_reference}</div>
                           )}
+                          {r.receipt_images && r.receipt_images.length > 0 && (
+                            <ImageStrip
+                              size="sm"
+                              className="mt-1"
+                              title={`Biên lai chi trả #${r.id}`}
+                              images={r.receipt_images.map((image) => ({ ...privateImageSource(image, privateImageBase.adminWithdrawalReceipt(r.id)), id: image.id }))}
+                            />
+                          )}
                           {r.reject_reason && (
                             <div className="text-[11px] text-muted truncate">Lý do: {r.reject_reason}</div>
                           )}
@@ -207,7 +222,7 @@ export default function AdminWithdrawalsPage() {
                               </Button>
                             </div>
                           ) : r.status === "approved" ? (
-                            <Button size="sm" variant="primary" disabled={busy} onClick={() => handleMarkPaid(r.id)}>
+                            <Button size="sm" variant="primary" disabled={busy} onClick={() => setPaidId(r.id)}>
                               Đã chi tiền
                             </Button>
                           ) : (
@@ -234,6 +249,23 @@ export default function AdminWithdrawalsPage() {
         variant="primary"
         isLoading={busy}
       />
+
+      <ConfirmModal
+        isOpen={paidId !== null}
+        onClose={closePaid}
+        onConfirm={handleMarkPaid}
+        title="Xác nhận đã chi tiền"
+        description="Nhập mã tham chiếu trên app ngân hàng sau khi chuyển khoản. Ảnh biên lai giúp người bán tự đối chiếu và lưu làm bằng chứng."
+        confirmText="Đã chi tiền"
+        variant="primary"
+        isLoading={busy}
+        confirmDisabled={!payoutRef.trim()}
+      >
+        <div className="space-y-3">
+          <Input value={payoutRef} onChange={(e) => setPayoutRef(e.target.value)} placeholder="Mã tham chiếu giao dịch (bắt buộc)" maxLength={100} />
+          <ImageUploader purpose="payout_receipt" value={receipts} onChange={setReceipts} max={3} label="Ảnh biên lai chuyển khoản" />
+        </div>
+      </ConfirmModal>
 
       <ConfirmModal
         isOpen={rejectId !== null}

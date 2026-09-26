@@ -25,6 +25,8 @@ class MediaPurpose(str, PyEnum):
     chat_attachment = "chat_attachment"
     dispute_evidence = "dispute_evidence"
     payout_receipt = "payout_receipt"
+    # Evidence an admin attaches to a manual wallet credit.
+    adjustment_proof = "adjustment_proof"
 
 
 PUBLIC_PURPOSES = frozenset({
@@ -77,6 +79,9 @@ class MediaObject(Base):
     # {"full": {"w", "h", "bytes", "sha256"}, "thumb": {...}} — every variant is image/webp.
     variants: Mapped[dict] = mapped_column(JSONB, nullable=False)
     bytes_total: Mapped[int] = mapped_column(Integer, nullable=False)
+    # EXIF capture time ("YYYY-MM-DDTHH:MM:SS", camera clock, no zone) when the
+    # file carried one; shown next to dispute evidence. GPS is never kept.
+    taken_at: Mapped[str | None] = mapped_column(String(19), nullable=True)
     # What the image belongs to once attached ("product", "chat_message", ...).
     subject_type: Mapped[str | None] = mapped_column(String(24), nullable=True)
     subject_id: Mapped[int | None] = mapped_column(BigInteger, nullable=True)

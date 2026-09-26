@@ -8,9 +8,10 @@ from sqlalchemy.orm import aliased
 from src.content_filter import screen_text
 from src.exceptions import ErrorCode, api_error
 
-from src.chat.enums import ContextRole, ConversationKind, ConversationStatus
+from src.chat.enums import CHAT_ATTACHMENT_SUBJECT, ContextRole, ConversationKind, ConversationStatus
 from src.chat.events import publish
 from src.chat.schemas import (
+    MAX_ATTACHMENTS_PER_MESSAGE,
     ChatDisputeContext,
     ChatMessageResponse,
     ChatOrderContext,
@@ -20,8 +21,10 @@ from src.chat.schemas import (
     ConversationSummary,
     SafeCounterpart,
 )
+from src.media import service as media_service
 from src.models.account import Account, ApplicationStatus, SellerApplication
 from src.models.chat import ChatConversation, ChatMessage, ChatParticipant
+from src.models.media import MediaObject, MediaPurpose
 from src.models.order import (
     Dispute,
     DisputeClaimResource,
@@ -565,7 +568,9 @@ async def send_message(
     body: str,
     client_message_id: uuid.UUID,
     db: AsyncSession,
+    attachment_ids: list[str] | None = None,
 ) -> ChatMessageResponse:
+    attachment_ids = list(dict.fromkeys(attachment_ids or []))
     participant = await _participant_for_account(db, conversation_id, account)
     conversation = await db.get(ChatConversation, conversation_id, with_for_update=True)
     if conversation is None:
@@ -581,7 +586,7 @@ async def send_message(
             raise api_error(ErrorCode.CHAT_READ_ONLY, status.HTTP_409_CONFLICT)
     # Buyer ↔ seller text must stay on the marketplace; talking to Marketplace
     # support (or as admin) is exempt.
-    if conversation.kind != ConversationKind.SUPPORT and participant.context_role != ContextRole.ADMIN:
+    if body and conversation.kind != ConversationKind.SUPPORT and participant.context_role != ContextRole.ADMIN:
         body = await screen_text(
             db, body, actor_id=account.id, context="chat_message", subject_id=str(conversation_id),
         )
@@ -592,7 +597,8 @@ async def send_message(
         )
     )
     if existing:
-        if existing.body != body or existing.sender_id != account.id:
+        existing_ids = [item.get("id") for item in (existing.attachments or [])]
+        if existing.body != body or existing.sender_id != account.id or existing_ids != attachment_ids:
             raise api_error(ErrorCode.CHAT_MESSAGE_ID_CONFLICT, status.HTTP_409_CONFLICT)
         return _message_dto(existing)
     message = ChatMessage(
@@ -601,9 +607,17 @@ async def send_message(
         sender_role=participant.context_role,
         client_message_id=client_message_id,
         body=body,
+        # Non-null so an images-only message passes the body check before the
+        # snapshots (which need the message id) are written.
+        attachments=[] if attachment_ids else None,
     )
     db.add(message)
     await db.flush()
+    if attachment_ids:
+        message.attachments = await media_service.set_subject_media(
+            db, actor_id=account.id, purpose=MediaPurpose.chat_attachment, subject_type=CHAT_ATTACHMENT_SUBJECT,
+            subject_id=message.id, public_ids=attachment_ids, max_count=MAX_ATTACHMENTS_PER_MESSAGE,
+        )
     conversation.last_message_id = message.id
     conversation.last_message_at = message.created_at
     participant.last_read_message_id = max(participant.last_read_message_id or 0, message.id)
@@ -628,6 +642,30 @@ async def send_message(
         {"type": "message.created", "conversation_id": str(conversation.id), "message_id": message.id},
     )
     return _message_dto(message)
+
+
+async def attachment_for(
+    account: Account, conversation_id: uuid.UUID, media_id: str, db: AsyncSession,
+) -> MediaObject:
+    """An image sent in this conversation, for a participant (or any admin,
+    read-only — dispute review looks at buyer↔seller chats). 404 otherwise,
+    without telling whether the image exists."""
+    if not _has_role(account, "admin"):
+        await _participant(db, conversation_id, account.id)
+    message_id = await db.scalar(
+        select(ChatMessage.id).where(
+            ChatMessage.conversation_id == conversation_id,
+            ChatMessage.attachments.contains([{"id": media_id}]),
+        ).limit(1)
+    )
+    obj = None
+    if message_id is not None:
+        obj = await media_service.find_on_subject(
+            db, media_id, subject_type=CHAT_ATTACHMENT_SUBJECT, subject_ids=[message_id],
+        )
+    if obj is None:
+        raise api_error(ErrorCode.MEDIA_NOT_FOUND, status.HTTP_404_NOT_FOUND)
+    return obj
 
 
 async def ensure_support_conversation(

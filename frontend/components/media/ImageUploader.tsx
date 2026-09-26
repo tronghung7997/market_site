@@ -4,7 +4,7 @@ import { useRef, useState, type DragEvent, type ReactNode } from "react";
 import { useTranslations } from "next-intl";
 import { api } from "@/lib/api";
 import { cn } from "@/lib/cn";
-import { IMAGE_ACCEPT, PrepareImageError, imageFilesFrom, prepareImage } from "@/lib/media";
+import { EVIDENCE_PURPOSES, IMAGE_ACCEPT, PrepareImageError, imageFilesFrom, prepareImage } from "@/lib/media";
 import { useApiErrorMessage } from "@/lib/use-api-error";
 import type { MediaPurpose, PublicImage } from "@/lib/types";
 import { ChevronLeft, ChevronRight, ImageIcon, Plus, X } from "@/components/Icons";
@@ -80,11 +80,16 @@ export function ImageUploader({
     setPending((current) => [...current, ...queue.map(({ key, preview }) => ({ key, preview }))]);
     for (const item of queue) {
       try {
-        const blob = await prepareImage(item.file);
+        const blob = await prepareImage(item.file, undefined, EVIDENCE_PURPOSES.has(purpose));
         const uploaded = await api.uploadMedia(blob, purpose);
-        // Same key order as PublicImage from the API, so forms that compare
-        // JSON snapshots see a saved-and-reloaded image as unchanged.
-        const image: UploaderImage = { id: uploaded.id, url: uploaded.url, thumb_url: uploaded.thumb_url ?? uploaded.url, w: uploaded.w, h: uploaded.h };
+        // A private image has no URL until its feature saves it: preview the
+        // local copy. Same key order as PublicImage from the API, so forms that
+        // compare JSON snapshots see a saved-and-reloaded image as unchanged.
+        const local = uploaded.url ? null : URL.createObjectURL(blob);
+        const image: UploaderImage = {
+          id: uploaded.id, url: uploaded.url ?? local, thumb_url: uploaded.thumb_url ?? uploaded.url ?? local,
+          w: uploaded.w, h: uploaded.h,
+        };
         onChange(single ? [image] : [...valueRef.current, image].slice(0, max));
       } catch (error) {
         const message = error instanceof PrepareImageError ? prepareError(error) : apiErrorMessage(error);

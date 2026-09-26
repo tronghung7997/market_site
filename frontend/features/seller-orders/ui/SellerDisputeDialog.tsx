@@ -17,6 +17,10 @@ import { SellerDisputeRemedyPanel } from "@/components/seller/SellerDisputeRemed
 import OrderChatButton from "@/components/chat/OrderChatButton";
 import MarketplaceChatButton from "@/components/chat/MarketplaceChatButton";
 import { useInvalidateSellerOrders, useSellerDispute } from "../useSellerOrders";
+import { AttachImagesButton } from "@/components/media/AttachImagesButton";
+import { PendingImages } from "@/components/media/PendingImages";
+import { useImageUploads } from "@/components/media/useImageUploads";
+import { imageFilesFrom } from "@/lib/media";
 
 /** Open dispute: claim timeline + reply form + per-account remedies.
  *  Closed dispute: read-only history. */
@@ -39,6 +43,7 @@ function DisputeBody({ order, onClose }: { order: Order; onClose: () => void }) 
   const dispute = disputeQuery.data ?? null;
   const [activeTab, setActiveTab] = useState<"claim" | "remedy">("claim");
   const [sellerNote, setSellerNote] = useState("");
+  const evidence = useImageUploads("dispute_evidence", 6);
   const [submitting, setSubmitting] = useState(false);
   const [error, setError] = useState<string | null>(null);
 
@@ -68,8 +73,9 @@ function DisputeBody({ order, onClose }: { order: Order; onClose: () => void }) 
     setSubmitting(true);
     setError(null);
     try {
-      await api.sellerRespondDispute(dispute.id, sellerNote.trim());
+      await api.sellerRespondDispute(dispute.id, sellerNote.trim(), evidence.images.map((image) => image.id));
       setSellerNote("");
+      evidence.reset();
       await refresh();
     } catch (err: unknown) {
       setError(apiErrorMessage(err, t("disputeResponseFailed")));
@@ -180,7 +186,13 @@ function DisputeBody({ order, onClose }: { order: Order; onClose: () => void }) 
                     onChange={(e) => setSellerNote(e.target.value)}
                     placeholder={t("disputeSellerPlaceholder")}
                     className="bg-surface text-xs leading-relaxed"
+                    onPaste={(event) => {
+                      const files = imageFilesFrom(event.clipboardData);
+                      if (files.length) { event.preventDefault(); void evidence.addFiles(files); }
+                    }}
                   />
+                  <PendingImages images={evidence.images} uploading={evidence.uploading} errors={evidence.errors} onRemove={evidence.remove} />
+                  <AttachImagesButton label={t("disputeAttachImages")} disabled={submitting || evidence.full} onFiles={(files) => void evidence.addFiles(files)} />
                 </div>
                 {error && <div role="alert" className="rounded-lg border border-bad/20 bg-bad-soft p-2.5 text-xs font-medium text-bad">{error}</div>}
                 <div className="flex flex-col gap-3 pt-1 sm:flex-row sm:items-center sm:justify-between">
@@ -199,7 +211,7 @@ function DisputeBody({ order, onClose }: { order: Order; onClose: () => void }) 
                   </div>
                   <div className="flex items-center gap-2">
                     <Button size="sm" variant="ghost" type="button" onClick={onClose} disabled={submitting}>{t("close")}</Button>
-                    <Button size="sm" type="submit" disabled={submitting || !sellerNote.trim()}>
+                    <Button size="sm" type="submit" disabled={submitting || !sellerNote.trim() || evidence.uploading > 0}>
                       {submitting ? t("sending") : t("sendDisputeResponse")}
                     </Button>
                   </div>

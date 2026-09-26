@@ -11,6 +11,8 @@ import type { FeeConfigPublic, Wallet, WithdrawRequest } from "@/lib/types";
 import { Button, Card, Input, Spinner, Tag } from "@/components/ui";
 import { DisplayCurrencyInput } from "@/components/DisplayCurrencyInput";
 import { Wallet as WalletIcon } from "@/components/Icons";
+import { ImageStrip } from "@/components/media/ImageStrip";
+import { privateImageBase, privateImageSource } from "@/lib/media";
 
 export default function SellerWithdrawalsPage() {
   const t = useTranslations("seller");
@@ -222,6 +224,14 @@ export default function SellerWithdrawalsPage() {
                         {formatDate(r.created_at)}
                         {(r.fee_amount ?? 0) > 0 && <> · {t("withdrawHistoryNet", { fee: formatBrowseMoney(r.fee_amount ?? 0, { locale }), net: formatBrowseMoney(r.net_amount ?? r.amount - (r.fee_amount ?? 0), { locale }) })}</>}
                       </div>
+                      {r.receipt_images && r.receipt_images.length > 0 && (
+                        <ImageStrip
+                          size="sm"
+                          className="mt-1.5"
+                          title={t("withdrawReceipts")}
+                          images={r.receipt_images.map((image) => ({ ...privateImageSource(image, privateImageBase.withdrawalReceipt(r.id)), id: image.id }))}
+                        />
+                      )}
                       {r.status === "rejected" && r.reject_reason && (
                         <div className="text-[12px] text-muted mt-1">
                           {t("withdrawRejectReason", { reason: r.reject_reason })}

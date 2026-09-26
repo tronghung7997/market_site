@@ -245,10 +245,10 @@ export const api = {
     }, true),
   adminSupportConversations: () =>
     request<ChatConversationList>("/chat/admin/support", {}, true),
-  sendChatMessage: (conversationId: string, body: string, clientMessageId: string) =>
+  sendChatMessage: (conversationId: string, body: string, clientMessageId: string, attachments: string[] = []) =>
     request<ChatMessage>(`/chat/conversations/${encodeURIComponent(conversationId)}/messages`, {
       method: "POST",
-      body: JSON.stringify({ body, client_message_id: clientMessageId }),
+      body: JSON.stringify({ body, client_message_id: clientMessageId, attachments }),
     }, true),
 
   categories: () => request<Category[]>("/categories"),
@@ -327,10 +327,10 @@ export const api = {
 
   confirmOrder: (orderId: string | number) =>
     request<Order>(`/orders/${orderId}/confirm`, { method: "POST" }, true),
-  openDispute: (orderId: string | number, reason: string, evidenceType?: string, evidence?: Record<string, string>, resourceIds?: number[]) =>
+  openDispute: (orderId: string | number, reason: string, evidenceType?: string, evidence?: Record<string, string>, resourceIds?: number[], evidenceImages: string[] = []) =>
     request<Dispute>(`/orders/${orderId}/dispute`, {
       method: "POST",
-      body: JSON.stringify({ reason, evidence_type: evidenceType ?? null, evidence: evidence ?? null, resource_ids: resourceIds ?? null, idempotency_key: resourceIds?.length ? newIdempotencyKey() : null }),
+      body: JSON.stringify({ reason, evidence_type: evidenceType ?? null, evidence: evidence ?? null, resource_ids: resourceIds ?? null, idempotency_key: resourceIds?.length ? newIdempotencyKey() : null, evidence_images: evidenceImages }),
     }, true),
   appendDisputeClaims: (orderId: string | number, reason: string, resourceIds: number[]) =>
     request<Dispute>(`/orders/${orderId}/dispute/claims`, {
@@ -343,17 +343,18 @@ export const api = {
     evidenceType?: string,
     evidence?: Record<string, string>,
     resourceIds: number[] = [],
+    evidenceImages: string[] = [],
   ) => {
     const batches = chunkDisputeResourceIds(resourceIds);
     const first = batches.shift();
-    let dispute = await api.openDispute(orderId, reason, evidenceType, evidence, first);
+    let dispute = await api.openDispute(orderId, reason, evidenceType, evidence, first, evidenceImages);
     for (const batch of batches) {
       dispute = await api.appendDisputeClaims(orderId, reason, batch);
     }
     return dispute;
   },
-  buyerDisputeMessage: (orderId: string | number, body: string) =>
-    request<Dispute>(`/orders/${orderId}/dispute/messages`, { method: "POST", body: JSON.stringify({ body, idempotency_key: newIdempotencyKey() }) }, true),
+  buyerDisputeMessage: (orderId: string | number, body: string, attachments: string[] = []) =>
+    request<Dispute>(`/orders/${orderId}/dispute/messages`, { method: "POST", body: JSON.stringify({ body, idempotency_key: newIdempotencyKey(), attachments }) }, true),
   acceptDisputeResolution: (orderId: string | number) =>
     request<Dispute>(`/orders/${orderId}/dispute/accept`, { method: "POST" }, true),
   withdrawDispute: (orderId: string | number) =>
@@ -835,8 +836,8 @@ export const api = {
     request<WithdrawRequest>(`/admin/withdrawals/${id}/reject`, { method: "POST", body: JSON.stringify({ reason }) }, true),
   requestWithdraw: (amount: number, bank: { bank_name: string; bank_account_number: string; bank_account_holder: string; bank_bin?: string; totp_code?: string }) =>
     request<WithdrawRequest>("/wallet/withdraw", { method: "POST", body: JSON.stringify({ amount, ...bank }) }, true),
-  markWithdrawalPaid: (id: number, payoutReference: string) =>
-    request<WithdrawRequest>(`/admin/withdrawals/${id}/paid`, { method: "POST", body: JSON.stringify({ payout_reference: payoutReference }) }, true),
+  markWithdrawalPaid: (id: number, payoutReference: string, receiptImages: string[] = []) =>
+    request<WithdrawRequest>(`/admin/withdrawals/${id}/paid`, { method: "POST", body: JSON.stringify({ payout_reference: payoutReference, receipt_images: receiptImages }) }, true),
   myWithdrawals: () => request<WithdrawRequest[]>("/wallet/withdrawals", {}, true),
   // --- Nạp tiền qua SePay / NOWPayments (src/payments) ---
   depositMethods: () =>
@@ -907,8 +908,8 @@ export const api = {
     request<AdminAccountWallet>(`/admin/accounts/${accountId}/wallet`, {}, true),
   adminAccountTransactions: (accountId: number) =>
     request<Transaction[]>(`/admin/accounts/${accountId}/transactions`, {}, true),
-  adminTopup: (accountId: number, amount: number, reason: string) =>
-    request<Wallet>("/wallet/topup", { method: "POST", body: JSON.stringify({ account_id: accountId, amount, reason }) }, true),
+  adminTopup: (accountId: number, amount: number, reason: string, proofImages: string[] = []) =>
+    request<Wallet>("/wallet/topup", { method: "POST", body: JSON.stringify({ account_id: accountId, amount, reason, proof_images: proofImages }) }, true),
   adminSetAccountStatus: (id: number, isActive: boolean, reason?: string) =>
     request<AccountAdminRow>(`/admin/accounts/${id}/status`, { method: "PATCH", body: JSON.stringify({ is_active: isActive, reason: reason || null }) }, true),
   adminLoginEvents: (id: number, limit = 50) =>
@@ -926,8 +927,8 @@ export const api = {
   /** `ref` is `{handle}-{key}`, a bare key, or a legacy account id. */
   sellerProfile: (ref: string | number) => request<SellerProfile>(`/sellers/${encodeURIComponent(String(ref))}`),
   sellerDispute: (orderId: string | number) => request<Dispute>(`/seller/orders/${orderId}/dispute`, {}, true),
-  sellerRespondDispute: (disputeId: number, sellerNote: string) =>
-    request<Dispute>(`/seller/disputes/${disputeId}/respond`, { method: "POST", body: JSON.stringify({ seller_note: sellerNote }) }, true),
+  sellerRespondDispute: (disputeId: number, sellerNote: string, attachments: string[] = []) =>
+    request<Dispute>(`/seller/disputes/${disputeId}/respond`, { method: "POST", body: JSON.stringify({ seller_note: sellerNote, attachments }) }, true),
   sellerDisputeResources: (
     disputeId: number,
     opts?: { search?: string; page?: number; per_page?: number; pending_only?: boolean; ids_only?: boolean },

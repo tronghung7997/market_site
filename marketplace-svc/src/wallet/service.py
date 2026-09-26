@@ -14,8 +14,16 @@ from src.models.wallet import (
     TRANSACTION_DIRECTION, Transaction, TransactionType, Wallet, WithdrawRequest, WithdrawStatus,
 )
 from src.fees.service import withdraw_fee_amount
+from src.media import service as media_service
+from src.media.service import private_images
+from src.models.media import MediaObject, MediaPurpose
+from src.wallet.schemas import MAX_PROOF_IMAGES
 from src.fees.settings import get_fee_settings
 from src.sellers.tier_config import rule_for
+
+# media subject types (subject_id = transaction id / withdraw request id).
+TRANSACTION_PROOF_SUBJECT = "wallet_transaction"
+WITHDRAW_RECEIPT_SUBJECT = "withdraw_request"
 
 
 def escrow_settlement(total_amount: int, refunded_amount: int, fee_percent: float) -> tuple[int, int]:
@@ -102,6 +110,7 @@ async def topup(
     source: str = "admin",
     event: str = "manual_topup",
     reason: str | None = None,
+    proof_ids: list[str] | None = None,
 ) -> Wallet:
     """Credit a wallet. `source`/`event` distinguish admin manual vs demo funding.
 
@@ -121,6 +130,12 @@ async def topup(
         description = f"Admin topup — {reason}" if reason else "Admin topup"
     tx = Transaction(wallet_id=wallet.id, type=TransactionType.topup, amount=amount, description=description)
     db.add(tx)
+    if proof_ids:
+        await db.flush()
+        tx.proof_media = await media_service.set_subject_media(
+            db, actor_id=actor_id or 0, purpose=MediaPurpose.adjustment_proof, subject_type=TRANSACTION_PROOF_SUBJECT,
+            subject_id=tx.id, public_ids=proof_ids, max_count=MAX_PROOF_IMAGES,
+        )
     await log_event(
         db, "info", f"Topup {amount:,}đ vào account {account_id}".replace(",", "."),
         request_id=current_request_id(),
@@ -134,6 +149,7 @@ async def topup(
             "source": source,
             "amount": amount,
             "reason": reason,
+            "proof_images": [snap["id"] for snap in (tx.proof_media or [])],
         },
     )
     await db.commit()
@@ -340,6 +356,7 @@ async def get_transactions(account_id: int, db: AsyncSession) -> list[dict]:
             "direction": TRANSACTION_DIRECTION[t.type].value,
             "description": t.description,
             "reference_id": t.reference_id, "created_at": t.created_at, "order_status": status,
+            "proof_images": private_images(t.proof_media),
             "order_code": order_codes.get(order_id) if order_id is not None else None,
             "reference_label": _reference_label(t.reference_id, order_codes),
         })
@@ -404,6 +421,7 @@ def _withdraw_dict(req: WithdrawRequest, email: str | None) -> dict:
         "payout_reference": req.payout_reference, "paid_at": req.paid_at,
         "reject_reason": req.reject_reason,
         "fee_amount": req.fee_amount, "net_amount": req.net_amount if req.net_amount is not None else req.amount - req.fee_amount,
+        "receipt_images": private_images(req.receipt_media),
     }
 
 
@@ -517,7 +535,9 @@ async def list_withdrawals_for_account(account_id: int, db: AsyncSession) -> lis
     return [_withdraw_dict(req, email) for req, email in result.all()]
 
 
-async def mark_withdrawal_paid(req_id: int, payout_reference: str, db: AsyncSession) -> WithdrawRequest:
+async def mark_withdrawal_paid(
+    req_id: int, payout_reference: str, db: AsyncSession, *, actor_id: int | None = None, receipt_ids: list[str] | None = None,
+) -> WithdrawRequest:
     """approved → paid. Không đụng số dư: tiền đã rời locked_balance từ lúc
     approve; bước này chỉ ghi nhận việc chi thật (đối soát với sao kê bank)."""
     req = await db.get(WithdrawRequest, req_id, with_for_update=True)
@@ -528,12 +548,39 @@ async def mark_withdrawal_paid(req_id: int, payout_reference: str, db: AsyncSess
     req.status = WithdrawStatus.paid
     req.payout_reference = payout_reference
     req.paid_at = datetime.now(timezone.utc)
+    if receipt_ids:
+        req.receipt_media = await media_service.set_subject_media(
+            db, actor_id=actor_id or 0, purpose=MediaPurpose.payout_receipt, subject_type=WITHDRAW_RECEIPT_SUBJECT,
+            subject_id=req.id, public_ids=receipt_ids, max_count=MAX_PROOF_IMAGES,
+        )
     await log_event(
         db, "info", f"Yêu cầu rút #{req.id} ĐÃ CHI TIỀN ({req.amount:,}đ, ref {payout_reference})".replace(",", "."),
         request_id=current_request_id(),
         metadata={"event": "withdraw_paid", "withdraw_id": req.id, "account_id": req.account_id,
-                  "amount": req.amount, "payout_reference": payout_reference},
+                  "amount": req.amount, "payout_reference": payout_reference, "actor_id": actor_id,
+                  "receipt_images": [snap["id"] for snap in (req.receipt_media or [])]},
     )
     await db.commit()
     await db.refresh(req)
     return req
+
+
+async def transaction_proof_image(tx_id: int, media_id: str, db: AsyncSession) -> MediaObject:
+    """Evidence image of a manual credit (admin only — enforced by the router)."""
+    obj = await media_service.find_on_subject(db, media_id, subject_type=TRANSACTION_PROOF_SUBJECT, subject_ids=[tx_id])
+    if obj is None:
+        raise api_error(ErrorCode.MEDIA_NOT_FOUND, status.HTTP_404_NOT_FOUND)
+    return obj
+
+
+async def withdrawal_receipt_image(
+    req_id: int, media_id: str, db: AsyncSession, *, owner_id: int | None = None,
+) -> MediaObject:
+    """Payout receipt of a withdrawal; ``owner_id`` restricts it to the seller who asked."""
+    req = await db.get(WithdrawRequest, req_id)
+    obj = None
+    if req is not None and (owner_id is None or req.account_id == owner_id):
+        obj = await media_service.find_on_subject(db, media_id, subject_type=WITHDRAW_RECEIPT_SUBJECT, subject_ids=[req_id])
+    if obj is None:
+        raise api_error(ErrorCode.MEDIA_NOT_FOUND, status.HTTP_404_NOT_FOUND)
+    return obj

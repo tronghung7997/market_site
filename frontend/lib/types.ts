@@ -30,7 +30,8 @@ export type MediaPurpose =
   | "avatar"
   | "chat_attachment"
   | "dispute_evidence"
-  | "payout_receipt";
+  | "payout_receipt"
+  | "adjustment_proof";
 
 /** A public image as served in payloads: immutable URLs (app /media/… or CDN). */
 export interface PublicImage {
@@ -47,6 +48,9 @@ export interface PrivateImage {
   id: string;
   w: number;
   h: number;
+  uploaded_at?: string | null;
+  /** EXIF capture time (camera clock, no zone), when the file carried one. */
+  taken_at?: string | null;
 }
 
 /** `products.images` as served: the allowlisted icon, the first uploaded
@@ -127,6 +131,8 @@ export interface ChatMessage {
   body: string;
   sender_id: number;
   sender_role: "buyer" | "seller" | "admin";
+  /** Images sent with the message (served by lib/media privateImageBase.chat). */
+  attachments?: PrivateImage[];
   created_at: string;
 }
 
@@ -424,6 +430,8 @@ export interface Transaction {
   order_status?: string | null;
   /** Order behind the row, by public code; what the UI shows instead of `order-{id}`. */
   order_code?: string | null;
+  /** Manual credits: evidence images the admin attached (admin-only to fetch). */
+  proof_images?: PrivateImage[];
   /** Customer-facing reference (order code + suffix, or provider deposit ref); null when there is none to show. */
   reference_label?: string | null;
 }
@@ -735,6 +743,8 @@ export interface WithdrawRequest {
   fee_amount?: number;
   net_amount?: number | null;
   created_at: string;
+  /** Bank transfer receipts attached when the payout was marked paid. */
+  receipt_images?: PrivateImage[];
 }
 
 export type DepositMethod = "sepay" | "nowpayments";
@@ -1066,6 +1076,8 @@ export interface Dispute {
   reason: string;
   evidence_type?: string | null;
   evidence?: Record<string, string> | null;
+  /** Images attached when the case was opened (privateImageBase.dispute / adminDispute). */
+  evidence_images?: PrivateImage[];
   status: string;
   admin_note: string | null;
   seller_note: string | null;
@@ -1116,6 +1128,8 @@ export interface DisputeTimelineEvent {
   resource_ids: number[];
   replacement_resource_ids?: (number | null)[];
   refund_amount?: number;
+  /** Evidence images posted with this event. */
+  attachments?: PrivateImage[];
   created_at: string;
 }
 
@@ -3173,6 +3187,8 @@ export type FeeConfigPublic = {
   withdraw_fee_fixed: number;
   withdraw_fee_percent: number;
   dispute_seller_response_hours: number;
+  /** A buyer must attach at least one evidence image to open a dispute. */
+  dispute_evidence_image_required: boolean;
 };
 export type FeeConfigAdmin = FeeConfigPublic & { updated_at: string | null; updated_by_id: number | null };
 export type FeeConfigUpdate = Partial<FeeConfigPublic>;
@@ -3395,6 +3411,12 @@ export interface AdminDisputeCase extends Dispute {
   };
   lines: AdminCaseLine[];
   conversations: { id: string; requester: "buyer" | "seller"; href: string }[];
+  /** Buyer↔seller order chat (last 200 messages) for the review. */
+  order_chat?: {
+    conversation_id: string;
+    truncated: boolean;
+    messages: { id: number; sender_role: "buyer" | "seller" | "admin"; body: string; attachments: PrivateImage[]; created_at: string }[];
+  } | null;
   signals: AdminCaseSignal[];
   recommendation: { action: AdminCaseAction | "review" | "wait" | "none"; text: string; amount: number | null };
 }

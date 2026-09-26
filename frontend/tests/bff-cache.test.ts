@@ -55,4 +55,11 @@ describe("BFF private image cache policy", () => {
     assert.equal(privateImageCacheControl({ ...base, upstreamCacheControl: "public, max-age=60" }), null);
     assert.equal(privateImageCacheControl({ ...base, upstreamCacheControl: null }), null);
   });
+
+  it("keeps the policy on a 304 revalidation", () => {
+    assert.equal(
+      privateImageCacheControl({ status: 304, contentType: "", upstreamCacheControl: "private, no-cache" }),
+      "private, no-cache",
+    );
+  });
 });

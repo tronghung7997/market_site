@@ -21,7 +21,7 @@ AMOUNT_RANGE = (0, 1_000_000_000)
 _EDITABLE = (
     "platform_fee_percent", "category_fee_percent", "escrow_default_days", "escrow_min_days",
     "category_escrow_min_days", "withdraw_min_amount", "withdraw_fee_fixed", "withdraw_fee_percent",
-    "dispute_seller_response_hours",
+    "dispute_seller_response_hours", "dispute_evidence_image_required",
 )
 HOURS_RANGE = (0, 720)
 
@@ -50,6 +50,7 @@ def _payload(row: FeeRuntimeConfig) -> dict:
         "withdraw_fee_fixed": int(row.withdraw_fee_fixed),
         "withdraw_fee_percent": float(row.withdraw_fee_percent),
         "dispute_seller_response_hours": int(row.dispute_seller_response_hours),
+        "dispute_evidence_image_required": bool(row.dispute_evidence_image_required),
         "updated_at": row.updated_at.isoformat() if row.updated_at else None,
         "updated_by_id": row.updated_by_id,
     }
@@ -114,6 +115,7 @@ async def update_fee_settings(
     withdraw_fee_fixed: int | None = None,
     withdraw_fee_percent: float | None = None,
     dispute_seller_response_hours: int | None = None,
+    dispute_evidence_image_required: bool | None = None,
 ) -> dict:
     row = await ensure_seeded(db)
     old = _payload(row)
@@ -142,6 +144,8 @@ async def update_fee_settings(
     if dispute_seller_response_hours is not None:
         _check("dispute_seller_response_hours", dispute_seller_response_hours, HOURS_RANGE)
         row.dispute_seller_response_hours = int(dispute_seller_response_hours)
+    if dispute_evidence_image_required is not None:
+        row.dispute_evidence_image_required = bool(dispute_evidence_image_required)
     row.updated_by_id = actor_id
     # Read the editable fields before flush: `updated_at` is server-generated
     # (onupdate) and expires on flush, which an async session cannot lazy-load.

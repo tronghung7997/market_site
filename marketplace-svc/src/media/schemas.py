@@ -32,3 +32,6 @@ class PrivateImage(BaseModel):
     id: str
     w: int
     h: int
+    uploaded_at: str | None = None
+    # EXIF capture time (camera clock, no zone), when the file carried one.
+    taken_at: str | None = None

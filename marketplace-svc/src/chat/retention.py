@@ -3,7 +3,8 @@ from datetime import datetime, timedelta, timezone
 from sqlalchemy import delete, func, or_, select
 from sqlalchemy.ext.asyncio import AsyncSession
 
-from src.chat.enums import ConversationKind
+from src.chat.enums import CHAT_ATTACHMENT_SUBJECT, ConversationKind
+from src.media.service import detach_subjects
 from src.models.chat import ChatConversation, ChatMessage
 from src.models.order import Dispute, DisputeStatus, Order, OrderStatus
 
@@ -75,10 +76,15 @@ async def purge_expired_messages(
         .limit(batch_size)
         .with_for_update(skip_locked=True, of=ChatMessage)
     )
-    result = await db.execute(
+    deleted = (await db.execute(
         delete(ChatMessage)
         .where(ChatMessage.id.in_(ids))
+        .returning(ChatMessage.id, ChatMessage.attachments)
         .execution_options(synchronize_session=False)
+    )).all()
+    # Their images lose their subject: detached now, deleted after the grace period.
+    await detach_subjects(
+        db, subject_type=CHAT_ATTACHMENT_SUBJECT, subject_ids=[row.id for row in deleted if row.attachments],
     )
     await db.commit()
-    return int(result.rowcount or 0)
+    return len(deleted)

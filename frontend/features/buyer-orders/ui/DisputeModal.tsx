@@ -1,6 +1,7 @@
 "use client";
 
 import { useEffect, useMemo, useState } from "react";
+import { useQuery } from "@tanstack/react-query";
 import { useTranslations } from "next-intl";
 import {
   AlertTriangle,
@@ -35,6 +36,7 @@ import {
 } from "@/lib/dispute-form";
 import type { DisputeResourceAction, Order, Resource } from "@/lib/types";
 import { Button, Input, Spinner, Textarea } from "@/components/ui";
+import { ImageUploader, type UploaderImage } from "@/components/media/ImageUploader";
 import { Dialog, DialogContent, DialogTitle } from "@/components/ui/dialog";
 
 const ISSUE_ICONS: Record<DisputeIssueId, typeof Key> = {
@@ -96,6 +98,10 @@ export default function DisputeModal({
     isGenericInitialReason ? "" : initialReason
   );
   const [proofUrl, setProofUrl] = useState<string>(initialEvidence?.proof_url ?? "");
+  const [evidenceImages, setEvidenceImages] = useState<UploaderImage[]>([]);
+  const feeConfig = useQuery({ queryKey: ["public-fee-config"], queryFn: api.feeConfig, staleTime: 60_000 });
+  // New cases only: extra claims on an open case carry no images of their own.
+  const imagesRequired = !appendToExisting && Boolean(feeConfig.data?.dispute_evidence_image_required);
   const [submitting, setSubmitting] = useState(false);
   const [error, setError] = useState("");
 
@@ -235,6 +241,7 @@ export default function DisputeModal({
           evidenceType,
           Object.keys(evidence).length > 0 ? evidence : undefined,
           submitIds ?? [],
+          evidenceImages.map((image) => image.id),
         );
       }
       onSuccess();
@@ -257,7 +264,7 @@ export default function DisputeModal({
     submitting,
     loading: loadingScope,
     scopeError: Boolean(scopeError),
-  });
+  }) && (!imagesRequired || evidenceImages.length > 0);
 
   const pickerLimit = 50;
   const visibleClaimable = filteredClaimable.slice(0, pickerLimit);
@@ -496,6 +503,22 @@ export default function DisputeModal({
             className="text-[12px]"
           />
         </div>
+
+        {!appendToExisting && (
+          <div className="space-y-1">
+            <ImageUploader
+              purpose="dispute_evidence"
+              value={evidenceImages}
+              onChange={setEvidenceImages}
+              max={6}
+              label={imagesRequired ? `${t("evidenceImagesLabel")} *` : t("evidenceImagesLabel")}
+              hint={t("evidenceImagesHint")}
+            />
+            {imagesRequired && evidenceImages.length === 0 && (
+              <p className="text-[12px] text-warn">{t("evidenceImagesRequired")}</p>
+            )}
+          </div>
+        )}
 
         <div className="space-y-1">
           <label className="text-[11.5px] text-muted flex items-center gap-1.5">

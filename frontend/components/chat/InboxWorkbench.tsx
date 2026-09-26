@@ -18,6 +18,7 @@ import {
   Inbox,
   MessageCircle,
   Package,
+  Paperclip,
   Receipt,
   ShieldCheck,
   ExternalLink,
@@ -28,6 +29,13 @@ import { ProductCover } from "@/components/products/ProductCover";
 import { parseCoverId } from "@/lib/product-covers";
 import { ADMIN_SUPPORT_HREF, INBOX_HREF, orderWorkspaceHref } from "@/lib/chat-inbox";
 import { useApiErrorMessage } from "@/lib/use-api-error";
+import { IMAGE_ACCEPT, imageFilesFrom, privateImageBase, privateImageSource } from "@/lib/media";
+import { ImageStrip } from "@/components/media/ImageStrip";
+import { PendingImages } from "@/components/media/PendingImages";
+import { useImageUploads } from "@/components/media/useImageUploads";
+
+/** Backend MAX_ATTACHMENTS_PER_MESSAGE. */
+const MAX_CHAT_IMAGES = 4;
 
 function contextLabel(
   room: ChatConversation,
@@ -96,6 +104,8 @@ export default function InboxWorkbench({
   const list = adminMode ? adminList : userList;
   const detail = useChatConversation(selectedId);
   const send = useSendChatMessage();
+  const uploads = useImageUploads("chat_attachment", MAX_CHAT_IMAGES);
+  const attachInput = useRef<HTMLInputElement>(null);
   const timeline = useRef<HTMLDivElement>(null);
   useChatEvents(!!account);
 
@@ -196,17 +206,21 @@ export default function InboxWorkbench({
   const submit = async (event: FormEvent) => {
     event.preventDefault();
     const body = draft.trim();
-    if (!body || !selectedId || send.isPending) return;
+    const images = uploads.images;
+    if ((!body && images.length === 0) || uploads.uploading > 0 || !selectedId || send.isPending) return;
     setDraft("");
+    uploads.reset();
     stickToBottom.current = true;
     try {
       await send.mutateAsync({
         conversationId: selectedId,
         body,
         clientMessageId: crypto.randomUUID(),
+        attachments: images.map((image) => image.id),
       });
     } catch {
       setDraft(body);
+      uploads.restore(images);
     }
   };
 
@@ -346,7 +360,7 @@ export default function InboxWorkbench({
                     </div>
 
                     <span className="mt-1 block truncate text-[11.5px] leading-normal text-faint">
-                      {item.last_message?.body ?? item.counterpart.label}
+                      {item.last_message ? (item.last_message.body || t("imageMessage")) : item.counterpart.label}
                     </span>
                   </span>
                 </button>
@@ -596,7 +610,15 @@ export default function InboxWorkbench({
                             : "rounded-bl-xs border border-line bg-surface text-fg",
                         )}
                       >
-                        <p className="select-text">{message.body}</p>
+                        {message.attachments && message.attachments.length > 0 && (
+                          <ImageStrip
+                            size="sm"
+                            className={cn(message.body && "mb-1.5")}
+                            title={t("imagesTitle")}
+                            images={message.attachments.map((image) => ({ ...privateImageSource(image, privateImageBase.chat(room.id)), id: image.id }))}
+                          />
+                        )}
+                        {message.body && <p className="select-text">{message.body}</p>}
                         <time
                           className={cn(
                             "mt-0.5 block text-right text-[10px]",
@@ -615,14 +637,54 @@ export default function InboxWorkbench({
               </div>
 
               {/* Input action toolbar */}
-              <form onSubmit={submit} className="shrink-0 border-t border-line bg-surface p-2 sm:p-3">
+              <form
+                onSubmit={submit}
+                onDragOver={(event) => { if (room.can_send) event.preventDefault(); }}
+                onDrop={(event) => {
+                  if (!room.can_send) return;
+                  event.preventDefault();
+                  void uploads.addFiles(imageFilesFrom(event.dataTransfer));
+                }}
+                className="shrink-0 border-t border-line bg-surface p-2 sm:p-3"
+              >
                 {!room.can_send && (
                   <p className="mx-auto mb-2 max-w-[680px] rounded-lg border border-warn/25 bg-warn-soft px-3 py-1.5 text-[11px] text-warn">
                     {readOnlyReason}
                   </p>
                 )}
-                <div className="mx-auto flex max-w-[680px] items-end gap-2 rounded-xl border border-line bg-raised/70 p-1.5 pl-3 transition-all focus-within:border-iris focus-within:bg-surface focus-within:ring-2 focus-within:ring-iris/15">
+                <div className="mx-auto mb-1.5 max-w-[680px] empty:hidden">
+                  <PendingImages images={uploads.images} uploading={uploads.uploading} errors={uploads.errors} onRemove={uploads.remove} />
+                </div>
+                <div className="mx-auto flex max-w-[680px] items-end gap-2 rounded-xl border border-line bg-raised/70 p-1.5 pl-1.5 transition-all focus-within:border-iris focus-within:bg-surface focus-within:ring-2 focus-within:ring-iris/15">
+                  <button
+                    type="button"
+                    onClick={() => attachInput.current?.click()}
+                    disabled={!room.can_send || uploads.full}
+                    aria-label={t("attachImages")}
+                    title={t("attachImages")}
+                    className="flex h-8 w-8 shrink-0 items-center justify-center rounded-lg text-muted transition-colors hover:bg-surface hover:text-fg focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-iris/50 disabled:pointer-events-none disabled:opacity-40"
+                  >
+                    <Paperclip size={17} />
+                  </button>
+                  <input
+                    ref={attachInput}
+                    type="file"
+                    accept={IMAGE_ACCEPT}
+                    multiple
+                    className="sr-only"
+                    tabIndex={-1}
+                    aria-hidden
+                    onChange={(event) => {
+                      const files = Array.from(event.target.files ?? []);
+                      event.target.value = "";
+                      void uploads.addFiles(files);
+                    }}
+                  />
                   <textarea
+                    onPaste={(event) => {
+                      const files = imageFilesFrom(event.clipboardData);
+                      if (files.length && room.can_send) { event.preventDefault(); void uploads.addFiles(files); }
+                    }}
                     name="message"
                     aria-label={t("input")}
                     value={draft}
@@ -641,7 +703,7 @@ export default function InboxWorkbench({
                   />
                   <Button
                     type="submit"
-                    disabled={!draft.trim() || send.isPending || !room.can_send}
+                    disabled={(!draft.trim() && uploads.images.length === 0) || uploads.uploading > 0 || send.isPending || !room.can_send}
                     className="h-8 rounded-lg px-3 py-1 text-[12px] font-semibold shadow-xs"
                   >
                     {send.isPending ? t("sending") : t("send")}

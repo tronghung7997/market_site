@@ -40,13 +40,17 @@ function canvasToBlob(canvas: HTMLCanvasElement, type: string, quality: number):
 }
 
 /** Downscale a picked/pasted image to at most CLIENT_MAX_EDGE, honouring EXIF
- *  orientation. Small web-format files and GIFs pass through unchanged. */
-export async function prepareImage(file: Blob, maxEdge = CLIENT_MAX_EDGE): Promise<Blob> {
+ *  orientation. Small web-format files and GIFs pass through unchanged, and so
+ *  does any JPEG/PNG/WebP under the upload cap when `keepOriginal` is set —
+ *  evidence keeps its capture time, which the server reads before it strips
+ *  every other tag. */
+export async function prepareImage(file: Blob, maxEdge = CLIENT_MAX_EDGE, keepOriginal = false): Promise<Blob> {
   if (!file.type.startsWith("image/")) throw new PrepareImageError("not_image");
   if (file.type === "image/gif") {
     if (file.size > MEDIA_MAX_UPLOAD_BYTES) throw new PrepareImageError("too_large");
     return file;
   }
+  if (keepOriginal && PASSTHROUGH_TYPES.has(file.type) && file.size <= MEDIA_MAX_UPLOAD_BYTES) return file;
   let bitmap: ImageBitmap;
   try {
     bitmap = await createImageBitmap(file, { imageOrientation: "from-image" });
@@ -81,3 +85,23 @@ export function imageFilesFrom(items: DataTransfer | null | undefined): File[] {
   if (!items) return [];
   return Array.from(items.files).filter((file) => file.type.startsWith("image/"));
 }
+
+/** Purposes whose files are evidence: sent as picked so the capture time survives. */
+export const EVIDENCE_PURPOSES = new Set(["dispute_evidence", "payout_receipt", "adjustment_proof"]);
+
+/** A private image as an `ImageSource`: the authorised endpoint of the feature
+ *  that owns it (`base` is the BFF path up to, not including, the image id). */
+export function privateImageSource(image: { id: string; w: number; h: number }, base: string) {
+  const url = `${base}/${encodeURIComponent(image.id)}`;
+  return { url, thumb_url: `${url}?v=thumb`, w: image.w, h: image.h };
+}
+
+/** BFF bases of the endpoints that serve private images. */
+export const privateImageBase = {
+  chat: (conversationId: string) => `/api/chat/conversations/${encodeURIComponent(conversationId)}/attachments`,
+  dispute: (orderRef: string) => `/api/orders/${encodeURIComponent(orderRef)}/dispute/evidence`,
+  adminDispute: (disputeId: number) => `/api/admin/disputes/${disputeId}/evidence`,
+  adminTransactionProof: (transactionId: number) => `/api/admin/wallet/transactions/${transactionId}/proof`,
+  withdrawalReceipt: (requestId: number) => `/api/wallet/withdrawals/${requestId}/receipt`,
+  adminWithdrawalReceipt: (requestId: number) => `/api/admin/withdrawals/${requestId}/receipt`,
+};

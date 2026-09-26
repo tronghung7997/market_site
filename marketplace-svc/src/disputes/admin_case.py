@@ -19,7 +19,8 @@ from src.exceptions import ErrorCode, api_error
 from src.fees.service import order_fee_percent
 from src.models.account import Account
 from src.chat.enums import ConversationKind
-from src.models.chat import ChatConversation
+from src.media.service import private_images
+from src.models.chat import ChatConversation, ChatMessage
 from src.orders.delivery import delivery_text_of
 from src.models.order import Dispute, DisputeStatus, Order, OrderStatus
 from src.models.resource import Resource
@@ -180,7 +181,10 @@ def _assess(case_: dict, now: datetime) -> tuple[list[dict], dict]:
     elif lines:
         add("whole_order", "info", "Người mua khiếu nại cả đơn, không chọn dòng cụ thể.")
 
-    if not case_.get("evidence") and is_open:
+    images = len(case_.get("evidence_images") or [])
+    if images:
+        add("evidence_images", "info", f"Người mua gửi {images} ảnh bằng chứng khi mở khiếu nại.")
+    elif not case_.get("evidence") and is_open:
         add("no_evidence", "warn", "Người mua chưa gửi bằng chứng (ảnh, video, mô tả lỗi).")
     if case_.get("review_requested_at"):
         add("review_requested", "info", "Đã có bên yêu cầu sàn phân xử.")
@@ -232,6 +236,43 @@ def _assess(case_: dict, now: datetime) -> tuple[list[dict], dict]:
     return signals, rec
 
 
+ORDER_CHAT_LIMIT = 200
+
+
+async def _order_chat(db: AsyncSession, order_id: int) -> dict | None:
+    """The buyer↔seller order conversation, attached to the case so the admin
+    reads what both sides said (and sent) without leaving the review."""
+    conversation_id = await db.scalar(
+        select(ChatConversation.id).where(
+            ChatConversation.kind == ConversationKind.ORDER, ChatConversation.order_id == order_id,
+        )
+    )
+    if conversation_id is None:
+        return None
+    rows = list(await db.scalars(
+        select(ChatMessage)
+        .where(ChatMessage.conversation_id == conversation_id)
+        .order_by(ChatMessage.id.desc())
+        .limit(ORDER_CHAT_LIMIT + 1)
+    ))
+    truncated = len(rows) > ORDER_CHAT_LIMIT
+    rows = list(reversed(rows[:ORDER_CHAT_LIMIT]))
+    return {
+        "conversation_id": str(conversation_id),
+        "truncated": truncated,
+        "messages": [
+            {
+                "id": row.id,
+                "sender_role": getattr(row.sender_role, "value", row.sender_role),
+                "body": row.body,
+                "attachments": private_images(row.attachments),
+                "created_at": row.created_at,
+            }
+            for row in rows
+        ],
+    }
+
+
 async def admin_case(dispute_id: int, db: AsyncSession) -> dict:
     dispute = await db.get(Dispute, dispute_id)
     if not dispute:
@@ -252,6 +293,7 @@ async def admin_case(dispute_id: int, db: AsyncSession) -> dict:
         select(ChatConversation.id, ChatConversation.requester_id)
         .where(ChatConversation.kind == ConversationKind.SUPPORT, ChatConversation.order_id == dispute.order_id)
     )).all())
+    order_chat = await _order_chat(db, dispute.order_id)
 
     case_ = {
         **base,
@@ -294,6 +336,7 @@ async def admin_case(dispute_id: int, db: AsyncSession) -> dict:
              "href": f"/admin/support/{cid}"}
             for cid, rid in conversations
         ],
+        "order_chat": order_chat,
     }
     if case_["seller_record"] is None:
         case_["seller_record"] = {"paid_orders_90d": 0, "disputes_90d": 0, "open_disputes": 0, "timeouts_90d": 0,

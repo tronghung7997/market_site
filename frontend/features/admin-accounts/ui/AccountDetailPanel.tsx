@@ -14,6 +14,9 @@ import { MoneyInput } from "@/components/MoneyInput";
 import { useToast } from "@/components/toast";
 import { AlertTriangle, CheckCircle2 } from "@/components/Icons";
 import { AccountAvatar, AccountFlags, ROLE_LABEL, TIER_VI, relativeTime } from "./shared";
+import { ImageUploader, type UploaderImage } from "@/components/media/ImageUploader";
+import { ImageStrip } from "@/components/media/ImageStrip";
+import { privateImageBase, privateImageSource } from "@/lib/media";
 
 const ROLES = ["buyer", "seller", "admin"] as const;
 const TIERS = ["new", "verified", "trusted", "enterprise"] as const;
@@ -275,11 +278,12 @@ function WalletTab({ row }: { row: AccountAdminRow }) {
   const txs = useQuery({ queryKey: ["admin", "account-txs", row.id], queryFn: () => api.adminAccountTransactions(row.id) });
   const [amount, setAmount] = React.useState("");
   const [reason, setReason] = React.useState("");
+  const [proof, setProof] = React.useState<UploaderImage[]>([]);
   const topup = useMutation({
-    mutationFn: () => api.adminTopup(row.id, parseInt(amount) || 0, reason.trim()),
+    mutationFn: () => api.adminTopup(row.id, parseInt(amount) || 0, reason.trim(), proof.map((image) => image.id)),
     onSuccess: () => {
       toast.success(`Đã cộng ${vnd(parseInt(amount) || 0)} vào ví ${row.email}`);
-      setAmount(""); setReason("");
+      setAmount(""); setReason(""); setProof([]);
       void wallet.refetch(); void txs.refetch();
     },
     onError: (e) => toast.error(apiErrorMessage(e, "Cộng ví thất bại")),
@@ -306,6 +310,14 @@ function WalletTab({ row }: { row: AccountAdminRow }) {
             <Button size="sm" disabled={!canTopup} onClick={() => topup.mutate()}>{topup.isPending ? "…" : "Cộng ví"}</Button>
           </div>
           <Input value={reason} onChange={(e) => setReason(e.target.value)} placeholder="Lý do (bắt buộc, ≥ 3 ký tự) — vd: đền bù đơn ORD-…, đối soát nạp ngày …" maxLength={500} className="h-9 text-[12.5px]" />
+          <ImageUploader
+            purpose="adjustment_proof"
+            value={proof}
+            onChange={setProof}
+            max={3}
+            label="Ảnh bằng chứng"
+            hint="Sao kê, biên lai, ảnh chụp lỗi… (tối đa 3). Lưu kèm giao dịch, chỉ admin xem được."
+          />
         </div>
       </Section>
 
@@ -327,6 +339,14 @@ function WalletTab({ row }: { row: AccountAdminRow }) {
                 <div className="min-w-0 flex-1">
                   <div className="truncate text-fg">{t.description ?? t.type}</div>
                   <div className="truncate font-mono text-[11px] text-faint">{formatDateTime(t.created_at, "vi")}{t.reference_id ? ` · ${t.reference_id}` : ""}</div>
+                  {t.proof_images && t.proof_images.length > 0 && (
+                    <ImageStrip
+                      size="sm"
+                      className="mt-1.5"
+                      title="Ảnh bằng chứng cộng tiền"
+                      images={t.proof_images.map((image) => ({ ...privateImageSource(image, privateImageBase.adminTransactionProof(t.id)), id: image.id }))}
+                    />
+                  )}
                 </div>
                 <span className={cn("shrink-0 font-mono font-semibold tabular-nums", t.direction === "in" ? "text-good" : t.direction === "out" ? "text-bad" : "text-faint")}>
                   {t.direction === "neutral" ? "" : t.direction === "in" ? "+" : "−"}{vnd(t.amount)}

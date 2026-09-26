@@ -4,7 +4,7 @@ Replaces the env-only `PLATFORM_FEE_PERCENT` (env still seeds the first row).
 """
 from datetime import datetime
 
-from sqlalchemy import DateTime, Float, Integer, func
+from sqlalchemy import Boolean, DateTime, Float, Integer, func
 from sqlalchemy.dialects.postgresql import JSON
 from sqlalchemy.orm import Mapped, mapped_column
 
@@ -33,6 +33,8 @@ class FeeRuntimeConfig(Base):
     # Hours a seller has to react to a fresh dispute before it is decided
     # against them (full refund). 0 = no deadline.
     dispute_seller_response_hours: Mapped[int] = mapped_column(Integer, nullable=False, default=24, server_default="24")
+    # A buyer must attach at least one evidence image to open a dispute.
+    dispute_evidence_image_required: Mapped[bool] = mapped_column(Boolean, nullable=False, default=False, server_default="false")
     updated_at: Mapped[datetime] = mapped_column(
         DateTime(timezone=True), server_default=func.now(), onupdate=func.now(),
     )

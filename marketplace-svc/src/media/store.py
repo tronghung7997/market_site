@@ -25,7 +25,12 @@ from src.models.media import MediaBlob
 CONTENT_TYPE = "image/webp"
 # Keys are immutable (an edit uploads a new object), so caches may keep them.
 PUBLIC_CACHE_CONTROL = "public, max-age=31536000, immutable"
-PRIVATE_CACHE_CONTROL = "private, max-age=3600"
+# Private images served by the app: the browser may keep them but must ask
+# again every time (ETag → 304), so each view re-checks who is signed in.
+PRIVATE_CACHE_CONTROL = "private, no-cache"
+# Private objects in S3 are only reachable through a short-lived signed URL,
+# so the bytes behind one may be cached for the life of that URL.
+PRIVATE_OBJECT_CACHE_CONTROL = "private, max-age=3600"
 
 
 class StorageUnavailable(RuntimeError):
@@ -70,7 +75,7 @@ class S3MediaStore:
     async def put(self, db: AsyncSession, key: str, data: bytes, *, public: bool) -> None:  # noqa: ARG002
         await self.client.put_object(
             self.bucket(public), key, data, content_type=CONTENT_TYPE,
-            cache_control=PUBLIC_CACHE_CONTROL if public else PRIVATE_CACHE_CONTROL,
+            cache_control=PUBLIC_CACHE_CONTROL if public else PRIVATE_OBJECT_CACHE_CONTROL,
         )
 
     async def get(self, db: AsyncSession, key: str, *, public: bool) -> bytes | None:  # noqa: ARG002

@@ -3,13 +3,20 @@ from uuid import UUID
 
 from pydantic import BaseModel, Field, field_validator
 
+from src.media.schemas import MediaId
 from src.security.input_limits import bounded_mapping
+
+# Images per dispute post (opening the case or one case message) and per case.
+MAX_IMAGES_PER_POST = 6
+MAX_IMAGES_PER_CASE = 20
 
 
 class DisputeCreate(BaseModel):
     reason: str = Field(min_length=1, max_length=2000)
     evidence_type: str | None = Field(default=None, max_length=50)
     evidence: dict[str, str] | None = None
+    # Upload ids (POST /media/uploads, purpose dispute_evidence).
+    evidence_images: list[MediaId] = Field(default_factory=list, max_length=MAX_IMAGES_PER_POST)
     resource_ids: list[int] | None = Field(default=None, max_length=2000)
     idempotency_key: str | None = Field(default=None, min_length=8, max_length=128)
 
@@ -57,6 +64,7 @@ class AdminDisputeExtendWarranty(BaseModel):
 
 class SellerDisputeRespond(BaseModel):
     seller_note: str = Field(min_length=1, max_length=2000)
+    attachments: list[MediaId] = Field(default_factory=list, max_length=MAX_IMAGES_PER_POST)
 
 
 class DisputeClaimAppend(BaseModel):
@@ -74,6 +82,7 @@ class DisputeClaimAppend(BaseModel):
 
 class DisputeMessageCreate(BaseModel):
     body: str = Field(min_length=1, max_length=2000)
+    attachments: list[MediaId] = Field(default_factory=list, max_length=MAX_IMAGES_PER_POST)
     idempotency_key: str = Field(min_length=8, max_length=128)
 
 
@@ -126,6 +135,8 @@ class DisputeResponse(BaseModel):
     reason: str
     evidence_type: str | None = None
     evidence: dict[str, str] | None = None
+    # PrivateImage shapes; served by GET /orders/{ref}/dispute/evidence/{media_id}.
+    evidence_images: list[dict] = []
     status: str
     admin_note: str | None
     seller_note: str | None = None
@@ -196,6 +207,8 @@ class DisputeResponseFull(BaseModel):
     reason: str
     evidence_type: str | None = None
     evidence: dict[str, str] | None = None
+    # PrivateImage shapes; served by GET /orders/{ref}/dispute/evidence/{media_id}.
+    evidence_images: list[dict] = []
     status: str
     admin_note: str | None
     seller_note: str | None = None
@@ -260,5 +273,7 @@ class AdminDisputeCase(DisputeResponse):
     money: dict
     lines: list[AdminCaseLine]
     conversations: list[dict]
+    # Buyer↔seller order chat (last 200 messages) for the admin's review.
+    order_chat: dict | None = None
     signals: list[AdminCaseSignal]
     recommendation: AdminCaseRecommendation

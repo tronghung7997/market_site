@@ -30,3 +30,22 @@ describe("image preparation", () => {
     assert.deepEqual(imageFilesFrom(null), []);
   });
 });
+
+describe("private image sources", () => {
+  it("builds the owning feature's endpoint with a thumb variant", async () => {
+    const { privateImageBase, privateImageSource } = await import("../lib/media.ts");
+    const source = privateImageSource({ id: "abcdefghijklmnop", w: 800, h: 600 }, privateImageBase.chat("c-1"));
+    assert.deepEqual(source, {
+      url: "/api/chat/conversations/c-1/attachments/abcdefghijklmnop",
+      thumb_url: "/api/chat/conversations/c-1/attachments/abcdefghijklmnop?v=thumb",
+      w: 800,
+      h: 600,
+    });
+    assert.equal(privateImageBase.dispute("ORD-7X2"), "/api/orders/ORD-7X2/dispute/evidence");
+  });
+
+  it("keeps evidence files as picked", async () => {
+    const file = new Blob([new Uint8Array(2_000_000)], { type: "image/jpeg" });
+    assert.equal(await prepareImage(file, undefined, true), file);
+  });
+});

@@ -2,6 +2,7 @@ from datetime import datetime
 from enum import Enum as PyEnum
 
 from sqlalchemy import CheckConstraint, DateTime, Enum, ForeignKey, Index, Integer, String, Text, func, text
+from sqlalchemy.dialects.postgresql import JSONB
 from sqlalchemy.orm import Mapped, mapped_column
 
 from src.database import Base
@@ -113,6 +114,8 @@ class Transaction(Base):
     amount: Mapped[int] = mapped_column(Integer, nullable=False)
     description: Mapped[str | None] = mapped_column(Text, nullable=True)
     reference_id: Mapped[str | None] = mapped_column(String(255), nullable=True)
+    # Evidence images (media snapshots) an admin attached to a manual credit.
+    proof_media: Mapped[list | None] = mapped_column(JSONB, nullable=True)
     created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), server_default=func.now())
 
 
@@ -139,4 +142,6 @@ class WithdrawRequest(Base):
     # lệnh cũ); net_amount = amount − fee_amount là số tiền thực chuyển.
     fee_amount: Mapped[int] = mapped_column(Integer, nullable=False, default=0, server_default="0")
     net_amount: Mapped[int | None] = mapped_column(Integer, nullable=True)
+    # Bank transfer receipts (media snapshots) the admin attached when paying out.
+    receipt_media: Mapped[list | None] = mapped_column(JSONB, nullable=True)
     created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), server_default=func.now())

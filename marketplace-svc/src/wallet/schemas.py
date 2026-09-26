@@ -1,6 +1,11 @@
 from datetime import datetime
 
-from pydantic import BaseModel, Field, computed_field, field_validator
+from pydantic import AliasChoices, BaseModel, Field, computed_field, field_validator
+
+from src.media.schemas import MediaId
+from src.media.service import private_images
+
+MAX_PROOF_IMAGES = 3
 
 
 class WithdrawPolicy(BaseModel):
@@ -43,6 +48,8 @@ class TopupRequest(BaseModel):
     # Why money is being created by hand — shown in the ledger row and the
     # audit log so a manual credit is never anonymous.
     reason: str = Field(min_length=3, max_length=500)
+    # Evidence for the credit (upload ids, purpose adjustment_proof).
+    proof_images: list[MediaId] = Field(default_factory=list, max_length=MAX_PROOF_IMAGES)
 
     @field_validator("reason")
     @classmethod
@@ -68,6 +75,8 @@ class TransactionResponse(BaseModel):
     # Buyer/seller-facing reference: the order code (or provider reference for
     # deposits). reference_id keeps the internal form for idempotency/debugging.
     order_code: str | None = None
+    # Admin manual credits: evidence images (PrivateImage shapes, admin-only to fetch).
+    proof_images: list[dict] = []
     reference_label: str | None = None
 
     model_config = {"from_attributes": True}
@@ -88,6 +97,8 @@ class WithdrawRequestCreate(BaseModel):
 
 class WithdrawMarkPaidRequest(BaseModel):
     payout_reference: str = Field(min_length=2, max_length=100)
+    # Bank transfer receipts (upload ids, purpose payout_receipt).
+    receipt_images: list[MediaId] = Field(default_factory=list, max_length=MAX_PROOF_IMAGES)
 
 
 class WithdrawRejectRequest(BaseModel):
@@ -109,9 +120,16 @@ class WithdrawRequestResponse(BaseModel):
     reject_reason: str | None = None
     fee_amount: int = 0
     net_amount: int | None = None
+    # PrivateImage shapes; owner: GET /wallet/withdrawals/{id}/receipt/{media_id}.
+    receipt_images: list[dict] = Field(default_factory=list, validation_alias=AliasChoices("receipt_images", "receipt_media"))
     created_at: datetime
 
     model_config = {"from_attributes": True}
+
+    @field_validator("receipt_images", mode="before")
+    @classmethod
+    def receipt_shapes(cls, value):
+        return private_images(value)
 
 
 class DemoTopupRequest(BaseModel):

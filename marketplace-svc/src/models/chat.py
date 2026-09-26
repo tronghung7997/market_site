@@ -15,7 +15,7 @@ from sqlalchemy import (
     func,
     text,
 )
-from sqlalchemy.dialects.postgresql import UUID
+from sqlalchemy.dialects.postgresql import JSONB, UUID
 from sqlalchemy.orm import Mapped, mapped_column
 
 from src.database import Base
@@ -111,7 +111,10 @@ class ChatMessage(Base):
         UniqueConstraint(
             "conversation_id", "client_message_id", name="uq_chat_message_client_id"
         ),
-        CheckConstraint("length(body) BETWEEN 1 AND 4000", name="ck_chat_messages_body"),
+        CheckConstraint(
+            "length(body) <= 4000 AND (length(body) >= 1 OR attachments IS NOT NULL)",
+            name="ck_chat_messages_body",
+        ),
         Index("ix_chat_messages_conversation_id", "conversation_id", "id"),
     )
 
@@ -123,4 +126,6 @@ class ChatMessage(Base):
     sender_role: Mapped[str] = mapped_column(String(16), nullable=False)
     client_message_id: Mapped[uuid.UUID] = mapped_column(UUID(as_uuid=True), nullable=False)
     body: Mapped[str] = mapped_column(Text, nullable=False)
+    # Image snapshots (media); a message may be images only (empty body).
+    attachments: Mapped[list | None] = mapped_column(JSONB, nullable=True)
     created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), server_default=func.now())

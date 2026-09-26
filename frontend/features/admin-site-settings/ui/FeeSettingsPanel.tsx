@@ -7,7 +7,7 @@ import { api, vnd } from "@/lib/api";
 import { queryKeys } from "@/lib/query-keys";
 import { useApiErrorMessage } from "@/lib/use-api-error";
 import type { Category, FeeConfigAdmin, FeeConfigUpdate } from "@/lib/types";
-import { Input } from "@/components/ui";
+import { Input, Switch } from "@/components/ui";
 import { useToast } from "@/components/toast";
 import { SettingsFooter, SettingsLoadError, SettingsLoading, SettingsRow, SettingsSection } from "./SettingsRow";
 
@@ -27,6 +27,7 @@ type Form = {
   withdrawFeeFixed: string;
   withdrawFeePercent: string;
   disputeSellerHours: string;
+  disputeEvidenceRequired: boolean;
 };
 
 const toForm = (cfg: FeeConfigAdmin): Form => ({
@@ -39,6 +40,7 @@ const toForm = (cfg: FeeConfigAdmin): Form => ({
   withdrawFeeFixed: String(cfg.withdraw_fee_fixed),
   withdrawFeePercent: String(cfg.withdraw_fee_percent),
   disputeSellerHours: String(cfg.dispute_seller_response_hours),
+  disputeEvidenceRequired: Boolean(cfg.dispute_evidence_image_required),
 });
 
 const num = (v: string) => (v.trim() === "" ? NaN : Number(v));
@@ -112,6 +114,7 @@ export function FeeSettingsPanel() {
     withdraw_fee_fixed: num(form.withdrawFeeFixed),
     withdraw_fee_percent: num(form.withdrawFeePercent),
     dispute_seller_response_hours: num(form.disputeSellerHours),
+    dispute_evidence_image_required: form.disputeEvidenceRequired,
   });
 
   const categoryTable = (
@@ -187,6 +190,16 @@ export function FeeSettingsPanel() {
         <SettingsRow title={t("disputeSellerHoursTitle")} hint={t("disputeSellerHoursHint")} label={t("hoursLabel")}>
           <Input inputMode="numeric" value={form.disputeSellerHours} onChange={(e) => update({ disputeSellerHours: digits(e.target.value) })} aria-invalid={!disputeHoursOk} className={cell} />
           <span className="mt-1 block text-[12px] text-faint">{num(form.disputeSellerHours) === 0 ? t("disputeSellerHoursOff") : t("disputeSellerHoursNote")}</span>
+        </SettingsRow>
+        <SettingsRow title={t("disputeEvidenceTitle")} hint={t("disputeEvidenceHint")}>
+          <span className="flex items-center gap-3 text-[13px]">
+            <Switch
+              checked={form.disputeEvidenceRequired}
+              onChange={(next) => update({ disputeEvidenceRequired: next })}
+              label={t("disputeEvidenceTitle")}
+            />
+            {form.disputeEvidenceRequired ? t("disputeEvidenceOn") : t("disputeEvidenceOff")}
+          </span>
         </SettingsRow>
       </SettingsSection>
 

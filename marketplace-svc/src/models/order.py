@@ -109,6 +109,8 @@ class Dispute(Base):
     reason: Mapped[str] = mapped_column(Text, nullable=False)
     evidence_type: Mapped[str | None] = mapped_column(Text, nullable=True)
     evidence: Mapped[dict | None] = mapped_column(JSONB, nullable=True)
+    # Evidence images (media snapshots) attached when the case was opened.
+    evidence_media: Mapped[list | None] = mapped_column(JSONB, nullable=True)
     status: Mapped[DisputeStatus] = mapped_column(Enum(DisputeStatus), default=DisputeStatus.open)
     admin_note: Mapped[str | None] = mapped_column(Text, nullable=True)
     seller_note: Mapped[str | None] = mapped_column(Text, nullable=True)
@@ -197,4 +199,5 @@ class DisputeMessage(Base):
     event_type: Mapped[str] = mapped_column(String(40), nullable=False)
     body: Mapped[str] = mapped_column(Text, nullable=False)
     idempotency_key: Mapped[str | None] = mapped_column(String(128), nullable=True)
+    attachments: Mapped[list | None] = mapped_column(JSONB, nullable=True)
     created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), server_default=func.now())

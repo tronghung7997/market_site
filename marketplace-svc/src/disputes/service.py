@@ -27,6 +27,12 @@ from src.resources.service import claim_resources
 from src.fees.service import escrow_days_for, order_fee_percent
 from src.wallet.service import escrow_settlement, refund_escrow, release_escrow
 from src.exceptions import ErrorCode, api_error
+from src.disputes.schemas import MAX_IMAGES_PER_CASE, MAX_IMAGES_PER_POST
+from src.fees.settings import get_fee_settings
+from src.media import service as media_service
+from src.media.errors import MediaError
+from src.media.service import private_images
+from src.models.media import MediaObject, MediaPurpose
 
 _REMEDY_ALERT_ID_LIMIT = 6
 _REMEDY_ALERT_HREF_ID_LIMIT = 20
@@ -364,10 +370,68 @@ async def _finalize_dispute(
     await _enqueue_dispute_resolved(db, dispute, order)
 
 
+# media subject types of dispute evidence (subject_id = dispute id / message id).
+DISPUTE_SUBJECT = "dispute"
+DISPUTE_MESSAGE_SUBJECT = "dispute_message"
+
+
+async def _case_image_count(dispute: Dispute, db: AsyncSession) -> int:
+    rows = await db.scalars(
+        select(DisputeMessage.attachments).where(
+            DisputeMessage.dispute_id == dispute.id, DisputeMessage.attachments.is_not(None),
+        )
+    )
+    return len(dispute.evidence_media or []) + sum(len(row or []) for row in rows)
+
+
+async def _attach_case_images(
+    db: AsyncSession, dispute: Dispute, *, actor_id: int, subject_type: str, subject_id: int, ids: list[str] | None,
+) -> list[dict] | None:
+    """Evidence images of one post (the opening or a case message), within the
+    per-post and per-case limits. Flushes only."""
+    ids = list(dict.fromkeys(ids or []))
+    if not ids:
+        return None
+    if await _case_image_count(dispute, db) + len(ids) > MAX_IMAGES_PER_CASE:
+        raise MediaError(ErrorCode.MEDIA_LIMIT_EXCEEDED, 422, max=MAX_IMAGES_PER_CASE)
+    return await media_service.set_subject_media(
+        db, actor_id=actor_id, purpose=MediaPurpose.dispute_evidence, subject_type=subject_type,
+        subject_id=subject_id, public_ids=ids, max_count=MAX_IMAGES_PER_POST,
+    )
+
+
+async def _case_image(db: AsyncSession, dispute_ids: list[int], media_id: str) -> MediaObject:
+    message_ids = list(await db.scalars(select(DisputeMessage.id).where(DisputeMessage.dispute_id.in_(dispute_ids))))
+    obj = await media_service.find_on_subject(db, media_id, subject_type=DISPUTE_SUBJECT, subject_ids=dispute_ids)
+    if obj is None:
+        obj = await media_service.find_on_subject(
+            db, media_id, subject_type=DISPUTE_MESSAGE_SUBJECT, subject_ids=message_ids,
+        )
+    if obj is None:
+        raise api_error(ErrorCode.MEDIA_NOT_FOUND, status.HTTP_404_NOT_FOUND)
+    return obj
+
+
+async def evidence_image_for_party(order_id: int, account_id: int, media_id: str, db: AsyncSession) -> MediaObject:
+    """An evidence image of any case on this order, for its buyer or seller."""
+    order = await db.get(Order, order_id)
+    if order is None or account_id not in (order.buyer_id, order.seller_id):
+        raise api_error(ErrorCode.MEDIA_NOT_FOUND, status.HTTP_404_NOT_FOUND)
+    dispute_ids = list(await db.scalars(select(Dispute.id).where(Dispute.order_id == order_id)))
+    return await _case_image(db, dispute_ids, media_id)
+
+
+async def evidence_image_for_admin(dispute_id: int, media_id: str, db: AsyncSession) -> MediaObject:
+    if await db.get(Dispute, dispute_id) is None:
+        raise api_error(ErrorCode.DISPUTE_NOT_FOUND, status.HTTP_404_NOT_FOUND)
+    return await _case_image(db, [dispute_id], media_id)
+
+
 async def create_dispute(
     order_id: int, buyer_id: int, reason: str, db: AsyncSession,
     evidence_type: str | None = None, evidence: dict[str, str] | None = None,
     resource_ids: list[int] | None = None, idempotency_key: str | None = None,
+    evidence_image_ids: list[str] | None = None,
 ) -> dict:
     order = await db.get(Order, order_id, with_for_update=True)
     if not order:
@@ -395,6 +459,8 @@ async def create_dispute(
         raise api_error(ErrorCode.DISPUTE_ONLY_DELIVERED, status.HTTP_400_BAD_REQUEST)
     if order.escrow_expires_at and datetime.now(timezone.utc) > order.escrow_expires_at:
         raise api_error(ErrorCode.DISPUTE_ESCROW_EXPIRED, status.HTTP_400_BAD_REQUEST)
+    if not evidence_image_ids and (await get_fee_settings(db))["dispute_evidence_image_required"]:
+        raise api_error(ErrorCode.DISPUTE_EVIDENCE_REQUIRED, status.HTTP_422_UNPROCESSABLE_CONTENT)
     reason = await screen_text(db, reason, actor_id=buyer_id, context="dispute_reason", subject_id=str(order_id))
 
     dispute = Dispute(
@@ -404,6 +470,9 @@ async def create_dispute(
     )
     db.add(dispute)
     await db.flush()
+    dispute.evidence_media = await _attach_case_images(
+        db, dispute, actor_id=buyer_id, subject_type=DISPUTE_SUBJECT, subject_id=dispute.id, ids=evidence_image_ids,
+    )
     if resource_ids:
         await _add_claim_resources(
             dispute,
@@ -715,6 +784,7 @@ def _timeline_events(
             "actor_role": "buyer",
             "body": dispute.reason,
             "resource_ids": [],
+            "attachments": private_images(dispute.evidence_media),
         }
     ]
     claim_batches: dict[str, list[DisputeClaimResource]] = {}
@@ -755,6 +825,7 @@ def _timeline_events(
             "actor_role": message.actor_role,
             "body": _public_resolution_body(message.body),
             "resource_ids": [],
+            "attachments": private_images(message.attachments),
         }
         if message.event_type in _BUYER_REFUND_EVENTS and refunded_amount:
             event["refund_amount"] = refunded_amount
@@ -827,6 +898,7 @@ async def _enrich_dispute(dispute: Dispute, db: AsyncSession) -> dict:
         "id": dispute.id, "order_id": dispute.order_id, "order_code": order.order_code if order else None,
         "buyer_id": dispute.buyer_id,
         "reason": dispute.reason, "evidence_type": dispute.evidence_type, "evidence": dispute.evidence,
+        "evidence_images": private_images(dispute.evidence_media),
         "status": dispute.status,
         "admin_note": dispute.admin_note, "seller_note": dispute.seller_note,
         "created_at": dispute.created_at,
@@ -893,6 +965,7 @@ async def _dispute_list_page(
     items = [{
         "id": dispute.id, "order_id": dispute.order_id, "order_code": order.order_code, "buyer_id": dispute.buyer_id,
         "reason": dispute.reason, "evidence_type": dispute.evidence_type, "evidence": dispute.evidence,
+        "evidence_images": private_images(dispute.evidence_media),
         "status": dispute.status, "admin_note": dispute.admin_note, "seller_note": dispute.seller_note,
         "created_at": dispute.created_at, "resolution_offered_at": dispute.resolution_offered_at,
         "resolution_deadline_at": dispute.resolution_deadline_at,
@@ -963,6 +1036,7 @@ async def get_dispute_detail(dispute_id: int, db: AsyncSession) -> dict:
         "id": dispute.id, "order_id": dispute.order_id, "order_code": order.order_code if order else None,
         "buyer_id": dispute.buyer_id,
         "reason": dispute.reason, "evidence_type": dispute.evidence_type, "evidence": dispute.evidence,
+        "evidence_images": private_images(dispute.evidence_media),
         "status": dispute.status,
         "admin_note": dispute.admin_note, "seller_note": dispute.seller_note,
         "created_at": dispute.created_at,
@@ -985,7 +1059,9 @@ async def get_dispute_detail(dispute_id: int, db: AsyncSession) -> dict:
     }
 
 
-async def seller_respond_dispute(dispute_id: int, seller_id: int, seller_note: str, db: AsyncSession) -> dict:
+async def seller_respond_dispute(
+    dispute_id: int, seller_id: int, seller_note: str, db: AsyncSession, attachment_ids: list[str] | None = None,
+) -> dict:
     dispute = await db.get(Dispute, dispute_id, with_for_update=True)
     if not dispute:
         raise api_error(ErrorCode.DISPUTE_NOT_FOUND, status.HTTP_404_NOT_FOUND)
@@ -1010,14 +1086,17 @@ async def seller_respond_dispute(dispute_id: int, seller_id: int, seller_note: s
     )
     if not has_claims or await _all_claimed_resources_remedied(dispute.id, db):
         _offer_resolution_deadline(dispute)
-    db.add(
-        DisputeMessage(
-            dispute_id=dispute.id,
-            actor_id=seller_id,
-            actor_role="seller",
-            event_type="seller_message",
-            body=seller_note,
-        )
+    message = DisputeMessage(
+        dispute_id=dispute.id,
+        actor_id=seller_id,
+        actor_role="seller",
+        event_type="seller_message",
+        body=seller_note,
+    )
+    db.add(message)
+    await db.flush()
+    message.attachments = await _attach_case_images(
+        db, dispute, actor_id=seller_id, subject_type=DISPUTE_MESSAGE_SUBJECT, subject_id=message.id, ids=attachment_ids,
     )
     await log_event(db, "info", f"Seller responded to dispute {dispute_id}", request_id=current_request_id(),
                     metadata={"event": "dispute_seller_responded", "order_id": order.id, "seller_id": seller_id})
@@ -1082,6 +1161,7 @@ async def append_buyer_message(
     body: str,
     idempotency_key: str,
     db: AsyncSession,
+    attachment_ids: list[str] | None = None,
 ) -> dict:
     order = await db.get(Order, order_id, with_for_update=True)
     if not order or order.buyer_id != buyer_id:
@@ -1102,15 +1182,18 @@ async def append_buyer_message(
     )
     if not prior:
         body = await screen_text(db, body, actor_id=buyer_id, context="dispute_message", subject_id=str(dispute.id))
-        db.add(
-            DisputeMessage(
-                dispute_id=dispute.id,
-                actor_id=buyer_id,
-                actor_role="buyer",
-                event_type="buyer_message",
-                body=body,
-                idempotency_key=idempotency_key,
-            )
+        message = DisputeMessage(
+            dispute_id=dispute.id,
+            actor_id=buyer_id,
+            actor_role="buyer",
+            event_type="buyer_message",
+            body=body,
+            idempotency_key=idempotency_key,
+        )
+        db.add(message)
+        await db.flush()
+        message.attachments = await _attach_case_images(
+            db, dispute, actor_id=buyer_id, subject_type=DISPUTE_MESSAGE_SUBJECT, subject_id=message.id, ids=attachment_ids,
         )
         await db.commit()
     return await _enrich_dispute(dispute, db)

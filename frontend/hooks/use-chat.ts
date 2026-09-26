@@ -31,7 +31,8 @@ export function useChatConversation(id: string | null) {
 export function useSendChatMessage() {
   const client = useQueryClient();
   return useMutation({
-    mutationFn: ({ conversationId, body, clientMessageId }: { conversationId: string; body: string; clientMessageId: string }) => api.sendChatMessage(conversationId, body, clientMessageId),
+    mutationFn: ({ conversationId, body, clientMessageId, attachments = [] }: { conversationId: string; body: string; clientMessageId: string; attachments?: string[] }) =>
+      api.sendChatMessage(conversationId, body, clientMessageId, attachments),
     onSuccess: (_, variables) => {
       client.invalidateQueries({ queryKey: queryKeys.chatDetail(variables.conversationId) });
       client.invalidateQueries({ queryKey: queryKeys.chat() });

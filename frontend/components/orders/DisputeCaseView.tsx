@@ -14,8 +14,10 @@ import {
   visibleResourceIds,
 } from "@/lib/dispute-case";
 import { evidenceFieldLabel, evidenceTypeLabel } from "@/lib/dispute-evidence";
-import type { Dispute, DisputeTimelineEvent } from "@/lib/types";
+import type { Dispute, DisputeTimelineEvent, PrivateImage } from "@/lib/types";
 import { Tag } from "@/components/ui";
+import { privateImageBase, privateImageSource } from "@/lib/media";
+import { ImageStrip } from "@/components/media/ImageStrip";
 
 const ACTOR_DOT: Record<string, string> = {
   buyer: "bg-iris",
@@ -273,7 +275,43 @@ function TimelineBeat({
             ))}
           </div>
         )}
+        {event.attachments && event.attachments.length > 0 && (
+          <EvidenceImages
+            className="mt-2"
+            images={event.attachments}
+            base={privateImageBase.dispute(dispute.order_code ?? String(dispute.order_id))}
+            locale={locale}
+          />
+        )}
       </div>
     </li>
+  );
+}
+
+/** Evidence images of one case post; the caption is the camera's capture
+ *  time when the file carried one. */
+export function EvidenceImages({
+  images,
+  base,
+  locale,
+  className,
+}: {
+  images: PrivateImage[];
+  base: string;
+  locale: string;
+  className?: string;
+}) {
+  const t = useTranslations("orders");
+  const format = new Intl.DateTimeFormat(locale, { day: "2-digit", month: "2-digit", hour: "2-digit", minute: "2-digit" });
+  return (
+    <ImageStrip
+      className={className}
+      title={t("evidenceImages")}
+      images={images.map((image) => ({
+        ...privateImageSource(image, base),
+        id: image.id,
+        caption: image.taken_at ? t("evidenceTakenAt", { time: format.format(new Date(image.taken_at)) }) : null,
+      }))}
+    />
   );
 }

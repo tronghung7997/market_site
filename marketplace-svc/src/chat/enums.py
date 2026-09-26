@@ -20,3 +20,6 @@ class ContextRole(StrEnum):
     SELLER = "seller"
     ADMIN = "admin"
 
+
+# media subject_type of an image sent in a chat message (subject_id = message id).
+CHAT_ATTACHMENT_SUBJECT = "chat_message"

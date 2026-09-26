@@ -1,11 +1,12 @@
 import uuid
 
-from fastapi import APIRouter, Depends, Response, status
+from fastapi import APIRouter, Depends, Request, Response, status
 from fastapi.responses import StreamingResponse
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from src.auth.dependencies import get_current_account, get_stream_account, require_role
 from src.database import get_session
+from src.media.http import image_response
 from src.models.account import Account
 
 from . import schemas, service
@@ -114,5 +115,20 @@ async def send_message(
     db: AsyncSession = Depends(get_session),
 ):
     return await service.send_message(
-        account, conversation_id, payload.body, payload.client_message_id, db
+        account, conversation_id, payload.body, payload.client_message_id, db,
+        attachment_ids=payload.attachments,
     )
+
+
+@router.get("/conversations/{conversation_id}/attachments/{media_id}", include_in_schema=False)
+async def chat_attachment(
+    conversation_id: uuid.UUID,
+    media_id: str,
+    request: Request,
+    v: str = "full",
+    account: Account = Depends(get_current_account),
+    db: AsyncSession = Depends(get_session),
+) -> Response:
+    """Private image of a message; participants (and admins) only."""
+    obj = await service.attachment_for(account, conversation_id, media_id, db)
+    return await image_response(db, request, obj, v)

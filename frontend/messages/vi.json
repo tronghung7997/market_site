@@ -1152,7 +1152,9 @@
     },
     "fifoPreviewTitle": "{count} tài khoản sẽ được cấp (theo thứ tự nhập kho):",
     "fifoStockedAt": "nhập {date}",
-    "fifoPreviewMore": "… và {count} tài khoản kế tiếp"
+    "fifoPreviewMore": "… và {count} tài khoản kế tiếp",
+    "disputeAttachImages": "Đính kèm ảnh bằng chứng",
+    "withdrawReceipts": "Biên lai chuyển khoản"
   },
   "sellerDashboard": {
     "rangeLabel": "Khoảng thời gian",
@@ -2557,7 +2559,10 @@
     "adminResolveDispute": "Xử lý khiếu nại",
     "supportRequester": "Người yêu cầu",
     "supportProvider": "Bên hỗ trợ",
-    "disputeStatus": "Trạng thái khiếu nại"
+    "disputeStatus": "Trạng thái khiếu nại",
+    "attachImages": "Đính kèm ảnh",
+    "imageMessage": "[Ảnh]",
+    "imagesTitle": "Ảnh trong tin nhắn"
   },
   "orders": {
     "title": "Đơn hàng",
@@ -2971,7 +2976,13 @@
     "expandDialog": "Mở rộng toàn màn hình",
     "restoreDialog": "Thu nhỏ lại",
     "showFullLine": "Xem đầy đủ · {size}",
-    "collapseLine": "Thu gọn"
+    "collapseLine": "Thu gọn",
+    "evidenceImages": "Ảnh bằng chứng",
+    "evidenceTakenAt": "Chụp {time}",
+    "evidenceImagesLabel": "Ảnh bằng chứng",
+    "evidenceImagesHint": "Ảnh chụp màn hình lỗi, tin nhắn… tối đa 6 ảnh. Nên gửi ảnh gốc từ máy, không cắt ghép.",
+    "evidenceImagesRequired": "Cần ít nhất 1 ảnh bằng chứng.",
+    "attachImages": "Đính kèm ảnh"
   },
   "wallet": {
     "available": "Số dư khả dụng",
@@ -3996,7 +4007,11 @@
     "hoursLabel": "Số giờ",
     "disputeSellerHoursOff": "Đang tắt — khiếu nại chờ đến khi có người xử lý.",
     "disputeSellerHoursNote": "Job kiểm tra mỗi 15 phút; seller nhận email kèm hạn khi khiếu nại mở.",
-    "auditNote": "Mỗi lần lưu ghi nhật ký ai đổi, lúc nào, giá trị cũ → mới (sự kiện fee_runtime_config_changed)."
+    "auditNote": "Mỗi lần lưu ghi nhật ký ai đổi, lúc nào, giá trị cũ → mới (sự kiện fee_runtime_config_changed).",
+    "disputeEvidenceTitle": "Bắt buộc ảnh bằng chứng",
+    "disputeEvidenceHint": "Người mua phải đính kèm ít nhất 1 ảnh (chụp màn hình lỗi, tin nhắn…) mới mở được khiếu nại. Giảm khiếu nại vô căn cứ.",
+    "disputeEvidenceOn": "Đang bắt buộc",
+    "disputeEvidenceOff": "Không bắt buộc"
   },
   "adminSystem": {
     "saved": "Đã lưu cấu hình",

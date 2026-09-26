@@ -15,6 +15,7 @@ import io
 import threading
 import warnings
 from dataclasses import dataclass
+from datetime import datetime
 
 from PIL import Image, ImageOps, UnidentifiedImageError
 
@@ -49,6 +50,7 @@ PRESETS: dict[MediaPurpose, Preset] = {
     # Screenshots of error messages must stay legible.
     MediaPurpose.dispute_evidence: Preset(full=(2048, 2048), thumb=(480, 480), quality=85),
     MediaPurpose.payout_receipt: Preset(full=(2048, 2048), thumb=(480, 480), quality=85),
+    MediaPurpose.adjustment_proof: Preset(full=(2048, 2048), thumb=(480, 480), quality=85),
 }
 
 
@@ -61,6 +63,13 @@ class Variant:
     @property
     def sha256(self) -> str:
         return hashlib.sha256(self.data).hexdigest()
+
+
+@dataclass(frozen=True)
+class ProcessedImage:
+    variants: dict[str, Variant]
+    # EXIF capture time "YYYY-MM-DDTHH:MM:SS" (camera clock), when present and sane.
+    taken_at: str | None
 
 
 class InvalidImage(ValueError):
@@ -86,6 +95,28 @@ def _open(data: bytes) -> Image.Image:
     if min(width, height) < MIN_EDGE:
         raise InvalidImage("too_small")
     return image
+
+
+_EXIF_IFD = 0x8769
+_DATETIME_ORIGINAL = 0x9003
+_DATETIME = 0x0132
+
+
+def _taken_at(image: Image.Image) -> str | None:
+    """Capture time from EXIF, read before metadata is discarded. Only the
+    timestamp survives; location and device tags are never stored."""
+    try:
+        exif = image.getexif()
+        raw = exif.get_ifd(_EXIF_IFD).get(_DATETIME_ORIGINAL) or exif.get(_DATETIME)
+    except Exception:  # noqa: BLE001 — malformed EXIF must not reject the image
+        return None
+    if not isinstance(raw, str):
+        return None
+    try:
+        moment = datetime.strptime(raw.strip()[:19], "%Y:%m:%d %H:%M:%S")
+    except ValueError:
+        return None
+    return moment.isoformat() if 2000 <= moment.year <= 2100 else None
 
 
 def _normalise(image: Image.Image) -> Image.Image:
@@ -122,15 +153,18 @@ def _encode(image: Image.Image, box: tuple[int, int], quality: int) -> Variant:
     return Variant(buffer.getvalue(), copy.width, copy.height)
 
 
-def process_image(data: bytes, preset: Preset) -> dict[str, Variant]:
-    """Return ``{"full": Variant, "thumb": Variant?}``. Raises :class:`InvalidImage`."""
+def process_image(data: bytes, preset: Preset) -> ProcessedImage:
+    """``full`` (+ ``thumb``) WebP variants and the EXIF capture time.
+    Raises :class:`InvalidImage`."""
     if not data:
         raise InvalidImage("empty")
     with _DECODE_SLOTS:
-        image = _normalise(_open(data))
+        opened = _open(data)
+        taken_at = _taken_at(opened)
+        image = _normalise(opened)
         if preset.aspect:
             image = _crop(image, preset.aspect)
         variants = {"full": _encode(image, preset.full, preset.quality)}
         if preset.thumb:
             variants["thumb"] = _encode(image, preset.thumb, max(preset.quality - 5, 60))
-    return variants
+    return ProcessedImage(variants=variants, taken_at=taken_at)

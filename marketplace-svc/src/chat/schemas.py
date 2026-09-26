@@ -1,7 +1,12 @@
 import uuid
 from datetime import datetime
 
-from pydantic import BaseModel, Field, field_validator
+from pydantic import BaseModel, Field, field_validator, model_validator
+
+from src.media.schemas import MediaId
+from src.media.service import private_images
+
+MAX_ATTACHMENTS_PER_MESSAGE = 4
 
 
 class InquiryCreate(BaseModel):
@@ -32,16 +37,22 @@ class SupportConversationCreate(BaseModel):
 
 
 class MessageCreate(BaseModel):
-    body: str = Field(min_length=1, max_length=4000)
+    body: str = Field(default="", max_length=4000)
     client_message_id: uuid.UUID
+    # Upload ids (POST /media/uploads, purpose chat_attachment); a message may
+    # be images only.
+    attachments: list[MediaId] = Field(default_factory=list, max_length=MAX_ATTACHMENTS_PER_MESSAGE)
 
     @field_validator("body")
     @classmethod
-    def meaningful_message(cls, value: str) -> str:
-        value = value.strip()
-        if not value:
+    def strip_body(cls, value: str) -> str:
+        return value.strip()
+
+    @model_validator(mode="after")
+    def meaningful_message(self):
+        if not self.body and not self.attachments:
             raise ValueError("Tin nhắn không được để trống")
-        return value
+        return self
 
 
 class ChatMessageResponse(BaseModel):
@@ -50,7 +61,14 @@ class ChatMessageResponse(BaseModel):
     body: str
     sender_id: int
     sender_role: str
+    # PrivateImage shapes; served by GET /chat/conversations/{id}/attachments/{media_id}.
+    attachments: list[dict] = []
     created_at: datetime
+
+    @field_validator("attachments", mode="before")
+    @classmethod
+    def client_images(cls, value):
+        return private_images(value)
 
 
 class SafeCounterpart(BaseModel):

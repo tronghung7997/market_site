@@ -41,6 +41,7 @@ UPLOAD_ROLES: dict[MediaPurpose, frozenset[str] | None] = {
     MediaPurpose.chat_attachment: None,
     MediaPurpose.dispute_evidence: None,
     MediaPurpose.payout_receipt: frozenset({"admin"}),
+    MediaPurpose.adjustment_proof: frozenset({"admin"}),
 }
 MAX_PENDING_PER_ACCOUNT = 50
 PENDING_TTL = timedelta(hours=24)
@@ -75,9 +76,10 @@ async def upload(db: AsyncSession, account: Account, purpose: MediaPurpose, data
     if pending >= MAX_PENDING_PER_ACCOUNT:
         raise MediaError(ErrorCode.MEDIA_PENDING_LIMIT, 429, max=MAX_PENDING_PER_ACCOUNT)
     try:
-        variants = await asyncio.to_thread(process_image, data, PRESETS[purpose])
+        processed = await asyncio.to_thread(process_image, data, PRESETS[purpose])
     except InvalidImage as exc:
         raise MediaError(ErrorCode.MEDIA_INVALID_IMAGE, 422, reason=exc.reason) from exc
+    variants = processed.variants
 
     public = purpose in PUBLIC_PURPOSES
     public_id = new_public_id()
@@ -106,6 +108,7 @@ async def upload(db: AsyncSession, account: Account, purpose: MediaPurpose, data
                 for name, v in variants.items()
             },
             bytes_total=sum(len(v.data) for v in variants.values()),
+            taken_at=processed.taken_at,
         ))
         await db.commit()
     except S3Error as exc:
@@ -145,9 +148,14 @@ def upload_view(obj: MediaObject) -> dict:
 # --------------------------------------------------------------------------- attach
 
 def snapshot(obj: MediaObject) -> dict:
-    """Compact reference a feature stores on its own row (JSONB)."""
+    """Compact reference a feature stores on its own row (JSONB): the key to
+    build URLs, the size, and — for evidence — when it was uploaded / taken."""
     full = obj.variants["full"]
-    return {"id": obj.public_id, "key": obj.key_prefix, "w": full["w"], "h": full["h"], "thumb": "thumb" in obj.variants}
+    snap = {"id": obj.public_id, "key": obj.key_prefix, "w": full["w"], "h": full["h"], "thumb": "thumb" in obj.variants}
+    if obj.visibility == "private":
+        snap["uploaded_at"] = obj.created_at.isoformat() if obj.created_at else None
+        snap["taken_at"] = obj.taken_at
+    return snap
 
 
 def public_image(snap: dict | None) -> dict | None:
@@ -171,9 +179,16 @@ def public_images(snaps: list | None) -> list[dict]:
 def private_image(snap: dict | None) -> dict | None:
     """Client shape of a private snapshot. No URL: the owning feature's
     authorised endpoint serves it and the client builds that path."""
-    if not snap or not snap.get("key", "").startswith("prv/"):
+    if not isinstance(snap, dict):
         return None
-    return {"id": snap["id"], "w": snap["w"], "h": snap["h"]}
+    if "key" not in snap:  # already a client shape
+        return snap
+    if not snap["key"].startswith("prv/"):
+        return None
+    return {
+        "id": snap["id"], "w": snap["w"], "h": snap["h"],
+        "uploaded_at": snap.get("uploaded_at"), "taken_at": snap.get("taken_at"),
+    }
 
 
 def private_images(snaps: list | None) -> list[dict]:

@@ -19,6 +19,10 @@ import { parseCoverId, ProductCover } from "@/features/product-covers";
 import { Check, ShieldCheck } from "@/components/Icons";
 import { DisputeCaseView } from "./DisputeCaseView";
 import MarketplaceChatButton from "@/components/chat/MarketplaceChatButton";
+import { AttachImagesButton } from "@/components/media/AttachImagesButton";
+import { PendingImages } from "@/components/media/PendingImages";
+import { useImageUploads } from "@/components/media/useImageUploads";
+import { imageFilesFrom } from "@/lib/media";
 
 const TIMELINE_KEYS = ["pending", "processing", "delivered", "completed"] as const;
 
@@ -160,6 +164,7 @@ export function OrderDispute({
   const [open, setOpen] = useState(layout === "panel");
   const [loaded, setLoaded] = useState(!!initialDispute);
   const [message, setMessage] = useState("");
+  const evidence = useImageUploads("dispute_evidence", 6);
   const [submitting, setSubmitting] = useState(false);
   const [actionError, setActionError] = useState("");
   const [fetchedLabels, setFetchedLabels] = useState<Record<number, string>>({});
@@ -207,11 +212,12 @@ export function OrderDispute({
   };
 
   const sendMessage = async () => {
-    if (!message.trim() || viewerRole !== "buyer") return;
+    if (!message.trim() || evidence.uploading > 0 || viewerRole !== "buyer") return;
     setSubmitting(true);
     try {
-      await api.buyerDisputeMessage(orderId, message.trim());
+      await api.buyerDisputeMessage(orderId, message.trim(), evidence.images.map((image) => image.id));
       setMessage("");
+      evidence.reset();
       await refresh();
     } finally { setSubmitting(false); }
   };
@@ -332,10 +338,21 @@ export function OrderDispute({
 
               {/* Timeline message input */}
               <div className="space-y-2 pt-1">
-                <Textarea rows={2} value={message} onChange={(e) => setMessage(e.target.value)} placeholder={t("disputeMessagePlaceholder")} />
+                <Textarea
+                  rows={2}
+                  value={message}
+                  onChange={(e) => setMessage(e.target.value)}
+                  onPaste={(event) => {
+                    const files = imageFilesFrom(event.clipboardData);
+                    if (files.length) { event.preventDefault(); void evidence.addFiles(files); }
+                  }}
+                  placeholder={t("disputeMessagePlaceholder")}
+                />
+                <PendingImages images={evidence.images} uploading={evidence.uploading} errors={evidence.errors} onRemove={evidence.remove} />
                 <div className="flex flex-wrap items-center justify-between gap-2">
                   <div className="flex flex-wrap items-center gap-2">
-                    <Button size="sm" variant="secondary" disabled={submitting || !message.trim()} onClick={sendMessage}>{t("sendDisputeMessage")}</Button>
+                    <Button size="sm" variant="secondary" disabled={submitting || !message.trim() || evidence.uploading > 0} onClick={sendMessage}>{t("sendDisputeMessage")}</Button>
+                    <AttachImagesButton label={t("attachImages")} disabled={submitting || evidence.full} onFiles={(files) => void evidence.addFiles(files)} />
                     {!canAcceptResolution && !dispute.review_requested_at && (
                       <MarketplaceChatButton
                         orderId={orderId}

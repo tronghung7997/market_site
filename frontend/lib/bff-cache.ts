@@ -69,16 +69,20 @@ export function publicCacheControl(params: {
 
 /**
  * The backend's own `Cache-Control` for a private image (chat attachment,
- * dispute evidence…), or null. Such bytes never change under the same URL, so
- * the browser may keep them; a shared cache may not (`private`).
+ * dispute evidence…), or null. The backend sends `private, no-cache` with an
+ * ETag: the browser keeps the bytes but revalidates each view, so access is
+ * re-checked while an unchanged image costs only a 304.
  */
 export function privateImageCacheControl(params: {
   status: number;
   contentType: string;
   upstreamCacheControl: string | null;
 }): string | null {
-  if (params.status < 200 || params.status >= 300) return null;
-  if (!params.contentType.toLowerCase().startsWith("image/")) return null;
+  // A 304 revalidation carries no body (and no content type) but must keep the
+  // image's policy, or the browser would re-store the cached copy as no-store.
+  const revalidated = params.status === 304;
+  if (!revalidated && (params.status < 200 || params.status >= 300)) return null;
+  if (!revalidated && !params.contentType.toLowerCase().startsWith("image/")) return null;
   const header = params.upstreamCacheControl?.trim() ?? "";
   return /^private\b/i.test(header) && !/\bpublic\b/i.test(header) ? header : null;
 }

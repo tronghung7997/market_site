@@ -8,6 +8,8 @@ import { cn } from "@/lib/cn";
 import { displayTimelineEvents } from "@/lib/dispute-case";
 import { describeLog } from "@/features/admin-logs";
 import { useApiErrorMessage } from "@/lib/use-api-error";
+import { privateImageBase } from "@/lib/media";
+import { EvidenceImages } from "@/components/orders/DisputeCaseView";
 import type { AdminCaseAction, AdminDisputeCase, AdminLogEntry } from "@/lib/types";
 import { Banner, Button, Card, Tag } from "@/components/ui";
 import {
@@ -122,6 +124,9 @@ function Timeline({ c }: { c: AdminDisputeCase }) {
               <span className="ml-2 text-[11.5px] text-faint">{dateTime(e.created_at)}</span>
             </p>
             {e.body && <p className="mt-1 whitespace-pre-wrap rounded-lg bg-raised/70 px-3 py-2 text-[12.5px] text-fg">{e.body}</p>}
+            {e.attachments && e.attachments.length > 0 && (
+              <EvidenceImages className="mt-1.5" images={e.attachments} base={privateImageBase.adminDispute(c.id)} locale="vi" />
+            )}
             {(e.resource_ids.length > 0 || e.refund_amount) && (
               <div className="mt-1 flex flex-wrap items-center gap-1">
                 {e.resource_ids.map((id, i) => (
@@ -132,6 +137,31 @@ function Timeline({ c }: { c: AdminDisputeCase }) {
                 ))}
                 {!!e.refund_amount && <span className="text-[11.5px] font-medium text-bad">Hoàn {formatVnd(e.refund_amount)}</span>}
               </div>
+            )}
+          </li>
+        );
+      })}
+    </ol>
+  );
+}
+
+/** The buyer↔seller order chat, read-only, so the decision rests on what both
+ *  sides actually said and sent. */
+function OrderChat({ chat }: { chat: NonNullable<AdminDisputeCase["order_chat"]> }) {
+  if (chat.messages.length === 0) return <p className="text-[12.5px] text-muted">Hai bên chưa nhắn tin trong đơn này.</p>;
+  return (
+    <ol className="max-h-[480px] space-y-2 overflow-y-auto pr-1">
+      {chat.messages.map((m) => {
+        const actor = ACTOR_META[m.sender_role] ?? ACTOR_META.system;
+        return (
+          <li key={m.id} className="rounded-lg border border-line bg-surface px-3 py-2">
+            <p className="text-[11.5px]">
+              <span className="font-semibold text-fg">{actor.label}</span>
+              <span className="ml-2 text-faint">{dateTime(m.created_at)}</span>
+            </p>
+            {m.body && <p className="mt-0.5 whitespace-pre-wrap break-words text-[12.5px] text-fg">{m.body}</p>}
+            {m.attachments.length > 0 && (
+              <EvidenceImages className="mt-1.5" images={m.attachments} base={privateImageBase.chat(chat.conversation_id)} locale="vi" />
             )}
           </li>
         );
@@ -419,8 +449,11 @@ export function DisputeCase({ id }: { id: number }) {
                   </React.Fragment>
                 ))}
               </dl>
-            ) : (
+            ) : !c.evidence_images?.length ? (
               <p className="mt-2 text-[12px] text-warn">Người mua chưa gửi bằng chứng.</p>
+            ) : null}
+            {c.evidence_images && c.evidence_images.length > 0 && (
+              <EvidenceImages className="mt-3" images={c.evidence_images} base={privateImageBase.adminDispute(c.id)} locale="vi" />
             )}
             {c.seller_note && (
               <div className="mt-3 rounded-lg border border-warn/25 bg-warn-soft/40 px-3 py-2">
@@ -437,6 +470,15 @@ export function DisputeCase({ id }: { id: number }) {
           <Section title="Diễn biến">
             <Timeline c={c} />
           </Section>
+
+          {c.order_chat && (
+            <Section
+              title="Chat giữa người mua và người bán"
+              aside={<span className="text-[11.5px] text-faint">{c.order_chat.messages.length} tin{c.order_chat.truncated ? " gần nhất" : ""}</span>}
+            >
+              <OrderChat chat={c.order_chat} />
+            </Section>
+          )}
 
           <Section title="Nhật ký hệ thống của đơn">
             <OrderLogs orderId={c.order_id} />

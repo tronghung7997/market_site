@@ -1,10 +1,11 @@
-from fastapi import APIRouter, Depends, HTTPException
+from fastapi import APIRouter, Depends, HTTPException, Request, Response
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from src.site_status import require_withdrawals_open
 from src.auth.dependencies import get_current_account, require_role, require_verified_email, require_withdrawal_mfa
 from src.config import settings
 from src.database import get_session
+from src.media.http import image_response
 from src.models.account import Account
 from src.sellers.tier_config import rule_for
 
@@ -34,7 +35,7 @@ async def topup(
 ):
     return await service.topup(
         body.account_id, body.amount, db,
-        actor_id=admin.id, source="admin", event="manual_topup", reason=body.reason,
+        actor_id=admin.id, source="admin", event="manual_topup", reason=body.reason, proof_ids=body.proof_images,
     )
 
 
@@ -150,9 +151,36 @@ async def admin_account_transactions(
 async def mark_withdrawal_paid(
     req_id: int,
     body: schemas.WithdrawMarkPaidRequest,
-    _: Account = Depends(require_role("admin")),
+    admin: Account = Depends(require_role("admin")),
     db: AsyncSession = Depends(get_session),
 ):
     """approved → paid: admin đã chuyển khoản thật xong, điền mã tham chiếu.
     approve chỉ là "đồng ý chi"; bước này mới chốt "tiền đã rời tài khoản"."""
-    return await service.mark_withdrawal_paid(req_id, body.payout_reference, db)
+    return await service.mark_withdrawal_paid(
+        req_id, body.payout_reference, db, actor_id=admin.id, receipt_ids=body.receipt_images,
+    )
+
+
+@router.get("/admin/wallet/transactions/{tx_id}/proof/{media_id}", include_in_schema=False)
+async def admin_transaction_proof(
+    tx_id: int, media_id: str, request: Request, v: str = "full",
+    _: Account = Depends(require_role("admin")), db: AsyncSession = Depends(get_session),
+) -> Response:
+    return await image_response(db, request, await service.transaction_proof_image(tx_id, media_id, db), v)
+
+
+@router.get("/wallet/withdrawals/{req_id}/receipt/{media_id}", include_in_schema=False)
+async def my_withdrawal_receipt(
+    req_id: int, media_id: str, request: Request, v: str = "full",
+    account: Account = Depends(require_role("seller")), db: AsyncSession = Depends(get_session),
+) -> Response:
+    obj = await service.withdrawal_receipt_image(req_id, media_id, db, owner_id=account.id)
+    return await image_response(db, request, obj, v)
+
+
+@router.get("/admin/withdrawals/{req_id}/receipt/{media_id}", include_in_schema=False)
+async def admin_withdrawal_receipt(
+    req_id: int, media_id: str, request: Request, v: str = "full",
+    _: Account = Depends(require_role("admin")), db: AsyncSession = Depends(get_session),
+) -> Response:
+    return await image_response(db, request, await service.withdrawal_receipt_image(req_id, media_id, db), v)

@@ -5,6 +5,7 @@ from datetime import datetime, timedelta, timezone
 import pytest
 from pydantic import ValidationError
 from sqlalchemy import select, update
+from sqlalchemy.orm import undefer
 
 from src.database import SessionLocal
 from src.models.order import (
@@ -156,7 +157,7 @@ async def test_withdrawing_after_escrow_expiry_completes_order_immediately(clien
     )
     assert opened.status_code == 201, opened.text
     async with SessionLocal() as db:
-        order = await db.get(Order, order_id)
+        order = await db.get(Order, order_id, options=[undefer(Order.delivered_data)])
         order.escrow_expires_at = datetime.now(timezone.utc) - timedelta(seconds=1)
         await db.commit()
 
@@ -187,7 +188,7 @@ async def test_withdrawing_legacy_order_without_escrow_deadline_completes_order(
     )
     assert opened.status_code == 201, opened.text
     async with SessionLocal() as db:
-        order = await db.get(Order, order_id)
+        order = await db.get(Order, order_id, options=[undefer(Order.delivered_data)])
         order.escrow_expires_at = None
         await db.commit()
 
@@ -245,7 +246,7 @@ async def test_concurrent_dispute_refund_and_reject_settle_once(client):
 
     assert sorted((first.status_code, second.status_code)) == [200, 400]
     async with SessionLocal() as db:
-        order = await db.get(Order, order_id)
+        order = await db.get(Order, order_id, options=[undefer(Order.delivered_data)])
         assert order.status in (OrderStatus.refunded, OrderStatus.completed)
         types = set(
             await db.scalars(
@@ -420,7 +421,7 @@ async def test_resource_claim_batches_partial_refund_replace_timeline_and_final_
     assert accepted.json()["status"] == "resolved_partial_refund"
 
     async with SessionLocal() as db:
-        order = await db.get(Order, order_id)
+        order = await db.get(Order, order_id, options=[undefer(Order.delivered_data)])
         assert order.status == OrderStatus.completed
         assert order.total_amount == 4000
         assert order.refunded_amount == 1000
@@ -509,7 +510,7 @@ async def test_refunding_every_claimed_resource_auto_closes_case_and_order(clien
     seller_alerts = [item for item in seller_inbox.json() if item.get("href", "").startswith(f"/seller/orders?order={order_code}")]
     assert seller_alerts, seller_inbox.json()
     async with SessionLocal() as db:
-        order = await db.get(Order, order_id)
+        order = await db.get(Order, order_id, options=[undefer(Order.delivered_data)])
         assert order.status == OrderStatus.refunded
         assert order.refunded_amount == order.total_amount
         assert not order.delivered_data
@@ -562,7 +563,7 @@ async def test_unanswered_seller_response_auto_settles_after_resolution_deadline
 
     async with SessionLocal() as db:
         dispute = await db.get(Dispute, dispute_id)
-        order = await db.get(Order, order_id)
+        order = await db.get(Order, order_id, options=[undefer(Order.delivered_data)])
         assert dispute.status == DisputeStatus.resolved_timeout
         assert dispute.resolution_deadline_at is None
         assert order.status == OrderStatus.completed
@@ -693,7 +694,7 @@ def test_replacement_generation_counts_warranty_hops():
 async def _backdate_open_dispute_past_abandon_grace(order_id: int, *, extra_hours: int = 1) -> int:
     past = datetime.now(timezone.utc) - timedelta(hours=24 + extra_hours)
     async with SessionLocal() as db:
-        order = await db.get(Order, order_id)
+        order = await db.get(Order, order_id, options=[undefer(Order.delivered_data)])
         order.escrow_expires_at = past
         dispute = await db.scalar(
             select(Dispute).where(Dispute.order_id == order_id, Dispute.status == DisputeStatus.open)
@@ -741,7 +742,7 @@ async def test_abandoned_partial_claim_releases_full_remaining_escrow_to_seller(
             )
         )
         assert release is not None
-        persisted = await db.get(Order, order_id)
+        persisted = await db.get(Order, order_id, options=[undefer(Order.delivered_data)])
         assert persisted.refunded_amount == 0
 
 
@@ -1292,7 +1293,7 @@ async def test_timeout_job_skips_marketplace_review_case(client):
 
     async with SessionLocal() as db:
         dispute = await db.get(Dispute, dispute_id)
-        order = await db.get(Order, order_id)
+        order = await db.get(Order, order_id, options=[undefer(Order.delivered_data)])
         assert dispute.status == DisputeStatus.open
         assert dispute.review_requested_at is not None
         assert order.status == OrderStatus.delivered
@@ -1331,7 +1332,7 @@ async def test_admin_reject_after_marketplace_review_releases_remaining_to_selle
     assert rejected.json()["status"] == "resolved_reject"
 
     async with SessionLocal() as db:
-        order = await db.get(Order, order_id)
+        order = await db.get(Order, order_id, options=[undefer(Order.delivered_data)])
         assert order.status == OrderStatus.completed
         assert order.refunded_amount == 0
         release = await db.scalar(

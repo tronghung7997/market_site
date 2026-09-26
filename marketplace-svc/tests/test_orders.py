@@ -4,6 +4,7 @@ from unittest.mock import AsyncMock
 import pytest
 from pydantic import ValidationError
 from sqlalchemy import select, update
+from sqlalchemy.orm import undefer
 
 from src.database import SessionLocal
 from src.models.account import Account
@@ -795,7 +796,7 @@ async def test_commission_clawback_restores_fund_and_wallet(client):
 
     async with SessionLocal() as db:
         from src.affiliate.service import clawback_commission_for_order
-        ord_obj = await db.get(Order, order_id)
+        ord_obj = await db.get(Order, order_id, options=[undefer(Order.delivered_data)])
         await clawback_commission_for_order(ord_obj, db)
         await clawback_commission_for_order(ord_obj, db)
         await db.commit()
@@ -851,7 +852,7 @@ async def test_commission_atomic_with_order_status(client):
         monkeypatch_target.apply_affiliate_commission = original_func
 
     async with SessionLocal() as db:
-        order = await db.get(Order, order_id)
+        order = await db.get(Order, order_id, options=[undefer(Order.delivered_data)])
         assert order.status != OrderStatus.completed
         comm = await db.scalar(
             select(AffiliateCommission).where(AffiliateCommission.order_id == order_id)
@@ -871,7 +872,7 @@ async def test_no_double_credit_on_reentry(client):
                       headers={"Authorization": f"Bearer {buyer_token}"})
 
     async with SessionLocal() as db:
-        order = await db.get(Order, order_id)
+        order = await db.get(Order, order_id, options=[undefer(Order.delivered_data)])
         from src.affiliate.service import apply_affiliate_commission
         await apply_affiliate_commission(order, db)
         await db.commit()
@@ -939,7 +940,7 @@ async def test_real_api_order_returns_pending_and_defers_provisioning(client, mo
 
     # The order is committed on its own — a rollback of the request would have lost it.
     async with SessionLocal() as db:
-        order = await db.get(Order, data["id"])
+        order = await db.get(Order, data["id"], options=[undefer(Order.delivered_data)])
         assert order is not None
         assert order.status == OrderStatus.pending
         assert order.user_config == {
@@ -969,7 +970,7 @@ async def test_background_provision_delivers_the_order(client, monkeypatch):
     await provision_pending_order(order_id)
 
     async with SessionLocal() as db:
-        order = await db.get(Order, order_id)
+        order = await db.get(Order, order_id, options=[undefer(Order.delivered_data)])
         assert order.status == OrderStatus.delivered
         assert order.delivered_data == "proxy-credential"
         assert order.escrow_expires_at is not None
@@ -1004,7 +1005,7 @@ async def test_background_provision_refunds_when_provider_rejects(client, monkey
     await provision_pending_order(order_id)
 
     async with SessionLocal() as db:
-        order = await db.get(Order, order_id)
+        order = await db.get(Order, order_id, options=[undefer(Order.delivered_data)])
         assert order.status == OrderStatus.cancelled
         wallet = await db.scalar(select(Wallet).where(Wallet.account_id == buyer_id))
         assert wallet.available_balance == balance_after_charge + order.total_amount
@@ -1037,7 +1038,7 @@ async def test_background_provision_is_idempotent_on_a_delivered_order(client, m
 
     assert mock_request.await_count == calls_after_first, "second run must be a no-op"
     async with SessionLocal() as db:
-        order = await db.get(Order, order_id)
+        order = await db.get(Order, order_id, options=[undefer(Order.delivered_data)])
         assert order.status == OrderStatus.delivered
 
 
@@ -1088,7 +1089,7 @@ async def test_sweep_retries_a_stuck_order(client, monkeypatch):
     await provision_sweep_job()
 
     async with SessionLocal() as db:
-        order = await db.get(Order, order_id)
+        order = await db.get(Order, order_id, options=[undefer(Order.delivered_data)])
         assert order.status == OrderStatus.delivered
         assert order.delivered_data == "proxy-credential"
 
@@ -1108,7 +1109,7 @@ async def test_sweep_leaves_fresh_orders_alone(client, monkeypatch):
 
     assert mock_request.await_count == 0
     async with SessionLocal() as db:
-        order = await db.get(Order, order_id)
+        order = await db.get(Order, order_id, options=[undefer(Order.delivered_data)])
         assert order.status == OrderStatus.pending
 
 
@@ -1122,7 +1123,7 @@ async def test_sweep_refunds_past_the_deadline(client, monkeypatch):
     async with SessionLocal() as db:
         wallet = await db.scalar(select(Wallet).where(Wallet.account_id == buyer_id))
         balance_after_charge = wallet.available_balance
-        order = await db.get(Order, order_id)
+        order = await db.get(Order, order_id, options=[undefer(Order.delivered_data)])
         amount = order.total_amount
 
     mock_request = AsyncMock(return_value=_ok_provision_response())
@@ -1131,7 +1132,7 @@ async def test_sweep_refunds_past_the_deadline(client, monkeypatch):
     await provision_sweep_job()
 
     async with SessionLocal() as db:
-        order = await db.get(Order, order_id)
+        order = await db.get(Order, order_id, options=[undefer(Order.delivered_data)])
         assert order.status == OrderStatus.cancelled
         wallet = await db.scalar(select(Wallet).where(Wallet.account_id == buyer_id))
         assert wallet.available_balance == balance_after_charge + amount
@@ -1158,7 +1159,7 @@ async def test_sweep_ignores_variant_orders(client, monkeypatch):
     await provision_sweep_job()
 
     async with SessionLocal() as db:
-        order = await db.get(Order, order_id)
+        order = await db.get(Order, order_id, options=[undefer(Order.delivered_data)])
         assert order.status == OrderStatus.pending, "sweeper must not touch variant orders"
     assert mock_request.await_count == 0
 
@@ -1208,7 +1209,7 @@ async def test_concurrent_provision_refunds_the_buyer_only_once(client, monkeypa
     )
 
     async with SessionLocal() as db:
-        order = await db.get(Order, order_id)
+        order = await db.get(Order, order_id, options=[undefer(Order.delivered_data)])
         assert order.status == OrderStatus.cancelled
         wallet = await db.scalar(select(Wallet).where(Wallet.account_id == buyer_id))
         assert wallet.available_balance == balance_after_charge + amount, (
@@ -1250,7 +1251,7 @@ async def test_spawn_provision_actually_runs_the_real_task(client, monkeypatch):
     await asyncio.gather(*list(order_service._background_tasks))
 
     async with SessionLocal() as db:
-        order = await db.get(Order, order_id)
+        order = await db.get(Order, order_id, options=[undefer(Order.delivered_data)])
         assert order.status == OrderStatus.delivered
         assert order.delivered_data == "proxy-credential"
 
@@ -1567,8 +1568,8 @@ async def test_sweep_does_not_refund_an_order_delivered_while_it_runs(client, mo
     await scheduler.provision_sweep_job()
 
     async with SessionLocal() as db:
-        assert (await db.get(Order, first["id"])).status == OrderStatus.cancelled
-        assert (await db.get(Order, second["id"])).status == OrderStatus.delivered
+        assert (await db.get(Order, first["id"], options=[undefer(Order.delivered_data)])).status == OrderStatus.cancelled
+        assert (await db.get(Order, second["id"], options=[undefer(Order.delivered_data)])).status == OrderStatus.delivered
         second_refunds = (await db.scalars(select(Transaction).where(
             Transaction.type == TransactionType.refund,
             Transaction.reference_id == f"order-{second['id']}",
@@ -1600,7 +1601,7 @@ async def test_background_provisioning_is_bounded_per_process(client, monkeypatc
 
     assert peak == 2
     async with SessionLocal() as db:
-        assert {(await db.get(Order, o["id"])).status for o in orders} == {OrderStatus.delivered}
+        assert {(await db.get(Order, o["id"], options=[undefer(Order.delivered_data)])).status for o in orders} == {OrderStatus.delivered}
 
 
 @pytest.mark.asyncio
@@ -1619,7 +1620,7 @@ async def test_provisioning_skips_an_order_another_session_holds(client, monkeyp
 
     assert provider_call.await_count == 0
     async with SessionLocal() as db:
-        assert (await db.get(Order, order["id"])).status == OrderStatus.pending
+        assert (await db.get(Order, order["id"], options=[undefer(Order.delivered_data)])).status == OrderStatus.pending
 
 
 # ---------------------------------------------------------------------------
@@ -1644,9 +1645,9 @@ async def test_sla_check_refunds_only_orders_past_their_variant_sla(client):
     await sla_check_job()
 
     async with SessionLocal() as db:
-        refunded = await db.get(Order, late["id"])
+        refunded = await db.get(Order, late["id"], options=[undefer(Order.delivered_data)])
         assert refunded.status == OrderStatus.cancelled
-        assert (await db.get(Order, on_time["id"])).status == OrderStatus.pending
+        assert (await db.get(Order, on_time["id"], options=[undefer(Order.delivered_data)])).status == OrderStatus.pending
         after = (await db.scalar(select(Wallet).where(Wallet.account_id == late["buyer_id"]))).available_balance
         assert after == before + refunded.total_amount
 
@@ -1665,7 +1666,7 @@ async def test_sla_check_skips_an_order_another_session_holds(client):
         await asyncio.wait_for(sla_check_job(), timeout=5)
 
     async with SessionLocal() as db:
-        assert (await db.get(Order, late["id"])).status == OrderStatus.pending
+        assert (await db.get(Order, late["id"], options=[undefer(Order.delivered_data)])).status == OrderStatus.pending
 
 
 @pytest.mark.asyncio
@@ -1673,7 +1674,7 @@ async def test_order_enrichment_lookups_bind_one_parameter_per_id_list(client):
     """The admin order list enriches every order; an expanded IN list would pass
     asyncpg's 32 767 bind-parameter limit once the marketplace has that many."""
     from src.models.review import Review
-    from src.orders.service import _id_in
+    from src.database import id_in as _id_in
 
     many_ids = range(1, 40_001)
     async with SessionLocal() as db:
@@ -1686,3 +1687,46 @@ async def test_order_enrichment_lookups_bind_one_parameter_per_id_list(client):
     async with SessionLocal() as db:
         found = (await db.scalars(select(Order.id).where(_id_in(Order.id, [order_id, 999_999])))).all()
     assert found == [order_id]
+
+
+@pytest.mark.asyncio
+async def test_adapter_orders_respect_the_marketplace_quantity_cap(client, monkeypatch):
+    """The product_id + user_config path used to check only quantity >= 1; one
+    order could then deliver an unbounded number of 20 KB lines."""
+    buyer_token, _, _, product_id = await setup_adapter_product(client)
+    monkeypatch.setattr("src.orders.service.spawn_provision", lambda _id: None)
+    headers = {"Authorization": f"Bearer {buyer_token}"}
+    before = (await client.get("/wallet", headers=headers)).json()["balance"]
+
+    resp = await client.post("/orders", json={
+        "product_id": product_id,
+        "user_config": {"type": "residential", "network": "shared", "days": 30, "quantity": MAX_ORDER_QUANTITY + 1},
+        "quantity": 1,
+    }, headers=headers)
+
+    assert resp.status_code == 400, resp.text
+    assert resp.json()["error_code"] == "ORDER_QUANTITY_LIMIT"
+    assert (await client.get("/wallet", headers=headers)).json()["balance"] == before
+
+
+@pytest.mark.asyncio
+async def test_heavy_delivery_columns_are_never_loaded_with_their_rows(client):
+    """An order can deliver thousands of 20 KB lines: loading an Order or a
+    Resource must not pull (or decrypt) that text unless a caller asks for it."""
+    from sqlalchemy import inspect as sa_inspect
+    from sqlalchemy.exc import InvalidRequestError
+
+    from src.models.resource import Resource
+
+    buyer_token, _, _, instant_vid, _ = await setup_buyable_product(client)
+    order_id = (await client.post("/orders", json={"variant_id": instant_vid, "quantity": 1},
+                                  headers={"Authorization": f"Bearer {buyer_token}"})).json()["id"]
+    async with SessionLocal() as db:
+        order = await db.get(Order, order_id)
+        resource = await db.scalar(select(Resource).where(Resource.order_id == order_id).limit(1))
+        assert "delivered_data" not in sa_inspect(order).dict
+        assert "data" not in sa_inspect(resource).dict
+        with pytest.raises(InvalidRequestError):
+            _ = order.delivered_data
+        with pytest.raises(InvalidRequestError):
+            _ = resource.data

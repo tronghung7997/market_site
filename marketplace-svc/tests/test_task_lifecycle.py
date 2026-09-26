@@ -6,6 +6,7 @@ Mua takedown -> order 'processing'; admin hoàn thành task cuối -> 'delivered
 
 import pytest
 from sqlalchemy import update
+from sqlalchemy.orm import undefer
 
 from src.database import SessionLocal
 from src.ledger.service import reconcile_ledger
@@ -177,7 +178,7 @@ async def test_partial_failure_refunds_proportionally(client):
     # nên release chỉ trả seller 300000 (trước đây trừ hai lần → seller mất thêm 100000).
     assert data["total_amount"] == 400000
     async with SessionLocal() as db:
-        assert (await db.get(Order, order["id"])).refunded_amount == 100000
+        assert (await db.get(Order, order["id"], options=[undefer(Order.delivered_data)])).refunded_amount == 100000
         assert (await reconcile_ledger(db)).ok
 
     confirmed = await client.post(f"/orders/{order['id']}/confirm", headers={"Authorization": f"Bearer {buyer_token}"})
@@ -204,7 +205,7 @@ async def test_all_tasks_failed_cancels_and_refunds_fully(client):
 
     assert await get_wallet_balance(client, buyer_token) == balance_before
     async with SessionLocal() as db:
-        saved = await db.get(Order, order["id"])
+        saved = await db.get(Order, order["id"], options=[undefer(Order.delivered_data)])
         assert saved.refunded_amount == saved.total_amount == 200000
         report = await reconcile_ledger(db)
     assert report.ok, report.findings

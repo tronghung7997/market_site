@@ -7,6 +7,7 @@ from unittest.mock import AsyncMock
 import httpx
 import pytest
 from sqlalchemy import select
+from sqlalchemy.orm import undefer
 
 from src.database import SessionLocal
 from src.models.alert import Alert
@@ -36,7 +37,7 @@ async def test_reconciliation_refreshes_metadata_for_still_present_allocation(cl
     order_id, provider_id = await _deliver(client, monkeypatch, "_refresh", external_id="ext-refresh")
 
     async with SessionLocal() as db:
-        order = await db.get(Order, order_id)
+        order = await db.get(Order, order_id, options=[undefer(Order.delivered_data)])
         delivered_before = order.delivered_data
 
     updated = _sample("ext-refresh")
@@ -51,7 +52,7 @@ async def test_reconciliation_refreshes_metadata_for_still_present_allocation(cl
 
         # Reconciliation never touches buyer-facing delivered_data — only the
         # rotate endpoint does.
-        order = await db.get(Order, order_id)
+        order = await db.get(Order, order_id, options=[undefer(Order.delivered_data)])
         assert order.delivered_data == delivered_before
 
 

@@ -12,6 +12,7 @@ from unittest.mock import AsyncMock
 import httpx
 import pytest
 from sqlalchemy import select, update
+from sqlalchemy.orm import undefer
 
 import src.adapters.igbm as igbm_module
 from src.adapters.igbm import (
@@ -286,7 +287,7 @@ async def test_fixed_order_routes_to_adapter_and_delivers(client, mock_igbm, mon
     await provision_pending_order(data["id"])
 
     async with SessionLocal() as db:
-        order = await db.get(Order, data["id"])
+        order = await db.get(Order, data["id"], options=[undefer(Order.delivered_data)])
         assert order.status == OrderStatus.delivered
         assert order.variant_id == ctx["variant"]["id"]
         assert order.provider_id == ctx["provider_id"]
@@ -294,6 +295,7 @@ async def test_fixed_order_routes_to_adapter_and_delivers(client, mock_igbm, mon
         assert len(lines) == 2 and all("|" in line for line in lines)
         resources = list((await db.execute(
             select(Resource).where(Resource.order_id == order.id).order_by(Resource.id)
+            .options(undefer(Resource.data))
         )).scalars())
         assert [r.data for r in resources] == lines
         assert all(r.status == ResourceStatus.assigned for r in resources)
@@ -311,7 +313,7 @@ async def test_fixed_order_routes_to_adapter_and_delivers(client, mock_igbm, mon
     await provision_pending_order(data["id"])
     assert mock_igbm.STATE["balance"] == Decimal("4400.00")
     async with SessionLocal() as db:
-        order = await db.get(Order, data["id"])
+        order = await db.get(Order, data["id"], options=[undefer(Order.delivered_data)])
         assert order.status == OrderStatus.delivered and order.delivered_data == "\n".join(lines)
 
 
@@ -385,7 +387,7 @@ async def test_out_of_credit_refunds_and_disables_provider(client, mock_igbm, mo
     await provision_pending_order(resp.json()["id"])
 
     async with SessionLocal() as db:
-        order = await db.get(Order, resp.json()["id"])
+        order = await db.get(Order, resp.json()["id"], options=[undefer(Order.delivered_data)])
         assert order.status == OrderStatus.cancelled
         assert "hoàn" in (order.cancel_reason or "").lower()
         assert "igbm" not in (order.cancel_reason or "").lower()
@@ -410,7 +412,7 @@ async def test_ambiguous_purchase_reconciles_by_balance_and_alerts(client, mock_
     await provision_pending_order(resp.json()["id"])
 
     async with SessionLocal() as db:
-        order = await db.get(Order, resp.json()["id"])
+        order = await db.get(Order, resp.json()["id"], options=[undefer(Order.delivered_data)])
         assert order.status == OrderStatus.cancelled
         alert = await db.scalar(select(Alert).where(Alert.type == "provision_operational"))
         assert alert is not None and alert.severity == "critical"
@@ -599,7 +601,7 @@ async def test_purchase_dispatch_is_recorded_before_the_buy_request(client, mock
     await provision_pending_order(order_id)
 
     async with SessionLocal() as db:
-        assert (await db.get(Order, order_id)).status == OrderStatus.delivered
+        assert (await db.get(Order, order_id, options=[undefer(Order.delivered_data)])).status == OrderStatus.delivered
         ops = list((await db.scalars(
             select(ProviderCallLog.operation).where(ProviderCallLog.order_id == order_id).order_by(ProviderCallLog.id)
         )).all())
@@ -616,7 +618,7 @@ async def test_sweep_buys_a_stuck_igbm_order_that_never_dispatched(client, mock_
     await provision_sweep_job()
 
     async with SessionLocal() as db:
-        assert (await db.get(Order, order_id)).status == OrderStatus.delivered
+        assert (await db.get(Order, order_id, options=[undefer(Order.delivered_data)])).status == OrderStatus.delivered
     assert mock_igbm.STATE["balance"] == Decimal("7200.00")  # bought exactly once
 
 
@@ -636,7 +638,7 @@ async def test_sweep_never_rebuys_a_dispatched_igbm_order_and_refunds_it_at_the_
     await provision_sweep_job()  # inside the retry window: must not buy again
 
     async with SessionLocal() as db:
-        assert (await db.get(Order, order_id)).status == OrderStatus.pending
+        assert (await db.get(Order, order_id, options=[undefer(Order.delivered_data)])).status == OrderStatus.pending
     assert mock_igbm.STATE["balance"] == Decimal("10000")
 
     async with SessionLocal() as db:
@@ -647,7 +649,7 @@ async def test_sweep_never_rebuys_a_dispatched_igbm_order_and_refunds_it_at_the_
     await provision_sweep_job()  # past the deadline: refund, flag for reconciliation
 
     async with SessionLocal() as db:
-        assert (await db.get(Order, order_id)).status == OrderStatus.cancelled
+        assert (await db.get(Order, order_id, options=[undefer(Order.delivered_data)])).status == OrderStatus.cancelled
         alert = await db.scalar(select(Alert).where(Alert.type == "provision_stuck", Alert.target_id == order_id))
         assert alert is not None and alert.severity == "critical"
         assert "đối soát" in alert.message.lower()
@@ -668,7 +670,7 @@ async def test_sweep_refunds_an_undispatched_igbm_order_past_the_deadline_withou
     await provision_sweep_job()
 
     async with SessionLocal() as db:
-        assert (await db.get(Order, order_id)).status == OrderStatus.cancelled
+        assert (await db.get(Order, order_id, options=[undefer(Order.delivered_data)])).status == OrderStatus.cancelled
         alert = await db.scalar(select(Alert).where(Alert.type == "provision_stuck", Alert.target_id == order_id))
         assert alert is not None and alert.severity == "warning"
     assert mock_igbm.STATE["balance"] == Decimal("10000")
@@ -692,6 +694,6 @@ async def test_no_buy_request_without_a_durable_dispatch_marker(client, mock_igb
     await provision_pending_order(order_id)
 
     async with SessionLocal() as db:
-        assert (await db.get(Order, order_id)).status == OrderStatus.cancelled
+        assert (await db.get(Order, order_id, options=[undefer(Order.delivered_data)])).status == OrderStatus.cancelled
     assert mock_igbm.STATE["balance"] == Decimal("10000")
     assert await _wallet(client, ctx["buyer"]) == before

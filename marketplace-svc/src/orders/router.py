@@ -1,6 +1,7 @@
 from fastapi import APIRouter, Depends, Query, status
 from sqlalchemy import select
 from sqlalchemy.ext.asyncio import AsyncSession
+from sqlalchemy.orm import undefer
 
 from src.adapters.factory import get_adapter
 from src.site_status import require_orders_open
@@ -16,6 +17,7 @@ from src.models.service_task import ServiceTask
 from src.usage.service import get_usage_summary
 
 from . import admin_case, schemas, service
+from .delivery import delivered_data_of
 from src.orders.refs import OrderRef
 
 router = APIRouter(tags=["orders"])
@@ -25,11 +27,12 @@ router = APIRouter(tags=["orders"])
 async def create_order(body: schemas.OrderCreate, account: Account = Depends(require_verified_email), db: AsyncSession = Depends(get_session)):
     await require_orders_open(db)
     if body.variant_id:
-        return await service.create_order(account.id, body.variant_id, body.quantity, db)
+        order = await service.create_order(account.id, body.variant_id, body.quantity, db)
     else:
-        return await service.create_order_with_adapter(
+        order = await service.create_order_with_adapter(
             account.id, body.product_id, body.user_config, db,
         )
+    return await service.order_view(order, db, viewer="buyer")
 
 
 @router.get("/orders", response_model=schemas.PaginatedOrderResponse)
@@ -64,7 +67,7 @@ async def get_order(order_id: OrderRef, account: Account = Depends(get_current_a
 
 @router.post("/orders/{order_ref}/confirm", response_model=schemas.OrderResponse)
 async def confirm_order(order_id: OrderRef, account: Account = Depends(get_current_account), db: AsyncSession = Depends(get_session)):
-    return await service.confirm_order(order_id, account.id, db)
+    return await service.order_view(await service.confirm_order(order_id, account.id, db), db, viewer="buyer")
 
 
 @router.get("/seller/orders", response_model=schemas.PaginatedSellerOrderResponse)
@@ -91,12 +94,12 @@ async def seller_orders(
 
 @router.post("/seller/orders/{order_ref}/accept", response_model=schemas.OrderResponse)
 async def accept(order_id: OrderRef, account: Account = Depends(get_seller_account), db: AsyncSession = Depends(get_session)):
-    return await service.accept_order(order_id, account.id, db)
+    return await service.order_view(await service.accept_order(order_id, account.id, db), db, viewer="seller")
 
 
 @router.post("/seller/orders/{order_ref}/deliver", response_model=schemas.OrderResponse)
 async def deliver(order_id: OrderRef, body: schemas.ManualDeliverRequest, account: Account = Depends(get_seller_account), db: AsyncSession = Depends(get_session)):
-    return await service.deliver_order(order_id, account.id, body.data, db)
+    return await service.order_view(await service.deliver_order(order_id, account.id, body.data, db), db, viewer="seller")
 
 
 @router.get("/orders/{order_ref}/dashboard")
@@ -135,7 +138,7 @@ async def order_dashboard(
         from src.models.proxy_allocation import ProxyAllocation
 
         resources_result = await db.execute(
-            select(Resource).where(Resource.order_id == order_id)
+            select(Resource).where(Resource.order_id == order_id).options(undefer(Resource.data))
         )
         resources = resources_result.scalars().all()
         # `data` trước đây bị bỏ sót dù frontend luôn đọc (ServiceDashboard
@@ -191,7 +194,7 @@ async def order_dashboard(
         # trước đây usage luôn rỗng dù adapter có get_usage(). Số dư thật nằm
         # ở order_balances/usage_records (xem src/usage), key giao cho buyer
         # nằm thẳng trong delivered_data.
-        dashboard["delivered_data"] = order.delivered_data
+        dashboard["delivered_data"] = await delivered_data_of(order, db)
         dashboard["balance"] = await get_usage_summary(order_id, db)
         # Endpoint bán được (tên, method, tham số, giá) cho trang "API của tôi"
         # — không bao giờ lộ đường dẫn/khoá thật của nguồn.
@@ -220,7 +223,7 @@ async def order_dashboard(
 
     else:
         # account, token, cloud, payment, other — return delivered_data
-        dashboard["delivered_data"] = order.delivered_data
+        dashboard["delivered_data"] = await delivered_data_of(order, db)
 
     return dashboard
 

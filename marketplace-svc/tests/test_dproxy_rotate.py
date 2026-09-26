@@ -7,6 +7,7 @@ from unittest.mock import AsyncMock
 
 import pytest
 from sqlalchemy import select
+from sqlalchemy.orm import undefer
 
 from src.database import SessionLocal
 from src.models.order import Order, OrderStatus
@@ -121,7 +122,7 @@ class TestProxyRotate:
         assert "9.9.9.9" in body["delivered_data"]
 
         async with SessionLocal() as db:
-            order = await db.get(Order, order_id)
+            order = await db.get(Order, order_id, options=[undefer(Order.delivered_data)])
             assert "9.9.9.9" in order.delivered_data
             assert order.delivered_data == body["delivered_data"]
             allocation = await db.scalar(select(ProxyAllocation).where(ProxyAllocation.order_id == order_id))
@@ -137,7 +138,7 @@ class TestProxyRotate:
         buyer_token, _, order_id, _ = await _deliver_dproxy_order(client, monkeypatch, "_pwonly")
 
         async with SessionLocal() as db:
-            order = await db.get(Order, order_id)
+            order = await db.get(Order, order_id, options=[undefer(Order.delivered_data)])
             assert "p" in order.delivered_data  # original password from _sample()
 
         rotated = _sample("ext-rot")  # same public_ip, same expiry as before...
@@ -148,7 +149,7 @@ class TestProxyRotate:
         assert resp.status_code == 200, resp.text
 
         async with SessionLocal() as db:
-            order = await db.get(Order, order_id)
+            order = await db.get(Order, order_id, options=[undefer(Order.delivered_data)])
             assert "brand-new-password" in order.delivered_data
             assert "Password: p\n" not in order.delivered_data
 

@@ -18,6 +18,7 @@ from unittest.mock import AsyncMock
 import httpx
 import pytest
 from sqlalchemy import select, update
+from sqlalchemy.orm import undefer
 
 from src.database import SessionLocal
 from src.models.alert import Alert
@@ -165,7 +166,7 @@ async def test_live_shape_delivers_and_binds_assignment_with_rotation(client, mo
     rate = None
     async with SessionLocal() as db:
         rate = await get_effective_rate(db)
-        order = await db.get(Order, order_id)
+        order = await db.get(Order, order_id, options=[undefer(Order.delivered_data)])
         assert order.status == OrderStatus.delivered
         assert "115.77.31.221" in order.delivered_data
         allocation = await db.scalar(select(ProxyAllocation).where(ProxyAllocation.order_id == order_id))
@@ -210,7 +211,7 @@ async def test_inventory_lookup_failure_never_breaks_a_paid_delivery(client, mon
     })
     await provision_pending_order(order_id)
     async with SessionLocal() as db:
-        order = await db.get(Order, order_id)
+        order = await db.get(Order, order_id, options=[undefer(Order.delivered_data)])
         assert order.status == OrderStatus.delivered
         allocation = await db.scalar(select(ProxyAllocation).where(ProxyAllocation.order_id == order_id))
         assert allocation.rotation_available is False
@@ -233,7 +234,7 @@ async def test_stale_expired_assignment_is_refused_refunded_and_disputed(client,
 
     assert _paths(calls, "/proxies/user") == []  # không đọc rotation cho node bị từ chối
     async with SessionLocal() as db:
-        order = await db.get(Order, order_id)
+        order = await db.get(Order, order_id, options=[undefer(Order.delivered_data)])
         assert order.status == OrderStatus.cancelled
         assert "hoàn về ví" in order.cancel_reason
         assert await db.scalar(select(ProxyAllocation).where(ProxyAllocation.order_id == order_id)) is None
@@ -259,7 +260,7 @@ async def test_duration_shorter_than_sold_is_refused(client, monkeypatch):
     })
     await provision_pending_order(order_id)
     async with SessionLocal() as db:
-        assert (await db.get(Order, order_id)).status == OrderStatus.cancelled
+        assert (await db.get(Order, order_id, options=[undefer(Order.delivered_data)])).status == OrderStatus.cancelled
 
 
 @pytest.mark.asyncio
@@ -283,8 +284,8 @@ async def test_assignment_already_sold_to_another_order_is_refused(client, monke
     await provision_pending_order(second)
 
     async with SessionLocal() as db:
-        assert (await db.get(Order, first)).status == OrderStatus.delivered
-        assert (await db.get(Order, second)).status == OrderStatus.cancelled
+        assert (await db.get(Order, first, options=[undefer(Order.delivered_data)])).status == OrderStatus.delivered
+        assert (await db.get(Order, second, options=[undefer(Order.delivered_data)])).status == OrderStatus.cancelled
         alert = await db.scalar(select(Alert).where(Alert.type == "provision_operational", Alert.target_id == second))
         assert f"#{first}" in alert.message
         assert await db.scalar(select(UpstreamRevocation).where(UpstreamRevocation.order_id == second)) is not None
@@ -301,7 +302,7 @@ async def test_out_of_stock_quote_refuses_before_buying(client, monkeypatch):
 
     assert _paths(calls, "/partner-purchase") == []
     async with SessionLocal() as db:
-        order = await db.get(Order, order_id)
+        order = await db.get(Order, order_id, options=[undefer(Order.delivered_data)])
         assert order.status == OrderStatus.cancelled
         assert "hết hàng" in order.cancel_reason
         alert = await db.scalar(select(Alert).where(Alert.type == "provision_operational", Alert.target_id == order_id))
@@ -319,7 +320,7 @@ async def test_retry_after_a_purchase_attempt_skips_the_quote(client, monkeypatc
     _route(monkeypatch, {"/store/quote": QUOTE_OK, "/partner-purchase": _json(503, {})})
     await provision_pending_order(order_id)
     async with SessionLocal() as db:
-        assert (await db.get(Order, order_id)).status == OrderStatus.pending
+        assert (await db.get(Order, order_id, options=[undefer(Order.delivered_data)])).status == OrderStatus.pending
 
     calls = _route(monkeypatch, {
         "/store/quote": QUOTE_EMPTY,
@@ -330,7 +331,7 @@ async def test_retry_after_a_purchase_attempt_skips_the_quote(client, monkeypatc
 
     assert _paths(calls, "/store/quote") == []
     async with SessionLocal() as db:
-        assert (await db.get(Order, order_id)).status == OrderStatus.delivered
+        assert (await db.get(Order, order_id, options=[undefer(Order.delivered_data)])).status == OrderStatus.delivered
 
 
 @pytest.mark.asyncio
@@ -344,7 +345,7 @@ async def test_out_of_credit_pauses_provider_and_next_order_is_not_charged(clien
     await provision_pending_order(order_id)
 
     async with SessionLocal() as db:
-        assert (await db.get(Order, order_id)).status == OrderStatus.cancelled
+        assert (await db.get(Order, order_id, options=[undefer(Order.delivered_data)])).status == OrderStatus.cancelled
         assert (await db.get(Provider, provider_id)).is_active is False
         alert = await db.scalar(select(Alert).where(
             Alert.type == "provider_out_of_credit", Alert.target_type == "provider", Alert.target_id == provider_id,
@@ -464,7 +465,7 @@ async def test_transient_failures_back_off_then_raise_an_incident(client, monkey
         assert row.status == "failed"
         alert = await db.scalar(select(Alert).where(Alert.type == "upstream_revoke_failed", Alert.target_id == order_id))
         assert alert.severity == "critical" and f"{PREFIX}{order_id}" in alert.message
-        assert (await db.get(Order, order_id)).status == OrderStatus.refunded
+        assert (await db.get(Order, order_id, options=[undefer(Order.delivered_data)])).status == OrderStatus.refunded
 
 
 @pytest.mark.asyncio

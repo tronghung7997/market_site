@@ -11,6 +11,7 @@ import json
 
 import httpx
 import pytest
+from sqlalchemy.orm import undefer
 from scripts import mock_seller
 from src.adapters.seller_task_webhook import settings as task_settings
 from src.database import SessionLocal
@@ -133,7 +134,7 @@ async def test_seller_to_admin_to_buyer_with_mock_gateway_and_task(client, monke
     assert buyer_dashboard.status_code == 200, buyer_dashboard.text
     assert buyer_dashboard.json()["status"] == "delivered"
     async with SessionLocal() as db:
-        order = await db.get(Order, placed.json()["id"])
+        order = await db.get(Order, placed.json()["id"], options=[undefer(Order.delivered_data)])
         assert order.status == OrderStatus.delivered
         key = next(line.split("=", 1)[1] for line in order.delivered_data.splitlines() if line.startswith("gateway_key="))
     forwarded = await client.get(f"/gw/{key}/search", params={"q": "adapter-contract"})
@@ -188,6 +189,6 @@ async def test_seller_to_admin_to_buyer_with_mock_gateway_and_task(client, monke
     assert callback.status_code == 200, callback.text
     assert callback.json()["order_status"] == "delivered"
     async with SessionLocal() as db:
-        order = await db.get(Order, placed_task.json()["id"])
+        order = await db.get(Order, placed_task.json()["id"], options=[undefer(Order.delivered_data)])
         assert order.status == OrderStatus.delivered
         assert "mock result for https://example.com" in order.delivered_data

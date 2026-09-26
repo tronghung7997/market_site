@@ -14,6 +14,7 @@ from fastapi import status
 from sqlalchemy import and_, case, delete, exists, func, literal_column, or_, select
 from sqlalchemy.dialects.postgresql import insert as pg_insert
 from sqlalchemy.ext.asyncio import AsyncSession
+from sqlalchemy.orm import undefer
 
 from src.exceptions import ErrorCode, api_error
 from src.models.order import Order, OrderStatus
@@ -161,6 +162,8 @@ def _base_query(account_id: int):
         .outerjoin(Product, Product.id == Order.product_id)
         .outerjoin(Provider, Provider.id == ProxyAllocation.provider_id)
         .where(Order.buyer_id == account_id, Order.status.in_(_VISIBLE_ORDER_STATUSES))
+        # Proxy orders deliver a few credential lines, read for every row.
+        .options(undefer(Order.delivered_data))
     )
 
 
@@ -347,6 +350,7 @@ async def _owned_allocations(account_id: int, line_ids: list[str], db: AsyncSess
     rows = (await db.execute(
         select(ProxyAllocation, Order).join(Order, Order.id == ProxyAllocation.order_id)
         .where(Order.buyer_id == account_id, Order.order_code.in_(codes), Order.status.in_(_VISIBLE_ORDER_STATUSES))
+        .options(undefer(Order.delivered_data))
     )).all()
     if len(rows) != len(codes):
         # Một id không thuộc buyer → 404 cho cả lệnh, không tiết lộ dòng nào tồn tại.

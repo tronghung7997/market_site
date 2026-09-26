@@ -7,6 +7,7 @@ from pathlib import Path
 import pytest
 from cryptography.fernet import Fernet
 from sqlalchemy import select, text
+from sqlalchemy.orm import undefer
 
 from src.database import SessionLocal, engine
 from src.models.resource import (
@@ -91,7 +92,9 @@ async def test_stock_is_stored_encrypted_and_read_back_in_full(client):
     assert lookup == resource_search_key("ALICE")
 
     async with SessionLocal() as db:
-        row = (await db.execute(select(Resource).where(Resource.variant_id == variant_id))).scalar_one()
+        row = (await db.execute(
+            select(Resource).where(Resource.variant_id == variant_id).options(undefer(Resource.data))
+        )).scalar_one()
     assert row.data == secret_line
     shown = await client.get(f"/seller/resources/{row.id}/data", headers=_auth(token))
     assert shown.json()["data"] == secret_line
@@ -181,7 +184,7 @@ async def test_key_rotation_reencrypts_and_rekeys_stock(client):
     assert stats["rotated"] >= 1 and stats["undecryptable"] == []
 
     async with SessionLocal() as db:
-        row = await db.get(Resource, row_id)
+        row = await db.get(Resource, row_id, options=[undefer(Resource.data)])
         assert row.data == line
         assert row.data_hash == resource_data_hash(line)
         assert row.data_lookup == resource_search_key("rotated")

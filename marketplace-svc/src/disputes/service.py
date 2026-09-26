@@ -4,12 +4,14 @@ from datetime import datetime, timedelta, timezone
 from fastapi import HTTPException, status
 from sqlalchemy import func, or_, select
 from sqlalchemy.ext.asyncio import AsyncSession
+from sqlalchemy.orm import undefer
 
 from src.audit.service import log_event, query_logs
 from src.config import settings
 from src.content_filter import screen_text
 from src.logging import current_request_id
 from src.models.account import Account
+from src.orders.delivery import delivered_data_of
 from src.models.order import (
     Dispute,
     DisputeClaimResource,
@@ -66,6 +68,7 @@ async def _refresh_order_delivered_data(order: Order, db: AsyncSession) -> None:
                 select(Resource)
                 .where(Resource.order_id == order.id, Resource.status == ResourceStatus.assigned)
                 .order_by(Resource.id)
+                .options(undefer(Resource.data))
             )
         ).scalars()
     )
@@ -929,7 +932,7 @@ async def get_dispute_detail(dispute_id: int, db: AsyncSession) -> dict:
             "id": order.id, "order_code": order.order_code, "buyer_id": order.buyer_id, "seller_id": order.seller_id,
             "variant_id": order.variant_id, "quantity": order.quantity,
             "total_amount": order.total_amount, "status": order.status,
-            "escrow_expires_at": order.escrow_expires_at, "delivered_data": order.delivered_data,
+            "escrow_expires_at": order.escrow_expires_at, "delivered_data": await delivered_data_of(order, db),
             "created_at": order.created_at,
             "product_title": product.title if product else None,
             "variant_name": variant.name if variant else None,
@@ -1473,6 +1476,7 @@ async def seller_dispute_resources(
                 .order_by(Resource.id)
                 .offset((page - 1) * per_page)
                 .limit(per_page)
+                .options(undefer(Resource.data))
             )
         ).scalars()
     )
@@ -1552,6 +1556,7 @@ async def seller_replacement_resources(
                 # Oldest stock first — mirrors claim_resources(), so the first
                 # N rows are exactly what "replace from stock" hands out.
                 .order_by(Resource.created_at, Resource.id)
+                .options(undefer(Resource.data))
                 .offset((page - 1) * per_page)
                 .limit(per_page)
             )

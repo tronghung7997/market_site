@@ -14,6 +14,7 @@ from src.gateway.forward import forward_call, load_gateway_adapter, resolve_endp
 from src.gateway.service import mint_gateway_key, replace_gateway_key, resolve_order_by_gateway_key
 from src.logging import current_request_id
 from src.models.account import Account
+from src.orders.delivery import delivered_data_of
 from src.models.order import Order, OrderStatus
 from src.models.provider import Provider
 from src.models.service_task import ServiceTask, ServiceTaskStatus
@@ -282,7 +283,7 @@ async def rotate_gateway_key(
     new_prefix = order.gateway_key_prefix
     # delivered_data là nơi trang đơn đọc key — không cập nhật thì buyer vẫn
     # thấy (và copy) key cũ đã hết hiệu lực.
-    order.delivered_data = replace_gateway_key(order.delivered_data, new_key)
+    order.delivered_data = replace_gateway_key(await delivered_data_of(order, db), new_key)
     await log_event(
         db, "info", f"Gateway key rotated for order {order_id}",
         request_id=current_request_id(),

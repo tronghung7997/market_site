@@ -7,6 +7,7 @@ test_gateway.py: only calls to seller.example.com are answered from a queue.
 import httpx
 import pytest
 from sqlalchemy import select, update
+from sqlalchemy.orm import undefer
 
 from src.database import SessionLocal
 from src.models.account import Account
@@ -89,7 +90,7 @@ async def _buy(client, buyer, product_id, size, monkeypatch) -> dict:
     assert resp.status_code == 201, resp.text
     await provision_pending_order(resp.json()["id"])
     async with SessionLocal() as db:
-        order = await db.get(Order, resp.json()["id"])
+        order = await db.get(Order, resp.json()["id"], options=[undefer(Order.delivered_data)])
         assert order.status == OrderStatus.delivered
         return {"id": order.id, "code": order.order_code, "total": order.total_amount,
                 "key": _extract_gateway_key(order.delivered_data)}
@@ -232,7 +233,7 @@ async def test_buyer_console_try_rotate_and_scopes(client, monkeypatch):
     rotated = (await client.post(f"/orders/{order['code']}/gateway-key/rotate", headers=_h(buyer))).json()
     new_key = rotated["gateway_key"]
     async with SessionLocal() as db:
-        delivered = (await db.get(Order, order["id"])).delivered_data
+        delivered = (await db.get(Order, order["id"], options=[undefer(Order.delivered_data)])).delivered_data
     assert new_key in delivered and order["key"] not in delivered
     assert (await client.post(f"/gw/{order['key']}/fb_collect", json={"url": POST_URL})).status_code == 401
 

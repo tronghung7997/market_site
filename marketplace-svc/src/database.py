@@ -1,5 +1,7 @@
 from collections.abc import AsyncGenerator
 
+from sqlalchemy import Integer, any_, literal
+from sqlalchemy.dialects.postgresql import ARRAY
 from sqlalchemy.ext.asyncio import AsyncSession, async_sessionmaker, create_async_engine
 from sqlalchemy.orm import DeclarativeBase
 
@@ -33,3 +35,10 @@ class Base(DeclarativeBase):
 async def get_session() -> AsyncGenerator[AsyncSession, None]:
     async with SessionLocal() as session:
         yield session
+
+
+def id_in(column, ids):
+    """``column IN ids`` sent as ONE int[] parameter (``= ANY($1)``). An expanded
+    IN list binds one parameter per id, and asyncpg rejects a query with more
+    than 32 767 of them (order lists, bulk stock actions)."""
+    return column == any_(literal(list(ids), ARRAY(Integer)))

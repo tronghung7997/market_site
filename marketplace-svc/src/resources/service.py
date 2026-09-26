@@ -4,11 +4,13 @@ from collections.abc import AsyncIterator
 from datetime import datetime
 
 from fastapi import status
-from sqlalchemy import and_, case, func, or_, select
+from sqlalchemy import and_, case, delete, func, inspect, or_, select, update
 from sqlalchemy.exc import IntegrityError
 from sqlalchemy.ext.asyncio import AsyncSession
+from sqlalchemy.orm import undefer
 
 from src.audit.service import log_event
+from src.database import id_in
 from src.exceptions import ErrorCode, NotOwner, ResourceUnavailable, api_error
 from src.logging import current_request_id
 from src.models.product import DeliveryMode, Product, ProductStatus, ProductVariant
@@ -121,6 +123,23 @@ async def bulk_add_resources(variant_id: int, seller_id: int, items: list[str], 
     }
 
 
+async def resource_data_by_id(resources: list[Resource], db: AsyncSession) -> dict[int, str]:
+    """`{resource_id: data}` for rows whose (deferred) content is needed: reuses
+    what the session already loaded and selects the rest in one query."""
+    values: dict[int, str] = {}
+    missing: list[int] = []
+    for resource in resources:
+        loaded = inspect(resource).dict
+        if "data" in loaded:
+            values[resource.id] = loaded["data"]
+        else:
+            missing.append(resource.id)
+    if missing:
+        rows = await db.execute(select(Resource.id, Resource.data).where(id_in(Resource.id, missing)))
+        values.update(dict(rows.all()))
+    return values
+
+
 async def with_order_codes(resources: list[Resource], db: AsyncSession) -> list[dict]:
     """Serialize resources for the seller console: the public code of the order
     they were sold on (never the id) and a masked preview instead of content."""
@@ -131,9 +150,10 @@ async def with_order_codes(resources: list[Resource], db: AsyncSession) -> list[
     if order_ids:
         rows = await db.execute(select(Order.id, Order.order_code).where(Order.id.in_(order_ids)))
         codes = dict(rows.all())
+    data = await resource_data_by_id(resources, db)
     return [
         {
-            "id": r.id, "variant_id": r.variant_id, "status": r.status, "data_preview": preview_data(r.data),
+            "id": r.id, "variant_id": r.variant_id, "status": r.status, "data_preview": preview_data(data[r.id]),
             "order_id": r.order_id, "order_code": codes.get(r.order_id) if r.order_id is not None else None,
             "assigned_at": r.assigned_at, "expires_at": r.expires_at, "created_at": r.created_at,
             "refund_amount_cap": r.refund_amount_cap, "is_archived": r.is_archived,
@@ -178,6 +198,7 @@ async def list_resources(
         .order_by(*order)
         .offset((page - 1) * per_page)
         .limit(per_page)
+        .options(undefer(Resource.data))  # masked preview per row
     )
     return list(result.scalars().all()), total
 
@@ -217,7 +238,7 @@ def seller_resource_filters(
 
 async def reveal_resource(resource_id: int, seller_id: int, db: AsyncSession) -> dict:
     """Full content of one stock line for its seller, recorded in the audit log."""
-    resource = await db.get(Resource, resource_id)
+    resource = await db.get(Resource, resource_id, options=[undefer(Resource.data)])
     if not resource:
         raise api_error(ErrorCode.RESOURCE_NOT_FOUND, status.HTTP_404_NOT_FOUND)
     await _verify_resource_ownership(resource, seller_id, db)
@@ -379,41 +400,40 @@ async def bulk_resource_action(
     if product.seller_id != seller_id:
         raise NotOwner()
 
+    # Lock and read only id/status/order_id: a "select all matching" click can
+    # cover 50 000 rows of up to 20 KB each, and the stock text is not needed.
+    locked = select(Resource.id, Resource.status, Resource.order_id).with_for_update(of=Resource)
     by_filter = match_filters is not None
     if by_filter:
-        result = await db.execute(
-            select(Resource).where(*match_filters).order_by(Resource.id)
-            .limit(BULK_ALL_MATCHING_LIMIT).with_for_update()
-        )
-        resources = list(result.scalars().all())
+        rows = (await db.execute(
+            locked.where(*match_filters).order_by(Resource.id).limit(BULK_ALL_MATCHING_LIMIT)
+        )).all()
         if action in ("archive", "delete"):
-            resources = [r for r in resources if r.status != ResourceStatus.assigned]
+            rows = [r for r in rows if r.status != ResourceStatus.assigned]
     else:
         resource_ids = resource_ids or []
-        result = await db.execute(
-            select(Resource).where(
-                Resource.id.in_(resource_ids),
-                Resource.variant_id == variant_id,
-            ).with_for_update()
-        )
-        resources = list(result.scalars().all())
-        if len(set(resource_ids)) != len(resource_ids) or len(resources) != len(resource_ids):
+        rows = (await db.execute(
+            locked.where(id_in(Resource.id, resource_ids), Resource.variant_id == variant_id)
+        )).all()
+        if len(set(resource_ids)) != len(resource_ids) or len(rows) != len(resource_ids):
             raise api_error(ErrorCode.RESOURCE_NOT_EDITABLE, status.HTTP_400_BAD_REQUEST)
-    affected_ids: list[int] = []
+    affected_ids = [r.id for r in rows]
 
     if action == "restore":
-        for r in resources:
-            r.is_archived = False
-            affected_ids.append(r.id)
+        if affected_ids:
+            await db.execute(update(Resource).where(id_in(Resource.id, affected_ids)).values(is_archived=False))
     elif action in ("archive", "delete"):
-        for r in resources:
-            if r.status == ResourceStatus.assigned:
-                raise api_error(ErrorCode.RESOURCE_NOT_DELETABLE, status.HTTP_400_BAD_REQUEST)
-            if action == "delete" and r.order_id is None and r.status == ResourceStatus.available:
-                await db.delete(r)
-            else:
-                r.is_archived = True
-            affected_ids.append(r.id)
+        if any(r.status == ResourceStatus.assigned for r in rows):
+            raise api_error(ErrorCode.RESOURCE_NOT_DELETABLE, status.HTTP_400_BAD_REQUEST)
+        deletable = {
+            r.id for r in rows
+            if action == "delete" and r.order_id is None and r.status == ResourceStatus.available
+        }
+        archived = [rid for rid in affected_ids if rid not in deletable]
+        if deletable:
+            await db.execute(delete(Resource).where(id_in(Resource.id, deletable)))
+        if archived:
+            await db.execute(update(Resource).where(id_in(Resource.id, archived)).values(is_archived=True))
 
     await log_event(
         db,
@@ -669,7 +689,7 @@ async def export_resources(
         while True:
             rows = list((await db.execute(
                 select(Resource).where(*filters, Resource.id > cursor)
-                .order_by(Resource.id).limit(1_000)
+                .order_by(Resource.id).limit(1_000).options(undefer(Resource.data))
             )).scalars())
             if not rows:
                 break
@@ -719,6 +739,7 @@ async def claim_resources(variant_id: int, quantity: int, db: AsyncSession, *, o
         # Oldest stock first (FIFO) — the same rule warranty replacements follow.
         .order_by(Resource.created_at, Resource.id)
         .limit(quantity)
+        .options(undefer(Resource.data))  # delivered to the buyer
         .with_for_update(skip_locked=True)
     )
     resources = list(result.scalars().all())
@@ -755,6 +776,7 @@ async def order_resources(order_id: int, account_id: int, db: AsyncSession) -> l
         raise api_error(ErrorCode.NOT_ORDER_OWNER, status.HTTP_403_FORBIDDEN)
     result = await db.execute(
         select(Resource).where(Resource.order_id == order_id).order_by(Resource.id)
+        .options(undefer(Resource.data))
     )
     return list(result.scalars().all())
 

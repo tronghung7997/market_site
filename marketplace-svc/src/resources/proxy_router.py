@@ -27,6 +27,7 @@ from src.auth.dependencies import get_current_account
 from src.database import get_session
 from src.exceptions import ErrorCode, api_error
 from src.models.account import Account
+from src.orders.delivery import delivered_data_of
 from src.models.order import Dispute, DisputeStatus, Order, OrderStatus
 from src.models.proxy_allocation import ProxyAllocation, ProxyAllocationStatus
 from src.resources.proxy_service import apply_rotated_assignment
@@ -157,7 +158,7 @@ async def rotate_proxy(
         # password-only rotates the other fields above don't capture (review
         # fixes docs/superpowers/plans/2026-07-22-dproxy-consolidated-review.md
         # P0 "Rotate cập nhật backend nhưng UI bàn giao bị stale").
-        "delivered_data": order.delivered_data,
+        "delivered_data": await delivered_data_of(order, db),
     }
 
 
@@ -334,5 +335,5 @@ async def set_proxy_whitelist(
         # proxy mới" sau, thay vì tưởng đã xong mà proxy vẫn câm.
         "applied": applied,
         "public_ip": allocation.last_public_ip,
-        "delivered_data": order.delivered_data,
+        "delivered_data": await delivered_data_of(order, db),
     }

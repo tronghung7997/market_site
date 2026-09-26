@@ -9,6 +9,7 @@ from unittest.mock import AsyncMock
 
 import pytest
 from sqlalchemy import select
+from sqlalchemy.orm import undefer
 
 from src.database import SessionLocal
 from src.models.order import Order, OrderStatus
@@ -83,7 +84,7 @@ async def _dproxy_line(client, monkeypatch, suffix: str, *, rotatable=True):
     })
     await provision_pending_order(order_id)
     async with SessionLocal() as db:
-        order = await db.get(Order, order_id)
+        order = await db.get(Order, order_id, options=[undefer(Order.delivered_data)])
         assert order.status == OrderStatus.delivered
     return buyer_token, order
 

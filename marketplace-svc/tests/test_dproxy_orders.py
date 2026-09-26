@@ -9,6 +9,7 @@ from unittest.mock import AsyncMock
 import httpx
 import pytest
 from sqlalchemy import func, select, update
+from sqlalchemy.orm import undefer
 
 from src.database import SessionLocal
 from src.models.order import Order, OrderStatus
@@ -266,7 +267,7 @@ class TestDProxyProvisioning:
         await provision_pending_order(order_id)
 
         async with SessionLocal() as db:
-            order = await db.get(Order, order_id)
+            order = await db.get(Order, order_id, options=[undefer(Order.delivered_data)])
             assert order.status == OrderStatus.delivered
             assert "s4.dproxy.info" in order.delivered_data
             assert "20160" in order.delivered_data
@@ -288,7 +289,7 @@ class TestDProxyProvisioning:
         await provision_pending_order(order_id)
 
         async with SessionLocal() as db:
-            order = await db.get(Order, order_id)
+            order = await db.get(Order, order_id, options=[undefer(Order.delivered_data)])
             assert order.status == OrderStatus.cancelled
 
     @pytest.mark.asyncio
@@ -310,7 +311,7 @@ class TestDProxyProvisioning:
         await provision_pending_order(order_id)
 
         async with SessionLocal() as db:
-            order = await db.get(Order, order_id)
+            order = await db.get(Order, order_id, options=[undefer(Order.delivered_data)])
             assert order.status == OrderStatus.cancelled
 
     @pytest.mark.asyncio
@@ -322,7 +323,7 @@ class TestDProxyProvisioning:
         await provision_pending_order(order_id)
 
         async with SessionLocal() as db:
-            order = await db.get(Order, order_id)
+            order = await db.get(Order, order_id, options=[undefer(Order.delivered_data)])
             assert order.status == OrderStatus.cancelled
 
     @pytest.mark.asyncio
@@ -334,7 +335,7 @@ class TestDProxyProvisioning:
         await provision_pending_order(order_id)
 
         async with SessionLocal() as db:
-            order = await db.get(Order, order_id)
+            order = await db.get(Order, order_id, options=[undefer(Order.delivered_data)])
             assert order.status == OrderStatus.cancelled
 
     @pytest.mark.asyncio
@@ -346,7 +347,7 @@ class TestDProxyProvisioning:
         await provision_pending_order(order_id)
 
         async with SessionLocal() as db:
-            order = await db.get(Order, order_id)
+            order = await db.get(Order, order_id, options=[undefer(Order.delivered_data)])
             # Left at pending — provision_sweep_job retries, only refunds past its deadline.
             assert order.status == OrderStatus.pending
 
@@ -359,7 +360,7 @@ class TestDProxyProvisioning:
         await provision_pending_order(order_id)
 
         async with SessionLocal() as db:
-            order = await db.get(Order, order_id)
+            order = await db.get(Order, order_id, options=[undefer(Order.delivered_data)])
             assert order.status == OrderStatus.delivered
             count = await db.scalar(
                 select(func.count()).select_from(ProxyAllocation).where(ProxyAllocation.order_id == order_id)
@@ -375,7 +376,7 @@ class TestDProxyProvisioning:
         await provision_pending_order(order_id)
 
         async with SessionLocal() as db:
-            order = await db.get(Order, order_id)
+            order = await db.get(Order, order_id, options=[undefer(Order.delivered_data)])
             assert order.provider_id == provider_id
 
     @pytest.mark.asyncio
@@ -408,7 +409,7 @@ class TestDProxyProvisioning:
         await asyncio.gather(*(provision_pending_order(oid) for oid in order_ids))
 
         async with SessionLocal() as db:
-            statuses = [(await db.get(Order, oid)).status.value for oid in order_ids]
+            statuses = [(await db.get(Order, oid, options=[undefer(Order.delivered_data)])).status.value for oid in order_ids]
         assert sorted(statuses) == ["cancelled", "delivered"]
 
     @pytest.mark.asyncio
@@ -462,7 +463,7 @@ class TestDProxyConfigStrategyProvisioning:
         await provision_pending_order(order_id)
 
         async with SessionLocal() as db:
-            order = await db.get(Order, order_id)
+            order = await db.get(Order, order_id, options=[undefer(Order.delivered_data)])
             assert order.status == OrderStatus.delivered
             assert "Host: 1.2.3.4" in order.delivered_data
             assert "Port: 20160" in order.delivered_data
@@ -494,7 +495,7 @@ class TestDProxyConfigStrategyProvisioning:
         await provision_pending_order(order_id)
 
         async with SessionLocal() as db:
-            order = await db.get(Order, order_id)
+            order = await db.get(Order, order_id, options=[undefer(Order.delivered_data)])
             assert order.status == OrderStatus.delivered
             count = await db.scalar(
                 select(func.count()).select_from(ProxyAllocation).where(ProxyAllocation.order_id == order_id)
@@ -516,7 +517,7 @@ class TestDProxyConfigStrategyProvisioning:
         await provision_pending_order(order_id)
 
         async with SessionLocal() as db:
-            order = await db.get(Order, order_id)
+            order = await db.get(Order, order_id, options=[undefer(Order.delivered_data)])
             assert order.status == OrderStatus.delivered
             count = await db.scalar(
                 select(func.count()).select_from(ProxyAllocation).where(ProxyAllocation.order_id == order_id)
@@ -541,7 +542,7 @@ class TestDProxyConfigStrategyProvisioning:
         await provision_pending_order(order_id)
 
         async with SessionLocal() as db:
-            order = await db.get(Order, order_id)
+            order = await db.get(Order, order_id, options=[undefer(Order.delivered_data)])
             assert order.status == OrderStatus.cancelled
 
     @pytest.mark.asyncio
@@ -553,7 +554,7 @@ class TestDProxyConfigStrategyProvisioning:
         await provision_pending_order(order_id)
 
         async with SessionLocal() as db:
-            order = await db.get(Order, order_id)
+            order = await db.get(Order, order_id, options=[undefer(Order.delivered_data)])
             assert order.status == OrderStatus.cancelled
 
     @pytest.mark.asyncio
@@ -580,7 +581,7 @@ class TestDProxyConfigStrategyProvisioning:
 
         assert len(calls) == 1  # không retry 4xx
         async with SessionLocal() as db:
-            order = await db.get(Order, order_id)
+            order = await db.get(Order, order_id, options=[undefer(Order.delivered_data)])
             assert order.status == OrderStatus.cancelled
             alert = await db.scalar(select(Alert).where(
                 Alert.type == "provision_operational", Alert.target_id == order_id,
@@ -599,7 +600,7 @@ class TestDProxyConfigStrategyProvisioning:
         _patch_dproxy_http(monkeypatch, _resp(200, body))
         await provision_pending_order(order_id)
         async with SessionLocal() as db:
-            order = await db.get(Order, order_id)
+            order = await db.get(Order, order_id, options=[undefer(Order.delivered_data)])
             assert order.status == OrderStatus.cancelled
             assert await db.scalar(
                 select(func.count()).select_from(ProxyAllocation).where(ProxyAllocation.order_id == order_id)
@@ -621,14 +622,14 @@ class TestDProxyConfigStrategyProvisioning:
         ])
         await provision_pending_order(order_id)  # 3 attempts, all timeout
         async with SessionLocal() as db:
-            order = await db.get(Order, order_id)
+            order = await db.get(Order, order_id, options=[undefer(Order.delivered_data)])
             assert order.status == OrderStatus.pending
         assert len(calls) == 3
         assert {c["json"]["partner_order_id"] for c in calls} == {f"{PREFIX}{order_id}"}
 
         await provision_pending_order(order_id)  # sweep retry → replay
         async with SessionLocal() as db:
-            order = await db.get(Order, order_id)
+            order = await db.get(Order, order_id, options=[undefer(Order.delivered_data)])
             assert order.status == OrderStatus.delivered
             assert await db.scalar(
                 select(func.count()).select_from(ProxyAllocation).where(ProxyAllocation.order_id == order_id)
@@ -647,7 +648,7 @@ class TestDProxyConfigStrategyProvisioning:
         await provision_pending_order(order_id)
         assert calls == []
         async with SessionLocal() as db:
-            order = await db.get(Order, order_id)
+            order = await db.get(Order, order_id, options=[undefer(Order.delivered_data)])
             assert order.status == OrderStatus.cancelled
             alert = await db.scalar(select(Alert).where(
                 Alert.type == "provision_operational", Alert.target_id == order_id,

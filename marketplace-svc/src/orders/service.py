@@ -3,18 +3,19 @@ from datetime import datetime, timedelta, timezone
 
 import structlog
 from fastapi import status
-from sqlalchemy import Integer, any_, case, func, literal, or_, select
-from sqlalchemy.dialects.postgresql import ARRAY
+from sqlalchemy import case, func, or_, select
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from src.adapters.compatibility import check_compatibility
 from src.adapters.factory import get_adapter
 from src.adapters.registry import get_spec
 from src.config import settings
-from src.database import SessionLocal
+from src.database import SessionLocal, id_in
 from src.gateway.service import mint_gateway_key
 from src.models.account import Account
 from src.models.order import Dispute, DisputeStatus, Order, OrderStatus
+from src.orders.constants import MAX_ORDER_QUANTITY
+from src.orders.delivery import delivered_data_by_order
 from src.models.provider import Provider
 from src.models.resource import Resource
 from src.models.product import DeliveryMode, Product, ProductStatus, ProductVariant
@@ -317,6 +318,10 @@ async def create_order_with_adapter(
     # sẽ thu tiền N mà giao 1. Chặn ở đây, trước khi trừ ví hay tạo order row,
     # không chỉ giấu trên frontend (review fixes
     # docs/superpowers/plans/2026-07-22-dproxy-consolidated-review.md P0#1).
+    # Marketplace-wide cap, same as the variant path (OrderCreate): a line can be
+    # 20 KB, so an uncapped quantity is an uncapped delivery for one order.
+    if q.quantity > MAX_ORDER_QUANTITY:
+        raise api_error(ErrorCode.ORDER_QUANTITY_LIMIT, status.HTTP_400_BAD_REQUEST, max=MAX_ORDER_QUANTITY)
     provider_for_quantity_check = await db.get(Provider, product.provider_id)
     quantity_spec = get_spec(
         provider_for_quantity_check.adapter_type if provider_for_quantity_check else None
@@ -564,14 +569,9 @@ async def confirm_order(order_id: int, buyer_id: int, db: AsyncSession) -> Order
     return order
 
 
-def _id_in(column, ids):
-    """``column IN ids`` sent as ONE array parameter (``= ANY($1)``). An expanded
-    IN list binds one parameter per id, and the admin order list enriches every
-    order: past 32 767 ids asyncpg rejects the query."""
-    return column == any_(literal(list(ids), ARRAY(Integer)))
-
-
-async def _enrich_orders(orders: list[Order], db: AsyncSession, *, viewer: str = "admin") -> list[dict]:
+async def _enrich_orders(
+    orders: list[Order], db: AsyncSession, *, viewer: str = "admin", include_delivery: bool = True,
+) -> list[dict]:
     """Orders ORM → dicts with product/variant names + buyer/seller emails for display.
 
     ``viewer`` decides how much of the counterparty is exposed:
@@ -589,33 +589,34 @@ async def _enrich_orders(orders: list[Order], db: AsyncSession, *, viewer: str =
     variants: dict[int, ProductVariant] = {}
     variant_ids = {o.variant_id for o in orders if o.variant_id}
     if variant_ids:
-        rows = await db.execute(select(ProductVariant).where(_id_in(ProductVariant.id, variant_ids)))
+        rows = await db.execute(select(ProductVariant).where(id_in(ProductVariant.id, variant_ids)))
         variants = {v.id: v for v in rows.scalars()}
 
     products: dict[int, Product] = {}
     product_ids = {o.product_id for o in orders if o.product_id}
     product_ids |= {v.product_id for v in variants.values()}
     if product_ids:
-        rows = await db.execute(select(Product).where(_id_in(Product.id, product_ids)))
+        rows = await db.execute(select(Product).where(id_in(Product.id, product_ids)))
         products = {p.id: p for p in rows.scalars()}
 
     accounts: dict[int, Account] = {}
     account_ids = {o.buyer_id for o in orders} | {o.seller_id for o in orders}
     if account_ids:
-        rows = await db.execute(select(Account).where(_id_in(Account.id, account_ids)))
+        rows = await db.execute(select(Account).where(id_in(Account.id, account_ids)))
         accounts = {a.id: a for a in rows.scalars()}
     seller_ids = {o.seller_id for o in orders}
     seller_names = await approved_business_names(list(seller_ids), db) if viewer == "buyer" else {}
     seller_refs = await seller_refs_by_id(seller_ids, db) if viewer == "buyer" else {}
 
     order_ids = [o.id for o in orders]
+    delivery = await delivered_data_by_order(orders, db) if include_delivery else {}
     reviewed = set(
-        (await db.execute(select(Review.order_id).where(_id_in(Review.order_id, order_ids)))).scalars()
+        (await db.execute(select(Review.order_id).where(id_in(Review.order_id, order_ids)))).scalars()
     )
     review_window_days = await get_review_window_days(db)
     dispute_rows = (await db.execute(
         select(Dispute.order_id, Dispute.status, Dispute.created_at, Dispute.review_requested_at, Dispute.seller_note)
-        .where(_id_in(Dispute.order_id, order_ids))
+        .where(id_in(Dispute.order_id, order_ids))
         .order_by(Dispute.created_at.desc())
     )).all()
     latest_dispute_status: dict[int, str] = {}
@@ -631,7 +632,7 @@ async def _enrich_orders(orders: list[Order], db: AsyncSession, *, viewer: str =
     open_disputes = {order_id for order_id, status_value in latest_dispute_status.items() if status_value == DisputeStatus.open.value}
     appendable_claim_orders = await orders_with_appendable_claims(list(open_disputes), db)
     task_rows = (await db.execute(
-        select(ServiceTask.order_id, ServiceTask.status).where(_id_in(ServiceTask.order_id, order_ids))
+        select(ServiceTask.order_id, ServiceTask.status).where(id_in(ServiceTask.order_id, order_ids))
     )).all()
     task_progress: dict[int, dict[str, int]] = {}
     for task_order_id, task_status in task_rows:
@@ -676,8 +677,8 @@ async def _enrich_orders(orders: list[Order], db: AsyncSession, *, viewer: str =
             "quantity": order.quantity,
             "total_amount": order.total_amount, "status": order.status,
             "display_fx_rate_snapshot": order.display_fx_rate_snapshot,
-            "escrow_expires_at": order.escrow_expires_at, "delivered_data": order.delivered_data,
-            "gateway_access": _gateway_access_from_delivery_data(order.delivered_data),
+            "escrow_expires_at": order.escrow_expires_at, "delivered_data": delivery.get(order.id),
+            "gateway_access": _gateway_access_from_delivery_data(delivery.get(order.id)),
             "cancel_reason": order.cancel_reason,
             "created_at": order.created_at,
             "product_title": product.title if product else None,
@@ -715,9 +716,16 @@ async def _enrich_orders(orders: list[Order], db: AsyncSession, *, viewer: str =
     return out
 
 
+async def order_view(order: Order, db: AsyncSession, *, viewer: str) -> dict:
+    """The single-order payload (`OrderResponse`) for an order a handler just
+    changed: the same shape `GET /orders/{ref}` returns. `delivered_data` is
+    deferred, so an ORM `Order` cannot be serialized directly."""
+    return await _enrich_order(order, db, viewer=viewer)
+
+
 async def _enrich_order(order: Order, db: AsyncSession, *, viewer: str = "admin") -> dict:
     """Order ORM → dict with product/variant names + buyer/seller emails for display."""
-    return (await _enrich_orders([order], db, viewer=viewer))[0]
+    return (await _enrich_orders([order], db, viewer=viewer, include_delivery=True))[0]
 
 
 def _counterparty_fields(viewer: str, buyer: Account | None, seller: Account | None, seller_business_name: str | None, seller_ref: dict) -> dict:

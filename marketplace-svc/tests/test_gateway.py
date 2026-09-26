@@ -13,6 +13,7 @@ from unittest.mock import AsyncMock
 import httpx
 import pytest
 from sqlalchemy import select, update
+from sqlalchemy.orm import undefer
 
 from src.database import SessionLocal
 from src.models.order import Order, OrderStatus
@@ -154,7 +155,7 @@ class TestSellerGateway:
         order_id = await _buy_and_deliver(client, buyer_token, product_id, 5, monkeypatch)
 
         async with SessionLocal() as db:
-            order = await db.get(Order, order_id)
+            order = await db.get(Order, order_id, options=[undefer(Order.delivered_data)])
             assert order.status == OrderStatus.delivered
             assert order.gateway_key_hash is not None
             assert "gateway_key=" in order.delivered_data
@@ -180,7 +181,7 @@ class TestSellerGateway:
         order_id = await _buy_and_deliver(client, buyer_token, product_id, 3, monkeypatch)
 
         async with SessionLocal() as db:
-            order = await db.get(Order, order_id)
+            order = await db.get(Order, order_id, options=[undefer(Order.delivered_data)])
             gateway_key = _extract_gateway_key(order.delivered_data)
 
         calls = _patch_seller_http(monkeypatch, _ok({"query": "hello", "results": ["a", "b"]}))
@@ -207,7 +208,7 @@ class TestSellerGateway:
         buyer_token, _, product_id = await setup_credit_gateway_product(client)
         order_id = await _buy_and_deliver(client, buyer_token, product_id, 3, monkeypatch)
         async with SessionLocal() as db:
-            order = await db.get(Order, order_id)
+            order = await db.get(Order, order_id, options=[undefer(Order.delivered_data)])
             gateway_key = _extract_gateway_key(order.delivered_data)
 
         checked_out_during_upstream: list[int] = []
@@ -235,7 +236,7 @@ class TestSellerGateway:
         order_id = await _buy_and_deliver(client, buyer_token, product_id, 2, monkeypatch)
 
         async with SessionLocal() as db:
-            order = await db.get(Order, order_id)
+            order = await db.get(Order, order_id, options=[undefer(Order.delivered_data)])
             gateway_key = _extract_gateway_key(order.delivered_data)
 
         calls = _patch_seller_http(monkeypatch, [_ok({"echo": "x"}), _ok({"echo": "x"})])
@@ -263,7 +264,7 @@ class TestSellerGateway:
         buyer_token, admin_token, product_id = await setup_credit_gateway_product(client)
         order_id = await _buy_and_deliver(client, buyer_token, product_id, 5, monkeypatch)
         async with SessionLocal() as db:
-            order = await db.get(Order, order_id)
+            order = await db.get(Order, order_id, options=[undefer(Order.delivered_data)])
             gateway_key = _extract_gateway_key(order.delivered_data)
 
         calls = _patch_seller_http(monkeypatch, [_ok({"ok": True}), _ok({"ok": True})])
@@ -282,7 +283,7 @@ class TestSellerGateway:
         assert refund_resp.status_code == 200, refund_resp.text
 
         async with SessionLocal() as db:
-            order = await db.get(Order, order_id)
+            order = await db.get(Order, order_id, options=[undefer(Order.delivered_data)])
             assert order.status == OrderStatus.refunded
 
         resp = await client.get(f"/gw/{gateway_key}/search", params={"q": "2"})
@@ -297,7 +298,7 @@ class TestSellerGateway:
         order_id = await _buy_and_deliver(client, buyer_token, product_id, 3, monkeypatch)
 
         async with SessionLocal() as db:
-            order = await db.get(Order, order_id)
+            order = await db.get(Order, order_id, options=[undefer(Order.delivered_data)])
             gateway_key = _extract_gateway_key(order.delivered_data)
 
         # 3 attempts (RealApiAdapter retries) all fail the same way.
@@ -314,7 +315,7 @@ class TestSellerGateway:
         buyer_token, _, product_id = await setup_credit_gateway_product(client)
         order_id = await _buy_and_deliver(client, buyer_token, product_id, 3, monkeypatch)
         async with SessionLocal() as db:
-            order = await db.get(Order, order_id)
+            order = await db.get(Order, order_id, options=[undefer(Order.delivered_data)])
             gateway_key = _extract_gateway_key(order.delivered_data)
 
         _patch_seller_http(monkeypatch, [httpx.ConnectTimeout("timed out")] * 3)
@@ -333,7 +334,7 @@ class TestSellerGateway:
         buyer_token, _, product_id = await setup_credit_gateway_product(client)
         order_id = await _buy_and_deliver(client, buyer_token, product_id, 3, monkeypatch)
         async with SessionLocal() as db:
-            order = await db.get(Order, order_id)
+            order = await db.get(Order, order_id, options=[undefer(Order.delivered_data)])
             gateway_key = _extract_gateway_key(order.delivered_data)
 
         calls = _patch_seller_http(monkeypatch, [_ok({"ok": True})])
@@ -356,7 +357,7 @@ class TestSellerGateway:
         buyer_token, _, product_id = await setup_credit_gateway_product(client)
         order_id = await _buy_and_deliver(client, buyer_token, product_id, 3, monkeypatch)
         async with SessionLocal() as db:
-            order = await db.get(Order, order_id)
+            order = await db.get(Order, order_id, options=[undefer(Order.delivered_data)])
             gateway_key = _extract_gateway_key(order.delivered_data)
 
         calls = _patch_seller_http(monkeypatch, [_ok({"ok": True})])
@@ -374,7 +375,7 @@ class TestSellerGateway:
         buyer_token, admin_token, product_id = await setup_credit_gateway_product(client)
         order_id = await _buy_and_deliver(client, buyer_token, product_id, 3, monkeypatch)
         async with SessionLocal() as db:
-            order = await db.get(Order, order_id)
+            order = await db.get(Order, order_id, options=[undefer(Order.delivered_data)])
             gateway_key = _extract_gateway_key(order.delivered_data)
             original_provider_id = order.provider_id
 
@@ -477,7 +478,7 @@ class TestSellerTaskWebhook:
         await provision_pending_order(order_id)
 
         async with SessionLocal() as db:
-            order = await db.get(Order, order_id)
+            order = await db.get(Order, order_id, options=[undefer(Order.delivered_data)])
             assert order.status == OrderStatus.processing
 
             tasks = (await db.execute(
@@ -521,7 +522,7 @@ class TestSellerTaskWebhook:
         assert resp.json()["order_status"] == "delivered"
 
         async with SessionLocal() as db:
-            order = await db.get(Order, order_id)
+            order = await db.get(Order, order_id, options=[undefer(Order.delivered_data)])
             assert order.status == OrderStatus.delivered
             assert order.escrow_expires_at is not None
 
@@ -596,7 +597,7 @@ class TestSellerTaskWebhookAllSubmissionsFail:
         await provision_pending_order(order_id)
 
         async with SessionLocal() as db:
-            order = await db.get(Order, order_id)
+            order = await db.get(Order, order_id, options=[undefer(Order.delivered_data)])
             assert order.status == OrderStatus.cancelled, (
                 "with zero tasks submitted, no webhook can ever arrive — the order "
                 "must be cancelled immediately instead of stuck at 'processing' forever"
@@ -684,7 +685,7 @@ class TestCredentialNeverLeaksToBuyer:
         assert "gwk_live_" in blob, "buyer must still see their own gateway key on their own order"
 
         async with SessionLocal() as db:
-            order = await db.get(Order, order_id)
+            order = await db.get(Order, order_id, options=[undefer(Order.delivered_data)])
             gateway_key = _extract_gateway_key(order.delivered_data)
 
         calls = _patch_seller_http(monkeypatch, _ok({"query": "hello", "results": ["a"]}))
@@ -721,7 +722,7 @@ class TestConcurrency:
         buyer_token, _, product_id = await setup_credit_gateway_product(client)
         order_id = await _buy_and_deliver(client, buyer_token, product_id, 1, monkeypatch)
         async with SessionLocal() as db:
-            order = await db.get(Order, order_id)
+            order = await db.get(Order, order_id, options=[undefer(Order.delivered_data)])
             gateway_key = _extract_gateway_key(order.delivered_data)
 
         _patch_seller_http(monkeypatch, [_ok({"echo": "x"}), _ok({"echo": "x"})])
@@ -781,7 +782,7 @@ class TestConcurrency:
         )
 
         async with SessionLocal() as db:
-            order = await db.get(Order, order_id)
+            order = await db.get(Order, order_id, options=[undefer(Order.delivered_data)])
             assert order.status == OrderStatus.delivered
             assert order.escrow_expires_at is not None
 
@@ -819,7 +820,7 @@ class TestUsageLedgerReconciliation:
         buyer_token, _, product_id = await setup_credit_gateway_product(client)
         order_id = await _buy_and_deliver(client, buyer_token, product_id, 5, monkeypatch)
         async with SessionLocal() as db:
-            order = await db.get(Order, order_id)
+            order = await db.get(Order, order_id, options=[undefer(Order.delivered_data)])
             gateway_key = _extract_gateway_key(order.delivered_data)
 
         # 2 successful calls, then 1 that fails outright (refunded).
@@ -859,7 +860,7 @@ class TestSellerNonSuccessResponsePolicy:
         buyer_token, _, product_id = await setup_credit_gateway_product(client)
         order_id = await _buy_and_deliver(client, buyer_token, product_id, 3, monkeypatch)
         async with SessionLocal() as db:
-            order = await db.get(Order, order_id)
+            order = await db.get(Order, order_id, options=[undefer(Order.delivered_data)])
             gateway_key = _extract_gateway_key(order.delivered_data)
 
         _patch_seller_http(monkeypatch, [_ok({"error": "invalid query"}, status=400)])
@@ -892,7 +893,7 @@ class TestGatewayGenericity:
         buyer_token, _, product_id = await setup_credit_gateway_product(client, suffix="_g1")
         order_id = await _buy_and_deliver(client, buyer_token, product_id, 3, monkeypatch)
         async with SessionLocal() as db:
-            order = await db.get(Order, order_id)
+            order = await db.get(Order, order_id, options=[undefer(Order.delivered_data)])
             gateway_key = _extract_gateway_key(order.delivered_data)
 
         calls = _patch_seller_http(monkeypatch, _ok({"ok": True}))
@@ -914,7 +915,7 @@ class TestGatewayGenericity:
         )
         order_id = await _buy_and_deliver(client, buyer_token, product_id, 3, monkeypatch)
         async with SessionLocal() as db:
-            order = await db.get(Order, order_id)
+            order = await db.get(Order, order_id, options=[undefer(Order.delivered_data)])
             gateway_key = _extract_gateway_key(order.delivered_data)
 
         calls = _patch_seller_http(monkeypatch, _ok({"ok": True}))
@@ -931,7 +932,7 @@ class TestGatewayGenericity:
         )
         order_id = await _buy_and_deliver(client, buyer_token, product_id, 3, monkeypatch)
         async with SessionLocal() as db:
-            order = await db.get(Order, order_id)
+            order = await db.get(Order, order_id, options=[undefer(Order.delivered_data)])
             gateway_key = _extract_gateway_key(order.delivered_data)
 
         calls = _patch_seller_http(monkeypatch, _ok({"ok": True}))
@@ -954,7 +955,7 @@ class TestGatewayGenericity:
         )
         order_id = await _buy_and_deliver(client, buyer_token, product_id, 20, monkeypatch)
         async with SessionLocal() as db:
-            order = await db.get(Order, order_id)
+            order = await db.get(Order, order_id, options=[undefer(Order.delivered_data)])
             gateway_key = _extract_gateway_key(order.delivered_data)
             balance = await db.scalar(select(OrderBalance).where(OrderBalance.order_id == order_id))
             assert balance.endpoint_rates == {"search": 1, "scrape": 5}
@@ -981,7 +982,7 @@ class TestGatewayKeyLifecycle:
         buyer_token, _, product_id = await setup_credit_gateway_product(client, suffix="_r1")
         order_id = await _buy_and_deliver(client, buyer_token, product_id, 5, monkeypatch)
         async with SessionLocal() as db:
-            order = await db.get(Order, order_id)
+            order = await db.get(Order, order_id, options=[undefer(Order.delivered_data)])
             old_key = _extract_gateway_key(order.delivered_data)
 
         resp = await client.post(f"/orders/{order_id}/gateway-key/rotate",
@@ -1014,7 +1015,7 @@ class TestGatewayKeyLifecycle:
         buyer_token, admin_token, product_id = await setup_credit_gateway_product(client, suffix="_r3")
         order_id = await _buy_and_deliver(client, buyer_token, product_id, 5, monkeypatch)
         async with SessionLocal() as db:
-            order = await db.get(Order, order_id)
+            order = await db.get(Order, order_id, options=[undefer(Order.delivered_data)])
             key = _extract_gateway_key(order.delivered_data)
 
         resp = await client.post(f"/admin/orders/{order_id}/gateway-key/revoke",
@@ -1058,7 +1059,7 @@ class TestGatewayRateLimit:
         buyer_token, _, product_id = await setup_credit_gateway_product(client, suffix="_rl1")
         order_id = await _buy_and_deliver(client, buyer_token, product_id, 50, monkeypatch)
         async with SessionLocal() as db:
-            order = await db.get(Order, order_id)
+            order = await db.get(Order, order_id, options=[undefer(Order.delivered_data)])
             gateway_key = _extract_gateway_key(order.delivered_data)
 
         calls = _patch_seller_http(monkeypatch, [_ok({"ok": True})] * 3)
@@ -1111,7 +1112,7 @@ class TestTaskWebhookSlaSweep:
         await provision_pending_order(order_id)
 
         async with SessionLocal() as db:
-            order = await db.get(Order, order_id)
+            order = await db.get(Order, order_id, options=[undefer(Order.delivered_data)])
             assert order.status == OrderStatus.processing
             order.created_at = datetime.now(timezone.utc) - timedelta(hours=49)
             await db.commit()
@@ -1119,7 +1120,7 @@ class TestTaskWebhookSlaSweep:
         await task_webhook_sla_job()
 
         async with SessionLocal() as db:
-            order = await db.get(Order, order_id)
+            order = await db.get(Order, order_id, options=[undefer(Order.delivered_data)])
             assert order.status == OrderStatus.cancelled
             tasks = (await db.execute(
                 select(ServiceTask).where(ServiceTask.order_id == order_id)
@@ -1151,7 +1152,7 @@ class TestTaskWebhookSlaSweep:
         await task_webhook_sla_job()  # order is brand new — must not be touched
 
         async with SessionLocal() as db:
-            order = await db.get(Order, order_id)
+            order = await db.get(Order, order_id, options=[undefer(Order.delivered_data)])
             assert order.status == OrderStatus.processing
 
     @pytest.mark.asyncio
@@ -1168,7 +1169,7 @@ class TestTaskWebhookSlaSweep:
         order_id = order["id"]
 
         async with SessionLocal() as db:
-            db_order = await db.get(Order, order_id)
+            db_order = await db.get(Order, order_id, options=[undefer(Order.delivered_data)])
             assert db_order.status == OrderStatus.processing
             db_order.created_at = datetime.now(timezone.utc) - timedelta(hours=100)
             await db.commit()
@@ -1176,7 +1177,7 @@ class TestTaskWebhookSlaSweep:
         await task_webhook_sla_job()
 
         async with SessionLocal() as db:
-            db_order = await db.get(Order, order_id)
+            db_order = await db.get(Order, order_id, options=[undefer(Order.delivered_data)])
             assert db_order.status == OrderStatus.processing, "ManualAdapter orders are out of scope for this job"
 
 
@@ -1254,7 +1255,7 @@ class TestSellerOwnedProviderSSRFGuardAtCallTime:
             provider.config = {**provider.config, "base_url": "https://169.254.169.254"}
             await db.commit()
 
-            order = await db.get(Order, order_id)
+            order = await db.get(Order, order_id, options=[undefer(Order.delivered_data)])
             gateway_key = _extract_gateway_key(order.delivered_data)
             balance_before = await db.scalar(select(OrderBalance).where(OrderBalance.order_id == order_id))
             units_used_before = balance_before.units_used
@@ -1280,7 +1281,7 @@ class TestSellerOwnedProviderSSRFGuardAtCallTime:
         )
 
         async with SessionLocal() as db:
-            order = await db.get(Order, order_id)
+            order = await db.get(Order, order_id, options=[undefer(Order.delivered_data)])
             gateway_key = _extract_gateway_key(order.delivered_data)
 
         calls = _patch_seller_http(monkeypatch, _ok({"query": "hello"}))

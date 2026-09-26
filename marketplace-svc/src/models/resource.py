@@ -47,7 +47,9 @@ class Resource(Base):
     variant_id: Mapped[int] = mapped_column(ForeignKey("product_variants.id"), nullable=False)
     seller_id: Mapped[int] = mapped_column(ForeignKey("accounts.id"), nullable=False)
     status: Mapped[ResourceStatus] = mapped_column(Enum(ResourceStatus), default=ResourceStatus.available)
-    data: Mapped[str] = mapped_column(EncryptedText, nullable=False)
+    # Up to 20 000 chars, decrypted on load: never loaded with the row. Select it
+    # explicitly (undefer / select(Resource.data)) only where the line is used.
+    data: Mapped[str] = mapped_column(EncryptedText, nullable=False, deferred=True, deferred_raiseload=True)
     # Keyed HMAC of the normalised content, unique across the whole marketplace
     # so one credential can only ever be listed and sold once.
     data_hash: Mapped[str] = mapped_column(String(64), nullable=False, unique=True)

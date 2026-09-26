@@ -224,7 +224,7 @@ Nguồn đầy đủ: `marketplace-svc/.env.example` và `marketplace-svc/src/co
 | `REDIS_URL` | Redis URL; mặc định local `redis://localhost:6379` |
 | `DB_POOL_SIZE`, `DB_MAX_OVERFLOW`, `DB_POOL_TIMEOUT_SECONDS`, `DB_POOL_RECYCLE_SECONDS` | Pool kết nối PostgreSQL của mỗi process (mặc định 10 / 20 / 10 s / 1800 s). Web, scheduler và background task dùng chung pool; giữ `(DB_POOL_SIZE + DB_MAX_OVERFLOW) × số process` dưới `max_connections` của PostgreSQL (mặc định 100) |
 | `DB_IDLE_IN_TRANSACTION_TIMEOUT_SECONDS` | PostgreSQL đóng session ngồi yên trong transaction quá thời gian này (mặc định 900 s, `0` = tắt). Lưới an toàn chống rò session giữ connection và row lock; phải lớn hơn lời gọi provider dài nhất khi đang mở transaction |
-| `PROVISION_MAX_CONCURRENCY` | Số lượt provision nền chạy đồng thời mỗi process (mặc định 4). Mỗi lượt giữ row lock của đơn và tối đa 2 connection trong lúc gọi provider; đơn dư chờ lượt, quá 15 phút thì sweep hoàn tiền |
+| `PROVISION_MAX_CONCURRENCY` | Số lượt provision nền chạy đồng thời mỗi process (mặc định 4). Mỗi lượt giữ row lock của đơn và tối đa 2 connection trong lúc gọi provider; đơn dư chờ lượt. Đơn adapter kẹt `pending` quá 15 phút được `provision_sweep_job` hoàn tiền; riêng đơn nguồn catalog (igbm, có `variant_id`) hiện chưa được sweep và chỉ được `sla_check_job` hoàn sau `sla_hours` của gói |
 | `SEARCH_QUERY_LOG_RETENTION_DAYS` | Số ngày giữ `search_query_log` (mặc định 90); log truy vấn được gom trong process và ghi theo lô |
 | `JWT_SECRET` | Bắt buộc, unique, tối thiểu 32 byte |
 | `INTERNAL_API_KEY` | Bắt buộc, khác JWT secret, tối thiểu 32 byte |
@@ -257,7 +257,7 @@ Nguồn đầy đủ: `frontend/.env.example` và `frontend/next.config.mjs`.
 | `BFF_REQUEST_SIGNING_SECRET` | Bắt buộc, server-only; phải khớp backend và không dùng tiền tố `NEXT_PUBLIC_` |
 | `NEXT_PUBLIC_ENABLE_DEMO_TOPUP` | Chỉ opt-in development; production luôn bị tắt |
 | `ADMIN_ALLOWED_IPS` | Optional server-side admin network gate |
-| `ADMIN_CLIENT_IP_HEADER` | Header do trusted edge proxy ghi đè |
+| `ADMIN_CLIENT_IP_HEADER` | Header do trusted edge proxy ghi đè (không nối thêm). Cấu hình edge và các bước khôi phục rate-limit: [`docs/edge-client-ip.md`](docs/edge-client-ip.md) |
 | `TIKTOK_LOOKUP_API_URL`, `LOOKUP_API_KEY` | Server-side social lookup integration |
 
 `NEXT_PUBLIC_API_URL` không phải đường bypass BFF: browser client hiện cố định same-origin `/api`.

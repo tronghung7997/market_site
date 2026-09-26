@@ -1,8 +1,9 @@
 """Re-encrypt provider credentials and stock content after ENCRYPTION_KEY rotation.
 
-Stock lines (`resources.data`) are Fernet-encrypted and their `data_hash` /
-`data_lookup` are HMACs under subkeys of the same key, so every row is
-re-encrypted and re-keyed in the same transaction as the providers.
+Stock lines (`resources.data`) and delivered texts (`orders.delivered_data`)
+are Fernet-encrypted, and `data_hash` / `data_lookup` are HMACs under subkeys
+of the same key, so every row is re-encrypted and re-keyed in the same
+transaction as the providers.
 
 Usage:
   OLD_ENCRYPTION_KEY=... uv run python scripts/rotate_encryption_key.py
@@ -79,11 +80,15 @@ async def rotate(*, apply: bool) -> None:
         resources = await _rotate_resources(db, old_fernet, old_secret)
         if resources["undecryptable"]:
             invalid_ciphertexts.extend(("resource", str(rid)) for rid in resources["undecryptable"][:20])
+        orders = await _rotate_order_deliveries(db, old_fernet)
+        if orders["undecryptable"]:
+            invalid_ciphertexts.extend(("order", str(oid)) for oid in orders["undecryptable"][:20])
 
         if invalid_ciphertexts:
             await db.rollback()
             locations = ", ".join(
-                f"resource={key}" if pid == "resource" else f"provider={pid}:{key}" for pid, key in invalid_ciphertexts
+                f"{pid}={key}" if pid in ("resource", "order") else f"provider={pid}:{key}"
+                for pid, key in invalid_ciphertexts
             )
             raise SystemExit(f"Aborted: ciphertext cannot be decrypted ({locations})")
         if apply:
@@ -96,7 +101,8 @@ async def rotate(*, apply: bool) -> None:
         f"{mode}: providers_changed={providers_changed} fields_rotated={fields_rotated} "
         f"plaintext_fields_encrypted={plaintext_fields_encrypted} "
         f"fields_already_current={fields_already_current} "
-        f"resources_rotated={resources['rotated']} resources_already_current={resources['current']}"
+        f"resources_rotated={resources['rotated']} resources_already_current={resources['current']} "
+        f"order_deliveries_rotated={orders['rotated']} order_deliveries_already_current={orders['current']}"
     )
 
 
@@ -146,6 +152,43 @@ async def _rotate_resources(db, old_fernet: Fernet, old_secret: str) -> dict:  #
                 text("UPDATE resources SET data = :data, data_hash = :data_hash, data_lookup = :data_lookup WHERE id = :id"),
                 updates,
             )
+            stats["rotated"] += len(updates)
+        cursor = rows[-1][0]
+
+
+ORDER_BATCH = 20  # delivered texts can be tens of MB each
+
+
+async def _rotate_order_deliveries(db, old_fernet: Fernet) -> dict:  # noqa: ANN001
+    """`orders.delivered_data` (EncryptedText since ge1a2b3c4d5e6). Raw SQL for
+    the same reason as resources."""
+    stats = {"rotated": 0, "current": 0, "undecryptable": []}
+    cursor = 0
+    while True:
+        rows = (await db.execute(
+            text(
+                "SELECT id, delivered_data FROM orders WHERE id > :cursor AND delivered_data IS NOT NULL "
+                "ORDER BY id LIMIT :limit"
+            ),
+            {"cursor": cursor, "limit": ORDER_BATCH},
+        )).all()
+        if not rows:
+            return stats
+        updates = []
+        for order_id, value in rows:
+            if is_encrypted(value):
+                stats["current"] += 1
+                continue
+            try:
+                plain = old_fernet.decrypt(value.encode()).decode()
+            except (InvalidToken, ValueError, UnicodeDecodeError):
+                if value.startswith(FERNET_PREFIX):
+                    stats["undecryptable"].append(order_id)
+                    continue
+                plain = value  # never encrypted (pre-migration row)
+            updates.append({"id": order_id, "value": encrypt_str(plain)})
+        if updates:
+            await db.execute(text("UPDATE orders SET delivered_data = :value WHERE id = :id"), updates)
             stats["rotated"] += len(updates)
         cursor = rows[-1][0]
 

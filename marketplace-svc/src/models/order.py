@@ -6,6 +6,7 @@ from sqlalchemy.dialects.postgresql import JSONB
 from sqlalchemy.orm import Mapped, mapped_column
 
 from src.database import Base
+from src.models.resource import EncryptedText
 from src.orders.codes import new_order_code
 
 
@@ -65,9 +66,11 @@ class Order(Base):
     escrow_expires_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True), nullable=True)
     # Delivered text for orders that deliver text (proxies, gateway keys, manual
     # deliveries); stock orders keep their lines in `resources` only (older
-    # orders may still hold a copy, ignored by readers). Never loaded with the
-    # row: read it through src.orders.delivery.
-    delivered_data: Mapped[str | None] = mapped_column(Text, nullable=True, deferred=True, deferred_raiseload=True)
+    # orders may still hold a copy, ignored by readers). Encrypted at rest and
+    # never loaded with the row: read it through src.orders.delivery.
+    delivered_data: Mapped[str | None] = mapped_column(
+        EncryptedText, nullable=True, deferred=True, deferred_raiseload=True,
+    )
     # Lý do huỷ WHITE-LABEL cho buyer đọc (hết hàng / không cấp phát được…),
     # luôn kèm trấn an đã hoàn tiền. Chi tiết kỹ thuật vẫn ở log_entries (admin).
     cancel_reason: Mapped[str | None] = mapped_column(Text, nullable=True)

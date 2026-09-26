@@ -1,13 +1,29 @@
 """Delivered goods at scale: stock orders keep their lines in `resources` only,
 lists never carry delivered text, lines are read page by page or streamed, and
-single orders carry their text delivery."""
+text deliveries are encrypted at rest."""
+import base64
+import hashlib
+import importlib.util
+from pathlib import Path
+
+from cryptography.fernet import Fernet
 from sqlalchemy import select, text
 
 from src.database import SessionLocal, engine
 from src.models.log_entry import LogEntry
 from src.models.order import Order
 from tests.conftest import register_and_login
+from src.security.crypto import FERNET_PREFIX, decrypt_str, encrypt_str
 from tests.test_orders import setup_buyable_product
+
+_ROOT = Path(__file__).resolve().parents[1]
+
+
+def _load(path: Path, name: str):
+    spec = importlib.util.spec_from_file_location(name, path)
+    module = importlib.util.module_from_spec(spec)
+    spec.loader.exec_module(module)
+    return module
 
 
 def _auth(token: str) -> dict:
@@ -109,6 +125,22 @@ async def test_delivery_stream_holds_no_connection_between_batches(client, monke
     assert checked_out == [0, 0, 0]
 
 
+async def test_text_deliveries_are_encrypted_at_rest(client):
+    buyer, seller, _, _, manual_vid = await setup_buyable_product(client)
+    order = (await client.post("/orders", json={"variant_id": manual_vid, "quantity": 1}, headers=_auth(buyer))).json()
+    assert (await client.post(f"/seller/orders/{order['id']}/accept", headers=_auth(seller))).status_code == 200
+    delivered = await client.post(
+        f"/seller/orders/{order['order_code']}/deliver", json={"data": "manual|secret-line"}, headers=_auth(seller),
+    )
+    assert delivered.status_code == 200, delivered.text
+
+    async with engine.connect() as conn:
+        stored = (await conn.execute(text("SELECT delivered_data FROM orders WHERE id = :id"), {"id": order["id"]})).scalar()
+    assert stored.startswith("gAAAAA") and "secret-line" not in stored
+    detail = (await client.get(f"/orders/{order['order_code']}", headers=_auth(buyer))).json()
+    assert detail["delivered_data"] == "manual|secret-line"
+
+
 async def test_text_deliveries_come_with_the_order_but_not_the_list(client):
     buyer, seller, _, _, manual_vid = await setup_buyable_product(client)
     order = (await client.post("/orders", json={"variant_id": manual_vid, "quantity": 1}, headers=_auth(buyer))).json()
@@ -184,3 +216,50 @@ async def test_order_row_access_never_reads_the_stored_text(client):
     async with SessionLocal() as db:
         row = await db.get(Order, order["id"])
         assert row.status.value in ("delivered", "completed")
+
+
+async def _text_order_ids(client, count: int) -> list[int]:
+    buyer, seller, _, _, manual_vid = await setup_buyable_product(client)
+    ids = []
+    for _ in range(count):
+        order = (await client.post("/orders", json={"variant_id": manual_vid, "quantity": 1}, headers=_auth(buyer))).json()
+        ids.append(order["id"])
+    return ids
+
+
+async def test_migration_encrypts_legacy_delivery_texts_and_downgrades(client):
+    rev = _load(_ROOT / "alembic" / "versions" / "ge1a2b3c4d5e6_encrypt_order_delivered_data.py", "encrypt_order_delivery_rev")
+    ids = await _text_order_ids(client, 2)
+    async with engine.begin() as conn:
+        await conn.execute(text("UPDATE orders SET delivered_data = :d WHERE id = :id"), [
+            {"id": ids[0], "d": "legacy|plain"}, {"id": ids[1], "d": encrypt_str("already|sealed")},
+        ])
+        await conn.run_sync(lambda sync: rev._rewrite(sync, encrypted=True, transform=encrypt_str))
+        stored = dict((await conn.execute(text("SELECT id, delivered_data FROM orders WHERE id = ANY(:ids)"), {"ids": ids})).all())
+        assert all(value.startswith(FERNET_PREFIX) for value in stored.values())
+        assert decrypt_str(stored[ids[0]]) == "legacy|plain" and decrypt_str(stored[ids[1]]) == "already|sealed"
+
+        await conn.run_sync(lambda sync: rev._rewrite(sync, encrypted=False, transform=rev._decrypt))
+        plain = dict((await conn.execute(text("SELECT id, delivered_data FROM orders WHERE id = ANY(:ids)"), {"ids": ids})).all())
+    assert plain == {ids[0]: "legacy|plain", ids[1]: "already|sealed"}
+
+
+async def test_key_rotation_reencrypts_delivery_texts(client):
+    rotate = _load(_ROOT / "scripts" / "rotate_encryption_key.py", "rotate_encryption_key_orders")
+    old_secret = "previous-encryption-key-for-order-rotation"
+    old_fernet = Fernet(base64.urlsafe_b64encode(hashlib.sha256(old_secret.encode()).digest()))
+    ids = await _text_order_ids(client, 3)
+    async with engine.begin() as conn:
+        await conn.execute(text("UPDATE orders SET delivered_data = :d WHERE id = :id"), [
+            {"id": ids[0], "d": old_fernet.encrypt(b"old|key").decode()},
+            {"id": ids[1], "d": "never|encrypted"},
+            {"id": ids[2], "d": encrypt_str("current|key")},
+        ])
+
+    async with SessionLocal() as db:
+        stats = await rotate._rotate_order_deliveries(db, old_fernet)
+        await db.commit()
+    assert stats["rotated"] == 2 and stats["current"] >= 1 and stats["undecryptable"] == []
+    async with engine.connect() as conn:
+        stored = dict((await conn.execute(text("SELECT id, delivered_data FROM orders WHERE id = ANY(:ids)"), {"ids": ids})).all())
+    assert {i: decrypt_str(v) for i, v in stored.items()} == {ids[0]: "old|key", ids[1]: "never|encrypted", ids[2]: "current|key"}

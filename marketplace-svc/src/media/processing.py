@@ -51,6 +51,7 @@ PRESETS: dict[MediaPurpose, Preset] = {
     MediaPurpose.dispute_evidence: Preset(full=(2048, 2048), thumb=(480, 480), quality=85),
     MediaPurpose.payout_receipt: Preset(full=(2048, 2048), thumb=(480, 480), quality=85),
     MediaPurpose.adjustment_proof: Preset(full=(2048, 2048), thumb=(480, 480), quality=85),
+    MediaPurpose.tier_badge: Preset(full=(128, 128), thumb=(48, 48), aspect=1.0, quality=90),
 }
 
 

@@ -44,6 +44,7 @@ const HUBS: NavHub[] = [
     key: "catalog", label: "Sản phẩm", icon: Package, tabs: [
       { href: "/admin/products", label: "Sản phẩm" },
       { href: "/admin/categories", label: "Danh mục" },
+      { href: "/admin/media", label: "Hình ảnh" },
     ],
   },
   {

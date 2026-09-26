@@ -7,6 +7,7 @@ src/sellers/tiers.py; those remain only as the seed for a fresh database.
 from datetime import datetime
 
 from sqlalchemy import DateTime, Integer, String, func
+from sqlalchemy.dialects.postgresql import JSONB
 from sqlalchemy.orm import Mapped, mapped_column
 
 from src.database import Base
@@ -24,6 +25,8 @@ class SellerTierConfig(Base):
     fee_discount_pp: Mapped[int] = mapped_column(Integer, nullable=False, default=0, server_default="0")
     # Days shaved off the product's escrow hold (never below 1 day or the admin floor).
     escrow_reduction_days: Mapped[int] = mapped_column(Integer, nullable=False, default=0, server_default="0")
+    # Badge icon (media snapshot) shown next to the names of sellers in this tier.
+    badge: Mapped[dict | None] = mapped_column(JSONB, nullable=True)
     updated_at: Mapped[datetime] = mapped_column(
         DateTime(timezone=True), server_default=func.now(), onupdate=func.now(),
     )

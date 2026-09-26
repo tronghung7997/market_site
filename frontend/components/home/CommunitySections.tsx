@@ -31,8 +31,9 @@ export function TrustedSellers({ sellers }: { sellers: SellerSummary[] }) {
                   <Store size={15} />
                 </span>
               )}
-              <div className="mt-2 sm:mt-3 font-medium text-[12.5px] sm:text-[13.5px] truncate">
-                {s.display_name}
+              <div className="mt-2 sm:mt-3 flex items-center justify-center gap-1 font-medium text-[12.5px] sm:text-[13.5px]">
+                <span className="truncate">{s.display_name}</span>
+                {s.tier_badge && <MediaImage image={s.tier_badge} alt="" className="h-3.5 w-3.5 shrink-0 rounded-sm" />}
               </div>
               <div className="mt-1 flex items-center justify-center gap-1 text-[11.5px] sm:text-[12px] text-muted">
                 {s.rating_avg != null ? (

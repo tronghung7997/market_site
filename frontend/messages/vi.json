@@ -1963,7 +1963,9 @@
     "PROXY_SOURCE_OWNER_NOT_INTERNAL": "Sản phẩm của nguồn proxy phải thuộc seller nội bộ đang giữ nguồn",
     "PROXY_TAG_NOT_FOUND": "Không tìm thấy tag",
     "PROXY_TAG_DUPLICATE": "Đã có tag trùng tên",
-    "PROXY_TAG_INVALID": "Tên tag trống hoặc đã đạt tối đa {max} tag"
+    "PROXY_TAG_INVALID": "Tên tag trống hoặc đã đạt tối đa {max} tag",
+    "MEDIA_TOO_LARGE": "Ảnh lớn hơn giới hạn {max_mb} MB.",
+    "DISPUTE_EVIDENCE_REQUIRED": "Cần đính kèm ít nhất 1 ảnh bằng chứng để mở khiếu nại."
   },
   "common": {
     "loading": "Đang tải…",
@@ -4079,7 +4081,12 @@
     "annWindowHint": "Tuỳ chọn. Chỉ hiện trong khoảng này rồi tự ẩn. Để trống cả hai thì hiện ngay khi bật.",
     "annFrom": "Từ",
     "annTo": "Đến",
-    "timezoneNote": "Giờ nhập theo múi giờ trình duyệt của bạn ({zone})."
+    "timezoneNote": "Giờ nhập theo múi giờ trình duyệt của bạn ({zone}).",
+    "mediaSection": "Hình ảnh",
+    "mediaSectionHint": "Giới hạn cho ảnh người dùng tải lên (sản phẩm, chat, bằng chứng khiếu nại…). Mọi thay đổi được ghi nhật ký.",
+    "mediaMaxTitle": "Dung lượng tối đa mỗi ảnh",
+    "mediaMaxHint": "Ảnh lớn hơn bị từ chối trước khi xử lý. Không vượt trần hạ tầng MEDIA_MAX_UPLOAD_BYTES (mặc định 10 MB).",
+    "mediaMaxInvalid": "Nhập số MB từ 1 đến trần hạ tầng."
   },
   "adminSellerConfig": {
     "tiersTitle": "Hạng người bán",
@@ -4124,7 +4131,8 @@
     "autoReviewTitle": "Tự động đánh giá 5★",
     "autoReviewHint": "Đơn đã giao mà người mua không đánh giá sau chừng này ngày kể từ lúc mua sẽ được hệ thống chấm 5★ (không nhận xét, gắn nhãn “Tự động”). Đơn hoàn tiền / có khiếu nại không áp dụng. Chạy mỗi ngày một lần.",
     "autoReviewEnabled": "Bật tự động đánh giá",
-    "daysLabel": "Số ngày"
+    "daysLabel": "Số ngày",
+    "colBadge": "Huy hiệu"
   },
   "adminAnalytics": {
     "title": "Phân tích hành vi",

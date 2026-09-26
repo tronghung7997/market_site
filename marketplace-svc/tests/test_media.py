@@ -167,6 +167,23 @@ async def test_pending_uploads_are_capped_per_account(client, monkeypatch):
 
 
 @pytest.mark.asyncio
+async def test_uploads_are_rate_limited_per_account(client, monkeypatch):
+    seen = []
+
+    async def refuse(key, **kwargs):
+        seen.append((key, kwargs["limit"], kwargs["window_seconds"]))
+        return False
+
+    monkeypatch.setattr("src.media.router.check_rate_limit", refuse)
+    h = await _headers(client, "media-flood@example.com")
+    response = await _upload(client, h, "chat_attachment", _png())
+    assert response.status_code == 429 and response.json()["error_code"] == "RATE_LIMITED"
+    assert response.headers["retry-after"] == "600"
+    account = await _account("media-flood@example.com")
+    assert seen == [(f"media-upload:{account.id}", 1_000_000, 3600)]
+
+
+@pytest.mark.asyncio
 async def test_oversized_bodies_are_refused_before_the_signature_check(client):
     h = await _headers(client, "media-big@example.com")
     too_big = b"\0" * (10_485_760 + 1)

@@ -27,11 +27,13 @@ class MediaPurpose(str, PyEnum):
     payout_receipt = "payout_receipt"
     # Evidence an admin attaches to a manual wallet credit.
     adjustment_proof = "adjustment_proof"
+    # Icon of a seller tier (admin), shown next to seller names.
+    tier_badge = "tier_badge"
 
 
 PUBLIC_PURPOSES = frozenset({
     MediaPurpose.product_image, MediaPurpose.category_image, MediaPurpose.seller_logo,
-    MediaPurpose.seller_banner, MediaPurpose.avatar,
+    MediaPurpose.seller_banner, MediaPurpose.avatar, MediaPurpose.tier_badge,
 })
 
 

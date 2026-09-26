@@ -40,6 +40,8 @@ class SiteStatusAdmin(BaseModel):
     announcement_starts_at: datetime | None
     announcement_ends_at: datetime | None
     announcement_version: int
+    # Image upload cap (MB); env MEDIA_MAX_UPLOAD_BYTES is the ceiling.
+    media_max_upload_mb: int = 10
     updated_at: datetime | None = None
     updated_by_id: int | None = None
 
@@ -60,6 +62,7 @@ class SiteStatusUpdate(BaseModel):
     announcement_link_url: str | None = Field(default=None, max_length=500)
     announcement_starts_at: datetime | None = None
     announcement_ends_at: datetime | None = None
+    media_max_upload_mb: int | None = Field(default=None, ge=1, le=100)
     # Explicitly clear the nullable timestamps (None in JSON means "leave alone").
     clear_maintenance_until: bool = False
     clear_announcement_window: bool = False

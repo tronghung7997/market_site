@@ -17,6 +17,7 @@ type Form = {
   maintenance: boolean; msgVi: string; msgEn: string; until: string;
   withdrawals: boolean; deposits: boolean; orders: boolean; reason: string;
   annOn: boolean; annLevel: "info" | "warn" | "danger"; annVi: string; annEn: string; annLink: string; annFrom: string; annTo: string;
+  mediaMaxMb: string;
 };
 
 /** ISO → value for <input type="datetime-local"> in the browser's zone. */
@@ -38,6 +39,7 @@ function toForm(s: SiteStatusAdmin): Form {
     withdrawals: s.withdrawals_frozen, deposits: s.deposits_frozen, orders: s.orders_frozen, reason: s.freeze_reason,
     annOn: s.announcement_enabled, annLevel: s.announcement_level, annVi: s.announcement_text_vi, annEn: s.announcement_text_en,
     annLink: s.announcement_link_url, annFrom: toLocalInput(s.announcement_starts_at), annTo: toLocalInput(s.announcement_ends_at),
+    mediaMaxMb: String(s.media_max_upload_mb),
   };
 }
 
@@ -70,6 +72,7 @@ export function SystemPanel() {
   const dirty = JSON.stringify(form) !== JSON.stringify(toForm(query.data));
   const update = (patch: Partial<Form>) => setForm((f) => (f ? { ...f, ...patch } : f));
   const anyFrozen = form.withdrawals && form.deposits && form.orders;
+  const mediaMaxOk = /^\d+$/.test(form.mediaMaxMb) && Number(form.mediaMaxMb) >= 1 && Number(form.mediaMaxMb) <= 100;
   const live = query.data;
 
   const onSave = () => save.mutate({
@@ -89,6 +92,7 @@ export function SystemPanel() {
     ...(form.annFrom || form.annTo
       ? { announcement_starts_at: fromLocalInput(form.annFrom) ?? undefined, announcement_ends_at: fromLocalInput(form.annTo) ?? undefined }
       : { clear_announcement_window: true }),
+    media_max_upload_mb: Number(form.mediaMaxMb),
   });
 
   const previewText = (locale === "vi" ? form.annVi : form.annEn) || form.annVi || form.annEn;
@@ -133,6 +137,19 @@ export function SystemPanel() {
         </SettingsRow>
         <SettingsRow title={t("maintenanceUntilTitle")} hint={t("maintenanceUntilHint")} label={t("localTime")}>
           <Input type="datetime-local" value={form.until} onChange={(e) => update({ until: e.target.value })} className="h-10 w-full max-w-[280px] text-[13px]" />
+        </SettingsRow>
+      </SettingsSection>
+
+      <SettingsSection title={t("mediaSection")} description={t("mediaSectionHint")}>
+        <SettingsRow title={t("mediaMaxTitle")} hint={t("mediaMaxHint")} label="MB">
+          <Input
+            inputMode="numeric"
+            value={form.mediaMaxMb}
+            onChange={(e) => update({ mediaMaxMb: e.target.value.replace(/[^0-9]/g, "") })}
+            aria-invalid={!mediaMaxOk}
+            className="h-9 w-full max-w-[120px] text-right font-mono text-[13px] tabular-nums"
+          />
+          {!mediaMaxOk && <span className="mt-1 block text-[12px] text-bad">{t("mediaMaxInvalid")}</span>}
         </SettingsRow>
       </SettingsSection>
 
@@ -201,7 +218,8 @@ export function SystemPanel() {
       <SettingsFooter
         updatedAt={live.updated_at}
         dirty={dirty}
-        valid
+        valid={mediaMaxOk}
+        problems={mediaMaxOk ? [] : [t("mediaMaxInvalid")]}
         saving={save.isPending}
         onReset={() => setForm(toForm(live))}
         onSave={onSave}

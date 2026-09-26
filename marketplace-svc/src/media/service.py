@@ -19,8 +19,12 @@ import structlog
 from sqlalchemy import and_, delete, func, or_, select, update
 from sqlalchemy.ext.asyncio import AsyncSession
 
+from src.audit.service import log_event
+from src.config import settings
 from src.database import SessionLocal
 from src.errors.codes import ErrorCode
+from src.logging import current_request_id
+from src.site_status.service import get_site_status
 from src.media.errors import MediaError
 from src.media.processing import PRESETS, InvalidImage, process_image
 from src.media.s3 import S3Error
@@ -42,6 +46,7 @@ UPLOAD_ROLES: dict[MediaPurpose, frozenset[str] | None] = {
     MediaPurpose.dispute_evidence: None,
     MediaPurpose.payout_receipt: frozenset({"admin"}),
     MediaPurpose.adjustment_proof: frozenset({"admin"}),
+    MediaPurpose.tier_badge: frozenset({"admin"}),
 }
 MAX_PENDING_PER_ACCOUNT = 50
 PENDING_TTL = timedelta(hours=24)
@@ -75,6 +80,9 @@ async def upload(db: AsyncSession, account: Account, purpose: MediaPurpose, data
     )
     if pending >= MAX_PENDING_PER_ACCOUNT:
         raise MediaError(ErrorCode.MEDIA_PENDING_LIMIT, 429, max=MAX_PENDING_PER_ACCOUNT)
+    max_bytes = await upload_limit_bytes(db)
+    if len(data) > max_bytes:
+        raise MediaError(ErrorCode.MEDIA_TOO_LARGE, 413, max_mb=max_bytes // (1024 * 1024))
     try:
         processed = await asyncio.to_thread(process_image, data, PRESETS[purpose])
     except InvalidImage as exc:
@@ -121,6 +129,13 @@ async def upload(db: AsyncSession, account: Account, purpose: MediaPurpose, data
         await _forget(store.name, written, public=public)
         raise
     return await db.scalar(select(MediaObject).where(MediaObject.public_id == public_id))
+
+
+async def upload_limit_bytes(db: AsyncSession) -> int:
+    """The admin setting (Settings › System), never above the env ceiling that
+    the body-limit middleware enforces."""
+    configured = int((await get_site_status(db))["media_max_upload_mb"]) * 1024 * 1024
+    return min(configured, settings.media_max_upload_bytes)
 
 
 async def _forget(store_name: str, keys: list[str], *, public: bool) -> None:
@@ -303,6 +318,106 @@ async def read_variant(db: AsyncSession, obj: MediaObject, variant: str) -> byte
     except (StorageUnavailable, S3Error) as exc:
         logger.warning("media_read_failed", storage=obj.storage, error=type(exc).__name__)
         raise MediaError(ErrorCode.MEDIA_STORAGE_UNAVAILABLE, 503) from exc
+
+
+# --------------------------------------------------------------------------- admin console
+
+ADMIN_PAGE_SIZE = 48
+
+
+async def admin_stats(db: AsyncSession) -> dict:
+    """Count and bytes of live images by purpose and by store (not removed)."""
+    live = MediaObject.status != MediaStatus.removed.value
+    by_purpose = (await db.execute(
+        select(MediaObject.purpose, func.count(), func.coalesce(func.sum(MediaObject.bytes_total), 0))
+        .where(live).group_by(MediaObject.purpose)
+    )).all()
+    by_storage = (await db.execute(
+        select(MediaObject.storage, func.count(), func.coalesce(func.sum(MediaObject.bytes_total), 0))
+        .where(live).group_by(MediaObject.storage)
+    )).all()
+    by_status = (await db.execute(select(MediaObject.status, func.count()).group_by(MediaObject.status))).all()
+    return {
+        "count": sum(int(n) for _, n, _ in by_purpose),
+        "bytes": sum(int(b) for _, _, b in by_purpose),
+        "by_purpose": [{"key": k, "count": int(n), "bytes": int(b)} for k, n, b in sorted(by_purpose)],
+        "by_storage": [{"key": k, "count": int(n), "bytes": int(b)} for k, n, b in sorted(by_storage)],
+        "by_status": {k: int(n) for k, n in by_status},
+        "upload_limit_bytes": await upload_limit_bytes(db),
+        "storage_for_new_uploads": settings.media_storage,
+    }
+
+
+async def admin_list(
+    db: AsyncSession, *, purpose: str | None, status: str | None, owner: str | None, page: int,
+) -> dict:
+    """Newest images first (moderation queue), filtered by purpose / status / owner email."""
+    query = select(MediaObject, Account.email).outerjoin(Account, Account.id == MediaObject.owner_id)
+    if purpose:
+        query = query.where(MediaObject.purpose == purpose)
+    if status:
+        query = query.where(MediaObject.status == status)
+    if owner:
+        query = query.where(Account.email.ilike(f"%{owner.strip()}%"))
+    total = await db.scalar(select(func.count()).select_from(query.subquery()))
+    rows = (await db.execute(
+        query.order_by(MediaObject.id.desc()).offset((page - 1) * ADMIN_PAGE_SIZE).limit(ADMIN_PAGE_SIZE)
+    )).all()
+    return {
+        "total": int(total or 0), "page": page, "per_page": ADMIN_PAGE_SIZE,
+        "items": [
+            {
+                "id": obj.public_id, "purpose": obj.purpose, "visibility": obj.visibility, "status": obj.status,
+                "storage": obj.storage, "bytes": obj.bytes_total, "w": obj.variants["full"]["w"],
+                "h": obj.variants["full"]["h"], "owner_id": obj.owner_id, "owner_email": email,
+                "subject_type": obj.subject_type, "subject_id": obj.subject_id, "taken_at": obj.taken_at,
+                "created_at": obj.created_at, "removed_at": obj.removed_at, "removed_reason": obj.removed_reason,
+            }
+            for obj, email in rows
+        ],
+    }
+
+
+async def admin_find(db: AsyncSession, public_id: str) -> MediaObject:
+    obj = await db.scalar(
+        select(MediaObject).where(MediaObject.public_id == public_id, MediaObject.status != MediaStatus.removed.value)
+    )
+    if obj is None:
+        raise MediaError(ErrorCode.MEDIA_NOT_FOUND, 404, id=public_id)
+    return obj
+
+
+async def remove(db: AsyncSession, public_id: str, *, actor_id: int, reason: str) -> dict:
+    """Admin takedown: the bytes are deleted now and every URL of the image
+    answers 404; features that still reference it show a placeholder. Audited
+    as ``media_removed``. Commits."""
+    obj = await db.scalar(select(MediaObject).where(MediaObject.public_id == public_id).with_for_update())
+    if obj is None:
+        raise MediaError(ErrorCode.MEDIA_NOT_FOUND, 404, id=public_id)
+    if obj.status == MediaStatus.removed.value:
+        return {"id": obj.public_id, "status": obj.status}
+    keys = [object_key(obj.key_prefix, name) for name in obj.variants]
+    storage, public = obj.storage, obj.visibility == "public"
+    snapshot_info = {"purpose": obj.purpose, "owner_id": obj.owner_id, "subject_type": obj.subject_type, "subject_id": obj.subject_id}
+    obj.status = MediaStatus.removed.value
+    obj.removed_at = _now()
+    obj.removed_by_id = actor_id
+    obj.removed_reason = reason
+    if storage == "db":
+        await DbMediaStore().delete(db, keys, public=public)
+    await log_event(
+        db, "warning", f"Image {public_id} removed by admin {actor_id}",
+        request_id=current_request_id(),
+        metadata={
+            "event": "media_removed", "actor_id": actor_id, "actor_type": "admin",
+            "subject_type": "media", "subject_id": public_id, "reason": reason,
+            **snapshot_info, "outcome": "success", "source": "admin",
+        },
+    )
+    await db.commit()
+    if storage != "db":
+        await _forget(storage, keys, public=public)
+    return {"id": public_id, "status": MediaStatus.removed.value}
 
 
 # --------------------------------------------------------------------------- garbage collection

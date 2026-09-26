@@ -4,6 +4,7 @@ import { useTranslations } from "next-intl";
 import { vnd } from "@/lib/api";
 import type { SellerTierName, SellerTierRule, SellerTierRulePatch } from "@/lib/types";
 import { Input } from "@/components/ui";
+import { ImageUploader, type UploaderImage } from "@/components/media/ImageUploader";
 import { SettingsSection } from "@/features/admin-site-settings";
 
 const TIERS: SellerTierName[] = ["new", "verified", "trusted", "enterprise"];
@@ -13,7 +14,7 @@ const FIELDS: Field[] = ["max_active_products", "withdraw_limit_per_request", "f
 const NULLABLE: Record<Field, boolean> = { max_active_products: true, withdraw_limit_per_request: true, fee_discount_pp: false, escrow_reduction_days: false };
 const MAX: Record<Field, number> = { max_active_products: 1_000_000_000, withdraw_limit_per_request: 1_000_000_000, fee_discount_pp: 100, escrow_reduction_days: 90 };
 
-export type TierForm = Record<SellerTierName, Record<Field, string>>;
+export type TierForm = Record<SellerTierName, Record<Field, string> & { badge: UploaderImage[] }>;
 
 export const toTierForm = (rules: SellerTierRule[]): TierForm => {
   const out = {} as TierForm;
@@ -24,6 +25,7 @@ export const toTierForm = (rules: SellerTierRule[]): TierForm => {
       withdraw_limit_per_request: r?.withdraw_limit_per_request == null ? "" : String(r.withdraw_limit_per_request),
       fee_discount_pp: String(r?.fee_discount_pp ?? 0),
       escrow_reduction_days: String(r?.escrow_reduction_days ?? 0),
+      badge: r?.badge ? [r.badge] : [],
     };
   }
   return out;
@@ -47,6 +49,7 @@ export function tierPatch(form: TierForm, saved: TierForm): Partial<Record<Selle
       const v = form[tier][f].trim();
       diff[f] = v === "" ? null : Number(v);
     }
+    if (form[tier].badge[0]?.id !== saved[tier].badge[0]?.id) diff.badge_image_id = form[tier].badge[0]?.id ?? null;
     if (Object.keys(diff).length) patch[tier] = diff;
   }
   return patch;
@@ -65,14 +68,15 @@ export function SellerTierTable({ form, onChange }: { form: TierForm; onChange: 
   return (
     <SettingsSection title={t("tiersTitle")} description={t("tiersHint")}>
       <div className="overflow-x-auto">
-        <table className="w-full min-w-[720px] text-[13px]">
+        <table className="w-full min-w-[820px] text-[13px]">
           <thead className="bg-raised/40 text-left text-[12px] text-muted">
             <tr>
               <th className="px-5 py-2.5 font-medium">{t("colTier")}</th>
               <th className="px-3 py-2.5 font-medium">{t("colMaxProducts")}</th>
               <th className="px-3 py-2.5 font-medium">{t("colWithdrawLimit")}</th>
               <th className="px-3 py-2.5 font-medium">{t("colFeeDiscount")}</th>
-              <th className="px-5 py-2.5 font-medium">{t("colEscrowReduction")}</th>
+              <th className="px-3 py-2.5 font-medium">{t("colEscrowReduction")}</th>
+              <th className="px-5 py-2.5 font-medium">{t("colBadge")}</th>
             </tr>
           </thead>
           <tbody className="divide-y divide-line">
@@ -95,11 +99,21 @@ export function SellerTierTable({ form, onChange }: { form: TierForm; onChange: 
                     <span className="text-[12px] text-muted">{t("points")}</span>
                   </div>
                 </td>
-                <td className="px-5 py-3">
+                <td className="px-3 py-3">
                   <div className="flex items-center gap-1.5">
                     <Input inputMode="numeric" value={form[tier].escrow_reduction_days} onChange={(e) => set(tier, "escrow_reduction_days", e.target.value)} aria-invalid={!cellOk("escrow_reduction_days", form[tier].escrow_reduction_days)} className="h-9 w-[70px] text-right font-mono tabular-nums" />
                     <span className="text-[12px] text-muted">{t("daysUnit")}</span>
                   </div>
+                </td>
+                <td className="px-5 py-3">
+                  <ImageUploader
+                    purpose="tier_badge"
+                    layout="badge"
+                    compact
+                    value={form[tier].badge}
+                    onChange={(badge) => onChange({ ...form, [tier]: { ...form[tier], badge } })}
+                    label={`${t("colBadge")} · ${t(`tier_${tier}`)}`}
+                  />
                 </td>
               </tr>
             ))}

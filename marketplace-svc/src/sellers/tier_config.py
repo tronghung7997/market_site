@@ -12,6 +12,9 @@ from sqlalchemy import select
 from sqlalchemy.dialects.postgresql import insert as pg_insert
 from sqlalchemy.ext.asyncio import AsyncSession
 
+from src.media import service as media_service
+from src.media.service import public_image
+from src.models.media import MediaPurpose
 from src.audit.service import log_event
 from src.logging import current_request_id
 from src.models.seller_tier_config import SellerTierConfig
@@ -32,6 +35,8 @@ class TierRule:
     withdraw_limit_per_request: int | None
     fee_discount_pp: int
     escrow_reduction_days: int
+    # Badge icon (PublicImage) shown next to the names of sellers in this tier.
+    badge: dict | None = None
     updated_at: str | None = None
     updated_by_id: int | None = None
 
@@ -43,6 +48,7 @@ def _rule(row: SellerTierConfig) -> TierRule:
         withdraw_limit_per_request=row.withdraw_limit_per_request,
         fee_discount_pp=int(row.fee_discount_pp),
         escrow_reduction_days=int(row.escrow_reduction_days),
+        badge=public_image(row.badge),
         updated_at=row.updated_at.isoformat() if row.updated_at else None,
         updated_by_id=row.updated_by_id,
     )
@@ -122,6 +128,16 @@ async def update_tier_rules(db: AsyncSession, *, actor_id: int, tiers: dict[str,
             if v != row.escrow_reduction_days:
                 diff["escrow_reduction_days"] = [row.escrow_reduction_days, v]
                 row.escrow_reduction_days = v
+        if "badge_image_id" in patch:
+            media_id = patch["badge_image_id"]
+            snaps = await media_service.set_subject_media(
+                db, actor_id=actor_id, purpose=MediaPurpose.tier_badge, subject_type="seller_tier",
+                subject_id=TIER_ORDER.index(tier) + 1, public_ids=[media_id] if media_id else [], max_count=1,
+            )
+            before = (row.badge or {}).get("id")
+            row.badge = snaps[0] if snaps else None
+            if before != (row.badge or {}).get("id"):
+                diff["badge"] = [before, (row.badge or {}).get("id")]
         if diff:
             row.updated_by_id = actor_id
             changed[tier] = diff

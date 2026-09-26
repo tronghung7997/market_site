@@ -105,3 +105,19 @@ export const privateImageBase = {
   withdrawalReceipt: (requestId: number) => `/api/wallet/withdrawals/${requestId}/receipt`,
   adminWithdrawalReceipt: (requestId: number) => `/api/admin/withdrawals/${requestId}/receipt`,
 };
+
+/** Admin moderation view of any stored image (private ones included). */
+export function adminMediaSource(image: { id: string; w: number; h: number }) {
+  const url = `/api/admin/media/${encodeURIComponent(image.id)}/content`;
+  return { url, thumb_url: `${url}?v=thumb`, w: image.w, h: image.h };
+}
+
+/** "12.4 MB" style size for admin screens. */
+export function formatBytes(bytes: number): string {
+  if (bytes < 1024) return `${bytes} B`;
+  const units = ["KB", "MB", "GB", "TB"];
+  let value = bytes / 1024;
+  let unit = 0;
+  while (value >= 1024 && unit < units.length - 1) { value /= 1024; unit += 1; }
+  return `${value.toFixed(value >= 100 ? 0 : 1)} ${units[unit]}`;
+}

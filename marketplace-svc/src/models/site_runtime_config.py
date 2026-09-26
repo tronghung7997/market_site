@@ -39,6 +39,8 @@ class SiteRuntimeConfig(Base):
     announcement_ends_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True), nullable=True)
     # Bumped whenever the text changes so a visitor's "dismissed" flag resets.
     announcement_version: Mapped[int] = mapped_column(Integer, nullable=False, default=1, server_default="1")
+    # Upload cap for images (MB), at most env MEDIA_MAX_UPLOAD_BYTES.
+    media_max_upload_mb: Mapped[int] = mapped_column(Integer, nullable=False, default=10, server_default="10")
 
     updated_at: Mapped[datetime] = mapped_column(
         DateTime(timezone=True), server_default=func.now(), onupdate=func.now(),

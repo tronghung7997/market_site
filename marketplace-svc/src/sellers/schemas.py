@@ -16,6 +16,8 @@ class SellerSummary(BaseModel):
     rating_avg: float | None
     review_count: int
     seller_tier: str = "new"
+    # Badge icon of the seller's tier (PublicImage), when the admin set one.
+    tier_badge: dict | None = None
     # Shop logo (PublicImage) or None.
     logo: dict | None = None
 

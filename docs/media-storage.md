@@ -163,6 +163,10 @@ Ví dụ 10.000 sản phẩm × 5 ảnh cộng 100.000 ảnh chat/khiếu nại 
 
 ## 10. Vận hành
 
+- **Trang admin `/admin/media`:** số ảnh và dung lượng theo mục đích và nơi lưu (dùng để ước lượng R2), danh sách ảnh mới nhất lọc theo mục đích / trạng thái / email, xem ảnh (kể cả ảnh riêng tư) và **gỡ ảnh vi phạm**.
+  - Gỡ ảnh: bytes bị xoá ngay, mọi URL của ảnh trả 404, giao diện hiện ô trống; lý do ghi vào nhật ký `media_removed`.
+  - Ở chế độ CDN, bản đã cache có thể còn tới khi purge. Cần gỡ gấp thì purge URL đó trong Cloudflare.
+- **Giới hạn dung lượng mỗi ảnh:** admin đổi ở Cài đặt › Hệ thống (có nhật ký), không vượt được `MEDIA_MAX_UPLOAD_BYTES`.
 - **Log cần theo dõi:**
   - `media_upload_store_failed`, `media_read_failed`: bucket lỗi hoặc sai key.
   - `media_orphan_objects`: object thừa trong bucket, chỉ tốn chỗ.

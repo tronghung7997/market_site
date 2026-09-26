@@ -138,6 +138,7 @@ class ErrorCode(str, Enum):
     MEDIA_LIMIT_EXCEEDED = "MEDIA_LIMIT_EXCEEDED"
     MEDIA_STORAGE_UNAVAILABLE = "MEDIA_STORAGE_UNAVAILABLE"
     DISPUTE_EVIDENCE_REQUIRED = "DISPUTE_EVIDENCE_REQUIRED"
+    MEDIA_TOO_LARGE = "MEDIA_TOO_LARGE"
 
 
 MESSAGES_EN: dict[ErrorCode, str] = {
@@ -282,4 +283,5 @@ MESSAGES_EN: dict[ErrorCode, str] = {
     ErrorCode.MEDIA_LIMIT_EXCEEDED: "You can attach at most {max} images here",
     ErrorCode.MEDIA_STORAGE_UNAVAILABLE: "Image storage is temporarily unavailable. Please try again later",
     ErrorCode.DISPUTE_EVIDENCE_REQUIRED: "Attach at least one image as evidence to open a dispute",
+    ErrorCode.MEDIA_TOO_LARGE: "The image is larger than the {max_mb} MB limit",
 }

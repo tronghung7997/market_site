@@ -49,3 +49,12 @@ describe("private image sources", () => {
     assert.equal(await prepareImage(file, undefined, true), file);
   });
 });
+
+describe("admin media helpers", () => {
+  it("formats storage sizes", async () => {
+    const { formatBytes } = await import("../lib/media.ts");
+    assert.equal(formatBytes(512), "512 B");
+    assert.equal(formatBytes(15_688), "15.3 KB");
+    assert.equal(formatBytes(36 * 1024 ** 3), "36.0 GB");
+  });
+});

@@ -31,7 +31,8 @@ export type MediaPurpose =
   | "chat_attachment"
   | "dispute_evidence"
   | "payout_receipt"
-  | "adjustment_proof";
+  | "adjustment_proof"
+  | "tier_badge";
 
 /** A public image as served in payloads: immutable URLs (app /media/… or CDN). */
 export interface PublicImage {
@@ -61,6 +62,46 @@ export type ProductImages = {
   cover?: PublicImage;
   gallery?: PublicImage[];
 };
+
+/** GET /admin/media/stats — live images (not taken down). */
+export interface AdminMediaStats {
+  count: number;
+  bytes: number;
+  by_purpose: { key: MediaPurpose; count: number; bytes: number }[];
+  by_storage: { key: "db" | "s3"; count: number; bytes: number }[];
+  by_status: Record<string, number>;
+  upload_limit_bytes: number;
+  storage_for_new_uploads: "db" | "s3";
+}
+
+export type MediaStatus = "pending" | "attached" | "detached" | "removed";
+
+/** GET /admin/media row. */
+export interface AdminMediaRow {
+  id: string;
+  purpose: MediaPurpose;
+  visibility: "public" | "private";
+  status: MediaStatus;
+  storage: "db" | "s3";
+  bytes: number;
+  w: number;
+  h: number;
+  owner_id: number | null;
+  owner_email: string | null;
+  subject_type: string | null;
+  subject_id: number | null;
+  taken_at: string | null;
+  created_at: string;
+  removed_at: string | null;
+  removed_reason: string | null;
+}
+
+export interface AdminMediaPage {
+  total: number;
+  page: number;
+  per_page: number;
+  items: AdminMediaRow[];
+}
 
 /** Response of POST /media/uploads. `url` is set for public purposes only. */
 export interface UploadedMedia {
@@ -716,6 +757,8 @@ export interface SellerSummary {
   rating_avg: number | null;
   review_count: number;
   seller_tier: string;
+  /** Badge icon of the seller's tier, when the admin set one. */
+  tier_badge?: PublicImage | null;
   /** Shop logo uploaded by the seller. */
   logo?: PublicImage | null;
 }
@@ -1367,6 +1410,8 @@ export type SellerTierRule = {
   withdraw_limit_per_request: number | null;
   fee_discount_pp: number;
   escrow_reduction_days: number;
+  /** Badge icon shown next to the names of sellers in this tier. */
+  badge?: PublicImage | null;
   updated_at: string | null;
   updated_by_id: number | null;
 };
@@ -1376,6 +1421,8 @@ export type SellerTierRulePatch = {
   withdraw_limit_per_request?: number | null;
   fee_discount_pp?: number | null;
   escrow_reduction_days?: number | null;
+  /** Upload id (purpose tier_badge); null removes the badge. */
+  badge_image_id?: string | null;
 };
 
 export type SellerProductTab = "all" | "active" | "paused" | "draft" | "low_stock" | "out_of_stock";
@@ -3144,6 +3191,8 @@ export interface SiteStatusAdmin {
   announcement_starts_at: string | null;
   announcement_ends_at: string | null;
   announcement_version: number;
+  /** Image upload cap (MB); env MEDIA_MAX_UPLOAD_BYTES is the ceiling. */
+  media_max_upload_mb: number;
   updated_at: string | null;
   updated_by_id: number | null;
 }

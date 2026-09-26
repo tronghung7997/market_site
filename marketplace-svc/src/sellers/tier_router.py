@@ -6,6 +6,7 @@ from sqlalchemy.ext.asyncio import AsyncSession
 
 from src.auth.dependencies import require_role
 from src.database import get_session
+from src.media.schemas import MediaId
 from src.models.account import Account
 from src.sellers.tier_config import get_tier_rules, update_tier_rules
 from src.sellers.tiers import TIER_ORDER
@@ -19,6 +20,7 @@ class TierRuleResponse(BaseModel):
     withdraw_limit_per_request: int | None
     fee_discount_pp: int
     escrow_reduction_days: int
+    badge: dict | None = None
     updated_at: str | None = None
     updated_by_id: int | None = None
 
@@ -29,6 +31,8 @@ class TierRulePatch(BaseModel):
     withdraw_limit_per_request: int | None = Field(default=None, ge=0)
     fee_discount_pp: int | None = Field(default=None, ge=0, le=100)
     escrow_reduction_days: int | None = Field(default=None, ge=0, le=90)
+    # Upload id (purpose tier_badge); null removes the badge.
+    badge_image_id: MediaId | None = None
 
 
 class TierRulesUpdate(BaseModel):

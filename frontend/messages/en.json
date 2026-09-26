@@ -1963,7 +1963,9 @@
     "PROXY_SOURCE_OWNER_NOT_INTERNAL": "Products of a proxy source must belong to the internal seller that holds it",
     "PROXY_TAG_NOT_FOUND": "Tag not found",
     "PROXY_TAG_DUPLICATE": "A tag with this name already exists",
-    "PROXY_TAG_INVALID": "Tag name is empty or the {max}-tag limit is reached"
+    "PROXY_TAG_INVALID": "Tag name is empty or the {max}-tag limit is reached",
+    "MEDIA_TOO_LARGE": "The image is larger than the {max_mb} MB limit.",
+    "DISPUTE_EVIDENCE_REQUIRED": "Attach at least one image as evidence to open a dispute."
   },
   "common": {
     "loading": "Loading…",
@@ -4079,7 +4081,12 @@
     "annWindowHint": "Optional. Shown only inside this window, then hidden automatically. Leave both empty to show as soon as it is on.",
     "annFrom": "From",
     "annTo": "Until",
-    "timezoneNote": "Times are entered in your browser's time zone ({zone})."
+    "timezoneNote": "Times are entered in your browser's time zone ({zone}).",
+    "mediaSection": "Images",
+    "mediaSectionHint": "Limits for user uploads (products, chat, dispute evidence…). Every change is logged.",
+    "mediaMaxTitle": "Maximum size per image",
+    "mediaMaxHint": "Larger files are refused before processing. Cannot exceed the infrastructure ceiling MEDIA_MAX_UPLOAD_BYTES (10 MB by default).",
+    "mediaMaxInvalid": "Enter a size in MB from 1 up to the infrastructure ceiling."
   },
   "adminSellerConfig": {
     "tiersTitle": "Seller tiers",
@@ -4124,7 +4131,8 @@
     "autoReviewTitle": "Automatic 5★ review",
     "autoReviewHint": "Delivered orders the buyer never rated get a 5★ (no comment, tagged “Auto”) this many days after purchase. Refunded / disputed orders are skipped. Runs once a day.",
     "autoReviewEnabled": "Enable auto review",
-    "daysLabel": "Days"
+    "daysLabel": "Days",
+    "colBadge": "Badge"
   },
   "adminAnalytics": {
     "title": "Behaviour analytics",

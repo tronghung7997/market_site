@@ -15,6 +15,10 @@ os.environ["DATABASE_URL"] = os.environ.get(
 os.environ.setdefault("REDIS_URL", "redis://localhost:6379/15")
 os.environ["DEPLOYMENT_ENVIRONMENT"] = "test"
 os.environ["AUTH_RATE_LIMIT_ENABLED"] = "false"
+# Account ids restart at 1 after every TRUNCATE while Redis counters live for an
+# hour, so the per-account upload limit would leak between tests; its wiring is
+# covered in test_media.py by forcing the limiter to refuse.
+os.environ["MEDIA_UPLOAD_RATE_LIMIT_PER_HOUR"] = "1000000"
 # Sign-up email verification is exercised explicitly in test_auth_verification.py;
 # every other test creates throwaway accounts that never open a mailbox.
 os.environ["EMAIL_VERIFICATION_REQUIRED"] = "false"

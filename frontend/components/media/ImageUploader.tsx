@@ -13,7 +13,7 @@ import { MediaImage } from "./MediaImage";
 /** An image the uploader shows: a saved PublicImage or a fresh upload. */
 export type UploaderImage = Pick<PublicImage, "id" | "w" | "h"> & { url: string | null; thumb_url: string | null };
 
-type Layout = "grid" | "square" | "avatar" | "banner";
+type Layout = "grid" | "square" | "avatar" | "banner" | "badge";
 
 interface Pending {
   key: string;
@@ -25,6 +25,7 @@ const TILE: Record<Layout, string> = {
   square: "h-28 w-28 rounded-lg",
   avatar: "h-24 w-24 rounded-full",
   banner: "aspect-[3/1] w-full rounded-lg",
+  badge: "h-14 w-14 rounded-lg",
 };
 
 /**
@@ -41,6 +42,7 @@ export function ImageUploader({
   hint,
   layout = max > 1 ? "grid" : "square",
   markCover = false,
+  compact = false,
   disabled,
 }: {
   purpose: MediaPurpose;
@@ -52,6 +54,8 @@ export function ImageUploader({
   layout?: Layout;
   /** Tag the first image as the cover shown on cards. */
   markCover?: boolean;
+  /** Tight spaces (table cells): no visible label or help text. */
+  compact?: boolean;
   disabled?: boolean;
 }) {
   const t = useTranslations("media");
@@ -129,10 +133,14 @@ export function ImageUploader({
         if (files.length && canAdd) { event.preventDefault(); void addFiles(files); }
       }}
     >
-      <div className="flex items-baseline justify-between gap-3">
-        <span className="text-[13px] font-medium text-muted">{label}</span>
-        {!single && <span className="font-mono text-[12px] text-faint">{t("count", { count: value.length, max })}</span>}
-      </div>
+      {compact ? (
+        <span className="sr-only">{label}</span>
+      ) : (
+        <div className="flex items-baseline justify-between gap-3">
+          <span className="text-[13px] font-medium text-muted">{label}</span>
+          {!single && <span className="font-mono text-[12px] text-faint">{t("count", { count: value.length, max })}</span>}
+        </div>
+      )}
 
       <div className={cn("flex flex-wrap gap-2 rounded-xl transition-colors", dragging && "bg-iris/5 ring-2 ring-iris/40 ring-offset-2 ring-offset-surface")}>
         {value.map((image, index) => (
@@ -201,8 +209,8 @@ export function ImageUploader({
         }}
       />
 
-      {hint && <p className="text-[12px] text-faint">{hint}</p>}
-      <p className="text-[12px] text-faint">{t("dropHint")}</p>
+      {hint && !compact && <p className="text-[12px] text-faint">{hint}</p>}
+      {!compact && <p className="text-[12px] text-faint">{t("dropHint")}</p>}
       {errors.length > 0 && (
         <ul role="alert" className="space-y-0.5 text-[12px] text-bad">
           {errors.map((message, index) => <li key={index}>{message}</li>)}

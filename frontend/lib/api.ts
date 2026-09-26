@@ -16,7 +16,7 @@ import type { AdminProductActivity, AdminProductBulkAction, AdminProductBulkResu
 import type { BusinessAnalytics, BusinessAnalyticsQuery, BusinessFilterOptions } from "./types";
 import type { AdminAlert, AdminDisputeCase, AdminLogEntry, AdminOrderCase } from "./types";
 import type { AdminOrderPage, AdminOrderQuery, AdminOrdersOverview, OrderResourcePage } from "./types";
-import type { AuthSessionRow, MediaPurpose, MySellerProfile, ProfileUpdate, UploadedMedia } from "./types";
+import type { AdminMediaPage, AdminMediaStats, AuthSessionRow, MediaPurpose, MediaStatus, MySellerProfile, ProfileUpdate, UploadedMedia } from "./types";
 import type {
   SourceArea, SourceCatalogPage, SourceCatalogQuery, SourceImportItem, SourceImportResult, SourceListing,
   SourceRepriceResult, SourceSyncResult, SupplierSource, SourceOffer, SourcePlanImportItem, SourcePlanImportResult,
@@ -206,6 +206,17 @@ export const api = {
       headers: { "Content-Type": image.type || "application/octet-stream" },
       signal,
     }, true),
+  adminMediaStats: () => request<AdminMediaStats>("/admin/media/stats", {}, true),
+  adminMedia: (params: { purpose?: MediaPurpose | ""; status?: MediaStatus | ""; owner?: string; page?: number }) => {
+    const query = new URLSearchParams();
+    if (params.purpose) query.set("purpose", params.purpose);
+    if (params.status) query.set("status", params.status);
+    if (params.owner?.trim()) query.set("owner", params.owner.trim());
+    query.set("page", String(params.page ?? 1));
+    return request<AdminMediaPage>(`/admin/media?${query.toString()}`, {}, true);
+  },
+  adminRemoveMedia: (id: string, reason: string) =>
+    request<{ id: string; status: MediaStatus }>(`/admin/media/${encodeURIComponent(id)}/remove`, { method: "POST", body: JSON.stringify({ reason }) }, true),
   mySellerProfile: () => request<MySellerProfile>("/seller/profile", {}, true),
   updateMySellerProfile: (data: { business_name?: string; description?: string; contact?: string; logo_id?: string | null; banner_id?: string | null }) =>
     request<MySellerProfile>("/seller/profile", { method: "PATCH", body: JSON.stringify(data) }, true),

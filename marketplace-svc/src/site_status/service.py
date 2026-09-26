@@ -12,6 +12,7 @@ from sqlalchemy.ext.asyncio import AsyncSession
 from src.audit.service import log_event
 from src.database import SessionLocal
 from src.errors.codes import ErrorCode
+from src.config import settings
 from src.errors.exceptions import api_error
 from src.logging import current_request_id
 from src.models.site_runtime_config import SiteRuntimeConfig
@@ -24,6 +25,7 @@ _EDITABLE = (
     "withdrawals_frozen", "deposits_frozen", "orders_frozen", "freeze_reason",
     "announcement_enabled", "announcement_level", "announcement_text_vi", "announcement_text_en",
     "announcement_link_url", "announcement_starts_at", "announcement_ends_at",
+    "media_max_upload_mb",
 )
 _ANNOUNCEMENT_TEXT_FIELDS = ("announcement_text_vi", "announcement_text_en", "announcement_link_url", "announcement_level")
 
@@ -53,6 +55,7 @@ def _payload(row: SiteRuntimeConfig) -> dict:
         "announcement_starts_at": _iso(row.announcement_starts_at),
         "announcement_ends_at": _iso(row.announcement_ends_at),
         "announcement_version": int(row.announcement_version or 1),
+        "media_max_upload_mb": int(row.media_max_upload_mb or 10),
         "updated_at": _iso(row.updated_at),
         "updated_by_id": row.updated_by_id,
     }
@@ -131,6 +134,9 @@ async def update_site_status(
     old = _payload(row)
     if "announcement_level" in changes and changes["announcement_level"] not in ANNOUNCEMENT_LEVELS:
         raise ValueError("announcement_level must be info, warn or danger")
+    ceiling_mb = settings.media_max_upload_bytes // (1024 * 1024)
+    if changes.get("media_max_upload_mb") is not None and not 1 <= int(changes["media_max_upload_mb"]) <= ceiling_mb:
+        raise ValueError(f"media_max_upload_mb must be between 1 and {ceiling_mb} (MEDIA_MAX_UPLOAD_BYTES)")
     for key, value in changes.items():
         if key not in _EDITABLE or value is None:
             continue

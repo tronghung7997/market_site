@@ -1,6 +1,6 @@
 from typing import Annotated
 
-from pydantic import BaseModel, StringConstraints
+from pydantic import BaseModel, Field, StringConstraints
 
 from src.media.urls import PUBLIC_ID_PATTERN
 
@@ -35,3 +35,8 @@ class PrivateImage(BaseModel):
     uploaded_at: str | None = None
     # EXIF capture time (camera clock, no zone), when the file carried one.
     taken_at: str | None = None
+
+
+class MediaRemove(BaseModel):
+    """Admin takedown; the reason goes to the audit log."""
+    reason: str = Field(min_length=3, max_length=300)

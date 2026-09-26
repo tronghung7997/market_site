@@ -172,7 +172,9 @@ export default function SellerProfileView({ initial }: { initial: SellerPageCata
               <h1 className="font-serif text-[24px] font-semibold tracking-tight text-fg leading-tight">{displayName}</h1>
               <div className="mt-2 flex items-center gap-2 flex-wrap">
                 <span className="inline-flex items-center gap-1 rounded-full border border-iris/25 bg-iris-soft px-2 py-0.5 text-[11px] font-medium text-iris-hi">
-                  <Verified size={10} /> {tierLabel(seller.seller_tier)}
+                  {seller.tier_badge
+                    ? <MediaImage image={seller.tier_badge} alt="" className="h-3.5 w-3.5 rounded-sm" />
+                    : <Verified size={10} />} {tierLabel(seller.seller_tier)}
                 </span>
                 {seller.member_since && (
                   <span className="text-[12px] text-faint">{t("memberSince", { date: formatDate(seller.member_since) })}</span>

@@ -4,6 +4,7 @@ from sqlalchemy.ext.asyncio import AsyncSession
 from src.i18n.search_text import normalize_query, search_terms
 from src.i18n.slug import canonical_path, parse_public_ref, slugify_text
 from src.media.service import public_image
+from src.sellers.tier_config import get_tier_rules
 from src.models.account import Account, ApplicationStatus, SellerApplication
 from src.models.order import Order, OrderStatus
 from src.models.product import Product, ProductStatus
@@ -150,6 +151,7 @@ async def _build_seller_summaries(seller_ids: list[int], db: AsyncSession) -> li
 
     business_names = await approved_business_names(seller_ids, db)
     shop_images = await approved_shop_images(seller_ids, db)
+    tier_rules = await get_tier_rules(db)
 
     # No account_id on the wire: the public key is the seller's only public handle.
     return [
@@ -161,6 +163,7 @@ async def _build_seller_summaries(seller_ids: list[int], db: AsyncSession) -> li
             "rating_avg": ratings.get(seller_id),
             "review_count": review_counts.get(seller_id, 0),
             "seller_tier": tiers.get(seller_id, "new"),
+            "tier_badge": getattr(tier_rules.get(tiers.get(seller_id, "new")), "badge", None),
             "logo": shop_images.get(seller_id, (None, None))[0],
             "banner": shop_images.get(seller_id, (None, None))[1],
         }

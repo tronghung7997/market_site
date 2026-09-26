@@ -32,6 +32,7 @@ from src.search.router import router as search_router
 from src.search.service import flush_query_log
 from src.scheduler_leader import run_scheduler_leader
 from src.site_pages.router import router as site_pages_router
+from src.media.router import router as media_router
 from src.trust_seed.router import router as trust_seed_router
 from src.pricing.router import router as pricing_router
 from src.products.router import router as products_router
@@ -59,6 +60,7 @@ from src.scheduler import (
     gateway_call_log_cleanup_job,
     ledger_reconcile_job,
     chat_message_retention_job,
+    media_gc_job,
     provider_credit_low_job,
     provision_sweep_job,
     resource_expire_job,
@@ -136,6 +138,8 @@ scheduler.add_job(
     chat_message_retention_job, "interval", hours=6, id="chat_message_retention",
     next_run_time=_first_run_after(20),
 )
+# Abandoned uploads and images dropped by their product/message/case.
+scheduler.add_job(media_gc_job, "interval", minutes=30, id="media_gc", next_run_time=_first_run_after(25))
 scheduler.add_job(mail_outbox_send_job, "interval", seconds=20, id="mail_outbox")
 # Books check every night at 03:30 server time, after the day's settlements.
 scheduler.add_job(ledger_reconcile_job, "cron", hour=3, minute=30, id="ledger_reconcile")
@@ -187,15 +191,6 @@ app.add_middleware(
         "X-Request-ID",
     ],
 )
-app.add_middleware(
-    BodySizeLimitMiddleware,
-    max_bytes=settings.max_request_body_bytes,
-    overrides=[
-        # Seller restock: bulk add + its preview. The console sends ~2 MB batches and
-        # re-splits on REQUEST_TOO_LARGE, so this is headroom, not the batch size.
-        ("POST", r"/seller/variants/\d+/resources(?:/preview)?", settings.restock_max_request_body_bytes),
-    ],
-)
 app.add_middleware(AdminIpAllowlistMiddleware)
 app.add_middleware(
     SecurityHeadersMiddleware,
@@ -227,6 +222,21 @@ async def require_bff_signature(request: Request, call_next):
     # service threading `Request` through its signature.
     request.state.client_ip = request_client_ip(request)
     return await call_next(request)
+
+
+# Registered last so it is the outermost middleware: the signature check above
+# reads the whole body, and oversized bodies must be refused before that.
+app.add_middleware(
+    BodySizeLimitMiddleware,
+    max_bytes=settings.max_request_body_bytes,
+    overrides=[
+        # Seller restock: bulk add + its preview. The console sends ~2 MB batches and
+        # re-splits on REQUEST_TOO_LARGE, so this is headroom, not the batch size.
+        ("POST", r"/seller/variants/\d+/resources(?:/preview)?", settings.restock_max_request_body_bytes),
+        # Raw image bytes; the browser already downscales before sending.
+        ("POST", r"/media/uploads", settings.media_max_upload_bytes),
+    ],
+)
 
 app.include_router(auth_router)
 app.include_router(site_status_router)
@@ -264,6 +274,7 @@ app.include_router(proxy_router)
 app.include_router(proxies_router)
 app.include_router(ops_router)
 app.include_router(site_pages_router)
+app.include_router(media_router)
 app.include_router(search_router)
 app.include_router(ai_router)
 app.include_router(trust_seed_router)

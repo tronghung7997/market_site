@@ -130,6 +130,13 @@ class ErrorCode(str, Enum):
     CHAT_SUPPORT_REQUIRES_DISPUTE = "CHAT_SUPPORT_REQUIRES_DISPUTE"
     CHAT_SUPPORT_REQUIRES_REVIEW = "CHAT_SUPPORT_REQUIRES_REVIEW"
     CONTENT_BLOCKED = "CONTENT_BLOCKED"
+    MEDIA_INVALID_IMAGE = "MEDIA_INVALID_IMAGE"
+    MEDIA_PURPOSE_FORBIDDEN = "MEDIA_PURPOSE_FORBIDDEN"
+    MEDIA_PENDING_LIMIT = "MEDIA_PENDING_LIMIT"
+    MEDIA_NOT_FOUND = "MEDIA_NOT_FOUND"
+    MEDIA_NOT_ATTACHABLE = "MEDIA_NOT_ATTACHABLE"
+    MEDIA_LIMIT_EXCEEDED = "MEDIA_LIMIT_EXCEEDED"
+    MEDIA_STORAGE_UNAVAILABLE = "MEDIA_STORAGE_UNAVAILABLE"
 
 
 MESSAGES_EN: dict[ErrorCode, str] = {
@@ -266,4 +273,11 @@ MESSAGES_EN: dict[ErrorCode, str] = {
         "Your message contains contact details or links that are not allowed. "
         "Please keep the conversation on the marketplace"
     ),
+    ErrorCode.MEDIA_INVALID_IMAGE: "This file is not a supported image. Use a JPG, PNG, WebP or GIF picture",
+    ErrorCode.MEDIA_PURPOSE_FORBIDDEN: "Your account cannot upload images here",
+    ErrorCode.MEDIA_PENDING_LIMIT: "Too many unsaved uploads. Save or discard them, then try again",
+    ErrorCode.MEDIA_NOT_FOUND: "The image was not found or has been removed",
+    ErrorCode.MEDIA_NOT_ATTACHABLE: "This image cannot be used here. Upload it again",
+    ErrorCode.MEDIA_LIMIT_EXCEEDED: "You can attach at most {max} images here",
+    ErrorCode.MEDIA_STORAGE_UNAVAILABLE: "Image storage is temporarily unavailable. Please try again later",
 }

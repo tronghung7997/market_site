@@ -1,7 +1,7 @@
 import { describe, it } from "node:test";
 import assert from "node:assert/strict";
 
-import { catalogWritePath, publicCacheControl } from "../lib/bff-cache.ts";
+import { catalogWritePath, privateImageCacheControl, publicCacheControl } from "../lib/bff-cache.ts";
 
 describe("BFF public cache policy", () => {
   it("lets anonymous catalog GETs be cached by a shared cache", () => {
@@ -37,5 +37,22 @@ describe("BFF catalog invalidation", () => {
     assert.equal(catalogWritePath("PATCH", "seller/products/12", 422), false);
     assert.equal(catalogWritePath("POST", "orders", 201), false);
     assert.equal(catalogWritePath("POST", "auth/login", 200), false);
+  });
+});
+
+describe("BFF private image cache policy", () => {
+  it("keeps the backend's private cache header on successful images", () => {
+    assert.equal(
+      privateImageCacheControl({ status: 200, contentType: "image/webp", upstreamCacheControl: "private, max-age=3600" }),
+      "private, max-age=3600",
+    );
+  });
+
+  it("falls back to no-store for anything else", () => {
+    const base = { status: 200, contentType: "image/webp", upstreamCacheControl: "private, max-age=3600" };
+    assert.equal(privateImageCacheControl({ ...base, status: 404 }), null);
+    assert.equal(privateImageCacheControl({ ...base, contentType: "application/json" }), null);
+    assert.equal(privateImageCacheControl({ ...base, upstreamCacheControl: "public, max-age=60" }), null);
+    assert.equal(privateImageCacheControl({ ...base, upstreamCacheControl: null }), null);
   });
 });

@@ -39,6 +39,7 @@ from src.models.payment import (
 from src.models.mail import MailOutbox, MailOutboxStatus
 from src.models.mail_runtime_config import MailRuntimeConfig
 from src.models.mail_template import MailTemplate
+from src.models.media import MediaBlob, MediaObject, MediaPurpose, MediaStatus
 from src.models.wallet import Transaction, TransactionType, Wallet, WithdrawRequest, WithdrawStatus
 from src.models.display_money_config import DisplayMoneyConfig
 from src.models.deposit_rail_config import DepositRailConfig
@@ -73,6 +74,7 @@ __all__ = [
     "ServiceTask", "ServiceTaskStatus",
     "OrderBalance", "UsageRecord", "UsageRecordStatus", "GatewayCallLog",
     "MailOutbox", "MailOutboxStatus", "MailRuntimeConfig", "MailTemplate",
+    "MediaBlob", "MediaObject", "MediaPurpose", "MediaStatus",
     "Transaction", "TransactionType", "Wallet", "WithdrawRequest", "WithdrawStatus",
     "DepositIntent", "DepositIntentStatus", "DepositProvider",
     "NowpaymentsIpnEvent", "PayosWebhookEvent", "SePayWebhookEvent",

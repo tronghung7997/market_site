@@ -241,6 +241,37 @@ class Settings(BaseSettings):
     # False = pure USD chrome — visitors never see VND/rate copy.
     display_show_fx_hints: bool = True
 
+    # --- Media (images) — see docs/media-storage.md ---
+    # Where NEW uploads are written. Each media_objects row records its own
+    # store, so switching db → s3 needs no downtime: old rows keep reading from
+    # Postgres until scripts/media_migrate.py moves them.
+    media_storage: Literal["db", "s3"] = "db"
+    # Any S3-compatible endpoint (Cloudflare R2, MinIO, AWS S3, Backblaze B2),
+    # path-style addressing. R2: https://<account_id>.r2.cloudflarestorage.com
+    media_s3_endpoint: str = ""
+    media_s3_region: str = "auto"
+    # Two buckets: public exposure is per bucket (R2 custom domain), so private
+    # images (chat, disputes, payout receipts) must never share the public one.
+    media_s3_public_bucket: str = ""
+    media_s3_private_bucket: str = ""
+    media_s3_access_key_id: str = ""
+    media_s3_secret_access_key: str = ""
+    media_s3_timeout_seconds: float = 20.0
+    # Empty = public images are served by this app at /media/<key>. Set it to the
+    # CDN domain of the public bucket (https://media.example.com) only after every
+    # public object has been moved to S3 — URLs then skip the app entirely.
+    media_public_base_url: str = ""
+    media_signed_url_ttl_seconds: int = 600
+    media_max_upload_bytes: int = 10_485_760
+    media_upload_rate_limit_per_hour: int = 120
+
+    @property
+    def media_s3_configured(self) -> bool:
+        return all((
+            self.media_s3_endpoint, self.media_s3_public_bucket, self.media_s3_private_bucket,
+            self.media_s3_access_key_id, self.media_s3_secret_access_key,
+        ))
+
     @property
     def cors_origins(self) -> list[str]:
         configured = [origin.strip().rstrip("/") for origin in self.cors_allowed_origins.split(",")]
@@ -324,9 +355,26 @@ class Settings(BaseSettings):
             "db_pool_timeout_seconds",
             "db_pool_recycle_seconds",
             "provision_max_concurrency",
+            "media_signed_url_ttl_seconds",
+            "media_max_upload_bytes",
+            "media_upload_rate_limit_per_hour",
         ):
             if getattr(self, field_name) <= 0:
                 raise ValueError(f"{field_name.upper()} must be greater than zero")
+        if self.media_storage == "s3" and not self.media_s3_configured:
+            raise ValueError(
+                "MEDIA_STORAGE=s3 needs MEDIA_S3_ENDPOINT, MEDIA_S3_PUBLIC_BUCKET, "
+                "MEDIA_S3_PRIVATE_BUCKET, MEDIA_S3_ACCESS_KEY_ID and MEDIA_S3_SECRET_ACCESS_KEY"
+            )
+        if self.media_s3_configured and self.media_s3_public_bucket == self.media_s3_private_bucket:
+            raise ValueError("MEDIA_S3_PUBLIC_BUCKET and MEDIA_S3_PRIVATE_BUCKET must be different buckets")
+        for field_name in ("media_s3_endpoint", "media_public_base_url"):
+            value = getattr(self, field_name)
+            if value and urlsplit(value).scheme not in {"http", "https"}:
+                raise ValueError(f"{field_name.upper()} must be an http(s) URL")
+            # The storefront CSP only loads remote images over https.
+            if value and self.deployment_environment == "production" and urlsplit(value).scheme != "https":
+                raise ValueError(f"{field_name.upper()} must use https in production")
         for field_name in ("db_max_overflow", "db_idle_in_transaction_timeout_seconds"):
             if getattr(self, field_name) < 0:
                 raise ValueError(f"{field_name.upper()} must not be negative")

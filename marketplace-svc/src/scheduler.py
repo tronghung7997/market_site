@@ -22,6 +22,7 @@ from src.fees.service import order_fee_percent
 from src.wallet.service import escrow_settlement, refund_escrow, release_escrow
 from src.disputes.service import resolve_abandoned_dispute, resolve_dispute_after_response_timeout
 from src.chat.retention import CHAT_RETENTION_BATCH_SIZE, purge_expired_messages
+from src.media.service import collect_garbage as collect_media_garbage
 
 logger = structlog.get_logger()
 
@@ -1155,6 +1156,16 @@ async def chat_message_retention_job() -> None:
         logger.info("chat_message_retention_done", deleted=deleted)
     except Exception as e:
         logger.error("chat_message_retention_failed", error=str(e))
+
+
+async def media_gc_job() -> None:
+    """Delete abandoned uploads (pending > 1 day) and detached images past grace."""
+    try:
+        deleted = await collect_media_garbage()
+        if deleted:
+            logger.info("media_gc_done", deleted=deleted)
+    except Exception as e:
+        logger.error("media_gc_failed", error=str(e))
 
 
 async def auto_review_job() -> None:

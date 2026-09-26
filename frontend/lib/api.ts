@@ -16,7 +16,7 @@ import type { AdminProductActivity, AdminProductBulkAction, AdminProductBulkResu
 import type { BusinessAnalytics, BusinessAnalyticsQuery, BusinessFilterOptions } from "./types";
 import type { AdminAlert, AdminDisputeCase, AdminLogEntry, AdminOrderCase } from "./types";
 import type { AdminOrderPage, AdminOrderQuery, AdminOrdersOverview, OrderResourcePage } from "./types";
-import type { AuthSessionRow, MySellerProfile, ProfileUpdate } from "./types";
+import type { AuthSessionRow, MediaPurpose, MySellerProfile, ProfileUpdate, UploadedMedia } from "./types";
 import type {
   SourceArea, SourceCatalogPage, SourceCatalogQuery, SourceImportItem, SourceImportResult, SourceListing,
   SourceRepriceResult, SourceSyncResult, SupplierSource, SourceOffer, SourcePlanImportItem, SourcePlanImportResult,
@@ -198,6 +198,14 @@ export const api = {
   mySessions: () => request<AuthSessionRow[]>("/me/sessions", {}, true),
   revokeSession: (id: string) => request<void>(`/me/sessions/${id}`, { method: "DELETE" }, true),
   myLoginEvents: (limit = 30) => request<LoginEvent[]>(`/me/login-events?limit=${limit}`, {}, true),
+  /** Raw image bytes (not multipart); prepare it with lib/media.ts first. */
+  uploadMedia: (image: Blob, purpose: MediaPurpose, signal?: AbortSignal) =>
+    request<UploadedMedia>(`/media/uploads?purpose=${purpose}`, {
+      method: "POST",
+      body: image,
+      headers: { "Content-Type": image.type || "application/octet-stream" },
+      signal,
+    }, true),
   mySellerProfile: () => request<MySellerProfile>("/seller/profile", {}, true),
   updateMySellerProfile: (data: { business_name?: string; description?: string; contact?: string }) =>
     request<MySellerProfile>("/seller/profile", { method: "PATCH", body: JSON.stringify(data) }, true),

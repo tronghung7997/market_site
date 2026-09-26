@@ -19,6 +19,45 @@ export interface AuthSessionRow {
   is_current: boolean;
 }
 
+/** Uploaded image purposes (backend MediaPurpose). */
+export type MediaPurpose =
+  | "product_image"
+  | "category_image"
+  | "seller_logo"
+  | "seller_banner"
+  | "avatar"
+  | "chat_attachment"
+  | "dispute_evidence"
+  | "payout_receipt";
+
+/** A public image as served in payloads: immutable URLs (app /media/… or CDN). */
+export interface PublicImage {
+  id: string;
+  url: string;
+  thumb_url: string;
+  w: number;
+  h: number;
+}
+
+/** A private image (chat, dispute, payout receipt): no URL — the owning
+ *  feature's authorised endpoint serves it (see lib/media.ts). */
+export interface PrivateImage {
+  id: string;
+  w: number;
+  h: number;
+}
+
+/** Response of POST /media/uploads. `url` is set for public purposes only. */
+export interface UploadedMedia {
+  id: string;
+  purpose: MediaPurpose;
+  w: number;
+  h: number;
+  bytes: number;
+  url: string | null;
+  thumb_url: string | null;
+}
+
 /** The seller's own editable shop identity (GET/PATCH /seller/profile). */
 export interface MySellerProfile {
   business_name: string;

@@ -1,7 +1,7 @@
 import { NextRequest, NextResponse } from "next/server";
 import { revalidateTag } from "next/cache";
 import { signedHeaders } from "@/lib/bff-request-signing";
-import { CATALOG_CACHE_TAG, catalogWritePath, publicCacheControl } from "@/lib/bff-cache";
+import { CATALOG_CACHE_TAG, catalogWritePath, privateImageCacheControl, publicCacheControl } from "@/lib/bff-cache";
 import { adminRequestAllowed, clientIpFromHeaders, isAdminApiPath } from "@/lib/admin-access";
 import {
   ACCESS_COOKIE,
@@ -33,6 +33,9 @@ const LOGIN_PATHS = new Set(["auth/login", "auth/admin/login", "auth/login/2fa",
 // Set by this server only (the browser's copy is dropped by the allowlist),
 // and honoured by FastAPI solely because the request is BFF-signed.
 const CLIENT_IP_HEADER = "x-client-ip";
+// Bodies are buffered whole before signing; refuse anything above the largest
+// backend cap (seller restock 20 MB, image uploads 10 MB) before reading it.
+const MAX_REQUEST_BODY_BYTES = 25 * 1024 * 1024;
 
 function accessCookieOptions() {
   return authCookieOptions(ACCESS_MAX_AGE_SECONDS, IS_PRODUCTION);
@@ -209,8 +212,15 @@ async function passthroughUpstream(
     return response;
   }
   // Anonymous public catalog reads may sit in a shared cache for a minute;
-  // everything else (personalised or mutating) stays no-store.
-  responseHeaders.set("Cache-Control", cacheControl ?? "no-store");
+  // everything else (personalised or mutating) stays no-store — except a
+  // private image the backend marked cacheable for this browser only (its
+  // bytes never change under the same URL).
+  const privateImage = privateImageCacheControl({
+    status: upstream.status,
+    contentType,
+    upstreamCacheControl: upstream.headers.get("cache-control"),
+  });
+  responseHeaders.set("Cache-Control", cacheControl ?? privateImage ?? "no-store");
   const response = new NextResponse(upstream.body, {
     status: upstream.status,
     headers: responseHeaders,
@@ -289,6 +299,15 @@ async function proxy(request: NextRequest, segments: string[]) {
   let access = request.cookies.get(ACCESS_COOKIE)?.value;
   if (access) headers.set("authorization", `Bearer ${access}`);
 
+  if (Number(request.headers.get("content-length") ?? 0) > MAX_REQUEST_BODY_BYTES) {
+    return NextResponse.json(
+      {
+        ...bffErrorBody("REQUEST_TOO_LARGE", "The request is too large."),
+        params: { max_bytes: MAX_REQUEST_BODY_BYTES, max_mb: MAX_REQUEST_BODY_BYTES / (1024 * 1024) },
+      },
+      { status: 413, headers: { "Cache-Control": "no-store" } },
+    );
+  }
   const body = request.method === "GET" || request.method === "HEAD"
     ? undefined
     : await request.arrayBuffer();

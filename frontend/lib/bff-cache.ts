@@ -67,6 +67,22 @@ export function publicCacheControl(params: {
   return `public, max-age=0, s-maxage=${PUBLIC_CACHE_SECONDS}, stale-while-revalidate=${PUBLIC_STALE_SECONDS}`;
 }
 
+/**
+ * The backend's own `Cache-Control` for a private image (chat attachment,
+ * dispute evidence…), or null. Such bytes never change under the same URL, so
+ * the browser may keep them; a shared cache may not (`private`).
+ */
+export function privateImageCacheControl(params: {
+  status: number;
+  contentType: string;
+  upstreamCacheControl: string | null;
+}): string | null {
+  if (params.status < 200 || params.status >= 300) return null;
+  if (!params.contentType.toLowerCase().startsWith("image/")) return null;
+  const header = params.upstreamCacheControl?.trim() ?? "";
+  return /^private\b/i.test(header) && !/\bpublic\b/i.test(header) ? header : null;
+}
+
 /** True when a successful `method path` should invalidate the SSR catalog cache. */
 export function catalogWritePath(method: string, path: string, status: number): boolean {
   if (!UNSAFE_METHODS.has(method)) return false;

@@ -6,6 +6,7 @@ from fastapi.responses import JSONResponse
 from src.content_filter.service import ContentBlocked
 from src.errors.codes import ErrorCode
 from src.errors.exceptions import CodedHTTPException
+from src.media.errors import MediaError
 
 
 def register_error_handlers(app: FastAPI) -> None:
@@ -15,6 +16,14 @@ def register_error_handlers(app: FastAPI) -> None:
             ErrorCode.CONTENT_BLOCKED, status.HTTP_422_UNPROCESSABLE_CONTENT,
             params={"matches": exc.matches},
         )
+        return JSONResponse(
+            status_code=coded.status_code,
+            content={"detail": coded.detail, "error_code": coded.error_code, "params": coded.params},
+        )
+
+    @app.exception_handler(MediaError)
+    async def media_error_handler(_request: Request, exc: MediaError) -> JSONResponse:
+        coded = CodedHTTPException(exc.code, exc.status_code, params=exc.params)
         return JSONResponse(
             status_code=coded.status_code,
             content={"detail": coded.detail, "error_code": coded.error_code, "params": coded.params},

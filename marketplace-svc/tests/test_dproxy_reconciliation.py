@@ -260,3 +260,29 @@ async def test_reconciliation_ignores_non_dproxy_providers(client, monkeypatch):
     calls = _patch_dproxy_http(monkeypatch, _resp(200, []))
     await dproxy_reconciliation_job()
     assert calls == []
+
+
+@pytest.mark.asyncio
+async def test_inventory_download_holds_no_db_connection(client, monkeypatch):
+    """The job commits before each provider's inventory request: a slow DProxy
+    must not pin a pooled connection or keep the previous provider's row locks."""
+    from src.adapters.dproxy import DProxyAdapter
+    from src.database import engine
+
+    order_id, _ = await _deliver(client, monkeypatch, "_nolock", external_id="ext-nolock")
+    _patch_dproxy_http(monkeypatch, _resp(200, [_sample("ext-nolock")]))
+    real_list = DProxyAdapter.list_assignments
+    checked_out_during_download: list[int] = []
+
+    async def observing(self, *args, **kwargs):
+        checked_out_during_download.append(engine.pool.checkedout())
+        return await real_list(self, *args, **kwargs)
+
+    monkeypatch.setattr(DProxyAdapter, "list_assignments", observing)
+
+    await dproxy_reconciliation_job()
+
+    assert checked_out_during_download == [0]
+    async with SessionLocal() as db:
+        allocation = await db.scalar(select(ProxyAllocation).where(ProxyAllocation.order_id == order_id))
+        assert allocation.status == ProxyAllocationStatus.allocated

@@ -240,3 +240,48 @@ def test_long_interval_jobs_run_soon_after_start():
         job = scheduler.get_job(job_id)
         assert job is not None, job_id
         assert job.next_run_time is not None and job.next_run_time <= soon, job_id
+
+
+@pytest.mark.asyncio
+async def test_resource_expire_job_works_through_batches(client, monkeypatch):
+    """Expiry runs in bounded batches (one transaction each) until nothing is due,
+    and leaves resources that are not yet due alone."""
+    import src.scheduler as scheduler
+    from src.models.log_entry import LogEntry
+
+    seller_token = await register_and_login(client, "exp_batch_seller@example.com")
+    await make_seller("exp_batch_seller@example.com")
+    admin_token = await register_and_login(client, "exp_batch_admin@example.com")
+    await make_admin("exp_batch_admin@example.com")
+    await client.post("/admin/categories", json={"name": "ExpBatch", "slug": "expbatch"},
+                      headers={"Authorization": f"Bearer {admin_token}"})
+    past = datetime.now(timezone.utc) - timedelta(hours=1)
+    future = datetime.now(timezone.utc) + timedelta(hours=1)
+    async with SessionLocal() as db:
+        seller_id = (await db.scalar(select(Account).where(Account.email == "exp_batch_seller@example.com"))).id
+        cat_id = (await db.scalar(select(Category).order_by(Category.id.desc()).limit(1))).id
+        product = Product(seller_id=seller_id, category_id=cat_id, title="ExpBatch", status="active")
+        db.add(product)
+        await db.flush()
+        variant = ProductVariant(product_id=product.id, name="Batch", price=1000, delivery_mode="instant", sla_hours=24)
+        db.add(variant)
+        await db.flush()
+        due = [Resource(variant_id=variant.id, seller_id=seller_id, data=f"due-{i}",
+                        status=ResourceStatus.assigned, expires_at=past) for i in range(5)]
+        later = Resource(variant_id=variant.id, seller_id=seller_id, data="later",
+                         status=ResourceStatus.assigned, expires_at=future)
+        db.add_all([*due, later])
+        await db.commit()
+        due_ids, later_id = [r.id for r in due], later.id
+
+    monkeypatch.setattr(scheduler, "_EXPIRE_BATCH_SIZE", 2)
+    await scheduler.resource_expire_job()
+
+    async with SessionLocal() as db:
+        statuses = dict((await db.execute(
+            select(Resource.id, Resource.status).where(Resource.id.in_([*due_ids, later_id]))
+        )).all())
+        logged = (await db.scalars(select(LogEntry).where(LogEntry.message.like("Resource % expired")))).all()
+    assert {statuses[i] for i in due_ids} == {ResourceStatus.expired}
+    assert statuses[later_id] == ResourceStatus.assigned
+    assert len(logged) == 5

@@ -5,7 +5,7 @@ from datetime import datetime, timedelta, timezone
 
 import httpx
 import structlog
-from sqlalchemy import Interval, literal_column, or_, select
+from sqlalchemy import Interval, func, literal_column, or_, select, update
 
 from src.alerts.service import emit_incident, fp_order, fp_provider, fp_variant, upsert_incident
 from src.audit.service import log_event
@@ -580,36 +580,56 @@ async def health_check_job() -> None:
         await db.commit()
 
 
-async def resource_expire_job() -> None:
-    async with SessionLocal() as db:
-        job_id = str(uuid.uuid4())
-        now = datetime.now(timezone.utc)
-        result = await db.execute(
-            select(Resource).where(
-                Resource.status == ResourceStatus.assigned,
-                Resource.expires_at <= now,
-            )
-        )
-        resources = list(result.scalars().all())
-        affected_variants: set[int] = set()
-        for r in resources:
-            r.status = ResourceStatus.expired
-            if r.variant_id:
-                affected_variants.add(r.variant_id)
-            await log_event(db, "info", f"Resource {r.id} expired", job_id=job_id,
-                            metadata={"event": "resource_expired", "resource_id": r.id, "order_id": r.order_id})
-            logger.info("resource_expired", resource_id=r.id, order_id=r.order_id)
+_EXPIRE_BATCH_SIZE = 1000
 
-        for vid in affected_variants:
-            available = await db.execute(
-                select(Resource).where(
-                    Resource.variant_id == vid,
-                    Resource.status == ResourceStatus.available,
-                    Resource.order_id.is_(None),
-                    Resource.is_archived == False,  # noqa: E712
-                )
+
+async def resource_expire_job() -> None:
+    """Mark assigned resources past `expires_at` as expired, a bounded batch per
+    transaction (one UPDATE ... RETURNING re-checking `assigned`, skipping rows
+    another session holds), then warn sellers whose package runs low."""
+    job_id = str(uuid.uuid4())
+    now = datetime.now(timezone.utc)
+    affected_variants: set[int] = set()
+    while True:
+        async with SessionLocal() as db:
+            due = (
+                select(Resource.id)
+                .where(Resource.status == ResourceStatus.assigned, Resource.expires_at <= now)
+                .order_by(Resource.id)
+                .limit(_EXPIRE_BATCH_SIZE)
+                .with_for_update(skip_locked=True)
             )
-            count = len(list(available.scalars().all()))
+            rows = (await db.execute(
+                update(Resource)
+                .where(Resource.id.in_(due), Resource.status == ResourceStatus.assigned)
+                .values(status=ResourceStatus.expired)
+                .returning(Resource.id, Resource.order_id, Resource.variant_id)
+            )).all()
+            for resource_id, order_id, variant_id in rows:
+                if variant_id:
+                    affected_variants.add(variant_id)
+                await log_event(db, "info", f"Resource {resource_id} expired", job_id=job_id,
+                                metadata={"event": "resource_expired", "resource_id": resource_id, "order_id": order_id})
+                logger.info("resource_expired", resource_id=resource_id, order_id=order_id)
+            await db.commit()
+        if len(rows) < _EXPIRE_BATCH_SIZE:
+            break
+
+    if not affected_variants:
+        return
+    async with SessionLocal() as db:
+        available = dict((await db.execute(
+            select(Resource.variant_id, func.count(Resource.id))
+            .where(
+                Resource.variant_id.in_(affected_variants),
+                Resource.status == ResourceStatus.available,
+                Resource.order_id.is_(None),
+                Resource.is_archived == False,  # noqa: E712
+            )
+            .group_by(Resource.variant_id)
+        )).all())
+        for vid in affected_variants:
+            count = available.get(vid, 0)
             if count <= 3:
                 variant = await db.get(ProductVariant, vid)
                 seller_id = 0
@@ -629,7 +649,6 @@ async def resource_expire_job() -> None:
                     message=f"Gói {label} chỉ còn {count} tài nguyên sẵn sàng",
                     href=f"/seller/inventory/{variant.public_key}" if variant else None,
                 )
-
         await db.commit()
 
 
@@ -789,6 +808,10 @@ async def dproxy_reconciliation_job() -> None:
             if not isinstance(adapter, DProxyAdapter):
                 continue
 
+            # Commit before the inventory download (retried, up to minutes):
+            # no pooled connection and no row lock of the previous provider's
+            # updates is held while waiting on DProxy.
+            await db.commit()
             try:
                 assignments = await adapter.list_assignments()
             except DProxyAuthError:
@@ -930,6 +953,7 @@ async def dproxy_reconciliation_job() -> None:
                 purchased_refreshed=sum(1 for a in purchased_live if a.external_id in by_external_id),
                 rotation_capable=sum(1 for a in assignments if a.rotation_available),
             )
+            await db.commit()
 
         await db.commit()
 

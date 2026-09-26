@@ -1666,3 +1666,23 @@ async def test_sla_check_skips_an_order_another_session_holds(client):
 
     async with SessionLocal() as db:
         assert (await db.get(Order, late["id"])).status == OrderStatus.pending
+
+
+@pytest.mark.asyncio
+async def test_order_enrichment_lookups_bind_one_parameter_per_id_list(client):
+    """The admin order list enriches every order; an expanded IN list would pass
+    asyncpg's 32 767 bind-parameter limit once the marketplace has that many."""
+    from src.models.review import Review
+    from src.orders.service import _id_in
+
+    many_ids = range(1, 40_001)
+    async with SessionLocal() as db:
+        rows = (await db.execute(select(Review.order_id).where(_id_in(Review.order_id, many_ids)))).all()
+    assert rows == []
+
+    buyer_token, _, _, instant_vid, _ = await setup_buyable_product(client)
+    order_id = (await client.post("/orders", json={"variant_id": instant_vid, "quantity": 1},
+                                  headers={"Authorization": f"Bearer {buyer_token}"})).json()["id"]
+    async with SessionLocal() as db:
+        found = (await db.scalars(select(Order.id).where(_id_in(Order.id, [order_id, 999_999])))).all()
+    assert found == [order_id]

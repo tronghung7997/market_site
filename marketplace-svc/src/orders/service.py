@@ -3,7 +3,8 @@ from datetime import datetime, timedelta, timezone
 
 import structlog
 from fastapi import status
-from sqlalchemy import case, func, or_, select
+from sqlalchemy import Integer, any_, case, func, literal, or_, select
+from sqlalchemy.dialects.postgresql import ARRAY
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from src.adapters.compatibility import check_compatibility
@@ -563,6 +564,13 @@ async def confirm_order(order_id: int, buyer_id: int, db: AsyncSession) -> Order
     return order
 
 
+def _id_in(column, ids):
+    """``column IN ids`` sent as ONE array parameter (``= ANY($1)``). An expanded
+    IN list binds one parameter per id, and the admin order list enriches every
+    order: past 32 767 ids asyncpg rejects the query."""
+    return column == any_(literal(list(ids), ARRAY(Integer)))
+
+
 async def _enrich_orders(orders: list[Order], db: AsyncSession, *, viewer: str = "admin") -> list[dict]:
     """Orders ORM → dicts with product/variant names + buyer/seller emails for display.
 
@@ -581,20 +589,20 @@ async def _enrich_orders(orders: list[Order], db: AsyncSession, *, viewer: str =
     variants: dict[int, ProductVariant] = {}
     variant_ids = {o.variant_id for o in orders if o.variant_id}
     if variant_ids:
-        rows = await db.execute(select(ProductVariant).where(ProductVariant.id.in_(variant_ids)))
+        rows = await db.execute(select(ProductVariant).where(_id_in(ProductVariant.id, variant_ids)))
         variants = {v.id: v for v in rows.scalars()}
 
     products: dict[int, Product] = {}
     product_ids = {o.product_id for o in orders if o.product_id}
     product_ids |= {v.product_id for v in variants.values()}
     if product_ids:
-        rows = await db.execute(select(Product).where(Product.id.in_(product_ids)))
+        rows = await db.execute(select(Product).where(_id_in(Product.id, product_ids)))
         products = {p.id: p for p in rows.scalars()}
 
     accounts: dict[int, Account] = {}
     account_ids = {o.buyer_id for o in orders} | {o.seller_id for o in orders}
     if account_ids:
-        rows = await db.execute(select(Account).where(Account.id.in_(account_ids)))
+        rows = await db.execute(select(Account).where(_id_in(Account.id, account_ids)))
         accounts = {a.id: a for a in rows.scalars()}
     seller_ids = {o.seller_id for o in orders}
     seller_names = await approved_business_names(list(seller_ids), db) if viewer == "buyer" else {}
@@ -602,12 +610,12 @@ async def _enrich_orders(orders: list[Order], db: AsyncSession, *, viewer: str =
 
     order_ids = [o.id for o in orders]
     reviewed = set(
-        (await db.execute(select(Review.order_id).where(Review.order_id.in_(order_ids)))).scalars()
+        (await db.execute(select(Review.order_id).where(_id_in(Review.order_id, order_ids)))).scalars()
     )
     review_window_days = await get_review_window_days(db)
     dispute_rows = (await db.execute(
         select(Dispute.order_id, Dispute.status, Dispute.created_at, Dispute.review_requested_at, Dispute.seller_note)
-        .where(Dispute.order_id.in_(order_ids))
+        .where(_id_in(Dispute.order_id, order_ids))
         .order_by(Dispute.created_at.desc())
     )).all()
     latest_dispute_status: dict[int, str] = {}
@@ -623,7 +631,7 @@ async def _enrich_orders(orders: list[Order], db: AsyncSession, *, viewer: str =
     open_disputes = {order_id for order_id, status_value in latest_dispute_status.items() if status_value == DisputeStatus.open.value}
     appendable_claim_orders = await orders_with_appendable_claims(list(open_disputes), db)
     task_rows = (await db.execute(
-        select(ServiceTask.order_id, ServiceTask.status).where(ServiceTask.order_id.in_(order_ids))
+        select(ServiceTask.order_id, ServiceTask.status).where(_id_in(ServiceTask.order_id, order_ids))
     )).all()
     task_progress: dict[int, dict[str, int]] = {}
     for task_order_id, task_status in task_rows:

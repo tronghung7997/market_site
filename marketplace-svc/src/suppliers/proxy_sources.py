@@ -608,8 +608,11 @@ async def remove_offer(provider: Provider, scope: SourceScope, product_id: int, 
     await db.commit()
 
 
-async def reprice_offers(provider: Provider, scope: SourceScope, db: AsyncSession, *, margin_pct: float, round_to: int = 1000) -> dict:
-    """Đặt lại giá mọi gói của nguồn = vốn × (1 + margin)."""
+async def reprice_offers(
+    provider: Provider, scope: SourceScope, db: AsyncSession, *,
+    margin_pct: float, round_to: int = 1000, product_id: int | None = None,
+) -> dict:
+    """Đặt lại giá mọi gói của nguồn (hoặc chỉ của ``product_id``) = vốn × (1 + margin)."""
     from src.products.service import update_product_operations
 
     _require_proxy(provider)
@@ -621,6 +624,8 @@ async def reprice_offers(provider: Provider, scope: SourceScope, db: AsyncSessio
     stmt = select(Product).where(Product.provider_id == provider.id, Product.pricing_strategy == "config")
     if not scope.is_admin:
         stmt = stmt.where(Product.seller_id == scope.seller_id)
+    if product_id is not None:
+        stmt = stmt.where(Product.id == product_id)
     updated = skipped = 0
     for product in (await db.execute(stmt)).scalars().all():
         params = dict(product.pricing_params or {})

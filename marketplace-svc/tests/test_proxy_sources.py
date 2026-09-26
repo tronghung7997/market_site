@@ -145,6 +145,12 @@ async def test_import_topproxy_plans_builds_config_pricing_and_offers(client):
         p_us = await db.get(Product, us["product_id"])
         assert p_us.status.value == "draft" and p_us.pricing_params["plan_prices"] == {}
 
+    # Áp margin cho một sản phẩm: chỉ gói của sản phẩm đó đổi.
+    resp = await client.post(f"/admin/sources/{pid}/offers/reprice", json={"margin_pct": 50, "product_id": us["product_id"]}, headers=_h(admin))
+    assert resp.json() == {"updated": 0, "skipped": 0}
+    resp = await client.post(f"/admin/sources/{pid}/offers/reprice", json={"margin_pct": 60, "product_id": v["product_id"]}, headers=_h(admin))
+    assert resp.json()["updated"] == 3
+
     # Áp margin hàng loạt.
     resp = await client.post(f"/admin/sources/{pid}/offers/reprice", json={"margin_pct": 50}, headers=_h(admin))
     assert resp.json()["updated"] == 3
@@ -395,6 +401,33 @@ async def test_seller_area_addresses_a_source_by_public_key(client, mock_dproxy)
         other_key = (await db.get(Provider, other_pid)).public_key
     assert (await client.get(f"/seller/sources/{other_key}/offers", headers=_h(seller))).status_code == 404
     assert (await client.get("/seller/sources/zzzzzzzz/offers", headers=_h(seller))).status_code == 404
+
+
+@pytest.mark.asyncio
+async def test_repricing_one_product_stays_inside_the_sellers_source(client, mock_dproxy):
+    admin, cat_id = await _admin_and_category(client)
+    pid, seller, _, items = await _dproxy_source(client, admin)
+    other_pid, other, _, other_items = await _dproxy_source(client, admin, seller_email="dpi3@example.com")
+    mine = (await client.post(f"/seller/sources/{pid}/import-plans", json={"items": [
+        _plan_item(items, RES_VN_7, title="Của tôi", category_id=cat_id),
+    ]}, headers=_h(seller))).json()[0]
+    theirs = (await client.post(f"/seller/sources/{other_pid}/import-plans", json={"items": [
+        _plan_item(other_items, RES_VN_7, title="Của người khác", category_id=cat_id),
+    ]}, headers=_h(other))).json()[0]
+
+    # Another seller's product id on my source matches nothing; their source is hidden.
+    resp = await client.post(f"/seller/sources/{pid}/offers/reprice", json={"margin_pct": 60, "product_id": theirs["product_id"]}, headers=_h(seller))
+    assert resp.status_code == 200 and resp.json() == {"updated": 0, "skipped": 0}
+    resp = await client.post(f"/seller/sources/{other_pid}/offers/reprice", json={"margin_pct": 60, "product_id": theirs["product_id"]}, headers=_h(seller))
+    assert resp.status_code == 404
+    async with SessionLocal() as db:
+        assert (await db.get(Product, theirs["product_id"])).pricing_params["plan_prices"] == {theirs["plan_key"]: 150000}
+
+    resp = await client.post(f"/seller/sources/{pid}/offers/reprice", json={"margin_pct": 60, "product_id": mine["product_id"]}, headers=_h(seller))
+    assert resp.json() == {"updated": 1, "skipped": 0}
+    # Still bound by the source's margin floor.
+    resp = await client.post(f"/seller/sources/{pid}/offers/reprice", json={"margin_pct": 5, "product_id": mine["product_id"]}, headers=_h(seller))
+    assert resp.status_code == 400
 
 
 # ----------------------------------------------------------------------

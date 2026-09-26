@@ -1098,7 +1098,7 @@ export const api = {
       request<SourceOffer>(`/${area}/sources/${id}/offers`, { method: "PATCH", body: JSON.stringify(body) }, true),
     removeOffer: (area: SourceArea, id: number | string, body: { product_id: number; plan_key: string }) =>
       request<void>(`/${area}/sources/${id}/offers/remove`, { method: "POST", body: JSON.stringify(body) }, true),
-    repriceOffers: (area: SourceArea, id: number | string, body: { margin_pct: number; round_to?: number }) =>
+    repriceOffers: (area: SourceArea, id: number | string, body: { margin_pct: number; round_to?: number; product_id?: number }) =>
       request<{ updated: number; skipped: number }>(`/${area}/sources/${id}/offers/reprice`, { method: "POST", body: JSON.stringify(body) }, true),
     kinds: () => request<SourceKind[]>(`/admin/sources/kinds`, {}, true),
     sellers: () => request<SourceSellerCandidate[]>(`/admin/sources/sellers`, {}, true),

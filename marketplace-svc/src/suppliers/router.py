@@ -167,6 +167,8 @@ class OfferRemove(BaseModel):
 class OfferRepriceRequest(BaseModel):
     margin_pct: float = Field(ge=0, le=1000)
     round_to: int = Field(default=1000, ge=1, le=1_000_000)
+    # Only this product's plans; omitted = every product of the source.
+    product_id: int | None = None
 
 
 class RepriceRequest(BaseModel):
@@ -404,7 +406,9 @@ def _routes(prefix: str, role: str):
     ):
         scope = scope_of(account)
         provider = await sources.get_source(provider_id, scope, db)
-        return await proxy_sources.reprice_offers(provider, scope, db, margin_pct=body.margin_pct, round_to=body.round_to)
+        return await proxy_sources.reprice_offers(
+            provider, scope, db, margin_pct=body.margin_pct, round_to=body.round_to, product_id=body.product_id,
+        )
 
     @r.patch("/listings/{listing_id}")
     async def update_listing(

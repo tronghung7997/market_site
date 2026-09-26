@@ -18,8 +18,10 @@ import { useMoney } from "@/lib/money/CurrencyProvider";
 import type { Category, SourceArea, SourceCatalogItem, SourceOffer, SourcePlanImportItem, SourceSellerCandidate, SupplierSource } from "@/lib/types";
 import { Button, Input, Select, Spinner, Tag } from "@/components/ui";
 import { Dialog, DialogContent, DialogTitle } from "@/components/ui/dialog";
-import { AlertTriangle, ChevronLeft, Plus, RefreshCw, Search, Trash, X } from "@/components/Icons";
+import { ChevronLeft, Plus, RefreshCw, Search, X } from "@/components/Icons";
 import { relTime } from "./shared";
+import { OFFER_CELL_VIEWS, OfferSummaryStrip, ProductOfferCard, type OfferCellView } from "./ProxyOfferGrid";
+import { filterGrids, groupOffers, summarizeOffers, type ProductOfferGrid } from "../offer-grid";
 import { sourceRef } from "../logic";
 
 const PROTOCOLS = ["HTTP", "SOCKS5"];
@@ -39,7 +41,7 @@ export function ProxySourceWorkspace({ area, source, onSourceChange }: { area: S
   const base = area === "admin" ? "/admin/sources" : "/seller/sources";
   // Admin pages may carry row ids; the seller surface uses the product's public key.
   const productHref = (o: SourceOffer) =>
-    area === "admin" ? `/admin/products/${o.product_id}` : sellerProductPath({ id: o.product_id, public_key: o.product_key });
+    area === "admin" ? `/admin/products/${o.product_id}?tab=operations` : sellerProductPath({ id: o.product_id, public_key: o.product_key });
 
   const [offers, setOffers] = useState<SourceOffer[] | null>(null);
   const [error, setError] = useState("");
@@ -47,9 +49,12 @@ export function ProxySourceWorkspace({ area, source, onSourceChange }: { area: S
   const [syncing, setSyncing] = useState(false);
   const [busy, setBusy] = useState(false);
   const [q, setQ] = useState("");
-  const [editing, setEditing] = useState<Record<string, string>>({});
+  const [editing, setEditing] = useState<Record<string, number>>({});
+  const [view, setView] = useState<OfferCellView>("margin");
   const [margin, setMargin] = useState(String(Math.max(source.min_margin_pct, 30)));
   const [drawer, setDrawer] = useState(Boolean(params.get("add")));
+  const [prefill, setPrefill] = useState<PlanPrefill | null>(null);
+  const openDrawer = (next: PlanPrefill | null = null) => { setPrefill(next); setDrawer(true); };
   const [confirmRemove, setConfirmRemove] = useState<SourceOffer | null>(null);
 
   const load = useCallback(async () => {
@@ -78,16 +83,17 @@ export function ProxySourceWorkspace({ area, source, onSourceChange }: { area: S
 
   const key = (o: SourceOffer) => `${o.product_id}:${o.plan_key}`;
   const savePrice = async (o: SourceOffer) => {
-    const raw = editing[key(o)];
-    if (raw === undefined) return;
-    const price = Number(raw);
+    const price = editing[key(o)];
+    if (price === undefined) return;
     setEditing((e) => { const n = { ...e }; delete n[key(o)]; return n; });
     if (!Number.isFinite(price) || price <= 0 || price === o.price) return;
     try {
       const updated = await api.sources.updateOffer(area, sourceRef(area, source), { product_id: o.product_id, plan_key: o.plan_key, price });
       setOffers((rows) => rows?.map((r) => (key(r) === key(updated) ? updated : r)) ?? null);
       setNotice(t("priceSaved"));
+      setError("");
     } catch (e) {
+      setNotice("");
       setError(apiErrorMessage(e));
     }
   };
@@ -107,32 +113,30 @@ export function ProxySourceWorkspace({ area, source, onSourceChange }: { area: S
     }
   };
 
-  const reprice = async () => {
+  const reprice = async (productId?: number) => {
     setBusy(true);
     try {
-      const r = await api.sources.repriceOffers(area, sourceRef(area, source), { margin_pct: Number(margin) || 0 });
+      const r = await api.sources.repriceOffers(area, sourceRef(area, source), { margin_pct: Number(margin) || 0, product_id: productId });
       setNotice(t("offersRepriced", { n: r.updated, skipped: r.skipped }));
+      setError("");
       await load();
     } catch (e) {
+      setNotice("");
       setError(apiErrorMessage(e));
     } finally {
       setBusy(false);
     }
   };
 
-  const visible = useMemo(() => {
-    const needle = q.trim().toLowerCase();
-    return (offers ?? []).filter((o) => !needle || `${o.product_title} ${o.label} ${o.plan_key} ${o.external_name ?? ""}`.toLowerCase().includes(needle));
-  }, [offers, q]);
-  const products = useMemo(() => {
-    const m = new Map<number, { product_id: number; product_title: string; n: number }>();
-    for (const o of offers ?? []) {
-      const cur = m.get(o.product_id) ?? { product_id: o.product_id, product_title: o.product_title, n: 0 };
-      cur.n += 1; m.set(o.product_id, cur);
-    }
-    return [...m.values()];
-  }, [offers]);
-  const lowCount = (offers ?? []).filter((o) => !o.margin_ok || o.unmapped || o.plan_missing).length;
+  const grids = useMemo(() => groupOffers(offers ?? []), [offers]);
+  const visibleGrids = useMemo(() => filterGrids(grids, q), [grids, q]);
+  // Few products: all open. Many: the first one and those needing a look;
+  // a search opens every match. A click overrides either.
+  const [openIds, setOpenIds] = useState<Record<number, boolean>>({});
+  const isOpen = (grid: ProductOfferGrid) =>
+    openIds[grid.productId] ?? (Boolean(q.trim()) || grids.length <= 3 || grid.attention > 0 || grid.productId === grids[0]?.productId);
+  const summary = useMemo(() => summarizeOffers(grids), [grids]);
+  const products = useMemo(() => grids.map((g) => ({ product_id: g.productId, product_title: g.title, n: g.offers.length })), [grids]);
   const health = (source.last_test_result as {
     health?: { status?: string; message?: string; credit?: { available_spending_usd?: number; credit_limit_usd?: number | null } | null };
   } | null)?.health;
@@ -141,13 +145,13 @@ export function ProxySourceWorkspace({ area, source, onSourceChange }: { area: S
   return (
     <div className="space-y-4">
       <div className="flex flex-wrap items-start gap-3">
-        <div className="min-w-0 flex-1">
+        <div className="w-full min-w-0 sm:w-auto sm:flex-1">
           <Link href={base} className="inline-flex items-center gap-1 text-[12px] text-muted hover:text-fg">
             <ChevronLeft className="h-3.5 w-3.5" />{area === "admin" ? t("adminTitle") : t("title")}
           </Link>
           <h1 className="flex flex-wrap items-center gap-2 truncate text-lg font-bold text-fg">{source.name}<Tag tone="iris">{t("kindProxy")}</Tag></h1>
           <p className="text-[12.5px] text-muted">
-            {t("proxyMeta", { plans: source.catalog_count, products: products.length, offers: offers?.length ?? 0, synced: relTime(source.catalog_synced_at, t) })}
+            {t("proxyMeta", { plans: source.catalog_count, synced: relTime(source.catalog_synced_at, t) })}
             {area === "admin" && ` · ${source.seller_email ?? t("unassigned")}`}
             {credit?.available_spending_usd != null && (
               <> · <span className="font-mono tabular-nums">{t("creditLeft", { amount: credit.available_spending_usd.toFixed(2) })}</span></>
@@ -160,91 +164,76 @@ export function ProxySourceWorkspace({ area, source, onSourceChange }: { area: S
         <Button size="sm" variant="secondary" onClick={sync} disabled={syncing}>
           <RefreshCw className={cn("h-3.5 w-3.5", syncing && "animate-spin")} />{syncing ? t("syncing") : t("syncPlans")}
         </Button>
-        <Button size="sm" onClick={() => setDrawer(true)}><Plus className="h-3.5 w-3.5" />{t("addPlans")}</Button>
+        <Button size="sm" onClick={() => openDrawer()}><Plus className="h-3.5 w-3.5" />{t("addPlans")}</Button>
       </div>
       {notice && <p className="text-[12.5px] text-good">{notice}</p>}
       {error && <p className="text-[13px] text-bad" role="alert">{error}</p>}
+
+      {offers !== null && offers.length > 0 && <OfferSummaryStrip summary={summary} formatMoney={(amount) => formatLedgerMoney(amount, locale)} />}
 
       <div className="flex flex-wrap items-center gap-2">
         <div className="relative w-full min-w-[200px] sm:w-64">
           <Search className="absolute left-2.5 top-1/2 h-4 w-4 -translate-y-1/2 text-faint" />
           <Input id="ofr-q" className="h-9 pl-8" placeholder={t("searchOffers")} value={q} onChange={(e) => setQ(e.target.value)} />
         </div>
-        {lowCount > 0 && <Tag tone="warn"><AlertTriangle className="h-3 w-3" />{t("offersAttention", { n: lowCount })}</Tag>}
+        <div className="flex items-center gap-1 rounded-lg bg-raised p-0.5" role="group" aria-label={t("viewLabel")}>
+          {OFFER_CELL_VIEWS.map((v) => (
+            <button
+              key={v}
+              type="button"
+              aria-pressed={view === v}
+              onClick={() => setView(v)}
+              className={cn("h-7 rounded-md px-2.5 text-[12px] font-medium transition-colors", view === v ? "bg-surface text-fg shadow-card" : "text-muted hover:text-fg")}
+            >
+              {t(`view.${v}`)}
+            </button>
+          ))}
+        </div>
         <div className="ml-auto flex items-center gap-1.5 text-[12.5px] text-muted">
           <label htmlFor="ofr-margin">{t("applyMargin")}</label>
           <Input id="ofr-margin" type="number" min={0} className="h-8 w-16 font-mono" value={margin} onChange={(e) => setMargin(e.target.value)} />
           <span>%</span>
-          <Button size="sm" variant="secondary" disabled={busy || !offers?.length} onClick={reprice}>{t("applyAll")}</Button>
+          <Button size="sm" variant="secondary" disabled={busy || !offers?.length} onClick={() => void reprice()}>{t("applyAll")}</Button>
         </div>
       </div>
 
-      <div className="overflow-x-auto rounded-lg border border-line bg-card">
-        <table className="w-full text-[13px]">
-          <thead className="bg-surface text-[11px] uppercase tracking-wider text-faint">
-            <tr>
-              <th className="p-2.5 text-left">{t("product")}</th>
-              <th className="p-2.5 text-left">{t("offer")}</th>
-              <th className="p-2.5 text-left">{t("upstreamPlan")}</th>
-              <th className="p-2.5 text-right">{t("cost")}</th>
-              <th className="p-2.5 text-right">{t("price")}</th>
-              <th className="p-2.5 text-right">{t("margin")}</th>
-              <th className="p-2.5" />
-            </tr>
-          </thead>
-          <tbody>
-            {offers === null && <tr><td colSpan={7} className="p-6 text-center"><Spinner /></td></tr>}
-            {offers?.length === 0 && (
-              <tr><td colSpan={7} className="p-8 text-center text-[13px] text-muted">
-                {t("noOffers")} <button type="button" className="font-medium text-iris hover:underline" onClick={() => setDrawer(true)}>{t("addPlans")}</button>
-              </td></tr>
-            )}
-            {visible.map((o) => {
-              const k = key(o);
-              const attention = !o.margin_ok || o.unmapped || o.plan_missing;
-              return (
-                <tr key={k} className={cn("border-t border-line", attention && "bg-warn-soft/30")}>
-                  <td className="p-2.5 align-top">
-                    <Link href={productHref(o)} className="font-medium text-fg hover:text-iris">{o.product_title}</Link>
-                    <span className="mt-0.5 block"><Tag tone={o.product_status === "active" ? "good" : "neutral"}>{o.product_status}</Tag></span>
-                  </td>
-                  <td className="p-2.5 align-top">
-                    <span className="block text-fg">{o.label}</span>
-                    <span className="block font-mono text-[11px] text-faint">{o.plan_key}</span>
-                  </td>
-                  <td className="p-2.5 align-top text-[12px] text-muted">
-                    {o.unmapped ? <span className="text-warn"><AlertTriangle className="mr-1 inline h-3.5 w-3.5" />{t("unmappedPlan")}</span>
-                      : o.plan_missing ? <span className="text-warn"><AlertTriangle className="mr-1 inline h-3.5 w-3.5" />{t("planMissing")}</span>
-                      : (o.external_name ?? o.external_id ?? "—")}
-                    {o.upstream_available === false && <span className="mt-0.5 block text-warn">{t("upstreamSoldOut")}</span>}
-                  </td>
-                  <td className="p-2.5 text-right align-top font-mono tabular-nums text-muted">{o.cost_price != null ? formatLedgerMoney(o.cost_price, locale) : "—"}</td>
-                  <td className="p-2.5 text-right align-top">
-                    <Input
-                      aria-label={t("price")} type="number" min={1000} step={1000}
-                      className="h-8 w-28 text-right font-mono tabular-nums"
-                      value={editing[k] ?? String(o.price)}
-                      onChange={(e) => setEditing((s) => ({ ...s, [k]: e.target.value }))}
-                      onBlur={() => void savePrice(o)}
-                      onKeyDown={(e) => { if (e.key === "Enter") (e.target as HTMLInputElement).blur(); }}
-                    />
-                  </td>
-                  <td className={cn("p-2.5 text-right align-top font-mono tabular-nums", o.margin_ok ? "text-good" : "text-warn")}>
-                    {o.margin_pct != null ? `${o.margin_pct}%` : "—"}
-                  </td>
-                  <td className="p-2.5 text-right align-top">
-                    <button type="button" onClick={() => setConfirmRemove(o)} aria-label={t("removeOffer")} className="rounded p-1 text-faint hover:bg-bad-soft hover:text-bad"><Trash className="h-4 w-4" /></button>
-                  </td>
-                </tr>
-              );
-            })}
-          </tbody>
-        </table>
-      </div>
+      {offers === null ? (
+        <div className="grid place-items-center rounded-card border border-line bg-card py-10"><Spinner /></div>
+      ) : offers.length === 0 ? (
+        <div className="rounded-card border border-dashed border-line bg-card px-4 py-10 text-center text-[13px] text-muted">
+          {t("noOffers")} <button type="button" className="font-medium text-iris hover:underline" onClick={() => openDrawer()}>{t("addPlans")}</button>
+        </div>
+      ) : (
+        <div className="space-y-3">
+          <p className="text-[12px] text-faint">{t("gridHint")}</p>
+          {visibleGrids.length === 0 && <p className="text-[13px] text-muted">{t("noMatches")}</p>}
+          {visibleGrids.map((grid) => (
+            <ProductOfferCard
+              key={grid.productId}
+              grid={grid}
+              open={isOpen(grid)}
+              onToggle={() => setOpenIds((ids) => ({ ...ids, [grid.productId]: !isOpen(grid) }))}
+              productHref={productHref(grid.offers[0])}
+              margin={Number(margin) || 0}
+              minMargin={source.min_margin_pct}
+              view={view}
+              busy={busy}
+              numberLocale={locale === "vi" ? "vi-VN" : "en-US"}
+              priceOf={(o) => editing[key(o)] ?? o.price}
+              onPriceChange={(o, price) => setEditing((current) => ({ ...current, [key(o)]: price }))}
+              onPriceCommit={(o) => void savePrice(o)}
+              onRemove={setConfirmRemove}
+              onReprice={() => void reprice(grid.productId)}
+              onAdd={(cell) => openDrawer({ productId: grid.productId, ...cell })}
+              formatMoney={(amount) => formatLedgerMoney(amount, locale)}
+            />
+          ))}
+        </div>
+      )}
 
       {drawer && (
         <AddPlansDrawer
-          area={area} source={source} products={products} margin={Number(margin) || 30}
+          area={area} source={source} products={products} prefill={prefill} margin={Number(margin) || 30}
           onClose={() => setDrawer(false)}
           onDone={async (n) => { setDrawer(false); setNotice(t("plansImported", { n })); await load(); await onSourceChange(); }}
         />
@@ -267,9 +256,12 @@ export function ProxySourceWorkspace({ area, source, onSourceChange }: { area: S
 /* ------------------------------------------------------------------ drawer */
 
 type Row = SourcePlanImportItem & { _id: string; item: SourceCatalogItem };
+/** Opened from an empty grid cell: import into that product, and the first
+ *  plan picked fills that cell. */
+type PlanPrefill = { productId: number; type: string; network: string; days: number; price?: number };
 
-function AddPlansDrawer({ area, source, products, margin, onClose, onDone }: {
-  area: SourceArea; source: SupplierSource; products: { product_id: number; product_title: string; n: number }[]; margin: number;
+function AddPlansDrawer({ area, source, products, prefill, margin, onClose, onDone }: {
+  area: SourceArea; source: SupplierSource; products: { product_id: number; product_title: string; n: number }[]; prefill: PlanPrefill | null; margin: number;
   onClose: () => void; onDone: (n: number) => Promise<void>;
 }) {
   const t = useTranslations("sellerSources");
@@ -281,7 +273,7 @@ function AddPlansDrawer({ area, source, products, margin, onClose, onDone }: {
   const [categories, setCategories] = useState<Category[]>([]);
   const [q, setQ] = useState("");
   const [rows, setRows] = useState<Row[]>([]);
-  const [target, setTarget] = useState<"new" | number>(products[0]?.product_id ?? "new");
+  const [target, setTarget] = useState<"new" | number>(prefill?.productId ?? products[0]?.product_id ?? "new");
   const [title, setTitle] = useState("");
   const [categoryId, setCategoryId] = useState("");
   const [status, setStatus] = useState<"draft" | "active">("draft");
@@ -313,14 +305,20 @@ function AddPlansDrawer({ area, source, products, margin, onClose, onDone }: {
   const add = (item: SourceCatalogItem) => {
     const extra = item.extra as { duration_days?: number; mode?: string; loaiproxy?: string; proxy_type?: string };
     const days = Number(extra.duration_days) || 30;
-    setRows((rs) => [...rs, {
-      _id: `${item.external_id}:${Date.now()}:${rs.length}`, item,
-      external_id: item.external_id,
-      // DProxy: loại lấy từ proxies_type_id của gói; quốc gia/nhà mạng gói không khai → admin điền.
-      type: isTop ? "HTTP" : (extra.proxy_type ?? ""),
-      network: isTop ? (extra.mode === "xoay" ? "xoay" : item.external_id) : "",
-      days, price: suggestPrice(item.cost_price, margin), network_label: isTop && extra.mode !== "xoay" ? item.name.split(" · ").pop() : undefined,
-    }]);
+    setRows((rs) => {
+      // The first plan picked after opening from an empty cell fills that cell.
+      const cell = rs.length === 0 && prefill && target === prefill.productId ? prefill : null;
+      return [...rs, {
+        _id: `${item.external_id}:${Date.now()}:${rs.length}`, item,
+        external_id: item.external_id,
+        // DProxy: loại lấy từ proxies_type_id của gói; quốc gia/nhà mạng gói không khai → admin điền.
+        type: cell?.type ?? (isTop ? "HTTP" : (extra.proxy_type ?? "")),
+        network: cell?.network ?? (isTop ? (extra.mode === "xoay" ? "xoay" : item.external_id) : ""),
+        days: cell?.days ?? days,
+        price: cell?.price ?? suggestPrice(item.cost_price, margin),
+        network_label: !cell && isTop && extra.mode !== "xoay" ? item.name.split(" · ").pop() : undefined,
+      }];
+    });
   };
   const patch = (id: string, p: Partial<Row>) => setRows((rs) => rs.map((r) => (r._id === id ? { ...r, ...p } : r)));
   const removeRow = (id: string) => setRows((rs) => rs.filter((r) => r._id !== id));
@@ -358,6 +356,11 @@ function AddPlansDrawer({ area, source, products, margin, onClose, onDone }: {
           <div>
             <DialogTitle className="text-[16px] font-bold text-fg">{t("addPlansTitle")}</DialogTitle>
             <p className="text-[12.5px] text-muted">{t(isTop ? "addPlansHintTop" : "addPlansHintDproxy")}</p>
+            {prefill && (
+              <p className="mt-1 text-[12.5px] font-medium text-iris-hi">
+                {t("prefillHint", { cell: `${prefill.type} · ${prefill.network} · ${t("daysColumn", { days: prefill.days })}` })}
+              </p>
+            )}
           </div>
         </div>
         <div className="grid max-h-[calc(92dvh-140px)] grid-cols-1 overflow-hidden md:grid-cols-[320px_1fr]">

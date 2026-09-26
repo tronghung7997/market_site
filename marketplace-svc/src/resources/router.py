@@ -211,8 +211,9 @@ async def internal_acquire(body: schemas.InternalAcquireRequest, db: AsyncSessio
             # Never include resource plaintext `data`.
         },
     )
+    data = await service.resource_data_by_id(resources, db)
     await db.commit()
-    return schemas.InternalAcquireResponse(resources=[{"resource_id": r.id, "data": r.data} for r in resources])
+    return schemas.InternalAcquireResponse(resources=[{"resource_id": r.id, "data": data[r.id]} for r in resources])
 
 
 @router.post("/internal/resources/release")
@@ -237,9 +238,22 @@ async def internal_release(body: schemas.InternalReleaseRequest, db: AsyncSessio
     return {"status": "released"}
 
 
-@router.get("/orders/{order_ref}/resources", response_model=list[schemas.ResourceResponse])
-async def order_res(order_id: OrderRef, account: Account = Depends(get_current_account), db: AsyncSession = Depends(get_session)):
-    return await service.order_resources(order_id, account.id, db)
+@router.get("/orders/{order_ref}/resources", response_model=schemas.OrderResourcePage)
+async def order_res(
+    order_id: OrderRef,
+    after: int | None = Query(None, ge=1, description="Continue after this resource id (next_after)"),
+    limit: int = Query(100, ge=1, le=service.ORDER_RESOURCES_PAGE_MAX),
+    ids: str | None = Query(
+        None, max_length=2000, pattern=r"^\d+(,\d+)*$",
+        description="Only these resource ids of the order (comma-separated, at most 200)",
+    ),
+    account: Account = Depends(get_current_account),
+    db: AsyncSession = Depends(get_session),
+):
+    wanted = [int(part) for part in ids.split(",")] if ids else None
+    if wanted is not None and len(wanted) > service.ORDER_RESOURCES_PAGE_MAX:
+        raise HTTPException(status_code=422, detail=f"At most {service.ORDER_RESOURCES_PAGE_MAX} ids")
+    return await service.order_resources(order_id, account.id, db, after=after, limit=limit, ids=wanted)
 
 
 @router.post("/seller/resources/{resource_id}/error", response_model=schemas.SellerResourceRow)

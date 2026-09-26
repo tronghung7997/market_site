@@ -63,9 +63,10 @@ class Order(Base):
     display_fx_rate_snapshot: Mapped[int | None] = mapped_column(Integer, nullable=True)
     status: Mapped[OrderStatus] = mapped_column(Enum(OrderStatus), default=OrderStatus.pending)
     escrow_expires_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True), nullable=True)
-    # Can be tens of MB (thousands of delivered lines): never loaded with the
-    # row. Read it only where it is returned, with options(undefer(...)); any
-    # other access raises instead of silently pulling the blob.
+    # Delivered text for orders that deliver text (proxies, gateway keys, manual
+    # deliveries); stock orders keep their lines in `resources` only (older
+    # orders may still hold a copy, ignored by readers). Never loaded with the
+    # row: read it through src.orders.delivery.
     delivered_data: Mapped[str | None] = mapped_column(Text, nullable=True, deferred=True, deferred_raiseload=True)
     # Lý do huỷ WHITE-LABEL cho buyer đọc (hết hàng / không cấp phát được…),
     # luôn kèm trấn an đã hoàn tiền. Chi tiết kỹ thuật vẫn ở log_entries (admin).

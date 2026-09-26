@@ -28,7 +28,6 @@ from decimal import Decimal
 
 import structlog
 from sqlalchemy import select
-from sqlalchemy.orm import undefer
 
 from src.adapters.base import ProvisionResult
 from src.adapters.call_log import record_purchase_dispatch
@@ -258,12 +257,10 @@ class CatalogSupplierAdapter(RealApiAdapter):
         # Resource đã tạo, tuyệt đối không mua lần hai.
         existing = list((await self.db.execute(
             select(Resource).where(Resource.order_id == order_id).order_by(Resource.id)
-            .options(undefer(Resource.data))
         )).scalars())
         if existing:
             return ProvisionResult(
                 success=True,
-                data="\n".join(r.data for r in existing),
                 resource_id=",".join(str(r.id) for r in existing),
                 metadata={"redelivered": True, "resource_ids": [r.id for r in existing]},
             )
@@ -325,7 +322,6 @@ class CatalogSupplierAdapter(RealApiAdapter):
         listing.upstream_amount = max(listing.upstream_amount - quantity, 0)
         return ProvisionResult(
             success=True,
-            data="\n".join(r.data for r in resources),
             resource_id=outcome.trans_id,
             metadata={
                 "trans_id": outcome.trans_id,

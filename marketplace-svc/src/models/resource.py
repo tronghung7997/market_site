@@ -25,12 +25,19 @@ class EncryptedText(TypeDecorator):
         return None if value is None else encrypt_str(value)
 
     def process_result_value(self, value, dialect):  # noqa: ANN001, ARG002
-        if value is None or not value.startswith(FERNET_PREFIX):
-            return value
-        try:
-            return decrypt_str(value)
-        except InvalidToken:
-            return value
+        return read_stored_text(value)
+
+
+def read_stored_text(value: str | None) -> str | None:
+    """Plaintext of a stored `EncryptedText` value (raw column read). Values
+    written before the encryption backfill are not Fernet tokens and pass
+    through unchanged."""
+    if value is None or not value.startswith(FERNET_PREFIX):
+        return value
+    try:
+        return decrypt_str(value)
+    except InvalidToken:
+        return value
 
 
 class ResourceStatus(str, PyEnum):

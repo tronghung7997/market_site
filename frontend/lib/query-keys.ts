@@ -16,6 +16,8 @@ export const queryKeys = {
   /** One order fetched by code/legacy id for a deep link that is not on the current page. */
   orderByRef: (ref: string, accountId?: number | null) => ["orders", accountId ?? null, "detail", ref] as const,
   orderDetail: (id: number) => ["order", id] as const,
+  /** Delivered lines of one order (paged); `revision` refetches after a dispute change. */
+  orderLines: (orderId: string | number, revision = 0) => ["order-lines", String(orderId), revision] as const,
   orderStats: (accountId?: number | null) =>
     accountId == null ? ["order-stats"] as const : ["order-stats", accountId] as const,
 

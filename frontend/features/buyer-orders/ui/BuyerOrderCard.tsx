@@ -10,11 +10,11 @@ import { daysAgo, formatDate, formatDateTime } from "@/lib/utils";
 import { useVariantTermFor } from "@/lib/variant-term";
 import type { Order } from "@/lib/types";
 import { Button, Tag } from "@/components/ui";
-import { AlertTriangle, Download, Eye, ShieldCheck, Star } from "@/components/Icons";
+import { AlertTriangle, Eye, ShieldCheck, Star } from "@/components/Icons";
 import OrderChatButton from "@/components/chat/OrderChatButton";
 import { parseCoverId, ProductCover } from "@/features/product-covers";
 import { orderAccentTone } from "../model";
-import { CopyIconButton, downloadDeliveredData, rowActions, type OrderActionHandlers } from "./OrderRowActions";
+import { CopyIconButton, DeliveryShortcuts, rowActions, type OrderActionHandlers } from "./OrderRowActions";
 
 const ACCENT: Record<ReturnType<typeof orderAccentTone>, string> = {
   bad: "border-l-bad", iris: "border-l-iris", good: "border-l-good", neutral: "border-l-line", warn: "border-l-warn",
@@ -112,14 +112,7 @@ export const BuyerOrderCard = memo(function BuyerOrderCard({
             <Eye size={14} /> {a.hasData ? t("viewOrderDetails") : tb("detail")}
           </Button>
         )}
-        {a.hasData && (
-          <>
-            <Button size="sm" variant="secondary" onClick={() => downloadDeliveredData(o)} className="min-h-[38px] gap-1.5" title={t("downloadTxtHint")}>
-              <Download size={14} /> {t("downloadTxt")}
-            </Button>
-            <CopyIconButton text={o.delivered_data ?? ""} title={t("copyAllData")} className="min-h-[38px] w-[38px] border border-line bg-surface" size={14} />
-          </>
-        )}
+        {a.hasData && <DeliveryShortcuts order={o} />}
         {a.canReview && (
           <Button size="sm" variant="secondary" onClick={() => handlers.onOpen(o, { tab: "review" })} className="min-h-[38px] gap-1.5">
             <Star size={13} /> {t("review")}

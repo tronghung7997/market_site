@@ -351,17 +351,6 @@ export function summarizeRestockPreview(
   };
 }
 
-/** File name from a Content-Disposition header (RFC 5987 `filename*` first). */
-export function contentDispositionFileName(header: string | null): string | null {
-  if (!header) return null;
-  const encoded = /filename\*\s*=\s*(?:UTF-8|utf-8)''([^;]+)/.exec(header);
-  if (encoded) {
-    try { return decodeURIComponent(encoded[1].trim().replace(/^"|"$/g, "")); } catch { /* fall through */ }
-  }
-  const plain = /filename\s*=\s*("([^"]*)"|[^;]+)/.exec(header);
-  return plain ? (plain[2] ?? plain[1]).trim() || null : null;
-}
-
 /** "1.3 MB" / "1,3 MB" for file chips. */
 export function formatByteSize(bytes: number, locale: string): string {
   const units = ["B", "KB", "MB", "GB"];

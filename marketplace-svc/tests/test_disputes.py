@@ -207,7 +207,7 @@ async def test_buyer_cannot_withdraw_after_seller_has_issued_resource_remedy(cli
     buyer_token, _, order_id = await create_delivered_order(client, stock_count=2)
     buyer_headers = {"Authorization": f"Bearer {buyer_token}"}
     seller_token = await register_and_login(client, "disp_seller@example.com")
-    resources = (await client.get(f"/orders/{order_id}/resources", headers=buyer_headers)).json()
+    resources = (await client.get(f"/orders/{order_id}/resources", headers=buyer_headers)).json()["items"]
     opened = await client.post(
         f"/orders/{order_id}/dispute",
         json={"reason": "Account failed", "resource_ids": [resources[0]["id"]]},
@@ -334,9 +334,10 @@ async def test_resource_claim_batches_partial_refund_replace_timeline_and_final_
 
     resources = await client.get(f"/orders/{order_id}/resources", headers=buyer_headers)
     assert resources.status_code == 200, resources.text
-    resource_ids = [row["id"] for row in resources.json()]
-    assert len(resource_ids) == 4
-    assert [row["refund_amount_cap"] for row in resources.json()] == [1000, 1000, 1000, 1000]
+    resource_ids = [row["id"] for row in resources.json()["items"]]
+    assert len(resource_ids) == 4 and resources.json()["total"] == 4
+    assert [row["refund_amount_cap"] for row in resources.json()["items"]] == [1000, 1000, 1000, 1000]
+    assert [row["line_no"] for row in resources.json()["items"]] == [1, 2, 3, 4]
 
     opened = await client.post(
         f"/orders/{order_id}/dispute",
@@ -443,7 +444,7 @@ async def test_seller_cannot_remedy_unclaimed_account(client):
     seller_token = await register_and_login(client, "disp_seller@example.com")
     buyer_headers = {"Authorization": f"Bearer {buyer_token}"}
     seller_headers = {"Authorization": f"Bearer {seller_token}"}
-    resources = (await client.get(f"/orders/{order_id}/resources", headers=buyer_headers)).json()
+    resources = (await client.get(f"/orders/{order_id}/resources", headers=buyer_headers)).json()["items"]
     opened = await client.post(
         f"/orders/{order_id}/dispute",
         json={"reason": "One failed", "resource_ids": [resources[0]["id"]], "idempotency_key": "open-batch-0001"},
@@ -471,7 +472,7 @@ async def test_refunding_every_claimed_resource_auto_closes_case_and_order(clien
     seller_token = await register_and_login(client, "disp_seller@example.com")
     buyer_headers = {"Authorization": f"Bearer {buyer_token}"}
     seller_headers = {"Authorization": f"Bearer {seller_token}"}
-    resources = (await client.get(f"/orders/{order_id}/resources", headers=buyer_headers)).json()
+    resources = (await client.get(f"/orders/{order_id}/resources", headers=buyer_headers)).json()["items"]
     resource_ids = [resource["id"] for resource in resources]
 
     opened = await client.post(
@@ -491,7 +492,7 @@ async def test_refunding_every_claimed_resource_auto_closes_case_and_order(clien
     assert listed_order["status"] == "refunded"
     assert listed_order["has_dispute"] is False
     assert listed_order["dispute_status"] == "resolved_refund"
-    remaining = (await client.get(f"/orders/{order_id}/resources", headers=buyer_headers)).json()
+    remaining = (await client.get(f"/orders/{order_id}/resources", headers=buyer_headers)).json()["items"]
     assert {row["id"] for row in remaining} == set(resource_ids)
     assert {row["status"] for row in remaining} == {"error"}
     order_code = listed_order["order_code"]
@@ -613,7 +614,7 @@ async def test_instant_claims_require_remedies_before_seller_note_starts_deadlin
     buyer_token, _, order_id = await create_delivered_order(client, quantity=1)
     buyer_headers = {"Authorization": f"Bearer {buyer_token}"}
     seller_token = await register_and_login(client, "disp_seller@example.com")
-    resources = (await client.get(f"/orders/{order_id}/resources", headers=buyer_headers)).json()
+    resources = (await client.get(f"/orders/{order_id}/resources", headers=buyer_headers)).json()["items"]
     opened = await client.post(
         f"/orders/{order_id}/dispute",
         json={"reason": "Account is unavailable", "resource_ids": [resources[0]["id"]]},
@@ -718,7 +719,7 @@ async def _backdate_open_dispute_past_abandon_grace(order_id: int, *, extra_hour
 async def test_abandoned_partial_claim_releases_full_remaining_escrow_to_seller(client):
     buyer_token, _, order_id = await create_delivered_order(client, quantity=3)
     buyer_headers = {"Authorization": f"Bearer {buyer_token}"}
-    resources = (await client.get(f"/orders/{order_id}/resources", headers=buyer_headers)).json()
+    resources = (await client.get(f"/orders/{order_id}/resources", headers=buyer_headers)).json()["items"]
     claimed = [row["id"] for row in resources[:2]]
     opened = await client.post(
         f"/orders/{order_id}/dispute",
@@ -751,7 +752,7 @@ async def test_seller_note_without_remedy_does_not_block_abandonment(client):
     buyer_token, _, order_id = await create_delivered_order(client, quantity=2)
     buyer_headers = {"Authorization": f"Bearer {buyer_token}"}
     seller_token = await register_and_login(client, "disp_seller@example.com")
-    resources = (await client.get(f"/orders/{order_id}/resources", headers=buyer_headers)).json()
+    resources = (await client.get(f"/orders/{order_id}/resources", headers=buyer_headers)).json()["items"]
     opened = await client.post(
         f"/orders/{order_id}/dispute",
         json={"reason": "One account failed", "resource_ids": [resources[0]["id"]]},
@@ -772,7 +773,7 @@ async def test_seller_note_without_remedy_does_not_block_abandonment(client):
 async def test_buyer_message_does_not_extend_abandonment_grace(client):
     buyer_token, _, order_id = await create_delivered_order(client, quantity=1)
     buyer_headers = {"Authorization": f"Bearer {buyer_token}"}
-    resources = (await client.get(f"/orders/{order_id}/resources", headers=buyer_headers)).json()
+    resources = (await client.get(f"/orders/{order_id}/resources", headers=buyer_headers)).json()["items"]
     await client.post(
         f"/orders/{order_id}/dispute",
         json={"reason": "Account failed", "resource_ids": [resources[0]["id"]]},
@@ -796,7 +797,7 @@ async def test_seller_can_reoffer_after_buyer_counters_completed_instant_remedy(
     buyer_headers = {"Authorization": f"Bearer {buyer_token}"}
     seller_token = await register_and_login(client, "disp_seller@example.com")
     seller_headers = {"Authorization": f"Bearer {seller_token}"}
-    resources = (await client.get(f"/orders/{order_id}/resources", headers=buyer_headers)).json()
+    resources = (await client.get(f"/orders/{order_id}/resources", headers=buyer_headers)).json()["items"]
     opened = await client.post(
         f"/orders/{order_id}/dispute",
         json={"reason": "Account failed", "resource_ids": [resources[0]["id"]]},
@@ -820,7 +821,7 @@ async def test_seller_can_reoffer_after_buyer_counters_completed_instant_remedy(
     assert counter.status_code == 200, counter.text
     assert counter.json()["resolution_deadline_at"] is not None
 
-    resources_after = (await client.get(f"/orders/{order_id}/resources", headers=buyer_headers)).json()
+    resources_after = (await client.get(f"/orders/{order_id}/resources", headers=buyer_headers)).json()["items"]
     original_id = resources[0]["id"]
     replacement_id = next(
         row["id"] for row in resources_after if row["id"] != original_id and row["status"] == "assigned"
@@ -864,7 +865,7 @@ async def test_resource_remedy_blocks_abandonment(client):
     buyer_token, _, order_id = await create_delivered_order(client, quantity=2, stock_count=3)
     buyer_headers = {"Authorization": f"Bearer {buyer_token}"}
     seller_token = await register_and_login(client, "disp_seller@example.com")
-    resources = (await client.get(f"/orders/{order_id}/resources", headers=buyer_headers)).json()
+    resources = (await client.get(f"/orders/{order_id}/resources", headers=buyer_headers)).json()["items"]
     opened = await client.post(
         f"/orders/{order_id}/dispute",
         json={"reason": "Account failed", "resource_ids": [resources[0]["id"]]},
@@ -888,7 +889,7 @@ async def test_seller_can_search_pending_claimed_accounts_and_list_ids(client):
     buyer_headers = {"Authorization": f"Bearer {buyer_token}"}
     seller_token = await register_and_login(client, "disp_seller@example.com")
     seller_headers = {"Authorization": f"Bearer {seller_token}"}
-    resources = (await client.get(f"/orders/{order_id}/resources", headers=buyer_headers)).json()
+    resources = (await client.get(f"/orders/{order_id}/resources", headers=buyer_headers)).json()["items"]
     opened = await client.post(
         f"/orders/{order_id}/dispute",
         json={"reason": "Scattered failures", "resource_ids": [resources[0]["id"], resources[1]["id"]]},
@@ -921,7 +922,7 @@ async def test_seller_can_pick_specific_replacement_accounts(client):
     buyer_headers = {"Authorization": f"Bearer {buyer_token}"}
     seller_token = await register_and_login(client, "disp_seller@example.com")
     seller_headers = {"Authorization": f"Bearer {seller_token}"}
-    claimed = (await client.get(f"/orders/{order_id}/resources", headers=buyer_headers)).json()
+    claimed = (await client.get(f"/orders/{order_id}/resources", headers=buyer_headers)).json()["items"]
     opened = await client.post(
         f"/orders/{order_id}/dispute",
         json={"reason": "Account failed", "resource_ids": [claimed[0]["id"]]},
@@ -947,10 +948,14 @@ async def test_seller_can_pick_specific_replacement_accounts(client):
     assert replaced.status_code == 200, replaced.text
     assert replaced.json()["actions"][0]["replacement_resource_id"] == chosen
     after = (await client.get(f"/orders/{order_id}", headers=buyer_headers)).json()
-    assigned = (await client.get(f"/orders/{order_id}/resources", headers=buyer_headers)).json()
+    assigned = (await client.get(f"/orders/{order_id}/resources", headers=buyer_headers)).json()["items"]
     live = [row for row in assigned if row["status"] == "assigned"]
     assert [row["id"] for row in live] == [chosen]
-    assert after["delivered_data"] == live[0]["data"]
+    # No text copy to keep in sync: the order counts its live lines and the
+    # download serves exactly those.
+    assert after["delivered_data"] is None and after["delivery_count"] == 1
+    download = await client.get(f"/orders/{order_id}/delivery.txt", headers=buyer_headers)
+    assert download.text.splitlines() == [live[0]["data"]]
     inbox = await client.get("/orders/action-items", headers=buyer_headers)
     hrefs = [item["href"] for item in inbox.json() if "lines=" in item.get("href", "")]
     line_of = {row["id"]: index + 1 for index, row in enumerate(assigned)}
@@ -972,7 +977,7 @@ async def test_archived_resource_cannot_be_used_as_dispute_replacement(client):
     buyer_headers = {"Authorization": f"Bearer {buyer_token}"}
     seller_token = await register_and_login(client, "disp_seller@example.com")
     seller_headers = {"Authorization": f"Bearer {seller_token}"}
-    claimed = (await client.get(f"/orders/{order_id}/resources", headers=buyer_headers)).json()
+    claimed = (await client.get(f"/orders/{order_id}/resources", headers=buyer_headers)).json()["items"]
     opened = await client.post(
         f"/orders/{order_id}/dispute",
         json={"reason": "Account failed", "resource_ids": [claimed[0]["id"]]},
@@ -1010,7 +1015,7 @@ async def test_seller_replace_requires_one_replacement_per_claimed_account(clien
     buyer_token, _, order_id = await create_delivered_order(client, quantity=2, stock_count=4)
     buyer_headers = {"Authorization": f"Bearer {buyer_token}"}
     seller_token = await register_and_login(client, "disp_seller@example.com")
-    claimed = (await client.get(f"/orders/{order_id}/resources", headers=buyer_headers)).json()
+    claimed = (await client.get(f"/orders/{order_id}/resources", headers=buyer_headers)).json()["items"]
     opened = await client.post(
         f"/orders/{order_id}/dispute",
         json={"reason": "Both failed", "resource_ids": [claimed[0]["id"], claimed[1]["id"]]},
@@ -1039,7 +1044,7 @@ async def test_buyer_can_claim_warranty_replacement_once(client):
     buyer_headers = {"Authorization": f"Bearer {buyer_token}"}
     seller_token = await register_and_login(client, "disp_seller@example.com")
     seller_headers = {"Authorization": f"Bearer {seller_token}"}
-    original = (await client.get(f"/orders/{order_id}/resources", headers=buyer_headers)).json()[0]["id"]
+    original = (await client.get(f"/orders/{order_id}/resources", headers=buyer_headers)).json()["items"][0]["id"]
     opened = await client.post(
         f"/orders/{order_id}/dispute",
         json={"reason": "Dead account", "resource_ids": [original], "idempotency_key": "warranty-open"},
@@ -1052,7 +1057,7 @@ async def test_buyer_can_claim_warranty_replacement_once(client):
         headers=seller_headers,
     )
     assert first.status_code == 200, first.text
-    live = (await client.get(f"/orders/{order_id}/resources", headers=buyer_headers)).json()
+    live = (await client.get(f"/orders/{order_id}/resources", headers=buyer_headers)).json()["items"]
     gen1 = next(row["id"] for row in live if row["id"] != original and row["status"] == "assigned")
     claimed = await client.post(
         f"/orders/{order_id}/dispute/claims",
@@ -1073,7 +1078,7 @@ async def test_buyer_can_claim_warranty_replacement_once(client):
         headers=seller_headers,
     )
     assert second.status_code == 200, second.text
-    live = (await client.get(f"/orders/{order_id}/resources", headers=buyer_headers)).json()
+    live = (await client.get(f"/orders/{order_id}/resources", headers=buyer_headers)).json()["items"]
     gen2 = next(row["id"] for row in live if row["id"] not in {original, gen1} and row["status"] == "assigned")
     blocked = await client.post(
         f"/orders/{order_id}/dispute/claims",
@@ -1129,7 +1134,7 @@ async def test_buyer_can_claim_warranty_replacement_once(client):
 async def test_claim_rejects_unassigned_order_resource(client):
     buyer_token, _, order_id = await create_delivered_order(client, quantity=2)
     buyer_headers = {"Authorization": f"Bearer {buyer_token}"}
-    rows = (await client.get(f"/orders/{order_id}/resources", headers=buyer_headers)).json()
+    rows = (await client.get(f"/orders/{order_id}/resources", headers=buyer_headers)).json()["items"]
     first, second = rows[0]["id"], rows[1]["id"]
     async with SessionLocal() as db:
         await db.execute(update(Resource).where(Resource.id == second).values(status=ResourceStatus.error))
@@ -1154,7 +1159,7 @@ async def test_can_append_claims_tracks_assigned_unclaimed_generation(client):
     buyer_token, _, order_id = await create_delivered_order(client, quantity=1, stock_count=3)
     buyer_headers = {"Authorization": f"Bearer {buyer_token}"}
     seller_token = await register_and_login(client, "disp_seller@example.com")
-    original = (await client.get(f"/orders/{order_id}/resources", headers=buyer_headers)).json()[0]["id"]
+    original = (await client.get(f"/orders/{order_id}/resources", headers=buyer_headers)).json()["items"][0]["id"]
     opened = await client.post(
         f"/orders/{order_id}/dispute",
         json={"reason": "Dead", "resource_ids": [original], "idempotency_key": "cap-open"},
@@ -1179,7 +1184,7 @@ async def test_seller_escalate_appends_note_to_existing_support_thread(client):
     buyer_headers = {"Authorization": f"Bearer {buyer_token}"}
     seller_token = await register_and_login(client, "disp_seller@example.com")
     seller_headers = {"Authorization": f"Bearer {seller_token}"}
-    original = (await client.get(f"/orders/{order_id}/resources", headers=buyer_headers)).json()[0]["id"]
+    original = (await client.get(f"/orders/{order_id}/resources", headers=buyer_headers)).json()["items"][0]["id"]
     opened = await client.post(
         f"/orders/{order_id}/dispute",
         json={"reason": "Dead account", "resource_ids": [original], "idempotency_key": "esc-open"},
@@ -1357,7 +1362,7 @@ async def test_admin_reject_after_marketplace_review_releases_remaining_to_selle
 async def test_unauthorized_append_and_escalate_are_rejected(client):
     buyer_token, _, order_id = await create_delivered_order(client)
     buyer_headers = {"Authorization": f"Bearer {buyer_token}"}
-    original = (await client.get(f"/orders/{order_id}/resources", headers=buyer_headers)).json()[0]["id"]
+    original = (await client.get(f"/orders/{order_id}/resources", headers=buyer_headers)).json()["items"][0]["id"]
     opened = await client.post(
         f"/orders/{order_id}/dispute",
         json={"reason": "Dead account", "resource_ids": [original], "idempotency_key": "unauth-open"},
@@ -1402,7 +1407,7 @@ async def test_admin_partial_refund_is_named_on_buyer_timeline(client):
     buyer_token, admin_token, order_id = await create_delivered_order(client, quantity=2)
     buyer_headers = {"Authorization": f"Bearer {buyer_token}"}
     admin_headers = {"Authorization": f"Bearer {admin_token}"}
-    resources = (await client.get(f"/orders/{order_id}/resources", headers=buyer_headers)).json()
+    resources = (await client.get(f"/orders/{order_id}/resources", headers=buyer_headers)).json()["items"]
     opened = await client.post(
         f"/orders/{order_id}/dispute",
         json={
@@ -1472,7 +1477,7 @@ async def test_replace_from_stock_hands_out_oldest_account_first(client):
     buyer_headers = {"Authorization": f"Bearer {buyer_token}"}
     seller_token = await register_and_login(client, "disp_seller@example.com")
     seller_headers = {"Authorization": f"Bearer {seller_token}"}
-    claimed = (await client.get(f"/orders/{order_id}/resources", headers=buyer_headers)).json()
+    claimed = (await client.get(f"/orders/{order_id}/resources", headers=buyer_headers)).json()["items"]
     opened = await client.post(
         f"/orders/{order_id}/dispute",
         json={"reason": "Account failed", "resource_ids": [claimed[0]["id"]]},

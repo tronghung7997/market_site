@@ -384,7 +384,15 @@ export interface Order {
   display_fx_rate_snapshot?: number | null;
   status: string;
   escrow_expires_at: string | null;
+  /** Delivered text for orders that deliver a short text (manual, gateway key,
+   *  proxy). Always null in lists and for orders filled from stock: their
+   *  lines are read page by page (`api.orderResources`) or downloaded
+   *  (`api.orderDeliveryUrl`). */
   delivered_data: string | null;
+  /** Something has been delivered (stock lines or text). */
+  has_delivery?: boolean;
+  /** Stock orders: how many lines are currently delivered; null otherwise. */
+  delivery_count?: number | null;
   gateway_access?: { key: string; url: string } | null;
   cancel_reason?: string | null;
   created_at: string;
@@ -1474,6 +1482,16 @@ export interface Resource {
   created_at: string;
   refund_amount_cap: number | null;
   is_archived?: boolean;
+  /** Position within its order (1-based), on `api.orderResources` pages. */
+  line_no?: number | null;
+}
+
+/** `GET /orders/{ref}/resources`: delivered lines in id order, keyset paged. */
+export interface OrderResourcePage {
+  items: Resource[];
+  /** Pass as `after` for the next page; null on the last page. */
+  next_after: number | null;
+  total: number;
 }
 
 /** Seller console stock row: content only as a server-masked preview; the
@@ -1978,6 +1996,56 @@ export interface PaginatedOrderResponse {
   per_page: number;
 }
 
+export interface AdminOrderFacet {
+  id: number;
+  email: string | null;
+  count: number;
+}
+
+export type AdminOrderSort = "newest" | "oldest" | "amount_desc" | "amount_asc" | "quantity_desc" | "quantity_asc";
+
+export interface AdminOrderQuery {
+  q?: string;
+  statuses?: string[];
+  buyer_id?: number | null;
+  seller_id?: number | null;
+  sort?: AdminOrderSort;
+  page?: number;
+  per_page?: number;
+}
+
+/** `GET /admin/orders`: one page plus tab counts (over search + party
+ *  filters) and seller/buyer facets (each ignoring its own filter). */
+export interface AdminOrderPage extends PaginatedOrderResponse {
+  status_counts: Record<string, number>;
+  /** Total amount of the orders in the search + party scope (all statuses). */
+  scope_value: number;
+  sellers: AdminOrderFacet[];
+  buyers: AdminOrderFacet[];
+}
+
+export interface AdminOrdersDay {
+  date: string;
+  done: number;
+  active: number;
+  failed: number;
+  value: number;
+  done_value: number;
+}
+
+/** `GET /admin/orders/overview`: figures computed in SQL, days in the viewer's time zone. */
+export interface AdminOrdersOverview {
+  today_count: number;
+  today_value: number;
+  done_7d_count: number;
+  done_7d_value: number;
+  all_count: number;
+  done_count: number;
+  done_value: number;
+  daily: AdminOrdersDay[];
+  attention: Order[];
+}
+
 export interface TikTokProfile {
   id: string;
   username: string;
@@ -2211,6 +2279,8 @@ export interface DashboardData {
   usage?: DashboardUsage[];
   tasks?: DashboardTask[];
   delivered_data?: string;
+  /** Stock orders (default dashboard): delivered line count; the lines themselves are paged. */
+  delivery_count?: number | null;
   /** Chỉ có khi service_type=endpoint và order đã strategy=credit + delivered. */
   balance?: UsageBalance | null;
   /** service_type=endpoint: endpoint bán được + quy tắc trừ request */

@@ -1,48 +1,37 @@
 "use client";
 
-import { useEffect, useMemo, useState } from "react";
+import { useMemo } from "react";
+import { useQuery } from "@tanstack/react-query";
 import { api, vnd } from "@/lib/api";
-import { Card, Spinner, Tag } from "@/components/ui";
+import { Banner, Card, Spinner, Tag } from "@/components/ui";
 import { LedgerReconcilePanel } from "@/features/admin-ledger";
 import { Activity, FileText, TrendingUp, Users } from "@/components/Icons";
-import type { Order } from "@/lib/types";
-
-const DONE = new Set(["delivered", "completed", "confirmed"]);
 
 export default function AdminReportsPage() {
-  const [orders, setOrders] = useState<Order[]>([]);
-  const [loading, setLoading] = useState(true);
-
-  useEffect(() => {
-    api.adminOrders().then(setOrders).catch(() => {}).finally(() => setLoading(false));
-  }, []);
+  // Figures are SQL aggregates over every order (days in the browser's time zone).
+  const timeZone = useMemo(() => Intl.DateTimeFormat().resolvedOptions().timeZone || "Asia/Ho_Chi_Minh", []);
+  const overviewQ = useQuery({
+    queryKey: ["admin", "orders", "overview", timeZone],
+    queryFn: () => api.adminOrdersOverview({ tz: timeZone, days: 14 }),
+    staleTime: 30_000,
+  });
+  const overview = overviewQ.data;
+  const loading = overviewQ.isPending;
 
   const m = useMemo(() => {
-    const done = orders.filter((o) => DONE.has(o.status));
-    const revenue = done.reduce((s, o) => s + o.total_amount, 0);
-    const aov = done.length ? Math.round(revenue / done.length) : 0;
-    const completion = orders.length ? Math.round((done.length / orders.length) * 100) : 0;
-
-    // 14-day revenue
-    const days: { label: string; total: number }[] = [];
-    for (let i = 13; i >= 0; i--) {
-      const d = new Date();
-      d.setHours(0, 0, 0, 0);
-      d.setDate(d.getDate() - i);
-      const next = new Date(d);
-      next.setDate(d.getDate() + 1);
-      const total = done
-        .filter((o) => {
-          const t = new Date(o.created_at).getTime();
-          return t >= d.getTime() && t < next.getTime();
-        })
-        .reduce((s, o) => s + o.total_amount, 0);
-      days.push({ label: d.toLocaleDateString("vi-VN", { day: "2-digit", month: "2-digit" }), total });
-    }
+    const revenue = overview?.done_value ?? 0;
+    const doneCount = overview?.done_count ?? 0;
+    const allCount = overview?.all_count ?? 0;
+    const aov = doneCount ? Math.round(revenue / doneCount) : 0;
+    const completion = allCount ? Math.round((doneCount / allCount) * 100) : 0;
+    const days = (overview?.daily ?? []).map((day) => ({
+      label: new Date(`${day.date}T00:00:00`).toLocaleDateString("vi-VN", { day: "2-digit", month: "2-digit" }),
+      total: day.done_value,
+    }));
     const peak = Math.max(1, ...days.map((d) => d.total));
 
-    return { revenue, aov, completion, doneCount: done.length, days, peak };
-  }, [orders]);
+    return { revenue, aov, completion, doneCount, days, peak };
+  }, [overview]);
 
   if (loading) return <Spinner label="Đang tổng hợp báo cáo…" />;
 
@@ -63,6 +52,7 @@ export default function AdminReportsPage() {
 
   return (
     <div className="space-y-6">
+      {overviewQ.isError && <Banner tone="bad">Không tải được số liệu đơn hàng. Thử tải lại trang.</Banner>}
       {/* Summary */}
       <div className="grid gap-4 sm:grid-cols-2 xl:grid-cols-4">
         {summary.map((s) => (

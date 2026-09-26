@@ -168,7 +168,9 @@ async def test_instant_purchase(client):
     data = resp.json()
     assert data["status"] == "delivered"
     assert data["total_amount"] == 2000
-    assert data["delivered_data"] is not None
+    # Stock lines are read from `resources`; the order carries a count, not a copy.
+    assert data["delivered_data"] is None
+    assert data["has_delivery"] is True and data["delivery_count"] == 2
 
 
 @pytest.mark.asyncio
@@ -643,7 +645,7 @@ async def test_old_flow_still_works_after_refactor(client):
     data = resp.json()
     assert data["status"] == "delivered"
     assert data["total_amount"] == 1000
-    assert data["delivered_data"] is not None
+    assert data["delivered_data"] is None and data["delivery_count"] == 1
     assert data["variant_id"] == instant_vid
 
 

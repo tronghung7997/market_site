@@ -45,7 +45,7 @@ async def test_instant_order_assigns_resource_with_expiry(client):
     oid = order.json()["id"]
     res = await client.get(f"/orders/{oid}/resources", headers={"Authorization": f"Bearer {buyer}"})
     assert res.status_code == 200
-    body = res.json()
+    body = res.json()["items"]
     assert len(body) == 1
     assert body[0]["status"] == "assigned"
     assert body[0]["expires_at"] is not None  # 7-day window set

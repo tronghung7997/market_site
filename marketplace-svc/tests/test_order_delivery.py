@@ -1,0 +1,186 @@
+"""Delivered goods at scale: stock orders keep their lines in `resources` only,
+lists never carry delivered text, lines are read page by page or streamed, and
+single orders carry their text delivery."""
+from sqlalchemy import select, text
+
+from src.database import SessionLocal, engine
+from src.models.log_entry import LogEntry
+from src.models.order import Order
+from tests.conftest import register_and_login
+from tests.test_orders import setup_buyable_product
+
+
+def _auth(token: str) -> dict:
+    return {"Authorization": f"Bearer {token}"}
+
+
+async def _instant_order(client, quantity: int = 3):
+    buyer, seller, admin, instant_vid, manual_vid = await setup_buyable_product(client)
+    resp = await client.post("/orders", json={"variant_id": instant_vid, "quantity": quantity}, headers=_auth(buyer))
+    assert resp.status_code == 201, resp.text
+    return resp.json(), buyer, seller, admin, manual_vid
+
+
+async def test_stock_orders_keep_no_text_copy_and_report_a_line_count(client):
+    order, buyer, *_ = await _instant_order(client, quantity=2)
+
+    assert order["delivered_data"] is None
+    assert order["has_delivery"] is True and order["delivery_count"] == 2
+    detail = (await client.get(f"/orders/{order['order_code']}", headers=_auth(buyer))).json()
+    assert detail["delivered_data"] is None and detail["delivery_count"] == 2
+    async with engine.connect() as conn:
+        stored = (await conn.execute(text("SELECT delivered_data FROM orders WHERE id = :id"), {"id": order["id"]})).scalar()
+    assert stored is None
+
+
+async def test_order_lists_never_carry_delivered_text(client):
+    order, buyer, seller, *_ = await _instant_order(client, quantity=1)
+
+    buyer_rows = (await client.get("/orders", headers=_auth(buyer))).json()["items"]
+    seller_rows = (await client.get("/seller/orders", headers=_auth(seller))).json()["items"]
+    for rows in (buyer_rows, seller_rows):
+        row = next(r for r in rows if r["id"] == order["id"])
+        assert row["delivered_data"] is None
+        assert row["has_delivery"] is True and row["delivery_count"] == 1
+
+
+async def test_order_lines_are_paged_with_stable_numbering(client):
+    order, buyer, seller, *_ = await _instant_order(client, quantity=3)
+    code = order["order_code"]
+
+    first = (await client.get(f"/orders/{code}/resources", params={"limit": 2}, headers=_auth(buyer))).json()
+    assert first["total"] == 3
+    assert [item["line_no"] for item in first["items"]] == [1, 2]
+    assert first["next_after"] == first["items"][-1]["id"]
+    rest = (await client.get(
+        f"/orders/{code}/resources", params={"limit": 2, "after": first["next_after"]}, headers=_auth(seller),
+    )).json()
+    assert [item["line_no"] for item in rest["items"]] == [3]
+    assert rest["next_after"] is None
+    assert {item["data"] for item in first["items"] + rest["items"]} == {"uid1|pass1", "uid2|pass2", "uid3|pass3"}
+
+    third = rest["items"][0]["id"]
+    picked = (await client.get(f"/orders/{code}/resources", params={"ids": f"{third},999999"}, headers=_auth(buyer))).json()
+    assert [(item["id"], item["line_no"]) for item in picked["items"]] == [(third, 3)]
+    await client.post(f"/seller/variants/{order['variant_id']}/resources", json={"items": ["uid4|pass4"]}, headers=_auth(seller))
+    other = (await client.post("/orders", json={"variant_id": order["variant_id"], "quantity": 1}, headers=_auth(buyer))).json()
+    foreign = (await client.get(f"/orders/{other['order_code']}/resources", params={"ids": str(third)}, headers=_auth(buyer))).json()
+    assert foreign["items"] == []
+
+    too_big = await client.get(f"/orders/{code}/resources", params={"limit": 201}, headers=_auth(buyer))
+    assert too_big.status_code == 422
+    assert (await client.get(f"/orders/{code}/resources", params={"ids": "1,x"}, headers=_auth(buyer))).status_code == 422
+    stranger = await register_and_login(client, "stranger-lines@example.com")
+    assert (await client.get(f"/orders/{code}/resources", headers=_auth(stranger))).status_code == 403
+
+
+async def test_delivery_download_streams_every_delivered_line_and_is_audited(client):
+    order, buyer, seller, *_ = await _instant_order(client, quantity=3)
+    code = order["order_code"]
+
+    resp = await client.get(f"/orders/{code}/delivery.txt", headers=_auth(buyer))
+    assert resp.status_code == 200, resp.text
+    assert resp.headers["content-type"].startswith("text/plain")
+    assert f'filename="{code}.txt"' in resp.headers["content-disposition"]
+    assert sorted(resp.text.splitlines()) == ["uid1|pass1", "uid2|pass2", "uid3|pass3"]
+    assert (await client.get(f"/orders/{code}/delivery.txt", headers=_auth(seller))).status_code == 200
+
+    stranger = await register_and_login(client, "stranger-download@example.com")
+    assert (await client.get(f"/orders/{code}/delivery.txt", headers=_auth(stranger))).status_code == 403
+    async with SessionLocal() as db:
+        events = [
+            entry.metadata_ for entry in (await db.scalars(select(LogEntry))).all()
+            if (entry.metadata_ or {}).get("event") == "order_delivery_downloaded"
+        ]
+    assert sorted(e["role"] for e in events) == ["buyer", "seller"]
+    assert {(e["subject_type"], e["subject_id"]) for e in events} == {("order", order["id"])}
+
+
+async def test_delivery_stream_holds_no_connection_between_batches(client, monkeypatch):
+    import src.orders.delivery as delivery
+
+    order, *_ = await _instant_order(client, quantity=3)
+    monkeypatch.setattr(delivery, "DELIVERY_STREAM_BATCH", 1)
+    chunks, checked_out = [], []
+    async for chunk in delivery.stream_delivery_lines(order["id"]):
+        chunks.append(chunk)
+        checked_out.append(engine.pool.checkedout())
+    assert len(chunks) == 3
+    assert checked_out == [0, 0, 0]
+
+
+async def test_text_deliveries_come_with_the_order_but_not_the_list(client):
+    buyer, seller, _, _, manual_vid = await setup_buyable_product(client)
+    order = (await client.post("/orders", json={"variant_id": manual_vid, "quantity": 1}, headers=_auth(buyer))).json()
+    assert order["has_delivery"] is False and order["delivery_count"] is None
+    assert (await client.post(f"/seller/orders/{order['id']}/accept", headers=_auth(seller))).status_code == 200
+    await client.post(f"/seller/orders/{order['order_code']}/deliver", json={"data": "hand|over"}, headers=_auth(seller))
+
+    detail = (await client.get(f"/orders/{order['order_code']}", headers=_auth(buyer))).json()
+    assert detail["delivered_data"] == "hand|over" and detail["delivery_count"] is None
+    row = next(r for r in (await client.get("/orders", headers=_auth(buyer))).json()["items"] if r["id"] == order["id"])
+    assert row["delivered_data"] is None and row["has_delivery"] is True
+    download = await client.get(f"/orders/{order['order_code']}/delivery.txt", headers=_auth(buyer))
+    assert download.text == "hand|over\n"
+
+
+async def test_buyer_finds_an_order_by_a_delivered_account_exactly(client):
+    order, buyer, *_ = await _instant_order(client, quantity=3)
+
+    found = (await client.get("/orders", params={"search": "UID2"}, headers=_auth(buyer))).json()
+    partial = (await client.get("/orders", params={"search": "uid"}, headers=_auth(buyer))).json()
+    assert [row["id"] for row in found["items"]] == [order["id"]]
+    assert partial["items"] == []
+
+
+async def test_admin_order_console_is_paged_with_counts_and_facets(client):
+    order, buyer, seller, admin, _ = await _instant_order(client, quantity=1)
+    await client.post("/orders", json={"variant_id": order["variant_id"], "quantity": 1}, headers=_auth(buyer))
+
+    page = (await client.get("/admin/orders", params={"per_page": 1}, headers=_auth(admin))).json()
+    assert page["total"] == 2 and len(page["items"]) == 1 and page["per_page"] == 1
+    assert page["items"][0]["delivered_data"] is None
+    assert sum(page["status_counts"].values()) == 2 and page["scope_value"] == 2 * order["total_amount"]
+    assert [f["count"] for f in page["buyers"]] == [2] and [f["count"] for f in page["sellers"]] == [2]
+
+    searched = (await client.get("/admin/orders", params={"q": order["order_code"]}, headers=_auth(admin))).json()
+    assert [row["id"] for row in searched["items"]] == [order["id"]]
+    assert (await client.get("/admin/orders", headers=_auth(buyer))).status_code == 403
+
+
+async def test_admin_orders_overview_is_computed_in_sql(client):
+    order, buyer, seller, admin, _ = await _instant_order(client, quantity=1)
+
+    overview = (await client.get("/admin/orders/overview", headers=_auth(admin))).json()
+    assert overview["today_count"] == 1 and overview["today_value"] == order["total_amount"]
+    assert overview["all_count"] == 1 and len(overview["daily"]) == 14
+    assert overview["daily"][-1]["value"] == order["total_amount"]
+    assert (await client.get("/admin/orders/overview", params={"tz": "Mars/Base"}, headers=_auth(admin))).status_code == 400
+    assert (await client.get("/admin/orders/overview", headers=_auth(buyer))).status_code == 403
+
+
+async def test_seller_csv_export_streams_orders_with_optional_delivered_data(client):
+    order, buyer, seller, *_ = await _instant_order(client, quantity=2)
+
+    plain = await client.get("/seller/orders/export.csv", headers=_auth(seller))
+    assert plain.status_code == 200 and plain.headers["content-type"].startswith("text/csv")
+    header, *rows = plain.text.lstrip("﻿").splitlines()
+    assert "Delivered_Data" not in header and any(order["order_code"] in row for row in rows)
+
+    with_data = await client.get("/seller/orders/export.csv", params={"include_data": "true"}, headers=_auth(seller))
+    assert "Delivered_Data" in with_data.text.splitlines()[0]
+    assert "uid1|pass1" in with_data.text or "uid2|pass2" in with_data.text
+    assert (await client.get("/seller/orders/export.csv", headers=_auth(buyer))).status_code == 403
+    async with SessionLocal() as db:
+        events = [
+            e.metadata_ for e in (await db.scalars(select(LogEntry))).all()
+            if (e.metadata_ or {}).get("event") == "seller_orders_exported"
+        ]
+    assert [e["include_data"] for e in events] == [False, True]
+
+
+async def test_order_row_access_never_reads_the_stored_text(client):
+    order, *_ = await _instant_order(client, quantity=1)
+    async with SessionLocal() as db:
+        row = await db.get(Order, order["id"])
+        assert row.status.value in ("delivered", "completed")

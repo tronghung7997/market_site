@@ -11,7 +11,7 @@ from src.config import settings
 from src.content_filter import screen_text
 from src.logging import current_request_id
 from src.models.account import Account
-from src.orders.delivery import delivered_data_of
+from src.orders.delivery import delivery_text_of
 from src.models.order import (
     Dispute,
     DisputeClaimResource,
@@ -61,18 +61,11 @@ async def _order_line_numbers(order_id: int, db: AsyncSession) -> dict[int, int]
     return {resource_id: index + 1 for index, resource_id in enumerate(rows)}
 
 
-async def _refresh_order_delivered_data(order: Order, db: AsyncSession) -> None:
-    live = list(
-        (
-            await db.execute(
-                select(Resource)
-                .where(Resource.order_id == order.id, Resource.status == ResourceStatus.assigned)
-                .order_by(Resource.id)
-                .options(undefer(Resource.data))
-            )
-        ).scalars()
-    )
-    order.delivered_data = "\n".join(resource.data for resource in live) if live else None
+def _drop_delivery_copy(order: Order) -> None:
+    """Stock orders deliver `resources` rows, read from there (currently assigned
+    lines only). Remedies change which rows are delivered, so a text copy left
+    on the order by older code is dropped rather than rebuilt."""
+    order.delivered_data = None
 
 
 async def _notify_resource_remedy(
@@ -932,7 +925,7 @@ async def get_dispute_detail(dispute_id: int, db: AsyncSession) -> dict:
             "id": order.id, "order_code": order.order_code, "buyer_id": order.buyer_id, "seller_id": order.seller_id,
             "variant_id": order.variant_id, "quantity": order.quantity,
             "total_amount": order.total_amount, "status": order.status,
-            "escrow_expires_at": order.escrow_expires_at, "delivered_data": await delivered_data_of(order, db),
+            "escrow_expires_at": order.escrow_expires_at, "delivered_data": await delivery_text_of(order, db),
             "created_at": order.created_at,
             "product_title": product.title if product else None,
             "variant_name": variant.name if variant else None,
@@ -1269,7 +1262,7 @@ async def seller_resolve_resources(
         )
         db.add(row)
         rows.append(row)
-    await _refresh_order_delivered_data(order, db)
+    _drop_delivery_copy(order)
     if seller_note:
         dispute.seller_note = seller_note
         db.add(
@@ -2074,7 +2067,7 @@ async def replace_dispute(dispute_id: int, admin_note: str, db: AsyncSession, *,
     )
     for index, resource in enumerate(new_resources):
         resource.refund_amount_cap = refund_base + (1 if index < refund_remainder else 0)
-    order.delivered_data = "\n".join(r.data for r in new_resources)
+    _drop_delivery_copy(order)
 
     product = await db.get(Product, order.product_id) if order.product_id else await db.get(Product, variant.product_id)
     base_escrow_days = product.escrow_days if product else 2

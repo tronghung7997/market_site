@@ -1285,7 +1285,10 @@
     "cancelReason": "Cancellation reason",
     "productShortcuts": "Product",
     "ordersOfProduct": "Orders of this product",
-    "productUnavailable": "This product no longer exists."
+    "productUnavailable": "This product no longer exists.",
+    "linesLoaded": "Showing {loaded} of {total} lines",
+    "loadMoreLines": "Load more",
+    "loadingLines": "Loading…"
   },
   "buyerOrders": {
     "tabsLabel": "Filter by status",
@@ -2455,7 +2458,9 @@
         "suspended": "suspended",
         "active": "on sale"
       }
-    }
+    },
+    "orderLinesDelivered": "{count} lines delivered",
+    "orderLinesPreview": "Previewing {shown} of {total} lines. Download the file or open the order to see all of them."
   },
   "chat": {
     "inbox": "Messages",
@@ -2932,7 +2937,15 @@
     "apiTrying": "Calling…",
     "apiTryFailed": "The call failed, try again later.",
     "apiUnitsPerCall": "{n} request per successful call",
-    "cancel": "Cancel"
+    "cancel": "Cancel",
+    "linesLoadFailed": "Could not load the delivered lines. Try again later.",
+    "retryLines": "Try again",
+    "preparingLines": "Preparing…",
+    "linesLoaded": "{loaded} of {total} lines loaded. Search and selection cover loaded lines only.",
+    "loadAllLines": "Load all lines",
+    "nextLinesPage": "Next page",
+    "loadMoreLines": "Load more lines",
+    "dashboardStockLines": "{count} stock lines delivered. View, copy or download them from the delivery list."
   },
   "wallet": {
     "available": "Available balance",

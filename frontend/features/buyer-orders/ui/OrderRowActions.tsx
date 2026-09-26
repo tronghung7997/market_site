@@ -1,8 +1,11 @@
 "use client";
 
 import { memo, useCallback, useState } from "react";
-import { useTranslations } from "next-intl";
+import { useLocale, useTranslations } from "next-intl";
+import { api } from "@/lib/api";
 import { cn } from "@/lib/cn";
+import { copyFromBff, downloadFromBff } from "@/lib/download";
+import { useApiErrorMessage } from "@/lib/use-api-error";
 import type { Order } from "@/lib/types";
 import { Button } from "@/components/ui";
 import { AlertTriangle, Check, Copy, Download, Eye, ShieldCheck, Star } from "@/components/Icons";
@@ -19,7 +22,8 @@ export interface OrderActionHandlers {
 export function rowActions(order: Order, disputed: boolean) {
   const caps = order.capabilities;
   return {
-    hasData: Boolean(order.delivered_data),
+    // Lists carry no delivered text; the API says whether there is any.
+    hasData: order.has_delivery ?? Boolean(order.delivered_data),
     canConfirm: caps ? caps.can_confirm : order.status === "delivered" && !disputed,
     canDispute: caps ? caps.can_dispute : order.status === "delivered" && !disputed,
     canReview: caps ? caps.can_review && !order.has_review : ["delivered", "completed"].includes(order.status) && !order.has_review,
@@ -30,16 +34,83 @@ function copyText(text: string) {
   return navigator.clipboard?.writeText(text).catch(() => {});
 }
 
-export function downloadDeliveredData(order: Order) {
-  if (!order.delivered_data) return;
-  const blob = new Blob([order.delivered_data], { type: "text/plain;charset=utf-8" });
-  const url = URL.createObjectURL(blob);
-  const a = document.createElement("a");
-  a.href = url;
-  a.download = deliveredDataFileName(order);
-  a.click();
-  URL.revokeObjectURL(url);
-}
+/** Download / copy every delivered line of a row's order. The goods are
+ *  fetched on click from the streamed delivery file, never from the list, and
+ *  a failure is announced next to the buttons. */
+export const DeliveryShortcuts = memo(function DeliveryShortcuts({
+  order, compact = false,
+}: { order: Order; compact?: boolean }) {
+  const t = useTranslations("orders");
+  const locale = useLocale();
+  const apiErrorMessage = useApiErrorMessage();
+  const [busy, setBusy] = useState<"download" | "copy" | null>(null);
+  const [copied, setCopied] = useState(false);
+  const [error, setError] = useState("");
+  const run = async (kind: "download" | "copy") => {
+    setBusy(kind);
+    setError("");
+    const url = api.orderDeliveryUrl(order.order_code);
+    try {
+      if (kind === "download") {
+        const fileName = deliveredDataFileName(order);
+        await downloadFromBff(url, { fileName, fallbackName: fileName, locale });
+      } else {
+        await copyFromBff(url, { locale });
+        setCopied(true);
+        setTimeout(() => setCopied(false), 1600);
+      }
+    } catch (cause) {
+      setError(apiErrorMessage(cause, t("linesLoadFailed")));
+    } finally {
+      setBusy(null);
+    }
+  };
+  const iconSize = compact ? 13 : 14;
+  return (
+    <>
+      {compact ? (
+        <button
+          type="button"
+          title={t("downloadTxtHint")}
+          aria-label={t("downloadTxtHint")}
+          aria-busy={busy === "download"}
+          disabled={busy !== null}
+          onClick={() => void run("download")}
+          className="inline-flex h-7 w-7 items-center justify-center rounded-lg text-muted transition-colors hover:bg-raised hover:text-fg focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-iris disabled:cursor-wait disabled:opacity-60"
+        >
+          <Download size={iconSize} />
+        </button>
+      ) : (
+        <Button
+          size="sm"
+          variant="secondary"
+          aria-busy={busy === "download"}
+          disabled={busy !== null}
+          onClick={() => void run("download")}
+          className="min-h-[38px] gap-1.5"
+          title={t("downloadTxtHint")}
+        >
+          <Download size={iconSize} /> {busy === "download" ? t("preparingLines") : t("downloadTxt")}
+        </Button>
+      )}
+      <button
+        type="button"
+        title={t("copyAllData")}
+        aria-label={t("copyAllData")}
+        aria-busy={busy === "copy"}
+        disabled={busy !== null}
+        onClick={() => void run("copy")}
+        className={cn(
+          "inline-flex items-center justify-center rounded-lg text-muted transition-colors hover:bg-raised hover:text-fg focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-iris disabled:cursor-wait disabled:opacity-60",
+          compact ? "h-7 w-7" : "min-h-[38px] w-[38px] border border-line bg-surface",
+        )}
+      >
+        {copied ? <Check size={iconSize} className="text-good" /> : <Copy size={iconSize} />}
+      </button>
+      {error && <span role="alert" className="basis-full text-right text-[11px] text-bad">{error}</span>}
+    </>
+  );
+});
 
 /** Copy button that owns its "copied" flash so a click re-renders one cell, not the list. */
 export const CopyIconButton = memo(function CopyIconButton({
@@ -93,21 +164,8 @@ export const DesktopRowActions = memo(function DesktopRowActions({
           <Star size={12} className="shrink-0" /> <span className="truncate">{t("review")}</span>
         </Button>
       )}
-      <div className="flex items-center justify-end gap-0.5">
-        {a.hasData && (
-          <>
-            <button
-              type="button"
-              title={t("downloadTxtHint")}
-              aria-label={t("downloadTxtHint")}
-              onClick={() => downloadDeliveredData(order)}
-              className="inline-flex h-7 w-7 items-center justify-center rounded-lg text-muted transition-colors hover:bg-raised hover:text-fg focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-iris"
-            >
-              <Download size={13} />
-            </button>
-            <CopyIconButton text={order.delivered_data ?? ""} title={t("copyAllData")} className="h-7 w-7" size={13} />
-          </>
-        )}
+      <div className="flex flex-wrap items-center justify-end gap-0.5">
+        {a.hasData && <DeliveryShortcuts order={order} compact />}
         {a.canDispute && (
           <button
             type="button"

@@ -2,7 +2,8 @@
 
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
 import { api } from "@/lib/api";
-import { ApiError, apiErrorFromResponse } from "@/lib/api-error";
+import { ApiError } from "@/lib/api-error";
+import { downloadFromBff } from "@/lib/download";
 import { queryKeys } from "@/lib/query-keys";
 import type {
   BulkResourceActionInput,
@@ -13,7 +14,6 @@ import type {
 } from "@/lib/types";
 import {
   RESOURCE_LINE_MAX_LENGTH,
-  contentDispositionFileName,
   runInRestockBatches,
   runRestockBatches,
   summarizeRestockPreview,
@@ -203,47 +203,14 @@ export function useResourceMutations(variantId: number) {
   return { update, restockOne, archive, restore };
 }
 
-/**
- * Download the goods export through the BFF with visible progress instead of a
- * bare link: bytes received are reported as they stream (the proxy drops
- * Content-Length, so there is no percentage), the seller can cancel, and a
- * failure surfaces as a coded ApiError rather than a broken download.
- */
+/** Download the goods export through the BFF, with progress and cancel (see `downloadFromBff`). */
 export async function downloadInventoryExport(
   params: InventoryExportParams,
   { onProgress, signal, locale }: { onProgress?: (receivedBytes: number) => void; signal?: AbortSignal; locale?: string } = {},
 ): Promise<void> {
-  const url = api.inventoryExportUrl(params);
-  const response = await fetch(url, { credentials: "same-origin", signal });
-  if (!response.ok) {
-    const body = await response.json().catch(() => null);
-    throw apiErrorFromResponse(url, response.status, body, { auth: true, locale });
-  }
-  const chunks: Uint8Array<ArrayBuffer>[] = [];
-  let received = 0;
-  const reader = response.body?.getReader();
-  if (reader) {
-    for (;;) {
-      const { done, value } = await reader.read();
-      if (done) break;
-      chunks.push(value);
-      received += value.byteLength;
-      onProgress?.(received);
-    }
-  } else {
-    const buffer = new Uint8Array(await response.arrayBuffer());
-    chunks.push(buffer);
-    onProgress?.(buffer.byteLength);
-  }
-  const blob = new Blob(chunks, { type: response.headers.get("content-type") ?? "application/octet-stream" });
-  const href = URL.createObjectURL(blob);
-  const link = document.createElement("a");
-  link.href = href;
-  link.download = contentDispositionFileName(response.headers.get("content-disposition")) ?? `inventory.${params.format ?? "txt"}`;
-  document.body.appendChild(link);
-  link.click();
-  link.remove();
-  setTimeout(() => URL.revokeObjectURL(href), 10_000);
+  await downloadFromBff(api.inventoryExportUrl(params), {
+    fallbackName: `inventory.${params.format ?? "txt"}`, onProgress, signal, locale,
+  });
 }
 
 export function useInventoryReport(params: InventoryReportParams | null) {

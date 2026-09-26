@@ -20,7 +20,7 @@ from src.fees.service import order_fee_percent
 from src.models.account import Account
 from src.chat.enums import ConversationKind
 from src.models.chat import ChatConversation
-from src.orders.delivery import delivered_data_of
+from src.orders.delivery import delivery_text_of
 from src.models.order import Dispute, DisputeStatus, Order, OrderStatus
 from src.models.resource import Resource
 
@@ -269,7 +269,7 @@ async def admin_case(dispute_id: int, db: AsyncSession) -> dict:
             "product_title": product.title if product else None,
             "variant_name": variant.name if variant else None,
             "warranty_text": product.warranty_text if product else None,
-            "delivered_data": await delivered_data_of(order, db) if order else None,
+            "delivered_data": await delivery_text_of(order, db) if order else None,
             "href": f"/admin/orders/{dispute.order_id}",
             "product_href": f"/admin/products/{product.id}" if product else None,
         },

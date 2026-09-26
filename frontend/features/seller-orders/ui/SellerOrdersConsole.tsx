@@ -1,15 +1,16 @@
 "use client";
 
-import { useTranslations } from "next-intl";
+import { useLocale, useTranslations } from "next-intl";
 import { useCallback, useEffect, useState } from "react";
 import { Link } from "@/i18n/navigation";
+import { api } from "@/lib/api";
+import { downloadFromBff } from "@/lib/download";
 import { useApiErrorMessage } from "@/lib/use-api-error";
 import type { Order } from "@/lib/types";
 import { Button, Card, Pagination } from "@/components/ui";
 import { AlertCircle, Download, Package, RefreshCw, Rows } from "@/components/Icons";
 import { Dialog, DialogContent, DialogDescription, DialogTitle } from "@/components/ui/dialog";
-import { downloadCsv, EXPORT_MAX_ROWS, fetchAllFilteredOrders, ordersToCsv } from "../exportCsv";
-import { DEFAULT_FILTERS, PAGE_SIZE, type SellerOrdersFilters } from "../model";
+import { DEFAULT_FILTERS, EXPORT_MAX_ROWS, PAGE_SIZE, ordersFiltersToQuery, type SellerOrdersFilters } from "../model";
 import { useAcceptOrder, useSellerOrders } from "../useSellerOrders";
 import { OrdersSummaryStrip } from "./OrdersSummaryStrip";
 import { OrdersToolbar } from "./OrdersToolbar";
@@ -45,6 +46,7 @@ export function SellerOrdersConsole({
 }) {
   const t = useTranslations("seller");
   const to = useTranslations("sellerOrders");
+  const locale = useLocale();
   const apiErrorMessage = useApiErrorMessage();
   const query = useSellerOrders(filters);
   const accept = useAcceptOrder();
@@ -78,12 +80,13 @@ export function SellerOrdersConsole({
     setExporting(true);
     setNotice(null);
     try {
-      const rows = await fetchAllFilteredOrders(filters);
-      if (rows.length === 0) {
+      if (!query.data?.total) {
         setNotice(t("ordersNoExport"));
         return;
       }
-      downloadCsv(`seller_orders_${new Date().toISOString().slice(0, 10)}.csv`, ordersToCsv(rows, exportWithData));
+      // Built and streamed by the server: delivered lines never pass through list pages.
+      const fileName = `seller_orders_${new Date().toISOString().slice(0, 10)}.csv`;
+      await downloadFromBff(api.sellerOrdersExportUrl(ordersFiltersToQuery(filters), exportWithData), { fileName, fallbackName: fileName, locale });
       setExportOpen(false);
     } catch (err: unknown) {
       setNotice(apiErrorMessage(err, to("exportFailed")));

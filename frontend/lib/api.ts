@@ -15,6 +15,7 @@ import type { AffiliateSort } from "./types";
 import type { AdminProductActivity, AdminProductBulkAction, AdminProductBulkResult } from "./types";
 import type { BusinessAnalytics, BusinessAnalyticsQuery, BusinessFilterOptions } from "./types";
 import type { AdminAlert, AdminDisputeCase, AdminLogEntry, AdminOrderCase } from "./types";
+import type { AdminOrderPage, AdminOrderQuery, AdminOrdersOverview, OrderResourcePage } from "./types";
 import type { AuthSessionRow, MySellerProfile, ProfileUpdate } from "./types";
 import type {
   SourceArea, SourceCatalogPage, SourceCatalogQuery, SourceImportItem, SourceImportResult, SourceListing,
@@ -441,6 +442,17 @@ export const api = {
     const query = q.toString();
     return request<PaginatedSellerOrders>(`/seller/orders${query ? `?${query}` : ""}`, {}, true);
   },
+  /** Streamed CSV of the orders matching these filters (server caps the row count; audited). */
+  sellerOrdersExportUrl: (params: SellerOrderQuery, includeData: boolean) => {
+    const q = new URLSearchParams();
+    for (const [key, value] of Object.entries(params)) {
+      if (key === "page" || key === "per_page") continue;
+      if (value === undefined || value === null || value === "" || value === "all") continue;
+      q.set(key, String(value));
+    }
+    if (includeData) q.set("include_data", "true");
+    return `/api/seller/orders/export.csv?${q}`;
+  },
   createProduct: (data: Record<string, unknown>) =>
     request<Product>("/seller/products", { method: "POST", body: JSON.stringify(data) }, true),
   updateProduct: (id: number, data: Record<string, unknown>) =>
@@ -749,7 +761,20 @@ export const api = {
     request<AccountAdminRow>(`/admin/accounts/${id}/roles`, { method: "PATCH", body: JSON.stringify({ roles }) }, true),
   adminUpdateSellerTier: (id: number, sellerTier: string) =>
     request<AccountAdminRow>(`/admin/accounts/${id}/tier`, { method: "PATCH", body: JSON.stringify({ seller_tier: sellerTier }) }, true),
-  adminOrders: () => request<Order[]>("/admin/orders", {}, true),
+  adminOrders: (params: AdminOrderQuery = {}) => {
+    const q = new URLSearchParams();
+    for (const [key, value] of Object.entries(params)) {
+      if (value === undefined || value === null || value === "") continue;
+      q.set(key, Array.isArray(value) ? value.join(",") : String(value));
+    }
+    const qs = q.toString();
+    return request<AdminOrderPage>(`/admin/orders${qs ? `?${qs}` : ""}`, {}, true);
+  },
+  adminOrdersOverview: (params: { tz: string; days?: number }) => {
+    const q = new URLSearchParams({ tz: params.tz });
+    if (params.days) q.set("days", String(params.days));
+    return request<AdminOrdersOverview>(`/admin/orders/overview?${q}`, {}, true);
+  },
   adminOrderDetail: (orderId: string | number) => request<AdminOrderDetail>(`/admin/orders/${orderId}`, {}, true),
   adminOrderCase: (orderId: number) => request<AdminOrderCase>(`/admin/orders/${orderId}/case`, {}, true),
   adminReleaseOrder: (orderId: number, note: string) =>
@@ -1102,7 +1127,17 @@ export const api = {
     request<{ gateway_key: string; gateway_key_prefix: string }>(`/orders/${orderId}/gateway-key/rotate`, { method: "POST" }, true),
   chargeUsage: (orderId: string | number, endpoint: string, units = 1) =>
     request<ChargeUsageResult>(`/orders/${orderId}/usage`, { method: "POST", body: JSON.stringify({ endpoint, units }) }, true),
-  orderResources: (orderId: string | number) => request<Resource[]>(`/orders/${orderId}/resources`, {}, true),
+  /** One page of an order's delivered lines (id order, `line_no` 1-based). */
+  orderResources: (orderId: string | number, params: { after?: number | null; limit?: number; ids?: number[] } = {}) => {
+    const q = new URLSearchParams();
+    if (params.after) q.set("after", String(params.after));
+    if (params.limit) q.set("limit", String(params.limit));
+    if (params.ids) q.set("ids", params.ids.join(","));
+    const qs = q.toString();
+    return request<OrderResourcePage>(`/orders/${orderId}/resources${qs ? `?${qs}` : ""}`, {}, true);
+  },
+  /** Every delivered line of an order as a streamed .txt (buyer or seller; audited). */
+  orderDeliveryUrl: (orderId: string | number) => `/api/orders/${encodeURIComponent(String(orderId))}/delivery.txt`,
   markResourceError: (resourceId: number) => request<SellerResourceRow>(`/seller/resources/${resourceId}/error`, { method: "POST" }, true),
   adminResources: (params: { status?: string; seller_id?: number; search?: string; page?: number; per_page?: number } = {}) => {
     const q = new URLSearchParams();

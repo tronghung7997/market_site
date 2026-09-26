@@ -51,7 +51,13 @@ class OrderResponse(BaseModel):
     display_fx_rate_snapshot: int | None = None
     status: str
     escrow_expires_at: datetime | None
+    # Delivered text for orders that deliver text (proxies, gateway keys, manual
+    # deliveries), on single-order responses only. Orders filled from stock never
+    # carry their lines here: `delivery_count` says how many are delivered and
+    # they are read from GET /orders/{ref}/resources (paged) or /delivery.txt.
     delivered_data: str | None
+    has_delivery: bool = False
+    delivery_count: int | None = None
     gateway_access: GatewayAccessInfo | None = None
     cancel_reason: str | None = None
     created_at: datetime
@@ -253,3 +259,43 @@ class AdminOrderExtendEscrow(AdminOrderNote):
 
 class AdminOrderRetry(BaseModel):
     note: str | None = Field(default=None, max_length=2000)
+
+
+class AdminOrderFacet(BaseModel):
+    id: int
+    email: str | None = None
+    count: int
+
+
+class AdminOrderPage(BaseModel):
+    items: list[OrderResponse]
+    total: int
+    page: int
+    per_page: int
+    # Orders per status over the search + buyer/seller scope (tab badges), and
+    # the total amount of that scope.
+    status_counts: dict[str, int]
+    scope_value: int
+    sellers: list[AdminOrderFacet]
+    buyers: list[AdminOrderFacet]
+
+
+class AdminOrdersDay(BaseModel):
+    date: str
+    done: int
+    active: int
+    failed: int
+    value: int
+    done_value: int
+
+
+class AdminOrdersOverview(BaseModel):
+    today_count: int
+    today_value: int
+    done_7d_count: int
+    done_7d_value: int
+    all_count: int
+    done_count: int
+    done_value: int
+    daily: list[AdminOrdersDay]
+    attention: list[OrderResponse]

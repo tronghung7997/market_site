@@ -4,14 +4,12 @@
 import * as React from "react";
 import { usePathname, useSearchParams } from "next/navigation";
 import { useRouter } from "@/i18n/navigation";
-import { useQuery } from "@tanstack/react-query";
+import { keepPreviousData, useQuery } from "@tanstack/react-query";
 import { useDebounce } from "@/lib/hooks/useDebounce";
 import {
   ColumnDef,
   flexRender,
   getCoreRowModel,
-  getPaginationRowModel,
-  getSortedRowModel,
   useReactTable,
   type SortingState,
 } from "@tanstack/react-table";
@@ -25,10 +23,10 @@ import {
 } from "lucide-react";
 import { api, vnd } from "@/lib/api";
 import { Banner, Card } from "@/components/ui";
-import { FacetSelect, buildFacetOptions } from "@/components/admin";
+import { FacetSelect, type FacetOption } from "@/components/admin";
 import { OrderStatusBadge } from "@/components/admin/status-badge";
 import { Tooltip } from "@/components/ui/tooltip";
-import type { Order } from "@/lib/types";
+import type { AdminOrderFacet, AdminOrderSort, Order } from "@/lib/types";
 
 const DEFAULT_PAGE_SIZE = 20;
 
@@ -51,6 +49,19 @@ const STATUS_TABS: {
 
 // Cột số căn phải (header lẫn cell)
 const RIGHT_COLS = new Set(["quantity", "total_amount"]);
+
+// Sorting runs on the server (the list is paged there): only these columns sort.
+function serverSort(sorting: SortingState): AdminOrderSort {
+  const [first] = sorting;
+  if (!first) return "newest";
+  if (first.id === "total_amount") return first.desc ? "amount_desc" : "amount_asc";
+  if (first.id === "quantity") return first.desc ? "quantity_desc" : "quantity_asc";
+  return first.desc ? "newest" : "oldest"; // id / created_at
+}
+
+function facetOptions(facets: AdminOrderFacet[] | undefined): FacetOption[] {
+  return (facets ?? []).map((f) => ({ key: String(f.id), label: f.email ?? `#${f.id}`, count: f.count }));
+}
 
 const SKELETON_WIDTHS = ["45%", "80%", "65%", "60%", "30%", "55%", "50%", "40%"];
 
@@ -104,7 +115,8 @@ const columns: ColumnDef<Order>[] = [
   },
   {
     accessorKey: "product_title",
-    header: ({ column }) => <SortHeader column={column} label="Sản phẩm" />,
+    header: "Sản phẩm",
+    enableSorting: false,
     cell: ({ row }) => (
       <Tooltip
         text={[row.original.product_title, row.original.variant_name]
@@ -127,7 +139,7 @@ const columns: ColumnDef<Order>[] = [
   },
   {
     accessorKey: "buyer_email",
-    header: ({ column }) => <SortHeader column={column} label="Người mua" />,
+    header: "Người mua",
     cell: ({ row, table }) => (
       <PartyCell
         email={row.original.buyer_email}
@@ -136,11 +148,11 @@ const columns: ColumnDef<Order>[] = [
         filterLabel="Lọc theo người mua này"
       />
     ),
-    enableSorting: true,
+    enableSorting: false,
   },
   {
     accessorKey: "seller_email",
-    header: ({ column }) => <SortHeader column={column} label="Người bán" />,
+    header: "Người bán",
     cell: ({ row, table }) => (
       <PartyCell
         email={row.original.seller_email}
@@ -149,7 +161,7 @@ const columns: ColumnDef<Order>[] = [
         filterLabel="Lọc theo người bán này"
       />
     ),
-    enableSorting: true,
+    enableSorting: false,
   },
   {
     accessorKey: "quantity",
@@ -171,9 +183,9 @@ const columns: ColumnDef<Order>[] = [
   },
   {
     accessorKey: "status",
-    header: ({ column }) => <SortHeader column={column} label="Trạng thái" />,
+    header: "Trạng thái",
     cell: ({ row }) => <OrderStatusBadge status={row.original.status} />,
-    enableSorting: true,
+    enableSorting: false,
   },
   {
     accessorKey: "created_at",
@@ -281,74 +293,42 @@ export default function AdminOrdersPage() {
     router.push(`/admin/orders/${id}`);
   };
 
-  // Fetch all orders via admin endpoint (returns flat Order[])
+  // One server page plus the console's counts: the backend filters, counts,
+  // sorts and pages (the full order table never reaches the browser).
+  const activeTab = STATUS_TABS.find((t) => t.key === status);
+  const params = {
+    q: debouncedSearch.trim() || undefined,
+    statuses: activeTab && activeTab.key !== "all" ? activeTab.statuses : undefined,
+    seller_id: sellerId ? Number(sellerId) : undefined,
+    buyer_id: buyerId ? Number(buyerId) : undefined,
+    sort: serverSort(sorting),
+    page: pagination.pageIndex + 1,
+    per_page: pagination.pageSize,
+  };
   const queryResult = useQuery({
-    queryKey: ["admin", "orders"] as const,
-    queryFn: () => api.adminOrders(),
+    queryKey: ["admin", "orders", params] as const,
+    queryFn: () => api.adminOrders(params),
+    placeholderData: keepPreviousData,
     staleTime: 30_000,
   });
+  const data = queryResult.data;
+  const pageOrders = React.useMemo(() => data?.items ?? [], [data]);
 
-  const allOrders = React.useMemo(() => queryResult.data ?? [], [queryResult.data]);
+  const sellerOptions = React.useMemo(() => facetOptions(data?.sellers), [data?.sellers]);
+  const buyerOptions = React.useMemo(() => facetOptions(data?.buyers), [data?.buyers]);
 
-  // Tầng lọc: search → (người bán ∩ người mua) → trạng thái.
-  // Dải chỉ số + tab đếm theo scope (chưa áp trạng thái) để chuyển tab
-  // không làm số liệu tự co giãn theo chính nó.
-  const searchScope = React.useMemo(() => {
-    const q = debouncedSearch.trim().toLowerCase();
-    if (!q) return allOrders;
-    return allOrders.filter(
-      (o) =>
-        String(o.id).includes(q) ||
-        o.order_code?.toLowerCase().includes(q) ||
-        o.buyer_email?.toLowerCase().includes(q) ||
-        o.seller_email?.toLowerCase().includes(q) ||
-        o.product_title?.toLowerCase().includes(q)
-    );
-  }, [allOrders, debouncedSearch]);
-
-  // Facet nào cũng đếm trong phạm vi đã áp facet còn lại (cross-filter)
-  const sellerOptions = React.useMemo(
-    () =>
-      buildFacetOptions(
-        buyerId !== null ? searchScope.filter((o) => String(o.buyer_id) === buyerId) : searchScope,
-        allOrders,
-        sellerId,
-        (o) => String(o.seller_id),
-        (o) => o.seller_email
-      ),
-    [searchScope, allOrders, sellerId, buyerId]
-  );
-
-  const buyerOptions = React.useMemo(
-    () =>
-      buildFacetOptions(
-        sellerId !== null ? searchScope.filter((o) => String(o.seller_id) === sellerId) : searchScope,
-        allOrders,
-        buyerId,
-        (o) => String(o.buyer_id),
-        (o) => o.buyer_email
-      ),
-    [searchScope, allOrders, sellerId, buyerId]
-  );
-
-  const scope = React.useMemo(
-    () =>
-      searchScope.filter(
-        (o) =>
-          (sellerId === null || String(o.seller_id) === sellerId) &&
-          (buyerId === null || String(o.buyer_id) === buyerId)
-      ),
-    [searchScope, sellerId, buyerId]
-  );
-
+  // Tabs and the distribution bar count the search + party scope (before the
+  // status filter), so switching tabs does not resize the numbers themselves.
   const tabCounts = React.useMemo(() => {
-    const counts: Record<string, number> = { all: scope.length };
+    const byStatus = data?.status_counts ?? {};
+    const counts: Record<string, number> = { all: Object.values(byStatus).reduce((a, b) => a + b, 0) };
     for (const tab of STATUS_TABS) {
       if (tab.key === "all") continue;
-      counts[tab.key] = scope.filter((o) => tab.statuses.includes(o.status)).length;
+      counts[tab.key] = tab.statuses.reduce((sum, st) => sum + (byStatus[st] ?? 0), 0);
     }
     return counts;
-  }, [scope]);
+  }, [data?.status_counts]);
+  const scopeCount = tabCounts.all ?? 0;
 
   // Đoạn cho thanh phân bố: các nhóm trạng thái + phần "khác" (vd. đã hủy)
   const barSegments = React.useMemo(() => {
@@ -360,32 +340,21 @@ export default function AdminOrdersPage() {
       clickable: true,
     }));
     const covered = segments.reduce((sum, s) => sum + s.count, 0);
-    const other = scope.length - covered;
+    const other = scopeCount - covered;
     if (other > 0) {
       segments.push({ key: "other", label: "Khác", count: other, color: "bg-slate-300", clickable: false });
     }
     return segments.filter((s) => s.count > 0);
-  }, [tabCounts, scope.length]);
+  }, [tabCounts, scopeCount]);
 
-  const totalValue = React.useMemo(
-    () => scope.reduce((sum, o) => sum + o.total_amount, 0),
-    [scope]
-  );
-
-  const filteredOrders = React.useMemo(() => {
-    if (status === "all") return scope;
-    const tab = STATUS_TABS.find((t) => t.key === status);
-    if (!tab) return scope;
-    return scope.filter((o) => tab.statuses.includes(o.status));
-  }, [scope, status]);
-
-  const total = filteredOrders.length;
+  const totalValue = data?.scope_value ?? 0;
+  const total = data?.total ?? 0;
   const totalPages = Math.max(1, Math.ceil(total / pagination.pageSize));
 
   // Bảo hiểm khi dữ liệu co lại còn ít trang hơn trang hiện tại
   // Only once data is in: before that there is "1 page" and a page restored
   // from the URL would be thrown away.
-  const loaded = queryResult.data !== undefined;
+  const loaded = data !== undefined;
   React.useEffect(() => {
     if (!loaded) return;
     setPagination((p) =>
@@ -401,17 +370,20 @@ export default function AdminOrdersPage() {
     []
   );
 
-  // Sort toàn bộ kết quả lọc rồi mới phân trang (trước đây chỉ sort
-  // trong trang hiện tại nên bấm sort gần như vô nghĩa)
+  // Sorting and paging are the server's (manual): the table renders one page.
   const table = useReactTable({
-    data: filteredOrders,
+    data: pageOrders,
     columns,
     state: { sorting, pagination },
-    onSortingChange: setSorting,
+    onSortingChange: (updater) => {
+      setSorting(updater);
+      setPagination((p) => ({ ...p, pageIndex: 0 }));
+    },
     onPaginationChange: setPagination,
     getCoreRowModel: getCoreRowModel(),
-    getSortedRowModel: getSortedRowModel(),
-    getPaginationRowModel: getPaginationRowModel(),
+    manualSorting: true,
+    manualPagination: true,
+    pageCount: totalPages,
     autoResetPageIndex: false,
     meta: tableMeta,
   });
@@ -439,7 +411,7 @@ export default function AdminOrdersPage() {
                 Đơn hàng
               </p>
               <p className="text-[26px] leading-8 font-semibold font-mono tabular-nums text-slate-900">
-                {scope.length.toLocaleString("vi-VN")}
+                {scopeCount.toLocaleString("vi-VN")}
               </p>
             </div>
             <div>
@@ -452,7 +424,7 @@ export default function AdminOrdersPage() {
             </div>
           </div>
 
-          {scope.length > 0 && (
+          {scopeCount > 0 && (
             <div className="w-full min-w-[240px] flex-1 sm:w-auto sm:max-w-sm">
               <div className="flex h-2 overflow-hidden rounded-full bg-slate-100">
                 {barSegments.map((s) => (
@@ -568,7 +540,7 @@ export default function AdminOrdersPage() {
           {total === 0 && !queryResult.isLoading ? (
             <div className="px-4 py-14 text-center">
               <p className="text-[13px] text-slate-500">
-                {allOrders.length === 0
+                {!hasFilters
                   ? "Chưa có đơn hàng nào."
                   : "Không có đơn hàng khớp bộ lọc hiện tại."}
               </p>

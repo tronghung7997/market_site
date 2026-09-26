@@ -291,13 +291,14 @@ async def test_fixed_order_routes_to_adapter_and_delivers(client, mock_igbm, mon
         assert order.status == OrderStatus.delivered
         assert order.variant_id == ctx["variant"]["id"]
         assert order.provider_id == ctx["provider_id"]
-        lines = order.delivered_data.split("\n")
-        assert len(lines) == 2 and all("|" in line for line in lines)
+        # The bought lines live in `resources` only: no text copy on the order.
+        assert order.delivered_data is None
         resources = list((await db.execute(
             select(Resource).where(Resource.order_id == order.id).order_by(Resource.id)
             .options(undefer(Resource.data))
         )).scalars())
-        assert [r.data for r in resources] == lines
+        lines = [r.data for r in resources]
+        assert len(lines) == 2 and all("|" in line for line in lines)
         assert all(r.status == ResourceStatus.assigned for r in resources)
         assert sum(r.refund_amount_cap for r in resources) == 8000
         listing = await db.scalar(select(SupplierListing).where(SupplierListing.variant_id == order.variant_id))
@@ -314,7 +315,13 @@ async def test_fixed_order_routes_to_adapter_and_delivers(client, mock_igbm, mon
     assert mock_igbm.STATE["balance"] == Decimal("4400.00")
     async with SessionLocal() as db:
         order = await db.get(Order, data["id"], options=[undefer(Order.delivered_data)])
-        assert order.status == OrderStatus.delivered and order.delivered_data == "\n".join(lines)
+        assert order.status == OrderStatus.delivered and order.delivered_data is None
+        redelivered = list((await db.scalars(
+            select(Resource.id).where(Resource.order_id == order.id)
+        )).all())
+    assert len(redelivered) == 2, "a re-run redelivers the same rows"
+    detail = (await client.get(f"/orders/{data['order_code']}", headers={"Authorization": f"Bearer {ctx['buyer']}"})).json()
+    assert detail["delivered_data"] is None and detail["delivery_count"] == 2
 
 
 @pytest.mark.asyncio

@@ -1,24 +1,38 @@
-from fastapi import APIRouter, Depends, Query, status
+from fastapi import APIRouter, Depends, HTTPException, Query, status
+from fastapi.responses import StreamingResponse
 from sqlalchemy import select
 from sqlalchemy.ext.asyncio import AsyncSession
 from sqlalchemy.orm import undefer
 
 from src.adapters.factory import get_adapter
+from src.audit.service import log_event
 from src.site_status import require_orders_open
-from src.auth.dependencies import get_current_account, get_seller_account, require_role, require_verified_email
-from src.database import get_session
+from src.auth.dependencies import get_current_account, get_seller_account, get_stream_account, require_role, require_verified_email
+from src.database import SessionLocal, get_session
 from src.errors.codes import ErrorCode
 from src.errors.exceptions import api_error
+from src.logging import current_request_id
 from src.models.account import Account
 from src.models.order import Order
 from src.models.product import Product, ProductVariant
 from src.models.resource import Resource
 from src.models.service_task import ServiceTask
+from src.rate_limit import check_rate_limit
 from src.usage.service import get_usage_summary
 
-from . import admin_case, schemas, service
-from .delivery import delivered_data_of
-from src.orders.refs import OrderRef
+from . import admin_case, admin_list, schemas, service
+from .delivery import delivery_summary, delivery_text_of, stream_delivery_lines
+from .export import stream_seller_orders_csv
+from src.orders.refs import OrderRef, StreamOrderRef
+
+# Each download/export can be tens of MB of decrypted goods: cap how often one
+# account can ask for them (Redis-backed; fails open like other quotas).
+DELIVERY_DOWNLOADS_PER_MINUTE = 30
+ORDER_EXPORTS_PER_MINUTE = 6
+
+
+def _download_quota_error():
+    return api_error(ErrorCode.RATE_LIMITED, status.HTTP_429_TOO_MANY_REQUESTS, headers={"Retry-After": "60"})
 
 router = APIRouter(tags=["orders"])
 
@@ -92,6 +106,42 @@ async def seller_orders(
     )
 
 
+@router.get("/seller/orders/export.csv")
+async def seller_orders_export(
+    account: Account = Depends(get_stream_account),
+    tab: str = Query("all", pattern="^(all|disputed|action_required|escrow|completed|cancelled)$"),
+    search: str | None = Query(None, max_length=200),
+    product_id: int | None = Query(None, ge=1),
+    product: str | None = Query(None, max_length=64),
+    kind: str | None = Query(None, pattern="^(instant|manual|api|task|proxy)$"),
+    date_from: str | None = Query(None),
+    date_to: str | None = Query(None),
+    sort: str = Query("newest", pattern="^(newest|oldest|amount_desc|amount_asc)$"),
+    include_data: bool = Query(False),
+):
+    """CSV of the orders matching the seller console filters (at most
+    `EXPORT_MAX_ROWS`), streamed; with `include_data`, each order's delivered
+    lines. Audit-logged like revealing stock lines."""
+    if "seller" not in account.roles:
+        raise HTTPException(status_code=status.HTTP_403_FORBIDDEN, detail="Yêu cầu quyền seller")
+    if not await check_rate_limit(f"seller-orders-export:{account.id}", limit=ORDER_EXPORTS_PER_MINUTE, window_seconds=60):
+        raise _download_quota_error()
+    async with SessionLocal() as db:
+        await log_event(
+            db, "info", f"Seller {account.id} exported orders (data={include_data})", request_id=current_request_id(),
+            metadata={"event": "seller_orders_exported", "actor_id": account.id, "subject_type": "seller_orders",
+                      "subject_id": account.id, "include_data": include_data, "tab": tab, "kind": kind},
+        )
+        await db.commit()
+    filters = {"tab": tab, "search": search, "product_id": product_id, "product_key": product,
+               "kind": kind, "date_from": date_from, "date_to": date_to}
+    return StreamingResponse(
+        stream_seller_orders_csv(account.id, filters, sort=sort, include_data=include_data),
+        media_type="text/csv; charset=utf-8",
+        headers={"Content-Disposition": 'attachment; filename="seller_orders.csv"', "Cache-Control": "no-store"},
+    )
+
+
 @router.post("/seller/orders/{order_ref}/accept", response_model=schemas.OrderResponse)
 async def accept(order_id: OrderRef, account: Account = Depends(get_seller_account), db: AsyncSession = Depends(get_session)):
     return await service.order_view(await service.accept_order(order_id, account.id, db), db, viewer="seller")
@@ -100,6 +150,40 @@ async def accept(order_id: OrderRef, account: Account = Depends(get_seller_accou
 @router.post("/seller/orders/{order_ref}/deliver", response_model=schemas.OrderResponse)
 async def deliver(order_id: OrderRef, body: schemas.ManualDeliverRequest, account: Account = Depends(get_seller_account), db: AsyncSession = Depends(get_session)):
     return await service.order_view(await service.deliver_order(order_id, account.id, body.data, db), db, viewer="seller")
+
+
+@router.get("/orders/{order_ref}/delivery.txt")
+async def order_delivery_download(
+    order_id: StreamOrderRef,
+    account: Account = Depends(get_stream_account),
+):
+    """Download every delivered line of an order as text (buyer or seller).
+
+    Streamed: the body is never built in memory and no pooled connection is
+    held while it downloads (see orders.delivery.stream_delivery_lines). Each
+    download is recorded in the audit log, like a seller revealing a stock line.
+    """
+    if not await check_rate_limit(f"order-delivery-download:{account.id}", limit=DELIVERY_DOWNLOADS_PER_MINUTE, window_seconds=60):
+        raise _download_quota_error()
+    async with SessionLocal() as db:
+        order = await db.get(Order, order_id)
+        if order is None:
+            raise api_error(ErrorCode.ORDER_NOT_FOUND, status.HTTP_404_NOT_FOUND)
+        if account.id not in (order.buyer_id, order.seller_id):
+            raise api_error(ErrorCode.NOT_ORDER_OWNER, status.HTTP_403_FORBIDDEN)
+        role = "buyer" if account.id == order.buyer_id else "seller"
+        await log_event(
+            db, "info", f"Order {order.id} delivery downloaded by {role}", request_id=current_request_id(),
+            metadata={"event": "order_delivery_downloaded", "actor_id": account.id, "subject_type": "order",
+                      "subject_id": order.id, "role": role},
+        )
+        await db.commit()
+        filename = f"{order.order_code}.txt"
+    return StreamingResponse(
+        stream_delivery_lines(order_id),
+        media_type="text/plain; charset=utf-8",
+        headers={"Content-Disposition": f'attachment; filename="{filename}"', "Cache-Control": "no-store"},
+    )
 
 
 @router.get("/orders/{order_ref}/dashboard")
@@ -194,7 +278,7 @@ async def order_dashboard(
         # trước đây usage luôn rỗng dù adapter có get_usage(). Số dư thật nằm
         # ở order_balances/usage_records (xem src/usage), key giao cho buyer
         # nằm thẳng trong delivered_data.
-        dashboard["delivered_data"] = await delivered_data_of(order, db)
+        dashboard["delivered_data"] = await delivery_text_of(order, db)
         dashboard["balance"] = await get_usage_summary(order_id, db)
         # Endpoint bán được (tên, method, tham số, giá) cho trang "API của tôi"
         # — không bao giờ lộ đường dẫn/khoá thật của nguồn.
@@ -222,15 +306,41 @@ async def order_dashboard(
         ]
 
     else:
-        # account, token, cloud, payment, other — return delivered_data
-        dashboard["delivered_data"] = await delivered_data_of(order, db)
+        # account, token, cloud, payment, other: stock orders deliver lines read
+        # page by page (/orders/{ref}/resources); others deliver a short text.
+        summary = (await delivery_summary([order.id], db))[order.id]
+        dashboard["delivered_data"] = await delivery_text_of(order, db)
+        dashboard["delivery_count"] = summary.delivered_lines if summary.from_resources else None
 
     return dashboard
 
 
-@router.get("/admin/orders", response_model=list[schemas.OrderResponse])
-async def admin_orders(_: Account = Depends(require_role("admin")), db: AsyncSession = Depends(get_session)):
-    return await service.list_all_orders(db)
+@router.get("/admin/orders", response_model=schemas.AdminOrderPage)
+async def admin_orders(
+    _: Account = Depends(require_role("admin")),
+    db: AsyncSession = Depends(get_session),
+    q: str | None = Query(None, max_length=200),
+    statuses: str | None = Query(None, description="Comma-separated order statuses"),
+    buyer_id: int | None = Query(None, ge=1),
+    seller_id: int | None = Query(None, ge=1),
+    sort: str = Query("newest", pattern="^(newest|oldest|amount_desc|amount_asc|quantity_desc|quantity_asc)$"),
+    page: int = Query(1, ge=1),
+    per_page: int = Query(20, ge=1, le=admin_list.ADMIN_ORDERS_PAGE_MAX),
+):
+    return await admin_list.list_admin_orders(
+        db, q=q, statuses=[s for s in (statuses or "").split(",") if s], buyer_id=buyer_id,
+        seller_id=seller_id, sort=sort, page=page, per_page=per_page,
+    )
+
+
+@router.get("/admin/orders/overview", response_model=schemas.AdminOrdersOverview)
+async def admin_orders_overview(
+    _: Account = Depends(require_role("admin")),
+    db: AsyncSession = Depends(get_session),
+    tz: str = Query("Asia/Ho_Chi_Minh", max_length=64),
+    days: int = Query(14, ge=1, le=90),
+):
+    return await admin_list.admin_orders_overview(db, tz=tz, days=days)
 
 
 @router.get("/admin/orders/{order_id}/case", response_model=schemas.AdminOrderCase)

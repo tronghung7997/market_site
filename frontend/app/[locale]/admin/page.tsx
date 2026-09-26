@@ -13,11 +13,8 @@ import { Card } from "@/components/ui/card";
 import { OrderStatusBadge } from "@/components/admin/status-badge";
 import { ALERT_SEVERITY_META, alertTypeLabel, severityRank } from "@/components/admin/alert-meta";
 import { vnd } from "@/lib/utils/format";
-import type { ActionItem, Alert, Order } from "@/lib/types";
+import type { ActionItem, AdminOrdersDay, Alert, Order } from "@/lib/types";
 
-const DONE = new Set(["delivered", "completed", "confirmed"]);
-const FAILED = new Set(["cancelled", "refunded"]);
-const IN_FLIGHT = new Set(["pending", "processing", "accepted"]);
 
 // Backend trả nhãn tiếng Anh cho các bộ đếm — admin đọc tiếng Việt.
 const QUEUE_LABELS: Record<string, string> = {
@@ -46,29 +43,20 @@ function isToday(iso: string): boolean {
   return new Date(iso).toDateString() === new Date().toDateString();
 }
 
-// 14 ngày gần nhất, mỗi ngày tách theo kết cục đơn.
-function buildChartData(orders: Order[]) {
-  const days: { label: string; fullLabel: string; done: number; active: number; failed: number; value: number }[] = [];
-  for (let i = 13; i >= 0; i--) {
-    const d = new Date();
-    d.setHours(0, 0, 0, 0);
-    d.setDate(d.getDate() - i);
-    const next = new Date(d);
-    next.setDate(d.getDate() + 1);
-    const inDay = orders.filter((o) => {
-      const t = new Date(o.created_at).getTime();
-      return t >= d.getTime() && t < next.getTime();
-    });
-    days.push({
-      label: d.getDate() === 1 || i === 13 ? d.toLocaleDateString("vi-VN", { day: "numeric", month: "numeric" }) : String(d.getDate()),
+// 14 ngày gần nhất (theo múi giờ của trình duyệt), mỗi ngày tách theo kết
+// cục đơn — tổng hợp sẵn ở server.
+function buildChartData(daily: AdminOrdersDay[]) {
+  return daily.map((day, i) => {
+    const d = new Date(`${day.date}T00:00:00`);
+    return {
+      label: d.getDate() === 1 || i === 0 ? d.toLocaleDateString("vi-VN", { day: "numeric", month: "numeric" }) : String(d.getDate()),
       fullLabel: d.toLocaleDateString("vi-VN", { weekday: "short", day: "numeric", month: "numeric" }),
-      done: inDay.filter((o) => DONE.has(o.status)).length,
-      active: inDay.filter((o) => IN_FLIGHT.has(o.status)).length,
-      failed: inDay.filter((o) => FAILED.has(o.status) || o.status === "disputed").length,
-      value: inDay.reduce((s, o) => s + o.total_amount, 0),
-    });
-  }
-  return days;
+      done: day.done,
+      active: day.active,
+      failed: day.failed,
+      value: day.value,
+    };
+  });
 }
 
 type AlertEntry = { item: ActionItem; alert: Alert | undefined };
@@ -180,9 +168,11 @@ export default function AdminOverview() {
     staleTime: 30_000,
     refetchInterval: 60_000,
   });
+  // Order figures are SQL aggregates (the order table is never downloaded).
+  const timeZone = React.useMemo(() => Intl.DateTimeFormat().resolvedOptions().timeZone || "Asia/Ho_Chi_Minh", []);
   const ordersQ = useQuery({
-    queryKey: ["admin", "orders"],
-    queryFn: () => api.adminOrders(),
+    queryKey: ["admin", "orders", "overview", timeZone],
+    queryFn: () => api.adminOrdersOverview({ tz: timeZone, days: 14 }),
     staleTime: 30_000,
   });
   const providersQ = useQuery({
@@ -211,7 +201,7 @@ export default function AdminOverview() {
     staleTime: 30_000,
   });
 
-  const orders = React.useMemo(() => ordersQ.data ?? [], [ordersQ.data]);
+  const overview = ordersQ.data;
 
   // Việc có người phải làm (bộ đếm) tách khỏi cảnh báo hệ thống (từng sự cố).
   const tasks = React.useMemo<ActionItem[]>(() => {
@@ -255,33 +245,24 @@ export default function AdminOverview() {
   };
 
   const money = React.useMemo(() => {
-    const todayOrders = orders.filter((o) => isToday(o.created_at));
-    const weekAgo = Date.now() - 7 * 86_400_000;
-    const done7d = orders.filter((o) => DONE.has(o.status) && new Date(o.created_at).getTime() >= weekAgo);
     const approved = (withdrawalsQ.data ?? []).filter((w) => w.status === "approved");
     return {
-      todayCount: todayOrders.length,
-      todayValue: todayOrders.reduce((s, o) => s + o.total_amount, 0),
-      revenue7d: done7d.reduce((s, o) => s + o.total_amount, 0),
-      done7d: done7d.length,
+      todayCount: overview?.today_count ?? 0,
+      todayValue: overview?.today_value ?? 0,
+      revenue7d: overview?.done_7d_value ?? 0,
+      done7d: overview?.done_7d_count ?? 0,
       depositToday: (depositsQ.data ?? [])
         .filter((d) => d.paid_at && isToday(d.paid_at))
         .reduce((s, d) => s + (d.paid_amount ?? d.amount), 0),
       withdrawWaiting: approved.reduce((s, w) => s + w.amount, 0),
       withdrawWaitingCount: approved.length,
     };
-  }, [orders, depositsQ.data, withdrawalsQ.data]);
+  }, [overview, depositsQ.data, withdrawalsQ.data]);
 
-  const chartData = React.useMemo(() => buildChartData(orders), [orders]);
+  const chartData = React.useMemo(() => buildChartData(overview?.daily ?? []), [overview?.daily]);
 
-  // Đơn cần chú ý: khiếu nại trước, rồi đơn kẹt lâu nhất
-  const attention = React.useMemo(() => {
-    const stuck = orders
-      .filter((o) => IN_FLIGHT.has(o.status))
-      .sort((a, b) => new Date(a.created_at).getTime() - new Date(b.created_at).getTime());
-    const disputed = orders.filter((o) => o.status === "disputed");
-    return [...disputed, ...stuck].slice(0, 8);
-  }, [orders]);
+  // Đơn cần chú ý: khiếu nại trước, rồi đơn kẹt lâu nhất (chọn ở server)
+  const attention = overview?.attention ?? [];
 
   const providers = providersQ.data ?? [];
   const activeProviders = providers.filter((p) => p.is_active);

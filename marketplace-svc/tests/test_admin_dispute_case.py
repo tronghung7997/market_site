@@ -17,7 +17,7 @@ def _h(token):
 async def _open_case(client, *, claim_lines=(0, 2), quantity=4):
     buyer_token, admin_token, order_id = await create_delivered_order(client, quantity=quantity, stock_count=quantity + 2)
     seller_token = await register_and_login(client, "disp_seller@example.com")
-    resources = (await client.get(f"/orders/{order_id}/resources", headers=_h(buyer_token))).json()
+    resources = (await client.get(f"/orders/{order_id}/resources", headers=_h(buyer_token))).json()["items"]
     ids = [r["id"] for r in resources]
     opened = await client.post(
         f"/orders/{order_id}/dispute",

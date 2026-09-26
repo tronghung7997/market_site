@@ -31,11 +31,10 @@ class SellerPoolAdapter(ProviderAdapter):
                 order_id=order_id,
                 duration_days=duration_days,
             )
-            data = "\n".join(r.data for r in resources)
             resource_ids = [r.id for r in resources]
+            # Lines stay in `resources`; the order keeps no text copy.
             return ProvisionResult(
                 success=True,
-                data=data,
                 resource_id=",".join(str(rid) for rid in resource_ids),
                 metadata={
                     "provider": "seller_pool",

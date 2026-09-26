@@ -1285,7 +1285,10 @@
     "cancelReason": "Lý do huỷ",
     "productShortcuts": "Sản phẩm",
     "ordersOfProduct": "Đơn của sản phẩm này",
-    "productUnavailable": "Sản phẩm không còn tồn tại."
+    "productUnavailable": "Sản phẩm không còn tồn tại.",
+    "linesLoaded": "Đang hiện {loaded} / {total} dòng",
+    "loadMoreLines": "Tải thêm",
+    "loadingLines": "Đang tải…"
   },
   "buyerOrders": {
     "tabsLabel": "Lọc theo trạng thái",
@@ -2455,7 +2458,9 @@
         "suspended": "bị khoá",
         "active": "đang bán"
       }
-    }
+    },
+    "orderLinesDelivered": "Đã bàn giao {count} dòng",
+    "orderLinesPreview": "Đang xem trước {shown} / {total} dòng. Tải file hoặc mở đơn hàng để xem tất cả."
   },
   "chat": {
     "inbox": "Tin nhắn",
@@ -2932,7 +2937,15 @@
     "apiTrying": "Đang gọi…",
     "apiTryFailed": "Không gọi được, thử lại sau.",
     "apiUnitsPerCall": "{n} request / lần gọi thành công",
-    "cancel": "Huỷ"
+    "cancel": "Huỷ",
+    "linesLoadFailed": "Không tải được dữ liệu bàn giao. Thử lại sau.",
+    "retryLines": "Thử lại",
+    "preparingLines": "Đang chuẩn bị…",
+    "linesLoaded": "Đã tải {loaded} / {total} dòng. Tìm kiếm và chọn chỉ áp dụng cho các dòng đã tải.",
+    "loadAllLines": "Tải tất cả dòng",
+    "nextLinesPage": "Trang sau",
+    "loadMoreLines": "Tải thêm dòng",
+    "dashboardStockLines": "Đã bàn giao {count} dòng từ kho. Xem, sao chép hoặc tải file ở danh sách dữ liệu bàn giao."
   },
   "wallet": {
     "available": "Số dư khả dụng",

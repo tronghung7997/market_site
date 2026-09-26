@@ -3,6 +3,7 @@ import test from "node:test";
 
 import {
   deliveryResourceMarks,
+  disputeResourceIds,
   displayTimelineEvents,
   formatDisputeAccountChip,
   isDeliveryRowClaimable,
@@ -18,6 +19,22 @@ import {
   visibleResourceIds,
 } from "../lib/dispute-case.ts";
 import type { DisputeTimelineEvent } from "../lib/types.ts";
+
+test("disputeResourceIds names every line a case refers to, once", () => {
+  assert.deepEqual(disputeResourceIds(null), []);
+  const ids = disputeResourceIds({
+    claimed_resource_ids: [11, 12],
+    resource_actions: [
+      { action: "replace", original_resource_id: 11, replacement_resource_id: 40, refund_amount: 0, created_at: "" },
+      { action: "refund", original_resource_id: 12, replacement_resource_id: null, refund_amount: 500, created_at: "" },
+    ],
+    timeline: [
+      { id: "e1", event_type: "claim", actor_role: "buyer", body: null, resource_ids: [13, 11], created_at: "" },
+      { id: "e2", event_type: "replace", actor_role: "seller", body: null, resource_ids: [11], replacement_resource_ids: [40, null], created_at: "" },
+    ],
+  });
+  assert.deepEqual([...ids].sort((a, b) => a - b), [11, 12, 13, 40]);
+});
 
 test("resourcePreview keeps the username token", () => {
   assert.equal(resourcePreview("alice|secret"), "alice");

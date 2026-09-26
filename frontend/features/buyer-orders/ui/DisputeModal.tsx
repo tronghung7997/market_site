@@ -16,6 +16,7 @@ import {
 } from "lucide-react";
 import { Search } from "@/components/Icons";
 import { api } from "@/lib/api";
+import { fetchAllOrderLines } from "@/lib/order-lines";
 import { lineLabel, resourceLineMap } from "@/lib/order-ref";
 import { useApiErrorMessage } from "@/lib/use-api-error";
 import { fulfillmentFromOrder } from "@/lib/fulfillment";
@@ -104,7 +105,8 @@ export default function DisputeModal({
     setScopeError("");
     const needsExistingCase = Boolean(appendToExisting || orderProp?.has_dispute);
     Promise.all([
-      api.orderResources(orderId),
+      // Any delivered line can be claimed, so the picker needs all of them (paged fetch).
+      fetchAllOrderLines(orderId),
       needsExistingCase ? api.orderDispute(orderId) : Promise.resolve(null),
       orderProp ? Promise.resolve(orderProp) : api.getOrder(orderId),
     ]).then(([rows, dispute, fetched]) => {

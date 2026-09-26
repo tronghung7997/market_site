@@ -1,5 +1,6 @@
 import asyncio
 from datetime import datetime, timedelta, timezone
+from typing import TYPE_CHECKING
 
 import structlog
 from fastapi import status
@@ -15,9 +16,9 @@ from src.gateway.service import mint_gateway_key
 from src.models.account import Account
 from src.models.order import Dispute, DisputeStatus, Order, OrderStatus
 from src.orders.constants import MAX_ORDER_QUANTITY
-from src.orders.delivery import delivered_data_by_order
+from src.orders.delivery import delivered_data_by_order, delivery_summary
 from src.models.provider import Provider
-from src.models.resource import Resource
+from src.models.resource import Resource, resource_search_key
 from src.models.product import DeliveryMode, Product, ProductStatus, ProductVariant
 from src.models.review import Review
 from src.reviews.service import can_review_order
@@ -37,6 +38,9 @@ from src.suppliers.service import precheck_external_purchase, provider_has_exter
 from src.money.service import get_effective_rate
 from src.orders.codes import mask_email, parse_order_ref
 from src.sellers.service import approved_business_names, seller_refs_by_id
+
+if TYPE_CHECKING:
+    from src.adapters.base import ProvisionResult
 
 logger = structlog.get_logger()
 
@@ -120,7 +124,8 @@ async def create_order(buyer_id: int, variant_id: int, quantity: int, db: AsyncS
         refund_base, refund_remainder = divmod(total, len(resources))
         for index, resource in enumerate(resources):
             resource.refund_amount_cap = refund_base + (1 if index < refund_remainder else 0)
-        order.delivered_data = "\n".join(r.data for r in resources)
+        # The delivered lines stay in `resources` (encrypted): no text copy on
+        # the order, so checkout neither decrypts nor rewrites up to 100 MB.
         rid = current_request_id()
         await log_event(db, "info", f"Order {order.id} placed (instant)", request_id=rid,
                         metadata={"event": "order_placed", "order_id": order.id, "buyer_id": buyer_id,
@@ -193,6 +198,14 @@ async def _raise_operational_alert(
         logger.error("provision_alert_failed", order_id=order_id, error=str(e))
 
 
+def _delivered_text(provision_result: "ProvisionResult") -> str | None:
+    """Text to keep on the order: none when the adapter delivered stock rows
+    (`resource_ids`), whose lines are read from `resources`."""
+    if (provision_result.metadata or {}).get("resource_ids"):
+        return None
+    return provision_result.data
+
+
 async def _apply_provision_result(
     order: Order, product: Product, provision_result, db: AsyncSession, rid: str | None,
     *, resolved_provider_id: int | None = None,
@@ -219,7 +232,7 @@ async def _apply_provision_result(
         if (provision_result.metadata or {}).get("async_fulfillment"):
             # Xử lý thủ công: order chờ task hoàn thành, chưa bắt đầu escrow
             order.status = OrderStatus.processing
-            order.delivered_data = provision_result.data
+            order.delivered_data = _delivered_text(provision_result)
             await log_event(
                 db, "info", f"Order {order.id} awaiting manual fulfillment", request_id=rid,
                 metadata={"event": "order_processing", "order_id": order.id,
@@ -227,7 +240,7 @@ async def _apply_provision_result(
             )
         else:
             order.status = OrderStatus.delivered
-            order.delivered_data = provision_result.data
+            order.delivered_data = _delivered_text(provision_result)
             seller = await db.get(Account, product.seller_id)
             order.escrow_expires_at = datetime.now(timezone.utc) + timedelta(
                 days=await escrow_days_for(db, seller_tier=seller.seller_tier if seller else "new",
@@ -609,7 +622,15 @@ async def _enrich_orders(
     seller_refs = await seller_refs_by_id(seller_ids, db) if viewer == "buyer" else {}
 
     order_ids = [o.id for o in orders]
-    delivery = await delivered_data_by_order(orders, db) if include_delivery else {}
+    # Lists never carry delivered text; a single order carries it only when it
+    # delivers text. Orders filled from stock expose a line count instead and
+    # are read page by page (GET /orders/{ref}/resources, /delivery.txt).
+    summaries = await delivery_summary(order_ids, db)
+    text_orders = [
+        o for o in orders
+        if include_delivery and summaries[o.id].has_text and not summaries[o.id].from_resources
+    ]
+    delivery = await delivered_data_by_order(text_orders, db) if text_orders else {}
     reviewed = set(
         (await db.execute(select(Review.order_id).where(id_in(Review.order_id, order_ids)))).scalars()
     )
@@ -679,6 +700,8 @@ async def _enrich_orders(
             "display_fx_rate_snapshot": order.display_fx_rate_snapshot,
             "escrow_expires_at": order.escrow_expires_at, "delivered_data": delivery.get(order.id),
             "gateway_access": _gateway_access_from_delivery_data(delivery.get(order.id)),
+            "has_delivery": summaries[order.id].has_delivery,
+            "delivery_count": summaries[order.id].delivered_lines if summaries[order.id].from_resources else None,
             "cancel_reason": order.cancel_reason,
             "created_at": order.created_at,
             "product_title": product.title if product else None,
@@ -788,8 +811,14 @@ async def list_buyer_orders(
             variant_match = select(ProductVariant.id).where(ProductVariant.name.ilike(f"%{search_clean}%"))
             product_via_variant = select(ProductVariant.id).where(ProductVariant.product_id.in_(product_match))
 
+            # A delivered account is found by its first field (e.g. the username),
+            # exactly, through the keyed lookup digest — never by scanning the
+            # delivered text, which is encrypted and can be MBs per order.
+            delivered_match = select(Resource.order_id).where(
+                Resource.data_lookup == resource_search_key(search_clean), Resource.order_id.is_not(None),
+            )
             conditions = [
-                Order.delivered_data.ilike(f"%{search_clean}%"),
+                Order.id.in_(delivered_match),
                 Order.product_id.in_(product_match),
                 Order.variant_id.in_(variant_match),
                 Order.variant_id.in_(product_via_variant),
@@ -834,7 +863,7 @@ async def list_buyer_orders(
 
     q = q.offset((page - 1) * per_page).limit(per_page)
     result = await db.execute(q)
-    items = await _enrich_orders(list(result.scalars().all()), db, viewer="buyer")
+    items = await _enrich_orders(list(result.scalars().all()), db, viewer="buyer", include_delivery=False)
 
     return {"items": items, "total": total, "page": page, "per_page": per_page}
 
@@ -925,7 +954,15 @@ def _fulfillment_kind_sql():
     )
 
 
-async def list_seller_orders(
+def seller_orders_order_by(sort: str) -> tuple:
+    return {
+        "oldest": (Order.created_at.asc(), Order.id.asc()),
+        "amount_desc": (Order.total_amount.desc(), Order.created_at.desc()),
+        "amount_asc": (Order.total_amount.asc(), Order.created_at.desc()),
+    }.get(sort, (Order.created_at.desc(), Order.id.desc()))
+
+
+async def seller_orders_query(
     seller_id: int,
     db: AsyncSession,
     *,
@@ -936,12 +973,8 @@ async def list_seller_orders(
     kind: str | None = None,
     date_from: str | None = None,
     date_to: str | None = None,
-    sort: str = "newest",
-    page: int = 1,
-    per_page: int = 20,
-) -> dict:
-    """Seller console listing: server-side tabs/filters/sort/pagination plus
-    store-wide tab counts so the console header never depends on the page."""
+):
+    """`SELECT Order.id` for the seller console filters (list and CSV export)."""
     if product_key:
         # Seller URLs carry the product's public key, never its row id; a
         # numeric value is an old bookmarked `?product_id=` link.
@@ -991,23 +1024,41 @@ async def list_seller_orders(
             dt = dt.replace(tzinfo=timezone.utc)
         filters.append(Order.created_at >= dt if clause == "from" else Order.created_at < dt + timedelta(days=1))
 
-    filtered = base.where(*filters)
+    return base.where(*filters)
+
+
+async def list_seller_orders(
+    seller_id: int,
+    db: AsyncSession,
+    *,
+    tab: str = "all",
+    search: str | None = None,
+    product_id: int | None = None,
+    product_key: str | None = None,
+    kind: str | None = None,
+    date_from: str | None = None,
+    date_to: str | None = None,
+    sort: str = "newest",
+    page: int = 1,
+    per_page: int = 20,
+) -> dict:
+    """Seller console listing: server-side tabs/filters/sort/pagination plus
+    store-wide tab counts so the console header never depends on the page."""
+    filtered = await seller_orders_query(
+        seller_id, db, tab=tab, search=search, product_id=product_id, product_key=product_key,
+        kind=kind, date_from=date_from, date_to=date_to,
+    )
     total = int((await db.execute(select(func.count()).select_from(filtered.subquery()))).scalar() or 0)
 
-    order_by = {
-        "oldest": (Order.created_at.asc(), Order.id.asc()),
-        "amount_desc": (Order.total_amount.desc(), Order.created_at.desc()),
-        "amount_asc": (Order.total_amount.asc(), Order.created_at.desc()),
-    }.get(sort, (Order.created_at.desc(), Order.id.desc()))
     page_ids = list((await db.execute(
-        filtered.order_by(*order_by).offset((page - 1) * per_page).limit(per_page)
+        filtered.order_by(*seller_orders_order_by(sort)).offset((page - 1) * per_page).limit(per_page)
     )).scalars())
     orders = []
     if page_ids:
         rows = (await db.execute(select(Order).where(Order.id.in_(page_ids)))).scalars().all()
         by_id = {o.id: o for o in rows}
         orders = [by_id[i] for i in page_ids if i in by_id]
-    items = await _enrich_orders(orders, db, viewer="seller")
+    items = await _enrich_orders(orders, db, viewer="seller", include_delivery=False)
 
     scope = select(Order.id, Order.status).where(Order.seller_id == seller_id).subquery()
     open_ids = _open_dispute_order_ids()
@@ -1046,11 +1097,6 @@ async def list_seller_orders(
         "counts": counts,
         "products": [{"id": pid, "public_key": key, "title": title} for pid, key, title in product_rows],
     }
-
-
-async def list_all_orders(db: AsyncSession) -> list[dict]:
-    result = await db.execute(select(Order).order_by(Order.created_at.desc()))
-    return await _enrich_orders(list(result.scalars().all()), db)
 
 
 async def get_order(order_id: int, account_id: int, db: AsyncSession) -> dict:

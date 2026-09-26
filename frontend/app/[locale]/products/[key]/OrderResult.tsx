@@ -3,18 +3,86 @@
 import { Link } from "@/i18n/navigation";
 import { useLocale, useTranslations } from "next-intl";
 import { useEffect, useState } from "react";
-import { useQueryClient } from "@tanstack/react-query";
+import { useQuery, useQueryClient } from "@tanstack/react-query";
 import { api } from "@/lib/api";
+import { copyFromBff, downloadFromBff } from "@/lib/download";
+import { useApiErrorMessage } from "@/lib/use-api-error";
 import { useMoney } from "@/lib/money";
 import { queryKeys } from "@/lib/query-keys";
 import { orderStatus } from "@/lib/order-status";
 import { fulfillmentFromStrategy } from "@/lib/fulfillment";
 import type { Order } from "@/lib/types";
 import { Button, CopyButton, Tag } from "@/components/ui";
-import { Check, Clock, X } from "@/components/Icons";
+import { Check, Clock, Copy, Download, X } from "@/components/Icons";
 
 const ORDER_POLL_MS = 3000;
 const ORDER_POLL_TIMEOUT_MS = 15 * 60 * 1000;
+
+const STOCK_PREVIEW_LINES = 5;
+
+/** Stock lines just delivered: a short preview plus download/copy of all of
+ *  them from the streamed delivery file (an order can hold thousands). */
+function StockDelivery({ order }: { order: Order }) {
+  const t = useTranslations("products");
+  const to = useTranslations("orders");
+  const locale = useLocale();
+  const apiErrorMessage = useApiErrorMessage();
+  const [busy, setBusy] = useState<"download" | "copy" | null>(null);
+  const [copied, setCopied] = useState(false);
+  const [error, setError] = useState("");
+  const preview = useQuery({
+    queryKey: [...queryKeys.orderLines(order.id), "preview"] as const,
+    queryFn: () => api.orderResources(order.order_code, { limit: STOCK_PREVIEW_LINES }),
+  });
+  const count = order.delivery_count ?? preview.data?.total ?? 0;
+  const run = async (kind: "download" | "copy") => {
+    setBusy(kind);
+    setError("");
+    const url = api.orderDeliveryUrl(order.order_code);
+    try {
+      if (kind === "download") {
+        const fileName = `${order.order_code}_${order.quantity}.txt`;
+        await downloadFromBff(url, { fileName, fallbackName: fileName, locale });
+      } else {
+        await copyFromBff(url, { locale });
+        setCopied(true);
+        setTimeout(() => setCopied(false), 1600);
+      }
+    } catch (cause) {
+      setError(apiErrorMessage(cause, to("linesLoadFailed")));
+    } finally {
+      setBusy(null);
+    }
+  };
+  const lines = preview.data?.items.map((item) => item.data) ?? [];
+  return (
+    <div className="animate-rise space-y-2">
+      <div className="flex flex-wrap items-center justify-between gap-2">
+        <span className="text-[11px] text-faint uppercase tracking-wider">{t("orderLinesDelivered", { count: count.toLocaleString() })}</span>
+        <div className="flex items-center gap-1.5">
+          <Button size="sm" variant="secondary" disabled={busy !== null} aria-busy={busy === "download"} onClick={() => void run("download")} className="gap-1.5">
+            <Download size={13} /> {busy === "download" ? to("preparingLines") : to("downloadTxt")}
+          </Button>
+          <Button size="sm" variant="secondary" disabled={busy !== null} aria-busy={busy === "copy"} onClick={() => void run("copy")} className="gap-1.5">
+            {copied ? <Check size={13} className="text-good" /> : <Copy size={13} />} {busy === "copy" ? to("preparingLines") : to("copyAll")}
+          </Button>
+        </div>
+      </div>
+      {error && <p role="alert" className="text-[11.5px] text-bad">{error}</p>}
+      {preview.isPending ? (
+        <div className="space-y-1.5 rounded-lg border border-line bg-raised p-3" aria-hidden>
+          <div className="h-3 w-3/4 rounded bg-line/70 animate-shimmer" />
+          <div className="h-3 w-1/2 rounded bg-line/70 animate-shimmer" />
+        </div>
+      ) : lines.length > 0 ? (
+        <pre className="max-h-60 overflow-auto font-mono text-[12px] bg-raised border border-line rounded-lg p-3 whitespace-pre-wrap break-all">{lines.join("\n")}</pre>
+      ) : null}
+      {count > lines.length && lines.length > 0 && (
+        <p className="text-[11.5px] text-muted">{t("orderLinesPreview", { shown: lines.length, total: count.toLocaleString() })}</p>
+      )}
+    </div>
+  );
+}
 
 function useOrderPolling(initial: Order, enabled: boolean) {
   const queryClient = useQueryClient();
@@ -215,6 +283,8 @@ export default function OrderResult({ order: initial, onRebuy, fulfillment, deli
             </div>
           </div>
         </div>
+      ) : order.delivery_count ? (
+        <StockDelivery order={order} />
       ) : deliveryText ? (
         <div className="animate-rise">
           <div className="flex items-center justify-between mb-1">

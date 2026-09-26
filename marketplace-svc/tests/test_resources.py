@@ -786,7 +786,7 @@ async def test_list_resources_filtering_by_status_and_search(client):
         headers=headers,
     )
     assert cannot_restock_order_history.status_code == 400
-    history = (await client.get(f"/orders/{order_id}/resources", headers=headers)).json()
+    history = (await client.get(f"/orders/{order_id}/resources", headers=headers)).json()["items"]
     assert any(item["id"] == err_res["id"] for item in history)
 
 

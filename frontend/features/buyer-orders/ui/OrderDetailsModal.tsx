@@ -2,6 +2,7 @@
 
 import React, { useDeferredValue, useEffect, useState, useMemo } from "react";
 import { useLocale, useTranslations } from "next-intl";
+import { useQuery } from "@tanstack/react-query";
 import { Link } from "@/i18n/navigation";
 import {
   Copy,
@@ -21,6 +22,7 @@ import {
 } from "@/components/Icons";
 import {
   deliveryResourceMarks,
+  disputeResourceIds,
   isDeliveryRowClaimable,
   resourceLabelMap,
   resourceWarrantyGeneration,
@@ -34,6 +36,11 @@ import { useVariantTermFor } from "@/lib/variant-term";
 import { formatDate, formatDateTime } from "@/lib/utils";
 import { useMoney } from "@/lib/money";
 import { api } from "@/lib/api";
+import { downloadFromBff } from "@/lib/download";
+import { useOrderLines } from "@/lib/hooks/useOrderLines";
+import { fetchOrderLinesByIds } from "@/lib/order-lines";
+import { queryKeys } from "@/lib/query-keys";
+import { useApiErrorMessage } from "@/lib/use-api-error";
 import type { Dispute, Order, Resource } from "@/lib/types";
 import { parseCoverId, ProductCover } from "@/features/product-covers";
 import { Button, CopyButton, Disclosure, Tag } from "@/components/ui";
@@ -147,20 +154,32 @@ export default function OrderDetailsModal({
   const tcur = useTranslations("currency");
   const locale = useLocale();
   const { formatOrderHistoryMoney, formatBrowseMoney, currency, showFxHints } = useMoney();
+  const apiErrorMessage = useApiErrorMessage();
   const st = displayOrderStatus(o, locale);
   const money = formatOrderHistoryMoney(o.total_amount, o.display_fx_rate_snapshot, { locale });
 
+  // Order lists carry no delivered text: an order that delivered a text (manual
+  // hand-over, API key, proxy) reads it from its detail.
+  const needsText = !o.delivered_data && o.has_delivery !== false && o.delivery_count == null;
+  const detailQuery = useQuery({
+    queryKey: queryKeys.orderDetail(o.id),
+    queryFn: () => api.getOrder(o.order_code),
+    enabled: needsText,
+    staleTime: 30_000,
+  });
+  const deliveredText = o.delivered_data ?? detailQuery.data?.delivered_data ?? null;
+
   // Parsing delivered_data (multi-line accounts/proxies/gateway keys)
-  const lines = useMemo(() => {
-    if (!o.delivered_data) return [];
-    return o.delivered_data
+  const textLines = useMemo(() => {
+    if (!deliveredText) return [];
+    return deliveredText
       .split(/\r?\n/)
       .map((l) => l.trim())
       .filter(Boolean);
-  }, [o.delivered_data]);
+  }, [deliveredText]);
 
   const parsedItems: ParsedItem[] = useMemo(() => {
-    return lines.map((line, idx) => {
+    return textLines.map((line, idx) => {
       // Check if line contains a resource ID pattern like: id:123, [123], #123, ID=123, res_123
       const idMatch =
         line.match(/(?:^|[\s|;,])(?:id|resource|res|item)[_:\s#=]+([a-zA-Z0-9_-]+)/i) ||
@@ -188,11 +207,18 @@ export default function OrderDetailsModal({
         isConfigOrInstruction: isConfig,
       };
     });
-  }, [lines]);
+  }, [textLines]);
 
-  const [resources, setResources] = useState<Resource[]>([]);
+  // Stock lines arrive a page at a time (an order can hold thousands of large
+  // lines); search, select and claims work on what is loaded.
+  const orderLines = useOrderLines(o.id, { queryKey: queryKeys.orderLines(o.id, disputeRevision) });
+  const resources = orderLines.rows;
   const [selectedResourceIds, setSelectedResourceIds] = useState<Set<number>>(new Set());
   const [caseRecord, setCaseRecord] = useState<Dispute | null>(null);
+  // Lines the dispute names, for its chips and line numbers even when not loaded yet.
+  const [caseLines, setCaseLines] = useState<Resource[]>([]);
+  const [bulkBusy, setBulkBusy] = useState<"copy" | "download" | null>(null);
+  const [bulkError, setBulkError] = useState("");
   const hasCase = Boolean(o.has_dispute || o.dispute_status);
 
   useEffect(() => {
@@ -201,30 +227,31 @@ export default function OrderDetailsModal({
 
   useEffect(() => {
     let active = true;
-    Promise.all([
-      api.orderResources(o.id),
-      hasCase ? api.orderDispute(o.id).catch(() => null) : Promise.resolve(null),
-    ])
-      .then(([rows, dispute]) => {
+    if (!hasCase) {
+      setCaseRecord(null);
+      setCaseLines([]);
+      return;
+    }
+    api.orderDispute(o.id)
+      .catch(() => null)
+      .then(async (dispute) => {
         if (!active) return;
-        setResources(rows);
         setCaseRecord(dispute);
-      })
-      .catch(() => {
-        if (!active) return;
-        setResources([]);
-        setCaseRecord(null);
+        const ids = disputeResourceIds(dispute);
+        const named = ids.length > 0 ? await fetchOrderLinesByIds(o.id, ids).catch(() => []) : [];
+        if (active) setCaseLines(named);
       });
     return () => { active = false; };
   }, [hasCase, o.id, disputeRevision]);
 
   const accountMarks = useMemo(() => deliveryResourceMarks(caseRecord), [caseRecord]);
+  const stockLineCount = orderLines.total;
   const items: ParsedItem[] = useMemo(() => {
     if (resources.length === 0) return parsedItems;
     return resources.map((resource, idx) => {
       const parts = resource.data.split(/[|:]/);
       return {
-        id: idx + 1,
+        id: resource.line_no ?? idx + 1,
         raw: resource.data,
         user: parts[0] || "",
         pass: parts[1] || "",
@@ -273,7 +300,7 @@ export default function OrderDetailsModal({
   // Stock lines get the line inspector (search, select, per-line claims). Every
   // other kind renders the surface that fits it: proxy controls, API access +
   // usage, task progress, or a plain receipt for manual hand-over.
-  const usesInspector = kind === "instant" || (kind === "manual" && resources.length > 0);
+  const usesInspector = kind === "instant" || (kind === "manual" && (stockLineCount > 0 || o.delivery_count != null));
   const canDispute = o.status === "delivered" && !hasOpenDispute(o)
     && (o.capabilities?.can_dispute ?? canOpenDispute(o.status, o.escrow_expires_at));
   const canAppendClaims = hasOpenDispute(o)
@@ -312,8 +339,8 @@ export default function OrderDetailsModal({
     });
   }, [items, deferredItemSearch]);
 
-  const deliveryLabels = useMemo(() => resourceLabelMap(resources), [resources]);
-  const deliveryLines = useMemo(() => resourceLineMap(resources), [resources]);
+  const deliveryLabels = useMemo(() => resourceLabelMap([...caseLines, ...resources]), [caseLines, resources]);
+  const deliveryLines = useMemo(() => resourceLineMap([...caseLines, ...resources]), [caseLines, resources]);
 
   const selectableFilteredResourceIds = useMemo(
     () => filteredItems.flatMap((item) => {
@@ -346,6 +373,17 @@ export default function OrderDetailsModal({
     if (index >= 0) setItemPage(Math.floor(index / itemsPerPage) + 1);
   }, [highlightIds, items, itemsPerPage]);
 
+  // A highlighted line past the loaded pages (a notification about line #850)
+  // loads the rest so it can be shown.
+  const { complete: linesComplete, isFetchingNextPage, loadAll: loadAllLines } = orderLines;
+  useEffect(() => {
+    if (linesComplete || isFetchingNextPage || resources.length === 0) return;
+    const loadedIds = new Set(resources.map((r) => r.id));
+    const needed = highlightLines.some((line) => line > resources.length)
+      || highlightResourceIds.some((id) => !loadedIds.has(id));
+    if (needed) void loadAllLines().catch(() => {});
+  }, [highlightLines, highlightResourceIds, isFetchingNextPage, linesComplete, loadAllLines, resources]);
+
   const totalItemPages = Math.max(1, Math.ceil(filteredItems.length / itemsPerPage));
 
   const toggleResource = (resourceId: number) => {
@@ -373,28 +411,47 @@ export default function OrderDetailsModal({
     setTimeout(() => setCopiedKey(null), 2000);
   };
 
-  const handleCopyAll = () => {
-    let out = "";
-    if (copyFormat === "userpass") {
-      out = liveItems.map((it) => (it.user && it.pass ? `${it.user}|${it.pass}` : it.raw)).join("\n");
-    } else {
-      out = liveItems.map((it) => it.raw).join("\n");
+  const handleCopyAll = async () => {
+    setBulkError("");
+    setBulkBusy("copy");
+    try {
+      // Copy covers every live line, not only the loaded pages.
+      const all = resources.length > 0 && !orderLines.complete ? await orderLines.loadAll() : null;
+      const live = all
+        ? all.filter((r) => r.status === "assigned").map((r) => {
+          const parts = r.data.split(/[|:]/);
+          return { raw: r.data, user: parts[0] || "", pass: parts[1] || "" };
+        })
+        : liveItems;
+      const out = copyFormat === "userpass"
+        ? live.map((it) => (it.user && it.pass ? `${it.user}|${it.pass}` : it.raw)).join("\n")
+        : live.map((it) => it.raw).join("\n");
+      await navigator.clipboard.writeText(out);
+      setCopiedKey("all");
+      setTimeout(() => setCopiedKey(null), 2500);
+    } catch (cause) {
+      setBulkError(apiErrorMessage(cause, t("linesLoadFailed")));
+    } finally {
+      setBulkBusy(null);
     }
-    navigator.clipboard.writeText(out);
-    setCopiedKey("all");
-    setTimeout(() => setCopiedKey(null), 2500);
   };
 
-  const handleDownload = () => {
-    const out = liveItems.map((it) => it.raw).join("\n");
-    const blob = new Blob([out], { type: "text/plain;charset=utf-8" });
-    const url = URL.createObjectURL(blob);
-    const a = document.createElement("a");
-    a.href = url;
-    a.download = deliveredDataFileName(o);
-    a.click();
-    URL.revokeObjectURL(url);
+  const handleDownload = async () => {
+    setBulkError("");
+    setBulkBusy("download");
+    try {
+      // Streamed by the server: every live line, however large the order.
+      await downloadFromBff(api.orderDeliveryUrl(o.order_code), {
+        fileName: deliveredDataFileName(o), fallbackName: deliveredDataFileName(o), locale,
+      });
+    } catch (cause) {
+      setBulkError(apiErrorMessage(cause, t("linesLoadFailed")));
+    } finally {
+      setBulkBusy(null);
+    }
   };
+
+  const liveLineCount = resources.length > 0 ? (o.delivery_count ?? liveItems.length) : liveItems.length;
 
   const tabButton = (tab: InspectorTab, icon: React.ReactNode, label: string) => (
     <button
@@ -412,13 +469,14 @@ export default function OrderDetailsModal({
     </button>
   );
   const KindIcon = kind === "proxy" ? Activity : kind === "api" ? Bolt : kind === "task" ? ClipboardList : kind === "manual" ? FileText : Layers;
-  const deliveryTabLabel = usesInspector && items.length > 0
-    ? t("tabDeliveryData", { count: items.length })
+  const lineCount = resources.length > 0 ? stockLineCount : items.length;
+  const deliveryTabLabel = usesInspector && lineCount > 0
+    ? t("tabDeliveryData", { count: lineCount })
     : t(KIND_TAB_KEY[kind]);
   const receiptFileName = deliveredDataFileName(o);
-  const receipt = o.delivered_data ? (
+  const receipt = deliveredText ? (
     <Disclosure label={t("proxyRaw")} labelOpen={t("proxyRawHide")} open={showReceipt} onToggle={() => setShowReceipt((v) => !v)}>
-      <div className="mt-2"><DeliveryReceipt text={o.delivered_data} fileName={receiptFileName} /></div>
+      <div className="mt-2"><DeliveryReceipt text={deliveredText} fileName={receiptFileName} /></div>
     </Disclosure>
   ) : null;
   const pendingState = (
@@ -484,8 +542,8 @@ export default function OrderDetailsModal({
           <div>
             <div className="text-[10.5px] uppercase tracking-wider text-muted font-medium">{t("qtyDelivered")}</div>
             <div className="font-mono text-[16px] font-bold text-iris mt-0.5">
-              {usesInspector && items.length > 0
-                ? t("qtyWithLines", { count: o.quantity.toLocaleString(), lines: items.length })
+              {usesInspector && lineCount > 0
+                ? t("qtyWithLines", { count: o.quantity.toLocaleString(), lines: lineCount })
                 : `x${o.quantity.toLocaleString()}`}
             </div>
           </div>
@@ -555,7 +613,14 @@ export default function OrderDetailsModal({
             <div className="space-y-3">
               {usesInspector ? (
                 <>
-    {items.length > 0 ? (
+    {orderLines.isPending && orderLines.fetchStatus !== "idle" ? (
+      <div className="rounded-xl border border-dashed border-line p-8 text-center text-[13px] text-muted">{tc("loading")}</div>
+    ) : orderLines.isError && resources.length === 0 ? (
+      <div className="rounded-xl border border-bad/30 bg-bad-soft/30 p-6 text-center">
+        <p className="text-[13px] text-bad">{apiErrorMessage(orderLines.error, t("linesLoadFailed"))}</p>
+        <Button size="sm" variant="secondary" className="mt-3" onClick={() => void orderLines.refetch()}>{t("retryLines")}</Button>
+      </div>
+    ) : items.length > 0 ? (
       <>
         {/* Search & Action Bar */}
         <div className="flex flex-col sm:flex-row items-stretch sm:items-center justify-between gap-2.5">
@@ -568,7 +633,7 @@ export default function OrderDetailsModal({
                 setItemSearch(e.target.value);
                 setItemPage(1);
               }}
-              placeholder={t("searchAccounts", { count: items.length.toLocaleString() })}
+              placeholder={t("searchAccounts", { count: lineCount.toLocaleString() })}
               className="w-full rounded-xl border border-line bg-canvas pl-8.5 pr-3 py-2 text-[12.5px] text-fg placeholder:text-faint focus:border-iris focus:outline-none"
             />
           </div>
@@ -584,23 +649,41 @@ export default function OrderDetailsModal({
               </Button>
             )}
             <button
-              onClick={handleCopyAll}
-              className="flex-1 sm:flex-none inline-flex items-center justify-center gap-1.5 rounded-xl bg-iris px-3.5 py-2 text-[12px] font-semibold text-white shadow-sm hover:bg-iris/90 transition-colors cursor-pointer"
+              onClick={() => void handleCopyAll()}
+              disabled={bulkBusy !== null}
+              aria-busy={bulkBusy === "copy"}
+              className="flex-1 sm:flex-none inline-flex items-center justify-center gap-1.5 whitespace-nowrap rounded-xl bg-iris px-3.5 py-2 text-[12px] font-semibold text-white shadow-sm hover:bg-iris/90 transition-colors cursor-pointer disabled:cursor-wait disabled:opacity-70 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-iris focus-visible:ring-offset-2"
             >
               {copiedKey === "all" ? <Check size={14} /> : <Copy size={14} />}
-              {copiedKey === "all" ? t("copiedAll") : t("copyAllCount", { count: liveItems.length })}
+              {bulkBusy === "copy" ? t("preparingLines") : copiedKey === "all" ? t("copiedAll") : t("copyAllCount", { count: liveLineCount })}
             </button>
 
             <button
-              onClick={handleDownload}
-              className="flex-1 sm:flex-none inline-flex items-center justify-center gap-1.5 rounded-xl border border-line bg-surface px-3.5 py-2 text-[12px] font-semibold text-fg hover:bg-raised transition-colors cursor-pointer"
+              onClick={() => void handleDownload()}
+              disabled={bulkBusy !== null}
+              aria-busy={bulkBusy === "download"}
+              className="flex-1 sm:flex-none inline-flex items-center justify-center gap-1.5 whitespace-nowrap rounded-xl border border-line bg-surface px-3.5 py-2 text-[12px] font-semibold text-fg hover:bg-raised transition-colors cursor-pointer disabled:cursor-wait disabled:opacity-70 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-iris focus-visible:ring-offset-2"
             >
-              <Download size={14} /> {t("downloadTxt")}
+              <Download size={14} /> {bulkBusy === "download" ? t("preparingLines") : t("downloadTxt")}
             </button>
           </div>
         </div>
-        {liveItems.length !== items.length && (
+        {bulkError && <p role="alert" className="text-[11.5px] text-bad">{bulkError}</p>}
+        {liveLineCount !== lineCount && (
           <p className="text-[11px] text-muted">{t("copyLiveHint")}</p>
+        )}
+        {!orderLines.complete && (
+          <div className="flex flex-wrap items-center justify-between gap-2 rounded-xl border border-line bg-raised/40 px-3 py-2 text-[11.5px] text-muted">
+            <span>{t("linesLoaded", { loaded: resources.length.toLocaleString(), total: stockLineCount.toLocaleString() })}</span>
+            <Button
+              size="sm"
+              variant="secondary"
+              disabled={orderLines.isFetchingNextPage}
+              onClick={() => void orderLines.loadAll().catch(() => {})}
+            >
+              {orderLines.isFetchingNextPage ? tc("loading") : t("loadAllLines")}
+            </Button>
+          </div>
         )}
 
         {selectedResourceIds.size > 0 && (
@@ -742,8 +825,16 @@ export default function OrderDetailsModal({
               {itemPage} / {totalItemPages}
             </span>
             <button
-              disabled={itemPage === totalItemPages}
-              onClick={() => setItemPage((p) => Math.min(totalItemPages, p + 1))}
+              disabled={itemPage === totalItemPages && (orderLines.complete || orderLines.isFetchingNextPage)}
+              aria-label={t("nextLinesPage")}
+              onClick={() => {
+                // The last loaded page continues into the next server page.
+                if (itemPage === totalItemPages && !orderLines.complete) {
+                  void orderLines.fetchNextPage().then(() => setItemPage((p) => p + 1));
+                  return;
+                }
+                setItemPage((p) => Math.min(totalItemPages, p + 1));
+              }}
               className="rounded-lg border border-line p-1 hover:bg-raised disabled:opacity-40"
             >
               <ChevronRight size={16} />
@@ -764,7 +855,7 @@ export default function OrderDetailsModal({
                     <>
                       <OrderProxyPanel
                         orderId={o.id}
-                        deliveredData={o.delivered_data}
+                        deliveredData={deliveredText}
                         onDelivered={onDelivered}
                         onAvailability={setProxyPanelApplicable}
                       />
@@ -784,7 +875,9 @@ export default function OrderDetailsModal({
                 </>
               ) : (
                 // manual hand-over without stock lines: the receipt is the delivery
-                o.delivered_data ? <DeliveryReceipt text={o.delivered_data} fileName={receiptFileName} /> : pendingState
+                deliveredText ? <DeliveryReceipt text={deliveredText} fileName={receiptFileName} />
+                  : needsText && detailQuery.isPending ? <div className="rounded-xl border border-dashed border-line p-8 text-center text-[13px] text-muted">{tc("loading")}</div>
+                  : pendingState
               )}
             </div>
           )}
@@ -798,10 +891,11 @@ export default function OrderDetailsModal({
       layout="panel"
       resourceLabels={deliveryLabels}
       onResourceClick={(resourceId) => {
-        const line = items.find((item) => item.resourceId === resourceId)?.id;
+        const line = deliveryLines[resourceId];
         setItemSearch(line ? lineLabel(line) : "");
         setItemPage(1);
         setActiveTab("delivery");
+        if (line && line > resources.length && !orderLines.complete) void orderLines.loadAll().catch(() => {});
       }}
       onClaimAccounts={(resourceIds) => {
         onOpenDispute(o.id, {

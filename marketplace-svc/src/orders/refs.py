@@ -35,3 +35,14 @@ async def resolve_order_ref(order_ref: str, db: AsyncSession = Depends(get_sessi
 
 
 OrderRef = Annotated[int, Depends(resolve_order_ref)]
+
+
+async def _resolve_order_ref_for_stream(
+    order_ref: str, db: AsyncSession = Depends(get_session, scope="function"),
+) -> int:
+    return await resolve_order_ref(order_ref, db)
+
+
+# For streamed responses: the lookup session closes when the handler returns,
+# not when the (possibly long) download ends.
+StreamOrderRef = Annotated[int, Depends(_resolve_order_ref_for_stream)]

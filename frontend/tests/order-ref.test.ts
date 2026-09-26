@@ -27,4 +27,9 @@ describe("order refs", () => {
     assert.deepEqual(lines, { 86: 1, 87: 2, 112: 3 });
     assert.equal(lineLabel(3), "#03");
   });
+
+  it("keeps the server's line numbers for rows from a later page or an ids lookup", () => {
+    const lines = resourceLineMap([{ id: 900, line_no: 201 }, { id: 905, line_no: 206 }]);
+    assert.deepEqual(lines, { 900: 201, 905: 206 });
+  });
 });

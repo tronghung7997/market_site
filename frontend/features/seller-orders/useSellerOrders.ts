@@ -2,8 +2,11 @@
 
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
 import { api } from "@/lib/api";
+import { disputeResourceIds } from "@/lib/dispute-case";
+import { useOrderLines } from "@/lib/hooks/useOrderLines";
+import { fetchOrderLinesByIds } from "@/lib/order-lines";
 import { queryKeys } from "@/lib/query-keys";
-import type { Order } from "@/lib/types";
+import type { Dispute, Order } from "@/lib/types";
 import { ordersFiltersToQuery, type SellerOrdersFilters } from "./model";
 
 export function useSellerOrders(filters: SellerOrdersFilters) {
@@ -36,11 +39,18 @@ export function useSellerDispute(orderRef: string | number, enabled: boolean) {
   });
 }
 
+/** The order's delivered lines, a page at a time (see `useOrderLines`). */
 export function useSellerOrderResources(orderRef: string | number) {
+  return useOrderLines(orderRef, { queryKey: queryKeys.sellerOrderResources(orderRef) });
+}
+
+/** The lines a dispute names (chips, line numbers), whether or not their page is loaded. */
+export function useSellerCaseLines(orderRef: string | number, dispute: Dispute | null | undefined) {
+  const ids = disputeResourceIds(dispute);
   return useQuery({
-    queryKey: queryKeys.sellerOrderResources(orderRef),
-    queryFn: () => api.orderResources(orderRef),
-    enabled: Boolean(orderRef),
+    queryKey: [...queryKeys.sellerOrderResources(orderRef), "ids", ids] as const,
+    queryFn: () => fetchOrderLinesByIds(orderRef, ids),
+    enabled: Boolean(orderRef) && ids.length > 0,
   });
 }
 

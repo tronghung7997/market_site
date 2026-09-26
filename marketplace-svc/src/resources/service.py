@@ -739,7 +739,6 @@ async def claim_resources(variant_id: int, quantity: int, db: AsyncSession, *, o
         # Oldest stock first (FIFO) — the same rule warranty replacements follow.
         .order_by(Resource.created_at, Resource.id)
         .limit(quantity)
-        .options(undefer(Resource.data))  # delivered to the buyer
         .with_for_update(skip_locked=True)
     )
     resources = list(result.scalars().all())
@@ -767,18 +766,76 @@ async def release_resources(resource_ids: list[int], db: AsyncSession) -> None:
             resource.refund_amount_cap = None
 
 
-async def order_resources(order_id: int, account_id: int, db: AsyncSession) -> list[Resource]:
+ORDER_RESOURCES_PAGE_MAX = 200
+
+
+async def order_resources(
+    order_id: int, account_id: int, db: AsyncSession, *,
+    after: int | None = None, limit: int = 100, ids: list[int] | None = None,
+) -> dict:
+    """One page of an order's delivered lines (every status, oldest first) with
+    their content. An order can hold 5 000 lines of up to 20 KB, so lines are
+    never returned all at once: `next_after` continues the page, `line_no`
+    keeps the #01… numbering stable across pages, `total` counts every line.
+    With `ids`, only those lines of the order (e.g. the ones a dispute names)."""
     from src.models.order import Order
     order = await db.get(Order, order_id)
     if not order:
         raise api_error(ErrorCode.ORDER_NOT_FOUND, status.HTTP_404_NOT_FOUND)
     if order.buyer_id != account_id and order.seller_id != account_id:
         raise api_error(ErrorCode.NOT_ORDER_OWNER, status.HTTP_403_FORBIDDEN)
-    result = await db.execute(
-        select(Resource).where(Resource.order_id == order_id).order_by(Resource.id)
+    limit = max(1, min(limit, ORDER_RESOURCES_PAGE_MAX))
+    total = await db.scalar(select(func.count(Resource.id)).where(Resource.order_id == order_id)) or 0
+    if ids is not None:
+        numbered = (
+            select(Resource.id.label("id"), func.row_number().over(order_by=Resource.id).label("line_no"))
+            .where(Resource.order_id == order_id)
+            .subquery()
+        )
+        picked = (await db.execute(
+            select(Resource, numbered.c.line_no)
+            .join(numbered, numbered.c.id == Resource.id)
+            .where(id_in(Resource.id, ids[:ORDER_RESOURCES_PAGE_MAX]))
+            .order_by(Resource.id)
+            .options(undefer(Resource.data))
+        )).all()
+        return {
+            "items": [
+                {**_resource_fields(r), "line_no": line_no, "order_code": order.order_code}
+                for r, line_no in picked
+            ],
+            "next_after": None,
+            "total": total,
+        }
+    before = 0
+    if after is not None:
+        before = await db.scalar(
+            select(func.count(Resource.id)).where(Resource.order_id == order_id, Resource.id <= after)
+        ) or 0
+    rows = list((await db.execute(
+        select(Resource)
+        .where(Resource.order_id == order_id, *([Resource.id > after] if after is not None else []))
+        .order_by(Resource.id)
+        .limit(limit + 1)
         .options(undefer(Resource.data))
-    )
-    return list(result.scalars().all())
+    )).scalars())
+    page = rows[:limit]
+    return {
+        "items": [
+            {**_resource_fields(r), "line_no": before + index + 1, "order_code": order.order_code}
+            for index, r in enumerate(page)
+        ],
+        "next_after": page[-1].id if len(rows) > limit else None,
+        "total": total,
+    }
+
+
+def _resource_fields(r: Resource) -> dict:
+    return {
+        "id": r.id, "variant_id": r.variant_id, "status": r.status, "data": r.data,
+        "order_id": r.order_id, "assigned_at": r.assigned_at, "expires_at": r.expires_at,
+        "created_at": r.created_at, "refund_amount_cap": r.refund_amount_cap, "is_archived": r.is_archived,
+    }
 
 
 async def mark_resource_error(resource_id: int, seller_id: int, db: AsyncSession) -> Resource:

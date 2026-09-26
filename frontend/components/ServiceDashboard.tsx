@@ -642,6 +642,9 @@ function DefaultDashboard({ data }: { data: DashboardData }) {
         <pre className="font-mono text-[12px] bg-raised border border-line rounded-lg p-2.5 whitespace-pre-wrap break-all">
           {data.delivered_data}
         </pre>
+      ) : data.delivery_count ? (
+        // Stock orders: the lines themselves are in the order's delivery list.
+        <p className="text-[12.5px] text-muted">{t("dashboardStockLines", { count: data.delivery_count.toLocaleString() })}</p>
       ) : (
         <p className="text-[12.5px] text-muted">{t("noDashboardData")}</p>
       )}

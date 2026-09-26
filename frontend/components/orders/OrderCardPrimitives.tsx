@@ -5,6 +5,7 @@
 import { useLocale, useTranslations } from "next-intl";
 import { useEffect, useState } from "react";
 import { api } from "@/lib/api";
+import { fetchOrderLinesByIds, ORDER_LINES_PAGE } from "@/lib/order-lines";
 import { lineLabel } from "@/lib/order-ref";
 import { useApiErrorMessage } from "@/lib/use-api-error";
 import { useMoney } from "@/lib/money";
@@ -12,7 +13,7 @@ import { cn } from "@/lib/cn";
 import { displayOrderStatus } from "@/lib/order-status";
 import { formatDate } from "@/lib/utils";
 import type { Dispute, Order, Resource } from "@/lib/types";
-import { isDisputeReadyToAccept, resourceLabelMap } from "@/lib/dispute-case";
+import { disputeResourceIds, isDisputeReadyToAccept, resourceLabelMap } from "@/lib/dispute-case";
 import { Button, Card, Disclosure, Monogram, Tag, Textarea } from "@/components/ui";
 import { parseCoverId, ProductCover } from "@/features/product-covers";
 import { Check, ShieldCheck } from "@/components/Icons";
@@ -58,16 +59,34 @@ export function StatusTimeline({ status }: { status: string }) {
 export function OrderResources({ orderId }: { orderId: number }) {
   const t = useTranslations("orders");
   const tr = useTranslations("status.resource");
+  const tc = useTranslations("common");
   const [resources, setResources] = useState<Resource[]>([]);
+  const [nextAfter, setNextAfter] = useState<number | null>(null);
   const [open, setOpen] = useState(false);
   const [loaded, setLoaded] = useState(false);
+  const [loadingMore, setLoadingMore] = useState(false);
+
+  // A page at a time: an order can deliver thousands of lines.
+  const loadPage = async (after: number | null) => {
+    try {
+      const page = await api.orderResources(orderId, { after, limit: ORDER_LINES_PAGE });
+      setResources((current) => (after == null ? page.items : [...current, ...page.items]));
+      setNextAfter(page.next_after);
+    } catch { /* ignore */ }
+  };
 
   const toggle = async () => {
     setOpen((v) => !v);
     if (!loaded) {
-      try { setResources(await api.orderResources(orderId)); } catch { /* ignore */ }
+      await loadPage(null);
       setLoaded(true);
     }
+  };
+
+  const loadMore = async () => {
+    setLoadingMore(true);
+    await loadPage(nextAfter);
+    setLoadingMore(false);
   };
 
   const fmtExpiry = (iso: string | null) => {
@@ -88,11 +107,16 @@ export function OrderResources({ orderId }: { orderId: number }) {
         {loaded && resources.length === 0 && <p className="text-[12px] text-faint">{t("noResources")}</p>}
         {resources.map((r, index) => (
           <div key={r.id} className="flex items-center gap-3 text-[12.5px] px-3 py-2 rounded-lg bg-raised border border-line">
-            <span className="font-mono text-faint">{lineLabel(index + 1)}</span>
+            <span className="font-mono text-faint">{lineLabel(r.line_no ?? index + 1)}</span>
             <Tag tone={tone(r.status)}>{label(r.status)}</Tag>
             <span className="ml-auto text-muted">{fmtExpiry(r.expires_at)}</span>
           </div>
         ))}
+        {nextAfter != null && (
+          <Button size="sm" variant="secondary" disabled={loadingMore} onClick={() => void loadMore()}>
+            {loadingMore ? tc("loading") : t("loadMoreLines")}
+          </Button>
+        )}
       </div>
     </Disclosure>
   );
@@ -158,7 +182,7 @@ export function OrderDispute({
     let active = true;
     const load = viewerRole === "seller"
       ? api.sellerDisputeResources(dispute.id, { per_page: 100 }).then((page) => resourceLabelMap(page.items))
-      : api.orderResources(orderId).then((rows) => resourceLabelMap(rows));
+      : fetchOrderLinesByIds(orderId, disputeResourceIds(dispute)).then((rows) => resourceLabelMap(rows));
     load.then((labels) => { if (active) setFetchedLabels(labels); }).catch(() => { /* keep #id chips */ });
     return () => { active = false; };
   }, [dispute?.id, orderId, resourceLabelsProp, viewerRole]);

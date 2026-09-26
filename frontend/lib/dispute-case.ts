@@ -132,6 +132,23 @@ export function displayTimelineEvents(events: DisputeTimelineEvent[]): DisputeTi
   return events;
 }
 
+/** Every stock line a dispute refers to: claims, replace/refund actions and timeline chips. */
+export function disputeResourceIds(
+  dispute: Pick<Dispute, "claimed_resource_ids" | "resource_actions" | "timeline"> | null | undefined,
+): number[] {
+  if (!dispute) return [];
+  const ids = new Set<number>(dispute.claimed_resource_ids ?? []);
+  for (const action of dispute.resource_actions ?? []) {
+    ids.add(action.original_resource_id);
+    if (action.replacement_resource_id) ids.add(action.replacement_resource_id);
+  }
+  for (const event of dispute.timeline ?? []) {
+    for (const id of event.resource_ids) ids.add(id);
+    for (const id of event.replacement_resource_ids ?? []) if (id) ids.add(id);
+  }
+  return [...ids];
+}
+
 export type DeliveryResourceMark =
   | { kind: "refunded"; amount: number }
   | { kind: "replaced"; replacementId: number | null }

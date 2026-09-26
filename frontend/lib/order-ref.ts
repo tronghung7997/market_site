@@ -30,10 +30,11 @@ export function lineLabel(line: number): string {
 }
 
 /** Resource id → 1-based line number for the order's full stock list (sorted by id, as the API returns it). */
-export function resourceLineMap(rows: Array<{ id: number }>): Record<number, number> {
+export function resourceLineMap(rows: Array<{ id: number; line_no?: number | null }>): Record<number, number> {
   const lines: Record<number, number> = {};
   rows.forEach((row, index) => {
-    lines[row.id] = index + 1;
+    // Paged rows carry their position in the order; a full list is its own index.
+    lines[row.id] = row.line_no ?? index + 1;
   });
   return lines;
 }

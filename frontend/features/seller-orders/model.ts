@@ -60,6 +60,9 @@ export function ordersFiltersToSearch(f: SellerOrdersFilters): string {
   return s ? `?${s}` : "";
 }
 
+/** Rows the seller CSV export includes at most (backend EXPORT_MAX_ROWS). */
+export const EXPORT_MAX_ROWS = 5000;
+
 export function ordersFiltersToQuery(f: SellerOrdersFilters): SellerOrderQuery {
   return {
     tab: f.tab,
@@ -106,10 +109,4 @@ export function closedDisputeStatus(order: Order, dispute?: Dispute | null): str
 
 export function splitDeliveryLines(data: string): string[] {
   return data.split(/\r?\n/).map((l) => l.trim()).filter(Boolean);
-}
-
-/** CSV cell escaping per RFC 4180. */
-export function csvCell(value: string | number | null | undefined): string {
-  const text = value === null || value === undefined ? "" : String(value);
-  return /[",\n\r]/.test(text) ? `"${text.replace(/"/g, '""')}"` : text;
 }

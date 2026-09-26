@@ -104,6 +104,8 @@ class ResourceResponse(BaseModel):
     variant_id: int
     status: str
     data: str
+    # Position among the order's lines (1-based, oldest first) on paged responses.
+    line_no: int | None = None
     order_id: int | None = None
     order_code: str | None = None
     assigned_at: datetime | None = None
@@ -314,3 +316,9 @@ class InventoryReportResponse(BaseModel):
     totals: dict[str, int]
     prev_totals: dict[str, int] | None = None
     low_stock_threshold: int
+
+
+class OrderResourcePage(BaseModel):
+    items: list[ResourceResponse]
+    next_after: int | None = None
+    total: int

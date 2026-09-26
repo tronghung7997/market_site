@@ -1,9 +1,11 @@
 "use client";
 
 import { useLocale, useTranslations } from "next-intl";
-import { useMemo, useState } from "react";
+import { useEffect, useMemo, useState } from "react";
 import { Link } from "@/i18n/navigation";
+import { api } from "@/lib/api";
 import { cn } from "@/lib/cn";
+import { downloadFromBff } from "@/lib/download";
 import { resourceLineMap } from "@/lib/order-ref";
 import { sellerInventoryProductQuery, sellerProductPath } from "@/lib/routes";
 import { useVariantTerm } from "@/lib/variant-term";
@@ -21,7 +23,7 @@ import { DeliveryAccountBadge } from "@/components/orders/DeliveryAccountBadge";
 import OrderChatButton from "@/components/chat/OrderChatButton";
 import { parseCoverId, ProductCover } from "@/features/product-covers";
 import { closedDisputeStatus, isOrderDisputed, splitDeliveryLines } from "../model";
-import { useAcceptOrder, useSellerDispute, useSellerOrder, useSellerOrderResources } from "../useSellerOrders";
+import { useAcceptOrder, useSellerCaseLines, useSellerDispute, useSellerOrder, useSellerOrderResources } from "../useSellerOrders";
 import { SellerDeliverDialog } from "./SellerDeliverDialog";
 import { SellerDisputeDialog } from "./SellerDisputeDialog";
 import { FulfillmentKindTag } from "./FulfillmentKindTag";
@@ -72,22 +74,34 @@ export function SellerOrderDetail({
   const wantsDispute = Boolean(order && (order.has_dispute || order.dispute_status || order.status === "disputed"));
   const disputeQuery = useSellerDispute(orderRef, wantsDispute);
   const resourcesQuery = useSellerOrderResources(orderRef);
+  const caseLinesQuery = useSellerCaseLines(orderRef, disputeQuery.data);
   const accept = useAcceptOrder();
   const [deliverOpen, setDeliverOpen] = useState(false);
   const [disputeOpen, setDisputeOpen] = useState(false);
   const [actionError, setActionError] = useState<string | null>(null);
+  const [downloading, setDownloading] = useState(false);
   // Highlights come as resource ids (in-app) or 1-based stock lines
   // (notification links never carry row ids); both resolve here. Declared
   // before the early returns so the hook order never changes.
-  const resourceRows = resourcesQuery.data;
-  const lineOf = useMemo(() => resourceLineMap(resourceRows ?? []), [resourceRows]);
+  const resourceRows = resourcesQuery.rows;
+  const caseRows = caseLinesQuery.data;
+  const lineOf = useMemo(() => resourceLineMap([...(caseRows ?? []), ...resourceRows]), [caseRows, resourceRows]);
   // Timeline chips name accounts by credential preview (never by row id).
-  const resourceLabels = useMemo(() => resourceLabelMap(resourceRows ?? []), [resourceRows]);
+  const resourceLabels = useMemo(() => resourceLabelMap([...(caseRows ?? []), ...resourceRows]), [caseRows, resourceRows]);
   const highlightedIds = useMemo(() => {
     const ids = new Set(highlightResourceIds);
-    (resourceRows ?? []).forEach((r, index) => { if (highlightLines.includes(index + 1)) ids.add(r.id); });
+    resourceRows.forEach((r, index) => { if (highlightLines.includes(r.line_no ?? index + 1)) ids.add(r.id); });
     return ids;
   }, [highlightLines, highlightResourceIds, resourceRows]);
+  // A highlighted line beyond the loaded pages loads the rest so it shows up.
+  const { complete: linesComplete, isFetchingNextPage, loadAll: loadAllLines } = resourcesQuery;
+  useEffect(() => {
+    if (linesComplete || isFetchingNextPage || resourceRows.length === 0) return;
+    const loadedIds = new Set(resourceRows.map((r) => r.id));
+    const needed = highlightLines.some((line) => line > resourceRows.length)
+      || highlightResourceIds.some((id) => !loadedIds.has(id));
+    if (needed) void loadAllLines().catch(() => {});
+  }, [highlightLines, highlightResourceIds, isFetchingNextPage, linesComplete, loadAllLines, resourceRows]);
 
   if (orderQuery.isPending) return <SellerOrderDetailSkeleton />;
   if (orderQuery.isError || !order) {
@@ -109,8 +123,23 @@ export function SellerOrderDetail({
   const closedStatus = closedDisputeStatus(order, caseRecord);
   const st = displayOrderStatus(isOpenCase ? { ...order, has_dispute: true, protection: { status: "dispute_open" } } : order, locale);
   const deliveredLines = order.delivered_data ? splitDeliveryLines(order.delivered_data) : [];
-  const resources = resourcesQuery.data ?? [];
+  const resources = resourceRows;
   const marks = deliveryResourceMarks(caseRecord);
+
+  const downloadLines = async () => {
+    setActionError(null);
+    setDownloading(true);
+    try {
+      // Streamed by the server: every delivered line, however large the order.
+      await downloadFromBff(api.orderDeliveryUrl(order.order_code), {
+        fileName: `order_${order.order_code}_resources.txt`, fallbackName: `order_${order.order_code}_resources.txt`, locale,
+      });
+    } catch (err: unknown) {
+      setActionError(apiErrorMessage(err));
+    } finally {
+      setDownloading(false);
+    }
+  };
 
   const handleAccept = async () => {
     setActionError(null);
@@ -247,8 +276,8 @@ export function SellerOrderDetail({
           ) : resources.length > 0 && (
             <Card className="space-y-2 p-4">
               <div className="flex items-center justify-between gap-2">
-                <span className="text-[12.5px] font-semibold text-muted">{t("allocatedResources", { count: resources.length.toLocaleString() })}</span>
-                <Button size="sm" variant="secondary" onClick={() => downloadText(`order_${order.order_code}_resources.txt`, resources.map((r) => r.data).join("\n"))} className="h-7 gap-1 px-2 text-[11px]">
+                <span className="text-[12.5px] font-semibold text-muted">{t("allocatedResources", { count: resourcesQuery.total.toLocaleString() })}</span>
+                <Button size="sm" variant="secondary" disabled={downloading} aria-busy={downloading} onClick={() => void downloadLines()} className="h-7 gap-1 px-2 text-[11px]">
                   <Download size={11} /> {t("downloadAll")}
                 </Button>
               </div>
@@ -276,6 +305,14 @@ export function SellerOrderDetail({
                   );
                 })}
               </div>
+              {!resourcesQuery.complete && (
+                <div className="flex flex-wrap items-center justify-between gap-2 pt-1 text-[11px] text-muted">
+                  <span>{to("linesLoaded", { loaded: resources.length.toLocaleString(), total: resourcesQuery.total.toLocaleString() })}</span>
+                  <Button size="sm" variant="secondary" disabled={resourcesQuery.isFetchingNextPage} onClick={() => void resourcesQuery.fetchNextPage()} className="h-7 px-2 text-[11px]">
+                    {resourcesQuery.isFetchingNextPage ? to("loadingLines") : to("loadMoreLines")}
+                  </Button>
+                </div>
+              )}
             </Card>
           )}
 

@@ -64,3 +64,30 @@ async def record_provider_call(
             operation=operation,
             error=str(e),
         )
+
+
+# Marker row written right before a catalog supplier's purchase request leaves.
+# Such sources (igbm) take no idempotency key, so a second request buys twice;
+# the marker survives a rollback or a crash mid-request, and the provisioning
+# sweep never re-buys an order that has one (orders/service, scheduler).
+PURCHASE_DISPATCHED_OPERATION = "purchase_dispatched"
+
+
+async def record_purchase_dispatch(*, provider_id: int, order_id: int) -> None:
+    """Commit the dispatch marker on its own session. Unlike
+    `record_provider_call` this raises: without a durable marker the purchase
+    must not be sent."""
+    async with SessionLocal() as session:
+        session.add(
+            ProviderCallLog(
+                provider_id=provider_id,
+                order_id=order_id,
+                operation=PURCHASE_DISPATCHED_OPERATION,
+                method="POST",
+                path="-",
+                attempt=1,
+                latency_ms=0,
+                success=True,
+            )
+        )
+        await session.commit()

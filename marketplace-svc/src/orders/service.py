@@ -413,7 +413,9 @@ async def create_order_with_adapter(
         # Commit first so the order survives on its own, then provision outside
         # this transaction. If the task never runs (process dies), the order sits
         # at `pending` and provision_sweep_job picks it up — retrying is safe
-        # because the Idempotency-Key is deterministic per order id.
+        # because the Idempotency-Key is deterministic per order id; catalog
+        # suppliers (no key) are retried only until their purchase request has
+        # been dispatched (call_log.PURCHASE_DISPATCHED_OPERATION).
         await db.commit()
         await db.refresh(order)
         spawn_provision(order.id)
@@ -486,8 +488,9 @@ async def provision_pending_order(order_id: int) -> None:
             }
             provision_result = await adapter.provision(order.id, provision_config)
         except Exception as e:
-            # Leave the order at `pending` — the sweeper retries, and only gives up
-            # (refund + cancel) once the order is past its deadline.
+            # Leave the order at `pending` — the sweeper retries (unless a catalog
+            # purchase was already dispatched), and gives up (refund + cancel) once
+            # the order is past its deadline.
             # Rollback TRƯỚC khi ghi log: nếu provision chết giữa một flush
             # (vd IntegrityError khi bind allocation), session đang ở trạng
             # thái hỏng — log_event/commit trên session đó nổ tiếp và lỗi

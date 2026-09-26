@@ -5,7 +5,7 @@ from datetime import datetime, timedelta, timezone
 
 import httpx
 import structlog
-from sqlalchemy import Interval, literal_column, select
+from sqlalchemy import Interval, literal_column, or_, select
 
 from src.alerts.service import emit_incident, fp_order, fp_provider, fp_variant, upsert_incident
 from src.audit.service import log_event
@@ -342,26 +342,44 @@ async def _dispute_dproxy_deadline_order(order: Order, provider: Provider, db) -
 async def provision_sweep_job() -> None:
     """Rescue adapter orders stuck at `pending`.
 
-    Provisioning through RealApiAdapter runs off the request path, so a process
+    Provisioning through an adapter runs off the request path, so a process
     restart (or a provider outage) can leave an order committed and charged with
-    nothing driving it. sla_check_job cannot cover these: it looks up
-    order.variant_id, and adapter orders carry product_id instead, so it skips
-    them and the buyer's money would sit charged forever.
+    nothing driving it. Covered: adapter orders without a variant, and orders
+    bought from a catalog supplier (igbm) — those carry a variant_id for
+    display, and waiting for sla_check_job would hold the buyer's money for the
+    package's sla_hours.
 
-    Retrying is safe — provision carries a deterministic Idempotency-Key per order
-    id, so a duplicate reaching a provider that already fulfilled it cannot
-    double-provision. Past the deadline we stop retrying and refund.
+    Retrying is safe for providers that take a deterministic Idempotency-Key per
+    order id. Catalog suppliers take none, so an order is retried only while it
+    has no `purchase_dispatched` marker (written before the request leaves,
+    call_log.PURCHASE_DISPATCHED_OPERATION); one with a marker is never bought
+    again and is refunded at the deadline with a critical reconciliation alert.
+    Past the deadline we stop retrying and refund.
     """
+    from src.adapters.call_log import PURCHASE_DISPATCHED_OPERATION
+    from src.adapters.registry import catalog_supplier_adapter_types
+    from src.models.provider import ProviderCallLog
     from src.orders.service import provision_pending_order
 
     job_id = str(uuid.uuid4())
     now = datetime.now(timezone.utc)
     retry_before = now - timedelta(seconds=PROVISION_RETRY_AFTER_SECONDS)
     deadline_before = now - timedelta(seconds=PROVISION_DEADLINE_SECONDS)
+    catalog_order = (
+        select(Provider.id)
+        .join(Product, Product.provider_id == Provider.id)
+        .where(Product.id == Order.product_id, Provider.adapter_type.in_(catalog_supplier_adapter_types()))
+        .exists()
+    )
+    purchase_dispatched = (
+        select(ProviderCallLog.id)
+        .where(ProviderCallLog.order_id == Order.id, ProviderCallLog.operation == PURCHASE_DISPATCHED_OPERATION)
+        .exists()
+    )
     stuck = (
         Order.status == OrderStatus.pending,
         Order.product_id.isnot(None),
-        Order.variant_id.is_(None),
+        or_(Order.variant_id.is_(None), catalog_order),
     )
     expired = (*stuck, Order.created_at <= deadline_before)
 
@@ -406,11 +424,29 @@ async def provision_sweep_job() -> None:
                     # thể. Buyer đã được hoàn tiền nên gửi partner-dispute để
                     # DProxy thu node + hoàn credit; 404 = họ không có đơn này.
                     alert_message += await _dispute_dproxy_deadline_order(order, provider, db)
+                severity = "warning"
+                dispatched = await db.scalar(
+                    select(ProviderCallLog.id).where(
+                        ProviderCallLog.order_id == order.id,
+                        ProviderCallLog.operation == PURCHASE_DISPATCHED_OPERATION,
+                    ).limit(1)
+                )
+                if dispatched is not None:
+                    # Nguồn catalog không có idempotency key: lệnh mua đã rời
+                    # hệ thống nhưng đơn không bao giờ được ghi nhận (process
+                    # chết / rollback). Có thể nguồn ĐÃ trừ tiền — không mua lại,
+                    # admin đối soát tay trong lịch sử đơn của nhà cung cấp.
+                    severity = "critical"
+                    alert_message += (
+                        " — lệnh mua ĐÃ được gửi tới nhà cung cấp nhưng đơn không được ghi nhận; "
+                        "buyer đã được hoàn tiền. Đối soát tay trong lịch sử đơn/số dư của nhà cung "
+                        "cấp (Nguồn cung → nhật ký gọi API của đơn này) xem nguồn đã trừ tiền chưa."
+                    )
                 await upsert_incident(
                     db,
                     fingerprint=fp_order(order.id, "provision_stuck"),
                     type_="provision_stuck",
-                    severity="warning",
+                    severity=severity,
                     target_type="order",
                     target_id=order.id,
                     message=alert_message,
@@ -438,7 +474,9 @@ async def provision_sweep_job() -> None:
 
     # Retries open their own sessions; provision_pending_order skips an order
     # another provision is already holding.
-    retryable = (*stuck, Order.created_at <= retry_before, Order.created_at > deadline_before)
+    retryable = (
+        *stuck, Order.created_at <= retry_before, Order.created_at > deadline_before, ~purchase_dispatched,
+    )
     retryable_ids = [order_id async for order_id in _due_order_ids(*retryable)]
     for order_id in retryable_ids:
         logger.info("provision_retry", order_id=order_id)

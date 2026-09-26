@@ -559,3 +559,139 @@ async def test_three_consecutive_purchase_failures_auto_pause_variant(client, mo
                               headers={"Authorization": f"Bearer {ctx['admin']}"})
     assert resp.status_code == 200
     assert resp.json()["fail_streak"] == 0 and resp.json()["auto_paused_at"] is None and resp.json()["variant_active"]
+
+
+# ----------------------------------------------------------------------
+# Stuck orders — igbm takes no idempotency key: the sweep may retry an order
+# only while no purchase request has left for it, and never buys twice.
+# ----------------------------------------------------------------------
+
+async def _stuck_order(client, ctx, monkeypatch, *, age_seconds: int) -> int:
+    """An igbm order committed at `pending` whose background provision never ran."""
+    from datetime import datetime, timedelta, timezone
+
+    monkeypatch.setattr("src.orders.service.spawn_provision", lambda _id: None)
+    resp = await client.post("/orders", json={"variant_id": ctx["variant"]["id"], "quantity": 1},
+                             headers={"Authorization": f"Bearer {ctx['buyer']}"})
+    assert resp.status_code == 201, resp.text
+    order_id = resp.json()["id"]
+    async with SessionLocal() as db:
+        await db.execute(update(Order).where(Order.id == order_id).values(
+            created_at=datetime.now(timezone.utc) - timedelta(seconds=age_seconds)))
+        await db.commit()
+    return order_id
+
+
+async def _mark_dispatched(ctx, order_id: int) -> None:
+    """What a process that died right after sending the buy request leaves behind."""
+    from src.adapters.call_log import record_purchase_dispatch
+
+    await record_purchase_dispatch(provider_id=ctx["provider_id"], order_id=order_id)
+
+
+@pytest.mark.asyncio
+async def test_purchase_dispatch_is_recorded_before_the_buy_request(client, mock_igbm, monkeypatch):
+    from src.models.provider import ProviderCallLog
+    from src.orders.service import provision_pending_order
+
+    ctx = await _setup(client)
+    order_id = await _stuck_order(client, ctx, monkeypatch, age_seconds=0)
+    await provision_pending_order(order_id)
+
+    async with SessionLocal() as db:
+        assert (await db.get(Order, order_id)).status == OrderStatus.delivered
+        ops = list((await db.scalars(
+            select(ProviderCallLog.operation).where(ProviderCallLog.order_id == order_id).order_by(ProviderCallLog.id)
+        )).all())
+    assert ops.index("purchase_dispatched") < ops.index("purchase")
+
+
+@pytest.mark.asyncio
+async def test_sweep_buys_a_stuck_igbm_order_that_never_dispatched(client, mock_igbm, monkeypatch):
+    from src.scheduler import provision_sweep_job
+
+    ctx = await _setup(client)
+    order_id = await _stuck_order(client, ctx, monkeypatch, age_seconds=300)
+
+    await provision_sweep_job()
+
+    async with SessionLocal() as db:
+        assert (await db.get(Order, order_id)).status == OrderStatus.delivered
+    assert mock_igbm.STATE["balance"] == Decimal("7200.00")  # bought exactly once
+
+
+@pytest.mark.asyncio
+async def test_sweep_never_rebuys_a_dispatched_igbm_order_and_refunds_it_at_the_deadline(
+    client, mock_igbm, monkeypatch,
+):
+    from datetime import datetime, timedelta, timezone
+
+    from src.scheduler import provision_sweep_job
+
+    ctx = await _setup(client)
+    before = await _wallet(client, ctx["buyer"])
+    order_id = await _stuck_order(client, ctx, monkeypatch, age_seconds=300)
+    await _mark_dispatched(ctx, order_id)
+
+    await provision_sweep_job()  # inside the retry window: must not buy again
+
+    async with SessionLocal() as db:
+        assert (await db.get(Order, order_id)).status == OrderStatus.pending
+    assert mock_igbm.STATE["balance"] == Decimal("10000")
+
+    async with SessionLocal() as db:
+        await db.execute(update(Order).where(Order.id == order_id).values(
+            created_at=datetime.now(timezone.utc) - timedelta(minutes=20)))
+        await db.commit()
+
+    await provision_sweep_job()  # past the deadline: refund, flag for reconciliation
+
+    async with SessionLocal() as db:
+        assert (await db.get(Order, order_id)).status == OrderStatus.cancelled
+        alert = await db.scalar(select(Alert).where(Alert.type == "provision_stuck", Alert.target_id == order_id))
+        assert alert is not None and alert.severity == "critical"
+        assert "đối soát" in alert.message.lower()
+    assert mock_igbm.STATE["balance"] == Decimal("10000")
+    assert await _wallet(client, ctx["buyer"]) == before
+
+
+@pytest.mark.asyncio
+async def test_sweep_refunds_an_undispatched_igbm_order_past_the_deadline_without_buying(
+    client, mock_igbm, monkeypatch,
+):
+    from src.scheduler import provision_sweep_job
+
+    ctx = await _setup(client)
+    before = await _wallet(client, ctx["buyer"])
+    order_id = await _stuck_order(client, ctx, monkeypatch, age_seconds=20 * 60)
+
+    await provision_sweep_job()
+
+    async with SessionLocal() as db:
+        assert (await db.get(Order, order_id)).status == OrderStatus.cancelled
+        alert = await db.scalar(select(Alert).where(Alert.type == "provision_stuck", Alert.target_id == order_id))
+        assert alert is not None and alert.severity == "warning"
+    assert mock_igbm.STATE["balance"] == Decimal("10000")
+    assert await _wallet(client, ctx["buyer"]) == before
+
+
+@pytest.mark.asyncio
+async def test_no_buy_request_without_a_durable_dispatch_marker(client, mock_igbm, monkeypatch):
+    import src.adapters.supplier as supplier_module
+    from src.orders.service import provision_pending_order
+
+    ctx = await _setup(client)
+    before = await _wallet(client, ctx["buyer"])
+    order_id = await _stuck_order(client, ctx, monkeypatch, age_seconds=0)
+
+    async def marker_write_fails(**_kwargs):
+        raise RuntimeError("database unavailable")
+
+    monkeypatch.setattr(supplier_module, "record_purchase_dispatch", marker_write_fails)
+
+    await provision_pending_order(order_id)
+
+    async with SessionLocal() as db:
+        assert (await db.get(Order, order_id)).status == OrderStatus.cancelled
+    assert mock_igbm.STATE["balance"] == Decimal("10000")
+    assert await _wallet(client, ctx["buyer"]) == before

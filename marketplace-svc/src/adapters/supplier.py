@@ -30,6 +30,7 @@ import structlog
 from sqlalchemy import select
 
 from src.adapters.base import ProvisionResult
+from src.adapters.call_log import record_purchase_dispatch
 from src.adapters.real_api import RealApiAdapter
 from src.models.order import Order
 from src.models.product import Product, ProductVariant
@@ -273,6 +274,21 @@ class CatalogSupplierAdapter(RealApiAdapter):
         except Exception as e:  # noqa: BLE001 — chỉ mất mốc đối soát
             logger.warning("supplier_balance_before_failed", provider_id=self.provider_id,
                            order_id=order_id, error=str(e))
+
+        # Durable "request is leaving" marker before the non-idempotent buy: a
+        # crash or rollback after this point must never lead to a second
+        # purchase (see call_log.PURCHASE_DISPATCHED_OPERATION). No marker, no buy.
+        if self.provider_id is not None:
+            try:
+                await record_purchase_dispatch(provider_id=self.provider_id, order_id=order_id)
+            except Exception as e:  # noqa: BLE001
+                logger.error("supplier_purchase_dispatch_mark_failed", provider_id=self.provider_id,
+                             order_id=order_id, error=str(e))
+                return ProvisionResult(
+                    success=False,
+                    error=f"Không ghi được mốc gửi lệnh mua: {e}",
+                    buyer_message=BUYER_MSG_GENERIC,
+                )
 
         try:
             outcome = await self.purchase(listing.external_product_id, quantity, order_id=order_id)

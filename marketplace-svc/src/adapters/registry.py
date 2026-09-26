@@ -188,6 +188,11 @@ ADAPTERS: dict[str, AdapterSpec] = {
 }
 
 
+def catalog_supplier_adapter_types() -> list[str]:
+    """Adapter types that buy per order from an upstream catalog (igbm)."""
+    return sorted(name for name, spec in ADAPTERS.items() if spec.external_stock)
+
+
 def get_spec(adapter_type: str | None) -> AdapterSpec | None:
     """None cho adapter_type lạ — caller tự quyết chặn hay bỏ qua (luồng bán
     chặn ở get_adapter; luồng lưu config bỏ qua để không khoá dữ liệu cũ)."""

@@ -4,6 +4,7 @@ import Link from "next/link";
 import { useLocale, useTranslations } from "next-intl";
 import { useEffect, useState } from "react";
 import { api } from "@/lib/api";
+import { endpointMethodLabel } from "@/lib/gateway-endpoint";
 import { lineLabel } from "@/lib/order-ref";
 import { useApiErrorMessage } from "@/lib/use-api-error";
 import type { DashboardData, DashboardResource, DashboardTask, GatewayCallLogItem, GatewayTryResult, UsageRecordItem } from "@/lib/types";
@@ -315,8 +316,19 @@ function parseGatewayDelivery(raw: string | null | undefined): { key: string | n
   return { key, callUrl };
 }
 
-function codeSamples(url: string, method: string, body: Record<string, unknown>) {
+function codeSamples(url: string, method: string | null, body: Record<string, unknown>) {
   const json = JSON.stringify(body);
+  // A GET endpoint — or one without a fixed method, which the gateway
+  // forwards as sent — takes its fields as query parameters.
+  if (!method || method.toUpperCase() === "GET") {
+    const query = new URLSearchParams(Object.entries(body).map(([k, v]) => [k, String(v)])).toString();
+    const full = query ? `${url}?${query}` : url;
+    return {
+      curl: `curl '${full}'`,
+      python: `import requests\n\nresp = requests.get(\n    "${url}",\n    params=${json},\n    timeout=40,\n)\nprint(resp.status_code, resp.json())`,
+      javascript: `const resp = await fetch("${full}");\nconsole.log(resp.status, await resp.json());`,
+    };
+  }
   return {
     curl: `curl -X ${method} \\\n  '${url}' \\\n  -H 'Content-Type: application/json' \\\n  -d '${json}'`,
     python: `import requests\n\nresp = requests.${method.toLowerCase()}(\n    "${url}",\n    json=${json},\n    timeout=40,\n)\nprint(resp.status_code, resp.json())`,
@@ -471,7 +483,7 @@ function EndpointDashboard({ data, onRefresh, viewerRole }: { data: DashboardDat
           <div key={e.name} className="space-y-3 rounded-lg border border-line p-3">
             <p className="flex flex-wrap items-center gap-2">
               <span className="font-mono text-[14px] font-semibold text-fg">{e.name}</span>
-              <Tag tone="iris">{e.method}</Tag>
+              <Tag tone="iris">{endpointMethodLabel(e.method)}</Tag>
               <span className="text-[12px] text-muted">{t("apiUnitsPerCall", { n: e.units })}</span>
             </p>
             {e.summary && <p className="text-[12.5px] text-muted">{e.summary}</p>}

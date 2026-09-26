@@ -9,6 +9,7 @@ import { copyFromBff, downloadFromBff } from "@/lib/download";
 import { useApiErrorMessage } from "@/lib/use-api-error";
 import { useMoney } from "@/lib/money";
 import { queryKeys } from "@/lib/query-keys";
+import { endpointMethodLabel } from "@/lib/gateway-endpoint";
 import { lineLabel } from "@/lib/order-ref";
 import { orderStatus } from "@/lib/order-status";
 import { formatDate, formatDateTime } from "@/lib/utils";
@@ -215,8 +216,8 @@ function ApiAccess({ order }: { order: Order }) {
               <dt className="text-[11px] text-muted">{t("apiEndpointsLabel")}</dt>
               <dd className="mt-1.5 flex flex-wrap gap-1.5">
                 {endpoints.slice(0, ENDPOINT_CHIPS).map((endpoint) => (
-                  <span key={endpoint.name} className="rounded-md border border-line bg-raised px-1.5 py-0.5 font-mono text-[11px] text-fg">
-                    {endpoint.name}
+                  <span key={endpoint.name} className="inline-flex items-center gap-1 rounded-md border border-line bg-raised px-1.5 py-0.5 font-mono text-[11px] text-fg">
+                    <span className="text-faint">{endpointMethodLabel(endpoint.method)}</span> {endpoint.name}
                   </span>
                 ))}
                 {endpoints.length > ENDPOINT_CHIPS && (

@@ -1,6 +1,7 @@
 "use client";
 
 import { useCallback, useEffect, useMemo, useState } from "react";
+import { endpointMethodLabel } from "@/lib/gateway-endpoint";
 import { useLocale, useTranslations } from "next-intl";
 import { useSearchParams } from "next/navigation";
 import { Link, usePathname, useRouter } from "@/i18n/navigation";
@@ -392,7 +393,7 @@ function EndpointsTab({ area, sref }: { area: SourceArea; sref: string }) {
             <div className="min-w-0 space-y-1">
               <p className="flex flex-wrap items-center gap-2">
                 <span className="font-mono text-[16px] font-semibold text-fg">{e.name}</span>
-                <Tag tone="iris">{e.method}</Tag>
+                <Tag tone="iris">{endpointMethodLabel(e.method)}</Tag>
                 <Tag tone="good">{t("gateway.endpointOpen")}</Tag>
               </p>
               <p className="text-[13px] text-muted">{e.summary}</p>
@@ -414,7 +415,7 @@ function EndpointsTab({ area, sref }: { area: SourceArea; sref: string }) {
               {e.path && (
                 <>
                   <p className="pt-2 text-[13px] font-semibold text-fg">{t("gateway.upstreamCall")}</p>
-                  <pre className="overflow-x-auto rounded-lg bg-raised px-3 py-2 font-mono text-[12px] text-fg">{`${e.method} ${e.path}?api_key=••••`}</pre>
+                  <pre className="overflow-x-auto rounded-lg bg-raised px-3 py-2 font-mono text-[12px] text-fg">{`${endpointMethodLabel(e.method)} ${e.path}?api_key=••••`}</pre>
                 </>
               )}
             </div>

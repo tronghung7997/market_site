@@ -2420,7 +2420,9 @@ export interface GatewayEndpointParam {
 
 export interface GatewayEndpoint {
   name: string;
-  method: string;
+  /** Fixed HTTP method, or null for a bare-path endpoint whose method is
+   *  forwarded as the buyer sends it (the console documents it as GET). */
+  method: string | null;
   units: number;
   summary: string;
   params: GatewayEndpointParam[];

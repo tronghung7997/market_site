@@ -200,6 +200,49 @@ class TestSellerGateway:
             assert balance.units_used == 1
 
     @pytest.mark.asyncio
+    async def test_bare_path_endpoint_is_documented_without_a_method_and_tried_as_get(self, client, monkeypatch):
+        buyer_token, _, product_id = await setup_credit_gateway_product(
+            client, provider_config={"endpoint_map": {"search": "/v1/search"}}, suffix="_anymethod",
+        )
+        order_id = await _buy_and_deliver(client, buyer_token, product_id, 3, monkeypatch)
+        headers = {"Authorization": f"Bearer {buyer_token}"}
+
+        dashboard = (await client.get(f"/orders/{order_id}/dashboard", headers=headers)).json()
+        assert [(e["name"], e["method"]) for e in dashboard["api"]["endpoints"]] == [("search", None)]
+
+        calls = _patch_seller_http(monkeypatch, _ok({"results": []}))
+        resp = await client.post(f"/orders/{order_id}/gateway/try",
+                                 json={"endpoint": "search", "body": {"q": "hello", "limit": 5}}, headers=headers)
+        assert resp.status_code == 200, resp.text
+        assert calls[0]["method"] == "GET"
+        assert calls[0]["params"] == {"q": "hello", "limit": "5"}
+        assert not calls[0].get("json")
+
+    @pytest.mark.asyncio
+    async def test_fixed_method_endpoint_is_documented_and_tried_with_that_method(self, client, monkeypatch):
+        buyer_token, _, product_id = await setup_credit_gateway_product(
+            client, provider_config={"endpoint_map": {"collect": {"path": "/v1/collect", "method": "POST"}}},
+            suffix="_fixedmethod",
+        )
+        order_id = await _buy_and_deliver(client, buyer_token, product_id, 3, monkeypatch)
+        headers = {"Authorization": f"Bearer {buyer_token}"}
+
+        dashboard = (await client.get(f"/orders/{order_id}/dashboard", headers=headers)).json()
+        assert [(e["name"], e["method"]) for e in dashboard["api"]["endpoints"]] == [("collect", "POST")]
+
+        calls = _patch_seller_http(monkeypatch, _ok({"ok": True}))
+        resp = await client.post(f"/orders/{order_id}/gateway/try",
+                                 json={"endpoint": "collect", "body": {"url": "https://example.com/p/1"}}, headers=headers)
+        assert resp.status_code == 200, resp.text
+        assert calls[0]["method"] == "POST" and calls[0]["json"] == {"url": "https://example.com/p/1"}
+
+        async with SessionLocal() as db:
+            order = await db.get(Order, order_id, options=[undefer(Order.delivered_data)])
+            gateway_key = _extract_gateway_key(order.delivered_data)
+        wrong = await client.get(f"/gw/{gateway_key}/collect", params={"url": "x"})
+        assert wrong.status_code == 405
+
+    @pytest.mark.asyncio
     async def test_forward_call_holds_no_db_connection_during_the_upstream_call(self, client, monkeypatch):
         """The charge commits before forwarding; nothing may reopen the request's
         transaction, or every in-flight upstream call pins a pooled connection."""

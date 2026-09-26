@@ -9,7 +9,7 @@ adapters and the frontend lookup routes cannot tell it from the real hosts.
     POST /api/v1/fb-module/find-id {url}      → frontend /solutions/facebook-id
     POST /api/v1/fb-module/collect {url}      → gateway source ``ghlab_fb`` (fb_collect)
 - api.scrapecreators.com (key in ``x-api-key``):
-    GET  /v1/{platform}/{…}?handle=|url=…     → provider ``scrapecreators`` (gateway)
+    GET  /v1|v2/{platform}/{…}?handle=|url=…  → provider ``scrapecreators`` (gateway)
 
 Run:
     cd marketplace-svc
@@ -156,8 +156,8 @@ async def facebook_collect(request: Request, api_key: str = ""):
     }
 
 
-@app.get("/v1/{path:path}")
-async def scrapecreators(path: str, request: Request):
+@app.get("/{version}/{path:path}")
+async def scrapecreators(version: str, path: str, request: Request):
     params = dict(request.query_params)
     target = params.get("handle") or params.get("url") or params.get("query") or params.get("id") or path
     _log("scrapecreators", path=path, target=target)
@@ -168,7 +168,7 @@ async def scrapecreators(path: str, request: Request):
     platform = path.split("/", 1)[0]
     handle = _handle(str(target))
     return {
-        "success": True, "platform": platform, "endpoint": f"/v1/{path}",
+        "success": True, "platform": platform, "endpoint": f"/{version}/{path}",
         "credits_remaining": 1_000_000 - _calls["count"],
         "data": {
             "handle": handle, "id": str(_number(handle, 10**10, 10**11)),

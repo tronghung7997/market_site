@@ -10,7 +10,7 @@ from pydantic import BaseModel, Field
 from src.auth.dependencies import get_current_account, require_role
 from src.config import settings
 from src.database import get_session
-from src.gateway.forward import forward_call, load_gateway_adapter, resolve_endpoint
+from src.gateway.forward import forward_call, load_gateway_adapter, resolve_endpoint, try_request
 from src.gateway.service import mint_gateway_key, replace_gateway_key, resolve_order_by_gateway_key
 from src.logging import current_request_id
 from src.models.account import Account
@@ -163,8 +163,9 @@ async def try_gateway_call(
         raise HTTPException(status_code=413, detail="Request body quá lớn")
     provider, _adapter = await load_gateway_adapter(order, db)
     route = resolve_endpoint(provider, payload.endpoint)
+    method, query, body = try_request(route.method, payload.body)
     result = await forward_call(
-        order, payload.endpoint, method=route.method or "POST", query={}, body=payload.body,
+        order, payload.endpoint, method=method, query=query or {}, body=body,
         db=db, request_id=current_request_id(),
     )
     text = result.content[:_TRY_PREVIEW_BYTES].decode("utf-8", errors="replace")

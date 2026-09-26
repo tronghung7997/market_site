@@ -54,6 +54,16 @@ def resolve_endpoint(provider: Provider, endpoint: str) -> EndpointRoute:
     return EndpointRoute(path=str(entry), method=None)
 
 
+def try_request(method: str | None, body: dict | None) -> tuple[str, dict | None, dict | None]:
+    """(method, query, json body) for a "try it" call. An endpoint with a fixed
+    method gets the fields as a JSON body; a bare-path endpoint (method None)
+    is tried as GET with the fields in the query string — how the console's
+    code samples document it."""
+    if method and method.upper() != "GET":
+        return method.upper(), None, body or {}
+    return "GET", {k: str(v) for k, v in (body or {}).items()}, None
+
+
 def charge_only_success(provider: Provider) -> bool:
     return bool((provider.config or {}).get("charge_only_success"))
 

@@ -59,7 +59,9 @@ RESET_CONFIG = os.environ.get("SCRAPECREATORS_RESET_CONFIG", "").strip().lower()
 
 PROVIDER_NAME = "ScrapeCreators — Social Data"
 
-ENDPOINT_MAP = {
+# Every ScrapeCreators endpoint is a GET with query parameters; declaring the
+# method lets the buyer console document it and the gateway reject others.
+_PATHS = {
     "facebook_profile": "/v1/facebook/profile",
     "facebook_posts": "/v1/facebook/profile/posts",
     "facebook_post": "/v1/facebook/post",
@@ -73,6 +75,7 @@ ENDPOINT_MAP = {
     "youtube_video_comments": "/v1/youtube/video/comments",
     "youtube_search": "/v1/youtube/search",
 }
+ENDPOINT_MAP = {name: {"path": path, "method": "GET"} for name, path in _PATHS.items()}
 
 _PACKAGES = [
     {"size": 100, "label": "100 requests"},

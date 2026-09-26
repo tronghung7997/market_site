@@ -76,7 +76,9 @@ def endpoint_docs(provider: Provider, *, include_path: bool) -> list[dict]:
     out = []
     for name, entry in endpoint_map.items():
         doc = ENDPOINT_DOCS.get(name, {})
-        method = (entry.get("method") if isinstance(entry, dict) else None) or doc.get("method") or "POST"
+        # None = a bare-path endpoint: the gateway forwards whatever method
+        # the buyer uses (forward.resolve_endpoint), so none is advertised.
+        method = (entry.get("method") if isinstance(entry, dict) else None) or doc.get("method") or None
         item = {
             "name": name, "method": method, "units": int(doc.get("units", 1)),
             "summary": doc.get("summary", ""), "params": doc.get("params", []),
@@ -252,13 +254,14 @@ async def try_upstream(provider: Provider, endpoint: str, body: dict | None, db:
     """Gọi thật một endpoint bằng key của sàn — không đụng tới request của
     khách (nguồn vẫn có thể tính phí lần gọi này)."""
     from src.adapters.factory import get_adapter_for_test
-    from src.gateway.forward import resolve_endpoint
+    from src.gateway.forward import resolve_endpoint, try_request
 
     route = resolve_endpoint(provider, endpoint)
     adapter = await get_adapter_for_test(provider.id, db)
     started = time.perf_counter()
     try:
-        resp = await adapter.call(0, route.path, method=route.method or "POST", json_body=body or {})
+        method, params, json_body = try_request(route.method, body)
+        resp = await adapter.call(0, route.path, method=method, params=params, json_body=json_body)
     except Exception as e:  # noqa: BLE001
         return {"status_code": None, "latency_ms": int((time.perf_counter() - started) * 1000),
                 "body": f"Không kết nối được nguồn: {type(e).__name__}", "truncated": False}

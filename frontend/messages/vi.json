@@ -1620,7 +1620,14 @@
     "viewDispute": "Xem khiếu nại",
     "emptyHint": "Đơn bạn mua sẽ xuất hiện ở đây cùng dữ liệu bàn giao và bảo hành.",
     "orderNotFoundTitle": "Không tìm thấy đơn hàng",
-    "orderNotFoundBody": "Không có đơn {ref} trong tài khoản này, hoặc liên kết đã cũ."
+    "orderNotFoundBody": "Không có đơn {ref} trong tài khoản này, hoặc liên kết đã cũ.",
+    "confirmedTitle": "Đã xác nhận đơn {code}",
+    "confirmedBody": "Đơn đã hoàn tất và tiền đã chuyển cho shop.",
+    "confirmedRate": "Đơn này thế nào? Chạm để đánh giá",
+    "confirmedRateHint": "Đánh giá hiện công khai trên trang sản phẩm, không kèm tên bạn.",
+    "confirmedThanks": "Cảm ơn bạn đã đánh giá.",
+    "confirmedBuyAgain": "Mua lại gói này",
+    "confirmedShop": "Xem thêm của shop"
   },
   "sellerProducts": {
     "tierCap": "Hạng {tier}: đang bán {active}/{max} sản phẩm",
@@ -2840,7 +2847,30 @@
     "perOrderMax": "Mỗi đơn tối đa {max}",
     "perOrderRange": "Mỗi đơn từ {min} đến {max}",
     "notEnoughStock": "Không đủ hàng cho một đơn",
-    "navQa": "Hỏi đáp"
+    "navQa": "Hỏi đáp",
+    "steps": {
+      "label": "Các bước mua hàng",
+      "choose": "Chọn gói",
+      "pay": "Thanh toán",
+      "receive": "Nhận & kiểm tra"
+    },
+    "priceChanged": "Giá gói vừa đổi từ {old} thành {now}.",
+    "priceChangedBody": "Chưa trừ tiền. Kiểm tra lại tổng tiền bên dưới rồi xác nhận nếu vẫn muốn mua.",
+    "soldOutTitle": "Gói {name} vừa hết hàng, chưa trừ tiền.",
+    "soldOutPick": "Chọn {term} khác còn hàng:",
+    "soldOutNone": "Sản phẩm này tạm hết hàng. Nhắn shop hoặc quay lại sau.",
+    "confirmBuyAgain": "Xác nhận với giá mới",
+    "moneyFlow": {
+      "title": "Tiền của bạn đi đâu",
+      "escrowTitle": "Hôm nay: tiền vào ký quỹ GMMO",
+      "escrowBody": "Shop chưa nhận được tiền.",
+      "deliverNow": "Giao ngay sau khi thanh toán",
+      "deliverWithin": "Shop giao trong {hours} giờ",
+      "deliverBody": "Nội dung bàn giao hiện trong chi tiết đơn.",
+      "inspectTitle": "{days, plural, =0 {Kiểm tra ngay khi nhận hàng} other {Kiểm tra trong # ngày sau khi giao}}",
+      "inspectBody": "Có lỗi thì mở khiếu nại trước mốc này. Hết hạn mà không khiếu nại, tiền chuyển cho shop."
+    },
+    "copyLine": "Sao chép dòng {line}"
   },
   "chat": {
     "inbox": "Tin nhắn",
@@ -3352,7 +3382,10 @@
     "attachImages": "Đính kèm ảnh",
     "protectionUntilLeft": "Bảo vệ tới {date} · {left}",
     "deliveryDueLeft": "Shop giao trước {date} · {left}",
-    "deliveryOverdue": "Đã quá hạn giao — hệ thống tự hoàn tiền"
+    "deliveryOverdue": "Đã quá hạn giao — hệ thống tự hoàn tiền",
+    "inspectChecklist": "Kiểm tra trước khi xác nhận",
+    "inspectProgress": "{done}/{total} đã kiểm tra",
+    "inspectAllDone": "Đã kiểm tra đủ. Nếu mọi thứ ổn, xác nhận để hoàn tất đơn."
   },
   "wallet": {
     "available": "Số dư khả dụng",

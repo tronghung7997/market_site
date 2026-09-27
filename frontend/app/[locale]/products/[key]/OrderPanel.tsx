@@ -14,7 +14,10 @@ import type { ProductDetail } from "@/lib/types";
 import { Button, Card, Tag } from "@/components/ui";
 import { EscrowHelp } from "@/components/products/EscrowHelp";
 import { AlertCircle, Bolt, Clock, Shield, Wallet } from "@/components/Icons";
-import { ctaState, maxQtyFor, minQtyFor, outOfStock, panelMode, perOrderBounds, topUpHref, walletShortfall } from "./purchase";
+import {
+  alternativePackages, ctaState, maxQtyFor, minQtyFor, outOfStock, panelMode, perOrderBounds, purchasable, topUpHref, walletShortfall,
+} from "./purchase";
+import { PurchaseSteps } from "./PurchaseSteps";
 import { useWalletBalance } from "@/hooks/use-wallet";
 import { Link } from "@/i18n/navigation";
 import type { PurchaseState } from "./usePurchase";
@@ -46,13 +49,14 @@ export default function OrderPanel({ product, purchase, fulfillment }: {
   const router = useRouter();
   const { account } = useAuth();
   const term = useVariantTerm(product.service_type);
-  const { selected, qty, total, order, placing, placeError, showConfirm } = purchase;
+  const { selected, qty, total, order, placing, placeError, notice, showConfirm } = purchase;
   const ordersFrozen = useFlowFrozen("orders");
   // Balance is only read once the buyer opens the confirmation (the header
   // chip shares the same cached query, so this is usually instant).
   const wallet = useWalletBalance(!!account && showConfirm);
   const available = wallet.data?.available_balance ?? null;
   const shortfall = walletShortfall(total, available);
+  const alternatives = alternativePackages(product.variants, selected?.id ?? null);
 
   const instant = selected?.delivery_mode === "instant";
   const contact = panelMode(selected) === "contact";
@@ -215,10 +219,44 @@ export default function OrderPanel({ product, purchase, fulfillment }: {
             className="relative w-full max-w-[400px] mx-4 bg-surface border border-line rounded-xl shadow-xl"
             onClick={(e) => e.stopPropagation()}
           >
-            <div className="px-5 py-3 border-b border-line">
+            <div className="space-y-3 px-5 py-3 border-b border-line">
               <span className="text-[14px] font-semibold">{t("confirmTitle")}</span>
+              <PurchaseSteps current={2} />
             </div>
-            <div className="p-5 space-y-3 text-[13px]">
+            <div className="max-h-[calc(100dvh-12rem)] overflow-y-auto p-5 space-y-3 text-[13px]">
+              {notice?.kind === "price" && (
+                <div role="alert" className="rounded-md border border-warn/25 bg-warn-soft px-3 py-2.5 text-[12.5px]">
+                  <p className="font-medium text-fg">
+                    {t("priceChanged", { old: formatCheckoutMoney(notice.oldPrice, { locale }), now: formatCheckoutMoney(selected.price, { locale }) })}
+                  </p>
+                  <p className="mt-0.5 text-muted">{t("priceChangedBody")}</p>
+                </div>
+              )}
+              {notice?.kind === "soldOut" && (
+                <div role="alert" className="rounded-md border border-bad/25 bg-bad-soft px-3 py-2.5 text-[12.5px]">
+                  <p className="font-medium text-fg">{t("soldOutTitle", { name: selected.name })}</p>
+                  {alternatives.length > 0 ? (
+                    <>
+                      <p className="mt-0.5 text-muted">{t("soldOutPick", { ...term })}</p>
+                      <div className="mt-2 flex flex-wrap gap-1.5">
+                        {alternatives.map((v) => (
+                          <button
+                            key={v.id}
+                            type="button"
+                            onClick={() => purchase.pickVariant(v)}
+                            className="rounded-lg border border-line bg-surface px-2.5 py-1.5 text-left text-[12px] hover:border-iris/50"
+                          >
+                            <span className="block font-medium text-fg">{v.name}</span>
+                            <span className="font-mono text-[11.5px] text-muted">{formatCheckoutMoney(v.price, { locale })}</span>
+                          </button>
+                        ))}
+                      </div>
+                    </>
+                  ) : (
+                    <p className="mt-0.5 text-muted">{t("soldOutNone")}</p>
+                  )}
+                </div>
+              )}
               <div className="flex justify-between">
                 <span className="text-muted">{t("confirmProduct")}</span>
                 <span className="font-medium text-right max-w-[220px] truncate">{product.title}</span>
@@ -270,21 +308,52 @@ export default function OrderPanel({ product, purchase, fulfillment }: {
                   </Link>
                 </div>
               ) : (
-                <div className="flex items-start gap-2 px-3 py-2 rounded-md bg-good/5 border border-good/15 text-[12px] text-muted">
-                  <Shield size={13} className="text-good mt-0.5 shrink-0" />
-                  <span>{t("confirmEscrow", { days: product.escrow_days })}</span>
-                </div>
+                <MoneyTimeline instant={instant} slaHours={selected.sla_hours ?? 24} escrowDays={product.escrow_days} />
               )}
               {placeError && <p role="alert" className="text-bad text-[12.5px]">{placeError}</p>}
             </div>
             <div className="flex gap-2 px-5 py-3 border-t border-line">
               <Button variant="secondary" block onClick={purchase.closeConfirm} disabled={placing}>{tc("cancel")}</Button>
-              <Button block disabled={placing || shortfall > 0} loading={placing} onClick={purchase.buy}>{placing ? t("processing") : t("confirmBuy")}</Button>
+              <Button block disabled={placing || shortfall > 0 || !purchasable(selected)} loading={placing} onClick={purchase.buy}>
+                {placing ? t("processing") : notice?.kind === "price" ? t("confirmBuyAgain") : t("confirmBuy")}
+              </Button>
             </div>
           </div>
         </div>,
         document.body,
       )}
     </>
+  );
+}
+
+/** Where the buyer's money goes after "confirm": escrow today, the delivery,
+ *  then the inspection window before it reaches the shop. */
+function MoneyTimeline({ instant, slaHours, escrowDays }: { instant: boolean; slaHours: number; escrowDays: number }) {
+  const t = useTranslations("products.moneyFlow");
+  const steps = [
+    { title: t("escrowTitle"), body: t("escrowBody") },
+    { title: instant ? t("deliverNow") : t("deliverWithin", { hours: slaHours }), body: t("deliverBody") },
+    { title: t("inspectTitle", { days: escrowDays }), body: t("inspectBody") },
+  ];
+  return (
+    <div className="rounded-md border border-good/15 bg-good/5 px-3 py-2.5">
+      <p className="flex items-center gap-1.5 text-[12px] font-medium text-fg"><Shield size={13} className="text-good" /> {t("title")}</p>
+      <ol className="mt-2 space-y-2">
+        {steps.map((step, index) => (
+          <li key={step.title} className="flex gap-2.5">
+            <span className={cn(
+              "mt-0.5 grid h-4 w-4 shrink-0 place-items-center rounded-full border text-[9.5px] font-bold",
+              index === 0 ? "border-good bg-good text-white" : "border-line-2 bg-surface text-muted",
+            )}>
+              {index + 1}
+            </span>
+            <span className="min-w-0">
+              <span className="block text-[12px] font-medium text-fg">{step.title}</span>
+              <span className="block text-[11.5px] leading-snug text-muted">{step.body}</span>
+            </span>
+          </li>
+        ))}
+      </ol>
+    </div>
   );
 }

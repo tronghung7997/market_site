@@ -361,8 +361,13 @@ export const api = {
   orderStats: () => request<OrderStats>("/orders/stats", {}, true),
   /** `orderId` may be the numeric id or the ORD-XXXXXXXX code. */
   getOrder: (orderId: string | number) => request<Order>(`/orders/${orderId}`, {}, true),
-  createOrder: (variantId: number, quantity: number) =>
-    request<Order>("/orders", { method: "POST", body: JSON.stringify({ variant_id: variantId, quantity }) }, true),
+  /** `expectedUnitPrice`: the package price the buyer confirmed; a changed
+   *  price is refused (ORDER_PRICE_CHANGED) before any money moves. */
+  createOrder: (variantId: number, quantity: number, expectedUnitPrice?: number) =>
+    request<Order>("/orders", {
+      method: "POST",
+      body: JSON.stringify({ variant_id: variantId, quantity, expected_unit_price: expectedUnitPrice ?? null }),
+    }, true),
 
   confirmOrder: (orderId: string | number) =>
     request<Order>(`/orders/${orderId}/confirm`, { method: "POST" }, true),

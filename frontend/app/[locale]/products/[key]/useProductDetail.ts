@@ -2,7 +2,7 @@
  *  pricing strategy (quyết định form đặt hàng nào), và sản phẩm liên quan.
  *  Interface: chỉ dữ liệu ra, không lộ useEffect nào cho page. */
 
-import { useEffect, useState } from "react";
+import { useCallback, useEffect, useState } from "react";
 import { useTranslations } from "next-intl";
 import { api } from "@/lib/api";
 import { useAuth } from "@/lib/auth";
@@ -30,6 +30,9 @@ export interface ProductDetailState {
   error: string | null;
   /** Sản phẩm đang ẩn khỏi chợ, chủ sản phẩm / admin đang xem bản xem trước. */
   preview: "admin" | "seller" | null;
+  /** Reload the product alone (fresh prices and stock), e.g. after the order
+   *  API refused a changed price or a sold-out package. */
+  refresh: () => Promise<void>;
 }
 
 /** Ai được xem trước sản phẩm đang ẩn: admin trước, rồi seller (backend kiểm chủ). */
@@ -119,6 +122,14 @@ export function useProductDetail(ref: string, initial?: ProductPageCatalog | nul
     })();
   }, [apiErrorMessage, ref, initial, t, role, authLoading]);
 
+  const refresh = useCallback(async () => {
+    try {
+      setProduct(preview ? await api.productPreview(ref, preview) : await api.product(ref));
+    } catch {
+      // Keep what the page shows; the dialog still explains what happened.
+    }
+  }, [preview, ref]);
+
   const sameShopIds = new Set(sameShop.map((row) => row.id));
   return {
     product,
@@ -129,5 +140,6 @@ export function useProductDetail(ref: string, initial?: ProductPageCatalog | nul
     loading,
     error,
     preview,
+    refresh,
   };
 }

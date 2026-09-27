@@ -17,6 +17,7 @@ import { fulfillmentFromStrategy } from "@/lib/fulfillment";
 import type { Order } from "@/lib/types";
 import { Button, Tag } from "@/components/ui";
 import { InspectionPanel } from "./trust";
+import { PurchaseSteps } from "./PurchaseSteps";
 import { ArrowRight, Check, Clock, Copy, Download, Eye, EyeOff, Key, ShieldCheck, X } from "@/components/Icons";
 
 const ORDER_POLL_MS = 3000;
@@ -82,7 +83,8 @@ function StockDelivery({ order }: { order: Order }) {
               <li key={row.id} className="flex items-center gap-3 px-3 py-1.5 font-mono text-[12px] leading-5">
                 <span className="w-8 shrink-0 text-right text-[11px] text-faint tabular">{lineLabel(row.line_no ?? index + 1)}</span>
                 {/* One clipped line each: a delivered line can be a 20 KB cookie. */}
-                <span className="min-w-0 truncate text-fg">{row.data.slice(0, 200)}</span>
+                <span className="min-w-0 flex-1 truncate text-fg">{row.data.slice(0, 200)}</span>
+                <LineCopy text={row.data} label={t("copyLine", { line: lineLabel(row.line_no ?? index + 1) })} />
               </li>
             ))}
           </ol>
@@ -117,6 +119,27 @@ function StockDelivery({ order }: { order: Order }) {
         </p>
       )}
     </section>
+  );
+}
+
+/** Copy one delivered line in full (the row itself shows it clipped). */
+function LineCopy({ text, label }: { text: string; label: string }) {
+  const [copied, setCopied] = useState(false);
+  return (
+    <button
+      type="button"
+      aria-label={label}
+      title={label}
+      onClick={() => {
+        void navigator.clipboard?.writeText(text).then(() => {
+          setCopied(true);
+          setTimeout(() => setCopied(false), 1400);
+        });
+      }}
+      className="grid h-6 w-6 shrink-0 place-items-center rounded text-faint hover:bg-raised hover:text-fg"
+    >
+      {copied ? <Check size={12} className="text-good" /> : <Copy size={12} />}
+    </button>
   );
 }
 
@@ -391,6 +414,7 @@ export default function OrderResult({ order: initial, onRebuy, fulfillment, deli
 
   return (
     <div className="space-y-4">
+      {!failed && <PurchaseSteps current={3} />}
       <div className="flex items-center gap-3">
         <span key={order.status} className={`relative ${!pending ? "animate-seal" : ""}`}>
           {working && (

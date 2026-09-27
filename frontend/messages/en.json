@@ -1620,7 +1620,14 @@
     "viewDispute": "View dispute",
     "emptyHint": "Orders you buy show up here with their delivery data and warranty.",
     "orderNotFoundTitle": "Order not found",
-    "orderNotFoundBody": "There is no order {ref} on this account, or the link is stale."
+    "orderNotFoundBody": "There is no order {ref} on this account, or the link is stale.",
+    "confirmedTitle": "Order {code} confirmed",
+    "confirmedBody": "The order is complete and the shop has been paid.",
+    "confirmedRate": "How was it? Tap to rate",
+    "confirmedRateHint": "Ratings show on the product page without your name.",
+    "confirmedThanks": "Thanks for rating.",
+    "confirmedBuyAgain": "Buy this again",
+    "confirmedShop": "More from the shop"
   },
   "sellerProducts": {
     "tierCap": "{tier} tier: {active}/{max} products on sale",
@@ -2840,7 +2847,30 @@
     "perOrderMax": "At most {max} per order",
     "perOrderRange": "{min}–{max} per order",
     "notEnoughStock": "Not enough stock for one order",
-    "navQa": "Q&A"
+    "navQa": "Q&A",
+    "steps": {
+      "label": "Purchase steps",
+      "choose": "Choose",
+      "pay": "Pay",
+      "receive": "Receive & check"
+    },
+    "priceChanged": "The price just changed from {old} to {now}.",
+    "priceChangedBody": "Nothing was charged. Check the new total below and confirm if you still want it.",
+    "soldOutTitle": "{name} just sold out. Nothing was charged.",
+    "soldOutPick": "Pick another {term} in stock:",
+    "soldOutNone": "This product is out of stock for now. Message the shop or come back later.",
+    "confirmBuyAgain": "Confirm at the new price",
+    "moneyFlow": {
+      "title": "Where your money goes",
+      "escrowTitle": "Today: held in GMMO escrow",
+      "escrowBody": "The shop is not paid yet.",
+      "deliverNow": "Delivered right after payment",
+      "deliverWithin": "The shop delivers within {hours} h",
+      "deliverBody": "What you receive shows in the order details.",
+      "inspectTitle": "{days, plural, =0 {Check it as soon as it arrives} one {Check it within # day of delivery} other {Check it within # days of delivery}}",
+      "inspectBody": "If something is wrong, open a dispute before then. Otherwise the money goes to the shop."
+    },
+    "copyLine": "Copy line {line}"
   },
   "chat": {
     "inbox": "Messages",
@@ -3352,7 +3382,10 @@
     "attachImages": "Attach images",
     "protectionUntilLeft": "Protected until {date} · {left}",
     "deliveryDueLeft": "Shop delivers by {date} · {left}",
-    "deliveryOverdue": "Past the delivery deadline — refund is automatic"
+    "deliveryOverdue": "Past the delivery deadline — refund is automatic",
+    "inspectChecklist": "Check before you confirm",
+    "inspectProgress": "{done}/{total} checked",
+    "inspectAllDone": "All checked. If everything works, confirm to complete the order."
   },
   "wallet": {
     "available": "Available balance",

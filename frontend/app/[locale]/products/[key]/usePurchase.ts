@@ -10,10 +10,11 @@ import { useState } from "react";
 import { useTranslations } from "next-intl";
 import { useQueryClient } from "@tanstack/react-query";
 import { api } from "@/lib/api";
+import { ApiError } from "@/lib/api-error";
 import { useApiErrorMessage } from "@/lib/use-api-error";
 import { queryKeys } from "@/lib/query-keys";
 import type { Order, ProductDetail, Variant } from "@/lib/types";
-import { clampQty, pickDefaultVariant } from "./purchase";
+import { clampQty, noticeFor, resolveSelected, type PurchaseNotice } from "./purchase";
 
 export interface PurchaseState {
   selected: Variant | null;
@@ -22,6 +23,8 @@ export interface PurchaseState {
   order: Order | null;
   placing: boolean;
   placeError: string | null;
+  /** The price changed or the package sold out while the dialog was open. */
+  notice: PurchaseNotice | null;
   showConfirm: boolean;
   pickVariant: (v: Variant) => void;
   setQty: (n: number) => void;
@@ -35,18 +38,20 @@ export interface PurchaseState {
   onOrderCreated: (order: Order) => void;
 }
 
-export function usePurchase(product: ProductDetail | null): PurchaseState {
+export function usePurchase(product: ProductDetail | null, refreshProduct: () => Promise<void>): PurchaseState {
   const t = useTranslations("products");
   const apiErrorMessage = useApiErrorMessage();
   const queryClient = useQueryClient();
-  const [chosen, setChosen] = useState<Variant | null>(null);
+  const [chosenId, setChosenId] = useState<number | null>(null);
   const [qtyRaw, setQtyRaw] = useState(1);
   const [order, setOrder] = useState<Order | null>(null);
   const [placing, setPlacing] = useState(false);
   const [placeError, setPlaceError] = useState<string | null>(null);
   const [showConfirm, setShowConfirm] = useState(false);
+  const [notice, setNotice] = useState<PurchaseNotice | null>(null);
 
-  const selected = chosen ?? (product ? pickDefaultVariant(product.variants) : null);
+  // By id, so a reloaded product brings the package's current price and stock.
+  const selected = product ? resolveSelected(product.variants, chosenId) : null;
   // Always inside the package's per-order bounds, even for the default package.
   const qty = clampQty(qtyRaw, selected);
   const total = selected ? selected.price * qty : 0;
@@ -62,8 +67,9 @@ export function usePurchase(product: ProductDetail | null): PurchaseState {
   };
 
   const pickVariant = (v: Variant) => {
-    setChosen(v);
+    setChosenId(v.id);
     setPlaceError(null);
+    setNotice(null);
     setQtyRaw((q) => clampQty(q, v));
   };
 
@@ -73,20 +79,28 @@ export function usePurchase(product: ProductDetail | null): PurchaseState {
     if (!selected) return;
     setPlacing(true); setPlaceError(null);
     try {
-      orderPlaced(await api.createOrder(selected.id, qty));
+      orderPlaced(await api.createOrder(selected.id, qty, selected.price));
+      setNotice(null);
       setShowConfirm(false);
     } catch (e) {
-      setPlaceError(apiErrorMessage(e, t("placeFailed")));
+      const recover = noticeFor(e instanceof ApiError ? e.errorCode : undefined, selected.price);
+      if (recover) {
+        // Nothing was charged: show the package as it is now and let the buyer decide.
+        setNotice(recover);
+        await refreshProduct();
+      } else {
+        setPlaceError(apiErrorMessage(e, t("placeFailed")));
+      }
     } finally {
       setPlacing(false);
     }
   };
 
   return {
-    selected, qty, total, order, placing, placeError, showConfirm,
+    selected, qty, total, order, placing, placeError, notice, showConfirm,
     pickVariant, setQty,
     openConfirm: () => setShowConfirm(true),
-    closeConfirm: () => { setShowConfirm(false); setPlaceError(null); },
+    closeConfirm: () => { setShowConfirm(false); setPlaceError(null); setNotice(null); },
     buy,
     rebuy: () => { setOrder(null); setQtyRaw(1); },
     onOrderCreated: orderPlaced,

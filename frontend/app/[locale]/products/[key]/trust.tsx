@@ -11,6 +11,7 @@ import { Link } from "@/i18n/navigation";
 import { Banner, Card, Monogram } from "@/components/ui";
 import { ChevronDown, ShieldCheck, Star, Store, Verified } from "@/components/Icons";
 import { MediaImage } from "@/components/media/MediaImage";
+import { InspectionChecklist } from "@/components/orders/InspectionChecklist";
 import { fulfillmentFromProduct, fulfillmentTagValues } from "@/lib/fulfillment";
 import { sellerPath } from "@/lib/routes";
 import { cn } from "@/lib/cn";
@@ -293,19 +294,7 @@ export function InspectionPanel({ orderCode, escrowExpiresAt, steps }: {
           <span className="block text-[11.5px] font-normal text-muted"><time dateTime={escrowExpiresAt}>{date}</time></span>
         </span>
       </p>
-      {left && checklist.length > 0 && (
-        <div>
-          <p className="text-[11.5px] font-semibold text-muted">{t("inspectTitle")}</p>
-          <ul className="mt-1 space-y-1">
-            {checklist.map((step) => (
-              <li key={step} className="flex items-start gap-2 text-[12px] text-fg/85">
-                <span aria-hidden className="mt-1.5 h-1.5 w-1.5 shrink-0 rounded-full bg-warn" />
-                <span>{step}</span>
-              </li>
-            ))}
-          </ul>
-        </div>
-      )}
+      {left && checklist.length > 0 && <InspectionChecklist steps={checklist} />}
       {left && (
         <Link
           href={`/orders?order=${encodeURIComponent(orderCode)}`}

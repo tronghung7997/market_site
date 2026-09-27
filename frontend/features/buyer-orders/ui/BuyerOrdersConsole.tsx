@@ -25,6 +25,7 @@ import {
 import { useBuyerOrdersUrl } from "../useOrdersUrl";
 import { BuyerOrderCard } from "./BuyerOrderCard";
 import { BuyerOrdersTable } from "./BuyerOrdersTable";
+import { ConfirmedDialog } from "./ConfirmedDialog";
 import DisputeModal from "./DisputeModal";
 import OrderDetailsModal from "./OrderDetailsModal";
 import type { OrderActionHandlers } from "./OrderRowActions";
@@ -86,6 +87,7 @@ export function BuyerOrdersConsole() {
 
   const [disputeTarget, setDisputeTarget] = useState<DisputeTarget | null>(null);
   const [confirmTarget, setConfirmTarget] = useState<Order | null>(null);
+  const [confirmed, setConfirmed] = useState<Order | null>(null);
   const [disputeRevision, setDisputeRevision] = useState(0);
   const [notice, setNotice] = useState<{ tone: "good" | "bad"; text: string } | null>(null);
   const noticeTimer = useRef<ReturnType<typeof setTimeout> | null>(null);
@@ -102,11 +104,13 @@ export function BuyerOrdersConsole() {
     try {
       await confirm.mutateAsync(order.id);
       setConfirmTarget(null);
-      showNotice("good", t("confirmSuccess"));
+      // The follow-up (rate, buy again) replaces the order view it came from.
+      if (url.orderRef) url.closeOrder();
+      setConfirmed(order);
     } catch (err: unknown) {
       showNotice("bad", apiErrorMessage(err));
     }
-  }, [confirm, showNotice, t, apiErrorMessage]);
+  }, [confirm, showNotice, apiErrorMessage, url]);
 
   const handlers = useMemo<OrderActionHandlers>(() => ({
     onOpen: (order, options) => url.openOrder(order.order_code, options),
@@ -338,6 +342,7 @@ export function BuyerOrdersConsole() {
           </div>
         </DialogContent>
       </Dialog>
+      <ConfirmedDialog order={confirmed} onClose={() => setConfirmed(null)} onReviewed={(id) => patchCached(id, reviewedPatch)} />
     </div>
   );
 }

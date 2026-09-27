@@ -2,7 +2,8 @@ import { describe, it } from "node:test";
 import assert from "node:assert/strict";
 
 import {
-  belowMinimum, clampQty, ctaState, deliverySummary, maxQtyFor, minQtyFor, perOrderBounds, topUpHref, walletShortfall,
+  alternativePackages, belowMinimum, clampQty, ctaState, deliverySummary, maxQtyFor, minQtyFor, noticeFor, perOrderBounds,
+  resolveSelected, topUpHref, walletShortfall,
 } from "../app/[locale]/products/[key]/purchase.ts";
 import type { Variant } from "../lib/types.ts";
 
@@ -93,5 +94,31 @@ describe("per-order bounds", () => {
     assert.deepEqual(ctaState({ loggedIn: true, placing: false, selected: thin }), {
       labelKey: "notEnoughStock", disabled: true, intent: "none",
     });
+  });
+});
+
+describe("recovering a confirm dialog", () => {
+  const pkg = (id: number, price: number, stock_state: Variant["stock_state"], extra: Partial<Variant> = {}) =>
+    ({ id, name: `P${id}`, price, stock_state, delivery_mode: "instant", is_active: true, ...extra }) as Variant;
+
+  it("keeps the picked package with its current price and stock", () => {
+    const fresh = [pkg(1, 1000, "in_stock"), pkg(2, 2500, "in_stock")];
+    assert.equal(resolveSelected(fresh, 2)?.price, 2500);
+    assert.equal(resolveSelected(fresh, null)?.id, 1);
+    // A package that disappeared falls back to the default.
+    assert.equal(resolveSelected(fresh, 9)?.id, 1);
+  });
+
+  it("offers other packages that can still be bought", () => {
+    const variants = [pkg(1, 1000, "out"), pkg(2, 2000, "in_stock"), pkg(3, 0, "in_stock"), pkg(4, 900, "low"), pkg(5, 900, "in_stock", { is_active: false })];
+    assert.deepEqual(alternativePackages(variants, 1).map((v) => v.id), [2, 4]);
+    assert.deepEqual(alternativePackages(variants, 2, 1).map((v) => v.id), [4]);
+  });
+
+  it("recognises the errors it can recover from", () => {
+    assert.deepEqual(noticeFor("ORDER_PRICE_CHANGED", 1000), { kind: "price", oldPrice: 1000 });
+    assert.deepEqual(noticeFor("RESOURCE_UNAVAILABLE", 1000), { kind: "soldOut" });
+    assert.equal(noticeFor("INSUFFICIENT_BALANCE", 1000), null);
+    assert.equal(noticeFor(undefined, 1000), null);
   });
 });

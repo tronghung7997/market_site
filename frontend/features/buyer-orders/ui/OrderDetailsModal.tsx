@@ -31,6 +31,7 @@ import {
 } from "@/lib/dispute-case";
 import { lineLabel, resourceLineMap } from "@/lib/order-ref";
 import { DeliveryAccountBadge } from "@/components/orders/DeliveryAccountBadge";
+import { InspectionChecklist } from "@/components/orders/InspectionChecklist";
 import { canOpenDispute, displayOrderStatus, hasOpenDispute } from "@/lib/order-status";
 import { fulfillmentFromOrder } from "@/lib/fulfillment";
 import { deliveredDataFileName } from "../model";
@@ -347,6 +348,16 @@ export default function OrderDetailsModal({
   const canSelectAccounts = canDispute || canAppendClaims;
   const canConfirm = o.status === "delivered" && !hasOpenDispute(o)
     && (o.capabilities?.can_confirm ?? true);
+  // The seller's "check before you confirm" list lives on the product, in
+  // the reader's language; fetched only while the order can be confirmed.
+  const productRef = o.product_key ? (o.product_slug ? `${o.product_slug}-${o.product_key}` : o.product_key) : null;
+  const inspection = useQuery({
+    queryKey: ["product-inspection", productRef, locale],
+    queryFn: () => api.product(productRef!),
+    enabled: canConfirm && !!productRef,
+    staleTime: 5 * 60_000,
+    select: (product) => product.inspection_steps?.filter(Boolean) ?? [],
+  });
   // Reviews open the moment goods are delivered — confirming (releasing escrow) is not required.
   const canReview = !reviewDone && !o.has_review
     && (o.capabilities?.can_review ?? ["delivered", "completed"].includes(o.status));
@@ -1028,6 +1039,9 @@ export default function OrderDetailsModal({
         <div className="shrink-0 space-y-2 border-t border-line bg-surface px-4 py-3 sm:px-6">
           {canConfirm && askConfirm && (
             <div className="rounded-xl border border-warn/30 bg-warn-soft px-3 py-2.5">
+              {(inspection.data?.length ?? 0) > 0 && (
+                <InspectionChecklist steps={inspection.data!} className="mb-2.5 border-b border-warn/20 pb-2.5" />
+              )}
               <p className="text-[12.5px] font-semibold text-fg">{t("confirmReleaseTitle", { amount: money.text })}</p>
               <p className="text-[11.5px] text-muted mt-0.5">{t("confirmReleaseBody")}</p>
               <div className="flex flex-wrap gap-2 mt-2">

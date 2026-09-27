@@ -14,6 +14,26 @@ export function pickDefaultVariant(variants: Variant[]): Variant | null {
   return variants.find(purchasable) ?? variants.find((v) => v.price > 0) ?? variants[0] ?? null;
 }
 
+/** The buyer's pick as the product has it now (fresh price and stock after a
+ *  reload), or the default package when nothing was picked or it is gone. */
+export function resolveSelected(variants: Variant[], chosenId: number | null): Variant | null {
+  return (chosenId != null ? variants.find((v) => v.id === chosenId) : undefined) ?? pickDefaultVariant(variants);
+}
+
+/** Other packages of the same product the buyer can switch to. */
+export function alternativePackages(variants: Variant[], excludeId: number | null, limit = 3): Variant[] {
+  return variants.filter((v) => v.id !== excludeId && v.is_active !== false && purchasable(v)).slice(0, limit);
+}
+
+/** Order errors the confirm dialog recovers from by reloading the product. */
+export type PurchaseNotice = { kind: "price"; oldPrice: number } | { kind: "soldOut" };
+
+export function noticeFor(errorCode: string | undefined, oldPrice: number): PurchaseNotice | null {
+  if (errorCode === "ORDER_PRICE_CHANGED") return { kind: "price", oldPrice };
+  if (errorCode === "RESOURCE_UNAVAILABLE") return { kind: "soldOut" };
+  return null;
+}
+
 /** Order-form ceiling: the API's `max_quantity` (already capped server-side). */
 export function maxQtyFor(v: Variant | null): number {
   return variantMaxQuantity(v);

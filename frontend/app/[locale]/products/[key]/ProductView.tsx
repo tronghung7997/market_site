@@ -26,8 +26,8 @@ const STATUS_KEYS = { draft: 1, paused: 1, suspended: 1, active: 1 };
 export default function ProductView({ initial, productRef }: { initial: ProductPageCatalog; productRef: string }) {
   const t = useTranslations("products");
   const tc = useTranslations("common");
-  const { product, related, seller, sameShop, pricingStrategy, loading, error, preview } = useProductDetail(productRef, initial);
-  const purchase = usePurchase(product);
+  const { product, related, seller, sameShop, pricingStrategy, loading, error, preview, refresh } = useProductDetail(productRef, initial);
+  const purchase = usePurchase(product, refresh);
   const useDynamicForm = pricingStrategy != null && pricingStrategy !== "fixed";
 
   const panelRef = useRef<HTMLDivElement>(null);

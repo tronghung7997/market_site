@@ -484,6 +484,8 @@ export interface Wallet {
   escrow_paid: number;
   /** Owed to this account from orders not yet settled (seller side of escrow). */
   escrow_incoming: number;
+  /** Open, unexpired top-up requests the wallet has not credited yet. */
+  pending_deposits?: number;
 }
 
 export interface Transaction {

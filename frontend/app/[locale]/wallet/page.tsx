@@ -18,6 +18,11 @@ import DepositCard from "./DepositCard";
 import TransactionList from "./TransactionList";
 import { WithdrawCard, WithdrawHistory } from "./WithdrawCard";
 import { DepositHistory, TopUpGuide } from "./WalletGuide";
+import { needsDepositCheck } from "./deposit-history";
+
+/** Top-up history: the latest 20, then up to 100 on request (the API cap). */
+const DEPOSIT_PAGE = 20;
+const DEPOSIT_MAX = 100;
 
 /** `?amount=` from the checkout shortfall link (ledger VND, positive integer). */
 function prefillAmount(raw: string | null): number | null {
@@ -54,7 +59,8 @@ function WalletPageInner() {
 
   const balanceQ = useWalletBalance(ready);
   const txQ = useWalletTransactions(ready);
-  const depositsQ = useWalletDeposits(ready);
+  const [depositLimit, setDepositLimit] = useState(DEPOSIT_PAGE);
+  const depositsQ = useWalletDeposits(ready, depositLimit);
   const withdrawalsQ = useWalletWithdrawals(ready && isSeller);
 
   const wallet = balanceQ.data ?? null;
@@ -68,6 +74,8 @@ function WalletPageInner() {
   };
 
   const hasPendingDeposit = deposits.some((d) => d.status === "pending");
+  // The newest request worth a credit check, to prefill the support message.
+  const checkable = deposits.find((d) => needsDepositCheck(d, Date.now()));
   useEffect(() => {
     if (!hasPendingDeposit) return;
     const timer = setInterval(() => { queryClient.invalidateQueries({ queryKey: queryKeys.wallet() }); }, 5000);
@@ -117,6 +125,11 @@ function WalletPageInner() {
                 {formatBrowseMoney(wallet?.available_balance ?? 0, { locale })}
               </div>
             )}
+            {(wallet?.pending_deposits ?? 0) > 0 && (
+              <p className="mt-2 text-[12px] text-iris-hi">
+                {t("pendingCredit", { amount: formatBrowseMoney(wallet!.pending_deposits!, { locale }) })}
+              </p>
+            )}
             {(wallet?.locked_balance ?? 0) > 0 && (
               <p className="mt-2 text-[12px] text-faint">
                 {t("locked", { amount: formatBrowseMoney(wallet!.locked_balance, { locale }) })}
@@ -141,7 +154,7 @@ function WalletPageInner() {
         </div>
 
         <div className="min-w-0 space-y-6">
-          <TopUpGuide />
+          <TopUpGuide checkable={checkable} />
           <div>
             <div className="mb-3 flex items-center justify-between">
               <span className="text-[13px] font-semibold">{t("txTitle")}</span>
@@ -149,7 +162,14 @@ function WalletPageInner() {
             </div>
             <TransactionList txs={txs.slice(0, 6)} showHeader={false} />
           </div>
-          <DepositHistory deposits={deposits} loading={depositsQ.isPending} error={depositsQ.isError} />
+          <DepositHistory
+            deposits={deposits}
+            loading={depositsQ.isPending}
+            error={depositsQ.isError}
+            canLoadMore={deposits.length >= depositLimit && depositLimit < DEPOSIT_MAX}
+            onLoadMore={() => setDepositLimit(DEPOSIT_MAX)}
+            loadingMore={depositsQ.isFetching && deposits.length < depositLimit}
+          />
         </div>
       </div>
     </div>

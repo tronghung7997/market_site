@@ -13,9 +13,12 @@ import { timeLeftFine } from "@/lib/time";
 import type { DepositIntent, DepositMethod, DepositMethods } from "@/lib/types";
 import { Button, Card, Tag } from "@/components/ui";
 import { MoneyInput } from "@/components/MoneyInput";
+import { bankName } from "./bank-names";
+import { needsDepositCheck } from "./deposit-history";
+import { useRequestDepositCheck } from "./useDepositCheck";
 
-const PRESET_VND = [100_000, 500_000, 1_000_000, 5_000_000];
-const PRESET_USD = [5, 20, 50, 100];
+const PRESET_VND = [100_000, 200_000, 500_000, 1_000_000, 2_000_000, 5_000_000];
+const PRESET_USD = [5, 10, 20, 50, 100, 200];
 const qrImageLoader = ({ src }: { src: string }) => src;
 
 type MethodsState =
@@ -75,6 +78,7 @@ export default function DepositCard({ deposits, onChanged, prefillVnd = null }: 
   const td = useTranslations("status.deposit");
   const locale = useLocale();
   const { currency, formatBrowseMoney, formatLedgerMoney, fxRate, showFxHints } = useMoney();
+  const requestCheck = useRequestDepositCheck();
 
   const [methodsState, setMethodsState] = useState<MethodsState>({ status: "loading" });
   const [method, setMethod] = useState<DepositMethod>("sepay");
@@ -425,7 +429,16 @@ export default function DepositCard({ deposits, onChanged, prefillVnd = null }: 
                         )}
                       </div>
 
-                      <div className="mt-2 flex justify-end">
+                      <div className="mt-2 flex flex-wrap items-center justify-between gap-x-3 gap-y-1">
+                        {needsDepositCheck(deposit, Date.now()) ? (
+                          <button
+                            type="button"
+                            onClick={() => requestCheck(deposit)}
+                            className="text-left text-[11.5px] font-medium text-iris-hi hover:underline"
+                          >
+                            {t("checkPending")}
+                          </button>
+                        ) : <span />}
                         <button
                           type="button"
                           onClick={() => handleCancel(deposit.id)}
@@ -490,12 +503,22 @@ export default function DepositCard({ deposits, onChanged, prefillVnd = null }: 
                   </span>
                 </div>
                 {amountInRange && (
-                  <div className="grid grid-cols-[88px_minmax(0,1fr)] items-baseline gap-3 border-t border-line/70 pt-1.5 text-[12.5px]">
-                    <span className="text-muted">{t("depositYouWillTransfer")}</span>
-                    <span className="text-right font-mono font-semibold tabular text-fg">
-                      {formatAmountLabel(amountVnd)}
-                    </span>
-                  </div>
+                  <>
+                    <div className="grid grid-cols-[88px_minmax(0,1fr)] items-baseline gap-3 border-t border-line/70 pt-1.5 text-[12.5px]">
+                      <span className="text-muted">{t("depositYouWillTransfer")}</span>
+                      <span className="text-right font-mono font-semibold tabular text-fg">
+                        {formatAmountLabel(amountVnd)}
+                      </span>
+                    </div>
+                    <div className="grid grid-cols-[88px_minmax(0,1fr)] items-baseline gap-3 text-[12.5px]">
+                      <span className="text-muted">{t("depositCredited")}</span>
+                      <span className="text-right font-mono tabular text-fg">{formatLedgerMoney(amountVnd, locale)}</span>
+                    </div>
+                    <div className="grid grid-cols-[88px_minmax(0,1fr)] items-baseline gap-3 text-[12.5px]">
+                      <span className="text-muted">{t("depositFee")}</span>
+                      <span className="text-right font-medium text-good">{t("depositFeeFree")}</span>
+                    </div>
+                  </>
                 )}
                 {showFxHints && currency === "USD" && (
                   <p className="text-[11px] text-faint pt-1">{t("depositLedgerNote", { currency: "USD" })}</p>
@@ -582,7 +605,7 @@ export default function DepositCard({ deposits, onChanged, prefillVnd = null }: 
                     )}
                   </div>
                 )}
-                <div className="flex gap-1.5 mt-2">
+                <div className="mt-2 grid grid-cols-3 gap-1.5">
                   {presets.map((preset) => {
                     const label = currency === "USD" && fxRate
                       ? `$${preset}`
@@ -597,7 +620,7 @@ export default function DepositCard({ deposits, onChanged, prefillVnd = null }: 
                         onClick={() => setAmount(raw)}
                         disabled={loading}
                         className={cn(
-                          "flex-1 h-7 rounded-md border text-[11.5px] font-mono tabular transition-colors cursor-pointer",
+                          "h-8 rounded-md border text-[11.5px] font-mono tabular transition-colors cursor-pointer",
                           amount === raw
                             ? "border-iris bg-iris-soft text-iris font-semibold"
                             : "border-line bg-surface text-muted hover:border-iris/40 hover:text-fg",
@@ -629,6 +652,7 @@ export default function DepositCard({ deposits, onChanged, prefillVnd = null }: 
                   ? (showFxHints ? t("depositHintUsdt") : t("depositHintUsdtClean"))
                   : t("depositHint")}
               </p>
+              <p className="text-[11px] leading-relaxed text-faint">{t("depositConsent")}</p>
             </>
           )}
 
@@ -715,10 +739,18 @@ export default function DepositCard({ deposits, onChanged, prefillVnd = null }: 
                       loading="eager"
                     />
                   ) : activePending.bank_account_number && activePending.payment_code ? (
-                    <QRCodeSVG
-                      value={`https://qr.sepay.vn/img?acc=${activePending.bank_account_number}&bank=${activePending.bank_code || "TPB"}&amount=${activePending.amount}&des=${activePending.payment_code}`}
-                      size={190}
-                      level="M"
+                    // SePay renders the VietQR image itself; the URL is not a QR payload.
+                    // eslint-disable-next-line @next/next/no-img-element
+                    <img
+                      src={`https://qr.sepay.vn/img?${new URLSearchParams({
+                        acc: activePending.bank_account_number,
+                        bank: activePending.bank_code || "TPB",
+                        amount: String(activePending.amount),
+                        des: activePending.payment_code,
+                      })}`}
+                      alt={t("depositQrAlt")}
+                      className="h-[min(48vw,208px)] w-[min(48vw,208px)] max-h-[208px] max-w-[208px] object-contain"
+                      loading="eager"
                     />
                   ) : null}
                   <div className="mt-2.5 text-center">
@@ -741,7 +773,7 @@ export default function DepositCard({ deposits, onChanged, prefillVnd = null }: 
                     <div className="rounded-lg border border-line bg-raised/40 p-3 flex items-center justify-between">
                       <div className="min-w-0 pr-2">
                         <div className="text-[10px] text-faint uppercase tracking-wider font-medium">
-                          {t("depositBankAccount")} ({activePending.bank_code || "TPBank"})
+                          {t("depositBankAccount")} · {bankName(activePending.bank_code) ?? "TPBank"}
                         </div>
                         <div className="font-mono font-bold text-[14.5px] text-fg mt-0.5 break-all">
                           {activePending.bank_account_number}
@@ -766,7 +798,7 @@ export default function DepositCard({ deposits, onChanged, prefillVnd = null }: 
                     <div className="rounded-lg border border-iris/40 bg-iris-soft/40 p-3 flex items-center justify-between">
                       <div className="min-w-0 pr-2">
                         <div className="text-[10px] text-iris uppercase tracking-wider font-semibold">
-                          {t("depositTransferContent")} (Bắt buộc)
+                          {t("depositTransferContent")} ({t("depositRequired")})
                         </div>
                         <div className="font-mono font-bold text-iris text-[15px] mt-0.5 break-all">
                           {activePending.payment_code}

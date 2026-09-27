@@ -14,7 +14,10 @@ import { cn } from "@/lib/cn";
 import type { DepositIntent } from "@/lib/types";
 import { Button, Card, Skeleton, Tag } from "@/components/ui";
 import { AlertCircle, ArrowRight, Download } from "@/components/Icons";
-import { countDeposits, DEPOSIT_FILTERS, depositRef, depositsCsv, filterDeposits, type DepositFilter } from "./deposit-history";
+import {
+  countDeposits, DEPOSIT_FILTERS, depositRef, depositsCsv, depositTotals, filterDeposits, needsDepositCheck, type DepositFilter,
+} from "./deposit-history";
+import { useRequestDepositCheck } from "./useDepositCheck";
 
 const STEPS = ["Amount", "Pay", "Credit"] as const;
 
@@ -25,11 +28,12 @@ const STATUS_TONE: Record<DepositIntent["status"], "good" | "warn" | "neutral"> 
   cancelled: "neutral",
 };
 
-export function TopUpGuide() {
+export function TopUpGuide({ checkable }: { checkable?: DepositIntent }) {
   const t = useTranslations("wallet");
   const locale = useLocale();
   const { formatLedgerMoney } = useMoney();
   const methods = useQuery({ queryKey: ["deposit-methods"], queryFn: () => api.depositMethods(), staleTime: 60_000 });
+  const requestCheck = useRequestDepositCheck();
   const m = methods.data;
   const rails = m ? [
     { key: "bank", label: t("limitsBank"), on: m.sepay_enabled, min: m.deposit_min_amount, max: m.deposit_max_amount },
@@ -84,15 +88,26 @@ export function TopUpGuide() {
             </li>
           ))}
         </ul>
-        <Link href="/support#faq" className="mt-2.5 inline-flex items-center gap-1 text-[12.5px] font-medium text-iris-hi hover:underline">
-          {t("missingHelp")} <ArrowRight size={13} />
-        </Link>
+        <div className="mt-3 flex flex-wrap items-center gap-x-4 gap-y-2">
+          <Button size="sm" variant="secondary" onClick={() => requestCheck(checkable)}>{t("checkRequest")}</Button>
+          <Link href="/support#faq" className="inline-flex items-center gap-1 text-[12.5px] font-medium text-iris-hi hover:underline">
+            {t("missingHelp")} <ArrowRight size={13} />
+          </Link>
+        </div>
+        {checkable && <p className="mt-2 text-[11.5px] text-muted">{t("checkPrefilled", { code: depositRef(checkable) })}</p>}
       </div>
     </Card>
   );
 }
 
-export function DepositHistory({ deposits, loading, error }: { deposits: DepositIntent[]; loading: boolean; error: boolean }) {
+export function DepositHistory({ deposits, loading, error, canLoadMore, onLoadMore, loadingMore }: {
+  deposits: DepositIntent[];
+  loading: boolean;
+  error: boolean;
+  canLoadMore: boolean;
+  onLoadMore: () => void;
+  loadingMore: boolean;
+}) {
   const t = useTranslations("wallet");
   const td = useTranslations("status.deposit");
   const locale = useLocale();
@@ -100,8 +115,11 @@ export function DepositHistory({ deposits, loading, error }: { deposits: Deposit
   const [filter, setFilter] = useState<DepositFilter>("all");
   const counts = useMemo(() => countDeposits(deposits), [deposits]);
   const rows = useMemo(() => filterDeposits(deposits, filter), [deposits, filter]);
+  const totals = useMemo(() => depositTotals(deposits), [deposits]);
+  const requestCheck = useRequestDepositCheck();
+  const now = Date.now();
   const methodLabel = (d: DepositIntent) => (d.provider === "nowpayments" ? t("depositRailUsdt") : t("depositRailBank"));
-  const filterLabel = (f: DepositFilter) => (f === "all" ? t("historyAll") : f === "closed" ? `${td("expired")} / ${td("cancelled")}` : td(f));
+  const filterLabel = (f: DepositFilter) => (f === "all" ? t("historyAll") : td(f));
 
   const exportCsv = () => {
     const csv = depositsCsv(
@@ -122,7 +140,13 @@ export function DepositHistory({ deposits, loading, error }: { deposits: Deposit
       <div className="mb-3 flex flex-wrap items-end justify-between gap-2">
         <div>
           <h2 id="deposit-history-title" className="text-[13px] font-semibold">{t("historyTitle")}</h2>
-          {deposits.length > 0 && <p className="text-[12px] text-faint">{t("historyScope", { count: deposits.length })}</p>}
+          {deposits.length > 0 && (
+            <p className="text-[12px] text-faint">
+              {t("historyScope", { count: deposits.length })}
+              {" · "}{t("historyCredited", { amount: formatLedgerMoney(totals.credited, locale) })}
+              {totals.pending > 0 && <>{" · "}{t("historyPending", { amount: formatLedgerMoney(totals.pending, locale) })}</>}
+            </p>
+          )}
         </div>
         {rows.length > 0 && (
           <Button size="sm" variant="secondary" onClick={exportCsv}><Download size={13} /> {t("historyExport")}</Button>
@@ -166,13 +190,25 @@ export function DepositHistory({ deposits, loading, error }: { deposits: Deposit
                   <span className="text-right text-muted md:text-left">{formatDateTime(d.created_at, locale)}</span>
                   <span className="text-muted">{methodLabel(d)}</span>
                   <span className="text-right font-mono tabular">{formatLedgerMoney(d.amount, locale)}</span>
-                  <span className="col-span-2 md:col-span-1"><Tag tone={STATUS_TONE[d.status]}>{td(d.status)}</Tag></span>
+                  <span className="col-span-2 flex flex-wrap items-center gap-x-2 gap-y-1 md:col-span-1">
+                    <Tag tone={STATUS_TONE[d.status]}>{td(d.status)}</Tag>
+                    {needsDepositCheck(d, now) && (
+                      <button type="button" onClick={() => requestCheck(d)} className="text-[11.5px] font-medium text-iris-hi hover:underline">
+                        {t("checkShort")}
+                      </button>
+                    )}
+                  </span>
                 </li>
               ))}
             </ul>
           </>
         )}
       </Card>
+      {canLoadMore && (
+        <div className="mt-3 flex justify-center">
+          <Button size="sm" variant="secondary" loading={loadingMore} onClick={onLoadMore}>{t("historyLoadMore")}</Button>
+        </div>
+      )}
     </section>
   );
 }

@@ -943,7 +943,7 @@ export const api = {
       },
       true,
     ),
-  myDeposits: () => request<DepositIntent[]>("/wallet/deposits/me", {}, true),
+  myDeposits: (limit = 20) => request<DepositIntent[]>(`/wallet/deposits/me?limit=${limit}`, {}, true),
   cancelDeposit: (id: number) =>
     request<DepositIntent>(`/wallet/deposits/${id}/cancel`, { method: "POST" }, true),
   adminDeposits: (status?: string, provider?: string) => {

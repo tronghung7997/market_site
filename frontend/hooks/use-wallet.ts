@@ -23,11 +23,13 @@ export function useWalletTransactions(enabled = true) {
   });
 }
 
-export function useWalletDeposits(enabled = true) {
+/** Latest top-up requests; `limit` grows when the buyer asks for more. */
+export function useWalletDeposits(enabled = true, limit = 20) {
   return useQuery({
-    queryKey: queryKeys.walletDeposits(),
-    queryFn: () => api.myDeposits(),
+    queryKey: [...queryKeys.walletDeposits(), limit],
+    queryFn: () => api.myDeposits(limit),
     enabled,
+    placeholderData: (previous) => previous,
   });
 }
 

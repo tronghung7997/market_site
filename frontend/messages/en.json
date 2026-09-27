@@ -3532,7 +3532,22 @@
     "historyAmount": "Amount",
     "historyStatus": "Status",
     "historyExport": "Download CSV",
-    "historyLoadError": "Could not load your top-ups. Refresh to try again."
+    "historyLoadError": "Could not load your top-ups. Refresh to try again.",
+    "pendingCredit": "Waiting to be credited: {amount}",
+    "depositCredited": "To your wallet",
+    "depositFee": "Top-up fee",
+    "depositFeeFree": "Free",
+    "depositConsent": "By creating a code you confirm the money comes from a lawful account you are entitled to use.",
+    "depositRequired": "required",
+    "checkRequest": "Ask GMMO to check",
+    "checkShort": "Report missing",
+    "checkPending": "Paid but not credited? Ask GMMO to check",
+    "checkPrefilled": "The message will include code {code}.",
+    "checkDraft": "I paid top-up {code} ({amount}, created {time}) but it is not in my wallet yet. Bank transaction ID: ",
+    "checkDraftGeneric": "I topped up but the money is not in my wallet yet. Top-up code (NAP-…): ",
+    "historyCredited": "{amount} credited",
+    "historyPending": "{amount} pending",
+    "historyLoadMore": "Show more (up to the last 100)"
   },
   "solutions": {
     "badge": "Enterprise solutions",
@@ -4075,6 +4090,17 @@
       "affiliate_clawback": "Referral commission clawback",
       "adjustment_credit": "Balance adjustment",
       "adjustment_debit": "Balance adjustment"
+    },
+    "kindLabel": "Transaction type",
+    "kindAll": "All types",
+    "kinds": {
+      "topup": "Top-ups",
+      "purchase": "Purchases",
+      "sale": "Sales",
+      "refund": "Refunds",
+      "affiliate": "Referral commission",
+      "withdraw": "Withdrawals",
+      "adjustment": "Adjustments"
     }
   },
   "notFound": {

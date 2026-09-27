@@ -3532,7 +3532,22 @@
     "historyAmount": "Số tiền",
     "historyStatus": "Trạng thái",
     "historyExport": "Tải CSV",
-    "historyLoadError": "Không tải được lịch sử nạp. Tải lại trang để thử lại."
+    "historyLoadError": "Không tải được lịch sử nạp. Tải lại trang để thử lại.",
+    "pendingCredit": "Đang chờ ghi có: {amount}",
+    "depositCredited": "Vào ví",
+    "depositFee": "Phí nạp",
+    "depositFeeFree": "Miễn phí",
+    "depositConsent": "Khi tạo mã, bạn xác nhận tiền nạp đến từ tài khoản hợp pháp thuộc quyền sử dụng của bạn.",
+    "depositRequired": "bắt buộc",
+    "checkRequest": "Gửi yêu cầu kiểm tra",
+    "checkShort": "Báo chưa nhận",
+    "checkPending": "Đã chuyển mà chưa vào ví? Gửi yêu cầu kiểm tra",
+    "checkPrefilled": "Tin nhắn sẽ ghi sẵn mã {code}.",
+    "checkDraft": "Mình đã chuyển tiền cho lệnh nạp {code} ({amount}, tạo lúc {time}) nhưng chưa thấy vào ví. Mã giao dịch ngân hàng: ",
+    "checkDraftGeneric": "Mình đã chuyển tiền nạp ví nhưng chưa thấy vào. Mã lệnh nạp (NAP-…): ",
+    "historyCredited": "đã ghi có {amount}",
+    "historyPending": "đang chờ {amount}",
+    "historyLoadMore": "Xem thêm (tối đa 100 lệnh gần nhất)"
   },
   "solutions": {
     "badge": "Giải pháp doanh nghiệp",
@@ -4075,6 +4090,17 @@
       "affiliate_clawback": "Thu hồi hoa hồng giới thiệu",
       "adjustment_credit": "Điều chỉnh số dư",
       "adjustment_debit": "Điều chỉnh số dư"
+    },
+    "kindLabel": "Loại giao dịch",
+    "kindAll": "Mọi loại giao dịch",
+    "kinds": {
+      "topup": "Nạp tiền",
+      "purchase": "Mua hàng",
+      "sale": "Tiền bán hàng",
+      "refund": "Hoàn tiền",
+      "affiliate": "Hoa hồng giới thiệu",
+      "withdraw": "Rút tiền",
+      "adjustment": "Điều chỉnh"
     }
   },
   "notFound": {

@@ -10,6 +10,7 @@ import { useMoney } from "@/lib/money";
 import { useWalletBalance, useWalletTransactions } from "@/hooks/use-wallet";
 import type { Transaction } from "@/lib/types";
 import { productPath } from "@/lib/routes";
+import { TX_KINDS, txKind, type TxKind } from "@/lib/tx-kind";
 import {
   Button,
   Card,
@@ -115,6 +116,7 @@ export default function TransactionsPage() {
 
   const [filter, setFilter] = useState<Filter>("all");
   const [provider, setProvider] = useState("all");
+  const [kind, setKind] = useState<TxKind | "all">("all");
   const [query, setQuery] = useState("");
   const [page, setPage] = useState(1);
   const [selectedTx, setSelectedTx] = useState<Transaction | null>(null);
@@ -125,6 +127,11 @@ export default function TransactionsPage() {
   useEffect(() => {
     if (!authLoading && !account) router.push("/login");
   }, [account, authLoading, router]);
+  // Links such as "see the refund" open this page searched for an order code.
+  useEffect(() => {
+    const q = new URLSearchParams(window.location.search).get("q");
+    if (q) setQuery(q.slice(0, 80));
+  }, []);
 
   const txs = txQ.data ?? [];
   const providers = useMemo(() => [...new Set(txs.map(providerFor))].sort(), [txs]);
@@ -145,6 +152,7 @@ export default function TransactionsPage() {
       if (filter === "out" && tx.direction !== "out") return false;
       if (filter === "pending" && !isPending(tx)) return false;
       if (provider !== "all" && providerFor(tx) !== provider) return false;
+      if (kind !== "all" && txKind(tx.type) !== kind) return false;
       if (
         needle &&
         !`${tx.description ?? ""} ${tx.reference_id ?? ""} ${tx.reference_label ?? ""} ${tx.order_code ?? ""} ${providerFor(tx)} ${tx.type}`
@@ -155,9 +163,9 @@ export default function TransactionsPage() {
       }
       return true;
     });
-  }, [filter, provider, query, txs]);
+  }, [filter, provider, kind, query, txs]);
 
-  useEffect(() => setPage(1), [filter, provider, query]);
+  useEffect(() => setPage(1), [filter, provider, kind, query]);
 
   const totalPages = Math.max(1, Math.ceil(filtered.length / perPage));
   const visible = filtered.slice((page - 1) * perPage, page * perPage);
@@ -173,11 +181,12 @@ export default function TransactionsPage() {
     setTimeout(() => setCopiedId(null), 1800);
   };
 
-  const hasActiveFilters = filter !== "all" || provider !== "all" || query.trim().length > 0;
+  const hasActiveFilters = filter !== "all" || provider !== "all" || kind !== "all" || query.trim().length > 0;
 
   const resetFilters = () => {
     setQuery("");
     setProvider("all");
+    setKind("all");
     setFilter("all");
   };
 
@@ -430,6 +439,15 @@ export default function TransactionsPage() {
 
             {/* Provider & Action */}
             <div className="flex flex-wrap items-center gap-2.5">
+              <select
+                value={kind}
+                onChange={(e) => setKind(e.target.value as TxKind | "all")}
+                aria-label={t("kindLabel")}
+                className="h-10 rounded-lg border border-line bg-card px-3.5 pr-8 text-[13px] font-medium text-fg outline-none transition-colors hover:border-line-2 focus:border-iris"
+              >
+                <option value="all">{t("kindAll")}</option>
+                {TX_KINDS.map((item) => <option key={item} value={item}>{t(`kinds.${item}`)}</option>)}
+              </select>
               <div className="relative">
                 <select
                   value={provider}

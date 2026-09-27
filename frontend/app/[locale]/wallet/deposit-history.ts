@@ -1,24 +1,47 @@
-/** Pure helpers for the wallet's top-up history: status filter and CSV. */
+/** Pure helpers for the wallet's top-up history: status filter, totals,
+ *  when to offer a credit check, and CSV. */
 
 import type { DepositIntent } from "../../../lib/types.ts";
 
-export const DEPOSIT_FILTERS = ["all", "paid", "pending", "closed"] as const;
+export const DEPOSIT_FILTERS = ["all", "paid", "pending", "expired", "cancelled"] as const;
 export type DepositFilter = (typeof DEPOSIT_FILTERS)[number];
 
-/** "closed" groups the two outcomes that never touched the balance. */
 export function filterDeposits(rows: DepositIntent[], filter: DepositFilter): DepositIntent[] {
-  if (filter === "all") return rows;
-  if (filter === "closed") return rows.filter((d) => d.status === "expired" || d.status === "cancelled");
-  return rows.filter((d) => d.status === filter);
+  return filter === "all" ? rows : rows.filter((d) => d.status === filter);
 }
 
 export function countDeposits(rows: DepositIntent[]): Record<DepositFilter, number> {
   return Object.fromEntries(DEPOSIT_FILTERS.map((f) => [f, filterDeposits(rows, f).length])) as Record<DepositFilter, number>;
 }
 
-/** Transfer code when the rail has one (bank), otherwise the internal id. */
+/** Money credited and money still on its way, over the loaded rows. */
+export function depositTotals(rows: DepositIntent[]): { credited: number; pending: number } {
+  let credited = 0;
+  let pending = 0;
+  for (const d of rows) {
+    if (d.status === "paid") credited += d.paid_amount ?? d.amount;
+    else if (d.status === "pending") pending += d.amount;
+  }
+  return { credited, pending };
+}
+
+/** What the buyer quotes to support: the bank transfer code, or the USDT
+ *  invoice. Never the internal row id. */
 export function depositRef(d: DepositIntent): string {
-  return d.payment_code || `#${d.id}`;
+  if (d.payment_code) return d.payment_code;
+  if (d.now_invoice_id) return `NP-${d.now_invoice_id}`;
+  return "—";
+}
+
+const CHECK_AFTER_MS = 10 * 60_000;
+const CHECK_EXPIRED_WITHIN_MS = 72 * 3_600_000;
+
+/** A request worth a check: open for 10 minutes without credit, or expired
+ *  in the last 3 days (money may have arrived after the code expired). */
+export function needsDepositCheck(d: Pick<DepositIntent, "status" | "created_at" | "expires_at">, now: number): boolean {
+  if (d.status === "pending") return now - new Date(d.created_at).getTime() >= CHECK_AFTER_MS;
+  if (d.status === "expired") return now - new Date(d.expires_at).getTime() <= CHECK_EXPIRED_WITHIN_MS;
+  return false;
 }
 
 function csvCell(value: string | number | null | undefined): string {

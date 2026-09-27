@@ -22,6 +22,7 @@ import { PendingImages } from "@/components/media/PendingImages";
 import { useImageUploads } from "@/components/media/useImageUploads";
 import { helpdeskRoom, initialHelpdeskRole, launcherHidden, launcherRaised, quickTopics, type HelpdeskRole, type QuickTopic } from "../model";
 import { useHelpdeskThread, useSendHelpdesk } from "../useHelpdesk";
+import { HELPDESK_OPEN_EVENT, type HelpdeskOpenDetail } from "../open";
 
 /** Backend MAX_ATTACHMENTS_PER_MESSAGE. */
 const MAX_IMAGES = 4;
@@ -32,6 +33,8 @@ export function HelpdeskLauncher() {
   const { account, loading } = useAuth();
   const [open, setOpen] = useState(false);
   const [role, setRole] = useState<HelpdeskRole>("buyer");
+  // A message another page asked to prefill (openHelpdesk); `n` remounts the thread.
+  const [seed, setSeed] = useState<{ text: string; n: number } | null>(null);
   const buttonRef = useRef<HTMLButtonElement>(null);
   const isAdmin = !!account?.roles.includes("admin");
   const isSeller = !!account?.roles.includes("seller");
@@ -52,6 +55,17 @@ export function HelpdeskLauncher() {
     setOpen(false);
   }, [pathname]);
 
+  useEffect(() => {
+    const onOpen = (event: Event) => {
+      const detail = (event as CustomEvent<HelpdeskOpenDetail>).detail ?? {};
+      setRole(detail.role === "seller" && isSeller ? "seller" : detail.role ?? initialHelpdeskRole(pathname, isSeller, unreadBy));
+      setSeed(detail.draft ? { text: detail.draft, n: Date.now() } : null);
+      setOpen(true);
+    };
+    window.addEventListener(HELPDESK_OPEN_EVENT, onOpen);
+    return () => window.removeEventListener(HELPDESK_OPEN_EVENT, onOpen);
+  });
+
   if (loading || isAdmin || launcherHidden(pathname)) return null;
 
   const close = () => {
@@ -60,6 +74,7 @@ export function HelpdeskLauncher() {
   };
   const openPanel = () => {
     setRole(initialHelpdeskRole(pathname, isSeller, unreadBy));
+    setSeed(null);
     setOpen(true);
   };
 
@@ -128,7 +143,9 @@ export function HelpdeskLauncher() {
               ))}
             </div>
           )}
-          {account ? <HelpdeskThread key={role} role={role} isSeller={isSeller} /> : <SignedOutPanel next={pathname} />}
+          {account
+            ? <HelpdeskThread key={`${role}:${seed?.n ?? 0}`} role={role} isSeller={isSeller} initialDraft={seed?.text} />
+            : <SignedOutPanel next={pathname} />}
         </div>
       )}
 
@@ -172,7 +189,7 @@ function SignedOutPanel({ next }: { next: string }) {
   );
 }
 
-function HelpdeskThread({ role, isSeller }: { role: HelpdeskRole; isSeller: boolean }) {
+function HelpdeskThread({ role, isSeller, initialDraft }: { role: HelpdeskRole; isSeller: boolean; initialDraft?: string }) {
   const t = useTranslations("helpdesk");
   const tc = useTranslations("chat");
   const locale = useLocale();
@@ -181,7 +198,7 @@ function HelpdeskThread({ role, isSeller }: { role: HelpdeskRole; isSeller: bool
   const thread = useHelpdeskThread(role, true);
   const send = useSendHelpdesk(role);
   const uploads = useImageUploads("chat_attachment", MAX_IMAGES);
-  const [draft, setDraft] = useState("");
+  const [draft, setDraft] = useState(initialDraft ?? "");
   const input = useRef<HTMLTextAreaElement>(null);
   const attachInput = useRef<HTMLInputElement>(null);
   const timeline = useRef<HTMLDivElement>(null);
@@ -191,7 +208,9 @@ function HelpdeskThread({ role, isSeller }: { role: HelpdeskRole; isSeller: bool
 
   useEffect(() => {
     input.current?.focus();
-  }, []);
+    // A prefilled message: caret at the end, ready for the buyer to add to it.
+    if (initialDraft) input.current?.setSelectionRange(initialDraft.length, initialDraft.length);
+  }, [initialDraft]);
 
   useLayoutEffect(() => {
     if (timeline.current) timeline.current.scrollTop = timeline.current.scrollHeight;

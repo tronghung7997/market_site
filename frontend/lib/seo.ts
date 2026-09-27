@@ -68,12 +68,15 @@ export function pageMetadata({
   locale,
   path,
   index = true,
+  image,
 }: {
   title: string;
   description: string;
   locale: string;
   path: string;
   index?: boolean;
+  /** Absolute or site-relative og:image (e.g. a blog cover). */
+  image?: string;
 }): Metadata {
   const url = `${siteOrigin()}${localePath(locale, path)}`;
   return {
@@ -94,6 +97,7 @@ export function pageMetadata({
       locale: locale === "vi" ? "vi_VN" : "en_US",
       type: "website",
       siteName: "GMMO",
+      ...(image ? { images: [{ url: image }] } : {}),
     },
     twitter: {
       card: "summary_large_image",

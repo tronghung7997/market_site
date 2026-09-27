@@ -23,6 +23,7 @@ const PURPOSE_LABEL: Record<MediaPurpose, string> = {
   payout_receipt: "Biên lai rút tiền",
   adjustment_proof: "Bằng chứng cộng tiền",
   tier_badge: "Huy hiệu hạng",
+  post_cover: "Ảnh bìa bài viết",
 };
 
 const STATUS_META: Record<MediaStatus, { label: string; tone: "good" | "neutral" | "warn" | "bad" }> = {

@@ -115,10 +115,11 @@ function TopNavBar() {
     { href: "/orders", label: t("orders"), icon: Package, auth: true, group: "activity" },
     { href: "/proxies", label: t("proxies"), icon: Globe, auth: true, group: "activity" },
     { href: "/messages", label: t("messages"), icon: MessageCircle, auth: true, group: "activity" },
+    { href: "/wallet", label: t("wallet"), icon: Wallet, auth: true, group: "activity" },
     { href: "/transactions", label: t("transactions"), icon: ArrowLeftRight, auth: true, group: "activity" },
     { href: "/account", label: t("account"), icon: User, auth: true, group: "settings" },
     { href: "/affiliate", label: t("affiliate"), icon: Percent, auth: true, group: "settings" },
-    { href: "/seller/apply", label: t("becomeSeller"), icon: Store, auth: true, hideIfRole: "seller", group: "settings" },
+    { href: "/sell", label: t("becomeSeller"), icon: Store, auth: true, hideIfRole: "seller", group: "settings" },
   ];
   // Số dư đọc từ query cache dùng chung với trang Ví — mua hàng/nạp/rút ở
   // bất kỳ đâu invalidate ["wallet"] là con số này tự nhảy, không cần đổi
@@ -205,6 +206,11 @@ function TopNavBar() {
               );
             })}
             <Link href="/solutions" className="px-2.5 py-1.5 rounded-lg text-[13px] font-medium text-muted hover:text-fg hover:bg-raised transition-colors whitespace-nowrap">{t("solutions")}</Link>
+            <Link href="/support"
+              className={cn("px-2.5 py-1.5 rounded-lg text-[13px] font-medium transition-colors whitespace-nowrap",
+                pathname.startsWith("/support") ? "text-fg bg-raised" : "text-muted hover:text-fg hover:bg-raised")}>
+              {t("support")}
+            </Link>
           </nav>
           {/* Global search: a field-shaped trigger on md+, an icon below. The
               palette itself (⌘K) is mounted once by SearchProvider. */}
@@ -385,6 +391,7 @@ function TopNavBar() {
               );
             })}
             <Link href="/solutions" className="block px-2.5 py-2.5 rounded-lg text-[14px] font-medium text-muted hover:text-fg hover:bg-raised transition-colors">{t("solutions")}</Link>
+            <Link href="/support" className="block px-2.5 py-2.5 rounded-lg text-[14px] font-medium text-muted hover:text-fg hover:bg-raised transition-colors">{t("support")}</Link>
             {!isAdminRoute && !account && allowLocaleToggle && (
               <div className="mt-1 flex items-center justify-between border-t border-line pt-3 px-2.5">
                 <span className="text-[11px] font-semibold uppercase tracking-[0.12em] text-faint">{languageLabel}</span>

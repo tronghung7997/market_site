@@ -30,6 +30,9 @@ export const EMPTY_CONTENT: BuyerContentDraft = {
   featuresText: "",
   specsText: "",
   warrantyText: "",
+  deliveryNote: "",
+  inspectionText: "",
+  faqText: "",
 };
 
 export const INITIAL_B1: B1ConfigState = {

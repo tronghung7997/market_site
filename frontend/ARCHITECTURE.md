@@ -154,10 +154,11 @@ A generic mechanism may live in a pattern while domain declaration remains in th
 
 ## 6. State ownership
 
-- Server state: TanStack Query inside the owning feature data module.
+- Server state: TanStack Query inside the owning feature data module. `lib/query-client.getQueryClient()` gives each server render its own client and the browser one long-lived client; never share a module-level client with SSR (a stale entry from another request breaks hydration).
 - URL state: filters, pagination, sort, and shareable selection when navigation should preserve them.
 - Form state: local to the owning feature form unless multiple routes truly share the workflow.
 - Ephemeral view state: local to the smallest module that needs it.
+- Browser storage: per-browser conveniences only (the seller application draft, a hidden onboarding checklist), every access in try/catch and the page correct without it.
 - Auth/session: existing auth infrastructure; never duplicate it in a feature.
 - Domain status mapping: feature model module, rendered through canonical status primitives.
 

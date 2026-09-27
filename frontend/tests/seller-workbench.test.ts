@@ -96,6 +96,9 @@ describe("Seller Workbench Logic", () => {
         featuresText: "Bảo mật\nỔn định",
         specsText: "country: VN\nformat: user|pass",
         warrantyText: "Bảo hành 24 giờ",
+        deliveryNote: "",
+        inspectionText: "",
+        faqText: "",
       },
       en: {
         title: "Premium account",
@@ -104,6 +107,9 @@ describe("Seller Workbench Logic", () => {
         featuresText: "Secure\nStable",
         specsText: "country: VN\nformat: user|pass",
         warrantyText: "24-hour warranty",
+        deliveryNote: "email | password\n",
+        inspectionText: "Log in once\n\nChange the password\n",
+        faqText: "Can I change the email?\nYes.\n\n  \nOrphan question without answer\n\nWhen does warranty start?\nWhen you confirm.\nNot before.",
       },
     };
 
@@ -116,7 +122,18 @@ describe("Seller Workbench Logic", () => {
       features: ["Secure", "Stable"],
       specs: { country: "VN", format: "user|pass" },
       warranty_text: "24-hour warranty",
+      delivery_note: "email | password",
+      inspection_steps: ["Log in once", "Change the password"],
+      faq: [
+        { q: "Can I change the email?", a: "Yes." },
+        { q: "When does warranty start?", a: "When you confirm.\nNot before." },
+      ],
     });
+    // Empty hand-over copy clears the fields instead of storing empty lists.
+    const bare = buyerContentToTranslation(content.vi);
+    assert.equal(bare.delivery_note, null);
+    assert.equal(bare.inspection_steps, null);
+    assert.equal(bare.faq, null);
     const viOnly = { ...content, en: { ...content.en, title: "", description: "" } };
     assert.equal(hasCompleteLocalizedContent(viOnly, "vi"), true);
     assert.equal(hasCompleteLocalizedContent(viOnly, "en"), false);
@@ -166,6 +183,9 @@ describe("Seller Workbench Logic", () => {
           specs: { region: "Global" },
           warranty_text: "30-day warranty",
           pricing_labels: { package_labels: { "1000": "1,000 requests" } },
+          delivery_note: "API key + endpoint",
+          inspection_steps: ["Call /ping", "Check the quota"],
+          faq: [{ q: "Rate limit?", a: "10 req/s." }],
         },
       },
       variants: [],
@@ -177,6 +197,9 @@ describe("Seller Workbench Logic", () => {
     assert.equal(draft.content.en.title, "API credits");
     assert.equal(draft.content.en.featuresText, "Fast\nAudited");
     assert.equal(draft.content.en.specsText, "region: Global");
+    assert.equal(draft.content.en.deliveryNote, "API key + endpoint");
+    assert.equal(draft.content.en.inspectionText, "Call /ping\nCheck the quota");
+    assert.equal(draft.content.en.faqText, "Rate limit?\n10 req/s.");
     assert.deepEqual(draft.content.vi, {
       title: "",
       description: "",
@@ -184,6 +207,9 @@ describe("Seller Workbench Logic", () => {
       featuresText: "",
       specsText: "",
       warrantyText: "",
+      deliveryNote: "",
+      inspectionText: "",
+      faqText: "",
     });
     assert.equal(draft.workModel, "B2");
     assert.equal(draft.b2.creditPrice, 12);

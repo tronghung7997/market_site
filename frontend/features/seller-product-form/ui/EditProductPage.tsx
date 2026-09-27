@@ -155,6 +155,7 @@ export function EditProductPage({ productRef }: { productRef: string }) {
       if (productOperations?.provider?.id) core.setSelectedProviderId(productOperations.provider.id);
       setVariants(detail.variants.map((v) => ({
         id: v.id, public_key: v.public_key, name: v.name, price: v.price, delivery_mode: v.delivery_mode === "manual" ? "manual" : "instant", stock_count: v.stock_count ?? 0, sla_hours: v.sla_hours, is_active: v.is_active,
+        min_per_order: v.min_per_order ?? 1, max_per_order: v.max_per_order ?? null,
       })));
       setVariantNames(names);
       setSavedSnapshot(formSnapshot({
@@ -220,7 +221,7 @@ export function EditProductPage({ productRef }: { productRef: string }) {
 
   const addVariant = (draft: VariantDraft) => withVariantPending(async () => {
     const created = await api.createVariant(productId, { ...draft, content_locale: core.contentLocale, sort_order: variants.length });
-    setVariants((current) => [...current, { id: created.id, public_key: created.public_key, name: created.name, price: created.price, delivery_mode: created.delivery_mode === "manual" ? "manual" : "instant", stock_count: created.stock_count ?? 0, sla_hours: created.sla_hours, is_active: created.is_active }]);
+    setVariants((current) => [...current, { id: created.id, public_key: created.public_key, name: created.name, price: created.price, delivery_mode: created.delivery_mode === "manual" ? "manual" : "instant", stock_count: created.stock_count ?? 0, sla_hours: created.sla_hours, is_active: created.is_active, min_per_order: created.min_per_order ?? 1, max_per_order: created.max_per_order ?? null }]);
     setVariantNames((current) => ({ ...current, [created.id]: { vi: core.contentLocale === "vi" ? created.name : "", en: core.contentLocale === "en" ? created.name : "" } }));
   });
 

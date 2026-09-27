@@ -22,6 +22,7 @@ export default async function CategoryPage({
     price: first(rawQuery.price),
     minVnd: first(rawQuery.min_vnd),
     maxVnd: first(rawQuery.max_vnd),
+    rating: first(rawQuery.rating),
     sub: first(rawQuery.sub),
     page: first(rawQuery.page),
   });

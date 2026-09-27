@@ -98,3 +98,34 @@ describe("buyer orders helpers", () => {
     assert.equal(deliveredDataFileName({ order_code: "ORD-3F9K2M7Q", quantity: 100 }), "ORD-3F9K2M7Q_100.txt");
   });
 });
+
+import { orderDeadline } from "../features/buyer-orders/model.ts";
+
+describe("buyer orders: legacy status links and deadlines", () => {
+  it("maps raw statuses from notification links to the right tab", () => {
+    assert.equal(parse("status=delivered").tab, "awaiting_confirm");
+    assert.equal(parse("status=pending").tab, "active");
+    assert.equal(parse("status=processing").tab, "active");
+    assert.equal(parse("status=refunded").tab, "");
+  });
+
+  const now = Date.parse("2026-09-27T12:00:00Z");
+
+  it("shows the protection deadline of a delivered order, urgent under 24h", () => {
+    const soon = orderDeadline({ status: "delivered", escrow_expires_at: "2026-09-28T06:00:00Z", created_at: "2026-09-25T00:00:00Z" }, false, now);
+    assert.equal(soon?.kind, "protection");
+    assert.equal(soon?.urgent, true);
+    const later = orderDeadline({ status: "delivered", escrow_expires_at: "2026-09-30T12:00:00Z", created_at: "2026-09-25T00:00:00Z" }, false, now);
+    assert.equal(later?.urgent, false);
+    assert.equal(orderDeadline({ status: "delivered", escrow_expires_at: "2026-09-30T12:00:00Z", created_at: "x" }, true, now), null);
+  });
+
+  it("shows the shop's delivery deadline for a pending manual order", () => {
+    const d = orderDeadline({ status: "pending", delivery_mode: "manual", sla_hours: 12, created_at: "2026-09-27T06:00:00Z" }, false, now);
+    assert.equal(d?.kind, "delivery");
+    assert.equal(d?.at.toISOString(), "2026-09-27T18:00:00.000Z");
+    assert.equal(d?.urgent, false);
+    assert.equal(orderDeadline({ status: "pending", delivery_mode: "instant", sla_hours: 12, created_at: "2026-09-27T06:00:00Z" }, false, now), null);
+    assert.equal(orderDeadline({ status: "completed", created_at: "2026-09-27T06:00:00Z" }, false, now), null);
+  });
+});

@@ -9,10 +9,14 @@
     "productTitle": "{title} — GMMO",
     "productDescription": "Buy {title} with escrow-protected delivery.",
     "sellerTitle": "{name} — Seller on GMMO",
-    "sellerDescription": "Products and ratings of {name} on GMMO."
+    "sellerDescription": "Products and ratings of {name} on GMMO.",
+    "supportTitle": "Help center — GMMO",
+    "supportDescription": "Answers about orders, top-ups, escrow, disputes and selling on GMMO, and where to go when something goes wrong.",
+    "sellTitle": "Sell on GMMO — open a shop",
+    "sellDescription": "Open a reviewed shop for digital accounts, proxies or API access. Automatic delivery, escrow-protected payments, clear fees and payouts."
   },
   "nav": {
-    "promo": "Verified accounts & proxies · 195+ countries · instant delivery with buyer-protected escrow",
+    "promo": "Money stays in escrow until you confirm · In-stock packages deliver automatically · Help right inside the order",
     "marketplace": "GMMO",
     "categories": "Categories",
     "solutions": "Solutions",
@@ -39,7 +43,8 @@
     "buyerRole": "Buyer",
     "sellerRole": "Seller",
     "logBadge": "Log",
-    "proxies": "My proxies"
+    "proxies": "My proxies",
+    "support": "Help"
   },
   "home": {
     "categoryPickerLabel": "Category:",
@@ -61,15 +66,14 @@
     "noRatingYet": "No ratings yet",
     "escrowDays": "{count}-day escrow",
     "loadMore": "Load more ({count} remaining)",
-    "heroRating": "4.9/5 from 1,200+ businesses",
     "heroTitle": "Digital accounts & data,",
     "heroEmphasis": "delivered fast for business.",
-    "heroDescription": "Verified social accounts, proxies, and digital data from trusted sellers — instant delivery, buyer-protected escrow, and transparent invoices.",
+    "heroDescription": "Social accounts, proxies and API access from reviewed shops — in-stock packages deliver instantly and your money stays in escrow until you confirm.",
     "instant": "Instant automated delivery",
     "escrow": "Buyer-protected escrow",
-    "support": "24/7 support",
+    "support": "Disputes handled in the order",
     "explore": "Explore marketplace",
-    "openBusiness": "Open a business account",
+    "openBusiness": "Create an account",
     "activeProducts": "Products for sale",
     "packages": "Packages / variants",
     "packageCount": "{count} {terms}",
@@ -118,45 +122,36 @@
     "whyEscrowDesc": "Funds are protected and released only after the buyer confirms.",
     "whyDeliveryTitle": "Instant delivery",
     "whyDeliveryDesc": "Automated products are delivered right after payment.",
-    "whyVerifiedTitle": "Verified sellers",
-    "whyVerifiedDesc": "Every seller is verified for identity and product quality.",
-    "whySupportTitle": "24/7 support",
-    "whySupportDesc": "Our support team is ready to help whenever you need it.",
-    "testimonialsTitle": "What customers say",
-    "testimonialsSubtitle": "Feedback from real users",
-    "review1Role": "Marketing agency owner",
-    "review1Quote": "Buying proxies in bulk is very fast, and escrow gives me peace of mind. I have used it for over six months without issues.",
-    "review2Role": "Freelancer",
-    "review2Quote": "The account matched the description and support responded very quickly. Prices are more competitive than many alternatives.",
-    "review3Role": "E-commerce manager",
-    "review3Quote": "The escrow system is transparent and disputes are handled fairly. The support team is highly professional.",
-    "ratingLabel": "{rating} out of 5 stars",
+    "whyVerifiedTitle": "Reviewed shops",
+    "whyVerifiedDesc": "Every shop is reviewed by GMMO before it can list products, and can be removed for breaking the rules.",
+    "whySupportTitle": "Disputes with a referee",
+    "whySupportDesc": "Report a problem from the order. If you and the shop disagree, ask GMMO to review while the money stays held.",
     "faqTitle": "Frequently asked questions",
     "faqSubtitle": "Quick answers to common questions",
     "faq1Q": "How does escrow work?",
     "faq1A": "When you pay, funds are held in escrow. The seller delivers, you check and confirm, then the funds are released. If there is a problem, open a dispute during the escrow period.",
     "faq2Q": "Can I request a refund?",
-    "faq2A": "Yes. During the escrow period, usually three days, you can open a dispute if the product does not match its description. Support will review it and refund you if the seller is at fault.",
+    "faq2A": "Yes. While the order's protection time is running — it is shown on the product and in the order — open a dispute if the goods do not match the description. A refund goes back to your wallet.",
     "faq3Q": "What is instant automated delivery?",
     "faq3A": "Some products are configured for automatic delivery. Once payment succeeds, you receive the account information or data without waiting for manual processing.",
     "faq4Q": "How do I become a seller?",
     "faq4A": "Create an account, submit a store application with your store and contact details, and wait for approval. Once approved, you can publish products and start selling.",
     "faq5Q": "Which payment methods are supported?",
-    "faq5A": "We support domestic bank transfers, e-wallets such as Momo and ZaloPay, and USDT. Your platform wallet balance can also be used for direct purchases.",
+    "faq5A": "Top up your wallet by bank transfer (VietQR) or USDT, then pay for orders from the wallet balance.",
     "faq6Q": "Is my personal data safe?",
-    "faq6A": "Data is encrypted and stored according to security standards. We do not share personal data with third parties except to operate the marketplace.",
+    "faq6A": "Delivered goods are encrypted when stored and only shown to you in your order. The privacy policy explains what else we keep and why.",
     "faq7Q": "How long does delivery take?",
-    "faq7A": "Automated products are delivered immediately after payment. For manual products, sellers generally process orders within 1–12 hours, depending on product type and time zone.",
+    "faq7A": "Instant packages deliver right after payment. Other packages are delivered within the hours shown on the package; if the shop misses that deadline, the order is cancelled and refunded to your wallet.",
     "faq8Q": "Can I buy in bulk?",
-    "faq8A": "Yes. Many products support bulk orders with discounted prices. Choose a quantity at checkout and the system will calculate tiered pricing when configured by the seller.",
+    "faq8A": "Yes. Choose a quantity on the product page, up to the stock shown for each package.",
     "faq9Q": "Are seller funds held?",
     "faq9A": "Funds are held in escrow until the buyer confirms delivery or the escrow period ends. They are then transferred automatically to the seller's wallet.",
     "faq10Q": "Do proxies and accounts have a warranty?",
     "faq10A": "It depends on the seller and product. Warranty information is shown on each product page. If a product fails during its warranty period, you can open a dispute.",
     "faq11Q": "How can I contact support?",
-    "faq11A": "Open a dispute directly from your order, or email support@proxora.vn. Support responds within one business day.",
+    "faq11A": "For an order, open a dispute from the order itself. For everything else, the Help center lists the right place to go.",
     "faq12Q": "What if my account is locked?",
-    "faq12A": "Contact support with your registered email so we can verify and unlock it. Accounts may be locked for terms violations or unusual activity.",
+    "faq12A": "Accounts can be locked for breaking the terms or for unusual activity. See the Help center for how to reach GMMO.",
     "ctaTitle": "Start selling on",
     "ctaDescription": "Create a seller account, publish products, and earn from your digital goods.",
     "ctaApply": "Become a seller",
@@ -177,34 +172,60 @@
     "viewAllOrders": "View all orders",
     "orderFallback": "Order #{id}",
     "inStockShort": "In stock",
-    "lowStock": "Low stock"
+    "lowStock": "Low stock",
+    "faqMore": "More answers in the Help center",
+    "statsLabel": "GMMO at a glance",
+    "statProducts": "{count, plural, one {product on sale} other {products on sale}}",
+    "statSellers": "{count, plural, one {shop selling} other {shops selling}}",
+    "statOrders": "{count, plural, one {completed order} other {completed orders}}",
+    "statRating": "average from {count, plural, one {# review} other {# reviews}}",
+    "reviewsTitle": "Latest reviews",
+    "reviewsSubtitle": "Written by buyers after their orders",
+    "reviewPurchased": "Purchased",
+    "reviewAbout": "on {product}",
+    "reviewStars": "{rating} out of 5 stars",
+    "safetyTitle": "Buy safely",
+    "safetySubtitle": "Four habits that keep your money protected",
+    "safetyPay": "Pay only inside GMMO — payments made elsewhere are not held in escrow.",
+    "safetyOtp": "Never share passwords or verification codes, even with someone claiming to be GMMO.",
+    "safetyCheck": "Check what you received early, while the protection time is running.",
+    "safetyEvidence": "Keep screenshots and the order code if something is wrong.",
+    "safetyLink": "Safety tips",
+    "escrowPolicy": "Escrow policy",
+    "awaitingTitle": "{count, plural, one {# delivered order is waiting for you to check it} other {# delivered orders are waiting for you to check them}}",
+    "awaitingBody": "Confirm or open a dispute before the protection time ends — after that the order completes on its own.",
+    "awaitingAction": "Review orders"
   },
   "footer": {
     "escrow": "Buyer-protected escrow",
-    "support": "24/7 support",
-    "refund": "Refund if the item differs from its description",
-    "payment": "Payment:",
-    "about": "A marketplace for digital accounts and data for business. Verified supply, instant delivery, and transparent escrow.",
-    "products": "Products",
-    "business": "Business",
+    "support": "Help inside every order",
+    "refund": "Dispute and refund within the protection window",
+    "payment": "Top up by:",
+    "about": "A marketplace for digital accounts, proxies and API access. Every shop is reviewed before it can sell, and your money stays in escrow until you confirm the delivery.",
     "help": "Help",
-    "socialAccounts": "Social media accounts",
-    "proxy": "Proxy & VPN",
-    "emailSoftware": "Email & software",
-    "pricing": "Pricing",
-    "wholesale": "Wholesale / API",
-    "consulting": "Solution consulting",
-    "sla": "SLA commitment",
-    "invoice": "VAT invoice",
     "contact": "Contact",
     "copyright": "© {year} GMMO.",
-    "legal": "Prices include platform fees · Complies with applicable law"
+    "legal": "Prices include platform fees · Complies with applicable law",
+    "bankTransfer": "Bank transfer · VietQR",
+    "shop": "Shop",
+    "marketplace": "Marketplace",
+    "categories": "Categories",
+    "solutions": "Solutions",
+    "search": "Search",
+    "helpCenter": "Help center",
+    "buyingGuide": "How buying works",
+    "safety": "Stay safe",
+    "policies": "Policies",
+    "sellers": "Sellers",
+    "openShop": "Open a shop",
+    "sellerPortal": "Seller portal",
+    "feesPayouts": "Fees and payouts",
+    "blog": "Guides & news"
   },
   "seller": {
     "applyTitle": "Become a seller",
     "applySubtitle": "Provide your store details to request approval.",
     "pending": "Pending approval",
-    "pendingDescription": "Your application was submitted on {date}. An administrator will review it soon.",
     "approved": "Store approved",
     "approvedDescription": "Your store is ready. Opening the seller workspace…",
     "openWorkspace": "Open seller workspace",
@@ -214,8 +235,6 @@
     "businessName": "Store name",
     "businessPlaceholder": "Example: Digital Goods Store",
     "description": "Description",
-    "descriptionHint": "Products or services you plan to sell (optional)",
-    "descriptionPlaceholder": "e.g. **Trusted Facebook account**, 2+ months old. Email verified, no violation reports.",
     "contact": "Contact",
     "contactHint": "Telegram, Zalo, email... (optional)",
     "submit": "Submit application",
@@ -450,9 +469,6 @@
     "withdrawFailed": "Could not submit the request. Please try again.",
     "withdrawRequests": "Submitted requests",
     "noWithdrawals": "You have no withdrawal requests yet. Requests and their approval status will appear here.",
-    "pendingWithdrawal": "Pending approval",
-    "approvedWithdrawal": "Approved",
-    "rejectedWithdrawal": "Rejected",
     "withdrawRejectReason": "Reason: {reason}",
     "inventoryTitle": "Inventory",
     "inventorySummary": "{count} items ready to sell. Edit a line directly; an item already delivered to a buyer is locked.",
@@ -1154,7 +1170,240 @@
     "fifoStockedAt": "stocked {date}",
     "fifoPreviewMore": "… and the next {count}",
     "disputeAttachImages": "Attach evidence images",
-    "withdrawReceipts": "Transfer receipts"
+    "withdrawReceipts": "Transfer receipts",
+    "apply": {
+      "stepsLabel": "Application steps",
+      "steps": {
+        "shop": "Shop",
+        "contact": "Contact & rules",
+        "review": "Review & send"
+      },
+      "stepTitles": {
+        "shop": "What will you sell?",
+        "contact": "How we reach you, and the rules",
+        "review": "Check your application"
+      },
+      "stepOf": "Step {step} of {total}",
+      "restoredDraft": "We restored the draft you started on this browser.",
+      "restoredPrevious": "Filled in from your last application. Fix what the reason mentions, then send it again.",
+      "startOver": "Start over",
+      "sellerType": "You sell as",
+      "types": {
+        "individual": {
+          "title": "An individual",
+          "body": "Selling under your own name."
+        },
+        "business": {
+          "title": "A business",
+          "body": "A company or registered household business."
+        }
+      },
+      "categories": "Categories you plan to sell in",
+      "categoriesHint": "Pick at least one. You can list in other categories later.",
+      "categoriesLoadFail": "Couldn't load the categories.",
+      "experience": "Experience selling digital goods",
+      "experiences": {
+        "none": "Just starting",
+        "under_1y": "Under a year",
+        "1_3y": "1–3 years",
+        "over_3y": "Over 3 years"
+      },
+      "optionalPick": "Choose (optional)",
+      "descriptionHint": "What you sell, where your stock comes from, how you handle faulty items. Optional, up to {max} characters.",
+      "descriptionPlaceholder": "e.g. Gmail accounts I create myself, 2+ months old, recovery email included.",
+      "phone": "Phone number",
+      "phoneHint": "Only admins see it. Optional.",
+      "warranty": "Planned warranty",
+      "warrantyHint": "What you do when an item doesn't work. Optional; each product can still set its own.",
+      "warrantyPlaceholder": "e.g. Replacement within 24 hours if the login fails.",
+      "referral": "How did you hear about GMMO?",
+      "referrals": {
+        "search": "Search engine",
+        "social": "Social media",
+        "friend": "A friend",
+        "community": "A group or forum",
+        "ads": "An ad",
+        "other": "Somewhere else"
+      },
+      "rulesTitle": "Selling on GMMO",
+      "ruleEscrow": "Take payment only through GMMO escrow, never outside the platform.",
+      "ruleAccurate": "Deliver exactly what the listing describes.",
+      "ruleBanned": "No {item}.",
+      "banned": {
+        "stolen": "hacked, taken-over or leaked accounts or data",
+        "malware": "malware, attack tools, spam or phishing kits",
+        "payments": "bank accounts, cards, e-wallets or other payment instruments",
+        "piracy": "keys or software you have no right to distribute",
+        "resale": "one stock line sold to several buyers, unless the listing says it is shared"
+      },
+      "acceptRules": "I agree to the rules above and the <terms>terms of use</terms>.",
+      "rulesAccepted": "Accepted",
+      "edit": "Edit",
+      "notProvided": "Not filled in",
+      "reviewNote": "An admin reviews every application. This page updates by itself once yours is approved.",
+      "draftNote": "Your answers are kept as a draft on this browser until you send them.",
+      "back": "Back",
+      "next": "Continue",
+      "errors": {
+        "nameRequired": "Enter a shop name.",
+        "nameTooLong": "The shop name is too long.",
+        "categoryRequired": "Pick at least one category.",
+        "tooManyCategories": "Pick at most 12 categories.",
+        "descriptionTooLong": "The description is too long.",
+        "phoneInvalid": "Enter digits only, with an optional leading +.",
+        "contactTooLong": "The contact is too long.",
+        "warrantyTooLong": "The warranty text is too long.",
+        "rulesRequired": "Tick the box to agree before continuing."
+      },
+      "sentSubtitle": "Your application has been sent.",
+      "sentAt": "Sent {date}",
+      "pendingBody": "An admin is reviewing it. This page updates by itself when it is approved; you can leave and come back.",
+      "whileWaiting": "While you wait",
+      "waitFees": "Read how fees and payouts work",
+      "waitTerms": "Read the full terms",
+      "needsInfoTitle": "GMMO needs a little more before reviewing",
+      "needsInfoHint": "Update your answers below and send the application again.",
+      "restoredNeedsInfo": "Filled in from your application. Add what GMMO asked for, then send it again."
+    },
+    "escrow": {
+      "title": "Payout schedule",
+      "subtitle": "Money from delivered orders reaches your wallet when the hold ends, unless the buyer opens a dispute. Amounts are estimates after the platform fee.",
+      "dueWeek": "Due in the next 7 days",
+      "inEscrow": "Held in escrow · {count, plural, one {# order} other {# orders}}",
+      "disputed": "Held by disputes · {count, plural, one {# order} other {# orders}}",
+      "awaitingDelivery": "Paid, not delivered · {count, plural, one {# order} other {# orders}}",
+      "today": "Today",
+      "tomorrow": "Tomorrow",
+      "orders": "{count, plural, one {# order} other {# orders}}",
+      "empty": "Nothing is waiting to be paid out. Delivered orders show up here by the day they release.",
+      "noDeadline": "{count, plural, one {# older order releases} other {# older orders release}} only when the buyer confirms.",
+      "showAll": "Show all {count} days",
+      "showLess": "Show fewer",
+      "loadFailed": "Couldn't load the payout schedule.",
+      "retry": "Retry"
+    },
+    "qaNav": "Q&A",
+    "questions": {
+      "title": "Buyer questions",
+      "subtitle": "Questions buyers asked on your products. An answer is shown on the product page; hide anything that doesn't belong there.",
+      "filterLabel": "Show",
+      "filters": {
+        "pending": "Unanswered",
+        "answered": "Answered",
+        "hidden": "Hidden",
+        "all": "All"
+      },
+      "status": {
+        "pending": "Unanswered",
+        "answered": "Public",
+        "hidden": "Hidden"
+      },
+      "empty": "Nothing here.",
+      "emptyPending": "Every question has an answer.",
+      "loadFailed": "Couldn't load questions.",
+      "retry": "Retry",
+      "answerLabel": "Your answer",
+      "answerPlaceholder": "Answer for every buyer who reads the product page…",
+      "answerHint": "Public on the product page. No contacts outside GMMO.",
+      "answerHiddenHint": "This question is hidden; the answer shows only if you unhide it.",
+      "answer": "Answer",
+      "saveAnswer": "Save answer",
+      "editAnswer": "Edit answer",
+      "cancel": "Cancel",
+      "hide": "Hide",
+      "unhide": "Show again",
+      "hiddenByAdmin": "Hidden by GMMO",
+      "saveFailed": "Couldn't save."
+    },
+    "tierNav": "Tier & trust",
+    "tier": {
+      "title": "Tier & trust",
+      "subtitle": "Your trust score and what the next tier asks for. GMMO reviews shops that meet the criteria and approves the move.",
+      "loadFailed": "Couldn't load your tier.",
+      "retry": "Retry",
+      "currentTier": "Current tier",
+      "tiers": {
+        "new": "New",
+        "verified": "Verified",
+        "trusted": "Trusted",
+        "enterprise": "Enterprise"
+      },
+      "missing": "{count, plural, one {# criterion} other {# criteria}} left for {tier}",
+      "eligible": "You meet every criterion for {tier}. GMMO will review your shop.",
+      "inviteOnly": "{tier} is by invitation from GMMO.",
+      "inviteOnlyBody": "The next tier is by invitation. Keep your trust score and dispute rate within the keep criteria to hold your tier.",
+      "topTier": "You are at the highest tier.",
+      "topTierBody": "No higher tier. Keep within the keep criteria to hold it.",
+      "topTierShort": "Highest tier you can reach by the numbers",
+      "score": "Trust score",
+      "scoreNeed": "The mark is {need}, what the next tier needs",
+      "needShort": "needs {need}",
+      "notEnoughData": "Not enough data yet",
+      "notEnoughDataHint": "The score starts after {min} completed orders in {days} days ({done} so far). You can still move up on the other criteria.",
+      "bands": {
+        "excellent": "Excellent",
+        "good": "Good",
+        "fair": "Fair",
+        "low": "Low"
+      },
+      "youAreHere": "you are here",
+      "products": "{count} products",
+      "unlimitedProducts": "unlimited products",
+      "withdraw": "withdraw {amount}",
+      "unlimitedWithdraw": "no withdrawal cap",
+      "byInvitation": "By invitation",
+      "criteriaTitle": "Criteria for {tier}",
+      "metCount": "{met}/{total} met",
+      "criteria": {
+        "min_gmv": "Completed sales",
+        "min_orders": "Completed orders",
+        "min_days": "Days selling",
+        "max_dispute_pct": "Dispute rate",
+        "max_one_star_pct": "1-star review rate",
+        "min_score": "Trust score"
+      },
+      "criteriaShort": {
+        "min_gmv": "sales",
+        "min_orders": "orders",
+        "min_days": "days selling",
+        "max_dispute_pct": "disputes",
+        "max_one_star_pct": "1-star reviews",
+        "min_score": "trust score"
+      },
+      "scopeWindow": "Last {days} days",
+      "scopeLifetime": "Since you opened the shop",
+      "keepCheck": "also to keep the tier",
+      "daysValue": "{count, plural, one {# day} other {# days}}",
+      "scoreSkipped": "Skipped until your score is available.",
+      "breakdownTitle": "Where your score comes from",
+      "breakdownScope": "Last {days} days · {orders} completed orders · {reviews} reviews",
+      "parts": {
+        "dispute": "Disputes",
+        "one_star": "1-star reviews",
+        "gmv": "Sales"
+      },
+      "partDisputeNote": "{pct} ({disputes} of {orders} orders)",
+      "partOneStarNote": "{pct} ({count} of {reviews} reviews)",
+      "partGmvNote": "{amount} completed in the window",
+      "benefitsTitle": "At {tier} you get",
+      "benefit": "Benefit",
+      "benefits": {
+        "products": "Products on sale",
+        "withdraw": "Max per withdrawal",
+        "fee": "Platform fee discount",
+        "escrow": "Shorter hold"
+      },
+      "unlimited": "Unlimited",
+      "feeValue": "−{pp} pp",
+      "escrowValue": "−{days, plural, one {# day} other {# days}}",
+      "atRiskTitle": "Your {tier} tier is below its keep criteria",
+      "atRiskShort": "below keep criteria",
+      "atRiskLimit": "limit {limit}",
+      "atRiskBody": "GMMO may move your shop down a tier if this continues. Answering disputes quickly and checking stock before delivery helps most.",
+      "details": "Details",
+      "howItWorks": "How tiers work: rates and the score cover the last {days} days of real orders; sales and order counts are lifetime completed orders. The score needs {min} completed orders. GMMO approves every tier change.",
+      "tiersLink": "Tier benefits"
+    }
   },
   "sellerDashboard": {
     "rangeLabel": "Date range",
@@ -1230,7 +1479,39 @@
     "retry": "Retry",
     "emptyTitle": "Your store has no activity yet",
     "emptyBody": "Create your first product to start receiving orders. Revenue, order and customer figures will show up here.",
-    "emptyCta": "Create your first product"
+    "emptyCta": "Create your first product",
+    "onboarding": {
+      "title": "Get your shop ready",
+      "progress": "{done} of {total} steps done",
+      "hide": "Hide these steps",
+      "done": "Done",
+      "steps": {
+        "email": {
+          "title": "Verify your email",
+          "body": "Used to recover your account; the marketplace can require it for top-ups and withdrawals."
+        },
+        "profile": {
+          "title": "Add a logo and shop description",
+          "body": "Buyers see them on your shop page and every product."
+        },
+        "product": {
+          "title": "Create your first product",
+          "body": "Title, packages, price and how it is delivered."
+        },
+        "stock": {
+          "title": "Load stock",
+          "body": "Paid orders take stock lines automatically."
+        },
+        "active": {
+          "title": "Put a product on sale",
+          "body": "Drafts and paused products are hidden from buyers."
+        },
+        "twofa": {
+          "title": "Turn on two-factor sign-in",
+          "body": "Protects your balance and payouts."
+        }
+      }
+    }
   },
   "sellerOrders": {
     "tabsLabel": "Filter by status",
@@ -1965,7 +2246,17 @@
     "PROXY_TAG_DUPLICATE": "A tag with this name already exists",
     "PROXY_TAG_INVALID": "Tag name is empty or the {max}-tag limit is reached",
     "MEDIA_TOO_LARGE": "The image is larger than the {max_mb} MB limit.",
-    "DISPUTE_EVIDENCE_REQUIRED": "Attach at least one image as evidence to open a dispute."
+    "DISPUTE_EVIDENCE_REQUIRED": "Attach at least one image as evidence to open a dispute.",
+    "CHAT_HELPDESK_UNAVAILABLE": "Admin accounts answer GMMO chat from the admin inbox.",
+    "ORDER_QUANTITY_RANGE": "This package sells {min} to {max} units per order",
+    "VARIANT_PER_ORDER_RANGE": "The maximum per order must be at least the minimum",
+    "QUESTION_NOT_FOUND": "Question not found",
+    "QUESTION_SELF": "You cannot ask a question on your own product",
+    "QUESTION_LIMIT": "You have many questions waiting; wait for answers before asking more",
+    "QUESTION_HIDDEN_BY_ADMIN": "GMMO hid this question",
+    "POST_NOT_FOUND": "Post not found",
+    "POST_SLUG_TAKEN": "Another post already uses this address",
+    "POST_INCOMPLETE": "A post needs a Vietnamese title and body to be published"
   },
   "common": {
     "loading": "Loading…",
@@ -2275,7 +2566,13 @@
     "moreInCategory": "{count} more products in {name}",
     "productsLoadError": "Could not load products. Check your connection and try again.",
     "retry": "Try again",
-    "updating": "Updating…"
+    "updating": "Updating…",
+    "ratingLabel": "Rating",
+    "ratingAtLeast": "{stars}★ and up",
+    "guideTitle": "About {name}",
+    "faqTitle": "Questions about {name}",
+    "relatedTitle": "Related categories",
+    "buyingHelp": "How buying and escrow work"
   },
   "products": {
     "notFound": "Product not found",
@@ -2329,7 +2626,7 @@
     "reviewsCount": "{count} reviews",
     "reviewsCountShort": "{count} reviews",
     "inStock": "{count} in stock",
-    "verified": "Verified",
+    "verified": "Approved shop",
     "shopOnProxora": "Shop on GMMO",
     "messageSeller": "Message",
     "specs": "Specifications",
@@ -2337,9 +2634,9 @@
     "warranty": "Warranty & escrow",
     "warrantyDefault": "GMMO escrow policy applies for {days} days.",
     "warrantyPoint1": "Funds held by GMMO for {days} days",
-    "warrantyPoint2": "Released to the seller only when you confirm",
-    "warrantyPoint3": "100% refund if the item does not match the description",
-    "warrantyPoint4": "Open a dispute any time during the escrow window",
+    "warrantyPoint2": "Paid to the seller when you confirm, or when the time ends without a dispute",
+    "warrantyPoint3": "Not as described? The shop replaces it or refunds your wallet through a dispute",
+    "warrantyPoint4": "Open a dispute any time within the protection time; GMMO can review it",
     "related": "Related products",
     "reviews": "Reviews",
     "reviewsEmpty": "No reviews yet — be the first buyer to share your experience.",
@@ -2486,7 +2783,63 @@
     "apiKeySecretNote": "Keep the key secret: anyone with it can spend your requests. If it leaks, rotate it from the order.",
     "copyAllDelivered": "Copy all",
     "copyThisLine": "Copy this line",
-    "apiMoreEndpoints": "+{count} more"
+    "apiMoreEndpoints": "+{count} more",
+    "payInsideTitle": "Pay only through GMMO",
+    "payInsideBody": "Your money is held in escrow for {days} days after delivery. Payments made outside GMMO are not protected.",
+    "escrowPolicy": "Escrow policy",
+    "factsLabel": "At a glance",
+    "factDelivery": "Delivery",
+    "factDeliveryInstant": "Instant after payment",
+    "factDeliveryHours": "Within {hours} hours",
+    "factDeliveryMixed": "Instant or within {hours} hours",
+    "factDeliveryAuto": "Automatic after payment",
+    "factProtection": "Protection",
+    "factProtectionValue": "{days} days after delivery",
+    "factReceive": "You receive",
+    "sectionNav": "Product sections",
+    "navDescription": "Description",
+    "navSpecs": "Specifications",
+    "navDelivery": "Delivery",
+    "navReviews": "Reviews",
+    "navFaq": "Q&A",
+    "deliveryTitle": "Delivery and inspection",
+    "deliveryReceive": "What you receive",
+    "deliveryCheck": "Check before you confirm",
+    "deliveryCheckDefault": "Test the goods as soon as they arrive. If something does not work, keep a screenshot and open a dispute from the order before the protection time ends.",
+    "deliveryStepsLabel": "What happens after you pay",
+    "deliveryStepPay": "Money goes into escrow",
+    "deliveryStepPayBody": "The shop is not paid yet.",
+    "deliveryStepDeliver": "The shop delivers",
+    "deliveryStepDeliverBody": "The goods appear in your order.",
+    "deliveryStepCheck": "You check for {days} days",
+    "deliveryStepCheckBody": "Something wrong? Open a dispute.",
+    "deliveryStepRelease": "The shop is paid",
+    "deliveryStepReleaseBody": "When you confirm, or when the time ends.",
+    "faqTitle": "Questions and answers",
+    "faqAsk": "Question not listed? Ask the shop — the answer stays in your messages.",
+    "sellerCardTitle": "About the shop",
+    "sellerRating": "Rating",
+    "sellerNoRating": "None yet",
+    "sellerReviewsCount": "{count, plural, one {# review} other {# reviews}}",
+    "sellerCompleted": "Completed orders",
+    "sellerSince": "On GMMO since",
+    "sellerVisit": "Visit shop",
+    "disputePolicy": "Dispute policy",
+    "sameShop": "More from this shop",
+    "walletBalance": "Wallet balance",
+    "shortfallTitle": "You need {amount} more",
+    "shortfallBody": "Top up the difference, then come back to finish this order.",
+    "topUpShortfall": "Top up {amount}",
+    "protectionLeft": "Protection ends {left}",
+    "protectionEnded": "The protection time has ended",
+    "protectionAction": "Confirm or report a problem in the order",
+    "inspectTitle": "Before you confirm",
+    "factReceiveInOrder": "The goods the shop delivers, shown in your order",
+    "perOrderMin": "At least {min} per order",
+    "perOrderMax": "At most {max} per order",
+    "perOrderRange": "{min}–{max} per order",
+    "notEnoughStock": "Not enough stock for one order",
+    "navQa": "Q&A"
   },
   "chat": {
     "inbox": "Messages",
@@ -2537,9 +2890,9 @@
     "orderChatAction": "Order chat",
     "marketplaceChatAction": "Chat with GMMO",
     "marketplaceChat": "GMMO",
-    "marketplaceInbox": "GMMO disputes",
-    "marketplaceEmpty": "No dispute chats yet",
-    "marketplaceEmptyHint": "When a buyer or seller opens GMMO chat on a dispute, the thread appears here.",
+    "marketplaceInbox": "GMMO desk",
+    "marketplaceEmpty": "No threads yet",
+    "marketplaceEmptyHint": "Dispute reviews and messages sent with the “Chat with GMMO” button appear here.",
     "marketplaceReviewTitle": "Chat with GMMO",
     "marketplaceReviewHint": "Describe the problem. This pauses automatic settlement until an admin decides. It does not refund money by itself.",
     "marketplaceReviewNote": "Note for GMMO",
@@ -2564,7 +2917,17 @@
     "disputeStatus": "Dispute Status",
     "attachImages": "Attach images",
     "imageMessage": "[Image]",
-    "imagesTitle": "Images in the message"
+    "imagesTitle": "Images in the message",
+    "helpdeskChat": "Support",
+    "helpdeskTitle": "GMMO support",
+    "deskFilterLabel": "Show",
+    "deskFilters": {
+      "all": "All",
+      "waiting": "Waiting",
+      "helpdesk": "Support",
+      "support": "Disputes"
+    },
+    "awaitingReply": "Waiting"
   },
   "orders": {
     "title": "Orders",
@@ -2984,7 +3347,10 @@
     "evidenceImagesLabel": "Evidence images",
     "evidenceImagesHint": "Screenshots of the error, messages… up to 6 images. Send the original files, not edited ones.",
     "evidenceImagesRequired": "At least one evidence image is required.",
-    "attachImages": "Attach images"
+    "attachImages": "Attach images",
+    "protectionUntilLeft": "Protected until {date} · {left}",
+    "deliveryDueLeft": "Shop delivers by {date} · {left}",
+    "deliveryOverdue": "Past the delivery deadline — refund is automatic"
   },
   "wallet": {
     "available": "Available balance",
@@ -3131,7 +3497,40 @@
     "withdrawTotp": "Two-factor code",
     "withdrawTotpHint": "6-digit code from your authenticator app (or a backup code).",
     "withdrawTotpSetup": "Withdrawals need two-factor authentication.",
-    "withdrawTotpSetupLink": "Turn it on"
+    "withdrawTotpSetupLink": "Turn it on",
+    "returnTitle": "Topping up for an order",
+    "returnBody": "Once the top-up is credited, go back and finish your purchase.",
+    "returnAction": "Back to the product",
+    "guideTitle": "Top up in three steps",
+    "guideStepAmount": "Enter an amount",
+    "guideStepAmountBody": "Within the limits below.",
+    "guideStepPay": "Pay the request",
+    "guideStepPayBody": "Scan the VietQR and keep the transfer message exactly as shown, or pay USDT on the checkout page.",
+    "guideStepCredit": "Wallet credited",
+    "guideStepCreditBody": "Automatically once the payment is matched — this page updates by itself.",
+    "limitsTitle": "Limits per request",
+    "limitsBank": "Bank transfer",
+    "limitsUsdt": "USDT",
+    "limitsRange": "{min} – {max}",
+    "limitsOff": "Unavailable right now",
+    "limitsExpire": "Each request expires — the countdown is shown next to it. Pay before it ends.",
+    "missingTitle": "Paid but not credited?",
+    "missingCheck": "Check the transfer message and amount match the request exactly.",
+    "missingKeep": "Keep the request code (NAP-…) and your bank's transaction reference.",
+    "missingNoRepeat": "Do not pay the same request twice.",
+    "missingHelp": "Help with top-ups",
+    "historyTitle": "Top-up history",
+    "historyScope": "Your last {count} requests",
+    "historyAll": "All",
+    "historyEmpty": "No top-ups yet. Your requests will appear here.",
+    "historyEmptyFilter": "No request with this status.",
+    "historyCode": "Request",
+    "historyTime": "Created",
+    "historyMethod": "Method",
+    "historyAmount": "Amount",
+    "historyStatus": "Status",
+    "historyExport": "Download CSV",
+    "historyLoadError": "Could not load your top-ups. Refresh to try again."
   },
   "solutions": {
     "badge": "Enterprise solutions",
@@ -3513,7 +3912,63 @@
     "tier_verified": "Verified",
     "tier_trusted": "Trusted",
     "tier_enterprise": "Enterprise partner",
-    "productsLoadError": "Could not load this seller's products right now."
+    "productsLoadError": "Could not load this seller's products right now.",
+    "searchInShop": "Search this shop",
+    "sortLabel": "Sort",
+    "sort_bestseller": "Best selling",
+    "sort_rating": "Top rated",
+    "sort_newest": "Newest",
+    "sort_price_asc": "Price: low to high",
+    "sort_price_desc": "Price: high to low",
+    "noSearchMatch": "No product in this shop matches \"{query}\".",
+    "clearSearch": "Clear search",
+    "approvedShop": "Approved shop",
+    "commitTitle": "Buying here is protected",
+    "commitEscrow": "Your money stays in escrow until you confirm or the protection time ends",
+    "commitEvidence": "Every delivery is kept with its order code",
+    "commitDispute": "Disputes are handled in the order; GMMO can review them",
+    "commitOffPlatform": "Never pay this shop outside GMMO",
+    "escrowPolicy": "Escrow policy",
+    "presence": {
+      "reply": {
+        "15m": "Usually replies within 15 minutes",
+        "1h": "Usually replies within an hour",
+        "6h": "Usually replies within a few hours",
+        "24h": "Usually replies within a day",
+        "slow": "Usually replies after more than a day"
+      },
+      "replyRate": "{rate}% of chats answered",
+      "replyHint": "Based on {sample} buyer chats in the last 30 days",
+      "active": {
+        "15m": "Active in the last 15 minutes",
+        "1h": "Active in the last hour",
+        "24h": "Active today",
+        "7d": "Active this week",
+        "30d": "Active this month"
+      }
+    },
+    "trust": {
+      "chip": "Trust {score}",
+      "compact": "Trust {score} · {band}",
+      "title": "Trust score",
+      "outOf": "/ 100 · {band}",
+      "scope": "0–100, from this shop's recent real orders and reviews",
+      "bands": {
+        "excellent": "excellent",
+        "good": "good",
+        "fair": "fair",
+        "low": "low"
+      },
+      "dispute_band": "Dispute rate",
+      "one_star_band": "1-star reviews",
+      "rate": {
+        "low": "Low",
+        "medium": "Medium",
+        "high": "High"
+      },
+      "escrowNote": "Every order goes through escrow: the shop is paid only after you confirm or the protection window ends.",
+      "learnMore": "Buying safely"
+    }
   },
   "notifications": {
     "buyerDeliveredUnconfirmed": "{count} orders need your confirmation of receipt",
@@ -3533,7 +3988,10 @@
     "adminMarketplaceReview": "{count} dispute chats waiting on GMMO",
     "adminPendingWithdrawals": "{count} withdrawal requests awaiting approval",
     "adminPendingTasks": "{count} tasks awaiting processing",
-    "unreadMessages": "{count} unread messages"
+    "unreadMessages": "{count} unread messages",
+    "adminHelpdeskWaiting": "{count, plural, one {# support chat is} other {# support chats are}} waiting for a reply",
+    "sellerApplicationNeedsInfo": "GMMO needs more information on your seller application",
+    "sellerUnansweredQuestions": "{count, plural, one {# buyer question is} other {# buyer questions are}} waiting for an answer"
   },
   "currency": {
     "label": "Display currency",
@@ -4618,7 +5076,18 @@
       "specsPlaceholder": "format: account | password\nregion: Global\nduration: 30 days",
       "warranty": "Warranty policy",
       "warrantyHint": "Optional · what is covered, exclusions, how to request support",
-      "warrantyPlaceholder": "State what is covered, exclusions and how buyers request support…"
+      "warrantyPlaceholder": "State what is covered, exclusions and how buyers request support…",
+      "handoverTitle": "Delivery and Q&A",
+      "handoverHint": "Shown in the product's Delivery and Q&A sections. Buyers read this before paying.",
+      "deliveryNote": "What the buyer receives",
+      "deliveryNoteHint": "Format and contents of each delivered line. Up to 2,000 characters.",
+      "deliveryNotePlaceholder": "e.g. email | password | recovery email — one account per line",
+      "inspection": "Check before confirming",
+      "inspectionHint": "One step per line, up to 10. Shown again to the buyer after delivery.",
+      "inspectionPlaceholder": "Sign in with the delivered details\nChange the password right away",
+      "faq": "Questions and answers",
+      "faqHint": "Question on the first line, answer below it. Leave a blank line between pairs. Up to 12.",
+      "faqPlaceholder": "Can I change the recovery email?\nYes, the steps are in the order.\n\nWhen does the warranty start?\nWhen you confirm receipt."
     },
     "advanced": {
       "languagesTitle": "Content languages",
@@ -4687,7 +5156,12 @@
       "resume": "Resume selling",
       "empty": "No {terms} yet. Click “Add {term}” to begin.",
       "footer": "Stopping a {term} keeps its stock and history — nothing is deleted. Restock / inspect each {term} at",
-      "inventoryLink": "Inventory"
+      "inventoryLink": "Inventory",
+      "minPerOrder": "Min per order",
+      "maxPerOrder": "Max per order",
+      "maxPerOrderNone": "No limit",
+      "perOrderHint": "Buyers can't order outside this range. Leave the max empty for no limit.",
+      "perOrderInvalid": "The max must be at least the min."
     },
     "proxyPlans": {
       "title": "Plans & prices",
@@ -4811,7 +5285,16 @@
     "hideConfirmTitle": "Hide this review?",
     "hideConfirmBody": "It disappears from the product page and the rating is recomputed. The buyer still counts as having reviewed. You can show it again later.",
     "hideReasonPlaceholder": "Reason (optional, admin-only)",
-    "auto": "Auto"
+    "auto": "Auto",
+    "shopTitle": "Reviews of this shop",
+    "shopSummary": "{average} from {count, plural, one {# review} other {# reviews}} across all products",
+    "shopEmpty": "No reviews yet. Reviews appear after buyers receive their orders.",
+    "shopEmptyStar": "No {stars}★ reviews.",
+    "shopFilterLabel": "Filter by stars",
+    "shopFilterAll": "All",
+    "shopAbout": "on {product}",
+    "shopPurchased": "Purchased",
+    "shopRetry": "Try again"
   },
   "search": {
     "headerPlaceholder": "Search products, categories, sellers…",
@@ -5882,5 +6365,412 @@
     "counter": "{current} / {total}",
     "imageOf": "Image {current} of {total}",
     "open": "View larger"
+  },
+  "support": {
+    "title": "How can we help?",
+    "lead": "Find the answer for your order, top-up or shop, or go straight to the page that fixes it.",
+    "searchLabel": "Search the help center",
+    "searchPlaceholder": "e.g. top-up not credited, open a dispute",
+    "shortcutsLabel": "Quick links",
+    "shortcuts": {
+      "orders": {
+        "title": "Check an order",
+        "body": "Delivery, inspection time, disputes"
+      },
+      "wallet": {
+        "title": "Check a top-up",
+        "body": "Top-up codes and credited amounts"
+      },
+      "messages": {
+        "title": "Message a shop",
+        "body": "Questions before or after buying"
+      }
+    },
+    "topicsTitle": "Browse by topic",
+    "topics": {
+      "orders": {
+        "title": "Orders and delivery",
+        "body": "Receiving goods, delivery deadlines, completion"
+      },
+      "payments": {
+        "title": "Wallet and top-ups",
+        "body": "Top-ups, credited amounts, refunds"
+      },
+      "account": {
+        "title": "Account and security",
+        "body": "Sign-in, password, active sessions"
+      },
+      "disputes": {
+        "title": "Disputes and escrow",
+        "body": "When and how to report a problem"
+      },
+      "sellers": {
+        "title": "Selling on GMMO",
+        "body": "Opening a shop, getting paid"
+      },
+      "safety": {
+        "title": "Staying safe",
+        "body": "Scams, off-platform payment, OTP requests"
+      }
+    },
+    "questionCount": "{count, plural, =0 {No questions} one {# question} other {# questions}}",
+    "buyingTitle": "How buying works",
+    "buyingLead": "Every order follows the same four steps. The protection time is shown on each product and in each order.",
+    "buyingSteps": {
+      "topUp": {
+        "title": "Top up your wallet",
+        "body": "Bank transfer (VietQR) or USDT. The wallet is credited once the payment is matched."
+      },
+      "buy": {
+        "title": "Buy — the money goes into escrow",
+        "body": "The shop is not paid yet. In-stock packages deliver instantly; others within the hours shown on the package."
+      },
+      "check": {
+        "title": "Check what you received",
+        "body": "Open the order, test the goods during the protection time and keep evidence if something is wrong."
+      },
+      "finish": {
+        "title": "Confirm or open a dispute",
+        "body": "Confirming pays the shop. With no dispute, the order completes by itself when the protection time ends."
+      }
+    },
+    "safetyTitle": "Suspect a scam or shared a code by mistake?",
+    "safetyLead": "Stop the conversation first. Waiting a moment is safer than following a suspicious request.",
+    "safetyPoints": {
+      "otp": "GMMO never asks for your password or verification codes — neither does any real shop.",
+      "offPlatform": "Pay only inside GMMO. Payments made elsewhere are not protected by escrow.",
+      "evidence": "Keep the order code, screenshots and the conversation. Hide passwords and codes in anything you send.",
+      "password": "If someone may have used your account, change your password and sign out other sessions in Account."
+    },
+    "safetyAction": "Account security",
+    "faqTitle": "Frequently asked questions",
+    "faqAll": "All topics",
+    "faqEmpty": "No question matches \"{query}\". Try fewer words, or pick a channel below.",
+    "faqClear": "Clear search",
+    "faq": {
+      "deliveryTime": {
+        "q": "How soon do I receive what I bought?",
+        "a": "Packages marked instant show the goods in your order right after payment. Other packages are delivered by the shop within the hours shown on the package; if the shop misses that deadline, the order is cancelled and the full amount goes back to your wallet."
+      },
+      "findDelivery": {
+        "q": "Where do I find the goods I bought?",
+        "a": "Open Orders and select the order. The delivery panel lists every line (#01, #02 …) with copy buttons and a .txt download. Proxies and API keys have their own panel in the same order."
+      },
+      "autoComplete": {
+        "q": "When does an order complete on its own?",
+        "a": "When the protection time shown in the order ends without an open dispute. The shop is then paid and the order can no longer be disputed, so check the goods early."
+      },
+      "topUp": {
+        "q": "How do I top up my wallet?",
+        "a": "Go to Wallet, enter an amount and choose bank transfer (VietQR) or USDT. For a bank transfer, keep the transfer message exactly as shown — it is how the payment is matched to your wallet."
+      },
+      "depositMissing": {
+        "q": "I paid, but my wallet was not credited. What now?",
+        "a": "Check that the transfer message and amount match the top-up request and that you paid before it expired. Keep the NAP-… code from the request and the bank transaction reference; you will need both if someone has to check the payment."
+      },
+      "refundDestination": {
+        "q": "Where does a refund go?",
+        "a": "Back to your GMMO wallet, as available balance you can spend on the next order."
+      },
+      "forgotPassword": {
+        "q": "I forgot my password.",
+        "a": "Use \"Forgot password\" on the sign-in page. We email a reset link to the address on your account."
+      },
+      "strangeSession": {
+        "q": "I see a sign-in I do not recognise.",
+        "a": "Change your password in Account, then sign out the other sessions listed there. Changing the password also signs out every other device."
+      },
+      "whenDispute": {
+        "q": "When can I open a dispute?",
+        "a": "Once the order is delivered and while its protection time is still running. Open the order, choose what is wrong and, for accounts, the exact lines (#01, #02 …) that do not work."
+      },
+      "evidence": {
+        "q": "What evidence helps?",
+        "a": "Screenshots of the error, the time it happened and what you expected. Attach images to the dispute and hide passwords, codes and full card numbers first."
+      },
+      "platformReview": {
+        "q": "The shop and I cannot agree. Can GMMO decide?",
+        "a": "Yes. From an open dispute, ask GMMO to review it with a short note. While the review is open the escrow stays held, and the decision is recorded in the order."
+      },
+      "openShop": {
+        "q": "How do I open a shop?",
+        "a": "Read the seller guide, then submit the three-step application. Every shop is reviewed before it can list products."
+      },
+      "sellerPayout": {
+        "q": "When do sellers get paid?",
+        "a": "Each order's money reaches the seller's wallet when its escrow time ends without a dispute, minus the platform fee. The payout schedule is on the seller's Withdrawals page."
+      },
+      "neverOtp": {
+        "q": "Someone says they are from GMMO and asks for a code.",
+        "a": "It is not GMMO. We never ask for passwords, verification codes or recovery codes. Stop replying and change your password if you already shared one."
+      },
+      "offPlatform": {
+        "q": "A shop asks me to pay outside GMMO.",
+        "a": "Decline. Only payments made through GMMO are held in escrow and can be disputed. Messages carrying outside contact details may be blocked."
+      }
+    },
+    "contactTitle": "Still need help?",
+    "contactLead": "Use the channel that already has your order details — it is the fastest way to a solution.",
+    "channels": {
+      "order": {
+        "title": "A problem with an order",
+        "body": "Open the order and start a dispute. The shop, the delivery and the conversation are already attached.",
+        "action": "Go to orders"
+      },
+      "shop": {
+        "title": "A question for a shop",
+        "body": "Message the shop from its product page or from your order. Keep every exchange on GMMO.",
+        "action": "Open messages"
+      },
+      "platform": {
+        "title": "Contact GMMO",
+        "body": "For anything else, see the contact details published by GMMO.",
+        "action": "Contact details"
+      }
+    },
+    "policiesTitle": "Policies",
+    "sellerGuide": "Seller guide"
+  },
+  "sell": {
+    "title": "Sell digital goods to buyers who pay first",
+    "lead": "Every buyer pays into escrow before you deliver. You keep your stock and your prices; GMMO handles payment, delivery records and disputes.",
+    "ctaApply": "Start your application",
+    "ctaLogin": "Sign in to apply",
+    "ctaSeller": "Open your seller portal",
+    "ctaPending": "Check your application",
+    "ctaFees": "See fees and payouts",
+    "points": {
+      "free": "Applying is free",
+      "reviewed": "Every shop is reviewed before selling",
+      "escrow": "Paid through escrow, never off-platform"
+    },
+    "processTitle": "From application to first sale",
+    "process": {
+      "apply": {
+        "title": "Apply",
+        "body": "Shop name, what you sell, how to reach you."
+      },
+      "review": {
+        "title": "GMMO reviews",
+        "body": "We check the application and may ask for more."
+      },
+      "sell": {
+        "title": "Open your shop",
+        "body": "List products, stock them and start taking orders."
+      }
+    },
+    "toolsTitle": "What you get once approved",
+    "tools": {
+      "stock": {
+        "title": "Stock and instant delivery",
+        "body": "Upload lines in bulk; each paid order gets its lines automatically, numbered #01, #02…"
+      },
+      "api": {
+        "title": "Sell through your own API",
+        "body": "Register your server as a provider; once approved, buyers get keys or tasks without you lifting a finger."
+      },
+      "orders": {
+        "title": "Orders and disputes",
+        "body": "Delivery deadlines, delivery records and dispute replies in one console."
+      },
+      "messages": {
+        "title": "Messages with buyers",
+        "body": "Answer questions before and after a sale in one inbox."
+      },
+      "payouts": {
+        "title": "Revenue and withdrawals",
+        "body": "Revenue charts, a payout schedule per day and withdrawals to your bank."
+      },
+      "tiers": {
+        "title": "Shop tiers",
+        "body": "Higher tiers can list more products, withdraw more at once and pay lower fees."
+      }
+    },
+    "feesTitle": "Fees and payouts",
+    "feesLead": "Figures below are the platform's current settings; a category may have its own fee or minimum hold.",
+    "flow": {
+      "pay": {
+        "title": "Buyer pays",
+        "body": "The money goes into GMMO escrow."
+      },
+      "hold": {
+        "title": "Held {days} days",
+        "body": "Default hold after delivery, never under {min} days. The buyer can dispute in this time.",
+        "bodyNoMin": "Counted from delivery. The buyer can open a dispute during this time."
+      },
+      "credit": {
+        "title": "Credited to you",
+        "body": "Minus the platform fee of {fee}% of the order.",
+        "bodyNoFee": "No platform fee is charged at the moment."
+      },
+      "withdraw": {
+        "title": "Withdraw",
+        "body": "{min}; {fee}.",
+        "minFrom": "From {amount}",
+        "minNone": "No minimum",
+        "feeIs": "fee {fee}",
+        "feeNone": "no fee"
+      }
+    },
+    "feeTable": {
+      "platformFee": "Platform fee",
+      "platformFeeValue": "{fee}% per completed order",
+      "hold": "Escrow hold",
+      "holdValue": "{days} days by default (at least {min})",
+      "withdrawMin": "Minimum withdrawal",
+      "withdrawFee": "Withdrawal fee",
+      "disputeResponse": "Time to answer a dispute",
+      "disputeResponseValue": "{hours} hours",
+      "disputeResponseOff": "No fixed deadline",
+      "platformFeeNone": "None at the moment",
+      "holdValueNoMin": "{days} days by default",
+      "none": "None",
+      "free": "Free"
+    },
+    "feesUnavailable": "Fee settings could not be loaded right now.",
+    "tiersTitle": "Shop tiers",
+    "tiersLead": "GMMO assigns tiers to shops. Each tier's limits and benefits:",
+    "tierColumns": {
+      "tier": "Tier",
+      "products": "Products on sale",
+      "withdraw": "Max per withdrawal",
+      "fee": "Fee discount",
+      "hold": "Shorter hold"
+    },
+    "unlimited": "Unlimited",
+    "percentPoints": "−{value} pts",
+    "days": "−{value} days",
+    "none": "—",
+    "rulesTitle": "Before you apply",
+    "rules": {
+      "identity": {
+        "title": "Who you are",
+        "body": "A real name or business, an email you read and a way GMMO can reach you."
+      },
+      "shop": {
+        "title": "Your shop",
+        "body": "A clear name, what you sell and how you handle replacements."
+      },
+      "goods": {
+        "title": "What you sell",
+        "body": "Only goods you have the right to sell, delivered exactly as described."
+      }
+    },
+    "bannedTitle": "Not allowed on GMMO",
+    "banned": {
+      "stolen": "Hacked, stolen or leaked accounts and data",
+      "malware": "Malware, attack tools, spam or phishing kits",
+      "payments": "Bank accounts, cards, e-wallets or other payment instruments",
+      "piracy": "Keys or software you have no right to distribute",
+      "resale": "The same line sold to more than one buyer, unless the listing says it is shared"
+    },
+    "termsLink": "Read the full terms",
+    "faqTitle": "Questions from sellers",
+    "faq": {
+      "review": {
+        "q": "How long does the review take?",
+        "a": "Your application page shows its status and updates by itself. You will also get an email when it is approved or declined."
+      },
+      "payout": {
+        "q": "When does money reach my wallet?",
+        "a": "When each order's hold time ends without a dispute, or earlier if the buyer confirms. The seller Withdrawals page lists what will be released each day."
+      },
+      "dispute": {
+        "q": "What happens when a buyer disputes?",
+        "a": "The money stays held. You reply in the order — replace the item, refund it or explain — and either side can ask GMMO to review."
+      },
+      "api": {
+        "q": "Can I resell proxies or API access?",
+        "a": "Yes, through your own server registered as a provider. GMMO approves the provider before its products go on sale."
+      },
+      "tier": {
+        "q": "How do tiers work?",
+        "a": "GMMO assigns each shop a tier. The table above shows what each tier changes."
+      }
+    },
+    "finalTitle": "Ready to open your shop?",
+    "finalBody": "The application takes a few minutes and you can come back to it later."
+  },
+  "helpdesk": {
+    "launcher": "Chat with GMMO",
+    "launcherUnread": "Chat with GMMO, {count, plural, one {# new message} other {# new messages}}",
+    "title": "Chat with GMMO",
+    "subtitle": "The GMMO team answers here and in your inbox.",
+    "openInbox": "Open in inbox",
+    "close": "Close",
+    "deskName": "GMMO",
+    "emptyTitle": "How can we help?",
+    "emptyBody": "Ask about a top-up, an order, your account or selling. For an order problem, include the order code (ORD-…).",
+    "topics": {
+      "deposit": {
+        "label": "Top-up not credited",
+        "prefill": "My top-up hasn't reached my wallet. Request code: NAP-"
+      },
+      "order": {
+        "label": "An order",
+        "prefill": "I need help with order ORD-"
+      },
+      "account": {
+        "label": "Account & security",
+        "prefill": "I need help with my account: "
+      },
+      "selling": {
+        "label": "Selling on GMMO",
+        "prefill": "I have a question about selling: "
+      }
+    },
+    "helpCenter": "Browse the help center",
+    "input": "Write a message…",
+    "send": "Send",
+    "sendFailed": "Couldn't send. Your message is still in the box.",
+    "loadFailed": "Couldn't load the chat.",
+    "retry": "Retry",
+    "signedOutTitle": "Sign in to chat with GMMO",
+    "signedOutBody": "Chats are tied to your account so we can check your orders and top-ups.",
+    "signIn": "Sign in"
+  },
+  "questions": {
+    "title": "Questions & answers",
+    "shopAnswer": "Shop's answer",
+    "empty": "No answered questions yet. Ask the shop anything about this product.",
+    "loadFailed": "Couldn't load the questions.",
+    "newer": "Newer",
+    "older": "Older",
+    "yours": "Your questions",
+    "status": {
+      "pending": "Waiting for the shop",
+      "answered": "Answered",
+      "hidden": "Not shown"
+    },
+    "askLabel": "Ask the shop",
+    "askPlaceholder": "e.g. Can I change the password after receiving it?",
+    "askHint": "Shown publicly once the shop answers. Don't share phone numbers or contacts outside GMMO.",
+    "askSent": "Sent. You'll be notified when the shop answers.",
+    "askFailed": "Couldn't send the question.",
+    "askSubmit": "Send question",
+    "signIn": "Sign in",
+    "signInToAsk": "to ask the shop a question."
+  },
+  "blog": {
+    "metaTitle": "Guides & news — GMMO",
+    "metaDescription": "How to buy, top up and sell safely on GMMO, and what changes on the marketplace.",
+    "title": "Guides & news",
+    "lead": "How to buy, top up and sell safely, and what's new on GMMO.",
+    "categoriesLabel": "Categories",
+    "all": "All",
+    "categories": {
+      "guide": "Guides",
+      "news": "Marketplace news"
+    },
+    "empty": "No posts yet",
+    "emptyHint": "The help center already answers the most common questions.",
+    "loadFailed": "Couldn't load the posts.",
+    "helpCenter": "Open the help center",
+    "pagination": "Pages",
+    "newer": "Newer posts",
+    "older": "Older posts",
+    "back": "All posts",
+    "helpTitle": "Still stuck?",
+    "helpBody": "Search the help center or chat with GMMO from any page."
   }
 }

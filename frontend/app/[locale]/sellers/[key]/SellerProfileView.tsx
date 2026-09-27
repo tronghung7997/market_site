@@ -14,8 +14,11 @@ import { productPath, sellerPath } from "@/lib/routes";
 import { productStockState } from "@/lib/stock";
 import { Card, Tag } from "@/components/ui";
 import { MediaImage } from "@/components/media/MediaImage";
-import { Check, ChevronRight, Package, Shield, Star, Verified, X } from "@/components/Icons";
+import { Check, ChevronRight, Package, Search, Shield, ShieldCheck, Star, Verified, X } from "@/components/Icons";
 import StartSellerInquiryDialog from "@/components/chat/StartSellerInquiryDialog";
+import { ShopReviews } from "@/features/reviews";
+import { SellerPresence, TrustBadge } from "@/features/sellers";
+import { filterShopProducts, isShopSort, SHOP_SORTS, type ShopSort } from "./shop-model";
 
 type StockState = "in_stock" | "manual" | "out_of_stock" | "auto";
 
@@ -63,6 +66,8 @@ export default function SellerProfileView({ initial }: { initial: SellerPageCata
   const { seller, products, categories } = initial;
   const error = initial.error === "load" ? t("productsLoadError") : null;
   const [activeCategory, setActiveCategory] = useState<number | null>(null);
+  const [query, setQuery] = useState("");
+  const [sort, setSort] = useState<ShopSort>("bestseller");
 
   const stockLabel = (state: StockState) => {
     switch (state) {
@@ -94,8 +99,8 @@ export default function SellerProfileView({ initial }: { initial: SellerPageCata
   }, [categories, products]);
 
   const visibleProducts = useMemo(
-    () => (activeCategory == null ? products : products.filter((p) => p.category_id === activeCategory)),
-    [products, activeCategory],
+    () => filterShopProducts(products, { query, categoryId: activeCategory, sort }),
+    [products, activeCategory, query, sort],
   );
 
   const totalSold = useMemo(() => products.reduce((sum, p) => sum + (p.sold_count ?? 0), 0), [products]);
@@ -113,7 +118,6 @@ export default function SellerProfileView({ initial }: { initial: SellerPageCata
   }
 
   const displayName = seller.display_name;
-  const hasLeftCol = !!seller.bio || sellerCategories.length > 0;
 
   const stats: { label: string; value: string; icon: ReactNode }[] = [
     {
@@ -176,10 +180,13 @@ export default function SellerProfileView({ initial }: { initial: SellerPageCata
                     ? <MediaImage image={seller.tier_badge} alt="" className="h-3.5 w-3.5 rounded-sm" />
                     : <Verified size={10} />} {tierLabel(seller.seller_tier)}
                 </span>
+                <TrustBadge seller={seller} />
+                <span className="inline-flex items-center gap-1 text-[12px] text-good"><Verified size={11} /> {t("approvedShop")}</span>
                 {seller.member_since && (
                   <span className="text-[12px] text-faint">{t("memberSince", { date: formatDate(seller.member_since) })}</span>
                 )}
               </div>
+              <SellerPresence seller={seller} className="mt-2" />
               <div className="mt-3">
                 <StartSellerInquiryDialog sellerHref={sellerPath(seller)} sellerName={displayName} products={products} />
               </div>
@@ -203,57 +210,100 @@ export default function SellerProfileView({ initial }: { initial: SellerPageCata
       </Card>
 
       <div className="mt-6">
-        <div className={hasLeftCol ? "grid gap-6 lg:grid-cols-[240px_1fr] items-start" : ""}>
-          {hasLeftCol && (
-            <div className="flex flex-col gap-4">
-              {seller.bio && (
-                <Card className="p-5">
-                  <div className="text-[11px] font-semibold uppercase tracking-wider text-faint mb-2">{t("about")}</div>
-                  <p className="text-[13.5px] text-muted leading-relaxed whitespace-pre-wrap">{seller.bio}</p>
-                </Card>
-              )}
-              {sellerCategories.length > 0 && (
-                <Card className="p-5">
-                  <div className="flex items-center justify-between mb-2.5">
-                    <div className="text-[11px] font-semibold uppercase tracking-wider text-faint">{t("categories")}</div>
-                    {activeCategory != null && (
+        <div className="grid gap-6 lg:grid-cols-[240px_1fr] items-start">
+          <div className="flex flex-col gap-4">
+            {seller.bio && (
+              <Card className="p-5">
+                <div className="text-[11px] font-semibold uppercase tracking-wider text-faint mb-2">{t("about")}</div>
+                <p className="text-[13.5px] text-muted leading-relaxed whitespace-pre-wrap">{seller.bio}</p>
+              </Card>
+            )}
+            {sellerCategories.length > 0 && (
+              <Card className="p-5">
+                <div className="flex items-center justify-between mb-2.5">
+                  <div className="text-[11px] font-semibold uppercase tracking-wider text-faint">{t("categories")}</div>
+                  {activeCategory != null && (
+                    <button
+                      onClick={() => setActiveCategory(null)}
+                      className="flex items-center gap-0.5 text-[11px] text-iris hover:text-iris-hi transition-colors cursor-pointer"
+                    >
+                      <X size={11} /> {t("clearFilter")}
+                    </button>
+                  )}
+                </div>
+                <div className="flex flex-wrap gap-1.5">
+                  {sellerCategories.map((c) => {
+                    const active = activeCategory === c.id;
+                    return (
                       <button
-                        onClick={() => setActiveCategory(null)}
-                        className="flex items-center gap-0.5 text-[11px] text-iris hover:text-iris-hi transition-colors cursor-pointer"
+                        key={c.id}
+                        onClick={() => setActiveCategory(active ? null : c.id)}
+                        className={
+                          active
+                            ? "inline-flex items-center gap-1 rounded-full border border-iris bg-iris px-2.5 py-1 text-[12px] font-medium text-white transition-colors cursor-pointer"
+                            : "inline-flex items-center gap-1 rounded-full border border-line bg-raised px-2.5 py-1 text-[12px] font-medium text-muted hover:border-iris/40 hover:text-fg transition-colors cursor-pointer"
+                        }
                       >
-                        <X size={11} /> {t("clearFilter")}
+                        {c.name} <span className={active ? "text-white/70" : "text-faint"}>({c.count})</span>
                       </button>
-                    )}
-                  </div>
-                  <div className="flex flex-wrap gap-1.5">
-                    {sellerCategories.map((c) => {
-                      const active = activeCategory === c.id;
-                      return (
-                        <button
-                          key={c.id}
-                          onClick={() => setActiveCategory(active ? null : c.id)}
-                          className={
-                            active
-                              ? "inline-flex items-center gap-1 rounded-full border border-iris bg-iris px-2.5 py-1 text-[12px] font-medium text-white transition-colors cursor-pointer"
-                              : "inline-flex items-center gap-1 rounded-full border border-line bg-raised px-2.5 py-1 text-[12px] font-medium text-muted hover:border-iris/40 hover:text-fg transition-colors cursor-pointer"
-                          }
-                        >
-                          {c.name} <span className={active ? "text-white/70" : "text-faint"}>({c.count})</span>
-                        </button>
-                      );
-                    })}
-                  </div>
-                </Card>
-              )}
-            </div>
-          )}
+                    );
+                  })}
+                </div>
+              </Card>
+            )}
+            <Card className="p-5">
+              <h2 className="flex items-center gap-2 text-[13.5px] font-medium"><ShieldCheck size={15} className="text-good" /> {t("commitTitle")}</h2>
+              <ul className="mt-3 space-y-2">
+                {[t("commitEscrow"), t("commitEvidence"), t("commitDispute"), t("commitOffPlatform")].map((line) => (
+                  <li key={line} className="flex items-start gap-2 text-[12.5px] leading-relaxed text-muted">
+                    <Check size={13} className="mt-0.5 shrink-0 text-good" />
+                    <span>{line}</span>
+                  </li>
+                ))}
+              </ul>
+              <Link href="/legal/escrow" className="mt-3 inline-block text-[12.5px] font-medium text-iris-hi hover:underline">{t("escrowPolicy")}</Link>
+            </Card>
+          </div>
 
           <div className="min-w-0">
-            <h2 className="font-serif text-[18px] tracking-tight mb-4">{t("productsForSale", { count: visibleProducts.length })}</h2>
+            <div className="mb-4 flex flex-col gap-3 sm:flex-row sm:items-center sm:justify-between">
+              <h2 className="font-serif text-[18px] tracking-tight">{t("productsForSale", { count: visibleProducts.length })}</h2>
+              {products.length > 1 && (
+                <div className="flex items-center gap-2">
+                  <div className="relative min-w-0 flex-1 sm:w-56 sm:flex-none">
+                    <Search size={14} className="pointer-events-none absolute left-3 top-1/2 -translate-y-1/2 text-faint" />
+                    <input
+                      type="search"
+                      value={query}
+                      onChange={(e) => setQuery(e.target.value)}
+                      placeholder={t("searchInShop")}
+                      aria-label={t("searchInShop")}
+                      className="h-9 w-full rounded-lg border border-line bg-surface pl-9 pr-3 text-[13px] placeholder:text-faint focus:border-iris focus:outline-none focus:ring-1 focus:ring-iris/30"
+                    />
+                  </div>
+                  <label className="inline-flex h-9 shrink-0 items-center gap-2 rounded-lg border border-line bg-surface pl-3 pr-2 text-[12.5px] text-muted focus-within:border-iris">
+                    <span className="sr-only sm:not-sr-only">{t("sortLabel")}</span>
+                    <select
+                      value={sort}
+                      onChange={(e) => { if (isShopSort(e.target.value)) setSort(e.target.value); }}
+                      aria-label={t("sortLabel")}
+                      className="h-full bg-transparent font-medium text-fg focus:outline-none cursor-pointer"
+                    >
+                      {SHOP_SORTS.map((key) => <option key={key} value={key}>{t(`sort_${key}`)}</option>)}
+                    </select>
+                  </label>
+                </div>
+              )}
+            </div>
             {error && <Card className="mb-4 p-4 text-bad text-sm">{error}</Card>}
             {visibleProducts.length === 0 ? (
               <Card className="p-6 text-muted text-sm">
-                {products.length === 0 ? t("noProducts") : t("noProductsInCategory")}
+                {products.length === 0 ? t("noProducts") : query.trim() ? (
+                  <span className="flex flex-wrap items-center gap-2">
+                    {t("noSearchMatch", { query: query.trim() })}
+                    <button type="button" onClick={() => setQuery("")} className="font-medium text-iris-hi hover:underline">{t("clearSearch")}</button>
+                  </span>
+                ) : t("noProductsInCategory")}
               </Card>
             ) : (
               <div className="grid gap-4 sm:grid-cols-2 xl:grid-cols-3">
@@ -316,6 +366,8 @@ export default function SellerProfileView({ initial }: { initial: SellerPageCata
           </div>
         </div>
       </div>
+
+      <ShopReviews sellerKey={seller.public_key} sellerName={displayName} />
     </div>
   );
 }

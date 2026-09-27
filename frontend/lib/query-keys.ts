@@ -6,6 +6,10 @@ export const queryKeys = {
   chatList: () => ["chat", "list"] as const,
   chatDetail: (id: string) => ["chat", "detail", id] as const,
   adminSupportList: () => ["chat", "admin-support"] as const,
+  helpdesk: () => ["chat", "helpdesk"] as const,
+  productQuestions: (productId: number, page: number) => ["product-questions", productId, page] as const,
+  myProductQuestions: (productId: number) => ["product-questions", productId, "mine"] as const,
+  sellerQuestions: (status: string, page: number) => ["seller-questions", status, page] as const,
   // Orders
   orders: (filters?: Record<string, unknown> | null, accountId?: number | null) =>
     accountId == null
@@ -37,6 +41,9 @@ export const queryKeys = {
   adminCategories: () => ["admin", "categories"] as const,
   adminBusinessAnalytics: (params: Record<string, unknown>) => ["admin", "business-analytics", params] as const,
   adminBusinessFilterOptions: () => ["admin", "business-analytics", "filters"] as const,
+  /** Public reviews of one shop (all its products), by page and star filter. */
+  shopReviews: (sellerKey: string, params: { page: number; rating: number | null }) =>
+    ["shop-reviews", sellerKey, params] as const,
   sellerReviews: (params?: Record<string, unknown>) =>
     params ? (["seller-reviews", params] as const) : (["seller-reviews"] as const),
   adminReviews: (params?: Record<string, unknown>) =>

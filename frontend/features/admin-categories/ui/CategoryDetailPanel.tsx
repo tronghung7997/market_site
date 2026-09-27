@@ -15,6 +15,7 @@ import { AlertTriangle, ChevronRight, ExternalLink } from "@/components/Icons";
 import { categoryCoverId, CoverPicker, ProductCover } from "@/features/product-covers";
 import { ImageUploader, type UploaderImage } from "@/components/media/ImageUploader";
 import { descendantIds, pathTo, slugFromName } from "../model";
+import { CategoryContentEditor } from "./CategoryContentEditor";
 
 export type PanelMode = { kind: "create"; parentId: number | null } | { kind: "edit"; id: number };
 
@@ -322,6 +323,8 @@ export function CategoryDetailPanel({ mode, row, rows, fees, onClose, onOpen, on
               </p>
             </div>
           </Section>
+
+          {row && <CategoryContentEditor categoryId={row.id} />}
 
           {row && (
             <Section title="Sản phẩm & danh mục con">

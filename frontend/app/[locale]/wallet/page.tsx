@@ -1,8 +1,9 @@
 "use client";
 
-import { useRouter } from "@/i18n/navigation";
+import { Link, useRouter } from "@/i18n/navigation";
+import { useSearchParams } from "next/navigation";
 import { useLocale, useTranslations } from "next-intl";
-import { useEffect, useState } from "react";
+import { Suspense, useEffect, useState } from "react";
 import { useQueryClient } from "@tanstack/react-query";
 import { api } from "@/lib/api";
 import { useApiErrorMessage } from "@/lib/use-api-error";
@@ -10,14 +11,35 @@ import { useAuth } from "@/lib/auth";
 import { useMoney } from "@/lib/money";
 import { queryKeys } from "@/lib/query-keys";
 import { useWalletBalance, useWalletDeposits, useWalletTransactions, useWalletWithdrawals } from "@/hooks/use-wallet";
-import { Button, Card, Spinner, Tag } from "@/components/ui";
+import { Banner, Button, Card, Spinner, Tag } from "@/components/ui";
 import { MoneyInput } from "@/components/MoneyInput";
-import { Wallet as WalletIcon } from "@/components/Icons";
+import { ArrowRight, Info, Wallet as WalletIcon } from "@/components/Icons";
 import DepositCard from "./DepositCard";
 import TransactionList from "./TransactionList";
 import { WithdrawCard, WithdrawHistory } from "./WithdrawCard";
+import { DepositHistory, TopUpGuide } from "./WalletGuide";
+
+/** `?amount=` from the checkout shortfall link (ledger VND, positive integer). */
+function prefillAmount(raw: string | null): number | null {
+  const n = Number(raw);
+  return Number.isInteger(n) && n > 0 ? n : null;
+}
+
+/** `?return=` must be a local path: never an absolute or protocol-relative URL. */
+function localReturnPath(raw: string | null): string | null {
+  return raw && raw.startsWith("/") && !raw.startsWith("//") ? raw : null;
+}
 
 export default function WalletPage() {
+  // useSearchParams (checkout prefill/return link) needs a Suspense boundary.
+  return (
+    <Suspense fallback={<div className="w-full mx-auto max-w-[1200px] px-6 py-16"><Spinner /></div>}>
+      <WalletPageInner />
+    </Suspense>
+  );
+}
+
+function WalletPageInner() {
   const t = useTranslations("wallet");
   const locale = useLocale();
   const { formatBrowseMoney } = useMoney();
@@ -25,6 +47,9 @@ export default function WalletPage() {
   const router = useRouter();
   const queryClient = useQueryClient();
   const isSeller = !!account?.roles.includes("seller");
+  const searchParams = useSearchParams();
+  const prefill = prefillAmount(searchParams.get("amount"));
+  const returnPath = localReturnPath(searchParams.get("return"));
   const ready = !authLoading && !!account;
 
   const balanceQ = useWalletBalance(ready);
@@ -57,7 +82,22 @@ export default function WalletPage() {
   if (authLoading || balanceQ.isPending || txQ.isPending) return <div className="w-full mx-auto max-w-[1200px] px-6 py-16"><Spinner /></div>;
 
   return (
-    <div className="w-full mx-auto max-w-[1200px] px-6 py-10">
+    <div className="w-full mx-auto max-w-[1200px] px-4 sm:px-6 py-8 sm:py-10">
+      {returnPath && (
+        <Banner
+          tone="iris"
+          icon={<Info size={15} />}
+          title={t("returnTitle")}
+          className="mb-5"
+          action={
+            <Link href={returnPath} className="inline-flex items-center gap-1 text-[12.5px] font-medium underline underline-offset-2">
+              {t("returnAction")} <ArrowRight size={13} />
+            </Link>
+          }
+        >
+          <span className="text-fg/80">{t("returnBody")}</span>
+        </Banner>
+      )}
       <div className="grid lg:grid-cols-[380px_1fr] gap-6">
         <div className="space-y-5">
           <Card className="aura p-6">
@@ -94,18 +134,22 @@ export default function WalletPage() {
             )}
           </Card>
 
-          <DepositCard deposits={deposits} onChanged={onChanged} />
+          <DepositCard deposits={deposits} onChanged={onChanged} prefillVnd={prefill} />
           {process.env.NEXT_PUBLIC_ENABLE_DEMO_TOPUP === "true" && <DemoTopup onChanged={onChanged} />}
           {isSeller && <WithdrawCard wallet={wallet} onChanged={onChanged} />}
           {isSeller && <WithdrawHistory withdrawals={withdrawals} />}
         </div>
 
-        <div className="min-w-0">
-          <div className="mb-3 flex items-center justify-between">
-            <span className="text-[13px] font-semibold">{t("txTitle")}</span>
-            <Button variant="ghost" size="sm" onClick={() => router.push("/transactions")}>{t("txViewAll")}</Button>
+        <div className="min-w-0 space-y-6">
+          <TopUpGuide />
+          <div>
+            <div className="mb-3 flex items-center justify-between">
+              <span className="text-[13px] font-semibold">{t("txTitle")}</span>
+              <Button variant="ghost" size="sm" onClick={() => router.push("/transactions")}>{t("txViewAll")}</Button>
+            </div>
+            <TransactionList txs={txs.slice(0, 6)} showHeader={false} />
           </div>
-          <TransactionList txs={txs.slice(0, 6)} showHeader={false} />
+          <DepositHistory deposits={deposits} loading={depositsQ.isPending} error={depositsQ.isError} />
         </div>
       </div>
     </div>

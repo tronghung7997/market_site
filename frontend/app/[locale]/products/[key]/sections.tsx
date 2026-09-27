@@ -180,12 +180,16 @@ export function WarrantyCard({ product }: { product: ProductDetail }) {
             </div>
           ))}
         </div>
+        <div className="flex flex-wrap gap-x-4 gap-y-1 text-[12.5px] font-medium">
+          <Link href="/legal/escrow" className="text-iris-hi hover:underline">{t("escrowPolicy")}</Link>
+          <Link href="/legal/dispute" className="text-iris-hi hover:underline">{t("disputePolicy")}</Link>
+        </div>
       </div>
     </Card>
   );
 }
 
-export function RelatedProducts({ items }: { items: Product[] }) {
+export function RelatedProducts({ items, title }: { items: Product[]; title?: string }) {
   const t = useTranslations("products");
   const tc = useTranslations("common");
   const locale = useLocale();
@@ -193,7 +197,7 @@ export function RelatedProducts({ items }: { items: Product[] }) {
   if (items.length === 0) return null;
   return (
     <section>
-      <h2 className="font-serif text-[16px] font-semibold tracking-tight mb-3">{t("related")}</h2>
+      <h2 className="font-serif text-[16px] font-semibold tracking-tight mb-3">{title ?? t("related")}</h2>
       <div className="grid gap-3 sm:grid-cols-3">
         {items.map((r) => {
           const rPrice = effectiveMinPrice(r);

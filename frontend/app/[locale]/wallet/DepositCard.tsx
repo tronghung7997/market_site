@@ -64,9 +64,11 @@ function formatUsdAmount(usd: number, locale: string): string {
 /** Keep USD typing bounded so JS number + FX math stay sane. */
 const USD_INPUT_MAX_INT_DIGITS = 9;
 
-export default function DepositCard({ deposits, onChanged }: {
+export default function DepositCard({ deposits, onChanged, prefillVnd = null }: {
   deposits: DepositIntent[];
   onChanged: () => Promise<void>;
+  /** Amount the buyer came to top up (checkout shortfall), in ledger VND. */
+  prefillVnd?: number | null;
 }) {
   const t = useTranslations("wallet");
   const apiErrorMessage = useApiErrorMessage();
@@ -188,6 +190,20 @@ export default function DepositCard({ deposits, onChanged }: {
     if (maxUsd != null) return formatUsdAmount(maxUsd, locale);
     return formatLedgerMoney(maxVnd, locale);
   }, [maxUsd, maxVnd, locale, formatLedgerMoney]);
+
+  // Prefill once from the checkout shortfall, raised to the rail minimum so
+  // the request is valid; the buyer can still edit it.
+  const prefilled = useRef(false);
+  useEffect(() => {
+    if (prefilled.current || !prefillVnd || methodsState.status !== "ready" || amount) return;
+    prefilled.current = true;
+    const vnd = Math.min(Math.max(prefillVnd, minVnd), maxVnd);
+    if (currency === "USD" && fxRate && fxRate > 0) {
+      setAmount(String(Math.ceil((vnd / fxRate) * 100) / 100));
+    } else {
+      setAmount(String(vnd));
+    }
+  }, [amount, currency, fxRate, maxVnd, methodsState.status, minVnd, prefillVnd]);
 
   const pending = deposits.filter((d) => d.status === "pending");
   const recent = deposits.filter((d) => d.status !== "pending").slice(0, 3);

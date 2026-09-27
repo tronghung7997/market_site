@@ -16,6 +16,7 @@ import { formatDate, formatDateTime } from "@/lib/utils";
 import { fulfillmentFromStrategy } from "@/lib/fulfillment";
 import type { Order } from "@/lib/types";
 import { Button, Tag } from "@/components/ui";
+import { InspectionPanel } from "./trust";
 import { ArrowRight, Check, Clock, Copy, Download, Eye, EyeOff, Key, ShieldCheck, X } from "@/components/Icons";
 
 const ORDER_POLL_MS = 3000;
@@ -109,7 +110,7 @@ function StockDelivery({ order }: { order: Order }) {
         </Button>
       </div>
       {error && <p role="alert" className="text-[11.5px] text-bad">{error}</p>}
-      {order.escrow_expires_at && (
+      {order.escrow_expires_at && order.status !== "delivered" && (
         <p className="flex items-start gap-1.5 text-[11.5px] leading-5 text-muted">
           <ShieldCheck size={14} className="mt-0.5 shrink-0 text-good" />
           <span>{t("orderEscrowNote", { date: formatDate(order.escrow_expires_at, locale) })}</span>
@@ -356,10 +357,12 @@ function ProvisionSteps({ elapsed, workingLabel, nextLabel }: { elapsed: string;
   );
 }
 
-export default function OrderResult({ order: initial, onRebuy, fulfillment, deliveryMode, slaHours }: {
+export default function OrderResult({ order: initial, onRebuy, fulfillment, deliveryMode, slaHours, inspectionSteps }: {
   order: Order; onRebuy: () => void; fulfillment?: string | null;
   /** From the variant the buyer picked; the create response does not carry them. */
   deliveryMode?: string | null; slaHours?: number | null;
+  /** The product's "check before you confirm" list, shown while protection runs. */
+  inspectionSteps?: string[] | null;
 }) {
   const t = useTranslations("products");
   const tc = useTranslations("common");
@@ -490,6 +493,10 @@ export default function OrderResult({ order: initial, onRebuy, fulfillment, deli
         <TextDelivery text={deliveryText} />
       ) : (
         <p className="text-[12.5px] text-muted">{t("orderSellerSla")}</p>
+      )}
+
+      {order.status === "delivered" && order.escrow_expires_at && (
+        <InspectionPanel orderCode={order.order_code} escrowExpiresAt={order.escrow_expires_at} steps={inspectionSteps} />
       )}
 
       <div className="flex gap-2">

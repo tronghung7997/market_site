@@ -13,9 +13,18 @@ import { DisplayCurrencyInput } from "@/components/DisplayCurrencyInput";
 import { Wallet as WalletIcon } from "@/components/Icons";
 import { ImageStrip } from "@/components/media/ImageStrip";
 import { privateImageBase, privateImageSource } from "@/lib/media";
+import { EscrowSchedule } from "./EscrowSchedule";
+
+const WITHDRAW_TONE: Record<string, "good" | "bad" | "warn"> = {
+  pending: "warn",
+  approved: "good",
+  paid: "good",
+  rejected: "bad",
+};
 
 export default function SellerWithdrawalsPage() {
   const t = useTranslations("seller");
+  const tw = useTranslations("status.withdraw");
   const apiErrorMessage = useApiErrorMessage();
   const locale = useLocale();
   const { formatBrowseMoney } = useMoney();
@@ -203,48 +212,51 @@ export default function SellerWithdrawalsPage() {
           </Card>
         </div>
 
-        <Card className="overflow-hidden">
-          <div className="px-5 py-3 border-b border-line bg-raised/30">
-            <span className="text-[13px] font-semibold">{t("withdrawRequests")}</span>
-          </div>
-          {reqs.length === 0 ? (
-            <p className="p-8 text-center text-[13px] text-muted">
-              {t("noWithdrawals")}
-            </p>
-          ) : (
-            <div className="divide-y divide-line">
-              {reqs.map((r) => {
-                const statuses = { pending: { label: t("pendingWithdrawal"), tone: "warn" as const }, approved: { label: t("approvedWithdrawal"), tone: "good" as const }, rejected: { label: t("rejectedWithdrawal"), tone: "bad" as const } };
-                const s = statuses[r.status as keyof typeof statuses] ?? { label: r.status, tone: "warn" as const };
-                return (
-                  <div key={r.id} className="flex items-center gap-4 px-5 py-3.5">
-                    <div className="min-w-0 flex-1">
-                      <div className="font-mono text-[14px] font-semibold tabular">{formatBrowseMoney(r.amount, { locale })}</div>
-                      <div className="text-[11.5px] text-faint mt-0.5">
-                        {formatDate(r.created_at)}
-                        {(r.fee_amount ?? 0) > 0 && <> · {t("withdrawHistoryNet", { fee: formatBrowseMoney(r.fee_amount ?? 0, { locale }), net: formatBrowseMoney(r.net_amount ?? r.amount - (r.fee_amount ?? 0), { locale }) })}</>}
-                      </div>
-                      {r.receipt_images && r.receipt_images.length > 0 && (
-                        <ImageStrip
-                          size="sm"
-                          className="mt-1.5"
-                          title={t("withdrawReceipts")}
-                          images={r.receipt_images.map((image) => ({ ...privateImageSource(image, privateImageBase.withdrawalReceipt(r.id)), id: image.id }))}
-                        />
-                      )}
-                      {r.status === "rejected" && r.reject_reason && (
-                        <div className="text-[12px] text-muted mt-1">
-                          {t("withdrawRejectReason", { reason: r.reject_reason })}
-                        </div>
-                      )}
-                    </div>
-                    <Tag tone={s.tone} className="shrink-0">{s.label}</Tag>
-                  </div>
-                );
-              })}
+        <div className="space-y-5">
+          <EscrowSchedule />
+
+          <Card className="overflow-hidden">
+            <div className="px-5 py-3 border-b border-line bg-raised/30">
+              <span className="text-[13px] font-semibold">{t("withdrawRequests")}</span>
             </div>
-          )}
-        </Card>
+            {reqs.length === 0 ? (
+              <p className="p-8 text-center text-[13px] text-muted">
+                {t("noWithdrawals")}
+              </p>
+            ) : (
+              <div className="divide-y divide-line">
+                {reqs.map((r) => {
+                  const known = r.status in WITHDRAW_TONE;
+                  return (
+                    <div key={r.id} className="flex items-center gap-4 px-5 py-3.5">
+                      <div className="min-w-0 flex-1">
+                        <div className="font-mono text-[14px] font-semibold tabular">{formatBrowseMoney(r.amount, { locale })}</div>
+                        <div className="text-[11.5px] text-faint mt-0.5">
+                          {formatDate(r.created_at)}
+                          {(r.fee_amount ?? 0) > 0 && <> · {t("withdrawHistoryNet", { fee: formatBrowseMoney(r.fee_amount ?? 0, { locale }), net: formatBrowseMoney(r.net_amount ?? r.amount - (r.fee_amount ?? 0), { locale }) })}</>}
+                        </div>
+                        {r.receipt_images && r.receipt_images.length > 0 && (
+                          <ImageStrip
+                            size="sm"
+                            className="mt-1.5"
+                            title={t("withdrawReceipts")}
+                            images={r.receipt_images.map((image) => ({ ...privateImageSource(image, privateImageBase.withdrawalReceipt(r.id)), id: image.id }))}
+                          />
+                        )}
+                        {r.status === "rejected" && r.reject_reason && (
+                          <div className="text-[12px] text-muted mt-1">
+                            {t("withdrawRejectReason", { reason: r.reject_reason })}
+                          </div>
+                        )}
+                      </div>
+                      <Tag tone={WITHDRAW_TONE[r.status] ?? "warn"} className="shrink-0">{known ? tw(r.status) : r.status}</Tag>
+                    </div>
+                  );
+                })}
+              </div>
+            )}
+          </Card>
+        </div>
       </div>
     </div>
   );

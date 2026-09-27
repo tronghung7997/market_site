@@ -12,6 +12,8 @@ export type CategoryBrowseQuery = {
   price?: string;
   minVnd?: string;
   maxVnd?: string;
+  /** Minimum average stars, "3" or "4"; anything else is ignored. */
+  rating?: string;
   sub?: string;
   page?: string;
 };
@@ -25,10 +27,14 @@ export type ProductListOpts = {
   fulfillment?: "instant";
   minPrice?: number;
   maxPrice?: number;
+  minRating?: number;
   sort?: ProductListSort;
   page: number;
   perPage: number;
 };
+
+/** Star filters the category page offers. */
+export const RATING_FILTERS = ["4", "3"] as const;
 
 const SORTS: ProductListSort[] = ["bestseller", "rating", "price_asc", "price_desc"];
 
@@ -51,6 +57,7 @@ export function browseQueryToListOpts(query: CategoryBrowseQuery, categoryId: nu
     opts.maxPrice = 50000;
   }
   if (query.price === "above2") opts.minPrice = 50001;
+  if ((RATING_FILTERS as readonly string[]).includes(query.rating ?? "")) opts.minRating = Number(query.rating);
   if (query.price === "custom") {
     const minVnd = Number(query.minVnd);
     const maxVnd = Number(query.maxVnd);
@@ -72,6 +79,7 @@ export function listOptsToSearchParams(opts: ProductListOpts): URLSearchParams {
   if (opts.fulfillment) params.set("fulfillment", opts.fulfillment);
   if (opts.minPrice != null) params.set("min_price", String(opts.minPrice));
   if (opts.maxPrice != null) params.set("max_price", String(opts.maxPrice));
+  if (opts.minRating) params.set("min_rating", String(opts.minRating));
   if (opts.sort) params.set("sort", opts.sort);
   return params;
 }

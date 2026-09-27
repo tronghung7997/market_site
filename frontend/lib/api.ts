@@ -5,11 +5,23 @@ import type {
   SellerReview,
   SellerReviewList,
   PublicReviewList,
+  MarketplaceStats,
+  SellerPublicReviewList,
+  ShowcaseReview,
+  CategoryContentAdmin,
+  CategoryContentPublic,
+  EscrowSchedule,
+  SellerExperience,
+  SellerReferralSource,
+  SellerType,
   SearchSuggest,
   SearchQueryStat,
   SearchSynonymGroup,
 } from "./types";
 import type { PaginatedDisputes, SitePageAdmin, SitePageCreate, SitePageUpdate } from "./types";
+import type { MyQuestion, PublicQuestionList, QuestionStatus, SellerQuestion, SellerQuestionList } from "./types";
+import type { SellerTierProgress, SellerTierReviewRow, SellerTrustConfig } from "./types";
+import type { PostAdmin, PostWrite } from "./types";
 import type { CategoryAdminListResponse, CategoryCreateInput, CategoryUpdateInput } from "./types";
 import type { AffiliateSort } from "./types";
 import type { AdminProductActivity, AdminProductBulkAction, AdminProductBulkResult } from "./types";
@@ -254,8 +266,18 @@ export const api = {
         idempotency_key: idempotencyKey ?? newIdempotencyKey(),
       }),
     }, true),
+  /** Dispute-review and helpdesk threads for the admin desk inbox. */
   adminSupportConversations: () =>
     request<ChatConversationList>("/chat/admin/support", {}, true),
+  /** The caller's standing thread with the Marketplace desk; null before the first message. */
+  helpdeskConversation: () =>
+    request<ChatConversationDetail | null>("/chat/helpdesk", {}, true),
+  /** Sends to the Marketplace desk, opening the thread on the first message. */
+  postHelpdeskMessage: (body: string, clientMessageId: string, attachments: string[] = []) =>
+    request<ChatConversationDetail>("/chat/helpdesk/messages", {
+      method: "POST",
+      body: JSON.stringify({ body, client_message_id: clientMessageId, attachments }),
+    }, true),
   sendChatMessage: (conversationId: string, body: string, clientMessageId: string, attachments: string[] = []) =>
     request<ChatMessage>(`/chat/conversations/${encodeURIComponent(conversationId)}/messages`, {
       method: "POST",
@@ -284,6 +306,8 @@ export const api = {
     fulfillment?: "instant";
     minPrice?: number;
     maxPrice?: number;
+    /** 1–5: average at least this many stars; unrated products are left out. */
+    minRating?: number;
     sort?: "relevance" | "newest" | "bestseller" | "rating" | "price_asc" | "price_desc";
     page?: number;
     perPage?: number;
@@ -297,6 +321,7 @@ export const api = {
     if (opts.fulfillment) q.set("fulfillment", opts.fulfillment);
     if (opts.minPrice != null) q.set("min_price", String(opts.minPrice));
     if (opts.maxPrice != null) q.set("max_price", String(opts.maxPrice));
+    if (opts.minRating) q.set("min_rating", String(opts.minRating));
     if (opts.sort && opts.sort !== "newest") q.set("sort", opts.sort);
     if (opts.page) q.set("page", String(opts.page));
     if (opts.perPage) q.set("per_page", String(opts.perPage));
@@ -412,14 +437,31 @@ export const api = {
       request<ProxyLine>("/me/proxies/note", { method: "PATCH", body: JSON.stringify({ line_id: lineId, note }) }, true),
   },
 
-  sellerApply: (data: { business_name: string; description?: string; contact?: string }) =>
+  sellerApply: (data: {
+    business_name: string;
+    description?: string;
+    contact?: string;
+    seller_type?: SellerType;
+    category_ids?: number[];
+    experience?: SellerExperience;
+    phone?: string;
+    warranty_policy?: string;
+    referral_source?: SellerReferralSource;
+    accept_rules?: boolean;
+  }) =>
     request<SellerApplication>("/seller/apply", { method: "POST", body: JSON.stringify(data) }, true),
+  /** Upcoming escrow releases by local day (`tz` = IANA zone of the viewer). */
+  sellerEscrowSchedule: (tz: string) =>
+    request<EscrowSchedule>(`/seller/escrow-schedule?tz=${encodeURIComponent(tz)}`, {}, true),
   mySellerApplication: () => request<SellerApplication | null>("/seller/applications/me", {}, true),
   adminSellerApplications: () => request<SellerApplication[]>("/admin/seller-applications", {}, true),
   adminApproveSellerApplication: (id: number) =>
     request<SellerApplication>(`/admin/seller-applications/${id}/approve`, { method: "POST" }, true),
   adminRejectSellerApplication: (id: number, reason: string) =>
     request<SellerApplication>(`/admin/seller-applications/${id}/reject`, { method: "POST", body: JSON.stringify({ reason }) }, true),
+  /** Send a pending application back to the applicant with what to add. */
+  adminRequestSellerApplicationInfo: (id: number, note: string) =>
+    request<SellerApplication>(`/admin/seller-applications/${id}/request-info`, { method: "POST", body: JSON.stringify({ note }) }, true),
 
   sellerProducts: (params: {
     search?: string;
@@ -703,6 +745,19 @@ export const api = {
   updateAdminSellerTierConfig: (tiers: Partial<Record<SellerTierName, SellerTierRulePatch>>) =>
     request<{ tiers: SellerTierRule[] }>("/admin/seller-tier-config", { method: "PATCH", body: JSON.stringify({ tiers }) }, true),
   sellerTiers: () => request<{ tiers: SellerTierRule[] }>("/public/seller-tiers"),
+  adminPosts: () => request<PostAdmin[]>("/admin/posts", {}, true),
+  createAdminPost: (post: PostWrite) =>
+    request<PostAdmin>("/admin/posts", { method: "POST", body: JSON.stringify(post) }, true),
+  updateAdminPost: (id: number, post: PostWrite) =>
+    request<PostAdmin>(`/admin/posts/${id}`, { method: "PUT", body: JSON.stringify(post) }, true),
+  deleteAdminPost: (id: number) => request<void>(`/admin/posts/${id}`, { method: "DELETE" }, true),
+  /** The signed-in seller's trust score and progress toward the next tier. */
+  sellerTierProgress: () => request<SellerTierProgress>("/seller/tier-progress", {}, true),
+  adminSellerTrustConfig: () => request<SellerTrustConfig>("/admin/seller-trust-config", {}, true),
+  updateAdminSellerTrustConfig: (config: SellerTrustConfig) =>
+    request<SellerTrustConfig>("/admin/seller-trust-config", { method: "PUT", body: JSON.stringify(config) }, true),
+  /** Every active seller's evaluation: eligible for the next tier or slipping, first. */
+  adminSellerTierReview: () => request<SellerTierReviewRow[]>("/admin/seller-tier-review", {}, true),
   deleteResource: (resourceId: number) =>
     request<void>(`/seller/resources/${resourceId}`, { method: "DELETE" }, true),
   sellerAcceptOrder: (orderId: string | number) =>
@@ -1121,6 +1176,15 @@ export const api = {
     if (params.rating) q.set("rating", String(params.rating));
     return request<PublicReviewList>(`/products/${productId}/reviews?${q}`);
   },
+  latestReviews: (limit = 6) => request<ShowcaseReview[]>(`/reviews/latest?limit=${limit}`),
+  sellerPublicReviews: (sellerRef: string, params: { page?: number; perPage?: number; rating?: number | null } = {}) => {
+    const q = new URLSearchParams({ page: String(params.page ?? 1), per_page: String(params.perPage ?? 6) });
+    if (params.rating) q.set("rating", String(params.rating));
+    return request<SellerPublicReviewList>(`/sellers/${encodeURIComponent(sellerRef)}/reviews?${q}`);
+  },
+  marketplaceStats: () => request<MarketplaceStats>("/public/marketplace-stats"),
+  categoryContent: (ref: string) => request<CategoryContentPublic>(`/categories/${encodeURIComponent(ref)}/content`),
+  adminCategoryContent: (id: number) => request<CategoryContentAdmin>(`/admin/categories/${id}/content`, {}, true),
   sellerReviews: (params: { productId?: number; unrepliedOnly?: boolean; page?: number; perPage?: number } = {}) => {
     const q = new URLSearchParams({ page: String(params.page ?? 1), per_page: String(params.perPage ?? 20) });
     if (params.productId) q.set("product_id", String(params.productId));
@@ -1131,6 +1195,22 @@ export const api = {
     request<SellerReview>(`/seller/reviews/${reviewId}/reply`, { method: "PUT", body: JSON.stringify({ body }) }, true),
   sellerDeleteReviewReply: (reviewId: number) =>
     request<SellerReview>(`/seller/reviews/${reviewId}/reply`, { method: "DELETE" }, true),
+  productQuestions: (productId: number, page = 1) =>
+    request<PublicQuestionList>(`/products/${productId}/questions?page=${page}`),
+  myProductQuestions: (productId: number) =>
+    request<MyQuestion[]>(`/products/${productId}/questions/mine`, {}, true),
+  askProductQuestion: (productId: number, question: string) =>
+    request<MyQuestion>(`/products/${productId}/questions`, { method: "POST", body: JSON.stringify({ question }) }, true),
+  sellerQuestions: (status: "all" | QuestionStatus = "all", page = 1) =>
+    request<SellerQuestionList>(`/seller/questions?status=${status}&page=${page}`, {}, true),
+  answerQuestion: (questionId: number, answer: string) =>
+    request<SellerQuestion>(`/seller/questions/${questionId}/answer`, { method: "PUT", body: JSON.stringify({ answer }) }, true),
+  setSellerQuestionVisibility: (questionId: number, hidden: boolean) =>
+    request<SellerQuestion>(`/seller/questions/${questionId}/visibility`, { method: "PATCH", body: JSON.stringify({ hidden }) }, true),
+  adminQuestions: (status: "all" | QuestionStatus = "all", page = 1) =>
+    request<SellerQuestionList>(`/admin/questions?status=${status}&page=${page}`, {}, true),
+  setAdminQuestionVisibility: (questionId: number, hidden: boolean) =>
+    request<SellerQuestion>(`/admin/questions/${questionId}/visibility`, { method: "PATCH", body: JSON.stringify({ hidden }) }, true),
   adminReviews: (params: { productId?: number; hidden?: boolean; page?: number; perPage?: number } = {}) => {
     const q = new URLSearchParams({ page: String(params.page ?? 1), per_page: String(params.perPage ?? 20) });
     if (params.productId) q.set("product_id", String(params.productId));

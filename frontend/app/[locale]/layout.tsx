@@ -19,6 +19,7 @@ import {
   type MoneyConfig,
 } from "@/lib/money";
 import TopNav from "@/components/TopNav";
+import { HelpdeskLauncher } from "@/features/helpdesk";
 import SiteFooter from "@/components/SiteFooter";
 import ChromeGate from "@/components/ChromeGate";
 import RouteProgress from "@/components/RouteProgress";
@@ -150,6 +151,7 @@ export default async function RootLayout({ children, params }: { children: React
                     <ChromeGate fallback={children}><MaintenanceGate>{children}</MaintenanceGate></ChromeGate>
                   </main>
                   <ChromeGate><SiteFooter pages={footerPages} /></ChromeGate>
+                  <ChromeGate><HelpdeskLauncher /></ChromeGate>
                 </ToastProvider>
                 </TooltipProvider>
               </CurrencyProvider>

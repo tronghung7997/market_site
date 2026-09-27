@@ -6,7 +6,7 @@ import { Link } from "@/i18n/navigation";
 import { cn } from "@/lib/cn";
 import { useMoney } from "@/lib/money";
 import { displayOrderStatus, hasOpenDispute } from "@/lib/order-status";
-import { daysAgo, formatDate, formatDateTime } from "@/lib/utils";
+import { daysAgo, formatDateTime } from "@/lib/utils";
 import { useVariantTermFor } from "@/lib/variant-term";
 import type { Order } from "@/lib/types";
 import { Button, Tag } from "@/components/ui";
@@ -15,6 +15,7 @@ import OrderChatButton from "@/components/chat/OrderChatButton";
 import { parseCoverId, ProductCover } from "@/features/product-covers";
 import { orderAccentTone } from "../model";
 import { CopyIconButton, DeliveryShortcuts, rowActions, type OrderActionHandlers } from "./OrderRowActions";
+import { DeadlineNote } from "./DeadlineNote";
 
 const ACCENT: Record<ReturnType<typeof orderAccentTone>, string> = {
   bad: "border-l-bad", iris: "border-l-iris", good: "border-l-good", neutral: "border-l-line", warn: "border-l-warn",
@@ -86,12 +87,7 @@ export const BuyerOrderCard = memo(function BuyerOrderCard({
         <dd className="font-mono text-[14px] font-bold tabular text-fg">{money.text}</dd>
       </dl>
 
-      {o.status === "delivered" && !disputed && o.escrow_expires_at && (
-        <p className="mt-2.5 flex items-center gap-1.5 rounded-lg border border-good/20 bg-good-soft/30 px-2.5 py-1 text-[11.5px] font-medium text-good">
-          <ShieldCheck size={13} className="shrink-0" />
-          <span>{t("escrowUntil", { date: formatDate(o.escrow_expires_at, locale) })}</span>
-        </p>
-      )}
+      <DeadlineNote order={o} disputed={disputed} variant="card" />
       {st.hint && !disputed && (
         <p className={cn("mt-2 text-[11.5px]", a.canConfirm ? "font-medium text-warn" : "text-muted")}>{st.hint}</p>
       )}

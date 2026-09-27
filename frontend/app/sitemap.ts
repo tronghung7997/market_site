@@ -23,7 +23,7 @@ export default async function sitemap(): Promise<MetadataRoute.Sitemap> {
   const now = new Date();
   const entries: MetadataRoute.Sitemap = [];
 
-  const staticPaths = ["/", "/categories", "/solutions", "/solutions/tiktok-id", "/solutions/facebook-id"];
+  const staticPaths = ["/", "/categories", "/support", "/sell", "/blog", "/solutions", "/solutions/tiktok-id", "/solutions/facebook-id"];
   const sitePages = await fetchPublicJson<{ slug: string }[]>("/public/site-pages", "vi");
   for (const page of sitePages ?? []) staticPaths.push(`/legal/${page.slug}`);
   for (const locale of locales) {
@@ -67,6 +67,18 @@ export default async function sitemap(): Promise<MetadataRoute.Sitemap> {
     }
     page += 1;
     if (batch.items.length === 0) break;
+  }
+
+  const posts = await fetchPublicJson<{ slug: string; updated_at: string }[]>("/public/post-slugs", "vi");
+  for (const post of posts ?? []) {
+    for (const locale of locales) {
+      entries.push({
+        url: `${origin}${localePath(locale, `/blog/${post.slug}`)}`,
+        lastModified: new Date(post.updated_at),
+        changeFrequency: "monthly",
+        priority: 0.5,
+      });
+    }
   }
 
   const sellers = await fetchPublicJson<{ public_key: string; handle: string | null; canonical_path: string }[]>("/sellers/top?limit=20", "vi");

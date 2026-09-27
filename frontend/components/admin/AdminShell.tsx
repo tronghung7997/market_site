@@ -45,6 +45,7 @@ const HUBS: NavHub[] = [
       { href: "/admin/products", label: "Sản phẩm" },
       { href: "/admin/categories", label: "Danh mục" },
       { href: "/admin/media", label: "Hình ảnh" },
+      { href: "/admin/questions", label: "Hỏi đáp" },
     ],
   },
   {
@@ -58,6 +59,7 @@ const HUBS: NavHub[] = [
     key: "people", label: "Người dùng", icon: Users, tabs: [
       { href: "/admin/accounts", label: "Tài khoản" },
       { href: "/admin/seller-applications", label: "Đăng ký bán hàng" },
+      { href: "/admin/seller-tiers", label: "Xét hạng" },
       { href: "/admin/affiliates", label: "Affiliate" },
     ],
   },
@@ -78,6 +80,7 @@ const HUBS: NavHub[] = [
     key: "settings", label: "Cài đặt", icon: Sliders, tabs: [
       { href: "/admin/display-settings", label: "Cài đặt hệ thống" },
       { href: "/admin/site-pages", label: "Trang nội dung" },
+      { href: "/admin/posts", label: "Bài viết" },
     ],
   },
 ];
@@ -86,19 +89,20 @@ const HUBS: NavHub[] = [
 const SYSTEM_HUBS = new Set(["alerts", "settings"]);
 
 // Số việc đang chờ trên từng tab — cùng nguồn với "Việc cần xử lý" ở Tổng quan.
-const BADGE_KEYS: Record<string, string> = {
-  "/admin/disputes": "admin_open_disputes",
-  "/admin/support": "admin_marketplace_review",
-  "/admin/tasks": "admin_pending_tasks",
-  "/admin/seller-applications": "admin_pending_applications",
-  "/admin/withdrawals": "admin_pending_withdrawals",
+// Một tab có thể cộng nhiều nguồn: hộp thư GMMO gồm khiếu nại chờ sàn và chat hỗ trợ chờ trả lời.
+const BADGE_KEYS: Record<string, string[]> = {
+  "/admin/disputes": ["admin_open_disputes"],
+  "/admin/support": ["admin_marketplace_review", "admin_helpdesk_waiting"],
+  "/admin/tasks": ["admin_pending_tasks"],
+  "/admin/seller-applications": ["admin_pending_applications"],
+  "/admin/withdrawals": ["admin_pending_withdrawals"],
 };
 
 function tabBadges(items: ActionItem[] | undefined): Record<string, number> {
   const out: Record<string, number> = {};
   if (!items) return out;
-  for (const [href, key] of Object.entries(BADGE_KEYS)) {
-    const count = items.find((i) => i.key === key)?.count ?? 0;
+  for (const [href, keys] of Object.entries(BADGE_KEYS)) {
+    const count = keys.reduce((sum, key) => sum + (items.find((i) => i.key === key)?.count ?? 0), 0);
     if (count > 0) out[href] = count;
   }
   const alerts = items.filter((i) => i.alert_id != null).length;

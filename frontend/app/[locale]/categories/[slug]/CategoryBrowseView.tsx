@@ -13,11 +13,12 @@ import { flattenCategories } from "@/lib/categories";
 import { categoryPath, matchCategoryParam } from "@/lib/routes";
 import { useMoney } from "@/lib/money";
 import { Button, Card, Pagination } from "@/components/ui";
-import { AlertCircle, Bolt, Check, ChevronRight, Grid, ListFilter, Rows, Search, ShieldCheck, X } from "@/components/Icons";
+import { AlertCircle, Bolt, Check, ChevronDown, ChevronRight, Grid, ListFilter, Rows, Search, ShieldCheck, Star, X } from "@/components/Icons";
 import { categoryCoverId, ProductCover } from "@/features/product-covers";
 import ProductTile from "@/components/ProductTile";
 import { ProductRow } from "@/components/products/ProductRow";
-import { browseQueryToListOpts, browsePage, BROWSE_PER_PAGE, CategoryRail, useCategoryProducts } from "@/features/catalog/client";
+import { browseQueryToListOpts, browsePage, BROWSE_PER_PAGE, CategoryRail, RATING_FILTERS, useCategoryProducts } from "@/features/catalog/client";
+import { MarkdownContent } from "@/components/MarkdownContent";
 import type { CategoryBrowseQuery } from "@/features/catalog/client";
 import type { CategoryPageCatalog } from "@/features/catalog";
 import { useDebounce } from "@/lib/hooks/useDebounce";
@@ -62,6 +63,7 @@ export function CategoryBrowseView({
   const [customMax, setCustomMax] = useState(searchParams?.get("max") || "");
   const [minVnd, setMinVnd] = useState(searchParams?.get("min_vnd") || "");
   const [maxVnd, setMaxVnd] = useState(searchParams?.get("max_vnd") || "");
+  const [rating, setRating] = useState(searchParams?.get("rating") || "");
   const [viewMode, setViewMode] = useState<ViewMode>(readView);
   const [subSlug, setSubSlug] = useState<string | null>(subFromParam(searchParams?.get("sub"))?.slug ?? null);
   const [page, setPage] = useState<number>(browsePage(searchParams?.get("page") || undefined));
@@ -78,6 +80,7 @@ export function CategoryBrowseView({
     setCustomMax(searchParams?.get("max") || "");
     setMinVnd(searchParams?.get("min_vnd") || "");
     setMaxVnd(searchParams?.get("max_vnd") || "");
+    setRating(searchParams?.get("rating") || "");
     setViewMode(readView());
     setSubSlug(subFromParam(searchParams?.get("sub"))?.slug ?? null);
     setPage(browsePage(searchParams?.get("page") || undefined));
@@ -118,7 +121,7 @@ export function CategoryBrowseView({
   const activeCat = subCat ?? category;
   const browseQuery: CategoryBrowseQuery = {
     q, sort, stock: inStockOnly ? "1" : undefined, instant: instantOnly ? "1" : undefined,
-    price: priceRange, minVnd, maxVnd, page: String(page),
+    price: priceRange, minVnd, maxVnd, rating, page: String(page),
   };
   const listOpts = browseQueryToListOpts(browseQuery, activeCat?.id ?? categoryId);
   const seed = initial.listOpts && initial.result ? { opts: initial.listOpts, data: initial.result } : null;
@@ -149,14 +152,16 @@ export function CategoryBrowseView({
     setCustomMax("");
     setMinVnd("");
     setMaxVnd("");
+    setRating("");
     setSort("newest");
     setPage(1);
     setCustomOpen(false);
-    syncToUrl({ q: null, stock: null, instant: null, price: null, min: null, max: null, min_vnd: null, max_vnd: null, sort: null, page: null });
+    syncToUrl({ q: null, stock: null, instant: null, price: null, min: null, max: null, min_vnd: null, max_vnd: null, rating: null, sort: null, page: null });
   };
 
+  const ratingActive = (RATING_FILTERS as readonly string[]).includes(rating);
   const activeFilterCount =
-    (q.trim() ? 1 : 0) + (inStockOnly ? 1 : 0) + (instantOnly ? 1 : 0) + (priceRange !== "all" ? 1 : 0);
+    (q.trim() ? 1 : 0) + (inStockOnly ? 1 : 0) + (instantOnly ? 1 : 0) + (priceRange !== "all" ? 1 : 0) + (ratingActive ? 1 : 0);
   const hasActiveFilters = activeFilterCount > 0;
 
   const chip = (active: boolean, tone: "good" | "iris" = "iris") =>
@@ -221,6 +226,13 @@ export function CategoryBrowseView({
     );
   }
 
+  const content = initial.content;
+  const description = !subCat ? content?.description ?? null : null;
+  // Siblings under the same parent (top-level categories are each other's siblings).
+  const related = flatCats
+    .filter((c) => c.id !== category.id && c.parent_id === category.parent_id)
+    .slice(0, 8);
+
   const pageFrom = (validPage - 1) * perPage + 1;
   const pageTo = (validPage - 1) * perPage + products.length;
   const headline = activeCat ?? category;
@@ -249,12 +261,13 @@ export function CategoryBrowseView({
       </nav>
 
       {/* Header */}
-      <div className="flex items-center gap-3.5 min-w-0">
+      <div className="flex items-start gap-3.5 min-w-0">
         <ProductCover coverId={categoryCoverId(headline)} image={headline.image} title={headline.name} className="h-12 w-12 sm:h-14 sm:w-14 rounded-2xl shrink-0 shadow-sm" />
         <div className="min-w-0">
-          <h1 className="font-serif text-[24px] sm:text-[28px] leading-tight font-semibold text-fg truncate">
+          <h1 className="font-serif text-[24px] sm:text-[28px] leading-tight font-semibold text-fg">
             {headline.name}
           </h1>
+          {description && <p className="mt-1 max-w-[640px] text-[13.5px] leading-relaxed text-muted">{description}</p>}
           <div className="flex items-center gap-x-2 gap-y-1 flex-wrap text-[12.5px] text-muted mt-1">
             <span>{t("sellingCount", { count: total })}</span>
             <span className="text-faint" aria-hidden="true">·</span>
@@ -395,6 +408,28 @@ export function CategoryBrowseView({
                 </button>
               </div>
 
+              <span className="hidden sm:block h-5 w-px bg-line mx-1" aria-hidden="true" />
+
+              <div role="group" aria-label={t("ratingLabel")} className="flex items-center gap-1.5 flex-wrap">
+                {RATING_FILTERS.map((stars) => (
+                  <button
+                    key={stars}
+                    type="button"
+                    aria-pressed={rating === stars}
+                    onClick={() => {
+                      const next = rating === stars ? "" : stars;
+                      setRating(next);
+                      setPage(1);
+                      syncToUrl({ rating: next || null, page: "1" });
+                    }}
+                    className={chip(rating === stars)}
+                  >
+                    <Star size={13} className={rating === stars ? "fill-iris-hi" : "text-warn fill-warn"} />
+                    <span>{t("ratingAtLeast", { stars })}</span>
+                  </button>
+                ))}
+              </div>
+
             </div>
 
             {customOpen && (
@@ -515,8 +550,66 @@ export function CategoryBrowseView({
               <Pagination page={validPage} totalPages={totalPages} onChange={setPageAndScroll} />
             </div>
           )}
+
+          <CategoryGuide name={category.name} guide={content?.guide ?? null} faq={content?.faq ?? []} />
+
+          {related.length > 0 && (
+            <section aria-labelledby="related-categories" className="mt-8">
+              <h2 id="related-categories" className="text-[13px] font-semibold text-faint mb-3">{t("relatedTitle")}</h2>
+              <ul className="flex flex-wrap gap-2">
+                {related.map((cat) => (
+                  <li key={cat.id}>
+                    <Link href={categoryPath(cat)} className="inline-flex items-center gap-2 rounded-lg border border-line bg-surface px-3 py-2 text-[13px] text-muted hover:text-fg hover:border-line-2 transition-colors">
+                      <ProductCover coverId={categoryCoverId(cat)} image={cat.image} title={cat.name} className="h-5 w-5 rounded-md" />
+                      {cat.name}
+                    </Link>
+                  </li>
+                ))}
+              </ul>
+            </section>
+          )}
         </div>
       </div>
     </div>
+  );
+}
+
+/** Admin-written guide (markdown, raw HTML disabled) and FAQ for the
+ *  category. Hidden when the admin has not written either. */
+function CategoryGuide({ name, guide, faq }: { name: string; guide: string | null; faq: { q: string; a: string }[] }) {
+  const t = useTranslations("categories");
+  if (!guide && faq.length === 0) return null;
+  return (
+    <section aria-label={t("guideTitle", { name })} className="mt-10 space-y-5">
+      {guide && (
+        <Card className="p-5 sm:p-6">
+          <h2 className="font-serif text-[18px] font-semibold tracking-tight">{t("guideTitle", { name })}</h2>
+          <div className="mt-3 text-[13.5px] max-w-[760px]">
+            <MarkdownContent>{guide}</MarkdownContent>
+          </div>
+        </Card>
+      )}
+      {faq.length > 0 && (
+        <Card className="overflow-hidden">
+          <h2 className="px-5 py-4 border-b border-line font-serif text-[18px] font-semibold tracking-tight">{t("faqTitle", { name })}</h2>
+          <ul className="divide-y divide-line">
+            {faq.map((item) => (
+              <li key={item.q}>
+                <details className="group">
+                  <summary className="flex cursor-pointer list-none items-center justify-between gap-4 px-5 py-3.5 text-[13.5px] font-medium hover:bg-raised/60 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-inset focus-visible:ring-iris [&::-webkit-details-marker]:hidden">
+                    <span>{item.q}</span>
+                    <ChevronDown size={15} className="shrink-0 text-faint transition-transform group-open:rotate-180" />
+                  </summary>
+                  <p className="px-5 pb-4 -mt-0.5 text-[13px] leading-relaxed text-muted whitespace-pre-line max-w-[760px]">{item.a}</p>
+                </details>
+              </li>
+            ))}
+          </ul>
+          <Link href="/support#buying" className="block border-t border-line px-5 py-3 text-[12.5px] font-medium text-iris-hi hover:underline">
+            {t("buyingHelp")}
+          </Link>
+        </Card>
+      )}
+    </section>
   );
 }

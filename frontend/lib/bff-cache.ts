@@ -40,6 +40,7 @@ const CATALOG_WRITE_PATHS: RegExp[] = [
   /^admin\/categories(\/|$)/,
   /^admin\/seller-config(\/|$)/,
   /^admin\/site-pages(\/|$)/,
+  /^admin\/posts(\/|$)/,
 ];
 
 // Read-only POSTs under the catalog-owning prefixes: busting the catalog

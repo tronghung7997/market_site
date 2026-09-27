@@ -1,17 +1,14 @@
 "use client";
 
 /** Các section nội dung tĩnh của trang chủ: Cách hoạt động, Tại sao chọn,
- *  Khách hàng nói gì, FAQ, banner CTA bán hàng. Chỉ FAQ có state (mở/đóng).
- *
- *  ⚠️ Testimonials + badge sao ở hero là nội dung DỰNG SẴN (chưa có nguồn
- *  thật) — đang chờ chủ sản phẩm quyết gỡ hay thay số thật; xem checklist
- *  refactor Đợt 4. */
+ *  FAQ, banner CTA bán hàng. Chỉ FAQ có state (mở/đóng). Đánh giá của người
+ *  mua lấy từ dữ liệu thật (features/catalog/ui/HomeTrust.tsx). */
 
 import { Link } from "@/i18n/navigation";
 import { useTranslations } from "next-intl";
 import { useState } from "react";
 import { Button, Card } from "@/components/ui";
-import { ArrowRight, Bolt, Check, Clock, Search, Shield, Star, Verified } from "@/components/Icons";
+import { ArrowRight, Bolt, Check, Flag, Search, Shield, Verified } from "@/components/Icons";
 import { SectionHead } from "./SectionHead";
 import { ChevronIcon } from "./MarketSection";
 
@@ -52,7 +49,7 @@ export function WhyUs() {
           { icon: <Shield size={20} />, title: t("whyEscrowTitle"), desc: t("whyEscrowDesc") },
           { icon: <Bolt size={20} />, title: t("whyDeliveryTitle"), desc: t("whyDeliveryDesc") },
           { icon: <Verified size={20} />, title: t("whyVerifiedTitle"), desc: t("whyVerifiedDesc") },
-          { icon: <Clock size={20} />, title: t("whySupportTitle"), desc: t("whySupportDesc") },
+          { icon: <Flag size={20} />, title: t("whySupportTitle"), desc: t("whySupportDesc") },
         ].map((item) => (
           <Card key={item.title} interactive className="p-5">
             <span className="grid place-items-center h-10 w-10 rounded-lg bg-iris-soft text-iris border border-iris/15">
@@ -62,39 +59,6 @@ export function WhyUs() {
             <p className="mt-1 text-[13px] text-muted leading-relaxed">{item.desc}</p>
           </Card>
         ))}
-      </div>
-    </section>
-  );
-}
-
-export function Testimonials() {
-  const t = useTranslations("home");
-  return (
-    <section className="border-y border-line bg-surface">
-      <div className="w-full mx-auto max-w-[1200px] px-6 py-6 lg:py-8">
-        <SectionHead title={t("testimonialsTitle")} sub={t("testimonialsSubtitle")} />
-        <div className="grid gap-5 md:grid-cols-3">
-          {[
-            { name: "Minh Tuấn", role: t("review1Role"), initials: "MT", quote: t("review1Quote"), rating: 5 },
-            { name: "Thu Hà", role: t("review2Role"), initials: "TH", quote: t("review2Quote"), rating: 5 },
-            { name: "Đức Anh", role: t("review3Role"), initials: "ĐA", quote: t("review3Quote"), rating: 4 },
-          ].map((review) => (
-            <Card key={review.name} className="p-6">
-              <div className="flex items-center gap-1 text-warn text-[14px]" aria-label={t("ratingLabel", { rating: review.rating })}>
-                {Array.from({ length: review.rating }, (_, i) => <Star key={i} size={14} className="fill-warn" />)}
-                {Array.from({ length: 5 - review.rating }, (_, i) => <Star key={`e${i}`} size={14} className="text-line-2" />)}
-              </div>
-              <p className="mt-3 text-[13.5px] text-muted leading-relaxed italic">&ldquo;{review.quote}&rdquo;</p>
-              <div className="mt-4 flex items-center gap-3">
-                <span className="grid place-items-center h-9 w-9 rounded-full bg-iris-soft text-iris text-[13px] font-semibold border border-iris/15">{review.initials}</span>
-                <div>
-                  <div className="text-[13.5px] font-medium">{review.name}</div>
-                  <div className="text-[12px] text-faint">{review.role}</div>
-                </div>
-              </div>
-            </Card>
-          ))}
-        </div>
       </div>
     </section>
   );
@@ -121,6 +85,8 @@ export function FaqSection() {
   const renderItem = (item: (typeof faqItems)[number], i: number) => (
     <Card key={i} className="overflow-hidden">
       <button
+        type="button"
+        aria-expanded={openSet.has(i)}
         onClick={() => toggle(i)}
         className="flex items-center justify-between w-full px-5 py-4 text-left"
       >
@@ -146,6 +112,9 @@ export function FaqSection() {
           {right.map((item, i) => renderItem(item, mid + i))}
         </div>
       </div>
+      <Link href="/support#faq" className="mt-4 inline-flex items-center gap-1 text-[13px] font-medium text-iris-hi hover:underline">
+        {t("faqMore")} <ArrowRight size={13} />
+      </Link>
     </section>
   );
 }
@@ -162,7 +131,7 @@ export function CtaBanner() {
           {t("ctaDescription")}
         </p>
         <div className="mt-7 flex flex-wrap justify-center gap-3">
-          <Link href="/seller/apply"><Button size="lg">{t("ctaApply")} <ArrowRight size={16} /></Button></Link>
+          <Link href="/sell"><Button size="lg">{t("ctaApply")} <ArrowRight size={16} /></Button></Link>
           <Link href="#market"><Button size="lg" variant="secondary">{t("ctaMarket")}</Button></Link>
         </div>
       </div>

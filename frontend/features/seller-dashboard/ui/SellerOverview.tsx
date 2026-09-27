@@ -11,6 +11,8 @@ import { DashboardActionStrip } from "./DashboardActionStrip";
 import { DashboardRangePicker } from "./DashboardRangePicker";
 import { DashboardStatCards } from "./DashboardStatCards";
 import { CustomersCard, InventoryCard } from "./InventoryAndCustomers";
+import { OnboardingChecklist } from "./OnboardingChecklist";
+import { TierProgressCard } from "@/features/seller-tier";
 import { OrderStatusBreakdown } from "./OrderStatusBreakdown";
 import { RevenueChart } from "./RevenueChart";
 import { TopProductsTable } from "./TopProductsTable";
@@ -89,18 +91,25 @@ export function SellerOverview({
       </div>
 
       {brandNew ? (
-        <Card className="p-10 text-center">
-          <div className="mx-auto mb-3 grid h-12 w-12 place-items-center rounded-xl border border-line bg-raised text-faint">
-            <Package size={24} />
-          </div>
-          <p className="mb-1 text-[14px] font-medium text-fg">{t("emptyTitle")}</p>
-          <p className="mx-auto mb-4 max-w-sm text-[12.5px] text-muted">{t("emptyBody")}</p>
-          <Link href="/seller/products/new">
-            <Button size="md"><Plus size={15} /> {t("emptyCta")}</Button>
-          </Link>
-        </Card>
+        <OnboardingChecklist
+          inventory={data.inventory}
+          fallback={(
+            <Card className="p-10 text-center">
+              <div className="mx-auto mb-3 grid h-12 w-12 place-items-center rounded-xl border border-line bg-raised text-faint">
+                <Package size={24} />
+              </div>
+              <p className="mb-1 text-[14px] font-medium text-fg">{t("emptyTitle")}</p>
+              <p className="mx-auto mb-4 max-w-sm text-[12.5px] text-muted">{t("emptyBody")}</p>
+              <Link href="/seller/products/new">
+                <Button size="md"><Plus size={15} /> {t("emptyCta")}</Button>
+              </Link>
+            </Card>
+          )}
+        />
       ) : (
         <div className={cn("space-y-5 transition-opacity", refreshing && "opacity-60")} aria-busy={refreshing}>
+          <OnboardingChecklist inventory={data.inventory} />
+          <TierProgressCard />
           <DashboardActionStrip items={data.action_items} />
           <DashboardStatCards data={data} />
           <div className="grid gap-4 lg:grid-cols-3">

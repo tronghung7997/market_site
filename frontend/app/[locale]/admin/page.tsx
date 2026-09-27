@@ -20,6 +20,7 @@ import type { ActionItem, AdminOrdersDay, Alert, Order } from "@/lib/types";
 const QUEUE_LABELS: Record<string, string> = {
   admin_open_disputes: "Khiếu nại đang mở",
   admin_marketplace_review: "Khiếu nại chờ sàn phân xử",
+  admin_helpdesk_waiting: "Chat hỗ trợ chờ trả lời",
   admin_pending_applications: "Đơn đăng ký bán chờ duyệt",
   admin_pending_withdrawals: "Lệnh rút chờ duyệt",
   admin_withdraw_approved: "Lệnh rút đã duyệt, chờ chi",

@@ -7,7 +7,7 @@ import { useTranslations } from "next-intl";
 import { api } from "@/lib/api";
 import { useAuth } from "@/lib/auth";
 import { useApiErrorMessage } from "@/lib/use-api-error";
-import type { Product, ProductDetail } from "@/lib/types";
+import type { Product, ProductDetail, SellerProfile } from "@/lib/types";
 import type { ProductPageCatalog } from "@/features/catalog";
 import { productKeyFromParam } from "@/lib/routes";
 
@@ -20,6 +20,10 @@ function matchesRef(product: ProductDetail, ref: string): boolean {
 export interface ProductDetailState {
   product: ProductDetail | null;
   related: Product[];
+  /** Hồ sơ công khai của shop (null khi chưa tải được). */
+  seller: SellerProfile | null;
+  /** Tối đa 3 sản phẩm khác của cùng shop. */
+  sameShop: Product[];
   /** null = đang tải; "fixed" = flow variant; khác = DynamicOrderForm. */
   pricingStrategy: string | null;
   loading: boolean;
@@ -40,6 +44,8 @@ export function useProductDetail(ref: string, initial?: ProductPageCatalog | nul
   const apiErrorMessage = useApiErrorMessage();
   const [product, setProduct] = useState<ProductDetail | null>(initial?.product ?? null);
   const [related, setRelated] = useState<Product[]>(initial?.related ?? []);
+  const [seller, setSeller] = useState<SellerProfile | null>(initial?.seller ?? null);
+  const [sameShop, setSameShop] = useState<Product[]>(initial?.sameShop ?? []);
   const [pricingStrategy, setPricingStrategy] = useState<string | null>(initial?.pricingStrategy ?? null);
   const [loading, setLoading] = useState(!initial?.product);
   const [error, setError] = useState<string | null>(initial?.error && !initial.product ? initial.error : null);
@@ -51,6 +57,8 @@ export function useProductDetail(ref: string, initial?: ProductPageCatalog | nul
     if (initial?.product && matchesRef(initial.product, ref)) {
       setProduct(initial.product);
       setRelated(initial.related);
+      setSeller(initial.seller ?? null);
+      setSameShop(initial.sameShop ?? []);
       setPricingStrategy(initial.pricingStrategy);
       setLoading(false);
       setError(null);
@@ -79,6 +87,13 @@ export function useProductDetail(ref: string, initial?: ProductPageCatalog | nul
         } catch {
           setPricingStrategy("fixed"); // fallback to fixed/variant flow
         }
+        if (p.seller_key) {
+          const key = p.seller_key;
+          api.sellerProfile(key).then(setSeller).catch(() => setSeller(null));
+          api.products({ seller: key, sort: "bestseller", perPage: 6 })
+            .then((page) => setSameShop(page.items.filter((row) => row.id !== p.id).slice(0, 3)))
+            .catch(() => setSameShop([]));
+        }
         if (p.category_id) {
           try {
             // Chỉ cần 3 tile gợi ý — lấy 1 trang nhỏ nhất đủ lọc trùng, đừng
@@ -104,5 +119,15 @@ export function useProductDetail(ref: string, initial?: ProductPageCatalog | nul
     })();
   }, [apiErrorMessage, ref, initial, t, role, authLoading]);
 
-  return { product, related, pricingStrategy, loading, error, preview };
+  const sameShopIds = new Set(sameShop.map((row) => row.id));
+  return {
+    product,
+    related: related.filter((row) => !sameShopIds.has(row.id)),
+    seller,
+    sameShop,
+    pricingStrategy,
+    loading,
+    error,
+    preview,
+  };
 }

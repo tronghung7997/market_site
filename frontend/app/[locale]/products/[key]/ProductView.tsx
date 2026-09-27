@@ -16,6 +16,8 @@ import OrderResult from "./OrderResult";
 import MobileBuyBar from "./MobileBuyBar";
 import ReviewsCard from "./ReviewsCard";
 import { DescriptionCard, ProductIdentity, RelatedProducts, SpecsPlate, WarrantyCard } from "./sections";
+import { DeliveryCard, FaqCard, KeyFacts, PayInsideNotice, SectionNav, SellerCard, type ProductSection } from "./trust";
+import { ProductQuestions } from "@/features/product-questions";
 import type { ProductPageCatalog } from "@/features/catalog";
 import { categoryPath, sellerProductPath } from "@/lib/routes";
 
@@ -24,7 +26,7 @@ const STATUS_KEYS = { draft: 1, paused: 1, suspended: 1, active: 1 };
 export default function ProductView({ initial, productRef }: { initial: ProductPageCatalog; productRef: string }) {
   const t = useTranslations("products");
   const tc = useTranslations("common");
-  const { product, related, pricingStrategy, loading, error, preview } = useProductDetail(productRef, initial);
+  const { product, related, seller, sameShop, pricingStrategy, loading, error, preview } = useProductDetail(productRef, initial);
   const purchase = usePurchase(product);
   const useDynamicForm = pricingStrategy != null && pricingStrategy !== "fixed";
 
@@ -47,6 +49,17 @@ export default function ProductView({ initial, productRef }: { initial: ProductP
       </Card>
     </div>
   );
+
+  const hasDescription = !!product.description || !!(product.features && product.features.length > 0);
+  const hasSpecs = !!product.specs && Object.keys(product.specs).length > 0;
+  const sections: ProductSection[] = [
+    ...(hasDescription ? [{ id: "description", label: t("navDescription") }] : []),
+    ...(hasSpecs ? [{ id: "specs", label: t("navSpecs") }] : []),
+    { id: "delivery", label: t("navDelivery") },
+    { id: "reviews", label: t("navReviews") },
+    ...(!preview ? [{ id: "qa", label: t("navQa") }] : []),
+    ...(product.faq && product.faq.length > 0 ? [{ id: "faq", label: t("navFaq") }] : []),
+  ];
 
   const barTotal = !useDynamicForm && purchase.selected && panelMode(purchase.selected) === "buy"
     ? purchase.total
@@ -84,9 +97,12 @@ export default function ProductView({ initial, productRef }: { initial: ProductP
         <span className="text-faint min-w-0 truncate">{product.title}</span>
       </nav>
 
+      {!preview && <PayInsideNotice days={product.escrow_days} />}
+
       <div className="lg:grid lg:grid-cols-[minmax(0,1fr)_380px] lg:grid-rows-[auto_1fr] lg:gap-7">
-        <section className="min-w-0">
+        <section className="min-w-0 space-y-4">
           <ProductIdentity product={product} />
+          <KeyFacts product={product} />
         </section>
 
         <aside className="mt-5 lg:mt-0 lg:col-start-2 lg:row-start-1 lg:row-span-2 min-w-0">
@@ -97,7 +113,7 @@ export default function ProductView({ initial, productRef }: { initial: ProductP
             {useDynamicForm ? (
               purchase.order ? (
                 <PanelShell title={t("orderPanel")}>
-                  <OrderResult order={purchase.order} onRebuy={purchase.rebuy} fulfillment={product.pricing_strategy} />
+                  <OrderResult order={purchase.order} onRebuy={purchase.rebuy} fulfillment={product.pricing_strategy} inspectionSteps={product.inspection_steps} />
                 </PanelShell>
               ) : (
                 <DynamicOrderForm productId={product.id} product={product} onOrderCreated={purchase.onOrderCreated} />
@@ -109,10 +125,16 @@ export default function ProductView({ initial, productRef }: { initial: ProductP
         </aside>
 
         <div className="min-w-0 mt-7 lg:mt-0 lg:col-start-1 lg:row-start-2 space-y-5">
-          {product.specs && <SpecsPlate specs={product.specs} />}
-          <DescriptionCard product={product} />
+          <SectionNav sections={sections} />
+          {hasDescription && <div id="description" className="scroll-mt-28"><DescriptionCard product={product} /></div>}
+          {hasSpecs && <div id="specs" className="scroll-mt-28"><SpecsPlate specs={product.specs!} /></div>}
+          <DeliveryCard product={product} />
           <WarrantyCard product={product} />
           <ReviewsCard product={product} />
+          {!preview && <ProductQuestions productId={product.id} />}
+          <FaqCard product={product} />
+          {seller && <SellerCard seller={seller} />}
+          <RelatedProducts items={sameShop} title={t("sameShop")} />
           <RelatedProducts items={related} />
         </div>
       </div>

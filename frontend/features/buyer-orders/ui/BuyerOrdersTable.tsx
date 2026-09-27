@@ -6,16 +6,17 @@ import { Link } from "@/i18n/navigation";
 import { cn } from "@/lib/cn";
 import { useMoney } from "@/lib/money";
 import { displayOrderStatus, hasOpenDispute } from "@/lib/order-status";
-import { formatDate, formatDateTime } from "@/lib/utils";
+import { formatDateTime } from "@/lib/utils";
 import { useVariantTermFor } from "@/lib/variant-term";
 import type { Order } from "@/lib/types";
 import { Tag } from "@/components/ui";
-import { ChevronDown, ChevronUp, Inbox, ShieldCheck } from "@/components/Icons";
+import { ChevronDown, ChevronUp, Inbox } from "@/components/Icons";
 import OrderChatButton from "@/components/chat/OrderChatButton";
 import { parseCoverId, ProductCover } from "@/features/product-covers";
 import { productPath } from "@/lib/routes";
 import type { BuyerOrderSort } from "../model";
 import { CopyIconButton, DesktopRowActions, type OrderActionHandlers } from "./OrderRowActions";
+import { DeadlineNote } from "./DeadlineNote";
 
 function SortHeader({
   label, asc, desc, sort, onSort, className,
@@ -142,12 +143,7 @@ const OrderRow = memo(function OrderRow({
 
       <td className="px-3 py-3 align-top">
         <Tag tone={st.tone}>{st.label}</Tag>
-        {o.status === "delivered" && !disputed && o.escrow_expires_at && (
-          <p className="mt-1 flex items-center gap-1 text-[10.5px] text-muted">
-            <ShieldCheck size={11} className="shrink-0 text-good" />
-            <span className="min-w-0 truncate">{t("escrowUntil", { date: formatDate(o.escrow_expires_at, locale) })}</span>
-          </p>
-        )}
+        <DeadlineNote order={o} disputed={disputed} variant="row" />
         {st.hint && (
           <p className={cn("mt-1 line-clamp-2 text-[10.5px] leading-snug", awaiting ? "font-medium text-warn" : "text-faint")} title={st.hint}>{st.hint}</p>
         )}

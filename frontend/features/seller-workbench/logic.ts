@@ -1,3 +1,4 @@
+import { faqToText, parseFaqBlocks } from "../../lib/faq-text.ts";
 import {
   effectiveMoneyInputCurrency,
   moneyInputToVnd,
@@ -22,6 +23,9 @@ export interface WorkbenchVariant {
   stock_count: number;
   sla_hours?: number;
   is_active?: boolean;
+  /** Units one order may take; max null = no per-order cap. */
+  min_per_order?: number;
+  max_per_order?: number | null;
 }
 
 /** Local draft packages on /seller/products/new before they exist on the server. */
@@ -139,6 +143,12 @@ export interface BuyerContentDraft {
   featuresText: string;
   specsText: string;
   warrantyText: string;
+  /** What the buyer receives (product page "Delivery" section). */
+  deliveryNote: string;
+  /** One "check before you confirm" step per line. */
+  inspectionText: string;
+  /** Q&A blocks separated by a blank line: first line question, rest answer. */
+  faqText: string;
 }
 
 export type BilingualBuyerContent = Record<"vi" | "en", BuyerContentDraft>;
@@ -150,6 +160,9 @@ export interface BuyerContentTranslation {
   features: string[];
   specs: Record<string, string>;
   warranty_text: string | null;
+  delivery_note: string | null;
+  inspection_steps: string[] | null;
+  faq: { q: string; a: string }[] | null;
 }
 
 export interface SellerProductDraftHydration {
@@ -168,6 +181,9 @@ const EMPTY_BUYER_CONTENT: BuyerContentDraft = {
   featuresText: "",
   specsText: "",
   warrantyText: "",
+  deliveryNote: "",
+  inspectionText: "",
+  faqText: "",
 };
 
 const DEFAULT_B1: B1ConfigState = {
@@ -240,6 +256,9 @@ function translationToBuyerContent(
     featuresText: (value.features ?? []).join("\n"),
     specsText: Object.entries(value.specs ?? {}).map(([key, item]) => `${key}: ${item}`).join("\n"),
     warrantyText: value.warranty_text ?? "",
+    deliveryNote: value.delivery_note ?? "",
+    inspectionText: (value.inspection_steps ?? []).join("\n"),
+    faqText: faqToText(value.faq ?? []),
   };
 }
 
@@ -405,7 +424,15 @@ export function parseSpecLines(raw: string): Record<string, string> {
   return specs;
 }
 
+/** Limits mirror the backend's ProductTranslationUpdate. */
+export const INSPECTION_STEPS_MAX = 10;
+export const PRODUCT_FAQ_MAX = 12;
+
+export { faqToText, parseFaqBlocks };
+
 export function buyerContentToTranslation(content: BuyerContentDraft): BuyerContentTranslation {
+  const steps = parseFeatureLines(content.inspectionText).slice(0, INSPECTION_STEPS_MAX);
+  const faq = parseFaqBlocks(content.faqText).slice(0, PRODUCT_FAQ_MAX);
   return {
     title: content.title.trim(),
     description: content.description.trim(),
@@ -413,6 +440,9 @@ export function buyerContentToTranslation(content: BuyerContentDraft): BuyerCont
     features: parseFeatureLines(content.featuresText),
     specs: parseSpecLines(content.specsText),
     warranty_text: content.warrantyText.trim() || null,
+    delivery_note: content.deliveryNote.trim() || null,
+    inspection_steps: steps.length ? steps : null,
+    faq: faq.length ? faq : null,
   };
 }
 

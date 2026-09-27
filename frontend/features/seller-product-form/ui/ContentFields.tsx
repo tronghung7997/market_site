@@ -7,7 +7,8 @@ import { DescriptionField } from "./DescriptionField";
 import { LocaleTag } from "./BasicsFields";
 
 /** Section 3 — the long description plus the optional feature / spec /
- *  warranty blocks that the storefront renders under it. */
+ *  warranty blocks and the hand-over copy (what the buyer receives, what to
+ *  check, prepared Q&A) that the storefront renders under it. */
 export function ContentFields({ core }: { core: ProductFormCore }) {
   const t = useTranslations("sellerProductForm.content");
   const c = core.activeContent;
@@ -31,6 +32,24 @@ export function ContentFields({ core }: { core: ProductFormCore }) {
       <Field label={t("warranty")} hint={t("warrantyHint")}>
         <Textarea rows={4} value={c.warrantyText} onChange={(e) => core.updateContent("warrantyText", e.target.value)} placeholder={t("warrantyPlaceholder")} />
       </Field>
+      <fieldset className="space-y-4 border-t border-line pt-4">
+        <legend className="sr-only">{t("handoverTitle")}</legend>
+        <div>
+          <p aria-hidden className="text-[13px] font-semibold text-fg">{t("handoverTitle")}</p>
+          <p className="mt-0.5 text-[12px] text-muted">{t("handoverHint")}</p>
+        </div>
+        <Field label={t("deliveryNote")} hint={t("deliveryNoteHint")}>
+          <Textarea rows={3} maxLength={2000} value={c.deliveryNote} onChange={(e) => core.updateContent("deliveryNote", e.target.value)} placeholder={t("deliveryNotePlaceholder")} />
+        </Field>
+        <div className="grid gap-4 sm:grid-cols-2">
+          <Field label={t("inspection")} hint={t("inspectionHint")}>
+            <Textarea rows={5} value={c.inspectionText} onChange={(e) => core.updateContent("inspectionText", e.target.value)} placeholder={t("inspectionPlaceholder")} />
+          </Field>
+          <Field label={t("faq")} hint={t("faqHint")}>
+            <Textarea rows={5} value={c.faqText} onChange={(e) => core.updateContent("faqText", e.target.value)} placeholder={t("faqPlaceholder")} />
+          </Field>
+        </div>
+      </fieldset>
     </div>
   );
 }

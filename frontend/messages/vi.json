@@ -9,10 +9,14 @@
     "productTitle": "{title} — GMMO",
     "productDescription": "Mua {title}, giao hàng có ký quỹ bảo vệ.",
     "sellerTitle": "{name} — Nhà bán trên GMMO",
-    "sellerDescription": "Sản phẩm và đánh giá của {name} trên GMMO."
+    "sellerDescription": "Sản phẩm và đánh giá của {name} trên GMMO.",
+    "supportTitle": "Trung tâm hỗ trợ — GMMO",
+    "supportDescription": "Giải đáp về đơn hàng, nạp tiền, ký quỹ, khiếu nại và bán hàng trên GMMO, và nên làm gì khi gặp sự cố.",
+    "sellTitle": "Bán hàng trên GMMO — mở gian hàng",
+    "sellDescription": "Mở gian hàng được duyệt để bán tài khoản số, proxy hoặc API. Giao tự động, thanh toán qua ký quỹ, phí và rút tiền rõ ràng."
   },
   "nav": {
-    "promo": "Nguồn tài khoản & proxy đã xác minh · 195+ quốc gia · giao ngay, ký quỹ bảo vệ người mua",
+    "promo": "Tiền giữ ký quỹ tới khi bạn xác nhận · Gói có sẵn hàng giao tự động · Hỗ trợ ngay trong đơn hàng",
     "marketplace": "Chợ",
     "categories": "Danh mục",
     "solutions": "Giải pháp",
@@ -39,7 +43,8 @@
     "buyerRole": "Người mua",
     "sellerRole": "Người bán",
     "logBadge": "Giao dịch",
-    "proxies": "Proxy của tôi"
+    "proxies": "Proxy của tôi",
+    "support": "Hỗ trợ"
   },
   "home": {
     "categoryPickerLabel": "Danh mục:",
@@ -61,15 +66,14 @@
     "noRatingYet": "Chưa có đánh giá",
     "escrowDays": "Ký quỹ {count} ngày",
     "loadMore": "Tải thêm ({count} sản phẩm nữa)",
-    "heroRating": "4.9/5 từ 1.200+ doanh nghiệp",
     "heroTitle": "Tài khoản & dữ liệu số,",
     "heroEmphasis": "cấp nhanh cho doanh nghiệp.",
-    "heroDescription": "Nguồn tài khoản mạng xã hội, proxy và dữ liệu số từ nhà bán đã xác minh — giao ngay, ký quỹ bảo vệ, hoá đơn minh bạch.",
+    "heroDescription": "Tài khoản mạng xã hội, proxy và API từ các gian hàng đã được duyệt — gói có sẵn hàng giao ngay, tiền được giữ ký quỹ tới khi bạn xác nhận.",
     "instant": "Giao ngay tự động",
     "escrow": "Ký quỹ bảo vệ người mua",
-    "support": "Hỗ trợ 24/7",
+    "support": "Khiếu nại ngay trong đơn",
     "explore": "Khám phá chợ",
-    "openBusiness": "Mở tài khoản doanh nghiệp",
+    "openBusiness": "Tạo tài khoản",
     "activeProducts": "Sản phẩm đang bán",
     "packages": "Gói / phân loại",
     "packageCount": "{count} {terms}",
@@ -118,45 +122,36 @@
     "whyEscrowDesc": "Tiền được giữ an toàn, chỉ giải ngân khi người mua xác nhận.",
     "whyDeliveryTitle": "Giao ngay tự động",
     "whyDeliveryDesc": "Sản phẩm giao tức thì sau thanh toán, không cần chờ đợi.",
-    "whyVerifiedTitle": "Nhà bán xác minh",
-    "whyVerifiedDesc": "Mọi nhà bán đều được xác minh danh tính và chất lượng hàng hoá.",
-    "whySupportTitle": "Hỗ trợ 24/7",
-    "whySupportDesc": "Đội ngũ hỗ trợ luôn sẵn sàng giải quyết mọi vấn đề.",
-    "testimonialsTitle": "Khách hàng nói gì",
-    "testimonialsSubtitle": "Đánh giá từ người dùng thực tế",
-    "review1Role": "Chủ agency marketing",
-    "review1Quote": "Mua proxy số lượng lớn rất nhanh, ký quỹ giúp yên tâm. Đã dùng hơn 6 tháng, chưa gặp vấn đề gì.",
-    "review2Role": "Freelancer",
-    "review2Quote": "Tài khoản giao đúng mô tả, hỗ trợ phản hồi cực nhanh. Giá cả cạnh tranh hơn nhiều chỗ khác.",
-    "review3Role": "Quản lý TMĐT",
-    "review3Quote": "Hệ thống ký quỹ minh bạch, giải quyết tranh chấp công bằng. Đội ngũ support rất chuyên nghiệp.",
-    "ratingLabel": "{rating} trên 5 sao",
+    "whyVerifiedTitle": "Gian hàng được duyệt",
+    "whyVerifiedDesc": "Mọi gian hàng được GMMO duyệt trước khi đăng sản phẩm, và có thể bị gỡ khi vi phạm quy định.",
+    "whySupportTitle": "Khiếu nại có người phân xử",
+    "whySupportDesc": "Báo lỗi ngay từ đơn hàng. Nếu không thống nhất với shop, yêu cầu GMMO xem xét trong khi tiền vẫn được giữ.",
     "faqTitle": "Câu hỏi thường gặp",
     "faqSubtitle": "Giải đáp nhanh các thắc mắc phổ biến",
     "faq1Q": "Ký quỹ (escrow) hoạt động như thế nào?",
     "faq1A": "Khi bạn thanh toán, tiền được giữ trong tài khoản ký quỹ. Nhà bán giao hàng, bạn kiểm tra và xác nhận — lúc đó tiền mới chuyển cho nhà bán. Nếu có vấn đề, bạn mở tranh chấp trong thời gian ký quỹ.",
     "faq2Q": "Tôi có thể yêu cầu hoàn tiền không?",
-    "faq2A": "Có. Trong thời gian ký quỹ (thường 3 ngày), nếu sản phẩm không đúng mô tả, bạn có thể mở tranh chấp. Đội ngũ hỗ trợ sẽ xem xét và hoàn tiền nếu nhà bán vi phạm.",
+    "faq2A": "Có. Trong thời gian bảo vệ của đơn — ghi trên sản phẩm và trong đơn — bạn mở khiếu nại nếu hàng không đúng mô tả. Tiền hoàn về lại ví của bạn.",
     "faq3Q": "Sản phẩm giao ngay tự động là gì?",
     "faq3A": "Một số sản phẩm được cấu hình giao tự động — ngay sau khi thanh toán thành công, bạn nhận được thông tin tài khoản hoặc dữ liệu mà không cần chờ nhà bán xử lý thủ công.",
     "faq4Q": "Làm sao để trở thành nhà bán?",
     "faq4A": "Đăng ký tài khoản, sau đó gửi đơn đăng ký gian hàng. Quản trị viên xét duyệt đơn — khi được chấp thuận, bạn có thể đăng sản phẩm và bắt đầu bán ngay.",
     "faq5Q": "Phương thức thanh toán nào được hỗ trợ?",
-    "faq5A": "Chúng tôi hỗ trợ chuyển khoản ngân hàng nội địa, ví điện tử (Momo, ZaloPay), và USDT. Số dư ví trên nền tảng có thể dùng để mua hàng trực tiếp.",
+    "faq5A": "Nạp ví bằng chuyển khoản ngân hàng (VietQR) hoặc USDT, rồi thanh toán đơn hàng bằng số dư ví.",
     "faq6Q": "Dữ liệu cá nhân của tôi có an toàn không?",
-    "faq6A": "Mọi dữ liệu được mã hoá và lưu trữ theo tiêu chuẩn bảo mật. Chúng tôi không chia sẻ thông tin cá nhân với bên thứ ba ngoài mục đích vận hành nền tảng.",
+    "faq6A": "Hàng đã giao được mã hoá khi lưu trữ và chỉ hiện cho bạn trong đơn hàng. Chính sách quyền riêng tư nói rõ chúng tôi lưu gì khác và vì sao.",
     "faq7Q": "Thời gian giao hàng trung bình là bao lâu?",
-    "faq7A": "Sản phẩm tự động giao ngay sau khi thanh toán. Với sản phẩm thủ công, nhà bán thường xử lý trong vòng 1–12 giờ tuỳ loại sản phẩm và múi giờ.",
+    "faq7A": "Gói giao tự động có hàng ngay sau khi thanh toán. Gói khác được giao trong số giờ ghi trên gói; quá hạn mà shop chưa giao, đơn bị huỷ và tiền hoàn về ví.",
     "faq8Q": "Tôi có thể mua số lượng lớn (bulk) không?",
-    "faq8A": "Có. Nhiều sản phẩm hỗ trợ mua bulk với giá chiết khấu. Chọn số lượng khi đặt hàng — hệ thống sẽ tự tính giá theo bậc nếu nhà bán đã cấu hình.",
+    "faq8A": "Có. Chọn số lượng ở trang sản phẩm, tối đa bằng lượng hàng còn của từng gói.",
     "faq9Q": "Nhà bán có bị giữ tiền không?",
     "faq9A": "Tiền được giữ trong ký quỹ cho đến khi người mua xác nhận nhận hàng hoặc hết thời gian ký quỹ. Sau đó tiền tự động chuyển vào ví nhà bán.",
     "faq10Q": "Proxy và tài khoản có bảo hành không?",
     "faq10A": "Tuỳ từng nhà bán và sản phẩm. Thông tin bảo hành được ghi rõ trên trang sản phẩm. Nếu sản phẩm lỗi trong thời gian bảo hành, bạn có thể mở tranh chấp.",
     "faq11Q": "Làm sao để liên hệ hỗ trợ?",
-    "faq11A": "Bạn có thể mở tranh chấp trực tiếp trên đơn hàng, hoặc liên hệ qua email support@proxora.vn. Đội ngũ hỗ trợ phản hồi trong vòng 24 giờ làm việc.",
+    "faq11A": "Với đơn hàng, mở khiếu nại ngay trong đơn. Việc khác, Trung tâm hỗ trợ chỉ đúng nơi cần tới.",
     "faq12Q": "Tài khoản bị khoá thì phải làm sao?",
-    "faq12A": "Liên hệ hỗ trợ kèm email đăng ký để được xác minh và mở khoá. Tài khoản thường bị khoá khi vi phạm điều khoản sử dụng hoặc phát hiện hoạt động bất thường.",
+    "faq12A": "Tài khoản có thể bị khoá khi vi phạm điều khoản hoặc có hoạt động bất thường. Xem Trung tâm hỗ trợ để biết cách liên hệ GMMO.",
     "ctaTitle": "Bắt đầu bán hàng trên",
     "ctaDescription": "Đăng ký tài khoản nhà bán, đăng sản phẩm và bắt đầu kiếm thu nhập từ hàng hoá số của bạn.",
     "ctaApply": "Đăng ký bán hàng",
@@ -177,34 +172,60 @@
     "viewAllOrders": "Xem tất cả đơn hàng",
     "orderFallback": "Đơn #{id}",
     "inStockShort": "Còn hàng",
-    "lowStock": "Sắp hết"
+    "lowStock": "Sắp hết",
+    "faqMore": "Xem thêm ở Trung tâm hỗ trợ",
+    "statsLabel": "GMMO hôm nay",
+    "statProducts": "sản phẩm đang bán",
+    "statSellers": "gian hàng đang bán",
+    "statOrders": "đơn đã hoàn tất",
+    "statRating": "điểm trung bình từ {count} đánh giá",
+    "reviewsTitle": "Đánh giá mới nhất",
+    "reviewsSubtitle": "Người mua viết sau khi nhận đơn",
+    "reviewPurchased": "Đã mua",
+    "reviewAbout": "về {product}",
+    "reviewStars": "{rating} trên 5 sao",
+    "safetyTitle": "Mua an toàn",
+    "safetySubtitle": "Bốn thói quen giữ tiền của bạn được bảo vệ",
+    "safetyPay": "Chỉ thanh toán trong GMMO — tiền trả ở nơi khác không được giữ ký quỹ.",
+    "safetyOtp": "Không gửi mật khẩu hay mã xác minh cho ai, kể cả người xưng là GMMO.",
+    "safetyCheck": "Kiểm tra hàng sớm, khi thời gian bảo vệ vẫn còn.",
+    "safetyEvidence": "Giữ ảnh chụp và mã đơn nếu có lỗi.",
+    "safetyLink": "Mẹo giao dịch an toàn",
+    "escrowPolicy": "Chính sách ký quỹ",
+    "awaitingTitle": "{count} đơn đã giao đang chờ bạn kiểm tra",
+    "awaitingBody": "Xác nhận hoặc khiếu nại trước khi hết thời gian bảo vệ — sau đó đơn tự hoàn tất.",
+    "awaitingAction": "Xem đơn"
   },
   "footer": {
     "escrow": "Ký quỹ bảo vệ người mua",
-    "support": "Hỗ trợ 24/7",
-    "refund": "Hoàn tiền nếu sai mô tả",
-    "payment": "Thanh toán:",
-    "about": "Chợ tài khoản & dữ liệu số cho doanh nghiệp. Nguồn đã xác minh, giao ngay, ký quỹ minh bạch.",
-    "products": "Sản phẩm",
-    "business": "Doanh nghiệp",
+    "support": "Hỗ trợ ngay trong đơn hàng",
+    "refund": "Khiếu nại, hoàn tiền trong thời gian bảo vệ",
+    "payment": "Nạp ví:",
+    "about": "Chợ tài khoản số, proxy và API. Mọi gian hàng được duyệt trước khi bán, tiền của bạn được giữ ký quỹ tới khi bạn xác nhận đã nhận hàng.",
     "help": "Hỗ trợ",
-    "socialAccounts": "Tài khoản mạng xã hội",
-    "proxy": "Proxy & VPN",
-    "emailSoftware": "Email & phần mềm",
-    "pricing": "Bảng giá",
-    "wholesale": "Mua sỉ / API",
-    "consulting": "Tư vấn giải pháp",
-    "sla": "Cam kết SLA",
-    "invoice": "Hoá đơn VAT",
     "contact": "Liên hệ",
     "copyright": "© {year} GMMO.",
-    "legal": "Giá đã gồm phí nền tảng · Tuân thủ pháp luật Việt Nam"
+    "legal": "Giá đã gồm phí nền tảng · Tuân thủ pháp luật Việt Nam",
+    "bankTransfer": "Chuyển khoản · VietQR",
+    "shop": "Mua hàng",
+    "marketplace": "Chợ",
+    "categories": "Danh mục",
+    "solutions": "Giải pháp",
+    "search": "Tìm kiếm",
+    "helpCenter": "Trung tâm hỗ trợ",
+    "buyingGuide": "Hướng dẫn mua hàng",
+    "safety": "Giao dịch an toàn",
+    "policies": "Chính sách",
+    "sellers": "Người bán",
+    "openShop": "Mở gian hàng",
+    "sellerPortal": "Kênh người bán",
+    "feesPayouts": "Phí và rút tiền",
+    "blog": "Hướng dẫn & tin tức"
   },
   "seller": {
     "applyTitle": "Đăng ký làm nhà bán hàng",
     "applySubtitle": "Điền thông tin gian hàng để gửi yêu cầu xét duyệt.",
     "pending": "Đang chờ duyệt",
-    "pendingDescription": "Đơn đăng ký của bạn đã được gửi lúc {date}. Quản trị viên sẽ xét duyệt trong thời gian sớm nhất.",
     "approved": "Gian hàng đã được duyệt",
     "approvedDescription": "Gian hàng đã sẵn sàng. Đang mở khu vực người bán…",
     "openWorkspace": "Mở khu vực người bán",
@@ -214,8 +235,6 @@
     "businessName": "Tên gian hàng",
     "businessPlaceholder": "Ví dụ: Kho Số Việt",
     "description": "Mô tả",
-    "descriptionHint": "Loại sản phẩm/dịch vụ bạn dự định bán (không bắt buộc)",
-    "descriptionPlaceholder": "VD: **Tài khoản Facebook uy tín**, tạo hơn 2 tháng tuổi. Đã xác minh email, không dính báo cáo vi phạm.",
     "contact": "Liên hệ",
     "contactHint": "Telegram, Zalo, email... (không bắt buộc)",
     "submit": "Gửi đơn đăng ký",
@@ -450,9 +469,6 @@
     "withdrawFailed": "Không gửi được yêu cầu, thử lại.",
     "withdrawRequests": "Yêu cầu đã gửi",
     "noWithdrawals": "Chưa có yêu cầu nào. Số tiền bạn rút sẽ hiện ở đây kèm trạng thái duyệt.",
-    "pendingWithdrawal": "Chờ duyệt",
-    "approvedWithdrawal": "Đã duyệt",
-    "rejectedWithdrawal": "Bị từ chối",
     "withdrawRejectReason": "Lý do: {reason}",
     "inventoryTitle": "Kho hàng",
     "inventorySummary": "{count} sản phẩm sẵn sàng bán. Sửa nội dung ngay trên dòng — dòng đã giao cho khách thì khoá lại.",
@@ -1154,7 +1170,240 @@
     "fifoStockedAt": "nhập {date}",
     "fifoPreviewMore": "… và {count} tài khoản kế tiếp",
     "disputeAttachImages": "Đính kèm ảnh bằng chứng",
-    "withdrawReceipts": "Biên lai chuyển khoản"
+    "withdrawReceipts": "Biên lai chuyển khoản",
+    "apply": {
+      "stepsLabel": "Các bước đăng ký",
+      "steps": {
+        "shop": "Gian hàng",
+        "contact": "Liên hệ & cam kết",
+        "review": "Xem lại & gửi"
+      },
+      "stepTitles": {
+        "shop": "Bạn sẽ bán gì?",
+        "contact": "Cách liên hệ và cam kết khi bán",
+        "review": "Kiểm tra lại đơn đăng ký"
+      },
+      "stepOf": "Bước {step}/{total}",
+      "restoredDraft": "Đã khôi phục bản nháp bạn điền dở trên trình duyệt này.",
+      "restoredPrevious": "Đã điền sẵn từ đơn trước. Sửa theo lý do bị từ chối rồi gửi lại.",
+      "startOver": "Điền lại từ đầu",
+      "sellerType": "Bạn bán với tư cách",
+      "types": {
+        "individual": {
+          "title": "Cá nhân",
+          "body": "Bán hàng dưới tên của bạn."
+        },
+        "business": {
+          "title": "Doanh nghiệp / hộ kinh doanh",
+          "body": "Công ty hoặc hộ kinh doanh đã đăng ký."
+        }
+      },
+      "categories": "Danh mục dự định bán",
+      "categoriesHint": "Chọn ít nhất một. Sau này vẫn đăng được ở danh mục khác.",
+      "categoriesLoadFail": "Không tải được danh mục.",
+      "experience": "Kinh nghiệm bán hàng số",
+      "experiences": {
+        "none": "Mới bắt đầu",
+        "under_1y": "Dưới 1 năm",
+        "1_3y": "1–3 năm",
+        "over_3y": "Trên 3 năm"
+      },
+      "optionalPick": "Chọn (không bắt buộc)",
+      "descriptionHint": "Bạn bán gì, nguồn hàng từ đâu, xử lý hàng lỗi thế nào. Không bắt buộc, tối đa {max} ký tự.",
+      "descriptionPlaceholder": "VD: Gmail tự tạo, trên 2 tháng tuổi, kèm email khôi phục.",
+      "phone": "Số điện thoại",
+      "phoneHint": "Chỉ quản trị viên thấy. Không bắt buộc.",
+      "warranty": "Chính sách bảo hành dự kiến",
+      "warrantyHint": "Bạn làm gì khi hàng không dùng được. Không bắt buộc; từng sản phẩm vẫn đặt bảo hành riêng.",
+      "warrantyPlaceholder": "VD: Đổi mới trong 24 giờ nếu không đăng nhập được.",
+      "referral": "Bạn biết GMMO từ đâu?",
+      "referrals": {
+        "search": "Tìm kiếm",
+        "social": "Mạng xã hội",
+        "friend": "Bạn bè giới thiệu",
+        "community": "Hội nhóm / diễn đàn",
+        "ads": "Quảng cáo",
+        "other": "Nơi khác"
+      },
+      "rulesTitle": "Cam kết khi bán trên GMMO",
+      "ruleEscrow": "Chỉ nhận thanh toán qua ký quỹ GMMO, không giao dịch ngoài sàn.",
+      "ruleAccurate": "Giao đúng như mô tả trong tin đăng.",
+      "ruleBanned": "Không bán {item}.",
+      "banned": {
+        "stolen": "tài khoản, dữ liệu bị hack, chiếm đoạt hoặc rò rỉ",
+        "malware": "mã độc, công cụ tấn công, bộ công cụ spam hay phishing",
+        "payments": "tài khoản ngân hàng, thẻ, ví điện tử hay phương tiện thanh toán khác",
+        "piracy": "key hoặc phần mềm bạn không có quyền phân phối",
+        "resale": "một dòng hàng cho nhiều người, trừ khi tin đăng ghi rõ là dùng chung"
+      },
+      "acceptRules": "Tôi đồng ý với các cam kết trên và <terms>điều khoản sử dụng</terms>.",
+      "rulesAccepted": "Đã đồng ý",
+      "edit": "Sửa",
+      "notProvided": "Chưa điền",
+      "reviewNote": "Quản trị viên duyệt từng đơn. Trang này tự cập nhật khi đơn của bạn được duyệt.",
+      "draftNote": "Câu trả lời được lưu nháp trên trình duyệt này cho tới khi bạn gửi.",
+      "back": "Quay lại",
+      "next": "Tiếp tục",
+      "errors": {
+        "nameRequired": "Nhập tên gian hàng.",
+        "nameTooLong": "Tên gian hàng quá dài.",
+        "categoryRequired": "Chọn ít nhất một danh mục.",
+        "tooManyCategories": "Chọn tối đa 12 danh mục.",
+        "descriptionTooLong": "Mô tả quá dài.",
+        "phoneInvalid": "Chỉ nhập chữ số, có thể bắt đầu bằng +.",
+        "contactTooLong": "Thông tin liên hệ quá dài.",
+        "warrantyTooLong": "Nội dung bảo hành quá dài.",
+        "rulesRequired": "Đánh dấu đồng ý để tiếp tục."
+      },
+      "sentSubtitle": "Đơn đăng ký của bạn đã được gửi.",
+      "sentAt": "Gửi lúc {date}",
+      "pendingBody": "Quản trị viên đang xem hồ sơ. Trang này tự cập nhật khi đơn được duyệt; bạn có thể rời đi và quay lại sau.",
+      "whileWaiting": "Trong lúc chờ",
+      "waitFees": "Xem phí và cách rút tiền",
+      "waitTerms": "Đọc đầy đủ điều khoản",
+      "needsInfoTitle": "GMMO cần bạn bổ sung trước khi duyệt",
+      "needsInfoHint": "Cập nhật câu trả lời bên dưới rồi gửi lại đơn.",
+      "restoredNeedsInfo": "Đã điền sẵn từ đơn của bạn. Bổ sung theo yêu cầu của GMMO rồi gửi lại."
+    },
+    "escrow": {
+      "title": "Lịch giải ngân",
+      "subtitle": "Tiền của đơn đã giao về ví khi hết thời gian giữ, nếu khách không khiếu nại. Số tiền là ước tính sau phí nền tảng.",
+      "dueWeek": "Về ví trong 7 ngày tới",
+      "inEscrow": "Đang giữ · {count} đơn",
+      "disputed": "Đang khiếu nại · {count} đơn",
+      "awaitingDelivery": "Đã trả, chưa giao · {count} đơn",
+      "today": "Hôm nay",
+      "tomorrow": "Ngày mai",
+      "orders": "{count} đơn",
+      "empty": "Chưa có tiền chờ giải ngân. Đơn đã giao sẽ hiện ở đây theo ngày về ví.",
+      "noDeadline": "{count} đơn cũ chỉ về ví khi khách xác nhận.",
+      "showAll": "Xem cả {count} ngày",
+      "showLess": "Thu gọn",
+      "loadFailed": "Không tải được lịch giải ngân.",
+      "retry": "Thử lại"
+    },
+    "qaNav": "Hỏi đáp",
+    "questions": {
+      "title": "Hỏi đáp từ khách",
+      "subtitle": "Câu hỏi khách đặt trên sản phẩm của bạn. Câu trả lời sẽ hiện trên trang sản phẩm; ẩn những câu không phù hợp.",
+      "filterLabel": "Hiển thị",
+      "filters": {
+        "pending": "Chưa trả lời",
+        "answered": "Đã trả lời",
+        "hidden": "Đã ẩn",
+        "all": "Tất cả"
+      },
+      "status": {
+        "pending": "Chưa trả lời",
+        "answered": "Đang hiển thị",
+        "hidden": "Đã ẩn"
+      },
+      "empty": "Không có câu hỏi nào.",
+      "emptyPending": "Mọi câu hỏi đều đã được trả lời.",
+      "loadFailed": "Không tải được câu hỏi.",
+      "retry": "Thử lại",
+      "answerLabel": "Câu trả lời",
+      "answerPlaceholder": "Trả lời cho mọi khách đọc trang sản phẩm…",
+      "answerHint": "Hiện công khai trên trang sản phẩm. Không để liên hệ ngoài GMMO.",
+      "answerHiddenHint": "Câu hỏi đang ẩn; câu trả lời chỉ hiện khi bạn bỏ ẩn.",
+      "answer": "Trả lời",
+      "saveAnswer": "Lưu câu trả lời",
+      "editAnswer": "Sửa câu trả lời",
+      "cancel": "Huỷ",
+      "hide": "Ẩn",
+      "unhide": "Hiện lại",
+      "hiddenByAdmin": "GMMO đã ẩn câu này",
+      "saveFailed": "Chưa lưu được."
+    },
+    "tierNav": "Hạng & uy tín",
+    "tier": {
+      "title": "Hạng & uy tín",
+      "subtitle": "Điểm uy tín và điều kiện của hạng kế tiếp. GMMO xem xét các gian hàng đủ điều kiện và duyệt lên hạng.",
+      "loadFailed": "Không tải được thông tin hạng.",
+      "retry": "Thử lại",
+      "currentTier": "Hạng hiện tại",
+      "tiers": {
+        "new": "Mới",
+        "verified": "Đã xác minh",
+        "trusted": "Uy tín",
+        "enterprise": "Doanh nghiệp"
+      },
+      "missing": "Còn {count} điều kiện nữa để lên {tier}",
+      "eligible": "Bạn đã đạt đủ điều kiện lên {tier}. GMMO sẽ xem xét gian hàng của bạn.",
+      "inviteOnly": "Hạng {tier} do GMMO mời trực tiếp.",
+      "inviteOnlyBody": "Hạng kế tiếp do GMMO mời. Giữ điểm uy tín và tỉ lệ khiếu nại trong mức giữ hạng để giữ hạng hiện tại.",
+      "topTier": "Bạn đang ở hạng cao nhất.",
+      "topTierBody": "Không còn hạng cao hơn. Giữ các chỉ số trong mức giữ hạng để giữ hạng.",
+      "topTierShort": "Hạng cao nhất có thể đạt theo chỉ số",
+      "score": "Điểm uy tín",
+      "scoreNeed": "Vạch đen = {need}, mức cần cho hạng kế tiếp",
+      "needShort": "cần {need}",
+      "notEnoughData": "Chưa đủ dữ liệu",
+      "notEnoughDataHint": "Điểm có sau {min} đơn hoàn tất trong {days} ngày (hiện có {done}). Bạn vẫn lên hạng được nhờ các điều kiện còn lại.",
+      "bands": {
+        "excellent": "Rất tốt",
+        "good": "Khá",
+        "fair": "Trung bình",
+        "low": "Thấp"
+      },
+      "youAreHere": "bạn ở đây",
+      "products": "{count} sản phẩm",
+      "unlimitedProducts": "không giới hạn sản phẩm",
+      "withdraw": "rút {amount}",
+      "unlimitedWithdraw": "rút không giới hạn",
+      "byInvitation": "Sàn mời trực tiếp",
+      "criteriaTitle": "Điều kiện lên {tier}",
+      "metCount": "{met}/{total} đạt",
+      "criteria": {
+        "min_gmv": "Doanh số hoàn tất",
+        "min_orders": "Đơn hoàn tất",
+        "min_days": "Số ngày bán",
+        "max_dispute_pct": "Tỉ lệ khiếu nại",
+        "max_one_star_pct": "Tỉ lệ đánh giá 1 sao",
+        "min_score": "Điểm uy tín"
+      },
+      "criteriaShort": {
+        "min_gmv": "doanh số",
+        "min_orders": "số đơn",
+        "min_days": "số ngày bán",
+        "max_dispute_pct": "khiếu nại",
+        "max_one_star_pct": "đánh giá 1 sao",
+        "min_score": "điểm uy tín"
+      },
+      "scopeWindow": "{days} ngày gần nhất",
+      "scopeLifetime": "Từ khi mở gian hàng",
+      "keepCheck": "cũng dùng để giữ hạng",
+      "daysValue": "{count} ngày",
+      "scoreSkipped": "Bỏ qua cho tới khi có điểm uy tín.",
+      "breakdownTitle": "Điểm của bạn đến từ đâu",
+      "breakdownScope": "{days} ngày gần nhất · {orders} đơn hoàn tất · {reviews} đánh giá",
+      "parts": {
+        "dispute": "Khiếu nại",
+        "one_star": "Đánh giá 1 sao",
+        "gmv": "Doanh số"
+      },
+      "partDisputeNote": "{pct} ({disputes} / {orders} đơn)",
+      "partOneStarNote": "{pct} ({count} / {reviews} đánh giá)",
+      "partGmvNote": "{amount} hoàn tất trong kỳ",
+      "benefitsTitle": "Lên {tier}, bạn được",
+      "benefit": "Quyền lợi",
+      "benefits": {
+        "products": "Sản phẩm đang bán",
+        "withdraw": "Rút tối đa mỗi lần",
+        "fee": "Giảm phí sàn",
+        "escrow": "Giữ tiền ngắn hơn"
+      },
+      "unlimited": "Không giới hạn",
+      "feeValue": "−{pp} điểm %",
+      "escrowValue": "−{days} ngày",
+      "atRiskTitle": "Hạng {tier} đang dưới mức giữ hạng",
+      "atRiskShort": "dưới mức giữ hạng",
+      "atRiskLimit": "mức {limit}",
+      "atRiskBody": "GMMO có thể hạ gian hàng xuống một bậc nếu tình trạng kéo dài. Xử lý khiếu nại nhanh và kiểm hàng trước khi giao là cách cải thiện nhanh nhất.",
+      "details": "Xem chi tiết",
+      "howItWorks": "Cách xét hạng: tỉ lệ và điểm tính trên {days} ngày gần nhất, chỉ đơn thật; doanh số và số đơn là tổng đơn hoàn tất từ khi mở gian hàng. Điểm có sau {min} đơn hoàn tất. Mọi thay đổi hạng do GMMO duyệt.",
+      "tiersLink": "Quyền lợi từng hạng"
+    }
   },
   "sellerDashboard": {
     "rangeLabel": "Khoảng thời gian",
@@ -1230,7 +1479,39 @@
     "retry": "Thử lại",
     "emptyTitle": "Gian hàng chưa có hoạt động",
     "emptyBody": "Tạo sản phẩm đầu tiên để bắt đầu nhận đơn. Số liệu doanh thu, đơn hàng và khách hàng sẽ xuất hiện ở đây.",
-    "emptyCta": "Tạo sản phẩm đầu tiên"
+    "emptyCta": "Tạo sản phẩm đầu tiên",
+    "onboarding": {
+      "title": "Khởi động gian hàng",
+      "progress": "Đã xong {done}/{total} bước",
+      "hide": "Ẩn các bước này",
+      "done": "Đã xong",
+      "steps": {
+        "email": {
+          "title": "Xác minh email",
+          "body": "Dùng để khôi phục tài khoản; sàn có thể yêu cầu khi nạp và rút tiền."
+        },
+        "profile": {
+          "title": "Thêm logo và mô tả gian hàng",
+          "body": "Khách thấy trên trang gian hàng và mọi sản phẩm."
+        },
+        "product": {
+          "title": "Tạo sản phẩm đầu tiên",
+          "body": "Tiêu đề, gói, giá và cách giao hàng."
+        },
+        "stock": {
+          "title": "Nạp kho",
+          "body": "Đơn đã thanh toán tự nhận hàng từ kho."
+        },
+        "active": {
+          "title": "Bật bán một sản phẩm",
+          "body": "Sản phẩm nháp hoặc tạm dừng không hiện với khách."
+        },
+        "twofa": {
+          "title": "Bật xác thực hai lớp",
+          "body": "Bảo vệ số dư và lệnh rút tiền."
+        }
+      }
+    }
   },
   "sellerOrders": {
     "tabsLabel": "Lọc theo trạng thái",
@@ -1965,7 +2246,17 @@
     "PROXY_TAG_DUPLICATE": "Đã có tag trùng tên",
     "PROXY_TAG_INVALID": "Tên tag trống hoặc đã đạt tối đa {max} tag",
     "MEDIA_TOO_LARGE": "Ảnh lớn hơn giới hạn {max_mb} MB.",
-    "DISPUTE_EVIDENCE_REQUIRED": "Cần đính kèm ít nhất 1 ảnh bằng chứng để mở khiếu nại."
+    "DISPUTE_EVIDENCE_REQUIRED": "Cần đính kèm ít nhất 1 ảnh bằng chứng để mở khiếu nại.",
+    "CHAT_HELPDESK_UNAVAILABLE": "Tài khoản admin trả lời chat GMMO trong hộp thư quản trị.",
+    "ORDER_QUANTITY_RANGE": "Gói này bán từ {min} đến {max} đơn vị mỗi đơn",
+    "VARIANT_PER_ORDER_RANGE": "Số lượng tối đa mỗi đơn phải lớn hơn hoặc bằng tối thiểu",
+    "QUESTION_NOT_FOUND": "Không tìm thấy câu hỏi",
+    "QUESTION_SELF": "Bạn không thể tự hỏi trên sản phẩm của mình",
+    "QUESTION_LIMIT": "Bạn có nhiều câu hỏi đang chờ; hãy đợi shop trả lời rồi hỏi tiếp",
+    "QUESTION_HIDDEN_BY_ADMIN": "GMMO đã ẩn câu hỏi này",
+    "POST_NOT_FOUND": "Không tìm thấy bài viết",
+    "POST_SLUG_TAKEN": "Đường dẫn này đã có bài khác dùng",
+    "POST_INCOMPLETE": "Cần có tiêu đề và nội dung tiếng Việt để đăng bài"
   },
   "common": {
     "loading": "Đang tải…",
@@ -2275,7 +2566,13 @@
     "moreInCategory": "Còn {count} sản phẩm nữa trong {name}",
     "productsLoadError": "Không tải được sản phẩm. Kiểm tra kết nối rồi thử lại.",
     "retry": "Thử lại",
-    "updating": "Đang cập nhật…"
+    "updating": "Đang cập nhật…",
+    "ratingLabel": "Đánh giá",
+    "ratingAtLeast": "Từ {stars}★",
+    "guideTitle": "Về {name}",
+    "faqTitle": "Câu hỏi về {name}",
+    "relatedTitle": "Danh mục liên quan",
+    "buyingHelp": "Mua hàng và ký quỹ hoạt động thế nào"
   },
   "products": {
     "notFound": "Không tìm thấy",
@@ -2329,7 +2626,7 @@
     "reviewsCount": "{count} đánh giá",
     "reviewsCountShort": "{count} lượt",
     "inStock": "{count} sẵn hàng",
-    "verified": "Xác minh",
+    "verified": "Gian hàng đã duyệt",
     "shopOnProxora": "Gian hàng trên GMMO",
     "messageSeller": "Nhắn tin",
     "specs": "Thông số kỹ thuật",
@@ -2337,9 +2634,9 @@
     "warranty": "Bảo hành & ký quỹ",
     "warrantyDefault": "Áp dụng chính sách ký quỹ {days} ngày theo quy định GMMO.",
     "warrantyPoint1": "Tiền giữ bởi GMMO trong {days} ngày",
-    "warrantyPoint2": "Chỉ chuyển cho người bán khi bạn xác nhận",
-    "warrantyPoint3": "Hoàn tiền 100% nếu không đúng mô tả",
-    "warrantyPoint4": "Mở tranh chấp bất kỳ lúc nào trong thời hạn ký quỹ",
+    "warrantyPoint2": "Chuyển cho người bán khi bạn xác nhận, hoặc khi hết thời gian mà không có khiếu nại",
+    "warrantyPoint3": "Không đúng mô tả: shop đổi mới hoặc hoàn tiền về ví qua khiếu nại",
+    "warrantyPoint4": "Mở khiếu nại bất kỳ lúc nào trong thời gian bảo vệ; GMMO có thể xem xét",
     "related": "Sản phẩm liên quan",
     "reviews": "Đánh giá",
     "reviewsEmpty": "Chưa có đánh giá nào — hãy là người mua đầu tiên chia sẻ trải nghiệm.",
@@ -2486,7 +2783,63 @@
     "apiKeySecretNote": "Giữ key bí mật: ai có key đều dùng được số request của bạn. Nếu lộ, đổi key ngay trong đơn hàng.",
     "copyAllDelivered": "Sao chép toàn bộ",
     "copyThisLine": "Sao chép dòng này",
-    "apiMoreEndpoints": "+{count} endpoint khác"
+    "apiMoreEndpoints": "+{count} endpoint khác",
+    "payInsideTitle": "Chỉ thanh toán qua GMMO",
+    "payInsideBody": "Tiền của bạn được giữ ký quỹ {days} ngày sau khi giao. Tiền trả ngoài GMMO không được bảo vệ.",
+    "escrowPolicy": "Chính sách ký quỹ",
+    "factsLabel": "Tóm tắt nhanh",
+    "factDelivery": "Giao hàng",
+    "factDeliveryInstant": "Ngay sau thanh toán",
+    "factDeliveryHours": "Trong {hours} giờ",
+    "factDeliveryMixed": "Ngay hoặc trong {hours} giờ",
+    "factDeliveryAuto": "Tự động sau thanh toán",
+    "factProtection": "Bảo vệ",
+    "factProtectionValue": "{days} ngày sau khi giao",
+    "factReceive": "Bạn nhận được",
+    "sectionNav": "Các phần của sản phẩm",
+    "navDescription": "Mô tả",
+    "navSpecs": "Thông số",
+    "navDelivery": "Bàn giao",
+    "navReviews": "Đánh giá",
+    "navFaq": "Hỏi đáp",
+    "deliveryTitle": "Bàn giao và kiểm tra",
+    "deliveryReceive": "Bạn sẽ nhận được",
+    "deliveryCheck": "Kiểm tra trước khi xác nhận",
+    "deliveryCheckDefault": "Dùng thử hàng ngay khi nhận. Nếu có gì không dùng được, chụp màn hình và mở khiếu nại từ đơn trước khi hết thời gian bảo vệ.",
+    "deliveryStepsLabel": "Sau khi bạn thanh toán",
+    "deliveryStepPay": "Tiền vào ký quỹ",
+    "deliveryStepPayBody": "Shop chưa nhận được tiền.",
+    "deliveryStepDeliver": "Shop giao hàng",
+    "deliveryStepDeliverBody": "Hàng hiện trong đơn của bạn.",
+    "deliveryStepCheck": "Bạn kiểm tra trong {days} ngày",
+    "deliveryStepCheckBody": "Có lỗi thì mở khiếu nại.",
+    "deliveryStepRelease": "Shop nhận tiền",
+    "deliveryStepReleaseBody": "Khi bạn xác nhận, hoặc khi hết thời gian.",
+    "faqTitle": "Hỏi đáp",
+    "faqAsk": "Chưa có câu bạn cần? Hỏi shop — câu trả lời nằm trong tin nhắn của bạn.",
+    "sellerCardTitle": "Về gian hàng",
+    "sellerRating": "Đánh giá",
+    "sellerNoRating": "Chưa có",
+    "sellerReviewsCount": "{count} đánh giá",
+    "sellerCompleted": "Đơn hoàn tất",
+    "sellerSince": "Tham gia GMMO",
+    "sellerVisit": "Xem gian hàng",
+    "disputePolicy": "Chính sách khiếu nại",
+    "sameShop": "Cùng gian hàng",
+    "walletBalance": "Số dư ví",
+    "shortfallTitle": "Còn thiếu {amount}",
+    "shortfallBody": "Nạp phần còn thiếu rồi quay lại hoàn tất đơn này.",
+    "topUpShortfall": "Nạp {amount}",
+    "protectionLeft": "Thời gian bảo vệ {left}",
+    "protectionEnded": "Đã hết thời gian bảo vệ",
+    "protectionAction": "Xác nhận hoặc báo lỗi trong đơn",
+    "inspectTitle": "Trước khi xác nhận",
+    "factReceiveInOrder": "Hàng shop giao, hiện ngay trong đơn của bạn",
+    "perOrderMin": "Mỗi đơn tối thiểu {min}",
+    "perOrderMax": "Mỗi đơn tối đa {max}",
+    "perOrderRange": "Mỗi đơn từ {min} đến {max}",
+    "notEnoughStock": "Không đủ hàng cho một đơn",
+    "navQa": "Hỏi đáp"
   },
   "chat": {
     "inbox": "Tin nhắn",
@@ -2537,9 +2890,9 @@
     "orderChatAction": "Chat đơn hàng",
     "marketplaceChatAction": "Chat với GMMO",
     "marketplaceChat": "GMMO",
-    "marketplaceInbox": "Khiếu nại GMMO",
-    "marketplaceEmpty": "Chưa có chat khiếu nại",
-    "marketplaceEmptyHint": "Khi buyer hoặc seller mở chat GMMO trên một khiếu nại, hội thoại sẽ hiện ở đây.",
+    "marketplaceInbox": "Hộp thư GMMO",
+    "marketplaceEmpty": "Chưa có cuộc trò chuyện",
+    "marketplaceEmptyHint": "Chat khiếu nại và tin nhắn gửi từ nút “Chat với GMMO” sẽ hiện ở đây.",
     "marketplaceReviewTitle": "Chat với GMMO",
     "marketplaceReviewHint": "Mô tả vấn đề. Thao tác này tạm dừng tự quyết toán đến khi admin chốt. Không tự hoàn tiền.",
     "marketplaceReviewNote": "Ghi chú cho GMMO",
@@ -2564,7 +2917,17 @@
     "disputeStatus": "Trạng thái khiếu nại",
     "attachImages": "Đính kèm ảnh",
     "imageMessage": "[Ảnh]",
-    "imagesTitle": "Ảnh trong tin nhắn"
+    "imagesTitle": "Ảnh trong tin nhắn",
+    "helpdeskChat": "Hỗ trợ",
+    "helpdeskTitle": "GMMO hỗ trợ",
+    "deskFilterLabel": "Hiển thị",
+    "deskFilters": {
+      "all": "Tất cả",
+      "waiting": "Chờ trả lời",
+      "helpdesk": "Hỗ trợ",
+      "support": "Khiếu nại"
+    },
+    "awaitingReply": "Chờ trả lời"
   },
   "orders": {
     "title": "Đơn hàng",
@@ -2984,7 +3347,10 @@
     "evidenceImagesLabel": "Ảnh bằng chứng",
     "evidenceImagesHint": "Ảnh chụp màn hình lỗi, tin nhắn… tối đa 6 ảnh. Nên gửi ảnh gốc từ máy, không cắt ghép.",
     "evidenceImagesRequired": "Cần ít nhất 1 ảnh bằng chứng.",
-    "attachImages": "Đính kèm ảnh"
+    "attachImages": "Đính kèm ảnh",
+    "protectionUntilLeft": "Bảo vệ tới {date} · {left}",
+    "deliveryDueLeft": "Shop giao trước {date} · {left}",
+    "deliveryOverdue": "Đã quá hạn giao — hệ thống tự hoàn tiền"
   },
   "wallet": {
     "available": "Số dư khả dụng",
@@ -3131,7 +3497,40 @@
     "withdrawTotp": "Mã xác thực 2 lớp",
     "withdrawTotpHint": "Mã 6 số từ ứng dụng xác thực (hoặc mã dự phòng).",
     "withdrawTotpSetup": "Rút tiền cần bật xác thực 2 lớp.",
-    "withdrawTotpSetupLink": "Bật ngay"
+    "withdrawTotpSetupLink": "Bật ngay",
+    "returnTitle": "Bạn đang nạp để mua đơn hàng",
+    "returnBody": "Nạp xong và ví đã cộng tiền thì quay lại hoàn tất đơn.",
+    "returnAction": "Quay lại sản phẩm",
+    "guideTitle": "Nạp tiền trong 3 bước",
+    "guideStepAmount": "Nhập số tiền",
+    "guideStepAmountBody": "Trong hạn mức bên dưới.",
+    "guideStepPay": "Thanh toán yêu cầu",
+    "guideStepPayBody": "Quét VietQR và giữ nguyên nội dung chuyển khoản, hoặc trả USDT ở trang thanh toán.",
+    "guideStepCredit": "Ví được cộng",
+    "guideStepCreditBody": "Tự động khi hệ thống khớp giao dịch — trang này tự cập nhật.",
+    "limitsTitle": "Hạn mức mỗi lệnh nạp",
+    "limitsBank": "Chuyển khoản",
+    "limitsUsdt": "USDT",
+    "limitsRange": "{min} – {max}",
+    "limitsOff": "Tạm thời không khả dụng",
+    "limitsExpire": "Mỗi yêu cầu có thời hạn — đồng hồ đếm ngược hiện cạnh yêu cầu. Hãy thanh toán trước khi hết giờ.",
+    "missingTitle": "Đã chuyển mà ví chưa cộng?",
+    "missingCheck": "Kiểm tra nội dung chuyển khoản và số tiền khớp đúng yêu cầu.",
+    "missingKeep": "Giữ mã yêu cầu (NAP-…) và mã giao dịch của ngân hàng.",
+    "missingNoRepeat": "Không chuyển lại lần hai cho cùng một yêu cầu.",
+    "missingHelp": "Hướng dẫn về nạp tiền",
+    "historyTitle": "Lịch sử nạp tiền",
+    "historyScope": "{count} yêu cầu gần nhất",
+    "historyAll": "Tất cả",
+    "historyEmpty": "Chưa có lần nạp nào. Yêu cầu nạp sẽ hiện ở đây.",
+    "historyEmptyFilter": "Không có yêu cầu nào ở trạng thái này.",
+    "historyCode": "Mã yêu cầu",
+    "historyTime": "Thời gian",
+    "historyMethod": "Phương thức",
+    "historyAmount": "Số tiền",
+    "historyStatus": "Trạng thái",
+    "historyExport": "Tải CSV",
+    "historyLoadError": "Không tải được lịch sử nạp. Tải lại trang để thử lại."
   },
   "solutions": {
     "badge": "Giải pháp doanh nghiệp",
@@ -3513,7 +3912,63 @@
     "tier_verified": "Đã xác minh",
     "tier_trusted": "Uy tín",
     "tier_enterprise": "Đối tác doanh nghiệp",
-    "productsLoadError": "Chưa tải được sản phẩm của nhà bán này."
+    "productsLoadError": "Chưa tải được sản phẩm của nhà bán này.",
+    "searchInShop": "Tìm trong gian hàng",
+    "sortLabel": "Sắp xếp",
+    "sort_bestseller": "Bán chạy",
+    "sort_rating": "Đánh giá cao",
+    "sort_newest": "Mới nhất",
+    "sort_price_asc": "Giá tăng dần",
+    "sort_price_desc": "Giá giảm dần",
+    "noSearchMatch": "Không có sản phẩm nào của gian hàng khớp \"{query}\".",
+    "clearSearch": "Xoá tìm kiếm",
+    "approvedShop": "Gian hàng đã duyệt",
+    "commitTitle": "Mua ở đây được bảo vệ",
+    "commitEscrow": "Tiền được giữ ký quỹ tới khi bạn xác nhận hoặc hết thời gian bảo vệ",
+    "commitEvidence": "Mọi lần giao hàng được lưu theo mã đơn",
+    "commitDispute": "Khiếu nại xử lý ngay trong đơn; GMMO có thể xem xét",
+    "commitOffPlatform": "Không thanh toán cho shop ngoài GMMO",
+    "escrowPolicy": "Chính sách ký quỹ",
+    "presence": {
+      "reply": {
+        "15m": "Thường trả lời trong 15 phút",
+        "1h": "Thường trả lời trong 1 giờ",
+        "6h": "Thường trả lời trong vài giờ",
+        "24h": "Thường trả lời trong 1 ngày",
+        "slow": "Thường trả lời sau hơn 1 ngày"
+      },
+      "replyRate": "trả lời {rate}% tin nhắn",
+      "replyHint": "Tính trên {sample} cuộc trò chuyện với khách trong 30 ngày qua",
+      "active": {
+        "15m": "Hoạt động trong 15 phút qua",
+        "1h": "Hoạt động trong 1 giờ qua",
+        "24h": "Hoạt động trong 24 giờ qua",
+        "7d": "Hoạt động trong tuần này",
+        "30d": "Hoạt động trong tháng này"
+      }
+    },
+    "trust": {
+      "chip": "Uy tín {score}",
+      "compact": "Uy tín {score} · {band}",
+      "title": "Điểm uy tín",
+      "outOf": "/ 100 · {band}",
+      "scope": "Thang 0–100, tính trên đơn và đánh giá thật gần đây của shop",
+      "bands": {
+        "excellent": "rất tốt",
+        "good": "khá",
+        "fair": "trung bình",
+        "low": "thấp"
+      },
+      "dispute_band": "Tỉ lệ khiếu nại",
+      "one_star_band": "Đánh giá 1 sao",
+      "rate": {
+        "low": "Thấp",
+        "medium": "Trung bình",
+        "high": "Cao"
+      },
+      "escrowNote": "Mọi đơn đều qua ký quỹ: shop chỉ nhận tiền sau khi bạn xác nhận hoặc hết thời gian bảo vệ.",
+      "learnMore": "Giao dịch an toàn"
+    }
   },
   "notifications": {
     "buyerDeliveredUnconfirmed": "{count} đơn cần bạn xác nhận đã nhận hàng",
@@ -3533,7 +3988,10 @@
     "adminMarketplaceReview": "{count} chat khiếu nại đang chờ GMMO",
     "adminPendingWithdrawals": "{count} yêu cầu rút tiền chờ duyệt",
     "adminPendingTasks": "{count} tác vụ chờ xử lý",
-    "unreadMessages": "{count} tin nhắn chưa đọc"
+    "unreadMessages": "{count} tin nhắn chưa đọc",
+    "adminHelpdeskWaiting": "{count} chat hỗ trợ đang chờ trả lời",
+    "sellerApplicationNeedsInfo": "GMMO cần bạn bổ sung thông tin cho đơn đăng ký bán hàng",
+    "sellerUnansweredQuestions": "{count} câu hỏi của khách đang chờ trả lời"
   },
   "currency": {
     "label": "Tiền tệ hiển thị",
@@ -4618,7 +5076,18 @@
       "specsPlaceholder": "định dạng: tài khoản | mật khẩu\nkhu vực: Toàn cầu\nthời hạn: 30 ngày",
       "warranty": "Chính sách bảo hành",
       "warrantyHint": "Tuỳ chọn · trường hợp được bảo hành, loại trừ, cách yêu cầu hỗ trợ",
-      "warrantyPlaceholder": "Nêu rõ trường hợp được bảo hành, loại trừ và cách buyer yêu cầu hỗ trợ…"
+      "warrantyPlaceholder": "Nêu rõ trường hợp được bảo hành, loại trừ và cách buyer yêu cầu hỗ trợ…",
+      "handoverTitle": "Bàn giao và hỏi đáp",
+      "handoverHint": "Hiện ở phần Bàn giao và Hỏi đáp của trang sản phẩm. Người mua đọc trước khi thanh toán.",
+      "deliveryNote": "Người mua sẽ nhận được",
+      "deliveryNoteHint": "Định dạng và nội dung mỗi dòng giao. Tối đa 2.000 ký tự.",
+      "deliveryNotePlaceholder": "vd: email | mật khẩu | email khôi phục — mỗi tài khoản một dòng",
+      "inspection": "Kiểm tra trước khi xác nhận",
+      "inspectionHint": "Mỗi dòng một bước, tối đa 10. Hiện lại cho người mua sau khi giao.",
+      "inspectionPlaceholder": "Đăng nhập bằng thông tin đã giao\nĐổi mật khẩu ngay",
+      "faq": "Hỏi đáp soạn sẵn",
+      "faqHint": "Câu hỏi ở dòng đầu, câu trả lời bên dưới. Cách nhau một dòng trống. Tối đa 12 cặp.",
+      "faqPlaceholder": "Đổi được email khôi phục không?\nĐược, hướng dẫn nằm trong đơn.\n\nBảo hành tính từ lúc nào?\nTừ lúc bạn xác nhận đã nhận."
     },
     "advanced": {
       "languagesTitle": "Ngôn ngữ nội dung",
@@ -4687,7 +5156,12 @@
       "resume": "Bán lại",
       "empty": "Chưa có {term} nào. Bấm “Thêm {term}” để bắt đầu.",
       "footer": "Ngừng bán giữ nguyên kho và lịch sử — không có thao tác xoá. Nạp / xem tài nguyên từng {term} tại",
-      "inventoryLink": "Kho hàng"
+      "inventoryLink": "Kho hàng",
+      "minPerOrder": "Tối thiểu mỗi đơn",
+      "maxPerOrder": "Tối đa mỗi đơn",
+      "maxPerOrderNone": "Không giới hạn",
+      "perOrderHint": "Khách không đặt được ngoài khoảng này. Để trống tối đa nếu không giới hạn.",
+      "perOrderInvalid": "Tối đa phải lớn hơn hoặc bằng tối thiểu."
     },
     "proxyPlans": {
       "title": "Gói & giá bán",
@@ -4811,7 +5285,16 @@
     "hideConfirmTitle": "Ẩn đánh giá này?",
     "hideConfirmBody": "Đánh giá sẽ biến mất khỏi trang mua và điểm sản phẩm được tính lại. Người mua vẫn được ghi nhận là đã đánh giá. Bạn có thể hiện lại sau.",
     "hideReasonPlaceholder": "Lý do (tuỳ chọn, chỉ admin thấy)",
-    "auto": "Tự động"
+    "auto": "Tự động",
+    "shopTitle": "Đánh giá về gian hàng",
+    "shopSummary": "{average} từ {count} đánh giá trên mọi sản phẩm",
+    "shopEmpty": "Chưa có đánh giá. Đánh giá hiện sau khi người mua nhận đơn.",
+    "shopEmptyStar": "Không có đánh giá {stars}★.",
+    "shopFilterLabel": "Lọc theo số sao",
+    "shopFilterAll": "Tất cả",
+    "shopAbout": "về {product}",
+    "shopPurchased": "Đã mua",
+    "shopRetry": "Thử lại"
   },
   "search": {
     "headerPlaceholder": "Tìm sản phẩm, danh mục, nhà bán…",
@@ -5882,5 +6365,412 @@
     "counter": "{current} / {total}",
     "imageOf": "Ảnh {current} trên {total}",
     "open": "Xem ảnh lớn"
+  },
+  "support": {
+    "title": "Bạn cần giúp gì?",
+    "lead": "Tìm câu trả lời cho đơn hàng, lần nạp tiền hay gian hàng của bạn, hoặc đi thẳng tới trang xử lý.",
+    "searchLabel": "Tìm trong trung tâm hỗ trợ",
+    "searchPlaceholder": "vd: nạp tiền chưa vào ví, mở khiếu nại",
+    "shortcutsLabel": "Lối tắt",
+    "shortcuts": {
+      "orders": {
+        "title": "Kiểm tra đơn hàng",
+        "body": "Bàn giao, thời gian kiểm tra, khiếu nại"
+      },
+      "wallet": {
+        "title": "Tra cứu lần nạp",
+        "body": "Mã yêu cầu nạp và số tiền đã ghi có"
+      },
+      "messages": {
+        "title": "Nhắn cho shop",
+        "body": "Hỏi trước hoặc sau khi mua"
+      }
+    },
+    "topicsTitle": "Chọn theo chủ đề",
+    "topics": {
+      "orders": {
+        "title": "Đơn hàng và giao hàng",
+        "body": "Nhận hàng, hạn giao, hoàn tất đơn"
+      },
+      "payments": {
+        "title": "Ví và nạp tiền",
+        "body": "Nạp tiền, ghi có, hoàn tiền"
+      },
+      "account": {
+        "title": "Tài khoản và bảo mật",
+        "body": "Đăng nhập, mật khẩu, phiên đăng nhập"
+      },
+      "disputes": {
+        "title": "Khiếu nại và ký quỹ",
+        "body": "Khi nào và cách báo lỗi đơn hàng"
+      },
+      "sellers": {
+        "title": "Bán hàng trên GMMO",
+        "body": "Mở gian hàng, nhận tiền"
+      },
+      "safety": {
+        "title": "Giao dịch an toàn",
+        "body": "Lừa đảo, thanh toán ngoài sàn, xin mã OTP"
+      }
+    },
+    "questionCount": "{count, plural, =0 {Không có câu hỏi} other {# câu hỏi}}",
+    "buyingTitle": "Mua hàng hoạt động thế nào",
+    "buyingLead": "Đơn nào cũng đi qua 4 bước như nhau. Thời gian bảo vệ ghi trên từng sản phẩm và trong từng đơn.",
+    "buyingSteps": {
+      "topUp": {
+        "title": "Nạp ví",
+        "body": "Chuyển khoản (VietQR) hoặc USDT. Ví được cộng khi hệ thống khớp được giao dịch."
+      },
+      "buy": {
+        "title": "Mua — tiền vào ký quỹ",
+        "body": "Shop chưa nhận được tiền. Gói có sẵn hàng giao ngay; gói khác giao trong số giờ ghi trên gói."
+      },
+      "check": {
+        "title": "Kiểm tra hàng",
+        "body": "Mở đơn, dùng thử trong thời gian bảo vệ và lưu bằng chứng nếu có lỗi."
+      },
+      "finish": {
+        "title": "Xác nhận hoặc khiếu nại",
+        "body": "Xác nhận là shop được nhận tiền. Không có khiếu nại thì đơn tự hoàn tất khi hết thời gian bảo vệ."
+      }
+    },
+    "safetyTitle": "Nghi bị lừa hoặc lỡ gửi mã cho người khác?",
+    "safetyLead": "Dừng trao đổi trước. Chậm lại một nhịp vẫn an toàn hơn làm theo yêu cầu đáng ngờ.",
+    "safetyPoints": {
+      "otp": "GMMO không bao giờ hỏi mật khẩu hay mã xác minh — shop thật cũng vậy.",
+      "offPlatform": "Chỉ thanh toán trong GMMO. Tiền trả ở nơi khác không được ký quỹ bảo vệ.",
+      "evidence": "Giữ mã đơn, ảnh chụp màn hình và cuộc trò chuyện. Che mật khẩu, mã trước khi gửi.",
+      "password": "Nếu nghi có người dùng tài khoản của bạn, đổi mật khẩu và đăng xuất các phiên khác trong Tài khoản."
+    },
+    "safetyAction": "Bảo mật tài khoản",
+    "faqTitle": "Câu hỏi thường gặp",
+    "faqAll": "Tất cả",
+    "faqEmpty": "Không có câu hỏi nào khớp \"{query}\". Thử ít từ hơn, hoặc chọn một kênh bên dưới.",
+    "faqClear": "Xoá tìm kiếm",
+    "faq": {
+      "deliveryTime": {
+        "q": "Mua xong bao lâu thì nhận được hàng?",
+        "a": "Gói ghi \"giao tự động\" hiện hàng trong đơn ngay sau khi thanh toán. Gói khác do shop giao trong số giờ ghi trên gói; quá hạn mà shop chưa giao, đơn bị huỷ và toàn bộ tiền về lại ví của bạn."
+      },
+      "findDelivery": {
+        "q": "Hàng đã mua nằm ở đâu?",
+        "a": "Vào Đơn hàng và mở đơn. Phần bàn giao liệt kê từng dòng (#01, #02 …) kèm nút sao chép và tải file .txt. Proxy và API key có khung riêng trong cùng đơn."
+      },
+      "autoComplete": {
+        "q": "Khi nào đơn tự hoàn tất?",
+        "a": "Khi hết thời gian bảo vệ ghi trong đơn mà không có khiếu nại. Lúc đó shop nhận tiền và đơn không khiếu nại được nữa, nên hãy kiểm tra hàng sớm."
+      },
+      "topUp": {
+        "q": "Nạp tiền vào ví thế nào?",
+        "a": "Vào Ví, nhập số tiền và chọn chuyển khoản (VietQR) hoặc USDT. Với chuyển khoản, giữ nguyên nội dung chuyển khoản như hiển thị — hệ thống dựa vào đó để khớp tiền vào ví của bạn."
+      },
+      "depositMissing": {
+        "q": "Đã chuyển tiền mà ví chưa cộng?",
+        "a": "Kiểm tra nội dung chuyển khoản và số tiền có khớp yêu cầu nạp, và bạn đã chuyển trước khi yêu cầu hết hạn. Giữ mã NAP-… của yêu cầu và mã giao dịch ngân hàng; cần cả hai khi có người kiểm tra giúp."
+      },
+      "refundDestination": {
+        "q": "Tiền hoàn về đâu?",
+        "a": "Về ví GMMO của bạn, thành số dư khả dụng để dùng cho đơn tiếp theo."
+      },
+      "forgotPassword": {
+        "q": "Tôi quên mật khẩu.",
+        "a": "Bấm \"Quên mật khẩu\" ở trang đăng nhập. Chúng tôi gửi link đặt lại tới email của tài khoản."
+      },
+      "strangeSession": {
+        "q": "Tôi thấy một lần đăng nhập lạ.",
+        "a": "Đổi mật khẩu trong Tài khoản, rồi đăng xuất các phiên khác trong danh sách. Đổi mật khẩu cũng đăng xuất mọi thiết bị khác."
+      },
+      "whenDispute": {
+        "q": "Khi nào tôi mở khiếu nại được?",
+        "a": "Khi đơn đã giao và còn trong thời gian bảo vệ. Mở đơn, chọn vấn đề và, với tài khoản, chọn đúng những dòng (#01, #02 …) không dùng được."
+      },
+      "evidence": {
+        "q": "Bằng chứng nào có ích?",
+        "a": "Ảnh chụp lỗi, thời điểm xảy ra và kết quả bạn mong đợi. Đính kèm ảnh vào khiếu nại và che mật khẩu, mã, số thẻ trước khi gửi."
+      },
+      "platformReview": {
+        "q": "Không thống nhất được với shop. GMMO có phân xử không?",
+        "a": "Có. Trong khiếu nại đang mở, gửi yêu cầu GMMO xem xét kèm ghi chú ngắn. Trong lúc xem xét, tiền vẫn được giữ và quyết định được ghi lại trong đơn."
+      },
+      "openShop": {
+        "q": "Mở gian hàng thế nào?",
+        "a": "Đọc hướng dẫn cho người bán, rồi gửi đơn đăng ký 3 bước. Mọi gian hàng đều được duyệt trước khi được đăng sản phẩm."
+      },
+      "sellerPayout": {
+        "q": "Người bán nhận tiền khi nào?",
+        "a": "Tiền của từng đơn về ví người bán khi hết thời gian ký quỹ mà không có khiếu nại, sau khi trừ phí nền tảng. Lịch giải ngân nằm ở trang Rút tiền của người bán."
+      },
+      "neverOtp": {
+        "q": "Có người xưng là GMMO và xin mã xác minh.",
+        "a": "Đó không phải GMMO. Chúng tôi không bao giờ hỏi mật khẩu, mã xác minh hay mã khôi phục. Ngừng trả lời và đổi mật khẩu nếu bạn đã lỡ gửi."
+      },
+      "offPlatform": {
+        "q": "Shop đề nghị thanh toán ngoài GMMO.",
+        "a": "Hãy từ chối. Chỉ tiền trả qua GMMO mới được giữ ký quỹ và khiếu nại được. Tin nhắn chứa thông tin liên hệ bên ngoài có thể bị chặn."
+      }
+    },
+    "contactTitle": "Vẫn cần hỗ trợ?",
+    "contactLead": "Dùng kênh đã có sẵn thông tin đơn của bạn — đó là cách được xử lý nhanh nhất.",
+    "channels": {
+      "order": {
+        "title": "Đơn hàng có vấn đề",
+        "body": "Mở đơn và gửi khiếu nại. Shop, nội dung bàn giao và cuộc trò chuyện đã gắn sẵn.",
+        "action": "Tới đơn hàng"
+      },
+      "shop": {
+        "title": "Cần hỏi shop",
+        "body": "Nhắn cho shop từ trang sản phẩm hoặc từ đơn hàng. Giữ mọi trao đổi trên GMMO.",
+        "action": "Mở tin nhắn"
+      },
+      "platform": {
+        "title": "Liên hệ GMMO",
+        "body": "Việc khác, xem thông tin liên hệ GMMO công bố.",
+        "action": "Thông tin liên hệ"
+      }
+    },
+    "policiesTitle": "Chính sách",
+    "sellerGuide": "Hướng dẫn người bán"
+  },
+  "sell": {
+    "title": "Bán hàng số cho người mua đã trả tiền trước",
+    "lead": "Người mua thanh toán vào ký quỹ trước khi bạn giao. Bạn giữ nguồn hàng và giá của mình; GMMO lo thanh toán, lưu vết bàn giao và khiếu nại.",
+    "ctaApply": "Bắt đầu đăng ký",
+    "ctaLogin": "Đăng nhập để đăng ký",
+    "ctaSeller": "Mở kênh người bán",
+    "ctaPending": "Xem đơn đăng ký",
+    "ctaFees": "Xem phí và rút tiền",
+    "points": {
+      "free": "Đăng ký miễn phí",
+      "reviewed": "Mọi gian hàng được duyệt trước khi bán",
+      "escrow": "Thanh toán qua ký quỹ, không qua ngoài sàn"
+    },
+    "processTitle": "Từ đăng ký tới đơn đầu tiên",
+    "process": {
+      "apply": {
+        "title": "Gửi đăng ký",
+        "body": "Tên gian hàng, mặt hàng dự định bán, cách liên hệ."
+      },
+      "review": {
+        "title": "GMMO duyệt",
+        "body": "Chúng tôi kiểm tra hồ sơ và có thể hỏi thêm."
+      },
+      "sell": {
+        "title": "Mở gian hàng",
+        "body": "Đăng sản phẩm, nạp kho và bắt đầu nhận đơn."
+      }
+    },
+    "toolsTitle": "Bạn có gì khi được duyệt",
+    "tools": {
+      "stock": {
+        "title": "Kho và giao tự động",
+        "body": "Nạp hàng theo lô; đơn đã thanh toán tự nhận hàng, đánh số #01, #02…"
+      },
+      "api": {
+        "title": "Bán qua API của bạn",
+        "body": "Đăng ký server của bạn làm nhà cung cấp; được duyệt rồi thì khách nhận key hoặc task tự động."
+      },
+      "orders": {
+        "title": "Đơn hàng và khiếu nại",
+        "body": "Hạn giao, lưu vết bàn giao và trả lời khiếu nại trong một màn hình."
+      },
+      "messages": {
+        "title": "Tin nhắn với khách",
+        "body": "Trả lời câu hỏi trước và sau khi bán trong một hộp thư."
+      },
+      "payouts": {
+        "title": "Doanh thu và rút tiền",
+        "body": "Biểu đồ doanh thu, lịch giải ngân theo ngày và rút tiền về ngân hàng."
+      },
+      "tiers": {
+        "title": "Hạng gian hàng",
+        "body": "Hạng cao hơn được bán nhiều sản phẩm hơn, rút mỗi lần nhiều hơn và trả phí thấp hơn."
+      }
+    },
+    "feesTitle": "Phí và rút tiền",
+    "feesLead": "Số liệu dưới đây là cài đặt hiện tại của nền tảng; một số danh mục có mức phí hoặc thời gian giữ riêng.",
+    "flow": {
+      "pay": {
+        "title": "Khách thanh toán",
+        "body": "Tiền vào ký quỹ của GMMO."
+      },
+      "hold": {
+        "title": "Giữ {days} ngày",
+        "body": "Mặc định sau khi giao, không dưới {min} ngày. Khách có thể khiếu nại trong thời gian này.",
+        "bodyNoMin": "Tính từ lúc giao. Khách có thể khiếu nại trong thời gian này."
+      },
+      "credit": {
+        "title": "Về ví của bạn",
+        "body": "Sau khi trừ phí nền tảng {fee}% giá trị đơn.",
+        "bodyNoFee": "Hiện nền tảng không thu phí trên đơn."
+      },
+      "withdraw": {
+        "title": "Rút tiền",
+        "body": "{min}; {fee}.",
+        "minFrom": "Từ {amount}",
+        "minNone": "Không có mức tối thiểu",
+        "feeIs": "phí {fee}",
+        "feeNone": "không mất phí"
+      }
+    },
+    "feeTable": {
+      "platformFee": "Phí nền tảng",
+      "platformFeeValue": "{fee}% mỗi đơn hoàn tất",
+      "hold": "Thời gian giữ tiền",
+      "holdValue": "{days} ngày mặc định (tối thiểu {min})",
+      "withdrawMin": "Rút tối thiểu",
+      "withdrawFee": "Phí rút tiền",
+      "disputeResponse": "Thời hạn trả lời khiếu nại",
+      "disputeResponseValue": "{hours} giờ",
+      "disputeResponseOff": "Không đặt hạn cố định",
+      "platformFeeNone": "Hiện không thu",
+      "holdValueNoMin": "{days} ngày mặc định",
+      "none": "Không có",
+      "free": "Miễn phí"
+    },
+    "feesUnavailable": "Chưa tải được cài đặt phí.",
+    "tiersTitle": "Hạng gian hàng",
+    "tiersLead": "GMMO xếp hạng cho từng gian hàng. Hạn mức và quyền lợi của mỗi hạng:",
+    "tierColumns": {
+      "tier": "Hạng",
+      "products": "Sản phẩm đang bán",
+      "withdraw": "Rút tối đa mỗi lần",
+      "fee": "Giảm phí",
+      "hold": "Rút ngắn thời gian giữ"
+    },
+    "unlimited": "Không giới hạn",
+    "percentPoints": "−{value} điểm %",
+    "days": "−{value} ngày",
+    "none": "—",
+    "rulesTitle": "Chuẩn bị trước khi đăng ký",
+    "rules": {
+      "identity": {
+        "title": "Bạn là ai",
+        "body": "Họ tên hoặc tên doanh nghiệp thật, email bạn đọc thường xuyên và cách để GMMO liên hệ."
+      },
+      "shop": {
+        "title": "Gian hàng",
+        "body": "Tên rõ ràng, mặt hàng bạn bán và cách bạn đổi hàng khi lỗi."
+      },
+      "goods": {
+        "title": "Hàng bạn bán",
+        "body": "Chỉ hàng bạn có quyền bán, giao đúng như mô tả."
+      }
+    },
+    "bannedTitle": "Không được bán trên GMMO",
+    "banned": {
+      "stolen": "Tài khoản, dữ liệu bị hack, chiếm đoạt hoặc rò rỉ",
+      "malware": "Mã độc, công cụ tấn công, bộ công cụ spam hay phishing",
+      "payments": "Tài khoản ngân hàng, thẻ, ví điện tử hay phương tiện thanh toán khác",
+      "piracy": "Key hoặc phần mềm bạn không có quyền phân phối",
+      "resale": "Một dòng hàng bán cho nhiều người, trừ khi tin đăng ghi rõ là dùng chung"
+    },
+    "termsLink": "Đọc đầy đủ điều khoản",
+    "faqTitle": "Câu hỏi của người bán",
+    "faq": {
+      "review": {
+        "q": "Duyệt hồ sơ mất bao lâu?",
+        "a": "Trang đăng ký hiện trạng thái hồ sơ và tự cập nhật. Bạn cũng nhận email khi hồ sơ được duyệt hoặc bị từ chối."
+      },
+      "payout": {
+        "q": "Khi nào tiền về ví của tôi?",
+        "a": "Khi hết thời gian giữ của từng đơn mà không có khiếu nại, hoặc sớm hơn nếu khách xác nhận. Trang Rút tiền của người bán liệt kê số tiền sẽ về theo từng ngày."
+      },
+      "dispute": {
+        "q": "Khách khiếu nại thì sao?",
+        "a": "Tiền vẫn được giữ. Bạn trả lời ngay trong đơn — đổi hàng, hoàn tiền hoặc giải thích — và bên nào cũng có thể yêu cầu GMMO xem xét."
+      },
+      "api": {
+        "q": "Tôi bán lại proxy hay API được không?",
+        "a": "Được, qua server của bạn đăng ký làm nhà cung cấp. GMMO duyệt nhà cung cấp trước khi sản phẩm được mở bán."
+      },
+      "tier": {
+        "q": "Hạng gian hàng tính thế nào?",
+        "a": "GMMO xếp hạng cho từng gian hàng. Bảng phía trên cho biết mỗi hạng thay đổi những gì."
+      }
+    },
+    "finalTitle": "Sẵn sàng mở gian hàng?",
+    "finalBody": "Đăng ký chỉ mất vài phút và bạn có thể quay lại làm tiếp."
+  },
+  "helpdesk": {
+    "launcher": "Chat với GMMO",
+    "launcherUnread": "Chat với GMMO, {count} tin mới",
+    "title": "Chat với GMMO",
+    "subtitle": "Đội ngũ GMMO trả lời tại đây và trong Hộp thư.",
+    "openInbox": "Mở trong Hộp thư",
+    "close": "Đóng",
+    "deskName": "GMMO",
+    "emptyTitle": "GMMO có thể giúp gì cho bạn?",
+    "emptyBody": "Hỏi về nạp tiền, đơn hàng, tài khoản hay bán hàng. Nếu về đơn hàng, ghi kèm mã đơn (ORD-…).",
+    "topics": {
+      "deposit": {
+        "label": "Nạp tiền chưa vào ví",
+        "prefill": "Mình nạp tiền nhưng chưa vào ví. Mã yêu cầu nạp: NAP-"
+      },
+      "order": {
+        "label": "Vấn đề với đơn hàng",
+        "prefill": "Mình cần hỗ trợ đơn ORD-"
+      },
+      "account": {
+        "label": "Tài khoản & bảo mật",
+        "prefill": "Mình cần hỗ trợ về tài khoản: "
+      },
+      "selling": {
+        "label": "Bán hàng trên GMMO",
+        "prefill": "Mình muốn hỏi về bán hàng: "
+      }
+    },
+    "helpCenter": "Xem Trung tâm hỗ trợ",
+    "input": "Nhập tin nhắn…",
+    "send": "Gửi",
+    "sendFailed": "Chưa gửi được. Tin nhắn vẫn còn trong ô soạn.",
+    "loadFailed": "Không tải được cuộc trò chuyện.",
+    "retry": "Thử lại",
+    "signedOutTitle": "Đăng nhập để chat với GMMO",
+    "signedOutBody": "Cuộc trò chuyện gắn với tài khoản để GMMO kiểm tra được đơn hàng và lần nạp của bạn.",
+    "signIn": "Đăng nhập"
+  },
+  "questions": {
+    "title": "Hỏi đáp",
+    "shopAnswer": "Shop trả lời",
+    "empty": "Chưa có câu hỏi nào được trả lời. Hãy hỏi shop bất cứ điều gì về sản phẩm này.",
+    "loadFailed": "Không tải được phần hỏi đáp.",
+    "newer": "Mới hơn",
+    "older": "Cũ hơn",
+    "yours": "Câu hỏi của bạn",
+    "status": {
+      "pending": "Chờ shop trả lời",
+      "answered": "Đã trả lời",
+      "hidden": "Không hiển thị"
+    },
+    "askLabel": "Hỏi shop",
+    "askPlaceholder": "VD: Nhận xong có đổi được mật khẩu không?",
+    "askHint": "Hiện công khai khi shop trả lời. Không để số điện thoại hay liên hệ ngoài GMMO.",
+    "askSent": "Đã gửi. Bạn sẽ nhận thông báo khi shop trả lời.",
+    "askFailed": "Chưa gửi được câu hỏi.",
+    "askSubmit": "Gửi câu hỏi",
+    "signIn": "Đăng nhập",
+    "signInToAsk": "để đặt câu hỏi cho shop."
+  },
+  "blog": {
+    "metaTitle": "Hướng dẫn & tin tức — GMMO",
+    "metaDescription": "Cách mua, nạp tiền và bán hàng an toàn trên GMMO, cùng các thay đổi của sàn.",
+    "title": "Hướng dẫn & tin tức",
+    "lead": "Cách mua, nạp tiền và bán hàng an toàn, cùng những thay đổi mới của GMMO.",
+    "categoriesLabel": "Chuyên mục",
+    "all": "Tất cả",
+    "categories": {
+      "guide": "Hướng dẫn",
+      "news": "Tin sàn"
+    },
+    "empty": "Chưa có bài viết nào",
+    "emptyHint": "Trung tâm hỗ trợ đã trả lời những câu hỏi thường gặp nhất.",
+    "loadFailed": "Không tải được bài viết.",
+    "helpCenter": "Mở Trung tâm hỗ trợ",
+    "pagination": "Trang",
+    "newer": "Bài mới hơn",
+    "older": "Bài cũ hơn",
+    "back": "Tất cả bài viết",
+    "helpTitle": "Vẫn cần hỗ trợ?",
+    "helpBody": "Tìm trong Trung tâm hỗ trợ hoặc chat với GMMO từ bất kỳ trang nào."
   }
 }

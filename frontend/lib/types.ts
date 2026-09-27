@@ -23,6 +23,7 @@ export interface AuthSessionRow {
 
 /** Uploaded image purposes (backend MediaPurpose). */
 export type MediaPurpose =
+  | "post_cover"
   | "product_image"
   | "category_image"
   | "seller_logo"
@@ -190,7 +191,9 @@ export interface ChatDisputeContext {
 
 export interface ChatConversation {
   id: string;
-  kind: "product_inquiry" | "order" | "support";
+  /** `support` = dispute review with the Marketplace; `helpdesk` = the
+   *  account's standing chat with the Marketplace desk. */
+  kind: "product_inquiry" | "order" | "support" | "helpdesk";
   status: "open" | "resolved" | "closed" | "blocked" | "read_only";
   product: { id: number; title: string; image: string | null; slug?: string | null; public_key?: string | null } | null;
   order: {
@@ -293,6 +296,8 @@ export interface CategoryUpdateInput {
   parent_id?: number | null;
   is_active?: boolean;
   commission_rate?: number | null;
+  /** Page copy per language; a locale that is present replaces that language as a whole. */
+  content?: Partial<Record<"vi" | "en", Partial<CategoryContentLocale>>>;
 }
 
 /** Item danh sách sản phẩm (GET /products, /seller/products) — bản GỌN.
@@ -349,6 +354,17 @@ export interface ProductTranslation {
   specs?: Record<string, string> | null;
   /** Labels only — numeric pricing and machine keys remain common. */
   pricing_labels?: ProductPricingLabels | null;
+  /** What the buyer receives (format of the hand-over). */
+  delivery_note?: string | null;
+  /** What to check before confirming receipt, one item per step. */
+  inspection_steps?: string[] | null;
+  /** Seller-written questions and answers. */
+  faq?: ProductFaqItem[] | null;
+}
+
+export interface ProductFaqItem {
+  q: string;
+  a: string;
 }
 
 export interface ProductPricingLabels {
@@ -408,6 +424,9 @@ export interface Variant {
   /** Largest quantity the order form may submit for this package. */
   max_quantity?: number | null;
   duration_days: number | null;
+  /** Seller's bounds for one order; `max_quantity` already folds in the max. */
+  min_per_order?: number;
+  max_per_order?: number | null;
   translations?: Partial<Record<ProductLocale, { name?: string | null }>> | null;
   primary_locale?: ProductLocale | null;
 }
@@ -420,6 +439,10 @@ export interface ProductDetail extends Product {
   features: string[] | null;
   specs: Record<string, string> | null;
   warranty_text: string | null;
+  /** Hand-over copy in the request locale (English falls back to Vietnamese). */
+  delivery_note?: string | null;
+  inspection_steps?: string[] | null;
+  faq?: ProductFaqItem[] | null;
   translations?: Partial<Record<ProductLocale, ProductTranslation>> | null;
   primary_locale?: ProductLocale | null;
   variants: Variant[];
@@ -767,6 +790,14 @@ export interface SellerProfile extends SellerSummary {
   bio: string | null;
   member_since: string | null;
   banner?: PublicImage | null;
+  /** Typical first reply to a buyer over 30 days; null until enough chats. */
+  response_time?: { within: "15m" | "1h" | "6h" | "24h" | "slow"; rate: number; sample: number } | null;
+  /** Band of the owner's last sign-in or session refresh; null if older than 30 days. */
+  active_within?: "15m" | "1h" | "24h" | "7d" | "30d" | null;
+  /** Trust score 0–100; null until the shop has enough completed orders. */
+  trust_score?: number | null;
+  dispute_band?: "low" | "medium" | "high" | null;
+  one_star_band?: "low" | "medium" | "high" | null;
 }
 
 export interface WithdrawRequest {
@@ -1342,6 +1373,35 @@ export interface PublicReviewList {
   rating: number | null;
   /** Star breakdown over all visible reviews, independent of the page shown. */
   summary: ReviewSummary;
+}
+
+/** A review shown away from its product page (home strip, shop page). */
+export interface ProductReviewRef {
+  product_title: string;
+  /** Null once the product is off sale — render the title without a link. */
+  product_path: string | null;
+}
+
+/** GET /reviews/latest — newest written reviews on products on sale. */
+export type ShowcaseReview = Review & ProductReviewRef;
+
+/** GET /sellers/{ref}/reviews — every visible review of one shop. */
+export interface SellerPublicReviewList {
+  items: (Review & ProductReviewRef)[];
+  total: number;
+  page: number;
+  per_page: number;
+  rating: number | null;
+  summary: ReviewSummary;
+}
+
+/** GET /public/marketplace-stats — same visibility as product and shop pages. */
+export interface MarketplaceStats {
+  products_on_sale: number;
+  sellers_on_sale: number;
+  completed_orders: number;
+  review_count: number;
+  rating_avg: number | null;
 }
 
 /** Seller console row: the seller's own product reviews, hidden ones flagged. */
@@ -2608,14 +2668,29 @@ export interface PaginatedAccounts {
   summary?: AccountsSummary;
 }
 
+export type SellerType = "individual" | "business";
+export type SellerExperience = "none" | "under_1y" | "1_3y" | "over_3y";
+export type SellerReferralSource = "search" | "social" | "friend" | "community" | "ads" | "other";
+
 export interface SellerApplication {
   id: number;
   account_id: number;
   business_name: string;
   description: string | null;
   contact: string | null;
-  status: "pending" | "approved" | "rejected";
+  seller_type?: SellerType | null;
+  category_ids?: number[] | null;
+  experience?: SellerExperience | null;
+  phone?: string | null;
+  warranty_policy?: string | null;
+  referral_source?: SellerReferralSource | null;
+  rules_accepted_at?: string | null;
+  /** `needs_info`: an admin asked for more; resubmitting returns it to `pending`. */
+  status: "pending" | "approved" | "rejected" | "needs_info";
   reject_reason: string | null;
+  info_request?: string | null;
+  info_requested_at?: string | null;
+  info_responded_at?: string | null;
   created_at: string;
 }
 
@@ -3534,4 +3609,233 @@ export interface AdminOrderCase extends Order {
   events: AdminLogEntry[];
   notes: AdminLogEntry[];
   actions: { key: AdminOrderActionKey; enabled: boolean; reason: string | null }[];
+}
+
+// ---------------------------------------------------------------------------
+// Category page copy (GET /categories/{slug}/content, admin editor)
+// ---------------------------------------------------------------------------
+
+export interface CategoryFaqItem {
+  q: string;
+  a: string;
+}
+
+export interface CategoryContentLocale {
+  description: string | null;
+  /** Markdown, rendered with raw HTML disabled. */
+  guide: string | null;
+  faq: CategoryFaqItem[] | null;
+}
+
+export interface CategoryContentPublic extends CategoryContentLocale {
+  slug: string;
+  locale: ProductLocale;
+}
+
+export type CategoryContentAdmin = Record<ProductLocale, CategoryContentLocale>;
+
+// ---------------------------------------------------------------------------
+// Seller escrow schedule (GET /seller/escrow-schedule)
+// ---------------------------------------------------------------------------
+
+/** Orders and money in one slice; `fee`/`net` are estimates at today's fee rules. */
+export interface EscrowBucket {
+  order_count: number;
+  gross: number;
+  fee: number;
+  net: number;
+}
+
+export interface EscrowScheduleDay extends EscrowBucket {
+  /** Local calendar day, YYYY-MM-DD, in the requested time zone. */
+  date: string;
+}
+
+export interface EscrowSchedule {
+  tz: string;
+  days: EscrowScheduleDay[];
+  in_escrow: EscrowBucket;
+  held_by_dispute: EscrowBucket;
+  awaiting_delivery: EscrowBucket;
+  no_deadline: EscrowBucket;
+}
+
+// ---------------------------------------------------------------------------
+// Product questions (buyer-asked Q&A; public once the seller answers)
+// ---------------------------------------------------------------------------
+
+export type QuestionStatus = "pending" | "answered" | "hidden";
+
+export interface PublicQuestion {
+  id: number;
+  question: string;
+  answer: string;
+  /** Masked like a reviewer ("ng***n"). */
+  asker_label: string;
+  created_at: string;
+  answered_at: string;
+}
+
+export interface PublicQuestionList {
+  items: PublicQuestion[];
+  total: number;
+  page: number;
+  per_page: number;
+}
+
+export interface MyQuestion {
+  id: number;
+  question: string;
+  answer: string | null;
+  status: QuestionStatus;
+  created_at: string;
+  answered_at: string | null;
+}
+
+export interface SellerQuestion {
+  id: number;
+  product_id: number;
+  product_title: string;
+  product_path: string;
+  question: string;
+  answer: string | null;
+  status: QuestionStatus;
+  /** "admin" = an admin hid it; the seller cannot bring it back. */
+  hidden_by: "seller" | "admin" | null;
+  asker_label: string;
+  created_at: string;
+  answered_at: string | null;
+}
+
+export interface SellerQuestionList {
+  items: SellerQuestion[];
+  total: number;
+  page: number;
+  per_page: number;
+  pending: number;
+}
+
+// ---------------------------------------------------------------------------
+// Seller trust score & tier progress (tiers change only by admin approval)
+// ---------------------------------------------------------------------------
+
+export type TrustCriterionKey = "min_gmv" | "min_orders" | "min_days" | "max_dispute_pct" | "max_one_star_pct" | "min_score";
+
+export interface TrustCriterion {
+  key: TrustCriterionKey;
+  value: number | null;
+  target: number;
+  /** null: the score criterion is skipped until there are enough orders. */
+  met: boolean | null;
+  /** Also checked to keep the tier a seller already holds. */
+  keep: boolean;
+}
+
+export type TrustScorePart = "dispute" | "one_star" | "gmv";
+
+export interface SellerTierProgress {
+  tier: SellerTierName;
+  score: number | null;
+  score_parts: Record<TrustScorePart, number> | null;
+  score_points: Record<TrustScorePart, number>;
+  next_tier: SellerTierName | null;
+  /** false for enterprise, which is by invitation. */
+  next_tier_promotable: boolean;
+  criteria: TrustCriterion[];
+  met: number;
+  eligible: boolean;
+  at_risk: TrustCriterion[];
+  window_days: number;
+  min_orders_for_score: number;
+  metrics: {
+    gmv_lifetime: number; orders_lifetime: number; days_selling: number;
+    orders_window: number; disputes_window: number; reviews_window: number; one_star_window: number;
+    gmv_window: number; completed_window: number;
+  };
+  current_rule: SellerTierRule | null;
+  next_rule: SellerTierRule | null;
+}
+
+export type TrustCriteria = Record<TrustCriterionKey, number | null>;
+
+export interface SellerTrustConfig {
+  window_days: number;
+  min_orders_for_score: number;
+  score: {
+    dispute: { points: number; zero_at_pct: number };
+    one_star: { points: number; zero_at_pct: number };
+    gmv: { points: number; full_at: number };
+  };
+  criteria: Record<"verified" | "trusted" | "enterprise", TrustCriteria>;
+}
+
+export interface SellerTierReviewRow {
+  account_id: number;
+  public_key: string;
+  name: string;
+  tier: SellerTierName;
+  score: number | null;
+  next_tier: SellerTierName | null;
+  next_tier_promotable: boolean;
+  criteria: TrustCriterion[];
+  met: number;
+  eligible: boolean;
+  at_risk: TrustCriterion[];
+  orders_lifetime: number;
+  gmv_lifetime: number;
+}
+
+// ---------------------------------------------------------------------------
+// Blog (admin-written guides and news; en falls back to vi)
+// ---------------------------------------------------------------------------
+
+export type PostCategory = "guide" | "news";
+
+export interface PostSummary {
+  slug: string;
+  category: PostCategory;
+  title: string;
+  excerpt: string;
+  cover: PublicImage | null;
+  published_at: string;
+}
+
+export interface PostDetail extends PostSummary {
+  body: string;
+  updated_at: string;
+}
+
+export interface PostList {
+  items: PostSummary[];
+  total: number;
+  page: number;
+  per_page: number;
+}
+
+export interface PostLocaleCopy {
+  title: string;
+  excerpt: string;
+  body: string;
+}
+
+export interface PostAdmin {
+  id: number;
+  slug: string;
+  category: PostCategory;
+  status: "draft" | "published";
+  published_at: string | null;
+  cover: PublicImage | null;
+  vi: PostLocaleCopy;
+  en: PostLocaleCopy;
+  updated_at: string;
+}
+
+export interface PostWrite {
+  slug: string;
+  category: PostCategory;
+  vi: PostLocaleCopy;
+  en: PostLocaleCopy;
+  /** Upload id (purpose post_cover); null removes the cover. */
+  cover_image_id: string | null;
+  publish: boolean;
 }

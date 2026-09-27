@@ -33,6 +33,49 @@ const ISO_DATE = /^\d{4}-\d{2}-\d{2}$/;
 
 /** URL → filters. Unknown values fall back to defaults so old bookmarks and
  *  notification links (`?status=disputed`, `?search=%23ORD-…`) keep working. */
+/** Raw backend statuses that older links (notification bell, mails) carry,
+ *  mapped to the tab that shows those orders. */
+const STATUS_ALIASES: Record<string, BuyerOrderTab> = {
+  delivered: "awaiting_confirm",
+  pending: "active",
+  processing: "active",
+};
+
+function tabFromParam(raw: string): BuyerOrderTab {
+  if ((ORDER_TABS as readonly string[]).includes(raw)) return raw as BuyerOrderTab;
+  return STATUS_ALIASES[raw] ?? "";
+}
+
+export interface OrderDeadline {
+  /** "protection": delivered, buyer's inspection window; "delivery": manual order the shop must deliver. */
+  kind: "protection" | "delivery";
+  at: Date;
+  /** Less than 24 hours left. */
+  urgent: boolean;
+}
+
+const DAY_MS = 24 * 60 * 60 * 1000;
+
+/** The one deadline that matters for a row right now, or null. */
+export function orderDeadline(
+  order: { status: string; escrow_expires_at?: string | null; created_at: string; sla_hours?: number | null; delivery_mode?: string | null },
+  disputed: boolean,
+  now: number = Date.now(),
+): OrderDeadline | null {
+  if (disputed) return null;
+  if (order.status === "delivered" && order.escrow_expires_at) {
+    const at = new Date(order.escrow_expires_at);
+    if (Number.isNaN(at.getTime())) return null;
+    return { kind: "protection", at, urgent: at.getTime() - now < DAY_MS };
+  }
+  if (order.status === "pending" && order.delivery_mode === "manual" && order.sla_hours) {
+    const at = new Date(new Date(order.created_at).getTime() + order.sla_hours * 60 * 60 * 1000);
+    if (Number.isNaN(at.getTime())) return null;
+    return { kind: "delivery", at, urgent: at.getTime() - now < 2 * 60 * 60 * 1000 };
+  }
+  return null;
+}
+
 export function parseOrdersFilters(search: URLSearchParams): BuyerOrdersFilters {
   const tab = search.get("status") ?? "";
   const sort = search.get("sort");
@@ -44,7 +87,7 @@ export function parseOrdersFilters(search: URLSearchParams): BuyerOrdersFilters 
   const rawSearch = search.get("search") ?? "";
   const isDeepLink = Boolean(deepLinkedOrderRef(search));
   return {
-    tab: (ORDER_TABS as readonly string[]).includes(tab) ? (tab as BuyerOrderTab) : "",
+    tab: tabFromParam(tab),
     search: isDeepLink ? "" : rawSearch,
     dateFrom: ISO_DATE.test(dateFrom) ? dateFrom : "",
     dateTo: ISO_DATE.test(dateTo) ? dateTo : "",

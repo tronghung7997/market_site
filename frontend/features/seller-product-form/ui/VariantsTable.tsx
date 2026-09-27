@@ -16,7 +16,14 @@ import { SellerPriceInput, useSellerPriceCurrency } from "@/features/seller-work
 import { moveVariant } from "../model";
 import { LocaleTag } from "./BasicsFields";
 
-export interface VariantDraft { name: string; price: number; delivery_mode: "instant" | "manual"; sla_hours: number }
+export interface VariantDraft {
+  name: string; price: number; delivery_mode: "instant" | "manual"; sla_hours: number;
+  /** Units one order may take; max null = no cap. */
+  min_per_order: number; max_per_order: number | null;
+}
+
+/** Backend MAX_ORDER_QUANTITY. */
+const PER_ORDER_CEILING = 5000;
 export interface VariantStats { sold: number; error: number }
 
 function Editor({ initial, contentLocale, primaryLocale, pending, onSave, onCancel, term }: {
@@ -28,7 +35,9 @@ function Editor({ initial, contentLocale, primaryLocale, pending, onSave, onCanc
   const tc = useTranslations("common");
   const { currency } = useSellerPriceCurrency();
   const [draft, setDraft] = useState(initial);
-  const valid = draft.name.trim().length > 0 && draft.price >= 0;
+  const rangeOk = draft.max_per_order == null || draft.max_per_order >= draft.min_per_order;
+  const valid = draft.name.trim().length > 0 && draft.price >= 0 && rangeOk;
+  const bound = (raw: string) => Math.min(PER_ORDER_CEILING, Math.max(1, Math.floor(Number(raw)) || 1));
   return (
     <div className="space-y-3 bg-iris-soft/20 p-3">
       <div className="grid gap-3 sm:grid-cols-[minmax(0,1fr)_170px_170px_110px]">
@@ -51,6 +60,22 @@ function Editor({ initial, contentLocale, primaryLocale, pending, onSave, onCanc
           <label className="mb-1 block text-[11.5px] font-medium text-muted">{t("slaCol")}</label>
           <Input type="number" min={1} max={720} disabled={draft.delivery_mode !== "manual"} value={draft.sla_hours} onChange={(e) => setDraft({ ...draft, sla_hours: Math.min(720, Math.max(1, Number(e.target.value) || 24)) })} />
         </div>
+      </div>
+      <div className="grid gap-3 sm:grid-cols-[170px_170px_minmax(0,1fr)] sm:items-end">
+        <div>
+          <label className="mb-1 block text-[11.5px] font-medium text-muted">{t("minPerOrder")}</label>
+          <Input type="number" min={1} max={PER_ORDER_CEILING} value={draft.min_per_order} onChange={(e) => setDraft({ ...draft, min_per_order: bound(e.target.value) })} />
+        </div>
+        <div>
+          <label className="mb-1 block text-[11.5px] font-medium text-muted">{t("maxPerOrder")}</label>
+          <Input
+            type="number" min={1} max={PER_ORDER_CEILING} placeholder={t("maxPerOrderNone")}
+            value={draft.max_per_order ?? ""}
+            onChange={(e) => setDraft({ ...draft, max_per_order: e.target.value === "" ? null : bound(e.target.value) })}
+            aria-invalid={!rangeOk}
+          />
+        </div>
+        <p className={cn("text-[11.5px]", rangeOk ? "text-faint" : "text-bad")}>{rangeOk ? t("perOrderHint") : t("perOrderInvalid")}</p>
       </div>
       <div className="flex justify-end gap-2">
         <Button size="sm" variant="ghost" onClick={onCancel} disabled={pending}>{tc("cancel")}</Button>
@@ -138,7 +163,7 @@ export function VariantsTable({
               if (editing === v.id) {
                 return (
                   <tr key={v.id}><td colSpan={7} className="p-0">
-                    <Editor initial={{ name: v.name, price: v.price, delivery_mode: v.delivery_mode, sla_hours: v.sla_hours ?? 24 }} contentLocale={contentLocale} primaryLocale={primaryLocale} pending={pending} onSave={(d) => submit(v.id, d)} onCancel={() => setEditing(null)} term={term} />
+                    <Editor initial={{ name: v.name, price: v.price, delivery_mode: v.delivery_mode, sla_hours: v.sla_hours ?? 24, min_per_order: v.min_per_order ?? 1, max_per_order: v.max_per_order ?? null }} contentLocale={contentLocale} primaryLocale={primaryLocale} pending={pending} onSave={(d) => submit(v.id, d)} onCancel={() => setEditing(null)} term={term} />
                   </td></tr>
                 );
               }
@@ -187,7 +212,7 @@ export function VariantsTable({
             )}
             {editing === "new" && (
               <tr><td colSpan={7} className="p-0">
-                <Editor initial={{ name: "", price: 0, delivery_mode: "instant", sla_hours: 24 }} contentLocale={contentLocale} primaryLocale={primaryLocale} pending={pending} onSave={(d) => submit("new", d)} onCancel={() => setEditing(null)} term={term} />
+                <Editor initial={{ name: "", price: 0, delivery_mode: "instant", sla_hours: 24, min_per_order: 1, max_per_order: null }} contentLocale={contentLocale} primaryLocale={primaryLocale} pending={pending} onSave={(d) => submit("new", d)} onCancel={() => setEditing(null)} term={term} />
               </td></tr>
             )}
           </tbody>

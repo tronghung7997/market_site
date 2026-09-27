@@ -17,7 +17,8 @@ import { MarketSection } from "@/components/home/MarketSection";
 import { FeaturedSection } from "@/components/home/FeaturedSection";
 import { CategoriesSection } from "@/components/home/CategoriesSection";
 import { RecentOrders, TrustedSellers } from "@/components/home/CommunitySections";
-import { CtaBanner, FaqSection, HowItWorks, Testimonials, WhyUs } from "@/components/home/StaticSections";
+import { CtaBanner, FaqSection, HowItWorks, WhyUs } from "@/components/home/StaticSections";
+import { AwaitingOrdersBanner, LatestReviews, MarketStatsStrip, SafeTrading } from "./HomeTrust";
 import type { HomeCatalog } from "../data/load-public";
 
 export function HomeCatalogView({ initial }: { initial: HomeCatalog }) {
@@ -75,10 +76,7 @@ function HomeInner({ initial }: { initial: HomeCatalog }) {
       <section className="aura border-b border-line">
         <div className="w-full mx-auto max-w-[1200px] px-6 pt-8 pb-9 lg:pt-10 lg:pb-11 grid lg:grid-cols-[1.05fr_0.95fr] gap-8 items-center">
           <div>
-            <div className="inline-flex items-center gap-2 rounded-full border border-line bg-surface px-3 py-1 text-[12.5px] text-muted shadow-card">
-              <span className="text-warn">★★★★★</span> {t("heroRating")}
-            </div>
-            <h1 className="font-serif text-[clamp(2.2rem,4.4vw,3.4rem)] leading-[1.06] tracking-tight mt-5">
+            <h1 className="font-serif text-[clamp(2.2rem,4.4vw,3.4rem)] leading-[1.06] tracking-tight">
               {t("heroTitle")}<br />
               <span className="italic text-iris">{t("heroEmphasis")}</span>
             </h1>
@@ -101,6 +99,9 @@ function HomeInner({ initial }: { initial: HomeCatalog }) {
           <PriceBoard products={products} catName={catName} minPrice={minPrice} loading={loading} />
         </div>
       </section>
+
+      <AwaitingOrdersBanner />
+      <MarketStatsStrip stats={initial.stats} />
 
       <FeaturedSection featured={featured} catName={catName} minPrice={minPrice} />
 
@@ -131,7 +132,8 @@ function HomeInner({ initial }: { initial: HomeCatalog }) {
       {account && <RecentOrders orders={recentOrders} />}
       <HowItWorks />
       <WhyUs />
-      <Testimonials />
+      <LatestReviews reviews={initial.latestReviews} />
+      <SafeTrading />
       <FaqSection />
       <CtaBanner />
     </div>

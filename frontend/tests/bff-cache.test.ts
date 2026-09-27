@@ -25,6 +25,8 @@ describe("BFF public cache policy", () => {
 describe("BFF catalog invalidation", () => {
   it("flags successful writes to catalog-owning endpoints", () => {
     assert.equal(catalogWritePath("PATCH", "seller/products/12", 200), true);
+    assert.equal(catalogWritePath("PUT", "admin/posts/3", 200), true);
+    assert.equal(catalogWritePath("GET", "admin/posts", 200), false);
     assert.equal(catalogWritePath("POST", "seller/products/12/variants", 201), true);
     assert.equal(catalogWritePath("POST", "seller/variants/3/resources", 201), true);
     assert.equal(catalogWritePath("PATCH", "admin/categories/3", 200), true);

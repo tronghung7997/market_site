@@ -22,6 +22,7 @@ import {
   Receipt,
   ShieldCheck,
   ExternalLink,
+  Headset,
   Store,
 } from "@/components/Icons";
 import { Button, Spinner } from "@/components/ui";
@@ -33,6 +34,7 @@ import { IMAGE_ACCEPT, imageFilesFrom, privateImageBase, privateImageSource } fr
 import { ImageStrip } from "@/components/media/ImageStrip";
 import { PendingImages } from "@/components/media/PendingImages";
 import { useImageUploads } from "@/components/media/useImageUploads";
+import { awaitingDesk, DESK_FILTERS, filterDeskRooms, type DeskFilter } from "@/features/helpdesk";
 
 /** Backend MAX_ATTACHMENTS_PER_MESSAGE. */
 const MAX_CHAT_IMAGES = 4;
@@ -42,6 +44,7 @@ function contextLabel(
   t: ReturnType<typeof useTranslations<"chat">>,
   tos: ReturnType<typeof useTranslations<"status.order">>,
 ) {
+  if (room.kind === "helpdesk") return t("helpdeskChat");
   if (room.kind === "support") {
     return room.order?.code ? `${t("marketplaceSupport")} · ${t("order")} #${room.order.code}` : t("marketplaceSupport");
   }
@@ -55,6 +58,7 @@ function contextLabel(
 function RoomIcon({ kind, size = 15 }: { kind: ChatConversation["kind"]; size?: number }) {
   if (kind === "order") return <Receipt size={size} />;
   if (kind === "support") return <ShieldCheck size={size} />;
+  if (kind === "helpdesk") return <Headset size={size} />;
   return <MessageCircle size={size} />;
 }
 
@@ -98,6 +102,7 @@ export default function InboxWorkbench({
   const hydratedRoom = useRef<string | null>(null);
   const olderRequestId = useRef(0);
   const adminMode = variant === "admin-support";
+  const [deskFilter, setDeskFilter] = useState<DeskFilter>("all");
   const inboxHref = adminMode ? ADMIN_SUPPORT_HREF : INBOX_HREF;
   const userList = useChatConversations(!adminMode && !!account);
   const adminList = useAdminSupportConversations(adminMode && !!account);
@@ -232,11 +237,17 @@ export default function InboxWorkbench({
     );
   }
 
-  const rooms = list.data?.items ?? [];
+  const allRooms = list.data?.items ?? [];
+  const rooms = adminMode ? filterDeskRooms(allRooms, deskFilter) : allRooms;
   const room = detail.data;
   const roomIsOrder = room?.kind === "order";
   const roomIsSupport = room?.kind === "support";
-  const title = room?.product?.title ?? room?.counterpart.label;
+  const roomIsHelpdesk = room?.kind === "helpdesk";
+  // Threads with the Marketplace desk (dispute review or the helpdesk).
+  const roomIsDesk = roomIsSupport || roomIsHelpdesk;
+  const deskTitle = (item: ChatConversation) =>
+    item.kind === "helpdesk" && !adminMode ? t("helpdeskTitle") : item.product?.title ?? item.counterpart.label;
+  const title = room ? deskTitle(room) : undefined;
   const roomContext = room ? contextLabel(room, t, tos) : null;
   const isSellerCounterpart = room?.counterpart.role === "seller";
   const orderHref = orderWorkspaceHref(room?.counterpart.role ?? "seller", adminMode ? room?.order?.id : room?.order?.code, { admin: adminMode });
@@ -274,6 +285,25 @@ export default function InboxWorkbench({
               </span>
             )}
           </header>
+          {adminMode && allRooms.length > 0 && (
+            <div role="group" aria-label={t("deskFilterLabel")} className="flex gap-1 overflow-x-auto border-b border-line px-2 py-2">
+              {DESK_FILTERS.map((filter) => (
+                <button
+                  key={filter}
+                  type="button"
+                  aria-pressed={deskFilter === filter}
+                  onClick={() => setDeskFilter(filter)}
+                  className={cn(
+                    "inline-flex h-7 shrink-0 items-center gap-1 rounded-md border px-2 text-[11.5px] font-medium",
+                    deskFilter === filter ? "border-iris bg-iris-soft text-iris-hi" : "border-line text-muted hover:text-fg",
+                  )}
+                >
+                  {t(`deskFilters.${filter}`)}
+                  <span className="font-mono text-[10.5px] opacity-75">{filterDeskRooms(allRooms, filter).length}</span>
+                </button>
+              ))}
+            </div>
+          )}
 
           <div className="flex-1 space-y-1 overflow-y-auto p-1.5">
             {list.isLoading && (
@@ -293,8 +323,9 @@ export default function InboxWorkbench({
             {rooms.map((item) => {
               const isOrder = item.kind === "order";
               const isSupport = item.kind === "support";
+              const isHelpdesk = item.kind === "helpdesk";
               const itemIsSeller = item.counterpart.role === "seller";
-              const itemTitle = item.product?.title ?? item.counterpart.label;
+              const itemTitle = deskTitle(item);
               const isSelected = selectedId === item.id;
 
               return (
@@ -313,7 +344,7 @@ export default function InboxWorkbench({
                   <span
                     className={cn(
                       "mt-0.5 grid h-8 w-8 shrink-0 place-items-center rounded-lg border transition-transform group-hover:scale-105",
-                      isSupport
+                      isSupport || isHelpdesk
                         ? "border-iris/25 bg-iris-soft text-iris"
                         : isOrder
                         ? "border-warn/25 bg-warn-soft text-warn"
@@ -352,10 +383,16 @@ export default function InboxWorkbench({
                             : "bg-iris-soft text-iris-hi",
                         )}
                       >
-                        {isSupport ? t("marketplaceChat") : isOrder ? `${t("order")}` : t("preSale")}
+                        {isHelpdesk ? t("helpdeskChat") : isSupport ? t("marketplaceChat") : isOrder ? `${t("order")}` : t("preSale")}
                       </span>
                       {itemIsSeller && item.product?.title && (
                         <span className="min-w-0 truncate text-faint">· {item.counterpart.label}</span>
+                      )}
+                      {adminMode && isHelpdesk && (
+                        <span className="min-w-0 truncate text-faint">· {itemIsSeller ? t("seller") : t("customer")}</span>
+                      )}
+                      {adminMode && awaitingDesk(item) && (
+                        <span className="ml-auto shrink-0 rounded-md bg-warn-soft px-1.5 py-0.5 font-medium text-warn">{t("awaitingReply")}</span>
                       )}
                     </div>
 
@@ -412,7 +449,7 @@ export default function InboxWorkbench({
                   <span
                     className={cn(
                       "grid h-9 w-9 shrink-0 place-items-center rounded-xl border",
-                      roomIsSupport
+                      roomIsDesk
                         ? "border-iris/25 bg-iris-soft text-iris"
                         : roomIsOrder
                         ? "border-warn/25 bg-warn-soft text-warn"
@@ -444,7 +481,7 @@ export default function InboxWorkbench({
                     </div>
 
                     <div className="mt-0.5 flex items-center gap-1.5 text-[11.5px] text-muted overflow-hidden text-ellipsis whitespace-nowrap">
-                      {roomIsSupport ? (
+                      {roomIsDesk ? (
                         <>
                           <span className="font-medium text-fg shrink-0">
                             {adminMode
@@ -803,14 +840,14 @@ export default function InboxWorkbench({
               {/* Counterpart info */}
               <div className="rounded-xl border border-line bg-surface p-3 shadow-2xs">
                 <span className="text-[10px] font-bold uppercase tracking-wider text-faint">
-                  {roomIsSupport
+                  {roomIsDesk
                     ? (adminMode ? t("supportRequester") : t("supportProvider"))
                     : (isSellerCounterpart ? t("seller") : t("customer"))}
                 </span>
                 <p className="mt-1.5 text-[12.5px] font-semibold text-fg truncate">
-                  {roomIsSupport && !adminMode ? t("marketplaceSupportTeam") : room.counterpart.label}
+                  {roomIsDesk && !adminMode ? t("marketplaceSupportTeam") : room.counterpart.label}
                 </p>
-                {isSellerCounterpart && !roomIsSupport && (
+                {isSellerCounterpart && !roomIsDesk && (
                   <Link
                     href={sellerPath({ public_key: room.counterpart.id })}
                     className="mt-1.5 inline-flex items-center gap-1 text-[11px] font-medium text-iris hover:underline"

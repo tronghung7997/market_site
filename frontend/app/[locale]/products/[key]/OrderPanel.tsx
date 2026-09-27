@@ -3,6 +3,7 @@
 import { useRouter } from "@/i18n/navigation";
 import { useLocale, useTranslations } from "next-intl";
 import type { ReactNode } from "react";
+import { createPortal } from "react-dom";
 import { useMoney } from "@/lib/money";
 import { FrozenNotice, useFlowFrozen } from "@/features/site-status";
 import { productPath } from "@/lib/routes";
@@ -12,8 +13,10 @@ import { cn } from "@/lib/cn";
 import type { ProductDetail } from "@/lib/types";
 import { Button, Card, Tag } from "@/components/ui";
 import { EscrowHelp } from "@/components/products/EscrowHelp";
-import { Bolt, Clock, Shield } from "@/components/Icons";
-import { ctaState, maxQtyFor, outOfStock, panelMode } from "./purchase";
+import { AlertCircle, Bolt, Clock, Shield, Wallet } from "@/components/Icons";
+import { ctaState, maxQtyFor, minQtyFor, outOfStock, panelMode, perOrderBounds, topUpHref, walletShortfall } from "./purchase";
+import { useWalletBalance } from "@/hooks/use-wallet";
+import { Link } from "@/i18n/navigation";
 import type { PurchaseState } from "./usePurchase";
 import OrderResult from "./OrderResult";
 
@@ -45,10 +48,17 @@ export default function OrderPanel({ product, purchase, fulfillment }: {
   const term = useVariantTerm(product.service_type);
   const { selected, qty, total, order, placing, placeError, showConfirm } = purchase;
   const ordersFrozen = useFlowFrozen("orders");
+  // Balance is only read once the buyer opens the confirmation (the header
+  // chip shares the same cached query, so this is usually instant).
+  const wallet = useWalletBalance(!!account && showConfirm);
+  const available = wallet.data?.available_balance ?? null;
+  const shortfall = walletShortfall(total, available);
 
   const instant = selected?.delivery_mode === "instant";
   const contact = panelMode(selected) === "contact";
   const maxQty = maxQtyFor(selected);
+  const minQty = minQtyFor(selected);
+  const bounds = perOrderBounds(selected);
   const cta = ctaState({ loggedIn: !!account, placing, selected });
   const showOosHint = !!account && !!selected && outOfStock(selected);
 
@@ -69,7 +79,7 @@ export default function OrderPanel({ product, purchase, fulfillment }: {
           </Tag>
         ) : undefined}
       >
-        {order ? <OrderResult order={order} onRebuy={purchase.rebuy} fulfillment={fulfillment} deliveryMode={selected?.delivery_mode} slaHours={selected?.sla_hours} /> : (
+        {order ? <OrderResult order={order} onRebuy={purchase.rebuy} fulfillment={fulfillment} deliveryMode={selected?.delivery_mode} slaHours={selected?.sla_hours} inspectionSteps={product.inspection_steps} /> : (
           <div className="space-y-4">
             <fieldset>
               <legend className="text-[11px] font-semibold text-faint uppercase tracking-wider mb-2">
@@ -132,12 +142,12 @@ export default function OrderPanel({ product, purchase, fulfillment }: {
                     <button
                       aria-label={t("decreaseQty")}
                       onClick={() => purchase.setQty(qty - 1)}
-                      disabled={qty <= 1}
+                      disabled={qty <= minQty}
                       className="h-9 w-9 grid place-items-center text-muted hover:text-fg hover:bg-raised transition-colors disabled:cursor-not-allowed disabled:opacity-40"
                     >−</button>
                     <input
-                      type="number" min={1} max={maxQty} value={qty} aria-label={t("quantity")}
-                      onChange={(e) => purchase.setQty(Number(e.target.value) || 1)}
+                      type="number" min={minQty} max={maxQty} value={qty} aria-label={t("quantity")}
+                      onChange={(e) => purchase.setQty(Number(e.target.value) || minQty)}
                       className="h-9 w-12 text-center font-mono text-[13px] font-medium border-x border-line bg-surface [appearance:textfield] [&::-webkit-inner-spin-button]:appearance-none [&::-webkit-outer-spin-button]:appearance-none"
                     />
                     <button
@@ -148,6 +158,16 @@ export default function OrderPanel({ product, purchase, fulfillment }: {
                     >+</button>
                   </div>
                 </div>
+
+                {bounds && (
+                  <p className="-mt-2 text-right text-[11.5px] text-faint">
+                    {bounds.max == null
+                      ? t("perOrderMin", { min: bounds.min })
+                      : bounds.min > 1
+                        ? t("perOrderRange", { min: bounds.min, max: bounds.max })
+                        : t("perOrderMax", { max: bounds.max })}
+                  </p>
+                )}
 
                 <div className="flex items-end justify-between border-t border-line pt-3.5">
                   <div>
@@ -185,7 +205,9 @@ export default function OrderPanel({ product, purchase, fulfillment }: {
         )}
       </PanelShell>
 
-      {showConfirm && selected && (
+      {/* Portalled: the sticky order column is its own stacking context, so
+          an inline overlay would sit under the page's sticky section tabs. */}
+      {showConfirm && selected && createPortal(
         <div className="fixed inset-0 z-50 flex items-center justify-center" onClick={purchase.closeConfirm}>
           <div className="absolute inset-0 bg-black/40" />
           <div
@@ -225,18 +247,43 @@ export default function OrderPanel({ product, purchase, fulfillment }: {
                   {formatCheckoutMoney(total, { locale })}
                 </span>
               </div>
-              <div className="flex items-start gap-2 px-3 py-2 rounded-md bg-good/5 border border-good/15 text-[12px] text-muted">
-                <Shield size={13} className="text-good mt-0.5 shrink-0" />
-                <span>{t("confirmEscrow", { days: product.escrow_days })}</span>
+              <div className="flex justify-between">
+                <span className="flex items-center gap-1.5 text-muted"><Wallet size={13} /> {t("walletBalance")}</span>
+                <span className="font-mono font-medium tabular">
+                  {available == null ? "—" : formatCheckoutMoney(available, { locale })}
+                </span>
               </div>
-              {placeError && <p className="text-bad text-[12.5px]">{placeError}</p>}
+              {shortfall > 0 ? (
+                <div role="status" className="rounded-md border border-warn/25 bg-warn-soft px-3 py-2.5">
+                  <div className="flex items-start gap-2">
+                    <AlertCircle size={14} className="text-warn mt-0.5 shrink-0" />
+                    <div className="min-w-0">
+                      <p className="text-[12.5px] font-medium text-fg">{t("shortfallTitle", { amount: formatCheckoutMoney(shortfall, { locale }) })}</p>
+                      <p className="mt-0.5 text-[12px] text-muted">{t("shortfallBody")}</p>
+                    </div>
+                  </div>
+                  <Link
+                    href={topUpHref(shortfall, productPath(product))}
+                    className="mt-2.5 inline-flex h-9 w-full items-center justify-center rounded-lg bg-iris text-[13px] font-medium text-white hover:brightness-110 transition"
+                  >
+                    {t("topUpShortfall", { amount: formatCheckoutMoney(shortfall, { locale }) })}
+                  </Link>
+                </div>
+              ) : (
+                <div className="flex items-start gap-2 px-3 py-2 rounded-md bg-good/5 border border-good/15 text-[12px] text-muted">
+                  <Shield size={13} className="text-good mt-0.5 shrink-0" />
+                  <span>{t("confirmEscrow", { days: product.escrow_days })}</span>
+                </div>
+              )}
+              {placeError && <p role="alert" className="text-bad text-[12.5px]">{placeError}</p>}
             </div>
             <div className="flex gap-2 px-5 py-3 border-t border-line">
               <Button variant="secondary" block onClick={purchase.closeConfirm} disabled={placing}>{tc("cancel")}</Button>
-              <Button block disabled={placing} onClick={purchase.buy}>{placing ? t("processing") : t("confirmBuy")}</Button>
+              <Button block disabled={placing || shortfall > 0} loading={placing} onClick={purchase.buy}>{placing ? t("processing") : t("confirmBuy")}</Button>
             </div>
           </div>
-        </div>
+        </div>,
+        document.body,
       )}
     </>
   );

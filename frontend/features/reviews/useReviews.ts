@@ -5,6 +5,17 @@ import { api } from "@/lib/api";
 import { queryKeys } from "@/lib/query-keys";
 
 export const REVIEW_PAGE_SIZE = 20;
+export const SHOP_REVIEW_PAGE_SIZE = 6;
+
+/** Public reviews across one shop's products (shop page). */
+export function useShopReviews(sellerKey: string, page: number, rating: number | null) {
+  return useQuery({
+    queryKey: queryKeys.shopReviews(sellerKey, { page, rating }),
+    queryFn: () => api.sellerPublicReviews(sellerKey, { page, perPage: SHOP_REVIEW_PAGE_SIZE, rating }),
+    placeholderData: (previous) => previous,
+    staleTime: 60_000,
+  });
+}
 
 export function useSellerReviews({ enabled = true, ...params }: { productId?: number; unrepliedOnly?: boolean; page?: number; enabled?: boolean }) {
   const query = { ...params, perPage: REVIEW_PAGE_SIZE };

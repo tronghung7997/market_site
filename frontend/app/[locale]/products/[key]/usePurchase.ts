@@ -40,13 +40,15 @@ export function usePurchase(product: ProductDetail | null): PurchaseState {
   const apiErrorMessage = useApiErrorMessage();
   const queryClient = useQueryClient();
   const [chosen, setChosen] = useState<Variant | null>(null);
-  const [qty, setQtyRaw] = useState(1);
+  const [qtyRaw, setQtyRaw] = useState(1);
   const [order, setOrder] = useState<Order | null>(null);
   const [placing, setPlacing] = useState(false);
   const [placeError, setPlaceError] = useState<string | null>(null);
   const [showConfirm, setShowConfirm] = useState(false);
 
   const selected = chosen ?? (product ? pickDefaultVariant(product.variants) : null);
+  // Always inside the package's per-order bounds, even for the default package.
+  const qty = clampQty(qtyRaw, selected);
   const total = selected ? selected.price * qty : 0;
 
   /** Đơn vừa tồn tại (mua fixed lẫn DynamicOrderForm đều đi qua đây):

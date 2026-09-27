@@ -4,7 +4,7 @@ import { flattenCategories } from "@/lib/categories";
 import { matchCategoryParam } from "@/lib/routes";
 import { browseQueryToListOpts, listOptsToSearchParams } from "./browse-query";
 import type { CategoryBrowseQuery, ProductListOpts } from "./browse-query";
-import type { Category, CategoryShelf, CategoryShelvesResponse, PaginatedProducts, Product, ProductCatalogSummary, ProductDetail, SellerProfile, SellerSummary } from "@/lib/types";
+import type { Category, CategoryContentPublic, CategoryShelf, CategoryShelvesResponse, MarketplaceStats, PaginatedProducts, Product, ProductCatalogSummary, ProductDetail, SellerProfile, SellerSummary, ShowcaseReview } from "@/lib/types";
 
 export type HomeCatalog = {
   categories: Category[];
@@ -12,6 +12,9 @@ export type HomeCatalog = {
   total: number;
   summary: ProductCatalogSummary | null;
   topSellers: SellerSummary[];
+  /** Null when the stats endpoint is unavailable — the strip then hides. */
+  stats: MarketplaceStats | null;
+  latestReviews: ShowcaseReview[];
   error: string | null;
 };
 
@@ -38,6 +41,8 @@ export type CategoryPageCatalog = {
    *  hook reuses `result` for that exact shape and fetches for any other. */
   listOpts: ProductListOpts | null;
   result: PaginatedProducts | null;
+  /** Admin-written description, guide and FAQ of the category page. */
+  content: CategoryContentPublic | null;
   error: string | null;
 };
 
@@ -53,6 +58,10 @@ export type SellerPageCatalog = {
 export type ProductPageCatalog = {
   product: ProductDetail | null;
   related: Product[];
+  /** Public profile of the product's shop (null when unavailable). */
+  seller?: SellerProfile | null;
+  /** Up to 3 other products of the same shop. */
+  sameShop?: Product[];
   pricingStrategy: string;
   error: string | null;
 };
@@ -69,21 +78,24 @@ const loadCachedCatalogSummary = unstable_cache(
 );
 
 export async function loadHomeCatalog(locale: string): Promise<HomeCatalog> {
-  const [categories, products, summary, topSellers] = await Promise.all([
+  const [categories, products, summary, topSellers, stats, latestReviews] = await Promise.all([
     fetchPublicJson<Category[]>("/categories", locale),
     fetchPublicJson<PaginatedProducts>("/products?page=1&per_page=24&sort=bestseller", locale),
     loadCachedCatalogSummary(locale).catch(() => null),
     fetchPublicJson<SellerSummary[]>("/sellers/top?limit=6", locale),
+    fetchPublicJson<MarketplaceStats>("/public/marketplace-stats", locale),
+    fetchPublicJson<ShowcaseReview[]>("/reviews/latest?limit=6", locale),
   ]);
+  const extras = { topSellers: topSellers ?? [], stats, latestReviews: latestReviews ?? [] };
   if (!categories || !products) {
-    return { categories: categories ?? [], products: [], total: 0, summary: null, topSellers: topSellers ?? [], error: "load" };
+    return { categories: categories ?? [], products: [], total: 0, summary: null, ...extras, error: "load" };
   }
   return {
     categories,
     products: products.items,
     total: products.total,
     summary,
-    topSellers: topSellers ?? [],
+    ...extras,
     error: null,
   };
 }
@@ -120,7 +132,7 @@ export async function loadCategoryPage(
   const shelfTotals: CategoryShelfTotals = Object.fromEntries(
     (shelves?.shelves ?? []).map((shelf) => [shelf.category_id, { total: shelf.total, price_from: shelf.price_from }]),
   );
-  const base = { categories: categories ?? [], shelfTotals, sub: null, listOpts: null, result: null };
+  const base = { categories: categories ?? [], shelfTotals, sub: null, listOpts: null, result: null, content: null };
   if (!categories) {
     return { ...base, category: null, error: "load" };
   }
@@ -132,13 +144,19 @@ export async function loadCategoryPage(
   const descendants = flattenCategories(category.children ?? []);
   const subCategory = matchCategoryParam(query.sub, descendants);
   const listOpts = browseQueryToListOpts(query, subCategory?.id ?? category.id);
-  const result = await fetchPublicJson<PaginatedProducts>(`/products?${listOptsToSearchParams(listOpts)}`, locale);
+  const [result, content] = await Promise.all([
+    fetchPublicJson<PaginatedProducts>(`/products?${listOptsToSearchParams(listOpts)}`, locale),
+    category.slug
+      ? fetchPublicJson<CategoryContentPublic>(`/categories/${encodeURIComponent(category.slug)}/content`, locale)
+      : Promise.resolve(null),
+  ]);
   return {
     ...base,
     category,
     sub: subCategory?.slug ?? null,
     listOpts,
     result,
+    content,
     error: result ? null : "load",
   };
 }
@@ -153,25 +171,32 @@ export async function loadProductPage(locale: string, productRef: string): Promi
   if (!product) {
     return { product: null, related: [], pricingStrategy: "fixed", error: "missing" };
   }
-  let related: Product[] = [];
-  if (product.category_id) {
-    const page1 = await fetchPublicJson<PaginatedProducts>(
-      `/products?category_id=${product.category_id}&page=1&per_page=24`,
-      locale,
-    );
-    const seen = new Set<string>();
-    related = (page1?.items ?? []).filter((row) => {
-      if (row.id === product.id) return false;
-      if (row.title === product.title) return false;
-      if (row.title.length < 3) return false;
-      if (seen.has(row.title)) return false;
-      seen.add(row.title);
-      return true;
-    }).slice(0, 3);
-  }
+  const sellerKey = product.seller_key ?? null;
+  const [page1, seller, shopPage] = await Promise.all([
+    product.category_id
+      ? fetchPublicJson<PaginatedProducts>(`/products?category_id=${product.category_id}&page=1&per_page=24`, locale)
+      : Promise.resolve(null),
+    sellerKey ? fetchPublicJson<SellerProfile>(`/sellers/${encodeURIComponent(sellerKey)}`, locale) : Promise.resolve(null),
+    sellerKey
+      ? fetchPublicJson<PaginatedProducts>(`/products?seller=${encodeURIComponent(sellerKey)}&sort=bestseller&page=1&per_page=6`, locale)
+      : Promise.resolve(null),
+  ]);
+  const sameShop = (shopPage?.items ?? []).filter((row) => row.id !== product.id).slice(0, 3);
+  const shown = new Set(sameShop.map((row) => row.id));
+  const seen = new Set<string>();
+  const related = (page1?.items ?? []).filter((row) => {
+    if (row.id === product.id || shown.has(row.id)) return false;
+    if (row.title === product.title) return false;
+    if (row.title.length < 3) return false;
+    if (seen.has(row.title)) return false;
+    seen.add(row.title);
+    return true;
+  }).slice(0, 3);
   return {
     product,
     related,
+    seller,
+    sameShop,
     pricingStrategy: product.pricing_strategy ?? "fixed",
     error: null,
   };

@@ -25,7 +25,7 @@ import {
   Wallet,
   X,
 } from "./Icons";
-import NotificationBell from "./NotificationBell";
+import { AccountBell } from "@/features/notifications";
 import { AnnouncementBar, useSiteStatus } from "@/features/site-status";
 import MessageShortcut from "./chat/MessageShortcut";
 import CurrencyToggle from "./CurrencyToggle";
@@ -238,7 +238,7 @@ function TopNavBar() {
                 </span>
               </Link>
               <MessageShortcut />
-              <NotificationBell endpoint="account" />
+              <AccountBell />
               {/* ≤375px: only menu/logo/bell/avatar in chrome — Top up lives in account menu */}
               <Link href="/wallet" className="hidden min-[400px]:block">
                 <Button size="md"><Plus size={15} /><span className="hidden sm:inline">{t("topUp")}</span></Button>

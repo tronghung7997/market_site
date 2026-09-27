@@ -1,13 +1,12 @@
 "use client";
 
-import { usePathname, useRouter } from "@/i18n/navigation";
 import { useEffect, useRef, useState } from "react";
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
 import { useTranslations } from "next-intl";
-import { useSearchParams } from "next/navigation";
 import { api } from "@/lib/api";
 import { useActionItemLabel } from "@/lib/action-item-label";
 import { queryKeys } from "@/lib/query-keys";
+import { useOpenHref } from "@/lib/use-open-href";
 import type { ActionItem } from "@/lib/types";
 import { useChatEvents } from "@/hooks/use-chat-events";
 import { Bell, X } from "./Icons";
@@ -37,9 +36,6 @@ const POLL_MS = 60_000;
 export default function NotificationBell({ endpoint }: { endpoint: keyof typeof ENDPOINTS }) {
   const t = useTranslations("home");
   const queryClient = useQueryClient();
-  const pathname = usePathname();
-  const searchParams = useSearchParams();
-  const router = useRouter();
   const [open, setOpen] = useState(false);
   const bellRef = useRef<HTMLDivElement>(null);
   useChatEvents(endpoint !== "admin");
@@ -71,24 +67,10 @@ export default function NotificationBell({ endpoint }: { endpoint: keyof typeof 
 
   const itemLabel = useActionItemLabel();
 
+  const openHref = useOpenHref();
   const navigateToItem = (href: string) => {
     setOpen(false);
-
-    const destination = new URL(href, window.location.origin);
-    const normalizedDestPath = destination.pathname.replace(/^\/(?:en|vi)/, "") || "/";
-    const isSamePath = normalizedDestPath === pathname || destination.pathname === pathname;
-
-    // Dispatch an event so listening pages can re-open target modals even if on the exact same route
-    window.dispatchEvent(new CustomEvent("app:notification-click", { detail: { href } }));
-
-    // If already on the target page (e.g. /orders or /seller/orders), update browser URL quietly
-    // without triggering Next.js router re-navigation/query re-fetching
-    if (isSamePath) {
-      window.history.replaceState(null, "", href);
-      return;
-    }
-
-    router.push(href);
+    openHref(href);
   };
 
   const dismiss = DISMISS[endpoint];

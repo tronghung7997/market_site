@@ -23,6 +23,7 @@ import type { MyQuestion, PublicQuestionList, QuestionStatus, SellerQuestion, Se
 import type { SellerTierDetail, SellerTierProgress, SellerTierReviewRow, SellerTrustConfig } from "./types";
 import type { PostAdmin, PostWrite } from "./types";
 import type { HelpdeskRole } from "./types";
+import type { NotificationCategory, NotificationCounts, NotificationPage } from "./types";
 import type { CategoryAdminListResponse, CategoryCreateInput, CategoryUpdateInput } from "./types";
 import type { AffiliateSort } from "./types";
 import type { AdminProductActivity, AdminProductBulkAction, AdminProductBulkResult } from "./types";
@@ -878,6 +879,19 @@ export const api = {
   dismissSellerAlert: (id: number) => request<Alert>(`/seller/alerts/${id}/dismiss`, { method: "POST" }, true),
   dismissOwnAlert: (id: number) => request<Alert>(`/me/alerts/${id}/dismiss`, { method: "POST" }, true),
   accountActionItems: () => request<ActionItem[]>("/me/action-items", {}, true),
+  notifications: (opts: { category?: NotificationCategory; unreadOnly?: boolean; before?: number; limit?: number } = {}) => {
+    const qs = new URLSearchParams();
+    if (opts.category) qs.set("category", opts.category);
+    if (opts.unreadOnly) qs.set("unread_only", "true");
+    if (opts.before) qs.set("before", String(opts.before));
+    if (opts.limit) qs.set("limit", String(opts.limit));
+    const query = qs.toString();
+    return request<NotificationPage>(`/me/notifications${query ? `?${query}` : ""}`, {}, true);
+  },
+  notificationCounts: () => request<NotificationCounts>("/me/notifications/unread", {}, true),
+  /** Rows by id, a whole category, or (neither) everything. */
+  markNotificationsRead: (body: { ids?: number[]; category?: NotificationCategory } = {}) =>
+    request<NotificationCounts>("/me/notifications/read", { method: "POST", body: JSON.stringify(body) }, true),
   buyerActionItems: () => request<ActionItem[]>("/orders/action-items", {}, true),
   sellerActionItems: () => request<ActionItem[]>("/seller/action-items", {}, true),
   adminActionItems: () => request<ActionItem[]>("/admin/action-items", {}, true),

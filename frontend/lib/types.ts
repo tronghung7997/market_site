@@ -1659,6 +1659,30 @@ export interface ActionItem {
   alert_id: number | null;
 }
 
+/** Notification history (the bell's list and /notifications). The text is
+ *  rendered here from `kind` + `params`, in the reader's language. */
+export type NotificationCategory = "order" | "wallet" | "message" | "system";
+
+export interface NotificationItem {
+  id: number;
+  category: NotificationCategory;
+  kind: string;
+  params: Record<string, string | number | null>;
+  href: string | null;
+  read: boolean;
+  created_at: string;
+}
+
+export interface NotificationCounts {
+  unread: number;
+  by_category: Record<NotificationCategory, number>;
+}
+
+export interface NotificationPage extends NotificationCounts {
+  items: NotificationItem[];
+  next_cursor: number | null;
+}
+
 export interface Resource {
   id: number;
   variant_id: number;

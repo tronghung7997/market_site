@@ -32,6 +32,8 @@ export function useChatStreamLive(): boolean {
 function invalidate(client: QueryClient, conversationId?: string) {
   client.invalidateQueries({ queryKey: queryKeys.chat() });
   client.invalidateQueries({ queryKey: queryKeys.actionItems() });
+  // A new chat message may add or bump a notification row.
+  client.invalidateQueries({ queryKey: queryKeys.notifications() });
   if (conversationId) {
     client.invalidateQueries({ queryKey: queryKeys.chatDetail(conversationId) });
   }

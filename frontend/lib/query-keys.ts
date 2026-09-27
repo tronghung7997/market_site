@@ -59,6 +59,9 @@ export const queryKeys = {
   // Alerts
   alerts: () => ["alerts"] as const,
   actionItems: () => ["action-items"] as const,
+  notifications: () => ["notifications"] as const,
+  notificationCounts: () => ["notifications", "counts"] as const,
+  notificationFeed: (category: string) => ["notifications", "feed", category] as const,
   actionItemsFor: (endpoint: "account" | "buyer" | "seller" | "admin") =>
     ["action-items", endpoint] as const,
 

@@ -41,7 +41,9 @@ router = APIRouter(tags=["orders"])
 async def create_order(body: schemas.OrderCreate, account: Account = Depends(require_verified_email), db: AsyncSession = Depends(get_session)):
     await require_orders_open(db)
     if body.variant_id:
-        order = await service.create_order(account.id, body.variant_id, body.quantity, db)
+        order = await service.create_order(
+            account.id, body.variant_id, body.quantity, db, expected_unit_price=body.expected_unit_price,
+        )
     else:
         order = await service.create_order_with_adapter(
             account.id, body.product_id, body.user_config, db,

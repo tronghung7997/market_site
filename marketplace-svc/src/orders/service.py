@@ -13,7 +13,7 @@ from src.adapters.registry import get_spec
 from src.config import settings
 from src.database import SessionLocal, id_in
 from src.gateway.service import mint_gateway_key
-from src.models.account import Account
+from src.models.account import Account, ApplicationStatus, SellerApplication
 from src.models.order import Dispute, DisputeStatus, Order, OrderStatus
 from src.orders.constants import MAX_ORDER_QUANTITY
 from src.orders.delivery import delivered_data_by_order, delivery_summary
@@ -94,7 +94,9 @@ def check_variant_quantity(variant: ProductVariant, quantity: int) -> None:
         )
 
 
-async def create_order(buyer_id: int, variant_id: int, quantity: int, db: AsyncSession) -> Order:
+async def create_order(
+    buyer_id: int, variant_id: int, quantity: int, db: AsyncSession, *, expected_unit_price: int | None = None,
+) -> Order:
     variant = await db.get(ProductVariant, variant_id)
     if not variant or not variant.is_active:
         raise api_error(ErrorCode.VARIANT_NOT_FOUND, status.HTTP_404_NOT_FOUND)
@@ -104,6 +106,8 @@ async def create_order(buyer_id: int, variant_id: int, quantity: int, db: AsyncS
     if product.seller_id == buyer_id:
         raise api_error(ErrorCode.SELF_PURCHASE, status.HTTP_400_BAD_REQUEST)
     check_variant_quantity(variant, quantity)
+    if expected_unit_price is not None and expected_unit_price != variant.price:
+        raise api_error(ErrorCode.ORDER_PRICE_CHANGED, status.HTTP_409_CONFLICT)
 
     # Gói bán lại từ catalog nhà cung cấp (provider external_stock, xem
     # adapters/registry.py): hàng không nằm trong `resources` để claim, phải
@@ -722,6 +726,8 @@ async def _enrich_orders(
             "delivery_count": summaries[order.id].delivered_lines if summaries[order.id].from_resources else None,
             "cancel_reason": order.cancel_reason,
             "created_at": order.created_at,
+            "delivered_at": order.delivered_at,
+            "completed_at": order.completed_at,
             "product_title": product.title if product else None,
             "product_slug": product.slug if product else None,
             "product_key": product.public_key if product else None,
@@ -835,11 +841,17 @@ async def list_buyer_orders(
             delivered_match = select(Resource.order_id).where(
                 Resource.data_lookup == resource_search_key(search_clean), Resource.order_id.is_not(None),
             )
+            # The shop's approved name, as shown on the order row.
+            shop_match = select(SellerApplication.account_id).where(
+                SellerApplication.status == ApplicationStatus.approved,
+                SellerApplication.business_name.ilike(f"%{search_clean}%"),
+            )
             conditions = [
                 Order.id.in_(delivered_match),
                 Order.product_id.in_(product_match),
                 Order.variant_id.in_(variant_match),
                 Order.variant_id.in_(product_via_variant),
+                Order.seller_id.in_(shop_match),
             ]
             # A bare token that happens to look like a code (any 8 alphanumerics,
             # e.g. "facebook") still searches titles — the code match is added, not exclusive.
@@ -889,25 +901,31 @@ async def list_buyer_orders(
 async def buyer_order_stats(buyer_id: int, db: AsyncSession) -> dict:
     """One round trip: every tab count plus spend as filtered aggregates.
     Spend only counts money that actually left the buyer — cancelled and
-    refunded orders returned their funds, so they are excluded."""
+    refunded orders returned their funds, so they are excluded, and partial
+    refunds are taken off the rest."""
     settled = ~Order.status.in_((OrderStatus.cancelled, OrderStatus.refunded))
+    awaiting = _buyer_tab_filter("awaiting_confirm")
     row = (await db.execute(
         select(
             func.count(Order.id).label("total"),
             func.count(Order.id).filter(_buyer_tab_filter("active")).label("active"),
-            func.count(Order.id).filter(_buyer_tab_filter("awaiting_confirm")).label("awaiting_confirm"),
+            func.count(Order.id).filter(awaiting).label("awaiting_confirm"),
+            func.count(Order.id).filter(Order.status.in_((OrderStatus.pending, OrderStatus.processing))).label("awaiting_seller"),
             func.count(Order.id).filter(_buyer_tab_filter("disputed")).label("disputed"),
             func.count(Order.id).filter(_buyer_tab_filter("deleted")).label("cancelled_or_refunded"),
-            func.coalesce(func.sum(Order.total_amount).filter(settled), 0).label("total_spend"),
+            func.coalesce(func.sum(Order.total_amount - Order.refunded_amount).filter(settled), 0).label("total_spend"),
+            func.min(Order.escrow_expires_at).filter(awaiting).label("confirm_deadline"),
         ).where(Order.buyer_id == buyer_id)
     )).one()
     return {
         "total": row.total,
         "active": row.active,
         "awaiting_confirm": row.awaiting_confirm,
+        "awaiting_seller": row.awaiting_seller,
         "disputed": row.disputed,
         "cancelled_or_refunded": row.cancelled_or_refunded,
         "total_spend": int(row.total_spend),
+        "confirm_deadline": row.confirm_deadline,
     }
 
 

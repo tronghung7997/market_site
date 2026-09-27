@@ -1158,6 +1158,18 @@ async def chat_message_retention_job() -> None:
         logger.error("chat_message_retention_failed", error=str(e))
 
 
+async def notification_retention_job() -> None:
+    """Read notifications older than the retention window; unread ones stay."""
+    from src.notifications.history import purge_old
+
+    try:
+        async with SessionLocal() as db:
+            deleted = await purge_old(db)
+        logger.info("notification_retention_done", deleted=deleted)
+    except Exception as e:
+        logger.error("notification_retention_failed", error=str(e))
+
+
 async def media_gc_job() -> None:
     """Delete abandoned uploads (pending > 1 day) and detached images past grace."""
     try:

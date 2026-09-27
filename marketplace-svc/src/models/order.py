@@ -1,7 +1,7 @@
-from datetime import datetime
+from datetime import datetime, timezone
 from enum import Enum as PyEnum
 
-from sqlalchemy import Boolean, CheckConstraint, DateTime, Enum, ForeignKey, Index, Integer, String, Text, UniqueConstraint, func, text
+from sqlalchemy import Boolean, CheckConstraint, DateTime, Enum, ForeignKey, Index, Integer, String, Text, UniqueConstraint, event, func, inspect, text
 from sqlalchemy.dialects.postgresql import JSONB
 from sqlalchemy.orm import Mapped, mapped_column
 
@@ -64,6 +64,10 @@ class Order(Base):
     display_fx_rate_snapshot: Mapped[int | None] = mapped_column(Integer, nullable=True)
     status: Mapped[OrderStatus] = mapped_column(Enum(OrderStatus), default=OrderStatus.pending)
     escrow_expires_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True), nullable=True)
+    # When the order last reached delivered / completed; set by the status
+    # hooks at the end of this module. NULL on orders from before they existed.
+    delivered_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True), nullable=True)
+    completed_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True), nullable=True)
     # Delivered text for orders that deliver text (proxies, gateway keys, manual
     # deliveries); stock orders keep their lines in `resources` only (older
     # orders may still hold a copy, ignored by readers). Encrypted at rest and
@@ -201,3 +205,24 @@ class DisputeMessage(Base):
     idempotency_key: Mapped[str | None] = mapped_column(String(128), nullable=True)
     attachments: Mapped[list | None] = mapped_column(JSONB, nullable=True)
     created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), server_default=func.now())
+
+
+def _stamp_status_times(order: Order, *, inserting: bool) -> None:
+    status = order.status.value if hasattr(order.status, "value") else order.status
+    if not inserting and not inspect(order).attrs.status.history.has_changes():
+        return
+    now = datetime.now(timezone.utc)
+    if status == OrderStatus.delivered.value:
+        order.delivered_at = now
+    elif status == OrderStatus.completed.value:
+        order.completed_at = now
+
+
+@event.listens_for(Order, "before_insert")
+def _stamp_on_insert(mapper, connection, target: Order) -> None:  # noqa: ANN001
+    _stamp_status_times(target, inserting=True)
+
+
+@event.listens_for(Order, "before_update")
+def _stamp_on_update(mapper, connection, target: Order) -> None:  # noqa: ANN001
+    _stamp_status_times(target, inserting=False)

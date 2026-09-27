@@ -33,6 +33,8 @@ from src.media import service as media_service
 from src.media.errors import MediaError
 from src.media.service import private_images
 from src.models.media import MediaObject, MediaPurpose
+from src.notifications.history import notify
+from src.models.notification import skip_order_status_notification
 
 _REMEDY_ALERT_ID_LIMIT = 6
 _REMEDY_ALERT_HREF_ID_LIMIT = 20
@@ -104,6 +106,10 @@ async def _notify_resource_remedy(
             pairs = f"dòng {pairs}"
         buyer_message = f"Đơn {code}: seller đổi {len(originals)} tài khoản ({pairs})."
         seller_message = f"Đơn {code}: đã đổi {len(originals)} tài khoản cho buyer ({pairs})."
+    await notify(
+        db, order.buyer_id, "dispute_remedy", category="order",
+        params={"order_code": code, "action": action, "count": len(originals)}, href=f"/orders/{code}",
+    )
     await add_alert(
         db,
         type_="buyer_dispute_resource_resolved",
@@ -275,6 +281,10 @@ def _truncate_reason(reason: str, limit: int = 200) -> str:
 
 async def _enqueue_dispute_opened(db: AsyncSession, dispute: Dispute, order: Order) -> None:
     from src.mail.service import enqueue_mail, frontend_url
+    await notify(
+        db, order.seller_id, "dispute_opened", category="order",
+        params={"order_code": order.order_code}, href=f"/seller/orders/{order.order_code}",
+    )
     await enqueue_mail(
         db,
         template="dispute_opened",
@@ -295,6 +305,13 @@ async def _enqueue_dispute_opened(db: AsyncSession, dispute: Dispute, order: Ord
 async def _enqueue_dispute_resolved(db: AsyncSession, dispute: Dispute, order: Order) -> None:
     from src.mail.service import enqueue_mail, frontend_url
     outcome = _DISPUTE_OUTCOME.get(dispute.status, dispute.status.value)
+    params = {"order_code": order.order_code, "outcome": dispute.status.value}
+    # The outcome is the news; the order status change it causes is not told again.
+    skip_order_status_notification(order)
+    await notify(db, order.buyer_id, "dispute_resolved", category="order", params=params, href=f"/orders/{order.order_code}")
+    await notify(
+        db, order.seller_id, "dispute_resolved", category="order", params=params, href=f"/seller/orders/{order.order_code}",
+    )
     payload = {
         "order_id": order.order_code,
         "outcome": outcome,
@@ -1098,6 +1115,10 @@ async def seller_respond_dispute(
     message.attachments = await _attach_case_images(
         db, dispute, actor_id=seller_id, subject_type=DISPUTE_MESSAGE_SUBJECT, subject_id=message.id, ids=attachment_ids,
     )
+    await notify(
+        db, order.buyer_id, "dispute_seller_replied", category="order",
+        params={"order_code": order.order_code}, href=f"/orders/{order.order_code}",
+    )
     await log_event(db, "info", f"Seller responded to dispute {dispute_id}", request_id=current_request_id(),
                     metadata={"event": "dispute_seller_responded", "order_id": order.id, "seller_id": seller_id})
     await db.commit()
@@ -1194,6 +1215,10 @@ async def append_buyer_message(
         await db.flush()
         message.attachments = await _attach_case_images(
             db, dispute, actor_id=buyer_id, subject_type=DISPUTE_MESSAGE_SUBJECT, subject_id=message.id, ids=attachment_ids,
+        )
+        await notify(
+            db, order.seller_id, "dispute_buyer_message", category="order",
+            params={"order_code": order.order_code}, href=f"/seller/orders/{order.order_code}",
         )
         await db.commit()
     return await _enrich_dispute(dispute, db)

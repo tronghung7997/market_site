@@ -195,6 +195,8 @@ async def request_application_info(
         message="GMMO cần bạn bổ sung thông tin cho đơn đăng ký bán hàng.",
         href="/seller/apply",
     )
+    from src.notifications.history import notify
+    await notify(db, app.account_id, "application_needs_info", category="system", href="/seller/apply")
     await enqueue_mail(
         db,
         template="seller_application_needs_info",
@@ -260,6 +262,8 @@ async def approve_application(
         idempotency_key=f"seller_application_approved:{app.id}",
         payload={"action_url": frontend_url("vi", "/seller")},
     )
+    from src.notifications.history import notify
+    await notify(db, app.account_id, "application_approved", category="system", href="/seller")
     await add_alert(
         db,
         type_="seller_application_approved",
@@ -314,6 +318,8 @@ async def reject_application(
             "action_url": frontend_url("vi", "/seller/apply"),
         },
     )
+    from src.notifications.history import notify
+    await notify(db, app.account_id, "application_rejected", category="system", href="/seller/apply")
     await db.commit()
     await db.refresh(app)
     return app

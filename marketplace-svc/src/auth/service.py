@@ -677,6 +677,10 @@ async def update_seller_tier(
         from src.sellers.tiers import TIER_ORDER
 
         db.add(SellerTierEvent(account_id=account_id, old_tier=old_tier, new_tier=tier, reason=reason, actor_id=actor_id))
+        from src.notifications.history import notify
+        await notify(
+            db, account_id, "tier_changed", category="system", params={"old": old_tier, "new": tier}, href="/seller/tier",
+        )
 
         up = TIER_ORDER.index(tier) > TIER_ORDER.index(old_tier) if old_tier in TIER_ORDER else True
         await add_alert(

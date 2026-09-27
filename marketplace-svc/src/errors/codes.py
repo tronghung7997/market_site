@@ -43,6 +43,7 @@ class ErrorCode(str, Enum):
     DASHBOARD_RANGE_INVALID = "DASHBOARD_RANGE_INVALID"
     ORDER_QUANTITY_LIMIT = "ORDER_QUANTITY_LIMIT"
     ORDER_QUANTITY_RANGE = "ORDER_QUANTITY_RANGE"
+    ORDER_PRICE_CHANGED = "ORDER_PRICE_CHANGED"
     VARIANT_PER_ORDER_RANGE = "VARIANT_PER_ORDER_RANGE"
     PROXY_PRICE_BELOW_MARGIN = "PROXY_PRICE_BELOW_MARGIN"
     PROXY_PLAN_CONFLICT = "PROXY_PLAN_CONFLICT"
@@ -190,6 +191,7 @@ MESSAGES_EN: dict[ErrorCode, str] = {
     ErrorCode.DASHBOARD_RANGE_INVALID: "The selected date range is invalid",
     ErrorCode.ORDER_QUANTITY_LIMIT: "This product supports a maximum of {max} unit per order",
     ErrorCode.ORDER_QUANTITY_RANGE: "This package sells {min} to {max} units per order",
+    ErrorCode.ORDER_PRICE_CHANGED: "The package price changed. Check the new price and confirm again",
     ErrorCode.VARIANT_PER_ORDER_RANGE: "The maximum per order must be at least the minimum",
     ErrorCode.PROXY_PRICE_BELOW_MARGIN: "Plan {plan}: price {price} is below the minimum {floor} (cost {cost} + {margin}% margin)",
     ErrorCode.PROXY_PLAN_CONFLICT: "Plan code {plan} already maps to another upstream plan",

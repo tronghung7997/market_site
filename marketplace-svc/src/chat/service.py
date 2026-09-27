@@ -47,6 +47,39 @@ def _has_role(account: Account, role: str) -> bool:
     return role in (account.roles or [])
 
 
+def _chat_collapse_key(conversation_id: uuid.UUID) -> str:
+    return f"chat:{conversation_id}"
+
+
+async def _notify_new_message(
+    db: AsyncSession, conversation: ChatConversation, sender: Account, sender_role: ContextRole,
+) -> None:
+    """One unread notification per thread for the other side. Admins work
+    from the desk queue, so a customer's message to the desk notifies no one;
+    a desk reply notifies the customer."""
+    from src.notifications.history import notify_collapsed
+    from src.sellers.service import approved_business_names
+
+    if sender_role == ContextRole.ADMIN:
+        recipients, source = ([conversation.requester_id] if conversation.requester_id else []), "desk"
+    elif conversation.kind in DESK_KINDS:
+        return
+    else:
+        other = conversation.seller_id if sender.id == conversation.buyer_id else conversation.buyer_id
+        recipients = [other] if other else []
+        source = "shop" if sender_role == ContextRole.SELLER else "buyer"
+    if not recipients:
+        return
+    params: dict = {"from": source}
+    if source == "shop":
+        params["name"] = (await approved_business_names([sender.id], db)).get(sender.id)
+    for account_id in recipients:
+        await notify_collapsed(
+            db, account_id, "chat_message", category="message", collapse_key=_chat_collapse_key(conversation.id),
+            params=params, href=f"/messages/{conversation.id}",
+        )
+
+
 async def _participant(
     db: AsyncSession, conversation_id: uuid.UUID, account_id: int
 ) -> ChatParticipant:
@@ -276,9 +309,12 @@ async def _detail(
     has_more = len(newest_first) > 50
     messages = list(reversed(newest_first[:50]))
     if mark_read and before_id is None and messages:
+        from src.notifications.history import mark_collapsed_read
+
         participant.last_read_message_id = max(
             participant.last_read_message_id or 0, messages[-1].id
         )
+        await mark_collapsed_read(db, participant.account_id, _chat_collapse_key(conversation.id))
         await db.commit()
     summary = await _summary(db, conversation, participant)
     return ConversationDetail(
@@ -350,6 +386,7 @@ async def create_inquiry(
     conversation.last_message_id = message.id
     conversation.last_message_at = message.created_at
     buyer.last_read_message_id = message.id
+    await _notify_new_message(db, conversation, account, ContextRole.BUYER)
     await db.commit()
     await db.refresh(conversation)
     await publish(
@@ -627,6 +664,7 @@ async def send_message(
     conversation.last_message_id = message.id
     conversation.last_message_at = message.created_at
     participant.last_read_message_id = max(participant.last_read_message_id or 0, message.id)
+    await _notify_new_message(db, conversation, account, participant.context_role)
     await db.commit()
     await db.refresh(message)
     if conversation.kind in DESK_KINDS:

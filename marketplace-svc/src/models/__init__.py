@@ -49,6 +49,7 @@ from src.models.site_page import SitePage
 from src.models.question import ProductQuestion
 from src.models.seller_trust_config import SellerTrustConfig
 from src.models.seller_tier_event import SellerTierEvent
+from src.models.notification import Notification
 from src.models.post import Post
 from src.models.site_runtime_config import SiteRuntimeConfig
 from src.models.supplier_listing import SupplierCatalogItem, SupplierListing, SupplierPurchase
@@ -93,5 +94,6 @@ __all__ = [
     "ProductQuestion",
     "SellerTrustConfig",
     "SellerTierEvent",
+    "Notification",
     "Post",
 ]

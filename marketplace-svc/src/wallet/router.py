@@ -19,6 +19,8 @@ async def get_wallet(account: Account = Depends(get_current_account), db: AsyncS
     wallet = await service.get_wallet_by_account(account.id, db)
     resp = schemas.WalletResponse.model_validate(wallet)
     resp.escrow_paid, resp.escrow_incoming = await service.escrow_snapshot(account.id, db)
+    from src.payments.service import pending_deposit_total
+    resp.pending_deposits = await pending_deposit_total(account.id, db)
     if "seller" in (account.roles or []):
         tier = account.seller_tier or "new"
         resp.withdraw_policy = schemas.WithdrawPolicy(

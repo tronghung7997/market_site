@@ -343,6 +343,18 @@ async def list_deposits(account_id: int, db: AsyncSession, limit: int = 20) -> l
     return list(rows.scalars().all())
 
 
+async def pending_deposit_total(account_id: int, db: AsyncSession) -> int:
+    """Money on its way: deposit requests still open and not yet expired."""
+    total = await db.scalar(
+        select(func.coalesce(func.sum(DepositIntent.amount), 0)).where(
+            DepositIntent.account_id == account_id,
+            DepositIntent.status == DepositIntentStatus.pending,
+            DepositIntent.expires_at > datetime.now(timezone.utc),
+        )
+    )
+    return int(total or 0)
+
+
 async def apply_deposit_paid(
     intent: DepositIntent,
     paid_amount: int,
@@ -398,6 +410,11 @@ async def apply_deposit_paid(
     if outcome_currency is not None:
         intent.outcome_currency = outcome_currency
     intent.paid_at = datetime.now(timezone.utc)
+    from src.notifications.history import notify
+    await notify(
+        db, intent.account_id, "deposit_credited", category="wallet",
+        params={"amount": paid_amount, "code": intent.payment_code}, href="/wallet",
+    )
     logger.info(
         "deposit_paid", intent_id=intent.id, amount=paid_amount,
         source=source, provider=provider,

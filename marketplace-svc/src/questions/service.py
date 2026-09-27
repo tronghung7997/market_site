@@ -170,6 +170,11 @@ async def answer(seller: Account, question_id: int, text: str, db: AsyncSession)
             message=f"Shop đã trả lời câu hỏi của bạn về “{product.title}”.",
             href=f"{canonical_path(PRODUCT_PATH_PREFIX, product.slug, product.public_key)}#qa",
         )
+        from src.notifications.history import notify
+        await notify(
+            db, q.asker_id, "question_answered", category="message", params={"product": product.title},
+            href=f"{canonical_path(PRODUCT_PATH_PREFIX, product.slug, product.public_key)}#qa",
+        )
     await db.commit()
     email = await db.scalar(select(Account.email).where(Account.id == q.asker_id))
     return _seller_row(q, product, email)

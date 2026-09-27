@@ -9,6 +9,10 @@ from src.security.input_limits import bounded_mapping
 class OrderCreate(BaseModel):
     variant_id: int | None = None
     quantity: int = Field(default=1, ge=1, le=MAX_ORDER_QUANTITY)
+    # The package price the buyer confirmed. When sent and the price has
+    # changed since, the order is refused (ORDER_PRICE_CHANGED) before any
+    # money moves. Optional for older clients.
+    expected_unit_price: int | None = Field(default=None, ge=0)
     product_id: int | None = None
     user_config: dict | None = None
 
@@ -61,6 +65,9 @@ class OrderResponse(BaseModel):
     gateway_access: GatewayAccessInfo | None = None
     cancel_reason: str | None = None
     created_at: datetime
+    # Last time the order reached delivered / completed (NULL on older orders).
+    delivered_at: datetime | None = None
+    completed_at: datetime | None = None
     product_title: str | None = None
     # Public product ref for links: /products/{product_slug}-{product_key}.
     product_slug: str | None = None
@@ -207,9 +214,14 @@ class OrderStatsResponse(BaseModel):
     total: int
     active: int
     awaiting_confirm: int
+    # Paid and waiting for the seller to deliver (pending + processing).
+    awaiting_seller: int = 0
     disputed: int
     cancelled_or_refunded: int
+    # Net of refunds: cancelled/refunded orders and partial refunds excluded.
     total_spend: int
+    # Earliest protection deadline among orders waiting for confirmation.
+    confirm_deadline: datetime | None = None
 
 
 # ── Admin order page (GET /admin/orders/{id}/case) ──────────────────────────

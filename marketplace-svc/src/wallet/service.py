@@ -152,6 +152,9 @@ async def topup(
             "proof_images": [snap["id"] for snap in (tx.proof_media or [])],
         },
     )
+    if source == "admin":
+        from src.notifications.history import notify
+        await notify(db, account_id, "wallet_credited", category="wallet", params={"amount": amount}, href="/wallet")
     await db.commit()
     await db.refresh(wallet)
     return wallet
@@ -478,6 +481,8 @@ async def approve_withdrawal(req_id: int, db: AsyncSession) -> WithdrawRequest:
         idempotency_key=f"withdrawal_approved:{req.id}",
         payload={"amount": net, "action_url": frontend_url("vi", "/seller/withdrawals")},
     )
+    from src.notifications.history import notify
+    await notify(db, req.account_id, "withdrawal_approved", category="wallet", params={"amount": net}, href="/seller/withdrawals")
     await db.commit()
     await db.refresh(req)
     return req
@@ -520,6 +525,11 @@ async def reject_withdrawal(req_id: int, reason: str, db: AsyncSession) -> Withd
             "action_url": frontend_url("vi", "/seller/withdrawals"),
         },
     )
+    from src.notifications.history import notify
+    await notify(
+        db, req.account_id, "withdrawal_rejected", category="wallet",
+        params={"amount": req.amount, "reason": req.reject_reason}, href="/seller/withdrawals",
+    )
     await db.commit()
     await db.refresh(req)
     return req
@@ -559,6 +569,11 @@ async def mark_withdrawal_paid(
         metadata={"event": "withdraw_paid", "withdraw_id": req.id, "account_id": req.account_id,
                   "amount": req.amount, "payout_reference": payout_reference, "actor_id": actor_id,
                   "receipt_images": [snap["id"] for snap in (req.receipt_media or [])]},
+    )
+    from src.notifications.history import notify
+    await notify(
+        db, req.account_id, "withdrawal_paid", category="wallet",
+        params={"amount": req.amount - int(req.fee_amount or 0)}, href="/seller/withdrawals",
     )
     await db.commit()
     await db.refresh(req)

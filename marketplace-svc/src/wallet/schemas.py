@@ -32,6 +32,9 @@ class WalletResponse(BaseModel):
     # unconfirmed orders, and what a seller is waiting to receive.
     escrow_paid: int = 0
     escrow_incoming: int = 0
+    # Open, unexpired deposit requests: money the buyer has sent or is about
+    # to send that the wallet has not credited yet.
+    pending_deposits: int = 0
 
     model_config = {"from_attributes": True}
 

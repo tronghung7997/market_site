@@ -64,6 +64,7 @@ from src.scheduler import (
     ledger_reconcile_job,
     chat_message_retention_job,
     media_gc_job,
+    notification_retention_job,
     provider_credit_low_job,
     provision_sweep_job,
     resource_expire_job,
@@ -141,6 +142,10 @@ scheduler.add_job(
 scheduler.add_job(
     chat_message_retention_job, "interval", hours=6, id="chat_message_retention",
     next_run_time=_first_run_after(20),
+)
+scheduler.add_job(
+    notification_retention_job, "interval", hours=12, id="notification_retention",
+    next_run_time=_first_run_after(22),
 )
 # Abandoned uploads and images dropped by their product/message/case.
 scheduler.add_job(media_gc_job, "interval", minutes=30, id="media_gc", next_run_time=_first_run_after(25))

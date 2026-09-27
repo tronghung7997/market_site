@@ -40,3 +40,16 @@ async def admin_test_content_filter(
     """Dry run for the settings page: shows what a message would become."""
     result = screen(body.text, await get_config(db))
     return {"blocked": result.blocked, "text": result.text, "matches": result.matches}
+
+
+@router.post("/seller/content-check", response_model=schemas.ContentCheckResponse)
+async def seller_content_check(
+    body: schemas.ContentFilterTestRequest,
+    _: Account = Depends(require_role("seller")),
+    db: AsyncSession = Depends(get_session),
+):
+    """Dry run while a seller writes a listing: which contact details or
+    restricted words the text contains. Listings never carry phone numbers or
+    outside links, whatever the chat filter is set to. Nothing is stored."""
+    config = {**await get_config(db), "enabled": True, "block_phone_numbers": True, "block_links": True, "action": "block"}
+    return {"matches": screen(body.text, config).matches}

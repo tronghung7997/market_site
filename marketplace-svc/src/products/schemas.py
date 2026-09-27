@@ -422,6 +422,8 @@ class ProductListPageResponse(BaseModel):
 class ProductCatalogCategoryCount(BaseModel):
     category_id: int
     count: int
+    # Cheapest storefront price in the category (same "from" price as a card).
+    price_from: int | None = None
 
 
 class ProductCatalogSummaryResponse(BaseModel):

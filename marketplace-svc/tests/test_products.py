@@ -476,7 +476,7 @@ async def test_list_products_pagination(client):
     assert summary["products"] == 3
     assert summary["variants"] == 0
     assert summary["available_stock"] == 0
-    assert summary["category_counts"] == [{"category_id": cat_id, "count": 3}]
+    assert summary["category_counts"] == [{"category_id": cat_id, "count": 3, "price_from": None}]
 
 
 @pytest.mark.asyncio

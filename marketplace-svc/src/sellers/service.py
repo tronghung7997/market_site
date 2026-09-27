@@ -176,11 +176,44 @@ async def _build_seller_summaries(seller_ids: list[int], db: AsyncSession) -> li
     ]
 
 
-async def get_top_sellers(db: AsyncSession, limit: int = 6) -> list[dict]:
+async def get_top_sellers(db: AsyncSession, limit: int = 6, *, locale: str = "vi") -> list[dict]:
+    """Best shops by completed orders, each with its reply speed and the
+    category it sells most in — what a buyer compares before opening a shop."""
+    from src.i18n.catalog import resolve_category_fields
+    from src.models.category import Category
+
     seller_ids = await _seller_ids_with_active_products(db)
     summaries = await _build_seller_summaries(seller_ids, db)
     summaries.sort(key=lambda s: (s["completed_order_count"], s["rating_avg"] or 0), reverse=True)
-    return summaries[:limit]
+    top = summaries[:limit]
+    ids_by_key = dict((await db.execute(
+        select(Account.public_key, Account.id).where(Account.public_key.in_([s["public_key"] for s in top]))
+    )).all())
+    rows = (await db.execute(
+        select(Product.seller_id, Product.category_id, func.count(Product.id).label("n"))
+        .where(Product.seller_id.in_(list(ids_by_key.values())), Product.status == ProductStatus.active)
+        .group_by(Product.seller_id, Product.category_id)
+        .order_by(func.count(Product.id).desc(), Product.category_id)
+    )).all()
+    main_category_id: dict[int, int] = {}
+    for seller_id, category_id, _ in rows:
+        main_category_id.setdefault(seller_id, category_id)
+    categories = {
+        c.id: c for c in (await db.execute(
+            select(Category).where(Category.id.in_(set(main_category_id.values())))
+        )).scalars()
+    } if main_category_id else {}
+    for summary in top:
+        seller_id = ids_by_key.get(summary["public_key"])
+        if seller_id is None:
+            continue
+        summary["response_time"] = (await seller_presence(seller_id, db))["response_time"]
+        category = categories.get(main_category_id.get(seller_id))
+        summary["main_category"] = (
+            {"name": resolve_category_fields(category, locale)["name"], "slug": category.slug}
+            if category else None
+        )
+    return top
 
 
 async def get_seller_profile(seller_id: int, db: AsyncSession) -> dict | None:

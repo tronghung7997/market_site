@@ -13,6 +13,7 @@ from src.models.account import Account, ApplicationStatus, SellerApplication
 from src.models.alert import Alert
 from src.models.order import Dispute, DisputeStatus, Order, OrderStatus
 from src.models.product import Product
+from src.models.review import Review
 from src.models.provider import Provider
 from src.models.service_task import ServiceTask, ServiceTaskStatus
 from src.models.usage import OrderBalance
@@ -61,11 +62,8 @@ async def buyer_action_items(buyer_id: int, db: AsyncSession) -> list[ActionItem
         select(Order.escrow_expires_at).where(Order.buyer_id == buyer_id, Order.status == OrderStatus.delivered)
     )).scalars().all()
     if delivered:
-        items.append(ActionItem(
-            key="buyer_delivered_unconfirmed", severity="warning",
-            label=f"{len(delivered)} đơn cần bạn xác nhận đã nhận hàng",
-            count=len(delivered), href="/orders?status=delivered",
-        ))
+        # Two disjoint groups, so one order is never counted twice in the bell:
+        # the ones about to auto-complete, then the rest still awaiting a check.
         soon_cutoff = datetime.now(timezone.utc) + timedelta(hours=_ESCROW_SOON_HOURS)
         soon = [e for e in delivered if e and e <= soon_cutoff]
         if soon:
@@ -73,6 +71,13 @@ async def buyer_action_items(buyer_id: int, db: AsyncSession) -> list[ActionItem
                 key="buyer_escrow_expiring", severity="critical",
                 label=f"{len(soon)} đơn sắp hết hạn xác nhận trong {_ESCROW_SOON_HOURS} giờ",
                 count=len(soon), href="/orders?status=delivered",
+            ))
+        rest = len(delivered) - len(soon)
+        if rest:
+            items.append(ActionItem(
+                key="buyer_delivered_unconfirmed", severity="warning",
+                label=f"{rest} đơn cần bạn xác nhận đã nhận hàng",
+                count=rest, href="/orders?status=delivered",
             ))
 
     low_balance = await db.scalar(
@@ -127,6 +132,29 @@ async def _seller_needs_setup_count(seller_id: int, db: AsyncSession) -> int:
     return count
 
 
+_REVIEW_REPLY_DAYS = 30
+
+
+async def _seller_unreplied_reviews(seller_id: int, db: AsyncSession) -> list[tuple[str, int]]:
+    """``[(product public key, count)]`` of recent written reviews from real
+    buyers the seller has not answered yet."""
+    since = datetime.now(timezone.utc) - timedelta(days=_REVIEW_REPLY_DAYS)
+    rows = (await db.execute(
+        select(Product.public_key, func.count(Review.id))
+        .join(Product, Product.id == Review.product_id)
+        .where(
+            Product.seller_id == seller_id,
+            Review.seller_reply.is_(None),
+            Review.comment.is_not(None), Review.comment != "",
+            Review.is_hidden.is_(False), Review.is_auto.is_(False), Review.is_seeded.is_(False),
+            Review.created_at >= since,
+        )
+        .group_by(Product.public_key)
+        .order_by(func.count(Review.id).desc())
+    )).all()
+    return [(key, int(count)) for key, count in rows]
+
+
 async def seller_action_items(seller_id: int, db: AsyncSession) -> list[ActionItem]:
     items: list[ActionItem] = []
 
@@ -155,6 +183,16 @@ async def seller_action_items(seller_id: int, db: AsyncSession) -> list[ActionIt
             key="seller_unanswered_questions", severity="info",
             label=f"{unanswered} buyer questions waiting for an answer",
             count=unanswered, href="/seller/questions",
+        ))
+
+    unreplied = await _seller_unreplied_reviews(seller_id, db)
+    if unreplied:
+        total = sum(count for _, count in unreplied)
+        href = f"/seller/products/{unreplied[0][0]}?tab=reviews" if len(unreplied) == 1 else "/seller/products"
+        items.append(ActionItem(
+            key="seller_unreplied_reviews", severity="info",
+            label=f"{total} đánh giá chưa được trả lời",
+            count=total, href=href,
         ))
 
     needs_setup = await _seller_needs_setup_count(seller_id, db)

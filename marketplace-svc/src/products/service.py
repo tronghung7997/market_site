@@ -10,6 +10,7 @@ from src.adapters.compatibility import check_compatibility, setup_status
 from src.adapters.registry import get_spec
 from src.categories.service import category_subtree_ids, category_subtree_ids_any
 from src.exceptions import ErrorCode, NotOwner, api_error
+from src.fees.service import buyer_escrow_days
 from src.i18n.catalog import (
     DEFAULT_LOCALE,
     available_locales,
@@ -761,6 +762,7 @@ def _browse_price_columns(variant_scope=None):
             func.min(ProductVariant.price).filter(ProductVariant.price > 0).label("min_price"),
             func.coalesce(func.sum(stock.c.stock), 0).label("stock_count"),
             func.bool_or(ProductVariant.delivery_mode == DeliveryMode.instant).label("has_instant"),
+            func.bool_or(ProductVariant.delivery_mode == DeliveryMode.manual).label("has_manual"),
         )
         .outerjoin(stock, stock.c.variant_id == ProductVariant.id)
         .where(ProductVariant.is_active == True)  # noqa: E712
@@ -845,6 +847,9 @@ def _relevance_order(terms: SearchTerms) -> tuple:
     )
 
 
+_STRATEGY_OF_FULFILLMENT = {"api": "credit", "task": "task", "proxy": "config"}
+
+
 async def list_products(
     db: AsyncSession,
     category_id: int | None = None,
@@ -897,8 +902,14 @@ async def list_products(
         filters.append(terms.match(Product.search_text))
     if in_stock:
         filters.append(or_(managed == False, func.coalesce(variant_stats.c.stock_count, 0) > 0))  # noqa: E712
+    # The same kinds the storefront tags a card with (lib/fulfillment.ts).
+    catalog_priced = or_(Product.pricing_strategy.is_(None), Product.pricing_strategy == "fixed")
     if fulfillment == "instant":
         filters.append(and_(managed == True, variant_stats.c.has_instant == True))  # noqa: E712
+    elif fulfillment == "sla":
+        filters.append(and_(catalog_priced, variant_stats.c.has_manual == True))  # noqa: E712
+    elif fulfillment in _STRATEGY_OF_FULFILLMENT:
+        filters.append(Product.pricing_strategy == _STRATEGY_OF_FULFILLMENT[fulfillment])
     if min_price is not None:
         filters.append(browse_price >= min_price)
     if max_price is not None:
@@ -934,11 +945,13 @@ async def list_products(
         [product.id for product in products], db, locale=locale, public=True,
     )
     seller_refs = await seller_refs_by_id({p.seller_id for p in products}, db)
+    escrow = await buyer_escrow_days(products, db)
     return {
         "items": [
             {
                 **_product_list_dict(p, locale=locale, public=True),
                 **seller_refs.get(p.seller_id, {}),
+                "escrow_days": escrow[p.id],
                 "variants": variants_by_product.get(p.id, []),
             }
             for p in products
@@ -1019,6 +1032,7 @@ async def list_category_shelves(
     products = {p.id: p for p in (await db.execute(select(Product).where(Product.id.in_(product_ids)))).scalars()} if product_ids else {}
     variants_by_product = await _variants_by_product(product_ids, db, locale=locale, public=True)
     seller_refs = await seller_refs_by_id({p.seller_id for p in products.values()}, db)
+    escrow = await buyer_escrow_days(list(products.values()), db)
 
     items_by_top: dict[int, list[dict]] = defaultdict(list)
     for pid, top in picked:
@@ -1028,6 +1042,7 @@ async def list_category_shelves(
         items_by_top[top].append({
             **_product_list_dict(product, locale=locale, public=True),
             **seller_refs.get(product.seller_id, {}),
+            "escrow_days": escrow[pid],
             "variants": variants_by_product.get(pid, []),
         })
     stats_by_top = {top: (total, price_from) for top, total, price_from in stats}
@@ -1112,8 +1127,15 @@ async def get_product_catalog_summary(db: AsyncSession) -> dict:
             ProductVariant.delivery_mode == DeliveryMode.instant,
         )
     ) or 0
+    variant_stats, browse_price = _browse_price_columns(_storefront_variant_ids())
     category_rows = (await db.execute(
-        select(Product.category_id, func.count(Product.id))
+        select(
+            Product.category_id,
+            func.count(Product.id),
+            func.min(browse_price).filter(browse_price > 0),
+        )
+        .select_from(Product)
+        .outerjoin(variant_stats, variant_stats.c.product_id == Product.id)
         .where(active_products)
         .group_by(Product.category_id)
     )).all()
@@ -1122,8 +1144,8 @@ async def get_product_catalog_summary(db: AsyncSession) -> dict:
         "variants": variants,
         "available_stock": available_stock,
         "category_counts": [
-            {"category_id": category_id, "count": count}
-            for category_id, count in category_rows
+            {"category_id": category_id, "count": count, "price_from": int(price_from) if price_from else None}
+            for category_id, count, price_from in category_rows
         ],
     }
 
@@ -1549,6 +1571,9 @@ async def get_product_detail(
         )
 
     seller_refs = (await seller_refs_by_id([product.seller_id], db)).get(product.seller_id, {}) if public else {}
+    if public:
+        # The protection a buyer actually gets, not the seller's raw setting.
+        base["escrow_days"] = (await buyer_escrow_days([product], db))[product.id]
     # Same display rule as the seller page: approved business name first,
     # email local part only as the fallback (Q4: mandatory shop name later).
     business_name = (await approved_business_names([product.seller_id], db)).get(product.seller_id)

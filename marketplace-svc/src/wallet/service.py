@@ -124,10 +124,11 @@ async def topup(
         raise HTTPException(status_code=422, detail="Cần ghi lý do khi cộng tiền thủ công")
     wallet = await get_wallet_by_account(account_id, db, for_update=True)
     wallet.available_balance += amount
+    # Shown to the account owner in their ledger, so it reads in their language.
     if event == "demo_topup":
-        description = "Demo topup"
+        description = "Nạp thử (demo)"
     else:
-        description = f"Admin topup — {reason}" if reason else "Admin topup"
+        description = f"GMMO cộng tiền — {reason}" if reason else "GMMO cộng tiền"
     tx = Transaction(wallet_id=wallet.id, type=TransactionType.topup, amount=amount, description=description)
     db.add(tx)
     if proof_ids:

@@ -260,7 +260,7 @@ async def test_admin_topup_requires_reason_and_records_it(client):
     )
     assert ok.status_code == 200, ok.text
     txs = await client.get("/wallet/transactions", headers=_auth(user_token))
-    assert txs.json()[0]["description"] == "Admin topup — Đền bù đơn ORD-1"
+    assert txs.json()[0]["description"] == "GMMO cộng tiền — Đền bù đơn ORD-1"
     async with SessionLocal() as db:
         row = await db.scalar(select(LogEntry).where(LogEntry.metadata_["event"].astext == "manual_topup"))
         assert row.metadata_["reason"] == "Đền bù đơn ORD-1"

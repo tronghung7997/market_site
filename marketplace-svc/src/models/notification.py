@@ -9,7 +9,7 @@ other events call ``src.notifications.history.notify`` explicitly.
 """
 from datetime import datetime
 
-from sqlalchemy import CheckConstraint, DateTime, ForeignKey, Index, String, event, func, inspect, text
+from sqlalchemy import CheckConstraint, DateTime, ForeignKey, Index, String, event, func, inspect, text, update
 from sqlalchemy.dialects.postgresql import JSONB
 from sqlalchemy.orm import Mapped, Session, mapped_column
 
@@ -57,11 +57,16 @@ def order_notifications(order_code: str, buyer_id: int, seller_id: int, old: str
     params = {"order_code": order_code}
     rows: list[Notification] = []
 
-    def add(account_id: int, kind: str, href: str) -> None:
-        rows.append(Notification(account_id=account_id, category="order", kind=kind, params=dict(params), href=href))
+    def add(account_id: int, kind: str, href: str, **extra) -> None:
+        rows.append(Notification(account_id=account_id, category="order", kind=kind, params={**params, **extra}, href=href))
 
     if old is None:
-        add(seller_id, "order_new", seller_href)
+        # An instant order arrives already delivered from stock: the seller
+        # has nothing to hand over, only to know it sold.
+        if new == OrderStatus.delivered.value:
+            add(seller_id, "order_new", seller_href, auto=True)
+        else:
+            add(seller_id, "order_new", seller_href)
     if new == old:
         return rows
     if new == OrderStatus.delivered.value:
@@ -102,12 +107,28 @@ def _collect_order_changes(session: Session, flush_context) -> None:  # noqa: AN
                 pending.append((obj, (obj.order_code, obj.buyer_id, obj.seller_id, old, new)))
 
 
+_SETTLED = {OrderStatus.completed.value, OrderStatus.refunded.value, OrderStatus.cancelled.value}
+
+
 @event.listens_for(Session, "before_commit")
 def _write_order_notifications(session: Session) -> None:
     pending = session.info.pop(_PENDING, None)
     for order, change in pending or ():
         if not getattr(order, SKIP_ATTR, False):
             session.add_all(order_notifications(*change))
+        code, buyer_id, _, _, new = change
+        if new in _SETTLED:
+            # "Delivered — check it" has nothing left to act on once the order settles.
+            session.execute(
+                update(Notification)
+                .where(
+                    Notification.account_id == buyer_id,
+                    Notification.kind == "order_delivered",
+                    Notification.read_at.is_(None),
+                    Notification.params["order_code"].astext == code,
+                )
+                .values(read_at=func.now())
+            )
 
 
 @event.listens_for(Session, "after_rollback")

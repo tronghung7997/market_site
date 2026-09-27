@@ -42,6 +42,9 @@ async def test_seller_profile_resolves_by_key_and_legacy_id_but_never_leaks_acco
     card = next(s for s in top if s["public_key"] == key)
     assert "account_id" not in card
     assert card["handle"] is None and card["canonical_path"] == f"/sellers/{key}"
+    # The card names the category the shop sells most in; reply speed stays
+    # empty until there are enough buyer chats.
+    assert card["main_category"]["slug"] and card["response_time"] is None
 
     by_key = await client.get(f"/sellers/{key}")
     by_id = await client.get(f"/sellers/{seller_id}")

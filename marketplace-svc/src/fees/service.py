@@ -41,6 +41,28 @@ async def escrow_days_for(db: AsyncSession, *, seller_tier: str, product_escrow_
     return max(tier_escrow_days(seller_tier, product_escrow_days, reduction_days=reduction), floor_days)
 
 
+async def buyer_escrow_days(products: list[Product], db: AsyncSession) -> dict[int, int]:
+    """``{product_id: days}`` of buyer protection an order placed now gets —
+    the same rule ``create_order`` applies (tier, category floor, never under
+    one day) — so the storefront never promises the raw product setting."""
+    if not products:
+        return {}
+    seller_ids = {p.seller_id for p in products}
+    tiers = dict((await db.execute(
+        select(Account.id, Account.seller_tier).where(Account.id.in_(seller_ids))
+    )).all())
+    out: dict[int, int] = {}
+    for product in products:
+        tier = tiers.get(product.seller_id)
+        out[product.id] = await escrow_days_for(
+            db,
+            seller_tier=getattr(tier, "value", tier) or "new",
+            product_escrow_days=product.escrow_days,
+            category_id=product.category_id,
+        )
+    return out
+
+
 async def order_category_id(order: Order, db: AsyncSession) -> int | None:
     if order.product_id is not None:
         return await db.scalar(select(Product.category_id).where(Product.id == order.product_id))

@@ -220,8 +220,10 @@ class OrderStatsResponse(BaseModel):
     cancelled_or_refunded: int
     # Net of refunds: cancelled/refunded orders and partial refunds excluded.
     total_spend: int
-    # Earliest protection deadline among orders waiting for confirmation.
+    # Earliest protection deadline among orders waiting for confirmation,
+    # and that order's public code.
     confirm_deadline: datetime | None = None
+    confirm_order_code: str | None = None
 
 
 # ── Admin order page (GET /admin/orders/{id}/case) ──────────────────────────

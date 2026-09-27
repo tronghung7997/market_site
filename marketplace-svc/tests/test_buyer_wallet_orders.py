@@ -79,8 +79,12 @@ async def test_order_timeline_times_and_stats(client):
 
     stats = (await client.get("/orders/stats", headers=_auth(buyer))).json()
     assert stats["awaiting_confirm"] == 2 and stats["awaiting_seller"] == 1
+    waiting = (await client.get("/orders", params={"status": "awaiting_seller"}, headers=_auth(buyer))).json()
+    assert [o["id"] for o in waiting["items"]] == [manual["id"]]
     deadlines = sorted(o["escrow_expires_at"] for o in (delivered, second))
     assert datetime.fromisoformat(stats["confirm_deadline"]) == datetime.fromisoformat(deadlines[0])
+    soonest = min((delivered, second), key=lambda o: (o["escrow_expires_at"], o["id"]))
+    assert stats["confirm_order_code"] == soonest["order_code"]
 
     await client.post(f"/orders/{delivered['id']}/confirm", headers=_auth(buyer))
     done = (await client.get(f"/orders/{delivered['id']}", headers=_auth(buyer))).json()

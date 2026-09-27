@@ -910,13 +910,18 @@ async def buyer_order_stats(buyer_id: int, db: AsyncSession) -> dict:
             func.count(Order.id).label("total"),
             func.count(Order.id).filter(_buyer_tab_filter("active")).label("active"),
             func.count(Order.id).filter(awaiting).label("awaiting_confirm"),
-            func.count(Order.id).filter(Order.status.in_((OrderStatus.pending, OrderStatus.processing))).label("awaiting_seller"),
+            func.count(Order.id).filter(_buyer_tab_filter("awaiting_seller")).label("awaiting_seller"),
             func.count(Order.id).filter(_buyer_tab_filter("disputed")).label("disputed"),
             func.count(Order.id).filter(_buyer_tab_filter("deleted")).label("cancelled_or_refunded"),
             func.coalesce(func.sum(Order.total_amount - Order.refunded_amount).filter(settled), 0).label("total_spend"),
             func.min(Order.escrow_expires_at).filter(awaiting).label("confirm_deadline"),
         ).where(Order.buyer_id == buyer_id)
     )).one()
+    # The order behind that deadline, for "ORD-… — N hours left to check".
+    soonest = await db.scalar(
+        select(Order.order_code).where(Order.buyer_id == buyer_id, awaiting)
+        .order_by(Order.escrow_expires_at.asc().nulls_last(), Order.id.asc()).limit(1)
+    ) if row.awaiting_confirm else None
     return {
         "total": row.total,
         "active": row.active,
@@ -926,10 +931,11 @@ async def buyer_order_stats(buyer_id: int, db: AsyncSession) -> dict:
         "cancelled_or_refunded": row.cancelled_or_refunded,
         "total_spend": int(row.total_spend),
         "confirm_deadline": row.confirm_deadline,
+        "confirm_order_code": soonest,
     }
 
 
-BUYER_ORDER_TABS = ("active", "awaiting_confirm", "disputed", "deleted")
+BUYER_ORDER_TABS = ("active", "awaiting_seller", "awaiting_confirm", "disputed", "deleted")
 
 
 def _buyer_tab_filter(tab: str | None):
@@ -939,6 +945,9 @@ def _buyer_tab_filter(tab: str | None):
     open_disputed = or_(Order.status == OrderStatus.disputed, Order.id.in_(_open_dispute_order_ids()))
     if tab == "active":
         return Order.status.in_((OrderStatus.pending, OrderStatus.processing, OrderStatus.delivered))
+    if tab == "awaiting_seller":
+        # Paid, the shop has not delivered yet — disjoint from awaiting_confirm.
+        return Order.status.in_((OrderStatus.pending, OrderStatus.processing))
     if tab == "awaiting_confirm":
         return (Order.status == OrderStatus.delivered) & ~Order.id.in_(_open_dispute_order_ids())
     if tab == "disputed":

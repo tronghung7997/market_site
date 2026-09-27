@@ -30,6 +30,17 @@ class SellerResponseTime(BaseModel):
     sample: int
 
 
+class SellerCategoryRef(BaseModel):
+    name: str
+    slug: str | None = None
+
+
+class TopSeller(SellerSummary):
+    """Home-page shop card: the summary plus reply speed and main category."""
+    response_time: SellerResponseTime | None = None
+    main_category: SellerCategoryRef | None = None
+
+
 class SellerProfile(SellerSummary):
     bio: str | None = None
     member_since: datetime | None = None

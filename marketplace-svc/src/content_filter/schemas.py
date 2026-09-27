@@ -32,3 +32,8 @@ class ContentFilterTestResponse(BaseModel):
     blocked: bool
     text: str
     matches: list[str]
+
+
+class ContentCheckResponse(BaseModel):
+    # "phone", "link", or a restricted keyword the text spells.
+    matches: list[str]

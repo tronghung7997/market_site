@@ -25,7 +25,7 @@ async def list_products(
     seller: str | None = Query(None, min_length=1, max_length=200, description="Lọc theo nhà bán: {handle}-{key} hoặc key"),
     search: str | None = Query(None, min_length=1, max_length=100),
     in_stock: bool = Query(False),
-    fulfillment: Literal["instant"] | None = Query(None),
+    fulfillment: Literal["instant", "sla", "api", "task", "proxy"] | None = Query(None),
     min_price: int | None = Query(None, ge=0),
     max_price: int | None = Query(None, ge=0),
     min_rating: int | None = Query(None, ge=1, le=5, description="Điểm trung bình tối thiểu; bỏ qua sản phẩm chưa có đánh giá"),

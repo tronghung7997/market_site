@@ -53,11 +53,15 @@ async def test_order_lifecycle_notifies_buyer_and_seller(client):
     assert [n["kind"] for n in shop["items"]] == ["order_new"]
     assert shop["items"][0]["href"] == f"/seller/orders/{code}"
 
+    # Delivered from stock: the seller only needs to know it sold.
+    assert shop["items"][0]["params"] == {"order_code": code, "auto": True}
+
     await client.post(f"/orders/{order['id']}/confirm", headers=_auth(buyer))
     shop = await _feed(client, seller)
     assert [n["kind"] for n in shop["items"]] == ["order_completed", "order_new"]
-    # Confirming tells the buyer nothing new.
-    assert (await _feed(client, buyer))["unread"] == 1
+    # Confirming tells the buyer nothing new and settles "delivered — check it".
+    mine = await _feed(client, buyer)
+    assert mine["unread"] == 0 and [n["read"] for n in mine["items"]] == [True]
 
 
 @pytest.mark.asyncio

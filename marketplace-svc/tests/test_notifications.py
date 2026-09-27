@@ -279,3 +279,42 @@ async def test_buyer_can_dismiss_own_alert_but_not_sellers(client):
     assert ok.status_code == 200
     after = await client.get("/orders/action-items", headers={"Authorization": f"Bearer {buyer_token}"})
     assert not any(item.get("alert_id") == buyer_alert_id for item in after.json())
+
+
+@pytest.mark.asyncio
+async def test_buyer_action_items_never_count_an_order_twice(client):
+    from datetime import datetime, timedelta, timezone
+    from sqlalchemy import update
+    from src.models.order import Order
+
+    buyer_token, _, _, instant_vid, _ = await setup_buyable_product(client)
+    for _ in range(2):
+        await client.post("/orders", json={"variant_id": instant_vid, "quantity": 1},
+                          headers={"Authorization": f"Bearer {buyer_token}"})
+    async with SessionLocal() as db:
+        first = (await db.execute(Order.__table__.select().order_by(Order.id).limit(1))).first()
+        await db.execute(update(Order).where(Order.id == first.id)
+                         .values(escrow_expires_at=datetime.now(timezone.utc) + timedelta(hours=3)))
+        await db.commit()
+    items = {i["key"]: i["count"] for i in (await client.get(
+        "/orders/action-items", headers={"Authorization": f"Bearer {buyer_token}"})).json()}
+    assert items["buyer_escrow_expiring"] == 1 and items["buyer_delivered_unconfirmed"] == 1
+
+
+@pytest.mark.asyncio
+async def test_seller_action_items_list_unanswered_written_reviews(client):
+    buyer_token, seller_token, _, instant_vid, _ = await setup_buyable_product(client)
+    buyer = {"Authorization": f"Bearer {buyer_token}"}
+    seller = {"Authorization": f"Bearer {seller_token}"}
+    order = (await client.post("/orders", json={"variant_id": instant_vid, "quantity": 1}, headers=buyer)).json()
+    await client.post(f"/orders/{order['id']}/confirm", headers=buyer)
+    review = await client.post(f"/orders/{order['order_code']}/review", json={"rating": 4, "comment": "Ổn"}, headers=buyer)
+    assert review.status_code == 201, review.text
+
+    items = {i["key"]: i for i in (await client.get("/seller/action-items", headers=seller)).json()}
+    assert items["seller_unreplied_reviews"]["count"] == 1
+    assert items["seller_unreplied_reviews"]["href"].endswith("?tab=reviews")
+
+    await client.put(f"/seller/reviews/{review.json()['id']}/reply", json={"body": "Cảm ơn bạn"}, headers=seller)
+    keys = [i["key"] for i in (await client.get("/seller/action-items", headers=seller)).json()]
+    assert "seller_unreplied_reviews" not in keys

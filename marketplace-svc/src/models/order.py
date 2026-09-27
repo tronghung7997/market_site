@@ -226,3 +226,28 @@ def _stamp_on_insert(mapper, connection, target: Order) -> None:  # noqa: ANN001
 @event.listens_for(Order, "before_update")
 def _stamp_on_update(mapper, connection, target: Order) -> None:  # noqa: ANN001
     _stamp_status_times(target, inserting=False)
+    _count_completed_sale(connection, target)
+
+
+# A real order that completes is a sale: the product's "sold" figure (cards,
+# shop page, best-seller sort) counts the accounts/keys of a stock order, and
+# one per order for a configured service (API credits, proxy, task), whose
+# quantity is a request count rather than items. Seeded orders stay out.
+_SOLD_BY_PRODUCT = text("UPDATE products SET sold_count = COALESCE(sold_count, 0) + :qty WHERE id = :product_id")
+_SOLD_BY_VARIANT = text(
+    "UPDATE products SET sold_count = COALESCE(sold_count, 0) + :qty "
+    "WHERE id = (SELECT product_id FROM product_variants WHERE id = :variant_id)"
+)
+
+
+def _count_completed_sale(connection, order: Order) -> None:  # noqa: ANN001
+    history = inspect(order).attrs.status.history
+    if not history.has_changes() or order.is_seeded:
+        return
+    status = order.status.value if hasattr(order.status, "value") else order.status
+    if status != OrderStatus.completed.value:
+        return
+    if order.variant_id is not None:
+        connection.execute(_SOLD_BY_VARIANT, {"qty": max(1, int(order.quantity or 1)), "variant_id": order.variant_id})
+    elif order.product_id is not None:
+        connection.execute(_SOLD_BY_PRODUCT, {"qty": 1, "product_id": order.product_id})

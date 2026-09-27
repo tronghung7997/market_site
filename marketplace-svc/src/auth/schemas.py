@@ -75,6 +75,9 @@ class RefreshRequest(BaseModel):
 
 class AccountResponse(BaseModel):
     id: int
+    # The account's own public key: the storefront compares it with a
+    # product's ``seller_key`` to recognise the owner's listing.
+    public_key: str | None = None
     email: str
     roles: list[str]
     seller_tier: str

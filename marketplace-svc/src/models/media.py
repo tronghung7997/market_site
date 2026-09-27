@@ -29,11 +29,13 @@ class MediaPurpose(str, PyEnum):
     adjustment_proof = "adjustment_proof"
     # Icon of a seller tier (admin), shown next to seller names.
     tier_badge = "tier_badge"
+    # Cover image of a blog post (admin).
+    post_cover = "post_cover"
 
 
 PUBLIC_PURPOSES = frozenset({
     MediaPurpose.product_image, MediaPurpose.category_image, MediaPurpose.seller_logo,
-    MediaPurpose.seller_banner, MediaPurpose.avatar, MediaPurpose.tier_badge,
+    MediaPurpose.seller_banner, MediaPurpose.avatar, MediaPurpose.tier_badge, MediaPurpose.post_cover,
 })
 
 

@@ -669,6 +669,17 @@ async def update_seller_tier(
             "new_tier": tier,
         },
     )
+    if old_tier != tier:
+        from src.alerts.service import add_alert
+        from src.sellers.tiers import TIER_ORDER
+
+        up = TIER_ORDER.index(tier) > TIER_ORDER.index(old_tier) if old_tier in TIER_ORDER else True
+        await add_alert(
+            db, type_="seller_tier_changed", severity="info" if up else "warning",
+            target_type="seller", target_id=account_id,
+            message="Gian hàng của bạn đã được nâng hạng." if up else "Hạng gian hàng của bạn đã thay đổi.",
+            href="/seller/tier",
+        )
     await db.commit()
     await db.refresh(account)
     return account

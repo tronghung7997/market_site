@@ -1,6 +1,7 @@
 from datetime import datetime
+from typing import Literal
 
-from pydantic import BaseModel, Field
+from pydantic import BaseModel, Field, field_validator
 
 from src.media.schemas import MediaId
 
@@ -9,6 +10,14 @@ class SellerApplyRequest(BaseModel):
     business_name: str = Field(min_length=1, max_length=255)
     description: str | None = Field(default=None, max_length=1000)
     contact: str | None = Field(default=None, max_length=255)
+    # Onboarding answers (all optional; older clients send none of them).
+    seller_type: Literal["individual", "business"] | None = None
+    category_ids: list[int] | None = Field(default=None, max_length=12)
+    experience: Literal["none", "under_1y", "1_3y", "over_3y"] | None = None
+    phone: str | None = Field(default=None, max_length=32, pattern=r"^\+?[0-9 .()-]{6,32}$")
+    warranty_policy: str | None = Field(default=None, max_length=1000)
+    referral_source: Literal["search", "social", "friend", "community", "ads", "other"] | None = None
+    accept_rules: bool = False
 
 
 class SellerApplicationResponse(BaseModel):
@@ -17,8 +26,18 @@ class SellerApplicationResponse(BaseModel):
     business_name: str
     description: str | None
     contact: str | None
+    seller_type: str | None = None
+    category_ids: list[int] | None = None
+    experience: str | None = None
+    phone: str | None = None
+    warranty_policy: str | None = None
+    referral_source: str | None = None
+    rules_accepted_at: datetime | None = None
     status: str
     reject_reason: str | None
+    info_request: str | None = None
+    info_requested_at: datetime | None = None
+    info_responded_at: datetime | None = None
     created_at: datetime
 
     model_config = {"from_attributes": True}
@@ -50,6 +69,19 @@ class SellerProfileUpdate(BaseModel):
 
 class RejectRequest(BaseModel):
     reason: str = Field(min_length=1, max_length=500)
+
+
+class InfoRequest(BaseModel):
+    """What the applicant must add; shown to them and mailed."""
+    note: str = Field(min_length=1, max_length=1000)
+
+    @field_validator("note")
+    @classmethod
+    def trimmed(cls, value: str) -> str:
+        value = value.strip()
+        if not value:
+            raise ValueError("Ghi chú không được để trống")
+        return value
 
 
 # ---------------------------------------------------------------------------
@@ -180,3 +212,26 @@ class SellerRuntimeConfigUpdate(BaseModel):
     review_window_days: int | None = Field(default=None, ge=1, le=365)
     auto_review_days: int | None = Field(default=None, ge=1, le=90)
     auto_review_enabled: bool | None = None
+
+
+class EscrowBucket(BaseModel):
+    """Orders and money in one slice of the escrow schedule. ``gross`` is what
+    is still held (total minus refunds); ``fee``/``net`` are the estimate at
+    today's fee rules."""
+    order_count: int
+    gross: int
+    fee: int
+    net: int
+
+
+class EscrowScheduleDay(EscrowBucket):
+    date: str  # local calendar day (YYYY-MM-DD) in the requested tz
+
+
+class EscrowScheduleResponse(BaseModel):
+    tz: str
+    days: list[EscrowScheduleDay]
+    in_escrow: EscrowBucket
+    held_by_dispute: EscrowBucket
+    awaiting_delivery: EscrowBucket
+    no_deadline: EscrowBucket

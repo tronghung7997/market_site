@@ -1,3 +1,5 @@
+from typing import Literal
+
 from pydantic import BaseModel, Field, field_validator
 
 from src.media.schemas import MediaId
@@ -30,6 +32,31 @@ class CategoryCreate(BaseModel):
         return _normalize_icon(value)
 
 
+class CategoryFaqItem(BaseModel):
+    q: str = Field(min_length=1, max_length=200)
+    a: str = Field(min_length=1, max_length=1000)
+
+
+class CategoryContentLocale(BaseModel):
+    """Buyer-facing copy of a category page in one language. Every field is
+    optional; an empty value clears it (the page then falls back to the other
+    language, then shows nothing)."""
+    description: str | None = Field(default=None, max_length=300)
+    # Markdown, rendered with raw HTML disabled.
+    guide: str | None = Field(default=None, max_length=8000)
+    faq: list[CategoryFaqItem] | None = Field(default=None, max_length=12)
+
+
+class CategoryContentAdmin(BaseModel):
+    vi: CategoryContentLocale
+    en: CategoryContentLocale
+
+
+class CategoryContentPublic(CategoryContentLocale):
+    slug: str
+    locale: str
+
+
 class CategoryUpdate(BaseModel):
     name: str | None = Field(default=None, min_length=1, max_length=100)
     # English storefront name (i18n.en.name); "" clears it so EN falls back to legacy.
@@ -43,6 +70,9 @@ class CategoryUpdate(BaseModel):
     sort_order: int | None = Field(default=None, ge=-1000, le=10000)
     is_active: bool | None = None
     commission_rate: float | None = Field(default=None, ge=0, le=100)
+    # Page copy per language; a locale that is present replaces that
+    # language's description / guide / FAQ as a whole.
+    content: dict[Literal["vi", "en"], CategoryContentLocale] | None = None
 
     @field_validator("icon", mode="before")
     @classmethod

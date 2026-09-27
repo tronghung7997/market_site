@@ -2,6 +2,7 @@ import uuid
 
 from fastapi import status
 from sqlalchemy import and_, case, func, or_, select
+from sqlalchemy.exc import IntegrityError
 from sqlalchemy.ext.asyncio import AsyncSession
 from sqlalchemy.orm import aliased
 
@@ -37,6 +38,9 @@ from src.products.covers import parse_cover_id
 
 MARKETPLACE_LABEL = "Marketplace"
 MARKETPLACE_COUNTERPART_KEY = "marketplace"
+# Threads with the Marketplace desk: admins may join them, and they are exempt
+# from the off-platform contact filter.
+DESK_KINDS = (ConversationKind.SUPPORT, ConversationKind.HELPDESK)
 
 
 def _has_role(account: Account, role: str) -> bool:
@@ -61,7 +65,7 @@ async def _participant_for_account(
     conversation = await db.get(ChatConversation, conversation_id)
     if (
         conversation is None
-        or conversation.kind != ConversationKind.SUPPORT
+        or conversation.kind not in DESK_KINDS
         or not _has_role(account, "admin")
     ):
         raise api_error(ErrorCode.CHAT_CONVERSATION_NOT_FOUND, status.HTTP_404_NOT_FOUND)
@@ -86,7 +90,7 @@ async def _summary(
 ) -> ConversationSummary:
     product = await db.get(Product, conversation.product_id) if conversation.product_id else None
     counterpart_id: int | None
-    if conversation.kind == ConversationKind.SUPPORT:
+    if conversation.kind in DESK_KINDS:
         if participant.context_role == ContextRole.ADMIN:
             counterpart_id = conversation.requester_id or 0
             counterpart_role = conversation.requester_role or ContextRole.BUYER
@@ -103,7 +107,7 @@ async def _summary(
     counterpart_account = await db.get(Account, counterpart_id) if counterpart_id else None
     # Public key on the wire; the sequential id never leaves the server.
     counterpart_key = counterpart_account.public_key if counterpart_account else MARKETPLACE_COUNTERPART_KEY
-    if conversation.kind == ConversationKind.SUPPORT:
+    if conversation.kind in DESK_KINDS:
         if participant.context_role == ContextRole.ADMIN:
             counterpart_label = (
                 counterpart_account.email.split("@", 1)[0]
@@ -414,7 +418,7 @@ async def list_conversations(
     last_message = aliased(ChatMessage)
     counterpart = aliased(Account)
     counterpart_id = case(
-        (ChatConversation.kind == ConversationKind.SUPPORT, ChatConversation.requester_id),
+        (ChatConversation.kind.in_(DESK_KINDS), ChatConversation.requester_id),
         (ChatParticipant.context_role == ContextRole.BUYER, ChatConversation.seller_id),
         else_=ChatConversation.buyer_id,
     )
@@ -472,11 +476,11 @@ async def list_conversations(
         order_status = str(order.status.value if order and hasattr(order.status, "value") else order.status or "") if order else None
         terminal = room.kind != ConversationKind.SUPPORT and order_status in {"cancelled", "refunded"}
         effective_status = ConversationStatus.READ_ONLY if terminal else room.status
-        if room.kind == ConversationKind.SUPPORT and member.context_role != ContextRole.ADMIN:
+        if room.kind in DESK_KINDS and member.context_role != ContextRole.ADMIN:
             cp_key, cp_role, cp_label = MARKETPLACE_COUNTERPART_KEY, ContextRole.ADMIN, MARKETPLACE_LABEL
         else:
             cp_key = cp_key or MARKETPLACE_COUNTERPART_KEY
-            cp_role = room.requester_role if room.kind == ConversationKind.SUPPORT else (ContextRole.SELLER if member.context_role == ContextRole.BUYER else ContextRole.BUYER)
+            cp_role = room.requester_role if room.kind in DESK_KINDS else (ContextRole.SELLER if member.context_role == ContextRole.BUYER else ContextRole.BUYER)
             if cp_role == ContextRole.BUYER and room.kind != ConversationKind.SUPPORT:
                 cp_label = f"Khách hàng #{cp_key}"
             else:
@@ -584,9 +588,9 @@ async def send_message(
             conversation.status = ConversationStatus.READ_ONLY
             await db.commit()
             raise api_error(ErrorCode.CHAT_READ_ONLY, status.HTTP_409_CONFLICT)
-    # Buyer ↔ seller text must stay on the marketplace; talking to Marketplace
-    # support (or as admin) is exempt.
-    if body and conversation.kind != ConversationKind.SUPPORT and participant.context_role != ContextRole.ADMIN:
+    # Buyer ↔ seller text must stay on the marketplace; talking to the
+    # Marketplace desk (or as admin) is exempt.
+    if body and conversation.kind not in DESK_KINDS and participant.context_role != ContextRole.ADMIN:
         body = await screen_text(
             db, body, actor_id=account.id, context="chat_message", subject_id=str(conversation_id),
         )
@@ -623,7 +627,7 @@ async def send_message(
     participant.last_read_message_id = max(participant.last_read_message_id or 0, message.id)
     await db.commit()
     await db.refresh(message)
-    if conversation.kind == ConversationKind.SUPPORT:
+    if conversation.kind in DESK_KINDS:
         recipients = list(
             (
                 await db.execute(
@@ -635,6 +639,10 @@ async def send_message(
         )
         if conversation.requester_id:
             recipients.append(conversation.requester_id)
+        # A new question to the desk reaches every admin, not only those who
+        # already opened the thread.
+        if conversation.kind == ConversationKind.HELPDESK and participant.context_role != ContextRole.ADMIN:
+            recipients.extend(await _active_admin_ids(db))
     else:
         recipients = [value for value in (conversation.buyer_id, conversation.seller_id) if value]
     await publish(
@@ -729,6 +737,19 @@ async def ensure_support_conversation(
     return conversation.id, True
 
 
+async def _active_admin_ids(db: AsyncSession) -> list[int]:
+    return list(
+        (
+            await db.execute(
+                select(Account.id).where(
+                    Account.is_active.is_(True),
+                    Account.roles.any("admin"),
+                )
+            )
+        ).scalars()
+    )
+
+
 async def notify_support_opened(
     account_id: int,
     conversation_id: uuid.UUID,
@@ -736,16 +757,7 @@ async def notify_support_opened(
     db: AsyncSession,
 ) -> None:
     if created:
-        admin_ids = list(
-            (
-                await db.execute(
-                    select(Account.id).where(
-                        Account.is_active.is_(True),
-                        Account.roles.any("admin"),
-                    )
-                )
-            ).scalars()
-        )
+        admin_ids = await _active_admin_ids(db)
         await publish(
             [account_id, *admin_ids],
             {"type": "conversation.created", "conversation_id": str(conversation_id)},
@@ -820,9 +832,21 @@ async def _append_support_message(
 
 
 async def list_support_conversations(account: Account, db: AsyncSession) -> ConversationList:
+    """The admin desk inbox: dispute-review threads and helpdesk threads."""
     if not _has_role(account, "admin"):
         raise api_error(ErrorCode.ADMIN_ONLY, status.HTTP_403_FORBIDDEN)
     last_message = aliased(ChatMessage)
+    shop_name = (
+        select(SellerApplication.business_name)
+        .where(
+            SellerApplication.account_id == ChatConversation.requester_id,
+            SellerApplication.status == ApplicationStatus.approved,
+        )
+        .order_by(SellerApplication.id.desc())
+        .limit(1)
+        .correlate(ChatConversation)
+        .scalar_subquery()
+    )
     latest_dispute_id = (
         select(Dispute.id)
         .where(Dispute.order_id == ChatConversation.order_id)
@@ -889,6 +913,7 @@ async def list_support_conversations(account: Account, db: AsyncSession) -> Conv
                 replaced_count.label("replaced_count"),
                 refunded_count.label("refunded_count"),
                 refunded_amount.label("refunded_amount"),
+                shop_name.label("shop_name"),
             )
             .outerjoin(
                 ChatParticipant,
@@ -902,7 +927,7 @@ async def list_support_conversations(account: Account, db: AsyncSession) -> Conv
             .outerjoin(last_message, last_message.id == ChatConversation.last_message_id)
             .outerjoin(Order, Order.id == ChatConversation.order_id)
             .outerjoin(Dispute, Dispute.id == latest_dispute_id)
-            .where(ChatConversation.kind == ConversationKind.SUPPORT)
+            .where(ChatConversation.kind.in_(DESK_KINDS))
             .order_by(
                 ChatConversation.last_message_at.desc().nulls_last(),
                 ChatConversation.id.desc(),
@@ -924,6 +949,7 @@ async def list_support_conversations(account: Account, db: AsyncSession) -> Conv
         replacements,
         refunds,
         refund_total,
+        requester_shop,
     ) in rows:
         dispute_ctx = None
         if dispute:
@@ -974,9 +1000,9 @@ async def list_support_conversations(account: Account, db: AsyncSession) -> Conv
                 counterpart=SafeCounterpart(
                     id=requester_key or MARKETPLACE_COUNTERPART_KEY,
                     label=(
-                        requester_email.split("@", 1)[0]
-                        if requester_email
-                        else f"#{requester_key or MARKETPLACE_COUNTERPART_KEY}"
+                        (requester_shop if room.kind == ConversationKind.HELPDESK else None)
+                        or (requester_email.split("@", 1)[0] if requester_email else None)
+                        or f"#{requester_key or MARKETPLACE_COUNTERPART_KEY}"
                     ),
                     role=room.requester_role or ContextRole.BUYER,
                 ),
@@ -992,3 +1018,124 @@ async def list_support_conversations(account: Account, db: AsyncSession) -> Conv
             )
         )
     return ConversationList(items=items)
+
+
+async def get_helpdesk_conversation(account: Account, db: AsyncSession) -> ConversationDetail | None:
+    """The account's standing thread with the Marketplace desk, or None before
+    the first message. Opening it marks it read."""
+    conversation = await db.scalar(
+        select(ChatConversation).where(
+            ChatConversation.kind == ConversationKind.HELPDESK,
+            ChatConversation.requester_id == account.id,
+        )
+    )
+    if conversation is None:
+        return None
+    member = await _participant(db, conversation.id, account.id)
+    if member.archived_at is not None:
+        member.archived_at = None
+        await db.commit()
+    return await _detail(db, conversation, member, mark_read=True)
+
+
+async def _ensure_helpdesk_conversation(account: Account, db: AsyncSession) -> tuple[ChatConversation, bool]:
+    existing = await db.scalar(
+        select(ChatConversation).where(
+            ChatConversation.kind == ConversationKind.HELPDESK,
+            ChatConversation.requester_id == account.id,
+        )
+    )
+    if existing:
+        return existing, False
+    role = ContextRole.SELLER if _has_role(account, "seller") else ContextRole.BUYER
+    conversation = ChatConversation(
+        kind=ConversationKind.HELPDESK,
+        status=ConversationStatus.OPEN,
+        requester_id=account.id,
+        requester_role=role,
+        subject="Marketplace chat",
+        created_by_id=account.id,
+    )
+    try:
+        async with db.begin_nested():
+            db.add(conversation)
+            await db.flush()
+            db.add(ChatParticipant(conversation_id=conversation.id, account_id=account.id, context_role=role))
+            await db.flush()
+    except IntegrityError:
+        # A concurrent first message created it (uq_chat_helpdesk_requester).
+        existing = await db.scalar(
+            select(ChatConversation).where(
+                ChatConversation.kind == ConversationKind.HELPDESK,
+                ChatConversation.requester_id == account.id,
+            )
+        )
+        return existing, False
+    await db.commit()
+    return conversation, True
+
+
+async def post_helpdesk_message(
+    account: Account,
+    body: str,
+    client_message_id: uuid.UUID,
+    db: AsyncSession,
+    attachment_ids: list[str] | None = None,
+) -> tuple[ConversationDetail, bool]:
+    """Send to the Marketplace desk, creating the account's thread on the first
+    message. Admins answer the desk; they cannot open a thread with it."""
+    if _has_role(account, "admin"):
+        raise api_error(ErrorCode.CHAT_HELPDESK_UNAVAILABLE, status.HTTP_403_FORBIDDEN)
+    conversation, created = await _ensure_helpdesk_conversation(account, db)
+    member = await _participant(db, conversation.id, account.id)
+    if member.archived_at is not None:
+        member.archived_at = None
+        await db.commit()
+    await send_message(account, conversation.id, body, client_message_id, db, attachment_ids=attachment_ids)
+    await notify_support_opened(account.id, conversation.id, created, db)
+    await db.refresh(conversation)
+    member = await _participant(db, conversation.id, account.id)
+    return await _detail(db, conversation, member), created
+
+
+async def helpdesk_waiting_count(db: AsyncSession) -> int:
+    """Helpdesk threads whose newest message is the customer's: the desk owes a reply."""
+    last = aliased(ChatMessage)
+    count = await db.scalar(
+        select(func.count(ChatConversation.id))
+        .join(last, last.id == ChatConversation.last_message_id)
+        .where(ChatConversation.kind == ConversationKind.HELPDESK, last.sender_role != ContextRole.ADMIN)
+    )
+    return int(count or 0)
+
+
+async def seller_reply_threads(seller_id: int, since, db: AsyncSession) -> list[tuple]:
+    """(first buyer message, first seller reply after it) for each product
+    inquiry or order chat of this seller whose buyer wrote first since ``since``."""
+    first_ask = (
+        select(func.min(ChatMessage.created_at))
+        .where(ChatMessage.conversation_id == ChatConversation.id, ChatMessage.sender_id == ChatConversation.buyer_id)
+        .correlate(ChatConversation)
+        .scalar_subquery()
+    )
+    first_seller = (
+        select(func.min(ChatMessage.created_at))
+        .where(ChatMessage.conversation_id == ChatConversation.id, ChatMessage.sender_id == ChatConversation.seller_id)
+        .correlate(ChatConversation)
+        .scalar_subquery()
+    )
+    rows = (await db.execute(
+        select(first_ask.label("asked"), first_seller.label("seller_first"))
+        .where(
+            ChatConversation.seller_id == seller_id,
+            ChatConversation.kind.in_((ConversationKind.PRODUCT_INQUIRY, ConversationKind.ORDER)),
+            ChatConversation.last_message_at >= since,
+        )
+    )).all()
+    threads = []
+    for asked, seller_first in rows:
+        # Seller-initiated chats (or the seller spoke before the buyer) say nothing about reply speed.
+        if asked is None or (seller_first is not None and seller_first <= asked):
+            continue
+        threads.append((asked, seller_first))
+    return threads

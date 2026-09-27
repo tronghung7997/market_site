@@ -40,6 +40,30 @@ class PublicReviewList(BaseModel):
     summary: ReviewSummary
 
 
+class ProductReviewRef(BaseModel):
+    """Which product a cross-product review is about. ``product_path`` is null
+    once the product leaves the storefront (its page would be a 404)."""
+    product_title: str
+    product_path: str | None = None
+
+
+class ShowcaseReview(ReviewResponse, ProductReviewRef):
+    """Row of the storefront "latest reviews" strip."""
+
+
+class SellerPublicReview(ReviewResponse, ProductReviewRef):
+    """Public review on a seller page: every product of that shop."""
+
+
+class SellerPublicReviewList(BaseModel):
+    items: list[SellerPublicReview]
+    total: int
+    page: int
+    per_page: int
+    rating: int | None = None
+    summary: ReviewSummary
+
+
 class SellerReviewReply(BaseModel):
     body: str = Field(..., min_length=1, max_length=2000)
 

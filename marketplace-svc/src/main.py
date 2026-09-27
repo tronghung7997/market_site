@@ -32,6 +32,7 @@ from src.search.router import router as search_router
 from src.search.service import flush_query_log
 from src.scheduler_leader import run_scheduler_leader
 from src.site_pages.router import router as site_pages_router
+from src.storefront.router import router as storefront_router
 from src.media.router import router as media_router
 from src.trust_seed.router import router as trust_seed_router
 from src.pricing.router import router as pricing_router
@@ -43,6 +44,8 @@ from src.resources.router import router as resources_router
 from src.resources.proxy_router import router as proxy_router
 from src.proxies.router import router as proxies_router
 from src.reviews.router import router as reviews_router
+from src.questions.router import router as questions_router
+from src.posts.router import router as posts_router
 from src.payments.router import router as payments_router
 from src.mail.router import router as mail_router
 from src.mail.worker import mail_outbox_send_job
@@ -84,6 +87,7 @@ from src.site_status.router import router as site_status_router
 from src.ledger.router import router as ledger_router
 from src.fees.router import router as fees_router
 from src.sellers.tier_router import router as seller_tier_router
+from src.sellers.trust_router import router as seller_trust_router
 
 # offline
 from fastapi.openapi.docs import (
@@ -243,6 +247,7 @@ app.include_router(site_status_router)
 app.include_router(ledger_router)
 app.include_router(fees_router)
 app.include_router(seller_tier_router)
+app.include_router(seller_trust_router)
 app.include_router(content_filter_router)
 app.include_router(seller_router)
 app.include_router(sellers_router)
@@ -264,6 +269,8 @@ app.include_router(pricing_router)
 app.include_router(tasks_router)
 app.include_router(alerts_router)
 app.include_router(reviews_router)
+app.include_router(questions_router)
+app.include_router(posts_router)
 app.include_router(audit_router)
 app.include_router(affiliate_router)
 if settings.debug_routes_enabled:
@@ -274,6 +281,7 @@ app.include_router(proxy_router)
 app.include_router(proxies_router)
 app.include_router(ops_router)
 app.include_router(site_pages_router)
+app.include_router(storefront_router)
 app.include_router(media_router)
 app.include_router(search_router)
 app.include_router(ai_router)

@@ -1,8 +1,9 @@
-from fastapi import APIRouter, Depends, Query, status
+from fastapi import APIRouter, Depends, HTTPException, Query, status
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from src.auth.dependencies import get_current_account, require_role
 from src.database import get_session
+from src.i18n.deps import get_request_locale
 from src.models.account import Account
 
 from . import schemas, service
@@ -30,6 +31,33 @@ async def product_reviews(
     db: AsyncSession = Depends(get_session),
 ):
     return await service.get_product_reviews(product_id, db, page=page, per_page=per_page, rating=rating)
+
+
+@router.get("/reviews/latest", response_model=list[schemas.ShowcaseReview])
+async def latest_reviews(
+    limit: int = Query(service.LATEST_REVIEW_LIMIT, ge=1, le=service.LATEST_REVIEW_MAX),
+    locale: str = Depends(get_request_locale),
+    db: AsyncSession = Depends(get_session),
+):
+    return await service.get_latest_reviews(db, limit=limit, locale=locale)
+
+
+@router.get("/sellers/{seller_ref}/reviews", response_model=schemas.SellerPublicReviewList)
+async def seller_public_reviews(
+    seller_ref: str,
+    page: int = Query(1, ge=1),
+    per_page: int = Query(service.PUBLIC_REVIEW_PAGE_SIZE, ge=1, le=50),
+    rating: int | None = Query(None, ge=1, le=5),
+    locale: str = Depends(get_request_locale),
+    db: AsyncSession = Depends(get_session),
+):
+    """Same ref forms and the same 404 as ``GET /sellers/{seller_ref}``."""
+    result = await service.get_seller_public_reviews(
+        seller_ref, db, page=page, per_page=per_page, rating=rating, locale=locale,
+    )
+    if result is None:
+        raise HTTPException(status_code=404, detail="Không tìm thấy nhà bán")
+    return result
 
 
 # --- seller ---------------------------------------------------------------------

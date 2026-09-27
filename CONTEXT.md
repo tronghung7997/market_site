@@ -15,10 +15,11 @@ A prototype under `frontend/app/[locale]/prototype/chat/` is visual exploration,
 
 ## Implemented vocabulary
 
-- **Conversation (hội thoại):** Transcript scoped to a marketplace context. Implemented kinds are product inquiry, order conversation, and Marketplace support (dispute review).
+- **Conversation (hội thoại):** Transcript scoped to a marketplace context. Implemented kinds are product inquiry, order conversation, Marketplace support (dispute review), and helpdesk.
 - **Product inquiry (trao đổi trước mua):** Conversation opened by a buyer against one active product and that product's seller. It includes the buyer's initial message.
 - **Order conversation (chat đơn hàng):** Conversation shared only by the buyer and seller of one order.
 - **Marketplace support:** Conversation between a dispute party (buyer or seller) and Marketplace admins, scoped to one open dispute/order. The requester counterpart label is `Marketplace`. Buyer and seller each get their own thread; they do not share it. Admins list threads at `/admin/support`.
+- **Helpdesk (chat với GMMO):** One standing conversation between an account and the Marketplace desk, not tied to an order (`kind = 'helpdesk'`, `requester_id` set, `order_id` null). It is opened by the account's first message from the storefront "Chat với GMMO" button (`POST /chat/helpdesk/messages`) and reused forever after; it has no topic, assignment or resolved state. The requester's context role is `seller` if the account sold at creation time, otherwise `buyer`. The counterpart the requester sees is `Marketplace`; admins see the shop name (sellers) or the email local part.
 - **Participant:** An account represented by a `ChatParticipant` row. Reading and sending require membership, except admins may open `support` conversations and are joined on first access.
 - **Context role:** The participant's role inside the conversation: `buyer` or `seller` in product/order chats, and `admin` in Marketplace support. It must come from the participant row, not be inferred from the account's global role list.
 - **Read cursor:** `last_read_message_id` for one participant. Opening the newest conversation page advances it to the latest returned message and unread counts are calculated from it. Transcript pages contain the newest 50 messages and use `before_id`/`next_cursor` keyset pagination for older messages.
@@ -38,17 +39,18 @@ A prototype under `frontend/app/[locale]/prototype/chat/` is visual exploration,
 - Reusing a client message ID with the same sender, body and attachments returns the existing message; conflicting reuse is rejected.
 - A cancelled or refunded order makes its order conversation read-only and sending is rejected. Marketplace support stays open so admin review can continue after the commercial order completes.
 - At most one Marketplace support conversation exists for `(order, requester)`; reopening reuses it. Creating it is owned by dispute escalate (`POST /orders/{id}/dispute/escalate` or seller escalate): a required note plus idempotency key pauses auto-settlement (`review_requested_at`) and does not refund escrow. `POST /chat/orders/{id}/support` only reopens an existing thread and does not pause clocks.
-- Admins list support conversations with `GET /chat/admin/support`. Non-admins receive 403. The support inbox projection is loaded in one bounded database query, polls as recovery, and active admins receive best-effort chat invalidation when a new review thread is created.
+- At most one helpdesk conversation exists per account (`uq_chat_helpdesk_requester`); concurrent first messages reuse it. `GET /chat/helpdesk` returns it (null before the first message) and marks it read, so the storefront launcher reads its unread badge from the conversation list instead. Admin accounts cannot open one (`CHAT_HELPDESK_UNAVAILABLE`). Any admin may open a helpdesk thread and is joined as `admin` on first access, as with dispute support; every customer message in it notifies all active admins' streams. `admin_helpdesk_waiting` counts helpdesk threads whose newest message is not from an admin. Helpdesk and dispute-support text, both ways, skip the off-platform contact filter.
+- Admins list support conversations with `GET /chat/admin/support`, which returns dispute-support and helpdesk threads together. Non-admins receive 403. The support inbox projection is loaded in one bounded database query, polls as recovery, and active admins receive best-effort chat invalidation when a new review thread is created.
 - The list API accepts `perspective=buyer`, `perspective=seller`, or `perspective=all`. Buyer/seller still validate against the account's global roles. `all` returns every non-archived conversation the account participates in, using each participant row's context role. The product inbox is unified at `/messages`; `/seller/messages` redirects there. Admin dispute review is a separate inbox at `/admin/support`.
 - Unread counts appear as a non-dismissible action item (`unread_messages`) pointing at `/messages`, so the notification bell can refresh from the same chat events as the inbox.
-- Chat retention runs in bounded batches. Inactive product inquiries and terminal order chats expire after 30 days; Marketplace support expires 90 days after its dispute resolves. Open disputes and each conversation's final preview message are retained. Dispute timeline/audit records are outside chat retention. Images of purged messages are detached and deleted by the media garbage collector after its grace period.
+- Chat retention runs in bounded batches. Inactive product inquiries and terminal order chats expire after 30 days; Marketplace support expires 90 days after its dispute resolves; helpdesk messages expire individually 90 days after they were sent. Open disputes and each conversation's final preview message are retained. Dispute timeline/audit records are outside chat retention. Images of purged messages are detached and deleted by the media garbage collector after its grace period.
 - The admin dispute case file includes the buyer↔seller order conversation (last 200 messages, with attachments) read-only; this is not admin participation in the conversation.
 
 ## Reserved or prototype-only concepts — not implemented
 
 The schema, frontend types, or visual prototype may mention the following, but agents must not assume product behavior exists:
 
-- creating, assigning, resolving, or closing generic support cases unrelated to an open dispute;
+- assigning, resolving, or closing helpdesk threads, topics or tickets, or more than one helpdesk thread per account;
 - admin participation in ordinary product-inquiry or order conversations;
 - conversation reports or moderation queues;
 - participant/admin block and archive controls;

@@ -1,9 +1,13 @@
+from datetime import datetime, timedelta, timezone
+
 from sqlalchemy import exists, func, select
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from src.i18n.search_text import normalize_query, search_terms
 from src.i18n.slug import canonical_path, parse_public_ref, slugify_text
 from src.media.service import public_image
+from src.runtime_config.cache import KeyedProcessCache
+from src.sellers.activity import active_band, response_band
 from src.sellers.tier_config import get_tier_rules
 from src.models.account import Account, ApplicationStatus, SellerApplication
 from src.models.order import Order, OrderStatus
@@ -195,7 +199,33 @@ async def get_seller_profile(seller_id: int, db: AsyncSession) -> dict | None:
     )
     bio = bio_result.scalar_one_or_none()
 
-    return {**summaries[0], "bio": bio, "member_since": account.created_at}
+    from src.sellers.trust import public_trust
+
+    presence = await seller_presence(seller_id, db)
+    trust = await public_trust(seller_id, db)
+    return {**summaries[0], "bio": bio, "member_since": account.created_at, **presence, **trust}
+
+
+_presence_cache: KeyedProcessCache[int, dict] = KeyedProcessCache("seller_presence", ttl_seconds=600, max_entries=4096)
+
+
+async def seller_presence(seller_id: int, db: AsyncSession) -> dict:
+    """Reply-speed band over the last 30 days and last-active band, cached per
+    process for ten minutes (public pages ask on every render)."""
+    from src.auth.sessions import last_seen_at
+    from src.chat.service import seller_reply_threads
+
+    cached = _presence_cache.get(seller_id)
+    if cached is not None:
+        return cached
+    now = datetime.now(timezone.utc)
+    threads = await seller_reply_threads(seller_id, now - timedelta(days=30), db)
+    presence = {
+        "response_time": response_band(threads, now),
+        "active_within": active_band(await last_seen_at(seller_id, db), now),
+    }
+    _presence_cache.set(seller_id, presence)
+    return presence
 
 
 async def search_sellers(db: AsyncSession, query: str, *, limit: int = 4) -> list[dict]:

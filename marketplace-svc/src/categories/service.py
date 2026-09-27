@@ -85,6 +85,7 @@ async def update_category(cat_id: int, data: dict, db: AsyncSession, *, actor_id
         await _set_image(cat, data.pop("image_id"), actor_id, db)
     name_en_provided = "name_en" in data
     name_en = data.pop("name_en", None)
+    content = data.pop("content", None)
     if "parent_id" in data:
         new_parent = data.pop("parent_id")
         if new_parent is not None:
@@ -110,9 +111,70 @@ async def update_category(cat_id: int, data: dict, db: AsyncSession, *, actor_id
     if name_en_provided:
         cleaned = (name_en or "").strip() or None
         cat.i18n = merge_i18n_locale(cat.i18n, "en", {"name": cleaned})
+    for locale, fields in (content or {}).items():
+        cat.i18n = merge_i18n_locale(cat.i18n, locale, _clean_content(fields))
     await db.commit()
     await db.refresh(cat)
     return cat
+
+
+CONTENT_FIELDS = ("description", "guide", "faq")
+CONTENT_LOCALES = ("vi", "en")
+
+
+def _clean_content(fields: dict | None) -> dict:
+    """Trimmed text; blank strings, blank FAQ rows and empty lists become None
+    so ``merge_i18n_locale`` drops the key and the fallback language shows."""
+    fields = fields or {}
+    out: dict = {}
+    for key in ("description", "guide"):
+        value = fields.get(key)
+        out[key] = (value.strip() or None) if isinstance(value, str) else None
+    faq = [
+        {"q": item["q"].strip(), "a": item["a"].strip()}
+        for item in (fields.get("faq") or [])
+        if item.get("q", "").strip() and item.get("a", "").strip()
+    ]
+    out["faq"] = faq or None
+    return out
+
+
+def _content_for(i18n: dict | None, locale: str) -> dict:
+    """One language's page copy. English falls back to Vietnamese field by
+    field (Vietnamese is the catalog's primary language, like the legacy
+    product columns); Vietnamese never falls back to English."""
+    order = [locale, "vi"] if locale == "en" else [locale]
+    out = {}
+    for field in CONTENT_FIELDS:
+        value = None
+        for loc in order:
+            bucket = (i18n or {}).get(loc)
+            if isinstance(bucket, dict) and bucket.get(field):
+                value = bucket[field]
+                break
+        out[field] = value
+    return out
+
+
+async def get_public_category_content(ref: str, db: AsyncSession, *, locale: str = DEFAULT_LOCALE) -> dict | None:
+    """Page copy of an active category by slug (or legacy numeric id)."""
+    query = select(Category).where(Category.is_active == True)  # noqa: E712
+    query = query.where(Category.id == int(ref)) if ref.isdigit() else query.where(Category.slug == ref)
+    cat = await db.scalar(query)
+    if cat is None:
+        return None
+    return {"slug": cat.slug, "locale": locale, **_content_for(cat.i18n, locale)}
+
+
+async def get_admin_category_content(cat_id: int, db: AsyncSession) -> dict:
+    """Both languages as stored (no fallback), for the admin editor."""
+    cat = await db.get(Category, cat_id)
+    if not cat:
+        raise HTTPException(status_code=404, detail="Không tìm thấy danh mục")
+    return {
+        loc: {field: ((cat.i18n or {}).get(loc) or {}).get(field) for field in CONTENT_FIELDS}
+        for loc in CONTENT_LOCALES
+    }
 
 
 async def reorder_categories(ids: list[int], db: AsyncSession) -> None:

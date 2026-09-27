@@ -46,6 +46,9 @@ from src.models.deposit_rail_config import DepositRailConfig
 from src.models.seller_runtime_config import SellerRuntimeConfig
 from src.models.site_analytics_config import SiteAnalyticsConfig
 from src.models.site_page import SitePage
+from src.models.question import ProductQuestion
+from src.models.seller_trust_config import SellerTrustConfig
+from src.models.post import Post
 from src.models.site_runtime_config import SiteRuntimeConfig
 from src.models.supplier_listing import SupplierCatalogItem, SupplierListing, SupplierPurchase
 from src.models.search import SearchQueryLog, SearchSynonym
@@ -86,4 +89,7 @@ __all__ = [
     "SupplierCatalogItem", "SupplierListing", "SupplierPurchase",
     "AiPromptTemplate", "AiProviderConfig", "AiUsageLog",
     "TrustSeedBatch",
+    "ProductQuestion",
+    "SellerTrustConfig",
+    "Post",
 ]

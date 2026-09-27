@@ -42,6 +42,8 @@ class ErrorCode(str, Enum):
     INVALID_PRODUCT_CONFIG = "INVALID_PRODUCT_CONFIG"
     DASHBOARD_RANGE_INVALID = "DASHBOARD_RANGE_INVALID"
     ORDER_QUANTITY_LIMIT = "ORDER_QUANTITY_LIMIT"
+    ORDER_QUANTITY_RANGE = "ORDER_QUANTITY_RANGE"
+    VARIANT_PER_ORDER_RANGE = "VARIANT_PER_ORDER_RANGE"
     PROXY_PRICE_BELOW_MARGIN = "PROXY_PRICE_BELOW_MARGIN"
     PROXY_PLAN_CONFLICT = "PROXY_PLAN_CONFLICT"
     PROXY_PLAN_FIXED_DURATION = "PROXY_PLAN_FIXED_DURATION"
@@ -72,6 +74,13 @@ class ErrorCode(str, Enum):
     REVIEW_WINDOW_CLOSED = "REVIEW_WINDOW_CLOSED"
     REVIEW_ALREADY_EXISTS = "REVIEW_ALREADY_EXISTS"
     REVIEW_NOT_FOUND = "REVIEW_NOT_FOUND"
+    QUESTION_NOT_FOUND = "QUESTION_NOT_FOUND"
+    QUESTION_SELF = "QUESTION_SELF"
+    QUESTION_LIMIT = "QUESTION_LIMIT"
+    QUESTION_HIDDEN_BY_ADMIN = "QUESTION_HIDDEN_BY_ADMIN"
+    POST_NOT_FOUND = "POST_NOT_FOUND"
+    POST_SLUG_TAKEN = "POST_SLUG_TAKEN"
+    POST_INCOMPLETE = "POST_INCOMPLETE"
     ORDER_NOT_PENDING = "ORDER_NOT_PENDING"
     ORDER_NOT_PROCESSING = "ORDER_NOT_PROCESSING"
     DISPUTE_NOT_FOUND = "DISPUTE_NOT_FOUND"
@@ -129,6 +138,7 @@ class ErrorCode(str, Enum):
     DISPUTE_RESOURCE_NOT_CLAIMABLE = "DISPUTE_RESOURCE_NOT_CLAIMABLE"
     CHAT_SUPPORT_REQUIRES_DISPUTE = "CHAT_SUPPORT_REQUIRES_DISPUTE"
     CHAT_SUPPORT_REQUIRES_REVIEW = "CHAT_SUPPORT_REQUIRES_REVIEW"
+    CHAT_HELPDESK_UNAVAILABLE = "CHAT_HELPDESK_UNAVAILABLE"
     CONTENT_BLOCKED = "CONTENT_BLOCKED"
     MEDIA_INVALID_IMAGE = "MEDIA_INVALID_IMAGE"
     MEDIA_PURPOSE_FORBIDDEN = "MEDIA_PURPOSE_FORBIDDEN"
@@ -178,6 +188,8 @@ MESSAGES_EN: dict[ErrorCode, str] = {
     ErrorCode.INVALID_PRODUCT_CONFIG: "The selected product configuration is invalid",
     ErrorCode.DASHBOARD_RANGE_INVALID: "The selected date range is invalid",
     ErrorCode.ORDER_QUANTITY_LIMIT: "This product supports a maximum of {max} unit per order",
+    ErrorCode.ORDER_QUANTITY_RANGE: "This package sells {min} to {max} units per order",
+    ErrorCode.VARIANT_PER_ORDER_RANGE: "The maximum per order must be at least the minimum",
     ErrorCode.PROXY_PRICE_BELOW_MARGIN: "Plan {plan}: price {price} is below the minimum {floor} (cost {cost} + {margin}% margin)",
     ErrorCode.PROXY_PLAN_CONFLICT: "Plan code {plan} already maps to another upstream plan",
     ErrorCode.PROXY_PLAN_FIXED_DURATION: "Upstream plan {plan} has a fixed duration of {days} days",
@@ -209,6 +221,13 @@ MESSAGES_EN: dict[ErrorCode, str] = {
     ErrorCode.REVIEW_WINDOW_CLOSED: "The review window for this order has closed",
     ErrorCode.REVIEW_ALREADY_EXISTS: "You have already reviewed this order",
     ErrorCode.REVIEW_NOT_FOUND: "Review not found",
+    ErrorCode.QUESTION_NOT_FOUND: "Question not found",
+    ErrorCode.QUESTION_SELF: "You cannot ask a question on your own product",
+    ErrorCode.QUESTION_LIMIT: "You have asked too many questions; wait for answers first",
+    ErrorCode.QUESTION_HIDDEN_BY_ADMIN: "An admin hid this question",
+    ErrorCode.POST_NOT_FOUND: "Post not found",
+    ErrorCode.POST_SLUG_TAKEN: "Another post already uses this address",
+    ErrorCode.POST_INCOMPLETE: "A post needs a Vietnamese title and body to be published",
     ErrorCode.ORDER_NOT_PENDING: "This order is not waiting for seller acceptance",
     ErrorCode.ORDER_NOT_PROCESSING: "This order is not awaiting delivery",
     ErrorCode.DISPUTE_NOT_FOUND: "Dispute not found",
@@ -271,6 +290,7 @@ MESSAGES_EN: dict[ErrorCode, str] = {
     ErrorCode.CHAT_SUPPORT_REQUIRES_REVIEW: (
         "Open Marketplace chat with a note so admin can pause auto-settlement"
     ),
+    ErrorCode.CHAT_HELPDESK_UNAVAILABLE: "Admin accounts answer the Marketplace chat; they cannot open one",
     ErrorCode.CONTENT_BLOCKED: (
         "Your message contains contact details or links that are not allowed. "
         "Please keep the conversation on the marketplace"

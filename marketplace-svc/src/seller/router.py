@@ -7,14 +7,17 @@ from src.auth.dependencies import get_current_account, require_role
 from src.database import get_session
 from src.models.account import Account
 
-from . import dashboard, schemas, service, settings
+from . import dashboard, escrow_schedule, schemas, service, settings
 
 router = APIRouter(tags=["seller"])
 
 
 @router.post("/seller/apply", response_model=schemas.SellerApplicationResponse, status_code=status.HTTP_201_CREATED)
 async def apply(body: schemas.SellerApplyRequest, account: Account = Depends(get_current_account), db: AsyncSession = Depends(get_session)):
-    return await service.apply_for_seller(account, body.business_name, body.description, body.contact, db)
+    return await service.apply_for_seller(
+        account, body.business_name, body.description, body.contact, db,
+        onboarding=body.model_dump(exclude={"business_name", "description", "contact"}),
+    )
 
 
 @router.get("/seller/applications/me", response_model=schemas.SellerApplicationResponse | None)
@@ -50,6 +53,16 @@ async def approve(
     return await service.approve_application(app_id, db, actor_id=admin.id)
 
 
+@router.post("/admin/seller-applications/{app_id}/request-info", response_model=schemas.SellerApplicationResponse)
+async def request_info(
+    app_id: int,
+    body: schemas.InfoRequest,
+    admin: Account = Depends(require_role("admin")),
+    db: AsyncSession = Depends(get_session),
+):
+    return await service.request_application_info(app_id, body.note, db, actor_id=admin.id)
+
+
 @router.post("/admin/seller-applications/{app_id}/reject", response_model=schemas.SellerApplicationResponse)
 async def reject(
     app_id: int,
@@ -71,6 +84,16 @@ async def seller_dashboard(
 ):
     rng = dashboard.resolve_range(range, tz, from_date, to_date)
     return await dashboard.get_seller_dashboard(account.id, rng, db)
+
+
+@router.get("/seller/escrow-schedule", response_model=schemas.EscrowScheduleResponse)
+async def seller_escrow_schedule(
+    tz: str = Query("UTC", max_length=64),
+    account: Account = Depends(require_role("seller")),
+    db: AsyncSession = Depends(get_session),
+):
+    """Upcoming escrow releases by local day, with the estimated payout."""
+    return await escrow_schedule.get_escrow_schedule(account.id, tz, db)
 
 
 @router.get("/admin/seller-config", response_model=schemas.SellerRuntimeConfigResponse)

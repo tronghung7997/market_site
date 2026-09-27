@@ -5,6 +5,9 @@ class ConversationKind(StrEnum):
     PRODUCT_INQUIRY = "product_inquiry"
     ORDER = "order"
     SUPPORT = "support"
+    # One standing thread per account with the Marketplace desk, not tied to
+    # an order (the storefront "chat with GMMO" button).
+    HELPDESK = "helpdesk"
 
 
 class ConversationStatus(StrEnum):

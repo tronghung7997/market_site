@@ -14,6 +14,7 @@ KNOWN_TEMPLATES = frozenset({
     "password_changed",
     "seller_application_approved",
     "seller_application_rejected",
+    "seller_application_needs_info",
     "provider_approved",
     "provider_rejected",
     "withdrawal_approved",
@@ -32,6 +33,7 @@ PLACEHOLDERS: dict[str, tuple[str, ...]] = {
     "password_changed": ("action_url",),
     "seller_application_approved": ("action_url",),
     "seller_application_rejected": ("reason", "action_url"),
+    "seller_application_needs_info": ("reason", "action_url"),
     "provider_approved": ("provider_name", "action_url"),
     "provider_rejected": ("provider_name", "reason", "action_url"),
     "withdrawal_approved": ("amount", "action_url"),
@@ -178,6 +180,16 @@ DEFAULT_TEMPLATES: dict[str, dict[str, dict[str, str]]] = {
         "vi": {
             "subject": "Đơn đăng ký bán hàng chưa được duyệt",
             "body": "Lý do: {reason}\n\nBạn có thể xem ghi chú và nộp lại.\n\nXem đơn đăng ký:\n{action_url}",
+        },
+    },
+    "seller_application_needs_info": {
+        "en": {
+            "subject": "Your seller application needs more information",
+            "body": "GMMO asks for: {reason}\n\nAdd it to your application and send it again; it keeps its place in the queue.\n\nOpen the application:\n{action_url}",
+        },
+        "vi": {
+            "subject": "Đơn đăng ký bán hàng cần bổ sung thông tin",
+            "body": "GMMO cần bạn bổ sung: {reason}\n\nCập nhật đơn đăng ký và gửi lại.\n\nMở đơn đăng ký:\n{action_url}",
         },
     },
     "provider_approved": {

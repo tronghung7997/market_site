@@ -52,6 +52,8 @@ PRESETS: dict[MediaPurpose, Preset] = {
     MediaPurpose.payout_receipt: Preset(full=(2048, 2048), thumb=(480, 480), quality=85),
     MediaPurpose.adjustment_proof: Preset(full=(2048, 2048), thumb=(480, 480), quality=85),
     MediaPurpose.tier_badge: Preset(full=(128, 128), thumb=(48, 48), aspect=1.0, quality=90),
+    # 1.91:1, the usual link-preview shape, so the cover doubles as og:image.
+    MediaPurpose.post_cover: Preset(full=(1600, 838), thumb=(640, 335), aspect=1.91),
 }
 
 

@@ -15,6 +15,7 @@ from src.i18n.catalog import (
     available_locales,
     merge_i18n_locale,
     resolve_category_fields,
+    resolve_field,
     resolve_product_pricing_params,
     resolve_product_fields,
     resolve_product_specs,
@@ -50,11 +51,15 @@ from src.seller.settings import get_low_stock_threshold
 from src.suppliers.stock import sellable_stock_by_variant
 
 # Cột duy nhất của ProductVariant cho phép null — xem update_variant.
-NULLABLE_VARIANT_FIELDS = {"duration_days"}
+NULLABLE_VARIANT_FIELDS = {"duration_days", "max_per_order"}
 PRODUCT_TRANSLATION_FIELDS = (
     "title", "description", "warranty_text", "highlight_text", "features",
-    "specs", "pricing_labels",
+    "specs", "pricing_labels", "delivery_note", "inspection_steps", "faq",
 )
+# Written only through the translation endpoint and read back from i18n: there
+# is no scalar column behind them, so English falls back to Vietnamese here
+# instead of to a legacy column.
+PRODUCT_I18N_ONLY_FIELDS = ("delivery_note", "inspection_steps", "faq")
 PRODUCT_LEGACY_MIRROR_FIELDS = (
     "title", "description", "warranty_text", "highlight_text", "features", "specs",
 )
@@ -638,6 +643,8 @@ async def update_variant(variant_id: int, seller_id: int, data: dict, db: AsyncS
         if value is None and key not in NULLABLE_VARIANT_FIELDS:
             continue
         setattr(variant, key, value)
+    if variant.max_per_order is not None and variant.max_per_order < variant.min_per_order:
+        raise api_error(ErrorCode.VARIANT_PER_ORDER_RANGE, http_status.HTTP_422_UNPROCESSABLE_CONTENT)
     if "name" in data and data["name"] is not None:
         variant.i18n = merge_i18n_locale(
             variant.i18n, content_locale, {"name": data["name"]},
@@ -847,6 +854,7 @@ async def list_products(
     fulfillment: str | None = None,
     min_price: int | None = None,
     max_price: int | None = None,
+    min_rating: int | None = None,
     sort: str = "newest",
     page: int = 1,
     per_page: int = 50,
@@ -895,6 +903,9 @@ async def list_products(
         filters.append(browse_price >= min_price)
     if max_price is not None:
         filters.extend((browse_price > 0, browse_price <= max_price))
+    if min_rating is not None:
+        # Unrated products have no average to compare, so a star filter hides them.
+        filters.extend((Product.rating_count > 0, Product.rating_avg >= min_rating))
 
     if sort == "relevance" and terms is not None:
         order_by = _relevance_order(terms)
@@ -1596,6 +1607,8 @@ async def _variants_by_product(
             "primary_locale": (v.i18n or {}).get(PRIMARY_LOCALE_KEY, "vi"),
         }
         stock_state, max_quantity = _public_stock(v.delivery_mode, stock_by_variant.get(v.id, 0))
+        if v.max_per_order is not None:
+            max_quantity = min(max_quantity, v.max_per_order)
         exact_stock = (
             {"stock_count": stock_by_variant.get(v.id, 0)}
             if not public or v.delivery_mode == DeliveryMode.instant else {}
@@ -1604,6 +1617,7 @@ async def _variants_by_product(
             "id": v.id, "public_key": v.public_key, "product_id": v.product_id, "name": name, "price": v.price,
             "delivery_mode": v.delivery_mode.value, "sla_hours": v.sla_hours,
             "duration_days": v.duration_days,
+            "min_per_order": v.min_per_order, "max_per_order": v.max_per_order,
             "sort_order": v.sort_order, "is_active": v.is_active,
             **exact_stock,
             "stock_state": stock_state, "max_quantity": max_quantity,
@@ -2157,6 +2171,15 @@ def _management_variant_translations(variant: ProductVariant) -> dict[str, dict]
     return translations
 
 
+def _i18n_only_fields(product: Product, locale: str) -> dict:
+    i18n = product.i18n or {}
+    fallback = i18n.get("vi") if isinstance(i18n.get("vi"), dict) else {}
+    return {
+        field: resolve_field(i18n, field, locale, fallback.get(field))
+        for field in PRODUCT_I18N_ONLY_FIELDS
+    }
+
+
 def _product_dict(product: Product, *, locale: str | None = DEFAULT_LOCALE, public: bool = False) -> dict:
     if locale is not None:
         localized = resolve_product_fields(product, locale)
@@ -2166,6 +2189,7 @@ def _product_dict(product: Product, *, locale: str | None = DEFAULT_LOCALE, publ
             "features": localized["features"],
             "warranty_text": localized["warranty_text"],
             "highlight_text": localized["highlight_text"],
+            **_i18n_only_fields(product, locale),
             "locale": localized["locale"],
             "available_locales": localized["available_locales"],
         }

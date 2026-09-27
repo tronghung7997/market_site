@@ -159,3 +159,36 @@ async def test_support_retention_uses_latest_resolved_dispute():
             ChatMessage.conversation_id == room.id
         ))
         assert remaining == 2
+
+
+@pytest.mark.asyncio
+async def test_helpdesk_messages_age_out_after_ninety_days_but_keep_the_preview():
+    now = datetime.now(timezone.utc)
+    async with SessionLocal() as db:
+        user = await _account(db, "desk-retention@example.test", ["buyer"])
+        room = ChatConversation(
+            kind="helpdesk", status="open", requester_id=user.id, requester_role="buyer",
+            created_by_id=user.id,
+        )
+        db.add(room)
+        await db.flush()
+        db.add(ChatParticipant(conversation_id=room.id, account_id=user.id, context_role="buyer"))
+        ages = {"ancient": 120, "recent-ish": 60, "latest-but-old": 100}
+        rows = {}
+        for body, days in ages.items():
+            rows[body] = ChatMessage(
+                conversation_id=room.id, sender_id=user.id, sender_role="buyer",
+                client_message_id=uuid.uuid4(), body=body, created_at=now - timedelta(days=days),
+            )
+            db.add(rows[body])
+            await db.flush()
+        # The thread's preview is its last message, however old.
+        room.last_message_id = rows["latest-but-old"].id
+        room.last_message_at = rows["latest-but-old"].created_at
+        await db.commit()
+
+        assert await purge_expired_messages(db, now=now) == 1
+        left = set((await db.execute(
+            select(ChatMessage.body).where(ChatMessage.conversation_id == room.id)
+        )).scalars())
+        assert left == {"recent-ish", "latest-but-old"}

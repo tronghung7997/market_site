@@ -5,6 +5,7 @@ from src.i18n.slug import SLUG_PATTERN, canonical_path
 from pydantic import BaseModel, Field, field_validator, model_serializer, model_validator
 
 from src.media.schemas import MediaId
+from src.orders.constants import MAX_ORDER_QUANTITY
 from src.products.covers import PRODUCT_GALLERY_MAX, parse_cover_id, public_images
 from src.security.input_limits import bounded_mapping
 
@@ -146,6 +147,16 @@ class AdminProductActivityItem(BaseModel):
     details: dict
 
 
+class ProductFaqItem(BaseModel):
+    q: str = Field(min_length=1, max_length=200)
+    a: str = Field(min_length=1, max_length=1000)
+
+    @field_validator("q", "a")
+    @classmethod
+    def trim(cls, value: str) -> str:
+        return value.strip()
+
+
 class ProductTranslationUpdate(BaseModel):
     """Buyer-facing content for one explicit locale.
 
@@ -160,11 +171,36 @@ class ProductTranslationUpdate(BaseModel):
     highlight_text: str | None = Field(default=None, max_length=2000)
     specs: dict | None = None
     pricing_labels: dict | None = None
+    # Hand-over copy (product page "Delivery" and "Q&A" sections).
+    delivery_note: str | None = Field(default=None, max_length=2000)
+    inspection_steps: list[str] | None = Field(default=None, max_length=10)
+    faq: list[ProductFaqItem] | None = Field(default=None, max_length=12)
 
     @field_validator("specs", "pricing_labels")
     @classmethod
     def bound_objects(cls, value):
         return bounded_mapping(value) if value is not None else value
+
+    @field_validator("delivery_note")
+    @classmethod
+    def trim_note(cls, value):
+        return value.strip() if isinstance(value, str) else value
+
+    @field_validator("inspection_steps")
+    @classmethod
+    def clean_steps(cls, value):
+        """Trimmed, blank lines dropped, each at most 200 characters."""
+        if value is None:
+            return value
+        steps = [step.strip() for step in value if isinstance(step, str) and step.strip()]
+        if any(len(step) > 200 for step in steps):
+            raise ValueError("each inspection step is at most 200 characters")
+        return steps
+
+    @field_validator("faq")
+    @classmethod
+    def drop_blank_faq(cls, value):
+        return [item for item in value if item.q.strip() and item.a.strip()] if value is not None else value
 
 
 class ProductResponse(BaseModel):
@@ -222,6 +258,14 @@ class VariantCreate(BaseModel):
     sla_hours: int = Field(default=24, ge=1, le=24 * 30)
     sort_order: int = Field(default=0, ge=-1000, le=10000)
     duration_days: int | None = Field(default=None, ge=1, le=3650)
+    min_per_order: int = Field(default=1, ge=1, le=MAX_ORDER_QUANTITY)
+    max_per_order: int | None = Field(default=None, ge=1, le=MAX_ORDER_QUANTITY)
+
+    @model_validator(mode="after")
+    def per_order_range(self):
+        if self.max_per_order is not None and self.max_per_order < self.min_per_order:
+            raise ValueError("Số lượng tối đa mỗi đơn phải lớn hơn hoặc bằng tối thiểu")
+        return self
 
 
 class VariantUpdate(BaseModel):
@@ -233,6 +277,9 @@ class VariantUpdate(BaseModel):
     sort_order: int | None = Field(default=None, ge=-1000, le=10000)
     is_active: bool | None = None
     duration_days: int | None = Field(default=None, ge=1, le=3650)
+    min_per_order: int | None = Field(default=None, ge=1, le=MAX_ORDER_QUANTITY)
+    # Explicit null removes the cap.
+    max_per_order: int | None = Field(default=None, ge=1, le=MAX_ORDER_QUANTITY)
 
 
 class VariantTranslationUpdate(BaseModel):
@@ -259,6 +306,9 @@ class VariantResponse(BaseModel):
     stock_state: str | None = None
     max_quantity: int | None = None
     duration_days: int | None = None
+    # Seller-set bounds for one order; max_quantity above already applies the max.
+    min_per_order: int = 1
+    max_per_order: int | None = None
     # Management detail responses expose raw locale buckets so sellers can
     # edit a translation without storefront fallback masking missing content.
     translations: dict[str, dict] | None = None
@@ -480,6 +530,9 @@ class ProductDetailResponse(ProductListItemResponse):
     features: list | None
     specs: dict | None
     warranty_text: str | None
+    delivery_note: str | None = None
+    inspection_steps: list[str] | None = None
+    faq: list[ProductFaqItem] | None = None
     translations: dict[str, dict] | None = None
     primary_locale: str | None = None
     seller_name: str | None = None

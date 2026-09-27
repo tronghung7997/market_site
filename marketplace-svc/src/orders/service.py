@@ -81,6 +81,19 @@ def _gateway_access_from_delivery_data(data: str | None) -> dict[str, str] | Non
     return {"key": key, "url": url} if key and url else None
 
 
+def check_variant_quantity(variant: ProductVariant, quantity: int) -> None:
+    """The seller's per-order bounds for this package (before any money moves)."""
+    low = variant.min_per_order or 1
+    high = variant.max_per_order
+    if quantity < low or (high is not None and quantity > high):
+        raise api_error(
+            ErrorCode.ORDER_QUANTITY_RANGE,
+            status.HTTP_400_BAD_REQUEST,
+            min=low,
+            max=high if high is not None else MAX_ORDER_QUANTITY,
+        )
+
+
 async def create_order(buyer_id: int, variant_id: int, quantity: int, db: AsyncSession) -> Order:
     variant = await db.get(ProductVariant, variant_id)
     if not variant or not variant.is_active:
@@ -90,6 +103,7 @@ async def create_order(buyer_id: int, variant_id: int, quantity: int, db: AsyncS
         raise api_error(ErrorCode.PRODUCT_UNAVAILABLE, status.HTTP_400_BAD_REQUEST)
     if product.seller_id == buyer_id:
         raise api_error(ErrorCode.SELF_PURCHASE, status.HTTP_400_BAD_REQUEST)
+    check_variant_quantity(variant, quantity)
 
     # Gói bán lại từ catalog nhà cung cấp (provider external_stock, xem
     # adapters/registry.py): hàng không nằm trong `resources` để claim, phải
@@ -335,6 +349,10 @@ async def create_order_with_adapter(
     # 20 KB, so an uncapped quantity is an uncapped delivery for one order.
     if q.quantity > MAX_ORDER_QUANTITY:
         raise api_error(ErrorCode.ORDER_QUANTITY_LIMIT, status.HTTP_400_BAD_REQUEST, max=MAX_ORDER_QUANTITY)
+    if strategy_name == "fixed" and user_config.get("variant_id"):
+        fixed_variant = await db.get(ProductVariant, user_config["variant_id"])
+        if fixed_variant is not None and fixed_variant.product_id == product.id:
+            check_variant_quantity(fixed_variant, q.quantity)
     provider_for_quantity_check = await db.get(Provider, product.provider_id)
     quantity_spec = get_spec(
         provider_for_quantity_check.adapter_type if provider_for_quantity_check else None

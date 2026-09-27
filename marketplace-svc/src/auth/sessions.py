@@ -7,7 +7,7 @@ from datetime import datetime, timedelta, timezone
 from uuid import UUID, uuid4
 
 from fastapi import HTTPException, status
-from sqlalchemy import select, update
+from sqlalchemy import func, select, update
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from src.config import settings
@@ -235,3 +235,12 @@ async def list_active_sessions(account_id: int, db: AsyncSession) -> list[AuthSe
         .order_by(AuthSession.last_used_at.desc().nullslast(), AuthSession.created_at.desc())
     )
     return list(rows.scalars().all())
+
+
+async def last_seen_at(account_id: int, db: AsyncSession) -> datetime | None:
+    """When the account last signed in or refreshed a session (access tokens
+    live `jwt_expire_minutes`, so an active tab refreshes that often)."""
+    return await db.scalar(
+        select(func.max(func.coalesce(AuthSession.last_used_at, AuthSession.created_at)))
+        .where(AuthSession.account_id == account_id)
+    )

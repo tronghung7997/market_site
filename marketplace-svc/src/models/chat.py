@@ -25,7 +25,7 @@ class ChatConversation(Base):
     __tablename__ = "chat_conversations"
     __table_args__ = (
         CheckConstraint(
-            "kind IN ('product_inquiry', 'order', 'support')",
+            "kind IN ('product_inquiry', 'order', 'support', 'helpdesk')",
             name="ck_chat_conversations_kind",
         ),
         CheckConstraint(
@@ -62,6 +62,17 @@ class ChatConversation(Base):
             "kind != 'support' OR "
             "(order_id IS NOT NULL AND requester_id IS NOT NULL AND requester_role IN ('buyer', 'seller'))",
             name="ck_chat_conversations_support_context",
+        ),
+        CheckConstraint(
+            "kind != 'helpdesk' OR "
+            "(order_id IS NULL AND requester_id IS NOT NULL AND requester_role IN ('buyer', 'seller'))",
+            name="ck_chat_conversations_helpdesk_context",
+        ),
+        Index(
+            "uq_chat_helpdesk_requester",
+            "requester_id",
+            unique=True,
+            postgresql_where=text("kind = 'helpdesk'"),
         ),
         Index("ix_chat_conversations_last_message", "last_message_at", "id"),
     )

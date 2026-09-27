@@ -1514,3 +1514,65 @@ async def test_public_variants_expose_stock_state_and_max_quantity(client):
     assert variants["Instant"]["max_quantity"] == 0
     assert variants["Manual"]["stock_state"] == "manual"
     assert variants["Manual"]["max_quantity"] == 5000
+
+
+@pytest.mark.asyncio
+async def test_handover_copy_round_trips_per_locale_and_english_falls_back(client):
+    seller_token, admin_token, cat_id = await setup_seller_with_category(client)
+    product = await _create_public_product(client, seller_token, cat_id)
+    seller = {"Authorization": f"Bearer {seller_token}"}
+
+    saved = await client.patch(f"/seller/products/{product['id']}/translations/vi", json={
+        "delivery_note": "  email | mật khẩu | email khôi phục  ",
+        "inspection_steps": ["Đăng nhập được", "  ", "Đổi mật khẩu ngay"],
+        "faq": [{"q": " Đổi email được không? ", "a": "Được"}],
+    }, headers=seller)
+    assert saved.status_code == 200, saved.text
+
+    vi = (await client.get(f"/products/{product['public_key']}", params={"locale": "vi"})).json()
+    assert vi["delivery_note"] == "email | mật khẩu | email khôi phục"
+    assert vi["inspection_steps"] == ["Đăng nhập được", "Đổi mật khẩu ngay"]
+    assert vi["faq"] == [{"q": "Đổi email được không?", "a": "Được"}]
+    # No English copy yet: the storefront shows the Vietnamese one.
+    en = (await client.get(f"/products/{product['public_key']}", params={"locale": "en"})).json()
+    assert en["delivery_note"] == vi["delivery_note"] and en["faq"] == vi["faq"]
+
+    await client.patch(f"/seller/products/{product['id']}/translations/en", json={
+        "delivery_note": "email | password | recovery email",
+    }, headers=seller)
+    en = (await client.get(f"/products/{product['public_key']}", params={"locale": "en"})).json()
+    assert en["delivery_note"] == "email | password | recovery email"
+    assert en["inspection_steps"] == ["Đăng nhập được", "Đổi mật khẩu ngay"]  # still falls back per field
+
+    # The seller editor sees both languages as stored.
+    detail = (await client.get(f"/seller/products/{product['id']}/detail", headers=seller)).json()
+    assert detail["translations"]["en"]["delivery_note"] == "email | password | recovery email"
+    assert "faq" not in detail["translations"]["en"]
+
+    # List items stay slim.
+    item = (await client.get("/products")).json()["items"][0]
+    assert "delivery_note" not in item and "faq" not in item
+
+
+@pytest.mark.asyncio
+async def test_handover_copy_is_validated_and_owner_only(client):
+    seller_token, _, cat_id = await setup_seller_with_category(client)
+    product = await _create_public_product(client, seller_token, cat_id)
+    seller = {"Authorization": f"Bearer {seller_token}"}
+    url = f"/seller/products/{product['id']}/translations/vi"
+    for bad in (
+        {"delivery_note": "x" * 2001},
+        {"inspection_steps": [f"step {i}" for i in range(11)]},
+        {"inspection_steps": ["x" * 201]},
+        {"faq": [{"q": f"q{i}", "a": "a"} for i in range(13)]},
+        {"faq": [{"q": "", "a": "a"}]},
+    ):
+        res = await client.patch(url, json=bad, headers=seller)
+        assert res.status_code == 422, (bad, res.text)
+
+    other_token = await register_and_login(client, "handover_other@example.com")
+    await make_seller("handover_other@example.com")
+    other_token = await register_and_login(client, "handover_other@example.com")
+    denied = await client.patch(url, json={"delivery_note": "hijack"}, headers={"Authorization": f"Bearer {other_token}"})
+    assert denied.status_code in (403, 404)
+    assert (await client.patch(url, json={"delivery_note": "anon"})).status_code == 401

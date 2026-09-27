@@ -113,6 +113,14 @@ class ApplicationStatus(str, PyEnum):
     pending = "pending"
     approved = "approved"
     rejected = "rejected"
+    # An admin asked the applicant for more information; resubmitting the
+    # same application puts it back to pending.
+    needs_info = "needs_info"
+
+
+SELLER_TYPES = ("individual", "business")
+SELLER_EXPERIENCE = ("none", "under_1y", "1_3y", "over_3y")
+SELLER_REFERRAL_SOURCES = ("search", "social", "friend", "community", "ads", "other")
 
 
 class SellerApplication(Base):
@@ -126,6 +134,21 @@ class SellerApplication(Base):
     # Shop logo / banner (media snapshots, public).
     logo: Mapped[dict | None] = mapped_column(JSONB, nullable=True)
     banner: Mapped[dict | None] = mapped_column(JSONB, nullable=True)
+    # Onboarding answers from the 3-step application. All optional so rows
+    # submitted before the wizard stay valid; the values are closed sets
+    # (see SELLER_TYPES / SELLER_EXPERIENCE / SELLER_REFERRAL_SOURCES).
+    seller_type: Mapped[str | None] = mapped_column(String(20), nullable=True)
+    category_ids: Mapped[list | None] = mapped_column(JSONB, nullable=True)
+    experience: Mapped[str | None] = mapped_column(String(20), nullable=True)
+    phone: Mapped[str | None] = mapped_column(String(32), nullable=True)
+    warranty_policy: Mapped[str | None] = mapped_column(String(1000), nullable=True)
+    referral_source: Mapped[str | None] = mapped_column(String(20), nullable=True)
+    # When the applicant ticked "I have read the seller rules and banned items".
+    rules_accepted_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True), nullable=True)
     status: Mapped[ApplicationStatus] = mapped_column(Enum(ApplicationStatus), default=ApplicationStatus.pending)
     reject_reason: Mapped[str | None] = mapped_column(String(500), nullable=True)
+    # Last "please add …" note from an admin, and when the applicant answered it.
+    info_request: Mapped[str | None] = mapped_column(String(1000), nullable=True)
+    info_requested_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True), nullable=True)
+    info_responded_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True), nullable=True)
     created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), server_default=func.now())

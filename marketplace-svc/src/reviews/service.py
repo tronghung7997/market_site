@@ -8,10 +8,14 @@ from src.audit.service import log_event
 from src.exceptions import ErrorCode, api_error
 from src.logging import current_request_id
 
+from src.i18n.catalog import DEFAULT_LOCALE, resolve_field
+from src.i18n.slug import canonical_path
 from src.models.account import Account
 from src.models.order import Order, OrderStatus
-from src.models.product import Product, ProductVariant
+from src.models.product import Product, ProductStatus, ProductVariant
 from src.models.review import Review
+from src.products.service import PRODUCT_PATH_PREFIX
+from src.sellers.service import resolve_seller_ref
 from src.seller.settings import get_auto_review_policy, get_review_window_days
 
 # Buyers rate what they received, not the escrow outcome: a review opens the
@@ -21,6 +25,8 @@ from src.seller.settings import get_auto_review_policy, get_review_window_days
 # fact. Refunded/cancelled orders never open.
 REVIEWABLE_STATUSES = {OrderStatus.delivered, OrderStatus.completed}
 PUBLIC_REVIEW_PAGE_SIZE = 5
+LATEST_REVIEW_LIMIT = 6
+LATEST_REVIEW_MAX = 12
 
 
 def review_deadline(order: Order, window_days: int) -> datetime | None:
@@ -131,6 +137,92 @@ async def get_product_reviews(
         "total": counts[rating] if rating is not None else all_visible, "page": page, "per_page": per_page,
         "rating": rating,
         "summary": {"average": round(average, 2) if average is not None else None, "counts": counts},
+    }
+
+
+def _breakdown(counts_rows) -> tuple[dict[int, int], float | None]:
+    counts = {star: 0 for star in range(1, 6)}
+    for star, n in counts_rows:
+        counts[int(star)] = int(n)
+    total = sum(counts.values())
+    average = (sum(star * n for star, n in counts.items()) / total) if total else None
+    return counts, (round(average, 2) if average is not None else None)
+
+
+def _product_ref(product: Product, locale: str) -> dict:
+    """Title in the request locale and the storefront path. A product that is
+    no longer on sale keeps its title but loses the link (its page is 404)."""
+    on_sale = product.status == ProductStatus.active
+    return {
+        "product_title": resolve_field(product.i18n, "title", locale, product.title),
+        "product_path": canonical_path(PRODUCT_PATH_PREFIX, product.slug, product.public_key) if on_sale else None,
+    }
+
+
+async def get_latest_reviews(db: AsyncSession, *, limit: int = LATEST_REVIEW_LIMIT, locale: str = DEFAULT_LOCALE) -> list[dict]:
+    """Newest visible reviews with a written comment, on products still on
+    sale — the storefront's "what buyers say" strip. Auto-reviews carry no
+    text and are left out; visibility otherwise matches the product page."""
+    rows = (await db.execute(
+        select(Review, ProductVariant.name, Account.email, Product)
+        .join(Order, Order.id == Review.order_id)
+        .join(Product, Product.id == Review.product_id)
+        .outerjoin(ProductVariant, ProductVariant.id == Order.variant_id)
+        .outerjoin(Account, Account.id == Review.buyer_id)
+        .where(
+            Review.is_hidden == False,  # noqa: E712
+            Review.is_auto == False,  # noqa: E712
+            func.length(func.trim(func.coalesce(Review.comment, ""))) > 0,
+            Product.status == ProductStatus.active,
+        )
+        .order_by(Review.created_at.desc(), Review.id.desc())
+        .limit(limit)
+    )).all()
+    return [
+        {**_review_dict(review, variant_name, email), **_product_ref(product, locale)}
+        for review, variant_name, email, product in rows
+    ]
+
+
+async def get_seller_public_reviews(
+    seller_ref: str, db: AsyncSession, *, page: int = 1, per_page: int = PUBLIC_REVIEW_PAGE_SIZE,
+    rating: int | None = None, locale: str = DEFAULT_LOCALE,
+) -> dict | None:
+    """Every visible review across one seller's products, newest first, with
+    the star breakdown over all of them (same visibility as the product page;
+    the summary ignores the page and the star filter, like ``get_product_reviews``).
+    ``seller_ref`` takes the same forms as the seller page; None when it names
+    no seller."""
+    seller = await resolve_seller_ref(seller_ref, db)
+    if seller is None:
+        return None
+    visible = [Product.seller_id == seller.id, Review.is_hidden == False]  # noqa: E712
+    counts, average = _breakdown((await db.execute(
+        select(Review.rating, func.count())
+        .join(Product, Product.id == Review.product_id)
+        .where(*visible).group_by(Review.rating)
+    )).all())
+    filters = list(visible)
+    if rating is not None:
+        filters.append(Review.rating == rating)
+    rows = (await db.execute(
+        select(Review, ProductVariant.name, Account.email, Product)
+        .join(Product, Product.id == Review.product_id)
+        .join(Order, Order.id == Review.order_id)
+        .outerjoin(ProductVariant, ProductVariant.id == Order.variant_id)
+        .outerjoin(Account, Account.id == Review.buyer_id)
+        .where(*filters)
+        .order_by(Review.created_at.desc(), Review.id.desc())
+        .offset((page - 1) * per_page).limit(per_page)
+    )).all()
+    return {
+        "items": [
+            {**_review_dict(review, variant_name, email), **_product_ref(product, locale)}
+            for review, variant_name, email, product in rows
+        ],
+        "total": counts[rating] if rating is not None else sum(counts.values()),
+        "page": page, "per_page": per_page, "rating": rating,
+        "summary": {"average": average, "counts": counts},
     }
 
 

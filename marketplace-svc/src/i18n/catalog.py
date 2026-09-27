@@ -26,6 +26,12 @@ PRODUCT_I18N_FIELDS = (
     # and display values.
     "specs",
     "pricing_labels",
+    # Hand-over copy of the product page, stored only in the i18n buckets
+    # (no legacy scalar column): what the buyer receives, what to check
+    # before confirming, and seller-written Q&A pairs.
+    "delivery_note",
+    "inspection_steps",
+    "faq",
 )
 CATEGORY_I18N_FIELDS = ("name",)
 VARIANT_I18N_FIELDS = ("name",)

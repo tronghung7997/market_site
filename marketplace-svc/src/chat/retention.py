@@ -59,6 +59,11 @@ async def purge_expired_messages(
             & latest_resolved_at.is_not(None)
             & (latest_resolved_at < support_cutoff)
         ),
+        # The helpdesk thread never ends; its messages age out individually.
+        (
+            (ChatConversation.kind == ConversationKind.HELPDESK)
+            & (ChatMessage.created_at < support_cutoff)
+        ),
     )
     ids = (
         select(ChatMessage.id)

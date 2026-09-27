@@ -85,7 +85,13 @@ class Product(Base):
 
 class ProductVariant(Base):
     __tablename__ = "product_variants"
-    __table_args__ = (CheckConstraint("price >= 0", name="ck_product_variants_price_nonnegative"),)
+    __table_args__ = (
+        CheckConstraint("price >= 0", name="ck_product_variants_price_nonnegative"),
+        CheckConstraint(
+            "min_per_order >= 1 AND (max_per_order IS NULL OR max_per_order >= min_per_order)",
+            name="ck_product_variants_per_order_range",
+        ),
+    )
 
     id: Mapped[int] = mapped_column(primary_key=True)
     product_id: Mapped[int] = mapped_column(ForeignKey("products.id"), nullable=False)
@@ -98,5 +104,9 @@ class ProductVariant(Base):
     sort_order: Mapped[int] = mapped_column(Integer, default=0)
     is_active: Mapped[bool] = mapped_column(default=True)
     duration_days: Mapped[int | None] = mapped_column(Integer, nullable=True)
+    # Units one order may take: at least min, at most max (None = only the
+    # marketplace-wide MAX_ORDER_QUANTITY and the stock cap apply).
+    min_per_order: Mapped[int] = mapped_column(Integer, nullable=False, default=1, server_default="1")
+    max_per_order: Mapped[int | None] = mapped_column(Integer, nullable=True)
     # { "en": {"name": "..."}, "vi": {"name": "..."} }
     i18n: Mapped[dict] = mapped_column(JSONB, nullable=False, server_default="{}", default=dict)

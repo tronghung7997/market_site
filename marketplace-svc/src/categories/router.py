@@ -1,4 +1,4 @@
-from fastapi import APIRouter, Depends, status
+from fastapi import APIRouter, Depends, HTTPException, status
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from src.auth.dependencies import require_role
@@ -17,6 +17,24 @@ async def list_categories(
     db: AsyncSession = Depends(get_session),
 ):
     return await service.list_categories_tree(db, locale=locale)
+
+
+@router.get("/categories/{category_ref}/content", response_model=schemas.CategoryContentPublic)
+async def category_content(
+    category_ref: str,
+    locale: str = Depends(get_request_locale),
+    db: AsyncSession = Depends(get_session),
+):
+    """Description, guide and FAQ of an active category page (slug or legacy id)."""
+    content = await service.get_public_category_content(category_ref, db, locale=locale)
+    if content is None:
+        raise HTTPException(status_code=404, detail="Không tìm thấy danh mục")
+    return content
+
+
+@router.get("/admin/categories/{cat_id}/content", response_model=schemas.CategoryContentAdmin)
+async def admin_category_content(cat_id: int, _: Account = Depends(require_role("admin")), db: AsyncSession = Depends(get_session)):
+    return await service.get_admin_category_content(cat_id, db)
 
 
 @router.get("/admin/categories", response_model=schemas.CategoryAdminListResponse)

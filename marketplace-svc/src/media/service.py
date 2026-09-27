@@ -47,6 +47,7 @@ UPLOAD_ROLES: dict[MediaPurpose, frozenset[str] | None] = {
     MediaPurpose.payout_receipt: frozenset({"admin"}),
     MediaPurpose.adjustment_proof: frozenset({"admin"}),
     MediaPurpose.tier_badge: frozenset({"admin"}),
+    MediaPurpose.post_cover: frozenset({"admin"}),
 }
 MAX_PENDING_PER_ACCOUNT = 50
 PENDING_TTL = timedelta(hours=24)

@@ -7,7 +7,7 @@ from src.adapters.compatibility import setup_status
 from src.alerts.admin_view import admin_alert_links, list_admin_open_alerts
 from src.alerts.service import list_buyer_alerts, list_seller_alerts
 from src.chat.enums import ContextRole
-from src.chat.service import unread_message_count
+from src.chat.service import helpdesk_waiting_count, unread_message_count
 from src.disputes.service import list_seller_open_disputes
 from src.models.account import Account, ApplicationStatus, SellerApplication
 from src.models.alert import Alert
@@ -18,6 +18,7 @@ from src.models.service_task import ServiceTask, ServiceTaskStatus
 from src.models.usage import OrderBalance
 from src.models.wallet import WithdrawRequest, WithdrawStatus
 from src.pricing.engine import resolve_pricing
+from src.questions.service import seller_pending_count as seller_pending_question_count
 from src.products.service import get_seller_stats
 from src.wallet.service import list_withdrawals_for_account
 
@@ -41,6 +42,7 @@ _ALERT_HREF = {
 # Stable keys so the frontend can i18n known inbox alerts; others stay alert_{id}.
 _INBOX_ALERT_KEYS = {
     "seller_application_approved": "seller_application_approved",
+    "seller_application_needs_info": "seller_application_needs_info",
 }
 
 # Seller-only inbox facts that must not appear in the admin bell.
@@ -147,6 +149,14 @@ async def seller_action_items(seller_id: int, db: AsyncSession) -> list[ActionIt
     for alert in await list_seller_alerts(seller_id, db):
         items.append(_alert_item(alert, _ALERT_HREF.get(alert.type, "/seller")))
 
+    unanswered = await seller_pending_question_count(seller_id, db)
+    if unanswered:
+        items.append(ActionItem(
+            key="seller_unanswered_questions", severity="info",
+            label=f"{unanswered} buyer questions waiting for an answer",
+            count=unanswered, href="/seller/questions",
+        ))
+
     needs_setup = await _seller_needs_setup_count(seller_id, db)
     if needs_setup:
         items.append(ActionItem(
@@ -229,6 +239,14 @@ async def admin_action_items(db: AsyncSession) -> list[ActionItem]:
             key="admin_marketplace_review", severity="warning",
             label=f"{marketplace_review} dispute chats waiting on Marketplace",
             count=marketplace_review, href="/admin/support",
+        ))
+
+    helpdesk_waiting = await helpdesk_waiting_count(db)
+    if helpdesk_waiting:
+        items.append(ActionItem(
+            key="admin_helpdesk_waiting", severity="warning",
+            label=f"{helpdesk_waiting} support chats waiting for a reply",
+            count=helpdesk_waiting, href="/admin/support",
         ))
 
     pending_withdrawals = await db.scalar(

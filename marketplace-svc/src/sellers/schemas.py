@@ -22,7 +22,24 @@ class SellerSummary(BaseModel):
     logo: dict | None = None
 
 
+class SellerResponseTime(BaseModel):
+    """Typical first reply to a buyer over 30 days: band ``15m``/``1h``/``6h``/
+    ``24h``/``slow``, share of chats answered (%), and how many chats count."""
+    within: str
+    rate: int
+    sample: int
+
+
 class SellerProfile(SellerSummary):
     bio: str | None = None
     member_since: datetime | None = None
     banner: dict | None = None
+    # Null until enough buyer chats (sellers.activity.MIN_RESPONSE_SAMPLE).
+    response_time: SellerResponseTime | None = None
+    # Last sign-in/refresh band: 15m, 1h, 24h, 7d, 30d; null if older or never.
+    active_within: str | None = None
+    # Trust score 0–100 over the admin's window; null until enough orders.
+    trust_score: int | None = None
+    # Coarse bands (low / medium / high) of the dispute and 1-star rates.
+    dispute_band: str | None = None
+    one_star_band: str | None = None

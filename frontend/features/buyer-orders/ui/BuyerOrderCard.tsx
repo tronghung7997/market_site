@@ -10,7 +10,7 @@ import { daysAgo, formatDateTime } from "@/lib/utils";
 import { useVariantTermFor } from "@/lib/variant-term";
 import type { Order } from "@/lib/types";
 import { Button, Tag } from "@/components/ui";
-import { AlertTriangle, Eye, ShieldCheck, Star } from "@/components/Icons";
+import { AlertTriangle, Eye, ShieldCheck, Star, Wallet } from "@/components/Icons";
 import OrderChatButton from "@/components/chat/OrderChatButton";
 import { parseCoverId, ProductCover } from "@/features/product-covers";
 import { orderAccentTone } from "../model";
@@ -113,6 +113,11 @@ export const BuyerOrderCard = memo(function BuyerOrderCard({
           <Button size="sm" variant="secondary" onClick={() => handlers.onOpen(o, { tab: "review" })} className="min-h-[38px] gap-1.5">
             <Star size={13} /> {t("review")}
           </Button>
+        )}
+        {a.refundHref && (
+          <Link href={a.refundHref}>
+            <Button size="sm" variant="secondary" className="min-h-[38px] gap-1.5"><Wallet size={13} /> {tb("viewRefund")}</Button>
+          </Link>
         )}
         {a.canDispute && (
           <Button size="sm" variant="secondary" onClick={() => handlers.onDispute(o)} className="min-h-[38px] gap-1.5 text-bad">

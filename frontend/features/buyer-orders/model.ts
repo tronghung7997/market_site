@@ -211,3 +211,34 @@ export function orderAccentTone(order: Order, disputed: boolean): "bad" | "iris"
   if (order.status === "cancelled" || order.status === "refunded") return "neutral";
   return "warn";
 }
+
+export type TimelineStepKey = "paid" | "delivered" | "protection" | "completed";
+export interface TimelineStep {
+  key: TimelineStepKey;
+  state: "done" | "current" | "next" | "attention";
+  /** When the step happened (done steps). */
+  at?: string | null;
+  /** Until when the step runs (the protection window). */
+  until?: string | null;
+}
+
+/** The buyer's order in four steps with their times. Cancelled and refunded
+ *  orders have no timeline (the status says it all). */
+export function orderTimeline(
+  order: Pick<Order, "status" | "created_at" | "delivered_at" | "completed_at" | "escrow_expires_at">,
+  disputed: boolean,
+): TimelineStep[] | null {
+  if (order.status === "cancelled" || order.status === "refunded") return null;
+  const delivered = order.status === "delivered" || order.status === "completed" || order.status === "disputed";
+  const completed = order.status === "completed";
+  return [
+    { key: "paid", state: "done", at: order.created_at },
+    { key: "delivered", state: delivered ? "done" : "current", at: delivered ? order.delivered_at : null },
+    {
+      key: "protection",
+      state: completed ? "done" : disputed || order.status === "disputed" ? "attention" : delivered ? "current" : "next",
+      until: order.escrow_expires_at,
+    },
+    { key: "completed", state: completed ? "done" : "next", at: completed ? order.completed_at : null },
+  ];
+}

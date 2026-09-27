@@ -51,7 +51,8 @@ import { Button, CopyButton, Disclosure, Tag } from "@/components/ui";
 import { Dialog, DialogContent } from "@/components/ui/dialog";
 import OrderProxyPanel from "./OrderProxyPanel";
 import ServiceDashboard from "@/components/ServiceDashboard";
-import { OrderDispute, StatusTimeline } from "@/components/orders/OrderCardPrimitives";
+import { OrderDispute } from "@/components/orders/OrderCardPrimitives";
+import { OrderTimeline } from "./OrderTimeline";
 import OrderChatButton from "@/components/chat/OrderChatButton";
 import ReviewForm from "./ReviewForm";
 
@@ -661,11 +662,11 @@ export default function OrderDetailsModal({
         </div>
 
 
-          {/* Phones and the expanded view keep the header short (more room for
-              the lines): the status tag already says where the order is. */}
+          {/* The steps with their times, on phones too (stacked); the expanded
+              view keeps the header short for the delivered lines. */}
           {!expanded && !["refunded", "cancelled"].includes(o.status) && (
-            <div className="-mt-1 hidden sm:block">
-              <StatusTimeline status={fulfillmentStatus} />
+            <div className="rounded-xl border border-line bg-surface px-3 py-3 sm:px-4">
+              <OrderTimeline order={o} disputed={hasOpenDispute(o)} />
             </div>
           )}
 

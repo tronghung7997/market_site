@@ -1627,7 +1627,37 @@
     "confirmedRateHint": "Đánh giá hiện công khai trên trang sản phẩm, không kèm tên bạn.",
     "confirmedThanks": "Cảm ơn bạn đã đánh giá.",
     "confirmedBuyAgain": "Mua lại gói này",
-    "confirmedShop": "Xem thêm của shop"
+    "confirmedShop": "Xem thêm của shop",
+    "timeline": {
+      "label": "Tiến trình đơn",
+      "paid": {
+        "done": "Đã thanh toán",
+        "todo": "Thanh toán"
+      },
+      "delivered": {
+        "done": "Shop đã giao",
+        "todo": "Chờ shop giao"
+      },
+      "protection": {
+        "done": "Hết thời gian bảo vệ",
+        "todo": "Thời gian bảo vệ"
+      },
+      "completed": {
+        "done": "Hoàn tất, tiền về shop",
+        "todo": "Hoàn tất"
+      },
+      "protectionLeft": "{left}",
+      "protectionEnding": "sắp hết",
+      "protectionAfter": "bắt đầu khi shop giao",
+      "completedAuto": "khi bạn xác nhận hoặc hết bảo vệ",
+      "disputeOpen": "đang khiếu nại",
+      "waiting": "đang chờ"
+    },
+    "viewRefund": "Xem giao dịch hoàn",
+    "suggestTitle": "Đang bán chạy trên GMMO",
+    "suggestFrom": "từ {price}",
+    "awaitingSoonest": "{count} đơn chờ kiểm tra · sớm nhất {left}",
+    "activeAwaitingSeller": "{count} đơn chờ shop giao"
   },
   "sellerProducts": {
     "tierCap": "Hạng {tier}: đang bán {active}/{max} sản phẩm",
@@ -2973,7 +3003,7 @@
     "filtering": "Đang lọc",
     "reset": "Đặt lại",
     "showingCount": "Hiển thị {count} / {total} đơn hàng",
-    "searchFullPlaceholder": "Tìm theo mã đơn, sản phẩm hoặc gói...",
+    "searchFullPlaceholder": "Tìm theo mã đơn, sản phẩm, gói hoặc tên shop...",
     "quickActions": "Thao tác nhanh",
     "orderCode": "Mã đơn",
     "productPackage": "Sản phẩm & phân loại",
@@ -3385,7 +3415,17 @@
     "deliveryOverdue": "Đã quá hạn giao — hệ thống tự hoàn tiền",
     "inspectChecklist": "Kiểm tra trước khi xác nhận",
     "inspectProgress": "{done}/{total} đã kiểm tra",
-    "inspectAllDone": "Đã kiểm tra đủ. Nếu mọi thứ ổn, xác nhận để hoàn tất đơn."
+    "inspectAllDone": "Đã kiểm tra đủ. Nếu mọi thứ ổn, xác nhận để hoàn tất đơn.",
+    "disputeDeadlineLeft": "Hạn mở khiếu nại: {date} ({left})",
+    "disputeDeadlinePassed": "Thời gian bảo vệ đã hết lúc {date}.",
+    "disputeEvidenceFor": "Bằng chứng nên gửi:",
+    "disputeEvidenceHints": {
+      "wrong_credentials": "ảnh màn hình trang đăng nhập báo sai mật khẩu hoặc đòi mã 2FA, kèm số dòng (#01…) của tài khoản lỗi.",
+      "checkpoint_locked": "ảnh màn hình thông báo khoá hoặc checkpoint ngay khi đăng nhập lần đầu, kèm số dòng.",
+      "wrong_description": "ảnh chụp chỗ khác với mô tả (quốc gia, số bạn bè, ngày tạo…) và phần mô tả tương ứng trên trang sản phẩm.",
+      "connection_failed": "ảnh màn hình lỗi kết nối, thời điểm thử và mạng hoặc công cụ bạn dùng.",
+      "other": "ảnh màn hình và vài dòng mô tả rõ vấn đề, kèm số dòng nếu liên quan tới tài khoản cụ thể."
+    }
   },
   "wallet": {
     "available": "Số dư khả dụng",

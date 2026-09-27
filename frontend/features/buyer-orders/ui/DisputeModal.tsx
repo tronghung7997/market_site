@@ -2,7 +2,7 @@
 
 import { useEffect, useMemo, useState } from "react";
 import { useQuery } from "@tanstack/react-query";
-import { useTranslations } from "next-intl";
+import { useLocale, useTranslations } from "next-intl";
 import {
   AlertTriangle,
   Check,
@@ -20,6 +20,8 @@ import { api } from "@/lib/api";
 import { fetchAllOrderLines } from "@/lib/order-lines";
 import { lineLabel, resourceLineMap } from "@/lib/order-ref";
 import { useApiErrorMessage } from "@/lib/use-api-error";
+import { timeLeftLabel } from "@/lib/time";
+import { formatDateTime } from "@/lib/utils";
 import { fulfillmentFromOrder } from "@/lib/fulfillment";
 import { MAX_WARRANTY_CLAIM_GENERATION, resourcePreview, resourceWarrantyGeneration } from "@/lib/dispute-case";
 import {
@@ -72,6 +74,7 @@ export default function DisputeModal({
 }) {
   const t = useTranslations("orders");
   const tc = useTranslations("common");
+  const locale = useLocale();
   const apiErrorMessage = useApiErrorMessage();
 
   const [orderRecord, setOrderRecord] = useState<Order | null>(orderProp ?? null);
@@ -302,6 +305,15 @@ export default function DisputeModal({
               </>
             )}
           </div>
+          {!appendToExisting && orderRecord?.escrow_expires_at && (
+            <p className="mt-1.5 text-[11.5px] text-warn">
+              {(() => {
+                const left = timeLeftLabel(orderRecord.escrow_expires_at, locale);
+                const date = formatDateTime(orderRecord.escrow_expires_at, locale);
+                return left ? t("disputeDeadlineLeft", { date, left }) : t("disputeDeadlinePassed", { date });
+              })()}
+            </p>
+          )}
         </div>
 
         {loadingScope ? (
@@ -435,6 +447,11 @@ export default function DisputeModal({
                 className="text-[12px] h-9"
               />
             </div>
+          )}
+          {!appendToExisting && (
+            <p className="rounded-lg border border-line bg-raised/50 px-3 py-2 text-[11.5px] leading-relaxed text-muted">
+              <span className="font-medium text-fg">{t("disputeEvidenceFor")}</span> {t(`disputeEvidenceHints.${selectedIssue}`)}
+            </p>
           )}
         </div>}
 

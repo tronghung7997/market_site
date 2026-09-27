@@ -8,7 +8,8 @@ import { copyFromBff, downloadFromBff } from "@/lib/download";
 import { useApiErrorMessage } from "@/lib/use-api-error";
 import type { Order } from "@/lib/types";
 import { Button } from "@/components/ui";
-import { AlertTriangle, Check, Copy, Download, Eye, ShieldCheck, Star } from "@/components/Icons";
+import { Link } from "@/i18n/navigation";
+import { AlertTriangle, Check, Copy, Download, Eye, ShieldCheck, Star, Wallet } from "@/components/Icons";
 import { deliveredDataFileName } from "../model";
 
 export interface OrderActionHandlers {
@@ -27,6 +28,10 @@ export function rowActions(order: Order, disputed: boolean) {
     canConfirm: caps ? caps.can_confirm : order.status === "delivered" && !disputed,
     canDispute: caps ? caps.can_dispute : order.status === "delivered" && !disputed,
     canReview: caps ? caps.can_review && !order.has_review : ["delivered", "completed"].includes(order.status) && !order.has_review,
+    // Money came back: the wallet rows for this order.
+    refundHref: order.status === "refunded" || order.status === "cancelled"
+      ? `/transactions?q=${encodeURIComponent(order.order_code)}`
+      : null,
   };
 }
 
@@ -163,6 +168,13 @@ export const DesktopRowActions = memo(function DesktopRowActions({
         <Button size="sm" variant="secondary" onClick={() => handlers.onOpen(order, { tab: "review" })} className="h-7 w-full justify-center gap-1 overflow-hidden text-[11px]">
           <Star size={12} className="shrink-0" /> <span className="truncate">{t("review")}</span>
         </Button>
+      )}
+      {a.refundHref && (
+        <Link href={a.refundHref}>
+          <Button size="sm" variant="secondary" className="h-7 w-full justify-center gap-1 overflow-hidden text-[11px]">
+            <Wallet size={12} className="shrink-0" /> <span className="truncate">{tb("viewRefund")}</span>
+          </Button>
+        </Link>
       )}
       <div className="flex flex-wrap items-center justify-end gap-0.5">
         {a.hasData && <DeliveryShortcuts order={order} compact />}

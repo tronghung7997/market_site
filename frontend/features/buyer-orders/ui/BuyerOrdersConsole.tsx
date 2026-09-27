@@ -26,6 +26,7 @@ import { useBuyerOrdersUrl } from "../useOrdersUrl";
 import { BuyerOrderCard } from "./BuyerOrderCard";
 import { BuyerOrdersTable } from "./BuyerOrdersTable";
 import { ConfirmedDialog } from "./ConfirmedDialog";
+import { SuggestedProducts } from "./SuggestedProducts";
 import DisputeModal from "./DisputeModal";
 import OrderDetailsModal from "./OrderDetailsModal";
 import type { OrderActionHandlers } from "./OrderRowActions";
@@ -359,6 +360,7 @@ function EmptyBlock({ nothingAtAll, filtered, onReset }: { nothingAtAll: boolean
       ) : filtered ? (
         <Button size="sm" variant="secondary" onClick={onReset}>{t("clearFilters")}</Button>
       ) : null}
+      {nothingAtAll && <div className="-mx-4 mt-6"><SuggestedProducts /></div>}
     </div>
   );
 }

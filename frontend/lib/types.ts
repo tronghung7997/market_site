@@ -535,6 +535,9 @@ export interface Order {
   gateway_access?: { key: string; url: string } | null;
   cancel_reason?: string | null;
   created_at: string;
+  /** Last time the order reached delivered / completed; null on older orders. */
+  delivered_at?: string | null;
+  completed_at?: string | null;
   product_title?: string | null;
   /** Public URL parts of the ordered product, for "view product" links. */
   product_slug?: string | null;
@@ -2328,9 +2331,14 @@ export interface OrderStats {
   active: number;
   /** Delivered, still in escrow, no open dispute — the buyer's to-do. */
   awaiting_confirm: number;
+  /** Paid, waiting for the seller to deliver. */
+  awaiting_seller?: number;
   disputed: number;
   cancelled_or_refunded: number;
+  /** Net of refunds. */
   total_spend: number;
+  /** Earliest protection deadline among orders waiting for confirmation. */
+  confirm_deadline?: string | null;
 }
 
 export interface LogEntry {

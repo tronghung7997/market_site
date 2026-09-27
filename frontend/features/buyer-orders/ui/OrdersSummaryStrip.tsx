@@ -3,6 +3,7 @@
 import { useLocale, useTranslations } from "next-intl";
 import { cn } from "@/lib/cn";
 import { useMoney } from "@/lib/money";
+import { timeLeftLabel } from "@/lib/time";
 import type { OrderStats } from "@/lib/types";
 import { Card } from "@/components/ui";
 import { AlertCircle, CheckCircle2, Clock, Inbox, ShieldCheck, Wallet } from "@/components/Icons";
@@ -42,6 +43,10 @@ export function OrdersSummaryStrip({
   const locale = useLocale();
   const { formatBrowseMoney } = useMoney();
   const loading = !stats;
+  // The soonest protection deadline: the buyer's most urgent check.
+  const soonest = stats?.confirm_deadline ? timeLeftLabel(stats.confirm_deadline, locale) : null;
+  const awaitingHint = (count: number) =>
+    soonest ? t("awaitingSoonest", { count, left: soonest }) : t("awaitingUrgent", { count });
 
   return (
     <Card className="overflow-hidden p-0">
@@ -75,8 +80,10 @@ export function OrdersSummaryStrip({
               </span>
               <span className={cn("text-[11px]", urgent > 0 ? "font-semibold text-warn" : "text-faint")}>
                 {tab === "awaiting_confirm"
-                  ? (urgent > 0 ? t("awaitingUrgent", { count: urgent }) : t("awaitingNone"))
-                  : t(`hint.${TAB_KEY[tab]}`)}
+                  ? (urgent > 0 ? awaitingHint(urgent) : t("awaitingNone"))
+                  : tab === "active" && stats?.awaiting_seller
+                    ? t("activeAwaitingSeller", { count: stats.awaiting_seller })
+                    : t(`hint.${TAB_KEY[tab]}`)}
               </span>
             </button>
           );

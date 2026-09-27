@@ -1627,7 +1627,37 @@
     "confirmedRateHint": "Ratings show on the product page without your name.",
     "confirmedThanks": "Thanks for rating.",
     "confirmedBuyAgain": "Buy this again",
-    "confirmedShop": "More from the shop"
+    "confirmedShop": "More from the shop",
+    "timeline": {
+      "label": "Order progress",
+      "paid": {
+        "done": "Paid",
+        "todo": "Payment"
+      },
+      "delivered": {
+        "done": "Delivered",
+        "todo": "Waiting for the shop"
+      },
+      "protection": {
+        "done": "Protection ended",
+        "todo": "Protection period"
+      },
+      "completed": {
+        "done": "Complete, shop paid",
+        "todo": "Complete"
+      },
+      "protectionLeft": "{left}",
+      "protectionEnding": "ending",
+      "protectionAfter": "starts at delivery",
+      "completedAuto": "when you confirm or protection ends",
+      "disputeOpen": "dispute open",
+      "waiting": "waiting"
+    },
+    "viewRefund": "See the refund",
+    "suggestTitle": "Selling well on GMMO",
+    "suggestFrom": "from {price}",
+    "awaitingSoonest": "{count} to check · soonest: {left}",
+    "activeAwaitingSeller": "{count} waiting for the shop"
   },
   "sellerProducts": {
     "tierCap": "{tier} tier: {active}/{max} products on sale",
@@ -2973,7 +3003,7 @@
     "filtering": "Filtering",
     "reset": "Reset",
     "showingCount": "Showing {count} / {total} orders",
-    "searchFullPlaceholder": "Search by order code, product, or package...",
+    "searchFullPlaceholder": "Search by order code, product, package or shop...",
     "quickActions": "Quick actions",
     "orderCode": "Order code",
     "productPackage": "Product & variant",
@@ -3385,7 +3415,17 @@
     "deliveryOverdue": "Past the delivery deadline — refund is automatic",
     "inspectChecklist": "Check before you confirm",
     "inspectProgress": "{done}/{total} checked",
-    "inspectAllDone": "All checked. If everything works, confirm to complete the order."
+    "inspectAllDone": "All checked. If everything works, confirm to complete the order.",
+    "disputeDeadlineLeft": "Open a dispute by {date} ({left})",
+    "disputeDeadlinePassed": "The protection period ended on {date}.",
+    "disputeEvidenceFor": "Evidence that helps:",
+    "disputeEvidenceHints": {
+      "wrong_credentials": "a screenshot of the login page rejecting the password or asking for a 2FA code, with the line number (#01…) of the account.",
+      "checkpoint_locked": "a screenshot of the lock or checkpoint message on first login, with the line number.",
+      "wrong_description": "screenshots of what differs from the listing (country, friends, creation date…) and the matching part of the product page.",
+      "connection_failed": "a screenshot of the connection error, when you tried and the network or tool you used.",
+      "other": "screenshots and a short, clear description, with line numbers if it concerns specific accounts."
+    }
   },
   "wallet": {
     "available": "Available balance",

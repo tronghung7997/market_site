@@ -13,7 +13,7 @@ import { Button, Tag } from "@/components/ui";
 import { AlertTriangle, Eye, ShieldCheck, Star, Wallet } from "@/components/Icons";
 import OrderChatButton from "@/components/chat/OrderChatButton";
 import { parseCoverId, ProductCover } from "@/features/product-covers";
-import { orderAccentTone } from "../model";
+import { orderAccentTone, nameCarriesTerm } from "../model";
 import { CopyIconButton, DeliveryShortcuts, rowActions, type OrderActionHandlers } from "./OrderRowActions";
 import { DeadlineNote } from "./DeadlineNote";
 
@@ -46,7 +46,7 @@ export const BuyerOrderCard = memo(function BuyerOrderCard({
             onClick={() => handlers.onOpen(o)}
             className="font-mono text-[14px] font-bold text-iris hover:underline focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-iris rounded"
           >
-            #{o.order_code}
+            {o.order_code}
           </button>
           <CopyIconButton text={o.order_code} title={t("copyOrderCode")} className="h-7 w-7" size={13} />
         </div>
@@ -65,7 +65,7 @@ export const BuyerOrderCard = memo(function BuyerOrderCard({
             {o.product_title ?? tc("orderNumber", { id: o.order_code })}
           </h3>
           <div className="mt-1 flex flex-wrap items-center gap-x-2 gap-y-1 text-[12px] text-muted">
-            {o.variant_name && <span className="break-all">{t("packageNamed", { name: o.variant_name, ...termFor(o.service_type) })}</span>}
+            {o.variant_name && <span className="break-all">{nameCarriesTerm(o.variant_name, termFor(o.service_type).term) ? o.variant_name : t("packageNamed", { name: o.variant_name, ...termFor(o.service_type) })}</span>}
             <span className="font-mono font-medium text-fg">{tc("qty", { count: o.quantity })}</span>
           </div>
         </div>
@@ -98,37 +98,32 @@ export const BuyerOrderCard = memo(function BuyerOrderCard({
         </div>
       )}
 
-      <div className="mt-3 flex flex-wrap items-center gap-2">
+      {/* One next step, full width; everything else is a quieter second row. */}
+      <div className="mt-3 space-y-2">
         {a.canConfirm ? (
-          <Button size="sm" disabled={confirming} onClick={() => handlers.onConfirm(o)} className="min-h-[38px] flex-1 gap-1.5">
+          <Button size="sm" block disabled={confirming} onClick={() => handlers.onConfirm(o)} className="min-h-[40px] gap-1.5">
             <ShieldCheck size={14} /> {confirming ? t("confirming") : t("confirmReceived")}
           </Button>
-        ) : (
-          <Button size="sm" variant="secondary" onClick={() => handlers.onOpen(o)} className="min-h-[38px] flex-1 gap-1.5">
-            <Eye size={14} /> {a.hasData ? t("viewOrderDetails") : tb("detail")}
-          </Button>
-        )}
-        {a.hasData && <DeliveryShortcuts order={o} />}
-        {a.canReview && (
-          <Button size="sm" variant="secondary" onClick={() => handlers.onOpen(o, { tab: "review" })} className="min-h-[38px] gap-1.5">
+        ) : a.canReview ? (
+          <Button size="sm" block onClick={() => handlers.onOpen(o, { tab: "review" })} className="min-h-[40px] gap-1.5">
             <Star size={13} /> {t("review")}
           </Button>
-        )}
-        {a.refundHref && (
-          <Link href={a.refundHref}>
-            <Button size="sm" variant="secondary" className="min-h-[38px] gap-1.5"><Wallet size={13} /> {tb("viewRefund")}</Button>
+        ) : a.refundHref ? (
+          <Link href={a.refundHref} className="block">
+            <Button size="sm" block variant="secondary" className="min-h-[40px] gap-1.5"><Wallet size={13} /> {tb("viewRefund")}</Button>
           </Link>
-        )}
-        {a.canDispute && (
-          <Button size="sm" variant="secondary" onClick={() => handlers.onDispute(o)} className="min-h-[38px] gap-1.5 text-bad">
-            <AlertTriangle size={13} /> {t("openDispute")}
-          </Button>
-        )}
-        {a.canConfirm && (
+        ) : null}
+        <div className="flex flex-wrap items-center gap-1">
           <Button size="sm" variant="ghost" onClick={() => handlers.onOpen(o)} className="min-h-[38px] gap-1.5">
-            <Eye size={14} /> {tb("detail")}
+            <Eye size={14} /> {a.hasData ? t("viewOrderDetails") : tb("detail")}
           </Button>
-        )}
+          {a.hasData && <DeliveryShortcuts order={o} />}
+          {a.canDispute && (
+            <Button size="sm" variant="ghost" onClick={() => handlers.onDispute(o)} className="ml-auto min-h-[38px] gap-1.5 text-muted hover:text-bad">
+              <AlertTriangle size={13} /> {t("openDispute")}
+            </Button>
+          )}
+        </div>
       </div>
     </article>
   );

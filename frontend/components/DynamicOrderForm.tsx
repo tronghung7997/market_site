@@ -1,6 +1,7 @@
 "use client";
 
 import { useCallback, useEffect, useRef, useState } from "react";
+import { createPortal } from "react-dom";
 import { useRouter } from "next/navigation";
 import { usePathname } from "@/i18n/navigation";
 import { useLocale, useTranslations } from "next-intl";
@@ -12,13 +13,17 @@ import { MAX_ORDER_QUANTITY } from "@/lib/order-limits";
 import type { CalculateResult, Order, PricingField, PricingOptions, ProductDetail } from "@/lib/types";
 import { Banner, Button, Card, Input, Select, Tag, Textarea } from "@/components/ui";
 import { EscrowHelp } from "@/components/products/EscrowHelp";
-import { Info, Shield } from "@/components/Icons";
+import { Info, Shield, Wallet } from "@/components/Icons";
+import { ConfirmProduct, MoneyTimeline, PurchaseSteps, WalletShortfall, walletShortfall } from "@/features/checkout";
+import { useWalletBalance } from "@/hooks/use-wallet";
 import { cn } from "@/lib/cn";
 
 interface Props {
   productId: number;
   product: ProductDetail;
   onOrderCreated: (order: Order) => void;
+  /** The live total (null while unpriced), for the mobile buy bar. */
+  onTotalChange?: (amount: number | null) => void;
 }
 
 /** Vỏ phiếu đặt hàng — dùng chung cho các trạng thái CHƯA có form (đang tải,
@@ -35,7 +40,7 @@ function FormShell({ title, children }: { title: string; children: React.ReactNo
   );
 }
 
-export default function DynamicOrderForm({ productId, product, onOrderCreated }: Props) {
+export default function DynamicOrderForm({ productId, product, onOrderCreated, onTotalChange }: Props) {
   const router = useRouter();
   const pathname = usePathname();
   const { account } = useAuth();
@@ -59,6 +64,15 @@ export default function DynamicOrderForm({ productId, product, onOrderCreated }:
   const [placing, setPlacing] = useState(false);
   const [placeError, setPlaceError] = useState<string | null>(null);
   const [showConfirm, setShowConfirm] = useState(false);
+  // Read once the buyer opens the confirmation (the header chip shares the cache).
+  const wallet = useWalletBalance(!!account && showConfirm);
+
+  useEffect(() => {
+    if (!showConfirm) return;
+    const onKey = (e: KeyboardEvent) => { if (e.key === "Escape" && !placing) setShowConfirm(false); };
+    window.addEventListener("keydown", onKey);
+    return () => window.removeEventListener("keydown", onKey);
+  }, [showConfirm, placing]);
 
   // Fetch pricing options on mount.
   //
@@ -174,6 +188,10 @@ export default function DynamicOrderForm({ productId, product, onOrderCreated }:
   }, [apiErrorMessage, productId, options, isPoolProxy, isSingleUnit, t, locale]);
 
   useEffect(() => {
+    onTotalChange?.(calc && !calculating ? calc.amount : null);
+  }, [calc, calculating, onTotalChange]);
+
+  useEffect(() => {
     if (!options) return;
     if (debounceRef.current) clearTimeout(debounceRef.current);
     debounceRef.current = setTimeout(() => doCalculate(config, qty), 300);
@@ -235,6 +253,8 @@ export default function DynamicOrderForm({ productId, product, onOrderCreated }:
 
   const hasDiscount = calc && calc.discount_pct != null && calc.discount_pct > 0;
   const displayAmount = calc?.amount ?? 0;
+  const available = wallet.data?.available_balance ?? null;
+  const shortfall = walletShortfall(displayAmount, available);
 
   // Một số strategy (vd "config") khai báo sẵn field "quantity" trong
   // options.fields để giữ tương thích với các nơi khác dùng chung schema này
@@ -393,128 +413,109 @@ export default function DynamicOrderForm({ productId, product, onOrderCreated }:
         </div>
       </Card>
 
-      {/* Confirmation modal */}
-      {showConfirm && calc && (
-        <div className="fixed inset-0 z-50 flex items-center justify-center" onClick={() => setShowConfirm(false)}>
+      {/* Portalled: the sticky order column is its own stacking context, so an
+          inline overlay would sit under the page's sticky section tabs. */}
+      {showConfirm && calc && createPortal(
+        <div className="fixed inset-0 z-50 flex items-center justify-center" onClick={() => { if (!placing) setShowConfirm(false); }}>
           <div className="absolute inset-0 bg-black/40" />
           <div
-            className="relative w-full max-w-[400px] mx-4 bg-surface border border-line rounded-xl shadow-xl"
+            role="dialog" aria-modal="true" aria-label={t("confirmTitle")}
+            className="relative w-full max-w-[420px] mx-4 bg-surface border border-line rounded-xl shadow-xl"
             onClick={(e) => e.stopPropagation()}
           >
-            <div className="px-5 py-3 border-b border-line">
+            <div className="space-y-3 px-5 py-3 border-b border-line">
               <span className="text-[14px] font-semibold">{t("confirmTitle")}</span>
+              <PurchaseSteps current={2} />
             </div>
-            <div className="p-5 space-y-3 text-[13px]">
-              <div className="flex justify-between">
-                <span className="text-muted">{t("confirmProduct")}</span>
-                <span className="font-medium text-right max-w-[220px] truncate">{product.title}</span>
-              </div>
-              {isAutoDelivered ? (
-                <>
-                  {/* strategy "config" (Loại proxy/Nhà mạng/Thời hạn) — buyer
-                      thật sự chọn được, khác với "credit" (không có field
-                      nào ngoài số lượng luôn = 1). Hiện đúng lựa chọn của họ
-                      trước khi hiện các dòng mô tả giao hàng cố định bên
-                      dưới. */}
-                  {options.strategy === "config" && visibleFields.map((f) => {
-                    const val = config[f.field];
-                    let display = String(val ?? "—");
-                    if (f.choices) {
-                      const choice = f.choices.find((c) => String(c.value) === String(val));
-                      if (choice) display = choice.label;
-                    }
-                    return (
-                      <div key={f.field} className="flex justify-between">
-                        <span className="text-muted">{locale === "en" && t.has(`fields.${f.field}`) ? t(`fields.${f.field}`) : f.label}</span>
-                        <span className="font-medium">{display}</span>
-                      </div>
-                    );
-                  })}
-                  <div className="flex justify-between">
+            <div className="max-h-[calc(100dvh-12rem)] overflow-y-auto p-5 space-y-3 text-[13px]">
+              <ConfirmProduct product={product} />
+              <div className="space-y-3 border-t border-line pt-3">
+                {(isAutoDelivered ? (options.strategy === "config" ? visibleFields : []) : visibleFields).map((f) => {
+                  const val = config[f.field];
+                  let display = String(val ?? "—");
+                  if (f.choices) {
+                    const choice = f.choices.find((c) => String(c.value) === String(val));
+                    if (choice) display = choice.label;
+                  }
+                  return (
+                    <div key={f.field} className="flex justify-between gap-3">
+                      <span className="text-muted">{locale === "en" && t.has(`fields.${f.field}`) ? t(`fields.${f.field}`) : f.label}</span>
+                      <span className="font-medium text-right break-words min-w-0">{display}</span>
+                    </div>
+                  );
+                })}
+                {isAutoDelivered ? (
+                  <div className="flex justify-between gap-3">
                     <span className="text-muted">{t("confirmQty")}</span>
                     <span className="font-medium">{t("oneDedicatedProxy")}</span>
                   </div>
-                  <div className="flex justify-between">
-                    <span className="text-muted">{t("confirmDelivery")}</span>
-                    <span className="font-medium">{t("deliveryAutoSeconds")}</span>
+                ) : options.strategy !== "task" && !isCredit && (
+                  <div className="flex justify-between gap-3">
+                    <span className="text-muted">{t("confirmQty")}</span>
+                    <span className="font-medium">{qty}</span>
                   </div>
-                  {isPoolProxy && (
-                    <div className="flex justify-between">
-                      <span className="text-muted">{t("ipRotation")}</span>
-                      <span className="font-medium">{t("supported")}</span>
-                    </div>
-                  )}
-                  <div className="flex justify-between">
+                )}
+                {isPoolProxy && (
+                  <div className="flex justify-between gap-3">
+                    <span className="text-muted">{t("ipRotation")}</span>
+                    <span className="font-medium">{t("supported")}</span>
+                  </div>
+                )}
+                {isAutoDelivered && (
+                  <div className="flex justify-between gap-3">
                     <span className="text-muted">{t("viewProxyDetails")}</span>
-                    <span className="font-medium">{t("proxyDetailsWhere")}</span>
+                    <span className="font-medium text-right">{t("proxyDetailsWhere")}</span>
                   </div>
-                </>
-              ) : (
-                <>
-                  {/* Show user config summary */}
-                  {visibleFields.map((f) => {
-                    const val = config[f.field];
-                    let display = String(val ?? "—");
-                    if (f.choices) {
-                      const choice = f.choices.find((c) => String(c.value) === String(val));
-                      if (choice) display = choice.label;
-                    }
-                    return (
-                      <div key={f.field} className="flex justify-between">
-                        <span className="text-muted">{locale === "en" && t.has(`fields.${f.field}`) ? t(`fields.${f.field}`) : f.label}</span>
-                        <span className="font-medium">{display}</span>
-                      </div>
-                    );
-                  })}
-                  {options.strategy !== "task" && !isCredit && (
-                    <div className="flex justify-between">
-                      <span className="text-muted">{t("confirmQty")}</span>
-                      <span className="font-medium">{qty}</span>
-                    </div>
-                  )}
-                  <div className="flex justify-between">
-                    <span className="text-muted">{t("confirmDelivery")}</span>
-                    <span className="font-medium text-right max-w-[220px]">
-                      {options.strategy === "credit" ? t("deliveryGatewayKey") : options.strategy === "task" ? t("deliveryTaskResult") : t("deliveryAutoSeconds")}
-                    </span>
+                )}
+                {hasDiscount && calc.original_amount != null && (
+                  <div className="flex justify-between gap-3">
+                    <span className="text-muted">{t("originalPrice")}</span>
+                    <span className="text-faint line-through">{formatCheckoutMoney(calc.original_amount, { locale })}</span>
                   </div>
-                </>
-              )}
-              {hasDiscount && calc.original_amount != null && (
-                <div className="flex justify-between">
-                  <span className="text-muted">{t("originalPrice")}</span>
-                  <span className="text-faint line-through">{formatCheckoutMoney(calc.original_amount, { locale })}</span>
-                </div>
-              )}
-              {hasDiscount && (
-                <div className="flex justify-between">
-                  <span className="text-muted">{t("discount")}</span>
-                  <Tag tone="good">-{Math.round((calc.discount_pct ?? 0) * 100)}%</Tag>
-                </div>
-              )}
+                )}
+                {hasDiscount && (
+                  <div className="flex justify-between gap-3">
+                    <span className="text-muted">{t("discount")}</span>
+                    <Tag tone="good">-{Math.round((calc.discount_pct ?? 0) * 100)}%</Tag>
+                  </div>
+                )}
+              </div>
               <div className="border-t border-line pt-3 flex justify-between items-end">
                 <span className="text-muted">{t("total")}</span>
                 <span className="font-mono text-[18px] font-bold tabular text-iris-hi">{formatCheckoutMoney(displayAmount, { locale })}</span>
               </div>
-              <div className="flex items-start gap-2 px-3 py-2 rounded-md bg-good/5 border border-good/15 text-[12px] text-muted">
-                <Shield size={13} className="text-good mt-0.5 shrink-0" />
-                <span>{t("confirmEscrow", { days: product.escrow_days })}</span>
+              <div className="flex justify-between">
+                <span className="flex items-center gap-1.5 text-muted"><Wallet size={13} /> {t("walletBalance")}</span>
+                <span className="font-mono font-medium tabular">
+                  {available == null ? "—" : formatCheckoutMoney(available, { locale })}
+                </span>
               </div>
+              {shortfall > 0 ? (
+                <WalletShortfall shortfall={shortfall} returnPath={pathname} />
+              ) : (
+                <MoneyTimeline
+                  instant={options.strategy !== "task"}
+                  slaHours={24}
+                  escrowDays={product.escrow_days}
+                  deliverTitle={options.strategy === "credit" ? t("deliveryGatewayKey") : options.strategy === "task" ? t("deliveryTaskResult") : t("deliveryAutoSeconds")}
+                />
+              )}
               {isAutoDelivered && (
                 <p className="text-[11.5px] text-faint">{t("allocationRefundHint")}</p>
               )}
-              {placeError && <p className="text-bad text-[12.5px]">{placeError}</p>}
+              {placeError && <p role="alert" className="text-bad text-[12.5px]">{placeError}</p>}
             </div>
             <div className="flex gap-2 px-5 py-3 border-t border-line">
               <Button variant="secondary" block onClick={() => { setShowConfirm(false); setPlaceError(null); }} disabled={placing}>
                 {tc("cancel")}
               </Button>
-              <Button block disabled={placing} onClick={confirmBuy}>
-                {placing ? t("processing") : t("confirmBuy")}
+              <Button block disabled={placing || shortfall > 0} loading={placing} onClick={confirmBuy}>
+                {placing ? t("processing") : t("confirmBuyTotal", { amount: formatCheckoutMoney(displayAmount, { locale }) })}
               </Button>
             </div>
           </div>
-        </div>
+        </div>,
+        document.body,
       )}
     </>
   );

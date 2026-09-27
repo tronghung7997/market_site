@@ -159,10 +159,12 @@ export default function ProductTile({
             <div className="text-[13px] sm:text-[13.5px] font-medium leading-snug line-clamp-2 group-hover:text-iris-hi transition-colors">
               {p.title}
             </div>
+            {p.seller_name && <div className="mt-0.5 truncate text-[11.5px] text-muted">{p.seller_name}</div>}
             <div className="mt-1 flex items-center gap-x-2 gap-y-0.5 flex-wrap text-[11px] text-faint">
               {p.rating_avg != null && p.rating_count > 0 && (
                 <span className="flex items-center gap-0.5 text-muted font-medium">
                   <Star size={10} className="text-warn fill-warn" /> {p.rating_avg.toFixed(1)}
+                  <span className="text-faint">({p.rating_count})</span>
                 </span>
               )}
               {p.sold_count > 0 && <span>{t("sold", { count: p.sold_count })}</span>}

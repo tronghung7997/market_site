@@ -155,7 +155,7 @@ export function CategoryHubView({ initial }: { initial: CategoryHubCatalog }) {
             onChange={(e) => { isTypingRef.current = true; setQ(e.target.value); }}
             placeholder={t("searchAll")}
             aria-label={t("searchAll")}
-            className="h-10 w-full rounded-lg bg-surface border border-line pl-10 pr-9 text-sm text-fg placeholder:text-faint transition-colors focus:border-iris focus:ring-1 focus:ring-iris/30 focus:outline-none [&::-webkit-search-cancel-button]:hidden"
+            className="h-10 w-full rounded-lg bg-surface border border-line pl-10 pr-9 sm:pr-11 text-sm text-fg placeholder:text-placeholder text-ellipsis transition-colors focus:border-iris focus:ring-1 focus:ring-iris/30 focus:outline-none [&::-webkit-search-cancel-button]:hidden"
           />
           {q ? (
             <button

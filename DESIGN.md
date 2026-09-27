@@ -100,6 +100,7 @@ Page components consume semantic utilities or canonical component variants. They
 | Primary text | `fg` | Headings, values, important labels |
 | Secondary text | `muted` | Supporting copy that still matters |
 | Tertiary text | `faint` | Metadata only; must still pass contrast |
+| Placeholder | `placeholder` | Example text inside an empty field; lighter than `faint` so it never reads as a typed value |
 | Border | `line`, `line-2` | Quiet and strong hairlines |
 | Brand action | `iris`, `iris-hi`, `iris-soft` | Primary action, focus, selected/informational state |
 | Positive | `good`, `good-soft` | Paid, healthy, available, completed |

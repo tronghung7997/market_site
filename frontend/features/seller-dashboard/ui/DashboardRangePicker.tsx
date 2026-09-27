@@ -66,7 +66,7 @@ export function DashboardRangePicker({
         <div
           role="tablist"
           aria-label={t("rangeLabel")}
-          className="inline-flex items-center gap-0.5 rounded-lg border border-line bg-raised p-0.5"
+          className="inline-flex max-w-full items-center gap-0.5 overflow-x-auto rounded-lg border border-line bg-raised p-0.5"
         >
           {options.map((key) => {
             const selected = active === key;
@@ -86,7 +86,7 @@ export function DashboardRangePicker({
                   onChange({ range: key });
                 }}
                 className={cn(
-                  "h-7 rounded-md px-3 text-[12.5px] font-medium transition-colors",
+                  "h-7 shrink-0 whitespace-nowrap rounded-md px-3 text-[12.5px] font-medium transition-colors",
                   selected ? "bg-surface text-fg font-semibold shadow-xs" : "text-muted hover:text-fg",
                 )}
               >

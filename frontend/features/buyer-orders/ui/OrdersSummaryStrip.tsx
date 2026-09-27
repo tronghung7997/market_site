@@ -12,7 +12,7 @@ import { tabCount, type BuyerOrderTab } from "../model";
 const SEGMENTS: { tab: BuyerOrderTab; icon: typeof Inbox; tone: "bad" | "warn" | "iris" | "good" | "neutral" }[] = [
   { tab: "", icon: Inbox, tone: "neutral" },
   { tab: "awaiting_confirm", icon: ShieldCheck, tone: "warn" },
-  { tab: "active", icon: Clock, tone: "iris" },
+  { tab: "awaiting_seller", icon: Clock, tone: "iris" },
   { tab: "disputed", icon: AlertCircle, tone: "bad" },
   { tab: "deleted", icon: CheckCircle2, tone: "neutral" },
 ];
@@ -23,8 +23,8 @@ const TONE_TEXT = { bad: "text-bad", warn: "text-warn", iris: "text-iris-hi", go
 // corners and read as a misaligned box.
 const TONE_BAR = { bad: "after:bg-bad", warn: "after:bg-warn", iris: "after:bg-iris", good: "after:bg-good", neutral: "after:bg-fg" } as const;
 
-const TAB_KEY: Record<BuyerOrderTab, "all" | "active" | "awaiting_confirm" | "disputed" | "deleted"> = {
-  "": "all", active: "active", awaiting_confirm: "awaiting_confirm", disputed: "disputed", deleted: "deleted",
+const TAB_KEY: Record<BuyerOrderTab, "all" | "active" | "awaiting_seller" | "awaiting_confirm" | "disputed" | "deleted"> = {
+  "": "all", active: "active", awaiting_seller: "awaiting_seller", awaiting_confirm: "awaiting_confirm", disputed: "disputed", deleted: "deleted",
 };
 
 /** One segmented summary that doubles as the tab bar. Counts are account-wide
@@ -64,7 +64,7 @@ export function OrdersSummaryStrip({
               aria-selected={selected}
               onClick={() => onSelect(selected && tab !== "" ? "" : tab)}
               className={cn(
-                "relative flex flex-col gap-1 px-4 py-3 text-left transition-colors hover:bg-raised/60 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-inset focus-visible:ring-iris",
+                "relative flex flex-col gap-1 px-3 py-2.5 sm:px-4 sm:py-3 text-left transition-colors hover:bg-raised/60 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-inset focus-visible:ring-iris",
                 i > 0 && "border-t border-line sm:border-t-0 lg:border-l",
                 i % 2 === 1 && "border-l border-line sm:border-l-0",
                 i % 3 !== 0 && "sm:border-l sm:border-line",
@@ -75,15 +75,14 @@ export function OrdersSummaryStrip({
               <span className={cn("flex items-center gap-1.5 text-[11.5px] font-medium", muted ? "text-faint" : TONE_TEXT[tone])}>
                 <Icon size={13} /> {t(`tab.${TAB_KEY[tab]}`)}
               </span>
-              <span className={cn("font-mono text-[20px] font-semibold leading-none tabular", muted ? "text-faint" : "text-fg")}>
+              <span className={cn("font-mono text-[18px] sm:text-[20px] font-semibold leading-none tabular", muted ? "text-faint" : "text-fg")}>
                 {loading ? <span className="inline-block h-5 w-8 animate-pulse rounded bg-raised" /> : count?.toLocaleString()}
               </span>
-              <span className={cn("text-[11px]", urgent > 0 ? "font-semibold text-warn" : "text-faint")}>
+              {/* Phones keep only the urgent hint, so the list starts sooner. */}
+              <span className={cn("text-[11px]", urgent > 0 ? "font-semibold text-warn" : "hidden text-faint sm:block")}>
                 {tab === "awaiting_confirm"
                   ? (urgent > 0 ? awaitingHint(urgent) : t("awaitingNone"))
-                  : tab === "active" && stats?.awaiting_seller
-                    ? t("activeAwaitingSeller", { count: stats.awaiting_seller })
-                    : t(`hint.${TAB_KEY[tab]}`)}
+                  : t(`hint.${TAB_KEY[tab]}`)}
               </span>
             </button>
           );

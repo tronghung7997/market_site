@@ -18,6 +18,10 @@ import { Check, ChevronRight, Package, Search, Shield, ShieldCheck, Star, Verifi
 import StartSellerInquiryDialog from "@/components/chat/StartSellerInquiryDialog";
 import { ShopReviews } from "@/features/reviews";
 import { SellerPresence, TrustBadge } from "@/features/sellers";
+import { ProductCover, parseCoverId } from "@/features/product-covers";
+import { openHelpdesk } from "@/features/helpdesk";
+import { useAuth } from "@/lib/auth";
+import { Flag } from "@/components/Icons";
 import { filterShopProducts, isShopSort, SHOP_SORTS, type ShopSort } from "./shop-model";
 
 type StockState = "in_stock" | "manual" | "out_of_stock" | "auto";
@@ -50,10 +54,6 @@ const TILE_ACCENTS = [
   "bg-warn-soft text-warn border-warn/20",
   "bg-bad-soft text-bad border-bad/20",
 ];
-function tileAccent(id: number): string {
-  return TILE_ACCENTS[id % TILE_ACCENTS.length];
-}
-
 const TIER_KEYS = ["new", "verified", "trusted", "enterprise"] as const;
 
 /** Rendered by the server page with the seller, products and category tree
@@ -64,6 +64,9 @@ export default function SellerProfileView({ initial }: { initial: SellerPageCata
   const { formatBrowseMoney } = useMoney();
   const numberLocale = locale === "vi" ? "vi-VN" : "en-US";
   const { seller, products, categories } = initial;
+  const { account } = useAuth();
+  // The owner sees a way into the workspace, not a chat with themselves.
+  const ownShop = !!account?.public_key && account.public_key === seller?.public_key;
   const error = initial.error === "load" ? t("productsLoadError") : null;
   const [activeCategory, setActiveCategory] = useState<number | null>(null);
   const [query, setQuery] = useState("");
@@ -183,12 +186,27 @@ export default function SellerProfileView({ initial }: { initial: SellerPageCata
                 <TrustBadge seller={seller} />
                 <span className="inline-flex items-center gap-1 text-[12px] text-good"><Verified size={11} /> {t("approvedShop")}</span>
                 {seller.member_since && (
-                  <span className="text-[12px] text-faint">{t("memberSince", { date: formatDate(seller.member_since) })}</span>
+                  <span className="text-[12px] text-faint">{t("memberSince", { date: formatDate(seller.member_since, locale) })}</span>
                 )}
               </div>
               <SellerPresence seller={seller} className="mt-2" />
-              <div className="mt-3">
-                <StartSellerInquiryDialog sellerHref={sellerPath(seller)} sellerName={displayName} products={products} />
+              <div className="mt-3 flex flex-wrap items-center gap-2">
+                {ownShop ? (
+                  <Link href="/seller" className="inline-flex h-9 items-center gap-1.5 rounded-lg bg-iris px-3.5 text-[13px] font-medium text-white hover:brightness-110">
+                    {t("manageOwnShop")}
+                  </Link>
+                ) : (
+                  <>
+                    <StartSellerInquiryDialog sellerHref={sellerPath(seller)} sellerName={displayName} products={products} />
+                    <button
+                      type="button"
+                      onClick={() => openHelpdesk({ draft: t("reportDraft", { name: displayName, key: seller.public_key }) })}
+                      className="inline-flex h-9 items-center gap-1.5 rounded-lg px-2.5 text-[12.5px] font-medium text-muted hover:bg-raised hover:text-fg"
+                    >
+                      <Flag size={13} /> {t("reportShop")}
+                    </button>
+                  </>
+                )}
               </div>
             </div>
           </div>
@@ -278,7 +296,7 @@ export default function SellerProfileView({ initial }: { initial: SellerPageCata
                       onChange={(e) => setQuery(e.target.value)}
                       placeholder={t("searchInShop")}
                       aria-label={t("searchInShop")}
-                      className="h-9 w-full rounded-lg border border-line bg-surface pl-9 pr-3 text-[13px] placeholder:text-faint focus:border-iris focus:outline-none focus:ring-1 focus:ring-iris/30"
+                      className="h-9 w-full rounded-lg border border-line bg-surface pl-9 pr-3 text-[13px] placeholder:text-placeholder focus:border-iris focus:outline-none focus:ring-1 focus:ring-iris/30"
                     />
                   </div>
                   <label className="inline-flex h-9 shrink-0 items-center gap-2 rounded-lg border border-line bg-surface pl-3 pr-2 text-[12.5px] text-muted focus-within:border-iris">
@@ -320,19 +338,11 @@ export default function SellerProfileView({ initial }: { initial: SellerPageCata
                       <Card className="p-0 flex flex-col h-full overflow-hidden transition-all duration-150 group-hover:shadow-card-lg group-hover:-translate-y-0.5">
                         <div className="relative px-5 pt-5 pb-4">
                           <span
-                            className={`absolute top-3 right-3 rounded-full px-2 py-0.5 text-[10px] font-semibold uppercase tracking-wide ${STOCK_BADGE_CLASS[state]}`}
+                            className={`absolute top-3 right-3 rounded-md px-2 py-0.5 text-[11px] font-medium ${STOCK_BADGE_CLASS[state]}`}
                           >
                             {stockLabel(state)}
                           </span>
-                          {p.images?.cover ? (
-                            <MediaImage image={p.images.cover} alt="" className="h-11 w-11 shrink-0 rounded-lg border border-line" />
-                          ) : (
-                            <span
-                              className={`grid place-items-center h-11 w-11 shrink-0 rounded-lg border font-serif text-[15px] font-semibold ${tileAccent(p.id)}`}
-                            >
-                              {p.title.slice(0, 2).toUpperCase()}
-                            </span>
-                          )}
+                          <ProductCover coverId={parseCoverId(p)} image={p.images?.cover} title={p.title} className="h-11 w-11 shrink-0 rounded-lg" />
                           <div className="mt-3 min-w-0 pr-16">
                             <div className="font-medium text-[14px] leading-snug line-clamp-2">{p.title}</div>
                           </div>
@@ -354,7 +364,7 @@ export default function SellerProfileView({ initial }: { initial: SellerPageCata
                             </div>
                           </div>
                           <Tag tone="neutral">
-                            <Shield size={11} /> {t("escrowDays", { days: p.escrow_days })}
+                            <Shield size={11} /> {t("cardEscrow", { days: p.escrow_days })}
                           </Tag>
                         </div>
                       </Card>

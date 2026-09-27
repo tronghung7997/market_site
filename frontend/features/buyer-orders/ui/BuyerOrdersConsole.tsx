@@ -119,7 +119,7 @@ export function BuyerOrdersConsole() {
     onDispute: (order) => setDisputeTarget({
       order,
       variantName: order.variant_name,
-      initialReason: order.variant_name ? t("reasonPackagePrefix", { name: order.variant_name }) : "",
+      initialReason: "",
     }),
   }), [url, t]);
 

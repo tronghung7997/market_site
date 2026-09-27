@@ -484,7 +484,7 @@ export function CommandPalette({ open, onOpenChange }: { open: boolean; onOpenCh
               onKeyDown={onKeyDown}
               placeholder={placeholder}
               maxLength={80}
-              className="h-full min-w-0 flex-1 bg-transparent text-[15px] text-fg outline-none placeholder:text-faint"
+              className="h-full min-w-0 flex-1 bg-transparent text-[15px] text-fg outline-none placeholder:text-placeholder"
             />
             <Kbd className="hidden sm:inline-flex">esc</Kbd>
             <DialogPrimitive.Close

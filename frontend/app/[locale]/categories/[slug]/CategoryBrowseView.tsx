@@ -17,7 +17,7 @@ import { AlertCircle, Bolt, Check, ChevronDown, ChevronRight, Grid, ListFilter, 
 import { categoryCoverId, ProductCover } from "@/features/product-covers";
 import ProductTile from "@/components/ProductTile";
 import { ProductRow } from "@/components/products/ProductRow";
-import { browseQueryToListOpts, browsePage, BROWSE_PER_PAGE, CategoryRail, RATING_FILTERS, useCategoryProducts } from "@/features/catalog/client";
+import { browseKind, browseQueryToListOpts, browsePage, BROWSE_PER_PAGE, CategoryRail, DEFAULT_BROWSE_SORT, DELIVERY_KINDS, RATING_FILTERS, useCategoryProducts } from "@/features/catalog/client";
 import { MarkdownContent } from "@/components/MarkdownContent";
 import type { CategoryBrowseQuery } from "@/features/catalog/client";
 import type { CategoryPageCatalog } from "@/features/catalog";
@@ -55,9 +55,12 @@ export function CategoryBrowseView({
   // ---- URL state -------------------------------------------------------
   const readView = (): ViewMode => (searchParams?.get("view") === "grid" ? "grid" : "list");
   const [q, setQ] = useState(searchParams?.get("q") || "");
-  const [sort, setSort] = useState<string>(searchParams?.get("sort") || "newest");
+  const readKind = () => browseKind({ kind: searchParams?.get("kind") ?? undefined, instant: searchParams?.get("instant") ?? undefined }) ?? "";
+  const [sort, setSort] = useState<string>(searchParams?.get("sort") || DEFAULT_BROWSE_SORT);
   const [inStockOnly, setInStockOnly] = useState(searchParams?.get("stock") === "1");
-  const [instantOnly, setInstantOnly] = useState(searchParams?.get("instant") === "1");
+  const [kind, setKind] = useState<string>(readKind);
+  // Phones: the filter chips fold behind one "Lọc" button so products come first.
+  const [filtersOpen, setFiltersOpen] = useState(false);
   const [priceRange, setPriceRange] = useState<string>(searchParams?.get("price") || "all");
   const [customMin, setCustomMin] = useState(searchParams?.get("min") || "");
   const [customMax, setCustomMax] = useState(searchParams?.get("max") || "");
@@ -72,9 +75,9 @@ export function CategoryBrowseView({
   // Back/forward and external navigation: mirror the URL into state.
   useEffect(() => {
     if (!isTypingRef.current) setQ(searchParams?.get("q") || "");
-    setSort(searchParams?.get("sort") || "newest");
+    setSort(searchParams?.get("sort") || DEFAULT_BROWSE_SORT);
     setInStockOnly(searchParams?.get("stock") === "1");
-    setInstantOnly(searchParams?.get("instant") === "1");
+    setKind(readKind());
     setPriceRange(searchParams?.get("price") || "all");
     setCustomMin(searchParams?.get("min") || "");
     setCustomMax(searchParams?.get("max") || "");
@@ -94,7 +97,7 @@ export function CategoryBrowseView({
       const isDefault =
         val === null || val === "" ||
         (key === "page" && val === "1") || (key === "price" && val === "all") ||
-        (key === "view" && val === "list") || (key === "sort" && val === "newest");
+        (key === "view" && val === "list") || (key === "sort" && val === DEFAULT_BROWSE_SORT);
       if (isDefault) params.delete(key);
       else params.set(key, val);
     });
@@ -120,7 +123,7 @@ export function CategoryBrowseView({
   const subCat = subSlug ? children.find((c) => c.slug === subSlug) ?? null : null;
   const activeCat = subCat ?? category;
   const browseQuery: CategoryBrowseQuery = {
-    q, sort, stock: inStockOnly ? "1" : undefined, instant: instantOnly ? "1" : undefined,
+    q, sort, stock: inStockOnly ? "1" : undefined, kind: kind || undefined,
     price: priceRange, minVnd, maxVnd, rating, page: String(page),
   };
   const listOpts = browseQueryToListOpts(browseQuery, activeCat?.id ?? categoryId);
@@ -146,22 +149,22 @@ export function CategoryBrowseView({
   const handleResetFilters = () => {
     setQ("");
     setInStockOnly(false);
-    setInstantOnly(false);
+    setKind("");
     setPriceRange("all");
     setCustomMin("");
     setCustomMax("");
     setMinVnd("");
     setMaxVnd("");
     setRating("");
-    setSort("newest");
+    setSort(DEFAULT_BROWSE_SORT);
     setPage(1);
     setCustomOpen(false);
-    syncToUrl({ q: null, stock: null, instant: null, price: null, min: null, max: null, min_vnd: null, max_vnd: null, rating: null, sort: null, page: null });
+    syncToUrl({ q: null, stock: null, instant: null, kind: null, price: null, min: null, max: null, min_vnd: null, max_vnd: null, rating: null, sort: null, page: null });
   };
 
   const ratingActive = (RATING_FILTERS as readonly string[]).includes(rating);
   const activeFilterCount =
-    (q.trim() ? 1 : 0) + (inStockOnly ? 1 : 0) + (instantOnly ? 1 : 0) + (priceRange !== "all" ? 1 : 0) + (ratingActive ? 1 : 0);
+    (q.trim() ? 1 : 0) + (inStockOnly ? 1 : 0) + (kind ? 1 : 0) + (priceRange !== "all" ? 1 : 0) + (ratingActive ? 1 : 0);
   const hasActiveFilters = activeFilterCount > 0;
 
   const chip = (active: boolean, tone: "good" | "iris" = "iris") =>
@@ -236,6 +239,10 @@ export function CategoryBrowseView({
   const pageFrom = (validPage - 1) * perPage + 1;
   const pageTo = (validPage - 1) * perPage + products.length;
   const headline = activeCat ?? category;
+  // The header describes the category, so filters never change it.
+  const shelf = headline ? initial.shelfTotals[headline.id] : undefined;
+  const categoryTotal = shelf?.total ?? (activeFilterCount === 0 && list.data ? total : null);
+  const categoryPriceFrom = shelf?.price_from ?? null;
 
   return (
     <div className="w-full mx-auto max-w-[1200px] px-4 sm:px-6 py-5 sm:py-7">
@@ -269,7 +276,13 @@ export function CategoryBrowseView({
           </h1>
           {description && <p className="mt-1 max-w-[640px] text-[13.5px] leading-relaxed text-muted">{description}</p>}
           <div className="flex items-center gap-x-2 gap-y-1 flex-wrap text-[12.5px] text-muted mt-1">
-            <span>{t("sellingCount", { count: total })}</span>
+            {categoryTotal != null && <span>{t("sellingCount", { count: categoryTotal })}</span>}
+            {categoryPriceFrom != null && (
+              <>
+                <span className="text-faint" aria-hidden="true">·</span>
+                <span>{t("priceFromLabel", { price: formatBrowseMoney(categoryPriceFrom, { locale }) })}</span>
+              </>
+            )}
             <span className="text-faint" aria-hidden="true">·</span>
             <span className="text-good font-medium inline-flex items-center gap-1">
               <ShieldCheck size={13} /> {t("escrowProtected")}
@@ -296,7 +309,7 @@ export function CategoryBrowseView({
                   onChange={(e) => { isTypingRef.current = true; setQ(e.target.value); }}
                   placeholder={t("searchInCurrent", { name: headline.name })}
                   aria-label={t("searchInCurrent", { name: headline.name })}
-                  className="h-10 w-full rounded-lg bg-base border border-line pl-10 pr-9 text-sm text-fg placeholder:text-faint transition-colors focus:border-iris focus:ring-1 focus:ring-iris/30 focus:outline-none [&::-webkit-search-cancel-button]:hidden"
+                  className="h-10 w-full rounded-lg bg-base border border-line pl-10 pr-9 text-sm text-fg placeholder:text-placeholder transition-colors focus:border-iris focus:ring-1 focus:ring-iris/30 focus:outline-none [&::-webkit-search-cancel-button]:hidden"
                 />
                 {q && (
                   <button
@@ -351,7 +364,20 @@ export function CategoryBrowseView({
               </div>
             </div>
 
-            <div className="border-t border-line px-3 py-2.5 flex items-center gap-2 flex-wrap">
+            <button
+              type="button"
+              aria-expanded={filtersOpen}
+              aria-controls="category-filters"
+              onClick={() => setFiltersOpen((v) => !v)}
+              className="flex w-full items-center justify-between gap-2 border-t border-line px-3 h-11 text-[13px] font-medium text-fg md:hidden"
+            >
+              <span className="inline-flex items-center gap-1.5">
+                <ListFilter size={14} /> {t("filtersLabel")}
+                {activeFilterCount > 0 && <span className="rounded-md bg-iris-soft px-1.5 font-mono text-[11px] text-iris-hi">{activeFilterCount}</span>}
+              </span>
+              <ChevronRight size={14} className={`text-faint transition-transform ${filtersOpen ? "rotate-90" : ""}`} />
+            </button>
+            <div id="category-filters" className={`border-t border-line px-3 py-2.5 items-center gap-2 flex-wrap ${filtersOpen ? "flex" : "hidden"} md:flex`}>
               <span className="hidden sm:inline-flex items-center gap-1.5 text-[12px] font-medium text-faint pr-1">
                 <ListFilter size={13} />
                 {t("filtersLabel")}
@@ -370,20 +396,23 @@ export function CategoryBrowseView({
                 <Check size={13} className={inStockOnly ? "stroke-[2.5]" : "text-faint"} />
                 <span>{t("inStockOnly")}</span>
               </button>
-              <button
-                type="button"
-                aria-pressed={instantOnly}
-                onClick={() => {
-                  const next = !instantOnly;
-                  setInstantOnly(next);
-                  setPage(1);
-                  syncToUrl({ instant: next ? "1" : null, page: "1" });
-                }}
-                className={chip(instantOnly)}
-              >
-                <Bolt size={13} className={instantOnly ? "fill-iris-hi" : "text-faint"} />
-                <span>{t("instantOnly")}</span>
-              </button>
+              <label className={`${chip(!!kind)} pr-1.5`}>
+                <Bolt size={13} className={kind ? "fill-iris-hi" : "text-faint"} />
+                <span className="sr-only">{t("deliveryKindLabel")}</span>
+                <select
+                  value={kind}
+                  onChange={(e) => {
+                    setKind(e.target.value);
+                    setPage(1);
+                    syncToUrl({ kind: e.target.value || null, instant: null, page: "1" });
+                  }}
+                  aria-label={t("deliveryKindLabel")}
+                  className="h-full bg-transparent pr-1 font-medium focus:outline-none cursor-pointer"
+                >
+                  <option value="">{t("deliveryKindAll")}</option>
+                  {DELIVERY_KINDS.map((k) => <option key={k} value={k}>{t(`deliveryKind.${k}`)}</option>)}
+                </select>
+              </label>
 
               <span className="hidden sm:block h-5 w-px bg-line mx-1" aria-hidden="true" />
 
@@ -443,14 +472,14 @@ export function CategoryBrowseView({
                   <input
                     type="number" min="0" step={currency === "USD" ? "0.1" : "1000"} inputMode="decimal"
                     placeholder={t("priceMin")} value={customMin} onChange={(e) => setCustomMin(e.target.value)}
-                    className="w-24 h-9 px-2.5 rounded-lg bg-base border border-line text-fg font-mono tabular text-[13px] placeholder:text-faint placeholder:font-sans focus:outline-none focus:border-iris"
+                    className="w-24 h-9 px-2.5 rounded-lg bg-base border border-line text-fg font-mono tabular text-[13px] placeholder:text-placeholder placeholder:font-sans focus:outline-none focus:border-iris"
                     aria-label={t("priceMin")}
                   />
                   <span className="text-faint">–</span>
                   <input
                     type="number" min="0" step={currency === "USD" ? "0.1" : "1000"} inputMode="decimal"
                     placeholder={t("priceMax")} value={customMax} onChange={(e) => setCustomMax(e.target.value)}
-                    className="w-24 h-9 px-2.5 rounded-lg bg-base border border-line text-fg font-mono tabular text-[13px] placeholder:text-faint placeholder:font-sans focus:outline-none focus:border-iris"
+                    className="w-24 h-9 px-2.5 rounded-lg bg-base border border-line text-fg font-mono tabular text-[13px] placeholder:text-placeholder placeholder:font-sans focus:outline-none focus:border-iris"
                     aria-label={t("priceMax")}
                   />
                   <span className="text-[12px] text-faint font-mono">{currency === "USD" ? "$" : "₫"}</span>

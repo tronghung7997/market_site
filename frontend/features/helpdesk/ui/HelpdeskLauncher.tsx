@@ -55,6 +55,21 @@ export function HelpdeskLauncher() {
     setOpen(false);
   }, [pathname]);
 
+  // Phones: the round button sits over content, so it tucks away while the
+  // reader scrolls down and comes back on the way up (or near the top).
+  const [tucked, setTucked] = useState(false);
+  useEffect(() => {
+    let last = window.scrollY;
+    const onScroll = () => {
+      const y = window.scrollY;
+      if (Math.abs(y - last) < 8) return;
+      setTucked(y > last && y > 160);
+      last = y;
+    };
+    window.addEventListener("scroll", onScroll, { passive: true });
+    return () => window.removeEventListener("scroll", onScroll);
+  }, []);
+
   useEffect(() => {
     const onOpen = (event: Event) => {
       const detail = (event as CustomEvent<HelpdeskOpenDetail>).detail ?? {};
@@ -158,6 +173,8 @@ export function HelpdeskLauncher() {
         className={cn(
           "fixed right-4 z-40 grid h-13 w-13 place-items-center rounded-full bg-iris text-white shadow-card-lg transition hover:brightness-110 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-iris focus-visible:ring-offset-2 sm:right-5",
           launcherRaised(pathname) ? "bottom-24 sm:bottom-5" : "bottom-4 sm:bottom-5",
+          "duration-200 motion-reduce:transition-none",
+          tucked && !open && unread === 0 && "max-sm:pointer-events-none max-sm:translate-y-24 max-sm:opacity-0",
           open && "max-sm:hidden",
         )}
       >
@@ -356,7 +373,7 @@ function HelpdeskThread({ role, isSeller, initialDraft }: { role: HelpdeskRole; 
             maxLength={4000}
             aria-label={t("input")}
             placeholder={t("input")}
-            className="max-h-28 min-h-[34px] flex-1 resize-none bg-transparent py-1.5 text-[13px] outline-none placeholder:text-faint"
+            className="max-h-28 min-h-[34px] flex-1 resize-none bg-transparent py-1.5 text-[13px] outline-none placeholder:text-placeholder"
           />
           <Button
             type="submit"

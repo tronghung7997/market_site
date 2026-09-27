@@ -29,4 +29,17 @@ describe("category browse query", () => {
     assert.equal(params.get("min_rating"), "4");
     assert.equal(params.get("page"), "2");
   });
+
+  it("filters by the delivery kind a card is tagged with; old instant links still work", () => {
+    assert.equal(listOptsToSearchParams(browseQueryToListOpts({ kind: "sla" }, 1)).get("fulfillment"), "sla");
+    assert.equal(listOptsToSearchParams(browseQueryToListOpts({ kind: "proxy" }, 1)).get("fulfillment"), "proxy");
+    assert.equal(listOptsToSearchParams(browseQueryToListOpts({ instant: "1" }, 1)).get("fulfillment"), "instant");
+    assert.equal(listOptsToSearchParams(browseQueryToListOpts({ kind: "bogus" }, 1)).has("fulfillment"), false);
+  });
+
+  it("lists best sellers first unless another order is picked", () => {
+    assert.equal(browseQueryToListOpts({}, 1).sort, "bestseller");
+    assert.equal(browseQueryToListOpts({ sort: "newest" }, 1).sort, "newest");
+    assert.equal(browseQueryToListOpts({ sort: "nope" }, 1).sort, "bestseller");
+  });
 });

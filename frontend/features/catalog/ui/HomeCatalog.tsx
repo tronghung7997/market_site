@@ -1,6 +1,6 @@
 "use client";
 
-import { Link } from "@/i18n/navigation";
+import { Link, useRouter } from "@/i18n/navigation";
 import { useSearchParams } from "next/navigation";
 import { Suspense, useEffect, useMemo, useState } from "react";
 import { useTranslations } from "next-intl";
@@ -11,14 +11,16 @@ import { useAuth } from "@/lib/auth";
 import type { Order } from "@/lib/types";
 import { stockRank } from "@/lib/stock";
 import { Button, Spinner } from "@/components/ui";
-import { ArrowRight, Check } from "@/components/Icons";
+import { ArrowRight, Check, Search } from "@/components/Icons";
+import { HomeGuides } from "@/features/blog";
+import { categoryPath } from "@/lib/routes";
 import { PriceBoard } from "@/components/home/PriceBoard";
 import { MarketSection } from "@/components/home/MarketSection";
 import { FeaturedSection } from "@/components/home/FeaturedSection";
 import { CategoriesSection } from "@/components/home/CategoriesSection";
 import { RecentOrders, TrustedSellers } from "@/components/home/CommunitySections";
-import { CtaBanner, FaqSection, HowItWorks, WhyUs } from "@/components/home/StaticSections";
-import { AwaitingOrdersBanner, LatestReviews, MarketStatsStrip, SafeTrading } from "./HomeTrust";
+import { CtaBanner, FaqSection, HowItWorks } from "@/components/home/StaticSections";
+import { AwaitingOrdersBanner, LatestReviews, SafeTrading } from "./HomeTrust";
 import type { HomeCatalog } from "../data/load-public";
 
 export function HomeCatalogView({ initial }: { initial: HomeCatalog }) {
@@ -42,6 +44,9 @@ function HomeInner({ initial }: { initial: HomeCatalog }) {
   const error = initial.error ? common("errorGeneric") : null;
   const [active, setActive] = useState<number | null>(null);
   const [recentOrders, setRecentOrders] = useState<Order[]>([]);
+  const [query, setQuery] = useState("");
+  const router = useRouter();
+  const isSeller = !!account?.roles.includes("seller");
 
   useEffect(() => {
     if (!account) { setRecentOrders([]); return; }
@@ -66,13 +71,33 @@ function HomeInner({ initial }: { initial: HomeCatalog }) {
     );
   };
 
+  const categoryPriceFrom = (categoryId: number) => {
+    if (!initial.summary) return null;
+    const category = flatCats.find((item) => item.id === categoryId);
+    const ids = new Set(category ? subtreeIds(category) : [categoryId]);
+    const prices = initial.summary.category_counts
+      .filter((row) => ids.has(row.category_id) && row.price_from != null)
+      .map((row) => row.price_from as number);
+    return prices.length ? Math.min(...prices) : null;
+  };
+
   // Most available first, then best sellers — no exact stock numbers on the storefront.
   const featured = [...products]
     .sort((a, b) => stockRank(b.variants) - stockRank(a.variants) || b.sold_count - a.sold_count)
     .slice(0, 3);
 
+  // The busiest categories double as "people look for" shortcuts under the search.
+  const popular = [...flatCats]
+    .filter((c) => c.parent_id == null)
+    .map((c) => ({ c, count: categoryCount(c.id) ?? 0 }))
+    .filter((x) => x.count > 0)
+    .sort((a, b) => b.count - a.count)
+    .slice(0, 4)
+    .map((x) => x.c);
+
   return (
     <div>
+      <AwaitingOrdersBanner />
       <section className="aura border-b border-line">
         <div className="w-full mx-auto max-w-[1200px] px-6 pt-8 pb-9 lg:pt-10 lg:pb-11 grid lg:grid-cols-[1.05fr_0.95fr] gap-8 items-center">
           <div>
@@ -90,9 +115,47 @@ function HomeInner({ initial }: { initial: HomeCatalog }) {
                 </span>
               ))}
             </div>
-            <div className="mt-7 flex flex-wrap gap-3">
+            <form
+              role="search"
+              className="mt-6 flex max-w-lg gap-2"
+              onSubmit={(e) => {
+                e.preventDefault();
+                const q = query.trim();
+                router.push(q ? `/search?q=${encodeURIComponent(q)}` : "/search");
+              }}
+            >
+              <label className="relative min-w-0 flex-1">
+                <span className="sr-only">{t("heroSearchLabel")}</span>
+                <Search size={16} className="pointer-events-none absolute left-3 top-1/2 -translate-y-1/2 text-faint" />
+                <input
+                  type="search"
+                  value={query}
+                  onChange={(e) => setQuery(e.target.value)}
+                  placeholder={t("heroSearchPlaceholder")}
+                  className="h-11 w-full rounded-lg border border-line-2 bg-surface pl-9 pr-3 text-[14px] text-fg placeholder:text-placeholder focus:border-iris focus:outline-none focus:ring-2 focus:ring-iris/20"
+                />
+              </label>
+              <Button type="submit" size="lg" className="shrink-0">{t("heroSearchButton")}</Button>
+            </form>
+            {popular.length > 0 && (
+              <p className="mt-2.5 flex flex-wrap items-center gap-x-2 gap-y-1.5 text-[12.5px] text-muted">
+                <span>{t("heroPopular")}</span>
+                {popular.map((c) => (
+                  <Link key={c.id} href={categoryPath(c)} className="rounded-md border border-line bg-surface px-2 py-0.5 text-fg hover:border-iris/40 hover:text-iris-hi">
+                    {c.name}
+                  </Link>
+                ))}
+              </p>
+            )}
+            <div className="mt-6 flex flex-wrap gap-3">
               <Link href="#market"><Button size="lg">{t("explore")} <ArrowRight size={16} /></Button></Link>
-              <Link href="/register"><Button size="lg" variant="secondary">{t("openBusiness")}</Button></Link>
+              {!account ? (
+                <Link href="/register"><Button size="lg" variant="secondary">{t("openBusiness")}</Button></Link>
+              ) : isSeller ? (
+                <Link href="/seller"><Button size="lg" variant="secondary">{t("heroSellerWorkspace")}</Button></Link>
+              ) : (
+                <Link href="/sell"><Button size="lg" variant="secondary">{t("heroOpenShop")}</Button></Link>
+              )}
             </div>
           </div>
 
@@ -100,14 +163,12 @@ function HomeInner({ initial }: { initial: HomeCatalog }) {
         </div>
       </section>
 
-      <AwaitingOrdersBanner />
-      <MarketStatsStrip stats={initial.stats} />
-
       <FeaturedSection featured={featured} catName={catName} minPrice={minPrice} />
 
       <CategoriesSection
         cats={cats}
         countFor={categoryCount}
+        priceFor={categoryPriceFrom}
         onBrowse={(id) => {
           setActive(id);
           document.getElementById("market")?.scrollIntoView({ behavior: "smooth", block: "start" });
@@ -131,11 +192,11 @@ function HomeInner({ initial }: { initial: HomeCatalog }) {
       <TrustedSellers sellers={initial.topSellers} />
       {account && <RecentOrders orders={recentOrders} />}
       <HowItWorks />
-      <WhyUs />
+      <HomeGuides />
       <LatestReviews reviews={initial.latestReviews} />
       <SafeTrading />
       <FaqSection />
-      <CtaBanner />
+      {!isSeller && <CtaBanner />}
     </div>
   );
 }

@@ -1,9 +1,9 @@
 {
   "metadata": {
-    "title": "GMMO — Digital accounts and data marketplace for business",
-    "description": "A marketplace for verified digital accounts, proxies, and data for business. Secure escrow and instant delivery.",
+    "title": "GMMO — Marketplace for accounts, proxies and digital services",
+    "description": "Buy social media and email accounts, proxies and API services from shops reviewed by GMMO. In-stock packages deliver instantly, and your money stays in escrow until you confirm.",
     "categoriesTitle": "Categories — GMMO",
-    "categoriesDescription": "Browse digital account, proxy, and data categories.",
+    "categoriesDescription": "Browse social media and email account, proxy and API service categories.",
     "categoryTitle": "{name} — GMMO",
     "categoryDescription": "Products in {name}.",
     "productTitle": "{title} — GMMO",
@@ -13,7 +13,16 @@
     "supportTitle": "Help center — GMMO",
     "supportDescription": "Answers about orders, top-ups, escrow, disputes and selling on GMMO, and where to go when something goes wrong.",
     "sellTitle": "Sell on GMMO — open a shop",
-    "sellDescription": "Open a reviewed shop for digital accounts, proxies or API access. Automatic delivery, escrow-protected payments, clear fees and payouts."
+    "sellDescription": "Open a reviewed shop for digital accounts, proxies or API access. Automatic delivery, escrow-protected payments, clear fees and payouts.",
+    "private": {
+      "orders": "Orders",
+      "wallet": "Wallet",
+      "transactions": "Balance history",
+      "messages": "Messages",
+      "seller": "Seller workspace",
+      "account": "Account",
+      "notifications": "Notifications"
+    }
   },
   "nav": {
     "promo": "Money stays in escrow until you confirm · In-stock packages deliver automatically · Help right inside the order",
@@ -28,7 +37,7 @@
     "orders": "Orders",
     "transactions": "Transactions",
     "wallet": "Wallet",
-    "affiliate": "Affiliate",
+    "affiliate": "Refer friends",
     "security": "Account security",
     "account": "My account",
     "seller": "Seller portal",
@@ -82,9 +91,9 @@
     "noRatingYet": "No ratings yet",
     "escrowDays": "{count}-day escrow",
     "loadMore": "Load more ({count} remaining)",
-    "heroTitle": "Digital accounts & data,",
-    "heroEmphasis": "delivered fast for business.",
-    "heroDescription": "Social accounts, proxies and API access from reviewed shops — in-stock packages deliver instantly and your money stays in escrow until you confirm.",
+    "heroTitle": "Accounts, proxies and APIs,",
+    "heroEmphasis": "from shops we have reviewed.",
+    "heroDescription": "Facebook, TikTok and email accounts, proxies and API services — in-stock packages deliver instantly, and your money stays in escrow until you confirm you got what you paid for.",
     "instant": "Instant automated delivery",
     "escrow": "Buyer-protected escrow",
     "support": "Disputes handled in the order",
@@ -125,23 +134,13 @@
     "collapse": "Show less",
     "viewAllProducts": "View all {count} products",
     "howTitle": "How it works",
-    "howSubtitle": "Get your order safely in three steps",
-    "howStep1Title": "Choose a product",
-    "howStep1Desc": "Browse categories, compare prices, and select the package that fits your needs.",
-    "howStep2Title": "Pay into escrow",
-    "howStep2Desc": "Your payment stays protected in escrow until you confirm delivery.",
-    "howStep3Title": "Receive and confirm",
-    "howStep3Desc": "Check the product and confirm completion — funds are released to the seller.",
-    "whyTitle": "Why choose us",
-    "whySubtitle": "A marketplace designed for trust",
-    "whyEscrowTitle": "Protected escrow",
-    "whyEscrowDesc": "Funds are protected and released only after the buyer confirms.",
-    "whyDeliveryTitle": "Instant delivery",
-    "whyDeliveryDesc": "Automated products are delivered right after payment.",
-    "whyVerifiedTitle": "Reviewed shops",
-    "whyVerifiedDesc": "Every shop is reviewed by GMMO before it can list products, and can be removed for breaking the rules.",
-    "whySupportTitle": "Disputes with a referee",
-    "whySupportDesc": "Report a problem from the order. If you and the shop disagree, ask GMMO to review while the money stays held.",
+    "howSubtitle": "First purchase? Three steps to receive safely",
+    "howStep1Title": "Top up or pick a package",
+    "howStep1Desc": "Top up by VietQR or USDT; the wallet is credited automatically. Or pick a package first and top up exactly what is missing.",
+    "howStep2Title": "Buy — money goes into escrow",
+    "howStep2Desc": "The shop is not paid until you confirm or the protection period ends.",
+    "howStep3Title": "Check within the protection period",
+    "howStep3Desc": "If something is wrong, open a dispute in the order; if it works, confirm to complete.",
     "faqTitle": "Frequently asked questions",
     "faqSubtitle": "Quick answers to common questions",
     "faq1Q": "How does escrow work?",
@@ -149,7 +148,7 @@
     "faq2Q": "Can I request a refund?",
     "faq2A": "Yes. While the order's protection time is running — it is shown on the product and in the order — open a dispute if the goods do not match the description. A refund goes back to your wallet.",
     "faq3Q": "What is instant automated delivery?",
-    "faq3A": "Some products are configured for automatic delivery. Once payment succeeds, you receive the account information or data without waiting for manual processing.",
+    "faq3A": "Some products are configured for automatic delivery. Once payment succeeds, you receive the account, proxy or API details without waiting for the seller to process the order.",
     "faq4Q": "How do I become a seller?",
     "faq4A": "Create an account, submit a store application with your store and contact details, and wait for approval. Once approved, you can publish products and start selling.",
     "faq5Q": "Which payment methods are supported?",
@@ -190,11 +189,6 @@
     "inStockShort": "In stock",
     "lowStock": "Low stock",
     "faqMore": "More answers in the Help center",
-    "statsLabel": "GMMO at a glance",
-    "statProducts": "{count, plural, one {product on sale} other {products on sale}}",
-    "statSellers": "{count, plural, one {shop selling} other {shops selling}}",
-    "statOrders": "{count, plural, one {completed order} other {completed orders}}",
-    "statRating": "average from {count, plural, one {# review} other {# reviews}}",
     "reviewsTitle": "Latest reviews",
     "reviewsSubtitle": "Written by buyers after their orders",
     "reviewPurchased": "Purchased",
@@ -210,7 +204,28 @@
     "escrowPolicy": "Escrow policy",
     "awaitingTitle": "{count, plural, one {# delivered order is waiting for you to check it} other {# delivered orders are waiting for you to check them}}",
     "awaitingBody": "Confirm or open a dispute before the protection time ends — after that the order completes on its own.",
-    "awaitingAction": "Review orders"
+    "awaitingAction": "Review orders",
+    "heroSearchLabel": "Search GMMO",
+    "heroSearchPlaceholder": "What do you need? e.g. Vietnam proxy, ad account…",
+    "heroSearchButton": "Search",
+    "heroPopular": "Popular:",
+    "heroSellerWorkspace": "Seller workspace",
+    "heroOpenShop": "Open a shop",
+    "awaitingOrder": "{code} delivered — {left} to check it",
+    "awaitingOthers": "Plus {count} more waiting for you. Without a dispute, orders complete when the time runs out.",
+    "awaitingOpenOrder": "Open order",
+    "howGuide": "Read the buying guide",
+    "guidesTitle": "Guides & news",
+    "guidesSubtitle": "How to buy, top up and use what you bought safely",
+    "guidesAll": "All posts",
+    "priceFrom": "from {price}",
+    "replyBand": {
+      "15m": "replies in ~15 min",
+      "1h": "replies in ~1 h",
+      "6h": "replies within hours",
+      "24h": "replies within a day",
+      "slow": "slow to reply"
+    }
   },
   "footer": {
     "escrow": "Buyer-protected escrow",
@@ -408,7 +423,6 @@
     "responded": "Responded",
     "awaitingResponse": "Awaiting response",
     "disputeFallbackReason": "The buyer requested a review",
-    "escrowUntilShort": "Warranty until: {date}",
     "viewDisputeResponse": "View response",
     "accepting": "Accepting…",
     "paginationOrders": "Showing {from}–{to} of {total} orders",
@@ -441,7 +455,6 @@
     "totalPayment": "Total payment:",
     "createdTime": "Created:",
     "variantAndQuantity": "{Term} & quantity:",
-    "escrowDuration": "Escrow hold:",
     "orderProgress": "Order progress:",
     "deliveredLines": "Delivered data ({count} lines):",
     "downloadTxt": "Download TXT",
@@ -449,7 +462,6 @@
     "moreDeliveredLines": "…and {count} more lines. Download the TXT file to view all.",
     "allocatedResources": "Automatically allocated resources ({count} items):",
     "downloadAll": "Download all",
-    "availableStatus": "Available",
     "disputedOrderTitle": "This order is disputed",
     "disputedOrderHint": "Review the claim and respond to the administrator",
     "waitingDeliveryTitle": "This order is awaiting delivery",
@@ -466,18 +478,14 @@
     "evidenceFieldServerIp": "Server IP / host",
     "evidenceFieldTransactionId": "Transaction ID",
     "withdrawTitle": "Withdraw funds",
-    "withdrawMinRule": "Minimum {min} per withdrawal.",
     "withdrawFeeRule": "Withdrawal fee: {fixed} + {percent}% of the amount, deducted from the payout.",
-    "withdrawNetPreview": "Fee {fee} — you receive {net}.",
     "withdrawBelowMin": "Minimum withdrawal is {min} (the payout after fees must be above 0).",
     "withdrawHistoryNet": "fee {fee} · payout {net}",
     "withdrawSubtitle": "Funds are locked as soon as you submit a request and sent after an administrator approves it.",
     "availableBalance": "Available balance",
     "lockedPending": "{amount} is locked pending approval and cannot be withdrawn yet.",
     "submitWithdrawal": "Submit a withdrawal request",
-    "bankName": "Receiving bank (e.g. Vietcombank)",
     "bankAccount": "Account number",
-    "accountHolder": "Account holder (exact bank name)",
     "withdrawAmount": "Withdrawal amount",
     "withdrawMaximum": "Withdraw maximum",
     "submittingWithdraw": "Submitting…",
@@ -506,7 +514,7 @@
     "orderJustNow": "Just ordered",
     "orderHoursAgo": "{count} hours ago",
     "orderDaysAgo": "{count} days ago",
-    "orderNumber": "Order #{id}",
+    "orderNumber": "Order {id}",
     "quantity": "Qty {count}",
     "orderHintPending": "New order — accept it to begin preparing the buyer's item.",
     "orderHintProcessing": "Order accepted — deliver it when preparation is complete.",
@@ -663,11 +671,11 @@
     "baseUrlLabel": "Server address",
     "baseUrlHint": "Example: https://api.your-company.com",
     "baseUrlPlaceholder": "https://api.your-company.com",
-    "apiKeyCreateLabel": "Server key — Proxora uses this to call you",
+    "apiKeyCreateLabel": "Server key — GMMO uses this to call you",
     "apiKeyCreateHint": "Copy the key from your server and paste it here. It is encrypted at rest.",
     "apiKeyCreatePlaceholder": "Paste your server key",
     "webhookCreateLabel": "Secret used to report the job is done",
-    "webhookCreateHint": "Create a secret and set the same value on your server. Proxora uses it to know the report is yours.",
+    "webhookCreateHint": "Create a secret and set the same value on your server. GMMO uses it to know the report is yours.",
     "webhookCreatePlaceholder": "Create your own secret string",
     "nonStandardDetails": "Non-standard API paths? Add custom endpoints",
     "roadmapAria": "Connection roadmap",
@@ -679,25 +687,25 @@
     "roadmap2Desc": "The marketplace tries calling your backend the same way a buyer order would.",
     "roadmap3Title": "Admin review",
     "roadmap3Desc": "Once approved, attach the backend to your products.",
-    "buyerKeyNote": "Buyers use a Proxora key. They never see your server address or server key.",
+    "buyerKeyNote": "Buyers use a GMMO key. They never see your server address or server key.",
     "tierRequiredTitle": "Upgrade to {tier} required",
     "tierRequiredProviders": "Self-registered backends are available for {tier} sellers and above. Your current tier: {current}. Contact an administrator to request an upgrade.",
     "integrationsTitle": "Connect your server",
     "integrationsSubtitle": "Only needed if you already run a server. Save a draft, check it, then send it for review.",
     "createIntegration": "Connect server",
     "editIntegration": "Edit connection draft",
-    "integrationFormIntro": "Choose how the buyer receives the service. Proxora will try calling your server before an admin reviews it.",
+    "integrationFormIntro": "Choose how the buyer receives the service. GMMO will try calling your server before an admin reviews it.",
     "chooseIntegrationType": "How does the buyer get the result?",
     "chooseIntegrationTypeHint": "Pick what your server actually does. That decides which products you can sell.",
     "apiIntegration": "Buyer calls an API",
-    "apiIntegrationDesc": "The buyer gets a Proxora key and calls your commands. Your real URL and key stay private.",
+    "apiIntegrationDesc": "The buyer gets a GMMO key and calls your commands. Your real URL and key stay private.",
     "taskIntegration": "Buyer submits a job",
-    "taskIntegrationDesc": "Proxora sends the job to your server. Your server reports back when it is done.",
+    "taskIntegrationDesc": "GMMO sends the job to your server. Your server reports back when it is done.",
     "gatewayContractTitle": "Your server answers each command",
     "gatewayContractBody": "Your server must answer a liveness check and the commands you allow buyers to call. Example: search → /v1/search.",
-    "gatewayBuyerResult": "After payment, the buyer gets a Proxora key — not your server key.",
+    "gatewayBuyerResult": "After payment, the buyer gets a GMMO key — not your server key.",
     "taskContractTitle": "Your server takes the job and reports done",
-    "taskContractBody": "Your server accepts the job, processes it, then uses a secret to say it is finished. When finished, your server calls the address Proxora gives you.",
+    "taskContractBody": "Your server accepts the job, processes it, then uses a secret to say it is finished. When finished, your server calls the address GMMO gives you.",
     "taskBuyerResult": "The buyer follows progress and gets the result later. It is never shown as instant delivery.",
     "callbackEndpointLabel": "Address your server calls when the job is done",
     "connectionDetails": "Connection details",
@@ -712,7 +720,7 @@
     "saveConnectionTitle": "Save the draft",
     "saveConnectionBody": "Check the address, key, and commands before you run the check.",
     "testConnectionTitle": "Check the connection",
-    "testConnectionBody": "Proxora asks whether your server is up. For jobs, it also sends one test job.",
+    "testConnectionBody": "GMMO asks whether your server is up. For jobs, it also sends one test job.",
     "submitReviewTitle": "Submit for review",
     "submitReviewBody": "Submission unlocks only after every required test passes.",
     "contractTestPassed": "Your server answered correctly",
@@ -759,7 +767,7 @@
       "productName": "Product name *",
       "category": "Category *",
       "serviceType": "Service type",
-      "escrowDays": "Escrow warranty period (days)",
+      "escrowDays": "Buyer protection (days)",
       "highlight": "Highlight",
       "highlightHint": "A short promise shown near the product title",
       "highlightPlaceholder": "e.g. Instant delivery · 24-hour warranty",
@@ -844,8 +852,8 @@
       "cannotBuyNoPackage": "UNAVAILABLE — NO PACKAGE",
       "stockAvailable": "{count} available",
       "outOfStockSellerHint": "Add inventory before publishing this instant-delivery package.",
-      "escrowProtected": "Protected by Proxora Escrow for {days} days.",
-      "escrowNone": "No escrow warranty is configured.",
+      "escrowProtected": "GMMO holds the buyer's money for {days} days after delivery.",
+      "escrowNone": "No buyer protection period set.",
       "noDynamicModel": "Choose a configurable, credit, or task pricing model.",
       "cannotBuyNoModel": "UNAVAILABLE — NO PRICING MODEL",
       "modelB1Single": "Buy one proxy",
@@ -1339,7 +1347,7 @@
       "retry": "Retry",
       "currentTier": "Current tier",
       "tiers": {
-        "new": "New",
+        "new": "New seller",
         "verified": "Verified",
         "trusted": "Trusted",
         "enterprise": "Enterprise"
@@ -1410,7 +1418,7 @@
         "escrow": "Shorter hold"
       },
       "unlimited": "Unlimited",
-      "feeValue": "−{pp} pp",
+      "feeValue": "fee −{pp}%",
       "escrowValue": "−{days, plural, one {# day} other {# days}}",
       "atRiskTitle": "Your {tier} tier is below its keep criteria",
       "atRiskShort": "below keep criteria",
@@ -1418,8 +1426,22 @@
       "atRiskBody": "GMMO may move your shop down a tier if this continues. Answering disputes quickly and checking stock before delivery helps most.",
       "details": "Details",
       "howItWorks": "How tiers work: rates and the score cover the last {days} days of real orders; sales and order counts are lifetime completed orders. The score needs {min} completed orders. GMMO approves every tier change.",
-      "tiersLink": "Tier benefits"
-    }
+      "tiersLink": "Tier benefits",
+      "scoreMet": "met (needs ≥ {need})"
+    },
+    "viewShopPage": "View shop page",
+    "withdrawBankLabel": "Receiving bank",
+    "withdrawBankPlaceholder": "e.g. Vietcombank",
+    "withdrawHolderLabel": "Account holder",
+    "withdrawHolderHint": "Exactly as the bank has it",
+    "withdrawAmountLabel": "Amount",
+    "withdrawMinLabel": "Minimum",
+    "withdrawNoMin": "None",
+    "withdrawFeeLabel": "Fee",
+    "withdrawFeeFree": "Free",
+    "withdrawNetLabel": "You receive",
+    "withdrawTimeLabel": "Processing",
+    "withdrawTimeValue": "After GMMO approves it"
   },
   "sellerDashboard": {
     "rangeLabel": "Date range",
@@ -1442,11 +1464,11 @@
     "actionsTitle": "Needs attention",
     "actionsClear": "Nothing needs your attention — all clear.",
     "actionsMore": "+{count} more",
-    "netTitle": "Net to wallet",
-    "netSub": "Gross {gross} · platform fee {fee} · refunded {refunded}",
+    "netTitle": "Paid out (after fees)",
+    "netSub": "Buyers paid {gross} · fee {fee} · refunded {refunded} · still held {held}",
     "ordersTitle": "Orders",
-    "ordersSubEscrow": "{count} orders held in escrow · {amount}",
-    "ordersSubNoEscrow": "No orders held in escrow",
+    "ordersSubEscrow": "{count} orders held · {amount}",
+    "ordersSubNoEscrow": "No orders held",
     "completionTitle": "Completion rate",
     "completionSub": "{completed}/{total} · cancelled {cancelled} · refunded {refunded} · disputed {disputed}",
     "walletTitle": "Available balance",
@@ -1455,8 +1477,8 @@
     "noBaseline": "previous period: 0",
     "chartTitleDay": "Revenue by day",
     "chartTitleWeek": "Revenue by week",
-    "legendGross": "Gross (paid by buyers)",
-    "legendNet": "Net to wallet",
+    "legendGross": "Buyers paid",
+    "legendNet": "Paid out",
     "chartEmpty": "No revenue in this range yet.",
     "tooltipOrders": "{count} orders",
     "tooltipRefunded": "Refunded {amount}",
@@ -1471,10 +1493,10 @@
     "topEmpty": "No orders in this range yet.",
     "colProduct": "Product",
     "colOrders": "Orders",
-    "colNet": "Net",
+    "colNet": "Paid out",
     "colStock": "Stock",
     "colRating": "Rating",
-    "grossHint": "Gross {amount}",
+    "grossHint": "Buyers paid {amount}",
     "stockIn": "{count} in stock",
     "stockLow": "Low · {count}",
     "stockOut": "Out of stock",
@@ -1543,7 +1565,7 @@
       "all": "every order",
       "disputed": "",
       "action_required": "accept or deliver",
-      "escrow": "released after warranty",
+      "escrow": "paid out when the check period ends",
       "completed": "paid to wallet",
       "cancelled": "closed"
     },
@@ -1587,7 +1609,46 @@
     "productUnavailable": "This product no longer exists.",
     "linesLoaded": "Showing {loaded} of {total} lines",
     "loadMoreLines": "Load more",
-    "loadingLines": "Loading…"
+    "loadingLines": "Loading…",
+    "colStatusDeadline": "Status · due",
+    "colNextStep": "Next step",
+    "deadlineDeliver": "Deliver within {left}",
+    "deadlineOverdue": "Delivery overdue since {date}",
+    "deadlinePayout": "Paid out {date}",
+    "left": {
+      "day": "{count, plural, one {# day} other {# days}}",
+      "hour": "{count, plural, one {# hour} other {# hours}}",
+      "minute": "{count, plural, one {# minute} other {# minutes}}"
+    },
+    "payoutAt": "Expected payout",
+    "progressTitle": "Order progress",
+    "lineDelivered": "Delivered",
+    "lineError": "Error",
+    "timeline": {
+      "label": "Order progress",
+      "paid": {
+        "done": "Buyer paid",
+        "todo": "Buyer pays"
+      },
+      "delivered": {
+        "done": "You delivered",
+        "todo": "Waiting for you"
+      },
+      "protection": {
+        "done": "Check period ended",
+        "todo": "Buyer checks the goods"
+      },
+      "completed": {
+        "done": "Complete, paid to your wallet",
+        "todo": "Payout to your wallet"
+      },
+      "protectionLeft": "{left}",
+      "protectionEnding": "ending",
+      "protectionAfter": "starts when you deliver",
+      "completedAuto": "when the buyer confirms or the check period ends",
+      "disputeOpen": "dispute open — on hold",
+      "waiting": "waiting"
+    }
   },
   "buyerOrders": {
     "tabsLabel": "Filter by status",
@@ -1596,14 +1657,16 @@
       "active": "In progress",
       "awaiting_confirm": "Awaiting confirmation",
       "disputed": "Disputed",
-      "deleted": "Cancelled / refunded"
+      "deleted": "Cancelled / refunded",
+      "awaiting_seller": "Awaiting shop"
     },
     "hint": {
       "all": "every order",
       "active": "being delivered or in escrow",
       "awaiting_confirm": "",
       "disputed": "waiting on the seller",
-      "deleted": "money back in your wallet"
+      "deleted": "money back in your wallet",
+      "awaiting_seller": "paid, the shop is preparing it"
     },
     "awaitingUrgent": "{count} for you to check",
     "awaitingNone": "nothing waiting",
@@ -1660,7 +1723,7 @@
       },
       "completed": {
         "done": "Complete, shop paid",
-        "todo": "Complete"
+        "todo": "Complete · shop paid"
       },
       "protectionLeft": "{left}",
       "protectionEnding": "ending",
@@ -1672,14 +1735,13 @@
     "viewRefund": "See the refund",
     "suggestTitle": "Selling well on GMMO",
     "suggestFrom": "from {price}",
-    "awaitingSoonest": "{count} to check · soonest: {left}",
-    "activeAwaitingSeller": "{count} waiting for the shop"
+    "awaitingSoonest": "{count} to check · soonest: {left}"
   },
   "sellerProducts": {
     "tierCap": "{tier} tier: {active}/{max} products on sale",
     "tierCapReached": "limit reached — pause some or upgrade your tier to list more",
     "tierName": {
-      "new": "New",
+      "new": "New seller",
       "verified": "Verified",
       "trusted": "Trusted",
       "enterprise": "Enterprise"
@@ -2566,7 +2628,6 @@
     "directMatch": "Matched subcategory: {name}",
     "viewCategory": "View category",
     "viewFullShelf": "View all {count} products in {name} →",
-    "instantOnly": "Instant delivery",
     "priceFrom": "from {price}",
     "priceAll": "All prices",
     "priceUnder1": "< $1",
@@ -2626,7 +2687,18 @@
     "guideTitle": "About {name}",
     "faqTitle": "Questions about {name}",
     "relatedTitle": "Related categories",
-    "buyingHelp": "How buying and escrow work"
+    "buyingHelp": "How buying and escrow work",
+    "deliveryKindLabel": "Delivery",
+    "deliveryKindAll": "Any delivery",
+    "deliveryKind": {
+      "instant": "Instant",
+      "sla": "Delivered within hours",
+      "api": "API key",
+      "proxy": "Self-serve proxy",
+      "task": "Service"
+    },
+    "priceFromLabel": "from {price}",
+    "instantOnly": "Instant delivery"
   },
   "products": {
     "notFound": "Product not found",
@@ -2637,7 +2709,7 @@
       "instant": "Instant",
       "sla": "Delivered in {hours}h",
       "api": "Call with a key",
-      "task": "Wait for processing",
+      "task": "Service",
       "taskPending": "Waiting for the result",
       "proxy": "Provisioned proxy"
     },
@@ -2661,7 +2733,7 @@
       "deliverResource": "Deliver the proxy",
       "buyCredit": "Buyer buys a request pack",
       "deductCredit": "Deduct quota",
-      "issueKey": "Issue a Proxora key",
+      "issueKey": "Issue a GMMO key",
       "useByRequest": "Buyer calls through the gateway",
       "placeTask": "Buyer submits the job",
       "priceByPlatform": "Price by platform",
@@ -2748,7 +2820,6 @@
     "viewOrders": "View orders",
     "buyMore": "Buy more",
     "mobileTotal": "Total",
-    "mobileCta": "Place order",
     "configureOrder": "Configure order",
     "buyProxy": "Buy proxy",
     "loadingOptionsAria": "Loading options",
@@ -2914,9 +2985,21 @@
       "deliverWithin": "The shop delivers within {hours} h",
       "deliverBody": "What you receive shows in the order details.",
       "inspectTitle": "{days, plural, =0 {Check it as soon as it arrives} one {Check it within # day of delivery} other {Check it within # days of delivery}}",
-      "inspectBody": "If something is wrong, open a dispute before then. Otherwise the money goes to the shop."
+      "inspectBody": "If something is wrong, open a dispute before then. Otherwise the money goes to the shop.",
+      "inspectUntil": "Check by {date}. Report a problem before then; after it, the money goes to the shop."
     },
-    "copyLine": "Copy line {line}"
+    "copyLine": "Copy line {line}",
+    "confirmSeller": "Shop: {name}",
+    "confirmReceives": "You receive",
+    "confirmBuyTotal": "Confirm · {amount}",
+    "productCode": "Product code",
+    "navReviewsCount": "Reviews ({count})",
+    "ownListing": {
+      "title": "Your listing",
+      "body": "This is your shop's listing — buyers see this page as you do. You cannot buy your own product.",
+      "edit": "Edit product",
+      "orders": "Orders for this product"
+    }
   },
   "chat": {
     "inbox": "Messages",
@@ -3005,7 +3088,20 @@
       "support": "Disputes"
     },
     "awaitingReply": "Waiting",
-    "helpdeskShopTitle": "GMMO shop support"
+    "helpdeskShopTitle": "GMMO shop support",
+    "contextSafety": "GMMO holds the order's money in escrow; every message is kept as evidence if a dispute needs it.",
+    "quickReplyLabels": {
+      "delivered": "Delivered",
+      "howToLogin": "How to sign in",
+      "replacing": "Replacing",
+      "checking": "Checking"
+    },
+    "quickReplies": {
+      "delivered": "Hi, your order has been delivered. Please check it and message here if anything is wrong.",
+      "howToLogin": "Sign in with the details in your order, then change the password and recovery email right away. If asked to verify, message the shop for help.",
+      "replacing": "Got it — we are replacing it now. The replacement will show in your order.",
+      "checking": "We are checking this and will reply shortly."
+    }
   },
   "orders": {
     "title": "Orders",
@@ -3025,7 +3121,7 @@
     "productPackage": "Product & variant",
     "quantity": "Quantity",
     "payment": "Payment",
-    "statusEscrow": "Status & escrow",
+    "statusEscrow": "Status & protection",
     "emptyFiltered": "No orders match the current filters.",
     "empty": "You have no orders yet.",
     "clearFilters": "Clear filters",
@@ -3101,15 +3197,15 @@
     "acceptDisputeResolution": "Accept resolution",
     "acceptDisputeResolutionConfirm": "Accept this resolution? Any remaining escrow will be released to the seller and the order will be completed.",
     "withdrawDispute": "Withdraw dispute",
-    "withdrawDisputeConfirm": "Withdraw this dispute? The escrow completion time will remain unchanged.",
-    "withdrawDisputeSuccess": "Dispute withdrawn. The order will complete at its original escrow deadline.",
-    "withdrawDisputeCompleted": "Dispute withdrawn. The escrow deadline had passed, so the order is now completed.",
+    "withdrawDisputeConfirm": "Withdraw this dispute? The order's original hold deadline stays the same.",
+    "withdrawDisputeSuccess": "Dispute withdrawn. The order completes at its original hold deadline.",
+    "withdrawDisputeCompleted": "Dispute withdrawn. The hold deadline had passed, so the order is now complete.",
     "disputeResolutionDeadline": "Buyer response deadline: {date}. If there is no response, the case will be settled automatically.",
     "disputeSellerDeadline": "The seller must respond before {date}. If they don't, you are refunded in full automatically.",
     "disputeSellerDeadlineSeller": "You must respond before {date}. If you don't, the buyer is refunded in full automatically and the case counts against you.",
     "disputeAbandonDeadline": "If this case stays open without a seller remedy and you take no further action, remaining escrow is released to the seller on {date}.",
     "disputeAbandonDeadlineSeller": "If the buyer does not add another claim and no seller remedy is issued, remaining escrow is released to you on {date}.",
-    "disputeEscrowPaused": "Original escrow deadline: {date}. Escrow completion is paused while this dispute is open.",
+    "disputeEscrowPaused": "Original hold deadline: {date}. The order will not complete while this dispute is open.",
     "refundAmountMinor": "Refunded: {amount}",
     "refundAmountMinorSeller": "Refunded to buyer: {amount}",
     "disputeEvents": {
@@ -3143,7 +3239,7 @@
       "seller_full_refund": "You refunded the full order"
     },
     "disputeReasonPh": "Describe the reason for your dispute…",
-    "disputeFormTitle": "Warranty request / Dispute",
+    "disputeFormTitle": "Open a dispute",
     "disputeIssueTitle": "What issue are you facing?",
     "disputeIssues": {
       "wrong_credentials": "Wrong password / 2FA",
@@ -3166,7 +3262,7 @@
     "disputeDetailNoteLabel": "Additional details (optional)",
     "disputeDetailNotePh": "Describe the problem to help the seller resolve it faster…",
     "disputeProofLabel": "Screenshot / Proof link (optional)",
-    "disputeProofPh": "Paste proof link (Imgur, Drive... if any)",
+    "disputeProofPh": "Screenshot link, only if the image is too large to upload above",
     "disputeRemoveAccount": "Remove account #{id}",
     "disputeWholeOrderNotice": "This dispute covers the whole order. The seller replies on the timeline — there are no per-item refunds.",
     "disputeServiceNoticeProxy": "This is a proxy/access order. Describe the connection issue; the seller replies with replacement access, not per-account stock.",
@@ -3183,7 +3279,7 @@
     "disputeClearSelection": "Clear",
     "disputeSubmitNeedAccounts": "Select at least one failed account to continue.",
     "disputeSelectedSummary": "{count} affected accounts selected",
-    "disputeSubmitBtn": "Submit warranty request",
+    "disputeSubmitBtn": "Send dispute",
     "evidenceType": "Evidence type (optional)",
     "evidenceNone": "No specific evidence",
     "submitDispute": "Submit dispute",
@@ -3315,8 +3411,8 @@
     "packageNamed": "{Term}: {name}",
     "qtyDelivered": "Quantity delivered",
     "qtyWithLines": "x{count} ({lines} lines)",
-    "escrowInsurance": "Escrow protection",
-    "escrowAuto": "Automatic protection",
+    "escrowInsurance": "Buyer protection",
+    "escrowAuto": "Protected",
     "escrowPaused": "Held — dispute open",
     "escrowReleased": "Released to the seller",
     "escrowNone": "No escrow",
@@ -3369,7 +3465,6 @@
     "reviewSeller": "Review the seller",
     "chatSellerTitle": "Chat with the seller",
     "chatSellerHint": "Message the seller about warranty or technical support.",
-    "reasonPackagePrefix": "[Dispute package: {name}] ",
     "reasonItemPrefix": "[Item #{n}] Account dispute: {raw}",
     "evidenceIssuePackage": "There is a problem with this product package…",
     "evidenceIssueItem": "Account is invalid / incorrect information",
@@ -3441,7 +3536,9 @@
       "wrong_description": "screenshots of what differs from the listing (country, friends, creation date…) and the matching part of the product page.",
       "connection_failed": "a screenshot of the connection error, when you tried and the network or tool you used.",
       "other": "screenshots and a short, clear description, with line numbers if it concerns specific accounts."
-    }
+    },
+    "showLines": "Show content",
+    "hideLines": "Hide content"
   },
   "wallet": {
     "available": "Available balance",
@@ -3465,8 +3562,8 @@
     "depositPlaceholder": "Enter amount, e.g. 100000",
     "depositMillion": "{n}M",
     "depositCreating": "Creating payment…",
-    "depositCreateAmount": "Create payment for {amount}",
-    "depositCreate": "Create transfer QR",
+    "depositCreateAmount": "Create top-up of {amount}",
+    "depositCreate": "Create top-up",
     "depositHint": "The QR and transfer details appear here. Your wallet updates after SePay confirms the incoming transfer.",
     "depositHintUsdt": "Secure NOWPayments checkout opens next. Choose a USDT network and wallet there. Your wallet credits the locked VND amount after confirmation.",
     "depositHintUsdtClean": "Secure NOWPayments checkout opens next. Choose a USDT network and wallet there. Your balance updates after confirmation.",
@@ -3522,11 +3619,9 @@
     "txTitle": "Transaction history",
     "txViewAll": "View all ↗",
     "txCount": "{count} transactions",
-    "txIn": "Total in",
-    "txOut": "Total out",
     "txEmpty": "No transactions yet.",
     "txTypes": {
-      "topup": "Top-up",
+      "topup": "Credited by GMMO",
       "deposit": "Deposit",
       "deposit_usdt": "USDT deposit",
       "deposit_bank": "Bank deposit",
@@ -3636,7 +3731,9 @@
     "checkDraftGeneric": "I topped up but the money is not in my wallet yet. Top-up code (NAP-…): ",
     "historyCredited": "{amount} credited",
     "historyPending": "{amount} pending",
-    "historyLoadMore": "Show more (up to the last 100)"
+    "historyLoadMore": "Show more (up to the last 100)",
+    "txInShown": "In · last {count} transactions",
+    "txOutShown": "Out · last {count} transactions"
   },
   "solutions": {
     "badge": "Enterprise solutions",
@@ -3999,14 +4096,14 @@
     "completedOrders": "completed orders",
     "productsSold": "products sold",
     "minEscrow": "minimum escrow",
-    "escrowDays": "{days}d",
+    "escrowDays": "{days, plural, one {# day} other {# days}}",
     "about": "About",
     "categories": "Categories",
     "clearFilter": "Clear filter",
     "productsForSale": "Products for sale ({count})",
     "noProducts": "This seller has no products for sale yet.",
     "noProductsInCategory": "No products in this category.",
-    "stockInStock": "In stock — instant delivery",
+    "stockInStock": "In stock · instant",
     "stockAuto": "Auto delivery",
     "stockManual": "Manual delivery",
     "stockOut": "Out of stock",
@@ -4017,7 +4114,7 @@
     "tier_new": "New seller",
     "tier_verified": "Verified",
     "tier_trusted": "Trusted",
-    "tier_enterprise": "Enterprise partner",
+    "tier_enterprise": "Enterprise",
     "productsLoadError": "Could not load this seller's products right now.",
     "searchInShop": "Search this shop",
     "sortLabel": "Sort",
@@ -4074,7 +4171,11 @@
       },
       "escrowNote": "Every order goes through escrow: the shop is paid only after you confirm or the protection window ends.",
       "learnMore": "Buying safely"
-    }
+    },
+    "cardEscrow": "Held {days, plural, one {# day} other {# days}}",
+    "manageOwnShop": "Manage your shop",
+    "reportShop": "Report shop",
+    "reportDraft": "Report shop {name} (key {key}): "
   },
   "notifications": {
     "buyerDeliveredUnconfirmed": "{count} orders need your confirmation of receipt",
@@ -4097,7 +4198,8 @@
     "unreadMessages": "{count} unread messages",
     "adminHelpdeskWaiting": "{count, plural, one {# support chat is} other {# support chats are}} waiting for a reply",
     "sellerApplicationNeedsInfo": "GMMO needs more information on your seller application",
-    "sellerUnansweredQuestions": "{count, plural, one {# buyer question is} other {# buyer questions are}} waiting for an answer"
+    "sellerUnansweredQuestions": "{count, plural, one {# buyer question is} other {# buyer questions are}} waiting for an answer",
+    "sellerUnrepliedReviews": "{count, plural, one {# review} other {# reviews}} waiting for your reply"
   },
   "currency": {
     "label": "Display currency",
@@ -4131,12 +4233,12 @@
     "pending": "Processing",
     "shown": "Filtered results",
     "transactionsSuffix": "transactions",
-    "searchPlaceholder": "Search transaction, note, or provider...",
-    "allProviders": "All providers",
+    "searchPlaceholder": "Search reference, note or channel...",
+    "allProviders": "All channels",
     "clear": "Clear filters",
     "date": "Time",
     "transaction": "Transaction",
-    "provider": "Provider",
+    "provider": "Channel",
     "reference": "Reference",
     "status": "Status",
     "amount": "Amount",
@@ -4155,7 +4257,7 @@
     },
     "filtering": "Filtering",
     "allHistory": "All",
-    "orderNumber": "Order #{id}",
+    "orderNumber": "Order {id}",
     "viewOrder": "View order",
     "viewProduct": "View product details",
     "awaitingProcessing": "Awaiting processing",
@@ -4178,7 +4280,12 @@
       "affiliate_commission": "Referral commission",
       "affiliate_clawback": "Referral commission clawback",
       "adjustment_credit": "Balance adjustment",
-      "adjustment_debit": "Balance adjustment"
+      "adjustment_debit": "Balance adjustment",
+      "topup": "Credited by GMMO",
+      "deposit": "Deposit",
+      "withdraw_lock": "Held for withdrawal",
+      "withdraw_unlock": "Withdrawal hold released",
+      "withdraw_fee": "Withdrawal fee"
     },
     "kindLabel": "Transaction type",
     "kindAll": "All types",
@@ -4417,7 +4524,7 @@
     "shopSaved": "Shop profile saved",
     "tierTitle": "Seller tier",
     "tierHint": "Set by the marketplace from your sales history; the allowances below apply now.",
-    "tierNew": "New",
+    "tierNew": "New seller",
     "tierVerified": "Verified",
     "tierTrusted": "Trusted",
     "tierEnterprise": "Enterprise",
@@ -4690,7 +4797,7 @@
     "colWithdrawLimit": "Max withdrawal per request (VND)",
     "colFeeDiscount": "Fee discount",
     "colEscrowReduction": "Escrow reduction",
-    "tier_new": "New",
+    "tier_new": "New seller",
     "tier_verified": "Verified",
     "tier_trusted": "Trusted",
     "tier_enterprise": "Enterprise",
@@ -5082,7 +5189,7 @@
     "create": {
       "title": "New product",
       "readyMeta": "Ready — click “Publish product” and buyers can order.",
-      "missingMeta": "{count} items left before publishing — see the right column."
+      "missingMeta": "{count, plural, one {# item} other {# items}} missing before publishing — see “What is left to publish?”."
     },
     "edit": {
       "unsaved": "Unsaved changes",
@@ -5221,8 +5328,14 @@
       "inspectionHint": "One step per line, up to 10. Shown again to the buyer after delivery.",
       "inspectionPlaceholder": "Sign in with the delivered details\nChange the password right away",
       "faq": "Questions and answers",
-      "faqHint": "Question on the first line, answer below it. Leave a blank line between pairs. Up to 12.",
-      "faqPlaceholder": "Can I change the recovery email?\nYes, the steps are in the order.\n\nWhen does the warranty start?\nWhen you confirm receipt."
+      "faqPairsHint": "What buyers ask before buying, up to {max}. Shown in the product page's Q&A.",
+      "faqQuestionPlaceholder": "Question, e.g. Can I change the recovery email?",
+      "faqAnswerPlaceholder": "Answer",
+      "faqQuestion": "Question {n}",
+      "faqAnswer": "Answer {n}",
+      "faqRemove": "Remove question {n}",
+      "faqAdd": "Add a question",
+      "faqIncomplete": "Needs both a question and an answer to be saved."
     },
     "advanced": {
       "languagesTitle": "Content languages",
@@ -5377,6 +5490,12 @@
         "saving": "Saving…"
       },
       "introLadder": "This source uses tiered pricing: longer plans cost less per day — so each duration needs its own price."
+    },
+    "contactCheck": {
+      "found": "Contains {what} — buyers contact shops only through GMMO; remove it before publishing.",
+      "phone": "a phone number",
+      "link": "an outside link",
+      "word": "the restricted word \"{word}\""
     }
   },
   "reviews": {
@@ -6665,10 +6784,18 @@
         "title": "Contact GMMO",
         "body": "For anything else, see the contact details published by GMMO.",
         "action": "Contact details"
+      },
+      "desk": {
+        "title": "Chat with GMMO",
+        "body": "Complaints not tied to one order, questions about your wallet, account or the rules. The support team answers in this chat.",
+        "action": "Open support chat",
+        "draft": "Issue: \nReference (order, top-up, shop) if any: \nWhat you would like: "
       }
     },
     "policiesTitle": "Policies",
-    "sellerGuide": "Seller guide"
+    "sellerGuide": "Seller guide",
+    "safetyReport": "Report a safety issue",
+    "safetyReportDraft": "Safety report\nKind of issue (OTP request, strange link, off-platform payment, exposed account…): \nOrder / account involved: \nWhat happened, in order: \nWhat you want GMMO to do (end sessions, check a transaction…): "
   },
   "sell": {
     "title": "Sell digital goods to buyers who pay first",
@@ -6987,8 +7114,9 @@
       "application_approved": "Your seller application was approved. Open the seller workspace to start.",
       "application_rejected": "Your seller application was not approved. See why and apply again.",
       "application_needs_info": "GMMO needs more information on your seller application.",
-      "tier_changed": "Your shop tier changed from {old, select, new {New} verified {Verified} trusted {Trusted} enterprise {Enterprise} other {{old}}} to {new, select, new {New} verified {Verified} trusted {Trusted} enterprise {Enterprise} other {{new}}}.",
-      "unknown": "You have a new notification."
+      "tier_changed": "Your shop tier changed from {old, select, new {New seller} verified {Verified} trusted {Trusted} enterprise {Enterprise} other {{old}}} to {new, select, new {New seller} verified {Verified} trusted {Trusted} enterprise {Enterprise} other {{new}}}.",
+      "unknown": "You have a new notification.",
+      "order_new_auto": "New order {order_code} — delivered from stock."
     },
     "shopFallback": "A shop"
   }

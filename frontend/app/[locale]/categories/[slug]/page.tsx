@@ -19,6 +19,7 @@ export default async function CategoryPage({
     sort: first(rawQuery.sort),
     stock: first(rawQuery.stock),
     instant: first(rawQuery.instant),
+    kind: first(rawQuery.kind),
     price: first(rawQuery.price),
     minVnd: first(rawQuery.min_vnd),
     maxVnd: first(rawQuery.max_vnd),

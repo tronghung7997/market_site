@@ -310,7 +310,7 @@ export default function OrderRedesignPrototype() {
               <input
                 type="text"
                 placeholder="Tìm theo mã đơn (#ORD-...), tên sản phẩm, gói..."
-                className="w-full rounded-xl border border-line bg-canvas pl-9 pr-3.5 py-2 text-[13px] text-fg placeholder:text-faint focus:border-iris focus:outline-none focus:ring-2 focus:ring-iris/20"
+                className="w-full rounded-xl border border-line bg-canvas pl-9 pr-3.5 py-2 text-[13px] text-fg placeholder:text-placeholder focus:border-iris focus:outline-none focus:ring-2 focus:ring-iris/20"
               />
             </div>
 
@@ -319,7 +319,7 @@ export default function OrderRedesignPrototype() {
               <input
                 type="text"
                 placeholder="Từ ngày - Đến ngày"
-                className="w-full rounded-xl border border-line bg-canvas pl-9 pr-3.5 py-2 text-[13px] text-fg placeholder:text-faint focus:border-iris focus:outline-none"
+                className="w-full rounded-xl border border-line bg-canvas pl-9 pr-3.5 py-2 text-[13px] text-fg placeholder:text-placeholder focus:border-iris focus:outline-none"
               />
             </div>
 
@@ -599,7 +599,7 @@ export default function OrderRedesignPrototype() {
                       setItemPage(1);
                     }}
                     placeholder={`Tìm kiếm trong ${selectedOrder.quantity.toLocaleString()} tài khoản (email, uid, key)...`}
-                    className="w-full rounded-xl border border-line bg-canvas pl-8.5 pr-3 py-2 text-[12.5px] text-fg placeholder:text-faint focus:border-iris focus:outline-none"
+                    className="w-full rounded-xl border border-line bg-canvas pl-8.5 pr-3 py-2 text-[12.5px] text-fg placeholder:text-placeholder focus:border-iris focus:outline-none"
                   />
                 </div>
 
@@ -739,7 +739,7 @@ export default function OrderRedesignPrototype() {
                     setItemPage(1);
                   }}
                   placeholder={`Tìm kiếm trong ${selectedOrder.quantity.toLocaleString()} tài khoản...`}
-                  className="w-full rounded-xl border border-line bg-canvas pl-8.5 pr-3 py-2 text-[12.5px] text-fg placeholder:text-faint focus:border-iris focus:outline-none"
+                  className="w-full rounded-xl border border-line bg-canvas pl-8.5 pr-3 py-2 text-[12.5px] text-fg placeholder:text-placeholder focus:border-iris focus:outline-none"
                 />
               </div>
 

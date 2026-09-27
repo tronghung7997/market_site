@@ -3,9 +3,12 @@
 import { Link, usePathname, useRouter } from "@/i18n/navigation";
 import { useTranslations } from "next-intl";
 import { useEffect, useRef } from "react";
+import { useQuery } from "@tanstack/react-query";
+import { api } from "@/lib/api";
 import { useAuth } from "@/lib/auth";
+import { sellerPath } from "@/lib/routes";
 import { cn } from "@/lib/cn";
-import { BarChart, Edit2, Inbox, Layers, MessageCircle, MessageSquare, Package, ShieldCheck, Store, Rows, Wallet } from "@/components/Icons";
+import { BarChart, Edit2, ExternalLink, Inbox, Layers, MessageCircle, MessageSquare, Package, ShieldCheck, Store, Rows, Wallet } from "@/components/Icons";
 import { Spinner } from "@/components/ui";
 import type { ReactNode } from "react";
 
@@ -15,12 +18,20 @@ export default function SellerLayout({ children }: { children: ReactNode }) {
   const router = useRouter();
   const retriedRole = useRef(false);
   const t = useTranslations("seller");
+  const tt = useTranslations("seller.tier.tiers");
+  // The shop as buyers see it: its name, tier and public page.
+  const shop = useQuery({
+    queryKey: ["seller-profile", account?.public_key],
+    queryFn: () => api.sellerProfile(account!.public_key!),
+    enabled: !!account?.public_key && !!account?.roles.includes("seller"),
+    staleTime: 5 * 60_000,
+  });
   const nav = [
     { href: "/seller", label: t("overview"), icon: BarChart },
     { href: "/seller/products", label: t("products"), icon: Package },
     { href: "/seller/inventory", label: t("inventory"), icon: Rows },
     { href: "/seller/orders", label: t("orders"), icon: Inbox },
-    { href: "/messages", label: t("messages"), icon: MessageCircle },
+    { href: "/seller/messages", label: t("messages"), icon: MessageCircle },
     { href: "/seller/questions", label: t("qaNav"), icon: MessageSquare },
     { href: "/seller/withdrawals", label: t("withdrawals"), icon: Wallet },
     { href: "/seller/tier", label: t("tierNav"), icon: ShieldCheck },
@@ -84,9 +95,18 @@ export default function SellerLayout({ children }: { children: ReactNode }) {
           <span className="grid place-items-center h-9 w-9 rounded-lg bg-iris/10 border border-iris/20">
             <Store size={18} className="text-iris-hi" />
           </span>
-          <div>
-            <h1 className="text-[18px] font-serif font-semibold">{t("dashboardTitle")}</h1>
-            <p className="text-[12px] text-muted">{account.email}</p>
+          <div className="min-w-0">
+            <p className="text-[11.5px] text-muted">{t("dashboardTitle")}</p>
+            <h1 className="truncate text-[18px] font-serif font-semibold leading-tight">{shop.data?.display_name ?? account.email}</h1>
+            {shop.data && (
+              <p className="mt-0.5 flex flex-wrap items-center gap-x-2 text-[12px] text-muted">
+                <span className="font-medium text-iris-hi">{tt.has(shop.data.seller_tier) ? tt(shop.data.seller_tier as "new") : shop.data.seller_tier}</span>
+                <span aria-hidden className="text-faint">·</span>
+                <Link href={sellerPath(shop.data)} className="inline-flex items-center gap-1 hover:text-fg hover:underline">
+                  {t("viewShopPage")} <ExternalLink size={11} />
+                </Link>
+              </p>
+            )}
           </div>
         </div>
       </div>

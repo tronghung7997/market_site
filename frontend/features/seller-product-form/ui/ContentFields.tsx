@@ -5,6 +5,9 @@ import { Field, Textarea } from "@/components/ui";
 import type { ProductFormCore } from "../useProductFormCore";
 import { DescriptionField } from "./DescriptionField";
 import { LocaleTag } from "./BasicsFields";
+import { ContactWarning } from "./ContactWarning";
+import { FaqPairsEditor } from "./FaqPairsEditor";
+import { PRODUCT_FAQ_MAX } from "@/features/seller-workbench";
 
 /** Section 3 — the long description plus the optional feature / spec /
  *  warranty blocks and the hand-over copy (what the buyer receives, what to
@@ -20,6 +23,7 @@ export function ContentFields({ core }: { core: ProductFormCore }) {
           {core.contentLocale !== core.primaryLocale && <LocaleTag locale={core.contentLocale} />}
         </div>
         <DescriptionField id="product-description" value={c.description} onChange={(v) => core.updateContent("description", v)} locale={core.contentLocale} placeholder={t("descriptionPlaceholder")} />
+        <ContactWarning text={c.description} />
       </div>
       <div className="grid gap-4 sm:grid-cols-2">
         <Field label={t("features")} hint={t("featuresHint")}>
@@ -31,6 +35,7 @@ export function ContentFields({ core }: { core: ProductFormCore }) {
       </div>
       <Field label={t("warranty")} hint={t("warrantyHint")}>
         <Textarea rows={4} value={c.warrantyText} onChange={(e) => core.updateContent("warrantyText", e.target.value)} placeholder={t("warrantyPlaceholder")} />
+        <ContactWarning text={c.warrantyText} />
       </Field>
       <fieldset className="space-y-4 border-t border-line pt-4">
         <legend className="sr-only">{t("handoverTitle")}</legend>
@@ -41,13 +46,13 @@ export function ContentFields({ core }: { core: ProductFormCore }) {
         <Field label={t("deliveryNote")} hint={t("deliveryNoteHint")}>
           <Textarea rows={3} maxLength={2000} value={c.deliveryNote} onChange={(e) => core.updateContent("deliveryNote", e.target.value)} placeholder={t("deliveryNotePlaceholder")} />
         </Field>
-        <div className="grid gap-4 sm:grid-cols-2">
-          <Field label={t("inspection")} hint={t("inspectionHint")}>
-            <Textarea rows={5} value={c.inspectionText} onChange={(e) => core.updateContent("inspectionText", e.target.value)} placeholder={t("inspectionPlaceholder")} />
-          </Field>
-          <Field label={t("faq")} hint={t("faqHint")}>
-            <Textarea rows={5} value={c.faqText} onChange={(e) => core.updateContent("faqText", e.target.value)} placeholder={t("faqPlaceholder")} />
-          </Field>
+        <Field label={t("inspection")} hint={t("inspectionHint")}>
+          <Textarea rows={4} value={c.inspectionText} onChange={(e) => core.updateContent("inspectionText", e.target.value)} placeholder={t("inspectionPlaceholder")} />
+        </Field>
+        <div>
+          <p className="text-[12.5px] font-medium text-fg">{t("faq")}</p>
+          <p className="mb-2 mt-0.5 text-[12px] text-muted">{t("faqPairsHint", { max: PRODUCT_FAQ_MAX })}</p>
+          <FaqPairsEditor value={c.faqText} onChange={(text) => core.updateContent("faqText", text)} max={PRODUCT_FAQ_MAX} />
         </div>
       </fieldset>
     </div>

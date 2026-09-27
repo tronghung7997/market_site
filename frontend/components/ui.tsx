@@ -151,7 +151,7 @@ export function Input({ className, ...props }: InputHTMLAttributes<HTMLInputElem
     <input
       className={cn(
         "h-10 w-full rounded-lg bg-surface border border-line px-3 text-sm text-fg",
-        "placeholder:text-faint transition-colors focus:border-iris focus:bg-panel",
+        "placeholder:text-placeholder transition-colors focus:border-iris focus:bg-panel",
         className,
       )}
       {...props}
@@ -164,7 +164,7 @@ export function Textarea({ className, ...props }: TextareaHTMLAttributes<HTMLTex
     <textarea
       className={cn(
         "w-full rounded-lg bg-surface border border-line px-3 py-2.5 text-sm text-fg",
-        "placeholder:text-faint transition-colors focus:border-iris focus:bg-panel resize-y min-h-[80px]",
+        "placeholder:text-placeholder transition-colors focus:border-iris focus:bg-panel resize-y min-h-[80px]",
         className,
       )}
       {...props}

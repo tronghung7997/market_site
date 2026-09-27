@@ -7,3 +7,4 @@ export {
 } from "./model";
 export { useBuyerOrders, useBuyerOrderStats } from "./useBuyerOrders";
 export { BuyerOrdersConsole, BuyerOrdersSkeleton } from "./ui/BuyerOrdersConsole";
+export { OrderTimeline } from "./ui/OrderTimeline";

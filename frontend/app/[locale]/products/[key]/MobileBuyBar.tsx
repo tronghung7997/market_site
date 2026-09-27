@@ -5,9 +5,11 @@ import { useMoney } from "@/lib/money";
 import { cn } from "@/lib/cn";
 import { Button } from "@/components/ui";
 
-export default function MobileBuyBar({ visible, total, fallbackText, onGoToPanel }: {
+export default function MobileBuyBar({ visible, total, ctaLabel, fallbackText, onGoToPanel }: {
   visible: boolean;
   total: number | null;
+  /** Same words as the panel's button ("Mua ngay" / "Đặt hàng"). */
+  ctaLabel: string;
   fallbackText: string;
   onGoToPanel: () => void;
 }) {
@@ -35,7 +37,7 @@ export default function MobileBuyBar({ visible, total, fallbackText, onGoToPanel
           <div className="text-[12.5px] text-muted truncate">{fallbackText}</div>
         )}
       </div>
-      <Button tabIndex={visible ? 0 : -1} onClick={onGoToPanel}>{t("mobileCta")}</Button>
+      <Button tabIndex={visible ? 0 : -1} onClick={onGoToPanel}>{ctaLabel}</Button>
     </div>
   );
 }

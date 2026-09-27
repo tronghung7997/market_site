@@ -43,7 +43,11 @@ export function TierProgressCard() {
           <p className="text-[11.5px] text-muted">{t("score")}</p>
           <p className="font-mono text-[18px] font-semibold tabular leading-tight">
             {p.score ?? "—"}
-            {need != null && p.score != null && <span className="text-[11.5px] font-normal text-faint"> / {t("needShort", { need })}</span>}
+            {need != null && p.score != null && (
+              <span className={p.score >= need ? "text-[11.5px] font-normal text-good" : "text-[11.5px] font-normal text-faint"}>
+                {" "}· {p.score >= need ? t("scoreMet", { need }) : t("needShort", { need })}
+              </span>
+            )}
           </p>
         </div>
         <Link href="/seller/tier" className="inline-flex items-center gap-1 text-[12.5px] font-medium text-iris-hi hover:underline">

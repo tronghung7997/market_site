@@ -6,7 +6,7 @@ export const PAGE_SIZES = [10, 20, 50] as const;
 export const DEFAULT_PAGE_SIZE = 20;
 
 /** `""` is "all"; the rest map 1:1 to the backend `?status=` tabs. */
-export const ORDER_TABS = ["", "active", "awaiting_confirm", "disputed", "deleted"] as const;
+export const ORDER_TABS = ["", "active", "awaiting_seller", "awaiting_confirm", "disputed", "deleted"] as const;
 export type BuyerOrderTab = (typeof ORDER_TABS)[number];
 
 export const ORDER_SORTS = ["newest", "oldest", "amount_desc", "amount_asc"] as const;
@@ -37,8 +37,8 @@ const ISO_DATE = /^\d{4}-\d{2}-\d{2}$/;
  *  mapped to the tab that shows those orders. */
 const STATUS_ALIASES: Record<string, BuyerOrderTab> = {
   delivered: "awaiting_confirm",
-  pending: "active",
-  processing: "active",
+  pending: "awaiting_seller",
+  processing: "awaiting_seller",
 };
 
 function tabFromParam(raw: string): BuyerOrderTab {
@@ -192,6 +192,7 @@ export function tabCount(stats: OrderStats | null | undefined, tab: BuyerOrderTa
   switch (tab) {
     case "": return stats.total;
     case "active": return stats.active;
+    case "awaiting_seller": return stats.awaiting_seller ?? 0;
     case "awaiting_confirm": return stats.awaiting_confirm;
     case "disputed": return stats.disputed;
     case "deleted": return stats.cancelled_or_refunded;
@@ -241,4 +242,20 @@ export function orderTimeline(
     },
     { key: "completed", state: completed ? "done" : "next", at: completed ? order.completed_at : null },
   ];
+}
+
+/** A package name that already starts with the package word ("Gói 2–5 tài
+ *  khoản") is shown as is, not as "Gói: Gói 2–5 tài khoản". */
+export function nameCarriesTerm(name: string, term: string): boolean {
+  return name.trim().toLocaleLowerCase("vi").startsWith(term.trim().toLocaleLowerCase("vi"));
+}
+
+const MASK = "••••••••";
+
+/** A delivered line with its secret part hidden until the buyer asks: the
+ *  login before the first `|` or `:` stays readable, the rest is dots. */
+export function maskDeliveredLine(raw: string): string {
+  const cut = raw.search(/[|:]/);
+  if (cut > 0) return `${raw.slice(0, cut + 1)}${MASK}`;
+  return raw.length <= 12 ? MASK : `${raw.slice(0, 4)}${MASK}`;
 }

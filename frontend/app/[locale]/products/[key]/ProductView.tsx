@@ -5,8 +5,9 @@
 import { Link } from "@/i18n/navigation";
 import { useTranslations } from "next-intl";
 import { useEffect, useRef, useState } from "react";
-import { Banner, Card, Spinner } from "@/components/ui";
+import { Banner, Button, Card, Spinner } from "@/components/ui";
 import { ChevronRight, Eye } from "@/components/Icons";
+import { useAuth } from "@/lib/auth";
 import DynamicOrderForm from "@/components/DynamicOrderForm";
 import { useProductDetail } from "./useProductDetail";
 import { usePurchase } from "./usePurchase";
@@ -20,6 +21,7 @@ import { DeliveryCard, FaqCard, KeyFacts, PayInsideNotice, SectionNav, SellerCar
 import { ProductQuestions } from "@/features/product-questions";
 import type { ProductPageCatalog } from "@/features/catalog";
 import { categoryPath, sellerProductPath } from "@/lib/routes";
+import { useRouter } from "@/i18n/navigation";
 
 const STATUS_KEYS = { draft: 1, paused: 1, suspended: 1, active: 1 };
 
@@ -29,6 +31,9 @@ export default function ProductView({ initial, productRef }: { initial: ProductP
   const { product, related, seller, sameShop, pricingStrategy, loading, error, preview, refresh } = useProductDetail(productRef, initial);
   const purchase = usePurchase(product, refresh);
   const useDynamicForm = pricingStrategy != null && pricingStrategy !== "fixed";
+  const { account } = useAuth();
+  const router = useRouter();
+  const [dynamicTotal, setDynamicTotal] = useState<number | null>(null);
 
   const panelRef = useRef<HTMLDivElement>(null);
   const [panelInView, setPanelInView] = useState(true);
@@ -56,14 +61,17 @@ export default function ProductView({ initial, productRef }: { initial: ProductP
     ...(hasDescription ? [{ id: "description", label: t("navDescription") }] : []),
     ...(hasSpecs ? [{ id: "specs", label: t("navSpecs") }] : []),
     { id: "delivery", label: t("navDelivery") },
-    { id: "reviews", label: t("navReviews") },
+    { id: "reviews", label: product.rating_count > 0 ? t("navReviewsCount", { count: product.rating_count }) : t("navReviews") },
     ...(!preview ? [{ id: "qa", label: t("navQa") }] : []),
     ...(product.faq && product.faq.length > 0 ? [{ id: "faq", label: t("navFaq") }] : []),
   ];
 
-  const barTotal = !useDynamicForm && purchase.selected && panelMode(purchase.selected) === "buy"
-    ? purchase.total
-    : null;
+  // A seller opening their own listing manages it; they cannot buy from themselves.
+  const owns = !preview && !!account?.public_key && account.public_key === product.seller_key;
+  const barTotal = useDynamicForm
+    ? dynamicTotal
+    : purchase.selected && panelMode(purchase.selected) === "buy" ? purchase.total : null;
+  const barLabel = useDynamicForm || purchase.selected?.delivery_mode === "instant" ? t("buyNow") : t("placeOrder");
 
   return (
     <div className="w-full mx-auto max-w-[1200px] px-4 sm:px-6 py-5 sm:py-6">
@@ -101,7 +109,7 @@ export default function ProductView({ initial, productRef }: { initial: ProductP
 
       <div className="lg:grid lg:grid-cols-[minmax(0,1fr)_380px] lg:grid-rows-[auto_1fr] lg:gap-7">
         <section className="min-w-0 space-y-4">
-          <ProductIdentity product={product} />
+          <ProductIdentity product={product} owns={owns} />
           <KeyFacts product={product} />
         </section>
 
@@ -110,13 +118,23 @@ export default function ProductView({ initial, productRef }: { initial: ProductP
               cho sản phẩm chưa mở bán. */}
           <div ref={panelRef} inert={preview != null} aria-disabled={preview != null || undefined}
             className={`lg:sticky lg:top-20 scroll-mt-20${preview ? " opacity-60 select-none" : ""}`}>
-            {useDynamicForm ? (
+            {owns ? (
+              <PanelShell title={t("ownListing.title")}>
+                <p className="text-[13px] leading-relaxed text-muted">{t("ownListing.body")}</p>
+                <div className="mt-4 space-y-2">
+                  <Button block onClick={() => router.push(sellerProductPath(product))}>{t("ownListing.edit")}</Button>
+                  <Button block variant="secondary" onClick={() => router.push(`/seller/orders?product=${encodeURIComponent(product.public_key ?? String(product.id))}`)}>
+                    {t("ownListing.orders")}
+                  </Button>
+                </div>
+              </PanelShell>
+            ) : useDynamicForm ? (
               purchase.order ? (
                 <PanelShell title={t("orderPanel")}>
                   <OrderResult order={purchase.order} onRebuy={purchase.rebuy} fulfillment={product.pricing_strategy} inspectionSteps={product.inspection_steps} />
                 </PanelShell>
               ) : (
-                <DynamicOrderForm productId={product.id} product={product} onOrderCreated={purchase.onOrderCreated} />
+                <DynamicOrderForm productId={product.id} product={product} onOrderCreated={purchase.onOrderCreated} onTotalChange={setDynamicTotal} />
               )
             ) : (
               <OrderPanel product={product} purchase={purchase} fulfillment={product.pricing_strategy} />
@@ -139,10 +157,11 @@ export default function ProductView({ initial, productRef }: { initial: ProductP
         </div>
       </div>
 
-      {!purchase.order && !preview && (
+      {!purchase.order && !preview && !owns && (
         <MobileBuyBar
           visible={!panelInView}
           total={barTotal}
+          ctaLabel={barLabel}
           fallbackText={product.title}
           onGoToPanel={() => panelRef.current?.scrollIntoView({ behavior: "smooth", block: "start" })}
         />

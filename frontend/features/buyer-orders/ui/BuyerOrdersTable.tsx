@@ -1,5 +1,7 @@
 "use client";
 
+import { nameCarriesTerm } from "../model";
+
 import { memo, type ReactNode } from "react";
 import { useLocale, useTranslations } from "next-intl";
 import { Link } from "@/i18n/navigation";
@@ -72,7 +74,7 @@ const OrderRow = memo(function OrderRow({
             onClick={() => handlers.onOpen(o)}
             className="whitespace-nowrap font-mono text-[12.5px] font-bold text-fg hover:text-iris focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-iris rounded"
           >
-            #{o.order_code}
+            {o.order_code}
           </button>
           <CopyIconButton text={o.order_code} title={t("copyOrderCode")} className="h-6 w-6" size={12} />
         </div>
@@ -99,7 +101,7 @@ const OrderRow = memo(function OrderRow({
               </span>
               {o.variant_name && (
                 <span className="min-w-0 truncate" title={o.variant_name}>
-                  {t("packageNamed", { name: o.variant_name, ...termFor(o.service_type) })}
+                  {nameCarriesTerm(o.variant_name, termFor(o.service_type).term) ? o.variant_name : t("packageNamed", { name: o.variant_name, ...termFor(o.service_type) })}
                 </span>
               )}
               {href && (

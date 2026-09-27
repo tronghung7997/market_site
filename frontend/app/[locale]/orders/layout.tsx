@@ -1,7 +1,9 @@
 import type { ReactNode } from "react";
-import { PRIVATE_ROBOTS } from "@/lib/seo";
+import { privatePageMetadata } from "@/lib/seo";
 
-export const metadata = PRIVATE_ROBOTS;
+export function generateMetadata({ params }: { params: Promise<{ locale: string }> }) {
+  return privatePageMetadata(params, "orders");
+}
 
 export default function OrdersLayout({ children }: { children: ReactNode }) {
   return children;

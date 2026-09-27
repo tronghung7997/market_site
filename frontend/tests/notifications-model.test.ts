@@ -4,7 +4,7 @@ import assert from "node:assert/strict";
 import { bellBadge, notificationMessage, relativeTime } from "../features/notifications/model.ts";
 
 const money = (amount: number) => `${amount}đ`;
-const row = (kind: string, params: Record<string, string | number | null>, href: string | null = null) => ({ kind, params, href });
+const row = (kind: string, params: Record<string, string | number | boolean | null>, href: string | null = null) => ({ kind, params, href });
 
 describe("notification messages", () => {
   it("picks the seller wording for two-sided order events", () => {
@@ -13,6 +13,11 @@ describe("notification messages", () => {
     assert.equal(notificationMessage(row("dispute_resolved", { order_code: "ORD-1", outcome: "resolved_reject" }, "/seller/orders/ORD-1"), money).key, "dispute_resolved_seller");
     // One-sided kinds keep their key whatever the link.
     assert.equal(notificationMessage(row("order_new", { order_code: "ORD-1" }, "/seller/orders/ORD-1"), money).key, "order_new");
+  });
+
+  it("tells a seller that a stock order already went out", () => {
+    const auto = notificationMessage(row("order_new", { order_code: "ORD-2", auto: true }, "/seller/orders/ORD-2"), money);
+    assert.deepEqual(auto, { key: "order_new_auto", values: { order_code: "ORD-2" } });
   });
 
   it("formats amounts and flags an optional reason", () => {

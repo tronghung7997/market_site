@@ -30,7 +30,7 @@ export function SectionHead({ title, aside }: { title: string; aside?: ReactNode
   );
 }
 
-export function ProductIdentity({ product }: { product: ProductDetail }) {
+export function ProductIdentity({ product, owns = false }: { product: ProductDetail; owns?: boolean }) {
   const t = useTranslations("products");
   const tc = useTranslations("common");
   const locale = useLocale();
@@ -57,13 +57,18 @@ export function ProductIdentity({ product }: { product: ProductDetail }) {
         <div className="min-w-0 flex-1">
       <div className="flex flex-wrap items-center gap-1.5">
         <Tag tone={fulfillmentTone(fulfillment.kind)}>{t(fulfillmentTagKey(fulfillment), fulfillmentTagValues(fulfillment))}</Tag>
-        <Tag tone="iris">{serviceLabel(product.service_type, locale)}</Tag>
+        {product.service_type && product.service_type !== "other" && <Tag tone="iris">{serviceLabel(product.service_type, locale)}</Tag>}
         <EscrowBadge days={product.escrow_days} label={t("escrowDays", { days: product.escrow_days })} />
       </div>
 
       <h1 className="mt-3 font-serif text-[24px] sm:text-[28px] leading-[1.18] tracking-tight font-semibold">
         {product.title}
       </h1>
+      {product.public_key && (
+        <p className="mt-1 text-[11.5px] text-faint">
+          {t("productCode")} <span className="font-mono text-muted select-all">{product.public_key}</span>
+        </p>
+      )}
 
       <div className="flex flex-wrap items-center gap-x-4 gap-y-1 mt-2.5 text-[13px] text-muted">
         {product.rating_avg != null && product.rating_count > 0 && (
@@ -93,12 +98,13 @@ export function ProductIdentity({ product }: { product: ProductDetail }) {
           </div>
           <div className="text-[11.5px] text-faint mt-0.5">{t("shopOnProxora")}</div>
         </div>
-        <div className="ml-auto shrink-0">
-          <StartInquiryDialog productId={product.id} compact />
-        </div>
+        {!owns && (
+          <div className="ml-auto shrink-0">
+            <StartInquiryDialog productId={product.id} compact />
+          </div>
+        )}
       </div>
 
-      <p className="mt-4 text-[13px] leading-relaxed text-muted">{t(`fulfillmentReceive.${fulfillment.kind}`, fulfillmentTagValues(fulfillment))}</p>
 
       {product.highlight_text && (
         <div className="flex items-start gap-2 mt-4 px-3.5 py-2.5 rounded-lg bg-iris/4 border border-iris/12 text-[12.5px] leading-relaxed">

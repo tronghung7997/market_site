@@ -27,7 +27,9 @@ export function rowActions(order: Order, disputed: boolean) {
     hasData: order.has_delivery ?? Boolean(order.delivered_data),
     canConfirm: caps ? caps.can_confirm : order.status === "delivered" && !disputed,
     canDispute: caps ? caps.can_dispute : order.status === "delivered" && !disputed,
-    canReview: caps ? caps.can_review && !order.has_review : ["delivered", "completed"].includes(order.status) && !order.has_review,
+    // Rating comes after the buyer has confirmed (or the order completed on
+    // its own) — before that the next step is checking the goods.
+    canReview: order.status === "completed" && !order.has_review && (caps ? caps.can_review : true),
     // Money came back: the wallet rows for this order.
     refundHref: order.status === "refunded" || order.status === "cancelled"
       ? `/transactions?q=${encodeURIComponent(order.order_code)}`

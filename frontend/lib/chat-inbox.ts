@@ -1,5 +1,7 @@
 export const INBOX_HREF = "/messages" as const;
 export const ADMIN_SUPPORT_HREF = "/admin/support" as const;
+/** The same inbox inside the seller workspace, limited to the shop's threads. */
+export const SELLER_INBOX_HREF = "/seller/messages" as const;
 
 export function conversationInboxPath(conversationId: string): string {
   return `${INBOX_HREF}/${conversationId}`;

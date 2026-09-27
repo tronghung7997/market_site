@@ -31,6 +31,9 @@
   --color-fg: #14161d;
   --color-muted: #22242c;
   --color-faint: #454954;
+  /* Example text inside an empty field: lighter than faint so it never reads
+     as a value someone already typed (still ~4.4:1 on surface). */
+  --color-placeholder: #767b88;
 
   /* Accent — refined indigo */
   --color-iris: #4f46e5;

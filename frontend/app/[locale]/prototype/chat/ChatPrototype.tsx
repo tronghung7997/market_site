@@ -363,7 +363,7 @@ function ConversationList({
             value={query}
             onChange={(event) => setQuery(event.target.value)}
             placeholder="Order ID, subject, product…"
-            className="min-w-0 flex-1 bg-transparent text-[12.5px] text-fg outline-none placeholder:text-faint"
+            className="min-w-0 flex-1 bg-transparent text-[12.5px] text-fg outline-none placeholder:text-placeholder"
           />
         </label>
         <div className="mt-3 flex gap-1.5 overflow-x-auto">
@@ -515,7 +515,7 @@ function MessageThread({
             rows={1}
             placeholder={step === 3 && flow !== "order" ? "Case đã đóng — prototype read-only" : "Nhập tin nhắn…"}
             disabled={step === 3 && flow !== "order"}
-            className="max-h-28 min-h-9 min-w-0 flex-1 resize-none bg-transparent px-1 py-2 text-[12.5px] leading-5 text-fg outline-none placeholder:text-faint disabled:opacity-50"
+            className="max-h-28 min-h-9 min-w-0 flex-1 resize-none bg-transparent px-1 py-2 text-[12.5px] leading-5 text-fg outline-none placeholder:text-placeholder disabled:opacity-50"
           />
           <button
             type="button"

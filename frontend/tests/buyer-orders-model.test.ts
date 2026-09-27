@@ -12,6 +12,8 @@ import {
   ordersFiltersToQuery,
   ordersFiltersToSearch,
   parseOrdersFilters,
+  maskDeliveredLine,
+  nameCarriesTerm,
   tabCount,
 } from "../features/buyer-orders/model.ts";
 
@@ -104,8 +106,8 @@ import { orderDeadline } from "../features/buyer-orders/model.ts";
 describe("buyer orders: legacy status links and deadlines", () => {
   it("maps raw statuses from notification links to the right tab", () => {
     assert.equal(parse("status=delivered").tab, "awaiting_confirm");
-    assert.equal(parse("status=pending").tab, "active");
-    assert.equal(parse("status=processing").tab, "active");
+    assert.equal(parse("status=pending").tab, "awaiting_seller");
+    assert.equal(parse("status=processing").tab, "awaiting_seller");
     assert.equal(parse("status=refunded").tab, "");
   });
 
@@ -127,5 +129,22 @@ describe("buyer orders: legacy status links and deadlines", () => {
     assert.equal(d?.urgent, false);
     assert.equal(orderDeadline({ status: "pending", delivery_mode: "instant", sla_hours: 12, created_at: "2026-09-27T06:00:00Z" }, false, now), null);
     assert.equal(orderDeadline({ status: "completed", created_at: "2026-09-27T06:00:00Z" }, false, now), null);
+  });
+});
+
+describe("package label", () => {
+  it("does not repeat the package word the name already starts with", () => {
+    assert.equal(nameCarriesTerm("Gói 2–5 tài khoản", "gói"), true);
+    assert.equal(nameCarriesTerm("  gói tháng", "Gói"), true);
+    assert.equal(nameCarriesTerm("1 tháng", "gói"), false);
+  });
+});
+
+describe("delivered line mask", () => {
+  it("keeps the login readable and hides the rest", () => {
+    assert.equal(maskDeliveredLine("user01|pass01|mail"), "user01|••••••••");
+    assert.equal(maskDeliveredLine("host:8080:u:p"), "host:••••••••");
+    assert.equal(maskDeliveredLine("shortkey"), "••••••••");
+    assert.equal(maskDeliveredLine("sk-abcdefghijklmnop"), "sk-a••••••••");
   });
 });

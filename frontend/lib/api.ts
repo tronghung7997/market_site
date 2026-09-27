@@ -306,7 +306,7 @@ export const api = {
     seller?: string;
     search?: string;
     inStock?: boolean;
-    fulfillment?: "instant";
+    fulfillment?: "instant" | "sla" | "api" | "task" | "proxy";
     minPrice?: number;
     maxPrice?: number;
     /** 1–5: average at least this many stars; unrated products are left out. */
@@ -1227,6 +1227,9 @@ export const api = {
     request<MyQuestion[]>(`/products/${productId}/questions/mine`, {}, true),
   askProductQuestion: (productId: number, question: string) =>
     request<MyQuestion>(`/products/${productId}/questions`, { method: "POST", body: JSON.stringify({ question }) }, true),
+  /** Dry run of the listing text filter: "phone", "link" or a restricted word. */
+  sellerContentCheck: (text: string) =>
+    request<{ matches: string[] }>("/seller/content-check", { method: "POST", body: JSON.stringify({ text }) }),
   sellerQuestions: (status: "all" | QuestionStatus = "all", page = 1) =>
     request<SellerQuestionList>(`/seller/questions?status=${status}&page=${page}`, {}, true),
   answerQuestion: (questionId: number, answer: string) =>

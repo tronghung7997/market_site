@@ -70,7 +70,7 @@ export function MoneyInput({
           className={cn(
             "h-10 w-full rounded-lg bg-surface border border-line pl-3 pr-9 text-sm text-fg",
             "font-mono tabular-nums text-right",
-            "placeholder:text-faint placeholder:font-sans placeholder:text-left",
+            "placeholder:text-placeholder placeholder:font-sans placeholder:text-left",
             "transition-colors focus:border-iris focus:bg-panel",
             "disabled:opacity-60 disabled:cursor-not-allowed",
             invalid && "border-bad focus:border-bad",

@@ -1,7 +1,7 @@
 import { describe, it } from "node:test";
 import assert from "node:assert/strict";
 
-import { txKind, txOrderHref } from "../lib/tx-kind.ts";
+import { txKind, txNote, txOrderHref, txStatus } from "../lib/tx-kind.ts";
 
 describe("ledger row kinds", () => {
   it("groups ledger types", () => {
@@ -19,5 +19,22 @@ describe("ledger row kinds", () => {
     assert.equal(txOrderHref({ type: "refund", order_code: "ORD-A1" }), "/orders?order=ORD-A1");
     assert.equal(txOrderHref({ type: "purchase_release", order_code: "ORD-A1" }), "/seller/orders/ORD-A1");
     assert.equal(txOrderHref({ type: "deposit", order_code: null }), null);
+  });
+
+  it("reads a purchase's status from its order, not from the ledger type", () => {
+    assert.deepEqual(txStatus({ type: "purchase_hold", order_status: "completed" }), { kind: "hold", orderStatus: "completed" });
+    assert.deepEqual(txStatus({ type: "purchase_hold", order_status: "delivered" }), { kind: "hold", orderStatus: "delivered" });
+    assert.deepEqual(txStatus({ type: "withdraw_lock" }), { kind: "pending" });
+    assert.deepEqual(txStatus({ type: "topup" }), { kind: "recorded" });
+  });
+
+  it("keeps only the admin reason of a credit as its note", () => {
+    assert.equal(txNote("Admin topup — Bù phí"), "Bù phí");
+    assert.equal(txNote("Admin topup"), null);
+    assert.equal(txNote("Demo topup"), null);
+    assert.equal(txNote("GMMO cộng tiền — Bù phí"), "Bù phí");
+    assert.equal(txNote("Nạp thử (demo)"), null);
+    assert.equal(txNote("Mua Gmail — Gói 1"), "Mua Gmail — Gói 1");
+    assert.equal(txNote(null), null);
   });
 });

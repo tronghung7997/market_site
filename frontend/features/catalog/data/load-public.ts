@@ -4,16 +4,14 @@ import { flattenCategories } from "@/lib/categories";
 import { matchCategoryParam } from "@/lib/routes";
 import { browseQueryToListOpts, listOptsToSearchParams } from "./browse-query";
 import type { CategoryBrowseQuery, ProductListOpts } from "./browse-query";
-import type { Category, CategoryContentPublic, CategoryShelf, CategoryShelvesResponse, MarketplaceStats, PaginatedProducts, Product, ProductCatalogSummary, ProductDetail, SellerProfile, SellerSummary, ShowcaseReview } from "@/lib/types";
+import type { Category, CategoryContentPublic, CategoryShelf, CategoryShelvesResponse, PaginatedProducts, Product, ProductCatalogSummary, ProductDetail, SellerProfile, SellerSummary, ShowcaseReview, TopSeller } from "@/lib/types";
 
 export type HomeCatalog = {
   categories: Category[];
   products: Product[];
   total: number;
   summary: ProductCatalogSummary | null;
-  topSellers: SellerSummary[];
-  /** Null when the stats endpoint is unavailable — the strip then hides. */
-  stats: MarketplaceStats | null;
+  topSellers: TopSeller[];
   latestReviews: ShowcaseReview[];
   error: string | null;
 };
@@ -73,20 +71,19 @@ const loadCachedCatalogSummary = unstable_cache(
     if (!summary) throw new Error("Catalog summary is unavailable");
     return summary;
   },
-  ["public-catalog-summary-v1"],
+  ["public-catalog-summary-v2"],
   { revalidate: 600, tags: ["public-catalog-summary"] },
 );
 
 export async function loadHomeCatalog(locale: string): Promise<HomeCatalog> {
-  const [categories, products, summary, topSellers, stats, latestReviews] = await Promise.all([
+  const [categories, products, summary, topSellers, latestReviews] = await Promise.all([
     fetchPublicJson<Category[]>("/categories", locale),
     fetchPublicJson<PaginatedProducts>("/products?page=1&per_page=24&sort=bestseller", locale),
     loadCachedCatalogSummary(locale).catch(() => null),
-    fetchPublicJson<SellerSummary[]>("/sellers/top?limit=6", locale),
-    fetchPublicJson<MarketplaceStats>("/public/marketplace-stats", locale),
+    fetchPublicJson<TopSeller[]>("/sellers/top?limit=6", locale),
     fetchPublicJson<ShowcaseReview[]>("/reviews/latest?limit=6", locale),
   ]);
-  const extras = { topSellers: topSellers ?? [], stats, latestReviews: latestReviews ?? [] };
+  const extras = { topSellers: topSellers ?? [], latestReviews: latestReviews ?? [] };
   if (!categories || !products) {
     return { categories: categories ?? [], products: [], total: 0, summary: null, ...extras, error: "load" };
   }

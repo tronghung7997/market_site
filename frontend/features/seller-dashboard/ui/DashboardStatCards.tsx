@@ -80,7 +80,7 @@ export function DashboardStatCards({ data }: { data: SellerDashboard }) {
         label={t("netTitle")}
         value={money(m.net_released)}
         delta={{ current: m.net_released, previous: m.net_released_prev }}
-        sub={t("netSub", { gross: money(m.gross), fee: money(m.platform_fee), refunded: money(m.refunded) })}
+        sub={t("netSub", { gross: money(m.gross), fee: money(m.platform_fee), refunded: money(m.refunded), held: money(m.escrow_held) })}
       />
       <StatCard
         icon={Inbox}

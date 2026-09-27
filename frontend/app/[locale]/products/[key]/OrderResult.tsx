@@ -17,7 +17,7 @@ import { fulfillmentFromStrategy } from "@/lib/fulfillment";
 import type { Order } from "@/lib/types";
 import { Button, Tag } from "@/components/ui";
 import { InspectionPanel } from "./trust";
-import { PurchaseSteps } from "./PurchaseSteps";
+import { PurchaseSteps } from "@/features/checkout";
 import { ArrowRight, Check, Clock, Copy, Download, Eye, EyeOff, Key, ShieldCheck, X } from "@/components/Icons";
 
 const ORDER_POLL_MS = 3000;

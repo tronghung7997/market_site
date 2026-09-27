@@ -17,7 +17,7 @@ import { deliveryResourceMarks, isDisputeReadyToAccept, resourceLabelMap } from 
 import type { Order } from "@/lib/types";
 import { Button, Card, CopyButton, Spinner, Tag } from "@/components/ui";
 import { AlertCircle, Check, ChevronLeft, Download, Edit2, Package, Rows } from "@/components/Icons";
-import { StatusTimeline } from "@/components/orders/OrderCardPrimitives";
+import { OrderTimeline } from "@/features/buyer-orders";
 import { DisputeCaseView } from "@/components/orders/DisputeCaseView";
 import { DeliveryAccountBadge } from "@/components/orders/DeliveryAccountBadge";
 import OrderChatButton from "@/components/chat/OrderChatButton";
@@ -67,6 +67,8 @@ export function SellerOrderDetail({
   const td = useTranslations("status.dispute");
   const locale = useLocale();
   const { formatBrowseMoney } = useMoney();
+  const money = (amount: number) => formatBrowseMoney(amount, { locale });
+  const tTimeline = useTranslations("sellerOrders.timeline");
   const apiErrorMessage = useApiErrorMessage();
   const orderQuery = useSellerOrder(orderRef);
   const order = orderQuery.data;
@@ -210,7 +212,7 @@ export function SellerOrderDetail({
             </div>
             <div>
               <span className="text-faint">{t("totalPayment")}</span>
-              <div className="mt-0.5 font-mono font-bold text-fg">{formatBrowseMoney(order.total_amount)}</div>
+              <div className="mt-0.5 font-mono font-bold text-fg">{money(order.total_amount)}</div>
             </div>
             <div>
               <span className="text-faint">{t("createdTime")}</span>
@@ -219,12 +221,12 @@ export function SellerOrderDetail({
             <div className="min-w-0">
               <span className="text-faint">{t("variantAndQuantity", { ...term })}</span>
               <div className="mt-0.5 truncate font-medium text-fg">
-                {order.variant_name || t("defaultVariant")} · x{order.quantity.toLocaleString()}
+                {order.variant_name || t("defaultVariant")} · x{order.quantity.toLocaleString(locale)}
               </div>
             </div>
             {order.escrow_expires_at && (
               <div>
-                <span className="text-faint">{t("escrowDuration")}</span>
+                <span className="text-faint">{to("payoutAt")}</span>
                 <div className="mt-0.5 font-medium text-iris-hi">{formatDateTime(order.escrow_expires_at, locale)}</div>
               </div>
             )}
@@ -237,8 +239,8 @@ export function SellerOrderDetail({
           </Card>
 
           <Card className="p-4">
-            <span className="mb-1 block text-[12px] font-semibold text-muted">{t("orderProgress")}</span>
-            <StatusTimeline status={order.status} />
+            <span className="mb-3 block text-[12px] font-semibold text-muted">{to("progressTitle")}</span>
+            <OrderTimeline order={order} disputed={isOpenCase} labels={(key, values) => tTimeline(key as never, values as never)} />
           </Card>
 
           {order.status === "processing" && (
@@ -292,12 +294,15 @@ export function SellerOrderDetail({
                       highlighted ? "border-iris bg-iris-soft/40" : "border-line bg-raised",
                       inactive && "opacity-70",
                     )}>
-                      <span className={cn("min-w-0 truncate", inactive && "text-muted line-through")}>{r.data}</span>
+                      <span className="flex min-w-0 items-center gap-2">
+                        {lineOf[r.id] != null && <span className="shrink-0 font-semibold text-faint">#{String(lineOf[r.id]).padStart(2, "0")}</span>}
+                        <span className={cn("min-w-0 truncate", inactive && "text-muted line-through")}>{r.data}</span>
+                      </span>
                       <div className="flex shrink-0 items-center gap-1">
-                        <DeliveryAccountBadge mark={mark} highlighted={highlighted} formatRefund={formatBrowseMoney} lineOf={lineOf} />
+                        <DeliveryAccountBadge mark={mark} highlighted={highlighted} formatRefund={money} lineOf={lineOf} />
                         {!mark && (
-                          <Tag tone={r.status === "assigned" ? "good" : r.status === "error" ? "bad" : "neutral"} className="text-[9px]">
-                            {t("availableStatus")}
+                          <Tag tone={r.status === "error" ? "bad" : "good"} className="text-[9px]">
+                            {r.status === "error" ? to("lineError") : to("lineDelivered")}
                           </Tag>
                         )}
                       </div>
@@ -335,7 +340,7 @@ export function SellerOrderDetail({
                     : td.has(caseRecord.status as "open") ? td(caseRecord.status as "open") : caseRecord.status
                 }
                 statusTone={isDisputeReadyToAccept(caseRecord) ? "iris" : isOpenCase ? "warn" : "neutral"}
-                formatRefund={formatBrowseMoney}
+                formatRefund={money}
                 resourceLabels={resourceLabels}
                 viewerRole="seller"
               />
@@ -365,7 +370,7 @@ export function SellerOrderDetail({
           </Card>
           {order.escrow_expires_at && order.status === "delivered" && !isOpenCase && (
             <Card className="p-4 text-[12px] text-muted">
-              {t("escrowUntilShort", { date: formatDate(order.escrow_expires_at, locale) })}
+              {to("deadlinePayout", { date: formatDate(order.escrow_expires_at, locale) })}
             </Card>
           )}
         </div>

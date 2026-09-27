@@ -10,7 +10,7 @@ import { useMoney } from "@/lib/money";
 import { useWalletBalance, useWalletTransactions } from "@/hooks/use-wallet";
 import type { Transaction } from "@/lib/types";
 import { productPath } from "@/lib/routes";
-import { TX_KINDS, txKind, type TxKind } from "@/lib/tx-kind";
+import { TX_KINDS, txKind, txNote, txOrderHref, txStatus, type TxKind } from "@/lib/tx-kind";
 import {
   Button,
   Card,
@@ -93,17 +93,28 @@ function typeLabel(tx: Transaction, t: ReturnType<typeof useTranslations>): stri
   return t.has(key) ? t(key) : tx.type;
 }
 
-function statusLabel(tx: Transaction, t: ReturnType<typeof useTranslations>): {
-  label: string;
-  tone: "good" | "warn" | "neutral" | "bad";
-} {
-  if (isPending(tx)) return { label: t("statusPending"), tone: "warn" };
-  if (tx.type === "purchase_hold") return { label: t("statusHeld"), tone: "warn" };
+const HOLD_TONE: Record<string, "good" | "warn" | "neutral" | "bad"> = {
+  pending: "warn", processing: "warn", delivered: "warn", disputed: "warn",
+  completed: "good", refunded: "neutral", cancelled: "neutral",
+};
+
+/** Same wording as the wallet page: a purchase follows its order. */
+function statusLabel(
+  tx: Transaction,
+  t: ReturnType<typeof useTranslations>,
+  tw: ReturnType<typeof useTranslations>,
+): { label: string; tone: "good" | "warn" | "neutral" | "bad" } {
+  const status = txStatus(tx);
+  if (status.kind === "hold" && tw.has(`txHold.${status.orderStatus}`)) {
+    return { label: tw(`txHold.${status.orderStatus}`), tone: HOLD_TONE[status.orderStatus] ?? "warn" };
+  }
+  if (status.kind === "pending" || (status.kind === "hold" && isPending(tx))) return { label: t("statusPending"), tone: "warn" };
   return { label: t("statusRecorded"), tone: "good" };
 }
 
 export default function TransactionsPage() {
   const t = useTranslations("transactions");
+  const tw = useTranslations("wallet");
   const tn = useTranslations("nav");
   const tc = useTranslations("common");
   const locale = useLocale();
@@ -425,7 +436,7 @@ export default function TransactionsPage() {
                 value={query}
                 onChange={(e) => setQuery(e.target.value)}
                 placeholder={t("searchPlaceholder")}
-                className="h-10 w-full rounded-lg border border-line bg-card pl-10 pr-9 text-[13px] text-fg outline-none transition-all placeholder:text-faint focus:border-iris focus:ring-2 focus:ring-iris/10"
+                className="h-10 w-full rounded-lg border border-line bg-card pl-10 pr-9 text-[13px] text-fg outline-none transition-all placeholder:text-placeholder focus:border-iris focus:ring-2 focus:ring-iris/10"
               />
               {query && (
                 <button
@@ -525,12 +536,11 @@ export default function TransactionsPage() {
             <tbody className="divide-y divide-line/70 text-[13px]">
               {visible.map((tx) => {
                 const date = new Date(tx.created_at);
-                const status = statusLabel(tx, t);
+                const status = statusLabel(tx, t, tw);
                 const isIncoming = tx.direction === "in";
                 const isOutgoing = tx.direction === "out";
                 const sign = isIncoming ? "+" : isOutgoing ? "−" : "";
                 const isCopied = copiedId === `desk-${tx.id}`;
-                const orderCode = extractOrderCode(tx);
 
                 return (
                   <tr
@@ -551,7 +561,6 @@ export default function TransactionsPage() {
                         {date.toLocaleTimeString(loc, {
                           hour: "2-digit",
                           minute: "2-digit",
-                          second: "2-digit",
                         })}
                       </div>
                     </td>
@@ -582,22 +591,10 @@ export default function TransactionsPage() {
                             <p className="max-w-[240px] truncate font-semibold text-fg">
                               {typeLabel(tx, t)}
                             </p>
-                            {orderCode && (
-                              <button
-                                onClick={(e) => {
-                                  e.stopPropagation();
-                                  router.push(`/orders?order=${encodeURIComponent(orderCode)}`);
-                                }}
-                                className="inline-flex items-center gap-1 rounded bg-iris-soft/80 px-1.5 py-0.2 font-mono text-[10.5px] font-semibold text-iris hover:bg-iris hover:text-white transition-colors"
-                                title={t("viewOrder")}
-                              >
-                                {orderCode} ↗
-                              </button>
-                            )}
                           </div>
-                          {tx.description && (
+                          {txNote(tx.description) && (
                             <p className="mt-0.5 max-w-[280px] truncate text-[11.5px] text-faint">
-                              {tx.description}
+                              {txNote(tx.description)}
                             </p>
                           )}
                         </div>
@@ -673,11 +670,10 @@ export default function TransactionsPage() {
         <div className="divide-y divide-line md:hidden">
           {visible.map((tx) => {
             const date = new Date(tx.created_at);
-            const status = statusLabel(tx, t);
+            const status = statusLabel(tx, t, tw);
             const isIncoming = tx.direction === "in";
             const isOutgoing = tx.direction === "out";
             const sign = isIncoming ? "+" : isOutgoing ? "−" : "";
-            const orderCode = extractOrderCode(tx);
 
             return (
               <div
@@ -709,11 +705,6 @@ export default function TransactionsPage() {
                       <p className="min-w-0 truncate font-semibold text-fg text-[13.5px]">
                         {typeLabel(tx, t)}
                       </p>
-                      {orderCode && (
-                        <span className="rounded bg-iris-soft px-1.5 py-0.2 font-mono text-[10px] font-bold text-iris">
-                          {orderCode}
-                        </span>
-                      )}
                     </div>
                     <div className="mt-0.5 flex flex-wrap items-center gap-1.5 text-[11.5px] text-faint">
                       <span>{date.toLocaleDateString(loc)}</span>
@@ -724,7 +715,7 @@ export default function TransactionsPage() {
                     </div>
                     {referenceLabel(tx) && (
                       <div className="mt-1 font-mono text-[11px] text-faint truncate">
-                        Ref: {referenceLabel(tx)}
+                        {referenceLabel(tx)}
                       </div>
                     )}
                   </div>
@@ -808,10 +799,10 @@ export default function TransactionsPage() {
               <DialogHeader className="text-left">
                 <div className="flex items-center justify-between gap-2">
                   <Tag
-                    tone={statusLabel(selectedTx, t).tone}
+                    tone={statusLabel(selectedTx, t, tw).tone}
                     className="px-2 py-0.5 text-[11px] font-semibold uppercase tracking-wider"
                   >
-                    {statusLabel(selectedTx, t).label}
+                    {statusLabel(selectedTx, t, tw).label}
                   </Tag>
                 </div>
                 <DialogTitle className="mt-2 text-[20px] font-bold text-fg">
@@ -872,10 +863,10 @@ export default function TransactionsPage() {
                         <Spinner />
                         <span>{t("loadingOrder")}</span>
                       </div>
-                    ) : selectedTx.description ? (
+                    ) : txNote(selectedTx.description) ? (
                       <div>
                         <span className="text-[11px] font-medium text-faint uppercase tracking-wider">{t("productName")}</span>
-                        <p className="mt-0.5 text-[13px] font-medium text-fg leading-snug">{selectedTx.description}</p>
+                        <p className="mt-0.5 text-[13px] font-medium text-fg leading-snug">{txNote(selectedTx.description)}</p>
                       </div>
                     ) : null}
 
@@ -901,7 +892,7 @@ export default function TransactionsPage() {
                         size="sm"
                         onClick={() => {
                           setSelectedTx(null);
-                          router.push(`/orders?order=${encodeURIComponent(selectedOrderCode)}`);
+                          router.push(txOrderHref(selectedTx) ?? `/orders?order=${encodeURIComponent(selectedOrderCode)}`);
                         }}
                         className="gap-1.5 text-[12px] font-medium"
                       >
@@ -948,11 +939,11 @@ export default function TransactionsPage() {
                   <span className="font-mono text-[12px] text-muted">{selectedTx.type}</span>
                 </div>
 
-                {selectedTx.description && !selectedOrderCode && (
+                {txNote(selectedTx.description) && !selectedOrderCode && (
                   <div className="pt-2.5">
                     <div className="text-faint mb-1">{t("note")}</div>
                     <div className="rounded-lg bg-raised/70 p-2.5 text-[12.5px] leading-relaxed text-muted">
-                      {selectedTx.description}
+                      {txNote(selectedTx.description)}
                     </div>
                   </div>
                 )}

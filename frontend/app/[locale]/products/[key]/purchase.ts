@@ -91,20 +91,6 @@ export function ctaState({ loggedIn, placing, selected }: {
   };
 }
 
-/** How much the wallet is missing for `total`, or 0 when it covers it.
- *  `available` null = balance unknown (signed out / still loading). */
-export function walletShortfall(total: number, available: number | null | undefined): number {
-  if (available == null || !Number.isFinite(available)) return 0;
-  return Math.max(0, Math.ceil(total - available));
-}
-
-/** Wallet page link that prefills the top-up amount and brings the buyer back. */
-export function topUpHref(amount: number, returnPath: string): string {
-  const q = new URLSearchParams({ amount: String(Math.max(0, Math.ceil(amount))) });
-  if (returnPath.startsWith("/") && !returnPath.startsWith("//")) q.set("return", returnPath);
-  return `/wallet?${q}`;
-}
-
 export type DeliverySummary =
   | { kind: "instant" }
   | { kind: "hours"; hours: number }

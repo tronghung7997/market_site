@@ -17,8 +17,14 @@ const DOT: Record<TimelineStep["state"], string> = {
   next: "border-line bg-surface text-faint",
 };
 
-export function OrderTimeline({ order, disputed }: { order: Order; disputed: boolean }) {
-  const t = useTranslations("buyerOrders.timeline");
+type Translate = (key: string, values?: Record<string, string | number>) => string;
+
+/** `labels` swaps the wording for another viewer (the seller page passes its
+ *  own `sellerOrders.timeline` translator: it waits for the buyer and is paid
+ *  out at the end); the default is the buyer's. */
+export function OrderTimeline({ order, disputed, labels }: { order: Order; disputed: boolean; labels?: Translate }) {
+  const buyerT = useTranslations("buyerOrders.timeline");
+  const t: Translate = labels ?? ((key, values) => buyerT(key as never, values as never));
   const locale = useLocale();
   const steps = orderTimeline(order, disputed);
   if (!steps) return null;

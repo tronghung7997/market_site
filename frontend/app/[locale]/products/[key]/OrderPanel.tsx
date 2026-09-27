@@ -13,13 +13,12 @@ import { cn } from "@/lib/cn";
 import type { ProductDetail } from "@/lib/types";
 import { Button, Card, Tag } from "@/components/ui";
 import { EscrowHelp } from "@/components/products/EscrowHelp";
-import { AlertCircle, Bolt, Clock, Shield, Wallet } from "@/components/Icons";
+import { Bolt, Clock, Shield, Wallet } from "@/components/Icons";
 import {
-  alternativePackages, ctaState, maxQtyFor, minQtyFor, outOfStock, panelMode, perOrderBounds, purchasable, topUpHref, walletShortfall,
+  alternativePackages, ctaState, maxQtyFor, minQtyFor, outOfStock, panelMode, perOrderBounds, purchasable,
 } from "./purchase";
-import { PurchaseSteps } from "./PurchaseSteps";
+import { ConfirmProduct, MoneyTimeline, PurchaseSteps, WalletShortfall, walletShortfall } from "@/features/checkout";
 import { useWalletBalance } from "@/hooks/use-wallet";
-import { Link } from "@/i18n/navigation";
 import type { PurchaseState } from "./usePurchase";
 import OrderResult from "./OrderResult";
 
@@ -257,11 +256,8 @@ export default function OrderPanel({ product, purchase, fulfillment }: {
                   )}
                 </div>
               )}
-              <div className="flex justify-between">
-                <span className="text-muted">{t("confirmProduct")}</span>
-                <span className="font-medium text-right max-w-[220px] truncate">{product.title}</span>
-              </div>
-              <div className="flex justify-between">
+              <ConfirmProduct product={product} />
+              <div className="flex justify-between gap-3 border-t border-line pt-3">
                 <span className="text-muted">{t("confirmPackage", { ...term })}</span>
                 <span className="font-medium">{selected.name}</span>
               </div>
@@ -292,21 +288,7 @@ export default function OrderPanel({ product, purchase, fulfillment }: {
                 </span>
               </div>
               {shortfall > 0 ? (
-                <div role="status" className="rounded-md border border-warn/25 bg-warn-soft px-3 py-2.5">
-                  <div className="flex items-start gap-2">
-                    <AlertCircle size={14} className="text-warn mt-0.5 shrink-0" />
-                    <div className="min-w-0">
-                      <p className="text-[12.5px] font-medium text-fg">{t("shortfallTitle", { amount: formatCheckoutMoney(shortfall, { locale }) })}</p>
-                      <p className="mt-0.5 text-[12px] text-muted">{t("shortfallBody")}</p>
-                    </div>
-                  </div>
-                  <Link
-                    href={topUpHref(shortfall, productPath(product))}
-                    className="mt-2.5 inline-flex h-9 w-full items-center justify-center rounded-lg bg-iris text-[13px] font-medium text-white hover:brightness-110 transition"
-                  >
-                    {t("topUpShortfall", { amount: formatCheckoutMoney(shortfall, { locale }) })}
-                  </Link>
-                </div>
+                <WalletShortfall shortfall={shortfall} returnPath={productPath(product)} />
               ) : (
                 <MoneyTimeline instant={instant} slaHours={selected.sla_hours ?? 24} escrowDays={product.escrow_days} />
               )}
@@ -315,7 +297,7 @@ export default function OrderPanel({ product, purchase, fulfillment }: {
             <div className="flex gap-2 px-5 py-3 border-t border-line">
               <Button variant="secondary" block onClick={purchase.closeConfirm} disabled={placing}>{tc("cancel")}</Button>
               <Button block disabled={placing || shortfall > 0 || !purchasable(selected)} loading={placing} onClick={purchase.buy}>
-                {placing ? t("processing") : notice?.kind === "price" ? t("confirmBuyAgain") : t("confirmBuy")}
+                {placing ? t("processing") : notice?.kind === "price" ? t("confirmBuyAgain") : t("confirmBuyTotal", { amount: formatCheckoutMoney(total, { locale }) })}
               </Button>
             </div>
           </div>
@@ -323,37 +305,5 @@ export default function OrderPanel({ product, purchase, fulfillment }: {
         document.body,
       )}
     </>
-  );
-}
-
-/** Where the buyer's money goes after "confirm": escrow today, the delivery,
- *  then the inspection window before it reaches the shop. */
-function MoneyTimeline({ instant, slaHours, escrowDays }: { instant: boolean; slaHours: number; escrowDays: number }) {
-  const t = useTranslations("products.moneyFlow");
-  const steps = [
-    { title: t("escrowTitle"), body: t("escrowBody") },
-    { title: instant ? t("deliverNow") : t("deliverWithin", { hours: slaHours }), body: t("deliverBody") },
-    { title: t("inspectTitle", { days: escrowDays }), body: t("inspectBody") },
-  ];
-  return (
-    <div className="rounded-md border border-good/15 bg-good/5 px-3 py-2.5">
-      <p className="flex items-center gap-1.5 text-[12px] font-medium text-fg"><Shield size={13} className="text-good" /> {t("title")}</p>
-      <ol className="mt-2 space-y-2">
-        {steps.map((step, index) => (
-          <li key={step.title} className="flex gap-2.5">
-            <span className={cn(
-              "mt-0.5 grid h-4 w-4 shrink-0 place-items-center rounded-full border text-[9.5px] font-bold",
-              index === 0 ? "border-good bg-good text-white" : "border-line-2 bg-surface text-muted",
-            )}>
-              {index + 1}
-            </span>
-            <span className="min-w-0">
-              <span className="block text-[12px] font-medium text-fg">{step.title}</span>
-              <span className="block text-[11.5px] leading-snug text-muted">{step.body}</span>
-            </span>
-          </li>
-        ))}
-      </ol>
-    </div>
   );
 }

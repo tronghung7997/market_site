@@ -92,7 +92,7 @@ export function DescriptionField({
       onChange={(e) => onChange(e.target.value)}
       placeholder={placeholder}
       spellCheck={false}
-      className="min-h-[360px] w-full resize-y rounded-b-lg bg-surface px-3.5 py-3 font-mono text-[12.5px] leading-relaxed text-fg outline-none placeholder:text-faint"
+      className="min-h-[360px] w-full resize-y rounded-b-lg bg-surface px-3.5 py-3 font-mono text-[12.5px] leading-relaxed text-fg outline-none placeholder:text-placeholder"
     />
   );
   const preview = (

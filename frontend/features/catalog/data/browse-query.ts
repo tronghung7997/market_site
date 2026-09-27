@@ -8,7 +8,10 @@ export type CategoryBrowseQuery = {
   q?: string;
   sort?: string;
   stock?: string;
+  /** Legacy `instant=1` links; same as `kind=instant`. */
   instant?: string;
+  /** Delivery kind the cards are tagged with: instant, sla, api, task, proxy. */
+  kind?: string;
   price?: string;
   minVnd?: string;
   maxVnd?: string;
@@ -24,7 +27,7 @@ export type ProductListOpts = {
   categoryId: number;
   search?: string;
   inStock?: boolean;
-  fulfillment?: "instant";
+  fulfillment?: DeliveryKind;
   minPrice?: number;
   maxPrice?: number;
   minRating?: number;
@@ -33,10 +36,23 @@ export type ProductListOpts = {
   perPage: number;
 };
 
+/** Delivery kinds a buyer can filter by — the same tags the cards show. */
+export const DELIVERY_KINDS = ["instant", "sla", "api", "proxy", "task"] as const;
+export type DeliveryKind = (typeof DELIVERY_KINDS)[number];
+
 /** Star filters the category page offers. */
 export const RATING_FILTERS = ["4", "3"] as const;
 
-const SORTS: ProductListSort[] = ["bestseller", "rating", "price_asc", "price_desc"];
+const SORTS: ProductListSort[] = ["newest", "bestseller", "rating", "price_asc", "price_desc"];
+
+/** Best sellers first unless the buyer picks another order (same as the home page). */
+export const DEFAULT_BROWSE_SORT: ProductListSort = "bestseller";
+
+/** `kind`, or the legacy `instant=1` flag; unknown values mean no filter. */
+export function browseKind(query: Pick<CategoryBrowseQuery, "kind" | "instant">): DeliveryKind | null {
+  if ((DELIVERY_KINDS as readonly string[]).includes(query.kind ?? "")) return query.kind as DeliveryKind;
+  return query.instant === "1" ? "instant" : null;
+}
 
 export function browsePage(raw: string | undefined): number {
   const requested = Number(raw);
@@ -49,8 +65,9 @@ export function browseQueryToListOpts(query: CategoryBrowseQuery, categoryId: nu
   const search = query.q?.trim();
   if (search) opts.search = search;
   if (query.stock === "1") opts.inStock = true;
-  if (query.instant === "1") opts.fulfillment = "instant";
-  if (SORTS.includes(query.sort as ProductListSort)) opts.sort = query.sort as ProductListSort;
+  const kind = browseKind(query);
+  if (kind) opts.fulfillment = kind;
+  opts.sort = SORTS.includes(query.sort as ProductListSort) ? query.sort as ProductListSort : DEFAULT_BROWSE_SORT;
   if (query.price === "under1") opts.maxPrice = 24999;
   if (query.price === "1to2") {
     opts.minPrice = 25000;

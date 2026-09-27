@@ -49,7 +49,7 @@ export function OrdersSummaryStrip({
               aria-selected={selected}
               onClick={() => onSelect(selected && tab !== "all" ? "all" : tab)}
               className={cn(
-                "relative flex flex-col gap-1 px-4 py-3 text-left transition-colors hover:bg-raised/60",
+                "relative flex flex-col gap-1 px-3 py-2.5 sm:px-4 sm:py-3 text-left transition-colors hover:bg-raised/60",
                 i > 0 && "border-t border-line sm:border-t-0 lg:border-l",
                 i % 2 === 1 && "border-l border-line sm:border-l-0",
                 i % 3 !== 0 && "sm:border-l sm:border-line",
@@ -60,10 +60,11 @@ export function OrdersSummaryStrip({
               <span className={cn("flex items-center gap-1.5 text-[11.5px] font-medium", muted ? "text-faint" : TONE_TEXT[tone])}>
                 <Icon size={13} /> {t(`tab.${tab}`)}
               </span>
-              <span className={cn("font-mono text-[20px] font-semibold leading-none tabular", muted ? "text-faint" : "text-fg")}>
+              <span className={cn("font-mono text-[18px] sm:text-[20px] font-semibold leading-none tabular", muted ? "text-faint" : "text-fg")}>
                 {count.toLocaleString()}
               </span>
-              <span className={cn("text-[11px]", urgent > 0 ? "font-semibold text-bad" : "text-faint")}>
+              {/* Phones keep only the urgent line, so the orders start sooner. */}
+              <span className={cn("text-[11px]", urgent > 0 ? "font-semibold text-bad" : "hidden text-faint sm:block")}>
                 {tab === "disputed"
                   ? (urgent > 0 ? t("disputesUrgent", { count: urgent }) : t("disputesAnswered"))
                   : t(`hint.${tab}`)}

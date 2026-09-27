@@ -1,9 +1,8 @@
 "use client";
 
-/** Home-page trust blocks built only from real data: marketplace counts,
- *  buyer-written reviews, safety habits and the signed-in buyer's
- *  "orders waiting for you" reminder. Each block hides itself when it has
- *  nothing true to show. */
+/** Home-page trust blocks built only from real data: buyer-written reviews,
+ *  safety habits and the signed-in buyer's "orders waiting for you"
+ *  reminder. Each block hides itself when it has nothing true to show. */
 
 import { Link } from "@/i18n/navigation";
 import { useLocale, useTranslations } from "next-intl";
@@ -12,76 +11,42 @@ import { AlertCircle, ArrowRight, ShieldCheck, Star } from "@/components/Icons";
 import { SectionHead } from "@/components/home/SectionHead";
 import { useBuyerOrderStats } from "@/features/buyer-orders";
 import { useAuth } from "@/lib/auth";
-import { cn } from "@/lib/cn";
-import type { MarketplaceStats, ShowcaseReview } from "@/lib/types";
-
-const LG_COLS: Record<number, string> = { 1: "lg:grid-cols-1", 2: "lg:grid-cols-2", 3: "lg:grid-cols-3", 4: "lg:grid-cols-4" };
-
-function formatCount(value: number, locale: string) {
-  return value.toLocaleString(locale === "vi" ? "vi-VN" : "en-US");
-}
-
-/** One segmented summary (DESIGN.md §10): a cell per non-zero figure. */
-export function MarketStatsStrip({ stats }: { stats: MarketplaceStats | null }) {
-  const t = useTranslations("home");
-  const locale = useLocale();
-  if (!stats) return null;
-  const cells = [
-    { key: "products", value: stats.products_on_sale, label: t("statProducts", { count: stats.products_on_sale }) },
-    { key: "sellers", value: stats.sellers_on_sale, label: t("statSellers", { count: stats.sellers_on_sale }) },
-    { key: "orders", value: stats.completed_orders, label: t("statOrders", { count: stats.completed_orders }) },
-  ].filter((cell) => cell.value > 0);
-  const rated = stats.rating_avg != null && stats.review_count > 0;
-  if (cells.length === 0 && !rated) return null;
-  const total = cells.length + (rated ? 1 : 0);
-  return (
-    <section aria-label={t("statsLabel")} className="w-full mx-auto max-w-[1200px] px-4 sm:px-6 pt-6">
-      <dl className={cn(
-        "grid grid-cols-2 gap-px overflow-hidden rounded-card border border-line bg-line",
-        "[&>div:last-child:nth-child(odd)]:col-span-2 lg:[&>div:last-child:nth-child(odd)]:col-span-1",
-        LG_COLS[total],
-      )}>
-        {cells.map((cell) => (
-          <div key={cell.key} className="flex flex-col-reverse gap-1.5 bg-surface px-4 py-3.5 sm:px-5">
-            <dt className="text-[12.5px] text-muted">{cell.label}</dt>
-            <dd className="font-mono text-[20px] sm:text-[22px] font-semibold tabular leading-none">{formatCount(cell.value, locale)}</dd>
-          </div>
-        ))}
-        {rated && (
-          <div className="flex flex-col-reverse gap-1.5 bg-surface px-4 py-3.5 sm:px-5">
-            <dt className="text-[12.5px] text-muted">{t("statRating", { count: stats.review_count })}</dt>
-            <dd className="flex items-center gap-1.5 font-mono text-[20px] sm:text-[22px] font-semibold tabular leading-none">
-              <Star size={16} className="text-warn fill-warn" /> {stats.rating_avg!.toFixed(1)}
-            </dd>
-          </div>
-        )}
-      </dl>
-    </section>
-  );
-}
+import { timeLeftLabel } from "@/lib/time";
+import type { ShowcaseReview } from "@/lib/types";
 
 /** Signed-in buyers with delivered, unconfirmed orders get one reminder. */
 export function AwaitingOrdersBanner() {
   const t = useTranslations("home");
+  const locale = useLocale();
   const { account } = useAuth();
   const stats = useBuyerOrderStats(account?.id, !!account);
   const count = stats.data?.awaiting_confirm ?? 0;
   if (!account || count === 0) return null;
+  const code = stats.data?.confirm_order_code ?? null;
+  const deadline = stats.data?.confirm_deadline ?? null;
+  const left = deadline ? timeLeftLabel(deadline, locale) : null;
+  const others = count - 1;
   return (
-    <div className="w-full mx-auto max-w-[1200px] px-4 sm:px-6 pt-5">
-      <div role="status" className="flex flex-col gap-3 rounded-card border border-warn/25 bg-warn-soft px-4 py-3.5 sm:flex-row sm:items-center sm:justify-between sm:px-5">
+    <div className="w-full mx-auto max-w-[1200px] px-4 sm:px-6 pt-4">
+      <div role="status" className="flex flex-col gap-3 rounded-card border border-warn/25 bg-warn-soft px-4 py-3 sm:flex-row sm:items-center sm:justify-between sm:px-5">
         <div className="flex items-start gap-3">
           <AlertCircle size={18} className="text-warn shrink-0 mt-0.5" />
           <div>
-            <p className="text-[14px] font-medium">{t("awaitingTitle", { count })}</p>
-            <p className="mt-0.5 text-[13px] text-fg/80">{t("awaitingBody")}</p>
+            <p className="text-[14px] font-medium">
+              {code && left
+                ? t("awaitingOrder", { code, left })
+                : t("awaitingTitle", { count })}
+            </p>
+            <p className="mt-0.5 text-[13px] text-fg/80">
+              {code && left && others > 0 ? t("awaitingOthers", { count: others }) : t("awaitingBody")}
+            </p>
           </div>
         </div>
         <Link
-          href="/orders?status=awaiting_confirm"
+          href={code && count === 1 ? `/orders?order=${encodeURIComponent(code)}` : "/orders?status=awaiting_confirm"}
           className="inline-flex h-9 shrink-0 items-center justify-center gap-1.5 rounded-lg bg-iris px-4 text-[13px] font-medium text-white hover:brightness-110 transition"
         >
-          {t("awaitingAction")} <ArrowRight size={14} />
+          {count === 1 ? t("awaitingOpenOrder") : t("awaitingAction")} <ArrowRight size={14} />
         </Link>
       </div>
     </div>

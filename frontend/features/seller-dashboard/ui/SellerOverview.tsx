@@ -113,12 +113,12 @@ export function SellerOverview({
           <DashboardActionStrip items={data.action_items} />
           <DashboardStatCards data={data} />
           <div className="grid gap-4 lg:grid-cols-3">
-            <div className="lg:col-span-2"><RevenueChart data={data} /></div>
-            <OrderStatusBreakdown data={data} />
+            <div className="min-w-0 lg:col-span-2"><RevenueChart data={data} /></div>
+            <div className="min-w-0"><OrderStatusBreakdown data={data} /></div>
           </div>
           <div className="grid gap-4 lg:grid-cols-5">
-            <div className="lg:col-span-3"><TopProductsTable data={data} /></div>
-            <div className="flex flex-col gap-4 lg:col-span-2">
+            <div className="min-w-0 lg:col-span-3"><TopProductsTable data={data} /></div>
+            <div className="flex min-w-0 flex-col gap-4 lg:col-span-2">
               <InventoryCard data={data} className="flex-1" />
               <CustomersCard data={data} className="flex-1" />
             </div>

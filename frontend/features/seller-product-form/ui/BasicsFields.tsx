@@ -7,6 +7,7 @@ import { SellerCoverPicker } from "@/features/seller-workbench/SellerCoverPicker
 import { ImageUploader } from "@/components/media/ImageUploader";
 import type { ProductFormCore } from "../useProductFormCore";
 import { PRODUCT_GALLERY_MAX, protectionOptions } from "../model";
+import { ContactWarning } from "./ContactWarning";
 
 /** Section 1 — name, category (parent › child), cover, highlight and the
  *  buyer-protection window. Everything else is a later section. */
@@ -20,6 +21,7 @@ export function BasicsFields({ core, categoriesDisabled }: { core: ProductFormCo
           <Input id="product-title" value={core.activeContent.title} onChange={(e) => core.updateContent("title", e.target.value)} placeholder={t("namePlaceholder")} maxLength={255} />
           {localeTag && <span className="absolute right-2 top-1/2 -translate-y-1/2">{localeTag}</span>}
         </div>
+        <ContactWarning text={core.activeContent.title} />
       </Field>
       <Field label={t("category")} hint={t("categoryHint")}>
         <Select id="product-category" value={core.categoryId} onChange={(e) => core.setCategoryId(Number(e.target.value))} disabled={categoriesDisabled || core.catOptions.length === 0}>
@@ -44,6 +46,7 @@ export function BasicsFields({ core, categoriesDisabled }: { core: ProductFormCo
       </div>
       <Field label={t("highlight")} hint={t("highlightHint")}>
         <Input value={core.activeContent.highlightText} onChange={(e) => core.updateContent("highlightText", e.target.value)} placeholder={t("highlightPlaceholder")} maxLength={160} />
+        <ContactWarning text={core.activeContent.highlightText} />
       </Field>
       <Field label={t("protection")} hint={t("protectionHint")}>
         <Select id="product-protection" value={core.escrowDays} onChange={(e) => core.setEscrowDays(Number(e.target.value))}>

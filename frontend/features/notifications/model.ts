@@ -29,6 +29,9 @@ export function notificationMessage(item: Pick<NotificationItem, "kind" | "param
     const from = p.from === "shop" || p.from === "desk" ? p.from : "buyer";
     return { key: `chat_message_${from}`, values: { name: text("name"), count: Number(p.count ?? 1) } };
   }
+  if (item.kind === "order_new" && p.auto === true) {
+    return { key: "order_new_auto", values: { order_code: text("order_code") } };
+  }
   const seller = SELLER_WORDING.has(item.kind) && (item.href ?? "").startsWith("/seller/");
   return {
     key: seller ? `${item.kind}_seller` : item.kind,

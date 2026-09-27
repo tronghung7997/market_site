@@ -16,6 +16,7 @@ const LABEL_KEYS: Record<string, { msg: string; hours?: number }> = {
   seller_pending_orders: { msg: "sellerPendingOrders" },
   seller_open_disputes: { msg: "sellerOpenDisputes" },
   seller_unanswered_questions: { msg: "sellerUnansweredQuestions" },
+  seller_unreplied_reviews: { msg: "sellerUnrepliedReviews" },
   seller_needs_setup: { msg: "sellerNeedsSetup" },
   seller_withdrawals_rejected: { msg: "sellerWithdrawalsRejected" },
   admin_pending_applications: { msg: "adminPendingApplications" },

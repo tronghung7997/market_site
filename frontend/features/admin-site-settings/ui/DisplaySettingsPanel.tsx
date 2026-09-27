@@ -247,7 +247,7 @@ export function DisplaySettingsPanel() {
                   placeholder="26,000"
                   className={cn(
                     "h-10 w-36 rounded-lg border bg-surface px-3 text-right font-mono text-[15px] tabular-nums text-fg",
-                    "placeholder:text-faint focus:border-iris focus:bg-panel",
+                    "placeholder:text-placeholder focus:border-iris focus:bg-panel",
                     rate != null && !rateInRange ? "border-bad" : "border-line",
                   )}
                 />

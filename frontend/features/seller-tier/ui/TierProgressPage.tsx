@@ -247,7 +247,8 @@ function Benefits({ current, next }: { current: SellerTierRule; next: SellerTier
     { key: "withdraw", a: current.withdraw_limit_per_request, b: next.withdraw_limit_per_request, fmt: (v: number | null) => (v == null ? t("unlimited") : formatLedgerMoney(v, locale)) },
     { key: "fee", a: current.fee_discount_pp, b: next.fee_discount_pp, fmt: (v: number | null) => (v ? t("feeValue", { pp: v }) : "—") },
     { key: "escrow", a: current.escrow_reduction_days, b: next.escrow_reduction_days, fmt: (v: number | null) => (v ? t("escrowValue", { days: v }) : "—") },
-  ];
+  // A perk neither tier has (both "—") says nothing; leave the row out.
+  ].filter((row) => row.a || row.b || row.key === "products" || row.key === "withdraw");
   return (
     <Card className="overflow-hidden">
       <div className="border-b border-line px-5 py-3.5">

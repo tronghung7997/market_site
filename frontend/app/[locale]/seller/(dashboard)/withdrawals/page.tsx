@@ -8,7 +8,7 @@ import { cn } from "@/lib/cn";
 import { useMoney } from "@/lib/money";
 import { formatDate } from "@/lib/utils";
 import type { FeeConfigPublic, Wallet, WithdrawRequest } from "@/lib/types";
-import { Button, Card, Input, Spinner, Tag } from "@/components/ui";
+import { Button, Card, Field, Input, Spinner, Tag } from "@/components/ui";
 import { DisplayCurrencyInput } from "@/components/DisplayCurrencyInput";
 import { Wallet as WalletIcon } from "@/components/Icons";
 import { ImageStrip } from "@/components/media/ImageStrip";
@@ -111,7 +111,7 @@ export default function SellerWithdrawalsPage() {
       <div className="grid gap-5 lg:grid-cols-[minmax(0,380px)_1fr] items-start">
         <div className="space-y-5">
           <Card className="p-5 aura">
-            <div className="flex items-center gap-2 text-[11px] text-faint uppercase tracking-wider">
+            <div className="flex items-center gap-2 text-[12px] text-muted">
               <WalletIcon size={13} /> {t("availableBalance")}
             </div>
             <div className="font-mono text-[30px] font-semibold tabular tracking-tight mt-1">
@@ -127,24 +127,33 @@ export default function SellerWithdrawalsPage() {
           <Card className="p-5 space-y-3">
             <h2 className="text-[13px] font-semibold">{t("submitWithdrawal")}</h2>
 
-            <Input
-              value={bankName}
-              onChange={(e) => setBankName(e.target.value)}
-              placeholder={t("bankName")}
-            />
-            <Input
-              value={bankAccountNumber}
-              onChange={(e) => setBankAccountNumber(e.target.value)}
-              placeholder={t("bankAccount")}
-              className="font-mono tabular"
-            />
-            <Input
-              value={bankAccountHolder}
-              onChange={(e) => setBankAccountHolder(e.target.value)}
-              placeholder={t("accountHolder")}
-            />
+            <Field label={t("withdrawBankLabel")}>
+              <Input
+                value={bankName}
+                onChange={(e) => setBankName(e.target.value)}
+                placeholder={t("withdrawBankPlaceholder")}
+                autoComplete="off"
+              />
+            </Field>
+            <Field label={t("bankAccount")}>
+              <Input
+                value={bankAccountNumber}
+                onChange={(e) => setBankAccountNumber(e.target.value)}
+                inputMode="numeric"
+                autoComplete="off"
+                className="font-mono tabular"
+              />
+            </Field>
+            <Field label={t("withdrawHolderLabel")} hint={t("withdrawHolderHint")}>
+              <Input
+                value={bankAccountHolder}
+                onChange={(e) => setBankAccountHolder(e.target.value)}
+                autoComplete="off"
+              />
+            </Field>
 
             <div>
+              <p className="mb-1.5 text-[13px] font-medium text-muted">{t("withdrawAmountLabel")}</p>
               <DisplayCurrencyInput
                 amountVnd={amount}
                 onAmountVndChange={setAmount}
@@ -174,15 +183,29 @@ export default function SellerWithdrawalsPage() {
               </div>
             </div>
 
-            {(minAmount > 0 || hasFee) && (
-              <div className="rounded-lg bg-raised px-3 py-2 text-[12px] text-muted space-y-0.5">
-                {minAmount > 0 && <p>{t("withdrawMinRule", { min: formatBrowseMoney(minAmount, { locale }) })}</p>}
-                {hasFee && <p>{t("withdrawFeeRule", { fixed: formatBrowseMoney(feeFixed, { locale }), percent: feePercent })}</p>}
-                {hasFee && valid && !belowMin && (
-                  <p className="text-fg font-medium">{t("withdrawNetPreview", { fee: formatBrowseMoney(feeAmount, { locale }), net: formatBrowseMoney(netAmount, { locale }) })}</p>
-                )}
+            {/* The rules are always spelled out, free or not, before the seller commits. */}
+            <dl className="rounded-lg bg-raised px-3 py-2.5 text-[12px] space-y-1">
+              <div className="flex justify-between gap-3">
+                <dt className="text-muted">{t("withdrawMinLabel")}</dt>
+                <dd className="font-medium text-fg">{minAmount > 0 ? formatBrowseMoney(minAmount, { locale }) : t("withdrawNoMin")}</dd>
               </div>
-            )}
+              <div className="flex justify-between gap-3">
+                <dt className="text-muted">{t("withdrawFeeLabel")}</dt>
+                <dd className="font-medium text-fg">
+                  {!hasFee ? t("withdrawFeeFree") : valid && !belowMin ? formatBrowseMoney(feeAmount, { locale }) : t("withdrawFeeRule", { fixed: formatBrowseMoney(feeFixed, { locale }), percent: feePercent })}
+                </dd>
+              </div>
+              {valid && !belowMin && !overBalance && (
+                <div className="flex justify-between gap-3 border-t border-line pt-1">
+                  <dt className="text-muted">{t("withdrawNetLabel")}</dt>
+                  <dd className="font-mono font-semibold tabular text-fg">{formatBrowseMoney(netAmount, { locale })}</dd>
+                </div>
+              )}
+              <div className="flex justify-between gap-3">
+                <dt className="text-muted">{t("withdrawTimeLabel")}</dt>
+                <dd className="text-right font-medium text-fg">{t("withdrawTimeValue")}</dd>
+              </div>
+            </dl>
             {belowMin && !overBalance && (
               <p className="text-[12px] text-bad">{t("withdrawBelowMin", { min: formatBrowseMoney(minAmount, { locale }) })}</p>
             )}

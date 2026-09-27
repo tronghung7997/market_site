@@ -495,36 +495,6 @@ export default function DepositCard({ deposits, onChanged, prefillVnd = null }: 
                 </div>
               )}
 
-              <div className="space-y-1.5 rounded-lg border border-line bg-raised/40 px-3 py-3 sm:px-3.5">
-                <div className="grid grid-cols-[88px_minmax(0,1fr)] items-baseline gap-3 text-[12.5px]">
-                  <span className="text-muted">{t("depositPaymentMethod")}</span>
-                  <span className="min-w-0 text-right font-medium leading-snug">
-                    {isUsdt ? t("depositPaymentMethodUsdt") : t("depositPaymentMethodValue")}
-                  </span>
-                </div>
-                {amountInRange && (
-                  <>
-                    <div className="grid grid-cols-[88px_minmax(0,1fr)] items-baseline gap-3 border-t border-line/70 pt-1.5 text-[12.5px]">
-                      <span className="text-muted">{t("depositYouWillTransfer")}</span>
-                      <span className="text-right font-mono font-semibold tabular text-fg">
-                        {formatAmountLabel(amountVnd)}
-                      </span>
-                    </div>
-                    <div className="grid grid-cols-[88px_minmax(0,1fr)] items-baseline gap-3 text-[12.5px]">
-                      <span className="text-muted">{t("depositCredited")}</span>
-                      <span className="text-right font-mono tabular text-fg">{formatLedgerMoney(amountVnd, locale)}</span>
-                    </div>
-                    <div className="grid grid-cols-[88px_minmax(0,1fr)] items-baseline gap-3 text-[12.5px]">
-                      <span className="text-muted">{t("depositFee")}</span>
-                      <span className="text-right font-medium text-good">{t("depositFeeFree")}</span>
-                    </div>
-                  </>
-                )}
-                {showFxHints && currency === "USD" && (
-                  <p className="text-[11px] text-faint pt-1">{t("depositLedgerNote", { currency: "USD" })}</p>
-                )}
-              </div>
-
               <div>
                 <div className="flex items-baseline justify-between gap-2 mb-1.5">
                   <span className="text-[11px] uppercase tracking-wider text-faint font-medium">{t("depositAmount")}</span>
@@ -563,7 +533,7 @@ export default function DepositCard({ deposits, onChanged, prefillVnd = null }: 
                       className={cn(
                         "h-10 w-full rounded-lg bg-surface border pl-3 pr-9 text-sm text-fg",
                         "font-mono tabular-nums text-right",
-                        "placeholder:text-faint placeholder:font-sans placeholder:text-left",
+                        "placeholder:text-placeholder placeholder:font-sans placeholder:text-left",
                         "transition-colors focus:bg-panel",
                         "disabled:opacity-60 disabled:cursor-not-allowed",
                         hasAmount && !meetsMax
@@ -631,6 +601,37 @@ export default function DepositCard({ deposits, onChanged, prefillVnd = null }: 
                     );
                   })}
                 </div>
+              </div>
+
+              {/* Summary under the amount it describes, so picking a preset never shifts the field. */}
+              <div className="space-y-1.5 rounded-lg border border-line bg-raised/40 px-3 py-3 sm:px-3.5">
+                <div className="grid grid-cols-[88px_minmax(0,1fr)] items-baseline gap-3 text-[12.5px]">
+                  <span className="text-muted">{t("depositPaymentMethod")}</span>
+                  <span className="min-w-0 text-right font-medium leading-snug">
+                    {isUsdt ? t("depositPaymentMethodUsdt") : t("depositPaymentMethodValue")}
+                  </span>
+                </div>
+                {amountInRange && (
+                  <>
+                    <div className="grid grid-cols-[88px_minmax(0,1fr)] items-baseline gap-3 border-t border-line/70 pt-1.5 text-[12.5px]">
+                      <span className="text-muted">{t("depositYouWillTransfer")}</span>
+                      <span className="text-right font-mono font-semibold tabular text-fg">
+                        {formatAmountLabel(amountVnd)}
+                      </span>
+                    </div>
+                    <div className="grid grid-cols-[88px_minmax(0,1fr)] items-baseline gap-3 text-[12.5px]">
+                      <span className="text-muted">{t("depositCredited")}</span>
+                      <span className="text-right font-mono tabular text-fg">{formatLedgerMoney(amountVnd, locale)}</span>
+                    </div>
+                    <div className="grid grid-cols-[88px_minmax(0,1fr)] items-baseline gap-3 text-[12.5px]">
+                      <span className="text-muted">{t("depositFee")}</span>
+                      <span className="text-right font-medium text-good">{t("depositFeeFree")}</span>
+                    </div>
+                  </>
+                )}
+                {showFxHints && currency === "USD" && (
+                  <p className="text-[11px] text-faint pt-1">{t("depositLedgerNote", { currency: "USD" })}</p>
+                )}
               </div>
 
               <FrozenNotice flow="deposits" className="mb-3" />

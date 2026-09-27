@@ -129,6 +129,8 @@ export interface MySellerProfile {
 
 export interface Account {
   id: number;
+  /** The account's own public key — equals a product's `seller_key` on its own listings. */
+  public_key?: string | null;
   email: string;
   roles: string[];
   seller_tier?: string;
@@ -408,7 +410,7 @@ export interface ProductCatalogSummary {
   products: number;
   variants: number;
   available_stock: number;
-  category_counts: Array<{ category_id: number; count: number }>;
+  category_counts: Array<{ category_id: number; count: number; price_from?: number | null }>;
 }
 
 export interface Variant {
@@ -794,6 +796,12 @@ export interface SellerSummary {
   tier_badge?: PublicImage | null;
   /** Shop logo uploaded by the seller. */
   logo?: PublicImage | null;
+}
+
+/** GET /sellers/top — home-page shop card. */
+export interface TopSeller extends SellerSummary {
+  response_time?: { within: "15m" | "1h" | "6h" | "24h" | "slow"; rate: number; sample: number } | null;
+  main_category?: { name: string; slug: string | null } | null;
 }
 
 export interface SellerProfile extends SellerSummary {
@@ -1672,7 +1680,7 @@ export interface NotificationItem {
   id: number;
   category: NotificationCategory;
   kind: string;
-  params: Record<string, string | number | null>;
+  params: Record<string, string | number | boolean | null>;
   href: string | null;
   read: boolean;
   created_at: string;
@@ -2339,6 +2347,8 @@ export interface OrderStats {
   total_spend: number;
   /** Earliest protection deadline among orders waiting for confirmation. */
   confirm_deadline?: string | null;
+  /** Public code of the order behind `confirm_deadline`. */
+  confirm_order_code?: string | null;
 }
 
 export interface LogEntry {

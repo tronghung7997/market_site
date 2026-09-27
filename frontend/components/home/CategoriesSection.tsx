@@ -5,7 +5,8 @@
  *  categories take the same two rows; the rest is a link to /categories. */
 
 import { Link } from "@/i18n/navigation";
-import { useTranslations } from "next-intl";
+import { useLocale, useTranslations } from "next-intl";
+import { useMoney } from "@/lib/money";
 import type { Category } from "@/lib/types";
 import { categoryPath } from "@/lib/routes";
 import { categoryCoverId } from "@/lib/product-covers";
@@ -15,14 +16,18 @@ import { SectionHead } from "./SectionHead";
 
 const MAX_PARENTS = 6;
 
-export function CategoriesSection({ cats, countFor, onBrowse }: {
+export function CategoriesSection({ cats, countFor, priceFor, onBrowse }: {
   cats: Category[];
   countFor: (id: number) => number | null;
+  /** Cheapest storefront price in the category's subtree, when known. */
+  priceFor?: (id: number) => number | null;
   /** Filter the shelf below instead of leaving the page. */
   onBrowse: (id: number) => void;
 }) {
   const t = useTranslations("home");
   const common = useTranslations("common");
+  const locale = useLocale();
+  const { formatBrowseMoney } = useMoney();
   const parents = cats.filter((c) => (countFor(c.id) ?? 1) > 0);
   if (parents.length === 0) return null;
   const shown = parents.slice(0, MAX_PARENTS);
@@ -46,7 +51,12 @@ export function CategoriesSection({ cats, countFor, onBrowse }: {
                 <ProductCover coverId={categoryCoverId(c)} image={c.image} title={c.name} className="h-10 w-10 rounded-lg" />
                 <div className="min-w-0 flex-1">
                   <Link href={categoryPath(c)} className="block truncate text-[15px] font-medium text-fg hover:text-iris">{c.name}</Link>
-                  {count != null && <div className="text-[12px] text-muted">{common("products", { count })}</div>}
+                  {count != null && (
+                    <div className="text-[12px] text-muted">
+                      {common("products", { count })}
+                      {priceFor?.(c.id) != null && <> · {t("priceFrom", { price: formatBrowseMoney(priceFor(c.id)!, { locale }) })}</>}
+                    </div>
+                  )}
                 </div>
                 <button
                   type="button"

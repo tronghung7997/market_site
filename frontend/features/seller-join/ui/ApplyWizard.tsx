@@ -244,7 +244,7 @@ export function ApplyWizard({ accountId, previous, onSubmitted }: {
             <fieldset>
               <legend className="flex w-full items-baseline justify-between gap-2 text-[13px] font-medium text-muted">
                 <span>{ta("categories")}</span>
-                <span className="font-mono text-[11.5px] font-normal text-faint">{draft.categoryIds.length}/{CATEGORIES_MAX}</span>
+                <span className="font-mono text-[11.5px] font-normal text-faint">{draft.categoryIds.length}/{Math.min(CATEGORIES_MAX, options.length || CATEGORIES_MAX)}</span>
               </legend>
               {categories.isPending ? (
                 <div className="mt-1.5 flex flex-wrap gap-1.5" aria-hidden>

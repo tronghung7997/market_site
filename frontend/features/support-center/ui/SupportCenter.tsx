@@ -5,8 +5,9 @@ import { useTranslations } from "next-intl";
 import { Link } from "@/i18n/navigation";
 import { Card, Input } from "@/components/ui";
 import {
-  AlertTriangle, ChevronDown, ChevronRight, FileText, Flag, MessageCircle, Package, Search, ShieldCheck, Store, Wallet,
+  AlertTriangle, ChevronDown, ChevronRight, FileText, Flag, Headset, MessageCircle, Package, Search, ShieldCheck, Store, Wallet,
 } from "@/components/Icons";
+import { openHelpdesk } from "@/features/helpdesk";
 import { cn } from "@/lib/cn";
 import type { SitePageLink } from "@/lib/types";
 import { countByTopic, filterFaq, SUPPORT_FAQ, SUPPORT_TOPICS, type FaqEntry, type SupportTopic } from "../model";
@@ -172,9 +173,18 @@ export function SupportCenter({ pages }: { pages: SitePageLink[] }) {
                 </li>
               ))}
             </ul>
-            <Link href="/account" className="mt-5 inline-flex items-center gap-1 text-[13px] font-medium text-fg underline underline-offset-2 hover:no-underline">
-              {t("safetyAction")} <ChevronRight size={13} />
-            </Link>
+            <div className="mt-5 flex flex-wrap items-center gap-x-5 gap-y-2">
+              <button
+                type="button"
+                onClick={() => openHelpdesk({ draft: t("safetyReportDraft") })}
+                className="inline-flex h-9 items-center gap-1.5 rounded-lg bg-fg px-3.5 text-[13px] font-medium text-surface hover:opacity-90"
+              >
+                <Flag size={13} /> {t("safetyReport")}
+              </button>
+              <Link href="/account" className="inline-flex items-center gap-1 text-[13px] font-medium text-fg underline underline-offset-2 hover:no-underline">
+                {t("safetyAction")} <ChevronRight size={13} />
+              </Link>
+            </div>
           </div>
         </section>
       </div>
@@ -226,9 +236,16 @@ export function SupportCenter({ pages }: { pages: SitePageLink[] }) {
       <section id="contact" aria-labelledby="contact-title" className="scroll-mt-24">
         <h2 id="contact-title" className="font-serif text-[20px] font-semibold tracking-tight">{t("contactTitle")}</h2>
         <p className="mt-1.5 text-[13px] text-muted">{t("contactLead")}</p>
-        <div className={cn("mt-4 grid gap-3", contactPage ? "md:grid-cols-3" : "md:grid-cols-2")}>
+        <div className={cn("mt-4 grid gap-3 md:grid-cols-2", contactPage ? "lg:grid-cols-4" : "lg:grid-cols-3")}>
           <ChannelCard icon={Package} title={t("channels.order.title")} body={t("channels.order.body")} action={t("channels.order.action")} href="/orders" />
           <ChannelCard icon={MessageCircle} title={t("channels.shop.title")} body={t("channels.shop.body")} action={t("channels.shop.action")} href="/messages" />
+          <ChannelCard
+            icon={Headset}
+            title={t("channels.desk.title")}
+            body={t("channels.desk.body")}
+            action={t("channels.desk.action")}
+            onClick={() => openHelpdesk({ draft: t("channels.desk.draft") })}
+          />
           {contactPage && (
             <ChannelCard icon={FileText} title={t("channels.platform.title")} body={t("channels.platform.body")} action={t("channels.platform.action")} href={`/legal/${contactPage.slug}`} />
           )}
@@ -274,17 +291,21 @@ function FilterChip({ on, onClick, children }: { on: boolean; onClick: () => voi
   );
 }
 
-function ChannelCard({ icon: Icon, title, body, action, href }: {
-  icon: typeof Package; title: string; body: string; action: string; href: string;
+/** A way to get help: a page to go to (`href`) or the GMMO chat (`onClick`). */
+function ChannelCard({ icon: Icon, title, body, action, href, onClick }: {
+  icon: typeof Package; title: string; body: string; action: string; href?: string; onClick?: () => void;
 }) {
+  const actionClass = "mt-4 inline-flex items-center gap-1 self-start text-[13px] font-medium text-iris-hi hover:underline";
   return (
     <Card className="p-5 flex flex-col">
       <span className="grid place-items-center h-9 w-9 rounded-lg bg-raised text-fg"><Icon size={16} /></span>
       <h3 className="mt-3 text-[14px] font-medium">{title}</h3>
       <p className="mt-1 text-[13px] text-muted leading-relaxed flex-1">{body}</p>
-      <Link href={href} className="mt-4 inline-flex items-center gap-1 text-[13px] font-medium text-iris-hi hover:underline">
-        {action} <ChevronRight size={13} />
-      </Link>
+      {href ? (
+        <Link href={href} className={actionClass}>{action} <ChevronRight size={13} /></Link>
+      ) : (
+        <button type="button" onClick={onClick} className={actionClass}>{action} <ChevronRight size={13} /></button>
+      )}
     </Card>
   );
 }

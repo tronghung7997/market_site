@@ -3,8 +3,9 @@ import assert from "node:assert/strict";
 
 import {
   alternativePackages, belowMinimum, clampQty, ctaState, deliverySummary, maxQtyFor, minQtyFor, noticeFor, perOrderBounds,
-  resolveSelected, topUpHref, walletShortfall,
+  resolveSelected,
 } from "../app/[locale]/products/[key]/purchase.ts";
+import { inspectionDeadline, topUpHref, walletShortfall } from "../features/checkout/model.ts";
 import type { Variant } from "../lib/types.ts";
 
 function variant(stock_count: number, delivery_mode: Variant["delivery_mode"]): Variant {
@@ -47,6 +48,13 @@ describe("checkout wallet shortfall", () => {
     assert.equal(topUpHref(38_000, "/products/gmail-abc12345"), "/wallet?amount=38000&return=%2Fproducts%2Fgmail-abc12345");
     assert.equal(topUpHref(5, "https://evil.example"), "/wallet?amount=5");
     assert.equal(topUpHref(5, "//evil.example"), "/wallet?amount=5");
+  });
+
+  it("knows the inspection deadline only when delivery is instant", () => {
+    const now = Date.UTC(2026, 8, 27, 10, 0);
+    assert.equal(inspectionDeadline(now, 2, true)?.toISOString(), "2026-09-29T10:00:00.000Z");
+    assert.equal(inspectionDeadline(now, 2, false), null);
+    assert.equal(inspectionDeadline(now, 0, true), null);
   });
 });
 

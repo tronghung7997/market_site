@@ -55,6 +55,7 @@ export function ProductRow({
         </div>
         <div className="mt-0.5 flex items-center gap-x-2 text-[12px] text-muted min-w-0">
           {context && <span className="min-w-0 truncate text-fg/70">{context}</span>}
+          {p.seller_name && p.seller_name !== context && <span className="min-w-0 truncate">{p.seller_name}</span>}
           {p.rating_avg != null && p.rating_count > 0 && (
             <span className="inline-flex items-center gap-0.5 shrink-0">
               <Star size={11} className="text-warn fill-warn" />

@@ -18,8 +18,17 @@ const NET_STROKE = "var(--color-iris)";
 export function RevenueChart({ data }: { data: SellerDashboard }) {
   const t = useTranslations("sellerDashboard");
   const locale = useLocale();
-  const { formatBrowseMoney } = useMoney();
+  const { formatBrowseMoney, currency, vndToUsd } = useMoney();
   const money = (v: number) => formatBrowseMoney(v, { locale });
+  const compact = useMemo(
+    () => new Intl.NumberFormat(locale === "vi" ? "vi-VN" : "en-US", { notation: "compact", maximumFractionDigits: 1 }),
+    [locale],
+  );
+  // Axis ticks in the display currency, short enough for a narrow gutter.
+  const axisMoney = (v: number) => {
+    const usd = currency === "USD" ? vndToUsd(v) : null;
+    return usd != null ? `$${compact.format(usd)}` : `${compact.format(v)} ₫`;
+  };
   const weekly = data.range.bucket === "week";
 
   const points = useMemo(
@@ -50,16 +59,25 @@ export function RevenueChart({ data }: { data: SellerDashboard }) {
           <div className="grid h-full place-items-center text-[13px] text-muted">{t("chartEmpty")}</div>
         ) : (
           <ResponsiveContainer width="100%" height="100%">
-            <ComposedChart data={points} barCategoryGap="30%" margin={{ top: 8, right: 8, left: 0, bottom: 0 }}>
+            <ComposedChart data={points} barCategoryGap="30%" margin={{ top: 8, right: 8, left: 4, bottom: 0 }}>
               <CartesianGrid vertical={false} stroke="var(--color-line)" />
               <XAxis
                 dataKey="label"
                 axisLine={false}
                 tickLine={false}
                 interval={tickEvery - 1}
+                padding={{ left: 14, right: 14 }}
                 tick={{ fontSize: 11, fill: "var(--color-faint)" }}
               />
-              <YAxis hide domain={[0, "auto"]} />
+              <YAxis
+                width={58}
+                axisLine={false}
+                tickLine={false}
+                domain={[0, "auto"]}
+                tickCount={4}
+                tickFormatter={axisMoney}
+                tick={{ fontSize: 11, fill: "var(--color-faint)" }}
+              />
               <Tooltip
                 cursor={{ fill: "color-mix(in srgb, var(--color-iris) 6%, transparent)" }}
                 content={({ active, payload }) => {

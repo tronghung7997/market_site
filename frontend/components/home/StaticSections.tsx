@@ -1,14 +1,14 @@
 "use client";
 
-/** Các section nội dung tĩnh của trang chủ: Cách hoạt động, Tại sao chọn,
- *  FAQ, banner CTA bán hàng. Chỉ FAQ có state (mở/đóng). Đánh giá của người
+/** Các section nội dung tĩnh của trang chủ: Cách hoạt động, FAQ, banner CTA
+ *  bán hàng. Chỉ FAQ có state (mở/đóng). Đánh giá của người
  *  mua lấy từ dữ liệu thật (features/catalog/ui/HomeTrust.tsx). */
 
 import { Link } from "@/i18n/navigation";
 import { useTranslations } from "next-intl";
 import { useState } from "react";
 import { Button, Card } from "@/components/ui";
-import { ArrowRight, Bolt, Check, Flag, Search, Shield, Verified } from "@/components/Icons";
+import { ArrowRight, Check, Shield, Wallet } from "@/components/Icons";
 import { SectionHead } from "./SectionHead";
 import { ChevronIcon } from "./MarketSection";
 
@@ -20,7 +20,7 @@ export function HowItWorks() {
         <SectionHead title={t("howTitle")} sub={t("howSubtitle")} />
         <div className="grid gap-5 md:grid-cols-3">
           {[
-            { step: "1", icon: <Search size={22} />, title: t("howStep1Title"), desc: t("howStep1Desc") },
+            { step: "1", icon: <Wallet size={22} />, title: t("howStep1Title"), desc: t("howStep1Desc") },
             { step: "2", icon: <Shield size={22} />, title: t("howStep2Title"), desc: t("howStep2Desc") },
             { step: "3", icon: <Check size={22} />, title: t("howStep3Title"), desc: t("howStep3Desc") },
           ].map((item) => (
@@ -34,31 +34,9 @@ export function HowItWorks() {
             </Card>
           ))}
         </div>
-      </div>
-    </section>
-  );
-}
-
-export function WhyUs() {
-  const t = useTranslations("home");
-  return (
-    <section className="w-full mx-auto max-w-[1200px] px-6 py-6 lg:py-8">
-      <SectionHead title={t("whyTitle")} sub={t("whySubtitle")} />
-      <div className="grid gap-5 sm:grid-cols-2 lg:grid-cols-4">
-        {[
-          { icon: <Shield size={20} />, title: t("whyEscrowTitle"), desc: t("whyEscrowDesc") },
-          { icon: <Bolt size={20} />, title: t("whyDeliveryTitle"), desc: t("whyDeliveryDesc") },
-          { icon: <Verified size={20} />, title: t("whyVerifiedTitle"), desc: t("whyVerifiedDesc") },
-          { icon: <Flag size={20} />, title: t("whySupportTitle"), desc: t("whySupportDesc") },
-        ].map((item) => (
-          <Card key={item.title} interactive className="p-5">
-            <span className="grid place-items-center h-10 w-10 rounded-lg bg-iris-soft text-iris border border-iris/15">
-              {item.icon}
-            </span>
-            <div className="mt-4 font-medium text-[15px]">{item.title}</div>
-            <p className="mt-1 text-[13px] text-muted leading-relaxed">{item.desc}</p>
-          </Card>
-        ))}
+        <Link href="/support#buying" className="mt-4 inline-flex items-center gap-1 text-[13px] font-medium text-iris-hi hover:underline">
+          {t("howGuide")} <ArrowRight size={13} />
+        </Link>
       </div>
     </section>
   );
@@ -66,9 +44,10 @@ export function WhyUs() {
 
 export function FaqSection() {
   const t = useTranslations("home");
-  const faqItems = Array.from({ length: 12 }, (_, index) => ({
-    q: t(`faq${index + 1}Q`),
-    a: t(`faq${index + 1}A`),
+  // Six questions a buyer asks first; the rest live in the help center.
+  const faqItems = [1, 2, 3, 5, 7, 10].map((n) => ({
+    q: t(`faq${n}Q`),
+    a: t(`faq${n}A`),
   }));
   const [openSet, setOpenSet] = useState<Set<number>>(new Set());
   const toggle = (i: number) =>

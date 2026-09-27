@@ -21,6 +21,8 @@ import {
   FileText,
   Maximize,
   Minimize,
+  Eye,
+  EyeOff,
 } from "@/components/Icons";
 import {
   deliveryResourceMarks,
@@ -34,7 +36,7 @@ import { DeliveryAccountBadge } from "@/components/orders/DeliveryAccountBadge";
 import { InspectionChecklist } from "@/components/orders/InspectionChecklist";
 import { canOpenDispute, displayOrderStatus, hasOpenDispute } from "@/lib/order-status";
 import { fulfillmentFromOrder } from "@/lib/fulfillment";
-import { deliveredDataFileName } from "../model";
+import { deliveredDataFileName, maskDeliveredLine, nameCarriesTerm } from "../model";
 import { useVariantTermFor } from "@/lib/variant-term";
 import { formatDate, formatDateTime } from "@/lib/utils";
 import { cn } from "@/lib/cn";
@@ -313,6 +315,9 @@ export default function OrderDetailsModal({
   const [showReceipt, setShowReceipt] = useState(false);
   const [expanded, setExpanded] = useState(false);
   const [openLines, setOpenLines] = useState<Set<number>>(new Set());
+  // Account lines start hidden (passwords on screen); copy and download
+  // always use the full value.
+  const [revealed, setRevealed] = useState(false);
 
   useEffect(() => { setExpanded(readInspectorExpanded()); }, []);
 
@@ -579,7 +584,7 @@ export default function OrderDetailsModal({
                 <Tag tone={st.tone}>{st.label}</Tag>
               </div>
               <div className="flex items-center gap-2 text-[12px] text-muted mt-1 flex-wrap">
-                <span className="font-mono font-bold text-iris">#{o.order_code}</span>
+                <span className="font-mono font-bold text-iris">{o.order_code}</span>
                 <span>•</span>
                 <span className="whitespace-nowrap">{formatDateTime(o.created_at, locale)}</span>
                 {o.seller_name && (
@@ -596,7 +601,7 @@ export default function OrderDetailsModal({
                   <>
                     <span>•</span>
                     <span className="font-medium text-fg bg-raised px-2 py-0.5 rounded-md border border-line break-all">
-                      {t("packageNamed", { name: o.variant_name, ...termFor(o.service_type) })}
+                      {nameCarriesTerm(o.variant_name, termFor(o.service_type).term) ? o.variant_name : t("packageNamed", { name: o.variant_name, ...termFor(o.service_type) })}
                     </span>
                   </>
                 )}
@@ -646,7 +651,7 @@ export default function OrderDetailsModal({
                 onClick={() => {
                   onOpenDispute(o.id, {
                     variantName: o.variant_name,
-                    initialReason: o.variant_name ? t("reasonPackagePrefix", { name: o.variant_name }) : "",
+                    initialReason: "",
                     initialEvidence: { issue: t("evidenceIssuePackage") },
                   });
                 }}
@@ -705,7 +710,7 @@ export default function OrderDetailsModal({
                 setItemPage(1);
               }}
               placeholder={t("searchAccounts", { count: lineCount.toLocaleString() })}
-              className="w-full rounded-xl border border-line bg-canvas pl-8.5 pr-3 py-2 text-[12.5px] text-fg placeholder:text-faint focus:border-iris focus:outline-none"
+              className="w-full rounded-xl border border-line bg-canvas pl-8.5 pr-3 py-2 text-[12.5px] text-fg placeholder:text-placeholder focus:border-iris focus:outline-none"
             />
           </div>
 
@@ -718,6 +723,16 @@ export default function OrderDetailsModal({
               >
                 {t("selectAllResults", { count: selectableFilteredResourceIds.length })}
               </Button>
+            )}
+            {!isServiceDelivery && (
+              <button
+                type="button"
+                onClick={() => setRevealed((v) => !v)}
+                aria-pressed={revealed}
+                className="inline-flex items-center justify-center gap-1.5 whitespace-nowrap rounded-xl border border-line bg-surface px-3 py-2 text-[12px] font-semibold text-fg hover:bg-raised transition-colors focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-iris"
+              >
+                {revealed ? <EyeOff size={14} /> : <Eye size={14} />} {revealed ? t("hideLines") : t("showLines")}
+              </button>
             )}
             <button
               onClick={() => void handleCopyAll()}
@@ -840,9 +855,11 @@ export default function OrderDetailsModal({
                       long && lineOpen && "max-h-64 overflow-y-auto rounded-md bg-raised/60 p-2",
                     )}
                   >
-                    {long && !lineOpen ? `${item.raw.slice(0, LINE_CLIP)}…` : item.raw}
+                    {!revealed && !item.isConfigOrInstruction && !isServiceDelivery
+                      ? maskDeliveredLine(item.raw)
+                      : long && !lineOpen ? `${item.raw.slice(0, LINE_CLIP)}…` : item.raw}
                   </p>
-                  {long && (
+                  {long && (revealed || item.isConfigOrInstruction || isServiceDelivery) && (
                     <button
                       type="button"
                       onClick={() => toggleLine(item.id)}

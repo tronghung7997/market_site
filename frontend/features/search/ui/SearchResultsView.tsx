@@ -201,7 +201,7 @@ export function SearchResultsView({ initial }: { initial: SearchPageData }) {
             aria-label={t("inputLabel")}
             maxLength={80}
             enterKeyHint="search"
-            className="h-10 w-full rounded-lg border border-line bg-surface pl-10 pr-10 text-sm text-fg placeholder:text-faint transition-colors focus:border-iris focus:outline-none [&::-webkit-search-cancel-button]:hidden [&::-webkit-search-decoration]:hidden"
+            className="h-10 w-full rounded-lg border border-line bg-surface pl-10 pr-10 text-sm text-fg placeholder:text-placeholder transition-colors focus:border-iris focus:outline-none [&::-webkit-search-cancel-button]:hidden [&::-webkit-search-decoration]:hidden"
           />
           {draft && (
             <button

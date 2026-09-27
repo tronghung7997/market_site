@@ -20,7 +20,10 @@ export function formatDate(date: string | Date, locale = "en"): string {
  * Format datetime to Vietnamese locale
  */
 export function formatDateTime(date: string | Date, locale = "en"): string {
-  return new Date(date).toLocaleString(locale === "vi" ? "vi-VN" : "en-US");
+  // Minutes are enough for people; seconds only add noise.
+  return new Date(date).toLocaleString(locale === "vi" ? "vi-VN" : "en-US", {
+    day: "numeric", month: "numeric", year: "numeric", hour: "2-digit", minute: "2-digit",
+  });
 }
 
 /**

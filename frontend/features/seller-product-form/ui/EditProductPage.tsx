@@ -1,5 +1,7 @@
 "use client";
 
+import { useSearchParams } from "next/navigation";
+
 import { useCallback, useEffect, useMemo, useState } from "react";
 import { useLocale, useTranslations } from "next-intl";
 import { useQuery } from "@tanstack/react-query";
@@ -72,7 +74,9 @@ export function EditProductPage({ productRef }: { productRef: string }) {
   const core = useProductFormCore(interfaceLocale, { loadProviders: true });
   const term = useVariantTerm(core.serviceType);
 
-  const [tab, setTab] = useState<EditTab>("basics");
+  // `?tab=reviews` lands on the reviews to answer (from the dashboard to-do).
+  const searchParams = useSearchParams();
+  const [tab, setTab] = useState<EditTab>(() => (searchParams.get("tab") === "reviews" ? "reviews" : "basics"));
   const [loading, setLoading] = useState(true);
   const [saving, setSaving] = useState(false);
   const [variantPending, setVariantPending] = useState(false);

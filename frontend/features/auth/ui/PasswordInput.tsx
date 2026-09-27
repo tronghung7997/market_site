@@ -16,7 +16,7 @@ export function PasswordInput({
   error,
   hint,
   autoComplete,
-  placeholder = "••••••••",
+  placeholder,
   showStrength = false,
   trailing,
   autoFocus,

@@ -275,8 +275,8 @@ function TopNavBar() {
                               ? <MediaImage image={account.avatar} alt="" className="h-full w-full" fallback={account.email.slice(0, 2)} />
                               : account.email.slice(0, 2)}
                           </span>
-                          <span className="text-[10.5px] font-semibold text-iris-soft uppercase tracking-wider">
-                            {t("yourProfile")}
+                          <span className="min-w-0 truncate text-[13px] font-semibold text-white/95">
+                            {account.display_name?.trim() || t("yourProfile")}
                           </span>
                         </div>
                         <span className="shrink-0 text-[10px] font-semibold uppercase tracking-wider text-iris-soft/80 bg-surface/10 px-2 py-0.5 rounded-md border border-line/20">
@@ -360,8 +360,8 @@ function TopNavBar() {
 
                     {/* Logout button */}
                     <div className="p-1.5">
-                      <button onClick={() => { setMenuOpen(false); logout(); }}
-                        className="w-full flex items-center justify-between px-2.5 py-1.5 text-[12.5px] font-medium text-bad rounded-lg hover:bg-bad-soft transition-colors cursor-pointer group"
+                      <button onClick={() => { setMenuOpen(false); logout(); router.push("/"); }}
+                        className="w-full flex items-center px-2.5 py-1.5 text-[12.5px] font-medium text-bad rounded-lg hover:bg-bad-soft transition-colors cursor-pointer group"
                       >
                         <div className="flex items-center gap-2.5">
                           <span className="grid place-items-center h-6 w-6 rounded-md text-bad shrink-0">
@@ -369,7 +369,6 @@ function TopNavBar() {
                           </span>
                           <span className="font-semibold">{t("signOut")}</span>
                         </div>
-                        <span className="text-[10px] text-faint font-mono">ESC</span>
                       </button>
                     </div>
                   </div>

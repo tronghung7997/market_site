@@ -28,7 +28,7 @@ import {
 import { Button, Spinner } from "@/components/ui";
 import { ProductCover } from "@/components/products/ProductCover";
 import { parseCoverId } from "@/lib/product-covers";
-import { ADMIN_SUPPORT_HREF, INBOX_HREF, orderWorkspaceHref } from "@/lib/chat-inbox";
+import { ADMIN_SUPPORT_HREF, INBOX_HREF, SELLER_INBOX_HREF, orderWorkspaceHref } from "@/lib/chat-inbox";
 import { useApiErrorMessage } from "@/lib/use-api-error";
 import { IMAGE_ACCEPT, imageFilesFrom, privateImageBase, privateImageSource } from "@/lib/media";
 import { ImageStrip } from "@/components/media/ImageStrip";
@@ -78,12 +78,15 @@ function parseDisputeReason(reason: string): { tags: string[]; note: string } {
   return { tags, note };
 }
 
+const QUICK_REPLIES = ["delivered", "howToLogin", "replacing", "checking"] as const;
+
 export default function InboxWorkbench({
   initialConversationId = null,
   variant = "user",
 }: {
   initialConversationId?: string | null;
-  variant?: "user" | "admin-support";
+  /** "seller": inside the seller workspace, only the shop's own threads. */
+  variant?: "user" | "admin-support" | "seller";
 }) {
   const t = useTranslations("chat");
   const tos = useTranslations("status.order");
@@ -102,8 +105,9 @@ export default function InboxWorkbench({
   const hydratedRoom = useRef<string | null>(null);
   const olderRequestId = useRef(0);
   const adminMode = variant === "admin-support";
+  const sellerMode = variant === "seller";
   const [deskFilter, setDeskFilter] = useState<DeskFilter>("all");
-  const inboxHref = adminMode ? ADMIN_SUPPORT_HREF : INBOX_HREF;
+  const inboxHref = adminMode ? ADMIN_SUPPORT_HREF : sellerMode ? SELLER_INBOX_HREF : INBOX_HREF;
   const userList = useChatConversations(!adminMode && !!account);
   const adminList = useAdminSupportConversations(adminMode && !!account);
   const list = adminMode ? adminList : userList;
@@ -130,7 +134,7 @@ export default function InboxWorkbench({
     );
 
   useEffect(() => {
-    if (!authLoading && !account && !adminMode) router.push(`/login?next=${INBOX_HREF}`);
+    if (!authLoading && !account && !adminMode) router.push(`/login?next=${inboxHref}`);
   }, [account, authLoading, router]);
 
   useEffect(() => {
@@ -238,7 +242,9 @@ export default function InboxWorkbench({
   }
 
   const allRooms = list.data?.items ?? [];
-  const rooms = adminMode ? filterDeskRooms(allRooms, deskFilter) : allRooms;
+  const rooms = adminMode
+    ? filterDeskRooms(allRooms, deskFilter)
+    : sellerMode ? allRooms.filter((room) => (room.viewer_role ?? "buyer") === "seller") : allRooms;
   const room = detail.data;
   const roomIsOrder = room?.kind === "order";
   const roomIsSupport = room?.kind === "support";
@@ -264,7 +270,10 @@ export default function InboxWorkbench({
       "w-full mx-auto max-w-[1200px] px-4 sm:px-6 py-2.5 sm:py-3.5 flex-1 flex flex-col overflow-hidden",
       adminMode
         ? "h-[calc(100dvh-168px)] max-h-[calc(100dvh-168px)] max-w-none px-0 sm:px-0 py-0"
-        : "h-[calc(100dvh-92px)] max-h-[calc(100dvh-92px)]",
+        : sellerMode
+          // Under the workspace header and tabs.
+          ? "h-[calc(100dvh-290px)] min-h-[440px] max-w-none px-0 sm:px-0 py-0"
+          : "h-[calc(100dvh-92px)] max-h-[calc(100dvh-92px)]",
     )}>
       <section className="grid h-full w-full flex-1 overflow-hidden rounded-xl border border-line bg-surface shadow-xs sm:rounded-2xl sm:shadow-card lg:grid-cols-[280px_minmax(0,1fr)] xl:grid-cols-[280px_minmax(0,1fr)_260px]">
         {/* Left Sidebar: Conversation List */}
@@ -385,9 +394,9 @@ export default function InboxWorkbench({
                             : "bg-iris-soft text-iris-hi",
                         )}
                       >
-                        {isHelpdesk ? t("helpdeskChat") : isSupport ? t("marketplaceChat") : isOrder ? `${t("order")}` : t("preSale")}
+                        {isHelpdesk ? t("helpdeskChat") : isSupport ? t("marketplaceChat") : isOrder ? (item.order?.code ?? t("order")) : t("preSale")}
                       </span>
-                      {itemIsSeller && item.product?.title && (
+                      {!isHelpdesk && !isSupport && item.product?.title && (
                         <span className="min-w-0 truncate text-faint">· {item.counterpart.label}</span>
                       )}
                       {adminMode && isHelpdesk && (
@@ -694,6 +703,21 @@ export default function InboxWorkbench({
                 <div className="mx-auto mb-1.5 max-w-[680px] empty:hidden">
                   <PendingImages images={uploads.images} uploading={uploads.uploading} errors={uploads.errors} onRemove={uploads.remove} />
                 </div>
+                {/* The shop's usual answers, one tap into the box (still editable). */}
+                {room.can_send && room.viewer_role === "seller" && room.kind !== "helpdesk" && (
+                  <div className="mx-auto mb-1.5 flex max-w-[680px] gap-1.5 overflow-x-auto pb-0.5">
+                    {QUICK_REPLIES.map((key) => (
+                      <button
+                        key={key}
+                        type="button"
+                        onClick={() => setDraft((current) => (current.trim() ? `${current.trimEnd()} ${t(`quickReplies.${key}`)}` : t(`quickReplies.${key}`)))}
+                        className="shrink-0 rounded-full border border-line bg-surface px-2.5 py-1 text-[11.5px] text-muted hover:border-iris/40 hover:text-fg"
+                      >
+                        {t(`quickReplyLabels.${key}`)}
+                      </button>
+                    ))}
+                  </div>
+                )}
                 <div className="mx-auto flex max-w-[680px] items-end gap-2 rounded-xl border border-line bg-raised/70 p-1.5 pl-1.5 transition-all focus-within:border-iris focus-within:bg-surface focus-within:ring-2 focus-within:ring-iris/15">
                   <button
                     type="button"
@@ -737,7 +761,7 @@ export default function InboxWorkbench({
                     rows={1}
                     maxLength={4000}
                     placeholder={room.can_send ? t("input") : readOnlyReason}
-                    className="max-h-24 min-h-[34px] flex-1 resize-none bg-transparent py-1 text-[13px] outline-none placeholder:text-faint/70"
+                    className="max-h-24 min-h-[34px] flex-1 resize-none bg-transparent py-1 text-[13px] outline-none placeholder:text-placeholder/70"
                     disabled={!room.can_send}
                   />
                   <Button
@@ -790,13 +814,14 @@ export default function InboxWorkbench({
               {/* Order & Dispute details summary card */}
               {room.order && (
                 <div className="rounded-xl border border-line bg-surface p-3 shadow-2xs">
-                  <div className="flex items-center justify-between border-b border-line pb-2">
-                    <span className="text-[10.5px] font-bold uppercase tracking-wider text-faint">
-                      {t("order")} #{room.order.code ?? "…"}
-                    </span>
+                  <div className="flex items-start justify-between gap-2 border-b border-line pb-2">
+                    <div className="min-w-0">
+                      <span className="block text-[10.5px] font-semibold text-faint">{t("order")}</span>
+                      <span className="block truncate font-mono text-[12px] font-semibold text-fg">{room.order.code ?? "…"}</span>
+                    </div>
                     <Link
                       href={orderHref}
-                      className="inline-flex items-center gap-1 text-[11px] font-medium text-iris hover:underline"
+                      className="inline-flex shrink-0 items-center gap-1 whitespace-nowrap text-[11px] font-medium text-iris hover:underline"
                     >
                       <span>{t("viewOrder")}</span>
                       <ExternalLink size={10} />
@@ -863,12 +888,10 @@ export default function InboxWorkbench({
               {/* Safe Escrow badge */}
               <div className="rounded-xl border border-line bg-surface/50 p-2.5 text-[11px] text-faint flex items-start gap-2">
                 <ShieldCheck size={14} className="text-good shrink-0 mt-0.5" />
-                <span className="leading-snug">Proxora Escrow protected. All transactions and chats are recorded safely.</span>
+                <span className="leading-snug">{t("contextSafety")}</span>
               </div>
             </div>
-          ) : (
-            <p className="text-[11.5px] text-faint">{t("chooseHint")}</p>
-          )}
+          ) : null}
         </aside>
       </section>
     </div>
